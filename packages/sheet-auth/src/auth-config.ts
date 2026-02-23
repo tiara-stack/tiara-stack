@@ -73,7 +73,7 @@ export function authConfig({
     },
     advanced: {
       crossSubDomainCookies: {
-        enabled: false,
+        enabled: true,
       },
     },
   });
