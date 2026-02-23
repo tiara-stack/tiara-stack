@@ -160,10 +160,19 @@ const WellKnownLive = HttpApiBuilder.group(Api, "well-known", (handlers) =>
 
 const ApiLive = Layer.provide(HttpApiBuilder.api(Api), Layer.merge(AuthLive, WellKnownLive));
 
+// CORS middleware that echoes back the request origin to support credentials
+const corsMiddlewareLive = HttpApiBuilder.middlewareCors({
+  allowedOrigins: (_origin) => true,
+  allowedMethods: ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true,
+  maxAge: 86400,
+});
+
 const HttpLive = HttpApiBuilder.serve(HttpMiddleware.logger).pipe(
   Layer.provide(HttpApiSwagger.layer()),
   Layer.provide(HttpApiBuilder.middlewareOpenApi()),
-  Layer.provide(HttpApiBuilder.middlewareCors()),
+  Layer.provide(corsMiddlewareLive),
   Layer.provide(ApiLive),
   Layer.provide(AuthServiceLive),
   Layer.provide(NodeHttpClient.layer),
