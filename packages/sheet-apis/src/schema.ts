@@ -4,3 +4,4 @@ export * as MessageSlot from "./schemas/messageSlot";
 export * as MessageRoomOrder from "./schemas/messageRoomOrder";
 export * as MessageCheckin from "./schemas/messageCheckin";
 export * as GuildConfig from "./schemas/guildConfig";
+export * as Discord from "./schemas/discord";

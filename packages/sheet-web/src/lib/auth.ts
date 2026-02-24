@@ -1,0 +1,79 @@
+import { Atom } from "@effect-atom/atom-react";
+import { createIsomorphicFn } from "@tanstack/react-start";
+import { getRequestHeaders } from "@tanstack/react-start/server";
+import { Option, Effect } from "effect";
+import { Reactivity } from "@effect/experimental";
+import { createSheetAuthClient, getSession } from "sheet-auth/client";
+import { appBaseUrlAtom, authBaseUrlAtom } from "#/lib/config";
+import { runtimeAtom } from "#/lib/runtime";
+
+const getRequestHeadersFn = createIsomorphicFn()
+  .server(() => getRequestHeaders())
+  .client(() => undefined);
+
+// Derived atom for auth client using get.result to unwrap the Result
+export const authClientAtom = Atom.make(
+  Effect.fnUntraced(function* (get) {
+    const baseUrl = yield* get.result(authBaseUrlAtom);
+    return createSheetAuthClient(baseUrl.href);
+  }),
+);
+
+// Auth state atom that automatically fetches session
+export const sessionAtom = Atom.make(
+  Effect.fnUntraced(function* (get) {
+    return yield* Effect.gen(function* () {
+      const authClient = yield* get.result(authClientAtom);
+      return yield* getSession(authClient, getRequestHeadersFn());
+    }).pipe(
+      Effect.catchAll(() => Effect.succeed({ session: Option.none(), jwt: Option.none<string>() })),
+    );
+  }),
+).pipe(Atom.withReactivity(["session"]));
+
+export const sessionDataAtom = Atom.make(
+  Effect.fnUntraced(function* (get) {
+    const { session } = yield* get.result(sessionAtom);
+    return Option.flatMapNullable(session, (session) => session.data);
+  }),
+);
+
+export const sessionJwtAtom = Atom.make(
+  Effect.fnUntraced(function* (get) {
+    const result = yield* get.result(sessionAtom);
+    return result.jwt;
+  }),
+);
+
+// Sign out function atom
+export const signOut = runtimeAtom.fn(
+  Effect.fnUntraced(function* (_, ctx: Atom.FnContext) {
+    const authClient = yield* ctx.result(authClientAtom);
+
+    yield* Effect.tryPromise({
+      try: () => authClient.signOut(),
+      catch: () => new Error("Failed to sign out"),
+    });
+
+    yield* Effect.log("Signed out successfully");
+    yield* Reactivity.invalidate(["session"]);
+  }),
+);
+
+// Sign in with Discord function atom
+export const signInWithDiscord = runtimeAtom.fn(
+  Effect.fnUntraced(function* (_, ctx: Atom.FnContext) {
+    const authClient = yield* ctx.result(authClientAtom);
+    const appBaseUrl = yield* ctx.result(appBaseUrlAtom);
+
+    yield* Effect.promise(() =>
+      authClient.signIn.social({
+        provider: "discord",
+        callbackURL: `${appBaseUrl.href}/dashboard`,
+      }),
+    );
+
+    yield* Effect.log("Sign in initiated");
+    yield* Reactivity.invalidate(["session"]);
+  }),
+);

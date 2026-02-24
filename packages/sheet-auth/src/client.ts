@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { Deferred, Effect, Option, Runtime, Schema } from "effect";
 import { createAuthClient } from "better-auth/client";
 import { jwtClient } from "better-auth/client/plugins";
 import { jwtVerify, createLocalJWKSet } from "jose";
@@ -6,6 +6,13 @@ import { jwtVerify, createLocalJWKSet } from "jose";
 // =============================================================================
 // 1. Errors
 // =============================================================================
+
+export class SessionResponseError extends Schema.TaggedError<SessionResponseError>(
+  "SessionResponseError",
+)("SessionResponseError", {
+  message: Schema.String,
+  cause: Schema.optional(Schema.Unknown),
+}) {}
 
 /**
  * Error type for token verification failures
@@ -40,14 +47,23 @@ export interface TokenVerificationResult {
   };
 }
 
-/**
- * Better Auth client instance type
- */
+export type SheetAuthClientOption = ReturnType<typeof SheetAuthClientOption>;
 export type SheetAuthClient = ReturnType<typeof createSheetAuthClient>;
 
 // =============================================================================
 // 3. Client Factory
 // =============================================================================
+
+const SheetAuthClientOption = (baseURL: string) => {
+  return {
+    baseURL,
+    basePath: "/",
+    fetchOptions: {
+      credentials: "include" as const,
+    },
+    plugins: [jwtClient()],
+  };
+};
 
 /**
  * Create a Better Auth client for stateless authentication.
@@ -74,15 +90,53 @@ export type SheetAuthClient = ReturnType<typeof createSheetAuthClient>;
  * ```
  */
 export function createSheetAuthClient(baseURL: string) {
-  return createAuthClient({
-    baseURL,
-    basePath: "/",
-    plugins: [jwtClient()],
+  return createAuthClient(SheetAuthClientOption(baseURL));
+}
+
+// =============================================================================
+// 4. Session
+// =============================================================================
+
+/**
+ * Get the session using the Better Auth client.
+ *
+ * @param client - Better Auth client instance
+ * @returns Effect with the session
+ */
+export function getSession(client: SheetAuthClient, headers?: Headers | HeadersInit) {
+  return Effect.gen(function* () {
+    const runtime = yield* Effect.runtime();
+    const jwt = yield* Deferred.make<string | null>();
+    const session = yield* Effect.tryPromise({
+      try: async () =>
+        Option.fromNullable(
+          await client.getSession({
+            fetchOptions: {
+              headers,
+              onSuccess: (ctx) =>
+                Runtime.runPromise(
+                  runtime,
+                  Deferred.succeed(jwt, ctx.response.headers.get("set-auth-jwt")).pipe(
+                    Effect.asVoid,
+                  ),
+                ),
+              onError: () =>
+                Runtime.runPromise(runtime, Deferred.succeed(jwt, null).pipe(Effect.asVoid)),
+            },
+          }),
+        ),
+      catch: (error) =>
+        new SessionResponseError({
+          message: error instanceof Error ? error.message : "Failed to get session",
+        }),
+    });
+
+    return { session, jwt: Option.fromNullable(yield* jwt) };
   });
 }
 
 // =============================================================================
-// 4. Token Verification
+// 5. Token Verification
 // =============================================================================
 
 /**

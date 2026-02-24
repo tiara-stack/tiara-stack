@@ -59,8 +59,7 @@
     "drizzle-kit": "^0.31.4",
     "oxfmt": "^0.26.0",
     "oxlint": "1.41.0",
-    "tsdown": "^0.16.4",
-    "typescript": "^5.9.3"
+    "tsdown": "^0.16.4"
   },
   "peerDependencies": {
     "@better-fetch/fetch": "^1.1.21",

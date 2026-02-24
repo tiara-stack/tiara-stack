@@ -26,7 +26,7 @@ jobs:
     if: needs.optimize_ci.outputs.skip != 'true' || needs.optimize_ci.result != 'success'
     strategy:
       matrix:
-        package: [sheet-db-server, sheet-apis, sheet-bot, sheet-auth]
+        package: [sheet-db-server, sheet-apis, sheet-bot, sheet-auth, sheet-web]
     runs-on: ubuntu-latest
     defaults:
       run:

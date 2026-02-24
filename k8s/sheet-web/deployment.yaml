@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sheet-web
+  labels:
+    app: sheet-web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sheet-web
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+  minReadySeconds: 5
+  template:
+    metadata:
+      labels:
+        app: sheet-web
+    spec:
+      containers:
+        - name: sheet-web
+          image: <IMAGE>
+          ports:
+            - containerPort: 3000
+              name: sheet-web-svc
+            - containerPort: 9464
+              name: sheet-web-met
+          env:
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: sheet-web-secret
+                  key: otelExporterOtlpEndpoint
+            - name: VITE_AUTH_BASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: sheet-web-secret
+                  key: authBaseUrl
+            - name: VITE_APP_BASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: sheet-web-secret
+                  key: appBaseUrl
+            - name: VITE_SHEET_APIS_BASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: sheet-web-secret
+                  key: sheetApisBaseUrl
+      serviceAccountName: sheet-web
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sheet-web-service
+  labels:
+    app: sheet-web
+spec:
+  ports:
+    - name: sheet-web-svc
+      protocol: TCP
+      port: 80
+      targetPort: sheet-web-svc
+    - name: sheet-web-met
+      protocol: TCP
+      port: 9464
+      targetPort: sheet-web-met
+  selector:
+    app: sheet-web

@@ -18,6 +18,7 @@ import {
 } from "@effect/platform-node";
 import { Context, Effect, Layer, Logger, Redacted } from "effect";
 import { getRequestListener } from "@hono/node-server";
+import { cors } from "hono/cors";
 import { createServer } from "http";
 import redisDriver from "unstorage/drivers/redis";
 import { authConfig, type AuthWithCleanup } from "./auth-config";
@@ -28,6 +29,7 @@ import {
 import { config } from "./config";
 import { MetricsLive } from "./metrics";
 import { TracesLive } from "./traces";
+import { Hono } from "hono";
 
 // Create Effect HTTP API with catch-all endpoints for Better Auth
 // and explicit endpoints for well-known metadata that have SERVER_ONLY flag
@@ -82,6 +84,7 @@ const AuthServiceLive = Layer.scoped(
     const postgresUrl = yield* config.postgresUrl;
     const kubernetesAudience = yield* config.kubernetesAudience;
     const baseUrl = yield* config.baseUrl;
+    const trustedOrigins = yield* config.trustedOrigins;
     const redisUrl = yield* config.redisUrl;
     const redisBase = yield* config.redisBase;
 
@@ -98,6 +101,7 @@ const AuthServiceLive = Layer.scoped(
       discordClientSecret: Redacted.value(discordClientSecret),
       kubernetesAudience,
       baseUrl,
+      trustedOrigins: [...trustedOrigins],
       secondaryStorageDriver: redisStorageDriver,
     }) as AuthWithOAuthProvider;
 
@@ -120,11 +124,49 @@ const AuthServiceLive = Layer.scoped(
   }),
 );
 
+// Helper to check if origin matches trusted origins (supports wildcards like http://localhost:*)
+// * matches single hostname segment only (e.g., *.example.com matches a.example.com but not a.b.example.com)
+function isOriginAllowed(origin: string, allowedOrigins: string[]): boolean {
+  return allowedOrigins.some((allowed) => {
+    if (allowed === origin) return true;
+    if (allowed.includes("*")) {
+      // Replace * with placeholder, escape all regex chars, then restore as [^./]*
+      // [^./]* ensures * matches only valid hostname chars (no dots or slashes)
+      const withPlaceholder = allowed.replace(/\*/g, "\x00");
+      const escaped = withPlaceholder.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+      const regex = new RegExp("^" + escaped.replace(/\x00/g, "[^./]*") + "$");
+      return regex.test(origin);
+    }
+    return false;
+  });
+}
+
 // Auth handler group - forwards all requests to Better Auth
 const AuthLive = HttpApiBuilder.group(Api, "auth", (handlers) =>
   Effect.gen(function* () {
     const auth = yield* AuthService;
-    const forward = createForwarder(auth.handler);
+    const trustedOrigins = [...(yield* config.trustedOrigins)];
+    const baseUrl = yield* config.baseUrl;
+    const allowedOrigins = [...trustedOrigins, baseUrl];
+
+    const app = new Hono();
+    app.use(
+      "*",
+      cors({
+        origin: (origin) => (isOriginAllowed(origin, allowedOrigins) ? origin : null),
+        allowHeaders: ["Content-Type", "Authorization"],
+        allowMethods: ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+        exposeHeaders: ["Content-Length"],
+        maxAge: 600,
+        credentials: true,
+      }),
+    );
+
+    app.on(["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"], "*", (c) => {
+      return auth.handler(c.req.raw);
+    });
+
+    const forward = createForwarder((req) => Promise.resolve(app.fetch(req)));
     return handlers
       .handle("get", forward)
       .handle("post", forward)
@@ -160,19 +202,8 @@ const WellKnownLive = HttpApiBuilder.group(Api, "well-known", (handlers) =>
 
 const ApiLive = Layer.provide(HttpApiBuilder.api(Api), Layer.merge(AuthLive, WellKnownLive));
 
-// CORS middleware that echoes back the request origin to support credentials
-const corsMiddlewareLive = HttpApiBuilder.middlewareCors({
-  allowedOrigins: (_origin) => true,
-  allowedMethods: ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-  credentials: true,
-  maxAge: 86400,
-});
-
 const HttpLive = HttpApiBuilder.serve(HttpMiddleware.logger).pipe(
   Layer.provide(HttpApiSwagger.layer()),
-  Layer.provide(HttpApiBuilder.middlewareOpenApi()),
-  Layer.provide(corsMiddlewareLive),
   Layer.provide(ApiLive),
   Layer.provide(AuthServiceLive),
   Layer.provide(NodeHttpClient.layer),

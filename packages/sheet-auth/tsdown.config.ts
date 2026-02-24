@@ -10,6 +10,9 @@ export default defineConfig([
       plugins: fileURLToPath(new URL("./src/plugins/index.ts", import.meta.url)),
     },
     sourcemap: true,
+    dts: {
+      tsgo: true,
+    },
   },
   {
     entry: {

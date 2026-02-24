@@ -66,6 +66,11 @@ spec:
                   key: redisUrl
             - name: REDIS_BASE
               value: "auth:"
+            - name: TRUSTED_ORIGINS
+              valueFrom:
+                secretKeyRef:
+                  name: sheet-auth-secret
+                  key: trustedOrigins
           livenessProbe:
             httpGet:
               path: /.well-known/oauth-authorization-server

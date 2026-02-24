@@ -15,6 +15,7 @@ interface CreateAuthOptions {
   discordClientSecret: string;
   kubernetesAudience: string;
   baseUrl: string;
+  trustedOrigins?: string[];
   secondaryStorageDriver: Driver;
 }
 
@@ -34,6 +35,7 @@ export function authConfig({
   discordClientSecret,
   kubernetesAudience,
   baseUrl,
+  trustedOrigins,
   secondaryStorageDriver,
 }: CreateAuthOptions): AuthWithCleanup {
   const pgClient = postgres(postgresUrl);
@@ -72,10 +74,12 @@ export function authConfig({
       storeSessionInDatabase: true,
     },
     advanced: {
+      cookiePrefix: "sheet_auth",
       crossSubDomainCookies: {
         enabled: true,
       },
     },
+    trustedOrigins: trustedOrigins ?? [baseUrl],
   });
 
   return Object.assign(auth, {

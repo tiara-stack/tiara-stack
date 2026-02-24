@@ -4,7 +4,7 @@ import { Effect, Layer, pipe, Schema } from "effect";
 import { Api } from "@/api";
 import { SheetAuthUser } from "@/middlewares/sheetAuthTokenAuthorization/tag";
 import { SheetAuthTokenAuthorizationLive } from "@/middlewares/sheetAuthTokenAuthorization/live";
-import { DiscordGuild } from "./api";
+import { Discord } from "@/schema";
 import { config } from "@/config";
 import { createSheetAuthClient, getDiscordAccessToken } from "sheet-auth/client";
 
@@ -63,7 +63,7 @@ export const DiscordLive = HttpApiBuilder.group(Api, "discord", (handlers) =>
           });
 
           // Decode and return guilds
-          const guilds = yield* Schema.decodeUnknown(Schema.Array(DiscordGuild))(json).pipe(
+          const guilds = yield* Schema.decodeUnknown(Schema.Array(Discord.DiscordGuild))(json).pipe(
             Effect.mapError((error) =>
               makeArgumentError(`Invalid response from Discord API: ${error}`),
             ),
