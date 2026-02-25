@@ -14,17 +14,20 @@ export interface SecondaryStorage {
 }
 
 export function createSecondaryStorage(driver: Driver): SecondaryStorage {
-  const storage = createStorage<string>({ driver });
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+  const storage = createStorage<Uint8Array>({ driver });
 
   return {
     async get(key: string) {
-      return await storage.getItem(key);
+      const item = await storage.getItemRaw<Uint8Array>(key);
+      return item ? decoder.decode(item) : null;
     },
     async set(key: string, value: string, ttl?: number) {
       if (ttl) {
-        await storage.setItem(key, value, { ttl });
+        await storage.setItemRaw<Uint8Array>(key, encoder.encode(value), { ttl });
       } else {
-        await storage.setItem(key, value);
+        await storage.setItemRaw<Uint8Array>(key, encoder.encode(value));
       }
     },
     async delete(key: string) {
