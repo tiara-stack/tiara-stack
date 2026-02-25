@@ -20,14 +20,19 @@ export function createSecondaryStorage(driver: Driver): SecondaryStorage {
 
   return {
     async get(key: string) {
+      console.log("get", key);
       const item = await storage.getItemRaw<Uint8Array>(key);
-      return item ? decoder.decode(item) : null;
+      const decoded = item ? decoder.decode(item) : null;
+      console.log("decoded", key, decoded);
+      return decoded;
     },
     async set(key: string, value: string, ttl?: number) {
+      console.log("set", key, value, ttl);
+      const encoded = encoder.encode(value);
       if (ttl) {
-        await storage.setItemRaw<Uint8Array>(key, encoder.encode(value), { ttl });
+        await storage.setItemRaw<Uint8Array>(key, encoded, { ttl });
       } else {
-        await storage.setItemRaw<Uint8Array>(key, encoder.encode(value));
+        await storage.setItemRaw<Uint8Array>(key, encoded);
       }
     },
     async delete(key: string) {
