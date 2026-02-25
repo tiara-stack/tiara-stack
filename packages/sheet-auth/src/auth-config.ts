@@ -16,6 +16,7 @@ interface CreateAuthOptions {
   kubernetesAudience: string;
   baseUrl: string;
   trustedOrigins?: string[];
+  cookieDomain?: string;
   secondaryStorageDriver: Driver;
 }
 
@@ -36,6 +37,7 @@ export function authConfig({
   kubernetesAudience,
   baseUrl,
   trustedOrigins,
+  cookieDomain,
   secondaryStorageDriver,
 }: CreateAuthOptions): AuthWithCleanup {
   const pgClient = postgres(postgresUrl);
@@ -77,6 +79,7 @@ export function authConfig({
       cookiePrefix: "sheet_auth",
       crossSubDomainCookies: {
         enabled: true,
+        domain: cookieDomain,
       },
     },
     trustedOrigins: trustedOrigins ?? [baseUrl],

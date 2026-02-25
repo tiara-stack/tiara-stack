@@ -10,6 +10,7 @@ export const config = {
     "TRUSTED_ORIGINS",
     Schema.split(",").pipe(Schema.compose(Schema.Array(Schema.Trim))),
   ),
+  cookieDomain: Schema.Config("COOKIE_DOMAIN", Schema.OptionFromNonEmptyTrimmedString),
   redisUrl: Schema.Config("REDIS_URL", Schema.Redacted(Schema.String)),
   redisBase: Schema.Config("REDIS_BASE", Schema.String),
 };

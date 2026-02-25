@@ -33,6 +33,12 @@ spec:
                 secretKeyRef:
                   name: sheet-auth-secret
                   key: baseUrl
+            - name: COOKIE_DOMAIN
+              valueFrom:
+                secretKeyRef:
+                  name: sheet-auth-secret
+                  key: cookieDomain
+                  optional: true
             - name: POSTGRES_URL
               valueFrom:
                 secretKeyRef:

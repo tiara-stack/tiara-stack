@@ -16,7 +16,7 @@ import {
   NodeHttpServerRequest,
   NodeRuntime,
 } from "@effect/platform-node";
-import { Context, Effect, Layer, Logger, Redacted } from "effect";
+import { Context, Effect, Layer, Logger, Option, Redacted } from "effect";
 import { getRequestListener } from "@hono/node-server";
 import { cors } from "hono/cors";
 import { createServer } from "http";
@@ -85,6 +85,7 @@ const AuthServiceLive = Layer.scoped(
     const kubernetesAudience = yield* config.kubernetesAudience;
     const baseUrl = yield* config.baseUrl;
     const trustedOrigins = yield* config.trustedOrigins;
+    const cookieDomain = yield* config.cookieDomain;
     const redisUrl = yield* config.redisUrl;
     const redisBase = yield* config.redisBase;
 
@@ -102,6 +103,7 @@ const AuthServiceLive = Layer.scoped(
       kubernetesAudience,
       baseUrl,
       trustedOrigins: [...trustedOrigins],
+      cookieDomain: Option.getOrUndefined(cookieDomain),
       secondaryStorageDriver: redisStorageDriver,
     }) as AuthWithOAuthProvider;
 
