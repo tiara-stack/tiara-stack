@@ -1,15 +1,25 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { Calendar, Users, ChevronRight } from "lucide-react";
-import { currentUserGuildsAtom } from "#/lib/discord";
 import { Discord } from "sheet-apis/schema";
-import { useAtomValue, Registry } from "@effect-atom/atom-react";
-import { Result } from "@effect-atom/atom-react";
+import { Registry } from "@effect-atom/atom-react";
 import { Effect, Option } from "effect";
 import { sessionDataAtom } from "#/lib/auth";
+import { useCurrentUserGuilds } from "#/lib/discord";
 
 // Infer the type from the Schema
 type DiscordGuildType = typeof Discord.DiscordGuild.Type;
+
+// Loading fallback for guild sidebar
+function GuildSidebarFallback() {
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="w-12 h-12 bg-[#33ccbb]/10 animate-pulse rounded-lg" />
+      <div className="w-12 h-12 bg-[#33ccbb]/10 animate-pulse rounded-lg" />
+      <div className="w-12 h-12 bg-[#33ccbb]/10 animate-pulse rounded-lg" />
+    </div>
+  );
+}
 
 // Route loader that fetches session on load using Atom Registry
 export const Route = createFileRoute("/dashboard")({
@@ -50,25 +60,15 @@ function GuildIcon({ guild }: { guild: DiscordGuildType }) {
 }
 
 function GuildSidebarContent() {
-  const guildsResult = useAtomValue(currentUserGuildsAtom);
+  const guilds = useCurrentUserGuilds();
 
-  if (Result.isInitial(guildsResult) || Result.isWaiting(guildsResult)) {
-    return <div className="w-12 h-12 bg-[#33ccbb]/10 animate-pulse rounded-lg" />;
-  }
-
-  if (Result.isFailure(guildsResult)) {
-    return <div className="text-white/40 text-xs font-medium text-center">ERROR</div>;
-  }
-
-  const guildList = Result.getOrElse(guildsResult, () => [] as DiscordGuildType[]);
-
-  if (guildList.length === 0) {
+  if (guilds.length === 0) {
     return <div className="text-white/40 text-xs font-medium text-center">NO GUILDS</div>;
   }
 
   return (
     <div className="flex flex-col gap-3">
-      {guildList.map((guild) => (
+      {guilds.map((guild) => (
         <GuildIcon key={guild.id} guild={guild} />
       ))}
     </div>
@@ -150,7 +150,9 @@ function DashboardPage() {
                 <div className="text-[10px] font-bold text-[#33ccbb] tracking-wider text-center mb-2">
                   GUILDS
                 </div>
-                <GuildSidebarContent />
+                <Suspense fallback={<GuildSidebarFallback />}>
+                  <GuildSidebarContent />
+                </Suspense>
               </div>
             </div>
           )}

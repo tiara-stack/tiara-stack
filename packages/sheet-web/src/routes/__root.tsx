@@ -1,16 +1,17 @@
-import { Registry } from "@effect-atom/atom-react";
+import { Registry, RegistryContext } from "@effect-atom/atom-react";
 import { HeadContent, Scripts, createRootRouteWithContext } from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { TanStackDevtools } from "@tanstack/react-devtools";
 import { TooltipProvider } from "#/components/ui/tooltip";
 import { Button } from "#/components/ui/button";
-import { Effect, Option } from "effect";
+import { Effect } from "effect";
 import { sessionDataAtom } from "#/lib/auth";
 
 import Header from "../components/Header";
 import { Background } from "../components/Background";
 
 import appCss from "../styles.css?url";
+import { atomRegistry } from "#/lib/atomRegistry";
 
 interface RouterContext {
   atomRegistry: Registry.Registry;
@@ -35,16 +36,11 @@ function RootErrorComponent({ error, reset }: { error: Error; reset: () => void 
 
 export const Route = createRootRouteWithContext<RouterContext>()({
   loader: async ({ context }) => {
-    const session = await Effect.runPromise(
+    await Effect.runPromise(
       Registry.getResult(context.atomRegistry, sessionDataAtom).pipe(
         Effect.catchAll(() => Effect.succeedNone),
       ),
     );
-
-    // Return serializable session data (convert Option to plain values)
-    return {
-      session: Option.getOrNull(session),
-    };
   },
   errorComponent: RootErrorComponent,
   head: () => ({
@@ -75,8 +71,6 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 });
 
 function RootDocument({ children }: { children: React.ReactNode }) {
-  const { session } = Route.useLoaderData();
-
   return (
     <html lang="en">
       <head>
@@ -84,21 +78,23 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       </head>
       <body className="bg-[#0a0f0e]">
         <TooltipProvider>
-          <Background />
-          <Header session={session} />
-          {children}
-          <TanStackDevtools
-            config={{
-              position: "bottom-right",
-            }}
-            plugins={[
-              {
-                name: "Tanstack Router",
-                render: <TanStackRouterDevtoolsPanel />,
-              },
-            ]}
-          />
-          <Scripts />
+          <RegistryContext.Provider value={atomRegistry}>
+            <Background />
+            <Header />
+            {children}
+            <TanStackDevtools
+              config={{
+                position: "bottom-right",
+              }}
+              plugins={[
+                {
+                  name: "Tanstack Router",
+                  render: <TanStackRouterDevtoolsPanel />,
+                },
+              ]}
+            />
+            <Scripts />
+          </RegistryContext.Provider>
         </TooltipProvider>
       </body>
     </html>

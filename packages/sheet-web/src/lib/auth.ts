@@ -1,5 +1,5 @@
-import { Atom, useAtomSet } from "@effect-atom/atom-react";
-import { createIsomorphicFn } from "@tanstack/react-start";
+import { Atom, useAtomSet, useAtomSuspense } from "@effect-atom/atom-react";
+import { createIsomorphicFn, getRouterInstance } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { Option, Effect } from "effect";
 import { Reactivity } from "@effect/experimental";
@@ -20,6 +20,14 @@ export const authClientAtom = Atom.make(
   }),
 );
 
+export const useAuthClient = () => {
+  const result = useAtomSuspense(authClientAtom, {
+    suspendOnWaiting: true,
+    includeFailure: false,
+  });
+  return result.value;
+};
+
 // Auth state atom that automatically fetches session
 export const sessionAtom = Atom.make(
   Effect.fnUntraced(function* (get) {
@@ -32,6 +40,14 @@ export const sessionAtom = Atom.make(
   }),
 ).pipe(Atom.withReactivity(["session"]));
 
+export const useSession = () => {
+  const result = useAtomSuspense(sessionAtom, {
+    suspendOnWaiting: true,
+    includeFailure: false,
+  });
+  return result.value;
+};
+
 export const sessionDataAtom = Atom.make(
   Effect.fnUntraced(function* (get) {
     const { session } = yield* get.result(sessionAtom);
@@ -39,12 +55,28 @@ export const sessionDataAtom = Atom.make(
   }),
 );
 
+export const useSessionData = () => {
+  const result = useAtomSuspense(sessionDataAtom, {
+    suspendOnWaiting: true,
+    includeFailure: false,
+  });
+  return result.value;
+};
+
 export const sessionJwtAtom = Atom.make(
   Effect.fnUntraced(function* (get) {
     const result = yield* get.result(sessionAtom);
     return result.jwt;
   }),
 );
+
+export const useSessionJwt = () => {
+  const result = useAtomSuspense(sessionJwtAtom, {
+    suspendOnWaiting: true,
+    includeFailure: false,
+  });
+  return result.value;
+};
 
 // Sign out function atom
 export const signOut = runtimeAtom.fn(
@@ -58,6 +90,9 @@ export const signOut = runtimeAtom.fn(
 
     yield* Effect.log("Signed out successfully");
     yield* Reactivity.invalidate(["session"]);
+
+    const router = yield* Effect.promise(() => Promise.resolve(getRouterInstance()));
+    router.invalidate();
   }),
 );
 
@@ -81,6 +116,9 @@ export const signInWithDiscord = runtimeAtom.fn(
 
     yield* Effect.log("Sign in initiated");
     yield* Reactivity.invalidate(["session"]);
+
+    const router = yield* Effect.promise(() => Promise.resolve(getRouterInstance()));
+    router.invalidate();
   }),
 );
 

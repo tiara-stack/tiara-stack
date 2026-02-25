@@ -1,42 +1,19 @@
+import { Suspense } from "react";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { Menu, X, LayoutDashboard, LogOut, User as UserIcon } from "lucide-react";
 import { Button } from "#/components/ui/button";
-import { useSignOut, useSignInWithDiscord } from "#/lib/auth";
+import { useSignOut, useSignInWithDiscord, useSessionData } from "#/lib/auth";
+import { Option } from "effect";
 
-// User type from session data
-interface User {
-  id: string;
-  email: string;
-  emailVerified: boolean;
-  name: string;
-  image?: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-}
+function AuthSection() {
+  const session = useSessionData();
 
-interface SessionData {
-  user: User;
-  session: {
-    id: string;
-    createdAt: Date;
-    updatedAt: Date;
-    userId: string;
-    expiresAt: Date;
-    token: string;
-  };
-}
-
-interface HeaderProps {
-  session: SessionData | null;
-}
-
-function AuthSection({ session }: HeaderProps) {
   const signOut = useSignOut();
   const signIn = useSignInWithDiscord();
 
-  if (session) {
-    return (
+  return Option.match(session, {
+    onSome: (sessionData) => (
       <div className="flex items-center gap-4">
         <Link
           to="/dashboard"
@@ -46,10 +23,10 @@ function AuthSection({ session }: HeaderProps) {
           DASHBOARD
         </Link>
         <div className="flex items-center gap-3">
-          {session.user.image ? (
+          {sessionData.user.image ? (
             <img
-              src={session.user.image}
-              alt={session.user.name || "User"}
+              src={sessionData.user.image}
+              alt={sessionData.user.name || "User"}
               className="w-10 h-10 rounded-full border-2 border-[#33ccbb] object-cover"
               onError={(e) => {
                 (e.target as HTMLImageElement).style.display = "none";
@@ -58,12 +35,12 @@ function AuthSection({ session }: HeaderProps) {
           ) : (
             <div className="w-10 h-10 rounded-full bg-[#33ccbb] flex items-center justify-center">
               <span className="text-[#0a0f0e] font-bold text-sm">
-                {session.user.name?.charAt(0).toUpperCase() || "U"}
+                {sessionData.user.name?.charAt(0).toUpperCase() || "U"}
               </span>
             </div>
           )}
           <span className="text-sm font-medium text-white hidden md:inline">
-            {session.user.name || "User"}
+            {sessionData.user.name || "User"}
           </span>
         </div>
         <Button
@@ -75,31 +52,32 @@ function AuthSection({ session }: HeaderProps) {
           <LogOut className="w-4 h-4" />
         </Button>
       </div>
-    );
-  }
-
-  return (
-    <Button
-      className="bg-[#33ccbb] text-[#0a0f0e] hover:bg-[#2db8a8] px-6 h-12 font-bold text-sm tracking-wide transition-colors"
-      onClick={signIn}
-    >
-      GET STARTED
-    </Button>
-  );
+    ),
+    onNone: () => (
+      <Button
+        className="bg-[#33ccbb] text-[#0a0f0e] hover:bg-[#2db8a8] px-6 h-12 font-bold text-sm tracking-wide transition-colors"
+        onClick={signIn}
+      >
+        GET STARTED
+      </Button>
+    ),
+  });
 }
 
-function MobileAuthSection({ session, onNavigate }: HeaderProps & { onNavigate: () => void }) {
+function MobileAuthSection({ onNavigate }: { onNavigate: () => void }) {
+  const session = useSessionData();
+
   const signOut = useSignOut();
   const signIn = useSignInWithDiscord();
 
-  if (session) {
-    return (
+  return Option.match(session, {
+    onSome: (sessionData) => (
       <div className="pt-4 border-t border-[#33ccbb]/20 space-y-4">
         <div className="flex items-center gap-3 mb-4">
-          {session.user.image ? (
+          {sessionData.user.image ? (
             <img
-              src={session.user.image}
-              alt={session.user.name || "User"}
+              src={sessionData.user.image}
+              alt={sessionData.user.name || "User"}
               className="w-12 h-12 rounded-full border-2 border-[#33ccbb] object-cover"
               onError={(e) => {
                 (e.target as HTMLImageElement).style.display = "none";
@@ -110,7 +88,7 @@ function MobileAuthSection({ session, onNavigate }: HeaderProps & { onNavigate: 
               <UserIcon className="w-6 h-6 text-[#0a0f0e]" />
             </div>
           )}
-          <span className="text-lg font-bold text-white">{session.user.name || "User"}</span>
+          <span className="text-lg font-bold text-white">{sessionData.user.name || "User"}</span>
         </div>
         <Link
           to="/dashboard"
@@ -128,20 +106,39 @@ function MobileAuthSection({ session, onNavigate }: HeaderProps & { onNavigate: 
           SIGN OUT
         </Button>
       </div>
-    );
-  }
+    ),
+    onNone: () => (
+      <Button
+        className="w-full bg-[#33ccbb] hover:bg-[#2db8a8] text-[#0a0f0e] h-14 font-bold text-lg tracking-wide mt-4"
+        onClick={signIn}
+      >
+        GET STARTED
+      </Button>
+    ),
+  });
+}
 
+// Simple fallback for Header suspense - keeps layout stable during auth check
+function HeaderFallback() {
   return (
-    <Button
-      className="w-full bg-[#33ccbb] hover:bg-[#2db8a8] text-[#0a0f0e] h-14 font-bold text-lg tracking-wide mt-4"
-      onClick={signIn}
-    >
-      GET STARTED
-    </Button>
+    <header className="fixed top-0 left-0 right-0 z-50 px-8 py-6 bg-[#0a0f0e]/60 backdrop-blur-xl border-b border-[#33ccbb]/10">
+      <div className="max-w-7xl mx-auto flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 bg-[#33ccbb] flex items-center justify-center">
+            <span className="text-[#0a0f0e] font-black text-xl">S</span>
+          </div>
+          <span className="text-2xl font-black tracking-tighter">
+            SHEET<span className="text-[#33ccbb]">WEB</span>
+          </span>
+        </div>
+        <div className="w-24 h-10 bg-[#33ccbb]/10 animate-pulse rounded" />
+      </div>
+    </header>
   );
 }
 
-export default function Header({ session }: HeaderProps) {
+// Internal header component with auth-dependent content
+function HeaderContent() {
   const [isOpen, setIsOpen] = useState(false);
 
   return (
@@ -166,7 +163,7 @@ export default function Header({ session }: HeaderProps) {
             >
               FEATURES
             </a>
-            <AuthSection session={session} />
+            <AuthSection />
           </nav>
 
           {/* Mobile Menu Button */}
@@ -221,10 +218,19 @@ export default function Header({ session }: HeaderProps) {
             >
               FEATURES
             </a>
-            <MobileAuthSection session={session} onNavigate={() => setIsOpen(false)} />
+            <MobileAuthSection onNavigate={() => setIsOpen(false)} />
           </nav>
         </div>
       </aside>
     </>
+  );
+}
+
+// Exported Header component with Suspense boundary
+export default function Header() {
+  return (
+    <Suspense fallback={<HeaderFallback />}>
+      <HeaderContent />
+    </Suspense>
   );
 }
