@@ -21,7 +21,6 @@ export function createSecondaryStorage(driver: Driver): SecondaryStorage {
   return {
     async get(key: string) {
       const item = await storage.getItemRaw<Uint8Array>(key);
-      console.log("get", key, item?.constructor?.name);
       const decoded = item ? decoder.decode(item) : null;
       return decoded;
     },
