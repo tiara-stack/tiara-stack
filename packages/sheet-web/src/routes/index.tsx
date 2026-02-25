@@ -9,15 +9,14 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { Button } from "#/components/ui/button";
-import { signInWithDiscord } from "#/lib/auth";
-import { useAtomSet } from "@effect-atom/atom-react";
+import { useSignInWithDiscord } from "#/lib/auth";
 
 export const Route = createFileRoute("/")({
   component: LandingPage,
 });
 
 function LandingPage() {
-  const signInFn = useAtomSet(signInWithDiscord);
+  const signIn = useSignInWithDiscord();
 
   return (
     <div className="min-h-screen text-white relative overflow-x-hidden">
@@ -65,7 +64,7 @@ function LandingPage() {
                 <div className="flex flex-wrap items-center gap-4">
                   <Button
                     className="bg-[#33ccbb] hover:bg-[#2db8a8] text-[#0a0f0e] px-8 h-14 font-bold text-sm tracking-wide"
-                    onClick={() => signInFn(void 0)}
+                    onClick={signIn}
                   >
                     CONNECT DISCORD
                     <ArrowRight className="w-4 h-4 ml-2" />
@@ -274,7 +273,7 @@ function LandingPage() {
             </p>
             <Button
               className="bg-[#0a0f0e] text-[#33ccbb] hover:bg-[#1a2422] px-10 h-16 font-black text-lg tracking-wide transition-colors"
-              onClick={() => signInFn(void 0)}
+              onClick={signIn}
             >
               GET STARTED
               <ArrowRight className="w-5 h-5 ml-2" />

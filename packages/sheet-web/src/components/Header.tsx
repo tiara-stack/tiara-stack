@@ -2,8 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { Menu, X, LayoutDashboard, LogOut, User as UserIcon } from "lucide-react";
 import { Button } from "#/components/ui/button";
-import { signOut, signInWithDiscord } from "#/lib/auth";
-import { useAtomSet } from "@effect-atom/atom-react";
+import { useSignOut, useSignInWithDiscord } from "#/lib/auth";
 
 // User type from session data
 interface User {
@@ -33,8 +32,8 @@ interface HeaderProps {
 }
 
 function AuthSection({ session }: HeaderProps) {
-  const signOutFn = useAtomSet(signOut);
-  const signInFn = useAtomSet(signInWithDiscord);
+  const signOut = useSignOut();
+  const signIn = useSignInWithDiscord();
 
   if (session) {
     return (
@@ -71,7 +70,7 @@ function AuthSection({ session }: HeaderProps) {
           variant="outline"
           size="icon"
           className="border-[#33ccbb]/30 text-[#33ccbb] hover:bg-[#33ccbb]/10 hover:text-white"
-          onClick={() => signOutFn(void 0)}
+          onClick={signOut}
         >
           <LogOut className="w-4 h-4" />
         </Button>
@@ -82,7 +81,7 @@ function AuthSection({ session }: HeaderProps) {
   return (
     <Button
       className="bg-[#33ccbb] text-[#0a0f0e] hover:bg-[#2db8a8] px-6 h-12 font-bold text-sm tracking-wide transition-colors"
-      onClick={() => signInFn(void 0)}
+      onClick={signIn}
     >
       GET STARTED
     </Button>
@@ -90,8 +89,8 @@ function AuthSection({ session }: HeaderProps) {
 }
 
 function MobileAuthSection({ session, onNavigate }: HeaderProps & { onNavigate: () => void }) {
-  const signOutFn = useAtomSet(signOut);
-  const signInFn = useAtomSet(signInWithDiscord);
+  const signOut = useSignOut();
+  const signIn = useSignInWithDiscord();
 
   if (session) {
     return (
@@ -123,7 +122,7 @@ function MobileAuthSection({ session, onNavigate }: HeaderProps & { onNavigate: 
         </Link>
         <Button
           className="w-full bg-[#33ccbb]/10 border border-[#33ccbb]/30 text-[#33ccbb] hover:bg-[#33ccbb]/20 h-14 font-bold text-lg tracking-wide"
-          onClick={() => signOutFn(void 0)}
+          onClick={signOut}
         >
           <LogOut className="w-5 h-5 mr-2" />
           SIGN OUT
@@ -135,7 +134,7 @@ function MobileAuthSection({ session, onNavigate }: HeaderProps & { onNavigate: 
   return (
     <Button
       className="w-full bg-[#33ccbb] hover:bg-[#2db8a8] text-[#0a0f0e] h-14 font-bold text-lg tracking-wide mt-4"
-      onClick={() => signInFn(void 0)}
+      onClick={signIn}
     >
       GET STARTED
     </Button>

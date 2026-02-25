@@ -1,4 +1,4 @@
-import { Atom } from "@effect-atom/atom-react";
+import { Atom, useAtomSet } from "@effect-atom/atom-react";
 import { createIsomorphicFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { Option, Effect } from "effect";
@@ -6,6 +6,7 @@ import { Reactivity } from "@effect/experimental";
 import { createSheetAuthClient, getSession } from "sheet-auth/client";
 import { appBaseUrlAtom, authBaseUrlAtom } from "#/lib/configAtoms";
 import { runtimeAtom } from "#/lib/runtime";
+import { useCallback } from "react";
 
 const getRequestHeadersFn = createIsomorphicFn()
   .server(() => getRequestHeaders())
@@ -60,6 +61,11 @@ export const signOut = runtimeAtom.fn(
   }),
 );
 
+export const useSignOut = () => {
+  const signOutFn = useAtomSet(signOut, { mode: "promise" });
+  return useCallback(() => signOutFn(void 0), [signOutFn]);
+};
+
 // Sign in with Discord function atom
 export const signInWithDiscord = runtimeAtom.fn(
   Effect.fnUntraced(function* (_, ctx: Atom.FnContext) {
@@ -77,3 +83,8 @@ export const signInWithDiscord = runtimeAtom.fn(
     yield* Reactivity.invalidate(["session"]);
   }),
 );
+
+export const useSignInWithDiscord = () => {
+  const signInWithDiscordFn = useAtomSet(signInWithDiscord, { mode: "promise" });
+  return useCallback(() => signInWithDiscordFn(void 0), [signInWithDiscordFn]);
+};

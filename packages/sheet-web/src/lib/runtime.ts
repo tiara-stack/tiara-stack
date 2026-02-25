@@ -41,17 +41,14 @@ const getConfigServerFn = createServerFn({ method: "GET" }).handler(() =>
 );
 
 // Client-side: Fetch config from the server function
-const fetchConfigLayer = Layer.effect(
-  ConfigProvider.ConfigProvider,
-  Effect.gen(function* () {
-    const config = yield* Effect.tryPromise(() => getConfigServerFn()).pipe(
-      Effect.tapError((error) => Effect.logError("Failed to fetch config from server:", error)),
-      Effect.catchAll(() => Effect.succeed({} as Record<string, string | null>)),
-    );
+const fetchConfigLayer = Effect.gen(function* () {
+  const config = yield* Effect.tryPromise(() => getConfigServerFn()).pipe(
+    Effect.tapError((error) => Effect.logError("Failed to fetch config from server:", error)),
+    Effect.catchAll(() => Effect.succeed({} as Record<string, string | null>)),
+  );
 
-    return ConfigProvider.fromJson(config);
-  }),
-);
+  return Layer.setConfigProvider(ConfigProvider.fromJson(config));
+}).pipe(Layer.unwrapEffect);
 
 // Create a config layer from server function (client) or directly from env (server)
 const EnvConfigLive = createIsomorphicFn()

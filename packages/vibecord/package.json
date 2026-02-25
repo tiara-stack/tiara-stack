@@ -33,7 +33,7 @@
   "dependencies": {
     "@effect/sql-drizzle": "^0.48.0",
     "@opencode-ai/sdk": "^1.1.64",
-    "better-sqlite3": "^11.6.0",
+    "better-sqlite3": "^12.6.2",
     "c12": "^3.3.3",
     "diff": "^8.0.3",
     "discord.js": "^14.18.0",
@@ -42,7 +42,7 @@
     "simple-git": "^3.30.0"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.12",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.7.2",
     "@typescript/native-preview": "latest",
     "drizzle-kit": "^0.30.0",
