@@ -4,7 +4,7 @@ import { getRequestHeaders } from "@tanstack/react-start/server";
 import { Option, Effect } from "effect";
 import { Reactivity } from "@effect/experimental";
 import { createSheetAuthClient, getSession } from "sheet-auth/client";
-import { appBaseUrlAtom, authBaseUrlAtom } from "#/lib/config";
+import { appBaseUrlAtom, authBaseUrlAtom } from "#/lib/configAtoms";
 import { runtimeAtom } from "#/lib/runtime";
 
 const getRequestHeadersFn = createIsomorphicFn()

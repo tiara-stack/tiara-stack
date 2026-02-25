@@ -2,7 +2,7 @@ import { AtomHttpApi, Registry, Result } from "@effect-atom/atom-react";
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "@effect/platform";
 import { Api } from "sheet-apis/api";
 import { sessionJwtAtom } from "#/lib/auth";
-import { sheetApisBaseUrlAtom } from "#/lib/config";
+import { sheetApisBaseUrlAtom } from "#/lib/configAtoms";
 import { Effect, Layer, Option } from "effect";
 import { runtimeAtom } from "./runtime";
 

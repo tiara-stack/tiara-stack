@@ -19,6 +19,7 @@
     "@effect-atom/atom-react": "^0.5.0",
     "@effect/experimental": "^0.58.0",
     "@effect/platform": "^0.94.2",
+    "@effect/platform-node": "^0.104.1",
     "@hookform/resolvers": "^5.2.2",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/react-devtools": "^0.7.0",

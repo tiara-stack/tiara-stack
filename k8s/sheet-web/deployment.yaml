@@ -33,17 +33,17 @@ spec:
                 secretKeyRef:
                   name: sheet-web-secret
                   key: otelExporterOtlpEndpoint
-            - name: VITE_AUTH_BASE_URL
+            - name: AUTH_BASE_URL
               valueFrom:
                 secretKeyRef:
                   name: sheet-web-secret
                   key: authBaseUrl
-            - name: VITE_APP_BASE_URL
+            - name: APP_BASE_URL
               valueFrom:
                 secretKeyRef:
                   name: sheet-web-secret
                   key: appBaseUrl
-            - name: VITE_SHEET_APIS_BASE_URL
+            - name: SHEET_APIS_BASE_URL
               valueFrom:
                 secretKeyRef:
                   name: sheet-web-secret
