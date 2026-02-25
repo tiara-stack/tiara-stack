@@ -3,17 +3,17 @@ import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { Menu, X, LayoutDashboard, LogOut, User as UserIcon } from "lucide-react";
 import { Button } from "#/components/ui/button";
-import { useSignOut, useSignInWithDiscord, useSessionData } from "#/lib/auth";
+import { useSignOut, useSignInWithDiscord, useSession } from "#/lib/auth";
 import { Option } from "effect";
 
 function AuthSection() {
-  const session = useSessionData();
+  const session = useSession();
 
   const signOut = useSignOut();
   const signIn = useSignInWithDiscord();
 
   return Option.match(session, {
-    onSome: (sessionData) => (
+    onSome: (session) => (
       <div className="flex items-center gap-4">
         <Link
           to="/dashboard"
@@ -23,10 +23,10 @@ function AuthSection() {
           DASHBOARD
         </Link>
         <div className="flex items-center gap-3">
-          {sessionData.user.image ? (
+          {session.user.image ? (
             <img
-              src={sessionData.user.image}
-              alt={sessionData.user.name || "User"}
+              src={session.user.image}
+              alt={session.user.name || "User"}
               className="w-10 h-10 rounded-full border-2 border-[#33ccbb] object-cover"
               onError={(e) => {
                 (e.target as HTMLImageElement).style.display = "none";
@@ -35,12 +35,12 @@ function AuthSection() {
           ) : (
             <div className="w-10 h-10 rounded-full bg-[#33ccbb] flex items-center justify-center">
               <span className="text-[#0a0f0e] font-bold text-sm">
-                {sessionData.user.name?.charAt(0).toUpperCase() || "U"}
+                {session.user.name?.charAt(0).toUpperCase() || "U"}
               </span>
             </div>
           )}
           <span className="text-sm font-medium text-white hidden md:inline">
-            {sessionData.user.name || "User"}
+            {session.user.name || "User"}
           </span>
         </div>
         <Button
@@ -65,19 +65,19 @@ function AuthSection() {
 }
 
 function MobileAuthSection({ onNavigate }: { onNavigate: () => void }) {
-  const session = useSessionData();
+  const session = useSession();
 
   const signOut = useSignOut();
   const signIn = useSignInWithDiscord();
 
   return Option.match(session, {
-    onSome: (sessionData) => (
+    onSome: (session) => (
       <div className="pt-4 border-t border-[#33ccbb]/20 space-y-4">
         <div className="flex items-center gap-3 mb-4">
-          {sessionData.user.image ? (
+          {session.user.image ? (
             <img
-              src={sessionData.user.image}
-              alt={sessionData.user.name || "User"}
+              src={session.user.image}
+              alt={session.user.name || "User"}
               className="w-12 h-12 rounded-full border-2 border-[#33ccbb] object-cover"
               onError={(e) => {
                 (e.target as HTMLImageElement).style.display = "none";
@@ -88,7 +88,7 @@ function MobileAuthSection({ onNavigate }: { onNavigate: () => void }) {
               <UserIcon className="w-6 h-6 text-[#0a0f0e]" />
             </div>
           )}
-          <span className="text-lg font-bold text-white">{sessionData.user.name || "User"}</span>
+          <span className="text-lg font-bold text-white">{session.user.name || "User"}</span>
         </div>
         <Link
           to="/dashboard"

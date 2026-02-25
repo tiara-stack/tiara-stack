@@ -5,7 +5,7 @@ import { TanStackDevtools } from "@tanstack/react-devtools";
 import { TooltipProvider } from "#/components/ui/tooltip";
 import { Button } from "#/components/ui/button";
 import { Effect } from "effect";
-import { sessionDataAtom } from "#/lib/auth";
+import { sessionAtom } from "#/lib/auth";
 
 import Header from "../components/Header";
 import { Background } from "../components/Background";
@@ -37,7 +37,7 @@ function RootErrorComponent({ error, reset }: { error: Error; reset: () => void 
 export const Route = createRootRouteWithContext<RouterContext>()({
   loader: async ({ context }) => {
     await Effect.runPromise(
-      Registry.getResult(context.atomRegistry, sessionDataAtom).pipe(
+      Registry.getResult(context.atomRegistry, sessionAtom).pipe(
         Effect.catchAll(() => Effect.succeedNone),
       ),
     );

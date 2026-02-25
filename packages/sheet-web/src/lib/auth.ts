@@ -1,9 +1,9 @@
 import { Atom, useAtomSet, useAtomSuspense } from "@effect-atom/atom-react";
 import { createIsomorphicFn, getRouterInstance } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
-import { Option, Effect } from "effect";
+import { Effect } from "effect";
 import { Reactivity } from "@effect/experimental";
-import { createSheetAuthClient, getSession } from "sheet-auth/client";
+import { createSheetAuthClient, getSession, getToken } from "sheet-auth/client";
 import { appBaseUrlAtom, authBaseUrlAtom } from "#/lib/configAtoms";
 import { runtimeAtom } from "#/lib/runtime";
 import { useCallback } from "react";
@@ -34,9 +34,7 @@ export const sessionAtom = Atom.make(
     return yield* Effect.gen(function* () {
       const authClient = yield* get.result(authClientAtom);
       return yield* getSession(authClient, getRequestHeadersFn());
-    }).pipe(
-      Effect.catchAll(() => Effect.succeed({ session: Option.none(), jwt: Option.none<string>() })),
-    );
+    }).pipe(Effect.catchAll(() => Effect.succeedNone));
   }),
 ).pipe(Atom.withReactivity(["session"]));
 
@@ -48,25 +46,12 @@ export const useSession = () => {
   return result.value;
 };
 
-export const sessionDataAtom = Atom.make(
-  Effect.fnUntraced(function* (get) {
-    const { session } = yield* get.result(sessionAtom);
-    return Option.flatMapNullable(session, (session) => session.data);
-  }),
-);
-
-export const useSessionData = () => {
-  const result = useAtomSuspense(sessionDataAtom, {
-    suspendOnWaiting: true,
-    includeFailure: false,
-  });
-  return result.value;
-};
-
 export const sessionJwtAtom = Atom.make(
   Effect.fnUntraced(function* (get) {
-    const result = yield* get.result(sessionAtom);
-    return result.jwt;
+    return yield* Effect.gen(function* () {
+      const authClient = yield* get.result(authClientAtom);
+      return yield* getToken(authClient, getRequestHeadersFn());
+    }).pipe(Effect.catchAll(() => Effect.succeedNone));
   }),
 );
 

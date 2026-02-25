@@ -1,4 +1,4 @@
-import { Deferred, Effect, Option, Runtime, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 import { createAuthClient } from "better-auth/client";
 import { jwtClient } from "better-auth/client/plugins";
 import { jwtVerify, createLocalJWKSet } from "jose";
@@ -105,33 +105,67 @@ export function createSheetAuthClient(baseURL: string) {
  */
 export function getSession(client: SheetAuthClient, headers?: Headers | HeadersInit) {
   return Effect.gen(function* () {
-    const runtime = yield* Effect.runtime();
-    const jwt = yield* Deferred.make<string | null>();
     const session = yield* Effect.tryPromise({
       try: async () =>
-        Option.fromNullable(
-          await client.getSession({
-            fetchOptions: {
-              headers,
-              onSuccess: (ctx) =>
-                Runtime.runPromise(
-                  runtime,
-                  Deferred.succeed(jwt, ctx.response.headers.get("set-auth-jwt")).pipe(
-                    Effect.asVoid,
-                  ),
-                ),
-              onError: () =>
-                Runtime.runPromise(runtime, Deferred.succeed(jwt, null).pipe(Effect.asVoid)),
-            },
-          }),
-        ),
+        await client.getSession({
+          fetchOptions: {
+            headers,
+          },
+        }),
       catch: (error) =>
         new SessionResponseError({
           message: error instanceof Error ? error.message : "Failed to get session",
         }),
     });
 
-    return { session, jwt: Option.fromNullable(yield* jwt) };
+    if (session.error) {
+      yield* Effect.fail(
+        new SessionResponseError({
+          message: session.error.message || "Failed to get session",
+        }),
+      );
+      return Option.none();
+    }
+
+    return Option.fromNullable(session.data);
+  });
+}
+
+// =============================================================================
+// 5. Token
+// =============================================================================
+
+/**
+ * Get the token using the Better Auth client.
+ *
+ * @param client - Better Auth client instance
+ * @returns Effect with the token
+ */
+export function getToken(client: SheetAuthClient, headers?: Headers | HeadersInit) {
+  return Effect.gen(function* () {
+    const token = yield* Effect.tryPromise({
+      try: async () =>
+        await client.token({
+          fetchOptions: {
+            headers,
+          },
+        }),
+      catch: (error) =>
+        new SessionResponseError({
+          message: error instanceof Error ? error.message : "Failed to get token",
+        }),
+    });
+
+    if (token.error) {
+      yield* Effect.fail(
+        new SessionResponseError({
+          message: token.error.message || "Failed to get token",
+        }),
+      );
+      return Option.none();
+    }
+
+    return Option.some(token.data.token);
   });
 }
 

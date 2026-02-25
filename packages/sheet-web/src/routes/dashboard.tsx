@@ -4,7 +4,7 @@ import { Calendar, Users, ChevronRight } from "lucide-react";
 import { Discord } from "sheet-apis/schema";
 import { Registry } from "@effect-atom/atom-react";
 import { Effect, Option } from "effect";
-import { sessionDataAtom } from "#/lib/auth";
+import { sessionAtom } from "#/lib/auth";
 import { useCurrentUserGuilds } from "#/lib/discord";
 
 // Infer the type from the Schema
@@ -26,7 +26,7 @@ export const Route = createFileRoute("/dashboard")({
   component: DashboardPage,
   beforeLoad: async ({ context }) => {
     const session = await Effect.runPromise(
-      Registry.getResult(context.atomRegistry, sessionDataAtom).pipe(
+      Registry.getResult(context.atomRegistry, sessionAtom).pipe(
         Effect.catchAll(() => Effect.succeedNone),
       ),
     );
