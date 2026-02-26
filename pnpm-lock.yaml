@@ -161,6 +161,12 @@ importers:
       arkregex:
         specifier: ^0.0.2
         version: 0.0.2
+      dfx:
+        specifier: ^0.127.0
+        version: 0.127.0(@effect/platform@0.94.2(effect@3.19.15))(effect@3.19.15)
+      dfx-discord-utils:
+        specifier: workspace:*
+        version: link:../dfx-discord-utils
       effect:
         specifier: ^3.19.8
         version: 3.19.15
@@ -188,6 +194,9 @@ importers:
       ufo:
         specifier: ^1.6.1
         version: 1.6.1
+      unstorage:
+        specifier: ^1.15.0
+        version: 1.17.4(aws4fetch@1.0.20)(db0@0.3.4(better-sqlite3@12.6.2)(drizzle-orm@0.45.1(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.6.2)(gel@2.2.0)(kysely@0.28.11)(pg@8.17.2)(postgres@3.4.7)))(ioredis@5.9.3)
       vitest:
         specifier: ^4.0.18
         version: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@24.7.2)(jiti@2.6.1)(jsdom@27.4.0(@noble/hashes@2.0.1))(lightningcss@1.31.1)(tsx@4.20.6)

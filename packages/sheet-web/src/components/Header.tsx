@@ -16,7 +16,7 @@ function AuthSection() {
     onSome: (session) => (
       <div className="flex items-center gap-4">
         <Link
-          to="/dashboard"
+          to="/dashboard/shifts"
           className="hidden sm:flex items-center gap-2 px-4 h-10 bg-[#33ccbb]/10 border border-[#33ccbb]/30 text-[#33ccbb] hover:bg-[#33ccbb]/20 font-bold text-sm tracking-wide transition-colors"
         >
           <LayoutDashboard className="w-4 h-4" />
@@ -91,7 +91,7 @@ function MobileAuthSection({ onNavigate }: { onNavigate: () => void }) {
           <span className="text-lg font-bold text-white">{session.user.name || "User"}</span>
         </div>
         <Link
-          to="/dashboard"
+          to="/dashboard/shifts"
           onClick={onNavigate}
           className="flex items-center justify-center gap-2 w-full bg-[#33ccbb]/10 border border-[#33ccbb]/30 text-[#33ccbb] hover:bg-[#33ccbb]/20 h-14 font-bold text-lg tracking-wide transition-colors"
         >

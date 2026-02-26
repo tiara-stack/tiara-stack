@@ -1,6 +1,6 @@
 import { HttpApiBuilder, HttpApiSwagger, HttpMiddleware, HttpServer } from "@effect/platform";
 import { NodeHttpClient, NodeHttpServer } from "@effect/platform-node";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, pipe, Redacted } from "effect";
 import { createServer } from "http";
 import { Api } from "./api";
 import { config } from "./config";
@@ -16,6 +16,13 @@ import { PlayerLive } from "./handlers/player";
 import { ScreenshotLive } from "./handlers/screenshot";
 import { ScheduleLive } from "./handlers/schedule";
 import { DiscordLive } from "./handlers/discord";
+import {
+  Unstorage,
+  GuildsCacheView,
+  RolesCacheView,
+  MembersCacheView,
+  ChannelsCacheView,
+} from "./services/cache";
 
 const ApiLive = Layer.provide(HttpApiBuilder.api(Api), [
   CalcLive,
@@ -31,6 +38,27 @@ const ApiLive = Layer.provide(HttpApiBuilder.api(Api), [
   ScheduleLive,
   DiscordLive,
 ]);
+
+// Redis layer - provides the base Unstorage context
+const RedisLive = Layer.unwrapEffect(
+  Effect.gen(function* () {
+    const redisUrl = yield* config.redisUrl;
+    return Unstorage.RedisLive({ url: Redacted.value(redisUrl) });
+  }),
+);
+
+// Unstorage layer with prefix - same pattern as sheet-bot
+// Provides prefixed storage that cache services consume
+const UnstorageLayer = pipe(Unstorage.PrefixedLive("discord:"), Layer.provide(RedisLive));
+
+// Discord cache layer - requires Redis to share cache with sheet-bot
+// These services consume the Unstorage context provided by UnstorageLayer
+export const CacheLive = Layer.mergeAll(
+  GuildsCacheView.Default,
+  RolesCacheView.Default,
+  MembersCacheView.Default,
+  ChannelsCacheView.Default,
+).pipe(Layer.provide(UnstorageLayer));
 
 // Helper to check if origin matches trusted origins (supports wildcards like http://localhost:*)
 // * matches single hostname segment only (e.g., *.example.com matches a.example.com but not a.b.example.com)

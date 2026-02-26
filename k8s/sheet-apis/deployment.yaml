@@ -44,6 +44,11 @@ spec:
                   key: zeroCacheServer
             - name: ZERO_CACHE_USER_ID
               value: "system:serviceaccount:$(POD_NAMESPACE):sheet-apis"
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: sheet-apis-secret
+                  key: redisUrl
             - name: SHEET_AUTH_ISSUER
               valueFrom:
                 secretKeyRef:

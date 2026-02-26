@@ -8,4 +8,5 @@ export const config = {
     "TRUSTED_ORIGINS",
     Schema.split(",").pipe(Schema.compose(Schema.Array(Schema.Trim))),
   ),
+  redisUrl: Schema.Config("REDIS_URL", Schema.Redacted(Schema.String)),
 };
