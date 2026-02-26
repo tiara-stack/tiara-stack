@@ -49,6 +49,11 @@ spec:
                 secretKeyRef:
                   name: sheet-apis-secret
                   key: sheetAuthIssuer
+            - name: TRUSTED_ORIGINS
+              valueFrom:
+                secretKeyRef:
+                  name: sheet-apis-secret
+                  key: trustedOrigins
           livenessProbe:
             httpGet:
               path: /live
