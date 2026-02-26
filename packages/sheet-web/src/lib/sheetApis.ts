@@ -3,7 +3,7 @@ import { FetchHttpClient, HttpClient, HttpClientRequest } from "@effect/platform
 import { Api } from "sheet-apis/api";
 import { sessionJwtAtom } from "#/lib/auth";
 import { sheetApisBaseUrlAtom } from "#/lib/configAtoms";
-import { Effect, Layer, Option } from "effect";
+import { Effect, Function, Layer, Option, pipe } from "effect";
 import { atomRegistry } from "./atomRegistry";
 
 const AuthClientLive = Effect.gen(function* () {
@@ -22,18 +22,24 @@ const AuthClientLive = Effect.gen(function* () {
         }),
       );
 
-      return Option.match(baseUrl, {
-        onSome: (baseUrl) => HttpClientRequest.prependUrl(request, baseUrl.href),
-        onNone: () => request,
-      }).pipe((request) =>
+      return pipe(
+        request,
+        Option.match(baseUrl, {
+          onSome: (baseUrl) => HttpClientRequest.prependUrl(baseUrl.href),
+          onNone: () => Function.identity<HttpClientRequest.HttpClientRequest>,
+        }),
         Option.match(jwt, {
-          onSome: (token) => HttpClientRequest.bearerToken(request, token),
-          onNone: () => request,
+          onSome: (token) => HttpClientRequest.bearerToken(token),
+          onNone: () => Function.identity<HttpClientRequest.HttpClientRequest>,
         }),
       );
     }),
   );
-}).pipe(Layer.effect(HttpClient.HttpClient), Layer.provide(FetchHttpClient.layer));
+}).pipe(
+  Layer.effect(HttpClient.HttpClient),
+  Layer.provide(FetchHttpClient.layer),
+  Layer.provide(Layer.succeed(FetchHttpClient.RequestInit, { credentials: "include" })),
+);
 
 export class SheetApisClient extends AtomHttpApi.Tag<SheetApisClient>()("SheetApisClient", {
   api: Api,
