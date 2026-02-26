@@ -54,7 +54,7 @@ const MiddlewareCorsLive = Layer.unwrapEffect(
     const trustedOrigins = [...(yield* config.trustedOrigins)];
     return HttpApiBuilder.middlewareCors({
       allowedOrigins: (origin) => isOriginAllowed(origin, trustedOrigins),
-      allowedHeaders: ["Content-Type", "Authorization"],
+      allowedHeaders: ["Content-Type", "Authorization", "b3", "traceparent", "tracestate"],
       allowedMethods: ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
       exposedHeaders: ["Content-Length"],
       maxAge: 600,
