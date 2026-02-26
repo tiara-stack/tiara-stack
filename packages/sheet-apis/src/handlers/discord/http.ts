@@ -7,19 +7,12 @@ import { Discord } from "@/schema";
 import { config } from "@/config";
 import { createSheetAuthClient, getDiscordAccessToken } from "sheet-auth/client";
 
-/**
- * Discord API Handler
- *
- * Fetches the current user's Discord guilds using their OAuth access token.
- * Uses Better Auth's client with bearer plugin for stateless authentication.
- */
 export const DiscordLive = HttpApiBuilder.group(Api, "discord", (handlers) =>
   pipe(
     Effect.all({
       authIssuer: config.sheetAuthIssuer,
     }),
     Effect.map(({ authIssuer }) => {
-      // Create Better Auth client with bearer plugin for stateless auth
       const authClient = createSheetAuthClient(authIssuer.replace(/\/$/, ""));
 
       return handlers.handle("getCurrentUserGuilds", () =>
@@ -27,6 +20,8 @@ export const DiscordLive = HttpApiBuilder.group(Api, "discord", (handlers) =>
           const headers = yield* HttpServerRequest.schemaHeaders(
             Schema.Record({ key: Schema.String, value: Schema.UndefinedOr(Schema.String) }),
           ).pipe(catchParseErrorAsValidationError);
+
+          yield* Effect.log("headers: " + JSON.stringify(headers));
 
           const tokenResult = yield* pipe(
             getDiscordAccessToken(
@@ -41,7 +36,6 @@ export const DiscordLive = HttpApiBuilder.group(Api, "discord", (handlers) =>
             ),
           );
 
-          // Call Discord API to get guilds
           const discordResponse = yield* pipe(
             Effect.promise(() =>
               fetch("https://discord.com/api/v10/users/@me/guilds", {
