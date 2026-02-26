@@ -1,8 +1,7 @@
-import { HttpApiBuilder } from "@effect/platform";
-import { makeArgumentError } from "typhoon-core/error";
-import { Effect, Layer, pipe, Schema } from "effect";
+import { HttpApiBuilder, HttpServerRequest } from "@effect/platform";
+import { catchParseErrorAsValidationError, makeArgumentError } from "typhoon-core/error";
+import { Effect, Layer, pipe, Schema, Record } from "effect";
 import { Api } from "@/api";
-import { SheetAuthUser } from "@/middlewares/sheetAuthTokenAuthorization/tag";
 import { SheetAuthTokenAuthorizationLive } from "@/middlewares/sheetAuthTokenAuthorization/live";
 import { Discord } from "@/schema";
 import { config } from "@/config";
@@ -25,12 +24,15 @@ export const DiscordLive = HttpApiBuilder.group(Api, "discord", (handlers) =>
 
       return handlers.handle("getCurrentUserGuilds", () =>
         Effect.gen(function* () {
-          const sheetAuthUser = yield* SheetAuthUser;
+          const headers = yield* HttpServerRequest.schemaHeaders(
+            Schema.Record({ key: Schema.String, value: Schema.UndefinedOr(Schema.String) }),
+          ).pipe(catchParseErrorAsValidationError);
 
-          // Get Discord access token using Better Auth client with bearer token
-          // The bearer plugin passes the JWT via Authorization header
           const tokenResult = yield* pipe(
-            getDiscordAccessToken(authClient, sheetAuthUser.token),
+            getDiscordAccessToken(
+              authClient,
+              Record.filter(headers, (value) => value !== undefined),
+            ),
             Effect.mapError((error) =>
               makeArgumentError(
                 `Failed to get Discord access token: ${error.message}. ` +

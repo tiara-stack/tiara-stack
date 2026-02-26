@@ -258,16 +258,14 @@ export function verifyToken(
  */
 export function getDiscordAccessToken(
   client: SheetAuthClient,
-  jwtToken: string,
+  headers?: Headers | HeadersInit,
 ): Effect.Effect<{ accessToken: string }, DiscordAccessTokenError> {
   return Effect.tryPromise({
     try: async () => {
       const result = await client.getAccessToken({
         providerId: "discord",
         fetchOptions: {
-          headers: {
-            Authorization: `Bearer ${jwtToken}`,
-          },
+          headers,
         },
       });
 
