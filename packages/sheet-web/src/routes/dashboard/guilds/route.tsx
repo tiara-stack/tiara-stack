@@ -1,6 +1,5 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
 import { Suspense } from "react";
-import { Users } from "lucide-react";
 import { format } from "date-fns";
 import { Discord } from "sheet-apis/schema";
 import { useCurrentUserGuilds } from "#/lib/discord";
@@ -65,10 +64,10 @@ function GuildSidebarContent() {
 }
 
 export const Route = createFileRoute("/dashboard/guilds")({
-  component: GuildsPage,
+  component: GuildsLayout,
 });
 
-function GuildsPage() {
+function GuildsLayout() {
   return (
     <div className="flex gap-6">
       {/* Guild Sidebar */}
@@ -83,21 +82,9 @@ function GuildsPage() {
         </div>
       </div>
 
-      {/* Content Area */}
+      {/* Content Area - Renders child routes */}
       <div className="flex-1 min-h-[400px]">
-        <div className="border border-[#33ccbb]/20 bg-[#0f1615] p-8">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 bg-[#33ccbb]/10 flex items-center justify-center">
-              <Users className="w-5 h-5 text-[#33ccbb]" />
-            </div>
-            <h2 className="text-xl font-black tracking-tight">YOUR GUILDS</h2>
-          </div>
-          <div className="h-48 flex items-center justify-center border-2 border-dashed border-[#33ccbb]/20">
-            <p className="text-white/40 font-medium tracking-wide">
-              SELECT A GUILD FROM THE SIDEBAR
-            </p>
-          </div>
-        </div>
+        <Outlet />
       </div>
     </div>
   );
