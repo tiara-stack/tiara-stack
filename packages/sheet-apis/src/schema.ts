@@ -5,3 +5,5 @@ export * as MessageRoomOrder from "./schemas/messageRoomOrder";
 export * as MessageCheckin from "./schemas/messageCheckin";
 export * as GuildConfig from "./schemas/guildConfig";
 export * as Discord from "./schemas/discord";
+export * as Middlewares from "./schemas/middlewares";
+export * as Google from "./schemas/google";

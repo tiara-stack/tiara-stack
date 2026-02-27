@@ -1,7 +1,7 @@
 import { Effect, Layer, pipe, Redacted } from "effect";
 import { verifyToken, createSheetAuthClient } from "sheet-auth/client";
 import { SheetAuthTokenAuthorization } from "./tag";
-import { Unauthorized } from "../error";
+import { Unauthorized } from "@/schemas/middlewares/unauthorized";
 import { config } from "../../config";
 
 export const SheetAuthTokenAuthorizationLive = Layer.effect(

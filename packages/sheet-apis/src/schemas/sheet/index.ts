@@ -15,3 +15,4 @@ export {
   PopulatedScheduleResult,
   toPopulatedSchedule,
 } from "./populatedSchedule";
+export { ParserFieldError } from "./error";

@@ -1,7 +1,7 @@
-import { Atom, useAtomSet, useAtomSuspense } from "@effect-atom/atom-react";
+import { Atom, Result, useAtomSet, useAtomSuspense } from "@effect-atom/atom-react";
 import { createIsomorphicFn, getRouterInstance } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { Reactivity } from "@effect/experimental";
 import { createSheetAuthClient, getSession, getToken } from "sheet-auth/client";
 import { appBaseUrlAtom, authBaseUrlAtom } from "#/lib/configAtoms";
@@ -36,7 +36,37 @@ export const sessionAtom = Atom.make(
       return yield* getSession(authClient, getRequestHeadersFn());
     }).pipe(Effect.catchAll(() => Effect.succeedNone));
   }),
-).pipe(Atom.withReactivity(["session"]));
+).pipe(
+  Atom.serializable({
+    key: "session",
+    schema: Result.Schema({
+      success: Schema.Option(
+        Schema.Struct({
+          user: Schema.Struct({
+            id: Schema.String,
+            createdAt: Schema.Date,
+            updatedAt: Schema.Date,
+            email: Schema.String,
+            emailVerified: Schema.Boolean,
+            name: Schema.String,
+            image: Schema.optional(Schema.NullOr(Schema.String)),
+          }),
+          session: Schema.Struct({
+            id: Schema.String,
+            userId: Schema.String,
+            token: Schema.String,
+            expiresAt: Schema.Date,
+            ipAddress: Schema.optional(Schema.NullOr(Schema.String)),
+            userAgent: Schema.optional(Schema.NullOr(Schema.String)),
+            createdAt: Schema.Date,
+            updatedAt: Schema.Date,
+          }),
+        }),
+      ),
+    }),
+  }),
+  Atom.withReactivity(["session"]),
+);
 
 export const useSession = () => {
   const result = useAtomSuspense(sessionAtom, {
@@ -53,6 +83,12 @@ export const sessionJwtAtom = Atom.make(
       return yield* getToken(authClient, getRequestHeadersFn());
     }).pipe(Effect.catchAll(() => Effect.succeedNone));
   }),
+).pipe(
+  Atom.serializable({
+    key: "jwt",
+    schema: Result.Schema({ success: Schema.Option(Schema.String) }),
+  }),
+  Atom.withReactivity(["jwt"]),
 );
 
 export const useSessionJwt = () => {

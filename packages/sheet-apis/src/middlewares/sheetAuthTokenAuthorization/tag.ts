@@ -1,5 +1,5 @@
 import { HttpApiMiddleware, HttpApiSecurity, OpenApi } from "@effect/platform";
-import { Unauthorized } from "../error";
+import { Unauthorized } from "@/schemas/middlewares/unauthorized";
 import { Context } from "effect";
 
 /**
