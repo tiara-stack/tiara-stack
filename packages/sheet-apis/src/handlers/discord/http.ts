@@ -7,7 +7,6 @@ import { Discord } from "@/schema";
 import { config } from "@/config";
 import { createSheetAuthClient, getDiscordAccessToken } from "sheet-auth/client";
 import { GuildsCacheView } from "@/services/cache";
-import type { GuildResponse } from "@/schemas/discord";
 
 // Minimal guild from Discord API for checking membership
 const DiscordMyGuild = Schema.Struct({
@@ -72,7 +71,7 @@ export const DiscordLive = HttpApiBuilder.group(Api, "discord", (handlers) =>
             ),
           );
 
-          // Look up full guild data from cache - cache returns GuildResponse directly or fails
+          // Look up full guild data from cache - returns Guild Object from Gateway
           const maybeGuilds = yield* Effect.forEach(
             userGuilds,
             ({ id }) =>
@@ -87,7 +86,7 @@ export const DiscordLive = HttpApiBuilder.group(Api, "discord", (handlers) =>
           );
 
           // Filter out nulls (guilds not in cache)
-          const cachedGuilds = maybeGuilds.filter((g): g is GuildResponse => g !== null);
+          const cachedGuilds = maybeGuilds.filter((g): g is NonNullable<typeof g> => g !== null);
 
           // Decode through schema to ensure type safety
           return yield* Schema.decode(Schema.Array(Discord.DiscordGuild))(cachedGuilds).pipe(
