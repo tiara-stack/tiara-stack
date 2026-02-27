@@ -1,6 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { Suspense } from "react";
 import { Users } from "lucide-react";
+import { format } from "date-fns";
 import { Discord } from "sheet-apis/schema";
 import { useCurrentUserGuilds } from "#/lib/discord";
 
@@ -23,8 +24,16 @@ function GuildIcon({ guild }: { guild: DiscordGuildType }) {
     ? `https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.png`
     : null;
 
+  // Calculate default date values for the link
+  const now = new Date();
+  const defaultMonth = format(now, "yyyy-MM");
+  const defaultDay = format(now, "yyyy-MM-dd");
+
   return (
-    <div
+    <Link
+      to="/dashboard/guilds/$guildId/schedule/calendar"
+      params={{ guildId: guild.id }}
+      search={{ month: defaultMonth, day: defaultDay }}
       className="w-12 h-12 rounded-lg bg-[#0f1615] border border-[#33ccbb]/30 flex items-center justify-center overflow-hidden hover:border-[#33ccbb] transition-colors cursor-pointer"
       title={guild.name}
     >
@@ -35,7 +44,7 @@ function GuildIcon({ guild }: { guild: DiscordGuildType }) {
           {guild.name.slice(0, 2).toUpperCase()}
         </span>
       )}
-    </div>
+    </Link>
   );
 }
 
@@ -76,14 +85,14 @@ function GuildsPage() {
 
       {/* Content Area */}
       <div className="flex-1 min-h-[400px]">
-        <div className="border border-[#33ccbb]/20 bg-[#0f1615] p-12">
-          <div className="flex items-center gap-4 mb-8">
-            <div className="w-12 h-12 bg-[#33ccbb]/10 flex items-center justify-center">
-              <Users className="w-6 h-6 text-[#33ccbb]" />
+        <div className="border border-[#33ccbb]/20 bg-[#0f1615] p-8">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 bg-[#33ccbb]/10 flex items-center justify-center">
+              <Users className="w-5 h-5 text-[#33ccbb]" />
             </div>
-            <h2 className="text-3xl font-black tracking-tight">YOUR GUILDS</h2>
+            <h2 className="text-xl font-black tracking-tight">YOUR GUILDS</h2>
           </div>
-          <div className="h-64 flex items-center justify-center border-2 border-dashed border-[#33ccbb]/20">
+          <div className="h-48 flex items-center justify-center border-2 border-dashed border-[#33ccbb]/20">
             <p className="text-white/40 font-medium tracking-wide">
               SELECT A GUILD FROM THE SIDEBAR
             </p>

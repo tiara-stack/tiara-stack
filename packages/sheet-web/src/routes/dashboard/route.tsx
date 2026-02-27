@@ -100,8 +100,8 @@ function DashboardLayout() {
         <div className="mt-12 grid grid-cols-1 sm:grid-cols-3 gap-px bg-[#33ccbb]/20">
           <div className="bg-[#0f1615] p-6 flex items-center justify-between">
             <div>
-              <p className="text-4xl font-black text-[#33ccbb]">0</p>
-              <p className="text-sm font-bold text-white/50 tracking-wide">UPCOMING</p>
+              <p className="text-5xl font-black text-[#33ccbb]">0</p>
+              <p className="text-base font-bold text-white/60 tracking-wide">UPCOMING</p>
             </div>
             <div className="w-12 h-12 border border-[#33ccbb]/30 flex items-center justify-center">
               <Calendar className="w-5 h-5 text-[#33ccbb]" />
@@ -109,8 +109,8 @@ function DashboardLayout() {
           </div>
           <div className="bg-[#0f1615] p-6 flex items-center justify-between">
             <div>
-              <p className="text-4xl font-black text-[#33ccbb]">0</p>
-              <p className="text-sm font-bold text-white/50 tracking-wide">GUILDS</p>
+              <p className="text-5xl font-black text-[#33ccbb]">0</p>
+              <p className="text-base font-bold text-white/60 tracking-wide">GUILDS</p>
             </div>
             <div className="w-12 h-12 border border-[#33ccbb]/30 flex items-center justify-center">
               <Users className="w-5 h-5 text-[#33ccbb]" />
@@ -118,8 +118,8 @@ function DashboardLayout() {
           </div>
           <div className="bg-[#0f1615] p-6 flex items-center justify-between">
             <div>
-              <p className="text-4xl font-black text-[#33ccbb]">0</p>
-              <p className="text-sm font-bold text-white/50 tracking-wide">COMPLETED</p>
+              <p className="text-5xl font-black text-[#33ccbb]">0</p>
+              <p className="text-base font-bold text-white/60 tracking-wide">COMPLETED</p>
             </div>
             <div className="w-12 h-12 border border-[#33ccbb]/30 flex items-center justify-center">
               <ChevronRight className="w-5 h-5 text-[#33ccbb]" />

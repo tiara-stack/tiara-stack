@@ -13,7 +13,7 @@
       "#/*": ["./src/*"]
     },
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": ["vite/client"],
+    "types": ["vite/client", "react/canary"],
 
     /* Bundler mode */
     "moduleResolution": "bundler",
