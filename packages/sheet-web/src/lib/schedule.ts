@@ -1,7 +1,7 @@
 import { Atom, Result, useAtomSuspense } from "@effect-atom/atom-react";
 import { Sheet, Google, SheetConfig, Middlewares } from "sheet-apis/schema";
 import { SheetApisClient } from "#/lib/sheetApis";
-import { DateTime, Effect, Option, Schema } from "effect";
+import { Array, DateTime, Effect, Option, Schema } from "effect";
 import {
   catchParseErrorAsValidationError,
   QueryResultError,
@@ -92,6 +92,19 @@ export const computeScheduleDayHour = (
   const day = Math.floor(totalHours / 24);
   const hour = totalHours; // Keep as cumulative hour
   return { day, hour };
+};
+
+// Extract unique channels from schedules
+export const getChannelsFromSchedules = (
+  schedules: readonly Sheet.PopulatedScheduleResult[],
+): string[] => {
+  const channelSet = new Set<string>();
+  schedules.forEach((schedule) => {
+    if (schedule._tag === "PopulatedSchedule") {
+      channelSet.add(schedule.channel);
+    }
+  });
+  return Array.fromIterable(channelSet).sort();
 };
 
 // Filter schedules that fall within a specific date (in the target timezone)

@@ -8,7 +8,7 @@ import {
 import { Calendar as CalendarIcon, Users } from "lucide-react";
 import { useTransition, useMemo } from "react";
 import { Schema, pipe } from "effect";
-import { useGuildSchedule } from "#/lib/schedule";
+import { useGuildSchedule, getChannelsFromSchedules } from "#/lib/schedule";
 
 // Search params schema using Effect Schema
 const ScheduleSearchSchema = Schema.Struct({
@@ -20,19 +20,6 @@ export type ScheduleSearchParams = typeof ScheduleSearchSchema.Type;
 
 // Create route API to access search params from child routes
 export const routeApi = getRouteApi("/dashboard/guilds/$guildId/schedule/$channel");
-
-// Extract unique channels from schedules
-const getChannelsFromSchedules = (
-  schedules: readonly import("#/lib/schedule").ScheduleResult[],
-): string[] => {
-  const channelSet = new Set<string>();
-  schedules.forEach((schedule) => {
-    if (schedule._tag === "PopulatedSchedule") {
-      channelSet.add(schedule.channel);
-    }
-  });
-  return Array.from(channelSet).sort();
-};
 
 export const Route = createFileRoute("/dashboard/guilds/$guildId/schedule/$channel")({
   validateSearch: pipe(ScheduleSearchSchema, Schema.standardSchemaV1),
