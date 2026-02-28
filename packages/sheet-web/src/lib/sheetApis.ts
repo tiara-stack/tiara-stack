@@ -5,6 +5,17 @@ import { sessionJwtAtom } from "#/lib/auth";
 import { sheetApisBaseUrlAtom } from "#/lib/configAtoms";
 import { Effect, Function, Layer, Option, pipe } from "effect";
 import { atomRegistry } from "./atomRegistry";
+import { getRequestHeaders } from "@tanstack/react-start/server";
+import { createIsomorphicFn } from "@tanstack/react-start";
+
+const applyRequestHeadersFn = createIsomorphicFn()
+  .server(
+    () => (request: HttpClientRequest.HttpClientRequest) =>
+      HttpClientRequest.setHeaders(request, {
+        Cookie: getRequestHeaders().get("Cookie") ?? undefined,
+      }),
+  )
+  .client(() => Function.identity<HttpClientRequest.HttpClientRequest>);
 
 const AuthClientLive = Effect.gen(function* () {
   const httpClient = yield* HttpClient.HttpClient;
@@ -32,6 +43,7 @@ const AuthClientLive = Effect.gen(function* () {
           onSome: (token) => HttpClientRequest.bearerToken(token),
           onNone: () => Function.identity<HttpClientRequest.HttpClientRequest>,
         }),
+        applyRequestHeadersFn(),
       );
     }),
   );
