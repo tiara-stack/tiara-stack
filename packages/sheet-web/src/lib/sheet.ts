@@ -8,10 +8,12 @@ import {
   ValidationError,
 } from "typhoon-core/error";
 import { RequestError, ResponseError } from "#/lib/error";
+import { useMemo } from "react";
 
 // Private atom for fetching event config (includes startTime)
-const _eventConfigAtom = (guildId: string) =>
-  SheetApisClient.query("sheet", "getEventConfig", { urlParams: { guildId } });
+const _eventConfigAtom = Atom.family((guildId: string) =>
+  SheetApisClient.query("sheet", "getEventConfig", { urlParams: { guildId } }),
+);
 
 // Error type for event config requests - must match all possible errors including ParserFieldError from catchParseErrorAsValidationError
 const EventConfigError = Schema.Union(
@@ -26,7 +28,7 @@ const EventConfigError = Schema.Union(
 );
 
 // Serializable atom for event config
-export const eventConfigAtom = (guildId: string) =>
+export const eventConfigAtom = Atom.family((guildId: string) =>
   Atom.make(
     Effect.fnUntraced(function* (get) {
       return yield* get.result(_eventConfigAtom(guildId)).pipe(
@@ -45,11 +47,13 @@ export const eventConfigAtom = (guildId: string) =>
         error: EventConfigError,
       }),
     }),
-  );
+  ),
+);
 
 // Hook to use event config (includes startTime)
-export const useEventConfig = (guildId: string): SheetConfig.EventConfig => {
-  const result = useAtomSuspense(eventConfigAtom(guildId), {
+export const useEventConfig = (guildId: string) => {
+  const atom = useMemo(() => eventConfigAtom(guildId), [guildId]);
+  const result = useAtomSuspense(atom, {
     suspendOnWaiting: true,
     includeFailure: false,
   });

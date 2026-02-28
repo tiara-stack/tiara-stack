@@ -9,19 +9,21 @@ import {
 } from "typhoon-core/error";
 import { RequestError, ResponseError } from "#/lib/error";
 import { eventConfigAtom } from "#/lib/sheet";
+import { useMemo } from "react";
 
 // Re-export types from sheet-apis
 export type ScheduleResult = Sheet.PopulatedScheduleResult;
 export type SchedulePlayer = Sheet.PopulatedSchedulePlayer;
 
 // Private atom for fetching all schedules for a guild
-const _guildScheduleAtom = (guildId: string) =>
+const _guildScheduleAtom = Atom.family((guildId: string) =>
   SheetApisClient.query("schedule", "getAllPopulatedSchedules", {
     urlParams: { guildId },
-  });
+  }),
+);
 
 // Serializable atom for guild schedule
-export const guildScheduleAtom = (guildId: string) =>
+export const guildScheduleAtom = Atom.family((guildId: string) =>
   Atom.make(
     Effect.fnUntraced(function* (get) {
       return yield* get.result(_guildScheduleAtom(guildId)).pipe(
@@ -49,18 +51,20 @@ export const guildScheduleAtom = (guildId: string) =>
         ),
       }),
     }),
-  );
+  ),
+);
 
 // Hook to use month schedule data
-export const useGuildSchedule = (guildId: string): readonly Sheet.PopulatedScheduleResult[] => {
-  const result = useAtomSuspense(guildScheduleAtom(guildId), {
+export const useGuildSchedule = (guildId: string) => {
+  const atom = useMemo(() => guildScheduleAtom(guildId), [guildId]);
+  const result = useAtomSuspense(atom, {
     suspendOnWaiting: true,
     includeFailure: false,
   });
   return result.value;
 };
 
-export const getAllChannelsAtom = (guildId: string) =>
+export const getAllChannelsAtom = Atom.family((guildId: string) =>
   Atom.make(
     Effect.fnUntraced(function* (get) {
       const schedules = yield* get.result(guildScheduleAtom(guildId));
@@ -89,10 +93,12 @@ export const getAllChannelsAtom = (guildId: string) =>
         ),
       }),
     }),
-  );
+  ),
+);
 
 export const useAllChannels = (guildId: string) => {
-  const result = useAtomSuspense(getAllChannelsAtom(guildId), {
+  const atom = useMemo(() => getAllChannelsAtom(guildId), [guildId]);
+  const result = useAtomSuspense(atom, {
     suspendOnWaiting: true,
     includeFailure: false,
   });
@@ -115,8 +121,7 @@ export function formatDayKey(dateTime: DateTime.Utc, timeZone: string): string {
   return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
 }
 
-// Derived atom for scheduled days within a calendar view range
-export const scheduledDaysAtom = (params: ScheduledDaysParams) =>
+const _scheduledDaysAtom = Atom.family((params: ScheduledDaysParams) =>
   Atom.make(
     Effect.fnUntraced(function* (get) {
       const { guildId, channel, timeZone, rangeStart, rangeEnd } = params;
@@ -150,9 +155,13 @@ export const scheduledDaysAtom = (params: ScheduledDaysParams) =>
         HashSet.fromIterable,
       );
     }),
-  ).pipe(
+  ),
+);
+
+export const scheduledDaysAtom = Atom.family((params: ScheduledDaysParams) =>
+  _scheduledDaysAtom(params).pipe(
     Atom.serializable({
-      key: `schedule.derived.scheduledDays.${params.guildId}.${params.channel}.${params.rangeStart}-${params.rangeEnd}`,
+      key: `schedule.derived.scheduledDays.${params.guildId}.${params.channel}.${params.timeZone}.${params.rangeStart}-${params.rangeEnd}`,
       schema: Result.Schema({
         success: Schema.HashSet(Schema.String),
         error: Schema.Union(
@@ -167,11 +176,16 @@ export const scheduledDaysAtom = (params: ScheduledDaysParams) =>
         ),
       }),
     }),
-  );
+  ),
+);
 
 // Hook to use scheduled days for a calendar view
-export const useScheduledDays = (params: ScheduledDaysParams): HashSet.HashSet<string> => {
-  const result = useAtomSuspense(scheduledDaysAtom(params), {
+export const useScheduledDays = (params: ScheduledDaysParams) => {
+  const atom = useMemo(
+    () => scheduledDaysAtom(params),
+    [params.guildId, params.channel, params.timeZone, params.rangeStart, params.rangeEnd],
+  );
+  const result = useAtomSuspense(atom, {
     suspendOnWaiting: true,
     includeFailure: false,
   });
