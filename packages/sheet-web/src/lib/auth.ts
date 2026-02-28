@@ -144,6 +144,8 @@ export const signInWithDiscord = runtimeAtom.fn(
 );
 
 export const useSignInWithDiscord = () => {
-  const signInWithDiscordFn = useAtomSet(signInWithDiscord, { mode: "promise" });
+  const signInWithDiscordFn = useAtomSet(signInWithDiscord, {
+    mode: "promise",
+  });
   return useCallback(() => signInWithDiscordFn(void 0), [signInWithDiscordFn]);
 };

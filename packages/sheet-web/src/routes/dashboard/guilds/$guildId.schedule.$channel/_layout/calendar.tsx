@@ -14,10 +14,13 @@ import {
   parseISO,
 } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
-import { type ScheduleResult, useGuildSchedule } from "#/lib/schedule";
+import { useGuildSchedule, filterSchedulesByDate } from "#/lib/schedule";
+import { useEventConfig } from "#/lib/sheet";
 import { useTimeZone } from "#/hooks/useTimeZone";
 
-export const Route = createFileRoute("/dashboard/guilds/$guildId/schedule/calendar")({
+export const Route = createFileRoute(
+  "/dashboard/guilds/$guildId/schedule/$channel/_layout/calendar",
+)({
   component: CalendarPage,
 });
 
@@ -59,6 +62,7 @@ function CalendarView({
   timeZone: string;
   navigate: ReturnType<typeof useNavigate>;
 }) {
+  const { channel } = Route.useParams();
   const search = Route.useSearch();
 
   // Parse month with fallback to current month if invalid
@@ -70,30 +74,49 @@ function CalendarView({
       return new Date();
     }
   }, [search.month]);
+
   const scheduleData = useGuildSchedule(guildId);
+  const eventConfig = useEventConfig(guildId);
 
   const calendarDays = useMemo(() => {
     return getCalendarDays(currentDate, timeZone);
   }, [currentDate, timeZone]);
 
-  // Build set of days that have schedules (using full date string to avoid cross-month false positives)
+  // Build set of days that have schedules for the selected channel
   const scheduledDays = useMemo(() => {
     const days = new Set<string>();
-    scheduleData.forEach((schedule: ScheduleResult) => {
-      if (schedule._tag === "PopulatedSchedule" && schedule.visible) {
-        days.add(`${format(currentDate, "yyyy-MM")}-${String(schedule.day).padStart(2, "0")}`);
+
+    calendarDays.forEach((day) => {
+      // Get schedules for this day
+      const daySchedules = filterSchedulesByDate(
+        scheduleData,
+        eventConfig.startTime,
+        day,
+        timeZone,
+      );
+
+      // Check if any schedule belongs to the selected channel
+      const hasChannelSchedule = daySchedules.some(
+        (schedule) =>
+          schedule._tag === "PopulatedSchedule" && schedule.channel === channel && schedule.visible,
+      );
+
+      if (hasChannelSchedule) {
+        const zonedDay = toZonedTime(day, timeZone);
+        days.add(format(zonedDay, "yyyy-MM-dd"));
       }
     });
+
     return days;
-  }, [scheduleData, currentDate]);
+  }, [scheduleData, eventConfig.startTime, calendarDays, timeZone, channel]);
 
   const weekDays = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 
   const handlePrevMonth = () => {
     const prevMonth = subMonths(currentDate, 1);
     navigate({
-      to: "/dashboard/guilds/$guildId/schedule/calendar",
-      params: { guildId },
+      to: ".",
+      params: { guildId, channel },
       search: {
         month: format(prevMonth, "yyyy-MM"),
         day: search.day,
@@ -104,8 +127,8 @@ function CalendarView({
   const handleNextMonth = () => {
     const nextMonth = addMonths(currentDate, 1);
     navigate({
-      to: "/dashboard/guilds/$guildId/schedule/calendar",
-      params: { guildId },
+      to: ".",
+      params: { guildId, channel },
       search: {
         month: format(nextMonth, "yyyy-MM"),
         day: search.day,
@@ -117,8 +140,8 @@ function CalendarView({
     const zonedDay = toZonedTime(day, timeZone);
     const dayStr = format(zonedDay, "yyyy-MM-dd");
     navigate({
-      to: "/dashboard/guilds/$guildId/schedule/daily",
-      params: { guildId },
+      to: "/dashboard/guilds/$guildId/schedule/$channel/daily",
+      params: { guildId, channel },
       search: { month: format(zonedDay, "yyyy-MM"), day: dayStr },
     });
   };

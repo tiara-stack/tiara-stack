@@ -1,6 +1,5 @@
 import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
 import { Suspense } from "react";
-import { format } from "date-fns";
 import { Discord } from "sheet-apis/schema";
 import { useCurrentUserGuilds } from "#/lib/discord";
 
@@ -23,16 +22,10 @@ function GuildIcon({ guild }: { guild: DiscordGuildType }) {
     ? `https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.png`
     : null;
 
-  // Calculate default date values for the link
-  const now = new Date();
-  const defaultMonth = format(now, "yyyy-MM");
-  const defaultDay = format(now, "yyyy-MM-dd");
-
   return (
     <Link
-      to="/dashboard/guilds/$guildId/schedule/calendar"
+      to="/dashboard/guilds/$guildId/schedule"
       params={{ guildId: guild.id }}
-      search={{ month: defaultMonth, day: defaultDay }}
       className="w-12 h-12 rounded-lg bg-[#0f1615] border border-[#33ccbb]/30 flex items-center justify-center overflow-hidden hover:border-[#33ccbb] transition-colors cursor-pointer"
       title={guild.name}
     >

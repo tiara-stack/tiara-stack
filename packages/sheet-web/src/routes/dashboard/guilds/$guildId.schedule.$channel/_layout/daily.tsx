@@ -3,14 +3,19 @@ import { ChevronLeft } from "lucide-react";
 import { useMemo, useRef, useState, useCallback, useEffect, Suspense } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { format, isSameDay, addDays, parseISO } from "date-fns";
-import { toZonedTime } from "date-fns-tz";
 import { Option } from "effect";
-import { type SchedulePlayer, type ScheduleResult, useDaySchedule } from "#/lib/schedule";
+import {
+  type SchedulePlayer,
+  type ScheduleResult,
+  useGuildSchedule,
+  filterSchedulesByDate,
+} from "#/lib/schedule";
+import { useEventConfig } from "#/lib/sheet";
 import { useTimeZone } from "#/hooks/useTimeZone";
 
 const MAX_DAY_RANGE = 365;
 
-export const Route = createFileRoute("/dashboard/guilds/$guildId/schedule/daily")({
+export const Route = createFileRoute("/dashboard/guilds/$guildId/schedule/$channel/_layout/daily")({
   component: DailyPage,
   ssr: "data-only", // Prevent component SSR to avoid timezone-based content flash
 });
@@ -42,6 +47,7 @@ function DailyScheduleView({
   timeZone: string;
   navigate: ReturnType<typeof useNavigate>;
 }) {
+  const { channel } = Route.useParams();
   const parentRef = useRef<HTMLDivElement>(null);
   const search = Route.useSearch();
 
@@ -111,14 +117,17 @@ function DailyScheduleView({
 
     // Extend forward if scrolling near end
     if (endIndex > virtualDays.length - 5) {
-      setDayRange((prev) => ({ ...prev, endOffset: Math.min(MAX_DAY_RANGE, prev.endOffset + 30) }));
+      setDayRange((prev) => ({
+        ...prev,
+        endOffset: Math.min(MAX_DAY_RANGE, prev.endOffset + 30),
+      }));
     }
   }, [virtualizer, virtualDays.length]);
 
   const handleBackToCalendar = () => {
     navigate({
-      to: "/dashboard/guilds/$guildId/schedule/calendar",
-      params: { guildId },
+      to: "/dashboard/guilds/$guildId/schedule/$channel/calendar",
+      params: { guildId, channel },
       search: {
         month: format(currentDate, "yyyy-MM"),
         day: search.day,
@@ -170,6 +179,7 @@ function DailyScheduleView({
                 <Suspense fallback={<DayScheduleSkeleton date={virtualDate} isActive={isActive} />}>
                   <DayScheduleGridContent
                     guildId={guildId}
+                    channel={channel}
                     date={virtualDate}
                     timeZone={timeZone}
                     isActive={isActive}
@@ -218,20 +228,36 @@ function DayScheduleSkeleton({ date, isActive }: { date: Date; isActive: boolean
 // Day Schedule Grid Content (fetches data)
 function DayScheduleGridContent({
   guildId,
+  channel,
   date,
   timeZone,
   isActive,
 }: {
   guildId: string;
+  channel: string;
   date: Date;
   timeZone: string;
   isActive: boolean;
 }) {
-  const zonedDate = toZonedTime(date, timeZone);
-  const dayNumber = parseInt(format(zonedDate, "d"), 10);
-  const scheduleData = useDaySchedule(guildId, dayNumber);
+  // Fetch all schedules and event config (with startTime)
+  const allSchedules = useGuildSchedule(guildId);
+  const eventConfig = useEventConfig(guildId);
 
-  return <DayScheduleGrid date={date} schedules={scheduleData} isActive={isActive} />;
+  // Filter schedules that fall within the target date based on startTime
+  const daySchedules = useMemo(() => {
+    return filterSchedulesByDate(allSchedules, eventConfig.startTime, date, timeZone);
+  }, [allSchedules, eventConfig.startTime, date, timeZone]);
+
+  // Filter schedules by channel and visibility
+  const channelSchedules = useMemo(() => {
+    return daySchedules.filter((schedule) =>
+      schedule._tag === "PopulatedSchedule"
+        ? schedule.channel === channel && schedule.visible
+        : true,
+    );
+  }, [daySchedules, channel]);
+
+  return <DayScheduleGrid date={date} schedules={channelSchedules} isActive={isActive} />;
 }
 
 // Individual Day Schedule Grid - Daily Planner Style
@@ -244,40 +270,19 @@ function DayScheduleGrid({
   schedules: readonly ScheduleResult[];
   isActive: boolean;
 }) {
-  // Get unique channels from schedules
-  const channels = useMemo(() => {
-    const channelSet = new Set<string>();
-    schedules.forEach((schedule: ScheduleResult) => {
-      if (schedule._tag === "PopulatedSchedule") {
-        channelSet.add(schedule.channel);
-      }
-    });
-    return Array.from(channelSet).sort();
-  }, [schedules]);
-
-  // State for selected channel tab - default to first channel if available
-  const [selectedChannel, setSelectedChannel] = useState<string | null>(channels[0] ?? null);
-
-  // Filter schedules by selected channel
-  const filteredSchedules = useMemo(() => {
-    if (!selectedChannel) return schedules;
-    return schedules.filter((schedule: ScheduleResult) =>
-      schedule._tag === "PopulatedSchedule" ? schedule.channel === selectedChannel : true,
-    );
-  }, [schedules, selectedChannel]);
-
-  // Group schedules by hour
+  // Group schedules by hour (modulo 24 since hour is cumulative across days)
   const schedulesByHour = useMemo(() => {
     const grouped = new Map<number, ScheduleResult[]>();
-    filteredSchedules.forEach((schedule: ScheduleResult) => {
-      const hour = schedule.hour._tag === "Some" ? schedule.hour.value : 0;
-      if (!grouped.has(hour)) {
-        grouped.set(hour, []);
+    schedules.forEach((schedule: ScheduleResult) => {
+      const cumulativeHour = Option.getOrElse(schedule.hour, () => 0);
+      const displayHour = cumulativeHour % 24; // Convert to 0-23 for display
+      if (!grouped.has(displayHour)) {
+        grouped.set(displayHour, []);
       }
-      grouped.get(hour)!.push(schedule);
+      grouped.get(displayHour)!.push(schedule);
     });
     return grouped;
-  }, [filteredSchedules]);
+  }, [schedules]);
 
   // Get all hours (0-23)
   const hours = Array.from({ length: 24 }, (_, i) => i);
@@ -290,31 +295,6 @@ function DayScheduleGrid({
           {format(date, "EEEE, MMMM d").toUpperCase()}
         </h4>
       </div>
-
-      {/* Channel Tabs */}
-      {channels.length > 0 ? (
-        <div className="flex gap-2 px-4 py-3 overflow-x-auto border-b border-[#33ccbb]/20">
-          {channels.map((channel) => (
-            <button
-              key={channel}
-              onClick={() => setSelectedChannel(channel)}
-              className={`
-                px-3 py-1.5 text-xs font-bold tracking-wide whitespace-nowrap transition-colors
-                ${
-                  selectedChannel === channel
-                    ? "bg-[#33ccbb] text-[#0a0f0e]"
-                    : "bg-[#0f1615] text-white border border-[#33ccbb]/30 hover:bg-[#33ccbb]/10"
-                }
-              `}
-            >
-              {channel.toUpperCase()}
-            </button>
-          ))}
-        </div>
-      ) : (
-        <div className="px-4 py-6 text-center text-white/40 text-sm">NO SCHEDULES FOR THIS DAY</div>
-      )}
-
       {/* Daily Planner Timeline */}
       <div className="relative">
         {hours.map((hour) => {
@@ -331,7 +311,6 @@ function DayScheduleGrid({
                   {format(new Date().setHours(hour, 0, 0, 0), "h a")}
                 </span>
               </div>
-
               {/* Schedule Block */}
               <div className="p-2 relative">
                 {hourSchedules.length > 0 ? (
