@@ -6,7 +6,7 @@ import { getCurrentTimestamp } from "#/lib/utils";
 
 export const Route = createFileRoute("/dashboard/guilds/$guildId/schedule")({
   component: ScheduleRedirect,
-  loader: async ({ params, context }) => {
+  beforeLoad: async ({ params, context }) => {
     const channels = await Effect.runPromise(
       Registry.getResult(context.atomRegistry, getAllChannelsAtom(params.guildId)).pipe(
         Effect.catchAll(() => Effect.succeed([])),

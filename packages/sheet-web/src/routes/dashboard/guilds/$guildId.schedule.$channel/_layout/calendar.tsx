@@ -1,8 +1,9 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useMemo, Suspense } from "react";
-import { DateTime, HashSet, Option } from "effect";
-import { useScheduledDays, formatDayKey } from "#/lib/schedule";
+import { DateTime, HashSet, Option, Effect } from "effect";
+import { Registry } from "@effect-atom/atom-react";
+import { useScheduledDays, scheduledDaysAtom, formatDayKey } from "#/lib/schedule";
 import { useTimeZone } from "#/hooks/useTimeZone";
 
 export const Route = createFileRoute(
@@ -10,6 +11,35 @@ export const Route = createFileRoute(
 )({
   component: CalendarPage,
   ssr: "data-only", // Prevent component SSR to avoid timezone-based content flash
+  loaderDeps: ({ search }) => ({ timestamp: search.timestamp }),
+  loader: async ({ context, params, deps }) => {
+    const timeZone = "UTC"; // Match useTimeZone behavior during SSR
+    const currentDate = Option.getOrElse(DateTime.make(deps.timestamp), () => DateTime.unsafeNow());
+
+    // Calculate calendar date range based on the timestamp from search params
+    const zoned = DateTime.unsafeSetZoneNamed(currentDate, timeZone);
+    const monthStartZoned = DateTime.startOf(zoned, "month");
+    const monthEndZoned = DateTime.endOf(zoned, "month");
+    const calendarStartZoned = DateTime.startOf(monthStartZoned, "week", { weekStartsOn: 0 });
+    const calendarEndZoned = DateTime.endOf(monthEndZoned, "week", { weekStartsOn: 0 });
+    const calendarStart = DateTime.toUtc(calendarStartZoned);
+    const calendarEnd = DateTime.toUtc(calendarEndZoned);
+    const rangeStart = DateTime.toEpochMillis(calendarStart);
+    const rangeEnd = DateTime.toEpochMillis(DateTime.add(calendarEnd, { days: 1 }));
+
+    await Effect.runPromise(
+      Registry.getResult(
+        context.atomRegistry,
+        scheduledDaysAtom({
+          guildId: params.guildId,
+          channel: params.channel,
+          timeZone,
+          rangeStart,
+          rangeEnd,
+        }),
+      ).pipe(Effect.catchAll(() => Effect.succeed(HashSet.empty<string>()))),
+    );
+  },
 });
 
 // Helper to get all days in a calendar grid (including padding days from prev/next month)

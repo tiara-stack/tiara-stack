@@ -2,14 +2,16 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { ChevronLeft } from "lucide-react";
 import { useMemo, useRef, useState, useCallback, useEffect, Suspense } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { DateTime, Option } from "effect";
+import { DateTime, Option, Effect } from "effect";
+import { Registry } from "@effect-atom/atom-react";
 import {
   type SchedulePlayer,
   type ScheduleResult,
   useGuildSchedule,
+  guildScheduleAtom,
   filterSchedulesByDate,
 } from "#/lib/schedule";
-import { useEventConfig } from "#/lib/sheet";
+import { useEventConfig, eventConfigAtom } from "#/lib/sheet";
 import { useTimeZone } from "#/hooks/useTimeZone";
 
 const MAX_DAY_RANGE = 365;
@@ -17,6 +19,26 @@ const MAX_DAY_RANGE = 365;
 export const Route = createFileRoute("/dashboard/guilds/$guildId/schedule/$channel/_layout/daily")({
   component: DailyPage,
   ssr: "data-only", // Prevent component SSR to avoid timezone-based content flash
+  loader: async ({ context, params }) => {
+    await Effect.runPromise(
+      Effect.all(
+        [
+          Registry.getResult(context.atomRegistry, guildScheduleAtom(params.guildId)).pipe(
+            Effect.catchAll(() => Effect.succeed([])),
+          ),
+          Registry.getResult(context.atomRegistry, eventConfigAtom(params.guildId)).pipe(
+            Effect.catchAll(() =>
+              Effect.succeed({
+                startTime: DateTime.unsafeNow(),
+                hourRange: { start: 0, end: 23 },
+              }),
+            ),
+          ),
+        ],
+        { concurrency: "unbounded" },
+      ),
+    );
+  },
 });
 
 function DailyPage() {
