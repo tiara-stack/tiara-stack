@@ -14,7 +14,7 @@ import {
   parseISO,
 } from "date-fns";
 import { toZonedTime } from "date-fns-tz";
-import { useGuildSchedule, filterSchedulesByDate } from "#/lib/schedule";
+import { useGuildSchedule, computeScheduleTimestamp } from "#/lib/schedule";
 import { useEventConfig } from "#/lib/sheet";
 import { useTimeZone } from "#/hooks/useTimeZone";
 
@@ -22,6 +22,7 @@ export const Route = createFileRoute(
   "/dashboard/guilds/$guildId/schedule/$channel/_layout/calendar",
 )({
   component: CalendarPage,
+  ssr: "data-only", // Prevent component SSR to avoid timezone-based content flash
 });
 
 // Helper to get days in month grid (including padding days)
@@ -37,8 +38,6 @@ function getCalendarDays(date: Date, timeZone: string): Date[] {
 
 function CalendarPage() {
   const { guildId } = Route.useParams();
-  const timeZone = useTimeZone();
-  const navigate = useNavigate();
 
   return (
     <Suspense
@@ -48,22 +47,17 @@ function CalendarPage() {
         </div>
       }
     >
-      <CalendarView guildId={guildId} timeZone={timeZone} navigate={navigate} />
+      <CalendarView guildId={guildId} />
     </Suspense>
   );
 }
 
-function CalendarView({
-  guildId,
-  timeZone,
-  navigate,
-}: {
-  guildId: string;
-  timeZone: string;
-  navigate: ReturnType<typeof useNavigate>;
-}) {
+function CalendarView({ guildId }: { guildId: string }) {
   const { channel } = Route.useParams();
   const search = Route.useSearch();
+
+  const timeZone = useTimeZone();
+  const navigate = useNavigate();
 
   // Parse month with fallback to current month if invalid
   const currentDate = useMemo(() => {
@@ -83,29 +77,45 @@ function CalendarView({
   }, [currentDate, timeZone]);
 
   // Build set of days that have schedules for the selected channel
+  // Optimized: compute date range once, then filter schedules in a single pass
   const scheduledDays = useMemo(() => {
+    if (calendarDays.length === 0 || scheduleData.length === 0) {
+      return new Set<string>();
+    }
+
     const days = new Set<string>();
 
-    calendarDays.forEach((day) => {
-      // Get schedules for this day
-      const daySchedules = filterSchedulesByDate(
-        scheduleData,
-        eventConfig.startTime,
-        day,
-        timeZone,
-      );
+    // Get the date range for the calendar view in milliseconds
+    const rangeStart = calendarDays[0].getTime();
+    const rangeEnd = calendarDays[calendarDays.length - 1].getTime() + 24 * 60 * 60 * 1000;
 
-      // Check if any schedule belongs to the selected channel
-      const hasChannelSchedule = daySchedules.some(
-        (schedule) =>
-          schedule._tag === "PopulatedSchedule" && schedule.channel === channel && schedule.visible,
-      );
-
-      if (hasChannelSchedule) {
-        const zonedDay = toZonedTime(day, timeZone);
-        days.add(format(zonedDay, "yyyy-MM-dd"));
+    // Single pass through all schedules - filter those in the calendar range for this channel
+    for (const schedule of scheduleData) {
+      // Skip non-schedule items or non-visible schedules
+      if (schedule._tag !== "PopulatedSchedule" || !schedule.visible) {
+        continue;
       }
-    });
+      // Skip schedules for other channels
+      if (schedule.channel !== channel) {
+        continue;
+      }
+
+      // Compute the schedule timestamp (schedule.hour is cumulative hours from event start)
+      const scheduleTimestamp = computeScheduleTimestamp(
+        eventConfig.startTime,
+        schedule.day,
+        schedule.hour,
+      );
+
+      // Check if this schedule falls within the calendar view range
+      if (scheduleTimestamp >= rangeStart && scheduleTimestamp < rangeEnd) {
+        // Convert to zoned time and add to set
+        const scheduleDate = new Date(scheduleTimestamp);
+        const zonedDay = toZonedTime(scheduleDate, timeZone);
+        const dayKey = format(zonedDay, "yyyy-MM-dd");
+        days.add(dayKey);
+      }
+    }
 
     return days;
   }, [scheduleData, eventConfig.startTime, calendarDays, timeZone, channel]);
