@@ -1,19 +1,15 @@
-import { createFileRoute, Outlet, Link, useLocation, getRouteApi } from "@tanstack/react-router";
+import { createFileRoute, Outlet, Link, useLocation } from "@tanstack/react-router";
 import { Calendar as CalendarIcon, Users } from "lucide-react";
-import { useMemo } from "react";
 import { Schema, pipe } from "effect";
-import { useGuildSchedule, getChannelsFromSchedules } from "#/lib/schedule";
+import { useAllChannels } from "#/lib/schedule";
 
 // Search params schema using Effect Schema
+// Timestamp in milliseconds for the selected date
 const ScheduleSearchSchema = Schema.Struct({
-  month: Schema.NonEmptyString,
-  day: Schema.NonEmptyString,
+  timestamp: Schema.Number,
 });
 
 export type ScheduleSearchParams = typeof ScheduleSearchSchema.Type;
-
-// Create route API to access search params from child routes
-export const routeApi = getRouteApi("/dashboard/guilds/$guildId/schedule/$channel");
 
 export const Route = createFileRoute("/dashboard/guilds/$guildId/schedule/$channel")({
   validateSearch: pipe(ScheduleSearchSchema, Schema.standardSchemaV1),
@@ -25,9 +21,7 @@ function ScheduleLayout() {
   const search = Route.useSearch();
   const location = useLocation();
 
-  // Fetch schedules to get all available channels
-  const scheduleData = useGuildSchedule(guildId);
-  const channels = useMemo(() => getChannelsFromSchedules(scheduleData), [scheduleData]);
+  const channels = useAllChannels(guildId);
 
   return (
     <div className="space-y-6">
@@ -36,7 +30,7 @@ function ScheduleLayout() {
         <Link
           to="/dashboard/guilds/$guildId/schedule/$channel/calendar"
           params={{ guildId, channel }}
-          search={{ month: search.month, day: search.day }}
+          search={{ timestamp: search.timestamp }}
           activeOptions={{ exact: true }}
           className={`
             px-4 py-2 text-sm font-bold tracking-wide transition-colors
@@ -50,7 +44,7 @@ function ScheduleLayout() {
         <Link
           to="/dashboard/guilds/$guildId/schedule/$channel/daily"
           params={{ guildId, channel }}
-          search={{ month: search.month, day: search.day }}
+          search={{ timestamp: search.timestamp }}
           activeOptions={{ exact: true }}
           className={`
             px-4 py-2 text-sm font-bold tracking-wide transition-colors
@@ -71,7 +65,7 @@ function ScheduleLayout() {
               key={ch}
               to="."
               params={(prev) => ({ ...prev, channel: ch })}
-              search={{ month: search.month, day: search.day }}
+              search={{ timestamp: search.timestamp }}
               activeOptions={{ exact: false }}
               className={`
                 px-3 py-1.5 text-xs font-bold tracking-wide whitespace-nowrap transition-colors

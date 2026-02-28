@@ -1,21 +1,8 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useMemo, Suspense } from "react";
-import {
-  format,
-  startOfMonth,
-  endOfMonth,
-  startOfWeek,
-  endOfWeek,
-  eachDayOfInterval,
-  isSameMonth,
-  addMonths,
-  subMonths,
-  parseISO,
-} from "date-fns";
-import { toZonedTime } from "date-fns-tz";
-import { useGuildSchedule, computeScheduleTimestamp } from "#/lib/schedule";
-import { useEventConfig } from "#/lib/sheet";
+import { DateTime, HashSet, Option } from "effect";
+import { useScheduledDays, formatDayKey } from "#/lib/schedule";
 import { useTimeZone } from "#/hooks/useTimeZone";
 
 export const Route = createFileRoute(
@@ -25,15 +12,66 @@ export const Route = createFileRoute(
   ssr: "data-only", // Prevent component SSR to avoid timezone-based content flash
 });
 
-// Helper to get days in month grid (including padding days)
-function getCalendarDays(date: Date, timeZone: string): Date[] {
-  const zonedDate = toZonedTime(date, timeZone);
-  const monthStart = startOfMonth(zonedDate);
-  const monthEnd = endOfMonth(zonedDate);
-  const calendarStart = startOfWeek(monthStart, { weekStartsOn: 0 });
-  const calendarEnd = endOfWeek(monthEnd, { weekStartsOn: 0 });
+// Helper to get all days in a calendar grid (including padding days from prev/next month)
+function getCalendarDays(dateTime: DateTime.Utc, timeZone: string): DateTime.Utc[] {
+  // Work with UTC dates but use the zoned date to determine month boundaries
+  const zoned = DateTime.unsafeSetZoneNamed(dateTime, timeZone);
+  const monthStartZoned = DateTime.startOf(zoned, "month");
+  const monthEndZoned = DateTime.endOf(zoned, "month");
+  const calendarStartZoned = DateTime.startOf(monthStartZoned, "week", { weekStartsOn: 0 });
+  const calendarEndZoned = DateTime.endOf(monthEndZoned, "week", { weekStartsOn: 0 });
 
-  return eachDayOfInterval({ start: calendarStart, end: calendarEnd });
+  // Convert back to UTC for the array
+  const calendarStart = DateTime.toUtc(calendarStartZoned);
+  const calendarEnd = DateTime.toUtc(calendarEndZoned);
+
+  const days: DateTime.Utc[] = [];
+  let current = calendarStart;
+  const endMillis = DateTime.toEpochMillis(calendarEnd);
+
+  while (DateTime.toEpochMillis(current) <= endMillis) {
+    days.push(current);
+    current = DateTime.add(current, { days: 1 });
+  }
+
+  return days;
+}
+
+// Format month/year for display (e.g., "FEBRUARY 2026")
+function formatMonthYear(dateTime: DateTime.Utc, timeZone: string): string {
+  const zoned = DateTime.unsafeSetZoneNamed(dateTime, timeZone);
+  const parts = DateTime.toParts(zoned);
+  const monthNames = [
+    "JANUARY",
+    "FEBRUARY",
+    "MARCH",
+    "APRIL",
+    "MAY",
+    "JUNE",
+    "JULY",
+    "AUGUST",
+    "SEPTEMBER",
+    "OCTOBER",
+    "NOVEMBER",
+    "DECEMBER",
+  ];
+  return `${monthNames[parts.month - 1]} ${parts.year}`;
+}
+
+// Format day of month for display
+function formatDayOfMonth(dateTime: DateTime.Utc, timeZone: string): string {
+  const zoned = DateTime.unsafeSetZoneNamed(dateTime, timeZone);
+  const parts = DateTime.toParts(zoned);
+  return String(parts.day);
+}
+
+// Check if two dates are in the same month
+function isSameMonth(a: DateTime.Utc, b: DateTime.Utc, timeZone: string): boolean {
+  const zonedA = DateTime.unsafeSetZoneNamed(a, timeZone);
+  const zonedB = DateTime.unsafeSetZoneNamed(b, timeZone);
+  const partsA = DateTime.toParts(zonedA);
+  const partsB = DateTime.toParts(zonedB);
+  return partsA.year === partsB.year && partsA.month === partsB.month;
 }
 
 function CalendarPage() {
@@ -59,100 +97,71 @@ function CalendarView({ guildId }: { guildId: string }) {
   const timeZone = useTimeZone();
   const navigate = useNavigate();
 
-  // Parse month with fallback to current month if invalid
+  // Use timestamp to determine the month to display
   const currentDate = useMemo(() => {
-    try {
-      const parsed = parseISO(`${search.month}-01`);
-      return isNaN(parsed.getTime()) ? new Date() : parsed;
-    } catch {
-      return new Date();
-    }
-  }, [search.month]);
-
-  const scheduleData = useGuildSchedule(guildId);
-  const eventConfig = useEventConfig(guildId);
+    const maybeDateTime = DateTime.make(search.timestamp);
+    return Option.isSome(maybeDateTime) ? maybeDateTime.value : DateTime.unsafeNow();
+  }, [search.timestamp]);
 
   const calendarDays = useMemo(() => {
     return getCalendarDays(currentDate, timeZone);
   }, [currentDate, timeZone]);
 
-  // Build set of days that have schedules for the selected channel
-  // Optimized: compute date range once, then filter schedules in a single pass
-  const scheduledDays = useMemo(() => {
-    if (calendarDays.length === 0 || scheduleData.length === 0) {
-      return new Set<string>();
-    }
+  // Get the date range for the calendar view in milliseconds
+  const rangeStart = useMemo(() => {
+    const firstDay = calendarDays[0];
+    return firstDay ? DateTime.toEpochMillis(firstDay) : 0;
+  }, [calendarDays]);
 
-    const days = new Set<string>();
+  const rangeEnd = useMemo(() => {
+    const lastDay = calendarDays[calendarDays.length - 1];
+    return lastDay ? DateTime.toEpochMillis(lastDay) + 24 * 60 * 60 * 1000 : 0;
+  }, [calendarDays]);
 
-    // Get the date range for the calendar view in milliseconds
-    const rangeStart = calendarDays[0].getTime();
-    const rangeEnd = calendarDays[calendarDays.length - 1].getTime() + 24 * 60 * 60 * 1000;
-
-    // Single pass through all schedules - filter those in the calendar range for this channel
-    for (const schedule of scheduleData) {
-      // Skip non-schedule items or non-visible schedules
-      if (schedule._tag !== "PopulatedSchedule" || !schedule.visible) {
-        continue;
-      }
-      // Skip schedules for other channels
-      if (schedule.channel !== channel) {
-        continue;
-      }
-
-      // Compute the schedule timestamp (schedule.hour is cumulative hours from event start)
-      const scheduleTimestamp = computeScheduleTimestamp(
-        eventConfig.startTime,
-        schedule.day,
-        schedule.hour,
-      );
-
-      // Check if this schedule falls within the calendar view range
-      if (scheduleTimestamp >= rangeStart && scheduleTimestamp < rangeEnd) {
-        // Convert to zoned time and add to set
-        const scheduleDate = new Date(scheduleTimestamp);
-        const zonedDay = toZonedTime(scheduleDate, timeZone);
-        const dayKey = format(zonedDay, "yyyy-MM-dd");
-        days.add(dayKey);
-      }
-    }
-
-    return days;
-  }, [scheduleData, eventConfig.startTime, calendarDays, timeZone, channel]);
+  // Use derived atom to get scheduled days for the calendar view
+  const scheduledDays = useScheduledDays({
+    guildId,
+    channel,
+    timeZone,
+    rangeStart,
+    rangeEnd,
+  });
 
   const weekDays = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 
   const handlePrevMonth = () => {
-    const prevMonth = subMonths(currentDate, 1);
+    const zoned = DateTime.unsafeSetZoneNamed(currentDate, timeZone);
+    const prevMonthZoned = DateTime.subtract(zoned, { months: 1 });
+    const prevMonthStartZoned = DateTime.startOf(prevMonthZoned, "month");
     navigate({
       to: ".",
       params: { guildId, channel },
       search: {
-        month: format(prevMonth, "yyyy-MM"),
-        day: search.day,
+        timestamp: DateTime.toEpochMillis(prevMonthStartZoned),
       },
     });
   };
 
   const handleNextMonth = () => {
-    const nextMonth = addMonths(currentDate, 1);
+    const zoned = DateTime.unsafeSetZoneNamed(currentDate, timeZone);
+    const nextMonthZoned = DateTime.add(zoned, { months: 1 });
+    const nextMonthStartZoned = DateTime.startOf(nextMonthZoned, "month");
     navigate({
       to: ".",
       params: { guildId, channel },
       search: {
-        month: format(nextMonth, "yyyy-MM"),
-        day: search.day,
+        timestamp: DateTime.toEpochMillis(nextMonthStartZoned),
       },
     });
   };
 
-  const handleDayClick = (day: Date) => {
-    const zonedDay = toZonedTime(day, timeZone);
-    const dayStr = format(zonedDay, "yyyy-MM-dd");
+  const handleDayClick = (day: DateTime.Utc) => {
+    const zoned = DateTime.unsafeSetZoneNamed(day, timeZone);
+    const dayTimestamp = DateTime.toEpochMillis(DateTime.startOf(zoned, "day"));
     navigate({
       to: "/dashboard/guilds/$guildId/schedule/$channel/daily",
       params: { guildId, channel },
-      search: { month: format(zonedDay, "yyyy-MM"), day: dayStr },
+      search: { timestamp: dayTimestamp },
     });
   };
 
@@ -167,7 +176,7 @@ function CalendarView({ guildId }: { guildId: string }) {
           <ChevronLeft className="w-5 h-5" />
         </button>
         <h3 className="text-lg font-black tracking-tight">
-          {format(currentDate, "MMMM yyyy").toUpperCase()}
+          {formatMonthYear(currentDate, timeZone)}
         </h3>
         <button
           onClick={handleNextMonth}
@@ -192,11 +201,9 @@ function CalendarView({ guildId }: { guildId: string }) {
       {/* Calendar Grid */}
       <div className="grid grid-cols-7">
         {calendarDays.map((day, index) => {
-          const isCurrentMonth = isSameMonth(day, currentDate);
-          // Get the day of month in the target timezone
-          const zonedDay = toZonedTime(day, timeZone);
-          const dayKey = format(zonedDay, "yyyy-MM-dd");
-          const hasSchedule = scheduledDays.has(dayKey);
+          const isCurrentMonth = isSameMonth(day, currentDate, timeZone);
+          const dayKey = formatDayKey(day, timeZone);
+          const hasSchedule = HashSet.has(scheduledDays, dayKey);
 
           return (
             <button
@@ -210,7 +217,7 @@ function CalendarView({ guildId }: { guildId: string }) {
                 ${hasSchedule ? "bg-[#33ccbb]/5" : ""}
               `}
             >
-              <span className="text-sm font-medium">{format(zonedDay, "d")}</span>
+              <span className="text-sm font-medium">{formatDayOfMonth(day, timeZone)}</span>
               {hasSchedule && <div className="mt-1 w-1.5 h-1.5 rounded-full bg-[#33ccbb]" />}
             </button>
           );

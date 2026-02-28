@@ -1,5 +1,6 @@
 import type { ClassValue } from "clsx";
 import { clsx } from "clsx";
+import { DateTime } from "effect";
 import { twMerge } from "tailwind-merge";
 
 export function cn(...inputs: ClassValue[]) {
@@ -8,12 +9,6 @@ export function cn(...inputs: ClassValue[]) {
 
 // Date utility functions
 
-export function getCurrentMonth(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-}
-
-export function getCurrentDay(): string {
-  const now = new Date();
-  return now.toISOString().split("T")[0];
+export function getCurrentTimestamp(): number {
+  return DateTime.toEpochMillis(DateTime.unsafeNow());
 }
