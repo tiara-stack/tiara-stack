@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { ChevronLeft } from "lucide-react";
 import { useMemo, useRef, useState, useCallback, useEffect, Suspense } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -23,7 +23,6 @@ export const Route = createFileRoute("/dashboard/guilds/$guildId/schedule/$chann
 function DailyPage() {
   const { guildId } = Route.useParams();
   const timeZone = useTimeZone();
-  const navigate = useNavigate();
 
   return (
     <Suspense
@@ -33,20 +32,12 @@ function DailyPage() {
         </div>
       }
     >
-      <DailyScheduleView guildId={guildId} timeZone={timeZone} navigate={navigate} />
+      <DailyScheduleView guildId={guildId} timeZone={timeZone} />
     </Suspense>
   );
 }
 
-function DailyScheduleView({
-  guildId,
-  timeZone,
-  navigate,
-}: {
-  guildId: string;
-  timeZone: string;
-  navigate: ReturnType<typeof useNavigate>;
-}) {
+function DailyScheduleView({ guildId, timeZone }: { guildId: string; timeZone: string }) {
   const { channel } = Route.useParams();
   const parentRef = useRef<HTMLDivElement>(null);
   const search = Route.useSearch();
@@ -124,28 +115,26 @@ function DailyScheduleView({
     }
   }, [virtualizer, virtualDays.length]);
 
-  const handleBackToCalendar = () => {
-    navigate({
-      to: "/dashboard/guilds/$guildId/schedule/$channel/calendar",
-      params: { guildId, channel },
-      search: {
-        month: format(currentDate, "yyyy-MM"),
-        day: search.day,
-      },
-    });
+  const calendarTo = {
+    to: "/dashboard/guilds/$guildId/schedule/$channel/calendar" as const,
+    params: { guildId, channel },
+    search: {
+      month: format(currentDate, "yyyy-MM"),
+      day: search.day,
+    },
   };
 
   return (
     <div className="border border-[#33ccbb]/20 bg-[#0f1615] p-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <button
-          onClick={handleBackToCalendar}
+        <Link
+          {...calendarTo}
           className="flex items-center gap-2 text-[#33ccbb] hover:text-white transition-colors"
         >
           <ChevronLeft className="w-4 h-4" />
           <span className="text-sm font-bold tracking-wide">BACK TO CALENDAR</span>
-        </button>
+        </Link>
         <h3 className="text-xl font-black tracking-tight">
           {format(currentDate, "EEEE, MMMM d, yyyy").toUpperCase()}
         </h3>
