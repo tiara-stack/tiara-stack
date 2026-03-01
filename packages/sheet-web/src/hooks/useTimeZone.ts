@@ -1,18 +1,20 @@
 import { useSyncExternalStore } from "react";
-
-const SERVER_TZ = "UTC";
+import { DateTime } from "effect";
+import { createIsomorphicFn } from "@tanstack/react-start";
 
 const subscribe = () => () => {};
 
-const getServerSnapshot = () => SERVER_TZ;
+export const getServerTimeZone = () => DateTime.zoneUnsafeMakeNamed("UTC");
 
-const getClientSnapshot = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
+export const getClientTimeZone = () => DateTime.zoneMakeLocal();
+
+export const getTimeZone = createIsomorphicFn().server(getServerTimeZone).client(getClientTimeZone);
 
 /**
  * Get the client's timezone in a SSR-safe way.
- * Returns "UTC" during SSR/hydration to avoid hydration mismatches,
+ * Returns UTC timezone during SSR/hydration to avoid hydration mismatches,
  * then switches to the actual client timezone after hydration.
  */
 export const useTimeZone = () => {
-  return useSyncExternalStore(subscribe, getClientSnapshot, getServerSnapshot);
+  return useSyncExternalStore(subscribe, getClientTimeZone, getServerTimeZone);
 };

@@ -10,6 +10,7 @@ import {
 import { RequestError, ResponseError } from "#/lib/error";
 import { eventConfigAtom } from "#/lib/sheet";
 import { useMemo } from "react";
+import { zoneId } from "#/lib/date";
 
 // Re-export types from sheet-apis
 export type ScheduleResult = Sheet.PopulatedScheduleResult;
@@ -109,15 +110,13 @@ export const useAllChannels = (guildId: string) => {
 export interface ScheduledDaysParams {
   guildId: string;
   channel: string;
-  timeZone: string;
-  rangeStart: number;
-  rangeEnd: number;
+  timeZone: DateTime.TimeZone;
+  rangeStart: DateTime.Zoned;
+  rangeEnd: DateTime.Zoned;
 }
 
-// Format DateTime.Utc to yyyy-MM-dd key using timezone
-export function formatDayKey(dateTime: DateTime.Utc, timeZone: string): string {
-  const zoned = DateTime.unsafeSetZoneNamed(dateTime, timeZone);
-  const parts = DateTime.toParts(zoned);
+export function formatDayKey(dateTime: DateTime.Zoned): string {
+  const parts = DateTime.toParts(dateTime);
   return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
 }
 
@@ -133,18 +132,19 @@ const _scheduledDaysAtom = Atom.family((params: ScheduledDaysParams) =>
         { concurrency: "unbounded" },
       );
 
+      const startTimeZoned = DateTime.setZone(eventConfig.startTime, timeZone);
+
       const isInChannel = (s: Sheet.PopulatedScheduleResult) =>
         Predicate.isTagged("PopulatedSchedule")(s) && s.channel === channel && s.visible;
 
       const isInRange = (s: Sheet.PopulatedScheduleResult) => {
-        const scheduleTimestamp = computeScheduleTimestamp(eventConfig.startTime, s.day, s.hour);
-        return scheduleTimestamp >= rangeStart && scheduleTimestamp < rangeEnd;
+        const scheduleDateTime = computeScheduleDateTime(startTimeZoned, s.hour);
+        return DateTime.between(scheduleDateTime, { minimum: rangeStart, maximum: rangeEnd });
       };
 
       const getDayKey = (s: Sheet.PopulatedScheduleResult) => {
-        const scheduleTimestamp = computeScheduleTimestamp(eventConfig.startTime, s.day, s.hour);
-        const scheduleDateTime = DateTime.unsafeMake(scheduleTimestamp);
-        return formatDayKey(scheduleDateTime, timeZone);
+        const scheduleDateTime = computeScheduleDateTime(startTimeZoned, s.hour);
+        return formatDayKey(scheduleDateTime);
       };
 
       return pipe(
@@ -161,7 +161,7 @@ const _scheduledDaysAtom = Atom.family((params: ScheduledDaysParams) =>
 export const scheduledDaysAtom = Atom.family((params: ScheduledDaysParams) =>
   _scheduledDaysAtom(params).pipe(
     Atom.serializable({
-      key: `schedule.derived.scheduledDays.${params.guildId}.${params.channel}.${params.timeZone}.${params.rangeStart}-${params.rangeEnd}`,
+      key: `schedule.derived.scheduledDays.${params.guildId}.${params.channel}.${zoneId(params.timeZone)}.${DateTime.toEpochMillis(params.rangeStart)}-${DateTime.toEpochMillis(params.rangeEnd)}`,
       schema: Result.Schema({
         success: Schema.HashSet(Schema.String),
         error: Schema.Union(
@@ -183,7 +183,13 @@ export const scheduledDaysAtom = Atom.family((params: ScheduledDaysParams) =>
 export const useScheduledDays = (params: ScheduledDaysParams) => {
   const atom = useMemo(
     () => scheduledDaysAtom(params),
-    [params.guildId, params.channel, params.timeZone, params.rangeStart, params.rangeEnd],
+    [
+      params.guildId,
+      params.channel,
+      zoneId(params.timeZone),
+      DateTime.toEpochMillis(params.rangeStart),
+      DateTime.toEpochMillis(params.rangeEnd),
+    ],
   );
   const result = useAtomSuspense(atom, {
     suspendOnWaiting: true,
@@ -192,32 +198,23 @@ export const useScheduledDays = (params: ScheduledDaysParams) => {
   return result.value;
 };
 
-// Helper to convert DateTime.Utc to milliseconds timestamp
-const utcToMillis = (utc: DateTime.Utc): number => {
-  return DateTime.toEpochMillis(utc);
-};
-
 // Compute the actual date for a schedule day/hour relative to startTime
-// startTime is DateTime.Utc, returns timestamp in milliseconds
+// startTime is DateTime.Zoned, returns DateTime.Zoned
 // Note: hour field is cumulative across days (day 2 starts at hour 48)
-export const computeScheduleTimestamp = (
-  startTime: DateTime.Utc,
-  _day: number,
+export const computeScheduleDateTime = (
+  startTime: DateTime.Zoned,
   hour: Option.Option<number>,
-): number => {
+): DateTime.Zoned => {
   const hourValue = Option.getOrElse(hour, () => 0);
-  const startTimeMs = utcToMillis(startTime);
-  // Hour is already cumulative (e.g., day 2 hour 0 = hour 48)
-  // So we just add hour * 60 minutes * 60 seconds * 1000 ms
-  return startTimeMs + hourValue * 60 * 60 * 1000;
+  return DateTime.add(startTime, { hours: hourValue });
 };
 
 // Compute the day offset and hour from an absolute timestamp relative to startTime
 export const computeScheduleDayHour = (
-  startTime: DateTime.Utc,
+  startTime: DateTime.DateTime,
   timestamp: number,
 ): { day: number; hour: number } => {
-  const startTimeMs = utcToMillis(startTime);
+  const startTimeMs = DateTime.toEpochMillis(startTime);
   const diffMs = timestamp - startTimeMs;
   const totalHours = Math.floor(diffMs / (60 * 60 * 1000));
   const day = Math.floor(totalHours / 24);
@@ -228,18 +225,14 @@ export const computeScheduleDayHour = (
 // Filter schedules that fall within a specific date (in the target timezone)
 export const filterSchedulesByDate = (
   schedules: readonly Sheet.PopulatedScheduleResult[],
-  startTime: DateTime.Utc,
-  targetDate: DateTime.Utc,
-  timeZone: string,
+  startTime: DateTime.Zoned,
+  targetDate: DateTime.Zoned,
 ): readonly Sheet.PopulatedScheduleResult[] => {
-  // Get the start and end of the target date in the target timezone
-  const zonedTargetDate = DateTime.unsafeSetZoneNamed(targetDate, timeZone);
-  const targetDayStart = DateTime.toEpochMillis(DateTime.startOf(zonedTargetDate, "day"));
-  const targetDayEnd = targetDayStart + 24 * 60 * 60 * 1000;
+  const targetDayStart = DateTime.startOf(targetDate, "day");
+  const targetDayEnd = DateTime.endOf(targetDate, "day");
 
   return schedules.filter((schedule) => {
-    const scheduleTimestamp = computeScheduleTimestamp(startTime, schedule.day, schedule.hour);
-    // Check if the schedule falls within the target day
-    return scheduleTimestamp >= targetDayStart && scheduleTimestamp < targetDayEnd;
+    const scheduleDateTime = computeScheduleDateTime(startTime, schedule.hour);
+    return DateTime.between(scheduleDateTime, { minimum: targetDayStart, maximum: targetDayEnd });
   });
 };

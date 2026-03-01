@@ -1,10 +1,11 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useMemo, Suspense } from "react";
-import { DateTime, HashSet, Option, Effect } from "effect";
+import { DateTime, HashSet, Effect, Array } from "effect";
 import { Registry } from "@effect-atom/atom-react";
 import { useScheduledDays, scheduledDaysAtom, formatDayKey } from "#/lib/schedule";
-import { useTimeZone } from "#/hooks/useTimeZone";
+import { getServerTimeZone, useTimeZone } from "#/hooks/useTimeZone";
+import { makeZoned, useZoned } from "#/lib/date";
 
 export const Route = createFileRoute(
   "/dashboard/guilds/$guildId/schedule/$channel/_layout/calendar",
@@ -13,19 +14,13 @@ export const Route = createFileRoute(
   ssr: "data-only", // Prevent component SSR to avoid timezone-based content flash
   loaderDeps: ({ search }) => ({ timestamp: search.timestamp }),
   loader: async ({ context, params, deps }) => {
-    const timeZone = "UTC"; // Match useTimeZone behavior during SSR
-    const currentDate = Option.getOrElse(DateTime.make(deps.timestamp), () => DateTime.unsafeNow());
+    const timeZone = getServerTimeZone(); // Match useTimeZone behavior during SSR
+    const currentDate = await Effect.runPromise(makeZoned(timeZone, deps.timestamp));
 
-    // Calculate calendar date range based on the timestamp from search params
-    const zoned = DateTime.unsafeSetZoneNamed(currentDate, timeZone);
-    const monthStartZoned = DateTime.startOf(zoned, "month");
-    const monthEndZoned = DateTime.endOf(zoned, "month");
-    const calendarStartZoned = DateTime.startOf(monthStartZoned, "week", { weekStartsOn: 0 });
-    const calendarEndZoned = DateTime.endOf(monthEndZoned, "week", { weekStartsOn: 0 });
-    const calendarStart = DateTime.toUtc(calendarStartZoned);
-    const calendarEnd = DateTime.toUtc(calendarEndZoned);
-    const rangeStart = DateTime.toEpochMillis(calendarStart);
-    const rangeEnd = DateTime.toEpochMillis(DateTime.add(calendarEnd, { days: 1 }));
+    const monthStartZoned = DateTime.startOf(currentDate, "month");
+    const monthEndZoned = DateTime.endOf(currentDate, "month");
+    const calendarStart = DateTime.startOf(monthStartZoned, "week", { weekStartsOn: 0 });
+    const calendarEnd = DateTime.endOf(monthEndZoned, "week", { weekStartsOn: 0 });
 
     await Effect.runPromise(
       Registry.getResult(
@@ -34,8 +29,8 @@ export const Route = createFileRoute(
           guildId: params.guildId,
           channel: params.channel,
           timeZone,
-          rangeStart,
-          rangeEnd,
+          rangeStart: calendarStart,
+          rangeEnd: calendarEnd,
         }),
       ).pipe(Effect.catchAll(() => Effect.succeed(HashSet.empty<string>()))),
     );
@@ -43,34 +38,28 @@ export const Route = createFileRoute(
 });
 
 // Helper to get all days in a calendar grid (including padding days from prev/next month)
-function getCalendarDays(dateTime: DateTime.Utc, timeZone: string): DateTime.Utc[] {
-  // Work with UTC dates but use the zoned date to determine month boundaries
-  const zoned = DateTime.unsafeSetZoneNamed(dateTime, timeZone);
-  const monthStartZoned = DateTime.startOf(zoned, "month");
-  const monthEndZoned = DateTime.endOf(zoned, "month");
-  const calendarStartZoned = DateTime.startOf(monthStartZoned, "week", { weekStartsOn: 0 });
-  const calendarEndZoned = DateTime.endOf(monthEndZoned, "week", { weekStartsOn: 0 });
+function getCalendarDays(dateTime: DateTime.Zoned) {
+  const monthStart = DateTime.startOf(dateTime, "month");
+  const monthEnd = DateTime.endOf(dateTime, "month");
+  const calendarStart = DateTime.startOf(monthStart, "week", { weekStartsOn: 0 });
+  // calendarEnd is the last moment of the day (e.g., 23:59:59.999), while current
+  // starts at midnight (00:00:00) each day. This ensures the last day is included
+  // regardless of whether DateTime.between is inclusive or exclusive on the maximum.
+  const calendarEnd = DateTime.endOf(monthEnd, "week", { weekStartsOn: 0 });
 
-  // Convert back to UTC for the array
-  const calendarStart = DateTime.toUtc(calendarStartZoned);
-  const calendarEnd = DateTime.toUtc(calendarEndZoned);
-
-  const days: DateTime.Utc[] = [];
+  const days: DateTime.Zoned[] = [];
   let current = calendarStart;
-  const endMillis = DateTime.toEpochMillis(calendarEnd);
 
-  while (DateTime.toEpochMillis(current) <= endMillis) {
+  while (DateTime.between(current, { minimum: calendarStart, maximum: calendarEnd })) {
     days.push(current);
     current = DateTime.add(current, { days: 1 });
   }
-
-  return days;
+  return days as [DateTime.Zoned, ...DateTime.Zoned[]];
 }
 
 // Format month/year for display (e.g., "FEBRUARY 2026")
-function formatMonthYear(dateTime: DateTime.Utc, timeZone: string): string {
-  const zoned = DateTime.unsafeSetZoneNamed(dateTime, timeZone);
-  const parts = DateTime.toParts(zoned);
+function formatMonthYear(dateTime: DateTime.Zoned): string {
+  const parts = DateTime.toParts(dateTime);
   const monthNames = [
     "JANUARY",
     "FEBRUARY",
@@ -89,24 +78,19 @@ function formatMonthYear(dateTime: DateTime.Utc, timeZone: string): string {
 }
 
 // Format day of month for display
-function formatDayOfMonth(dateTime: DateTime.Utc, timeZone: string): string {
-  const zoned = DateTime.unsafeSetZoneNamed(dateTime, timeZone);
-  const parts = DateTime.toParts(zoned);
+function formatDayOfMonth(dateTime: DateTime.Zoned): string {
+  const parts = DateTime.toParts(dateTime);
   return String(parts.day);
 }
 
 // Check if two dates are in the same month
-function isSameMonth(a: DateTime.Utc, b: DateTime.Utc, timeZone: string): boolean {
-  const zonedA = DateTime.unsafeSetZoneNamed(a, timeZone);
-  const zonedB = DateTime.unsafeSetZoneNamed(b, timeZone);
-  const partsA = DateTime.toParts(zonedA);
-  const partsB = DateTime.toParts(zonedB);
+function isSameMonth(a: DateTime.Zoned, b: DateTime.Zoned): boolean {
+  const partsA = DateTime.toParts(a);
+  const partsB = DateTime.toParts(b);
   return partsA.year === partsB.year && partsA.month === partsB.month;
 }
 
 function CalendarPage() {
-  const { guildId } = Route.useParams();
-
   return (
     <Suspense
       fallback={
@@ -115,38 +99,32 @@ function CalendarPage() {
         </div>
       }
     >
-      <CalendarView guildId={guildId} />
+      <CalendarView />
     </Suspense>
   );
 }
 
-function CalendarView({ guildId }: { guildId: string }) {
-  const { channel } = Route.useParams();
+function CalendarView() {
+  const { guildId, channel } = Route.useParams();
   const search = Route.useSearch();
 
   const timeZone = useTimeZone();
   const navigate = useNavigate();
 
   // Use timestamp to determine the month to display
-  const currentDate = useMemo(() => {
-    const maybeDateTime = DateTime.make(search.timestamp);
-    return Option.isSome(maybeDateTime) ? maybeDateTime.value : DateTime.unsafeNow();
-  }, [search.timestamp]);
+  const currentDate = useZoned(timeZone, search.timestamp);
 
   const calendarDays = useMemo(() => {
-    return getCalendarDays(currentDate, timeZone);
-  }, [currentDate, timeZone]);
+    return getCalendarDays(currentDate);
+  }, [currentDate]);
 
   // Get the date range for the calendar view in milliseconds
-  const rangeStart = useMemo(() => {
-    const firstDay = calendarDays[0];
-    return firstDay ? DateTime.toEpochMillis(firstDay) : 0;
-  }, [calendarDays]);
+  const rangeStart = useMemo(() => Array.headNonEmpty(calendarDays), [calendarDays]);
 
-  const rangeEnd = useMemo(() => {
-    const lastDay = calendarDays[calendarDays.length - 1];
-    return lastDay ? DateTime.toEpochMillis(lastDay) + 24 * 60 * 60 * 1000 : 0;
-  }, [calendarDays]);
+  const rangeEnd = useMemo(
+    () => DateTime.endOf(Array.lastNonEmpty(calendarDays), "day"),
+    [calendarDays],
+  );
 
   // Use derived atom to get scheduled days for the calendar view
   const scheduledDays = useScheduledDays({
@@ -160,8 +138,7 @@ function CalendarView({ guildId }: { guildId: string }) {
   const weekDays = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 
   const handlePrevMonth = () => {
-    const zoned = DateTime.unsafeSetZoneNamed(currentDate, timeZone);
-    const prevMonthZoned = DateTime.subtract(zoned, { months: 1 });
+    const prevMonthZoned = DateTime.subtract(currentDate, { months: 1 });
     const prevMonthStartZoned = DateTime.startOf(prevMonthZoned, "month");
     navigate({
       to: ".",
@@ -173,8 +150,7 @@ function CalendarView({ guildId }: { guildId: string }) {
   };
 
   const handleNextMonth = () => {
-    const zoned = DateTime.unsafeSetZoneNamed(currentDate, timeZone);
-    const nextMonthZoned = DateTime.add(zoned, { months: 1 });
+    const nextMonthZoned = DateTime.add(currentDate, { months: 1 });
     const nextMonthStartZoned = DateTime.startOf(nextMonthZoned, "month");
     navigate({
       to: ".",
@@ -185,9 +161,8 @@ function CalendarView({ guildId }: { guildId: string }) {
     });
   };
 
-  const handleDayClick = (day: DateTime.Utc) => {
-    const zoned = DateTime.unsafeSetZoneNamed(day, timeZone);
-    const dayTimestamp = DateTime.toEpochMillis(DateTime.startOf(zoned, "day"));
+  const handleDayClick = (day: DateTime.Zoned) => {
+    const dayTimestamp = DateTime.toEpochMillis(DateTime.startOf(day, "day"));
     navigate({
       to: "/dashboard/guilds/$guildId/schedule/$channel/daily",
       params: { guildId, channel },
@@ -205,9 +180,7 @@ function CalendarView({ guildId }: { guildId: string }) {
         >
           <ChevronLeft className="w-5 h-5" />
         </button>
-        <h3 className="text-lg font-black tracking-tight">
-          {formatMonthYear(currentDate, timeZone)}
-        </h3>
+        <h3 className="text-lg font-black tracking-tight">{formatMonthYear(currentDate)}</h3>
         <button
           onClick={handleNextMonth}
           className="p-2 hover:bg-[#33ccbb]/10 transition-colors text-[#33ccbb]"
@@ -230,14 +203,14 @@ function CalendarView({ guildId }: { guildId: string }) {
 
       {/* Calendar Grid */}
       <div className="grid grid-cols-7">
-        {calendarDays.map((day, index) => {
-          const isCurrentMonth = isSameMonth(day, currentDate, timeZone);
-          const dayKey = formatDayKey(day, timeZone);
+        {calendarDays.map((day) => {
+          const isCurrentMonth = isSameMonth(day, currentDate);
+          const dayKey = formatDayKey(day);
           const hasSchedule = HashSet.has(scheduledDays, dayKey);
 
           return (
             <button
-              key={index}
+              key={DateTime.toEpochMillis(day)}
               onClick={() => handleDayClick(day)}
               className={`
                 aspect-square p-2 flex flex-col items-center justify-center
@@ -247,7 +220,7 @@ function CalendarView({ guildId }: { guildId: string }) {
                 ${hasSchedule ? "bg-[#33ccbb]/5" : ""}
               `}
             >
-              <span className="text-sm font-medium">{formatDayOfMonth(day, timeZone)}</span>
+              <span className="text-sm font-medium">{formatDayOfMonth(day)}</span>
               {hasSchedule && <div className="mt-1 w-1.5 h-1.5 rounded-full bg-[#33ccbb]" />}
             </button>
           );

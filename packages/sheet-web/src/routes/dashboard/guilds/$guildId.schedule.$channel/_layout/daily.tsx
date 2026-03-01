@@ -13,6 +13,7 @@ import {
 } from "#/lib/schedule";
 import { useEventConfig, eventConfigAtom } from "#/lib/sheet";
 import { useTimeZone } from "#/hooks/useTimeZone";
+import { useZoned } from "#/lib/date";
 
 const MAX_DAY_RANGE = 365;
 
@@ -42,9 +43,6 @@ export const Route = createFileRoute("/dashboard/guilds/$guildId/schedule/$chann
 });
 
 function DailyPage() {
-  const { guildId } = Route.useParams();
-  const timeZone = useTimeZone();
-
   return (
     <Suspense
       fallback={
@@ -53,15 +51,14 @@ function DailyPage() {
         </div>
       }
     >
-      <DailyScheduleView guildId={guildId} timeZone={timeZone} />
+      <DailyScheduleView />
     </Suspense>
   );
 }
 
 // Format day for display (e.g., "SATURDAY, FEBRUARY 28")
-function formatDayHeader(dateTime: DateTime.Utc, timeZone: string): string {
-  const zoned = DateTime.unsafeSetZoneNamed(dateTime, timeZone);
-  const parts = DateTime.toParts(zoned);
+function formatDayHeader(dateTime: DateTime.Zoned): string {
+  const parts = DateTime.toParts(dateTime);
   const dayNames = ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"];
   const monthNames = [
     "JANUARY",
@@ -81,9 +78,8 @@ function formatDayHeader(dateTime: DateTime.Utc, timeZone: string): string {
 }
 
 // Format full date for header (e.g., "SATURDAY, FEBRUARY 28, 2026")
-function formatFullDate(dateTime: DateTime.Utc, timeZone: string): string {
-  const zoned = DateTime.unsafeSetZoneNamed(dateTime, timeZone);
-  const parts = DateTime.toParts(zoned);
+function formatFullDate(dateTime: DateTime.Zoned): string {
+  const parts = DateTime.toParts(dateTime);
   const dayNames = ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"];
   const monthNames = [
     "JANUARY",
@@ -109,32 +105,27 @@ function formatHour(hour: number): string {
   return `${displayHour} ${ampm}`;
 }
 
-// Check if two DateTime.Utc are the same day in the target timezone
-function isSameDay(a: DateTime.Utc, b: DateTime.Utc, timeZone: string): boolean {
-  const zonedA = DateTime.unsafeSetZoneNamed(a, timeZone);
-  const zonedB = DateTime.unsafeSetZoneNamed(b, timeZone);
-  const partsA = DateTime.toParts(zonedA);
-  const partsB = DateTime.toParts(zonedB);
+// Check if two DateTime.Zoned are the same day
+function isSameDay(a: DateTime.Zoned, b: DateTime.Zoned): boolean {
+  const partsA = DateTime.toParts(a);
+  const partsB = DateTime.toParts(b);
   return partsA.year === partsB.year && partsA.month === partsB.month && partsA.day === partsB.day;
 }
 
-function DailyScheduleView({ guildId, timeZone }: { guildId: string; timeZone: string }) {
-  const { channel } = Route.useParams();
+function DailyScheduleView() {
+  const { channel, guildId } = Route.useParams();
+  const timeZone = useTimeZone();
   const parentRef = useRef<HTMLDivElement>(null);
   const search = Route.useSearch();
 
-  // Use timestamp directly
-  const currentDate = useMemo(() => {
-    const dateTime = DateTime.make(search.timestamp);
-    return Option.isSome(dateTime) ? dateTime.value : DateTime.unsafeNow();
-  }, [search.timestamp]);
+  const currentDate = useZoned(timeZone, search.timestamp);
 
   // Infinite scroll state - track day offset and total count
   const [dayRange, setDayRange] = useState({ startOffset: -30, endOffset: 30 });
 
   // Generate virtual days based on current range
   const virtualDays = useMemo(() => {
-    const days: DateTime.Utc[] = [];
+    const days: DateTime.Zoned[] = [];
     for (let i = dayRange.startOffset; i <= dayRange.endOffset; i++) {
       days.push(DateTime.add(currentDate, { days: i }));
     }
@@ -143,8 +134,8 @@ function DailyScheduleView({ guildId, timeZone }: { guildId: string; timeZone: s
 
   // Calculate current date index within the virtual days
   const currentDateIndex = useMemo(() => {
-    return virtualDays.findIndex((d) => isSameDay(d, currentDate, timeZone));
-  }, [currentDate, virtualDays, timeZone]);
+    return virtualDays.findIndex((d) => isSameDay(d, currentDate));
+  }, [currentDate, virtualDays]);
 
   const virtualizer = useVirtualizer({
     count: virtualDays.length,
@@ -192,12 +183,11 @@ function DailyScheduleView({ guildId, timeZone }: { guildId: string; timeZone: s
     }
   }, [virtualizer, virtualDays.length]);
 
-  const zoned = DateTime.unsafeSetZoneNamed(currentDate, timeZone);
   const calendarTo = {
     to: "/dashboard/guilds/$guildId/schedule/$channel/calendar" as const,
     params: { guildId, channel },
     search: {
-      timestamp: DateTime.toEpochMillis(DateTime.startOf(zoned, "month")),
+      timestamp: DateTime.toEpochMillis(DateTime.startOf(currentDate, "month")),
     },
   };
 
@@ -212,9 +202,7 @@ function DailyScheduleView({ guildId, timeZone }: { guildId: string; timeZone: s
           <ChevronLeft className="w-4 h-4" />
           <span className="text-sm font-bold tracking-wide">BACK TO CALENDAR</span>
         </Link>
-        <h3 className="text-xl font-black tracking-tight">
-          {formatFullDate(currentDate, timeZone)}
-        </h3>
+        <h3 className="text-xl font-black tracking-tight">{formatFullDate(currentDate)}</h3>
       </div>
 
       {/* Schedule Grid with Virtualization */}
@@ -228,7 +216,7 @@ function DailyScheduleView({ guildId, timeZone }: { guildId: string; timeZone: s
         >
           {virtualizer.getVirtualItems().map((virtualItem) => {
             const virtualDate = virtualDays[virtualItem.index];
-            const isActive = isSameDay(virtualDate, currentDate, timeZone);
+            const isActive = isSameDay(virtualDate, currentDate);
 
             return (
               <div
@@ -242,20 +230,11 @@ function DailyScheduleView({ guildId, timeZone }: { guildId: string; timeZone: s
                   transform: `translateY(${virtualItem.start}px)`,
                 }}
               >
-                <Suspense
-                  fallback={
-                    <DayScheduleSkeleton
-                      date={virtualDate}
-                      isActive={isActive}
-                      timeZone={timeZone}
-                    />
-                  }
-                >
+                <Suspense fallback={<DayScheduleSkeleton date={virtualDate} isActive={isActive} />}>
                   <DayScheduleGridContent
                     guildId={guildId}
                     channel={channel}
                     date={virtualDate}
-                    timeZone={timeZone}
                     isActive={isActive}
                   />
                 </Suspense>
@@ -269,20 +248,12 @@ function DailyScheduleView({ guildId, timeZone }: { guildId: string; timeZone: s
 }
 
 // Skeleton for loading state
-function DayScheduleSkeleton({
-  date,
-  isActive,
-  timeZone,
-}: {
-  date: DateTime.Utc;
-  isActive: boolean;
-  timeZone: string;
-}) {
+function DayScheduleSkeleton({ date, isActive }: { date: DateTime.Zoned; isActive: boolean }) {
   return (
     <div className={`${isActive ? "bg-[#0f1615]" : "bg-[#0a0f0e]"} border-b-4 border-[#33ccbb]/40`}>
       {/* Day Header */}
       <div className="bg-[#0f1615] border-b border-[#33ccbb]/30 px-4 py-3">
-        <h4 className="text-lg font-black tracking-tight">{formatDayHeader(date, timeZone)}</h4>
+        <h4 className="text-lg font-black tracking-tight">{formatDayHeader(date)}</h4>
       </div>
 
       {/* Timeline Skeleton */}
@@ -310,23 +281,24 @@ function DayScheduleGridContent({
   guildId,
   channel,
   date,
-  timeZone,
   isActive,
 }: {
   guildId: string;
   channel: string;
-  date: DateTime.Utc;
-  timeZone: string;
+  date: DateTime.Zoned;
   isActive: boolean;
 }) {
   // Fetch all schedules and event config (with startTime)
   const allSchedules = useGuildSchedule(guildId);
   const eventConfig = useEventConfig(guildId);
+  const timeZone = useTimeZone();
+
+  const startTimeZoned = useZoned(timeZone, DateTime.toEpochMillis(eventConfig.startTime));
 
   // Filter schedules that fall within the target date based on startTime
   const daySchedules = useMemo(() => {
-    return filterSchedulesByDate(allSchedules, eventConfig.startTime, date, timeZone);
-  }, [allSchedules, eventConfig.startTime, date, timeZone]);
+    return filterSchedulesByDate(allSchedules, startTimeZoned, date);
+  }, [allSchedules, startTimeZoned, date]);
 
   // Filter schedules by channel and visibility
   const channelSchedules = useMemo(() => {
@@ -337,14 +309,7 @@ function DayScheduleGridContent({
     );
   }, [daySchedules, channel]);
 
-  return (
-    <DayScheduleGrid
-      date={date}
-      schedules={channelSchedules}
-      isActive={isActive}
-      timeZone={timeZone}
-    />
-  );
+  return <DayScheduleGrid date={date} schedules={channelSchedules} isActive={isActive} />;
 }
 
 // Individual Day Schedule Grid - Daily Planner Style
@@ -352,12 +317,10 @@ function DayScheduleGrid({
   date,
   schedules,
   isActive,
-  timeZone,
 }: {
-  date: DateTime.Utc;
+  date: DateTime.Zoned;
   schedules: readonly ScheduleResult[];
   isActive: boolean;
-  timeZone: string;
 }) {
   // Group schedules by hour (modulo 24 since hour is cumulative across days)
   const schedulesByHour = useMemo(() => {
@@ -380,7 +343,7 @@ function DayScheduleGrid({
     <div className={`${isActive ? "bg-[#0f1615]" : "bg-[#0a0f0e]"} border-b-4 border-[#33ccbb]/40`}>
       {/* Day Header - prominent boundary */}
       <div className="sticky top-0 z-10 bg-[#0f1615] border-b border-[#33ccbb]/30 px-4 py-3">
-        <h4 className="text-lg font-black tracking-tight">{formatDayHeader(date, timeZone)}</h4>
+        <h4 className="text-lg font-black tracking-tight">{formatDayHeader(date)}</h4>
       </div>
       {/* Daily Planner Timeline */}
       <div className="relative">
