@@ -1,8 +1,9 @@
-import { createFileRoute, Outlet, Link, useLocation } from "@tanstack/react-router";
+import { createFileRoute, Outlet, Link } from "@tanstack/react-router";
 import { Calendar as CalendarIcon, Users } from "lucide-react";
 import { Schema, pipe, Effect } from "effect";
 import { Registry } from "@effect-atom/atom-react";
 import { useAllChannels, getAllChannelsAtom } from "#/lib/schedule";
+import { useEffect } from "react";
 
 // Search params schema using Effect Schema
 // Timestamp in milliseconds for the selected date
@@ -27,9 +28,12 @@ export const Route = createFileRoute("/dashboard/guilds/$guildId/schedule/$chann
 function ScheduleLayout() {
   const { guildId, channel } = Route.useParams();
   const search = Route.useSearch();
-  const location = useLocation();
 
   const channels = useAllChannels(guildId);
+
+  useEffect(() => {
+    console.log("channels", channels);
+  }, [channels]);
 
   return (
     <div className="space-y-6">
@@ -87,7 +91,7 @@ function ScheduleLayout() {
         </div>
       )}
 
-      <Outlet key={location.pathname} />
+      <Outlet />
     </div>
   );
 }
