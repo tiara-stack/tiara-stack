@@ -24,7 +24,7 @@ class SlotHelper extends Effect.Service<SlotHelper>()("SlotHelper", {
         guildId: string,
         day: number,
       ) {
-        const daySchedule = yield* scheduleService.dayPopulatedSchedules(guildId, day);
+        const daySchedule = yield* scheduleService.dayPopulatedFillerSchedules(guildId, day);
 
         const filteredSchedules = pipe(
           daySchedule,

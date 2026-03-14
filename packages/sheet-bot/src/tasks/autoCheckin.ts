@@ -159,7 +159,10 @@ const processChannel = Effect.fn("processChannel")(function* (
     () => runningChannel.channelId,
   );
 
-  const channelSchedules = yield* ScheduleService.channelPopulatedSchedules(guildId, channelName);
+  const channelSchedules = yield* ScheduleService.channelPopulatedManagerSchedules(
+    guildId,
+    channelName,
+  );
 
   const schedulesByHour = pipe(
     channelSchedules,
@@ -277,7 +280,7 @@ const processGuild = (guildId: string) =>
       Effect.flatMap((dt) => ConverterService.convertDateTimeToHour(guildId, dt)),
     );
 
-    const allSchedules = yield* SheetService.getAllSchedules(guildId);
+    const allSchedules = yield* SheetService.getAllManagerSchedules(guildId);
 
     const channelNames: string[] = pipe(
       allSchedules,
