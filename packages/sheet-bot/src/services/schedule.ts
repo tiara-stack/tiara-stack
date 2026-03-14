@@ -5,18 +5,41 @@ export class ScheduleService extends Effect.Service<ScheduleService>()("Schedule
   effect: pipe(
     Effect.all({ sheetApisClient: SheetApisClient }),
     Effect.map(({ sheetApisClient }) => ({
-      allPopulatedSchedules: Effect.fn("Schedule.allPopulatedSchedules")((guildId: string) =>
-        sheetApisClient.get().schedule.getAllPopulatedSchedules({ urlParams: { guildId } }),
+      // Filler populated schedules - filtered by visible, with fill/overfill/standby/runners cleared
+      allPopulatedFillerSchedules: Effect.fn("Schedule.allPopulatedFillerSchedules")(
+        (guildId: string) =>
+          sheetApisClient.get().schedule.getAllPopulatedFillerSchedules({ urlParams: { guildId } }),
       ),
-      dayPopulatedSchedules: Effect.fn("Schedule.dayPopulatedSchedules")(
+      dayPopulatedFillerSchedules: Effect.fn("Schedule.dayPopulatedFillerSchedules")(
         (guildId: string, day: number) =>
-          sheetApisClient.get().schedule.getDayPopulatedSchedules({ urlParams: { guildId, day } }),
+          sheetApisClient
+            .get()
+            .schedule.getDayPopulatedFillerSchedules({ urlParams: { guildId, day } }),
       ),
-      channelPopulatedSchedules: Effect.fn("Schedule.channelPopulatedSchedules")(
+      channelPopulatedFillerSchedules: Effect.fn("Schedule.channelPopulatedFillerSchedules")(
         (guildId: string, channel: string) =>
           sheetApisClient
             .get()
-            .schedule.getChannelPopulatedSchedules({ urlParams: { guildId, channel } }),
+            .schedule.getChannelPopulatedFillerSchedules({ urlParams: { guildId, channel } }),
+      ),
+      // Manager populated schedules - full access, requires manager authorization
+      allPopulatedManagerSchedules: Effect.fn("Schedule.allPopulatedManagerSchedules")(
+        (guildId: string) =>
+          sheetApisClient
+            .get()
+            .scheduleManager.getAllPopulatedManagerSchedules({ urlParams: { guildId } }),
+      ),
+      dayPopulatedManagerSchedules: Effect.fn("Schedule.dayPopulatedManagerSchedules")(
+        (guildId: string, day: number) =>
+          sheetApisClient
+            .get()
+            .scheduleManager.getDayPopulatedManagerSchedules({ urlParams: { guildId, day } }),
+      ),
+      channelPopulatedManagerSchedules: Effect.fn("Schedule.channelPopulatedManagerSchedules")(
+        (guildId: string, channel: string) =>
+          sheetApisClient.get().scheduleManager.getChannelPopulatedManagerSchedules({
+            urlParams: { guildId, channel },
+          }),
       ),
     })),
   ),

@@ -30,15 +30,35 @@ export class SheetService extends Effect.Service<SheetService>()("SheetService",
       getTeams: Effect.fn("Sheet.getTeams")((guildId: string) =>
         sheetApisClient.get().sheet.getTeams({ urlParams: { guildId } }),
       ),
-      getAllSchedules: Effect.fn("Sheet.getAllSchedules")((guildId: string) =>
-        sheetApisClient.get().sheet.getAllSchedules({ urlParams: { guildId } }),
+      // Filler schedules - filtered by visible, with fill/overfill/standby/runners cleared
+      getAllFillerSchedules: Effect.fn("Sheet.getAllFillerSchedules")((guildId: string) =>
+        sheetApisClient.get().sheet.getAllFillerSchedules({ urlParams: { guildId } }),
       ),
-      getDaySchedules: Effect.fn("Sheet.getDaySchedules")((guildId: string, day: number) =>
-        sheetApisClient.get().sheet.getDaySchedules({ urlParams: { guildId, day } }),
+      getDayFillerSchedules: Effect.fn("Sheet.getDayFillerSchedules")(
+        (guildId: string, day: number) =>
+          sheetApisClient.get().sheet.getDayFillerSchedules({ urlParams: { guildId, day } }),
       ),
-      getChannelSchedules: Effect.fn("Sheet.getChannelSchedules")(
+      getChannelFillerSchedules: Effect.fn("Sheet.getChannelFillerSchedules")(
         (guildId: string, channel: string) =>
-          sheetApisClient.get().sheet.getChannelSchedules({ urlParams: { guildId, channel } }),
+          sheetApisClient
+            .get()
+            .sheet.getChannelFillerSchedules({ urlParams: { guildId, channel } }),
+      ),
+      // Manager schedules - full access, requires manager authorization
+      getAllManagerSchedules: Effect.fn("Sheet.getAllManagerSchedules")((guildId: string) =>
+        sheetApisClient.get().sheetManager.getAllManagerSchedules({ urlParams: { guildId } }),
+      ),
+      getDayManagerSchedules: Effect.fn("Sheet.getDayManagerSchedules")(
+        (guildId: string, day: number) =>
+          sheetApisClient
+            .get()
+            .sheetManager.getDayManagerSchedules({ urlParams: { guildId, day } }),
+      ),
+      getChannelManagerSchedules: Effect.fn("Sheet.getChannelManagerSchedules")(
+        (guildId: string, channel: string) =>
+          sheetApisClient
+            .get()
+            .sheetManager.getChannelManagerSchedules({ urlParams: { guildId, channel } }),
       ),
     })),
     Effect.flatMap((sheetMethods) =>
@@ -67,16 +87,27 @@ export class SheetService extends Effect.Service<SheetService>()("SheetService",
         getTeamsCache: ScopedCache.make({
           lookup: sheetMethods.getTeams,
         }),
-        getAllSchedulesCache: ScopedCache.make({
-          lookup: sheetMethods.getAllSchedules,
+        getAllFillerSchedulesCache: ScopedCache.make({
+          lookup: sheetMethods.getAllFillerSchedules,
         }),
-        getDaySchedulesCache: ScopedCache.make({
+        getDayFillerSchedulesCache: ScopedCache.make({
           lookup: ({ guildId, day }: { guildId: string; day: number }) =>
-            sheetMethods.getDaySchedules(guildId, day),
+            sheetMethods.getDayFillerSchedules(guildId, day),
         }),
-        getChannelSchedulesCache: ScopedCache.make({
+        getChannelFillerSchedulesCache: ScopedCache.make({
           lookup: ({ guildId, channel }: { guildId: string; channel: string }) =>
-            sheetMethods.getChannelSchedules(guildId, channel),
+            sheetMethods.getChannelFillerSchedules(guildId, channel),
+        }),
+        getAllManagerSchedulesCache: ScopedCache.make({
+          lookup: sheetMethods.getAllManagerSchedules,
+        }),
+        getDayManagerSchedulesCache: ScopedCache.make({
+          lookup: ({ guildId, day }: { guildId: string; day: number }) =>
+            sheetMethods.getDayManagerSchedules(guildId, day),
+        }),
+        getChannelManagerSchedulesCache: ScopedCache.make({
+          lookup: ({ guildId, channel }: { guildId: string; channel: string }) =>
+            sheetMethods.getChannelManagerSchedules(guildId, channel),
         }),
       }),
     ),
@@ -89,11 +120,18 @@ export class SheetService extends Effect.Service<SheetService>()("SheetService",
       getRunnerConfig: (guildId: string) => caches.getRunnerConfigCache.get(guildId),
       getPlayers: (guildId: string) => caches.getPlayersCache.get(guildId),
       getTeams: (guildId: string) => caches.getTeamsCache.get(guildId),
-      getAllSchedules: (guildId: string) => caches.getAllSchedulesCache.get(guildId),
-      getDaySchedules: (guildId: string, day: number) =>
-        caches.getDaySchedulesCache.get(Data.struct({ guildId, day })),
-      getChannelSchedules: (guildId: string, channel: string) =>
-        caches.getChannelSchedulesCache.get(Data.struct({ guildId, channel })),
+      // Filler schedules
+      getAllFillerSchedules: (guildId: string) => caches.getAllFillerSchedulesCache.get(guildId),
+      getDayFillerSchedules: (guildId: string, day: number) =>
+        caches.getDayFillerSchedulesCache.get(Data.struct({ guildId, day })),
+      getChannelFillerSchedules: (guildId: string, channel: string) =>
+        caches.getChannelFillerSchedulesCache.get(Data.struct({ guildId, channel })),
+      // Manager schedules
+      getAllManagerSchedules: (guildId: string) => caches.getAllManagerSchedulesCache.get(guildId),
+      getDayManagerSchedules: (guildId: string, day: number) =>
+        caches.getDayManagerSchedulesCache.get(Data.struct({ guildId, day })),
+      getChannelManagerSchedules: (guildId: string, channel: string) =>
+        caches.getChannelManagerSchedulesCache.get(Data.struct({ guildId, channel })),
     })),
   ),
   dependencies: [SheetApisClient.Default],
