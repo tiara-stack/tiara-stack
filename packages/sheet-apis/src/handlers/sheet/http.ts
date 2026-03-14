@@ -5,6 +5,7 @@ import { SheetService } from "@/services/sheet";
 import { SheetConfigService } from "@/services/sheetConfig";
 import { GuildConfigService } from "@/services/guildConfig";
 import { SheetAuthTokenAuthorizationLive } from "@/middlewares/sheetAuthTokenAuthorization/live";
+import { SheetAuthTokenGuildMonitorAuthorizationLive } from "@/middlewares/sheetAuthTokenGuildMonitorAuthorization/live";
 
 const getSheetIdFromGuildId = (guildId: string, guildConfigService: GuildConfigService) =>
   pipe(
@@ -51,23 +52,23 @@ export const SheetLive = HttpApiBuilder.group(Api, "sheet", (handlers) =>
             Effect.flatMap((sheetId) => sheetService.getTeams(sheetId)),
           ),
         )
-        .handle("getAllSchedules", ({ urlParams }) =>
+        .handle("getAllFillerSchedules", ({ urlParams }) =>
           pipe(
             getSheetIdFromGuildId(urlParams.guildId, guildConfigService),
-            Effect.flatMap((sheetId) => sheetService.getAllSchedules(sheetId)),
+            Effect.flatMap((sheetId) => sheetService.getAllFillerSchedules(sheetId)),
           ),
         )
-        .handle("getDaySchedules", ({ urlParams }) =>
+        .handle("getDayFillerSchedules", ({ urlParams }) =>
           pipe(
             getSheetIdFromGuildId(urlParams.guildId, guildConfigService),
-            Effect.flatMap((sheetId) => sheetService.getDaySchedules(sheetId, urlParams.day)),
+            Effect.flatMap((sheetId) => sheetService.getDayFillerSchedules(sheetId, urlParams.day)),
           ),
         )
-        .handle("getChannelSchedules", ({ urlParams }) =>
+        .handle("getChannelFillerSchedules", ({ urlParams }) =>
           pipe(
             getSheetIdFromGuildId(urlParams.guildId, guildConfigService),
             Effect.flatMap((sheetId) =>
-              sheetService.getChannelSchedules(sheetId, urlParams.channel),
+              sheetService.getChannelFillerSchedules(sheetId, urlParams.channel),
             ),
           ),
         )
@@ -110,6 +111,48 @@ export const SheetLive = HttpApiBuilder.group(Api, "sheet", (handlers) =>
       SheetConfigService.Default,
       GuildConfigService.Default,
       SheetAuthTokenAuthorizationLive,
+    ),
+  ),
+);
+
+export const SheetManagerLive = HttpApiBuilder.group(Api, "sheetManager", (handlers) =>
+  pipe(
+    Effect.all({
+      sheetService: SheetService,
+      sheetConfigService: SheetConfigService,
+      guildConfigService: GuildConfigService,
+    }),
+    Effect.map(({ sheetService, guildConfigService }) =>
+      handlers
+        .handle("getAllManagerSchedules", ({ urlParams }) =>
+          pipe(
+            getSheetIdFromGuildId(urlParams.guildId, guildConfigService),
+            Effect.flatMap((sheetId) => sheetService.getAllSchedules(sheetId)),
+          ),
+        )
+        .handle("getDayManagerSchedules", ({ urlParams }) =>
+          pipe(
+            getSheetIdFromGuildId(urlParams.guildId, guildConfigService),
+            Effect.flatMap((sheetId) => sheetService.getDaySchedules(sheetId, urlParams.day)),
+          ),
+        )
+        .handle("getChannelManagerSchedules", ({ urlParams }) =>
+          pipe(
+            getSheetIdFromGuildId(urlParams.guildId, guildConfigService),
+            Effect.flatMap((sheetId) =>
+              sheetService.getChannelSchedules(sheetId, urlParams.channel),
+            ),
+          ),
+        ),
+    ),
+  ),
+).pipe(
+  Layer.provide(
+    Layer.mergeAll(
+      SheetService.Default,
+      SheetConfigService.Default,
+      GuildConfigService.Default,
+      SheetAuthTokenGuildMonitorAuthorizationLive,
     ),
   ),
 );

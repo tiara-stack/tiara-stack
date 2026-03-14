@@ -1,2 +1,2 @@
-export { SheetApi } from "./api";
-export { SheetLive } from "./http";
+export { SheetApi, SheetManagerApi } from "./api";
+export { SheetLive, SheetManagerLive } from "./http";
