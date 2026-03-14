@@ -8,7 +8,15 @@ import {
   TeamIsvCombinedConfig,
   TeamTagsRangesConfig,
 } from "@/schemas/sheetConfig";
-import { RawPlayer, RawMonitor, RawSchedulePlayer, Team, makeSchedule } from "@/schemas/sheet";
+import {
+  RawPlayer,
+  RawMonitor,
+  RawSchedulePlayer,
+  Team,
+  makeSchedule,
+  BreakSchedule,
+  Schedule,
+} from "@/schemas/sheet";
 import { regex } from "arkregex";
 import { type sheets_v4 } from "@googleapis/sheets";
 import { Array, Data, Effect, HashMap, Match, Number, Option, pipe, Schema, String } from "effect";
@@ -888,6 +896,32 @@ const scheduleParser = (
     Effect.withSpan("scheduleParser", { captureStackTrace: true }),
   );
 
+// Helper to filter schedules for fillers
+const filterSchedulesForFiller = (schedules: Array<BreakSchedule | Schedule>) =>
+  pipe(
+    schedules,
+    Array.filter((schedule) => schedule.visible),
+    Array.map((schedule) =>
+      Match.value(schedule).pipe(
+        Match.tagsExhaustive({
+          BreakSchedule: (breakSchedule) => breakSchedule,
+          Schedule: (s) =>
+            Schedule.make({
+              channel: s.channel,
+              day: s.day,
+              visible: s.visible,
+              hour: s.hour,
+              fills: Array.makeBy(5, () => Option.none()),
+              overfills: [],
+              standbys: [],
+              runners: [],
+              monitor: Option.none(),
+            }),
+        }),
+      ),
+    ),
+  );
+
 export class SheetService extends Effect.Service<SheetService>()("SheetService", {
   scoped: pipe(
     Effect.all(
@@ -1088,6 +1122,96 @@ export class SheetService extends Effect.Service<SheetService>()("SheetService",
             captureStackTrace: true,
           }),
         ),
+      // Filler schedules - filtered by visible, with fill/overfill/standby/runners cleared
+      getAllFillerSchedules: (sheetId: string) =>
+        pipe(
+          Effect.Do,
+          Effect.bindAll(
+            () => ({
+              scheduleConfigs: sheetConfigService.getScheduleConfig(sheetId),
+              runnerConfig: sheetConfigService.getRunnerConfig(sheetId),
+            }),
+            { concurrency: "unbounded" },
+          ),
+          Effect.let("filteredScheduleConfigs", ({ scheduleConfigs }) =>
+            filterScheduleConfigValues(scheduleConfigs),
+          ),
+          Effect.bind("sheet", ({ filteredScheduleConfigs }) =>
+            sheet.getRowDatasHashMap(scheduleRanges(filteredScheduleConfigs), {
+              spreadsheetId: sheetId,
+            }),
+          ),
+          Effect.bind("schedules", ({ filteredScheduleConfigs, sheet, runnerConfig }) =>
+            scheduleParser(filteredScheduleConfigs, sheet, runnerConfig),
+          ),
+          Effect.map(({ schedules }) => filterSchedulesForFiller(schedules)),
+          Effect.provideService(GoogleSheets, sheet),
+          Effect.withSpan("SheetService.getAllFillerSchedules", {
+            captureStackTrace: true,
+          }),
+        ),
+      getDayFillerSchedules: (sheetId: string, day: number) =>
+        pipe(
+          Effect.Do,
+          Effect.bindAll(
+            () => ({
+              scheduleConfigs: sheetConfigService.getScheduleConfig(sheetId),
+              runnerConfig: sheetConfigService.getRunnerConfig(sheetId),
+            }),
+            { concurrency: "unbounded" },
+          ),
+          Effect.let("filteredScheduleConfigs", ({ scheduleConfigs }) =>
+            pipe(
+              scheduleConfigs,
+              filterScheduleConfigValues,
+              Array.filter((a) => Number.Equivalence(a.day, day)),
+            ),
+          ),
+          Effect.bind("sheet", ({ filteredScheduleConfigs }) =>
+            sheet.getRowDatasHashMap(scheduleRanges(filteredScheduleConfigs), {
+              spreadsheetId: sheetId,
+            }),
+          ),
+          Effect.bind("schedules", ({ filteredScheduleConfigs, sheet, runnerConfig }) =>
+            scheduleParser(filteredScheduleConfigs, sheet, runnerConfig),
+          ),
+          Effect.map(({ schedules }) => filterSchedulesForFiller(schedules)),
+          Effect.provideService(GoogleSheets, sheet),
+          Effect.withSpan("SheetService.getDayFillerSchedules", {
+            captureStackTrace: true,
+          }),
+        ),
+      getChannelFillerSchedules: (sheetId: string, channel: string) =>
+        pipe(
+          Effect.Do,
+          Effect.bindAll(
+            () => ({
+              scheduleConfigs: sheetConfigService.getScheduleConfig(sheetId),
+              runnerConfig: sheetConfigService.getRunnerConfig(sheetId),
+            }),
+            { concurrency: "unbounded" },
+          ),
+          Effect.let("filteredScheduleConfigs", ({ scheduleConfigs }) =>
+            pipe(
+              scheduleConfigs,
+              filterScheduleConfigValues,
+              Array.filter((a) => String.Equivalence(a.channel, channel)),
+            ),
+          ),
+          Effect.bind("sheet", ({ filteredScheduleConfigs }) =>
+            sheet.getRowDatasHashMap(scheduleRanges(filteredScheduleConfigs), {
+              spreadsheetId: sheetId,
+            }),
+          ),
+          Effect.bind("schedules", ({ filteredScheduleConfigs, sheet, runnerConfig }) =>
+            scheduleParser(filteredScheduleConfigs, sheet, runnerConfig),
+          ),
+          Effect.map(({ schedules }) => filterSchedulesForFiller(schedules)),
+          Effect.provideService(GoogleSheets, sheet),
+          Effect.withSpan("SheetService.getChannelFillerSchedules", {
+            captureStackTrace: true,
+          }),
+        ),
     })),
     Effect.flatMap(
       ({
@@ -1102,6 +1226,9 @@ export class SheetService extends Effect.Service<SheetService>()("SheetService",
         getAllSchedules,
         getDaySchedules,
         getChannelSchedules,
+        getAllFillerSchedules,
+        getDayFillerSchedules,
+        getChannelFillerSchedules,
       }) =>
         Effect.all({
           getRangesConfigCache: ScopedCache.make({
@@ -1139,6 +1266,17 @@ export class SheetService extends Effect.Service<SheetService>()("SheetService",
             lookup: ({ sheetId, channel }: { sheetId: string; channel: string }) =>
               getChannelSchedules(sheetId, channel),
           }),
+          getAllFillerSchedulesCache: ScopedCache.make({
+            lookup: getAllFillerSchedules,
+          }),
+          getDayFillerSchedulesCache: ScopedCache.make({
+            lookup: ({ sheetId, day }: { sheetId: string; day: number }) =>
+              getDayFillerSchedules(sheetId, day),
+          }),
+          getChannelFillerSchedulesCache: ScopedCache.make({
+            lookup: ({ sheetId, channel }: { sheetId: string; channel: string }) =>
+              getChannelFillerSchedules(sheetId, channel),
+          }),
         }),
     ),
     Effect.map(
@@ -1154,6 +1292,9 @@ export class SheetService extends Effect.Service<SheetService>()("SheetService",
         getAllSchedulesCache,
         getDaySchedulesCache,
         getChannelSchedulesCache,
+        getAllFillerSchedulesCache,
+        getDayFillerSchedulesCache,
+        getChannelFillerSchedulesCache,
       }) => ({
         getRangesConfig: (sheetId: string) => getRangesConfigCache.get(sheetId),
         getTeamConfig: (sheetId: string) => getTeamConfigCache.get(sheetId),
@@ -1168,6 +1309,11 @@ export class SheetService extends Effect.Service<SheetService>()("SheetService",
           getDaySchedulesCache.get(Data.struct({ sheetId, day })),
         getChannelSchedules: (sheetId: string, channel: string) =>
           getChannelSchedulesCache.get(Data.struct({ sheetId, channel })),
+        getAllFillerSchedules: (sheetId: string) => getAllFillerSchedulesCache.get(sheetId),
+        getDayFillerSchedules: (sheetId: string, day: number) =>
+          getDayFillerSchedulesCache.get(Data.struct({ sheetId, day })),
+        getChannelFillerSchedules: (sheetId: string, channel: string) =>
+          getChannelFillerSchedulesCache.get(Data.struct({ sheetId, channel })),
       }),
     ),
   ),
