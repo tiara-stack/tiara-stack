@@ -11,11 +11,11 @@ import { GuildConfigLive } from "./handlers/guildConfig";
 import { MessageCheckinLive } from "./handlers/messageCheckin";
 import { MessageRoomOrderLive } from "./handlers/messageRoomOrder";
 import { MessageSlotLive } from "./handlers/messageSlot";
-import { SheetLive } from "./handlers/sheet";
+import { SheetLive, SheetManagerLive } from "./handlers/sheet";
 import { MonitorLive } from "./handlers/monitor";
 import { PlayerLive } from "./handlers/player";
 import { ScreenshotLive } from "./handlers/screenshot";
-import { ScheduleLive } from "./handlers/schedule";
+import { ScheduleLive, ScheduleManagerLive } from "./handlers/schedule";
 import { DiscordLive } from "./handlers/discord";
 import { CacheLive } from "./services/cache";
 
@@ -27,10 +27,12 @@ const ApiLive = Layer.provide(HttpApiBuilder.api(Api), [
   MessageRoomOrderLive,
   MessageSlotLive,
   SheetLive,
+  SheetManagerLive,
   MonitorLive,
   PlayerLive,
   ScreenshotLive,
   ScheduleLive,
+  ScheduleManagerLive,
   DiscordLive,
 ]);
 

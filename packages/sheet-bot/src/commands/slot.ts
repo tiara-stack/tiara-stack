@@ -91,7 +91,7 @@ const makeListSubCommand = Effect.gen(function* () {
         Effect.unless(() => isEphemeral),
       );
 
-      const daySchedule = yield* scheduleService.dayPopulatedSchedules(guildId, day);
+      const daySchedule = yield* scheduleService.dayPopulatedFillerSchedules(guildId, day);
 
       const filteredSchedules = pipe(
         daySchedule,

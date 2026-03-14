@@ -102,7 +102,7 @@ const makeListSubCommand = Effect.gen(function* () {
         }
       }
 
-      const daySchedules = yield* scheduleService.dayPopulatedSchedules(guildId, day);
+      const daySchedules = yield* scheduleService.dayPopulatedFillerSchedules(guildId, day);
 
       const filteredSchedules = pipe(
         daySchedules,

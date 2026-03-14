@@ -28,7 +28,7 @@ export type SchedulePlayer = Sheet.PopulatedSchedulePlayer;
 
 // Private atom for fetching all schedules for a guild
 const _guildScheduleAtom = Atom.family((guildId: string) =>
-  SheetApisClient.query("schedule", "getAllPopulatedSchedules", {
+  SheetApisClient.query("schedule", "getAllPopulatedFillerSchedules", {
     urlParams: { guildId },
   }),
 );
@@ -48,7 +48,7 @@ export const guildScheduleAtom = Atom.family((guildId: string) =>
   ).pipe(
     Atom.setIdleTTL(Duration.infinity),
     Atom.serializable({
-      key: `schedule.getAllPopulatedSchedules.${guildId}`,
+      key: `schedule.getAllPopulatedFillerSchedules.${guildId}`,
       schema: Result.Schema({
         success: Schema.Array(Sheet.PopulatedScheduleResult),
         error: Schema.Union(

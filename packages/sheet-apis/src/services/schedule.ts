@@ -98,6 +98,70 @@ const populateSchedule = (
   });
 };
 
+// Helper function to filter populated schedules for fillers (filter by visible, clear fill/overfill/standby/runners)
+const filterPopulatedSchedulesForFiller = (
+  schedules: Array<PopulatedBreakSchedule | PopulatedSchedule>,
+): Array<PopulatedBreakSchedule | PopulatedSchedule> =>
+  pipe(
+    schedules,
+    Array.filter((schedule) => schedule.visible),
+    Array.map((schedule) =>
+      Match.value(schedule).pipe(
+        Match.tagsExhaustive({
+          PopulatedBreakSchedule: (breakSchedule) => breakSchedule,
+          PopulatedSchedule: (s) =>
+            PopulatedSchedule.make({
+              channel: s.channel,
+              day: s.day,
+              visible: s.visible,
+              hour: s.hour,
+              fills: Array.makeBy(5, () => Option.none()),
+              overfills: [],
+              standbys: [],
+              runners: [],
+              monitor: Option.none(),
+            }),
+        }),
+      ),
+    ),
+  );
+
+// Helper function to build player and monitor maps
+const buildResolutionMaps = (
+  playerMaps: {
+    nameToPlayer: HashMap.HashMap<string, { name: string; players: Array.NonEmptyArray<Player> }>;
+  },
+  monitorMaps: {
+    nameToMonitor: HashMap.HashMap<string, { name: string; monitors: ReadonlyArray<Monitor> }>;
+  },
+) => {
+  const playerMap = new Map<string, Array.NonEmptyArray<Player | PartialNamePlayer>>();
+
+  const playerEntries = HashMap.toEntries(playerMaps.nameToPlayer);
+  for (const entry of playerEntries) {
+    const name: string = Tuple.getFirst(entry);
+    const entryValue: { readonly name: string; readonly players: Array.NonEmptyArray<Player> } =
+      Tuple.getSecond(entry);
+    const players: Array.NonEmptyArray<Player> = entryValue.players;
+    playerMap.set(name, players as Array.NonEmptyArray<Player | PartialNamePlayer>);
+  }
+
+  const monitorMap = new Map<string, Array.NonEmptyArray<Monitor | PartialNameMonitor>>();
+
+  const monitorEntries = HashMap.toEntries(monitorMaps.nameToMonitor);
+  for (const entry of monitorEntries) {
+    const name: string = Tuple.getFirst(entry);
+    const entryValue: { readonly name: string; readonly monitors: ReadonlyArray<Monitor> } =
+      Tuple.getSecond(entry);
+    const monitors: ReadonlyArray<Monitor> = entryValue.monitors;
+    if (monitors.length > 0) {
+      monitorMap.set(name, monitors as Array.NonEmptyArray<Monitor | PartialNameMonitor>);
+    }
+  }
+
+  return { playerMap, monitorMap };
+};
+
 export class ScheduleService extends Effect.Service<ScheduleService>()("ScheduleService", {
   effect: pipe(
     Effect.Do,
@@ -113,38 +177,7 @@ export class ScheduleService extends Effect.Service<ScheduleService>()("Schedule
             Effect.bind("playerMaps", () => playerService.getPlayerMaps(sheetId)),
             Effect.bind("monitorMaps", () => monitorService.getMonitorMaps(sheetId)),
             Effect.map(({ schedules, playerMaps, monitorMaps }) => {
-              const playerMap = new Map<string, Array.NonEmptyArray<Player | PartialNamePlayer>>();
-
-              // Build player map from nameToPlayer entries
-              // Note: filterMap already unwraps the Option, so players is guaranteed to exist
-              const playerEntries = HashMap.toEntries(playerMaps.nameToPlayer);
-              for (const entry of playerEntries) {
-                const name: string = Tuple.getFirst(entry);
-                const entryValue: { name: string; players: Array.NonEmptyArray<Player> } =
-                  Tuple.getSecond(entry);
-                const players: Array.NonEmptyArray<Player> = entryValue.players;
-                playerMap.set(name, players as Array.NonEmptyArray<Player | PartialNamePlayer>);
-              }
-
-              const monitorMap = new Map<
-                string,
-                Array.NonEmptyArray<Monitor | PartialNameMonitor>
-              >();
-
-              // Build monitor map from nameToMonitor entries
-              const monitorEntries = HashMap.toEntries(monitorMaps.nameToMonitor);
-              for (const entry of monitorEntries) {
-                const name: string = Tuple.getFirst(entry);
-                const entryValue: { name: string; monitors: ReadonlyArray<Monitor> } =
-                  Tuple.getSecond(entry);
-                const monitors: ReadonlyArray<Monitor> = entryValue.monitors;
-                if (monitors.length > 0) {
-                  monitorMap.set(
-                    name,
-                    monitors as Array.NonEmptyArray<Monitor | PartialNameMonitor>,
-                  );
-                }
-              }
+              const { playerMap, monitorMap } = buildResolutionMaps(playerMaps, monitorMaps);
 
               return pipe(
                 schedules,
@@ -175,35 +208,7 @@ export class ScheduleService extends Effect.Service<ScheduleService>()("Schedule
             Effect.bind("playerMaps", () => playerService.getPlayerMaps(sheetId)),
             Effect.bind("monitorMaps", () => monitorService.getMonitorMaps(sheetId)),
             Effect.map(({ schedules, playerMaps, monitorMaps }) => {
-              const playerMap = new Map<string, Array.NonEmptyArray<Player | PartialNamePlayer>>();
-
-              const playerEntries = HashMap.toEntries(playerMaps.nameToPlayer);
-              for (const entry of playerEntries) {
-                const name: string = Tuple.getFirst(entry);
-                const entryValue: { name: string; players: Array.NonEmptyArray<Player> } =
-                  Tuple.getSecond(entry);
-                const players: Array.NonEmptyArray<Player> = entryValue.players;
-                playerMap.set(name, players as Array.NonEmptyArray<Player | PartialNamePlayer>);
-              }
-
-              const monitorMap = new Map<
-                string,
-                Array.NonEmptyArray<Monitor | PartialNameMonitor>
-              >();
-
-              const monitorEntries = HashMap.toEntries(monitorMaps.nameToMonitor);
-              for (const entry of monitorEntries) {
-                const name: string = Tuple.getFirst(entry);
-                const entryValue: { name: string; monitors: ReadonlyArray<Monitor> } =
-                  Tuple.getSecond(entry);
-                const monitors: ReadonlyArray<Monitor> = entryValue.monitors;
-                if (monitors.length > 0) {
-                  monitorMap.set(
-                    name,
-                    monitors as Array.NonEmptyArray<Monitor | PartialNameMonitor>,
-                  );
-                }
-              }
+              const { playerMap, monitorMap } = buildResolutionMaps(playerMaps, monitorMaps);
 
               return pipe(
                 schedules,
@@ -234,35 +239,7 @@ export class ScheduleService extends Effect.Service<ScheduleService>()("Schedule
             Effect.bind("playerMaps", () => playerService.getPlayerMaps(sheetId)),
             Effect.bind("monitorMaps", () => monitorService.getMonitorMaps(sheetId)),
             Effect.map(({ schedules, playerMaps, monitorMaps }) => {
-              const playerMap = new Map<string, Array.NonEmptyArray<Player | PartialNamePlayer>>();
-
-              const playerEntries = HashMap.toEntries(playerMaps.nameToPlayer);
-              for (const entry of playerEntries) {
-                const name: string = Tuple.getFirst(entry);
-                const entryValue: { name: string; players: Array.NonEmptyArray<Player> } =
-                  Tuple.getSecond(entry);
-                const players: Array.NonEmptyArray<Player> = entryValue.players;
-                playerMap.set(name, players as Array.NonEmptyArray<Player | PartialNamePlayer>);
-              }
-
-              const monitorMap = new Map<
-                string,
-                Array.NonEmptyArray<Monitor | PartialNameMonitor>
-              >();
-
-              const monitorEntries = HashMap.toEntries(monitorMaps.nameToMonitor);
-              for (const entry of monitorEntries) {
-                const name: string = Tuple.getFirst(entry);
-                const entryValue: { name: string; monitors: ReadonlyArray<Monitor> } =
-                  Tuple.getSecond(entry);
-                const monitors: ReadonlyArray<Monitor> = entryValue.monitors;
-                if (monitors.length > 0) {
-                  monitorMap.set(
-                    name,
-                    monitors as Array.NonEmptyArray<Monitor | PartialNameMonitor>,
-                  );
-                }
-              }
+              const { playerMap, monitorMap } = buildResolutionMaps(playerMaps, monitorMaps);
 
               return pipe(
                 schedules,
@@ -283,6 +260,108 @@ export class ScheduleService extends Effect.Service<ScheduleService>()("Schedule
               );
             }),
             Effect.withSpan("ScheduleService.getChannelPopulatedSchedules", {
+              captureStackTrace: true,
+            }),
+          ),
+        // Filler populated schedules - filtered by visible, with fill/overfill/standby/runners cleared
+        getAllPopulatedFillerSchedules: (sheetId: string) =>
+          pipe(
+            Effect.Do,
+            Effect.bind("schedules", () => sheetService.getAllFillerSchedules(sheetId)),
+            Effect.bind("playerMaps", () => playerService.getPlayerMaps(sheetId)),
+            Effect.bind("monitorMaps", () => monitorService.getMonitorMaps(sheetId)),
+            Effect.map(({ schedules, playerMaps, monitorMaps }) => {
+              const { playerMap, monitorMap } = buildResolutionMaps(playerMaps, monitorMaps);
+
+              const populated = pipe(
+                schedules,
+                Array.map((schedule) =>
+                  Match.value(schedule).pipe(
+                    Match.tagsExhaustive({
+                      BreakSchedule: (breakSchedule) =>
+                        PopulatedBreakSchedule.make({
+                          channel: breakSchedule.channel,
+                          day: breakSchedule.day,
+                          visible: breakSchedule.visible,
+                          hour: breakSchedule.hour,
+                        }),
+                      Schedule: (s) => populateSchedule(s, playerMap, monitorMap),
+                    }),
+                  ),
+                ),
+              );
+
+              return filterPopulatedSchedulesForFiller(populated);
+            }),
+            Effect.withSpan("ScheduleService.getAllPopulatedFillerSchedules", {
+              captureStackTrace: true,
+            }),
+          ),
+        getDayPopulatedFillerSchedules: (sheetId: string, day: number) =>
+          pipe(
+            Effect.Do,
+            Effect.bind("schedules", () => sheetService.getDayFillerSchedules(sheetId, day)),
+            Effect.bind("playerMaps", () => playerService.getPlayerMaps(sheetId)),
+            Effect.bind("monitorMaps", () => monitorService.getMonitorMaps(sheetId)),
+            Effect.map(({ schedules, playerMaps, monitorMaps }) => {
+              const { playerMap, monitorMap } = buildResolutionMaps(playerMaps, monitorMaps);
+
+              const populated = pipe(
+                schedules,
+                Array.map((schedule) =>
+                  Match.value(schedule).pipe(
+                    Match.tagsExhaustive({
+                      BreakSchedule: (breakSchedule) =>
+                        PopulatedBreakSchedule.make({
+                          channel: breakSchedule.channel,
+                          day: breakSchedule.day,
+                          visible: breakSchedule.visible,
+                          hour: breakSchedule.hour,
+                        }),
+                      Schedule: (s) => populateSchedule(s, playerMap, monitorMap),
+                    }),
+                  ),
+                ),
+              );
+
+              return filterPopulatedSchedulesForFiller(populated);
+            }),
+            Effect.withSpan("ScheduleService.getDayPopulatedFillerSchedules", {
+              captureStackTrace: true,
+            }),
+          ),
+        getChannelPopulatedFillerSchedules: (sheetId: string, channel: string) =>
+          pipe(
+            Effect.Do,
+            Effect.bind("schedules", () =>
+              sheetService.getChannelFillerSchedules(sheetId, channel),
+            ),
+            Effect.bind("playerMaps", () => playerService.getPlayerMaps(sheetId)),
+            Effect.bind("monitorMaps", () => monitorService.getMonitorMaps(sheetId)),
+            Effect.map(({ schedules, playerMaps, monitorMaps }) => {
+              const { playerMap, monitorMap } = buildResolutionMaps(playerMaps, monitorMaps);
+
+              const populated = pipe(
+                schedules,
+                Array.map((schedule) =>
+                  Match.value(schedule).pipe(
+                    Match.tagsExhaustive({
+                      BreakSchedule: (breakSchedule) =>
+                        PopulatedBreakSchedule.make({
+                          channel: breakSchedule.channel,
+                          day: breakSchedule.day,
+                          visible: breakSchedule.visible,
+                          hour: breakSchedule.hour,
+                        }),
+                      Schedule: (s) => populateSchedule(s, playerMap, monitorMap),
+                    }),
+                  ),
+                ),
+              );
+
+              return filterPopulatedSchedulesForFiller(populated);
+            }),
+            Effect.withSpan("ScheduleService.getChannelPopulatedFillerSchedules", {
               captureStackTrace: true,
             }),
           ),

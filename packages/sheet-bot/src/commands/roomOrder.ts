@@ -131,7 +131,10 @@ const makeManualSubCommand = Effect.gen(function* () {
 
       const channelName = pipe(runningChannel.name, Option.getOrThrow);
 
-      const schedules = yield* scheduleService.channelPopulatedSchedules(guildId, channelName);
+      const schedules = yield* scheduleService.channelPopulatedManagerSchedules(
+        guildId,
+        channelName,
+      );
 
       const schedulesByHour = pipe(
         schedules,

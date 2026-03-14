@@ -5,11 +5,11 @@ import { GuildConfigApi } from "./handlers/guildConfig/api";
 import { MessageCheckinApi } from "./handlers/messageCheckin/api";
 import { MessageRoomOrderApi } from "./handlers/messageRoomOrder/api";
 import { MessageSlotApi } from "./handlers/messageSlot/api";
-import { SheetApi } from "./handlers/sheet/api";
+import { SheetApi, SheetManagerApi } from "./handlers/sheet/api";
 import { MonitorApi } from "./handlers/monitor/api";
 import { PlayerApi } from "./handlers/player/api";
 import { ScreenshotApi } from "./handlers/screenshot/api";
-import { ScheduleApi } from "./handlers/schedule/api";
+import { ScheduleApi, ScheduleManagerApi } from "./handlers/schedule/api";
 import { DiscordApi } from "./handlers/discord/api";
 
 export class Api extends HttpApi.make("api")
@@ -20,9 +20,11 @@ export class Api extends HttpApi.make("api")
   .add(MessageRoomOrderApi)
   .add(MessageSlotApi)
   .add(SheetApi)
+  .add(SheetManagerApi)
   .add(MonitorApi)
   .add(PlayerApi)
   .add(ScreenshotApi)
   .add(ScheduleApi)
+  .add(ScheduleManagerApi)
   .add(DiscordApi)
   .annotate(OpenApi.Title, "Sheet APIs") {}

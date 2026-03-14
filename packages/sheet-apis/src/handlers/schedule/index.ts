@@ -1,2 +1,2 @@
-export { ScheduleApi } from "./api";
-export { ScheduleLive } from "./http";
+export { ScheduleApi, ScheduleManagerApi } from "./api";
+export { ScheduleLive, ScheduleManagerLive } from "./http";
