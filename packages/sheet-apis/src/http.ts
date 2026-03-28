@@ -66,6 +66,7 @@ function isOriginAllowed(origin: string, allowedOrigins: string[]): boolean {
       // [^./]* ensures * matches only valid hostname chars (no dots or slashes)
       const withPlaceholder = allowed.replace(/\*/g, "\x00");
       const escaped = withPlaceholder.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+      // eslint-disable-next-line no-control-regex
       const regex = new RegExp("^" + escaped.replace(/\x00/g, "[^./]*") + "$");
       return regex.test(origin);
     }

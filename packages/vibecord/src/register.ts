@@ -23,4 +23,4 @@ const program = pipe(
   Effect.provide(Config.Default),
 );
 
-Effect.runPromise(program);
+void Effect.runPromise(program);

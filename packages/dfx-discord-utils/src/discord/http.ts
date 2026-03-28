@@ -55,7 +55,7 @@ const handleSizeError = <A>(
   errorMessage: string,
 ): Effect.Effect<A, never, never> =>
   effect.pipe(
-    Effect.tapError((err) => Effect.logError(`${errorMessage}: ${err}`)),
+    Effect.tapError((err) => Effect.logError(`${errorMessage}: ${String(err)}`)),
     Effect.orDie,
   );
 

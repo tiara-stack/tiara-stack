@@ -69,7 +69,7 @@ export const signOut = runtimeAtom.fn(
     yield* Reactivity.invalidate(["session"]);
 
     const router = yield* Effect.promise(() => Promise.resolve(getRouterInstance()));
-    router.invalidate();
+    void router.invalidate();
   }),
 );
 

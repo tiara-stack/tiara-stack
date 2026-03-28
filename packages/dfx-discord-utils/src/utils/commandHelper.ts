@@ -395,7 +395,7 @@ export class WrappedCommandHelper<A> {
       : never,
     [ReturnType<NER[keyof NER]>] extends [{ [Effect.EffectTypeId]: { _R: (_: never) => infer R } }]
       ? R
-      : never | DiscordInteraction | DiscordApplicationCommand
+      : DiscordInteraction | DiscordApplicationCommand
   > {
     const commands_ = commands as Record<string, any>;
 

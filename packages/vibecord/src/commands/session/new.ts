@@ -198,7 +198,7 @@ async function executeNew(interaction: ChatInputCommandInteraction) {
   // SDK client will look up the thread from the database automatically
 
   await interaction.editReply({
-    content: `Session created! See ${thread}`,
+    content: `Session created! See ${thread.toString()}`,
   });
 }
 

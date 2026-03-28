@@ -16,7 +16,7 @@ export async function getValidSessionByThreadId(
 ): Promise<SessionValidationResult> {
   const db = getDb();
 
-  const session = await db
+  const session = db
     .select()
     .from(schema.session)
     .where(eq(schema.session.threadId, threadId))
@@ -36,7 +36,7 @@ export async function getValidSessionByThreadId(
 export async function getSessionByAcpSessionId(acpSessionId: string) {
   const db = getDb();
 
-  return await db
+  return db
     .select()
     .from(schema.session)
     .where(eq(schema.session.acpSessionId, acpSessionId))
@@ -46,13 +46,13 @@ export async function getSessionByAcpSessionId(acpSessionId: string) {
 export async function getWorkspaceById(workspaceId: number) {
   const db = getDb();
 
-  return await db.select().from(schema.workspace).where(eq(schema.workspace.id, workspaceId)).get();
+  return db.select().from(schema.workspace).where(eq(schema.workspace.id, workspaceId)).get();
 }
 
 export async function getSessionWithWorkspace(acpSessionId: string) {
   const db = getDb();
 
-  const session = await db
+  const session = db
     .select({
       session: schema.session,
       workspace: schema.workspace,

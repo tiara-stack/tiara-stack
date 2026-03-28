@@ -30,7 +30,7 @@ const makeMessageSlotRecord = (overrides?: {
   });
 };
 
-const makeMessageSlotService = (record?: MessageSlot | undefined) =>
+const makeMessageSlotService = (record?: MessageSlot) =>
   ({
     getMessageSlotData: () => Effect.succeed(Option.fromNullable(record)),
   }) as unknown as MessageSlotService;

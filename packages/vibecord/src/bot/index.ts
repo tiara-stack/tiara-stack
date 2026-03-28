@@ -116,4 +116,4 @@ const botProgram = pipe(
   Effect.provide(Config.Default),
 );
 
-Effect.runPromise(botProgram);
+void Effect.runPromise(botProgram);

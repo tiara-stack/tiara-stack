@@ -63,13 +63,14 @@ export const DiscordLive = HttpApiBuilder.group(Api, "discord", (handlers) =>
 
             const json = yield* Effect.tryPromise({
               try: () => discordResponse.json(),
-              catch: (error) => makeArgumentError(`Failed to parse Discord response: ${error}`),
+              catch: (error) =>
+                makeArgumentError(`Failed to parse Discord response: ${String(error)}`),
             });
 
             // Decode user data
             const user = yield* Schema.decodeUnknown(Discord.DiscordUser)(json).pipe(
               Effect.mapError((error) =>
-                makeArgumentError(`Invalid response from Discord API: ${error}`),
+                makeArgumentError(`Invalid response from Discord API: ${String(error)}`),
               ),
             );
 
@@ -118,13 +119,14 @@ export const DiscordLive = HttpApiBuilder.group(Api, "discord", (handlers) =>
 
             const json = yield* Effect.tryPromise({
               try: () => discordResponse.json(),
-              catch: (error) => makeArgumentError(`Failed to parse Discord response: ${error}`),
+              catch: (error) =>
+                makeArgumentError(`Failed to parse Discord response: ${String(error)}`),
             });
 
             // Decode minimal guild data to get IDs
             const userGuilds = yield* Schema.decodeUnknown(Schema.Array(DiscordMyGuild))(json).pipe(
               Effect.mapError((error) =>
-                makeArgumentError(`Invalid response from Discord API: ${error}`),
+                makeArgumentError(`Invalid response from Discord API: ${String(error)}`),
               ),
             );
 
@@ -147,7 +149,9 @@ export const DiscordLive = HttpApiBuilder.group(Api, "discord", (handlers) =>
 
             // Decode through schema to ensure type safety
             return yield* Schema.decode(Schema.Array(Discord.DiscordGuild))(cachedGuilds).pipe(
-              Effect.mapError((error) => makeArgumentError(`Invalid cached guild data: ${error}`)),
+              Effect.mapError((error) =>
+                makeArgumentError(`Invalid cached guild data: ${String(error)}`),
+              ),
             );
           }),
         );
