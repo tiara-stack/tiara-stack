@@ -36,6 +36,7 @@ function getJWKS(expectedAudience: string) {
       fetch(input, {
         ...init,
         headers: {
+          // eslint-disable-next-line @typescript-eslint/no-misused-spread
           ...init?.headers,
           Authorization: `Bearer ${readKubernetesToken()}`,
         },

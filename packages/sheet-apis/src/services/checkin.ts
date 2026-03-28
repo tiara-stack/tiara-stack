@@ -9,20 +9,17 @@ import {
   Number,
   Option,
   Random,
-  String,
   pipe,
 } from "effect";
 import { makeArgumentError } from "typhoon-core/error";
 import { Array as ArrayUtils } from "typhoon-core/utils";
 import { CheckinGenerateResult } from "@/schemas/checkin";
 import {
-  PopulatedBreakSchedule,
   PopulatedSchedule,
   PopulatedSchedulePlayer,
   type PopulatedScheduleResult,
   PartialNameMonitor,
   Monitor,
-  Player,
 } from "@/schemas/sheet";
 import { GuildConfigService } from "./guildConfig";
 import { ScheduleService } from "./schedule";

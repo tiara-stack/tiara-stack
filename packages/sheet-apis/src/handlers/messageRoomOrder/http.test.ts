@@ -34,7 +34,7 @@ const makeMessageRoomOrderRecord = (overrides?: {
   });
 };
 
-const makeRoomOrderService = (record?: MessageRoomOrder | undefined) =>
+const makeRoomOrderService = (record?: MessageRoomOrder) =>
   ({
     getMessageRoomOrder: () => Effect.succeed(Option.fromNullable(record)),
   }) as unknown as MessageRoomOrderService;

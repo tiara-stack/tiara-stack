@@ -93,7 +93,7 @@ async function lookupButtonMapping(buttonId: string): Promise<{
 } | null> {
   const db = getDb();
 
-  const mapping = await db
+  const mapping = db
     .select()
     .from(schema.buttonMapping)
     .where(eq(schema.buttonMapping.buttonId, buttonId))
@@ -674,7 +674,7 @@ class VibecordClient {
       }
     };
 
-    processEvents();
+    void processEvents();
   }
 
   private async handleEvent(event: Event): Promise<void> {

@@ -1,6 +1,6 @@
 import { PlatformConfigProvider } from "@effect/platform";
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
-import { Effect, Layer, Logger } from "effect";
+import { Layer, Logger } from "effect";
 import { HttpLive } from "./http";
 import { MetricsLive } from "./metrics";
 import { TracesLive } from "./traces";

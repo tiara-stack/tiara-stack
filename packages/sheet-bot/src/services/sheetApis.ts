@@ -129,7 +129,9 @@ export class SheetApisClient extends Effect.Service<SheetApisClient>()("SheetApi
           ),
           Effect.catchAll((err) =>
             pipe(
-              Effect.logWarning(`Failed to get auth token, proceeding unauthenticated: ${err}`),
+              Effect.logWarning(
+                `Failed to get auth token, proceeding unauthenticated: ${String(err)}`,
+              ),
               Effect.as(request),
             ),
           ),

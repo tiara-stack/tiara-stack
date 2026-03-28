@@ -149,7 +149,7 @@ export function useScheduleTransitionStates(search: ScheduleSearchParams, curren
   const clearScheduleTransitionState = useCallback(() => {
     // Navigate to the same route but without the 'from' param to clear transition state
     // Use replace: true to avoid pushing a duplicate history entry
-    navigate({
+    void navigate({
       to: ".",
       search: { timestamp: search.timestamp },
       replace: true,

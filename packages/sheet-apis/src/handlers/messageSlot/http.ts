@@ -9,7 +9,6 @@ import {
   requireMonitorGuild,
 } from "@/middlewares/authorization";
 import { SheetAuthTokenAuthorizationLive } from "@/middlewares/sheetAuthTokenAuthorization/live";
-import { MessageSlot } from "@/schemas/messageSlot";
 import { GuildConfigService } from "@/services/guildConfig";
 import { MessageSlotService } from "@/services/messageSlot";
 import { Unauthorized } from "@/schemas/middlewares/unauthorized";

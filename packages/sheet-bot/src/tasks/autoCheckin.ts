@@ -1,4 +1,4 @@
-import { channelMention, subtext, userMention } from "@discordjs/formatters";
+import { subtext, userMention } from "@discordjs/formatters";
 import { Array, DateTime, Effect, Layer, Option, Schedule, Cron, pipe } from "effect";
 import { DiscordREST } from "dfx";
 import { checkinButtonData } from "../messageComponents/buttons/checkin";

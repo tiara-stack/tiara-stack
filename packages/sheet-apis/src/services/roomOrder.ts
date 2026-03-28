@@ -134,6 +134,7 @@ const deriveHourWindow = (sheetService: SheetService, sheetId: string, hour: num
 
 const toTeamWithPlayer = (player: Player, team: Team) =>
   new Team({
+    // eslint-disable-next-line @typescript-eslint/no-misused-spread
     ...team,
     playerId: Option.some(player.id),
   });
@@ -288,6 +289,7 @@ export class RoomOrderService extends Effect.Service<RoomOrderService>()("RoomOr
                   .map(
                     (team) =>
                       new Team({
+                        // eslint-disable-next-line @typescript-eslint/no-misused-spread
                         ...team,
                         tags: pipe(
                           team.tags,

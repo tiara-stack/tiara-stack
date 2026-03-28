@@ -7,6 +7,7 @@ import { ScopedCache } from "typhoon-core/utils";
 
 const attachPlayerId = (playerId: string) => (team: Team) =>
   Team.make({
+    // eslint-disable-next-line @typescript-eslint/no-misused-spread
     ...team,
     playerId: Option.some(playerId),
   });

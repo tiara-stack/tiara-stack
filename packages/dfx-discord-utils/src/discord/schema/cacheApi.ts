@@ -1,6 +1,5 @@
 import { HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
-import { DiscordApplicationSchema } from "./application";
 import { DiscordChannel } from "./channel";
 import { DiscordGuild } from "./guild";
 import { DiscordMember } from "./member";

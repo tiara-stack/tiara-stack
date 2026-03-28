@@ -109,7 +109,7 @@ const liveGuildServices =
 
 describe("authorization middleware helpers", () => {
   it.effect("matches exact discord account permission", () =>
-    Effect.gen(function* () {
+    Effect.sync(() => {
       expect(
         hasDiscordAccountPermission(
           permissionSetFromIterable(["account:discord:discord-account-1"]),

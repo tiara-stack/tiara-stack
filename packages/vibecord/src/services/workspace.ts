@@ -12,7 +12,7 @@ export async function getValidWorkspaceByUserAndName(
 ): Promise<WorkspaceValidationResult> {
   const db = getDb();
 
-  const workspace = await db
+  const workspace = db
     .select()
     .from(schema.workspace)
     .where(and(eq(schema.workspace.userId, userId), eq(schema.workspace.name, name)))
@@ -32,7 +32,7 @@ export async function getValidWorkspaceByUserAndName(
 export async function getWorkspaceByUserAndName(userId: string, name: string) {
   const db = getDb();
 
-  return await db
+  return db
     .select()
     .from(schema.workspace)
     .where(and(eq(schema.workspace.userId, userId), eq(schema.workspace.name, name)))

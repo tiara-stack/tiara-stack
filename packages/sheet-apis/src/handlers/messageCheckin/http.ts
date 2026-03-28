@@ -11,7 +11,7 @@ import {
   requireMonitorGuild,
 } from "@/middlewares/authorization";
 import { SheetAuthTokenAuthorizationLive } from "@/middlewares/sheetAuthTokenAuthorization/live";
-import { MessageCheckin, MessageCheckinMember } from "@/schemas/messageCheckin";
+import { MessageCheckinMember } from "@/schemas/messageCheckin";
 import { SheetAuthUser } from "@/schemas/middlewares/sheetAuthUser";
 import { Unauthorized } from "@/schemas/middlewares/unauthorized";
 import { GuildConfigService } from "@/services/guildConfig";
