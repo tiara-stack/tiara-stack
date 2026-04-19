@@ -8,7 +8,11 @@ export default defineConfig({
       register: fileURLToPath(new URL("src/register.ts", import.meta.url)),
     },
     sourcemap: true,
-    deps: { alwaysBundle: [/^.*$/] },
+    deps: {
+      alwaysBundle: [/^.*$/],
+      neverBundle: ["zlib-sync"],
+      onlyBundle: false,
+    },
   },
   lint: {
     ignorePatterns: ["dist"],

@@ -9,14 +9,24 @@ export default defineConfig({
         schema: fileURLToPath(new URL("./src/schema.ts", import.meta.url)),
       },
       sourcemap: true,
+      deps: {
+        onlyBundle: false,
+      },
     },
     {
       entry: {
         index: fileURLToPath(new URL("./src/index.ts", import.meta.url)),
       },
       sourcemap: true,
-      external: ["playwright", "playwright-core"],
-      deps: { alwaysBundle: [/^.*$/] },
+      deps: {
+        alwaysBundle: [/^.*$/],
+        neverBundle: [
+          "playwright",
+          "playwright-core",
+          /^(dfx-discord-utils|sheet-auth|sheet-db-schema|typhoon-core)(?:\/.*)?$/,
+        ],
+        onlyBundle: false,
+      },
     },
   ],
   lint: {

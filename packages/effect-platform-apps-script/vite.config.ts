@@ -26,6 +26,7 @@ export default defineConfig({
     sourcemap: true,
     deps: {
       neverBundle: ["@effect/platform", "effect"],
+      onlyBundle: false,
     },
   },
   lint: {

@@ -19,6 +19,7 @@ export default defineConfig({
       sourcemap: true,
       deps: {
         neverBundle: ["@better-fetch/fetch", "@standard-schema/spec", "nanostores"],
+        onlyBundle: false,
       },
       dts: {
         tsgo: true,
@@ -29,7 +30,10 @@ export default defineConfig({
         server: fileURLToPath(new URL("./src/server.ts", import.meta.url)),
       },
       sourcemap: true,
-      deps: { alwaysBundle: [/^.*$/] },
+      deps: {
+        alwaysBundle: [/^.*$/],
+        onlyBundle: false,
+      },
     },
   ],
   lint: {

@@ -26,6 +26,7 @@ export default defineConfig({
     sourcemap: true,
     deps: {
       neverBundle: ["effect"],
+      onlyBundle: false,
     },
     dts: {
       tsgo: true,

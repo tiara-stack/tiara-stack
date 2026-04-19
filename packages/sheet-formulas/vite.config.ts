@@ -19,7 +19,10 @@ export default defineConfig({
     outputOptions: { name: "sheetFormulas" },
     target: "es6",
     minify: true,
-    deps: { alwaysBundle: [/^.*$/] },
+    deps: {
+      alwaysBundle: [/^.*$/],
+      onlyBundle: false,
+    },
     plugins: [bigIntRewrite()],
   },
   lint: {
