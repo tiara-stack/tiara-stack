@@ -238,10 +238,10 @@ export class WrappedCommandHelper<A> {
       readonly payload: Discord.CreateInteractionResponseRequest;
     }>,
   ) {}
-  get data() {
+  get data(): CommandHelper<A>["data"] {
     return this.helper.data;
   }
-  get target() {
+  get target(): CommandHelper<A>["target"] {
     return this.helper.target;
   }
 
