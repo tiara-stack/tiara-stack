@@ -38,6 +38,7 @@ export default defineConfig({
         "effect",
         "react",
       ],
+      onlyBundle: false,
     },
     dts: {
       tsgo: true,

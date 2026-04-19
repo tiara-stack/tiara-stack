@@ -8,6 +8,9 @@ export default defineConfig({
       zero: fileURLToPath(new URL("src/zero/index.ts", import.meta.url)),
     },
     sourcemap: true,
+    deps: {
+      onlyBundle: false,
+    },
   },
   lint: {
     ignorePatterns: ["dist"],

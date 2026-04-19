@@ -1,4 +1,4 @@
-import { betterAuth } from "better-auth";
+import { betterAuth, type Auth as BetterAuth, type BetterAuthOptions } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { bearer, jwt } from "better-auth/plugins";
 import { oauthProvider } from "@better-auth/oauth-provider";
@@ -21,10 +21,7 @@ interface CreateAuthOptions {
   secondaryStorageDriver: Driver;
 }
 
-// Infer the Auth type from betterAuth return type
-type BetterAuthInstance = ReturnType<typeof betterAuth>;
-
-export type Auth = BetterAuthInstance;
+export type Auth = BetterAuth<BetterAuthOptions>;
 
 export interface AuthWithCleanup extends Auth {
   close: () => Promise<void>;
@@ -91,5 +88,5 @@ export function authConfig({
   return Object.assign(auth, {
     close: () => pgClient.end(),
     closeStorage: () => secondaryStorage.close(),
-  });
+  }) as unknown as AuthWithCleanup;
 }

@@ -1,7 +1,13 @@
 import { createRemoteJWKSet, customFetch, jwtVerify } from "jose";
 import { readFileSync } from "fs";
-import { BASE_ERROR_CODES, type BetterAuthPlugin, type InternalAdapter } from "better-auth";
-import { createAuthEndpoint } from "better-auth/plugins";
+import {
+  BASE_ERROR_CODES,
+  type BetterAuthPlugin,
+  type InternalAdapter,
+  type Session,
+  type User,
+} from "better-auth";
+import { createAuthEndpoint, type AuthEndpoint, type AuthMiddleware } from "better-auth/plugins";
 import { Schema } from "effect";
 import { APIError } from "better-auth";
 import { setSessionCookie } from "better-auth/cookies";
@@ -81,6 +87,45 @@ export interface KubernetesOAuthOptions {
   audience: string;
 }
 
+const createSessionBody = Schema.Struct({
+  token: Schema.String,
+  discord_user_id: Schema.String,
+}).pipe(Schema.toStandardSchemaV1);
+
+type KubernetesOAuthCreateSessionEndpoint = AuthEndpoint<
+  "/kubernetes-oauth/create-session",
+  {
+    method: "POST";
+    body: typeof createSessionBody;
+    metadata: {
+      allowedMediaTypes: string[];
+    };
+  },
+  {
+    session: Session;
+    user: User;
+  }
+>;
+
+type KubernetesOAuthGetImplicitPermissionsEndpoint = AuthEndpoint<
+  "/kubernetes-oauth/get-implicit-permissions",
+  {
+    method: "GET";
+    use: AuthMiddleware[];
+  },
+  {
+    permissions: Permission[];
+  }
+>;
+
+type KubernetesOAuthPlugin = BetterAuthPlugin & {
+  id: "kubernetes-oauth";
+  endpoints: {
+    createSession: KubernetesOAuthCreateSessionEndpoint;
+    getImplicitPermissions: KubernetesOAuthGetImplicitPermissionsEndpoint;
+  };
+};
+
 /**
  * Find user by Discord user ID via the account table (junction table).
  * The account table links internal user IDs to external OAuth provider IDs.
@@ -122,7 +167,7 @@ async function createPlaceholderUserWithDiscord(adapter: InternalAdapter, discor
  * This plugin adds support for client_credentials grant type using
  * Kubernetes ServiceAccount tokens as the authentication mechanism.
  */
-const makeKubernetesOAuth = (options: KubernetesOAuthOptions) => {
+const makeKubernetesOAuth = (options: KubernetesOAuthOptions): KubernetesOAuthPlugin => {
   return {
     id: "kubernetes-oauth",
     endpoints: {
@@ -130,10 +175,7 @@ const makeKubernetesOAuth = (options: KubernetesOAuthOptions) => {
         "/kubernetes-oauth/create-session",
         {
           method: "POST",
-          body: Schema.Struct({
-            token: Schema.String,
-            discord_user_id: Schema.String,
-          }).pipe(Schema.toStandardSchemaV1),
+          body: createSessionBody,
           metadata: {
             allowedMediaTypes: ["application/x-www-form-urlencoded", "application/json"],
           },
@@ -212,7 +254,7 @@ const makeKubernetesOAuth = (options: KubernetesOAuthOptions) => {
         },
       ),
     },
-  } satisfies BetterAuthPlugin;
+  } satisfies KubernetesOAuthPlugin;
 };
 
 export const kubernetesOAuth: typeof makeKubernetesOAuth = makeKubernetesOAuth;

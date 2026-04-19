@@ -24,7 +24,10 @@ export default defineConfig({
       }),
     ),
     sourcemap: true,
-    deps: { alwaysBundle: [/^.*$/] },
+    deps: {
+      alwaysBundle: [/^.*$/],
+      onlyBundle: false,
+    },
   },
   lint: {
     ignorePatterns: ["dist"],

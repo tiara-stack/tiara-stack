@@ -1,5 +1,5 @@
 diff --git a/dist/unstable/httpapi/HttpApiBuilder.js b/dist/unstable/httpapi/HttpApiBuilder.js
-index 61dc51d728c04febf386fae8fc10b2a85eb230e9..1e05ee8339296e95e46c00396539a72db09332e4 100644
+index 61dc51d7..1e05ee83 100644
 --- a/dist/unstable/httpapi/HttpApiBuilder.js
 +++ b/dist/unstable/httpapi/HttpApiBuilder.js
 @@ -14,6 +14,7 @@ import * as Result from "../../Result.js";
@@ -19,3 +19,55 @@ index 61dc51d728c04febf386fae8fc10b2a85eb230e9..1e05ee8339296e95e46c00396539a72d
  }
  function handlerToRoute(group, handler, services) {
    const endpoint = handler.endpoint;
+diff --git a/dist/unstable/httpapi/HttpApiSchema.d.ts b/dist/unstable/httpapi/HttpApiSchema.d.ts
+index 07fe995a..8ca5b3ce 100644
+--- a/dist/unstable/httpapi/HttpApiSchema.d.ts
++++ b/dist/unstable/httpapi/HttpApiSchema.d.ts
+@@ -159,6 +159,47 @@ export interface asMultipartStream<S extends Schema.Top> extends Schema.brand<S[
+  * @since 4.0.0
+  */
+ export declare function asMultipartStream(options?: Multipart_.withLimits.Options): <S extends Schema.Top>(self: S) => asMultipartStream<S>;
++/**
++ * @since 4.0.0
++ */
++export interface JsonPayloadEncoding {
++    readonly _tag: "Json";
++    readonly contentType: string;
++}
++/**
++ * @since 4.0.0
++ */
++export interface FormUrlEncodedPayloadEncoding {
++    readonly _tag: "FormUrlEncoded";
++    readonly contentType: string;
++}
++/**
++ * @since 4.0.0
++ */
++export interface TextPayloadEncoding {
++    readonly _tag: "Text";
++    readonly contentType: string;
++}
++/**
++ * @since 4.0.0
++ */
++export interface Uint8ArrayPayloadEncoding {
++    readonly _tag: "Uint8Array";
++    readonly contentType: string;
++}
++/**
++ * @since 4.0.0
++ */
++export interface MultipartPayloadEncoding {
++    readonly _tag: "Multipart";
++    readonly mode: "buffered" | "stream";
++    readonly contentType: string;
++    readonly limits?: Multipart_.withLimits.Options | undefined;
++}
++/**
++ * @since 4.0.0
++ */
++export type PayloadEncoding = JsonPayloadEncoding | FormUrlEncodedPayloadEncoding | TextPayloadEncoding | Uint8ArrayPayloadEncoding | MultipartPayloadEncoding;
+ /**
+  * Marks a schema as a JSON payload / response.
+  *

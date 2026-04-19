@@ -44,6 +44,7 @@ export default defineConfig({
     sourcemap: true,
     deps: {
       neverBundle: ["@effect/platform", "@effect/platform-node", "dfx", "effect"],
+      onlyBundle: false,
     },
     dts: {
       tsgo: true,

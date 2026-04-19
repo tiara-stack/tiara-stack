@@ -22,7 +22,6 @@ import {
   formatTentativeRoomOrderContent,
   hasTentativeRoomOrderPrefix,
   MessageRoomOrderService,
-  PermissionError,
   PermissionService,
   SheetApisRequestContext,
   stripTentativeRoomOrderPrefix,
@@ -179,12 +178,8 @@ const makeRoomOrderPreviousButtonHandler = Effect.gen(function* () {
             .checkInteractionUserMonitorGuild(guildId)
             .pipe(
               Effect.as(true),
-              Effect.catch((error) =>
-                error instanceof PermissionError
-                  ? msgHelper
-                      .editReply({ payload: { content: error.message } })
-                      .pipe(Effect.as(false))
-                  : Effect.fail(error),
+              Effect.catchTag("PermissionError", (error) =>
+                msgHelper.editReply({ payload: { content: error.message } }).pipe(Effect.as(false)),
               ),
             );
 
@@ -257,12 +252,8 @@ const makeRoomOrderNextButtonHandler = Effect.gen(function* () {
             .checkInteractionUserMonitorGuild(guildId)
             .pipe(
               Effect.as(true),
-              Effect.catch((error) =>
-                error instanceof PermissionError
-                  ? msgHelper
-                      .editReply({ payload: { content: error.message } })
-                      .pipe(Effect.as(false))
-                  : Effect.fail(error),
+              Effect.catchTag("PermissionError", (error) =>
+                msgHelper.editReply({ payload: { content: error.message } }).pipe(Effect.as(false)),
               ),
             );
 
@@ -385,10 +376,8 @@ const makeTentativeRoomOrderPinButtonHandler = Effect.gen(function* () {
           .checkInteractionUserMonitorGuild(guildId)
           .pipe(
             Effect.as(true),
-            Effect.catch((error) =>
-              error instanceof PermissionError
-                ? helper.editReply({ payload: { content: error.message } }).pipe(Effect.as(false))
-                : Effect.fail(error),
+            Effect.catchTag("PermissionError", (error) =>
+              helper.editReply({ payload: { content: error.message } }).pipe(Effect.as(false)),
             ),
           );
 

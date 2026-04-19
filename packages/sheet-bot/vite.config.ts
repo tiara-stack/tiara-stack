@@ -18,7 +18,13 @@ export default defineConfig({
       BUILD_HASH: hash,
       BUILD_VERSION: `${date}-${hash}`,
     },
-    deps: { alwaysBundle: [/^.*$/] },
+    deps: {
+      alwaysBundle: [/^.*$/],
+      neverBundle: [
+        /^(dfx-discord-utils|sheet-apis|sheet-auth|sheet-db-schema|typhoon-core)(?:\/.*)?$/,
+      ],
+      onlyBundle: false,
+    },
   },
   lint: {
     ignorePatterns: ["dist"],
