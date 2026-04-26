@@ -1,5 +1,6 @@
+import { NodeHttpClient } from "@effect/platform-node";
 import { GuildsApiCacheView } from "dfx-discord-utils/discord/cache/guilds";
-import { HttpServerRequest } from "effect/unstable/http";
+import { HttpClient, HttpServerRequest } from "effect/unstable/http";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { Effect, Layer, Redacted, Schema } from "effect";
 import { makeArgumentError } from "typhoon-core/error";
@@ -16,6 +17,13 @@ const DiscordMyGuild = Schema.Struct({
   id: Schema.String,
 });
 
+const formatError = (error: unknown) =>
+  error instanceof Error
+    ? error.message
+    : typeof error === "string"
+      ? error
+      : JSON.stringify(error);
+
 const getForwardedDiscordAccessToken = Effect.fn("getForwardedDiscordAccessToken")(function* () {
   const headers = yield* HttpServerRequest.schemaHeaders(forwardedDiscordHeaders);
   if (!headers["x-sheet-discord-access-token"]) {
@@ -29,31 +37,43 @@ export const discordLayer = HttpApiBuilder.group(
   "discord",
   Effect.fn(function* (handlers) {
     const guildsCache = yield* GuildsApiCacheView;
+    const httpClient = yield* HttpClient.HttpClient;
+
+    const getDiscordJson = Effect.fn("getDiscordJson")(function* (
+      url: string,
+      accessToken: Redacted.Redacted<string>,
+      failureMessage: string,
+    ) {
+      const response = yield* httpClient
+        .get(url, {
+          headers: {
+            Authorization: `Bearer ${Redacted.value(accessToken)}`,
+          },
+        })
+        .pipe(
+          Effect.mapError((error) => makeArgumentError(`${failureMessage}: ${formatError(error)}`)),
+        );
+      if (response.status < 200 || response.status >= 300) {
+        return yield* Effect.fail(makeArgumentError(`${failureMessage}: ${response.status}`));
+      }
+
+      return yield* response.json.pipe(
+        Effect.mapError((error) =>
+          makeArgumentError(`Failed to parse Discord response: ${formatError(error)}`),
+        ),
+      );
+    });
 
     return handlers
       .handle(
         "getCurrentUser",
         Effect.fnUntraced(function* () {
           const accessToken = yield* getForwardedDiscordAccessToken();
-
-          const discordResponse = yield* Effect.promise(() =>
-            fetch("https://discord.com/api/v10/users/@me", {
-              headers: {
-                Authorization: `Bearer ${Redacted.value(accessToken)}`,
-              },
-            }),
+          const json = yield* getDiscordJson(
+            "https://discord.com/api/v10/users/@me",
+            accessToken,
+            "Failed to fetch Discord user",
           );
-          if (!discordResponse.ok) {
-            return yield* Effect.fail(
-              makeArgumentError(`Failed to fetch Discord user: ${discordResponse.statusText}`),
-            );
-          }
-
-          const json = yield* Effect.tryPromise({
-            try: () => discordResponse.json(),
-            catch: (error) =>
-              makeArgumentError(`Failed to parse Discord response: ${String(error)}`),
-          });
 
           return yield* Schema.decodeUnknownEffect(Discord.DiscordUser)(json).pipe(
             Effect.mapError((error) =>
@@ -66,25 +86,11 @@ export const discordLayer = HttpApiBuilder.group(
         "getCurrentUserGuilds",
         Effect.fnUntraced(function* () {
           const accessToken = yield* getForwardedDiscordAccessToken();
-
-          const discordResponse = yield* Effect.promise(() =>
-            fetch("https://discord.com/api/v10/users/@me/guilds", {
-              headers: {
-                Authorization: `Bearer ${Redacted.value(accessToken)}`,
-              },
-            }),
+          const json = yield* getDiscordJson(
+            "https://discord.com/api/v10/users/@me/guilds",
+            accessToken,
+            "Failed to fetch Discord guilds",
           );
-          if (!discordResponse.ok) {
-            return yield* Effect.fail(
-              makeArgumentError(`Failed to fetch Discord guilds: ${discordResponse.statusText}`),
-            );
-          }
-
-          const json = yield* Effect.tryPromise({
-            try: () => discordResponse.json(),
-            catch: (error) =>
-              makeArgumentError(`Failed to parse Discord response: ${String(error)}`),
-          });
 
           const userGuilds = yield* Schema.decodeUnknownEffect(Schema.Array(DiscordMyGuild))(
             json,
@@ -120,4 +126,6 @@ export const discordLayer = HttpApiBuilder.group(
         }),
       );
   }),
-).pipe(Layer.provide([discordServiceLayer, SheetAuthTokenAuthorizationLive]));
+).pipe(
+  Layer.provide([discordServiceLayer, SheetAuthTokenAuthorizationLive, NodeHttpClient.layerFetch]),
+);

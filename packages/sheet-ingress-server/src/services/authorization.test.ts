@@ -11,6 +11,8 @@ import {
 import { SheetApisClient } from "./sheetApisClient";
 import { SheetBotCacheClient } from "./sheetBotCacheClient";
 
+type SheetBotCacheClientApi = typeof SheetBotCacheClient.Service;
+
 const makeUser = (permissions: Iterable<string> = []) => ({
   accountId: "discord-user-1",
   userId: "user-1",
@@ -44,10 +46,17 @@ const makeSheetBotCacheClient = ({
   readonly roles?: ReadonlyMap<string, { readonly id: string; readonly permissions: string }>;
   readonly memberError?: unknown;
   readonly rolesError?: unknown;
-} = {}) => ({
-  getMember: vi.fn(() => (memberError ? Effect.fail(memberError) : Effect.succeed(member))),
-  getRolesForGuild: vi.fn(() => (rolesError ? Effect.fail(rolesError) : Effect.succeed(roles))),
-});
+} = {}): SheetBotCacheClientApi & {
+  readonly getMember: ReturnType<typeof vi.fn>;
+  readonly getRolesForGuild: ReturnType<typeof vi.fn>;
+} =>
+  ({
+    getMember: vi.fn(() => (memberError ? Effect.fail(memberError) : Effect.succeed(member))),
+    getRolesForGuild: vi.fn(() => (rolesError ? Effect.fail(rolesError) : Effect.succeed(roles))),
+  }) as unknown as SheetBotCacheClientApi & {
+    readonly getMember: ReturnType<typeof vi.fn>;
+    readonly getRolesForGuild: ReturnType<typeof vi.fn>;
+  };
 
 const runAuthorization = <A, E, R>(
   effect: Effect.Effect<A, E, R>,

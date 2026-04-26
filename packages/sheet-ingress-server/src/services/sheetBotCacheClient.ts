@@ -1,4 +1,5 @@
 import { Context, Effect, Layer, Option, Redacted } from "effect";
+import { HttpClient } from "effect/unstable/http";
 import { config } from "@/config";
 import { SheetApisClient } from "./sheetApisClient";
 
@@ -13,12 +14,6 @@ export interface CachedGuildRole {
 
 const makeTargetUrl = (baseUrl: string, path: string) =>
   new URL(path.replace(/^\/+/, ""), baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`);
-
-const jsonFromResponse = (response: Response) =>
-  Effect.tryPromise({
-    try: () => response.json(),
-    catch: (cause) => cause,
-  });
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
@@ -59,29 +54,26 @@ export class SheetBotCacheClient extends Context.Service<SheetBotCacheClient>()(
     make: Effect.gen(function* () {
       const baseUrl = yield* config.sheetBotBaseUrl;
       const sheetApisClient = yield* SheetApisClient;
+      const httpClient = yield* HttpClient.HttpClient;
 
       const fetchJson = Effect.fn("SheetBotCacheClient.fetchJson")(function* (path: string) {
         const serviceUser = yield* sheetApisClient.getServiceUser();
-        const response = yield* Effect.tryPromise({
-          try: () =>
-            fetch(makeTargetUrl(baseUrl, path), {
-              headers: {
-                Authorization: `Bearer ${Redacted.value(serviceUser.token)}`,
-              },
-            }),
-          catch: (cause) => cause,
+        const response = yield* httpClient.get(makeTargetUrl(baseUrl, path), {
+          headers: {
+            Authorization: `Bearer ${Redacted.value(serviceUser.token)}`,
+          },
         });
 
         if (response.status === 404) {
           return Option.none<unknown>();
         }
-        if (!response.ok) {
+        if (response.status < 200 || response.status >= 300) {
           return yield* Effect.fail(
             new Error(`Sheet bot cache request failed: ${response.status}`),
           );
         }
 
-        return Option.some(yield* jsonFromResponse(response));
+        return Option.some(yield* response.json);
       });
 
       return {

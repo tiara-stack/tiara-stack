@@ -1,4 +1,5 @@
 import { Cache, Context, Duration, Effect, Exit, HashSet, Layer, Option, Redacted } from "effect";
+import { HttpClient } from "effect/unstable/http";
 import {
   getAccount,
   getKubernetesOAuthImplicitPermissions,
@@ -76,28 +77,24 @@ export class ApplicationOwnerResolver extends Context.Service<ApplicationOwnerRe
     make: Effect.gen(function* () {
       const baseUrl = yield* config.sheetBotBaseUrl;
       const sheetApisClient = yield* SheetApisClient;
+      const httpClient = yield* HttpClient.HttpClient;
       const application = yield* Cache.makeWith(
         Effect.fn("ApplicationOwnerResolver.lookup")(function* (_key: string) {
           const serviceUser = yield* sheetApisClient.getServiceUser();
           const url = new URL("application", baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`);
-          const response = yield* Effect.tryPromise({
-            try: () =>
-              fetch(url, {
-                headers: {
-                  Authorization: `Bearer ${Redacted.value(serviceUser.token)}`,
-                },
-              }),
-            catch: (cause) => cause,
-          }).pipe(Effect.orElseSucceed(() => undefined));
+          const response = yield* httpClient
+            .get(url, {
+              headers: {
+                Authorization: `Bearer ${Redacted.value(serviceUser.token)}`,
+              },
+            })
+            .pipe(Effect.orElseSucceed(() => undefined));
 
-          if (!response?.ok) {
+          if (!response || response.status < 200 || response.status >= 300) {
             return Option.none<string>();
           }
 
-          const json = yield* Effect.tryPromise({
-            try: () => response.json(),
-            catch: (cause) => cause,
-          }).pipe(Effect.orElseSucceed(() => undefined));
+          const json = yield* response.json.pipe(Effect.orElseSucceed(() => undefined));
 
           return typeof json === "object" &&
             json !== null &&
