@@ -211,6 +211,7 @@ export class SheetApisClient extends Context.Service<SheetApisClient>()("SheetAp
     }).pipe(
       Effect.map((client) =>
         Object.assign(client, {
+          getServiceUser,
           withServiceUser: <A, E, R>(effect: Effect.Effect<A, E, R>) =>
             Effect.gen(function* () {
               const serviceUser = yield* getServiceUser();

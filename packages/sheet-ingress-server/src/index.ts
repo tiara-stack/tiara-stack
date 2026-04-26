@@ -37,6 +37,7 @@ import {
   hasPermission,
   SheetAuthTokenAuthorizationLive,
 } from "./services/authorization";
+import { SheetAuthUserResolver } from "./services/authResolver";
 import { decodeBearerCredential } from "./services/bearerCredential";
 import { scrubbedForwardHeadersFrom } from "./services/headers";
 import { MessageLookup } from "./services/messageLookup";
@@ -114,18 +115,12 @@ class ServiceTokenAuthorizer extends Context.Service<
   static layer = Layer.effect(
     ServiceTokenAuthorizer,
     Effect.gen(function* () {
-      const sheetApisClient = yield* SheetApisClient;
+      const sheetAuthUserResolver = yield* SheetAuthUserResolver;
       const servicePermissionCache = yield* Cache.makeWith(
         (authorization: string) =>
-          sheetApisClient
-            .withServiceUser(
-              sheetApisClient.permissions.resolveTokenPermissions({
-                payload: {
-                  token: decodeBearerCredential(
-                    Redacted.make(authorization.slice("Bearer ".length).trim()),
-                  ),
-                },
-              }),
+          sheetAuthUserResolver
+            .resolveToken(
+              decodeBearerCredential(Redacted.make(authorization.slice("Bearer ".length).trim())),
             )
             .pipe(
               Effect.map(({ permissions }) => hasPermission(permissions, "service")),
@@ -147,7 +142,7 @@ class ServiceTokenAuthorizer extends Context.Service<
           Cache.get(servicePermissionCache, authorization),
       };
     }),
-  ).pipe(Layer.provide(SheetApisClient.layer));
+  ).pipe(Layer.provide(SheetAuthUserResolver.layer));
 }
 
 const proxyTo =
@@ -763,14 +758,20 @@ const makeApiLayer = ({ sheetBotBaseUrl }: { readonly sheetBotBaseUrl: string })
         ),
     ),
     HttpApiBuilder.group(Api, "permissions", (handlers) =>
-      handlers
-        .handle(
-          "getCurrentUserPermissions",
-          proxySheetApis("permissions", "getCurrentUserPermissions"),
-        )
-        .handleRaw("resolveTokenPermissions", () =>
-          Effect.succeed(HttpServerResponse.empty({ status: 403 })),
-        ),
+      handlers.handle(
+        "getCurrentUserPermissions",
+        Effect.fnUntraced(function* ({ query }) {
+          const authorization = yield* AuthorizationService;
+          const resolvedUser =
+            typeof query.guildId === "string"
+              ? yield* authorization.resolveCurrentGuildUser(query.guildId)
+              : yield* SheetAuthUser;
+
+          return {
+            permissions: resolvedUser.permissions,
+          };
+        }),
+      ),
     ),
     HttpApiBuilder.group(Api, "player", (handlers) =>
       handlers
