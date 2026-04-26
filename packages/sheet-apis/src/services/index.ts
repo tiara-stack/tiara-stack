@@ -1,4 +1,3 @@
-export * from "./applicationOwner";
 export * from "./authorization";
 export * from "./calc";
 export * from "./checkin";

@@ -1,11 +1,28 @@
-import { Cache, Context, Data, Duration, Effect, Exit, HashSet, Layer, Redacted } from "effect";
+import {
+  Cache,
+  Context,
+  Data,
+  Duration,
+  Effect,
+  Exit,
+  HashSet,
+  Layer,
+  Option,
+  Redacted,
+} from "effect";
 import { SheetAuthTokenAuthorization } from "sheet-ingress-api/middlewares/sheetAuthTokenAuthorization/tag";
 import { SheetAuthGuildUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthGuildUser";
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
 import { Unauthorized } from "sheet-ingress-api/schemas/middlewares/unauthorized";
 import type { Permission, PermissionSet } from "sheet-ingress-api/schemas/permissions";
+import { SheetAuthUserResolver } from "./authResolver";
 import { decodeBearerCredential } from "./bearerCredential";
 import { SheetApisClient } from "./sheetApisClient";
+import {
+  type CachedGuildMember,
+  type CachedGuildRole,
+  SheetBotCacheClient,
+} from "./sheetBotCacheClient";
 
 type SheetAuthUserType = Context.Service.Shape<typeof SheetAuthUser>;
 type SheetAuthGuildUserType = Context.Service.Shape<typeof SheetAuthGuildUser>;
@@ -36,6 +53,39 @@ const requirePermissions = (
   message: string,
 ) => (predicate(permissions) ? Effect.void : Effect.fail(new Unauthorized({ message })));
 
+const appendPermission = (permissions: PermissionSet, permission: Permission): PermissionSet =>
+  HashSet.add(permissions, permission);
+
+const appendPermissions = (
+  permissions: PermissionSet,
+  nextPermissions: Iterable<Permission>,
+): PermissionSet => HashSet.union(permissions, permissionSetFromIterable(nextPermissions));
+
+const manageGuildPermission = 0x20n;
+const administratorPermission = 0x08n;
+
+const hasManageGuildPermission = (
+  member: CachedGuildMember,
+  roles: ReadonlyMap<string, CachedGuildRole>,
+) =>
+  member.roles.some((roleId) => {
+    const role = roles.get(roleId);
+    if (!role) {
+      return false;
+    }
+
+    const permissions = BigInt(role.permissions);
+    return (
+      (permissions & manageGuildPermission) === manageGuildPermission ||
+      (permissions & administratorPermission) === administratorPermission
+    );
+  });
+
+const hasMonitorGuildPermission = (
+  member: CachedGuildMember,
+  monitorRoleIds: ReadonlySet<string>,
+) => member.roles.some((roleId) => monitorRoleIds.has(roleId));
+
 const makeSheetAuthGuildUser = (
   user: SheetAuthUserType,
   guildId: string,
@@ -63,28 +113,90 @@ export class AuthorizationService extends Context.Service<AuthorizationService>(
   {
     make: Effect.gen(function* () {
       const sheetApisClient = yield* SheetApisClient;
+      const sheetBotCacheClient = yield* SheetBotCacheClient;
+
+      const getOptionalGuildMember = Effect.fn("AuthorizationService.getOptionalGuildMember")(
+        function* (guildId: string, accountId: string) {
+          return yield* sheetBotCacheClient.getMember(guildId, accountId).pipe(
+            Effect.tapError(Effect.logError),
+            Effect.orElseSucceed(() => Option.none<CachedGuildMember>()),
+          );
+        },
+      );
+
+      const getOptionalMonitorRoleIds = Effect.fn("AuthorizationService.getOptionalMonitorRoleIds")(
+        function* (guildId: string) {
+          return yield* sheetApisClient
+            .withServiceUser(
+              sheetApisClient.guildConfig.getGuildMonitorRoles({ query: { guildId } }),
+            )
+            .pipe(
+              Effect.map((roles) =>
+                Option.some(new Set(roles.map((role) => role.roleId)) as ReadonlySet<string>),
+              ),
+              Effect.tapError(Effect.logError),
+              Effect.orElseSucceed(() => Option.none<ReadonlySet<string>>()),
+            );
+        },
+      );
+
+      const getOptionalGuildRoles = (guildId: string) =>
+        sheetBotCacheClient
+          .getRolesForGuild(guildId)
+          .pipe(Effect.tapError(Effect.logError), Effect.option);
+
+      const resolveGuildScopedPermissions = Effect.fn(
+        "AuthorizationService.resolveGuildScopedPermissions",
+      )(function* (user: SheetAuthUserType, guildId: string) {
+        if (
+          hasPermission(user.permissions, "service") ||
+          hasPermission(user.permissions, "app_owner")
+        ) {
+          return appendPermissions(user.permissions, [
+            `member_guild:${guildId}`,
+            `monitor_guild:${guildId}`,
+            `manage_guild:${guildId}`,
+          ]);
+        }
+
+        const [maybeMember, maybeMonitorRoleIds, maybeRoles] = yield* Effect.all(
+          [
+            getOptionalGuildMember(guildId, user.accountId),
+            getOptionalMonitorRoleIds(guildId),
+            getOptionalGuildRoles(guildId),
+          ],
+          { concurrency: "unbounded" },
+        );
+
+        let permissions = user.permissions;
+
+        if (Option.isSome(maybeMember)) {
+          permissions = appendPermission(permissions, `member_guild:${guildId}`);
+        }
+
+        if (
+          Option.isSome(maybeMember) &&
+          Option.isSome(maybeMonitorRoleIds) &&
+          maybeMonitorRoleIds.value.size > 0 &&
+          hasMonitorGuildPermission(maybeMember.value, maybeMonitorRoleIds.value)
+        ) {
+          permissions = appendPermission(permissions, `monitor_guild:${guildId}`);
+        }
+
+        if (
+          Option.isSome(maybeMember) &&
+          Option.isSome(maybeRoles) &&
+          hasManageGuildPermission(maybeMember.value, maybeRoles.value)
+        ) {
+          permissions = appendPermission(permissions, `manage_guild:${guildId}`);
+        }
+
+        return permissions;
+      });
 
       const resolveSheetAuthGuildUser = Effect.fn("AuthorizationService.resolveSheetAuthGuildUser")(
         function* (user: SheetAuthUserType, guildId: string) {
-          const { permissions } = yield* sheetApisClient
-            .withServiceUser(
-              sheetApisClient.permissions.resolveTokenPermissions({
-                payload: {
-                  token: user.token,
-                  guildId,
-                },
-              }),
-            )
-            .pipe(
-              Effect.mapError(
-                (cause) =>
-                  new Unauthorized({
-                    message: "Failed to resolve guild permissions",
-                    cause,
-                  }),
-              ),
-            );
-
+          const permissions = yield* resolveGuildScopedPermissions(user, guildId);
           return makeSheetAuthGuildUser(user, guildId, permissions);
         },
       );
@@ -92,7 +204,7 @@ export class AuthorizationService extends Context.Service<AuthorizationService>(
       const resolvedGuildUserCache = yield* Cache.makeWith<
         ResolvedGuildUserCacheKey,
         SheetAuthGuildUserType,
-        unknown,
+        never,
         SheetAuthUser
       >(
         Effect.fn("AuthorizationService.resolveCurrentGuildUserCached")(function* ({
@@ -247,14 +359,14 @@ export class AuthorizationService extends Context.Service<AuthorizationService>(
   },
 ) {
   static layer = Layer.effect(AuthorizationService, this.make).pipe(
-    Layer.provide(SheetApisClient.layer),
+    Layer.provide([SheetApisClient.layer, SheetBotCacheClient.layer]),
   );
 }
 
 export const SheetAuthTokenAuthorizationLive = Layer.effect(
   SheetAuthTokenAuthorization,
   Effect.gen(function* () {
-    const sheetApisClient = yield* SheetApisClient;
+    const sheetAuthUserResolver = yield* SheetAuthUserResolver;
 
     return SheetAuthTokenAuthorization.of({
       sheetAuthToken: Effect.fn("SheetAuthTokenAuthorization.sheetAuthToken")(function* (
@@ -262,23 +374,7 @@ export const SheetAuthTokenAuthorizationLive = Layer.effect(
         { credential },
       ) {
         const token = decodeBearerCredential(credential);
-        const resolvedUser = yield* sheetApisClient
-          .withServiceUser(
-            sheetApisClient.permissions.resolveTokenPermissions({
-              payload: {
-                token,
-              },
-            }),
-          )
-          .pipe(
-            Effect.mapError(
-              (cause) =>
-                new Unauthorized({
-                  message: "Invalid sheet-auth token",
-                  cause,
-                }),
-            ),
-          );
+        const resolvedUser = yield* sheetAuthUserResolver.resolveToken(token);
 
         return yield* Effect.provideService(httpEffect, SheetAuthUser, {
           accountId: resolvedUser.accountId,
@@ -289,4 +385,4 @@ export const SheetAuthTokenAuthorizationLive = Layer.effect(
       }),
     });
   }),
-).pipe(Layer.provide(SheetApisClient.layer));
+).pipe(Layer.provide(SheetAuthUserResolver.layer));

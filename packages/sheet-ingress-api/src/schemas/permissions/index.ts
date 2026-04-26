@@ -27,9 +27,3 @@ export type PermissionSet = Schema.Schema.Type<typeof PermissionSet>;
 export const CurrentUserPermissions = Schema.Struct({
   permissions: PermissionSet,
 });
-
-export const ResolvedUserPermissions = Schema.Struct({
-  userId: Schema.String,
-  accountId: Schema.String,
-  permissions: PermissionSet,
-});
