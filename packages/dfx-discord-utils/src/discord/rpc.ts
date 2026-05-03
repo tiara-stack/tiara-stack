@@ -6,14 +6,17 @@ import { GuildsCache, ChannelsCache, RolesCache, MembersCache } from "./cache";
 import { DiscordApplication } from "./gateway";
 import {
   ApplicationValueSchema,
+  AddGuildMemberRolePayloadSchema,
   CacheNotFoundError,
   CacheSizeSchema,
   ChannelCacheEntriesSchema,
   ChannelValueSchema,
+  CreatePinPayloadSchema,
   CreateInteractionResponsePayloadSchema,
   DiscordBotRestErrorSchema,
   DiscordInteractionCallbackResponseSchema,
   DiscordMessageSchema,
+  EmptyBotResponseSchema,
   GuildValueSchema,
   makeDiscordBotRestError,
   MemberCacheEntriesSchema,
@@ -63,6 +66,16 @@ export class DiscordRpcs extends RpcGroup.make(
   Rpc.make("bot.updateOriginalInteractionResponse", {
     payload: UpdateOriginalInteractionResponsePayloadSchema,
     success: DiscordMessageSchema,
+    error: DiscordBotRestErrorSchema,
+  }),
+  Rpc.make("bot.createPin", {
+    payload: CreatePinPayloadSchema,
+    success: EmptyBotResponseSchema,
+    error: DiscordBotRestErrorSchema,
+  }),
+  Rpc.make("bot.addGuildMemberRole", {
+    payload: AddGuildMemberRolePayloadSchema,
+    success: EmptyBotResponseSchema,
     error: DiscordBotRestErrorSchema,
   }),
   Rpc.make("cache.getGuild", {
@@ -324,6 +337,16 @@ export const discordRpcHandlersLayer = DiscordRpcs.toLayer(
             payload: withoutMessageMentions(payload) as Discord.IncomingWebhookUpdateRequestPartial,
           }),
           "Failed to update original interaction response",
+        ),
+      "bot.createPin": ({ params: { channelId, messageId } }) =>
+        handleBotRestError(
+          rest.createPin(channelId, messageId).pipe(Effect.as({})),
+          `Failed to pin message ${messageId} in channel ${channelId}`,
+        ),
+      "bot.addGuildMemberRole": ({ params: { guildId, userId, roleId } }) =>
+        handleBotRestError(
+          rest.addGuildMemberRole(guildId, userId, roleId).pipe(Effect.as({})),
+          `Failed to add role ${roleId} to user ${userId} in guild ${guildId}`,
         ),
       "cache.getGuild": ({ params: { resourceId } }) =>
         handleCacheError(

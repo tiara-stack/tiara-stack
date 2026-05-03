@@ -179,6 +179,36 @@ export class MessageCheckinService extends Context.Service<MessageCheckinService
         return member.value;
       });
 
+      const setMessageCheckinMemberCheckinAtIfUnset = Effect.fn(
+        "MessageCheckinService.setMessageCheckinMemberCheckinAtIfUnset",
+      )(function* (messageId: string, memberId: string, checkinAt: number) {
+        const mutation = yield* zeroClient.mutate(
+          mutators.messageCheckin.setMessageCheckinMemberCheckinAtIfUnset({
+            messageId,
+            memberId,
+            checkinAt,
+          }),
+        );
+        yield* mutation.server();
+
+        const result = yield* zeroClient.run(
+          queries.messageCheckin.getMessageCheckinMembers({ messageId }),
+          {
+            type: "complete",
+          },
+        );
+        const members = yield* Schema.decodeEffect(
+          Schema.Array(DefaultTaggedClass(MessageCheckinMember)),
+        )(result);
+        const member = Array.findFirst(members, (item) => item.memberId === memberId);
+
+        if (Option.isNone(member)) {
+          return yield* Effect.die(makeDBQueryError("Failed to set check-in timestamp"));
+        }
+
+        return member.value;
+      });
+
       const removeMessageCheckinMember = Effect.fn(
         "MessageCheckinService.removeMessageCheckinMember",
       )(function* (messageId: string, memberId: string) {
@@ -212,6 +242,7 @@ export class MessageCheckinService extends Context.Service<MessageCheckinService
         addMessageCheckinMembers,
         persistMessageCheckin,
         setMessageCheckinMemberCheckinAt,
+        setMessageCheckinMemberCheckinAtIfUnset,
         removeMessageCheckinMember,
       };
     }),

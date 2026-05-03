@@ -147,6 +147,23 @@ export const UpdateOriginalInteractionResponsePayloadSchema = Schema.Struct({
   payload: DiscordMessageRequestSchema,
 });
 
+export const CreatePinPayloadSchema = Schema.Struct({
+  params: Schema.Struct({
+    channelId: Schema.String,
+    messageId: Schema.String,
+  }),
+});
+
+export const AddGuildMemberRolePayloadSchema = Schema.Struct({
+  params: Schema.Struct({
+    guildId: Schema.String,
+    userId: Schema.String,
+    roleId: Schema.String,
+  }),
+});
+
+export const EmptyBotResponseSchema = Schema.Struct({});
+
 export const DiscordMessageSchema = Schema.Struct({
   id: Schema.String,
   channel_id: Schema.String,

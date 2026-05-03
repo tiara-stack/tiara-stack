@@ -1,6 +1,6 @@
 import { defineMutator } from "@rocicorp/zero";
 import { Schema, pipe } from "effect";
-import { Schema as ZeroSchema } from "../schema";
+import { builder, Schema as ZeroSchema } from "../schema";
 
 declare module "@rocicorp/zero" {
   interface DefaultTypes {
@@ -114,6 +114,31 @@ export const messageCheckin = {
         memberId: args.memberId,
         checkinAt: args.checkinAt,
       }),
+  ),
+  setMessageCheckinMemberCheckinAtIfUnset: defineMutator(
+    pipe(
+      Schema.Struct({
+        messageId: Schema.String,
+        memberId: Schema.String,
+        checkinAt: Schema.Number,
+      }),
+      Schema.toStandardSchemaV1,
+    ),
+    async ({ tx, args }) => {
+      const member = await tx.run(
+        builder.messageCheckinMember
+          .where("messageId", "=", args.messageId)
+          .where("memberId", "=", args.memberId)
+          .where("deletedAt", "IS", null)
+          .one(),
+      );
+      if (!member || member.checkinAt !== null) return;
+      await tx.mutate.messageCheckinMember.update({
+        messageId: args.messageId,
+        memberId: args.memberId,
+        checkinAt: args.checkinAt,
+      });
+    },
   ),
   removeMessageCheckinMember: defineMutator(
     pipe(

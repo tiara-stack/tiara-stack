@@ -366,6 +366,25 @@ const requireRoomOrderMonitor = (messageId: string) =>
     yield* requireGuild("monitor", guildId);
   }).pipe(Effect.mapError(authorizationArgumentError("message room order")));
 
+const requireRoomOrderButton = (payload: {
+  readonly action: string;
+  readonly guildId: string;
+  readonly messageId: string;
+}) =>
+  Effect.gen(function* () {
+    const messages = yield* MessageLookup;
+    const record = yield* messages.getMessageRoomOrder(payload.messageId);
+    if (Option.isSome(record)) {
+      const guildId = yield* getRequiredModernGuildId(record.value, "message room order");
+      yield* requireGuild("monitor", guildId);
+      return;
+    }
+    if (payload.action !== "pinTentative") {
+      return yield* Effect.fail(missingMessage("message room order"));
+    }
+    yield* requireGuild("monitor", payload.guildId);
+  }).pipe(Effect.mapError(authorizationArgumentError("message room order")));
+
 const requireRoomOrderUpsert = (messageId: string, guildId?: string) =>
   Effect.gen(function* () {
     const messages = yield* MessageLookup;
@@ -530,6 +549,15 @@ const makeApiLayer = () => {
         .handle(
           "dispatch",
           guildPayload("checkin", "dispatch", "monitor", (payload) => payload.guildId),
+        )
+        .handle(
+          "handleButton",
+          authorizedSheetApis("checkin", "handleButton", ({ payload }) =>
+            Effect.gen(function* () {
+              const user = yield* SheetAuthUser;
+              yield* requireMessageCheckinParticipantMutation(payload.messageId, user.accountId);
+            }),
+          ),
         ),
     ),
     HttpApiBuilder.group(Api, "discord", (handlers) =>
@@ -796,6 +824,12 @@ const makeApiLayer = () => {
         .handle(
           "dispatch",
           guildPayload("roomOrder", "dispatch", "monitor", (payload) => payload.guildId),
+        )
+        .handle(
+          "handleButton",
+          authorizedSheetApis("roomOrder", "handleButton", ({ payload }) =>
+            requireRoomOrderButton(payload),
+          ),
         ),
     ),
     HttpApiBuilder.group(Api, "schedule", (handlers) =>
@@ -858,7 +892,9 @@ const makeApiLayer = () => {
         .handle(
           "updateOriginalInteractionResponse",
           forwardSheetBot("bot", "updateOriginalInteractionResponse"),
-        ),
+        )
+        .handle("createPin", forwardSheetBot("bot", "createPin"))
+        .handle("addGuildMemberRole", forwardSheetBot("bot", "addGuildMemberRole")),
     ),
     HttpApiBuilder.group(Api, "cache", (handlers) =>
       handlers

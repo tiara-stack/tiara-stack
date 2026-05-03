@@ -120,6 +120,17 @@ export const messageRoomOrder = pgTable("message_room_order", {
   guildId: varchar("guild_id"),
   messageChannelId: varchar("message_channel_id"),
   createdByUserId: varchar("created_by_user_id"),
+  sendClaimId: varchar("send_claim_id"),
+  sendClaimedAt: timestamp("send_claimed_at", { mode: "date", withTimezone: true }),
+  sentMessageId: varchar("sent_message_id"),
+  sentMessageChannelId: varchar("sent_message_channel_id"),
+  sentAt: timestamp("sent_at", { mode: "date", withTimezone: true }),
+  tentativePinClaimId: varchar("tentative_pin_claim_id"),
+  tentativePinClaimedAt: timestamp("tentative_pin_claimed_at", {
+    mode: "date",
+    withTimezone: true,
+  }),
+  tentativePinnedAt: timestamp("tentative_pinned_at", { mode: "date", withTimezone: true }),
   createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true })
     .defaultNow()

@@ -79,6 +79,8 @@ const makeRest = ({
       channel_id: "channel-1",
       content: "updated",
     }),
+  createPin = () => Effect.succeed({}),
+  addGuildMemberRole = () => Effect.succeed({}),
 }: {
   readonly createMessage?: (...args: ReadonlyArray<unknown>) => Effect.Effect<unknown, unknown>;
   readonly createInteractionResponse?: (
@@ -88,11 +90,17 @@ const makeRest = ({
   readonly updateOriginalWebhookMessage?: (
     ...args: ReadonlyArray<unknown>
   ) => Effect.Effect<unknown, unknown>;
+  readonly createPin?: (...args: ReadonlyArray<unknown>) => Effect.Effect<unknown, unknown>;
+  readonly addGuildMemberRole?: (
+    ...args: ReadonlyArray<unknown>
+  ) => Effect.Effect<unknown, unknown>;
 } = {}) => ({
   createMessage,
   createInteractionResponse,
   updateMessage,
   updateOriginalWebhookMessage,
+  createPin,
+  addGuildMemberRole,
 });
 
 const run = <A, E, R>(
@@ -289,6 +297,50 @@ describe("DiscordRpcs handlers", () => {
       ],
     ]);
     expect(result).toEqual({ id: "message-1", channel_id: "channel-1", content: "hello" });
+  });
+
+  it("bot.createPin calls Discord REST createPin", async () => {
+    const calls: Array<ReadonlyArray<unknown>> = [];
+    const result = await run(
+      Effect.gen(function* () {
+        const client = yield* makeClient;
+        return yield* client("bot.createPin", {
+          params: { channelId: "channel-1", messageId: "message-1" },
+        });
+      }),
+      makeCaches(),
+      makeRest({
+        createPin: (...args) => {
+          calls.push(args);
+          return Effect.succeed({});
+        },
+      }),
+    );
+
+    expect(calls).toEqual([["channel-1", "message-1"]]);
+    expect(result).toEqual({});
+  });
+
+  it("bot.addGuildMemberRole calls Discord REST addGuildMemberRole", async () => {
+    const calls: Array<ReadonlyArray<unknown>> = [];
+    const result = await run(
+      Effect.gen(function* () {
+        const client = yield* makeClient;
+        return yield* client("bot.addGuildMemberRole", {
+          params: { guildId: "guild-1", userId: "user-1", roleId: "role-1" },
+        });
+      }),
+      makeCaches(),
+      makeRest({
+        addGuildMemberRole: (...args) => {
+          calls.push(args);
+          return Effect.succeed({});
+        },
+      }),
+    );
+
+    expect(calls).toEqual([["guild-1", "user-1", "role-1"]]);
+    expect(result).toEqual({});
   });
 
   it("bot.createInteractionResponse requests a response body by default", async () => {

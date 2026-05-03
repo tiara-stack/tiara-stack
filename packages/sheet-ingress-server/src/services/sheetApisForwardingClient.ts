@@ -24,6 +24,7 @@ export class SheetApisForwardingClient extends Context.Service<SheetApisForwardi
         checkin: {
           generate: call(rpcClient["checkin.generate"]),
           dispatch: call(rpcClient["checkin.dispatch"]),
+          handleButton: call(rpcClient["checkin.handleButton"]),
         },
         discord: {
           getCurrentUser: callNoInput(rpcClient["discord.getCurrentUser"]),
@@ -93,6 +94,7 @@ export class SheetApisForwardingClient extends Context.Service<SheetApisForwardi
         roomOrder: {
           generate: call(rpcClient["roomOrder.generate"]),
           dispatch: call(rpcClient["roomOrder.dispatch"]),
+          handleButton: call(rpcClient["roomOrder.handleButton"]),
         },
         schedule: {
           getAllPopulatedSchedules: call(rpcClient["schedule.getAllPopulatedSchedules"]),

@@ -1,8 +1,7 @@
 import { InteractionsRegistry } from "dfx/gateway";
-import { userMention } from "@discordjs/formatters";
 import { ButtonStyle, MessageFlags } from "discord-api-types/v10";
 import { Ix } from "dfx/index";
-import { Array, Effect, Layer, Option, pipe } from "effect";
+import { Effect, Layer, Option, pipe } from "effect";
 import { CHECKIN_BUTTON_CUSTOM_ID } from "sheet-ingress-api/discordComponents";
 import { discordGatewayLayer } from "../../discord/gateway";
 import {
@@ -11,11 +10,10 @@ import {
   makeMessageActionRowData,
   makeMessageComponent,
 } from "dfx-discord-utils/utils";
-import { MessageCheckinService, SheetApisRequestContext } from "@/services";
-import { GuildMember } from "dfx-discord-utils/utils";
+import { InteractionToken } from "dfx-discord-utils/utils";
 import { Interaction } from "dfx-discord-utils/utils";
 import { discordApplicationLayer } from "../../discord/application";
-import { discordConfigLayer } from "../../discord/config";
+import { SheetApisClient, SheetApisRequestContext } from "@/services";
 
 const getInteractionGuildId = Effect.gen(function* () {
   const interactionGuild = yield* Interaction.guild();
@@ -23,10 +21,6 @@ const getInteractionGuildId = Effect.gen(function* () {
     interactionGuild,
     Option.map((guild) => (guild as { id: string }).id),
   );
-});
-
-const getInteractionUser = Effect.gen(function* () {
-  return (yield* Interaction.user()) as { id: string };
 });
 
 const getInteractionMessage = Effect.gen(function* () {
@@ -53,8 +47,7 @@ export const checkinActionRow = (disabled = false) =>
   makeMessageActionRowData((b) => b.setComponents(makeCheckinButtonData(disabled)));
 
 const makeCheckinButtonHandler = Effect.gen(function* () {
-  const messageCheckinService = yield* MessageCheckinService;
-  const guildMemberUtils = yield* GuildMember.GuildMemberUtils;
+  const sheetApisClient = yield* SheetApisClient;
 
   return yield* makeButton(
     checkinButtonData.toJSON(),
@@ -63,64 +56,17 @@ const makeCheckinButtonHandler = Effect.gen(function* () {
         yield* helper.deferReply({ flags: MessageFlags.Ephemeral });
 
         const guildId = Option.getOrThrow(yield* getInteractionGuildId);
-        const user = yield* getInteractionUser;
-        const accountId = user.id;
         const message = Option.getOrThrow(yield* getInteractionMessage);
-        const messageId = message.id;
-        const messageChannelId = message.channel_id;
+        const interactionToken = yield* InteractionToken;
 
-        yield* messageCheckinService.setMessageCheckinMemberCheckinAt(
-          messageId,
-          accountId,
-          Date.now(),
-        );
-
-        // Give user immediate feedback first (ephemeral confirmation)
-        yield* helper.editReply({
+        yield* sheetApisClient.get().checkin.handleButton({
           payload: {
-            content: "You have been checked in!",
+            guildId,
+            messageId: message.id,
+            messageChannelId: message.channel_id,
+            interactionToken: interactionToken.token,
           },
         });
-
-        const messageCheckinData = yield* messageCheckinService.getMessageCheckinData(messageId);
-
-        const checkedInMembers = yield* messageCheckinService.getMessageCheckinMembers(messageId);
-
-        const checkedInMentions = pipe(
-          checkedInMembers,
-          Array.filter((m) => Option.isSome(m.checkinAt)),
-          Array.map((m) => userMention(m.memberId)),
-        );
-
-        const content = pipe(
-          checkedInMentions,
-          Array.match({
-            onNonEmpty: (mentions) =>
-              `${messageCheckinData.initialMessage}\n\nChecked in: ${mentions.join(" ")}`,
-            onEmpty: () => messageCheckinData.initialMessage,
-          }),
-        );
-
-        // Edit the original message using REST API (use the message's actual channel)
-        yield* helper.rest.updateMessage(messageChannelId, messageId, {
-          content,
-          components: [
-            makeMessageActionRowData((b) => b.setComponents(checkinButtonData)).toJSON(),
-          ],
-        });
-
-        // Send notification to the running channel
-        yield* helper.rest.createMessage(messageCheckinData.channelId, {
-          content: `${userMention(accountId)} has checked in!`,
-        });
-
-        yield* pipe(
-          messageCheckinData.roleId,
-          Option.match({
-            onSome: (roleId) => guildMemberUtils.addRoles(guildId, accountId, [roleId]),
-            onNone: () => Effect.void,
-          }),
-        );
       }),
     ),
   );
@@ -141,11 +87,6 @@ export const checkinButtonLayer = Layer.effectDiscard(
   }),
 ).pipe(
   Layer.provide(
-    Layer.mergeAll(
-      discordGatewayLayer,
-      discordApplicationLayer,
-      MessageCheckinService.layer,
-      Layer.provide(GuildMember.GuildMemberUtils.layer, discordConfigLayer),
-    ),
+    Layer.mergeAll(discordGatewayLayer, discordApplicationLayer, SheetApisClient.layer),
   ),
 );
