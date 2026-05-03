@@ -133,6 +133,23 @@ export class IngressBotClient extends Context.Service<IngressBotClient>()("Ingre
           payload,
         });
       }),
+      createPin: Effect.fn("IngressBotClient.createPin")(function* (
+        channelId: string,
+        messageId: string,
+      ) {
+        return yield* client.bot.createPin({
+          params: { channelId, messageId },
+        });
+      }),
+      addGuildMemberRole: Effect.fn("IngressBotClient.addGuildMemberRole")(function* (
+        guildId: string,
+        userId: string,
+        roleId: string,
+      ) {
+        return yield* client.bot.addGuildMemberRole({
+          params: { guildId, userId, roleId },
+        });
+      }),
     };
   }),
 }) {

@@ -12,10 +12,13 @@ import {
   MemberCacheEntriesSchema,
   CacheSizeSchema,
   CacheNotFoundError,
+  AddGuildMemberRolePayloadSchema,
+  CreatePinPayloadSchema,
   CreateInteractionResponsePayloadSchema,
   DiscordBotRestErrors,
   DiscordInteractionCallbackResponseSchema,
   DiscordMessageSchema,
+  EmptyBotResponseSchema,
   SendMessagePayloadSchema,
   UpdateMessagePayloadSchema,
   UpdateOriginalInteractionResponsePayloadSchema,
@@ -218,6 +221,24 @@ export class BotApi extends HttpApiGroup.make("bot")
         params: UpdateOriginalInteractionResponsePayloadSchema.fields.params,
         payload: UpdateOriginalInteractionResponsePayloadSchema.fields.payload,
         success: DiscordMessageSchema,
+        error: [...DiscordBotRestErrors, Unauthorized],
+      },
+    ),
+  )
+  .add(
+    HttpApiEndpoint.put("createPin", "/bot/channels/:channelId/pins/:messageId", {
+      params: CreatePinPayloadSchema.fields.params,
+      success: EmptyBotResponseSchema,
+      error: [...DiscordBotRestErrors, Unauthorized],
+    }),
+  )
+  .add(
+    HttpApiEndpoint.put(
+      "addGuildMemberRole",
+      "/bot/guilds/:guildId/members/:userId/roles/:roleId",
+      {
+        params: AddGuildMemberRolePayloadSchema.fields.params,
+        success: EmptyBotResponseSchema,
         error: [...DiscordBotRestErrors, Unauthorized],
       },
     ),

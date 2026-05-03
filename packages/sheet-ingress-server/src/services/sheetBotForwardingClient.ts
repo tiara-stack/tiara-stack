@@ -23,6 +23,9 @@ export class SheetBotForwardingClient extends Context.Service<SheetBotForwarding
           updateOriginalInteractionResponse: (
             args: RpcPayload<"bot.updateOriginalInteractionResponse">,
           ) => rpcClient["bot.updateOriginalInteractionResponse"](args),
+          createPin: (args: RpcPayload<"bot.createPin">) => rpcClient["bot.createPin"](args),
+          addGuildMemberRole: (args: RpcPayload<"bot.addGuildMemberRole">) =>
+            rpcClient["bot.addGuildMemberRole"](args),
         },
         cache: {
           getGuild: (args: RpcPayload<"cache.getGuild">) => rpcClient["cache.getGuild"](args),

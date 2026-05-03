@@ -57,6 +57,8 @@ describe("SheetBotForwardingClient", () => {
     expect(client.bot.sendMessage).toEqual(expect.any(Function));
     expect(client.bot.updateMessage).toEqual(expect.any(Function));
     expect(client.bot.updateOriginalInteractionResponse).toEqual(expect.any(Function));
+    expect(client.bot.createPin).toEqual(expect.any(Function));
+    expect(client.bot.addGuildMemberRole).toEqual(expect.any(Function));
     expect(client.cache.getMember).toEqual(expect.any(Function));
   });
 
