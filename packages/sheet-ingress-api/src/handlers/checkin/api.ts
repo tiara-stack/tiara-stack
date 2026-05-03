@@ -8,7 +8,12 @@ import { SheetApisServiceUserFallback } from "../../middlewares/sheetApisService
 import { ParserFieldError } from "../../schemas/sheet/error";
 import { SheetConfigError } from "../../schemas/sheetConfig";
 import { CheckinGenerateResult } from "../../schemas/checkin";
-import { CheckinDispatchPayload, CheckinDispatchResult } from "../../sheet-apis-rpc";
+import {
+  CheckinDispatchPayload,
+  CheckinDispatchResult,
+  CheckinHandleButtonPayload,
+  CheckinHandleButtonResult,
+} from "../../sheet-apis-rpc";
 
 const CheckinGenerateError = [
   GoogleSheetsError,
@@ -20,6 +25,7 @@ const CheckinGenerateError = [
 ];
 
 const CheckinDispatchError = [...CheckinGenerateError, UnknownError];
+const CheckinHandleButtonError = [...CheckinGenerateError, UnknownError];
 
 export class CheckinApi extends HttpApiGroup.make("checkin")
   .add(
@@ -40,6 +46,13 @@ export class CheckinApi extends HttpApiGroup.make("checkin")
       payload: CheckinDispatchPayload,
       success: CheckinDispatchResult,
       error: CheckinDispatchError,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("handleButton", "/checkin/buttons/handle", {
+      payload: CheckinHandleButtonPayload,
+      success: CheckinHandleButtonResult,
+      error: CheckinHandleButtonError,
     }),
   )
   .middleware(SheetApisServiceUserFallback)

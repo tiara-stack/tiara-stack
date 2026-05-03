@@ -1,8 +1,11 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, HashSet, Redacted } from "effect";
+import { DateTime, Effect, HashSet, Option, Redacted } from "effect";
 import { CHECKIN_BUTTON_CUSTOM_ID } from "sheet-ingress-api/discordComponents";
 import { CheckinGenerateResult } from "sheet-ingress-api/schemas/checkin";
-import { MessageRoomOrderRange } from "sheet-ingress-api/schemas/messageRoomOrder";
+import {
+  MessageRoomOrder,
+  MessageRoomOrderRange,
+} from "sheet-ingress-api/schemas/messageRoomOrder";
 import {
   GeneratedRoomOrderEntry,
   RoomOrderGenerateResult,
@@ -10,17 +13,21 @@ import {
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
 import { CheckinService } from "./checkin";
 import { DispatchService } from "./dispatch";
+import { GuildConfigService } from "./guildConfig";
 import { IngressBotClient } from "./ingressBotClient";
 import { MessageCheckinService } from "./messageCheckin";
 import { MessageRoomOrderService } from "./messageRoomOrder";
 import { RoomOrderService } from "./roomOrder";
+import { SheetService } from "./sheet";
 
 type BotClientApi = typeof IngressBotClient.Service;
 type CheckinServiceApi = typeof CheckinService.Service;
 type DispatchServiceApi = typeof DispatchService.Service;
+type GuildConfigServiceApi = typeof GuildConfigService.Service;
 type MessageCheckinServiceApi = typeof MessageCheckinService.Service;
 type MessageRoomOrderServiceApi = typeof MessageRoomOrderService.Service;
 type RoomOrderServiceApi = typeof RoomOrderService.Service;
+type SheetServiceApi = typeof SheetService.Service;
 type UpdateMessage = (
   channelId: string,
   messageId: string,
@@ -104,22 +111,81 @@ const makeBotClient = (calls: Call[]): BotClientApi => ({
         channel_id: "interaction-channel-1",
       };
     }),
+  createPin: (channelId, messageId) =>
+    Effect.sync(() => {
+      calls.push({ name: "createPin", args: [channelId, messageId] });
+      return {};
+    }),
+  addGuildMemberRole: (guildId, userId, roleId) =>
+    Effect.sync(() => {
+      calls.push({ name: "addGuildMemberRole", args: [guildId, userId, roleId] });
+      return {};
+    }),
 });
+
+const makeMessageRoomOrder = (
+  rank = 0,
+  overrides: Partial<ConstructorParameters<typeof MessageRoomOrder>[0]> = {},
+) =>
+  new MessageRoomOrder({
+    messageId: "room-order-message-1",
+    previousFills: ["old-fill"],
+    fills: ["fill-1", "fill-2"],
+    hour: 20,
+    rank,
+    monitor: Option.some("monitor-1"),
+    guildId: Option.some("guild-1"),
+    messageChannelId: Option.some("running-channel-1"),
+    createdByUserId: Option.some("auth-user-1"),
+    sendClaimId: Option.none(),
+    sendClaimedAt: Option.none(),
+    sentMessageId: Option.none(),
+    sentMessageChannelId: Option.none(),
+    sentAt: Option.none(),
+    tentativePinClaimId: Option.none(),
+    tentativePinClaimedAt: Option.none(),
+    tentativePinnedAt: Option.none(),
+    createdAt: Option.none(),
+    updatedAt: Option.none(),
+    deletedAt: Option.none(),
+    ...overrides,
+  });
 
 const makeDispatchService = ({
   calls,
   checkinResult = makeCheckinResult(),
   roomOrderResult = makeRoomOrderResult(),
-  updateMessage = makeBotClient(calls).updateMessage as UpdateMessage,
+  botClient = makeBotClient(calls),
+  updateMessage = botClient.updateMessage as UpdateMessage,
+  setCheckinAtIfUnset,
+  messageRoomOrder = Option.some(makeMessageRoomOrder()),
+  claimMessageRoomOrderSend,
+  completeMessageRoomOrderSend,
 }: {
   readonly calls: Call[];
   readonly checkinResult?: CheckinGenerateResult;
   readonly roomOrderResult?: RoomOrderGenerateResult;
+  readonly botClient?: BotClientApi;
   readonly updateMessage?: UpdateMessage;
+  readonly setCheckinAtIfUnset?: (
+    messageId: string,
+    memberId: string,
+    checkinAt: number,
+  ) => Effect.Effect<unknown, never>;
+  readonly messageRoomOrder?: Option.Option<MessageRoomOrder>;
+  readonly claimMessageRoomOrderSend?: (
+    messageId: string,
+    claimId: string,
+  ) => Effect.Effect<MessageRoomOrder, never>;
+  readonly completeMessageRoomOrderSend?: (
+    messageId: string,
+    claimId: string,
+    sentMessage: { readonly id: string; readonly channelId: string },
+  ) => Effect.Effect<MessageRoomOrder, never>;
 }) =>
   DispatchService.make.pipe(
     Effect.provideService(IngressBotClient, {
-      ...makeBotClient(calls),
+      ...botClient,
       updateMessage: updateMessage as BotClientApi["updateMessage"],
     }),
     Effect.provideService(CheckinService, {
@@ -136,11 +202,76 @@ const makeDispatchService = ({
           return roomOrderResult;
         }),
     } as RoomOrderServiceApi),
+    Effect.provideService(GuildConfigService, {
+      getGuildConfig: () =>
+        Effect.succeed(
+          Option.some({
+            sheetId: Option.some("sheet-1"),
+          }),
+        ),
+      getGuildChannelById: () => Effect.succeed(Option.some({})),
+    } as unknown as GuildConfigServiceApi),
+    Effect.provideService(SheetService, {
+      getEventConfig: () =>
+        Effect.succeed({
+          startTime: DateTime.makeUnsafe("2026-01-01T00:00:00.000Z"),
+        }),
+    } as unknown as SheetServiceApi),
     Effect.provideService(MessageCheckinService, {
       persistMessageCheckin: (messageId: string, payload: unknown) =>
         Effect.sync(() => {
           calls.push({ name: "messageCheckin.persist", args: [messageId, payload] });
           return {} as never;
+        }),
+      setMessageCheckinMemberCheckinAt: (messageId: string, memberId: string, checkinAt: number) =>
+        Effect.sync(() => {
+          calls.push({
+            name: "messageCheckin.setCheckinAt",
+            args: [messageId, memberId, checkinAt],
+          });
+          return {} as never;
+        }),
+      setMessageCheckinMemberCheckinAtIfUnset: (
+        messageId: string,
+        memberId: string,
+        checkinAt: number,
+      ) =>
+        setCheckinAtIfUnset?.(messageId, memberId, checkinAt) ??
+        Effect.sync(() => {
+          calls.push({
+            name: "messageCheckin.setCheckinAtIfUnset",
+            args: [messageId, memberId, checkinAt],
+          });
+          return {
+            memberId,
+            checkinAt: Option.some(DateTime.makeUnsafe(new Date(checkinAt).toISOString())),
+          } as never;
+        }),
+      getMessageCheckinData: (messageId: string) =>
+        Effect.sync(() => {
+          calls.push({ name: "messageCheckin.getData", args: [messageId] });
+          return Option.some({
+            initialMessage: "Check in now",
+            channelId: "running-channel-1",
+            roleId: Option.some("role-1"),
+            guildId: Option.some("guild-1"),
+            messageChannelId: Option.some("checkin-channel-1"),
+          });
+        }),
+      getMessageCheckinMembers: (messageId: string) =>
+        Effect.sync(() => {
+          calls.push({ name: "messageCheckin.getMembers", args: [messageId] });
+          const hasCheckedIn = calls.some(
+            (call) => call.name === "messageCheckin.setCheckinAtIfUnset",
+          );
+          return [
+            {
+              memberId: "discord-user-1",
+              checkinAt: hasCheckedIn
+                ? Option.some(DateTime.makeUnsafe("2026-01-01T00:00:00.000Z"))
+                : Option.none(),
+            },
+          ];
         }),
     } as unknown as MessageCheckinServiceApi),
     Effect.provideService(MessageRoomOrderService, {
@@ -148,6 +279,81 @@ const makeDispatchService = ({
         Effect.sync(() => {
           calls.push({ name: "messageRoomOrder.persist", args: [messageId, payload] });
           return {} as never;
+        }),
+      getMessageRoomOrder: (messageId: string) =>
+        Effect.sync(() => {
+          calls.push({ name: "messageRoomOrder.get", args: [messageId] });
+          return messageRoomOrder;
+        }),
+      decrementMessageRoomOrderRank: (messageId: string) =>
+        Effect.sync(() => {
+          calls.push({ name: "messageRoomOrder.decrement", args: [messageId] });
+          return makeMessageRoomOrder(0);
+        }),
+      incrementMessageRoomOrderRank: (messageId: string) =>
+        Effect.sync(() => {
+          calls.push({ name: "messageRoomOrder.increment", args: [messageId] });
+          return makeMessageRoomOrder(1);
+        }),
+      claimMessageRoomOrderSend: (messageId: string, claimId: string) =>
+        claimMessageRoomOrderSend?.(messageId, claimId) ??
+        Effect.sync(() => {
+          calls.push({ name: "messageRoomOrder.claimSend", args: [messageId, claimId] });
+          return makeMessageRoomOrder(0, {
+            sendClaimId: Option.some(claimId),
+            sendClaimedAt: Option.some(DateTime.makeUnsafe("2026-01-01T00:00:00.000Z")),
+          });
+        }),
+      completeMessageRoomOrderSend: (
+        messageId: string,
+        claimId: string,
+        sentMessage: { readonly id: string; readonly channelId: string },
+      ) =>
+        completeMessageRoomOrderSend?.(messageId, claimId, sentMessage) ??
+        Effect.sync(() => {
+          calls.push({
+            name: "messageRoomOrder.completeSend",
+            args: [messageId, claimId, sentMessage],
+          });
+          return makeMessageRoomOrder(0, {
+            sendClaimId: Option.none(),
+            sentMessageId: Option.some(sentMessage.id),
+            sentMessageChannelId: Option.some(sentMessage.channelId),
+            sentAt: Option.some(DateTime.makeUnsafe("2026-01-01T00:00:00.000Z")),
+          });
+        }),
+      releaseMessageRoomOrderSendClaim: (messageId: string, claimId: string) =>
+        Effect.sync(() => {
+          calls.push({ name: "messageRoomOrder.releaseSend", args: [messageId, claimId] });
+        }),
+      claimMessageRoomOrderTentativePin: (messageId: string, claimId: string) =>
+        Effect.sync(() => {
+          calls.push({ name: "messageRoomOrder.claimTentativePin", args: [messageId, claimId] });
+          return makeMessageRoomOrder(0, {
+            tentativePinClaimId: Option.some(claimId),
+            tentativePinClaimedAt: Option.some(DateTime.makeUnsafe("2026-01-01T00:00:00.000Z")),
+          });
+        }),
+      completeMessageRoomOrderTentativePin: (messageId: string, claimId: string) =>
+        Effect.sync(() => {
+          calls.push({ name: "messageRoomOrder.completeTentativePin", args: [messageId, claimId] });
+          return makeMessageRoomOrder(0, {
+            tentativePinnedAt: Option.some(DateTime.makeUnsafe("2026-01-01T00:00:00.000Z")),
+          });
+        }),
+      releaseMessageRoomOrderTentativePinClaim: (messageId: string, claimId: string) =>
+        Effect.sync(() => {
+          calls.push({ name: "messageRoomOrder.releaseTentativePin", args: [messageId, claimId] });
+        }),
+      getMessageRoomOrderRange: (messageId: string) =>
+        Effect.sync(() => {
+          calls.push({ name: "messageRoomOrder.getRange", args: [messageId] });
+          return Option.some(new MessageRoomOrderRange({ minRank: 0, maxRank: 1 }));
+        }),
+      getMessageRoomOrderEntry: (messageId: string, rank: number) =>
+        Effect.sync(() => {
+          calls.push({ name: "messageRoomOrder.getEntry", args: [messageId, rank] });
+          return [makeRoomOrderEntry()];
         }),
     } as unknown as MessageRoomOrderServiceApi),
   ) as Effect.Effect<DispatchServiceApi, never>;
@@ -363,6 +569,453 @@ describe("DispatchService", () => {
           "sendMessage",
           "messageRoomOrder.persist",
           "updateMessage",
+        ]);
+      }),
+  );
+
+  it.effect("checkin button checks in the current user and updates Discord side effects", () =>
+    Effect.gen(function* () {
+      const calls: Call[] = [];
+      const dispatchService = yield* makeDispatchService({ calls });
+      const result = yield* runWithUser(
+        dispatchService.checkinButton({
+          guildId: "guild-1",
+          messageId: "checkin-message-1",
+          messageChannelId: "checkin-channel-1",
+          interactionToken: "token-1",
+        }),
+      );
+
+      expect(result).toEqual({
+        messageId: "checkin-message-1",
+        messageChannelId: "checkin-channel-1",
+        checkedInMemberId: "discord-user-1",
+      });
+      expect(calls.map((call) => call.name)).toEqual([
+        "messageCheckin.getData",
+        "messageCheckin.setCheckinAtIfUnset",
+        "updateOriginalInteractionResponse",
+        "messageCheckin.getMembers",
+        "updateMessage",
+        "sendMessage",
+        "addGuildMemberRole",
+      ]);
+      expect(calls[2]?.args).toEqual(["token-1", { content: "You have been checked in!" }]);
+      expect(calls[4]?.args[2]).toMatchObject({
+        content: "Check in now\n\nChecked in: <@discord-user-1>",
+        components: [
+          {
+            components: [expect.objectContaining({ custom_id: CHECKIN_BUTTON_CUSTOM_ID })],
+          },
+        ],
+      });
+      expect(calls[5]?.args).toEqual([
+        "running-channel-1",
+        { content: "<@discord-user-1> has checked in!" },
+      ]);
+      expect(calls[6]?.args).toEqual(["guild-1", "discord-user-1", "role-1"]);
+    }),
+  );
+
+  it.effect(
+    "checkin button retry repairs message and role side effects without re-announcing",
+    () =>
+      Effect.gen(function* () {
+        const calls: Call[] = [];
+        const dispatchService = yield* makeDispatchService({
+          calls,
+          setCheckinAtIfUnset: (messageId, memberId, checkinAt) =>
+            Effect.sync(() => {
+              calls.push({
+                name: "messageCheckin.setCheckinAtIfUnset",
+                args: [messageId, memberId, checkinAt],
+              });
+              return {
+                memberId,
+                checkinAt: Option.some(DateTime.makeUnsafe("2026-01-01T00:00:00.000Z")),
+              };
+            }),
+        });
+        const result = yield* runWithUser(
+          dispatchService.checkinButton({
+            guildId: "guild-1",
+            messageId: "checkin-message-1",
+            messageChannelId: "checkin-channel-1",
+            interactionToken: "token-1",
+          }),
+        );
+
+        expect(result).toEqual({
+          messageId: "checkin-message-1",
+          messageChannelId: "checkin-channel-1",
+          checkedInMemberId: "discord-user-1",
+        });
+        expect(calls.map((call) => call.name)).toEqual([
+          "messageCheckin.getData",
+          "messageCheckin.setCheckinAtIfUnset",
+          "updateOriginalInteractionResponse",
+          "messageCheckin.getMembers",
+          "updateMessage",
+          "addGuildMemberRole",
+        ]);
+        expect(calls[2]?.args).toEqual([
+          "token-1",
+          { content: "You have already been checked in!" },
+        ]);
+        expect(calls[5]?.args).toEqual(["guild-1", "discord-user-1", "role-1"]);
+      }),
+  );
+
+  it.effect("room order previous button updates normal interaction response", () =>
+    Effect.gen(function* () {
+      const calls: Call[] = [];
+      const dispatchService = yield* makeDispatchService({ calls });
+      const result = yield* runWithUser(
+        dispatchService.roomOrderButton({
+          guildId: "guild-1",
+          messageId: "room-order-message-1",
+          messageChannelId: "running-channel-1",
+          messageContent: "Room order content",
+          interactionToken: "token-1",
+          action: "previous",
+        }),
+      );
+
+      expect(result).toMatchObject({
+        messageId: "room-order-message-1",
+        messageChannelId: "running-channel-1",
+        action: "previous",
+        status: "updated",
+      });
+      expect(calls.map((call) => call.name)).toEqual([
+        "messageRoomOrder.get",
+        "messageRoomOrder.decrement",
+        "messageRoomOrder.getRange",
+        "messageRoomOrder.getEntry",
+        "updateOriginalInteractionResponse",
+      ]);
+      expect(calls[4]?.args[1]).toMatchObject({
+        content: expect.stringContaining("**Hour 20**"),
+        components: [expect.objectContaining({ components: expect.any(Array) })],
+      });
+    }),
+  );
+
+  it.effect("room order send button sends and pins a rendered room order", () =>
+    Effect.gen(function* () {
+      const calls: Call[] = [];
+      const dispatchService = yield* makeDispatchService({ calls });
+      const result = yield* runWithUser(
+        dispatchService.roomOrderButton({
+          guildId: "guild-1",
+          messageId: "room-order-message-1",
+          messageChannelId: "running-channel-1",
+          messageContent: "(tentative)\nRoom order content",
+          interactionToken: "token-1",
+          action: "send",
+        }),
+      );
+
+      expect(result).toMatchObject({
+        messageChannelId: "running-channel-1",
+        action: "send",
+        status: "pinned",
+        detail: "sent room order and pinned it!",
+      });
+      expect(calls.map((call) => call.name)).toEqual([
+        "messageRoomOrder.get",
+        "messageRoomOrder.getRange",
+        "messageRoomOrder.getEntry",
+        "messageRoomOrder.claimSend",
+        "sendMessage",
+        "messageRoomOrder.completeSend",
+        "createPin",
+        "updateOriginalInteractionResponse",
+      ]);
+      expect(calls[4]?.args[1]).toMatchObject({
+        content: expect.stringContaining("**Hour 20**"),
+        nonce: "room-order-message-1",
+        enforce_nonce: true,
+      });
+      expect(calls[7]?.args).toEqual([
+        "token-1",
+        { content: "sent room order and pinned it!", components: [] },
+      ]);
+    }),
+  );
+
+  it.effect("room order send button short-circuits when already sent", () =>
+    Effect.gen(function* () {
+      const calls: Call[] = [];
+      const dispatchService = yield* makeDispatchService({
+        calls,
+        messageRoomOrder: Option.some(
+          makeMessageRoomOrder(0, {
+            sentMessageId: Option.some("sent-message-1"),
+            sentMessageChannelId: Option.some("running-channel-1"),
+            sentAt: Option.some(DateTime.makeUnsafe("2026-01-01T00:00:00.000Z")),
+          }),
+        ),
+      });
+      const result = yield* runWithUser(
+        dispatchService.roomOrderButton({
+          guildId: "guild-1",
+          messageId: "room-order-message-1",
+          messageChannelId: "running-channel-1",
+          messageContent: "(tentative)\nRoom order content",
+          interactionToken: "token-1",
+          action: "send",
+        }),
+      );
+
+      expect(result).toMatchObject({
+        messageId: "sent-message-1",
+        messageChannelId: "running-channel-1",
+        action: "send",
+        status: "sent",
+        detail: "room order was already sent.",
+      });
+      expect(calls.map((call) => call.name)).toEqual([
+        "messageRoomOrder.get",
+        "updateOriginalInteractionResponse",
+      ]);
+    }),
+  );
+
+  it.effect("room order tentative previous button denies after tentative order is pinned", () =>
+    Effect.gen(function* () {
+      const calls: Call[] = [];
+      const dispatchService = yield* makeDispatchService({
+        calls,
+        messageRoomOrder: Option.some(
+          makeMessageRoomOrder(0, {
+            tentativePinnedAt: Option.some(DateTime.makeUnsafe("2026-01-01T00:00:00.000Z")),
+          }),
+        ),
+      });
+      const result = yield* runWithUser(
+        dispatchService.roomOrderButton({
+          guildId: "guild-1",
+          messageId: "room-order-message-1",
+          messageChannelId: "running-channel-1",
+          messageContent: "(tentative)\nRoom order content",
+          interactionToken: "token-1",
+          action: "previous",
+        }),
+      );
+
+      expect(result).toMatchObject({
+        messageId: "room-order-message-1",
+        messageChannelId: "running-channel-1",
+        action: "previous",
+        status: "denied",
+        detail: "tentative room order is already pinned.",
+      });
+      expect(calls.map((call) => call.name)).toEqual([
+        "messageRoomOrder.get",
+        "updateOriginalInteractionResponse",
+      ]);
+    }),
+  );
+
+  it.effect("room order send button denies competing send claims", () =>
+    Effect.gen(function* () {
+      const calls: Call[] = [];
+      const dispatchService = yield* makeDispatchService({
+        calls,
+        claimMessageRoomOrderSend: (messageId, claimId) =>
+          Effect.sync(() => {
+            calls.push({ name: "messageRoomOrder.claimSend", args: [messageId, claimId] });
+            return makeMessageRoomOrder(0, {
+              sendClaimId: Option.some("other-claim"),
+            });
+          }),
+      });
+      const result = yield* runWithUser(
+        dispatchService.roomOrderButton({
+          guildId: "guild-1",
+          messageId: "room-order-message-1",
+          messageChannelId: "running-channel-1",
+          messageContent: "(tentative)\nRoom order content",
+          interactionToken: "token-1",
+          action: "send",
+        }),
+      );
+
+      expect(result).toMatchObject({
+        action: "send",
+        status: "denied",
+        detail: "room order is already being sent.",
+      });
+      expect(calls.map((call) => call.name)).toEqual([
+        "messageRoomOrder.get",
+        "messageRoomOrder.getRange",
+        "messageRoomOrder.getEntry",
+        "messageRoomOrder.claimSend",
+        "updateOriginalInteractionResponse",
+      ]);
+    }),
+  );
+
+  it.effect("room order send button releases claim when Discord send fails", () =>
+    Effect.gen(function* () {
+      const calls: Call[] = [];
+      const dispatchService = yield* makeDispatchService({
+        calls,
+        botClient: {
+          ...makeBotClient(calls),
+          sendMessage: (channelId, payload) =>
+            Effect.sync(() => {
+              calls.push({ name: "sendMessage", args: [channelId, payload] });
+            }).pipe(
+              Effect.andThen(
+                Effect.fail(new Error("discord send failed")) as unknown as ReturnType<
+                  BotClientApi["sendMessage"]
+                >,
+              ),
+            ),
+        },
+      });
+
+      const exit = yield* runWithUser(
+        dispatchService.roomOrderButton({
+          guildId: "guild-1",
+          messageId: "room-order-message-1",
+          messageChannelId: "running-channel-1",
+          messageContent: "(tentative)\nRoom order content",
+          interactionToken: "token-1",
+          action: "send",
+        }),
+      ).pipe(Effect.exit);
+
+      expect(exit._tag).toBe("Failure");
+      expect(calls.map((call) => call.name)).toEqual([
+        "messageRoomOrder.get",
+        "messageRoomOrder.getRange",
+        "messageRoomOrder.getEntry",
+        "messageRoomOrder.claimSend",
+        "sendMessage",
+        "messageRoomOrder.releaseSend",
+      ]);
+    }),
+  );
+
+  it.effect("room order send button fails when completion does not persist sent state", () =>
+    Effect.gen(function* () {
+      const calls: Call[] = [];
+      const dispatchService = yield* makeDispatchService({
+        calls,
+        completeMessageRoomOrderSend: (messageId, claimId, sentMessage) =>
+          Effect.sync(() => {
+            calls.push({
+              name: "messageRoomOrder.completeSend",
+              args: [messageId, claimId, sentMessage],
+            });
+            return makeMessageRoomOrder(0, {
+              sendClaimId: Option.some(claimId),
+            });
+          }),
+      });
+
+      const exit = yield* runWithUser(
+        dispatchService.roomOrderButton({
+          guildId: "guild-1",
+          messageId: "room-order-message-1",
+          messageChannelId: "running-channel-1",
+          messageContent: "(tentative)\nRoom order content",
+          interactionToken: "token-1",
+          action: "send",
+        }),
+      ).pipe(Effect.exit);
+
+      expect(exit._tag).toBe("Failure");
+      expect(calls.map((call) => call.name)).toEqual([
+        "messageRoomOrder.get",
+        "messageRoomOrder.getRange",
+        "messageRoomOrder.getEntry",
+        "messageRoomOrder.claimSend",
+        "sendMessage",
+        "messageRoomOrder.completeSend",
+      ]);
+    }),
+  );
+
+  it.effect("room order tentative pin marks the record before cleanup", () =>
+    Effect.gen(function* () {
+      const calls: Call[] = [];
+      const dispatchService = yield* makeDispatchService({ calls });
+      const result = yield* runWithUser(
+        dispatchService.roomOrderButton({
+          guildId: "guild-1",
+          messageId: "room-order-message-1",
+          messageChannelId: "running-channel-1",
+          messageContent: "(tentative)\nRoom order content",
+          interactionToken: "token-1",
+          action: "pinTentative",
+        }),
+      );
+
+      expect(result).toMatchObject({
+        messageId: "room-order-message-1",
+        messageChannelId: "running-channel-1",
+        action: "pinTentative",
+        status: "pinned",
+        detail: "pinned tentative room order!",
+      });
+      expect(calls.map((call) => call.name)).toEqual([
+        "messageRoomOrder.get",
+        "messageRoomOrder.claimTentativePin",
+        "createPin",
+        "messageRoomOrder.completeTentativePin",
+        "messageRoomOrder.getRange",
+        "messageRoomOrder.getEntry",
+        "updateMessage",
+        "updateOriginalInteractionResponse",
+      ]);
+      expect(calls[6]?.args[2]).toMatchObject({
+        content: expect.stringContaining("**Hour 20**"),
+        components: [],
+      });
+    }),
+  );
+
+  it.effect(
+    "room order tentative pin falls back to payload context when persistence is absent",
+    () =>
+      Effect.gen(function* () {
+        const calls: Call[] = [];
+        const dispatchService = yield* makeDispatchService({
+          calls,
+          messageRoomOrder: Option.none(),
+        });
+        const result = yield* runWithUser(
+          dispatchService.roomOrderButton({
+            guildId: "guild-1",
+            messageId: "fallback-room-order-message-1",
+            messageChannelId: "running-channel-1",
+            messageContent: "(tentative)\nRoom order content",
+            interactionToken: "token-1",
+            action: "pinTentative",
+          }),
+        );
+
+        expect(result).toMatchObject({
+          messageId: "fallback-room-order-message-1",
+          messageChannelId: "running-channel-1",
+          action: "pinTentative",
+          status: "pinned",
+          detail: "pinned tentative room order!",
+        });
+        expect(calls.map((call) => call.name)).toEqual([
+          "messageRoomOrder.get",
+          "createPin",
+          "updateMessage",
+          "updateOriginalInteractionResponse",
+        ]);
+        expect(calls[2]?.args).toEqual([
+          "running-channel-1",
+          "fallback-room-order-message-1",
+          { components: [] },
         ]);
       }),
   );

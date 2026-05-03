@@ -8,7 +8,12 @@ import { RoomOrderGenerateResult } from "../../schemas/roomOrder";
 import { GoogleSheetsError } from "../../schemas/google";
 import { ParserFieldError } from "../../schemas/sheet/error";
 import { SheetConfigError } from "../../schemas/sheetConfig";
-import { RoomOrderDispatchPayload, RoomOrderDispatchResult } from "../../sheet-apis-rpc";
+import {
+  RoomOrderDispatchPayload,
+  RoomOrderDispatchResult,
+  RoomOrderHandleButtonPayload,
+  RoomOrderHandleButtonResult,
+} from "../../sheet-apis-rpc";
 
 const RoomOrderGenerateError = [
   GoogleSheetsError,
@@ -20,6 +25,15 @@ const RoomOrderGenerateError = [
 ];
 
 const RoomOrderDispatchError = [...RoomOrderGenerateError, UnknownError];
+const RoomOrderHandleButtonError = [
+  GoogleSheetsError,
+  ParserFieldError,
+  SheetConfigError,
+  SchemaError,
+  QueryResultError,
+  ArgumentError,
+  UnknownError,
+];
 
 export class RoomOrderApi extends HttpApiGroup.make("roomOrder")
   .add(
@@ -40,6 +54,13 @@ export class RoomOrderApi extends HttpApiGroup.make("roomOrder")
       payload: RoomOrderDispatchPayload,
       success: RoomOrderDispatchResult,
       error: RoomOrderDispatchError,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("handleButton", "/roomOrder/buttons/handle", {
+      payload: RoomOrderHandleButtonPayload,
+      success: RoomOrderHandleButtonResult,
+      error: RoomOrderHandleButtonError,
     }),
   )
   .middleware(SheetApisServiceUserFallback)
