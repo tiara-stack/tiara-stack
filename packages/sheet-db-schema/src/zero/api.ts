@@ -8,6 +8,30 @@ declare module "@rocicorp/zero" {
   }
 }
 
+const CLAIM_STALE_MS = 10 * 60 * 1000;
+
+const isActiveSendClaim = (
+  claimId: string | null | undefined,
+  claimedAt: number | null | undefined,
+  now: number,
+) =>
+  claimId !== null &&
+  claimId !== undefined &&
+  claimedAt !== null &&
+  claimedAt !== undefined &&
+  now - claimedAt <= CLAIM_STALE_MS;
+
+const isActiveTimestampClaim = (claimedAt: number | null | undefined, now: number) =>
+  claimedAt !== null && claimedAt !== undefined && now - claimedAt <= CLAIM_STALE_MS;
+
+const hasActiveTentativePinClaim = (messageRoomOrder: {
+  readonly tentativePinClaimId?: string | null;
+  readonly tentativePinClaimedAt?: number | null;
+}) =>
+  messageRoomOrder.tentativePinClaimId !== null &&
+  messageRoomOrder.tentativePinClaimId !== undefined &&
+  isActiveTimestampClaim(messageRoomOrder.tentativePinClaimedAt, Date.now());
+
 export interface SheetZeroApiSuccessSchemas {
   readonly guildConfig: {
     readonly getAutoCheckinGuilds: Schema.Top;
@@ -300,6 +324,28 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
           checkinAt: args.checkinAt,
         }),
     }),
+    ZeroApiEndpoint.mutator("setMessageCheckinMemberCheckinAtIfUnset", {
+      request: Schema.Struct({
+        messageId: Schema.String,
+        memberId: Schema.String,
+        checkinAt: Schema.Number,
+      }),
+      mutator: async ({ tx, args }) => {
+        const member = await tx.run(
+          builder.messageCheckinMember
+            .where("messageId", "=", args.messageId)
+            .where("memberId", "=", args.memberId)
+            .where("deletedAt", "IS", null)
+            .one(),
+        );
+        if (!member || member.checkinAt !== null) return;
+        await tx.mutate.messageCheckinMember.update({
+          messageId: args.messageId,
+          memberId: args.memberId,
+          checkinAt: args.checkinAt,
+        });
+      },
+    }),
     ZeroApiEndpoint.mutator("removeMessageCheckinMember", {
       request: Schema.Struct({
         messageId: Schema.String,
@@ -351,7 +397,13 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
             .where("deletedAt", "IS", null)
             .one(),
         );
-        if (!messageRoomOrder) return;
+        if (
+          !messageRoomOrder ||
+          messageRoomOrder.tentativePinnedAt !== null ||
+          hasActiveTentativePinClaim(messageRoomOrder)
+        ) {
+          return;
+        }
         await tx.mutate.messageRoomOrder.update({
           messageId: args.messageId,
           rank: messageRoomOrder.rank - 1,
@@ -367,10 +419,165 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
             .where("deletedAt", "IS", null)
             .one(),
         );
-        if (!messageRoomOrder) return;
+        if (
+          !messageRoomOrder ||
+          messageRoomOrder.tentativePinnedAt !== null ||
+          hasActiveTentativePinClaim(messageRoomOrder)
+        ) {
+          return;
+        }
         await tx.mutate.messageRoomOrder.update({
           messageId: args.messageId,
           rank: messageRoomOrder.rank + 1,
+        });
+      },
+    }),
+    ZeroApiEndpoint.mutator("claimMessageRoomOrderSend", {
+      request: Schema.Struct({ messageId: Schema.String, claimId: Schema.String }),
+      mutator: async ({ tx, args }) => {
+        const now = Date.now();
+        const messageRoomOrder = await tx.run(
+          builder.messageRoomOrder
+            .where("messageId", "=", args.messageId)
+            .where("deletedAt", "IS", null)
+            .one(),
+        );
+        if (
+          !messageRoomOrder ||
+          messageRoomOrder.sentMessageId ||
+          isActiveSendClaim(messageRoomOrder.sendClaimId, messageRoomOrder.sendClaimedAt, now)
+        ) {
+          return;
+        }
+        await tx.mutate.messageRoomOrder.update({
+          messageId: args.messageId,
+          sendClaimId: args.claimId,
+          sendClaimedAt: now,
+        });
+      },
+    }),
+    ZeroApiEndpoint.mutator("completeMessageRoomOrderSend", {
+      request: Schema.Struct({
+        messageId: Schema.String,
+        claimId: Schema.String,
+        sentMessageId: Schema.String,
+        sentMessageChannelId: Schema.String,
+        sentAt: Schema.Number,
+      }),
+      mutator: async ({ tx, args }) => {
+        const messageRoomOrder = await tx.run(
+          builder.messageRoomOrder
+            .where("messageId", "=", args.messageId)
+            .where("deletedAt", "IS", null)
+            .one(),
+        );
+        if (!messageRoomOrder || messageRoomOrder.sendClaimId !== args.claimId) {
+          return;
+        }
+        await tx.mutate.messageRoomOrder.update({
+          messageId: args.messageId,
+          sendClaimId: null,
+          sendClaimedAt: null,
+          sentMessageId: args.sentMessageId,
+          sentMessageChannelId: args.sentMessageChannelId,
+          sentAt: args.sentAt,
+        });
+      },
+    }),
+    ZeroApiEndpoint.mutator("releaseMessageRoomOrderSendClaim", {
+      request: Schema.Struct({ messageId: Schema.String, claimId: Schema.String }),
+      mutator: async ({ tx, args }) => {
+        const messageRoomOrder = await tx.run(
+          builder.messageRoomOrder
+            .where("messageId", "=", args.messageId)
+            .where("deletedAt", "IS", null)
+            .one(),
+        );
+        if (!messageRoomOrder || messageRoomOrder.sendClaimId !== args.claimId) {
+          return;
+        }
+        await tx.mutate.messageRoomOrder.update({
+          messageId: args.messageId,
+          sendClaimId: null,
+          sendClaimedAt: null,
+        });
+      },
+    }),
+    ZeroApiEndpoint.mutator("claimMessageRoomOrderTentativePin", {
+      request: Schema.Struct({
+        messageId: Schema.String,
+        claimId: Schema.String,
+        claimedAt: Schema.Number,
+      }),
+      mutator: async ({ tx, args }) => {
+        const messageRoomOrder = await tx.run(
+          builder.messageRoomOrder
+            .where("messageId", "=", args.messageId)
+            .where("deletedAt", "IS", null)
+            .one(),
+        );
+        if (
+          !messageRoomOrder ||
+          messageRoomOrder.tentativePinnedAt !== null ||
+          hasActiveTentativePinClaim(messageRoomOrder)
+        ) {
+          return;
+        }
+        await tx.mutate.messageRoomOrder.update({
+          messageId: args.messageId,
+          tentativePinClaimId: args.claimId,
+          tentativePinClaimedAt: args.claimedAt,
+        });
+      },
+    }),
+    ZeroApiEndpoint.mutator("completeMessageRoomOrderTentativePin", {
+      request: Schema.Struct({
+        messageId: Schema.String,
+        claimId: Schema.String,
+        pinnedAt: Schema.Number,
+      }),
+      mutator: async ({ tx, args }) => {
+        const messageRoomOrder = await tx.run(
+          builder.messageRoomOrder
+            .where("messageId", "=", args.messageId)
+            .where("deletedAt", "IS", null)
+            .one(),
+        );
+        if (
+          !messageRoomOrder ||
+          messageRoomOrder.tentativePinnedAt !== null ||
+          messageRoomOrder.tentativePinClaimId !== args.claimId
+        ) {
+          return;
+        }
+        await tx.mutate.messageRoomOrder.update({
+          messageId: args.messageId,
+          tentativePinClaimId: null,
+          tentativePinClaimedAt: null,
+          tentativePinnedAt: args.pinnedAt,
+        });
+      },
+    }),
+    ZeroApiEndpoint.mutator("releaseMessageRoomOrderTentativePinClaim", {
+      request: Schema.Struct({ messageId: Schema.String, claimId: Schema.String }),
+      mutator: async ({ tx, args }) => {
+        const messageRoomOrder = await tx.run(
+          builder.messageRoomOrder
+            .where("messageId", "=", args.messageId)
+            .where("deletedAt", "IS", null)
+            .one(),
+        );
+        if (
+          !messageRoomOrder ||
+          messageRoomOrder.tentativePinnedAt !== null ||
+          messageRoomOrder.tentativePinClaimId !== args.claimId
+        ) {
+          return;
+        }
+        await tx.mutate.messageRoomOrder.update({
+          messageId: args.messageId,
+          tentativePinClaimId: null,
+          tentativePinClaimedAt: null,
         });
       },
     }),

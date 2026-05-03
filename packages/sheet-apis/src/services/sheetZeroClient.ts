@@ -137,6 +137,11 @@ export interface SheetZeroClientApi {
       readonly memberId: string;
       readonly checkinAt: number;
     }>;
+    readonly setMessageCheckinMemberCheckinAtIfUnset: MutatorResult<{
+      readonly messageId: string;
+      readonly memberId: string;
+      readonly checkinAt: number;
+    }>;
     readonly removeMessageCheckinMember: MutatorResult<{
       readonly messageId: string;
       readonly memberId: string;
@@ -155,6 +160,35 @@ export interface SheetZeroClientApi {
     }) => QueryResult<MessageRoomOrderEntry[]>;
     readonly decrementMessageRoomOrderRank: MutatorResult<{ readonly messageId: string }>;
     readonly incrementMessageRoomOrderRank: MutatorResult<{ readonly messageId: string }>;
+    readonly claimMessageRoomOrderSend: MutatorResult<{
+      readonly messageId: string;
+      readonly claimId: string;
+    }>;
+    readonly completeMessageRoomOrderSend: MutatorResult<{
+      readonly messageId: string;
+      readonly claimId: string;
+      readonly sentMessageId: string;
+      readonly sentMessageChannelId: string;
+      readonly sentAt: number;
+    }>;
+    readonly releaseMessageRoomOrderSendClaim: MutatorResult<{
+      readonly messageId: string;
+      readonly claimId: string;
+    }>;
+    readonly claimMessageRoomOrderTentativePin: MutatorResult<{
+      readonly messageId: string;
+      readonly claimId: string;
+      readonly claimedAt: number;
+    }>;
+    readonly completeMessageRoomOrderTentativePin: MutatorResult<{
+      readonly messageId: string;
+      readonly claimId: string;
+      readonly pinnedAt: number;
+    }>;
+    readonly releaseMessageRoomOrderTentativePinClaim: MutatorResult<{
+      readonly messageId: string;
+      readonly claimId: string;
+    }>;
     readonly upsertMessageRoomOrder: MutatorResult<{
       readonly messageId: string;
       readonly previousFills: readonly string[];

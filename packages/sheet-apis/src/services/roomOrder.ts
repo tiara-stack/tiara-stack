@@ -130,14 +130,21 @@ const toTeamWithPlayer = (player: Player, team: Team) =>
     playerId: Option.some(player.id),
   });
 
-const buildContent = (
+export type RoomOrderContentEntry = {
+  readonly position: number;
+  readonly team: string;
+  readonly tags: ReadonlyArray<string>;
+  readonly effectValue: number;
+};
+
+export const buildRoomOrderContent = (
   hour: number,
   start: DateTime.DateTime,
   end: DateTime.DateTime,
   monitor: string | null,
   previousParticipants: ReadonlyArray<FillParticipant>,
   participants: ReadonlyArray<FillParticipant>,
-  entries: ReadonlyArray<GeneratedRoomOrderEntry>,
+  entries: ReadonlyArray<RoomOrderContentEntry>,
 ) => {
   const fillMovement = diffFillParticipants(previousParticipants, participants);
 
@@ -273,7 +280,7 @@ export class RoomOrderService extends Context.Service<RoomOrderService>()("RoomO
             : yield* deriveHourWindow(sheetService, sheetId, hour);
 
         return new RoomOrderGenerateResult({
-          content: buildContent(
+          content: buildRoomOrderContent(
             hour,
             start,
             end,

@@ -8,6 +8,30 @@ declare module "@rocicorp/zero" {
   }
 }
 
+const CLAIM_STALE_MS = 10 * 60 * 1000;
+
+const isActiveSendClaim = (
+  claimId: string | null | undefined,
+  claimedAt: number | null | undefined,
+  now: number,
+) =>
+  claimId !== null &&
+  claimId !== undefined &&
+  claimedAt !== null &&
+  claimedAt !== undefined &&
+  now - claimedAt <= CLAIM_STALE_MS;
+
+const isActiveTimestampClaim = (claimedAt: number | null | undefined, now: number) =>
+  claimedAt !== null && claimedAt !== undefined && now - claimedAt <= CLAIM_STALE_MS;
+
+const hasActiveTentativePinClaim = (messageRoomOrder: {
+  readonly tentativePinClaimId?: string | null;
+  readonly tentativePinClaimedAt?: number | null;
+}) =>
+  messageRoomOrder.tentativePinClaimId !== null &&
+  messageRoomOrder.tentativePinClaimId !== undefined &&
+  isActiveTimestampClaim(messageRoomOrder.tentativePinClaimedAt, Date.now());
+
 export const messageRoomOrder = {
   decrementMessageRoomOrderRank: defineMutator(
     pipe(
@@ -23,7 +47,13 @@ export const messageRoomOrder = {
           .where("deletedAt", "IS", null)
           .one(),
       );
-      if (!messageRoomOrder) return;
+      if (
+        !messageRoomOrder ||
+        messageRoomOrder.tentativePinnedAt !== null ||
+        hasActiveTentativePinClaim(messageRoomOrder)
+      ) {
+        return;
+      }
       await tx.mutate.messageRoomOrder.update({
         messageId: args.messageId,
         rank: messageRoomOrder.rank - 1,
@@ -44,10 +74,192 @@ export const messageRoomOrder = {
           .where("deletedAt", "IS", null)
           .one(),
       );
-      if (!messageRoomOrder) return;
+      if (
+        !messageRoomOrder ||
+        messageRoomOrder.tentativePinnedAt !== null ||
+        hasActiveTentativePinClaim(messageRoomOrder)
+      ) {
+        return;
+      }
       await tx.mutate.messageRoomOrder.update({
         messageId: args.messageId,
         rank: messageRoomOrder.rank + 1,
+      });
+    },
+  ),
+  claimMessageRoomOrderSend: defineMutator(
+    pipe(
+      Schema.Struct({
+        messageId: Schema.String,
+        claimId: Schema.String,
+      }),
+      Schema.toStandardSchemaV1,
+    ),
+    async ({ tx, args }) => {
+      const now = Date.now();
+      const messageRoomOrder = await tx.run(
+        builder.messageRoomOrder
+          .where("messageId", "=", args.messageId)
+          .where("deletedAt", "IS", null)
+          .one(),
+      );
+      if (
+        !messageRoomOrder ||
+        messageRoomOrder.sentMessageId ||
+        isActiveSendClaim(messageRoomOrder.sendClaimId, messageRoomOrder.sendClaimedAt, now)
+      ) {
+        return;
+      }
+      await tx.mutate.messageRoomOrder.update({
+        messageId: args.messageId,
+        sendClaimId: args.claimId,
+        sendClaimedAt: now,
+      });
+    },
+  ),
+  completeMessageRoomOrderSend: defineMutator(
+    pipe(
+      Schema.Struct({
+        messageId: Schema.String,
+        claimId: Schema.String,
+        sentMessageId: Schema.String,
+        sentMessageChannelId: Schema.String,
+        sentAt: Schema.Number,
+      }),
+      Schema.toStandardSchemaV1,
+    ),
+    async ({ tx, args }) => {
+      const messageRoomOrder = await tx.run(
+        builder.messageRoomOrder
+          .where("messageId", "=", args.messageId)
+          .where("deletedAt", "IS", null)
+          .one(),
+      );
+      if (!messageRoomOrder || messageRoomOrder.sendClaimId !== args.claimId) {
+        return;
+      }
+      await tx.mutate.messageRoomOrder.update({
+        messageId: args.messageId,
+        sendClaimId: null,
+        sendClaimedAt: null,
+        sentMessageId: args.sentMessageId,
+        sentMessageChannelId: args.sentMessageChannelId,
+        sentAt: args.sentAt,
+      });
+    },
+  ),
+  releaseMessageRoomOrderSendClaim: defineMutator(
+    pipe(
+      Schema.Struct({
+        messageId: Schema.String,
+        claimId: Schema.String,
+      }),
+      Schema.toStandardSchemaV1,
+    ),
+    async ({ tx, args }) => {
+      const messageRoomOrder = await tx.run(
+        builder.messageRoomOrder
+          .where("messageId", "=", args.messageId)
+          .where("deletedAt", "IS", null)
+          .one(),
+      );
+      if (!messageRoomOrder || messageRoomOrder.sendClaimId !== args.claimId) {
+        return;
+      }
+      await tx.mutate.messageRoomOrder.update({
+        messageId: args.messageId,
+        sendClaimId: null,
+        sendClaimedAt: null,
+      });
+    },
+  ),
+  claimMessageRoomOrderTentativePin: defineMutator(
+    pipe(
+      Schema.Struct({
+        messageId: Schema.String,
+        claimId: Schema.String,
+        claimedAt: Schema.Number,
+      }),
+      Schema.toStandardSchemaV1,
+    ),
+    async ({ tx, args }) => {
+      const messageRoomOrder = await tx.run(
+        builder.messageRoomOrder
+          .where("messageId", "=", args.messageId)
+          .where("deletedAt", "IS", null)
+          .one(),
+      );
+      if (
+        !messageRoomOrder ||
+        messageRoomOrder.tentativePinnedAt !== null ||
+        hasActiveTentativePinClaim(messageRoomOrder)
+      ) {
+        return;
+      }
+      await tx.mutate.messageRoomOrder.update({
+        messageId: args.messageId,
+        tentativePinClaimId: args.claimId,
+        tentativePinClaimedAt: args.claimedAt,
+      });
+    },
+  ),
+  completeMessageRoomOrderTentativePin: defineMutator(
+    pipe(
+      Schema.Struct({
+        messageId: Schema.String,
+        claimId: Schema.String,
+        pinnedAt: Schema.Number,
+      }),
+      Schema.toStandardSchemaV1,
+    ),
+    async ({ tx, args }) => {
+      const messageRoomOrder = await tx.run(
+        builder.messageRoomOrder
+          .where("messageId", "=", args.messageId)
+          .where("deletedAt", "IS", null)
+          .one(),
+      );
+      if (
+        !messageRoomOrder ||
+        messageRoomOrder.tentativePinnedAt !== null ||
+        messageRoomOrder.tentativePinClaimId !== args.claimId
+      ) {
+        return;
+      }
+      await tx.mutate.messageRoomOrder.update({
+        messageId: args.messageId,
+        tentativePinClaimId: null,
+        tentativePinClaimedAt: null,
+        tentativePinnedAt: args.pinnedAt,
+      });
+    },
+  ),
+  releaseMessageRoomOrderTentativePinClaim: defineMutator(
+    pipe(
+      Schema.Struct({
+        messageId: Schema.String,
+        claimId: Schema.String,
+      }),
+      Schema.toStandardSchemaV1,
+    ),
+    async ({ tx, args }) => {
+      const messageRoomOrder = await tx.run(
+        builder.messageRoomOrder
+          .where("messageId", "=", args.messageId)
+          .where("deletedAt", "IS", null)
+          .one(),
+      );
+      if (
+        !messageRoomOrder ||
+        messageRoomOrder.tentativePinnedAt !== null ||
+        messageRoomOrder.tentativePinClaimId !== args.claimId
+      ) {
+        return;
+      }
+      await tx.mutate.messageRoomOrder.update({
+        messageId: args.messageId,
+        tentativePinClaimId: null,
+        tentativePinClaimedAt: null,
       });
     },
   ),
