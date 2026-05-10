@@ -14,8 +14,6 @@
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
     "paths": {
-      "effect-ai-codex": ["../effect-ai-codex/src/index.ts"],
-      "effect-ai-kimi": ["../effect-ai-kimi/src/index.ts"],
       "vitest": ["./node_modules/vitest"],
       "*": ["./*"],
       "~~/*": ["./*"],

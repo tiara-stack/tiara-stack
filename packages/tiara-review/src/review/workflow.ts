@@ -25,11 +25,11 @@ import {
 import { getDiffInfo } from "../git/diff";
 import { ensureDependencyGraphVersion } from "../graph/store";
 import {
-  consolidatedOutputSchema,
+  ConsolidatedOutputSchema,
+  SpecialistOutputSchema,
   decodeConsolidatedOutput,
   decodeSpecialistOutput,
-  SdkCodexReviewClient,
-  specialistOutputSchema,
+  ProviderAiReviewClient,
   type CodexReviewClient,
 } from "../codex/client";
 import { groupedPriorFindings, makeId, ReviewRepository } from "../db/repository";
@@ -51,7 +51,7 @@ import {
   reviewAspects,
   type AgentStatus,
 } from "./types";
-import { parseExternalReviewWithCodex } from "./external-review";
+import { parseExternalReviewWithAi } from "./external-review";
 
 const now = () => Math.floor(Date.now() / 1000);
 export const tiaraReviewCliBinPath = "dist/index.mjs";
@@ -241,6 +241,7 @@ export const runCheckpointedReviewWithClient = (
   Effect.gen(function* () {
     const repoRoot = yield* resolveRepoRoot(config.cwd);
     const dbPath = config.dbPath ?? defaultDbPath();
+    const provider = config.provider ?? "codex";
     const repository = yield* ReviewRepository;
     const checkpoint = yield* captureCheckpoint(repoRoot);
     const runAfterCheckpoint = Effect.gen(function* () {
@@ -299,10 +300,10 @@ export const runCheckpointedReviewWithClient = (
         : null;
       const graphLauncher = graphMcpLauncher(config, repoRoot);
       const dependencyGraphToolsAvailable =
-        dependencyGraphVersion !== null && graphLauncher.available;
+        dependencyGraphVersion !== null && (provider === "kimi" || graphLauncher.available);
       const dependencyGraphReviewNotes = Exit.isFailure(dependencyGraphExit)
         ? [`Dependency graph tools unavailable: ${graphFailureSummary(dependencyGraphExit.cause)}`]
-        : dependencyGraphVersion !== null && !dependencyGraphToolsAvailable
+        : provider !== "kimi" && dependencyGraphVersion !== null && !dependencyGraphToolsAvailable
           ? [`Dependency graph tools unavailable: ${graphLauncher.unavailableReason}`]
           : [];
       const markAgentFailed = (input: {
@@ -364,10 +365,12 @@ export const runCheckpointedReviewWithClient = (
                   }),
                 );
                 const parserExit = yield* Effect.exit(
-                  parseExternalReviewWithCodex(
+                  parseExternalReviewWithAi(
                     {
                       markdown: externalReviewMarkdown,
                       repoRoot,
+                      provider,
+                      providerConfig: config.providerConfig,
                       model: config.model,
                       modelReasoningEffort: config.modelReasoningEffort ?? "high",
                       timeoutMs: config.timeoutMs,
@@ -457,10 +460,12 @@ export const runCheckpointedReviewWithClient = (
                 .runStructured<unknown>(prompt, {
                   aspect,
                   repoRoot,
+                  provider,
+                  providerConfig: config.providerConfig,
                   model: config.model,
                   modelReasoningEffort: config.modelReasoningEffort ?? "high",
                   timeoutMs: config.timeoutMs,
-                  outputSchema: specialistOutputSchema,
+                  schema: SpecialistOutputSchema,
                   graphVersionId: dependencyGraphToolsAvailable
                     ? dependencyGraphVersion.id
                     : undefined,
@@ -559,10 +564,12 @@ export const runCheckpointedReviewWithClient = (
             .runStructured<unknown>(orchestratorPrompt, {
               aspect: "orchestrator",
               repoRoot,
+              provider,
+              providerConfig: config.providerConfig,
               model: config.model,
               modelReasoningEffort: config.modelReasoningEffort ?? "high",
               timeoutMs: config.timeoutMs,
-              outputSchema: consolidatedOutputSchema,
+              schema: ConsolidatedOutputSchema,
             })
             .pipe(
               Effect.flatMap((result) =>
@@ -654,11 +661,11 @@ export const runCheckpointedReviewWithClient = (
 
 export const runCheckpointedReview = (config: ReviewRunConfig) =>
   Effect.try({
-    try: () => new SdkCodexReviewClient(),
+    try: () => new ProviderAiReviewClient(),
     catch: (cause) =>
       new CodexAgentFailed({
         aspect: "orchestrator",
-        message: cause instanceof Error ? cause.message : "Unable to initialize Codex SDK client",
+        message: cause instanceof Error ? cause.message : "Unable to initialize AI review client",
         cause,
       }),
   }).pipe(Effect.flatMap((client) => runCheckpointedReviewWithClient(config, client)));

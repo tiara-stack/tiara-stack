@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { CodexAgentTimedOut } from "../review/types";
-import { runWithAbortTimeout } from "./client";
+import { CodexTimeout } from "../CodexError";
+import { runWithAbortTimeout } from "./timeout";
 
 describe("runWithAbortTimeout", () => {
   it("returns a run result that completes before the timeout", async () => {
@@ -9,7 +9,7 @@ describe("runWithAbortTimeout", () => {
         runPromise: Promise.resolve("ok"),
         abort: () => undefined,
         timeoutMs: 100,
-        timeoutError: () => new CodexAgentTimedOut({ aspect: "security", timeoutMs: 100 }),
+        timeoutError: () => new CodexTimeout({ timeoutMs: 100 }),
       }),
     ).resolves.toBe("ok");
   });
@@ -27,14 +27,30 @@ describe("runWithAbortTimeout", () => {
       },
       timeoutMs: 1,
       cleanupGraceMs: 100,
-      timeoutError: () => new CodexAgentTimedOut({ aspect: "security", timeoutMs: 1 }),
+      timeoutError: () => new CodexTimeout({ timeoutMs: 1 }),
     });
 
     await new Promise((resolve) => setTimeout(resolve, 5));
     expect(abortCount).toBe(1);
     resolveRun("late success");
 
-    await expect(result).rejects.toBeInstanceOf(CodexAgentTimedOut);
+    await expect(result).rejects.toBeInstanceOf(CodexTimeout);
+  });
+
+  it("treats zero as an immediate timeout", async () => {
+    let abortCount = 0;
+    const result = runWithAbortTimeout({
+      runPromise: new Promise<string>(() => undefined),
+      abort: () => {
+        abortCount += 1;
+      },
+      timeoutMs: 0,
+      cleanupGraceMs: 1,
+      timeoutError: () => new CodexTimeout({ timeoutMs: 0 }),
+    });
+
+    await expect(result).rejects.toBeInstanceOf(CodexTimeout);
+    expect(abortCount).toBe(1);
   });
 
   it("reports timeout after a bounded grace when the aborted run never settles", async () => {
@@ -46,10 +62,10 @@ describe("runWithAbortTimeout", () => {
       },
       timeoutMs: 1,
       cleanupGraceMs: 1,
-      timeoutError: () => new CodexAgentTimedOut({ aspect: "security", timeoutMs: 1 }),
+      timeoutError: () => new CodexTimeout({ timeoutMs: 1 }),
     });
 
-    await expect(result).rejects.toBeInstanceOf(CodexAgentTimedOut);
+    await expect(result).rejects.toBeInstanceOf(CodexTimeout);
     expect(abortCount).toBe(1);
   });
 });

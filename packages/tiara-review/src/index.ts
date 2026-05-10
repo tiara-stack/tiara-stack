@@ -4,7 +4,9 @@ import { isMainThread } from "node:worker_threads";
 
 export { runCheckpointedReview, runCheckpointedReviewWithClient } from "./review/workflow";
 export {
+  type AiProvider,
   type Checkpoint,
+  type ReviewProviderConfig,
   type ReviewRunConfig,
   type ReviewRunResult,
   type ReviewFinding,
@@ -12,7 +14,10 @@ export {
   type SafetyConfidence,
   type ExternalReviewImportResult,
 } from "./review/types";
-export { parseExternalReviewWithCodex } from "./review/external-review";
+export { parseExternalReviewWithAi, parseExternalReviewWithCodex } from "./review/external-review";
+export { defaultConfigPath, loadReviewConfig, mergeRunConfig } from "./config";
+export { ProviderAiReviewClient, type AiReviewClient } from "./ai/client";
+export { makeKimiDependencyGraphTools } from "./graph/kimi-tools";
 export {
   ensureDependencyGraphVersion,
   lookupDependencyGraphSymbol,

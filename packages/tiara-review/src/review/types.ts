@@ -28,6 +28,73 @@ export type AgentStatus = "running" | "completed" | "failed" | "timed-out";
 export type RunStatus = "running" | "completed" | "failed";
 export type SafetyConfidence = 0 | 1 | 2 | 3 | 4 | 5;
 export type ReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
+export type AiProvider = "codex" | "openai" | "openrouter" | "kimi";
+
+export type JsonConfigValue =
+  | null
+  | string
+  | number
+  | boolean
+  | ReadonlyArray<JsonConfigValue>
+  | { readonly [key: string]: JsonConfigValue };
+
+export type CodexReviewProviderConfig = {
+  readonly apiKey?: string;
+  readonly baseUrl?: string;
+  readonly codexPathOverride?: string;
+  readonly cleanupGraceMs?: number;
+  readonly config?: { readonly [key: string]: JsonConfigValue };
+};
+
+export type OpenAiReviewProviderConfig = {
+  readonly apiKey?: string;
+  readonly apiUrl?: string;
+  readonly organizationId?: string;
+  readonly projectId?: string;
+  readonly config?: { readonly [key: string]: JsonConfigValue };
+};
+
+export type OpenRouterReviewProviderConfig = {
+  readonly apiKey?: string;
+  readonly apiUrl?: string;
+  readonly siteReferrer?: string;
+  readonly siteTitle?: string;
+  readonly config?: { readonly [key: string]: JsonConfigValue };
+};
+
+export type KimiReviewProviderConfig = {
+  readonly executable?: string;
+  readonly env?: Record<string, string>;
+  readonly thinking?: boolean;
+  readonly yoloMode?: boolean;
+  readonly approvalPolicy?: "reject" | "allow-read-only-git";
+  readonly agentFile?: string;
+  readonly skillsDir?: string;
+  readonly shareDir?: string;
+  readonly cleanupGraceMs?: number;
+  readonly config?: { readonly [key: string]: JsonConfigValue };
+};
+
+export type ReviewProviderConfig = {
+  readonly provider?: AiProvider;
+  readonly model?: string;
+  readonly modelReasoningEffort?: ReasoningEffort;
+  readonly timeoutMs?: number;
+  readonly dbPath?: string;
+  readonly providers?: {
+    readonly codex?: CodexReviewProviderConfig;
+    readonly openai?: OpenAiReviewProviderConfig;
+    readonly openrouter?: OpenRouterReviewProviderConfig;
+    readonly kimi?: KimiReviewProviderConfig;
+  };
+};
+
+export type ResolvedReviewProviderConfig = {
+  readonly codex?: CodexReviewProviderConfig;
+  readonly openai?: OpenAiReviewProviderConfig;
+  readonly openrouter?: OpenRouterReviewProviderConfig;
+  readonly kimi?: KimiReviewProviderConfig;
+};
 
 export type Checkpoint = {
   readonly checkpointRef: string;
@@ -107,6 +174,8 @@ export type ConsolidatedReview = {
 export type ReviewRunConfig = {
   readonly cwd: string;
   readonly dbPath?: string;
+  readonly provider?: AiProvider;
+  readonly providerConfig?: ResolvedReviewProviderConfig;
   readonly model?: string;
   readonly modelReasoningEffort?: ReasoningEffort;
   readonly timeoutMs?: number;

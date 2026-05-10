@@ -1,14 +1,11 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import {
-  type CodexReviewClient,
-  type CodexRunResult,
-  FindingSchema,
-  findingJsonSchema,
-} from "../codex/client";
+import { type CodexReviewClient, type CodexRunResult, FindingSchema } from "../codex/client";
 import { dedupeKeyForFinding } from "../db/repository";
 import {
+  type AiProvider,
   type ReasoningEffort,
+  type ResolvedReviewProviderConfig,
   type ReviewFinding,
   CodexAgentFailed,
   CodexAgentTimedOut,
@@ -28,28 +25,6 @@ const ExternalReviewImportSchema = Schema.Struct({
 });
 
 type ExternalReviewImportOutput = Schema.Schema.Type<typeof ExternalReviewImportSchema>;
-
-export const externalReviewImportSchema = {
-  type: "object",
-  additionalProperties: false,
-  required: ["findings", "skippedFindings", "warnings"],
-  properties: {
-    findings: { type: "array", items: findingJsonSchema },
-    skippedFindings: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["reason", "excerpt"],
-        properties: {
-          reason: { type: "string" },
-          excerpt: { type: "string" },
-        },
-      },
-    },
-    warnings: { type: "array", items: { type: "string" } },
-  },
-} as const;
 
 export const makeExternalReviewParserPrompt = (markdown: string) =>
   `You are parsing external code review Markdown into structured findings for a checkpointed code review CLI.
@@ -104,10 +79,12 @@ const dedupeFindings = (findings: ReadonlyArray<ReviewFinding>) => {
   return { deduped, duplicateCount };
 };
 
-export const parseExternalReviewWithCodex = (
+export const parseExternalReviewWithAi = (
   input: {
     readonly markdown: string;
     readonly repoRoot: string;
+    readonly provider?: AiProvider;
+    readonly providerConfig?: ResolvedReviewProviderConfig;
     readonly model?: string;
     readonly modelReasoningEffort?: ReasoningEffort;
     readonly timeoutMs?: number;
@@ -126,10 +103,12 @@ export const parseExternalReviewWithCodex = (
     .runStructured<unknown>(makeExternalReviewParserPrompt(input.markdown), {
       aspect: "external-review-parser",
       repoRoot: input.repoRoot,
+      provider: input.provider,
+      providerConfig: input.providerConfig,
       model: input.model,
       modelReasoningEffort: input.modelReasoningEffort,
       timeoutMs: input.timeoutMs,
-      outputSchema: externalReviewImportSchema,
+      schema: ExternalReviewImportSchema,
     })
     .pipe(
       Effect.flatMap((result: CodexRunResult<unknown>) =>
@@ -152,3 +131,5 @@ export const parseExternalReviewWithCodex = (
         ),
       ),
     );
+
+export const parseExternalReviewWithCodex = parseExternalReviewWithAi;

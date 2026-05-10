@@ -4,6 +4,8 @@ packages:
 catalog:
   {
     "@effect/atom-react": npm:@effect/atom-react@4.0.0-beta.56,
+    "@effect/ai-openai": npm:@effect/ai-openai@4.0.0-beta.56,
+    "@effect/ai-openrouter": npm:@effect/ai-openrouter@4.0.0-beta.56,
     "@effect/vitest": npm:@effect/vitest@4.0.0-beta.56,
     "@effect/platform-node": npm:@effect/platform-node@4.0.0-beta.56,
     "@effect/opentelemetry": npm:@effect/opentelemetry@4.0.0-beta.56,

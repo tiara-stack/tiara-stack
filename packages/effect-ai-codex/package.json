@@ -1,0 +1,56 @@
+{
+  "name": "effect-ai-codex",
+  "version": "0.0.0",
+  "private": true,
+  "keywords": [],
+  "author": "",
+  "files": [
+    "./dist/**"
+  ],
+  "type": "module",
+  "sideEffects": [],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    },
+    "./CodexClient": {
+      "types": "./dist/CodexClient.d.mts",
+      "default": "./dist/CodexClient.mjs"
+    },
+    "./CodexConfig": {
+      "types": "./dist/CodexConfig.d.mts",
+      "default": "./dist/CodexConfig.mjs"
+    },
+    "./CodexError": {
+      "types": "./dist/CodexError.d.mts",
+      "default": "./dist/CodexError.mjs"
+    },
+    "./CodexLanguageModel": {
+      "types": "./dist/CodexLanguageModel.d.mts",
+      "default": "./dist/CodexLanguageModel.mjs"
+    },
+    "./CodexTelemetry": {
+      "types": "./dist/CodexTelemetry.d.mts",
+      "default": "./dist/CodexTelemetry.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "format": "vp fmt --check",
+    "format:apply": "vp fmt",
+    "lint": "vp lint src",
+    "test": "vp test run",
+    "build": "vp pack"
+  },
+  "dependencies": {
+    "@openai/codex-sdk": "^0.128.0",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "^24.7.2",
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
+    "vitest": "catalog:"
+  }
+}

@@ -3,14 +3,15 @@ import * as Console from "effect/Console";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import { Command, Flag } from "effect/unstable/cli";
-import { defaultDbPath } from "./config";
+import { defaultDbPath, expandHomePath, loadReviewConfig, mergeRunConfig } from "./config";
 import { resolveRepoRoot, getCurrentBranch, captureCheckpoint } from "./git/checkpoint";
 import { ensureDependencyGraphVersion, lookupDependencyGraphSymbol } from "./graph/store";
 import { runDependencyGraphMcpServer } from "./graph/mcp";
 import { runCheckpointedReview } from "./review/workflow";
-import type { ReasoningEffort } from "./review/types";
+import type { AiProvider, ReasoningEffort } from "./review/types";
 
 const reasoningChoices = ["minimal", "low", "medium", "high", "xhigh"] as const;
+const providerChoices = ["codex", "openai", "openrouter", "kimi"] as const;
 
 class EmptyReviewStdin extends Data.TaggedError("EmptyReviewStdin")<{
   readonly message: string;
@@ -42,8 +43,10 @@ const runCommand = Command.make(
   "run",
   {
     cwd: Flag.directory("cwd").pipe(Flag.withDefault(process.cwd())),
+    configPath: Flag.path("config").pipe(Flag.optional),
+    provider: Flag.choice("provider", providerChoices).pipe(Flag.optional),
     model: Flag.string("model").pipe(Flag.optional),
-    reasoning: Flag.choice("reasoning", reasoningChoices).pipe(Flag.withDefault("high" as const)),
+    reasoning: Flag.choice("reasoning", reasoningChoices).pipe(Flag.optional),
     db: Flag.path("db").pipe(Flag.optional),
     json: Flag.boolean("json").pipe(Flag.withDefault(false)),
     timeoutMs: Flag.integer("timeout-ms").pipe(Flag.optional),
@@ -59,16 +62,29 @@ const runCommand = Command.make(
           }),
         );
       }
-      const result = yield* runCheckpointedReview({
-        cwd: config.cwd,
-        dbPath: config.db._tag === "Some" ? config.db.value : undefined,
-        model: config.model._tag === "Some" ? config.model.value : undefined,
-        modelReasoningEffort: config.reasoning as ReasoningEffort,
-        timeoutMs: config.timeoutMs._tag === "Some" ? config.timeoutMs.value : undefined,
-        externalReviewMarkdown,
-        graphMcpCommand: process.execPath,
-        graphMcpArgsPrefix: process.argv[1] ? [process.argv[1]] : undefined,
-      });
+      const fileConfig = yield* loadReviewConfig(
+        config.configPath._tag === "Some" ? expandHomePath(config.configPath.value) : undefined,
+      );
+      const result = yield* runCheckpointedReview(
+        mergeRunConfig({
+          fileConfig,
+          cli: {
+            cwd: config.cwd,
+            provider:
+              config.provider._tag === "Some" ? (config.provider.value as AiProvider) : undefined,
+            dbPath: config.db._tag === "Some" ? config.db.value : undefined,
+            model: config.model._tag === "Some" ? config.model.value : undefined,
+            reasoning:
+              config.reasoning._tag === "Some"
+                ? (config.reasoning.value as ReasoningEffort)
+                : undefined,
+            timeoutMs: config.timeoutMs._tag === "Some" ? config.timeoutMs.value : undefined,
+            externalReviewMarkdown,
+            graphMcpCommand: process.execPath,
+            graphMcpArgsPrefix: process.argv[1] ? [process.argv[1]] : undefined,
+          },
+        }),
+      );
       const externalReviewPrefix = result.externalReviewImport
         ? `External review import: ${result.externalReviewImport.importedFindingCount} findings imported; ${result.externalReviewImport.skippedFindingCount} skipped; ${result.externalReviewImport.warnings.length} warnings.\n\n`
         : "";
@@ -78,7 +94,7 @@ const runCommand = Command.make(
           : `${externalReviewPrefix}${result.reportMarkdown}`,
       );
     }),
-).pipe(Command.withDescription("Run a checkpointed multi-agent Codex code review"));
+).pipe(Command.withDescription("Run a checkpointed multi-agent AI code review"));
 
 const graphBuildCommand = Command.make(
   "build",
@@ -146,7 +162,7 @@ const graphCommand = Command.make("graph").pipe(
 );
 
 export const command = Command.make("tiara-review").pipe(
-  Command.withDescription("Checkpointed Codex code review CLI"),
+  Command.withDescription("Checkpointed AI code review CLI"),
   Command.withSubcommands([runCommand, graphCommand]),
 );
 

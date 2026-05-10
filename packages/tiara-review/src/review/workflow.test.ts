@@ -210,6 +210,47 @@ describe("workflow", () => {
     }
   });
 
+  it("propagates the Kimi provider and keeps graph tools specialist-only", async () => {
+    const repo = makeRepo();
+    const dbDir = mkdtempSync(join(tmpdir(), "tiara-review-workflow-db."));
+    try {
+      const client = new MockCodexClient();
+      await Effect.runPromise(
+        runCheckpointedReviewWithClient(
+          {
+            cwd: repo,
+            dbPath: join(dbDir, "reviews.sqlite"),
+            provider: "kimi",
+            model: "kimi-k2",
+            externalReviewMarkdown: "external review markdown",
+            graphMcpCommand: "npx",
+            graphMcpArgsPrefix: ["@scope/tiara-review"],
+          },
+          client,
+        ),
+      );
+
+      expect(client.options.every((options) => options.provider === "kimi")).toBe(true);
+      expect(
+        client.options
+          .filter((options) => options.aspect !== "orchestrator")
+          .every((options) =>
+            options.aspect === "external-review-parser" ? true : Boolean(options.graphVersionId),
+          ),
+      ).toBe(true);
+      expect(
+        client.options.find((options) => options.aspect === "external-review-parser")
+          ?.graphVersionId,
+      ).toBeUndefined();
+      expect(
+        client.options.find((options) => options.aspect === "orchestrator")?.graphVersionId,
+      ).toBeUndefined();
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+      rmSync(dbDir, { recursive: true, force: true });
+    }
+  });
+
   it("does not forward graph tools when a custom MCP entrypoint is missing", async () => {
     const repo = makeRepo();
     const dbDir = mkdtempSync(join(tmpdir(), "tiara-review-workflow-db."));
