@@ -1,9 +1,9 @@
 import { InteractionsRegistry } from "dfx/gateway";
-import { Discord, Ix } from "dfx";
+import { Discord, DiscordREST, Ix } from "dfx";
 import { MessageFlags } from "discord-api-types/v10";
 import { Effect, Layer, Option } from "effect";
 import { DiscordApplication } from "dfx-discord-utils/discord";
-import { CommandHelper, Interaction } from "dfx-discord-utils/utils";
+import { CommandHelper, Interaction, InteractionResponse } from "dfx-discord-utils/utils";
 import { sdkClient } from "../../sdk/index";
 import { requireOwner } from "../../utils";
 import { closeSession, getValidSessionByThreadId, getWorkspaceById } from "../../services/session";
@@ -19,21 +19,15 @@ const getInteractionUserId = Effect.gen(function* () {
   return (user as { id: string }).id;
 });
 
-interface ReplyableCommand {
-  reply: (payload: {
-    readonly content: string;
-    readonly flags?: MessageFlags;
-  }) => Effect.Effect<unknown, unknown>;
-}
-
-const getInteractionChannelId = (command: ReplyableCommand) =>
+const getInteractionChannelId = () =>
   Effect.gen(function* () {
+    const response = yield* InteractionResponse;
     const channel = yield* Interaction.channel();
     if (Option.isSome(channel)) {
       return (channel.value as { id: string }).id;
     }
 
-    yield* command.reply({
+    yield* response.reply({
       content: "This command must be used in a Discord channel.",
       flags: MessageFlags.Ephemeral,
     });
@@ -55,8 +49,10 @@ const makeNewSubCommand = Effect.gen(function* () {
             .setDescription("Create a git worktree for this session (if workspace is a git repo)"),
         ),
     Effect.fn("session.new")(function* (command) {
+      const response = yield* InteractionResponse;
+      const rest = yield* DiscordREST;
       const userId = yield* getInteractionUserId;
-      if (!(yield* requireOwner(userId, command))) {
+      if (!(yield* requireOwner(userId, response))) {
         return;
       }
 
@@ -70,7 +66,7 @@ const makeNewSubCommand = Effect.gen(function* () {
       ).pipe(
         Effect.catch((error) =>
           Effect.gen(function* () {
-            yield* command.reply({
+            yield* response.reply({
               content: `Failed to load workspace: ${
                 error instanceof Error ? error.message : "Unknown error"
               }`,
@@ -81,26 +77,26 @@ const makeNewSubCommand = Effect.gen(function* () {
         ),
       );
       if (error || !workspace) {
-        yield* command.reply({ content: error ?? "Unknown error", flags: MessageFlags.Ephemeral });
+        yield* response.reply({ content: error ?? "Unknown error", flags: MessageFlags.Ephemeral });
         return;
       }
 
-      const channelId = yield* getInteractionChannelId(command);
+      const channelId = yield* getInteractionChannelId();
       if (!channelId) {
         return;
       }
 
-      yield* command.deferReply();
+      yield* response.deferReply();
 
       const threadName = `session-${workspaceName}-${Date.now()}`;
-      const thread = yield* command.rest
+      const thread = yield* rest
         .createThread(channelId, {
           name: threadName,
           type: Discord.ChannelTypes.PUBLIC_THREAD,
         })
         .pipe(
           Effect.catchCause((cause) =>
-            command
+            response
               .editReply({
                 payload: {
                   content:
@@ -119,8 +115,8 @@ const makeNewSubCommand = Effect.gen(function* () {
         (yield* Effect.tryPromise(() => isGitRepository(workspace.cwd)).pipe(
           Effect.catch((error) =>
             Effect.gen(function* () {
-              yield* command.rest.deleteChannel(thread.id).pipe(Effect.catch(() => Effect.void));
-              yield* command.editReply({
+              yield* rest.deleteChannel(thread.id).pipe(Effect.catch(() => Effect.void));
+              yield* response.editReply({
                 payload: {
                   content: `Failed to inspect workspace git repository: ${
                     error instanceof Error ? error.message : "Unknown error"
@@ -138,8 +134,8 @@ const makeNewSubCommand = Effect.gen(function* () {
         ).pipe(
           Effect.catch((error) =>
             Effect.gen(function* () {
-              yield* command.rest.deleteChannel(thread.id).pipe(Effect.catch(() => Effect.void));
-              yield* command.editReply({
+              yield* rest.deleteChannel(thread.id).pipe(Effect.catch(() => Effect.void));
+              yield* response.editReply({
                 payload: {
                   content: `Failed to create git worktree: ${
                     error instanceof Error ? error.message : "Unknown error"
@@ -151,8 +147,8 @@ const makeNewSubCommand = Effect.gen(function* () {
           ),
         );
         if (worktreeResult.error) {
-          yield* command.rest.deleteChannel(thread.id).pipe(Effect.catch(() => Effect.void));
-          yield* command.editReply({
+          yield* rest.deleteChannel(thread.id).pipe(Effect.catch(() => Effect.void));
+          yield* response.editReply({
             payload: {
               content: `Failed to create git worktree: ${worktreeResult.error}\n\nSession creation aborted.`,
             },
@@ -179,8 +175,8 @@ const makeNewSubCommand = Effect.gen(function* () {
                 git.raw(["branch", "-D", worktreeBranchName!]).catch(() => ""),
               );
             }
-            yield* command.rest.deleteChannel(thread.id).pipe(Effect.catch(() => Effect.void));
-            yield* command.editReply({
+            yield* rest.deleteChannel(thread.id).pipe(Effect.catch(() => Effect.void));
+            yield* response.editReply({
               payload: {
                 content: `Failed to create SDK session: ${
                   error instanceof Error ? error.message : "Unknown error"
@@ -226,8 +222,8 @@ const makeNewSubCommand = Effect.gen(function* () {
                 git.raw(["branch", "-D", worktreeBranchName!]).catch(() => ""),
               );
             }
-            yield* command.rest.deleteChannel(thread.id).pipe(Effect.catch(() => Effect.void));
-            yield* command.editReply({
+            yield* rest.deleteChannel(thread.id).pipe(Effect.catch(() => Effect.void));
+            yield* response.editReply({
               payload: {
                 content: `Failed to save session: ${
                   error instanceof Error ? error.message : "Unknown error"
@@ -262,7 +258,7 @@ const makeNewSubCommand = Effect.gen(function* () {
           ? `\n**Git Worktree:**\n- Path: \`${worktreePath}\`\n- Branch: \`${worktreeBranchName}\`\n`
           : "";
 
-      const welcomeSent = yield* command.rest
+      const welcomeSent = yield* rest
         .createMessage(thread.id, {
           content:
             `## New Session Created\n` +
@@ -297,12 +293,12 @@ const makeNewSubCommand = Effect.gen(function* () {
         ? `Session created! See <#${thread.id}>`
         : `Session created! See <#${thread.id}>\n\nWarning: failed to send the welcome message in the thread.`;
 
-      yield* command.editReply({ payload: { content: confirmation } }).pipe(
+      yield* response.editReply({ payload: { content: confirmation } }).pipe(
         Effect.catch((error) =>
           Effect.gen(function* () {
             const application = yield* DiscordApplication;
             const interaction = yield* Ix.Interaction;
-            yield* command.rest
+            yield* rest
               .executeWebhook(application.id, interaction.token, {
                 payload: { content: confirmation },
               })
@@ -321,23 +317,25 @@ const makeCloseSubCommand = Effect.gen(function* () {
       builder
         .setName("close")
         .setDescription("Close the current session and remove the git worktree if one exists"),
-    Effect.fn("session.close")(function* (command) {
-      if (!(yield* requireOwner(yield* getInteractionUserId, command))) {
+    Effect.fn("session.close")(function* () {
+      const response = yield* InteractionResponse;
+      const rest = yield* DiscordREST;
+      if (!(yield* requireOwner(yield* getInteractionUserId, response))) {
         return;
       }
 
-      const threadId = yield* getInteractionChannelId(command);
+      const threadId = yield* getInteractionChannelId();
       if (!threadId) {
         return;
       }
 
-      yield* command.deferReply();
+      yield* response.deferReply();
       const { session, error } = yield* Effect.tryPromise(() =>
         getValidSessionByThreadId(threadId),
       ).pipe(
         Effect.catch((error) =>
           Effect.gen(function* () {
-            yield* command.editReply({
+            yield* response.editReply({
               payload: {
                 content: `Failed to load session: ${
                   error instanceof Error ? error.message : "Unknown error"
@@ -349,14 +347,14 @@ const makeCloseSubCommand = Effect.gen(function* () {
         ),
       );
       if (error || !session) {
-        yield* command.editReply({ payload: { content: error ?? "Unknown error" } });
+        yield* response.editReply({ payload: { content: error ?? "Unknown error" } });
         return;
       }
 
       const workspace = yield* Effect.tryPromise(() => getWorkspaceById(session.workspaceId)).pipe(
         Effect.catch((error) =>
           Effect.gen(function* () {
-            yield* command.editReply({
+            yield* response.editReply({
               payload: {
                 content: `Failed to load workspace: ${
                   error instanceof Error ? error.message : "Unknown error"
@@ -368,7 +366,9 @@ const makeCloseSubCommand = Effect.gen(function* () {
         ),
       );
       if (!workspace) {
-        yield* command.editReply({ payload: { content: "Workspace not found for this session." } });
+        yield* response.editReply({
+          payload: { content: "Workspace not found for this session." },
+        });
         return;
       }
 
@@ -378,7 +378,7 @@ const makeCloseSubCommand = Effect.gen(function* () {
         ).pipe(
           Effect.catch((error) =>
             Effect.gen(function* () {
-              yield* command.editReply({
+              yield* response.editReply({
                 payload: {
                   content: `Failed to remove git worktree: ${
                     error instanceof Error ? error.message : "Unknown error"
@@ -390,7 +390,7 @@ const makeCloseSubCommand = Effect.gen(function* () {
           ),
         );
         if (!result.success) {
-          yield* command.editReply({
+          yield* response.editReply({
             payload: {
               content: `Failed to remove git worktree: ${result.error}\n\nSession close aborted.`,
             },
@@ -402,7 +402,7 @@ const makeCloseSubCommand = Effect.gen(function* () {
       const closeResult = yield* Effect.tryPromise(() => closeSession(session.id)).pipe(
         Effect.catch((error) =>
           Effect.gen(function* () {
-            yield* command.editReply({
+            yield* response.editReply({
               payload: {
                 content: `Failed to close session: ${
                   error instanceof Error ? error.message : "Unknown error"
@@ -414,7 +414,7 @@ const makeCloseSubCommand = Effect.gen(function* () {
         ),
       );
       if (!closeResult.success) {
-        yield* command.editReply({
+        yield* response.editReply({
           payload: { content: `Failed to close session: ${closeResult.error}` },
         });
         return;
@@ -425,7 +425,7 @@ const makeCloseSubCommand = Effect.gen(function* () {
         responseMessage += `\nGit worktree at \`${session.worktreePath}\` has been removed.`;
       }
 
-      const locked = yield* command.rest.updateChannel(threadId, { locked: true }).pipe(
+      const locked = yield* rest.updateChannel(threadId, { locked: true }).pipe(
         Effect.as(true),
         Effect.catchCause(() => Effect.succeed(false)),
       );
@@ -433,7 +433,7 @@ const makeCloseSubCommand = Effect.gen(function* () {
         ? "\n\nThis thread has been locked."
         : "\n\nNote: Could not lock the thread.";
 
-      yield* command.editReply({ payload: { content: responseMessage } });
+      yield* response.editReply({ payload: { content: responseMessage } });
     }),
   );
 });
@@ -451,11 +451,12 @@ const makeSessionCommand = Effect.gen(function* () {
           option.setName("text").setDescription("Prompt text").setRequired(true),
         ),
     Effect.fn("session.prompt")(function* (command) {
-      if (!(yield* requireOwner(yield* getInteractionUserId, command))) {
+      const response = yield* InteractionResponse;
+      if (!(yield* requireOwner(yield* getInteractionUserId, response))) {
         return;
       }
       const promptText = command.optionValue("text");
-      const threadId = yield* getInteractionChannelId(command);
+      const threadId = yield* getInteractionChannelId();
       if (!threadId) {
         return;
       }
@@ -464,7 +465,7 @@ const makeSessionCommand = Effect.gen(function* () {
       ).pipe(
         Effect.catch((error) =>
           Effect.gen(function* () {
-            yield* command.reply({
+            yield* response.reply({
               content: `Failed to load session: ${
                 error instanceof Error ? error.message : "Unknown error"
               }`,
@@ -475,13 +476,13 @@ const makeSessionCommand = Effect.gen(function* () {
         ),
       );
       if (error || !session) {
-        yield* command.reply({ content: error ?? "Unknown error", flags: MessageFlags.Ephemeral });
+        yield* response.reply({ content: error ?? "Unknown error", flags: MessageFlags.Ephemeral });
         return;
       }
       yield* Effect.tryPromise(() => sdkClient.sendPrompt(session.acpSessionId, promptText)).pipe(
         Effect.catch((error) =>
           Effect.gen(function* () {
-            yield* command.reply({
+            yield* response.reply({
               content: `Failed to send prompt: ${
                 error instanceof Error ? error.message : "Unknown error"
               }`,
@@ -491,7 +492,7 @@ const makeSessionCommand = Effect.gen(function* () {
           }),
         ),
       );
-      yield* command.reply({ content: "Prompt sent to the session." });
+      yield* response.reply({ content: "Prompt sent to the session." });
     }),
   );
 
@@ -504,11 +505,12 @@ const makeSessionCommand = Effect.gen(function* () {
           option.setName("model").setDescription("Model name to set").setRequired(true),
         ),
     Effect.fn("session.model.set")(function* (command) {
-      if (!(yield* requireOwner(yield* getInteractionUserId, command))) {
+      const response = yield* InteractionResponse;
+      if (!(yield* requireOwner(yield* getInteractionUserId, response))) {
         return;
       }
       const modelName = command.optionValue("model");
-      const threadId = yield* getInteractionChannelId(command);
+      const threadId = yield* getInteractionChannelId();
       if (!threadId) {
         return;
       }
@@ -517,7 +519,7 @@ const makeSessionCommand = Effect.gen(function* () {
       ).pipe(
         Effect.catch((error) =>
           Effect.gen(function* () {
-            yield* command.reply({
+            yield* response.reply({
               content: `Failed to load session: ${
                 error instanceof Error ? error.message : "Unknown error"
               }`,
@@ -528,13 +530,13 @@ const makeSessionCommand = Effect.gen(function* () {
         ),
       );
       if (error || !session) {
-        yield* command.reply({ content: error ?? "Unknown error", flags: MessageFlags.Ephemeral });
+        yield* response.reply({ content: error ?? "Unknown error", flags: MessageFlags.Ephemeral });
         return;
       }
       const workspace = yield* Effect.tryPromise(() => getWorkspaceById(session.workspaceId)).pipe(
         Effect.catch((error) =>
           Effect.gen(function* () {
-            yield* command.reply({
+            yield* response.reply({
               content: `Failed to load workspace: ${
                 error instanceof Error ? error.message : "Unknown error"
               }`,
@@ -545,7 +547,7 @@ const makeSessionCommand = Effect.gen(function* () {
         ),
       );
       if (!workspace) {
-        yield* command.reply({
+        yield* response.reply({
           content: "Workspace not found for this session.",
           flags: MessageFlags.Ephemeral,
         });
@@ -556,7 +558,7 @@ const makeSessionCommand = Effect.gen(function* () {
       ).pipe(
         Effect.catch((error) =>
           Effect.gen(function* () {
-            yield* command.reply({
+            yield* response.reply({
               content: `Failed to load session info: ${
                 error instanceof Error ? error.message : "Unknown error"
               }`,
@@ -570,7 +572,7 @@ const makeSessionCommand = Effect.gen(function* () {
         (m) => m.name.toLowerCase() === modelName.toLowerCase(),
       );
       if (!model) {
-        yield* command.reply({
+        yield* response.reply({
           content: `Model "${modelName}" not found. Available models: ${sessionInfo.models.map((m) => m.name).join(", ")}`,
           flags: MessageFlags.Ephemeral,
         });
@@ -581,7 +583,7 @@ const makeSessionCommand = Effect.gen(function* () {
       ).pipe(
         Effect.catch((error) =>
           Effect.gen(function* () {
-            yield* command.reply({
+            yield* response.reply({
               content: `Failed to set model: ${
                 error instanceof Error ? error.message : "Unknown error"
               }`,
@@ -591,7 +593,7 @@ const makeSessionCommand = Effect.gen(function* () {
           }),
         ),
       );
-      yield* command.reply({ content: `Model set to "${model.name}" for this session.` });
+      yield* response.reply({ content: `Model set to "${model.name}" for this session.` });
     }),
   );
 
@@ -604,11 +606,12 @@ const makeSessionCommand = Effect.gen(function* () {
           option.setName("mode").setDescription("Mode name to set").setRequired(true),
         ),
     Effect.fn("session.mode.set")(function* (command) {
-      if (!(yield* requireOwner(yield* getInteractionUserId, command))) {
+      const response = yield* InteractionResponse;
+      if (!(yield* requireOwner(yield* getInteractionUserId, response))) {
         return;
       }
       const modeName = command.optionValue("mode");
-      const threadId = yield* getInteractionChannelId(command);
+      const threadId = yield* getInteractionChannelId();
       if (!threadId) {
         return;
       }
@@ -617,7 +620,7 @@ const makeSessionCommand = Effect.gen(function* () {
       ).pipe(
         Effect.catch((error) =>
           Effect.gen(function* () {
-            yield* command.reply({
+            yield* response.reply({
               content: `Failed to load session: ${
                 error instanceof Error ? error.message : "Unknown error"
               }`,
@@ -628,13 +631,13 @@ const makeSessionCommand = Effect.gen(function* () {
         ),
       );
       if (error || !session) {
-        yield* command.reply({ content: error ?? "Unknown error", flags: MessageFlags.Ephemeral });
+        yield* response.reply({ content: error ?? "Unknown error", flags: MessageFlags.Ephemeral });
         return;
       }
       const workspace = yield* Effect.tryPromise(() => getWorkspaceById(session.workspaceId)).pipe(
         Effect.catch((error) =>
           Effect.gen(function* () {
-            yield* command.reply({
+            yield* response.reply({
               content: `Failed to load workspace: ${
                 error instanceof Error ? error.message : "Unknown error"
               }`,
@@ -645,7 +648,7 @@ const makeSessionCommand = Effect.gen(function* () {
         ),
       );
       if (!workspace) {
-        yield* command.reply({
+        yield* response.reply({
           content: "Workspace not found for this session.",
           flags: MessageFlags.Ephemeral,
         });
@@ -656,7 +659,7 @@ const makeSessionCommand = Effect.gen(function* () {
       ).pipe(
         Effect.catch((error) =>
           Effect.gen(function* () {
-            yield* command.reply({
+            yield* response.reply({
               content: `Failed to load session info: ${
                 error instanceof Error ? error.message : "Unknown error"
               }`,
@@ -668,7 +671,7 @@ const makeSessionCommand = Effect.gen(function* () {
       );
       const mode = sessionInfo.modes.find((m) => m.name.toLowerCase() === modeName.toLowerCase());
       if (!mode) {
-        yield* command.reply({
+        yield* response.reply({
           content: `Mode "${modeName}" not found. Available modes: ${sessionInfo.modes.map((m) => m.name).join(", ")}`,
           flags: MessageFlags.Ephemeral,
         });
@@ -677,7 +680,7 @@ const makeSessionCommand = Effect.gen(function* () {
       yield* Effect.tryPromise(() => sdkClient.setSessionMode(session.acpSessionId, mode.id)).pipe(
         Effect.catch((error) =>
           Effect.gen(function* () {
-            yield* command.reply({
+            yield* response.reply({
               content: `Failed to set mode: ${
                 error instanceof Error ? error.message : "Unknown error"
               }`,
@@ -687,7 +690,7 @@ const makeSessionCommand = Effect.gen(function* () {
           }),
         ),
       );
-      yield* command.reply({ content: `Mode set to "${mode.name}" for this session.` });
+      yield* response.reply({ content: `Mode set to "${mode.name}" for this session.` });
     }),
   );
 
@@ -735,11 +738,18 @@ export const sessionCommandLayer = Layer.effectDiscard(
   Effect.gen(function* () {
     const registry = yield* InteractionsRegistry;
     const command = yield* makeSessionCommand;
+    const rest = yield* DiscordREST;
+    const application = yield* DiscordApplication;
     yield* registry.register(
       Ix.builder
         .add(
           CommandHelper.makeGlobalCommand(command.data, (helper) =>
-            command.handler(helper).pipe(Effect.provide(discordApplicationLayer)),
+            command
+              .handler(helper)
+              .pipe(
+                Effect.provideService(DiscordREST, rest),
+                Effect.provideService(DiscordApplication, application),
+              ),
           ),
         )
         .catchAllCause(Effect.log),

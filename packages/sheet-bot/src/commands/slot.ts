@@ -1,4 +1,5 @@
 import { InteractionsRegistry } from "dfx/gateway";
+import { DiscordREST } from "dfx";
 import {
   ApplicationIntegrationType,
   InteractionContextType,
@@ -6,7 +7,12 @@ import {
 } from "discord-api-types/v10";
 import { Ix } from "dfx/index";
 import { Chunk, Effect, Layer, Option, Schema, String, pipe } from "effect";
-import { CommandHelper, Interaction, makeMessageActionRowData } from "dfx-discord-utils/utils";
+import {
+  CommandHelper,
+  Interaction,
+  InteractionResponse,
+  makeMessageActionRowData,
+} from "dfx-discord-utils/utils";
 import { discordGatewayLayer } from "../discord/gateway";
 import { slotButtonData } from "../messageComponents/buttons/slot";
 import {
@@ -66,6 +72,7 @@ const makeListSubCommand = Effect.gen(function* () {
             ),
         ),
     Effect.fn("slot.list")(function* (command) {
+      const response = yield* InteractionResponse;
       const interactionGuildId = yield* getInteractionGuildId;
       const guildId = pipe(
         command.optionValueOptional("server_id"),
@@ -80,7 +87,7 @@ const makeListSubCommand = Effect.gen(function* () {
       const isEphemeral = messageType === "ephemeral";
       const day = command.optionValue("day");
 
-      yield* command.deferReply({ flags: isEphemeral ? MessageFlags.Ephemeral : undefined });
+      yield* response.deferReply({ flags: isEphemeral ? MessageFlags.Ephemeral : undefined });
 
       if (!isEphemeral) {
         yield* permissionService.checkInteractionUserMonitorGuild(guildId);
@@ -116,7 +123,7 @@ const makeListSubCommand = Effect.gen(function* () {
         ),
       );
 
-      yield* command.editReply({
+      yield* response.editReply({
         payload: {
           embeds: [
             (yield* embedService.makeBaseEmbedBuilder())
@@ -151,6 +158,8 @@ const makeButtonSubCommand = Effect.gen(function* () {
           option.setName("server_id").setDescription("The server to get the teams for"),
         ),
     Effect.fn("slot.button")(function* (command) {
+      const response = yield* InteractionResponse;
+      const rest = yield* DiscordREST;
       const interactionGuildId = yield* getInteractionGuildId;
       const guildId = pipe(
         command.optionValueOptional("server_id"),
@@ -159,7 +168,7 @@ const makeButtonSubCommand = Effect.gen(function* () {
       );
 
       yield* permissionService.checkInteractionUserMonitorGuild(guildId);
-      yield* command.deferReply({ flags: MessageFlags.Ephemeral });
+      yield* response.deferReply({ flags: MessageFlags.Ephemeral });
 
       const day = command.optionValue("day");
       const channelId = Option.getOrThrowWith(
@@ -167,7 +176,7 @@ const makeButtonSubCommand = Effect.gen(function* () {
         () => new Error("Channel not found in interaction"),
       );
 
-      const messageResult = yield* command.rest.createMessage(channelId, {
+      const messageResult = yield* rest.createMessage(channelId, {
         content: `Press the button below to get the current open slots for day ${day}`,
         components: [makeMessageActionRowData((b) => b.setComponents(slotButtonData)).toJSON()],
       });
@@ -179,7 +188,7 @@ const makeButtonSubCommand = Effect.gen(function* () {
         createdByUserId: yield* getInteractionUserId,
       });
 
-      yield* command.editReply({
+      yield* response.editReply({
         payload: {
           content: "Slot button sent!",
           flags: MessageFlags.Ephemeral,

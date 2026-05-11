@@ -8,7 +8,7 @@ import {
 import { Ix } from "dfx/index";
 import { Effect, Layer, Option, pipe } from "effect";
 import { discordGatewayLayer } from "../discord/gateway";
-import { CommandHelper } from "dfx-discord-utils/utils";
+import { CommandHelper, InteractionResponse } from "dfx-discord-utils/utils";
 import { Interaction } from "dfx-discord-utils/utils";
 import {
   EmbedService,
@@ -69,7 +69,8 @@ const makeListSubCommand = Effect.gen(function* () {
           option.setName("server_id").setDescription("The server to get the schedule for"),
         ),
     Effect.fn("schedule.list")(function* (command) {
-      yield* command.deferReply({ flags: MessageFlags.Ephemeral });
+      const response = yield* InteractionResponse;
+      yield* response.deferReply({ flags: MessageFlags.Ephemeral });
 
       const serverId = command.optionValueOptional("server_id");
       const interactionGuildId = yield* getInteractionGuildId;
@@ -97,7 +98,7 @@ const makeListSubCommand = Effect.gen(function* () {
 
       const { schedule } = yield* scheduleService.dayPlayerSchedule(guildId, day, targetUser.id);
 
-      yield* command.editReply({
+      yield* response.editReply({
         payload: {
           embeds: [
             (yield* embedService.makeBaseEmbedBuilder())

@@ -4,7 +4,7 @@ import { Ix } from "dfx/index";
 import { ApplicationIntegrationType, InteractionContextType } from "discord-api-types/v10";
 import { Effect, Layer, Option, Predicate, Result, pipe } from "effect";
 import { GuildsCache } from "dfx-discord-utils/discord/cache";
-import { CommandHelper, Interaction } from "dfx-discord-utils/utils";
+import { CommandHelper, Interaction, InteractionResponse } from "dfx-discord-utils/utils";
 import { cachesLayer } from "../discord/cache";
 import { discordGatewayLayer } from "../discord/gateway";
 import { EmbedService, GuildConfigService, SheetApisRequestContext } from "../services";
@@ -43,7 +43,8 @@ const makeListConfigSubCommand = Effect.gen(function* () {
           builder.setName("server_id").setDescription("The server id to list the config for"),
         ),
     Effect.fn("server.list_config")(function* (command) {
-      yield* command.deferReply();
+      const response = yield* InteractionResponse;
+      yield* response.deferReply();
 
       const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
       const guild = yield* guildsCache.get(guildId);
@@ -62,7 +63,7 @@ const makeListConfigSubCommand = Effect.gen(function* () {
           Option.getOrElse(() => "None"),
         );
 
-        yield* command.editReply({
+        yield* response.editReply({
           payload: {
             embeds: [
               (yield* embedService.makeBaseEmbedBuilder())
@@ -88,7 +89,7 @@ const makeListConfigSubCommand = Effect.gen(function* () {
       }
 
       if (isUnauthorized(guildConfigResult.failure)) {
-        yield* command.editReply({
+        yield* response.editReply({
           payload: { content: "You need Manage Guild to use this command." },
         });
         return;
@@ -116,7 +117,8 @@ const makeAddMonitorRoleSubCommand = Effect.gen(function* () {
           builder.setName("server_id").setDescription("The server id to add the monitor role to"),
         ),
     Effect.fn("server.add.monitor_role")(function* (command) {
-      yield* command.deferReply();
+      const response = yield* InteractionResponse;
+      yield* response.deferReply();
 
       const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
       const guild = yield* guildsCache.get(guildId);
@@ -127,7 +129,7 @@ const makeAddMonitorRoleSubCommand = Effect.gen(function* () {
 
       if (Result.isFailure(addMonitorRoleResult)) {
         if (isUnauthorized(addMonitorRoleResult.failure)) {
-          yield* command.editReply({
+          yield* response.editReply({
             payload: { content: "You need Manage Guild to use this command." },
           });
           return;
@@ -135,7 +137,7 @@ const makeAddMonitorRoleSubCommand = Effect.gen(function* () {
         yield* Effect.fail(addMonitorRoleResult.failure);
       }
 
-      yield* command.editReply({
+      yield* response.editReply({
         payload: {
           embeds: [
             (yield* embedService.makeBaseEmbedBuilder())
@@ -186,7 +188,8 @@ const makeRemoveMonitorRoleSubCommand = Effect.gen(function* () {
             .setDescription("The server id to remove the monitor role from"),
         ),
     Effect.fn("server.remove.monitor_role")(function* (command) {
-      yield* command.deferReply();
+      const response = yield* InteractionResponse;
+      yield* response.deferReply();
 
       const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
       const guild = yield* guildsCache.get(guildId);
@@ -197,7 +200,7 @@ const makeRemoveMonitorRoleSubCommand = Effect.gen(function* () {
 
       if (Result.isFailure(removeMonitorRoleResult)) {
         if (isUnauthorized(removeMonitorRoleResult.failure)) {
-          yield* command.editReply({
+          yield* response.editReply({
             payload: { content: "You need Manage Guild to use this command." },
           });
           return;
@@ -205,7 +208,7 @@ const makeRemoveMonitorRoleSubCommand = Effect.gen(function* () {
         yield* Effect.fail(removeMonitorRoleResult.failure);
       }
 
-      yield* command.editReply({
+      yield* response.editReply({
         payload: {
           embeds: [
             (yield* embedService.makeBaseEmbedBuilder())
@@ -254,7 +257,8 @@ const makeSetSheetSubCommand = Effect.gen(function* () {
           builder.setName("server_id").setDescription("The server id to set the sheet id for"),
         ),
     Effect.fn("server.set.sheet")(function* (command) {
-      yield* command.deferReply();
+      const response = yield* InteractionResponse;
+      yield* response.deferReply();
 
       const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
       const sheetId = command.optionValue("sheet_id");
@@ -265,7 +269,7 @@ const makeSetSheetSubCommand = Effect.gen(function* () {
 
       if (Result.isFailure(updateSheetResult)) {
         if (isUnauthorized(updateSheetResult.failure)) {
-          yield* command.editReply({
+          yield* response.editReply({
             payload: { content: "You need Manage Guild to use this command." },
           });
           return;
@@ -273,7 +277,7 @@ const makeSetSheetSubCommand = Effect.gen(function* () {
         yield* Effect.fail(updateSheetResult.failure);
       }
 
-      yield* command.editReply({
+      yield* response.editReply({
         payload: {
           embeds: [
             (yield* embedService.makeBaseEmbedBuilder())
@@ -309,7 +313,8 @@ const makeSetAutoCheckinSubCommand = Effect.gen(function* () {
           builder.setName("server_id").setDescription("The server id to set auto check-in for"),
         ),
     Effect.fn("server.set.auto_checkin")(function* (command) {
-      yield* command.deferReply();
+      const response = yield* InteractionResponse;
+      yield* response.deferReply();
 
       const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
       const autoCheckin = command.optionValue("auto_checkin");
@@ -321,7 +326,7 @@ const makeSetAutoCheckinSubCommand = Effect.gen(function* () {
         const guild = yield* guildsCache.get(guildId);
         const guildConfig = updateAutoCheckinResult.success;
 
-        yield* command.editReply({
+        yield* response.editReply({
           payload: {
             embeds: [
               (yield* embedService.makeBaseEmbedBuilder())
@@ -337,7 +342,7 @@ const makeSetAutoCheckinSubCommand = Effect.gen(function* () {
       }
 
       if (isUnauthorized(updateAutoCheckinResult.failure)) {
-        yield* command.editReply({
+        yield* response.editReply({
           payload: { content: "You need Manage Guild to use this command." },
         });
         return;

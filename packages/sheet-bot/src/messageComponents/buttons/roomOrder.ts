@@ -4,6 +4,7 @@ import { Ix } from "dfx/index";
 import { Effect, Layer, Option, pipe } from "effect";
 import {
   Interaction,
+  MessageComponentInteractionResponse,
   InteractionToken,
   makeButton,
   makeMessageComponent,
@@ -75,7 +76,8 @@ const makeRoomOrderRankButtonHandler = (action: "previous" | "next") =>
     return yield* makeButton(
       buttonData.toJSON(),
       SheetClusterRequestContext.asInteractionUser(
-        Effect.fn(`roomOrder${action}Button`)(function* (helper) {
+        Effect.fn(`roomOrder${action}Button`)(function* () {
+          const response = yield* MessageComponentInteractionResponse;
           const message = Option.getOrThrowWith(
             yield* getInteractionMessage,
             () => new Error("Message not found in interaction"),
@@ -83,9 +85,9 @@ const makeRoomOrderRankButtonHandler = (action: "previous" | "next") =>
           const isTentative = hasTentativeRoomOrderPrefix(message.content ?? "");
 
           if (isTentative) {
-            yield* helper.deferReply({ flags: MessageFlags.Ephemeral });
+            yield* response.deferReply({ flags: MessageFlags.Ephemeral });
           } else {
-            yield* helper.deferUpdate({ flags: MessageFlags.Ephemeral });
+            yield* response.deferUpdate({ flags: MessageFlags.Ephemeral });
           }
 
           const payload = yield* makeRoomOrderButtonPayload(isTentative ? "reply" : "update");
@@ -99,7 +101,7 @@ const makeRoomOrderRankButtonHandler = (action: "previous" | "next") =>
               .dispatch[DispatchRoomOrderButtonMethods.next.endpointName](payload);
           }
         }),
-      ),
+      )(),
     );
   });
 
@@ -109,14 +111,15 @@ const makeRoomOrderSendButtonHandler = Effect.gen(function* () {
   return yield* makeButton(
     sendButtonData.toJSON(),
     SheetClusterRequestContext.asInteractionUser(
-      Effect.fn("roomOrderSendButton")(function* (helper) {
-        yield* helper.deferUpdate({ flags: MessageFlags.Ephemeral });
+      Effect.fn("roomOrderSendButton")(function* () {
+        const response = yield* MessageComponentInteractionResponse;
+        yield* response.deferUpdate({ flags: MessageFlags.Ephemeral });
         const payload = yield* makeRoomOrderButtonPayload();
         yield* sheetClusterClient
           .get()
           .dispatch[DispatchRoomOrderButtonMethods.send.endpointName](payload);
       }),
-    ),
+    )(),
   );
 });
 
@@ -126,14 +129,15 @@ const makeTentativeRoomOrderPinButtonHandler = Effect.gen(function* () {
   return yield* makeButton(
     tentativePinButtonData.toJSON(),
     SheetClusterRequestContext.asInteractionUser(
-      Effect.fn("roomOrderTentativePinButton")(function* (helper) {
-        yield* helper.deferReply({ flags: MessageFlags.Ephemeral });
+      Effect.fn("roomOrderTentativePinButton")(function* () {
+        const response = yield* MessageComponentInteractionResponse;
+        yield* response.deferReply({ flags: MessageFlags.Ephemeral });
         const payload = yield* makeRoomOrderButtonPayload();
         yield* sheetClusterClient
           .get()
           .dispatch[DispatchRoomOrderButtonMethods.pinTentative.endpointName](payload);
       }),
-    ),
+    )(),
   );
 });
 

@@ -7,7 +7,7 @@ import {
 } from "discord-api-types/v10";
 import { Ix } from "dfx/index";
 import { discordGatewayLayer } from "../discord/gateway";
-import { CommandHelper } from "dfx-discord-utils/utils";
+import { CommandHelper, InteractionResponse } from "dfx-discord-utils/utils";
 import { Interaction } from "dfx-discord-utils/utils";
 import { InteractionToken } from "dfx-discord-utils/utils";
 import { SheetClusterClient, SheetClusterRequestContext } from "../services";
@@ -53,7 +53,8 @@ const makeManualSubCommand = Effect.gen(function* () {
             .setDescription("Optional Handlebars template for the check-in message"),
         ),
     Effect.fn("checkin.manual")(function* (command) {
-      yield* command.deferReply({ flags: MessageFlags.Ephemeral });
+      const response = yield* InteractionResponse;
+      yield* response.deferReply({ flags: MessageFlags.Ephemeral });
 
       const serverId = command.optionValueOptional("server_id");
       const interactionGuildId = yield* getInteractionGuildId;

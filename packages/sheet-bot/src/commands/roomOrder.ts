@@ -7,7 +7,7 @@ import {
 import { Ix } from "dfx/index";
 import { Effect, Layer, Option, pipe } from "effect";
 import { discordGatewayLayer } from "../discord/gateway";
-import { CommandHelper } from "dfx-discord-utils/utils";
+import { CommandHelper, InteractionResponse } from "dfx-discord-utils/utils";
 import { Interaction } from "dfx-discord-utils/utils";
 import { InteractionToken } from "dfx-discord-utils/utils";
 import { SheetClusterClient, SheetClusterRequestContext } from "../services";
@@ -49,7 +49,8 @@ const makeManualSubCommand = Effect.gen(function* () {
           option.setName("server_id").setDescription("The server to order rooms for"),
         ),
     Effect.fn("room_order.manual")(function* (command) {
-      yield* command.deferReply({ flags: MessageFlags.Ephemeral });
+      const response = yield* InteractionResponse;
+      yield* response.deferReply({ flags: MessageFlags.Ephemeral });
 
       const serverId = command.optionValueOptional("server_id");
       const guildId =

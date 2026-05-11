@@ -1,17 +1,15 @@
 import type { HttpClientError } from "effect/unstable/http";
-import { Discord, DiscordREST, Ix } from "dfx";
+import { Discord, Ix } from "dfx";
+import { MessageFlags } from "discord-api-types/v10";
 import type { DiscordRESTError } from "dfx/DiscordREST";
 import { GlobalApplicationCommand, GuildApplicationCommand } from "dfx/Interactions/definitions";
 import { CommandHelper } from "dfx/Interactions/commandHelper";
-import { MessageFlags } from "discord-api-types/v10";
 import {
   SubCommandNotFound,
   type DiscordApplicationCommand,
   type DiscordInteraction,
 } from "dfx/Interactions/context";
-import { Array, Deferred, Effect, FiberMap, Option, pipe, Record, Scope } from "effect";
-import { DiscordApplication } from "../discord/gateway";
-import { formatErrorResponse, makeDiscordErrorMessageResponse } from "./errorResponse";
+import { Array, Effect, Fiber, FiberMap, Option, pipe, Record, Scope } from "effect";
 import {
   CommandBuilder,
   CommandOptionsOnlyBuilder,
@@ -19,8 +17,9 @@ import {
   SubCommandBuilder,
   SubCommandGroupBuilder,
 } from "./commandBuilder";
-import { DiscordRestService } from "dfx/DiscordREST";
 import { InteractionToken, provideInteractionToken } from "./interaction";
+import { InteractionResponse, provideInteractionResponse } from "./interactionResponse";
+import type { CommandInteractionResponseContext } from "./interactionResponse";
 
 // Re-export types to ensure they're available in generated d.ts files
 export type { HttpClientError, DiscordRESTError };
@@ -215,11 +214,7 @@ type CommandChannelValue<A, N> = CommandWithName<
   ? Discord.GuildChannelResponse
   : string;
 
-type AcknowledgementState = "none" | "replied" | "deferred-reply";
-
 export class WrappedCommandHelper<A> {
-  private acknowledgementState: AcknowledgementState = "none";
-
   constructor(
     readonly helper: CommandHelper<A>,
     private readonly subcommand: Option.Option<
@@ -232,12 +227,6 @@ export class WrappedCommandHelper<A> {
         (typeof Discord.InteractionTypes)["APPLICATION_COMMAND"]
       >
     >,
-    readonly rest: DiscordRestService,
-    private readonly application: Discord.PrivateApplicationResponse,
-    readonly response: Deferred.Deferred<{
-      readonly files: ReadonlyArray<File>;
-      readonly payload: Discord.CreateInteractionResponseRequest;
-    }>,
   ) {}
   get data(): CommandHelper<A>["data"] {
     return this.helper.data;
@@ -428,9 +417,6 @@ export class WrappedCommandHelper<A> {
                 ),
               ),
               options,
-              wrapped.rest,
-              wrapped.application,
-              wrapped.response,
             ),
           ),
         onNone: () => new SubCommandNotFound({ data: wrapped.data }),
@@ -441,142 +427,10 @@ export class WrappedCommandHelper<A> {
   get optionsMap() {
     return this.helper.optionsMap;
   }
-
-  reply = Effect.fn("WrappedCommandHelper.reply")(
-    { self: this },
-    function* (payload?: Discord.IncomingWebhookInteractionRequest) {
-      this.acknowledgementState = "replied";
-      return yield* Deferred.succeed(this.response, {
-        files: [],
-        payload: {
-          type: Discord.InteractionCallbackTypes.CHANNEL_MESSAGE_WITH_SOURCE,
-          data: payload,
-        },
-      });
-    },
-  );
-
-  replyWithFiles = Effect.fn("WrappedCommandHelper.replyWithFiles")(
-    { self: this },
-    function* (files: ReadonlyArray<File>, response?: Discord.IncomingWebhookInteractionRequest) {
-      this.acknowledgementState = "replied";
-      return yield* Deferred.succeed(this.response, {
-        files,
-        payload: {
-          type: Discord.InteractionCallbackTypes.CHANNEL_MESSAGE_WITH_SOURCE,
-          data: response,
-        },
-      });
-    },
-  );
-
-  deferReply = Effect.fn("WrappedCommandHelper.deferReply")(
-    { self: this },
-    function* (response?: Discord.IncomingWebhookInteractionRequest) {
-      this.acknowledgementState = "deferred-reply";
-      return yield* Deferred.succeed(this.response, {
-        files: [],
-        payload: {
-          type: Discord.InteractionCallbackTypes.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
-          data: response,
-        },
-      });
-    },
-  );
-
-  respondWithError = Effect.fn("WrappedCommandHelper.respondWithError")(
-    { self: this },
-    function* (error: unknown) {
-      const rendered = makeDiscordErrorMessageResponse(
-        "Command failed",
-        formatErrorResponse(error),
-      );
-      const payload: Discord.IncomingWebhookRequestPartial = {
-        content: rendered.content,
-        flags: MessageFlags.Ephemeral,
-      };
-
-      if (this.acknowledgementState === "deferred-reply") {
-        return yield* rendered.files.length === 0
-          ? this.editReply({ payload: { content: rendered.content } })
-          : this.editReplyWithFiles(rendered.files, { payload: { content: rendered.content } });
-      }
-
-      if (this.acknowledgementState === "replied") {
-        return yield* this.followUp(payload, rendered.files);
-      }
-
-      const sent = yield* rendered.files.length === 0
-        ? this.reply(payload)
-        : this.replyWithFiles(rendered.files, payload);
-      if (!sent) {
-        return yield* this.followUp(payload, rendered.files);
-      }
-    },
-  );
-
-  private followUp = Effect.fn("WrappedCommandHelper.followUp")(
-    { self: this },
-    function* (payload: Discord.IncomingWebhookRequestPartial, files: ReadonlyArray<File>) {
-      const interactionToken = yield* InteractionToken;
-
-      const request = this.rest.executeWebhook(this.application.id, interactionToken.token, {
-        params: { wait: true },
-        payload,
-      });
-
-      return files.length === 0 ? yield* request : yield* this.rest.withFiles(files)(request);
-    },
-  );
-
-  editReply = Effect.fn("WrappedCommandHelper.editReply")(
-    { self: this },
-    function* (response: {
-      readonly params?: Discord.UpdateOriginalWebhookMessageParams;
-      readonly payload: Discord.IncomingWebhookUpdateRequestPartial;
-    }) {
-      const interactionToken = yield* InteractionToken;
-
-      return yield* this.rest.updateOriginalWebhookMessage(
-        this.application.id,
-        interactionToken.token,
-        response,
-      );
-    },
-  );
-
-  editReplyWithFiles = Effect.fn("WrappedCommandHelper.editReplyWithFiles")(
-    { self: this },
-    function* (
-      files: ReadonlyArray<File>,
-      response: {
-        readonly params?: Discord.UpdateOriginalWebhookMessageParams;
-        readonly payload: Discord.IncomingWebhookUpdateRequestPartial;
-      },
-    ) {
-      const interactionToken = yield* InteractionToken;
-
-      return yield* this.rest.withFiles(files)(
-        this.rest.updateOriginalWebhookMessage(
-          this.application.id,
-          interactionToken.token,
-          response,
-        ),
-      );
-    },
-  );
 }
 
-export const wrapCommandHelper = Effect.fnUntraced(function* <A>(
-  helper: CommandHelper<A>,
-  rest: DiscordRestService,
-  application: Discord.PrivateApplicationResponse,
-) {
-  const response = yield* Deferred.make<{
-    readonly files: ReadonlyArray<File>;
-    readonly payload: Discord.CreateInteractionResponseRequest;
-  }>();
-  return new WrappedCommandHelper(
+export const wrapCommandHelper = <A>(helper: CommandHelper<A>) =>
+  new WrappedCommandHelper(
     helper,
     Array.findFirst(
       "options" in helper.data ? (helper.data.options ?? []) : [],
@@ -590,11 +444,7 @@ export const wrapCommandHelper = Effect.fnUntraced(function* <A>(
       ),
     ),
     "options" in helper.data ? (helper.data.options ?? []) : [],
-    rest,
-    application,
-    response,
   );
-});
 
 export const makeForkedCommandHandler = Effect.fnUntraced(function* <
   const A extends Discord.ApplicationCommandCreateRequest,
@@ -614,6 +464,43 @@ export const makeForkedCommandHandler = Effect.fnUntraced(function* <
   });
 });
 
+const replyWithTimeoutFallback = (response: CommandInteractionResponseContext, content: string) =>
+  response.awaitInitialResponse.pipe(
+    Effect.raceFirst(
+      Effect.sleep(2500).pipe(
+        Effect.andThen(response.reply({ content, flags: MessageFlags.Ephemeral })),
+      ),
+    ),
+    Effect.catchCause((cause) => Effect.logError(cause)),
+    Effect.asVoid,
+  );
+
+const runWithTimeoutFallback = <A, E, R>(
+  response: CommandInteractionResponseContext,
+  content: string,
+  effect: Effect.Effect<A, E, R>,
+) =>
+  Effect.gen(function* () {
+    const fallbackFiber = yield* replyWithTimeoutFallback(response, content).pipe(
+      Effect.forkScoped,
+    );
+    const handlerCompleted = yield* effect.pipe(
+      Effect.as(true),
+      Effect.catchCause((cause) =>
+        Effect.logError(cause).pipe(
+          Effect.andThen(response.respondWithError(cause)),
+          Effect.as(false),
+        ),
+      ),
+    );
+
+    yield* Fiber.join(fallbackFiber);
+
+    if (!handlerCompleted) {
+      return;
+    }
+  });
+
 export const makeSubCommandGroup = Effect.fnUntraced(function* <
   const A extends Discord.ApplicationCommandSubcommandGroupOption,
   E = never,
@@ -627,24 +514,14 @@ export const makeSubCommandGroup = Effect.fnUntraced(function* <
     Effect.fn("makeSubCommandGroup.forkedHandler", {
       attributes: { subCommandGroup: builtData.builder.name },
     })(function* (commandHelper: WrappedCommandHelper<A>) {
-      const shouldRunFallback = yield* handler(commandHelper).pipe(
-        Effect.as(true),
+      const response = yield* InteractionResponse;
+      // The outer command owns the timeout fallback so nested command handlers
+      // cannot race each other to set the shared initial response.
+      yield* handler(commandHelper).pipe(
         Effect.catchCause((cause) =>
-          Effect.logError(cause).pipe(
-            Effect.andThen(commandHelper.respondWithError(cause)),
-            Effect.as(false),
-          ),
+          Effect.logError(cause).pipe(Effect.andThen(response.respondWithError(cause))),
         ),
       );
-
-      if (!shouldRunFallback) {
-        return;
-      }
-
-      yield* Effect.sleep(2500);
-      yield* commandHelper.reply({
-        content: "The subcommand group did not set a response in time.",
-      });
     }),
   );
   return {
@@ -670,22 +547,14 @@ export const makeSubCommand = Effect.fnUntraced(function* <
     Effect.fn("makeSubCommand.forkedHandler", {
       attributes: { subCommand: builtData.builder.name },
     })(function* (commandHelper: WrappedCommandHelper<A>) {
-      const shouldRunFallback = yield* handler(commandHelper).pipe(
-        Effect.as(true),
+      const response = yield* InteractionResponse;
+      // The outer command owns the timeout fallback so nested command handlers
+      // cannot race each other to set the shared initial response.
+      yield* handler(commandHelper).pipe(
         Effect.catchCause((cause) =>
-          Effect.logError(cause).pipe(
-            Effect.andThen(commandHelper.respondWithError(cause)),
-            Effect.as(false),
-          ),
+          Effect.logError(cause).pipe(Effect.andThen(response.respondWithError(cause))),
         ),
       );
-
-      if (!shouldRunFallback) {
-        return;
-      }
-
-      yield* Effect.sleep(2500);
-      yield* commandHelper.reply({ content: "The subcommand did not set a response in time." });
     }),
   );
   return {
@@ -705,36 +574,25 @@ export const makeCommand = Effect.fnUntraced(function* <
   handler: (commandHelper: WrappedCommandHelper<A>) => Effect.Effect<unknown, E, R>,
 ) {
   const builtData = data(new CommandBuilder());
-  const rest = yield* DiscordREST;
-  const application = yield* DiscordApplication;
   const forkedHandler = yield* makeForkedCommandHandler(
     Effect.fn("makeCommand.forkedHandler", { attributes: { command: builtData.builder.name } })(
       function* (commandHelper: WrappedCommandHelper<A>) {
-        const shouldRunFallback = yield* handler(commandHelper).pipe(
-          Effect.as(true),
-          Effect.catchCause((cause) =>
-            Effect.logError(cause).pipe(
-              Effect.andThen(commandHelper.respondWithError(cause)),
-              Effect.as(false),
-            ),
-          ),
+        const response = yield* InteractionResponse;
+        yield* runWithTimeoutFallback(
+          response,
+          "The command did not set a response in time.",
+          handler(commandHelper),
         );
-
-        if (!shouldRunFallback) {
-          return;
-        }
-
-        yield* Effect.sleep(2500);
-        yield* commandHelper.reply({ content: "The command did not set a response in time." });
       },
     ),
   );
   return {
     data: builtData.toJSON(),
     handler: Effect.fnUntraced(function* (commandHelper: CommandHelper<A>) {
-      const wrappedCommandHelper = yield* wrapCommandHelper(commandHelper, rest, application);
+      const response = yield* InteractionResponse;
+      const wrappedCommandHelper = wrapCommandHelper(commandHelper);
       yield* forkedHandler(wrappedCommandHelper);
-      const { files, payload } = yield* Deferred.await(wrappedCommandHelper.response);
+      const { files, payload } = yield* response.awaitInitialResponse;
       return {
         files,
         ...payload,
@@ -745,14 +603,14 @@ export const makeCommand = Effect.fnUntraced(function* <
 
 export type GlobalCommand<E, R> = GlobalApplicationCommand<
   Exclude<
-    Exclude<R, InteractionToken>,
+    Exclude<Exclude<R, InteractionResponse>, InteractionToken>,
     DiscordApplicationCommand | DiscordInteraction | Scope.Scope
   >,
   E
 >;
 export type GuildCommand<E, R> = GuildApplicationCommand<
   Exclude<
-    Exclude<R, InteractionToken>,
+    Exclude<Exclude<R, InteractionResponse>, InteractionToken>,
     DiscordApplicationCommand | DiscordInteraction | Scope.Scope
   >,
   E
@@ -768,7 +626,9 @@ export const makeGlobalCommand = <
     commandHelper: CommandHelper<A>,
   ) => Effect.Effect<Discord.CreateInteractionResponseRequest, E, R>,
 ): GlobalCommand<E, R> =>
-  Ix.global(data, (commandHelper) => provideInteractionToken(handler(commandHelper)));
+  Ix.global(data, (commandHelper) =>
+    provideInteractionToken(provideInteractionResponse("command", handler(commandHelper))),
+  ) as GlobalCommand<E, R>;
 
 export const makeGuildCommand = <
   const A extends Discord.ApplicationCommandCreateRequest,
@@ -780,4 +640,6 @@ export const makeGuildCommand = <
     commandHelper: CommandHelper<A>,
   ) => Effect.Effect<Discord.CreateInteractionResponseRequest, E, R>,
 ): GuildCommand<E, R> =>
-  Ix.guild(data, (commandHelper) => provideInteractionToken(handler(commandHelper)));
+  Ix.guild(data, (commandHelper) =>
+    provideInteractionToken(provideInteractionResponse("command", handler(commandHelper))),
+  ) as GuildCommand<E, R>;

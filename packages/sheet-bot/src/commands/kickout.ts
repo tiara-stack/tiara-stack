@@ -5,7 +5,7 @@ import { Ix } from "dfx/index";
 import { Array, DateTime, Effect, Equal, Layer, Match, Option, Order, Number, pipe } from "effect";
 import { discordGatewayLayer } from "../discord/gateway";
 import { MembersCache } from "dfx-discord-utils/discord/cache";
-import { CommandHelper } from "dfx-discord-utils/utils";
+import { CommandHelper, InteractionResponse } from "dfx-discord-utils/utils";
 import { Interaction } from "dfx-discord-utils/utils";
 import { GuildMember } from "dfx-discord-utils/utils";
 import {
@@ -59,7 +59,8 @@ const makeManualSubCommand = Effect.gen(function* () {
           builder.setName("server_id").setDescription("The server to kick out users for"),
         ),
     Effect.fn("kickout.manual")(function* (command) {
-      yield* command.deferReply();
+      const response = yield* InteractionResponse;
+      yield* response.deferReply();
 
       const serverId = command.optionValueOptional("server_id");
       const interactionGuildId = yield* getInteractionGuildId;
@@ -75,7 +76,7 @@ const makeManualSubCommand = Effect.gen(function* () {
       const date = yield* DateTime.now;
       const minute = DateTime.getPart(date, "minute");
       if (minute >= 40) {
-        yield* command.editReply({
+        yield* response.editReply({
           payload: {
             content: "Cannot kick out until next hour starts",
           },
@@ -147,7 +148,7 @@ const makeManualSubCommand = Effect.gen(function* () {
       const roleId = runningChannel.roleId;
 
       if (Option.isNone(roleId)) {
-        yield* command.editReply({
+        yield* response.editReply({
           payload: {
             content: "No role configured for this channel",
           },
@@ -173,7 +174,7 @@ const makeManualSubCommand = Effect.gen(function* () {
       );
 
       // Reply with the list of kicked out members
-      yield* command.editReply({
+      yield* response.editReply({
         payload: {
           content: pipe(removedMembers, Array.length, Order.isGreaterThan(Number.Order)(0))
             ? `Kicked out ${removedMembers.map((m) => userMention(m.user.id)).join(" ")}`

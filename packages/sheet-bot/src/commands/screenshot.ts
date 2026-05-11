@@ -3,7 +3,7 @@ import { ApplicationIntegrationType, InteractionContextType } from "discord-api-
 import { Ix } from "dfx/index";
 import { Effect, Layer, Option, pipe } from "effect";
 import { discordGatewayLayer } from "../discord/gateway";
-import { CommandHelper } from "dfx-discord-utils/utils";
+import { CommandHelper, InteractionResponse } from "dfx-discord-utils/utils";
 import { Interaction } from "dfx-discord-utils/utils";
 import { EmbedService, ScreenshotService, SheetApisRequestContext } from "../services";
 import { discordApplicationLayer } from "../discord/application";
@@ -47,7 +47,8 @@ const makeScreenshotCommand = Effect.gen(function* () {
         ),
     SheetApisRequestContext.asInteractionUser(
       Effect.fn("screenshot")(function* (command) {
-        yield* command.deferReply();
+        const response = yield* InteractionResponse;
+        yield* response.deferReply();
 
         const serverId = command.optionValueOptional("server_id");
         const interactionGuildId = yield* getInteractionGuildId;
@@ -62,7 +63,7 @@ const makeScreenshotCommand = Effect.gen(function* () {
 
         const screenshot = yield* screenshotService.getScreenshot(guildId, channelName, day);
 
-        yield* command.editReplyWithFiles(
+        yield* response.editReplyWithFiles(
           [new File([Buffer.from(screenshot)], "screenshot.png", { type: "image/png" })],
           {
             payload: {

@@ -2,7 +2,12 @@ import { InteractionsRegistry } from "dfx/gateway";
 import { Ix } from "dfx/index";
 import { Array, Chunk, Effect, Layer, Number, Option, Order, pipe, String } from "effect";
 import { discordGatewayLayer } from "../../discord/gateway";
-import { makeButton, makeButtonData, makeMessageComponent } from "dfx-discord-utils/utils";
+import {
+  MessageComponentInteractionResponse,
+  makeButton,
+  makeButtonData,
+  makeMessageComponent,
+} from "dfx-discord-utils/utils";
 import {
   EmbedService,
   FormatService,
@@ -93,8 +98,9 @@ const makeSlotButtonHandler = Effect.gen(function* () {
   return yield* makeButton(
     slotButtonData.toJSON(),
     SheetApisRequestContext.asInteractionUser(
-      Effect.fn("slotButton")(function* (msgHelper) {
-        yield* msgHelper.deferReply({ flags: MessageFlags.Ephemeral });
+      Effect.fn("slotButton")(function* () {
+        const response = yield* MessageComponentInteractionResponse;
+        yield* response.deferReply({ flags: MessageFlags.Ephemeral });
 
         const guildId = Option.getOrThrow(yield* getInteractionGuildId);
         const messageId = Option.getOrThrow(yield* getInteractionMessageId);
@@ -114,9 +120,9 @@ const makeSlotButtonHandler = Effect.gen(function* () {
             .toJSON(),
         ];
 
-        yield* msgHelper.editReply({ payload: { embeds } });
+        yield* response.editReply({ payload: { embeds } });
       }),
-    ),
+    )(),
   );
 });
 

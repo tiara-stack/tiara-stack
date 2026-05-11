@@ -1,9 +1,10 @@
 import { InteractionsRegistry } from "dfx/gateway";
-import { Ix } from "dfx";
+import { DiscordREST, Ix } from "dfx";
 import { MessageFlags } from "discord-api-types/v10";
 import { and, eq } from "drizzle-orm";
 import { Effect, Layer } from "effect";
-import { CommandHelper, Interaction } from "dfx-discord-utils/utils";
+import { DiscordApplication } from "dfx-discord-utils/discord";
+import { CommandHelper, Interaction, InteractionResponse } from "dfx-discord-utils/utils";
 import { getDb, schema } from "../../db/index";
 import { discordApplicationLayer } from "../../discord/application";
 import { discordGatewayLayer } from "../../discord/gateway";
@@ -28,8 +29,9 @@ const makeAddSubCommand = Effect.gen(function* () {
           option.setName("cwd").setDescription("Working directory").setRequired(true),
         ),
     Effect.fn("workspace.add")(function* (command) {
+      const response = yield* InteractionResponse;
       const userId = yield* getInteractionUserId;
-      if (!(yield* requireOwner(userId, command))) {
+      if (!(yield* requireOwner(userId, response))) {
         return;
       }
 
@@ -41,7 +43,7 @@ const makeAddSubCommand = Effect.gen(function* () {
         Effect.catch((error) =>
           Effect.gen(function* () {
             const message = error instanceof Error ? error.message : "Unknown error";
-            yield* command.reply({
+            yield* response.reply({
               content: `Failed to save workspace "${name}": ${message}`,
               flags: MessageFlags.Ephemeral,
             });
@@ -49,7 +51,7 @@ const makeAddSubCommand = Effect.gen(function* () {
           }),
         ),
       );
-      yield* command.reply({
+      yield* response.reply({
         content:
           action === "updated" ? `Workspace "${name}" updated!` : `Workspace "${name}" added!`,
       });
@@ -67,8 +69,9 @@ const makeRemoveSubCommand = Effect.gen(function* () {
           option.setName("name").setDescription("Workspace name").setRequired(true),
         ),
     Effect.fn("workspace.remove")(function* (command) {
+      const response = yield* InteractionResponse;
       const userId = yield* getInteractionUserId;
-      if (!(yield* requireOwner(userId, command))) {
+      if (!(yield* requireOwner(userId, response))) {
         return;
       }
 
@@ -79,7 +82,7 @@ const makeRemoveSubCommand = Effect.gen(function* () {
         Effect.catch((error) =>
           Effect.gen(function* () {
             const message = error instanceof Error ? error.message : "Unknown error";
-            yield* command.reply({
+            yield* response.reply({
               content: `Failed to load workspace "${name}": ${message}`,
               flags: MessageFlags.Ephemeral,
             });
@@ -89,7 +92,7 @@ const makeRemoveSubCommand = Effect.gen(function* () {
       );
 
       if (!workspace) {
-        yield* command.reply({
+        yield* response.reply({
           content: `Workspace "${name}" not found!`,
           flags: MessageFlags.Ephemeral,
         });
@@ -105,7 +108,7 @@ const makeRemoveSubCommand = Effect.gen(function* () {
         Effect.catch((error) =>
           Effect.gen(function* () {
             const message = error instanceof Error ? error.message : "Unknown error";
-            yield* command.reply({
+            yield* response.reply({
               content: `Failed to remove workspace "${name}": ${message}`,
               flags: MessageFlags.Ephemeral,
             });
@@ -113,7 +116,7 @@ const makeRemoveSubCommand = Effect.gen(function* () {
           }),
         ),
       );
-      yield* command.reply({ content: `Workspace "${name}" removed!` });
+      yield* response.reply({ content: `Workspace "${name}" removed!` });
     }),
   );
 });
@@ -143,11 +146,18 @@ export const workspaceCommandLayer = Layer.effectDiscard(
   Effect.gen(function* () {
     const registry = yield* InteractionsRegistry;
     const command = yield* makeWorkspaceCommand;
+    const rest = yield* DiscordREST;
+    const application = yield* DiscordApplication;
     yield* registry.register(
       Ix.builder
         .add(
           CommandHelper.makeGlobalCommand(command.data, (helper) =>
-            command.handler(helper).pipe(Effect.provide(discordApplicationLayer)),
+            command
+              .handler(helper)
+              .pipe(
+                Effect.provideService(DiscordREST, rest),
+                Effect.provideService(DiscordApplication, application),
+              ),
           ),
         )
         .catchAllCause(Effect.log),

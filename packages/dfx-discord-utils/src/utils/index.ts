@@ -27,17 +27,29 @@ export {
   provideInteractionToken,
 } from "./interaction";
 export type { DiscordInteractionToken, InteractionTokenContext } from "./interaction";
+export {
+  InteractionResponse,
+  MessageComponentInteractionResponse,
+  makeInteractionResponse,
+  provideInteractionResponse,
+} from "./interactionResponse";
+export type {
+  AcknowledgementState,
+  CommandInteractionResponseContext,
+  InteractionResponseContext,
+  InitialInteractionResponse,
+  MessageComponentInteractionResponseContext,
+} from "./interactionResponse";
 
 // Also export as namespace for backwards compatibility
 export * as Interaction from "./interaction";
+export * as InteractionResponseService from "./interactionResponse";
 export { ButtonBuilder, ActionRowBuilder } from "./messageComponentBuilder";
 export type {
   MessageActionRowComponentBuilder,
   AnyComponentBuilder,
 } from "./messageComponentBuilder";
 export {
-  MessageComponentHelper,
-  makeMessageComponentHelper,
   makeForkedMessageComponentHandler,
   makeButtonData,
   makeMessageActionRowData,

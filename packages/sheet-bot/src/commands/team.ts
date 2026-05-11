@@ -4,7 +4,7 @@ import { ApplicationIntegrationType, InteractionContextType } from "discord-api-
 import { Ix } from "dfx/index";
 import { Array, Effect, Function, Layer, Number, Option, Order, pipe } from "effect";
 import { discordGatewayLayer } from "../discord/gateway";
-import { CommandHelper } from "dfx-discord-utils/utils";
+import { CommandHelper, InteractionResponse } from "dfx-discord-utils/utils";
 import { Interaction } from "dfx-discord-utils/utils";
 import {
   EmbedService,
@@ -44,7 +44,8 @@ const makeListSubCommand = Effect.gen(function* () {
           option.setName("server_id").setDescription("The server to get the teams for"),
         ),
     Effect.fn("team.list")(function* (command) {
-      yield* command.deferReply();
+      const response = yield* InteractionResponse;
+      yield* response.deferReply();
       const interactionGuildId = yield* getInteractionGuildId;
       const serverId = command.optionValueOptional("server_id");
       const guildId = pipe(
@@ -104,7 +105,7 @@ const makeListSubCommand = Effect.gen(function* () {
         Array.getSomes,
       );
 
-      yield* command.editReply({
+      yield* response.editReply({
         payload: {
           embeds: [
             (yield* embedService.makeBaseEmbedBuilder())

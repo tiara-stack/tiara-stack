@@ -3,6 +3,7 @@ import type * as Discord from "dfx/types";
 import { Context, Effect, Option } from "effect";
 
 export interface InteractionTokenContext {
+  readonly applicationId: Discord.APIInteraction["application_id"];
   readonly token: Discord.APIInteraction["token"];
 }
 
@@ -17,7 +18,10 @@ export const provideInteractionToken = <A, E, R>(
 ): Effect.Effect<A, E, Exclude<R, InteractionToken> | Ix.Interaction> =>
   Effect.gen(function* () {
     const interaction = yield* Ix.Interaction;
-    return yield* Effect.provideService(effect, InteractionToken, { token: interaction.token });
+    return yield* Effect.provideService(effect, InteractionToken, {
+      applicationId: interaction.application_id,
+      token: interaction.token,
+    });
   });
 
 type InteractionUser = Discord.UserResponse;

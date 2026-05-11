@@ -5,6 +5,7 @@ import { Effect, Layer, Option, pipe } from "effect";
 import { CHECKIN_BUTTON_CUSTOM_ID } from "sheet-ingress-api/discordComponents";
 import { discordGatewayLayer } from "../../discord/gateway";
 import {
+  MessageComponentInteractionResponse,
   makeButton,
   makeButtonData,
   makeMessageActionRowData,
@@ -45,8 +46,9 @@ const makeCheckinButtonHandler = Effect.gen(function* () {
   return yield* makeButton(
     checkinButtonData.toJSON(),
     SheetClusterRequestContext.asInteractionUser(
-      Effect.fn("checkinButton")(function* (helper) {
-        yield* helper.deferReply({ flags: MessageFlags.Ephemeral });
+      Effect.fn("checkinButton")(function* () {
+        const response = yield* MessageComponentInteractionResponse;
+        yield* response.deferReply({ flags: MessageFlags.Ephemeral });
 
         const message = Option.getOrThrow(yield* getInteractionMessage);
         const interactionToken = yield* InteractionToken;
@@ -60,7 +62,7 @@ const makeCheckinButtonHandler = Effect.gen(function* () {
           },
         });
       }),
-    ),
+    )(),
   );
 });
 

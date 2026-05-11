@@ -1,28 +1,23 @@
 import { InteractionsRegistry } from "dfx/gateway";
-import { Discord, DiscordREST, Ix } from "dfx";
+import { Ix } from "dfx";
+import type { MessageComponent } from "dfx/Interactions/definitions";
 import { MessageFlags } from "discord-api-types/v10";
-import { Deferred, Effect, Layer, Option } from "effect";
-import type { DiscordRestService } from "dfx/DiscordREST";
-import { DiscordApplication } from "dfx-discord-utils/discord";
+import { Effect, Layer, Option } from "effect";
 import {
   Interaction,
-  makeMessageComponentHelper,
-  MessageComponentHelper,
+  MessageComponentInteractionResponse,
+  provideInteractionResponse,
+  provideInteractionToken,
 } from "dfx-discord-utils/utils";
+import type { MessageComponentInteractionResponseContext } from "dfx-discord-utils/utils";
 import { discordApplicationLayer } from "../../discord/application";
 import { discordGatewayLayer } from "../../discord/gateway";
 import { sdkClient, type VibecordButtonInteraction } from "../../sdk/index";
 
-const makeAdapter = (
-  helper: MessageComponentHelper,
-  customId: string,
-  rest: DiscordRestService,
-  application: Discord.PrivateApplicationResponse,
-) =>
+const makeAdapter = (response: MessageComponentInteractionResponseContext, customId: string) =>
   Effect.gen(function* () {
     const effects: Array<Effect.Effect<unknown, unknown, never>> = [];
     let initialResponseQueued = false;
-    const interaction = yield* Ix.Interaction;
     const user = (yield* Interaction.user()) as { id: string };
     const message = (yield* Interaction.message().pipe(
       Effect.flatMap(
@@ -52,30 +47,23 @@ const makeAdapter = (
         message,
         reply: (payload) =>
           enqueueInitialResponse(
-            helper.reply({
+            response.reply({
               content: payload.content,
               flags: payload.flags ?? (payload.ephemeral ? MessageFlags.Ephemeral : undefined),
             }),
           ),
         update: (payload) =>
-          enqueueInitialResponse(helper.update({ components: payload.components })),
+          enqueueInitialResponse(response.update({ components: payload.components })),
         followUp: (payload) => {
           const payloadWithFlags = {
             content: payload.content,
             flags: payload.flags ?? (payload.ephemeral ? MessageFlags.Ephemeral : undefined),
           };
           if (!initialResponseQueued) {
-            return enqueueInitialResponse(helper.reply(payloadWithFlags));
+            return enqueueInitialResponse(response.reply(payloadWithFlags));
           }
 
-          return enqueue(
-            rest.executeWebhook(application.id, interaction.token, {
-              payload: {
-                content: payloadWithFlags.content,
-                flags: payloadWithFlags.flags,
-              },
-            }),
-          );
+          return enqueue(response.followUp(payloadWithFlags));
         },
       } satisfies VibecordButtonInteraction,
       flush: Effect.suspend(() => Effect.forEach(effects, (effect) => effect, { discard: true })),
@@ -86,33 +74,59 @@ const makeButtonLayer = (prefix: "p_" | "q_" | "qc_") =>
   Layer.effectDiscard(
     Effect.gen(function* () {
       const registry = yield* InteractionsRegistry;
-      const rest = yield* DiscordREST;
-      const application = yield* DiscordApplication;
       const component = Ix.messageComponent(
         Ix.idStartsWith(prefix),
-        Effect.gen(function* () {
-          const helper = yield* makeMessageComponentHelper(rest, application);
-          const data = yield* Ix.MessageComponentData;
-          const customId = data.custom_id;
-          const { adapter, flush } = yield* makeAdapter(helper, customId, rest, application);
-          const handled =
-            prefix === "p_"
-              ? yield* Effect.tryPromise(() => sdkClient.handlePermissionButton(adapter))
-              : yield* Effect.tryPromise(() => sdkClient.handleQuestionButton(adapter));
+        provideInteractionToken(
+          provideInteractionResponse(
+            "message-component",
+            Effect.gen(function* () {
+              const response = yield* MessageComponentInteractionResponse;
+              yield* Effect.gen(function* () {
+                const data = yield* Ix.MessageComponentData;
+                const customId = data.custom_id;
+                const { adapter, flush } = yield* makeAdapter(response, customId);
+                const handled =
+                  prefix === "p_"
+                    ? yield* Effect.tryPromise(() => sdkClient.handlePermissionButton(adapter))
+                    : yield* Effect.tryPromise(() => sdkClient.handleQuestionButton(adapter));
 
-          if (!handled) {
-            yield* helper.reply({ content: "Unknown button.", flags: MessageFlags.Ephemeral });
-          }
+                if (!handled) {
+                  yield* response.reply({
+                    content: "Unknown button.",
+                    flags: MessageFlags.Ephemeral,
+                  });
+                  return;
+                }
 
-          yield* flush;
-          const { files, payload } = yield* Deferred.await(helper.response);
-          return {
-            files,
-            ...payload,
-          };
-        }),
+                yield* flush;
+                const acknowledgementState = yield* response.getAcknowledgementState;
+                if (acknowledgementState === "none") {
+                  yield* response.reply({
+                    content: "The button did not set a response.",
+                    flags: MessageFlags.Ephemeral,
+                  });
+                }
+              }).pipe(
+                Effect.catchCause((cause) =>
+                  Effect.logError(cause).pipe(
+                    Effect.andThen(response.respondWithError(cause)),
+                    Effect.asVoid,
+                  ),
+                ),
+              );
+
+              const { files, payload } = yield* response.awaitInitialResponse;
+              return {
+                files,
+                ...payload,
+              };
+            }),
+          ),
+        ),
       );
-      yield* registry.register(Ix.builder.add(component).catchAllCause(Effect.log));
+      yield* registry.register(
+        Ix.builder.add(component as MessageComponent<never, unknown>).catchAllCause(Effect.log),
+      );
     }),
   ).pipe(Layer.provide(Layer.mergeAll(discordGatewayLayer, discordApplicationLayer)));
 

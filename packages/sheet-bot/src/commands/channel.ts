@@ -2,7 +2,7 @@ import { channelMention, escapeMarkdown, roleMention } from "@discordjs/formatte
 import { InteractionsRegistry } from "dfx/gateway";
 import { ApplicationIntegrationType, InteractionContextType } from "discord-api-types/v10";
 import { Effect, Layer, Option, pipe } from "effect";
-import { CommandHelper } from "dfx-discord-utils/utils";
+import { CommandHelper, InteractionResponse } from "dfx-discord-utils/utils";
 import { Interaction } from "dfx-discord-utils/utils";
 import { discordGatewayLayer } from "../discord/gateway";
 import { EmbedService, GuildConfigService, SheetApisRequestContext } from "../services";
@@ -83,7 +83,8 @@ const makeListConfigSubCommand = Effect.gen(function* () {
           builder.setName("server_id").setDescription("The server id to list the config for"),
         ),
     Effect.fn("channel.list_config")(function* (command) {
-      yield* command.deferReply();
+      const response = yield* InteractionResponse;
+      yield* response.deferReply();
 
       const serverId = command.optionValueOptional("server_id");
       const guildId: string = yield* resolveGuildId(serverId);
@@ -91,7 +92,7 @@ const makeListConfigSubCommand = Effect.gen(function* () {
 
       const config = yield* guildConfigService.getGuildChannelById(guildId, channelId as string);
 
-      yield* command.editReply({
+      yield* response.editReply({
         payload: {
           embeds: [
             (yield* embedService.makeBaseEmbedBuilder())
@@ -135,7 +136,8 @@ const makeSetSubCommand = Effect.gen(function* () {
           builder.setName("server_id").setDescription("The server id to set the config for"),
         ),
     Effect.fn("channel.set")(function* (command) {
-      yield* command.deferReply();
+      const response = yield* InteractionResponse;
+      yield* response.deferReply();
 
       const serverId = command.optionValueOptional("server_id");
       const guildId: string = yield* resolveGuildId(serverId);
@@ -174,7 +176,7 @@ const makeSetSubCommand = Effect.gen(function* () {
         },
       );
 
-      yield* command.editReply({
+      yield* response.editReply({
         payload: {
           embeds: [
             (yield* embedService.makeBaseEmbedBuilder())
@@ -219,7 +221,8 @@ const makeUnsetSubCommand = Effect.gen(function* () {
           builder.setName("server_id").setDescription("The server id to unset the config for"),
         ),
     Effect.fn("channel.unset")(function* (command) {
-      yield* command.deferReply();
+      const response = yield* InteractionResponse;
+      yield* response.deferReply();
 
       const serverId = command.optionValueOptional("server_id");
       const guildId: string = yield* resolveGuildId(serverId);
@@ -256,7 +259,7 @@ const makeUnsetSubCommand = Effect.gen(function* () {
         },
       );
 
-      yield* command.editReply({
+      yield* response.editReply({
         payload: {
           embeds: [
             (yield* embedService.makeBaseEmbedBuilder())
