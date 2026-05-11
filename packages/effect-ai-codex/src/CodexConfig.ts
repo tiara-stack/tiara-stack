@@ -21,6 +21,8 @@ export type ConfigShape = {
   readonly thread?: Partial<ThreadOptions>;
   readonly timeoutMs?: number;
   readonly cleanupGraceMs?: number;
+  readonly structuredResponseMaxCharacters?: number;
+  readonly strictStructuredResponseItemTypes?: boolean;
 };
 
 export class Config extends Context.Service<Config, ConfigShape>()("effect-ai-codex/CodexConfig") {}
