@@ -4,7 +4,7 @@ import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 import { Effect, Layer } from "effect";
 import { createServer } from "http";
 import { SheetClusterRpcs } from "sheet-ingress-api/sheet-cluster-rpc";
-import { clusterClientLayer, clusterHttpLayer } from "./cluster";
+import { clusterHttpLayer, clusterWorkflowEngineClientLayer } from "./cluster";
 import { dispatchLayer } from "./handlers/dispatch";
 import { healthLayer } from "./handlers/health";
 import { SheetAuthTokenAuthorizationLive } from "./middlewares/sheetAuthTokenAuthorization/live";
@@ -19,7 +19,7 @@ const rpcRoutesLayer = RpcServer.layerHttp({
   protocol: "http",
 }).pipe(
   Layer.provide(rpcHandlersLayer),
-  Layer.provide(clusterClientLayer),
+  Layer.provide(clusterWorkflowEngineClientLayer),
   Layer.provide(SheetAuthTokenAuthorizationLive),
   Layer.provide(RpcSerialization.layerJson),
   Layer.merge(HttpRouter.add("GET", "/live", HttpServerResponse.empty({ status: 200 }))),

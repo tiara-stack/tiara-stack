@@ -10,7 +10,11 @@ import {
 } from "effect/unstable/httpapi";
 import { Api } from "sheet-ingress-api/api";
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
-import { DispatchRoomOrderButtonMethods } from "sheet-ingress-api/sheet-apis-rpc";
+import {
+  DispatchRoomOrderButtonMethods,
+  interactionTokenExpirySafetyMarginMs,
+  interactionTokenLifetimeMs,
+} from "sheet-ingress-api/sheet-apis-rpc";
 import { Unauthorized } from "typhoon-core/error";
 import { dotEnvConfigProviderLayer } from "typhoon-core/config";
 import { ArgumentError, makeArgumentError } from "typhoon-core/error";
@@ -23,7 +27,6 @@ import {
   SheetAuthTokenAuthorizationLive,
 } from "./services/authorization";
 import { SheetAuthUserResolver } from "./services/authResolver";
-import { dispatchProxyTargets } from "./services/dispatchProxyTargets";
 import { MessageLookup } from "./services/messageLookup";
 import { roomOrderButtonProxyAuthorizers } from "./services/roomOrderButtonAuthorization";
 import { SheetClusterForwardingClient } from "./services/sheetClusterForwardingClient";
@@ -216,7 +219,90 @@ const forwardSheetClusterDispatch =
       const args = rawArgs as SheetClusterDispatchRequest<EndpointName>;
       const client = yield* SheetClusterForwardingClient;
       const endpointClient = client.dispatch[endpoint];
-      return yield* endpointClient(clientArgsFrom(args) as never);
+      const requester = yield* SheetAuthUser;
+      const { payload } = clientArgsFrom(args) as {
+        readonly payload: {
+          readonly interactionToken?: string | undefined;
+          readonly interactionDeadlineEpochMs?: number | undefined;
+          readonly messageId?: string | undefined;
+        };
+      };
+      const hasInteractionToken = payload.interactionToken !== undefined;
+      const hasInteractionDeadline = payload.interactionDeadlineEpochMs !== undefined;
+      if (hasInteractionToken !== hasInteractionDeadline) {
+        return yield* Effect.fail(
+          makeArgumentError(
+            `Dispatch interaction payload must include both interactionToken and interactionDeadlineEpochMs for ${requester.accountId}/${requester.userId}`,
+          ),
+        );
+      }
+      const interactionDeadlineEpochMs = hasInteractionDeadline
+        ? Math.min(
+            payload.interactionDeadlineEpochMs!,
+            Date.now() + interactionTokenLifetimeMs - interactionTokenExpirySafetyMarginMs,
+          )
+        : undefined;
+      const workflowPayload =
+        interactionDeadlineEpochMs === undefined
+          ? payload
+          : { ...payload, interactionDeadlineEpochMs };
+      const basePayload = {
+        requester: { accountId: requester.accountId, userId: requester.userId },
+        payload: workflowPayload,
+        ...(interactionDeadlineEpochMs === undefined ? {} : { interactionDeadlineEpochMs }),
+      };
+      const requireMessageId = () =>
+        workflowPayload.messageId === undefined
+          ? Effect.fail(
+              makeArgumentError("Cannot forward room-order button dispatch without messageId"),
+            )
+          : Effect.succeed(workflowPayload.messageId);
+      const requireRegisteredRoomOrder = Effect.gen(function* () {
+        const messages = yield* MessageLookup;
+        const messageId = yield* requireMessageId();
+        const authorizedRoomOrder = yield* messages.getMessageRoomOrder(messageId);
+        return yield* Option.match(authorizedRoomOrder, {
+          onSome: Effect.succeed,
+          onNone: () =>
+            Effect.fail(
+              makeArgumentError(
+                "Cannot get message room order, the message might not be registered",
+              ),
+            ),
+        });
+      });
+      const dispatchPayloadAugmenters = {
+        [DispatchRoomOrderButtonMethods.previous.endpointName]: () =>
+          requireRegisteredRoomOrder.pipe(
+            Effect.map((authorizedRoomOrder) => ({ ...basePayload, authorizedRoomOrder })),
+          ),
+        [DispatchRoomOrderButtonMethods.next.endpointName]: () =>
+          requireRegisteredRoomOrder.pipe(
+            Effect.map((authorizedRoomOrder) => ({ ...basePayload, authorizedRoomOrder })),
+          ),
+        [DispatchRoomOrderButtonMethods.send.endpointName]: () =>
+          requireRegisteredRoomOrder.pipe(
+            Effect.map((authorizedRoomOrder) => ({ ...basePayload, authorizedRoomOrder })),
+          ),
+        [DispatchRoomOrderButtonMethods.pinTentative.endpointName]: () =>
+          Effect.gen(function* () {
+            const messages = yield* MessageLookup;
+            const messageId = yield* requireMessageId();
+            const authorizedRoomOrder = yield* messages.getMessageRoomOrder(messageId);
+            return {
+              ...basePayload,
+              authorizedRoomOrder: Option.match(authorizedRoomOrder, {
+                onSome: (roomOrder) => roomOrder,
+                onNone: () => null,
+              }),
+            };
+          }),
+      } as const;
+      const augmentPayload =
+        dispatchPayloadAugmenters[endpoint as keyof typeof dispatchPayloadAugmenters] ??
+        (() => Effect.succeed(basePayload));
+      const finalPayload = yield* augmentPayload();
+      return yield* endpointClient(finalPayload as never);
     }) as ReturnType<SheetClusterDispatchHandler<EndpointName, never>>;
 
 const authorizedSheetClusterDispatch =
@@ -587,31 +673,29 @@ const makeApiLayer = () => {
       handlers
         .handle(
           "checkin",
-          authorizedSheetClusterDispatch(dispatchProxyTargets.checkin.endpoint, ({ payload }) =>
+          authorizedSheetClusterDispatch("checkin", ({ payload }) =>
             requireGuild("monitor", payload.guildId),
           ),
         )
         .handle(
           "checkinButton",
-          authorizedSheetClusterDispatch(
-            dispatchProxyTargets.checkinButton.endpoint,
-            ({ payload }) =>
-              Effect.gen(function* () {
-                const user = yield* SheetAuthUser;
-                yield* requireMessageCheckinParticipantMutation(payload.messageId, user.accountId);
-              }),
+          authorizedSheetClusterDispatch("checkinButton", ({ payload }) =>
+            Effect.gen(function* () {
+              const user = yield* SheetAuthUser;
+              yield* requireMessageCheckinParticipantMutation(payload.messageId, user.accountId);
+            }),
           ),
         )
         .handle(
           "roomOrder",
-          authorizedSheetClusterDispatch(dispatchProxyTargets.roomOrder.endpoint, ({ payload }) =>
+          authorizedSheetClusterDispatch("roomOrder", ({ payload }) =>
             requireGuild("monitor", payload.guildId),
           ),
         )
         .handle(
           DispatchRoomOrderButtonMethods.previous.endpointName,
           authorizedSheetClusterDispatch(
-            dispatchProxyTargets.roomOrderPreviousButton.endpoint,
+            DispatchRoomOrderButtonMethods.previous.endpointName,
             ({ payload }) =>
               roomOrderButtonProxyAuthorizers[DispatchRoomOrderButtonMethods.previous.endpointName](
                 payload,
@@ -621,7 +705,7 @@ const makeApiLayer = () => {
         .handle(
           DispatchRoomOrderButtonMethods.next.endpointName,
           authorizedSheetClusterDispatch(
-            dispatchProxyTargets.roomOrderNextButton.endpoint,
+            DispatchRoomOrderButtonMethods.next.endpointName,
             ({ payload }) =>
               roomOrderButtonProxyAuthorizers[DispatchRoomOrderButtonMethods.next.endpointName](
                 payload,
@@ -631,7 +715,7 @@ const makeApiLayer = () => {
         .handle(
           DispatchRoomOrderButtonMethods.send.endpointName,
           authorizedSheetClusterDispatch(
-            dispatchProxyTargets.roomOrderSendButton.endpoint,
+            DispatchRoomOrderButtonMethods.send.endpointName,
             ({ payload }) =>
               roomOrderButtonProxyAuthorizers[DispatchRoomOrderButtonMethods.send.endpointName](
                 payload,
@@ -641,7 +725,7 @@ const makeApiLayer = () => {
         .handle(
           DispatchRoomOrderButtonMethods.pinTentative.endpointName,
           authorizedSheetClusterDispatch(
-            dispatchProxyTargets.roomOrderPinTentativeButton.endpoint,
+            DispatchRoomOrderButtonMethods.pinTentative.endpointName,
             ({ payload }) =>
               roomOrderButtonProxyAuthorizers[
                 DispatchRoomOrderButtonMethods.pinTentative.endpointName

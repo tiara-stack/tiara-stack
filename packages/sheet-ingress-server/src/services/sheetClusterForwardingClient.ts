@@ -1,6 +1,9 @@
 import { Context, Effect, Layer } from "effect";
-import { DispatchRoomOrderButtonMethods } from "sheet-ingress-api/sheet-apis-rpc";
+import { DispatchWorkflowOperations } from "sheet-ingress-api/sheet-cluster-workflows";
 import { SheetClusterRpcClient } from "./sheetClusterRpcClient";
+
+type DispatchWorkflowOperation =
+  (typeof DispatchWorkflowOperations)[keyof typeof DispatchWorkflowOperations];
 
 export class SheetClusterForwardingClient extends Context.Service<SheetClusterForwardingClient>()(
   "SheetClusterForwardingClient",
@@ -8,27 +11,55 @@ export class SheetClusterForwardingClient extends Context.Service<SheetClusterFo
     make: Effect.gen(function* () {
       const rpcClient = yield* SheetClusterRpcClient;
 
-      const call =
-        <Input, A, E, R>(fn: (args: Input) => Effect.Effect<A, E, R>) =>
-        (args: Input) =>
-          fn(args);
+      const accept =
+        <const TOperation extends DispatchWorkflowOperation, E, R>(
+          operation: TOperation,
+          fn: (
+            args: TOperation["workflow"]["payloadSchema"]["~type.make.in"],
+          ) => Effect.Effect<void, E, R>,
+        ) =>
+        (args: TOperation["workflow"]["payloadSchema"]["~type.make.in"]) =>
+          Effect.gen(function* () {
+            const executionIdFor = operation.workflow.executionId as (
+              payload: TOperation["workflow"]["payloadSchema"]["~type.make.in"],
+            ) => Effect.Effect<string>;
+            const executionId = yield* executionIdFor(args);
+            yield* fn(args);
+            return {
+              executionId,
+              operation: operation.operation,
+              status: "accepted" as const,
+            };
+          });
 
       return {
         dispatch: {
-          checkin: call(rpcClient["dispatch.checkin"]),
-          checkinButton: call(rpcClient["dispatch.checkinButton"]),
-          roomOrder: call(rpcClient["dispatch.roomOrder"]),
-          [DispatchRoomOrderButtonMethods.previous.endpointName]: call(
-            rpcClient[DispatchRoomOrderButtonMethods.previous.rpcTag],
+          checkin: accept(DispatchWorkflowOperations.checkin, (args) =>
+            rpcClient[DispatchWorkflowOperations.checkin.discardRpcTag](args),
           ),
-          [DispatchRoomOrderButtonMethods.next.endpointName]: call(
-            rpcClient[DispatchRoomOrderButtonMethods.next.rpcTag],
+          checkinButton: accept(DispatchWorkflowOperations.checkinButton, (args) =>
+            rpcClient[DispatchWorkflowOperations.checkinButton.discardRpcTag](args),
           ),
-          [DispatchRoomOrderButtonMethods.send.endpointName]: call(
-            rpcClient[DispatchRoomOrderButtonMethods.send.rpcTag],
+          roomOrder: accept(DispatchWorkflowOperations.roomOrder, (args) =>
+            rpcClient[DispatchWorkflowOperations.roomOrder.discardRpcTag](args),
           ),
-          [DispatchRoomOrderButtonMethods.pinTentative.endpointName]: call(
-            rpcClient[DispatchRoomOrderButtonMethods.pinTentative.rpcTag],
+          [DispatchWorkflowOperations.roomOrderPreviousButton.endpointName]: accept(
+            DispatchWorkflowOperations.roomOrderPreviousButton,
+            (args) =>
+              rpcClient[DispatchWorkflowOperations.roomOrderPreviousButton.discardRpcTag](args),
+          ),
+          [DispatchWorkflowOperations.roomOrderNextButton.endpointName]: accept(
+            DispatchWorkflowOperations.roomOrderNextButton,
+            (args) => rpcClient[DispatchWorkflowOperations.roomOrderNextButton.discardRpcTag](args),
+          ),
+          [DispatchWorkflowOperations.roomOrderSendButton.endpointName]: accept(
+            DispatchWorkflowOperations.roomOrderSendButton,
+            (args) => rpcClient[DispatchWorkflowOperations.roomOrderSendButton.discardRpcTag](args),
+          ),
+          [DispatchWorkflowOperations.roomOrderPinTentativeButton.endpointName]: accept(
+            DispatchWorkflowOperations.roomOrderPinTentativeButton,
+            (args) =>
+              rpcClient[DispatchWorkflowOperations.roomOrderPinTentativeButton.discardRpcTag](args),
           ),
         },
       };

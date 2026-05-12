@@ -131,9 +131,7 @@ export const DispatchRoomOrderButtonMethods = {
 } as const;
 
 export const DispatchAcceptedResult = Schema.Struct({
-  dispatchRequestId: Schema.String,
-  entityType: Schema.Literals(["dispatchCreation", "dispatchMessage"]),
-  entityId: Schema.String,
+  executionId: Schema.String,
   operation: Schema.Literals([
     "checkin",
     "roomOrder",

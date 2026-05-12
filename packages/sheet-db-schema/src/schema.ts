@@ -2,9 +2,11 @@ import {
   boolean,
   index,
   integer,
+  jsonb,
   pgTable,
-  real,
   primaryKey,
+  real,
+  text,
   timestamp,
   uniqueIndex,
   varchar,
@@ -166,5 +168,29 @@ export const messageRoomOrderEntry = pgTable(
   (table) => [
     primaryKey({ columns: [table.messageId, table.rank, table.position] }),
     index("message_room_order_entry_message_id_rank_idx").on(table.messageId, table.rank),
+  ],
+);
+
+export const sheetApisDispatchJobs = pgTable(
+  "sheet_apis_dispatch_jobs",
+  {
+    dispatchRequestId: text("dispatch_request_id").primaryKey(),
+    entityType: text("entity_type").notNull(),
+    entityId: text("entity_id").notNull(),
+    operation: text("operation").notNull(),
+    status: text("status").notNull(),
+    runId: text("run_id"),
+    payload: jsonb("payload").notNull(),
+    result: jsonb("result"),
+    error: jsonb("error"),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull()
+      .$onUpdate(() => new Date()),
+    deletedAt: timestamp("deleted_at", { mode: "date", withTimezone: true }),
+  },
+  (table) => [
+    index("sheet_apis_dispatch_jobs_status_updated_at_idx").on(table.status, table.updatedAt),
   ],
 );

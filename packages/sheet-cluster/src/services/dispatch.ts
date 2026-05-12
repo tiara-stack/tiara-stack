@@ -53,13 +53,11 @@ export type DispatchRequester = {
 };
 
 type DispatchMessageSink = {
-  readonly sendPrimary: (
-    payload: MessagePayload,
-  ) => Effect.Effect<DiscordMessage, unknown, unknown>;
+  readonly sendPrimary: (payload: MessagePayload) => Effect.Effect<DiscordMessage, unknown, never>;
   readonly updatePrimary: (
     message: DiscordMessage,
     payload: MessagePayload,
-  ) => Effect.Effect<DiscordMessage, unknown, unknown>;
+  ) => Effect.Effect<DiscordMessage, unknown, never>;
 };
 
 const optionalArgumentError = <A, E, R>(effect: Effect.Effect<A, E, R>) =>

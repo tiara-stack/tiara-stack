@@ -24,11 +24,15 @@ describe("Api", () => {
     expect(SheetApisRpcs.requests.has("dispatch.checkinButton")).toBe(false);
     expect(SheetApisRpcs.requests.has("dispatch.roomOrder")).toBe(false);
     expect(SheetClusterRpcs.requests.has("dispatch.checkin")).toBe(true);
+    expect(SheetClusterRpcs.requests.has("dispatch.checkinDiscard")).toBe(true);
     expect(SheetClusterRpcs.requests.has("dispatch.checkinButton")).toBe(true);
+    expect(SheetClusterRpcs.requests.has("dispatch.checkinButtonDiscard")).toBe(true);
     expect(SheetClusterRpcs.requests.has("dispatch.roomOrder")).toBe(true);
+    expect(SheetClusterRpcs.requests.has("dispatch.roomOrderDiscard")).toBe(true);
     for (const method of roomOrderButtonMethods) {
       expect(SheetApisRpcs.requests.has(method.rpcTag)).toBe(false);
       expect(SheetClusterRpcs.requests.has(method.rpcTag)).toBe(true);
+      expect(SheetClusterRpcs.requests.has(`${method.rpcTag}Discard`)).toBe(true);
     }
     expect(SheetApisRpcs.requests.has("checkin.dispatch")).toBe(false);
     expect(SheetApisRpcs.requests.has("checkin.handleButton")).toBe(false);

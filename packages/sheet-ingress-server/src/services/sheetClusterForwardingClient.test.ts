@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { Effect, HashSet, Option, Redacted } from "effect";
 import { Headers } from "effect/unstable/http";
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
+import { MessageRoomOrder } from "sheet-ingress-api/schemas/messageRoomOrder";
 import { DispatchRoomOrderButtonMethods } from "sheet-ingress-api/sheet-apis-rpc";
+import { DispatchWorkflowOperations } from "sheet-ingress-api/sheet-cluster-workflows";
 import { getIngressRpcHeaders } from "./rpcAuthorizationClient";
 import { SheetClusterForwardingClient } from "./sheetClusterForwardingClient";
 import { SheetClusterRpcClient } from "./sheetClusterRpcClient";
@@ -60,15 +62,16 @@ describe("SheetClusterForwardingClient", () => {
 
   it("keeps split room-order forwarding methods aligned with shared button metadata", async () => {
     const rpcClient = {
-      "dispatch.checkin": (args: unknown) => Effect.succeed({ tag: "dispatch.checkin", args }),
-      "dispatch.checkinButton": (args: unknown) =>
-        Effect.succeed({ tag: "dispatch.checkinButton", args }),
-      "dispatch.roomOrder": (args: unknown) => Effect.succeed({ tag: "dispatch.roomOrder", args }),
+      [DispatchWorkflowOperations.checkin.discardRpcTag]: () => Effect.void,
+      [DispatchWorkflowOperations.checkinButton.discardRpcTag]: () => Effect.void,
+      [DispatchWorkflowOperations.roomOrder.discardRpcTag]: () => Effect.void,
       ...Object.fromEntries(
-        Object.values(DispatchRoomOrderButtonMethods).map((method) => [
-          method.rpcTag,
-          (args: unknown) => Effect.succeed({ method, args }),
-        ]),
+        [
+          DispatchWorkflowOperations.roomOrderPreviousButton,
+          DispatchWorkflowOperations.roomOrderNextButton,
+          DispatchWorkflowOperations.roomOrderSendButton,
+          DispatchWorkflowOperations.roomOrderPinTentativeButton,
+        ].map((operation) => [operation.discardRpcTag, () => Effect.void]),
       ),
     };
 
@@ -78,34 +81,103 @@ describe("SheetClusterForwardingClient", () => {
       ),
     );
 
+    const requester = { accountId: "account-1", userId: "user-1" };
+    const authorizedRoomOrder = new MessageRoomOrder({
+      messageId: "message-1",
+      hour: 1,
+      previousFills: [],
+      fills: [],
+      rank: 1,
+      tentative: false,
+      monitor: Option.none(),
+      guildId: Option.some("guild-1"),
+      messageChannelId: Option.some("channel-1"),
+      createdByUserId: Option.none(),
+      sendClaimId: Option.none(),
+      sendClaimedAt: Option.none(),
+      sentMessageId: Option.none(),
+      sentMessageChannelId: Option.none(),
+      sentAt: Option.none(),
+      tentativeUpdateClaimId: Option.none(),
+      tentativeUpdateClaimedAt: Option.none(),
+      tentativePinClaimId: Option.none(),
+      tentativePinClaimedAt: Option.none(),
+      tentativePinnedAt: Option.none(),
+      createdAt: Option.none(),
+      updatedAt: Option.none(),
+      deletedAt: Option.none(),
+    });
+    const checkinPayload = {
+      requester,
+      payload: { dispatchRequestId: "dispatch-checkin", guildId: "guild-1" },
+    };
     await expect(
-      Effect.runPromise(client.dispatch.checkin({ payload: { guildId: "guild-1" } } as never)),
-    ).resolves.toMatchObject({ tag: "dispatch.checkin" });
+      Effect.runPromise(
+        client.dispatch.checkin(checkinPayload as never) as Effect.Effect<unknown, unknown, never>,
+      ),
+    ).resolves.toMatchObject({
+      executionId: await Effect.runPromise(
+        DispatchWorkflowOperations.checkin.workflow.executionId(checkinPayload as never),
+      ),
+      operation: "checkin",
+    });
     await expect(
       Effect.runPromise(
         client.dispatch.checkinButton({
-          payload: { messageId: "message-1", interactionToken: "token-1" },
-        } as never),
+          requester,
+          payload: {
+            messageId: "message-1",
+            interactionToken: "token-1",
+            interactionDeadlineEpochMs: Date.now() + 60_000,
+          },
+        } as never) as Effect.Effect<unknown, unknown, never>,
       ),
-    ).resolves.toMatchObject({ tag: "dispatch.checkinButton" });
+    ).resolves.toMatchObject({ operation: "checkinButton" });
     await expect(
-      Effect.runPromise(client.dispatch.roomOrder({ payload: { guildId: "guild-1" } } as never)),
-    ).resolves.toMatchObject({ tag: "dispatch.roomOrder" });
+      Effect.runPromise(
+        client.dispatch.roomOrder({
+          requester,
+          payload: { dispatchRequestId: "dispatch-room-order", guildId: "guild-1" },
+        } as never) as Effect.Effect<unknown, unknown, never>,
+      ),
+    ).resolves.toMatchObject({ operation: "roomOrder" });
 
     for (const method of Object.values(DispatchRoomOrderButtonMethods)) {
+      const operation = [
+        DispatchWorkflowOperations.roomOrderPreviousButton,
+        DispatchWorkflowOperations.roomOrderNextButton,
+        DispatchWorkflowOperations.roomOrderSendButton,
+        DispatchWorkflowOperations.roomOrderPinTentativeButton,
+      ].find((candidate) => candidate.endpointName === method.endpointName);
+      expect(operation).toBeDefined();
       expect(client.dispatch).toHaveProperty(method.endpointName);
+      const payload = {
+        requester,
+        payload: {
+          guildId: "guild-1",
+          messageId: "message-1",
+          messageChannelId: "channel-1",
+          interactionToken: "token-1",
+          interactionDeadlineEpochMs: Date.now() + 60_000,
+        },
+        authorizedRoomOrder,
+      };
       await expect(
         Effect.runPromise(
-          client.dispatch[method.endpointName]({
-            payload: {
-              guildId: "guild-1",
-              messageId: "message-1",
-              messageChannelId: "channel-1",
-              interactionToken: "token-1",
-            },
-          } as never),
+          client.dispatch[method.endpointName](payload as never) as Effect.Effect<
+            unknown,
+            unknown,
+            never
+          >,
         ),
-      ).resolves.toMatchObject({ method });
+      ).resolves.toMatchObject({
+        executionId:
+          operation === undefined
+            ? undefined
+            : await Effect.runPromise(operation.workflow.executionId(payload as never)),
+        operation: operation?.operation,
+        status: "accepted",
+      });
     }
   });
 });

@@ -1,6 +1,7 @@
 import { NodeHttpServer } from "@effect/platform-node";
 import { Duration, Effect, Layer, Option } from "effect";
 import {
+  ClusterWorkflowEngine,
   HttpRunner,
   K8sHttpClient,
   RunnerAddress,
@@ -14,9 +15,9 @@ import { RpcSerialization } from "effect/unstable/rpc";
 import { createServer } from "node:http";
 import { config } from "@/config";
 import { postgresSqlLayer } from "@/services";
-import { dispatchEntitiesLayer } from "./dispatchEntities";
+import { dispatchWorkflowLayer } from "@/workflows/dispatch";
 
-const shardingConfigLayer = Layer.unwrap(
+export const shardingConfigLayer = Layer.unwrap(
   Effect.gen(function* () {
     const runnerHost = yield* config.clusterRunnerHost;
     const runnerPort = yield* config.clusterRunnerPort;
@@ -35,7 +36,7 @@ const shardingConfigLayer = Layer.unwrap(
   }),
 );
 
-const clusterStorageLayer = Layer.mergeAll(
+export const clusterStorageLayer = Layer.mergeAll(
   SqlMessageStorage.layerWith({ prefix: "sheet_apis_cluster" }),
   SqlRunnerStorage.layerWith({ prefix: "sheet_apis_cluster" }),
 ).pipe(Layer.provide(postgresSqlLayer));
@@ -54,6 +55,11 @@ export const clusterClientLayer = HttpRunner.layerHttpClientOnly.pipe(
   Layer.provide(RpcSerialization.layerJson),
 );
 
+export const clusterWorkflowEngineClientLayer = ClusterWorkflowEngine.layer.pipe(
+  Layer.provide(clusterStorageLayer),
+  Layer.provide(clusterClientLayer),
+);
+
 const clusterBaseLayer = HttpRunner.layerHttpOptions({ path: "/cluster/rpc" }).pipe(
   Layer.provide(clusterStorageLayer),
   Layer.provide(runnerHealthLayer),
@@ -63,7 +69,10 @@ const clusterBaseLayer = HttpRunner.layerHttpOptions({ path: "/cluster/rpc" }).p
   Layer.provide(RpcSerialization.layerJson),
 );
 
-export const clusterLayer = dispatchEntitiesLayer.pipe(Layer.provideMerge(clusterBaseLayer));
+export const clusterLayer = dispatchWorkflowLayer.pipe(
+  Layer.provide(ClusterWorkflowEngine.layer),
+  Layer.provideMerge(clusterBaseLayer),
+);
 
 const clusterHttpServerLayer = Layer.unwrap(
   Effect.gen(function* () {

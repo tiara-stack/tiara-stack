@@ -1,4 +1,5 @@
-export { DispatchRpcs } from "./sheet-apis-rpc";
-import { DispatchRpcs, HealthRpcs } from "./sheet-apis-rpc";
+export { DispatchWorkflowRpcs } from "./sheet-cluster-workflows";
+import { DispatchWorkflowRpcs } from "./sheet-cluster-workflows";
+import { HealthRpcs } from "./sheet-apis-rpc";
 
-export const SheetClusterRpcs = DispatchRpcs.merge(HealthRpcs);
+export const SheetClusterRpcs = DispatchWorkflowRpcs.merge(HealthRpcs);
