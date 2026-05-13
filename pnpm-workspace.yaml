@@ -1,6 +1,14 @@
 packages:
   - packages/*
 
+allowBuilds:
+  "@rocicorp/zero-sqlite3": true
+  better-sqlite3: true
+  core-js: false
+  esbuild: false
+  msgpackr-extract: false
+  protobufjs: false
+
 catalog:
   {
     "@effect/atom-react": npm:@effect/atom-react@4.0.0-beta.56,
@@ -19,8 +27,11 @@ catalog:
 
 ignoredBuiltDependencies: []
 overrides:
+  better-auth: 1.4.18
   vite: "catalog:"
   vitest: "catalog:"
+patchedDependencies:
+  better-auth@1.4.18: patches/better-auth@1.4.18.patch
 peerDependencyRules:
   allowAny:
     - vite
