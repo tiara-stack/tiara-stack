@@ -154,6 +154,8 @@ export const CreatePinPayloadSchema = Schema.Struct({
   }),
 });
 
+export const DeleteMessagePayloadSchema = CreatePinPayloadSchema;
+
 export const AddGuildMemberRolePayloadSchema = Schema.Struct({
   params: Schema.Struct({
     guildId: Schema.String,
@@ -161,6 +163,8 @@ export const AddGuildMemberRolePayloadSchema = Schema.Struct({
     roleId: Schema.String,
   }),
 });
+
+export const RemoveGuildMemberRolePayloadSchema = AddGuildMemberRolePayloadSchema;
 
 export const EmptyBotResponseSchema = Schema.Struct({});
 

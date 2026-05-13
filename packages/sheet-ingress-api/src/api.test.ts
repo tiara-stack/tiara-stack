@@ -23,12 +23,21 @@ describe("Api", () => {
     expect(SheetApisRpcs.requests.has("dispatch.checkin")).toBe(false);
     expect(SheetApisRpcs.requests.has("dispatch.checkinButton")).toBe(false);
     expect(SheetApisRpcs.requests.has("dispatch.roomOrder")).toBe(false);
+    expect(SheetApisRpcs.requests.has("dispatch.kickout")).toBe(false);
+    expect(SheetApisRpcs.requests.has("dispatch.slotButton")).toBe(false);
+    expect(SheetApisRpcs.requests.has("dispatch.slotList")).toBe(false);
     expect(SheetClusterRpcs.requests.has("dispatch.checkin")).toBe(true);
     expect(SheetClusterRpcs.requests.has("dispatch.checkinDiscard")).toBe(true);
     expect(SheetClusterRpcs.requests.has("dispatch.checkinButton")).toBe(true);
     expect(SheetClusterRpcs.requests.has("dispatch.checkinButtonDiscard")).toBe(true);
     expect(SheetClusterRpcs.requests.has("dispatch.roomOrder")).toBe(true);
     expect(SheetClusterRpcs.requests.has("dispatch.roomOrderDiscard")).toBe(true);
+    expect(SheetClusterRpcs.requests.has("dispatch.kickout")).toBe(true);
+    expect(SheetClusterRpcs.requests.has("dispatch.kickoutDiscard")).toBe(true);
+    expect(SheetClusterRpcs.requests.has("dispatch.slotButton")).toBe(true);
+    expect(SheetClusterRpcs.requests.has("dispatch.slotButtonDiscard")).toBe(true);
+    expect(SheetClusterRpcs.requests.has("dispatch.slotList")).toBe(true);
+    expect(SheetClusterRpcs.requests.has("dispatch.slotListDiscard")).toBe(true);
     for (const method of roomOrderButtonMethods) {
       expect(SheetApisRpcs.requests.has(method.rpcTag)).toBe(false);
       expect(SheetClusterRpcs.requests.has(method.rpcTag)).toBe(true);

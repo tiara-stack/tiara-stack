@@ -1,24 +1,14 @@
-import { userMention } from "@discordjs/formatters";
 import { InteractionsRegistry } from "dfx/gateway";
 import { ApplicationIntegrationType, InteractionContextType } from "discord-api-types/v10";
 import { Ix } from "dfx/index";
-import { Array, DateTime, Effect, Equal, Layer, Match, Option, Order, Number, pipe } from "effect";
+import { Effect, Layer, Option, pipe } from "effect";
 import { discordGatewayLayer } from "../discord/gateway";
-import { MembersCache } from "dfx-discord-utils/discord/cache";
 import { CommandHelper, InteractionResponse } from "dfx-discord-utils/utils";
 import { Interaction } from "dfx-discord-utils/utils";
-import { GuildMember } from "dfx-discord-utils/utils";
-import {
-  ConverterService,
-  EmbedService,
-  GuildConfigService,
-  PermissionService,
-  ScheduleService,
-  SheetApisRequestContext,
-} from "../services";
-import { cachesLayer } from "../discord/cache";
+import { InteractionToken } from "dfx-discord-utils/utils";
+import { SheetClusterClient, SheetClusterRequestContext } from "../services";
 import { discordApplicationLayer } from "../discord/application";
-import { discordConfigLayer } from "../discord/config";
+import { interactionDeadlineEpochMs } from "../utils/interactionDeadline";
 
 const getInteractionGuildId = Effect.gen(function* () {
   const interactionGuild = yield* Interaction.guild();
@@ -37,12 +27,7 @@ const getInteractionChannelId = Effect.gen(function* () {
 });
 
 const makeManualSubCommand = Effect.gen(function* () {
-  const converterService = yield* ConverterService;
-  const guildConfigService = yield* GuildConfigService;
-  const guildMemberUtils = yield* GuildMember.GuildMemberUtils;
-  const membersCache = yield* MembersCache;
-  const permissionService = yield* PermissionService;
-  const scheduleService = yield* ScheduleService;
+  const sheetClusterClient = yield* SheetClusterClient;
 
   return yield* CommandHelper.makeSubCommand(
     (builder) =>
@@ -70,116 +55,25 @@ const makeManualSubCommand = Effect.gen(function* () {
         Option.getOrThrow,
       );
 
-      // Keep this check in the bot because the command still removes Discord roles directly.
-      yield* permissionService.checkInteractionUserMonitorGuild(guildId);
-
-      const date = yield* DateTime.now;
-      const minute = DateTime.getPart(date, "minute");
-      if (minute >= 40) {
-        yield* response.editReply({
-          payload: {
-            content: "Cannot kick out until next hour starts",
-          },
-        });
-        return;
-      }
-
-      const hourOption = command.optionValueOptional("hour");
-      const hour = yield* hourOption.pipe(
-        Option.match({
-          onSome: Effect.succeed,
-          onNone: () =>
-            converterService.convertDateTimeToHour(
-              guildId,
-              DateTime.addDuration(date, "20 minutes"),
-            ),
-        }),
-      );
-
       const channelNameOption = command.optionValueOptional("channel_name");
-      const runningChannel = yield* channelNameOption.pipe(
-        Option.match({
-          onSome: (channelName) =>
-            guildConfigService.getGuildChannelByName(guildId, channelName, true),
-          onNone: () =>
-            getInteractionChannelId.pipe(
-              Effect.map(
-                Option.getOrThrowWith(() => new Error("Channel not found in interaction")),
-              ),
-              Effect.flatMap((channelId) =>
-                guildConfigService.getGuildChannelById(guildId, channelId, true),
-              ),
-            ),
-        }),
-      );
-
-      const channelName = runningChannel.name.pipe(Option.getOrThrow);
-
-      const scheduleItem = pipe(
-        yield* scheduleService.channelPopulatedMonitorSchedules(guildId, channelName),
-        Array.findFirst((s) => Equal.equals(s.hour, Option.some(hour))),
-      );
-
-      const fillIds = pipe(
-        scheduleItem,
-        Option.map((schedule) =>
-          pipe(
-            Match.value(schedule),
-            Match.tagsExhaustive({
-              PopulatedBreakSchedule: () => [],
-              PopulatedSchedule: (schedule) => schedule.fills,
-            }),
-          ),
-        ),
-        Option.getOrElse(() => []),
-        Array.getSomes,
-        Array.map((player) =>
-          pipe(
-            Match.value(player.player),
-            Match.tagsExhaustive({
-              Player: (player) => Option.some(player.id),
-              PartialNamePlayer: () => Option.none(),
-            }),
-          ),
-        ),
-        Array.getSomes,
-      );
-
-      const roleId = runningChannel.roleId;
-
-      if (Option.isNone(roleId)) {
-        yield* response.editReply({
-          payload: {
-            content: "No role configured for this channel",
-          },
-        });
-        return;
-      }
-
-      // Get all members with the role
-      const allMembers = yield* membersCache.getForParent(guildId);
-      const membersWithRole = [...allMembers.values()].filter((member) =>
-        member.roles.includes(roleId.value),
-      );
-
-      // Filter out members who are in fills
-      const removedMembers = membersWithRole.filter((member) => !fillIds.includes(member.user.id));
-
-      // Remove the role from each member
-      yield* pipe(
-        removedMembers,
-        Effect.forEach((member) =>
-          guildMemberUtils.removeRoles(guildId, member.user.id, [roleId.value]),
-        ),
-      );
-
-      // Reply with the list of kicked out members
-      yield* response.editReply({
+      const interactionToken = yield* InteractionToken;
+      const interaction = yield* Ix.Interaction;
+      yield* sheetClusterClient.get().dispatch.kickout({
         payload: {
-          content: pipe(removedMembers, Array.length, Order.isGreaterThan(Number.Order)(0))
-            ? `Kicked out ${removedMembers.map((m) => userMention(m.user.id)).join(" ")}`
-            : "No players to kick out",
-          allowed_mentions: { parse: [] },
+          dispatchRequestId: `discord-interaction:${interaction.id}`,
+          guildId,
+          interactionToken: interactionToken.token,
+          interactionDeadlineEpochMs: interactionDeadlineEpochMs(interaction.id),
+          ...(Option.isSome(channelNameOption)
+            ? { channelName: channelNameOption.value }
+            : { channelId: Option.getOrThrow(yield* getInteractionChannelId) }),
+          ...pipe(
+            command.optionValueOptional("hour"),
+            Option.match({
+              onSome: (hour) => ({ hour }),
+              onNone: () => ({}),
+            }),
+          ),
         },
       });
     }),
@@ -204,7 +98,7 @@ const makeKickoutCommand = Effect.gen(function* () {
           InteractionContextType.PrivateChannel,
         )
         .addSubcommand(() => manualSubCommand.data),
-    SheetApisRequestContext.asInteractionUser((command) =>
+    SheetClusterRequestContext.asInteractionUser((command) =>
       command.subCommands({
         manual: manualSubCommand.handler,
       }),
@@ -227,16 +121,6 @@ export const kickoutCommandLayer = Layer.effectDiscard(
   }),
 ).pipe(
   Layer.provide(
-    Layer.mergeAll(
-      discordGatewayLayer,
-      discordApplicationLayer,
-      Layer.provide(GuildMember.GuildMemberUtils.layer, discordConfigLayer),
-      cachesLayer,
-      PermissionService.layer,
-      GuildConfigService.layer,
-      ScheduleService.layer,
-      ConverterService.layer,
-      EmbedService.layer,
-    ),
+    Layer.mergeAll(discordGatewayLayer, discordApplicationLayer, SheetClusterClient.layer),
   ),
 );

@@ -10,7 +10,13 @@ import type {
   CheckinDispatchPayload,
   CheckinHandleButtonPayload,
   CheckinDispatchResult,
+  KickoutDispatchPayload,
+  KickoutDispatchResult,
   RoomOrderPinTentativeButtonPayload,
+  SlotButtonDispatchPayload,
+  SlotButtonDispatchResult,
+  SlotListDispatchPayload,
+  SlotListDispatchResult,
 } from "sheet-ingress-api/sheet-apis-rpc";
 import { Unauthorized } from "typhoon-core/error";
 import { DispatchService, SheetApisClient } from "@/services";
@@ -25,6 +31,30 @@ const checkinPayload: CheckinDispatchPayload = {
   dispatchRequestId: "dispatch-1",
   guildId: "guild-1",
   channelId: "channel-1",
+};
+
+const kickoutPayload: KickoutDispatchPayload = {
+  dispatchRequestId: "dispatch-kickout",
+  guildId: "guild-1",
+  channelId: "channel-1",
+};
+
+const slotButtonPayload: SlotButtonDispatchPayload = {
+  dispatchRequestId: "dispatch-slot-button",
+  guildId: "guild-1",
+  channelId: "channel-1",
+  day: 1,
+  interactionToken: "interaction-token",
+  interactionDeadlineEpochMs: 4_102_444_800_000,
+};
+
+const slotListPayload: SlotListDispatchPayload = {
+  dispatchRequestId: "dispatch-slot-list",
+  guildId: "guild-1",
+  day: 1,
+  messageType: "ephemeral",
+  interactionToken: "interaction-token",
+  interactionDeadlineEpochMs: 4_102_444_800_000,
 };
 
 const interactionDeadlineEpochMs = 4_102_444_800_000;
@@ -67,6 +97,9 @@ const unexpectedDispatchServiceCall = <Method extends keyof DispatchServiceMock>
 const makeDispatchServiceMock = (overrides: Partial<DispatchServiceMock>): DispatchServiceMock => ({
   checkin: unexpectedDispatchServiceCall("checkin"),
   roomOrder: unexpectedDispatchServiceCall("roomOrder"),
+  kickout: unexpectedDispatchServiceCall("kickout"),
+  slotButton: unexpectedDispatchServiceCall("slotButton"),
+  slotList: unexpectedDispatchServiceCall("slotList"),
   checkinButton: unexpectedDispatchServiceCall("checkinButton"),
   roomOrderPreviousButton: unexpectedDispatchServiceCall("roomOrderPreviousButton"),
   roomOrderNextButton: unexpectedDispatchServiceCall("roomOrderNextButton"),
@@ -132,6 +165,9 @@ describe("dispatch workflow registry", () => {
     expect(Object.keys(dispatchWorkflowRegistry)).toEqual([
       "checkin",
       "roomOrder",
+      "kickout",
+      "slotButton",
+      "slotList",
       "checkinButton",
       "roomOrderPreviousButton",
       "roomOrderNextButton",
@@ -182,6 +218,96 @@ describe("dispatch workflow registry", () => {
           }),
         ),
         Effect.provide(Layer.empty),
+      ),
+    );
+  });
+
+  it("routes kickout workflow execution to DispatchService", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const result = yield* dispatchWorkflowRegistry.kickout.execute({
+          requester,
+          payload: kickoutPayload,
+        });
+
+        expect(result).toEqual({
+          guildId: "guild-1",
+          runningChannelId: "channel-1",
+          hour: 1,
+          roleId: "role-1",
+          removedMemberIds: ["account-2"],
+          status: "removed",
+        });
+      }).pipe(
+        Effect.provideService(
+          DispatchService,
+          makeDispatchServiceMock({
+            kickout: (payload, currentRequester) =>
+              Effect.sync(() => {
+                expect(payload).toBe(kickoutPayload);
+                expect(currentRequester).toBe(requester);
+                return {
+                  guildId: "guild-1",
+                  runningChannelId: "channel-1",
+                  hour: 1,
+                  roleId: "role-1",
+                  removedMemberIds: ["account-2"],
+                  status: "removed",
+                } satisfies KickoutDispatchResult;
+              }),
+          }),
+        ),
+      ),
+    );
+  });
+
+  it("routes slot workflows to DispatchService", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const buttonResult = yield* dispatchWorkflowRegistry.slotButton.execute({
+          requester,
+          payload: slotButtonPayload,
+        });
+        const listResult = yield* dispatchWorkflowRegistry.slotList.execute({
+          requester,
+          payload: slotListPayload,
+        });
+
+        expect(buttonResult).toEqual({
+          messageId: "message-1",
+          messageChannelId: "channel-1",
+          day: 1,
+        });
+        expect(listResult).toEqual({
+          guildId: "guild-1",
+          day: 1,
+          messageType: "ephemeral",
+        });
+      }).pipe(
+        Effect.provideService(
+          DispatchService,
+          makeDispatchServiceMock({
+            slotButton: (payload, currentRequester) =>
+              Effect.sync(() => {
+                expect(payload).toBe(slotButtonPayload);
+                expect(currentRequester).toBe(requester);
+                return {
+                  messageId: "message-1",
+                  messageChannelId: "channel-1",
+                  day: 1,
+                } satisfies SlotButtonDispatchResult;
+              }),
+            slotList: (payload) =>
+              Effect.sync(() => {
+                expect(payload).toBe(slotListPayload);
+                return {
+                  guildId: "guild-1",
+                  day: 1,
+                  messageType: "ephemeral",
+                } satisfies SlotListDispatchResult;
+              }),
+          }),
+        ),
       ),
     );
   });

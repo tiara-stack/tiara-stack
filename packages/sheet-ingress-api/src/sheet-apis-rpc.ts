@@ -54,6 +54,9 @@ import {
   DispatchRoomOrderButtonMethods,
   interactionTokenExpirySafetyMarginMs,
   interactionTokenLifetimeMs,
+  KickoutDispatchError,
+  KickoutDispatchPayload,
+  KickoutDispatchResult,
   RoomOrderDispatchError,
   RoomOrderDispatchPayload,
   RoomOrderDispatchResult,
@@ -66,6 +69,11 @@ import {
   RoomOrderPreviousButtonResult,
   RoomOrderSendButtonPayload,
   RoomOrderSendButtonResult,
+  SlotButtonDispatchPayload,
+  SlotButtonDispatchResult,
+  SlotDispatchError,
+  SlotListDispatchPayload,
+  SlotListDispatchResult,
 } from "./handlers/dispatch/schema";
 
 export {
@@ -79,6 +87,9 @@ export {
   DispatchRoomOrderButtonMethods,
   interactionTokenExpirySafetyMarginMs,
   interactionTokenLifetimeMs,
+  KickoutDispatchError,
+  KickoutDispatchPayload,
+  KickoutDispatchResult,
   RoomOrderButtonBasePayload,
   RoomOrderButtonInteractionResponseType,
   RoomOrderButtonResult,
@@ -94,6 +105,11 @@ export {
   RoomOrderPreviousButtonResult,
   RoomOrderSendButtonPayload,
   RoomOrderSendButtonResult,
+  SlotButtonDispatchPayload,
+  SlotButtonDispatchResult,
+  SlotDispatchError,
+  SlotListDispatchPayload,
+  SlotListDispatchResult,
 } from "./handlers/dispatch/schema";
 
 const Query = <Fields extends Schema.Struct.Fields>(fields: Fields) =>

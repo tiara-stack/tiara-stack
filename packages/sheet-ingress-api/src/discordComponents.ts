@@ -1,4 +1,5 @@
 export const CHECKIN_BUTTON_CUSTOM_ID = "interaction:checkin";
+export const SLOT_BUTTON_CUSTOM_ID = "interaction:slot";
 
 export const ROOM_ORDER_PREVIOUS_BUTTON_CUSTOM_ID = "interaction:roomOrder:previous";
 export const ROOM_ORDER_NEXT_BUTTON_CUSTOM_ID = "interaction:roomOrder:next";

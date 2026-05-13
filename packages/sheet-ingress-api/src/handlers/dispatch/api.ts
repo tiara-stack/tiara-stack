@@ -7,6 +7,8 @@ import {
   CheckinHandleButtonErrorSchemas,
   CheckinHandleButtonPayload,
   DispatchRoomOrderButtonMethods,
+  KickoutDispatchErrorSchemas,
+  KickoutDispatchPayload,
   RoomOrderDispatchErrorSchemas,
   RoomOrderDispatchPayload,
   RoomOrderHandleButtonErrorSchemas,
@@ -14,6 +16,9 @@ import {
   RoomOrderPinTentativeButtonPayload,
   RoomOrderPreviousButtonPayload,
   RoomOrderSendButtonPayload,
+  SlotButtonDispatchPayload,
+  SlotDispatchErrorSchemas,
+  SlotListDispatchPayload,
 } from "./schema";
 
 export class DispatchApi extends HttpApiGroup.make("dispatch")
@@ -36,6 +41,27 @@ export class DispatchApi extends HttpApiGroup.make("dispatch")
       payload: RoomOrderDispatchPayload,
       success: DispatchAcceptedResult,
       error: RoomOrderDispatchErrorSchemas,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("kickout", "/dispatch/kickout", {
+      payload: KickoutDispatchPayload,
+      success: DispatchAcceptedResult,
+      error: KickoutDispatchErrorSchemas,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("slotButton", "/dispatch/slot/button", {
+      payload: SlotButtonDispatchPayload,
+      success: DispatchAcceptedResult,
+      error: SlotDispatchErrorSchemas,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("slotList", "/dispatch/slot/list", {
+      payload: SlotListDispatchPayload,
+      success: DispatchAcceptedResult,
+      error: SlotDispatchErrorSchemas,
     }),
   )
   .add(

@@ -53,6 +53,9 @@ type DiscordClient = {
     readonly createPin: (args: {
       readonly params: { readonly channelId: string; readonly messageId: string };
     }) => Effect.Effect<unknown, unknown>;
+    readonly deleteMessage: (args: {
+      readonly params: { readonly channelId: string; readonly messageId: string };
+    }) => Effect.Effect<unknown, unknown>;
     readonly addGuildMemberRole: (args: {
       readonly params: {
         readonly guildId: string;
@@ -60,6 +63,28 @@ type DiscordClient = {
         readonly roleId: string;
       };
     }) => Effect.Effect<unknown, unknown>;
+    readonly removeGuildMemberRole: (args: {
+      readonly params: {
+        readonly guildId: string;
+        readonly userId: string;
+        readonly roleId: string;
+      };
+    }) => Effect.Effect<unknown, unknown>;
+  };
+  readonly cache: {
+    readonly getMembersForParent: (args: {
+      readonly params: { readonly parentId: string };
+    }) => Effect.Effect<
+      ReadonlyArray<{
+        readonly parentId: string;
+        readonly resourceId: string;
+        readonly value: {
+          readonly user: { readonly id: string };
+          readonly roles: ReadonlyArray<string>;
+        };
+      }>,
+      unknown
+    >;
   };
 };
 
@@ -173,6 +198,14 @@ export class IngressBotClient extends Context.Service<IngressBotClient>()("Ingre
           params: { channelId, messageId },
         });
       }),
+      deleteMessage: Effect.fn("IngressBotClient.deleteMessage")(function* (
+        channelId: string,
+        messageId: string,
+      ) {
+        return yield* client.bot.deleteMessage({
+          params: { channelId, messageId },
+        });
+      }),
       addGuildMemberRole: Effect.fn("IngressBotClient.addGuildMemberRole")(function* (
         guildId: string,
         userId: string,
@@ -180,6 +213,22 @@ export class IngressBotClient extends Context.Service<IngressBotClient>()("Ingre
       ) {
         return yield* client.bot.addGuildMemberRole({
           params: { guildId, userId, roleId },
+        });
+      }),
+      removeGuildMemberRole: Effect.fn("IngressBotClient.removeGuildMemberRole")(function* (
+        guildId: string,
+        userId: string,
+        roleId: string,
+      ) {
+        return yield* client.bot.removeGuildMemberRole({
+          params: { guildId, userId, roleId },
+        });
+      }),
+      getMembersForParent: Effect.fn("IngressBotClient.getMembersForParent")(function* (
+        guildId: string,
+      ) {
+        return yield* client.cache.getMembersForParent({
+          params: { parentId: guildId },
         });
       }),
     };

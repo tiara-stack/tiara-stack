@@ -3,11 +3,14 @@ import { Activity } from "effect/unstable/workflow";
 import {
   DispatchCheckinButtonWorkflow,
   DispatchCheckinWorkflow,
+  DispatchKickoutWorkflow,
   DispatchRoomOrderNextButtonWorkflow,
   DispatchRoomOrderPinTentativeButtonWorkflow,
   DispatchRoomOrderPreviousButtonWorkflow,
   DispatchRoomOrderSendButtonWorkflow,
   DispatchRoomOrderWorkflow,
+  DispatchSlotButtonWorkflow,
+  DispatchSlotListWorkflow,
   DispatchWorkflows,
   type DispatchWorkflowOperation,
   type DispatchRequester,
@@ -198,6 +201,42 @@ export const dispatchWorkflowRegistry = {
         return yield* service.roomOrder(request.payload, request.requester);
       }),
   },
+  kickout: {
+    operation: "kickout",
+    workflow: DispatchKickoutWorkflow,
+    getInteractionToken: (request: typeof DispatchKickoutWorkflow.payloadSchema.Type) =>
+      request.payload.interactionToken,
+    authorize: () => Effect.void,
+    execute: (request: typeof DispatchKickoutWorkflow.payloadSchema.Type) =>
+      Effect.gen(function* () {
+        const service = yield* DispatchService;
+        return yield* service.kickout(request.payload, request.requester);
+      }),
+  },
+  slotButton: {
+    operation: "slotButton",
+    workflow: DispatchSlotButtonWorkflow,
+    getInteractionToken: (request: typeof DispatchSlotButtonWorkflow.payloadSchema.Type) =>
+      request.payload.interactionToken,
+    authorize: () => Effect.void,
+    execute: (request: typeof DispatchSlotButtonWorkflow.payloadSchema.Type) =>
+      Effect.gen(function* () {
+        const service = yield* DispatchService;
+        return yield* service.slotButton(request.payload, request.requester);
+      }),
+  },
+  slotList: {
+    operation: "slotList",
+    workflow: DispatchSlotListWorkflow,
+    getInteractionToken: (request: typeof DispatchSlotListWorkflow.payloadSchema.Type) =>
+      request.payload.interactionToken,
+    authorize: () => Effect.void,
+    execute: (request: typeof DispatchSlotListWorkflow.payloadSchema.Type) =>
+      Effect.gen(function* () {
+        const service = yield* DispatchService;
+        return yield* service.slotList(request.payload);
+      }),
+  },
   checkinButton: {
     operation: "checkinButton",
     workflow: DispatchCheckinButtonWorkflow,
@@ -288,6 +327,21 @@ export const dispatchWorkflowLayer = Layer.mergeAll(
   DispatchRoomOrderWorkflow.toLayer(
     makeWorkflowHandler({
       ...dispatchWorkflowRegistry.roomOrder,
+    }),
+  ),
+  DispatchKickoutWorkflow.toLayer(
+    makeWorkflowHandler({
+      ...dispatchWorkflowRegistry.kickout,
+    }),
+  ),
+  DispatchSlotButtonWorkflow.toLayer(
+    makeWorkflowHandler({
+      ...dispatchWorkflowRegistry.slotButton,
+    }),
+  ),
+  DispatchSlotListWorkflow.toLayer(
+    makeWorkflowHandler({
+      ...dispatchWorkflowRegistry.slotList,
     }),
   ),
   DispatchCheckinButtonWorkflow.toLayer(

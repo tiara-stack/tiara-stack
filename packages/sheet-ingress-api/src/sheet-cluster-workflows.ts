@@ -11,6 +11,9 @@ import {
   CheckinHandleButtonResult,
   DispatchAcceptedResult,
   DispatchRoomOrderButtonMethods,
+  KickoutDispatchError,
+  KickoutDispatchPayload,
+  KickoutDispatchResult,
   RoomOrderDispatchError,
   RoomOrderDispatchPayload,
   RoomOrderDispatchResult,
@@ -23,6 +26,11 @@ import {
   RoomOrderPreviousButtonResult,
   RoomOrderSendButtonPayload,
   RoomOrderSendButtonResult,
+  SlotButtonDispatchPayload,
+  SlotButtonDispatchResult,
+  SlotDispatchError,
+  SlotListDispatchPayload,
+  SlotListDispatchResult,
 } from "./handlers/dispatch/schema";
 
 export const DispatchRequesterSchema = Schema.Struct({
@@ -73,6 +81,9 @@ const roomOrderPinTentativePayload = Schema.Struct({
 const workflowName = {
   checkin: "dispatch.checkin",
   roomOrder: "dispatch.roomOrder",
+  kickout: "dispatch.kickout",
+  slotButton: "dispatch.slotButton",
+  slotList: "dispatch.slotList",
   checkinButton: "dispatch.checkinButton",
   roomOrderPreviousButton: "dispatch.roomOrderPreviousButton",
   roomOrderNextButton: "dispatch.roomOrderNextButton",
@@ -93,6 +104,30 @@ export const DispatchRoomOrderWorkflow = Workflow.make({
   payload: dispatchPayload(RoomOrderDispatchPayload),
   success: RoomOrderDispatchResult,
   error: RoomOrderDispatchError,
+  idempotencyKey: ({ payload }) => payload.dispatchRequestId,
+});
+
+export const DispatchKickoutWorkflow = Workflow.make({
+  name: workflowName.kickout,
+  payload: dispatchPayload(KickoutDispatchPayload),
+  success: KickoutDispatchResult,
+  error: KickoutDispatchError,
+  idempotencyKey: ({ payload }) => payload.dispatchRequestId,
+});
+
+export const DispatchSlotButtonWorkflow = Workflow.make({
+  name: workflowName.slotButton,
+  payload: dispatchPayload(SlotButtonDispatchPayload),
+  success: SlotButtonDispatchResult,
+  error: SlotDispatchError,
+  idempotencyKey: ({ payload }) => payload.dispatchRequestId,
+});
+
+export const DispatchSlotListWorkflow = Workflow.make({
+  name: workflowName.slotList,
+  payload: dispatchPayload(SlotListDispatchPayload),
+  success: SlotListDispatchResult,
+  error: SlotDispatchError,
   idempotencyKey: ({ payload }) => payload.dispatchRequestId,
 });
 
@@ -144,6 +179,9 @@ export const DispatchRoomOrderPinTentativeButtonWorkflow = Workflow.make({
 export const DispatchWorkflows = [
   DispatchCheckinWorkflow,
   DispatchRoomOrderWorkflow,
+  DispatchKickoutWorkflow,
+  DispatchSlotButtonWorkflow,
+  DispatchSlotListWorkflow,
   DispatchCheckinButtonWorkflow,
   DispatchRoomOrderPreviousButtonWorkflow,
   DispatchRoomOrderNextButtonWorkflow,
@@ -168,6 +206,27 @@ export const DispatchWorkflowOperations = {
     workflow: DispatchRoomOrderWorkflow,
     rpcTag: DispatchRoomOrderWorkflow.name,
     discardRpcTag: `${DispatchRoomOrderWorkflow.name}Discard`,
+  },
+  kickout: {
+    operation: "kickout",
+    endpointName: "kickout",
+    workflow: DispatchKickoutWorkflow,
+    rpcTag: DispatchKickoutWorkflow.name,
+    discardRpcTag: `${DispatchKickoutWorkflow.name}Discard`,
+  },
+  slotButton: {
+    operation: "slotButton",
+    endpointName: "slotButton",
+    workflow: DispatchSlotButtonWorkflow,
+    rpcTag: DispatchSlotButtonWorkflow.name,
+    discardRpcTag: `${DispatchSlotButtonWorkflow.name}Discard`,
+  },
+  slotList: {
+    operation: "slotList",
+    endpointName: "slotList",
+    workflow: DispatchSlotListWorkflow,
+    rpcTag: DispatchSlotListWorkflow.name,
+    discardRpcTag: `${DispatchSlotListWorkflow.name}Discard`,
   },
   checkinButton: {
     operation: "checkinButton",

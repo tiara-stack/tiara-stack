@@ -1,4 +1,17 @@
-import { Cause, Context, DateTime, Duration, Effect, Layer, Option, Schema, pipe } from "effect";
+import {
+  Chunk,
+  Cause,
+  Context,
+  DateTime,
+  Duration,
+  Effect,
+  Layer,
+  Match,
+  Option,
+  Schema,
+  String as EffectString,
+  pipe,
+} from "effect";
 import { DiscordMessageRequestSchema } from "dfx-discord-utils/discord/schema";
 import {
   formatTentativeRoomOrderContent,
@@ -11,15 +24,23 @@ import type {
   CheckinDispatchResult,
   CheckinHandleButtonPayload,
   CheckinHandleButtonResult,
+  KickoutDispatchPayload,
+  KickoutDispatchResult,
   RoomOrderButtonBasePayload,
   RoomOrderButtonResult,
   RoomOrderDispatchPayload,
   RoomOrderDispatchResult,
+  SlotButtonDispatchPayload,
+  SlotButtonDispatchResult,
+  SlotListDispatchPayload,
+  SlotListDispatchResult,
 } from "sheet-ingress-api/sheet-apis-rpc";
+import * as Sheet from "sheet-ingress-api/schemas/sheet";
 import { makeArgumentError } from "typhoon-core/error";
 import {
   checkinActionRow,
   roomOrderActionRow,
+  slotActionRow,
   tentativeRoomOrderActionRow,
   tentativeRoomOrderPinActionRow,
 } from "./discordComponents";
@@ -177,6 +198,11 @@ const makeSheetApisServices = (sheetApisClient: typeof SheetApisClient.Service) 
         readonly channelId: string;
         readonly running?: boolean | undefined;
       }) => optionalArgumentError(sheetApis.guildConfig.getGuildChannelById({ query })),
+      getGuildChannelByName: (query: {
+        readonly guildId: string;
+        readonly channelName: string;
+        readonly running?: boolean | undefined;
+      }) => optionalArgumentError(sheetApis.guildConfig.getGuildChannelByName({ query })),
     },
     messageCheckinService: {
       getMessageCheckinData: (messageId: string) =>
@@ -203,10 +229,26 @@ const makeSheetApisServices = (sheetApisClient: typeof SheetApisClient.Service) 
         }),
     },
     messageRoomOrderService,
+    messageSlotService: {
+      upsertMessageSlotData: (
+        messageId: string,
+        data: Parameters<typeof sheetApis.messageSlot.upsertMessageSlotData>[0]["payload"]["data"],
+      ) => sheetApis.messageSlot.upsertMessageSlotData({ payload: { messageId, data } }),
+    },
     roomOrderService: {
       generate: (
         payload: RoomOrderDispatchPayload | { guildId: string; channelId: string; hour: number },
       ) => sheetApis.roomOrder.generate({ payload }),
+    },
+    scheduleService: {
+      dayPopulatedFillerSchedules: (guildId: string, day: number) =>
+        sheetApis.schedule
+          .getDayPopulatedSchedules({ query: { guildId, day, view: "filler" } })
+          .pipe(Effect.map(({ schedules }) => schedules)),
+      channelPopulatedMonitorSchedules: (guildId: string, channel: string) =>
+        sheetApis.schedule
+          .getChannelPopulatedSchedules({ query: { guildId, channel, view: "monitor" } })
+          .pipe(Effect.map(({ schedules }) => schedules)),
     },
     sheetService: {
       getEventConfig: (guildId: string) => sheetApis.sheet.getEventConfig({ query: { guildId } }),
@@ -215,7 +257,7 @@ const makeSheetApisServices = (sheetApisClient: typeof SheetApisClient.Service) 
 };
 
 const logEnableFailure = (message: string) => (error: unknown) =>
-  Effect.logWarning(message).pipe(Effect.annotateLogs({ cause: String(error) }));
+  Effect.logWarning(message).pipe(Effect.annotateLogs({ cause: globalThis.String(error) }));
 
 const makeInteractionMessageSink = (
   botClient: typeof IngressBotClient.Service,
@@ -245,6 +287,104 @@ const makeMessageSink = (
     : makeChannelMessageSink(botClient, channelId);
 
 const mentionUser = (userId: string): string => `<@${userId}>`;
+
+const bold = (value: string): string => `**${value}**`;
+
+const time = (epochSeconds: number): string => `<t:${Math.floor(epochSeconds)}:t>`;
+
+const makeEmbed = (embed: {
+  readonly title?: string;
+  readonly description?: string | null;
+  readonly fields?: ReadonlyArray<{ readonly name: string; readonly value: string }>;
+  readonly color?: number;
+}) => embed;
+
+const makeWebScheduleEmbed = () =>
+  makeEmbed({
+    description: "📅 **Preview**: View your schedule online at <https://schedule.theerapakg.moe/>",
+    color: 0x5865f2,
+  });
+
+const formatDateTime = (dateTime: DateTime.DateTime) => DateTime.toEpochMillis(dateTime) / 1000;
+
+const hourWindowFor = (eventConfig: { readonly startTime: DateTime.DateTime }, hour: number) => ({
+  start: pipe(eventConfig.startTime, DateTime.addDuration(Duration.hours(hour - 1))),
+  end: pipe(eventConfig.startTime, DateTime.addDuration(Duration.hours(hour))),
+});
+
+const formatHourWindow = (hourWindow: {
+  readonly start: DateTime.DateTime;
+  readonly end: DateTime.DateTime;
+}) => `${time(formatDateTime(hourWindow.start))}-${time(formatDateTime(hourWindow.end))}`;
+
+const formatScheduleRange = (
+  schedule: Sheet.PopulatedBreakSchedule | Sheet.PopulatedSchedule,
+  eventConfig: { readonly startTime: DateTime.DateTime },
+) =>
+  pipe(
+    schedule.hourWindow,
+    Option.match({
+      onSome: (hourWindow) => formatHourWindow(hourWindow),
+      onNone: () =>
+        pipe(
+          schedule.hour,
+          Option.match({
+            onSome: (hour) => formatHourWindow(hourWindowFor(eventConfig, hour)),
+            onNone: () => "??-??",
+          }),
+        ),
+    }),
+  );
+
+const formatOpenSlot = (
+  schedule: Sheet.PopulatedBreakSchedule | Sheet.PopulatedSchedule,
+  eventConfig: { readonly startTime: DateTime.DateTime },
+) =>
+  Match.value(schedule).pipe(
+    Match.tagsExhaustive({
+      PopulatedBreakSchedule: () => "",
+      PopulatedSchedule: (schedule) => {
+        const empty = Sheet.PopulatedSchedule.empty(schedule);
+        const slotCountString = schedule.visible ? bold(`+${empty} |`) : "";
+        const hourString = pipe(
+          schedule.hour,
+          Option.map((hour) => bold(`hour ${hour}`)),
+          Option.getOrElse(() => bold("hour ??")),
+        );
+        const rangeString = formatScheduleRange(schedule, eventConfig);
+
+        return !schedule.visible || empty > 0
+          ? [slotCountString, hourString, rangeString].filter(EffectString.isNonEmpty).join(" ")
+          : "";
+      },
+    }),
+  );
+
+const formatFilledSlot = (
+  schedule: Sheet.PopulatedBreakSchedule | Sheet.PopulatedSchedule,
+  eventConfig: { readonly startTime: DateTime.DateTime },
+) =>
+  Match.value(schedule).pipe(
+    Match.tagsExhaustive({
+      PopulatedBreakSchedule: () => "",
+      PopulatedSchedule: (schedule) => {
+        const empty = Sheet.PopulatedSchedule.empty(schedule);
+        const hourString = pipe(
+          schedule.hour,
+          Option.map((hour) => bold(`hour ${hour}`)),
+          Option.getOrElse(() => bold("hour ??")),
+        );
+        const rangeString = formatScheduleRange(schedule, eventConfig);
+
+        return schedule.visible && empty === 0
+          ? [hourString, rangeString].filter(EffectString.isNonEmpty).join(" ")
+          : "";
+      },
+    }),
+  );
+
+const joinDedupeAdjacent = (items: ReadonlyArray<string>) =>
+  pipe(Chunk.fromIterable(items), Chunk.dedupeAdjacent, Chunk.join("\n"));
 
 const renderCheckedInContent = (
   initialMessage: string,
@@ -435,7 +575,9 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       guildConfigService,
       messageCheckinService,
       messageRoomOrderService,
+      messageSlotService,
       roomOrderService,
+      scheduleService,
       sheetService,
     } = makeSheetApisServices(sheetApisClient);
 
@@ -1267,6 +1409,268 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           runningChannelId: generated.runningChannelId,
           rank: generated.rank,
         } satisfies RoomOrderDispatchResult;
+      }),
+      kickout: Effect.fn("DispatchService.kickout")(function* (
+        payload: KickoutDispatchPayload,
+        _requester: DispatchRequester,
+      ) {
+        const updateInteraction = (content: string) =>
+          typeof payload.interactionToken === "string"
+            ? botClient.updateOriginalInteractionResponse(payload.interactionToken, {
+                content,
+                allowed_mentions: { parse: [] },
+              })
+            : Effect.void;
+        const date = yield* DateTime.now;
+        const minute = DateTime.getPart(date, "minute");
+
+        if (minute >= 40) {
+          yield* updateInteraction("Cannot kick out until next hour starts");
+          return {
+            guildId: payload.guildId,
+            runningChannelId: payload.channelId ?? "",
+            hour: payload.hour ?? 0,
+            roleId: null,
+            removedMemberIds: [],
+            status: "tooEarly",
+          } satisfies KickoutDispatchResult;
+        }
+
+        const hour =
+          payload.hour ??
+          pipe(
+            DateTime.distance(
+              (yield* sheetService.getEventConfig(payload.guildId)).startTime,
+              pipe(DateTime.addDuration(date, "20 minutes"), DateTime.startOf("hour")),
+            ),
+            Duration.toHours,
+            Math.floor,
+            (value) => value + 1,
+          );
+        const maybeRunningChannel =
+          typeof payload.channelName === "string"
+            ? yield* guildConfigService.getGuildChannelByName({
+                guildId: payload.guildId,
+                channelName: payload.channelName,
+                running: true,
+              })
+            : yield* guildConfigService.getGuildChannelById({
+                guildId: payload.guildId,
+                channelId: payload.channelId ?? "",
+                running: true,
+              });
+        const runningChannel = yield* Option.match(maybeRunningChannel, {
+          onSome: Effect.succeed,
+          onNone: () =>
+            updateInteraction("Cannot kick out, running channel not found").pipe(
+              Effect.andThen(
+                Effect.fail(makeArgumentError("Cannot kick out, running channel not found")),
+              ),
+            ),
+        });
+        const channelName = yield* Option.match(runningChannel.name, {
+          onSome: Effect.succeed,
+          onNone: () =>
+            updateInteraction("Cannot kick out, channel has no name").pipe(
+              Effect.andThen(
+                Effect.fail(makeArgumentError("Cannot kick out, channel has no name")),
+              ),
+            ),
+        });
+        const runningChannelId = runningChannel.channelId;
+        const roleId = Option.getOrNull(runningChannel.roleId);
+
+        if (roleId === null) {
+          yield* updateInteraction("No role configured for this channel");
+          return {
+            guildId: payload.guildId,
+            runningChannelId,
+            hour,
+            roleId: null,
+            removedMemberIds: [],
+            status: "missingRole",
+          } satisfies KickoutDispatchResult;
+        }
+
+        const scheduleItem = (yield* scheduleService.channelPopulatedMonitorSchedules(
+          payload.guildId,
+          channelName,
+        )).find((schedule) => Option.contains(schedule.hour, hour));
+        if (scheduleItem === undefined) {
+          yield* Effect.logWarning("Skipping kickout because no schedule was found").pipe(
+            Effect.annotateLogs({
+              guildId: payload.guildId,
+              runningChannelId,
+              channelName,
+              hour,
+            }),
+          );
+          yield* updateInteraction(
+            "No schedule found for this channel and hour; no players kicked out",
+          );
+          return {
+            guildId: payload.guildId,
+            runningChannelId,
+            hour,
+            roleId,
+            removedMemberIds: [],
+            status: "empty",
+          } satisfies KickoutDispatchResult;
+        }
+
+        const fillIds: ReadonlyArray<string> = Match.value(scheduleItem).pipe(
+          Match.tagsExhaustive({
+            PopulatedBreakSchedule: () => [],
+            PopulatedSchedule: (schedule) =>
+              schedule.fills.filter(Option.isSome).flatMap((player) =>
+                Match.value(player.value.player).pipe(
+                  Match.tagsExhaustive({
+                    Player: (player) => [player.id],
+                    PartialNamePlayer: () => [],
+                  }),
+                ),
+              ),
+          }),
+        );
+        const members = yield* botClient.getMembersForParent(payload.guildId);
+        const removedMemberIds = members
+          .filter((member) => member.value.roles.includes(roleId))
+          .map((member) => member.value.user.id)
+          .filter((memberId) => !fillIds.includes(memberId));
+
+        const removalResults = yield* Effect.forEach(removedMemberIds, (memberId) =>
+          botClient.removeGuildMemberRole(payload.guildId, memberId, roleId).pipe(
+            Effect.as({ memberId, removed: true as const }),
+            Effect.catchCause((cause) =>
+              Effect.logError("Failed to remove kickout role from member").pipe(
+                Effect.annotateLogs({
+                  guildId: payload.guildId,
+                  runningChannelId,
+                  memberId,
+                  roleId,
+                }),
+                Effect.andThen(Effect.logError(cause)),
+                Effect.as({ memberId, removed: false as const }),
+              ),
+            ),
+          ),
+        );
+        const actualRemovedIds = removalResults
+          .filter((result) => result.removed)
+          .map((result) => result.memberId);
+
+        yield* updateInteraction(
+          actualRemovedIds.length > 0
+            ? `Kicked out ${actualRemovedIds.map(mentionUser).join(" ")}`
+            : "No players to kick out",
+        );
+
+        return {
+          guildId: payload.guildId,
+          runningChannelId,
+          hour,
+          roleId,
+          removedMemberIds: actualRemovedIds,
+          status: actualRemovedIds.length > 0 ? "removed" : "empty",
+        } satisfies KickoutDispatchResult;
+      }),
+      slotButton: Effect.fn("DispatchService.slotButton")(function* (
+        payload: SlotButtonDispatchPayload,
+        requester: DispatchRequester,
+      ) {
+        const message = yield* botClient.sendMessage(payload.channelId, {
+          content: `Press the button below to get the current open slots for day ${payload.day}`,
+          components: [slotActionRow()],
+        });
+
+        yield* messageSlotService
+          .upsertMessageSlotData(message.id, {
+            day: payload.day,
+            guildId: payload.guildId,
+            messageChannelId: payload.channelId,
+            createdByUserId: requester.userId,
+          })
+          .pipe(
+            Effect.catchCause((cause) =>
+              botClient.deleteMessage(payload.channelId, message.id).pipe(
+                Effect.catchCause(() => Effect.void),
+                Effect.andThen(Effect.failCause(cause)),
+              ),
+            ),
+          );
+
+        yield* botClient
+          .updateOriginalInteractionResponse(payload.interactionToken, {
+            content: "Slot button sent!",
+            flags: MessageFlags.Ephemeral,
+          })
+          .pipe(
+            Effect.catchCause((cause) =>
+              Effect.logError("Failed to update slot button interaction response").pipe(
+                Effect.annotateLogs({
+                  interactionToken: payload.interactionToken,
+                  messageId: message.id,
+                }),
+                Effect.andThen(Effect.logError(cause)),
+              ),
+            ),
+          );
+
+        return {
+          messageId: message.id,
+          messageChannelId: message.channel_id,
+          day: payload.day,
+        } satisfies SlotButtonDispatchResult;
+      }),
+      slotList: Effect.fn("DispatchService.slotList")(function* (payload: SlotListDispatchPayload) {
+        const eventConfig = yield* sheetService.getEventConfig(payload.guildId);
+        const daySchedule = yield* scheduleService.dayPopulatedFillerSchedules(
+          payload.guildId,
+          payload.day,
+        );
+        const sortedSchedules = daySchedule
+          .flatMap((schedule) =>
+            Option.match(schedule.hour, {
+              onSome: (hour) => [{ schedule, hour }],
+              onNone: () => [],
+            }),
+          )
+          .sort((left, right) => left.hour - right.hour)
+          .map(({ schedule }) => schedule);
+        const openSlots = pipe(
+          sortedSchedules.map((schedule) => formatOpenSlot(schedule, eventConfig)),
+          joinDedupeAdjacent,
+          (description) =>
+            EffectString.Equivalence(description, EffectString.empty)
+              ? "All Filled :3"
+              : description,
+        );
+        const filledSlots = pipe(
+          sortedSchedules.map((schedule) => formatFilledSlot(schedule, eventConfig)),
+          joinDedupeAdjacent,
+          (description) =>
+            EffectString.Equivalence(description, EffectString.empty) ? "All Open :3" : description,
+        );
+
+        yield* botClient.updateOriginalInteractionResponse(payload.interactionToken, {
+          embeds: [
+            makeEmbed({
+              title: `Day ${payload.day} Open Slots~`,
+              description: openSlots,
+            }),
+            makeEmbed({
+              title: `Day ${payload.day} Filled Slots~`,
+              description: filledSlots,
+            }),
+            makeWebScheduleEmbed(),
+          ],
+        });
+
+        return {
+          guildId: payload.guildId,
+          day: payload.day,
+          messageType: payload.messageType,
+        } satisfies SlotListDispatchResult;
       }),
       checkinButton: Effect.fn("DispatchService.checkinButton")(function* (
         payload: CheckinHandleButtonPayload,

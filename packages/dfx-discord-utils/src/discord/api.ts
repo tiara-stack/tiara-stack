@@ -15,10 +15,12 @@ import {
   AddGuildMemberRolePayloadSchema,
   CreatePinPayloadSchema,
   CreateInteractionResponsePayloadSchema,
+  DeleteMessagePayloadSchema,
   DiscordBotRestErrors,
   DiscordInteractionCallbackResponseSchema,
   DiscordMessageSchema,
   EmptyBotResponseSchema,
+  RemoveGuildMemberRolePayloadSchema,
   SendMessagePayloadSchema,
   UpdateMessagePayloadSchema,
   UpdateOriginalInteractionResponsePayloadSchema,
@@ -233,11 +235,29 @@ export class BotApi extends HttpApiGroup.make("bot")
     }),
   )
   .add(
+    HttpApiEndpoint.delete("deleteMessage", "/bot/channels/:channelId/messages/:messageId", {
+      params: DeleteMessagePayloadSchema.fields.params,
+      success: EmptyBotResponseSchema,
+      error: [...DiscordBotRestErrors, Unauthorized],
+    }),
+  )
+  .add(
     HttpApiEndpoint.put(
       "addGuildMemberRole",
       "/bot/guilds/:guildId/members/:userId/roles/:roleId",
       {
         params: AddGuildMemberRolePayloadSchema.fields.params,
+        success: EmptyBotResponseSchema,
+        error: [...DiscordBotRestErrors, Unauthorized],
+      },
+    ),
+  )
+  .add(
+    HttpApiEndpoint.delete(
+      "removeGuildMemberRole",
+      "/bot/guilds/:guildId/members/:userId/roles/:roleId",
+      {
+        params: RemoveGuildMemberRolePayloadSchema.fields.params,
         success: EmptyBotResponseSchema,
         error: [...DiscordBotRestErrors, Unauthorized],
       },

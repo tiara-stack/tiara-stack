@@ -41,6 +41,28 @@ export const RoomOrderDispatchError = Schema.Union(RoomOrderDispatchErrorSchemas
 export const RoomOrderHandleButtonErrorSchemas = RoomOrderDispatchErrorSchemas;
 export const RoomOrderHandleButtonError = Schema.Union(RoomOrderHandleButtonErrorSchemas);
 
+export const KickoutDispatchErrorSchemas = [
+  GoogleSheetsError,
+  ParserFieldError,
+  SheetConfigError,
+  SchemaError,
+  QueryResultError,
+  ArgumentError,
+  UnknownError,
+] as const;
+export const KickoutDispatchError = Schema.Union(KickoutDispatchErrorSchemas);
+
+export const SlotDispatchErrorSchemas = [
+  GoogleSheetsError,
+  ParserFieldError,
+  SheetConfigError,
+  SchemaError,
+  QueryResultError,
+  ArgumentError,
+  UnknownError,
+] as const;
+export const SlotDispatchError = Schema.Union(SlotDispatchErrorSchemas);
+
 export const CheckinDispatchPayload = Schema.Struct({
   dispatchRequestId: Schema.String,
   guildId: Schema.String,
@@ -107,6 +129,71 @@ export const RoomOrderDispatchResult = Schema.Struct({
 
 export type RoomOrderDispatchResult = Schema.Schema.Type<typeof RoomOrderDispatchResult>;
 
+export const KickoutDispatchPayload = Schema.Struct({
+  dispatchRequestId: Schema.String,
+  guildId: Schema.String,
+  channelId: Schema.optional(Schema.String),
+  channelName: Schema.optional(Schema.String),
+  hour: Schema.optional(Schema.Number),
+  interactionToken: Schema.optional(Schema.String),
+  interactionDeadlineEpochMs: Schema.optional(Schema.Number),
+});
+
+export type KickoutDispatchPayload = Schema.Schema.Type<typeof KickoutDispatchPayload>;
+
+export const KickoutDispatchResult = Schema.Struct({
+  guildId: Schema.String,
+  runningChannelId: Schema.String,
+  hour: Schema.Number,
+  roleId: Schema.NullOr(Schema.String),
+  removedMemberIds: Schema.Array(Schema.String),
+  status: Schema.Literals(["removed", "empty", "tooEarly", "missingRole"]),
+});
+
+export type KickoutDispatchResult = Schema.Schema.Type<typeof KickoutDispatchResult>;
+
+export const SlotButtonDispatchPayload = Schema.Struct({
+  dispatchRequestId: Schema.String,
+  guildId: Schema.String,
+  channelId: Schema.String,
+  day: Schema.Number,
+  interactionToken: Schema.String,
+  interactionDeadlineEpochMs: Schema.Number,
+});
+
+export type SlotButtonDispatchPayload = Schema.Schema.Type<typeof SlotButtonDispatchPayload>;
+
+export const SlotButtonDispatchResult = Schema.Struct({
+  messageId: Schema.String,
+  messageChannelId: Schema.String,
+  day: Schema.Number,
+});
+
+export type SlotButtonDispatchResult = Schema.Schema.Type<typeof SlotButtonDispatchResult>;
+
+export const SlotListMessageType = Schema.Literals(["persistent", "ephemeral"]);
+
+export type SlotListMessageType = Schema.Schema.Type<typeof SlotListMessageType>;
+
+export const SlotListDispatchPayload = Schema.Struct({
+  dispatchRequestId: Schema.String,
+  guildId: Schema.String,
+  day: Schema.Number,
+  messageType: SlotListMessageType,
+  interactionToken: Schema.String,
+  interactionDeadlineEpochMs: Schema.Number,
+});
+
+export type SlotListDispatchPayload = Schema.Schema.Type<typeof SlotListDispatchPayload>;
+
+export const SlotListDispatchResult = Schema.Struct({
+  guildId: Schema.String,
+  day: Schema.Number,
+  messageType: SlotListMessageType,
+});
+
+export type SlotListDispatchResult = Schema.Schema.Type<typeof SlotListDispatchResult>;
+
 export const DispatchRoomOrderButtonMethods = {
   previous: {
     endpointName: "roomOrderPreviousButton",
@@ -135,6 +222,9 @@ export const DispatchAcceptedResult = Schema.Struct({
   operation: Schema.Literals([
     "checkin",
     "roomOrder",
+    "kickout",
+    "slotButton",
+    "slotList",
     "checkinButton",
     "roomOrderPreviousButton",
     "roomOrderNextButton",

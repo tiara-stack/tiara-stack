@@ -80,7 +80,9 @@ const makeRest = ({
       content: "updated",
     }),
   createPin = () => Effect.succeed({}),
+  deleteMessage = () => Effect.succeed({}),
   addGuildMemberRole = () => Effect.succeed({}),
+  deleteGuildMemberRole = () => Effect.succeed({}),
 }: {
   readonly createMessage?: (...args: ReadonlyArray<unknown>) => Effect.Effect<unknown, unknown>;
   readonly createInteractionResponse?: (
@@ -91,7 +93,11 @@ const makeRest = ({
     ...args: ReadonlyArray<unknown>
   ) => Effect.Effect<unknown, unknown>;
   readonly createPin?: (...args: ReadonlyArray<unknown>) => Effect.Effect<unknown, unknown>;
+  readonly deleteMessage?: (...args: ReadonlyArray<unknown>) => Effect.Effect<unknown, unknown>;
   readonly addGuildMemberRole?: (
+    ...args: ReadonlyArray<unknown>
+  ) => Effect.Effect<unknown, unknown>;
+  readonly deleteGuildMemberRole?: (
     ...args: ReadonlyArray<unknown>
   ) => Effect.Effect<unknown, unknown>;
 } = {}) => ({
@@ -100,7 +106,9 @@ const makeRest = ({
   updateMessage,
   updateOriginalWebhookMessage,
   createPin,
+  deleteMessage,
   addGuildMemberRole,
+  deleteGuildMemberRole,
 });
 
 const run = <A, E, R>(
@@ -321,6 +329,28 @@ describe("DiscordRpcs handlers", () => {
     expect(result).toEqual({});
   });
 
+  it("bot.deleteMessage calls Discord REST deleteMessage", async () => {
+    const calls: Array<ReadonlyArray<unknown>> = [];
+    const result = await run(
+      Effect.gen(function* () {
+        const client = yield* makeClient;
+        return yield* client("bot.deleteMessage", {
+          params: { channelId: "channel-1", messageId: "message-1" },
+        });
+      }),
+      makeCaches(),
+      makeRest({
+        deleteMessage: (...args) => {
+          calls.push(args);
+          return Effect.succeed({});
+        },
+      }),
+    );
+
+    expect(calls).toEqual([["channel-1", "message-1"]]);
+    expect(result).toEqual({});
+  });
+
   it("bot.addGuildMemberRole calls Discord REST addGuildMemberRole", async () => {
     const calls: Array<ReadonlyArray<unknown>> = [];
     const result = await run(
@@ -333,6 +363,28 @@ describe("DiscordRpcs handlers", () => {
       makeCaches(),
       makeRest({
         addGuildMemberRole: (...args) => {
+          calls.push(args);
+          return Effect.succeed({});
+        },
+      }),
+    );
+
+    expect(calls).toEqual([["guild-1", "user-1", "role-1"]]);
+    expect(result).toEqual({});
+  });
+
+  it("bot.removeGuildMemberRole calls Discord REST removeGuildMemberRole", async () => {
+    const calls: Array<ReadonlyArray<unknown>> = [];
+    const result = await run(
+      Effect.gen(function* () {
+        const client = yield* makeClient;
+        return yield* client("bot.removeGuildMemberRole", {
+          params: { guildId: "guild-1", userId: "user-1", roleId: "role-1" },
+        });
+      }),
+      makeCaches(),
+      makeRest({
+        deleteGuildMemberRole: (...args) => {
           calls.push(args);
           return Effect.succeed({});
         },

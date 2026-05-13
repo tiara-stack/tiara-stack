@@ -1,29 +1,17 @@
 import { InteractionsRegistry } from "dfx/gateway";
-import { DiscordREST } from "dfx";
 import {
   ApplicationIntegrationType,
   InteractionContextType,
   MessageFlags,
 } from "discord-api-types/v10";
 import { Ix } from "dfx/index";
-import { Chunk, Effect, Layer, Option, Schema, String, pipe } from "effect";
-import {
-  CommandHelper,
-  Interaction,
-  InteractionResponse,
-  makeMessageActionRowData,
-} from "dfx-discord-utils/utils";
+import { Effect, Layer, Option, Schema, pipe } from "effect";
+import { CommandHelper, Interaction, InteractionResponse } from "dfx-discord-utils/utils";
+import { InteractionToken } from "dfx-discord-utils/utils";
 import { discordGatewayLayer } from "../discord/gateway";
-import { slotButtonData } from "../messageComponents/buttons/slot";
-import {
-  EmbedService,
-  FormatService,
-  MessageSlotService,
-  PermissionService,
-  ScheduleService,
-  SheetApisRequestContext,
-} from "../services";
+import { SheetClusterClient, SheetClusterRequestContext } from "../services";
 import { discordApplicationLayer } from "../discord/application";
+import { interactionDeadlineEpochMs } from "../utils/interactionDeadline";
 
 const getInteractionGuildId = Effect.gen(function* () {
   const interactionGuild = yield* Interaction.guild();
@@ -41,15 +29,8 @@ const getInteractionChannelId = Effect.gen(function* () {
   );
 });
 
-const getInteractionUserId = Effect.gen(function* () {
-  return ((yield* Interaction.user()) as { id: string }).id;
-});
-
 const makeListSubCommand = Effect.gen(function* () {
-  const embedService = yield* EmbedService;
-  const formatService = yield* FormatService;
-  const permissionService = yield* PermissionService;
-  const scheduleService = yield* ScheduleService;
+  const sheetClusterClient = yield* SheetClusterClient;
 
   return yield* CommandHelper.makeSubCommand(
     (builder) =>
@@ -89,53 +70,16 @@ const makeListSubCommand = Effect.gen(function* () {
 
       yield* response.deferReply({ flags: isEphemeral ? MessageFlags.Ephemeral : undefined });
 
-      if (!isEphemeral) {
-        yield* permissionService.checkInteractionUserMonitorGuild(guildId);
-      }
-
-      const daySchedule = yield* scheduleService.dayPopulatedFillerSchedules(guildId, day);
-      const sortedSchedules: ReadonlyArray<(typeof daySchedule)[number]> = [...daySchedule]
-        .filter((schedule) => Option.isSome(schedule.hour))
-        .sort(
-          (left: (typeof daySchedule)[number], right: (typeof daySchedule)[number]) =>
-            Option.getOrThrow(left.hour) - Option.getOrThrow(right.hour),
-        );
-
-      const openSlots = yield* pipe(
-        sortedSchedules,
-        Effect.forEach((schedule) => formatService.formatOpenSlot(guildId, schedule)),
-        Effect.map(Chunk.fromIterable),
-        Effect.map(Chunk.dedupeAdjacent),
-        Effect.map(Chunk.join("\n")),
-        Effect.map((description) =>
-          String.Equivalence(description, String.empty) ? "All Filled :3" : description,
-        ),
-      );
-
-      const filledSlots = yield* pipe(
-        sortedSchedules,
-        Effect.forEach((schedule) => formatService.formatFilledSlot(guildId, schedule)),
-        Effect.map(Chunk.fromIterable),
-        Effect.map(Chunk.dedupeAdjacent),
-        Effect.map(Chunk.join("\n")),
-        Effect.map((description) =>
-          String.Equivalence(description, String.empty) ? "All Open :3" : description,
-        ),
-      );
-
-      yield* response.editReply({
+      const interactionToken = yield* InteractionToken;
+      const interaction = yield* Ix.Interaction;
+      yield* sheetClusterClient.get().dispatch.slotList({
         payload: {
-          embeds: [
-            (yield* embedService.makeBaseEmbedBuilder())
-              .setTitle(`Day ${day} Open Slots~`)
-              .setDescription(openSlots)
-              .toJSON(),
-            (yield* embedService.makeBaseEmbedBuilder())
-              .setTitle(`Day ${day} Filled Slots~`)
-              .setDescription(filledSlots)
-              .toJSON(),
-            (yield* embedService.makeWebScheduleEmbed()).toJSON(),
-          ],
+          dispatchRequestId: `discord-interaction:${interaction.id}`,
+          guildId,
+          day,
+          messageType,
+          interactionToken: interactionToken.token,
+          interactionDeadlineEpochMs: interactionDeadlineEpochMs(interaction.id),
         },
       });
     }),
@@ -143,8 +87,7 @@ const makeListSubCommand = Effect.gen(function* () {
 });
 
 const makeButtonSubCommand = Effect.gen(function* () {
-  const messageSlotService = yield* MessageSlotService;
-  const permissionService = yield* PermissionService;
+  const sheetClusterClient = yield* SheetClusterClient;
 
   return yield* CommandHelper.makeSubCommand(
     (builder) =>
@@ -159,7 +102,6 @@ const makeButtonSubCommand = Effect.gen(function* () {
         ),
     Effect.fn("slot.button")(function* (command) {
       const response = yield* InteractionResponse;
-      const rest = yield* DiscordREST;
       const interactionGuildId = yield* getInteractionGuildId;
       const guildId = pipe(
         command.optionValueOptional("server_id"),
@@ -167,7 +109,6 @@ const makeButtonSubCommand = Effect.gen(function* () {
         Option.getOrThrowWith(() => new Error("Guild not found in interaction or command options")),
       );
 
-      yield* permissionService.checkInteractionUserMonitorGuild(guildId);
       yield* response.deferReply({ flags: MessageFlags.Ephemeral });
 
       const day = command.optionValue("day");
@@ -175,23 +116,16 @@ const makeButtonSubCommand = Effect.gen(function* () {
         yield* getInteractionChannelId,
         () => new Error("Channel not found in interaction"),
       );
-
-      const messageResult = yield* rest.createMessage(channelId, {
-        content: `Press the button below to get the current open slots for day ${day}`,
-        components: [makeMessageActionRowData((b) => b.setComponents(slotButtonData)).toJSON()],
-      });
-
-      yield* messageSlotService.upsertMessageSlotData(messageResult.id, {
-        day,
-        guildId,
-        messageChannelId: channelId,
-        createdByUserId: yield* getInteractionUserId,
-      });
-
-      yield* response.editReply({
+      const interactionToken = yield* InteractionToken;
+      const interaction = yield* Ix.Interaction;
+      yield* sheetClusterClient.get().dispatch.slotButton({
         payload: {
-          content: "Slot button sent!",
-          flags: MessageFlags.Ephemeral,
+          dispatchRequestId: `discord-interaction:${interaction.id}`,
+          guildId,
+          channelId,
+          day,
+          interactionToken: interactionToken.token,
+          interactionDeadlineEpochMs: interactionDeadlineEpochMs(interaction.id),
         },
       });
     }),
@@ -218,7 +152,7 @@ const makeSlotCommand = Effect.gen(function* () {
         )
         .addSubcommand(() => listSubCommand.data)
         .addSubcommand(() => buttonSubCommand.data),
-    SheetApisRequestContext.asInteractionUser((command) =>
+    SheetClusterRequestContext.asInteractionUser((command) =>
       command.subCommands({
         list: listSubCommand.handler,
         button: buttonSubCommand.handler,
@@ -242,14 +176,6 @@ export const slotCommandLayer = Layer.effectDiscard(
   }),
 ).pipe(
   Layer.provide(
-    Layer.mergeAll(
-      discordGatewayLayer,
-      discordApplicationLayer,
-      PermissionService.layer,
-      ScheduleService.layer,
-      FormatService.layer,
-      EmbedService.layer,
-      MessageSlotService.layer,
-    ),
+    Layer.mergeAll(discordGatewayLayer, discordApplicationLayer, SheetClusterClient.layer),
   ),
 );

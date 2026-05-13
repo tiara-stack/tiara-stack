@@ -4,6 +4,7 @@ import {
   ROOM_ORDER_PREVIOUS_BUTTON_CUSTOM_ID,
   ROOM_ORDER_SEND_BUTTON_CUSTOM_ID,
   ROOM_ORDER_TENTATIVE_PIN_BUTTON_CUSTOM_ID,
+  SLOT_BUTTON_CUSTOM_ID,
 } from "sheet-ingress-api/discordComponents";
 
 const ButtonStyle = {
@@ -45,6 +46,16 @@ export const checkinActionRow = (disabled = false) =>
       label: "Check in",
       style: ButtonStyle.Primary,
       emoji: { id: "907705464215711834", name: "Miku_Happy" },
+      disabled,
+    }),
+  );
+
+export const slotActionRow = (disabled = false) =>
+  actionRow(
+    button({
+      custom_id: SLOT_BUTTON_CUSTOM_ID,
+      label: "Open slots",
+      style: ButtonStyle.Primary,
       disabled,
     }),
   );

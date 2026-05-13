@@ -18,6 +18,7 @@ import {
 import { Interaction } from "dfx-discord-utils/utils";
 import { ButtonStyle, MessageFlags } from "discord-api-types/v10";
 import { discordApplicationLayer } from "../../discord/application";
+import { SLOT_BUTTON_CUSTOM_ID } from "sheet-ingress-api/discordComponents";
 
 const getInteractionGuildId = Effect.gen(function* () {
   const interactionGuild = yield* Interaction.guild();
@@ -36,7 +37,7 @@ const getInteractionMessageId = Effect.gen(function* () {
 });
 
 export const slotButtonData = makeButtonData((b) =>
-  b.setCustomId("interaction:slot").setLabel("Open slots").setStyle(ButtonStyle.Primary),
+  b.setCustomId(SLOT_BUTTON_CUSTOM_ID).setLabel("Open slots").setStyle(ButtonStyle.Primary),
 );
 
 const makeSlotButtonHandler = Effect.gen(function* () {

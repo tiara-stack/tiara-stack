@@ -10,7 +10,9 @@ describe("SheetBotRpcs", () => {
     expect(SheetBotRpcs.requests.has("bot.updateMessage")).toBe(true);
     expect(SheetBotRpcs.requests.has("bot.updateOriginalInteractionResponse")).toBe(true);
     expect(SheetBotRpcs.requests.has("bot.createPin")).toBe(true);
+    expect(SheetBotRpcs.requests.has("bot.deleteMessage")).toBe(true);
     expect(SheetBotRpcs.requests.has("bot.addGuildMemberRole")).toBe(true);
+    expect(SheetBotRpcs.requests.has("bot.removeGuildMemberRole")).toBe(true);
     expect(SheetBotRpcs.requests.has("cache.getMember")).toBe(true);
     expect(SheetBotRpcs.requests.has("dispatch.checkin")).toBe(false);
     expect(SheetBotRpcs.requests.has("dispatch.roomOrder")).toBe(false);

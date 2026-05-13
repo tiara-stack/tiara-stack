@@ -693,6 +693,26 @@ const makeApiLayer = () => {
           ),
         )
         .handle(
+          "kickout",
+          authorizedSheetClusterDispatch("kickout", ({ payload }) =>
+            requireGuild("monitor", payload.guildId),
+          ),
+        )
+        .handle(
+          "slotButton",
+          authorizedSheetClusterDispatch("slotButton", ({ payload }) =>
+            requireGuild("monitor", payload.guildId),
+          ),
+        )
+        .handle(
+          "slotList",
+          authorizedSheetClusterDispatch("slotList", ({ payload }) =>
+            payload.messageType === "persistent"
+              ? requireGuild("monitor", payload.guildId)
+              : Effect.void,
+          ),
+        )
+        .handle(
           DispatchRoomOrderButtonMethods.previous.endpointName,
           authorizedSheetClusterDispatch(
             DispatchRoomOrderButtonMethods.previous.endpointName,
@@ -1131,7 +1151,9 @@ const makeApiLayer = () => {
           forwardSheetBot("bot", "updateOriginalInteractionResponse"),
         )
         .handle("createPin", forwardSheetBot("bot", "createPin"))
-        .handle("addGuildMemberRole", forwardSheetBot("bot", "addGuildMemberRole")),
+        .handle("deleteMessage", forwardSheetBot("bot", "deleteMessage"))
+        .handle("addGuildMemberRole", forwardSheetBot("bot", "addGuildMemberRole"))
+        .handle("removeGuildMemberRole", forwardSheetBot("bot", "removeGuildMemberRole")),
     ),
     HttpApiBuilder.group(Api, "cache", (handlers) =>
       handlers

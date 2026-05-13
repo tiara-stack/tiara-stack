@@ -13,6 +13,7 @@ import {
   ChannelValueSchema,
   CreatePinPayloadSchema,
   CreateInteractionResponsePayloadSchema,
+  DeleteMessagePayloadSchema,
   DiscordBotRestErrorSchema,
   DiscordInteractionCallbackResponseSchema,
   DiscordMessageSchema,
@@ -21,6 +22,7 @@ import {
   makeDiscordBotRestError,
   MemberCacheEntriesSchema,
   MemberValueSchema,
+  RemoveGuildMemberRolePayloadSchema,
   RoleCacheEntriesSchema,
   RoleValueSchema,
   SendMessagePayloadSchema,
@@ -73,8 +75,18 @@ export class DiscordRpcs extends RpcGroup.make(
     success: EmptyBotResponseSchema,
     error: DiscordBotRestErrorSchema,
   }),
+  Rpc.make("bot.deleteMessage", {
+    payload: DeleteMessagePayloadSchema,
+    success: EmptyBotResponseSchema,
+    error: DiscordBotRestErrorSchema,
+  }),
   Rpc.make("bot.addGuildMemberRole", {
     payload: AddGuildMemberRolePayloadSchema,
+    success: EmptyBotResponseSchema,
+    error: DiscordBotRestErrorSchema,
+  }),
+  Rpc.make("bot.removeGuildMemberRole", {
+    payload: RemoveGuildMemberRolePayloadSchema,
     success: EmptyBotResponseSchema,
     error: DiscordBotRestErrorSchema,
   }),
@@ -343,10 +355,20 @@ export const discordRpcHandlersLayer = DiscordRpcs.toLayer(
           rest.createPin(channelId, messageId).pipe(Effect.as({})),
           `Failed to pin message ${messageId} in channel ${channelId}`,
         ),
+      "bot.deleteMessage": ({ params: { channelId, messageId } }) =>
+        handleBotRestError(
+          rest.deleteMessage(channelId, messageId).pipe(Effect.as({})),
+          `Failed to delete message ${messageId} in channel ${channelId}`,
+        ),
       "bot.addGuildMemberRole": ({ params: { guildId, userId, roleId } }) =>
         handleBotRestError(
           rest.addGuildMemberRole(guildId, userId, roleId).pipe(Effect.as({})),
           `Failed to add role ${roleId} to user ${userId} in guild ${guildId}`,
+        ),
+      "bot.removeGuildMemberRole": ({ params: { guildId, userId, roleId } }) =>
+        handleBotRestError(
+          rest.deleteGuildMemberRole(guildId, userId, roleId).pipe(Effect.as({})),
+          `Failed to remove role ${roleId} from user ${userId} in guild ${guildId}`,
         ),
       "cache.getGuild": ({ params: { resourceId } }) =>
         handleCacheError(
