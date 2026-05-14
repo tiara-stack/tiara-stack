@@ -14,6 +14,7 @@ describe("SheetApisRpcs", () => {
     expect(SheetApisRpcs.requests.has("dispatch.roomOrderNextButton")).toBe(false);
     expect(SheetApisRpcs.requests.has("dispatch.roomOrderSendButton")).toBe(false);
     expect(SheetApisRpcs.requests.has("dispatch.roomOrderPinTentativeButton")).toBe(false);
+    expect(SheetApisRpcs.requests.has("dispatch.slotOpenButton")).toBe(false);
     expect(SheetApisRpcs.requests.has("checkin.dispatch")).toBe(false);
     expect(SheetApisRpcs.requests.has("checkin.handleButton")).toBe(false);
     expect(SheetApisRpcs.requests.has("roomOrder.dispatch")).toBe(false);

@@ -19,6 +19,7 @@ import {
   SlotButtonDispatchPayload,
   SlotDispatchErrorSchemas,
   SlotListDispatchPayload,
+  SlotOpenButtonPayload,
 } from "./schema";
 
 export class DispatchApi extends HttpApiGroup.make("dispatch")
@@ -60,6 +61,13 @@ export class DispatchApi extends HttpApiGroup.make("dispatch")
   .add(
     HttpApiEndpoint.post("slotList", "/dispatch/slot/list", {
       payload: SlotListDispatchPayload,
+      success: DispatchAcceptedResult,
+      error: SlotDispatchErrorSchemas,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("slotOpenButton", "/dispatch/slot/buttons/open", {
+      payload: SlotOpenButtonPayload,
       success: DispatchAcceptedResult,
       error: SlotDispatchErrorSchemas,
     }),

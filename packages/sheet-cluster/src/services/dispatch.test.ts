@@ -1,15 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { Cause, Effect, Exit, Option } from "effect";
+import { Cause, DateTime, Effect, Exit, Option } from "effect";
 import { TestClock } from "effect/testing";
 import type {
   KickoutDispatchPayload,
   SlotButtonDispatchPayload,
+  SlotOpenButtonPayload,
 } from "sheet-ingress-api/handlers/dispatch/schema";
+import { MessageSlot } from "sheet-ingress-api/schemas/messageSlot";
 import {
   Player,
   PopulatedSchedule,
   PopulatedSchedulePlayer,
 } from "sheet-ingress-api/schemas/sheet";
+import { EventConfig } from "sheet-ingress-api/schemas/sheetConfig";
 import { DispatchService, IngressBotClient, SheetApisClient } from "@/services";
 
 const slotButtonPayload: SlotButtonDispatchPayload = {
@@ -20,6 +23,23 @@ const slotButtonPayload: SlotButtonDispatchPayload = {
   interactionToken: "interaction-token",
   interactionDeadlineEpochMs: 1_700_000_000_000,
 };
+
+const slotOpenButtonPayload: SlotOpenButtonPayload = {
+  messageId: "message-1",
+  interactionToken: "interaction-token",
+  interactionDeadlineEpochMs: 1_700_000_000_000,
+};
+
+const messageSlot = new MessageSlot({
+  messageId: slotOpenButtonPayload.messageId,
+  day: 2,
+  guildId: Option.some("guild-1"),
+  messageChannelId: Option.some("channel-1"),
+  createdByUserId: Option.some("discord-user-1"),
+  createdAt: Option.none(),
+  updatedAt: Option.none(),
+  deletedAt: Option.none(),
+});
 
 const requester = {
   accountId: "account-1",
@@ -90,6 +110,18 @@ const runSlotButton = (
   Effect.gen(function* () {
     const service = yield* DispatchService.make;
     return yield* service.slotButton(slotButtonPayload, requester);
+  }).pipe(
+    Effect.provideService(IngressBotClient, botClient),
+    Effect.provideService(SheetApisClient, sheetApisClient),
+  );
+
+const runSlotOpenButton = (
+  botClient: typeof IngressBotClient.Service,
+  sheetApisClient: typeof SheetApisClient.Service,
+) =>
+  Effect.gen(function* () {
+    const service = yield* DispatchService.make;
+    return yield* service.slotOpenButton(slotOpenButtonPayload, messageSlot);
   }).pipe(
     Effect.provideService(IngressBotClient, botClient),
     Effect.provideService(SheetApisClient, sheetApisClient),
@@ -173,6 +205,55 @@ describe("DispatchService", () => {
       day: 2,
     });
     expect(upsertCalls).toHaveLength(1);
+  });
+
+  it("renders persisted slot button clicks from the cluster", async () => {
+    const updateCalls: Array<unknown> = [];
+    const botClient = {
+      updateOriginalInteractionResponse: (interactionToken: string, payload: unknown) => {
+        updateCalls.push({ interactionToken, payload });
+        return Effect.succeed({ id: "interaction-message-1", channel_id: "channel-1" });
+      },
+    } as never;
+    const sheetApisClient = makeSheetApisClient({
+      sheet: {
+        getEventConfig: () =>
+          Effect.succeed(
+            new EventConfig({
+              startTime: DateTime.makeUnsafe("2026-03-26T12:00:00.000Z"),
+            }),
+          ),
+      },
+      schedule: {
+        getDayPopulatedSchedules: () =>
+          Effect.succeed({ schedules: [makeSchedule(1, ["member-1", "member-2"])] }),
+      },
+    });
+
+    const result = await Effect.runPromise(runSlotOpenButton(botClient, sheetApisClient));
+
+    expect(result).toEqual({
+      messageId: "message-1",
+      guildId: "guild-1",
+      day: 2,
+    });
+    expect(updateCalls).toEqual([
+      {
+        interactionToken: "interaction-token",
+        payload: {
+          embeds: [
+            {
+              title: "Day 2 Open Slots",
+              description: "**+3 |** **hour 1** <t:1774526400:t>-<t:1774530000:t>",
+            },
+            {
+              title: "Day 2 Filled Slots",
+              description: "All Open :3",
+            },
+          ],
+        },
+      },
+    ]);
   });
 
   it("updates the interaction before failing when kickout cannot find a running channel", async () => {

@@ -19,6 +19,7 @@ import {
   shouldSendTentativeRoomOrder,
 } from "sheet-ingress-api/discordComponents";
 import type { MessageRoomOrder } from "sheet-ingress-api/schemas/messageRoomOrder";
+import type { MessageSlot } from "sheet-ingress-api/schemas/messageSlot";
 import type {
   CheckinDispatchPayload,
   CheckinDispatchResult,
@@ -34,6 +35,8 @@ import type {
   SlotButtonDispatchResult,
   SlotListDispatchPayload,
   SlotListDispatchResult,
+  SlotOpenButtonPayload,
+  SlotOpenButtonResult,
 } from "sheet-ingress-api/sheet-apis-rpc";
 import * as Sheet from "sheet-ingress-api/schemas/sheet";
 import { makeArgumentError } from "typhoon-core/error";
@@ -230,6 +233,8 @@ const makeSheetApisServices = (sheetApisClient: typeof SheetApisClient.Service) 
     },
     messageRoomOrderService,
     messageSlotService: {
+      getMessageSlotData: (messageId: string) =>
+        optionalArgumentError(sheetApis.messageSlot.getMessageSlotData({ query: { messageId } })),
       upsertMessageSlotData: (
         messageId: string,
         data: Parameters<typeof sheetApis.messageSlot.upsertMessageSlotData>[0]["payload"]["data"],
@@ -1255,6 +1260,46 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       } satisfies RoomOrderButtonResult;
     });
 
+    const makeSlotEmbeds = Effect.fn("DispatchService.makeSlotEmbeds")(function* (
+      guildId: string,
+      day: number,
+    ) {
+      const eventConfig = yield* sheetService.getEventConfig(guildId);
+      const daySchedule = yield* scheduleService.dayPopulatedFillerSchedules(guildId, day);
+      const sortedSchedules = daySchedule
+        .flatMap((schedule) =>
+          Option.match(schedule.hour, {
+            onSome: (hour) => [{ schedule, hour }],
+            onNone: () => [],
+          }),
+        )
+        .sort((left, right) => left.hour - right.hour)
+        .map(({ schedule }) => schedule);
+      const openSlots = pipe(
+        sortedSchedules.map((schedule) => formatOpenSlot(schedule, eventConfig)),
+        joinDedupeAdjacent,
+        (description) =>
+          EffectString.Equivalence(description, EffectString.empty) ? "All Filled :3" : description,
+      );
+      const filledSlots = pipe(
+        sortedSchedules.map((schedule) => formatFilledSlot(schedule, eventConfig)),
+        joinDedupeAdjacent,
+        (description) =>
+          EffectString.Equivalence(description, EffectString.empty) ? "All Open :3" : description,
+      );
+
+      return [
+        makeEmbed({
+          title: `Day ${day} Open Slots`,
+          description: openSlots,
+        }),
+        makeEmbed({
+          title: `Day ${day} Filled Slots`,
+          description: filledSlots,
+        }),
+      ];
+    });
+
     return {
       checkin: Effect.fn("DispatchService.checkin")(function* (
         payload: CheckinDispatchPayload,
@@ -1623,47 +1668,10 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         } satisfies SlotButtonDispatchResult;
       }),
       slotList: Effect.fn("DispatchService.slotList")(function* (payload: SlotListDispatchPayload) {
-        const eventConfig = yield* sheetService.getEventConfig(payload.guildId);
-        const daySchedule = yield* scheduleService.dayPopulatedFillerSchedules(
-          payload.guildId,
-          payload.day,
-        );
-        const sortedSchedules = daySchedule
-          .flatMap((schedule) =>
-            Option.match(schedule.hour, {
-              onSome: (hour) => [{ schedule, hour }],
-              onNone: () => [],
-            }),
-          )
-          .sort((left, right) => left.hour - right.hour)
-          .map(({ schedule }) => schedule);
-        const openSlots = pipe(
-          sortedSchedules.map((schedule) => formatOpenSlot(schedule, eventConfig)),
-          joinDedupeAdjacent,
-          (description) =>
-            EffectString.Equivalence(description, EffectString.empty)
-              ? "All Filled :3"
-              : description,
-        );
-        const filledSlots = pipe(
-          sortedSchedules.map((schedule) => formatFilledSlot(schedule, eventConfig)),
-          joinDedupeAdjacent,
-          (description) =>
-            EffectString.Equivalence(description, EffectString.empty) ? "All Open :3" : description,
-        );
+        const slotEmbeds = yield* makeSlotEmbeds(payload.guildId, payload.day);
 
         yield* botClient.updateOriginalInteractionResponse(payload.interactionToken, {
-          embeds: [
-            makeEmbed({
-              title: `Day ${payload.day} Open Slots~`,
-              description: openSlots,
-            }),
-            makeEmbed({
-              title: `Day ${payload.day} Filled Slots~`,
-              description: filledSlots,
-            }),
-            makeWebScheduleEmbed(),
-          ],
+          embeds: [...slotEmbeds, makeWebScheduleEmbed()],
         });
 
         return {
@@ -1671,6 +1679,42 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           day: payload.day,
           messageType: payload.messageType,
         } satisfies SlotListDispatchResult;
+      }),
+      slotOpenButton: Effect.fn("DispatchService.slotOpenButton")(function* (
+        payload: SlotOpenButtonPayload,
+        messageSlot: MessageSlot,
+      ) {
+        const guildId = Option.getOrUndefined(messageSlot.guildId);
+        const messageChannelId = Option.getOrUndefined(messageSlot.messageChannelId);
+        if (guildId === undefined) {
+          yield* botClient.updateOriginalInteractionResponse(payload.interactionToken, {
+            content: "This slot message is not registered to a server.",
+          });
+          return yield* Effect.fail(
+            makeArgumentError("Cannot handle slot button, message guild is not registered"),
+          );
+        }
+
+        if (messageChannelId === undefined) {
+          yield* botClient.updateOriginalInteractionResponse(payload.interactionToken, {
+            content: "This slot message channel is not registered.",
+          });
+          return yield* Effect.fail(
+            makeArgumentError("Cannot handle slot button, message channel is not registered"),
+          );
+        }
+
+        const slotEmbeds = yield* makeSlotEmbeds(guildId, messageSlot.day);
+
+        yield* botClient.updateOriginalInteractionResponse(payload.interactionToken, {
+          embeds: slotEmbeds,
+        });
+
+        return {
+          messageId: payload.messageId,
+          guildId,
+          day: messageSlot.day,
+        } satisfies SlotOpenButtonResult;
       }),
       checkinButton: Effect.fn("DispatchService.checkinButton")(function* (
         payload: CheckinHandleButtonPayload,

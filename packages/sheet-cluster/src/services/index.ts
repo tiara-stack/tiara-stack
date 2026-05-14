@@ -1,3 +1,4 @@
+export * from "./autoCheckin";
 export * from "./dispatch";
 export * from "./ingressBotClient";
 export * from "./postgres";

@@ -2,6 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer, Option, Schema } from "effect";
 import type { HttpApiClient } from "effect/unstable/httpapi";
 import { MessageCheckinMember } from "sheet-ingress-api/schemas/messageCheckin";
+import { MessageSlot } from "sheet-ingress-api/schemas/messageSlot";
 import {
   DispatchWorkflows,
   type DispatchRequester,
@@ -17,6 +18,8 @@ import type {
   SlotButtonDispatchResult,
   SlotListDispatchPayload,
   SlotListDispatchResult,
+  SlotOpenButtonPayload,
+  SlotOpenButtonResult,
 } from "sheet-ingress-api/sheet-apis-rpc";
 import { Unauthorized } from "typhoon-core/error";
 import { DispatchService, SheetApisClient } from "@/services";
@@ -57,6 +60,12 @@ const slotListPayload: SlotListDispatchPayload = {
   interactionDeadlineEpochMs: 4_102_444_800_000,
 };
 
+const slotOpenButtonPayload: SlotOpenButtonPayload = {
+  messageId: "slot-message-1",
+  interactionToken: "interaction-token",
+  interactionDeadlineEpochMs: 4_102_444_800_000,
+};
+
 const interactionDeadlineEpochMs = 4_102_444_800_000;
 
 const checkinButtonPayload: CheckinHandleButtonPayload = {
@@ -77,12 +86,17 @@ type DispatchServiceMock = typeof DispatchService.Service;
 type SheetApisClientMock = typeof SheetApisClient.Service;
 type SheetApisApiClient = ReturnType<SheetApisClientMock["get"]>;
 type MessageCheckinClient = SheetApisApiClient["messageCheckin"];
+type MessageSlotClient = SheetApisApiClient["messageSlot"];
 type GetMessageCheckinMembersRequest = Parameters<
   MessageCheckinClient["getMessageCheckinMembers"]
 >[0];
+type GetMessageSlotDataRequest = Parameters<MessageSlotClient["getMessageSlotData"]>[0];
 type GetMessageCheckinMembersMock = (
   request: GetMessageCheckinMembersRequest,
 ) => Effect.Effect<ReadonlyArray<MessageCheckinMember>>;
+type GetMessageSlotDataMock = (
+  request: GetMessageSlotDataRequest,
+) => Effect.Effect<MessageSlot, unknown>;
 type DecodedResponse<
   A,
   Mode extends HttpApiClient.Client.ResponseMode,
@@ -100,6 +114,7 @@ const makeDispatchServiceMock = (overrides: Partial<DispatchServiceMock>): Dispa
   kickout: unexpectedDispatchServiceCall("kickout"),
   slotButton: unexpectedDispatchServiceCall("slotButton"),
   slotList: unexpectedDispatchServiceCall("slotList"),
+  slotOpenButton: unexpectedDispatchServiceCall("slotOpenButton"),
   checkinButton: unexpectedDispatchServiceCall("checkinButton"),
   roomOrderPreviousButton: unexpectedDispatchServiceCall("roomOrderPreviousButton"),
   roomOrderNextButton: unexpectedDispatchServiceCall("roomOrderNextButton"),
@@ -119,31 +134,66 @@ const makeMessageCheckinMember = (memberId: string) =>
     deletedAt: Option.none(),
   });
 
+const makeMessageSlot = (overrides?: {
+  readonly guildId?: Option.Option<string>;
+  readonly messageChannelId?: Option.Option<string>;
+}) =>
+  new MessageSlot({
+    messageId: slotOpenButtonPayload.messageId,
+    day: 2,
+    guildId: overrides?.guildId ?? Option.some("guild-1"),
+    messageChannelId: overrides?.messageChannelId ?? Option.some("channel-1"),
+    createdByUserId: Option.some(requester.userId),
+    createdAt: Option.none(),
+    updatedAt: Option.none(),
+    deletedAt: Option.none(),
+  });
+
 const makeSheetApisClientMock = (overrides: {
-  readonly getMessageCheckinMembers: GetMessageCheckinMembersMock;
+  readonly getMessageCheckinMembers?: GetMessageCheckinMembersMock;
+  readonly getMessageSlotData?: GetMessageSlotDataMock;
 }): SheetApisClientMock => {
   const getMessageCheckinMembers: MessageCheckinClient["getMessageCheckinMembers"] = (request) => {
     if (request.responseMode && request.responseMode !== "decoded-only") {
       return Effect.die(`Unexpected responseMode ${request.responseMode}`);
     }
 
-    return overrides
-      .getMessageCheckinMembers(request)
-      .pipe(
-        Effect.map(
-          (members) =>
-            members as DecodedResponse<
-              ReadonlyArray<MessageCheckinMember>,
-              NonNullable<typeof request.responseMode> | "decoded-only"
-            >,
-        ),
-      );
+    return (
+      overrides.getMessageCheckinMembers?.(request) ??
+      Effect.die("Unexpected SheetApisClient.messageCheckin.getMessageCheckinMembers access")
+    ).pipe(
+      Effect.map(
+        (members) =>
+          members as DecodedResponse<
+            ReadonlyArray<MessageCheckinMember>,
+            NonNullable<typeof request.responseMode> | "decoded-only"
+          >,
+      ),
+    );
+  };
+  const getMessageSlotData = (request: GetMessageSlotDataRequest) => {
+    if (request.responseMode && request.responseMode !== "decoded-only") {
+      return Effect.die(`Unexpected responseMode ${request.responseMode}`);
+    }
+
+    return (
+      overrides.getMessageSlotData?.(request) ??
+      Effect.die("Unexpected SheetApisClient.messageSlot.getMessageSlotData access")
+    ).pipe(
+      Effect.map(
+        (messageSlot) =>
+          messageSlot as DecodedResponse<MessageSlot, NonNullable<typeof request.responseMode>>,
+      ),
+    );
   };
   const messageCheckin: Pick<MessageCheckinClient, "getMessageCheckinMembers"> = {
     getMessageCheckinMembers,
   };
+  const messageSlot: Pick<MessageSlotClient, "getMessageSlotData"> = {
+    getMessageSlotData: getMessageSlotData as unknown as MessageSlotClient["getMessageSlotData"],
+  };
   const client = new Proxy(
-    { messageCheckin },
+    { messageCheckin, messageSlot },
     {
       get(target, property) {
         if (property in target) {
@@ -168,6 +218,7 @@ describe("dispatch workflow registry", () => {
       "kickout",
       "slotButton",
       "slotList",
+      "slotOpenButton",
       "checkinButton",
       "roomOrderPreviousButton",
       "roomOrderNextButton",
@@ -262,6 +313,7 @@ describe("dispatch workflow registry", () => {
   });
 
   it("routes slot workflows to DispatchService", async () => {
+    const authorizedMessageSlot = makeMessageSlot();
     await Effect.runPromise(
       Effect.gen(function* () {
         const buttonResult = yield* dispatchWorkflowRegistry.slotButton.execute({
@@ -272,6 +324,13 @@ describe("dispatch workflow registry", () => {
           requester,
           payload: slotListPayload,
         });
+        const openButtonResult = yield* dispatchWorkflowRegistry.slotOpenButton.execute(
+          {
+            requester,
+            payload: slotOpenButtonPayload,
+          },
+          authorizedMessageSlot,
+        );
 
         expect(buttonResult).toEqual({
           messageId: "message-1",
@@ -282,6 +341,11 @@ describe("dispatch workflow registry", () => {
           guildId: "guild-1",
           day: 1,
           messageType: "ephemeral",
+        });
+        expect(openButtonResult).toEqual({
+          messageId: "slot-message-1",
+          guildId: "guild-1",
+          day: 2,
         });
       }).pipe(
         Effect.provideService(
@@ -306,7 +370,102 @@ describe("dispatch workflow registry", () => {
                   messageType: "ephemeral",
                 } satisfies SlotListDispatchResult;
               }),
+            slotOpenButton: (payload, messageSlot) =>
+              Effect.sync(() => {
+                expect(payload).toBe(slotOpenButtonPayload);
+                expect(messageSlot).toBe(authorizedMessageSlot);
+                return {
+                  messageId: payload.messageId,
+                  guildId: "guild-1",
+                  day: 2,
+                } satisfies SlotOpenButtonResult;
+              }),
           }),
+        ),
+      ),
+    );
+  });
+
+  it("authorizes slot open buttons from modern message slot records", async () => {
+    const messageSlot = makeMessageSlot();
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const authorized = yield* dispatchWorkflowRegistry.slotOpenButton.authorize({
+          requester,
+          payload: slotOpenButtonPayload,
+        });
+
+        expect(authorized).toBe(messageSlot);
+      }).pipe(
+        Effect.provide(
+          Layer.succeed(SheetApisClient)(
+            makeSheetApisClientMock({
+              getMessageSlotData: ({ query }) =>
+                Effect.sync(() => {
+                  expect(query.messageId).toBe(slotOpenButtonPayload.messageId);
+                  return messageSlot;
+                }),
+            }),
+          ),
+        ),
+      ),
+    );
+  });
+
+  it("rejects legacy slot open button records without modern authorization fields", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const denied = yield* dispatchWorkflowRegistry.slotOpenButton
+          .authorize({
+            requester,
+            payload: slotOpenButtonPayload,
+          })
+          .pipe(Effect.flip);
+
+        expect(denied).toMatchObject({
+          _tag: "Unauthorized",
+          message: "Legacy message slot records are no longer accessible",
+        });
+      }).pipe(
+        Effect.provide(
+          Layer.succeed(SheetApisClient)(
+            makeSheetApisClientMock({
+              getMessageSlotData: () =>
+                Effect.succeed(
+                  makeMessageSlot({
+                    guildId: Option.none(),
+                    messageChannelId: Option.some("channel-1"),
+                  }),
+                ),
+            }),
+          ),
+        ),
+      ),
+    );
+  });
+
+  it("rejects missing slot open button records", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const denied = yield* dispatchWorkflowRegistry.slotOpenButton
+          .authorize({
+            requester,
+            payload: slotOpenButtonPayload,
+          })
+          .pipe(Effect.flip);
+
+        expect(denied).toMatchObject({
+          _tag: "ArgumentError",
+          message: "message slot not found",
+        });
+      }).pipe(
+        Effect.provide(
+          Layer.succeed(SheetApisClient)(
+            makeSheetApisClientMock({
+              getMessageSlotData: () =>
+                Effect.fail({ _tag: "ArgumentError", message: "message slot not found" }),
+            }),
+          ),
         ),
       ),
     );

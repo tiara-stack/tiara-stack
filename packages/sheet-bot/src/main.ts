@@ -15,7 +15,6 @@ import { checkinButtonLayer } from "./messageComponents/buttons/checkin";
 import { roomOrderButtonLayer } from "./messageComponents/buttons/roomOrder";
 import { slotButtonLayer } from "./messageComponents/buttons/slot";
 import { MetricsLive } from "./metrics";
-import { autoCheckinTaskLayer } from "./tasks";
 import { TracesLive } from "./traces";
 
 const botLayer = Layer.mergeAll(
@@ -31,7 +30,6 @@ const botLayer = Layer.mergeAll(
   checkinButtonLayer,
   roomOrderButtonLayer,
   slotButtonLayer,
-  autoCheckinTaskLayer,
 );
 
 const configProviderLayer = dotEnvConfigProviderLayer().pipe(Layer.provide(NodeFileSystem.layer));

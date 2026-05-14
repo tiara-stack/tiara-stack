@@ -65,6 +65,7 @@ describe("SheetClusterForwardingClient", () => {
       [DispatchWorkflowOperations.checkin.discardRpcTag]: () => Effect.void,
       [DispatchWorkflowOperations.checkinButton.discardRpcTag]: () => Effect.void,
       [DispatchWorkflowOperations.roomOrder.discardRpcTag]: () => Effect.void,
+      [DispatchWorkflowOperations.slotOpenButton.discardRpcTag]: () => Effect.void,
       ...Object.fromEntries(
         [
           DispatchWorkflowOperations.roomOrderPreviousButton,
@@ -141,6 +142,18 @@ describe("SheetClusterForwardingClient", () => {
         } as never) as Effect.Effect<unknown, unknown, never>,
       ),
     ).resolves.toMatchObject({ operation: "roomOrder" });
+    await expect(
+      Effect.runPromise(
+        client.dispatch.slotOpenButton({
+          requester,
+          payload: {
+            messageId: "message-1",
+            interactionToken: "token-1",
+            interactionDeadlineEpochMs: Date.now() + 60_000,
+          },
+        } as never) as Effect.Effect<unknown, unknown, never>,
+      ),
+    ).resolves.toMatchObject({ operation: "slotOpenButton" });
 
     for (const method of Object.values(DispatchRoomOrderButtonMethods)) {
       const operation = [

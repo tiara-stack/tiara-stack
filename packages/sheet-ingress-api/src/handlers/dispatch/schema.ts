@@ -194,6 +194,22 @@ export const SlotListDispatchResult = Schema.Struct({
 
 export type SlotListDispatchResult = Schema.Schema.Type<typeof SlotListDispatchResult>;
 
+export const SlotOpenButtonPayload = Schema.Struct({
+  messageId: Schema.String,
+  interactionToken: Schema.String,
+  interactionDeadlineEpochMs: Schema.Number,
+});
+
+export type SlotOpenButtonPayload = Schema.Schema.Type<typeof SlotOpenButtonPayload>;
+
+export const SlotOpenButtonResult = Schema.Struct({
+  messageId: Schema.String,
+  guildId: Schema.String,
+  day: Schema.Number,
+});
+
+export type SlotOpenButtonResult = Schema.Schema.Type<typeof SlotOpenButtonResult>;
+
 export const DispatchRoomOrderButtonMethods = {
   previous: {
     endpointName: "roomOrderPreviousButton",
@@ -225,6 +241,7 @@ export const DispatchAcceptedResult = Schema.Struct({
     "kickout",
     "slotButton",
     "slotList",
+    "slotOpenButton",
     "checkinButton",
     "roomOrderPreviousButton",
     "roomOrderNextButton",

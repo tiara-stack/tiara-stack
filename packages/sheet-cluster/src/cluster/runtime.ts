@@ -14,6 +14,8 @@ import { HttpRouter } from "effect/unstable/http";
 import { RpcSerialization } from "effect/unstable/rpc";
 import { createServer } from "node:http";
 import { config } from "@/config";
+import { AutoCheckinService } from "@/services";
+import { autoCheckinWorkflowLayer } from "@/workflows/autoCheckin";
 import { postgresSqlLayer } from "@/services";
 import { dispatchWorkflowLayer } from "@/workflows/dispatch";
 
@@ -27,7 +29,7 @@ export const shardingConfigLayer = Layer.unwrap(
     return ShardingConfig.layer({
       runnerAddress: Option.some(RunnerAddress.make(runnerHost, runnerPort)),
       runnerListenAddress: Option.some(RunnerAddress.make(runnerListenHost, runnerListenPort)),
-      shardGroups: ["dispatch"],
+      shardGroups: ["dispatch", "autoCheckin"],
       shardsPerGroup: 300,
       entityMailboxCapacity: 4096,
       entityMaxIdleTime: Duration.minutes(5),
@@ -69,7 +71,8 @@ const clusterBaseLayer = HttpRunner.layerHttpOptions({ path: "/cluster/rpc" }).p
   Layer.provide(RpcSerialization.layerJson),
 );
 
-export const clusterLayer = dispatchWorkflowLayer.pipe(
+export const clusterLayer = Layer.mergeAll(dispatchWorkflowLayer, autoCheckinWorkflowLayer).pipe(
+  Layer.provide(AutoCheckinService.layer),
   Layer.provide(ClusterWorkflowEngine.layer),
   Layer.provideMerge(clusterBaseLayer),
 );

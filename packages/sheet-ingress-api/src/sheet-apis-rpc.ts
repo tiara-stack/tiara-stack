@@ -74,6 +74,8 @@ import {
   SlotDispatchError,
   SlotListDispatchPayload,
   SlotListDispatchResult,
+  SlotOpenButtonPayload,
+  SlotOpenButtonResult,
 } from "./handlers/dispatch/schema";
 
 export {
@@ -110,6 +112,8 @@ export {
   SlotDispatchError,
   SlotListDispatchPayload,
   SlotListDispatchResult,
+  SlotOpenButtonPayload,
+  SlotOpenButtonResult,
 } from "./handlers/dispatch/schema";
 
 const Query = <Fields extends Schema.Struct.Fields>(fields: Fields) =>

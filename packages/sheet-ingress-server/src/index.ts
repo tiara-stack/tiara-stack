@@ -713,6 +713,12 @@ const makeApiLayer = () => {
           ),
         )
         .handle(
+          "slotOpenButton",
+          authorizedSheetClusterDispatch("slotOpenButton", ({ payload }) =>
+            requireMessageSlotRead(payload.messageId),
+          ),
+        )
+        .handle(
           DispatchRoomOrderButtonMethods.previous.endpointName,
           authorizedSheetClusterDispatch(
             DispatchRoomOrderButtonMethods.previous.endpointName,

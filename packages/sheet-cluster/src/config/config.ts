@@ -1,5 +1,7 @@
 import { Config, Schema } from "effect";
 
+const positiveInt = Schema.Int.check(Schema.isGreaterThan(0));
+
 export const config = {
   port: Config.port("PORT").pipe(Config.withDefault(3000)),
   podNamespace: Config.string("POD_NAMESPACE"),
@@ -16,5 +18,9 @@ export const config = {
   ),
   clusterRunnerListenPort: Config.port("CLUSTER_RUNNER_LISTEN_PORT").pipe(
     Config.withDefault(34431),
+  ),
+  // Tune this for large auto-check-in fleets to bound concurrent workflow enqueues.
+  autoCheckinConcurrency: Config.schema(positiveInt, "AUTO_CHECKIN_CONCURRENCY").pipe(
+    Config.withDefault(50),
   ),
 };

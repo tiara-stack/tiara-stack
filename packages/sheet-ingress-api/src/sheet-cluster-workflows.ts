@@ -31,6 +31,8 @@ import {
   SlotDispatchError,
   SlotListDispatchPayload,
   SlotListDispatchResult,
+  SlotOpenButtonPayload,
+  SlotOpenButtonResult,
 } from "./handlers/dispatch/schema";
 
 export const DispatchRequesterSchema = Schema.Struct({
@@ -84,6 +86,7 @@ const workflowName = {
   kickout: "dispatch.kickout",
   slotButton: "dispatch.slotButton",
   slotList: "dispatch.slotList",
+  slotOpenButton: "dispatch.slotOpenButton",
   checkinButton: "dispatch.checkinButton",
   roomOrderPreviousButton: "dispatch.roomOrderPreviousButton",
   roomOrderNextButton: "dispatch.roomOrderNextButton",
@@ -129,6 +132,15 @@ export const DispatchSlotListWorkflow = Workflow.make({
   success: SlotListDispatchResult,
   error: SlotDispatchError,
   idempotencyKey: ({ payload }) => payload.dispatchRequestId,
+});
+
+export const DispatchSlotOpenButtonWorkflow = Workflow.make({
+  name: workflowName.slotOpenButton,
+  payload: dispatchPayload(SlotOpenButtonPayload),
+  success: SlotOpenButtonResult,
+  error: SlotDispatchError,
+  idempotencyKey: ({ payload }) =>
+    `button:slotOpenButton:${payload.messageId}:${payload.interactionToken}`,
 });
 
 export const DispatchCheckinButtonWorkflow = Workflow.make({
@@ -182,6 +194,7 @@ export const DispatchWorkflows = [
   DispatchKickoutWorkflow,
   DispatchSlotButtonWorkflow,
   DispatchSlotListWorkflow,
+  DispatchSlotOpenButtonWorkflow,
   DispatchCheckinButtonWorkflow,
   DispatchRoomOrderPreviousButtonWorkflow,
   DispatchRoomOrderNextButtonWorkflow,
@@ -227,6 +240,13 @@ export const DispatchWorkflowOperations = {
     workflow: DispatchSlotListWorkflow,
     rpcTag: DispatchSlotListWorkflow.name,
     discardRpcTag: `${DispatchSlotListWorkflow.name}Discard`,
+  },
+  slotOpenButton: {
+    operation: "slotOpenButton",
+    endpointName: "slotOpenButton",
+    workflow: DispatchSlotOpenButtonWorkflow,
+    rpcTag: DispatchSlotOpenButtonWorkflow.name,
+    discardRpcTag: `${DispatchSlotOpenButtonWorkflow.name}Discard`,
   },
   checkinButton: {
     operation: "checkinButton",

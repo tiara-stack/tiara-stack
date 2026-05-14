@@ -11,6 +11,7 @@ import {
   DispatchRoomOrderWorkflow,
   DispatchSlotButtonWorkflow,
   DispatchSlotListWorkflow,
+  DispatchSlotOpenButtonWorkflow,
   DispatchWorkflows,
   type DispatchWorkflowOperation,
   type DispatchRequester,
@@ -21,6 +22,7 @@ import {
   type RoomOrderPreviousButtonPayload,
 } from "sheet-ingress-api/sheet-apis-rpc";
 import { MessageRoomOrder } from "sheet-ingress-api/schemas/messageRoomOrder";
+import type { MessageSlot } from "sheet-ingress-api/schemas/messageSlot";
 import { Unauthorized } from "typhoon-core/error";
 import { normalizeDispatchError } from "@/handlers/shared/dispatchError";
 import { DispatchService, IngressBotClient, SheetApisClient } from "@/services";
@@ -147,6 +149,24 @@ const requireRoomOrderPinTentativeButtonAccess = (payload: RoomOrderPinTentative
       );
   });
 
+const requireSlotOpenButtonAccess = (messageId: string) =>
+  Effect.gen(function* () {
+    const sheetApis = (yield* SheetApisClient).get();
+    const messageSlot = yield* sheetApis.messageSlot
+      .getMessageSlotData({
+        query: { messageId },
+      })
+      .pipe(Effect.mapError(normalizeDispatchError("Failed to verify slot button access")));
+
+    if (Option.isNone(messageSlot.guildId) || Option.isNone(messageSlot.messageChannelId)) {
+      return yield* Effect.fail(
+        new Unauthorized({ message: "Legacy message slot records are no longer accessible" }),
+      );
+    }
+
+    return messageSlot;
+  });
+
 const makeWorkflowHandler =
   <TWorkflow extends DispatchWorkflow, TAuthorization, RAuthorize, RExecute>(
     options: DispatchWorkflowHandlerOptions<TWorkflow, TAuthorization, RAuthorize, RExecute>,
@@ -235,6 +255,22 @@ export const dispatchWorkflowRegistry = {
       Effect.gen(function* () {
         const service = yield* DispatchService;
         return yield* service.slotList(request.payload);
+      }),
+  },
+  slotOpenButton: {
+    operation: "slotOpenButton",
+    workflow: DispatchSlotOpenButtonWorkflow,
+    getInteractionToken: (request: typeof DispatchSlotOpenButtonWorkflow.payloadSchema.Type) =>
+      request.payload.interactionToken,
+    authorize: (request: typeof DispatchSlotOpenButtonWorkflow.payloadSchema.Type) =>
+      requireSlotOpenButtonAccess(request.payload.messageId),
+    execute: (
+      request: typeof DispatchSlotOpenButtonWorkflow.payloadSchema.Type,
+      messageSlot: MessageSlot,
+    ) =>
+      Effect.gen(function* () {
+        const service = yield* DispatchService;
+        return yield* service.slotOpenButton(request.payload, messageSlot);
       }),
   },
   checkinButton: {
@@ -344,6 +380,11 @@ export const dispatchWorkflowLayer = Layer.mergeAll(
       ...dispatchWorkflowRegistry.slotList,
     }),
   ),
+  DispatchSlotOpenButtonWorkflow.toLayer(
+    makeWorkflowHandler({
+      ...dispatchWorkflowRegistry.slotOpenButton,
+    }),
+  ),
   DispatchCheckinButtonWorkflow.toLayer(
     makeWorkflowHandler({
       ...dispatchWorkflowRegistry.checkinButton,
@@ -369,6 +410,6 @@ export const dispatchWorkflowLayer = Layer.mergeAll(
       ...dispatchWorkflowRegistry.roomOrderPinTentativeButton,
     }),
   ),
-).pipe(Layer.provide([DispatchService.layer, IngressBotClient.layer]));
+).pipe(Layer.provide([DispatchService.layer, IngressBotClient.layer, SheetApisClient.layer]));
 
 export const dispatchWorkflowNames = DispatchWorkflows.map((workflow) => workflow.name);
