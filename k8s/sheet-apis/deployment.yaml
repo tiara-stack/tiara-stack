@@ -100,6 +100,9 @@ spec:
             - name: sheet-apis-tokens
               readOnly: true
               mountPath: "/var/run/secrets/tokens"
+            - name: sheet-apis-ca-certificate
+              readOnly: true
+              mountPath: "/usr/local/share/ca-certificates/tiarastack"
       serviceAccountName: sheet-apis
       volumes:
         - name: sheet-apis-secret-path
@@ -116,6 +119,12 @@ spec:
                   path: sheet-auth-token
                   expirationSeconds: 3600
                   audience: sheet-auth
+        - name: sheet-apis-ca-certificate
+          configMap:
+            name: sheet-apis-ca-certificate
+            items:
+              - key: ca-certificate.crt
+                path: tiarastack.crt
 ---
 apiVersion: v1
 kind: Service

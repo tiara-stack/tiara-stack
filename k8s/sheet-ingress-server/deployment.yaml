@@ -86,6 +86,9 @@ spec:
             - name: sheet-ingress-server-tokens
               readOnly: true
               mountPath: "/var/run/secrets/tokens"
+            - name: sheet-ingress-server-ca-certificate
+              readOnly: true
+              mountPath: "/usr/local/share/ca-certificates/tiarastack"
       serviceAccountName: sheet-ingress-server
       volumes:
         - name: sheet-ingress-server-tokens
@@ -107,6 +110,12 @@ spec:
                   path: sheet-bot-token
                   expirationSeconds: 3600
                   audience: sheet-bot
+        - name: sheet-ingress-server-ca-certificate
+          configMap:
+            name: sheet-ingress-server-ca-certificate
+            items:
+              - key: ca-certificate.crt
+                path: tiarastack.crt
 ---
 apiVersion: v1
 kind: Service

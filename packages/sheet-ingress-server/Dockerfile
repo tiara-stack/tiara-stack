@@ -19,4 +19,5 @@ WORKDIR /app
 
 COPY --from=extractor /app ./
 
-CMD ["sh", "-c", "NODE_EXTRA_CA_CERTS=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt exec node --use-openssl-ca --enable-source-maps ./dist/index.mjs"]
+USER node
+CMD ["sh", "-ec", "{ cat /usr/local/share/ca-certificates/tiarastack/tiarastack.crt; printf '\\n'; cat /var/run/secrets/kubernetes.io/serviceaccount/ca.crt; } > /tmp/node-extra-ca.crt && NODE_EXTRA_CA_CERTS=/tmp/node-extra-ca.crt exec node --use-openssl-ca --enable-source-maps ./dist/index.mjs"]

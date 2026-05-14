@@ -1,5 +1,3 @@
 *
 !Dockerfile
-!cert/
-!cert/ca-certificate.crt
 !dist.tar.zst

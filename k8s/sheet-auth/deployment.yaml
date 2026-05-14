@@ -101,7 +101,18 @@ spec:
             periodSeconds: 5
             timeoutSeconds: 2
             failureThreshold: 12
+          volumeMounts:
+            - name: sheet-auth-ca-certificate
+              readOnly: true
+              mountPath: "/usr/local/share/ca-certificates/tiarastack"
       serviceAccountName: sheet-auth
+      volumes:
+        - name: sheet-auth-ca-certificate
+          configMap:
+            name: sheet-auth-ca-certificate
+            items:
+              - key: ca-certificate.crt
+                path: tiarastack.crt
 ---
 apiVersion: v1
 kind: Service

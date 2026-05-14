@@ -19,9 +19,23 @@ spec:
       labels:
         app: sheet-web
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
       containers:
         - name: sheet-web
           image: <IMAGE>
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
           ports:
             - containerPort: 3000
               name: sheet-web-svc
@@ -48,7 +62,22 @@ spec:
                 secretKeyRef:
                   name: sheet-web-secret
                   key: sheetApisBaseUrl
+          volumeMounts:
+            - name: sheet-web-ca-certificate
+              readOnly: true
+              mountPath: "/usr/local/share/ca-certificates/tiarastack"
+            - name: sheet-web-tmp
+              mountPath: "/tmp"
       serviceAccountName: sheet-web
+      volumes:
+        - name: sheet-web-ca-certificate
+          configMap:
+            name: sheet-web-ca-certificate
+            items:
+              - key: ca-certificate.crt
+                path: tiarastack.crt
+        - name: sheet-web-tmp
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

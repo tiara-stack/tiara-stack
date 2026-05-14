@@ -38,7 +38,18 @@ spec:
                 secretKeyRef:
                   name: sdbs-secret
                   key: otelExporterOtlpEndpoint
+          volumeMounts:
+            - name: sheet-db-server-ca-certificate
+              readOnly: true
+              mountPath: "/usr/local/share/ca-certificates/tiarastack"
       serviceAccountName: sheet-db-server
+      volumes:
+        - name: sheet-db-server-ca-certificate
+          configMap:
+            name: sheet-db-server-ca-certificate
+            items:
+              - key: ca-certificate.crt
+                path: tiarastack.crt
 ---
 apiVersion: v1
 kind: Service

@@ -1,10 +1,17 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+# Required local file, ignored by git:
+#   ca-certificate.crt
+# It supplies the project CA as a ConfigMap at runtime so certificate rotation
+# does not require rebuilding the image.
 secretGenerator:
   - name: sheet-ingress-server-secret
     envs:
       - .env.secret
 configMapGenerator:
+  - name: sheet-ingress-server-ca-certificate
+    files:
+      - ca-certificate.crt
 generatorOptions:
   disableNameSuffixHash: true
 resources:

@@ -19,9 +19,24 @@ spec:
       labels:
         app: sheet-bot
     spec:
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1000
       containers:
         - name: sheet-bot
           image: <IMAGE>
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
           ports:
             - containerPort: 3000
               name: sheet-bot-svc
@@ -68,6 +83,11 @@ spec:
             - name: sheet-bot-tokens
               readOnly: true
               mountPath: "/var/run/secrets/tokens"
+            - name: sheet-bot-ca-certificate
+              readOnly: true
+              mountPath: "/usr/local/share/ca-certificates/tiarastack"
+            - name: sheet-bot-tmp
+              mountPath: "/tmp"
       serviceAccountName: sheet-bot
       volumes:
         - name: sheet-bot-tokens
@@ -77,6 +97,14 @@ spec:
                   path: sheet-auth-token
                   expirationSeconds: 3600
                   audience: sheet-auth
+        - name: sheet-bot-ca-certificate
+          configMap:
+            name: sheet-bot-ca-certificate
+            items:
+              - key: ca-certificate.crt
+                path: tiarastack.crt
+        - name: sheet-bot-tmp
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
