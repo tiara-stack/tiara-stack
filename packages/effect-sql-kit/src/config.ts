@@ -1,4 +1,4 @@
-import { Config, ConfigProvider, Effect, Schema } from "effect";
+import { Effect, Schema } from "effect";
 import {
   EffectSqlKitConfigOverridesSchema,
   EffectSqlKitConfigSchema,
@@ -10,7 +10,25 @@ export const defineConfig = <const Config extends EffectSqlKitConfig>(config: Co
   config;
 
 export const parseConfigObjectEffect = (input: unknown) =>
-  Config.schema(EffectSqlKitConfigSchema).parse(ConfigProvider.fromUnknown(input));
+  Schema.decodeUnknownEffect(EffectSqlKitConfigSchema)(input);
+
+const withoutUndefined = <A extends Record<string, unknown>>(object: A): Partial<A> =>
+  Object.fromEntries(
+    Object.entries(object).filter(([, value]) => value !== undefined),
+  ) as Partial<A>;
+
+const normalizeOverrides = (
+  overrides?: Partial<EffectSqlKitConfig>,
+): Partial<EffectSqlKitConfig> => {
+  if (!overrides) {
+    return {};
+  }
+  const { migrations, ...rest } = overrides;
+  return {
+    ...withoutUndefined(rest),
+    ...(migrations ? { migrations: withoutUndefined(migrations) } : {}),
+  };
+};
 
 export const resolveConfigEffect = (
   config: EffectSqlKitConfig,
@@ -18,9 +36,9 @@ export const resolveConfigEffect = (
 ) =>
   Effect.gen(function* () {
     const decodedConfig = yield* parseConfigObjectEffect(config);
-    const decodedOverrides = overrides
-      ? yield* Schema.decodeUnknownEffect(EffectSqlKitConfigOverridesSchema)(overrides)
-      : {};
+    const decodedOverrides = yield* Schema.decodeUnknownEffect(EffectSqlKitConfigOverridesSchema)(
+      normalizeOverrides(overrides),
+    );
     const merged = {
       ...decodedConfig,
       ...decodedOverrides,
@@ -48,9 +66,9 @@ export const resolveConfig = (
   overrides?: Partial<EffectSqlKitConfig>,
 ): ResolvedConfig => {
   const decodedConfig = Schema.decodeUnknownSync(EffectSqlKitConfigSchema)(config);
-  const decodedOverrides = overrides
-    ? Schema.decodeUnknownSync(EffectSqlKitConfigOverridesSchema)(overrides)
-    : {};
+  const decodedOverrides = Schema.decodeUnknownSync(EffectSqlKitConfigOverridesSchema)(
+    normalizeOverrides(overrides),
+  );
   const merged = {
     ...decodedConfig,
     ...decodedOverrides,

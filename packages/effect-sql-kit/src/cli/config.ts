@@ -1,11 +1,15 @@
 import { NodeServices } from "@effect/platform-node";
 import { Effect, FileSystem, Path, Result, Schema } from "effect";
-import { tsImport } from "tsx/esm/api";
+import { createJiti } from "jiti";
 import { resolveConfigEffect } from "../config";
 import type { EffectSqlKitConfig, EffectSqlSchema, ResolvedConfig } from "../types";
 import { EffectSqlKitConfigSchema, EffectSqlSchemaExportSchema } from "./schema";
 
 export const defaultConfigFilePath = "effect-sql.config.ts";
+
+const jiti = createJiti(import.meta.url, {
+  interopDefault: false,
+});
 
 export const getDefaultConfigFilePathEffect = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
@@ -29,9 +33,8 @@ export const importFileEffect = (filePath: string) =>
     if (!exists) {
       return yield* Effect.fail(new Error(`effect-sql-kit: failed to find file at ${full}`));
     }
-    const fileUrl = yield* path.toFileUrl(full);
     return yield* Effect.tryPromise({
-      try: () => tsImport(fileUrl.href, import.meta.url) as Promise<Record<string, unknown>>,
+      try: () => jiti.import<Record<string, unknown>>(full),
       catch: (cause) => cause,
     });
   });
@@ -47,6 +50,28 @@ const isEffectSqlSchema = (value: unknown): value is EffectSqlSchema =>
   "tables" in value &&
   typeof value.tables === "object" &&
   value.tables !== null;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const unwrapDefault = (value: unknown): unknown =>
+  isRecord(value) && "default" in value && value.default !== undefined ? value.default : value;
+
+const resolveConfigExport = (imported: Record<string, unknown>): unknown => unwrapDefault(imported);
+
+const resolveSchemaExport = (imported: Record<string, unknown>): unknown => {
+  const direct = unwrapDefault(imported);
+  if (isEffectSqlSchema(direct)) {
+    return direct;
+  }
+  if (isRecord(direct) && "schema" in direct) {
+    return unwrapDefault(direct.schema);
+  }
+  if ("schema" in imported) {
+    return unwrapDefault(imported.schema);
+  }
+  return direct;
+};
 
 export const loadConfigEffect = (
   configPath?: string,
@@ -70,10 +95,7 @@ export const loadConfigEffect = (
     }
 
     const imported = yield* importFileEffect(resolvedPath);
-    const rawConfig =
-      imported.default && typeof imported.default === "object" && "default" in imported.default
-        ? (imported.default as { readonly default?: unknown }).default
-        : imported.default;
+    const rawConfig = resolveConfigExport(imported);
     const config = yield* Schema.decodeUnknownEffect(EffectSqlKitConfigSchema)(rawConfig);
     return {
       config: yield* resolveConfigEffect(config, overrides),
@@ -101,7 +123,7 @@ export const loadSchemaEffect = (
       );
     }
     const imported = yield* importFileEffect(filePath);
-    const sqlSchema = imported.default ?? imported.schema;
+    const sqlSchema = resolveSchemaExport(imported);
     const decoded = yield* Schema.decodeUnknownEffect(EffectSqlSchemaExportSchema)(sqlSchema);
     if (!isEffectSqlSchema(decoded)) {
       return yield* Effect.fail(new Error("effect-sql-kit: invalid schema export"));

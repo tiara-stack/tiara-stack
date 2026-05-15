@@ -34,12 +34,13 @@
     "drizzle-kit": "^0.31.4",
     "drizzle-orm": "^0.45.1",
     "effect-sql-schema": "workspace:*",
-    "jsonc-parser": "^3.3.1",
-    "tsx": "^4.20.6"
+    "jiti": "^2.6.1",
+    "jsonc-parser": "^3.3.1"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "@types/node": "^24.7.2",
+    "tsx": "^4.20.6",
     "vite": "catalog:",
     "vite-plus": "catalog:",
     "vitest": "catalog:"

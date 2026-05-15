@@ -219,12 +219,12 @@ importers:
       effect-sql-schema:
         specifier: workspace:*
         version: link:../effect-sql-schema
+      jiti:
+        specifier: ^2.6.1
+        version: 2.6.1
       jsonc-parser:
         specifier: ^3.3.1
         version: 3.3.1
-      tsx:
-        specifier: ^4.20.6
-        version: 4.20.6
     devDependencies:
       '@effect/vitest':
         specifier: 'catalog:'
@@ -232,6 +232,9 @@ importers:
       '@types/node':
         specifier: ^24.7.2
         version: 24.10.9
+      tsx:
+        specifier: ^4.20.6
+        version: 4.20.6
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.1.15
         version: '@voidzero-dev/vite-plus-core@0.1.15(@types/node@24.10.9)(esbuild@0.25.5)(jiti@2.6.1)(tsx@4.20.6)(typescript@6.0.3)(yaml@2.8.3)'

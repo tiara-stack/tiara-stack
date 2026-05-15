@@ -64,6 +64,9 @@ const columnSql = (column: ColumnSnapshot, inlinePrimaryKey = false): string =>
 
 const tableName = (table: TableSnapshot) => quoteQualified("postgresql", table.name, table.schema);
 
+const indexName = (table: TableSnapshot, name: string) =>
+  quoteQualified("postgresql", name, table.schema);
+
 const requireColumn = (table: TableSnapshot, field: string, context: string): ColumnSnapshot => {
   const column = table.columns[field];
   if (!column) {
@@ -71,6 +74,35 @@ const requireColumn = (table: TableSnapshot, field: string, context: string): Co
   }
   return column;
 };
+
+const sqlNameForField = (
+  table: TableSnapshot,
+  field: string,
+  options?: { readonly allowMissing?: boolean },
+): string => {
+  const column = table.columns[field];
+  if (column) {
+    return column.name;
+  }
+  if (options?.allowMissing) {
+    return field;
+  }
+  throw new Error(`effect-sql-kit: missing column ${table.name}.${field}`);
+};
+
+const primaryKeySqlNames = (table: TableSnapshot): readonly string[] =>
+  table.primaryKey.map((field) => sqlNameForField(table, field, { allowMissing: true }));
+
+const indexSqlFields = (table: TableSnapshot, fields: readonly string[]): readonly string[] =>
+  fields.map((field) => sqlNameForField(table, field, { allowMissing: true }));
+
+const createIndexStatement = (table: TableSnapshot, index: TableSnapshot["indexes"][number]) => ({
+  sql: `create ${index.unique ? "unique " : ""}index ${quoteIdentifier(index.name, "postgresql")} on ${tableName(table)} (${index.fields
+    .map((field) =>
+      quoteIdentifier(requireColumn(table, field, `index ${index.name}`).name, "postgresql"),
+    )
+    .join(", ")})`,
+});
 
 const tableStatements = (table: TableSnapshot): MigrationStatement[] => {
   const columns = Object.values(table.columns);
@@ -96,13 +128,7 @@ const tableStatements = (table: TableSnapshot): MigrationStatement[] => {
 };
 
 const indexStatements = (table: TableSnapshot): MigrationStatement[] =>
-  table.indexes.map((index) => ({
-    sql: `create ${index.unique ? "unique " : ""}index ${quoteIdentifier(index.name, "postgresql")} on ${tableName(table)} (${index.fields
-      .map((field) =>
-        quoteIdentifier(requireColumn(table, field, `index ${index.name}`).name, "postgresql"),
-      )
-      .join(", ")})`,
-  }));
+  table.indexes.map((index) => createIndexStatement(table, index));
 
 const foreignKeyStatements = (table: TableSnapshot): MigrationStatement[] =>
   Object.values(table.columns).flatMap((column) => {
@@ -139,15 +165,34 @@ export const diffPg = (prev: SchemaSnapshot, next: SchemaSnapshot): DiffResult =
       statements.push(...tableStatements(table));
       continue;
     }
-    if (JSON.stringify(previous.primaryKey) !== JSON.stringify(table.primaryKey)) {
+    if (
+      JSON.stringify(primaryKeySqlNames(previous)) !== JSON.stringify(primaryKeySqlNames(table))
+    ) {
       statements.push({
         sql: "",
         unsupported: true,
         reason: `primary key changes on ${table.name} require a manual migration`,
       });
     }
+    const previousColumnsBySqlName = new Map(
+      Object.values(previous.columns).map((column) => [column.name, column]),
+    );
+    const renamedColumnNames = new Set<string>();
     for (const [field, column] of Object.entries(table.columns)) {
-      const prevColumn = previous.columns[field];
+      const previousFieldColumn = previous.columns[field];
+      if (previousFieldColumn && previousFieldColumn.name !== column.name) {
+        renamedColumnNames.add(previousFieldColumn.name);
+        statements.push({
+          sql: `alter table ${tableName(table)} add column ${columnSql(column)}`,
+        });
+        statements.push({
+          sql: "",
+          unsupported: true,
+          reason: `column rename on ${table.name}.${field} from ${quoteIdentifier(previousFieldColumn.name, "postgresql")} to ${quoteIdentifier(column.name, "postgresql")} may require a manual migration`,
+        });
+        continue;
+      }
+      const prevColumn = previousFieldColumn ?? previousColumnsBySqlName.get(column.name);
       if (!prevColumn) {
         statements.push({
           sql: `alter table ${tableName(table)} add column ${columnSql(column)}`,
@@ -167,10 +212,48 @@ export const diffPg = (prev: SchemaSnapshot, next: SchemaSnapshot): DiffResult =
         });
       }
     }
-    for (const [field, column] of Object.entries(previous.columns)) {
-      if (!table.columns[field]) {
+    const nextColumnSqlNames = new Set(Object.values(table.columns).map((column) => column.name));
+    const droppedColumnNames = new Set<string>();
+    for (const column of Object.values(previous.columns)) {
+      if (!nextColumnSqlNames.has(column.name) && !renamedColumnNames.has(column.name)) {
+        droppedColumnNames.add(column.name);
         statements.push({
           sql: `alter table ${tableName(table)} drop column ${quoteIdentifier(column.name, "postgresql")}`,
+          destructive: true,
+        });
+      }
+    }
+    const previousIndexes = new Map(previous.indexes.map((index) => [index.name, index]));
+    const nextIndexes = new Map(table.indexes.map((index) => [index.name, index]));
+    for (const index of table.indexes) {
+      const previousIndex = previousIndexes.get(index.name);
+      if (!previousIndex) {
+        statements.push(createIndexStatement(table, index));
+        continue;
+      }
+      const previousFields = indexSqlFields(previous, previousIndex.fields);
+      const nextFields = indexSqlFields(table, index.fields);
+      if (
+        previousIndex.unique !== index.unique ||
+        JSON.stringify(previousFields) !== JSON.stringify(nextFields)
+      ) {
+        if (!previousFields.some((field) => droppedColumnNames.has(field))) {
+          statements.push({
+            sql: `drop index ${indexName(previous, previousIndex.name)}`,
+            destructive: true,
+          });
+        }
+        statements.push(createIndexStatement(table, index));
+      }
+    }
+    for (const index of previous.indexes) {
+      if (!nextIndexes.has(index.name)) {
+        const fields = indexSqlFields(previous, index.fields);
+        if (fields.some((field) => droppedColumnNames.has(field))) {
+          continue;
+        }
+        statements.push({
+          sql: `drop index ${indexName(previous, index.name)}`,
           destructive: true,
         });
       }
