@@ -18,6 +18,8 @@ catalog:
     "@effect/platform-node": npm:@effect/platform-node@4.0.0-beta.56,
     "@effect/opentelemetry": npm:@effect/opentelemetry@4.0.0-beta.56,
     "@effect/sql-sqlite-node": npm:@effect/sql-sqlite-node@4.0.0-beta.56,
+    "@effect/sql-pg": npm:@effect/sql-pg@4.0.0-beta.56,
+    "@types/node": ^24.7.2,
     dfx: npm:dfx@1.0.13,
     effect: npm:effect@4.0.0-beta.56,
     vite: npm:@voidzero-dev/vite-plus-core@0.1.15,

@@ -1,0 +1,49 @@
+{
+  "name": "effect-zero",
+  "version": "0.0.0",
+  "private": true,
+  "keywords": [],
+  "author": "",
+  "bin": {
+    "effect-zero": "./dist/cli/index.mjs"
+  },
+  "files": [
+    "./dist/**"
+  ],
+  "type": "module",
+  "sideEffects": [],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "format": "vp fmt --check",
+    "format:apply": "vp fmt",
+    "lint": "vp lint src",
+    "test": "vp test run",
+    "test:watch": "vp test",
+    "build": "vp pack && chmod +x dist/cli/index.mjs"
+  },
+  "dependencies": {
+    "@effect/platform-node": "catalog:",
+    "@rocicorp/zero": "^0.25.9",
+    "camelcase": "^9.0.0",
+    "effect-sql-schema": "workspace:*",
+    "jsonc-parser": "^3.3.1",
+    "ts-morph": "^27.0.2",
+    "tsx": "^4.20.6"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "@types/node": "^24.7.2",
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
+    "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "effect": "catalog:"
+  }
+}
