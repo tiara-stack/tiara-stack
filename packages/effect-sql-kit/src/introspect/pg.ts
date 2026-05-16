@@ -10,6 +10,7 @@ type PgColumnRow = {
   readonly udt_name: string;
   readonly is_nullable: string;
   readonly column_default: string | null;
+  readonly character_maximum_length: number | null;
 };
 type PgPrimaryKeyRow = { readonly column_name: string };
 type PgIndexRow = {
@@ -19,19 +20,49 @@ type PgIndexRow = {
   readonly columns: readonly string[];
 };
 
-const normalizeType = (row: PgColumnRow): string => {
-  if (row.udt_name === "uuid") return "uuid";
-  if (row.data_type === "integer") return "integer";
-  if (row.data_type === "bigint") return "bigint";
-  if (row.data_type === "real") return "real";
-  if (row.data_type === "double precision") return "doublePrecision";
-  if (row.data_type === "numeric") return "numeric";
-  if (row.data_type === "boolean") return "boolean";
-  if (row.data_type === "json") return "json";
-  if (row.data_type === "jsonb") return "jsonb";
-  if (row.data_type.includes("timestamp")) return "timestamp";
-  if (row.data_type === "date") return "date";
+const normalizeScalarType = (dataType: string, udtName: string): string => {
+  if (udtName === "varchar" || dataType === "character varying") return "varchar";
+  if (udtName === "uuid") return "uuid";
+  if (udtName === "int4" || dataType === "integer") return "integer";
+  if (udtName === "int8" || dataType === "bigint") return "bigint";
+  if (udtName === "float4" || dataType === "real") return "real";
+  if (udtName === "float8" || dataType === "double precision") return "doublePrecision";
+  if (udtName === "numeric" || dataType === "numeric") return "numeric";
+  if (udtName === "bool" || dataType === "boolean") return "boolean";
+  if (udtName === "json" || dataType === "json") return "json";
+  if (udtName === "jsonb" || dataType === "jsonb") return "jsonb";
+  if (udtName === "timestamp" || udtName === "timestamptz" || dataType.includes("timestamp")) {
+    return "timestamp";
+  }
+  if (udtName === "date" || dataType === "date") return "date";
   return "text";
+};
+
+const normalizeType = (row: PgColumnRow): string =>
+  row.data_type === "ARRAY" || row.udt_name.startsWith("_")
+    ? "array"
+    : normalizeScalarType(row.data_type, row.udt_name);
+
+const elementKind = (row: PgColumnRow): string | undefined =>
+  row.udt_name.startsWith("_") ? normalizeScalarType("", row.udt_name.slice(1)) : undefined;
+
+const columnConfig = (row: PgColumnRow): Record<string, unknown> | undefined => {
+  if (row.data_type === "ARRAY" || row.udt_name.startsWith("_")) {
+    const kind = elementKind(row) ?? "text";
+    return {
+      elementKind: kind,
+      ...(kind === "varchar" && row.character_maximum_length !== null
+        ? { elementConfig: { length: row.character_maximum_length } }
+        : {}),
+    };
+  }
+  if (row.udt_name === "varchar" && row.character_maximum_length !== null) {
+    return { length: row.character_maximum_length };
+  }
+  if (row.data_type.includes("timestamp")) {
+    return { withTimezone: row.data_type === "timestamp with time zone" };
+  }
+  return undefined;
 };
 
 export const introspectPg = (schemaFilter = "public") =>
@@ -44,7 +75,7 @@ export const introspectPg = (schemaFilter = "public") =>
     const tables: Record<string, TableSnapshot> = {};
     for (const tableRow of tableRows) {
       const columnsRows = yield* sql.unsafe<PgColumnRow>(
-        "select column_name, data_type, udt_name, is_nullable, column_default from information_schema.columns where table_schema = $1 and table_name = $2 order by ordinal_position",
+        "select column_name, data_type, udt_name, is_nullable, column_default, character_maximum_length from information_schema.columns where table_schema = $1 and table_name = $2 order by ordinal_position",
         [tableRow.table_schema, tableRow.table_name],
       );
       const pkRows = yield* sql.unsafe<PgPrimaryKeyRow>(
@@ -92,6 +123,7 @@ order by c.relname`,
           notNull: column.is_nullable === "NO" || primaryKey.includes(column.column_name),
           primaryKey: primaryKey.includes(column.column_name),
           defaultSql: column.column_default ?? undefined,
+          config: columnConfig(column),
         };
       }
       tables[tableRow.table_name] = table;

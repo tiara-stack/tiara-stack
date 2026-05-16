@@ -21,6 +21,23 @@ describe("effect-sql-schema adapter", () => {
     });
   });
 
+  it("maps SQL array columns to Zero json columns", () => {
+    class Message extends pg.Class<Message>("Message")({
+      table: "messages",
+      fields: {
+        id: pg.uuid().primaryKey(),
+        fills: pg.varchar().array().notNull(),
+      },
+    }) {}
+
+    const zeroTable = fromSqlTable(Message);
+    expect(zeroTable.columns?.fills).toMatchObject({
+      name: "fills",
+      type: "json",
+      optional: false,
+    });
+  });
+
   it("accepts SQL DSL tables directly in schema()", () => {
     class User extends pg.Class<User>("User")({
       table: "users",

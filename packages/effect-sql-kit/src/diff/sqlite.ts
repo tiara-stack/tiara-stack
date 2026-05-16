@@ -97,8 +97,11 @@ const tableStatements = (table: TableSnapshot): MigrationStatement[] => {
 
 export const diffSqlite = (prev: SchemaSnapshot, next: SchemaSnapshot): DiffResult => {
   const statements: MigrationStatement[] = [];
+  const previousTablesBySqlName = new Map(
+    Object.values(prev.tables).map((table) => [table.name, table]),
+  );
   for (const [key, table] of Object.entries(next.tables)) {
-    const previous = prev.tables[key];
+    const previous = prev.tables[key] ?? previousTablesBySqlName.get(table.name);
     if (!previous) {
       statements.push(...tableStatements(table));
       continue;
@@ -182,8 +185,9 @@ export const diffSqlite = (prev: SchemaSnapshot, next: SchemaSnapshot): DiffResu
       }
     }
   }
+  const nextTableSqlNames = new Set(Object.values(next.tables).map((table) => table.name));
   for (const [key, table] of Object.entries(prev.tables)) {
-    if (!next.tables[key]) {
+    if (!next.tables[key] && !nextTableSqlNames.has(table.name)) {
       statements.push({
         sql: `drop table ${quoteIdentifier(table.name, "sqlite")}`,
         destructive: true,

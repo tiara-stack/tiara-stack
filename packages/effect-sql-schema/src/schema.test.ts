@@ -29,6 +29,26 @@ describe("effect-sql-schema", () => {
     ).toBeDefined();
   });
 
+  it("defines Postgres array columns", () => {
+    class Message extends pg.Class<Message>("Message")({
+      table: "messages",
+      fields: {
+        id: pg.varchar("message_id").primaryKey(),
+        fills: pg.varchar().array().notNull(),
+      },
+    }) {}
+
+    const snapshot = snapshotSchema(schema({ messages: Message }));
+    expect(snapshot.tables.messages?.columns.fills).toMatchObject({
+      kind: "array",
+      name: "fills",
+      notNull: true,
+      config: {
+        elementKind: "varchar",
+      },
+    });
+  });
+
   it("defines SQLite model classes", () => {
     class User extends sqlite.Class<User>("User")({
       table: "users",

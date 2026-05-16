@@ -22,6 +22,7 @@ const zeroType = (kind: string): ZeroValueType => {
     case "json":
     case "jsonb":
     case "blob":
+    case "array":
       return "json";
     case "text":
     case "varchar":

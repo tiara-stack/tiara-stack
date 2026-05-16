@@ -23,6 +23,16 @@ const clone = <D extends Dialect, K extends string>(
     _tag: "EffectSqlColumn",
     data,
     asField: (fieldName) => make({ fieldName }),
+    array: () =>
+      clone({
+        ...data,
+        kind: "array",
+        config: {
+          elementKind: data.kind,
+          ...(data.config ? { elementConfig: data.config } : {}),
+        },
+        fieldSchema: Schema.Array(data.fieldSchema),
+      }) as EffectSqlColumn<D, "array">,
     notNull: () => make({ notNull: true }),
     nullable: () => make({ notNull: false }),
     primaryKey: () => make({ primaryKey: true, notNull: true }),

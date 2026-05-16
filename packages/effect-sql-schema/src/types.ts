@@ -47,6 +47,7 @@ export type EffectSqlColumn<D extends Dialect = Dialect, K extends string = stri
   readonly _tag: "EffectSqlColumn";
   readonly data: ColumnData & { readonly dialect: D; readonly kind: K };
   readonly asField: (fieldName: string) => EffectSqlColumn<D, K>;
+  readonly array: () => EffectSqlColumn<D, "array">;
   readonly notNull: () => EffectSqlColumn<D, K>;
   readonly nullable: () => EffectSqlColumn<D, K>;
   readonly primaryKey: () => EffectSqlColumn<D, K>;

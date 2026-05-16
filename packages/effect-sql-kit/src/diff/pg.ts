@@ -5,6 +5,21 @@ import type { DiffResult, MigrationStatement } from "./types";
 
 const columnType = (column: ColumnSnapshot): string => {
   switch (column.kind) {
+    case "array": {
+      const elementKind = column.config?.elementKind;
+      const elementConfig = column.config?.elementConfig;
+      if (typeof elementKind !== "string") {
+        return "text[]";
+      }
+      return `${columnType({
+        ...column,
+        kind: elementKind,
+        config:
+          typeof elementConfig === "object" && elementConfig !== null
+            ? (elementConfig as Record<string, unknown>)
+            : undefined,
+      })}[]`;
+    }
     case "varchar":
       return `varchar${typeof column.config?.length === "number" ? `(${column.config.length})` : ""}`;
     case "uuid":
@@ -66,6 +81,8 @@ const tableName = (table: TableSnapshot) => quoteQualified("postgresql", table.n
 
 const indexName = (table: TableSnapshot, name: string) =>
   quoteQualified("postgresql", name, table.schema);
+
+const tableKey = (table: TableSnapshot): string => `${table.schema ?? "public"}.${table.name}`;
 
 const requireColumn = (table: TableSnapshot, field: string, context: string): ColumnSnapshot => {
   const column = table.columns[field];
@@ -152,15 +169,31 @@ const foreignKeyStatements = (table: TableSnapshot): MigrationStatement[] =>
 const columnChanged = (a: ColumnSnapshot, b: ColumnSnapshot): boolean =>
   !isDeepStrictEqual(normalizeColumnForComparison(a), normalizeColumnForComparison(b));
 
+const normalizeDefaultSql = (sql?: string): string | undefined => {
+  if (!sql) return undefined;
+  const normalized = sql.trim().replace(/\s+/g, " ").toLowerCase();
+  if (normalized === "current_timestamp") return "now()";
+  const castMatch = normalized.match(/^'([^']*)'::(?:text|character varying|varchar)$/);
+  if (castMatch) return `'${castMatch[1]}'`;
+  return normalized;
+};
+
 const normalizeColumnForComparison = (column: ColumnSnapshot) =>
   Object.fromEntries(
-    Object.entries({ ...column, fieldName: undefined }).filter(([, value]) => value !== undefined),
+    Object.entries({
+      ...column,
+      fieldName: undefined,
+      defaultSql: normalizeDefaultSql(column.defaultSql),
+    }).filter(([, value]) => value !== undefined),
   );
 
 export const diffPg = (prev: SchemaSnapshot, next: SchemaSnapshot): DiffResult => {
   const statements: MigrationStatement[] = [];
+  const previousTablesBySqlName = new Map(
+    Object.values(prev.tables).map((table) => [tableKey(table), table]),
+  );
   for (const [key, table] of Object.entries(next.tables)) {
-    const previous = prev.tables[key];
+    const previous = prev.tables[key] ?? previousTablesBySqlName.get(tableKey(table));
     if (!previous) {
       statements.push(...tableStatements(table));
       continue;
@@ -259,8 +292,9 @@ export const diffPg = (prev: SchemaSnapshot, next: SchemaSnapshot): DiffResult =
       }
     }
   }
+  const nextTableSqlNames = new Set(Object.values(next.tables).map((table) => tableKey(table)));
   for (const [key, table] of Object.entries(prev.tables)) {
-    if (!next.tables[key]) {
+    if (!next.tables[key] && !nextTableSqlNames.has(tableKey(table))) {
       statements.push({
         sql: `drop table ${tableName(table)}`,
         destructive: true,
