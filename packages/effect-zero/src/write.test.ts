@@ -74,11 +74,8 @@ describe("generated schema", () => {
         },
       });
 
-      expect(generated).toContain('import type * as EffectZero from "effect-zero";');
       expect(generated).toContain('from "./effect-zero.config.js"');
-      expect(generated).toContain(
-        'customType: null as unknown as EffectZero.ColumnType<typeof effectZeroConfig, "users", "id">',
-      );
+      expect(generated).toContain("customType: null as unknown as string");
       expect(generated).toContain("createBuilder(schema)");
       expect(generated).toContain('"destSchema": "posts"');
     } finally {

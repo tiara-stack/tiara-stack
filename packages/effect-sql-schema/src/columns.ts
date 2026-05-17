@@ -78,7 +78,7 @@ const defaultSchema = (dialect: Dialect, kind: string, config?: Record<string, u
       return Schema.Unknown;
     case "timestamp":
     case "date":
-      return Schema.String;
+      return Schema.Number;
     case "text":
     case "varchar":
     case "uuid":

@@ -649,21 +649,18 @@ importers:
       '@rocicorp/zero':
         specifier: ^0.25.9
         version: 0.25.9(@opentelemetry/core@2.2.0(@opentelemetry/api@1.9.0))
-      drizzle-orm:
-        specifier: ^0.45.1
-        version: 0.45.1(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.28.11)(pg@8.17.2)(postgres@3.4.7)
-      drizzle-zero:
-        specifier: ^0.17.2
-        version: 0.17.2(@rocicorp/zero@0.25.9(@opentelemetry/core@2.2.0(@opentelemetry/api@1.9.0)))(@types/pg@8.16.0)(drizzle-orm@0.45.1(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.28.11)(pg@8.17.2)(postgres@3.4.7))(pg@8.17.2)(postgres@3.4.7)(prettier@3.8.1)
       effect:
         specifier: 'catalog:'
         version: 4.0.0-beta.56
-      pg:
-        specifier: 8.17.2
-        version: 8.17.2
-      postgres:
-        specifier: ^3.4.7
-        version: 3.4.7
+      effect-sql-kit:
+        specifier: workspace:*
+        version: link:../effect-sql-kit
+      effect-sql-schema:
+        specifier: workspace:*
+        version: link:../effect-sql-schema
+      effect-zero:
+        specifier: workspace:*
+        version: link:../effect-zero
       typhoon-core:
         specifier: workspace:*
         version: link:../typhoon-core
@@ -680,9 +677,6 @@ importers:
       dotenv:
         specifier: ^17.2.3
         version: 17.2.3
-      drizzle-kit:
-        specifier: ^0.31.4
-        version: 0.31.4
       pathe:
         specifier: ^2.0.3
         version: 2.0.3
@@ -692,6 +686,9 @@ importers:
       vite-plus:
         specifier: 'catalog:'
         version: 0.1.15(@opentelemetry/api@1.9.0)(@types/node@24.7.2)(@voidzero-dev/vite-plus-core@0.1.15(@types/node@24.7.2)(jiti@2.6.1)(tsx@4.20.6)(typescript@6.0.3)(yaml@2.8.3))(jiti@2.6.1)(jsdom@27.4.0(@noble/hashes@2.0.1))(tsx@4.20.6)(typescript@6.0.3)(yaml@2.8.3)
+      vitest:
+        specifier: npm:@voidzero-dev/vite-plus-test@0.1.15
+        version: '@voidzero-dev/vite-plus-test@0.1.15(@opentelemetry/api@1.9.0)(@types/node@24.7.2)(@voidzero-dev/vite-plus-core@0.1.15(@types/node@24.7.2)(jiti@2.6.1)(tsx@4.20.6)(typescript@6.0.3)(yaml@2.8.3))(jiti@2.6.1)(jsdom@27.4.0(@noble/hashes@2.0.1))(tsx@4.20.6)(typescript@6.0.3)(yaml@2.8.3)'
 
   packages/sheet-db-server:
     dependencies:
@@ -4789,10 +4786,6 @@ packages:
     resolution: {integrity: sha512-yPVavfyCcRhmorC7rWlkHn15b4wDVgVmBA7kV4QVBsF7kv/9TKJAbAXVTxvTnwP8HHKjRCJDClKbciiYS7p0DQ==}
     engines: {node: '>=16'}
 
-  commander@14.0.3:
-    resolution: {integrity: sha512-H+y0Jo/T1RZ9qPP4Eh1pkcQcLRglraJaSLoyOtHxu6AapkjWVCy2Sit1QQ4x3Dng8qDlSsZEet7g5Pq06MvTgw==}
-    engines: {node: '>=20'}
-
   compare-utf8@0.1.1:
     resolution: {integrity: sha512-bND8Irz+KrF96w4Tkm1m8u5q8iE2fnvP196sHGy7XNrGNXlhyl07VnsCRYrXgEhhf/lM7hyCKRnMeh8Icis4Sw==}
 
@@ -5134,26 +5127,6 @@ packages:
       sql.js:
         optional: true
       sqlite3:
-        optional: true
-
-  drizzle-zero@0.17.2:
-    resolution: {integrity: sha512-Iqbah49cc7tqgzV4nZ3dhbIPeo9AE3WRjrBTjV6f3OTueGM4PHZYr9KdpEqxM1Fdg9pg+sFDCpfGBJm2mQPZKw==}
-    hasBin: true
-    peerDependencies:
-      '@rocicorp/zero': ''
-      '@types/pg': ''
-      drizzle-orm: '>=0.36.0'
-      pg: ''
-      postgres: ''
-      prettier: '>=3.0.0'
-    peerDependenciesMeta:
-      '@types/pg':
-        optional: true
-      pg:
-        optional: true
-      postgres:
-        optional: true
-      prettier:
         optional: true
 
   dunder-proto@1.0.1:
@@ -6340,10 +6313,6 @@ packages:
     resolution: {integrity: sha512-vA30H8Nvkq/cPBnNw4Q8TWz1EJyqgpuinBcHET0YVJVFldr8JDNiU9LaWAE1KqSkRYazuaBhTpB5ZzShOezQ6A==}
     engines: {node: '>=18'}
     hasBin: true
-
-  pluralize@8.0.0:
-    resolution: {integrity: sha512-Nc3IT5yHzflTfbjgqWcCPpo7DaKy4FnpB0l/zCAW0Tc7jxAiuqSxHasntB3D7887LSrA93kDJ9IXovxJYxyLCA==}
-    engines: {node: '>=4'}
 
   pngjs@7.0.0:
     resolution: {integrity: sha512-LKWqWJRhstyYo9pGvgor/ivk2w94eSjE3RGVuzLGlr3NmD8bf7RcYGze1mNdEHRP6TRP6rMuDHk5t44hnTRyow==}
@@ -11207,8 +11176,6 @@ snapshots:
 
   commander@11.1.0: {}
 
-  commander@14.0.3: {}
-
   compare-utf8@0.1.1: {}
 
   confbox@0.2.2: {}
@@ -11453,21 +11420,6 @@ snapshots:
       kysely: 0.28.11
       pg: 8.20.0
       postgres: 3.4.7
-
-  drizzle-zero@0.17.2(@rocicorp/zero@0.25.9(@opentelemetry/core@2.2.0(@opentelemetry/api@1.9.0)))(@types/pg@8.16.0)(drizzle-orm@0.45.1(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.28.11)(pg@8.17.2)(postgres@3.4.7))(pg@8.17.2)(postgres@3.4.7)(prettier@3.8.1):
-    dependencies:
-      '@rocicorp/zero': 0.25.9(@opentelemetry/core@2.2.0(@opentelemetry/api@1.9.0))
-      camelcase: 9.0.0
-      commander: 14.0.3
-      drizzle-orm: 0.45.1(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.28.11)(pg@8.17.2)(postgres@3.4.7)
-      jsonc-parser: 3.3.1
-      pluralize: 8.0.0
-      ts-morph: 27.0.2
-    optionalDependencies:
-      '@types/pg': 8.16.0
-      pg: 8.17.2
-      postgres: 3.4.7
-      prettier: 3.8.1
 
   dunder-proto@1.0.1:
     dependencies:
@@ -12792,8 +12744,6 @@ snapshots:
       playwright-core: 1.58.2
     optionalDependencies:
       fsevents: 2.3.2
-
-  pluralize@8.0.0: {}
 
   pngjs@7.0.0: {}
 

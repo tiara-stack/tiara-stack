@@ -110,16 +110,7 @@ const writeJsonValue = (writer: CodeBlockWriter, value: unknown, indent = 0) => 
   writer.write(JSON.stringify(value));
 };
 
-const columnCustomType = (tableName: string, columnName: string) =>
-  `null as unknown as EffectZero.ColumnType<typeof effectZeroConfig, ${JSON.stringify(tableName)}, ${JSON.stringify(columnName)}>`;
-
-const writeColumn = (
-  writer: CodeBlockWriter,
-  tableName: string,
-  columnName: string,
-  column: InferredColumn,
-  indent = 4,
-) => {
+const writeColumn = (writer: CodeBlockWriter, column: InferredColumn, indent = 4) => {
   const indentString = " ".repeat(indent);
 
   writer.write("{");
@@ -128,7 +119,7 @@ const writeColumn = (
   writer.newLine();
   writer.write(`${indentString}optional: ${String(column.optional)},`);
   writer.newLine();
-  writer.write(`${indentString}customType: ${columnCustomType(tableName, columnName)}`);
+  writer.write(`${indentString}customType: null as unknown as ${column.customType}`);
   if (column.serverName) {
     writer.write(",");
     writer.newLine();
@@ -151,7 +142,7 @@ const writeTableObject = (writer: CodeBlockWriter, tableName: string, table: Inf
     for (let i = 0; i < columnEntries.length; i++) {
       const [columnName, column] = columnEntries[i];
       writer.write(`    ${JSON.stringify(columnName)}: `);
-      writeColumn(writer, tableName, columnName, column, 6);
+      writeColumn(writer, column, 6);
       if (i < columnEntries.length - 1) {
         writer.write(",");
       }
@@ -228,8 +219,8 @@ export const getGeneratedSchema = ({
     });
   }
   sourceFile.addImportDeclaration({
-    moduleSpecifier: "effect-zero",
-    namespaceImport: "EffectZero",
+    moduleSpecifier: "@rocicorp/zero",
+    namedImports: [{ name: "ReadonlyJSONValue" }],
     isTypeOnly: true,
   });
 

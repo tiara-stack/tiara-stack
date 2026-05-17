@@ -283,11 +283,14 @@ pnpm test        # Only in packages that define tests
 pnpm test:watch  # Only in packages that define tests
 
 # Package-specific scripts (run from package directory)
-pnpm db:generate    # Generate Drizzle migrations
+pnpm db:generate    # Generate package-specific database migrations
 pnpm db:migrate     # Run migrations
 pnpm db:push        # Push schema changes
 pnpm db:studio      # Open Drizzle Studio (vibecord only)
 ```
+
+`sheet-db-schema` uses `effect-sql-kit` for database scripts. `sheet-auth` and `vibecord`
+continue to use Drizzle-based database scripts.
 
 Workspace scripts are defined in the repo root:
 

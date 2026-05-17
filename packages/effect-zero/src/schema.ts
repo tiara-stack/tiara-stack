@@ -9,6 +9,14 @@ import type {
 
 type SchemaTable = EffectZeroTable | EffectSqlTable;
 
+type NormalizedTables<Tables extends Record<string, SchemaTable>> = {
+  readonly [K in keyof Tables]: Tables[K] extends EffectSqlTable
+    ? EffectZeroTable<Tables[K]["model"]>
+    : Tables[K] extends EffectZeroTable
+      ? Tables[K]
+      : never;
+};
+
 const zeroType = (kind: string): ZeroValueType => {
   switch (kind) {
     case "boolean":
@@ -18,6 +26,8 @@ const zeroType = (kind: string): ZeroValueType => {
     case "real":
     case "doublePrecision":
     case "numeric":
+    case "timestamp":
+    case "date":
       return "number";
     case "json":
     case "jsonb":
@@ -27,8 +37,6 @@ const zeroType = (kind: string): ZeroValueType => {
     case "text":
     case "varchar":
     case "uuid":
-    case "timestamp":
-    case "date":
     default:
       return "string";
   }
@@ -56,11 +64,16 @@ export const fromSqlTable = <const Table extends EffectSqlTable>(
       continue;
     }
     const columnOptions = typeof override === "object" && override !== null ? override : {};
+    const hasServerDefault =
+      column.data.defaultExpression !== undefined || column.data.defaultValue !== undefined;
+    const columnName = columnOptions.name ?? column.data.name ?? fieldName;
     columns[fieldName] = {
-      name: columnOptions.name ?? column.data.name ?? fieldName,
-      serverName: columnOptions.serverName ?? column.data.name,
+      name: columnName,
+      serverName: columnOptions.serverName ?? (columnName === fieldName ? undefined : columnName),
       type: columnOptions.type ?? zeroType(column.data.kind),
-      optional: columnOptions.optional ?? !column.data.notNull,
+      optional:
+        columnOptions.optional ??
+        (column.data.primaryKey ? false : hasServerDefault ? true : !column.data.notNull),
     };
   }
 
@@ -75,14 +88,10 @@ export const fromSqlTable = <const Table extends EffectSqlTable>(
 
 const normalizeTables = <const Tables extends Record<string, SchemaTable>>(
   tables: Tables,
-): {
-  readonly [K in keyof Tables]: Tables[K] extends EffectSqlTable
-    ? EffectZeroTable<Tables[K]["model"]>
-    : Tables[K];
-} => {
+): NormalizedTables<Tables> => {
   const normalized: Record<string, EffectZeroTable> = {};
   for (const [key, table] of Object.entries(tables)) {
-    normalized[key] = isEffectSqlTable(table) ? fromSqlTable(table) : table;
+    normalized[key] = isEffectSqlTable(table) ? fromSqlTable(table, { name: key }) : table;
   }
   return normalized as never;
 };
@@ -94,8 +103,8 @@ export const schema = <const Tables extends Record<string, SchemaTable>>(
     readonly enableLegacyQueries?: boolean;
     readonly enableLegacyMutators?: boolean;
   },
-): EffectZeroSchema<Record<string, EffectZeroTable>> => ({
-  tables: normalizeTables(tables) as Record<string, EffectZeroTable>,
+): EffectZeroSchema<NormalizedTables<Tables>> => ({
+  tables: normalizeTables(tables),
   relationships: options?.relationships ?? {},
   enableLegacyQueries: options?.enableLegacyQueries,
   enableLegacyMutators: options?.enableLegacyMutators,

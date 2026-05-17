@@ -24,14 +24,17 @@
     "format": "vp fmt --check",
     "format:apply": "vp fmt",
     "lint": "vp lint src",
-    "build": "drizzle-zero generate --output ./src/zero/schema.ts --skip-types --skip-declare --suppress-defaults-warning && vp pack"
+    "test": "vp test run",
+    "build": "pnpm --filter effect-sql-schema build && pnpm --filter effect-zero build && node ../effect-zero/dist/cli/index.mjs generate --config ./effect-zero.config.ts --output ./src/zero/schema.ts --skip-declare --format --force && vp pack",
+    "db:generate": "pnpm --filter effect-sql-schema build && pnpm --filter effect-sql-kit build && node ../effect-sql-kit/dist/cli/index.mjs generate",
+    "db:migrate": "pnpm --filter effect-sql-schema build && pnpm --filter effect-sql-kit build && node ../effect-sql-kit/dist/cli/index.mjs migrate",
+    "db:push": "pnpm --filter effect-sql-schema build && pnpm --filter effect-sql-kit build && node ../effect-sql-kit/dist/cli/index.mjs push"
   },
   "dependencies": {
     "@rocicorp/zero": "^0.25.9",
-    "drizzle-orm": "^0.45.1",
-    "drizzle-zero": "^0.17.2",
-    "pg": "8.17.2",
-    "postgres": "^3.4.7",
+    "effect-sql-kit": "workspace:*",
+    "effect-sql-schema": "workspace:*",
+    "effect-zero": "workspace:*",
     "typhoon-core": "workspace:*",
     "typhoon-zero": "workspace:*"
   },
@@ -39,10 +42,10 @@
     "@types/node": "^24.7.2",
     "@typescript/native-preview": "latest",
     "dotenv": "^17.2.3",
-    "drizzle-kit": "^0.31.4",
     "pathe": "^2.0.3",
     "vite": "catalog:",
-    "vite-plus": "catalog:"
+    "vite-plus": "catalog:",
+    "vitest": "catalog:"
   },
   "peerDependencies": {
     "effect": "catalog:"

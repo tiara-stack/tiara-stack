@@ -7,6 +7,7 @@ export type InferredColumn = {
   readonly name: string;
   readonly serverName?: string;
   readonly type: ZeroValueType;
+  readonly customType: string;
   readonly optional: boolean;
   readonly enumValues?: readonly string[];
 };
@@ -20,8 +21,22 @@ export type InferredTable = {
 
 type InferTypeResult = {
   readonly type: ZeroValueType;
+  readonly customType: string;
   readonly optional: boolean;
   readonly enumValues?: readonly string[];
+};
+
+const zeroCustomType = (type: ZeroValueType): string => {
+  switch (type) {
+    case "boolean":
+      return "boolean";
+    case "number":
+      return "number";
+    case "json":
+      return "ReadonlyJSONValue";
+    case "string":
+      return "string";
+  }
 };
 
 const emptyReadonlyArray = new Set(["ReadonlyArray", "Array"]);
@@ -38,15 +53,15 @@ const inferAst = (ast: AST.AST): InferTypeResult | undefined => {
   );
 
   if (AST.isString(encodedAst)) {
-    return { type: "string", optional: optionalFromContext };
+    return { type: "string", customType: "string", optional: optionalFromContext };
   }
 
   if (AST.isNumber(encodedAst)) {
-    return { type: "number", optional: optionalFromContext };
+    return { type: "number", customType: "number", optional: optionalFromContext };
   }
 
   if (AST.isBoolean(encodedAst)) {
-    return { type: "boolean", optional: optionalFromContext };
+    return { type: "boolean", customType: "boolean", optional: optionalFromContext };
   }
 
   if (
@@ -55,11 +70,17 @@ const inferAst = (ast: AST.AST): InferTypeResult | undefined => {
     AST.isObjectKeyword(encodedAst) ||
     AST.isObjects(encodedAst)
   ) {
-    return { type: "json", optional: optionalFromContext };
+    return { type: "json", customType: "ReadonlyJSONValue", optional: optionalFromContext };
   }
 
   if (AST.isArrays(encodedAst)) {
-    return { type: "json", optional: optionalFromContext };
+    const rest = encodedAst.rest[0];
+    const item = rest ? inferAst(rest) : undefined;
+    return {
+      type: "json",
+      customType: item ? `ReadonlyArray<${item.customType}>` : "ReadonlyJSONValue",
+      optional: optionalFromContext,
+    };
   }
 
   if (AST.isDeclaration(encodedAst)) {
@@ -68,7 +89,7 @@ const inferAst = (ast: AST.AST): InferTypeResult | undefined => {
       encodedAst.annotations?.id ??
       encodedAst.annotations?.title;
     if (typeof identifier === "string" && emptyReadonlyArray.has(identifier)) {
-      return { type: "json", optional: optionalFromContext };
+      return { type: "json", customType: "ReadonlyJSONValue", optional: optionalFromContext };
     }
     return undefined;
   }
@@ -76,13 +97,18 @@ const inferAst = (ast: AST.AST): InferTypeResult | undefined => {
   if (AST.isLiteral(encodedAst)) {
     const literal = encodedAst.literal;
     if (typeof literal === "string") {
-      return { type: "string", optional: optionalFromContext, enumValues: [literal] };
+      return {
+        type: "string",
+        customType: "string",
+        optional: optionalFromContext,
+        enumValues: [literal],
+      };
     }
     if (typeof literal === "number") {
-      return { type: "number", optional: optionalFromContext };
+      return { type: "number", customType: "number", optional: optionalFromContext };
     }
     if (typeof literal === "boolean") {
-      return { type: "boolean", optional: optionalFromContext };
+      return { type: "boolean", customType: "boolean", optional: optionalFromContext };
     }
     return undefined;
   }
@@ -90,10 +116,15 @@ const inferAst = (ast: AST.AST): InferTypeResult | undefined => {
   if (AST.isEnum(encodedAst)) {
     const values = encodedAst.enums.map(([, value]) => value);
     if (values.every((value): value is string => typeof value === "string")) {
-      return { type: "string", optional: optionalFromContext, enumValues: [...new Set(values)] };
+      return {
+        type: "string",
+        customType: "string",
+        optional: optionalFromContext,
+        enumValues: [...new Set(values)],
+      };
     }
     if (values.every((value) => typeof value === "number")) {
-      return { type: "number", optional: optionalFromContext };
+      return { type: "number", customType: "number", optional: optionalFromContext };
     }
     return undefined;
   }
@@ -121,13 +152,26 @@ const inferAst = (ast: AST.AST): InferTypeResult | undefined => {
 
     const [first] = variants;
     if (!variants.every((variant) => variant.type === first.type)) {
-      return { type: "json", optional };
+      return { type: "json", customType: "ReadonlyJSONValue", optional };
     }
 
     const enumValues = variants.flatMap((variant) => variant.enumValues ?? []);
-    return enumValues.length > 0 && first.type === "string"
-      ? { type: "string", optional, enumValues: [...new Set(enumValues)] }
-      : { type: first.type, optional };
+    const hasFiniteStringVariants = variants.every((variant) => variant.enumValues !== undefined);
+    if (enumValues.length > 0 && first.type === "string" && hasFiniteStringVariants) {
+      return {
+        type: "string",
+        customType: "string",
+        optional,
+        enumValues: [...new Set(enumValues)],
+      };
+    }
+
+    const customTypes = [...new Set(variants.map((variant) => variant.customType))];
+    return {
+      type: first.type,
+      customType: customTypes.length === 1 ? customTypes[0]! : zeroCustomType(first.type),
+      optional,
+    };
   }
 
   return undefined;
@@ -178,6 +222,11 @@ export const inferTable = (
       continue;
     }
 
+    const customType =
+      columnOptions?.type !== undefined && columnOptions.type !== inferred?.type
+        ? zeroCustomType(type)
+        : (inferred?.customType ?? zeroCustomType(type));
+
     const name = columnOptions?.name ?? fieldName;
     const serverName =
       columnOptions?.serverName ??
@@ -187,6 +236,7 @@ export const inferTable = (
       name,
       serverName,
       type,
+      customType,
       optional: primaryKeys.has(fieldName)
         ? false
         : (columnOptions?.optional ?? inferred?.optional ?? false),

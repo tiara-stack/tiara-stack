@@ -10,8 +10,10 @@ class User extends Model.Class<User>("User")({
   age: Schema.Int,
   active: Schema.Boolean,
   role: Schema.Literals(["admin", "member"]),
+  broadRole: Schema.Union([Schema.String, Schema.Literal("admin")]),
   tags: Schema.Array(Schema.String),
   optionalName: Schema.NullOr(Schema.String),
+  mixedArrays: Schema.Union([Schema.Array(Schema.String), Schema.Array(Schema.Number)]),
 }) {}
 
 describe("table", () => {
@@ -39,7 +41,14 @@ describe("table", () => {
       optional: false,
       enumValues: ["admin", "member"],
     });
+    expect(inferred.columns.broadRole).toMatchObject({ type: "string", optional: false });
+    expect(inferred.columns.broadRole?.enumValues).toBeUndefined();
     expect(inferred.columns.tags).toMatchObject({ type: "json", optional: false });
+    expect(inferred.columns.mixedArrays).toMatchObject({
+      type: "json",
+      customType: "ReadonlyJSONValue",
+      optional: false,
+    });
     expect(inferred.columns.optionalName).toMatchObject({
       type: "string",
       optional: true,
@@ -69,5 +78,35 @@ describe("table", () => {
 
     expect(inferTable(users).columns.id).toMatchObject({ type: "string", optional: false });
     expect(inferTable(users).columns.name).toBeUndefined();
+  });
+
+  it("uses the override type when resolving custom types", () => {
+    const users = table(User, {
+      name: "users",
+      key: ["id"],
+      columns: {
+        age: { type: "string" },
+      },
+    });
+
+    expect(inferTable(users).columns.age).toMatchObject({
+      type: "string",
+      customType: "string",
+    });
+  });
+
+  it("keeps inferred custom types when a column config repeats the inferred Zero type", () => {
+    const users = table(User, {
+      name: "users",
+      key: ["id"],
+      columns: {
+        tags: { type: "json" },
+      },
+    });
+
+    expect(inferTable(users).columns.tags).toMatchObject({
+      type: "json",
+      customType: "ReadonlyArray<string>",
+    });
   });
 });

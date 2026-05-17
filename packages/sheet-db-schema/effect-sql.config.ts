@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
 import "dotenv/config";
-import { defineConfig } from "drizzle-kit";
+import { defineConfig } from "effect-sql-kit";
 
 const env = Schema.decodeUnknownSync(
   Schema.Struct({
@@ -11,10 +11,13 @@ const env = Schema.decodeUnknownSync(
 )(process.env);
 
 export default defineConfig({
-  schema: "./src/schema.ts",
   dialect: "postgresql",
-  extensionsFilters: ["postgis"],
+  schema: "./src/schema.ts",
+  out: "./effect-sql-migrations",
   dbCredentials: {
     url: env.POSTGRES_URL ?? "",
+  },
+  migrations: {
+    schema: "public",
   },
 });
