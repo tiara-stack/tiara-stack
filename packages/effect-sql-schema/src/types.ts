@@ -118,4 +118,9 @@ export type EffectSqlSchema<
 > = {
   readonly _tag: "EffectSqlSchema";
   readonly tables: Tables;
+  readonly tablePrefix?: string;
+};
+
+export type EffectSqlSchemaOptions = {
+  readonly tablePrefix?: string;
 };

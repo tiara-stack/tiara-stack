@@ -36,7 +36,11 @@ export const generateMigrationEffect = ({
   prefix = "index",
 }: GenerateOptions): Effect.Effect<GenerateResult, unknown, FileSystem.FileSystem | Path.Path> =>
   Effect.gen(function* () {
-    const current = snapshotSchema(schema);
+    const schemaWithPrefix = {
+      ...schema,
+      tablePrefix: config.tablePrefix || schema.tablePrefix,
+    };
+    const current = snapshotSchema(schemaWithPrefix);
     if (current.dialect !== config.dialect) {
       return yield* Effect.fail(
         new Error(
@@ -52,7 +56,7 @@ export const generateMigrationEffect = ({
       config.dialect === "postgresql" ? diffPg(previous, current) : diffSqlite(previous, current);
     const currentDrizzleResult = yield* Effect.result(
       Effect.tryPromise({
-        try: () => lowerToDrizzleSnapshot(schema),
+        try: () => lowerToDrizzleSnapshot(schemaWithPrefix),
         catch: (error) => ({ error: String(error) }),
       }),
     );

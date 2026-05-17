@@ -11,14 +11,19 @@ import {
   sheetApisDispatchJobs,
 } from "./src/schema.internal";
 
-export default schema({
-  configGuild,
-  configGuildChannel,
-  configGuildManagerRole,
-  messageCheckin,
-  messageCheckinMember,
-  messageRoomOrder,
-  messageRoomOrderEntry,
-  messageSlot,
-  sheetApisDispatchJobs,
-});
+export default schema(
+  {
+    configGuild,
+    configGuildChannel,
+    configGuildManagerRole,
+    messageCheckin,
+    messageCheckinMember,
+    messageRoomOrder,
+    messageRoomOrderEntry,
+    messageSlot,
+    sheetApisDispatchJobs,
+  },
+  {
+    tablePrefix: "sheet_db",
+  },
+);

@@ -128,7 +128,10 @@ export const loadSchemaEffect = (
     if (!isEffectSqlSchema(decoded)) {
       return yield* Effect.fail(new Error("effect-sql-kit: invalid schema export"));
     }
-    return decoded;
+    return {
+      ...decoded,
+      tablePrefix: config.tablePrefix || decoded.tablePrefix,
+    };
   });
 
 export const loadSchema = (

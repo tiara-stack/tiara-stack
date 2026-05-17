@@ -41,8 +41,13 @@ const supportedPgArrayElementKinds = new Set([
   "text",
 ]);
 
-const tableDisplayName = (table: { readonly sqlName?: string; readonly name: string }): string =>
-  table.sqlName ?? table.name;
+const prefixedTableName = (prefix: string | undefined, tableName: string): string =>
+  prefix ? `${prefix.replace(/_+$/, "")}_${tableName}` : tableName;
+
+const tableDisplayName = (
+  table: { readonly sqlName?: string; readonly name: string },
+  prefix?: string,
+): string => prefixedTableName(prefix, table.sqlName ?? table.name);
 
 const requireDrizzleField = (
   drizzleTable: Record<string, unknown>,
@@ -110,7 +115,7 @@ export const lowerToDrizzleExports = async (
     ]);
     const exports: Record<string, unknown> = {};
     for (const [key, table] of Object.entries(schema.tables)) {
-      const tableName = tableDisplayName(table);
+      const tableName = tableDisplayName(table, schema.tablePrefix);
       const columns: Record<string, PgFinalBuilder> = {};
       for (const [fieldName, column] of Object.entries(table.columns)) {
         const name = column.data.name ?? fieldName;
@@ -215,7 +220,7 @@ export const lowerToDrizzleExports = async (
   ]);
   const exports: Record<string, unknown> = {};
   for (const [key, table] of Object.entries(schema.tables)) {
-    const tableName = tableDisplayName(table);
+    const tableName = tableDisplayName(table, schema.tablePrefix);
     const columns: Record<string, unknown> = {};
     for (const [fieldName, column] of Object.entries(table.columns)) {
       const name = column.data.name ?? fieldName;

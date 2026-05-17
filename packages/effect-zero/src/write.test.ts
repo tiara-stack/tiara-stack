@@ -82,4 +82,51 @@ describe("generated schema", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  it("emits server names for prefixed SQL tables", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "effect-zero-generated-"));
+    try {
+      await writeFile(
+        path.join(dir, "effect-zero.config.ts"),
+        [
+          'import { pg } from "effect-sql-schema";',
+          'import { schema } from "effect-zero";',
+          'class User extends pg.Class<User>("User")({ table: "users", fields: { id: pg.uuid().primaryKey().defaultRandom(), name: pg.text().notNull() } }) {}',
+          'export default schema({ users: User }, { tablePrefix: "app" });',
+        ].join("\n"),
+      );
+
+      const project = new Project({
+        compilerOptions: {
+          module: 99,
+          moduleResolution: 99,
+          target: 9,
+        },
+        skipAddingFilesFromTsConfig: true,
+      });
+
+      const zeroSchema = schema(
+        {
+          users: User,
+        },
+        {
+          tablePrefix: "app",
+        },
+      );
+
+      const generated = getGeneratedSchema({
+        tsProject: project,
+        zeroSchema,
+        outputFilePath: path.join(dir, "zero-schema.gen.ts"),
+        configImport: {
+          exportName: "default",
+          configFilePath: path.join(dir, "effect-zero.config.ts"),
+        },
+      });
+
+      expect(generated).toContain('serverName: "app_users"');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });

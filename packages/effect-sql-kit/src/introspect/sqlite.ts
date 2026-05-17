@@ -25,57 +25,59 @@ const normalizeType = (type: string): string => {
   return "text";
 };
 
-export const introspectSqlite = Effect.gen(function* () {
-  const sql = yield* SqlClient.SqlClient;
-  const tableRows = yield* sql.unsafe<SqliteTableRow>(
-    "select name from sqlite_master where type = 'table' and name not like 'sqlite_%' and name != 'effect_sql_migrations' order by name",
-  );
-  const tables: Record<string, TableSnapshot> = {};
-  for (const tableRow of tableRows) {
-    const columnsRows = yield* sql.unsafe<SqliteColumnRow>(
-      `pragma table_info(${quoteIdentifier(tableRow.name, "sqlite")})`,
+export const introspectSqlite = (options?: { readonly excludedTables?: readonly string[] }) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const tableRows = yield* sql.unsafe<SqliteTableRow>(
+      "select name from sqlite_master where type = 'table' and name not like 'sqlite_%' order by name",
     );
-    const indexesRows = yield* sql.unsafe<SqliteIndexRow>(
-      `pragma index_list(${quoteIdentifier(tableRow.name, "sqlite")})`,
-    );
-    const indexes = yield* Effect.forEach(
-      indexesRows.filter((index) => index.origin === "c"),
-      (index) =>
-        Effect.map(
-          sql.unsafe<SqliteIndexInfoRow>(
-            `pragma index_info(${quoteIdentifier(index.name, "sqlite")})`,
+    const excludedTables = new Set(options?.excludedTables ?? []);
+    const tables: Record<string, TableSnapshot> = {};
+    for (const tableRow of tableRows.filter((row) => !excludedTables.has(row.name))) {
+      const columnsRows = yield* sql.unsafe<SqliteColumnRow>(
+        `pragma table_info(${quoteIdentifier(tableRow.name, "sqlite")})`,
+      );
+      const indexesRows = yield* sql.unsafe<SqliteIndexRow>(
+        `pragma index_list(${quoteIdentifier(tableRow.name, "sqlite")})`,
+      );
+      const indexes = yield* Effect.forEach(
+        indexesRows.filter((index) => index.origin === "c"),
+        (index) =>
+          Effect.map(
+            sql.unsafe<SqliteIndexInfoRow>(
+              `pragma index_info(${quoteIdentifier(index.name, "sqlite")})`,
+            ),
+            (rows) => ({
+              name: index.name,
+              unique: index.unique === 1,
+              fields: rows.map((row) => row.name),
+            }),
           ),
-          (rows) => ({
-            name: index.name,
-            unique: index.unique === 1,
-            fields: rows.map((row) => row.name),
-          }),
-        ),
-    );
-    const table: TableSnapshot = {
-      name: tableRow.name,
-      columns: {},
-      primaryKey: columnsRows
-        .filter((column) => column.pk > 0)
-        .sort((a, b) => a.pk - b.pk)
-        .map((column) => column.name),
-      indexes,
-    };
-    for (const column of columnsRows) {
-      table.columns[column.name] = {
-        fieldName: column.name,
-        name: column.name,
-        kind: normalizeType(column.type),
-        notNull: column.notnull === 1 || column.pk > 0,
-        primaryKey: column.pk > 0,
-        defaultSql: column.dflt_value ?? undefined,
+      );
+      const table: TableSnapshot = {
+        name: tableRow.name,
+        columns: {},
+        primaryKey: columnsRows
+          .filter((column) => column.pk > 0)
+          .sort((a, b) => a.pk - b.pk)
+          .map((column) => column.name),
+        indexes,
       };
+      for (const column of columnsRows) {
+        table.columns[column.name] = {
+          fieldName: column.name,
+          name: column.name,
+          kind: normalizeType(column.type),
+          notNull: column.notnull === 1 || column.pk > 0,
+          primaryKey: column.pk > 0,
+          defaultSql: column.dflt_value ?? undefined,
+        };
+      }
+      tables[tableRow.name] = table;
     }
-    tables[tableRow.name] = table;
-  }
-  return {
-    version: snapshotVersion,
-    dialect: "sqlite" as const,
-    tables,
-  } satisfies SchemaSnapshot;
-});
+    return {
+      version: snapshotVersion,
+      dialect: "sqlite" as const,
+      tables,
+    } satisfies SchemaSnapshot;
+  });

@@ -54,6 +54,7 @@ export type EffectZeroSchema<
 > = {
   readonly tables: Tables;
   readonly relationships: RelationshipConfig;
+  readonly tablePrefix?: string;
   readonly enableLegacyQueries?: boolean;
   readonly enableLegacyMutators?: boolean;
 };

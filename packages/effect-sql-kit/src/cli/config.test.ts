@@ -41,6 +41,56 @@ describe("CLI config effects", () => {
     ).pipe(Effect.provide(NodeServices.layer)),
   );
 
+  it.effect("derives migration table from table prefix", () =>
+    withTempDir((dir) =>
+      Effect.gen(function* () {
+        const configPath = join(dir, "effect-sql.config.ts");
+        yield* Effect.promise(() =>
+          writeFile(configPath, `export default { dialect: "sqlite", tablePrefix: "app" };\n`),
+        );
+
+        const loaded = yield* loadConfigEffect(configPath);
+
+        expect(loaded.config.tablePrefix).toBe("app");
+        expect(loaded.config.migrations.table).toBe("app_effect_sql_migrations");
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("keeps explicit migration table when table prefix is configured", () =>
+    withTempDir((dir) =>
+      Effect.gen(function* () {
+        const configPath = join(dir, "effect-sql.config.ts");
+        yield* Effect.promise(() =>
+          writeFile(
+            configPath,
+            `export default { dialect: "sqlite", tablePrefix: "app", migrations: { table: "custom_migrations" } };\n`,
+          ),
+        );
+
+        const loaded = yield* loadConfigEffect(configPath);
+
+        expect(loaded.config.tablePrefix).toBe("app");
+        expect(loaded.config.migrations.table).toBe("custom_migrations");
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("does not double underscore migration tables for trailing underscore prefixes", () =>
+    withTempDir((dir) =>
+      Effect.gen(function* () {
+        const configPath = join(dir, "effect-sql.config.ts");
+        yield* Effect.promise(() =>
+          writeFile(configPath, `export default { dialect: "sqlite", tablePrefix: "app_" };\n`),
+        );
+
+        const loaded = yield* loadConfigEffect(configPath);
+
+        expect(loaded.config.migrations.table).toBe("app_effect_sql_migrations");
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("fails invalid config through the schema parser", () =>
     withTempDir((dir) =>
       Effect.gen(function* () {
@@ -96,6 +146,7 @@ export default schema({ users: User });
         const loaded = yield* loadSchemaEffect(schemaPath, {
           dialect: "sqlite",
           out: "./migrations",
+          tablePrefix: "",
           migrations: {
             table: "effect_sql_migrations",
             schema: "public",
@@ -132,6 +183,7 @@ export const schema = makeSchema({ users: User });
         const loaded = yield* loadSchemaEffect(schemaPath, {
           dialect: "sqlite",
           out: "./migrations",
+          tablePrefix: "",
           migrations: {
             table: "effect_sql_migrations",
             schema: "public",
@@ -153,6 +205,7 @@ export const schema = makeSchema({ users: User });
           loadSchemaEffect(schemaPath, {
             dialect: "sqlite",
             out: "./migrations",
+            tablePrefix: "",
             migrations: {
               table: "effect_sql_migrations",
               schema: "public",
@@ -162,6 +215,44 @@ export const schema = makeSchema({ users: User });
         );
 
         expect(Result.isFailure(result)).toBe(true);
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("applies resolved table prefix to loaded schemas", () =>
+    withTempDir((dir) =>
+      Effect.gen(function* () {
+        yield* linkNodeModules(dir);
+        const schemaPath = join(dir, "schema.ts");
+        yield* Effect.promise(() =>
+          writeFile(
+            schemaPath,
+            `import { schema, sqlite } from "effect-sql-schema";
+
+class User extends sqlite.Class<User>("User")({
+  table: "users",
+  fields: {
+    id: sqlite.text().primaryKey(),
+  },
+}) {}
+
+export default schema({ users: User });
+`,
+          ),
+        );
+
+        const loaded = yield* loadSchemaEffect(schemaPath, {
+          dialect: "sqlite",
+          out: "./migrations",
+          tablePrefix: "app",
+          migrations: {
+            table: "app_effect_sql_migrations",
+            schema: "public",
+          },
+          breakpoints: true,
+        });
+
+        expect(loaded.tablePrefix).toBe("app");
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
   );

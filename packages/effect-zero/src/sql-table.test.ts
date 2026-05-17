@@ -120,4 +120,19 @@ describe("effect-sql-schema adapter", () => {
       key: ["id"],
     });
   });
+
+  it("prefixes SQL DSL table server names at schema level", () => {
+    class User extends pg.Class<User>("User")({
+      table: "users",
+      fields: {
+        id: pg.uuid().primaryKey(),
+      },
+    }) {}
+
+    expect(schema({ users: User }, { tablePrefix: "app" }).tables.users).toMatchObject({
+      name: "users",
+      serverName: "app_users",
+      key: ["id"],
+    });
+  });
 });

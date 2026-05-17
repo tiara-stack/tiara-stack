@@ -91,9 +91,12 @@ export const pushCommand = Command.make(
       );
       const sqlSchema = yield* loadSchemaEffect(optionalValue(options.schema), config);
       const desired = snapshotSchema(sqlSchema);
+      const excludedTables = [config.migrations.table];
       const live = (yield* runWithClientEffect(
         config,
-        config.dialect === "postgresql" ? introspectPg(config.migrations.schema) : introspectSqlite,
+        config.dialect === "postgresql"
+          ? introspectPg(config.migrations.schema, { excludedTables })
+          : introspectSqlite({ excludedTables }),
       )) as typeof desired;
       const diff =
         config.dialect === "postgresql" ? diffPg(live, desired) : diffSqlite(live, desired);

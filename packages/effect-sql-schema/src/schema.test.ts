@@ -109,4 +109,41 @@ describe("effect-sql-schema", () => {
 
     expect(snapshotSchema(schema({ users })).dialect).toBe("sqlite");
   });
+
+  it("prefixes table names in schema snapshots", () => {
+    class User extends pg.Class<User>("User")({
+      table: "users",
+      fields: {
+        id: pg.uuid().primaryKey(),
+      },
+    }) {}
+
+    const snapshot = snapshotSchema(schema({ users: User }, { tablePrefix: "app" }));
+
+    expect(snapshot.tables.users?.name).toBe("app_users");
+  });
+
+  it("prefixes referenced table names in schema snapshots", () => {
+    class User extends pg.Class<User>("User")({
+      table: "users",
+      fields: {
+        id: pg.uuid().primaryKey(),
+      },
+    }) {}
+
+    class Post extends pg.Class<Post>("Post")({
+      table: "posts",
+      fields: {
+        id: pg.uuid().primaryKey(),
+        userId: pg
+          .uuid("user_id")
+          .notNull()
+          .references(() => User.columns.id),
+      },
+    }) {}
+
+    const snapshot = snapshotSchema(schema({ users: User, posts: Post }, { tablePrefix: "app" }));
+
+    expect(snapshot.tables.posts?.columns.userId?.references?.table).toBe("app_users");
+  });
 });

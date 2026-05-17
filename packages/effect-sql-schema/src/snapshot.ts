@@ -52,6 +52,9 @@ export type StoredSnapshot = {
 const columnName = (column: EffectSqlColumn): string =>
   column.data.name ?? column.data.fieldName ?? "";
 
+const prefixedTableName = (prefix: string | undefined, tableName: string): string =>
+  prefix ? `${prefix.replace(/_+$/, "")}_${tableName}` : tableName;
+
 const referenceSnapshot = (
   column: EffectSqlColumn,
   tableNameMap: ReadonlyMap<EffectSqlColumn, string>,
@@ -77,8 +80,9 @@ const referenceSnapshot = (
 export const snapshotTable = (
   table: EffectSqlTable,
   allTableNames?: ReadonlyMap<EffectSqlColumn, string>,
+  options?: { readonly tablePrefix?: string },
 ): TableSnapshot => {
-  const tableName = table.sqlName ?? table.name;
+  const tableName = prefixedTableName(options?.tablePrefix, table.sqlName ?? table.name);
   const tableNameMap = new Map(allTableNames);
   for (const column of Object.values(table.columns)) {
     tableNameMap.set(column, tableName);
@@ -120,7 +124,7 @@ export const snapshotSchema = (config: EffectSqlSchema): SchemaSnapshot => {
   const dialect = first[1].dialect;
   const tableNameMap = new Map<EffectSqlColumn, string>();
   for (const [, table] of entries) {
-    const tableName = table.sqlName ?? table.name;
+    const tableName = prefixedTableName(config.tablePrefix, table.sqlName ?? table.name);
     for (const column of Object.values(table.columns)) {
       tableNameMap.set(column, tableName);
     }
@@ -130,7 +134,9 @@ export const snapshotSchema = (config: EffectSqlSchema): SchemaSnapshot => {
     if (table.dialect !== dialect) {
       throw new Error("effect-sql-schema: schema cannot mix Postgres and SQLite tables");
     }
-    tables[name] = snapshotTable(table, tableNameMap);
+    tables[name] = snapshotTable(table, tableNameMap, {
+      tablePrefix: config.tablePrefix,
+    });
   }
   return {
     version: snapshotVersion,

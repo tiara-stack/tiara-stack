@@ -83,6 +83,7 @@ describe("effect-sql-kit Effect CLI", () => {
 
     expect(output).toContain("--out");
     expect(output).toContain("--url");
+    expect(output).toContain("--table-prefix");
     expect(output).toContain("--table");
     expect(output).toContain("--db-schema");
   });
@@ -92,6 +93,7 @@ describe("effect-sql-kit Effect CLI", () => {
 
     expect(output).toContain("--schema");
     expect(output).toContain("--url");
+    expect(output).toContain("--table-prefix");
     expect(output).toContain("--strict");
     expect(output).toContain("--verbose");
     expect(output).toContain("--force");
@@ -152,6 +154,45 @@ describe("effect-sql-kit Effect CLI", () => {
           schemaPath,
           "--url",
           dbPath,
+          "--force",
+        );
+
+        expect(first).toContain("effect-sql-kit: applied");
+        expect(second).toContain("effect-sql-kit: no changes detected");
+      }),
+    20_000,
+  );
+
+  it(
+    "push is idempotent with table prefixes",
+    async () =>
+      withTempDir(async (dir) => {
+        const schemaPath = join(dir, "schema.ts");
+        const dbPath = join(dir, "push-prefixed.sqlite");
+        await writeCustomNameSchema(schemaPath);
+
+        const first = await runCli(
+          "push",
+          "--dialect",
+          "sqlite",
+          "--schema",
+          schemaPath,
+          "--url",
+          dbPath,
+          "--table-prefix",
+          "app",
+          "--force",
+        );
+        const second = await runCli(
+          "push",
+          "--dialect",
+          "sqlite",
+          "--schema",
+          schemaPath,
+          "--url",
+          dbPath,
+          "--table-prefix",
+          "app",
           "--force",
         );
 

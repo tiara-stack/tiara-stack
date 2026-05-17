@@ -4,6 +4,7 @@ export type {
   EffectSqlColumn,
   EffectSqlModel,
   EffectSqlSchema,
+  EffectSqlSchemaOptions,
   EffectSqlTable,
   FieldName,
   IndexDefinition,
@@ -26,6 +27,7 @@ export type EffectSqlKitConfig = {
   readonly dialect: Dialect;
   readonly schema?: string;
   readonly out?: string;
+  readonly tablePrefix?: string;
   readonly dbCredentials?: {
     readonly url?: string;
   };
@@ -37,6 +39,7 @@ export type ResolvedConfig = {
   readonly dialect: Dialect;
   readonly schema?: string;
   readonly out: string;
+  readonly tablePrefix: string;
   readonly dbCredentials?: {
     readonly url?: string;
   };

@@ -42,6 +42,9 @@ const zeroType = (kind: string): ZeroValueType => {
   }
 };
 
+const prefixedTableName = (prefix: string | undefined, tableName: string): string =>
+  prefix ? `${prefix.replace(/_+$/, "")}_${tableName}` : tableName;
+
 export const isEffectSqlTable = (value: unknown): value is EffectSqlTable =>
   (typeof value === "object" || typeof value === "function") &&
   value !== null &&
@@ -88,10 +91,21 @@ export const fromSqlTable = <const Table extends EffectSqlTable>(
 
 const normalizeTables = <const Tables extends Record<string, SchemaTable>>(
   tables: Tables,
+  tablePrefix?: string,
 ): NormalizedTables<Tables> => {
   const normalized: Record<string, EffectZeroTable> = {};
   for (const [key, table] of Object.entries(tables)) {
-    normalized[key] = isEffectSqlTable(table) ? fromSqlTable(table, { name: key }) : table;
+    normalized[key] = isEffectSqlTable(table)
+      ? fromSqlTable(table, {
+          name: key,
+          serverName: prefixedTableName(tablePrefix, table.sqlName ?? table.name),
+        })
+      : tablePrefix
+        ? {
+            ...table,
+            serverName: prefixedTableName(tablePrefix, table.serverName ?? table.name),
+          }
+        : table;
   }
   return normalized as never;
 };
@@ -100,12 +114,14 @@ export const schema = <const Tables extends Record<string, SchemaTable>>(
   tables: Tables,
   options?: {
     readonly relationships?: RelationshipConfig;
+    readonly tablePrefix?: string;
     readonly enableLegacyQueries?: boolean;
     readonly enableLegacyMutators?: boolean;
   },
 ): EffectZeroSchema<NormalizedTables<Tables>> => ({
-  tables: normalizeTables(tables),
+  tables: normalizeTables(tables, options?.tablePrefix),
   relationships: options?.relationships ?? {},
+  tablePrefix: options?.tablePrefix,
   enableLegacyQueries: options?.enableLegacyQueries,
   enableLegacyMutators: options?.enableLegacyMutators,
 });

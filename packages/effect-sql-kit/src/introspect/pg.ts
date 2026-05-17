@@ -65,15 +65,19 @@ const columnConfig = (row: PgColumnRow): Record<string, unknown> | undefined => 
   return undefined;
 };
 
-export const introspectPg = (schemaFilter = "public") =>
+export const introspectPg = (
+  schemaFilter = "public",
+  options?: { readonly excludedTables?: readonly string[] },
+) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const tableRows = yield* sql.unsafe<PgTableRow>(
-      "select table_schema, table_name from information_schema.tables where table_schema = $1 and table_type = 'BASE TABLE' and table_name != 'effect_sql_migrations' order by table_name",
+      "select table_schema, table_name from information_schema.tables where table_schema = $1 and table_type = 'BASE TABLE' order by table_name",
       [schemaFilter],
     );
+    const excludedTables = new Set(options?.excludedTables ?? []);
     const tables: Record<string, TableSnapshot> = {};
-    for (const tableRow of tableRows) {
+    for (const tableRow of tableRows.filter((row) => !excludedTables.has(row.table_name))) {
       const columnsRows = yield* sql.unsafe<PgColumnRow>(
         "select column_name, data_type, udt_name, is_nullable, column_default, character_maximum_length from information_schema.columns where table_schema = $1 and table_name = $2 order by ordinal_position",
         [tableRow.table_schema, tableRow.table_name],
