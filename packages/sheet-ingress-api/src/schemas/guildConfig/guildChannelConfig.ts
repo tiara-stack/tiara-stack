@@ -1,16 +1,36 @@
 import { Schema } from "effect";
+import { configGuildChannel } from "sheet-db-schema/models";
+import type {
+  BooleanOptionField,
+  DateTimeOptionField,
+  StringField,
+  StringOptionField,
+} from "../model";
+import { modelTaggedFields, validateTaggedFields } from "../model";
+
+const GuildChannelConfigFields = validateTaggedFields<{
+  readonly guildId: StringField;
+  readonly channelId: StringField;
+  readonly name: StringOptionField;
+  readonly running: BooleanOptionField;
+  readonly roleId: StringOptionField;
+  readonly checkinChannelId: StringOptionField;
+  readonly createdAt: DateTimeOptionField;
+  readonly updatedAt: DateTimeOptionField;
+  readonly deletedAt: DateTimeOptionField;
+}>(modelTaggedFields(configGuildChannel), [
+  "guildId",
+  "channelId",
+  "name",
+  "running",
+  "roleId",
+  "checkinChannelId",
+  "createdAt",
+  "updatedAt",
+  "deletedAt",
+] as const);
 
 export class GuildChannelConfig extends Schema.TaggedClass<GuildChannelConfig>()(
   "GuildChannelConfig",
-  {
-    guildId: Schema.String,
-    channelId: Schema.String,
-    name: Schema.OptionFromNullOr(Schema.String),
-    running: Schema.OptionFromNullOr(Schema.Boolean),
-    roleId: Schema.OptionFromNullOr(Schema.String),
-    checkinChannelId: Schema.OptionFromNullOr(Schema.String),
-    createdAt: Schema.OptionFromNullOr(Schema.DateTimeUtcFromMillis),
-    updatedAt: Schema.OptionFromNullOr(Schema.DateTimeUtcFromMillis),
-    deletedAt: Schema.OptionFromNullOr(Schema.DateTimeUtcFromMillis),
-  },
+  GuildChannelConfigFields,
 ) {}

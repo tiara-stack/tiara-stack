@@ -1,5 +1,6 @@
 import { defineMutator } from "@rocicorp/zero";
 import { Schema, pipe } from "effect";
+import { zeroTableAccess } from "../accessors";
 import { builder, type Schema as ZeroSchema } from "../schema";
 import { preserveOmitted } from "../timestamps";
 
@@ -8,18 +9,6 @@ declare module "@rocicorp/zero" {
     schema: ZeroSchema;
   }
 }
-
-const withUpsertTimestamps = <const Value extends Record<string, unknown> & { createdAt?: number }>(
-  value: Value,
-  existingCreatedAt?: number,
-) => {
-  const now = Date.now();
-  return {
-    ...value,
-    createdAt: value.createdAt ?? existingCreatedAt ?? now,
-    updatedAt: now,
-  };
-};
 
 export const guildConfig = {
   upsertGuildConfig: defineMutator(
@@ -37,14 +26,14 @@ export const guildConfig = {
       );
 
       await tx.mutate.configGuild.upsert(
-        withUpsertTimestamps(
+        zeroTableAccess.configGuild.upsertWithTimestamps(
           {
             guildId: args.guildId,
             sheetId: preserveOmitted(args.sheetId, existingConfigGuild?.sheetId),
             autoCheckin: preserveOmitted(args.autoCheckin, existingConfigGuild?.autoCheckin),
             deletedAt: null,
           },
-          existingConfigGuild?.createdAt,
+          existingConfigGuild,
         ),
       );
     },
@@ -66,13 +55,13 @@ export const guildConfig = {
       );
 
       await tx.mutate.configGuildManagerRole.upsert(
-        withUpsertTimestamps(
+        zeroTableAccess.configGuildManagerRole.upsertWithTimestamps(
           {
             guildId: args.guildId,
             roleId: args.roleId,
             deletedAt: null,
           },
-          existingRole?.createdAt,
+          existingRole,
         ),
       );
     },
@@ -86,11 +75,12 @@ export const guildConfig = {
       Schema.toStandardSchemaV1,
     ),
     async ({ tx, args }) =>
-      await tx.mutate.configGuildManagerRole.update({
-        guildId: args.guildId,
-        roleId: args.roleId,
-        deletedAt: Date.now() / 1000,
-      }),
+      await tx.mutate.configGuildManagerRole.update(
+        zeroTableAccess.configGuildManagerRole.softDeleteByPrimaryKey({
+          guildId: args.guildId,
+          roleId: args.roleId,
+        }),
+      ),
   ),
   upsertGuildChannelConfig: defineMutator(
     pipe(
@@ -113,7 +103,7 @@ export const guildConfig = {
       );
 
       await tx.mutate.configGuildChannel.upsert(
-        withUpsertTimestamps(
+        zeroTableAccess.configGuildChannel.upsertWithTimestamps(
           {
             guildId: args.guildId,
             channelId: args.channelId,
@@ -126,7 +116,7 @@ export const guildConfig = {
             ),
             deletedAt: null,
           },
-          existingChannel?.createdAt,
+          existingChannel,
         ),
       );
     },

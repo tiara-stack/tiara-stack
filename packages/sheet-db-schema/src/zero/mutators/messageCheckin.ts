@@ -1,5 +1,6 @@
 import { defineMutator } from "@rocicorp/zero";
 import { Schema, pipe } from "effect";
+import { zeroTableAccess } from "../accessors";
 import { builder, type Schema as ZeroSchema } from "../schema";
 
 declare module "@rocicorp/zero" {
@@ -7,18 +8,6 @@ declare module "@rocicorp/zero" {
     schema: ZeroSchema;
   }
 }
-
-const withUpsertTimestamps = <const Value extends Record<string, unknown> & { createdAt?: number }>(
-  value: Value,
-  existingCreatedAt?: number,
-) => {
-  const now = Date.now();
-  return {
-    ...value,
-    createdAt: value.createdAt ?? existingCreatedAt ?? now,
-    updatedAt: now,
-  };
-};
 
 export const messageCheckin = {
   upsertMessageCheckinData: defineMutator(
@@ -41,7 +30,7 @@ export const messageCheckin = {
       );
 
       await tx.mutate.messageCheckin.upsert(
-        withUpsertTimestamps(
+        zeroTableAccess.messageCheckin.upsertWithTimestamps(
           {
             messageId: args.messageId,
             initialMessage: args.initialMessage,
@@ -53,7 +42,7 @@ export const messageCheckin = {
             createdByUserId: args.createdByUserId,
             deletedAt: null,
           },
-          existingCheckin?.createdAt,
+          existingCheckin,
         ),
       );
     },
@@ -77,7 +66,7 @@ export const messageCheckin = {
           );
 
           return tx.mutate.messageCheckinMember.upsert(
-            withUpsertTimestamps(
+            zeroTableAccess.messageCheckinMember.upsertWithTimestamps(
               {
                 messageId: args.messageId,
                 memberId,
@@ -85,7 +74,7 @@ export const messageCheckin = {
                 checkinClaimId: null,
                 deletedAt: null,
               },
-              existingMember?.createdAt,
+              existingMember,
             ),
           );
         }),
@@ -115,7 +104,7 @@ export const messageCheckin = {
       );
 
       await tx.mutate.messageCheckin.upsert(
-        withUpsertTimestamps(
+        zeroTableAccess.messageCheckin.upsertWithTimestamps(
           {
             messageId: args.messageId,
             initialMessage: args.data.initialMessage,
@@ -127,7 +116,7 @@ export const messageCheckin = {
             createdByUserId: args.data.createdByUserId,
             deletedAt: null,
           },
-          existingCheckin?.createdAt,
+          existingCheckin,
         ),
       );
 
@@ -141,7 +130,7 @@ export const messageCheckin = {
           );
 
           return tx.mutate.messageCheckinMember.upsert(
-            withUpsertTimestamps(
+            zeroTableAccess.messageCheckinMember.upsertWithTimestamps(
               {
                 messageId: args.messageId,
                 memberId,
@@ -149,7 +138,7 @@ export const messageCheckin = {
                 checkinClaimId: null,
                 deletedAt: null,
               },
-              existingMember?.createdAt,
+              existingMember,
             ),
           );
         }),
@@ -167,12 +156,14 @@ export const messageCheckin = {
       Schema.toStandardSchemaV1,
     ),
     async ({ tx, args }) =>
-      await tx.mutate.messageCheckinMember.update({
-        messageId: args.messageId,
-        memberId: args.memberId,
-        checkinAt: args.checkinAt,
-        checkinClaimId: args.checkinClaimId ?? null,
-      }),
+      await tx.mutate.messageCheckinMember.update(
+        zeroTableAccess.messageCheckinMember.updateWithTimestamp({
+          messageId: args.messageId,
+          memberId: args.memberId,
+          checkinAt: args.checkinAt,
+          checkinClaimId: args.checkinClaimId ?? null,
+        }),
+      ),
   ),
   setMessageCheckinMemberCheckinAtIfUnset: defineMutator(
     pipe(
@@ -186,19 +177,20 @@ export const messageCheckin = {
     ),
     async ({ tx, args }) => {
       const member = await tx.run(
-        builder.messageCheckinMember
-          .where("messageId", "=", args.messageId)
-          .where("memberId", "=", args.memberId)
-          .where("deletedAt", "IS", null)
-          .one(),
+        zeroTableAccess.messageCheckinMember.getActiveByPrimaryKey(builder.messageCheckinMember, {
+          messageId: args.messageId,
+          memberId: args.memberId,
+        }),
       );
       if (!member || member.checkinAt !== null) return;
-      await tx.mutate.messageCheckinMember.update({
-        messageId: args.messageId,
-        memberId: args.memberId,
-        checkinAt: args.checkinAt,
-        checkinClaimId: args.checkinClaimId,
-      });
+      await tx.mutate.messageCheckinMember.update(
+        zeroTableAccess.messageCheckinMember.updateWithTimestamp({
+          messageId: args.messageId,
+          memberId: args.memberId,
+          checkinAt: args.checkinAt,
+          checkinClaimId: args.checkinClaimId,
+        }),
+      );
     },
   ),
   removeMessageCheckinMember: defineMutator(
@@ -210,10 +202,11 @@ export const messageCheckin = {
       Schema.toStandardSchemaV1,
     ),
     async ({ tx, args }) =>
-      await tx.mutate.messageCheckinMember.update({
-        messageId: args.messageId,
-        memberId: args.memberId,
-        deletedAt: Date.now() / 1000,
-      }),
+      await tx.mutate.messageCheckinMember.update(
+        zeroTableAccess.messageCheckinMember.softDeleteByPrimaryKey({
+          messageId: args.messageId,
+          memberId: args.memberId,
+        }),
+      ),
   ),
 };

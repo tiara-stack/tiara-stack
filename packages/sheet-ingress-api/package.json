@@ -87,6 +87,8 @@
   },
   "dependencies": {
     "dfx-discord-utils": "workspace:*",
+    "effect-sql-schema": "workspace:*",
+    "sheet-db-schema": "workspace:*",
     "typhoon-core": "workspace:*",
     "typhoon-zero": "workspace:*"
   },

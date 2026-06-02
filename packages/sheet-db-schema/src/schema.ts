@@ -14,15 +14,17 @@ import {
 
 type PgTable = EffectSqlTable<"postgresql">;
 
-export const configGuild: PgTable = internalConfigGuild;
-export const configGuildManagerRole: PgTable = internalConfigGuildManagerRole;
-export const configGuildChannel: PgTable = internalConfigGuildChannel;
-export const messageSlot: PgTable = internalMessageSlot;
-export const messageCheckin: PgTable = internalMessageCheckin;
-export const messageCheckinMember: PgTable = internalMessageCheckinMember;
-export const messageRoomOrder: PgTable = internalMessageRoomOrder;
-export const messageRoomOrderEntry: PgTable = internalMessageRoomOrderEntry;
-export const sheetApisDispatchJobs: PgTable = internalSheetApisDispatchJobs;
+// Compatibility exports keep the historical widened table type. Prefer
+// sheet-db-schema/models when model variant types are needed.
+export const configGuild = internalConfigGuild as unknown as PgTable;
+export const configGuildManagerRole = internalConfigGuildManagerRole as unknown as PgTable;
+export const configGuildChannel = internalConfigGuildChannel as unknown as PgTable;
+export const messageSlot = internalMessageSlot as unknown as PgTable;
+export const messageCheckin = internalMessageCheckin as unknown as PgTable;
+export const messageCheckinMember = internalMessageCheckinMember as unknown as PgTable;
+export const messageRoomOrder = internalMessageRoomOrder as unknown as PgTable;
+export const messageRoomOrderEntry = internalMessageRoomOrderEntry as unknown as PgTable;
+export const sheetApisDispatchJobs = internalSheetApisDispatchJobs as unknown as PgTable;
 
 export const schema = effectSqlSchema({
   configGuild,

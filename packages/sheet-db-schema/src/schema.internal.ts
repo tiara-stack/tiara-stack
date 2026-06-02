@@ -1,9 +1,16 @@
 import { pg, schema as effectSqlSchema } from "effect-sql-schema";
+import type { EffectSqlTable } from "effect-sql-schema";
+import type { Model } from "effect/unstable/schema";
 import { ReadonlyJSONValue } from "typhoon-zero/schema";
 
-const createdAt = () => pg.timestamp("created_at", { withTimezone: true }).notNull();
+type PgModel = Model.Any & Omit<EffectSqlTable<"postgresql">, "name">;
+const asPgModel = <const T extends PgModel>(model: T) => model;
 
-const updatedAt = () => pg.timestamp("updated_at", { withTimezone: true }).notNull();
+const createdAt = () =>
+  pg.timestamp("created_at", { withTimezone: true }).notNull().generatedByApp();
+
+const updatedAt = () =>
+  pg.timestamp("updated_at", { withTimezone: true }).notNull().generatedByApp();
 
 const deletedAt = () => pg.timestamp("deleted_at", { withTimezone: true });
 
@@ -160,24 +167,29 @@ class SheetApisDispatchJobs extends pg.Class<SheetApisDispatchJobs>("SheetApisDi
   indexes: [pg.index("sheet_apis_dispatch_jobs_status_updated_at_idx").on("status", "updatedAt")],
 }) {}
 
-export const configGuild = ConfigGuild;
-export const configGuildManagerRole = ConfigGuildManagerRole;
-export const configGuildChannel = ConfigGuildChannel;
-export const messageSlot = MessageSlot;
-export const messageCheckin = MessageCheckin;
-export const messageCheckinMember = MessageCheckinMember;
-export const messageRoomOrder = MessageRoomOrder;
-export const messageRoomOrderEntry = MessageRoomOrderEntry;
-export const sheetApisDispatchJobs = SheetApisDispatchJobs;
+export const configGuild = asPgModel(ConfigGuild);
+export const configGuildManagerRole = asPgModel(ConfigGuildManagerRole);
+export const configGuildChannel = asPgModel(ConfigGuildChannel);
+export const messageSlot = asPgModel(MessageSlot);
+export const messageCheckin = asPgModel(MessageCheckin);
+export const messageCheckinMember = asPgModel(MessageCheckinMember);
+export const messageRoomOrder = asPgModel(MessageRoomOrder);
+export const messageRoomOrderEntry = asPgModel(MessageRoomOrderEntry);
+export const sheetApisDispatchJobs = asPgModel(SheetApisDispatchJobs);
+
+// PgModel intentionally omits the class function "name" because it is not the
+// SQL table name. Keep this PgModel -> unknown -> EffectSqlTable<"postgresql">
+// bridge centralized in asPgTable so future structural drift remains visible.
+const asPgTable = (model: PgModel) => model as unknown as EffectSqlTable<"postgresql">;
 
 export const schema = effectSqlSchema({
-  configGuild,
-  configGuildManagerRole,
-  configGuildChannel,
-  messageSlot,
-  messageCheckin,
-  messageCheckinMember,
-  messageRoomOrder,
-  messageRoomOrderEntry,
-  sheetApisDispatchJobs,
+  configGuild: asPgTable(configGuild),
+  configGuildManagerRole: asPgTable(configGuildManagerRole),
+  configGuildChannel: asPgTable(configGuildChannel),
+  messageSlot: asPgTable(messageSlot),
+  messageCheckin: asPgTable(messageCheckin),
+  messageCheckinMember: asPgTable(messageCheckinMember),
+  messageRoomOrder: asPgTable(messageRoomOrder),
+  messageRoomOrderEntry: asPgTable(messageRoomOrderEntry),
+  sheetApisDispatchJobs: asPgTable(sheetApisDispatchJobs),
 });

@@ -22,10 +22,22 @@ const nullableFieldSchema = (column: EffectSqlColumn): Schema.Top =>
     ? column.data.fieldSchema
     : Schema.NullOr(column.data.fieldSchema);
 
-const modelField = (column: EffectSqlColumn): Schema.Top =>
-  column.data.defaultExpression !== undefined || column.data.defaultValue !== undefined
-    ? (Model.Generated(nullableFieldSchema(column)) as unknown as Schema.Top)
-    : nullableFieldSchema(column);
+const modelField = (column: EffectSqlColumn): Schema.Top => {
+  const schema = nullableFieldSchema(column);
+  switch (column.data.generation) {
+    case "database":
+      return Model.Generated(schema) as unknown as Schema.Top;
+    case "application":
+      return Model.GeneratedByApp(schema) as unknown as Schema.Top;
+    case "none":
+    case undefined:
+      return schema;
+    default: {
+      const exhaustive: never = column.data.generation;
+      return exhaustive;
+    }
+  }
+};
 
 const attachTableName = <D extends Dialect>(
   tableName: string,

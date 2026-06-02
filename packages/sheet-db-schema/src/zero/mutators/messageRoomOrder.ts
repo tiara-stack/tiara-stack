@@ -7,8 +7,8 @@ import {
   hasStaleUntrackedSendClaim,
   isActiveSendClaim,
 } from "../claimHelpers";
+import { zeroTableAccess } from "../accessors";
 import { builder, type Schema as ZeroSchema } from "../schema";
-import { withUpdateTimestamp, withUpsertTimestamps } from "../timestamps";
 
 declare module "@rocicorp/zero" {
   interface DefaultTypes {
@@ -47,7 +47,7 @@ export const messageRoomOrder = {
         return;
       }
       await tx.mutate.messageRoomOrder.update(
-        withUpdateTimestamp({
+        zeroTableAccess.messageRoomOrder.updateWithTimestamp({
           messageId: args.messageId,
           rank: messageRoomOrder.rank - 1,
         }),
@@ -83,7 +83,7 @@ export const messageRoomOrder = {
         return;
       }
       await tx.mutate.messageRoomOrder.update(
-        withUpdateTimestamp({
+        zeroTableAccess.messageRoomOrder.updateWithTimestamp({
           messageId: args.messageId,
           rank: messageRoomOrder.rank + 1,
         }),
@@ -117,7 +117,7 @@ export const messageRoomOrder = {
         return;
       }
       await tx.mutate.messageRoomOrder.update(
-        withUpdateTimestamp({
+        zeroTableAccess.messageRoomOrder.updateWithTimestamp({
           messageId: args.messageId,
           sendClaimId: args.claimId,
           sendClaimedAt: now,
@@ -151,7 +151,7 @@ export const messageRoomOrder = {
         return;
       }
       await tx.mutate.messageRoomOrder.update(
-        withUpdateTimestamp({
+        zeroTableAccess.messageRoomOrder.updateWithTimestamp({
           messageId: args.messageId,
           sendClaimId: null,
           sendClaimedAt: null,
@@ -181,7 +181,7 @@ export const messageRoomOrder = {
         return;
       }
       await tx.mutate.messageRoomOrder.update(
-        withUpdateTimestamp({
+        zeroTableAccess.messageRoomOrder.updateWithTimestamp({
           messageId: args.messageId,
           sendClaimId: null,
           sendClaimedAt: null,
@@ -216,7 +216,7 @@ export const messageRoomOrder = {
         return;
       }
       await tx.mutate.messageRoomOrder.update(
-        withUpdateTimestamp({
+        zeroTableAccess.messageRoomOrder.updateWithTimestamp({
           messageId: args.messageId,
           sendClaimId: null,
           sendClaimedAt: null,
@@ -247,7 +247,7 @@ export const messageRoomOrder = {
         return;
       }
       await tx.mutate.messageRoomOrder.update(
-        withUpdateTimestamp({
+        zeroTableAccess.messageRoomOrder.updateWithTimestamp({
           messageId: args.messageId,
           tentativeUpdateClaimId: null,
           tentativeUpdateClaimedAt: null,
@@ -282,7 +282,7 @@ export const messageRoomOrder = {
         return;
       }
       await tx.mutate.messageRoomOrder.update(
-        withUpdateTimestamp({
+        zeroTableAccess.messageRoomOrder.updateWithTimestamp({
           messageId: args.messageId,
           sendClaimId: null,
           sendClaimedAt: null,
@@ -318,7 +318,7 @@ export const messageRoomOrder = {
         return;
       }
       await tx.mutate.messageRoomOrder.update(
-        withUpdateTimestamp({
+        zeroTableAccess.messageRoomOrder.updateWithTimestamp({
           messageId: args.messageId,
           tentativePinClaimId: null,
           tentativePinClaimedAt: null,
@@ -350,7 +350,7 @@ export const messageRoomOrder = {
         return;
       }
       await tx.mutate.messageRoomOrder.update(
-        withUpdateTimestamp({
+        zeroTableAccess.messageRoomOrder.updateWithTimestamp({
           messageId: args.messageId,
           tentativePinClaimId: null,
           tentativePinClaimedAt: null,
@@ -369,7 +369,7 @@ export const messageRoomOrder = {
     ),
     async ({ tx, args }) => {
       await tx.mutate.messageRoomOrder.update(
-        withUpdateTimestamp({
+        zeroTableAccess.messageRoomOrder.updateWithTimestamp({
           messageId: args.messageId,
           tentative: true,
           guildId: args.guildId,
@@ -400,7 +400,7 @@ export const messageRoomOrder = {
       );
 
       await tx.mutate.messageRoomOrder.upsert(
-        withUpsertTimestamps(
+        zeroTableAccess.messageRoomOrder.upsertWithTimestamps(
           {
             messageId: args.messageId,
             previousFills: args.previousFills.slice(),
@@ -414,7 +414,7 @@ export const messageRoomOrder = {
             createdByUserId: args.createdByUserId,
             deletedAt: null,
           },
-          existingMessageRoomOrder?.createdAt,
+          existingMessageRoomOrder,
         ),
       );
     },
@@ -453,7 +453,7 @@ export const messageRoomOrder = {
       );
 
       await tx.mutate.messageRoomOrder.upsert(
-        withUpsertTimestamps(
+        zeroTableAccess.messageRoomOrder.upsertWithTimestamps(
           {
             messageId: args.messageId,
             previousFills: args.data.previousFills.slice(),
@@ -467,7 +467,7 @@ export const messageRoomOrder = {
             createdByUserId: args.data.createdByUserId,
             deletedAt: null,
           },
-          existingMessageRoomOrder?.createdAt,
+          existingMessageRoomOrder,
         ),
       );
 
@@ -482,7 +482,7 @@ export const messageRoomOrder = {
           );
 
           return tx.mutate.messageRoomOrderEntry.upsert(
-            withUpsertTimestamps(
+            zeroTableAccess.messageRoomOrderEntry.upsertWithTimestamps(
               {
                 messageId: args.messageId,
                 rank: entry.rank,
@@ -493,7 +493,7 @@ export const messageRoomOrder = {
                 effectValue: entry.effectValue,
                 deletedAt: null,
               },
-              existingEntry?.createdAt,
+              existingEntry,
             ),
           );
         }),
@@ -529,7 +529,7 @@ export const messageRoomOrder = {
           );
 
           return tx.mutate.messageRoomOrderEntry.upsert(
-            withUpsertTimestamps(
+            zeroTableAccess.messageRoomOrderEntry.upsertWithTimestamps(
               {
                 messageId: args.messageId,
                 rank: entry.rank,
@@ -540,7 +540,7 @@ export const messageRoomOrder = {
                 effectValue: entry.effectValue,
                 deletedAt: null,
               },
-              existingEntry?.createdAt,
+              existingEntry,
             ),
           );
         }),
@@ -558,11 +558,10 @@ export const messageRoomOrder = {
     ),
     async ({ tx, args }) =>
       await tx.mutate.messageRoomOrderEntry.update(
-        withUpdateTimestamp({
+        zeroTableAccess.messageRoomOrderEntry.softDeleteByPrimaryKey({
           messageId: args.messageId,
           rank: args.rank,
           position: args.position,
-          deletedAt: Date.now(),
         }),
       ),
   ),

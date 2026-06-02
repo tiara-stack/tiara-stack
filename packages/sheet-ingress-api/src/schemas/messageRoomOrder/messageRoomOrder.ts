@@ -1,27 +1,66 @@
 import { Schema } from "effect";
+import { messageRoomOrder } from "sheet-db-schema/models";
+import type {
+  BooleanField,
+  DateTimeOptionField,
+  NumberField,
+  StringArrayField,
+  StringField,
+  StringOptionField,
+} from "../model";
+import { modelTaggedFields, validateTaggedFields } from "../model";
 
-export class MessageRoomOrder extends Schema.TaggedClass<MessageRoomOrder>()("MessageRoomOrder", {
-  messageId: Schema.String,
-  hour: Schema.Number,
-  previousFills: Schema.Array(Schema.String),
-  fills: Schema.Array(Schema.String),
-  rank: Schema.Number,
-  tentative: Schema.Boolean,
-  monitor: Schema.OptionFromNullOr(Schema.String),
-  guildId: Schema.OptionFromNullOr(Schema.String),
-  messageChannelId: Schema.OptionFromNullOr(Schema.String),
-  createdByUserId: Schema.OptionFromNullOr(Schema.String),
-  sendClaimId: Schema.OptionFromNullOr(Schema.String),
-  sendClaimedAt: Schema.OptionFromNullOr(Schema.DateTimeUtcFromMillis),
-  sentMessageId: Schema.OptionFromNullOr(Schema.String),
-  sentMessageChannelId: Schema.OptionFromNullOr(Schema.String),
-  sentAt: Schema.OptionFromNullOr(Schema.DateTimeUtcFromMillis),
-  tentativeUpdateClaimId: Schema.OptionFromNullOr(Schema.String),
-  tentativeUpdateClaimedAt: Schema.OptionFromNullOr(Schema.DateTimeUtcFromMillis),
-  tentativePinClaimId: Schema.OptionFromNullOr(Schema.String),
-  tentativePinClaimedAt: Schema.OptionFromNullOr(Schema.DateTimeUtcFromMillis),
-  tentativePinnedAt: Schema.OptionFromNullOr(Schema.DateTimeUtcFromMillis),
-  createdAt: Schema.OptionFromNullOr(Schema.DateTimeUtcFromMillis),
-  updatedAt: Schema.OptionFromNullOr(Schema.DateTimeUtcFromMillis),
-  deletedAt: Schema.OptionFromNullOr(Schema.DateTimeUtcFromMillis),
-}) {}
+const MessageRoomOrderFields = validateTaggedFields<{
+  readonly messageId: StringField;
+  readonly previousFills: StringArrayField;
+  readonly fills: StringArrayField;
+  readonly hour: NumberField;
+  readonly rank: NumberField;
+  readonly tentative: BooleanField;
+  readonly monitor: StringOptionField;
+  readonly guildId: StringOptionField;
+  readonly messageChannelId: StringOptionField;
+  readonly createdByUserId: StringOptionField;
+  readonly sendClaimId: StringOptionField;
+  readonly sendClaimedAt: DateTimeOptionField;
+  readonly sentMessageId: StringOptionField;
+  readonly sentMessageChannelId: StringOptionField;
+  readonly sentAt: DateTimeOptionField;
+  readonly tentativeUpdateClaimId: StringOptionField;
+  readonly tentativeUpdateClaimedAt: DateTimeOptionField;
+  readonly tentativePinClaimId: StringOptionField;
+  readonly tentativePinClaimedAt: DateTimeOptionField;
+  readonly tentativePinnedAt: DateTimeOptionField;
+  readonly createdAt: DateTimeOptionField;
+  readonly updatedAt: DateTimeOptionField;
+  readonly deletedAt: DateTimeOptionField;
+}>(modelTaggedFields(messageRoomOrder), [
+  "messageId",
+  "previousFills",
+  "fills",
+  "hour",
+  "rank",
+  "tentative",
+  "monitor",
+  "guildId",
+  "messageChannelId",
+  "createdByUserId",
+  "sendClaimId",
+  "sendClaimedAt",
+  "sentMessageId",
+  "sentMessageChannelId",
+  "sentAt",
+  "tentativeUpdateClaimId",
+  "tentativeUpdateClaimedAt",
+  "tentativePinClaimId",
+  "tentativePinClaimedAt",
+  "tentativePinnedAt",
+  "createdAt",
+  "updatedAt",
+  "deletedAt",
+] as const);
+
+export class MessageRoomOrder extends Schema.TaggedClass<MessageRoomOrder>()(
+  "MessageRoomOrder",
+  MessageRoomOrderFields,
+) {}

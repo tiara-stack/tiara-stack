@@ -1,5 +1,6 @@
 import { defineMutator } from "@rocicorp/zero";
 import { Schema, pipe } from "effect";
+import { zeroTableAccess } from "../accessors";
 import { builder, type Schema as ZeroSchema } from "../schema";
 
 declare module "@rocicorp/zero" {
@@ -7,18 +8,6 @@ declare module "@rocicorp/zero" {
     schema: ZeroSchema;
   }
 }
-
-const withUpsertTimestamps = <const Value extends Record<string, unknown> & { createdAt?: number }>(
-  value: Value,
-  existingCreatedAt?: number,
-) => {
-  const now = Date.now();
-  return {
-    ...value,
-    createdAt: value.createdAt ?? existingCreatedAt ?? now,
-    updatedAt: now,
-  };
-};
 
 export const messageSlot = {
   upsertMessageSlotData: defineMutator(
@@ -38,7 +27,7 @@ export const messageSlot = {
       );
 
       await tx.mutate.messageSlot.upsert(
-        withUpsertTimestamps(
+        zeroTableAccess.messageSlot.upsertWithTimestamps(
           {
             messageId: args.messageId,
             day: args.day,
@@ -47,7 +36,7 @@ export const messageSlot = {
             createdByUserId: args.createdByUserId,
             deletedAt: null,
           },
-          existingSlot?.createdAt,
+          existingSlot,
         ),
       );
     },

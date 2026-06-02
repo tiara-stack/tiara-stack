@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { make, ZeroApiEndpoint, ZeroApiGroup } from "typhoon-zero/zeroApi";
+import { zeroTableAccess } from "./accessors";
 import {
   hasActiveSendClaim,
   hasActiveTentativePinClaim,
@@ -8,7 +9,7 @@ import {
   isActiveSendClaim,
 } from "./claimHelpers";
 import { builder, type Schema as ZeroSchema } from "./schema";
-import { preserveOmitted, withUpdateTimestamp, withUpsertTimestamps } from "./timestamps";
+import { preserveOmitted } from "./timestamps";
 
 declare module "@rocicorp/zero" {
   interface DefaultTypes {
@@ -70,21 +71,23 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
       request: Schema.Struct({}),
       success: success.guildConfig.getAutoCheckinGuilds,
       query: () =>
-        builder.configGuild.where("autoCheckin", "=", true).where("deletedAt", "IS", null),
+        zeroTableAccess.configGuild.listActiveWhere(
+          builder.configGuild.where("autoCheckin", "=", true),
+        ),
     }),
     ZeroApiEndpoint.query("getGuildConfigByGuildId", {
       request: Schema.Struct({ guildId: Schema.String }),
       success: success.guildConfig.getGuildConfigByGuildId,
       query: ({ args: { guildId } }) =>
-        builder.configGuild.where("guildId", "=", guildId).where("deletedAt", "IS", null).one(),
+        zeroTableAccess.configGuild.getActiveByPrimaryKey(builder.configGuild, { guildId }),
     }),
     ZeroApiEndpoint.query("getGuildMonitorRoles", {
       request: Schema.Struct({ guildId: Schema.String }),
       success: success.guildConfig.getGuildMonitorRoles,
       query: ({ args: { guildId } }) =>
-        builder.configGuildManagerRole
-          .where("guildId", "=", guildId)
-          .where("deletedAt", "IS", null),
+        zeroTableAccess.configGuildManagerRole.listActiveWhere(
+          builder.configGuildManagerRole.where("guildId", "=", guildId),
+        ),
     }),
     ZeroApiEndpoint.query("getGuildChannels", {
       request: Schema.Struct({
@@ -93,9 +96,9 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
       }),
       success: success.guildConfig.getGuildChannels,
       query: ({ args: { guildId, running } }) => {
-        const query = builder.configGuildChannel
-          .where("guildId", "=", guildId)
-          .where("deletedAt", "IS", null);
+        const query = zeroTableAccess.configGuildChannel.listActiveWhere(
+          builder.configGuildChannel.where("guildId", "=", guildId),
+        );
 
         return typeof running === "undefined" ? query : query.where("running", "=", running);
       },
@@ -108,10 +111,11 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
       }),
       success: success.guildConfig.getGuildChannelById,
       query: ({ args: { guildId, channelId, running } }) => {
-        const query = builder.configGuildChannel
-          .where("guildId", "=", guildId)
-          .where("channelId", "=", channelId)
-          .where("deletedAt", "IS", null);
+        const query = zeroTableAccess.configGuildChannel.listActiveWhere(
+          builder.configGuildChannel
+            .where("guildId", "=", guildId)
+            .where("channelId", "=", channelId),
+        );
 
         return (
           typeof running === "undefined" ? query : query.where("running", "=", running)
@@ -126,10 +130,9 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
       }),
       success: success.guildConfig.getGuildChannelByName,
       query: ({ args: { guildId, channelName, running } }) => {
-        const query = builder.configGuildChannel
-          .where("guildId", "=", guildId)
-          .where("name", "=", channelName)
-          .where("deletedAt", "IS", null);
+        const query = zeroTableAccess.configGuildChannel.listActiveWhere(
+          builder.configGuildChannel.where("guildId", "=", guildId).where("name", "=", channelName),
+        );
 
         return (
           typeof running === "undefined" ? query : query.where("running", "=", running)
@@ -148,14 +151,14 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
         );
 
         await tx.mutate.configGuild.upsert(
-          withUpsertTimestamps(
+          zeroTableAccess.configGuild.upsertWithTimestamps(
             {
               guildId: args.guildId,
               sheetId: preserveOmitted(args.sheetId, existingConfigGuild?.sheetId),
               autoCheckin: preserveOmitted(args.autoCheckin, existingConfigGuild?.autoCheckin),
               deletedAt: null,
             },
-            existingConfigGuild?.createdAt,
+            existingConfigGuild,
           ),
         );
       },
@@ -174,13 +177,13 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
         );
 
         await tx.mutate.configGuildManagerRole.upsert(
-          withUpsertTimestamps(
+          zeroTableAccess.configGuildManagerRole.upsertWithTimestamps(
             {
               guildId: args.guildId,
               roleId: args.roleId,
               deletedAt: null,
             },
-            existingRole?.createdAt,
+            existingRole,
           ),
         );
       },
@@ -192,10 +195,9 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
       }),
       mutator: async ({ tx, args }) =>
         await tx.mutate.configGuildManagerRole.update(
-          withUpdateTimestamp({
+          zeroTableAccess.configGuildManagerRole.softDeleteByPrimaryKey({
             guildId: args.guildId,
             roleId: args.roleId,
-            deletedAt: Date.now(),
           }),
         ),
     }),
@@ -217,7 +219,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
         );
 
         await tx.mutate.configGuildChannel.upsert(
-          withUpsertTimestamps(
+          zeroTableAccess.configGuildChannel.upsertWithTimestamps(
             {
               guildId: args.guildId,
               channelId: args.channelId,
@@ -230,7 +232,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
               ),
               deletedAt: null,
             },
-            existingChannel?.createdAt,
+            existingChannel,
           ),
         );
       },
@@ -242,18 +244,17 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
       request: Schema.Struct({ messageId: Schema.String }),
       success: success.messageCheckin.getMessageCheckinData,
       query: ({ args: { messageId } }) =>
-        builder.messageCheckin
-          .where("messageId", "=", messageId)
-          .where("deletedAt", "IS", null)
-          .one(),
+        zeroTableAccess.messageCheckin.getActiveByPrimaryKey(builder.messageCheckin, {
+          messageId,
+        }),
     }),
     ZeroApiEndpoint.query("getMessageCheckinMembers", {
       request: Schema.Struct({ messageId: Schema.String }),
       success: success.messageCheckin.getMessageCheckinMembers,
       query: ({ args: { messageId } }) =>
-        builder.messageCheckinMember
-          .where("messageId", "=", messageId)
-          .where("deletedAt", "IS", null),
+        zeroTableAccess.messageCheckinMember.listActiveWhere(
+          builder.messageCheckinMember.where("messageId", "=", messageId),
+        ),
     }),
     ZeroApiEndpoint.mutator("upsertMessageCheckinData", {
       request: Schema.Struct({
@@ -272,7 +273,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
         );
 
         await tx.mutate.messageCheckin.upsert(
-          withUpsertTimestamps(
+          zeroTableAccess.messageCheckin.upsertWithTimestamps(
             {
               messageId: args.messageId,
               initialMessage: args.initialMessage,
@@ -284,7 +285,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
               createdByUserId: args.createdByUserId,
               deletedAt: null,
             },
-            existingCheckin?.createdAt,
+            existingCheckin,
           ),
         );
       },
@@ -305,7 +306,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
             );
 
             return tx.mutate.messageCheckinMember.upsert(
-              withUpsertTimestamps(
+              zeroTableAccess.messageCheckinMember.upsertWithTimestamps(
                 {
                   messageId: args.messageId,
                   memberId,
@@ -313,7 +314,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
                   checkinClaimId: null,
                   deletedAt: null,
                 },
-                existingMember?.createdAt,
+                existingMember,
               ),
             );
           }),
@@ -340,7 +341,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
         );
 
         await tx.mutate.messageCheckin.upsert(
-          withUpsertTimestamps(
+          zeroTableAccess.messageCheckin.upsertWithTimestamps(
             {
               messageId: args.messageId,
               initialMessage: args.data.initialMessage,
@@ -352,7 +353,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
               createdByUserId: args.data.createdByUserId,
               deletedAt: null,
             },
-            existingCheckin?.createdAt,
+            existingCheckin,
           ),
         );
 
@@ -366,7 +367,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
             );
 
             return tx.mutate.messageCheckinMember.upsert(
-              withUpsertTimestamps(
+              zeroTableAccess.messageCheckinMember.upsertWithTimestamps(
                 {
                   messageId: args.messageId,
                   memberId,
@@ -374,7 +375,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
                   checkinClaimId: null,
                   deletedAt: null,
                 },
-                existingMember?.createdAt,
+                existingMember,
               ),
             );
           }),
@@ -390,7 +391,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
       }),
       mutator: async ({ tx, args }) =>
         await tx.mutate.messageCheckinMember.update(
-          withUpdateTimestamp({
+          zeroTableAccess.messageCheckinMember.updateWithTimestamp({
             messageId: args.messageId,
             memberId: args.memberId,
             checkinAt: args.checkinAt,
@@ -407,15 +408,14 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
       }),
       mutator: async ({ tx, args }) => {
         const member = await tx.run(
-          builder.messageCheckinMember
-            .where("messageId", "=", args.messageId)
-            .where("memberId", "=", args.memberId)
-            .where("deletedAt", "IS", null)
-            .one(),
+          zeroTableAccess.messageCheckinMember.getActiveByPrimaryKey(builder.messageCheckinMember, {
+            messageId: args.messageId,
+            memberId: args.memberId,
+          }),
         );
         if (!member || member.checkinAt !== null) return;
         await tx.mutate.messageCheckinMember.update(
-          withUpdateTimestamp({
+          zeroTableAccess.messageCheckinMember.updateWithTimestamp({
             messageId: args.messageId,
             memberId: args.memberId,
             checkinAt: args.checkinAt,
@@ -431,10 +431,9 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
       }),
       mutator: async ({ tx, args }) =>
         await tx.mutate.messageCheckinMember.update(
-          withUpdateTimestamp({
+          zeroTableAccess.messageCheckinMember.softDeleteByPrimaryKey({
             messageId: args.messageId,
             memberId: args.memberId,
-            deletedAt: Date.now(),
           }),
         ),
     }),
@@ -445,28 +444,29 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
       request: Schema.Struct({ messageId: Schema.String }),
       success: success.messageRoomOrder.getMessageRoomOrder,
       query: ({ args: { messageId } }) =>
-        builder.messageRoomOrder
-          .where("messageId", "=", messageId)
-          .where("deletedAt", "IS", null)
-          .one(),
+        zeroTableAccess.messageRoomOrder.getActiveByPrimaryKey(builder.messageRoomOrder, {
+          messageId,
+        }),
     }),
     ZeroApiEndpoint.query("getMessageRoomOrderEntry", {
       request: Schema.Struct({ messageId: Schema.String, rank: Schema.Number }),
       success: success.messageRoomOrder.getMessageRoomOrderEntry,
       query: ({ args: { messageId, rank } }) =>
-        builder.messageRoomOrderEntry
-          .where("messageId", "=", messageId)
-          .where("rank", "=", rank)
-          .where("deletedAt", "IS", null)
+        zeroTableAccess.messageRoomOrderEntry
+          .listActiveWhere(
+            builder.messageRoomOrderEntry
+              .where("messageId", "=", messageId)
+              .where("rank", "=", rank),
+          )
           .orderBy("position", "asc"),
     }),
     ZeroApiEndpoint.query("getMessageRoomOrderRange", {
       request: Schema.Struct({ messageId: Schema.String }),
       success: success.messageRoomOrder.getMessageRoomOrderRange,
       query: ({ args: { messageId } }) =>
-        builder.messageRoomOrderEntry
-          .where("messageId", "=", messageId)
-          .where("deletedAt", "IS", null),
+        zeroTableAccess.messageRoomOrderEntry.listActiveWhere(
+          builder.messageRoomOrderEntry.where("messageId", "=", messageId),
+        ),
     }),
     ZeroApiEndpoint.mutator("decrementMessageRoomOrderRank", {
       request: Schema.Struct({
@@ -494,7 +494,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
           return;
         }
         await tx.mutate.messageRoomOrder.update(
-          withUpdateTimestamp({
+          zeroTableAccess.messageRoomOrder.updateWithTimestamp({
             messageId: args.messageId,
             rank: messageRoomOrder.rank - 1,
           }),
@@ -527,7 +527,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
           return;
         }
         await tx.mutate.messageRoomOrder.update(
-          withUpdateTimestamp({
+          zeroTableAccess.messageRoomOrder.updateWithTimestamp({
             messageId: args.messageId,
             rank: messageRoomOrder.rank + 1,
           }),
@@ -555,7 +555,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
           return;
         }
         await tx.mutate.messageRoomOrder.update(
-          withUpdateTimestamp({
+          zeroTableAccess.messageRoomOrder.updateWithTimestamp({
             messageId: args.messageId,
             sendClaimId: args.claimId,
             sendClaimedAt: now,
@@ -586,7 +586,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
           return;
         }
         await tx.mutate.messageRoomOrder.update(
-          withUpdateTimestamp({
+          zeroTableAccess.messageRoomOrder.updateWithTimestamp({
             messageId: args.messageId,
             sendClaimId: null,
             sendClaimedAt: null,
@@ -610,7 +610,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
           return;
         }
         await tx.mutate.messageRoomOrder.update(
-          withUpdateTimestamp({
+          zeroTableAccess.messageRoomOrder.updateWithTimestamp({
             messageId: args.messageId,
             sendClaimId: null,
             sendClaimedAt: null,
@@ -639,7 +639,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
           return;
         }
         await tx.mutate.messageRoomOrder.update(
-          withUpdateTimestamp({
+          zeroTableAccess.messageRoomOrder.updateWithTimestamp({
             messageId: args.messageId,
             sendClaimId: null,
             sendClaimedAt: null,
@@ -664,7 +664,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
           return;
         }
         await tx.mutate.messageRoomOrder.update(
-          withUpdateTimestamp({
+          zeroTableAccess.messageRoomOrder.updateWithTimestamp({
             messageId: args.messageId,
             tentativeUpdateClaimId: null,
             tentativeUpdateClaimedAt: null,
@@ -696,7 +696,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
           return;
         }
         await tx.mutate.messageRoomOrder.update(
-          withUpdateTimestamp({
+          zeroTableAccess.messageRoomOrder.updateWithTimestamp({
             messageId: args.messageId,
             sendClaimId: null,
             sendClaimedAt: null,
@@ -729,7 +729,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
           return;
         }
         await tx.mutate.messageRoomOrder.update(
-          withUpdateTimestamp({
+          zeroTableAccess.messageRoomOrder.updateWithTimestamp({
             messageId: args.messageId,
             tentativePinClaimId: null,
             tentativePinClaimedAt: null,
@@ -755,7 +755,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
           return;
         }
         await tx.mutate.messageRoomOrder.update(
-          withUpdateTimestamp({
+          zeroTableAccess.messageRoomOrder.updateWithTimestamp({
             messageId: args.messageId,
             tentativePinClaimId: null,
             tentativePinClaimedAt: null,
@@ -771,7 +771,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
       }),
       mutator: async ({ tx, args }) =>
         await tx.mutate.messageRoomOrder.update(
-          withUpdateTimestamp({
+          zeroTableAccess.messageRoomOrder.updateWithTimestamp({
             messageId: args.messageId,
             tentative: true,
             guildId: args.guildId,
@@ -798,7 +798,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
         );
 
         await tx.mutate.messageRoomOrder.upsert(
-          withUpsertTimestamps(
+          zeroTableAccess.messageRoomOrder.upsertWithTimestamps(
             {
               messageId: args.messageId,
               previousFills: args.previousFills.slice(),
@@ -812,7 +812,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
               createdByUserId: args.createdByUserId,
               deletedAt: null,
             },
-            existingMessageRoomOrder?.createdAt,
+            existingMessageRoomOrder,
           ),
         );
       },
@@ -848,7 +848,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
         );
 
         await tx.mutate.messageRoomOrder.upsert(
-          withUpsertTimestamps(
+          zeroTableAccess.messageRoomOrder.upsertWithTimestamps(
             {
               messageId: args.messageId,
               previousFills: args.data.previousFills.slice(),
@@ -862,7 +862,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
               createdByUserId: args.data.createdByUserId,
               deletedAt: null,
             },
-            existingMessageRoomOrder?.createdAt,
+            existingMessageRoomOrder,
           ),
         );
 
@@ -877,7 +877,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
             );
 
             return tx.mutate.messageRoomOrderEntry.upsert(
-              withUpsertTimestamps(
+              zeroTableAccess.messageRoomOrderEntry.upsertWithTimestamps(
                 {
                   messageId: args.messageId,
                   rank: entry.rank,
@@ -888,7 +888,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
                   effectValue: entry.effectValue,
                   deletedAt: null,
                 },
-                existingEntry?.createdAt,
+                existingEntry,
               ),
             );
           }),
@@ -921,7 +921,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
             );
 
             return tx.mutate.messageRoomOrderEntry.upsert(
-              withUpsertTimestamps(
+              zeroTableAccess.messageRoomOrderEntry.upsertWithTimestamps(
                 {
                   messageId: args.messageId,
                   rank: entry.rank,
@@ -932,7 +932,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
                   effectValue: entry.effectValue,
                   deletedAt: null,
                 },
-                existingEntry?.createdAt,
+                existingEntry,
               ),
             );
           }),
@@ -947,11 +947,10 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
       }),
       mutator: async ({ tx, args }) =>
         await tx.mutate.messageRoomOrderEntry.update(
-          withUpdateTimestamp({
+          zeroTableAccess.messageRoomOrderEntry.softDeleteByPrimaryKey({
             messageId: args.messageId,
             rank: args.rank,
             position: args.position,
-            deletedAt: Date.now(),
           }),
         ),
     }),
@@ -962,7 +961,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
       request: Schema.Struct({ messageId: Schema.String }),
       success: success.messageSlot.getMessageSlotData,
       query: ({ args: { messageId } }) =>
-        builder.messageSlot.where("messageId", "=", messageId).where("deletedAt", "IS", null).one(),
+        zeroTableAccess.messageSlot.getActiveByPrimaryKey(builder.messageSlot, { messageId }),
     }),
     ZeroApiEndpoint.mutator("upsertMessageSlotData", {
       request: Schema.Struct({
@@ -978,7 +977,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
         );
 
         await tx.mutate.messageSlot.upsert(
-          withUpsertTimestamps(
+          zeroTableAccess.messageSlot.upsertWithTimestamps(
             {
               messageId: args.messageId,
               day: args.day,
@@ -987,7 +986,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
               createdByUserId: args.createdByUserId,
               deletedAt: null,
             },
-            existingSlot?.createdAt,
+            existingSlot,
           ),
         );
       },

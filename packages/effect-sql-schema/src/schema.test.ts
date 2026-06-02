@@ -29,6 +29,35 @@ describe("effect-sql-schema", () => {
     ).toBeDefined();
   });
 
+  it("marks database generated fields as omitted from inserts", () => {
+    class User extends pg.Class<User>("User")({
+      table: "users",
+      fields: {
+        id: pg.uuid().primaryKey().defaultRandom(),
+        name: pg.text().notNull(),
+      },
+    }) {}
+
+    expect(Object.keys(User.insert.fields)).toEqual(["name"]);
+  });
+
+  it("keeps application generated fields in database variants and out of JSON writes", () => {
+    class User extends pg.Class<User>("User")({
+      table: "users",
+      fields: {
+        id: pg.uuid().primaryKey(),
+        name: pg.text().notNull(),
+        createdAt: pg.timestamp("created_at").notNull().generatedByApp(),
+      },
+    }) {}
+
+    expect(Object.keys(User.insert.fields)).toEqual(["id", "name", "createdAt"]);
+    expect(Object.keys(User.update.fields)).toEqual(["id", "name", "createdAt"]);
+    expect(Object.keys(User.json.fields)).toEqual(["id", "name", "createdAt"]);
+    expect(Object.keys(User.jsonCreate.fields)).toEqual(["id", "name"]);
+    expect(Object.keys(User.jsonUpdate.fields)).toEqual(["id", "name"]);
+  });
+
   it("defines Postgres array columns", () => {
     class Message extends pg.Class<Message>("Message")({
       table: "messages",

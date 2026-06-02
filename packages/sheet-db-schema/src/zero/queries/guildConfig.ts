@@ -1,20 +1,25 @@
 import { defineQuery } from "@rocicorp/zero";
 import { Schema, pipe } from "effect";
+import { zeroTableAccess } from "../accessors";
 import { builder } from "../schema";
 
 export const guildConfig = {
   getAutoCheckinGuilds: defineQuery(pipe(Schema.Struct({}), Schema.toStandardSchemaV1), () =>
-    builder.configGuild.where("autoCheckin", "=", true).where("deletedAt", "IS", null),
+    zeroTableAccess.configGuild.listActiveWhere(
+      builder.configGuild.where("autoCheckin", "=", true),
+    ),
   ),
   getGuildConfigByGuildId: defineQuery(
     pipe(Schema.Struct({ guildId: Schema.String }), Schema.toStandardSchemaV1),
     ({ args: { guildId } }) =>
-      builder.configGuild.where("guildId", "=", guildId).where("deletedAt", "IS", null).one(),
+      zeroTableAccess.configGuild.getActiveByPrimaryKey(builder.configGuild, { guildId }),
   ),
   getGuildMonitorRoles: defineQuery(
     pipe(Schema.Struct({ guildId: Schema.String }), Schema.toStandardSchemaV1),
     ({ args: { guildId } }) =>
-      builder.configGuildManagerRole.where("guildId", "=", guildId).where("deletedAt", "IS", null),
+      zeroTableAccess.configGuildManagerRole.listActiveWhere(
+        builder.configGuildManagerRole.where("guildId", "=", guildId),
+      ),
   ),
   getGuildChannels: defineQuery(
     pipe(
@@ -25,9 +30,9 @@ export const guildConfig = {
       Schema.toStandardSchemaV1,
     ),
     ({ args: { guildId, running } }) => {
-      const query = builder.configGuildChannel
-        .where("guildId", "=", guildId)
-        .where("deletedAt", "IS", null);
+      const query = zeroTableAccess.configGuildChannel.listActiveWhere(
+        builder.configGuildChannel.where("guildId", "=", guildId),
+      );
 
       return typeof running === "undefined" ? query : query.where("running", "=", running);
     },
@@ -42,10 +47,11 @@ export const guildConfig = {
       Schema.toStandardSchemaV1,
     ),
     ({ args: { guildId, channelId, running } }) => {
-      const query = builder.configGuildChannel
-        .where("guildId", "=", guildId)
-        .where("channelId", "=", channelId)
-        .where("deletedAt", "IS", null);
+      const query = zeroTableAccess.configGuildChannel.listActiveWhere(
+        builder.configGuildChannel
+          .where("guildId", "=", guildId)
+          .where("channelId", "=", channelId),
+      );
 
       return (typeof running === "undefined" ? query : query.where("running", "=", running)).one();
     },
@@ -60,10 +66,9 @@ export const guildConfig = {
       Schema.toStandardSchemaV1,
     ),
     ({ args: { guildId, channelName, running } }) => {
-      const query = builder.configGuildChannel
-        .where("guildId", "=", guildId)
-        .where("name", "=", channelName)
-        .where("deletedAt", "IS", null);
+      const query = zeroTableAccess.configGuildChannel.listActiveWhere(
+        builder.configGuildChannel.where("guildId", "=", guildId).where("name", "=", channelName),
+      );
 
       return (typeof running === "undefined" ? query : query.where("running", "=", running)).one();
     },

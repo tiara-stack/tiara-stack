@@ -11,6 +11,8 @@ export type FieldName<Model extends EffectSqlModel> = Extract<keyof Model["field
 
 export type SqlDefaultValue = string | number | boolean | null;
 
+export type ColumnGeneration = "none" | "database" | "application";
+
 export type ReferenceAction = "cascade" | "restrict" | "no action" | "set null" | "set default";
 
 export type ReferenceOptions = {
@@ -29,6 +31,7 @@ export type ColumnData = {
   readonly notNull?: boolean;
   readonly primaryKey?: boolean;
   readonly unique?: string | boolean;
+  readonly generation?: ColumnGeneration;
   readonly defaultValue?: SqlDefaultValue;
   readonly defaultExpression?: string;
   readonly references?: {
@@ -55,6 +58,8 @@ export type EffectSqlColumn<D extends Dialect = Dialect, K extends string = stri
   readonly default: (value: SqlDefaultValue) => EffectSqlColumn<D, K>;
   readonly defaultSql: (sql: string) => EffectSqlColumn<D, K>;
   readonly defaultRandom: () => EffectSqlColumn<D, K>;
+  readonly generatedByDatabase: () => EffectSqlColumn<D, K>;
+  readonly generatedByApp: () => EffectSqlColumn<D, K>;
   readonly decodeTo: <To extends Schema.Top>(
     to: To,
     transformation?: DecodeTransformation<To>,

@@ -819,6 +819,12 @@ importers:
       effect:
         specifier: 'catalog:'
         version: 4.0.0-beta.67
+      effect-sql-schema:
+        specifier: workspace:*
+        version: link:../effect-sql-schema
+      sheet-db-schema:
+        specifier: workspace:*
+        version: link:../sheet-db-schema
       typhoon-core:
         specifier: workspace:*
         version: link:../typhoon-core
