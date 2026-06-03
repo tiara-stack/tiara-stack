@@ -27,98 +27,166 @@ export const slugify = (name: string): string =>
 
 export const statementDelimiter = "--> statement-breakpoint";
 
-export const splitSqlStatements = (sql: string): readonly string[] => {
-  const statements: string[] = [];
-  let current = "";
-  let quote: "'" | '"' | "`" | undefined;
-  let lineComment = false;
-  let blockComment = false;
+type SqlQuote = "'" | '"' | "`";
 
-  const push = () => {
-    statements.push(current);
-    current = "";
-  };
+interface SplitSqlState {
+  readonly sql: string;
+  readonly statements: string[];
+  current: string;
+  quote: SqlQuote | undefined;
+  lineComment: boolean;
+  blockComment: boolean;
+  index: number;
+}
 
-  for (let index = 0; index < sql.length; index++) {
-    const char = sql[index]!;
-    const next = sql[index + 1];
+const pushStatement = (state: SplitSqlState) => {
+  state.statements.push(state.current);
+  state.current = "";
+};
 
-    if (!quote && !lineComment && !blockComment && sql.startsWith(statementDelimiter, index)) {
-      push();
-      index += statementDelimiter.length - 1;
-      continue;
-    }
+const appendCurrentAndAdvance = (state: SplitSqlState, value: string, offset = 0) => {
+  state.current += value;
+  state.index += offset;
+};
 
-    if (lineComment) {
-      current += char;
-      if (char === "\n") {
-        lineComment = false;
-      }
-      continue;
-    }
-
-    if (blockComment) {
-      current += char;
-      if (char === "*" && next === "/") {
-        current += next;
-        index++;
-        blockComment = false;
-      }
-      continue;
-    }
-
-    if (quote) {
-      current += char;
-      if (char === "\\" && next !== undefined) {
-        current += next;
-        index++;
-        continue;
-      }
-      if (char === quote) {
-        if (next === quote) {
-          current += next;
-          index++;
-        } else {
-          quote = undefined;
-        }
-      }
-      continue;
-    }
-
-    if (char === "-" && next === "-") {
-      current += char + next;
-      index++;
-      lineComment = true;
-      continue;
-    }
-
-    if (char === "/" && next === "*") {
-      current += char + next;
-      index++;
-      blockComment = true;
-      continue;
-    }
-
-    if (char === "'" || char === '"' || char === "`") {
-      current += char;
-      quote = char;
-      continue;
-    }
-
-    if (char === ";") {
-      push();
-      continue;
-    }
-
-    current += char;
+const handleLineComment = (state: SplitSqlState, char: string): boolean => {
+  if (!state.lineComment) {
+    return false;
   }
 
-  if (current.length > 0) {
-    push();
+  appendCurrentAndAdvance(state, char);
+  if (char === "\n") {
+    state.lineComment = false;
+  }
+  return true;
+};
+
+const handleBlockComment = (
+  state: SplitSqlState,
+  char: string,
+  next: string | undefined,
+): boolean => {
+  if (!state.blockComment) {
+    return false;
   }
 
-  return statements
+  if (char === "*" && next === "/") {
+    appendCurrentAndAdvance(state, char + next, 1);
+    state.blockComment = false;
+    return true;
+  }
+
+  appendCurrentAndAdvance(state, char);
+  return true;
+};
+
+const handleQuotedText = (
+  state: SplitSqlState,
+  char: string,
+  next: string | undefined,
+): boolean => {
+  if (!state.quote) {
+    return false;
+  }
+
+  if (char === "\\" && next !== undefined) {
+    appendCurrentAndAdvance(state, char + next, 1);
+    return true;
+  }
+
+  if (char === state.quote && next === state.quote) {
+    appendCurrentAndAdvance(state, char + next, 1);
+    return true;
+  }
+
+  appendCurrentAndAdvance(state, char);
+  if (char === state.quote) {
+    state.quote = undefined;
+  }
+  return true;
+};
+
+const handleStatementBoundary = (state: SplitSqlState, char: string): boolean => {
+  if (state.sql.startsWith(statementDelimiter, state.index)) {
+    pushStatement(state);
+    state.index += statementDelimiter.length - 1;
+    return true;
+  }
+
+  if (char === ";") {
+    pushStatement(state);
+    return true;
+  }
+
+  return false;
+};
+
+const handleCommentStart = (
+  state: SplitSqlState,
+  char: string,
+  next: string | undefined,
+): boolean => {
+  if (char === "-" && next === "-") {
+    appendCurrentAndAdvance(state, char + next, 1);
+    state.lineComment = true;
+    return true;
+  }
+
+  if (char === "/" && next === "*") {
+    appendCurrentAndAdvance(state, char + next, 1);
+    state.blockComment = true;
+    return true;
+  }
+
+  return false;
+};
+
+const handleQuoteStart = (state: SplitSqlState, char: string): boolean => {
+  if (char !== "'" && char !== '"' && char !== "`") {
+    return false;
+  }
+
+  appendCurrentAndAdvance(state, char);
+  state.quote = char;
+  return true;
+};
+
+const normalizeStatements = (statements: readonly string[]): readonly string[] =>
+  statements
     .map((part) => part.trim())
     .filter((part) => part.length > 0)
     .map((part) => (part.endsWith(";") ? part.slice(0, -1).trim() : part));
+
+export const splitSqlStatements = (sql: string): readonly string[] => {
+  const state: SplitSqlState = {
+    sql,
+    statements: [],
+    current: "",
+    quote: undefined,
+    lineComment: false,
+    blockComment: false,
+    index: 0,
+  };
+
+  for (; state.index < sql.length; state.index++) {
+    const char = sql[state.index]!;
+    const next = sql[state.index + 1];
+    const handled =
+      handleLineComment(state, char) ||
+      handleBlockComment(state, char, next) ||
+      handleQuotedText(state, char, next) ||
+      handleStatementBoundary(state, char) ||
+      handleCommentStart(state, char, next) ||
+      handleQuoteStart(state, char);
+
+    if (!handled) {
+      appendCurrentAndAdvance(state, char);
+    }
+  }
+
+  if (state.current.length > 0) {
+    pushStatement(state);
+  }
+
+  return normalizeStatements(state.statements);
 };

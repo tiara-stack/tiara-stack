@@ -28,7 +28,7 @@ const runPostgres = async (config: Awaited<ReturnType<typeof loadConfig>>["confi
   return await Effect.runPromise(program);
 };
 
-export const runPostgresEffect = (config: Awaited<ReturnType<typeof loadConfig>>["config"]) =>
+const runPostgresEffect = (config: Awaited<ReturnType<typeof loadConfig>>["config"]) =>
   tryPromise(() => runPostgres(config));
 
 const runSqlite = async (config: Awaited<ReturnType<typeof loadConfig>>["config"]) => {
@@ -51,7 +51,7 @@ const runSqlite = async (config: Awaited<ReturnType<typeof loadConfig>>["config"
   return await Effect.runPromise(program);
 };
 
-export const runSqliteEffect = (config: Awaited<ReturnType<typeof loadConfig>>["config"]) =>
+const runSqliteEffect = (config: Awaited<ReturnType<typeof loadConfig>>["config"]) =>
   tryPromise(() => runSqlite(config));
 
 export const migrateCommand = Command.make("migrate", configFlags, (options) =>

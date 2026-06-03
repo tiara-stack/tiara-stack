@@ -21,7 +21,7 @@ import type { EffectSqlSchema } from "../types";
 import { loadConfig, loadConfigEffect, loadSchemaEffect } from "./config";
 import { configFlags, configInputToOverrides, optionalValue, tryPromise } from "./options";
 
-export const confirmEffect = (message: string) =>
+const confirmEffect = (message: string) =>
   tryPromise(async (): Promise<boolean> => {
     if (!process.stdin.isTTY) {
       return false;
@@ -75,7 +75,7 @@ const runWithClient = async <A>(
   );
 };
 
-export const runWithClientEffect = <A>(
+const runWithClientEffect = <A>(
   config: Awaited<ReturnType<typeof loadConfig>>["config"],
   effect: Effect.Effect<A, unknown, SqlClient.SqlClient>,
 ) => tryPromise(() => runWithClient(config, effect));

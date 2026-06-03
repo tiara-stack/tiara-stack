@@ -100,9 +100,6 @@ export const readJournalEffect = (out: string, dialect: "postgresql" | "sqlite")
     return journal satisfies Journal;
   });
 
-export const readJournal = (out: string, dialect: "postgresql" | "sqlite"): Promise<Journal> =>
-  Effect.runPromise(readJournalEffect(out, dialect).pipe(Effect.provide(NodeServices.layer)));
-
 export const readStoredSnapshotEffect = (out: string, prefix: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -116,9 +113,6 @@ export const readStoredSnapshotEffect = (out: string, prefix: string) =>
     return decoded as StoredSnapshot;
   });
 
-export const readStoredSnapshot = (out: string, prefix: string): Promise<StoredSnapshot> =>
-  Effect.runPromise(readStoredSnapshotEffect(out, prefix).pipe(Effect.provide(NodeServices.layer)));
-
 export const readLatestSnapshotEffect = (out: string, journal: Journal) =>
   Effect.gen(function* () {
     const latest = journal.entries.at(-1);
@@ -129,14 +123,6 @@ export const readLatestSnapshotEffect = (out: string, journal: Journal) =>
     const prefix = separatorIndex === -1 ? latest.tag : latest.tag.slice(0, separatorIndex);
     return yield* readStoredSnapshotEffect(out, prefix);
   });
-
-export const readLatestSnapshot = (
-  out: string,
-  journal: Journal,
-): Promise<StoredSnapshot | undefined> =>
-  Effect.runPromise(
-    readLatestSnapshotEffect(out, journal).pipe(Effect.provide(NodeServices.layer)),
-  );
 
 export const nextMigrationName = (
   journal: Journal,
@@ -213,21 +199,7 @@ export const writeMigrationRecordEffect = ({
     );
   });
 
-export const writeMigrationRecord = (options: {
-  readonly out: string;
-  readonly journal: Journal;
-  readonly snapshot: SchemaSnapshot;
-  readonly tag: string;
-  readonly prefix: string;
-  readonly idx: number;
-  readonly breakpoints: boolean;
-  readonly prevSnapshotId?: string;
-  readonly drizzle?: unknown;
-  readonly extensions?: Readonly<Record<string, JsonValue>>;
-}): Promise<void> =>
-  Effect.runPromise(writeMigrationRecordEffect(options).pipe(Effect.provide(NodeServices.layer)));
-
-export const listMigrationModulesEffect = (out: string) =>
+const listMigrationModulesEffect = (out: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const exists = yield* existsEffect(fs, out);

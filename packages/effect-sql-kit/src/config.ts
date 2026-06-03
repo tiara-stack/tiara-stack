@@ -9,7 +9,7 @@ import type { EffectSqlKitConfig, ResolvedConfig } from "./types";
 export const defineConfig = <const Config extends EffectSqlKitConfig>(config: Config): Config =>
   config;
 
-export const parseConfigObjectEffect = (input: unknown) =>
+const parseConfigObjectEffect = (input: unknown) =>
   Schema.decodeUnknownEffect(EffectSqlKitConfigSchema)(input);
 
 const withoutUndefined = <A extends Record<string, unknown>>(object: A): Partial<A> =>
@@ -67,36 +67,3 @@ export const resolveConfigEffect = (
     const decoded = yield* Schema.decodeUnknownEffect(ResolvedConfigSchema)(resolved);
     return decoded as ResolvedConfig;
   });
-
-export const resolveConfig = (
-  config: EffectSqlKitConfig,
-  overrides?: Partial<EffectSqlKitConfig>,
-): ResolvedConfig => {
-  const decodedConfig = Schema.decodeUnknownSync(EffectSqlKitConfigSchema)(config);
-  const decodedOverrides = Schema.decodeUnknownSync(EffectSqlKitConfigOverridesSchema)(
-    normalizeOverrides(overrides),
-  );
-  const merged = {
-    ...decodedConfig,
-    ...decodedOverrides,
-    migrations: {
-      ...decodedConfig.migrations,
-      ...decodedOverrides.migrations,
-    },
-  };
-  const prefix = merged.prefix ?? "";
-  const decoded = Schema.decodeUnknownSync(ResolvedConfigSchema)({
-    dialect: merged.dialect,
-    schema: merged.schema,
-    out: merged.out ?? "./migrations",
-    prefix,
-    dbCredentials: merged.dbCredentials,
-    migrations: {
-      table: merged.migrations?.table ?? prefixedIdentifierName(prefix, "effect_sql_migrations"),
-      schema: merged.migrations?.schema ?? "public",
-    },
-    breakpoints: merged.breakpoints ?? true,
-    extensions: merged.extensions ?? [],
-  });
-  return decoded as ResolvedConfig;
-};
