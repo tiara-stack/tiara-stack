@@ -5,7 +5,7 @@ import { Effect, Layer, Option } from "effect";
 import { CommandHelper, InteractionResponse } from "dfx-discord-utils/utils";
 import { discordGatewayLayer } from "../discord/gateway";
 import { discordApplicationLayer } from "../discord/application";
-import { SheetClusterClient, SheetClusterRequestContext } from "../services";
+import { SheetWorkflowsClient, SheetWorkflowsRequestContext } from "../services";
 import {
   makeDispatchBase,
   requireBoolean,
@@ -14,10 +14,10 @@ import {
   resolveChannelId,
   resolveGuildId,
 } from "../utils/commandHelpers";
-import { runSheetClusterDispatch } from "../utils/sheetClusterDispatch";
+import { runSheetWorkflowsDispatch } from "../utils/sheetWorkflowsDispatch";
 
 const makeListConfigSubCommand = Effect.gen(function* () {
-  const sheetClusterClient = yield* SheetClusterClient;
+  const sheetWorkflowsClient = yield* SheetWorkflowsClient;
 
   return yield* CommandHelper.makeSubCommand(
     (builder) =>
@@ -38,11 +38,11 @@ const makeListConfigSubCommand = Effect.gen(function* () {
       const channelId = yield* resolveChannelId(command.optionChannelValueOptional("channel"));
       const base = yield* makeDispatchBase;
 
-      yield* runSheetClusterDispatch(
+      yield* runSheetWorkflowsDispatch(
         response,
         "the channel config list",
-        SheetClusterRequestContext.asInteractionUser(() =>
-          sheetClusterClient.get().dispatch.channelListConfig({
+        SheetWorkflowsRequestContext.asInteractionUser(() =>
+          sheetWorkflowsClient.get().dispatch.channelListConfig({
             payload: { ...base, guildId, channelId },
           }),
         )(),
@@ -52,7 +52,7 @@ const makeListConfigSubCommand = Effect.gen(function* () {
 });
 
 const makeSetSubCommand = Effect.gen(function* () {
-  const sheetClusterClient = yield* SheetClusterClient;
+  const sheetWorkflowsClient = yield* SheetWorkflowsClient;
 
   return yield* CommandHelper.makeSubCommand(
     (builder) =>
@@ -99,11 +99,11 @@ const makeSetSubCommand = Effect.gen(function* () {
         : undefined;
       const base = yield* makeDispatchBase;
 
-      yield* runSheetClusterDispatch(
+      yield* runSheetWorkflowsDispatch(
         response,
         "the channel config update",
-        SheetClusterRequestContext.asInteractionUser(() =>
-          sheetClusterClient.get().dispatch.channelSet({
+        SheetWorkflowsRequestContext.asInteractionUser(() =>
+          sheetWorkflowsClient.get().dispatch.channelSet({
             payload: {
               ...base,
               guildId,
@@ -121,7 +121,7 @@ const makeSetSubCommand = Effect.gen(function* () {
 });
 
 const makeUnsetSubCommand = Effect.gen(function* () {
-  const sheetClusterClient = yield* SheetClusterClient;
+  const sheetWorkflowsClient = yield* SheetWorkflowsClient;
 
   return yield* CommandHelper.makeSubCommand(
     (builder) =>
@@ -156,11 +156,11 @@ const makeUnsetSubCommand = Effect.gen(function* () {
       const channelId = yield* resolveChannelId(command.optionChannelValueOptional("channel"));
       const base = yield* makeDispatchBase;
 
-      yield* runSheetClusterDispatch(
+      yield* runSheetWorkflowsDispatch(
         response,
         "the channel config update",
-        SheetClusterRequestContext.asInteractionUser(() =>
-          sheetClusterClient.get().dispatch.channelUnset({
+        SheetWorkflowsRequestContext.asInteractionUser(() =>
+          sheetWorkflowsClient.get().dispatch.channelUnset({
             payload: {
               ...base,
               guildId,
@@ -227,6 +227,6 @@ export const channelCommandLayer = Layer.effectDiscard(
   }),
 ).pipe(
   Layer.provide(
-    Layer.mergeAll(discordGatewayLayer, discordApplicationLayer, SheetClusterClient.layer),
+    Layer.mergeAll(discordGatewayLayer, discordApplicationLayer, SheetWorkflowsClient.layer),
   ),
 );

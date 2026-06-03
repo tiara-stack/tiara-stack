@@ -12,7 +12,7 @@ import { Interaction, InteractionToken } from "dfx-discord-utils/utils";
 import { ButtonStyle, MessageFlags } from "discord-api-types/v10";
 import { discordApplicationLayer } from "../../discord/application";
 import { SLOT_BUTTON_CUSTOM_ID } from "sheet-ingress-api/discordComponents";
-import { SheetClusterClient, SheetClusterRequestContext } from "@/services";
+import { SheetWorkflowsClient, SheetWorkflowsRequestContext } from "@/services";
 import { interactionDeadlineEpochMs } from "@/utils/interactionDeadline";
 
 const getInteractionMessageId = Effect.gen(function* () {
@@ -28,11 +28,11 @@ export const slotButtonData = makeButtonData((b) =>
 );
 
 const makeSlotButtonHandler = Effect.gen(function* () {
-  const sheetClusterClient = yield* SheetClusterClient;
+  const sheetWorkflowsClient = yield* SheetWorkflowsClient;
 
   return yield* makeButton(
     slotButtonData.toJSON(),
-    SheetClusterRequestContext.asInteractionUser(
+    SheetWorkflowsRequestContext.asInteractionUser(
       Effect.fn("slotButton")(function* () {
         const response = yield* MessageComponentInteractionResponse;
         yield* response.deferReply({ flags: MessageFlags.Ephemeral });
@@ -41,7 +41,7 @@ const makeSlotButtonHandler = Effect.gen(function* () {
         const interactionToken = yield* InteractionToken;
         const interaction = yield* Ix.Interaction;
 
-        yield* sheetClusterClient.get().dispatch.slotOpenButton({
+        yield* sheetWorkflowsClient.get().dispatch.slotOpenButton({
           payload: {
             messageId,
             interactionToken: interactionToken.token,
@@ -68,6 +68,6 @@ export const slotButtonLayer = Layer.effectDiscard(
   }),
 ).pipe(
   Layer.provide(
-    Layer.mergeAll(discordGatewayLayer, discordApplicationLayer, SheetClusterClient.layer),
+    Layer.mergeAll(discordGatewayLayer, discordApplicationLayer, SheetWorkflowsClient.layer),
   ),
 );

@@ -116,7 +116,7 @@ services:
     serviceMonitor:
       enabled: true
 
-  sheetCluster:
+  sheetWorkflows:
     enabled: true
     image:
       repository: ""
@@ -124,7 +124,7 @@ services:
       pullPolicy: ""
     replicas: 1
     secretRef:
-      name: sheet-cluster-secret
+      name: sheet-workflows-secret
     env: {}
     serviceMonitor:
       enabled: true

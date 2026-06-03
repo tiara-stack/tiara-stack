@@ -1,0 +1,36 @@
+{
+  "include": ["**/*.ts", "**/*.tsx", "*.ts", "*.tsx"],
+  "compilerOptions": {
+    "strict": true,
+    "esModuleInterop": true,
+    "jsx": "react-jsx",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["DOM", "DOM.Iterable", "ES2022"],
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "target": "ES2022",
+    "verbatimModuleSyntax": true,
+    "allowJs": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": true,
+    "paths": {
+      "dfx-discord-utils/discord/schema": ["../dfx-discord-utils/src/discord/schema/index.ts"],
+      "sheet-auth/client": ["../sheet-auth/src/client.ts"],
+      "sheet-auth/plugins/kubernetes-oauth": [
+        "../sheet-auth/src/plugins/kubernetes-oauth/index.ts"
+      ],
+      "sheet-auth/plugins/kubernetes-oauth/rpc-authorization": [
+        "../sheet-auth/src/plugins/kubernetes-oauth/rpc-authorization.ts"
+      ],
+      "sheet-db-schema/zero": ["../sheet-db-schema/src/zero/index.ts"],
+      "sheet-ingress-api/*": ["../sheet-ingress-api/src/*"],
+      "*": ["./*"],
+      "~~/*": ["./*"],
+      "@@/*": ["./*"],
+      "~/*": ["./src/*"],
+      "@/*": ["./src/*"]
+    }
+  }
+}

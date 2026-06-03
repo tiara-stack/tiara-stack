@@ -2,7 +2,7 @@ import { DiscordGateway } from "dfx/gateway";
 import { Effect, Layer } from "effect";
 import type { GuildWelcomeDispatchPayload } from "sheet-ingress-api/sheet-apis-rpc";
 import { discordGatewayLayer } from "../discord/gateway";
-import { SheetClusterClient, SheetClusterRequestContext } from "../services";
+import { SheetWorkflowsClient, SheetWorkflowsRequestContext } from "../services";
 
 const guildJoinReplayWindowMs = 10 * 60 * 1000;
 
@@ -45,7 +45,7 @@ export const makeGuildWelcomeDispatchPayload = (
 export const guildWelcomeEventLayer = Layer.effectDiscard(
   Effect.gen(function* () {
     const gateway = yield* DiscordGateway;
-    const sheetClusterClient = yield* SheetClusterClient;
+    const sheetWorkflowsClient = yield* SheetWorkflowsClient;
     const startupEpochMs = Date.now();
 
     yield* gateway
@@ -55,8 +55,8 @@ export const guildWelcomeEventLayer = Layer.effectDiscard(
           return Effect.void;
         }
 
-        return SheetClusterRequestContext.asService(() =>
-          sheetClusterClient.get().dispatch.guildWelcome({ payload }),
+        return SheetWorkflowsRequestContext.asService(() =>
+          sheetWorkflowsClient.get().dispatch.guildWelcome({ payload }),
         )().pipe(
           Effect.catchCause((cause) =>
             Effect.logWarning("Failed to dispatch guild welcome message").pipe(
@@ -71,4 +71,4 @@ export const guildWelcomeEventLayer = Layer.effectDiscard(
       })
       .pipe(Effect.forkScoped);
   }),
-).pipe(Layer.provide(Layer.mergeAll(discordGatewayLayer, SheetClusterClient.layer)));
+).pipe(Layer.provide(Layer.mergeAll(discordGatewayLayer, SheetWorkflowsClient.layer)));

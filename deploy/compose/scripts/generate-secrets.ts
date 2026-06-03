@@ -199,8 +199,8 @@ const tokenSpecs = [
     audience: "sheet-auth",
   },
   {
-    file: "sheet-cluster-sheet-auth-token",
-    serviceAccount: "sheet-cluster",
+    file: "sheet-workflows-sheet-auth-token",
+    serviceAccount: "sheet-workflows",
     audience: "sheet-auth",
   },
   {
@@ -219,9 +219,9 @@ const tokenSpecs = [
     audience: "sheet-bot",
   },
   {
-    file: "sheet-ingress-sheet-cluster-token",
+    file: "sheet-ingress-sheet-workflows-token",
     serviceAccount: "sheet-ingress-server",
-    audience: "sheet-cluster",
+    audience: "sheet-workflows",
   },
   {
     file: "sheet-apis-zero-cache-token",

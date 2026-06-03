@@ -9,10 +9,10 @@ import { Effect, Layer, Option, Schema, pipe } from "effect";
 import { CommandHelper, Interaction, InteractionResponse } from "dfx-discord-utils/utils";
 import { InteractionToken } from "dfx-discord-utils/utils";
 import { discordGatewayLayer } from "../discord/gateway";
-import { SheetClusterClient, SheetClusterRequestContext } from "../services";
+import { SheetWorkflowsClient, SheetWorkflowsRequestContext } from "../services";
 import { discordApplicationLayer } from "../discord/application";
 import { interactionDeadlineEpochMs } from "../utils/interactionDeadline";
-import { runSheetClusterDispatch } from "../utils/sheetClusterDispatch";
+import { runSheetWorkflowsDispatch } from "../utils/sheetWorkflowsDispatch";
 
 const getInteractionGuildId = Effect.gen(function* () {
   const interactionGuild = yield* Interaction.guild();
@@ -31,7 +31,7 @@ const getInteractionChannelId = Effect.gen(function* () {
 });
 
 const makeListSubCommand = Effect.gen(function* () {
-  const sheetClusterClient = yield* SheetClusterClient;
+  const sheetWorkflowsClient = yield* SheetWorkflowsClient;
 
   return yield* CommandHelper.makeSubCommand(
     (builder) =>
@@ -73,11 +73,11 @@ const makeListSubCommand = Effect.gen(function* () {
 
       const interactionToken = yield* InteractionToken;
       const interaction = yield* Ix.Interaction;
-      yield* runSheetClusterDispatch(
+      yield* runSheetWorkflowsDispatch(
         response,
         "the slot list",
-        SheetClusterRequestContext.asInteractionUser(() =>
-          sheetClusterClient.get().dispatch.slotList({
+        SheetWorkflowsRequestContext.asInteractionUser(() =>
+          sheetWorkflowsClient.get().dispatch.slotList({
             payload: {
               dispatchRequestId: `discord-interaction:${interaction.id}`,
               guildId,
@@ -94,7 +94,7 @@ const makeListSubCommand = Effect.gen(function* () {
 });
 
 const makeButtonSubCommand = Effect.gen(function* () {
-  const sheetClusterClient = yield* SheetClusterClient;
+  const sheetWorkflowsClient = yield* SheetWorkflowsClient;
 
   return yield* CommandHelper.makeSubCommand(
     (builder) =>
@@ -125,11 +125,11 @@ const makeButtonSubCommand = Effect.gen(function* () {
       );
       const interactionToken = yield* InteractionToken;
       const interaction = yield* Ix.Interaction;
-      yield* runSheetClusterDispatch(
+      yield* runSheetWorkflowsDispatch(
         response,
         "the slot button",
-        SheetClusterRequestContext.asInteractionUser(() =>
-          sheetClusterClient.get().dispatch.slotButton({
+        SheetWorkflowsRequestContext.asInteractionUser(() =>
+          sheetWorkflowsClient.get().dispatch.slotButton({
             payload: {
               dispatchRequestId: `discord-interaction:${interaction.id}`,
               guildId,
@@ -188,6 +188,6 @@ export const slotCommandLayer = Layer.effectDiscard(
   }),
 ).pipe(
   Layer.provide(
-    Layer.mergeAll(discordGatewayLayer, discordApplicationLayer, SheetClusterClient.layer),
+    Layer.mergeAll(discordGatewayLayer, discordApplicationLayer, SheetWorkflowsClient.layer),
   ),
 );

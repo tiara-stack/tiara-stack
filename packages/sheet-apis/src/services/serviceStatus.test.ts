@@ -39,7 +39,7 @@ describe("ServiceStatusService", () => {
         "http://sheet-apis-service/ready",
         "http://sheet-auth-service/ready",
         "http://sheet-bot-service/ready",
-        "http://sheet-cluster-service/ready",
+        "http://sheet-workflows-service/ready",
         "http://sheet-db-server-service/ready",
         "http://sheet-ingress-server-service/ready",
         "http://sheet-web-service/ready",

@@ -103,15 +103,16 @@ flowchart TB
 
 ### Application Services
 
-| Package                | Description                                   | Tech Stack                                       |
-| ---------------------- | --------------------------------------------- | ------------------------------------------------ |
-| `sheet-apis`           | Main HTTP API server for sheet operations     | Effect.ts, HttpApiBuilder, Playwright            |
-| `sheet-ingress-server` | HTTP ingress/proxy for sheet and Discord APIs | Effect.ts, HttpApiBuilder                        |
-| `sheet-db-server`      | Real-time sync database server                | Rocicorp Zero, Drizzle ORM                       |
-| `sheet-auth`           | Authentication service with Discord OAuth     | Better Auth, Hono, Drizzle ORM                   |
-| `sheet-web`            | Web dashboard for guild management            | TanStack Start, React, shadcn/ui                 |
-| `sheet-bot`            | Discord bot for sheet workflows               | dfx, Effect.ts, Handlebars                       |
-| `vibecord`             | Workspace/session management bot              | dfx, discord-api-types, SQLite, @opencode-ai/sdk |
+| Package                | Description                                    | Tech Stack                                       |
+| ---------------------- | ---------------------------------------------- | ------------------------------------------------ |
+| `sheet-apis`           | Main HTTP API server for sheet operations      | Effect.ts, HttpApiBuilder, Playwright            |
+| `sheet-workflows`      | Workflow runtime for dispatch and auto-checkin | Effect Cluster, Effect Workflow, PostgreSQL      |
+| `sheet-ingress-server` | HTTP ingress/proxy for sheet and Discord APIs  | Effect.ts, HttpApiBuilder                        |
+| `sheet-db-server`      | Real-time sync database server                 | Rocicorp Zero, Drizzle ORM                       |
+| `sheet-auth`           | Authentication service with Discord OAuth      | Better Auth, Hono, Drizzle ORM                   |
+| `sheet-web`            | Web dashboard for guild management             | TanStack Start, React, shadcn/ui                 |
+| `sheet-bot`            | Discord bot for sheet workflows                | dfx, Effect.ts, Handlebars                       |
+| `vibecord`             | Workspace/session management bot               | dfx, discord-api-types, SQLite, @opencode-ai/sdk |
 
 ### Data, Contracts & Integration
 
@@ -131,6 +132,7 @@ sequenceDiagram
     participant Bot as sheet-bot
     participant Ingress as sheet-ingress-server
     participant APIs as sheet-apis
+    participant Workflows as sheet-workflows
     participant Auth as sheet-auth
     participant DB as sheet-db-server
     participant Google as Google Sheets
@@ -159,9 +161,11 @@ sequenceDiagram
     Ingress-->>Web: Response
 
     Bot->>Ingress: Sheet API Request + Service Credentials
-    Ingress->>APIs: Forward authorized bot sheet request
-    APIs-->>Ingress: Bot response data
-    Ingress-->>Bot: Bot response
+    Ingress->>Workflows: Forward authorized dispatch request
+    Workflows-->>Ingress: Accepted workflow execution
+    Ingress-->>Bot: Dispatch accepted
+    Workflows->>APIs: Read/write sheet workflow state
+    APIs-->>Workflows: Sheet response data
     Bot->>Discord: Gateway Events
     Ingress->>Bot: Forward Discord cache/application route
     Bot-->>Ingress: Discord cache/application response
@@ -195,30 +199,37 @@ sequenceDiagram
 
 - Receives commands via Discord Gateway
 - Uses `sheet-ingress-api` contracts for shared route and schema definitions
-- Calls `sheet-ingress-server` with service credentials for sheet API operations
+- Calls `sheet-ingress-server` with service credentials for sheet workflow dispatch
 - Uses `dfx-discord-utils` for caching and command building
 - Manages guild configurations and check-ins
 
-5. **API Server** (`sheet-apis`)
+1. **Workflow Runtime** (`sheet-workflows`)
+
+- Runs durable dispatch and auto-checkin workflows using Effect Workflow/Cluster
+- Calls `sheet-apis` through ingress contracts for sheet data and persistence
+- Sends Discord responses through ingress bot-facing routes
+- Stores workflow runner and message state in PostgreSQL
+
+1. **API Server** (`sheet-apis`)
 
 - Handles sheet business operations behind the ingress layer
 - Integrates with Google Sheets via @googleapis/sheets and Playwright
 - Queries PostgreSQL via `sheet-db-server` using Zero protocol
 - Provides OpenTelemetry metrics and tracing
 
-6. **Database Server** (`sheet-db-server`)
+1. **Database Server** (`sheet-db-server`)
 
 - Provides real-time sync using Rocicorp Zero
 - Manages PostgreSQL schema via Drizzle ORM
 - Handles query and mutation requests
 
-7. **Apps Script** (`sheet-formulas`)
+1. **Apps Script** (`sheet-formulas`)
 
 - Runs within Google Sheets environment
 - Uses `sheet-ingress-api` contracts and `effect-platform-apps-script` for HTTP calls
 - Calls backend routes through the ingress/API path
 
-8. **VibeCord Bot** (`vibecord`)
+1. **VibeCord Bot** (`vibecord`)
 
 - Standalone Discord bot with SQLite database
 - Manages workspaces and sessions
@@ -330,6 +341,11 @@ In this repo, `pnpm lint` also performs type-aware TypeScript checking for the V
 │   │   ├── src/services/             # Business logic
 │   │   ├── src/middlewares/          # Auth middleware
 │   │   └── src/test-utils/           # Test helpers
+│   ├── sheet-workflows/              # Dispatch and auto-checkin workflow runtime
+│   │   ├── src/cluster/              # Effect Cluster runtime
+│   │   ├── src/workflows/            # Workflow definitions
+│   │   ├── src/tasks/                # Background enqueue tasks
+│   │   └── src/services/             # Workflow services and clients
 │   ├── sheet-ingress-api/            # Shared ingress contracts and schemas
 │   │   ├── src/api.ts                # Composed ingress HttpApi
 │   │   ├── src/api-groups.ts         # Sheet API group exports
@@ -337,7 +353,9 @@ In this repo, `pnpm lint` also performs type-aware TypeScript checking for the V
 │   │   ├── src/middlewares/          # Middleware tags
 │   │   ├── src/schemas/              # Shared request/response schemas
 │   │   ├── src/sheet-apis.ts         # Sheet APIs contract surface
-│   │   └── src/sheet-apis-rpc.ts     # Sheet APIs RPC helpers
+│   │   ├── src/sheet-apis-rpc.ts     # Sheet APIs RPC helpers
+│   │   ├── src/sheet-workflows.ts    # Sheet Workflows contract surface
+│   │   └── src/sheet-workflows-rpc.ts # Sheet Workflows RPC helpers
 │   ├── sheet-ingress-server/         # Ingress/proxy server
 │   │   ├── src/config/               # Configuration
 │   │   ├── src/middlewares/          # Proxy authorization middleware
@@ -404,6 +422,12 @@ graph TD
     APIs -->|uses| DFX[dfx-discord-utils]
     APIs -->|uses| Core
     APIs -->|uses| Zero
+
+    Workflows[sheet-workflows] -->|uses| Auth
+    Workflows -->|uses| IngressAPI
+    Workflows -->|uses| DFX
+    Workflows -->|uses| Core
+    Workflows -->|uses| Zero
 
     Bot[sheet-bot] -->|uses| Auth
     Bot -->|uses| Schema

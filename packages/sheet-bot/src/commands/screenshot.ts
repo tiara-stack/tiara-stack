@@ -4,7 +4,7 @@ import { ApplicationIntegrationType, InteractionContextType } from "discord-api-
 import { Effect, Layer } from "effect";
 import { discordGatewayLayer } from "../discord/gateway";
 import { CommandHelper, InteractionResponse } from "dfx-discord-utils/utils";
-import { SheetClusterClient, SheetClusterRequestContext } from "../services";
+import { SheetWorkflowsClient, SheetWorkflowsRequestContext } from "../services";
 import { discordApplicationLayer } from "../discord/application";
 import {
   makeDispatchBase,
@@ -12,10 +12,10 @@ import {
   requireString,
   resolveGuildId,
 } from "../utils/commandHelpers";
-import { runSheetClusterDispatch } from "../utils/sheetClusterDispatch";
+import { runSheetWorkflowsDispatch } from "../utils/sheetWorkflowsDispatch";
 
 const makeScreenshotCommand = Effect.gen(function* () {
-  const sheetClusterClient = yield* SheetClusterClient;
+  const sheetWorkflowsClient = yield* SheetWorkflowsClient;
 
   return yield* CommandHelper.makeCommand(
     (builder) =>
@@ -52,11 +52,11 @@ const makeScreenshotCommand = Effect.gen(function* () {
       const day = yield* requireNumber(command.optionValue("day"), "day");
       const base = yield* makeDispatchBase;
 
-      yield* runSheetClusterDispatch(
+      yield* runSheetWorkflowsDispatch(
         response,
         "the screenshot",
-        SheetClusterRequestContext.asInteractionUser(() =>
-          sheetClusterClient.get().dispatch.screenshot({
+        SheetWorkflowsRequestContext.asInteractionUser(() =>
+          sheetWorkflowsClient.get().dispatch.screenshot({
             payload: {
               ...base,
               guildId,
@@ -88,6 +88,6 @@ export const screenshotCommandLayer = Layer.effectDiscard(
   }),
 ).pipe(
   Layer.provide(
-    Layer.mergeAll(discordGatewayLayer, discordApplicationLayer, SheetClusterClient.layer),
+    Layer.mergeAll(discordGatewayLayer, discordApplicationLayer, SheetWorkflowsClient.layer),
   ),
 );

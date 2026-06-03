@@ -6,12 +6,12 @@ import { CommandHelper, InteractionResponse } from "dfx-discord-utils/utils";
 import { InteractionToken } from "dfx-discord-utils/utils";
 import { discordApplicationLayer } from "../discord/application";
 import { discordGatewayLayer } from "../discord/gateway";
-import { SheetClusterClient, SheetClusterRequestContext } from "../services";
+import { SheetWorkflowsClient, SheetWorkflowsRequestContext } from "../services";
 import { interactionDeadlineEpochMs } from "../utils/interactionDeadline";
-import { runSheetClusterDispatch } from "../utils/sheetClusterDispatch";
+import { runSheetWorkflowsDispatch } from "../utils/sheetWorkflowsDispatch";
 
 const makeStatusCommand = Effect.gen(function* () {
-  const sheetClusterClient = yield* SheetClusterClient;
+  const sheetWorkflowsClient = yield* SheetWorkflowsClient;
 
   return yield* CommandHelper.makeCommand(
     (builder) =>
@@ -31,14 +31,14 @@ const makeStatusCommand = Effect.gen(function* () {
       const response = yield* InteractionResponse;
       yield* response.deferReply();
 
-      yield* runSheetClusterDispatch(
+      yield* runSheetWorkflowsDispatch(
         response,
         "the service status check",
-        SheetClusterRequestContext.asInteractionUser(
+        SheetWorkflowsRequestContext.asInteractionUser(
           Effect.fn("status.dispatch")(function* () {
             const interactionToken = yield* InteractionToken;
             const interaction = yield* Ix.Interaction;
-            return yield* sheetClusterClient.get().dispatch.serviceStatus({
+            return yield* sheetWorkflowsClient.get().dispatch.serviceStatus({
               payload: {
                 dispatchRequestId: `discord-interaction:${interaction.id}`,
                 interactionToken: interactionToken.token,
@@ -67,6 +67,6 @@ export const statusCommandLayer = Layer.effectDiscard(
   }),
 ).pipe(
   Layer.provide(
-    Layer.mergeAll(discordGatewayLayer, discordApplicationLayer, SheetClusterClient.layer),
+    Layer.mergeAll(discordGatewayLayer, discordApplicationLayer, SheetWorkflowsClient.layer),
   ),
 );

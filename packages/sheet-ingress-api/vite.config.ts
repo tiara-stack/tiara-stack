@@ -54,8 +54,13 @@ export default defineConfig({
       ),
       "sheet-apis": fileURLToPath(new URL("./src/sheet-apis.ts", import.meta.url)),
       "sheet-apis-rpc": fileURLToPath(new URL("./src/sheet-apis-rpc.ts", import.meta.url)),
-      "sheet-cluster": fileURLToPath(new URL("./src/sheet-cluster.ts", import.meta.url)),
-      "sheet-cluster-rpc": fileURLToPath(new URL("./src/sheet-cluster-rpc.ts", import.meta.url)),
+      "sheet-workflows": fileURLToPath(new URL("./src/sheet-workflows.ts", import.meta.url)),
+      "sheet-workflows-rpc": fileURLToPath(
+        new URL("./src/sheet-workflows-rpc.ts", import.meta.url),
+      ),
+      "sheet-workflows-workflows": fileURLToPath(
+        new URL("./src/sheet-workflows-workflows.ts", import.meta.url),
+      ),
       ...collectEntries("schemas"),
     },
     sourcemap: true,

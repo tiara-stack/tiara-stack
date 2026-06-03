@@ -26,17 +26,23 @@ Backend API server for Google Sheets integration using Effect's HttpApiBuilder, 
 
 **Dependencies**: Effect ecosystem, `@googleapis/sheets`, `@rocicorp/zero`, Playwright, `sheet-auth`, `sheet-db-schema`, `sheet-ingress-api`, `dfx-discord-utils`, `typhoon-core`, `typhoon-zero`
 
+### `sheet-workflows` (packages/sheet-workflows)
+
+Workflow runtime service for sheet dispatch and auto-checkin workflows using Effect Workflow/Cluster. It accepts workflow dispatch RPCs, executes durable command/button workflows, coordinates auto-checkin enqueueing, calls `sheet-apis` through ingress contracts, and stores workflow runner/message state in PostgreSQL.
+
+**Dependencies**: Effect platform/node/opentelemetry/sql stack, `sheet-auth`, `sheet-ingress-api`, `dfx-discord-utils`, `typhoon-core`, `typhoon-zero`
+
 ### `sheet-ingress-api` (packages/sheet-ingress-api)
 
-Shared Effect HttpApi contract and schema package for sheet ingress routes. It exposes sheet API groups, Discord application/cache API groups, middleware tags, request/response schemas, `SheetApisApi`, and `SheetApisRpcs`.
+Shared Effect HttpApi contract and schema package for sheet ingress routes. It exposes sheet API groups, workflow dispatch API groups, Discord application/cache API groups, middleware tags, request/response schemas, `SheetApisApi`, `SheetApisRpcs`, `SheetWorkflowsApi`, and `SheetWorkflowsRpcs`.
 
 **Dependencies**: `dfx-discord-utils`, `typhoon-core`, `typhoon-zero` (peer: `effect`)
 
-**Exports**: `.`, `./api`, `./api-groups`, middleware tag exports, `./sheet-apis`, `./sheet-apis-rpc`, `./schemas/*`
+**Exports**: `.`, `./api`, `./api-groups`, middleware tag exports, `./sheet-apis`, `./sheet-apis-rpc`, `./sheet-workflows`, `./sheet-workflows-rpc`, `./schemas/*`
 
 ### `sheet-ingress-server` (packages/sheet-ingress-server)
 
-Ingress/proxy server that fronts sheet API and sheet bot/Discord routes. It handles authorization, CORS, telemetry, auth resolution, message lookup, and forwarding to `sheet-apis` and sheet bot services.
+Ingress/proxy server that fronts sheet API, workflow dispatch, and sheet bot/Discord routes. It handles authorization, CORS, telemetry, auth resolution, message lookup, and forwarding to `sheet-apis`, `sheet-workflows`, and sheet bot services.
 
 **Dependencies**: Effect platform/node/opentelemetry stack, `sheet-auth`, `sheet-ingress-api`, `dfx-discord-utils`, `typhoon-core`
 
@@ -224,6 +230,13 @@ sheet-web
 sheet-apis
   ├─ sheet-auth
   ├─ sheet-db-schema
+  ├─ sheet-ingress-api
+  ├─ dfx-discord-utils
+  ├─ typhoon-core
+  └─ typhoon-zero
+
+sheet-workflows
+  ├─ sheet-auth
   ├─ sheet-ingress-api
   ├─ dfx-discord-utils
   ├─ typhoon-core

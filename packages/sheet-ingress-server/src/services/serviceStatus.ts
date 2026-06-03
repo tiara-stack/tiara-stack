@@ -6,7 +6,7 @@ const serviceStatusTargets = [
   { name: "sheet-apis", url: "http://sheet-apis-service/ready" },
   { name: "sheet-auth", url: "http://sheet-auth-service/ready" },
   { name: "sheet-bot", url: "http://sheet-bot-service/ready" },
-  { name: "sheet-cluster", url: "http://sheet-cluster-service/ready" },
+  { name: "sheet-workflows", url: "http://sheet-workflows-service/ready" },
   { name: "sheet-db-server", url: "http://sheet-db-server-service/ready" },
   { name: "sheet-ingress-server", url: "http://sheet-ingress-server-service/ready" },
   { name: "sheet-web", url: "http://sheet-web-service/ready" },

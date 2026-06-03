@@ -36,7 +36,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ $svc.name }}-cluster-rpc
+  name: {{ $svc.name }}-runner-rpc
   labels:
     {{- include "tiara-stack.labels" $root | nindent 4 }}
 spec:

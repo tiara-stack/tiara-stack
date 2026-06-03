@@ -403,7 +403,7 @@
         "sheetBot": {
           "$ref": "#/definitions/appService"
         },
-        "sheetCluster": {
+        "sheetWorkflows": {
           "$ref": "#/definitions/appService"
         },
         "sheetDbServer": {

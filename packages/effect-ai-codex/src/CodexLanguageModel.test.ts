@@ -189,7 +189,7 @@ describe("CodexLanguageModel", () => {
                   tool: "resolve_symbol",
                   arguments: {
                     file: "packages/sheet-ingress-server/src/index.ts",
-                    name: "forwardSheetClusterDispatch",
+                    name: "forwardSheetWorkflowsDispatch",
                   },
                   error: { message: "symbol not found" },
                   status: "failed",

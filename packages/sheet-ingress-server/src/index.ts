@@ -15,7 +15,7 @@ import {
   interactionTokenExpirySafetyMarginMs,
   interactionTokenLifetimeMs,
 } from "sheet-ingress-api/sheet-apis-rpc";
-import type { DispatchAuthorizationSnapshot } from "sheet-ingress-api/sheet-cluster-workflows";
+import type { DispatchAuthorizationSnapshot } from "sheet-ingress-api/sheet-workflows-workflows";
 import { Unauthorized } from "typhoon-core/error";
 import { dotEnvConfigProviderLayer } from "typhoon-core/config";
 import { ArgumentError, makeArgumentError } from "typhoon-core/error";
@@ -31,7 +31,7 @@ import {
 import { SheetAuthUserResolver } from "./services/authResolver";
 import { MessageLookup } from "./services/messageLookup";
 import { roomOrderButtonProxyAuthorizers } from "./services/roomOrderButtonAuthorization";
-import { SheetClusterForwardingClient } from "./services/sheetClusterForwardingClient";
+import { SheetWorkflowsForwardingClient } from "./services/sheetWorkflowsForwardingClient";
 import { SheetApisForwardingClient } from "./services/sheetApisForwardingClient";
 import { SheetApisRpcTokens } from "./services/sheetApisRpcTokens";
 import { SheetBotForwardingClient } from "./services/sheetBotForwardingClient";
@@ -124,7 +124,7 @@ const corsMiddlewareLayer = Layer.unwrap(
 
 type SheetIngressGroups = (typeof Api)["groups"][keyof (typeof Api)["groups"]];
 type SheetApisForwardingClientService = typeof SheetApisForwardingClient.Service;
-type SheetClusterForwardingClientService = typeof SheetClusterForwardingClient.Service;
+type SheetWorkflowsForwardingClientService = typeof SheetWorkflowsForwardingClient.Service;
 type SheetApisGroupName = Extract<
   keyof SheetApisForwardingClientService,
   HttpApiGroup.Name<SheetIngressGroups>
@@ -159,30 +159,30 @@ type SheetApisProxyHandler<
   SheetApisForwardingClient | R
 >;
 type SheetApisEndpointClient = (args: unknown) => Effect.Effect<unknown, unknown, unknown>;
-type SheetClusterDispatchEndpointName = Extract<
-  keyof SheetClusterForwardingClientService["dispatch"],
+type SheetWorkflowsDispatchEndpointName = Extract<
+  keyof SheetWorkflowsForwardingClientService["dispatch"],
   string
 >;
-type SheetClusterDispatchRequest<EndpointName extends SheetClusterDispatchEndpointName> =
+type SheetWorkflowsDispatchRequest<EndpointName extends SheetWorkflowsDispatchEndpointName> =
   HttpApiEndpoint.Request<
     HttpApiEndpoint.WithName<
       HttpApiGroup.Endpoints<HttpApiGroup.WithName<SheetIngressGroups, "dispatch">>,
       EndpointName
     >
   >;
-type SheetClusterDispatchError<EndpointName extends SheetClusterDispatchEndpointName> =
+type SheetWorkflowsDispatchError<EndpointName extends SheetWorkflowsDispatchEndpointName> =
   HttpApiEndpoint.ErrorsWithName<
     HttpApiGroup.Endpoints<HttpApiGroup.WithName<SheetIngressGroups, "dispatch">>,
     EndpointName
   >;
-type SheetClusterDispatchHandler<
-  EndpointName extends SheetClusterDispatchEndpointName,
+type SheetWorkflowsDispatchHandler<
+  EndpointName extends SheetWorkflowsDispatchEndpointName,
   R,
 > = HttpApiEndpoint.HandlerWithName<
   HttpApiGroup.Endpoints<HttpApiGroup.WithName<SheetIngressGroups, "dispatch">>,
   EndpointName,
-  SheetClusterDispatchError<EndpointName>,
-  SheetClusterForwardingClient | R
+  SheetWorkflowsDispatchError<EndpointName>,
+  SheetWorkflowsForwardingClient | R
 >;
 
 const forwardSheetApis =
@@ -231,15 +231,15 @@ const statusGetServices: SheetApisProxyHandler<
     SheetApisProxyHandler<"status", "getServices", ServiceStatusService>
   >;
 
-const forwardSheetClusterDispatch =
-  <EndpointName extends SheetClusterDispatchEndpointName>(
+const forwardSheetWorkflowsDispatch =
+  <EndpointName extends SheetWorkflowsDispatchEndpointName>(
     endpoint: EndpointName,
     authorization?: WorkflowAuthorizationSnapshot,
-  ): SheetClusterDispatchHandler<EndpointName, never> =>
+  ): SheetWorkflowsDispatchHandler<EndpointName, never> =>
   (rawArgs) =>
     Effect.gen(function* () {
-      const args = rawArgs as SheetClusterDispatchRequest<EndpointName>;
-      const client = yield* SheetClusterForwardingClient;
+      const args = rawArgs as SheetWorkflowsDispatchRequest<EndpointName>;
+      const client = yield* SheetWorkflowsForwardingClient;
       const endpointClient = client.dispatch[endpoint];
       const requester = yield* SheetAuthUser;
       const { payload } = clientArgsFrom(args) as {
@@ -326,28 +326,28 @@ const forwardSheetClusterDispatch =
         (() => Effect.succeed(basePayload));
       const finalPayload = yield* augmentPayload();
       return yield* endpointClient(finalPayload as never);
-    }) as ReturnType<SheetClusterDispatchHandler<EndpointName, never>>;
+    }) as ReturnType<SheetWorkflowsDispatchHandler<EndpointName, never>>;
 
-const authorizedSheetClusterDispatch =
-  <EndpointName extends SheetClusterDispatchEndpointName, R>(
+const authorizedSheetWorkflowsDispatch =
+  <EndpointName extends SheetWorkflowsDispatchEndpointName, R>(
     endpoint: EndpointName,
     authorize: (
-      args: SheetClusterDispatchRequest<EndpointName>,
+      args: SheetWorkflowsDispatchRequest<EndpointName>,
     ) => Effect.Effect<
       WorkflowAuthorizationSnapshot | void,
-      SheetClusterDispatchError<EndpointName>,
+      SheetWorkflowsDispatchError<EndpointName>,
       R
     >,
-  ): SheetClusterDispatchHandler<EndpointName, R> =>
+  ): SheetWorkflowsDispatchHandler<EndpointName, R> =>
   (rawArgs) =>
     Effect.gen(function* () {
-      const args = rawArgs as SheetClusterDispatchRequest<EndpointName>;
+      const args = rawArgs as SheetWorkflowsDispatchRequest<EndpointName>;
       const authorization = yield* authorize(args);
-      return yield* forwardSheetClusterDispatch(
+      return yield* forwardSheetWorkflowsDispatch(
         endpoint,
         authorization ?? undefined,
       )(rawArgs as never);
-    }) as ReturnType<SheetClusterDispatchHandler<EndpointName, R>>;
+    }) as ReturnType<SheetWorkflowsDispatchHandler<EndpointName, R>>;
 
 type WorkflowAuthorizationSnapshot = DispatchAuthorizationSnapshot;
 
@@ -746,13 +746,13 @@ const makeApiLayer = () => {
       handlers
         .handle(
           "checkin",
-          authorizedSheetClusterDispatch("checkin", ({ payload }) =>
+          authorizedSheetWorkflowsDispatch("checkin", ({ payload }) =>
             requireGuild("monitor", payload.guildId),
           ),
         )
         .handle(
           "checkinButton",
-          authorizedSheetClusterDispatch("checkinButton", ({ payload }) =>
+          authorizedSheetWorkflowsDispatch("checkinButton", ({ payload }) =>
             Effect.gen(function* () {
               const user = yield* SheetAuthUser;
               yield* requireMessageCheckinParticipantMutation(payload.messageId, user.accountId);
@@ -761,25 +761,25 @@ const makeApiLayer = () => {
         )
         .handle(
           "roomOrder",
-          authorizedSheetClusterDispatch("roomOrder", ({ payload }) =>
+          authorizedSheetWorkflowsDispatch("roomOrder", ({ payload }) =>
             requireGuild("monitor", payload.guildId),
           ),
         )
         .handle(
           "kickout",
-          authorizedSheetClusterDispatch("kickout", ({ payload }) =>
+          authorizedSheetWorkflowsDispatch("kickout", ({ payload }) =>
             requireGuild("monitor", payload.guildId),
           ),
         )
         .handle(
           "slotButton",
-          authorizedSheetClusterDispatch("slotButton", ({ payload }) =>
+          authorizedSheetWorkflowsDispatch("slotButton", ({ payload }) =>
             requireGuild("monitor", payload.guildId),
           ),
         )
         .handle(
           "slotList",
-          authorizedSheetClusterDispatch("slotList", ({ payload }) =>
+          authorizedSheetWorkflowsDispatch("slotList", ({ payload }) =>
             payload.messageType === "persistent"
               ? requireGuild("monitor", payload.guildId)
               : Effect.void,
@@ -787,81 +787,84 @@ const makeApiLayer = () => {
         )
         .handle(
           "slotOpenButton",
-          authorizedSheetClusterDispatch("slotOpenButton", ({ payload }) =>
+          authorizedSheetWorkflowsDispatch("slotOpenButton", ({ payload }) =>
             requireMessageSlotRead(payload.messageId),
           ),
         )
-        .handle("serviceStatus", authorizedSheetClusterDispatch("serviceStatus", requireNonService))
-        .handle("guildWelcome", authorizedSheetClusterDispatch("guildWelcome", requireService))
+        .handle(
+          "serviceStatus",
+          authorizedSheetWorkflowsDispatch("serviceStatus", requireNonService),
+        )
+        .handle("guildWelcome", authorizedSheetWorkflowsDispatch("guildWelcome", requireService))
         .handle(
           "channelListConfig",
-          authorizedSheetClusterDispatch("channelListConfig", ({ payload }) =>
+          authorizedSheetWorkflowsDispatch("channelListConfig", ({ payload }) =>
             requireGuildSnapshot("manage", payload.guildId),
           ),
         )
         .handle(
           "channelSet",
-          authorizedSheetClusterDispatch("channelSet", ({ payload }) =>
+          authorizedSheetWorkflowsDispatch("channelSet", ({ payload }) =>
             requireGuildSnapshot("manage", payload.guildId),
           ),
         )
         .handle(
           "channelUnset",
-          authorizedSheetClusterDispatch("channelUnset", ({ payload }) =>
+          authorizedSheetWorkflowsDispatch("channelUnset", ({ payload }) =>
             requireGuildSnapshot("manage", payload.guildId),
           ),
         )
         .handle(
           "serverListConfig",
-          authorizedSheetClusterDispatch("serverListConfig", ({ payload }) =>
+          authorizedSheetWorkflowsDispatch("serverListConfig", ({ payload }) =>
             requireGuildSnapshot("manage", payload.guildId),
           ),
         )
         .handle(
           "serverAddMonitorRole",
-          authorizedSheetClusterDispatch("serverAddMonitorRole", ({ payload }) =>
+          authorizedSheetWorkflowsDispatch("serverAddMonitorRole", ({ payload }) =>
             requireGuildSnapshot("manage", payload.guildId),
           ),
         )
         .handle(
           "serverRemoveMonitorRole",
-          authorizedSheetClusterDispatch("serverRemoveMonitorRole", ({ payload }) =>
+          authorizedSheetWorkflowsDispatch("serverRemoveMonitorRole", ({ payload }) =>
             requireGuildSnapshot("manage", payload.guildId),
           ),
         )
         .handle(
           "serverSetSheet",
-          authorizedSheetClusterDispatch("serverSetSheet", ({ payload }) =>
+          authorizedSheetWorkflowsDispatch("serverSetSheet", ({ payload }) =>
             requireGuildSnapshot("manage", payload.guildId),
           ),
         )
         .handle(
           "serverSetAutoCheckin",
-          authorizedSheetClusterDispatch("serverSetAutoCheckin", ({ payload }) =>
+          authorizedSheetWorkflowsDispatch("serverSetAutoCheckin", ({ payload }) =>
             requireGuildSnapshot("manage", payload.guildId),
           ),
         )
         .handle(
           "teamList",
-          authorizedSheetClusterDispatch("teamList", ({ payload }) =>
+          authorizedSheetWorkflowsDispatch("teamList", ({ payload }) =>
             requireSelfOrMonitorSnapshot(payload.guildId, payload.targetUserId),
           ),
         )
         .handle(
           "scheduleList",
-          authorizedSheetClusterDispatch("scheduleList", ({ payload }) =>
+          authorizedSheetWorkflowsDispatch("scheduleList", ({ payload }) =>
             requireSelfOrMonitorSnapshot(payload.guildId, payload.targetUserId),
           ),
         )
         .handle(
           "screenshot",
-          authorizedSheetClusterDispatch("screenshot", ({ payload }) =>
+          authorizedSheetWorkflowsDispatch("screenshot", ({ payload }) =>
             requireGuildSnapshot("monitor", payload.guildId),
           ),
         )
         .handle(
           DispatchRoomOrderButtonMethods.previous.endpointName,
-          authorizedSheetClusterDispatch(
+          authorizedSheetWorkflowsDispatch(
             DispatchRoomOrderButtonMethods.previous.endpointName,
             ({ payload }) =>
               roomOrderButtonProxyAuthorizers[DispatchRoomOrderButtonMethods.previous.endpointName](
@@ -871,7 +874,7 @@ const makeApiLayer = () => {
         )
         .handle(
           DispatchRoomOrderButtonMethods.next.endpointName,
-          authorizedSheetClusterDispatch(
+          authorizedSheetWorkflowsDispatch(
             DispatchRoomOrderButtonMethods.next.endpointName,
             ({ payload }) =>
               roomOrderButtonProxyAuthorizers[DispatchRoomOrderButtonMethods.next.endpointName](
@@ -881,7 +884,7 @@ const makeApiLayer = () => {
         )
         .handle(
           DispatchRoomOrderButtonMethods.send.endpointName,
-          authorizedSheetClusterDispatch(
+          authorizedSheetWorkflowsDispatch(
             DispatchRoomOrderButtonMethods.send.endpointName,
             ({ payload }) =>
               roomOrderButtonProxyAuthorizers[DispatchRoomOrderButtonMethods.send.endpointName](
@@ -891,7 +894,7 @@ const makeApiLayer = () => {
         )
         .handle(
           DispatchRoomOrderButtonMethods.pinTentative.endpointName,
-          authorizedSheetClusterDispatch(
+          authorizedSheetWorkflowsDispatch(
             DispatchRoomOrderButtonMethods.pinTentative.endpointName,
             ({ payload }) =>
               roomOrderButtonProxyAuthorizers[
@@ -1380,7 +1383,7 @@ const makeApiLayer = () => {
     MessageLookup.layer,
     SheetApisForwardingClient.layer,
     SheetApisRpcTokens.layer,
-    SheetClusterForwardingClient.layer,
+    SheetWorkflowsForwardingClient.layer,
     SheetBotForwardingClient.layer,
     ServiceStatusService.layer,
   );

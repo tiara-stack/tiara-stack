@@ -6,10 +6,10 @@ import { discordGatewayLayer } from "../discord/gateway";
 import { CommandHelper, InteractionResponse } from "dfx-discord-utils/utils";
 import { Interaction } from "dfx-discord-utils/utils";
 import { InteractionToken } from "dfx-discord-utils/utils";
-import { SheetClusterClient, SheetClusterRequestContext } from "../services";
+import { SheetWorkflowsClient, SheetWorkflowsRequestContext } from "../services";
 import { discordApplicationLayer } from "../discord/application";
 import { interactionDeadlineEpochMs } from "../utils/interactionDeadline";
-import { runSheetClusterDispatch } from "../utils/sheetClusterDispatch";
+import { runSheetWorkflowsDispatch } from "../utils/sheetWorkflowsDispatch";
 
 const getInteractionGuildId = Effect.gen(function* () {
   const interactionGuild = yield* Interaction.guild();
@@ -28,7 +28,7 @@ const getInteractionChannelId = Effect.gen(function* () {
 });
 
 const makeManualSubCommand = Effect.gen(function* () {
-  const sheetClusterClient = yield* SheetClusterClient;
+  const sheetWorkflowsClient = yield* SheetWorkflowsClient;
 
   return yield* CommandHelper.makeSubCommand(
     (builder) =>
@@ -62,11 +62,11 @@ const makeManualSubCommand = Effect.gen(function* () {
         : Option.getOrThrow(yield* getInteractionChannelId);
       const interactionToken = yield* InteractionToken;
       const interaction = yield* Ix.Interaction;
-      yield* runSheetClusterDispatch(
+      yield* runSheetWorkflowsDispatch(
         response,
         "the kickout",
-        SheetClusterRequestContext.asInteractionUser(() =>
-          sheetClusterClient.get().dispatch.kickout({
+        SheetWorkflowsRequestContext.asInteractionUser(() =>
+          sheetWorkflowsClient.get().dispatch.kickout({
             payload: {
               dispatchRequestId: `discord-interaction:${interaction.id}`,
               guildId,
@@ -130,6 +130,6 @@ export const kickoutCommandLayer = Layer.effectDiscard(
   }),
 ).pipe(
   Layer.provide(
-    Layer.mergeAll(discordGatewayLayer, discordApplicationLayer, SheetClusterClient.layer),
+    Layer.mergeAll(discordGatewayLayer, discordApplicationLayer, SheetWorkflowsClient.layer),
   ),
 );

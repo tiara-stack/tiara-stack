@@ -38,7 +38,7 @@ spec:
         fsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
-      serviceAccountName: {{ if eq $svc.key "sheetCluster" }}{{ include "tiara-stack.sheetClusterName" $root }}{{ else }}{{ $svc.name }}{{ end }}
+      serviceAccountName: {{ if eq $svc.key "sheetWorkflows" }}{{ include "tiara-stack.sheetWorkflowsName" $root }}{{ else }}{{ $svc.name }}{{ end }}
       automountServiceAccountToken: false
       {{- if eq $svc.name "sheet-ingress-server" }}
       terminationGracePeriodSeconds: 30

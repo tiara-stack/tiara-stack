@@ -1,0 +1,56 @@
+{
+  "name": "sheet-workflows",
+  "version": "0.0.0",
+  "private": true,
+  "keywords": [],
+  "author": "",
+  "files": [
+    "./dist/**"
+  ],
+  "type": "module",
+  "sideEffects": [],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "format": "vp fmt --check",
+    "format:apply": "vp fmt",
+    "lint": "vp lint src",
+    "test": "vp test run",
+    "test:watch": "vp test",
+    "build": "vp pack && tar -acf dist.tar.zst ./dist"
+  },
+  "dependencies": {
+    "@effect/sql-pg": "catalog:",
+    "@opentelemetry/exporter-prometheus": "^0.207.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.207.0",
+    "@opentelemetry/sdk-metrics": "^2.2.0",
+    "@opentelemetry/sdk-trace-base": "^2.2.0",
+    "dfx-discord-utils": "workspace:*",
+    "sheet-auth": "workspace:*",
+    "sheet-ingress-api": "workspace:*",
+    "typhoon-core": "workspace:*",
+    "typhoon-zero": "workspace:*"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "@types/node": "^24.10.9",
+    "@typescript/native-preview": "latest",
+    "dotenv": "^17.2.3",
+    "glob": "^11.0.1",
+    "pathe": "^2.0.3",
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
+    "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "@effect/opentelemetry": "catalog:",
+    "@effect/platform-node": "catalog:",
+    "dfx": "catalog:",
+    "effect": "catalog:"
+  }
+}

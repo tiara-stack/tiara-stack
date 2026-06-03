@@ -56,8 +56,8 @@ app.kubernetes.io/instance: {{ .root.Release.Name }}
 {{- default "zero-cache" .Values.zeroCache.nameOverride -}}
 {{- end -}}
 
-{{- define "tiara-stack.sheetClusterName" -}}
-{{- default "sheet-cluster" .Values.services.sheetCluster.nameOverride -}}
+{{- define "tiara-stack.sheetWorkflowsName" -}}
+{{- default "sheet-workflows" .Values.services.sheetWorkflows.nameOverride -}}
 {{- end -}}
 
 {{- define "tiara-stack.sheetApisName" -}}
@@ -120,7 +120,7 @@ imagePullSecrets:
   "sheetApis" "sheet-apis-secret"
   "sheetApisGoogleServiceAccount" "sheet-apis-secret-path"
   "sheetBot" "sheet-bot-secret"
-  "sheetCluster" "sheet-cluster-secret"
+  "sheetWorkflows" "sheet-workflows-secret"
   "sheetDbServer" "sdbs-secret"
   "sheetIngressServer" "sheet-ingress-server-secret"
   "sheetWeb" "sheet-web-secret"
@@ -179,7 +179,7 @@ imagePullSecrets:
       port: sheet-auth-svc
     - app: sheet-bot
       port: sheet-auth-svc
-    - app: sheet-cluster
+    - app: sheet-workflows
       port: sheet-auth-svc
     - app: sheet-ingress-server
       port: sheet-auth-svc
@@ -273,31 +273,31 @@ imagePullSecrets:
     - path: kubernetes-jwks-token
     - path: sheet-auth-token
       audience: sheet-auth
-- key: sheetCluster
-  name: sheet-cluster
-  portName: cluster-svc
-  metricPortName: cluster-met
-  secretName: sheet-cluster-secret
+- key: sheetWorkflows
+  name: sheet-workflows
+  portName: workflows-svc
+  metricPortName: workflows-met
+  secretName: sheet-workflows-secret
   servicePorts:
-    - name: cluster-svc
+    - name: workflows-svc
       port: 80
-      targetPort: cluster-svc
-    - name: cluster-met
+      targetPort: workflows-svc
+    - name: workflows-met
       port: 9464
-      targetPort: cluster-met
+      targetPort: workflows-met
   extraServices:
-    - name: sheet-cluster-runner
+    - name: sheet-workflows-runner
       headless: true
       ports:
-        - name: cluster-rpc
+        - name: workflows-rpc
           port: 34431
-          targetPort: cluster-rpc
+          targetPort: workflows-rpc
   containerPorts:
-    - name: cluster-svc
+    - name: workflows-svc
       containerPort: 3000
-    - name: cluster-rpc
+    - name: workflows-rpc
       containerPort: 34431
-    - name: cluster-met
+    - name: workflows-met
       containerPort: 9464
   env:
     - name: POD_NAMESPACE
@@ -306,18 +306,18 @@ imagePullSecrets:
       secretKey: otelExporterOtlpEndpoint
     - name: POSTGRES_URL
       secretKey: postgresUrl
-    - name: CLUSTER_RUNNER_HOST
+    - name: WORKFLOWS_RUNNER_HOST
       fieldPath: status.podIP
-    - name: CLUSTER_RUNNER_PORT
+    - name: WORKFLOWS_RUNNER_PORT
       value: "34431"
-    - name: CLUSTER_RUNNER_LISTEN_HOST
+    - name: WORKFLOWS_RUNNER_LISTEN_HOST
       value: "0.0.0.0"
-    - name: CLUSTER_RUNNER_LISTEN_PORT
+    - name: WORKFLOWS_RUNNER_LISTEN_PORT
       value: "34431"
     - name: SHEET_AUTH_ISSUER
       secretKey: sheetAuthIssuer
     - name: SHEET_INGRESS_KUBERNETES_AUDIENCE
-      value: sheet-cluster
+      value: sheet-workflows
     - name: SHEET_INGRESS_BASE_URL
       secretKey: sheetIngressBaseUrl
     - name: SERVICE_ACCOUNT_JWKS_AUTH_TOKEN_PATH
@@ -328,9 +328,9 @@ imagePullSecrets:
       audience: sheet-auth
   networkPolicyFrom:
     - app: sheet-ingress-server
-      port: cluster-svc
+      port: workflows-svc
   networkPolicySelf:
-    - port: cluster-rpc
+    - port: workflows-rpc
 - key: sheetDbServer
   name: sheet-db-server
   portName: sdbs-svc
@@ -376,8 +376,8 @@ imagePullSecrets:
       secretKey: otelExporterOtlpEndpoint
     - name: SHEET_APIS_BASE_URL
       secretKey: sheetApisBaseUrl
-    - name: SHEET_CLUSTER_BASE_URL
-      secretKey: sheetClusterBaseUrl
+    - name: SHEET_WORKFLOWS_BASE_URL
+      secretKey: sheetWorkflowsBaseUrl
     - name: SHEET_BOT_BASE_URL
       secretKey: sheetBotBaseUrl
     - name: SHEET_AUTH_ISSUER
@@ -389,8 +389,8 @@ imagePullSecrets:
       audience: sheet-auth
     - path: sheet-apis-token
       audience: sheet-apis
-    - path: sheet-cluster-token
-      audience: sheet-cluster
+    - path: sheet-workflows-token
+      audience: sheet-workflows
     - path: sheet-bot-token
       audience: sheet-bot
   networkPolicyFrom:
@@ -398,7 +398,7 @@ imagePullSecrets:
       port: ingress-svc
     - app: sheet-bot
       port: ingress-svc
-    - app: sheet-cluster
+    - app: sheet-workflows
       port: ingress-svc
 - key: sheetWeb
   name: sheet-web

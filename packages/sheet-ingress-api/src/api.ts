@@ -21,7 +21,7 @@ import {
   StatusApi,
 } from "./api-groups";
 import { SheetApisApi } from "./sheet-apis";
-import { SheetClusterApi } from "./sheet-cluster";
+import { SheetWorkflowsApi } from "./sheet-workflows";
 
 const withIngressApiAnnotations = <Id extends string, Groups extends HttpApiGroup.Any>(
   api: HttpApi.HttpApi<Id, Groups>,
@@ -74,5 +74,5 @@ const ApiBase = withIngressApiAnnotations(
 export class Api extends ApiBase {}
 
 export { SheetApisApi };
-export { SheetClusterApi };
+export { SheetWorkflowsApi };
 export { SheetIngressDiscordApiBase as SheetIngressDiscordApi };

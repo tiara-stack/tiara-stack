@@ -17,7 +17,7 @@ import {
   sendButtonData,
   tentativePinButtonData,
 } from "./roomOrderComponents";
-import { SheetClusterClient, SheetClusterRequestContext } from "@/services";
+import { SheetWorkflowsClient, SheetWorkflowsRequestContext } from "@/services";
 import { discordApplicationLayer } from "../../discord/application";
 import {
   DispatchRoomOrderButtonMethods,
@@ -70,12 +70,12 @@ const makeRoomOrderButtonPayload = Effect.fn("roomOrderButton.makePayload")(func
 
 const makeRoomOrderRankButtonHandler = (action: "previous" | "next") =>
   Effect.gen(function* () {
-    const sheetClusterClient = yield* SheetClusterClient;
+    const sheetWorkflowsClient = yield* SheetWorkflowsClient;
     const buttonData = action === "previous" ? previousButtonData : nextButtonData;
 
     return yield* makeButton(
       buttonData.toJSON(),
-      SheetClusterRequestContext.asInteractionUser(
+      SheetWorkflowsRequestContext.asInteractionUser(
         Effect.fn(`roomOrder${action}Button`)(function* () {
           const response = yield* MessageComponentInteractionResponse;
           const message = Option.getOrThrowWith(
@@ -92,11 +92,11 @@ const makeRoomOrderRankButtonHandler = (action: "previous" | "next") =>
 
           const payload = yield* makeRoomOrderButtonPayload(isTentative ? "reply" : "update");
           if (action === "previous") {
-            yield* sheetClusterClient
+            yield* sheetWorkflowsClient
               .get()
               .dispatch[DispatchRoomOrderButtonMethods.previous.endpointName](payload);
           } else {
-            yield* sheetClusterClient
+            yield* sheetWorkflowsClient
               .get()
               .dispatch[DispatchRoomOrderButtonMethods.next.endpointName](payload);
           }
@@ -106,16 +106,16 @@ const makeRoomOrderRankButtonHandler = (action: "previous" | "next") =>
   });
 
 const makeRoomOrderSendButtonHandler = Effect.gen(function* () {
-  const sheetClusterClient = yield* SheetClusterClient;
+  const sheetWorkflowsClient = yield* SheetWorkflowsClient;
 
   return yield* makeButton(
     sendButtonData.toJSON(),
-    SheetClusterRequestContext.asInteractionUser(
+    SheetWorkflowsRequestContext.asInteractionUser(
       Effect.fn("roomOrderSendButton")(function* () {
         const response = yield* MessageComponentInteractionResponse;
         yield* response.deferUpdate({ flags: MessageFlags.Ephemeral });
         const payload = yield* makeRoomOrderButtonPayload();
-        yield* sheetClusterClient
+        yield* sheetWorkflowsClient
           .get()
           .dispatch[DispatchRoomOrderButtonMethods.send.endpointName](payload);
       }),
@@ -124,16 +124,16 @@ const makeRoomOrderSendButtonHandler = Effect.gen(function* () {
 });
 
 const makeTentativeRoomOrderPinButtonHandler = Effect.gen(function* () {
-  const sheetClusterClient = yield* SheetClusterClient;
+  const sheetWorkflowsClient = yield* SheetWorkflowsClient;
 
   return yield* makeButton(
     tentativePinButtonData.toJSON(),
-    SheetClusterRequestContext.asInteractionUser(
+    SheetWorkflowsRequestContext.asInteractionUser(
       Effect.fn("roomOrderTentativePinButton")(function* () {
         const response = yield* MessageComponentInteractionResponse;
         yield* response.deferReply({ flags: MessageFlags.Ephemeral });
         const payload = yield* makeRoomOrderButtonPayload();
-        yield* sheetClusterClient
+        yield* sheetWorkflowsClient
           .get()
           .dispatch[DispatchRoomOrderButtonMethods.pinTentative.endpointName](payload);
       }),
@@ -176,6 +176,6 @@ export const roomOrderButtonLayer = Layer.effectDiscard(
   }),
 ).pipe(
   Layer.provide(
-    Layer.mergeAll(discordGatewayLayer, discordApplicationLayer, SheetClusterClient.layer),
+    Layer.mergeAll(discordGatewayLayer, discordApplicationLayer, SheetWorkflowsClient.layer),
   ),
 );

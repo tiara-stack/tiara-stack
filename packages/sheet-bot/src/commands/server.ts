@@ -5,7 +5,7 @@ import { Effect, Layer } from "effect";
 import { CommandHelper, InteractionResponse } from "dfx-discord-utils/utils";
 import { discordGatewayLayer } from "../discord/gateway";
 import { discordApplicationLayer } from "../discord/application";
-import { SheetClusterClient, SheetClusterRequestContext } from "../services";
+import { SheetWorkflowsClient, SheetWorkflowsRequestContext } from "../services";
 import {
   makeDispatchBase,
   requireBoolean,
@@ -13,17 +13,17 @@ import {
   requireString,
   resolveGuildId,
 } from "../utils/commandHelpers";
-import { runSheetClusterDispatch } from "../utils/sheetClusterDispatch";
+import { runSheetWorkflowsDispatch } from "../utils/sheetWorkflowsDispatch";
 
 const dispatchServerCommand = <A, E, R>(operation: string, effect: Effect.Effect<A, E, R>) =>
   Effect.gen(function* () {
     const response = yield* InteractionResponse;
     yield* response.deferReply();
-    yield* runSheetClusterDispatch(response, operation, effect);
+    yield* runSheetWorkflowsDispatch(response, operation, effect);
   });
 
 const makeListConfigSubCommand = Effect.gen(function* () {
-  const sheetClusterClient = yield* SheetClusterClient;
+  const sheetWorkflowsClient = yield* SheetWorkflowsClient;
 
   return yield* CommandHelper.makeSubCommand(
     (builder) =>
@@ -37,10 +37,10 @@ const makeListConfigSubCommand = Effect.gen(function* () {
       const base = yield* makeDispatchBase;
       yield* dispatchServerCommand(
         "the server config list",
-        SheetClusterRequestContext.asInteractionUser(() =>
+        SheetWorkflowsRequestContext.asInteractionUser(() =>
           Effect.gen(function* () {
             const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
-            return yield* sheetClusterClient.get().dispatch.serverListConfig({
+            return yield* sheetWorkflowsClient.get().dispatch.serverListConfig({
               payload: { ...base, guildId },
             });
           }),
@@ -51,7 +51,7 @@ const makeListConfigSubCommand = Effect.gen(function* () {
 });
 
 const makeAddMonitorRoleSubCommand = Effect.gen(function* () {
-  const sheetClusterClient = yield* SheetClusterClient;
+  const sheetWorkflowsClient = yield* SheetWorkflowsClient;
 
   return yield* CommandHelper.makeSubCommand(
     (builder) =>
@@ -69,10 +69,10 @@ const makeAddMonitorRoleSubCommand = Effect.gen(function* () {
       const base = yield* makeDispatchBase;
       yield* dispatchServerCommand(
         "the monitor role add",
-        SheetClusterRequestContext.asInteractionUser(() =>
+        SheetWorkflowsRequestContext.asInteractionUser(() =>
           Effect.gen(function* () {
             const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
-            return yield* sheetClusterClient.get().dispatch.serverAddMonitorRole({
+            return yield* sheetWorkflowsClient.get().dispatch.serverAddMonitorRole({
               payload: { ...base, guildId, roleId },
             });
           }),
@@ -99,7 +99,7 @@ const makeAddCommandGroup = Effect.gen(function* () {
 });
 
 const makeRemoveMonitorRoleSubCommand = Effect.gen(function* () {
-  const sheetClusterClient = yield* SheetClusterClient;
+  const sheetWorkflowsClient = yield* SheetWorkflowsClient;
 
   return yield* CommandHelper.makeSubCommand(
     (builder) =>
@@ -119,10 +119,10 @@ const makeRemoveMonitorRoleSubCommand = Effect.gen(function* () {
       const base = yield* makeDispatchBase;
       yield* dispatchServerCommand(
         "the monitor role removal",
-        SheetClusterRequestContext.asInteractionUser(() =>
+        SheetWorkflowsRequestContext.asInteractionUser(() =>
           Effect.gen(function* () {
             const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
-            return yield* sheetClusterClient.get().dispatch.serverRemoveMonitorRole({
+            return yield* sheetWorkflowsClient.get().dispatch.serverRemoveMonitorRole({
               payload: { ...base, guildId, roleId },
             });
           }),
@@ -149,7 +149,7 @@ const makeRemoveCommandGroup = Effect.gen(function* () {
 });
 
 const makeSetSheetSubCommand = Effect.gen(function* () {
-  const sheetClusterClient = yield* SheetClusterClient;
+  const sheetWorkflowsClient = yield* SheetWorkflowsClient;
 
   return yield* CommandHelper.makeSubCommand(
     (builder) =>
@@ -167,10 +167,10 @@ const makeSetSheetSubCommand = Effect.gen(function* () {
       const base = yield* makeDispatchBase;
       yield* dispatchServerCommand(
         "the server sheet update",
-        SheetClusterRequestContext.asInteractionUser(() =>
+        SheetWorkflowsRequestContext.asInteractionUser(() =>
           Effect.gen(function* () {
             const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
-            return yield* sheetClusterClient.get().dispatch.serverSetSheet({
+            return yield* sheetWorkflowsClient.get().dispatch.serverSetSheet({
               payload: { ...base, guildId, sheetId },
             });
           }),
@@ -181,7 +181,7 @@ const makeSetSheetSubCommand = Effect.gen(function* () {
 });
 
 const makeSetAutoCheckinSubCommand = Effect.gen(function* () {
-  const sheetClusterClient = yield* SheetClusterClient;
+  const sheetWorkflowsClient = yield* SheetWorkflowsClient;
 
   return yield* CommandHelper.makeSubCommand(
     (builder) =>
@@ -205,10 +205,10 @@ const makeSetAutoCheckinSubCommand = Effect.gen(function* () {
       const base = yield* makeDispatchBase;
       yield* dispatchServerCommand(
         "the server auto check-in update",
-        SheetClusterRequestContext.asInteractionUser(() =>
+        SheetWorkflowsRequestContext.asInteractionUser(() =>
           Effect.gen(function* () {
             const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
-            return yield* sheetClusterClient.get().dispatch.serverSetAutoCheckin({
+            return yield* sheetWorkflowsClient.get().dispatch.serverSetAutoCheckin({
               payload: { ...base, guildId, autoCheckin },
             });
           }),
@@ -286,6 +286,6 @@ export const serverCommandLayer = Layer.effectDiscard(
   }),
 ).pipe(
   Layer.provide(
-    Layer.mergeAll(discordGatewayLayer, discordApplicationLayer, SheetClusterClient.layer),
+    Layer.mergeAll(discordGatewayLayer, discordApplicationLayer, SheetWorkflowsClient.layer),
   ),
 );

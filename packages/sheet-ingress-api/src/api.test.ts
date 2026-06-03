@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
-import { Api, SheetApisApi, SheetClusterApi } from "./api";
+import { Api, SheetApisApi, SheetWorkflowsApi } from "./api";
 import { DispatchAcceptedResult } from "./handlers/dispatch/schema";
-import { SheetClusterRpcs } from "./sheet-cluster-rpc";
+import { SheetWorkflowsRpcs } from "./sheet-workflows-rpc";
 import { DispatchRoomOrderButtonMethods, SheetApisRpcs } from "./sheet-apis-rpc";
 
 const roomOrderButtonMethods = Object.values(DispatchRoomOrderButtonMethods);
@@ -21,7 +21,7 @@ describe("Api", () => {
     }
   });
 
-  it("keeps dispatch RPCs on sheet-cluster only", () => {
+  it("keeps dispatch RPCs on sheet-workflows only", () => {
     expect(SheetApisRpcs.requests.has("dispatch.checkin")).toBe(false);
     expect(SheetApisRpcs.requests.has("dispatch.checkinButton")).toBe(false);
     expect(SheetApisRpcs.requests.has("dispatch.roomOrder")).toBe(false);
@@ -30,29 +30,29 @@ describe("Api", () => {
     expect(SheetApisRpcs.requests.has("dispatch.slotList")).toBe(false);
     expect(SheetApisRpcs.requests.has("dispatch.slotOpenButton")).toBe(false);
     expect(SheetApisRpcs.requests.has("dispatch.guildWelcome")).toBe(false);
-    expect(SheetClusterRpcs.requests.has("dispatch.checkin")).toBe(true);
-    expect(SheetClusterRpcs.requests.has("dispatch.checkinDiscard")).toBe(true);
-    expect(SheetClusterRpcs.requests.has("dispatch.checkinButton")).toBe(true);
-    expect(SheetClusterRpcs.requests.has("dispatch.checkinButtonDiscard")).toBe(true);
-    expect(SheetClusterRpcs.requests.has("dispatch.roomOrder")).toBe(true);
-    expect(SheetClusterRpcs.requests.has("dispatch.roomOrderDiscard")).toBe(true);
-    expect(SheetClusterRpcs.requests.has("dispatch.kickout")).toBe(true);
-    expect(SheetClusterRpcs.requests.has("dispatch.kickoutDiscard")).toBe(true);
-    expect(SheetClusterRpcs.requests.has("dispatch.slotButton")).toBe(true);
-    expect(SheetClusterRpcs.requests.has("dispatch.slotButtonDiscard")).toBe(true);
-    expect(SheetClusterRpcs.requests.has("dispatch.slotList")).toBe(true);
-    expect(SheetClusterRpcs.requests.has("dispatch.slotListDiscard")).toBe(true);
-    expect(SheetClusterRpcs.requests.has("dispatch.slotOpenButton")).toBe(true);
-    expect(SheetClusterRpcs.requests.has("dispatch.slotOpenButtonDiscard")).toBe(true);
-    expect(SheetClusterRpcs.requests.has("dispatch.serviceStatus")).toBe(true);
-    expect(SheetClusterRpcs.requests.has("dispatch.serviceStatusDiscard")).toBe(true);
-    expect(SheetClusterRpcs.requests.has("dispatch.guildWelcome")).toBe(true);
-    expect(SheetClusterRpcs.requests.has("dispatch.guildWelcomeDiscard")).toBe(true);
+    expect(SheetWorkflowsRpcs.requests.has("dispatch.checkin")).toBe(true);
+    expect(SheetWorkflowsRpcs.requests.has("dispatch.checkinDiscard")).toBe(true);
+    expect(SheetWorkflowsRpcs.requests.has("dispatch.checkinButton")).toBe(true);
+    expect(SheetWorkflowsRpcs.requests.has("dispatch.checkinButtonDiscard")).toBe(true);
+    expect(SheetWorkflowsRpcs.requests.has("dispatch.roomOrder")).toBe(true);
+    expect(SheetWorkflowsRpcs.requests.has("dispatch.roomOrderDiscard")).toBe(true);
+    expect(SheetWorkflowsRpcs.requests.has("dispatch.kickout")).toBe(true);
+    expect(SheetWorkflowsRpcs.requests.has("dispatch.kickoutDiscard")).toBe(true);
+    expect(SheetWorkflowsRpcs.requests.has("dispatch.slotButton")).toBe(true);
+    expect(SheetWorkflowsRpcs.requests.has("dispatch.slotButtonDiscard")).toBe(true);
+    expect(SheetWorkflowsRpcs.requests.has("dispatch.slotList")).toBe(true);
+    expect(SheetWorkflowsRpcs.requests.has("dispatch.slotListDiscard")).toBe(true);
+    expect(SheetWorkflowsRpcs.requests.has("dispatch.slotOpenButton")).toBe(true);
+    expect(SheetWorkflowsRpcs.requests.has("dispatch.slotOpenButtonDiscard")).toBe(true);
+    expect(SheetWorkflowsRpcs.requests.has("dispatch.serviceStatus")).toBe(true);
+    expect(SheetWorkflowsRpcs.requests.has("dispatch.serviceStatusDiscard")).toBe(true);
+    expect(SheetWorkflowsRpcs.requests.has("dispatch.guildWelcome")).toBe(true);
+    expect(SheetWorkflowsRpcs.requests.has("dispatch.guildWelcomeDiscard")).toBe(true);
     expect(SheetApisRpcs.requests.has("status.getServices")).toBe(true);
     for (const method of roomOrderButtonMethods) {
       expect(SheetApisRpcs.requests.has(method.rpcTag)).toBe(false);
-      expect(SheetClusterRpcs.requests.has(method.rpcTag)).toBe(true);
-      expect(SheetClusterRpcs.requests.has(`${method.rpcTag}Discard`)).toBe(true);
+      expect(SheetWorkflowsRpcs.requests.has(method.rpcTag)).toBe(true);
+      expect(SheetWorkflowsRpcs.requests.has(`${method.rpcTag}Discard`)).toBe(true);
     }
     expect(SheetApisRpcs.requests.has("checkin.dispatch")).toBe(false);
     expect(SheetApisRpcs.requests.has("checkin.handleButton")).toBe(false);
@@ -62,12 +62,12 @@ describe("Api", () => {
 
   it("keeps split room-order button HTTP endpoint paths aligned with RPC names", () => {
     expect(SheetApisApi.groups).not.toHaveProperty("dispatch");
-    expect(SheetClusterApi.groups).toHaveProperty("dispatch");
+    expect(SheetWorkflowsApi.groups).toHaveProperty("dispatch");
     expect(Api.groups).toHaveProperty("dispatch");
 
     for (const method of roomOrderButtonMethods) {
-      expect(SheetClusterRpcs.requests.has(method.rpcTag)).toBe(true);
-      expect(SheetClusterApi.groups.dispatch.endpoints[method.endpointName]).toMatchObject({
+      expect(SheetWorkflowsRpcs.requests.has(method.rpcTag)).toBe(true);
+      expect(SheetWorkflowsApi.groups.dispatch.endpoints[method.endpointName]).toMatchObject({
         method: "POST",
         name: method.endpointName,
         path: method.path,
@@ -79,17 +79,17 @@ describe("Api", () => {
       });
     }
 
-    expect(SheetClusterApi.groups.dispatch.endpoints.slotOpenButton).toMatchObject({
+    expect(SheetWorkflowsApi.groups.dispatch.endpoints.slotOpenButton).toMatchObject({
       method: "POST",
       name: "slotOpenButton",
       path: "/dispatch/slot/buttons/open",
     });
-    expect(SheetClusterApi.groups.dispatch.endpoints.serviceStatus).toMatchObject({
+    expect(SheetWorkflowsApi.groups.dispatch.endpoints.serviceStatus).toMatchObject({
       method: "POST",
       name: "serviceStatus",
       path: "/dispatch/status/services",
     });
-    expect(SheetClusterApi.groups.dispatch.endpoints.guildWelcome).toMatchObject({
+    expect(SheetWorkflowsApi.groups.dispatch.endpoints.guildWelcome).toMatchObject({
       method: "POST",
       name: "guildWelcome",
       path: "/dispatch/guild/welcome",
@@ -121,7 +121,7 @@ describe("Api", () => {
   });
 
   it("declares workflow discard RPCs as returning execution ids", () => {
-    const discardRpc = SheetClusterRpcs.requests.get("dispatch.serviceStatusDiscard");
+    const discardRpc = SheetWorkflowsRpcs.requests.get("dispatch.serviceStatusDiscard");
 
     expect(discardRpc).toBeDefined();
     expect(Schema.decodeUnknownSync(discardRpc!.successSchema)("execution-id")).toBe(

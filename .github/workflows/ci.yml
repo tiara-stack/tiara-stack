@@ -110,11 +110,11 @@ jobs:
           path: packages/sheet-apis/dist.tar.zst
           if-no-files-found: error
 
-      - name: Upload Docker build artifact (sheet-cluster)
+      - name: Upload Docker build artifact (sheet-workflows)
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: docker-dist-sheet-cluster
-          path: packages/sheet-cluster/dist.tar.zst
+          name: docker-dist-sheet-workflows
+          path: packages/sheet-workflows/dist.tar.zst
           if-no-files-found: error
 
       - name: Upload Docker build artifact (sheet-bot)
@@ -155,7 +155,7 @@ jobs:
             cache_mode: max
           - package: sheet-apis
             cache_mode: min
-          - package: sheet-cluster
+          - package: sheet-workflows
             cache_mode: min
           - package: sheet-bot
             cache_mode: max

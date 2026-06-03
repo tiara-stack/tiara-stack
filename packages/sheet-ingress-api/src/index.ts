@@ -1,6 +1,6 @@
 export * from "./api";
 export * from "./discordComponents";
 export { SheetApisRpcs } from "./sheet-apis-rpc";
-export { SheetClusterRpcs } from "./sheet-cluster-rpc";
-export * from "./sheet-cluster-workflows";
+export { SheetWorkflowsRpcs } from "./sheet-workflows-rpc";
+export * from "./sheet-workflows-workflows";
 export { DispatchApi } from "./handlers/dispatch/api";

@@ -292,11 +292,11 @@ services:
       - -ec
       - export REDIS_URL="redis://default:$$(cat /run/secrets/redis_password)@redis:6379"; exec node --use-openssl-ca --enable-source-maps ./dist/main.mjs
 
-  sheet-cluster:
+  sheet-workflows:
     <<: *app-common
     build:
-      context: ./packages/sheet-cluster
-    image: tiara-stack/sheet-cluster:local
+      context: ./packages/sheet-workflows
+    image: tiara-stack/sheet-workflows:local
     depends_on:
       postgres:
         condition: service_healthy
@@ -311,18 +311,18 @@ services:
     environment:
       <<: *local-service-account-env
       POD_NAMESPACE: tiara-local
-      CLUSTER_RUNNER_HOST: "sheet-cluster"
-      CLUSTER_RUNNER_PORT: "34431"
-      CLUSTER_RUNNER_LISTEN_HOST: 0.0.0.0
-      CLUSTER_RUNNER_LISTEN_PORT: "34431"
+      WORKFLOWS_RUNNER_HOST: "sheet-workflows"
+      WORKFLOWS_RUNNER_PORT: "34431"
+      WORKFLOWS_RUNNER_LISTEN_HOST: 0.0.0.0
+      WORKFLOWS_RUNNER_LISTEN_PORT: "34431"
       SHEET_AUTH_ISSUER: "http://sheet-auth:3000"
-      SHEET_INGRESS_KUBERNETES_AUDIENCE: "sheet-cluster"
+      SHEET_INGRESS_KUBERNETES_AUDIENCE: "sheet-workflows"
       SHEET_INGRESS_BASE_URL: "http://sheet-ingress-server:3000"
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://local-otel-sink:4318}
     secrets:
       - postgres_password
     volumes:
-      - ./deploy/compose/secrets/sheet-cluster-sheet-auth-token:/var/run/secrets/tokens/sheet-auth-token:ro
+      - ./deploy/compose/secrets/sheet-workflows-sheet-auth-token:/var/run/secrets/tokens/sheet-auth-token:ro
     command:
       - sh
       - -ec
@@ -346,7 +346,7 @@ services:
       - "3000:3000"
     environment:
       SHEET_APIS_BASE_URL: "http://sheet-apis:3000"
-      SHEET_CLUSTER_BASE_URL: "http://sheet-cluster:3000"
+      SHEET_WORKFLOWS_BASE_URL: "http://sheet-workflows:3000"
       SHEET_BOT_BASE_URL: "http://sheet-bot:3000"
       SHEET_AUTH_ISSUER: "http://sheet-auth:3000"
       TRUSTED_ORIGINS: "${TRUSTED_ORIGINS:-http://localhost:3001,http://localhost:3000,http://localhost:3002}"
@@ -355,7 +355,7 @@ services:
       - ./deploy/compose/secrets/sheet-ingress-sheet-auth-token:/var/run/secrets/tokens/sheet-auth-token:ro
       - ./deploy/compose/secrets/sheet-ingress-sheet-apis-token:/var/run/secrets/tokens/sheet-apis-token:ro
       - ./deploy/compose/secrets/sheet-ingress-sheet-bot-token:/var/run/secrets/tokens/sheet-bot-token:ro
-      - ./deploy/compose/secrets/sheet-ingress-sheet-cluster-token:/var/run/secrets/tokens/sheet-cluster-token:ro
+      - ./deploy/compose/secrets/sheet-ingress-sheet-workflows-token:/var/run/secrets/tokens/sheet-workflows-token:ro
     command:
       - sh
       - -ec

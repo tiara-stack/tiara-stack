@@ -4,7 +4,7 @@ import { ApplicationIntegrationType, InteractionContextType } from "discord-api-
 import { Effect, Layer, Option } from "effect";
 import { discordGatewayLayer } from "../discord/gateway";
 import { CommandHelper, InteractionResponse } from "dfx-discord-utils/utils";
-import { SheetClusterClient, SheetClusterRequestContext } from "../services";
+import { SheetWorkflowsClient, SheetWorkflowsRequestContext } from "../services";
 import { discordApplicationLayer } from "../discord/application";
 import {
   getInteractionUser,
@@ -12,10 +12,10 @@ import {
   resolveGuildId,
   toDiscordUserIdentity,
 } from "../utils/commandHelpers";
-import { runSheetClusterDispatch } from "../utils/sheetClusterDispatch";
+import { runSheetWorkflowsDispatch } from "../utils/sheetWorkflowsDispatch";
 
 const makeListSubCommand = Effect.gen(function* () {
-  const sheetClusterClient = yield* SheetClusterClient;
+  const sheetWorkflowsClient = yield* SheetWorkflowsClient;
 
   return yield* CommandHelper.makeSubCommand(
     (builder) =>
@@ -40,11 +40,11 @@ const makeListSubCommand = Effect.gen(function* () {
       );
       const base = yield* makeDispatchBase;
 
-      yield* runSheetClusterDispatch(
+      yield* runSheetWorkflowsDispatch(
         response,
         "the team list",
-        SheetClusterRequestContext.asInteractionUser(() =>
-          sheetClusterClient.get().dispatch.teamList({
+        SheetWorkflowsRequestContext.asInteractionUser(() =>
+          sheetWorkflowsClient.get().dispatch.teamList({
             payload: {
               ...base,
               guildId,
@@ -98,6 +98,6 @@ export const teamCommandLayer = Layer.effectDiscard(
   }),
 ).pipe(
   Layer.provide(
-    Layer.mergeAll(discordGatewayLayer, discordApplicationLayer, SheetClusterClient.layer),
+    Layer.mergeAll(discordGatewayLayer, discordApplicationLayer, SheetWorkflowsClient.layer),
   ),
 );

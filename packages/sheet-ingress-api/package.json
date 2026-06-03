@@ -63,13 +63,17 @@
       "types": "./dist/sheet-apis-rpc.d.mts",
       "default": "./dist/sheet-apis-rpc.mjs"
     },
-    "./sheet-cluster": {
-      "types": "./dist/sheet-cluster.d.mts",
-      "default": "./dist/sheet-cluster.mjs"
+    "./sheet-workflows": {
+      "types": "./dist/sheet-workflows.d.mts",
+      "default": "./dist/sheet-workflows.mjs"
     },
-    "./sheet-cluster-rpc": {
-      "types": "./dist/sheet-cluster-rpc.d.mts",
-      "default": "./dist/sheet-cluster-rpc.mjs"
+    "./sheet-workflows-rpc": {
+      "types": "./dist/sheet-workflows-rpc.d.mts",
+      "default": "./dist/sheet-workflows-rpc.mjs"
+    },
+    "./sheet-workflows-workflows": {
+      "types": "./dist/sheet-workflows-workflows.d.mts",
+      "default": "./dist/sheet-workflows-workflows.mjs"
     },
     "./schemas/*": {
       "types": "./dist/schemas/*.d.mts",

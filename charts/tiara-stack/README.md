@@ -78,7 +78,7 @@ scrape policies default to the `monitoring` namespace; override
 - `sheetIngressBaseUrl`
 - `sheetAuthIssuer`
 
-`sheet-cluster-secret`
+`sheet-workflows-secret`
 
 - `otelExporterOtlpEndpoint`
 - `postgresUrl`
@@ -94,7 +94,7 @@ scrape policies default to the `monitoring` namespace; override
 
 - `otelExporterOtlpEndpoint`
 - `sheetApisBaseUrl`
-- `sheetClusterBaseUrl`
+- `sheetWorkflowsBaseUrl`
 - `sheetBotBaseUrl`
 - `sheetAuthIssuer`
 - `trustedOrigins`
@@ -187,7 +187,7 @@ The default Infisical paths are:
 - `/tiara-stack/sheet-apis-secret`
 - `/tiara-stack/sheet-apis-secret-path`
 - `/tiara-stack/sheet-bot-secret`
-- `/tiara-stack/sheet-cluster-secret`
+- `/tiara-stack/sheet-workflows-secret`
 - `/tiara-stack/sdbs-secret`
 - `/tiara-stack/sheet-ingress-server-secret`
 - `/tiara-stack/sheet-web-secret`
