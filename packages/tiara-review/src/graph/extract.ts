@@ -421,92 +421,117 @@ export const extractDependencyGraph = (repoRootInput: string): ExtractedDependen
       return undefined;
     };
 
+    const addImportEdge = (sourceFile: ts.SourceFile, node: ts.Node) => {
+      if (!ts.isImportSpecifier(node) && !ts.isNamespaceImport(node) && !ts.isImportClause(node)) {
+        return false;
+      }
+      const localName = node.name;
+      const importedName = ts.isImportSpecifier(node)
+        ? (node.propertyName ?? node.name)
+        : node.name;
+      addEdge(
+        sourceFile,
+        localName ? keyForSymbol(checker.getSymbolAtLocation(localName)) : undefined,
+        importedName ? refForSymbol(checker.getSymbolAtLocation(importedName)) : {},
+        "import",
+        node,
+      );
+      return true;
+    };
+
+    const addExportEdge = (sourceFile: ts.SourceFile, node: ts.Node) => {
+      if (!ts.isExportSpecifier(node)) {
+        return false;
+      }
+      const owner = nearestOwnerKey(node);
+      const target = refForSymbol(checker.getSymbolAtLocation(node.propertyName ?? node.name));
+      addEdge(sourceFile, owner ?? target.symbolKey, target, "export", node);
+      return true;
+    };
+
+    const expressionReferenceTarget = (sourceFile: ts.SourceFile, expression: ts.Expression) =>
+      checker.getSymbolAtLocation(
+        ts.isPropertyAccessExpression(expression)
+          ? expression.name
+          : (expression.getLastToken(sourceFile) ?? expression),
+      );
+
+    const addCallOrConstructEdge = (sourceFile: ts.SourceFile, node: ts.Node) => {
+      if (!ts.isCallExpression(node) && !ts.isNewExpression(node)) {
+        return false;
+      }
+      addEdge(
+        sourceFile,
+        nearestOwnerKey(node),
+        refForSymbol(expressionReferenceTarget(sourceFile, node.expression)),
+        ts.isCallExpression(node) ? "call" : "construct",
+        node.expression,
+      );
+      return true;
+    };
+
+    const addHeritageOrTypeArgumentEdge = (sourceFile: ts.SourceFile, node: ts.Node) => {
+      if (!ts.isExpressionWithTypeArguments(node)) {
+        return false;
+      }
+      const kind = ts.isHeritageClause(node.parent)
+        ? node.parent.token === ts.SyntaxKind.ExtendsKeyword
+          ? "extends"
+          : "implements"
+        : "type-reference";
+      addEdge(
+        sourceFile,
+        nearestOwnerKey(node),
+        refForSymbol(expressionReferenceTarget(sourceFile, node.expression)),
+        kind,
+        node,
+      );
+      return true;
+    };
+
+    const addTypeReferenceEdge = (sourceFile: ts.SourceFile, node: ts.Node) => {
+      if (!ts.isTypeReferenceNode(node)) {
+        return false;
+      }
+      addEdge(
+        sourceFile,
+        nearestOwnerKey(node),
+        refForSymbol(
+          checker.getSymbolAtLocation(
+            ts.isIdentifier(node.typeName) ? node.typeName : node.typeName.right,
+          ),
+        ),
+        "type-reference",
+        node,
+      );
+      return true;
+    };
+
+    const addIdentifierReferenceEdge = (sourceFile: ts.SourceFile, node: ts.Node) => {
+      if (!ts.isIdentifier(node) || declarationName(node.parent)) {
+        return false;
+      }
+      addEdge(
+        sourceFile,
+        nearestOwnerKey(node),
+        refForSymbol(checker.getSymbolAtLocation(node)),
+        "reference",
+        node,
+      );
+      return true;
+    };
+
+    const addReferenceEdge = (sourceFile: ts.SourceFile, node: ts.Node) =>
+      addImportEdge(sourceFile, node) ||
+      addExportEdge(sourceFile, node) ||
+      addCallOrConstructEdge(sourceFile, node) ||
+      addHeritageOrTypeArgumentEdge(sourceFile, node) ||
+      addTypeReferenceEdge(sourceFile, node) ||
+      addIdentifierReferenceEdge(sourceFile, node);
+
     for (const sourceFile of sourceFiles) {
       const visitReferences = (node: ts.Node) => {
-        if (ts.isImportSpecifier(node) || ts.isNamespaceImport(node) || ts.isImportClause(node)) {
-          const localName = node.name;
-          const importedName = ts.isImportSpecifier(node)
-            ? (node.propertyName ?? node.name)
-            : node.name;
-          addEdge(
-            sourceFile,
-            localName ? keyForSymbol(checker.getSymbolAtLocation(localName)) : undefined,
-            importedName ? refForSymbol(checker.getSymbolAtLocation(importedName)) : {},
-            "import",
-            node,
-          );
-        } else if (ts.isExportSpecifier(node)) {
-          const owner = nearestOwnerKey(node);
-          const target = refForSymbol(checker.getSymbolAtLocation(node.propertyName ?? node.name));
-          addEdge(sourceFile, owner ?? target.symbolKey, target, "export", node);
-        } else if (ts.isCallExpression(node)) {
-          addEdge(
-            sourceFile,
-            nearestOwnerKey(node),
-            refForSymbol(
-              checker.getSymbolAtLocation(
-                ts.isPropertyAccessExpression(node.expression)
-                  ? node.expression.name
-                  : node.expression,
-              ),
-            ),
-            "call",
-            node.expression,
-          );
-        } else if (ts.isNewExpression(node)) {
-          addEdge(
-            sourceFile,
-            nearestOwnerKey(node),
-            refForSymbol(
-              checker.getSymbolAtLocation(
-                ts.isPropertyAccessExpression(node.expression)
-                  ? node.expression.name
-                  : node.expression,
-              ),
-            ),
-            "construct",
-            node.expression,
-          );
-        } else if (ts.isExpressionWithTypeArguments(node)) {
-          const kind = ts.isHeritageClause(node.parent)
-            ? node.parent.token === ts.SyntaxKind.ExtendsKeyword
-              ? "extends"
-              : "implements"
-            : "type-reference";
-          addEdge(
-            sourceFile,
-            nearestOwnerKey(node),
-            refForSymbol(
-              checker.getSymbolAtLocation(
-                ts.isIdentifier(node.expression)
-                  ? node.expression
-                  : (node.expression.getLastToken(sourceFile) ?? node.expression),
-              ),
-            ),
-            kind,
-            node,
-          );
-        } else if (ts.isTypeReferenceNode(node)) {
-          addEdge(
-            sourceFile,
-            nearestOwnerKey(node),
-            refForSymbol(
-              checker.getSymbolAtLocation(
-                ts.isIdentifier(node.typeName) ? node.typeName : node.typeName.right,
-              ),
-            ),
-            "type-reference",
-            node,
-          );
-        } else if (ts.isIdentifier(node) && !declarationName(node.parent)) {
-          addEdge(
-            sourceFile,
-            nearestOwnerKey(node),
-            refForSymbol(checker.getSymbolAtLocation(node)),
-            "reference",
-            node,
-          );
-        }
+        addReferenceEdge(sourceFile, node);
         ts.forEachChild(node, visitReferences);
       };
       visitReferences(sourceFile);

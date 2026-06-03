@@ -1,17 +1,10 @@
-import { NodeHttpClient } from "@effect/platform-node";
-import { OpenAiClient, OpenAiLanguageModel } from "@effect/ai-openai";
-import { OpenRouterClient, OpenRouterLanguageModel } from "@effect/ai-openrouter";
-import { CodexClient, CodexConfig, CodexLanguageModel } from "effect-ai-codex";
-import { KimiClient, KimiLanguageModel } from "effect-ai-kimi";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import * as AiError from "effect/unstable/ai/AiError";
 import * as LanguageModel from "effect/unstable/ai/LanguageModel";
 import { sqliteLayer } from "../db/client";
-import { type KimiDependencyGraphTools, makeKimiDependencyGraphTools } from "../graph/kimi-tools";
 import { graphToolkitLayer } from "../graph/toolkit";
 import { GraphToolkit } from "../graph/tools";
 import {
@@ -23,6 +16,7 @@ import {
   CodexAgentTimedOut,
   InvalidAgentOutput,
 } from "../review/types";
+import { makeKimiGraphTools, makeLanguageModelLayer } from "./providerLayer";
 
 export type AiRunOptions = {
   readonly aspect: AgentAspect;
@@ -50,215 +44,6 @@ export interface AiReviewClient {
     options: AiRunOptions,
   ) => Effect.Effect<AiRunResult<A>, CodexAgentFailed | CodexAgentTimedOut | InvalidAgentOutput>;
 }
-
-const codexModelConfig = (options: AiRunOptions): CodexLanguageModel.Config => {
-  const codexConfig = options.providerConfig?.codex;
-  const thread = {
-    workingDirectory: options.repoRoot,
-    sandboxMode: "read-only" as const,
-    approvalPolicy: "never" as const,
-    webSearchMode: "disabled" as const,
-    networkAccessEnabled: false,
-    model: options.model,
-    modelReasoningEffort: options.modelReasoningEffort,
-  };
-  const baseConfig: CodexLanguageModel.Config = {
-    thread,
-    timeoutMs: options.timeoutMs,
-    cleanupGraceMs: codexConfig?.cleanupGraceMs,
-    apiKey: codexConfig?.apiKey,
-    baseUrl: codexConfig?.baseUrl,
-    codexPathOverride: codexConfig?.codexPathOverride,
-    config: codexConfig?.config as CodexLanguageModel.Config["config"],
-  };
-  if (!options.graphVersionId || !options.graphDbPath || !options.graphMcpCommand) {
-    return baseConfig;
-  }
-  return {
-    ...baseConfig,
-    config: {
-      ...baseConfig.config,
-      ...CodexConfig.makeMcpServerConfig({
-        tiara_review_graph: {
-          command: options.graphMcpCommand,
-          args: [
-            ...(options.graphMcpArgsPrefix ?? []),
-            "graph",
-            "mcp",
-            "--db",
-            options.graphDbPath,
-            "--graph-version",
-            options.graphVersionId,
-          ],
-          cwd: options.repoRoot,
-          enabled_tools: ["resolve_symbol", "symbol_dependencies", "symbol_dependents"],
-          startup_timeout_ms: 10_000,
-          tool_timeout_sec: 30,
-          required: true,
-        },
-      }),
-    },
-  };
-};
-
-const stringRecord = (value: unknown): Record<string, string> | undefined =>
-  typeof value === "object" &&
-  value !== null &&
-  !Array.isArray(value) &&
-  Object.values(value).every((entry) => typeof entry === "string")
-    ? (value as Record<string, string>)
-    : undefined;
-
-const clientInfoConfig = (
-  value: unknown,
-): { readonly name: string; readonly version: string } | undefined =>
-  typeof value === "object" &&
-  value !== null &&
-  !Array.isArray(value) &&
-  typeof (value as { readonly name?: unknown }).name === "string" &&
-  typeof (value as { readonly version?: unknown }).version === "string"
-    ? {
-        name: (value as { readonly name: string }).name,
-        version: (value as { readonly version: string }).version,
-      }
-    : undefined;
-
-const kimiSessionConfig = (
-  config: ResolvedReviewProviderConfig["kimi"] | undefined,
-): KimiLanguageModel.Config["session"] | undefined => {
-  const raw = config?.config;
-  if (raw === undefined) {
-    return undefined;
-  }
-  return {
-    sessionId: typeof raw["sessionId"] === "string" ? raw["sessionId"] : undefined,
-    model: typeof raw["model"] === "string" ? raw["model"] : undefined,
-    thinking: typeof raw["thinking"] === "boolean" ? raw["thinking"] : undefined,
-    yoloMode: typeof raw["yoloMode"] === "boolean" ? raw["yoloMode"] : undefined,
-    executable: typeof raw["executable"] === "string" ? raw["executable"] : undefined,
-    env: stringRecord(raw["env"]),
-    agentFile: typeof raw["agentFile"] === "string" ? raw["agentFile"] : undefined,
-    skillsDir: typeof raw["skillsDir"] === "string" ? raw["skillsDir"] : undefined,
-    shareDir: typeof raw["shareDir"] === "string" ? raw["shareDir"] : undefined,
-    clientInfo: clientInfoConfig(raw["clientInfo"]),
-  };
-};
-
-const makeKimiGraphTools = (options: AiRunOptions): KimiDependencyGraphTools | undefined =>
-  options.graphVersionId && options.graphDbPath
-    ? makeKimiDependencyGraphTools({
-        dbPath: options.graphDbPath,
-        versionId: options.graphVersionId,
-      })
-    : undefined;
-
-const kimiModelConfig = (
-  options: AiRunOptions,
-  externalTools: KimiDependencyGraphTools | undefined,
-): KimiLanguageModel.Config => {
-  const kimiConfig = options.providerConfig?.kimi;
-  const thinking =
-    kimiConfig?.thinking ??
-    (options.modelReasoningEffort === "high" || options.modelReasoningEffort === "xhigh");
-  return {
-    workDir: options.repoRoot,
-    executable: kimiConfig?.executable,
-    env: kimiConfig?.env,
-    thinking,
-    approvalPolicy: kimiConfig?.approvalPolicy ?? "allow-read-only-git",
-    yoloMode: kimiConfig?.yoloMode ?? false,
-    agentFile: kimiConfig?.agentFile,
-    skillsDir: kimiConfig?.skillsDir,
-    shareDir: kimiConfig?.shareDir,
-    timeoutMs: options.timeoutMs,
-    cleanupGraceMs: kimiConfig?.cleanupGraceMs,
-    session: kimiSessionConfig(kimiConfig),
-    externalTools,
-  };
-};
-
-const requireModel = (
-  options: AiRunOptions,
-  provider: AiProvider,
-): Effect.Effect<string, CodexAgentFailed> =>
-  options.model && options.model.length > 0
-    ? Effect.succeed(options.model)
-    : Effect.fail(
-        new CodexAgentFailed({
-          aspect: options.aspect,
-          message: `Provider ${provider} requires a model. Set --model or configure model in config.json.`,
-        }),
-      );
-
-// NOTE: this function is called inside runStructured on every invocation. Layers are
-// lightweight to construct, but the underlying SDK clients and HTTP transports are
-// re-initialized each time. Lift construction to the review-run call site if
-// connection-pool reuse becomes important.
-const makeLanguageModelLayer = (
-  options: AiRunOptions,
-  kimiExternalTools?: KimiDependencyGraphTools,
-): Effect.Effect<Layer.Layer<LanguageModel.LanguageModel, never>, CodexAgentFailed> => {
-  const provider = options.provider ?? "codex";
-  switch (provider) {
-    case "codex":
-      return Effect.succeed(
-        CodexLanguageModel.layer({ model: options.model, config: codexModelConfig(options) }).pipe(
-          Layer.provide(CodexClient.CodexClient.layer),
-        ),
-      );
-    case "kimi":
-      return Effect.succeed(
-        KimiLanguageModel.layer({
-          model: options.model,
-          config: kimiModelConfig(options, kimiExternalTools),
-        }).pipe(Layer.provide(KimiClient.KimiClient.layer)),
-      );
-    case "openai":
-      return requireModel(options, provider).pipe(
-        Effect.map((model: string) => {
-          const config = options.providerConfig?.openai;
-          const apiKey = config?.apiKey ?? process.env["OPENAI_API_KEY"];
-          return OpenAiLanguageModel.layer({
-            model,
-            config: config?.config as any,
-          }).pipe(
-            Layer.provide(
-              OpenAiClient.layer({
-                apiKey: apiKey ? Redacted.make(apiKey) : undefined,
-                apiUrl: config?.apiUrl,
-                organizationId: config?.organizationId
-                  ? Redacted.make(config.organizationId)
-                  : undefined,
-                projectId: config?.projectId ? Redacted.make(config.projectId) : undefined,
-              }),
-            ),
-            Layer.provide(NodeHttpClient.layerFetch),
-          ) as Layer.Layer<LanguageModel.LanguageModel, never>;
-        }),
-      );
-    case "openrouter":
-      return requireModel(options, provider).pipe(
-        Effect.map((model: string) => {
-          const config = options.providerConfig?.openrouter;
-          const apiKey = config?.apiKey ?? process.env["OPENROUTER_API_KEY"];
-          return OpenRouterLanguageModel.layer({
-            model,
-            config: config?.config as any,
-          }).pipe(
-            Layer.provide(
-              OpenRouterClient.layer({
-                apiKey: apiKey ? Redacted.make(apiKey) : undefined,
-                apiUrl: config?.apiUrl,
-                siteReferrer: config?.siteReferrer,
-                siteTitle: config?.siteTitle,
-              }),
-            ),
-            Layer.provide(NodeHttpClient.layerFetch),
-          ) as Layer.Layer<LanguageModel.LanguageModel, never>;
-        }),
-      );
-  }
-};
 
 const responseId = (
   content: ReadonlyArray<{
@@ -407,4 +192,3 @@ export class ProviderAiReviewClient implements AiReviewClient {
 export type CodexRunOptions = AiRunOptions;
 export type CodexRunResult<A> = AiRunResult<A>;
 export type CodexReviewClient = AiReviewClient;
-export const SdkCodexReviewClient = ProviderAiReviewClient;

@@ -1,6 +1,5 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import * as Tool from "effect/unstable/ai/Tool";
 import {
   type AgentAspect,
   type ConsolidatedReview,
@@ -9,7 +8,6 @@ import {
 } from "../review/types";
 export {
   ProviderAiReviewClient,
-  SdkCodexReviewClient,
   type AiReviewClient,
   type AiRunOptions,
   type AiRunResult,
@@ -18,12 +16,12 @@ export {
   type CodexRunResult,
 } from "../ai/client";
 
-export const SeveritySchema = Schema.Union([
+const SeveritySchema = Schema.Union([
   Schema.Literal("high"),
   Schema.Literal("medium"),
   Schema.Literal("low"),
 ]);
-export const FindingTypeSchema = Schema.Union([
+const FindingTypeSchema = Schema.Union([
   Schema.Literal("security"),
   Schema.Literal("code-quality"),
   Schema.Literal("logic-bug"),
@@ -39,7 +37,7 @@ export const FindingSchema = Schema.Struct({
   evidence: Schema.String,
   suggestedFix: Schema.String,
 });
-export const PriorIssueRecheckSchema = Schema.Struct({
+const PriorIssueRecheckSchema = Schema.Struct({
   priorIssue: Schema.String,
   priorFindingId: Schema.NullOr(Schema.String),
   status: Schema.Union([
@@ -84,10 +82,6 @@ export const ConsolidatedOutputSchema = Schema.Struct({
   priorIssuesRechecked: Schema.Array(PriorIssueRecheckSchema),
   reviewNotes: Schema.Array(Schema.String),
 });
-
-export const findingJsonSchema = Tool.getJsonSchemaFromSchema(FindingSchema);
-export const specialistOutputSchema = Tool.getJsonSchemaFromSchema(SpecialistOutputSchema);
-export const consolidatedOutputSchema = Tool.getJsonSchemaFromSchema(ConsolidatedOutputSchema);
 
 export const decodeSpecialistOutput = (aspect: AgentAspect, input: unknown) =>
   Schema.decodeUnknownEffect(SpecialistOutputSchema)(input).pipe(
