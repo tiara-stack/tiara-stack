@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { defaultColumnSchema } from "./internal/columnSchema";
 import type {
   ColumnData,
   Dialect,
@@ -65,36 +66,6 @@ const clone = <D extends Dialect, K extends string>(
   };
 };
 
-const defaultSchema = (dialect: Dialect, kind: string, config?: Record<string, unknown>) => {
-  switch (kind) {
-    case "integer":
-      if (dialect === "sqlite" && config?.mode === "boolean") {
-        return Schema.Boolean;
-      }
-      return dialect === "postgresql" ? Schema.Int : Schema.Number;
-    case "bigint":
-      return Schema.BigInt;
-    case "real":
-    case "doublePrecision":
-    case "numeric":
-      return Schema.Number;
-    case "boolean":
-      return Schema.Boolean;
-    case "json":
-    case "jsonb":
-    case "blob":
-      return Schema.Unknown;
-    case "timestamp":
-    case "date":
-      return Schema.Number;
-    case "text":
-    case "varchar":
-    case "uuid":
-    default:
-      return Schema.String;
-  }
-};
-
 export const makeColumn = <D extends Dialect, K extends string>(
   dialect: D,
   kind: K,
@@ -107,5 +78,5 @@ export const makeColumn = <D extends Dialect, K extends string>(
     name,
     config,
     generation: "none",
-    fieldSchema: defaultSchema(dialect, kind, config),
+    fieldSchema: defaultColumnSchema(dialect, kind, config),
   });
