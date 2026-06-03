@@ -1,13 +1,7 @@
 import { Effect } from "effect";
 import { Activity } from "effect/unstable/workflow";
 import { AutoCheckinService } from "@/services";
-import {
-  AutoCheckinChannelPayload,
-  AutoCheckinChannelResult,
-  AutoCheckinChannelWorkflow,
-} from "./autoCheckinContract";
-
-export { AutoCheckinChannelPayload, AutoCheckinChannelResult, AutoCheckinChannelWorkflow };
+import { AutoCheckinChannelResult, AutoCheckinChannelWorkflow } from "./autoCheckinContract";
 
 export const autoCheckinWorkflowLayer = AutoCheckinChannelWorkflow.toLayer(
   Effect.fn("AutoCheckinChannelWorkflow.handler")(function* (payload, executionId) {

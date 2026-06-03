@@ -2,14 +2,14 @@ import { Effect, Schema } from "effect";
 import { ClusterSchema } from "effect/unstable/cluster";
 import { Activity, Workflow } from "effect/unstable/workflow";
 
-export const SmokeWorkflowPayload = Schema.Struct({
+const SmokeWorkflowPayload = Schema.Struct({
   message: Schema.String,
   runId: Schema.String,
 });
 
 export type SmokeWorkflowPayload = Schema.Schema.Type<typeof SmokeWorkflowPayload>;
 
-export const SmokeWorkflowResult = Schema.Struct({
+const SmokeWorkflowResult = Schema.Struct({
   message: Schema.String,
   runId: Schema.String,
   executionId: Schema.String,

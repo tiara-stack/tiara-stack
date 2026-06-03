@@ -51,7 +51,7 @@ export const DispatchButtonEntity = Entity.make("DispatchButton", [
   }),
 ]).annotate(ClusterSchema.ShardGroup, dispatchShardGroup);
 
-export const dispatchButtonOperations = [
+const dispatchButtonOperations = [
   "slotOpenButton",
   "checkinButton",
   "roomOrderPreviousButton",
@@ -113,11 +113,6 @@ export type DispatchButtonEntityHandlers<R = never> = {
     R
   >;
 };
-
-export const isDispatchButtonOperation = (
-  operation: string,
-): operation is DispatchButtonOperation =>
-  dispatchButtonOperations.includes(operation as DispatchButtonOperation);
 
 export const makeDispatchButtonEntityLayer = <R>(handlers: DispatchButtonEntityHandlers<R>) =>
   DispatchButtonEntity.toLayer(DispatchButtonEntity.of(handlers), {
