@@ -1,14 +1,11 @@
 import { useSyncExternalStore } from "react";
 import { DateTime } from "effect";
-import { createIsomorphicFn } from "@tanstack/react-start";
 
 const subscribe = () => () => {};
 
 export const getServerTimeZone = () => DateTime.zoneMakeNamedUnsafe("UTC");
 
-export const getClientTimeZone = () => DateTime.zoneMakeLocal();
-
-export const getTimeZone = createIsomorphicFn().server(getServerTimeZone).client(getClientTimeZone);
+const getClientTimeZone = () => DateTime.zoneMakeLocal();
 
 /**
  * Get the client's timezone in a SSR-safe way.

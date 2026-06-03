@@ -13,21 +13,16 @@ const getRequestHeadersFn = createIsomorphicFn()
   .server(() => getRequestHeaders())
   .client(() => undefined);
 
+const SocialProvider = Schema.Literal("discord");
+type SocialProvider = Schema.Schema.Type<typeof SocialProvider>;
+
 // Derived atom for auth client using get.result to unwrap the Result
-export const authClientAtom = Atom.make(
+const authClientAtom = Atom.make(
   Effect.fnUntraced(function* (get) {
     const baseUrl = yield* get.result(authBaseUrlAtom);
     return createSheetAuthClient(baseUrl.href);
   }),
 );
-
-export const useAuthClient = () => {
-  const result = useAtomSuspense(authClientAtom, {
-    suspendOnWaiting: false,
-    includeFailure: false,
-  });
-  return result.value;
-};
 
 // Auth state atom that automatically fetches session
 export const sessionAtom = Atom.make(
@@ -57,7 +52,7 @@ export const useSession = () => {
 };
 
 // Sign out function atom
-export const signOut = runtimeAtom.fn(
+const signOut = runtimeAtom.fn(
   Effect.fnUntraced(function* (_, ctx: Atom.FnContext) {
     const authClient = yield* ctx.result(authClientAtom);
 
@@ -79,14 +74,15 @@ export const useSignOut = () => {
 };
 
 // Sign in with social provider function atom
-export const signInWithSocialProvider = runtimeAtom.fn(
+const signInWithSocialProvider = runtimeAtom.fn(
   Effect.fnUntraced(function* (provider: string, ctx: Atom.FnContext) {
+    const socialProvider = yield* Schema.decodeUnknownEffect(SocialProvider)(provider);
     const authClient = yield* ctx.result(authClientAtom);
     const appBaseUrl = yield* ctx.result(appBaseUrlAtom);
 
     yield* Effect.promise(() =>
       authClient.signIn.social({
-        provider,
+        provider: socialProvider,
         callbackURL: `${appBaseUrl.href}/dashboard`,
       }),
     );
@@ -95,7 +91,7 @@ export const signInWithSocialProvider = runtimeAtom.fn(
   }),
 );
 
-export const useSignInWithSocialProvider = (provider: string) => {
+export const useSignInWithSocialProvider = (provider: SocialProvider) => {
   const signInWithProviderFn = useAtomSet(signInWithSocialProvider, {
     mode: "promise",
   });
