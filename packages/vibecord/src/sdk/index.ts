@@ -46,6 +46,7 @@ type MutableDiscordMessageActionRow = Omit<DiscordMessageActionRow, "components"
   components: DiscordMessageButton[];
 };
 type RunDiscordEffect = <A, E>(effect: Effect.Effect<A, E, never>) => Promise<A>;
+type DiffChange = ReturnType<typeof Diff.diffLines>[number];
 
 export interface VibecordButtonInteraction {
   readonly customId: string;
@@ -72,6 +73,85 @@ interface CachedStreamingMessage {
   streamingMessage: DiscordStreamingMessage;
   threadId: string;
 }
+
+const trimTrailingSplitLine = (lines: string[]): string[] => {
+  if (lines[lines.length - 1] === "") {
+    lines.pop();
+  }
+  return lines;
+};
+
+const pushChangedLines = (result: string[], lines: ReadonlyArray<string>, prefix: "+" | "-") => {
+  for (const line of lines) {
+    result.push(`${prefix}${line}`);
+  }
+};
+
+const isChangedBlock = (change: DiffChange | null | undefined): boolean =>
+  Boolean(change?.added || change?.removed);
+
+const pushUnchangedContextLines = (
+  result: string[],
+  lines: ReadonlyArray<string>,
+  prevChange: DiffChange | null,
+  nextChange: DiffChange | null,
+) => {
+  const hasAdjacentChange = isChangedBlock(prevChange) || isChangedBlock(nextChange);
+
+  if (!hasAdjacentChange) {
+    if (lines.length > 0) {
+      result.push(` (${lines.length} lines omitted)`);
+    }
+    return;
+  }
+
+  if (
+    isChangedBlock(prevChange) &&
+    isChangedBlock(nextChange) &&
+    lines.length > DIFF_CONTEXT_LINES * 2
+  ) {
+    for (const line of lines.slice(0, DIFF_CONTEXT_LINES)) {
+      result.push(` ${line}`);
+    }
+    result.push(` (${lines.length - DIFF_CONTEXT_LINES * 2} lines omitted)`);
+    for (const line of lines.slice(-DIFF_CONTEXT_LINES)) {
+      result.push(` ${line}`);
+    }
+    return;
+  }
+
+  for (const line of lines) {
+    result.push(` ${line}`);
+  }
+};
+
+const computeDiff = (oldText: string, newText: string): { lines: string[] } => {
+  const changes = Diff.diffLines(oldText, newText);
+  const result: string[] = [];
+
+  changes.forEach((change, index) => {
+    const lines = trimTrailingSplitLine(change.value.split("\n"));
+
+    if (change.added) {
+      pushChangedLines(result, lines, "+");
+      return;
+    }
+
+    if (change.removed) {
+      pushChangedLines(result, lines, "-");
+      return;
+    }
+
+    pushUnchangedContextLines(
+      result,
+      lines,
+      index > 0 ? changes[index - 1] : null,
+      index < changes.length - 1 ? changes[index + 1] : null,
+    );
+  });
+
+  return { lines: result };
+};
 
 // Generate a unique button ID using UUID v4
 function generateButtonId(): string {
@@ -206,7 +286,7 @@ class VibecordClient {
         after: string;
         file: string;
       };
-      const diffResult = this.computeDiff(filediff.before, filediff.after);
+      const diffResult = computeDiff(filediff.before, filediff.after);
       const path = filediff.file;
       const truncated = diffResult.lines.length > DIFF_TRUNCATION_LINES;
       const displayLines = truncated
@@ -228,76 +308,6 @@ class VibecordClient {
     }
 
     return null;
-  }
-
-  private computeDiff(oldText: string, newText: string): { lines: string[] } {
-    const changes = Diff.diffLines(oldText, newText);
-    const result: string[] = [];
-
-    for (let i = 0; i < changes.length; i++) {
-      const change = changes[i];
-      const lines = change.value.split("\n");
-      // Remove the last empty line that comes from the split
-      if (lines[lines.length - 1] === "") {
-        lines.pop();
-      }
-
-      if (change.added) {
-        // Show all added lines
-        for (const line of lines) {
-          result.push(`+${line}`);
-        }
-      } else if (change.removed) {
-        // Show all removed lines
-        for (const line of lines) {
-          result.push(`-${line}`);
-        }
-      } else {
-        // Unchanged lines - only show context around changes
-        const prevChange = i > 0 ? changes[i - 1] : null;
-        const nextChange = i < changes.length - 1 ? changes[i + 1] : null;
-        const hasAdjacentChange =
-          (prevChange && (prevChange.added || prevChange.removed)) ||
-          (nextChange && (nextChange.added || nextChange.removed));
-
-        if (!hasAdjacentChange) {
-          // No adjacent changes - omit this block entirely or show count
-          if (lines.length > 0) {
-            result.push(` (${lines.length} lines omitted)`);
-          }
-        } else {
-          // Show context lines around the adjacent change
-          const prevLines =
-            prevChange && (prevChange.added || prevChange.removed)
-              ? lines.slice(-DIFF_CONTEXT_LINES)
-              : [];
-          const nextLines =
-            nextChange && (nextChange.added || nextChange.removed)
-              ? lines.slice(0, DIFF_CONTEXT_LINES)
-              : [];
-
-          // If both prev and next changes exist, we need to be careful not to duplicate
-          if (prevChange && nextChange && lines.length > DIFF_CONTEXT_LINES * 2) {
-            // Show trailing context for prev change
-            for (const line of prevLines) {
-              result.push(` ${line}`);
-            }
-            result.push(` (${lines.length - DIFF_CONTEXT_LINES * 2} lines omitted)`);
-            // Show leading context for next change
-            for (const line of nextLines) {
-              result.push(` ${line}`);
-            }
-          } else {
-            // Just show all lines (small unchanged block)
-            for (const line of lines) {
-              result.push(` ${line}`);
-            }
-          }
-        }
-      }
-    }
-
-    return { lines: result };
   }
 
   private getStreamingMessage(sessionId: string, thread: RestThread): DiscordStreamingMessage {
