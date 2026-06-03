@@ -1,4 +1,3 @@
-import { NodeServices } from "@effect/platform-node";
 import { parse as parseJsonc, type ParseError as JsoncParseError } from "jsonc-parser";
 import { Console, Effect, FileSystem, Path, Result, Schema } from "effect";
 
@@ -14,7 +13,7 @@ const tsConfigConcurrency = Number.parseInt(process.env.EFFECT_ZERO_TSCONFIG_CON
 const discoverConcurrency =
   Number.isFinite(tsConfigConcurrency) && tsConfigConcurrency > 0 ? tsConfigConcurrency : 10;
 
-export const resolveReferencePathEffect = (
+const resolveReferencePathEffect = (
   refPath: string,
   tsConfigDir: string,
 ): Effect.Effect<string | undefined, never, FileSystem.FileSystem | Path.Path> =>
@@ -33,14 +32,6 @@ export const resolveReferencePathEffect = (
       ? path.join(resolvedPath, "tsconfig.json")
       : resolvedPath;
   });
-
-export const resolveReferencePath = (
-  refPath: string,
-  tsConfigDir: string,
-): Promise<string | undefined> =>
-  Effect.runPromise(
-    resolveReferencePathEffect(refPath, tsConfigDir).pipe(Effect.provide(NodeServices.layer)),
-  );
 
 export const discoverAllTsConfigsEffect = (
   initialTsConfigPath: string,
@@ -111,8 +102,3 @@ export const discoverAllTsConfigsEffect = (
 
     return processedPaths;
   });
-
-export const discoverAllTsConfigs = (initialTsConfigPath: string): Promise<Set<string>> =>
-  Effect.runPromise(
-    discoverAllTsConfigsEffect(initialTsConfigPath).pipe(Effect.provide(NodeServices.layer)),
-  );

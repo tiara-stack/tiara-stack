@@ -1,6 +1,7 @@
 export { many, one } from "./relationships";
 export { zeroPublication } from "./publication";
-export { fromSqlTable, schema } from "./schema";
+export { schema } from "./schema";
+export { fromSqlTable } from "./sql-table";
 export { table } from "./table";
 export type {
   ColumnOptions,

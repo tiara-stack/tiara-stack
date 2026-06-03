@@ -1,11 +1,10 @@
-import { NodeServices } from "@effect/platform-node";
 import { Console, Effect, FileSystem, Path, Result, Schema } from "effect";
 import type { Project } from "ts-morph";
 import { tsImport } from "tsx/esm/api";
 import type { EffectZeroSchema } from "../types";
 import { EffectZeroSchemaExportSchema } from "./schema";
 
-export const defaultConfigFilePath = "effect-zero.config.ts";
+const defaultConfigFilePath = "effect-zero.config.ts";
 
 export const getDefaultConfigFilePathEffect = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
@@ -15,9 +14,6 @@ export const getDefaultConfigFilePathEffect = Effect.gen(function* () {
   const exists = Result.isSuccess(existsResult) ? existsResult.success : false;
   return exists ? defaultConfigFilePath : null;
 });
-
-export const getDefaultConfigFilePath = (): Promise<string | null> =>
-  Effect.runPromise(getDefaultConfigFilePathEffect.pipe(Effect.provide(NodeServices.layer)));
 
 const isEffectZeroSchema = (value: unknown): value is EffectZeroSchema =>
   typeof value === "object" &&
@@ -104,17 +100,6 @@ export const getConfigFromFileEffect = ({
       configFilePath,
     } as const;
   });
-
-export const getConfigFromFile = ({
-  configFilePath,
-  tsProject,
-}: {
-  readonly configFilePath: string;
-  readonly tsProject: Project;
-}) =>
-  Effect.runPromise(
-    getConfigFromFileEffect({ configFilePath, tsProject }).pipe(Effect.provide(NodeServices.layer)),
-  );
 
 const ensureConfigTypeInProject = ({
   tsProject,
