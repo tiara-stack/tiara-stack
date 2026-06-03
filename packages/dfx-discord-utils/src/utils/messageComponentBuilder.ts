@@ -27,8 +27,8 @@ type BuilderType<F extends BuilderTypeLambda<any>, InnerType> = BuilderKind<
   InnerType
 >["BuilderType"];
 
-export const BuilderTypeId = Symbol("MessageComponentBuilder/BuilderTypeId");
-export type BuilderTypeId = typeof BuilderTypeId;
+const BuilderTypeId = Symbol("MessageComponentBuilder/BuilderTypeId");
+type BuilderTypeId = typeof BuilderTypeId;
 
 interface BuilderVariance<
   in out BuilderT extends BuilderTypeLambda<any>,
@@ -87,7 +87,7 @@ abstract class SharedBuilderToJSON<BuilderT extends BuilderTypeLambda<any>, Inne
   }
 }
 
-export abstract class ComponentBuilder<
+abstract class ComponentBuilder<
   BuilderT extends BuilderTypeLambda<BaseComponentBuilder<any>>,
   InnerType = unknown,
 > {
