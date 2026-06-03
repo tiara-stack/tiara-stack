@@ -1,0 +1,168 @@
+import type {
+  ApprovalResponse,
+  ContentPart,
+  ExternalTool,
+  SessionOptions,
+  StreamEvent,
+  Turn,
+} from "@moonshot-ai/kimi-agent-sdk";
+import type { ApprovalPolicy, ConfigShape } from "../KimiConfig";
+import { KimiQuestionUnsupported, KimiStreamParseError } from "../KimiError";
+import type { KimiTokenUsage, RunOptions } from "../KimiClient";
+
+type KimiTextContentPart = { readonly type: "text"; readonly text: string };
+type KimiThinkContentPart = { readonly type: "think"; readonly think: string };
+type KimiContentPart = KimiTextContentPart | KimiThinkContentPart | { readonly type: string };
+
+export const mergeSessionOptions = (
+  config: ConfigShape | undefined,
+  options: RunOptions,
+): SessionOptions => ({
+  ...config?.session,
+  ...options.sessionOptions,
+  workDir: options.workDir,
+  sessionId: options.sessionId ?? options.sessionOptions?.sessionId ?? config?.session?.sessionId,
+  model: options.model ?? options.sessionOptions?.model ?? config?.session?.model,
+  thinking:
+    options.thinking ??
+    options.sessionOptions?.thinking ??
+    config?.thinking ??
+    config?.session?.thinking ??
+    false,
+  yoloMode:
+    options.sessionOptions?.yoloMode ?? config?.yoloMode ?? config?.session?.yoloMode ?? false,
+  executable:
+    options.sessionOptions?.executable ?? config?.executable ?? config?.session?.executable,
+  env:
+    options.sessionOptions?.env !== undefined ||
+    config?.env !== undefined ||
+    config?.session?.env !== undefined
+      ? {
+          ...config?.session?.env,
+          ...config?.env,
+          ...options.sessionOptions?.env,
+        }
+      : undefined,
+  externalTools: [
+    ...(options.inheritConfigExternalTools === false ? [] : (config?.externalTools ?? [])),
+    ...(options.externalTools ?? []),
+  ] as Array<ExternalTool>,
+  agentFile: options.sessionOptions?.agentFile ?? config?.agentFile ?? config?.session?.agentFile,
+  skillsDir: options.sessionOptions?.skillsDir ?? config?.skillsDir ?? config?.session?.skillsDir,
+  shareDir: options.sessionOptions?.shareDir ?? config?.shareDir ?? config?.session?.shareDir,
+  clientInfo: options.sessionOptions?.clientInfo ?? config?.session?.clientInfo,
+});
+
+const contentPartText = (part: ContentPart) => {
+  const content = part as KimiContentPart;
+  switch (content.type) {
+    case "text":
+      return (content as KimiTextContentPart).text;
+    default:
+      return "";
+  }
+};
+
+const shellUnsafePattern = /[;|`$()<>]|\r|\n/;
+
+const gitReadOnlySubcommands = [
+  "diff",
+  "grep",
+  "log",
+  "ls-files",
+  "ls-remote",
+  "merge-base",
+  "rev-list",
+  "rev-parse",
+  "show",
+  "status",
+] as const;
+
+const gitWriteOptionPattern = /\s--(?:output|exec-path)(?:=|\s|$)/;
+
+const gitInspectionPattern = new RegExp(
+  String.raw`^\s*git\s+(?:` +
+    gitReadOnlySubcommands.join("|") +
+    String.raw`)(?:\s+(?:--[A-Za-z0-9][A-Za-z0-9-]*(?:=(?:"[^"]*"|'[^']*'|[^\s;&|` +
+    String.raw`$()<>]+))?|-[A-Za-z0-9]+|[^\s;&|` +
+    String.raw`$()<>]+))*\s*$`,
+);
+
+const approvalShellCommands = (payload: unknown): Array<string> => {
+  if (typeof payload !== "object" || payload === null) {
+    return [];
+  }
+  const display = (payload as { readonly display?: unknown }).display;
+  if (!Array.isArray(display)) {
+    return [];
+  }
+  return display.flatMap((block) =>
+    typeof block === "object" &&
+    block !== null &&
+    (block as { readonly type?: unknown }).type === "shell" &&
+    typeof (block as { readonly command?: unknown }).command === "string"
+      ? [(block as { readonly command: string }).command]
+      : [],
+  );
+};
+
+const isAllowedGitInspectionCommand = (command: string) => {
+  if (
+    shellUnsafePattern.test(command) ||
+    command.replaceAll("&&", "").includes("&") ||
+    gitWriteOptionPattern.test(command)
+  ) {
+    return false;
+  }
+  const segments = command
+    .split(/\s*&&\s*/)
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0);
+  return segments.length > 0 && segments.every((segment) => gitInspectionPattern.test(segment));
+};
+
+const isAllowedGitInspectionApproval = (payload: unknown) => {
+  const commands = approvalShellCommands(payload);
+  return commands.length > 0 && commands.every(isAllowedGitInspectionCommand);
+};
+
+const approvalResponse = (payload: unknown, policy: ApprovalPolicy | undefined): ApprovalResponse =>
+  policy === "allow-read-only-git" && isAllowedGitInspectionApproval(payload)
+    ? "approve"
+    : "reject";
+
+export const handleEvent = async (
+  turn: Turn,
+  event: StreamEvent,
+  state: {
+    readonly events: Array<StreamEvent>;
+    finalResponse: string;
+    usage: KimiTokenUsage | null;
+  },
+  approvalPolicy: ApprovalPolicy | undefined,
+) => {
+  state.events.push(event);
+  if (event.type === "ContentPart") {
+    state.finalResponse += contentPartText(event.payload);
+    return;
+  }
+  if (event.type === "StatusUpdate") {
+    state.usage =
+      (event.payload as { readonly token_usage?: KimiTokenUsage | null }).token_usage ??
+      state.usage;
+    return;
+  }
+  if (event.type === "ApprovalRequest") {
+    await turn.approve(event.payload.id, approvalResponse(event.payload, approvalPolicy));
+    return;
+  }
+  if (event.type === "QuestionRequest") {
+    throw new KimiQuestionUnsupported({
+      questionId: event.payload.id,
+      message: "Kimi question requests are not supported during unattended review",
+    });
+  }
+  if (event.type === "error") {
+    throw new KimiStreamParseError({ message: event.message, cause: event });
+  }
+};

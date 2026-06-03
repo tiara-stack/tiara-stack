@@ -18,6 +18,7 @@ import {
 } from "./KimiClient";
 import { Config as KimiConfig, type ConfigShape } from "./KimiConfig";
 import { type KimiError, KimiConfigurationError, KimiTimeout } from "./KimiError";
+import { extractJsonObject } from "./internal/jsonObject";
 
 export type Config = ConfigShape;
 
@@ -272,56 +273,6 @@ const eventToStreamParts = (
     return [];
   }
   return eventToParts(event, allowedToolNames, toolNameById) as Array<Response.StreamPartEncoded>;
-};
-
-const hasRequiredKeys = (value: unknown, requiredKeys: ReadonlyArray<string>) =>
-  requiredKeys.length === 0 ||
-  (value !== null &&
-    typeof value === "object" &&
-    requiredKeys.every((key) => Object.prototype.hasOwnProperty.call(value, key)));
-
-const extractJsonObject = (text: string, requiredKeys: ReadonlyArray<string>): string => {
-  for (let start = text.indexOf("{"); start !== -1; start = text.indexOf("{", start + 1)) {
-    let depth = 0;
-    let inString = false;
-    let escaped = false;
-    for (let index = start; index < text.length; index++) {
-      const char = text[index]!;
-      if (inString) {
-        if (escaped) {
-          escaped = false;
-        } else if (char === "\\") {
-          escaped = true;
-        } else if (char === '"') {
-          inString = false;
-        }
-        continue;
-      }
-      if (char === '"') {
-        inString = true;
-      } else if (char === "{") {
-        depth++;
-      } else if (char === "}") {
-        depth--;
-        if (depth === 0) {
-          const candidate = text.slice(start, index + 1);
-          try {
-            const parsed = Tool.unsafeSecureJsonParse(candidate);
-            if (hasRequiredKeys(parsed, requiredKeys)) {
-              return candidate;
-            }
-            // Keep scanning inside valid wrapper objects so a nested response object can be
-            // recovered when the provider wraps the requested schema under an extra key.
-          } catch {
-            // Leave start unchanged on parse failure so the next scan can inspect nested
-            // braces inside code-like preamble before the final JSON object.
-          }
-          break;
-        }
-      }
-    }
-  }
-  return text;
 };
 
 const requireWorkDir = (

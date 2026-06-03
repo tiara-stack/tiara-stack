@@ -287,12 +287,12 @@ describe("KimiClient", () => {
         payload: {
           id: "approval_2",
           action: "Run shell command",
-          description: "git fetch origin main && git diff origin/main...HEAD",
+          description: "git ls-remote origin main && git diff origin/main...HEAD",
           display: [
             {
               type: "shell",
               language: "bash",
-              command: "git fetch origin main && git diff origin/main...HEAD",
+              command: "git ls-remote origin main && git diff origin/main...HEAD",
             },
           ],
         },
@@ -351,6 +351,94 @@ describe("KimiClient", () => {
     );
 
     expect(turn.approve).toHaveBeenCalledWith("approval_1", "reject");
+  });
+
+  it("rejects mutating git commands when read-only git approvals are enabled", async () => {
+    const turn = makeTurn([
+      {
+        type: "ApprovalRequest",
+        payload: {
+          id: "approval_1",
+          action: "Run shell command",
+          description: "git fetch origin main",
+          display: [{ type: "shell", language: "bash", command: "git fetch origin main" }],
+        },
+      },
+      {
+        type: "ApprovalRequest",
+        payload: {
+          id: "approval_2",
+          action: "Run shell command",
+          description: "git diff --output=/tmp/review.diff",
+          display: [
+            { type: "shell", language: "bash", command: "git diff --output=/tmp/review.diff" },
+          ],
+        },
+      },
+    ]);
+    createSessionMock.mockReturnValue({
+      sessionId: "session_1",
+      prompt: vi.fn(() => turn),
+      close: vi.fn(),
+    });
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const client = yield* KimiClient;
+        return yield* client.run({
+          prompt: "inspect",
+          workDir: "/tmp/repo",
+          approvalPolicy: "allow-read-only-git",
+        });
+      }).pipe(Effect.provide(KimiClient.layer)),
+    );
+
+    expect(turn.approve).toHaveBeenCalledWith("approval_1", "reject");
+    expect(turn.approve).toHaveBeenCalledWith("approval_2", "reject");
+  });
+
+  it("rejects mixed approval payloads unless every shell command is allowed", async () => {
+    const turn = makeTurn([
+      {
+        type: "ApprovalRequest",
+        payload: {
+          id: "approval_1",
+          action: "Run shell command",
+          description: "git status",
+          display: [
+            { type: "shell", language: "bash", command: "git status" },
+            { type: "shell", language: "bash", command: "git fetch origin main" },
+          ],
+        },
+      },
+      {
+        type: "ApprovalRequest",
+        payload: {
+          id: "approval_2",
+          action: "Run shell command",
+          description: "git status",
+        },
+      },
+    ]);
+    createSessionMock.mockReturnValue({
+      sessionId: "session_1",
+      prompt: vi.fn(() => turn),
+      close: vi.fn(),
+    });
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const client = yield* KimiClient;
+        return yield* client.run({
+          prompt: "inspect",
+          workDir: "/tmp/repo",
+          approvalPolicy: "allow-read-only-git",
+        });
+      }).pipe(Effect.provide(KimiClient.layer)),
+    );
+
+    expect(turn.approve).toHaveBeenCalledWith("approval_1", "reject");
+    expect(turn.approve).toHaveBeenCalledWith("approval_2", "reject");
   });
 
   it("rejects top-level git config injection in approved git inspection commands", async () => {

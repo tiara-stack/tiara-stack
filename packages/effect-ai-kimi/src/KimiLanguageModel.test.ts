@@ -342,6 +342,44 @@ describe("KimiLanguageModel", () => {
     expect(response.value).toEqual({ ok: true });
   });
 
+  it("generateObject ignores incidental JSON when decoding schemas without required keys", async () => {
+    const Output = Schema.Struct({ ok: Schema.optional(Schema.Boolean) });
+    const response = await Effect.runPromise(
+      LanguageModel.generateObject({
+        prompt: "return json",
+        schema: Output,
+        objectName: "kimi_test_output",
+      }).pipe(
+        Effect.provide(
+          withFakeClient(() =>
+            Effect.succeed(runResult(`scratch: {}\nfinal: ${JSON.stringify({ ok: true })}`)),
+          ),
+        ),
+      ),
+    );
+
+    expect(response.value).toEqual({ ok: true });
+  });
+
+  it("generateObject preserves wrapper JSON for schemas without required keys", async () => {
+    const Output = Schema.Struct({
+      outer: Schema.optional(Schema.Struct({ ok: Schema.Boolean })),
+    });
+    const response = await Effect.runPromise(
+      LanguageModel.generateObject({
+        prompt: "return json",
+        schema: Output,
+        objectName: "kimi_test_output",
+      }).pipe(
+        Effect.provide(
+          withFakeClient(() => Effect.succeed(runResult(JSON.stringify({ outer: { ok: true } })))),
+        ),
+      ),
+    );
+
+    expect(response.value).toEqual({ outer: { ok: true } });
+  });
+
   it("invalid JSON fails as an AiError", async () => {
     const Output = Schema.Struct({ ok: Schema.Boolean });
     const exit = await Effect.runPromiseExit(
