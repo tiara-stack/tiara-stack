@@ -1,0 +1,19 @@
+{
+  "ignoreExports": [
+    {
+      "file": "packages/typhoon-core/src/utils/array/withDefault.ts",
+      "exports": [
+        "ArrayWithDefault",
+        "wrap",
+        "wrapEither",
+        "wrapOption",
+        "toArray",
+        "getDefault",
+        "zip",
+        "zipArray",
+        "map",
+        "replaceKeysFromHead"
+      ]
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-import { Array, Data, Result, Effect, Option, Order, pipe, Struct, Record } from "effect";
+import { Array, Data, Result, Option, Order, pipe, Struct, Record } from "effect";
 
 type SimplifyObject<A> = {
   [K in keyof A]: A[K];
@@ -27,16 +27,6 @@ export const wrap =
       default: options.default,
     });
 
-export const wrapNonEmpty =
-  <S extends Array.NonEmptyReadonlyArray<unknown>>(options: {
-    default: () => Array.ReadonlyArray.Infer<S>;
-  }) =>
-  (array: S) =>
-    new ArrayWithDefault({
-      array,
-      default: options.default,
-    });
-
 export const wrapEither =
   <S extends ReadonlyArray<Result.Result<unknown, unknown>>>(options: {
     default: () => Result.Result.Success<Array.ReadonlyArray.Infer<S>>;
@@ -52,21 +42,6 @@ export const wrapEither =
       default: options.default,
     });
 
-export const wrapEitherNonEmpty =
-  <S extends Array.NonEmptyReadonlyArray<Result.Result<unknown, unknown>>>(options: {
-    default: () => Result.Result.Success<Array.ReadonlyArray.Infer<S>>;
-  }) =>
-  (array: S) =>
-    new ArrayWithDefault({
-      array: pipe(
-        array as Array.NonEmptyReadonlyArray<
-          Result.Result<Result.Result.Success<Array.ReadonlyArray.Infer<S>>, unknown>
-        >,
-        Array.map(Result.getOrElse(options.default)),
-      ),
-      default: options.default,
-    });
-
 export const wrapOption =
   <S extends ReadonlyArray<Option.Option<unknown>>>(options: {
     default: () => Option.Option.Value<Array.ReadonlyArray.Infer<S>>;
@@ -75,21 +50,6 @@ export const wrapOption =
     new ArrayWithDefault({
       array: pipe(
         array as ReadonlyArray<Option.Option<Option.Option.Value<Array.ReadonlyArray.Infer<S>>>>,
-        Array.map(Option.getOrElse(options.default)),
-      ),
-      default: options.default,
-    });
-
-export const wrapOptionNonEmpty =
-  <S extends Array.NonEmptyReadonlyArray<Option.Option<unknown>>>(options: {
-    default: () => Option.Option.Value<Array.ReadonlyArray.Infer<S>>;
-  }) =>
-  (array: S) =>
-    new ArrayWithDefault({
-      array: pipe(
-        array as Array.NonEmptyReadonlyArray<
-          Option.Option<Option.Option.Value<Array.ReadonlyArray.Infer<S>>>
-        >,
         Array.map(Option.getOrElse(options.default)),
       ),
       default: options.default,
@@ -170,46 +130,6 @@ export const map =
       }),
     );
 
-export const mapEffect =
-  <S extends ArrayWithDefault<ReadonlyArray<unknown>>, B, E, R>(
-    mapper: (a: Infer<S>) => Effect.Effect<B, E, R>,
-  ) =>
-  (a: S): Effect.Effect<ArrayWithDefault<ReadonlyArray<B>>, E, R> =>
-    pipe(
-      Effect.all(
-        {
-          array: Effect.forEach(toArray(a), mapper, {
-            concurrency: "unbounded",
-          }) as Effect.Effect<Array.ReadonlyArray.With<InferArray<S>, B>, E, R>,
-          default: mapper(getDefault(a)) as Effect.Effect<B, E, R>,
-        },
-        { concurrency: "unbounded" },
-      ),
-      Effect.map(({ array, default: defaultValue }) =>
-        pipe(
-          array as Array.ReadonlyArray.With<InferArray<S>, B>,
-          wrap({
-            default: () =>
-              defaultValue as Array.ReadonlyArray.Infer<Array.ReadonlyArray.With<InferArray<S>, B>>,
-          }),
-        ),
-      ),
-    );
-
-export const zipMap =
-  <S extends ArrayWithDefault<ReadonlyArray<object>>, B extends object>(
-    mapper: (a: Infer<S>) => B,
-  ) =>
-  (a: S) =>
-    pipe(a, zip(pipe(a, map(mapper))));
-
-export const zipMapArray =
-  <S extends ArrayWithDefault<ReadonlyArray<unknown[]>>, B extends ReadonlyArray<unknown>>(
-    mapper: (a: Infer<S>) => B,
-  ) =>
-  (a: S) =>
-    pipe(a, zipArray(pipe(a, map(mapper))));
-
 export const replaceKeysFromHead =
   <
     S extends ArrayWithDefault<ReadonlyArray<object>>,
@@ -239,30 +159,6 @@ export const replaceKeysFromHead =
                     Array.map((key) => [key, Option.flatMap(v, Struct.get(key as never))] as const),
                     Record.fromEntries,
                   ),
-              ) as SimplifyObject<Pick<Infer<S>, Keys[number]>>,
-          }),
-        ) as ArrayWithDefault<ReadonlyArray<SimplifyObject<Pick<Infer<S>, Keys[number]>>>>,
-      ),
-    ) as unknown as S;
-
-export const replaceKeysFromHeadNonEmpty =
-  <
-    S extends ArrayWithDefault<Array.NonEmptyReadonlyArray<object>>,
-    Keys extends Array.NonEmptyReadonlyArray<keyof Infer<S>>,
-  >(
-    ...keys: Keys
-  ) =>
-  (a: S): S =>
-    pipe(
-      a,
-      zip(
-        pipe(
-          [] as SimplifyObject<Pick<Infer<S>, Keys[number]>>[],
-          wrap({
-            default: () =>
-              Struct.pick(
-                Array.headNonEmpty(toArray(a)) as Infer<S>,
-                keys as never,
               ) as SimplifyObject<Pick<Infer<S>, Keys[number]>>,
           }),
         ) as ArrayWithDefault<ReadonlyArray<SimplifyObject<Pick<Infer<S>, Keys[number]>>>>,

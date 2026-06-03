@@ -9,9 +9,9 @@ import {
   SchemaParser,
 } from "effect";
 
-export const Annotations = Schema.Record(Schema.String, Schema.Unknown);
+const Annotations = Schema.Record(Schema.String, Schema.Unknown);
 
-export const AugmentAnnotationsFields = Schema.Struct({
+const AugmentAnnotationsFields = Schema.Struct({
   expected: Schema.optional(Schema.String),
   title: Schema.optional(Schema.String),
   description: Schema.optional(Schema.String),
@@ -23,34 +23,26 @@ export const AugmentAnnotationsFields = Schema.Struct({
   contentMediaType: Schema.optional(Schema.String),
 });
 
-export const AugmentAnnotations = Schema.StructWithRest(AugmentAnnotationsFields, [Annotations]);
-
-export const DocumentationAnnotationsFields = AugmentAnnotationsFields.mapFields(
+const DocumentationAnnotationsFields = AugmentAnnotationsFields.mapFields(
   Struct.assign({
     default: Schema.optional(Schema.Unknown),
     examples: Schema.optional(Schema.Array(Schema.Unknown)),
   }),
 );
 
-export const DocumentationAnnotations = Schema.StructWithRest(DocumentationAnnotationsFields, [
-  Annotations,
-]);
-
-export const UnknownKeyAnnotationsFields = DocumentationAnnotationsFields.mapFields(
+const UnknownKeyAnnotationsFields = DocumentationAnnotationsFields.mapFields(
   Struct.assign({
     messageMissingKey: Schema.optional(Schema.String),
   }),
 );
 
-export const UnknownKeyAnnotations = Schema.StructWithRest(UnknownKeyAnnotationsFields, [
-  Annotations,
-]);
+const UnknownKeyAnnotations = Schema.StructWithRest(UnknownKeyAnnotationsFields, [Annotations]);
 
-export const IssueAnnotationsFields = Schema.Struct({
+const IssueAnnotationsFields = Schema.Struct({
   message: Schema.optional(Schema.String),
 });
 
-export const IssueAnnotations = Schema.StructWithRest(IssueAnnotationsFields, [Annotations]);
+const IssueAnnotations = Schema.StructWithRest(IssueAnnotationsFields, [Annotations]);
 
 // These AST fields are transport-only placeholders for now. They preserve
 // payload shape across the wire, but decoded values are plain data rather than
@@ -76,7 +68,7 @@ const FilterStruct = Schema.TaggedStruct("Filter", {
   ),
 });
 const FilterDeclare = Schema.declare((input) => input instanceof EffectSchemaIssue.Filter);
-export const Filter: Schema.Codec<EffectSchemaIssue.Filter, FilterStruct> = FilterStruct.pipe(
+const Filter: Schema.Codec<EffectSchemaIssue.Filter, FilterStruct> = FilterStruct.pipe(
   Schema.decodeTo(FilterDeclare, {
     decode: SchemaGetter.transformOrFail(
       Effect.fnUntraced(function* ({ actual, filter, issue }) {
@@ -112,28 +104,27 @@ const EncodingStruct = Schema.TaggedStruct("Encoding", {
   ),
 });
 const EncodingDeclare = Schema.declare((input) => input instanceof EffectSchemaIssue.Encoding);
-export const Encoding: Schema.Codec<EffectSchemaIssue.Encoding, EncodingStruct> =
-  EncodingStruct.pipe(
-    Schema.decodeTo(EncodingDeclare, {
-      decode: SchemaGetter.transformOrFail(
-        Effect.fnUntraced(function* ({ ast, actual, issue }) {
-          const decodedIssue = yield* SchemaParser.decodeUnknownEffect(SchemaIssue)(issue);
-          return new EffectSchemaIssue.Encoding(ast, actual, decodedIssue);
-        }),
-      ),
-      encode: SchemaGetter.transformOrFail(
-        Effect.fnUntraced(function* ({ ast, actual, issue }) {
-          const encodedIssue = yield* SchemaParser.encodeUnknownEffect(SchemaIssue)(issue);
-          return {
-            _tag: "Encoding",
-            ast,
-            actual,
-            issue: encodedIssue,
-          };
-        }),
-      ),
-    }),
-  );
+const Encoding: Schema.Codec<EffectSchemaIssue.Encoding, EncodingStruct> = EncodingStruct.pipe(
+  Schema.decodeTo(EncodingDeclare, {
+    decode: SchemaGetter.transformOrFail(
+      Effect.fnUntraced(function* ({ ast, actual, issue }) {
+        const decodedIssue = yield* SchemaParser.decodeUnknownEffect(SchemaIssue)(issue);
+        return new EffectSchemaIssue.Encoding(ast, actual, decodedIssue);
+      }),
+    ),
+    encode: SchemaGetter.transformOrFail(
+      Effect.fnUntraced(function* ({ ast, actual, issue }) {
+        const encodedIssue = yield* SchemaParser.encodeUnknownEffect(SchemaIssue)(issue);
+        return {
+          _tag: "Encoding",
+          ast,
+          actual,
+          issue: encodedIssue,
+        };
+      }),
+    ),
+  }),
+);
 
 type PointerStruct = {
   _tag: "Pointer";
@@ -147,7 +138,7 @@ const PointerStruct = Schema.TaggedStruct("Pointer", {
   ),
 });
 const PointerDeclare = Schema.declare((input) => input instanceof EffectSchemaIssue.Pointer);
-export const Pointer: Schema.Codec<EffectSchemaIssue.Pointer, PointerStruct> = PointerStruct.pipe(
+const Pointer: Schema.Codec<EffectSchemaIssue.Pointer, PointerStruct> = PointerStruct.pipe(
   Schema.decodeTo(PointerDeclare, {
     decode: SchemaGetter.transformOrFail(
       Effect.fnUntraced(function* ({ path, issue }) {
@@ -176,7 +167,7 @@ const MissingKeyStruct = Schema.TaggedStruct("MissingKey", {
   annotations: Schema.UndefinedOr(UnknownKeyAnnotations),
 });
 const MissingKeyDeclare = Schema.declare((input) => input instanceof EffectSchemaIssue.MissingKey);
-export const MissingKey = MissingKeyStruct.pipe(
+const MissingKey = MissingKeyStruct.pipe(
   Schema.decodeTo(MissingKeyDeclare, {
     decode: SchemaGetter.transform(
       ({ annotations }) => new EffectSchemaIssue.MissingKey(annotations),
@@ -197,7 +188,7 @@ const UnexpectedKeyStruct = Schema.TaggedStruct("UnexpectedKey", {
 const UnexpectedKeyDeclare = Schema.declare(
   (input) => input instanceof EffectSchemaIssue.UnexpectedKey,
 );
-export const UnexpectedKey = UnexpectedKeyStruct.pipe(
+const UnexpectedKey = UnexpectedKeyStruct.pipe(
   Schema.decodeTo(UnexpectedKeyDeclare, {
     decode: SchemaGetter.transform(
       ({ ast, actual }) => new EffectSchemaIssue.UnexpectedKey(ast, actual),
@@ -220,32 +211,31 @@ const CompositeStruct = Schema.TaggedStruct("Composite", {
   ),
 });
 const CompositeDeclare = Schema.declare((input) => input instanceof EffectSchemaIssue.Composite);
-export const Composite: Schema.Codec<EffectSchemaIssue.Composite, CompositeStruct> =
-  CompositeStruct.pipe(
-    Schema.decodeTo(CompositeDeclare, {
-      decode: SchemaGetter.transformOrFail(
-        Effect.fnUntraced(function* ({ ast, actual, issues }) {
-          const decodedIssues = yield* SchemaParser.decodeUnknownEffect(
-            Schema.NonEmptyArray(SchemaIssue),
-          )(issues);
-          return new EffectSchemaIssue.Composite(ast, actual, decodedIssues);
-        }),
-      ),
-      encode: SchemaGetter.transformOrFail(
-        Effect.fnUntraced(function* ({ ast, actual, issues }) {
-          const encodedIssues = yield* SchemaParser.encodeUnknownEffect(
-            Schema.NonEmptyArray(SchemaIssue),
-          )(issues);
-          return {
-            _tag: "Composite",
-            ast,
-            actual,
-            issues: encodedIssues,
-          };
-        }),
-      ),
-    }),
-  );
+const Composite: Schema.Codec<EffectSchemaIssue.Composite, CompositeStruct> = CompositeStruct.pipe(
+  Schema.decodeTo(CompositeDeclare, {
+    decode: SchemaGetter.transformOrFail(
+      Effect.fnUntraced(function* ({ ast, actual, issues }) {
+        const decodedIssues = yield* SchemaParser.decodeUnknownEffect(
+          Schema.NonEmptyArray(SchemaIssue),
+        )(issues);
+        return new EffectSchemaIssue.Composite(ast, actual, decodedIssues);
+      }),
+    ),
+    encode: SchemaGetter.transformOrFail(
+      Effect.fnUntraced(function* ({ ast, actual, issues }) {
+        const encodedIssues = yield* SchemaParser.encodeUnknownEffect(
+          Schema.NonEmptyArray(SchemaIssue),
+        )(issues);
+        return {
+          _tag: "Composite",
+          ast,
+          actual,
+          issues: encodedIssues,
+        };
+      }),
+    ),
+  }),
+);
 
 type InvalidTypeStruct = {
   _tag: "InvalidType";
@@ -259,7 +249,7 @@ const InvalidTypeStruct = Schema.TaggedStruct("InvalidType", {
 const InvalidTypeDeclare = Schema.declare(
   (input) => input instanceof EffectSchemaIssue.InvalidType,
 );
-export const InvalidType = InvalidTypeStruct.pipe(
+const InvalidType = InvalidTypeStruct.pipe(
   Schema.decodeTo(InvalidTypeDeclare, {
     decode: SchemaGetter.transform(
       ({ ast, actual }) => new EffectSchemaIssue.InvalidType(ast, actual),
@@ -280,7 +270,7 @@ const InvalidValueStruct = Schema.TaggedStruct("InvalidValue", {
 const InvalidValueDeclare = Schema.declare(
   (input) => input instanceof EffectSchemaIssue.InvalidValue,
 );
-export const InvalidValue = InvalidValueStruct.pipe(
+const InvalidValue = InvalidValueStruct.pipe(
   Schema.decodeTo(InvalidValueDeclare, {
     decode: SchemaGetter.transform(
       ({ actual, annotations }) => new EffectSchemaIssue.InvalidValue(actual, annotations),
@@ -299,7 +289,7 @@ const ForbiddenStruct = Schema.TaggedStruct("Forbidden", {
   annotations: Schema.UndefinedOr(IssueAnnotations),
 });
 const ForbiddenDeclare = Schema.declare((input) => input instanceof EffectSchemaIssue.Forbidden);
-export const Forbidden = ForbiddenStruct.pipe(
+const Forbidden = ForbiddenStruct.pipe(
   Schema.decodeTo(ForbiddenDeclare, {
     decode: SchemaGetter.transform(
       ({ actual, annotations }) => new EffectSchemaIssue.Forbidden(actual, annotations),
@@ -322,7 +312,7 @@ const AnyOfStruct = Schema.TaggedStruct("AnyOf", {
   ),
 });
 const AnyOfDeclare = Schema.declare((input) => input instanceof EffectSchemaIssue.AnyOf);
-export const AnyOf: Schema.Codec<EffectSchemaIssue.AnyOf, AnyOfStruct> = AnyOfStruct.pipe(
+const AnyOf: Schema.Codec<EffectSchemaIssue.AnyOf, AnyOfStruct> = AnyOfStruct.pipe(
   Schema.decodeTo(AnyOfDeclare, {
     decode: SchemaGetter.transformOrFail(
       Effect.fnUntraced(function* ({ ast, actual, issues }) {
@@ -360,7 +350,7 @@ const OneOfStruct = Schema.TaggedStruct("OneOf", {
   successes: Schema.Array(SchemaIssueAst),
 });
 const OneOfDeclare = Schema.declare((input) => input instanceof EffectSchemaIssue.OneOf);
-export const OneOf = OneOfStruct.pipe(
+const OneOf = OneOfStruct.pipe(
   Schema.decodeTo(OneOfDeclare, {
     decode: SchemaGetter.transform(
       ({ ast, actual, successes }) => new EffectSchemaIssue.OneOf(ast, actual, successes),
@@ -369,7 +359,7 @@ export const OneOf = OneOfStruct.pipe(
   }),
 );
 
-export type LeafStruct =
+type LeafStruct =
   | InvalidTypeStruct
   | InvalidValueStruct
   | MissingKeyStruct
@@ -377,7 +367,7 @@ export type LeafStruct =
   | ForbiddenStruct
   | OneOfStruct;
 
-export const LeafStruct = Schema.Union([
+const LeafStruct = Schema.Union([
   InvalidTypeStruct,
   InvalidValueStruct,
   MissingKeyStruct,
@@ -386,14 +376,7 @@ export const LeafStruct = Schema.Union([
   OneOfStruct,
 ]);
 
-export const Leaf = Schema.Union([
-  InvalidType,
-  InvalidValue,
-  MissingKey,
-  UnexpectedKey,
-  Forbidden,
-  OneOf,
-]);
+const Leaf = Schema.Union([InvalidType, InvalidValue, MissingKey, UnexpectedKey, Forbidden, OneOf]);
 
 export type SchemaIssueStruct =
   | LeafStruct
