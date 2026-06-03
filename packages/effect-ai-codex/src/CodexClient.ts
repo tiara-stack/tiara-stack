@@ -9,7 +9,6 @@ import {
   type TurnOptions,
   type Usage,
 } from "@openai/codex-sdk";
-import { createHash } from "node:crypto";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -22,6 +21,12 @@ import {
   CodexTimeout,
   messageFromCause,
 } from "./CodexError";
+import {
+  clientOptionsCacheKey,
+  collectStreamEvents,
+  mergeClientOptions,
+  mergeThreadOptions,
+} from "./internal/clientRun";
 import { runWithAbortTimeout } from "./internal/timeout";
 
 export type RunOptions = {
@@ -60,87 +65,6 @@ export class CodexClient extends Context.Service<CodexClient, Service>()(
 ) {
   static layer = Layer.effect(CodexClient, this.make);
 }
-
-const defaultThreadOptions: Partial<ThreadOptions> = {
-  sandboxMode: "read-only",
-  approvalPolicy: "never",
-  webSearchMode: "disabled",
-  networkAccessEnabled: false,
-};
-
-const stableStringify = (value: unknown): string => {
-  if (Array.isArray(value)) {
-    return `[${value.map((nested) => (nested === undefined ? "null" : stableStringify(nested))).join(",")}]`;
-  }
-  if (value && typeof value === "object") {
-    return `{${Object.entries(value)
-      .filter(([, nested]) => nested !== undefined)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, nested]) => `${JSON.stringify(key)}:${stableStringify(nested)}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value) ?? "null";
-};
-
-const mergeClientOptions = (
-  config: Context.Service.Shape<typeof Config> | undefined,
-  options: CodexOptions | undefined,
-): CodexOptions => ({
-  codexPathOverride: options?.codexPathOverride ?? config?.codexPathOverride,
-  baseUrl: options?.baseUrl ?? config?.baseUrl,
-  apiKey: options?.apiKey ?? config?.apiKey,
-  env:
-    options?.env !== undefined && config?.env !== undefined
-      ? { ...config.env, ...options.env }
-      : (options?.env ?? config?.env),
-  config: {
-    ...config?.config,
-    ...options?.config,
-  },
-});
-
-const clientOptionsCacheKey = (options: CodexOptions): string => {
-  const sensitiveHash = createHash("sha256")
-    .update(
-      stableStringify({
-        apiKey: options.apiKey,
-        env: options.env,
-      }),
-    )
-    .digest("hex");
-  return stableStringify({
-    codexPathOverride: options.codexPathOverride,
-    baseUrl: options.baseUrl,
-    config: options.config,
-    sensitiveHash,
-  });
-};
-
-const mergeThreadOptions = (
-  config: Context.Service.Shape<typeof Config> | undefined,
-  options: Partial<ThreadOptions> | undefined,
-): ThreadOptions => ({
-  ...defaultThreadOptions,
-  ...config?.thread,
-  ...options,
-});
-
-const collectStreamEvents = async (
-  events: AsyncIterable<ThreadEvent>,
-): Promise<ReadonlyArray<ThreadEvent>> => {
-  const collected: Array<ThreadEvent> = [];
-  try {
-    for await (const event of events) {
-      collected.push(event);
-    }
-  } catch (cause) {
-    throw new CodexStreamParseError({
-      message: cause instanceof Error ? cause.message : "Codex stream failed",
-      cause,
-    });
-  }
-  return collected;
-};
 
 export const make: Effect.Effect<Service> = Effect.gen(function* () {
   const config = yield* Effect.serviceOption(Config).pipe(
@@ -220,7 +144,9 @@ export const make: Effect.Effect<Service> = Effect.gen(function* () {
           });
           const timeoutMs = options.timeoutMs ?? config?.timeoutMs;
           const events = await runWithAbortTimeout({
-            runPromise: streamedPromise.then((streamed) => collectStreamEvents(streamed.events)),
+            runPromise: streamedPromise.then((streamed) =>
+              Effect.runPromise(collectStreamEvents(streamed.events)),
+            ),
             abort: () => abortController.abort(),
             timeoutMs,
             cleanupGraceMs: options.cleanupGraceMs ?? config?.cleanupGraceMs,
