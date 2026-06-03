@@ -8,7 +8,6 @@ import {
   MessageComponentInteractionResponse,
   makeButton,
   makeButtonData,
-  makeMessageActionRowData,
   makeMessageComponent,
 } from "dfx-discord-utils/utils";
 import { InteractionToken } from "dfx-discord-utils/utils";
@@ -25,7 +24,7 @@ const getInteractionMessage = Effect.gen(function* () {
   );
 });
 
-export const makeCheckinButtonData = (disabled = false) =>
+const makeCheckinButtonData = (disabled = false) =>
   makeButtonData((b) =>
     b
       .setCustomId(CHECKIN_BUTTON_CUSTOM_ID)
@@ -35,10 +34,7 @@ export const makeCheckinButtonData = (disabled = false) =>
       .setDisabled(disabled),
   );
 
-export const checkinButtonData = makeCheckinButtonData();
-
-export const checkinActionRow = (disabled = false) =>
-  makeMessageActionRowData((b) => b.setComponents(makeCheckinButtonData(disabled)));
+const checkinButtonData = makeCheckinButtonData();
 
 const makeCheckinButtonHandler = Effect.gen(function* () {
   const sheetWorkflowsClient = yield* SheetWorkflowsClient;

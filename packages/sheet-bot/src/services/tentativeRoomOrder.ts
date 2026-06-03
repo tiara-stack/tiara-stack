@@ -1,10 +1,8 @@
 import { Effect } from "effect";
 import type { DiscordRestService } from "dfx/DiscordREST";
 import {
-  formatTentativeRoomOrderContent,
-  hasTentativeRoomOrderPrefix,
   shouldSendTentativeRoomOrder,
-  stripTentativeRoomOrderPrefix,
+  formatTentativeRoomOrderContent,
 } from "sheet-ingress-api/discordComponents";
 import {
   tentativeRoomOrderActionRow,
@@ -68,12 +66,6 @@ type TentativeMessageRoomOrderService = {
       }>;
     },
   ) => Effect.Effect<unknown, unknown, never>;
-};
-
-export {
-  formatTentativeRoomOrderContent,
-  hasTentativeRoomOrderPrefix,
-  stripTentativeRoomOrderPrefix,
 };
 
 export const sendTentativeRoomOrder = Effect.fn("sendTentativeRoomOrder")(function* ({
