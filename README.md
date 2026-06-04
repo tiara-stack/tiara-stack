@@ -245,6 +245,7 @@ sequenceDiagram
 - **Better Auth**: Authentication framework with Discord OAuth
 - **dfx**: Discord Effect library for bot development
 - **vite-plus (`vp`)** (catalog v0.1.15): Monorepo build, lint, format, and test tooling
+- **Fallow**: Changed-code audit and maintainability analysis for TypeScript and JavaScript
 
 ## Development
 
@@ -275,6 +276,9 @@ pnpm test
 
 # Run workspace checks
 pnpm checks
+
+# Run a Fallow changed-code audit
+npx fallow audit
 
 # Apply formatting
 pnpm format:apply
@@ -316,6 +320,8 @@ pnpm format:apply  # vp run -r format:apply
 ```
 
 In this repo, `pnpm lint` also performs type-aware TypeScript checking for the Vite+ packages because each package `vite.config.ts` enables `lint.options.typeAware` and `lint.options.typeCheck`.
+
+Pull request CI also runs `fallow-rs/fallow` with `command: audit`, which scopes findings to the PR diff and posts the Fallow summary and review comments on changed code. Fallow currently reports without blocking CI while the repository still has known baseline findings.
 
 ## Project Structure
 
