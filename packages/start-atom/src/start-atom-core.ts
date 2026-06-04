@@ -7,7 +7,7 @@ export type StartAtomOptions<TRouter extends AnyRouter> = {
   registry: AtomRegistry.AtomRegistry;
 };
 
-export type DehydratedAtomState = {
+type DehydratedAtomState = {
   atomStream: ReadableStream<Array<Hydration.DehydratedAtom>>;
 };
 
