@@ -3,16 +3,16 @@ import type { JsonValue, MigrationExtensionResult } from "../types";
 
 export const DialectSchema = Schema.Literals(["postgresql", "sqlite"]);
 
-export const DbCredentialsSchema = Schema.Struct({
+const DbCredentialsSchema = Schema.Struct({
   url: Schema.optional(Schema.String),
 });
 
-export const MigrationsConfigSchema = Schema.Struct({
+const MigrationsConfigSchema = Schema.Struct({
   table: Schema.optional(Schema.String),
   schema: Schema.optional(Schema.String),
 });
 
-export const FunctionSchema = Schema.declare(
+const FunctionSchema = Schema.declare(
   (input): input is (...args: readonly never[]) => unknown => typeof input === "function",
 );
 
@@ -28,7 +28,7 @@ export const JsonValueSchema: Schema.Codec<JsonValue> = Schema.suspend(
     ]) as Schema.Codec<JsonValue>,
 );
 
-export const MigrationStatementSchema = Schema.Struct({
+const MigrationStatementSchema = Schema.Struct({
   sql: Schema.String,
   destructive: Schema.optional(Schema.Boolean),
   unsupported: Schema.optional(Schema.Boolean),
@@ -41,7 +41,7 @@ export const MigrationExtensionResultSchema: Schema.Schema<MigrationExtensionRes
     snapshot: JsonValueSchema,
   });
 
-export const MigrationExtensionSchema = Schema.Struct({
+const MigrationExtensionSchema = Schema.Struct({
   _tag: Schema.Literal("EffectSqlKitMigrationExtension"),
   name: Schema.String,
   generate: FunctionSchema,

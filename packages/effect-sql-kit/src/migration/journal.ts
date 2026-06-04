@@ -100,7 +100,7 @@ export const readJournalEffect = (out: string, dialect: "postgresql" | "sqlite")
     return journal satisfies Journal;
   });
 
-export const readStoredSnapshotEffect = (out: string, prefix: string) =>
+const readStoredSnapshotEffect = (out: string, prefix: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;

@@ -1,12 +1,6 @@
-export {
-  emptySnapshot,
-  snapshotSchema,
-  snapshotTable,
-  snapshotVersion,
-} from "effect-sql-schema/snapshot";
+export { emptySnapshot, snapshotSchema, snapshotVersion } from "effect-sql-schema/snapshot";
 export type {
   ColumnSnapshot,
-  IndexSnapshot,
   SchemaSnapshot,
   StoredSnapshot,
   TableSnapshot,

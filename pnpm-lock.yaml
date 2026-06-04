@@ -236,9 +236,6 @@ importers:
       jiti:
         specifier: ^2.6.1
         version: 2.6.1
-      jsonc-parser:
-        specifier: ^3.3.1
-        version: 3.3.1
     devDependencies:
       '@effect/vitest':
         specifier: 'catalog:'
