@@ -1,10 +1,10 @@
-import { DateTime, Option, Match, Hash } from "effect";
+import { DateTime, Option, Match } from "effect";
 import { useMemo } from "react";
 
 export const makeZoned = (timeZone: DateTime.TimeZone, timestamp: DateTime.DateTime) =>
   DateTime.setZone(timestamp, timeZone);
 
-export const makeZonedOptional = (timeZone: DateTime.TimeZone, timestamp?: DateTime.DateTime) =>
+const makeZonedOptional = (timeZone: DateTime.TimeZone, timestamp?: DateTime.DateTime) =>
   Option.fromNullishOr(timestamp).pipe(
     Option.map(DateTime.setZone(timeZone)),
     Option.getOrUndefined,
@@ -30,6 +30,3 @@ export const useZonedOptional = (timeZone: DateTime.TimeZone, timestamp?: DateTi
   );
   return zoned;
 };
-
-export const dateTimeId = (dateTime: DateTime.Zoned) =>
-  Hash.array([DateTime.toEpochMillis(dateTime), zoneId(dateTime.zone)]);

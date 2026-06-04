@@ -22,9 +22,7 @@ export const monthSlideTransition = {
   ease: [0.4, 0, 0.2, 1],
 } as const;
 
-export type MonthDirection = -1 | 0 | 1;
-
-export type TransitionPhase = "to-daily" | "to-calendar";
+type TransitionPhase = "to-daily" | "to-calendar";
 
 export type ViewType = "calendar" | "daily" | "default";
 
@@ -114,7 +112,7 @@ export function useScheduleMonthDirection(search: ScheduleSearchParams) {
 
 // Hook for reading the transition phase
 // Derived by comparing current view with from.view from URL
-export function useSchedulePhase(
+function useSchedulePhase(
   search: ScheduleSearchParams,
   currentView: ViewType,
 ): TransitionPhase | undefined {

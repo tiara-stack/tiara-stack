@@ -6,7 +6,7 @@ import { ArgumentError, SchemaError } from "typhoon-core/error";
 import { QueryResultAppError, QueryResultParseError } from "typhoon-zero/error";
 import { Discord } from "sheet-apis/schema";
 
-export const _currentUserAtom = SheetApisClient.query("discord", "getCurrentUser", {});
+const _currentUserAtom = SheetApisClient.query("discord", "getCurrentUser", {});
 
 const DiscordRequestErrorSchema = Schema.revealCodec(
   Schema.Union([SchemaError, QueryResultAppError, QueryResultParseError, ArgumentError]),
@@ -43,7 +43,7 @@ export const useCurrentUser = () => {
   return result.value;
 };
 
-export const _currentUserGuildsAtom = SheetApisClient.query("discord", "getCurrentUserGuilds", {});
+const _currentUserGuildsAtom = SheetApisClient.query("discord", "getCurrentUserGuilds", {});
 
 export const currentUserGuildsAtom = _currentUserGuildsAtom.pipe(
   Atom.setIdleTTL(Duration.infinity),

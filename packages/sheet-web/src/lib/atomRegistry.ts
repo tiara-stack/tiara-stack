@@ -101,12 +101,6 @@ const ensureAtomDataNode = <A>(
   return newNode;
 };
 
-export const ensureAtomData = <A>(
-  registry: AtomRegistry.AtomRegistry,
-  atom: Atom.Atom<A>,
-  options?: { revalidateIfStale?: boolean },
-) => ensureAtomDataNode(registry, atom, options)._value;
-
 export const ensureResultAtomData = <A, E>(
   registry: AtomRegistry.AtomRegistry,
   atom: Atom.Atom<AsyncResult.AsyncResult<A, E>>,

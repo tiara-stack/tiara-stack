@@ -1,6 +1,6 @@
 {
   "publicPackages": ["dfx-discord-utils"],
-  "ignoreDependencies": ["typhoon-core"],
+  "ignoreDependencies": ["sheet-apis", "start-atom", "typhoon-core", "typhoon-zero"],
   "ignoreExports": [
     {
       "file": "packages/typhoon-core/src/utils/array/withDefault.ts",

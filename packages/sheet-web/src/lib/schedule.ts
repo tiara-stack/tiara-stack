@@ -20,10 +20,7 @@ import { useMemo } from "react";
 import { zoneId } from "#/hooks/useDateTimeZoned";
 
 // Re-export types from sheet-apis
-export type ScheduleResult = Sheet.PopulatedScheduleResult;
 export type SchedulePlayer = Sheet.PopulatedSchedulePlayer;
-export type GuildScheduleResponse = Sheet.PopulatedScheduleResponse;
-export type ScheduleView = Sheet.ScheduleView;
 
 const GuildScheduleErrorSchema = Schema.revealCodec(
   Schema.Union([
@@ -50,13 +47,6 @@ const GuildSchedulesAsyncResultSchema = Schema.revealCodec(
   }),
 );
 
-const GuildScheduleViewAsyncResultSchema = Schema.revealCodec(
-  AsyncResult.Schema({
-    success: Sheet.ScheduleView,
-    error: GuildScheduleErrorSchema,
-  }),
-);
-
 const GuildChannelsAsyncResultSchema = Schema.revealCodec(
   AsyncResult.Schema({
     success: Schema.Array(Schema.String),
@@ -79,7 +69,7 @@ const _guildScheduleResponseAtom = Atom.family((guildId: string) =>
 );
 
 // Serializable atom for guild schedule response
-export const guildScheduleResponseAtom = Atom.family((guildId: string) =>
+const guildScheduleResponseAtom = Atom.family((guildId: string) =>
   _guildScheduleResponseAtom(guildId).pipe(
     Atom.setIdleTTL(Duration.infinity),
     Atom.serializable({
@@ -105,33 +95,9 @@ export const guildScheduleAtom = Atom.family((guildId: string) =>
   ),
 );
 
-export const guildScheduleViewAtom = Atom.family((guildId: string) =>
-  Atom.make(
-    Effect.fnUntraced(function* (get) {
-      const response = yield* get.result(guildScheduleResponseAtom(guildId));
-      return response.view;
-    }),
-  ).pipe(
-    Atom.setIdleTTL(Duration.infinity),
-    Atom.serializable({
-      key: `schedule.getAllPopulatedSchedules.view.${guildId}`,
-      schema: GuildScheduleViewAsyncResultSchema,
-    }),
-  ),
-);
-
 // Hook to use month schedule data
 export const useGuildSchedule = (guildId: string) => {
   const atom = useMemo(() => guildScheduleAtom(guildId), [guildId]);
-  const result = useAtomSuspense(atom, {
-    suspendOnWaiting: false,
-    includeFailure: false,
-  });
-  return result.value;
-};
-
-export const useGuildScheduleView = (guildId: string) => {
-  const atom = useMemo(() => guildScheduleViewAtom(guildId), [guildId]);
   const result = useAtomSuspense(atom, {
     suspendOnWaiting: false,
     includeFailure: false,
