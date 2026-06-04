@@ -9,7 +9,7 @@ import { SheetApisRpcTokens } from "./sheetApisRpcTokens";
 
 const sheetBotTokenPath = "/var/run/secrets/tokens/sheet-bot-token";
 
-export class MissingInteractionTokenError extends Data.TaggedError("MissingInteractionTokenError")<{
+class MissingInteractionTokenError extends Data.TaggedError("MissingInteractionTokenError")<{
   readonly message: string;
 }> {}
 

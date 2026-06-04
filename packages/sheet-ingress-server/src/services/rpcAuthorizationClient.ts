@@ -39,7 +39,7 @@ export const getIngressRpcHeaders = Effect.fn("RpcAuthorizationClient.getIngress
   },
 );
 
-export const makeRpcHeadersClientLayer = <Id extends RpcMiddleware.AnyService, R>(
+const makeRpcHeadersClientLayer = <Id extends RpcMiddleware.AnyService, R>(
   tag: Id,
   name: string,
   getHeaders: () => Effect.Effect<Headers.Headers, unknown, R>,
