@@ -1,4 +1,6 @@
 {
+  "publicPackages": ["dfx-discord-utils"],
+  "ignoreDependencies": ["typhoon-core"],
   "ignoreExports": [
     {
       "file": "packages/typhoon-core/src/utils/array/withDefault.ts",
