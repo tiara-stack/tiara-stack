@@ -36,7 +36,6 @@
     "@googleapis/sheets": "^10.0.1",
     "@opentelemetry/exporter-prometheus": "^0.207.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.207.0",
-    "@opentelemetry/sdk-metrics": "^2.2.0",
     "@opentelemetry/sdk-trace-base": "^2.2.0",
     "@rocicorp/zero": "^0.25.9",
     "arkregex": "^0.0.2",
@@ -49,14 +48,12 @@
     "sheet-ingress-api": "workspace:*",
     "typhoon-core": "workspace:*",
     "typhoon-zero": "workspace:*",
-    "ufo": "^1.6.1",
-    "unstorage": "^1.15.0"
+    "ufo": "^1.6.1"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "@types/node": "^24.10.9",
     "@typescript/native-preview": "latest",
-    "dotenv": "^17.2.3",
     "glob": "^11.0.1",
     "pathe": "^2.0.3",
     "vite": "catalog:",

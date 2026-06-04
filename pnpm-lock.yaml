@@ -344,9 +344,6 @@ importers:
       '@opentelemetry/exporter-trace-otlp-http':
         specifier: ^0.207.0
         version: 0.207.0(@opentelemetry/api@1.9.0)
-      '@opentelemetry/sdk-metrics':
-        specifier: ^2.2.0
-        version: 2.2.0(@opentelemetry/api@1.9.0)
       '@opentelemetry/sdk-trace-base':
         specifier: ^2.2.0
         version: 2.2.0(@opentelemetry/api@1.9.0)
@@ -392,9 +389,6 @@ importers:
       ufo:
         specifier: ^1.6.1
         version: 1.6.1
-      unstorage:
-        specifier: ^1.15.0
-        version: 1.17.4(db0@0.3.4(better-sqlite3@12.9.0)(drizzle-orm@0.45.1(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.28.11)(pg@8.20.0)(postgres@3.4.7)))(ioredis@5.9.3)
     devDependencies:
       '@effect/vitest':
         specifier: 'catalog:'
@@ -405,9 +399,6 @@ importers:
       '@typescript/native-preview':
         specifier: latest
         version: 7.0.0-dev.20260512.1
-      dotenv:
-        specifier: ^17.2.3
-        version: 17.2.3
       glob:
         specifier: ^11.0.1
         version: 11.0.3
