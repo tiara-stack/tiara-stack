@@ -7,7 +7,7 @@ const SmokeWorkflowPayload = Schema.Struct({
   runId: Schema.String,
 });
 
-export type SmokeWorkflowPayload = Schema.Schema.Type<typeof SmokeWorkflowPayload>;
+type SmokeWorkflowPayload = Schema.Schema.Type<typeof SmokeWorkflowPayload>;
 
 const SmokeWorkflowResult = Schema.Struct({
   message: Schema.String,
@@ -15,7 +15,7 @@ const SmokeWorkflowResult = Schema.Struct({
   executionId: Schema.String,
 });
 
-export type SmokeWorkflowResult = Schema.Schema.Type<typeof SmokeWorkflowResult>;
+type SmokeWorkflowResult = Schema.Schema.Type<typeof SmokeWorkflowResult>;
 
 export const SmokeWorkflow = Workflow.make({
   name: "smoke.echo",

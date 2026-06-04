@@ -4,11 +4,8 @@ import { ClusterSchema } from "effect/unstable/cluster";
 import { WorkflowEngine } from "effect/unstable/workflow";
 import { AutoCheckinService } from "@/services";
 import { autoCheckinWorkflowLayer } from "./autoCheckin";
-import {
-  AutoCheckinChannelPayload,
-  AutoCheckinChannelResult,
-  AutoCheckinChannelWorkflow,
-} from "./autoCheckinContract";
+import { AutoCheckinChannelResult, AutoCheckinChannelWorkflow } from "./autoCheckinContract";
+import type { AutoCheckinChannelPayload } from "./autoCheckinContract";
 
 const payload: AutoCheckinChannelPayload = {
   guildId: "guild-1",

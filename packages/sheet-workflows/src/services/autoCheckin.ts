@@ -13,10 +13,10 @@ import {
 import { IngressBotClient } from "./ingressBotClient";
 import { SheetApisClient } from "./sheetApisClient";
 import {
-  AutoCheckinChannelPayload,
   AutoCheckinChannelResult,
   AutoCheckinChannelWorkflow,
 } from "@/workflows/autoCheckinContract";
+import type { AutoCheckinChannelPayload } from "@/workflows/autoCheckinContract";
 import { config } from "@/config";
 
 type DiscordMessage = {

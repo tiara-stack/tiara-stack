@@ -111,7 +111,7 @@ type RoomOrderButtonPayload = RoomOrderButtonBasePayload & {
   readonly action: RoomOrderButtonAction;
 };
 
-export type DispatchRequester = {
+type DispatchRequester = {
   readonly accountId: string;
   readonly userId: string;
 };
@@ -498,7 +498,7 @@ const isSendableGuildChannel = (channel: DiscordChannelCacheEntry) =>
 const channelPosition = (channel: DiscordChannelCacheEntry) =>
   typeof channel.value.position === "number" ? channel.value.position : Number.MAX_SAFE_INTEGER;
 
-export const guildWelcomeChannelCandidates = (
+const guildWelcomeChannelCandidates = (
   channels: ReadonlyArray<DiscordChannelCacheEntry>,
   systemChannelId: string | undefined,
 ) => {
@@ -2673,6 +2673,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
     };
   }),
 }) {
+  // fallow-ignore-next-line unused-class-member
   static layer = Layer.effect(DispatchService, this.make).pipe(
     Layer.provide(Layer.mergeAll(IngressBotClient.layer, SheetApisClient.layer)),
   );

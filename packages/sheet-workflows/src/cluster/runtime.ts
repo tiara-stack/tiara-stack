@@ -60,7 +60,7 @@ const runnerHealthLayer = Layer.unwrap(
   }),
 ).pipe(Layer.withSpan("sheet-workflows.runnerHealth"));
 
-export const clusterClientLayer = HttpRunner.layerClient.pipe(
+const clusterClientLayer = HttpRunner.layerClient.pipe(
   Layer.provide(clusterStorageLayer),
   Layer.provide(RunnerHealth.layerNoop),
   Layer.provide(HttpRunner.layerClientProtocolHttp({ path: "/cluster/rpc" })),
@@ -119,7 +119,7 @@ const dispatchServicesLayer = Layer.effect(DispatchService, DispatchService.make
   Layer.provideMerge(dispatchClientsLayer),
 );
 
-export const clusterLayer = Layer.mergeAll(
+const clusterLayer = Layer.mergeAll(
   dispatchButtonEntityLayer,
   dispatchWorkflowLayer,
   autoCheckinWorkflowLayer,

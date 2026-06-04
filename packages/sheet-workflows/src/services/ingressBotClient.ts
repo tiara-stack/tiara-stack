@@ -30,12 +30,12 @@ type TokenCacheEntry = {
   readonly timeToLive: Duration.Duration;
 };
 
-export type MessagePayload = Schema.Schema.Type<typeof DiscordMessageRequestSchema>;
+type MessagePayload = Schema.Schema.Type<typeof DiscordMessageRequestSchema>;
 type DiscordMessage = {
   readonly id: string;
   readonly channel_id: string;
 };
-export type MessageFilePayload = {
+type MessageFilePayload = {
   readonly name: string;
   readonly contentType: string;
   readonly content: Uint8Array;

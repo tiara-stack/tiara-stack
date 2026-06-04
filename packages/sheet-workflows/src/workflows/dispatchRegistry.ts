@@ -324,7 +324,7 @@ export const makeButtonWorkflowHandler =
       Sharding.Sharding
     >;
 
-export const runDispatchWorkflowOperation = <
+const runDispatchWorkflowOperation = <
   TWorkflow extends DispatchWorkflow,
   TAuthorization,
   RAuthorize,

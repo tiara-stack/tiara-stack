@@ -2,7 +2,7 @@ import { Schema } from "effect";
 import { ClusterSchema } from "effect/unstable/cluster";
 import { Workflow } from "effect/unstable/workflow";
 
-export const AutoCheckinChannelPayload = Schema.Struct({
+const AutoCheckinChannelPayload = Schema.Struct({
   guildId: Schema.String,
   channelName: Schema.String,
   hour: Schema.Number,
