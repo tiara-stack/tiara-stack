@@ -17,6 +17,7 @@
   ],
   "ignoreDependencies": [
     "@rocicorp/zero",
+    "effect-platform-apps-script",
     "effect-sql-kit",
     "effect-zero",
     "sheet-apis",
@@ -40,6 +41,22 @@
         "map",
         "replaceKeysFromHead"
       ]
+    },
+    {
+      "file": "packages/typhoon-zero/src/zeroApi/zeroApi.ts",
+      "exports": ["Any", "make"]
+    },
+    {
+      "file": "packages/typhoon-zero/src/zeroApi/zeroApiEndpoint.ts",
+      "exports": ["Any"]
+    },
+    {
+      "file": "packages/typhoon-zero/src/zeroApi/zeroApiClient.ts",
+      "exports": ["make"]
+    },
+    {
+      "file": "packages/typhoon-zero/src/zeroApi/zeroApiGroup.ts",
+      "exports": ["Any", "make"]
     }
   ]
 }
