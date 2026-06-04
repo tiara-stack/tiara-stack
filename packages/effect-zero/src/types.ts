@@ -22,14 +22,6 @@ export type TableOptions<Model extends EffectZeroModel> = {
   readonly columns?: Partial<Record<FieldName<Model>, boolean | ColumnOptions>>;
 };
 
-export type EffectZeroColumn = {
-  readonly fieldName: string;
-  readonly name: string;
-  readonly serverName?: string;
-  readonly type?: ZeroValueType;
-  readonly optional?: boolean;
-};
-
 export type EffectZeroTable<Model extends EffectZeroModel = EffectZeroModel> = {
   readonly model: Model;
   readonly name: string;

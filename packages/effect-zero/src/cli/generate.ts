@@ -110,9 +110,6 @@ export const formatGeneratedFileEffect = (
     }
   });
 
-export const formatGeneratedFile = (outputPath: string) =>
-  Effect.runPromise(formatGeneratedFileEffect(outputPath).pipe(Effect.provide(NodeServices.layer)));
-
 export const generateEffect = (
   opts: GeneratorOptions = {},
 ): Effect.Effect<
