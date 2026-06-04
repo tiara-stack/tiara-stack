@@ -9,7 +9,7 @@ interface ReplyableCommand {
   }) => Effect.Effect<unknown, unknown>;
 }
 
-export const isOwner = (userId: string) =>
+const isOwner = (userId: string) =>
   DiscordApplication.useSync((application) => {
     if (application.team) {
       return (

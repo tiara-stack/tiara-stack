@@ -1,22 +1,5 @@
-// Discord API Constants
-export const DISCORD_API_VERSION = "10";
 export const DISCORD_THREAD_NAME_MAX_LENGTH = 100;
 export const DISCORD_MESSAGE_MAX_LENGTH = 2000;
-
-// Discord Application Command Option Types
-export const APPLICATION_COMMAND_OPTION_TYPE = {
-  SUB_COMMAND: 1,
-  SUB_COMMAND_GROUP: 2,
-  STRING: 3,
-  INTEGER: 4,
-  BOOLEAN: 5,
-  USER: 6,
-  CHANNEL: 7,
-  ROLE: 8,
-  MENTIONABLE: 9,
-  NUMBER: 10,
-  ATTACHMENT: 11,
-} as const;
 
 // Output Processing Constants
 export const DIFF_TRUNCATION_LINES = 10;

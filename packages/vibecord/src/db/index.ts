@@ -15,8 +15,4 @@ export function getDb(): DatabaseInstance {
   return dbInstance;
 }
 
-export function resetDb(): void {
-  dbInstance = null;
-}
-
 export { schema };

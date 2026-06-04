@@ -23,7 +23,7 @@ export interface StreamAtomicEvent {
 }
 
 export type ChunkingMode = "word" | "line";
-export type ChunkDetector = (buffer: string) => string | null;
+type ChunkDetector = (buffer: string) => string | null;
 
 export interface EditableDiscordMessage {
   id: string;
@@ -46,7 +46,7 @@ const CHUNKING_REGEXP_SOURCES: Record<ChunkingMode, string> = {
   word: "\\S+\\s+",
 };
 
-export function createChunkDetector(chunking: ChunkingMode = STREAM_CHUNKING_MODE): ChunkDetector {
+function createChunkDetector(chunking: ChunkingMode = STREAM_CHUNKING_MODE): ChunkDetector {
   const regexp = new RegExp(CHUNKING_REGEXP_SOURCES[chunking]);
   return (buffer) => {
     const match = regexp.exec(buffer);
