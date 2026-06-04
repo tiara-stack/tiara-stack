@@ -1,4 +1,4 @@
-export const defaultTimeoutCleanupGraceMs = 5_000;
+const defaultTimeoutCleanupGraceMs = 5_000;
 
 export const runWithAbortTimeout = <A>(input: {
   readonly runPromise: Promise<A>;
