@@ -57,7 +57,6 @@
     "@hono/node-server": "^1.19.9",
     "@opentelemetry/exporter-prometheus": "^0.207.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.207.0",
-    "@opentelemetry/sdk-metrics": "^2.2.0",
     "@opentelemetry/sdk-trace-base": "^2.2.0",
     "better-auth": "^1.1.21",
     "drizzle-orm": "^0.45.1",

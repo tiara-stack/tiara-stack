@@ -1,9 +1,6 @@
-export const BasePermissionValues = ["service", "app_owner"] as const;
+export const PermissionValues = ["service", "app_owner"] as const;
 
-// Backward-compatible alias for existing imports that enumerate fixed permissions.
-export const PermissionValues = BasePermissionValues;
-
-export type BasePermission = (typeof BasePermissionValues)[number];
+export type BasePermission = (typeof PermissionValues)[number];
 export type DiscordAccountPermission = `account:discord:${string}`;
 export type MemberGuildPermission = `member_guild:${string}`;
 export type MonitorGuildPermission = `monitor_guild:${string}`;
