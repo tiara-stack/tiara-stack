@@ -321,7 +321,7 @@ pnpm format:apply  # vp run -r format:apply
 
 In this repo, `pnpm lint` also performs type-aware TypeScript checking for the Vite+ packages because each package `vite.config.ts` enables `lint.options.typeAware` and `lint.options.typeCheck`.
 
-Pull request CI also runs `fallow-rs/fallow` with `command: audit`, which scopes findings to the PR diff and posts the Fallow summary and review comments on changed code. Fallow currently reports without blocking CI while the repository still has known baseline findings.
+Pull request CI also runs `fallow-rs/fallow` with `command: audit`, which scopes findings to the PR diff and posts the Fallow summary and review comments on changed code. Fallow findings fail CI so newly introduced audit issues are fixed before merge.
 
 ## Project Structure
 

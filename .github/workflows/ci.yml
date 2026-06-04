@@ -164,7 +164,7 @@ jobs:
         with:
           command: audit
           version: 2.88.2
-          fail-on-issues: false
+          fail-on-issues: true
           annotations: true
           comment: true
           review-comments: true
