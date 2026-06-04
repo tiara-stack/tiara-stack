@@ -9,13 +9,5 @@
     "build": "echo 'no build'",
     "lint": "echo 'no lint targets'",
     "test": "echo 'no tests defined'"
-  },
-  "dependencies": {
-    "@standard-schema/spec": "^1.0.0"
-  },
-  "devDependencies": {
-    "@ark/attest": "^0.46.0",
-    "@ark/attest-ts-default": "npm:typescript@latest",
-    "arktype": "^2.1.19"
   }
 }
