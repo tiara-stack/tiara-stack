@@ -30,19 +30,6 @@ export const tentativePinButtonData = makeButtonData((b) =>
     .setStyle(ButtonStyle.Primary),
 );
 
-export const roomOrderActionRow = (
-  range: { minRank: number; maxRank: number },
-  rank: number,
-  disabled = false,
-) =>
-  makeMessageActionRowData((b) =>
-    b.setComponents(
-      previousButtonData.setDisabled(disabled || range.minRank === rank),
-      nextButtonData.setDisabled(disabled || range.maxRank === rank),
-      sendButtonData.setDisabled(disabled),
-    ),
-  );
-
 export const tentativeRoomOrderActionRow = (
   range: { minRank: number; maxRank: number },
   rank: number,

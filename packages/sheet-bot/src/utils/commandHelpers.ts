@@ -28,9 +28,6 @@ const getIdFromUnknown = (value: unknown): Option.Option<string> => {
   return Option.none();
 };
 
-export const getResolvedId = (value: unknown): string | undefined =>
-  Option.getOrUndefined(getIdFromUnknown(value));
-
 export const requireResolvedId = (value: unknown, label: string): Effect.Effect<string, Error> =>
   pipe(
     getIdFromUnknown(value),
@@ -70,7 +67,7 @@ export const toDiscordUserIdentity = (value: unknown): Option.Option<DiscordUser
   return Option.none();
 };
 
-export const getInteractionGuildId = Effect.gen(function* () {
+const getInteractionGuildId = Effect.gen(function* () {
   const interactionGuild = yield* Interaction.guild();
   return pipe(
     interactionGuild,
@@ -92,15 +89,10 @@ export const resolveGuildId = (serverId: Option.Option<string>) =>
     return yield* decodeDiscordSnowflakeId(selectedId, "guild ID");
   });
 
-export const getInteractionChannelId = Effect.gen(function* () {
+const getInteractionChannelId = Effect.gen(function* () {
   const interactionChannel = yield* Interaction.channel();
   return pipe(interactionChannel, Option.flatMap(getIdFromUnknown));
 });
-
-export const requireInteractionChannelId = pipe(
-  getInteractionChannelId,
-  Effect.map(Option.getOrThrowWith(() => new Error("Channel ID missing in DM/private context"))),
-);
 
 export const resolveChannelId = (channelOption: Option.Option<unknown>) =>
   pipe(

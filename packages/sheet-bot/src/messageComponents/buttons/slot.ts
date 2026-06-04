@@ -23,7 +23,7 @@ const getInteractionMessageId = Effect.gen(function* () {
   );
 });
 
-export const slotButtonData = makeButtonData((b) =>
+const slotButtonData = makeButtonData((b) =>
   b.setCustomId(SLOT_BUTTON_CUSTOM_ID).setLabel("Open slots").setStyle(ButtonStyle.Primary),
 );
 

@@ -16,23 +16,17 @@
     "build": "vp pack && tar -acf dist.tar.zst ./dist"
   },
   "dependencies": {
-    "@discordjs/builders": "^1.13.1",
-    "@discordjs/formatters": "^0.6.2",
     "@effect/opentelemetry": "catalog:",
     "@effect/platform-node": "catalog:",
     "@opentelemetry/exporter-prometheus": "^0.207.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.207.0",
-    "@opentelemetry/sdk-metrics": "^2.2.0",
     "@opentelemetry/sdk-trace-base": "^2.2.0",
     "dfx": "catalog:",
     "dfx-discord-utils": "workspace:*",
     "discord-api-types": "^0.38.38",
     "effect": "catalog:",
-    "handlebars": "^4.7.8",
     "sheet-auth": "workspace:*",
-    "sheet-db-schema": "workspace:*",
     "sheet-ingress-api": "workspace:*",
-    "ts-mixer": "^6.0.4",
     "typhoon-core": "workspace:*"
   },
   "devDependencies": {
