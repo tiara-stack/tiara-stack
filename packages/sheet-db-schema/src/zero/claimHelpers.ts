@@ -1,4 +1,4 @@
-export const CLAIM_STALE_MS = 10 * 60 * 1000;
+const CLAIM_STALE_MS = 10 * 60 * 1000;
 
 type ClaimTimestamp = Date | number | null | undefined;
 
@@ -11,7 +11,7 @@ export const isActiveSendClaim = (
   now: number,
 ) => claimId !== null && claimId !== undefined && isActiveTimestampClaim(claimedAt, now);
 
-export const isActiveTimestampClaim = (claimedAt: ClaimTimestamp, now: number) => {
+const isActiveTimestampClaim = (claimedAt: ClaimTimestamp, now: number) => {
   const claimedAtMillis = toEpochMillis(claimedAt);
   return (
     claimedAtMillis !== null &&

@@ -1,4 +1,4 @@
-import { pg, schema as effectSqlSchema } from "effect-sql-schema";
+import { pg } from "effect-sql-schema";
 import type { EffectSqlTable } from "effect-sql-schema";
 import type { Model } from "effect/unstable/schema";
 import { ReadonlyJSONValue } from "typhoon-zero/schema";
@@ -176,20 +176,3 @@ export const messageCheckinMember = asPgModel(MessageCheckinMember);
 export const messageRoomOrder = asPgModel(MessageRoomOrder);
 export const messageRoomOrderEntry = asPgModel(MessageRoomOrderEntry);
 export const sheetApisDispatchJobs = asPgModel(SheetApisDispatchJobs);
-
-// PgModel intentionally omits the class function "name" because it is not the
-// SQL table name. Keep this PgModel -> unknown -> EffectSqlTable<"postgresql">
-// bridge centralized in asPgTable so future structural drift remains visible.
-const asPgTable = (model: PgModel) => model as unknown as EffectSqlTable<"postgresql">;
-
-export const schema = effectSqlSchema({
-  configGuild: asPgTable(configGuild),
-  configGuildManagerRole: asPgTable(configGuildManagerRole),
-  configGuildChannel: asPgTable(configGuildChannel),
-  messageSlot: asPgTable(messageSlot),
-  messageCheckin: asPgTable(messageCheckin),
-  messageCheckinMember: asPgTable(messageCheckinMember),
-  messageRoomOrder: asPgTable(messageRoomOrder),
-  messageRoomOrderEntry: asPgTable(messageRoomOrderEntry),
-  sheetApisDispatchJobs: asPgTable(sheetApisDispatchJobs),
-});
