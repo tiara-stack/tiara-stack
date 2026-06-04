@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Schedule from "effect/Schedule";
 import { SqlClient } from "effect/unstable/sql";
 import { gitText, runGit } from "../git/checkpoint";
-import { sqliteLayer, withImmediateTransaction, withSqlite } from "../db/client";
+import { withImmediateTransaction, withSqlite } from "../db/client";
 import { makeId } from "../db/repository";
 import { DatabaseMigrationFailed, GitCommandFailed } from "../review/types";
 import { extractDependencyGraphAsync } from "./extract";
@@ -1414,5 +1414,3 @@ export const getSymbolDependentsEffect = (input: {
 export const getSymbolDependents = (
   input: Parameters<typeof getSymbolDependentsEffect>[0] & { readonly dbPath: string },
 ) => withSqlite(input.dbPath, getSymbolDependentsEffect(input));
-
-export const DependencyGraphSqliteLayer = sqliteLayer;

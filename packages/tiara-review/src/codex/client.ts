@@ -8,9 +8,6 @@ import {
 } from "../review/types";
 export {
   ProviderAiReviewClient,
-  type AiReviewClient,
-  type AiRunOptions,
-  type AiRunResult,
   type CodexReviewClient,
   type CodexRunOptions,
   type CodexRunResult,

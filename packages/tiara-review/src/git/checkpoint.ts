@@ -19,7 +19,7 @@ const emptyTreeCommit = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 const checkpointNamespaceForRepoRoot = (repoRoot: string) =>
   `${checkpointNamespace}/${createHash("sha256").update(repoRoot).digest("hex").slice(0, 16)}`;
 
-export type GitResult = {
+type GitResult = {
   readonly stdout: string;
   readonly stderr: string;
   readonly exitCode: number | null;

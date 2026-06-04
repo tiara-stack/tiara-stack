@@ -2,8 +2,8 @@ import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/unstable/ai";
 import { dependencyEdgeKinds } from "./types";
 
-export const EdgeKindSchema = Schema.Literals(dependencyEdgeKinds);
-export const PositiveInt = Schema.Int.check(
+const EdgeKindSchema = Schema.Literals(dependencyEdgeKinds);
+const PositiveInt = Schema.Int.check(
   Schema.isBetween({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }),
 );
 

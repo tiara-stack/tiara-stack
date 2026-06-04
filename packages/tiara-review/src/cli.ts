@@ -22,7 +22,7 @@ class StdinReadFailed extends Data.TaggedError("StdinReadFailed")<{
   readonly cause: unknown;
 }> {}
 
-export const readStdin = () =>
+const readStdin = () =>
   Effect.tryPromise({
     try: () =>
       new Promise<string>((resolve, reject) => {

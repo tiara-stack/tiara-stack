@@ -9,7 +9,7 @@ export const reviewAspects = [
   "maintainability",
 ] as const;
 
-export const findingTypes = [
+const findingTypes = [
   "security",
   "code-quality",
   "logic-bug",

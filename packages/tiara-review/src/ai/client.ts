@@ -95,6 +95,7 @@ const isEmptyStructuredOutput = (error: unknown) =>
   error instanceof InvalidAgentOutput && error.output.length === 0;
 
 export class ProviderAiReviewClient implements AiReviewClient {
+  // fallow-ignore-next-line unused-class-member
   runStructured<A>(
     prompt: string,
     options: AiRunOptions,

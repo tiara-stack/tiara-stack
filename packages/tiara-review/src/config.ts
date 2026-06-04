@@ -18,7 +18,7 @@ const providerChoices = ["codex", "openai", "openrouter", "kimi"] as const;
 const reasoningChoices = ["minimal", "low", "medium", "high", "xhigh"] as const;
 const kimiApprovalPolicyChoices = ["reject", "allow-read-only-git"] as const;
 
-export const defaultDataDir = () => {
+const defaultDataDir = () => {
   const xdgDataHome = process.env["XDG_DATA_HOME"];
   return xdgDataHome
     ? join(xdgDataHome, "tiara-review")
@@ -27,7 +27,7 @@ export const defaultDataDir = () => {
 
 export const defaultDbPath = () => join(defaultDataDir(), "reviews.sqlite");
 
-export const defaultConfigDir = () => {
+const defaultConfigDir = () => {
   const xdgConfigHome = process.env["XDG_CONFIG_HOME"];
   return xdgConfigHome
     ? join(xdgConfigHome, "tiara-review")
@@ -109,7 +109,7 @@ const KimiProviderConfigSchema = Schema.Struct({
   config: Schema.optional(JsonObjectSchema),
 });
 
-export const ReviewProviderConfigSchema = Schema.Struct({
+const ReviewProviderConfigSchema = Schema.Struct({
   provider: Schema.optional(Schema.Literals(providerChoices)),
   model: Schema.optional(Schema.String),
   reasoning: Schema.optional(Schema.Literals(reasoningChoices)),

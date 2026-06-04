@@ -67,7 +67,7 @@ const codexModelConfig = (options: AiRunOptions): CodexLanguageModel.Config => {
   };
 };
 
-export const KimiSessionConfigSchema = Schema.Struct({
+const KimiSessionConfigSchema = Schema.Struct({
   sessionId: Schema.optional(Schema.String),
   model: Schema.optional(Schema.String),
   thinking: Schema.optional(Schema.Boolean),

@@ -6,7 +6,7 @@ import { migrate, sqliteLayer } from "../db/client";
 import { graphToolkitLayer } from "./toolkit";
 import { GraphToolkit } from "./tools";
 
-export const dependencyGraphMcpServerLayer = (input: {
+const dependencyGraphMcpServerLayer = (input: {
   readonly dbPath: string;
   readonly versionId: string;
 }) =>

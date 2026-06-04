@@ -14,7 +14,6 @@ export const dependencyEdgeKinds = [
 export type DependencyEdgeKind = (typeof dependencyEdgeKinds)[number];
 export type DependencyGraphMode = "full" | "incremental";
 export type DependencyGraphStatus = "running" | "completed" | "failed";
-export type DependencyGraphDeltaOp = "add" | "remove";
 
 export type DependencyGraphVersion = {
   readonly id: string;
