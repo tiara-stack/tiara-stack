@@ -1,5 +1,6 @@
 {
-  "publicPackages": ["dfx-discord-utils"],
+  "entry": ["packages/typhoon-core/src/error/index.ts"],
+  "publicPackages": ["dfx-discord-utils", "typhoon-core"],
   "ignoreDependencies": ["sheet-apis", "start-atom", "typhoon-core", "typhoon-zero"],
   "ignoreExports": [
     {

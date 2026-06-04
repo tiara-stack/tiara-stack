@@ -28,9 +28,6 @@
     "test:watch": "vp test",
     "build": "vp pack"
   },
-  "dependencies": {
-    "@standard-schema/spec": "^1.0.0"
-  },
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "@typescript/native-preview": "latest",

@@ -1103,9 +1103,6 @@ importers:
 
   packages/typhoon-core:
     dependencies:
-      '@standard-schema/spec':
-        specifier: ^1.0.0
-        version: 1.0.0
       effect:
         specifier: 'catalog:'
         version: 4.0.0-beta.67
