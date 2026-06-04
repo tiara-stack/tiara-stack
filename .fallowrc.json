@@ -9,6 +9,7 @@
   ],
   "publicPackages": [
     "dfx-discord-utils",
+    "effect-platform-apps-script",
     "sheet-apis",
     "sheet-db-schema",
     "sheet-ingress-api",
