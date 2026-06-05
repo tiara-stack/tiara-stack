@@ -1,5 +1,5 @@
 import { Ix } from "dfx/index";
-import { Effect, Option, pipe } from "effect";
+import { Effect, Option, Predicate, pipe } from "effect";
 import { Interaction, InteractionToken } from "dfx-discord-utils/utils";
 import { interactionDeadlineEpochMs } from "./interactionDeadline";
 
@@ -16,12 +16,7 @@ const decodeDiscordSnowflakeId = (value: string, label: string): Effect.Effect<s
     : Effect.fail(new Error(`Invalid ${label}: expected Discord snowflake ID`));
 
 const getIdFromUnknown = (value: unknown): Option.Option<string> => {
-  if (
-    typeof value === "object" &&
-    value !== null &&
-    "id" in value &&
-    typeof value.id === "string"
-  ) {
+  if (Predicate.hasProperty(value, "id") && Predicate.isString(value.id)) {
     return Option.some(value.id);
   }
 
@@ -38,28 +33,26 @@ export const requireResolvedId = (value: unknown, label: string): Effect.Effect<
   );
 
 export const requireString = (value: unknown, label: string): Effect.Effect<string, Error> =>
-  typeof value === "string"
+  Predicate.isString(value)
     ? Effect.succeed(value)
     : Effect.fail(new Error(`${label} must be a string`));
 
 export const requireBoolean = (value: unknown, label: string): Effect.Effect<boolean, Error> =>
-  typeof value === "boolean"
+  Predicate.isBoolean(value)
     ? Effect.succeed(value)
     : Effect.fail(new Error(`${label} must be a boolean`));
 
 export const requireNumber = (value: unknown, label: string): Effect.Effect<number, Error> =>
-  typeof value === "number"
+  Predicate.isNumber(value)
     ? Effect.succeed(value)
     : Effect.fail(new Error(`${label} must be a number`));
 
 export const toDiscordUserIdentity = (value: unknown): Option.Option<DiscordUserIdentity> => {
   if (
-    typeof value === "object" &&
-    value !== null &&
-    "id" in value &&
-    typeof value.id === "string" &&
-    "username" in value &&
-    typeof value.username === "string"
+    Predicate.hasProperty(value, "id") &&
+    Predicate.isString(value.id) &&
+    Predicate.hasProperty(value, "username") &&
+    Predicate.isString(value.username)
   ) {
     return Option.some({ id: value.id, username: value.username });
   }

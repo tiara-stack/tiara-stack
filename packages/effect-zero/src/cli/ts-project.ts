@@ -1,12 +1,13 @@
+import { Predicate } from "effect";
 import type { Project, SourceFile } from "ts-morph";
 
 const permissionErrorCodes = new Set(["EACCES", "EPERM"]);
 
 const isFsPermissionError = (error: unknown): error is NodeJS.ErrnoException =>
-  error instanceof Error &&
-  "code" in error &&
-  typeof (error as NodeJS.ErrnoException).code === "string" &&
-  permissionErrorCodes.has((error as NodeJS.ErrnoException).code ?? "");
+  Predicate.isError(error) &&
+  Predicate.hasProperty(error, "code") &&
+  Predicate.isString(error.code) &&
+  permissionErrorCodes.has(error.code);
 
 export const addSourceFilesFromTsConfigSafe = ({
   tsProject,

@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { Effect, Predicate, Schema } from "effect";
 import { JsonValueSchema, MigrationExtensionResultSchema } from "../cli/schema";
 import type {
   EffectSqlSchema,
@@ -10,11 +10,12 @@ import type {
 import type { SchemaSnapshot } from "../snapshot";
 
 const isMigrationExtension = (value: unknown): value is MigrationExtension =>
-  typeof value === "object" &&
-  value !== null &&
-  (value as { readonly _tag?: unknown })._tag === "EffectSqlKitMigrationExtension" &&
-  typeof (value as { readonly name?: unknown }).name === "string" &&
-  typeof (value as { readonly generate?: unknown }).generate === "function";
+  Predicate.hasProperty(value, "_tag") &&
+  value._tag === "EffectSqlKitMigrationExtension" &&
+  Predicate.hasProperty(value, "name") &&
+  Predicate.isString(value.name) &&
+  Predicate.hasProperty(value, "generate") &&
+  Predicate.isFunction(value.generate);
 
 const duplicateValues = (values: readonly string[]): readonly string[] => {
   const seen = new Set<string>();

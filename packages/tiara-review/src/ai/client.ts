@@ -1,6 +1,7 @@
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Match from "effect/Match";
 import * as Schema from "effect/Schema";
 import * as AiError from "effect/unstable/ai/AiError";
 import * as LanguageModel from "effect/unstable/ai/LanguageModel";
@@ -65,13 +66,17 @@ const responseId = (
 const structuredOutputText = (cause: AiError.AiError) =>
   cause.reason._tag === "StructuredOutputError" ? (cause.reason.responseText ?? "") : "";
 
-const isProviderTimeoutError = (cause: unknown) => {
-  if (!AiError.isAiError(cause) || cause.reason._tag !== "InternalProviderError") {
-    return false;
-  }
-  const metadata = cause.reason.metadata as { readonly errorTag?: unknown } | undefined;
-  return metadata?.errorTag === "CodexTimeout" || metadata?.errorTag === "KimiTimeout";
-};
+const isProviderTimeoutError = (cause: unknown) =>
+  Match.value(cause).pipe(
+    Match.when(AiError.isAiError, (error) => {
+      if (error.reason._tag !== "InternalProviderError") {
+        return false;
+      }
+      const metadata = error.reason.metadata as { readonly errorTag?: unknown } | undefined;
+      return metadata?.errorTag === "CodexTimeout" || metadata?.errorTag === "KimiTimeout";
+    }),
+    Match.orElse(() => false),
+  );
 
 const mapAiError = (options: AiRunOptions, cause: unknown) =>
   AiError.isAiError(cause) && cause.reason._tag === "StructuredOutputError"
@@ -92,7 +97,10 @@ const mapAiError = (options: AiRunOptions, cause: unknown) =>
         });
 
 const isEmptyStructuredOutput = (error: unknown) =>
-  error instanceof InvalidAgentOutput && error.output.length === 0;
+  Match.value(error).pipe(
+    Match.when(Match.instanceOfUnsafe(InvalidAgentOutput), (error) => error.output.length === 0),
+    Match.orElse(() => false),
+  );
 
 export class ProviderAiReviewClient implements AiReviewClient {
   // fallow-ignore-next-line unused-class-member

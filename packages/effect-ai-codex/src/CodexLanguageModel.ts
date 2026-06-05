@@ -3,6 +3,7 @@ import * as Context from "effect/Context";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as AiError from "effect/unstable/ai/AiError";
@@ -490,9 +491,7 @@ const isStructuredResponseError = (
   | StructuredResponseTooLarge
   | StructuredResponseMissingJson
   | StructuredResponseUnsupportedItem =>
-  typeof error === "object" &&
-  error !== null &&
-  "_tag" in error &&
+  Predicate.hasProperty(error, "_tag") &&
   (error._tag === "StructuredResponseTooLarge" ||
     error._tag === "StructuredResponseMissingJson" ||
     error._tag === "StructuredResponseUnsupportedItem");

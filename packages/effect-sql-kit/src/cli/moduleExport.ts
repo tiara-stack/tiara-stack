@@ -1,16 +1,13 @@
+import { Predicate } from "effect";
 import type { EffectSqlSchema } from "../types";
 
 export const isEffectSqlSchema = (value: unknown): value is EffectSqlSchema =>
-  typeof value === "object" &&
-  value !== null &&
-  "_tag" in value &&
+  Predicate.hasProperty(value, "_tag") &&
   value._tag === "EffectSqlSchema" &&
-  "tables" in value &&
-  typeof value.tables === "object" &&
-  value.tables !== null;
+  Predicate.hasProperty(value, "tables") &&
+  Predicate.isObject(value.tables);
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
+const isRecord = (value: unknown): value is Record<string, unknown> => Predicate.isObject(value);
 
 const unwrapDefault = (value: unknown): unknown =>
   isRecord(value) && "default" in value && value.default !== undefined ? value.default : value;

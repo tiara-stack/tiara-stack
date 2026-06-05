@@ -1,4 +1,4 @@
-import { Console, Effect, FileSystem, Path, Result, Schema } from "effect";
+import { Console, Effect, FileSystem, Path, Predicate, Result, Schema } from "effect";
 import type { Project } from "ts-morph";
 import { tsImport } from "tsx/esm/api";
 import type { EffectZeroSchema } from "../types";
@@ -16,11 +16,7 @@ export const getDefaultConfigFilePathEffect = Effect.gen(function* () {
 });
 
 const isEffectZeroSchema = (value: unknown): value is EffectZeroSchema =>
-  typeof value === "object" &&
-  value !== null &&
-  "tables" in value &&
-  typeof value.tables === "object" &&
-  value.tables !== null;
+  Predicate.hasProperty(value, "tables") && Predicate.isObject(value.tables);
 
 export const getConfigFromFileEffect = ({
   configFilePath,

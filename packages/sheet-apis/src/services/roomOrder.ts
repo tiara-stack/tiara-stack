@@ -19,15 +19,13 @@ import {
   Player,
   PlayerTeam,
   Team,
-  type PopulatedSchedulePlayer,
   type PopulatedScheduleResult,
 } from "sheet-ingress-api/schemas/sheet";
 
 type GuildConfigServiceApi = Context.Service.Shape<typeof GuildConfigService>;
 type SheetServiceApi = Context.Service.Shape<typeof SheetService>;
 
-const isPlayer = (player: PopulatedSchedulePlayer["player"]): player is Player =>
-  Predicate.isTagged("Player")(player);
+const isPlayer = Predicate.isTagged("Player");
 const isPopulatedSchedule = Predicate.isTagged("PopulatedSchedule");
 
 const formatEffectValue = (effectValue: number): string => {

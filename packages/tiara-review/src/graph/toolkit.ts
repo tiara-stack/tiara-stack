@@ -1,5 +1,7 @@
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
+import * as Match from "effect/Match";
+import * as Predicate from "effect/Predicate";
 import { SqlClient } from "effect/unstable/sql";
 import {
   getSymbolDependenciesEffect,
@@ -8,33 +10,23 @@ import {
 } from "./store";
 import { GraphToolkit } from "./tools";
 
-export const graphToolErrorMessage = (cause: unknown) => {
-  if (cause instanceof Error) {
-    return cause.message;
-  }
-  if (Cause.isCause(cause)) {
-    return Cause.pretty(cause);
-  }
-  if (typeof cause === "object" && cause !== null) {
-    try {
-      return JSON.stringify(cause);
-    } catch {
-      return "Unserializable error object";
-    }
-  }
-  if (typeof cause === "string") {
-    return cause;
-  }
-  if (
-    typeof cause === "number" ||
-    typeof cause === "boolean" ||
-    typeof cause === "bigint" ||
-    typeof cause === "symbol"
-  ) {
-    return cause.toString();
-  }
-  return "Unknown error";
-};
+export const graphToolErrorMessage = (cause: unknown) =>
+  Match.value(cause).pipe(
+    Match.when(Match.instanceOfUnsafe(Error), (error) => error.message),
+    Match.when(Cause.isCause, Cause.pretty),
+    Match.when(Predicate.isObjectOrArray, (object) => {
+      try {
+        return JSON.stringify(object);
+      } catch {
+        return "Unserializable error object";
+      }
+    }),
+    Match.when(Match.string, (value) => value),
+    Match.whenOr(Match.number, Match.boolean, Match.bigint, Match.symbol, (value) =>
+      value.toString(),
+    ),
+    Match.orElse(() => "Unknown error"),
+  );
 
 export const graphToolkitLayer = (input: { readonly versionId: string }) =>
   GraphToolkit.toLayer(

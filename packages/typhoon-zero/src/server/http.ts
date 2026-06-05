@@ -8,7 +8,7 @@ import {
   type Schema as ZeroSchema,
 } from "@rocicorp/zero";
 import { handleMutateRequest, handleQueryRequest, type Database } from "@rocicorp/zero/server";
-import { Effect, Layer, Schema } from "effect";
+import { Effect, Layer, Predicate, Schema } from "effect";
 import { HttpApiBuilder, type HttpApi, type HttpApiGroup } from "effect/unstable/httpapi";
 import { ZeroHttpApi } from "./api";
 
@@ -62,8 +62,7 @@ type ZeroHandlerWithFn = {
 
 const ZeroHandlerWithFnSchema = Schema.declare(
   (handler): handler is ZeroHandlerWithFn =>
-    (typeof handler === "object" || typeof handler === "function") &&
-    handler !== null &&
+    (Predicate.isObject(handler) || Predicate.isFunction(handler)) &&
     typeof Reflect.get(handler, "fn") === "function",
 );
 
@@ -79,7 +78,7 @@ export const hasZeroHandlerFn = (handler: unknown): handler is ZeroHandlerWithFn
 const mustGetPath = (registry: object, name: string): unknown => {
   let current: unknown = registry;
   for (const part of name.split(".")) {
-    if (typeof current !== "object" || current === null || !(part in current)) {
+    if (!Predicate.hasProperty(current, part)) {
       throw new Error(`Zero handler not found: ${name}`);
     }
     current = Reflect.get(current, part);

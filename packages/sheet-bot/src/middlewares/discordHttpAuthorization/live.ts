@@ -1,4 +1,4 @@
-import { Effect, Layer, Option } from "effect";
+import { Effect, Layer, Option, Predicate } from "effect";
 import {
   HttpMiddleware,
   HttpRouter,
@@ -20,9 +20,14 @@ const makeSheetIngressAuthorizer = Effect.gen(function* () {
   });
 });
 
+const isHealthProbePath = Predicate.or(
+  (pathname: string) => pathname === "/live",
+  (pathname: string) => pathname === "/ready",
+);
+
 export const isHealthProbeRequest = (request: HttpServerRequest.HttpServerRequest) => {
   const pathname = new URL(request.url, "http://localhost").pathname;
-  return request.method === "GET" && (pathname === "/live" || pathname === "/ready");
+  return request.method === "GET" && isHealthProbePath(pathname);
 };
 
 export const sheetBotHttpAuthorizationLayer = Layer.unwrap(

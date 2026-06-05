@@ -1,9 +1,9 @@
+import * as Predicate from "effect/Predicate";
 import * as Tool from "effect/unstable/ai/Tool";
 
 const hasRequiredKeys = (value: unknown, requiredKeys: ReadonlyArray<string>) =>
   requiredKeys.length === 0 ||
-  (value !== null &&
-    typeof value === "object" &&
+  (Predicate.isObject(value) &&
     requiredKeys.every((key) => Object.prototype.hasOwnProperty.call(value, key)));
 
 type JsonBoundaryState = {

@@ -23,10 +23,8 @@ import { upperFirst } from "scule";
 type SheetConfigServiceApi = Context.Service.Shape<typeof SheetConfigService>;
 type EventConfig = Effect.Success<ReturnType<SheetConfigServiceApi["getEventConfig"]>>;
 
-const isPlayer = (player: Player | PartialNamePlayer): player is Player =>
-  Predicate.isTagged("Player")(player);
-const isPopulatedSchedule = (schedule: PopulatedScheduleResult): schedule is PopulatedSchedule =>
-  Predicate.isTagged("PopulatedSchedule")(schedule);
+const isPlayer = Predicate.isTagged("Player");
+const isPopulatedSchedule = Predicate.isTagged("PopulatedSchedule");
 
 const populateSchedule = (
   schedule: Schedule,

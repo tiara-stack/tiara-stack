@@ -8,6 +8,7 @@ import {
   Layer,
   Match,
   Option,
+  Predicate,
   Schema,
   String as EffectString,
   pipe,
@@ -128,11 +129,7 @@ const optionalArgumentError = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(
     Effect.map(Option.some),
     Effect.catchIf(
-      (error) =>
-        typeof error === "object" &&
-        error !== null &&
-        "_tag" in error &&
-        error._tag === "ArgumentError",
+      (error) => Predicate.hasProperty(error, "_tag") && error._tag === "ArgumentError",
       () => Effect.succeed(Option.none<A>()),
     ),
   );

@@ -12,14 +12,10 @@ import {
 import { makeArgumentError } from "typhoon-core/error";
 import { CheckinGenerateResult } from "sheet-ingress-api/schemas/checkin";
 import {
-  Player,
   PopulatedScheduleMonitor,
   PopulatedSchedule,
   PopulatedSchedulePlayer,
   type PopulatedScheduleResult,
-  Monitor,
-  PartialNameMonitor,
-  PartialNamePlayer,
 } from "sheet-ingress-api/schemas/sheet";
 import { GuildConfigService } from "./guildConfig";
 import { ScheduleService } from "./schedule";
@@ -33,14 +29,11 @@ type EventConfig = Effect.Success<ReturnType<SheetConfigServiceApi["getEventConf
 type Weighted<A> = { value: A; weight: number };
 const SLOTS_PER_ROW = 5;
 
-const isPopulatedSchedule = (schedule: PopulatedScheduleResult): schedule is PopulatedSchedule =>
-  Predicate.isTagged("PopulatedSchedule")(schedule);
+const isPopulatedSchedule = Predicate.isTagged("PopulatedSchedule");
 
-const isPlayer = (player: Player | PartialNamePlayer): player is Player =>
-  Predicate.isTagged("Player")(player);
+const isPlayer = Predicate.isTagged("Player");
 
-const isMonitor = (monitor: Monitor | PartialNameMonitor): monitor is Monitor =>
-  Predicate.isTagged("Monitor")(monitor);
+const isMonitor = Predicate.isTagged("Monitor");
 
 const checkinMessageTemplates: [Weighted<string>, ...Weighted<string>[]] = [
   {

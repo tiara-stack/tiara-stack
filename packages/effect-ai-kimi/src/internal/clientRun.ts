@@ -6,6 +6,8 @@ import type {
   StreamEvent,
   Turn,
 } from "@moonshot-ai/kimi-agent-sdk";
+import * as Match from "effect/Match";
+import * as Predicate from "effect/Predicate";
 import type { ApprovalPolicy, ConfigShape } from "../KimiConfig";
 import { KimiQuestionUnsupported, KimiStreamParseError } from "../KimiError";
 import type { KimiTokenUsage, RunOptions } from "../KimiClient";
@@ -89,19 +91,19 @@ const gitInspectionPattern = new RegExp(
 );
 
 const approvalShellCommands = (payload: unknown): Array<string> => {
-  if (typeof payload !== "object" || payload === null) {
+  if (!Predicate.hasProperty(payload, "display")) {
     return [];
   }
-  const display = (payload as { readonly display?: unknown }).display;
+  const { display } = payload;
   if (!Array.isArray(display)) {
     return [];
   }
   return display.flatMap((block) =>
-    typeof block === "object" &&
-    block !== null &&
-    (block as { readonly type?: unknown }).type === "shell" &&
-    typeof (block as { readonly command?: unknown }).command === "string"
-      ? [(block as { readonly command: string }).command]
+    Predicate.hasProperty(block, "type") &&
+    block.type === "shell" &&
+    Predicate.hasProperty(block, "command") &&
+    Predicate.isString(block.command)
+      ? [block.command]
       : [],
   );
 };
@@ -142,27 +144,27 @@ export const handleEvent = async (
   approvalPolicy: ApprovalPolicy | undefined,
 ) => {
   state.events.push(event);
-  if (event.type === "ContentPart") {
-    state.finalResponse += contentPartText(event.payload);
-    return;
-  }
-  if (event.type === "StatusUpdate") {
-    state.usage =
-      (event.payload as { readonly token_usage?: KimiTokenUsage | null }).token_usage ??
-      state.usage;
-    return;
-  }
-  if (event.type === "ApprovalRequest") {
-    await turn.approve(event.payload.id, approvalResponse(event.payload, approvalPolicy));
-    return;
-  }
-  if (event.type === "QuestionRequest") {
-    throw new KimiQuestionUnsupported({
-      questionId: event.payload.id,
-      message: "Kimi question requests are not supported during unattended review",
-    });
-  }
-  if (event.type === "error") {
-    throw new KimiStreamParseError({ message: event.message, cause: event });
-  }
+  return Match.value(event).pipe(
+    Match.when({ type: "ContentPart" }, (event) => {
+      state.finalResponse += contentPartText(event.payload);
+    }),
+    Match.when({ type: "StatusUpdate" }, (event) => {
+      state.usage =
+        (event.payload as { readonly token_usage?: KimiTokenUsage | null }).token_usage ??
+        state.usage;
+    }),
+    Match.when({ type: "ApprovalRequest" }, (event) =>
+      turn.approve(event.payload.id, approvalResponse(event.payload, approvalPolicy)),
+    ),
+    Match.when({ type: "QuestionRequest" }, (event) => {
+      throw new KimiQuestionUnsupported({
+        questionId: event.payload.id,
+        message: "Kimi question requests are not supported during unattended review",
+      });
+    }),
+    Match.when({ type: "error" }, (event) => {
+      throw new KimiStreamParseError({ message: event.message, cause: event });
+    }),
+    Match.orElse(() => undefined),
+  );
 };

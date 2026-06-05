@@ -1,3 +1,5 @@
+import { Predicate } from "effect";
+
 const interactionFailureHandled = Symbol.for("tiara.sheetWorkflows.interactionFailureHandled");
 
 type HandledInteractionFailure = {
@@ -11,9 +13,7 @@ export const markInteractionFailureHandled = (error: unknown): HandledInteractio
 });
 
 export const isInteractionFailureHandled = (error: unknown): error is HandledInteractionFailure =>
-  typeof error === "object" &&
-  error !== null &&
-  interactionFailureHandled in error &&
+  Predicate.hasProperty(error, interactionFailureHandled) &&
   (error as { readonly [interactionFailureHandled]?: unknown })[interactionFailureHandled] === true;
 
 export const unwrapInteractionFailure = (error: unknown): unknown =>

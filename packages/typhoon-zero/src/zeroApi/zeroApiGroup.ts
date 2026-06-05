@@ -1,3 +1,4 @@
+import { Predicate } from "effect";
 import type { Pipeable } from "effect/Pipeable";
 import { pipeArguments } from "effect/Pipeable";
 import * as ZeroApiEndpoint from "./zeroApiEndpoint";
@@ -65,4 +66,4 @@ export const make = <const Name extends string>(identifier: Name): ZeroApiGroup<
   });
 
 export const isZeroApiGroup = (input: unknown): input is Any =>
-  typeof input === "function" && TypeId in input;
+  Predicate.isFunction(input) && Predicate.hasProperty(input, TypeId);

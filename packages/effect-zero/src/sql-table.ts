@@ -1,3 +1,4 @@
+import { Predicate } from "effect";
 import type { EffectSqlTable } from "effect-sql-schema";
 import type { ColumnOptions, EffectZeroTable, ZeroValueType } from "./types";
 
@@ -29,9 +30,7 @@ const zeroType = (kind: string): ZeroValueType => {
 };
 
 export const isEffectSqlTable = (value: unknown): value is EffectSqlTable =>
-  (typeof value === "object" || typeof value === "function") &&
-  value !== null &&
-  (value as { readonly _tag?: unknown })._tag === "EffectSqlTable";
+  Predicate.hasProperty(value, "_tag") && value._tag === "EffectSqlTable";
 
 export const fromSqlTable = <const Table extends EffectSqlTable>(
   table: Table,

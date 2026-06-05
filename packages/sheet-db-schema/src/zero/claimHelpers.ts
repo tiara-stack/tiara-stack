@@ -1,3 +1,5 @@
+import { Predicate } from "effect";
+
 const CLAIM_STALE_MS = 10 * 60 * 1000;
 
 type ClaimTimestamp = Date | number | null | undefined;
@@ -9,13 +11,12 @@ export const isActiveSendClaim = (
   claimId: string | null | undefined,
   claimedAt: ClaimTimestamp,
   now: number,
-) => claimId !== null && claimId !== undefined && isActiveTimestampClaim(claimedAt, now);
+) => Predicate.isNotNullish(claimId) && isActiveTimestampClaim(claimedAt, now);
 
 const isActiveTimestampClaim = (claimedAt: ClaimTimestamp, now: number) => {
   const claimedAtMillis = toEpochMillis(claimedAt);
   return (
-    claimedAtMillis !== null &&
-    claimedAtMillis !== undefined &&
+    Predicate.isNotNullish(claimedAtMillis) &&
     Number.isFinite(claimedAtMillis) &&
     now - claimedAtMillis <= CLAIM_STALE_MS
   );
@@ -28,8 +29,7 @@ export const hasActiveTentativePinClaim = (
   },
   now: number,
 ) =>
-  messageRoomOrder.tentativePinClaimId !== null &&
-  messageRoomOrder.tentativePinClaimId !== undefined &&
+  Predicate.isNotNullish(messageRoomOrder.tentativePinClaimId) &&
   isActiveTimestampClaim(messageRoomOrder.tentativePinClaimedAt, now);
 
 export const hasActiveTentativeUpdateClaim = (
@@ -39,8 +39,7 @@ export const hasActiveTentativeUpdateClaim = (
   },
   now: number,
 ) =>
-  messageRoomOrder.tentativeUpdateClaimId !== null &&
-  messageRoomOrder.tentativeUpdateClaimId !== undefined &&
+  Predicate.isNotNullish(messageRoomOrder.tentativeUpdateClaimId) &&
   isActiveTimestampClaim(messageRoomOrder.tentativeUpdateClaimedAt, now);
 
 export const hasActiveSendClaim = (
@@ -59,7 +58,6 @@ export const hasStaleUntrackedSendClaim = (
   },
   now: number,
 ) =>
-  messageRoomOrder.sendClaimId !== null &&
-  messageRoomOrder.sendClaimId !== undefined &&
+  Predicate.isNotNullish(messageRoomOrder.sendClaimId) &&
   messageRoomOrder.sentMessageId === null &&
   !isActiveSendClaim(messageRoomOrder.sendClaimId, messageRoomOrder.sendClaimedAt, now);

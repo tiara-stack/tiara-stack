@@ -7,7 +7,7 @@ import type {
 } from "@rocicorp/zero";
 import type { Pipeable } from "effect/Pipeable";
 import { pipeArguments } from "effect/Pipeable";
-import type { Schema } from "effect";
+import { Predicate, type Schema } from "effect";
 
 const TypeId = "~typhoon-zero/ZeroApiEndpoint";
 
@@ -122,7 +122,7 @@ export const mutator = <
   }) as MutatorEndpoint<Name, Request, TSchema, TContext, TWrappedTransaction>;
 
 export const isZeroApiEndpoint = (input: unknown): input is Any =>
-  typeof input === "object" && input !== null && TypeId in input;
+  Predicate.hasProperty(input, TypeId);
 
 export type RequestType<Endpoint extends Any> = Endpoint extends
   | QueryEndpoint<any, infer Request, any, any, any, any, any>

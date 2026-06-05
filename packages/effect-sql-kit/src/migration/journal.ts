@@ -1,6 +1,6 @@
 import { NodeServices } from "@effect/platform-node";
 import { randomUUID } from "node:crypto";
-import { Effect, FileSystem, Path, Result, Schema } from "effect";
+import { Effect, FileSystem, Path, Predicate, Result, Schema } from "effect";
 import type { SchemaSnapshot, StoredSnapshot } from "../snapshot";
 import type { JsonValue } from "../types";
 import { snapshotVersion } from "../snapshot";
@@ -52,12 +52,13 @@ const parseJsonEffect = (content: string) =>
   });
 
 const isMissingPathError = (error: unknown) =>
-  typeof error === "object" &&
-  error !== null &&
-  ("code" in error
+  Predicate.isObject(error) &&
+  (Predicate.hasProperty(error, "code")
     ? error.code === "ENOENT"
-    : "_tag" in error
-      ? error._tag === "SystemError" && "reason" in error && error.reason === "NotFound"
+    : Predicate.hasProperty(error, "_tag")
+      ? error._tag === "SystemError" &&
+        Predicate.hasProperty(error, "reason") &&
+        error.reason === "NotFound"
       : false);
 
 const existsEffect = (fs: FileSystem.FileSystem, filePath: string) =>

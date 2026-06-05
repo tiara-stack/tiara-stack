@@ -1,14 +1,14 @@
-import { Cache, Context, Duration, Effect, Exit, Layer, Option } from "effect";
+import { Cache, Context, Duration, Effect, Exit, Layer, Option, Predicate } from "effect";
 import { MessageCheckin, MessageCheckinMember } from "sheet-ingress-api/schemas/messageCheckin";
 import { MessageRoomOrder } from "sheet-ingress-api/schemas/messageRoomOrder";
 import { MessageSlot } from "sheet-ingress-api/schemas/messageSlot";
 import { MESSAGE_ROOM_ORDER_NOT_REGISTERED_ERROR_MESSAGE } from "sheet-ingress-api/sheet-apis-rpc";
-import { ArgumentError } from "typhoon-core/error";
 import { SheetApisForwardingClient } from "./sheetApisForwardingClient";
 import { SheetApisRpcTokens } from "./sheetApisRpcTokens";
 
 const isMissingMessageRoomOrderError = (error: unknown) =>
-  error instanceof ArgumentError &&
+  Predicate.isTagged("ArgumentError")(error) &&
+  Predicate.hasProperty(error, "message") &&
   error.message === MESSAGE_ROOM_ORDER_NOT_REGISTERED_ERROR_MESSAGE;
 
 export class MessageLookup extends Context.Service<MessageLookup>()("MessageLookup", {

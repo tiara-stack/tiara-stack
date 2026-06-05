@@ -1,4 +1,4 @@
-import { Effect, Layer, Option, Schema } from "effect";
+import { Effect, Layer, Option, Predicate, Schema } from "effect";
 import { Sharding } from "effect/unstable/cluster";
 import { Activity } from "effect/unstable/workflow";
 import {
@@ -56,11 +56,9 @@ import {
 const entityFailureMessage = "Dispatch failed. Please try again.";
 
 const isMissingMessageRoomOrderError = (error: unknown) =>
-  typeof error === "object" &&
-  error !== null &&
-  "_tag" in error &&
+  Predicate.hasProperty(error, "_tag") &&
   error._tag === "ArgumentError" &&
-  "message" in error &&
+  Predicate.hasProperty(error, "message") &&
   error.message === MESSAGE_ROOM_ORDER_NOT_REGISTERED_ERROR_MESSAGE;
 
 const notifyInteractionFailure = (interactionToken: string | undefined) =>

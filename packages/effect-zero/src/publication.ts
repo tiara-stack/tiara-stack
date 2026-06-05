@@ -1,4 +1,4 @@
-import { Effect, Option, Schema, SchemaIssue, SchemaTransformation } from "effect";
+import { Effect, Option, Predicate, Schema, SchemaIssue, SchemaTransformation } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import type {
   JsonValue,
@@ -111,8 +111,7 @@ const setTableSql = (snapshot: PublicationSnapshot): string =>
     .map(tableSql)
     .join(",\n  ")};`;
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
+const isRecord = (value: unknown): value is Record<string, unknown> => Predicate.isObject(value);
 
 const decodePublicationSnapshot = (value: unknown): PublicationSnapshot | undefined => {
   const result = Schema.decodeUnknownOption(PublicationSnapshotSchema)(value);

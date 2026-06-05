@@ -1,6 +1,5 @@
 import { Option, Predicate } from "effect";
 import {
-  type Player,
   type PopulatedSchedulePlayer,
   type PopulatedScheduleResult,
 } from "sheet-ingress-api/schemas/sheet";
@@ -11,8 +10,7 @@ export type FillParticipant = {
   name: string;
 };
 
-const isPlayer = (player: PopulatedSchedulePlayer["player"]): player is Player =>
-  Predicate.isTagged("Player")(player);
+const isPlayer = Predicate.isTagged("Player");
 const isPopulatedSchedule = Predicate.isTagged("PopulatedSchedule");
 
 const dedupeParticipants = (
