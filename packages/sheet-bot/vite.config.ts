@@ -12,6 +12,7 @@ export default defineConfig({
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
       "sheet-ingress-api": fileURLToPath(new URL("../sheet-ingress-api/src", import.meta.url)),
+      "sheet-db-schema": fileURLToPath(new URL("../sheet-db-schema/src", import.meta.url)),
     },
   },
   pack: {
