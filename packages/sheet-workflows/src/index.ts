@@ -36,4 +36,4 @@ const mainLayer = Layer.mergeAll(clientWorkflowLayers, clusterServerLayer).pipe(
   Layer.provide(NodeFileSystem.layer),
 );
 
-mainLayer.pipe(Layer.launch, Effect.orDie, NodeRuntime.runMain);
+NodeRuntime.runMain(Effect.orDie(Layer.launch(mainLayer)) as Effect.Effect<never, never, never>);

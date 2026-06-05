@@ -42,6 +42,14 @@ export const guildConfigLayer = GuildConfigRpcs.toLayer(
       ),
       "guildConfig.getGuildMonitorRoles": ({ query }) =>
         guildConfigService.getGuildMonitorRoles(query.guildId),
+      "guildConfig.getGuildFeatureFlags": Effect.fnUntraced(function* ({ query }) {
+        yield* authorizationService.requireService();
+        return yield* guildConfigService.getGuildFeatureFlags(query.guildId);
+      }),
+      "guildConfig.getGuildsForFeatureFlag": Effect.fnUntraced(function* ({ query }) {
+        yield* authorizationService.requireService();
+        return yield* guildConfigService.getGuildsForFeatureFlag(query.flagName);
+      }),
       "guildConfig.getGuildChannels": ({ query }) =>
         guildConfigService.getGuildChannels({
           guildId: query.guildId,
@@ -59,6 +67,14 @@ export const guildConfigLayer = GuildConfigRpcs.toLayer(
           return yield* guildConfigService.removeGuildMonitorRole(payload.guildId, payload.roleId);
         }),
       ),
+      "guildConfig.addGuildFeatureFlag": Effect.fnUntraced(function* ({ payload }) {
+        yield* authorizationService.requireService();
+        return yield* guildConfigService.addGuildFeatureFlag(payload.guildId, payload.flagName);
+      }),
+      "guildConfig.removeGuildFeatureFlag": Effect.fnUntraced(function* ({ payload }) {
+        yield* authorizationService.requireService();
+        return yield* guildConfigService.removeGuildFeatureFlag(payload.guildId, payload.flagName);
+      }),
       "guildConfig.upsertGuildChannelConfig": withPayloadGuildAuth(
         Effect.fnUntraced(function* ({ payload }) {
           yield* authorizationService.requireManageGuild(payload.guildId);

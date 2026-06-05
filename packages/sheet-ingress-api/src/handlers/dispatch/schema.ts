@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 import { ArgumentError, SchemaError, UnknownError } from "typhoon-core/error";
 import { QueryResultError } from "typhoon-zero/error";
+import { FeatureFlagName } from "../../schemas/guildConfig";
 import { GoogleSheetsError } from "../../schemas/google";
 import { ParserFieldError } from "../../schemas/sheet/error";
 import { SheetConfigError } from "../../schemas/sheetConfig";
@@ -256,6 +257,28 @@ export const GuildWelcomeDispatchResult = Schema.Struct({
 
 export type GuildWelcomeDispatchResult = Schema.Schema.Type<typeof GuildWelcomeDispatchResult>;
 
+export const ServiceGuildFeatureFlagDispatchPayload = Schema.Struct({
+  dispatchRequestId: Schema.String,
+  guildId: Schema.String,
+  flagName: FeatureFlagName,
+  systemChannelId: Schema.optional(Schema.String),
+});
+
+export type ServiceGuildFeatureFlagDispatchPayload = Schema.Schema.Type<
+  typeof ServiceGuildFeatureFlagDispatchPayload
+>;
+
+export const ServiceGuildFeatureFlagDispatchResult = Schema.Struct({
+  guildId: Schema.String,
+  flagName: Schema.String,
+  announcementChannelId: Schema.NullOr(Schema.String),
+  announcementMessageId: Schema.NullOr(Schema.String),
+});
+
+export type ServiceGuildFeatureFlagDispatchResult = Schema.Schema.Type<
+  typeof ServiceGuildFeatureFlagDispatchResult
+>;
+
 export const ChannelListConfigDispatchPayload = Schema.Struct({
   ...CommandDispatchPayloadBase,
   guildId: Schema.String,
@@ -488,6 +511,8 @@ export const DispatchAcceptedResult = Schema.Struct({
     "slotOpenButton",
     "serviceStatus",
     "guildWelcome",
+    "serviceAddGuildFeatureFlag",
+    "serviceRemoveGuildFeatureFlag",
     "checkinButton",
     "roomOrderPreviousButton",
     "roomOrderNextButton",

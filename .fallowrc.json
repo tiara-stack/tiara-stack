@@ -4,6 +4,7 @@
     "packages/sheet-db-schema/effect-zero.config.ts",
     "packages/sheet-db-schema/effect-sql-migrations/0001_migration.ts",
     "packages/sheet-db-schema/effect-sql-migrations/0002_migration.ts",
+    "packages/sheet-db-schema/effect-sql-migrations/0003_migration.ts",
     "packages/typhoon-core/src/error/index.ts",
     "packages/vibecord/src/bot/index.ts"
   ],

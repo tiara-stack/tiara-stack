@@ -13,6 +13,8 @@ import {
   DispatchRoomOrderSendButtonWorkflow as BaseDispatchRoomOrderSendButtonWorkflow,
   DispatchRoomOrderWorkflow as BaseDispatchRoomOrderWorkflow,
   DispatchScheduleListWorkflow as BaseDispatchScheduleListWorkflow,
+  DispatchServiceAddGuildFeatureFlagWorkflow as BaseDispatchServiceAddGuildFeatureFlagWorkflow,
+  DispatchServiceRemoveGuildFeatureFlagWorkflow as BaseDispatchServiceRemoveGuildFeatureFlagWorkflow,
   DispatchServiceStatusWorkflow as BaseDispatchServiceStatusWorkflow,
   DispatchServerAddMonitorRoleWorkflow as BaseDispatchServerAddMonitorRoleWorkflow,
   DispatchServerListConfigWorkflow as BaseDispatchServerListConfigWorkflow,
@@ -67,6 +69,18 @@ export const DispatchGuildWelcomeWorkflow = BaseDispatchGuildWelcomeWorkflow.ann
   ClusterSchema.ShardGroup,
   dispatchShardGroup,
 );
+
+export const DispatchServiceAddGuildFeatureFlagWorkflow =
+  BaseDispatchServiceAddGuildFeatureFlagWorkflow.annotate(
+    ClusterSchema.ShardGroup,
+    dispatchShardGroup,
+  );
+
+export const DispatchServiceRemoveGuildFeatureFlagWorkflow =
+  BaseDispatchServiceRemoveGuildFeatureFlagWorkflow.annotate(
+    ClusterSchema.ShardGroup,
+    dispatchShardGroup,
+  );
 
 export const DispatchCheckinButtonWorkflow = BaseDispatchCheckinButtonWorkflow.annotate(
   ClusterSchema.ShardGroup,
@@ -156,6 +170,8 @@ export const DispatchWorkflows = [
   DispatchSlotOpenButtonWorkflow,
   DispatchServiceStatusWorkflow,
   DispatchGuildWelcomeWorkflow,
+  DispatchServiceAddGuildFeatureFlagWorkflow,
+  DispatchServiceRemoveGuildFeatureFlagWorkflow,
   DispatchCheckinButtonWorkflow,
   DispatchRoomOrderPreviousButtonWorkflow,
   DispatchRoomOrderNextButtonWorkflow,

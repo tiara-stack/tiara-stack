@@ -797,6 +797,14 @@ const makeApiLayer = () => {
         )
         .handle("guildWelcome", authorizedSheetWorkflowsDispatch("guildWelcome", requireService))
         .handle(
+          "serviceAddGuildFeatureFlag",
+          authorizedSheetWorkflowsDispatch("serviceAddGuildFeatureFlag", requireService),
+        )
+        .handle(
+          "serviceRemoveGuildFeatureFlag",
+          authorizedSheetWorkflowsDispatch("serviceRemoveGuildFeatureFlag", requireService),
+        )
+        .handle(
           "channelListConfig",
           authorizedSheetWorkflowsDispatch("channelListConfig", ({ payload }) =>
             requireGuildSnapshot("manage", payload.guildId),
@@ -932,6 +940,8 @@ const makeApiLayer = () => {
           "getGuildMonitorRoles",
           guildQuery("guildConfig", "getGuildMonitorRoles", "member", (query) => query.guildId),
         )
+        .handle("getGuildFeatureFlags", serviceOnly("guildConfig", "getGuildFeatureFlags"))
+        .handle("getGuildsForFeatureFlag", serviceOnly("guildConfig", "getGuildsForFeatureFlag"))
         .handle(
           "getGuildChannels",
           guildQuery("guildConfig", "getGuildChannels", "member", (query) => query.guildId),
@@ -954,6 +964,8 @@ const makeApiLayer = () => {
             (payload) => payload.guildId,
           ),
         )
+        .handle("addGuildFeatureFlag", serviceOnly("guildConfig", "addGuildFeatureFlag"))
+        .handle("removeGuildFeatureFlag", serviceOnly("guildConfig", "removeGuildFeatureFlag"))
         .handle(
           "upsertGuildChannelConfig",
           guildPayload(

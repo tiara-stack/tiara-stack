@@ -39,6 +39,8 @@ import {
   DispatchRoomOrderSendButtonWorkflow,
   DispatchRoomOrderWorkflow,
   DispatchScheduleListWorkflow,
+  DispatchServiceAddGuildFeatureFlagWorkflow,
+  DispatchServiceRemoveGuildFeatureFlagWorkflow,
   DispatchServiceStatusWorkflow,
   DispatchServerAddMonitorRoleWorkflow,
   DispatchServerListConfigWorkflow,
@@ -541,6 +543,28 @@ export const dispatchWorkflowRegistry = {
         return yield* service.guildWelcome(request.payload);
       }),
   },
+  serviceAddGuildFeatureFlag: {
+    operation: "serviceAddGuildFeatureFlag",
+    workflow: DispatchServiceAddGuildFeatureFlagWorkflow,
+    getInteractionToken: () => undefined,
+    authorize: () => Effect.void,
+    execute: (request: typeof DispatchServiceAddGuildFeatureFlagWorkflow.payloadSchema.Type) =>
+      Effect.gen(function* () {
+        const service = yield* DispatchService;
+        return yield* service.serviceAddGuildFeatureFlag(request.payload);
+      }),
+  },
+  serviceRemoveGuildFeatureFlag: {
+    operation: "serviceRemoveGuildFeatureFlag",
+    workflow: DispatchServiceRemoveGuildFeatureFlagWorkflow,
+    getInteractionToken: () => undefined,
+    authorize: () => Effect.void,
+    execute: (request: typeof DispatchServiceRemoveGuildFeatureFlagWorkflow.payloadSchema.Type) =>
+      Effect.gen(function* () {
+        const service = yield* DispatchService;
+        return yield* service.serviceRemoveGuildFeatureFlag(request.payload);
+      }),
+  },
   checkinButton: {
     operation: "checkinButton",
     workflow: DispatchCheckinButtonWorkflow,
@@ -846,6 +870,16 @@ export const dispatchWorkflowLayer = Layer.mergeAll(
   DispatchGuildWelcomeWorkflow.toLayer(
     makeWorkflowHandler({
       ...dispatchWorkflowRegistry.guildWelcome,
+    }),
+  ),
+  DispatchServiceAddGuildFeatureFlagWorkflow.toLayer(
+    makeWorkflowHandler({
+      ...dispatchWorkflowRegistry.serviceAddGuildFeatureFlag,
+    }),
+  ),
+  DispatchServiceRemoveGuildFeatureFlagWorkflow.toLayer(
+    makeWorkflowHandler({
+      ...dispatchWorkflowRegistry.serviceRemoveGuildFeatureFlag,
     }),
   ),
   DispatchCheckinButtonWorkflow.toLayer(

@@ -61,6 +61,18 @@ export class SheetWorkflowsForwardingClient extends Context.Service<SheetWorkflo
           guildWelcome: accept(DispatchWorkflowOperations.guildWelcome, (args) =>
             rpcClient[DispatchWorkflowOperations.guildWelcome.discardRpcTag](args),
           ),
+          serviceAddGuildFeatureFlag: accept(
+            DispatchWorkflowOperations.serviceAddGuildFeatureFlag,
+            (args) =>
+              rpcClient[DispatchWorkflowOperations.serviceAddGuildFeatureFlag.discardRpcTag](args),
+          ),
+          serviceRemoveGuildFeatureFlag: accept(
+            DispatchWorkflowOperations.serviceRemoveGuildFeatureFlag,
+            (args) =>
+              rpcClient[DispatchWorkflowOperations.serviceRemoveGuildFeatureFlag.discardRpcTag](
+                args,
+              ),
+          ),
           [DispatchWorkflowOperations.roomOrderPreviousButton.endpointName]: accept(
             DispatchWorkflowOperations.roomOrderPreviousButton,
             (args) =>

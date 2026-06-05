@@ -45,6 +45,8 @@ import type {
   RoomOrderSendButtonPayload,
   ScheduleListDispatchPayload,
   ScheduleListDispatchResult,
+  ServiceGuildFeatureFlagDispatchPayload,
+  ServiceGuildFeatureFlagDispatchResult,
   ServiceStatusDispatchPayload,
   ServiceStatusDispatchResult,
   ServerAddMonitorRoleDispatchPayload,
@@ -244,10 +246,16 @@ const makeSheetApisServices = (sheetApisClient: typeof SheetApisClient.Service) 
       ) => sheetApis.guildConfig.upsertGuildConfig({ payload: { guildId, config } }),
       getGuildMonitorRoles: (guildId: string) =>
         sheetApis.guildConfig.getGuildMonitorRoles({ query: { guildId } }),
+      getGuildFeatureFlags: (guildId: string) =>
+        sheetApis.guildConfig.getGuildFeatureFlags({ query: { guildId } }),
       addGuildMonitorRole: (guildId: string, roleId: string) =>
         sheetApis.guildConfig.addGuildMonitorRole({ payload: { guildId, roleId } }),
       removeGuildMonitorRole: (guildId: string, roleId: string) =>
         sheetApis.guildConfig.removeGuildMonitorRole({ payload: { guildId, roleId } }),
+      addGuildFeatureFlag: (guildId: string, flagName: string) =>
+        sheetApis.guildConfig.addGuildFeatureFlag({ payload: { guildId, flagName } }),
+      removeGuildFeatureFlag: (guildId: string, flagName: string) =>
+        sheetApis.guildConfig.removeGuildFeatureFlag({ payload: { guildId, flagName } }),
       upsertGuildChannelConfig: (
         guildId: string,
         channelId: string,
@@ -529,6 +537,43 @@ const guildWelcomeChannelCandidates = (
 
   return candidates;
 };
+
+const sendGuildAnnouncementWithWelcomeHeuristic = (params: {
+  readonly botClient: typeof IngressBotClient.Service;
+  readonly guildId: string;
+  readonly systemChannelId: string | undefined;
+  readonly messagePayload: MessagePayload;
+  readonly logLabel: string;
+}) =>
+  Effect.gen(function* () {
+    const channels = yield* params.botClient.getChannelsForParent(params.guildId);
+    const candidates = guildWelcomeChannelCandidates(channels, params.systemChannelId);
+
+    for (const channel of candidates) {
+      const sentMessage = yield* params.botClient
+        .sendMessage(channel.resourceId, params.messagePayload)
+        .pipe(
+          Effect.map(Option.some),
+          Effect.catchCause((cause) =>
+            Effect.logWarning(`Failed to send ${params.logLabel}`).pipe(
+              Effect.annotateLogs({
+                guildId: params.guildId,
+                channelId: channel.resourceId,
+                channelName: channel.value.name,
+              }),
+              Effect.andThen(Effect.logDebug(cause)),
+              Effect.as(Option.none<DiscordMessage>()),
+            ),
+          ),
+        );
+
+      if (Option.isSome(sentMessage)) {
+        return sentMessage.value;
+      }
+    }
+
+    return yield* Effect.fail(makeArgumentError(`Cannot send ${params.logLabel}`));
+  });
 
 const formatDateTime = (dateTime: DateTime.DateTime) => DateTime.toEpochMillis(dateTime) / 1000;
 
@@ -2911,21 +2956,58 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           systemChannelId: payload.systemChannelId,
         });
 
-        const channels = yield* botClient.getChannelsForParent(payload.guildId);
-        const candidates = guildWelcomeChannelCandidates(channels, payload.systemChannelId);
         const messagePayload = {
           embeds: [welcomeEmbed()],
         } satisfies MessagePayload;
 
-        for (const channel of candidates) {
-          const sentMessage = yield* botClient.sendMessage(channel.resourceId, messagePayload).pipe(
+        const sentMessage = yield* sendGuildAnnouncementWithWelcomeHeuristic({
+          botClient,
+          guildId: payload.guildId,
+          systemChannelId: payload.systemChannelId,
+          messagePayload,
+          logLabel: "guild welcome message",
+        });
+
+        return {
+          guildId: payload.guildId,
+          channelId: sentMessage.channel_id,
+          messageId: sentMessage.id,
+        } satisfies GuildWelcomeDispatchResult;
+      }),
+      serviceAddGuildFeatureFlag: Effect.fn("DispatchService.serviceAddGuildFeatureFlag")(
+        function* (payload: ServiceGuildFeatureFlagDispatchPayload) {
+          yield* Effect.annotateCurrentSpan({
+            guildId: payload.guildId,
+            flagName: payload.flagName,
+            systemChannelId: payload.systemChannelId,
+          });
+
+          const flag = yield* guildConfigService.addGuildFeatureFlag(
+            payload.guildId,
+            payload.flagName,
+          );
+          const messagePayload = {
+            embeds: [
+              makeEmbed({
+                title: "Feature flag enabled",
+                description: `This server has been enlisted for \`${escapeMarkdown(flag.flagName)}\`.`,
+                color: 0x57f287,
+              }),
+            ],
+          } satisfies MessagePayload;
+          const sentMessage = yield* sendGuildAnnouncementWithWelcomeHeuristic({
+            botClient,
+            guildId: payload.guildId,
+            systemChannelId: payload.systemChannelId,
+            messagePayload,
+            logLabel: "guild feature flag enlistment announcement",
+          }).pipe(
             Effect.map(Option.some),
             Effect.catchCause((cause) =>
-              Effect.logWarning("Failed to send guild welcome message").pipe(
+              Effect.logWarning("Failed to announce guild feature flag enlistment").pipe(
                 Effect.annotateLogs({
                   guildId: payload.guildId,
-                  channelId: channel.resourceId,
-                  channelName: channel.value.name,
+                  flagName: flag.flagName,
                 }),
                 Effect.andThen(Effect.logDebug(cause)),
                 Effect.as(Option.none<DiscordMessage>()),
@@ -2933,19 +3015,75 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
             ),
           );
 
-          if (Option.isSome(sentMessage)) {
-            return {
-              guildId: payload.guildId,
-              channelId: sentMessage.value.channel_id,
-              messageId: sentMessage.value.id,
-            } satisfies GuildWelcomeDispatchResult;
-          }
-        }
+          return {
+            guildId: payload.guildId,
+            flagName: flag.flagName,
+            announcementChannelId: Option.match(sentMessage, {
+              onSome: (message) => message.channel_id,
+              onNone: () => null,
+            }),
+            announcementMessageId: Option.match(sentMessage, {
+              onSome: (message) => message.id,
+              onNone: () => null,
+            }),
+          } satisfies ServiceGuildFeatureFlagDispatchResult;
+        },
+      ),
+      serviceRemoveGuildFeatureFlag: Effect.fn("DispatchService.serviceRemoveGuildFeatureFlag")(
+        function* (payload: ServiceGuildFeatureFlagDispatchPayload) {
+          yield* Effect.annotateCurrentSpan({
+            guildId: payload.guildId,
+            flagName: payload.flagName,
+            systemChannelId: payload.systemChannelId,
+          });
 
-        return yield* Effect.fail(
-          makeArgumentError(`Cannot send guild welcome message for guild ${payload.guildId}`),
-        );
-      }),
+          const flag = yield* guildConfigService.removeGuildFeatureFlag(
+            payload.guildId,
+            payload.flagName,
+          );
+          const messagePayload = {
+            embeds: [
+              makeEmbed({
+                title: "Feature flag disabled",
+                description: `This server has been delisted from \`${escapeMarkdown(flag.flagName)}\`.`,
+                color: 0xed4245,
+              }),
+            ],
+          } satisfies MessagePayload;
+          const sentMessage = yield* sendGuildAnnouncementWithWelcomeHeuristic({
+            botClient,
+            guildId: payload.guildId,
+            systemChannelId: payload.systemChannelId,
+            messagePayload,
+            logLabel: "guild feature flag delistment announcement",
+          }).pipe(
+            Effect.map(Option.some),
+            Effect.catchCause((cause) =>
+              Effect.logWarning("Failed to announce guild feature flag delistment").pipe(
+                Effect.annotateLogs({
+                  guildId: payload.guildId,
+                  flagName: flag.flagName,
+                }),
+                Effect.andThen(Effect.logDebug(cause)),
+                Effect.as(Option.none<DiscordMessage>()),
+              ),
+            ),
+          );
+
+          return {
+            guildId: payload.guildId,
+            flagName: flag.flagName,
+            announcementChannelId: Option.match(sentMessage, {
+              onSome: (message) => message.channel_id,
+              onNone: () => null,
+            }),
+            announcementMessageId: Option.match(sentMessage, {
+              onSome: (message) => message.id,
+              onNone: () => null,
+            }),
+          } satisfies ServiceGuildFeatureFlagDispatchResult;
+        },
+      ),
       slotOpenButton: Effect.fn("DispatchService.slotOpenButton")(function* (
         payload: SlotOpenButtonPayload,
         messageSlot: MessageSlot,

@@ -40,6 +40,8 @@ import {
   RoomOrderSendButtonResult,
   ScheduleListDispatchPayload,
   ScheduleListDispatchResult,
+  ServiceGuildFeatureFlagDispatchPayload,
+  ServiceGuildFeatureFlagDispatchResult,
   ServiceStatusDispatchPayload,
   ServiceStatusDispatchResult,
   ServerAddMonitorRoleDispatchPayload,
@@ -129,6 +131,8 @@ const workflowName = {
   slotOpenButton: "dispatch.slotOpenButton",
   serviceStatus: "dispatch.serviceStatus",
   guildWelcome: "dispatch.guildWelcome",
+  serviceAddGuildFeatureFlag: "dispatch.serviceAddGuildFeatureFlag",
+  serviceRemoveGuildFeatureFlag: "dispatch.serviceRemoveGuildFeatureFlag",
   checkinButton: "dispatch.checkinButton",
   roomOrderPreviousButton: "dispatch.roomOrderPreviousButton",
   roomOrderNextButton: "dispatch.roomOrderNextButton",
@@ -209,6 +213,22 @@ export const DispatchGuildWelcomeWorkflow = Workflow.make({
   payload: dispatchPayload(GuildWelcomeDispatchPayload),
   success: GuildWelcomeDispatchResult,
   error: GuildWelcomeDispatchError,
+  idempotencyKey: ({ payload }) => payload.dispatchRequestId,
+});
+
+export const DispatchServiceAddGuildFeatureFlagWorkflow = Workflow.make({
+  name: workflowName.serviceAddGuildFeatureFlag,
+  payload: dispatchPayload(ServiceGuildFeatureFlagDispatchPayload),
+  success: ServiceGuildFeatureFlagDispatchResult,
+  error: BotCommandDispatchError,
+  idempotencyKey: ({ payload }) => payload.dispatchRequestId,
+});
+
+export const DispatchServiceRemoveGuildFeatureFlagWorkflow = Workflow.make({
+  name: workflowName.serviceRemoveGuildFeatureFlag,
+  payload: dispatchPayload(ServiceGuildFeatureFlagDispatchPayload),
+  success: ServiceGuildFeatureFlagDispatchResult,
+  error: BotCommandDispatchError,
   idempotencyKey: ({ payload }) => payload.dispatchRequestId,
 });
 
@@ -354,6 +374,8 @@ export const DispatchWorkflows = [
   DispatchSlotOpenButtonWorkflow,
   DispatchServiceStatusWorkflow,
   DispatchGuildWelcomeWorkflow,
+  DispatchServiceAddGuildFeatureFlagWorkflow,
+  DispatchServiceRemoveGuildFeatureFlagWorkflow,
   DispatchCheckinButtonWorkflow,
   DispatchRoomOrderPreviousButtonWorkflow,
   DispatchRoomOrderNextButtonWorkflow,
@@ -441,6 +463,20 @@ export const DispatchWorkflowOperations = {
     workflow: DispatchGuildWelcomeWorkflow,
     rpcTag: DispatchGuildWelcomeWorkflow.name,
     discardRpcTag: `${DispatchGuildWelcomeWorkflow.name}Discard`,
+  },
+  serviceAddGuildFeatureFlag: {
+    operation: "serviceAddGuildFeatureFlag",
+    endpointName: "serviceAddGuildFeatureFlag",
+    workflow: DispatchServiceAddGuildFeatureFlagWorkflow,
+    rpcTag: DispatchServiceAddGuildFeatureFlagWorkflow.name,
+    discardRpcTag: `${DispatchServiceAddGuildFeatureFlagWorkflow.name}Discard`,
+  },
+  serviceRemoveGuildFeatureFlag: {
+    operation: "serviceRemoveGuildFeatureFlag",
+    endpointName: "serviceRemoveGuildFeatureFlag",
+    workflow: DispatchServiceRemoveGuildFeatureFlagWorkflow,
+    rpcTag: DispatchServiceRemoveGuildFeatureFlagWorkflow.name,
+    discardRpcTag: `${DispatchServiceRemoveGuildFeatureFlagWorkflow.name}Discard`,
   },
   checkinButton: {
     operation: "checkinButton",

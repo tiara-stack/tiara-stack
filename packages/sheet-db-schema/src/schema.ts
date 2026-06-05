@@ -3,6 +3,7 @@ import type { EffectSqlTable } from "effect-sql-schema";
 import {
   configGuild as internalConfigGuild,
   configGuildChannel as internalConfigGuildChannel,
+  configGuildFeatureFlag as internalConfigGuildFeatureFlag,
   configGuildManagerRole as internalConfigGuildManagerRole,
   messageCheckin as internalMessageCheckin,
   messageCheckinMember as internalMessageCheckinMember,
@@ -18,6 +19,7 @@ type PgTable = EffectSqlTable<"postgresql">;
 // sheet-db-schema/models when model variant types are needed.
 export const configGuild = internalConfigGuild as unknown as PgTable;
 export const configGuildManagerRole = internalConfigGuildManagerRole as unknown as PgTable;
+export const configGuildFeatureFlag = internalConfigGuildFeatureFlag as unknown as PgTable;
 export const configGuildChannel = internalConfigGuildChannel as unknown as PgTable;
 export const messageSlot = internalMessageSlot as unknown as PgTable;
 export const messageCheckin = internalMessageCheckin as unknown as PgTable;
@@ -29,6 +31,7 @@ export const sheetApisDispatchJobs = internalSheetApisDispatchJobs as unknown as
 export const schema = effectSqlSchema({
   configGuild,
   configGuildManagerRole,
+  configGuildFeatureFlag,
   configGuildChannel,
   messageSlot,
   messageCheckin,

@@ -9,6 +9,7 @@ import type {
   GuildWelcomeDispatchPayload,
   KickoutDispatchPayload,
   ScheduleListDispatchPayload,
+  ServiceGuildFeatureFlagDispatchPayload,
   ServerAddMonitorRoleDispatchPayload,
   ServerListConfigDispatchPayload,
   ServerRemoveMonitorRoleDispatchPayload,
@@ -23,6 +24,7 @@ import type {
 import {
   GuildChannelConfig,
   GuildConfig,
+  GuildFeatureFlag,
   GuildConfigMonitorRole,
 } from "sheet-ingress-api/schemas/guildConfig";
 import { MessageSlot } from "sheet-ingress-api/schemas/messageSlot";
@@ -67,6 +69,13 @@ const serviceStatusPayload: ServiceStatusDispatchPayload = {
   dispatchRequestId: "dispatch-service-status",
   interactionToken: "interaction-token",
   interactionDeadlineEpochMs: 1_700_000_000_000,
+};
+
+const serviceGuildFeatureFlagPayload: ServiceGuildFeatureFlagDispatchPayload = {
+  dispatchRequestId: "dispatch-service-add-guild-feature-flag",
+  guildId: "guild-1",
+  flagName: "beta-feature",
+  systemChannelId: "system-channel",
 };
 
 const screenshotPayload: ScreenshotDispatchPayload = {
@@ -211,6 +220,35 @@ const runGuildWelcome = (
     Effect.provideService(SheetApisClient, sheetApisClient),
   );
 
+const runServiceAddGuildFeatureFlag = (
+  botClient: typeof IngressBotClient.Service,
+  sheetApisClient: typeof SheetApisClient.Service,
+  payload: ServiceGuildFeatureFlagDispatchPayload = serviceGuildFeatureFlagPayload,
+) =>
+  Effect.gen(function* () {
+    const service = yield* DispatchService.make;
+    return yield* service.serviceAddGuildFeatureFlag(payload);
+  }).pipe(
+    Effect.provideService(IngressBotClient, botClient),
+    Effect.provideService(SheetApisClient, sheetApisClient),
+  );
+
+const runServiceRemoveGuildFeatureFlag = (
+  botClient: typeof IngressBotClient.Service,
+  sheetApisClient: typeof SheetApisClient.Service,
+  payload: ServiceGuildFeatureFlagDispatchPayload = {
+    ...serviceGuildFeatureFlagPayload,
+    dispatchRequestId: "dispatch-service-remove-guild-feature-flag",
+  },
+) =>
+  Effect.gen(function* () {
+    const service = yield* DispatchService.make;
+    return yield* service.serviceRemoveGuildFeatureFlag(payload);
+  }).pipe(
+    Effect.provideService(IngressBotClient, botClient),
+    Effect.provideService(SheetApisClient, sheetApisClient),
+  );
+
 const runScreenshot = (
   botClient: typeof IngressBotClient.Service,
   sheetApisClient: typeof SheetApisClient.Service,
@@ -267,6 +305,18 @@ const makeGuildConfig = (overrides: Partial<ConstructorParameters<typeof GuildCo
     guildId: "guild-1",
     sheetId: Option.some("sheet-1"),
     autoCheckin: Option.some(true),
+    createdAt: Option.none(),
+    updatedAt: Option.none(),
+    deletedAt: Option.none(),
+    ...overrides,
+  });
+
+const makeGuildFeatureFlag = (
+  overrides: Partial<ConstructorParameters<typeof GuildFeatureFlag>[0]> = {},
+) =>
+  new GuildFeatureFlag({
+    guildId: "guild-1",
+    flagName: "beta-feature",
     createdAt: Option.none(),
     updatedAt: Option.none(),
     deletedAt: Option.none(),
@@ -528,6 +578,121 @@ describe("DispatchService", () => {
               reason.error._tag === "ArgumentError",
           ),
     ).toBe(true);
+  });
+
+  it("adds a guild feature flag and announces to the system channel first", async () => {
+    const sheetApiCalls: Array<unknown> = [];
+    const sendCalls: Array<{ readonly channelId: string; readonly payload: unknown }> = [];
+    const sheetApisClient = makeSheetApisClient({
+      guildConfig: {
+        addGuildFeatureFlag: (args: unknown) => {
+          sheetApiCalls.push(args);
+          return Effect.succeed(makeGuildFeatureFlag());
+        },
+      },
+    });
+    const botClient = {
+      getChannelsForParent: () =>
+        Effect.succeed([
+          makeChannelEntry({ id: "general", name: "general", position: 1 }),
+          makeChannelEntry({ id: "system-channel", name: "welcome", position: 2 }),
+        ]),
+      sendMessage: (channelId: string, payload: unknown) => {
+        sendCalls.push({ channelId, payload });
+        return Effect.succeed({ id: "feature-message", channel_id: channelId });
+      },
+    } as never;
+
+    const result = await Effect.runPromise(
+      runServiceAddGuildFeatureFlag(botClient, sheetApisClient),
+    );
+
+    expect(result).toEqual({
+      guildId: "guild-1",
+      flagName: "beta-feature",
+      announcementChannelId: "system-channel",
+      announcementMessageId: "feature-message",
+    });
+    expect(sheetApiCalls).toEqual([{ payload: { guildId: "guild-1", flagName: "beta-feature" } }]);
+    expect(sendCalls).toEqual([
+      {
+        channelId: "system-channel",
+        payload: {
+          embeds: [
+            {
+              title: "Feature flag enabled",
+              description: "This server has been enlisted for `beta-feature`.",
+              color: 0x57f287,
+            },
+          ],
+        },
+      },
+    ]);
+  });
+
+  it("removes a guild feature flag and falls back to general for the announcement", async () => {
+    const sheetApiCalls: Array<unknown> = [];
+    const sendCalls: Array<string> = [];
+    const sheetApisClient = makeSheetApisClient({
+      guildConfig: {
+        removeGuildFeatureFlag: (args: unknown) => {
+          sheetApiCalls.push(args);
+          return Effect.succeed(makeGuildFeatureFlag());
+        },
+      },
+    });
+    const botClient = {
+      getChannelsForParent: () =>
+        Effect.succeed([
+          makeChannelEntry({ id: "general", name: "general", position: 1 }),
+          makeChannelEntry({ id: "early", name: "early", position: 0 }),
+        ]),
+      sendMessage: (channelId: string) => {
+        sendCalls.push(channelId);
+        return Effect.succeed({ id: "feature-message", channel_id: channelId });
+      },
+    } as never;
+
+    const result = await Effect.runPromise(
+      runServiceRemoveGuildFeatureFlag(botClient, sheetApisClient, {
+        ...serviceGuildFeatureFlagPayload,
+        dispatchRequestId: "dispatch-service-remove-guild-feature-flag",
+        systemChannelId: "missing-system-channel",
+      }),
+    );
+
+    expect(result).toEqual({
+      guildId: "guild-1",
+      flagName: "beta-feature",
+      announcementChannelId: "general",
+      announcementMessageId: "feature-message",
+    });
+    expect(sheetApiCalls).toEqual([{ payload: { guildId: "guild-1", flagName: "beta-feature" } }]);
+    expect(sendCalls).toEqual(["general"]);
+  });
+
+  it("keeps guild feature flag mutation success when the announcement cannot be sent", async () => {
+    const sheetApisClient = makeSheetApisClient({
+      guildConfig: {
+        addGuildFeatureFlag: () => Effect.succeed(makeGuildFeatureFlag()),
+      },
+    });
+    const botClient = {
+      getChannelsForParent: () =>
+        Effect.succeed([makeChannelEntry({ id: "general", name: "general", position: 1 })]),
+      sendMessage: () => Effect.fail(new Error("cannot send")),
+    } as never;
+
+    const result = await Effect.runPromise(
+      runServiceAddGuildFeatureFlag(botClient, sheetApisClient),
+    );
+
+    expect(result).toEqual({
+      guildId: "guild-1",
+      flagName: "beta-feature",
+      announcementChannelId: null,
+      announcementMessageId: null,
+    });
   });
 
   it("persists slot button metadata with the requester Discord user id", async () => {

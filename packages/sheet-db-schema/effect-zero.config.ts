@@ -2,6 +2,7 @@ import { schema } from "effect-zero";
 import {
   configGuild,
   configGuildChannel,
+  configGuildFeatureFlag,
   configGuildManagerRole,
   messageCheckin,
   messageCheckinMember,
@@ -15,6 +16,7 @@ export default schema(
   {
     configGuild,
     configGuildChannel,
+    configGuildFeatureFlag,
     configGuildManagerRole,
     messageCheckin,
     messageCheckinMember,

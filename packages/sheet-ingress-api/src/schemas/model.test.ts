@@ -1,7 +1,13 @@
 import { Schema } from "effect";
 import { messageRoomOrderEntry as messageRoomOrderEntryModel } from "sheet-db-schema/models";
 import { describe, expect, it } from "vitest";
-import { GuildChannelConfig, GuildConfig, GuildConfigMonitorRole } from "./guildConfig";
+import {
+  FeatureFlagName,
+  GuildChannelConfig,
+  GuildConfig,
+  GuildFeatureFlag,
+  GuildConfigMonitorRole,
+} from "./guildConfig";
 import { MessageCheckin, MessageCheckinMember } from "./messageCheckin";
 import { MessageRoomOrder, MessageRoomOrderEntry } from "./messageRoomOrder";
 import { MessageSlot } from "./messageSlot";
@@ -78,6 +84,22 @@ describe("model-derived persisted schemas", () => {
       updatedAt: 1_700_000_000_100,
       deletedAt: null,
     });
+
+    expectWireRoundTrip(GuildFeatureFlag, {
+      _tag: "GuildFeatureFlag",
+      guildId: "guild-1",
+      flagName: "beta-feature",
+      createdAt: 1_700_000_000_000,
+      updatedAt: 1_700_000_000_100,
+      deletedAt: null,
+    });
+  });
+
+  it("rejects empty feature flag names at the runtime schema boundary", () => {
+    expect(Schema.decodeUnknownSync(FeatureFlagName)("beta-feature")).toBe("beta-feature");
+    expect(Schema.decodeUnknownSync(FeatureFlagName)(" beta-feature ")).toBe(" beta-feature ");
+    expect(() => Schema.decodeUnknownSync(FeatureFlagName)("")).toThrow();
+    expect(() => Schema.decodeUnknownSync(FeatureFlagName)("   ")).toThrow();
   });
 
   it("round-trips checkin row schemas without wire-shape drift", () => {

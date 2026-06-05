@@ -22,6 +22,9 @@ export interface SheetZeroApiSuccessSchemas {
     readonly getAutoCheckinGuilds: Schema.Top;
     readonly getGuildConfigByGuildId: Schema.Top;
     readonly getGuildMonitorRoles: Schema.Top;
+    readonly getGuildFeatureFlags: Schema.Top;
+    readonly getGuildsForFeatureFlag: Schema.Top;
+    readonly getGuildFeatureFlag: Schema.Top;
     readonly getGuildChannels: Schema.Top;
     readonly getGuildChannelById: Schema.Top;
     readonly getGuildChannelByName: Schema.Top;
@@ -45,6 +48,9 @@ const defaultSuccessSchemas = {
     getAutoCheckinGuilds: Schema.Any,
     getGuildConfigByGuildId: Schema.Any,
     getGuildMonitorRoles: Schema.Any,
+    getGuildFeatureFlags: Schema.Any,
+    getGuildsForFeatureFlag: Schema.Any,
+    getGuildFeatureFlag: Schema.Any,
     getGuildChannels: Schema.Any,
     getGuildChannelById: Schema.Any,
     getGuildChannelByName: Schema.Any,
@@ -87,6 +93,31 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
       query: ({ args: { guildId } }) =>
         zeroTableAccess.configGuildManagerRole.listActiveWhere(
           builder.configGuildManagerRole.where("guildId", "=", guildId),
+        ),
+    }),
+    ZeroApiEndpoint.query("getGuildFeatureFlags", {
+      request: Schema.Struct({ guildId: Schema.String }),
+      success: success.guildConfig.getGuildFeatureFlags,
+      query: ({ args: { guildId } }) =>
+        zeroTableAccess.configGuildFeatureFlag.listActiveWhere(
+          builder.configGuildFeatureFlag.where("guildId", "=", guildId),
+        ),
+    }),
+    ZeroApiEndpoint.query("getGuildsForFeatureFlag", {
+      request: Schema.Struct({ flagName: Schema.String }),
+      success: success.guildConfig.getGuildsForFeatureFlag,
+      query: ({ args: { flagName } }) =>
+        zeroTableAccess.configGuildFeatureFlag.listActiveWhere(
+          builder.configGuildFeatureFlag.where("flagName", "=", flagName),
+        ),
+    }),
+    ZeroApiEndpoint.query("getGuildFeatureFlag", {
+      request: Schema.Struct({ guildId: Schema.String, flagName: Schema.String }),
+      success: success.guildConfig.getGuildFeatureFlag,
+      query: ({ args: { guildId, flagName } }) =>
+        zeroTableAccess.configGuildFeatureFlag.getActiveByPrimaryKey(
+          builder.configGuildFeatureFlag,
+          { guildId, flagName },
         ),
     }),
     ZeroApiEndpoint.query("getGuildChannels", {
@@ -198,6 +229,44 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
           zeroTableAccess.configGuildManagerRole.softDeleteByPrimaryKey({
             guildId: args.guildId,
             roleId: args.roleId,
+          }),
+        ),
+    }),
+    ZeroApiEndpoint.mutator("addGuildFeatureFlag", {
+      request: Schema.Struct({
+        guildId: Schema.String,
+        flagName: Schema.String,
+      }),
+      mutator: async ({ tx, args }) => {
+        const existingFlag = await tx.run(
+          builder.configGuildFeatureFlag
+            .where("guildId", "=", args.guildId)
+            .where("flagName", "=", args.flagName)
+            .one(),
+        );
+
+        await tx.mutate.configGuildFeatureFlag.upsert(
+          zeroTableAccess.configGuildFeatureFlag.upsertWithTimestamps(
+            {
+              guildId: args.guildId,
+              flagName: args.flagName,
+              deletedAt: null,
+            },
+            existingFlag,
+          ),
+        );
+      },
+    }),
+    ZeroApiEndpoint.mutator("removeGuildFeatureFlag", {
+      request: Schema.Struct({
+        guildId: Schema.String,
+        flagName: Schema.String,
+      }),
+      mutator: async ({ tx, args }) =>
+        await tx.mutate.configGuildFeatureFlag.update(
+          zeroTableAccess.configGuildFeatureFlag.softDeleteByPrimaryKey({
+            guildId: args.guildId,
+            flagName: args.flagName,
           }),
         ),
     }),

@@ -39,6 +39,19 @@ class ConfigGuildManagerRole extends pg.Class<ConfigGuildManagerRole>("ConfigGui
   primaryKey: ["guildId", "roleId"],
 }) {}
 
+class ConfigGuildFeatureFlag extends pg.Class<ConfigGuildFeatureFlag>("ConfigGuildFeatureFlag")({
+  table: "config_guild_feature_flag",
+  fields: {
+    guildId: pg.varchar("guild_id").notNull(),
+    flagName: pg.varchar("flag_name").notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+    deletedAt: deletedAt(),
+  },
+  primaryKey: ["guildId", "flagName"],
+  indexes: [pg.index("config_guild_feature_flag_flag_name_idx").on("flagName")],
+}) {}
+
 class ConfigGuildChannel extends pg.Class<ConfigGuildChannel>("ConfigGuildChannel")({
   table: "config_guild_channel",
   fields: {
@@ -169,6 +182,7 @@ class SheetApisDispatchJobs extends pg.Class<SheetApisDispatchJobs>("SheetApisDi
 
 export const configGuild = asPgModel(ConfigGuild);
 export const configGuildManagerRole = asPgModel(ConfigGuildManagerRole);
+export const configGuildFeatureFlag = asPgModel(ConfigGuildFeatureFlag);
 export const configGuildChannel = asPgModel(ConfigGuildChannel);
 export const messageSlot = asPgModel(MessageSlot);
 export const messageCheckin = asPgModel(MessageCheckin);

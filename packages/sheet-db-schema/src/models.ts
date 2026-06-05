@@ -1,6 +1,7 @@
 export {
   configGuild,
   configGuildChannel,
+  configGuildFeatureFlag,
   configGuildManagerRole,
   messageCheckin,
   messageCheckinMember,

@@ -23,6 +23,7 @@ import {
   RoomOrderPreviousButtonPayload,
   RoomOrderSendButtonPayload,
   ScheduleListDispatchPayload,
+  ServiceGuildFeatureFlagDispatchPayload,
   ServiceStatusDispatchPayload,
   ServerAddMonitorRoleDispatchPayload,
   ServerListConfigDispatchPayload,
@@ -101,6 +102,24 @@ export class DispatchApi extends HttpApiGroup.make("dispatch")
       success: DispatchAcceptedResult,
       error: GuildWelcomeDispatchErrorSchemas,
     }),
+  )
+  .add(
+    HttpApiEndpoint.post("serviceAddGuildFeatureFlag", "/dispatch/service/feature-flags/add", {
+      payload: ServiceGuildFeatureFlagDispatchPayload,
+      success: DispatchAcceptedResult,
+      error: BotCommandDispatchErrorSchemas,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post(
+      "serviceRemoveGuildFeatureFlag",
+      "/dispatch/service/feature-flags/remove",
+      {
+        payload: ServiceGuildFeatureFlagDispatchPayload,
+        success: DispatchAcceptedResult,
+        error: BotCommandDispatchErrorSchemas,
+      },
+    ),
   )
   .add(
     HttpApiEndpoint.post("channelListConfig", "/dispatch/channel/list-config", {

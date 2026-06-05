@@ -20,6 +20,8 @@ import type {
   KickoutDispatchPayload,
   KickoutDispatchResult,
   RoomOrderPinTentativeButtonPayload,
+  ServiceGuildFeatureFlagDispatchPayload,
+  ServiceGuildFeatureFlagDispatchResult,
   ServiceStatusDispatchPayload,
   ServiceStatusDispatchResult,
   SlotButtonDispatchPayload,
@@ -99,6 +101,13 @@ const guildWelcomePayload: GuildWelcomeDispatchPayload = {
   systemChannelId: "system-channel",
 };
 
+const serviceGuildFeatureFlagPayload: ServiceGuildFeatureFlagDispatchPayload = {
+  dispatchRequestId: "dispatch-service-guild-feature-flag",
+  guildId: "guild-1",
+  flagName: "beta-feature",
+  systemChannelId: "system-channel",
+};
+
 const interactionDeadlineEpochMs = 4_102_444_800_000;
 
 const checkinButtonPayload: CheckinHandleButtonPayload = {
@@ -151,6 +160,8 @@ const makeDispatchServiceMock = (overrides: Partial<DispatchServiceMock>): Dispa
   slotOpenButton: unexpectedDispatchServiceCall("slotOpenButton"),
   serviceStatus: unexpectedDispatchServiceCall("serviceStatus"),
   guildWelcome: unexpectedDispatchServiceCall("guildWelcome"),
+  serviceAddGuildFeatureFlag: unexpectedDispatchServiceCall("serviceAddGuildFeatureFlag"),
+  serviceRemoveGuildFeatureFlag: unexpectedDispatchServiceCall("serviceRemoveGuildFeatureFlag"),
   checkinButton: unexpectedDispatchServiceCall("checkinButton"),
   roomOrderPreviousButton: unexpectedDispatchServiceCall("roomOrderPreviousButton"),
   roomOrderNextButton: unexpectedDispatchServiceCall("roomOrderNextButton"),
@@ -291,6 +302,8 @@ describe("dispatch workflow registry", () => {
       "slotOpenButton",
       "serviceStatus",
       "guildWelcome",
+      "serviceAddGuildFeatureFlag",
+      "serviceRemoveGuildFeatureFlag",
       "checkinButton",
       "roomOrderPreviousButton",
       "roomOrderNextButton",
@@ -708,6 +721,53 @@ describe("dispatch workflow registry", () => {
           DispatchService,
           makeDispatchServiceMock({
             guildWelcome,
+          }),
+        ),
+      ),
+    );
+  });
+
+  it("routes service guild feature flag workflows to DispatchService", async () => {
+    const resultPayload = {
+      guildId: "guild-1",
+      flagName: "beta-feature",
+      announcementChannelId: "channel-1",
+      announcementMessageId: "message-1",
+    } satisfies ServiceGuildFeatureFlagDispatchResult;
+    const serviceAddGuildFeatureFlag = vi.fn((payload: ServiceGuildFeatureFlagDispatchPayload) =>
+      Effect.sync(() => {
+        expect(payload).toBe(serviceGuildFeatureFlagPayload);
+        return resultPayload;
+      }),
+    ) as DispatchServiceMock["serviceAddGuildFeatureFlag"];
+    const serviceRemoveGuildFeatureFlag = vi.fn((payload: ServiceGuildFeatureFlagDispatchPayload) =>
+      Effect.sync(() => {
+        expect(payload).toBe(serviceGuildFeatureFlagPayload);
+        return resultPayload;
+      }),
+    ) as DispatchServiceMock["serviceRemoveGuildFeatureFlag"];
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const addResult = yield* dispatchWorkflowRegistry.serviceAddGuildFeatureFlag.execute({
+          requester,
+          payload: serviceGuildFeatureFlagPayload,
+        });
+        const removeResult = yield* dispatchWorkflowRegistry.serviceRemoveGuildFeatureFlag.execute({
+          requester,
+          payload: serviceGuildFeatureFlagPayload,
+        });
+
+        expect(addResult).toEqual(resultPayload);
+        expect(removeResult).toEqual(resultPayload);
+        expect(serviceAddGuildFeatureFlag).toHaveBeenCalledWith(serviceGuildFeatureFlagPayload);
+        expect(serviceRemoveGuildFeatureFlag).toHaveBeenCalledWith(serviceGuildFeatureFlagPayload);
+      }).pipe(
+        Effect.provideService(
+          DispatchService,
+          makeDispatchServiceMock({
+            serviceAddGuildFeatureFlag,
+            serviceRemoveGuildFeatureFlag,
           }),
         ),
       ),

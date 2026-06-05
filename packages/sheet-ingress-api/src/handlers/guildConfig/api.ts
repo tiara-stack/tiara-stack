@@ -2,7 +2,13 @@ import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi"
 import { Schema, SchemaGetter } from "effect";
 import { SchemaError, ArgumentError } from "typhoon-core/error";
 import { QueryResultError, MutatorResultError } from "typhoon-zero/error";
-import { GuildChannelConfig, GuildConfig, GuildConfigMonitorRole } from "../../schemas/guildConfig";
+import {
+  FeatureFlagName,
+  GuildChannelConfig,
+  GuildConfig,
+  GuildFeatureFlag,
+  GuildConfigMonitorRole,
+} from "../../schemas/guildConfig";
 import { SheetAuthTokenAuthorization } from "../../middlewares/sheetAuthTokenAuthorization/tag";
 import { SheetApisServiceUserFallback } from "../../middlewares/sheetApisServiceUserFallback/tag";
 
@@ -52,6 +58,24 @@ export class GuildConfigApi extends HttpApiGroup.make("guildConfig")
     }),
   )
   .add(
+    HttpApiEndpoint.get("getGuildFeatureFlags", "/guildConfig/getGuildFeatureFlags", {
+      query: Schema.Struct({
+        guildId: Schema.String,
+      }),
+      success: Schema.Array(GuildFeatureFlag),
+      error: [SchemaError, QueryResultError],
+    }),
+  )
+  .add(
+    HttpApiEndpoint.get("getGuildsForFeatureFlag", "/guildConfig/getGuildsForFeatureFlag", {
+      query: Schema.Struct({
+        flagName: FeatureFlagName,
+      }),
+      success: Schema.Array(GuildFeatureFlag),
+      error: [SchemaError, QueryResultError, ArgumentError],
+    }),
+  )
+  .add(
     HttpApiEndpoint.get("getGuildChannels", "/guildConfig/getGuildChannels", {
       query: Schema.Struct({
         guildId: Schema.String,
@@ -79,6 +103,26 @@ export class GuildConfigApi extends HttpApiGroup.make("guildConfig")
       }),
       success: GuildConfigMonitorRole,
       error: [SchemaError, QueryResultError, MutatorResultError],
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("addGuildFeatureFlag", "/guildConfig/addGuildFeatureFlag", {
+      payload: Schema.Struct({
+        guildId: Schema.String,
+        flagName: FeatureFlagName,
+      }),
+      success: GuildFeatureFlag,
+      error: [SchemaError, QueryResultError, MutatorResultError, ArgumentError],
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("removeGuildFeatureFlag", "/guildConfig/removeGuildFeatureFlag", {
+      payload: Schema.Struct({
+        guildId: Schema.String,
+        flagName: FeatureFlagName,
+      }),
+      success: GuildFeatureFlag,
+      error: [SchemaError, QueryResultError, MutatorResultError, ArgumentError],
     }),
   )
   .add(

@@ -1,6 +1,13 @@
 import { Array, Effect, Layer, Option, Context } from "effect";
-import { makeDBQueryError } from "typhoon-core/error";
+import { makeArgumentError, makeDBQueryError } from "typhoon-core/error";
 import { SheetZeroClient } from "./sheetZeroClient";
+
+const normalizeFeatureFlagName = (flagName: string) => {
+  const normalized = flagName.trim();
+  return normalized.length > 0
+    ? Effect.succeed(normalized)
+    : Effect.fail(makeArgumentError("Feature flag name cannot be empty"));
+};
 
 export class GuildConfigService extends Context.Service<GuildConfigService>()(
   "GuildConfigService",
@@ -35,6 +42,29 @@ export class GuildConfigService extends Context.Service<GuildConfigService>()(
           guildId: string,
         ) {
           return yield* zero.guildConfig.getGuildMonitorRoles({ guildId });
+        }),
+        getGuildFeatureFlags: Effect.fn("GuildConfigService.getGuildFeatureFlags")(function* (
+          guildId: string,
+        ) {
+          return yield* zero.guildConfig.getGuildFeatureFlags({ guildId });
+        }),
+        getGuildsForFeatureFlag: Effect.fn("GuildConfigService.getGuildsForFeatureFlag")(function* (
+          flagName: string,
+        ) {
+          const normalizedFlagName = yield* normalizeFeatureFlagName(flagName);
+          return yield* zero.guildConfig.getGuildsForFeatureFlag({
+            flagName: normalizedFlagName,
+          });
+        }),
+        getGuildFeatureFlag: Effect.fn("GuildConfigService.getGuildFeatureFlag")(function* (
+          guildId: string,
+          flagName: string,
+        ) {
+          const normalizedFlagName = yield* normalizeFeatureFlagName(flagName);
+          return yield* zero.guildConfig.getGuildFeatureFlag({
+            guildId,
+            flagName: normalizedFlagName,
+          });
         }),
         getGuildChannels: Effect.fn("GuildConfigService.getGuildChannels")(function* (params: {
           guildId: string;
@@ -72,6 +102,48 @@ export class GuildConfigService extends Context.Service<GuildConfigService>()(
           }
 
           return role.value;
+        }),
+        addGuildFeatureFlag: Effect.fn("GuildConfigService.addGuildFeatureFlag")(function* (
+          guildId: string,
+          flagName: string,
+        ) {
+          const normalizedFlagName = yield* normalizeFeatureFlagName(flagName);
+          yield* zero.guildConfig.addGuildFeatureFlag({ guildId, flagName: normalizedFlagName });
+          const flag = yield* zero.guildConfig.getGuildFeatureFlag({
+            guildId,
+            flagName: normalizedFlagName,
+          });
+
+          if (Option.isNone(flag)) {
+            return yield* Effect.die(makeDBQueryError("Failed to add guild feature flag"));
+          }
+
+          return flag.value;
+        }),
+        removeGuildFeatureFlag: Effect.fn("GuildConfigService.removeGuildFeatureFlag")(function* (
+          guildId: string,
+          flagName: string,
+        ) {
+          const normalizedFlagName = yield* normalizeFeatureFlagName(flagName);
+          const flag = yield* zero.guildConfig.getGuildFeatureFlag({
+            guildId,
+            flagName: normalizedFlagName,
+          });
+
+          if (Option.isNone(flag)) {
+            return yield* Effect.fail(
+              makeArgumentError(
+                `Feature flag "${flagName}" (normalized: "${normalizedFlagName}") is not enabled for guild ${guildId}`,
+              ),
+            );
+          }
+
+          yield* zero.guildConfig.removeGuildFeatureFlag({
+            guildId,
+            flagName: normalizedFlagName,
+          });
+
+          return flag.value;
         }),
         upsertGuildChannelConfig: Effect.fn("GuildConfigService.upsertGuildChannelConfig")(
           function* (

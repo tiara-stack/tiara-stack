@@ -5,6 +5,7 @@ import { DefaultTaggedClass } from "typhoon-core/schema";
 import {
   GuildChannelConfig,
   GuildConfig,
+  GuildFeatureFlag,
   GuildConfigMonitorRole,
 } from "sheet-ingress-api/schemas/guildConfig";
 import { MessageCheckin, MessageCheckinMember } from "sheet-ingress-api/schemas/messageCheckin";
@@ -20,6 +21,9 @@ const successSchemas = {
     getAutoCheckinGuilds: Schema.Array(DefaultTaggedClass(GuildConfig)),
     getGuildConfigByGuildId: Schema.OptionFromNullishOr(DefaultTaggedClass(GuildConfig)),
     getGuildMonitorRoles: Schema.Array(DefaultTaggedClass(GuildConfigMonitorRole)),
+    getGuildFeatureFlags: Schema.Array(DefaultTaggedClass(GuildFeatureFlag)),
+    getGuildsForFeatureFlag: Schema.Array(DefaultTaggedClass(GuildFeatureFlag)),
+    getGuildFeatureFlag: Schema.OptionFromNullishOr(DefaultTaggedClass(GuildFeatureFlag)),
     getGuildChannels: Schema.Array(DefaultTaggedClass(GuildChannelConfig)),
     getGuildChannelById: Schema.OptionFromNullishOr(DefaultTaggedClass(GuildChannelConfig)),
     getGuildChannelByName: Schema.OptionFromNullishOr(DefaultTaggedClass(GuildChannelConfig)),
@@ -62,6 +66,16 @@ export interface SheetZeroClientApi {
     readonly getGuildMonitorRoles: (args: {
       readonly guildId: string;
     }) => QueryResult<GuildConfigMonitorRole[]>;
+    readonly getGuildFeatureFlags: (args: {
+      readonly guildId: string;
+    }) => QueryResult<GuildFeatureFlag[]>;
+    readonly getGuildsForFeatureFlag: (args: {
+      readonly flagName: string;
+    }) => QueryResult<GuildFeatureFlag[]>;
+    readonly getGuildFeatureFlag: (args: {
+      readonly guildId: string;
+      readonly flagName: string;
+    }) => QueryResult<Option.Option<GuildFeatureFlag>>;
     readonly getGuildChannels: (args: {
       readonly guildId: string;
       readonly running?: boolean | undefined;
@@ -88,6 +102,14 @@ export interface SheetZeroClientApi {
     readonly removeGuildMonitorRole: MutatorResult<{
       readonly guildId: string;
       readonly roleId: string;
+    }>;
+    readonly addGuildFeatureFlag: MutatorResult<{
+      readonly guildId: string;
+      readonly flagName: string;
+    }>;
+    readonly removeGuildFeatureFlag: MutatorResult<{
+      readonly guildId: string;
+      readonly flagName: string;
     }>;
     readonly upsertGuildChannelConfig: MutatorResult<{
       readonly guildId: string;

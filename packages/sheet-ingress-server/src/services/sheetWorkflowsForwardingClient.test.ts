@@ -89,6 +89,12 @@ describe("SheetWorkflowsForwardingClient", () => {
       [DispatchWorkflowOperations.guildWelcome.discardRpcTag]: makeDiscard(
         DispatchWorkflowOperations.guildWelcome,
       ),
+      [DispatchWorkflowOperations.serviceAddGuildFeatureFlag.discardRpcTag]: makeDiscard(
+        DispatchWorkflowOperations.serviceAddGuildFeatureFlag,
+      ),
+      [DispatchWorkflowOperations.serviceRemoveGuildFeatureFlag.discardRpcTag]: makeDiscard(
+        DispatchWorkflowOperations.serviceRemoveGuildFeatureFlag,
+      ),
       [DispatchWorkflowOperations.slotOpenButton.discardRpcTag]: makeDiscard(
         DispatchWorkflowOperations.slotOpenButton,
       ),
@@ -319,6 +325,38 @@ describe("SheetWorkflowsForwardingClient", () => {
         systemChannelId: "channel-1",
       },
     });
+
+    const serviceFeatureFlagPayload = {
+      requester,
+      payload: {
+        dispatchRequestId: "dispatch-service-guild-feature-flag",
+        guildId: "guild-1",
+        flagName: "beta-feature",
+        systemChannelId: "channel-1",
+      },
+    };
+    await expect(
+      Effect.runPromise(
+        client.dispatch.serviceAddGuildFeatureFlag(
+          serviceFeatureFlagPayload as never,
+        ) as Effect.Effect<unknown, unknown, never>,
+      ),
+    ).resolves.toMatchObject({ operation: "serviceAddGuildFeatureFlag" });
+    await expect(
+      Effect.runPromise(
+        client.dispatch.serviceRemoveGuildFeatureFlag(
+          serviceFeatureFlagPayload as never,
+        ) as Effect.Effect<unknown, unknown, never>,
+      ),
+    ).resolves.toMatchObject({ operation: "serviceRemoveGuildFeatureFlag" });
+    expectDiscarded(
+      DispatchWorkflowOperations.serviceAddGuildFeatureFlag,
+      serviceFeatureFlagPayload,
+    );
+    expectDiscarded(
+      DispatchWorkflowOperations.serviceRemoveGuildFeatureFlag,
+      serviceFeatureFlagPayload,
+    );
 
     for (const method of Object.values(DispatchRoomOrderButtonMethods)) {
       const operation = [

@@ -89,6 +89,16 @@ const expectedSchema = {
         ...auditColumns,
       ],
     ),
+    configGuildFeatureFlag: table(
+      "configGuildFeatureFlag",
+      sheetDb("config_guild_feature_flag"),
+      ["guildId", "flagName"],
+      [
+        ["guildId", "string", false, "guild_id"],
+        ["flagName", "string", false, "flag_name"],
+        ...auditColumns,
+      ],
+    ),
     configGuildManagerRole: table(
       "configGuildManagerRole",
       sheetDb("config_guild_manager_role"),

@@ -6,7 +6,13 @@ import { SheetApisRpcAuthorization } from "./middlewares/sheetApisRpcAuthorizati
 import { CheckinGenerateResult } from "./schemas/checkin";
 import { DiscordGuild, DiscordUser } from "./schemas/discord";
 import { GoogleSheetsError } from "./schemas/google";
-import { GuildChannelConfig, GuildConfig, GuildConfigMonitorRole } from "./schemas/guildConfig";
+import {
+  FeatureFlagName,
+  GuildChannelConfig,
+  GuildConfig,
+  GuildFeatureFlag,
+  GuildConfigMonitorRole,
+} from "./schemas/guildConfig";
 import { MessageCheckin, MessageCheckinMember } from "./schemas/messageCheckin";
 import {
   MessageRoomOrder,
@@ -75,6 +81,8 @@ import {
   RoomOrderSendButtonResult,
   ServiceStatusDispatchPayload,
   ServiceStatusDispatchResult,
+  ServiceGuildFeatureFlagDispatchPayload,
+  ServiceGuildFeatureFlagDispatchResult,
   SlotButtonDispatchPayload,
   SlotButtonDispatchResult,
   SlotDispatchError,
@@ -126,6 +134,8 @@ export {
   ScheduleListDispatchResult,
   ServiceStatusDispatchPayload,
   ServiceStatusDispatchResult,
+  ServiceGuildFeatureFlagDispatchPayload,
+  ServiceGuildFeatureFlagDispatchResult,
   ServerAddMonitorRoleDispatchPayload,
   ServerAddMonitorRoleDispatchResult,
   ServerListConfigDispatchPayload,
@@ -430,6 +440,16 @@ export const GuildConfigRpcs = RpcGroup.make(
     success: Schema.Array(GuildConfigMonitorRole),
     error: Schema.Union([SchemaError, QueryResultError]),
   }),
+  protectedRpc("guildConfig.getGuildFeatureFlags", {
+    payload: Query({ guildId: Schema.String }),
+    success: Schema.Array(GuildFeatureFlag),
+    error: Schema.Union([SchemaError, QueryResultError]),
+  }),
+  protectedRpc("guildConfig.getGuildsForFeatureFlag", {
+    payload: Query({ flagName: FeatureFlagName }),
+    success: Schema.Array(GuildFeatureFlag),
+    error: Schema.Union([SchemaError, QueryResultError, ArgumentError]),
+  }),
   protectedRpc("guildConfig.getGuildChannels", {
     payload: Query({
       guildId: Schema.String,
@@ -447,6 +467,16 @@ export const GuildConfigRpcs = RpcGroup.make(
     payload: Payload({ guildId: Schema.String, roleId: Schema.String }),
     success: GuildConfigMonitorRole,
     error: Schema.Union([SchemaError, QueryResultError, MutatorResultError]),
+  }),
+  protectedRpc("guildConfig.addGuildFeatureFlag", {
+    payload: Payload({ guildId: Schema.String, flagName: FeatureFlagName }),
+    success: GuildFeatureFlag,
+    error: Schema.Union([SchemaError, QueryResultError, MutatorResultError, ArgumentError]),
+  }),
+  protectedRpc("guildConfig.removeGuildFeatureFlag", {
+    payload: Payload({ guildId: Schema.String, flagName: FeatureFlagName }),
+    success: GuildFeatureFlag,
+    error: Schema.Union([SchemaError, QueryResultError, MutatorResultError, ArgumentError]),
   }),
   protectedRpc("guildConfig.upsertGuildChannelConfig", {
     payload: Payload({
