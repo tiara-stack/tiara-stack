@@ -592,6 +592,9 @@ importers:
       '@effect/platform-node':
         specifier: 'catalog:'
         version: 4.0.0-beta.67(effect@4.0.0-beta.67)(ioredis@5.9.3)
+      '@effect/sql-pg':
+        specifier: 'catalog:'
+        version: 4.0.0-beta.67(effect@4.0.0-beta.67)
       '@opentelemetry/exporter-prometheus':
         specifier: ^0.207.0
         version: 0.207.0(@opentelemetry/api@1.9.0)

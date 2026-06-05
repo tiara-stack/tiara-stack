@@ -19,6 +19,11 @@
       "development": "./src/models.ts",
       "default": "./dist/models.mjs"
     },
+    "./migrations": {
+      "types": "./src/migrations.ts",
+      "development": "./src/migrations.ts",
+      "default": "./dist/migrations.mjs"
+    },
     "./zero": {
       "types": "./dist/zero.d.mts",
       "development": "./src/zero/index.ts",

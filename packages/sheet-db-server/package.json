@@ -24,11 +24,12 @@
     "format": "vp fmt --check",
     "format:apply": "vp fmt",
     "lint": "vp lint src",
-    "build": "vp pack && tar -acf dist.tar.zst ./dist"
+    "build": "pnpm --filter sheet-db-schema build && vp pack && tar -acf dist.tar.zst ./dist"
   },
   "dependencies": {
     "@effect/opentelemetry": "catalog:",
     "@effect/platform-node": "catalog:",
+    "@effect/sql-pg": "catalog:",
     "@opentelemetry/exporter-prometheus": "^0.207.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.207.0",
     "@opentelemetry/sdk-trace-base": "^2.2.0",

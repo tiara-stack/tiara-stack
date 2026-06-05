@@ -5,6 +5,7 @@ export default defineConfig({
   pack: {
     entry: {
       index: fileURLToPath(new URL("src/schema.ts", import.meta.url)),
+      migrations: fileURLToPath(new URL("src/migrations.ts", import.meta.url)),
       models: fileURLToPath(new URL("src/models.ts", import.meta.url)),
       zero: fileURLToPath(new URL("src/zero/index.ts", import.meta.url)),
     },
