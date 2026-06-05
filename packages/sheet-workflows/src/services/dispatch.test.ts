@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Cause, DateTime, Effect, Exit, Option } from "effect";
 import { TestClock } from "effect/testing";
+import { formatTentativeRoomOrderContent } from "sheet-ingress-api/discordComponents";
 import type {
   ChannelListConfigDispatchPayload,
   ChannelSetDispatchPayload,
@@ -25,6 +26,11 @@ import {
   GuildConfigMonitorRole,
 } from "sheet-ingress-api/schemas/guildConfig";
 import { MessageSlot } from "sheet-ingress-api/schemas/messageSlot";
+import {
+  MessageRoomOrder,
+  MessageRoomOrderEntry,
+  MessageRoomOrderRange,
+} from "sheet-ingress-api/schemas/messageRoomOrder";
 import {
   Player,
   PopulatedSchedule,
@@ -283,6 +289,138 @@ const makeChannelEntry = (overrides: {
     position: overrides.position ?? 0,
   },
 });
+
+const roomOrderButtonPayload = {
+  guildId: "guild-1",
+  messageId: "room-order-message-1",
+  messageChannelId: "channel-1",
+  messageContent: null,
+  interactionToken: "interaction-token",
+  interactionDeadlineEpochMs: 1_700_000_000_000,
+};
+
+const makeMessageRoomOrder = (
+  overrides: Partial<ConstructorParameters<typeof MessageRoomOrder>[0]> = {},
+) =>
+  new MessageRoomOrder({
+    messageId: roomOrderButtonPayload.messageId,
+    previousFills: [],
+    fills: ["Akito"],
+    hour: 1,
+    rank: 2,
+    tentative: false,
+    monitor: Option.none(),
+    guildId: Option.some("guild-1"),
+    messageChannelId: Option.some("channel-1"),
+    createdByUserId: Option.some("discord-user-1"),
+    sendClaimId: Option.none(),
+    sendClaimedAt: Option.none(),
+    sentMessageId: Option.none(),
+    sentMessageChannelId: Option.none(),
+    sentAt: Option.none(),
+    tentativeUpdateClaimId: Option.none(),
+    tentativeUpdateClaimedAt: Option.none(),
+    tentativePinClaimId: Option.none(),
+    tentativePinClaimedAt: Option.none(),
+    tentativePinnedAt: Option.none(),
+    createdAt: Option.none(),
+    updatedAt: Option.none(),
+    deletedAt: Option.none(),
+    ...overrides,
+  });
+
+const roomOrderRange = new MessageRoomOrderRange({ minRank: 1, maxRank: 3 });
+
+const roomOrderEntries = [
+  new MessageRoomOrderEntry({
+    messageId: roomOrderButtonPayload.messageId,
+    rank: 2,
+    position: 0,
+    team: "Team 1",
+    tags: [],
+    effectValue: 10,
+    createdAt: Option.none(),
+    updatedAt: Option.none(),
+    deletedAt: Option.none(),
+  }),
+];
+
+const roomOrderEventConfig = new EventConfig({
+  startTime: DateTime.makeUnsafe("2026-03-26T12:00:00.000Z"),
+});
+
+const makeRoomOrderUpdateBotClient = (updateCalls: Array<unknown> = []) =>
+  ({
+    updateOriginalInteractionResponse: (interactionToken: string, payload: unknown) => {
+      updateCalls.push({ interactionToken, payload });
+      return Effect.succeed({ id: "interaction-message-1", channel_id: "channel-1" });
+    },
+  }) as never;
+
+const makeRoomOrderRankSheetApisClient = (
+  apiCalls: Array<string>,
+  initialRoomOrder: MessageRoomOrder,
+) =>
+  makeSheetApisClient({
+    messageRoomOrder: {
+      getMessageRoomOrder: () => Effect.succeed(initialRoomOrder),
+      claimMessageRoomOrderTentativeUpdate: ({ payload }: { payload: { claimId: string } }) => {
+        apiCalls.push("claim");
+        return Effect.succeed(
+          makeMessageRoomOrder({ tentativeUpdateClaimId: Option.some(payload.claimId) }),
+        );
+      },
+      releaseMessageRoomOrderTentativeUpdateClaim: () => {
+        apiCalls.push("release");
+        return Effect.succeed({});
+      },
+      decrementMessageRoomOrderRank: () => {
+        apiCalls.push("decrement");
+        return Effect.succeed(makeMessageRoomOrder({ rank: 1 }));
+      },
+      incrementMessageRoomOrderRank: () => {
+        apiCalls.push("increment");
+        return Effect.succeed(makeMessageRoomOrder({ rank: 3 }));
+      },
+      getMessageRoomOrderRange: () => Effect.succeed(roomOrderRange),
+      getMessageRoomOrderEntry: () => Effect.succeed(roomOrderEntries),
+    },
+    sheet: {
+      getEventConfig: () => Effect.succeed(roomOrderEventConfig),
+    },
+  });
+
+const makeRoomOrderSendSheetApisClient = (
+  apiCalls: Array<string>,
+  initialRoomOrder: MessageRoomOrder,
+) =>
+  makeSheetApisClient({
+    messageRoomOrder: {
+      getMessageRoomOrder: () => Effect.succeed(initialRoomOrder),
+      claimMessageRoomOrderSend: ({ payload }: { payload: { claimId: string } }) => {
+        apiCalls.push("claimSend");
+        return Effect.succeed(makeMessageRoomOrder({ sendClaimId: Option.some(payload.claimId) }));
+      },
+      releaseMessageRoomOrderSendClaim: () => {
+        apiCalls.push("releaseSend");
+        return Effect.succeed({});
+      },
+      completeMessageRoomOrderSend: () => {
+        apiCalls.push("completeSend");
+        return Effect.succeed(
+          makeMessageRoomOrder({
+            sentMessageId: Option.some("sent-message-1"),
+            sentMessageChannelId: Option.some("channel-1"),
+          }),
+        );
+      },
+      getMessageRoomOrderRange: () => Effect.succeed(roomOrderRange),
+      getMessageRoomOrderEntry: () => Effect.succeed(roomOrderEntries),
+    },
+    sheet: {
+      getEventConfig: () => Effect.succeed(roomOrderEventConfig),
+    },
+  });
 
 describe("DispatchService", () => {
   it("sends the guild welcome embed to the system channel first", async () => {
@@ -595,6 +733,190 @@ describe("DispatchService", () => {
         },
       },
     ]);
+  });
+
+  it("handles previous room-order buttons through the decrement path", async () => {
+    const updateCalls: Array<unknown> = [];
+    const apiCalls: Array<string> = [];
+    const initialRoomOrder = makeMessageRoomOrder();
+    const botClient = makeRoomOrderUpdateBotClient(updateCalls);
+    const sheetApisClient = makeRoomOrderRankSheetApisClient(apiCalls, initialRoomOrder);
+
+    const result = await Effect.runPromise(
+      runWithDispatchService(botClient, sheetApisClient, (service) =>
+        service.roomOrderPreviousButton(roomOrderButtonPayload, initialRoomOrder),
+      ),
+    );
+
+    expect(result).toEqual({
+      messageId: roomOrderButtonPayload.messageId,
+      messageChannelId: roomOrderButtonPayload.messageChannelId,
+      status: "updated",
+      detail: null,
+    });
+    expect(apiCalls).toEqual(["claim", "release", "decrement", "release"]);
+    expect(updateCalls).toHaveLength(1);
+    expect(updateCalls[0]).toMatchObject({ interactionToken: "interaction-token" });
+  });
+
+  it("handles next room-order buttons through the increment path", async () => {
+    const apiCalls: Array<string> = [];
+    const initialRoomOrder = makeMessageRoomOrder();
+    const botClient = makeRoomOrderUpdateBotClient();
+    const sheetApisClient = makeRoomOrderRankSheetApisClient(apiCalls, initialRoomOrder);
+
+    const result = await Effect.runPromise(
+      runWithDispatchService(botClient, sheetApisClient, (service) =>
+        service.roomOrderNextButton(roomOrderButtonPayload, initialRoomOrder),
+      ),
+    );
+
+    expect(result.status).toBe("updated");
+    expect(apiCalls).toEqual(["claim", "release", "increment", "release"]);
+  });
+
+  it("handles send room-order buttons through the send claim path", async () => {
+    const apiCalls: Array<string> = [];
+    const botCalls: Array<string> = [];
+    const initialRoomOrder = makeMessageRoomOrder();
+    const botClient = {
+      updateOriginalInteractionResponse: () => {
+        botCalls.push("interaction");
+        return Effect.succeed({ id: "interaction-message-1", channel_id: "channel-1" });
+      },
+      sendMessage: () => {
+        botCalls.push("send");
+        return Effect.succeed({ id: "sent-message-1", channel_id: "channel-1" });
+      },
+      createPin: () => {
+        botCalls.push("pin");
+        return Effect.succeed({});
+      },
+    } as never;
+    const sheetApisClient = makeRoomOrderSendSheetApisClient(apiCalls, initialRoomOrder);
+
+    const result = await Effect.runPromise(
+      runWithDispatchService(botClient, sheetApisClient, (service) =>
+        service.roomOrderSendButton(roomOrderButtonPayload, initialRoomOrder),
+      ),
+    );
+
+    expect(result).toEqual({
+      messageId: "sent-message-1",
+      messageChannelId: "channel-1",
+      status: "pinned",
+      detail: "sent room order and pinned it!",
+    });
+    expect(apiCalls).toEqual(["claimSend", "releaseSend", "completeSend"]);
+    expect(botCalls).toEqual(["send", "pin", "interaction"]);
+  });
+
+  it("does not pin registered non-tentative room-order messages", async () => {
+    const botCalls: Array<string> = [];
+    const initialRoomOrder = makeMessageRoomOrder({ tentative: false });
+    const botClient = {
+      updateOriginalInteractionResponse: () => {
+        botCalls.push("interaction");
+        return Effect.succeed({ id: "interaction-message-1", channel_id: "channel-1" });
+      },
+      createPin: () => {
+        botCalls.push("pin");
+        return Effect.succeed({});
+      },
+    } as never;
+    const sheetApisClient = makeSheetApisClient({
+      messageRoomOrder: {
+        getMessageRoomOrder: () => Effect.succeed(initialRoomOrder),
+      },
+      guildConfig: {
+        getGuildChannelById: () => Effect.succeed(makeGuildChannelConfig()),
+      },
+    });
+
+    const result = await Effect.runPromise(
+      runWithDispatchService(botClient, sheetApisClient, (service) =>
+        service.roomOrderPinTentativeButton(roomOrderButtonPayload, initialRoomOrder),
+      ),
+    );
+
+    expect(result).toEqual({
+      messageId: roomOrderButtonPayload.messageId,
+      messageChannelId: roomOrderButtonPayload.messageChannelId,
+      status: "denied",
+      detail: "cannot pin a non-tentative room order.",
+    });
+    expect(botCalls).toEqual(["interaction"]);
+  });
+
+  it("keeps the fallback pin path for legacy tentative room-order messages", async () => {
+    const botCalls: Array<string> = [];
+    const botClient = {
+      createPin: () => {
+        botCalls.push("pin");
+        return Effect.succeed({});
+      },
+      updateMessage: () => {
+        botCalls.push("cleanup");
+        return Effect.succeed({ id: "room-order-message-1", channel_id: "channel-1" });
+      },
+      updateOriginalInteractionResponse: () => {
+        botCalls.push("interaction");
+        return Effect.succeed({ id: "interaction-message-1", channel_id: "channel-1" });
+      },
+    } as never;
+    const sheetApisClient = makeSheetApisClient({
+      guildConfig: {
+        getGuildChannelById: () => Effect.succeed(makeGuildChannelConfig()),
+      },
+    });
+
+    const result = await Effect.runPromise(
+      runWithDispatchService(botClient, sheetApisClient, (service) =>
+        service.roomOrderPinTentativeButton(
+          {
+            ...roomOrderButtonPayload,
+            messageContent: formatTentativeRoomOrderContent("Hour 1"),
+          },
+          null,
+        ),
+      ),
+    );
+
+    expect(result).toEqual({
+      messageId: "room-order-message-1",
+      messageChannelId: "channel-1",
+      status: "pinned",
+      detail: "pinned tentative room order!",
+    });
+    expect(botCalls).toEqual(["pin", "cleanup", "interaction"]);
+  });
+
+  it("rejects legacy pin payloads without the tentative marker", async () => {
+    const botCalls: Array<string> = [];
+    const botClient = {
+      createPin: () => {
+        botCalls.push("pin");
+        return Effect.succeed({});
+      },
+      updateOriginalInteractionResponse: () => {
+        botCalls.push("interaction");
+        return Effect.succeed({ id: "interaction-message-1", channel_id: "channel-1" });
+      },
+    } as never;
+    const sheetApisClient = makeSheetApisClient({
+      guildConfig: {
+        getGuildChannelById: () => Effect.succeed(makeGuildChannelConfig()),
+      },
+    });
+
+    const exit = await Effect.runPromiseExit(
+      runWithDispatchService(botClient, sheetApisClient, (service) =>
+        service.roomOrderPinTentativeButton(roomOrderButtonPayload, null),
+      ),
+    );
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect(botCalls).toEqual(["interaction"]);
   });
 
   it("updates the interaction before failing when kickout cannot find a running channel", async () => {

@@ -68,42 +68,58 @@ const makeRoomOrderButtonPayload = Effect.fn("roomOrderButton.makePayload")(func
   };
 });
 
-const makeRoomOrderRankButtonHandler = (action: "previous" | "next") =>
-  Effect.gen(function* () {
-    const sheetWorkflowsClient = yield* SheetWorkflowsClient;
-    const buttonData = action === "previous" ? previousButtonData : nextButtonData;
-
-    return yield* makeButton(
-      buttonData.toJSON(),
-      SheetWorkflowsRequestContext.asInteractionUser(
-        Effect.fn(`roomOrder${action}Button`)(function* () {
-          const response = yield* MessageComponentInteractionResponse;
-          const message = Option.getOrThrowWith(
-            yield* getInteractionMessage,
-            () => new Error("Message not found in interaction"),
-          );
-          const isTentative = hasTentativeRoomOrderPrefix(message.content ?? "");
-
-          if (isTentative) {
-            yield* response.deferReply({ flags: MessageFlags.Ephemeral });
-          } else {
-            yield* response.deferUpdate({ flags: MessageFlags.Ephemeral });
-          }
-
-          const payload = yield* makeRoomOrderButtonPayload(isTentative ? "reply" : "update");
-          if (action === "previous") {
-            yield* sheetWorkflowsClient
-              .get()
-              .dispatch[DispatchRoomOrderButtonMethods.previous.endpointName](payload);
-          } else {
-            yield* sheetWorkflowsClient
-              .get()
-              .dispatch[DispatchRoomOrderButtonMethods.next.endpointName](payload);
-          }
-        }),
-      )(),
+const deferRoomOrderRankButtonInteraction = Effect.fn("roomOrderRankButton.deferInteraction")(
+  function* () {
+    const response = yield* MessageComponentInteractionResponse;
+    const message = Option.getOrThrowWith(
+      yield* getInteractionMessage,
+      () => new Error("Message not found in interaction"),
     );
-  });
+    const isTentative = hasTentativeRoomOrderPrefix(message.content ?? "");
+
+    if (isTentative) {
+      yield* response.deferReply({ flags: MessageFlags.Ephemeral });
+    } else {
+      yield* response.deferUpdate({ flags: MessageFlags.Ephemeral });
+    }
+
+    return isTentative;
+  },
+);
+
+const makeRoomOrderPreviousButtonHandler = Effect.gen(function* () {
+  const sheetWorkflowsClient = yield* SheetWorkflowsClient;
+
+  return yield* makeButton(
+    previousButtonData.toJSON(),
+    SheetWorkflowsRequestContext.asInteractionUser(
+      Effect.fn("roomOrderPreviousButton")(function* () {
+        const isTentative = yield* deferRoomOrderRankButtonInteraction();
+        const payload = yield* makeRoomOrderButtonPayload(isTentative ? "reply" : "update");
+        yield* sheetWorkflowsClient
+          .get()
+          .dispatch[DispatchRoomOrderButtonMethods.previous.endpointName](payload);
+      }),
+    )(),
+  );
+});
+
+const makeRoomOrderNextButtonHandler = Effect.gen(function* () {
+  const sheetWorkflowsClient = yield* SheetWorkflowsClient;
+
+  return yield* makeButton(
+    nextButtonData.toJSON(),
+    SheetWorkflowsRequestContext.asInteractionUser(
+      Effect.fn("roomOrderNextButton")(function* () {
+        const isTentative = yield* deferRoomOrderRankButtonInteraction();
+        const payload = yield* makeRoomOrderButtonPayload(isTentative ? "reply" : "update");
+        yield* sheetWorkflowsClient
+          .get()
+          .dispatch[DispatchRoomOrderButtonMethods.next.endpointName](payload);
+      }),
+    )(),
+  );
+});
 
 const makeRoomOrderSendButtonHandler = Effect.gen(function* () {
   const sheetWorkflowsClient = yield* SheetWorkflowsClient;
@@ -142,12 +158,12 @@ const makeTentativeRoomOrderPinButtonHandler = Effect.gen(function* () {
 });
 
 const makeRoomOrderPreviousButton = Effect.gen(function* () {
-  const button = yield* makeRoomOrderRankButtonHandler("previous");
+  const button = yield* makeRoomOrderPreviousButtonHandler;
   return makeMessageComponent(button.data, button.handler as never);
 });
 
 const makeRoomOrderNextButton = Effect.gen(function* () {
-  const button = yield* makeRoomOrderRankButtonHandler("next");
+  const button = yield* makeRoomOrderNextButtonHandler;
   return makeMessageComponent(button.data, button.handler as never);
 });
 

@@ -375,55 +375,55 @@ const dispatchViaButtonEntity = <
     );
     const clientFor = yield* DispatchButtonEntity.client;
     const client = clientFor(messageId);
-
-    switch (options.operation) {
-      case "slotOpenButton":
-        return yield* client.slotOpenButton({
-          request: yield* Schema.decodeUnknownEffect(DispatchSlotOpenButtonWorkflow.payloadSchema)(
-            request,
-          ).pipe(Effect.orDie),
+    const dispatchers = {
+      slotOpenButton: (nextRequest: unknown) =>
+        client.slotOpenButton({
+          request: Schema.decodeUnknownSync(DispatchSlotOpenButtonWorkflow.payloadSchema)(
+            nextRequest,
+          ),
           executionId,
-        });
-      case "checkinButton":
-        return yield* client.checkinButton({
-          request: yield* Schema.decodeUnknownEffect(DispatchCheckinButtonWorkflow.payloadSchema)(
-            request,
-          ).pipe(Effect.orDie),
+        }),
+      checkinButton: (nextRequest: unknown) =>
+        client.checkinButton({
+          request: Schema.decodeUnknownSync(DispatchCheckinButtonWorkflow.payloadSchema)(
+            nextRequest,
+          ),
           executionId,
-        });
-      case "roomOrderPreviousButton":
-        return yield* client.roomOrderPreviousButton({
-          request: yield* Schema.decodeUnknownEffect(
-            DispatchRoomOrderPreviousButtonWorkflow.payloadSchema,
-          )(request).pipe(Effect.orDie),
+        }),
+      roomOrderPreviousButton: (nextRequest: unknown) =>
+        client.roomOrderPreviousButton({
+          request: Schema.decodeUnknownSync(DispatchRoomOrderPreviousButtonWorkflow.payloadSchema)(
+            nextRequest,
+          ),
           executionId,
-        });
-      case "roomOrderNextButton":
-        return yield* client.roomOrderNextButton({
-          request: yield* Schema.decodeUnknownEffect(
-            DispatchRoomOrderNextButtonWorkflow.payloadSchema,
-          )(request).pipe(Effect.orDie),
+        }),
+      roomOrderNextButton: (nextRequest: unknown) =>
+        client.roomOrderNextButton({
+          request: Schema.decodeUnknownSync(DispatchRoomOrderNextButtonWorkflow.payloadSchema)(
+            nextRequest,
+          ),
           executionId,
-        });
-      case "roomOrderSendButton":
-        return yield* client.roomOrderSendButton({
-          request: yield* Schema.decodeUnknownEffect(
-            DispatchRoomOrderSendButtonWorkflow.payloadSchema,
-          )(request).pipe(Effect.orDie),
+        }),
+      roomOrderSendButton: (nextRequest: unknown) =>
+        client.roomOrderSendButton({
+          request: Schema.decodeUnknownSync(DispatchRoomOrderSendButtonWorkflow.payloadSchema)(
+            nextRequest,
+          ),
           executionId,
-        });
-      case "roomOrderPinTentativeButton":
-        return yield* client.roomOrderPinTentativeButton({
-          request: yield* Schema.decodeUnknownEffect(
+        }),
+      roomOrderPinTentativeButton: (nextRequest: unknown) =>
+        client.roomOrderPinTentativeButton({
+          request: Schema.decodeUnknownSync(
             DispatchRoomOrderPinTentativeButtonWorkflow.payloadSchema,
-          )(request).pipe(Effect.orDie),
+          )(nextRequest),
           executionId,
-        });
-      default:
-        return yield* Effect.die(
-          new Error(`Unhandled DispatchButtonOperation: ${String(options.operation as string)}`),
-        );
-    }
+        }),
+    } satisfies Record<
+      DispatchButtonOperation,
+      (nextRequest: unknown) => Effect.Effect<unknown, unknown>
+    >;
+
+    return yield* dispatchers[options.operation](request);
   }).pipe(
     Effect.withSpan("DispatchWorkflow.dispatchButtonEntity", {
       attributes: {
