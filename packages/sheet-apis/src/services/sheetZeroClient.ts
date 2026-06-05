@@ -1,5 +1,5 @@
 import { Context, Effect, Layer, Option, Schema } from "effect";
-import { makeSheetZeroApi } from "sheet-db-schema/zero";
+import { makeSheetZeroApi, mutators } from "sheet-db-schema/zero";
 import { ZeroApiClient } from "typhoon-zero/zeroApi";
 import { DefaultTaggedClass } from "typhoon-core/schema";
 import {
@@ -282,7 +282,7 @@ export interface SheetZeroClientApi {
 export class SheetZeroClient extends Context.Service<SheetZeroClient>()("SheetZeroClient", {
   make: Effect.gen(function* () {
     const zeroClient = yield* ZeroClient;
-    return yield* ZeroApiClient.makeWithService(SheetZeroApi, zeroClient).pipe(
+    return yield* ZeroApiClient.makeWithService(SheetZeroApi, zeroClient, { mutators }).pipe(
       Effect.map((client) => client as SheetZeroClientApi),
     );
   }),

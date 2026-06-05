@@ -15,6 +15,7 @@ import * as ZeroApi from "./zeroApi";
 import * as ZeroApiClient from "./zeroApiClient";
 import * as ZeroApiEndpoint from "./zeroApiEndpoint";
 import * as ZeroApiGroup from "./zeroApiGroup";
+import * as ZeroApiRegistry from "./zeroApiRegistry";
 
 const zeroSchema = createSchema({
   tables: [
@@ -159,6 +160,31 @@ describe("ZeroApiClient", () => {
       expect(capturedArgs).toEqual({ id: "item-1", count: 2 });
       expect(clientRuns).toBe(0);
       expect(serverRuns).toBe(1);
+    }),
+  );
+
+  it.effect(
+    "uses supplied mutator registries when building mutation requests",
+    Effect.fnUntraced(function* () {
+      let capturedMutator: unknown;
+      const registeredMutators = ZeroApiRegistry.toMutators(TestApi);
+      const client = yield* ZeroApiClient.makeWithService(
+        TestApi,
+        makeFakeZeroClient({
+          mutate: ((request: MutateRequest<any, any, any, any>) => {
+            capturedMutator = request.mutator;
+            return Effect.succeed({
+              client: () => Effect.void,
+              server: () => Effect.void,
+            });
+          }) as FakeZeroClient["mutate"],
+        }),
+        { mutators: registeredMutators },
+      );
+
+      yield* client.items.setCount({ id: "item-1", count: 2 });
+
+      expect(capturedMutator).toBe(registeredMutators.items.setCount);
     }),
   );
 

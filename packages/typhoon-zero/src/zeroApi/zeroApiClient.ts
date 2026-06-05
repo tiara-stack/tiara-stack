@@ -21,6 +21,19 @@ export type { QueryError, MutatorError } from "./zeroApiError";
 
 type ServiceContext = ZeroClient.ZeroClientTag<ZeroSchema, any, any>;
 
+/**
+ * Registry overrides for advanced Zero API client construction.
+ *
+ * These allow callers to reuse the same query or mutator registry instances
+ * passed to Zero, which preserves object identity for mutator validation. The
+ * registry shapes are intentionally dynamic, so these options stay typed as
+ * `any`.
+ */
+interface ClientRegistryOptions {
+  readonly queries?: any;
+  readonly mutators?: any;
+}
+
 type OptionalArgs<Args> = [Args] extends [undefined]
   ? readonly []
   : undefined extends Args
@@ -138,9 +151,10 @@ const makeMutatorMethod = (
 const makeClient = <Api extends ZeroApi.Any>(
   api: Api,
   zeroClient: ZeroClient.ZeroClient<any, any, any>,
+  registryOptions?: ClientRegistryOptions,
 ): Client<Api> => {
-  const queries = ZeroApiRegistry.toQueries(api) as any;
-  const mutators = ZeroApiRegistry.toMutators(api) as any;
+  const queries = registryOptions?.queries ?? (ZeroApiRegistry.toQueries(api) as any);
+  const mutators = registryOptions?.mutators ?? (ZeroApiRegistry.toMutators(api) as any);
   const client: Record<string, Record<string, unknown>> = {};
 
   for (const group of Object.values(api.groups)) {
@@ -171,7 +185,9 @@ const makeClient = <Api extends ZeroApi.Any>(
 export const makeWithService = <Api extends ZeroApi.Any>(
   api: Api,
   zeroClient: ZeroClient.ZeroClient<any, any, any>,
-): Effect.Effect<Client<Api>, never, never> => Effect.sync(() => makeClient(api, zeroClient));
+  registryOptions?: ClientRegistryOptions,
+): Effect.Effect<Client<Api>, never, never> =>
+  Effect.sync(() => makeClient(api, zeroClient, registryOptions));
 
 export const make = <Api extends ZeroApi.Any>(
   api: Api,
