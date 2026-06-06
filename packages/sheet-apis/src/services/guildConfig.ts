@@ -1,6 +1,8 @@
-import { Array, Effect, Layer, Option, Context } from "effect";
+import { Array, DateTime, Effect, Layer, Option, Context } from "effect";
 import { makeArgumentError, makeDBQueryError } from "typhoon-core/error";
 import { SheetZeroClient } from "./sheetZeroClient";
+
+const updateAnnouncementDeliveryPendingChannelId = "__pending_update_announcement_delivery__";
 
 const normalizeFeatureFlagName = (flagName: string) => {
   const normalized = flagName.trim();
@@ -64,6 +66,14 @@ export class GuildConfigService extends Context.Service<GuildConfigService>()(
           return yield* zero.guildConfig.getGuildFeatureFlag({
             guildId,
             flagName: normalizedFlagName,
+          });
+        }),
+        getGuildUpdateAnnouncementDelivery: Effect.fn(
+          "GuildConfigService.getGuildUpdateAnnouncementDelivery",
+        )(function* (guildId: string, announcementId: string) {
+          return yield* zero.guildConfig.getGuildUpdateAnnouncementDelivery({
+            guildId,
+            announcementId,
           });
         }),
         getGuildChannels: Effect.fn("GuildConfigService.getGuildChannels")(function* (params: {
@@ -144,6 +154,79 @@ export class GuildConfigService extends Context.Service<GuildConfigService>()(
           });
 
           return flag.value;
+        }),
+        recordGuildUpdateAnnouncementDelivery: Effect.fn(
+          "GuildConfigService.recordGuildUpdateAnnouncementDelivery",
+        )(function* (delivery: {
+          readonly guildId: string;
+          readonly announcementId: string;
+          readonly publishedAt: DateTime.Utc;
+          readonly deliveredAt: DateTime.Utc;
+          readonly channelId: string;
+          readonly messageId: string;
+        }) {
+          yield* zero.guildConfig.recordGuildUpdateAnnouncementDelivery({
+            ...delivery,
+            publishedAt: DateTime.toEpochMillis(delivery.publishedAt),
+            deliveredAt: DateTime.toEpochMillis(delivery.deliveredAt),
+          });
+          const recordedDelivery = yield* zero.guildConfig.getGuildUpdateAnnouncementDelivery({
+            guildId: delivery.guildId,
+            announcementId: delivery.announcementId,
+          });
+
+          if (Option.isNone(recordedDelivery)) {
+            return yield* Effect.die(
+              makeDBQueryError("Failed to record guild update announcement delivery"),
+            );
+          }
+
+          return recordedDelivery.value;
+        }),
+        claimGuildUpdateAnnouncementDelivery: Effect.fn(
+          "GuildConfigService.claimGuildUpdateAnnouncementDelivery",
+        )(function* (claim: {
+          readonly guildId: string;
+          readonly announcementId: string;
+          readonly publishedAt: DateTime.Utc;
+          readonly claimToken: string;
+        }) {
+          yield* zero.guildConfig.claimGuildUpdateAnnouncementDelivery({
+            ...claim,
+            publishedAt: DateTime.toEpochMillis(claim.publishedAt),
+          });
+
+          const delivery = yield* zero.guildConfig.getGuildUpdateAnnouncementDelivery({
+            guildId: claim.guildId,
+            announcementId: claim.announcementId,
+          });
+
+          if (Option.isNone(delivery)) {
+            return yield* Effect.die(
+              makeDBQueryError("Failed to claim guild update announcement delivery"),
+            );
+          }
+
+          if (delivery.value.channelId === updateAnnouncementDeliveryPendingChannelId) {
+            return {
+              status: delivery.value.messageId === claim.claimToken ? "claimed" : "already_claimed",
+              delivery,
+            } as const;
+          }
+
+          return {
+            status: "already_delivered",
+            delivery,
+          } as const;
+        }),
+        releaseGuildUpdateAnnouncementDeliveryClaim: Effect.fn(
+          "GuildConfigService.releaseGuildUpdateAnnouncementDeliveryClaim",
+        )(function* (claim: {
+          readonly guildId: string;
+          readonly announcementId: string;
+          readonly claimToken: string;
+        }) {
+          return yield* zero.guildConfig.releaseGuildUpdateAnnouncementDeliveryClaim(claim);
         }),
         upsertGuildChannelConfig: Effect.fn("GuildConfigService.upsertGuildChannelConfig")(
           function* (

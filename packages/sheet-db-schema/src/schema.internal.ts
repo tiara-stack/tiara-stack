@@ -52,6 +52,27 @@ class ConfigGuildFeatureFlag extends pg.Class<ConfigGuildFeatureFlag>("ConfigGui
   indexes: [pg.index("config_guild_feature_flag_flag_name_idx").on("flagName")],
 }) {}
 
+class ConfigGuildUpdateAnnouncementDelivery extends pg.Class<ConfigGuildUpdateAnnouncementDelivery>(
+  "ConfigGuildUpdateAnnouncementDelivery",
+)({
+  table: "config_guild_update_announcement_delivery",
+  fields: {
+    guildId: pg.varchar("guild_id").notNull(),
+    announcementId: pg.varchar("announcement_id").notNull(),
+    publishedAt: pg.timestamp("published_at", { withTimezone: true }).notNull(),
+    deliveredAt: pg.timestamp("delivered_at", { withTimezone: true }).notNull(),
+    channelId: pg.varchar("channel_id").notNull(),
+    messageId: pg.varchar("message_id").notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+    deletedAt: deletedAt(),
+  },
+  primaryKey: ["guildId", "announcementId"],
+  indexes: [
+    pg.index("config_guild_update_announcement_delivery_announcement_id_idx").on("announcementId"),
+  ],
+}) {}
+
 class ConfigGuildChannel extends pg.Class<ConfigGuildChannel>("ConfigGuildChannel")({
   table: "config_guild_channel",
   fields: {
@@ -183,6 +204,9 @@ class SheetApisDispatchJobs extends pg.Class<SheetApisDispatchJobs>("SheetApisDi
 export const configGuild = asPgModel(ConfigGuild);
 export const configGuildManagerRole = asPgModel(ConfigGuildManagerRole);
 export const configGuildFeatureFlag = asPgModel(ConfigGuildFeatureFlag);
+export const configGuildUpdateAnnouncementDelivery = asPgModel(
+  ConfigGuildUpdateAnnouncementDelivery,
+);
 export const configGuildChannel = asPgModel(ConfigGuildChannel);
 export const messageSlot = asPgModel(MessageSlot);
 export const messageCheckin = asPgModel(MessageCheckin);

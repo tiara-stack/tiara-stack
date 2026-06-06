@@ -3,6 +3,7 @@ export {
   configGuildChannel,
   configGuildFeatureFlag,
   configGuildManagerRole,
+  configGuildUpdateAnnouncementDelivery,
   messageCheckin,
   messageCheckinMember,
   messageRoomOrder,

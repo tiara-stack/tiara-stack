@@ -46,6 +46,13 @@ export const guildConfigLayer = GuildConfigRpcs.toLayer(
         yield* authorizationService.requireService();
         return yield* guildConfigService.getGuildFeatureFlags(query.guildId);
       }),
+      "guildConfig.getGuildUpdateAnnouncementDelivery": Effect.fnUntraced(function* ({ query }) {
+        yield* authorizationService.requireService();
+        return yield* guildConfigService.getGuildUpdateAnnouncementDelivery(
+          query.guildId,
+          query.announcementId,
+        );
+      }),
       "guildConfig.getGuildsForFeatureFlag": Effect.fnUntraced(function* ({ query }) {
         yield* authorizationService.requireService();
         return yield* guildConfigService.getGuildsForFeatureFlag(query.flagName);
@@ -74,6 +81,24 @@ export const guildConfigLayer = GuildConfigRpcs.toLayer(
       "guildConfig.removeGuildFeatureFlag": Effect.fnUntraced(function* ({ payload }) {
         yield* authorizationService.requireService();
         return yield* guildConfigService.removeGuildFeatureFlag(payload.guildId, payload.flagName);
+      }),
+      "guildConfig.recordGuildUpdateAnnouncementDelivery": Effect.fnUntraced(function* ({
+        payload,
+      }) {
+        yield* authorizationService.requireService();
+        return yield* guildConfigService.recordGuildUpdateAnnouncementDelivery(payload);
+      }),
+      "guildConfig.claimGuildUpdateAnnouncementDelivery": Effect.fnUntraced(function* ({
+        payload,
+      }) {
+        yield* authorizationService.requireService();
+        return yield* guildConfigService.claimGuildUpdateAnnouncementDelivery(payload);
+      }),
+      "guildConfig.releaseGuildUpdateAnnouncementDeliveryClaim": Effect.fnUntraced(function* ({
+        payload,
+      }) {
+        yield* authorizationService.requireService();
+        return yield* guildConfigService.releaseGuildUpdateAnnouncementDeliveryClaim(payload);
       }),
       "guildConfig.upsertGuildChannelConfig": withPayloadGuildAuth(
         Effect.fnUntraced(function* ({ payload }) {

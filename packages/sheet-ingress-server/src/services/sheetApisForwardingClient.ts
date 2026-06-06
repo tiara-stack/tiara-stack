@@ -35,11 +35,23 @@ export class SheetApisForwardingClient extends Context.Service<SheetApisForwardi
           getGuildMonitorRoles: call(rpcClient["guildConfig.getGuildMonitorRoles"]),
           getGuildFeatureFlags: call(rpcClient["guildConfig.getGuildFeatureFlags"]),
           getGuildsForFeatureFlag: call(rpcClient["guildConfig.getGuildsForFeatureFlag"]),
+          getGuildUpdateAnnouncementDelivery: call(
+            rpcClient["guildConfig.getGuildUpdateAnnouncementDelivery"],
+          ),
           getGuildChannels: call(rpcClient["guildConfig.getGuildChannels"]),
           addGuildMonitorRole: call(rpcClient["guildConfig.addGuildMonitorRole"]),
           removeGuildMonitorRole: call(rpcClient["guildConfig.removeGuildMonitorRole"]),
           addGuildFeatureFlag: call(rpcClient["guildConfig.addGuildFeatureFlag"]),
           removeGuildFeatureFlag: call(rpcClient["guildConfig.removeGuildFeatureFlag"]),
+          recordGuildUpdateAnnouncementDelivery: call(
+            rpcClient["guildConfig.recordGuildUpdateAnnouncementDelivery"],
+          ),
+          claimGuildUpdateAnnouncementDelivery: call(
+            rpcClient["guildConfig.claimGuildUpdateAnnouncementDelivery"],
+          ),
+          releaseGuildUpdateAnnouncementDeliveryClaim: call(
+            rpcClient["guildConfig.releaseGuildUpdateAnnouncementDeliveryClaim"],
+          ),
           upsertGuildChannelConfig: call(rpcClient["guildConfig.upsertGuildChannelConfig"]),
           getGuildChannelById: call(rpcClient["guildConfig.getGuildChannelById"]),
           getGuildChannelByName: call(rpcClient["guildConfig.getGuildChannelByName"]),

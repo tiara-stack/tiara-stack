@@ -8,6 +8,8 @@ import {
   GuildConfig,
   GuildFeatureFlag,
   GuildConfigMonitorRole,
+  GuildUpdateAnnouncementDelivery,
+  GuildUpdateAnnouncementDeliveryClaimResult,
 } from "../../schemas/guildConfig";
 import { SheetAuthTokenAuthorization } from "../../middlewares/sheetAuthTokenAuthorization/tag";
 import { SheetApisServiceUserFallback } from "../../middlewares/sheetApisServiceUserFallback/tag";
@@ -86,6 +88,20 @@ export class GuildConfigApi extends HttpApiGroup.make("guildConfig")
     }),
   )
   .add(
+    HttpApiEndpoint.get(
+      "getGuildUpdateAnnouncementDelivery",
+      "/guildConfig/getGuildUpdateAnnouncementDelivery",
+      {
+        query: Schema.Struct({
+          guildId: Schema.String,
+          announcementId: Schema.String,
+        }),
+        success: Schema.Option(GuildUpdateAnnouncementDelivery),
+        error: [SchemaError, QueryResultError],
+      },
+    ),
+  )
+  .add(
     HttpApiEndpoint.post("addGuildMonitorRole", "/guildConfig/addGuildMonitorRole", {
       payload: Schema.Struct({
         guildId: Schema.String,
@@ -124,6 +140,55 @@ export class GuildConfigApi extends HttpApiGroup.make("guildConfig")
       success: GuildFeatureFlag,
       error: [SchemaError, QueryResultError, MutatorResultError, ArgumentError],
     }),
+  )
+  .add(
+    HttpApiEndpoint.post(
+      "claimGuildUpdateAnnouncementDelivery",
+      "/guildConfig/claimGuildUpdateAnnouncementDelivery",
+      {
+        payload: Schema.Struct({
+          guildId: Schema.String,
+          announcementId: Schema.String,
+          publishedAt: Schema.DateTimeUtcFromMillis,
+          claimToken: Schema.String,
+        }),
+        success: GuildUpdateAnnouncementDeliveryClaimResult,
+        error: [SchemaError, QueryResultError, MutatorResultError],
+      },
+    ),
+  )
+  .add(
+    HttpApiEndpoint.post(
+      "releaseGuildUpdateAnnouncementDeliveryClaim",
+      "/guildConfig/releaseGuildUpdateAnnouncementDeliveryClaim",
+      {
+        payload: Schema.Struct({
+          guildId: Schema.String,
+          announcementId: Schema.String,
+          claimToken: Schema.String,
+        }),
+        success: Schema.Void,
+        error: [SchemaError, MutatorResultError],
+      },
+    ),
+  )
+  .add(
+    HttpApiEndpoint.post(
+      "recordGuildUpdateAnnouncementDelivery",
+      "/guildConfig/recordGuildUpdateAnnouncementDelivery",
+      {
+        payload: Schema.Struct({
+          guildId: Schema.String,
+          announcementId: Schema.String,
+          publishedAt: Schema.DateTimeUtcFromMillis,
+          deliveredAt: Schema.DateTimeUtcFromMillis,
+          channelId: Schema.String,
+          messageId: Schema.String,
+        }),
+        success: GuildUpdateAnnouncementDelivery,
+        error: [SchemaError, QueryResultError, MutatorResultError],
+      },
+    ),
   )
   .add(
     HttpApiEndpoint.post("upsertGuildChannelConfig", "/guildConfig/upsertGuildChannelConfig", {

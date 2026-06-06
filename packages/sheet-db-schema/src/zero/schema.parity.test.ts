@@ -109,6 +109,20 @@ const expectedSchema = {
         ...auditColumns,
       ],
     ),
+    configGuildUpdateAnnouncementDelivery: table(
+      "configGuildUpdateAnnouncementDelivery",
+      sheetDb("config_guild_update_announcement_delivery"),
+      ["guildId", "announcementId"],
+      [
+        ["guildId", "string", false, "guild_id"],
+        ["announcementId", "string", false, "announcement_id"],
+        ["publishedAt", "number", false, "published_at"],
+        ["deliveredAt", "number", false, "delivered_at"],
+        ["channelId", "string", false, "channel_id"],
+        ["messageId", "string", false, "message_id"],
+        ...auditColumns,
+      ],
+    ),
     messageCheckin: table(
       "messageCheckin",
       sheetDb("message_checkin"),

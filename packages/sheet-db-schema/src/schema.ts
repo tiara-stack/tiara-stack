@@ -5,6 +5,7 @@ import {
   configGuildChannel as internalConfigGuildChannel,
   configGuildFeatureFlag as internalConfigGuildFeatureFlag,
   configGuildManagerRole as internalConfigGuildManagerRole,
+  configGuildUpdateAnnouncementDelivery as internalConfigGuildUpdateAnnouncementDelivery,
   messageCheckin as internalMessageCheckin,
   messageCheckinMember as internalMessageCheckinMember,
   messageRoomOrder as internalMessageRoomOrder,
@@ -20,6 +21,8 @@ type PgTable = EffectSqlTable<"postgresql">;
 export const configGuild = internalConfigGuild as unknown as PgTable;
 export const configGuildManagerRole = internalConfigGuildManagerRole as unknown as PgTable;
 export const configGuildFeatureFlag = internalConfigGuildFeatureFlag as unknown as PgTable;
+export const configGuildUpdateAnnouncementDelivery =
+  internalConfigGuildUpdateAnnouncementDelivery as unknown as PgTable;
 export const configGuildChannel = internalConfigGuildChannel as unknown as PgTable;
 export const messageSlot = internalMessageSlot as unknown as PgTable;
 export const messageCheckin = internalMessageCheckin as unknown as PgTable;
@@ -32,6 +35,7 @@ export const schema = effectSqlSchema({
   configGuild,
   configGuildManagerRole,
   configGuildFeatureFlag,
+  configGuildUpdateAnnouncementDelivery,
   configGuildChannel,
   messageSlot,
   messageCheckin,

@@ -20,12 +20,14 @@ import type {
   SlotButtonDispatchPayload,
   SlotOpenButtonPayload,
   TeamListDispatchPayload,
+  UpdateAnnouncementDispatchPayload,
 } from "sheet-ingress-api/handlers/dispatch/schema";
 import {
   GuildChannelConfig,
   GuildConfig,
   GuildFeatureFlag,
   GuildConfigMonitorRole,
+  GuildUpdateAnnouncementDelivery,
 } from "sheet-ingress-api/schemas/guildConfig";
 import { MessageSlot } from "sheet-ingress-api/schemas/messageSlot";
 import {
@@ -76,6 +78,21 @@ const serviceGuildFeatureFlagPayload: ServiceGuildFeatureFlagDispatchPayload = {
   guildId: "guild-1",
   flagName: "beta-feature",
   systemChannelId: "system-channel",
+};
+
+const updateAnnouncementPayload: UpdateAnnouncementDispatchPayload = {
+  dispatchRequestId: "discord-update-announcement:guild-1:update-announcements-2026-06-05",
+  guildId: "guild-1",
+  guildName: "Guild One",
+  joinedAt: "2026-06-04T16:59:59.999Z",
+  systemChannelId: "system-channel",
+  announcement: {
+    id: "update-announcements-2026-06-05",
+    publishedAt: "2026-06-04T17:00:00.000Z",
+    title: "Update announcements",
+    description: "Update announcement description",
+    color: 0x5865f2,
+  },
 };
 
 const screenshotPayload: ScreenshotDispatchPayload = {
@@ -249,6 +266,19 @@ const runServiceRemoveGuildFeatureFlag = (
     Effect.provideService(SheetApisClient, sheetApisClient),
   );
 
+const runUpdateAnnouncement = (
+  botClient: typeof IngressBotClient.Service,
+  sheetApisClient: typeof SheetApisClient.Service,
+  payload: UpdateAnnouncementDispatchPayload = updateAnnouncementPayload,
+) =>
+  Effect.gen(function* () {
+    const service = yield* DispatchService.make;
+    return yield* service.updateAnnouncement(payload);
+  }).pipe(
+    Effect.provideService(IngressBotClient, botClient),
+    Effect.provideService(SheetApisClient, sheetApisClient),
+  );
+
 const runScreenshot = (
   botClient: typeof IngressBotClient.Service,
   sheetApisClient: typeof SheetApisClient.Service,
@@ -321,6 +351,61 @@ const makeGuildFeatureFlag = (
     updatedAt: Option.none(),
     deletedAt: Option.none(),
     ...overrides,
+  });
+
+const makeGuildUpdateAnnouncementDelivery = (
+  overrides: Partial<ConstructorParameters<typeof GuildUpdateAnnouncementDelivery>[0]> = {},
+) =>
+  new GuildUpdateAnnouncementDelivery({
+    guildId: "guild-1",
+    announcementId: updateAnnouncementPayload.announcement.id,
+    publishedAt: Option.some(
+      DateTime.makeUnsafe(updateAnnouncementPayload.announcement.publishedAt),
+    ),
+    deliveredAt: Option.some(DateTime.makeUnsafe("2026-06-04T17:01:00.000Z")),
+    channelId: "system-channel",
+    messageId: "update-message",
+    createdAt: Option.none(),
+    updatedAt: Option.none(),
+    deletedAt: Option.none(),
+    ...overrides,
+  });
+
+const updateAnnouncementsFeatureFlagName = "update-announcements";
+
+const makeGatedUpdateAnnouncementSheetApisClient = (
+  recordCalls: Array<unknown>,
+  options: {
+    readonly claimCalls?: Array<unknown>;
+    readonly releaseCalls?: Array<unknown>;
+    readonly claimResult?: {
+      readonly status: "claimed" | "already_claimed" | "already_delivered";
+      readonly delivery: Option.Option<GuildUpdateAnnouncementDelivery>;
+    };
+  } = {},
+) =>
+  makeSheetApisClient({
+    guildConfig: {
+      getGuildFeatureFlags: () =>
+        Effect.succeed([makeGuildFeatureFlag({ flagName: updateAnnouncementsFeatureFlagName })]),
+      claimGuildUpdateAnnouncementDelivery: (args: unknown) => {
+        options.claimCalls?.push(args);
+        return Effect.succeed(
+          options.claimResult ?? {
+            status: "claimed" as const,
+            delivery: Option.some(makeGuildUpdateAnnouncementDelivery()),
+          },
+        );
+      },
+      releaseGuildUpdateAnnouncementDeliveryClaim: (args: unknown) => {
+        options.releaseCalls?.push(args);
+        return Effect.void;
+      },
+      recordGuildUpdateAnnouncementDelivery: (args: unknown) => {
+        recordCalls.push(args);
+        return Effect.succeed(makeGuildUpdateAnnouncementDelivery());
+      },
+    },
   });
 
 const makeChannelEntry = (overrides: {
@@ -692,6 +777,158 @@ describe("DispatchService", () => {
       flagName: "beta-feature",
       announcementChannelId: null,
       announcementMessageId: null,
+    });
+  });
+
+  it("skips update announcements for guilds without the gate feature flag", async () => {
+    const sheetApisClient = makeSheetApisClient({
+      guildConfig: {
+        getGuildFeatureFlags: () => Effect.succeed([]),
+      },
+    });
+    const botClient = {} as never;
+
+    const result = await Effect.runPromise(runUpdateAnnouncement(botClient, sheetApisClient));
+
+    expect(result).toEqual({
+      guildId: "guild-1",
+      announcementId: "update-announcements-2026-06-05",
+      status: "skipped_not_gated",
+      announcementChannelId: null,
+      announcementMessageId: null,
+    });
+  });
+
+  it("skips update announcements that were already delivered", async () => {
+    const sheetApisClient = makeGatedUpdateAnnouncementSheetApisClient([], {
+      claimResult: {
+        status: "already_delivered",
+        delivery: Option.some(makeGuildUpdateAnnouncementDelivery()),
+      },
+    });
+    const botClient = {} as never;
+
+    const result = await Effect.runPromise(runUpdateAnnouncement(botClient, sheetApisClient));
+
+    expect(result).toEqual({
+      guildId: "guild-1",
+      announcementId: "update-announcements-2026-06-05",
+      status: "skipped_already_delivered",
+      announcementChannelId: "system-channel",
+      announcementMessageId: "update-message",
+    });
+  });
+
+  it("skips update announcements that are already claimed", async () => {
+    const sendCalls: Array<unknown> = [];
+    const sheetApisClient = makeGatedUpdateAnnouncementSheetApisClient([], {
+      claimResult: {
+        status: "already_claimed",
+        delivery: Option.none(),
+      },
+    });
+    const botClient = {
+      getChannelsForParent: () => Effect.succeed([]),
+      sendMessage: (channelId: string, payload: unknown) => {
+        sendCalls.push({ channelId, payload });
+        return Effect.succeed({ id: "update-message", channel_id: channelId });
+      },
+    } as never;
+
+    const result = await Effect.runPromise(runUpdateAnnouncement(botClient, sheetApisClient));
+
+    expect(result).toEqual({
+      guildId: "guild-1",
+      announcementId: "update-announcements-2026-06-05",
+      status: "skipped_already_delivered",
+      announcementChannelId: null,
+      announcementMessageId: null,
+    });
+    expect(sendCalls).toEqual([]);
+  });
+
+  it("sends gated update announcements and records delivery", async () => {
+    const claimCalls: Array<unknown> = [];
+    const recordCalls: Array<unknown> = [];
+    const sendCalls: Array<{ readonly channelId: string; readonly payload: unknown }> = [];
+    const sheetApisClient = makeGatedUpdateAnnouncementSheetApisClient(recordCalls, {
+      claimCalls,
+    });
+    const botClient = {
+      getChannelsForParent: () =>
+        Effect.succeed([
+          makeChannelEntry({ id: "general", name: "general", position: 1 }),
+          makeChannelEntry({ id: "system-channel", name: "welcome", position: 2 }),
+        ]),
+      sendMessage: (channelId: string, payload: unknown) => {
+        sendCalls.push({ channelId, payload });
+        return Effect.succeed({ id: "update-message", channel_id: channelId });
+      },
+    } as never;
+
+    const result = await Effect.runPromise(runUpdateAnnouncement(botClient, sheetApisClient));
+
+    expect(result).toEqual({
+      guildId: "guild-1",
+      announcementId: "update-announcements-2026-06-05",
+      status: "sent",
+      announcementChannelId: "system-channel",
+      announcementMessageId: "update-message",
+    });
+    expect(sendCalls).toEqual([
+      {
+        channelId: "system-channel",
+        payload: {
+          embeds: [
+            {
+              title: "Update announcements",
+              description: "Update announcement description",
+              color: 0x5865f2,
+            },
+          ],
+        },
+      },
+    ]);
+    expect(claimCalls).toHaveLength(1);
+    expect(claimCalls[0]).toMatchObject({
+      payload: {
+        guildId: "guild-1",
+        announcementId: "update-announcements-2026-06-05",
+      },
+    });
+    expect(recordCalls).toHaveLength(1);
+    expect(recordCalls[0]).toMatchObject({
+      payload: {
+        guildId: "guild-1",
+        announcementId: "update-announcements-2026-06-05",
+        channelId: "system-channel",
+        messageId: "update-message",
+      },
+    });
+  });
+
+  it("does not record update announcement delivery when sending fails", async () => {
+    const recordCalls: Array<unknown> = [];
+    const releaseCalls: Array<unknown> = [];
+    const sheetApisClient = makeGatedUpdateAnnouncementSheetApisClient(recordCalls, {
+      releaseCalls,
+    });
+    const botClient = {
+      getChannelsForParent: () =>
+        Effect.succeed([makeChannelEntry({ id: "system-channel", name: "welcome" })]),
+      sendMessage: () => Effect.fail(new Error("cannot send")),
+    } as never;
+
+    const exit = await Effect.runPromiseExit(runUpdateAnnouncement(botClient, sheetApisClient));
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect(recordCalls).toEqual([]);
+    expect(releaseCalls).toHaveLength(1);
+    expect(releaseCalls[0]).toMatchObject({
+      payload: {
+        guildId: "guild-1",
+        announcementId: "update-announcements-2026-06-05",
+      },
     });
   });
 

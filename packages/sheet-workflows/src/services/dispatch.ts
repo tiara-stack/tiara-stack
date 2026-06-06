@@ -9,6 +9,7 @@ import {
   Match,
   Option,
   Predicate,
+  Random,
   Schema,
   String as EffectString,
   pipe,
@@ -69,6 +70,8 @@ import type {
   SlotOpenButtonResult,
   TeamListDispatchPayload,
   TeamListDispatchResult,
+  UpdateAnnouncementDispatchPayload,
+  UpdateAnnouncementDispatchResult,
 } from "sheet-ingress-api/sheet-apis-rpc";
 import * as Sheet from "sheet-ingress-api/schemas/sheet";
 import type { ServiceStatus } from "sheet-ingress-api/sheet-apis-rpc";
@@ -88,6 +91,8 @@ import { SheetApisClient } from "./sheetApisClient";
 const MessageFlags = {
   Ephemeral: 64,
 } as const;
+
+const updateAnnouncementsFeatureFlag = "update-announcements";
 
 type DiscordMessage = {
   readonly id: string;
@@ -248,6 +253,17 @@ const makeSheetApisServices = (sheetApisClient: typeof SheetApisClient.Service) 
         sheetApis.guildConfig.getGuildMonitorRoles({ query: { guildId } }),
       getGuildFeatureFlags: (guildId: string) =>
         sheetApis.guildConfig.getGuildFeatureFlags({ query: { guildId } }),
+      claimGuildUpdateAnnouncementDelivery: (claim: {
+        readonly guildId: string;
+        readonly announcementId: string;
+        readonly publishedAt: DateTime.Utc;
+        readonly claimToken: string;
+      }) => sheetApis.guildConfig.claimGuildUpdateAnnouncementDelivery({ payload: claim }),
+      releaseGuildUpdateAnnouncementDeliveryClaim: (claim: {
+        readonly guildId: string;
+        readonly announcementId: string;
+        readonly claimToken: string;
+      }) => sheetApis.guildConfig.releaseGuildUpdateAnnouncementDeliveryClaim({ payload: claim }),
       addGuildMonitorRole: (guildId: string, roleId: string) =>
         sheetApis.guildConfig.addGuildMonitorRole({ payload: { guildId, roleId } }),
       removeGuildMonitorRole: (guildId: string, roleId: string) =>
@@ -256,6 +272,14 @@ const makeSheetApisServices = (sheetApisClient: typeof SheetApisClient.Service) 
         sheetApis.guildConfig.addGuildFeatureFlag({ payload: { guildId, flagName } }),
       removeGuildFeatureFlag: (guildId: string, flagName: string) =>
         sheetApis.guildConfig.removeGuildFeatureFlag({ payload: { guildId, flagName } }),
+      recordGuildUpdateAnnouncementDelivery: (delivery: {
+        readonly guildId: string;
+        readonly announcementId: string;
+        readonly publishedAt: DateTime.Utc;
+        readonly deliveredAt: DateTime.Utc;
+        readonly channelId: string;
+        readonly messageId: string;
+      }) => sheetApis.guildConfig.recordGuildUpdateAnnouncementDelivery({ payload: delivery }),
       upsertGuildChannelConfig: (
         guildId: string,
         channelId: string,
@@ -2973,6 +2997,115 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           channelId: sentMessage.channel_id,
           messageId: sentMessage.id,
         } satisfies GuildWelcomeDispatchResult;
+      }),
+      updateAnnouncement: Effect.fn("DispatchService.updateAnnouncement")(function* (
+        payload: UpdateAnnouncementDispatchPayload,
+      ) {
+        yield* Effect.annotateCurrentSpan({
+          guildId: payload.guildId,
+          guildName: payload.guildName,
+          announcementId: payload.announcement.id,
+          systemChannelId: payload.systemChannelId,
+        });
+
+        const featureFlags = yield* guildConfigService.getGuildFeatureFlags(payload.guildId);
+        if (!featureFlags.some((flag) => flag.flagName === updateAnnouncementsFeatureFlag)) {
+          return {
+            guildId: payload.guildId,
+            announcementId: payload.announcement.id,
+            status: "skipped_not_gated",
+            announcementChannelId: null,
+            announcementMessageId: null,
+          } satisfies UpdateAnnouncementDispatchResult;
+        }
+
+        if (Number.isNaN(Date.parse(payload.announcement.publishedAt))) {
+          return yield* Effect.fail(
+            makeArgumentError(
+              `Invalid update announcement publishedAt timestamp: ${payload.announcement.publishedAt}`,
+            ),
+          );
+        }
+
+        const publishedAt = DateTime.makeUnsafe(payload.announcement.publishedAt);
+        const random = yield* Random.next;
+        const claimToken = `${payload.dispatchRequestId}:${random}`;
+        const claim = yield* guildConfigService.claimGuildUpdateAnnouncementDelivery({
+          guildId: payload.guildId,
+          announcementId: payload.announcement.id,
+          publishedAt,
+          claimToken,
+        });
+        if (claim.status === "already_delivered" && Option.isSome(claim.delivery)) {
+          return {
+            guildId: payload.guildId,
+            announcementId: payload.announcement.id,
+            status: "skipped_already_delivered",
+            announcementChannelId: claim.delivery.value.channelId,
+            announcementMessageId: claim.delivery.value.messageId,
+          } satisfies UpdateAnnouncementDispatchResult;
+        }
+
+        if (claim.status !== "claimed") {
+          return {
+            guildId: payload.guildId,
+            announcementId: payload.announcement.id,
+            status: "skipped_already_delivered",
+            announcementChannelId: null,
+            announcementMessageId: null,
+          } satisfies UpdateAnnouncementDispatchResult;
+        }
+
+        const deliveredAt = yield* DateTime.now;
+        const messagePayload = {
+          embeds: [
+            makeEmbed({
+              title: payload.announcement.title,
+              description: payload.announcement.description,
+              ...(typeof payload.announcement.color === "number"
+                ? { color: payload.announcement.color }
+                : {}),
+            }),
+          ],
+        } satisfies MessagePayload;
+
+        const sentMessage = yield* sendGuildAnnouncementWithWelcomeHeuristic({
+          botClient,
+          guildId: payload.guildId,
+          systemChannelId: payload.systemChannelId,
+          messagePayload,
+          logLabel: "update announcement",
+        }).pipe(
+          Effect.catchCause((cause) =>
+            guildConfigService
+              .releaseGuildUpdateAnnouncementDeliveryClaim({
+                guildId: payload.guildId,
+                announcementId: payload.announcement.id,
+                claimToken,
+              })
+              .pipe(
+                Effect.catchCause(() => Effect.void),
+                Effect.andThen(Effect.failCause(cause)),
+              ),
+          ),
+        );
+
+        yield* guildConfigService.recordGuildUpdateAnnouncementDelivery({
+          guildId: payload.guildId,
+          announcementId: payload.announcement.id,
+          publishedAt,
+          deliveredAt,
+          channelId: sentMessage.channel_id,
+          messageId: sentMessage.id,
+        });
+
+        return {
+          guildId: payload.guildId,
+          announcementId: payload.announcement.id,
+          status: "sent",
+          announcementChannelId: sentMessage.channel_id,
+          announcementMessageId: sentMessage.id,
+        } satisfies UpdateAnnouncementDispatchResult;
       }),
       serviceAddGuildFeatureFlag: Effect.fn("DispatchService.serviceAddGuildFeatureFlag")(
         function* (payload: ServiceGuildFeatureFlagDispatchPayload) {

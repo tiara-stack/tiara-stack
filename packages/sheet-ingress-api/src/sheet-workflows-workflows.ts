@@ -65,6 +65,9 @@ import {
   SlotOpenButtonResult,
   TeamListDispatchPayload,
   TeamListDispatchResult,
+  UpdateAnnouncementDispatchError,
+  UpdateAnnouncementDispatchPayload,
+  UpdateAnnouncementDispatchResult,
 } from "./handlers/dispatch/schema";
 
 export const DispatchRequesterSchema = Schema.Struct({
@@ -131,6 +134,7 @@ const workflowName = {
   slotOpenButton: "dispatch.slotOpenButton",
   serviceStatus: "dispatch.serviceStatus",
   guildWelcome: "dispatch.guildWelcome",
+  updateAnnouncement: "dispatch.updateAnnouncement",
   serviceAddGuildFeatureFlag: "dispatch.serviceAddGuildFeatureFlag",
   serviceRemoveGuildFeatureFlag: "dispatch.serviceRemoveGuildFeatureFlag",
   checkinButton: "dispatch.checkinButton",
@@ -213,6 +217,14 @@ export const DispatchGuildWelcomeWorkflow = Workflow.make({
   payload: dispatchPayload(GuildWelcomeDispatchPayload),
   success: GuildWelcomeDispatchResult,
   error: GuildWelcomeDispatchError,
+  idempotencyKey: ({ payload }) => payload.dispatchRequestId,
+});
+
+export const DispatchUpdateAnnouncementWorkflow = Workflow.make({
+  name: workflowName.updateAnnouncement,
+  payload: dispatchPayload(UpdateAnnouncementDispatchPayload),
+  success: UpdateAnnouncementDispatchResult,
+  error: UpdateAnnouncementDispatchError,
   idempotencyKey: ({ payload }) => payload.dispatchRequestId,
 });
 
@@ -374,6 +386,7 @@ export const DispatchWorkflows = [
   DispatchSlotOpenButtonWorkflow,
   DispatchServiceStatusWorkflow,
   DispatchGuildWelcomeWorkflow,
+  DispatchUpdateAnnouncementWorkflow,
   DispatchServiceAddGuildFeatureFlagWorkflow,
   DispatchServiceRemoveGuildFeatureFlagWorkflow,
   DispatchCheckinButtonWorkflow,
@@ -463,6 +476,13 @@ export const DispatchWorkflowOperations = {
     workflow: DispatchGuildWelcomeWorkflow,
     rpcTag: DispatchGuildWelcomeWorkflow.name,
     discardRpcTag: `${DispatchGuildWelcomeWorkflow.name}Discard`,
+  },
+  updateAnnouncement: {
+    operation: "updateAnnouncement",
+    endpointName: "updateAnnouncement",
+    workflow: DispatchUpdateAnnouncementWorkflow,
+    rpcTag: DispatchUpdateAnnouncementWorkflow.name,
+    discardRpcTag: `${DispatchUpdateAnnouncementWorkflow.name}Discard`,
   },
   serviceAddGuildFeatureFlag: {
     operation: "serviceAddGuildFeatureFlag",

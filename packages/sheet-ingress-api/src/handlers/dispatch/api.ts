@@ -36,6 +36,8 @@ import {
   SlotListDispatchPayload,
   SlotOpenButtonPayload,
   TeamListDispatchPayload,
+  UpdateAnnouncementDispatchErrorSchemas,
+  UpdateAnnouncementDispatchPayload,
 } from "./schema";
 import { UnknownError } from "typhoon-core/error";
 
@@ -101,6 +103,13 @@ export class DispatchApi extends HttpApiGroup.make("dispatch")
       payload: GuildWelcomeDispatchPayload,
       success: DispatchAcceptedResult,
       error: GuildWelcomeDispatchErrorSchemas,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("updateAnnouncement", "/dispatch/update-announcement", {
+      payload: UpdateAnnouncementDispatchPayload,
+      success: DispatchAcceptedResult,
+      error: UpdateAnnouncementDispatchErrorSchemas,
     }),
   )
   .add(

@@ -3,6 +3,7 @@ import {
   configGuildChannel as configGuildChannelModel,
   configGuildFeatureFlag as configGuildFeatureFlagModel,
   configGuildManagerRole as configGuildManagerRoleModel,
+  configGuildUpdateAnnouncementDelivery as configGuildUpdateAnnouncementDeliveryModel,
   messageCheckin as messageCheckinModel,
   messageCheckinMember as messageCheckinMemberModel,
   messageRoomOrder as messageRoomOrderModel,
@@ -37,6 +38,15 @@ export const zeroTableAccess = {
     builder.configGuildFeatureFlag,
     {
       primaryKey: ["guildId", "flagName"],
+      softDelete: "deletedAt",
+      timestamps: timestampOptions,
+    },
+  ),
+  configGuildUpdateAnnouncementDelivery: defineZeroTableAccess(
+    configGuildUpdateAnnouncementDeliveryModel,
+    builder.configGuildUpdateAnnouncementDelivery,
+    {
+      primaryKey: ["guildId", "announcementId"],
       softDelete: "deletedAt",
       timestamps: timestampOptions,
     },

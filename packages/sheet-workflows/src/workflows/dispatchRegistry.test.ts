@@ -30,6 +30,8 @@ import type {
   SlotListDispatchResult,
   SlotOpenButtonPayload,
   SlotOpenButtonResult,
+  UpdateAnnouncementDispatchPayload,
+  UpdateAnnouncementDispatchResult,
 } from "sheet-ingress-api/sheet-apis-rpc";
 import { Unauthorized } from "typhoon-core/error";
 import { markInteractionFailureHandled } from "@/handlers/shared/interactionFailure";
@@ -101,6 +103,21 @@ const guildWelcomePayload: GuildWelcomeDispatchPayload = {
   systemChannelId: "system-channel",
 };
 
+const updateAnnouncementPayload: UpdateAnnouncementDispatchPayload = {
+  dispatchRequestId: "discord-update-announcement:guild-1:update-announcements-2026-06-05",
+  guildId: "guild-1",
+  guildName: "Guild One",
+  joinedAt: "2026-06-04T16:59:59.999Z",
+  systemChannelId: "system-channel",
+  announcement: {
+    id: "update-announcements-2026-06-05",
+    publishedAt: "2026-06-04T17:00:00.000Z",
+    title: "Update announcements",
+    description: "Update announcement description",
+    color: 0x5865f2,
+  },
+};
+
 const serviceGuildFeatureFlagPayload: ServiceGuildFeatureFlagDispatchPayload = {
   dispatchRequestId: "dispatch-service-guild-feature-flag",
   guildId: "guild-1",
@@ -160,6 +177,7 @@ const makeDispatchServiceMock = (overrides: Partial<DispatchServiceMock>): Dispa
   slotOpenButton: unexpectedDispatchServiceCall("slotOpenButton"),
   serviceStatus: unexpectedDispatchServiceCall("serviceStatus"),
   guildWelcome: unexpectedDispatchServiceCall("guildWelcome"),
+  updateAnnouncement: unexpectedDispatchServiceCall("updateAnnouncement"),
   serviceAddGuildFeatureFlag: unexpectedDispatchServiceCall("serviceAddGuildFeatureFlag"),
   serviceRemoveGuildFeatureFlag: unexpectedDispatchServiceCall("serviceRemoveGuildFeatureFlag"),
   checkinButton: unexpectedDispatchServiceCall("checkinButton"),
@@ -302,6 +320,7 @@ describe("dispatch workflow registry", () => {
       "slotOpenButton",
       "serviceStatus",
       "guildWelcome",
+      "updateAnnouncement",
       "serviceAddGuildFeatureFlag",
       "serviceRemoveGuildFeatureFlag",
       "checkinButton",
@@ -774,6 +793,41 @@ describe("dispatch workflow registry", () => {
     );
   });
 
+  it("routes update announcement workflows to DispatchService", async () => {
+    const resultPayload = {
+      guildId: "guild-1",
+      announcementId: "update-announcements-2026-06-05",
+      status: "sent",
+      announcementChannelId: "channel-1",
+      announcementMessageId: "message-1",
+    } satisfies UpdateAnnouncementDispatchResult;
+    const updateAnnouncement = vi.fn((payload: UpdateAnnouncementDispatchPayload) =>
+      Effect.sync(() => {
+        expect(payload).toBe(updateAnnouncementPayload);
+        return resultPayload;
+      }),
+    ) as DispatchServiceMock["updateAnnouncement"];
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const result = yield* dispatchWorkflowRegistry.updateAnnouncement.execute({
+          requester,
+          payload: updateAnnouncementPayload,
+        });
+
+        expect(result).toEqual(resultPayload);
+        expect(updateAnnouncement).toHaveBeenCalledWith(updateAnnouncementPayload);
+      }).pipe(
+        Effect.provideService(
+          DispatchService,
+          makeDispatchServiceMock({
+            updateAnnouncement,
+          }),
+        ),
+      ),
+    );
+  });
+
   it("does not overwrite handled interaction failure replies with the generic dispatch failure", async () => {
     const updateOriginalInteractionResponse = vi.fn(() => Effect.void);
     const serviceStatus = vi.fn(() =>
@@ -1075,9 +1129,22 @@ describe("dispatch workflow registry", () => {
         payload: guildWelcomePayload,
       }),
     );
+    const updateAnnouncementLeft = await Effect.runPromise(
+      dispatchWorkflowRegistry.updateAnnouncement.workflow.executionId({
+        requester,
+        payload: updateAnnouncementPayload,
+      }),
+    );
+    const updateAnnouncementRight = await Effect.runPromise(
+      dispatchWorkflowRegistry.updateAnnouncement.workflow.executionId({
+        requester: { accountId: "account-2", userId: "user-2" },
+        payload: updateAnnouncementPayload,
+      }),
+    );
 
     expect(left).toBe(right);
     expect(left).not.toBe(different);
     expect(guildWelcomeLeft).toBe(guildWelcomeRight);
+    expect(updateAnnouncementLeft).toBe(updateAnnouncementRight);
   });
 });

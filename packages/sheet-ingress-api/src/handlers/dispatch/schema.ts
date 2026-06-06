@@ -67,6 +67,14 @@ export const SlotDispatchError = Schema.Union(SlotDispatchErrorSchemas);
 export const GuildWelcomeDispatchErrorSchemas = [ArgumentError, UnknownError] as const;
 export const GuildWelcomeDispatchError = Schema.Union(GuildWelcomeDispatchErrorSchemas);
 
+export const UpdateAnnouncementDispatchErrorSchemas = [
+  SchemaError,
+  QueryResultError,
+  ArgumentError,
+  UnknownError,
+] as const;
+export const UpdateAnnouncementDispatchError = Schema.Union(UpdateAnnouncementDispatchErrorSchemas);
+
 export const BotCommandDispatchErrorSchemas = [
   GoogleSheetsError,
   ParserFieldError,
@@ -277,6 +285,41 @@ export const ServiceGuildFeatureFlagDispatchResult = Schema.Struct({
 
 export type ServiceGuildFeatureFlagDispatchResult = Schema.Schema.Type<
   typeof ServiceGuildFeatureFlagDispatchResult
+>;
+
+export const UpdateAnnouncement = Schema.Struct({
+  id: Schema.String,
+  publishedAt: Schema.String,
+  title: Schema.String,
+  description: Schema.String,
+  color: Schema.optional(Schema.Number),
+});
+
+export type UpdateAnnouncement = Schema.Schema.Type<typeof UpdateAnnouncement>;
+
+export const UpdateAnnouncementDispatchPayload = Schema.Struct({
+  dispatchRequestId: Schema.String,
+  guildId: Schema.String,
+  guildName: Schema.String,
+  joinedAt: Schema.String,
+  systemChannelId: Schema.optional(Schema.String),
+  announcement: UpdateAnnouncement,
+});
+
+export type UpdateAnnouncementDispatchPayload = Schema.Schema.Type<
+  typeof UpdateAnnouncementDispatchPayload
+>;
+
+export const UpdateAnnouncementDispatchResult = Schema.Struct({
+  guildId: Schema.String,
+  announcementId: Schema.String,
+  status: Schema.Literals(["sent", "skipped_not_gated", "skipped_already_delivered"]),
+  announcementChannelId: Schema.NullOr(Schema.String),
+  announcementMessageId: Schema.NullOr(Schema.String),
+});
+
+export type UpdateAnnouncementDispatchResult = Schema.Schema.Type<
+  typeof UpdateAnnouncementDispatchResult
 >;
 
 export const ChannelListConfigDispatchPayload = Schema.Struct({
@@ -511,6 +554,7 @@ export const DispatchAcceptedResult = Schema.Struct({
     "slotOpenButton",
     "serviceStatus",
     "guildWelcome",
+    "updateAnnouncement",
     "serviceAddGuildFeatureFlag",
     "serviceRemoveGuildFeatureFlag",
     "checkinButton",

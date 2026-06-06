@@ -12,6 +12,8 @@ import {
   GuildConfig,
   GuildFeatureFlag,
   GuildConfigMonitorRole,
+  GuildUpdateAnnouncementDelivery,
+  GuildUpdateAnnouncementDeliveryClaimResult,
 } from "./schemas/guildConfig";
 import { MessageCheckin, MessageCheckinMember } from "./schemas/messageCheckin";
 import {
@@ -90,6 +92,9 @@ import {
   SlotListDispatchResult,
   SlotOpenButtonPayload,
   SlotOpenButtonResult,
+  UpdateAnnouncementDispatchError,
+  UpdateAnnouncementDispatchPayload,
+  UpdateAnnouncementDispatchResult,
 } from "./handlers/dispatch/schema";
 
 export {
@@ -157,6 +162,10 @@ export {
   SlotOpenButtonResult,
   TeamListDispatchPayload,
   TeamListDispatchResult,
+  UpdateAnnouncement,
+  UpdateAnnouncementDispatchError,
+  UpdateAnnouncementDispatchPayload,
+  UpdateAnnouncementDispatchResult,
 } from "./handlers/dispatch/schema";
 export { ServiceStatus, ServicesStatusResponse } from "./handlers/status/schema";
 
@@ -450,6 +459,14 @@ export const GuildConfigRpcs = RpcGroup.make(
     success: Schema.Array(GuildFeatureFlag),
     error: Schema.Union([SchemaError, QueryResultError, ArgumentError]),
   }),
+  protectedRpc("guildConfig.getGuildUpdateAnnouncementDelivery", {
+    payload: Query({
+      guildId: Schema.String,
+      announcementId: Schema.String,
+    }),
+    success: Schema.Option(GuildUpdateAnnouncementDelivery),
+    error: Schema.Union([SchemaError, QueryResultError]),
+  }),
   protectedRpc("guildConfig.getGuildChannels", {
     payload: Query({
       guildId: Schema.String,
@@ -477,6 +494,37 @@ export const GuildConfigRpcs = RpcGroup.make(
     payload: Payload({ guildId: Schema.String, flagName: FeatureFlagName }),
     success: GuildFeatureFlag,
     error: Schema.Union([SchemaError, QueryResultError, MutatorResultError, ArgumentError]),
+  }),
+  protectedRpc("guildConfig.recordGuildUpdateAnnouncementDelivery", {
+    payload: Payload({
+      guildId: Schema.String,
+      announcementId: Schema.String,
+      publishedAt: Schema.DateTimeUtcFromMillis,
+      deliveredAt: Schema.DateTimeUtcFromMillis,
+      channelId: Schema.String,
+      messageId: Schema.String,
+    }),
+    success: GuildUpdateAnnouncementDelivery,
+    error: Schema.Union([SchemaError, QueryResultError, MutatorResultError]),
+  }),
+  protectedRpc("guildConfig.claimGuildUpdateAnnouncementDelivery", {
+    payload: Payload({
+      guildId: Schema.String,
+      announcementId: Schema.String,
+      publishedAt: Schema.DateTimeUtcFromMillis,
+      claimToken: Schema.String,
+    }),
+    success: GuildUpdateAnnouncementDeliveryClaimResult,
+    error: Schema.Union([SchemaError, QueryResultError, MutatorResultError]),
+  }),
+  protectedRpc("guildConfig.releaseGuildUpdateAnnouncementDeliveryClaim", {
+    payload: Payload({
+      guildId: Schema.String,
+      announcementId: Schema.String,
+      claimToken: Schema.String,
+    }),
+    success: Schema.Void,
+    error: Schema.Union([SchemaError, MutatorResultError]),
   }),
   protectedRpc("guildConfig.upsertGuildChannelConfig", {
     payload: Payload({

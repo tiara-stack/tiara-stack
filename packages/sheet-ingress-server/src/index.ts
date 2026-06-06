@@ -797,6 +797,10 @@ const makeApiLayer = () => {
         )
         .handle("guildWelcome", authorizedSheetWorkflowsDispatch("guildWelcome", requireService))
         .handle(
+          "updateAnnouncement",
+          authorizedSheetWorkflowsDispatch("updateAnnouncement", requireService),
+        )
+        .handle(
           "serviceAddGuildFeatureFlag",
           authorizedSheetWorkflowsDispatch("serviceAddGuildFeatureFlag", requireService),
         )
@@ -943,6 +947,10 @@ const makeApiLayer = () => {
         .handle("getGuildFeatureFlags", serviceOnly("guildConfig", "getGuildFeatureFlags"))
         .handle("getGuildsForFeatureFlag", serviceOnly("guildConfig", "getGuildsForFeatureFlag"))
         .handle(
+          "getGuildUpdateAnnouncementDelivery",
+          serviceOnly("guildConfig", "getGuildUpdateAnnouncementDelivery"),
+        )
+        .handle(
           "getGuildChannels",
           guildQuery("guildConfig", "getGuildChannels", "member", (query) => query.guildId),
         )
@@ -966,6 +974,18 @@ const makeApiLayer = () => {
         )
         .handle("addGuildFeatureFlag", serviceOnly("guildConfig", "addGuildFeatureFlag"))
         .handle("removeGuildFeatureFlag", serviceOnly("guildConfig", "removeGuildFeatureFlag"))
+        .handle(
+          "recordGuildUpdateAnnouncementDelivery",
+          serviceOnly("guildConfig", "recordGuildUpdateAnnouncementDelivery"),
+        )
+        .handle(
+          "claimGuildUpdateAnnouncementDelivery",
+          serviceOnly("guildConfig", "claimGuildUpdateAnnouncementDelivery"),
+        )
+        .handle(
+          "releaseGuildUpdateAnnouncementDeliveryClaim",
+          serviceOnly("guildConfig", "releaseGuildUpdateAnnouncementDeliveryClaim"),
+        )
         .handle(
           "upsertGuildChannelConfig",
           guildPayload(

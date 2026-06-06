@@ -52,6 +52,7 @@ import {
   DispatchSlotListWorkflow,
   DispatchSlotOpenButtonWorkflow,
   DispatchTeamListWorkflow,
+  DispatchUpdateAnnouncementWorkflow,
   DispatchWorkflows,
 } from "./dispatchWorkflows";
 
@@ -543,6 +544,17 @@ export const dispatchWorkflowRegistry = {
         return yield* service.guildWelcome(request.payload);
       }),
   },
+  updateAnnouncement: {
+    operation: "updateAnnouncement",
+    workflow: DispatchUpdateAnnouncementWorkflow,
+    getInteractionToken: () => undefined,
+    authorize: () => Effect.void,
+    execute: (request: typeof DispatchUpdateAnnouncementWorkflow.payloadSchema.Type) =>
+      Effect.gen(function* () {
+        const service = yield* DispatchService;
+        return yield* service.updateAnnouncement(request.payload);
+      }),
+  },
   serviceAddGuildFeatureFlag: {
     operation: "serviceAddGuildFeatureFlag",
     workflow: DispatchServiceAddGuildFeatureFlagWorkflow,
@@ -870,6 +882,11 @@ export const dispatchWorkflowLayer = Layer.mergeAll(
   DispatchGuildWelcomeWorkflow.toLayer(
     makeWorkflowHandler({
       ...dispatchWorkflowRegistry.guildWelcome,
+    }),
+  ),
+  DispatchUpdateAnnouncementWorkflow.toLayer(
+    makeWorkflowHandler({
+      ...dispatchWorkflowRegistry.updateAnnouncement,
     }),
   ),
   DispatchServiceAddGuildFeatureFlagWorkflow.toLayer(

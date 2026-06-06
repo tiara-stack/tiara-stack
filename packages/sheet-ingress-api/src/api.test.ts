@@ -6,6 +6,17 @@ import { SheetWorkflowsRpcs } from "./sheet-workflows-rpc";
 import { DispatchRoomOrderButtonMethods, SheetApisRpcs } from "./sheet-apis-rpc";
 
 const roomOrderButtonMethods = Object.values(DispatchRoomOrderButtonMethods);
+const dispatchRpcNames = [
+  "dispatch.checkin",
+  "dispatch.checkinButton",
+  "dispatch.roomOrder",
+  "dispatch.kickout",
+  "dispatch.slotButton",
+  "dispatch.slotList",
+  "dispatch.slotOpenButton",
+  "dispatch.guildWelcome",
+  "dispatch.updateAnnouncement",
+] as const;
 
 describe("Api", () => {
   it("keeps sheet-apis health endpoints off ingress", () => {
@@ -22,32 +33,13 @@ describe("Api", () => {
   });
 
   it("keeps dispatch RPCs on sheet-workflows only", () => {
-    expect(SheetApisRpcs.requests.has("dispatch.checkin")).toBe(false);
-    expect(SheetApisRpcs.requests.has("dispatch.checkinButton")).toBe(false);
-    expect(SheetApisRpcs.requests.has("dispatch.roomOrder")).toBe(false);
-    expect(SheetApisRpcs.requests.has("dispatch.kickout")).toBe(false);
-    expect(SheetApisRpcs.requests.has("dispatch.slotButton")).toBe(false);
-    expect(SheetApisRpcs.requests.has("dispatch.slotList")).toBe(false);
-    expect(SheetApisRpcs.requests.has("dispatch.slotOpenButton")).toBe(false);
-    expect(SheetApisRpcs.requests.has("dispatch.guildWelcome")).toBe(false);
-    expect(SheetWorkflowsRpcs.requests.has("dispatch.checkin")).toBe(true);
-    expect(SheetWorkflowsRpcs.requests.has("dispatch.checkinDiscard")).toBe(true);
-    expect(SheetWorkflowsRpcs.requests.has("dispatch.checkinButton")).toBe(true);
-    expect(SheetWorkflowsRpcs.requests.has("dispatch.checkinButtonDiscard")).toBe(true);
-    expect(SheetWorkflowsRpcs.requests.has("dispatch.roomOrder")).toBe(true);
-    expect(SheetWorkflowsRpcs.requests.has("dispatch.roomOrderDiscard")).toBe(true);
-    expect(SheetWorkflowsRpcs.requests.has("dispatch.kickout")).toBe(true);
-    expect(SheetWorkflowsRpcs.requests.has("dispatch.kickoutDiscard")).toBe(true);
-    expect(SheetWorkflowsRpcs.requests.has("dispatch.slotButton")).toBe(true);
-    expect(SheetWorkflowsRpcs.requests.has("dispatch.slotButtonDiscard")).toBe(true);
-    expect(SheetWorkflowsRpcs.requests.has("dispatch.slotList")).toBe(true);
-    expect(SheetWorkflowsRpcs.requests.has("dispatch.slotListDiscard")).toBe(true);
-    expect(SheetWorkflowsRpcs.requests.has("dispatch.slotOpenButton")).toBe(true);
-    expect(SheetWorkflowsRpcs.requests.has("dispatch.slotOpenButtonDiscard")).toBe(true);
+    for (const rpcName of dispatchRpcNames) {
+      expect(SheetApisRpcs.requests.has(rpcName)).toBe(false);
+      expect(SheetWorkflowsRpcs.requests.has(rpcName)).toBe(true);
+      expect(SheetWorkflowsRpcs.requests.has(`${rpcName}Discard`)).toBe(true);
+    }
     expect(SheetWorkflowsRpcs.requests.has("dispatch.serviceStatus")).toBe(true);
     expect(SheetWorkflowsRpcs.requests.has("dispatch.serviceStatusDiscard")).toBe(true);
-    expect(SheetWorkflowsRpcs.requests.has("dispatch.guildWelcome")).toBe(true);
-    expect(SheetWorkflowsRpcs.requests.has("dispatch.guildWelcomeDiscard")).toBe(true);
     expect(SheetApisRpcs.requests.has("status.getServices")).toBe(true);
     for (const method of roomOrderButtonMethods) {
       expect(SheetApisRpcs.requests.has(method.rpcTag)).toBe(false);
@@ -94,6 +86,11 @@ describe("Api", () => {
       name: "guildWelcome",
       path: "/dispatch/guild/welcome",
     });
+    expect(SheetWorkflowsApi.groups.dispatch.endpoints.updateAnnouncement).toMatchObject({
+      method: "POST",
+      name: "updateAnnouncement",
+      path: "/dispatch/update-announcement",
+    });
     expect(Api.groups.dispatch.endpoints.slotOpenButton).toMatchObject({
       method: "POST",
       name: "slotOpenButton",
@@ -108,6 +105,11 @@ describe("Api", () => {
       method: "POST",
       name: "guildWelcome",
       path: "/dispatch/guild/welcome",
+    });
+    expect(Api.groups.dispatch.endpoints.updateAnnouncement).toMatchObject({
+      method: "POST",
+      name: "updateAnnouncement",
+      path: "/dispatch/update-announcement",
     });
 
     expect(SheetApisApi.groups.checkin.endpoints).not.toHaveProperty("dispatch");

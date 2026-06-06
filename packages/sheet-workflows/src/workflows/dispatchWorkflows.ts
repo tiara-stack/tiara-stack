@@ -26,6 +26,7 @@ import {
   DispatchSlotListWorkflow as BaseDispatchSlotListWorkflow,
   DispatchSlotOpenButtonWorkflow as BaseDispatchSlotOpenButtonWorkflow,
   DispatchTeamListWorkflow as BaseDispatchTeamListWorkflow,
+  DispatchUpdateAnnouncementWorkflow as BaseDispatchUpdateAnnouncementWorkflow,
 } from "sheet-ingress-api/sheet-workflows-workflows";
 
 const dispatchShardGroup = () => "dispatch";
@@ -66,6 +67,11 @@ export const DispatchServiceStatusWorkflow = BaseDispatchServiceStatusWorkflow.a
 );
 
 export const DispatchGuildWelcomeWorkflow = BaseDispatchGuildWelcomeWorkflow.annotate(
+  ClusterSchema.ShardGroup,
+  dispatchShardGroup,
+);
+
+export const DispatchUpdateAnnouncementWorkflow = BaseDispatchUpdateAnnouncementWorkflow.annotate(
   ClusterSchema.ShardGroup,
   dispatchShardGroup,
 );
@@ -170,6 +176,7 @@ export const DispatchWorkflows = [
   DispatchSlotOpenButtonWorkflow,
   DispatchServiceStatusWorkflow,
   DispatchGuildWelcomeWorkflow,
+  DispatchUpdateAnnouncementWorkflow,
   DispatchServiceAddGuildFeatureFlagWorkflow,
   DispatchServiceRemoveGuildFeatureFlagWorkflow,
   DispatchCheckinButtonWorkflow,

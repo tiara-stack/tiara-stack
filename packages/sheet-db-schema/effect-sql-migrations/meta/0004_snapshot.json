@@ -1,0 +1,2146 @@
+{
+  "version": 1,
+  "dialect": "postgresql",
+  "id": "10499717-eb54-4cda-831f-2dc6bbbf5c22",
+  "prevId": "b4388ec5-5c7d-487c-bdc5-9baf056dd73b",
+  "schema": {
+    "version": 1,
+    "dialect": "postgresql",
+    "tables": {
+      "configGuild": {
+        "name": "sheet_db_config_guild",
+        "columns": {
+          "guildId": {
+            "fieldName": "guildId",
+            "name": "guild_id",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": true
+          },
+          "sheetId": {
+            "fieldName": "sheetId",
+            "name": "sheet_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "autoCheckin": {
+            "fieldName": "autoCheckin",
+            "name": "auto_checkin",
+            "kind": "boolean",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "createdAt": {
+            "fieldName": "createdAt",
+            "name": "created_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "updatedAt": {
+            "fieldName": "updatedAt",
+            "name": "updated_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "deletedAt": {
+            "fieldName": "deletedAt",
+            "name": "deleted_at",
+            "kind": "timestamp",
+            "notNull": false,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          }
+        },
+        "primaryKey": ["guildId"],
+        "indexes": [
+          {
+            "name": "sheet_db_config_guild_sheet_id_idx",
+            "unique": false,
+            "fields": ["sheetId"]
+          }
+        ]
+      },
+      "configGuildManagerRole": {
+        "name": "sheet_db_config_guild_manager_role",
+        "columns": {
+          "guildId": {
+            "fieldName": "guildId",
+            "name": "guild_id",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": true
+          },
+          "roleId": {
+            "fieldName": "roleId",
+            "name": "role_id",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": true
+          },
+          "createdAt": {
+            "fieldName": "createdAt",
+            "name": "created_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "updatedAt": {
+            "fieldName": "updatedAt",
+            "name": "updated_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "deletedAt": {
+            "fieldName": "deletedAt",
+            "name": "deleted_at",
+            "kind": "timestamp",
+            "notNull": false,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          }
+        },
+        "primaryKey": ["guildId", "roleId"],
+        "indexes": []
+      },
+      "configGuildFeatureFlag": {
+        "name": "sheet_db_config_guild_feature_flag",
+        "columns": {
+          "guildId": {
+            "fieldName": "guildId",
+            "name": "guild_id",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": true
+          },
+          "flagName": {
+            "fieldName": "flagName",
+            "name": "flag_name",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": true
+          },
+          "createdAt": {
+            "fieldName": "createdAt",
+            "name": "created_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "updatedAt": {
+            "fieldName": "updatedAt",
+            "name": "updated_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "deletedAt": {
+            "fieldName": "deletedAt",
+            "name": "deleted_at",
+            "kind": "timestamp",
+            "notNull": false,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          }
+        },
+        "primaryKey": ["guildId", "flagName"],
+        "indexes": [
+          {
+            "name": "sheet_db_config_guild_feature_flag_flag_name_idx",
+            "unique": false,
+            "fields": ["flagName"]
+          }
+        ]
+      },
+      "configGuildUpdateAnnouncementDelivery": {
+        "name": "sheet_db_config_guild_update_announcement_delivery",
+        "columns": {
+          "guildId": {
+            "fieldName": "guildId",
+            "name": "guild_id",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": true
+          },
+          "announcementId": {
+            "fieldName": "announcementId",
+            "name": "announcement_id",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": true
+          },
+          "publishedAt": {
+            "fieldName": "publishedAt",
+            "name": "published_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "deliveredAt": {
+            "fieldName": "deliveredAt",
+            "name": "delivered_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "channelId": {
+            "fieldName": "channelId",
+            "name": "channel_id",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": false
+          },
+          "messageId": {
+            "fieldName": "messageId",
+            "name": "message_id",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": false
+          },
+          "createdAt": {
+            "fieldName": "createdAt",
+            "name": "created_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "updatedAt": {
+            "fieldName": "updatedAt",
+            "name": "updated_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "deletedAt": {
+            "fieldName": "deletedAt",
+            "name": "deleted_at",
+            "kind": "timestamp",
+            "notNull": false,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          }
+        },
+        "primaryKey": ["guildId", "announcementId"],
+        "indexes": [
+          {
+            "name": "sheet_db_config_guild_update_announcement_delivery_announcement_id_idx",
+            "unique": false,
+            "fields": ["announcementId"]
+          }
+        ]
+      },
+      "configGuildChannel": {
+        "name": "sheet_db_config_guild_channel",
+        "columns": {
+          "guildId": {
+            "fieldName": "guildId",
+            "name": "guild_id",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": true
+          },
+          "channelId": {
+            "fieldName": "channelId",
+            "name": "channel_id",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": true
+          },
+          "name": {
+            "fieldName": "name",
+            "name": "name",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "running": {
+            "fieldName": "running",
+            "name": "running",
+            "kind": "boolean",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "roleId": {
+            "fieldName": "roleId",
+            "name": "role_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "checkinChannelId": {
+            "fieldName": "checkinChannelId",
+            "name": "checkin_channel_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "createdAt": {
+            "fieldName": "createdAt",
+            "name": "created_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "updatedAt": {
+            "fieldName": "updatedAt",
+            "name": "updated_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "deletedAt": {
+            "fieldName": "deletedAt",
+            "name": "deleted_at",
+            "kind": "timestamp",
+            "notNull": false,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          }
+        },
+        "primaryKey": ["guildId", "channelId"],
+        "indexes": [
+          {
+            "name": "sheet_db_config_guild_channel_guild_id_name_idx",
+            "unique": true,
+            "fields": ["guildId", "name"]
+          }
+        ]
+      },
+      "messageSlot": {
+        "name": "sheet_db_message_slot",
+        "columns": {
+          "messageId": {
+            "fieldName": "messageId",
+            "name": "message_id",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": true
+          },
+          "day": {
+            "fieldName": "day",
+            "name": "day",
+            "kind": "integer",
+            "notNull": true,
+            "primaryKey": false
+          },
+          "guildId": {
+            "fieldName": "guildId",
+            "name": "guild_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "messageChannelId": {
+            "fieldName": "messageChannelId",
+            "name": "message_channel_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "createdByUserId": {
+            "fieldName": "createdByUserId",
+            "name": "created_by_user_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "createdAt": {
+            "fieldName": "createdAt",
+            "name": "created_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "updatedAt": {
+            "fieldName": "updatedAt",
+            "name": "updated_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "deletedAt": {
+            "fieldName": "deletedAt",
+            "name": "deleted_at",
+            "kind": "timestamp",
+            "notNull": false,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          }
+        },
+        "primaryKey": ["messageId"],
+        "indexes": []
+      },
+      "messageCheckin": {
+        "name": "sheet_db_message_checkin",
+        "columns": {
+          "messageId": {
+            "fieldName": "messageId",
+            "name": "message_id",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": true
+          },
+          "initialMessage": {
+            "fieldName": "initialMessage",
+            "name": "initial_message",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": false
+          },
+          "hour": {
+            "fieldName": "hour",
+            "name": "hour",
+            "kind": "integer",
+            "notNull": true,
+            "primaryKey": false
+          },
+          "channelId": {
+            "fieldName": "channelId",
+            "name": "channel_id",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": false
+          },
+          "roleId": {
+            "fieldName": "roleId",
+            "name": "role_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "guildId": {
+            "fieldName": "guildId",
+            "name": "guild_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "messageChannelId": {
+            "fieldName": "messageChannelId",
+            "name": "message_channel_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "createdByUserId": {
+            "fieldName": "createdByUserId",
+            "name": "created_by_user_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "createdAt": {
+            "fieldName": "createdAt",
+            "name": "created_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "updatedAt": {
+            "fieldName": "updatedAt",
+            "name": "updated_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "deletedAt": {
+            "fieldName": "deletedAt",
+            "name": "deleted_at",
+            "kind": "timestamp",
+            "notNull": false,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          }
+        },
+        "primaryKey": ["messageId"],
+        "indexes": []
+      },
+      "messageCheckinMember": {
+        "name": "sheet_db_message_checkin_member",
+        "columns": {
+          "messageId": {
+            "fieldName": "messageId",
+            "name": "message_id",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": true
+          },
+          "memberId": {
+            "fieldName": "memberId",
+            "name": "member_id",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": true
+          },
+          "checkinAt": {
+            "fieldName": "checkinAt",
+            "name": "checkin_at",
+            "kind": "timestamp",
+            "notNull": false,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "checkinClaimId": {
+            "fieldName": "checkinClaimId",
+            "name": "checkin_claim_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "createdAt": {
+            "fieldName": "createdAt",
+            "name": "created_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "updatedAt": {
+            "fieldName": "updatedAt",
+            "name": "updated_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "deletedAt": {
+            "fieldName": "deletedAt",
+            "name": "deleted_at",
+            "kind": "timestamp",
+            "notNull": false,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          }
+        },
+        "primaryKey": ["messageId", "memberId"],
+        "indexes": []
+      },
+      "messageRoomOrder": {
+        "name": "sheet_db_message_room_order",
+        "columns": {
+          "messageId": {
+            "fieldName": "messageId",
+            "name": "message_id",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": true
+          },
+          "previousFills": {
+            "fieldName": "previousFills",
+            "name": "previous_fills",
+            "kind": "array",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "elementKind": "varchar"
+            }
+          },
+          "fills": {
+            "fieldName": "fills",
+            "name": "fills",
+            "kind": "array",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "elementKind": "varchar"
+            }
+          },
+          "hour": {
+            "fieldName": "hour",
+            "name": "hour",
+            "kind": "integer",
+            "notNull": true,
+            "primaryKey": false
+          },
+          "rank": {
+            "fieldName": "rank",
+            "name": "rank",
+            "kind": "integer",
+            "notNull": true,
+            "primaryKey": false
+          },
+          "tentative": {
+            "fieldName": "tentative",
+            "name": "tentative",
+            "kind": "boolean",
+            "notNull": true,
+            "primaryKey": false
+          },
+          "monitor": {
+            "fieldName": "monitor",
+            "name": "monitor",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "guildId": {
+            "fieldName": "guildId",
+            "name": "guild_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "messageChannelId": {
+            "fieldName": "messageChannelId",
+            "name": "message_channel_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "createdByUserId": {
+            "fieldName": "createdByUserId",
+            "name": "created_by_user_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "sendClaimId": {
+            "fieldName": "sendClaimId",
+            "name": "send_claim_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "sendClaimedAt": {
+            "fieldName": "sendClaimedAt",
+            "name": "send_claimed_at",
+            "kind": "timestamp",
+            "notNull": false,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "sentMessageId": {
+            "fieldName": "sentMessageId",
+            "name": "sent_message_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "sentMessageChannelId": {
+            "fieldName": "sentMessageChannelId",
+            "name": "sent_message_channel_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "sentAt": {
+            "fieldName": "sentAt",
+            "name": "sent_at",
+            "kind": "timestamp",
+            "notNull": false,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "tentativeUpdateClaimId": {
+            "fieldName": "tentativeUpdateClaimId",
+            "name": "tentative_update_claim_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "tentativeUpdateClaimedAt": {
+            "fieldName": "tentativeUpdateClaimedAt",
+            "name": "tentative_update_claimed_at",
+            "kind": "timestamp",
+            "notNull": false,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "tentativePinClaimId": {
+            "fieldName": "tentativePinClaimId",
+            "name": "tentative_pin_claim_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "tentativePinClaimedAt": {
+            "fieldName": "tentativePinClaimedAt",
+            "name": "tentative_pin_claimed_at",
+            "kind": "timestamp",
+            "notNull": false,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "tentativePinnedAt": {
+            "fieldName": "tentativePinnedAt",
+            "name": "tentative_pinned_at",
+            "kind": "timestamp",
+            "notNull": false,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "createdAt": {
+            "fieldName": "createdAt",
+            "name": "created_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "updatedAt": {
+            "fieldName": "updatedAt",
+            "name": "updated_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "deletedAt": {
+            "fieldName": "deletedAt",
+            "name": "deleted_at",
+            "kind": "timestamp",
+            "notNull": false,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          }
+        },
+        "primaryKey": ["messageId"],
+        "indexes": []
+      },
+      "messageRoomOrderEntry": {
+        "name": "sheet_db_message_room_order_entry",
+        "columns": {
+          "messageId": {
+            "fieldName": "messageId",
+            "name": "message_id",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": true
+          },
+          "rank": {
+            "fieldName": "rank",
+            "name": "rank",
+            "kind": "integer",
+            "notNull": true,
+            "primaryKey": true
+          },
+          "position": {
+            "fieldName": "position",
+            "name": "position",
+            "kind": "integer",
+            "notNull": true,
+            "primaryKey": true
+          },
+          "hour": {
+            "fieldName": "hour",
+            "name": "hour",
+            "kind": "integer",
+            "notNull": true,
+            "primaryKey": false
+          },
+          "team": {
+            "fieldName": "team",
+            "name": "team",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": false
+          },
+          "tags": {
+            "fieldName": "tags",
+            "name": "tags",
+            "kind": "array",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "elementKind": "varchar"
+            }
+          },
+          "effectValue": {
+            "fieldName": "effectValue",
+            "name": "effect_value",
+            "kind": "real",
+            "notNull": true,
+            "primaryKey": false
+          },
+          "createdAt": {
+            "fieldName": "createdAt",
+            "name": "created_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "updatedAt": {
+            "fieldName": "updatedAt",
+            "name": "updated_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "deletedAt": {
+            "fieldName": "deletedAt",
+            "name": "deleted_at",
+            "kind": "timestamp",
+            "notNull": false,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          }
+        },
+        "primaryKey": ["messageId", "rank", "position"],
+        "indexes": [
+          {
+            "name": "sheet_db_message_room_order_entry_message_id_rank_idx",
+            "unique": false,
+            "fields": ["messageId", "rank"]
+          }
+        ]
+      },
+      "sheetApisDispatchJobs": {
+        "name": "sheet_db_sheet_apis_dispatch_jobs",
+        "columns": {
+          "dispatchRequestId": {
+            "fieldName": "dispatchRequestId",
+            "name": "dispatch_request_id",
+            "kind": "text",
+            "notNull": true,
+            "primaryKey": true
+          },
+          "entityType": {
+            "fieldName": "entityType",
+            "name": "entity_type",
+            "kind": "text",
+            "notNull": true,
+            "primaryKey": false
+          },
+          "entityId": {
+            "fieldName": "entityId",
+            "name": "entity_id",
+            "kind": "text",
+            "notNull": true,
+            "primaryKey": false
+          },
+          "operation": {
+            "fieldName": "operation",
+            "name": "operation",
+            "kind": "text",
+            "notNull": true,
+            "primaryKey": false
+          },
+          "status": {
+            "fieldName": "status",
+            "name": "status",
+            "kind": "text",
+            "notNull": true,
+            "primaryKey": false
+          },
+          "runId": {
+            "fieldName": "runId",
+            "name": "run_id",
+            "kind": "text",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "payload": {
+            "fieldName": "payload",
+            "name": "payload",
+            "kind": "jsonb",
+            "notNull": true,
+            "primaryKey": false
+          },
+          "result": {
+            "fieldName": "result",
+            "name": "result",
+            "kind": "jsonb",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "error": {
+            "fieldName": "error",
+            "name": "error",
+            "kind": "jsonb",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "createdAt": {
+            "fieldName": "createdAt",
+            "name": "created_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "updatedAt": {
+            "fieldName": "updatedAt",
+            "name": "updated_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "deletedAt": {
+            "fieldName": "deletedAt",
+            "name": "deleted_at",
+            "kind": "timestamp",
+            "notNull": false,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          }
+        },
+        "primaryKey": ["dispatchRequestId"],
+        "indexes": [
+          {
+            "name": "sheet_db_sheet_apis_dispatch_jobs_status_updated_at_idx",
+            "unique": false,
+            "fields": ["status", "updatedAt"]
+          }
+        ]
+      }
+    }
+  },
+  "drizzle": {
+    "fallback": "effect-sql-kit",
+    "reason": "Error: Dynamic require of \"fs\" is not supported",
+    "version": 1,
+    "dialect": "postgresql",
+    "tables": {
+      "configGuild": {
+        "name": "sheet_db_config_guild",
+        "columns": {
+          "guildId": {
+            "fieldName": "guildId",
+            "name": "guild_id",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": true
+          },
+          "sheetId": {
+            "fieldName": "sheetId",
+            "name": "sheet_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "autoCheckin": {
+            "fieldName": "autoCheckin",
+            "name": "auto_checkin",
+            "kind": "boolean",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "createdAt": {
+            "fieldName": "createdAt",
+            "name": "created_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "updatedAt": {
+            "fieldName": "updatedAt",
+            "name": "updated_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "deletedAt": {
+            "fieldName": "deletedAt",
+            "name": "deleted_at",
+            "kind": "timestamp",
+            "notNull": false,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          }
+        },
+        "primaryKey": ["guildId"],
+        "indexes": [
+          {
+            "name": "sheet_db_config_guild_sheet_id_idx",
+            "unique": false,
+            "fields": ["sheetId"]
+          }
+        ]
+      },
+      "configGuildManagerRole": {
+        "name": "sheet_db_config_guild_manager_role",
+        "columns": {
+          "guildId": {
+            "fieldName": "guildId",
+            "name": "guild_id",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": true
+          },
+          "roleId": {
+            "fieldName": "roleId",
+            "name": "role_id",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": true
+          },
+          "createdAt": {
+            "fieldName": "createdAt",
+            "name": "created_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "updatedAt": {
+            "fieldName": "updatedAt",
+            "name": "updated_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "deletedAt": {
+            "fieldName": "deletedAt",
+            "name": "deleted_at",
+            "kind": "timestamp",
+            "notNull": false,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          }
+        },
+        "primaryKey": ["guildId", "roleId"],
+        "indexes": []
+      },
+      "configGuildFeatureFlag": {
+        "name": "sheet_db_config_guild_feature_flag",
+        "columns": {
+          "guildId": {
+            "fieldName": "guildId",
+            "name": "guild_id",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": true
+          },
+          "flagName": {
+            "fieldName": "flagName",
+            "name": "flag_name",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": true
+          },
+          "createdAt": {
+            "fieldName": "createdAt",
+            "name": "created_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "updatedAt": {
+            "fieldName": "updatedAt",
+            "name": "updated_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "deletedAt": {
+            "fieldName": "deletedAt",
+            "name": "deleted_at",
+            "kind": "timestamp",
+            "notNull": false,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          }
+        },
+        "primaryKey": ["guildId", "flagName"],
+        "indexes": [
+          {
+            "name": "sheet_db_config_guild_feature_flag_flag_name_idx",
+            "unique": false,
+            "fields": ["flagName"]
+          }
+        ]
+      },
+      "configGuildUpdateAnnouncementDelivery": {
+        "name": "sheet_db_config_guild_update_announcement_delivery",
+        "columns": {
+          "guildId": {
+            "fieldName": "guildId",
+            "name": "guild_id",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": true
+          },
+          "announcementId": {
+            "fieldName": "announcementId",
+            "name": "announcement_id",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": true
+          },
+          "publishedAt": {
+            "fieldName": "publishedAt",
+            "name": "published_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "deliveredAt": {
+            "fieldName": "deliveredAt",
+            "name": "delivered_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "channelId": {
+            "fieldName": "channelId",
+            "name": "channel_id",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": false
+          },
+          "messageId": {
+            "fieldName": "messageId",
+            "name": "message_id",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": false
+          },
+          "createdAt": {
+            "fieldName": "createdAt",
+            "name": "created_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "updatedAt": {
+            "fieldName": "updatedAt",
+            "name": "updated_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "deletedAt": {
+            "fieldName": "deletedAt",
+            "name": "deleted_at",
+            "kind": "timestamp",
+            "notNull": false,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          }
+        },
+        "primaryKey": ["guildId", "announcementId"],
+        "indexes": [
+          {
+            "name": "sheet_db_config_guild_update_announcement_delivery_announcement_id_idx",
+            "unique": false,
+            "fields": ["announcementId"]
+          }
+        ]
+      },
+      "configGuildChannel": {
+        "name": "sheet_db_config_guild_channel",
+        "columns": {
+          "guildId": {
+            "fieldName": "guildId",
+            "name": "guild_id",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": true
+          },
+          "channelId": {
+            "fieldName": "channelId",
+            "name": "channel_id",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": true
+          },
+          "name": {
+            "fieldName": "name",
+            "name": "name",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "running": {
+            "fieldName": "running",
+            "name": "running",
+            "kind": "boolean",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "roleId": {
+            "fieldName": "roleId",
+            "name": "role_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "checkinChannelId": {
+            "fieldName": "checkinChannelId",
+            "name": "checkin_channel_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "createdAt": {
+            "fieldName": "createdAt",
+            "name": "created_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "updatedAt": {
+            "fieldName": "updatedAt",
+            "name": "updated_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "deletedAt": {
+            "fieldName": "deletedAt",
+            "name": "deleted_at",
+            "kind": "timestamp",
+            "notNull": false,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          }
+        },
+        "primaryKey": ["guildId", "channelId"],
+        "indexes": [
+          {
+            "name": "sheet_db_config_guild_channel_guild_id_name_idx",
+            "unique": true,
+            "fields": ["guildId", "name"]
+          }
+        ]
+      },
+      "messageSlot": {
+        "name": "sheet_db_message_slot",
+        "columns": {
+          "messageId": {
+            "fieldName": "messageId",
+            "name": "message_id",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": true
+          },
+          "day": {
+            "fieldName": "day",
+            "name": "day",
+            "kind": "integer",
+            "notNull": true,
+            "primaryKey": false
+          },
+          "guildId": {
+            "fieldName": "guildId",
+            "name": "guild_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "messageChannelId": {
+            "fieldName": "messageChannelId",
+            "name": "message_channel_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "createdByUserId": {
+            "fieldName": "createdByUserId",
+            "name": "created_by_user_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "createdAt": {
+            "fieldName": "createdAt",
+            "name": "created_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "updatedAt": {
+            "fieldName": "updatedAt",
+            "name": "updated_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "deletedAt": {
+            "fieldName": "deletedAt",
+            "name": "deleted_at",
+            "kind": "timestamp",
+            "notNull": false,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          }
+        },
+        "primaryKey": ["messageId"],
+        "indexes": []
+      },
+      "messageCheckin": {
+        "name": "sheet_db_message_checkin",
+        "columns": {
+          "messageId": {
+            "fieldName": "messageId",
+            "name": "message_id",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": true
+          },
+          "initialMessage": {
+            "fieldName": "initialMessage",
+            "name": "initial_message",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": false
+          },
+          "hour": {
+            "fieldName": "hour",
+            "name": "hour",
+            "kind": "integer",
+            "notNull": true,
+            "primaryKey": false
+          },
+          "channelId": {
+            "fieldName": "channelId",
+            "name": "channel_id",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": false
+          },
+          "roleId": {
+            "fieldName": "roleId",
+            "name": "role_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "guildId": {
+            "fieldName": "guildId",
+            "name": "guild_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "messageChannelId": {
+            "fieldName": "messageChannelId",
+            "name": "message_channel_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "createdByUserId": {
+            "fieldName": "createdByUserId",
+            "name": "created_by_user_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "createdAt": {
+            "fieldName": "createdAt",
+            "name": "created_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "updatedAt": {
+            "fieldName": "updatedAt",
+            "name": "updated_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "deletedAt": {
+            "fieldName": "deletedAt",
+            "name": "deleted_at",
+            "kind": "timestamp",
+            "notNull": false,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          }
+        },
+        "primaryKey": ["messageId"],
+        "indexes": []
+      },
+      "messageCheckinMember": {
+        "name": "sheet_db_message_checkin_member",
+        "columns": {
+          "messageId": {
+            "fieldName": "messageId",
+            "name": "message_id",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": true
+          },
+          "memberId": {
+            "fieldName": "memberId",
+            "name": "member_id",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": true
+          },
+          "checkinAt": {
+            "fieldName": "checkinAt",
+            "name": "checkin_at",
+            "kind": "timestamp",
+            "notNull": false,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "checkinClaimId": {
+            "fieldName": "checkinClaimId",
+            "name": "checkin_claim_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "createdAt": {
+            "fieldName": "createdAt",
+            "name": "created_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "updatedAt": {
+            "fieldName": "updatedAt",
+            "name": "updated_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "deletedAt": {
+            "fieldName": "deletedAt",
+            "name": "deleted_at",
+            "kind": "timestamp",
+            "notNull": false,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          }
+        },
+        "primaryKey": ["messageId", "memberId"],
+        "indexes": []
+      },
+      "messageRoomOrder": {
+        "name": "sheet_db_message_room_order",
+        "columns": {
+          "messageId": {
+            "fieldName": "messageId",
+            "name": "message_id",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": true
+          },
+          "previousFills": {
+            "fieldName": "previousFills",
+            "name": "previous_fills",
+            "kind": "array",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "elementKind": "varchar"
+            }
+          },
+          "fills": {
+            "fieldName": "fills",
+            "name": "fills",
+            "kind": "array",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "elementKind": "varchar"
+            }
+          },
+          "hour": {
+            "fieldName": "hour",
+            "name": "hour",
+            "kind": "integer",
+            "notNull": true,
+            "primaryKey": false
+          },
+          "rank": {
+            "fieldName": "rank",
+            "name": "rank",
+            "kind": "integer",
+            "notNull": true,
+            "primaryKey": false
+          },
+          "tentative": {
+            "fieldName": "tentative",
+            "name": "tentative",
+            "kind": "boolean",
+            "notNull": true,
+            "primaryKey": false
+          },
+          "monitor": {
+            "fieldName": "monitor",
+            "name": "monitor",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "guildId": {
+            "fieldName": "guildId",
+            "name": "guild_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "messageChannelId": {
+            "fieldName": "messageChannelId",
+            "name": "message_channel_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "createdByUserId": {
+            "fieldName": "createdByUserId",
+            "name": "created_by_user_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "sendClaimId": {
+            "fieldName": "sendClaimId",
+            "name": "send_claim_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "sendClaimedAt": {
+            "fieldName": "sendClaimedAt",
+            "name": "send_claimed_at",
+            "kind": "timestamp",
+            "notNull": false,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "sentMessageId": {
+            "fieldName": "sentMessageId",
+            "name": "sent_message_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "sentMessageChannelId": {
+            "fieldName": "sentMessageChannelId",
+            "name": "sent_message_channel_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "sentAt": {
+            "fieldName": "sentAt",
+            "name": "sent_at",
+            "kind": "timestamp",
+            "notNull": false,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "tentativeUpdateClaimId": {
+            "fieldName": "tentativeUpdateClaimId",
+            "name": "tentative_update_claim_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "tentativeUpdateClaimedAt": {
+            "fieldName": "tentativeUpdateClaimedAt",
+            "name": "tentative_update_claimed_at",
+            "kind": "timestamp",
+            "notNull": false,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "tentativePinClaimId": {
+            "fieldName": "tentativePinClaimId",
+            "name": "tentative_pin_claim_id",
+            "kind": "varchar",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "tentativePinClaimedAt": {
+            "fieldName": "tentativePinClaimedAt",
+            "name": "tentative_pin_claimed_at",
+            "kind": "timestamp",
+            "notNull": false,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "tentativePinnedAt": {
+            "fieldName": "tentativePinnedAt",
+            "name": "tentative_pinned_at",
+            "kind": "timestamp",
+            "notNull": false,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "createdAt": {
+            "fieldName": "createdAt",
+            "name": "created_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "updatedAt": {
+            "fieldName": "updatedAt",
+            "name": "updated_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "deletedAt": {
+            "fieldName": "deletedAt",
+            "name": "deleted_at",
+            "kind": "timestamp",
+            "notNull": false,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          }
+        },
+        "primaryKey": ["messageId"],
+        "indexes": []
+      },
+      "messageRoomOrderEntry": {
+        "name": "sheet_db_message_room_order_entry",
+        "columns": {
+          "messageId": {
+            "fieldName": "messageId",
+            "name": "message_id",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": true
+          },
+          "rank": {
+            "fieldName": "rank",
+            "name": "rank",
+            "kind": "integer",
+            "notNull": true,
+            "primaryKey": true
+          },
+          "position": {
+            "fieldName": "position",
+            "name": "position",
+            "kind": "integer",
+            "notNull": true,
+            "primaryKey": true
+          },
+          "hour": {
+            "fieldName": "hour",
+            "name": "hour",
+            "kind": "integer",
+            "notNull": true,
+            "primaryKey": false
+          },
+          "team": {
+            "fieldName": "team",
+            "name": "team",
+            "kind": "varchar",
+            "notNull": true,
+            "primaryKey": false
+          },
+          "tags": {
+            "fieldName": "tags",
+            "name": "tags",
+            "kind": "array",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "elementKind": "varchar"
+            }
+          },
+          "effectValue": {
+            "fieldName": "effectValue",
+            "name": "effect_value",
+            "kind": "real",
+            "notNull": true,
+            "primaryKey": false
+          },
+          "createdAt": {
+            "fieldName": "createdAt",
+            "name": "created_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "updatedAt": {
+            "fieldName": "updatedAt",
+            "name": "updated_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "deletedAt": {
+            "fieldName": "deletedAt",
+            "name": "deleted_at",
+            "kind": "timestamp",
+            "notNull": false,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          }
+        },
+        "primaryKey": ["messageId", "rank", "position"],
+        "indexes": [
+          {
+            "name": "sheet_db_message_room_order_entry_message_id_rank_idx",
+            "unique": false,
+            "fields": ["messageId", "rank"]
+          }
+        ]
+      },
+      "sheetApisDispatchJobs": {
+        "name": "sheet_db_sheet_apis_dispatch_jobs",
+        "columns": {
+          "dispatchRequestId": {
+            "fieldName": "dispatchRequestId",
+            "name": "dispatch_request_id",
+            "kind": "text",
+            "notNull": true,
+            "primaryKey": true
+          },
+          "entityType": {
+            "fieldName": "entityType",
+            "name": "entity_type",
+            "kind": "text",
+            "notNull": true,
+            "primaryKey": false
+          },
+          "entityId": {
+            "fieldName": "entityId",
+            "name": "entity_id",
+            "kind": "text",
+            "notNull": true,
+            "primaryKey": false
+          },
+          "operation": {
+            "fieldName": "operation",
+            "name": "operation",
+            "kind": "text",
+            "notNull": true,
+            "primaryKey": false
+          },
+          "status": {
+            "fieldName": "status",
+            "name": "status",
+            "kind": "text",
+            "notNull": true,
+            "primaryKey": false
+          },
+          "runId": {
+            "fieldName": "runId",
+            "name": "run_id",
+            "kind": "text",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "payload": {
+            "fieldName": "payload",
+            "name": "payload",
+            "kind": "jsonb",
+            "notNull": true,
+            "primaryKey": false
+          },
+          "result": {
+            "fieldName": "result",
+            "name": "result",
+            "kind": "jsonb",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "error": {
+            "fieldName": "error",
+            "name": "error",
+            "kind": "jsonb",
+            "notNull": false,
+            "primaryKey": false
+          },
+          "createdAt": {
+            "fieldName": "createdAt",
+            "name": "created_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "updatedAt": {
+            "fieldName": "updatedAt",
+            "name": "updated_at",
+            "kind": "timestamp",
+            "notNull": true,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          },
+          "deletedAt": {
+            "fieldName": "deletedAt",
+            "name": "deleted_at",
+            "kind": "timestamp",
+            "notNull": false,
+            "primaryKey": false,
+            "config": {
+              "withTimezone": true
+            }
+          }
+        },
+        "primaryKey": ["dispatchRequestId"],
+        "indexes": [
+          {
+            "name": "sheet_db_sheet_apis_dispatch_jobs_status_updated_at_idx",
+            "unique": false,
+            "fields": ["status", "updatedAt"]
+          }
+        ]
+      }
+    }
+  },
+  "extensions": {
+    "effect-zero:publication:default": {
+      "name": "zero_data",
+      "tables": [
+        {
+          "schema": "public",
+          "name": "sheet_db_config_guild",
+          "columns": [
+            "auto_checkin",
+            "created_at",
+            "deleted_at",
+            "guild_id",
+            "sheet_id",
+            "updated_at"
+          ]
+        },
+        {
+          "schema": "public",
+          "name": "sheet_db_config_guild_channel",
+          "columns": [
+            "channel_id",
+            "checkin_channel_id",
+            "created_at",
+            "deleted_at",
+            "guild_id",
+            "name",
+            "role_id",
+            "running",
+            "updated_at"
+          ]
+        },
+        {
+          "schema": "public",
+          "name": "sheet_db_config_guild_feature_flag",
+          "columns": ["created_at", "deleted_at", "flag_name", "guild_id", "updated_at"]
+        },
+        {
+          "schema": "public",
+          "name": "sheet_db_config_guild_manager_role",
+          "columns": ["created_at", "deleted_at", "guild_id", "role_id", "updated_at"]
+        },
+        {
+          "schema": "public",
+          "name": "sheet_db_config_guild_update_announcement_delivery",
+          "columns": [
+            "announcement_id",
+            "channel_id",
+            "created_at",
+            "deleted_at",
+            "delivered_at",
+            "guild_id",
+            "message_id",
+            "published_at",
+            "updated_at"
+          ]
+        },
+        {
+          "schema": "public",
+          "name": "sheet_db_message_checkin",
+          "columns": [
+            "channel_id",
+            "created_at",
+            "created_by_user_id",
+            "deleted_at",
+            "guild_id",
+            "hour",
+            "initial_message",
+            "message_channel_id",
+            "message_id",
+            "role_id",
+            "updated_at"
+          ]
+        },
+        {
+          "schema": "public",
+          "name": "sheet_db_message_checkin_member",
+          "columns": [
+            "checkin_at",
+            "checkin_claim_id",
+            "created_at",
+            "deleted_at",
+            "member_id",
+            "message_id",
+            "updated_at"
+          ]
+        },
+        {
+          "schema": "public",
+          "name": "sheet_db_message_room_order",
+          "columns": [
+            "created_at",
+            "created_by_user_id",
+            "deleted_at",
+            "fills",
+            "guild_id",
+            "hour",
+            "message_channel_id",
+            "message_id",
+            "monitor",
+            "previous_fills",
+            "rank",
+            "send_claim_id",
+            "send_claimed_at",
+            "sent_at",
+            "sent_message_channel_id",
+            "sent_message_id",
+            "tentative",
+            "tentative_pin_claim_id",
+            "tentative_pin_claimed_at",
+            "tentative_pinned_at",
+            "tentative_update_claim_id",
+            "tentative_update_claimed_at",
+            "updated_at"
+          ]
+        },
+        {
+          "schema": "public",
+          "name": "sheet_db_message_room_order_entry",
+          "columns": [
+            "created_at",
+            "deleted_at",
+            "effect_value",
+            "hour",
+            "message_id",
+            "position",
+            "rank",
+            "tags",
+            "team",
+            "updated_at"
+          ]
+        },
+        {
+          "schema": "public",
+          "name": "sheet_db_message_slot",
+          "columns": [
+            "created_at",
+            "created_by_user_id",
+            "day",
+            "deleted_at",
+            "guild_id",
+            "message_channel_id",
+            "message_id",
+            "updated_at"
+          ]
+        },
+        {
+          "schema": "public",
+          "name": "sheet_db_sheet_apis_dispatch_jobs",
+          "columns": [
+            "created_at",
+            "deleted_at",
+            "dispatch_request_id",
+            "entity_id",
+            "entity_type",
+            "error",
+            "operation",
+            "payload",
+            "result",
+            "run_id",
+            "status",
+            "updated_at"
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -7,6 +7,7 @@ import {
   GuildConfig,
   GuildFeatureFlag,
   GuildConfigMonitorRole,
+  GuildUpdateAnnouncementDelivery,
 } from "sheet-ingress-api/schemas/guildConfig";
 import { MessageCheckin, MessageCheckinMember } from "sheet-ingress-api/schemas/messageCheckin";
 import {
@@ -24,6 +25,9 @@ const successSchemas = {
     getGuildFeatureFlags: Schema.Array(DefaultTaggedClass(GuildFeatureFlag)),
     getGuildsForFeatureFlag: Schema.Array(DefaultTaggedClass(GuildFeatureFlag)),
     getGuildFeatureFlag: Schema.OptionFromNullishOr(DefaultTaggedClass(GuildFeatureFlag)),
+    getGuildUpdateAnnouncementDelivery: Schema.OptionFromNullishOr(
+      DefaultTaggedClass(GuildUpdateAnnouncementDelivery),
+    ),
     getGuildChannels: Schema.Array(DefaultTaggedClass(GuildChannelConfig)),
     getGuildChannelById: Schema.OptionFromNullishOr(DefaultTaggedClass(GuildChannelConfig)),
     getGuildChannelByName: Schema.OptionFromNullishOr(DefaultTaggedClass(GuildChannelConfig)),
@@ -76,6 +80,10 @@ export interface SheetZeroClientApi {
       readonly guildId: string;
       readonly flagName: string;
     }) => QueryResult<Option.Option<GuildFeatureFlag>>;
+    readonly getGuildUpdateAnnouncementDelivery: (args: {
+      readonly guildId: string;
+      readonly announcementId: string;
+    }) => QueryResult<Option.Option<GuildUpdateAnnouncementDelivery>>;
     readonly getGuildChannels: (args: {
       readonly guildId: string;
       readonly running?: boolean | undefined;
@@ -110,6 +118,25 @@ export interface SheetZeroClientApi {
     readonly removeGuildFeatureFlag: MutatorResult<{
       readonly guildId: string;
       readonly flagName: string;
+    }>;
+    readonly recordGuildUpdateAnnouncementDelivery: MutatorResult<{
+      readonly guildId: string;
+      readonly announcementId: string;
+      readonly publishedAt: number;
+      readonly deliveredAt: number;
+      readonly channelId: string;
+      readonly messageId: string;
+    }>;
+    readonly claimGuildUpdateAnnouncementDelivery: MutatorResult<{
+      readonly guildId: string;
+      readonly announcementId: string;
+      readonly publishedAt: number;
+      readonly claimToken: string;
+    }>;
+    readonly releaseGuildUpdateAnnouncementDeliveryClaim: MutatorResult<{
+      readonly guildId: string;
+      readonly announcementId: string;
+      readonly claimToken: string;
     }>;
     readonly upsertGuildChannelConfig: MutatorResult<{
       readonly guildId: string;
@@ -283,7 +310,7 @@ export class SheetZeroClient extends Context.Service<SheetZeroClient>()("SheetZe
   make: Effect.gen(function* () {
     const zeroClient = yield* ZeroClient;
     return yield* ZeroApiClient.makeWithService(SheetZeroApi, zeroClient, { mutators }).pipe(
-      Effect.map((client) => client as SheetZeroClientApi),
+      Effect.map((client) => client as unknown as SheetZeroClientApi),
     );
   }),
 }) {

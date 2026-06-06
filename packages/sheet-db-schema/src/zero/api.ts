@@ -25,6 +25,7 @@ export interface SheetZeroApiSuccessSchemas {
     readonly getGuildFeatureFlags: Schema.Top;
     readonly getGuildsForFeatureFlag: Schema.Top;
     readonly getGuildFeatureFlag: Schema.Top;
+    readonly getGuildUpdateAnnouncementDelivery: Schema.Top;
     readonly getGuildChannels: Schema.Top;
     readonly getGuildChannelById: Schema.Top;
     readonly getGuildChannelByName: Schema.Top;
@@ -51,6 +52,7 @@ const defaultSuccessSchemas = {
     getGuildFeatureFlags: Schema.Any,
     getGuildsForFeatureFlag: Schema.Any,
     getGuildFeatureFlag: Schema.Any,
+    getGuildUpdateAnnouncementDelivery: Schema.Any,
     getGuildChannels: Schema.Any,
     getGuildChannelById: Schema.Any,
     getGuildChannelByName: Schema.Any,
@@ -68,6 +70,8 @@ const defaultSuccessSchemas = {
     getMessageSlotData: Schema.Any,
   },
 } satisfies SheetZeroApiSuccessSchemas;
+
+const updateAnnouncementDeliveryPendingChannelId = "__pending_update_announcement_delivery__";
 
 const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSuccessSchemas>(
   success: SuccessSchemas,
@@ -118,6 +122,15 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
         zeroTableAccess.configGuildFeatureFlag.getActiveByPrimaryKey(
           builder.configGuildFeatureFlag,
           { guildId, flagName },
+        ),
+    }),
+    ZeroApiEndpoint.query("getGuildUpdateAnnouncementDelivery", {
+      request: Schema.Struct({ guildId: Schema.String, announcementId: Schema.String }),
+      success: success.guildConfig.getGuildUpdateAnnouncementDelivery,
+      query: ({ args: { guildId, announcementId } }) =>
+        zeroTableAccess.configGuildUpdateAnnouncementDelivery.getActiveByPrimaryKey(
+          builder.configGuildUpdateAnnouncementDelivery,
+          { guildId, announcementId },
         ),
     }),
     ZeroApiEndpoint.query("getGuildChannels", {
@@ -277,6 +290,111 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
             flagName: args.flagName,
           }),
         ),
+    }),
+    ZeroApiEndpoint.mutator("recordGuildUpdateAnnouncementDelivery", {
+      request: Schema.Struct({
+        guildId: Schema.String,
+        announcementId: Schema.String,
+        publishedAt: Schema.Number,
+        deliveredAt: Schema.Number,
+        channelId: Schema.String,
+        messageId: Schema.String,
+      }),
+      mutator: async ({ tx, args }) => {
+        const existingDelivery = await tx.run(
+          builder.configGuildUpdateAnnouncementDelivery
+            .where("guildId", "=", args.guildId)
+            .where("announcementId", "=", args.announcementId)
+            .one(),
+        );
+
+        await tx.mutate.configGuildUpdateAnnouncementDelivery.upsert(
+          zeroTableAccess.configGuildUpdateAnnouncementDelivery.upsertWithTimestamps(
+            {
+              guildId: args.guildId,
+              announcementId: args.announcementId,
+              publishedAt: args.publishedAt,
+              deliveredAt: args.deliveredAt,
+              channelId: args.channelId,
+              messageId: args.messageId,
+              deletedAt: null,
+            },
+            existingDelivery,
+          ),
+        );
+      },
+    }),
+    ZeroApiEndpoint.mutator("claimGuildUpdateAnnouncementDelivery", {
+      request: Schema.Struct({
+        guildId: Schema.String,
+        announcementId: Schema.String,
+        publishedAt: Schema.Number,
+        claimToken: Schema.String,
+      }),
+      mutator: async ({ tx, args }) => {
+        const existingDelivery = await tx.run(
+          builder.configGuildUpdateAnnouncementDelivery
+            .where("guildId", "=", args.guildId)
+            .where("announcementId", "=", args.announcementId)
+            .one(),
+        );
+
+        if (existingDelivery?.deletedAt == null && existingDelivery != null) {
+          return;
+        }
+
+        const value = zeroTableAccess.configGuildUpdateAnnouncementDelivery.upsertWithTimestamps(
+          {
+            guildId: args.guildId,
+            announcementId: args.announcementId,
+            publishedAt: args.publishedAt,
+            deliveredAt: Date.now(),
+            channelId: updateAnnouncementDeliveryPendingChannelId,
+            messageId: args.claimToken,
+            deletedAt: null,
+          },
+          existingDelivery,
+        );
+
+        if (existingDelivery?.deletedAt != null) {
+          await tx.mutate.configGuildUpdateAnnouncementDelivery.delete({
+            guildId: args.guildId,
+            announcementId: args.announcementId,
+          });
+          await tx.mutate.configGuildUpdateAnnouncementDelivery.insert(value);
+          return;
+        }
+
+        await tx.mutate.configGuildUpdateAnnouncementDelivery.insert(value);
+      },
+    }),
+    ZeroApiEndpoint.mutator("releaseGuildUpdateAnnouncementDeliveryClaim", {
+      request: Schema.Struct({
+        guildId: Schema.String,
+        announcementId: Schema.String,
+        claimToken: Schema.String,
+      }),
+      mutator: async ({ tx, args }) => {
+        const existingDelivery = await tx.run(
+          builder.configGuildUpdateAnnouncementDelivery
+            .where("guildId", "=", args.guildId)
+            .where("announcementId", "=", args.announcementId)
+            .one(),
+        );
+
+        if (
+          existingDelivery?.deletedAt == null &&
+          existingDelivery?.channelId === updateAnnouncementDeliveryPendingChannelId &&
+          existingDelivery.messageId === args.claimToken
+        ) {
+          await tx.mutate.configGuildUpdateAnnouncementDelivery.update(
+            zeroTableAccess.configGuildUpdateAnnouncementDelivery.softDeleteByPrimaryKey({
+              guildId: args.guildId,
+              announcementId: args.announcementId,
+            }),
+          );
+        }
+      },
     }),
     ZeroApiEndpoint.mutator("upsertGuildChannelConfig", {
       request: Schema.Struct({
