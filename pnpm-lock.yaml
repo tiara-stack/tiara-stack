@@ -506,6 +506,9 @@ importers:
       sheet-auth:
         specifier: workspace:*
         version: link:../sheet-auth
+      sheet-db-schema:
+        specifier: workspace:*
+        version: link:../sheet-db-schema
       sheet-ingress-api:
         specifier: workspace:*
         version: link:../sheet-ingress-api
@@ -745,6 +748,9 @@ importers:
       sheet-auth:
         specifier: workspace:*
         version: link:../sheet-auth
+      sheet-db-schema:
+        specifier: workspace:*
+        version: link:../sheet-db-schema
       sheet-ingress-api:
         specifier: workspace:*
         version: link:../sheet-ingress-api
@@ -936,6 +942,9 @@ importers:
       sheet-auth:
         specifier: workspace:*
         version: link:../sheet-auth
+      sheet-db-schema:
+        specifier: workspace:*
+        version: link:../sheet-db-schema
       sheet-ingress-api:
         specifier: workspace:*
         version: link:../sheet-ingress-api

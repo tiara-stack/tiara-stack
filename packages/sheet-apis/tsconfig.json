@@ -20,7 +20,6 @@
       "sheet-auth/plugins/kubernetes-oauth/rpc-authorization": [
         "../sheet-auth/src/plugins/kubernetes-oauth/rpc-authorization.ts"
       ],
-      "sheet-db-schema/zero": ["../sheet-db-schema/src/zero/index.ts"],
       "sheet-ingress-api/*": ["../sheet-ingress-api/src/*"],
       "*": ["./*"],
       "~~/*": ["./*"],
