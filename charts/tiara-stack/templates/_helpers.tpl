@@ -277,6 +277,9 @@ imagePullSecrets:
     - path: kubernetes-jwks-token
     - path: sheet-auth-token
       audience: sheet-auth
+  networkPolicyFrom:
+    - app: sheet-ingress-server
+      port: sheet-bot-svc
 - key: sheetWorkflows
   name: sheet-workflows
   portName: workflows-svc
