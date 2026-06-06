@@ -54,7 +54,7 @@ export const DiscordGroupDMChannel = Schema.Struct({
 export const DiscordGuildChannel = Schema.Struct({
   ...DiscordChannelBase,
   type: Schema.Literals([0, 2, 4, 5, 13, 14, 15, 16]),
-  guild_id: Schema.String,
+  guild_id: Schema.optional(Schema.String),
   name: Schema.String,
   parent_id: Schema.optional(Schema.NullOr(Schema.String)),
   position: Schema.Number,

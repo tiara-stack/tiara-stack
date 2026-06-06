@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Exit, Schema } from "effect";
-import { DiscordMember } from "./schema";
+import { DiscordChannel, DiscordMember } from "./schema";
 
 describe("Discord schema", () => {
   it("accepts guild member users without optional account flag fields", async () => {
@@ -31,5 +31,22 @@ describe("Discord schema", () => {
         },
       },
     });
+  });
+
+  it("preserves guild channel names and positions when guild_id is absent", () => {
+    const channel = {
+      id: "channel-1",
+      flags: 0,
+      last_message_id: null,
+      type: 0,
+      name: "general",
+      position: 1,
+      parent_id: null,
+      permission_overwrites: [],
+    };
+
+    const decoded = Schema.decodeUnknownSync(DiscordChannel)(channel);
+
+    expect(Schema.encodeUnknownSync(DiscordChannel)(decoded)).toEqual(channel);
   });
 });
