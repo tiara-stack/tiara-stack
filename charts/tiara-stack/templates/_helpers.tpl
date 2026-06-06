@@ -64,6 +64,10 @@ app.kubernetes.io/instance: {{ .root.Release.Name }}
 {{- default "sheet-apis" .Values.services.sheetApis.nameOverride -}}
 {{- end -}}
 
+{{- define "tiara-stack.sheetDbServerName" -}}
+{{- default "sheet-db-server" .Values.services.sheetDbServer.nameOverride -}}
+{{- end -}}
+
 {{- define "tiara-stack.zeroCacheServiceName" -}}
 {{- default "zero-cache-service" .Values.zeroCache.serviceNameOverride -}}
 {{- end -}}

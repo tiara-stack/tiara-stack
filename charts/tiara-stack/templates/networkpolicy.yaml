@@ -82,6 +82,29 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
+  name: {{ include "tiara-stack.zeroCacheName" . }}-to-{{ include "tiara-stack.sheetDbServerName" . }}
+  labels:
+    {{- include "tiara-stack.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: {{ include "tiara-stack.sheetDbServerName" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: {{ include "tiara-stack.zeroCacheName" . }}
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - protocol: TCP
+          port: sdbs-svc
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
   name: {{ include "tiara-stack.zeroCacheName" . }}-service-ingress
   labels:
     {{- include "tiara-stack.labels" . | nindent 4 }}

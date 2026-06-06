@@ -250,7 +250,6 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
             {
               guildId: args.guildId,
               flagName: args.flagName,
-              deletedAt: null,
             },
             existingFlag,
           ),
