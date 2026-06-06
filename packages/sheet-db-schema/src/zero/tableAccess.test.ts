@@ -38,6 +38,28 @@ describe("defineZeroTableAccess", () => {
     });
   });
 
+  it("normalizes existing createdAt to integer milliseconds on upsert", () => {
+    vi.spyOn(Date, "now").mockReturnValueOnce(250);
+
+    const access = defineZeroTableAccess(
+      model,
+      {},
+      {
+        primaryKey: ["id"],
+        timestamps: {
+          createdAt: "createdAt",
+          updatedAt: "updatedAt",
+        },
+      },
+    );
+
+    expect(access.upsertWithTimestamps({ id: "1" }, { createdAt: 100.75 })).toEqual({
+      id: "1",
+      createdAt: 100,
+      updatedAt: 250,
+    });
+  });
+
   it("initializes createdAt and updatedAt on new upserts", () => {
     vi.spyOn(Date, "now").mockReturnValueOnce(400);
 
