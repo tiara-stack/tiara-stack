@@ -69,6 +69,8 @@ type WithSoftDelete<
   Options extends DefineZeroTableAccessOptions,
 > = Options["softDelete"] extends string ? Value & Record<Options["softDelete"], number> : Value;
 
+const normalizeTimestamp = (value: number): number => Math.trunc(value);
+
 export const defineZeroTableAccess = <
   const Model extends ModelWithVariants,
   const Table,
@@ -142,7 +144,9 @@ export const defineZeroTableAccess = <
 
     return {
       ...value,
-      [createdAt]: value[createdAt] ?? existing?.[createdAt as CreatedAt] ?? now,
+      [createdAt]: normalizeTimestamp(
+        (value[createdAt] ?? existing?.[createdAt as CreatedAt] ?? now) as number,
+      ),
       [updatedAt]: now,
     } as WithTimestamps<Value, Options>;
   };
