@@ -245,15 +245,24 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
             .one(),
         );
 
-        await tx.mutate.configGuildFeatureFlag.upsert(
-          zeroTableAccess.configGuildFeatureFlag.upsertWithTimestamps(
-            {
-              guildId: args.guildId,
-              flagName: args.flagName,
-            },
-            existingFlag,
-          ),
+        const value = zeroTableAccess.configGuildFeatureFlag.upsertWithTimestamps(
+          {
+            guildId: args.guildId,
+            flagName: args.flagName,
+          },
+          existingFlag,
         );
+
+        if (existingFlag?.deletedAt != null) {
+          await tx.mutate.configGuildFeatureFlag.delete({
+            guildId: args.guildId,
+            flagName: args.flagName,
+          });
+          await tx.mutate.configGuildFeatureFlag.insert(value);
+          return;
+        }
+
+        await tx.mutate.configGuildFeatureFlag.upsert(value);
       },
     }),
     ZeroApiEndpoint.mutator("removeGuildFeatureFlag", {
