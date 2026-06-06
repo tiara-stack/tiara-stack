@@ -33,6 +33,7 @@
     "dfx-discord-utils": "workspace:*",
     "effect": "catalog:",
     "sheet-auth": "workspace:*",
+    "sheet-db-schema": "workspace:*",
     "sheet-ingress-api": "workspace:*",
     "typhoon-core": "workspace:*"
   },

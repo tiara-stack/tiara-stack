@@ -26,6 +26,7 @@
     "discord-api-types": "^0.38.38",
     "effect": "catalog:",
     "sheet-auth": "workspace:*",
+    "sheet-db-schema": "workspace:*",
     "sheet-ingress-api": "workspace:*",
     "typhoon-core": "workspace:*"
   },

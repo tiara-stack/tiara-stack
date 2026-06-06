@@ -31,6 +31,7 @@
     "@opentelemetry/sdk-trace-base": "^2.2.0",
     "dfx-discord-utils": "workspace:*",
     "sheet-auth": "workspace:*",
+    "sheet-db-schema": "workspace:*",
     "sheet-ingress-api": "workspace:*",
     "typhoon-core": "workspace:*",
     "typhoon-zero": "workspace:*"
