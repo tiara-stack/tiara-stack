@@ -90,7 +90,7 @@ const messageFromError = (message: string, error: unknown): string => {
   return message;
 };
 
-const handleBotRestError = <A>(
+export const handleBotRestError = <A>(
   effect: Effect.Effect<A, unknown, never>,
   message: string,
 ): Effect.Effect<A, DiscordBotRestError, never> =>

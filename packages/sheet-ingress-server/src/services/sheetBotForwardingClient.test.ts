@@ -32,6 +32,68 @@ const run = <A, E, R>(
     ),
   );
 
+type ForwardingClient = Effect.Success<typeof SheetBotForwardingClient.make>;
+
+const makeRequestCapturingClient = () => {
+  const requestReceived = Deferred.makeUnsafe<HttpClientRequest.HttpClientRequest>();
+  const httpClient = HttpClient.make((request) =>
+    Deferred.succeed(requestReceived, request).pipe(
+      Effect.as(HttpClientResponse.fromWeb(request, new Response("{}", { status: 500 }))),
+    ),
+  );
+
+  return { httpClient, requestReceived };
+};
+
+const captureForwardedRequest = <A, E>(
+  useClient: (client: ForwardingClient) => Effect.Effect<A, E, never>,
+) => {
+  const { httpClient, requestReceived } = makeRequestCapturingClient();
+
+  return run(
+    Effect.gen(function* () {
+      const client = yield* SheetBotForwardingClient.make;
+      const fiber = yield* Effect.forkScoped(Effect.ignore(useClient(client)));
+      const request = yield* Deferred.await(requestReceived);
+      yield* Fiber.interrupt(fiber);
+      return request;
+    }),
+    httpClient,
+  );
+};
+
+const interactionToken = "interaction-token";
+const donePayload = { content: "Done" };
+
+const expectForwardedSheetBotRequest = (
+  request: HttpClientRequest.HttpClientRequest,
+  url: string,
+) => {
+  expect(request.url).toBe(url);
+  expect(request.headers["x-sheet-ingress-auth"]).toBe("Bearer ingress-token");
+};
+
+const expectJsonRequestBody = (request: HttpClientRequest.HttpClientRequest, body: object) => {
+  expect(request.body._tag).toBe("Uint8Array");
+  if (request.body._tag === "Uint8Array") {
+    expect(JSON.parse(new TextDecoder().decode(request.body.body))).toMatchObject(body);
+  }
+};
+
+const expectFormDataRequestBody = (
+  request: HttpClientRequest.HttpClientRequest,
+  body: {
+    readonly interactionToken: string;
+    readonly payload: object;
+  },
+) => {
+  expect(request.body._tag).toBe("FormData");
+  if (request.body._tag === "FormData") {
+    expect(request.body.formData.get("interactionToken")).toBe(body.interactionToken);
+    expect(request.body.formData.get("payload")).toBe(JSON.stringify(body.payload));
+  }
+};
+
 describe("SheetBotForwardingClient", () => {
   it("exposes application and cache compatibility wrappers", async () => {
     const client = await run(SheetBotForwardingClient.make);
@@ -49,26 +111,64 @@ describe("SheetBotForwardingClient", () => {
   });
 
   it("adds the ingress bearer token to sheet-bot HTTP API requests", async () => {
-    const requestReceived = Deferred.makeUnsafe<HttpClientRequest.HttpClientRequest>();
-    const httpClient = HttpClient.make((request) => {
-      return Deferred.succeed(requestReceived, request).pipe(
-        Effect.as(HttpClientResponse.fromWeb(request, new Response("{}", { status: 500 }))),
-      );
-    });
+    const request = await captureForwardedRequest((client) => client.application.getApplication());
 
-    const request = await run(
-      Effect.gen(function* () {
-        const client = yield* SheetBotForwardingClient.make;
-        const fiber = yield* Effect.forkScoped(Effect.ignore(client.application.getApplication()));
-        const request = yield* Deferred.await(requestReceived);
-        yield* Fiber.interrupt(fiber);
-        return request;
-      }),
-      httpClient,
-    );
+    expectForwardedSheetBotRequest(request, "http://sheet-bot/application");
+  });
 
-    expect(request.url).toBe("http://sheet-bot/application");
-    expect(request.headers["x-sheet-ingress-auth"]).toBe("Bearer ingress-token");
+  it.each([
+    {
+      expectedUrl: `http://sheet-bot/bot/interactions/${interactionToken}/original-response`,
+      name: "includes the interaction token when updating the original interaction response",
+      runRequest: (client: ForwardingClient) =>
+        client.bot.updateOriginalInteractionResponse({
+          params: { interactionToken },
+          payload: donePayload,
+        }),
+    },
+    {
+      bodyKind: "json",
+      expectedBody: {
+        interactionToken,
+        payload: donePayload,
+      },
+      expectedUrl: "http://sheet-bot/bot/interactions/original-response",
+      name: "can update the original interaction response with the token in the body",
+      runRequest: (client: ForwardingClient) =>
+        client.bot.updateOriginalInteractionResponseByPayload({
+          interactionToken,
+          payload: donePayload,
+        }),
+    },
+    {
+      bodyKind: "formData",
+      expectedBody: {
+        interactionToken,
+        payload: donePayload,
+      },
+      expectedUrl: "http://sheet-bot/bot/interactions/original-response/files",
+      name: "can update the original interaction response with files and the token in the body",
+      runRequest: (client: ForwardingClient) => {
+        const formData = new FormData();
+        formData.append("interactionToken", interactionToken);
+        formData.append("payload", JSON.stringify(donePayload));
+        formData.append("files", new File(["content"], "screenshot.png", { type: "image/png" }));
+
+        return client.bot.updateOriginalInteractionResponseWithFilesByPayload({
+          payload: formData,
+        });
+      },
+    },
+  ])("$name", async ({ bodyKind, expectedBody, expectedUrl, runRequest }) => {
+    const request = await captureForwardedRequest(runRequest);
+
+    expectForwardedSheetBotRequest(request, expectedUrl);
+    if (bodyKind === "json") {
+      expectJsonRequestBody(request, expectedBody);
+    }
+    if (bodyKind === "formData") {
+      expectFormDataRequestBody(request, expectedBody);
+    }
   });
 
   it("surfaces ingress token failures as HTTP client errors", async () => {

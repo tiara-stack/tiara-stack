@@ -392,9 +392,13 @@ const buildFileUploadFormData = (
     }>;
   },
   fs: FileSystem.FileSystem,
+  interactionToken?: string,
 ) =>
   Effect.gen(function* () {
     const formData = new FormData();
+    if (interactionToken !== undefined) {
+      formData.append("interactionToken", interactionToken);
+    }
     formData.append("payload", JSON.stringify(payload.payload));
 
     yield* Effect.forEach(
@@ -1333,7 +1337,14 @@ const makeApiLayer = () => {
         .handle("updateMessage", forwardSheetBot("bot", "updateMessage"))
         .handle(
           "updateOriginalInteractionResponse",
-          forwardSheetBot("bot", "updateOriginalInteractionResponse"),
+          ({ params: { interactionToken }, payload }) =>
+            Effect.gen(function* () {
+              const client = yield* SheetBotForwardingClient;
+              return yield* client.bot.updateOriginalInteractionResponseByPayload({
+                interactionToken,
+                payload,
+              });
+            }) as ReturnType<SheetBotProxyHandler<"bot", "updateOriginalInteractionResponse">>,
         )
         .handle(
           "updateOriginalInteractionResponseWithFiles",
@@ -1341,9 +1352,8 @@ const makeApiLayer = () => {
             Effect.gen(function* () {
               const client = yield* SheetBotForwardingClient;
               const fs = yield* FileSystem.FileSystem;
-              const formData = yield* buildFileUploadFormData(payload, fs);
-              return yield* client.bot.updateOriginalInteractionResponseWithFiles({
-                params: { interactionToken },
+              const formData = yield* buildFileUploadFormData(payload, fs, interactionToken);
+              return yield* client.bot.updateOriginalInteractionResponseWithFilesByPayload({
                 payload: formData,
               });
             }) as ReturnType<
@@ -1357,14 +1367,13 @@ const makeApiLayer = () => {
     ),
     HttpApiBuilder.group(Api, "ingressBot", (handlers) =>
       handlers
-        .handle("updateOriginalInteractionResponse", ({ payload }) =>
-          forwardSheetBot(
-            "bot",
-            "updateOriginalInteractionResponse",
-          )({
-            params: { interactionToken: payload.interactionToken },
-            payload: payload.payload,
-          } as never),
+        .handle(
+          "updateOriginalInteractionResponse",
+          ({ payload }) =>
+            Effect.gen(function* () {
+              const client = yield* SheetBotForwardingClient;
+              return yield* client.bot.updateOriginalInteractionResponseByPayload(payload);
+            }) as ReturnType<SheetBotProxyHandler<"bot", "updateOriginalInteractionResponse">>,
         )
         .handle(
           "updateOriginalInteractionResponseWithFiles",
@@ -1372,9 +1381,12 @@ const makeApiLayer = () => {
             Effect.gen(function* () {
               const client = yield* SheetBotForwardingClient;
               const fs = yield* FileSystem.FileSystem;
-              const formData = yield* buildFileUploadFormData(payload, fs);
-              return yield* client.bot.updateOriginalInteractionResponseWithFiles({
-                params: { interactionToken: payload.interactionToken },
+              const formData = yield* buildFileUploadFormData(
+                payload,
+                fs,
+                payload.interactionToken,
+              );
+              return yield* client.bot.updateOriginalInteractionResponseWithFilesByPayload({
                 payload: formData,
               });
             }) as ReturnType<
