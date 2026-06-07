@@ -1,6 +1,11 @@
-// fallow-ignore-next-line unresolved-import
 import { describe, expect, it } from "vitest";
-import { makeUpdateAnnouncementDispatchPayloads, updateAnnouncements } from "./updateAnnouncements";
+import { DateTime } from "effect";
+import type { ServicesStatusResponse } from "sheet-ingress-api/sheet-apis-rpc";
+import {
+  areUpdateAnnouncementServicesHealthy,
+  makeUpdateAnnouncementDispatchPayloads,
+  updateAnnouncements,
+} from "./updateAnnouncements";
 
 describe("makeUpdateAnnouncementDispatchPayloads", () => {
   it("builds a payload for an announcement after the bot joined", () => {
@@ -77,5 +82,34 @@ describe("makeUpdateAnnouncementDispatchPayloads", () => {
         joined_at: "not-a-date",
       }),
     ).toEqual([]);
+  });
+});
+
+describe("areUpdateAnnouncementServicesHealthy", () => {
+  const makeStatus = (
+    overallStatus: ServicesStatusResponse["overallStatus"],
+    serviceStatuses: ReadonlyArray<ServicesStatusResponse["services"][number]["status"]>,
+  ) => {
+    const checkedAt = DateTime.makeUnsafe("2026-06-06T00:00:00.000Z");
+
+    return {
+      overallStatus,
+      checkedAt,
+      services: serviceStatuses.map((status, index) => ({
+        name: `service-${index}`,
+        url: `http://service-${index}/ready`,
+        status,
+        httpStatus: status === "ok" ? 200 : 503,
+        latencyMs: 1,
+        checkedAt,
+        error: status === "ok" ? null : "HTTP 503",
+      })),
+    } satisfies ServicesStatusResponse;
+  };
+
+  it("requires the overall status and every dependency to be healthy", () => {
+    expect(areUpdateAnnouncementServicesHealthy(makeStatus("ok", ["ok", "ok"]))).toBe(true);
+    expect(areUpdateAnnouncementServicesHealthy(makeStatus("degraded", ["ok", "ok"]))).toBe(false);
+    expect(areUpdateAnnouncementServicesHealthy(makeStatus("ok", ["ok", "down"]))).toBe(false);
   });
 });

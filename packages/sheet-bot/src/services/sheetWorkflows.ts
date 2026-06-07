@@ -14,6 +14,7 @@ import {
   Match,
   pipe,
   Schedule,
+  Schema,
   DateTime,
   Layer,
   Option,
@@ -22,6 +23,7 @@ import {
 } from "effect";
 import { createKubernetesOAuthSession } from "sheet-auth/client";
 import { DISCORD_SERVICE_USER_ID_SENTINEL } from "sheet-auth/plugins/kubernetes-oauth";
+import { ServicesStatusResponse } from "sheet-ingress-api/sheet-apis-rpc";
 import { SheetWorkflowsApi } from "sheet-ingress-api/sheet-workflows";
 import { SheetAuthClient } from "./sheetAuthClient";
 
@@ -141,6 +143,38 @@ export class SheetWorkflowsClient extends Context.Service<SheetWorkflowsClient>(
         },
       );
 
+      const getRequesterToken = Effect.fn("SheetWorkflowsClient.getRequesterToken")(function* (
+        requester: SheetWorkflowsRequester,
+      ) {
+        const cacheKey = Match.value(requester).pipe(
+          Match.tagsExhaustive({
+            Service: () => DISCORD_SERVICE_USER_ID_SENTINEL,
+            DiscordUser: (requester) => requester.discordUserId,
+          }),
+        );
+        return yield* Match.value(requester).pipe(
+          Match.tagsExhaustive({
+            Service: () =>
+              pipe(
+                Cache.get(tokenCache, cacheKey),
+                Effect.catch((err) =>
+                  pipe(
+                    Effect.logWarning(
+                      `Failed to get service auth token, proceeding unauthenticated: ${String(err)}`,
+                    ),
+                    Effect.as({
+                      token: undefined,
+                      timeToLive: Duration.minutes(1),
+                      failed: true,
+                    }),
+                  ),
+                ),
+              ),
+            DiscordUser: () => Cache.get(tokenCache, cacheKey),
+          }),
+        );
+      });
+
       const httpClientWithToken = HttpClient.mapRequestEffect(
         httpClient,
         Effect.fnUntraced(function* (request) {
@@ -153,33 +187,7 @@ export class SheetWorkflowsClient extends Context.Service<SheetWorkflowsClient>(
               ),
             ),
           );
-          const cacheKey = Match.value(requester).pipe(
-            Match.tagsExhaustive({
-              Service: () => DISCORD_SERVICE_USER_ID_SENTINEL,
-              DiscordUser: (requester) => requester.discordUserId,
-            }),
-          );
-          const { token, failed } = yield* Match.value(requester).pipe(
-            Match.tagsExhaustive({
-              Service: () =>
-                pipe(
-                  Cache.get(tokenCache, cacheKey),
-                  Effect.catch((err) =>
-                    pipe(
-                      Effect.logWarning(
-                        `Failed to get service auth token, proceeding unauthenticated: ${String(err)}`,
-                      ),
-                      Effect.as({
-                        token: undefined,
-                        timeToLive: Duration.minutes(1),
-                        failed: true,
-                      }),
-                    ),
-                  ),
-                ),
-              DiscordUser: () => Cache.get(tokenCache, cacheKey),
-            }),
-          );
+          const { token, failed } = yield* getRequesterToken(requester);
 
           if (requester._tag === "DiscordUser" && (token === undefined || failed)) {
             return yield* Effect.fail(
@@ -198,6 +206,19 @@ export class SheetWorkflowsClient extends Context.Service<SheetWorkflowsClient>(
 
       return {
         get: () => client,
+        getServicesStatus: Effect.fn("SheetWorkflowsClient.getServicesStatus")(function* () {
+          const response = yield* httpClientWithToken.get(`${baseUrl}/status/services`);
+
+          if (response.status < 200 || response.status >= 300) {
+            const body = yield* response.text.pipe(Effect.catch(() => Effect.succeed("")));
+            return yield* Effect.fail(
+              new Error(`Service status request failed with HTTP ${response.status}: ${body}`),
+            );
+          }
+
+          const body = yield* response.json;
+          return yield* Schema.decodeUnknownEffect(ServicesStatusResponse)(body);
+        }),
       };
     }),
   },

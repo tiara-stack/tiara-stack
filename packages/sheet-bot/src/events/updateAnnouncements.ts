@@ -1,9 +1,10 @@
 import { DiscordGateway } from "dfx/gateway";
-import { Effect, Layer, Schema } from "effect";
+import { Duration, Effect, Layer, Schedule, Schema } from "effect";
 import type {
   UpdateAnnouncement,
   UpdateAnnouncementDispatchPayload,
 } from "sheet-ingress-api/handlers/dispatch/schema";
+import type { ServicesStatusResponse } from "sheet-ingress-api/sheet-apis-rpc";
 import { discordGatewayLayer } from "../discord/gateway";
 import { SheetWorkflowsClient, SheetWorkflowsRequestContext } from "../services";
 
@@ -58,10 +59,42 @@ export const makeUpdateAnnouncementDispatchPayloads = (
     }));
 };
 
+export const areUpdateAnnouncementServicesHealthy = (status: ServicesStatusResponse): boolean =>
+  status.overallStatus === "ok" && status.services.every((service) => service.status === "ok");
+
+const waitForUpdateAnnouncementServices = Effect.fn("waitForUpdateAnnouncementServices")(function* (
+  sheetWorkflowsClient: typeof SheetWorkflowsClient.Service,
+) {
+  const status = yield* sheetWorkflowsClient.getServicesStatus();
+  if (areUpdateAnnouncementServicesHealthy(status)) {
+    return status;
+  }
+
+  const downServices = status.services
+    .filter((service) => service.status !== "ok")
+    .map((service) => service.name)
+    .join(", ");
+  return yield* Effect.fail(
+    new Error(`Update announcement dependencies are not healthy: ${downServices}`),
+  );
+});
+
 export const updateAnnouncementsEventLayer = Layer.effectDiscard(
   Effect.gen(function* () {
     const gateway = yield* DiscordGateway;
     const sheetWorkflowsClient = yield* SheetWorkflowsClient;
+    const waitForHealthyServices = yield* Effect.cached(
+      waitForUpdateAnnouncementServices(sheetWorkflowsClient).pipe(
+        Effect.tapError((error) =>
+          Effect.logWarning("Waiting to dispatch update announcements until services are healthy", {
+            error: String(error),
+          }),
+        ),
+        Effect.retry({
+          schedule: Schedule.spaced(Duration.seconds(5)),
+        }),
+      ),
+    );
 
     yield* gateway
       .handleDispatch("GUILD_CREATE", (guild) => {
@@ -82,6 +115,8 @@ export const updateAnnouncementsEventLayer = Layer.effectDiscard(
           if (payloads.length === 0) {
             return;
           }
+
+          yield* waitForHealthyServices;
 
           yield* Effect.forEach(
             payloads,
