@@ -1,10 +1,11 @@
 import { NodeFileSystem, NodeHttpClient, NodeRuntime } from "@effect/platform-node";
-import { Layer, Logger } from "effect";
+import { Effect, Layer, Logger } from "effect";
 import { dotEnvConfigProviderLayer } from "typhoon-core/config";
 import { channelCommandLayer } from "./commands/channel";
 import { checkinCommandLayer } from "./commands/checkin";
 import { kickoutCommandLayer } from "./commands/kickout";
 import { roomOrderCommandLayer } from "./commands/roomOrder";
+import { oauthClientCommandLayer } from "./commands/oauthClient";
 import { scheduleCommandLayer } from "./commands/schedule";
 import { screenshotCommandLayer } from "./commands/screenshot";
 import { serverCommandLayer } from "./commands/server";
@@ -25,6 +26,7 @@ const botLayer = Layer.mergeAll(
   checkinCommandLayer,
   kickoutCommandLayer,
   roomOrderCommandLayer,
+  oauthClientCommandLayer,
   screenshotCommandLayer,
   scheduleCommandLayer,
   serverCommandLayer,
@@ -40,13 +42,13 @@ const botLayer = Layer.mergeAll(
 
 const configProviderLayer = dotEnvConfigProviderLayer().pipe(Layer.provide(NodeFileSystem.layer));
 
-Layer.mergeAll(botLayer, httpLayer).pipe(
+const botMainLayer = Layer.mergeAll(botLayer, httpLayer).pipe(
   Layer.provide(MetricsLive),
   Layer.provide(TracesLive),
   Layer.provide(Logger.layer([Logger.consoleLogFmt])),
   Layer.provide(NodeHttpClient.layerFetch),
   Layer.provide(NodeFileSystem.layer),
   Layer.provide(configProviderLayer),
-  Layer.launch,
-  NodeRuntime.runMain(),
 );
+
+NodeRuntime.runMain(Effect.orDie(Layer.launch(botMainLayer)) as Effect.Effect<never, never, never>);
