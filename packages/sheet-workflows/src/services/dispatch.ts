@@ -419,6 +419,18 @@ const escapeMarkdown = (value: string): string =>
     .replaceAll("|", "\\|")
     .replaceAll(">", "\\>");
 
+const resolveGuildDisplayName = (
+  botClient: typeof IngressBotClient.Service,
+  guildId: string,
+): Effect.Effect<string> =>
+  botClient.getGuild(guildId).pipe(
+    Effect.map((guild) => {
+      const name = guild.name.trim();
+      return name.length > 0 ? escapeMarkdown(name) : "this server";
+    }),
+    Effect.catch(() => Effect.succeed("this server")),
+  );
+
 const bold = (value: string): string => `**${value}**`;
 
 const time = (epochSeconds: number): string => `<t:${Math.floor(epochSeconds)}:t>`;
@@ -2681,6 +2693,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       serverListConfig: Effect.fn("DispatchService.serverListConfig")(function* (
         payload: ServerListConfigDispatchPayload,
       ) {
+        const guildDisplayName = yield* resolveGuildDisplayName(botClient, payload.guildId);
         const maybeGuildConfig = yield* guildConfigService.getGuildConfig(payload.guildId);
         const guildConfig = yield* Option.match(maybeGuildConfig, {
           onSome: Effect.succeed,
@@ -2696,7 +2709,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         yield* botClient.updateOriginalInteractionResponse(payload.interactionToken, {
           embeds: [
             makeEmbed({
-              title: `Config for ${escapeMarkdown(payload.guildId)}`,
+              title: `Config for ${guildDisplayName}`,
               description: [
                 `Sheet id: ${sheetId}`,
                 `Auto check-in: ${
@@ -2720,14 +2733,13 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       serverAddMonitorRole: Effect.fn("DispatchService.serverAddMonitorRole")(function* (
         payload: ServerAddMonitorRoleDispatchPayload,
       ) {
+        const guildDisplayName = yield* resolveGuildDisplayName(botClient, payload.guildId);
         yield* guildConfigService.addGuildMonitorRole(payload.guildId, payload.roleId);
         yield* botClient.updateOriginalInteractionResponse(payload.interactionToken, {
           embeds: [
             makeEmbed({
               title: "Success!",
-              description: `${mentionRole(payload.roleId)} is now a monitor role for ${escapeMarkdown(
-                payload.guildId,
-              )}`,
+              description: `${mentionRole(payload.roleId)} is now a monitor role for ${guildDisplayName}`,
             }),
           ],
         });
@@ -2739,14 +2751,13 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       serverRemoveMonitorRole: Effect.fn("DispatchService.serverRemoveMonitorRole")(function* (
         payload: ServerRemoveMonitorRoleDispatchPayload,
       ) {
+        const guildDisplayName = yield* resolveGuildDisplayName(botClient, payload.guildId);
         yield* guildConfigService.removeGuildMonitorRole(payload.guildId, payload.roleId);
         yield* botClient.updateOriginalInteractionResponse(payload.interactionToken, {
           embeds: [
             makeEmbed({
               title: "Success!",
-              description: `${mentionRole(payload.roleId)} is no longer a monitor role for ${escapeMarkdown(
-                payload.guildId,
-              )}`,
+              description: `${mentionRole(payload.roleId)} is no longer a monitor role for ${guildDisplayName}`,
             }),
           ],
         });
@@ -2758,12 +2769,13 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       serverSetSheet: Effect.fn("DispatchService.serverSetSheet")(function* (
         payload: ServerSetSheetDispatchPayload,
       ) {
+        const guildDisplayName = yield* resolveGuildDisplayName(botClient, payload.guildId);
         yield* guildConfigService.upsertGuildConfig(payload.guildId, { sheetId: payload.sheetId });
         yield* botClient.updateOriginalInteractionResponse(payload.interactionToken, {
           embeds: [
             makeEmbed({
               title: "Success!",
-              description: `Sheet id for ${escapeMarkdown(payload.guildId)} is now set to ${escapeMarkdown(
+              description: `Sheet id for ${guildDisplayName} is now set to ${escapeMarkdown(
                 payload.sheetId,
               )}`,
             }),
@@ -2777,6 +2789,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       serverSetAutoCheckin: Effect.fn("DispatchService.serverSetAutoCheckin")(function* (
         payload: ServerSetAutoCheckinDispatchPayload,
       ) {
+        const guildDisplayName = yield* resolveGuildDisplayName(botClient, payload.guildId);
         const guildConfig = yield* guildConfigService.upsertGuildConfig(payload.guildId, {
           autoCheckin: payload.autoCheckin,
         });
@@ -2785,7 +2798,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           embeds: [
             makeEmbed({
               title: "Success!",
-              description: `Auto check-in for ${escapeMarkdown(payload.guildId)} is now ${
+              description: `Auto check-in for ${guildDisplayName} is now ${
                 autoCheckin ? "enabled" : "disabled"
               }.`,
             }),

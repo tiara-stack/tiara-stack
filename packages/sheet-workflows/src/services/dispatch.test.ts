@@ -308,6 +308,8 @@ const makeInteractionUpdateBotClient = (
   updateCalls: Array<{ readonly interactionToken: string; readonly payload: unknown }>,
 ) =>
   ({
+    getGuild: (guildId: string) =>
+      Effect.succeed({ id: guildId, name: guildId === "guild-1" ? "Guild One" : guildId }),
     updateOriginalInteractionResponse: (interactionToken: string, payload: unknown) => {
       updateCalls.push({ interactionToken, payload });
       return Effect.succeed({ id: "message-1", channel_id: "channel-1" });
@@ -1821,7 +1823,7 @@ describe("DispatchService", () => {
     expect(updateCalls[0]?.payload).toMatchObject({
       embeds: [
         {
-          title: "Config for guild-1",
+          title: "Config for Guild One",
           description: "Sheet id: sheet-1\nAuto check-in: Enabled\nMonitor roles: <@&role-1>",
         },
       ],
@@ -1857,7 +1859,7 @@ describe("DispatchService", () => {
     expect(result).toEqual({ guildId: "guild-1", roleId: "role-1" });
     expect(sheetApiCalls).toEqual([{ payload: { guildId: "guild-1", roleId: "role-1" } }]);
     expect(updateCalls[0]?.payload).toMatchObject({
-      embeds: [{ description: "<@&role-1> is now a monitor role for guild-1" }],
+      embeds: [{ description: "<@&role-1> is now a monitor role for Guild One" }],
     });
   });
 
@@ -1890,7 +1892,7 @@ describe("DispatchService", () => {
     expect(result).toEqual({ guildId: "guild-1", roleId: "role-1" });
     expect(sheetApiCalls).toEqual([{ payload: { guildId: "guild-1", roleId: "role-1" } }]);
     expect(updateCalls[0]?.payload).toMatchObject({
-      embeds: [{ description: "<@&role-1> is no longer a monitor role for guild-1" }],
+      embeds: [{ description: "<@&role-1> is no longer a monitor role for Guild One" }],
     });
   });
 
@@ -1925,7 +1927,7 @@ describe("DispatchService", () => {
       { payload: { guildId: "guild-1", config: { sheetId: "sheet-2" } } },
     ]);
     expect(updateCalls[0]?.payload).toMatchObject({
-      embeds: [{ description: "Sheet id for guild-1 is now set to sheet-2" }],
+      embeds: [{ description: "Sheet id for Guild One is now set to sheet-2" }],
     });
   });
 
@@ -1960,7 +1962,7 @@ describe("DispatchService", () => {
       { payload: { guildId: "guild-1", config: { autoCheckin: false } } },
     ]);
     expect(updateCalls[0]?.payload).toMatchObject({
-      embeds: [{ description: "Auto check-in for guild-1 is now disabled." }],
+      embeds: [{ description: "Auto check-in for Guild One is now disabled." }],
     });
   });
 
