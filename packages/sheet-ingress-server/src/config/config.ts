@@ -14,6 +14,12 @@ export const config = {
   sheetWorkflowsBaseUrl: Config.string("SHEET_WORKFLOWS_BASE_URL"),
   sheetBotBaseUrl: Config.string("SHEET_BOT_BASE_URL"),
   sheetAuthIssuer: Config.string("SHEET_AUTH_ISSUER"),
+  sheetAuthOAuthIntrospectionClientId: Config.option(
+    Config.schema(Schema.String, "SHEET_AUTH_INTROSPECTION_CLIENT_ID"),
+  ),
+  sheetAuthOAuthIntrospectionClientSecret: Config.option(
+    Config.schema(Schema.Redacted(Schema.String), "SHEET_AUTH_INTROSPECTION_CLIENT_SECRET"),
+  ),
   trustedOrigins: Config.schema(
     split(",").pipe(
       Schema.decodeTo(Schema.Array(Schema.Trim), {

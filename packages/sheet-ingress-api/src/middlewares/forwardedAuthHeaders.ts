@@ -14,6 +14,42 @@ const getBearerToken = (authorization: string | undefined) => {
   return token.length === 0 ? undefined : token;
 };
 
+const parseBoolHeader = (value: string | undefined) => {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const normalized = value.toLowerCase().trim();
+  return normalized === "true" ? true : normalized === "false" ? false : undefined;
+};
+
+const parseOptionalStringSetHeader = (value: string | undefined) => {
+  if (value === undefined || value.length === 0) {
+    return undefined;
+  }
+
+  return HashSet.fromIterable(
+    value
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0),
+  );
+};
+
+const parseAllowedScopes = (value: string | undefined) => {
+  if (value === undefined || value.length === 0) {
+    return undefined;
+  }
+
+  return HashSet.fromIterable(
+    value
+      .replaceAll(",", " ")
+      .split(" ")
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0),
+  );
+};
+
 const parsePermissions = (permissions: string | undefined) =>
   Effect.forEach(
     permissions?.split(",").filter((permission) => permission.length > 0) ?? [],
@@ -32,6 +68,10 @@ export const decodeForwardedSheetAuthUser = (
   {
     readonly accountId: string;
     readonly userId: string;
+    readonly clientId?: string;
+    readonly trustedClient?: boolean;
+    readonly allowedServices?: HashSet.HashSet<string>;
+    readonly allowedScopes?: HashSet.HashSet<string>;
     readonly permissions: HashSet.HashSet<Permission>;
     readonly token: Redacted.Redacted<string>;
   },
@@ -41,6 +81,15 @@ export const decodeForwardedSheetAuthUser = (
   Effect.gen(function* () {
     const userId = Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-user-id"));
     const accountId = Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-account-id"));
+    const trustedClient = parseBoolHeader(
+      Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-trusted-client")),
+    );
+    const allowedServices = parseOptionalStringSetHeader(
+      Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-allowed-services")),
+    );
+    const allowedScopes = parseAllowedScopes(
+      Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-allowed-scopes")),
+    );
 
     if (!userId || !accountId) {
       return yield* Effect.fail(new Unauthorized({ message: "Missing forwarded auth user" }));
@@ -56,6 +105,10 @@ export const decodeForwardedSheetAuthUser = (
     return {
       accountId,
       userId,
+      clientId: Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-client-id")),
+      trustedClient,
+      allowedServices,
+      allowedScopes,
       permissions,
       token: sessionToken ? Redacted.make(sessionToken) : options.unavailableToken,
     };

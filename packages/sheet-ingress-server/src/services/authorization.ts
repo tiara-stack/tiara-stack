@@ -27,6 +27,12 @@ import {
 type SheetAuthUserType = Context.Service.Shape<typeof SheetAuthUser>;
 type SheetAuthGuildUserType = Context.Service.Shape<typeof SheetAuthGuildUser>;
 type GuildPermissionScope = "member" | "monitor" | "manage";
+type SheetApiTarget = "sheet-apis" | "sheet-workflows";
+type BearerCredentialInput = {
+  credential?: Redacted.Redacted<string>;
+  endpoint?: unknown;
+  group?: unknown;
+};
 class ResolvedGuildUserCacheKey extends Data.Class<{
   readonly accountId: string;
   readonly guildId: string;
@@ -352,6 +358,20 @@ export class AuthorizationService extends Context.Service<AuthorizationService>(
             message,
           );
         }),
+        requireServiceForTarget: Effect.fn("AuthorizationService.requireServiceForTarget")(
+          function* (targetService: SheetApiTarget, message = "User is not the service user") {
+            const user = yield* SheetAuthUser;
+            return yield* requirePermissions(
+              user.permissions,
+              (permissions) =>
+                hasPermission(permissions, "service") ||
+                (user.trustedClient === true &&
+                  user.allowedServices !== undefined &&
+                  HashSet.has(user.allowedServices, targetService)),
+              message,
+            );
+          },
+        ),
         requireDiscordAccountId: Effect.fn("AuthorizationService.requireDiscordAccountId")(
           function* (accountId: string, message = "User does not have access to this user") {
             const user = yield* SheetAuthUser;
@@ -406,13 +426,22 @@ export const SheetAuthTokenAuthorizationLive = Layer.effect(
     return SheetAuthTokenAuthorization.of({
       sheetAuthToken: Effect.fn("SheetAuthTokenAuthorization.sheetAuthToken")(function* (
         httpEffect,
-        { credential },
+        credentialInput: BearerCredentialInput,
       ) {
+        const credential = credentialInput.credential;
+        if (credential === undefined) {
+          return yield* Effect.fail(new Unauthorized({ message: "Missing bearer credential" }));
+        }
+
         const resolvedUser = yield* sheetAuthUserResolver.resolveToken(credential);
 
         return yield* Effect.provideService(httpEffect, SheetAuthUser, {
           accountId: resolvedUser.accountId,
           userId: resolvedUser.userId,
+          clientId: resolvedUser.clientId,
+          trustedClient: resolvedUser.trustedClient,
+          allowedServices: resolvedUser.allowedServices,
+          allowedScopes: resolvedUser.allowedScopes,
           permissions: resolvedUser.permissions,
           token: credential,
         });

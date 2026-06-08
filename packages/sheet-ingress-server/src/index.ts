@@ -86,6 +86,8 @@ const missingMessage = (kind: string) =>
 const legacyDenied = (kind: string) =>
   Effect.fail(new Unauthorized({ message: `Legacy ${kind} records are no longer accessible` }));
 
+type SheetApiTarget = "sheet-apis" | "sheet-workflows";
+
 const authorizationArgumentError = (kind: string) => (cause: unknown) =>
   cause instanceof Unauthorized || cause instanceof ArgumentError
     ? cause
@@ -351,10 +353,10 @@ const authorizedSheetWorkflowsDispatch =
 
 type WorkflowAuthorizationSnapshot = DispatchAuthorizationSnapshot;
 
-const requireService = () =>
+const requireService = (targetService: SheetApiTarget = "sheet-apis") =>
   Effect.gen(function* () {
     const authorization = yield* AuthorizationService;
-    yield* authorization.requireService();
+    yield* authorization.requireServiceForTarget(targetService);
   });
 
 const requireNonService = () =>
@@ -444,10 +446,11 @@ const serviceOnly = <
 >(
   group: GroupName,
   endpoint: EndpointName,
+  targetService: SheetApiTarget = "sheet-apis",
 ) =>
   authorizedSheetApis(group, endpoint, () =>
     asSheetApisProxyAuthorization<GroupName, EndpointName, AuthorizationService | SheetAuthUser>(
-      requireService(),
+      requireService(targetService),
     ),
   );
 
@@ -799,18 +802,27 @@ const makeApiLayer = () => {
           "serviceStatus",
           authorizedSheetWorkflowsDispatch("serviceStatus", requireNonService),
         )
-        .handle("guildWelcome", authorizedSheetWorkflowsDispatch("guildWelcome", requireService))
+        .handle(
+          "guildWelcome",
+          authorizedSheetWorkflowsDispatch("guildWelcome", () => requireService("sheet-workflows")),
+        )
         .handle(
           "updateAnnouncement",
-          authorizedSheetWorkflowsDispatch("updateAnnouncement", requireService),
+          authorizedSheetWorkflowsDispatch("updateAnnouncement", () =>
+            requireService("sheet-workflows"),
+          ),
         )
         .handle(
           "serviceAddGuildFeatureFlag",
-          authorizedSheetWorkflowsDispatch("serviceAddGuildFeatureFlag", requireService),
+          authorizedSheetWorkflowsDispatch("serviceAddGuildFeatureFlag", () =>
+            requireService("sheet-workflows"),
+          ),
         )
         .handle(
           "serviceRemoveGuildFeatureFlag",
-          authorizedSheetWorkflowsDispatch("serviceRemoveGuildFeatureFlag", requireService),
+          authorizedSheetWorkflowsDispatch("serviceRemoveGuildFeatureFlag", () =>
+            requireService("sheet-workflows"),
+          ),
         )
         .handle(
           "channelListConfig",

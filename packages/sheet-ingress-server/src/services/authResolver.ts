@@ -7,6 +7,7 @@ import {
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
 import { Unauthorized } from "typhoon-core/error";
 import type { Permission, PermissionSet } from "sheet-ingress-api/schemas/permissions";
+import { config } from "@/config";
 import { SheetBotForwardingClient } from "./sheetBotForwardingClient";
 import { SheetAuthClient } from "./sheetAuthClient";
 
@@ -17,6 +18,10 @@ interface CachedAuthorization {
   readonly userId: string;
   readonly accountId: string;
   readonly permissions: PermissionSet;
+  readonly clientId?: string;
+  readonly trustedClient?: boolean;
+  readonly allowedServices?: HashSet.HashSet<string>;
+  readonly allowedScopes?: HashSet.HashSet<string>;
 }
 
 type SheetAuthUserType = Context.Service.Shape<typeof SheetAuthUser>;
@@ -36,7 +41,25 @@ const makeUnauthorized = (message: string, cause?: unknown) =>
     cause,
   });
 
-const resolveCachedAuthorization = Effect.fn("resolveCachedAuthorization")(function* (
+const toBoolean = (value: unknown): boolean | undefined =>
+  typeof value === "boolean"
+    ? value
+    : typeof value === "string"
+      ? value.toLowerCase() === "true"
+      : undefined;
+
+const toStringArray = (value: unknown) =>
+  Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : typeof value === "string"
+      ? value
+          .trim()
+          .split(/[,\s]+/)
+          .map((part) => part.trim())
+          .filter((part) => part.length > 0)
+      : [];
+
+const resolveKubernetesAuthorization = Effect.fn("resolveKubernetesAuthorization")(function* (
   authClient: SheetAuthClientValue,
   token: Redacted.Redacted<string>,
 ) {
@@ -67,6 +90,139 @@ const resolveCachedAuthorization = Effect.fn("resolveCachedAuthorization")(funct
       ? permissionSetFromIterable(["service"] satisfies Extract<Permission, "service">[])
       : permissionSetFromIterable([] as Permission[]),
   } satisfies CachedAuthorization;
+});
+
+interface OAuthTokenIntrospectionResponse {
+  readonly active?: boolean;
+  readonly client_id?: string;
+  readonly sub?: string;
+  readonly scope?: string;
+  readonly aud?: string;
+  readonly trusted_client?: boolean;
+  readonly trustedServiceClient?: boolean;
+  readonly allowed_services?: unknown;
+  readonly allowedServices?: unknown;
+  readonly allowed_scopes?: unknown;
+  readonly allowedScopes?: unknown;
+  readonly owner_user_id?: string;
+  readonly client_type?: string;
+  readonly status?: string;
+}
+
+const resolveOAuthClientAuthorization = Effect.fn("resolveOAuthClientAuthorization")(function* (
+  token: Redacted.Redacted<string>,
+) {
+  const introspectionClientId = yield* config.sheetAuthOAuthIntrospectionClientId;
+  const introspectionClientSecret = yield* config.sheetAuthOAuthIntrospectionClientSecret;
+  const introspectionClientIdValue = Option.getOrElse(introspectionClientId, () => "");
+  const introspectionClientSecretValue = Option.getOrElse(introspectionClientSecret, () =>
+    Redacted.make(""),
+  );
+
+  if (Option.isNone(introspectionClientId) || Option.isNone(introspectionClientSecret)) {
+    return yield* Effect.fail(
+      makeUnauthorized("OAuth client introspection credentials are not configured"),
+    );
+  }
+
+  const introspectionUrl = new URL("/oauth2/introspect", yield* config.sheetAuthIssuer).toString();
+  const form = new URLSearchParams({
+    token: Redacted.value(token),
+    token_type_hint: "access_token",
+    client_id: introspectionClientIdValue,
+  });
+
+  const authorizationHeader = `Basic ${Buffer.from(
+    `${introspectionClientIdValue}:${Redacted.value(introspectionClientSecretValue)}`,
+  ).toString("base64")}`;
+
+  const claims = yield* Effect.tryPromise({
+    try: async () => {
+      const response = await fetch(introspectionUrl, {
+        method: "POST",
+        headers: {
+          authorization: authorizationHeader,
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: form,
+      });
+
+      if (!response.ok) {
+        const body = await response.text();
+        return {
+          ok: false as const,
+          error: `OAuth introspection failed with status ${response.status}: ${body}`,
+        };
+      }
+
+      return {
+        ok: true as const,
+        payload: (await response.json()) as OAuthTokenIntrospectionResponse,
+      };
+    },
+    catch: (cause) => makeUnauthorized("OAuth introspection request failed", cause),
+  });
+
+  if (!claims.ok) {
+    return yield* Effect.fail(new Unauthorized({ message: claims.error }));
+  }
+
+  const introspectionClaims = claims.payload;
+  if (introspectionClaims.active !== true) {
+    return yield* Effect.fail(new Unauthorized({ message: "OAuth token is not active" }));
+  }
+
+  const resolvedClientId = introspectionClaims.client_id;
+  if (typeof resolvedClientId !== "string" || resolvedClientId.length === 0) {
+    return yield* Effect.fail(new Unauthorized({ message: "OAuth token has no client_id" }));
+  }
+
+  const status =
+    typeof introspectionClaims.status === "string" ? introspectionClaims.status : undefined;
+  const normalizedStatus = status?.trim().toLowerCase();
+  if (normalizedStatus === "disabled" || normalizedStatus === "inactive") {
+    return yield* Effect.fail(new Unauthorized({ message: `OAuth client status is ${status}` }));
+  }
+
+  const accountId = `oauth-client:${resolvedClientId}`;
+  const allowedServices = toStringArray(
+    introspectionClaims.allowed_services ?? introspectionClaims.allowedServices,
+  );
+  const allowedScopes = toStringArray(
+    introspectionClaims.allowed_scopes ??
+      introspectionClaims.allowedScopes ??
+      introspectionClaims.scope,
+  );
+  const trustedClient = toBoolean(
+    introspectionClaims.trusted_client ?? introspectionClaims.trustedServiceClient,
+  );
+  const scopes = toStringArray(introspectionClaims.scope);
+  const allowScopePermissions = permissionSetFromIterable(
+    scopes.filter((scope): scope is Permission => scope === "service" || scope === "app_owner"),
+  );
+
+  return {
+    userId: introspectionClaims.owner_user_id ?? introspectionClaims.sub ?? resolvedClientId,
+    accountId,
+    clientId: resolvedClientId,
+    trustedClient,
+    allowedServices: HashSet.fromIterable(allowedServices),
+    allowedScopes: HashSet.fromIterable(allowedScopes),
+    permissions: allowScopePermissions,
+  } satisfies CachedAuthorization;
+});
+
+const resolveCachedAuthorization = Effect.fn("resolveCachedAuthorization")(function* (
+  authClient: SheetAuthClientValue,
+  token: Redacted.Redacted<string>,
+) {
+  return yield* resolveKubernetesAuthorization(authClient, token).pipe(
+    Effect.catch(() =>
+      resolveOAuthClientAuthorization(token).pipe(
+        Effect.mapError((cause) => makeUnauthorized("Invalid OAuth bearer token", cause)),
+      ),
+    ),
+  );
 });
 
 class ApplicationOwnerResolver extends Context.Service<ApplicationOwnerResolver>()(
@@ -110,24 +266,29 @@ export class SheetAuthUserResolver extends Context.Service<SheetAuthUserResolver
     make: Effect.gen(function* () {
       const authClient = yield* SheetAuthClient;
       const applicationOwnerResolver = yield* ApplicationOwnerResolver;
-      const authorizationCache = yield* Cache.makeWith(
-        (token: Redacted.Redacted<string>) => resolveCachedAuthorization(authClient, token),
-        {
-          capacity: 10_000,
-          timeToLive: Exit.match({
-            onFailure: () => FAILURE_TTL,
-            onSuccess: () => SUCCESS_TTL,
-          }),
-        },
-      );
+      const resolveCachedAuthorizationForToken = (token: Redacted.Redacted<string>) =>
+        resolveCachedAuthorization(authClient, token) as Effect.Effect<
+          CachedAuthorization,
+          Unauthorized,
+          never
+        >;
+
+      const authorizationCache = yield* Cache.makeWith(resolveCachedAuthorizationForToken, {
+        capacity: 10_000,
+        timeToLive: Exit.match({
+          onFailure: () => FAILURE_TTL,
+          onSuccess: () => SUCCESS_TTL,
+        }),
+      });
 
       const resolveBaseAuthorizationPermissions = Effect.fn(
         "SheetAuthUserResolver.resolveBaseAuthorizationPermissions",
       )(function* (authorization: CachedAuthorization) {
-        let permissions = appendPermission(
-          authorization.permissions,
-          `account:discord:${authorization.accountId}`,
-        );
+        let permissions = authorization.permissions;
+
+        if (!authorization.clientId) {
+          permissions = appendPermission(permissions, `account:discord:${authorization.accountId}`);
+        }
 
         if (hasPermission(permissions, "service")) {
           return permissions;
@@ -154,6 +315,10 @@ export class SheetAuthUserResolver extends Context.Service<SheetAuthUserResolver
           return {
             accountId: authorization.accountId,
             userId: authorization.userId,
+            clientId: authorization.clientId,
+            trustedClient: authorization.trustedClient,
+            allowedServices: authorization.allowedServices,
+            allowedScopes: authorization.allowedScopes,
             permissions,
             token,
           } satisfies SheetAuthUserType;
