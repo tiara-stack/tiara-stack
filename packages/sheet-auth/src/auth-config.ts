@@ -19,6 +19,10 @@ interface CreateAuthOptions {
   trustedOrigins?: string[];
   cookieDomain?: string;
   secondaryStorageDriver: Driver;
+  oauthClientRegistrationRateLimit: number;
+  oauthClientRegistrationWindowSeconds: number;
+  oauthClientTokenRateLimit: number;
+  oauthClientTokenWindowSeconds: number;
 }
 
 type AuthPlugins = [
@@ -40,6 +44,17 @@ type BaseAuthOptions = Omit<CreateAuthOptions, "postgresUrl" | "secondaryStorage
   secondaryStorage: ReturnType<typeof createSecondaryStorage>;
 };
 
+const toStringArray = (values: unknown) =>
+  Array.isArray(values)
+    ? values.filter((entry): entry is string => typeof entry === "string")
+    : typeof values === "string"
+      ? values
+          .trim()
+          .split(/[,\s]+/)
+          .map((entry) => entry.trim())
+          .filter((entry) => entry.length > 0)
+      : [];
+
 type CleanupMethods = {
   close: () => Promise<void>;
   closeStorage: () => Promise<void>;
@@ -53,6 +68,10 @@ function createBaseAuth({
   baseUrl,
   trustedOrigins,
   cookieDomain,
+  oauthClientRegistrationRateLimit,
+  oauthClientRegistrationWindowSeconds,
+  oauthClientTokenRateLimit,
+  oauthClientTokenWindowSeconds,
   secondaryStorage,
 }: BaseAuthOptions): Auth {
   const options: AuthOptions = {
@@ -73,6 +92,69 @@ function createBaseAuth({
       oauthProvider({
         loginPage: "/sign-in",
         consentPage: "/consent",
+        rateLimit: {
+          register: {
+            window: oauthClientRegistrationWindowSeconds,
+            max: oauthClientRegistrationRateLimit,
+          },
+          token: {
+            window: oauthClientTokenWindowSeconds,
+            max: oauthClientTokenRateLimit,
+          },
+        },
+        scopes: [
+          "openid",
+          "profile",
+          "email",
+          "offline_access",
+          "sheet-apis",
+          "sheet-workflows",
+          "service",
+        ],
+        allowDynamicClientRegistration: true,
+        clientRegistrationAllowedScopes: ["sheet-apis", "sheet-workflows", "service"],
+        clientRegistrationDefaultScopes: ["service"],
+        storeClientSecret: "hashed",
+        clientPrivileges: () => true,
+        customAccessTokenClaims: ({ scopes, metadata }) => {
+          const resolvedMetadata =
+            metadata && typeof metadata === "object" && "trusted_service_client" in metadata
+              ? (metadata as Record<string, unknown>)
+              : {};
+
+          const trustedClient =
+            resolvedMetadata["trusted_service_client"] === true ||
+            resolvedMetadata.trustedServiceClient === true;
+          const ownerUserId =
+            typeof resolvedMetadata.owner_user_id === "string"
+              ? resolvedMetadata.owner_user_id
+              : typeof resolvedMetadata.ownerUserId === "string"
+                ? resolvedMetadata.ownerUserId
+                : undefined;
+          const clientType =
+            typeof resolvedMetadata.type === "string" ? resolvedMetadata.type : undefined;
+          const clientStatus =
+            typeof resolvedMetadata.status === "string" ? resolvedMetadata.status : undefined;
+          const allowedServices = toStringArray(
+            "allowed_services" in resolvedMetadata
+              ? resolvedMetadata.allowed_services
+              : resolvedMetadata.allowedServices,
+          );
+          const allowedScopes = toStringArray(
+            "allowed_scopes" in resolvedMetadata
+              ? resolvedMetadata.allowed_scopes
+              : (resolvedMetadata.allowedScopes ?? scopes),
+          );
+
+          return {
+            trusted_client: trustedClient,
+            allowed_services: allowedServices,
+            allowed_scopes: allowedScopes,
+            owner_user_id: ownerUserId,
+            client_type: clientType,
+            status: clientStatus,
+          };
+        },
       }),
       kubernetesOAuth({
         audience: kubernetesAudience,
@@ -109,6 +191,10 @@ export function authConfig({
   baseUrl,
   trustedOrigins,
   cookieDomain,
+  oauthClientRegistrationRateLimit,
+  oauthClientRegistrationWindowSeconds,
+  oauthClientTokenRateLimit,
+  oauthClientTokenWindowSeconds,
   secondaryStorageDriver,
 }: CreateAuthOptions): AuthWithCleanup {
   const pgClient = postgres(postgresUrl);
@@ -125,6 +211,10 @@ export function authConfig({
     baseUrl,
     trustedOrigins,
     cookieDomain,
+    oauthClientRegistrationRateLimit,
+    oauthClientRegistrationWindowSeconds,
+    oauthClientTokenRateLimit,
+    oauthClientTokenWindowSeconds,
     secondaryStorage,
   });
 

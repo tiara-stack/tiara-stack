@@ -1,5 +1,7 @@
 import { Config, Option, Schema, SchemaGetter, String } from "effect";
 
+const positiveInt = Schema.Int.check(Schema.isGreaterThan(0));
+
 const split = (separator: string) =>
   Schema.String.pipe(
     Schema.decodeTo(Schema.Array(Schema.String), {
@@ -34,4 +36,18 @@ export const config = {
   ),
   redisUrl: Config.schema(Schema.Redacted(Schema.String), "REDIS_URL"),
   redisBase: Config.schema(Schema.String, "REDIS_BASE"),
+  oauthClientRegistrationRateLimit: Config.schema(
+    positiveInt,
+    "OAUTH_CLIENT_REGISTRATION_RATE_LIMIT",
+  ).pipe(Config.withDefault(60)),
+  oauthClientRegistrationWindowSeconds: Config.schema(
+    positiveInt,
+    "OAUTH_CLIENT_REGISTRATION_WINDOW_SECONDS",
+  ).pipe(Config.withDefault(60)),
+  oauthClientTokenRateLimit: Config.schema(positiveInt, "OAUTH_TOKEN_RATE_LIMIT").pipe(
+    Config.withDefault(240),
+  ),
+  oauthClientTokenWindowSeconds: Config.schema(positiveInt, "OAUTH_TOKEN_WINDOW_SECONDS").pipe(
+    Config.withDefault(60),
+  ),
 };

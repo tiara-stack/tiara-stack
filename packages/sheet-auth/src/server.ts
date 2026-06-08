@@ -90,6 +90,10 @@ const authServiceLayer = Layer.effect(
     const cookieDomain = yield* config.cookieDomain;
     const redisUrl = yield* config.redisUrl;
     const redisBase = yield* config.redisBase;
+    const oauthClientRegistrationRateLimit = yield* config.oauthClientRegistrationRateLimit;
+    const oauthClientRegistrationWindowSeconds = yield* config.oauthClientRegistrationWindowSeconds;
+    const oauthClientTokenRateLimit = yield* config.oauthClientTokenRateLimit;
+    const oauthClientTokenWindowSeconds = yield* config.oauthClientTokenWindowSeconds;
 
     // Create Redis driver for secondary storage
     const redisStorageDriver = redisDriver({
@@ -106,6 +110,10 @@ const authServiceLayer = Layer.effect(
       baseUrl,
       trustedOrigins: [...trustedOrigins],
       cookieDomain: Option.getOrUndefined(cookieDomain),
+      oauthClientRegistrationRateLimit,
+      oauthClientRegistrationWindowSeconds,
+      oauthClientTokenRateLimit,
+      oauthClientTokenWindowSeconds,
       secondaryStorageDriver: redisStorageDriver,
     }) as AuthWithOAuthProvider;
 
@@ -155,6 +163,7 @@ const authLayer = HttpApiBuilder.group(
     const allowedOrigins = [...trustedOrigins, baseUrl];
 
     const app = new Hono();
+
     app.use(
       "*",
       cors({
