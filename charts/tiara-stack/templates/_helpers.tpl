@@ -360,6 +360,11 @@ imagePullSecrets:
       secretKey: postgresUrl
     - name: OTEL_EXPORTER_OTLP_ENDPOINT
       secretKey: otelExporterOtlpEndpoint
+  networkPolicyFrom:
+    - app: sheet-apis
+      port: sdbs-svc
+    - app: sheet-ingress-server
+      port: sdbs-svc
 - key: sheetIngressServer
   name: sheet-ingress-server
   portName: ingress-svc
