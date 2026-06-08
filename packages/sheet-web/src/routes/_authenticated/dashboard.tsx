@@ -1,5 +1,5 @@
 import { createFileRoute, Link, Outlet, useLocation } from "@tanstack/react-router";
-import { Calendar, Users, ChevronRight } from "lucide-react";
+import { Calendar, KeyRound, Users, ChevronRight } from "lucide-react";
 
 // Route loader that fetches session on load using Atom Registry
 export const Route = createFileRoute("/_authenticated/dashboard")({
@@ -8,7 +8,11 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
 
 function DashboardLayout() {
   const { pathname } = useLocation();
-  const activeTab = pathname.includes("/guilds") ? "guilds" : "shifts";
+  const activeTab = pathname.includes("/oauth-clients")
+    ? "oauth-clients"
+    : pathname.includes("/guilds")
+      ? "guilds"
+      : "shifts";
 
   return (
     <div className="min-h-screen text-white pt-32 pb-12 px-8">
@@ -50,6 +54,29 @@ function DashboardLayout() {
             <ChevronRight
               className={`w-4 h-4 transition-transform ${
                 activeTab === "shifts" ? "rotate-90" : "group-hover:translate-x-1"
+              }`}
+            />
+          </Link>
+
+          <Link
+            to="/dashboard/oauth-clients"
+            className={`flex-1 flex items-center justify-between px-6 py-4 font-black text-sm tracking-wide transition-all duration-200 group ${
+              activeTab === "oauth-clients"
+                ? "bg-[#33ccbb] text-[#0a0f0e]"
+                : "bg-[#0f1615] text-white hover:bg-[#33ccbb]/10"
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <KeyRound
+                className={`w-4 h-4 ${
+                  activeTab === "oauth-clients" ? "text-[#0a0f0e]" : "text-[#33ccbb]"
+                }`}
+              />
+              <span>OAUTH CLIENTS</span>
+            </div>
+            <ChevronRight
+              className={`w-4 h-4 transition-transform ${
+                activeTab === "oauth-clients" ? "rotate-90" : "group-hover:translate-x-1"
               }`}
             />
           </Link>

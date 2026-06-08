@@ -16,6 +16,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedDashboardIndexRouteImport } from './routes/_authenticated/dashboard/index'
 import { Route as AuthenticatedDashboardShiftsRouteImport } from './routes/_authenticated/dashboard/shifts'
+import { Route as AuthenticatedDashboardOAuthClientsRouteImport } from './routes/_authenticated/dashboard/oauth-clients'
 import { Route as AuthenticatedDashboardGuildsRouteRouteImport } from './routes/_authenticated/dashboard/guilds/route'
 import { Route as AuthenticatedDashboardGuildsIndexRouteImport } from './routes/_authenticated/dashboard/guilds/index'
 import { Route as AuthenticatedDashboardGuildsGuildIdScheduleRouteImport } from './routes/_authenticated/dashboard/guilds/$guildId.schedule'
@@ -58,6 +59,12 @@ const AuthenticatedDashboardShiftsRoute =
   AuthenticatedDashboardShiftsRouteImport.update({
     id: '/shifts',
     path: '/shifts',
+    getParentRoute: () => AuthenticatedDashboardRoute,
+  } as any)
+const AuthenticatedDashboardOAuthClientsRoute =
+  AuthenticatedDashboardOAuthClientsRouteImport.update({
+    id: '/oauth-clients',
+    path: '/oauth-clients',
     getParentRoute: () => AuthenticatedDashboardRoute,
   } as any)
 const AuthenticatedDashboardGuildsRouteRoute =
@@ -118,6 +125,7 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof AuthenticatedDashboardRouteWithChildren
   '/dashboard/guilds': typeof AuthenticatedDashboardGuildsRouteRouteWithChildren
   '/dashboard/shifts': typeof AuthenticatedDashboardShiftsRoute
+  '/dashboard/oauth-clients': typeof AuthenticatedDashboardOAuthClientsRoute
   '/dashboard/': typeof AuthenticatedDashboardIndexRoute
   '/dashboard/guilds/': typeof AuthenticatedDashboardGuildsIndexRoute
   '/dashboard/guilds/$guildId/schedule': typeof AuthenticatedDashboardGuildsGuildIdScheduleRouteWithChildren
@@ -132,6 +140,7 @@ export interface FileRoutesByTo {
   '/ready': typeof ReadyRoute
   '/dashboard/shifts': typeof AuthenticatedDashboardShiftsRoute
   '/dashboard': typeof AuthenticatedDashboardIndexRoute
+  '/dashboard/oauth-clients': typeof AuthenticatedDashboardOAuthClientsRoute
   '/dashboard/guilds': typeof AuthenticatedDashboardGuildsIndexRoute
   '/dashboard/guilds/$guildId/schedule': typeof AuthenticatedDashboardGuildsGuildIdScheduleRouteWithChildren
   '/dashboard/guilds/$guildId/schedule/$channel': typeof AuthenticatedDashboardGuildsGuildIdScheduleChannelIndexRoute
@@ -147,6 +156,7 @@ export interface FileRoutesById {
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRouteWithChildren
   '/_authenticated/dashboard/guilds': typeof AuthenticatedDashboardGuildsRouteRouteWithChildren
   '/_authenticated/dashboard/shifts': typeof AuthenticatedDashboardShiftsRoute
+  '/_authenticated/dashboard/oauth-clients': typeof AuthenticatedDashboardOAuthClientsRoute
   '/_authenticated/dashboard/': typeof AuthenticatedDashboardIndexRoute
   '/_authenticated/dashboard/guilds/': typeof AuthenticatedDashboardGuildsIndexRoute
   '/_authenticated/dashboard/guilds/$guildId/schedule': typeof AuthenticatedDashboardGuildsGuildIdScheduleRouteWithChildren
@@ -164,6 +174,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/dashboard/guilds'
     | '/dashboard/shifts'
+    | '/dashboard/oauth-clients'
     | '/dashboard/'
     | '/dashboard/guilds/'
     | '/dashboard/guilds/$guildId/schedule'
@@ -179,6 +190,7 @@ export interface FileRouteTypes {
     | '/dashboard/shifts'
     | '/dashboard'
     | '/dashboard/guilds'
+    | '/dashboard/oauth-clients'
     | '/dashboard/guilds/$guildId/schedule'
     | '/dashboard/guilds/$guildId/schedule/$channel'
     | '/dashboard/guilds/$guildId/schedule/$channel/calendar'
@@ -192,6 +204,7 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard'
     | '/_authenticated/dashboard/guilds'
     | '/_authenticated/dashboard/shifts'
+    | '/_authenticated/dashboard/oauth-clients'
     | '/_authenticated/dashboard/'
     | '/_authenticated/dashboard/guilds/'
     | '/_authenticated/dashboard/guilds/$guildId/schedule'
@@ -257,6 +270,13 @@ declare module '@tanstack/react-router' {
       path: '/shifts'
       fullPath: '/dashboard/shifts'
       preLoaderRoute: typeof AuthenticatedDashboardShiftsRouteImport
+      parentRoute: typeof AuthenticatedDashboardRoute
+    }
+    '/_authenticated/dashboard/oauth-clients': {
+      id: '/_authenticated/dashboard/oauth-clients'
+      path: '/oauth-clients'
+      fullPath: '/dashboard/oauth-clients'
+      preLoaderRoute: typeof AuthenticatedDashboardOAuthClientsRouteImport
       parentRoute: typeof AuthenticatedDashboardRoute
     }
     '/_authenticated/dashboard/guilds': {
@@ -368,6 +388,7 @@ const AuthenticatedDashboardGuildsRouteRouteWithChildren =
 interface AuthenticatedDashboardRouteChildren {
   AuthenticatedDashboardGuildsRouteRoute: typeof AuthenticatedDashboardGuildsRouteRouteWithChildren
   AuthenticatedDashboardShiftsRoute: typeof AuthenticatedDashboardShiftsRoute
+  AuthenticatedDashboardOAuthClientsRoute: typeof AuthenticatedDashboardOAuthClientsRoute
   AuthenticatedDashboardIndexRoute: typeof AuthenticatedDashboardIndexRoute
 }
 
@@ -376,6 +397,7 @@ const AuthenticatedDashboardRouteChildren: AuthenticatedDashboardRouteChildren =
     AuthenticatedDashboardGuildsRouteRoute:
       AuthenticatedDashboardGuildsRouteRouteWithChildren,
     AuthenticatedDashboardShiftsRoute: AuthenticatedDashboardShiftsRoute,
+    AuthenticatedDashboardOAuthClientsRoute: AuthenticatedDashboardOAuthClientsRoute,
     AuthenticatedDashboardIndexRoute: AuthenticatedDashboardIndexRoute,
   }
 
