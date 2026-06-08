@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "@effect/vitest";
+import { vi } from "vitest";
 import { Cause, Effect, HashSet, Layer, Redacted } from "effect";
 import { getDiscordAccessToken } from "sheet-auth/client";
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";

@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { messageRoomOrder, messageRoomOrderEntry, messageSlot } from "./models";
 
 type VariantWithFields = Schema.Codec<unknown, unknown> & {

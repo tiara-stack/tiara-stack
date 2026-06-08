@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { checkSignature, signContent } from "./signature";
 
 describe("signature", () => {

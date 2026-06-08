@@ -1,8 +1,8 @@
 import { NodeServices } from "@effect/platform-node";
-import { describe, expect, it } from "@effect/vitest";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { describe, expect, it } from "@effect/vitest";
 import { Effect, FileSystem, Path, Result } from "effect";
 import {
   nextMigrationName,

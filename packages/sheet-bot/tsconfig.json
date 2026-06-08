@@ -17,7 +17,11 @@
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
     "paths": {
+      "dfx-discord-utils": ["../dfx-discord-utils/src/index.ts"],
+      "dfx-discord-utils/*": ["../dfx-discord-utils/src/*"],
       "dfx-discord-utils/discord/schema": ["../dfx-discord-utils/src/discord/schema/index.ts"],
+      "sheet-auth": ["../sheet-auth/src/index.ts"],
+      "sheet-auth/*": ["../sheet-auth/src/*"],
       "sheet-auth/plugins/kubernetes-oauth/rpc-authorization": [
         "../sheet-auth/src/plugins/kubernetes-oauth/rpc-authorization.ts"
       ],

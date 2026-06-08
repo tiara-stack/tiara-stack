@@ -1,6 +1,6 @@
 import { DiscordConfig, Intents } from "dfx";
 import { Config, Effect, Redacted } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { discordConfigLayer } from "./config";
 
 const getTestConfig = (options: Parameters<typeof discordConfigLayer>[0]) =>

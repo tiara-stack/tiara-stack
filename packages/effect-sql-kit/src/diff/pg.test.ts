@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { diffPg } from "./pg";
 import { emptySnapshot, type SchemaSnapshot } from "../snapshot";
 

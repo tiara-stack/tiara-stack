@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { Schema } from "effect";
 import { Model } from "effect/unstable/schema";
 import { inferTable } from "./infer";

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { SheetWorkflowsApi } from "sheet-ingress-api/sheet-workflows";
 import { SheetWorkflowsRpcs } from "sheet-ingress-api/sheet-workflows-rpc";
 import { DispatchRoomOrderButtonMethods } from "sheet-ingress-api/sheet-apis-rpc";

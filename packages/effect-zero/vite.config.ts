@@ -12,7 +12,7 @@ export default defineConfig({
       onlyBundle: false,
     },
     dts: {
-      tsgo: true,
+      tsgo: { enabled: false },
     },
   },
   lint: {

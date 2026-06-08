@@ -1,8 +1,8 @@
 import { NodeServices } from "@effect/platform-node";
-import { describe, expect, it } from "@effect/vitest";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { describe, expect, it } from "@effect/vitest";
 import { Effect, Result } from "effect";
 import { Project } from "ts-morph";
 import { getConfigFromFileEffect, getDefaultConfigFilePathEffect } from "./config";

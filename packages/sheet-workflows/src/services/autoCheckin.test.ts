@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { DateTime, Effect, Option } from "effect";
 import { TestClock } from "effect/testing";
 import { CheckinGenerateResult } from "sheet-ingress-api/schemas/checkin";

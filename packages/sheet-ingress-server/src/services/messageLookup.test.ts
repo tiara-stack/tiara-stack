@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
+import { vi } from "vitest";
 import { Cause, Effect, Exit, Layer, Option } from "effect";
 import { MESSAGE_ROOM_ORDER_NOT_REGISTERED_ERROR_MESSAGE } from "sheet-ingress-api/sheet-apis-rpc";
 import { makeArgumentError } from "typhoon-core/error";

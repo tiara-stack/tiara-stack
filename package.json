@@ -5,7 +5,7 @@
   "scripts": {
     "format": "vp run -r format",
     "lint": "vp run -r lint",
-    "test": "vp run -r test",
+    "test": "pnpm -r --if-present --filter './packages/*' test",
     "checks": "pnpm format && pnpm lint && pnpm test",
     "format:apply": "vp run -r format:apply",
     "build": "vp run -r build",

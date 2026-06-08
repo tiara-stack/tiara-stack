@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { pg, schema, sqlite } from "./index";
 import { snapshotSchema } from "./snapshot";
 

@@ -1,6 +1,6 @@
 import { Effect, Exit } from "effect";
 import { SqlClient } from "effect/unstable/sql";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { introspectMigrationExtensionsEffect, runMigrationExtensionsEffect } from "./extensions";
 import type { ResolvedConfig } from "../types";
 import { emptySnapshot } from "../snapshot";

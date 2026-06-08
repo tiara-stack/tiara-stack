@@ -23,6 +23,7 @@
     "format": "vp fmt --check",
     "format:apply": "vp fmt",
     "lint": "vp lint src",
+    "pretest": "pnpm --filter effect-sql-schema build",
     "test": "vp test run",
     "test:watch": "vp test",
     "build": "vp pack && chmod +x dist/cli/index.mjs"
@@ -38,8 +39,8 @@
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
-    "@types/node": "^24.7.2",
-    "tsx": "^4.20.6",
+    "@types/node": "catalog:",
+    "tsx": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:",
     "vitest": "catalog:"

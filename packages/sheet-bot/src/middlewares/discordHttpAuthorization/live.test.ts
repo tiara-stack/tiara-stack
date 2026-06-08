@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { HttpServerRequest } from "effect/unstable/http";
 import { isHealthProbeRequest } from "./live";
 

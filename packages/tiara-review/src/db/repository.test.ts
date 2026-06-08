@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { migrate, sqliteLayer, withSqlite } from "./client";
 import { dedupeKeyForFinding, ReviewRepository } from "./repository";
 

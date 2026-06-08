@@ -16,6 +16,7 @@
     },
     "./schema": {
       "types": "./dist/schema.d.mts",
+      "development": "./src/schema.ts",
       "default": "./dist/schema.mjs"
     },
     "./api-groups": {
@@ -52,7 +53,7 @@
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
-    "@types/node": "^24.10.9",
+    "@types/node": "catalog:",
     "@typescript/native-preview": "latest",
     "glob": "^11.0.1",
     "pathe": "^2.0.3",

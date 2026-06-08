@@ -15,7 +15,8 @@
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
     "paths": {
-      "vitest": ["./node_modules/vitest"],
+      "dfx-discord-utils": ["../dfx-discord-utils/src/index.ts"],
+      "dfx-discord-utils/*": ["../dfx-discord-utils/src/*"],
       "*": ["./*"],
       "~~/*": ["./*"],
       "@@/*": ["./*"]

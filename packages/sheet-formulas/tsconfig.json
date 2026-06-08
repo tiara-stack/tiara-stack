@@ -17,6 +17,10 @@
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
     "paths": {
+      "effect-platform-apps-script": ["../effect-platform-apps-script/src/index.ts"],
+      "effect-platform-apps-script/*": ["../effect-platform-apps-script/src/*"],
+      "sheet-ingress-api": ["../sheet-ingress-api/src/index.ts"],
+      "sheet-ingress-api/*": ["../sheet-ingress-api/src/*"],
       "*": ["./*"],
       "~~/*": ["./*"],
       "@@/*": ["./*"]

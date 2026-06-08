@@ -35,8 +35,9 @@
     "format": "vp fmt --check",
     "format:apply": "vp fmt",
     "lint": "vp lint src",
+    "pretest": "pnpm build",
     "test": "vp test run",
-    "build": "pnpm --filter effect-sql-schema build && pnpm --filter effect-zero build && node ../effect-zero/dist/cli/index.mjs generate --config ./effect-zero.config.ts --output ./src/zero/schema.ts --skip-declare --format --force && vp pack",
+    "build": "pnpm --filter effect-sql-schema build && pnpm --filter effect-zero build && pnpm --filter typhoon-zero... build && node ../effect-zero/dist/cli/index.mjs generate --config ./effect-zero.config.ts --output ./src/zero/schema.ts --skip-declare --format --force && vp pack",
     "db:generate": "pnpm --filter effect-sql-schema build && pnpm --filter effect-zero build && pnpm --filter effect-sql-kit build && node ../effect-sql-kit/dist/cli/index.mjs generate",
     "db:migrate": "pnpm --filter effect-sql-schema build && pnpm --filter effect-zero build && pnpm --filter effect-sql-kit build && node ../effect-sql-kit/dist/cli/index.mjs migrate",
     "db:push": "pnpm --filter effect-sql-schema build && pnpm --filter effect-zero build && pnpm --filter effect-sql-kit build && node ../effect-sql-kit/dist/cli/index.mjs push"
@@ -50,7 +51,8 @@
     "typhoon-zero": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^24.7.2",
+    "@effect/vitest": "catalog:",
+    "@types/node": "catalog:",
     "@typescript/native-preview": "latest",
     "dotenv": "^17.2.3",
     "pathe": "^2.0.3",

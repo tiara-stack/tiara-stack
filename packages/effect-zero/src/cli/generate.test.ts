@@ -1,8 +1,8 @@
 import { NodeServices } from "@effect/platform-node";
-import { describe, expect, it } from "@effect/vitest";
 import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "@effect/vitest";
 import { Effect, Result } from "effect";
 import {
   formatGeneratedFileEffect,

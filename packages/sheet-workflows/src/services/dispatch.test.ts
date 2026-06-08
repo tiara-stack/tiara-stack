@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { Cause, DateTime, Effect, Exit, Option } from "effect";
 import { TestClock } from "effect/testing";
 import { formatTentativeRoomOrderContent } from "sheet-ingress-api/discordComponents";

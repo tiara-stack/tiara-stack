@@ -97,6 +97,7 @@
     "typhoon-zero": "workspace:*"
   },
   "devDependencies": {
+    "@effect/vitest": "catalog:",
     "@typescript/native-preview": "7.0.0-dev.20260327.2",
     "vite": "catalog:",
     "vite-plus": "catalog:",

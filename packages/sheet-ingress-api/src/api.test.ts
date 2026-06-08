@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { Schema } from "effect";
 import { Api, SheetApisApi, SheetWorkflowsApi } from "./api";
 import { DispatchAcceptedResult } from "./handlers/dispatch/schema";

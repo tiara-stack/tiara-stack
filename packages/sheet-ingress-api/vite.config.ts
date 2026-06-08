@@ -25,6 +25,16 @@ const collectEntries = (relativeDir: string): Record<string, string> =>
   );
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      "dfx-discord-utils/discord/api": fileURLToPath(
+        new URL("../dfx-discord-utils/src/discord/api.ts", import.meta.url),
+      ),
+      "dfx-discord-utils/discord/schema": fileURLToPath(
+        new URL("../dfx-discord-utils/src/discord/schema/index.ts", import.meta.url),
+      ),
+    },
+  },
   pack: {
     entry: {
       "api-groups": fileURLToPath(new URL("./src/api-groups.ts", import.meta.url)),

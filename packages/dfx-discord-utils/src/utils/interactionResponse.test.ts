@@ -3,7 +3,7 @@ import { MessageFlags } from "discord-api-types/v10";
 import { CommandHelper } from "dfx/Interactions/commandHelper";
 import { Duration, Effect, Fiber, Option } from "effect";
 import { TestClock } from "effect/testing";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { WrappedCommandHelper, makeCommand, makeForkedCommandHandler } from "./commandHelper";
 import { makeButton, makeForkedMessageComponentHandler } from "./messageComponentHelper";
 import {

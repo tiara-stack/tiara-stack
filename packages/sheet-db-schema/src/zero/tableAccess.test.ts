@@ -1,5 +1,6 @@
 import { Schema } from "effect";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "@effect/vitest";
+import { vi } from "vitest";
 import { defineZeroTableAccess } from "./tableAccess";
 
 const model = {

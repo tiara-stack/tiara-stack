@@ -12,6 +12,7 @@
     },
     "./client": {
       "types": "./dist/client.d.mts",
+      "development": "./src/client.ts",
       "default": "./dist/client.mjs"
     },
     "./model": {
@@ -28,6 +29,7 @@
     },
     "./plugins/kubernetes-oauth": {
       "types": "./dist/plugins/kubernetes-oauth/index.d.mts",
+      "development": "./src/plugins/kubernetes-oauth/index.ts",
       "default": "./dist/plugins/kubernetes-oauth/index.mjs"
     },
     "./plugins/kubernetes-oauth/client": {
@@ -36,6 +38,7 @@
     },
     "./plugins/kubernetes-oauth/rpc-authorization": {
       "types": "./dist/plugins/kubernetes-oauth/rpc-authorization.d.mts",
+      "development": "./src/plugins/kubernetes-oauth/rpc-authorization.ts",
       "default": "./dist/plugins/kubernetes-oauth/rpc-authorization.mjs"
     },
     "./package.json": "./package.json"
@@ -68,7 +71,8 @@
     "unstorage": "^1.17.4"
   },
   "devDependencies": {
-    "@types/node": "^24.7.2",
+    "@effect/vitest": "catalog:",
+    "@types/node": "catalog:",
     "@typescript/native-preview": "latest",
     "drizzle-kit": "^0.31.4",
     "vite": "catalog:",

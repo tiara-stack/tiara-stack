@@ -1,9 +1,9 @@
 import { NodeServices } from "@effect/platform-node";
-import { describe, expect, it } from "@effect/vitest";
 import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "@effect/vitest";
 import { Effect, Result } from "effect";
 import { loadConfigEffect, loadSchemaEffect } from "./config";
 

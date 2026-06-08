@@ -35,11 +35,11 @@
     "effect-sql-schema": "workspace:*",
     "jsonc-parser": "^3.3.1",
     "ts-morph": "^27.0.2",
-    "tsx": "^4.20.6"
+    "tsx": "catalog:"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
-    "@types/node": "^24.7.2",
+    "@types/node": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:",
     "vitest": "catalog:"

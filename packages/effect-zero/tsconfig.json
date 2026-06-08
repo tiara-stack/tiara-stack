@@ -14,8 +14,8 @@
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
     "paths": {
+      "effect-sql-kit": ["../effect-sql-kit/src/index.ts"],
       "effect-zero": ["./src/index.ts"],
-      "vitest": ["./node_modules/vitest"],
       "*": ["./*"],
       "~~/*": ["./*"],
       "@@/*": ["./*"]

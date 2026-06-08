@@ -15,7 +15,6 @@
     "noEmit": true,
     "paths": {
       "effect-sql-kit": ["./src/index.ts"],
-      "vitest": ["./node_modules/vitest"],
       "*": ["./*"]
     }
   }

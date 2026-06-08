@@ -16,6 +16,8 @@
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
     "paths": {
+      "dfx-discord-utils": ["../dfx-discord-utils/src/index.ts"],
+      "dfx-discord-utils/*": ["../dfx-discord-utils/src/*"],
       "*": ["./*"],
       "~~/*": ["./*"],
       "@@/*": ["./*"],

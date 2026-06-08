@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
+import { vi } from "vitest";
 import { Duration, Effect } from "effect";
 import { Headers } from "effect/unstable/http";
 import { Unauthorized } from "typhoon-core/error";

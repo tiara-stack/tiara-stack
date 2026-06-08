@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
+import { vi } from "vitest";
 import { Cause, Effect, Exit, Option } from "effect";
 import { MessageRoomOrder } from "sheet-ingress-api/schemas/messageRoomOrder";
 import {

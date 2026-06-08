@@ -1,9 +1,9 @@
 import { describe, expect, it } from "@effect/vitest";
+import { vi } from "vitest";
 import { Context, Effect, Layer, Option, Schema, Stream } from "effect";
 import { ClusterSchema, Sharding } from "effect/unstable/cluster";
 import type { HttpApiClient } from "effect/unstable/httpapi";
 import { WorkflowEngine } from "effect/unstable/workflow";
-import { vi } from "vitest";
 import { MessageCheckinMember } from "sheet-ingress-api/schemas/messageCheckin";
 import { MessageSlot } from "sheet-ingress-api/schemas/messageSlot";
 import {

@@ -37,6 +37,7 @@ packageExtensions:
   "@effect/vitest@4.0.0-beta.67":
     dependencies:
       "@vitest/runner": 4.1.2
+      vitest: npm:@voidzero-dev/vite-plus-test@0.1.15
 patchedDependencies:
   better-auth@1.4.18: patches/better-auth@1.4.18.patch
 peerDependencyRules:

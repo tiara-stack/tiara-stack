@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { Cause, ConfigProvider, Deferred, Effect, Exit, Fiber } from "effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 import { SheetApisRpcTokens } from "./sheetApisRpcTokens";

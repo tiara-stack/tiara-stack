@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { buildPushStatementsEffect } from "./push";
 import type { ResolvedConfig } from "../types";
 import { emptySnapshot } from "../snapshot";

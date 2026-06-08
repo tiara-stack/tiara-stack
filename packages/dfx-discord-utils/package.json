@@ -12,18 +12,22 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.mts",
+      "development": "./src/index.ts",
       "default": "./dist/index.mjs"
     },
     "./discord": {
       "types": "./dist/discord/index.d.mts",
+      "development": "./src/discord/index.ts",
       "default": "./dist/discord/index.mjs"
     },
     "./discord/api": {
       "types": "./dist/discord/api.d.mts",
+      "development": "./src/discord/api.ts",
       "default": "./dist/discord/api.mjs"
     },
     "./discord/cache": {
       "types": "./dist/discord/cache.d.mts",
+      "development": "./src/discord/cache/index.ts",
       "default": "./dist/discord/cache.mjs"
     },
     "./discord/cache/shared": {
@@ -32,14 +36,17 @@
     },
     "./discord/cache/guilds": {
       "types": "./dist/discord/cache/guilds.d.mts",
+      "development": "./src/discord/cache/guilds.ts",
       "default": "./dist/discord/cache/guilds.mjs"
     },
     "./discord/cache/roles": {
       "types": "./dist/discord/cache/roles.d.mts",
+      "development": "./src/discord/cache/roles.ts",
       "default": "./dist/discord/cache/roles.mjs"
     },
     "./discord/cache/members": {
       "types": "./dist/discord/cache/members.d.mts",
+      "development": "./src/discord/cache/members.ts",
       "default": "./dist/discord/cache/members.mjs"
     },
     "./discord/cache/channels": {
@@ -48,6 +55,7 @@
     },
     "./discord/schema": {
       "types": "./dist/discord/schema.d.mts",
+      "development": "./src/discord/schema/index.ts",
       "default": "./dist/discord/schema.mjs"
     },
     "./discord/gateway": {
@@ -56,6 +64,7 @@
     },
     "./discord/http": {
       "types": "./dist/discord/http.d.mts",
+      "development": "./src/discord/http.ts",
       "default": "./dist/discord/http.mjs"
     },
     "./discord/discordApiClient": {
@@ -64,7 +73,13 @@
     },
     "./utils": {
       "types": "./dist/utils/index.d.mts",
+      "development": "./src/utils/index.ts",
       "default": "./dist/utils/index.mjs"
+    },
+    "./cache": {
+      "types": "./dist/cache/index.d.mts",
+      "development": "./src/cache/index.ts",
+      "default": "./dist/cache/index.mjs"
     },
     "./*": {
       "types": "./dist/*/index.d.mts",
@@ -88,6 +103,7 @@
     "unstorage": "^1.17.4"
   },
   "devDependencies": {
+    "@effect/vitest": "catalog:",
     "@typescript/native-preview": "latest",
     "glob": "^11.0.3",
     "pathe": "^2.0.3",

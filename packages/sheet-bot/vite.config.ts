@@ -14,6 +14,9 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
+      "dfx-discord-utils": fileURLToPath(new URL("../dfx-discord-utils/src", import.meta.url)),
+      "sheet-auth": fileURLToPath(new URL("../sheet-auth/src", import.meta.url)),
+      "sheet-ingress-api": fileURLToPath(new URL("../sheet-ingress-api/src", import.meta.url)),
     },
   },
   pack: {

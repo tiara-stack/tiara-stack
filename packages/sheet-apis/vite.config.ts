@@ -6,6 +6,33 @@ const sheetIngressApiDist = fileURLToPath(new URL("../sheet-ingress-api/dist", i
 const sheetDbSchemaModels = fileURLToPath(import.meta.resolve("sheet-db-schema/models"));
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      "@": fileURLToPath(new URL("./src", import.meta.url)),
+      "dfx-discord-utils": fileURLToPath(new URL("../dfx-discord-utils/src", import.meta.url)),
+      "dfx-discord-utils/discord/cache/guilds": fileURLToPath(
+        new URL("../dfx-discord-utils/src/discord/cache/guilds.ts", import.meta.url),
+      ),
+      "dfx-discord-utils/discord/cache/members": fileURLToPath(
+        new URL("../dfx-discord-utils/src/discord/cache/members.ts", import.meta.url),
+      ),
+      "dfx-discord-utils/discord/cache/roles": fileURLToPath(
+        new URL("../dfx-discord-utils/src/discord/cache/roles.ts", import.meta.url),
+      ),
+      "dfx-discord-utils/discord/schema": fileURLToPath(
+        new URL("../dfx-discord-utils/src/discord/schema/index.ts", import.meta.url),
+      ),
+      "sheet-auth": fileURLToPath(new URL("../sheet-auth/src", import.meta.url)),
+      "sheet-auth/client": fileURLToPath(new URL("../sheet-auth/src/client.ts", import.meta.url)),
+      "sheet-auth/plugins/kubernetes-oauth": fileURLToPath(
+        new URL("../sheet-auth/src/plugins/kubernetes-oauth/index.ts", import.meta.url),
+      ),
+      "sheet-auth/plugins/kubernetes-oauth/rpc-authorization": fileURLToPath(
+        new URL("../sheet-auth/src/plugins/kubernetes-oauth/rpc-authorization.ts", import.meta.url),
+      ),
+      "sheet-ingress-api": fileURLToPath(new URL("../sheet-ingress-api/src", import.meta.url)),
+    },
+  },
   pack: [
     {
       entry: {

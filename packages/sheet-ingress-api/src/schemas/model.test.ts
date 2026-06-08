@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 import { messageRoomOrderEntry as messageRoomOrderEntryModel } from "sheet-db-schema/models";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import {
   FeatureFlagName,
   GuildChannelConfig,

@@ -5,6 +5,12 @@
     "jsx": "react-jsx",
     "module": "ESNext",
     "paths": {
+      "sheet-apis": ["../sheet-apis/src/index.ts"],
+      "sheet-apis/*": ["../sheet-apis/src/*"],
+      "sheet-auth": ["../sheet-auth/src/index.ts"],
+      "sheet-auth/*": ["../sheet-auth/src/*"],
+      "sheet-ingress-api": ["../sheet-ingress-api/src/index.ts"],
+      "sheet-ingress-api/*": ["../sheet-ingress-api/src/*"],
       "*": ["./*"],
       "~~/*": ["./*"],
       "@@/*": ["./*"],

@@ -7,7 +7,7 @@ import type {
   MigrationExtensionResult,
   ResolvedConfig,
 } from "effect-sql-kit";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { schema } from "./schema";
 import { table } from "./table";
 import { zeroPublication } from "./publication";

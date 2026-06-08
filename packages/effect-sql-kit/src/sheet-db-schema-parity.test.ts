@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { diffPg } from "./diff/pg";
 import { lowerToDrizzleSnapshot } from "./drizzle-lower";
 import { pg, schema } from "./index";

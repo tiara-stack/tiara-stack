@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { makeKimiDependencyGraphTools } from "./kimi-tools";
 
 describe("Kimi dependency graph tools", () => {

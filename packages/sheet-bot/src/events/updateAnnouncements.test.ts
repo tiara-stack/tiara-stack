@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { DateTime } from "effect";
 import type { ServicesStatusResponse } from "sheet-ingress-api/sheet-apis-rpc";
 import {

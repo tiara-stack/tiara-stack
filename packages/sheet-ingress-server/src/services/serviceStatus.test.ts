@@ -1,6 +1,6 @@
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 import { Effect } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { ServiceStatusService } from "./serviceStatus";
 
 const runStatusCheck = (handler: HttpClient.HttpClient["execute"]) =>

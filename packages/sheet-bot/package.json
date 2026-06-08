@@ -31,7 +31,8 @@
     "typhoon-core": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^24.10.0",
+    "@effect/vitest": "catalog:",
+    "@types/node": "catalog:",
     "@typescript/native-preview": "latest",
     "date-fns": "^4.1.0",
     "pathe": "^2.0.3",
