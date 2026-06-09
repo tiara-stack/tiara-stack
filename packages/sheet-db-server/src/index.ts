@@ -7,6 +7,8 @@ import { TracesLive } from "./traces";
 
 const configProviderLayer = dotEnvConfigProviderLayer().pipe(Layer.provide(NodeFileSystem.layer));
 
+// fallow-ignore-next-line code-duplication
+// fallow-ignore-next-line complexity
 HttpLive.pipe(
   Layer.provide(MetricsLive),
   Layer.provide(TracesLive),

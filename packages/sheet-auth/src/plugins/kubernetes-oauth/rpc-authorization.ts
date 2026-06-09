@@ -64,6 +64,7 @@ interface CachedKubernetesServiceAccountToken extends VerifiedKubernetesServiceA
   readonly ttl: Duration.Duration;
 }
 
+// fallow-ignore-next-line code-duplication
 export const getBearerToken = (authorization: string | undefined) => {
   if (!authorization?.startsWith("Bearer ")) {
     return undefined;

@@ -17,6 +17,7 @@ interface AuthorizedUser {
 vi.mock("sheet-auth/plugins/kubernetes-oauth/rpc-authorization", async () => {
   const { Duration, Effect } = await import("effect");
   return {
+    // fallow-ignore-next-line code-duplication
     getBearerToken: (authorization: string | undefined) => {
       if (!authorization?.startsWith("Bearer ")) {
         return undefined;

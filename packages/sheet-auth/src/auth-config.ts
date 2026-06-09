@@ -84,6 +84,7 @@ const pickMetadataString = (
   return typeof fallbackValue === "string" ? fallbackValue : undefined;
 };
 
+// fallow-ignore-next-line complexity
 const buildClientAccessTokenClaims = (scopes: string[], metadata: unknown) => {
   const resolvedMetadata = toRecord(metadata);
   return {

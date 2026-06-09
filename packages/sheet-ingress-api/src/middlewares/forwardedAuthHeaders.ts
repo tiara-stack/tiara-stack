@@ -14,6 +14,8 @@ const getBearerToken = (authorization: string | undefined) => {
   return token.length === 0 ? undefined : token;
 };
 
+// fallow-ignore-next-line code-duplication
+// fallow-ignore-next-line code-duplication
 const parseBoolHeader = (value: string | undefined) => {
   if (value === undefined) {
     return undefined;

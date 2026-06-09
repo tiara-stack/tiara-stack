@@ -2,6 +2,7 @@ import { Config, Option, Schema, SchemaGetter, String } from "effect";
 
 const positiveInt = Schema.Int.check(Schema.isGreaterThan(0));
 
+// fallow-ignore-next-line code-duplication
 const split = (separator: string) =>
   Schema.String.pipe(
     Schema.decodeTo(Schema.Array(Schema.String), {

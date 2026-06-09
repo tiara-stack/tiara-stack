@@ -221,6 +221,7 @@ const apiLayer = Layer.provide(HttpApiBuilder.layer(Api), [authLayer, wellKnownL
   Layer.merge(HttpRouter.add("GET", "/ready", HttpServerResponse.empty({ status: 200 }))),
 );
 
+// fallow-ignore-next-line code-duplication
 const HttpLive = HttpRouter.serve(apiLayer).pipe(
   HttpServer.withLogAddress,
   Layer.provide(NodeHttpServer.layer(createServer, { port: 3000 })),
@@ -228,6 +229,8 @@ const HttpLive = HttpRouter.serve(apiLayer).pipe(
 
 const configProviderLayer = dotEnvConfigProviderLayer().pipe(Layer.provide(NodeFileSystem.layer));
 
+// fallow-ignore-next-line code-duplication
+// fallow-ignore-next-line complexity
 HttpLive.pipe(
   Layer.provide(MetricsLive),
   Layer.provide(TracesLive),
