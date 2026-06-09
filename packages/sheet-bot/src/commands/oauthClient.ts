@@ -82,6 +82,91 @@ const respondWith = (
 HTTP ${response.status}${body.length > 0 ? `\n\n\`${body}\`` : ""}`;
 };
 
+const readCommandString = (value: Option.Option<unknown>): string | undefined => {
+  if (Option.isNone(value)) {
+    return undefined;
+  }
+  const raw = Option.getOrElse(value, () => undefined);
+  return typeof raw === "string" ? raw : undefined;
+};
+
+const readCommandBoolean = (value: Option.Option<unknown>): boolean | undefined => {
+  if (Option.isNone(value)) {
+    return undefined;
+  }
+  const raw = Option.getOrElse(value, () => undefined);
+  if (typeof raw === "boolean") {
+    return raw;
+  }
+  if (raw === "true") {
+    return true;
+  }
+  if (raw === "false") {
+    return false;
+  }
+  return undefined;
+};
+
+const toClientCreateInput = (command: any) => {
+  const optionValueOptional = command.optionValueOptional;
+  const name = readCommandString(optionValueOptional("name") as Option.Option<unknown>);
+  const trusted = readCommandBoolean(
+    optionValueOptional("trusted_service_client") as Option.Option<unknown>,
+  );
+  const isPublic = readCommandBoolean(optionValueOptional("public") as Option.Option<unknown>);
+  const allowedServices = normalizeCommaList(
+    readCommandString(optionValueOptional("allowed_services") as Option.Option<unknown>),
+  );
+  const allowedScopes = normalizeCommaList(
+    readCommandString(optionValueOptional("allowed_scopes") as Option.Option<unknown>),
+  );
+
+  return {
+    name: typeof name === "string" ? name.trim() : "",
+    trusted: trusted,
+    isPublic: isPublic,
+    allowedServices,
+    allowedScopes,
+  };
+};
+
+const buildCreatePayload = (
+  input: {
+    name: string;
+    isPublic?: boolean;
+    trusted?: boolean;
+    allowedServices: string[];
+    allowedScopes: string[];
+  },
+  ownerUserId: string,
+) => {
+  const scope =
+    input.allowedScopes.length > 0 ? input.allowedScopes.join(" ") : "sheet-apis sheet-workflows";
+  return {
+    client_name: input.name,
+    grant_types: ["client_credentials"],
+    response_types: ["code"],
+    redirect_uris: ["https://localhost"],
+    scope,
+    token_endpoint_auth_method: input.isPublic === true ? "none" : "client_secret_basic",
+    metadata: {
+      trusted_service_client: typeof input.trusted === "boolean" ? input.trusted : undefined,
+      allowed_services: input.allowedServices,
+      allowed_scopes: input.allowedScopes,
+      owner_user_id: ownerUserId,
+    },
+    public: input.isPublic === true,
+  };
+};
+
+const formatCreateClientSecret = (parsed: unknown) => {
+  const clientData = isRecord(parsed) ? parsed : {};
+  if (typeof (clientData as { client_secret?: unknown }).client_secret !== "string") {
+    return "";
+  }
+  return `\n\nclient_secret: ${String((clientData as { client_secret: unknown }).client_secret)}`;
+};
+
 const makeListClientsSubCommand = Effect.gen(function* () {
   return yield* CommandHelper.makeSubCommand(
     (builder) => builder.setName("list").setDescription("List your OAuth clients"),
@@ -137,8 +222,8 @@ const makeCreateClientSubCommand = Effect.gen(function* () {
       yield* interactionResponse.deferReply({ flags: MessageFlags.Ephemeral });
 
       const token = yield* getActorBearerToken;
-      const name = Option.getOrUndefined(command.optionValueOptional("name"));
-      if (typeof name !== "string" || name.length === 0) {
+      const input = toClientCreateInput(command);
+      if (input.name.length === 0) {
         return yield* interactionResponse.editReply({
           payload: {
             content: "name is required",
@@ -146,37 +231,11 @@ const makeCreateClientSubCommand = Effect.gen(function* () {
         });
       }
 
-      const trusted = Option.getOrUndefined(command.optionValueOptional("trusted_service_client"));
-      const isPublic = Option.getOrUndefined(command.optionValueOptional("public"));
-      const allowedServices = normalizeCommaList(
-        Option.getOrUndefined(command.optionValueOptional("allowed_services")),
-      );
-      const allowedScopes = normalizeCommaList(
-        Option.getOrUndefined(command.optionValueOptional("allowed_scopes")),
-      );
-
       const sheetAuthManagementClient = yield* SheetAuthManagementClient;
-      const response = yield* sheetAuthManagementClient.createClient(token.token, {
-        client_name: name,
-        grant_types: ["client_credentials"],
-        response_types: ["code"],
-        redirect_uris: ["https://localhost"],
-        scope: allowedScopes.length > 0 ? allowedScopes.join(" ") : "sheet-apis sheet-workflows",
-        token_endpoint_auth_method: isPublic === true ? "none" : "client_secret_basic",
-        metadata: {
-          trusted_service_client: typeof trusted === "boolean" ? trusted : undefined,
-          allowed_services: allowedServices,
-          allowed_scopes: allowedScopes,
-          owner_user_id: token.userId,
-        },
-        public: isPublic === true,
-      });
-
-      const clientData = isRecord(response.parsed) ? response.parsed : {};
-      const displayedSecret =
-        typeof (clientData as { client_secret?: unknown }).client_secret === "string"
-          ? `\n\nclient_secret: ${String((clientData as { client_secret: unknown }).client_secret)}`
-          : "";
+      const response = yield* sheetAuthManagementClient.createClient(
+        token.token,
+        buildCreatePayload(input, token.userId),
+      );
 
       return yield* interactionResponse.editReply({
         payload: {
@@ -184,7 +243,7 @@ const makeCreateClientSubCommand = Effect.gen(function* () {
             response,
             `OAuth client created (${response.status})`,
             response.status >= 200 && response.status < 300,
-          )}${displayedSecret}`,
+          )}${formatCreateClientSecret(response.parsed)}`,
         },
       });
     }),

@@ -55,6 +55,60 @@ const toStringArray = (values: unknown) =>
           .filter((entry) => entry.length > 0)
       : [];
 
+const toRecord = (metadata: unknown): Record<string, unknown> =>
+  typeof metadata === "object" && metadata !== null && !Array.isArray(metadata)
+    ? (metadata as Record<string, unknown>)
+    : {};
+
+const pickMetadataBoolean = (
+  metadata: Record<string, unknown>,
+  preferredField: string,
+  fallbackField?: string,
+) =>
+  metadata[preferredField] === true ||
+  (fallbackField !== undefined && metadata[fallbackField] === true);
+
+const pickMetadataString = (
+  metadata: Record<string, unknown>,
+  preferredField: string,
+  fallbackField?: string,
+) => {
+  const preferredValue = metadata[preferredField];
+  if (typeof preferredValue === "string") {
+    return preferredValue;
+  }
+  if (fallbackField === undefined) {
+    return undefined;
+  }
+  const fallbackValue = metadata[fallbackField];
+  return typeof fallbackValue === "string" ? fallbackValue : undefined;
+};
+
+const buildClientAccessTokenClaims = (scopes: string[], metadata: unknown) => {
+  const resolvedMetadata = toRecord(metadata);
+  return {
+    trusted_client: pickMetadataBoolean(
+      resolvedMetadata,
+      "trusted_service_client",
+      "trustedServiceClient",
+    ),
+    allowed_services: toStringArray(
+      resolvedMetadata["allowed_services"] ??
+        resolvedMetadata.allowedServices ??
+        resolvedMetadata.services,
+    ),
+    allowed_scopes: toStringArray(
+      resolvedMetadata["allowed_scopes"] ??
+        resolvedMetadata.allowedScopes ??
+        resolvedMetadata.scopes ??
+        scopes,
+    ),
+    owner_user_id: pickMetadataString(resolvedMetadata, "owner_user_id", "ownerUserId"),
+    client_type: pickMetadataString(resolvedMetadata, "type"),
+    status: pickMetadataString(resolvedMetadata, "status"),
+  };
+};
+
 type CleanupMethods = {
   close: () => Promise<void>;
   closeStorage: () => Promise<void>;
@@ -116,45 +170,8 @@ function createBaseAuth({
         clientRegistrationDefaultScopes: ["service"],
         storeClientSecret: "hashed",
         clientPrivileges: () => true,
-        customAccessTokenClaims: ({ scopes, metadata }) => {
-          const resolvedMetadata =
-            metadata && typeof metadata === "object" && "trusted_service_client" in metadata
-              ? (metadata as Record<string, unknown>)
-              : {};
-
-          const trustedClient =
-            resolvedMetadata["trusted_service_client"] === true ||
-            resolvedMetadata.trustedServiceClient === true;
-          const ownerUserId =
-            typeof resolvedMetadata.owner_user_id === "string"
-              ? resolvedMetadata.owner_user_id
-              : typeof resolvedMetadata.ownerUserId === "string"
-                ? resolvedMetadata.ownerUserId
-                : undefined;
-          const clientType =
-            typeof resolvedMetadata.type === "string" ? resolvedMetadata.type : undefined;
-          const clientStatus =
-            typeof resolvedMetadata.status === "string" ? resolvedMetadata.status : undefined;
-          const allowedServices = toStringArray(
-            "allowed_services" in resolvedMetadata
-              ? resolvedMetadata.allowed_services
-              : resolvedMetadata.allowedServices,
-          );
-          const allowedScopes = toStringArray(
-            "allowed_scopes" in resolvedMetadata
-              ? resolvedMetadata.allowed_scopes
-              : (resolvedMetadata.allowedScopes ?? scopes),
-          );
-
-          return {
-            trusted_client: trustedClient,
-            allowed_services: allowedServices,
-            allowed_scopes: allowedScopes,
-            owner_user_id: ownerUserId,
-            client_type: clientType,
-            status: clientStatus,
-          };
-        },
+        customAccessTokenClaims: ({ scopes, metadata }) =>
+          buildClientAccessTokenClaims(scopes, metadata),
       }),
       kubernetesOAuth({
         audience: kubernetesAudience,

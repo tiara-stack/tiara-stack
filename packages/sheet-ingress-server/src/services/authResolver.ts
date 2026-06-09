@@ -109,6 +109,100 @@ interface OAuthTokenIntrospectionResponse {
   readonly status?: string;
 }
 
+const toBasicAuthHeader = (clientId: string, clientSecret: Redacted.Redacted<string>) =>
+  `Basic ${Buffer.from(`${clientId}:${Redacted.value(clientSecret)}`).toString("base64")}`;
+
+const parseOAuthIntrospectionClaims = Effect.fn("parseOAuthIntrospectionClaims")(function* (
+  claims: OAuthTokenIntrospectionResponse,
+) {
+  const resolvedClientId = claims.client_id;
+  if (typeof resolvedClientId !== "string" || resolvedClientId.length === 0) {
+    return yield* Effect.fail(new Unauthorized({ message: "OAuth token has no client_id" }));
+  }
+
+  const status = typeof claims.status === "string" ? claims.status.toLowerCase() : undefined;
+  if (status === "disabled" || status === "inactive") {
+    return yield* Effect.fail(
+      new Unauthorized({ message: `OAuth client status is ${claims.status}` }),
+    );
+  }
+
+  return {
+    userId: claims.owner_user_id ?? claims.sub ?? resolvedClientId,
+    accountId: `oauth-client:${resolvedClientId}`,
+    clientId: resolvedClientId,
+    trustedClient: toBoolean(claims.trusted_client ?? claims.trustedServiceClient),
+    allowedServices: HashSet.fromIterable(
+      toStringArray(claims.allowed_services ?? claims.allowedServices),
+    ),
+    allowedScopes: HashSet.fromIterable(
+      toStringArray(claims.allowed_scopes ?? claims.allowedScopes ?? claims.scope),
+    ),
+    permissions: permissionSetFromIterable(
+      toStringArray(claims.scope).filter(
+        (scope): scope is Permission => scope === "service" || scope === "app_owner",
+      ),
+    ),
+  } satisfies CachedAuthorization;
+});
+
+const fetchOAuthIntrospectionClaims = Effect.fn("fetchOAuthIntrospectionClaims")(function* (
+  token: Redacted.Redacted<string>,
+  clientId: string,
+  clientSecret: Redacted.Redacted<string>,
+) {
+  const introspectionUrl = new URL("/oauth2/introspect", yield* config.sheetAuthIssuer).toString();
+  const form = new URLSearchParams({
+    token: Redacted.value(token),
+    token_type_hint: "access_token",
+    client_id: clientId,
+  });
+  const response = yield* Effect.tryPromise({
+    try: async () =>
+      fetch(introspectionUrl, {
+        method: "POST",
+        headers: {
+          authorization: toBasicAuthHeader(clientId, clientSecret),
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: form,
+      }),
+    catch: (cause) => makeUnauthorized("OAuth introspection request failed", cause),
+  });
+
+  if (!response.ok) {
+    const body = yield* Effect.tryPromise({
+      try: () => response.text(),
+      catch: () => Effect.succeed(""),
+    });
+    return yield* Effect.fail(
+      makeUnauthorized(
+        `OAuth introspection failed with status ${response.status}: ${body || "<empty body>"}`,
+      ),
+    );
+  }
+
+  return yield* Effect.tryPromise({
+    try: () => response.json().then((payload) => payload as OAuthTokenIntrospectionResponse),
+    catch: (cause) => makeUnauthorized("OAuth introspection response parse failed", cause),
+  });
+});
+
+const unauthorizedIfCredentialsMissing = (
+  introspectionClientId: Option.Option<string>,
+  introspectionClientSecret: Option.Option<Redacted.Redacted<string>>,
+) =>
+  Option.isNone(introspectionClientId) || Option.isNone(introspectionClientSecret)
+    ? new Unauthorized({ message: "OAuth client introspection credentials are not configured" })
+    : undefined;
+
+const parseActiveToken = (claims: OAuthTokenIntrospectionResponse) => {
+  if (claims.active !== true) {
+    return new Unauthorized({ message: "OAuth token is not active" });
+  }
+  return undefined;
+};
+
 const resolveOAuthClientAuthorization = Effect.fn("resolveOAuthClientAuthorization")(function* (
   token: Redacted.Redacted<string>,
 ) {
@@ -119,97 +213,25 @@ const resolveOAuthClientAuthorization = Effect.fn("resolveOAuthClientAuthorizati
     Redacted.make(""),
   );
 
-  if (Option.isNone(introspectionClientId) || Option.isNone(introspectionClientSecret)) {
-    return yield* Effect.fail(
-      makeUnauthorized("OAuth client introspection credentials are not configured"),
-    );
-  }
-
-  const introspectionUrl = new URL("/oauth2/introspect", yield* config.sheetAuthIssuer).toString();
-  const form = new URLSearchParams({
-    token: Redacted.value(token),
-    token_type_hint: "access_token",
-    client_id: introspectionClientIdValue,
-  });
-
-  const authorizationHeader = `Basic ${Buffer.from(
-    `${introspectionClientIdValue}:${Redacted.value(introspectionClientSecretValue)}`,
-  ).toString("base64")}`;
-
-  const claims = yield* Effect.tryPromise({
-    try: async () => {
-      const response = await fetch(introspectionUrl, {
-        method: "POST",
-        headers: {
-          authorization: authorizationHeader,
-          "content-type": "application/x-www-form-urlencoded",
-        },
-        body: form,
-      });
-
-      if (!response.ok) {
-        const body = await response.text();
-        return {
-          ok: false as const,
-          error: `OAuth introspection failed with status ${response.status}: ${body}`,
-        };
-      }
-
-      return {
-        ok: true as const,
-        payload: (await response.json()) as OAuthTokenIntrospectionResponse,
-      };
-    },
-    catch: (cause) => makeUnauthorized("OAuth introspection request failed", cause),
-  });
-
-  if (!claims.ok) {
-    return yield* Effect.fail(new Unauthorized({ message: claims.error }));
-  }
-
-  const introspectionClaims = claims.payload;
-  if (introspectionClaims.active !== true) {
-    return yield* Effect.fail(new Unauthorized({ message: "OAuth token is not active" }));
-  }
-
-  const resolvedClientId = introspectionClaims.client_id;
-  if (typeof resolvedClientId !== "string" || resolvedClientId.length === 0) {
-    return yield* Effect.fail(new Unauthorized({ message: "OAuth token has no client_id" }));
-  }
-
-  const status =
-    typeof introspectionClaims.status === "string" ? introspectionClaims.status : undefined;
-  const normalizedStatus = status?.trim().toLowerCase();
-  if (normalizedStatus === "disabled" || normalizedStatus === "inactive") {
-    return yield* Effect.fail(new Unauthorized({ message: `OAuth client status is ${status}` }));
-  }
-
-  const accountId = `oauth-client:${resolvedClientId}`;
-  const allowedServices = toStringArray(
-    introspectionClaims.allowed_services ?? introspectionClaims.allowedServices,
+  const credentialsMissing = unauthorizedIfCredentialsMissing(
+    introspectionClientId,
+    introspectionClientSecret,
   );
-  const allowedScopes = toStringArray(
-    introspectionClaims.allowed_scopes ??
-      introspectionClaims.allowedScopes ??
-      introspectionClaims.scope,
-  );
-  const trustedClient = toBoolean(
-    introspectionClaims.trusted_client ?? introspectionClaims.trustedServiceClient,
-  );
-  const scopes = toStringArray(introspectionClaims.scope);
-  const allowScopePermissions = permissionSetFromIterable(
-    scopes.filter((scope): scope is Permission => scope === "service" || scope === "app_owner"),
+  if (credentialsMissing !== undefined) {
+    return yield* Effect.fail(credentialsMissing);
+  }
+  const introspectionClaims = yield* fetchOAuthIntrospectionClaims(
+    token,
+    introspectionClientIdValue,
+    introspectionClientSecretValue,
   );
 
-  return {
-    userId: introspectionClaims.owner_user_id ?? introspectionClaims.sub ?? resolvedClientId,
-    accountId,
-    clientId: resolvedClientId,
-    trustedClient,
-    allowedServices: HashSet.fromIterable(allowedServices),
-    allowedScopes: HashSet.fromIterable(allowedScopes),
-    permissions: allowScopePermissions,
-  } satisfies CachedAuthorization;
+  const inactiveError = parseActiveToken(introspectionClaims);
+  if (inactiveError !== undefined) {
+    return yield* Effect.fail(inactiveError);
+  }
+
+  return yield* parseOAuthIntrospectionClaims(introspectionClaims);
 });
 
 const resolveCachedAuthorization = Effect.fn("resolveCachedAuthorization")(function* (
