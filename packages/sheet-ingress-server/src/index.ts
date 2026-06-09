@@ -26,6 +26,7 @@ import {
   hasDiscordAccountPermission,
   hasGuildPermission,
   hasPermission,
+  type SheetApiTarget,
   SheetAuthTokenAuthorizationLive,
 } from "./services/authorization";
 import { SheetAuthUserResolver } from "./services/authResolver";
@@ -88,8 +89,6 @@ const missingMessage = (kind: string) =>
 
 const legacyDenied = (kind: string) =>
   Effect.fail(new Unauthorized({ message: `Legacy ${kind} records are no longer accessible` }));
-
-type SheetApiTarget = "sheet-apis" | "sheet-workflows";
 
 const authorizationArgumentError = (kind: string) => (cause: unknown) =>
   cause instanceof Unauthorized || cause instanceof ArgumentError

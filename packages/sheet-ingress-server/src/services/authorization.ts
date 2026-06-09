@@ -27,7 +27,7 @@ import {
 type SheetAuthUserType = Context.Service.Shape<typeof SheetAuthUser>;
 type SheetAuthGuildUserType = Context.Service.Shape<typeof SheetAuthGuildUser>;
 type GuildPermissionScope = "member" | "monitor" | "manage";
-type SheetApiTarget = "sheet-apis" | "sheet-workflows";
+export type SheetApiTarget = "sheet-apis" | "sheet-workflows";
 type BearerCredentialInput = {
   credential?: Redacted.Redacted<string>;
   endpoint?: unknown;

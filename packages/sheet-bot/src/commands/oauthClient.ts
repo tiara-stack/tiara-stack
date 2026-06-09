@@ -107,7 +107,7 @@ const readCommandBoolean = (value: Option.Option<unknown>): boolean | undefined 
 };
 
 const CreateClientInput = Schema.Struct({
-  name: Schema.String,
+  name: Schema.NonEmptyString,
   trusted: Schema.optional(Schema.Boolean),
   isPublic: Schema.optional(Schema.Boolean),
   allowedServices: Schema.Array(Schema.String),
@@ -224,13 +224,6 @@ const makeCreateClientSubCommand = Effect.gen(function* () {
 
       const token = yield* getActorBearerToken;
       const input = yield* toClientCreateInput(command);
-      if (input.name.length === 0) {
-        return yield* interactionResponse.editReply({
-          payload: {
-            content: "name is required",
-          },
-        });
-      }
 
       const sheetAuthManagementClient = yield* SheetAuthManagementClient;
       const response = yield* sheetAuthManagementClient.createClient(
