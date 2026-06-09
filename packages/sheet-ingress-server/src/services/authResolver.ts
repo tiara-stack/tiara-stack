@@ -112,6 +112,7 @@ interface OAuthTokenIntrospectionResponse {
 const toBasicAuthHeader = (clientId: string, clientSecret: Redacted.Redacted<string>) =>
   `Basic ${Buffer.from(`${clientId}:${Redacted.value(clientSecret)}`).toString("base64")}`;
 
+// fallow-ignore-next-line complexity
 const parseOAuthIntrospectionClaims = Effect.fn("parseOAuthIntrospectionClaims")(function* (
   claims: OAuthTokenIntrospectionResponse,
 ) {

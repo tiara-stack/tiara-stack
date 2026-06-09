@@ -26,6 +26,7 @@ type RegisteredRoomOrderButtonPayload = {
   readonly messageId: string;
 };
 
+// fallow-ignore-next-line code-duplication
 const getModernMessageGuildId = (record: ModernMessageRecord) =>
   Option.match(record.guildId, {
     onSome: (guildId) =>

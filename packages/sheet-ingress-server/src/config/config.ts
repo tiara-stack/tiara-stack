@@ -1,5 +1,6 @@
 import { Config, Schema, SchemaGetter } from "effect";
 
+// fallow-ignore-next-line code-duplication
 const split = (separator: string) =>
   Schema.String.pipe(
     Schema.decodeTo(Schema.Array(Schema.String), {

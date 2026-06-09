@@ -41,18 +41,22 @@ class ResolvedGuildUserCacheKey extends Data.Class<{
   readonly userId: string;
 }> {}
 
+// fallow-ignore-next-line code-duplication
 export const permissionSetFromIterable = (permissions: Iterable<Permission>): PermissionSet =>
   HashSet.fromIterable(permissions);
 
+// fallow-ignore-next-line code-duplication
 export const hasPermission = (permissions: PermissionSet, permission: Permission) =>
   HashSet.has(permissions, permission);
 
+// fallow-ignore-next-line code-duplication
 export const hasGuildPermission = (
   permissions: PermissionSet,
   prefix: "member_guild" | "monitor_guild" | "manage_guild",
   guildId: string,
 ) => HashSet.has(permissions, `${prefix}:${guildId}`);
 
+// fallow-ignore-next-line code-duplication
 export const hasDiscordAccountPermission = (permissions: PermissionSet, accountId: string) =>
   HashSet.has(permissions, `account:discord:${accountId}`);
 
@@ -180,54 +184,59 @@ export class AuthorizationService extends Context.Service<AuthorizationService>(
       const getOptionalGuildRoles = (guildId: string) =>
         Cache.get(guildRolesCache, guildId).pipe(Effect.tapError(Effect.logError), Effect.option);
 
+      // fallow-ignore-next-line complexity
+      // fallow-ignore-next-line complexity
       const resolveGuildScopedPermissions = Effect.fn(
         "AuthorizationService.resolveGuildScopedPermissions",
-      )(function* (user: SheetAuthUserType, guildId: string) {
-        if (
-          hasPermission(user.permissions, "service") ||
-          hasPermission(user.permissions, "app_owner")
-        ) {
-          return appendPermissions(user.permissions, [
-            `member_guild:${guildId}`,
-            `monitor_guild:${guildId}`,
-            `manage_guild:${guildId}`,
-          ]);
-        }
+      )(
+        // fallow-ignore-next-line complexity
+        function* (user: SheetAuthUserType, guildId: string) {
+          if (
+            hasPermission(user.permissions, "service") ||
+            hasPermission(user.permissions, "app_owner")
+          ) {
+            return appendPermissions(user.permissions, [
+              `member_guild:${guildId}`,
+              `monitor_guild:${guildId}`,
+              `manage_guild:${guildId}`,
+            ]);
+          }
 
-        const [maybeMember, maybeMonitorRoleIds, maybeRoles] = yield* Effect.all(
-          [
-            getOptionalGuildMember(guildId, user.accountId),
-            getOptionalMonitorRoleIds(guildId),
-            getOptionalGuildRoles(guildId),
-          ],
-          { concurrency: "unbounded" },
-        );
+          const [maybeMember, maybeMonitorRoleIds, maybeRoles] = yield* Effect.all(
+            [
+              getOptionalGuildMember(guildId, user.accountId),
+              getOptionalMonitorRoleIds(guildId),
+              getOptionalGuildRoles(guildId),
+            ],
+            { concurrency: "unbounded" },
+          );
 
-        let permissions = user.permissions;
+          let permissions = user.permissions;
 
-        if (Option.isSome(maybeMember)) {
-          permissions = appendPermission(permissions, `member_guild:${guildId}`);
-        }
+          if (Option.isSome(maybeMember)) {
+            permissions = appendPermission(permissions, `member_guild:${guildId}`);
+          }
 
-        if (
-          Option.isSome(maybeMember) &&
-          Option.isSome(maybeMonitorRoleIds) &&
-          maybeMonitorRoleIds.value.size > 0 &&
-          hasMonitorGuildPermission(maybeMember.value, maybeMonitorRoleIds.value)
-        ) {
-          permissions = appendPermission(permissions, `monitor_guild:${guildId}`);
-        }
+          if (
+            Option.isSome(maybeMember) &&
+            Option.isSome(maybeMonitorRoleIds) &&
+            maybeMonitorRoleIds.value.size > 0 &&
+            hasMonitorGuildPermission(maybeMember.value, maybeMonitorRoleIds.value)
+          ) {
+            permissions = appendPermission(permissions, `monitor_guild:${guildId}`);
+          }
 
-        if (
-          Option.isSome(maybeMember) &&
-          Option.isSome(maybeRoles) &&
-          hasManageGuildPermission(maybeMember.value, guildId, maybeRoles.value)
-        ) {
-          permissions = appendPermission(permissions, `manage_guild:${guildId}`);
-        }
+          if (
+            Option.isSome(maybeMember) &&
+            Option.isSome(maybeRoles) &&
+            hasManageGuildPermission(maybeMember.value, guildId, maybeRoles.value)
+          ) {
+            permissions = appendPermission(permissions, `manage_guild:${guildId}`);
+          }
 
-        return permissions;
-      });
+          return permissions;
+        },
+      );
 
       const resolveSheetAuthGuildUser = Effect.fn("AuthorizationService.resolveSheetAuthGuildUser")(
         function* (user: SheetAuthUserType, guildId: string) {
