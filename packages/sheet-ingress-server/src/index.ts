@@ -1486,6 +1486,8 @@ const configProviderLayer = dotEnvConfigProviderLayer().pipe(Layer.provide(NodeF
 
 const HttpLive = Layer.unwrap(
   Effect.gen(function* () {
+    yield* config.sheetAuthOAuthIntrospectionClientCredentials;
+
     const port = yield* config.port;
     const ApiLayer = makeApiLayer();
 

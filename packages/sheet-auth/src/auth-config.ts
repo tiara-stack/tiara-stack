@@ -55,58 +55,17 @@ const toStringArray = (values: unknown) =>
           .filter((entry) => entry.length > 0)
       : [];
 
-const toRecord = (metadata: unknown): Record<string, unknown> =>
-  typeof metadata === "object" && metadata !== null && !Array.isArray(metadata)
-    ? (metadata as Record<string, unknown>)
-    : {};
-
-const pickMetadataBoolean = (
-  metadata: Record<string, unknown>,
-  preferredField: string,
-  fallbackField?: string,
-) =>
-  metadata[preferredField] === true ||
-  (fallbackField !== undefined && metadata[fallbackField] === true);
-
-const pickMetadataString = (
-  metadata: Record<string, unknown>,
-  preferredField: string,
-  fallbackField?: string,
-) => {
-  const preferredValue = metadata[preferredField];
-  if (typeof preferredValue === "string") {
-    return preferredValue;
-  }
-  if (fallbackField === undefined) {
-    return undefined;
-  }
-  const fallbackValue = metadata[fallbackField];
-  return typeof fallbackValue === "string" ? fallbackValue : undefined;
-};
-
 // fallow-ignore-next-line complexity
-const buildClientAccessTokenClaims = (scopes: string[], metadata: unknown) => {
-  const resolvedMetadata = toRecord(metadata);
+const buildClientAccessTokenClaims = (scopes: string[]) => {
+  const normalizedScopes = toStringArray(scopes).filter(
+    (scope): scope is string => scope.length > 0,
+  );
   return {
-    trusted_client: pickMetadataBoolean(
-      resolvedMetadata,
-      "trusted_service_client",
-      "trustedServiceClient",
+    trusted_client: false,
+    allowed_services: normalizedScopes.filter(
+      (scope) => scope === "sheet-apis" || scope === "sheet-workflows",
     ),
-    allowed_services: toStringArray(
-      resolvedMetadata["allowed_services"] ??
-        resolvedMetadata.allowedServices ??
-        resolvedMetadata.services,
-    ),
-    allowed_scopes: toStringArray(
-      resolvedMetadata["allowed_scopes"] ??
-        resolvedMetadata.allowedScopes ??
-        resolvedMetadata.scopes ??
-        scopes,
-    ),
-    owner_user_id: pickMetadataString(resolvedMetadata, "owner_user_id", "ownerUserId"),
-    client_type: pickMetadataString(resolvedMetadata, "type"),
-    status: pickMetadataString(resolvedMetadata, "status"),
+    allowed_scopes: normalizedScopes,
   };
 };
 
@@ -168,11 +127,10 @@ function createBaseAuth({
         ],
         allowDynamicClientRegistration: true,
         clientRegistrationAllowedScopes: ["sheet-apis", "sheet-workflows", "service"],
-        clientRegistrationDefaultScopes: ["service"],
+        clientRegistrationDefaultScopes: [],
         storeClientSecret: "hashed",
         clientPrivileges: () => true,
-        customAccessTokenClaims: ({ scopes, metadata }) =>
-          buildClientAccessTokenClaims(scopes, metadata),
+        customAccessTokenClaims: ({ scopes }) => buildClientAccessTokenClaims(scopes),
       }),
       kubernetesOAuth({
         audience: kubernetesAudience,
