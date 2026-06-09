@@ -19,4 +19,5 @@ export * from "./schedule";
 export * from "./sheet";
 export * from "./sheetConfig";
 export * from "./sheetAuthClient";
+export * from "./sheetAuthManagementClient";
 export * from "./zeroClient";
