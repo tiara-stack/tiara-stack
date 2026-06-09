@@ -12,10 +12,8 @@ import { SheetAuthManagementClient } from "sheet-apis/services/sheetAuthManageme
 import { SheetAuthClient } from "../services/sheetAuthClient";
 import { getInteractionUser } from "../utils/commandHelpers";
 
-const SERVICE_ACCOUNT_TOKEN_PATH = "/var/run/secrets/tokens/sheet-auth-token";
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
+const SERVICE_ACCOUNT_TOKEN_PATH =
+  process.env.SHEET_AUTH_TOKEN_PATH ?? "/var/run/secrets/tokens/sheet-auth-token";
 
 const normalizeCommaList = (value: string | undefined): string[] =>
   value
@@ -108,18 +106,23 @@ const readCommandBoolean = (value: Option.Option<unknown>): boolean | undefined 
   return undefined;
 };
 
-const toClientCreateInput = (command: any) => {
-  const optionValueOptional = command.optionValueOptional;
-  const name = readCommandString(optionValueOptional("name") as Option.Option<unknown>);
+type CommandWithOptionalValues = {
+  optionValueOptional: (name: string) => Option.Option<unknown>;
+};
+
+const toClientCreateInput = (command: CommandWithOptionalValues) => {
+  const name = readCommandString(command.optionValueOptional("name") as Option.Option<unknown>);
   const trusted = readCommandBoolean(
-    optionValueOptional("trusted_service_client") as Option.Option<unknown>,
+    command.optionValueOptional("trusted_service_client") as Option.Option<unknown>,
   );
-  const isPublic = readCommandBoolean(optionValueOptional("public") as Option.Option<unknown>);
+  const isPublic = readCommandBoolean(
+    command.optionValueOptional("public") as Option.Option<unknown>,
+  );
   const allowedServices = normalizeCommaList(
-    readCommandString(optionValueOptional("allowed_services") as Option.Option<unknown>),
+    readCommandString(command.optionValueOptional("allowed_services") as Option.Option<unknown>),
   );
   const allowedScopes = normalizeCommaList(
-    readCommandString(optionValueOptional("allowed_scopes") as Option.Option<unknown>),
+    readCommandString(command.optionValueOptional("allowed_scopes") as Option.Option<unknown>),
   );
 
   return {
@@ -158,14 +161,6 @@ const buildCreatePayload = (
     },
     public: input.isPublic === true,
   };
-};
-
-const formatCreateClientSecret = (parsed: unknown) => {
-  const clientData = isRecord(parsed) ? parsed : {};
-  if (typeof (clientData as { client_secret?: unknown }).client_secret !== "string") {
-    return "";
-  }
-  return `\n\nclient_secret: ${String((clientData as { client_secret: unknown }).client_secret)}`;
 };
 
 const makeListClientsSubCommand = Effect.gen(function* () {
@@ -223,7 +218,7 @@ const makeCreateClientSubCommand = Effect.gen(function* () {
       yield* interactionResponse.deferReply({ flags: MessageFlags.Ephemeral });
 
       const token = yield* getActorBearerToken;
-      const input = toClientCreateInput(command);
+      const input = toClientCreateInput(command as unknown as CommandWithOptionalValues);
       if (input.name.length === 0) {
         return yield* interactionResponse.editReply({
           payload: {
@@ -244,7 +239,7 @@ const makeCreateClientSubCommand = Effect.gen(function* () {
             response,
             `OAuth client created (${response.status})`,
             response.status >= 200 && response.status < 300,
-          )}${formatCreateClientSecret(response.parsed)}`,
+          )}`,
         },
       });
     }),

@@ -1,7 +1,19 @@
-import { Cache, Context, Duration, Effect, Exit, HashSet, Layer, Option, Redacted } from "effect";
+import {
+  Cache,
+  Context,
+  Duration,
+  Effect,
+  Exit,
+  HashSet,
+  Layer,
+  Option,
+  Redacted,
+  Schema,
+} from "effect";
 import {
   getAccount,
   getKubernetesOAuthImplicitPermissions,
+  AccountError,
   type SheetAuthClient as SheetAuthClientValue,
 } from "sheet-auth/client";
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
@@ -72,7 +84,13 @@ const resolveKubernetesAuthorization = Effect.fn("resolveKubernetesAuthorization
     permissions: getKubernetesOAuthImplicitPermissions(authClient, authorizationHeaders).pipe(
       Effect.catch(() => Effect.succeed({ permissions: [] as string[] })),
     ),
-  }).pipe(Effect.mapError((error) => makeUnauthorized(error.message, error.cause)));
+  }).pipe(
+    Effect.mapError((error) =>
+      error instanceof AccountError
+        ? error
+        : makeUnauthorized("Invalid Kubernetes bearer token", error),
+    ),
+  );
 
   const discardedPermissions = permissions.permissions.filter(
     (permission: string) => permission !== "service",
@@ -92,22 +110,35 @@ const resolveKubernetesAuthorization = Effect.fn("resolveKubernetesAuthorization
   } satisfies CachedAuthorization;
 });
 
-interface OAuthTokenIntrospectionResponse {
-  readonly active?: boolean;
-  readonly client_id?: string;
-  readonly sub?: string;
-  readonly scope?: string;
-  readonly aud?: string;
-  readonly trusted_client?: boolean;
-  readonly trustedServiceClient?: boolean;
-  readonly allowed_services?: unknown;
-  readonly allowedServices?: unknown;
-  readonly allowed_scopes?: unknown;
-  readonly allowedScopes?: unknown;
-  readonly owner_user_id?: string;
-  readonly client_type?: string;
-  readonly status?: string;
-}
+const OAuthTokenIntrospectionResponse = Schema.Struct({
+  active: Schema.optional(Schema.Boolean),
+  client_id: Schema.optional(Schema.String),
+  sub: Schema.optional(Schema.String),
+  scope: Schema.optional(Schema.String),
+  aud: Schema.optional(Schema.String),
+  trusted_client: Schema.optional(Schema.Boolean),
+  trustedServiceClient: Schema.optional(Schema.Boolean),
+  allowed_services: Schema.optional(Schema.Unknown),
+  allowedServices: Schema.optional(Schema.Unknown),
+  allowed_scopes: Schema.optional(Schema.Unknown),
+  allowedScopes: Schema.optional(Schema.Unknown),
+  owner_user_id: Schema.optional(Schema.String),
+  client_type: Schema.optional(Schema.String),
+  status: Schema.optional(Schema.String),
+});
+
+type OAuthTokenIntrospectionResponse = Schema.Schema.Type<typeof OAuthTokenIntrospectionResponse>;
+
+const decodeOAuthTokenIntrospectionResponse = (body: unknown) =>
+  Schema.decodeUnknownEffect(OAuthTokenIntrospectionResponse)(body).pipe(
+    Effect.mapError(
+      (cause) =>
+        new Unauthorized({
+          message: "OAuth introspection response parse failed",
+          cause,
+        }),
+    ),
+  );
 
 const toBasicAuthHeader = (clientId: string, clientSecret: Redacted.Redacted<string>) =>
   `Basic ${Buffer.from(`${clientId}:${Redacted.value(clientSecret)}`).toString("base64")}`;
@@ -169,7 +200,10 @@ const fetchOAuthIntrospectionClaims = Effect.fn("fetchOAuthIntrospectionClaims")
         body: form,
       }),
     catch: (cause) => makeUnauthorized("OAuth introspection request failed", cause),
-  });
+  }).pipe(
+    Effect.timeout(Duration.seconds(10)),
+    Effect.mapError((cause) => makeUnauthorized("OAuth introspection request timed out", cause)),
+  );
 
   if (!response.ok) {
     const body = yield* Effect.tryPromise({
@@ -184,10 +218,13 @@ const fetchOAuthIntrospectionClaims = Effect.fn("fetchOAuthIntrospectionClaims")
   }
 
   return yield* Effect.tryPromise({
-    try: () => response.json().then((payload) => payload as OAuthTokenIntrospectionResponse),
+    try: () => response.json(),
     catch: (cause) => makeUnauthorized("OAuth introspection response parse failed", cause),
-  });
+  }).pipe(Effect.flatMap((payload) => decodeOAuthTokenIntrospectionResponse(payload)));
 });
+
+const isAccountNotFound = (cause: unknown): cause is AccountError =>
+  cause instanceof AccountError && cause.statusText === "ACCOUNT_NOT_FOUND";
 
 const unauthorizedIfCredentialsMissing = (
   introspectionClientId: Option.Option<string>,
@@ -240,7 +277,7 @@ const resolveCachedAuthorization = Effect.fn("resolveCachedAuthorization")(funct
   token: Redacted.Redacted<string>,
 ) {
   return yield* resolveKubernetesAuthorization(authClient, token).pipe(
-    Effect.catch(() =>
+    Effect.catchIf(isAccountNotFound, () =>
       resolveOAuthClientAuthorization(token).pipe(
         Effect.mapError((cause) => makeUnauthorized("Invalid OAuth bearer token", cause)),
       ),

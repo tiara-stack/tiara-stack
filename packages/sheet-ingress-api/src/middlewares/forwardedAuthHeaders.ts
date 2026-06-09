@@ -14,41 +14,73 @@ const getBearerToken = (authorization: string | undefined) => {
   return token.length === 0 ? undefined : token;
 };
 
-// fallow-ignore-next-line code-duplication
-// fallow-ignore-next-line code-duplication
+const stringArraySchema = Schema.Array(Schema.Trim);
+
 const parseBoolHeader = (value: string | undefined) => {
   if (value === undefined) {
-    return undefined;
+    return Effect.succeed(undefined);
   }
 
-  const normalized = value.toLowerCase().trim();
-  return normalized === "true" ? true : normalized === "false" ? false : undefined;
+  return Schema.decodeUnknownEffect(
+    Schema.Union([Schema.Literal("true"), Schema.Literal("false")]),
+  )(value.trim().toLowerCase()).pipe(
+    Effect.map((parsed) => parsed === "true"),
+    Effect.mapError(
+      () =>
+        new Unauthorized({ message: "Invalid forwarded auth trusted-client header", cause: value }),
+    ),
+  );
 };
 
 const parseOptionalStringSetHeader = (value: string | undefined) => {
-  if (value === undefined || value.length === 0) {
-    return undefined;
+  if (value === undefined) {
+    return Effect.succeed(undefined);
+  }
+  if (value.length === 0) {
+    return Effect.fail(
+      new Unauthorized({ message: "Invalid forwarded auth allowed services header", cause: value }),
+    );
   }
 
-  return HashSet.fromIterable(
-    value
-      .split(",")
-      .map((entry) => entry.trim())
-      .filter((entry) => entry.length > 0),
+  const values = value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+
+  return Schema.decodeUnknownEffect(stringArraySchema)(values).pipe(
+    Effect.map(HashSet.fromIterable),
+    Effect.mapError(
+      () =>
+        new Unauthorized({
+          message: "Invalid forwarded auth allowed services header",
+          cause: value,
+        }),
+    ),
   );
 };
 
 const parseAllowedScopes = (value: string | undefined) => {
-  if (value === undefined || value.length === 0) {
-    return undefined;
+  if (value === undefined) {
+    return Effect.succeed(undefined);
+  }
+  if (value.length === 0) {
+    return Effect.fail(
+      new Unauthorized({ message: "Invalid forwarded auth allowed scopes header", cause: value }),
+    );
   }
 
-  return HashSet.fromIterable(
-    value
-      .replaceAll(",", " ")
-      .split(" ")
-      .map((entry) => entry.trim())
-      .filter((entry) => entry.length > 0),
+  const values = value
+    .replaceAll(",", " ")
+    .split(" ")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+
+  return Schema.decodeUnknownEffect(stringArraySchema)(values).pipe(
+    Effect.map(HashSet.fromIterable),
+    Effect.mapError(
+      () =>
+        new Unauthorized({ message: "Invalid forwarded auth allowed scopes header", cause: value }),
+    ),
   );
 };
 
@@ -83,13 +115,13 @@ export const decodeForwardedSheetAuthUser = (
   Effect.gen(function* () {
     const userId = Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-user-id"));
     const accountId = Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-account-id"));
-    const trustedClient = parseBoolHeader(
+    const trustedClient = yield* parseBoolHeader(
       Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-trusted-client")),
     );
-    const allowedServices = parseOptionalStringSetHeader(
+    const allowedServices = yield* parseOptionalStringSetHeader(
       Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-allowed-services")),
     );
-    const allowedScopes = parseAllowedScopes(
+    const allowedScopes = yield* parseAllowedScopes(
       Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-allowed-scopes")),
     );
 

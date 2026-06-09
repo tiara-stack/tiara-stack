@@ -1,4 +1,4 @@
-import { Context, Effect, Layer } from "effect";
+import { Context, Duration, Effect, Layer } from "effect";
 import { config } from "@/config";
 
 type HttpMethod = "GET" | "POST";
@@ -46,6 +46,8 @@ const parseJson = (value: string): unknown => {
   }
 };
 
+const oauthManagementRequestTimeout = Duration.seconds(10);
+
 const makeRequest = <T>(
   method: HttpMethod,
   baseUrl: string,
@@ -57,7 +59,6 @@ const makeRequest = <T>(
     try: async () => {
       const response = await fetch(`${baseUrl}${path}`, {
         method,
-        credentials: "include",
         headers: {
           accept: "application/json",
           ...(body === undefined ? {} : { "content-type": "application/json" }),
@@ -74,7 +75,7 @@ const makeRequest = <T>(
       } as OAuthManagementApiResponse<T>;
     },
     catch: (cause) => new Error(`OAuth management request failed: ${String(cause)}`),
-  });
+  }).pipe(Effect.timeout(oauthManagementRequestTimeout));
 
 const makeAuthBaseUrl = (url: string) => url.replace(/\/$/, "");
 
