@@ -518,6 +518,9 @@ importers:
       effect:
         specifier: 'catalog:'
         version: 4.0.0-beta.67
+      sheet-apis:
+        specifier: workspace:*
+        version: link:../sheet-apis
       sheet-auth:
         specifier: workspace:*
         version: link:../sheet-auth
