@@ -1,11 +1,12 @@
+import { useAtom, useAtomSet, useAtomSuspense } from "@effect/atom-react";
+import { Atom, Reactivity } from "effect/unstable/reactivity";
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
+import { type ChangeEvent, type FormEvent, useMemo } from "react";
 import { Effect, Option, Redacted } from "effect";
 import { ensureResultAtomData } from "#/lib/atomRegistry";
 import { authBaseUrlAtom } from "#/lib/configAtoms";
 import { useSession } from "#/lib/auth";
-
-type JsonObject = Record<string, unknown>;
+import { runtimeAtom } from "#/lib/runtime";
 
 type HttpMethod = "GET" | "POST";
 
@@ -14,6 +15,8 @@ type ApiResponse<T> = {
   status: number;
   parsed: T;
 };
+
+const OAUTH_CLIENT_REACTIVITY_KEY = "oauth-clients";
 
 interface OAuthClientRecord {
   client_id: string;
@@ -24,6 +27,17 @@ interface OAuthClientRecord {
   token_endpoint_auth_method?: string;
   grant_types?: string[];
   metadata?: JsonObject | null;
+}
+
+interface OAuthClientCreatePayload {
+  client_name: string;
+  grant_types: string[];
+  response_types: string[];
+  redirect_uris: string[];
+  scope: string;
+  token_endpoint_auth_method: string;
+  metadata?: OAuthClientMetadata;
+  public?: boolean;
 }
 
 interface OAuthClientCreateResponse extends OAuthClientRecord {
@@ -45,9 +59,25 @@ interface OAuthClientFormState {
   isPublic: boolean;
 }
 
+interface OAuthClientQueryResult {
+  clients: readonly OAuthClientRecord[];
+  error: string;
+}
+
+interface OAuthClientPageState {
+  message: string;
+  error: string;
+  createdClientId: string;
+  createdClientSecret: string;
+  isSubmitting: boolean;
+  revokingClientId: string | null;
+}
+
 type LoaderData = {
   authBaseUrl: string;
 };
+
+type JsonObject = Record<string, unknown>;
 
 const asStringArray = (value: unknown): string[] =>
   Array.isArray(value)
@@ -132,6 +162,116 @@ const asClientRows = (value: unknown): OAuthClientRecord[] => {
     .filter((client) => client.client_id.length > 0);
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const makeRequest = (
+  authBaseUrl: string,
+  authToken: string,
+  method: HttpMethod,
+  path: string,
+  body?: unknown,
+) =>
+  Effect.gen(function* () {
+    const response = yield* Effect.tryPromise({
+      try: () =>
+        fetch(`${authBaseUrl.replace(/\/$/, "")}${path}`, {
+          method,
+          credentials: "include",
+          headers: {
+            accept: "application/json",
+            ...(body !== undefined ? { "content-type": "application/json" } : {}),
+            authorization: `Bearer ${authToken}`,
+          },
+          body: body === undefined ? undefined : JSON.stringify(body),
+        }),
+      catch: (cause) => new Error(`OAuth API request failed: ${String(cause)}`),
+    });
+
+    const responseText = yield* Effect.tryPromise({
+      try: () => response.text(),
+      catch: () => Effect.succeed(""),
+    });
+
+    return {
+      ok: response.ok,
+      status: response.status,
+      parsed: parseJson(responseText),
+    } as ApiResponse<unknown>;
+  });
+
+const oauthClientsQueryAtom = (authBaseUrl: string, authToken: string | undefined) =>
+  Atom.make(
+    Effect.fnUntraced(function* () {
+      if (!authToken) {
+        return {
+          clients: [] as const,
+          error: "Sign in required to view OAuth clients.",
+        } satisfies OAuthClientQueryResult;
+      }
+
+      const response = yield* makeRequest(authBaseUrl, authToken, "GET", "/oauth2/get-clients");
+
+      if (!response.ok) {
+        return {
+          clients: [] as const,
+          error: readErrorMessage(response.parsed, `Failed to load clients (${response.status})`),
+        } satisfies OAuthClientQueryResult;
+      }
+
+      return {
+        clients: asClientRows(response.parsed),
+        error: "",
+      } satisfies OAuthClientQueryResult;
+    }),
+  ).pipe(Atom.withReactivity([OAUTH_CLIENT_REACTIVITY_KEY]));
+
+const createClientAtom = runtimeAtom.fn(
+  Effect.fnUntraced(function* (
+    {
+      authBaseUrl,
+      authToken,
+      payload,
+    }: {
+      authBaseUrl: string;
+      authToken: string;
+      payload: OAuthClientCreatePayload;
+    },
+    _ctx: Atom.FnContext,
+  ) {
+    const response = yield* makeRequest(
+      authBaseUrl,
+      authToken,
+      "POST",
+      "/oauth2/create-client",
+      payload,
+    );
+    yield* Reactivity.invalidate([OAUTH_CLIENT_REACTIVITY_KEY]);
+    return response;
+  }),
+);
+
+const revokeClientAtom = runtimeAtom.fn(
+  Effect.fnUntraced(function* (
+    {
+      authBaseUrl,
+      authToken,
+      clientId,
+    }: {
+      authBaseUrl: string;
+      authToken: string;
+      clientId: string;
+    },
+    _ctx: Atom.FnContext,
+  ) {
+    const response = yield* makeRequest(authBaseUrl, authToken, "POST", "/oauth2/delete-client", {
+      client_id: clientId,
+    });
+    yield* Reactivity.invalidate([OAUTH_CLIENT_REACTIVITY_KEY]);
+    return response;
+  }),
+);
+
 export const Route = createFileRoute("/_authenticated/dashboard/oauth-clients")({
   component: OAuthClientsPage,
   loader: async ({ context }) => {
@@ -147,91 +287,62 @@ export const Route = createFileRoute("/_authenticated/dashboard/oauth-clients")(
 function OAuthClientsPage() {
   const { authBaseUrl } = Route.useLoaderData() as LoaderData;
   const session = useSession();
-  const [clients, setClients] = useState<OAuthClientRecord[]>([]);
-  const [isLoadingClients, setIsLoadingClients] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [revokingId, setRevokingId] = useState<string | null>(null);
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-  const [createdClientSecret, setCreatedClientSecret] = useState("");
-  const [createdClientId, setCreatedClientId] = useState("");
-  const [formState, setFormState] = useState<OAuthClientFormState>({
-    clientName: "",
-    allowedServices: "sheet-apis,sheet-workflows",
-    allowedScopes: "sheet-apis sheet-workflows service",
-    trusted: false,
-    isPublic: true,
-  });
-
-  const authHeader = useMemo(() => {
-    if (Option.isNone(session)) {
+  const authToken = useMemo(() => {
+    if (Option.isNone(session) || session.value.token === undefined) {
       return undefined;
     }
-    if (session.value.token === undefined) {
-      return undefined;
-    }
-    return `Bearer ${Redacted.value(session.value.token)}`;
+    return Redacted.value(session.value.token);
   }, [session]);
 
-  const request = useCallback(
-    async (method: HttpMethod, path: string, body?: unknown) => {
-      const response = await fetch(`${authBaseUrl.replace(/\/$/, "")}${path}`, {
-        method,
-        credentials: "include",
-        headers: {
-          accept: "application/json",
-          ...(body !== undefined ? { "content-type": "application/json" } : {}),
-          ...(authHeader !== undefined ? { authorization: authHeader } : {}),
-        },
-        body: body === undefined ? undefined : JSON.stringify(body),
-      });
-
-      const responseText = await response.text();
-      const parsed = parseJson(responseText) as unknown;
-      return {
-        ok: response.ok,
-        status: response.status,
-        parsed,
-      } satisfies ApiResponse<unknown>;
-    },
-    [authBaseUrl, authHeader],
+  const clientsAtom = useMemo(
+    () => oauthClientsQueryAtom(authBaseUrl, authToken),
+    [authBaseUrl, authToken],
+  );
+  const clientsState = useAtomSuspense(clientsAtom, {
+    suspendOnWaiting: false,
+    includeFailure: false,
+  }).value ?? { clients: [], error: "" };
+  const [formState, setFormState] = useAtom(
+    useMemo(
+      () =>
+        Atom.make<OAuthClientFormState>({
+          clientName: "",
+          allowedServices: "sheet-apis,sheet-workflows",
+          allowedScopes: "sheet-apis sheet-workflows service",
+          trusted: false,
+          isPublic: true,
+        }),
+      [],
+    ),
+  );
+  const [pageState, setPageState] = useAtom(
+    useMemo(
+      () =>
+        Atom.make<OAuthClientPageState>({
+          message: "",
+          error: "",
+          createdClientId: "",
+          createdClientSecret: "",
+          isSubmitting: false,
+          revokingClientId: null,
+        }),
+      [],
+    ),
   );
 
-  const requestAs = useCallback(
-    <T,>(method: HttpMethod, path: string, body?: unknown) =>
-      request(method, path, body).then((response) => response as ApiResponse<T>),
-    [request],
-  );
+  const createClient = useAtomSet(createClientAtom, { mode: "promise" });
+  const revokeClient = useAtomSet(revokeClientAtom, { mode: "promise" });
 
-  const loadClients = useCallback(async () => {
-    setIsLoadingClients(true);
-    setError("");
-    try {
-      const response = await requestAs<OAuthClientRecord[] | null>("GET", "/oauth2/get-clients");
-      if (!response.ok) {
-        throw new Error(
-          readErrorMessage(response.parsed, `Failed to load clients (${response.status})`),
-        );
-      }
-      setClients(asClientRows(response.parsed));
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Failed to load clients");
-    } finally {
-      setIsLoadingClients(false);
-    }
-  }, [requestAs]);
-
-  useEffect(() => {
-    void loadClients();
-  }, [loadClients]);
-
-  const onCreateSubmit = async (event: FormEvent<HTMLFormElement>) => {
+  const onCreateSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setIsSubmitting(true);
-    setMessage("");
-    setError("");
-    setCreatedClientId("");
-    setCreatedClientSecret("");
+
+    if (!authToken) {
+      setPageState((current: OAuthClientPageState) => ({
+        ...current,
+        error: "Sign in required to create clients.",
+      }));
+      return;
+    }
 
     const allowedServices = normalizeListInput(formState.allowedServices);
     const allowedScopes = normalizeListInput(formState.allowedScopes);
@@ -243,57 +354,113 @@ function OAuthClientsPage() {
       allowed_scopes: allowedScopes,
     };
 
-    try {
-      const response = await requestAs<OAuthClientCreateResponse>("POST", "/oauth2/create-client", {
-        client_name: formState.clientName.trim(),
-        grant_types: ["client_credentials"],
-        response_types: ["code"],
-        redirect_uris: ["https://localhost"],
-        scope,
-        token_endpoint_auth_method: formState.isPublic ? "none" : "client_secret_basic",
-        metadata,
-        public: formState.isPublic,
-      });
+    setPageState((current: OAuthClientPageState) => ({
+      ...current,
+      isSubmitting: true,
+      message: "",
+      error: "",
+      createdClientId: "",
+      createdClientSecret: "",
+    }));
 
-      if (!response.ok) {
-        throw new Error(
-          readErrorMessage(response.parsed, `Client create failed (${response.status})`),
-        );
+    void (async () => {
+      try {
+        const response = await createClient({
+          authBaseUrl,
+          authToken,
+          payload: {
+            client_name: formState.clientName.trim(),
+            grant_types: ["client_credentials"],
+            response_types: ["code"],
+            redirect_uris: ["https://localhost"],
+            scope,
+            token_endpoint_auth_method: formState.isPublic ? "none" : "client_secret_basic",
+            metadata,
+            public: formState.isPublic,
+          },
+        });
+
+        if (!response.ok) {
+          setPageState((current: OAuthClientPageState) => ({
+            ...current,
+            isSubmitting: false,
+            error: readErrorMessage(response.parsed, `Client create failed (${response.status})`),
+          }));
+          return;
+        }
+
+        const created = isRecord(response.parsed)
+          ? (response.parsed as unknown as OAuthClientCreateResponse)
+          : null;
+
+        setFormState((current: OAuthClientFormState) => ({
+          ...current,
+          clientName: "",
+        }));
+        setPageState((current: OAuthClientPageState) => ({
+          ...current,
+          isSubmitting: false,
+          createdClientId: created?.client_id ?? "",
+          createdClientSecret: created?.client_secret ?? "",
+          message: created?.client_id
+            ? `Created client: ${created?.client_name?.trim() || created.client_id}`
+            : "Client created",
+        }));
+      } catch (error) {
+        setPageState((current: OAuthClientPageState) => ({
+          ...current,
+          isSubmitting: false,
+          error: error instanceof Error ? error.message : "Failed to create client",
+        }));
       }
-      const created = response.parsed as OAuthClientCreateResponse;
-      setCreatedClientId(created.client_id);
-      setCreatedClientSecret(created.client_secret ?? "");
-      setMessage(`Created client: ${created.client_name ?? created.client_id}`);
-      setFormState((state) => ({
-        ...state,
-        clientName: "",
-      }));
-      await loadClients();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Failed to create client");
-    } finally {
-      setIsSubmitting(false);
-    }
+    })();
   };
 
-  const onRevoke = async (clientId: string) => {
-    setRevokingId(clientId);
-    setMessage("");
-    setError("");
-    try {
-      const response = await requestAs<{ status: string }>("POST", "/oauth2/delete-client", {
-        client_id: clientId,
-      });
-      if (!response.ok) {
-        throw new Error(readErrorMessage(response.parsed, `Revoke failed (${response.status})`));
-      }
-      setClients((current) => current.filter((client) => client.client_id !== clientId));
-      setMessage(`Revoked client ${clientId}`);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Failed to revoke client");
-    } finally {
-      setRevokingId(null);
+  const onRevoke = (clientId: string) => {
+    if (!authToken) {
+      setPageState((current: OAuthClientPageState) => ({
+        ...current,
+        error: "Sign in required to revoke clients.",
+      }));
+      return;
     }
+    setPageState((current: OAuthClientPageState) => ({
+      ...current,
+      revokingClientId: clientId,
+      message: "",
+      error: "",
+    }));
+
+    void (async () => {
+      try {
+        const response = await revokeClient({
+          authBaseUrl,
+          authToken,
+          clientId,
+        });
+
+        if (!response.ok) {
+          setPageState((current: OAuthClientPageState) => ({
+            ...current,
+            revokingClientId: null,
+            error: readErrorMessage(response.parsed, `Revoke failed (${response.status})`),
+          }));
+          return;
+        }
+
+        setPageState((current: OAuthClientPageState) => ({
+          ...current,
+          revokingClientId: null,
+          message: `Revoked client ${clientId}`,
+        }));
+      } catch (error) {
+        setPageState((current: OAuthClientPageState) => ({
+          ...current,
+          revokingClientId: null,
+          error: error instanceof Error ? error.message : "Failed to revoke client",
+        }));
+      }
+    })();
   };
 
   const updateField =
@@ -303,10 +470,7 @@ function OAuthClientsPage() {
         event.target.type === "checkbox"
           ? (event.target as HTMLInputElement).checked
           : event.target.value;
-      setFormState((state) => ({
-        ...state,
-        [name]: value as never,
-      }));
+      setFormState((current: OAuthClientFormState) => ({ ...current, [name]: value as never }));
     };
 
   return (
@@ -373,9 +537,9 @@ function OAuthClientsPage() {
           <button
             type="submit"
             className="w-fit px-4 py-2 bg-[#33ccbb] text-[#0a0f0e] font-black tracking-wide disabled:opacity-40"
-            disabled={isSubmitting}
+            disabled={pageState.isSubmitting}
           >
-            {isSubmitting ? "CREATING..." : "CREATE CLIENT"}
+            {pageState.isSubmitting ? "CREATING..." : "CREATE CLIENT"}
           </button>
         </form>
       </section>
@@ -383,28 +547,34 @@ function OAuthClientsPage() {
       <section className="bg-[#101816] border border-[#33ccbb]/25 p-6">
         <h2 className="text-[#33ccbb] text-lg font-black tracking-[0.1em] mb-4">MANAGED CLIENTS</h2>
 
-        {error.length > 0 ? <p className="text-[#ff6b6b] text-sm mb-3">{error}</p> : null}
-        {message.length > 0 ? <p className="text-[#7de2b8] text-sm mb-3">{message}</p> : null}
-        {createdClientId.length > 0 ? (
+        {pageState.error.length > 0 ? (
+          <p className="text-[#ff6b6b] text-sm mb-3">{pageState.error}</p>
+        ) : clientsState.error.length > 0 ? (
+          <p className="text-[#ff6b6b] text-sm mb-3">{clientsState.error}</p>
+        ) : null}
+        {pageState.message.length > 0 ? (
+          <p className="text-[#7de2b8] text-sm mb-3">{pageState.message}</p>
+        ) : null}
+        {pageState.createdClientId.length > 0 ? (
           <p className="text-white/80 text-xs mb-4">
-            Client ID: <span className="text-white">{createdClientId}</span>
-            {createdClientSecret.length > 0 ? (
+            Client ID: <span className="text-white">{pageState.createdClientId}</span>
+            {pageState.createdClientSecret.length > 0 ? (
               <>
                 <br />
                 Client secret:{" "}
-                <span className="text-white font-mono break-all">{createdClientSecret}</span>
+                <span className="text-white font-mono break-all">
+                  {pageState.createdClientSecret}
+                </span>
               </>
             ) : null}
           </p>
         ) : null}
 
-        {isLoadingClients ? (
-          <p className="text-white/60 text-sm">Loading clients...</p>
-        ) : clients.length === 0 ? (
+        {clientsState.clients.length === 0 ? (
           <p className="text-white/60 text-sm">No OAuth clients found.</p>
         ) : (
           <div className="grid gap-3">
-            {clients.map((client) => {
+            {clientsState.clients.map((client: OAuthClientRecord) => {
               const metadata = toMetadata(client.metadata);
               const services = asStringArray(metadata.allowed_services);
               const scopes = asStringArray(metadata.allowed_scopes);
@@ -422,10 +592,10 @@ function OAuthClientsPage() {
                     </div>
                     <button
                       className="px-3 py-1.5 text-xs bg-[#ff6b6b] text-white font-black tracking-wide disabled:opacity-40"
-                      disabled={revokingId === client.client_id}
+                      disabled={pageState.revokingClientId === client.client_id}
                       onClick={() => onRevoke(client.client_id)}
                     >
-                      {revokingId === client.client_id ? "REVOKING..." : "REVOKE"}
+                      {pageState.revokingClientId === client.client_id ? "REVOKING..." : "REVOKE"}
                     </button>
                   </div>
                   <div className="flex flex-wrap gap-2 text-xs text-white/80">
