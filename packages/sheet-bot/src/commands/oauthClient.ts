@@ -8,18 +8,11 @@ import {
 import { Effect, FileSystem, Layer, Option, Redacted } from "effect";
 import { CommandHelper, InteractionResponse } from "dfx-discord-utils/utils";
 import { createKubernetesOAuthSession } from "sheet-auth/client";
-import { config } from "@/config";
+import { SheetAuthManagementClient } from "sheet-apis/services/sheetAuthManagementClient";
 import { SheetAuthClient } from "../services/sheetAuthClient";
 import { getInteractionUser } from "../utils/commandHelpers";
 
 const SERVICE_ACCOUNT_TOKEN_PATH = "/var/run/secrets/tokens/sheet-auth-token";
-
-type OAuthApiResult = {
-  status: number;
-  ok: boolean;
-  body: string;
-  parsed: unknown;
-};
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -40,14 +33,6 @@ const formatResponseBody = (value: unknown) => {
 
 const safeText = (value: string, limit = 1_900) =>
   value.length <= limit ? value : `${value.slice(0, limit - 150)}... (truncated)`;
-
-const parseJson = (raw: string) => {
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return raw;
-  }
-};
 
 const getActorBearerToken = Effect.gen(function* () {
   const sheetAuthClient = yield* SheetAuthClient;
@@ -87,48 +72,11 @@ const getActorBearerToken = Effect.gen(function* () {
   };
 });
 
-const callAuthManagementApi = (options: {
-  token: string;
-  path: string;
-  method: "GET" | "POST";
-  body?: string;
-  contentType?: string;
-  headers?: Record<string, string>;
-}) =>
-  Effect.gen(function* () {
-    const issuer = yield* config.sheetAuthIssuer;
-    const response = yield* Effect.tryPromise({
-      try: () =>
-        fetch(`${issuer.replace(/\/$/, "")}${options.path}`, {
-          method: options.method,
-          headers: {
-            ...options.headers,
-            ...(options.body !== undefined
-              ? {
-                  "content-type": options.contentType ?? "application/json",
-                }
-              : {}),
-            authorization: `Bearer ${options.token}`,
-          },
-          body: options.body,
-        }),
-      catch: (cause) => new Error(`OAuth API request failed: ${String(cause)}`),
-    });
-
-    const body = yield* Effect.tryPromise({
-      try: () => response.text(),
-      catch: () => Effect.succeed(""),
-    });
-
-    return {
-      status: response.status,
-      ok: response.ok,
-      body,
-      parsed: parseJson(body),
-    } satisfies OAuthApiResult;
-  });
-
-const respondWith = (response: OAuthApiResult, fallbackMessage: string, includeBody = true) => {
+const respondWith = (
+  response: { status: number; ok: boolean; parsed: unknown },
+  fallbackMessage: string,
+  includeBody = true,
+) => {
   const body = includeBody ? safeText(formatResponseBody(response.parsed)) : "";
   return `${fallbackMessage}
 HTTP ${response.status}${body.length > 0 ? `\n\n\`${body}\`` : ""}`;
@@ -139,11 +87,8 @@ const makeListClientsSubCommand = Effect.gen(function* () {
     (builder) => builder.setName("list").setDescription("List your OAuth clients"),
     Effect.fn("oauthClients.list")(function* (_command) {
       const token = yield* getActorBearerToken;
-      const response = yield* callAuthManagementApi({
-        token: token.token,
-        path: "/oauth2/get-clients",
-        method: "GET",
-      });
+      const sheetAuthManagementClient = yield* SheetAuthManagementClient;
+      const response = yield* sheetAuthManagementClient.getClients(token.token);
 
       const interactionResponse = yield* InteractionResponse;
       return yield* interactionResponse.editReply({
@@ -210,25 +155,21 @@ const makeCreateClientSubCommand = Effect.gen(function* () {
         Option.getOrUndefined(command.optionValueOptional("allowed_scopes")),
       );
 
-      const response = yield* callAuthManagementApi({
-        token: token.token,
-        path: "/oauth2/create-client",
-        method: "POST",
-        body: JSON.stringify({
-          client_name: name,
-          grant_types: ["client_credentials"],
-          response_types: ["code"],
-          redirect_uris: ["https://localhost"],
-          scope: allowedScopes.length > 0 ? allowedScopes.join(" ") : "sheet-apis sheet-workflows",
-          token_endpoint_auth_method: isPublic === true ? "none" : "client_secret_basic",
-          metadata: {
-            trusted_service_client: typeof trusted === "boolean" ? trusted : undefined,
-            allowed_services: allowedServices,
-            allowed_scopes: allowedScopes,
-            owner_user_id: token.userId,
-          },
-          public: isPublic === true,
-        }),
+      const sheetAuthManagementClient = yield* SheetAuthManagementClient;
+      const response = yield* sheetAuthManagementClient.createClient(token.token, {
+        client_name: name,
+        grant_types: ["client_credentials"],
+        response_types: ["code"],
+        redirect_uris: ["https://localhost"],
+        scope: allowedScopes.length > 0 ? allowedScopes.join(" ") : "sheet-apis sheet-workflows",
+        token_endpoint_auth_method: isPublic === true ? "none" : "client_secret_basic",
+        metadata: {
+          trusted_service_client: typeof trusted === "boolean" ? trusted : undefined,
+          allowed_services: allowedServices,
+          allowed_scopes: allowedScopes,
+          owner_user_id: token.userId,
+        },
+        public: isPublic === true,
       });
 
       const clientData = isRecord(response.parsed) ? response.parsed : {};
@@ -273,12 +214,8 @@ const makeRevokeClientSubCommand = Effect.gen(function* () {
         });
       }
 
-      const response = yield* callAuthManagementApi({
-        token: token.token,
-        path: "/oauth2/delete-client",
-        method: "POST",
-        body: JSON.stringify({ client_id: clientId }),
-      });
+      const sheetAuthManagementClient = yield* SheetAuthManagementClient;
+      const response = yield* sheetAuthManagementClient.deleteClient(token.token, clientId);
 
       return yield* interactionResponse.editReply({
         payload: {
@@ -333,4 +270,4 @@ export const oauthClientCommandLayer = Layer.effectDiscard(
 
     yield* registry.register(Ix.builder.add(command).catchAllCause(Effect.log));
   }),
-).pipe(Layer.provide(Layer.mergeAll(SheetAuthClient.layer)));
+).pipe(Layer.provide(Layer.mergeAll(SheetAuthClient.layer, SheetAuthManagementClient.layer)));

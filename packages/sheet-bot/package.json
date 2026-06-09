@@ -25,6 +25,7 @@
     "dfx-discord-utils": "workspace:*",
     "discord-api-types": "^0.38.38",
     "effect": "catalog:",
+    "sheet-apis": "workspace:*",
     "sheet-auth": "workspace:*",
     "sheet-db-schema": "workspace:*",
     "sheet-ingress-api": "workspace:*",

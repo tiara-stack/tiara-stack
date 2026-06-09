@@ -22,6 +22,8 @@
       "dfx-discord-utils/discord/schema": ["../dfx-discord-utils/src/discord/schema/index.ts"],
       "sheet-auth": ["../sheet-auth/src/index.ts"],
       "sheet-auth/*": ["../sheet-auth/src/*"],
+      "sheet-apis": ["../sheet-apis/src/index.ts"],
+      "sheet-apis/*": ["../sheet-apis/src/*"],
       "sheet-auth/plugins/kubernetes-oauth/rpc-authorization": [
         "../sheet-auth/src/plugins/kubernetes-oauth/rpc-authorization.ts"
       ],
