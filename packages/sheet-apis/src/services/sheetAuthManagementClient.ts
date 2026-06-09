@@ -56,7 +56,7 @@ const makeRequest = <T>(
   body?: unknown,
 ): Effect.Effect<OAuthManagementApiResponse<T>, Error> =>
   Effect.tryPromise({
-    try: async () => {
+    try: async (signal) => {
       const response = await fetch(`${baseUrl}${path}`, {
         method,
         headers: {
@@ -65,6 +65,7 @@ const makeRequest = <T>(
           authorization: `Bearer ${token}`,
         },
         body: body === undefined ? undefined : JSON.stringify(body),
+        signal,
       });
 
       const text = await response.text();

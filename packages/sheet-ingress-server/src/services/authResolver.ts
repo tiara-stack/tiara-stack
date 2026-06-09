@@ -164,12 +164,14 @@ const parseOAuthIntrospectionClaims = Effect.fn("parseOAuthIntrospectionClaims")
     accountId: `oauth-client:${resolvedClientId}`,
     clientId: resolvedClientId,
     trustedClient: toBoolean(claims.trusted_client ?? claims.trustedServiceClient),
-    allowedServices: HashSet.fromIterable(
-      toStringArray(claims.allowed_services ?? claims.allowedServices),
-    ),
-    allowedScopes: HashSet.fromIterable(
-      toStringArray(claims.allowed_scopes ?? claims.allowedScopes ?? claims.scope),
-    ),
+    allowedServices: (() => {
+      const services = toStringArray(claims.allowed_services ?? claims.allowedServices);
+      return services.length > 0 ? HashSet.fromIterable(services) : undefined;
+    })(),
+    allowedScopes: (() => {
+      const scopes = toStringArray(claims.allowed_scopes ?? claims.allowedScopes ?? claims.scope);
+      return scopes.length > 0 ? HashSet.fromIterable(scopes) : undefined;
+    })(),
     permissions: permissionSetFromIterable(
       toStringArray(claims.scope).filter(
         (scope): scope is Permission => scope === "service" || scope === "app_owner",
@@ -208,7 +210,7 @@ const fetchOAuthIntrospectionClaims = Effect.fn("fetchOAuthIntrospectionClaims")
   if (!response.ok) {
     const body = yield* Effect.tryPromise({
       try: () => response.text(),
-      catch: () => Effect.succeed(""),
+      catch: () => "",
     });
     return yield* Effect.fail(
       makeUnauthorized(

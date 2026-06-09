@@ -5,7 +5,7 @@ import {
   InteractionContextType,
   MessageFlags,
 } from "discord-api-types/v10";
-import { Effect, FileSystem, Layer, Option, Redacted } from "effect";
+import { Effect, FileSystem, Layer, Option, Redacted, Schema } from "effect";
 import { CommandHelper, InteractionResponse } from "dfx-discord-utils/utils";
 import { createKubernetesOAuthSession } from "sheet-auth/client";
 import { SheetAuthManagementClient } from "sheet-apis/services/sheetAuthManagementClient";
@@ -106,46 +106,49 @@ const readCommandBoolean = (value: Option.Option<unknown>): boolean | undefined 
   return undefined;
 };
 
-type CommandWithOptionalValues = {
-  optionValueOptional: (name: string) => Option.Option<unknown>;
+const CreateClientInput = Schema.Struct({
+  name: Schema.String,
+  trusted: Schema.optional(Schema.Boolean),
+  isPublic: Schema.optional(Schema.Boolean),
+  allowedServices: Schema.Array(Schema.String),
+  allowedScopes: Schema.Array(Schema.String),
+});
+
+type CreateClientCommandLike = {
+  optionValueOptional(name: string): Option.Option<unknown>;
 };
 
-const toClientCreateInput = (command: CommandWithOptionalValues) => {
-  const name = readCommandString(command.optionValueOptional("name") as Option.Option<unknown>);
-  const trusted = readCommandBoolean(
-    command.optionValueOptional("trusted_service_client") as Option.Option<unknown>,
-  );
-  const isPublic = readCommandBoolean(
-    command.optionValueOptional("public") as Option.Option<unknown>,
-  );
-  const allowedServices = normalizeCommaList(
-    readCommandString(command.optionValueOptional("allowed_services") as Option.Option<unknown>),
-  );
-  const allowedScopes = normalizeCommaList(
-    readCommandString(command.optionValueOptional("allowed_scopes") as Option.Option<unknown>),
-  );
+const toClientCreateInput = (command: CreateClientCommandLike) =>
+  Effect.gen(function* () {
+    const raw = {
+      name: readCommandString(command.optionValueOptional("name"))?.trim() ?? "",
+      trusted: readCommandBoolean(command.optionValueOptional("trusted_service_client")),
+      isPublic: readCommandBoolean(command.optionValueOptional("public")),
+      allowedServices: normalizeCommaList(
+        readCommandString(command.optionValueOptional("allowed_services")),
+      ),
+      allowedScopes: normalizeCommaList(
+        readCommandString(command.optionValueOptional("allowed_scopes")),
+      ),
+    };
 
-  return {
-    name: typeof name === "string" ? name.trim() : "",
-    trusted: trusted,
-    isPublic: isPublic,
-    allowedServices,
-    allowedScopes,
-  };
-};
+    return yield* Schema.decodeUnknownEffect(CreateClientInput)(raw);
+  });
 
 const buildCreatePayload = (
   input: {
-    name: string;
-    isPublic?: boolean;
-    trusted?: boolean;
-    allowedServices: string[];
-    allowedScopes: string[];
+    readonly name: string;
+    readonly isPublic?: boolean;
+    readonly trusted?: boolean;
+    readonly allowedServices: readonly string[];
+    readonly allowedScopes: readonly string[];
   },
   ownerUserId: string,
 ) => {
   const scope =
-    input.allowedScopes.length > 0 ? input.allowedScopes.join(" ") : "sheet-apis sheet-workflows";
+    input.allowedScopes.length > 0
+      ? input.allowedScopes.join(" ")
+      : "sheet-apis sheet-workflows service";
   return {
     client_name: input.name,
     grant_types: ["client_credentials"],
@@ -167,11 +170,13 @@ const makeListClientsSubCommand = Effect.gen(function* () {
   return yield* CommandHelper.makeSubCommand(
     (builder) => builder.setName("list").setDescription("List your OAuth clients"),
     Effect.fn("oauthClients.list")(function* (_command) {
+      const interactionResponse = yield* InteractionResponse;
+      yield* interactionResponse.deferReply({ flags: MessageFlags.Ephemeral });
+
       const token = yield* getActorBearerToken;
       const sheetAuthManagementClient = yield* SheetAuthManagementClient;
       const response = yield* sheetAuthManagementClient.getClients(token.token);
 
-      const interactionResponse = yield* InteractionResponse;
       return yield* interactionResponse.editReply({
         payload: {
           content: `OAuth client list (${response.status})\n${safeText(
@@ -218,7 +223,7 @@ const makeCreateClientSubCommand = Effect.gen(function* () {
       yield* interactionResponse.deferReply({ flags: MessageFlags.Ephemeral });
 
       const token = yield* getActorBearerToken;
-      const input = toClientCreateInput(command as unknown as CommandWithOptionalValues);
+      const input = yield* toClientCreateInput(command);
       if (input.name.length === 0) {
         return yield* interactionResponse.editReply({
           payload: {
