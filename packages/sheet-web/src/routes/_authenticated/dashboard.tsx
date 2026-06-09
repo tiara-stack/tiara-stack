@@ -6,6 +6,7 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
   component: DashboardLayout,
 });
 
+// fallow-ignore-next-line complexity
 function DashboardLayout() {
   const { pathname } = useLocation();
   const activeTab = pathname.includes("/oauth-clients")

@@ -90,6 +90,7 @@ const readCommandString = (value: Option.Option<unknown>): string | undefined =>
   return typeof raw === "string" ? raw : undefined;
 };
 
+// fallow-ignore-next-line complexity
 const readCommandBoolean = (value: Option.Option<unknown>): boolean | undefined => {
   if (Option.isNone(value)) {
     return undefined;

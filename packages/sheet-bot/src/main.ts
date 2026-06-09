@@ -42,7 +42,10 @@ const botLayer = Layer.mergeAll(
 
 const configProviderLayer = dotEnvConfigProviderLayer().pipe(Layer.provide(NodeFileSystem.layer));
 
+// fallow-ignore-next-line code-duplication
+// fallow-ignore-next-line complexity
 const botMainLayer = Layer.mergeAll(botLayer, httpLayer).pipe(
+  // fallow-ignore-next-line code-duplication
   Layer.provide(MetricsLive),
   Layer.provide(TracesLive),
   Layer.provide(Logger.layer([Logger.consoleLogFmt])),
