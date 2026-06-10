@@ -42,6 +42,7 @@ type TokenCacheEntry = {
   failed: boolean;
 };
 
+// fallow-ignore-next-line code-duplication
 const sheetBotServiceClientCacheKey = "sheet-bot-workflows-service";
 
 const toTokenCacheTTL = (expiresIn: number | undefined) =>

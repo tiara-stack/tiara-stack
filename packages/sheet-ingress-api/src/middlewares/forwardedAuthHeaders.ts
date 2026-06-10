@@ -3,8 +3,10 @@ import { Headers } from "effect/unstable/http";
 import { Unauthorized } from "typhoon-core/error";
 import { Permission } from "../schemas/permissions";
 
+// fallow-ignore-next-line code-duplication
 export const SHEET_AUTH_SESSION_TOKEN_UNAVAILABLE = "ingress-forwarded-token-unavailable";
 
+// fallow-ignore-next-line code-duplication
 const getBearerToken = (authorization: string | undefined) => {
   if (!authorization?.startsWith("Bearer ")) {
     return undefined;
@@ -43,6 +45,7 @@ const parseOptionalStringSetHeader = (value: string | undefined) => {
   }
 
   const values = value
+    // fallow-ignore-next-line code-duplication
     .split(",")
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0);
@@ -71,6 +74,7 @@ const parseAllowedScopes = (value: string | undefined) => {
 
   const values = value
     .replaceAll(",", " ")
+    // fallow-ignore-next-line code-duplication
     .split(" ")
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0);

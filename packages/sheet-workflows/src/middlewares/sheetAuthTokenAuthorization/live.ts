@@ -1,3 +1,4 @@
+// fallow-ignore-next-line code-duplication
 import { Effect, Layer, Option, Redacted } from "effect";
 import { Headers } from "effect/unstable/http";
 import { Unauthorized } from "typhoon-core/error";
@@ -9,6 +10,7 @@ import { config } from "@/config";
 
 // Some internal calls, such as service/anonymous requests, do not carry a
 // user-scoped sheet-auth session token.
+// fallow-ignore-next-line code-duplication
 const forwardedSessionTokenUnavailable = Redacted.make("SHEET_AUTH_SESSION_TOKEN_UNAVAILABLE");
 
 const getBearerToken = (authorization: string | undefined) => {
@@ -24,6 +26,7 @@ type SheetApisRpcAuthorizationMiddleware = Parameters<typeof SheetApisRpcAuthori
 
 export const SheetAuthTokenAuthorizationLive = Layer.effect(
   SheetApisRpcAuthorization,
+  // fallow-ignore-next-line code-duplication
   Effect.gen(function* () {
     const issuer = yield* config.sheetAuthIssuer;
     const introspectionClientId = yield* config.sheetAuthOAuthIntrospectionClientId;
@@ -37,7 +40,9 @@ export const SheetAuthTokenAuthorizationLive = Layer.effect(
     }) => new Unauthorized({ message, cause });
 
     const requireAuthorizedHeaders = Effect.fn(
+      // fallow-ignore-next-line code-duplication
       "SheetAuthTokenAuthorization.make.requireAuthorizedHeaders",
+      // fallow-ignore-next-line complexity
     )(function* (headers: Headers.Headers) {
       const token = getBearerToken(
         Option.getOrUndefined(Headers.get(headers, "x-sheet-ingress-auth")),

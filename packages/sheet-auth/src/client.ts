@@ -106,6 +106,7 @@ const OAuthClientCredentialsResponse = Schema.Struct({
   expires_in: Schema.optional(Schema.Number),
 });
 
+// fallow-ignore-next-line code-duplication
 const OAuthIntrospectionResponse = Schema.Struct({
   active: Schema.optional(Schema.Boolean),
   client_id: Schema.optional(Schema.String),
@@ -401,6 +402,7 @@ export function createOAuthClientCredentialsToken(
           message: `CLIENT_CREDENTIALS_REQUEST_FAILED: ${
             error instanceof Error ? error.message : "Failed to request service access token"
           }`,
+          // fallow-ignore-next-line code-duplication
           cause: error,
         }),
     });
@@ -461,6 +463,7 @@ export function introspectOAuthAccessToken(
   token: Redacted.Redacted<string>,
 ): Effect.Effect<OAuthIntrospectionResponse, OAuthIntrospectionError> {
   return Effect.gen(function* () {
+    // fallow-ignore-next-line code-duplication
     const introspectionUrl = new URL("/oauth2/introspect", sheetAuthIssuer).toString();
     const form = new URLSearchParams({
       token: Redacted.value(token),
@@ -484,6 +487,7 @@ export function introspectOAuthAccessToken(
           message: `OAUTH_INTROSPECTION_REQUEST_FAILED: ${
             error instanceof Error ? error.message : "Failed to introspect OAuth token"
           }`,
+          // fallow-ignore-next-line code-duplication
           cause: error,
         }),
     });

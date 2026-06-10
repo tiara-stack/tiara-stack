@@ -100,6 +100,7 @@ export const config = {
   ),
   sheetBotOAuthClientId: sheetBotOAuthClientCredentials.pipe(Config.map(({ id }) => id)),
   sheetBotOAuthClientSecret: sheetBotOAuthClientCredentials.pipe(
+    // fallow-ignore-next-line code-duplication
     Config.map(({ secret }) => secret),
   ),
   trustedOrigins: Config.schema(

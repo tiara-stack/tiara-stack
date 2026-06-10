@@ -1,4 +1,15 @@
-import { Cache, Context, Duration, Effect, Exit, HashSet, Layer, Option, Redacted } from "effect";
+import {
+  Cache,
+  Context,
+  Duration,
+  Effect,
+  Exit,
+  FileSystem,
+  HashSet,
+  Layer,
+  Option,
+  Redacted,
+} from "effect";
 import { Permission } from "sheet-ingress-api/schemas/permissions";
 import { createOAuthClientCredentialsToken } from "sheet-auth/client";
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
@@ -67,6 +78,22 @@ const toTokenCacheTTL = (expiresIn: number | undefined) => {
 };
 
 const servicePermissionSet = HashSet.fromIterable(["service"] as const);
+
+export const readKubernetesTokenFile = (tokenFilePath: string, serviceName: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+
+    const token = yield* fs.readFileString(tokenFilePath, "utf-8");
+    const trimmed = token.trim();
+
+    if (trimmed.length === 0) {
+      return yield* Effect.fail(
+        new Error(`Kubernetes service token file is empty for ${serviceName}`),
+      );
+    }
+
+    return trimmed;
+  });
 
 export class SheetApisRpcTokens extends Context.Service<SheetApisRpcTokens>()(
   "SheetApisRpcTokens",

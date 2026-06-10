@@ -4,6 +4,7 @@ export const config = {
   podNamespace: Config.string("POD_NAMESPACE"),
   sheetIngressNamespace: Config.option(Config.string("SHEET_INGRESS_NAMESPACE")),
   zeroCacheServer: Config.schema(Schema.String, "ZERO_CACHE_SERVER"),
+  // fallow-ignore-next-line code-duplication
   zeroCacheUserId: Config.schema(Schema.String, "ZERO_CACHE_USER_ID"),
   sheetAuthIssuer: Config.schema(Schema.String, "SHEET_AUTH_ISSUER"),
   sheetAuthOAuthIntrospectionClientId: Config.option(

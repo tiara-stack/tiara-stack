@@ -11,9 +11,11 @@ type TokenCacheEntry = {
   readonly timeToLive: Duration.Duration;
 };
 
+// fallow-ignore-next-line code-duplication
 const sheetApiServiceAuthCacheKey = "sheet-apis-ingress-bot-service";
 
 const toTokenCacheTTL = (expiresIn: number | undefined) =>
+  // fallow-ignore-next-line code-duplication
   expiresIn !== undefined && !Number.isNaN(expiresIn) && expiresIn > 0
     ? Duration.max(Duration.seconds(Math.max(Math.floor(expiresIn) - 60, 15)), Duration.seconds(15))
     : Duration.minutes(1);

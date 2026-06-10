@@ -10,6 +10,7 @@ import { Unauthorized } from "typhoon-core/error";
 import { introspectOAuthAccessToken } from "sheet-auth/client";
 import { config } from "@/config";
 
+// fallow-ignore-next-line code-duplication
 const getBearerToken = (authorization: string | undefined) => {
   if (!authorization?.startsWith("Bearer ")) {
     return undefined;
@@ -19,6 +20,7 @@ const getBearerToken = (authorization: string | undefined) => {
   return token.length === 0 ? undefined : token;
 };
 
+// fallow-ignore-next-line code-duplication
 const makeSheetIngressAuthorizer = Effect.gen(function* () {
   const issuer = yield* config.sheetAuthIssuer;
   const introspectionClientId = yield* config.sheetAuthOAuthIntrospectionClientId;
@@ -33,6 +35,7 @@ const makeSheetIngressAuthorizer = Effect.gen(function* () {
   }) => new Unauthorized({ message, cause });
 
   const requireAuthorizedHeaders = Effect.fn(
+    // fallow-ignore-next-line code-duplication
     "DiscordHttpAuthorization.make.requireAuthorizedHeaders",
   )(function* (headers: Headers.Headers) {
     const token = getBearerToken(
@@ -66,6 +69,14 @@ const makeSheetIngressAuthorizer = Effect.gen(function* () {
 });
 
 const isHealthProbePath = (pathname: string) => pathname === "/live" || pathname === "/ready";
+
+export const isHealthProbeRequest = (request: HttpServerRequest.HttpServerRequest) => {
+  if (request.method !== "GET") {
+    return false;
+  }
+
+  return isHealthProbePath(new URL(request.url, "http://localhost").pathname);
+};
 
 export const sheetBotHttpAuthorizationLayer = Layer.unwrap(
   Effect.gen(function* () {

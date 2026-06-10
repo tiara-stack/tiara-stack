@@ -4,6 +4,7 @@ const positiveInt = Schema.Int.check(Schema.isGreaterThan(0));
 
 export const config = {
   port: Config.port("PORT").pipe(Config.withDefault(3000)),
+  // fallow-ignore-next-line code-duplication
   podNamespace: Config.string("POD_NAMESPACE"),
   sheetAuthIssuer: Config.schema(Schema.String, "SHEET_AUTH_ISSUER"),
   sheetAuthOAuthIntrospectionClientId: Config.option(

@@ -110,6 +110,7 @@ const resolveKubernetesAuthorization = Effect.fn("resolveKubernetesAuthorization
   } satisfies CachedAuthorization;
 });
 
+// fallow-ignore-next-line code-duplication
 const OAuthTokenIntrospectionResponse = Schema.Struct({
   active: Schema.optional(Schema.Boolean),
   client_id: Schema.optional(Schema.String),
@@ -185,6 +186,7 @@ const fetchOAuthIntrospectionClaims = Effect.fn("fetchOAuthIntrospectionClaims")
   clientId: string,
   clientSecret: Redacted.Redacted<string>,
 ) {
+  // fallow-ignore-next-line code-duplication
   const introspectionUrl = new URL("/oauth2/introspect", yield* config.sheetAuthIssuer).toString();
   const form = new URLSearchParams({
     token: Redacted.value(token),

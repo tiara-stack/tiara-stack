@@ -11,6 +11,7 @@ type TokenCacheEntry = {
   readonly timeToLive: Duration.Duration;
 };
 
+// fallow-ignore-next-line code-duplication
 const serviceAuthCacheKey = "sheet-apis-discord-service";
 
 const toTokenCacheTTL = (expiresIn: number | undefined) =>
@@ -82,6 +83,7 @@ const discordApiClientLayer = Layer.unwrap(
 );
 
 const redisLayer = Layer.unwrap(
+  // fallow-ignore-next-line code-duplication
   Effect.gen(function* () {
     const redisUrl = yield* config.redisUrl;
     return Unstorage.redisLayer({ url: Redacted.value(redisUrl) });

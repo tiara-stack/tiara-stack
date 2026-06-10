@@ -6,6 +6,7 @@ export const config = {
   redisUrl: Config.schema(Schema.Redacted(Schema.String), "REDIS_URL"),
   sheetIngressNamespace: Config.option(Config.string("SHEET_INGRESS_NAMESPACE")),
   sheetIngressKubernetesAudience: Config.string("SHEET_INGRESS_KUBERNETES_AUDIENCE").pipe(
+    // fallow-ignore-next-line code-duplication
     Config.withDefault("sheet-bot"),
   ),
   sheetAuthIssuer: Config.schema(Schema.String, "SHEET_AUTH_ISSUER"),

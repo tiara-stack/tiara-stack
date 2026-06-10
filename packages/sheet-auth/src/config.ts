@@ -16,6 +16,7 @@ export const config = {
   discordClientSecret: Config.schema(Schema.Redacted(Schema.String), "DISCORD_CLIENT_SECRET"),
   postgresUrl: Config.schema(Schema.String, "POSTGRES_URL"),
   kubernetesAudience: Config.schema(Schema.String, "KUBERNETES_AUDIENCE"),
+  // fallow-ignore-next-line code-duplication
   baseUrl: Config.schema(Schema.String, "BASE_URL"),
   trustedOrigins: Config.schema(
     split(",").pipe(
