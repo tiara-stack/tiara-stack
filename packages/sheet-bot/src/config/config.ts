@@ -8,6 +8,18 @@ export const config = {
   sheetIngressKubernetesAudience: Config.string("SHEET_INGRESS_KUBERNETES_AUDIENCE").pipe(
     Config.withDefault("sheet-bot"),
   ),
-  sheetIngressBaseUrl: Config.schema(Schema.String, "SHEET_INGRESS_BASE_URL"),
   sheetAuthIssuer: Config.schema(Schema.String, "SHEET_AUTH_ISSUER"),
+  sheetAuthOAuthIntrospectionClientId: Config.option(
+    Config.schema(Schema.String, "SHEET_AUTH_INTROSPECTION_CLIENT_ID"),
+  ),
+  sheetAuthOAuthIntrospectionClientSecret: Config.option(
+    Config.schema(Schema.Redacted(Schema.String), "SHEET_AUTH_INTROSPECTION_CLIENT_SECRET"),
+  ),
+  sheetIngressBaseUrl: Config.schema(Schema.String, "SHEET_INGRESS_BASE_URL"),
+  sheetServiceOAuthClientId: Config.option(
+    Config.schema(Schema.String, "SHEET_BOT_SERVICE_CLIENT_ID"),
+  ),
+  sheetServiceOAuthClientSecret: Config.option(
+    Config.schema(Schema.Redacted(Schema.String), "SHEET_BOT_SERVICE_CLIENT_SECRET"),
+  ),
 };

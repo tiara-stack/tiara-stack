@@ -71,11 +71,67 @@ export class KubernetesOAuthImplicitPermissionsError extends Schema.TaggedErrorC
   cause: Schema.optional(Schema.Unknown),
 }) {}
 
+/**
+ * Error type for OAuth client credentials flow failures
+ */
+export class OAuthClientCredentialsError extends Schema.TaggedErrorClass<OAuthClientCredentialsError>(
+  "OAuthClientCredentialsError",
+)("OAuthClientCredentialsError", {
+  statusText: Schema.String,
+  message: Schema.String,
+  cause: Schema.optional(Schema.Unknown),
+}) {}
+
+/**
+ * Error type for OAuth token introspection failures
+ */
+export class OAuthIntrospectionError extends Schema.TaggedErrorClass<OAuthIntrospectionError>(
+  "OAuthIntrospectionError",
+)("OAuthIntrospectionError", {
+  statusText: Schema.String,
+  message: Schema.String,
+  cause: Schema.optional(Schema.Unknown),
+}) {}
+
 // =============================================================================
 // 2. Types
 // =============================================================================
 
 export type SheetAuthClient = ReturnType<typeof createSheetAuthClient>;
+
+const OAuthClientCredentialsResponse = Schema.Struct({
+  access_token: Schema.NonEmptyString,
+  token_type: Schema.optional(Schema.NonEmptyString),
+  scope: Schema.optional(Schema.String),
+  expires_in: Schema.optional(Schema.Number),
+});
+
+const OAuthIntrospectionResponse = Schema.Struct({
+  active: Schema.optional(Schema.Boolean),
+  client_id: Schema.optional(Schema.String),
+  sub: Schema.optional(Schema.String),
+  scope: Schema.optional(Schema.String),
+  aud: Schema.optional(Schema.String),
+  trusted_client: Schema.optional(Schema.Boolean),
+  trustedServiceClient: Schema.optional(Schema.Boolean),
+  allowed_services: Schema.optional(Schema.Unknown),
+  allowedServices: Schema.optional(Schema.Unknown),
+  allowed_scopes: Schema.optional(Schema.Unknown),
+  allowedScopes: Schema.optional(Schema.Unknown),
+  owner_user_id: Schema.optional(Schema.String),
+  client_type: Schema.optional(Schema.String),
+  status: Schema.optional(Schema.String),
+});
+
+type OAuthClientCredentialsResponse = Schema.Schema.Type<typeof OAuthClientCredentialsResponse>;
+type OAuthIntrospectionResponse = Schema.Schema.Type<typeof OAuthIntrospectionResponse>;
+
+export type OAuthClientCredentialsToken = {
+  readonly token: Redacted.Redacted<string>;
+  readonly tokenType: string;
+  readonly scope: string | undefined;
+  readonly expiresIn: number | undefined;
+};
 
 // =============================================================================
 // 3. Client Factory
@@ -310,6 +366,166 @@ export function getDiscordAccessToken(
     }
 
     return { accessToken: Redacted.make(accessToken.data.accessToken) };
+  });
+}
+
+const toBasicAuthHeader = (clientId: string, clientSecret: Redacted.Redacted<string>) =>
+  `Basic ${Buffer.from(`${clientId}:${Redacted.value(clientSecret)}`).toString("base64")}`;
+
+export function createOAuthClientCredentialsToken(
+  sheetAuthIssuer: string,
+  clientId: string,
+  clientSecret: Redacted.Redacted<string>,
+  scope?: string,
+): Effect.Effect<OAuthClientCredentialsToken, OAuthClientCredentialsError> {
+  return Effect.gen(function* () {
+    const tokenUrl = new URL("/oauth2/token", sheetAuthIssuer).toString();
+    const form = new URLSearchParams({ grant_type: "client_credentials" });
+    if (scope?.trim().length) {
+      form.set("scope", scope.trim());
+    }
+
+    const response = yield* Effect.tryPromise({
+      try: async () =>
+        fetch(tokenUrl, {
+          method: "POST",
+          headers: {
+            authorization: toBasicAuthHeader(clientId, clientSecret),
+            "content-type": "application/x-www-form-urlencoded",
+          },
+          body: form,
+        }),
+      catch: (error) =>
+        new OAuthClientCredentialsError({
+          statusText: "CLIENT_CREDENTIALS_REQUEST_FAILED",
+          message: `CLIENT_CREDENTIALS_REQUEST_FAILED: ${
+            error instanceof Error ? error.message : "Failed to request service access token"
+          }`,
+          cause: error,
+        }),
+    });
+
+    if (!response.ok) {
+      const body = yield* Effect.tryPromise({
+        try: () => response.text(),
+        catch: () => "",
+      }).pipe(Effect.catch(() => Effect.succeed("")));
+      return yield* Effect.fail(
+        new OAuthClientCredentialsError({
+          statusText: "CLIENT_CREDENTIALS_REQUEST_FAILED",
+          message: `CLIENT_CREDENTIALS_REQUEST_FAILED: ${response.status} ${response.statusText}: ${
+            body || "<empty body>"
+          }`,
+        }),
+      );
+    }
+
+    const payload = yield* Effect.tryPromise({
+      try: () => response.json(),
+      catch: (error) =>
+        new OAuthClientCredentialsError({
+          statusText: "CLIENT_CREDENTIALS_PARSE_FAILED",
+          message: `CLIENT_CREDENTIALS_PARSE_FAILED: ${
+            error instanceof Error ? error.message : "Failed to parse service token response"
+          }`,
+          cause: error,
+        }),
+    });
+
+    const tokenPayload = yield* Schema.decodeUnknownEffect(OAuthClientCredentialsResponse)(
+      payload,
+    ).pipe(
+      Effect.mapError(
+        (cause) =>
+          new OAuthClientCredentialsError({
+            statusText: "CLIENT_CREDENTIALS_PARSE_FAILED",
+            message: "CLIENT_CREDENTIALS_PARSE_FAILED: Failed to decode service token response",
+            cause,
+          }),
+      ),
+    );
+
+    return {
+      token: Redacted.make(tokenPayload.access_token),
+      tokenType: tokenPayload.token_type ?? "Bearer",
+      scope: tokenPayload.scope,
+      expiresIn: tokenPayload.expires_in,
+    } satisfies OAuthClientCredentialsToken;
+  });
+}
+
+export function introspectOAuthAccessToken(
+  sheetAuthIssuer: string,
+  clientId: string,
+  clientSecret: Redacted.Redacted<string>,
+  token: Redacted.Redacted<string>,
+): Effect.Effect<OAuthIntrospectionResponse, OAuthIntrospectionError> {
+  return Effect.gen(function* () {
+    const introspectionUrl = new URL("/oauth2/introspect", sheetAuthIssuer).toString();
+    const form = new URLSearchParams({
+      token: Redacted.value(token),
+      token_type_hint: "access_token",
+      client_id: clientId,
+    });
+
+    const response = yield* Effect.tryPromise({
+      try: async () =>
+        fetch(introspectionUrl, {
+          method: "POST",
+          headers: {
+            authorization: toBasicAuthHeader(clientId, clientSecret),
+            "content-type": "application/x-www-form-urlencoded",
+          },
+          body: form,
+        }),
+      catch: (error) =>
+        new OAuthIntrospectionError({
+          statusText: "OAUTH_INTROSPECTION_REQUEST_FAILED",
+          message: `OAUTH_INTROSPECTION_REQUEST_FAILED: ${
+            error instanceof Error ? error.message : "Failed to introspect OAuth token"
+          }`,
+          cause: error,
+        }),
+    });
+
+    if (!response.ok) {
+      const body = yield* Effect.tryPromise({
+        try: () => response.text(),
+        catch: () => "",
+      }).pipe(Effect.catch(() => Effect.succeed("")));
+      return yield* Effect.fail(
+        new OAuthIntrospectionError({
+          statusText: "OAUTH_INTROSPECTION_REQUEST_FAILED",
+          message: `OAUTH_INTROSPECTION_REQUEST_FAILED: ${response.status} ${response.statusText}: ${
+            body || "<empty body>"
+          }`,
+        }),
+      );
+    }
+
+    const payload = yield* Effect.tryPromise({
+      try: () => response.json(),
+      catch: (error) =>
+        new OAuthIntrospectionError({
+          statusText: "OAUTH_INTROSPECTION_PARSE_FAILED",
+          message: `OAUTH_INTROSPECTION_PARSE_FAILED: ${
+            error instanceof Error ? error.message : "Failed to parse OAuth introspection response"
+          }`,
+          cause: error,
+        }),
+    });
+
+    return yield* Schema.decodeUnknownEffect(OAuthIntrospectionResponse)(payload).pipe(
+      Effect.mapError(
+        (cause) =>
+          new OAuthIntrospectionError({
+            statusText: "OAUTH_INTROSPECTION_PARSE_FAILED",
+            message:
+              "OAUTH_INTROSPECTION_PARSE_FAILED: Failed to decode OAuth introspection response",
+            cause,
+          }),
+      ),
+    );
   });
 }
 

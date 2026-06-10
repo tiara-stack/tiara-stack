@@ -225,14 +225,16 @@ imagePullSecrets:
       value: sheet-apis
     - name: SHEET_INGRESS_BASE_URL
       secretKey: sheetIngressBaseUrl
+    - name: SHEET_APIS_SERVICE_CLIENT_ID
+      secretKey: sheetApisServiceClientId
+    - name: SHEET_APIS_SERVICE_CLIENT_SECRET
+      secretKey: sheetApisServiceClientSecret
     - name: SERVICE_ACCOUNT_JWKS_AUTH_TOKEN_PATH
       value: /var/run/secrets/tokens/kubernetes-jwks-token
   projectedTokens:
     - path: kubernetes-jwks-token
     - path: zero-cache-token
       audience: zero-cache
-    - path: sheet-auth-token
-      audience: sheet-auth
   googleServiceAccount: true
   networkPolicyFrom:
     - app: sheet-ingress-server
@@ -271,12 +273,14 @@ imagePullSecrets:
       secretKey: sheetAuthIssuer
     - name: SHEET_INGRESS_KUBERNETES_AUDIENCE
       value: sheet-bot
+    - name: SHEET_BOT_SERVICE_CLIENT_ID
+      secretKey: sheetBotServiceClientId
+    - name: SHEET_BOT_SERVICE_CLIENT_SECRET
+      secretKey: sheetBotServiceClientSecret
     - name: SERVICE_ACCOUNT_JWKS_AUTH_TOKEN_PATH
       value: /var/run/secrets/tokens/kubernetes-jwks-token
   projectedTokens:
     - path: kubernetes-jwks-token
-    - path: sheet-auth-token
-      audience: sheet-auth
   networkPolicyFrom:
     - app: sheet-ingress-server
       port: sheet-bot-svc
@@ -327,12 +331,14 @@ imagePullSecrets:
       value: sheet-workflows
     - name: SHEET_INGRESS_BASE_URL
       secretKey: sheetIngressBaseUrl
+    - name: SHEET_WORKFLOWS_SERVICE_CLIENT_ID
+      secretKey: sheetWorkflowsServiceClientId
+    - name: SHEET_WORKFLOWS_SERVICE_CLIENT_SECRET
+      secretKey: sheetWorkflowsServiceClientSecret
     - name: SERVICE_ACCOUNT_JWKS_AUTH_TOKEN_PATH
       value: /var/run/secrets/tokens/kubernetes-jwks-token
   projectedTokens:
     - path: kubernetes-jwks-token
-    - path: sheet-auth-token
-      audience: sheet-auth
   networkPolicyFrom:
     - app: sheet-ingress-server
       port: workflows-svc
@@ -396,15 +402,18 @@ imagePullSecrets:
       secretKey: sheetAuthIssuer
     - name: TRUSTED_ORIGINS
       secretKey: trustedOrigins
-  projectedTokens:
-    - path: sheet-auth-token
-      audience: sheet-auth
-    - path: sheet-apis-token
-      audience: sheet-apis
-    - path: sheet-workflows-token
-      audience: sheet-workflows
-    - path: sheet-bot-token
-      audience: sheet-bot
+    - name: SHEET_APIS_SERVICE_CLIENT_ID
+      secretKey: sheetApisServiceClientId
+    - name: SHEET_APIS_SERVICE_CLIENT_SECRET
+      secretKey: sheetApisServiceClientSecret
+    - name: SHEET_WORKFLOWS_SERVICE_CLIENT_ID
+      secretKey: sheetWorkflowsServiceClientId
+    - name: SHEET_WORKFLOWS_SERVICE_CLIENT_SECRET
+      secretKey: sheetWorkflowsServiceClientSecret
+    - name: SHEET_BOT_SERVICE_CLIENT_ID
+      secretKey: sheetBotServiceClientId
+    - name: SHEET_BOT_SERVICE_CLIENT_SECRET
+      secretKey: sheetBotServiceClientSecret
   networkPolicyFrom:
     - app: sheet-apis
       port: ingress-svc

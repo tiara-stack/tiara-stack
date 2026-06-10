@@ -1,34 +1,71 @@
-import { Effect, Layer, Option, Predicate } from "effect";
+import { Effect, Layer, Option, Redacted } from "effect";
 import {
   HttpMiddleware,
   HttpRouter,
   HttpServerRequest,
   HttpServerResponse,
 } from "effect/unstable/http";
-import { makeKubernetesServiceAccountTokenAuthorizer } from "sheet-auth/plugins/kubernetes-oauth/rpc-authorization";
+import { Headers } from "effect/unstable/http";
+import { Unauthorized } from "typhoon-core/error";
+import { introspectOAuthAccessToken } from "sheet-auth/client";
 import { config } from "@/config";
 
+const getBearerToken = (authorization: string | undefined) => {
+  if (!authorization?.startsWith("Bearer ")) {
+    return undefined;
+  }
+
+  const token = authorization.slice("Bearer ".length).trim();
+  return token.length === 0 ? undefined : token;
+};
+
 const makeSheetIngressAuthorizer = Effect.gen(function* () {
-  const podNamespace = yield* config.podNamespace;
-  const maybeIngressNamespace = yield* config.sheetIngressNamespace;
-  const ingressNamespace = Option.getOrElse(maybeIngressNamespace, () => podNamespace);
-  const audience = yield* config.sheetIngressKubernetesAudience;
-  return yield* makeKubernetesServiceAccountTokenAuthorizer({
-    audience,
-    expectedNamespace: ingressNamespace,
-    expectedServiceAccountName: "sheet-ingress-server",
+  const issuer = yield* config.sheetAuthIssuer;
+  const introspectionClientId = yield* config.sheetAuthOAuthIntrospectionClientId;
+  const introspectionClientSecret = yield* config.sheetAuthOAuthIntrospectionClientSecret;
+
+  const makeUnauthorized = ({
+    message,
+    cause,
+  }: {
+    readonly message: string;
+    readonly cause?: unknown;
+  }) => new Unauthorized({ message, cause });
+
+  const requireAuthorizedHeaders = Effect.fn(
+    "DiscordHttpAuthorization.make.requireAuthorizedHeaders",
+  )(function* (headers: Headers.Headers) {
+    const token = getBearerToken(
+      Option.getOrUndefined(Headers.get(headers, "x-sheet-ingress-auth")),
+    );
+    if (!token) {
+      return yield* Effect.fail(makeUnauthorized({ message: "Missing ingress authorization" }));
+    }
+
+    if (Option.isNone(introspectionClientId) || Option.isNone(introspectionClientSecret)) {
+      return yield* Effect.fail(
+        makeUnauthorized({ message: "OAuth introspection credentials are not configured" }),
+      );
+    }
+
+    const claims = yield* introspectOAuthAccessToken(
+      issuer,
+      introspectionClientId.value,
+      introspectionClientSecret.value,
+      Redacted.make(token),
+    );
+
+    if (claims.active !== true) {
+      return yield* Effect.fail(makeUnauthorized({ message: "OAuth ingress token is not active" }));
+    }
+
+    return claims;
   });
+
+  return { requireAuthorizedHeaders };
 });
 
-const isHealthProbePath = Predicate.or(
-  (pathname: string) => pathname === "/live",
-  (pathname: string) => pathname === "/ready",
-);
-
-export const isHealthProbeRequest = (request: HttpServerRequest.HttpServerRequest) => {
-  const pathname = new URL(request.url, "http://localhost").pathname;
-  return request.method === "GET" && isHealthProbePath(pathname);
-};
+const isHealthProbePath = (pathname: string) => pathname === "/live" || pathname === "/ready";
 
 export const sheetBotHttpAuthorizationLayer = Layer.unwrap(
   Effect.gen(function* () {
@@ -38,7 +75,7 @@ export const sheetBotHttpAuthorizationLayer = Layer.unwrap(
       HttpMiddleware.make((httpEffect) =>
         Effect.gen(function* () {
           const request = yield* HttpServerRequest.HttpServerRequest;
-          if (!isHealthProbeRequest(request)) {
+          if (!isHealthProbePath(new URL(request.url, "http://localhost").pathname)) {
             yield* authorizer.requireAuthorizedHeaders(request.headers);
           }
           return yield* httpEffect;

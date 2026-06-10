@@ -1,81 +1,55 @@
 import { NodeFileSystem } from "@effect/platform-node";
 import { HttpClient, HttpClientRequest } from "effect/unstable/http";
 import { HttpApiClient } from "effect/unstable/httpapi";
-import {
-  Cache,
-  Context,
-  DateTime,
-  Duration,
-  Effect,
-  Exit,
-  FileSystem,
-  Layer,
-  pipe,
-  Redacted,
-  Ref,
-  Schedule,
-} from "effect";
-import { createKubernetesOAuthSession } from "sheet-auth/client";
-import { DISCORD_SERVICE_USER_ID_SENTINEL } from "sheet-auth/plugins/kubernetes-oauth";
+import { Cache, Context, Duration, Effect, Exit, Option, Layer, Redacted } from "effect";
+import { createOAuthClientCredentialsToken } from "sheet-auth/client";
 import { SheetIngressDiscordApi } from "sheet-ingress-api/api";
 import { config } from "@/config";
-import { SheetAuthClient } from "./sheetAuthClient";
-
-const sheetAuthTokenPath = "/var/run/secrets/tokens/sheet-auth-token";
 
 type TokenCacheEntry = {
   readonly token: Redacted.Redacted<string> | undefined;
   readonly timeToLive: Duration.Duration;
 };
 
+const sheetApiServiceAuthCacheKey = "sheet-apis-ingress-bot-service";
+
+const toTokenCacheTTL = (expiresIn: number | undefined) =>
+  expiresIn !== undefined && !Number.isNaN(expiresIn) && expiresIn > 0
+    ? Duration.max(Duration.seconds(Math.max(Math.floor(expiresIn) - 60, 15)), Duration.seconds(15))
+    : Duration.minutes(1);
+
 export class IngressBotClient extends Context.Service<IngressBotClient>()("IngressBotClient", {
   make: Effect.gen(function* () {
     const baseUrl = yield* config.sheetIngressBaseUrl;
-    const fs = yield* FileSystem.FileSystem;
-    const sheetAuthClient = yield* SheetAuthClient;
     const baseHttpClient = yield* HttpClient.HttpClient;
-    const k8sTokenRef = yield* Ref.make("");
+    const sheetAuthIssuer = yield* config.sheetAuthIssuer;
+    const serviceClientId = yield* config.sheetServiceOAuthClientId;
+    const serviceClientSecret = yield* config.sheetServiceOAuthClientSecret;
 
-    const refreshK8sToken = pipe(
-      fs.readFileString(sheetAuthTokenPath, "utf-8"),
-      Effect.map((token) => token.trim()),
-      Effect.flatMap((token) => Ref.set(k8sTokenRef, token)),
-      Effect.retry({ schedule: Schedule.exponential("1 second"), times: 3 }),
-      Effect.catch((error) =>
-        Effect.logWarning("Failed to read sheet-auth Kubernetes token", error),
-      ),
-    );
-
-    yield* refreshK8sToken;
-    yield* refreshK8sToken.pipe(Effect.repeat(Schedule.spaced("5 minutes")), Effect.forkScoped);
+    if (Option.isNone(serviceClientId) || Option.isNone(serviceClientSecret)) {
+      return yield* Effect.fail(
+        new Error("OAuth service client credentials are not configured for sheet-apis"),
+      );
+    }
 
     const tokenCache = yield* Cache.makeWith<string, TokenCacheEntry>(
-      Effect.fn("IngressBotClient.lookupServiceToken")(function* (serviceUserId) {
-        const k8sToken = yield* Ref.get(k8sTokenRef);
-        const session = yield* createKubernetesOAuthSession(
-          sheetAuthClient,
-          serviceUserId,
-          k8sToken,
+      Effect.fn("IngressBotClient.lookupServiceToken")(function* (_serviceUserId) {
+        const issued = yield* createOAuthClientCredentialsToken(
+          sheetAuthIssuer,
+          serviceClientId.value,
+          serviceClientSecret.value,
+          "service",
         ).pipe(
           Effect.catch((error) =>
-            Effect.logWarning("Failed to create service-user auth session", error).pipe(
+            Effect.logWarning("Failed to create sheet-apis service auth token", error).pipe(
               Effect.as(undefined),
             ),
           ),
         );
-        const now = yield* DateTime.now;
-        const timeToLive = session?.session?.expiresAt
-          ? Duration.max(
-              pipe(
-                DateTime.distance(now, session.session.expiresAt),
-                Duration.subtract(Duration.seconds(60)),
-              ),
-              Duration.seconds(15),
-            )
-          : Duration.minutes(1);
+        const timeToLive = toTokenCacheTTL(issued?.expiresIn);
 
         return {
-          token: session?.token,
+          token: issued?.token,
           timeToLive,
         };
       }),
@@ -91,7 +65,7 @@ export class IngressBotClient extends Context.Service<IngressBotClient>()("Ingre
     const httpClient = HttpClient.mapRequestEffect(
       baseHttpClient,
       Effect.fnUntraced(function* (request) {
-        const { token } = yield* Cache.get(tokenCache, DISCORD_SERVICE_USER_ID_SENTINEL);
+        const { token } = yield* Cache.get(tokenCache, sheetApiServiceAuthCacheKey);
 
         return token ? HttpClientRequest.bearerToken(request, Redacted.value(token)) : request;
       }),
@@ -155,6 +129,6 @@ export class IngressBotClient extends Context.Service<IngressBotClient>()("Ingre
   }),
 }) {
   static layer = Layer.effect(IngressBotClient, this.make).pipe(
-    Layer.provide([SheetAuthClient.layer, NodeFileSystem.layer]),
+    Layer.provide(NodeFileSystem.layer),
   );
 }

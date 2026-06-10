@@ -21,8 +21,7 @@ import {
   Redacted,
   Context,
 } from "effect";
-import { createKubernetesOAuthSession } from "sheet-auth/client";
-import { DISCORD_SERVICE_USER_ID_SENTINEL } from "sheet-auth/plugins/kubernetes-oauth";
+import { createKubernetesOAuthSession, createOAuthClientCredentialsToken } from "sheet-auth/client";
 import { ServicesStatusResponse } from "sheet-ingress-api/sheet-apis-rpc";
 import { SheetWorkflowsApi } from "sheet-ingress-api/sheet-workflows";
 import { SheetAuthClient } from "./sheetAuthClient";
@@ -42,6 +41,13 @@ type TokenCacheEntry = {
   timeToLive: Duration.Duration;
   failed: boolean;
 };
+
+const sheetBotServiceClientCacheKey = "sheet-bot-workflows-service";
+
+const toTokenCacheTTL = (expiresIn: number | undefined) =>
+  expiresIn !== undefined && !Number.isNaN(expiresIn) && expiresIn > 0
+    ? Duration.max(Duration.seconds(Math.max(Math.floor(expiresIn) - 60, 15)), Duration.seconds(15))
+    : Duration.minutes(1);
 
 const sheetWorkflowsRequestContextTag = Context.Reference<SheetWorkflowsRequestContextType>(
   "SheetWorkflowsRequestContext",
@@ -98,6 +104,9 @@ export class SheetWorkflowsClient extends Context.Service<SheetWorkflowsClient>(
     make: Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const sheetAuthClient = yield* SheetAuthClient;
+      const sheetAuthIssuer = yield* config.sheetAuthIssuer;
+      const serviceClientId = yield* config.sheetServiceOAuthClientId;
+      const serviceClientSecret = yield* config.sheetServiceOAuthClientSecret;
       const httpClient = yield* HttpClient.HttpClient;
       const k8sTokenRef = yield* Ref.make("");
       const baseUrl = yield* config.sheetIngressBaseUrl;
@@ -113,11 +122,44 @@ export class SheetWorkflowsClient extends Context.Service<SheetWorkflowsClient>(
       );
 
       const tokenCache = yield* Cache.makeWith<string, TokenCacheEntry>(
-        Effect.fn("SheetWorkflowsClient.lookup")(function* (discordUserId: string) {
+        Effect.fn("SheetWorkflowsClient.lookup")(function* (cacheKey: string) {
+          if (cacheKey === sheetBotServiceClientCacheKey) {
+            if (Option.isNone(serviceClientId) || Option.isNone(serviceClientSecret)) {
+              yield* Effect.logWarning(
+                "OAuth service client credentials are not configured for sheet-bot",
+              );
+              return {
+                token: undefined,
+                timeToLive: Duration.minutes(1),
+                failed: true,
+              };
+            }
+
+            const issued = yield* createOAuthClientCredentialsToken(
+              sheetAuthIssuer,
+              serviceClientId.value,
+              serviceClientSecret.value,
+              "service",
+            ).pipe(
+              Effect.catch((error) =>
+                Effect.logWarning("Failed to create sheet-bot service auth token", error).pipe(
+                  Effect.as(undefined),
+                ),
+              ),
+            );
+            const timeToLive = toTokenCacheTTL(issued?.expiresIn);
+
+            return {
+              token: issued?.token,
+              timeToLive,
+              failed: issued === undefined,
+            };
+          }
+
           const k8sToken = yield* Ref.get(k8sTokenRef);
           const session = yield* createKubernetesOAuthSession(
             sheetAuthClient,
-            discordUserId,
+            cacheKey,
             k8sToken,
           ).pipe(Effect.catch(() => Effect.succeed(undefined)));
           const now = yield* DateTime.now;
@@ -148,7 +190,7 @@ export class SheetWorkflowsClient extends Context.Service<SheetWorkflowsClient>(
       ) {
         const cacheKey = Match.value(requester).pipe(
           Match.tagsExhaustive({
-            Service: () => DISCORD_SERVICE_USER_ID_SENTINEL,
+            Service: () => sheetBotServiceClientCacheKey,
             DiscordUser: (requester) => requester.discordUserId,
           }),
         );

@@ -13,6 +13,42 @@ const sheetAuthOAuthIntrospectionClientIdConfig = Config.option(
   Config.schema(Schema.String, "SHEET_AUTH_INTROSPECTION_CLIENT_ID"),
 );
 
+const readOAuthClientCredentials = (idEnv: string, secretEnv: string) => {
+  const id = Config.option(Config.schema(Schema.String, idEnv));
+  const secret = Config.option(Config.schema(Schema.Redacted(Schema.String), secretEnv));
+
+  return Config.all({ id, secret }).pipe(
+    Config.mapOrFail(({ id, secret }) => {
+      if (Option.isSome(id) !== Option.isSome(secret)) {
+        return Effect.fail(
+          new Config.ConfigError(
+            new ConfigProvider.SourceError({
+              message: `${idEnv} and ${secretEnv} must be both set or both omitted`,
+            }),
+          ),
+        );
+      }
+
+      return Effect.succeed({ id, secret });
+    }),
+  );
+};
+
+const sheetApisOAuthClientCredentials = readOAuthClientCredentials(
+  "SHEET_APIS_SERVICE_CLIENT_ID",
+  "SHEET_APIS_SERVICE_CLIENT_SECRET",
+);
+
+const sheetWorkflowsOAuthClientCredentials = readOAuthClientCredentials(
+  "SHEET_WORKFLOWS_SERVICE_CLIENT_ID",
+  "SHEET_WORKFLOWS_SERVICE_CLIENT_SECRET",
+);
+
+const sheetBotOAuthClientCredentials = readOAuthClientCredentials(
+  "SHEET_BOT_SERVICE_CLIENT_ID",
+  "SHEET_BOT_SERVICE_CLIENT_SECRET",
+);
+
 const sheetAuthOAuthIntrospectionClientSecretConfig = Config.option(
   Config.schema(Schema.Redacted(Schema.String), "SHEET_AUTH_INTROSPECTION_CLIENT_SECRET"),
 );
@@ -49,6 +85,23 @@ export const config = {
     Config.map(({ secret }) => secret),
   ),
   sheetAuthOAuthIntrospectionClientCredentials,
+  sheetApisOAuthClientCredentials,
+  sheetWorkflowsOAuthClientCredentials,
+  sheetBotOAuthClientCredentials,
+  sheetApisOAuthClientId: sheetApisOAuthClientCredentials.pipe(Config.map(({ id }) => id)),
+  sheetApisOAuthClientSecret: sheetApisOAuthClientCredentials.pipe(
+    Config.map(({ secret }) => secret),
+  ),
+  sheetWorkflowsOAuthClientId: sheetWorkflowsOAuthClientCredentials.pipe(
+    Config.map(({ id }) => id),
+  ),
+  sheetWorkflowsOAuthClientSecret: sheetWorkflowsOAuthClientCredentials.pipe(
+    Config.map(({ secret }) => secret),
+  ),
+  sheetBotOAuthClientId: sheetBotOAuthClientCredentials.pipe(Config.map(({ id }) => id)),
+  sheetBotOAuthClientSecret: sheetBotOAuthClientCredentials.pipe(
+    Config.map(({ secret }) => secret),
+  ),
   trustedOrigins: Config.schema(
     split(",").pipe(
       Schema.decodeTo(Schema.Array(Schema.Trim), {

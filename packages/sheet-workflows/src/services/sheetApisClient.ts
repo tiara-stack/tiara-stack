@@ -1,25 +1,9 @@
-import { NodeFileSystem } from "@effect/platform-node";
 import { HttpClient, HttpClientRequest } from "effect/unstable/http";
 import { HttpApiClient } from "effect/unstable/httpapi";
-import {
-  Cache,
-  Context,
-  DateTime,
-  Duration,
-  Effect,
-  Exit,
-  FileSystem,
-  Layer,
-  Redacted,
-  Ref,
-  Schedule,
-  pipe,
-} from "effect";
-import { createKubernetesOAuthSession } from "sheet-auth/client";
-import { DISCORD_SERVICE_USER_ID_SENTINEL } from "sheet-auth/plugins/kubernetes-oauth";
+import { Cache, Context, Duration, Effect, Exit, Layer, Redacted, pipe, Option } from "effect";
+import { createOAuthClientCredentialsToken } from "sheet-auth/client";
 import { SheetApisApi } from "sheet-ingress-api/sheet-apis";
 import { config } from "@/config";
-import { SheetAuthClient } from "./sheetAuthClient";
 
 type TokenCacheEntry = {
   token: Redacted.Redacted<string> | undefined;
@@ -28,41 +12,37 @@ type TokenCacheEntry = {
 
 export class SheetApisClient extends Context.Service<SheetApisClient>()("SheetApisClient", {
   make: Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const sheetAuthClient = yield* SheetAuthClient;
     const httpClient = yield* HttpClient.HttpClient;
-    const k8sTokenRef = yield* Ref.make("");
     const baseUrl = yield* config.sheetIngressBaseUrl;
+    const sheetAuthIssuer = yield* config.sheetAuthIssuer;
+    const serviceClientId = yield* config.sheetServiceOAuthClientId;
+    const serviceClientSecret = yield* config.sheetServiceOAuthClientSecret;
 
-    yield* pipe(
-      fs.readFileString("/var/run/secrets/tokens/sheet-auth-token", "utf-8"),
-      Effect.map((token) => token.trim()),
-      Effect.flatMap((token) => Ref.set(k8sTokenRef, token)),
-      Effect.retry({ schedule: Schedule.exponential("1 second"), times: 3 }),
-      Effect.catch(() => Effect.void),
-      Effect.withSpan("SheetApisClient.refreshK8sToken"),
-      Effect.repeat(Schedule.spaced("5 minutes")),
-      Effect.forkScoped,
-    );
+    if (Option.isNone(serviceClientId) || Option.isNone(serviceClientSecret)) {
+      return yield* Effect.fail(
+        new Error("OAuth service client credentials are not configured for sheet-workflows"),
+      );
+    }
 
     const tokenCache = yield* Cache.makeWith<string, TokenCacheEntry>(
       Effect.fn("SheetApisClient.lookup")(function* () {
-        const k8sToken = yield* Ref.get(k8sTokenRef);
-        const session = yield* createKubernetesOAuthSession(
-          sheetAuthClient,
-          DISCORD_SERVICE_USER_ID_SENTINEL,
-          k8sToken,
+        const issued = yield* createOAuthClientCredentialsToken(
+          sheetAuthIssuer,
+          serviceClientId.value,
+          serviceClientSecret.value,
+          "service",
         ).pipe(Effect.catch(() => Effect.succeed(undefined)));
-        const now = yield* DateTime.now;
-        const timeToLive = session?.session?.expiresAt
-          ? pipe(
-              DateTime.distance(now, session.session.expiresAt),
-              Duration.subtract(Duration.seconds(60)),
-            )
-          : Duration.minutes(1);
+        const expiresIn = issued?.expiresIn;
+        const timeToLive =
+          expiresIn !== undefined && !Number.isNaN(expiresIn) && expiresIn > 0
+            ? Duration.max(
+                Duration.seconds(Math.max(Math.floor(expiresIn) - 60, 15)),
+                Duration.seconds(15),
+              )
+            : Duration.minutes(1);
 
         const entry = {
-          token: session?.token,
+          token: issued?.token,
           timeToLive,
         };
         yield* Effect.annotateCurrentSpan({
@@ -83,7 +63,7 @@ export class SheetApisClient extends Context.Service<SheetApisClient>()("SheetAp
     const httpClientWithToken = HttpClient.mapRequestEffect(httpClient, (request) =>
       Effect.gen(function* () {
         const { token } = yield* pipe(
-          Cache.get(tokenCache, DISCORD_SERVICE_USER_ID_SENTINEL),
+          Cache.get(tokenCache, "sheet-workflows-sheet-apis-service"),
           Effect.catch((err) =>
             pipe(
               Effect.logWarning(
@@ -109,8 +89,5 @@ export class SheetApisClient extends Context.Service<SheetApisClient>()("SheetAp
     };
   }),
 }) {
-  static layer = Layer.effect(SheetApisClient, this.make).pipe(
-    Layer.provide(SheetAuthClient.layer),
-    Layer.provide(NodeFileSystem.layer),
-  );
+  static layer = Layer.effect(SheetApisClient, this.make);
 }

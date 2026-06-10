@@ -1,146 +1,131 @@
-import { NodeFileSystem } from "@effect/platform-node";
-import {
-  Cache,
-  Context,
-  DateTime,
-  Duration,
-  Effect,
-  Exit,
-  FileSystem,
-  HashSet,
-  Layer,
-  pipe,
-  Redacted,
-  Ref,
-  Schedule,
-} from "effect";
-import { createKubernetesOAuthSession } from "sheet-auth/client";
-import { DISCORD_SERVICE_USER_ID_SENTINEL } from "sheet-auth/plugins/kubernetes-oauth";
+import { Cache, Context, Duration, Effect, Exit, HashSet, Layer, Option, Redacted } from "effect";
+import { Permission } from "sheet-ingress-api/schemas/permissions";
+import { createOAuthClientCredentialsToken } from "sheet-auth/client";
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
-import { SheetAuthClient } from "./sheetAuthClient";
+import { config } from "@/config";
 
-const sheetAuthTokenPath = "/var/run/secrets/tokens/sheet-auth-token";
+const sheetApisTokenPath = "/var/run/secrets/tokens/sheet-apis-token";
+const sheetWorkflowsTokenPath = "/var/run/secrets/tokens/sheet-workflows-token";
+const sheetBotTokenPath = "/var/run/secrets/tokens/sheet-bot-token";
 
-type SheetAuthUserType = Context.Service.Shape<typeof SheetAuthUser>;
+type ServiceTokenConfig = {
+  readonly id: string;
+  readonly secret: Redacted.Redacted<string>;
+};
 
 type TokenCacheEntry = {
-  readonly token: Redacted.Redacted<string> | undefined;
-  readonly userId: string | undefined;
+  readonly token: Redacted.Redacted<string>;
+  readonly userId: string;
+  readonly accountId: string;
+  readonly permissions: HashSet.HashSet<Permission>;
   readonly timeToLive: Duration.Duration;
 };
 
-export const readKubernetesTokenFile = Effect.fn("SheetApisRpcTokens.readKubernetesTokenFile")(
-  function* (tokenPath: string, tokenName: string) {
-    const fs = yield* FileSystem.FileSystem;
+type SheetAuthUserType = Context.Service.Shape<typeof SheetAuthUser>;
 
-    return yield* pipe(
-      fs.readFileString(tokenPath, "utf-8"),
-      Effect.map((token) => token.trim()),
-      Effect.flatMap((token) =>
-        token.length > 0
-          ? Effect.succeed(token)
-          : Effect.fail(new Error(`${tokenName} Kubernetes token file is empty`)),
-      ),
-      Effect.retry({ schedule: Schedule.exponential("1 second"), times: 3 }),
-    );
-  },
-);
+const resolveServiceClientConfig = (serviceTokenPath: string) =>
+  Effect.gen(function* () {
+    let idConfig: Option.Option<string>;
+    let secretConfig: Option.Option<Redacted.Redacted<string>>;
+
+    if (serviceTokenPath === sheetApisTokenPath) {
+      idConfig = yield* config.sheetApisOAuthClientId;
+      secretConfig = yield* config.sheetApisOAuthClientSecret;
+    } else if (serviceTokenPath === sheetWorkflowsTokenPath) {
+      idConfig = yield* config.sheetWorkflowsOAuthClientId;
+      secretConfig = yield* config.sheetWorkflowsOAuthClientSecret;
+    } else if (serviceTokenPath === sheetBotTokenPath) {
+      idConfig = yield* config.sheetBotOAuthClientId;
+      secretConfig = yield* config.sheetBotOAuthClientSecret;
+    } else {
+      return yield* Effect.fail(new Error(`Unknown service token path: ${serviceTokenPath}`));
+    }
+
+    const clientId = Option.getOrUndefined(idConfig);
+    const clientSecret = Option.getOrUndefined(secretConfig);
+
+    if (!clientId || !clientSecret) {
+      return yield* Effect.fail(
+        new Error(
+          `OAuth service client credentials are not configured for path ${serviceTokenPath}`,
+        ),
+      );
+    }
+
+    return { id: clientId, secret: clientSecret } as ServiceTokenConfig;
+  });
+
+const toTokenCacheTTL = (expiresIn: number | undefined) => {
+  if (expiresIn === undefined || Number.isNaN(expiresIn) || expiresIn <= 0) {
+    return Duration.minutes(1);
+  }
+
+  return Duration.max(
+    Duration.seconds(Math.max(Math.floor(expiresIn) - 60, 15)),
+    Duration.seconds(15),
+  );
+};
+
+const servicePermissionSet = HashSet.fromIterable(["service"] as const);
 
 export class SheetApisRpcTokens extends Context.Service<SheetApisRpcTokens>()(
   "SheetApisRpcTokens",
   {
     make: Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const sheetAuthClient = yield* SheetAuthClient;
-      const k8sTokenRef = yield* Ref.make("");
-
-      const readToken = (tokenPath: string, tokenName: string) =>
-        readKubernetesTokenFile(tokenPath, tokenName).pipe(
-          Effect.provideService(FileSystem.FileSystem, fs),
-        );
-
-      const refreshToken = (tokenPath: string, tokenName: string, tokenRef: Ref.Ref<string>) =>
-        readToken(tokenPath, tokenName).pipe(Effect.flatMap((token) => Ref.set(tokenRef, token)));
-
-      const refreshK8sToken = refreshToken(sheetAuthTokenPath, "sheet-auth", k8sTokenRef);
-
-      yield* refreshK8sToken.pipe(
-        Effect.tapError((error) =>
-          Effect.logError("Failed to initialize sheet-auth Kubernetes token", error),
-        ),
-      );
-      yield* refreshK8sToken.pipe(
-        Effect.catch((error) =>
-          Effect.logWarning("Failed to refresh sheet-auth Kubernetes token", error),
-        ),
-        Effect.repeat(Schedule.spaced("5 minutes")),
-        Effect.forkScoped,
-      );
-
-      const serviceUserTokenCache = yield* Cache.makeWith<string, TokenCacheEntry>(
-        Effect.fn("SheetApisRpcTokens.lookupServiceUserToken")(function* () {
-          const k8sToken = yield* Ref.get(k8sTokenRef);
-          const session = yield* createKubernetesOAuthSession(
-            sheetAuthClient,
-            DISCORD_SERVICE_USER_ID_SENTINEL,
-            k8sToken,
-          ).pipe(
-            Effect.catch((error) =>
-              Effect.logWarning("Failed to create service-user auth session", error).pipe(
-                Effect.as(undefined),
-              ),
-            ),
+      const sheetAuthIssuer = yield* config.sheetAuthIssuer;
+      const serviceTokenCache = yield* Cache.makeWith(
+        Effect.fn("SheetApisRpcTokens.lookupServiceToken")(function* (serviceTokenPath: string) {
+          const credentials = yield* resolveServiceClientConfig(serviceTokenPath);
+          const issued = yield* createOAuthClientCredentialsToken(
+            sheetAuthIssuer,
+            credentials.id,
+            credentials.secret,
           );
-          const now = yield* DateTime.now;
-          const timeToLive = session?.session?.expiresAt
-            ? Duration.max(
-                pipe(
-                  DateTime.distance(now, session.session.expiresAt),
-                  Duration.subtract(Duration.seconds(60)),
-                ),
-                Duration.seconds(15),
-              )
-            : Duration.minutes(1);
+
+          const timeToLive = toTokenCacheTTL(issued.expiresIn);
+          yield* Effect.annotateCurrentSpan({
+            serviceClientId: credentials.id,
+            tokenType: issued.tokenType,
+            tokenLength: Redacted.value(issued.token).length,
+          });
 
           return {
-            token: session?.token,
-            userId: session?.session?.userId,
+            token: issued.token,
+            userId: credentials.id,
+            accountId: `oauth-client:${credentials.id}`,
+            permissions: servicePermissionSet,
             timeToLive,
-          };
+          } satisfies TokenCacheEntry;
         }),
         {
-          capacity: 1,
+          capacity: 3,
           timeToLive: Exit.match({
-            onFailure: () => Duration.minutes(1),
+            onFailure: () => Duration.seconds(30),
             onSuccess: ({ timeToLive }) => timeToLive,
           }),
         },
       );
 
-      const getServiceUser = Effect.fn("SheetApisRpcTokens.getServiceUser")(function* () {
-        const { token, userId } = yield* Cache.get(
-          serviceUserTokenCache,
-          DISCORD_SERVICE_USER_ID_SENTINEL,
-        );
+      const getServiceToken = Effect.fn("SheetApisRpcTokens.getServiceToken")(function* (
+        tokenPath: string,
+      ) {
+        const entry = yield* Cache.get(serviceTokenCache, tokenPath);
+        return entry.token;
+      });
 
-        if (!token || !userId) {
-          return yield* Effect.fail(new Error("Failed to create service-user auth session"));
-        }
+      const getServiceUser = Effect.fn("SheetApisRpcTokens.getServiceUser")(function* () {
+        const serviceClient = yield* Cache.get(serviceTokenCache, sheetApisTokenPath);
 
         return {
-          accountId: DISCORD_SERVICE_USER_ID_SENTINEL,
-          userId,
-          permissions: HashSet.fromIterable(["service"]),
-          token,
+          accountId: serviceClient.accountId,
+          userId: serviceClient.userId,
+          permissions: serviceClient.permissions,
+          token: serviceClient.token,
         } satisfies SheetAuthUserType;
       });
 
       return {
-        getServiceToken: Effect.fn("SheetApisRpcTokens.getServiceToken")(function* (
-          tokenPath: string,
-        ) {
-          return yield* readToken(tokenPath, tokenPath);
-        }),
+        getServiceToken,
         getServiceUser,
         withServiceUser: Effect.fn("SheetApisRpcTokens.withServiceUser")(function* <A, E, R>(
           effect: Effect.Effect<A, E, R>,
@@ -152,7 +137,5 @@ export class SheetApisRpcTokens extends Context.Service<SheetApisRpcTokens>()(
     }),
   },
 ) {
-  static layer = Layer.effect(SheetApisRpcTokens, this.make).pipe(
-    Layer.provide([SheetAuthClient.layer, NodeFileSystem.layer]),
-  );
+  static layer = Layer.effect(SheetApisRpcTokens, this.make);
 }
