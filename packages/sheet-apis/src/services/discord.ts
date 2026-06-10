@@ -3,7 +3,7 @@ import { apiCacheViewsLayer, Unstorage } from "dfx-discord-utils/discord/cache";
 import { DiscordApiClient } from "dfx-discord-utils/discord";
 import { HttpClient, HttpClientRequest } from "effect/unstable/http";
 import { Cache, Duration, Effect, Exit, Layer, Redacted, Option } from "effect";
-import { createOAuthClientCredentialsToken } from "sheet-auth/client";
+import { createOAuthClientCredentialsToken, toTokenCacheTTL } from "sheet-auth/client";
 import { config } from "@/config";
 
 type TokenCacheEntry = {
@@ -13,11 +13,6 @@ type TokenCacheEntry = {
 
 // fallow-ignore-next-line code-duplication
 const serviceAuthCacheKey = "sheet-apis-discord-service";
-
-const toTokenCacheTTL = (expiresIn: number | undefined) =>
-  expiresIn !== undefined && !Number.isNaN(expiresIn) && expiresIn > 0
-    ? Duration.seconds(Math.max(Math.floor(expiresIn) - 60, 15))
-    : Duration.minutes(1);
 
 const serviceUserAuthHttpClientLayer = Layer.effect(
   HttpClient.HttpClient,

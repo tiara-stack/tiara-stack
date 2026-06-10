@@ -21,7 +21,11 @@ import {
   Redacted,
   Context,
 } from "effect";
-import { createKubernetesOAuthSession, createOAuthClientCredentialsToken } from "sheet-auth/client";
+import {
+  createKubernetesOAuthSession,
+  createOAuthClientCredentialsToken,
+  toTokenCacheTTL,
+} from "sheet-auth/client";
 import { ServicesStatusResponse } from "sheet-ingress-api/sheet-apis-rpc";
 import { SheetWorkflowsApi } from "sheet-ingress-api/sheet-workflows";
 import { SheetAuthClient } from "./sheetAuthClient";
@@ -44,11 +48,6 @@ type TokenCacheEntry = {
 
 // fallow-ignore-next-line code-duplication
 const sheetBotServiceClientCacheKey = "sheet-bot-workflows-service";
-
-const toTokenCacheTTL = (expiresIn: number | undefined) =>
-  expiresIn !== undefined && !Number.isNaN(expiresIn) && expiresIn > 0
-    ? Duration.max(Duration.seconds(Math.max(Math.floor(expiresIn) - 60, 15)), Duration.seconds(15))
-    : Duration.minutes(1);
 
 const sheetWorkflowsRequestContextTag = Context.Reference<SheetWorkflowsRequestContextType>(
   "SheetWorkflowsRequestContext",

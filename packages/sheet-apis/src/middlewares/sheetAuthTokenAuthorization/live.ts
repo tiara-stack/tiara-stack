@@ -1,8 +1,7 @@
 // fallow-ignore-next-line code-duplication
-import { Effect, Layer, Option, Redacted } from "effect";
-import { Headers } from "effect/unstable/http";
+import { Effect, Layer, Redacted } from "effect";
 import { Unauthorized } from "typhoon-core/error";
-import { introspectOAuthAccessToken } from "sheet-auth/client";
+import { createRequireAuthorizedHeaders } from "sheet-auth/client";
 import { decodeForwardedSheetAuthUser } from "sheet-ingress-api/middlewares/forwardedAuthHeaders";
 import { SheetApisRpcAuthorization } from "sheet-ingress-api/middlewares/sheetApisRpcAuthorization/tag";
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
@@ -13,15 +12,6 @@ import { SHEET_AUTH_SESSION_TOKEN_UNAVAILABLE } from "@/services/discordAccessTo
 // user-scoped sheet-auth session token.
 // fallow-ignore-next-line code-duplication
 const forwardedSessionTokenUnavailable = Redacted.make(SHEET_AUTH_SESSION_TOKEN_UNAVAILABLE);
-
-const getBearerToken = (authorization: string | undefined) => {
-  if (!authorization?.startsWith("Bearer ")) {
-    return undefined;
-  }
-
-  const token = authorization.slice("Bearer ".length).trim();
-  return token.length === 0 ? undefined : token;
-};
 
 type SheetApisRpcAuthorizationMiddleware = Parameters<typeof SheetApisRpcAuthorization.of>[0];
 
@@ -41,46 +31,11 @@ export const SheetAuthTokenAuthorizationLive = Layer.effect(
       readonly cause?: unknown;
     }) => new Unauthorized({ message, cause });
 
-    const requireAuthorizedHeaders = Effect.fn(
-      // fallow-ignore-next-line code-duplication
-      "SheetAuthTokenAuthorization.make.requireAuthorizedHeaders",
-    )(function* (headers: Headers.Headers) {
-      const token = getBearerToken(
-        Option.getOrUndefined(Headers.get(headers, "x-sheet-ingress-auth")),
-      );
-      if (!token) {
-        return yield* Effect.fail(makeUnauthorized({ message: "Missing ingress authorization" }));
-      }
-
-      if (Option.isNone(introspectionClientId) || Option.isNone(introspectionClientSecret)) {
-        return yield* Effect.fail(
-          makeUnauthorized({ message: "OAuth introspection credentials are not configured" }),
-        );
-      }
-
-      const claims = yield* introspectOAuthAccessToken(
-        issuer,
-        introspectionClientId.value,
-        introspectionClientSecret.value,
-        Redacted.make(token),
-      ).pipe(
-        Effect.catch((error) =>
-          Effect.fail(
-            makeUnauthorized({
-              message: "OAuth introspection failed",
-              cause: error,
-            }),
-          ),
-        ),
-      );
-
-      if (claims.active !== true) {
-        return yield* Effect.fail(
-          makeUnauthorized({ message: "OAuth ingress token is not active" }),
-        );
-      }
-
-      return claims;
+    const requireAuthorizedHeaders = createRequireAuthorizedHeaders({
+      issuer,
+      introspectionClientId,
+      introspectionClientSecret,
+      makeUnauthorized,
     });
 
     const middleware: SheetApisRpcAuthorizationMiddleware = Effect.fn("SheetApisRpcAuthorization")(

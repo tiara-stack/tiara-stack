@@ -1,7 +1,9 @@
-import { DateTime, Deferred, Effect, Option, Redacted, Schema } from "effect";
+import { DateTime, Deferred, Duration, Effect, Option, Redacted, Schema } from "effect";
+import { Headers } from "effect/unstable/http";
 import { createAuthClient } from "better-auth/client";
 import { Account, Session } from "./model";
 import { kubernetesOAuthClient, type Permission } from "./plugins/kubernetes-oauth/client";
+import { Unauthorized } from "typhoon-core/error";
 
 // =============================================================================
 // 1. Errors
@@ -133,6 +135,78 @@ export type OAuthClientCredentialsToken = {
   readonly scope: string | undefined;
   readonly expiresIn: number | undefined;
 };
+
+export const toTokenCacheTTL = (expiresIn: number | undefined): Duration.Duration => {
+  if (expiresIn === undefined || Number.isNaN(expiresIn) || expiresIn <= 0) {
+    return Duration.minutes(1);
+  }
+
+  return Duration.max(
+    Duration.seconds(Math.max(Math.floor(expiresIn) - 60, 15)),
+    Duration.seconds(15),
+  );
+};
+
+const getBearerToken = (authorization: string | undefined) => {
+  if (!authorization?.startsWith("Bearer ")) {
+    return undefined;
+  }
+
+  const token = authorization.slice("Bearer ".length).trim();
+  return token.length === 0 ? undefined : token;
+};
+
+type MakeUnauthorized = (error: { message: string; cause?: unknown }) => Unauthorized;
+
+export const createRequireAuthorizedHeaders = ({
+  issuer,
+  introspectionClientId,
+  introspectionClientSecret,
+  makeUnauthorized,
+}: {
+  issuer: string;
+  introspectionClientId: Option.Option<string>;
+  introspectionClientSecret: Option.Option<Redacted.Redacted<string>>;
+  makeUnauthorized: MakeUnauthorized;
+}) =>
+  Effect.fn("SheetAuthTokenAuthorization.make.requireAuthorizedHeaders")(function* (
+    headers: Headers.Headers,
+  ) {
+    const token = getBearerToken(
+      Option.getOrUndefined(Headers.get(headers, "x-sheet-ingress-auth")),
+    );
+    if (!token) {
+      return yield* Effect.fail(makeUnauthorized({ message: "Missing ingress authorization" }));
+    }
+
+    if (Option.isNone(introspectionClientId) || Option.isNone(introspectionClientSecret)) {
+      return yield* Effect.fail(
+        makeUnauthorized({ message: "OAuth introspection credentials are not configured" }),
+      );
+    }
+
+    const claims = yield* introspectOAuthAccessToken(
+      issuer,
+      introspectionClientId.value,
+      introspectionClientSecret.value,
+      Redacted.make(token),
+    ).pipe(
+      Effect.catch((error) =>
+        Effect.fail(
+          makeUnauthorized({
+            message: "OAuth introspection failed",
+            cause: error,
+          }),
+        ),
+      ),
+    );
+
+    if (claims.active !== true) {
+      return yield* Effect.fail(makeUnauthorized({ message: "OAuth ingress token is not active" }));
+    }
+
+    return claims;
+  });
 
 // =============================================================================
 // 3. Client Factory

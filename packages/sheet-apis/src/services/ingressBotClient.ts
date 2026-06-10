@@ -2,7 +2,7 @@ import { NodeFileSystem } from "@effect/platform-node";
 import { HttpClient, HttpClientRequest } from "effect/unstable/http";
 import { HttpApiClient } from "effect/unstable/httpapi";
 import { Cache, Context, Duration, Effect, Exit, Option, Layer, Redacted } from "effect";
-import { createOAuthClientCredentialsToken } from "sheet-auth/client";
+import { createOAuthClientCredentialsToken, toTokenCacheTTL } from "sheet-auth/client";
 import { SheetIngressDiscordApi } from "sheet-ingress-api/api";
 import { config } from "@/config";
 
@@ -13,12 +13,6 @@ type TokenCacheEntry = {
 
 // fallow-ignore-next-line code-duplication
 const sheetApiServiceAuthCacheKey = "sheet-apis-ingress-bot-service";
-
-const toTokenCacheTTL = (expiresIn: number | undefined) =>
-  // fallow-ignore-next-line code-duplication
-  expiresIn !== undefined && !Number.isNaN(expiresIn) && expiresIn > 0
-    ? Duration.max(Duration.seconds(Math.max(Math.floor(expiresIn) - 60, 15)), Duration.seconds(15))
-    : Duration.minutes(1);
 
 export class IngressBotClient extends Context.Service<IngressBotClient>()("IngressBotClient", {
   make: Effect.gen(function* () {
