@@ -410,8 +410,8 @@ export function createOAuthClientCredentialsToken(
     if (!response.ok) {
       const body = yield* Effect.tryPromise({
         try: () => response.text(),
-        catch: () => "",
-      }).pipe(Effect.catch(() => Effect.succeed("")));
+        catch: () => "" as never,
+      });
       return yield* Effect.fail(
         new OAuthClientCredentialsError({
           statusText: "CLIENT_CREDENTIALS_REQUEST_FAILED",
@@ -495,8 +495,8 @@ export function introspectOAuthAccessToken(
     if (!response.ok) {
       const body = yield* Effect.tryPromise({
         try: () => response.text(),
-        catch: () => "",
-      }).pipe(Effect.catch(() => Effect.succeed("")));
+        catch: () => "" as never,
+      });
       return yield* Effect.fail(
         new OAuthIntrospectionError({
           statusText: "OAUTH_INTROSPECTION_REQUEST_FAILED",

@@ -1,4 +1,4 @@
-import { NodeFileSystem, NodeHttpClient } from "@effect/platform-node";
+import { NodeHttpClient } from "@effect/platform-node";
 import { apiCacheViewsLayer, Unstorage } from "dfx-discord-utils/discord/cache";
 import { DiscordApiClient } from "dfx-discord-utils/discord";
 import { HttpClient, HttpClientRequest } from "effect/unstable/http";
@@ -16,7 +16,7 @@ const serviceAuthCacheKey = "sheet-apis-discord-service";
 
 const toTokenCacheTTL = (expiresIn: number | undefined) =>
   expiresIn !== undefined && !Number.isNaN(expiresIn) && expiresIn > 0
-    ? Duration.max(Duration.seconds(Math.max(Math.floor(expiresIn) - 60, 15)), Duration.seconds(15))
+    ? Duration.seconds(Math.max(Math.floor(expiresIn) - 60, 15))
     : Duration.minutes(1);
 
 const serviceUserAuthHttpClientLayer = Layer.effect(
@@ -71,7 +71,7 @@ const serviceUserAuthHttpClientLayer = Layer.effect(
       }),
     ) as unknown as HttpClient.HttpClient;
   }),
-).pipe(Layer.provide(NodeFileSystem.layer));
+);
 
 const discordApiClientLayer = Layer.unwrap(
   Effect.gen(function* () {

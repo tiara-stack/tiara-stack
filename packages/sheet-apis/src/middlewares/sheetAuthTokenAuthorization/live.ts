@@ -63,6 +63,15 @@ export const SheetAuthTokenAuthorizationLive = Layer.effect(
         introspectionClientId.value,
         introspectionClientSecret.value,
         Redacted.make(token),
+      ).pipe(
+        Effect.catch((error) =>
+          Effect.fail(
+            makeUnauthorized({
+              message: "OAuth introspection failed",
+              cause: error,
+            }),
+          ),
+        ),
       );
 
       if (claims.active !== true) {
@@ -77,14 +86,7 @@ export const SheetAuthTokenAuthorizationLive = Layer.effect(
     const middleware: SheetApisRpcAuthorizationMiddleware = Effect.fn("SheetApisRpcAuthorization")(
       function* (rpcEffect, options) {
         const headers = options.headers;
-        yield* requireAuthorizedHeaders(headers).pipe(
-          Effect.mapError((cause) =>
-            makeUnauthorized({
-              message: "Sheet auth token authorization failed",
-              cause,
-            }),
-          ),
-        );
+        yield* requireAuthorizedHeaders(headers);
 
         const user = yield* Effect.suspend(() =>
           decodeForwardedSheetAuthUser(headers, {

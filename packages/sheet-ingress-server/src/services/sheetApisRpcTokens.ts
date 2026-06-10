@@ -137,7 +137,7 @@ export class SheetApisRpcTokens extends Context.Service<SheetApisRpcTokens>()(
         tokenPath: string,
       ) {
         const entry = yield* Cache.get(serviceTokenCache, tokenPath);
-        return entry.token;
+        return Redacted.value(entry.token);
       });
 
       const getServiceUser = Effect.fn("SheetApisRpcTokens.getServiceUser")(function* () {
