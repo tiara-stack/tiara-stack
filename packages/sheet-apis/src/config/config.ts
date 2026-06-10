@@ -1,8 +1,8 @@
 import { Config, ConfigProvider, Effect, Option, Schema } from "effect";
 
 const readOAuthClientCredentials = (idEnv: string, secretEnv: string) => {
-  const id = Config.option(Config.schema(Schema.String, idEnv));
-  const secret = Config.option(Config.schema(Schema.Redacted(Schema.String), secretEnv));
+  const id = Config.option(Config.schema(Schema.NonEmptyString, idEnv));
+  const secret = Config.option(Config.schema(Schema.Redacted(Schema.NonEmptyString), secretEnv));
 
   return Config.all({ id, secret }).pipe(
     Config.mapOrFail(({ id, secret }) => {
