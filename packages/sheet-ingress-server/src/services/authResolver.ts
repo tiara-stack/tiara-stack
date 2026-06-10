@@ -165,18 +165,21 @@ const parseOAuthIntrospectionClaims = Effect.fn("parseOAuthIntrospectionClaims")
     accountId: `oauth-client:${resolvedClientId}`,
     clientId: resolvedClientId,
     trustedClient: toBoolean(claims.trusted_client ?? claims.trustedServiceClient),
+    allowedScopes: (() => {
+      const scopes = toStringArray(claims.allowed_scopes ?? claims.allowedScopes);
+      return scopes.length > 0 ? HashSet.fromIterable(scopes) : undefined;
+    })(),
     allowedServices: (() => {
       const services = toStringArray(claims.allowed_services ?? claims.allowedServices);
       return services.length > 0 ? HashSet.fromIterable(services) : undefined;
     })(),
-    allowedScopes: (() => {
-      const scopes = toStringArray(claims.allowed_scopes ?? claims.allowedScopes ?? claims.scope);
-      return scopes.length > 0 ? HashSet.fromIterable(scopes) : undefined;
-    })(),
     permissions: permissionSetFromIterable(
-      toStringArray(claims.scope).filter(
-        (scope): scope is Permission => scope === "service" || scope === "app_owner",
-      ),
+      [
+        ...new Set([
+          ...toStringArray(claims.scope),
+          ...toStringArray(claims.allowed_scopes ?? claims.allowedScopes),
+        ]),
+      ].filter((scope): scope is Permission => scope === "service" || scope === "app_owner"),
     ),
   } satisfies CachedAuthorization;
 });
