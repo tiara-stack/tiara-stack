@@ -2,6 +2,11 @@ import { Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
 import { Workflow, WorkflowProxy } from "effect/unstable/workflow";
 import { UnknownError } from "typhoon-core/error";
+import {
+  annotateRpcScopePolicy,
+  SheetRpcScopePolicies,
+  SheetRpcScopePolicyAnnotation,
+} from "./middlewares/rpcScopePolicy";
 import { SheetApisRpcAuthorization } from "./middlewares/sheetApisRpcAuthorization/tag";
 import { MessageRoomOrder } from "./schemas/messageRoomOrder";
 import {
@@ -407,15 +412,22 @@ export const DispatchWorkflows = [
   DispatchScreenshotWorkflow,
 ] as const;
 
+const dispatchWorkflowScopePolicy = SheetRpcScopePolicies.oauth("workflow.dispatch");
+
 const makeDispatchWorkflowRpcs = (workflows: typeof DispatchWorkflows) =>
-  WorkflowProxy.toRpcGroup(workflows).add(
-    ...workflows.map((workflow) =>
-      Rpc.make(`${workflow.name}Discard`, {
-        payload: workflow.payloadSchema,
-        success: DispatchWorkflowExecutionId,
-      }).annotateMerge(workflow.annotations),
-    ),
-  );
+  WorkflowProxy.toRpcGroup(workflows)
+    .annotateRpcs(SheetRpcScopePolicyAnnotation, dispatchWorkflowScopePolicy)
+    .add(
+      ...workflows.map((workflow) =>
+        annotateRpcScopePolicy(
+          Rpc.make(`${workflow.name}Discard`, {
+            payload: workflow.payloadSchema,
+            success: DispatchWorkflowExecutionId,
+          }).annotateMerge(workflow.annotations),
+          dispatchWorkflowScopePolicy,
+        ),
+      ),
+    );
 
 export const DispatchWorkflowRpcs =
   makeDispatchWorkflowRpcs(DispatchWorkflows).middleware(SheetApisRpcAuthorization);

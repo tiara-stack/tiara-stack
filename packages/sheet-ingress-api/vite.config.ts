@@ -39,6 +39,7 @@ export default defineConfig({
     entry: {
       "api-groups": fileURLToPath(new URL("./src/api-groups.ts", import.meta.url)),
       api: fileURLToPath(new URL("./src/api.ts", import.meta.url)),
+      "auth/scopePolicy": fileURLToPath(new URL("./src/auth/scopePolicy.ts", import.meta.url)),
       discordComponents: fileURLToPath(new URL("./src/discordComponents.ts", import.meta.url)),
       "handlers/health/schema": fileURLToPath(
         new URL("./src/handlers/health/schema.ts", import.meta.url),
@@ -49,6 +50,10 @@ export default defineConfig({
       ),
       "middlewares/forwardedAuthHeaders": fileURLToPath(
         new URL("./src/middlewares/forwardedAuthHeaders.ts", import.meta.url),
+      ),
+      "middlewares/rpcTag": fileURLToPath(new URL("./src/middlewares/rpcTag.ts", import.meta.url)),
+      "middlewares/rpcScopePolicy": fileURLToPath(
+        new URL("./src/middlewares/rpcScopePolicy.ts", import.meta.url),
       ),
       "middlewares/sheetApisRpcAuthorization/tag": fileURLToPath(
         new URL("./src/middlewares/sheetApisRpcAuthorization/tag.ts", import.meta.url),

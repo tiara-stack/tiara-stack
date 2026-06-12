@@ -6,11 +6,12 @@ import {
   DiscordMessageSchema,
   type DiscordMessageRequestSchema,
 } from "dfx-discord-utils/discord/schema";
+import { Unauthorized } from "typhoon-core/error";
 import { config } from "@/config";
 import { getIngressRpcHeaders } from "./rpcAuthorizationClient";
 import { SheetApisRpcTokens } from "./sheetApisRpcTokens";
 
-const sheetBotTokenPath = "/var/run/secrets/tokens/sheet-bot-token";
+const sheetBotResource = "sheet-bot";
 
 class MissingInteractionTokenError extends Data.TaggedError("MissingInteractionTokenError")<{
   readonly message: string;
@@ -24,9 +25,16 @@ export class SheetBotHttpClient extends Context.Service<SheetBotHttpClient>()(
       const baseHttpClient = yield* HttpClient.HttpClient;
       const tokens = yield* SheetApisRpcTokens;
       const httpClient = HttpClient.mapRequestEffect(baseHttpClient, (request) =>
-        getIngressRpcHeaders({ serviceTokenPath: sheetBotTokenPath }).pipe(
+        getIngressRpcHeaders({ serviceTokenResource: sheetBotResource }).pipe(
           Effect.provideService(SheetApisRpcTokens, tokens),
           Effect.map((headers) => HttpClientRequest.setHeaders(request, headers)),
+          Effect.mapError(
+            (error) =>
+              new Unauthorized({
+                message: "Failed to create ingress forwarding OAuth token",
+                cause: error,
+              }),
+          ),
         ),
       );
 

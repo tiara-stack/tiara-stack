@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { config } from "@/config";
 import { Interaction } from "dfx-discord-utils";
 import { DiscordInteraction } from "dfx/Interactions/context";
@@ -9,20 +10,19 @@ import {
   Duration,
   Effect,
   Exit,
-  FileSystem,
-  Ref,
   Match,
-  pipe,
-  Schedule,
   Schema,
-  DateTime,
   Layer,
   Option,
   Redacted,
   Context,
 } from "effect";
-import { createKubernetesOAuthSession } from "sheet-auth/client";
-import { DISCORD_SERVICE_USER_ID_SENTINEL } from "sheet-auth/plugins/kubernetes-oauth";
+import {
+  createOAuthClientCredentialsToken,
+  createOAuthSubjectToken,
+  exchangeOAuthToken,
+} from "sheet-auth/client";
+import { DISCORD_SERVICE_USER_ID_SENTINEL } from "sheet-auth/oauth";
 import { ServicesStatusResponse } from "sheet-ingress-api/sheet-apis-rpc";
 import { SheetWorkflowsApi } from "sheet-ingress-api/sheet-workflows";
 import { SheetAuthClient } from "./sheetAuthClient";
@@ -42,6 +42,19 @@ type TokenCacheEntry = {
   timeToLive: Duration.Duration;
   failed: boolean;
 };
+
+const accessTokenType = "urn:ietf:params:oauth:token-type:access_token";
+
+const readKubernetesServiceAccountToken = (path: string) =>
+  Effect.tryPromise({
+    try: async () => Redacted.make((await readFile(path, "utf8")).trim()),
+    catch: (error) =>
+      new Error(
+        `Failed to read Kubernetes service account token: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      ),
+  });
 
 const sheetWorkflowsRequestContextTag = Context.Reference<SheetWorkflowsRequestContextType>(
   "SheetWorkflowsRequestContext",
@@ -96,42 +109,106 @@ export class SheetWorkflowsClient extends Context.Service<SheetWorkflowsClient>(
   "SheetWorkflowsClient",
   {
     make: Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
       const sheetAuthClient = yield* SheetAuthClient;
       const httpClient = yield* HttpClient.HttpClient;
-      const k8sTokenRef = yield* Ref.make("");
       const baseUrl = yield* config.sheetIngressBaseUrl;
+      const sheetAuthIssuer = yield* config.sheetAuthIssuer;
+      const oauthClientId = yield* config.sheetAuthOAuthClientId;
+      const oauthClientSecret = yield* config.sheetAuthOAuthClientSecret;
+      const subjectTokenKubernetesTokenPath =
+        yield* config.sheetAuthSubjectTokenKubernetesTokenPath;
 
-      yield* pipe(
-        fs.readFileString("/var/run/secrets/tokens/sheet-auth-token", "utf-8"),
-        Effect.map((token) => token.trim()),
-        Effect.flatMap((token) => Ref.set(k8sTokenRef, token)),
-        Effect.retry({ schedule: Schedule.exponential("1 second"), times: 3 }),
-        Effect.catch(() => Effect.void),
-        Effect.repeat(Schedule.spaced("5 minutes")),
-        Effect.forkScoped,
+      const createDiscordUserToken = Effect.fn("SheetWorkflowsClient.createDiscordUserToken")(
+        function* (
+          token: {
+            readonly accessToken: Redacted.Redacted<string>;
+          },
+          discordUserId: string,
+        ) {
+          const kubernetesServiceAccountToken = yield* readKubernetesServiceAccountToken(
+            subjectTokenKubernetesTokenPath,
+          );
+          const subjectToken = yield* createOAuthSubjectToken(sheetAuthClient, {
+            subject: `discord:${discordUserId}`,
+            audience: sheetAuthIssuer,
+            expiresIn: 60,
+            kubernetesServiceAccountToken,
+          });
+
+          return yield* exchangeOAuthToken(sheetAuthClient, {
+            subjectToken: subjectToken.subjectToken,
+            subjectTokenType: subjectToken.subjectTokenType,
+            actorToken: token.accessToken,
+            actorTokenType: accessTokenType,
+            requestedTokenType: accessTokenType,
+            audience: "sheet-ingress",
+            scope: ["workflow.dispatch"],
+          }).pipe(
+            Effect.map((exchangedToken) => ({
+              token: exchangedToken.accessToken,
+              expiresAt: exchangedToken.expiresAt,
+            })),
+          );
+        },
       );
 
       const tokenCache = yield* Cache.makeWith<string, TokenCacheEntry>(
         Effect.fn("SheetWorkflowsClient.lookup")(function* (discordUserId: string) {
-          const k8sToken = yield* Ref.get(k8sTokenRef);
-          const session = yield* createKubernetesOAuthSession(
-            sheetAuthClient,
-            discordUserId,
-            k8sToken,
-          ).pipe(Effect.catch(() => Effect.succeed(undefined)));
-          const now = yield* DateTime.now;
-          const timeToLive = session?.session?.expiresAt
-            ? pipe(
-                DateTime.distance(now, session.session.expiresAt),
-                Duration.subtract(Duration.seconds(60)),
-              )
-            : Duration.minutes(1);
+          let oauthSession:
+            | {
+                token: Redacted.Redacted<string> | undefined;
+                expiresAt: number | undefined;
+              }
+            | undefined;
+
+          oauthSession = yield* createOAuthClientCredentialsToken(sheetAuthClient, {
+            clientId: oauthClientId,
+            clientSecret: oauthClientSecret,
+            scope:
+              discordUserId === DISCORD_SERVICE_USER_ID_SENTINEL
+                ? ["service", "workflow.dispatch"]
+                : ["token.exchange", "workflow.dispatch"],
+            resource: "sheet-ingress",
+          }).pipe(
+            Effect.flatMap((token) =>
+              discordUserId === DISCORD_SERVICE_USER_ID_SENTINEL
+                ? Effect.succeed({
+                    token: token.accessToken,
+                    expiresAt: token.expiresAt,
+                  })
+                : createDiscordUserToken(token, discordUserId),
+            ),
+            Effect.tap(() =>
+              Effect.logDebug("Using OAuth token for sheet-workflows request", { discordUserId }),
+            ),
+            Effect.matchEffect({
+              onSuccess: (session) => Effect.succeed(session),
+              onFailure: (error) =>
+                Effect.logError("Failed to create OAuth token for sheet-workflows request", {
+                  error,
+                  discordUserId,
+                }).pipe(Effect.as(undefined)),
+            }),
+          );
+
+          if (oauthSession?.token) {
+            const millisUntilExpiration = oauthSession.expiresAt
+              ? oauthSession.expiresAt * 1000 - Date.now() - 60_000
+              : Duration.toMillis(Duration.minutes(5));
+            return {
+              token: oauthSession.token,
+              timeToLive: Duration.max(
+                Duration.millis(millisUntilExpiration),
+                Duration.seconds(15),
+              ),
+              failed: false,
+            };
+          }
 
           return {
-            token: session?.token,
-            timeToLive,
-            failed: session === undefined,
+            token: undefined,
+            timeToLive: Duration.minutes(1),
+            failed: true,
           };
         }),
         {
@@ -154,22 +231,7 @@ export class SheetWorkflowsClient extends Context.Service<SheetWorkflowsClient>(
         );
         return yield* Match.value(requester).pipe(
           Match.tagsExhaustive({
-            Service: () =>
-              pipe(
-                Cache.get(tokenCache, cacheKey),
-                Effect.catch((err) =>
-                  pipe(
-                    Effect.logWarning(
-                      `Failed to get service auth token, proceeding unauthenticated: ${String(err)}`,
-                    ),
-                    Effect.as({
-                      token: undefined,
-                      timeToLive: Duration.minutes(1),
-                      failed: true,
-                    }),
-                  ),
-                ),
-              ),
+            Service: () => Cache.get(tokenCache, cacheKey),
             DiscordUser: () => Cache.get(tokenCache, cacheKey),
           }),
         );

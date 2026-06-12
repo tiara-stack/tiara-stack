@@ -1,8 +1,6 @@
-diff --git a/package.json b/package.json
-index 8f7a439bf526d3c1af34a2b238fc1258ca4c3181..034ee1da2a03c2d9e7dbc639feeebe811395a3e5 100644
 --- a/package.json
 +++ b/package.json
-@@ -509,7 +509,6 @@
+@@ -542,7 +542,6 @@
      "react-dom": "^18.0.0 || ^19.0.0",
      "solid-js": "^1.0.0",
      "svelte": "^4.0.0 || ^5.0.0",
@@ -10,7 +8,7 @@ index 8f7a439bf526d3c1af34a2b238fc1258ca4c3181..034ee1da2a03c2d9e7dbc639feeebe81
      "vue": "^3.0.0"
    },
    "peerDependenciesMeta": {
-@@ -566,9 +565,6 @@
+@@ -599,9 +598,6 @@
      },
      "better-sqlite3": {
        "optional": true

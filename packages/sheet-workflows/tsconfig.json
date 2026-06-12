@@ -18,11 +18,9 @@
     "paths": {
       "dfx-discord-utils/discord/schema": ["../dfx-discord-utils/src/discord/schema/index.ts"],
       "sheet-auth/client": ["../sheet-auth/src/client.ts"],
-      "sheet-auth/plugins/kubernetes-oauth": [
-        "../sheet-auth/src/plugins/kubernetes-oauth/index.ts"
-      ],
-      "sheet-auth/plugins/kubernetes-oauth/rpc-authorization": [
-        "../sheet-auth/src/plugins/kubernetes-oauth/rpc-authorization.ts"
+      "sheet-auth/oauth": ["../sheet-auth/src/oauth.ts"],
+      "sheet-auth/oauth-resource-authorization": [
+        "../sheet-auth/src/oauth-resource-authorization.ts"
       ],
       "sheet-ingress-api/*": ["../sheet-ingress-api/src/*"],
       "*": ["./*"],

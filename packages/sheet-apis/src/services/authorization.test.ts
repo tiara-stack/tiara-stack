@@ -34,6 +34,7 @@ const makeUser = (
   accountId: identity.accountId,
   userId: identity.userId,
   permissions: permissionSetFromIterable(permissions),
+  scopes: new Set() as never,
   token: Redacted.make("token"),
 });
 

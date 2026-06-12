@@ -165,16 +165,23 @@ imagePullSecrets:
       secretKey: discordClientId
     - name: DISCORD_CLIENT_SECRET
       secretKey: discordClientSecret
-    - name: KUBERNETES_AUDIENCE
-      secretKey: kubernetesAudience
-      optional: true
     - name: REDIS_URL
       secretKey: redisUrl
     - name: REDIS_BASE
       value: "auth:"
     - name: TRUSTED_ORIGINS
       secretKey: trustedOrigins
+    - name: TRUSTED_OAUTH_CLIENT_IDS
+      secretKey: trustedOAuthClientIds
+    - name: SHEET_AUTH_TOKEN_EXCHANGE_SUBJECT_JWT_SECRET
+      secretKey: tokenExchangeSubjectJwtSecret
+    - name: SHEET_AUTH_SUBJECT_TOKEN_KUBERNETES_AUDIENCE
+      value: sheet-auth-subject-token
+    - name: SHEET_AUTH_SUBJECT_TOKEN_KUBERNETES_ALLOWED_SERVICE_ACCOUNTS
+      value: "{{ .Release.Namespace }}/sheet-bot"
     - name: SERVICE_ACCOUNT_JWKS_AUTH_TOKEN_PATH
+      value: /var/run/secrets/tokens/kubernetes-jwks-token
+    - name: SHEET_AUTH_SUBJECT_TOKEN_KUBERNETES_REVIEWER_TOKEN_PATH
       value: /var/run/secrets/tokens/kubernetes-jwks-token
   projectedTokens:
     - path: kubernetes-jwks-token
@@ -221,7 +228,11 @@ imagePullSecrets:
       secretKey: redisUrl
     - name: SHEET_AUTH_ISSUER
       secretKey: sheetAuthIssuer
-    - name: SHEET_INGRESS_KUBERNETES_AUDIENCE
+    - name: SHEET_AUTH_OAUTH_CLIENT_ID
+      secretKey: sheetApisServiceClientId
+    - name: SHEET_AUTH_OAUTH_CLIENT_SECRET
+      secretKey: sheetApisServiceClientSecret
+    - name: SHEET_AUTH_OAUTH_AUDIENCE
       value: sheet-apis
     - name: SHEET_INGRESS_BASE_URL
       secretKey: sheetIngressBaseUrl
@@ -231,8 +242,6 @@ imagePullSecrets:
     - path: kubernetes-jwks-token
     - path: zero-cache-token
       audience: zero-cache
-    - path: sheet-auth-token
-      audience: sheet-auth
   googleServiceAccount: true
   networkPolicyFrom:
     - app: sheet-ingress-server
@@ -269,14 +278,20 @@ imagePullSecrets:
       secretKey: sheetIngressBaseUrl
     - name: SHEET_AUTH_ISSUER
       secretKey: sheetAuthIssuer
-    - name: SHEET_INGRESS_KUBERNETES_AUDIENCE
+    - name: SHEET_AUTH_OAUTH_CLIENT_ID
+      secretKey: sheetBotServiceClientId
+    - name: SHEET_AUTH_OAUTH_CLIENT_SECRET
+      secretKey: sheetBotServiceClientSecret
+    - name: SHEET_AUTH_OAUTH_AUDIENCE
       value: sheet-bot
+    - name: SHEET_AUTH_SUBJECT_TOKEN_KUBERNETES_TOKEN_PATH
+      value: /var/run/secrets/tokens/sheet-auth-subject-token
     - name: SERVICE_ACCOUNT_JWKS_AUTH_TOKEN_PATH
       value: /var/run/secrets/tokens/kubernetes-jwks-token
   projectedTokens:
     - path: kubernetes-jwks-token
-    - path: sheet-auth-token
-      audience: sheet-auth
+    - path: sheet-auth-subject-token
+      audience: sheet-auth-subject-token
   networkPolicyFrom:
     - app: sheet-ingress-server
       port: sheet-bot-svc
@@ -323,7 +338,11 @@ imagePullSecrets:
       value: "34431"
     - name: SHEET_AUTH_ISSUER
       secretKey: sheetAuthIssuer
-    - name: SHEET_INGRESS_KUBERNETES_AUDIENCE
+    - name: SHEET_AUTH_OAUTH_CLIENT_ID
+      secretKey: sheetWorkflowsServiceClientId
+    - name: SHEET_AUTH_OAUTH_CLIENT_SECRET
+      secretKey: sheetWorkflowsServiceClientSecret
+    - name: SHEET_AUTH_OAUTH_AUDIENCE
       value: sheet-workflows
     - name: SHEET_INGRESS_BASE_URL
       secretKey: sheetIngressBaseUrl
@@ -331,8 +350,6 @@ imagePullSecrets:
       value: /var/run/secrets/tokens/kubernetes-jwks-token
   projectedTokens:
     - path: kubernetes-jwks-token
-    - path: sheet-auth-token
-      audience: sheet-auth
   networkPolicyFrom:
     - app: sheet-ingress-server
       port: workflows-svc
@@ -394,17 +411,12 @@ imagePullSecrets:
       secretKey: sheetBotBaseUrl
     - name: SHEET_AUTH_ISSUER
       secretKey: sheetAuthIssuer
+    - name: SHEET_AUTH_OAUTH_CLIENT_ID
+      secretKey: sheetIngressServiceClientId
+    - name: SHEET_AUTH_OAUTH_CLIENT_SECRET
+      secretKey: sheetIngressServiceClientSecret
     - name: TRUSTED_ORIGINS
       secretKey: trustedOrigins
-  projectedTokens:
-    - path: sheet-auth-token
-      audience: sheet-auth
-    - path: sheet-apis-token
-      audience: sheet-apis
-    - path: sheet-workflows-token
-      audience: sheet-workflows
-    - path: sheet-bot-token
-      audience: sheet-bot
   networkPolicyFrom:
     - app: sheet-apis
       port: ingress-svc
@@ -438,4 +450,13 @@ imagePullSecrets:
       secretKey: appBaseUrl
     - name: SHEET_APIS_BASE_URL
       secretKey: sheetApisBaseUrl
+    - name: SHEET_WEB_OAUTH_CLIENT_ID
+      secretKey: sheetWebOauthClientId
+      optional: true
+    - name: SHEET_WEB_OAUTH_REDIRECT_PATH
+      secretKey: sheetWebOauthRedirectPath
+      optional: true
+    - name: SHEET_WEB_OAUTH_SCOPES
+      secretKey: sheetWebOauthScopes
+      optional: true
 {{- end -}}

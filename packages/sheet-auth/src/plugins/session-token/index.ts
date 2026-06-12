@@ -1,5 +1,5 @@
 import type { BetterAuthPlugin } from "better-auth";
-import { createAuthMiddleware } from "better-auth/plugins";
+import { createAuthMiddleware } from "better-auth/api";
 
 type SessionTokenPlugin = BetterAuthPlugin & {
   id: "session-token";

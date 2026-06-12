@@ -1,5 +1,5 @@
 import { Cache, Context, Duration, Effect, Exit, Layer, Redacted } from "effect";
-import { getDiscordAccessToken } from "sheet-auth/client";
+import { getDiscordAccessToken, getDiscordAccessTokenWithOAuth } from "sheet-auth/client";
 import { SHEET_AUTH_SESSION_TOKEN_UNAVAILABLE } from "sheet-ingress-api/middlewares/forwardedAuthHeaders";
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
 import { makeArgumentError } from "typhoon-core/error";
@@ -16,10 +16,15 @@ export class DiscordAccessTokenService extends Context.Service<DiscordAccessToke
     make: Effect.gen(function* () {
       const sheetAuthClient = yield* SheetAuthClient;
       const accessTokenCache = yield* Cache.makeWith(
-        (sessionToken: Redacted.Redacted<string>) =>
-          getDiscordAccessToken(sheetAuthClient, {
-            Authorization: `Bearer ${Redacted.value(sessionToken)}`,
+        (token: Redacted.Redacted<string>) =>
+          getDiscordAccessTokenWithOAuth(sheetAuthClient, {
+            Authorization: `Bearer ${Redacted.value(token)}`,
           }).pipe(
+            Effect.catch(() =>
+              getDiscordAccessToken(sheetAuthClient, {
+                Authorization: `Bearer ${Redacted.value(token)}`,
+              }),
+            ),
             Effect.map(({ accessToken }) => accessToken),
             Effect.mapError((error) =>
               makeArgumentError("Failed to get Discord access token", error),

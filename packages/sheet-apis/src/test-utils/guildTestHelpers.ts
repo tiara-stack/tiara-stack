@@ -3,6 +3,7 @@ import { RolesApiCacheView } from "dfx-discord-utils/discord/cache/roles";
 import { CacheNotFoundError } from "dfx-discord-utils/discord/schema";
 import { Effect, HashSet, Redacted } from "effect";
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
+import type { SheetAuthOAuthScope } from "sheet-ingress-api/schemas/permissions";
 import { GuildConfigService } from "@/services";
 
 export type TestPermission =
@@ -20,6 +21,7 @@ export const makeUser = (
   accountId: identity.accountId,
   userId: identity.userId,
   permissions: HashSet.fromIterable(permissions),
+  scopes: new Set<SheetAuthOAuthScope>(),
   token: Redacted.make("token"),
 });
 

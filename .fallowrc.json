@@ -63,5 +63,8 @@
       "file": "packages/typhoon-zero/src/zeroApi/zeroApiGroup.ts",
       "exports": ["Any", "make"]
     }
-  ]
+  ],
+  "audit": {
+    "dupesBaseline": ".fallow/dupes-baseline.json"
+  }
 }

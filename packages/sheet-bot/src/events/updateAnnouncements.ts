@@ -27,6 +27,14 @@ export const updateAnnouncements = [
       "This server can now receive occasional bot update announcements here. Announcements are sent once per server and only for updates published after the bot joined.",
     color: 0x5865f2,
   },
+  {
+    id: "auth-update-2026-06-12",
+    publishedAt: "2026-06-12T02:30:00.000Z",
+    title: "Sign-in and access update",
+    description:
+      "Hi! Tiara has an update to sign-in and service access. You can keep signing in with Discord like before, and developers can now create and manage OAuth clients from the dashboard for their own Sheet integrations. The dashboard and bot also use the same OAuth-based access behind the scenes now, which should make access more reliable and easier to build on. If anything feels off, signing out and back in should refresh your access.",
+    color: 0x57f287,
+  },
 ] as const satisfies ReadonlyArray<UpdateAnnouncement>;
 
 export const makeUpdateAnnouncementDispatchPayloads = (

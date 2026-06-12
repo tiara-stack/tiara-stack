@@ -1,5 +1,5 @@
 import { createFileRoute, Link, Outlet, useLocation } from "@tanstack/react-router";
-import { Calendar, Users, ChevronRight } from "lucide-react";
+import { Calendar, Users, ChevronRight, KeyRound, type LucideIcon } from "lucide-react";
 
 // Route loader that fetches session on load using Atom Registry
 export const Route = createFileRoute("/_authenticated/dashboard")({
@@ -8,7 +8,7 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
 
 function DashboardLayout() {
   const { pathname } = useLocation();
-  const activeTab = pathname.includes("/guilds") ? "guilds" : "shifts";
+  const activeTab = getActiveTab(pathname);
 
   return (
     <div className="min-h-screen text-white pt-32 pb-12 px-8">
@@ -31,56 +31,66 @@ function DashboardLayout() {
 
         {/* Tab Navigation - Brutalist Style */}
         <div className="flex flex-col sm:flex-row gap-px bg-[#33ccbb]/20 mb-8">
-          <Link
-            to="/dashboard/shifts"
-            className={`flex-1 flex items-center justify-between px-6 py-4 font-black text-sm tracking-wide transition-all duration-200 group ${
-              activeTab === "shifts"
-                ? "bg-[#33ccbb] text-[#0a0f0e]"
-                : "bg-[#0f1615] text-white hover:bg-[#33ccbb]/10"
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <Calendar
-                className={`w-4 h-4 ${
-                  activeTab === "shifts" ? "text-[#0a0f0e]" : "text-[#33ccbb]"
-                }`}
-              />
-              <span>MY SHIFTS</span>
-            </div>
-            <ChevronRight
-              className={`w-4 h-4 transition-transform ${
-                activeTab === "shifts" ? "rotate-90" : "group-hover:translate-x-1"
-              }`}
-            />
-          </Link>
-
-          <Link
-            to="/dashboard/guilds"
-            className={`flex-1 flex items-center justify-between px-6 py-4 font-black text-sm tracking-wide transition-all duration-200 group ${
-              activeTab === "guilds"
-                ? "bg-[#33ccbb] text-[#0a0f0e]"
-                : "bg-[#0f1615] text-white hover:bg-[#33ccbb]/10"
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <Users
-                className={`w-4 h-4 ${
-                  activeTab === "guilds" ? "text-[#0a0f0e]" : "text-[#33ccbb]"
-                }`}
-              />
-              <span>GUILDS</span>
-            </div>
-            <ChevronRight
-              className={`w-4 h-4 transition-transform ${
-                activeTab === "guilds" ? "rotate-90" : "group-hover:translate-x-1"
-              }`}
-            />
-          </Link>
+          {tabs.map((tab) => (
+            <DashboardTab key={tab.id} active={activeTab === tab.id} tab={tab} />
+          ))}
         </div>
 
         {/* Page Content */}
         <Outlet />
       </div>
     </div>
+  );
+}
+
+type DashboardTabId = "shifts" | "guilds" | "developer";
+
+type DashboardTabConfig = {
+  id: DashboardTabId;
+  icon: LucideIcon;
+  label: string;
+  to: "/dashboard/shifts" | "/dashboard/guilds" | "/dashboard/developer/oauth-clients";
+};
+
+const tabs: readonly DashboardTabConfig[] = [
+  { id: "shifts", icon: Calendar, label: "MY SHIFTS", to: "/dashboard/shifts" },
+  { id: "guilds", icon: Users, label: "GUILDS", to: "/dashboard/guilds" },
+  {
+    id: "developer",
+    icon: KeyRound,
+    label: "DEVELOPER",
+    to: "/dashboard/developer/oauth-clients",
+  },
+];
+
+const getActiveTab = (pathname: string): DashboardTabId => {
+  if (pathname.includes("/developer")) {
+    return "developer";
+  }
+  if (pathname.includes("/guilds")) {
+    return "guilds";
+  }
+  return "shifts";
+};
+
+function DashboardTab({ active, tab }: { active: boolean; tab: DashboardTabConfig }) {
+  const Icon = tab.icon;
+  const tabClassName = active
+    ? "bg-[#33ccbb] text-[#0a0f0e]"
+    : "bg-[#0f1615] text-white hover:bg-[#33ccbb]/10";
+  const iconClassName = active ? "text-[#0a0f0e]" : "text-[#33ccbb]";
+  const chevronClassName = active ? "rotate-90" : "group-hover:translate-x-1";
+
+  return (
+    <Link
+      to={tab.to}
+      className={`flex-1 flex items-center justify-between px-6 py-4 font-black text-sm tracking-wide transition-all duration-200 group ${tabClassName}`}
+    >
+      <div className="flex items-center gap-3">
+        <Icon className={`w-4 h-4 ${iconClassName}`} />
+        <span>{tab.label}</span>
+      </div>
+      <ChevronRight className={`w-4 h-4 transition-transform ${chevronClassName}`} />
+    </Link>
   );
 }

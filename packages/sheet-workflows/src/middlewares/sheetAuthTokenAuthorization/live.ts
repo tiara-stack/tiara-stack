@@ -1,5 +1,6 @@
 import { Effect, Layer, Redacted } from "effect";
-import { makeKubernetesServiceAccountTokenAuthorizer } from "sheet-auth/plugins/kubernetes-oauth/rpc-authorization";
+import { makeOAuthResourceTokenAuthorizer } from "sheet-auth/oauth-resource-authorization";
+import { requireWorkflowScopePolicy } from "sheet-ingress-api/auth/scopePolicy";
 import { decodeForwardedSheetAuthUser } from "sheet-ingress-api/middlewares/forwardedAuthHeaders";
 import { SheetApisRpcAuthorization } from "sheet-ingress-api/middlewares/sheetApisRpcAuthorization/tag";
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
@@ -14,24 +15,28 @@ type SheetApisRpcAuthorizationMiddleware = Parameters<typeof SheetApisRpcAuthori
 export const SheetAuthTokenAuthorizationLive = Layer.effect(
   SheetApisRpcAuthorization,
   Effect.gen(function* () {
-    const podNamespace = yield* config.podNamespace;
-    const audience = yield* config.sheetIngressKubernetesAudience;
-    const authorizer = yield* makeKubernetesServiceAccountTokenAuthorizer({
+    const audience = yield* config.sheetAuthOAuthAudience;
+    const sheetAuthIssuer = yield* config.sheetAuthIssuer;
+    const oauthAuthorizer = yield* makeOAuthResourceTokenAuthorizer({
+      issuer: sheetAuthIssuer,
       audience,
-      expectedNamespace: podNamespace,
-      expectedServiceAccountName: "sheet-ingress-server",
+      requiredScopes: ["ingress.forward"],
     });
 
     const middleware: SheetApisRpcAuthorizationMiddleware = Effect.fn("SheetApisRpcAuthorization")(
       function* (rpcEffect, options) {
         const headers = options.headers;
-        yield* authorizer.requireAuthorizedHeaders(headers);
+        yield* oauthAuthorizer.requireAuthorizedHeaders(headers);
 
         const user = yield* Effect.suspend(() =>
           decodeForwardedSheetAuthUser(headers, {
             unavailableToken: forwardedSessionTokenUnavailable,
           }),
         );
+        yield* requireWorkflowScopePolicy(options.rpc, user, {
+          missingRpcTagMessage: "Missing workflow RPC tag",
+          fallbackLogMessage: "Using fallback workflow RPC tag source",
+        });
         const provided = rpcEffect.pipe(Effect.provideService(SheetAuthUser, user));
 
         return yield* provided;

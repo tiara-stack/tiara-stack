@@ -13,7 +13,7 @@ import { SheetApisRpcTokens } from "./sheetApisRpcTokens";
 
 const makeSheetApisRpcTokens = () =>
   ({
-    getServiceToken: (tokenPath: string) => Effect.succeed(`${tokenPath}-token`),
+    getServiceToken: (resource: string) => Effect.succeed(`${resource}-token`),
   }) as never;
 
 const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
@@ -24,6 +24,7 @@ const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
         accountId: "discord-user-1",
         userId: "user-1",
         permissions: HashSet.empty(),
+        scopes: new Set() as never,
         token: Redacted.make("sheet-auth-session-token"),
       }),
     ) as Effect.Effect<A, E, never>,
@@ -31,10 +32,10 @@ const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
 
 describe("SheetWorkflowsForwardingClient", () => {
   it("builds sheet-workflows ingress headers with sheet-auth session token but no Discord access token", async () => {
-    const headers = await run(getIngressRpcHeaders({ serviceTokenPath: "sheet-workflows-token" }));
+    const headers = await run(getIngressRpcHeaders({ serviceTokenResource: "sheet-workflows" }));
 
     expect(Option.getOrUndefined(Headers.get(headers, "x-sheet-ingress-auth"))).toBe(
-      "Bearer sheet-workflows-token-token",
+      "Bearer sheet-workflows-token",
     );
     expect(Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-user-id"))).toBe("user-1");
     expect(Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-account-id"))).toBe(
@@ -43,20 +44,26 @@ describe("SheetWorkflowsForwardingClient", () => {
     expect(Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-session-token"))).toBe(
       "Bearer sheet-auth-session-token",
     );
+    expect(Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-token"))).toBe(
+      "Bearer sheet-auth-session-token",
+    );
     expect(Option.isNone(Headers.get(headers, "x-sheet-discord-access-token"))).toBe(true);
   });
 
   it("builds sheet-bot ingress headers with the sheet-bot service token and shared auth context", async () => {
-    const headers = await run(getIngressRpcHeaders({ serviceTokenPath: "sheet-bot-token" }));
+    const headers = await run(getIngressRpcHeaders({ serviceTokenResource: "sheet-bot" }));
 
     expect(Option.getOrUndefined(Headers.get(headers, "x-sheet-ingress-auth"))).toBe(
-      "Bearer sheet-bot-token-token",
+      "Bearer sheet-bot-token",
     );
     expect(Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-user-id"))).toBe("user-1");
     expect(Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-account-id"))).toBe(
       "discord-user-1",
     );
     expect(Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-session-token"))).toBe(
+      "Bearer sheet-auth-session-token",
+    );
+    expect(Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-token"))).toBe(
       "Bearer sheet-auth-session-token",
     );
   });

@@ -9,14 +9,12 @@ export default defineConfig({
         client: fileURLToPath(new URL("./src/client.ts", import.meta.url)),
         model: fileURLToPath(new URL("./src/model/index.ts", import.meta.url)),
         schema: fileURLToPath(new URL("./src/schema.ts", import.meta.url)),
-        "plugins/kubernetes-oauth/index": fileURLToPath(
-          new URL("./src/plugins/kubernetes-oauth/index.ts", import.meta.url),
+        oauth: fileURLToPath(new URL("./src/oauth.ts", import.meta.url)),
+        "oauth-resource-authorization": fileURLToPath(
+          new URL("./src/oauth-resource-authorization.ts", import.meta.url),
         ),
-        "plugins/kubernetes-oauth/client": fileURLToPath(
-          new URL("./src/plugins/kubernetes-oauth/client.ts", import.meta.url),
-        ),
-        "plugins/kubernetes-oauth/rpc-authorization": fileURLToPath(
-          new URL("./src/plugins/kubernetes-oauth/rpc-authorization.ts", import.meta.url),
+        "plugins/sheet-oauth/client": fileURLToPath(
+          new URL("./src/plugins/sheet-oauth/client.ts", import.meta.url),
         ),
       },
       sourcemap: true,

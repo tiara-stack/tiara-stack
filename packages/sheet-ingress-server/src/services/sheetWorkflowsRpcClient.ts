@@ -7,7 +7,7 @@ import { config } from "@/config";
 import { makeIngressRpcHeadersClientLayer } from "./rpcAuthorizationClient";
 import { SheetApisRpcTokens } from "./sheetApisRpcTokens";
 
-const sheetWorkflowsTokenPath = "/var/run/secrets/tokens/sheet-workflows-token";
+const sheetWorkflowsResource = "sheet-workflows";
 
 export class SheetWorkflowsRpcClient extends Context.Service<SheetWorkflowsRpcClient>()(
   "SheetWorkflowsRpcClient",
@@ -30,7 +30,7 @@ export class SheetWorkflowsRpcClient extends Context.Service<SheetWorkflowsRpcCl
       makeIngressRpcHeadersClientLayer(
         SheetApisRpcAuthorization,
         "SheetWorkflowsRpcClient.SheetApisRpcAuthorizationClient",
-        { serviceTokenPath: sheetWorkflowsTokenPath },
+        { serviceTokenResource: sheetWorkflowsResource },
       ),
     ),
     Layer.provide(SheetApisRpcTokens.layer),

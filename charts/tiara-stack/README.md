@@ -53,9 +53,10 @@ scrape policies default to the `monitoring` namespace; override
 - `otelExporterOtlpEndpoint`
 - `discordClientId`
 - `discordClientSecret`
-- `kubernetesAudience` optional
 - `redisUrl`
 - `trustedOrigins`
+- `trustedOAuthClientIds`
+- `tokenExchangeSubjectJwtSecret`
 
 `sheet-apis-secret`
 
@@ -64,6 +65,8 @@ scrape policies default to the `monitoring` namespace; override
 - `redisUrl`
 - `sheetAuthIssuer`
 - `sheetIngressBaseUrl`
+- `sheetApisServiceClientId`
+- `sheetApisServiceClientSecret`
 
 `sheet-apis-secret-path`
 
@@ -77,6 +80,8 @@ scrape policies default to the `monitoring` namespace; override
 - `redisUrl`
 - `sheetIngressBaseUrl`
 - `sheetAuthIssuer`
+- `sheetBotServiceClientId`
+- `sheetBotServiceClientSecret`
 
 `sheet-workflows-secret`
 
@@ -84,6 +89,8 @@ scrape policies default to the `monitoring` namespace; override
 - `postgresUrl`
 - `sheetAuthIssuer`
 - `sheetIngressBaseUrl`
+- `sheetWorkflowsServiceClientId`
+- `sheetWorkflowsServiceClientSecret`
 
 `sdbs-secret`
 
@@ -98,6 +105,8 @@ scrape policies default to the `monitoring` namespace; override
 - `sheetBotBaseUrl`
 - `sheetAuthIssuer`
 - `trustedOrigins`
+- `sheetIngressServiceClientId`
+- `sheetIngressServiceClientSecret`
 
 `sheet-web-secret`
 
@@ -105,6 +114,9 @@ scrape policies default to the `monitoring` namespace; override
 - `authBaseUrl`
 - `appBaseUrl`
 - `sheetApisBaseUrl`
+- `sheetWebOauthClientId` optional
+- `sheetWebOauthRedirectPath` optional
+- `sheetWebOauthScopes` optional
 
 `zero-secret`
 

@@ -15,6 +15,7 @@ import { SheetAuthGuildUser } from "sheet-ingress-api/schemas/middlewares/sheetA
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
 import { Unauthorized } from "typhoon-core/error";
 import type { Permission, PermissionSet } from "sheet-ingress-api/schemas/permissions";
+import type { SheetAuthOAuthScope } from "sheet-ingress-api/schemas/permissions";
 import { SheetAuthUserResolver } from "./authResolver";
 import { SheetApisForwardingClient } from "./sheetApisForwardingClient";
 import { SheetApisRpcTokens } from "./sheetApisRpcTokens";
@@ -31,6 +32,7 @@ class ResolvedGuildUserCacheKey extends Data.Class<{
   readonly accountId: string;
   readonly guildId: string;
   readonly permissions: PermissionSet;
+  readonly scopes: ReadonlySet<SheetAuthOAuthScope>;
   readonly token: Redacted.Redacted<string>;
   readonly userId: string;
 }> {}
@@ -49,6 +51,9 @@ export const hasGuildPermission = (
 
 export const hasDiscordAccountPermission = (permissions: PermissionSet, accountId: string) =>
   HashSet.has(permissions, `account:discord:${accountId}`);
+
+const hasOAuthScope = (scopes: ReadonlySet<SheetAuthOAuthScope>, scope: SheetAuthOAuthScope) =>
+  scopes.has(scope);
 
 const requirePermissions = (
   permissions: PermissionSet,
@@ -104,6 +109,57 @@ const makeSheetAuthGuildUser = (
   permissions,
   token: user.token,
 });
+
+const hasElevatedPermission = (permissions: PermissionSet) =>
+  hasPermission(permissions, "service") || hasPermission(permissions, "app_owner");
+
+const guildScopedPermissions = (guildId: string): Permission[] => [
+  `member_guild:${guildId}`,
+  `monitor_guild:${guildId}`,
+  `manage_guild:${guildId}`,
+];
+
+const appendMemberPermission = (
+  permissions: PermissionSet,
+  guildId: string,
+  maybeMember: Option.Option<CachedGuildMember>,
+) =>
+  Option.isSome(maybeMember)
+    ? appendPermission(permissions, `member_guild:${guildId}`)
+    : permissions;
+
+const appendMonitorPermission = (
+  permissions: PermissionSet,
+  guildId: string,
+  maybeMember: Option.Option<CachedGuildMember>,
+  maybeMonitorRoleIds: Option.Option<ReadonlySet<string>>,
+) => {
+  if (
+    Option.isSome(maybeMember) &&
+    Option.isSome(maybeMonitorRoleIds) &&
+    maybeMonitorRoleIds.value.size > 0 &&
+    hasMonitorGuildPermission(maybeMember.value, maybeMonitorRoleIds.value)
+  ) {
+    return appendPermission(permissions, `monitor_guild:${guildId}`);
+  }
+  return permissions;
+};
+
+const appendManagePermission = (
+  permissions: PermissionSet,
+  guildId: string,
+  maybeMember: Option.Option<CachedGuildMember>,
+  maybeRoles: Option.Option<ReadonlyMap<string, CachedGuildRole>>,
+) => {
+  if (
+    Option.isSome(maybeMember) &&
+    Option.isSome(maybeRoles) &&
+    hasManageGuildPermission(maybeMember.value, guildId, maybeRoles.value)
+  ) {
+    return appendPermission(permissions, `manage_guild:${guildId}`);
+  }
+  return permissions;
+};
 
 const provideResolvedGuildUser = Effect.fn("AuthorizationService.provideResolvedGuildUser")(
   function* <A, E, E2, R, R2>(
@@ -177,15 +233,8 @@ export class AuthorizationService extends Context.Service<AuthorizationService>(
       const resolveGuildScopedPermissions = Effect.fn(
         "AuthorizationService.resolveGuildScopedPermissions",
       )(function* (user: SheetAuthUserType, guildId: string) {
-        if (
-          hasPermission(user.permissions, "service") ||
-          hasPermission(user.permissions, "app_owner")
-        ) {
-          return appendPermissions(user.permissions, [
-            `member_guild:${guildId}`,
-            `monitor_guild:${guildId}`,
-            `manage_guild:${guildId}`,
-          ]);
+        if (hasElevatedPermission(user.permissions)) {
+          return appendPermissions(user.permissions, guildScopedPermissions(guildId));
         }
 
         const [maybeMember, maybeMonitorRoleIds, maybeRoles] = yield* Effect.all(
@@ -197,30 +246,17 @@ export class AuthorizationService extends Context.Service<AuthorizationService>(
           { concurrency: "unbounded" },
         );
 
-        let permissions = user.permissions;
-
-        if (Option.isSome(maybeMember)) {
-          permissions = appendPermission(permissions, `member_guild:${guildId}`);
-        }
-
-        if (
-          Option.isSome(maybeMember) &&
-          Option.isSome(maybeMonitorRoleIds) &&
-          maybeMonitorRoleIds.value.size > 0 &&
-          hasMonitorGuildPermission(maybeMember.value, maybeMonitorRoleIds.value)
-        ) {
-          permissions = appendPermission(permissions, `monitor_guild:${guildId}`);
-        }
-
-        if (
-          Option.isSome(maybeMember) &&
-          Option.isSome(maybeRoles) &&
-          hasManageGuildPermission(maybeMember.value, guildId, maybeRoles.value)
-        ) {
-          permissions = appendPermission(permissions, `manage_guild:${guildId}`);
-        }
-
-        return permissions;
+        return appendManagePermission(
+          appendMonitorPermission(
+            appendMemberPermission(user.permissions, guildId, maybeMember),
+            guildId,
+            maybeMember,
+            maybeMonitorRoleIds,
+          ),
+          guildId,
+          maybeMember,
+          maybeRoles,
+        );
       });
 
       const resolveSheetAuthGuildUser = Effect.fn("AuthorizationService.resolveSheetAuthGuildUser")(
@@ -235,15 +271,14 @@ export class AuthorizationService extends Context.Service<AuthorizationService>(
         SheetAuthGuildUserType
       >(
         Effect.fn("AuthorizationService.resolveCurrentGuildUserCached")(function* (key) {
-          return yield* resolveSheetAuthGuildUser(
-            {
-              accountId: key.accountId,
-              permissions: key.permissions,
-              token: key.token,
-              userId: key.userId,
-            },
-            key.guildId,
-          );
+          const user: SheetAuthUserType = {
+            accountId: key.accountId,
+            permissions: key.permissions,
+            scopes: key.scopes,
+            token: key.token,
+            userId: key.userId,
+          };
+          return yield* resolveSheetAuthGuildUser(user, key.guildId);
         }),
         {
           capacity: 16,
@@ -260,6 +295,7 @@ export class AuthorizationService extends Context.Service<AuthorizationService>(
               accountId: user.accountId,
               guildId,
               permissions: user.permissions,
+              scopes: user.scopes,
               token: user.token,
               userId: user.userId,
             }),
@@ -352,6 +388,17 @@ export class AuthorizationService extends Context.Service<AuthorizationService>(
             message,
           );
         }),
+        requireOAuthScope: Effect.fn("AuthorizationService.requireOAuthScope")(function* (
+          scope: SheetAuthOAuthScope,
+          message = `OAuth token is missing required scope ${scope}`,
+        ) {
+          const user = yield* SheetAuthUser;
+          if (hasElevatedPermission(user.permissions) || hasOAuthScope(user.scopes, scope)) {
+            return;
+          }
+
+          return yield* Effect.fail(new Unauthorized({ message }));
+        }),
         requireDiscordAccountId: Effect.fn("AuthorizationService.requireDiscordAccountId")(
           function* (accountId: string, message = "User does not have access to this user") {
             const user = yield* SheetAuthUser;
@@ -414,6 +461,7 @@ export const SheetAuthTokenAuthorizationLive = Layer.effect(
           accountId: resolvedUser.accountId,
           userId: resolvedUser.userId,
           permissions: resolvedUser.permissions,
+          scopes: resolvedUser.scopes,
           token: credential,
         });
       }),

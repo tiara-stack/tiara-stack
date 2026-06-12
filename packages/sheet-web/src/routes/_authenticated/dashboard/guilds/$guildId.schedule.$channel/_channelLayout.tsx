@@ -80,8 +80,8 @@ function ScheduleLayout() {
             {channels.map((ch) => (
               <Link
                 key={ch}
-                to="."
-                params={(prev) => ({ ...prev, channel: ch })}
+                to="/dashboard/guilds/$guildId/schedule/$channel"
+                params={{ guildId, channel: ch }}
                 search={{ timestamp: search.timestamp }}
                 activeOptions={{ includeSearch: false, exact: false }}
                 className={`

@@ -1,12 +1,12 @@
 import { Cache, Context, Duration, Effect, Exit, HashSet, Layer, Option, Redacted } from "effect";
 import {
-  getAccount,
-  getKubernetesOAuthImplicitPermissions,
+  getSheetAuthIdentity,
   type SheetAuthClient as SheetAuthClientValue,
 } from "sheet-auth/client";
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
 import { Unauthorized } from "typhoon-core/error";
 import type { Permission, PermissionSet } from "sheet-ingress-api/schemas/permissions";
+import type { SheetAuthOAuthScope } from "sheet-ingress-api/schemas/permissions";
 import { SheetBotForwardingClient } from "./sheetBotForwardingClient";
 import { SheetAuthClient } from "./sheetAuthClient";
 
@@ -17,6 +17,7 @@ interface CachedAuthorization {
   readonly userId: string;
   readonly accountId: string;
   readonly permissions: PermissionSet;
+  readonly scopes: ReadonlySet<SheetAuthOAuthScope>;
 }
 
 type SheetAuthUserType = Context.Service.Shape<typeof SheetAuthUser>;
@@ -44,28 +45,19 @@ const resolveCachedAuthorization = Effect.fn("resolveCachedAuthorization")(funct
     Authorization: `Bearer ${Redacted.value(token)}`,
   };
 
-  const { account, permissions } = yield* Effect.all({
-    account: getAccount(authClient, ["discord", "kubernetes:discord"], authorizationHeaders),
-    permissions: getKubernetesOAuthImplicitPermissions(authClient, authorizationHeaders).pipe(
-      Effect.catch(() => Effect.succeed({ permissions: [] as string[] })),
-    ),
-  }).pipe(Effect.mapError((error) => makeUnauthorized(error.message, error.cause)));
-
-  const discardedPermissions = permissions.permissions.filter(
-    (permission: string) => permission !== "service",
+  const identity = yield* getSheetAuthIdentity(authClient, authorizationHeaders).pipe(
+    Effect.mapError((error) => makeUnauthorized(error.message, error.cause)),
   );
-  if (discardedPermissions.length > 0) {
-    yield* Effect.logWarning(
-      `Ignoring implicit permissions that are now derived server-side: ${discardedPermissions.join(", ")}`,
-    );
-  }
 
   return {
-    userId: account.userId,
-    accountId: account.accountId,
-    permissions: permissions.permissions.some((permission: string) => permission === "service")
-      ? permissionSetFromIterable(["service"] satisfies Extract<Permission, "service">[])
-      : permissionSetFromIterable([] as Permission[]),
+    userId: identity.userId,
+    accountId: identity.accountId,
+    permissions: permissionSetFromIterable(
+      identity.permissions.filter(
+        (permission): permission is Permission => permission === "service",
+      ),
+    ),
+    scopes: new Set(identity.scopes as SheetAuthOAuthScope[]) as ReadonlySet<SheetAuthOAuthScope>,
   } satisfies CachedAuthorization;
 });
 
@@ -155,6 +147,7 @@ export class SheetAuthUserResolver extends Context.Service<SheetAuthUserResolver
             accountId: authorization.accountId,
             userId: authorization.userId,
             permissions,
+            scopes: authorization.scopes,
             token,
           } satisfies SheetAuthUserType;
         }),

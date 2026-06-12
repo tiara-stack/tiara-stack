@@ -6,18 +6,32 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { createSecondaryStorage } from "./storage";
 import type { Driver } from "unstorage";
-import { kubernetesOAuth } from "./plugins/kubernetes-oauth";
 import * as schema from "./schema";
 import { sessionToken } from "./plugins/session-token";
+import { DefaultRegisteredClientScopes, OAuthScopes, PublicOAuthScopes } from "./oauth";
+import {
+  createJwtSubjectTokenResolver,
+  resolveUserByDiscordId,
+  sheetOAuth,
+  type SheetOAuthTokenExchangeSubjectResolver,
+} from "./plugins/sheet-oauth";
 
 interface CreateAuthOptions {
   postgresUrl: string;
   discordClientId: string;
   discordClientSecret: string;
-  kubernetesAudience: string;
+  oauthValidAudiences?: readonly string[];
+  trustedOAuthClientIds?: readonly string[];
   baseUrl: string;
   trustedOrigins?: string[];
   cookieDomain?: string;
+  tokenExchangeSubjectJwtSecret?: string;
+  tokenExchangeSubjectJwtIssuer?: string;
+  subjectTokenKubernetesAudience?: string;
+  subjectTokenKubernetesAllowedServiceAccounts?: readonly string[];
+  subjectTokenKubernetesReviewerTokenPath?: string;
+  subjectTokenKubernetesCaPath?: string;
+  subjectTokenKubernetesTokenReviewUrl?: string;
   secondaryStorageDriver: Driver;
 }
 
@@ -26,7 +40,7 @@ type AuthPlugins = [
   ReturnType<typeof sessionToken>,
   ReturnType<typeof jwt>,
   ReturnType<typeof oauthProvider>,
-  ReturnType<typeof kubernetesOAuth>,
+  ReturnType<typeof sheetOAuth>,
 ];
 
 type AuthOptions = BetterAuthOptions & {
@@ -45,14 +59,168 @@ type CleanupMethods = {
   closeStorage: () => Promise<void>;
 };
 
+const oauthAudiences = (baseUrl: string, audiences: readonly string[] | undefined) =>
+  audiences?.length ? [...audiences] : [baseUrl];
+
+const createOAuthProviderPlugin = ({
+  baseUrl,
+  oauthValidAudiences,
+  trustedOAuthClientIds,
+}: Pick<BaseAuthOptions, "baseUrl" | "oauthValidAudiences" | "trustedOAuthClientIds">) =>
+  oauthProvider({
+    allowDynamicClientRegistration: true,
+    allowUnauthenticatedClientRegistration: false,
+    scopes: [...OAuthScopes],
+    clientRegistrationDefaultScopes: [...DefaultRegisteredClientScopes],
+    clientRegistrationAllowedScopes: [...PublicOAuthScopes],
+    clientCredentialGrantDefaultScopes: [],
+    grantTypes: ["authorization_code", "client_credentials", "refresh_token"],
+    validAudiences: oauthAudiences(baseUrl, oauthValidAudiences),
+    cachedTrustedClients: new Set(trustedOAuthClientIds ?? []),
+    requirePKCE: true,
+    loginPage: "/sign-in",
+    consentPage: "/consent",
+  });
+
+const createTokenExchangeSubjectResolvers = ({
+  baseUrl,
+  tokenExchangeSubjectJwtSecret,
+  tokenExchangeSubjectJwtIssuer,
+}: Pick<
+  BaseAuthOptions,
+  "baseUrl" | "tokenExchangeSubjectJwtSecret" | "tokenExchangeSubjectJwtIssuer"
+>): readonly SheetOAuthTokenExchangeSubjectResolver[] => {
+  if (!tokenExchangeSubjectJwtSecret) {
+    return [];
+  }
+
+  return [
+    createJwtSubjectTokenResolver({
+      secret: tokenExchangeSubjectJwtSecret,
+      issuer: tokenExchangeSubjectJwtIssuer ?? baseUrl,
+      audience: baseUrl,
+      resolveSubject: async ({ ctx, subject, payload }) => {
+        const discordPrefix = "discord:";
+        if (!subject.startsWith(discordPrefix)) {
+          return undefined;
+        }
+
+        const discordUserId = subject.slice(discordPrefix.length);
+        const user = await resolveUserByDiscordId(ctx.context.internalAdapter, discordUserId);
+
+        return {
+          userId: user.id,
+          accountId: discordUserId,
+          claims: {
+            ext: {
+              iss: payload.iss,
+              sub: subject,
+            },
+          },
+        };
+      },
+    }),
+  ];
+};
+
+const createSubjectTokenKubernetesOptions = ({
+  subjectTokenKubernetesAudience,
+  subjectTokenKubernetesAllowedServiceAccounts,
+  subjectTokenKubernetesReviewerTokenPath,
+  subjectTokenKubernetesCaPath,
+  subjectTokenKubernetesTokenReviewUrl,
+}: Pick<
+  BaseAuthOptions,
+  | "subjectTokenKubernetesAudience"
+  | "subjectTokenKubernetesAllowedServiceAccounts"
+  | "subjectTokenKubernetesReviewerTokenPath"
+  | "subjectTokenKubernetesCaPath"
+  | "subjectTokenKubernetesTokenReviewUrl"
+>) => {
+  if (!subjectTokenKubernetesAllowedServiceAccounts?.length) {
+    return undefined;
+  }
+
+  return {
+    audience: subjectTokenKubernetesAudience ?? "sheet-auth-subject-token",
+    allowedServiceAccounts: subjectTokenKubernetesAllowedServiceAccounts,
+    reviewerTokenPath: subjectTokenKubernetesReviewerTokenPath,
+    caPath: subjectTokenKubernetesCaPath,
+    tokenReviewUrl: subjectTokenKubernetesTokenReviewUrl,
+  };
+};
+
+const createSheetOAuthPlugin = ({
+  baseUrl,
+  oauthValidAudiences,
+  trustedOAuthClientIds,
+  tokenExchangeSubjectJwtSecret,
+  tokenExchangeSubjectJwtIssuer,
+  subjectTokenKubernetesAudience,
+  subjectTokenKubernetesAllowedServiceAccounts,
+  subjectTokenKubernetesReviewerTokenPath,
+  subjectTokenKubernetesCaPath,
+  subjectTokenKubernetesTokenReviewUrl,
+}: Pick<
+  BaseAuthOptions,
+  | "baseUrl"
+  | "oauthValidAudiences"
+  | "trustedOAuthClientIds"
+  | "tokenExchangeSubjectJwtSecret"
+  | "tokenExchangeSubjectJwtIssuer"
+  | "subjectTokenKubernetesAudience"
+  | "subjectTokenKubernetesAllowedServiceAccounts"
+  | "subjectTokenKubernetesReviewerTokenPath"
+  | "subjectTokenKubernetesCaPath"
+  | "subjectTokenKubernetesTokenReviewUrl"
+>) =>
+  sheetOAuth({
+    issuer: baseUrl,
+    validAudiences: oauthAudiences(baseUrl, oauthValidAudiences),
+    trustedClientIds: new Set(trustedOAuthClientIds ?? []),
+    tokenExchange: {
+      actorScopes: ["token.exchange"],
+      subjectResolvers: createTokenExchangeSubjectResolvers({
+        baseUrl,
+        tokenExchangeSubjectJwtSecret,
+        tokenExchangeSubjectJwtIssuer,
+      }),
+      subjectTokenMinting: {
+        secret: tokenExchangeSubjectJwtSecret,
+        issuer: tokenExchangeSubjectJwtIssuer ?? baseUrl,
+        audience: baseUrl,
+        expiresIn: 60,
+        allowedSubjectPrefixes: ["discord:"],
+        kubernetes: createSubjectTokenKubernetesOptions({
+          subjectTokenKubernetesAudience,
+          subjectTokenKubernetesAllowedServiceAccounts,
+          subjectTokenKubernetesReviewerTokenPath,
+          subjectTokenKubernetesCaPath,
+          subjectTokenKubernetesTokenReviewUrl,
+        }),
+      },
+    },
+  });
+
+const authTrustedOrigins = (baseUrl: string, trustedOrigins: string[] | undefined) =>
+  trustedOrigins ?? [baseUrl];
+
 function createBaseAuth({
   db,
   discordClientId,
   discordClientSecret,
-  kubernetesAudience,
+  oauthValidAudiences,
+  trustedOAuthClientIds,
   baseUrl,
   trustedOrigins,
   cookieDomain,
+  tokenExchangeSubjectJwtSecret,
+  tokenExchangeSubjectJwtIssuer,
+  subjectTokenKubernetesAudience,
+  subjectTokenKubernetesAllowedServiceAccounts,
+  subjectTokenKubernetesReviewerTokenPath,
+  subjectTokenKubernetesCaPath,
+  subjectTokenKubernetesTokenReviewUrl,
   secondaryStorage,
 }: BaseAuthOptions): Auth {
   const options: AuthOptions = {
@@ -63,19 +231,27 @@ function createBaseAuth({
       discord: {
         clientId: discordClientId,
         clientSecret: discordClientSecret,
-        scope: ["identify", "guilds"],
+        disableDefaultScope: true,
+        scope: ["identify", "email", "guilds"],
+        overrideUserInfoOnSignIn: true,
       },
     },
     plugins: [
       bearer(),
       sessionToken(),
       jwt(),
-      oauthProvider({
-        loginPage: "/sign-in",
-        consentPage: "/consent",
-      }),
-      kubernetesOAuth({
-        audience: kubernetesAudience,
+      createOAuthProviderPlugin({ baseUrl, oauthValidAudiences, trustedOAuthClientIds }),
+      createSheetOAuthPlugin({
+        baseUrl,
+        oauthValidAudiences,
+        trustedOAuthClientIds,
+        tokenExchangeSubjectJwtSecret,
+        tokenExchangeSubjectJwtIssuer,
+        subjectTokenKubernetesAudience,
+        subjectTokenKubernetesAllowedServiceAccounts,
+        subjectTokenKubernetesReviewerTokenPath,
+        subjectTokenKubernetesCaPath,
+        subjectTokenKubernetesTokenReviewUrl,
       }),
     ],
     secondaryStorage,
@@ -93,7 +269,7 @@ function createBaseAuth({
         domain: cookieDomain,
       },
     },
-    trustedOrigins: trustedOrigins ?? [baseUrl],
+    trustedOrigins: authTrustedOrigins(baseUrl, trustedOrigins),
   };
 
   return betterAuth(options);
@@ -105,10 +281,18 @@ export function authConfig({
   postgresUrl,
   discordClientId,
   discordClientSecret,
-  kubernetesAudience,
+  oauthValidAudiences,
+  trustedOAuthClientIds,
   baseUrl,
   trustedOrigins,
   cookieDomain,
+  tokenExchangeSubjectJwtSecret,
+  tokenExchangeSubjectJwtIssuer,
+  subjectTokenKubernetesAudience,
+  subjectTokenKubernetesAllowedServiceAccounts,
+  subjectTokenKubernetesReviewerTokenPath,
+  subjectTokenKubernetesCaPath,
+  subjectTokenKubernetesTokenReviewUrl,
   secondaryStorageDriver,
 }: CreateAuthOptions): AuthWithCleanup {
   const pgClient = postgres(postgresUrl);
@@ -121,10 +305,18 @@ export function authConfig({
     db,
     discordClientId,
     discordClientSecret,
-    kubernetesAudience,
+    oauthValidAudiences,
+    trustedOAuthClientIds,
     baseUrl,
     trustedOrigins,
     cookieDomain,
+    tokenExchangeSubjectJwtSecret,
+    tokenExchangeSubjectJwtIssuer,
+    subjectTokenKubernetesAudience,
+    subjectTokenKubernetesAllowedServiceAccounts,
+    subjectTokenKubernetesReviewerTokenPath,
+    subjectTokenKubernetesCaPath,
+    subjectTokenKubernetesTokenReviewUrl,
     secondaryStorage,
   });
 

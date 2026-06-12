@@ -1,13 +1,17 @@
 import { Config, Schema } from "effect";
 
 const positiveInt = Schema.Int.check(Schema.isGreaterThan(0));
+const nonEmptyString = Schema.NonEmptyString;
+const nonEmptySecret = Schema.Redacted(nonEmptyString);
 
 export const config = {
   port: Config.port("PORT").pipe(Config.withDefault(3000)),
   podNamespace: Config.string("POD_NAMESPACE"),
   sheetAuthIssuer: Config.schema(Schema.String, "SHEET_AUTH_ISSUER"),
+  sheetAuthOAuthClientId: Config.schema(nonEmptyString, "SHEET_AUTH_OAUTH_CLIENT_ID"),
+  sheetAuthOAuthClientSecret: Config.schema(nonEmptySecret, "SHEET_AUTH_OAUTH_CLIENT_SECRET"),
   sheetIngressBaseUrl: Config.schema(Schema.String, "SHEET_INGRESS_BASE_URL"),
-  sheetIngressKubernetesAudience: Config.string("SHEET_INGRESS_KUBERNETES_AUDIENCE").pipe(
+  sheetAuthOAuthAudience: Config.string("SHEET_AUTH_OAUTH_AUDIENCE").pipe(
     Config.withDefault("sheet-workflows"),
   ),
   postgresUrl: Config.schema(Schema.Redacted(Schema.String), "POSTGRES_URL"),

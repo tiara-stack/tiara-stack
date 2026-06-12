@@ -27,6 +27,36 @@ roleRef:
   kind: Role
   name: {{ include "tiara-stack.fullname" . }}-sheet-workflows-runner-health
 {{- end }}
+{{- if .Values.services.sheetAuth.enabled }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "tiara-stack.fullname" . }}-sheet-auth-token-reviewer
+  labels:
+    {{- include "tiara-stack.labels" . | nindent 4 }}
+    app: sheet-auth
+rules:
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenreviews"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "tiara-stack.fullname" . }}-sheet-auth-token-reviewer
+  labels:
+    {{- include "tiara-stack.labels" . | nindent 4 }}
+    app: sheet-auth
+subjects:
+  - kind: ServiceAccount
+    name: sheet-auth
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "tiara-stack.fullname" . }}-sheet-auth-token-reviewer
+{{- end }}
 {{- if .Values.zeroCache.enabled }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1

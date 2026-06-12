@@ -30,6 +30,7 @@ const makeUser = (accountId: string, permissions: Iterable<Permission> = []) =>
     accountId,
     userId: `${accountId}-user`,
     permissions: HashSet.fromIterable(permissions),
+    scopes: new Set() as never,
     token: Redacted.make(`${accountId}-token`),
   }) as SheetAuthUserType;
 
@@ -38,6 +39,7 @@ const makeServiceUser = () =>
     accountId: "service",
     userId: "service-user",
     permissions: HashSet.fromIterable(["service"]),
+    scopes: new Set(["service"]) as never,
     token: Redacted.make("service-token"),
   }) satisfies SheetAuthUserType;
 

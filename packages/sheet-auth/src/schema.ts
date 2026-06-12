@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, boolean, json } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, boolean, json, uniqueIndex } from "drizzle-orm/pg-core";
 
 // Better Auth schema tables
 // These are managed by Better Auth's Drizzle adapter
@@ -46,23 +46,29 @@ export const session = pgTable("session", {
  * This table acts as a junction table to find the internal user ID from
  * a Discord user ID (for K8s M2M auth) or vice versa.
  */
-export const account = pgTable("account", {
-  id: text("id").primaryKey(),
-  userId: text("user_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-  accountId: text("account_id").notNull(),
-  providerId: text("provider_id").notNull(),
-  accessToken: text("access_token"),
-  refreshToken: text("refresh_token"),
-  idToken: text("id_token"),
-  accessTokenExpiresAt: timestamp("access_token_expires_at"),
-  refreshTokenExpiresAt: timestamp("refresh_token_expires_at"),
-  scope: text("scope"),
-  password: text("password"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+export const account = pgTable(
+  "account",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    accountId: text("account_id").notNull(),
+    providerId: text("provider_id").notNull(),
+    accessToken: text("access_token"),
+    refreshToken: text("refresh_token"),
+    idToken: text("id_token"),
+    accessTokenExpiresAt: timestamp("access_token_expires_at"),
+    refreshTokenExpiresAt: timestamp("refresh_token_expires_at"),
+    scope: text("scope"),
+    password: text("password"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("account_provider_id_account_id_unique").on(table.providerId, table.accountId),
+  ],
+);
 
 export const verification = pgTable("verification", {
   id: text("id").primaryKey(),
@@ -161,6 +167,14 @@ export const oauthClient = pgTable("oauth_client", {
    */
   public: boolean("public"),
   /**
+   * Whether this client requires PKCE for authorization code flow.
+   */
+  requirePKCE: boolean("require_pkce"),
+  /**
+   * Subject identifier type: "public" or "pairwise".
+   */
+  subjectType: text("subject_type"),
+  /**
    * Type of OAuth client
    * Supports: 'web', 'native', 'user-agent-based'
    */
@@ -223,6 +237,10 @@ export const oauthRefreshToken = pgTable("oauth_refresh_token", {
    * When the token was revoked (null if active)
    */
   revoked: timestamp("revoked"),
+  /**
+   * Time when the end user authenticated.
+   */
+  authTime: timestamp("auth_time"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

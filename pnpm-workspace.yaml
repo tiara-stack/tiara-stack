@@ -30,7 +30,7 @@ catalog:
 
 ignoredBuiltDependencies: []
 overrides:
-  better-auth: 1.4.18
+  better-auth: 1.6.16
   vite: "catalog:"
   vitest: "catalog:"
 packageExtensions:
@@ -39,7 +39,7 @@ packageExtensions:
       "@vitest/runner": 4.1.2
       vitest: npm:@voidzero-dev/vite-plus-test@0.1.15
 patchedDependencies:
-  better-auth@1.4.18: patches/better-auth@1.4.18.patch
+  better-auth@1.6.16: patches/better-auth@1.6.16.patch
 peerDependencyRules:
   allowAny:
     - vite

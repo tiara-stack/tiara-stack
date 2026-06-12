@@ -143,10 +143,10 @@ services:
       <<: *local-service-account-env
       BASE_URL: "${SHEET_AUTH_PUBLIC_BASE_URL:-http://localhost:3002}"
       TRUSTED_ORIGINS: "${TRUSTED_ORIGINS:-http://localhost:3001,http://localhost:3000,http://localhost:3002}"
+      TRUSTED_OAUTH_CLIENT_IDS: "${TRUSTED_OAUTH_CLIENT_IDS:-}"
       COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
       DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:-}
       DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET:-}
-      KUBERNETES_AUDIENCE: "sheet-auth"
       REDIS_BASE: "auth:"
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://local-otel-sink:4318}
     secrets:
@@ -243,14 +243,15 @@ services:
       ZERO_CACHE_SERVER: "http://zero-cache:4848"
       ZERO_CACHE_USER_ID: "system:serviceaccount:tiara-local:sheet-apis"
       SHEET_AUTH_ISSUER: "http://sheet-auth:3000"
-      SHEET_INGRESS_KUBERNETES_AUDIENCE: "sheet-apis"
+      SHEET_AUTH_OAUTH_CLIENT_ID: ${SHEET_APIS_OAUTH_CLIENT_ID:-}
+      SHEET_AUTH_OAUTH_CLIENT_SECRET: ${SHEET_APIS_OAUTH_CLIENT_SECRET:-}
+      SHEET_AUTH_OAUTH_AUDIENCE: "sheet-apis"
       SHEET_INGRESS_BASE_URL: "http://sheet-ingress-server:3000"
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://local-otel-sink:4318}
     secrets:
       - redis_password
     volumes:
       - ./deploy/compose/secrets/google-service-account.json:/.secret/google-service-account.json:ro
-      - ./deploy/compose/secrets/sheet-apis-sheet-auth-token:/var/run/secrets/tokens/sheet-auth-token:ro
       - ./deploy/compose/secrets/sheet-apis-zero-cache-token:/var/run/secrets/tokens/zero-cache-token:ro
     command:
       - sh
@@ -281,12 +282,12 @@ services:
       DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:-}
       SHEET_INGRESS_BASE_URL: "http://sheet-ingress-server:3000"
       SHEET_AUTH_ISSUER: "http://sheet-auth:3000"
-      SHEET_INGRESS_KUBERNETES_AUDIENCE: "sheet-bot"
+      SHEET_AUTH_OAUTH_CLIENT_ID: ${SHEET_BOT_OAUTH_CLIENT_ID:-}
+      SHEET_AUTH_OAUTH_CLIENT_SECRET: ${SHEET_BOT_OAUTH_CLIENT_SECRET:-}
+      SHEET_AUTH_OAUTH_AUDIENCE: "sheet-bot"
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://local-otel-sink:4318}
     secrets:
       - redis_password
-    volumes:
-      - ./deploy/compose/secrets/sheet-bot-sheet-auth-token:/var/run/secrets/tokens/sheet-auth-token:ro
     command:
       - sh
       - -ec
@@ -316,13 +317,13 @@ services:
       WORKFLOWS_RUNNER_LISTEN_HOST: 0.0.0.0
       WORKFLOWS_RUNNER_LISTEN_PORT: "34431"
       SHEET_AUTH_ISSUER: "http://sheet-auth:3000"
-      SHEET_INGRESS_KUBERNETES_AUDIENCE: "sheet-workflows"
+      SHEET_AUTH_OAUTH_CLIENT_ID: ${SHEET_WORKFLOWS_OAUTH_CLIENT_ID:-}
+      SHEET_AUTH_OAUTH_CLIENT_SECRET: ${SHEET_WORKFLOWS_OAUTH_CLIENT_SECRET:-}
+      SHEET_AUTH_OAUTH_AUDIENCE: "sheet-workflows"
       SHEET_INGRESS_BASE_URL: "http://sheet-ingress-server:3000"
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://local-otel-sink:4318}
     secrets:
       - postgres_password
-    volumes:
-      - ./deploy/compose/secrets/sheet-workflows-sheet-auth-token:/var/run/secrets/tokens/sheet-auth-token:ro
     command:
       - sh
       - -ec
@@ -349,13 +350,10 @@ services:
       SHEET_WORKFLOWS_BASE_URL: "http://sheet-workflows:3000"
       SHEET_BOT_BASE_URL: "http://sheet-bot:3000"
       SHEET_AUTH_ISSUER: "http://sheet-auth:3000"
+      SHEET_AUTH_OAUTH_CLIENT_ID: ${SHEET_INGRESS_OAUTH_CLIENT_ID:-}
+      SHEET_AUTH_OAUTH_CLIENT_SECRET: ${SHEET_INGRESS_OAUTH_CLIENT_SECRET:-}
       TRUSTED_ORIGINS: "${TRUSTED_ORIGINS:-http://localhost:3001,http://localhost:3000,http://localhost:3002}"
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://local-otel-sink:4318}
-    volumes:
-      - ./deploy/compose/secrets/sheet-ingress-sheet-auth-token:/var/run/secrets/tokens/sheet-auth-token:ro
-      - ./deploy/compose/secrets/sheet-ingress-sheet-apis-token:/var/run/secrets/tokens/sheet-apis-token:ro
-      - ./deploy/compose/secrets/sheet-ingress-sheet-bot-token:/var/run/secrets/tokens/sheet-bot-token:ro
-      - ./deploy/compose/secrets/sheet-ingress-sheet-workflows-token:/var/run/secrets/tokens/sheet-workflows-token:ro
     command:
       - sh
       - -ec

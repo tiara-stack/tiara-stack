@@ -12,11 +12,9 @@ export default defineConfig({
         new URL("../dfx-discord-utils/src/discord/schema/index.ts", import.meta.url),
       ),
       "sheet-auth/client": fileURLToPath(new URL("../sheet-auth/src/client.ts", import.meta.url)),
-      "sheet-auth/plugins/kubernetes-oauth/rpc-authorization": fileURLToPath(
-        new URL("../sheet-auth/src/plugins/kubernetes-oauth/rpc-authorization.ts", import.meta.url),
-      ),
-      "sheet-auth/plugins/kubernetes-oauth": fileURLToPath(
-        new URL("../sheet-auth/src/plugins/kubernetes-oauth/index.ts", import.meta.url),
+      "sheet-auth/oauth": fileURLToPath(new URL("../sheet-auth/src/oauth.ts", import.meta.url)),
+      "sheet-auth/oauth-resource-authorization": fileURLToPath(
+        new URL("../sheet-auth/src/oauth-resource-authorization.ts", import.meta.url),
       ),
     },
   },

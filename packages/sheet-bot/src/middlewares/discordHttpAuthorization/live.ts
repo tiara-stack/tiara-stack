@@ -1,22 +1,20 @@
-import { Effect, Layer, Option, Predicate } from "effect";
+import { Effect, Layer, Predicate } from "effect";
 import {
   HttpMiddleware,
   HttpRouter,
   HttpServerRequest,
   HttpServerResponse,
 } from "effect/unstable/http";
-import { makeKubernetesServiceAccountTokenAuthorizer } from "sheet-auth/plugins/kubernetes-oauth/rpc-authorization";
+import { makeOAuthResourceTokenAuthorizer } from "sheet-auth/oauth-resource-authorization";
 import { config } from "@/config";
 
 const makeSheetIngressAuthorizer = Effect.gen(function* () {
-  const podNamespace = yield* config.podNamespace;
-  const maybeIngressNamespace = yield* config.sheetIngressNamespace;
-  const ingressNamespace = Option.getOrElse(maybeIngressNamespace, () => podNamespace);
-  const audience = yield* config.sheetIngressKubernetesAudience;
-  return yield* makeKubernetesServiceAccountTokenAuthorizer({
+  const audience = yield* config.sheetAuthOAuthAudience;
+  const sheetAuthIssuer = yield* config.sheetAuthIssuer;
+  return yield* makeOAuthResourceTokenAuthorizer({
+    issuer: sheetAuthIssuer,
     audience,
-    expectedNamespace: ingressNamespace,
-    expectedServiceAccountName: "sheet-ingress-server",
+    requiredScopes: ["ingress.forward"],
   });
 });
 

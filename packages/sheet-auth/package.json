@@ -27,19 +27,20 @@
       "types": "./dist/server.d.mts",
       "default": "./dist/server.mjs"
     },
-    "./plugins/kubernetes-oauth": {
-      "types": "./dist/plugins/kubernetes-oauth/index.d.mts",
-      "development": "./src/plugins/kubernetes-oauth/index.ts",
-      "default": "./dist/plugins/kubernetes-oauth/index.mjs"
+    "./oauth-resource-authorization": {
+      "types": "./dist/oauth-resource-authorization.d.mts",
+      "development": "./src/oauth-resource-authorization.ts",
+      "default": "./dist/oauth-resource-authorization.mjs"
     },
-    "./plugins/kubernetes-oauth/client": {
-      "types": "./dist/plugins/kubernetes-oauth/client.d.mts",
-      "default": "./dist/plugins/kubernetes-oauth/client.mjs"
+    "./oauth": {
+      "types": "./dist/oauth.d.mts",
+      "development": "./src/oauth.ts",
+      "default": "./dist/oauth.mjs"
     },
-    "./plugins/kubernetes-oauth/rpc-authorization": {
-      "types": "./dist/plugins/kubernetes-oauth/rpc-authorization.d.mts",
-      "development": "./src/plugins/kubernetes-oauth/rpc-authorization.ts",
-      "default": "./dist/plugins/kubernetes-oauth/rpc-authorization.mjs"
+    "./plugins/sheet-oauth/client": {
+      "types": "./dist/plugins/sheet-oauth/client.d.mts",
+      "development": "./src/plugins/sheet-oauth/client.ts",
+      "default": "./dist/plugins/sheet-oauth/client.mjs"
     },
     "./package.json": "./package.json"
   },
@@ -47,22 +48,23 @@
     "format": "vp fmt --check",
     "format:apply": "vp fmt",
     "lint": "vp lint src",
-    "test": "vp test run",
+    "test": "vp test run --passWithNoTests",
     "test:watch": "vp test",
     "build": "vp pack && tar -acf dist.tar.zst ./dist",
+    "seed:trusted-oauth-clients": "tsx scripts/seed-trusted-oauth-clients.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push"
   },
   "dependencies": {
-    "@better-auth/oauth-provider": "^1.4.18",
+    "@better-auth/oauth-provider": "^1.6.16",
     "@effect/platform-node": "catalog:",
     "@hono/node-server": "^1.19.9",
     "@opentelemetry/exporter-prometheus": "^0.207.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.207.0",
     "@opentelemetry/sdk-trace-base": "^2.2.0",
-    "better-auth": "^1.1.21",
-    "drizzle-orm": "^0.45.1",
+    "better-auth": "^1.6.16",
+    "drizzle-orm": "^0.45.2",
     "hono": "^4.11.9",
     "ioredis": "^5.9.3",
     "jose": "^6.1.3",
@@ -71,7 +73,6 @@
     "unstorage": "^1.17.4"
   },
   "devDependencies": {
-    "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
     "@typescript/native-preview": "latest",
     "drizzle-kit": "^0.31.4",
@@ -80,7 +81,7 @@
     "vitest": "catalog:"
   },
   "peerDependencies": {
-    "@better-fetch/fetch": "^1.1.21",
+    "@better-fetch/fetch": "1.2.2",
     "@effect/opentelemetry": "catalog:",
     "@standard-schema/spec": "^1.0.0",
     "effect": "catalog:",

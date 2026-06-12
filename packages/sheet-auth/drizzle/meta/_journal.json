@@ -1,0 +1,20 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1781220623000,
+      "tag": "0000_better_auth_1_6_oauth_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1781246221821,
+      "tag": "0001_account_provider_id_account_id_unique",
+      "breakpoints": true
+    }
+  ]
+}

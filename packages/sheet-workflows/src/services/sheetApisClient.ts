@@ -1,22 +1,8 @@
-import { NodeFileSystem } from "@effect/platform-node";
 import { HttpClient, HttpClientRequest } from "effect/unstable/http";
 import { HttpApiClient } from "effect/unstable/httpapi";
-import {
-  Cache,
-  Context,
-  DateTime,
-  Duration,
-  Effect,
-  Exit,
-  FileSystem,
-  Layer,
-  Redacted,
-  Ref,
-  Schedule,
-  pipe,
-} from "effect";
-import { createKubernetesOAuthSession } from "sheet-auth/client";
-import { DISCORD_SERVICE_USER_ID_SENTINEL } from "sheet-auth/plugins/kubernetes-oauth";
+import { Cache, Context, Duration, Effect, Exit, Layer, Redacted } from "effect";
+import { createOAuthClientCredentialsToken } from "sheet-auth/client";
+import { DISCORD_SERVICE_USER_ID_SENTINEL } from "sheet-auth/oauth";
 import { SheetApisApi } from "sheet-ingress-api/sheet-apis";
 import { config } from "@/config";
 import { SheetAuthClient } from "./sheetAuthClient";
@@ -24,53 +10,56 @@ import { SheetAuthClient } from "./sheetAuthClient";
 type TokenCacheEntry = {
   token: Redacted.Redacted<string> | undefined;
   timeToLive: Duration.Duration;
+  failed: boolean;
 };
 
 export class SheetApisClient extends Context.Service<SheetApisClient>()("SheetApisClient", {
   make: Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
     const sheetAuthClient = yield* SheetAuthClient;
     const httpClient = yield* HttpClient.HttpClient;
-    const k8sTokenRef = yield* Ref.make("");
     const baseUrl = yield* config.sheetIngressBaseUrl;
-
-    yield* pipe(
-      fs.readFileString("/var/run/secrets/tokens/sheet-auth-token", "utf-8"),
-      Effect.map((token) => token.trim()),
-      Effect.flatMap((token) => Ref.set(k8sTokenRef, token)),
-      Effect.retry({ schedule: Schedule.exponential("1 second"), times: 3 }),
-      Effect.catch(() => Effect.void),
-      Effect.withSpan("SheetApisClient.refreshK8sToken"),
-      Effect.repeat(Schedule.spaced("5 minutes")),
-      Effect.forkScoped,
-    );
+    const oauthClientId = yield* config.sheetAuthOAuthClientId;
+    const oauthClientSecret = yield* config.sheetAuthOAuthClientSecret;
 
     const tokenCache = yield* Cache.makeWith<string, TokenCacheEntry>(
-      Effect.fn("SheetApisClient.lookup")(function* () {
-        const k8sToken = yield* Ref.get(k8sTokenRef);
-        const session = yield* createKubernetesOAuthSession(
-          sheetAuthClient,
-          DISCORD_SERVICE_USER_ID_SENTINEL,
-          k8sToken,
-        ).pipe(Effect.catch(() => Effect.succeed(undefined)));
-        const now = yield* DateTime.now;
-        const timeToLive = session?.session?.expiresAt
-          ? pipe(
-              DateTime.distance(now, session.session.expiresAt),
-              Duration.subtract(Duration.seconds(60)),
-            )
-          : Duration.minutes(1);
-
-        const entry = {
-          token: session?.token,
-          timeToLive,
-        };
-        yield* Effect.annotateCurrentSpan({
-          tokenAvailable: entry.token !== undefined,
-          timeToLiveMillis: Duration.toMillis(entry.timeToLive),
-        });
-        return entry;
-      }),
+      Effect.fn("SheetApisClient.lookup")(() =>
+        createOAuthClientCredentialsToken(sheetAuthClient, {
+          clientId: oauthClientId,
+          clientSecret: oauthClientSecret,
+          scope: ["service"],
+          resource: "sheet-ingress",
+        }).pipe(
+          Effect.tap(() => Effect.logDebug("Using OAuth service token for SheetApisClient")),
+          Effect.map((oauthToken) => ({
+            token: oauthToken.accessToken,
+            timeToLive: Duration.max(
+              Duration.seconds(oauthToken.expiresAt - Math.floor(Date.now() / 1000) - 60),
+              Duration.seconds(15),
+            ),
+            failed: false,
+          })),
+          Effect.tap((entry) =>
+            Effect.annotateCurrentSpan({
+              tokenAvailable: true,
+              timeToLiveMillis: Duration.toMillis(entry.timeToLive),
+            }),
+          ),
+          Effect.matchEffect({
+            onSuccess: (entry) => Effect.succeed(entry),
+            onFailure: (error) =>
+              Effect.logError(
+                "Failed to create OAuth service token for SheetApisClient",
+                error,
+              ).pipe(
+                Effect.as({
+                  token: undefined,
+                  timeToLive: Duration.minutes(1),
+                  failed: true,
+                }),
+              ),
+          }),
+        ),
+      ),
       {
         capacity: 1,
         timeToLive: Exit.match({
@@ -82,20 +71,14 @@ export class SheetApisClient extends Context.Service<SheetApisClient>()("SheetAp
 
     const httpClientWithToken = HttpClient.mapRequestEffect(httpClient, (request) =>
       Effect.gen(function* () {
-        const { token } = yield* pipe(
-          Cache.get(tokenCache, DISCORD_SERVICE_USER_ID_SENTINEL),
-          Effect.catch((err) =>
-            pipe(
-              Effect.logWarning(
-                `Failed to get auth token, proceeding unauthenticated: ${String(err)}`,
-              ),
-              Effect.as({ token: undefined }),
-            ),
-          ),
-        );
+        const { failed, token } = yield* Cache.get(tokenCache, DISCORD_SERVICE_USER_ID_SENTINEL);
 
-        yield* Effect.annotateCurrentSpan({ tokenAvailable: token !== undefined });
-        return token ? HttpClientRequest.bearerToken(request, Redacted.value(token)) : request;
+        yield* Effect.annotateCurrentSpan({ tokenAvailable: !failed && token !== undefined });
+        if (failed || !token) {
+          return yield* Effect.fail(new Error("Failed to create OAuth service token"));
+        }
+
+        return HttpClientRequest.bearerToken(request, Redacted.value(token));
       }).pipe(Effect.withSpan("SheetApisClient.mapAuthRequest")),
     ) as unknown as HttpClient.HttpClient;
 
@@ -111,6 +94,5 @@ export class SheetApisClient extends Context.Service<SheetApisClient>()("SheetAp
 }) {
   static layer = Layer.effect(SheetApisClient, this.make).pipe(
     Layer.provide(SheetAuthClient.layer),
-    Layer.provide(NodeFileSystem.layer),
   );
 }

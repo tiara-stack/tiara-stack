@@ -26,6 +26,11 @@
       "types": "./dist/api-groups.d.mts",
       "default": "./dist/api-groups.mjs"
     },
+    "./auth/scopePolicy": {
+      "types": "./dist/auth/scopePolicy.d.mts",
+      "development": "./src/auth/scopePolicy.ts",
+      "default": "./dist/auth/scopePolicy.mjs"
+    },
     "./handlers/health/schema": {
       "types": "./dist/handlers/health/schema.d.mts",
       "default": "./dist/handlers/health/schema.mjs"
@@ -38,6 +43,16 @@
       "types": "./dist/middlewares/forwardedAuthHeaders.d.mts",
       "development": "./src/middlewares/forwardedAuthHeaders.ts",
       "default": "./dist/middlewares/forwardedAuthHeaders.mjs"
+    },
+    "./middlewares/rpcTag": {
+      "types": "./dist/middlewares/rpcTag.d.mts",
+      "development": "./src/middlewares/rpcTag.ts",
+      "default": "./dist/middlewares/rpcTag.mjs"
+    },
+    "./middlewares/rpcScopePolicy": {
+      "types": "./dist/middlewares/rpcScopePolicy.d.mts",
+      "development": "./src/middlewares/rpcScopePolicy.ts",
+      "default": "./dist/middlewares/rpcScopePolicy.mjs"
     },
     "./middlewares/sheetApisRpcAuthorization/tag": {
       "types": "./dist/middlewares/sheetApisRpcAuthorization/tag.d.mts",

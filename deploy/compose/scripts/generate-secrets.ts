@@ -49,7 +49,13 @@ const writeGeneratedFile = (
   if (noOverwrite && existsSync(path)) {
     return;
   }
-  writeFileSync(path, contents, mode === undefined ? undefined : { mode });
+  writeFileSync(path, contents, writeOptions(mode));
+  applyMode(path, mode);
+};
+
+const writeOptions = (mode: number | undefined) => (mode === undefined ? undefined : { mode });
+
+const applyMode = (path: string, mode: number | undefined) => {
   if (mode !== undefined) {
     chmodSync(path, mode);
   }
@@ -135,20 +141,30 @@ if (noOverwrite && (hasExistingPrivateKey || hasExistingJwks)) {
 const postgresPasswordPath = join(secretsDir, "postgres-password");
 const redisPasswordPath = join(secretsDir, "redis-password");
 const readSecretFile = (path: string) => readFileSync(path, "utf-8").trim();
+const assertSecretFileExists = (envName: "POSTGRES_PASSWORD" | "REDIS_PASSWORD", path: string) => {
+  if (!existsSync(path)) {
+    throw new Error(`--no-overwrite found ${envName} but ${path} does not exist`);
+  }
+};
+
+const assertSecretFileValue = (
+  envName: "POSTGRES_PASSWORD" | "REDIS_PASSWORD",
+  path: string,
+  envValue: string,
+) => {
+  if (envValue !== readSecretFile(path)) {
+    throw new Error(`--no-overwrite found ${envName} but it does not match ${path}`);
+  }
+};
+
 const assertMatchingEnvAndSecret = (
   envName: "POSTGRES_PASSWORD" | "REDIS_PASSWORD",
   path: string,
 ) => {
   const envValue = process.env[envName]?.trim();
-  const hasSecretFile = existsSync(path);
   if (!noOverwrite || envValue === undefined) return;
-  if (!hasSecretFile) {
-    throw new Error(`--no-overwrite found ${envName} but ${path} does not exist`);
-  }
-  const fileValue = readSecretFile(path);
-  if (envValue !== fileValue) {
-    throw new Error(`--no-overwrite found ${envName} but it does not match ${path}`);
-  }
+  assertSecretFileExists(envName, path);
+  assertSecretFileValue(envName, path, envValue);
 };
 assertMatchingEnvAndSecret("POSTGRES_PASSWORD", postgresPasswordPath);
 assertMatchingEnvAndSecret("REDIS_PASSWORD", redisPasswordPath);
@@ -189,41 +205,6 @@ if (!existsSync(googleServiceAccountPath)) {
 
 const tokenSpecs = [
   {
-    file: "sheet-apis-sheet-auth-token",
-    serviceAccount: "sheet-apis",
-    audience: "sheet-auth",
-  },
-  {
-    file: "sheet-bot-sheet-auth-token",
-    serviceAccount: "sheet-bot",
-    audience: "sheet-auth",
-  },
-  {
-    file: "sheet-workflows-sheet-auth-token",
-    serviceAccount: "sheet-workflows",
-    audience: "sheet-auth",
-  },
-  {
-    file: "sheet-ingress-sheet-auth-token",
-    serviceAccount: "sheet-ingress-server",
-    audience: "sheet-auth",
-  },
-  {
-    file: "sheet-ingress-sheet-apis-token",
-    serviceAccount: "sheet-ingress-server",
-    audience: "sheet-apis",
-  },
-  {
-    file: "sheet-ingress-sheet-bot-token",
-    serviceAccount: "sheet-ingress-server",
-    audience: "sheet-bot",
-  },
-  {
-    file: "sheet-ingress-sheet-workflows-token",
-    serviceAccount: "sheet-ingress-server",
-    audience: "sheet-workflows",
-  },
-  {
     file: "sheet-apis-zero-cache-token",
     serviceAccount: "sheet-apis",
     audience: "zero-cache",
@@ -248,19 +229,31 @@ for (const spec of tokenSpecs) {
   chmodSync(tokenPath, 0o600);
 }
 
+const unquoteEnvValue = (value: string) =>
+  /^(['"]).*\1$/.test(value) ? value.replace(/^(['"])(.*)\1$/, "$2") : value;
+
+const readEnvLines = () =>
+  existsSync(envPath) ? readFileSync(envPath, "utf-8").split(/\r?\n/) : [];
+
 const readExistingEnvValue = (key: string) => {
-  if (!existsSync(envPath)) return undefined;
   const prefix = `${key}=`;
-  for (const line of readFileSync(envPath, "utf-8").split(/\r?\n/)) {
+  for (const line of readEnvLines()) {
     if (line.startsWith(prefix)) {
       const rawValue = line.slice(prefix.length).trim();
       if (!rawValue) return undefined;
-      return /^(['"]).*\1$/.test(rawValue) ? rawValue.replace(/^(['"])(.*)\1$/, "$2") : rawValue;
+      return unquoteEnvValue(rawValue);
     }
   }
   return undefined;
 };
 const preserveEnvValue = (key: string, fallback = "") => readExistingEnvValue(key) ?? fallback;
+const requireEnvValue = (key: string) => {
+  const value = preserveEnvValue(key).trim();
+  if (!value) {
+    throw new Error(`${key} is required and must be non-empty`);
+  }
+  return value;
+};
 const zeroAdminPassword = readExistingEnvValue("ZERO_ADMIN_PASSWORD") ?? makePassword();
 
 const envContents = `POSTGRES_PASSWORD=${postgresPassword}
@@ -271,6 +264,15 @@ ZERO_ADMIN_PASSWORD=${zeroAdminPassword}
 DISCORD_CLIENT_ID=${preserveEnvValue("DISCORD_CLIENT_ID")}
 DISCORD_CLIENT_SECRET=${preserveEnvValue("DISCORD_CLIENT_SECRET")}
 DISCORD_TOKEN=${preserveEnvValue("DISCORD_TOKEN")}
+
+SHEET_APIS_OAUTH_CLIENT_ID=${requireEnvValue("SHEET_APIS_OAUTH_CLIENT_ID")}
+SHEET_APIS_OAUTH_CLIENT_SECRET=${requireEnvValue("SHEET_APIS_OAUTH_CLIENT_SECRET")}
+SHEET_BOT_OAUTH_CLIENT_ID=${requireEnvValue("SHEET_BOT_OAUTH_CLIENT_ID")}
+SHEET_BOT_OAUTH_CLIENT_SECRET=${requireEnvValue("SHEET_BOT_OAUTH_CLIENT_SECRET")}
+SHEET_WORKFLOWS_OAUTH_CLIENT_ID=${requireEnvValue("SHEET_WORKFLOWS_OAUTH_CLIENT_ID")}
+SHEET_WORKFLOWS_OAUTH_CLIENT_SECRET=${requireEnvValue("SHEET_WORKFLOWS_OAUTH_CLIENT_SECRET")}
+SHEET_INGRESS_OAUTH_CLIENT_ID=${requireEnvValue("SHEET_INGRESS_OAUTH_CLIENT_ID")}
+SHEET_INGRESS_OAUTH_CLIENT_SECRET=${requireEnvValue("SHEET_INGRESS_OAUTH_CLIENT_SECRET")}
 
 SHEET_AUTH_PUBLIC_BASE_URL=${preserveEnvValue("SHEET_AUTH_PUBLIC_BASE_URL", "http://localhost:3002")}
 SHEET_WEB_PUBLIC_BASE_URL=${preserveEnvValue("SHEET_WEB_PUBLIC_BASE_URL", "http://localhost:3001")}

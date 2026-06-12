@@ -160,7 +160,9 @@ describe("SheetBotForwardingClient", () => {
       },
     },
   ])("$name", async ({ bodyKind, expectedBody, expectedUrl, runRequest }) => {
-    const request = await captureForwardedRequest(runRequest);
+    const request = await captureForwardedRequest(
+      (client) => runRequest(client) as Effect.Effect<unknown, unknown, never>,
+    );
 
     expectForwardedSheetBotRequest(request, expectedUrl);
     if (bodyKind === "json") {

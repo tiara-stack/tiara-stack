@@ -3,6 +3,7 @@ import { SheetApisAnonymousUserFallback } from "sheet-ingress-api/middlewares/sh
 import { SheetApisServiceUserFallback } from "sheet-ingress-api/middlewares/sheetApisServiceUserFallback/tag";
 import { SheetBotServiceAuthorization } from "sheet-ingress-api/middlewares/sheetBotServiceAuthorization/tag";
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
+import type { SheetAuthOAuthScope } from "sheet-ingress-api/schemas/permissions";
 import { Unauthorized } from "typhoon-core/error";
 import { hasPermission } from "../services/authorization";
 import { SheetAuthUserResolver } from "../services/authResolver";
@@ -93,6 +94,7 @@ export const SheetApisAnonymousUserFallbackLive = Layer.succeed(
           accountId: "anonymous",
           userId: "anonymous",
           permissions: HashSet.empty(),
+          scopes: new Set() as ReadonlySet<SheetAuthOAuthScope>,
           token: Redacted.make("anonymous-token-unavailable"),
         }),
       );

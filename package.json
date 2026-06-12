@@ -27,10 +27,10 @@
       "better-sqlite3"
     ],
     "overrides": {
-      "better-auth": "1.4.18"
+      "better-auth": "1.6.16"
     },
     "patchedDependencies": {
-      "better-auth@1.4.18": "patches/better-auth@1.4.18.patch"
+      "better-auth@1.6.16": "patches/better-auth@1.6.16.patch"
     }
   }
 }

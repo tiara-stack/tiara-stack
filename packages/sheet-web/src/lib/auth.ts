@@ -17,7 +17,7 @@ const SocialProvider = Schema.Literal("discord");
 type SocialProvider = Schema.Schema.Type<typeof SocialProvider>;
 
 // Derived atom for auth client using get.result to unwrap the Result
-const authClientAtom = Atom.make(
+export const authClientAtom = Atom.make(
   Effect.fnUntraced(function* (get) {
     const baseUrl = yield* get.result(authBaseUrlAtom);
     return createSheetAuthClient(baseUrl.href);

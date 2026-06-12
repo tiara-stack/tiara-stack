@@ -1,9 +1,11 @@
 import { Effect, HashSet, Option, Redacted, Schema } from "effect";
 import { Headers } from "effect/unstable/http";
 import { Unauthorized } from "typhoon-core/error";
-import { Permission } from "../schemas/permissions";
+import { Permission, SheetAuthOAuthScope } from "../schemas/permissions";
 
 export const SHEET_AUTH_SESSION_TOKEN_UNAVAILABLE = "ingress-forwarded-token-unavailable";
+export const SHEET_AUTH_TOKEN_HEADER = "x-sheet-auth-token";
+export const SHEET_AUTH_SESSION_TOKEN_HEADER = "x-sheet-auth-session-token";
 
 const getBearerToken = (authorization: string | undefined) => {
   if (!authorization?.startsWith("Bearer ")) {
@@ -25,6 +27,16 @@ const parsePermissions = (permissions: string | undefined) =>
     ),
   );
 
+const parseScopes = (scopes: string | undefined) =>
+  Effect.forEach(scopes?.split(",").filter((scope) => scope.length > 0) ?? [], (scope) =>
+    Schema.decodeUnknownEffect(SheetAuthOAuthScope)(scope),
+  ).pipe(
+    Effect.map((values) => new Set(values) as ReadonlySet<SheetAuthOAuthScope>),
+    Effect.mapError(
+      (cause) => new Unauthorized({ message: "Invalid forwarded auth scopes", cause }),
+    ),
+  );
+
 export const decodeForwardedSheetAuthUser = (
   headers: Headers.Headers,
   options: { readonly unavailableToken: Redacted.Redacted<string> },
@@ -33,6 +45,7 @@ export const decodeForwardedSheetAuthUser = (
     readonly accountId: string;
     readonly userId: string;
     readonly permissions: HashSet.HashSet<Permission>;
+    readonly scopes: ReadonlySet<SheetAuthOAuthScope>;
     readonly token: Redacted.Redacted<string>;
   },
   Unauthorized,
@@ -49,14 +62,21 @@ export const decodeForwardedSheetAuthUser = (
     const permissions = yield* parsePermissions(
       Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-permissions")),
     );
-    const sessionToken = getBearerToken(
-      Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-session-token")),
+    const scopes = yield* parseScopes(
+      Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-scopes")),
     );
+    const forwardedToken = getBearerToken(
+      Option.getOrUndefined(Headers.get(headers, SHEET_AUTH_TOKEN_HEADER)),
+    );
+    const sessionToken =
+      forwardedToken ??
+      getBearerToken(Option.getOrUndefined(Headers.get(headers, SHEET_AUTH_SESSION_TOKEN_HEADER)));
 
     return {
       accountId,
       userId,
       permissions,
+      scopes,
       token: sessionToken ? Redacted.make(sessionToken) : options.unavailableToken,
     };
   });

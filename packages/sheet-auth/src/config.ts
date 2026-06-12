@@ -12,7 +12,24 @@ export const config = {
   discordClientId: Config.schema(Schema.String, "DISCORD_CLIENT_ID"),
   discordClientSecret: Config.schema(Schema.Redacted(Schema.String), "DISCORD_CLIENT_SECRET"),
   postgresUrl: Config.schema(Schema.String, "POSTGRES_URL"),
-  kubernetesAudience: Config.schema(Schema.String, "KUBERNETES_AUDIENCE"),
+  oauthValidAudiences: Config.schema(
+    split(",").pipe(
+      Schema.decodeTo(Schema.Array(Schema.Trim), {
+        decode: SchemaGetter.passthrough(),
+        encode: SchemaGetter.passthrough(),
+      }),
+    ),
+    "OAUTH_VALID_AUDIENCES",
+  ).pipe(Config.withDefault([])),
+  trustedOAuthClientIds: Config.schema(
+    split(",").pipe(
+      Schema.decodeTo(Schema.Array(Schema.Trim), {
+        decode: SchemaGetter.passthrough(),
+        encode: SchemaGetter.passthrough(),
+      }),
+    ),
+    "TRUSTED_OAUTH_CLIENT_IDS",
+  ).pipe(Config.withDefault([])),
   baseUrl: Config.schema(Schema.String, "BASE_URL"),
   trustedOrigins: Config.schema(
     split(",").pipe(
@@ -31,6 +48,42 @@ export const config = {
       }),
     ),
     "COOKIE_DOMAIN",
+  ),
+  tokenExchangeSubjectJwtSecret: Config.option(
+    Config.schema(
+      Schema.Redacted(Schema.NonEmptyString),
+      "SHEET_AUTH_TOKEN_EXCHANGE_SUBJECT_JWT_SECRET",
+    ),
+  ),
+  tokenExchangeSubjectJwtIssuer: Config.option(
+    Config.schema(Schema.NonEmptyString, "SHEET_AUTH_TOKEN_EXCHANGE_SUBJECT_JWT_ISSUER"),
+  ),
+  subjectTokenKubernetesAudience: Config.schema(
+    Schema.NonEmptyString,
+    "SHEET_AUTH_SUBJECT_TOKEN_KUBERNETES_AUDIENCE",
+  ).pipe(Config.withDefault("sheet-auth-subject-token")),
+  subjectTokenKubernetesAllowedServiceAccounts: Config.schema(
+    split(",").pipe(
+      Schema.decodeTo(Schema.Array(Schema.Trim), {
+        decode: SchemaGetter.passthrough(),
+        encode: SchemaGetter.passthrough(),
+      }),
+    ),
+    "SHEET_AUTH_SUBJECT_TOKEN_KUBERNETES_ALLOWED_SERVICE_ACCOUNTS",
+  ).pipe(Config.withDefault([])),
+  subjectTokenKubernetesReviewerTokenPath: Config.schema(
+    Schema.NonEmptyString,
+    "SHEET_AUTH_SUBJECT_TOKEN_KUBERNETES_REVIEWER_TOKEN_PATH",
+  ).pipe(Config.withDefault("/var/run/secrets/tokens/kubernetes-jwks-token")),
+  subjectTokenKubernetesCaPath: Config.schema(
+    Schema.NonEmptyString,
+    "SHEET_AUTH_SUBJECT_TOKEN_KUBERNETES_CA_PATH",
+  ).pipe(Config.withDefault("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")),
+  subjectTokenKubernetesTokenReviewUrl: Config.schema(
+    Schema.NonEmptyString,
+    "SHEET_AUTH_SUBJECT_TOKEN_KUBERNETES_TOKEN_REVIEW_URL",
+  ).pipe(
+    Config.withDefault("https://kubernetes.default.svc/apis/authentication.k8s.io/v1/tokenreviews"),
   ),
   redisUrl: Config.schema(Schema.Redacted(Schema.String), "REDIS_URL"),
   redisBase: Config.schema(Schema.String, "REDIS_BASE"),

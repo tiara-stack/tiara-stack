@@ -25,6 +25,14 @@ describe("makeUpdateAnnouncementDispatchPayloads", () => {
         systemChannelId: "system-channel",
         announcement: updateAnnouncements[0],
       },
+      {
+        dispatchRequestId: "discord-update-announcement:guild-1:auth-update-2026-06-12",
+        guildId: "guild-1",
+        guildName: "Guild One",
+        joinedAt: "2026-06-04T16:59:59.999Z",
+        systemChannelId: "system-channel",
+        announcement: updateAnnouncements[1],
+      },
     ]);
   });
 
@@ -57,12 +65,24 @@ describe("makeUpdateAnnouncementDispatchPayloads", () => {
   });
 
   it("skips announcements dated before or equal to the guild join timestamp", () => {
+    const announcements = [
+      {
+        id: "joined-at-announcement",
+        publishedAt: "2026-06-04T17:00:00.000Z",
+        title: "Joined at announcement",
+        description: "Joined at update",
+      },
+    ];
+
     expect(
-      makeUpdateAnnouncementDispatchPayloads({
-        id: "guild-1",
-        name: "Guild One",
-        joined_at: updateAnnouncements[0].publishedAt,
-      }),
+      makeUpdateAnnouncementDispatchPayloads(
+        {
+          id: "guild-1",
+          name: "Guild One",
+          joined_at: announcements[0].publishedAt,
+        },
+        announcements,
+      ),
     ).toEqual([]);
   });
 

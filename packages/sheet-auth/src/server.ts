@@ -84,10 +84,20 @@ const authServiceLayer = Layer.effect(
     const discordClientId = yield* config.discordClientId;
     const discordClientSecret = yield* config.discordClientSecret;
     const postgresUrl = yield* config.postgresUrl;
-    const kubernetesAudience = yield* config.kubernetesAudience;
+    const oauthValidAudiences = yield* config.oauthValidAudiences;
+    const trustedOAuthClientIds = yield* config.trustedOAuthClientIds;
     const baseUrl = yield* config.baseUrl;
     const trustedOrigins = yield* config.trustedOrigins;
     const cookieDomain = yield* config.cookieDomain;
+    const tokenExchangeSubjectJwtSecret = yield* config.tokenExchangeSubjectJwtSecret;
+    const tokenExchangeSubjectJwtIssuer = yield* config.tokenExchangeSubjectJwtIssuer;
+    const subjectTokenKubernetesAudience = yield* config.subjectTokenKubernetesAudience;
+    const subjectTokenKubernetesAllowedServiceAccounts =
+      yield* config.subjectTokenKubernetesAllowedServiceAccounts;
+    const subjectTokenKubernetesReviewerTokenPath =
+      yield* config.subjectTokenKubernetesReviewerTokenPath;
+    const subjectTokenKubernetesCaPath = yield* config.subjectTokenKubernetesCaPath;
+    const subjectTokenKubernetesTokenReviewUrl = yield* config.subjectTokenKubernetesTokenReviewUrl;
     const redisUrl = yield* config.redisUrl;
     const redisBase = yield* config.redisBase;
 
@@ -102,10 +112,20 @@ const authServiceLayer = Layer.effect(
       postgresUrl,
       discordClientId,
       discordClientSecret: Redacted.value(discordClientSecret),
-      kubernetesAudience,
+      oauthValidAudiences,
+      trustedOAuthClientIds,
       baseUrl,
       trustedOrigins: [...trustedOrigins],
       cookieDomain: Option.getOrUndefined(cookieDomain),
+      tokenExchangeSubjectJwtSecret: Option.getOrUndefined(
+        Option.map(tokenExchangeSubjectJwtSecret, Redacted.value),
+      ),
+      tokenExchangeSubjectJwtIssuer: Option.getOrUndefined(tokenExchangeSubjectJwtIssuer),
+      subjectTokenKubernetesAudience,
+      subjectTokenKubernetesAllowedServiceAccounts,
+      subjectTokenKubernetesReviewerTokenPath,
+      subjectTokenKubernetesCaPath,
+      subjectTokenKubernetesTokenReviewUrl,
       secondaryStorageDriver: redisStorageDriver,
     }) as AuthWithOAuthProvider;
 

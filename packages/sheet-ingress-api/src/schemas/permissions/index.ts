@@ -2,6 +2,26 @@ import { Schema } from "effect";
 export const BasePermissionValues = ["service", "app_owner"] as const;
 export const PermissionValues = BasePermissionValues;
 
+export const SheetAuthOAuthScopeValues = [
+  "sheet.read",
+  "sheet.write",
+  "sheet.manage",
+  "workflow.dispatch",
+] as const;
+
+export const InternalSheetAuthOAuthScopeValues = [
+  "service",
+  "ingress.forward",
+  "bot.impersonate",
+] as const;
+
+export const SheetAuthOAuthScope = Schema.Literals([
+  ...SheetAuthOAuthScopeValues,
+  ...InternalSheetAuthOAuthScopeValues,
+]);
+
+export type SheetAuthOAuthScope = Schema.Schema.Type<typeof SheetAuthOAuthScope>;
+
 const startsWith = <T extends string>(prefix: T) =>
   Schema.String.pipe(Schema.refine((value): value is `${T}${string}` => value.startsWith(prefix)));
 
