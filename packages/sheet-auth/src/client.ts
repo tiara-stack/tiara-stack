@@ -156,6 +156,10 @@ type BetterAuthRequestOptions = {
   };
 };
 
+type BetterAuthFetchOptions = {
+  readonly headers?: Headers | HeadersInit | undefined;
+};
+
 type OAuthTokenEndpointData = {
   readonly access_token: string;
   readonly token_type: string;
@@ -228,6 +232,7 @@ export type SheetAuthClient = {
   readonly oauth2: {
     readonly token: (
       options: Record<string, unknown>,
+      fetchOptions?: BetterAuthFetchOptions,
     ) => Promise<BetterAuthClientResult<OAuthTokenEndpointData>>;
     readonly getClients: (
       options: BetterAuthRequestOptions,
@@ -836,7 +841,12 @@ export function createOAuthClientCredentialsToken(
 ): Effect.Effect<OAuthClientCredentialsToken, OAuthClientCredentialsTokenError> {
   return Effect.gen(function* () {
     const response = yield* Effect.tryPromise({
-      try: async () => await client.oauth2.token(oauthClientCredentialsBody(options)),
+      try: async () =>
+        await client.oauth2.token(oauthClientCredentialsBody(options), {
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+        }),
       catch: (error) =>
         makeOAuthClientCredentialsTokenError(
           "CREATE_OAUTH_CLIENT_CREDENTIALS_TOKEN_FAILED",
