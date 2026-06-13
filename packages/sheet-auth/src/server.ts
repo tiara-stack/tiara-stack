@@ -1,11 +1,4 @@
 import { HttpServer, HttpRouter, HttpServerResponse } from "effect/unstable/http";
-import {
-  HttpApi,
-  HttpApiBuilder,
-  HttpApiEndpoint,
-  HttpApiGroup,
-  HttpApiSwagger,
-} from "effect/unstable/httpapi";
 import { NodeFileSystem, NodeHttpServer, NodeRuntime } from "@effect/platform-node";
 import { Effect, Layer, Logger, Option, Redacted, Context } from "effect";
 import { dotEnvConfigProviderLayer } from "typhoon-core/config";
@@ -22,25 +15,6 @@ import { MetricsLive } from "./metrics";
 import { TracesLive } from "./traces";
 import { Hono } from "hono";
 import { createForwarder } from "./web-forwarder";
-
-// Create Effect HTTP API with catch-all endpoints for Better Auth
-// and explicit endpoints for well-known metadata that have SERVER_ONLY flag
-const Api = HttpApi.make("sheet-auth")
-  .add(
-    HttpApiGroup.make("auth")
-      .add(HttpApiEndpoint.get("get", "/*"))
-      .add(HttpApiEndpoint.post("post", "/*"))
-      .add(HttpApiEndpoint.put("put", "/*"))
-      .add(HttpApiEndpoint.delete("delete", "/*"))
-      .add(HttpApiEndpoint.patch("patch", "/*"))
-      .add(HttpApiEndpoint.head("head", "/*"))
-      .add(HttpApiEndpoint.options("options", "/*")),
-  )
-  .add(
-    HttpApiGroup.make("well-known")
-      .add(HttpApiEndpoint.get("oauthAuthServer", "/.well-known/oauth-authorization-server"))
-      .add(HttpApiEndpoint.get("openidConfig", "/.well-known/openid-configuration")),
-  );
 
 // Auth service type - just the auth instance with cleanup
 // Note: oauthProviderAuthServerMetadata and oauthProviderOpenIdConfigMetadata
@@ -137,15 +111,14 @@ function isOriginAllowed(origin: string, allowedOrigins: string[]): boolean {
   });
 }
 
-// Auth handler group - forwards all requests to Better Auth
-const authLayer = HttpApiBuilder.group(
-  Api,
-  "auth",
-  Effect.fn(function* (handlers) {
+// Auth handler routes - forwards all requests to Better Auth.
+const authLayer = Layer.effectDiscard(
+  Effect.gen(function* () {
     const auth = yield* AuthService;
     const trustedOrigins = [...(yield* config.trustedOrigins)];
     const baseUrl = yield* config.baseUrl;
     const allowedOrigins = [...trustedOrigins, baseUrl];
+    const router = yield* HttpRouter.HttpRouter;
 
     const app = new Hono();
     app.use(
@@ -164,24 +137,16 @@ const authLayer = HttpApiBuilder.group(
     });
 
     const forward = createForwarder((req) => Promise.resolve(app.fetch(req)));
-    return handlers
-      .handle("get", forward)
-      .handle("post", forward)
-      .handle("put", forward)
-      .handle("delete", forward)
-      .handle("patch", forward)
-      .handle("head", forward)
-      .handle("options", forward);
+    yield* router.add("*", "/*", (request) => forward({ request }));
   }),
 ).pipe(Layer.provide(authServiceLayer));
 
-// Well-known handler group - handles SERVER_ONLY metadata endpoints
+// Well-known routes - handles SERVER_ONLY metadata endpoints
 // by forwarding the helper Web handlers through Effect HTTP.
-const wellKnownLayer = HttpApiBuilder.group(
-  Api,
-  "well-known",
-  Effect.fn(function* (handlers) {
+const wellKnownLayer = Layer.effectDiscard(
+  Effect.gen(function* () {
     const auth = yield* AuthService;
+    const router = yield* HttpRouter.HttpRouter;
 
     // Create web handlers for well-known endpoints
     // These helpers expect auth.api to have getOAuthServerConfig/getOpenIdConfig
@@ -193,16 +158,22 @@ const wellKnownLayer = HttpApiBuilder.group(
       auth as AuthWithCleanup & { api: { getOpenIdConfig: (...args: unknown[]) => unknown } },
     );
 
-    return handlers
-      .handle("oauthAuthServer", createForwarder(oauthAuthServerHandler))
-      .handle("openidConfig", createForwarder(openIdConfigHandler));
+    const forwardOAuthAuthServer = createForwarder(oauthAuthServerHandler);
+    const forwardOpenIdConfig = createForwarder(openIdConfigHandler);
+
+    yield* router.add("GET", "/.well-known/oauth-authorization-server", (request) =>
+      forwardOAuthAuthServer({ request }),
+    );
+    yield* router.add("GET", "/.well-known/openid-configuration", (request) =>
+      forwardOpenIdConfig({ request }),
+    );
   }),
 ).pipe(Layer.provide(authServiceLayer));
 
-const apiLayer = Layer.provide(HttpApiBuilder.layer(Api), [authLayer, wellKnownLayer]).pipe(
-  Layer.merge(HttpApiSwagger.layer(Api)),
+const apiLayer = Layer.merge(authLayer, wellKnownLayer).pipe(
   Layer.merge(HttpRouter.add("GET", "/live", HttpServerResponse.empty({ status: 200 }))),
   Layer.merge(HttpRouter.add("GET", "/ready", HttpServerResponse.empty({ status: 200 }))),
+  Layer.provideMerge(HttpRouter.layer),
 );
 
 const HttpLive = HttpRouter.serve(apiLayer).pipe(
