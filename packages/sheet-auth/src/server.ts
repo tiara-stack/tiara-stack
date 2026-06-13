@@ -1,9 +1,4 @@
-import {
-  HttpServer,
-  HttpServerRequest,
-  HttpRouter,
-  HttpServerResponse,
-} from "effect/unstable/http";
+import { HttpServer, HttpRouter, HttpServerResponse } from "effect/unstable/http";
 import {
   HttpApi,
   HttpApiBuilder,
@@ -11,15 +6,9 @@ import {
   HttpApiGroup,
   HttpApiSwagger,
 } from "effect/unstable/httpapi";
-import {
-  NodeFileSystem,
-  NodeHttpServer,
-  NodeHttpServerRequest,
-  NodeRuntime,
-} from "@effect/platform-node";
+import { NodeFileSystem, NodeHttpServer, NodeRuntime } from "@effect/platform-node";
 import { Effect, Layer, Logger, Option, Redacted, Context } from "effect";
 import { dotEnvConfigProviderLayer } from "typhoon-core/config";
-import { getRequestListener } from "@hono/node-server";
 import { cors } from "hono/cors";
 import { createServer } from "http";
 import redisDriver from "unstorage/drivers/redis";
@@ -32,6 +21,7 @@ import { config } from "./config";
 import { MetricsLive } from "./metrics";
 import { TracesLive } from "./traces";
 import { Hono } from "hono";
+import { createForwarder } from "./web-forwarder";
 
 // Create Effect HTTP API with catch-all endpoints for Better Auth
 // and explicit endpoints for well-known metadata that have SERVER_ONLY flag
@@ -52,11 +42,6 @@ const Api = HttpApi.make("sheet-auth")
       .add(HttpApiEndpoint.get("openidConfig", "/.well-known/openid-configuration")),
   );
 
-// Handler type
-type HandlerParams = {
-  request: HttpServerRequest.HttpServerRequest;
-};
-
 // Auth service type - just the auth instance with cleanup
 // Note: oauthProviderAuthServerMetadata and oauthProviderOpenIdConfigMetadata
 // are standalone helper functions, not methods on the auth instance
@@ -64,18 +49,6 @@ interface AuthWithOAuthProvider extends AuthWithCleanup {}
 
 // Auth service tag to share auth instance between route groups
 class AuthService extends Context.Service<AuthService, AuthWithOAuthProvider>()("AuthService") {}
-
-// Helper to create a forwarder from a web handler
-const createForwarder =
-  (webHandler: (req: Request) => Promise<Response>) =>
-  ({ request }: HandlerParams) =>
-    Effect.promise(() => {
-      const listener = getRequestListener(webHandler);
-      return listener(
-        NodeHttpServerRequest.toIncomingMessage(request),
-        NodeHttpServerRequest.toServerResponse(request),
-      );
-    });
 
 // Layer that creates the auth instance and provides it as a service
 const authServiceLayer = Layer.effect(
@@ -203,7 +176,7 @@ const authLayer = HttpApiBuilder.group(
 ).pipe(Layer.provide(authServiceLayer));
 
 // Well-known handler group - handles SERVER_ONLY metadata endpoints
-// by wrapping the helper functions with getRequestListener
+// by forwarding the helper Web handlers through Effect HTTP.
 const wellKnownLayer = HttpApiBuilder.group(
   Api,
   "well-known",

@@ -421,9 +421,6 @@ importers:
       '@effect/platform-node':
         specifier: 'catalog:'
         version: 4.0.0-beta.67(effect@4.0.0-beta.67)(ioredis@5.9.3)
-      '@hono/node-server':
-        specifier: ^1.19.9
-        version: 1.19.9(hono@4.11.9)
       '@opentelemetry/exporter-prometheus':
         specifier: ^0.207.0
         version: 0.207.0(@opentelemetry/api@1.9.0)
@@ -2274,12 +2271,6 @@ packages:
     resolution: {integrity: sha512-rc1hOQtjIWGxcxpb9aHAfLpIctjEnsDehj0DAiVfBlmT84uvR0uUtN2hEi/ecvWVjXUGf5qPF4qEgiLOx1YIMQ==}
     engines: {node: '>=6'}
     hasBin: true
-
-  '@hono/node-server@1.19.9':
-    resolution: {integrity: sha512-vHL6w3ecZsky+8P5MD+eFfaGTyCeOHUIFYMGpQGbrBTSmNNoxv0if69rEZ5giu36weC5saFuznL411gRX7bJDw==}
-    engines: {node: '>=18.14.1'}
-    peerDependencies:
-      hono: ^4
 
   '@ioredis/commands@1.5.0':
     resolution: {integrity: sha512-eUgLqrMf8nJkZxT24JvVRrQya1vZkQh8BBeYNwGDqa5I0VUi8ACx7uFvAaLxintokpTenkK6DASvo/bvNbBGow==}
@@ -7685,10 +7676,6 @@ snapshots:
       long: 5.3.2
       protobufjs: 7.5.4
       yargs: 17.7.2
-
-  '@hono/node-server@1.19.9(hono@4.11.9)':
-    dependencies:
-      hono: 4.11.9
 
   '@ioredis/commands@1.5.0': {}
 

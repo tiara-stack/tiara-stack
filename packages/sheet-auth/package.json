@@ -59,7 +59,6 @@
   "dependencies": {
     "@better-auth/oauth-provider": "^1.6.16",
     "@effect/platform-node": "catalog:",
-    "@hono/node-server": "^1.19.9",
     "@opentelemetry/exporter-prometheus": "^0.207.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.207.0",
     "@opentelemetry/sdk-trace-base": "^2.2.0",
