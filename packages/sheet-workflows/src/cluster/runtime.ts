@@ -56,7 +56,8 @@ export const clusterStorageLayer = Layer.mergeAll(
 const runnerHealthLayer = Layer.unwrap(
   Effect.gen(function* () {
     const namespace = yield* config.podNamespace;
-    return RunnerHealth.layerK8s({ namespace, labelSelector: "app=sheet-workflows" });
+    const labelSelector = yield* config.workflowsRunnerHealthLabelSelector;
+    return RunnerHealth.layerK8s({ namespace, labelSelector });
   }),
 ).pipe(Layer.withSpan("sheet-workflows.runnerHealth"));
 
@@ -93,7 +94,7 @@ const clusterStartupLayer = Layer.effectDiscard(
     yield* getClusterRunnerReadinessSnapshot.pipe(
       Effect.delay(Duration.seconds(5)),
       Effect.flatMap((snapshot) => {
-        const ready = snapshot.hasRecentHealthyRunner;
+        const ready = snapshot.hasRecentHealthyRunner && snapshot.heldLockCount > 0;
         const log = ready ? Effect.logInfo : Effect.logWarning;
         return log("Checked sheet-workflows runner registration", snapshot);
       }),
