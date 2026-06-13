@@ -18,7 +18,7 @@ const makeSessionToken = (): SessionTokenPlugin => {
             const sessionCookieToken = ctx.getCookie(ctx.context.authCookies.sessionToken.name);
 
             if (!sessionCookieToken) {
-              return null;
+              return;
             }
 
             const exposedHeaders =
