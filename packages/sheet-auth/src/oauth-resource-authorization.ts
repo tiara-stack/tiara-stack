@@ -56,6 +56,54 @@ const resourceMetadataMappings = (issuer: string, audience: string) =>
         [audience]: `${issuer.replace(/\/$/, "")}/.well-known/oauth-protected-resource/${audience}`,
       };
 
+const getAuthorizationServerIssuer = (issuer: string) => {
+  const issuerBaseUrl = issuer.replace(/\/$/, "");
+
+  return Effect.tryPromise({
+    try: async () => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5_000);
+      let response: Response;
+      try {
+        response = await fetch(`${issuerBaseUrl}/.well-known/oauth-authorization-server`, {
+          headers: {
+            Accept: "application/json",
+          },
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
+
+      if (!response.ok) {
+        throw new Error(`Authorization server metadata request failed with ${response.status}`);
+      }
+
+      const metadata: unknown = await response.json();
+      if (
+        typeof metadata !== "object" ||
+        metadata === null ||
+        !("issuer" in metadata) ||
+        typeof metadata.issuer !== "string" ||
+        metadata.issuer.length === 0
+      ) {
+        throw new Error("Authorization server metadata is missing issuer");
+      }
+
+      return metadata.issuer.replace(/\/$/, "");
+    },
+    catch: (cause) => cause,
+  }).pipe(
+    Effect.tapError((cause) =>
+      Effect.logWarning("Failed to resolve OAuth authorization server issuer", {
+        cause,
+        issuer,
+      }),
+    ),
+    Effect.orElseSucceed(() => issuerBaseUrl),
+  );
+};
+
 export const makeOAuthResourceTokenAuthorizer = <E = Unauthorized>(
   options: OAuthResourceTokenAuthorizerOptions<E>,
 ) =>
@@ -75,6 +123,7 @@ export const makeOAuthResourceTokenAuthorizer = <E = Unauthorized>(
       (({ message, cause }: { readonly message: string; readonly cause?: unknown }) =>
         new Unauthorized({ message, cause }) as E);
     const verifier = oauthProviderResourceClient().getActions().verifyAccessToken;
+    const authorizationServerIssuer = yield* getAuthorizationServerIssuer(issuer);
 
     const toCachedVerifiedToken = (
       payload: JWTPayload,
@@ -113,7 +162,7 @@ export const makeOAuthResourceTokenAuthorizer = <E = Unauthorized>(
               jwksUrl,
               verifyOptions: {
                 audience,
-                issuer: issuer.replace(/\/$/, ""),
+                issuer: authorizationServerIssuer,
               },
               resourceMetadataMappings: resourceMetadataMappings(issuer, audience),
               scopes: [...requiredScopes],
