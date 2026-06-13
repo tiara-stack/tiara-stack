@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import { vi } from "vitest";
-import { Context, Effect, Layer, Option, Schema, Stream } from "effect";
+import { Cause, Context, Duration, Effect, Exit, Layer, Option, Schema, Stream } from "effect";
 import { ClusterSchema, Sharding } from "effect/unstable/cluster";
 import type { HttpApiClient } from "effect/unstable/httpapi";
 import { WorkflowEngine } from "effect/unstable/workflow";
@@ -39,8 +39,10 @@ import { DispatchService, IngressBotClient, SheetApisClient } from "@/services";
 import {
   dispatchWorkflowNames,
   dispatchWorkflowRegistry,
+  isClusterPersistenceCause,
   makeButtonWorkflowHandler,
   makeWorkflowHandler,
+  retryClusterPersistenceCause,
 } from "./dispatchRegistry";
 import {
   DispatchCheckinButtonWorkflow,
@@ -348,6 +350,53 @@ describe("dispatch workflow registry", () => {
       expect(shardGroup(undefined as never)).toBe("dispatch");
     }
   });
+
+  it.effect("detects cluster persistence defects", () =>
+    Effect.sync(() => {
+      expect(
+        isClusterPersistenceCause(
+          Cause.die({
+            _tag: "PersistenceError",
+            name: "~effect/cluster/ClusterError/PersistenceError",
+          }),
+        ),
+      ).toBe(true);
+      expect(isClusterPersistenceCause(Cause.die(new Error("other defect")))).toBe(false);
+    }),
+  );
+
+  it.effect("retries cluster persistence defects without retrying typed failures", () =>
+    Effect.gen(function* () {
+      let persistenceAttempts = 0;
+      const recovered = yield* retryClusterPersistenceCause(
+        Effect.suspend(() => {
+          persistenceAttempts += 1;
+          return persistenceAttempts < 3
+            ? Effect.die({ _tag: "PersistenceError" })
+            : Effect.succeed("ok");
+        }),
+        3,
+        Duration.zero,
+      );
+
+      let typedAttempts = 0;
+      const typedFailure = yield* Effect.exit(
+        retryClusterPersistenceCause(
+          Effect.suspend(() => {
+            typedAttempts += 1;
+            return Effect.fail("typed failure");
+          }),
+          3,
+          Duration.zero,
+        ),
+      );
+
+      expect(recovered).toBe("ok");
+      expect(persistenceAttempts).toBe(3);
+      expect(Exit.isFailure(typedFailure)).toBe(true);
+      expect(typedAttempts).toBe(1);
+    }),
+  );
 
   it("routes check-in workflow execution to DispatchService", async () => {
     await Effect.runPromise(
