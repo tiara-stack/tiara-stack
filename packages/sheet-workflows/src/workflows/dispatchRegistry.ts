@@ -1,4 +1,4 @@
-import { Effect, Layer, Option, Predicate, Schema } from "effect";
+import { Cause, Duration, Effect, Layer, Option, Predicate, Schema } from "effect";
 import { Sharding } from "effect/unstable/cluster";
 import { Activity } from "effect/unstable/workflow";
 import {
@@ -291,12 +291,14 @@ export const makeWorkflowHandler =
   ): DispatchWorkflowHandler<TWorkflow, RAuthorize | RExecute | IngressBotClient> =>
   (request, executionId) =>
     Effect.gen(function* () {
-      return yield* Activity.make({
-        name: `dispatch.${options.operation}.${executionId}.execute`,
-        success: options.workflow.successSchema,
-        error: options.workflow.errorSchema,
-        execute: runDispatchWorkflowOperation(options, request, executionId),
-      });
+      return yield* retryClusterPersistenceCause(
+        Activity.make({
+          name: `dispatch.${options.operation}.${executionId}.execute`,
+          success: options.workflow.successSchema,
+          error: options.workflow.errorSchema,
+          execute: runDispatchWorkflowOperation(options, request, executionId),
+        }),
+      );
     }) as Effect.Effect<
       DispatchWorkflowSuccess<TWorkflow>,
       DispatchWorkflowError<TWorkflow>,
@@ -309,21 +311,64 @@ export const makeButtonWorkflowHandler =
   ): DispatchWorkflowHandler<DispatchButtonWorkflowByOperation[TOperation], Sharding.Sharding> =>
   (request, executionId) =>
     Effect.gen(function* () {
-      return yield* Activity.make({
-        name: `dispatch.${options.operation}.${executionId}.execute`,
-        success: options.workflow.successSchema,
-        error: options.workflow.errorSchema,
-        execute: dispatchViaButtonEntity(options, request, executionId) as Effect.Effect<
-          DispatchWorkflowSuccess<DispatchButtonWorkflowByOperation[TOperation]>,
-          DispatchWorkflowError<DispatchButtonWorkflowByOperation[TOperation]>,
-          Sharding.Sharding
-        >,
-      });
+      return yield* retryClusterPersistenceCause(
+        Activity.make({
+          name: `dispatch.${options.operation}.${executionId}.execute`,
+          success: options.workflow.successSchema,
+          error: options.workflow.errorSchema,
+          execute: dispatchViaButtonEntity(options, request, executionId) as Effect.Effect<
+            DispatchWorkflowSuccess<DispatchButtonWorkflowByOperation[TOperation]>,
+            DispatchWorkflowError<DispatchButtonWorkflowByOperation[TOperation]>,
+            Sharding.Sharding
+          >,
+        }),
+      );
     }) as Effect.Effect<
       DispatchWorkflowSuccess<DispatchButtonWorkflowByOperation[TOperation]>,
       DispatchWorkflowError<DispatchButtonWorkflowByOperation[TOperation]>,
       Sharding.Sharding
     >;
+
+const isClusterPersistenceDefect = (defect: unknown): boolean => {
+  const tag =
+    Predicate.hasProperty(defect, "_tag") && typeof defect._tag === "string"
+      ? defect._tag
+      : undefined;
+  const name =
+    Predicate.hasProperty(defect, "name") && typeof defect.name === "string"
+      ? defect.name
+      : undefined;
+
+  return tag === "PersistenceError" || name === "~effect/cluster/ClusterError/PersistenceError";
+};
+
+export const isClusterPersistenceCause = (cause: Cause.Cause<unknown>): boolean =>
+  cause.reasons.some(
+    (reason) => Cause.isDieReason(reason) && isClusterPersistenceDefect(reason.defect),
+  );
+
+export const retryClusterPersistenceCause = <A, E, R>(
+  effect: Effect.Effect<A, E, R>,
+  remainingAttempts = 3,
+  retryDelay = Duration.millis(250),
+): Effect.Effect<A, E, R> =>
+  effect.pipe(
+    Effect.catchCause((cause) => {
+      if (remainingAttempts <= 0 || !isClusterPersistenceCause(cause)) {
+        return Effect.failCause(cause);
+      }
+
+      const retryPause = Duration.isZero(retryDelay) ? Effect.void : Effect.sleep(retryDelay);
+
+      return Effect.logWarning(
+        "Retrying dispatch workflow activity after cluster persistence error",
+      ).pipe(
+        Effect.annotateLogs({ remainingAttempts }),
+        Effect.andThen(retryPause),
+        Effect.andThen(retryClusterPersistenceCause(effect, remainingAttempts - 1, retryDelay)),
+      );
+    }),
+  );
 
 const runDispatchWorkflowOperation = <
   TWorkflow extends DispatchWorkflow,
