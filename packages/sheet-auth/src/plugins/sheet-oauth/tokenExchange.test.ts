@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import {
   createJwtSubjectTokenResolver,
   resolveUserByDiscordId,
+  sheetOAuthJwksUrl,
   verifyKubernetesServiceAccountToken,
 } from ".";
 
@@ -125,6 +126,23 @@ const makeDiscordResolverAdapter = ({
     createdUsers,
   };
 };
+
+describe("sheetOAuthJwksUrl", () => {
+  it("uses the configured JWKS URL when provided", () => {
+    expect(
+      sheetOAuthJwksUrl({
+        issuer: "https://auth.example.com",
+        jwksUrl: "http://127.0.0.1:3000/jwks",
+      }),
+    ).toBe("http://127.0.0.1:3000/jwks");
+  });
+
+  it("falls back to the issuer JWKS URL", () => {
+    expect(sheetOAuthJwksUrl({ issuer: "https://auth.example.com/" })).toBe(
+      "https://auth.example.com/jwks",
+    );
+  });
+});
 
 describe("createJwtSubjectTokenResolver", () => {
   it("verifies JWT subject tokens before resolving a subject", async () => {

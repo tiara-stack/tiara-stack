@@ -115,10 +115,14 @@ export interface SheetOAuthSubjectTokenMintingOptions {
 
 export interface SheetOAuthOptions {
   readonly issuer: string;
+  readonly jwksUrl?: string | undefined;
   readonly validAudiences: readonly string[];
   readonly trustedClientIds?: ReadonlySet<string>;
   readonly tokenExchange?: SheetOAuthTokenExchangeOptions | undefined;
 }
+
+export const sheetOAuthJwksUrl = (options: Pick<SheetOAuthOptions, "issuer" | "jwksUrl">) =>
+  options.jwksUrl ?? `${options.issuer.replace(/\/$/, "")}/jwks`;
 
 export interface SheetAuthResolvedIdentity {
   readonly tokenType: "session" | "oauth_access_token";
@@ -326,7 +330,7 @@ const verifyOAuthAccessToken = async (
 ): Promise<Record<string, unknown>> => {
   const verifier = oauthProviderResourceClient().getActions().verifyAccessToken;
   return await verifier(token, {
-    jwksUrl: `${options.issuer.replace(/\/$/, "")}/jwks`,
+    jwksUrl: sheetOAuthJwksUrl(options),
     verifyOptions: {
       audience: [...options.validAudiences],
       issuer: options.issuer.replace(/\/$/, ""),

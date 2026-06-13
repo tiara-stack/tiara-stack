@@ -21,6 +21,9 @@ export const config = {
     ),
     "OAUTH_VALID_AUDIENCES",
   ).pipe(Config.withDefault([])),
+  oauthJwksUrl: Config.schema(Schema.NonEmptyString, "SHEET_AUTH_OAUTH_JWKS_URL").pipe(
+    Config.withDefault("http://127.0.0.1:3000/jwks"),
+  ),
   trustedOAuthClientIds: Config.schema(
     split(",").pipe(
       Schema.decodeTo(Schema.Array(Schema.Trim), {

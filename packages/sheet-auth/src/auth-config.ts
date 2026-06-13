@@ -21,6 +21,7 @@ interface CreateAuthOptions {
   discordClientId: string;
   discordClientSecret: string;
   oauthValidAudiences?: readonly string[];
+  oauthJwksUrl?: string;
   trustedOAuthClientIds?: readonly string[];
   baseUrl: string;
   trustedOrigins?: string[];
@@ -159,6 +160,7 @@ const createSubjectTokenKubernetesOptions = ({
 
 const createSheetOAuthPlugin = ({
   baseUrl,
+  oauthJwksUrl,
   oauthValidAudiences,
   trustedOAuthClientIds,
   tokenExchangeSubjectJwtSecret,
@@ -171,6 +173,7 @@ const createSheetOAuthPlugin = ({
 }: Pick<
   BaseAuthOptions,
   | "baseUrl"
+  | "oauthJwksUrl"
   | "oauthValidAudiences"
   | "trustedOAuthClientIds"
   | "tokenExchangeSubjectJwtSecret"
@@ -183,6 +186,7 @@ const createSheetOAuthPlugin = ({
 >) =>
   sheetOAuth({
     issuer: baseUrl,
+    jwksUrl: oauthJwksUrl,
     validAudiences: oauthAudiences(baseUrl, oauthValidAudiences),
     trustedClientIds: new Set(trustedOAuthClientIds ?? []),
     tokenExchange: {
@@ -217,6 +221,7 @@ function createBaseAuth({
   discordClientId,
   discordClientSecret,
   oauthValidAudiences,
+  oauthJwksUrl,
   trustedOAuthClientIds,
   baseUrl,
   trustedOrigins,
@@ -250,6 +255,7 @@ function createBaseAuth({
       createOAuthProviderPlugin({ baseUrl, oauthValidAudiences, trustedOAuthClientIds }),
       createSheetOAuthPlugin({
         baseUrl,
+        oauthJwksUrl,
         oauthValidAudiences,
         trustedOAuthClientIds,
         tokenExchangeSubjectJwtSecret,
@@ -289,6 +295,7 @@ export function authConfig({
   discordClientId,
   discordClientSecret,
   oauthValidAudiences,
+  oauthJwksUrl,
   trustedOAuthClientIds,
   baseUrl,
   trustedOrigins,
@@ -313,6 +320,7 @@ export function authConfig({
     discordClientId,
     discordClientSecret,
     oauthValidAudiences,
+    oauthJwksUrl,
     trustedOAuthClientIds,
     baseUrl,
     trustedOrigins,

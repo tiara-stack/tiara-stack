@@ -21,10 +21,17 @@ spec:
   ingress:
     {{- range $rule := $svc.networkPolicyFrom }}
     - from:
+        {{- if $rule.app }}
         - podSelector:
             matchLabels:
               app: {{ $rule.app }}
               app.kubernetes.io/instance: {{ $root.Release.Name }}
+        {{- end }}
+        {{- if $rule.namespace }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $rule.namespace }}
+        {{- end }}
       ports:
         - protocol: TCP
           port: {{ $rule.port }}

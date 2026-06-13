@@ -194,6 +194,10 @@ imagePullSecrets:
       port: sheet-auth-svc
     - app: sheet-ingress-server
       port: sheet-auth-svc
+    {{- if .Values.ingress.enabled }}
+    - namespace: {{ .Values.ingress.controllerNamespace }}
+      port: sheet-auth-svc
+    {{- end }}
 - key: sheetApis
   name: sheet-apis
   portName: sheet-apis-svc
@@ -424,6 +428,10 @@ imagePullSecrets:
       port: ingress-svc
     - app: sheet-workflows
       port: ingress-svc
+    {{- if .Values.ingress.enabled }}
+    - namespace: {{ .Values.ingress.controllerNamespace }}
+      port: ingress-svc
+    {{- end }}
 - key: sheetWeb
   name: sheet-web
   portName: sheet-web-svc

@@ -32,6 +32,7 @@ const authServiceLayer = Layer.effect(
     const discordClientSecret = yield* config.discordClientSecret;
     const postgresUrl = yield* config.postgresUrl;
     const oauthValidAudiences = yield* config.oauthValidAudiences;
+    const oauthJwksUrl = yield* config.oauthJwksUrl;
     const trustedOAuthClientIds = yield* config.trustedOAuthClientIds;
     const baseUrl = yield* config.baseUrl;
     const trustedOrigins = yield* config.trustedOrigins;
@@ -60,6 +61,7 @@ const authServiceLayer = Layer.effect(
       discordClientId,
       discordClientSecret: Redacted.value(discordClientSecret),
       oauthValidAudiences,
+      oauthJwksUrl,
       trustedOAuthClientIds,
       baseUrl,
       trustedOrigins: [...trustedOrigins],
