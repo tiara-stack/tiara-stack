@@ -15,6 +15,7 @@ import { MetricsLive } from "./metrics";
 import { TracesLive } from "./traces";
 import { Hono } from "hono";
 import { createForwarder } from "./web-forwarder";
+import { handleOAuth2TokenRequest, isOAuth2TokenRequest } from "./oauth-token-handler";
 
 // Auth service type - just the auth instance with cleanup
 // Note: oauthProviderAuthServerMetadata and oauthProviderOpenIdConfigMetadata
@@ -136,7 +137,11 @@ const authLayer = Layer.effectDiscard(
       return auth.handler(c.req.raw);
     });
 
-    const forward = createForwarder((req) => Promise.resolve(app.fetch(req)));
+    const forward = createForwarder((req) =>
+      isOAuth2TokenRequest(req)
+        ? handleOAuth2TokenRequest(auth, req)
+        : Promise.resolve(app.fetch(req)),
+    );
     yield* router.add("*", "/*", (request) => forward({ request }));
   }),
 ).pipe(Layer.provide(authServiceLayer));
