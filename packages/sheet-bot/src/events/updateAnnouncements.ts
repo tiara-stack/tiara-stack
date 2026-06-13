@@ -87,6 +87,10 @@ const waitForUpdateAnnouncementServices = Effect.fn("waitForUpdateAnnouncementSe
   );
 });
 
+const updateAnnouncementDispatchRetrySchedule = Schedule.spaced(Duration.seconds(5)).pipe(
+  Schedule.take(12),
+);
+
 export const updateAnnouncementsEventLayer = Layer.effectDiscard(
   Effect.gen(function* () {
     const gateway = yield* DiscordGateway;
@@ -132,6 +136,7 @@ export const updateAnnouncementsEventLayer = Layer.effectDiscard(
               SheetWorkflowsRequestContext.asService(() =>
                 sheetWorkflowsClient.get().dispatch.updateAnnouncement({ payload }),
               )().pipe(
+                Effect.retry(updateAnnouncementDispatchRetrySchedule),
                 Effect.catchCause((cause) =>
                   Effect.logWarning("Failed to dispatch update announcement").pipe(
                     Effect.annotateLogs({

@@ -49,6 +49,13 @@ const tokenTtl = (exp: number | undefined, now: number, successfulTokenTtlCap: D
     ? Duration.min(successfulTokenTtlCap, Duration.millis(exp * 1000 - now))
     : successfulTokenTtlCap;
 
+const resourceMetadataMappings = (issuer: string, audience: string) =>
+  URL.canParse(audience)
+    ? undefined
+    : {
+        [audience]: `${issuer.replace(/\/$/, "")}/.well-known/oauth-protected-resource/${audience}`,
+      };
+
 export const makeOAuthResourceTokenAuthorizer = <E = Unauthorized>(
   options: OAuthResourceTokenAuthorizerOptions<E>,
 ) =>
@@ -108,6 +115,7 @@ export const makeOAuthResourceTokenAuthorizer = <E = Unauthorized>(
                 audience,
                 issuer: issuer.replace(/\/$/, ""),
               },
+              resourceMetadataMappings: resourceMetadataMappings(issuer, audience),
               scopes: [...requiredScopes],
             }),
           catch: (cause) => cause,
