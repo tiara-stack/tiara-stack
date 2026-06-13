@@ -1,7 +1,7 @@
 import { DateTime, Effect } from "effect";
 import { HealthRpcs } from "sheet-ingress-api/sheet-apis-rpc";
 import { makeUnknownError } from "typhoon-core/error";
-import { isClusterRunnerReady } from "@/services";
+import { isWorkflowApiReady } from "@/services";
 
 export const healthLayer = HealthRpcs.toLayer({
   "health.live": Effect.fnUntraced(function* () {
@@ -9,7 +9,7 @@ export const healthLayer = HealthRpcs.toLayer({
     return { status: "ok" as const, timestamp };
   }),
   "health.ready": Effect.fnUntraced(function* () {
-    const ready = yield* isClusterRunnerReady;
+    const ready = yield* isWorkflowApiReady;
     if (!ready) {
       return yield* Effect.fail(makeUnknownError("sheet-workflows runner is not ready"));
     }

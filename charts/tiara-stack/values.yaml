@@ -129,6 +129,19 @@ services:
     serviceMonitor:
       enabled: true
 
+  sheetWorkflowsRunner:
+    enabled: true
+    image:
+      repository: ""
+      tag: ""
+      pullPolicy: ""
+    replicas: 1
+    secretRef:
+      name: sheet-workflows-secret
+    env: {}
+    serviceMonitor:
+      enabled: true
+
   sheetDbServer:
     enabled: true
     image:

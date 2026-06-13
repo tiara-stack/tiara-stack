@@ -1,10 +1,10 @@
 import { Duration, Effect, Layer, Schedule } from "effect";
 import { randomUUID } from "node:crypto";
 import { config } from "@/config";
-import { isClusterRunnerReady } from "@/services";
+import { isClusterRunnerFleetReady } from "@/services";
 import { SmokeWorkflow } from "@/workflows/smoke";
 
-const waitForRunner = isClusterRunnerReady.pipe(
+const waitForRunner = isClusterRunnerFleetReady.pipe(
   Effect.repeat({
     while: (ready) => !ready,
     schedule: Schedule.spaced(Duration.seconds(2)),
