@@ -59,8 +59,15 @@ type CleanupMethods = {
   closeStorage: () => Promise<void>;
 };
 
-const oauthAudiences = (baseUrl: string, audiences: readonly string[] | undefined) =>
-  audiences?.length ? [...audiences] : [baseUrl];
+const InternalOAuthResourceAudiences = [
+  "sheet-ingress",
+  "sheet-apis",
+  "sheet-workflows",
+  "sheet-bot",
+] as const;
+
+export const oauthAudiences = (baseUrl: string, audiences: readonly string[] | undefined) =>
+  audiences?.length ? [...audiences] : [baseUrl, ...InternalOAuthResourceAudiences];
 
 const createOAuthProviderPlugin = ({
   baseUrl,
