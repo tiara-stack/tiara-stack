@@ -358,19 +358,19 @@ imagePullSecrets:
 - key: sheetWorkflowsRunner
   name: sheet-workflows-runner
   imageName: sheet-workflows
-  portName: workflows-health
-  metricPortName: workflows-runner-met
+  portName: wf-health
+  metricPortName: wf-runner-met
   secretName: sheet-workflows-secret
   terminationGracePeriodSeconds: 90
   preStopSleepSeconds: 20
   kubernetesServiceAccountToken: true
   servicePorts:
-    - name: workflows-health
+    - name: wf-health
       port: 80
-      targetPort: workflows-health
-    - name: workflows-runner-met
+      targetPort: wf-health
+    - name: wf-runner-met
       port: 9464
-      targetPort: workflows-runner-met
+      targetPort: wf-runner-met
   extraServices:
     - name: sheet-workflows-runner
       headless: true
@@ -379,11 +379,11 @@ imagePullSecrets:
           port: 34431
           targetPort: workflows-rpc
   containerPorts:
-    - name: workflows-health
+    - name: wf-health
       containerPort: 3000
     - name: workflows-rpc
       containerPort: 34431
-    - name: workflows-runner-met
+    - name: wf-runner-met
       containerPort: 9464
   env:
     - name: SHEET_WORKFLOWS_ROLE
