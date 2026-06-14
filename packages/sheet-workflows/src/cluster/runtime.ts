@@ -94,8 +94,7 @@ const clusterStartupLayer = Layer.effectDiscard(
     yield* getClusterRunnerReadinessSnapshot.pipe(
       Effect.delay(Duration.seconds(5)),
       Effect.flatMap((snapshot) => {
-        const ready = snapshot.hasRecentHealthyRunner && snapshot.heldLockCount > 0;
-        const log = ready ? Effect.logInfo : Effect.logWarning;
+        const log = snapshot.hasRecentHealthyRunner ? Effect.logInfo : Effect.logWarning;
         return log("Checked sheet-workflows runner registration", snapshot);
       }),
       Effect.timeoutOrElse({

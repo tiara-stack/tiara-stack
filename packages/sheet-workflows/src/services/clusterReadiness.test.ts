@@ -38,15 +38,17 @@ const runReadiness = (
   );
 
 describe("cluster readiness", () => {
-  it("marks the current runner ready when it is healthy and holds locks", async () => {
+  it("marks the current runner ready when its healthy heartbeat is recent", async () => {
     const queries: string[] = [];
     const ready = await runReadiness(isCurrentClusterRunnerReady, [{ ready: true }], { queries });
 
     expect(ready).toBe(true);
-    expect(queries.join("\n")).toContain('"sheet_workflows_locks"');
+    const query = queries.join("\n");
+    expect(query).toContain('"sheet_workflows_runners".address = ?');
+    expect(query).not.toContain("sheet_workflows_locks");
   });
 
-  it("marks the current runner unready when it holds no locks", async () => {
+  it("marks the current runner unready when it has no recent healthy heartbeat", async () => {
     await expect(runReadiness(isCurrentClusterRunnerReady, [{ ready: false }])).resolves.toBe(
       false,
     );
@@ -58,15 +60,17 @@ describe("cluster readiness", () => {
     );
   });
 
-  it("marks the runner fleet ready when a healthy runner holds locks", async () => {
+  it("marks the runner fleet ready when any healthy runner has a recent heartbeat", async () => {
     const queries: string[] = [];
     const ready = await runReadiness(isClusterRunnerFleetReady, [{ ready: true }], { queries });
 
     expect(ready).toBe(true);
-    expect(queries.join("\n")).toContain('"sheet_workflows_locks"');
+    const query = queries.join("\n");
+    expect(query).toContain('"sheet_workflows_runners"');
+    expect(query).not.toContain("sheet_workflows_locks");
   });
 
-  it("marks the runner fleet unready when no healthy runner holds locks", async () => {
+  it("marks the runner fleet unready when no healthy runner has a recent heartbeat", async () => {
     await expect(runReadiness(isClusterRunnerFleetReady, [{ ready: false }])).resolves.toBe(false);
   });
 
@@ -90,7 +94,6 @@ describe("cluster readiness", () => {
 
     expect(ready).toBe(true);
     expect(queries.join("\n")).toContain('"sheet_workflows_runners".address = ?');
-    expect(queries.join("\n")).toContain('"sheet_workflows_locks"');
   });
 
   it("uses current runner readiness for runner role", async () => {
@@ -102,6 +105,5 @@ describe("cluster readiness", () => {
 
     expect(ready).toBe(true);
     expect(queries.join("\n")).toContain('"sheet_workflows_runners".address = ?');
-    expect(queries.join("\n")).toContain('"sheet_workflows_locks"');
   });
 });

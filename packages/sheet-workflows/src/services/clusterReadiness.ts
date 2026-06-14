@@ -6,6 +6,8 @@ type ClusterReadinessRow = {
   readonly ready: boolean;
 };
 
+const HEARTBEAT_WINDOW_SECONDS = 35;
+
 const ClusterRunnerReadinessSnapshotRowSchema = Schema.Struct({
   address: Schema.String,
   hasRecentHealthyRunner: Schema.Boolean,
@@ -32,19 +34,12 @@ export const isCurrentClusterRunnerReady = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const address = yield* configuredRunnerAddress;
   const [row] = yield* sql<ClusterReadinessRow>`
-    SELECT (
-      EXISTS (
-        SELECT 1
-        FROM "sheet_workflows_runners"
-        WHERE "sheet_workflows_runners".address = ${address}
-          AND "sheet_workflows_runners".healthy = TRUE
-          AND "sheet_workflows_runners".last_heartbeat > NOW() - INTERVAL '35 seconds'
-      )
-      AND EXISTS (
-        SELECT 1
-        FROM "sheet_workflows_locks"
-        WHERE "sheet_workflows_locks".address = ${address}
-      )
+    SELECT EXISTS (
+      SELECT 1
+      FROM "sheet_workflows_runners"
+      WHERE "sheet_workflows_runners".address = ${address}
+        AND "sheet_workflows_runners".healthy = TRUE
+        AND "sheet_workflows_runners".last_heartbeat > NOW() - (${HEARTBEAT_WINDOW_SECONDS} * INTERVAL '1 second')
     ) AS ready
   `;
   return row?.ready === true;
@@ -64,12 +59,7 @@ export const isClusterRunnerFleetReady = Effect.gen(function* () {
       SELECT 1
       FROM "sheet_workflows_runners"
       WHERE "sheet_workflows_runners".healthy = TRUE
-        AND "sheet_workflows_runners".last_heartbeat > NOW() - INTERVAL '35 seconds'
-        AND EXISTS (
-          SELECT 1
-          FROM "sheet_workflows_locks"
-          WHERE "sheet_workflows_locks".address = "sheet_workflows_runners".address
-        )
+        AND "sheet_workflows_runners".last_heartbeat > NOW() - (${HEARTBEAT_WINDOW_SECONDS} * INTERVAL '1 second')
     ) AS ready
   `;
   return row?.ready === true;
@@ -109,7 +99,7 @@ export const getClusterRunnerReadinessSnapshot = Effect.gen(function* () {
         FROM "sheet_workflows_runners"
         WHERE "sheet_workflows_runners".address = ${address}
           AND "sheet_workflows_runners".healthy = TRUE
-          AND "sheet_workflows_runners".last_heartbeat > NOW() - INTERVAL '35 seconds'
+          AND "sheet_workflows_runners".last_heartbeat > NOW() - (${HEARTBEAT_WINDOW_SECONDS} * INTERVAL '1 second')
       ) AS "hasRecentHealthyRunner",
       (
         SELECT COUNT(*)::int
