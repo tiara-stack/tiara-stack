@@ -406,6 +406,9 @@
         "sheetWorkflows": {
           "$ref": "#/definitions/appService"
         },
+        "sheetWorkflowsRunner": {
+          "$ref": "#/definitions/appService"
+        },
         "sheetDbServer": {
           "$ref": "#/definitions/appService"
         },

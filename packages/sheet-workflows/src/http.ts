@@ -6,12 +6,17 @@ import { createServer } from "http";
 import { SheetWorkflowsRpcs } from "sheet-ingress-api/sheet-workflows-rpc";
 import { clusterWorkflowEngineClientLayer } from "./cluster";
 import { dispatchLayer } from "./handlers/dispatch";
-import { healthLayer } from "./handlers/health";
+import { healthLayer as healthRpcLayer } from "./handlers/health";
 import { SheetAuthTokenAuthorizationLive } from "./middlewares/sheetAuthTokenAuthorization/live";
-import { isClusterRunnerReady, postgresSqlLayer, SheetApisClient } from "./services";
+import {
+  isCurrentClusterRunnerReady,
+  isWorkflowApiReady,
+  postgresSqlLayer,
+  SheetApisClient,
+} from "./services";
 import { config } from "./config";
 
-const rpcHandlersLayer = Layer.mergeAll(dispatchLayer, healthLayer);
+const rpcHandlersLayer = Layer.mergeAll(dispatchLayer, healthRpcLayer);
 
 const rpcRoutesLayer = RpcServer.layerHttp({
   group: SheetWorkflowsRpcs,
@@ -27,7 +32,7 @@ const rpcRoutesLayer = RpcServer.layerHttp({
     HttpRouter.add(
       "GET",
       "/ready",
-      isClusterRunnerReady.pipe(
+      isWorkflowApiReady.pipe(
         Effect.map((ready) => HttpServerResponse.empty({ status: ready ? 200 : 503 })),
       ),
     ),
@@ -46,6 +51,29 @@ export const httpLayer = HttpRouter.serve(rpcRoutesLayer).pipe(
   Layer.provide(SheetApisClient.layer),
   Layer.provide(postgresSqlLayer),
   Layer.provide(NodeFileSystem.layer),
+  HttpServer.withLogAddress,
+  Layer.provide(httpServerLayer),
+);
+
+const runnerHealthRoutesLayer = HttpRouter.add(
+  "GET",
+  "/live",
+  HttpServerResponse.empty({ status: 200 }),
+).pipe(
+  Layer.merge(
+    HttpRouter.add(
+      "GET",
+      "/ready",
+      isCurrentClusterRunnerReady.pipe(
+        Effect.map((ready) => HttpServerResponse.empty({ status: ready ? 200 : 503 })),
+      ),
+    ),
+  ),
+  Layer.provideMerge(HttpRouter.layer),
+);
+
+export const runnerHealthLayer = HttpRouter.serve(runnerHealthRoutesLayer).pipe(
+  Layer.provide(postgresSqlLayer),
   HttpServer.withLogAddress,
   Layer.provide(httpServerLayer),
 );

@@ -125,6 +125,7 @@ imagePullSecrets:
   "sheetApisGoogleServiceAccount" "sheet-apis-secret-path"
   "sheetBot" "sheet-bot-secret"
   "sheetWorkflows" "sheet-workflows-secret"
+  "sheetWorkflowsRunner" "sheet-workflows-secret"
   "sheetDbServer" "sdbs-secret"
   "sheetIngressServer" "sheet-ingress-server-secret"
   "sheetWeb" "sheet-web-secret"
@@ -304,6 +305,8 @@ imagePullSecrets:
   portName: workflows-svc
   metricPortName: workflows-met
   secretName: sheet-workflows-secret
+  terminationGracePeriodSeconds: 45
+  preStopSleepSeconds: 10
   servicePorts:
     - name: workflows-svc
       port: 80
@@ -311,21 +314,14 @@ imagePullSecrets:
     - name: workflows-met
       port: 9464
       targetPort: workflows-met
-  extraServices:
-    - name: sheet-workflows-runner
-      headless: true
-      ports:
-        - name: workflows-rpc
-          port: 34431
-          targetPort: workflows-rpc
   containerPorts:
     - name: workflows-svc
       containerPort: 3000
-    - name: workflows-rpc
-      containerPort: 34431
     - name: workflows-met
       containerPort: 9464
   env:
+    - name: SHEET_WORKFLOWS_ROLE
+      value: api
     - name: POD_NAMESPACE
       fieldPath: metadata.namespace
     - name: OTEL_EXPORTER_OTLP_ENDPOINT
@@ -333,13 +329,15 @@ imagePullSecrets:
     - name: POSTGRES_URL
       secretKey: postgresUrl
     - name: WORKFLOWS_RUNNER_HOST
-      fieldPath: status.podIP
+      value: sheet-workflows-runner
     - name: WORKFLOWS_RUNNER_PORT
       value: "34431"
     - name: WORKFLOWS_RUNNER_LISTEN_HOST
       value: "0.0.0.0"
     - name: WORKFLOWS_RUNNER_LISTEN_PORT
       value: "34431"
+    - name: WORKFLOWS_RUNNER_HEALTH_LABEL_SELECTOR
+      value: app=sheet-workflows-runner
     - name: SHEET_AUTH_ISSUER
       secretKey: sheetAuthIssuer
     - name: SHEET_AUTH_OAUTH_CLIENT_ID
@@ -357,6 +355,72 @@ imagePullSecrets:
   networkPolicyFrom:
     - app: sheet-ingress-server
       port: workflows-svc
+- key: sheetWorkflowsRunner
+  name: sheet-workflows-runner
+  imageName: sheet-workflows
+  portName: workflows-health
+  metricPortName: workflows-runner-met
+  secretName: sheet-workflows-secret
+  terminationGracePeriodSeconds: 90
+  preStopSleepSeconds: 20
+  kubernetesServiceAccountToken: true
+  servicePorts:
+    - name: workflows-health
+      port: 80
+      targetPort: workflows-health
+    - name: workflows-runner-met
+      port: 9464
+      targetPort: workflows-runner-met
+  extraServices:
+    - name: sheet-workflows-runner
+      headless: true
+      ports:
+        - name: workflows-rpc
+          port: 34431
+          targetPort: workflows-rpc
+  containerPorts:
+    - name: workflows-health
+      containerPort: 3000
+    - name: workflows-rpc
+      containerPort: 34431
+    - name: workflows-runner-met
+      containerPort: 9464
+  env:
+    - name: SHEET_WORKFLOWS_ROLE
+      value: runner
+    - name: POD_NAMESPACE
+      fieldPath: metadata.namespace
+    - name: OTEL_EXPORTER_OTLP_ENDPOINT
+      secretKey: otelExporterOtlpEndpoint
+    - name: POSTGRES_URL
+      secretKey: postgresUrl
+    - name: WORKFLOWS_RUNNER_HOST
+      fieldPath: status.podIP
+    - name: WORKFLOWS_RUNNER_PORT
+      value: "34431"
+    - name: WORKFLOWS_RUNNER_LISTEN_HOST
+      value: "0.0.0.0"
+    - name: WORKFLOWS_RUNNER_LISTEN_PORT
+      value: "34431"
+    - name: WORKFLOWS_RUNNER_HEALTH_LABEL_SELECTOR
+      value: app=sheet-workflows-runner
+    - name: SHEET_AUTH_ISSUER
+      secretKey: sheetAuthIssuer
+    - name: SHEET_AUTH_OAUTH_CLIENT_ID
+      secretKey: sheetWorkflowsServiceClientId
+    - name: SHEET_AUTH_OAUTH_CLIENT_SECRET
+      secretKey: sheetWorkflowsServiceClientSecret
+    - name: SHEET_AUTH_OAUTH_AUDIENCE
+      value: sheet-workflows
+    - name: SHEET_INGRESS_BASE_URL
+      secretKey: sheetIngressBaseUrl
+    - name: SERVICE_ACCOUNT_JWKS_AUTH_TOKEN_PATH
+      value: /var/run/secrets/tokens/kubernetes-jwks-token
+  projectedTokens:
+    - path: kubernetes-jwks-token
+  networkPolicyFrom:
+    - app: sheet-workflows
+      port: workflows-rpc
   networkPolicySelf:
     - port: workflows-rpc
 - key: sheetDbServer
@@ -392,6 +456,8 @@ imagePullSecrets:
   metricPortName: ingress-met
   secretName: sheet-ingress-server-secret
   maxUnavailable: 0
+  terminationGracePeriodSeconds: 30
+  preStopSleepSeconds: 10
   servicePorts:
     - name: ingress-svc
       port: 80

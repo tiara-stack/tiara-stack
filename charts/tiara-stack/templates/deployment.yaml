@@ -40,12 +40,12 @@ spec:
           type: RuntimeDefault
       serviceAccountName: {{ if eq $svc.key "sheetWorkflows" }}{{ include "tiara-stack.sheetWorkflowsName" $root }}{{ else }}{{ $svc.name }}{{ end }}
       automountServiceAccountToken: false
-      {{- if eq $svc.name "sheet-ingress-server" }}
-      terminationGracePeriodSeconds: 30
+      {{- if $svc.terminationGracePeriodSeconds }}
+      terminationGracePeriodSeconds: {{ $svc.terminationGracePeriodSeconds }}
       {{- end }}
       containers:
         - name: {{ $svc.name }}
-          image: {{ include "tiara-stack.image" (dict "root" $root "name" $svc.name "image" $serviceValues.image) | quote }}
+          image: {{ include "tiara-stack.image" (dict "root" $root "name" (default $svc.name $svc.imageName) "image" $serviceValues.image) | quote }}
           imagePullPolicy: {{ include "tiara-stack.imagePullPolicy" (dict "root" $root "image" $serviceValues.image) }}
           resources:
             {{- if hasKey $serviceValues "resources" }}
@@ -66,11 +66,11 @@ spec:
             - containerPort: {{ $port.containerPort }}
               name: {{ $port.name }}
             {{- end }}
-          {{- if eq $svc.name "sheet-ingress-server" }}
+          {{- if $svc.preStopSleepSeconds }}
           lifecycle:
             preStop:
               exec:
-                command: ["/bin/sh", "-c", "sleep 10"]
+                command: ["/bin/sh", "-c", "sleep {{ $svc.preStopSleepSeconds }}"]
           {{- end }}
           env:
             {{- $envOverrides := $serviceValues.env | default dict }}
@@ -187,11 +187,24 @@ spec:
               {{- end }}
         {{- end }}
         - name: {{ $svc.name }}-kube-root-ca
+          {{- if $svc.kubernetesServiceAccountToken }}
+          projected:
+            sources:
+              - configMap:
+                  name: kube-root-ca.crt
+                  items:
+                    - key: ca.crt
+                      path: ca.crt
+              - serviceAccountToken:
+                  path: token
+                  expirationSeconds: 3600
+          {{- else }}
           configMap:
             name: kube-root-ca.crt
             items:
               - key: ca.crt
                 path: ca.crt
+          {{- end }}
         {{- if $root.Values.global.caCertificate.enabled }}
         - name: {{ $svc.name }}-ca-certificate
           configMap:

@@ -28,16 +28,23 @@ const configuredRunnerAddress = Effect.gen(function* () {
   return `${host}:${port}`;
 });
 
-export const isClusterRunnerReady = Effect.gen(function* () {
+export const isCurrentClusterRunnerReady = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const address = yield* configuredRunnerAddress;
   const [row] = yield* sql<ClusterReadinessRow>`
-    SELECT EXISTS (
-      SELECT 1
-      FROM "sheet_workflows_runners"
-      WHERE "sheet_workflows_runners".address = ${address}
-        AND "sheet_workflows_runners".healthy = TRUE
-        AND "sheet_workflows_runners".last_heartbeat > NOW() - INTERVAL '35 seconds'
+    SELECT (
+      EXISTS (
+        SELECT 1
+        FROM "sheet_workflows_runners"
+        WHERE "sheet_workflows_runners".address = ${address}
+          AND "sheet_workflows_runners".healthy = TRUE
+          AND "sheet_workflows_runners".last_heartbeat > NOW() - INTERVAL '35 seconds'
+      )
+      AND EXISTS (
+        SELECT 1
+        FROM "sheet_workflows_locks"
+        WHERE "sheet_workflows_locks".address = ${address}
+      )
     ) AS ready
   `;
   return row?.ready === true;
@@ -48,6 +55,47 @@ export const isClusterRunnerReady = Effect.gen(function* () {
     ),
   ),
   Effect.withSpan("sheet-workflows.runner.ready"),
+);
+
+export const isClusterRunnerFleetReady = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  const [row] = yield* sql<ClusterReadinessRow>`
+    SELECT EXISTS (
+      SELECT 1
+      FROM "sheet_workflows_runners"
+      WHERE "sheet_workflows_runners".healthy = TRUE
+        AND "sheet_workflows_runners".last_heartbeat > NOW() - INTERVAL '35 seconds'
+        AND EXISTS (
+          SELECT 1
+          FROM "sheet_workflows_locks"
+          WHERE "sheet_workflows_locks".address = "sheet_workflows_runners".address
+        )
+    ) AS ready
+  `;
+  return row?.ready === true;
+}).pipe(
+  Effect.catchCause((cause) =>
+    Effect.logWarning("Failed to verify sheet-workflows runner fleet readiness", cause).pipe(
+      Effect.as(false),
+    ),
+  ),
+  Effect.withSpan("sheet-workflows.runner.fleetReady"),
+);
+
+export const isWorkflowApiReady = Effect.gen(function* () {
+  const role = yield* config.sheetWorkflowsRole;
+  if (role === "api") {
+    return yield* isClusterRunnerFleetReady;
+  }
+
+  return yield* isCurrentClusterRunnerReady;
+}).pipe(
+  Effect.catchCause((cause) =>
+    Effect.logWarning("Failed to verify sheet-workflows API readiness", cause).pipe(
+      Effect.as(false),
+    ),
+  ),
+  Effect.withSpan("sheet-workflows.api.ready"),
 );
 
 export const getClusterRunnerReadinessSnapshot = Effect.gen(function* () {

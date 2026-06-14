@@ -1,12 +1,22 @@
-import { Config, Schema } from "effect";
+import { Config, Effect, Schema } from "effect";
 
 const positiveInt = Schema.Int.check(Schema.isGreaterThan(0));
 const nonEmptyString = Schema.NonEmptyString;
 const nonEmptySecret = Schema.Redacted(nonEmptyString);
 
+const WorkflowRole = Schema.Literals(["combined", "api", "runner"]);
+
 export const config = {
   port: Config.port("PORT").pipe(Config.withDefault(3000)),
   podNamespace: Config.string("POD_NAMESPACE"),
+  sheetWorkflowsRole: Config.string("SHEET_WORKFLOWS_ROLE").pipe(
+    Config.withDefault("combined"),
+    Config.mapOrFail((value) =>
+      Schema.decodeUnknownEffect(WorkflowRole)(value).pipe(
+        Effect.mapError((error) => new Config.ConfigError(error)),
+      ),
+    ),
+  ),
   sheetAuthIssuer: Config.schema(Schema.String, "SHEET_AUTH_ISSUER"),
   sheetAuthOAuthClientId: Config.schema(nonEmptyString, "SHEET_AUTH_OAUTH_CLIENT_ID"),
   sheetAuthOAuthClientSecret: Config.schema(nonEmptySecret, "SHEET_AUTH_OAUTH_CLIENT_SECRET"),
@@ -22,6 +32,14 @@ export const config = {
   ),
   workflowsRunnerListenPort: Config.port("WORKFLOWS_RUNNER_LISTEN_PORT").pipe(
     Config.withDefault(34431),
+  ),
+  workflowsRunnerHealthLabelSelector: Config.string("WORKFLOWS_RUNNER_HEALTH_LABEL_SELECTOR").pipe(
+    Config.withDefault("app=sheet-workflows"),
+    Config.mapOrFail((value) =>
+      Schema.decodeUnknownEffect(nonEmptyString)(value).pipe(
+        Effect.mapError((error) => new Config.ConfigError(error)),
+      ),
+    ),
   ),
   // Tune this for large auto-check-in fleets to bound concurrent workflow enqueues.
   autoCheckinConcurrency: Config.schema(positiveInt, "AUTO_CHECKIN_CONCURRENCY").pipe(

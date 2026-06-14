@@ -7,7 +7,8 @@ import {
   clusterWorkflowEngineClientLayer,
   shardingConfigLayer,
 } from "./cluster";
-import { httpLayer } from "./http";
+import { config } from "./config";
+import { httpLayer, runnerHealthLayer } from "./http";
 import { MetricsLive } from "./metrics";
 import { postgresSqlLayer } from "./services";
 import { autoCheckinTaskLayer } from "./tasks";
@@ -24,7 +25,23 @@ const clientWorkflowLayers = Layer.mergeAll(
 
 const clusterServerLayer = clusterHttpLayer.pipe(Layer.provide(shardingConfigLayer));
 
-const mainLayer = Layer.mergeAll(clientWorkflowLayers, clusterServerLayer).pipe(
+const runnerLayer = Layer.mergeAll(clusterServerLayer, runnerHealthLayer);
+
+const appLayer = Layer.unwrap(
+  Effect.gen(function* () {
+    const role = yield* config.sheetWorkflowsRole;
+    switch (role) {
+      case "api":
+        return clientWorkflowLayers;
+      case "runner":
+        return runnerLayer;
+      case "combined":
+        return Layer.mergeAll(clientWorkflowLayers, clusterServerLayer);
+    }
+  }),
+);
+
+const mainLayer = appLayer.pipe(
   Layer.provide(MetricsLive),
   Layer.provide(TracesLive),
   Layer.provide(Logger.layer([Logger.consoleLogFmt])),
