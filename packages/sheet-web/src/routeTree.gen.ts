@@ -17,10 +17,10 @@ import { Route as AuthenticatedDashboardRouteImport } from './routes/_authentica
 import { Route as AuthenticatedDashboardIndexRouteImport } from './routes/_authenticated/dashboard/index'
 import { Route as AuthOauthStartRouteImport } from './routes/auth/oauth/start'
 import { Route as AuthOauthCallbackRouteImport } from './routes/auth/oauth/callback'
+import { Route as AuthenticatedDeveloperOauthClientsRouteImport } from './routes/_authenticated/developer/oauth-clients'
 import { Route as AuthenticatedDashboardShiftsRouteImport } from './routes/_authenticated/dashboard/shifts'
 import { Route as AuthenticatedDashboardGuildsRouteRouteImport } from './routes/_authenticated/dashboard/guilds/route'
 import { Route as AuthenticatedDashboardGuildsIndexRouteImport } from './routes/_authenticated/dashboard/guilds/index'
-import { Route as AuthenticatedDashboardDeveloperOauthClientsRouteImport } from './routes/_authenticated/dashboard/developer/oauth-clients'
 import { Route as AuthenticatedDashboardGuildsGuildIdScheduleRouteImport } from './routes/_authenticated/dashboard/guilds/$guildId.schedule'
 import { Route as AuthenticatedDashboardGuildsGuildIdScheduleChannelIndexRouteImport } from './routes/_authenticated/dashboard/guilds/$guildId.schedule.$channel/index'
 import { Route as AuthenticatedDashboardGuildsGuildIdScheduleChannelChannelLayoutRouteImport } from './routes/_authenticated/dashboard/guilds/$guildId.schedule.$channel/_channelLayout'
@@ -67,6 +67,12 @@ const AuthOauthCallbackRoute = AuthOauthCallbackRouteImport.update({
   path: '/auth/oauth/callback',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedDeveloperOauthClientsRoute =
+  AuthenticatedDeveloperOauthClientsRouteImport.update({
+    id: '/developer/oauth-clients',
+    path: '/developer/oauth-clients',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const AuthenticatedDashboardShiftsRoute =
   AuthenticatedDashboardShiftsRouteImport.update({
     id: '/shifts',
@@ -84,12 +90,6 @@ const AuthenticatedDashboardGuildsIndexRoute =
     id: '/',
     path: '/',
     getParentRoute: () => AuthenticatedDashboardGuildsRouteRoute,
-  } as any)
-const AuthenticatedDashboardDeveloperOauthClientsRoute =
-  AuthenticatedDashboardDeveloperOauthClientsRouteImport.update({
-    id: '/developer/oauth-clients',
-    path: '/developer/oauth-clients',
-    getParentRoute: () => AuthenticatedDashboardRoute,
   } as any)
 const AuthenticatedDashboardGuildsGuildIdScheduleRoute =
   AuthenticatedDashboardGuildsGuildIdScheduleRouteImport.update({
@@ -137,10 +137,10 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof AuthenticatedDashboardRouteWithChildren
   '/dashboard/guilds': typeof AuthenticatedDashboardGuildsRouteRouteWithChildren
   '/dashboard/shifts': typeof AuthenticatedDashboardShiftsRoute
+  '/developer/oauth-clients': typeof AuthenticatedDeveloperOauthClientsRoute
   '/auth/oauth/callback': typeof AuthOauthCallbackRoute
   '/auth/oauth/start': typeof AuthOauthStartRoute
   '/dashboard/': typeof AuthenticatedDashboardIndexRoute
-  '/dashboard/developer/oauth-clients': typeof AuthenticatedDashboardDeveloperOauthClientsRoute
   '/dashboard/guilds/': typeof AuthenticatedDashboardGuildsIndexRoute
   '/dashboard/guilds/$guildId/schedule': typeof AuthenticatedDashboardGuildsGuildIdScheduleRouteWithChildren
   '/dashboard/guilds/$guildId/schedule/$channel': typeof AuthenticatedDashboardGuildsGuildIdScheduleChannelChannelLayoutRouteWithChildren
@@ -153,10 +153,10 @@ export interface FileRoutesByTo {
   '/live': typeof LiveRoute
   '/ready': typeof ReadyRoute
   '/dashboard/shifts': typeof AuthenticatedDashboardShiftsRoute
+  '/developer/oauth-clients': typeof AuthenticatedDeveloperOauthClientsRoute
   '/auth/oauth/callback': typeof AuthOauthCallbackRoute
   '/auth/oauth/start': typeof AuthOauthStartRoute
   '/dashboard': typeof AuthenticatedDashboardIndexRoute
-  '/dashboard/developer/oauth-clients': typeof AuthenticatedDashboardDeveloperOauthClientsRoute
   '/dashboard/guilds': typeof AuthenticatedDashboardGuildsIndexRoute
   '/dashboard/guilds/$guildId/schedule': typeof AuthenticatedDashboardGuildsGuildIdScheduleRouteWithChildren
   '/dashboard/guilds/$guildId/schedule/$channel': typeof AuthenticatedDashboardGuildsGuildIdScheduleChannelIndexRoute
@@ -172,10 +172,10 @@ export interface FileRoutesById {
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRouteWithChildren
   '/_authenticated/dashboard/guilds': typeof AuthenticatedDashboardGuildsRouteRouteWithChildren
   '/_authenticated/dashboard/shifts': typeof AuthenticatedDashboardShiftsRoute
+  '/_authenticated/developer/oauth-clients': typeof AuthenticatedDeveloperOauthClientsRoute
   '/auth/oauth/callback': typeof AuthOauthCallbackRoute
   '/auth/oauth/start': typeof AuthOauthStartRoute
   '/_authenticated/dashboard/': typeof AuthenticatedDashboardIndexRoute
-  '/_authenticated/dashboard/developer/oauth-clients': typeof AuthenticatedDashboardDeveloperOauthClientsRoute
   '/_authenticated/dashboard/guilds/': typeof AuthenticatedDashboardGuildsIndexRoute
   '/_authenticated/dashboard/guilds/$guildId/schedule': typeof AuthenticatedDashboardGuildsGuildIdScheduleRouteWithChildren
   '/_authenticated/dashboard/guilds/$guildId/schedule/$channel/_channelLayout': typeof AuthenticatedDashboardGuildsGuildIdScheduleChannelChannelLayoutRouteWithChildren
@@ -192,10 +192,10 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/dashboard/guilds'
     | '/dashboard/shifts'
+    | '/developer/oauth-clients'
     | '/auth/oauth/callback'
     | '/auth/oauth/start'
     | '/dashboard/'
-    | '/dashboard/developer/oauth-clients'
     | '/dashboard/guilds/'
     | '/dashboard/guilds/$guildId/schedule'
     | '/dashboard/guilds/$guildId/schedule/$channel'
@@ -208,10 +208,10 @@ export interface FileRouteTypes {
     | '/live'
     | '/ready'
     | '/dashboard/shifts'
+    | '/developer/oauth-clients'
     | '/auth/oauth/callback'
     | '/auth/oauth/start'
     | '/dashboard'
-    | '/dashboard/developer/oauth-clients'
     | '/dashboard/guilds'
     | '/dashboard/guilds/$guildId/schedule'
     | '/dashboard/guilds/$guildId/schedule/$channel'
@@ -226,10 +226,10 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard'
     | '/_authenticated/dashboard/guilds'
     | '/_authenticated/dashboard/shifts'
+    | '/_authenticated/developer/oauth-clients'
     | '/auth/oauth/callback'
     | '/auth/oauth/start'
     | '/_authenticated/dashboard/'
-    | '/_authenticated/dashboard/developer/oauth-clients'
     | '/_authenticated/dashboard/guilds/'
     | '/_authenticated/dashboard/guilds/$guildId/schedule'
     | '/_authenticated/dashboard/guilds/$guildId/schedule/$channel/_channelLayout'
@@ -305,6 +305,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthOauthCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/developer/oauth-clients': {
+      id: '/_authenticated/developer/oauth-clients'
+      path: '/developer/oauth-clients'
+      fullPath: '/developer/oauth-clients'
+      preLoaderRoute: typeof AuthenticatedDeveloperOauthClientsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/dashboard/shifts': {
       id: '/_authenticated/dashboard/shifts'
       path: '/shifts'
@@ -325,13 +332,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/dashboard/guilds/'
       preLoaderRoute: typeof AuthenticatedDashboardGuildsIndexRouteImport
       parentRoute: typeof AuthenticatedDashboardGuildsRouteRoute
-    }
-    '/_authenticated/dashboard/developer/oauth-clients': {
-      id: '/_authenticated/dashboard/developer/oauth-clients'
-      path: '/developer/oauth-clients'
-      fullPath: '/dashboard/developer/oauth-clients'
-      preLoaderRoute: typeof AuthenticatedDashboardDeveloperOauthClientsRouteImport
-      parentRoute: typeof AuthenticatedDashboardRoute
     }
     '/_authenticated/dashboard/guilds/$guildId/schedule': {
       id: '/_authenticated/dashboard/guilds/$guildId/schedule'
@@ -429,7 +429,6 @@ interface AuthenticatedDashboardRouteChildren {
   AuthenticatedDashboardGuildsRouteRoute: typeof AuthenticatedDashboardGuildsRouteRouteWithChildren
   AuthenticatedDashboardShiftsRoute: typeof AuthenticatedDashboardShiftsRoute
   AuthenticatedDashboardIndexRoute: typeof AuthenticatedDashboardIndexRoute
-  AuthenticatedDashboardDeveloperOauthClientsRoute: typeof AuthenticatedDashboardDeveloperOauthClientsRoute
 }
 
 const AuthenticatedDashboardRouteChildren: AuthenticatedDashboardRouteChildren =
@@ -438,8 +437,6 @@ const AuthenticatedDashboardRouteChildren: AuthenticatedDashboardRouteChildren =
       AuthenticatedDashboardGuildsRouteRouteWithChildren,
     AuthenticatedDashboardShiftsRoute: AuthenticatedDashboardShiftsRoute,
     AuthenticatedDashboardIndexRoute: AuthenticatedDashboardIndexRoute,
-    AuthenticatedDashboardDeveloperOauthClientsRoute:
-      AuthenticatedDashboardDeveloperOauthClientsRoute,
   }
 
 const AuthenticatedDashboardRouteWithChildren =
@@ -449,10 +446,13 @@ const AuthenticatedDashboardRouteWithChildren =
 
 interface AuthenticatedRouteChildren {
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRouteWithChildren
+  AuthenticatedDeveloperOauthClientsRoute: typeof AuthenticatedDeveloperOauthClientsRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedDashboardRoute: AuthenticatedDashboardRouteWithChildren,
+  AuthenticatedDeveloperOauthClientsRoute:
+    AuthenticatedDeveloperOauthClientsRoute,
 }
 
 const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
