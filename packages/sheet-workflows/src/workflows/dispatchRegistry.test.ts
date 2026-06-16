@@ -11,6 +11,8 @@ import {
   type DispatchRequester,
 } from "sheet-ingress-api/sheet-workflows-workflows";
 import type {
+  AutoCheckinTestDispatchPayload,
+  AutoCheckinTestDispatchResult,
   CheckinDispatchPayload,
   CheckinDispatchResult,
   CheckinHandleButtonPayload,
@@ -59,6 +61,14 @@ const checkinPayload: CheckinDispatchPayload = {
   dispatchRequestId: "dispatch-1",
   guildId: "guild-1",
   channelId: "channel-1",
+};
+
+const autoCheckinTestPayload: AutoCheckinTestDispatchPayload = {
+  dispatchRequestId: "dispatch-auto-checkin-test",
+  guildId: "guild-1",
+  anchorChannelId: "anchor-channel-1",
+  interactionToken: "interaction-token",
+  interactionDeadlineEpochMs: 4_102_444_800_000,
 };
 
 const kickoutPayload: KickoutDispatchPayload = {
@@ -171,6 +181,7 @@ const unexpectedDispatchServiceCall = <Method extends keyof DispatchServiceMock>
     Effect.die(`Unexpected DispatchService.${String(method)} call`)) as DispatchServiceMock[Method];
 
 const makeDispatchServiceMock = (overrides: Partial<DispatchServiceMock>): DispatchServiceMock => ({
+  autoCheckinTest: unexpectedDispatchServiceCall("autoCheckinTest"),
   checkin: unexpectedDispatchServiceCall("checkin"),
   roomOrder: unexpectedDispatchServiceCall("roomOrder"),
   kickout: unexpectedDispatchServiceCall("kickout"),
@@ -314,6 +325,7 @@ describe("dispatch workflow registry", () => {
       SheetIngressDispatchWorkflows.map((workflow) => workflow.name),
     );
     expect(Object.keys(dispatchWorkflowRegistry)).toEqual([
+      "autoCheckinTest",
       "checkin",
       "roomOrder",
       "kickout",
@@ -435,6 +447,79 @@ describe("dispatch workflow registry", () => {
                   primaryMessageChannelId: "primary-channel",
                   tentativeRoomOrderMessageId: null,
                   tentativeRoomOrderMessageChannelId: null,
+                };
+              }),
+          }),
+        ),
+        Effect.provide(Layer.empty),
+      ),
+    );
+  });
+
+  it("routes auto check-in test workflow execution to DispatchService", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const result = yield* dispatchWorkflowRegistry.autoCheckinTest.execute({
+          requester,
+          payload: autoCheckinTestPayload,
+        });
+
+        expect(result).toEqual({
+          guildId: "guild-1",
+          hour: 1,
+          anchorMessageId: "anchor-message",
+          anchorMessageChannelId: "anchor-channel-1",
+          channelCount: 1,
+          sentCount: 1,
+          skippedCount: 0,
+          failedCount: 0,
+          channels: [
+            {
+              channelName: "main",
+              runningChannelId: "running-channel",
+              checkinChannelId: "checkin-channel",
+              hour: 1,
+              status: "sent",
+              checkinPreviewMessageId: "checkin-preview",
+              monitorPreviewMessageId: "monitor-preview",
+              tentativeRoomOrderPreviewMessageId: null,
+              error: null,
+            },
+          ],
+        });
+      }).pipe(
+        Effect.provideService(
+          DispatchService,
+          makeDispatchServiceMock({
+            autoCheckinTest: (
+              payload: AutoCheckinTestDispatchPayload,
+              currentRequester: DispatchRequester,
+            ) =>
+              Effect.sync((): AutoCheckinTestDispatchResult => {
+                expect(payload).toBe(autoCheckinTestPayload);
+                expect(currentRequester).toBe(requester);
+                return {
+                  guildId: "guild-1",
+                  hour: 1,
+                  anchorMessageId: "anchor-message",
+                  anchorMessageChannelId: "anchor-channel-1",
+                  channelCount: 1,
+                  sentCount: 1,
+                  skippedCount: 0,
+                  failedCount: 0,
+                  channels: [
+                    {
+                      channelName: "main",
+                      runningChannelId: "running-channel",
+                      checkinChannelId: "checkin-channel",
+                      hour: 1,
+                      status: "sent",
+                      checkinPreviewMessageId: "checkin-preview",
+                      monitorPreviewMessageId: "monitor-preview",
+                      tentativeRoomOrderPreviewMessageId: null,
+                      error: null,
+                    },
+                  ],
                 };
               }),
           }),

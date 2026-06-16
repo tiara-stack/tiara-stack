@@ -10,6 +10,8 @@ import {
 import { SheetApisRpcAuthorization } from "./middlewares/sheetApisRpcAuthorization/tag";
 import { MessageRoomOrder } from "./schemas/messageRoomOrder";
 import {
+  AutoCheckinTestDispatchPayload,
+  AutoCheckinTestDispatchResult,
   CheckinDispatchError,
   CheckinDispatchPayload,
   CheckinDispatchResult,
@@ -131,6 +133,7 @@ const roomOrderPinTentativePayload = Schema.Struct({
 });
 
 const workflowName = {
+  autoCheckinTest: "dispatch.autoCheckinTest",
   checkin: "dispatch.checkin",
   roomOrder: "dispatch.roomOrder",
   kickout: "dispatch.kickout",
@@ -159,6 +162,14 @@ const workflowName = {
   scheduleList: "dispatch.scheduleList",
   screenshot: "dispatch.screenshot",
 } as const;
+
+export const DispatchAutoCheckinTestWorkflow = Workflow.make({
+  name: workflowName.autoCheckinTest,
+  payload: dispatchPayload(AutoCheckinTestDispatchPayload),
+  success: AutoCheckinTestDispatchResult,
+  error: BotCommandDispatchError,
+  idempotencyKey: ({ payload }) => payload.dispatchRequestId,
+});
 
 export const DispatchCheckinWorkflow = Workflow.make({
   name: workflowName.checkin,
@@ -383,6 +394,7 @@ export const DispatchScreenshotWorkflow = Workflow.make({
 });
 
 export const DispatchWorkflows = [
+  DispatchAutoCheckinTestWorkflow,
   DispatchCheckinWorkflow,
   DispatchRoomOrderWorkflow,
   DispatchKickoutWorkflow,
@@ -433,6 +445,13 @@ export const DispatchWorkflowRpcs =
   makeDispatchWorkflowRpcs(DispatchWorkflows).middleware(SheetApisRpcAuthorization);
 
 export const DispatchWorkflowOperations = {
+  autoCheckinTest: {
+    operation: "autoCheckinTest",
+    endpointName: "autoCheckinTest",
+    workflow: DispatchAutoCheckinTestWorkflow,
+    rpcTag: DispatchAutoCheckinTestWorkflow.name,
+    discardRpcTag: `${DispatchAutoCheckinTestWorkflow.name}Discard`,
+  },
   checkin: {
     operation: "checkin",
     endpointName: "checkin",

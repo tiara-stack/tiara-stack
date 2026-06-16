@@ -12,6 +12,7 @@ import {
 } from "./discordComponents";
 import { IngressBotClient } from "./ingressBotClient";
 import { SheetApisClient } from "./sheetApisClient";
+import { uniqueChannelNames } from "./autoCheckinChannels";
 import {
   AutoCheckinChannelResult,
   AutoCheckinChannelWorkflow,
@@ -39,23 +40,6 @@ const makeEmbed = (embed: {
 
 const formatCheckinContent = (content: string): string =>
   [content, subtext(autoCheckinNotice)].join("\n");
-
-const uniqueChannelNames = (channels: ReadonlyArray<{ readonly name: Option.Option<string> }>) => {
-  const seen = new Set<string>();
-  const names: string[] = [];
-
-  for (const channel of channels) {
-    const name = Option.getOrUndefined(channel.name);
-    if (typeof name !== "string" || name.length === 0 || seen.has(name)) {
-      continue;
-    }
-
-    seen.add(name);
-    names.push(name);
-  }
-
-  return names;
-};
 
 const deriveTargetHour = (eventStart: DateTime.DateTime, target: DateTime.DateTime): number => {
   const targetHourStart = pipe(target, DateTime.startOf("hour"));

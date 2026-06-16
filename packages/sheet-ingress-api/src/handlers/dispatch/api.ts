@@ -1,6 +1,7 @@
 import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { SheetAuthTokenAuthorization } from "../../middlewares/sheetAuthTokenAuthorization/tag";
 import {
+  AutoCheckinTestDispatchPayload,
   CheckinDispatchErrorSchemas,
   CheckinDispatchPayload,
   DispatchAcceptedResult,
@@ -42,6 +43,13 @@ import {
 import { UnknownError } from "typhoon-core/error";
 
 export class DispatchApi extends HttpApiGroup.make("dispatch")
+  .add(
+    HttpApiEndpoint.post("autoCheckinTest", "/dispatch/auto-checkin/test", {
+      payload: AutoCheckinTestDispatchPayload,
+      success: DispatchAcceptedResult,
+      error: BotCommandDispatchErrorSchemas,
+    }),
+  )
   .add(
     HttpApiEndpoint.post("checkin", "/dispatch/checkin", {
       payload: CheckinDispatchPayload,

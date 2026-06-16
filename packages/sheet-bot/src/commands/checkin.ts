@@ -8,28 +8,10 @@ import {
 import { Ix } from "dfx/index";
 import { discordGatewayLayer } from "../discord/gateway";
 import { CommandHelper, InteractionResponse } from "dfx-discord-utils/utils";
-import { Interaction } from "dfx-discord-utils/utils";
-import { InteractionToken } from "dfx-discord-utils/utils";
 import { SheetWorkflowsClient, SheetWorkflowsRequestContext } from "../services";
 import { discordApplicationLayer } from "../discord/application";
-import { interactionDeadlineEpochMs } from "../utils/interactionDeadline";
+import { makeDispatchBase, resolveChannelId, resolveGuildId } from "../utils/commandHelpers";
 import { runSheetWorkflowsDispatch } from "../utils/sheetWorkflowsDispatch";
-
-const getInteractionGuildId = Effect.gen(function* () {
-  const interactionGuild = yield* Interaction.guild();
-  return pipe(
-    interactionGuild,
-    Option.map((guild) => (guild as { id: string }).id),
-  );
-});
-
-const getInteractionChannelId = Effect.gen(function* () {
-  const interactionChannel = yield* Interaction.channel();
-  return pipe(
-    interactionChannel,
-    Option.map((channel) => (channel as { id: string }).id),
-  );
-});
 
 const makeManualSubCommand = Effect.gen(function* () {
   const sheetWorkflowsClient = yield* SheetWorkflowsClient;
@@ -57,19 +39,14 @@ const makeManualSubCommand = Effect.gen(function* () {
       const response = yield* InteractionResponse;
       yield* response.deferReply({ flags: MessageFlags.Ephemeral });
 
-      const serverId = command.optionValueOptional("server_id");
-      const interactionGuildId = yield* getInteractionGuildId;
-      const guildId = pipe(
-        serverId,
-        Option.orElse(() => interactionGuildId),
-        Option.getOrThrowWith(() => new Error("This command must be run inside a server.")),
-      );
+      const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
       const templateOption = command.optionValueOptional("template");
 
       const channelNameOption = command.optionValueOptional("channel_name");
-      const interactionChannelId = Option.getOrThrow(yield* getInteractionChannelId);
-      const interactionToken = yield* InteractionToken;
-      const interaction = yield* Ix.Interaction;
+      const interactionChannelId = Option.isSome(channelNameOption)
+        ? undefined
+        : yield* resolveChannelId(Option.none());
+      const base = yield* makeDispatchBase;
 
       yield* runSheetWorkflowsDispatch(
         response,
@@ -77,10 +54,8 @@ const makeManualSubCommand = Effect.gen(function* () {
         SheetWorkflowsRequestContext.asInteractionUser(() =>
           sheetWorkflowsClient.get().dispatch.checkin({
             payload: {
-              dispatchRequestId: `discord-interaction:${interaction.id}`,
+              ...base,
               guildId,
-              interactionToken: interactionToken.token,
-              interactionDeadlineEpochMs: interactionDeadlineEpochMs(interaction.id),
               ...(Option.isSome(channelNameOption)
                 ? { channelName: channelNameOption.value }
                 : {
@@ -108,8 +83,45 @@ const makeManualSubCommand = Effect.gen(function* () {
   );
 });
 
+const makeTestAutoSubCommand = Effect.gen(function* () {
+  const sheetWorkflowsClient = yield* SheetWorkflowsClient;
+
+  return yield* CommandHelper.makeSubCommand(
+    (builder) =>
+      builder
+        .setName("test_auto")
+        .setDescription("Test first-hour automatic check-in configuration")
+        .addStringOption((option) =>
+          option.setName("server_id").setDescription("The server to test auto check-in for"),
+        ),
+    Effect.fn("checkin.test_auto")(function* (command) {
+      const response = yield* InteractionResponse;
+      yield* response.deferReply({});
+
+      const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
+      const anchorChannelId = yield* resolveChannelId(Option.none());
+      const base = yield* makeDispatchBase;
+
+      yield* runSheetWorkflowsDispatch(
+        response,
+        "the auto check-in test",
+        SheetWorkflowsRequestContext.asInteractionUser(() =>
+          sheetWorkflowsClient.get().dispatch.autoCheckinTest({
+            payload: {
+              ...base,
+              guildId,
+              anchorChannelId,
+            },
+          }),
+        )(),
+      );
+    }),
+  );
+});
+
 const makeCheckinCommand = Effect.gen(function* () {
   const manualSubCommand = yield* makeManualSubCommand;
+  const testAutoSubCommand = yield* makeTestAutoSubCommand;
 
   return yield* CommandHelper.makeCommand(
     (builder) =>
@@ -125,10 +137,12 @@ const makeCheckinCommand = Effect.gen(function* () {
           InteractionContextType.Guild,
           InteractionContextType.PrivateChannel,
         )
-        .addSubcommand(() => manualSubCommand.data),
+        .addSubcommand(() => manualSubCommand.data)
+        .addSubcommand(() => testAutoSubCommand.data),
     (command) =>
       command.subCommands({
         manual: manualSubCommand.handler,
+        test_auto: testAutoSubCommand.handler,
       }),
   );
 });

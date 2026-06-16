@@ -26,6 +26,7 @@ import {
 } from "@/handlers/shared/interactionFailure";
 import { DispatchService, IngressBotClient, SheetApisClient } from "@/services";
 import {
+  DispatchAutoCheckinTestWorkflow,
   DispatchCheckinButtonWorkflow,
   DispatchCheckinWorkflow,
   DispatchChannelListConfigWorkflow,
@@ -490,6 +491,18 @@ const dispatchButtonMessageId = (request: { readonly payload: unknown }) =>
   );
 
 export const dispatchWorkflowRegistry = {
+  autoCheckinTest: {
+    operation: "autoCheckinTest",
+    workflow: DispatchAutoCheckinTestWorkflow,
+    getInteractionToken: (request: typeof DispatchAutoCheckinTestWorkflow.payloadSchema.Type) =>
+      request.payload.interactionToken,
+    authorize: () => Effect.void,
+    execute: (request: typeof DispatchAutoCheckinTestWorkflow.payloadSchema.Type) =>
+      Effect.gen(function* () {
+        const service = yield* DispatchService;
+        return yield* service.autoCheckinTest(request.payload, request.requester);
+      }),
+  },
   checkin: {
     operation: "checkin",
     workflow: DispatchCheckinWorkflow,
@@ -889,6 +902,11 @@ export const dispatchButtonEntityLayer = makeDispatchButtonEntityLayer({
 });
 
 export const dispatchWorkflowLayer = Layer.mergeAll(
+  DispatchAutoCheckinTestWorkflow.toLayer(
+    makeWorkflowHandler({
+      ...dispatchWorkflowRegistry.autoCheckinTest,
+    }),
+  ),
   DispatchCheckinWorkflow.toLayer(
     makeWorkflowHandler({
       ...dispatchWorkflowRegistry.checkin,

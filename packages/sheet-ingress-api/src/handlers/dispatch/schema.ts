@@ -119,6 +119,48 @@ export const CheckinDispatchResult = Schema.Struct({
 
 export type CheckinDispatchResult = Schema.Schema.Type<typeof CheckinDispatchResult>;
 
+export const AutoCheckinTestDispatchPayload = Schema.Struct({
+  dispatchRequestId: Schema.String,
+  guildId: Schema.String,
+  anchorChannelId: Schema.String,
+  interactionToken: Schema.optional(Schema.String),
+  interactionDeadlineEpochMs: Schema.optional(Schema.Number),
+});
+
+export type AutoCheckinTestDispatchPayload = Schema.Schema.Type<
+  typeof AutoCheckinTestDispatchPayload
+>;
+
+export const AutoCheckinTestChannelResult = Schema.Struct({
+  channelName: Schema.String,
+  runningChannelId: Schema.NullOr(Schema.String),
+  checkinChannelId: Schema.NullOr(Schema.String),
+  hour: Schema.Number,
+  status: Schema.Literals(["sent", "skipped", "failed"]),
+  checkinPreviewMessageId: Schema.NullOr(Schema.String),
+  monitorPreviewMessageId: Schema.NullOr(Schema.String),
+  tentativeRoomOrderPreviewMessageId: Schema.NullOr(Schema.String),
+  error: Schema.NullOr(Schema.String),
+});
+
+export type AutoCheckinTestChannelResult = Schema.Schema.Type<typeof AutoCheckinTestChannelResult>;
+
+export const AutoCheckinTestDispatchResult = Schema.Struct({
+  guildId: Schema.String,
+  hour: Schema.Number,
+  anchorMessageId: Schema.String,
+  anchorMessageChannelId: Schema.String,
+  channelCount: Schema.Number,
+  sentCount: Schema.Number,
+  skippedCount: Schema.Number,
+  failedCount: Schema.Number,
+  channels: Schema.Array(AutoCheckinTestChannelResult),
+});
+
+export type AutoCheckinTestDispatchResult = Schema.Schema.Type<
+  typeof AutoCheckinTestDispatchResult
+>;
+
 export const CheckinHandleButtonPayload = Schema.Struct({
   messageId: Schema.String,
   interactionToken: Schema.String,
@@ -546,6 +588,7 @@ export const DispatchRoomOrderButtonMethods = {
 export const DispatchAcceptedResult = Schema.Struct({
   executionId: Schema.String,
   operation: Schema.Literals([
+    "autoCheckinTest",
     "checkin",
     "roomOrder",
     "kickout",

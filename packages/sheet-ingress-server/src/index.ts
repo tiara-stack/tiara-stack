@@ -755,6 +755,12 @@ const makeApiLayer = () => {
           ),
         )
         .handle(
+          "autoCheckinTest",
+          authorizedSheetWorkflowsDispatch("autoCheckinTest", ({ payload }) =>
+            requireGuild("monitor", payload.guildId),
+          ),
+        )
+        .handle(
           "checkinButton",
           authorizedSheetWorkflowsDispatch("checkinButton", ({ payload }) =>
             Effect.gen(function* () {

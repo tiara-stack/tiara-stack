@@ -73,6 +73,9 @@ describe("SheetWorkflowsForwardingClient", () => {
       readonly workflow: { executionId: (payload: never) => Effect.Effect<string> };
     }) => vi.fn((payload) => operation.workflow.executionId(payload as never));
     const rpcClient = {
+      [DispatchWorkflowOperations.autoCheckinTest.discardRpcTag]: makeDiscard(
+        DispatchWorkflowOperations.autoCheckinTest,
+      ),
       [DispatchWorkflowOperations.checkin.discardRpcTag]: makeDiscard(
         DispatchWorkflowOperations.checkin,
       ),
@@ -162,6 +165,42 @@ describe("SheetWorkflowsForwardingClient", () => {
       requester,
       payload: { dispatchRequestId: "dispatch-checkin", guildId: "guild-1" },
     };
+    const autoCheckinTestPayload = {
+      requester,
+      payload: {
+        dispatchRequestId: "dispatch-auto-checkin-test",
+        guildId: "guild-1",
+        anchorChannelId: "channel-1",
+        interactionToken: "token-1",
+        interactionDeadlineEpochMs: Date.now() + 60_000,
+      },
+    };
+    await expect(
+      Effect.runPromise(
+        client.dispatch.autoCheckinTest(autoCheckinTestPayload as never) as Effect.Effect<
+          unknown,
+          unknown,
+          never
+        >,
+      ),
+    ).resolves.toMatchObject({
+      executionId: await Effect.runPromise(
+        DispatchWorkflowOperations.autoCheckinTest.workflow.executionId(
+          autoCheckinTestPayload as never,
+        ),
+      ),
+      operation: "autoCheckinTest",
+    });
+    expectDiscarded(DispatchWorkflowOperations.autoCheckinTest, {
+      requester,
+      payload: {
+        dispatchRequestId: "dispatch-auto-checkin-test",
+        guildId: "guild-1",
+        anchorChannelId: "channel-1",
+        interactionToken: "token-1",
+        interactionDeadlineEpochMs: expect.any(Number),
+      },
+    });
     await expect(
       Effect.runPromise(
         client.dispatch.checkin(checkinPayload as never) as Effect.Effect<unknown, unknown, never>,

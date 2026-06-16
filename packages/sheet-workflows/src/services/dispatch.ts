@@ -23,6 +23,9 @@ import {
 import type { MessageRoomOrder } from "sheet-ingress-api/schemas/messageRoomOrder";
 import type { MessageSlot } from "sheet-ingress-api/schemas/messageSlot";
 import type {
+  AutoCheckinTestChannelResult,
+  AutoCheckinTestDispatchPayload,
+  AutoCheckinTestDispatchResult,
   CheckinDispatchPayload,
   CheckinDispatchResult,
   CheckinHandleButtonPayload,
@@ -77,6 +80,7 @@ import * as Sheet from "sheet-ingress-api/schemas/sheet";
 import type { ServiceStatus } from "sheet-ingress-api/sheet-apis-rpc";
 import { makeArgumentError, makeUnknownError } from "typhoon-core/error";
 import { markInteractionFailureHandled } from "@/handlers/shared/interactionFailure";
+import { config } from "@/config";
 import {
   checkinActionRow,
   roomOrderActionRow,
@@ -87,6 +91,7 @@ import {
 import { IngressBotClient } from "./ingressBotClient";
 import { buildRoomOrderContent } from "./roomOrderContent";
 import { SheetApisClient } from "./sheetApisClient";
+import { uniqueChannelNames } from "./autoCheckinChannels";
 
 const MessageFlags = {
   Ephemeral: 64,
@@ -120,6 +125,7 @@ type SheetServiceApi = {
 type RoomOrderRankDirection = "previous" | "next";
 type RoomOrderButtonPayload = RoomOrderPreviousButtonPayload;
 type RoomOrderButtonMode = "normal" | "tentative";
+type MessageEmbed = NonNullable<NonNullable<MessagePayload["embeds"]>[number]>;
 
 type DispatchRequester = {
   readonly accountId: string;
@@ -303,6 +309,8 @@ const makeSheetApisServices = (sheetApisClient: typeof SheetApisClient.Service) 
         readonly channelName: string;
         readonly running?: boolean | undefined;
       }) => optionalArgumentError(sheetApis.guildConfig.getGuildChannelByName({ query })),
+      getGuildChannels: (guildId: string, running: boolean) =>
+        sheetApis.guildConfig.getGuildChannels({ query: { guildId, running } }),
     },
     messageCheckinService: {
       getMessageCheckinData: (messageId: string) =>
@@ -409,6 +417,8 @@ const mentionChannel = (channelId: string): string => `<#${channelId}>`;
 
 const mentionRole = (roleId: string): string => `<@&${roleId}>`;
 
+const subtext = (value: string): string => `-# ${value}`;
+
 const escapeMarkdown = (value: string): string =>
   value
     .replaceAll("\\", "\\\\")
@@ -446,6 +456,34 @@ const makeEmbed = (embed: {
   readonly footer?: { readonly text: string };
   readonly color?: number;
 }) => embed;
+
+const autoCheckinTestHour = 1;
+const autoCheckinTestColor = 0xf59e0b;
+const autoCheckinTestNotice =
+  "TEST RUN - no check-ins, room orders, roles, or persistent message records were created.";
+
+const noMentions = () => ({ parse: [] as const });
+
+const messageReference = (message: DiscordMessage) => ({
+  channel_id: message.channel_id,
+  message_id: message.id,
+  fail_if_not_exists: false,
+});
+
+const makeAutoCheckinTestEmbed = (embed: {
+  readonly title: string;
+  readonly description?: string | null;
+  readonly fields?: ReadonlyArray<{
+    readonly name: string;
+    readonly value: string;
+    readonly inline?: boolean;
+  }>;
+}) =>
+  makeEmbed({
+    ...embed,
+    color: autoCheckinTestColor,
+    footer: { text: autoCheckinTestNotice },
+  });
 
 const makeWebScheduleEmbed = () =>
   makeEmbed({
@@ -910,6 +948,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       playerService,
       screenshotService,
     } = makeSheetApisServices(sheetApisClient);
+    const autoCheckinConcurrency = yield* config.autoCheckinConcurrency;
 
     const failRoomOrderInteraction = (
       payload: RoomOrderButtonPayload,
@@ -2177,6 +2216,269 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
     });
 
     return {
+      autoCheckinTest: Effect.fn("DispatchService.autoCheckinTest")(function* (
+        payload: AutoCheckinTestDispatchPayload,
+        requester: DispatchRequester,
+      ) {
+        yield* Effect.annotateCurrentSpan({
+          guildId: payload.guildId,
+          anchorChannelId: payload.anchorChannelId,
+          hour: autoCheckinTestHour,
+          "requester.accountId": requester.accountId,
+          "requester.userId": requester.userId,
+          autoCheckinConcurrency,
+        });
+
+        const makeAnchorPayload = (
+          description: string,
+          fields: ReadonlyArray<{
+            readonly name: string;
+            readonly value: string;
+            readonly inline?: boolean;
+          }> = [],
+        ) =>
+          ({
+            content: null,
+            embeds: [
+              makeAutoCheckinTestEmbed({
+                title: "TEST RUN: Auto check-in configuration",
+                description,
+                fields,
+              }),
+            ],
+            allowed_mentions: noMentions(),
+          }) satisfies MessagePayload;
+
+        const createAnchor = (messagePayload: MessagePayload) =>
+          typeof payload.interactionToken === "string"
+            ? botClient.updateOriginalInteractionResponse(payload.interactionToken, messagePayload)
+            : botClient.sendMessage(payload.anchorChannelId, messagePayload);
+
+        const anchorMessage = yield* createAnchor(
+          makeAnchorPayload(
+            [
+              `Testing first-hour auto check-in for guild ${payload.guildId}.`,
+              `Requested by ${mentionUser(requester.userId)}.`,
+              autoCheckinTestNotice,
+            ].join("\n"),
+          ),
+        );
+        const updateAnchor = (messagePayload: MessagePayload) =>
+          typeof payload.interactionToken === "string"
+            ? botClient.updateOriginalInteractionResponse(payload.interactionToken, messagePayload)
+            : botClient.updateMessage(anchorMessage.channel_id, anchorMessage.id, messagePayload);
+        const referencedMessagePayload = (embed: MessageEmbed) =>
+          ({
+            content: null,
+            embeds: [embed],
+            allowed_mentions: noMentions(),
+            message_reference: messageReference(anchorMessage),
+          }) satisfies MessagePayload;
+
+        const runTestChannel = (
+          channelName: string,
+        ): Effect.Effect<AutoCheckinTestChannelResult, never, never> => {
+          let runningChannelId: string | null = null;
+          let checkinChannelId: string | null = null;
+
+          return Effect.gen(function* () {
+            const generated = yield* checkinService.generate({
+              dispatchRequestId: `${payload.dispatchRequestId}:${channelName}`,
+              guildId: payload.guildId,
+              channelName,
+              hour: autoCheckinTestHour,
+            });
+            runningChannelId = generated.runningChannelId;
+            checkinChannelId = generated.checkinChannelId;
+
+            if (generated.initialMessage === null) {
+              const monitorPreviewMessage = yield* botClient.sendMessage(
+                generated.runningChannelId,
+                referencedMessagePayload(
+                  makeAutoCheckinTestEmbed({
+                    title: "TEST RUN: Check-in skipped",
+                    description: [
+                      generated.monitorCheckinMessage,
+                      ...Option.match(Option.fromNullishOr(generated.monitorFailureMessage), {
+                        onSome: (failure) => [subtext(failure)],
+                        onNone: () => [],
+                      }),
+                    ].join("\n"),
+                    fields: [
+                      { name: "Channel", value: channelName, inline: true },
+                      {
+                        name: "Running channel",
+                        value: mentionChannel(generated.runningChannelId),
+                        inline: true,
+                      },
+                      { name: "Hour", value: globalThis.String(generated.hour), inline: true },
+                    ],
+                  }),
+                ),
+              );
+
+              return {
+                channelName,
+                runningChannelId: generated.runningChannelId,
+                checkinChannelId: generated.checkinChannelId,
+                hour: generated.hour,
+                status: "skipped",
+                checkinPreviewMessageId: null,
+                monitorPreviewMessageId: monitorPreviewMessage.id,
+                tentativeRoomOrderPreviewMessageId: null,
+                error: generated.monitorFailureMessage,
+              } satisfies AutoCheckinTestChannelResult;
+            }
+
+            const checkinPreviewMessage = yield* botClient.sendMessage(
+              generated.checkinChannelId,
+              referencedMessagePayload(
+                makeAutoCheckinTestEmbed({
+                  title: "TEST RUN: Check-in message",
+                  description: generated.initialMessage,
+                  fields: [
+                    { name: "Channel", value: channelName, inline: true },
+                    {
+                      name: "Running channel",
+                      value: mentionChannel(generated.runningChannelId),
+                      inline: true,
+                    },
+                    {
+                      name: "Check-in channel",
+                      value: mentionChannel(generated.checkinChannelId),
+                      inline: true,
+                    },
+                    { name: "Hour", value: globalThis.String(generated.hour), inline: true },
+                  ],
+                }),
+              ),
+            );
+
+            const monitorPreviewMessage = yield* botClient.sendMessage(
+              generated.runningChannelId,
+              referencedMessagePayload(
+                makeAutoCheckinTestEmbed({
+                  title: "TEST RUN: Monitor auto check-in summary",
+                  description: [
+                    generated.monitorCheckinMessage,
+                    ...Option.match(Option.fromNullishOr(generated.monitorFailureMessage), {
+                      onSome: (failure) => [subtext(failure)],
+                      onNone: () => [],
+                    }),
+                  ].join("\n"),
+                  fields: [
+                    { name: "Channel", value: channelName, inline: true },
+                    {
+                      name: "Running channel",
+                      value: mentionChannel(generated.runningChannelId),
+                      inline: true,
+                    },
+                    { name: "Hour", value: globalThis.String(generated.hour), inline: true },
+                  ],
+                }),
+              ),
+            );
+
+            const tentativeRoomOrderPreviewMessage = shouldSendTentativeRoomOrder(
+              generated.fillCount,
+            )
+              ? yield* Effect.gen(function* () {
+                  const roomOrder = yield* roomOrderService.generate({
+                    guildId: payload.guildId,
+                    channelId: generated.runningChannelId,
+                    hour: generated.hour,
+                  });
+
+                  return yield* botClient.sendMessage(
+                    generated.runningChannelId,
+                    referencedMessagePayload(
+                      makeAutoCheckinTestEmbed({
+                        title: "TEST RUN: Tentative room order",
+                        description: formatTentativeRoomOrderContent(roomOrder.content),
+                        fields: [
+                          { name: "Channel", value: channelName, inline: true },
+                          {
+                            name: "Running channel",
+                            value: mentionChannel(generated.runningChannelId),
+                            inline: true,
+                          },
+                          { name: "Hour", value: globalThis.String(generated.hour), inline: true },
+                        ],
+                      }),
+                    ),
+                  );
+                })
+              : null;
+
+            return {
+              channelName,
+              runningChannelId: generated.runningChannelId,
+              checkinChannelId: generated.checkinChannelId,
+              hour: generated.hour,
+              status: "sent",
+              checkinPreviewMessageId: checkinPreviewMessage.id,
+              monitorPreviewMessageId: monitorPreviewMessage.id,
+              tentativeRoomOrderPreviewMessageId: tentativeRoomOrderPreviewMessage?.id ?? null,
+              error: null,
+            } satisfies AutoCheckinTestChannelResult;
+          }).pipe(
+            Effect.catchCause((cause) =>
+              Effect.succeed({
+                channelName,
+                runningChannelId,
+                checkinChannelId,
+                hour: autoCheckinTestHour,
+                status: "failed",
+                checkinPreviewMessageId: null,
+                monitorPreviewMessageId: null,
+                tentativeRoomOrderPreviewMessageId: null,
+                error: Cause.pretty(cause),
+              } satisfies AutoCheckinTestChannelResult),
+            ),
+          );
+        };
+
+        const channels = yield* guildConfigService.getGuildChannels(payload.guildId, true);
+        const channelNames = uniqueChannelNames(channels);
+
+        const channelResults: ReadonlyArray<AutoCheckinTestChannelResult> = yield* Effect.forEach(
+          channelNames,
+          runTestChannel,
+          { concurrency: autoCheckinConcurrency },
+        );
+
+        const sentCount = channelResults.filter((result) => result.status === "sent").length;
+        const skippedCount = channelResults.filter((result) => result.status === "skipped").length;
+        const failedResults = channelResults.filter((result) => result.status === "failed");
+        const failedCount = failedResults.length;
+        const summaryParts = [
+          `Tested hour ${autoCheckinTestHour} across ${channelResults.length} configured running channel(s).`,
+          `Sent: ${sentCount}. Skipped: ${skippedCount}. Failed: ${failedCount}.`,
+          failedResults.length > 0
+            ? `Failed channels: ${failedResults.map((result) => result.channelName).join(", ")}`
+            : "No channel failures.",
+        ];
+
+        yield* updateAnchor(
+          makeAnchorPayload(summaryParts.join("\n"), [
+            { name: "Hour", value: globalThis.String(autoCheckinTestHour), inline: true },
+            { name: "Channels", value: globalThis.String(channelResults.length), inline: true },
+            { name: "Failed", value: globalThis.String(failedCount), inline: true },
+          ]),
+        );
+
+        return {
+          guildId: payload.guildId,
+          hour: autoCheckinTestHour,
+          anchorMessageId: anchorMessage.id,
+          anchorMessageChannelId: anchorMessage.channel_id,
+          channelCount: channelResults.length,
+          sentCount,
+          skippedCount,
+          failedCount,
+          channels: channelResults,
+        } satisfies AutoCheckinTestDispatchResult;
+      }),
       checkin: Effect.fn("DispatchService.checkin")(function* (
         payload: CheckinDispatchPayload,
         requester: DispatchRequester,

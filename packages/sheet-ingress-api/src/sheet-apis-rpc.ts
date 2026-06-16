@@ -58,6 +58,9 @@ import {
   type SheetRpcScopePolicy,
 } from "./middlewares/rpcScopePolicy";
 import {
+  AutoCheckinTestChannelResult,
+  AutoCheckinTestDispatchPayload,
+  AutoCheckinTestDispatchResult,
   CheckinDispatchError,
   CheckinDispatchPayload,
   CheckinDispatchResult,
@@ -103,6 +106,9 @@ import {
 } from "./handlers/dispatch/schema";
 
 export {
+  AutoCheckinTestChannelResult,
+  AutoCheckinTestDispatchPayload,
+  AutoCheckinTestDispatchResult,
   CheckinDispatchError,
   CheckinDispatchPayload,
   CheckinDispatchResult,

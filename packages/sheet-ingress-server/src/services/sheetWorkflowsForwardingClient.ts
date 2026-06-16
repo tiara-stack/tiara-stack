@@ -34,6 +34,9 @@ export class SheetWorkflowsForwardingClient extends Context.Service<SheetWorkflo
 
       return {
         dispatch: {
+          autoCheckinTest: accept(DispatchWorkflowOperations.autoCheckinTest, (args) =>
+            rpcClient[DispatchWorkflowOperations.autoCheckinTest.discardRpcTag](args),
+          ),
           checkin: accept(DispatchWorkflowOperations.checkin, (args) =>
             rpcClient[DispatchWorkflowOperations.checkin.discardRpcTag](args),
           ),

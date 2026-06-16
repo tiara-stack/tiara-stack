@@ -7,6 +7,7 @@ import { DispatchRoomOrderButtonMethods, SheetApisRpcs } from "./sheet-apis-rpc"
 
 const roomOrderButtonMethods = Object.values(DispatchRoomOrderButtonMethods);
 const dispatchRpcNames = [
+  "dispatch.autoCheckinTest",
   "dispatch.checkin",
   "dispatch.checkinButton",
   "dispatch.roomOrder",
@@ -76,6 +77,11 @@ describe("Api", () => {
       name: "slotOpenButton",
       path: "/dispatch/slot/buttons/open",
     });
+    expect(SheetWorkflowsApi.groups.dispatch.endpoints.autoCheckinTest).toMatchObject({
+      method: "POST",
+      name: "autoCheckinTest",
+      path: "/dispatch/auto-checkin/test",
+    });
     expect(SheetWorkflowsApi.groups.dispatch.endpoints.serviceStatus).toMatchObject({
       method: "POST",
       name: "serviceStatus",
@@ -95,6 +101,11 @@ describe("Api", () => {
       method: "POST",
       name: "slotOpenButton",
       path: "/dispatch/slot/buttons/open",
+    });
+    expect(Api.groups.dispatch.endpoints.autoCheckinTest).toMatchObject({
+      method: "POST",
+      name: "autoCheckinTest",
+      path: "/dispatch/auto-checkin/test",
     });
     expect(Api.groups.dispatch.endpoints.serviceStatus).toMatchObject({
       method: "POST",
@@ -132,7 +143,18 @@ describe("Api", () => {
     expect(() => Schema.decodeUnknownSync(discardRpc!.successSchema)(undefined)).toThrow();
   });
 
-  it("accepts guild welcome dispatch results", () => {
+  it("accepts workflow dispatch results", () => {
+    expect(
+      Schema.decodeUnknownSync(DispatchAcceptedResult)({
+        executionId: "auto-checkin-test-execution",
+        operation: "autoCheckinTest",
+        status: "accepted",
+      }),
+    ).toEqual({
+      executionId: "auto-checkin-test-execution",
+      operation: "autoCheckinTest",
+      status: "accepted",
+    });
     expect(
       Schema.decodeUnknownSync(DispatchAcceptedResult)({
         executionId: "guild-welcome-execution",

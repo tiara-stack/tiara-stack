@@ -1,5 +1,6 @@
 import { ClusterSchema } from "effect/unstable/cluster";
 import {
+  DispatchAutoCheckinTestWorkflow as BaseDispatchAutoCheckinTestWorkflow,
   DispatchCheckinButtonWorkflow as BaseDispatchCheckinButtonWorkflow,
   DispatchCheckinWorkflow as BaseDispatchCheckinWorkflow,
   DispatchChannelListConfigWorkflow as BaseDispatchChannelListConfigWorkflow,
@@ -30,6 +31,11 @@ import {
 } from "sheet-ingress-api/sheet-workflows-workflows";
 
 const dispatchShardGroup = () => "dispatch";
+
+export const DispatchAutoCheckinTestWorkflow = BaseDispatchAutoCheckinTestWorkflow.annotate(
+  ClusterSchema.ShardGroup,
+  dispatchShardGroup,
+);
 
 export const DispatchCheckinWorkflow = BaseDispatchCheckinWorkflow.annotate(
   ClusterSchema.ShardGroup,
@@ -168,6 +174,7 @@ export const DispatchScreenshotWorkflow = BaseDispatchScreenshotWorkflow.annotat
 );
 
 export const DispatchWorkflows = [
+  DispatchAutoCheckinTestWorkflow,
   DispatchCheckinWorkflow,
   DispatchRoomOrderWorkflow,
   DispatchKickoutWorkflow,

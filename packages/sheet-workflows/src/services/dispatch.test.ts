@@ -3,6 +3,7 @@ import { Cause, DateTime, Effect, Exit, Option } from "effect";
 import { TestClock } from "effect/testing";
 import { formatTentativeRoomOrderContent } from "sheet-ingress-api/discordComponents";
 import type {
+  AutoCheckinTestDispatchPayload,
   ChannelListConfigDispatchPayload,
   ChannelSetDispatchPayload,
   ChannelUnsetDispatchPayload,
@@ -107,6 +108,13 @@ const screenshotPayload: ScreenshotDispatchPayload = {
 const commandBase = {
   interactionToken: "interaction-token",
   interactionDeadlineEpochMs: 1_700_000_000_000,
+};
+
+const autoCheckinTestPayload: AutoCheckinTestDispatchPayload = {
+  ...commandBase,
+  dispatchRequestId: "dispatch-auto-checkin-test",
+  guildId: "guild-1",
+  anchorChannelId: "anchor-channel-1",
 };
 
 const channelConfigPayload = {
@@ -560,6 +568,144 @@ const makeRoomOrderSendSheetApisClient = (
   });
 
 describe("DispatchService", () => {
+  it("sends first-hour auto check-in test previews without persistent message state", async () => {
+    const updateCalls: Array<{ readonly interactionToken: string; readonly payload: unknown }> = [];
+    const sendCalls: Array<{ readonly channelId: string; readonly payload: unknown }> = [];
+    const checkinGenerateCalls: Array<unknown> = [];
+    const roomOrderGenerateCalls: Array<unknown> = [];
+    const sheetApisClient = makeSheetApisClient({
+      guildConfig: {
+        getGuildChannels: (args: unknown) => {
+          expect(args).toEqual({ query: { guildId: "guild-1", running: true } });
+          return Effect.succeed([makeGuildChannelConfig()]);
+        },
+      },
+      checkin: {
+        generate: (args: unknown) => {
+          checkinGenerateCalls.push(args);
+          return Effect.succeed({
+            hour: 1,
+            runningChannelId: "channel-1",
+            checkinChannelId: "checkin-channel-1",
+            fillCount: 5,
+            roleId: "role-1",
+            initialMessage: "Check in <@user-1> <@&role-1>",
+            monitorCheckinMessage: "Monitor summary <@monitor-1>",
+            monitorUserId: "monitor-1",
+            monitorFailureMessage: null,
+            fillIds: ["user-1", "user-2", "user-3", "user-4", "user-5"],
+          });
+        },
+      },
+      roomOrder: {
+        generate: (args: unknown) => {
+          roomOrderGenerateCalls.push(args);
+          return Effect.succeed({
+            content: "Room order content <@user-1>",
+            runningChannelId: "channel-1",
+            range: roomOrderRange,
+            rank: 1,
+            hour: 1,
+            monitor: null,
+            previousFills: [],
+            fills: ["user-1"],
+            entries: [],
+          });
+        },
+      },
+      messageCheckin: {
+        persistMessageCheckin: () => Effect.die("test run must not persist check-in messages"),
+      },
+      messageRoomOrder: {
+        persistMessageRoomOrder: () => Effect.die("test run must not persist room-order messages"),
+      },
+    });
+    const botClient = {
+      updateOriginalInteractionResponse: (interactionToken: string, payload: unknown) => {
+        updateCalls.push({ interactionToken, payload });
+        return Effect.succeed({ id: "anchor-message", channel_id: "anchor-channel-1" });
+      },
+      updateMessage: () => Effect.die("test run must update the anchor through the interaction"),
+      sendMessage: (channelId: string, payload: unknown) => {
+        sendCalls.push({ channelId, payload });
+        return Effect.succeed({
+          id: `preview-message-${sendCalls.length}`,
+          channel_id: channelId,
+        });
+      },
+    } as never;
+
+    const result = await Effect.runPromise(
+      runWithDispatchService(botClient, sheetApisClient, (service) =>
+        service.autoCheckinTest(autoCheckinTestPayload, requester),
+      ),
+    );
+
+    expect(result).toMatchObject({
+      guildId: "guild-1",
+      hour: 1,
+      anchorMessageId: "anchor-message",
+      anchorMessageChannelId: "anchor-channel-1",
+      channelCount: 1,
+      sentCount: 1,
+      skippedCount: 0,
+      failedCount: 0,
+    });
+    expect(result.channels).toEqual([
+      {
+        channelName: "main",
+        runningChannelId: "channel-1",
+        checkinChannelId: "checkin-channel-1",
+        hour: 1,
+        status: "sent",
+        checkinPreviewMessageId: "preview-message-1",
+        monitorPreviewMessageId: "preview-message-2",
+        tentativeRoomOrderPreviewMessageId: "preview-message-3",
+        error: null,
+      },
+    ]);
+    expect(checkinGenerateCalls).toEqual([
+      {
+        payload: {
+          dispatchRequestId: "dispatch-auto-checkin-test:main",
+          guildId: "guild-1",
+          channelName: "main",
+          hour: 1,
+        },
+      },
+    ]);
+    expect(roomOrderGenerateCalls).toEqual([
+      { payload: { guildId: "guild-1", channelId: "channel-1", hour: 1 } },
+    ]);
+    expect(updateCalls).toHaveLength(2);
+    expect(sendCalls.map((call) => call.channelId)).toEqual([
+      "checkin-channel-1",
+      "channel-1",
+      "channel-1",
+    ]);
+    for (const call of sendCalls) {
+      expect(call.payload).toMatchObject({
+        content: null,
+        allowed_mentions: { parse: [] },
+        message_reference: {
+          channel_id: "anchor-channel-1",
+          message_id: "anchor-message",
+          fail_if_not_exists: false,
+        },
+      });
+      expect((call.payload as { embeds?: ReadonlyArray<unknown> }).embeds).toHaveLength(1);
+      expect(
+        (call.payload as { embeds: ReadonlyArray<{ title?: string; footer?: { text?: string } }> })
+          .embeds[0],
+      ).toMatchObject({
+        title: expect.stringContaining("TEST RUN"),
+        footer: {
+          text: expect.stringContaining("TEST RUN"),
+        },
+      });
+    }
+  });
+
   it("sends the guild welcome embed to the system channel first", async () => {
     const sendCalls: Array<{ readonly channelId: string; readonly payload: unknown }> = [];
     const botClient = {
