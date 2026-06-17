@@ -50,6 +50,15 @@ export const workflowRequesterActorScopes = (discordUserId: string) =>
     ? ["service", "workflow.dispatch"]
     : ["service", "token.exchange", "workflow.dispatch"];
 
+export const workflowSubjectTokenOptions = (
+  discordUserId: string,
+  kubernetesServiceAccountToken: Redacted.Redacted<string>,
+) => ({
+  subject: `discord:${discordUserId}`,
+  expiresIn: 60,
+  kubernetesServiceAccountToken,
+});
+
 const readKubernetesServiceAccountToken = (path: string) =>
   Effect.tryPromise({
     try: async () => Redacted.make((await readFile(path, "utf8")).trim()),
@@ -117,7 +126,6 @@ export class SheetWorkflowsClient extends Context.Service<SheetWorkflowsClient>(
       const sheetAuthClient = yield* SheetAuthClient;
       const httpClient = yield* HttpClient.HttpClient;
       const baseUrl = yield* config.sheetIngressBaseUrl;
-      const sheetAuthIssuer = yield* config.sheetAuthIssuer;
       const oauthClientId = yield* config.sheetAuthOAuthClientId;
       const oauthClientSecret = yield* config.sheetAuthOAuthClientSecret;
       const subjectTokenKubernetesTokenPath =
@@ -133,12 +141,10 @@ export class SheetWorkflowsClient extends Context.Service<SheetWorkflowsClient>(
           const kubernetesServiceAccountToken = yield* readKubernetesServiceAccountToken(
             subjectTokenKubernetesTokenPath,
           );
-          const subjectToken = yield* createOAuthSubjectToken(sheetAuthClient, {
-            subject: `discord:${discordUserId}`,
-            audience: sheetAuthIssuer,
-            expiresIn: 60,
-            kubernetesServiceAccountToken,
-          });
+          const subjectToken = yield* createOAuthSubjectToken(
+            sheetAuthClient,
+            workflowSubjectTokenOptions(discordUserId, kubernetesServiceAccountToken),
+          );
 
           return yield* exchangeOAuthToken(sheetAuthClient, {
             subjectToken: subjectToken.subjectToken,
