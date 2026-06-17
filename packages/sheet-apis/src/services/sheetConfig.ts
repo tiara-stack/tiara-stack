@@ -260,7 +260,12 @@ export class SheetConfigService extends Context.Service<SheetConfigService>()(
               ),
           }),
         );
-        const rangeStruct = Record.fromEntries(range as [string, any][]);
+        const rangeStruct = {
+          "User Notes": null,
+          "Moni IDs": null,
+          "Moni Names": null,
+          ...Record.fromEntries(range as [string, any][]),
+        };
 
         return yield* Schema.decodeUnknownEffect(
           Schema.Struct({
