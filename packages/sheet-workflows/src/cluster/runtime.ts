@@ -61,10 +61,18 @@ const runnerHealthLayer = Layer.unwrap(
   }),
 ).pipe(Layer.withSpan("sheet-workflows.runnerHealth"));
 
+export const clientOnlyWorkflowShardingConfig = (
+  current: ShardingConfig.ShardingConfig["Service"],
+): ShardingConfig.ShardingConfig["Service"] => ({
+  ...current,
+  runnerAddress: Option.none(),
+});
+
 const clusterClientLayer = HttpRunner.layerClient.pipe(
   Layer.provide(clusterStorageLayer),
   Layer.provide(RunnerHealth.layerNoop),
   Layer.provide(HttpRunner.layerClientProtocolHttp({ path: "/cluster/rpc" })),
+  Layer.updateService(ShardingConfig.ShardingConfig, clientOnlyWorkflowShardingConfig),
   Layer.provide(shardingConfigLayer),
   Layer.provide(RpcSerialization.layerJson),
   Layer.withSpan("sheet-workflows.clusterClient"),
