@@ -318,7 +318,13 @@ describe("dispatch button entity", () => {
   );
 
   it.effect("preserves normalized failure behavior", () => {
-    const updateOriginalInteractionResponse = vi.fn(() => Effect.void);
+    const updateOriginalInteractionResponseWithFiles = vi.fn(
+      (
+        _interactionToken: string,
+        _payload: unknown,
+        _files: ReadonlyArray<{ readonly content: Uint8Array }>,
+      ) => Effect.void,
+    );
     return Effect.gen(function* () {
       const clientFor = yield* Entity.makeTestClient(
         DispatchButtonEntity,
@@ -330,9 +336,24 @@ describe("dispatch button entity", () => {
         .pipe(Effect.exit);
 
       expect(exit._tag).toBe("Failure");
-      expect(updateOriginalInteractionResponse).toHaveBeenCalledWith("interaction-token", {
-        content: "Dispatch failed. Please try again.",
-      });
+      expect(updateOriginalInteractionResponseWithFiles).toHaveBeenCalledWith(
+        "interaction-token",
+        {
+          content:
+            "Dispatch failed. Please try again.\nUnexpected error: check-in failed\nFull error is attached.",
+          attachments: [{ id: "0", filename: "error.txt" }],
+        },
+        [
+          expect.objectContaining({
+            name: "error.txt",
+            contentType: "text/plain",
+            content: expect.any(Uint8Array),
+          }),
+        ],
+      );
+      const [, , files] = updateOriginalInteractionResponseWithFiles.mock.calls[0]!;
+      const [file] = files as ReadonlyArray<{ readonly content: Uint8Array }>;
+      expect(new TextDecoder().decode(file.content)).toContain("check-in failed");
     }).pipe(
       Effect.provideService(
         DispatchService,
@@ -340,7 +361,9 @@ describe("dispatch button entity", () => {
           checkinButton: () => Effect.fail(new Error("check-in failed")),
         }),
       ),
-      Effect.provideService(IngressBotClient, { updateOriginalInteractionResponse } as never),
+      Effect.provideService(IngressBotClient, {
+        updateOriginalInteractionResponseWithFiles,
+      } as never),
       Effect.provideService(SheetApisClient, sheetApisClientWithCheckinMember),
       Effect.provide(WorkflowEngine.layerMemory),
       Effect.provide(TestShardingConfig),

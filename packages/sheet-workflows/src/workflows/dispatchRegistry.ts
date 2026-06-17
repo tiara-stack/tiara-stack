@@ -58,6 +58,93 @@ import {
 } from "./dispatchWorkflows";
 
 const entityFailureMessage = "Dispatch failed. Please try again.";
+const maxFailureDetailLength = 1_200;
+const errorFileName = "error.txt";
+const errorFileContentType = "text/plain";
+const textEncoder = new TextEncoder();
+
+const errorDetailLabels = {
+  ArgumentError: "Request error",
+  GoogleSheetsError: "Google Sheets error",
+  ParserFieldError: "Invalid sheet data",
+  QueryResultAppError: "Database error",
+  QueryResultParseError: "Database error",
+  SchemaError: "Data format error",
+  SheetConfigError: "Sheet config error",
+  Unauthorized: "Authorization error",
+  UnknownError: "Unexpected error",
+} as const;
+
+const errorDetailLabelTags = new Set<string>(Object.keys(errorDetailLabels));
+
+const isErrorDetailLabelTag = (tag: string): tag is keyof typeof errorDetailLabels =>
+  errorDetailLabelTags.has(tag);
+
+const errorMessage = (error: unknown): Option.Option<string> =>
+  Predicate.hasProperty(error, "message") && typeof error.message === "string"
+    ? Option.some(error.message)
+    : Option.none();
+
+const cleanFailureDetail = (message: string) => {
+  const clean = message.replace(/\s+/g, " ").trim();
+  return clean.length > maxFailureDetailLength
+    ? `${clean.slice(0, maxFailureDetailLength - 3)}...`
+    : clean;
+};
+
+const errorDetailLabel = (error: unknown): Option.Option<string> => {
+  if (!Predicate.hasProperty(error, "_tag") || typeof error._tag !== "string") {
+    return error instanceof Error ? Option.some("Unexpected error") : Option.none();
+  }
+
+  return isErrorDetailLabelTag(error._tag)
+    ? Option.some(errorDetailLabels[error._tag])
+    : errorMessage(error).pipe(Option.as("Unexpected error"));
+};
+
+export const dispatchFailureMessage = (error: unknown): string => {
+  const detail = Option.all({
+    label: errorDetailLabel(error),
+    message: errorMessage(error),
+  }).pipe(
+    Option.map(({ label, message }) => `${label}: ${cleanFailureDetail(message)}`),
+    Option.getOrUndefined,
+  );
+
+  return detail ? `${entityFailureMessage}\n${detail}` : entityFailureMessage;
+};
+
+const dispatchFailureTrace = (error: unknown) => {
+  const cause = Cause.isCause(error) ? error : Cause.fail(error);
+  const trace = Cause.pretty(cause).trim();
+
+  return trace.length > 0
+    ? trace
+    : errorMessage(error).pipe(Option.getOrElse(() => "Unknown error"));
+};
+
+export const dispatchFailureResponse = (error: unknown) => {
+  const fullText = dispatchFailureTrace(error);
+
+  return {
+    payload: {
+      content: `${dispatchFailureMessage(error)}\nFull error is attached.`,
+      attachments: [
+        {
+          id: "0",
+          filename: errorFileName,
+        },
+      ],
+    },
+    files: [
+      {
+        name: errorFileName,
+        contentType: errorFileContentType,
+        content: textEncoder.encode(fullText),
+      },
+    ],
+  };
+};
 
 const isMissingMessageRoomOrderError = (error: unknown) =>
   Predicate.hasProperty(error, "_tag") &&
@@ -65,12 +152,17 @@ const isMissingMessageRoomOrderError = (error: unknown) =>
   Predicate.hasProperty(error, "message") &&
   error.message === MESSAGE_ROOM_ORDER_NOT_REGISTERED_ERROR_MESSAGE;
 
-const notifyInteractionFailure = (interactionToken: string | undefined) =>
+const notifyInteractionFailure = (interactionToken: string | undefined, error: unknown) =>
   typeof interactionToken === "string"
     ? Effect.gen(function* () {
         const botClient = yield* IngressBotClient;
+        const response = dispatchFailureResponse(unwrapInteractionFailure(error));
         yield* botClient
-          .updateOriginalInteractionResponse(interactionToken, { content: entityFailureMessage })
+          .updateOriginalInteractionResponseWithFiles(
+            interactionToken,
+            response.payload,
+            response.files,
+          )
           .pipe(Effect.catch(() => Effect.void));
       })
     : Effect.void;
@@ -392,7 +484,7 @@ const runDispatchWorkflowOperation = <
     Effect.tapError((error) =>
       isInteractionFailureHandled(error)
         ? Effect.void
-        : notifyInteractionFailure(options.getInteractionToken(request)).pipe(
+        : notifyInteractionFailure(options.getInteractionToken(request), error).pipe(
             Effect.withSpan("DispatchWorkflow.notifyInteractionFailure", { attributes }),
           ),
     ),

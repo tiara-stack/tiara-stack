@@ -39,6 +39,8 @@ import { Unauthorized } from "typhoon-core/error";
 import { markInteractionFailureHandled } from "@/handlers/shared/interactionFailure";
 import { DispatchService, IngressBotClient, SheetApisClient } from "@/services";
 import {
+  dispatchFailureMessage,
+  dispatchFailureResponse,
   dispatchWorkflowNames,
   dispatchWorkflowRegistry,
   isClusterPersistenceCause,
@@ -998,8 +1000,14 @@ describe("dispatch workflow registry", () => {
     expect(updateOriginalInteractionResponse).not.toHaveBeenCalled();
   });
 
-  it("keeps the generic dispatch failure for unhandled interaction failures", async () => {
-    const updateOriginalInteractionResponse = vi.fn(() => Effect.void);
+  it("includes the thrown error message for unhandled interaction failures", async () => {
+    const updateOriginalInteractionResponseWithFiles = vi.fn(
+      (
+        _interactionToken: string,
+        _payload: unknown,
+        _files: ReadonlyArray<{ readonly content: Uint8Array }>,
+      ) => Effect.void,
+    );
     const serviceStatus = vi.fn(() => Effect.fail(new Error("status failed")));
 
     const exit = await Effect.runPromise(
@@ -1021,7 +1029,7 @@ describe("dispatch workflow registry", () => {
           }),
         ),
         Effect.provideService(IngressBotClient, {
-          updateOriginalInteractionResponse,
+          updateOriginalInteractionResponseWithFiles,
         } as never),
         Effect.provide(WorkflowEngine.layerMemory),
       ),
@@ -1029,9 +1037,70 @@ describe("dispatch workflow registry", () => {
 
     expect(exit._tag).toBe("Failure");
     expect(serviceStatus).toHaveBeenCalledWith(serviceStatusPayload);
-    expect(updateOriginalInteractionResponse).toHaveBeenCalledWith("interaction-token", {
-      content: "Dispatch failed. Please try again.",
+    expect(updateOriginalInteractionResponseWithFiles).toHaveBeenCalledWith(
+      "interaction-token",
+      {
+        content:
+          "Dispatch failed. Please try again.\nUnexpected error: status failed\nFull error is attached.",
+        attachments: [{ id: "0", filename: "error.txt" }],
+      },
+      [
+        expect.objectContaining({
+          name: "error.txt",
+          contentType: "text/plain",
+          content: expect.any(Uint8Array),
+        }),
+      ],
+    );
+    const [, , files] = updateOriginalInteractionResponseWithFiles.mock.calls[0]!;
+    const [file] = files as ReadonlyArray<{ readonly content: Uint8Array }>;
+    expect(new TextDecoder().decode(file.content)).toContain("status failed");
+  });
+
+  it("formats typed dispatch failures with actionable labels", () => {
+    expect(
+      dispatchFailureMessage({
+        _tag: "SheetConfigError",
+        message: "Error getting ranges config, no value ranges found",
+      }),
+    ).toBe(
+      "Dispatch failed. Please try again.\nSheet config error: Error getting ranges config, no value ranges found",
+    );
+
+    expect(
+      dispatchFailureMessage({ _tag: "ArgumentError", message: "message slot not found" }),
+    ).toBe("Dispatch failed. Please try again.\nRequest error: message slot not found");
+
+    expect(
+      dispatchFailureMessage({ _tag: "FutureTaggedError", message: "new failure shape" }),
+    ).toBe("Dispatch failed. Please try again.\nUnexpected error: new failure shape");
+  });
+
+  it("truncates long dispatch failure details", () => {
+    const content = dispatchFailureMessage({
+      _tag: "SchemaError",
+      message: "x".repeat(2_000),
     });
+    const detail = content.split("Data format error: ")[1]!;
+
+    expect(detail.length).toBeLessThanOrEqual(1_200);
+    expect(content).toMatch(/^Dispatch failed\. Please try again\.\nData format error: x+\.\.\.$/);
+  });
+
+  it("attaches the full dispatch failure trace as a text file", () => {
+    const response = dispatchFailureResponse(new Error("workflow exploded"));
+
+    expect(response.payload).toEqual({
+      content:
+        "Dispatch failed. Please try again.\nUnexpected error: workflow exploded\nFull error is attached.",
+      attachments: [{ id: "0", filename: "error.txt" }],
+    });
+    expect(response.files).toHaveLength(1);
+    expect(response.files[0]).toMatchObject({
+      name: "error.txt",
+      contentType: "text/plain",
+    });
+    expect(new TextDecoder().decode(response.files[0]!.content)).toContain("workflow exploded");
   });
 
   it("routes check-in button workflows through the dispatch button entity", async () => {
