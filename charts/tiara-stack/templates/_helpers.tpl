@@ -193,6 +193,8 @@ imagePullSecrets:
       port: sheet-auth-svc
     - app: sheet-workflows
       port: sheet-auth-svc
+    - app: sheet-workflows-runner
+      port: sheet-auth-svc
     - app: sheet-ingress-server
       port: sheet-auth-svc
     {{- if .Values.ingress.enabled }}
@@ -493,6 +495,8 @@ imagePullSecrets:
     - app: sheet-bot
       port: ingress-svc
     - app: sheet-workflows
+      port: ingress-svc
+    - app: sheet-workflows-runner
       port: ingress-svc
     {{- if .Values.ingress.enabled }}
     - namespace: {{ .Values.ingress.controllerNamespace }}
