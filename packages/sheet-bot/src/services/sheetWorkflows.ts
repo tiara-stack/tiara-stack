@@ -45,6 +45,11 @@ type TokenCacheEntry = {
 
 const accessTokenType = "urn:ietf:params:oauth:token-type:access_token";
 
+export const workflowRequesterActorScopes = (discordUserId: string) =>
+  discordUserId === DISCORD_SERVICE_USER_ID_SENTINEL
+    ? ["service", "workflow.dispatch"]
+    : ["service", "token.exchange", "workflow.dispatch"];
+
 const readKubernetesServiceAccountToken = (path: string) =>
   Effect.tryPromise({
     try: async () => Redacted.make((await readFile(path, "utf8")).trim()),
@@ -164,10 +169,7 @@ export class SheetWorkflowsClient extends Context.Service<SheetWorkflowsClient>(
           oauthSession = yield* createOAuthClientCredentialsToken(sheetAuthClient, {
             clientId: oauthClientId,
             clientSecret: oauthClientSecret,
-            scope:
-              discordUserId === DISCORD_SERVICE_USER_ID_SENTINEL
-                ? ["service", "workflow.dispatch"]
-                : ["token.exchange", "workflow.dispatch"],
+            scope: workflowRequesterActorScopes(discordUserId),
             resource: "sheet-ingress",
           }).pipe(
             Effect.flatMap((token) =>
