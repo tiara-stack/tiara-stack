@@ -140,6 +140,18 @@ const requester = {
   userId: "discord-user-1",
 };
 
+const firstEmbedDescription = (payload: unknown): string | null | undefined =>
+  (payload as { embeds?: ReadonlyArray<{ description?: string | null }> }).embeds?.[0]?.description;
+
+const firstEmbedFields = (
+  payload: unknown,
+): ReadonlyArray<{ readonly name: string; readonly value: string; readonly inline?: boolean }> =>
+  (
+    payload as {
+      embeds?: ReadonlyArray<{ fields?: ReadonlyArray<{ name: string; value: string }> }>;
+    }
+  ).embeds?.[0]?.fields ?? [];
+
 const makeSchedule = (hour: number, fillIds: ReadonlyArray<string>) =>
   new PopulatedSchedule({
     channel: "main",
@@ -678,6 +690,8 @@ describe("DispatchService", () => {
       { payload: { guildId: "guild-1", channelId: "channel-1", hour: 1 } },
     ]);
     expect(updateCalls).toHaveLength(2);
+    expect(firstEmbedDescription(updateCalls[0]?.payload)).toContain("Requested by <@account-1>.");
+    expect(firstEmbedDescription(updateCalls[0]?.payload)).not.toContain("<@discord-user-1>");
     expect(sendCalls.map((call) => call.channelId)).toEqual([
       "checkin-channel-1",
       "channel-1",
@@ -687,11 +701,12 @@ describe("DispatchService", () => {
       expect(call.payload).toMatchObject({
         content: null,
         allowed_mentions: { parse: [] },
-        message_reference: {
-          channel_id: "anchor-channel-1",
-          message_id: "anchor-message",
-          fail_if_not_exists: false,
-        },
+      });
+      expect(call.payload).not.toHaveProperty("message_reference");
+      expect(firstEmbedFields(call.payload)).toContainEqual({
+        name: "Test run",
+        value:
+          "[Open summary](https://discord.com/channels/guild-1/anchor-channel-1/anchor-message)",
       });
       expect((call.payload as { embeds?: ReadonlyArray<unknown> }).embeds).toHaveLength(1);
       expect(
@@ -704,6 +719,114 @@ describe("DispatchService", () => {
         },
       });
     }
+  });
+
+  it("omits native message references for same-channel auto check-in test previews", async () => {
+    const updateCalls: Array<{ readonly interactionToken: string; readonly payload: unknown }> = [];
+    const sendCalls: Array<{ readonly channelId: string; readonly payload: unknown }> = [];
+    const sheetApisClient = makeSheetApisClient({
+      guildConfig: {
+        getGuildChannels: () => Effect.succeed([makeGuildChannelConfig()]),
+      },
+      checkin: {
+        generate: () =>
+          Effect.succeed({
+            hour: 1,
+            runningChannelId: "anchor-channel-1",
+            checkinChannelId: "anchor-channel-1",
+            fillCount: 0,
+            roleId: "role-1",
+            initialMessage: null,
+            monitorCheckinMessage: "Monitor summary",
+            monitorUserId: "monitor-1",
+            monitorFailureMessage: null,
+            fillIds: [],
+          }),
+      },
+    });
+    const botClient = {
+      updateOriginalInteractionResponse: (interactionToken: string, payload: unknown) => {
+        updateCalls.push({ interactionToken, payload });
+        return Effect.succeed({ id: "anchor-message", channel_id: "anchor-channel-1" });
+      },
+      updateMessage: () => Effect.die("test run must update the anchor through the interaction"),
+      sendMessage: (channelId: string, payload: unknown) => {
+        sendCalls.push({ channelId, payload });
+        return Effect.succeed({ id: "preview-message-1", channel_id: channelId });
+      },
+    } as never;
+
+    const result = await Effect.runPromise(
+      runWithDispatchService(botClient, sheetApisClient, (service) =>
+        service.autoCheckinTest(autoCheckinTestPayload, requester),
+      ),
+    );
+
+    expect(result).toMatchObject({
+      channelCount: 1,
+      sentCount: 0,
+      skippedCount: 1,
+      failedCount: 0,
+    });
+    expect(sendCalls).toHaveLength(1);
+    expect(sendCalls[0]).toMatchObject({
+      channelId: "anchor-channel-1",
+      payload: {
+        content: null,
+        allowed_mentions: { parse: [] },
+      },
+    });
+    expect(sendCalls[0]?.payload).not.toHaveProperty("message_reference");
+    expect(firstEmbedFields(sendCalls[0]?.payload)).toContainEqual({
+      name: "Test run",
+      value: "[Open summary](https://discord.com/channels/guild-1/anchor-channel-1/anchor-message)",
+    });
+  });
+
+  it("surfaces first auto check-in test channel failure details in the summary", async () => {
+    const updateCalls: Array<{ readonly interactionToken: string; readonly payload: unknown }> = [];
+    const sheetApisClient = makeSheetApisClient({
+      guildConfig: {
+        getGuildChannels: () => Effect.succeed([makeGuildChannelConfig()]),
+      },
+      checkin: {
+        generate: () => Effect.fail(new Error("Unable to parse range: 'Day 9'!J3:N23")),
+      },
+    });
+    const botClient = {
+      updateOriginalInteractionResponse: (interactionToken: string, payload: unknown) => {
+        updateCalls.push({ interactionToken, payload });
+        return Effect.succeed({ id: "anchor-message", channel_id: "anchor-channel-1" });
+      },
+      updateMessage: () => Effect.die("test run must update the anchor through the interaction"),
+      sendMessage: () => Effect.die("failed channel must not send preview messages"),
+    } as never;
+
+    const result = await Effect.runPromise(
+      runWithDispatchService(botClient, sheetApisClient, (service) =>
+        service.autoCheckinTest(autoCheckinTestPayload, requester),
+      ),
+    );
+
+    expect(result).toMatchObject({
+      channelCount: 1,
+      sentCount: 0,
+      skippedCount: 0,
+      failedCount: 1,
+    });
+    expect(result.channels[0]).toMatchObject({
+      channelName: "main",
+      status: "failed",
+    });
+    expect(result.channels[0]?.error).toContain("Unable to parse range: 'Day 9'!J3:N23");
+    expect(updateCalls).toHaveLength(2);
+    expect(firstEmbedDescription(updateCalls[1]?.payload)).toContain("Failed channels: main");
+    expect(firstEmbedDescription(updateCalls[1]?.payload)).toContain(
+      "First failure detail for main:",
+    );
+    expect(firstEmbedDescription(updateCalls[1]?.payload)).toContain(
+      "Unable to parse range: 'Day 9'!J3:N23",
+    );
   });
 
   it("sends the guild welcome embed to the system channel first", async () => {

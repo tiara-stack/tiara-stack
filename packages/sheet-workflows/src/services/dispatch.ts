@@ -461,14 +461,17 @@ const autoCheckinTestHour = 1;
 const autoCheckinTestColor = 0xf59e0b;
 const autoCheckinTestNotice =
   "TEST RUN - no check-ins, room orders, roles, or persistent message records were created.";
+const autoCheckinTestFailureDetailLength = 900;
+
+const truncateAutoCheckinTestFailureDetail = (value: string): string =>
+  value.length <= autoCheckinTestFailureDetailLength
+    ? value
+    : `${value.slice(0, autoCheckinTestFailureDetailLength - 3)}...`;
 
 const noMentions = () => ({ parse: [] as const });
 
-const messageReference = (message: DiscordMessage) => ({
-  channel_id: message.channel_id,
-  message_id: message.id,
-  fail_if_not_exists: false,
-});
+const discordMessageUrl = (guildId: string, message: DiscordMessage): string =>
+  `https://discord.com/channels/${guildId}/${message.channel_id}/${message.id}`;
 
 const makeAutoCheckinTestEmbed = (embed: {
   readonly title: string;
@@ -2258,7 +2261,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           makeAnchorPayload(
             [
               `Testing first-hour auto check-in for guild ${payload.guildId}.`,
-              `Requested by ${mentionUser(requester.userId)}.`,
+              `Requested by ${mentionUser(requester.accountId)}.`,
               autoCheckinTestNotice,
             ].join("\n"),
           ),
@@ -2267,12 +2270,29 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           typeof payload.interactionToken === "string"
             ? botClient.updateOriginalInteractionResponse(payload.interactionToken, messagePayload)
             : botClient.updateMessage(anchorMessage.channel_id, anchorMessage.id, messagePayload);
+        const anchorMessageUrl = discordMessageUrl(payload.guildId, anchorMessage);
+        const withAnchorField = (embed: MessageEmbed): MessageEmbed => {
+          const fields =
+            (
+              embed as {
+                readonly fields?: ReadonlyArray<{
+                  readonly name: string;
+                  readonly value: string;
+                  readonly inline?: boolean;
+                }>;
+              }
+            ).fields ?? [];
+
+          return {
+            ...embed,
+            fields: [...fields, { name: "Test run", value: `[Open summary](${anchorMessageUrl})` }],
+          };
+        };
         const referencedMessagePayload = (embed: MessageEmbed) =>
           ({
             content: null,
-            embeds: [embed],
+            embeds: [withAnchorField(embed)],
             allowed_mentions: noMentions(),
-            message_reference: messageReference(anchorMessage),
           }) satisfies MessagePayload;
 
         const runTestChannel = (
@@ -2451,12 +2471,21 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         const skippedCount = channelResults.filter((result) => result.status === "skipped").length;
         const failedResults = channelResults.filter((result) => result.status === "failed");
         const failedCount = failedResults.length;
+        const firstFailure = failedResults[0];
         const summaryParts = [
           `Tested hour ${autoCheckinTestHour} across ${channelResults.length} configured running channel(s).`,
           `Sent: ${sentCount}. Skipped: ${skippedCount}. Failed: ${failedCount}.`,
           failedResults.length > 0
             ? `Failed channels: ${failedResults.map((result) => result.channelName).join(", ")}`
             : "No channel failures.",
+          ...(firstFailure === undefined
+            ? []
+            : [
+                [
+                  `First failure detail for ${firstFailure.channelName}:`,
+                  truncateAutoCheckinTestFailureDetail(firstFailure.error ?? "Unknown error"),
+                ].join("\n"),
+              ]),
         ];
 
         yield* updateAnchor(

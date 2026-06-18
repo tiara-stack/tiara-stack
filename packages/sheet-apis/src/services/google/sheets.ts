@@ -36,6 +36,32 @@ export const toCellOption = (value: unknown): Option.Option<string> => {
   return String.isNonEmpty(normalized) ? Option.some(normalized) : Option.none();
 };
 
+const googleSheetsErrorMessage = (error: unknown): string =>
+  pipe(
+    error,
+    Schema.decodeUnknownResult(Schema.Struct({ message: Schema.String })),
+    Result.map(({ message }) => message),
+    Result.getOrElse(() => "An unknown error occurred"),
+  );
+
+const googleSheetsErrorCause = (error: unknown): string => {
+  if (error instanceof Error) {
+    return error.stack ?? error.message;
+  }
+
+  try {
+    return JSON.stringify(error) ?? globalThis.String(error);
+  } catch {
+    return globalThis.String(error);
+  }
+};
+
+const googleSheetsErrorFromUnknown = (error: unknown): GoogleSheetsError =>
+  new GoogleSheetsError({
+    message: googleSheetsErrorMessage(error),
+    cause: googleSheetsErrorCause(error),
+  });
+
 const parseRowDatas = <
   Ranges extends Array.NonEmptyReadonlyArray<sheets_v4.Schema$RowData[]>,
   A,
@@ -362,7 +388,7 @@ export class GoogleSheets extends Context.Service<GoogleSheets>()("GoogleSheets"
       catch: (cause) =>
         new GoogleSheetsError({
           message: "Failed to create Google Sheets client",
-          cause,
+          cause: googleSheetsErrorCause(cause),
         }),
     });
 
@@ -377,19 +403,7 @@ export class GoogleSheets extends Context.Service<GoogleSheets>()("GoogleSheets"
             try: () => googleSheets.spreadsheets.get(params, options),
             catch: Function.identity,
           }),
-          Effect.catch((error) =>
-            Effect.fail(
-              new GoogleSheetsError({
-                message: pipe(
-                  error,
-                  Schema.decodeUnknownResult(Schema.Struct({ message: Schema.String })),
-                  Result.map(({ message }) => message),
-                  Result.getOrElse(() => "An unknown error occurred"),
-                ),
-                cause: error,
-              }),
-            ),
-          ),
+          Effect.catch((error) => Effect.fail(googleSheetsErrorFromUnknown(error))),
         );
 
         return pipe(
@@ -431,7 +445,6 @@ export class GoogleSheets extends Context.Service<GoogleSheets>()("GoogleSheets"
               : Effect.fail(
                   new GoogleSheetsError({
                     message: "Row datas length does not match ranges length",
-                    cause: undefined,
                   }),
                 ),
           ),
@@ -446,19 +459,7 @@ export class GoogleSheets extends Context.Service<GoogleSheets>()("GoogleSheets"
           try: () => googleSheets.spreadsheets.values.batchGet(params, options),
           catch: Function.identity,
         }).pipe(
-          Effect.catch((error) =>
-            Effect.fail(
-              new GoogleSheetsError({
-                message: pipe(
-                  error,
-                  Schema.decodeUnknownResult(Schema.Struct({ message: Schema.String })),
-                  Result.map(({ message }) => message),
-                  Result.getOrElse(() => "An unknown error occurred"),
-                ),
-                cause: error,
-              }),
-            ),
-          ),
+          Effect.catch((error) => Effect.fail(googleSheetsErrorFromUnknown(error))),
           Effect.withSpan("GoogleSheets.get"),
         ),
       getHashMap: <K>(
@@ -477,19 +478,7 @@ export class GoogleSheets extends Context.Service<GoogleSheets>()("GoogleSheets"
                 ),
               catch: Function.identity,
             }).pipe(
-              Effect.catch((error) =>
-                Effect.fail(
-                  new GoogleSheetsError({
-                    message: pipe(
-                      error,
-                      Schema.decodeUnknownResult(Schema.Struct({ message: Schema.String })),
-                      Result.map(({ message }) => message),
-                      Result.getOrElse(() => "An unknown error occurred"),
-                    ),
-                    cause: error,
-                  }),
-                ),
-              ),
+              Effect.catch((error) => Effect.fail(googleSheetsErrorFromUnknown(error))),
               Effect.map((response) => response.data.valueRanges ?? []),
             ),
           ),
@@ -514,21 +503,7 @@ export class GoogleSheets extends Context.Service<GoogleSheets>()("GoogleSheets"
                   options,
                 ),
               catch: Function.identity,
-            }).pipe(
-              Effect.catch((error) =>
-                Effect.fail(
-                  new GoogleSheetsError({
-                    message: pipe(
-                      error,
-                      Schema.decodeUnknownResult(Schema.Struct({ message: Schema.String })),
-                      Result.map(({ message }) => message),
-                      Result.getOrElse(() => "An unknown error occurred"),
-                    ),
-                    cause: error,
-                  }),
-                ),
-              ),
-            );
+            }).pipe(Effect.catch((error) => Effect.fail(googleSheetsErrorFromUnknown(error))));
 
             return pipe(
               response,
@@ -568,7 +543,6 @@ export class GoogleSheets extends Context.Service<GoogleSheets>()("GoogleSheets"
                   : Effect.fail(
                       new GoogleSheetsError({
                         message: "Row datas length does not match ranges length",
-                        cause: undefined,
                       }),
                     );
               }),
@@ -584,19 +558,7 @@ export class GoogleSheets extends Context.Service<GoogleSheets>()("GoogleSheets"
           try: () => googleSheets.spreadsheets.values.batchUpdate(params, options),
           catch: Function.identity,
         }).pipe(
-          Effect.catch((error) =>
-            Effect.fail(
-              new GoogleSheetsError({
-                message: pipe(
-                  error,
-                  Schema.decodeUnknownResult(Schema.Struct({ message: Schema.String })),
-                  Result.map(({ message }) => message),
-                  Result.getOrElse(() => "An unknown error occurred"),
-                ),
-                cause: error,
-              }),
-            ),
-          ),
+          Effect.catch((error) => Effect.fail(googleSheetsErrorFromUnknown(error))),
           Effect.withSpan("GoogleSheets.update"),
         ),
       getSheetGids: (sheetId: string) =>
@@ -604,19 +566,7 @@ export class GoogleSheets extends Context.Service<GoogleSheets>()("GoogleSheets"
           try: () => googleSheets.spreadsheets.get({ spreadsheetId: sheetId }),
           catch: Function.identity,
         }).pipe(
-          Effect.catch((error) =>
-            Effect.fail(
-              new GoogleSheetsError({
-                message: pipe(
-                  error,
-                  Schema.decodeUnknownResult(Schema.Struct({ message: Schema.String })),
-                  Result.map(({ message }) => message),
-                  Result.getOrElse(() => "An unknown error occurred"),
-                ),
-                cause: error,
-              }),
-            ),
-          ),
+          Effect.catch((error) => Effect.fail(googleSheetsErrorFromUnknown(error))),
           Effect.map((sheet) =>
             pipe(
               sheet.data.sheets ?? [],
