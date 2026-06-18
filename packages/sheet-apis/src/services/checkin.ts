@@ -17,6 +17,7 @@ import {
   PopulatedSchedulePlayer,
   type PopulatedScheduleResult,
 } from "sheet-ingress-api/schemas/sheet";
+import type { ScheduleConfig } from "sheet-ingress-api/schemas/sheetConfig";
 import { GuildConfigService } from "./guildConfig";
 import { ScheduleService } from "./schedule";
 import { SheetConfigService } from "./sheetConfig";
@@ -156,6 +157,63 @@ const requireRunningChannel = Effect.fn("CheckinService.requireRunningChannel")(
     }),
   );
 });
+
+const isCompleteScheduleConfig = (config: ScheduleConfig): boolean => {
+  const requiredValues: ReadonlyArray<Option.Option<unknown>> = [
+    config.channel,
+    config.day,
+    config.sheet,
+    config.hourRange,
+    config.breakRange,
+    config.encType,
+    config.fillRange,
+    config.overfillRange,
+    config.standbyRange,
+    config.visibleCell,
+  ];
+
+  return requiredValues.every((value) => Option.isSome(value));
+};
+
+export const hasCompleteScheduleConfigForChannel = (
+  scheduleConfigs: ReadonlyArray<ScheduleConfig>,
+  channelName: string,
+): boolean => {
+  const normalizedChannelName = channelName.trim();
+
+  return scheduleConfigs.some(
+    (config) =>
+      Option.exists(
+        config.channel,
+        (configuredChannel) => configuredChannel === normalizedChannelName,
+      ) && isCompleteScheduleConfig(config),
+  );
+};
+
+const requireScheduleConfigForChannel = Effect.fn("CheckinService.requireScheduleConfigForChannel")(
+  function* (sheetId: string, channelName: string, sheetConfigService: SheetConfigServiceApi) {
+    const scheduleConfigs = yield* sheetConfigService.getScheduleConfig(sheetId);
+    const matchingConfigs = scheduleConfigs.filter((config) =>
+      Option.exists(config.channel, (configuredChannel) => configuredChannel === channelName),
+    );
+
+    if (matchingConfigs.length === 0) {
+      return yield* Effect.fail(
+        makeArgumentError(
+          `Cannot generate check-in for channel "${channelName}", no schedule config is defined for that channel in the sheet.`,
+        ),
+      );
+    }
+
+    if (!hasCompleteScheduleConfigForChannel(matchingConfigs, channelName)) {
+      return yield* Effect.fail(
+        makeArgumentError(
+          `Cannot generate check-in for channel "${channelName}", the sheet schedule config for that channel is incomplete.`,
+        ),
+      );
+    }
+  },
+);
 
 const deriveHour = Effect.fn("CheckinService.deriveHour")(function* (
   payload: { hour?: number | undefined },
@@ -308,7 +366,15 @@ export class CheckinService extends Context.Service<CheckinService>()("CheckinSe
         );
         const sheetId = yield* getSheetIdFromGuildId(payload.guildId, guildConfigService);
         const { hour, eventConfig } = yield* deriveHour(payload, sheetConfigService, sheetId);
-        const channelName = Option.getOrElse(runningChannel.name, () => "");
+        const channelName = Option.getOrElse(runningChannel.name, () => "").trim();
+        if (channelName.length === 0) {
+          return yield* Effect.fail(
+            makeArgumentError(
+              "Cannot generate check-in, the running channel has no sheet channel name configured",
+            ),
+          );
+        }
+        yield* requireScheduleConfigForChannel(sheetId, channelName, sheetConfigService);
         const schedules = yield* scheduleService.getChannelPopulatedSchedules(sheetId, channelName);
 
         const schedulesByHour = new Map<number, PopulatedScheduleResult>();

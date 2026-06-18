@@ -6,7 +6,33 @@ import {
   PopulatedSchedule,
   PopulatedSchedulePlayer,
 } from "sheet-ingress-api/schemas/sheet";
-import { getScheduleFillCount, makeMonitorCheckinMessage } from "./checkin";
+import { ScheduleConfig } from "sheet-ingress-api/schemas/sheetConfig";
+import {
+  getScheduleFillCount,
+  hasCompleteScheduleConfigForChannel,
+  makeMonitorCheckinMessage,
+} from "./checkin";
+
+const makeScheduleConfig = (
+  overrides: Partial<ConstructorParameters<typeof ScheduleConfig>[0]> = {},
+) =>
+  new ScheduleConfig({
+    channel: Option.some("main"),
+    day: Option.some(1),
+    sheet: Option.some("Day 1"),
+    hourRange: Option.some("A1:A5"),
+    breakRange: Option.some("B1:B5"),
+    monitorRange: Option.none(),
+    encType: Option.some("none"),
+    fillRange: Option.some("C1:G5"),
+    overfillRange: Option.some("H1:H5"),
+    standbyRange: Option.some("I1:I5"),
+    screenshotRange: Option.none(),
+    noteRange: Option.none(),
+    visibleCell: Option.some("J1"),
+    draft: Option.none(),
+    ...overrides,
+  });
 
 const makeResolvedFill = (id: string, name: string) =>
   new PopulatedSchedulePlayer({
@@ -138,5 +164,50 @@ describe("getScheduleFillCount", () => {
     ]);
 
     expect(getScheduleFillCount(Option.some(schedule))).toBe(4);
+  });
+});
+
+describe("hasCompleteScheduleConfigForChannel", () => {
+  it("matches a complete config for the requested channel", () => {
+    expect(hasCompleteScheduleConfigForChannel([makeScheduleConfig()], "main")).toBe(true);
+  });
+
+  it("does not match when the requested channel is missing from sheet config", () => {
+    expect(hasCompleteScheduleConfigForChannel([makeScheduleConfig()], "spam")).toBe(false);
+  });
+
+  it("does not match incomplete configs for the requested channel", () => {
+    expect(
+      hasCompleteScheduleConfigForChannel(
+        [
+          makeScheduleConfig({
+            channel: Option.some("spam"),
+            fillRange: Option.none(),
+          }),
+        ],
+        "spam",
+      ),
+    ).toBe(false);
+  });
+
+  it("matches when any config for the requested channel is complete", () => {
+    expect(
+      hasCompleteScheduleConfigForChannel(
+        [
+          makeScheduleConfig({
+            channel: Option.some("spam"),
+            fillRange: Option.none(),
+          }),
+          makeScheduleConfig({
+            channel: Option.some("spam"),
+          }),
+        ],
+        "spam",
+      ),
+    ).toBe(true);
+  });
+
+  it("matches channel names with leading and trailing whitespace", () => {
+    expect(hasCompleteScheduleConfigForChannel([makeScheduleConfig()], " main ")).toBe(true);
   });
 });
