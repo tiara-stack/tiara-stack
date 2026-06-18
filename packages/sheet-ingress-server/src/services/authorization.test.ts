@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { vi } from "vitest";
-import { Cause, Effect, Exit, Layer, Option, Redacted } from "effect";
+import { Cause, Duration, Effect, Exit, Layer, Option, Redacted } from "effect";
+import { TestClock } from "effect/testing";
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
 import {
   AuthorizationService,
@@ -204,6 +205,49 @@ describe("AuthorizationService", () => {
 
     expect(getGuildMonitorRoles).toHaveBeenCalledTimes(1);
     expect(sheetBotCacheClient.getMember).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes resolved guild permissions after the cache ttl", async () => {
+    let memberRoles: ReadonlyArray<string> = [];
+    const sheetBotCacheClient = {
+      getMember: vi.fn(() => Effect.succeed(Option.some({ roles: memberRoles }))),
+      getRolesForGuild: vi.fn(() =>
+        Effect.succeed(new Map([["role-1", { id: "role-1", permissions: "32" }]])),
+      ),
+    } as unknown as SheetBotCacheClientApi & {
+      readonly getMember: ReturnType<typeof vi.fn>;
+      readonly getRolesForGuild: ReturnType<typeof vi.fn>;
+    };
+
+    const resolvedUsers = await Effect.runPromise(
+      Effect.scoped(
+        runAuthorization(
+          Effect.gen(function* () {
+            const authorization = yield* AuthorizationService;
+            const initialUser = yield* authorization.resolveCurrentGuildUser("guild-1");
+            memberRoles = ["role-1"];
+            const cachedUser = yield* authorization.resolveCurrentGuildUser("guild-1");
+            yield* TestClock.adjust(Duration.seconds(31));
+            const refreshedUser = yield* authorization.resolveCurrentGuildUser("guild-1");
+
+            return { cachedUser, initialUser, refreshedUser };
+          }),
+          { sheetBotCacheClient },
+        ).pipe(Effect.provide(TestClock.layer())),
+      ),
+    );
+
+    expect(
+      hasGuildPermission(resolvedUsers.initialUser.permissions, "manage_guild", "guild-1"),
+    ).toBe(false);
+    expect(
+      hasGuildPermission(resolvedUsers.cachedUser.permissions, "manage_guild", "guild-1"),
+    ).toBe(false);
+    expect(
+      hasGuildPermission(resolvedUsers.refreshedUser.permissions, "manage_guild", "guild-1"),
+    ).toBe(true);
+    expect(sheetBotCacheClient.getMember).toHaveBeenCalledTimes(2);
+    expect(sheetBotCacheClient.getRolesForGuild).toHaveBeenCalledTimes(2);
   });
 
   it("caches guild role lookups across users for the same guild", async () => {

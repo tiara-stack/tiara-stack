@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Exit, Schema } from "effect";
-import { DiscordChannel, DiscordMember } from "./schema";
+import { DiscordChannel, DiscordMember, DiscordRole } from "./schema";
 
 describe("Discord schema", () => {
   it("accepts guild member users without optional account flag fields", async () => {
@@ -48,5 +48,35 @@ describe("Discord schema", () => {
     const decoded = Schema.decodeUnknownSync(DiscordChannel)(channel);
 
     expect(Schema.encodeUnknownSync(DiscordChannel)(decoded)).toEqual(channel);
+  });
+
+  it("accepts guild roles without optional descriptions", () => {
+    const role = {
+      id: "role-1",
+      name: "Manager",
+      permissions: "32",
+      position: 1,
+      color: 0,
+      colors: {
+        primary_color: 0,
+        secondary_color: null,
+        tertiary_color: null,
+      },
+      hoist: false,
+      managed: false,
+      mentionable: false,
+      icon: null,
+      unicode_emoji: null,
+      flags: 0,
+    };
+
+    const decoded = Schema.decodeUnknownSync(DiscordRole)(role);
+
+    expect(decoded.description).toBe(null);
+    expect(Schema.encodeUnknownSync(DiscordRole)(role)).toEqual(role);
+    expect(Schema.encodeUnknownSync(DiscordRole)(decoded)).toEqual({
+      ...role,
+      description: null,
+    });
   });
 });

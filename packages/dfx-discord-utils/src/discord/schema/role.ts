@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 
 export const DiscordRoleColors = Schema.Struct({
   primary_color: Schema.Number,
@@ -18,7 +18,9 @@ export const DiscordRoleTags = Schema.Struct({
 export const DiscordRole = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
-  description: Schema.NullOr(Schema.String),
+  description: Schema.NullOr(Schema.String).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(null)),
+  ),
   permissions: Schema.String,
   position: Schema.Number,
   color: Schema.Number,

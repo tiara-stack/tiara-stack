@@ -282,7 +282,7 @@ export class AuthorizationService extends Context.Service<AuthorizationService>(
         }),
         {
           capacity: 16,
-          timeToLive: () => Duration.infinity,
+          timeToLive: () => Duration.seconds(30),
         },
       );
 
