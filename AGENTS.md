@@ -139,9 +139,13 @@ The following workspace-level scripts are defined in `package.json`:
 - **`checks`**: `pnpm format && pnpm lint && pnpm test` - Runs format checks, lint/type checks, and tests across packages that define those scripts
 - **`format:apply`**: `vp run -r format:apply` - Applies formatting across all packages that define a format script
 
+Fallow is not included in `pnpm checks`. Run `npx fallow audit` separately from the repo root to match the PR CI changed-code audit.
+
 Run these scripts from the repo root using `pnpm <script>`.
 
 Run `pnpm format:apply` every time after you finish proposing a change to correctly format all the code.
+
+After making code changes, run the local validation needed to catch CI failures before handing work back. The default is `pnpm format:apply`, `pnpm checks`, and `npx fallow audit` from the repo root; also run `pnpm build` when changes affect package exports, build configuration, generated artifacts, or code paths not covered by tests. If a full workspace command is not practical, run the affected package scripts with `pnpm --filter <package> <script>` and explicitly report which command was skipped and why.
 
 ## Package Scripts
 
@@ -207,6 +211,10 @@ We use Graphite for managing stacked pull requests. The following guidelines are
 ### Effect.ts
 
 This project utilizes the Effect library for composability and type-safety. The catalog version of the library being used is 4.0.0-beta.56. Use Effect/Schema for runtime validation except where existing code uses another validation library, or otherwise stated.
+
+Use Effect's `Predicate` module for reusable predicate/type-guard helpers instead of hand-written comparison checks such as raw `typeof`, `instanceof`, tag equality, or property checks. Prefer `Predicate.isTagged`, `Predicate.hasProperty`, primitive predicates, and predicate combinators so type guards are consistent and composable.
+
+Avoid large `if`/`else` chains and `switch` statements for value dispatch. Prefer Effect's `Match` module when matching tagged unions or structured cases, and prefer typed lookup tables for simple enum/string-to-value mappings. Keep imperative branching only when it is genuinely clearer for stateful algorithms, early exits, or low-level parser loops.
 
 ### Arktype
 

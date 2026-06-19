@@ -27,17 +27,16 @@ const clusterServerLayer = clusterHttpLayer.pipe(Layer.provide(shardingConfigLay
 
 const runnerLayer = Layer.mergeAll(clusterServerLayer, runnerHealthLayer);
 
+const appLayersByRole = {
+  api: clientWorkflowLayers,
+  runner: runnerLayer,
+  combined: Layer.mergeAll(clientWorkflowLayers, clusterServerLayer),
+};
+
 const appLayer = Layer.unwrap(
   Effect.gen(function* () {
     const role = yield* config.sheetWorkflowsRole;
-    switch (role) {
-      case "api":
-        return clientWorkflowLayers;
-      case "runner":
-        return runnerLayer;
-      case "combined":
-        return Layer.mergeAll(clientWorkflowLayers, clusterServerLayer);
-    }
+    return appLayersByRole[role];
   }),
 );
 

@@ -8,18 +8,14 @@ export type InferTypeResult = {
   readonly enumValues?: readonly string[];
 };
 
-export const zeroCustomType = (type: ZeroValueType): string => {
-  switch (type) {
-    case "boolean":
-      return "boolean";
-    case "number":
-      return "number";
-    case "json":
-      return "ReadonlyJSONValue";
-    case "string":
-      return "string";
-  }
-};
+const zeroCustomTypes = {
+  boolean: "boolean",
+  number: "number",
+  json: "ReadonlyJSONValue",
+  string: "string",
+} satisfies Record<ZeroValueType, string>;
+
+export const zeroCustomType = (type: ZeroValueType): string => zeroCustomTypes[type];
 
 const emptyReadonlyArray = new Set(["ReadonlyArray", "Array"]);
 

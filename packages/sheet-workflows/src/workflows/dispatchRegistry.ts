@@ -147,8 +147,7 @@ export const dispatchFailureResponse = (error: unknown) => {
 };
 
 const isMissingMessageRoomOrderError = (error: unknown) =>
-  Predicate.hasProperty(error, "_tag") &&
-  error._tag === "ArgumentError" &&
+  Predicate.isTagged("ArgumentError")(error) &&
   Predicate.hasProperty(error, "message") &&
   error.message === MESSAGE_ROOM_ORDER_NOT_REGISTERED_ERROR_MESSAGE;
 
@@ -422,18 +421,13 @@ export const makeButtonWorkflowHandler =
       Sharding.Sharding
     >;
 
-const isClusterPersistenceDefect = (defect: unknown): boolean => {
-  const tag =
-    Predicate.hasProperty(defect, "_tag") && typeof defect._tag === "string"
-      ? defect._tag
-      : undefined;
-  const name =
-    Predicate.hasProperty(defect, "name") && typeof defect.name === "string"
-      ? defect.name
-      : undefined;
+const clusterPersistenceErrorNames = new Set(["~effect/cluster/ClusterError/PersistenceError"]);
 
-  return tag === "PersistenceError" || name === "~effect/cluster/ClusterError/PersistenceError";
-};
+const isClusterPersistenceDefect = (defect: unknown): boolean =>
+  Predicate.isTagged("PersistenceError")(defect) ||
+  (Predicate.hasProperty(defect, "name") &&
+    Predicate.isString(defect.name) &&
+    clusterPersistenceErrorNames.has(defect.name));
 
 export const isClusterPersistenceCause = (cause: Cause.Cause<unknown>): boolean =>
   cause.reasons.some(

@@ -4,33 +4,28 @@ import type { ColumnOptions, EffectZeroTable, ZeroValueType } from "./types";
 
 export type SchemaTable = EffectZeroTable | EffectSqlTable;
 
-const zeroType = (kind: string): ZeroValueType => {
-  switch (kind) {
-    case "boolean":
-      return "boolean";
-    case "integer":
-    case "bigint":
-    case "real":
-    case "doublePrecision":
-    case "numeric":
-    case "timestamp":
-    case "date":
-      return "number";
-    case "json":
-    case "jsonb":
-    case "blob":
-    case "array":
-      return "json";
-    case "text":
-    case "varchar":
-    case "uuid":
-    default:
-      return "string";
-  }
+const zeroTypesByColumnKind: Record<string, ZeroValueType> = {
+  boolean: "boolean",
+  integer: "number",
+  bigint: "number",
+  real: "number",
+  doublePrecision: "number",
+  numeric: "number",
+  timestamp: "number",
+  date: "number",
+  json: "json",
+  jsonb: "json",
+  blob: "json",
+  array: "json",
+  text: "string",
+  varchar: "string",
+  uuid: "string",
 };
 
+const zeroType = (kind: string): ZeroValueType => zeroTypesByColumnKind[kind] ?? "string";
+
 export const isEffectSqlTable = (value: unknown): value is EffectSqlTable =>
-  Predicate.hasProperty(value, "_tag") && value._tag === "EffectSqlTable";
+  Predicate.isTagged("EffectSqlTable")(value);
 
 export const fromSqlTable = <const Table extends EffectSqlTable>(
   table: Table,

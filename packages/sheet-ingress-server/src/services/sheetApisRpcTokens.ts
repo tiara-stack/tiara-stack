@@ -11,6 +11,12 @@ const sheetApisResource = "sheet-apis";
 const sheetWorkflowsResource = "sheet-workflows";
 const sheetBotResource = "sheet-bot";
 
+const oauthAudiences: Record<string, string> = {
+  [sheetApisResource]: sheetApisResource,
+  [sheetWorkflowsResource]: sheetWorkflowsResource,
+  [sheetBotResource]: sheetBotResource,
+};
+
 type SheetAuthUserType = Context.Service.Shape<typeof SheetAuthUser>;
 
 export class SheetApisRpcTokens extends Context.Service<SheetApisRpcTokens>()(
@@ -20,16 +26,7 @@ export class SheetApisRpcTokens extends Context.Service<SheetApisRpcTokens>()(
       const sheetAuthClient = yield* SheetAuthClient;
       const oauthClientId = yield* config.sheetAuthOAuthClientId;
       const oauthClientSecret = yield* config.sheetAuthOAuthClientSecret;
-      const getOAuthAudience = (resource: string) => {
-        switch (resource) {
-          case sheetApisResource:
-          case sheetWorkflowsResource:
-          case sheetBotResource:
-            return resource;
-          default:
-            return undefined;
-        }
-      };
+      const getOAuthAudience = (resource: string) => oauthAudiences[resource];
 
       const getOAuthToken = (scope: readonly ["ingress.forward"], resource: string | undefined) =>
         createOAuthClientCredentialsToken(sheetAuthClient, {

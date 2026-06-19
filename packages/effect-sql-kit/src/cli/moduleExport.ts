@@ -2,8 +2,7 @@ import { Predicate } from "effect";
 import type { EffectSqlSchema } from "../types";
 
 export const isEffectSqlSchema = (value: unknown): value is EffectSqlSchema =>
-  Predicate.hasProperty(value, "_tag") &&
-  value._tag === "EffectSqlSchema" &&
+  Predicate.isTagged("EffectSqlSchema")(value) &&
   Predicate.hasProperty(value, "tables") &&
   Predicate.isObject(value.tables);
 

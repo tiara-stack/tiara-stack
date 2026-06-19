@@ -2,21 +2,15 @@ import type { ColumnSnapshot, SchemaSnapshot, TableSnapshot } from "../snapshot"
 import { quoteIdentifier } from "../util";
 import type { MigrationStatement } from "./types";
 
-const columnType = (column: ColumnSnapshot): string => {
-  switch (column.kind) {
-    case "integer":
-      return "integer";
-    case "real":
-      return "real";
-    case "blob":
-      return "blob";
-    case "numeric":
-      return "numeric";
-    case "text":
-    default:
-      return "text";
-  }
+const columnTypes: Record<string, string> = {
+  integer: "integer",
+  real: "real",
+  blob: "blob",
+  numeric: "numeric",
+  text: "text",
 };
+
+const columnType = (column: ColumnSnapshot): string => columnTypes[column.kind] ?? "text";
 
 const literal = (value: ColumnSnapshot["default"]): string => {
   if (value === null) return "null";

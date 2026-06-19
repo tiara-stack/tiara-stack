@@ -143,10 +143,7 @@ type DispatchMessageSink = {
 const optionalArgumentError = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(
     Effect.map(Option.some),
-    Effect.catchIf(
-      (error) => Predicate.hasProperty(error, "_tag") && error._tag === "ArgumentError",
-      () => Effect.succeed(Option.none<A>()),
-    ),
+    Effect.catchIf(Predicate.isTagged("ArgumentError"), () => Effect.succeed(Option.none<A>())),
   );
 
 const makeSheetApisServices = (sheetApisClient: typeof SheetApisClient.Service) => {

@@ -3,6 +3,7 @@ import * as Context from "effect/Context";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Match from "effect/Match";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
@@ -266,24 +267,22 @@ const metadataPart = (
 const itemToParts = (
   item: ThreadItem,
 ): Array<Response.PartEncoded | Response.StreamPartEncoded> => {
-  switch (item.type) {
-    case "agent_message":
-      return [
-        {
-          type: "text",
-          text: item.text,
-          metadata: { codex: { itemId: item.id } } as any,
-        },
-      ];
-    case "reasoning":
-      return [
-        {
-          type: "reasoning",
-          text: item.text,
-          metadata: { codex: { itemId: item.id } } as any,
-        },
-      ];
-    case "mcp_tool_call": {
+  const parts = Match.value(item).pipe(
+    Match.when({ type: "agent_message" }, (item) => [
+      {
+        type: "text",
+        text: item.text,
+        metadata: { codex: { itemId: item.id } } as any,
+      },
+    ]),
+    Match.when({ type: "reasoning" }, (item) => [
+      {
+        type: "reasoning",
+        text: item.text,
+        metadata: { codex: { itemId: item.id } } as any,
+      },
+    ]),
+    Match.when({ type: "mcp_tool_call" }, (item) => {
       const name = `mcp.${item.server}.${item.tool}`;
       return [
         {
@@ -308,12 +307,11 @@ const itemToParts = (
           } as any,
         },
       ];
-    }
-    case "error":
-      return [{ type: "error", error: item.message }];
-    default:
-      return [];
-  }
+    }),
+    Match.when({ type: "error" }, (item) => [{ type: "error", error: item.message }]),
+    Match.orElse(() => []),
+  );
+  return parts as Array<Response.PartEncoded | Response.StreamPartEncoded>;
 };
 
 const assembleRunResultParts = (
@@ -347,16 +345,17 @@ const structuredResponseItemToParts = (
   item: ThreadItem,
   strictItemTypes: boolean,
 ): Array<Response.PartEncoded> => {
-  switch (item.type) {
-    case "agent_message":
-    case "mcp_tool_call":
-      return [];
-    case "reasoning":
-    case "error":
-      return itemToParts(item).filter((part) =>
-        structuredResponseItemPartTypes.has(part.type),
-      ) as Array<Response.PartEncoded>;
-    default:
+  const parts = Match.value(item).pipe(
+    Match.whenOr({ type: "agent_message" }, { type: "mcp_tool_call" }, () => []),
+    Match.whenOr(
+      { type: "reasoning" },
+      { type: "error" },
+      (item) =>
+        itemToParts(item).filter((part) =>
+          structuredResponseItemPartTypes.has(part.type),
+        ) as Array<Response.PartEncoded>,
+    ),
+    Match.orElse((item) => {
       if (strictItemTypes) {
         throw new StructuredResponseUnsupportedItem({ itemType: String(item.type) });
       }
@@ -369,7 +368,9 @@ const structuredResponseItemToParts = (
           metadata: { codex: { unsupportedItemType: String(item.type) } } as any,
         },
       ];
-  }
+    }),
+  );
+  return parts as Array<Response.PartEncoded>;
 };
 
 const runStructuredResultToParts = (
@@ -398,29 +399,27 @@ const eventToParts = (
   event: ThreadEvent,
   modelId: string | undefined,
 ): Array<Response.StreamPartEncoded> => {
-  switch (event.type) {
-    case "thread.started":
-      return [
-        {
-          type: "response-metadata",
-          id: event.thread_id,
-          modelId,
-          timestamp: undefined,
-          request: undefined,
-          metadata: { codex: { provider: "codex", threadId: event.thread_id } } as any,
-        },
-      ];
-    case "item.completed":
-      return itemToParts(event.item) as Array<Response.StreamPartEncoded>;
-    case "turn.completed":
-      return [usagePart(event.usage)];
-    case "turn.failed":
-      return [{ type: "error", error: event.error.message }];
-    case "error":
-      return [{ type: "error", error: event.message }];
-    default:
-      return [];
-  }
+  const parts = Match.value(event).pipe(
+    Match.when({ type: "thread.started" }, (event) => [
+      {
+        type: "response-metadata",
+        id: event.thread_id,
+        modelId,
+        timestamp: undefined,
+        request: undefined,
+        metadata: { codex: { provider: "codex", threadId: event.thread_id } } as any,
+      },
+    ]),
+    Match.when(
+      { type: "item.completed" },
+      (event) => itemToParts(event.item) as Array<Response.StreamPartEncoded>,
+    ),
+    Match.when({ type: "turn.completed" }, (event) => [usagePart(event.usage)]),
+    Match.when({ type: "turn.failed" }, (event) => [{ type: "error", error: event.error.message }]),
+    Match.when({ type: "error" }, (event) => [{ type: "error", error: event.message }]),
+    Match.orElse(() => []),
+  );
+  return parts as Array<Response.StreamPartEncoded>;
 };
 
 const toAiError = (method: string, error: CodexError) =>
@@ -485,16 +484,20 @@ const structuredResponseError = (
   });
 };
 
+const isStructuredResponseTooLarge = Predicate.isTagged("StructuredResponseTooLarge");
+
+const isStructuredResponseParseError = Predicate.or(
+  Predicate.isTagged("StructuredResponseMissingJson"),
+  Predicate.isTagged("StructuredResponseUnsupportedItem"),
+);
+
 const isStructuredResponseError = (
   error: unknown,
 ): error is
   | StructuredResponseTooLarge
   | StructuredResponseMissingJson
   | StructuredResponseUnsupportedItem =>
-  Predicate.hasProperty(error, "_tag") &&
-  (error._tag === "StructuredResponseTooLarge" ||
-    error._tag === "StructuredResponseMissingJson" ||
-    error._tag === "StructuredResponseUnsupportedItem");
+  Predicate.or(isStructuredResponseTooLarge, isStructuredResponseParseError)(error);
 
 const makeRunOptions = (
   options: LanguageModel.ProviderOptions,

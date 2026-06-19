@@ -57,12 +57,10 @@ export const mergeSessionOptions = (
 
 const contentPartText = (part: ContentPart) => {
   const content = part as KimiContentPart;
-  switch (content.type) {
-    case "text":
-      return (content as KimiTextContentPart).text;
-    default:
-      return "";
-  }
+  return Match.value(content).pipe(
+    Match.when({ type: "text" }, (content) => (content as KimiTextContentPart).text),
+    Match.orElse(() => ""),
+  );
 };
 
 const shellUnsafePattern = /[;|`$()<>]|\r|\n/;

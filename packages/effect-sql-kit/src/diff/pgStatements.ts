@@ -3,57 +3,48 @@ import type { ColumnSnapshot, SchemaSnapshot, TableSnapshot } from "../snapshot"
 import { quoteIdentifier, quoteQualified } from "../util";
 import type { MigrationStatement } from "./types";
 
-const columnType = (column: ColumnSnapshot): string => {
-  switch (column.kind) {
-    case "array": {
-      const elementKind = column.config?.elementKind;
-      const elementConfig = column.config?.elementConfig;
-      if (typeof elementKind !== "string") {
-        return "text[]";
-      }
-      return `${columnType({
-        ...column,
-        kind: elementKind,
-        config:
-          typeof elementConfig === "object" && elementConfig !== null
-            ? (elementConfig as Record<string, unknown>)
-            : undefined,
-      })}[]`;
+type ColumnTypeFormatter = (column: ColumnSnapshot) => string;
+
+const columnTypeFormatters: Record<string, ColumnTypeFormatter> = {
+  array: (column) => {
+    const elementKind = column.config?.elementKind;
+    const elementConfig = column.config?.elementConfig;
+    if (typeof elementKind !== "string") {
+      return "text[]";
     }
-    case "varchar":
-      return `varchar${typeof column.config?.length === "number" ? `(${column.config.length})` : ""}`;
-    case "uuid":
-      return "uuid";
-    case "integer":
-      return "integer";
-    case "bigint":
-      return "bigint";
-    case "real":
-      return "real";
-    case "doublePrecision":
-      return "double precision";
-    case "numeric": {
-      const precision = column.config?.precision;
-      const scale = column.config?.scale;
-      return typeof precision === "number"
-        ? `numeric(${precision}${typeof scale === "number" ? `, ${scale}` : ""})`
-        : "numeric";
-    }
-    case "boolean":
-      return "boolean";
-    case "json":
-      return "json";
-    case "jsonb":
-      return "jsonb";
-    case "timestamp":
-      return column.config?.withTimezone ? "timestamp with time zone" : "timestamp";
-    case "date":
-      return "date";
-    case "text":
-    default:
-      return "text";
-  }
+    return `${columnType({
+      ...column,
+      kind: elementKind,
+      config:
+        typeof elementConfig === "object" && elementConfig !== null
+          ? (elementConfig as Record<string, unknown>)
+          : undefined,
+    })}[]`;
+  },
+  varchar: (column) =>
+    `varchar${typeof column.config?.length === "number" ? `(${column.config.length})` : ""}`,
+  uuid: () => "uuid",
+  integer: () => "integer",
+  bigint: () => "bigint",
+  real: () => "real",
+  doublePrecision: () => "double precision",
+  numeric: (column) => {
+    const precision = column.config?.precision;
+    const scale = column.config?.scale;
+    return typeof precision === "number"
+      ? `numeric(${precision}${typeof scale === "number" ? `, ${scale}` : ""})`
+      : "numeric";
+  },
+  boolean: () => "boolean",
+  json: () => "json",
+  jsonb: () => "jsonb",
+  timestamp: (column) => (column.config?.withTimezone ? "timestamp with time zone" : "timestamp"),
+  date: () => "date",
+  text: () => "text",
 };
+
+const columnType = (column: ColumnSnapshot): string =>
+  (columnTypeFormatters[column.kind] ?? columnTypeFormatters.text)(column);
 
 const literal = (value: ColumnSnapshot["default"]): string => {
   if (value === null) return "null";

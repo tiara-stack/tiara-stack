@@ -2,6 +2,7 @@ import type { StreamEvent } from "@moonshot-ai/kimi-agent-sdk";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Match from "effect/Match";
 import * as Stream from "effect/Stream";
 import * as AiError from "effect/unstable/ai/AiError";
 import * as LanguageModel from "effect/unstable/ai/LanguageModel";
@@ -151,8 +152,8 @@ const eventToParts = (
   allowedToolNames: ReadonlySet<string>,
   toolNameById: Map<string, string>,
 ): Array<Response.PartEncoded | Response.StreamPartEncoded> => {
-  switch (event.type) {
-    case "ContentPart": {
+  const parts = Match.value(event).pipe(
+    Match.when({ type: "ContentPart" }, (event) => {
       const payload = event.payload as
         | KimiTextContentPart
         | KimiThinkContentPart
@@ -174,8 +175,8 @@ const eventToParts = (
               },
             ]
           : [];
-    }
-    case "ToolCall": {
+    }),
+    Match.when({ type: "ToolCall" }, (event) => {
       const payload = event.payload as KimiToolCall;
       if (!allowedToolNames.has(payload.function.name)) {
         return [];
@@ -192,8 +193,8 @@ const eventToParts = (
           metadata: { kimi: { toolCall: payload } } as any,
         },
       ];
-    }
-    case "ToolResult": {
+    }),
+    Match.when({ type: "ToolResult" }, (event) => {
       const payload = event.payload as KimiToolResult;
       const name = toolNameById.get(payload.tool_call_id);
       if (name === undefined) {
@@ -210,16 +211,15 @@ const eventToParts = (
           metadata: { kimi: { toolResult: payload } } as any,
         },
       ];
-    }
-    case "StatusUpdate": {
+    }),
+    Match.when({ type: "StatusUpdate" }, (event) => {
       const usage = (event.payload as { readonly token_usage?: KimiTokenUsage | null }).token_usage;
       return usage === undefined ? [] : [usagePart(usage)];
-    }
-    case "error":
-      return [{ type: "error", error: event.message }];
-    default:
-      return [];
-  }
+    }),
+    Match.when({ type: "error" }, (event) => [{ type: "error", error: event.message }]),
+    Match.orElse(() => []),
+  );
+  return parts as Array<Response.PartEncoded | Response.StreamPartEncoded>;
 };
 
 type StreamConversionState = {

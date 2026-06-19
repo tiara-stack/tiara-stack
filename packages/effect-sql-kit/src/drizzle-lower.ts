@@ -24,6 +24,11 @@ type PgFinalBuilder =
   | PgDefaultedBuilder
   | ReturnType<PgDefaultedBuilder["primaryKey"]>
   | ReturnType<PgDefaultedBuilder["notNull"]>;
+type SqliteBuilder = {
+  readonly default: (value: unknown) => SqliteBuilder;
+  readonly primaryKey: () => unknown;
+  readonly notNull: () => unknown;
+};
 
 type PgModule = typeof import("drizzle-orm/pg-core");
 type SqliteModule = typeof import("drizzle-orm/sqlite-core");
@@ -111,42 +116,35 @@ const firstTable = (schema: EffectSqlSchema) => {
   return schema.tables[firstKey]!;
 };
 
+type PgScalarFactory = (pg: PgModule, name: string, config: unknown) => PgScalarBuilder;
+
+const pgScalarFactories: Record<string, PgScalarFactory> = {
+  uuid: (pg, name) => pg.uuid(name),
+  varchar: (pg, name, config) => pg.varchar(name, config as Parameters<typeof pg.varchar>[1]),
+  integer: (pg, name) => pg.integer(name),
+  bigint: (pg, name, config) => pg.bigint(name, config as Parameters<typeof pg.bigint>[1]),
+  real: (pg, name) => pg.real(name),
+  doublePrecision: (pg, name) => pg.doublePrecision(name),
+  numeric: (pg, name, config) => pg.numeric(name, config as Parameters<typeof pg.numeric>[1]),
+  boolean: (pg, name) => pg.boolean(name),
+  json: (pg, name) => pg.json(name),
+  jsonb: (pg, name) => pg.jsonb(name),
+  timestamp: (pg, name, config) => pg.timestamp(name, config as Parameters<typeof pg.timestamp>[1]),
+  date: (pg, name) => pg.date(name),
+  text: (pg, name) => pg.text(name),
+};
+
 const makePgScalar = (
   pg: PgModule,
   name: string,
   kind: string,
   config?: unknown,
 ): PgScalarBuilder => {
-  switch (kind) {
-    case "uuid":
-      return pg.uuid(name);
-    case "varchar":
-      return pg.varchar(name, config as Parameters<typeof pg.varchar>[1]);
-    case "integer":
-      return pg.integer(name);
-    case "bigint":
-      return pg.bigint(name, config as Parameters<typeof pg.bigint>[1]);
-    case "real":
-      return pg.real(name);
-    case "doublePrecision":
-      return pg.doublePrecision(name);
-    case "numeric":
-      return pg.numeric(name, config as Parameters<typeof pg.numeric>[1]);
-    case "boolean":
-      return pg.boolean(name);
-    case "json":
-      return pg.json(name);
-    case "jsonb":
-      return pg.jsonb(name);
-    case "timestamp":
-      return pg.timestamp(name, config as Parameters<typeof pg.timestamp>[1]);
-    case "date":
-      return pg.date(name);
-    case "text":
-      return pg.text(name);
-    default:
-      throw new Error(`effect-sql-kit: unsupported postgres column kind ${kind} for ${name}`);
+  const factory = pgScalarFactories[kind];
+  if (factory === undefined) {
+    throw new Error(`effect-sql-kit: unsupported postgres column kind ${kind} for ${name}`);
   }
+  return factory(pg, name, config);
 };
 
 const pgScalarOrArray = (pg: PgModule, name: string, column: EffectSqlColumn): PgMutableBuilder => {
@@ -267,23 +265,25 @@ const lowerPostgresExports = async (schema: EffectSqlSchema): Promise<Record<str
   return exports;
 };
 
+type SqliteBuilderFactory = (sqlite: SqliteModule, name: string, config: unknown) => SqliteBuilder;
+
+const sqliteBuilderFactories: Record<string, SqliteBuilderFactory> = {
+  integer: (sqlite, name, config) =>
+    sqlite.integer(name, config as Parameters<typeof sqlite.integer>[1]) as SqliteBuilder,
+  real: (sqlite, name) => sqlite.real(name) as SqliteBuilder,
+  blob: (sqlite, name) => sqlite.blob(name) as SqliteBuilder,
+  numeric: (sqlite, name) => sqlite.numeric(name) as SqliteBuilder,
+  text: (sqlite, name) => sqlite.text(name) as SqliteBuilder,
+};
+
 const makeSqliteBuilder = (sqlite: SqliteModule, name: string, column: EffectSqlColumn) => {
-  switch (column.data.kind) {
-    case "integer":
-      return sqlite.integer(name, column.data.config as Parameters<typeof sqlite.integer>[1]);
-    case "real":
-      return sqlite.real(name);
-    case "blob":
-      return sqlite.blob(name);
-    case "numeric":
-      return sqlite.numeric(name);
-    case "text":
-      return sqlite.text(name);
-    default:
-      throw new Error(
-        `effect-sql-kit: unsupported sqlite column kind ${String(column.data.kind)} for ${name}`,
-      );
+  const factory = sqliteBuilderFactories[column.data.kind];
+  if (factory === undefined) {
+    throw new Error(
+      `effect-sql-kit: unsupported sqlite column kind ${String(column.data.kind)} for ${name}`,
+    );
   }
+  return factory(sqlite, name, column.data.config);
 };
 
 const lowerSqliteColumns = (

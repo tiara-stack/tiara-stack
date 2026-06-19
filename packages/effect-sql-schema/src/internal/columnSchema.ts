@@ -1,36 +1,33 @@
 import { Schema } from "effect";
 import type { Dialect } from "../types";
 
+const defaultKindSchemas: Record<string, Schema.Top> = {
+  bigint: Schema.BigInt,
+  real: Schema.Number,
+  doublePrecision: Schema.Number,
+  numeric: Schema.Number,
+  boolean: Schema.Boolean,
+  json: Schema.Unknown,
+  jsonb: Schema.Unknown,
+  blob: Schema.Unknown,
+  timestamp: Schema.Number,
+  date: Schema.Number,
+  text: Schema.String,
+  varchar: Schema.String,
+  uuid: Schema.String,
+};
+
 export const defaultColumnSchema = (
   dialect: Dialect,
   kind: string,
   config?: Record<string, unknown>,
 ) => {
-  switch (kind) {
-    case "integer":
-      if (dialect === "sqlite" && config?.mode === "boolean") {
-        return Schema.Boolean;
-      }
-      return dialect === "postgresql" ? Schema.Int : Schema.Number;
-    case "bigint":
-      return Schema.BigInt;
-    case "real":
-    case "doublePrecision":
-    case "numeric":
-      return Schema.Number;
-    case "boolean":
+  if (kind === "integer") {
+    if (dialect === "sqlite" && config?.mode === "boolean") {
       return Schema.Boolean;
-    case "json":
-    case "jsonb":
-    case "blob":
-      return Schema.Unknown;
-    case "timestamp":
-    case "date":
-      return Schema.Number;
-    case "text":
-    case "varchar":
-    case "uuid":
-    default:
-      return Schema.String;
+    }
+    return dialect === "postgresql" ? Schema.Int : Schema.Number;
   }
+
+  return defaultKindSchemas[kind] ?? Schema.String;
 };

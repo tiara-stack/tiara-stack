@@ -10,8 +10,7 @@ import type {
 import type { SchemaSnapshot } from "../snapshot";
 
 const isMigrationExtension = (value: unknown): value is MigrationExtension =>
-  Predicate.hasProperty(value, "_tag") &&
-  value._tag === "EffectSqlKitMigrationExtension" &&
+  Predicate.isTagged("EffectSqlKitMigrationExtension")(value) &&
   Predicate.hasProperty(value, "name") &&
   Predicate.isString(value.name) &&
   Predicate.hasProperty(value, "generate") &&

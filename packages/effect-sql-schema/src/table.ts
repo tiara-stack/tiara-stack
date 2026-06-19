@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Match, Schema } from "effect";
 import { Model } from "effect/unstable/schema";
 import type {
   ClassDefinition,
@@ -24,19 +24,11 @@ const nullableFieldSchema = (column: EffectSqlColumn): Schema.Top =>
 
 const modelField = (column: EffectSqlColumn): Schema.Top => {
   const schema = nullableFieldSchema(column);
-  switch (column.data.generation) {
-    case "database":
-      return Model.Generated(schema) as unknown as Schema.Top;
-    case "application":
-      return Model.GeneratedByApp(schema) as unknown as Schema.Top;
-    case "none":
-    case undefined:
-      return schema;
-    default: {
-      const exhaustive: never = column.data.generation;
-      return exhaustive;
-    }
-  }
+  return Match.value(column.data.generation).pipe(
+    Match.when("database", () => Model.Generated(schema) as unknown as Schema.Top),
+    Match.when("application", () => Model.GeneratedByApp(schema) as unknown as Schema.Top),
+    Match.orElse(() => schema),
+  );
 };
 
 const attachTableName = <D extends Dialect>(

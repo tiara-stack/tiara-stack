@@ -187,6 +187,35 @@ export const openRouterLanguageModelLayer = (
   ) as Layer.Layer<LanguageModel.LanguageModel, never>;
 };
 
+type LanguageModelLayerFactory = (
+  options: AiRunOptions,
+  kimiExternalTools: KimiDependencyGraphTools | undefined,
+) => Effect.Effect<Layer.Layer<LanguageModel.LanguageModel, never>, CodexAgentFailed>;
+
+const languageModelLayerFactories: Record<AiProvider, LanguageModelLayerFactory> = {
+  codex: (options) =>
+    Effect.succeed(
+      CodexLanguageModel.layer({ model: options.model, config: codexModelConfig(options) }).pipe(
+        Layer.provide(CodexClient.CodexClient.layer),
+      ),
+    ),
+  kimi: (options, kimiExternalTools) =>
+    Effect.succeed(
+      KimiLanguageModel.layer({
+        model: options.model,
+        config: kimiModelConfig(options, kimiExternalTools),
+      }).pipe(Layer.provide(KimiClient.KimiClient.layer)),
+    ),
+  openai: (options) =>
+    requireModel(options, "openai").pipe(
+      Effect.map((model: string) => openAiLanguageModelLayer(options, model)),
+    ),
+  openrouter: (options) =>
+    requireModel(options, "openrouter").pipe(
+      Effect.map((model: string) => openRouterLanguageModelLayer(options, model)),
+    ),
+};
+
 // Layers are lightweight to construct, but the underlying SDK clients and HTTP
 // transports are initialized here. Lift this to the review-run call site if
 // connection-pool reuse becomes important.
@@ -195,34 +224,5 @@ export const makeLanguageModelLayer = (
   kimiExternalTools?: KimiDependencyGraphTools,
 ): Effect.Effect<Layer.Layer<LanguageModel.LanguageModel, never>, CodexAgentFailed> => {
   const provider = options.provider ?? "codex";
-  switch (provider) {
-    case "codex":
-      return Effect.succeed(
-        CodexLanguageModel.layer({ model: options.model, config: codexModelConfig(options) }).pipe(
-          Layer.provide(CodexClient.CodexClient.layer),
-        ),
-      );
-    case "kimi":
-      return Effect.succeed(
-        KimiLanguageModel.layer({
-          model: options.model,
-          config: kimiModelConfig(options, kimiExternalTools),
-        }).pipe(Layer.provide(KimiClient.KimiClient.layer)),
-      );
-    case "openai":
-      return requireModel(options, provider).pipe(
-        Effect.map((model: string) => openAiLanguageModelLayer(options, model)),
-      );
-    case "openrouter":
-      return requireModel(options, provider).pipe(
-        Effect.map((model: string) => openRouterLanguageModelLayer(options, model)),
-      );
-    default:
-      return Effect.fail(
-        new CodexAgentFailed({
-          aspect: options.aspect,
-          message: "Unsupported provider",
-        }),
-      );
-  }
+  return languageModelLayerFactories[provider](options, kimiExternalTools);
 };
