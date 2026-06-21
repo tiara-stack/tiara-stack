@@ -3,11 +3,10 @@ import { ApplicationIntegrationType, InteractionContextType } from "discord-api-
 import { Ix } from "dfx/index";
 import { Effect, Layer } from "effect";
 import { CommandHelper, InteractionResponse } from "dfx-discord-utils/utils";
-import { InteractionToken } from "dfx-discord-utils/utils";
 import { discordApplicationLayer } from "../discord/application";
 import { discordGatewayLayer } from "../discord/gateway";
 import { SheetWorkflowsClient, SheetWorkflowsRequestContext } from "../services";
-import { interactionDeadlineEpochMs } from "../utils/interactionDeadline";
+import { makeDispatchBase } from "../utils/commandHelpers";
 import { runSheetWorkflowsDispatch } from "../utils/sheetWorkflowsDispatch";
 
 const makeStatusCommand = Effect.gen(function* () {
@@ -36,14 +35,9 @@ const makeStatusCommand = Effect.gen(function* () {
         "the service status check",
         SheetWorkflowsRequestContext.asInteractionUser(
           Effect.fn("status.dispatch")(function* () {
-            const interactionToken = yield* InteractionToken;
-            const interaction = yield* Ix.Interaction;
+            const base = yield* makeDispatchBase;
             return yield* sheetWorkflowsClient.get().dispatch.serviceStatus({
-              payload: {
-                dispatchRequestId: `discord-interaction:${interaction.id}`,
-                interactionToken: interactionToken.token,
-                interactionDeadlineEpochMs: interactionDeadlineEpochMs(interaction.id),
-              },
+              payload: base,
             });
           }),
         )(),

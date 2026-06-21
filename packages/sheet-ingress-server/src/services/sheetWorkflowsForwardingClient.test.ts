@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import { describe, expect, it } from "@effect/vitest";
 import { vi } from "vitest";
 import { Effect, HashSet, Option, Redacted } from "effect";
@@ -10,6 +11,8 @@ import { getIngressRpcHeaders } from "./rpcAuthorizationClient";
 import { SheetWorkflowsForwardingClient } from "./sheetWorkflowsForwardingClient";
 import { SheetWorkflowsRpcClient } from "./sheetWorkflowsRpcClient";
 import { SheetApisRpcTokens } from "./sheetApisRpcTokens";
+
+const dispatchClient = { platform: "discord", clientId: "discord-main" } as const;
 
 const makeSheetApisRpcTokens = () =>
   ({
@@ -97,14 +100,14 @@ describe("SheetWorkflowsForwardingClient", () => {
       [DispatchWorkflowOperations.serviceStatus.discardRpcTag]: makeDiscard(
         DispatchWorkflowOperations.serviceStatus,
       ),
-      [DispatchWorkflowOperations.guildWelcome.discardRpcTag]: makeDiscard(
-        DispatchWorkflowOperations.guildWelcome,
+      [DispatchWorkflowOperations.workspaceWelcome.discardRpcTag]: makeDiscard(
+        DispatchWorkflowOperations.workspaceWelcome,
       ),
-      [DispatchWorkflowOperations.serviceAddGuildFeatureFlag.discardRpcTag]: makeDiscard(
-        DispatchWorkflowOperations.serviceAddGuildFeatureFlag,
+      [DispatchWorkflowOperations.serviceAddWorkspaceFeatureFlag.discardRpcTag]: makeDiscard(
+        DispatchWorkflowOperations.serviceAddWorkspaceFeatureFlag,
       ),
-      [DispatchWorkflowOperations.serviceRemoveGuildFeatureFlag.discardRpcTag]: makeDiscard(
-        DispatchWorkflowOperations.serviceRemoveGuildFeatureFlag,
+      [DispatchWorkflowOperations.serviceRemoveWorkspaceFeatureFlag.discardRpcTag]: makeDiscard(
+        DispatchWorkflowOperations.serviceRemoveWorkspaceFeatureFlag,
       ),
       [DispatchWorkflowOperations.slotOpenButton.discardRpcTag]: makeDiscard(
         DispatchWorkflowOperations.slotOpenButton,
@@ -137,6 +140,8 @@ describe("SheetWorkflowsForwardingClient", () => {
 
     const requester = { accountId: "account-1", userId: "user-1" };
     const authorizedRoomOrder = new MessageRoomOrder({
+      clientPlatform: "discord",
+      clientId: "discord-main",
       messageId: "message-1",
       hour: 1,
       previousFills: [],
@@ -144,13 +149,13 @@ describe("SheetWorkflowsForwardingClient", () => {
       rank: 1,
       tentative: false,
       monitor: Option.none(),
-      guildId: Option.some("guild-1"),
-      messageChannelId: Option.some("channel-1"),
+      workspaceId: Option.some("workspace-1"),
+      conversationId: Option.some("conversation-1"),
       createdByUserId: Option.none(),
       sendClaimId: Option.none(),
       sendClaimedAt: Option.none(),
       sentMessageId: Option.none(),
-      sentMessageChannelId: Option.none(),
+      sentConversationId: Option.none(),
       sentAt: Option.none(),
       tentativeUpdateClaimId: Option.none(),
       tentativeUpdateClaimedAt: Option.none(),
@@ -163,16 +168,21 @@ describe("SheetWorkflowsForwardingClient", () => {
     });
     const checkinPayload = {
       requester,
-      payload: { dispatchRequestId: "dispatch-checkin", guildId: "guild-1" },
+      payload: {
+        client: dispatchClient,
+        dispatchRequestId: "dispatch-checkin",
+        workspaceId: "workspace-1",
+      },
     };
     const autoCheckinTestPayload = {
       requester,
       payload: {
+        client: dispatchClient,
         dispatchRequestId: "dispatch-auto-checkin-test",
-        guildId: "guild-1",
-        anchorChannelId: "channel-1",
-        interactionToken: "token-1",
-        interactionDeadlineEpochMs: Date.now() + 60_000,
+        workspaceId: "workspace-1",
+        anchorConversationId: "conversation-1",
+        interactionResponseToken: "token-1",
+        interactionResponseDeadlineEpochMs: Date.now() + 60_000,
       },
     };
     await expect(
@@ -194,11 +204,12 @@ describe("SheetWorkflowsForwardingClient", () => {
     expectDiscarded(DispatchWorkflowOperations.autoCheckinTest, {
       requester,
       payload: {
+        client: dispatchClient,
         dispatchRequestId: "dispatch-auto-checkin-test",
-        guildId: "guild-1",
-        anchorChannelId: "channel-1",
-        interactionToken: "token-1",
-        interactionDeadlineEpochMs: expect.any(Number),
+        workspaceId: "workspace-1",
+        anchorConversationId: "conversation-1",
+        interactionResponseToken: "token-1",
+        interactionResponseDeadlineEpochMs: expect.any(Number),
       },
     });
     await expect(
@@ -217,9 +228,10 @@ describe("SheetWorkflowsForwardingClient", () => {
         client.dispatch.checkinButton({
           requester,
           payload: {
+            client: dispatchClient,
             messageId: "message-1",
-            interactionToken: "token-1",
-            interactionDeadlineEpochMs: Date.now() + 60_000,
+            interactionResponseToken: "token-1",
+            interactionResponseDeadlineEpochMs: Date.now() + 60_000,
           },
         } as never) as Effect.Effect<unknown, unknown, never>,
       ),
@@ -227,46 +239,64 @@ describe("SheetWorkflowsForwardingClient", () => {
     expectDiscarded(DispatchWorkflowOperations.checkinButton, {
       requester,
       payload: {
+        client: dispatchClient,
         messageId: "message-1",
-        interactionToken: "token-1",
-        interactionDeadlineEpochMs: expect.any(Number),
+        interactionResponseToken: "token-1",
+        interactionResponseDeadlineEpochMs: expect.any(Number),
       },
     });
     await expect(
       Effect.runPromise(
         client.dispatch.roomOrder({
           requester,
-          payload: { dispatchRequestId: "dispatch-room-order", guildId: "guild-1" },
+          payload: {
+            client: dispatchClient,
+            dispatchRequestId: "dispatch-room-order",
+            workspaceId: "workspace-1",
+          },
         } as never) as Effect.Effect<unknown, unknown, never>,
       ),
     ).resolves.toMatchObject({ operation: "roomOrder" });
     expectDiscarded(DispatchWorkflowOperations.roomOrder, {
       requester,
-      payload: { dispatchRequestId: "dispatch-room-order", guildId: "guild-1" },
+      payload: {
+        client: dispatchClient,
+        dispatchRequestId: "dispatch-room-order",
+        workspaceId: "workspace-1",
+      },
     });
     await expect(
       Effect.runPromise(
         client.dispatch.kickout({
           requester,
-          payload: { dispatchRequestId: "dispatch-kickout", guildId: "guild-1" },
+          payload: {
+            client: dispatchClient,
+            dispatchRequestId: "dispatch-kickout",
+            workspaceId: "workspace-1",
+          },
         } as never) as Effect.Effect<unknown, unknown, never>,
       ),
     ).resolves.toMatchObject({ operation: "kickout" });
     expectDiscarded(DispatchWorkflowOperations.kickout, {
       requester,
-      payload: { dispatchRequestId: "dispatch-kickout", guildId: "guild-1" },
+      payload: {
+        client: dispatchClient,
+        dispatchRequestId: "dispatch-kickout",
+        workspaceId: "workspace-1",
+      },
     });
     await expect(
       Effect.runPromise(
         client.dispatch.slotButton({
           requester,
           payload: {
+            client: dispatchClient,
             dispatchRequestId: "dispatch-slot-button",
-            guildId: "guild-1",
-            channelId: "channel-1",
+            workspaceId: "workspace-1",
+            conversationId: "conversation-1",
             day: 1,
-            interactionToken: "token-1",
-            interactionDeadlineEpochMs: Date.now() + 60_000,
+            interactionResponseToken: "token-1",
+            interactionResponseDeadlineEpochMs: Date.now() + 60_000,
           },
         } as never) as Effect.Effect<unknown, unknown, never>,
       ),
@@ -274,12 +304,13 @@ describe("SheetWorkflowsForwardingClient", () => {
     expectDiscarded(DispatchWorkflowOperations.slotButton, {
       requester,
       payload: {
+        client: dispatchClient,
         dispatchRequestId: "dispatch-slot-button",
-        guildId: "guild-1",
-        channelId: "channel-1",
+        workspaceId: "workspace-1",
+        conversationId: "conversation-1",
         day: 1,
-        interactionToken: "token-1",
-        interactionDeadlineEpochMs: expect.any(Number),
+        interactionResponseToken: "token-1",
+        interactionResponseDeadlineEpochMs: expect.any(Number),
       },
     });
     await expect(
@@ -287,12 +318,13 @@ describe("SheetWorkflowsForwardingClient", () => {
         client.dispatch.slotList({
           requester,
           payload: {
+            client: dispatchClient,
             dispatchRequestId: "dispatch-slot-list",
-            guildId: "guild-1",
+            workspaceId: "workspace-1",
             day: 1,
             messageType: "ephemeral",
-            interactionToken: "token-1",
-            interactionDeadlineEpochMs: Date.now() + 60_000,
+            interactionResponseToken: "token-1",
+            interactionResponseDeadlineEpochMs: Date.now() + 60_000,
           },
         } as never) as Effect.Effect<unknown, unknown, never>,
       ),
@@ -300,12 +332,13 @@ describe("SheetWorkflowsForwardingClient", () => {
     expectDiscarded(DispatchWorkflowOperations.slotList, {
       requester,
       payload: {
+        client: dispatchClient,
         dispatchRequestId: "dispatch-slot-list",
-        guildId: "guild-1",
+        workspaceId: "workspace-1",
         day: 1,
         messageType: "ephemeral",
-        interactionToken: "token-1",
-        interactionDeadlineEpochMs: expect.any(Number),
+        interactionResponseToken: "token-1",
+        interactionResponseDeadlineEpochMs: expect.any(Number),
       },
     });
     await expect(
@@ -313,9 +346,10 @@ describe("SheetWorkflowsForwardingClient", () => {
         client.dispatch.slotOpenButton({
           requester,
           payload: {
+            client: dispatchClient,
             messageId: "message-1",
-            interactionToken: "token-1",
-            interactionDeadlineEpochMs: Date.now() + 60_000,
+            interactionResponseToken: "token-1",
+            interactionResponseDeadlineEpochMs: Date.now() + 60_000,
           },
         } as never) as Effect.Effect<unknown, unknown, never>,
       ),
@@ -323,9 +357,10 @@ describe("SheetWorkflowsForwardingClient", () => {
     expectDiscarded(DispatchWorkflowOperations.slotOpenButton, {
       requester,
       payload: {
+        client: dispatchClient,
         messageId: "message-1",
-        interactionToken: "token-1",
-        interactionDeadlineEpochMs: expect.any(Number),
+        interactionResponseToken: "token-1",
+        interactionResponseDeadlineEpochMs: expect.any(Number),
       },
     });
     await expect(
@@ -333,9 +368,10 @@ describe("SheetWorkflowsForwardingClient", () => {
         client.dispatch.serviceStatus({
           requester,
           payload: {
+            client: dispatchClient,
             dispatchRequestId: "dispatch-service-status",
-            interactionToken: "token-1",
-            interactionDeadlineEpochMs: Date.now() + 60_000,
+            interactionResponseToken: "token-1",
+            interactionResponseDeadlineEpochMs: Date.now() + 60_000,
           },
         } as never) as Effect.Effect<unknown, unknown, never>,
       ),
@@ -343,65 +379,69 @@ describe("SheetWorkflowsForwardingClient", () => {
     expectDiscarded(DispatchWorkflowOperations.serviceStatus, {
       requester,
       payload: {
+        client: dispatchClient,
         dispatchRequestId: "dispatch-service-status",
-        interactionToken: "token-1",
-        interactionDeadlineEpochMs: expect.any(Number),
+        interactionResponseToken: "token-1",
+        interactionResponseDeadlineEpochMs: expect.any(Number),
       },
     });
     await expect(
       Effect.runPromise(
-        client.dispatch.guildWelcome({
+        client.dispatch.workspaceWelcome({
           requester,
           payload: {
-            dispatchRequestId: "dispatch-guild-welcome",
-            guildId: "guild-1",
-            guildName: "Guild One",
+            client: dispatchClient,
+            dispatchRequestId: "dispatch-workspace-welcome",
+            workspaceId: "workspace-1",
+            workspaceName: "Workspace One",
             joinedAt: "2026-05-31T00:00:00.000Z",
-            systemChannelId: "channel-1",
+            systemConversationId: "conversation-1",
           },
         } as never) as Effect.Effect<unknown, unknown, never>,
       ),
-    ).resolves.toMatchObject({ operation: "guildWelcome" });
-    expectDiscarded(DispatchWorkflowOperations.guildWelcome, {
+    ).resolves.toMatchObject({ operation: "workspaceWelcome" });
+    expectDiscarded(DispatchWorkflowOperations.workspaceWelcome, {
       requester,
       payload: {
-        dispatchRequestId: "dispatch-guild-welcome",
-        guildId: "guild-1",
-        guildName: "Guild One",
+        client: dispatchClient,
+        dispatchRequestId: "dispatch-workspace-welcome",
+        workspaceId: "workspace-1",
+        workspaceName: "Workspace One",
         joinedAt: "2026-05-31T00:00:00.000Z",
-        systemChannelId: "channel-1",
+        systemConversationId: "conversation-1",
       },
     });
 
     const serviceFeatureFlagPayload = {
       requester,
       payload: {
-        dispatchRequestId: "dispatch-service-guild-feature-flag",
-        guildId: "guild-1",
+        client: dispatchClient,
+        dispatchRequestId: "dispatch-service-workspace-feature-flag",
+        workspaceId: "workspace-1",
         flagName: "beta-feature",
-        systemChannelId: "channel-1",
+        systemConversationId: "conversation-1",
       },
     };
     await expect(
       Effect.runPromise(
-        client.dispatch.serviceAddGuildFeatureFlag(
+        client.dispatch.serviceAddWorkspaceFeatureFlag(
           serviceFeatureFlagPayload as never,
         ) as Effect.Effect<unknown, unknown, never>,
       ),
-    ).resolves.toMatchObject({ operation: "serviceAddGuildFeatureFlag" });
+    ).resolves.toMatchObject({ operation: "serviceAddWorkspaceFeatureFlag" });
     await expect(
       Effect.runPromise(
-        client.dispatch.serviceRemoveGuildFeatureFlag(
+        client.dispatch.serviceRemoveWorkspaceFeatureFlag(
           serviceFeatureFlagPayload as never,
         ) as Effect.Effect<unknown, unknown, never>,
       ),
-    ).resolves.toMatchObject({ operation: "serviceRemoveGuildFeatureFlag" });
+    ).resolves.toMatchObject({ operation: "serviceRemoveWorkspaceFeatureFlag" });
     expectDiscarded(
-      DispatchWorkflowOperations.serviceAddGuildFeatureFlag,
+      DispatchWorkflowOperations.serviceAddWorkspaceFeatureFlag,
       serviceFeatureFlagPayload,
     );
     expectDiscarded(
-      DispatchWorkflowOperations.serviceRemoveGuildFeatureFlag,
+      DispatchWorkflowOperations.serviceRemoveWorkspaceFeatureFlag,
       serviceFeatureFlagPayload,
     );
 
@@ -417,11 +457,12 @@ describe("SheetWorkflowsForwardingClient", () => {
       const payload = {
         requester,
         payload: {
-          guildId: "guild-1",
+          client: dispatchClient,
+          workspaceId: "workspace-1",
           messageId: "message-1",
-          messageChannelId: "channel-1",
-          interactionToken: "token-1",
-          interactionDeadlineEpochMs: Date.now() + 60_000,
+          messageConversationId: "conversation-1",
+          interactionResponseToken: "token-1",
+          interactionResponseDeadlineEpochMs: Date.now() + 60_000,
         },
         authorizedRoomOrder,
       };

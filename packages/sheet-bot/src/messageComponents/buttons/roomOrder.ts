@@ -9,7 +9,7 @@ import {
   makeButton,
   makeMessageComponent,
 } from "dfx-discord-utils/utils";
-import { hasTentativeRoomOrderPrefix } from "sheet-ingress-api/discordComponents";
+import { hasTentativeRoomOrderPrefix } from "sheet-ingress-api/clientActions";
 import { discordGatewayLayer } from "../../discord/gateway";
 import {
   nextButtonData,
@@ -24,6 +24,7 @@ import {
   type RoomOrderButtonInteractionResponseType,
 } from "sheet-ingress-api/sheet-apis-rpc";
 import { interactionDeadlineEpochMs } from "@/utils/interactionDeadline";
+import { config } from "@/config";
 
 const getInteractionGuildId = Effect.gen(function* () {
   const interactionGuild = yield* Interaction.guild();
@@ -54,15 +55,17 @@ const makeRoomOrderButtonPayload = Effect.fn("roomOrderButton.makePayload")(func
   );
   const interactionToken = yield* InteractionToken;
   const interaction = yield* Ix.Interaction;
+  const clientId = yield* config.sheetBotClientId;
 
   return {
     payload: {
-      guildId,
+      client: { platform: "discord", clientId },
+      workspaceId: guildId,
       messageId: message.id,
-      messageChannelId: message.channel_id,
+      messageConversationId: message.channel_id,
       messageContent: message.content ?? null,
-      interactionToken: interactionToken.token,
-      interactionDeadlineEpochMs: interactionDeadlineEpochMs(interaction.id),
+      interactionResponseToken: interactionToken.token,
+      interactionResponseDeadlineEpochMs: interactionDeadlineEpochMs(interaction.id),
       interactionResponseType,
     },
   };

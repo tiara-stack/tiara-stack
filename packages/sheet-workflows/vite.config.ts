@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import { fileURLToPath } from "url";
 import { defineConfig } from "vite-plus";
 
@@ -8,9 +9,6 @@ const sheetDbSchemaModels = fileURLToPath(import.meta.resolve("sheet-db-schema/m
 export default defineConfig({
   resolve: {
     alias: {
-      "dfx-discord-utils/discord/schema": fileURLToPath(
-        new URL("../dfx-discord-utils/src/discord/schema/index.ts", import.meta.url),
-      ),
       "sheet-auth/client": fileURLToPath(new URL("../sheet-auth/src/client.ts", import.meta.url)),
       "sheet-auth/oauth": fileURLToPath(new URL("../sheet-auth/src/oauth.ts", import.meta.url)),
       "sheet-auth/oauth-resource-authorization": fileURLToPath(

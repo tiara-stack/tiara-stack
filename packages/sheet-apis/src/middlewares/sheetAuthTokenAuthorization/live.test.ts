@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import { describe, expect, it } from "@effect/vitest";
 import { vi } from "vitest";
 import { ConfigProvider, Effect, HashSet, Redacted, Schema } from "effect";
@@ -220,7 +221,7 @@ describe("SheetAuthTokenAuthorizationLive", () => {
         "x-sheet-auth-permissions": "account:discord:discord-user-1",
         "x-sheet-auth-scopes": "sheet.manage",
       }),
-      "guildConfig.getGuildConfig",
+      "workspaceConfig.getWorkspaceConfig",
     );
 
     expect(user.accountId).toBe("discord-user-1");

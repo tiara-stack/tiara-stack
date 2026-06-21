@@ -11,6 +11,8 @@ import type {
 import { modelTaggedFields, validateTaggedFields } from "../model";
 
 const MessageRoomOrderFields = validateTaggedFields<{
+  readonly clientPlatform: StringField;
+  readonly clientId: StringField;
   readonly messageId: StringField;
   readonly previousFills: StringArrayField;
   readonly fills: StringArrayField;
@@ -18,13 +20,13 @@ const MessageRoomOrderFields = validateTaggedFields<{
   readonly rank: NumberField;
   readonly tentative: BooleanField;
   readonly monitor: StringOptionField;
-  readonly guildId: StringOptionField;
-  readonly messageChannelId: StringOptionField;
+  readonly workspaceId: StringOptionField;
+  readonly conversationId: StringOptionField;
   readonly createdByUserId: StringOptionField;
   readonly sendClaimId: StringOptionField;
   readonly sendClaimedAt: DateTimeOptionField;
   readonly sentMessageId: StringOptionField;
-  readonly sentMessageChannelId: StringOptionField;
+  readonly sentConversationId: StringOptionField;
   readonly sentAt: DateTimeOptionField;
   readonly tentativeUpdateClaimId: StringOptionField;
   readonly tentativeUpdateClaimedAt: DateTimeOptionField;
@@ -35,6 +37,8 @@ const MessageRoomOrderFields = validateTaggedFields<{
   readonly updatedAt: DateTimeOptionField;
   readonly deletedAt: DateTimeOptionField;
 }>(modelTaggedFields(messageRoomOrder), [
+  "clientPlatform",
+  "clientId",
   "messageId",
   "previousFills",
   "fills",
@@ -42,13 +46,13 @@ const MessageRoomOrderFields = validateTaggedFields<{
   "rank",
   "tentative",
   "monitor",
-  "guildId",
-  "messageChannelId",
+  "workspaceId",
+  "conversationId",
   "createdByUserId",
   "sendClaimId",
   "sendClaimedAt",
   "sentMessageId",
-  "sentMessageChannelId",
+  "sentConversationId",
   "sentAt",
   "tentativeUpdateClaimId",
   "tentativeUpdateClaimedAt",

@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import { globSync } from "glob";
 import path from "pathe";
 import { fileURLToPath } from "url";

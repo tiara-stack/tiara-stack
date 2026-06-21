@@ -1,11 +1,11 @@
 import { schema as effectSqlSchema } from "effect-sql-schema";
 import type { EffectSqlTable } from "effect-sql-schema";
 import {
-  configGuild as internalConfigGuild,
-  configGuildChannel as internalConfigGuildChannel,
-  configGuildFeatureFlag as internalConfigGuildFeatureFlag,
-  configGuildManagerRole as internalConfigGuildManagerRole,
-  configGuildUpdateAnnouncementDelivery as internalConfigGuildUpdateAnnouncementDelivery,
+  configWorkspace as internalConfigWorkspace,
+  configWorkspaceConversation as internalConfigWorkspaceConversation,
+  configWorkspaceFeatureFlag as internalConfigWorkspaceFeatureFlag,
+  configWorkspaceMonitorRole as internalConfigWorkspaceMonitorRole,
+  configWorkspaceUpdateAnnouncementDelivery as internalConfigWorkspaceUpdateAnnouncementDelivery,
   messageCheckin as internalMessageCheckin,
   messageCheckinMember as internalMessageCheckinMember,
   messageRoomOrder as internalMessageRoomOrder,
@@ -18,12 +18,13 @@ type PgTable = EffectSqlTable<"postgresql">;
 
 // Compatibility exports keep the historical widened table type. Prefer
 // sheet-db-schema/models when model variant types are needed.
-export const configGuild = internalConfigGuild as unknown as PgTable;
-export const configGuildManagerRole = internalConfigGuildManagerRole as unknown as PgTable;
-export const configGuildFeatureFlag = internalConfigGuildFeatureFlag as unknown as PgTable;
-export const configGuildUpdateAnnouncementDelivery =
-  internalConfigGuildUpdateAnnouncementDelivery as unknown as PgTable;
-export const configGuildChannel = internalConfigGuildChannel as unknown as PgTable;
+export const configWorkspace = internalConfigWorkspace as unknown as PgTable;
+export const configWorkspaceMonitorRole = internalConfigWorkspaceMonitorRole as unknown as PgTable;
+export const configWorkspaceFeatureFlag = internalConfigWorkspaceFeatureFlag as unknown as PgTable;
+export const configWorkspaceUpdateAnnouncementDelivery =
+  internalConfigWorkspaceUpdateAnnouncementDelivery as unknown as PgTable;
+export const configWorkspaceConversation =
+  internalConfigWorkspaceConversation as unknown as PgTable;
 export const messageSlot = internalMessageSlot as unknown as PgTable;
 export const messageCheckin = internalMessageCheckin as unknown as PgTable;
 export const messageCheckinMember = internalMessageCheckinMember as unknown as PgTable;
@@ -32,11 +33,11 @@ export const messageRoomOrderEntry = internalMessageRoomOrderEntry as unknown as
 export const sheetApisDispatchJobs = internalSheetApisDispatchJobs as unknown as PgTable;
 
 export const schema = effectSqlSchema({
-  configGuild,
-  configGuildManagerRole,
-  configGuildFeatureFlag,
-  configGuildUpdateAnnouncementDelivery,
-  configGuildChannel,
+  configWorkspace,
+  configWorkspaceMonitorRole,
+  configWorkspaceFeatureFlag,
+  configWorkspaceUpdateAnnouncementDelivery,
+  configWorkspaceConversation,
   messageSlot,
   messageCheckin,
   messageCheckinMember,

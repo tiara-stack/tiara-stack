@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import { defineConfig } from "vite-plus";
 import { lightFormat } from "date-fns";
 import { fileURLToPath } from "url";

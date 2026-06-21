@@ -1,37 +1,24 @@
-import { Array, Effect, HashMap, Layer, Option } from "effect";
+import { Array, Effect, HashMap, Layer } from "effect";
 import { PlayerRpcs } from "sheet-ingress-api/sheet-apis-rpc";
-import { withCurrentGuildAuthFromQuery } from "@/handlers/shared/guildAuthorization";
-import { AuthorizationService, PlayerService, GuildConfigService } from "@/services";
-
-const getSheetIdFromGuildId = Effect.fn("player.getSheetIdFromGuildId")(function* (
-  guildId: string,
-  guildConfigService: typeof GuildConfigService.Service,
-) {
-  const guildConfig = yield* guildConfigService.getGuildConfig(guildId);
-
-  if (Option.isNone(guildConfig)) {
-    return yield* Effect.die(new Error(`Guild config not found for guildId: ${guildId}`));
-  }
-
-  if (Option.isNone(guildConfig.value.sheetId)) {
-    return yield* Effect.die(new Error(`sheetId not found for guildId: ${guildId}`));
-  }
-
-  return guildConfig.value.sheetId.value;
-});
+import { withCurrentWorkspaceAuthFromQuery } from "@/handlers/shared/workspaceAuthorization";
+import { getSheetIdFromWorkspaceId } from "@/handlers/shared/workspaceConfig";
+import { AuthorizationService, PlayerService, WorkspaceConfigService } from "@/services";
 
 export const playerLayer = PlayerRpcs.toLayer(
   Effect.gen(function* () {
     const authorizationService = yield* AuthorizationService;
     const playerService = yield* PlayerService;
-    const guildConfigService = yield* GuildConfigService;
-    const withQueryGuildAuth = withCurrentGuildAuthFromQuery(authorizationService);
+    const workspaceConfigService = yield* WorkspaceConfigService;
+    const withQueryWorkspaceAuth = withCurrentWorkspaceAuthFromQuery(authorizationService);
 
     return {
-      "player.getPlayerMaps": withQueryGuildAuth(
+      "player.getPlayerMaps": withQueryWorkspaceAuth(
         Effect.fnUntraced(function* ({ query }) {
-          yield* authorizationService.requireMonitorGuild(query.guildId);
-          const sheetId = yield* getSheetIdFromGuildId(query.guildId, guildConfigService);
+          yield* authorizationService.requireMonitorWorkspace(query.workspaceId);
+          const sheetId = yield* getSheetIdFromWorkspaceId(
+            query.workspaceId,
+            workspaceConfigService,
+          );
           const playerMaps = yield* playerService.getPlayerMaps(sheetId);
 
           return {
@@ -50,52 +37,66 @@ export const playerLayer = PlayerRpcs.toLayer(
           };
         }),
       ),
-      "player.getByIds": withQueryGuildAuth(
+      "player.getByIds": withQueryWorkspaceAuth(
         Effect.fnUntraced(function* ({ query }) {
           const auth =
             query.ids.length === 1
               ? authorizationService.requireDiscordAccountIdOrMonitorGuild(
-                  query.guildId,
+                  query.workspaceId,
                   query.ids[0],
                 )
-              : authorizationService.requireMonitorGuild(query.guildId);
+              : authorizationService.requireMonitorWorkspace(query.workspaceId);
 
           yield* auth;
-          const sheetId = yield* getSheetIdFromGuildId(query.guildId, guildConfigService);
+          const sheetId = yield* getSheetIdFromWorkspaceId(
+            query.workspaceId,
+            workspaceConfigService,
+          );
           return yield* playerService.getByIds(sheetId, query.ids);
         }),
       ),
-      "player.getByNames": withQueryGuildAuth(
+      "player.getByNames": withQueryWorkspaceAuth(
         Effect.fnUntraced(function* ({ query }) {
-          yield* authorizationService.requireMonitorGuild(query.guildId);
-          const sheetId = yield* getSheetIdFromGuildId(query.guildId, guildConfigService);
+          yield* authorizationService.requireMonitorWorkspace(query.workspaceId);
+          const sheetId = yield* getSheetIdFromWorkspaceId(
+            query.workspaceId,
+            workspaceConfigService,
+          );
           return yield* playerService.getByNames(sheetId, query.names);
         }),
       ),
-      "player.getTeamsByIds": withQueryGuildAuth(
+      "player.getTeamsByIds": withQueryWorkspaceAuth(
         Effect.fnUntraced(function* ({ query }) {
           const auth =
             query.ids.length === 1
               ? authorizationService.requireDiscordAccountIdOrMonitorGuild(
-                  query.guildId,
+                  query.workspaceId,
                   query.ids[0],
                 )
-              : authorizationService.requireMonitorGuild(query.guildId);
+              : authorizationService.requireMonitorWorkspace(query.workspaceId);
 
           yield* auth;
-          const sheetId = yield* getSheetIdFromGuildId(query.guildId, guildConfigService);
+          const sheetId = yield* getSheetIdFromWorkspaceId(
+            query.workspaceId,
+            workspaceConfigService,
+          );
           const teams = yield* playerService.getTeamsByIds(sheetId, query.ids);
           return [teams] as const;
         }),
       ),
-      "player.getTeamsByNames": withQueryGuildAuth(
+      "player.getTeamsByNames": withQueryWorkspaceAuth(
         Effect.fnUntraced(function* ({ query }) {
-          yield* authorizationService.requireMonitorGuild(query.guildId);
-          const sheetId = yield* getSheetIdFromGuildId(query.guildId, guildConfigService);
+          yield* authorizationService.requireMonitorWorkspace(query.workspaceId);
+          const sheetId = yield* getSheetIdFromWorkspaceId(
+            query.workspaceId,
+            workspaceConfigService,
+          );
           const teams = yield* playerService.getTeamsByNames(sheetId, query.names);
           return [teams] as const;
         }),
       ),
     };
   }),
-).pipe(Layer.provide([AuthorizationService.layer, PlayerService.layer, GuildConfigService.layer]));
+).pipe(
+  Layer.provide([AuthorizationService.layer, PlayerService.layer, WorkspaceConfigService.layer]),
+);

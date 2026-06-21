@@ -1,21 +1,48 @@
-import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
+// fallow-ignore-file code-duplication
 import { Schema } from "effect";
-import { SchemaError, ArgumentError, Unauthorized } from "typhoon-core/error";
+import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
+import { ArgumentError, SchemaError, Unauthorized } from "typhoon-core/error";
 import { QueryResultError } from "typhoon-zero/error";
+import { SheetApisServiceUserFallback } from "../../middlewares/sheetApisServiceUserFallback/tag";
+import { SheetAuthTokenAuthorization } from "../../middlewares/sheetAuthTokenAuthorization/tag";
 import {
   MessageRoomOrder,
   MessageRoomOrderEntry,
   MessageRoomOrderRange,
 } from "../../schemas/messageRoomOrder";
-import { SheetAuthTokenAuthorization } from "../../middlewares/sheetAuthTokenAuthorization/tag";
-import { SheetApisServiceUserFallback } from "../../middlewares/sheetApisServiceUserFallback/tag";
+import { ClientPlatform } from "../../schemas/client";
+
+const MessageKeyPayload = {
+  clientPlatform: ClientPlatform,
+  clientId: Schema.String,
+  messageId: Schema.String,
+} as const;
+
+const MessageRoomOrderDataPayload = Schema.Struct({
+  previousFills: Schema.Array(Schema.String),
+  fills: Schema.Array(Schema.String),
+  hour: Schema.Number,
+  rank: Schema.Number,
+  tentative: Schema.optional(Schema.Boolean),
+  monitor: Schema.optional(Schema.NullOr(Schema.String)),
+  workspaceId: Schema.NullOr(Schema.String),
+  conversationId: Schema.NullOr(Schema.String),
+  createdByUserId: Schema.NullOr(Schema.String),
+});
+
+const MessageRoomOrderEntryPayload = Schema.Struct({
+  rank: Schema.Number,
+  position: Schema.Number,
+  hour: Schema.Number,
+  team: Schema.String,
+  tags: Schema.Array(Schema.String),
+  effectValue: Schema.Number,
+});
 
 export class MessageRoomOrderApi extends HttpApiGroup.make("messageRoomOrder")
   .add(
     HttpApiEndpoint.get("getMessageRoomOrder", "/messageRoomOrder/getMessageRoomOrder", {
-      query: Schema.Struct({
-        messageId: Schema.String,
-      }),
+      query: Schema.Struct(MessageKeyPayload),
       success: MessageRoomOrder,
       error: [SchemaError, QueryResultError, ArgumentError, Unauthorized],
     }),
@@ -23,18 +50,8 @@ export class MessageRoomOrderApi extends HttpApiGroup.make("messageRoomOrder")
   .add(
     HttpApiEndpoint.post("upsertMessageRoomOrder", "/messageRoomOrder/upsertMessageRoomOrder", {
       payload: Schema.Struct({
-        messageId: Schema.String,
-        data: Schema.Struct({
-          previousFills: Schema.Array(Schema.String),
-          fills: Schema.Array(Schema.String),
-          hour: Schema.Number,
-          rank: Schema.Number,
-          tentative: Schema.optional(Schema.Boolean),
-          monitor: Schema.optional(Schema.NullOr(Schema.String)),
-          guildId: Schema.NullOr(Schema.String),
-          messageChannelId: Schema.NullOr(Schema.String),
-          createdByUserId: Schema.NullOr(Schema.String),
-        }),
+        ...MessageKeyPayload,
+        data: MessageRoomOrderDataPayload,
       }),
       success: MessageRoomOrder,
       error: [SchemaError, QueryResultError, Unauthorized],
@@ -43,28 +60,9 @@ export class MessageRoomOrderApi extends HttpApiGroup.make("messageRoomOrder")
   .add(
     HttpApiEndpoint.post("persistMessageRoomOrder", "/messageRoomOrder/persistMessageRoomOrder", {
       payload: Schema.Struct({
-        messageId: Schema.String,
-        data: Schema.Struct({
-          previousFills: Schema.Array(Schema.String),
-          fills: Schema.Array(Schema.String),
-          hour: Schema.Number,
-          rank: Schema.Number,
-          tentative: Schema.optional(Schema.Boolean),
-          monitor: Schema.optional(Schema.NullOr(Schema.String)),
-          guildId: Schema.NullOr(Schema.String),
-          messageChannelId: Schema.NullOr(Schema.String),
-          createdByUserId: Schema.NullOr(Schema.String),
-        }),
-        entries: Schema.Array(
-          Schema.Struct({
-            rank: Schema.Number,
-            position: Schema.Number,
-            hour: Schema.Number,
-            team: Schema.String,
-            tags: Schema.Array(Schema.String),
-            effectValue: Schema.Number,
-          }),
-        ),
+        ...MessageKeyPayload,
+        data: MessageRoomOrderDataPayload,
+        entries: Schema.Array(MessageRoomOrderEntryPayload),
       }),
       success: MessageRoomOrder,
       error: [SchemaError, QueryResultError, Unauthorized],
@@ -76,7 +74,7 @@ export class MessageRoomOrderApi extends HttpApiGroup.make("messageRoomOrder")
       "/messageRoomOrder/decrementMessageRoomOrderRank",
       {
         payload: Schema.Struct({
-          messageId: Schema.String,
+          ...MessageKeyPayload,
           expectedRank: Schema.optional(Schema.Number),
           tentativeUpdateClaimId: Schema.optional(Schema.String),
         }),
@@ -91,7 +89,7 @@ export class MessageRoomOrderApi extends HttpApiGroup.make("messageRoomOrder")
       "/messageRoomOrder/incrementMessageRoomOrderRank",
       {
         payload: Schema.Struct({
-          messageId: Schema.String,
+          ...MessageKeyPayload,
           expectedRank: Schema.optional(Schema.Number),
           tentativeUpdateClaimId: Schema.optional(Schema.String),
         }),
@@ -103,7 +101,7 @@ export class MessageRoomOrderApi extends HttpApiGroup.make("messageRoomOrder")
   .add(
     HttpApiEndpoint.get("getMessageRoomOrderEntry", "/messageRoomOrder/getMessageRoomOrderEntry", {
       query: Schema.Struct({
-        messageId: Schema.String,
+        ...MessageKeyPayload,
         rank: Schema.NumberFromString,
       }),
       success: Schema.Array(MessageRoomOrderEntry),
@@ -112,9 +110,7 @@ export class MessageRoomOrderApi extends HttpApiGroup.make("messageRoomOrder")
   )
   .add(
     HttpApiEndpoint.get("getMessageRoomOrderRange", "/messageRoomOrder/getMessageRoomOrderRange", {
-      query: Schema.Struct({
-        messageId: Schema.String,
-      }),
+      query: Schema.Struct(MessageKeyPayload),
       success: MessageRoomOrderRange,
       error: [SchemaError, QueryResultError, ArgumentError, Unauthorized],
     }),
@@ -125,17 +121,8 @@ export class MessageRoomOrderApi extends HttpApiGroup.make("messageRoomOrder")
       "/messageRoomOrder/upsertMessageRoomOrderEntry",
       {
         payload: Schema.Struct({
-          messageId: Schema.String,
-          entries: Schema.Array(
-            Schema.Struct({
-              rank: Schema.Number,
-              position: Schema.Number,
-              hour: Schema.Number,
-              team: Schema.String,
-              tags: Schema.Array(Schema.String),
-              effectValue: Schema.Number,
-            }),
-          ),
+          ...MessageKeyPayload,
+          entries: Schema.Array(MessageRoomOrderEntryPayload),
         }),
         success: Schema.Array(MessageRoomOrderEntry),
         error: [SchemaError, QueryResultError, ArgumentError, Unauthorized],
@@ -148,7 +135,7 @@ export class MessageRoomOrderApi extends HttpApiGroup.make("messageRoomOrder")
       "/messageRoomOrder/removeMessageRoomOrderEntry",
       {
         payload: Schema.Struct({
-          messageId: Schema.String,
+          ...MessageKeyPayload,
         }),
         success: Schema.Array(MessageRoomOrderEntry),
         error: [SchemaError, QueryResultError, ArgumentError, Unauthorized],
@@ -161,7 +148,7 @@ export class MessageRoomOrderApi extends HttpApiGroup.make("messageRoomOrder")
       "/messageRoomOrder/claimMessageRoomOrderSend",
       {
         payload: Schema.Struct({
-          messageId: Schema.String,
+          ...MessageKeyPayload,
           claimId: Schema.String,
         }),
         success: MessageRoomOrder,
@@ -175,11 +162,11 @@ export class MessageRoomOrderApi extends HttpApiGroup.make("messageRoomOrder")
       "/messageRoomOrder/completeMessageRoomOrderSend",
       {
         payload: Schema.Struct({
-          messageId: Schema.String,
+          ...MessageKeyPayload,
           claimId: Schema.String,
           sentMessage: Schema.Struct({
             id: Schema.String,
-            channelId: Schema.String,
+            conversationId: Schema.String,
           }),
         }),
         success: MessageRoomOrder,
@@ -193,7 +180,7 @@ export class MessageRoomOrderApi extends HttpApiGroup.make("messageRoomOrder")
       "/messageRoomOrder/releaseMessageRoomOrderSendClaim",
       {
         payload: Schema.Struct({
-          messageId: Schema.String,
+          ...MessageKeyPayload,
           claimId: Schema.String,
         }),
         success: Schema.Void,
@@ -207,7 +194,7 @@ export class MessageRoomOrderApi extends HttpApiGroup.make("messageRoomOrder")
       "/messageRoomOrder/claimMessageRoomOrderTentativeUpdate",
       {
         payload: Schema.Struct({
-          messageId: Schema.String,
+          ...MessageKeyPayload,
           claimId: Schema.String,
         }),
         success: MessageRoomOrder,
@@ -221,7 +208,7 @@ export class MessageRoomOrderApi extends HttpApiGroup.make("messageRoomOrder")
       "/messageRoomOrder/releaseMessageRoomOrderTentativeUpdateClaim",
       {
         payload: Schema.Struct({
-          messageId: Schema.String,
+          ...MessageKeyPayload,
           claimId: Schema.String,
         }),
         success: Schema.Void,
@@ -235,7 +222,7 @@ export class MessageRoomOrderApi extends HttpApiGroup.make("messageRoomOrder")
       "/messageRoomOrder/claimMessageRoomOrderTentativePin",
       {
         payload: Schema.Struct({
-          messageId: Schema.String,
+          ...MessageKeyPayload,
           claimId: Schema.String,
         }),
         success: MessageRoomOrder,
@@ -249,7 +236,7 @@ export class MessageRoomOrderApi extends HttpApiGroup.make("messageRoomOrder")
       "/messageRoomOrder/completeMessageRoomOrderTentativePin",
       {
         payload: Schema.Struct({
-          messageId: Schema.String,
+          ...MessageKeyPayload,
           claimId: Schema.String,
         }),
         success: MessageRoomOrder,
@@ -263,7 +250,7 @@ export class MessageRoomOrderApi extends HttpApiGroup.make("messageRoomOrder")
       "/messageRoomOrder/releaseMessageRoomOrderTentativePinClaim",
       {
         payload: Schema.Struct({
-          messageId: Schema.String,
+          ...MessageKeyPayload,
           claimId: Schema.String,
         }),
         success: Schema.Void,
@@ -276,9 +263,7 @@ export class MessageRoomOrderApi extends HttpApiGroup.make("messageRoomOrder")
       "markMessageRoomOrderTentative",
       "/messageRoomOrder/markMessageRoomOrderTentative",
       {
-        payload: Schema.Struct({
-          messageId: Schema.String,
-        }),
+        payload: Schema.Struct(MessageKeyPayload),
         success: MessageRoomOrder,
         error: [SchemaError, QueryResultError, ArgumentError, Unauthorized],
       },

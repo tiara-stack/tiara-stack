@@ -1,17 +1,15 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Option } from "effect";
-import {
-  PartialNamePlayer,
-  Player,
-  PopulatedSchedule,
-  PopulatedSchedulePlayer,
-} from "sheet-ingress-api/schemas/sheet";
 import { ScheduleConfig } from "sheet-ingress-api/schemas/sheetConfig";
 import {
   getScheduleFillCount,
   hasCompleteScheduleConfigForChannel,
   makeMonitorCheckinMessage,
 } from "./checkin";
+import { makePartialFill, makeResolvedFill, makeSchedule } from "./testHelpers";
+
+const text = (value: string) => ({ type: "text" as const, text: value });
+const userMention = (userId: string) => ({ type: "userMention" as const, userId });
 
 const makeScheduleConfig = (
   overrides: Partial<ConstructorParameters<typeof ScheduleConfig>[0]> = {},
@@ -34,49 +32,28 @@ const makeScheduleConfig = (
     ...overrides,
   });
 
-const makeResolvedFill = (id: string, name: string) =>
-  new PopulatedSchedulePlayer({
-    player: new Player({
-      index: 0,
-      id,
-      name,
-    }),
-    enc: false,
-  });
-
-const makePartialFill = (name: string) =>
-  new PopulatedSchedulePlayer({
-    player: new PartialNamePlayer({ name }),
-    enc: false,
-  });
-
-const makeSchedule = (fills: ReadonlyArray<PopulatedSchedulePlayer>) =>
-  new PopulatedSchedule({
-    channel: "room-1",
-    day: 1,
-    visible: true,
-    hour: Option.some(1),
-    hourWindow: Option.none(),
-    fills: [0, 1, 2, 3, 4].map((index) =>
-      index < fills.length ? Option.some(fills[index]!) : Option.none(),
-    ),
-    overfills: [],
-    standbys: [],
-    runners: [],
-    monitor: Option.none(),
-  });
-
 describe("makeMonitorCheckinMessage", () => {
   it("shows the new no-change copy and empty slots for a partially filled row", () => {
     expect(
       makeMonitorCheckinMessage({
         initialMessage: null,
         empty: 2,
-        emptySlotMessage: "+2 empty slots",
-        playerChangesMessage: "Out: None\nStay: <@1> <@2>\nIn: <@3>",
+        emptySlotMessage: [text("+2 empty slots")],
+        playerChangesMessage: [
+          text("Out: None\nStay: "),
+          userMention("1"),
+          text(" "),
+          userMention("2"),
+          text("\nIn: "),
+          userMention("3"),
+        ],
         lookupFailedMessage: Option.none(),
       }),
-    ).toBe("No check-in message sent, no new players to check in\n+2 empty slots");
+    ).toEqual([
+      text("No check-in message sent, no new players to check in"),
+      text("\n"),
+      text("+2 empty slots"),
+    ]);
   });
 
   it("uses singular empty slot wording in the no-change branch", () => {
@@ -84,11 +61,24 @@ describe("makeMonitorCheckinMessage", () => {
       makeMonitorCheckinMessage({
         initialMessage: null,
         empty: 1,
-        emptySlotMessage: "+1 empty slot",
-        playerChangesMessage: "Out: None\nStay: <@1> <@2> <@3>\nIn: <@4>",
+        emptySlotMessage: [text("+1 empty slot")],
+        playerChangesMessage: [
+          text("Out: None\nStay: "),
+          userMention("1"),
+          text(" "),
+          userMention("2"),
+          text(" "),
+          userMention("3"),
+          text("\nIn: "),
+          userMention("4"),
+        ],
         lookupFailedMessage: Option.none(),
       }),
-    ).toBe("No check-in message sent, no new players to check in\n+1 empty slot");
+    ).toEqual([
+      text("No check-in message sent, no new players to check in"),
+      text("\n"),
+      text("+1 empty slot"),
+    ]);
   });
 
   it("omits empty slots in the no-change branch when the row is full", () => {
@@ -96,11 +86,22 @@ describe("makeMonitorCheckinMessage", () => {
       makeMonitorCheckinMessage({
         initialMessage: null,
         empty: 0,
-        emptySlotMessage: "No empty slots",
-        playerChangesMessage: "Out: None\nStay: <@1> <@2> <@3> <@4>\nIn: <@5>",
+        emptySlotMessage: [text("No empty slots")],
+        playerChangesMessage: [
+          text("Out: None\nStay: "),
+          userMention("1"),
+          text(" "),
+          userMention("2"),
+          text(" "),
+          userMention("3"),
+          text(" "),
+          userMention("4"),
+          text("\nIn: "),
+          userMention("5"),
+        ],
         lookupFailedMessage: Option.none(),
       }),
-    ).toBe("No check-in message sent, no new players to check in");
+    ).toEqual([text("No check-in message sent, no new players to check in")]);
   });
 
   it("omits empty slots in the no-change branch for the fully empty fallback case", () => {
@@ -108,37 +109,71 @@ describe("makeMonitorCheckinMessage", () => {
       makeMonitorCheckinMessage({
         initialMessage: null,
         empty: 5,
-        emptySlotMessage: "+5 empty slots",
-        playerChangesMessage: "Out: None\nStay: None\nIn: None",
+        emptySlotMessage: [text("+5 empty slots")],
+        playerChangesMessage: [text("Out: None\nStay: None\nIn: None")],
         lookupFailedMessage: Option.none(),
       }),
-    ).toBe("No check-in message sent, no new players to check in");
+    ).toEqual([text("No check-in message sent, no new players to check in")]);
   });
 
   it("keeps the sent-message branch unchanged", () => {
     expect(
       makeMonitorCheckinMessage({
-        initialMessage: "hello",
+        initialMessage: [text("hello")],
         empty: 2,
-        emptySlotMessage: "+2 empty slots",
-        playerChangesMessage: "Out: <@1>\nStay: <@2>\nIn: <@3>",
+        emptySlotMessage: [text("+2 empty slots")],
+        playerChangesMessage: [
+          text("Out: "),
+          userMention("1"),
+          text("\nStay: "),
+          userMention("2"),
+          text("\nIn: "),
+          userMention("3"),
+        ],
         lookupFailedMessage: Option.some("Cannot look up Discord ID for Alice."),
       }),
-    ).toBe(
-      "Check-in message sent!\n+2 empty slots\nOut: <@1>\nStay: <@2>\nIn: <@3>\nCannot look up Discord ID for Alice.",
-    );
+    ).toEqual([
+      text("Check-in message sent!"),
+      text("\n"),
+      text("+2 empty slots"),
+      text("\n"),
+      text("Out: "),
+      userMention("1"),
+      text("\nStay: "),
+      userMention("2"),
+      text("\nIn: "),
+      userMention("3"),
+      text("\n"),
+      text("Cannot look up Discord ID for Alice."),
+    ]);
   });
 
   it("renders empty movement buckets as None when they have no players", () => {
     expect(
       makeMonitorCheckinMessage({
-        initialMessage: "hello",
+        initialMessage: [text("hello")],
         empty: 2,
-        emptySlotMessage: "+2 empty slots",
-        playerChangesMessage: "Out: None\nStay: <@1> <@2>\nIn: None",
+        emptySlotMessage: [text("+2 empty slots")],
+        playerChangesMessage: [
+          text("Out: None\nStay: "),
+          userMention("1"),
+          text(" "),
+          userMention("2"),
+          text("\nIn: None"),
+        ],
         lookupFailedMessage: Option.none(),
       }),
-    ).toBe("Check-in message sent!\n+2 empty slots\nOut: None\nStay: <@1> <@2>\nIn: None");
+    ).toEqual([
+      text("Check-in message sent!"),
+      text("\n"),
+      text("+2 empty slots"),
+      text("\n"),
+      text("Out: None\nStay: "),
+      userMention("1"),
+      text(" "),
+      userMention("2"),
+      text("\nIn: None"),
+    ]);
   });
 });
 

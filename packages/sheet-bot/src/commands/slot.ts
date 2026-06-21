@@ -1,34 +1,20 @@
-import { InteractionsRegistry } from "dfx/gateway";
 import {
   ApplicationIntegrationType,
   InteractionContextType,
   MessageFlags,
 } from "discord-api-types/v10";
-import { Ix } from "dfx/index";
-import { Effect, Layer, Option, Schema, pipe } from "effect";
-import { CommandHelper, Interaction, InteractionResponse } from "dfx-discord-utils/utils";
-import { InteractionToken } from "dfx-discord-utils/utils";
-import { discordGatewayLayer } from "../discord/gateway";
+import { Effect, Option, Schema } from "effect";
+import { CommandHelper, InteractionResponse } from "dfx-discord-utils/utils";
 import { SheetWorkflowsClient, SheetWorkflowsRequestContext } from "../services";
-import { discordApplicationLayer } from "../discord/application";
-import { interactionDeadlineEpochMs } from "../utils/interactionDeadline";
+import {
+  makeDispatchBase,
+  requiredDayOption,
+  resolveChannelId,
+  resolveGuildId,
+  serverIdOption,
+} from "../utils/commandHelpers";
+import { registerGlobalCommandLayer } from "../utils/registerGlobalCommandLayer";
 import { runSheetWorkflowsDispatch } from "../utils/sheetWorkflowsDispatch";
-
-const getInteractionGuildId = Effect.gen(function* () {
-  const interactionGuild = yield* Interaction.guild();
-  return pipe(
-    interactionGuild,
-    Option.map((guild) => (guild as { id: string }).id),
-  );
-});
-
-const getInteractionChannelId = Effect.gen(function* () {
-  const interactionChannel = yield* Interaction.channel();
-  return pipe(
-    interactionChannel,
-    Option.map((channel) => (channel as { id: string }).id),
-  );
-});
 
 const makeListSubCommand = Effect.gen(function* () {
   const sheetWorkflowsClient = yield* SheetWorkflowsClient;
@@ -38,12 +24,8 @@ const makeListSubCommand = Effect.gen(function* () {
       builder
         .setName("list")
         .setDescription("Get the open slots for the day")
-        .addNumberOption((option) =>
-          option.setName("day").setDescription("The day to get the slots for").setRequired(true),
-        )
-        .addStringOption((option) =>
-          option.setName("server_id").setDescription("The server to get the teams for"),
-        )
+        .addNumberOption(requiredDayOption("The day to get the slots for"))
+        .addStringOption(serverIdOption("The server to get the teams for"))
         .addStringOption((option) =>
           option
             .setName("message_type")
@@ -55,12 +37,7 @@ const makeListSubCommand = Effect.gen(function* () {
         ),
     Effect.fn("slot.list")(function* (command) {
       const response = yield* InteractionResponse;
-      const interactionGuildId = yield* getInteractionGuildId;
-      const guildId = pipe(
-        command.optionValueOptional("server_id"),
-        Option.orElse(() => interactionGuildId),
-        Option.getOrThrowWith(() => new Error("Guild not found in interaction or command options")),
-      );
+      const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
 
       const messageType = yield* Schema.decodeUnknownEffect(
         Schema.Literals(["persistent", "ephemeral"]),
@@ -71,20 +48,17 @@ const makeListSubCommand = Effect.gen(function* () {
 
       yield* response.deferReply({ flags: isEphemeral ? MessageFlags.Ephemeral : undefined });
 
-      const interactionToken = yield* InteractionToken;
-      const interaction = yield* Ix.Interaction;
+      const base = yield* makeDispatchBase;
       yield* runSheetWorkflowsDispatch(
         response,
         "the slot list",
         SheetWorkflowsRequestContext.asInteractionUser(() =>
           sheetWorkflowsClient.get().dispatch.slotList({
             payload: {
-              dispatchRequestId: `discord-interaction:${interaction.id}`,
-              guildId,
+              ...base,
+              workspaceId: guildId,
               day,
               messageType,
-              interactionToken: interactionToken.token,
-              interactionDeadlineEpochMs: interactionDeadlineEpochMs(interaction.id),
             },
           }),
         )(),
@@ -101,42 +75,27 @@ const makeButtonSubCommand = Effect.gen(function* () {
       builder
         .setName("button")
         .setDescription("Show the button to get the open slots")
-        .addNumberOption((option) =>
-          option.setName("day").setDescription("The day to get the slots for").setRequired(true),
-        )
-        .addStringOption((option) =>
-          option.setName("server_id").setDescription("The server to get the teams for"),
-        ),
+        .addNumberOption(requiredDayOption("The day to get the slots for"))
+        .addStringOption(serverIdOption("The server to get the teams for")),
     Effect.fn("slot.button")(function* (command) {
       const response = yield* InteractionResponse;
-      const interactionGuildId = yield* getInteractionGuildId;
-      const guildId = pipe(
-        command.optionValueOptional("server_id"),
-        Option.orElse(() => interactionGuildId),
-        Option.getOrThrowWith(() => new Error("Guild not found in interaction or command options")),
-      );
+      const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
 
       yield* response.deferReply({ flags: MessageFlags.Ephemeral });
 
       const day = command.optionValue("day");
-      const channelId = Option.getOrThrowWith(
-        yield* getInteractionChannelId,
-        () => new Error("Channel not found in interaction"),
-      );
-      const interactionToken = yield* InteractionToken;
-      const interaction = yield* Ix.Interaction;
+      const channelId = yield* resolveChannelId(Option.none());
+      const base = yield* makeDispatchBase;
       yield* runSheetWorkflowsDispatch(
         response,
         "the slot button",
         SheetWorkflowsRequestContext.asInteractionUser(() =>
           sheetWorkflowsClient.get().dispatch.slotButton({
             payload: {
-              dispatchRequestId: `discord-interaction:${interaction.id}`,
-              guildId,
-              channelId,
+              ...base,
+              workspaceId: guildId,
+              conversationId: channelId,
               day,
-              interactionToken: interactionToken.token,
-              interactionDeadlineEpochMs: interactionDeadlineEpochMs(interaction.id),
             },
           }),
         )(),
@@ -173,21 +132,4 @@ const makeSlotCommand = Effect.gen(function* () {
   );
 });
 
-const makeGlobalSlotCommand = Effect.gen(function* () {
-  const slotCommand = yield* makeSlotCommand;
-
-  return CommandHelper.makeGlobalCommand(slotCommand.data, slotCommand.handler as never);
-});
-
-export const slotCommandLayer = Layer.effectDiscard(
-  Effect.gen(function* () {
-    const registry = yield* InteractionsRegistry;
-    const command = yield* makeGlobalSlotCommand;
-
-    yield* registry.register(Ix.builder.add(command).catchAllCause(Effect.log));
-  }),
-).pipe(
-  Layer.provide(
-    Layer.mergeAll(discordGatewayLayer, discordApplicationLayer, SheetWorkflowsClient.layer),
-  ),
-);
+export const slotCommandLayer = registerGlobalCommandLayer(makeSlotCommand);

@@ -3,24 +3,26 @@ import type { DiscordRestService } from "dfx/DiscordREST";
 import {
   shouldSendTentativeRoomOrder,
   formatTentativeRoomOrderContent,
-} from "sheet-ingress-api/discordComponents";
+} from "sheet-ingress-api/clientActions";
 import {
   tentativeRoomOrderActionRow,
   tentativeRoomOrderPinActionRow,
 } from "../messageComponents/buttons/roomOrderComponents";
+import type { GeneratedSheetText } from "sheet-ingress-api/schemas/client";
+import { renderGeneratedSheetText } from "../discord/renderSheetMessage";
 
 type TentativeRoomOrderSender = Pick<DiscordRestService, "createMessage" | "updateMessage">;
 
 type TentativeRoomOrderGenerator = {
   generate: (payload: {
-    guildId: string;
-    channelId?: string | undefined;
-    channelName?: string | undefined;
+    workspaceId: string;
+    conversationId?: string | undefined;
+    conversationName?: string | undefined;
     hour?: number | undefined;
     healNeeded?: number | undefined;
   }) => Effect.Effect<
     {
-      content: string;
+      content: GeneratedSheetText;
       range: { minRank: number; maxRank: number };
       rank: number;
       hour: number;
@@ -52,8 +54,8 @@ type TentativeMessageRoomOrderService = {
         rank: number;
         tentative: boolean;
         monitor: string | null | undefined;
-        guildId: string | null;
-        messageChannelId: string | null;
+        workspaceId: string | null;
+        messageConversationId: string | null;
         createdByUserId: string | null;
       };
       entries: ReadonlyArray<{
@@ -68,9 +70,22 @@ type TentativeMessageRoomOrderService = {
   ) => Effect.Effect<unknown, unknown, never>;
 };
 
+const logTentativeRoomOrderSendFailure =
+  (context: {
+    readonly workspaceId: string;
+    readonly runningConversationId: string;
+    readonly hour: number;
+  }) =>
+  (cause: unknown) =>
+    Effect.logError("Failed to send tentative room order").pipe(
+      Effect.annotateLogs(context),
+      Effect.andThen(Effect.logError(cause)),
+      Effect.as(null),
+    );
+
 export const sendTentativeRoomOrder = Effect.fn("sendTentativeRoomOrder")(function* ({
-  guildId,
-  runningChannelId,
+  workspaceId,
+  runningConversationId,
   hour,
   fillCount,
   roomOrderService,
@@ -78,8 +93,8 @@ export const sendTentativeRoomOrder = Effect.fn("sendTentativeRoomOrder")(functi
   sender,
   createdByUserId,
 }: {
-  guildId: string;
-  runningChannelId: string;
+  workspaceId: string;
+  runningConversationId: string;
   hour: number;
   fillCount: number;
   roomOrderService: TentativeRoomOrderGenerator;
@@ -93,13 +108,14 @@ export const sendTentativeRoomOrder = Effect.fn("sendTentativeRoomOrder")(functi
 
   return yield* Effect.gen(function* () {
     const generated = yield* roomOrderService.generate({
-      guildId,
-      channelId: runningChannelId,
+      workspaceId,
+      conversationId: runningConversationId,
       hour,
     });
+    const content = renderGeneratedSheetText(generated.content);
 
-    const sentMessage = yield* sender.createMessage(runningChannelId, {
-      content: formatTentativeRoomOrderContent(generated.content),
+    const sentMessage = yield* sender.createMessage(runningConversationId, {
+      content: formatTentativeRoomOrderContent(content),
       components: [tentativeRoomOrderActionRow(generated.range, generated.rank).toJSON()],
     });
 
@@ -112,8 +128,8 @@ export const sendTentativeRoomOrder = Effect.fn("sendTentativeRoomOrder")(functi
           rank: generated.rank,
           tentative: true,
           monitor: generated.monitor,
-          guildId,
-          messageChannelId: sentMessage.channel_id,
+          workspaceId,
+          messageConversationId: sentMessage.channel_id,
           createdByUserId,
         },
         entries: generated.entries,
@@ -122,8 +138,8 @@ export const sendTentativeRoomOrder = Effect.fn("sendTentativeRoomOrder")(functi
       Effect.catchCause((cause) =>
         Effect.logError("Failed to persist tentative room order").pipe(
           Effect.annotateLogs({
-            guildId,
-            runningChannelId,
+            workspaceId,
+            runningConversationId,
             hour,
             messageId: sentMessage.id,
           }),
@@ -139,8 +155,8 @@ export const sendTentativeRoomOrder = Effect.fn("sendTentativeRoomOrder")(functi
                     "Failed to persist tentative room order and downgrade buttons",
                   ).pipe(
                     Effect.annotateLogs({
-                      guildId,
-                      runningChannelId,
+                      workspaceId,
+                      runningConversationId,
                       hour,
                       messageId: sentMessage.id,
                     }),
@@ -156,19 +172,15 @@ export const sendTentativeRoomOrder = Effect.fn("sendTentativeRoomOrder")(functi
 
     return {
       messageId: sentMessage.id,
-      messageChannelId: sentMessage.channel_id,
+      messageConversationId: sentMessage.channel_id,
     };
   }).pipe(
-    Effect.catchCause((cause) =>
-      Effect.logError("Failed to send tentative room order").pipe(
-        Effect.annotateLogs({
-          guildId,
-          runningChannelId,
-          hour,
-        }),
-        Effect.andThen(Effect.logError(cause)),
-        Effect.as(null),
-      ),
+    Effect.catchCause(
+      logTentativeRoomOrderSendFailure({
+        workspaceId,
+        runningConversationId,
+        hour,
+      }),
     ),
   );
 });

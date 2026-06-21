@@ -64,7 +64,7 @@ const ScheduledDaysAsyncResultSchema = Schema.revealCodec(
 // Private atom for fetching all schedules for a guild
 const _guildScheduleResponseAtom = Atom.family((guildId: string) =>
   SheetApisClient.query("schedule", "getAllPopulatedSchedules", {
-    query: { guildId },
+    query: { workspaceId: guildId },
   }),
 );
 

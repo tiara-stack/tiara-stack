@@ -4,19 +4,23 @@ import type { DateTimeOptionField, NumberField, StringField, StringOptionField }
 import { modelTaggedFields, validateTaggedFields } from "../model";
 
 const MessageSlotFields = validateTaggedFields<{
+  readonly clientPlatform: StringField;
+  readonly clientId: StringField;
   readonly messageId: StringField;
   readonly day: NumberField;
-  readonly guildId: StringOptionField;
-  readonly messageChannelId: StringOptionField;
+  readonly workspaceId: StringOptionField;
+  readonly conversationId: StringOptionField;
   readonly createdByUserId: StringOptionField;
   readonly createdAt: DateTimeOptionField;
   readonly updatedAt: DateTimeOptionField;
   readonly deletedAt: DateTimeOptionField;
 }>(modelTaggedFields(messageSlot), [
+  "clientPlatform",
+  "clientId",
   "messageId",
   "day",
-  "guildId",
-  "messageChannelId",
+  "workspaceId",
+  "conversationId",
   "createdByUserId",
   "createdAt",
   "updatedAt",

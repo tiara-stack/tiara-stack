@@ -1,31 +1,17 @@
-import { InteractionsRegistry } from "dfx/gateway";
-import { ApplicationIntegrationType, InteractionContextType } from "discord-api-types/v10";
-import { Ix } from "dfx/index";
-import { Effect, Layer, Option, pipe } from "effect";
-import { discordGatewayLayer } from "../discord/gateway";
+// fallow-ignore-file code-duplication
+import { Effect } from "effect";
 import { CommandHelper, InteractionResponse } from "dfx-discord-utils/utils";
-import { Interaction } from "dfx-discord-utils/utils";
-import { InteractionToken } from "dfx-discord-utils/utils";
 import { SheetWorkflowsClient, SheetWorkflowsRequestContext } from "../services";
-import { discordApplicationLayer } from "../discord/application";
-import { interactionDeadlineEpochMs } from "../utils/interactionDeadline";
+import {
+  makeDispatchBase,
+  optionalPayloadField,
+  resolveConversationTarget,
+} from "../utils/commandHelpers";
+import {
+  makeSingleSubCommand,
+  registerGlobalCommandLayer,
+} from "../utils/registerGlobalCommandLayer";
 import { runSheetWorkflowsDispatch } from "../utils/sheetWorkflowsDispatch";
-
-const getInteractionGuildId = Effect.gen(function* () {
-  const interactionGuild = yield* Interaction.guild();
-  return pipe(
-    interactionGuild,
-    Option.map((guild) => (guild as { id: string }).id),
-  );
-});
-
-const getInteractionChannelId = Effect.gen(function* () {
-  const interactionChannel = yield* Interaction.channel();
-  return pipe(
-    interactionChannel,
-    Option.map((channel) => (channel as { id: string }).id),
-  );
-});
 
 const makeManualSubCommand = Effect.gen(function* () {
   const sheetWorkflowsClient = yield* SheetWorkflowsClient;
@@ -48,40 +34,21 @@ const makeManualSubCommand = Effect.gen(function* () {
       const response = yield* InteractionResponse;
       yield* response.deferReply();
 
-      const serverId = command.optionValueOptional("server_id");
-      const interactionGuildId = yield* getInteractionGuildId;
-      const guildId = pipe(
-        serverId,
-        Option.orElse(() => interactionGuildId),
-        Option.getOrThrow,
-      );
-
       const channelNameOption = command.optionValueOptional("channel_name");
-      const interactionChannelId = Option.isSome(channelNameOption)
-        ? undefined
-        : Option.getOrThrow(yield* getInteractionChannelId);
-      const interactionToken = yield* InteractionToken;
-      const interaction = yield* Ix.Interaction;
+      const target = yield* resolveConversationTarget(
+        command.optionValueOptional("server_id"),
+        channelNameOption,
+      );
+      const base = yield* makeDispatchBase;
       yield* runSheetWorkflowsDispatch(
         response,
         "the kickout",
         SheetWorkflowsRequestContext.asInteractionUser(() =>
           sheetWorkflowsClient.get().dispatch.kickout({
             payload: {
-              dispatchRequestId: `discord-interaction:${interaction.id}`,
-              guildId,
-              interactionToken: interactionToken.token,
-              interactionDeadlineEpochMs: interactionDeadlineEpochMs(interaction.id),
-              ...(Option.isSome(channelNameOption)
-                ? { channelName: channelNameOption.value }
-                : { channelId: interactionChannelId }),
-              ...pipe(
-                command.optionValueOptional("hour"),
-                Option.match({
-                  onSome: (hour) => ({ hour }),
-                  onNone: () => ({}),
-                }),
-              ),
+              ...base,
+              ...target,
+              ...optionalPayloadField("hour", command.optionValueOptional("hour")),
             },
           }),
         )(),
@@ -90,46 +57,11 @@ const makeManualSubCommand = Effect.gen(function* () {
   );
 });
 
-const makeKickoutCommand = Effect.gen(function* () {
-  const manualSubCommand = yield* makeManualSubCommand;
-
-  return yield* CommandHelper.makeCommand(
-    (builder) =>
-      builder
-        .setName("kickout")
-        .setDescription("Kick out commands")
-        .setIntegrationTypes(
-          ApplicationIntegrationType.GuildInstall,
-          ApplicationIntegrationType.UserInstall,
-        )
-        .setContexts(
-          InteractionContextType.BotDM,
-          InteractionContextType.Guild,
-          InteractionContextType.PrivateChannel,
-        )
-        .addSubcommand(() => manualSubCommand.data),
-    (command) =>
-      command.subCommands({
-        manual: manualSubCommand.handler,
-      }),
-  );
+const makeKickoutCommand = makeSingleSubCommand({
+  commandName: "kickout",
+  commandDescription: "Kick out commands",
+  subCommandName: "manual",
+  makeSubCommand: makeManualSubCommand,
 });
 
-const makeGlobalKickoutCommand = Effect.gen(function* () {
-  const kickoutCommand = yield* makeKickoutCommand;
-
-  return CommandHelper.makeGlobalCommand(kickoutCommand.data, kickoutCommand.handler as never);
-});
-
-export const kickoutCommandLayer = Layer.effectDiscard(
-  Effect.gen(function* () {
-    const registry = yield* InteractionsRegistry;
-    const command = yield* makeGlobalKickoutCommand;
-
-    yield* registry.register(Ix.builder.add(command).catchAllCause(Effect.log));
-  }),
-).pipe(
-  Layer.provide(
-    Layer.mergeAll(discordGatewayLayer, discordApplicationLayer, SheetWorkflowsClient.layer),
-  ),
-);
+export const kickoutCommandLayer = registerGlobalCommandLayer(makeKickoutCommand);

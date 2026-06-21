@@ -16,11 +16,12 @@ describe("makeGuildWelcomeDispatchPayload", () => {
         startupEpochMs,
       ),
     ).toEqual({
+      client: { platform: "discord", clientId: "discord-main" },
       dispatchRequestId: "discord-guild-create:guild-1:2026-05-31T11:55:00.000Z",
-      guildId: "guild-1",
-      guildName: "Guild One",
+      workspaceId: "guild-1",
+      workspaceName: "Guild One",
       joinedAt: "2026-05-31T11:55:00.000Z",
-      systemChannelId: "system-channel",
+      systemConversationId: "system-channel",
     });
   });
 

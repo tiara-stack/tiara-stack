@@ -18,19 +18,21 @@ describe("makeUpdateAnnouncementDispatchPayloads", () => {
       }),
     ).toEqual([
       {
+        client: { platform: "discord", clientId: "discord-main" },
         dispatchRequestId: "discord-update-announcement:guild-1:update-announcements-2026-06-05",
-        guildId: "guild-1",
-        guildName: "Guild One",
+        workspaceId: "guild-1",
+        workspaceName: "Guild One",
         joinedAt: "2026-06-04T16:59:59.999Z",
-        systemChannelId: "system-channel",
+        systemConversationId: "system-channel",
         announcement: updateAnnouncements[0],
       },
       {
+        client: { platform: "discord", clientId: "discord-main" },
         dispatchRequestId: "discord-update-announcement:guild-1:auth-update-2026-06-12",
-        guildId: "guild-1",
-        guildName: "Guild One",
+        workspaceId: "guild-1",
+        workspaceName: "Guild One",
         joinedAt: "2026-06-04T16:59:59.999Z",
-        systemChannelId: "system-channel",
+        systemConversationId: "system-channel",
         announcement: updateAnnouncements[1],
       },
     ]);

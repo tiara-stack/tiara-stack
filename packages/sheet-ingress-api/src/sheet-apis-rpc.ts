@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { pipe, Schema } from "effect";
 import { ArgumentError, SchemaError, UnknownError } from "typhoon-core/error";
@@ -8,13 +9,13 @@ import { DiscordGuild, DiscordUser } from "./schemas/discord";
 import { GoogleSheetsError } from "./schemas/google";
 import {
   FeatureFlagName,
-  GuildChannelConfig,
-  GuildConfig,
-  GuildFeatureFlag,
-  GuildConfigMonitorRole,
-  GuildUpdateAnnouncementDelivery,
-  GuildUpdateAnnouncementDeliveryClaimResult,
-} from "./schemas/guildConfig";
+  WorkspaceConversationConfig,
+  WorkspaceConfig,
+  WorkspaceFeatureFlag,
+  WorkspaceMonitorRole,
+  WorkspaceUpdateAnnouncementDelivery,
+  WorkspaceUpdateAnnouncementDeliveryClaimResult,
+} from "./schemas/workspaceConfig";
 import { MessageCheckin, MessageCheckinMember } from "./schemas/messageCheckin";
 import {
   MessageRoomOrder,
@@ -57,8 +58,9 @@ import {
   SheetRpcScopePolicies,
   type SheetRpcScopePolicy,
 } from "./middlewares/rpcScopePolicy";
+import { ClientPlatform, SheetTextPart } from "./schemas/client";
 import {
-  AutoCheckinTestChannelResult,
+  AutoCheckinTestConversationResult,
   AutoCheckinTestDispatchPayload,
   AutoCheckinTestDispatchResult,
   CheckinDispatchError,
@@ -69,11 +71,11 @@ import {
   CheckinHandleButtonResult,
   DispatchAcceptedResult,
   DispatchRoomOrderButtonMethods,
-  GuildWelcomeDispatchError,
-  GuildWelcomeDispatchPayload,
-  GuildWelcomeDispatchResult,
-  interactionTokenExpirySafetyMarginMs,
-  interactionTokenLifetimeMs,
+  WorkspaceWelcomeDispatchError,
+  WorkspaceWelcomeDispatchPayload,
+  WorkspaceWelcomeDispatchResult,
+  interactionResponseTokenExpirySafetyMarginMs,
+  interactionResponseTokenLifetimeMs,
   KickoutDispatchError,
   KickoutDispatchPayload,
   KickoutDispatchResult,
@@ -91,8 +93,8 @@ import {
   RoomOrderSendButtonResult,
   ServiceStatusDispatchPayload,
   ServiceStatusDispatchResult,
-  ServiceGuildFeatureFlagDispatchPayload,
-  ServiceGuildFeatureFlagDispatchResult,
+  ServiceWorkspaceFeatureFlagDispatchPayload,
+  ServiceWorkspaceFeatureFlagDispatchResult,
   SlotButtonDispatchPayload,
   SlotButtonDispatchResult,
   SlotDispatchError,
@@ -106,7 +108,7 @@ import {
 } from "./handlers/dispatch/schema";
 
 export {
-  AutoCheckinTestChannelResult,
+  AutoCheckinTestConversationResult,
   AutoCheckinTestDispatchPayload,
   AutoCheckinTestDispatchResult,
   CheckinDispatchError,
@@ -115,19 +117,19 @@ export {
   CheckinHandleButtonError,
   CheckinHandleButtonPayload,
   CheckinHandleButtonResult,
-  ChannelListConfigDispatchPayload,
-  ChannelListConfigDispatchResult,
-  ChannelSetDispatchPayload,
-  ChannelSetDispatchResult,
-  ChannelUnsetDispatchPayload,
-  ChannelUnsetDispatchResult,
+  ConversationListConfigDispatchPayload,
+  ConversationListConfigDispatchResult,
+  ConversationSetDispatchPayload,
+  ConversationSetDispatchResult,
+  ConversationUnsetDispatchPayload,
+  ConversationUnsetDispatchResult,
   DispatchAcceptedResult,
   DispatchRoomOrderButtonMethods,
-  GuildWelcomeDispatchError,
-  GuildWelcomeDispatchPayload,
-  GuildWelcomeDispatchResult,
-  interactionTokenExpirySafetyMarginMs,
-  interactionTokenLifetimeMs,
+  WorkspaceWelcomeDispatchError,
+  WorkspaceWelcomeDispatchPayload,
+  WorkspaceWelcomeDispatchResult,
+  interactionResponseTokenExpirySafetyMarginMs,
+  interactionResponseTokenLifetimeMs,
   KickoutDispatchError,
   KickoutDispatchPayload,
   KickoutDispatchResult,
@@ -150,18 +152,18 @@ export {
   ScheduleListDispatchResult,
   ServiceStatusDispatchPayload,
   ServiceStatusDispatchResult,
-  ServiceGuildFeatureFlagDispatchPayload,
-  ServiceGuildFeatureFlagDispatchResult,
-  ServerAddMonitorRoleDispatchPayload,
-  ServerAddMonitorRoleDispatchResult,
-  ServerListConfigDispatchPayload,
-  ServerListConfigDispatchResult,
-  ServerRemoveMonitorRoleDispatchPayload,
-  ServerRemoveMonitorRoleDispatchResult,
-  ServerSetAutoCheckinDispatchPayload,
-  ServerSetAutoCheckinDispatchResult,
-  ServerSetSheetDispatchPayload,
-  ServerSetSheetDispatchResult,
+  ServiceWorkspaceFeatureFlagDispatchPayload,
+  ServiceWorkspaceFeatureFlagDispatchResult,
+  WorkspaceAddMonitorRoleDispatchPayload,
+  WorkspaceAddMonitorRoleDispatchResult,
+  WorkspaceListConfigDispatchPayload,
+  WorkspaceListConfigDispatchResult,
+  WorkspaceRemoveMonitorRoleDispatchPayload,
+  WorkspaceRemoveMonitorRoleDispatchResult,
+  WorkspaceSetAutoCheckinDispatchPayload,
+  WorkspaceSetAutoCheckinDispatchResult,
+  WorkspaceSetSheetDispatchPayload,
+  WorkspaceSetSheetDispatchResult,
   ScreenshotDispatchPayload,
   ScreenshotDispatchResult,
   SlotButtonDispatchPayload,
@@ -258,6 +260,12 @@ const SheetError = Schema.Union([
   QueryResultError,
 ]);
 
+const messageKeyPayload = {
+  clientPlatform: ClientPlatform,
+  clientId: Schema.String,
+  messageId: Schema.String,
+} as const;
+
 const messageRoomOrderData = Schema.Struct({
   previousFills: Schema.Array(Schema.String),
   fills: Schema.Array(Schema.String),
@@ -265,18 +273,18 @@ const messageRoomOrderData = Schema.Struct({
   rank: Schema.Number,
   tentative: Schema.optional(Schema.Boolean),
   monitor: Schema.optional(Schema.NullOr(Schema.String)),
-  guildId: Schema.NullOr(Schema.String),
-  messageChannelId: Schema.NullOr(Schema.String),
+  workspaceId: Schema.NullOr(Schema.String),
+  conversationId: Schema.NullOr(Schema.String),
   createdByUserId: Schema.NullOr(Schema.String),
 });
 
 const messageCheckinData = Schema.Struct({
-  initialMessage: Schema.String,
+  initialMessage: Schema.Array(SheetTextPart),
   hour: Schema.Number,
-  channelId: Schema.String,
+  runningConversationId: Schema.String,
   roleId: Schema.optional(Schema.NullOr(Schema.String)),
-  guildId: Schema.NullOr(Schema.String),
-  messageChannelId: Schema.NullOr(Schema.String),
+  workspaceId: Schema.NullOr(Schema.String),
+  conversationId: Schema.NullOr(Schema.String),
   createdByUserId: Schema.NullOr(Schema.String),
 });
 
@@ -377,9 +385,9 @@ export const CheckinRpcs = RpcGroup.make(
   protectedRpc("checkin.generate", {
     scopePolicy: readScopePolicy,
     payload: Payload({
-      guildId: Schema.String,
-      channelId: Schema.optional(Schema.String),
-      channelName: Schema.optional(Schema.String),
+      workspaceId: Schema.String,
+      conversationId: Schema.optional(Schema.String),
+      conversationName: Schema.optional(Schema.String),
       hour: Schema.optional(Schema.Number),
       template: Schema.optional(Schema.String),
     }),
@@ -460,157 +468,157 @@ export const DiscordRpcs = RpcGroup.make(
   }),
 );
 
-export const GuildConfigRpcs = RpcGroup.make(
-  protectedRpc("guildConfig.getAutoCheckinGuilds", {
+export const WorkspaceConfigRpcs = RpcGroup.make(
+  protectedRpc("workspaceConfig.getAutoCheckinWorkspaces", {
     scopePolicy: serviceScopePolicy,
-    success: Schema.Array(GuildConfig),
+    success: Schema.Array(WorkspaceConfig),
     error: Schema.Union([SchemaError, QueryResultError]),
   }),
-  protectedRpc("guildConfig.getGuildConfig", {
+  protectedRpc("workspaceConfig.getWorkspaceConfig", {
     scopePolicy: manageScopePolicy,
-    payload: Query({ guildId: Schema.String }),
-    success: GuildConfig,
+    payload: Query({ workspaceId: Schema.String }),
+    success: WorkspaceConfig,
     error: Schema.Union([SchemaError, QueryResultError, ArgumentError]),
   }),
-  protectedRpc("guildConfig.upsertGuildConfig", {
+  protectedRpc("workspaceConfig.upsertWorkspaceConfig", {
     scopePolicy: manageScopePolicy,
     payload: Payload({
-      guildId: Schema.String,
+      workspaceId: Schema.String,
       config: Schema.Struct({
         sheetId: Schema.optional(Schema.NullOr(Schema.String)),
         autoCheckin: Schema.optional(Schema.NullOr(Schema.Boolean)),
       }),
     }),
-    success: GuildConfig,
+    success: WorkspaceConfig,
     error: Schema.Union([SchemaError, QueryResultError, MutatorResultError]),
   }),
-  protectedRpc("guildConfig.getGuildMonitorRoles", {
+  protectedRpc("workspaceConfig.getWorkspaceMonitorRoles", {
     scopePolicy: readScopePolicy,
-    payload: Query({ guildId: Schema.String }),
-    success: Schema.Array(GuildConfigMonitorRole),
+    payload: Query({ workspaceId: Schema.String }),
+    success: Schema.Array(WorkspaceMonitorRole),
     error: Schema.Union([SchemaError, QueryResultError]),
   }),
-  protectedRpc("guildConfig.getGuildFeatureFlags", {
+  protectedRpc("workspaceConfig.getWorkspaceFeatureFlags", {
     scopePolicy: serviceScopePolicy,
-    payload: Query({ guildId: Schema.String }),
-    success: Schema.Array(GuildFeatureFlag),
+    payload: Query({ workspaceId: Schema.String }),
+    success: Schema.Array(WorkspaceFeatureFlag),
     error: Schema.Union([SchemaError, QueryResultError]),
   }),
-  protectedRpc("guildConfig.getGuildsForFeatureFlag", {
+  protectedRpc("workspaceConfig.getWorkspacesForFeatureFlag", {
     scopePolicy: serviceScopePolicy,
     payload: Query({ flagName: FeatureFlagName }),
-    success: Schema.Array(GuildFeatureFlag),
+    success: Schema.Array(WorkspaceFeatureFlag),
     error: Schema.Union([SchemaError, QueryResultError, ArgumentError]),
   }),
-  protectedRpc("guildConfig.getGuildUpdateAnnouncementDelivery", {
+  protectedRpc("workspaceConfig.getWorkspaceUpdateAnnouncementDelivery", {
     scopePolicy: serviceScopePolicy,
     payload: Query({
-      guildId: Schema.String,
+      workspaceId: Schema.String,
       announcementId: Schema.String,
     }),
-    success: Schema.Option(GuildUpdateAnnouncementDelivery),
+    success: Schema.Option(WorkspaceUpdateAnnouncementDelivery),
     error: Schema.Union([SchemaError, QueryResultError]),
   }),
-  protectedRpc("guildConfig.getGuildChannels", {
+  protectedRpc("workspaceConfig.getWorkspaceConversations", {
     scopePolicy: readScopePolicy,
     payload: Query({
-      guildId: Schema.String,
+      workspaceId: Schema.String,
       running: Schema.optional(Schema.Boolean),
     }),
-    success: Schema.Array(GuildChannelConfig),
+    success: Schema.Array(WorkspaceConversationConfig),
     error: Schema.Union([SchemaError, QueryResultError]),
   }),
-  protectedRpc("guildConfig.addGuildMonitorRole", {
+  protectedRpc("workspaceConfig.addWorkspaceMonitorRole", {
     scopePolicy: manageScopePolicy,
-    payload: Payload({ guildId: Schema.String, roleId: Schema.String }),
-    success: GuildConfigMonitorRole,
+    payload: Payload({ workspaceId: Schema.String, roleId: Schema.String }),
+    success: WorkspaceMonitorRole,
     error: Schema.Union([SchemaError, QueryResultError, MutatorResultError]),
   }),
-  protectedRpc("guildConfig.removeGuildMonitorRole", {
+  protectedRpc("workspaceConfig.removeWorkspaceMonitorRole", {
     scopePolicy: manageScopePolicy,
-    payload: Payload({ guildId: Schema.String, roleId: Schema.String }),
-    success: GuildConfigMonitorRole,
-    error: Schema.Union([SchemaError, QueryResultError, MutatorResultError]),
-  }),
-  protectedRpc("guildConfig.addGuildFeatureFlag", {
-    scopePolicy: serviceScopePolicy,
-    payload: Payload({ guildId: Schema.String, flagName: FeatureFlagName }),
-    success: GuildFeatureFlag,
+    payload: Payload({ workspaceId: Schema.String, roleId: Schema.String }),
+    success: WorkspaceMonitorRole,
     error: Schema.Union([SchemaError, QueryResultError, MutatorResultError, ArgumentError]),
   }),
-  protectedRpc("guildConfig.removeGuildFeatureFlag", {
+  protectedRpc("workspaceConfig.addWorkspaceFeatureFlag", {
     scopePolicy: serviceScopePolicy,
-    payload: Payload({ guildId: Schema.String, flagName: FeatureFlagName }),
-    success: GuildFeatureFlag,
+    payload: Payload({ workspaceId: Schema.String, flagName: FeatureFlagName }),
+    success: WorkspaceFeatureFlag,
     error: Schema.Union([SchemaError, QueryResultError, MutatorResultError, ArgumentError]),
   }),
-  protectedRpc("guildConfig.recordGuildUpdateAnnouncementDelivery", {
+  protectedRpc("workspaceConfig.removeWorkspaceFeatureFlag", {
+    scopePolicy: serviceScopePolicy,
+    payload: Payload({ workspaceId: Schema.String, flagName: FeatureFlagName }),
+    success: WorkspaceFeatureFlag,
+    error: Schema.Union([SchemaError, QueryResultError, MutatorResultError, ArgumentError]),
+  }),
+  protectedRpc("workspaceConfig.recordWorkspaceUpdateAnnouncementDelivery", {
     scopePolicy: serviceScopePolicy,
     payload: Payload({
-      guildId: Schema.String,
+      workspaceId: Schema.String,
       announcementId: Schema.String,
       publishedAt: Schema.DateTimeUtcFromMillis,
       deliveredAt: Schema.DateTimeUtcFromMillis,
-      channelId: Schema.String,
+      conversationId: Schema.String,
       messageId: Schema.String,
     }),
-    success: GuildUpdateAnnouncementDelivery,
+    success: WorkspaceUpdateAnnouncementDelivery,
     error: Schema.Union([SchemaError, QueryResultError, MutatorResultError]),
   }),
-  protectedRpc("guildConfig.claimGuildUpdateAnnouncementDelivery", {
+  protectedRpc("workspaceConfig.claimWorkspaceUpdateAnnouncementDelivery", {
     scopePolicy: serviceScopePolicy,
     payload: Payload({
-      guildId: Schema.String,
+      workspaceId: Schema.String,
       announcementId: Schema.String,
       publishedAt: Schema.DateTimeUtcFromMillis,
       claimToken: Schema.String,
     }),
-    success: GuildUpdateAnnouncementDeliveryClaimResult,
+    success: WorkspaceUpdateAnnouncementDeliveryClaimResult,
     error: Schema.Union([SchemaError, QueryResultError, MutatorResultError]),
   }),
-  protectedRpc("guildConfig.releaseGuildUpdateAnnouncementDeliveryClaim", {
+  protectedRpc("workspaceConfig.releaseWorkspaceUpdateAnnouncementDeliveryClaim", {
     scopePolicy: serviceScopePolicy,
     payload: Payload({
-      guildId: Schema.String,
+      workspaceId: Schema.String,
       announcementId: Schema.String,
       claimToken: Schema.String,
     }),
     success: Schema.Void,
     error: Schema.Union([SchemaError, MutatorResultError]),
   }),
-  protectedRpc("guildConfig.upsertGuildChannelConfig", {
+  protectedRpc("workspaceConfig.upsertWorkspaceConversationConfig", {
     scopePolicy: manageScopePolicy,
     payload: Payload({
-      guildId: Schema.String,
-      channelId: Schema.String,
+      workspaceId: Schema.String,
+      conversationId: Schema.String,
       config: Schema.Struct({
         name: Schema.optional(Schema.NullOr(Schema.String)),
         running: Schema.optional(Schema.NullOr(Schema.Boolean)),
         roleId: Schema.optional(Schema.NullOr(Schema.String)),
-        checkinChannelId: Schema.optional(Schema.NullOr(Schema.String)),
+        checkinConversationId: Schema.optional(Schema.NullOr(Schema.String)),
       }),
     }),
-    success: GuildChannelConfig,
+    success: WorkspaceConversationConfig,
     error: Schema.Union([SchemaError, QueryResultError, MutatorResultError]),
   }),
-  protectedRpc("guildConfig.getGuildChannelById", {
+  protectedRpc("workspaceConfig.getWorkspaceConversationById", {
     scopePolicy: readScopePolicy,
     payload: Query({
-      guildId: Schema.String,
-      channelId: Schema.String,
+      workspaceId: Schema.String,
+      conversationId: Schema.String,
       running: Schema.optional(Schema.Boolean),
     }),
-    success: GuildChannelConfig,
+    success: WorkspaceConversationConfig,
     error: Schema.Union([SchemaError, QueryResultError, ArgumentError]),
   }),
-  protectedRpc("guildConfig.getGuildChannelByName", {
+  protectedRpc("workspaceConfig.getWorkspaceConversationByName", {
     scopePolicy: readScopePolicy,
     payload: Query({
-      guildId: Schema.String,
-      channelName: Schema.String,
+      workspaceId: Schema.String,
+      conversationName: Schema.String,
       running: Schema.optional(Schema.Boolean),
     }),
-    success: GuildChannelConfig,
+    success: WorkspaceConversationConfig,
     error: Schema.Union([SchemaError, QueryResultError, ArgumentError]),
   }),
 );
@@ -631,14 +639,14 @@ export const StatusRpcs = RpcGroup.make(
 export const MessageCheckinRpcs = RpcGroup.make(
   protectedRpc("messageCheckin.getMessageCheckinData", {
     scopePolicy: readScopePolicy,
-    payload: Query({ messageId: Schema.String }),
+    payload: Query(messageKeyPayload),
     success: MessageCheckin,
     error: Schema.Union([SchemaError, QueryResultError, ArgumentError, Unauthorized]),
   }),
   protectedRpc("messageCheckin.upsertMessageCheckinData", {
     scopePolicy: writeScopePolicy,
     payload: Payload({
-      messageId: Schema.String,
+      ...messageKeyPayload,
       data: messageCheckinData,
     }),
     success: MessageCheckin,
@@ -646,14 +654,14 @@ export const MessageCheckinRpcs = RpcGroup.make(
   }),
   protectedRpc("messageCheckin.getMessageCheckinMembers", {
     scopePolicy: readScopePolicy,
-    payload: Query({ messageId: Schema.String }),
+    payload: Query(messageKeyPayload),
     success: Schema.Array(MessageCheckinMember),
     error: Schema.Union([SchemaError, QueryResultError, ArgumentError, Unauthorized]),
   }),
   protectedRpc("messageCheckin.addMessageCheckinMembers", {
     scopePolicy: writeScopePolicy,
     payload: Payload({
-      messageId: Schema.String,
+      ...messageKeyPayload,
       memberIds: Schema.Array(Schema.String),
     }),
     success: Schema.Array(MessageCheckinMember),
@@ -662,7 +670,7 @@ export const MessageCheckinRpcs = RpcGroup.make(
   protectedRpc("messageCheckin.persistMessageCheckin", {
     scopePolicy: writeScopePolicy,
     payload: Payload({
-      messageId: Schema.String,
+      ...messageKeyPayload,
       data: messageCheckinData,
       memberIds: Schema.Array(Schema.String),
     }),
@@ -672,7 +680,7 @@ export const MessageCheckinRpcs = RpcGroup.make(
   protectedRpc("messageCheckin.setMessageCheckinMemberCheckinAt", {
     scopePolicy: writeScopePolicy,
     payload: Payload({
-      messageId: Schema.String,
+      ...messageKeyPayload,
       memberId: Schema.String,
       checkinAt: Schema.Number,
     }),
@@ -682,7 +690,7 @@ export const MessageCheckinRpcs = RpcGroup.make(
   protectedRpc("messageCheckin.setMessageCheckinMemberCheckinAtIfUnset", {
     scopePolicy: writeScopePolicy,
     payload: Payload({
-      messageId: Schema.String,
+      ...messageKeyPayload,
       memberId: Schema.String,
       checkinAt: Schema.Number,
       checkinClaimId: Schema.String,
@@ -693,7 +701,7 @@ export const MessageCheckinRpcs = RpcGroup.make(
   protectedRpc("messageCheckin.removeMessageCheckinMember", {
     scopePolicy: writeScopePolicy,
     payload: Payload({
-      messageId: Schema.String,
+      ...messageKeyPayload,
       memberId: Schema.String,
     }),
     success: MessageCheckinMember,
@@ -704,14 +712,14 @@ export const MessageCheckinRpcs = RpcGroup.make(
 export const MessageRoomOrderRpcs = RpcGroup.make(
   protectedRpc("messageRoomOrder.getMessageRoomOrder", {
     scopePolicy: readScopePolicy,
-    payload: Query({ messageId: Schema.String }),
+    payload: Query(messageKeyPayload),
     success: MessageRoomOrder,
     error: Schema.Union([SchemaError, QueryResultError, ArgumentError]),
   }),
   protectedRpc("messageRoomOrder.upsertMessageRoomOrder", {
     scopePolicy: writeScopePolicy,
     payload: Payload({
-      messageId: Schema.String,
+      ...messageKeyPayload,
       data: messageRoomOrderData,
     }),
     success: MessageRoomOrder,
@@ -720,7 +728,7 @@ export const MessageRoomOrderRpcs = RpcGroup.make(
   protectedRpc("messageRoomOrder.persistMessageRoomOrder", {
     scopePolicy: writeScopePolicy,
     payload: Payload({
-      messageId: Schema.String,
+      ...messageKeyPayload,
       data: messageRoomOrderData,
       entries: Schema.Array(messageRoomOrderEntryInput),
     }),
@@ -730,7 +738,7 @@ export const MessageRoomOrderRpcs = RpcGroup.make(
   protectedRpc("messageRoomOrder.decrementMessageRoomOrderRank", {
     scopePolicy: writeScopePolicy,
     payload: Payload({
-      messageId: Schema.String,
+      ...messageKeyPayload,
       expectedRank: Schema.optional(Schema.Number),
       tentativeUpdateClaimId: Schema.optional(Schema.String),
     }),
@@ -740,7 +748,7 @@ export const MessageRoomOrderRpcs = RpcGroup.make(
   protectedRpc("messageRoomOrder.incrementMessageRoomOrderRank", {
     scopePolicy: writeScopePolicy,
     payload: Payload({
-      messageId: Schema.String,
+      ...messageKeyPayload,
       expectedRank: Schema.optional(Schema.Number),
       tentativeUpdateClaimId: Schema.optional(Schema.String),
     }),
@@ -750,7 +758,7 @@ export const MessageRoomOrderRpcs = RpcGroup.make(
   protectedRpc("messageRoomOrder.getMessageRoomOrderEntry", {
     scopePolicy: readScopePolicy,
     payload: Query({
-      messageId: Schema.String,
+      ...messageKeyPayload,
       rank: Schema.Number,
     }),
     success: Schema.Array(MessageRoomOrderEntry),
@@ -758,14 +766,14 @@ export const MessageRoomOrderRpcs = RpcGroup.make(
   }),
   protectedRpc("messageRoomOrder.getMessageRoomOrderRange", {
     scopePolicy: readScopePolicy,
-    payload: Query({ messageId: Schema.String }),
+    payload: Query(messageKeyPayload),
     success: MessageRoomOrderRange,
     error: Schema.Union([SchemaError, QueryResultError, ArgumentError]),
   }),
   protectedRpc("messageRoomOrder.upsertMessageRoomOrderEntry", {
     scopePolicy: writeScopePolicy,
     payload: Payload({
-      messageId: Schema.String,
+      ...messageKeyPayload,
       entries: Schema.Array(messageRoomOrderEntryInput),
     }),
     success: Schema.Array(MessageRoomOrderEntry),
@@ -773,24 +781,24 @@ export const MessageRoomOrderRpcs = RpcGroup.make(
   }),
   protectedRpc("messageRoomOrder.removeMessageRoomOrderEntry", {
     scopePolicy: writeScopePolicy,
-    payload: Payload({ messageId: Schema.String }),
+    payload: Payload(messageKeyPayload),
     success: Schema.Array(MessageRoomOrderEntry),
     error: Schema.Union([SchemaError, QueryResultError, ArgumentError]),
   }),
   protectedRpc("messageRoomOrder.claimMessageRoomOrderSend", {
     scopePolicy: writeScopePolicy,
-    payload: Payload({ messageId: Schema.String, claimId: Schema.String }),
+    payload: Payload({ ...messageKeyPayload, claimId: Schema.String }),
     success: MessageRoomOrder,
     error: Schema.Union([SchemaError, QueryResultError, ArgumentError]),
   }),
   protectedRpc("messageRoomOrder.completeMessageRoomOrderSend", {
     scopePolicy: writeScopePolicy,
     payload: Payload({
-      messageId: Schema.String,
+      ...messageKeyPayload,
       claimId: Schema.String,
       sentMessage: Schema.Struct({
         id: Schema.String,
-        channelId: Schema.String,
+        conversationId: Schema.String,
       }),
     }),
     success: MessageRoomOrder,
@@ -798,45 +806,43 @@ export const MessageRoomOrderRpcs = RpcGroup.make(
   }),
   protectedRpc("messageRoomOrder.releaseMessageRoomOrderSendClaim", {
     scopePolicy: writeScopePolicy,
-    payload: Payload({ messageId: Schema.String, claimId: Schema.String }),
+    payload: Payload({ ...messageKeyPayload, claimId: Schema.String }),
     success: Schema.Void,
     error: Schema.Union([SchemaError, QueryResultError, ArgumentError]),
   }),
   protectedRpc("messageRoomOrder.claimMessageRoomOrderTentativeUpdate", {
     scopePolicy: writeScopePolicy,
-    payload: Payload({ messageId: Schema.String, claimId: Schema.String }),
+    payload: Payload({ ...messageKeyPayload, claimId: Schema.String }),
     success: MessageRoomOrder,
     error: Schema.Union([SchemaError, QueryResultError, ArgumentError]),
   }),
   protectedRpc("messageRoomOrder.releaseMessageRoomOrderTentativeUpdateClaim", {
     scopePolicy: writeScopePolicy,
-    payload: Payload({ messageId: Schema.String, claimId: Schema.String }),
+    payload: Payload({ ...messageKeyPayload, claimId: Schema.String }),
     success: Schema.Void,
     error: Schema.Union([SchemaError, QueryResultError, ArgumentError]),
   }),
   protectedRpc("messageRoomOrder.claimMessageRoomOrderTentativePin", {
     scopePolicy: writeScopePolicy,
-    payload: Payload({ messageId: Schema.String, claimId: Schema.String }),
+    payload: Payload({ ...messageKeyPayload, claimId: Schema.String }),
     success: MessageRoomOrder,
     error: Schema.Union([SchemaError, QueryResultError, ArgumentError]),
   }),
   protectedRpc("messageRoomOrder.completeMessageRoomOrderTentativePin", {
     scopePolicy: writeScopePolicy,
-    payload: Payload({ messageId: Schema.String, claimId: Schema.String }),
+    payload: Payload({ ...messageKeyPayload, claimId: Schema.String }),
     success: MessageRoomOrder,
     error: Schema.Union([SchemaError, QueryResultError, ArgumentError]),
   }),
   protectedRpc("messageRoomOrder.releaseMessageRoomOrderTentativePinClaim", {
     scopePolicy: writeScopePolicy,
-    payload: Payload({ messageId: Schema.String, claimId: Schema.String }),
+    payload: Payload({ ...messageKeyPayload, claimId: Schema.String }),
     success: Schema.Void,
     error: Schema.Union([SchemaError, QueryResultError, ArgumentError]),
   }),
   protectedRpc("messageRoomOrder.markMessageRoomOrderTentative", {
     scopePolicy: writeScopePolicy,
-    payload: Payload({
-      messageId: Schema.String,
-    }),
+    payload: Payload(messageKeyPayload),
     success: MessageRoomOrder,
     error: Schema.Union([SchemaError, QueryResultError, ArgumentError]),
   }),
@@ -845,18 +851,18 @@ export const MessageRoomOrderRpcs = RpcGroup.make(
 export const MessageSlotRpcs = RpcGroup.make(
   protectedRpc("messageSlot.getMessageSlotData", {
     scopePolicy: readScopePolicy,
-    payload: Query({ messageId: Schema.String }),
+    payload: Query(messageKeyPayload),
     success: MessageSlot,
     error: Schema.Union([SchemaError, QueryResultError, ArgumentError]),
   }),
   protectedRpc("messageSlot.upsertMessageSlotData", {
     scopePolicy: writeScopePolicy,
     payload: Payload({
-      messageId: Schema.String,
+      ...messageKeyPayload,
       data: Schema.Struct({
         day: Schema.Number,
-        guildId: Schema.NullOr(Schema.String),
-        messageChannelId: Schema.NullOr(Schema.String),
+        workspaceId: Schema.NullOr(Schema.String),
+        conversationId: Schema.NullOr(Schema.String),
         createdByUserId: Schema.NullOr(Schema.String),
       }),
     }),
@@ -868,7 +874,7 @@ export const MessageSlotRpcs = RpcGroup.make(
 export const MonitorRpcs = RpcGroup.make(
   protectedRpc("monitor.getMonitorMaps", {
     scopePolicy: readScopePolicy,
-    payload: Query({ guildId: Schema.String }),
+    payload: Query({ workspaceId: Schema.String }),
     success: Schema.Struct({
       idToMonitor: Schema.Array(
         Schema.Struct({
@@ -890,13 +896,13 @@ export const MonitorRpcs = RpcGroup.make(
   }),
   protectedRpc("monitor.getByIds", {
     scopePolicy: readScopePolicy,
-    payload: Query({ guildId: Schema.String, ids: Schema.Array(Schema.String) }),
+    payload: Query({ workspaceId: Schema.String, ids: Schema.Array(Schema.String) }),
     success: Schema.Array(Schema.Array(Schema.Union([Monitor, PartialIdMonitor]))),
     error: MonitorError,
   }),
   protectedRpc("monitor.getByNames", {
     scopePolicy: readScopePolicy,
-    payload: Query({ guildId: Schema.String, names: Schema.Array(Schema.String) }),
+    payload: Query({ workspaceId: Schema.String, names: Schema.Array(Schema.String) }),
     success: Schema.Array(Schema.Array(Schema.Union([Monitor, PartialNameMonitor]))),
     error: MonitorError,
   }),
@@ -905,7 +911,7 @@ export const MonitorRpcs = RpcGroup.make(
 export const PermissionsRpcs = RpcGroup.make(
   protectedRpc("permissions.getCurrentUserPermissions", {
     scopePolicy: readScopePolicy,
-    payload: Query({ guildId: Schema.optional(Schema.String) }),
+    payload: Query({ workspaceId: Schema.optional(Schema.String) }),
     success: CurrentUserPermissions,
     error: Schema.Union([SchemaError, QueryResultError, ArgumentError]),
   }),
@@ -914,7 +920,7 @@ export const PermissionsRpcs = RpcGroup.make(
 export const PlayerRpcs = RpcGroup.make(
   protectedRpc("player.getPlayerMaps", {
     scopePolicy: readScopePolicy,
-    payload: Query({ guildId: Schema.String }),
+    payload: Query({ workspaceId: Schema.String }),
     success: Schema.Struct({
       nameToPlayer: Schema.Array(
         Schema.Struct({
@@ -936,25 +942,25 @@ export const PlayerRpcs = RpcGroup.make(
   }),
   protectedRpc("player.getByIds", {
     scopePolicy: readScopePolicy,
-    payload: Query({ guildId: Schema.String, ids: Schema.Array(Schema.String) }),
+    payload: Query({ workspaceId: Schema.String, ids: Schema.Array(Schema.String) }),
     success: Schema.Array(Schema.Array(Schema.Union([Player, PartialIdPlayer]))),
     error: PlayerError,
   }),
   protectedRpc("player.getByNames", {
     scopePolicy: readScopePolicy,
-    payload: Query({ guildId: Schema.String, names: Schema.Array(Schema.String) }),
+    payload: Query({ workspaceId: Schema.String, names: Schema.Array(Schema.String) }),
     success: Schema.Array(Schema.Array(Schema.Union([Player, PartialNamePlayer]))),
     error: PlayerError,
   }),
   protectedRpc("player.getTeamsByIds", {
     scopePolicy: readScopePolicy,
-    payload: Query({ guildId: Schema.String, ids: Schema.Array(Schema.String) }),
+    payload: Query({ workspaceId: Schema.String, ids: Schema.Array(Schema.String) }),
     success: Schema.Array(Schema.Array(Team)),
     error: PlayerError,
   }),
   protectedRpc("player.getTeamsByNames", {
     scopePolicy: readScopePolicy,
-    payload: Query({ guildId: Schema.String, names: Schema.Array(Schema.String) }),
+    payload: Query({ workspaceId: Schema.String, names: Schema.Array(Schema.String) }),
     success: Schema.Array(Schema.Array(Team)),
     error: PlayerError,
   }),
@@ -964,9 +970,9 @@ export const RoomOrderRpcs = RpcGroup.make(
   protectedRpc("roomOrder.generate", {
     scopePolicy: readScopePolicy,
     payload: Payload({
-      guildId: Schema.String,
-      channelId: Schema.optional(Schema.String),
-      channelName: Schema.optional(Schema.String),
+      workspaceId: Schema.String,
+      conversationId: Schema.optional(Schema.String),
+      conversationName: Schema.optional(Schema.String),
       hour: Schema.optional(Schema.Number),
       healNeeded: Schema.optional(Schema.Number),
     }),
@@ -978,25 +984,25 @@ export const RoomOrderRpcs = RpcGroup.make(
 export const ScheduleRpcs = RpcGroup.make(
   protectedRpc("schedule.getAllPopulatedSchedules", {
     scopePolicy: readScopePolicy,
-    payload: Query({ guildId: Schema.String, view: ScheduleViewUrlParam }),
+    payload: Query({ workspaceId: Schema.String, view: ScheduleViewUrlParam }),
     success: PopulatedScheduleResponse,
     error: ScheduleError,
   }),
   protectedRpc("schedule.getDayPopulatedSchedules", {
     scopePolicy: readScopePolicy,
     payload: Query({
-      guildId: Schema.String,
+      workspaceId: Schema.String,
       day: Schema.Number,
       view: ScheduleViewUrlParam,
     }),
     success: PopulatedScheduleResponse,
     error: ScheduleError,
   }),
-  protectedRpc("schedule.getChannelPopulatedSchedules", {
+  protectedRpc("schedule.getConversationPopulatedSchedules", {
     scopePolicy: readScopePolicy,
     payload: Query({
-      guildId: Schema.String,
-      channel: Schema.String,
+      workspaceId: Schema.String,
+      conversationName: Schema.String,
       view: ScheduleViewUrlParam,
     }),
     success: PopulatedScheduleResponse,
@@ -1005,7 +1011,7 @@ export const ScheduleRpcs = RpcGroup.make(
   protectedRpc("schedule.getDayPlayerSchedule", {
     scopePolicy: readScopePolicy,
     payload: Query({
-      guildId: Schema.String,
+      workspaceId: Schema.String,
       day: Schema.Number,
       accountId: Schema.String,
       view: ScheduleViewUrlParam,
@@ -1019,8 +1025,8 @@ export const ScreenshotRpcs = RpcGroup.make(
   protectedRpc("screenshot.getScreenshot", {
     scopePolicy: readScopePolicy,
     payload: Query({
-      guildId: Schema.String,
-      channel: Schema.String,
+      workspaceId: Schema.String,
+      conversationName: Schema.String,
       day: Schema.Number,
     }),
     success: Schema.Uint8Array,
@@ -1031,43 +1037,43 @@ export const ScreenshotRpcs = RpcGroup.make(
 export const SheetRpcs = RpcGroup.make(
   protectedRpc("sheet.getPlayers", {
     scopePolicy: serviceScopePolicy,
-    payload: Query({ guildId: Schema.String }),
+    payload: Query({ workspaceId: Schema.String }),
     success: Schema.Array(RawPlayer),
     error: SheetError,
   }),
   protectedRpc("sheet.getMonitors", {
     scopePolicy: serviceScopePolicy,
-    payload: Query({ guildId: Schema.String }),
+    payload: Query({ workspaceId: Schema.String }),
     success: Schema.Array(RawMonitor),
     error: SheetError,
   }),
   protectedRpc("sheet.getTeams", {
     scopePolicy: serviceScopePolicy,
-    payload: Query({ guildId: Schema.String }),
+    payload: Query({ workspaceId: Schema.String }),
     success: Schema.Array(Team),
     error: SheetError,
   }),
   protectedRpc("sheet.getAllSchedules", {
     scopePolicy: serviceScopePolicy,
-    payload: Query({ guildId: Schema.String, view: ScheduleViewUrlParam }),
+    payload: Query({ workspaceId: Schema.String, view: ScheduleViewUrlParam }),
     success: ScheduleResponse,
     error: SheetError,
   }),
   protectedRpc("sheet.getDaySchedules", {
     scopePolicy: serviceScopePolicy,
     payload: Query({
-      guildId: Schema.String,
+      workspaceId: Schema.String,
       day: Schema.Number,
       view: ScheduleViewUrlParam,
     }),
     success: ScheduleResponse,
     error: SheetError,
   }),
-  protectedRpc("sheet.getChannelSchedules", {
+  protectedRpc("sheet.getConversationSchedules", {
     scopePolicy: serviceScopePolicy,
     payload: Query({
-      guildId: Schema.String,
-      channel: Schema.String,
+      workspaceId: Schema.String,
+      conversationName: Schema.String,
       view: ScheduleViewUrlParam,
     }),
     success: ScheduleResponse,
@@ -1075,31 +1081,31 @@ export const SheetRpcs = RpcGroup.make(
   }),
   protectedRpc("sheet.getRangesConfig", {
     scopePolicy: serviceScopePolicy,
-    payload: Query({ guildId: Schema.String }),
+    payload: Query({ workspaceId: Schema.String }),
     success: RangesConfig,
     error: SheetError,
   }),
   protectedRpc("sheet.getTeamConfig", {
     scopePolicy: serviceScopePolicy,
-    payload: Query({ guildId: Schema.String }),
+    payload: Query({ workspaceId: Schema.String }),
     success: Schema.Array(TeamConfig),
     error: SheetError,
   }),
   protectedRpc("sheet.getEventConfig", {
     scopePolicy: serviceScopePolicy,
-    payload: Query({ guildId: Schema.String }),
+    payload: Query({ workspaceId: Schema.String }),
     success: EventConfig,
     error: SheetError,
   }),
   protectedRpc("sheet.getScheduleConfig", {
     scopePolicy: serviceScopePolicy,
-    payload: Query({ guildId: Schema.String }),
+    payload: Query({ workspaceId: Schema.String }),
     success: Schema.Array(ScheduleConfig),
     error: SheetError,
   }),
   protectedRpc("sheet.getRunnerConfig", {
     scopePolicy: serviceScopePolicy,
-    payload: Query({ guildId: Schema.String }),
+    payload: Query({ workspaceId: Schema.String }),
     success: Schema.Array(RunnerConfig),
     error: SheetError,
   }),
@@ -1108,7 +1114,7 @@ export const SheetRpcs = RpcGroup.make(
 export const SheetApisRpcs = CalcRpcs.merge(
   CheckinRpcs,
   DiscordRpcs,
-  GuildConfigRpcs,
+  WorkspaceConfigRpcs,
   HealthRpcs,
   MessageCheckinRpcs,
   MessageRoomOrderRpcs,

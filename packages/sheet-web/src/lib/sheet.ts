@@ -9,7 +9,7 @@ import { useMemo } from "react";
 
 // Private atom for fetching event config (includes startTime)
 const _eventConfigAtom = Atom.family((guildId: string) =>
-  SheetApisClient.query("sheet", "getEventConfig", { query: { guildId } }),
+  SheetApisClient.query("sheet", "getEventConfig", { query: { workspaceId: guildId } }),
 );
 
 type EventConfig = Schema.Schema.Type<typeof SheetConfig.EventConfig>;

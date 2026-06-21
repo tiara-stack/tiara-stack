@@ -18,12 +18,25 @@ import {
   type PopulatedScheduleResult,
 } from "sheet-ingress-api/schemas/sheet";
 import type { ScheduleConfig } from "sheet-ingress-api/schemas/sheetConfig";
-import { GuildConfigService } from "./guildConfig";
+import { WorkspaceConfigService } from "./workspaceConfig";
 import { ScheduleService } from "./schedule";
 import { SheetConfigService } from "./sheetConfig";
+import { getSheetIdFromWorkspaceId, requireRunningConversation } from "./workspaceSheet";
 import { diffFillParticipants, getScheduleFills, toFillParticipant } from "./fillMovement";
+import type { FillParticipant } from "./fillMovement";
+import type { GeneratedSheetText } from "sheet-ingress-api/schemas/client";
+import {
+  clientTerm,
+  conversationMention,
+  joinText,
+  parts,
+  strikethrough,
+  strong,
+  text,
+  timestamp,
+  userMention,
+} from "./generatedText";
 
-type GuildConfigServiceApi = Context.Service.Shape<typeof GuildConfigService>;
 type SheetConfigServiceApi = Context.Service.Shape<typeof SheetConfigService>;
 type EventConfig = Effect.Success<ReturnType<SheetConfigServiceApi["getEventConfig"]>>;
 
@@ -39,37 +52,37 @@ const isMonitor = Predicate.isTagged("Monitor");
 const checkinMessageTemplates: [Weighted<string>, ...Weighted<string>[]] = [
   {
     value:
-      "{{mentionsString}} Press the button below to check in, and {{channelString}} {{hourString}} {{timeStampString}}",
+      "{{mentionsString}} Press the button below to check in, and {{conversationString}} {{hourString}} {{timeStampString}}",
     weight: 0.5,
   },
   {
     value:
-      "{{mentionsString}} The goddess Miku is calling for you to fill. Press the button below to check in, and {{channelString}} {{hourString}} {{timeStampString}}",
+      "{{mentionsString}} The goddess Miku is calling for you to fill. Press the button below to check in, and {{conversationString}} {{hourString}} {{timeStampString}}",
     weight: 0.25,
   },
   {
     value:
-      "{{mentionsString}} Press the button below to check in, and {{channelString}} {{hourString}} {{timeStampString}}. ... Beep Boop. Beep Boop. zzzt... zzzt... zzzt...",
+      "{{mentionsString}} Press the button below to check in, and {{conversationString}} {{hourString}} {{timeStampString}}. ... Beep Boop. Beep Boop. zzzt... zzzt... zzzt...",
     weight: 0.05,
   },
   {
     value:
-      "{{mentionsString}} Press the button below to check in, and {{channelString}} {{hourString}} {{timeStampString}}\n~~or VBS Miku will recruit you for some taste testing of her cooking.~~",
+      "{{mentionsString}} Press the button below to check in, and {{conversationString}} {{hourString}} {{timeStampString}}\n~~or VBS Miku will recruit you for some taste testing of her cooking.~~",
     weight: 0.05,
   },
   {
     value:
-      "{{mentionsString}} Ebi jail AAAAAAAAAAAAAAAAAAAAAAA. Press the button below to check in, and {{channelString}} {{hourString}} {{timeStampString}}",
+      "{{mentionsString}} Ebi jail AAAAAAAAAAAAAAAAAAAAAAA. Press the button below to check in, and {{conversationString}} {{hourString}} {{timeStampString}}",
     weight: 0.05,
   },
   {
     value:
-      "{{mentionsString}} Miku's voice echoes in the empty SEKAI. Press the button below to check in, then {{channelString}} {{hourString}} {{timeStampString}}",
+      "{{mentionsString}} Miku's voice echoes in the empty SEKAI. Press the button below to check in, then {{conversationString}} {{hourString}} {{timeStampString}}",
     weight: 0.05,
   },
   {
     value:
-      "{{mentionsString}} The clock hits 25:00. Miku whispers from the empty SEKAI. Press the button below to check in, then {{channelString}} {{hourString}} {{timeStampString}}",
+      "{{mentionsString}} The clock hits 25:00. Miku whispers from the empty SEKAI. Press the button below to check in, then {{conversationString}} {{hourString}} {{timeStampString}}",
     weight: 0.05,
   },
 ];
@@ -91,72 +104,36 @@ const pickWeighted = Effect.fn("CheckinService.pickWeighted")(function* <A>(
   return items[items.length - 1]!.value;
 });
 
-const renderTemplate = (template: string, context: Record<string, string>) =>
-  template.replace(/\{\{\{?(\w+)\}?\}\}/g, (match, key: string) => context[key] ?? match);
+const renderStaticTemplateSegment = (value: string): GeneratedSheetText => {
+  const segments = value.split("~~");
+  return segments.flatMap((segment, index) => {
+    if (segment.length === 0) {
+      return [];
+    }
+    return index % 2 === 0 ? [text(segment)] : [strikethrough([text(segment)])];
+  });
+};
 
-const formatRelativeDiscordTime = (dateTime: DateTime.DateTime) =>
-  `<t:${Math.floor(DateTime.toEpochMillis(dateTime) / 1000)}:R>`;
-
-const formatChannelMention = (channelId: string) => `<#${channelId}>`;
-
-const getSheetIdFromGuildId = (guildId: string, guildConfigService: GuildConfigServiceApi) =>
-  guildConfigService.getGuildConfig(guildId).pipe(
-    Effect.flatMap(
-      Option.match({
-        onSome: (guildConfig) =>
-          pipe(
-            guildConfig.sheetId,
-            Option.match({
-              onSome: Effect.succeed,
-              onNone: () =>
-                Effect.fail(
-                  makeArgumentError("Cannot generate check-in, the guild has no sheet id"),
-                ),
-            }),
-          ),
-        onNone: () =>
-          Effect.fail(
-            makeArgumentError("Cannot generate check-in, the guild might not be registered"),
-          ),
-      }),
-    ),
-  );
-
-const requireRunningChannel = Effect.fn("CheckinService.requireRunningChannel")(function* (
-  guildId: string,
-  payload: { channelId?: string | undefined; channelName?: string | undefined },
-  guildConfigService: GuildConfigServiceApi,
-) {
-  const maybeChannel =
-    typeof payload.channelId === "string"
-      ? yield* guildConfigService.getGuildChannelById({
-          guildId,
-          channelId: payload.channelId,
-          running: true,
-        })
-      : typeof payload.channelName === "string"
-        ? yield* guildConfigService.getGuildChannelByName({
-            guildId,
-            channelName: payload.channelName,
-            running: true,
-          })
-        : yield* Effect.fail(
-            makeArgumentError("Cannot generate check-in, channelId or channelName is required"),
-          );
-
-  return yield* pipe(
-    maybeChannel,
-    Option.match({
-      onSome: Effect.succeed,
-      onNone: () =>
-        Effect.fail(
-          makeArgumentError(
-            "Cannot generate check-in, the running channel might not be registered",
-          ),
-        ),
-    }),
-  );
-});
+const renderTemplate = (
+  template: string,
+  context: Record<string, GeneratedSheetText>,
+): GeneratedSheetText => {
+  const rendered: GeneratedSheetText[] = [];
+  const pattern = /\{\{\{?(\w+)\}?\}\}/g;
+  let lastIndex = 0;
+  for (const match of template.matchAll(pattern)) {
+    const index = match.index ?? 0;
+    if (index > lastIndex) {
+      rendered.push(renderStaticTemplateSegment(template.slice(lastIndex, index)));
+    }
+    rendered.push(context[match[1] ?? ""] ?? renderStaticTemplateSegment(match[0]));
+    lastIndex = index + match[0].length;
+  }
+  if (lastIndex < template.length) {
+    rendered.push(renderStaticTemplateSegment(template.slice(lastIndex)));
+  }
+  return rendered.flat();
+};
 
 const isCompleteScheduleConfig = (config: ScheduleConfig): boolean => {
   const requiredValues: ReadonlyArray<Option.Option<unknown>> = [
@@ -177,9 +154,9 @@ const isCompleteScheduleConfig = (config: ScheduleConfig): boolean => {
 
 export const hasCompleteScheduleConfigForChannel = (
   scheduleConfigs: ReadonlyArray<ScheduleConfig>,
-  channelName: string,
+  conversationName: string,
 ): boolean => {
-  const normalizedChannelName = channelName.trim();
+  const normalizedChannelName = conversationName.trim();
 
   return scheduleConfigs.some(
     (config) =>
@@ -191,24 +168,24 @@ export const hasCompleteScheduleConfigForChannel = (
 };
 
 const requireScheduleConfigForChannel = Effect.fn("CheckinService.requireScheduleConfigForChannel")(
-  function* (sheetId: string, channelName: string, sheetConfigService: SheetConfigServiceApi) {
+  function* (sheetId: string, conversationName: string, sheetConfigService: SheetConfigServiceApi) {
     const scheduleConfigs = yield* sheetConfigService.getScheduleConfig(sheetId);
     const matchingConfigs = scheduleConfigs.filter((config) =>
-      Option.exists(config.channel, (configuredChannel) => configuredChannel === channelName),
+      Option.exists(config.channel, (configuredChannel) => configuredChannel === conversationName),
     );
 
     if (matchingConfigs.length === 0) {
       return yield* Effect.fail(
         makeArgumentError(
-          `Cannot generate check-in for channel "${channelName}", no schedule config is defined for that channel in the sheet.`,
+          `Cannot generate check-in for conversation "${conversationName}", no schedule config is defined for that conversation in the sheet.`,
         ),
       );
     }
 
-    if (!hasCompleteScheduleConfigForChannel(matchingConfigs, channelName)) {
+    if (!hasCompleteScheduleConfigForChannel(matchingConfigs, conversationName)) {
       return yield* Effect.fail(
         makeArgumentError(
-          `Cannot generate check-in for channel "${channelName}", the sheet schedule config for that channel is incomplete.`,
+          `Cannot generate check-in for conversation "${conversationName}", the sheet schedule config for that conversation is incomplete.`,
         ),
       );
     }
@@ -220,7 +197,7 @@ const deriveHour = Effect.fn("CheckinService.deriveHour")(function* (
   sheetConfigService: SheetConfigServiceApi,
   sheetId: string,
 ) {
-  if (typeof payload.hour === "number") {
+  if (Predicate.isNumber(payload.hour)) {
     return {
       hour: payload.hour,
       eventConfig: Option.none<EventConfig>(),
@@ -266,7 +243,7 @@ const getLookupFailedMessage = (schedule: Option.Option<PopulatedScheduleResult>
 
   return partialPlayers.length > 0
     ? Option.some(
-        `Cannot look up Discord ID for ${partialPlayers.join(", ")}. They would need to check in manually.`,
+        `Cannot look up ID for ${partialPlayers.join(", ")}. They would need to check in manually.`,
       )
     : Option.none();
 };
@@ -275,7 +252,7 @@ const getMonitorInfo = (schedule: Option.Option<PopulatedScheduleResult>) => {
   if (Option.isNone(schedule) || schedule.value._tag === "PopulatedBreakSchedule") {
     return {
       monitorUserId: null as string | null,
-      monitorFailureMessage: null as string | null,
+      monitorFailureMessage: null as GeneratedSheetText | null,
     };
   }
 
@@ -283,7 +260,7 @@ const getMonitorInfo = (schedule: Option.Option<PopulatedScheduleResult>) => {
   if (Option.isNone(populatedSchedule.monitor)) {
     return {
       monitorUserId: null as string | null,
-      monitorFailureMessage: "Cannot ping monitor: monitor not assigned for this hour.",
+      monitorFailureMessage: [text("Cannot ping monitor: monitor not assigned for this hour.")],
     };
   }
 
@@ -291,11 +268,15 @@ const getMonitorInfo = (schedule: Option.Option<PopulatedScheduleResult>) => {
   return isMonitor(populatedMonitor.monitor)
     ? {
         monitorUserId: populatedMonitor.monitor.id,
-        monitorFailureMessage: null as string | null,
+        monitorFailureMessage: null as GeneratedSheetText | null,
       }
     : {
         monitorUserId: null as string | null,
-        monitorFailureMessage: `Cannot ping monitor: monitor "${populatedMonitor.monitor.name}" is missing a Discord ID in the sheet.`,
+        monitorFailureMessage: [
+          text(
+            `Cannot ping monitor: monitor "${populatedMonitor.monitor.name}" is missing an ID in the sheet.`,
+          ),
+        ],
       };
 };
 
@@ -306,76 +287,120 @@ export const makeMonitorCheckinMessage = ({
   playerChangesMessage,
   lookupFailedMessage,
 }: {
-  initialMessage: string | null;
+  initialMessage: GeneratedSheetText | null;
   empty: number;
-  emptySlotMessage: string;
-  playerChangesMessage: string;
+  emptySlotMessage: GeneratedSheetText;
+  playerChangesMessage: GeneratedSheetText;
   lookupFailedMessage: Option.Option<string>;
 }) =>
   initialMessage
-    ? [
-        "Check-in message sent!",
-        emptySlotMessage,
-        playerChangesMessage,
-        ...Option.toArray(lookupFailedMessage),
-      ].join("\n")
-    : [
-        "No check-in message sent, no new players to check in",
-        ...(empty > 0 && empty < SLOTS_PER_ROW ? [emptySlotMessage] : []),
-      ].join("\n");
+    ? joinText(
+        [
+          [text("Check-in message sent!")],
+          emptySlotMessage,
+          playerChangesMessage,
+          ...Option.toArray(Option.map(lookupFailedMessage, (message) => [text(message)])),
+        ],
+        "\n",
+      )
+    : joinText(
+        [
+          [text("No check-in message sent, no new players to check in")],
+          ...(empty > 0 && empty < SLOTS_PER_ROW ? [emptySlotMessage] : []),
+        ],
+        "\n",
+      );
 
-const formatChannelString = (
+const formatConversationString = (
   roleId: Option.Option<string>,
-  channelId: string,
-  channelName: Option.Option<string>,
-) =>
+  conversationId: string,
+  conversationName: Option.Option<string>,
+): GeneratedSheetText =>
   Option.isSome(roleId)
     ? pipe(
-        channelName,
-        Option.map((name) => `head to ${name}`),
-        Option.getOrElse(
-          () => "await further instructions from the monitor on where the running channel is",
+        conversationName,
+        Option.map((name) => [text(`head to ${name}`)]),
+        Option.getOrElse(() =>
+          parts(
+            text("await further instructions from the monitor on where the "),
+            clientTerm("runDestination"),
+            text(" is"),
+          ),
         ),
       )
-    : `head to ${formatChannelMention(channelId)}`;
+    : parts(text("head to "), conversationMention(conversationId));
 
 const renderParticipantGroup = (
   label: "Out" | "Stay" | "In",
-  participants: ReadonlyArray<{ label: string }>,
-) =>
-  `${label}: ${participants.length > 0 ? participants.map(({ label }) => label).join(" ") : "None"}`;
+  participants: ReadonlyArray<FillParticipant>,
+): GeneratedSheetText =>
+  participants.length > 0
+    ? parts(
+        text(`${label}: `),
+        ...participants.flatMap((participant, index) =>
+          parts(index === 0 ? undefined : text(" "), text(participant.name)),
+        ),
+      )
+    : [text(`${label}: None`)];
+
+const renderParticipantMentions = (
+  participants: ReadonlyArray<FillParticipant>,
+): Option.Option<GeneratedSheetText> => {
+  if (participants.length === 0) {
+    return Option.none();
+  }
+  return Option.some(
+    participants.flatMap((participant, index) =>
+      parts(
+        index === 0 ? undefined : text(" "),
+        Predicate.isString(participant.userId)
+          ? userMention(participant.userId)
+          : text(participant.name),
+      ),
+    ),
+  );
+};
 
 export class CheckinService extends Context.Service<CheckinService>()("CheckinService", {
   make: Effect.gen(function* () {
-    const guildConfigService = yield* GuildConfigService;
+    const workspaceConfigService = yield* WorkspaceConfigService;
     const scheduleService = yield* ScheduleService;
     const sheetConfigService = yield* SheetConfigService;
 
     return {
+      // fallow-ignore-next-line complexity
       generate: Effect.fn("CheckinService.generate")(function* (payload: {
-        guildId: string;
-        channelId?: string | undefined;
-        channelName?: string | undefined;
+        workspaceId: string;
+        conversationId?: string | undefined;
+        conversationName?: string | undefined;
         hour?: number | undefined;
         template?: string | undefined;
       }) {
-        const runningChannel = yield* requireRunningChannel(
-          payload.guildId,
+        const runningConversation = yield* requireRunningConversation(
+          payload.workspaceId,
           payload,
-          guildConfigService,
+          workspaceConfigService,
+          "generate check-in",
         );
-        const sheetId = yield* getSheetIdFromGuildId(payload.guildId, guildConfigService);
+        const sheetId = yield* getSheetIdFromWorkspaceId(
+          payload.workspaceId,
+          workspaceConfigService,
+          "generate check-in",
+        );
         const { hour, eventConfig } = yield* deriveHour(payload, sheetConfigService, sheetId);
-        const channelName = Option.getOrElse(runningChannel.name, () => "").trim();
-        if (channelName.length === 0) {
+        const conversationName = Option.getOrElse(runningConversation.name, () => "").trim();
+        if (conversationName.length === 0) {
           return yield* Effect.fail(
             makeArgumentError(
-              "Cannot generate check-in, the running channel has no sheet channel name configured",
+              "Cannot generate check-in, the running conversation has no sheet conversation name configured",
             ),
           );
         }
-        yield* requireScheduleConfigForChannel(sheetId, channelName, sheetConfigService);
-        const schedules = yield* scheduleService.getChannelPopulatedSchedules(sheetId, channelName);
+        yield* requireScheduleConfigForChannel(sheetId, conversationName, sheetConfigService);
+        const schedules = yield* scheduleService.getChannelPopulatedSchedules(
+          sheetId,
+          conversationName,
+        );
 
         const schedulesByHour = new Map<number, PopulatedScheduleResult>();
         for (const schedule of schedules) {
@@ -398,17 +423,15 @@ export class CheckinService extends Context.Service<CheckinService>()("CheckinSe
         const fillCount = getScheduleFillCount(schedule);
         const fillMovement = diffFillParticipants(prevParticipants, participants);
         const fillIds = getFillIds(schedule) as readonly string[];
-        const mentions = fillMovement.in.map(({ label }) => label);
-        const mentionsString =
-          mentions.length > 0 ? Option.some(mentions.join(" ")) : Option.none<string>();
+        const mentionsText = renderParticipantMentions(fillMovement.in);
 
-        const hourString = `for **hour ${hour}**`;
+        const hourText = parts(text("for "), strong([text(`hour ${hour}`)]));
         const scheduleHourWindow = pipe(
           schedule,
           Option.flatMap((currentSchedule) => currentSchedule.hourWindow as Option.Option<any>),
         );
-        const timeStampString = Option.isSome(scheduleHourWindow)
-          ? formatRelativeDiscordTime(scheduleHourWindow.value.start)
+        const timestampText = Option.isSome(scheduleHourWindow)
+          ? parts(timestamp(DateTime.toEpochMillis(scheduleHourWindow.value.start), "relative"))
           : yield* pipe(
               eventConfig,
               Option.match({
@@ -416,20 +439,25 @@ export class CheckinService extends Context.Service<CheckinService>()("CheckinSe
                 onNone: () => sheetConfigService.getEventConfig(sheetId),
               }),
               Effect.map((resolvedEventConfig) =>
-                formatRelativeDiscordTime(
-                  pipe(
-                    resolvedEventConfig.startTime,
-                    DateTime.addDuration(Duration.hours(hour - 1)),
+                parts(
+                  timestamp(
+                    DateTime.toEpochMillis(
+                      pipe(
+                        resolvedEventConfig.startTime,
+                        DateTime.addDuration(Duration.hours(hour - 1)),
+                      ),
+                    ),
+                    "relative",
                   ),
                 ),
               ),
-              Effect.catch(() => Effect.succeed("")),
+              Effect.catch(() => Effect.succeed([])),
             );
 
-        const channelString = formatChannelString(
-          runningChannel.roleId,
-          runningChannel.channelId,
-          runningChannel.name,
+        const conversationText = formatConversationString(
+          runningConversation.roleId,
+          runningConversation.conversationId,
+          runningConversation.name,
         );
 
         const template = yield* pipe(
@@ -442,13 +470,13 @@ export class CheckinService extends Context.Service<CheckinService>()("CheckinSe
         );
 
         const initialMessage = pipe(
-          mentionsString,
-          Option.map((resolvedMentionsString) =>
+          mentionsText,
+          Option.map((resolvedMentionsText) =>
             renderTemplate(template, {
-              mentionsString: resolvedMentionsString,
-              channelString,
-              hourString,
-              timeStampString,
+              mentionsString: resolvedMentionsText,
+              conversationString: conversationText,
+              hourString: hourText,
+              timeStampString: timestampText,
             }),
           ),
           Option.getOrNull,
@@ -458,24 +486,29 @@ export class CheckinService extends Context.Service<CheckinService>()("CheckinSe
           Option.isSome(schedule) && isPopulatedSchedule(schedule.value)
             ? PopulatedSchedule.empty(schedule.value)
             : SLOTS_PER_ROW;
-        const emptySlotMessage = `${empty > 0 ? `+${empty}` : "No"} empty slot${empty > 1 ? "s" : ""}`;
-        const playerChangesMessage = [
-          renderParticipantGroup("Out", fillMovement.out),
-          renderParticipantGroup("Stay", fillMovement.stay),
-          renderParticipantGroup("In", fillMovement.in),
-        ].join("\n");
+        const emptySlotMessage = [
+          text(`${empty > 0 ? `+${empty}` : "No"} empty slot${empty === 1 ? "" : "s"}`),
+        ];
+        const playerChangesMessage = joinText(
+          [
+            renderParticipantGroup("Out", fillMovement.out),
+            renderParticipantGroup("Stay", fillMovement.stay),
+            renderParticipantGroup("In", fillMovement.in),
+          ],
+          "\n",
+        );
         const lookupFailedMessage = getLookupFailedMessage(schedule);
         const monitorInfo = getMonitorInfo(schedule);
 
         return new CheckinGenerateResult({
           hour,
-          runningChannelId: runningChannel.channelId,
-          checkinChannelId: Option.getOrElse(
-            runningChannel.checkinChannelId,
-            () => runningChannel.channelId,
+          runningConversationId: runningConversation.conversationId,
+          checkinConversationId: Option.getOrElse(
+            runningConversation.checkinConversationId,
+            () => runningConversation.conversationId,
           ),
           fillCount,
-          roleId: Option.getOrNull(runningChannel.roleId),
+          roleId: Option.getOrNull(runningConversation.roleId),
           initialMessage,
           monitorCheckinMessage: makeMonitorCheckinMessage({
             initialMessage,
@@ -493,7 +526,7 @@ export class CheckinService extends Context.Service<CheckinService>()("CheckinSe
   }),
 }) {
   static layer = Layer.effect(CheckinService, this.make).pipe(
-    Layer.provide(GuildConfigService.layer),
+    Layer.provide(WorkspaceConfigService.layer),
     Layer.provide(ScheduleService.layer),
     Layer.provide(SheetConfigService.layer),
   );

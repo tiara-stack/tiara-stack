@@ -61,21 +61,23 @@ export class SheetWorkflowsForwardingClient extends Context.Service<SheetWorkflo
           serviceStatus: accept(DispatchWorkflowOperations.serviceStatus, (args) =>
             rpcClient[DispatchWorkflowOperations.serviceStatus.discardRpcTag](args),
           ),
-          guildWelcome: accept(DispatchWorkflowOperations.guildWelcome, (args) =>
-            rpcClient[DispatchWorkflowOperations.guildWelcome.discardRpcTag](args),
+          workspaceWelcome: accept(DispatchWorkflowOperations.workspaceWelcome, (args) =>
+            rpcClient[DispatchWorkflowOperations.workspaceWelcome.discardRpcTag](args),
           ),
           updateAnnouncement: accept(DispatchWorkflowOperations.updateAnnouncement, (args) =>
             rpcClient[DispatchWorkflowOperations.updateAnnouncement.discardRpcTag](args),
           ),
-          serviceAddGuildFeatureFlag: accept(
-            DispatchWorkflowOperations.serviceAddGuildFeatureFlag,
+          serviceAddWorkspaceFeatureFlag: accept(
+            DispatchWorkflowOperations.serviceAddWorkspaceFeatureFlag,
             (args) =>
-              rpcClient[DispatchWorkflowOperations.serviceAddGuildFeatureFlag.discardRpcTag](args),
+              rpcClient[DispatchWorkflowOperations.serviceAddWorkspaceFeatureFlag.discardRpcTag](
+                args,
+              ),
           ),
-          serviceRemoveGuildFeatureFlag: accept(
-            DispatchWorkflowOperations.serviceRemoveGuildFeatureFlag,
+          serviceRemoveWorkspaceFeatureFlag: accept(
+            DispatchWorkflowOperations.serviceRemoveWorkspaceFeatureFlag,
             (args) =>
-              rpcClient[DispatchWorkflowOperations.serviceRemoveGuildFeatureFlag.discardRpcTag](
+              rpcClient[DispatchWorkflowOperations.serviceRemoveWorkspaceFeatureFlag.discardRpcTag](
                 args,
               ),
           ),
@@ -97,31 +99,37 @@ export class SheetWorkflowsForwardingClient extends Context.Service<SheetWorkflo
             (args) =>
               rpcClient[DispatchWorkflowOperations.roomOrderPinTentativeButton.discardRpcTag](args),
           ),
-          channelListConfig: accept(DispatchWorkflowOperations.channelListConfig, (args) =>
-            rpcClient[DispatchWorkflowOperations.channelListConfig.discardRpcTag](args),
-          ),
-          channelSet: accept(DispatchWorkflowOperations.channelSet, (args) =>
-            rpcClient[DispatchWorkflowOperations.channelSet.discardRpcTag](args),
-          ),
-          channelUnset: accept(DispatchWorkflowOperations.channelUnset, (args) =>
-            rpcClient[DispatchWorkflowOperations.channelUnset.discardRpcTag](args),
-          ),
-          serverListConfig: accept(DispatchWorkflowOperations.serverListConfig, (args) =>
-            rpcClient[DispatchWorkflowOperations.serverListConfig.discardRpcTag](args),
-          ),
-          serverAddMonitorRole: accept(DispatchWorkflowOperations.serverAddMonitorRole, (args) =>
-            rpcClient[DispatchWorkflowOperations.serverAddMonitorRole.discardRpcTag](args),
-          ),
-          serverRemoveMonitorRole: accept(
-            DispatchWorkflowOperations.serverRemoveMonitorRole,
+          conversationListConfig: accept(
+            DispatchWorkflowOperations.conversationListConfig,
             (args) =>
-              rpcClient[DispatchWorkflowOperations.serverRemoveMonitorRole.discardRpcTag](args),
+              rpcClient[DispatchWorkflowOperations.conversationListConfig.discardRpcTag](args),
           ),
-          serverSetSheet: accept(DispatchWorkflowOperations.serverSetSheet, (args) =>
-            rpcClient[DispatchWorkflowOperations.serverSetSheet.discardRpcTag](args),
+          conversationSet: accept(DispatchWorkflowOperations.conversationSet, (args) =>
+            rpcClient[DispatchWorkflowOperations.conversationSet.discardRpcTag](args),
           ),
-          serverSetAutoCheckin: accept(DispatchWorkflowOperations.serverSetAutoCheckin, (args) =>
-            rpcClient[DispatchWorkflowOperations.serverSetAutoCheckin.discardRpcTag](args),
+          conversationUnset: accept(DispatchWorkflowOperations.conversationUnset, (args) =>
+            rpcClient[DispatchWorkflowOperations.conversationUnset.discardRpcTag](args),
+          ),
+          workspaceListConfig: accept(DispatchWorkflowOperations.workspaceListConfig, (args) =>
+            rpcClient[DispatchWorkflowOperations.workspaceListConfig.discardRpcTag](args),
+          ),
+          workspaceAddMonitorRole: accept(
+            DispatchWorkflowOperations.workspaceAddMonitorRole,
+            (args) =>
+              rpcClient[DispatchWorkflowOperations.workspaceAddMonitorRole.discardRpcTag](args),
+          ),
+          workspaceRemoveMonitorRole: accept(
+            DispatchWorkflowOperations.workspaceRemoveMonitorRole,
+            (args) =>
+              rpcClient[DispatchWorkflowOperations.workspaceRemoveMonitorRole.discardRpcTag](args),
+          ),
+          workspaceSetSheet: accept(DispatchWorkflowOperations.workspaceSetSheet, (args) =>
+            rpcClient[DispatchWorkflowOperations.workspaceSetSheet.discardRpcTag](args),
+          ),
+          workspaceSetAutoCheckin: accept(
+            DispatchWorkflowOperations.workspaceSetAutoCheckin,
+            (args) =>
+              rpcClient[DispatchWorkflowOperations.workspaceSetAutoCheckin.discardRpcTag](args),
           ),
           teamList: accept(DispatchWorkflowOperations.teamList, (args) =>
             rpcClient[DispatchWorkflowOperations.teamList.discardRpcTag](args),

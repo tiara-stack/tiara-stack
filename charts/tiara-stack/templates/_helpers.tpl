@@ -273,6 +273,9 @@ imagePullSecrets:
   env:
     - name: POD_NAMESPACE
       fieldPath: metadata.namespace
+    - name: SHEET_BOT_CLIENT_ID
+      secretKey: sheetBotClientId
+      optional: true
     - name: OTEL_EXPORTER_OTLP_ENDPOINT
       secretKey: otelExporterOtlpEndpoint
     - name: DISCORD_TOKEN
@@ -481,6 +484,9 @@ imagePullSecrets:
       secretKey: sheetWorkflowsBaseUrl
     - name: SHEET_BOT_BASE_URL
       secretKey: sheetBotBaseUrl
+    - name: SHEET_CLIENTS
+      secretKey: sheetClients
+      optional: true
     - name: SHEET_AUTH_ISSUER
       secretKey: sheetAuthIssuer
     - name: SHEET_AUTH_OAUTH_CLIENT_ID

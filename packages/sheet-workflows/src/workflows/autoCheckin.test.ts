@@ -4,19 +4,22 @@ import { ClusterSchema } from "effect/unstable/cluster";
 import { WorkflowEngine } from "effect/unstable/workflow";
 import { AutoCheckinService } from "@/services";
 import { autoCheckinWorkflowLayer } from "./autoCheckin";
-import { AutoCheckinChannelResult, AutoCheckinChannelWorkflow } from "./autoCheckinContract";
-import type { AutoCheckinChannelPayload } from "./autoCheckinContract";
+import {
+  AutoCheckinConversationResult,
+  AutoCheckinConversationWorkflow,
+} from "./autoCheckinContract";
+import type { AutoCheckinConversationPayload } from "./autoCheckinContract";
 
-const payload: AutoCheckinChannelPayload = {
-  guildId: "guild-1",
-  channelName: "main",
+const payload: AutoCheckinConversationPayload = {
+  workspaceId: "workspace-1",
+  conversationName: "main",
   hour: 3,
   eventStartEpochMs: 1_774_524_000_000,
 };
 
-const result: AutoCheckinChannelResult = {
-  guildId: payload.guildId,
-  channelName: payload.channelName,
+const result: AutoCheckinConversationResult = {
+  workspaceId: payload.workspaceId,
+  conversationName: payload.conversationName,
   hour: payload.hour,
   status: "sent",
   checkinMessageId: "checkin-message",
@@ -27,17 +30,17 @@ const result: AutoCheckinChannelResult = {
 describe("auto check-in workflow", () => {
   it("assigns the workflow to the configured autoCheckin shard group", () => {
     const shardGroup = Context.get(
-      AutoCheckinChannelWorkflow.annotations,
+      AutoCheckinConversationWorkflow.annotations,
       ClusterSchema.ShardGroup,
     );
     expect(shardGroup(undefined as never)).toBe("autoCheckin");
   });
 
-  it("routes channel processing to AutoCheckinService", async () => {
+  it("routes conversation processing to AutoCheckinService", async () => {
     const service = {
-      enqueueDueChannels: () => Effect.die("Unexpected enqueueDueChannels call"),
-      enqueueGuild: () => Effect.die("Unexpected enqueueGuild call"),
-      processChannel: (currentPayload: AutoCheckinChannelPayload) =>
+      enqueueDueConversations: () => Effect.die("Unexpected enqueueDueConversations call"),
+      enqueueWorkspace: () => Effect.die("Unexpected enqueueWorkspace call"),
+      processConversation: (currentPayload: AutoCheckinConversationPayload) =>
         Effect.sync(() => {
           expect(currentPayload).toEqual(payload);
           return result;
@@ -45,7 +48,7 @@ describe("auto check-in workflow", () => {
     } satisfies typeof AutoCheckinService.Service;
 
     await Effect.runPromise(
-      AutoCheckinChannelWorkflow.execute(payload).pipe(
+      AutoCheckinConversationWorkflow.execute(payload).pipe(
         Effect.tap((processed) => Effect.sync(() => expect(processed).toEqual(result))),
         Effect.provide(autoCheckinWorkflowLayer),
         Effect.provideService(AutoCheckinService, service),
@@ -55,35 +58,35 @@ describe("auto check-in workflow", () => {
   });
 
   it.effect(
-    "builds deterministic workflow execution ids from guild, event, hour, and channel",
+    "builds deterministic workflow execution ids from workspace, event, hour, and conversation",
     () =>
       Effect.gen(function* () {
-        const baseline = yield* AutoCheckinChannelWorkflow.executionId(payload);
-        const same = yield* AutoCheckinChannelWorkflow.executionId({
+        const baseline = yield* AutoCheckinConversationWorkflow.executionId(payload);
+        const same = yield* AutoCheckinConversationWorkflow.executionId({
           ...payload,
         });
-        const differentEvent = yield* AutoCheckinChannelWorkflow.executionId({
+        const differentEvent = yield* AutoCheckinConversationWorkflow.executionId({
           ...payload,
           eventStartEpochMs: payload.eventStartEpochMs + 1,
         });
-        const differentHour = yield* AutoCheckinChannelWorkflow.executionId({
+        const differentHour = yield* AutoCheckinConversationWorkflow.executionId({
           ...payload,
           hour: payload.hour + 1,
         });
-        const differentGuild = yield* AutoCheckinChannelWorkflow.executionId({
+        const differentWorkspace = yield* AutoCheckinConversationWorkflow.executionId({
           ...payload,
-          guildId: "guild-2",
+          workspaceId: "workspace-2",
         });
-        const differentChannel = yield* AutoCheckinChannelWorkflow.executionId({
+        const differentConversation = yield* AutoCheckinConversationWorkflow.executionId({
           ...payload,
-          channelName: "side",
+          conversationName: "side",
         });
 
         expect(same).toBe(baseline);
         expect(differentEvent).not.toBe(baseline);
         expect(differentHour).not.toBe(baseline);
-        expect(differentGuild).not.toBe(baseline);
-        expect(differentChannel).not.toBe(baseline);
+        expect(differentWorkspace).not.toBe(baseline);
+        expect(differentConversation).not.toBe(baseline);
       }),
   );
 });

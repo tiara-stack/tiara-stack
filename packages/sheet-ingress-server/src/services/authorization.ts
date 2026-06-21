@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import {
   Cache,
   Context,
@@ -11,7 +12,7 @@ import {
   Redacted,
 } from "effect";
 import { SheetAuthTokenAuthorization } from "sheet-ingress-api/middlewares/sheetAuthTokenAuthorization/tag";
-import { SheetAuthGuildUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthGuildUser";
+import { SheetAuthWorkspaceUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthWorkspaceUser";
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
 import { Unauthorized } from "typhoon-core/error";
 import type { Permission, PermissionSet } from "sheet-ingress-api/schemas/permissions";
@@ -26,9 +27,9 @@ import {
 } from "./sheetBotCacheClient";
 
 type SheetAuthUserType = Context.Service.Shape<typeof SheetAuthUser>;
-type SheetAuthGuildUserType = Context.Service.Shape<typeof SheetAuthGuildUser>;
-type GuildPermissionScope = "member" | "monitor" | "manage";
-class ResolvedGuildUserCacheKey extends Data.Class<{
+type SheetAuthWorkspaceUserType = Context.Service.Shape<typeof SheetAuthWorkspaceUser>;
+type WorkspacePermissionScope = "member" | "monitor" | "manage";
+class ResolvedWorkspaceUserCacheKey extends Data.Class<{
   readonly accountId: string;
   readonly guildId: string;
   readonly permissions: PermissionSet;
@@ -43,9 +44,9 @@ export const permissionSetFromIterable = (permissions: Iterable<Permission>): Pe
 export const hasPermission = (permissions: PermissionSet, permission: Permission) =>
   HashSet.has(permissions, permission);
 
-export const hasGuildPermission = (
+export const hasWorkspacePermission = (
   permissions: PermissionSet,
-  prefix: "member_guild" | "monitor_guild" | "manage_guild",
+  prefix: "member_workspace" | "monitor_workspace" | "manage_workspace",
   guildId: string,
 ) => HashSet.has(permissions, `${prefix}:${guildId}`);
 
@@ -72,7 +73,7 @@ const appendPermissions = (
 const manageGuildPermission = 0x20n;
 const administratorPermission = 0x08n;
 
-const hasManageGuildPermission = (
+const hasManageWorkspacePermission = (
   member: CachedGuildMember,
   guildId: string,
   roles: ReadonlyMap<string, CachedGuildRole>,
@@ -93,16 +94,16 @@ const hasManageGuildPermission = (
   });
 };
 
-const hasMonitorGuildPermission = (
+const hasMonitorWorkspacePermission = (
   member: CachedGuildMember,
   monitorRoleIds: ReadonlySet<string>,
 ) => member.roles.some((roleId) => monitorRoleIds.has(roleId));
 
-const makeSheetAuthGuildUser = (
+const makeSheetAuthWorkspaceUser = (
   user: SheetAuthUserType,
   guildId: string,
   permissions: PermissionSet,
-): SheetAuthGuildUserType => ({
+): SheetAuthWorkspaceUserType => ({
   accountId: user.accountId,
   userId: user.userId,
   guildId,
@@ -113,10 +114,10 @@ const makeSheetAuthGuildUser = (
 const hasElevatedPermission = (permissions: PermissionSet) =>
   hasPermission(permissions, "service") || hasPermission(permissions, "app_owner");
 
-const guildScopedPermissions = (guildId: string): Permission[] => [
-  `member_guild:${guildId}`,
-  `monitor_guild:${guildId}`,
-  `manage_guild:${guildId}`,
+const workspaceScopedPermissions = (guildId: string): Permission[] => [
+  `member_workspace:${guildId}`,
+  `monitor_workspace:${guildId}`,
+  `manage_workspace:${guildId}`,
 ];
 
 const appendMemberPermission = (
@@ -125,7 +126,7 @@ const appendMemberPermission = (
   maybeMember: Option.Option<CachedGuildMember>,
 ) =>
   Option.isSome(maybeMember)
-    ? appendPermission(permissions, `member_guild:${guildId}`)
+    ? appendPermission(permissions, `member_workspace:${guildId}`)
     : permissions;
 
 const appendMonitorPermission = (
@@ -138,9 +139,9 @@ const appendMonitorPermission = (
     Option.isSome(maybeMember) &&
     Option.isSome(maybeMonitorRoleIds) &&
     maybeMonitorRoleIds.value.size > 0 &&
-    hasMonitorGuildPermission(maybeMember.value, maybeMonitorRoleIds.value)
+    hasMonitorWorkspacePermission(maybeMember.value, maybeMonitorRoleIds.value)
   ) {
-    return appendPermission(permissions, `monitor_guild:${guildId}`);
+    return appendPermission(permissions, `monitor_workspace:${guildId}`);
   }
   return permissions;
 };
@@ -154,20 +155,20 @@ const appendManagePermission = (
   if (
     Option.isSome(maybeMember) &&
     Option.isSome(maybeRoles) &&
-    hasManageGuildPermission(maybeMember.value, guildId, maybeRoles.value)
+    hasManageWorkspacePermission(maybeMember.value, guildId, maybeRoles.value)
   ) {
-    return appendPermission(permissions, `manage_guild:${guildId}`);
+    return appendPermission(permissions, `manage_workspace:${guildId}`);
   }
   return permissions;
 };
 
-const provideResolvedGuildUser = Effect.fn("AuthorizationService.provideResolvedGuildUser")(
+const provideResolvedWorkspaceUser = Effect.fn("AuthorizationService.provideResolvedWorkspaceUser")(
   function* <A, E, E2, R, R2>(
-    resolvedGuildUser: Effect.Effect<SheetAuthGuildUserType, E2, R2>,
+    resolvedWorkspaceUser: Effect.Effect<SheetAuthWorkspaceUserType, E2, R2>,
     effect: Effect.Effect<A, E, R>,
   ) {
-    const user = yield* resolvedGuildUser;
-    return yield* effect.pipe(Effect.provideService(SheetAuthGuildUser, user));
+    const user = yield* resolvedWorkspaceUser;
+    return yield* effect.pipe(Effect.provideService(SheetAuthWorkspaceUser, user));
   },
 );
 
@@ -192,7 +193,9 @@ export class AuthorizationService extends Context.Service<AuthorizationService>(
         (guildId: string) =>
           sheetApisRpcTokens
             .withServiceUser(
-              sheetApisForwardingClient.guildConfig.getGuildMonitorRoles({ query: { guildId } }),
+              sheetApisForwardingClient.workspaceConfig.getWorkspaceMonitorRoles({
+                query: { workspaceId: guildId },
+              }),
             )
             .pipe(
               Effect.map(
@@ -230,11 +233,11 @@ export class AuthorizationService extends Context.Service<AuthorizationService>(
       const getOptionalGuildRoles = (guildId: string) =>
         Cache.get(guildRolesCache, guildId).pipe(Effect.tapError(Effect.logError), Effect.option);
 
-      const resolveGuildScopedPermissions = Effect.fn(
-        "AuthorizationService.resolveGuildScopedPermissions",
+      const resolveWorkspaceScopedPermissions = Effect.fn(
+        "AuthorizationService.resolveWorkspaceScopedPermissions",
       )(function* (user: SheetAuthUserType, guildId: string) {
         if (hasElevatedPermission(user.permissions)) {
-          return appendPermissions(user.permissions, guildScopedPermissions(guildId));
+          return appendPermissions(user.permissions, workspaceScopedPermissions(guildId));
         }
 
         const [maybeMember, maybeMonitorRoleIds, maybeRoles] = yield* Effect.all(
@@ -259,18 +262,18 @@ export class AuthorizationService extends Context.Service<AuthorizationService>(
         );
       });
 
-      const resolveSheetAuthGuildUser = Effect.fn("AuthorizationService.resolveSheetAuthGuildUser")(
-        function* (user: SheetAuthUserType, guildId: string) {
-          const permissions = yield* resolveGuildScopedPermissions(user, guildId);
-          return makeSheetAuthGuildUser(user, guildId, permissions);
-        },
-      );
+      const resolveSheetAuthWorkspaceUser = Effect.fn(
+        "AuthorizationService.resolveSheetAuthWorkspaceUser",
+      )(function* (user: SheetAuthUserType, guildId: string) {
+        const permissions = yield* resolveWorkspaceScopedPermissions(user, guildId);
+        return makeSheetAuthWorkspaceUser(user, guildId, permissions);
+      });
 
-      const resolvedGuildUserCache = yield* Cache.makeWith<
-        ResolvedGuildUserCacheKey,
-        SheetAuthGuildUserType
+      const resolvedWorkspaceUserCache = yield* Cache.makeWith<
+        ResolvedWorkspaceUserCacheKey,
+        SheetAuthWorkspaceUserType
       >(
-        Effect.fn("AuthorizationService.resolveCurrentGuildUserCached")(function* (key) {
+        Effect.fn("AuthorizationService.resolveCurrentWorkspaceUserCached")(function* (key) {
           const user: SheetAuthUserType = {
             accountId: key.accountId,
             permissions: key.permissions,
@@ -278,7 +281,7 @@ export class AuthorizationService extends Context.Service<AuthorizationService>(
             token: key.token,
             userId: key.userId,
           };
-          return yield* resolveSheetAuthGuildUser(user, key.guildId);
+          return yield* resolveSheetAuthWorkspaceUser(user, key.guildId);
         }),
         {
           capacity: 16,
@@ -286,30 +289,32 @@ export class AuthorizationService extends Context.Service<AuthorizationService>(
         },
       );
 
-      const resolveCurrentGuildUser = Effect.fn("AuthorizationService.resolveCurrentGuildUser")(
-        function* (guildId: string) {
-          const user = yield* SheetAuthUser;
-          return yield* Cache.get(
-            resolvedGuildUserCache,
-            new ResolvedGuildUserCacheKey({
-              accountId: user.accountId,
-              guildId,
-              permissions: user.permissions,
-              scopes: user.scopes,
-              token: user.token,
-              userId: user.userId,
-            }),
-          );
-        },
-      );
-
-      const provideCurrentGuildUser = <A, E, R>(guildId: string, effect: Effect.Effect<A, E, R>) =>
-        provideResolvedGuildUser(resolveCurrentGuildUser(guildId), effect);
-
-      const getRequiredCurrentGuildUser = Effect.fn(
-        "AuthorizationService.getRequiredCurrentGuildUser",
+      const resolveCurrentWorkspaceUser = Effect.fn(
+        "AuthorizationService.resolveCurrentWorkspaceUser",
       )(function* (guildId: string) {
-        const user = yield* SheetAuthGuildUser;
+        const user = yield* SheetAuthUser;
+        return yield* Cache.get(
+          resolvedWorkspaceUserCache,
+          new ResolvedWorkspaceUserCacheKey({
+            accountId: user.accountId,
+            guildId,
+            permissions: user.permissions,
+            scopes: user.scopes,
+            token: user.token,
+            userId: user.userId,
+          }),
+        );
+      });
+
+      const provideCurrentWorkspaceUser = <A, E, R>(
+        guildId: string,
+        effect: Effect.Effect<A, E, R>,
+      ) => provideResolvedWorkspaceUser(resolveCurrentWorkspaceUser(guildId), effect);
+
+      const getRequiredCurrentWorkspaceUser = Effect.fn(
+        "AuthorizationService.getRequiredCurrentWorkspaceUser",
+      )(function* (guildId: string) {
+        const user = yield* SheetAuthWorkspaceUser;
 
         if (user.guildId === guildId) {
           return user;
@@ -317,21 +322,21 @@ export class AuthorizationService extends Context.Service<AuthorizationService>(
 
         return yield* Effect.die(
           new Error(
-            `SheetAuthGuildUser guild mismatch: expected ${guildId}, received ${user.guildId}`,
+            `SheetAuthWorkspaceUser guild mismatch: expected ${guildId}, received ${user.guildId}`,
           ),
         );
       });
 
       const requireResolvedGuildPermission = Effect.fn(
         "AuthorizationService.requireResolvedGuildPermission",
-      )(function* (guildId: string, scope: GuildPermissionScope, message: string) {
-        const user = yield* getRequiredCurrentGuildUser(guildId);
+      )(function* (guildId: string, scope: WorkspacePermissionScope, message: string) {
+        const user = yield* getRequiredCurrentWorkspaceUser(guildId);
         const hasRequiredScope =
           scope === "member"
-            ? hasGuildPermission(user.permissions, "member_guild", guildId)
+            ? hasWorkspacePermission(user.permissions, "member_workspace", guildId)
             : scope === "monitor"
-              ? hasGuildPermission(user.permissions, "monitor_guild", guildId)
-              : hasGuildPermission(user.permissions, "manage_guild", guildId);
+              ? hasWorkspacePermission(user.permissions, "monitor_workspace", guildId)
+              : hasWorkspacePermission(user.permissions, "manage_workspace", guildId);
 
         if (!hasRequiredScope) {
           return yield* Effect.fail(new Unauthorized({ message }));
@@ -339,42 +344,42 @@ export class AuthorizationService extends Context.Service<AuthorizationService>(
       });
 
       return {
-        resolveSheetAuthGuildUser,
-        resolveCurrentGuildUser,
-        provideCurrentGuildUser,
-        getCurrentGuildMonitorAccessLevel: Effect.fn(
-          "AuthorizationService.getCurrentGuildMonitorAccessLevel",
+        resolveSheetAuthWorkspaceUser,
+        resolveCurrentWorkspaceUser,
+        provideCurrentWorkspaceUser,
+        getCurrentWorkspaceMonitorAccessLevel: Effect.fn(
+          "AuthorizationService.getCurrentWorkspaceMonitorAccessLevel",
         )(function* (guildId: string) {
-          const resolvedUser = yield* resolveCurrentGuildUser(guildId);
+          const resolvedUser = yield* resolveCurrentWorkspaceUser(guildId);
 
-          if (hasGuildPermission(resolvedUser.permissions, "monitor_guild", guildId)) {
+          if (hasWorkspacePermission(resolvedUser.permissions, "monitor_workspace", guildId)) {
             return "monitor" as const;
           }
 
-          if (hasGuildPermission(resolvedUser.permissions, "member_guild", guildId)) {
+          if (hasWorkspacePermission(resolvedUser.permissions, "member_workspace", guildId)) {
             return "member" as const;
           }
 
           return "none" as const;
         }),
-        requireManageGuild: (
+        requireManageWorkspace: (
           guildId: string,
           message = "User does not have manage guild permission",
         ) =>
-          provideCurrentGuildUser(
+          provideCurrentWorkspaceUser(
             guildId,
             requireResolvedGuildPermission(guildId, "manage", message),
           ),
-        requireMonitorGuild: (
+        requireMonitorWorkspace: (
           guildId: string,
           message = "User does not have monitor guild permission",
         ) =>
-          provideCurrentGuildUser(
+          provideCurrentWorkspaceUser(
             guildId,
             requireResolvedGuildPermission(guildId, "monitor", message),
           ),
-        requireGuildMember: (guildId: string, message = "User is not a member of this guild") =>
-          provideCurrentGuildUser(
+        requireWorkspaceMember: (guildId: string, message = "User is not a member of this guild") =>
+          provideCurrentWorkspaceUser(
             guildId,
             requireResolvedGuildPermission(guildId, "member", message),
           ),
@@ -419,13 +424,13 @@ export class AuthorizationService extends Context.Service<AuthorizationService>(
           accountId: string,
           message = "User does not have access to this user",
         ) {
-          const user = yield* resolveCurrentGuildUser(guildId);
+          const user = yield* resolveCurrentWorkspaceUser(guildId);
 
           if (
             hasPermission(user.permissions, "service") ||
             hasPermission(user.permissions, "app_owner") ||
             hasDiscordAccountPermission(user.permissions, accountId) ||
-            hasGuildPermission(user.permissions, "monitor_guild", guildId)
+            hasWorkspacePermission(user.permissions, "monitor_workspace", guildId)
           ) {
             return;
           }

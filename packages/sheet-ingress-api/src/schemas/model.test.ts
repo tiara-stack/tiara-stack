@@ -3,11 +3,11 @@ import { messageRoomOrderEntry as messageRoomOrderEntryModel } from "sheet-db-sc
 import { describe, expect, it } from "@effect/vitest";
 import {
   FeatureFlagName,
-  GuildChannelConfig,
-  GuildConfig,
-  GuildFeatureFlag,
-  GuildConfigMonitorRole,
-} from "./guildConfig";
+  WorkspaceConversationConfig,
+  WorkspaceConfig,
+  WorkspaceFeatureFlag,
+  WorkspaceMonitorRole,
+} from "./workspaceConfig";
 import { MessageCheckin, MessageCheckinMember } from "./messageCheckin";
 import { MessageRoomOrder, MessageRoomOrderEntry } from "./messageRoomOrder";
 import { MessageSlot } from "./messageSlot";
@@ -23,6 +23,8 @@ const expectWireRoundTrip = (
 };
 
 const FullMessageRoomOrderEntryFields = validateTaggedFields<{
+  readonly clientPlatform: StringField;
+  readonly clientId: StringField;
   readonly messageId: StringField;
   readonly rank: NumberField;
   readonly position: NumberField;
@@ -34,6 +36,8 @@ const FullMessageRoomOrderEntryFields = validateTaggedFields<{
   readonly updatedAt: DateTimeOptionField;
   readonly deletedAt: DateTimeOptionField;
 }>(modelTaggedFields(messageRoomOrderEntryModel), [
+  "clientPlatform",
+  "clientId",
   "messageId",
   "rank",
   "position",
@@ -52,10 +56,10 @@ class FullMessageRoomOrderEntry extends Schema.TaggedClass<FullMessageRoomOrderE
 ) {}
 
 describe("model-derived persisted schemas", () => {
-  it("round-trips guild config row schemas without wire-shape drift", () => {
-    expectWireRoundTrip(GuildConfig, {
-      _tag: "GuildConfig",
-      guildId: "guild-1",
+  it("round-trips workspace config row schemas without wire-shape drift", () => {
+    expectWireRoundTrip(WorkspaceConfig, {
+      _tag: "WorkspaceConfig",
+      workspaceId: "workspace-1",
       sheetId: "sheet-1",
       autoCheckin: true,
       createdAt: 1_700_000_000_000,
@@ -63,31 +67,31 @@ describe("model-derived persisted schemas", () => {
       deletedAt: null,
     });
 
-    expectWireRoundTrip(GuildChannelConfig, {
-      _tag: "GuildChannelConfig",
-      guildId: "guild-1",
-      channelId: "channel-1",
-      name: "channel-name",
+    expectWireRoundTrip(WorkspaceConversationConfig, {
+      _tag: "WorkspaceConversationConfig",
+      workspaceId: "workspace-1",
+      conversationId: "conversation-1",
+      name: "conversation-name",
       running: false,
       roleId: null,
-      checkinChannelId: "checkin-channel-1",
+      checkinConversationId: "checkin-conversation-1",
       createdAt: 1_700_000_000_000,
       updatedAt: 1_700_000_000_100,
       deletedAt: null,
     });
 
-    expectWireRoundTrip(GuildConfigMonitorRole, {
-      _tag: "GuildConfigMonitorRole",
-      guildId: "guild-1",
+    expectWireRoundTrip(WorkspaceMonitorRole, {
+      _tag: "WorkspaceMonitorRole",
+      workspaceId: "workspace-1",
       roleId: "role-1",
       createdAt: 1_700_000_000_000,
       updatedAt: 1_700_000_000_100,
       deletedAt: null,
     });
 
-    expectWireRoundTrip(GuildFeatureFlag, {
-      _tag: "GuildFeatureFlag",
-      guildId: "guild-1",
+    expectWireRoundTrip(WorkspaceFeatureFlag, {
+      _tag: "WorkspaceFeatureFlag",
+      workspaceId: "workspace-1",
       flagName: "beta-feature",
       createdAt: 1_700_000_000_000,
       updatedAt: 1_700_000_000_100,
@@ -105,13 +109,15 @@ describe("model-derived persisted schemas", () => {
   it("round-trips checkin row schemas without wire-shape drift", () => {
     expectWireRoundTrip(MessageCheckin, {
       _tag: "MessageCheckin",
+      clientPlatform: "discord",
+      clientId: "discord-main",
       messageId: "message-1",
-      initialMessage: "initial",
+      initialMessage: [{ type: "text", text: "initial" }],
       hour: 12,
-      channelId: "channel-1",
+      runningConversationId: "channel-1",
       roleId: null,
-      guildId: "guild-1",
-      messageChannelId: null,
+      workspaceId: "guild-1",
+      conversationId: null,
       createdByUserId: "user-1",
       createdAt: 1_700_000_000_000,
       updatedAt: 1_700_000_000_100,
@@ -120,6 +126,8 @@ describe("model-derived persisted schemas", () => {
 
     expectWireRoundTrip(MessageCheckinMember, {
       _tag: "MessageCheckinMember",
+      clientPlatform: "discord",
+      clientId: "discord-main",
       messageId: "message-1",
       memberId: "member-1",
       checkinAt: 1_700_000_000_200,
@@ -133,6 +141,8 @@ describe("model-derived persisted schemas", () => {
   it("round-trips room-order row schemas without wire-shape drift", () => {
     expectWireRoundTrip(MessageRoomOrder, {
       _tag: "MessageRoomOrder",
+      clientPlatform: "discord",
+      clientId: "discord-main",
       messageId: "message-1",
       previousFills: ["a"],
       fills: ["b"],
@@ -140,13 +150,13 @@ describe("model-derived persisted schemas", () => {
       rank: 1,
       tentative: false,
       monitor: null,
-      guildId: "guild-1",
-      messageChannelId: "channel-1",
+      workspaceId: "guild-1",
+      conversationId: "channel-1",
       createdByUserId: "user-1",
       sendClaimId: null,
       sendClaimedAt: null,
       sentMessageId: null,
-      sentMessageChannelId: null,
+      sentConversationId: null,
       sentAt: null,
       tentativeUpdateClaimId: null,
       tentativeUpdateClaimedAt: null,
@@ -160,6 +170,8 @@ describe("model-derived persisted schemas", () => {
 
     expectWireRoundTrip(MessageRoomOrderEntry, {
       _tag: "MessageRoomOrderEntry",
+      clientPlatform: "discord",
+      clientId: "discord-main",
       messageId: "message-1",
       rank: 1,
       position: 2,
@@ -175,10 +187,12 @@ describe("model-derived persisted schemas", () => {
   it("round-trips message slot row schemas without wire-shape drift", () => {
     expectWireRoundTrip(MessageSlot, {
       _tag: "MessageSlot",
+      clientPlatform: "discord",
+      clientId: "discord-main",
       messageId: "message-1",
       day: 4,
-      guildId: null,
-      messageChannelId: "channel-1",
+      workspaceId: null,
+      conversationId: "channel-1",
       createdByUserId: "user-1",
       createdAt: 1_700_000_000_000,
       updatedAt: 1_700_000_000_100,
@@ -189,6 +203,8 @@ describe("model-derived persisted schemas", () => {
   it("keeps room-order entry hour out of the public encoded wire schema", () => {
     const payload = {
       _tag: "MessageRoomOrderEntry",
+      clientPlatform: "discord",
+      clientId: "discord-main",
       messageId: "message-1",
       rank: 1,
       position: 2,

@@ -4,6 +4,8 @@ import type { DateTimeOptionField, StringField, StringOptionField } from "../mod
 import { modelTaggedFields, validateTaggedFields } from "../model";
 
 const MessageCheckinMemberFields = validateTaggedFields<{
+  readonly clientPlatform: StringField;
+  readonly clientId: StringField;
   readonly messageId: StringField;
   readonly memberId: StringField;
   readonly checkinAt: DateTimeOptionField;
@@ -12,6 +14,8 @@ const MessageCheckinMemberFields = validateTaggedFields<{
   readonly updatedAt: DateTimeOptionField;
   readonly deletedAt: DateTimeOptionField;
 }>(modelTaggedFields(messageCheckinMember), [
+  "clientPlatform",
+  "clientId",
   "messageId",
   "memberId",
   "checkinAt",

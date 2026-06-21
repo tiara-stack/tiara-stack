@@ -6,8 +6,14 @@ import { ScopedCache } from "typhoon-core/utils";
 
 const attachPlayerId = (playerId: string) => (team: Team) =>
   new Team({
-    ...team,
+    type: team.type,
     playerId: Option.some(playerId),
+    playerName: team.playerName,
+    teamName: team.teamName,
+    tags: team.tags,
+    lead: team.lead,
+    backline: team.backline,
+    talent: team.talent,
   });
 
 type PlayerMaps = {

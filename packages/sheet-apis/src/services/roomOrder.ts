@@ -1,15 +1,19 @@
+// fallow-ignore-file code-duplication
 import { Chunk, DateTime, Duration, Effect, Layer, Option, Predicate, Context, pipe } from "effect";
 import { makeArgumentError } from "typhoon-core/error";
-import { GuildConfigService } from "./guildConfig";
+import { WorkspaceConfigService } from "./workspaceConfig";
 import { ScheduleService } from "./schedule";
 import { CalcConfig, CalcService } from "./calc";
 import { SheetService } from "./sheet";
+import { getSheetIdFromWorkspaceId, requireRunningConversation } from "./workspaceSheet";
 import {
   type FillParticipant,
   diffFillParticipants,
   getScheduleFills,
   toFillParticipant,
 } from "./fillMovement";
+import type { GeneratedSheetText } from "sheet-ingress-api/schemas/client";
+import { inlineCode, joinText, parts, strong, text, timestamp } from "./generatedText";
 import {
   GeneratedRoomOrderEntry,
   RoomOrderGenerateResult,
@@ -22,7 +26,6 @@ import {
   type PopulatedScheduleResult,
 } from "sheet-ingress-api/schemas/sheet";
 
-type GuildConfigServiceApi = Context.Service.Shape<typeof GuildConfigService>;
 type SheetServiceApi = Context.Service.Shape<typeof SheetService>;
 
 const isPlayer = Predicate.isTagged("Player");
@@ -34,74 +37,12 @@ const formatEffectValue = (effectValue: number): string => {
   return `+${formatted}%`;
 };
 
-const formatDiscordTimestamp = (dateTime: DateTime.DateTime): string =>
-  `<t:${Math.floor(DateTime.toEpochMillis(dateTime) / 1000)}:f>`;
-
-const getSheetIdFromGuildId = (guildId: string, guildConfigService: GuildConfigServiceApi) =>
-  guildConfigService.getGuildConfig(guildId).pipe(
-    Effect.flatMap(
-      Option.match({
-        onSome: (guildConfig) =>
-          pipe(
-            guildConfig.sheetId,
-            Option.match({
-              onSome: Effect.succeed,
-              onNone: () =>
-                Effect.fail(
-                  makeArgumentError("Cannot generate room order, the guild has no sheet id"),
-                ),
-            }),
-          ),
-        onNone: () =>
-          Effect.fail(
-            makeArgumentError("Cannot generate room order, the guild might not be registered"),
-          ),
-      }),
-    ),
-  );
-
-const requireRunningChannel = Effect.fn("RoomOrderService.requireRunningChannel")(function* (
-  guildId: string,
-  payload: { channelId?: string | undefined; channelName?: string | undefined },
-  guildConfigService: GuildConfigServiceApi,
-) {
-  const maybeChannel =
-    typeof payload.channelId === "string"
-      ? yield* guildConfigService.getGuildChannelById({
-          guildId,
-          channelId: payload.channelId,
-          running: true,
-        })
-      : typeof payload.channelName === "string"
-        ? yield* guildConfigService.getGuildChannelByName({
-            guildId,
-            channelName: payload.channelName,
-            running: true,
-          })
-        : yield* Effect.fail(
-            makeArgumentError("Cannot generate room order, channelId or channelName is required"),
-          );
-
-  return yield* pipe(
-    maybeChannel,
-    Option.match({
-      onSome: Effect.succeed,
-      onNone: () =>
-        Effect.fail(
-          makeArgumentError(
-            "Cannot generate room order, the running channel might not be registered",
-          ),
-        ),
-    }),
-  );
-});
-
 const deriveHour = Effect.fn("RoomOrderService.deriveHour")(function* (
   payload: { hour?: number | undefined },
   sheetService: SheetServiceApi,
   sheetId: string,
 ) {
-  if (typeof payload.hour === "number") {
+  if (Predicate.isNumber(payload.hour)) {
     return payload.hour;
   }
 
@@ -124,8 +65,14 @@ const deriveHourWindow = (sheetService: SheetServiceApi, sheetId: string, hour: 
 
 const toTeamWithPlayer = (player: Player, team: Team) =>
   new Team({
-    ...team,
+    type: team.type,
     playerId: Option.some(player.id),
+    playerName: team.playerName,
+    teamName: team.teamName,
+    tags: team.tags,
+    lead: team.lead,
+    backline: team.backline,
+    talent: team.talent,
   });
 
 export type RoomOrderContentEntry = {
@@ -143,58 +90,101 @@ export const buildRoomOrderContent = (
   previousParticipants: ReadonlyArray<FillParticipant>,
   participants: ReadonlyArray<FillParticipant>,
   entries: ReadonlyArray<RoomOrderContentEntry>,
-) => {
+): GeneratedSheetText => {
   const fillMovement = diffFillParticipants(previousParticipants, participants);
 
-  return [
-    `**Hour ${hour}** ${formatDiscordTimestamp(start)} - ${formatDiscordTimestamp(end)}`,
-    ...(monitor === null ? [] : [`\`Monitor:\` ${monitor}`]),
-    "",
-    ...entries.map(({ position, team, tags, effectValue }) => {
-      const hasTiererTag = tags.includes("tierer");
-      const effectParts = hasTiererTag
-        ? []
-        : [
-            formatEffectValue(effectValue),
-            ...(tags.includes("enc") ? ["enc"] : []),
-            ...(tags.includes("not_enc") ? ["not enc"] : []),
-          ];
+  return joinText(
+    [
+      parts(
+        strong([text(`Hour ${hour}`)]),
+        text(" "),
+        timestamp(DateTime.toEpochMillis(start), "longDate"),
+        text(" - "),
+        timestamp(DateTime.toEpochMillis(end), "longDate"),
+      ),
+      ...(Predicate.isNull(monitor) ? [] : [parts(inlineCode("Monitor:"), text(` ${monitor}`))]),
+      [text("")],
+      ...entries.map(({ position, team, tags, effectValue }) => {
+        const hasTiererTag = tags.includes("tierer");
+        const effectParts = hasTiererTag
+          ? []
+          : [
+              formatEffectValue(effectValue),
+              ...(tags.includes("enc") ? ["enc"] : []),
+              ...(tags.includes("not_enc") ? ["not enc"] : []),
+            ];
 
-      const effectStr = effectParts.length > 0 ? ` (${effectParts.join(", ")})` : "";
-      return `\`P${position + 1}:\`  ${team}${effectStr}`;
-    }),
-    "",
-    `\`In:\` ${fillMovement.in.length > 0 ? fillMovement.in.map(({ name }) => name).join(", ") : "(none)"}`,
-    `\`Out:\` ${fillMovement.out.length > 0 ? fillMovement.out.map(({ name }) => name).join(", ") : "(none)"}`,
-  ].join("\n");
+        const effectStr = effectParts.length > 0 ? ` (${effectParts.join(", ")})` : "";
+        return parts(inlineCode(`P${position + 1}:`), text(`  ${team}${effectStr}`));
+      }),
+      [text("")],
+      parts(
+        inlineCode("In:"),
+        text(
+          ` ${fillMovement.in.length > 0 ? fillMovement.in.map(({ name }) => name).join(", ") : "(none)"}`,
+        ),
+      ),
+      parts(
+        inlineCode("Out:"),
+        text(
+          ` ${fillMovement.out.length > 0 ? fillMovement.out.map(({ name }) => name).join(", ") : "(none)"}`,
+        ),
+      ),
+    ],
+    "\n",
+  );
 };
 
 export class RoomOrderService extends Context.Service<RoomOrderService>()("RoomOrderService", {
   make: Effect.gen(function* () {
     const calcService = yield* CalcService;
-    const guildConfigService = yield* GuildConfigService;
+    const workspaceConfigService = yield* WorkspaceConfigService;
     const scheduleService = yield* ScheduleService;
     const sheetService = yield* SheetService;
 
     return {
+      // fallow-ignore-next-line complexity
       generate: Effect.fn("RoomOrderService.generate")(function* (payload: {
-        guildId: string;
-        channelId?: string | undefined;
-        channelName?: string | undefined;
+        workspaceId: string;
+        conversationId?: string | undefined;
+        conversationName?: string | undefined;
         hour?: number | undefined;
         healNeeded?: number | undefined;
       }) {
-        const runningChannel = yield* requireRunningChannel(
-          payload.guildId,
+        const runningConversation = yield* requireRunningConversation(
+          payload.workspaceId,
           payload,
-          guildConfigService,
+          workspaceConfigService,
+          "generate room order",
         );
-        const sheetId = yield* getSheetIdFromGuildId(payload.guildId, guildConfigService);
+        const sheetId = yield* getSheetIdFromWorkspaceId(
+          payload.workspaceId,
+          workspaceConfigService,
+          "generate room order",
+        );
         const hour = yield* deriveHour(payload, sheetService, sheetId);
         const healNeeded = payload.healNeeded ?? 0;
-        const channelName = Option.getOrElse(runningChannel.name, () => "");
+        const conversationName = yield* Option.match(runningConversation.name, {
+          onNone: () =>
+            Effect.fail(
+              makeArgumentError(
+                "Cannot generate room order, the running conversation is missing a conversation name",
+              ),
+            ),
+          onSome: (name) =>
+            name.trim().length === 0
+              ? Effect.fail(
+                  makeArgumentError(
+                    "Cannot generate room order, the running conversation has an empty conversation name",
+                  ),
+                )
+              : Effect.succeed(name.trim()),
+        });
 
-        const schedules = yield* scheduleService.getChannelPopulatedSchedules(sheetId, channelName);
+        const schedules = yield* scheduleService.getChannelPopulatedSchedules(
+          sheetId,
+          conversationName,
+        );
         const schedulesByHour = new Map<number, PopulatedScheduleResult>();
         for (const schedule of schedules) {
           if (Option.isSome(schedule.hour)) {
@@ -231,7 +221,10 @@ export class RoomOrderService extends Context.Service<RoomOrderService>()("RoomO
             .map(
               (team) =>
                 new Team({
-                  ...team,
+                  type: team.type,
+                  playerId: team.playerId,
+                  playerName: team.playerName,
+                  teamName: team.teamName,
                   tags: pipe(
                     team.tags,
                     (tags) =>
@@ -240,6 +233,9 @@ export class RoomOrderService extends Context.Service<RoomOrderService>()("RoomO
                         : [...tags],
                     (tags) => (fill.enc ? [...tags, "encable"] : tags),
                   ),
+                  lead: team.lead,
+                  backline: team.backline,
+                  talent: team.talent,
                 }),
             )
             .flatMap((team) => Option.toArray(PlayerTeam.fromTeam(false, team)));
@@ -287,7 +283,7 @@ export class RoomOrderService extends Context.Service<RoomOrderService>()("RoomO
             fills.map(toFillParticipant),
             firstRankEntries,
           ),
-          runningChannelId: runningChannel.channelId,
+          runningConversationId: runningConversation.conversationId,
           range: new MessageRoomOrderRange({
             minRank: 0,
             maxRank: roomOrders.length - 1,
@@ -305,7 +301,7 @@ export class RoomOrderService extends Context.Service<RoomOrderService>()("RoomO
 }) {
   static layer = Layer.effect(RoomOrderService, this.make).pipe(
     Layer.provide(CalcService.layer),
-    Layer.provide(GuildConfigService.layer),
+    Layer.provide(WorkspaceConfigService.layer),
     Layer.provide(ScheduleService.layer),
     Layer.provide(SheetService.layer),
   );

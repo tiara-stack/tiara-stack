@@ -216,6 +216,8 @@ Use Effect's `Predicate` module for reusable predicate/type-guard helpers instea
 
 Avoid large `if`/`else` chains and `switch` statements for value dispatch. Prefer Effect's `Match` module when matching tagged unions or structured cases, and prefer typed lookup tables for simple enum/string-to-value mappings. Keep imperative branching only when it is genuinely clearer for stateful algorithms, early exits, or low-level parser loops.
 
+Use Effect's HTTP client APIs for outbound HTTP requests. When checking HTTP response status, prefer provided helpers such as `HttpClientResponse.filterStatusOk` over manual `status >= 200 && status < 300` checks, and compose body decoding through the Effect HTTP response helpers where practical.
+
 ### Arktype
 
 This project utilizes the ArkType library for runtime type validation in some limited case. The version of the library being used is 2.1.19.

@@ -26,16 +26,16 @@ const startsWith = <T extends string>(prefix: T) =>
   Schema.String.pipe(Schema.refine((value): value is `${T}${string}` => value.startsWith(prefix)));
 
 export const DiscordAccountPermission = startsWith("account:discord:");
-export const MemberGuildPermission = startsWith("member_guild:");
-export const MonitorGuildPermission = startsWith("monitor_guild:");
-export const ManageGuildPermission = startsWith("manage_guild:");
+export const MemberWorkspacePermission = startsWith("member_workspace:");
+export const MonitorWorkspacePermission = startsWith("monitor_workspace:");
+export const ManageWorkspacePermission = startsWith("manage_workspace:");
 
 export const Permission = Schema.Union([
   Schema.Literals(BasePermissionValues),
   DiscordAccountPermission,
-  MemberGuildPermission,
-  MonitorGuildPermission,
-  ManageGuildPermission,
+  MemberWorkspacePermission,
+  MonitorWorkspacePermission,
+  ManageWorkspacePermission,
 ]);
 
 export type Permission = Schema.Schema.Type<typeof Permission>;

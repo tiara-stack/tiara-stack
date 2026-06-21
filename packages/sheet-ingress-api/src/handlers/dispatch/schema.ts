@@ -1,13 +1,14 @@
 import { Schema } from "effect";
 import { ArgumentError, SchemaError, UnknownError } from "typhoon-core/error";
 import { QueryResultError } from "typhoon-zero/error";
-import { FeatureFlagName } from "../../schemas/guildConfig";
+import { FeatureFlagName } from "../../schemas/workspaceConfig";
 import { GoogleSheetsError } from "../../schemas/google";
 import { ParserFieldError } from "../../schemas/sheet/error";
 import { SheetConfigError } from "../../schemas/sheetConfig";
+import { ClientRef } from "../../schemas/client";
 
-export const interactionTokenLifetimeMs = 15 * 60 * 1000;
-export const interactionTokenExpirySafetyMarginMs = 30 * 1000;
+export const interactionResponseTokenLifetimeMs = 15 * 60 * 1000;
+export const interactionResponseTokenExpirySafetyMarginMs = 30 * 1000;
 
 export const CheckinGenerateErrorSchemas = [
   GoogleSheetsError,
@@ -64,8 +65,8 @@ export const SlotDispatchErrorSchemas = [
 ] as const;
 export const SlotDispatchError = Schema.Union(SlotDispatchErrorSchemas);
 
-export const GuildWelcomeDispatchErrorSchemas = [ArgumentError, UnknownError] as const;
-export const GuildWelcomeDispatchError = Schema.Union(GuildWelcomeDispatchErrorSchemas);
+export const WorkspaceWelcomeDispatchErrorSchemas = [ArgumentError, UnknownError] as const;
+export const WorkspaceWelcomeDispatchError = Schema.Union(WorkspaceWelcomeDispatchErrorSchemas);
 
 export const UpdateAnnouncementDispatchErrorSchemas = [
   SchemaError,
@@ -87,54 +88,61 @@ export const BotCommandDispatchErrorSchemas = [
 export const BotCommandDispatchError = Schema.Union(BotCommandDispatchErrorSchemas);
 
 const CommandDispatchPayloadBase = {
+  client: ClientRef,
   dispatchRequestId: Schema.String,
-  interactionToken: Schema.String,
-  interactionDeadlineEpochMs: Schema.Number,
+  interactionResponseToken: Schema.String,
+  interactionResponseDeadlineEpochMs: Schema.Number,
+} as const;
+
+const ClientDispatchPayloadBase = {
+  client: ClientRef,
 } as const;
 
 export const CheckinDispatchPayload = Schema.Struct({
+  ...ClientDispatchPayloadBase,
   dispatchRequestId: Schema.String,
-  guildId: Schema.String,
-  channelId: Schema.optional(Schema.String),
-  channelName: Schema.optional(Schema.String),
+  workspaceId: Schema.String,
+  conversationId: Schema.optional(Schema.String),
+  conversationName: Schema.optional(Schema.String),
   hour: Schema.optional(Schema.Number),
   template: Schema.optional(Schema.String),
-  interactionToken: Schema.optional(Schema.String),
-  interactionDeadlineEpochMs: Schema.optional(Schema.Number),
+  interactionResponseToken: Schema.optional(Schema.String),
+  interactionResponseDeadlineEpochMs: Schema.optional(Schema.Number),
 });
 
 export type CheckinDispatchPayload = Schema.Schema.Type<typeof CheckinDispatchPayload>;
 
 export const CheckinDispatchResult = Schema.Struct({
   hour: Schema.Number,
-  runningChannelId: Schema.String,
-  checkinChannelId: Schema.String,
+  runningConversationId: Schema.String,
+  checkinConversationId: Schema.String,
   checkinMessageId: Schema.NullOr(Schema.String),
-  checkinMessageChannelId: Schema.NullOr(Schema.String),
+  checkinMessageConversationId: Schema.NullOr(Schema.String),
   primaryMessageId: Schema.String,
-  primaryMessageChannelId: Schema.String,
+  primaryMessageConversationId: Schema.String,
   tentativeRoomOrderMessageId: Schema.NullOr(Schema.String),
-  tentativeRoomOrderMessageChannelId: Schema.NullOr(Schema.String),
+  tentativeRoomOrderMessageConversationId: Schema.NullOr(Schema.String),
 });
 
 export type CheckinDispatchResult = Schema.Schema.Type<typeof CheckinDispatchResult>;
 
 export const AutoCheckinTestDispatchPayload = Schema.Struct({
+  ...ClientDispatchPayloadBase,
   dispatchRequestId: Schema.String,
-  guildId: Schema.String,
-  anchorChannelId: Schema.String,
-  interactionToken: Schema.optional(Schema.String),
-  interactionDeadlineEpochMs: Schema.optional(Schema.Number),
+  workspaceId: Schema.String,
+  anchorConversationId: Schema.String,
+  interactionResponseToken: Schema.optional(Schema.String),
+  interactionResponseDeadlineEpochMs: Schema.optional(Schema.Number),
 });
 
 export type AutoCheckinTestDispatchPayload = Schema.Schema.Type<
   typeof AutoCheckinTestDispatchPayload
 >;
 
-export const AutoCheckinTestChannelResult = Schema.Struct({
-  channelName: Schema.String,
-  runningChannelId: Schema.NullOr(Schema.String),
-  checkinChannelId: Schema.NullOr(Schema.String),
+export const AutoCheckinTestConversationResult = Schema.Struct({
+  conversationName: Schema.String,
+  runningConversationId: Schema.NullOr(Schema.String),
+  checkinConversationId: Schema.NullOr(Schema.String),
   hour: Schema.Number,
   status: Schema.Literals(["sent", "skipped", "failed"]),
   checkinPreviewMessageId: Schema.NullOr(Schema.String),
@@ -143,18 +151,20 @@ export const AutoCheckinTestChannelResult = Schema.Struct({
   error: Schema.NullOr(Schema.String),
 });
 
-export type AutoCheckinTestChannelResult = Schema.Schema.Type<typeof AutoCheckinTestChannelResult>;
+export type AutoCheckinTestConversationResult = Schema.Schema.Type<
+  typeof AutoCheckinTestConversationResult
+>;
 
 export const AutoCheckinTestDispatchResult = Schema.Struct({
-  guildId: Schema.String,
+  workspaceId: Schema.String,
   hour: Schema.Number,
   anchorMessageId: Schema.String,
-  anchorMessageChannelId: Schema.String,
-  channelCount: Schema.Number,
+  anchorMessageConversationId: Schema.String,
+  conversationCount: Schema.Number,
   sentCount: Schema.Number,
   skippedCount: Schema.Number,
   failedCount: Schema.Number,
-  channels: Schema.Array(AutoCheckinTestChannelResult),
+  conversations: Schema.Array(AutoCheckinTestConversationResult),
 });
 
 export type AutoCheckinTestDispatchResult = Schema.Schema.Type<
@@ -162,59 +172,62 @@ export type AutoCheckinTestDispatchResult = Schema.Schema.Type<
 >;
 
 export const CheckinHandleButtonPayload = Schema.Struct({
+  ...ClientDispatchPayloadBase,
   messageId: Schema.String,
-  interactionToken: Schema.String,
-  interactionDeadlineEpochMs: Schema.Number,
+  interactionResponseToken: Schema.String,
+  interactionResponseDeadlineEpochMs: Schema.Number,
 });
 
 export type CheckinHandleButtonPayload = Schema.Schema.Type<typeof CheckinHandleButtonPayload>;
 
 export const CheckinHandleButtonResult = Schema.Struct({
   messageId: Schema.String,
-  messageChannelId: Schema.String,
+  messageConversationId: Schema.String,
   checkedInMemberId: Schema.String,
 });
 
 export type CheckinHandleButtonResult = Schema.Schema.Type<typeof CheckinHandleButtonResult>;
 
 export const RoomOrderDispatchPayload = Schema.Struct({
+  ...ClientDispatchPayloadBase,
   dispatchRequestId: Schema.String,
-  guildId: Schema.String,
-  channelId: Schema.optional(Schema.String),
-  channelName: Schema.optional(Schema.String),
+  workspaceId: Schema.String,
+  conversationId: Schema.optional(Schema.String),
+  conversationName: Schema.optional(Schema.String),
   hour: Schema.optional(Schema.Number),
   healNeeded: Schema.optional(Schema.Number),
-  interactionToken: Schema.optional(Schema.String),
-  interactionDeadlineEpochMs: Schema.optional(Schema.Number),
+  interactionResponseToken: Schema.optional(Schema.String),
+  interactionResponseDeadlineEpochMs: Schema.optional(Schema.Number),
 });
 
 export type RoomOrderDispatchPayload = Schema.Schema.Type<typeof RoomOrderDispatchPayload>;
 
 export const RoomOrderDispatchResult = Schema.Struct({
   messageId: Schema.String,
-  messageChannelId: Schema.String,
+  messageConversationId: Schema.String,
   hour: Schema.Number,
-  runningChannelId: Schema.String,
+  runningConversationId: Schema.String,
   rank: Schema.Number,
 });
 
 export type RoomOrderDispatchResult = Schema.Schema.Type<typeof RoomOrderDispatchResult>;
 
 export const KickoutDispatchPayload = Schema.Struct({
+  ...ClientDispatchPayloadBase,
   dispatchRequestId: Schema.String,
-  guildId: Schema.String,
-  channelId: Schema.optional(Schema.String),
-  channelName: Schema.optional(Schema.String),
+  workspaceId: Schema.String,
+  conversationId: Schema.optional(Schema.String),
+  conversationName: Schema.optional(Schema.String),
   hour: Schema.optional(Schema.Number),
-  interactionToken: Schema.optional(Schema.String),
-  interactionDeadlineEpochMs: Schema.optional(Schema.Number),
+  interactionResponseToken: Schema.optional(Schema.String),
+  interactionResponseDeadlineEpochMs: Schema.optional(Schema.Number),
 });
 
 export type KickoutDispatchPayload = Schema.Schema.Type<typeof KickoutDispatchPayload>;
 
 export const KickoutDispatchResult = Schema.Struct({
-  guildId: Schema.String,
-  runningChannelId: Schema.String,
+  workspaceId: Schema.String,
+  runningConversationId: Schema.String,
   hour: Schema.Number,
   roleId: Schema.NullOr(Schema.String),
   removedMemberIds: Schema.Array(Schema.String),
@@ -224,19 +237,20 @@ export const KickoutDispatchResult = Schema.Struct({
 export type KickoutDispatchResult = Schema.Schema.Type<typeof KickoutDispatchResult>;
 
 export const SlotButtonDispatchPayload = Schema.Struct({
+  ...ClientDispatchPayloadBase,
   dispatchRequestId: Schema.String,
-  guildId: Schema.String,
-  channelId: Schema.String,
+  workspaceId: Schema.String,
+  conversationId: Schema.String,
   day: Schema.Number,
-  interactionToken: Schema.String,
-  interactionDeadlineEpochMs: Schema.Number,
+  interactionResponseToken: Schema.String,
+  interactionResponseDeadlineEpochMs: Schema.Number,
 });
 
 export type SlotButtonDispatchPayload = Schema.Schema.Type<typeof SlotButtonDispatchPayload>;
 
 export const SlotButtonDispatchResult = Schema.Struct({
   messageId: Schema.String,
-  messageChannelId: Schema.String,
+  messageConversationId: Schema.String,
   day: Schema.Number,
 });
 
@@ -247,18 +261,19 @@ export const SlotListMessageType = Schema.Literals(["persistent", "ephemeral"]);
 export type SlotListMessageType = Schema.Schema.Type<typeof SlotListMessageType>;
 
 export const SlotListDispatchPayload = Schema.Struct({
+  ...ClientDispatchPayloadBase,
   dispatchRequestId: Schema.String,
-  guildId: Schema.String,
+  workspaceId: Schema.String,
   day: Schema.Number,
   messageType: SlotListMessageType,
-  interactionToken: Schema.String,
-  interactionDeadlineEpochMs: Schema.Number,
+  interactionResponseToken: Schema.String,
+  interactionResponseDeadlineEpochMs: Schema.Number,
 });
 
 export type SlotListDispatchPayload = Schema.Schema.Type<typeof SlotListDispatchPayload>;
 
 export const SlotListDispatchResult = Schema.Struct({
-  guildId: Schema.String,
+  workspaceId: Schema.String,
   day: Schema.Number,
   messageType: SlotListMessageType,
 });
@@ -266,67 +281,75 @@ export const SlotListDispatchResult = Schema.Struct({
 export type SlotListDispatchResult = Schema.Schema.Type<typeof SlotListDispatchResult>;
 
 export const SlotOpenButtonPayload = Schema.Struct({
+  ...ClientDispatchPayloadBase,
   messageId: Schema.String,
-  interactionToken: Schema.String,
-  interactionDeadlineEpochMs: Schema.Number,
+  interactionResponseToken: Schema.String,
+  interactionResponseDeadlineEpochMs: Schema.Number,
 });
 
 export type SlotOpenButtonPayload = Schema.Schema.Type<typeof SlotOpenButtonPayload>;
 
 export const SlotOpenButtonResult = Schema.Struct({
   messageId: Schema.String,
-  guildId: Schema.String,
+  workspaceId: Schema.String,
   day: Schema.Number,
 });
 
 export type SlotOpenButtonResult = Schema.Schema.Type<typeof SlotOpenButtonResult>;
 
 export const ServiceStatusDispatchPayload = Schema.Struct({
+  ...ClientDispatchPayloadBase,
   dispatchRequestId: Schema.String,
-  interactionToken: Schema.String,
-  interactionDeadlineEpochMs: Schema.Number,
+  interactionResponseToken: Schema.String,
+  interactionResponseDeadlineEpochMs: Schema.Number,
 });
 
 export type ServiceStatusDispatchPayload = Schema.Schema.Type<typeof ServiceStatusDispatchPayload>;
 
-export const GuildWelcomeDispatchPayload = Schema.Struct({
+export const WorkspaceWelcomeDispatchPayload = Schema.Struct({
+  ...ClientDispatchPayloadBase,
   dispatchRequestId: Schema.String,
-  guildId: Schema.String,
-  guildName: Schema.String,
+  workspaceId: Schema.String,
+  workspaceName: Schema.String,
   joinedAt: Schema.String,
-  systemChannelId: Schema.optional(Schema.String),
+  systemConversationId: Schema.optional(Schema.String),
 });
 
-export type GuildWelcomeDispatchPayload = Schema.Schema.Type<typeof GuildWelcomeDispatchPayload>;
+export type WorkspaceWelcomeDispatchPayload = Schema.Schema.Type<
+  typeof WorkspaceWelcomeDispatchPayload
+>;
 
-export const GuildWelcomeDispatchResult = Schema.Struct({
-  guildId: Schema.String,
-  channelId: Schema.String,
+export const WorkspaceWelcomeDispatchResult = Schema.Struct({
+  workspaceId: Schema.String,
+  conversationId: Schema.String,
   messageId: Schema.String,
 });
 
-export type GuildWelcomeDispatchResult = Schema.Schema.Type<typeof GuildWelcomeDispatchResult>;
-
-export const ServiceGuildFeatureFlagDispatchPayload = Schema.Struct({
-  dispatchRequestId: Schema.String,
-  guildId: Schema.String,
-  flagName: FeatureFlagName,
-  systemChannelId: Schema.optional(Schema.String),
-});
-
-export type ServiceGuildFeatureFlagDispatchPayload = Schema.Schema.Type<
-  typeof ServiceGuildFeatureFlagDispatchPayload
+export type WorkspaceWelcomeDispatchResult = Schema.Schema.Type<
+  typeof WorkspaceWelcomeDispatchResult
 >;
 
-export const ServiceGuildFeatureFlagDispatchResult = Schema.Struct({
-  guildId: Schema.String,
+export const ServiceWorkspaceFeatureFlagDispatchPayload = Schema.Struct({
+  ...ClientDispatchPayloadBase,
+  dispatchRequestId: Schema.String,
+  workspaceId: Schema.String,
+  flagName: FeatureFlagName,
+  systemConversationId: Schema.optional(Schema.String),
+});
+
+export type ServiceWorkspaceFeatureFlagDispatchPayload = Schema.Schema.Type<
+  typeof ServiceWorkspaceFeatureFlagDispatchPayload
+>;
+
+export const ServiceWorkspaceFeatureFlagDispatchResult = Schema.Struct({
+  workspaceId: Schema.String,
   flagName: Schema.String,
-  announcementChannelId: Schema.NullOr(Schema.String),
+  announcementConversationId: Schema.NullOr(Schema.String),
   announcementMessageId: Schema.NullOr(Schema.String),
 });
 
-export type ServiceGuildFeatureFlagDispatchResult = Schema.Schema.Type<
-  typeof ServiceGuildFeatureFlagDispatchResult
+export type ServiceWorkspaceFeatureFlagDispatchResult = Schema.Schema.Type<
+  typeof ServiceWorkspaceFeatureFlagDispatchResult
 >;
 
 export const UpdateAnnouncement = Schema.Struct({
@@ -340,11 +363,12 @@ export const UpdateAnnouncement = Schema.Struct({
 export type UpdateAnnouncement = Schema.Schema.Type<typeof UpdateAnnouncement>;
 
 export const UpdateAnnouncementDispatchPayload = Schema.Struct({
+  ...ClientDispatchPayloadBase,
   dispatchRequestId: Schema.String,
-  guildId: Schema.String,
-  guildName: Schema.String,
+  workspaceId: Schema.String,
+  workspaceName: Schema.String,
   joinedAt: Schema.String,
-  systemChannelId: Schema.optional(Schema.String),
+  systemConversationId: Schema.optional(Schema.String),
   announcement: UpdateAnnouncement,
 });
 
@@ -353,10 +377,10 @@ export type UpdateAnnouncementDispatchPayload = Schema.Schema.Type<
 >;
 
 export const UpdateAnnouncementDispatchResult = Schema.Struct({
-  guildId: Schema.String,
+  workspaceId: Schema.String,
   announcementId: Schema.String,
   status: Schema.Literals(["sent", "skipped_not_gated", "skipped_already_delivered"]),
-  announcementChannelId: Schema.NullOr(Schema.String),
+  announcementConversationId: Schema.NullOr(Schema.String),
   announcementMessageId: Schema.NullOr(Schema.String),
 });
 
@@ -364,145 +388,155 @@ export type UpdateAnnouncementDispatchResult = Schema.Schema.Type<
   typeof UpdateAnnouncementDispatchResult
 >;
 
-export const ChannelListConfigDispatchPayload = Schema.Struct({
+export const ConversationListConfigDispatchPayload = Schema.Struct({
   ...CommandDispatchPayloadBase,
-  guildId: Schema.String,
-  channelId: Schema.String,
+  workspaceId: Schema.String,
+  conversationId: Schema.String,
 });
 
-export type ChannelListConfigDispatchPayload = Schema.Schema.Type<
-  typeof ChannelListConfigDispatchPayload
+export type ConversationListConfigDispatchPayload = Schema.Schema.Type<
+  typeof ConversationListConfigDispatchPayload
 >;
 
-export const ChannelListConfigDispatchResult = Schema.Struct({
-  guildId: Schema.String,
-  channelId: Schema.String,
+export const ConversationListConfigDispatchResult = Schema.Struct({
+  workspaceId: Schema.String,
+  conversationId: Schema.String,
 });
 
-export type ChannelListConfigDispatchResult = Schema.Schema.Type<
-  typeof ChannelListConfigDispatchResult
+export type ConversationListConfigDispatchResult = Schema.Schema.Type<
+  typeof ConversationListConfigDispatchResult
 >;
 
-export const ChannelSetDispatchPayload = Schema.Struct({
+export const ConversationSetDispatchPayload = Schema.Struct({
   ...CommandDispatchPayloadBase,
-  guildId: Schema.String,
-  channelId: Schema.String,
+  workspaceId: Schema.String,
+  conversationId: Schema.String,
   running: Schema.optional(Schema.Boolean),
   name: Schema.optional(Schema.String),
   roleId: Schema.optional(Schema.String),
-  checkinChannelId: Schema.optional(Schema.String),
+  checkinConversationId: Schema.optional(Schema.String),
 });
 
-export type ChannelSetDispatchPayload = Schema.Schema.Type<typeof ChannelSetDispatchPayload>;
+export type ConversationSetDispatchPayload = Schema.Schema.Type<
+  typeof ConversationSetDispatchPayload
+>;
 
-export const ChannelSetDispatchResult = Schema.Struct({
-  guildId: Schema.String,
-  channelId: Schema.String,
+export const ConversationSetDispatchResult = Schema.Struct({
+  workspaceId: Schema.String,
+  conversationId: Schema.String,
 });
 
-export type ChannelSetDispatchResult = Schema.Schema.Type<typeof ChannelSetDispatchResult>;
+export type ConversationSetDispatchResult = Schema.Schema.Type<
+  typeof ConversationSetDispatchResult
+>;
 
-export const ChannelUnsetDispatchPayload = Schema.Struct({
+export const ConversationUnsetDispatchPayload = Schema.Struct({
   ...CommandDispatchPayloadBase,
-  guildId: Schema.String,
-  channelId: Schema.String,
+  workspaceId: Schema.String,
+  conversationId: Schema.String,
   running: Schema.optional(Schema.Boolean),
   name: Schema.optional(Schema.Boolean),
   role: Schema.optional(Schema.Boolean),
-  checkinChannel: Schema.optional(Schema.Boolean),
+  checkinConversation: Schema.optional(Schema.Boolean),
 });
 
-export type ChannelUnsetDispatchPayload = Schema.Schema.Type<typeof ChannelUnsetDispatchPayload>;
-
-export const ChannelUnsetDispatchResult = ChannelSetDispatchResult;
-export type ChannelUnsetDispatchResult = Schema.Schema.Type<typeof ChannelUnsetDispatchResult>;
-
-export const ServerListConfigDispatchPayload = Schema.Struct({
-  ...CommandDispatchPayloadBase,
-  guildId: Schema.String,
-});
-
-export type ServerListConfigDispatchPayload = Schema.Schema.Type<
-  typeof ServerListConfigDispatchPayload
+export type ConversationUnsetDispatchPayload = Schema.Schema.Type<
+  typeof ConversationUnsetDispatchPayload
 >;
 
-export const ServerListConfigDispatchResult = Schema.Struct({
-  guildId: Schema.String,
+export const ConversationUnsetDispatchResult = ConversationSetDispatchResult;
+export type ConversationUnsetDispatchResult = Schema.Schema.Type<
+  typeof ConversationUnsetDispatchResult
+>;
+
+export const WorkspaceListConfigDispatchPayload = Schema.Struct({
+  ...CommandDispatchPayloadBase,
+  workspaceId: Schema.String,
+});
+
+export type WorkspaceListConfigDispatchPayload = Schema.Schema.Type<
+  typeof WorkspaceListConfigDispatchPayload
+>;
+
+export const WorkspaceListConfigDispatchResult = Schema.Struct({
+  workspaceId: Schema.String,
   monitorRoleCount: Schema.Number,
 });
 
-export type ServerListConfigDispatchResult = Schema.Schema.Type<
-  typeof ServerListConfigDispatchResult
+export type WorkspaceListConfigDispatchResult = Schema.Schema.Type<
+  typeof WorkspaceListConfigDispatchResult
 >;
 
-export const ServerAddMonitorRoleDispatchPayload = Schema.Struct({
+export const WorkspaceAddMonitorRoleDispatchPayload = Schema.Struct({
   ...CommandDispatchPayloadBase,
-  guildId: Schema.String,
+  workspaceId: Schema.String,
   roleId: Schema.String,
 });
 
-export type ServerAddMonitorRoleDispatchPayload = Schema.Schema.Type<
-  typeof ServerAddMonitorRoleDispatchPayload
+export type WorkspaceAddMonitorRoleDispatchPayload = Schema.Schema.Type<
+  typeof WorkspaceAddMonitorRoleDispatchPayload
 >;
 
-export const ServerAddMonitorRoleDispatchResult = Schema.Struct({
-  guildId: Schema.String,
+export const WorkspaceAddMonitorRoleDispatchResult = Schema.Struct({
+  workspaceId: Schema.String,
   roleId: Schema.String,
 });
 
-export type ServerAddMonitorRoleDispatchResult = Schema.Schema.Type<
-  typeof ServerAddMonitorRoleDispatchResult
+export type WorkspaceAddMonitorRoleDispatchResult = Schema.Schema.Type<
+  typeof WorkspaceAddMonitorRoleDispatchResult
 >;
 
-export const ServerRemoveMonitorRoleDispatchPayload = ServerAddMonitorRoleDispatchPayload;
-export type ServerRemoveMonitorRoleDispatchPayload = Schema.Schema.Type<
-  typeof ServerRemoveMonitorRoleDispatchPayload
+export const WorkspaceRemoveMonitorRoleDispatchPayload = WorkspaceAddMonitorRoleDispatchPayload;
+export type WorkspaceRemoveMonitorRoleDispatchPayload = Schema.Schema.Type<
+  typeof WorkspaceRemoveMonitorRoleDispatchPayload
 >;
 
-export const ServerRemoveMonitorRoleDispatchResult = ServerAddMonitorRoleDispatchResult;
-export type ServerRemoveMonitorRoleDispatchResult = Schema.Schema.Type<
-  typeof ServerRemoveMonitorRoleDispatchResult
+export const WorkspaceRemoveMonitorRoleDispatchResult = WorkspaceAddMonitorRoleDispatchResult;
+export type WorkspaceRemoveMonitorRoleDispatchResult = Schema.Schema.Type<
+  typeof WorkspaceRemoveMonitorRoleDispatchResult
 >;
 
-export const ServerSetSheetDispatchPayload = Schema.Struct({
+export const WorkspaceSetSheetDispatchPayload = Schema.Struct({
   ...CommandDispatchPayloadBase,
-  guildId: Schema.String,
+  workspaceId: Schema.String,
   sheetId: Schema.String,
 });
 
-export type ServerSetSheetDispatchPayload = Schema.Schema.Type<
-  typeof ServerSetSheetDispatchPayload
+export type WorkspaceSetSheetDispatchPayload = Schema.Schema.Type<
+  typeof WorkspaceSetSheetDispatchPayload
 >;
 
-export const ServerSetSheetDispatchResult = Schema.Struct({
-  guildId: Schema.String,
+export const WorkspaceSetSheetDispatchResult = Schema.Struct({
+  workspaceId: Schema.String,
   sheetId: Schema.String,
 });
 
-export type ServerSetSheetDispatchResult = Schema.Schema.Type<typeof ServerSetSheetDispatchResult>;
-
-export const ServerSetAutoCheckinDispatchPayload = Schema.Struct({
-  ...CommandDispatchPayloadBase,
-  guildId: Schema.String,
-  autoCheckin: Schema.Boolean,
-});
-
-export type ServerSetAutoCheckinDispatchPayload = Schema.Schema.Type<
-  typeof ServerSetAutoCheckinDispatchPayload
+export type WorkspaceSetSheetDispatchResult = Schema.Schema.Type<
+  typeof WorkspaceSetSheetDispatchResult
 >;
 
-export const ServerSetAutoCheckinDispatchResult = Schema.Struct({
-  guildId: Schema.String,
+export const WorkspaceSetAutoCheckinDispatchPayload = Schema.Struct({
+  ...CommandDispatchPayloadBase,
+  workspaceId: Schema.String,
   autoCheckin: Schema.Boolean,
 });
 
-export type ServerSetAutoCheckinDispatchResult = Schema.Schema.Type<
-  typeof ServerSetAutoCheckinDispatchResult
+export type WorkspaceSetAutoCheckinDispatchPayload = Schema.Schema.Type<
+  typeof WorkspaceSetAutoCheckinDispatchPayload
+>;
+
+export const WorkspaceSetAutoCheckinDispatchResult = Schema.Struct({
+  workspaceId: Schema.String,
+  autoCheckin: Schema.Boolean,
+});
+
+export type WorkspaceSetAutoCheckinDispatchResult = Schema.Schema.Type<
+  typeof WorkspaceSetAutoCheckinDispatchResult
 >;
 
 export const TeamListDispatchPayload = Schema.Struct({
   ...CommandDispatchPayloadBase,
-  guildId: Schema.String,
+  workspaceId: Schema.String,
   targetUserId: Schema.String,
   targetUsername: Schema.String,
 });
@@ -510,7 +544,7 @@ export const TeamListDispatchPayload = Schema.Struct({
 export type TeamListDispatchPayload = Schema.Schema.Type<typeof TeamListDispatchPayload>;
 
 export const TeamListDispatchResult = Schema.Struct({
-  guildId: Schema.String,
+  workspaceId: Schema.String,
   targetUserId: Schema.String,
   teamCount: Schema.Number,
 });
@@ -519,7 +553,7 @@ export type TeamListDispatchResult = Schema.Schema.Type<typeof TeamListDispatchR
 
 export const ScheduleListDispatchPayload = Schema.Struct({
   ...CommandDispatchPayloadBase,
-  guildId: Schema.String,
+  workspaceId: Schema.String,
   day: Schema.Number,
   targetUserId: Schema.String,
   targetUsername: Schema.String,
@@ -528,7 +562,7 @@ export const ScheduleListDispatchPayload = Schema.Struct({
 export type ScheduleListDispatchPayload = Schema.Schema.Type<typeof ScheduleListDispatchPayload>;
 
 export const ScheduleListDispatchResult = Schema.Struct({
-  guildId: Schema.String,
+  workspaceId: Schema.String,
   day: Schema.Number,
   targetUserId: Schema.String,
   invisible: Schema.Boolean,
@@ -538,16 +572,16 @@ export type ScheduleListDispatchResult = Schema.Schema.Type<typeof ScheduleListD
 
 export const ScreenshotDispatchPayload = Schema.Struct({
   ...CommandDispatchPayloadBase,
-  guildId: Schema.String,
-  channelName: Schema.String,
+  workspaceId: Schema.String,
+  conversationName: Schema.String,
   day: Schema.Number,
 });
 
 export type ScreenshotDispatchPayload = Schema.Schema.Type<typeof ScreenshotDispatchPayload>;
 
 export const ScreenshotDispatchResult = Schema.Struct({
-  guildId: Schema.String,
-  channelName: Schema.String,
+  workspaceId: Schema.String,
+  conversationName: Schema.String,
   day: Schema.Number,
   byteLength: Schema.Number,
 });
@@ -596,23 +630,23 @@ export const DispatchAcceptedResult = Schema.Struct({
     "slotList",
     "slotOpenButton",
     "serviceStatus",
-    "guildWelcome",
+    "workspaceWelcome",
     "updateAnnouncement",
-    "serviceAddGuildFeatureFlag",
-    "serviceRemoveGuildFeatureFlag",
+    "serviceAddWorkspaceFeatureFlag",
+    "serviceRemoveWorkspaceFeatureFlag",
     "checkinButton",
     "roomOrderPreviousButton",
     "roomOrderNextButton",
     "roomOrderSendButton",
     "roomOrderPinTentativeButton",
-    "channelListConfig",
-    "channelSet",
-    "channelUnset",
-    "serverListConfig",
-    "serverAddMonitorRole",
-    "serverRemoveMonitorRole",
-    "serverSetSheet",
-    "serverSetAutoCheckin",
+    "conversationListConfig",
+    "conversationSet",
+    "conversationUnset",
+    "workspaceListConfig",
+    "workspaceAddMonitorRole",
+    "workspaceRemoveMonitorRole",
+    "workspaceSetSheet",
+    "workspaceSetAutoCheckin",
     "teamList",
     "scheduleList",
     "screenshot",
@@ -629,12 +663,13 @@ export type RoomOrderButtonInteractionResponseType = Schema.Schema.Type<
 >;
 
 export const RoomOrderButtonBasePayload = Schema.Struct({
-  guildId: Schema.String,
+  ...ClientDispatchPayloadBase,
+  workspaceId: Schema.String,
   messageId: Schema.String,
-  messageChannelId: Schema.String,
+  messageConversationId: Schema.String,
   messageContent: Schema.optional(Schema.NullOr(Schema.String)),
-  interactionToken: Schema.String,
-  interactionDeadlineEpochMs: Schema.Number,
+  interactionResponseToken: Schema.String,
+  interactionResponseDeadlineEpochMs: Schema.Number,
   interactionResponseType: Schema.optional(RoomOrderButtonInteractionResponseType),
 });
 
@@ -658,7 +693,7 @@ export type RoomOrderPinTentativeButtonPayload = Schema.Schema.Type<
 
 export const RoomOrderButtonResult = Schema.Struct({
   messageId: Schema.String,
-  messageChannelId: Schema.String,
+  messageConversationId: Schema.String,
   status: Schema.Literals(["updated", "sent", "pinned", "partial", "denied", "failed"]),
   detail: Schema.NullOr(Schema.String),
 });

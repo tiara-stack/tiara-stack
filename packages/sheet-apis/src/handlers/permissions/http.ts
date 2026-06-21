@@ -1,4 +1,4 @@
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Predicate } from "effect";
 import { PermissionsRpcs } from "sheet-ingress-api/sheet-apis-rpc";
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
 import { AuthorizationService } from "@/services";
@@ -9,10 +9,9 @@ export const permissionsLayer = PermissionsRpcs.toLayer(
 
     return {
       "permissions.getCurrentUserPermissions": Effect.fnUntraced(function* ({ query }) {
-        const resolvedUser =
-          typeof query.guildId === "string"
-            ? yield* authorizationService.resolveCurrentGuildUser(query.guildId)
-            : yield* SheetAuthUser;
+        const resolvedUser = Predicate.isString(query.workspaceId)
+          ? yield* authorizationService.resolveCurrentWorkspaceUser(query.workspaceId)
+          : yield* SheetAuthUser;
         return {
           permissions: resolvedUser.permissions,
         };

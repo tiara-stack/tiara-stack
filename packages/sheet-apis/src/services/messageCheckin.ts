@@ -4,6 +4,8 @@ import { makeArgumentError, makeDBQueryError } from "typhoon-core/error";
 import { DefaultTaggedClass } from "typhoon-core/schema";
 import { ZeroClient } from "./zeroClient";
 import { MessageCheckin, MessageCheckinMember } from "sheet-ingress-api/schemas/messageCheckin";
+import type { MessageKey } from "./messageKey";
+import type { SheetTextPart } from "sheet-ingress-api/schemas/client";
 
 export class MessageCheckinMemberNotRegisteredError extends Schema.TaggedErrorClass<MessageCheckinMemberNotRegisteredError>()(
   "MessageCheckinMemberNotRegisteredError",
@@ -24,15 +26,12 @@ export class MessageCheckinService extends Context.Service<MessageCheckinService
       const zeroClient = yield* ZeroClient;
 
       const getMessageCheckinData = Effect.fn("MessageCheckinService.getMessageCheckinData")(
-        function* (messageId: string) {
-          const result = yield* zeroClient.run(
-            queries.messageCheckin.getMessageCheckinData({ messageId }),
-            {
-              type: "complete",
-            },
-          );
+        function* (key: MessageKey) {
+          const result = yield* zeroClient.run(queries.messageCheckin.getMessageCheckinData(key), {
+            type: "complete",
+          });
 
-          return yield* Schema.decodeEffect(
+          return yield* Schema.decodeUnknownEffect(
             Schema.OptionFromNullishOr(DefaultTaggedClass(MessageCheckin)),
           )(result);
         },
@@ -40,38 +39,35 @@ export class MessageCheckinService extends Context.Service<MessageCheckinService
 
       const upsertMessageCheckinData = Effect.fn("MessageCheckinService.upsertMessageCheckinData")(
         function* (
-          messageId: string,
+          key: MessageKey,
           data: {
-            initialMessage: string;
+            initialMessage: ReadonlyArray<SheetTextPart>;
             hour: number;
-            channelId: string;
+            runningConversationId: string;
             roleId?: string | null | undefined;
-            guildId: string | null;
-            messageChannelId: string | null;
+            workspaceId: string | null;
+            conversationId: string | null;
             createdByUserId: string | null;
           },
         ) {
           const mutation = yield* zeroClient.mutate(
             mutators.messageCheckin.upsertMessageCheckinData({
-              messageId,
+              ...key,
               initialMessage: data.initialMessage,
               hour: data.hour,
-              channelId: data.channelId,
+              runningConversationId: data.runningConversationId,
               roleId: data.roleId,
-              guildId: data.guildId,
-              messageChannelId: data.messageChannelId,
+              workspaceId: data.workspaceId,
+              conversationId: data.conversationId,
               createdByUserId: data.createdByUserId,
             }),
           );
           yield* mutation.server();
 
-          const result = yield* zeroClient.run(
-            queries.messageCheckin.getMessageCheckinData({ messageId }),
-            {
-              type: "complete",
-            },
-          );
-          const messageCheckin = yield* Schema.decodeEffect(
+          const result = yield* zeroClient.run(queries.messageCheckin.getMessageCheckinData(key), {
+            type: "complete",
+          });
+          const messageCheckin = yield* Schema.decodeUnknownEffect(
             Schema.OptionFromNullishOr(DefaultTaggedClass(MessageCheckin)),
           )(result);
 
@@ -84,9 +80,9 @@ export class MessageCheckinService extends Context.Service<MessageCheckinService
       );
 
       const getMessageCheckinMembers = Effect.fn("MessageCheckinService.getMessageCheckinMembers")(
-        function* (messageId: string) {
+        function* (key: MessageKey) {
           const result = yield* zeroClient.run(
-            queries.messageCheckin.getMessageCheckinMembers({ messageId }),
+            queries.messageCheckin.getMessageCheckinMembers(key),
             {
               type: "complete",
             },
@@ -99,14 +95,14 @@ export class MessageCheckinService extends Context.Service<MessageCheckinService
       );
 
       const addMessageCheckinMembers = Effect.fn("MessageCheckinService.addMessageCheckinMembers")(
-        function* (messageId: string, memberIds: readonly string[]) {
+        function* (key: MessageKey, memberIds: readonly string[]) {
           const mutation = yield* zeroClient.mutate(
-            mutators.messageCheckin.addMessageCheckinMembers({ messageId, memberIds }),
+            mutators.messageCheckin.addMessageCheckinMembers({ ...key, memberIds }),
           );
           yield* mutation.server();
 
           const result = yield* zeroClient.run(
-            queries.messageCheckin.getMessageCheckinMembers({ messageId }),
+            queries.messageCheckin.getMessageCheckinMembers(key),
             {
               type: "complete",
             },
@@ -120,15 +116,15 @@ export class MessageCheckinService extends Context.Service<MessageCheckinService
 
       const persistMessageCheckin = Effect.fn("MessageCheckinService.persistMessageCheckin")(
         function* (
-          messageId: string,
+          key: MessageKey,
           payload: {
             data: {
-              initialMessage: string;
+              initialMessage: ReadonlyArray<SheetTextPart>;
               hour: number;
-              channelId: string;
+              runningConversationId: string;
               roleId?: string | null | undefined;
-              guildId: string | null;
-              messageChannelId: string | null;
+              workspaceId: string | null;
+              conversationId: string | null;
               createdByUserId: string | null;
             };
             memberIds: readonly string[];
@@ -136,20 +132,17 @@ export class MessageCheckinService extends Context.Service<MessageCheckinService
         ) {
           const mutation = yield* zeroClient.mutate(
             mutators.messageCheckin.persistMessageCheckin({
-              messageId,
+              ...key,
               data: payload.data,
               memberIds: payload.memberIds,
             }),
           );
           yield* mutation.server();
 
-          const result = yield* zeroClient.run(
-            queries.messageCheckin.getMessageCheckinData({ messageId }),
-            {
-              type: "complete",
-            },
-          );
-          const messageCheckin = yield* Schema.decodeEffect(
+          const result = yield* zeroClient.run(queries.messageCheckin.getMessageCheckinData(key), {
+            type: "complete",
+          });
+          const messageCheckin = yield* Schema.decodeUnknownEffect(
             Schema.OptionFromNullishOr(DefaultTaggedClass(MessageCheckin)),
           )(result);
 
@@ -163,15 +156,10 @@ export class MessageCheckinService extends Context.Service<MessageCheckinService
 
       const setMessageCheckinMemberCheckinAt = Effect.fn(
         "MessageCheckinService.setMessageCheckinMemberCheckinAt",
-      )(function* (
-        messageId: string,
-        memberId: string,
-        checkinAt: number,
-        checkinClaimId?: string,
-      ) {
+      )(function* (key: MessageKey, memberId: string, checkinAt: number, checkinClaimId?: string) {
         const mutation = yield* zeroClient.mutate(
           mutators.messageCheckin.setMessageCheckinMemberCheckinAt({
-            messageId,
+            ...key,
             memberId,
             checkinAt,
             checkinClaimId,
@@ -179,12 +167,9 @@ export class MessageCheckinService extends Context.Service<MessageCheckinService
         );
         yield* mutation.server();
 
-        const result = yield* zeroClient.run(
-          queries.messageCheckin.getMessageCheckinMembers({ messageId }),
-          {
-            type: "complete",
-          },
-        );
+        const result = yield* zeroClient.run(queries.messageCheckin.getMessageCheckinMembers(key), {
+          type: "complete",
+        });
         const members = yield* Schema.decodeEffect(
           Schema.Array(DefaultTaggedClass(MessageCheckinMember)),
         )(result);
@@ -201,10 +186,10 @@ export class MessageCheckinService extends Context.Service<MessageCheckinService
 
       const setMessageCheckinMemberCheckinAtIfUnset = Effect.fn(
         "MessageCheckinService.setMessageCheckinMemberCheckinAtIfUnset",
-      )(function* (messageId: string, memberId: string, checkinAt: number, checkinClaimId: string) {
+      )(function* (key: MessageKey, memberId: string, checkinAt: number, checkinClaimId: string) {
         const mutation = yield* zeroClient.mutate(
           mutators.messageCheckin.setMessageCheckinMemberCheckinAtIfUnset({
-            messageId,
+            ...key,
             memberId,
             checkinAt,
             checkinClaimId,
@@ -212,12 +197,9 @@ export class MessageCheckinService extends Context.Service<MessageCheckinService
         );
         yield* mutation.server();
 
-        const result = yield* zeroClient.run(
-          queries.messageCheckin.getMessageCheckinMembers({ messageId }),
-          {
-            type: "complete",
-          },
-        );
+        const result = yield* zeroClient.run(queries.messageCheckin.getMessageCheckinMembers(key), {
+          type: "complete",
+        });
         const members = yield* Schema.decodeEffect(
           Schema.Array(DefaultTaggedClass(MessageCheckinMember)),
         )(result);
@@ -232,18 +214,15 @@ export class MessageCheckinService extends Context.Service<MessageCheckinService
 
       const removeMessageCheckinMember = Effect.fn(
         "MessageCheckinService.removeMessageCheckinMember",
-      )(function* (messageId: string, memberId: string) {
+      )(function* (key: MessageKey, memberId: string) {
         const mutation = yield* zeroClient.mutate(
-          mutators.messageCheckin.removeMessageCheckinMember({ messageId, memberId }),
+          mutators.messageCheckin.removeMessageCheckinMember({ ...key, memberId }),
         );
         yield* mutation.server();
 
-        const result = yield* zeroClient.run(
-          queries.messageCheckin.getMessageCheckinMembers({ messageId }),
-          {
-            type: "complete",
-          },
-        );
+        const result = yield* zeroClient.run(queries.messageCheckin.getMessageCheckinMembers(key), {
+          type: "complete",
+        });
         const members = yield* Schema.decodeEffect(
           Schema.Array(DefaultTaggedClass(MessageCheckinMember)),
         )(result);

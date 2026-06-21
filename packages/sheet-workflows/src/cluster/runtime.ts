@@ -15,7 +15,12 @@ import { HttpRouter } from "effect/unstable/http";
 import { RpcSerialization } from "effect/unstable/rpc";
 import { createServer } from "node:http";
 import { config } from "@/config";
-import { AutoCheckinService, DispatchService, IngressBotClient, SheetApisClient } from "@/services";
+import {
+  AutoCheckinService,
+  DispatchService,
+  ClientDeliveryClient,
+  SheetApisClient,
+} from "@/services";
 import { autoCheckinWorkflowLayer } from "@/workflows/autoCheckin";
 import { getClusterRunnerReadinessSnapshot, postgresSqlLayer } from "@/services";
 import { dispatchButtonEntityLayer, dispatchWorkflowLayer } from "@/workflows/dispatch";
@@ -121,7 +126,7 @@ const clusterStartupLayer = Layer.effectDiscard(
   }),
 );
 
-const dispatchClientsLayer = Layer.mergeAll(IngressBotClient.layer, SheetApisClient.layer);
+const dispatchClientsLayer = Layer.mergeAll(ClientDeliveryClient.layer, SheetApisClient.layer);
 
 const dispatchServicesLayer = Layer.effect(DispatchService, DispatchService.make).pipe(
   Layer.provideMerge(dispatchClientsLayer),

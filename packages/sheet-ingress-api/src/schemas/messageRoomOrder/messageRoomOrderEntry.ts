@@ -4,6 +4,8 @@ import type { DateTimeOptionField, NumberField, StringArrayField, StringField } 
 import { modelTaggedFields, validateTaggedFields } from "../model";
 
 const MessageRoomOrderEntryFields = validateTaggedFields<{
+  readonly clientPlatform: StringField;
+  readonly clientId: StringField;
   readonly messageId: StringField;
   readonly rank: NumberField;
   readonly position: NumberField;
@@ -18,6 +20,8 @@ const MessageRoomOrderEntryFields = validateTaggedFields<{
     omit: new Set(["hour"]),
   }),
   [
+    "clientPlatform",
+    "clientId",
     "messageId",
     "rank",
     "position",

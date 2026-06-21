@@ -1,5 +1,6 @@
+// fallow-ignore-file code-duplication
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Option, Context } from "effect";
+import { Effect, Option } from "effect";
 import {
   LEGACY_MESSAGE_ROOM_ORDER_ACCESS_ERROR,
   requireRoomOrderMonitorAccess,
@@ -7,24 +8,29 @@ import {
 } from "./http";
 import { Unauthorized } from "typhoon-core/error";
 import { MessageRoomOrder } from "sheet-ingress-api/schemas/messageRoomOrder";
-import { AuthorizationService, MessageRoomOrderService } from "@/services";
-import { getFailure, liveGuildServices, withUser } from "@/test-utils/guildTestHelpers";
+import { MessageRoomOrderService } from "@/services";
+import { getFailure, liveWorkspaceServices, withUser } from "@/test-utils/guildTestHelpers";
+import {
+  messageKey,
+  resolveMessageRecordRefs,
+  type MessageRecordOverrides,
+  withAuthorization,
+} from "../messageAuthTestHelpers";
 
 type MessageRoomOrderAccessService = Pick<
   typeof MessageRoomOrderService.Service,
   "getMessageRoomOrder"
 >;
-type AuthorizationServiceApi = Context.Service.Shape<typeof AuthorizationService>;
 
-const makeMessageRoomOrderRecord = (overrides?: {
-  readonly guildId?: string | null;
-  readonly messageChannelId?: string | null;
-}) => {
-  const guildId = overrides && "guildId" in overrides ? overrides.guildId : "guild-1";
-  const messageChannelId =
-    overrides && "messageChannelId" in overrides ? overrides.messageChannelId : "channel-1";
+const makeMessageRoomOrderRecord = (overrides?: MessageRecordOverrides) => {
+  const refs = resolveMessageRecordRefs(overrides, {
+    workspaceId: "guild-1",
+    conversationId: "channel-1",
+  });
 
   return new MessageRoomOrder({
+    clientPlatform: "discord",
+    clientId: "discord-main",
     messageId: "message-1",
     hour: 1,
     previousFills: [],
@@ -32,13 +38,13 @@ const makeMessageRoomOrderRecord = (overrides?: {
     rank: 1,
     tentative: false,
     monitor: Option.none(),
-    guildId: Option.fromNullishOr(guildId),
-    messageChannelId: Option.fromNullishOr(messageChannelId),
+    workspaceId: Option.fromNullishOr(refs.workspaceId),
+    conversationId: Option.fromNullishOr(refs.conversationId),
     createdByUserId: Option.some("creator-1"),
     sendClaimId: Option.none(),
     sendClaimedAt: Option.none(),
     sentMessageId: Option.none(),
-    sentMessageChannelId: Option.none(),
+    sentConversationId: Option.none(),
     sentAt: Option.none(),
     tentativeUpdateClaimId: Option.none(),
     tentativeUpdateClaimedAt: Option.none(),
@@ -56,18 +62,14 @@ const makeRoomOrderService = (record?: MessageRoomOrder) =>
     getMessageRoomOrder: () => Effect.succeed(Option.fromNullishOr(record)),
   }) satisfies MessageRoomOrderAccessService;
 
-const withAuthorization = Effect.fnUntraced(function* <A, E, R>(
-  f: (authorizationService: AuthorizationServiceApi) => Effect.Effect<A, E, R>,
-) {
-  const authorizationService = yield* AuthorizationService.make;
-  return yield* f(authorizationService);
-});
-
 describe("messageRoomOrder legacy access", () => {
   it.effect(
     "denies legacy record access via requireRoomOrderMonitorAccess",
     Effect.fnUntraced(function* () {
-      const legacyRecord = makeMessageRoomOrderRecord({ guildId: null, messageChannelId: null });
+      const legacyRecord = makeMessageRoomOrderRecord({
+        workspaceId: null,
+        conversationId: null,
+      });
       let operationCalls = 0;
 
       const error = yield* getFailure(
@@ -80,7 +82,7 @@ describe("messageRoomOrder legacy access", () => {
             }),
           ),
           withUser(["service"]),
-          liveGuildServices(),
+          liveWorkspaceServices(),
         ),
       );
 
@@ -94,8 +96,8 @@ describe("messageRoomOrder legacy access", () => {
     "denies partially legacy record access for regular users",
     Effect.fnUntraced(function* () {
       const legacyRecord = makeMessageRoomOrderRecord({
-        guildId: "guild-1",
-        messageChannelId: null,
+        workspaceId: "guild-1",
+        conversationId: null,
       });
 
       const error = yield* getFailure(
@@ -103,7 +105,7 @@ describe("messageRoomOrder legacy access", () => {
           requireRoomOrderMonitorAccess(authorizationService, legacyRecord),
         ).pipe(
           withUser([], { accountId: "discord-account-1", userId: "user-1" }),
-          liveGuildServices(),
+          liveWorkspaceServices(),
         ),
       );
 
@@ -121,9 +123,9 @@ describe("messageRoomOrder legacy access", () => {
           requireRoomOrderUpsertAccess(
             authorizationService,
             makeRoomOrderService(
-              makeMessageRoomOrderRecord({ guildId: null, messageChannelId: null }),
+              makeMessageRoomOrderRecord({ workspaceId: null, conversationId: null }),
             ),
-            "message-1",
+            messageKey,
           ),
         ).pipe(
           Effect.andThen(
@@ -132,7 +134,7 @@ describe("messageRoomOrder legacy access", () => {
             }),
           ),
           withUser(["service"]),
-          liveGuildServices(),
+          liveWorkspaceServices(),
         ),
       );
 
@@ -147,8 +149,8 @@ describe("messageRoomOrder legacy access", () => {
     Effect.fnUntraced(function* () {
       const error = yield* getFailure(
         withAuthorization((authorizationService) =>
-          requireRoomOrderUpsertAccess(authorizationService, makeRoomOrderService(), "message-1"),
-        ).pipe(withUser(["service"]), liveGuildServices()),
+          requireRoomOrderUpsertAccess(authorizationService, makeRoomOrderService(), messageKey),
+        ).pipe(withUser(["service"]), liveWorkspaceServices()),
       );
 
       expect(error).toBeInstanceOf(Unauthorized);
@@ -163,7 +165,7 @@ describe("messageRoomOrder legacy access", () => {
         requireRoomOrderMonitorAccess(authorizationService, makeMessageRoomOrderRecord()),
       ).pipe(
         withUser([], { accountId: "discord-account-1", userId: "user-1" }),
-        liveGuildServices({
+        liveWorkspaceServices({
           memberAccountId: "discord-account-1",
           memberRoles: ["monitor-role"],
           monitorRoleIds: ["monitor-role"],
@@ -179,12 +181,12 @@ describe("messageRoomOrder legacy access", () => {
         requireRoomOrderUpsertAccess(
           authorizationService,
           makeRoomOrderService(),
-          "message-1",
+          messageKey,
           "guild-1",
         ),
       ).pipe(
         withUser([], { accountId: "discord-account-1", userId: "user-1" }),
-        liveGuildServices({
+        liveWorkspaceServices({
           memberAccountId: "discord-account-1",
           memberRoles: ["monitor-role"],
           monitorRoleIds: ["monitor-role"],

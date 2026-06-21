@@ -15,7 +15,7 @@ const dispatchRpcNames = [
   "dispatch.slotButton",
   "dispatch.slotList",
   "dispatch.slotOpenButton",
-  "dispatch.guildWelcome",
+  "dispatch.workspaceWelcome",
   "dispatch.updateAnnouncement",
 ] as const;
 
@@ -87,10 +87,10 @@ describe("Api", () => {
       name: "serviceStatus",
       path: "/dispatch/status/services",
     });
-    expect(SheetWorkflowsApi.groups.dispatch.endpoints.guildWelcome).toMatchObject({
+    expect(SheetWorkflowsApi.groups.dispatch.endpoints.workspaceWelcome).toMatchObject({
       method: "POST",
-      name: "guildWelcome",
-      path: "/dispatch/guild/welcome",
+      name: "workspaceWelcome",
+      path: "/dispatch/workspace/welcome",
     });
     expect(SheetWorkflowsApi.groups.dispatch.endpoints.updateAnnouncement).toMatchObject({
       method: "POST",
@@ -112,10 +112,10 @@ describe("Api", () => {
       name: "serviceStatus",
       path: "/dispatch/status/services",
     });
-    expect(Api.groups.dispatch.endpoints.guildWelcome).toMatchObject({
+    expect(Api.groups.dispatch.endpoints.workspaceWelcome).toMatchObject({
       method: "POST",
-      name: "guildWelcome",
-      path: "/dispatch/guild/welcome",
+      name: "workspaceWelcome",
+      path: "/dispatch/workspace/welcome",
     });
     expect(Api.groups.dispatch.endpoints.updateAnnouncement).toMatchObject({
       method: "POST",
@@ -157,13 +157,13 @@ describe("Api", () => {
     });
     expect(
       Schema.decodeUnknownSync(DispatchAcceptedResult)({
-        executionId: "guild-welcome-execution",
-        operation: "guildWelcome",
+        executionId: "workspace-welcome-execution",
+        operation: "workspaceWelcome",
         status: "accepted",
       }),
     ).toEqual({
-      executionId: "guild-welcome-execution",
-      operation: "guildWelcome",
+      executionId: "workspace-welcome-execution",
+      operation: "workspaceWelcome",
       status: "accepted",
     });
   });

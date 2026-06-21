@@ -29,7 +29,6 @@
     "@opentelemetry/exporter-prometheus": "^0.207.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.207.0",
     "@opentelemetry/sdk-trace-base": "^2.2.0",
-    "dfx-discord-utils": "workspace:*",
     "sheet-auth": "workspace:*",
     "sheet-db-schema": "workspace:*",
     "sheet-ingress-api": "workspace:*",
@@ -49,7 +48,6 @@
   "peerDependencies": {
     "@effect/opentelemetry": "catalog:",
     "@effect/platform-node": "catalog:",
-    "dfx": "catalog:",
     "effect": "catalog:"
   }
 }

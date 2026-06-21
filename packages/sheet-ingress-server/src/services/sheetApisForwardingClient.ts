@@ -28,33 +28,43 @@ export class SheetApisForwardingClient extends Context.Service<SheetApisForwardi
           getCurrentUser: callNoInput(rpcClient["discord.getCurrentUser"]),
           getCurrentUserGuilds: callNoInput(rpcClient["discord.getCurrentUserGuilds"]),
         },
-        guildConfig: {
-          getAutoCheckinGuilds: callNoInput(rpcClient["guildConfig.getAutoCheckinGuilds"]),
-          getGuildConfig: call(rpcClient["guildConfig.getGuildConfig"]),
-          upsertGuildConfig: call(rpcClient["guildConfig.upsertGuildConfig"]),
-          getGuildMonitorRoles: call(rpcClient["guildConfig.getGuildMonitorRoles"]),
-          getGuildFeatureFlags: call(rpcClient["guildConfig.getGuildFeatureFlags"]),
-          getGuildsForFeatureFlag: call(rpcClient["guildConfig.getGuildsForFeatureFlag"]),
-          getGuildUpdateAnnouncementDelivery: call(
-            rpcClient["guildConfig.getGuildUpdateAnnouncementDelivery"],
+        workspaceConfig: {
+          getAutoCheckinWorkspaces: callNoInput(
+            rpcClient["workspaceConfig.getAutoCheckinWorkspaces"],
           ),
-          getGuildChannels: call(rpcClient["guildConfig.getGuildChannels"]),
-          addGuildMonitorRole: call(rpcClient["guildConfig.addGuildMonitorRole"]),
-          removeGuildMonitorRole: call(rpcClient["guildConfig.removeGuildMonitorRole"]),
-          addGuildFeatureFlag: call(rpcClient["guildConfig.addGuildFeatureFlag"]),
-          removeGuildFeatureFlag: call(rpcClient["guildConfig.removeGuildFeatureFlag"]),
-          recordGuildUpdateAnnouncementDelivery: call(
-            rpcClient["guildConfig.recordGuildUpdateAnnouncementDelivery"],
+          getWorkspaceConfig: call(rpcClient["workspaceConfig.getWorkspaceConfig"]),
+          upsertWorkspaceConfig: call(rpcClient["workspaceConfig.upsertWorkspaceConfig"]),
+          getWorkspaceMonitorRoles: call(rpcClient["workspaceConfig.getWorkspaceMonitorRoles"]),
+          getWorkspaceFeatureFlags: call(rpcClient["workspaceConfig.getWorkspaceFeatureFlags"]),
+          getWorkspacesForFeatureFlag: call(
+            rpcClient["workspaceConfig.getWorkspacesForFeatureFlag"],
           ),
-          claimGuildUpdateAnnouncementDelivery: call(
-            rpcClient["guildConfig.claimGuildUpdateAnnouncementDelivery"],
+          getWorkspaceUpdateAnnouncementDelivery: call(
+            rpcClient["workspaceConfig.getWorkspaceUpdateAnnouncementDelivery"],
           ),
-          releaseGuildUpdateAnnouncementDeliveryClaim: call(
-            rpcClient["guildConfig.releaseGuildUpdateAnnouncementDeliveryClaim"],
+          getWorkspaceConversations: call(rpcClient["workspaceConfig.getWorkspaceConversations"]),
+          addWorkspaceMonitorRole: call(rpcClient["workspaceConfig.addWorkspaceMonitorRole"]),
+          removeWorkspaceMonitorRole: call(rpcClient["workspaceConfig.removeWorkspaceMonitorRole"]),
+          addWorkspaceFeatureFlag: call(rpcClient["workspaceConfig.addWorkspaceFeatureFlag"]),
+          removeWorkspaceFeatureFlag: call(rpcClient["workspaceConfig.removeWorkspaceFeatureFlag"]),
+          recordWorkspaceUpdateAnnouncementDelivery: call(
+            rpcClient["workspaceConfig.recordWorkspaceUpdateAnnouncementDelivery"],
           ),
-          upsertGuildChannelConfig: call(rpcClient["guildConfig.upsertGuildChannelConfig"]),
-          getGuildChannelById: call(rpcClient["guildConfig.getGuildChannelById"]),
-          getGuildChannelByName: call(rpcClient["guildConfig.getGuildChannelByName"]),
+          claimWorkspaceUpdateAnnouncementDelivery: call(
+            rpcClient["workspaceConfig.claimWorkspaceUpdateAnnouncementDelivery"],
+          ),
+          releaseWorkspaceUpdateAnnouncementDeliveryClaim: call(
+            rpcClient["workspaceConfig.releaseWorkspaceUpdateAnnouncementDeliveryClaim"],
+          ),
+          upsertWorkspaceConversationConfig: call(
+            rpcClient["workspaceConfig.upsertWorkspaceConversationConfig"],
+          ),
+          getWorkspaceConversationById: call(
+            rpcClient["workspaceConfig.getWorkspaceConversationById"],
+          ),
+          getWorkspaceConversationByName: call(
+            rpcClient["workspaceConfig.getWorkspaceConversationByName"],
+          ),
         },
         messageCheckin: {
           getMessageCheckinData: call(rpcClient["messageCheckin.getMessageCheckinData"]),
@@ -139,7 +149,9 @@ export class SheetApisForwardingClient extends Context.Service<SheetApisForwardi
         schedule: {
           getAllPopulatedSchedules: call(rpcClient["schedule.getAllPopulatedSchedules"]),
           getDayPopulatedSchedules: call(rpcClient["schedule.getDayPopulatedSchedules"]),
-          getChannelPopulatedSchedules: call(rpcClient["schedule.getChannelPopulatedSchedules"]),
+          getConversationPopulatedSchedules: call(
+            rpcClient["schedule.getConversationPopulatedSchedules"],
+          ),
           getDayPlayerSchedule: call(rpcClient["schedule.getDayPlayerSchedule"]),
         },
         screenshot: {
@@ -151,7 +163,7 @@ export class SheetApisForwardingClient extends Context.Service<SheetApisForwardi
           getTeams: call(rpcClient["sheet.getTeams"]),
           getAllSchedules: call(rpcClient["sheet.getAllSchedules"]),
           getDaySchedules: call(rpcClient["sheet.getDaySchedules"]),
-          getChannelSchedules: call(rpcClient["sheet.getChannelSchedules"]),
+          getConversationSchedules: call(rpcClient["sheet.getConversationSchedules"]),
           getRangesConfig: call(rpcClient["sheet.getRangesConfig"]),
           getTeamConfig: call(rpcClient["sheet.getTeamConfig"]),
           getEventConfig: call(rpcClient["sheet.getEventConfig"]),

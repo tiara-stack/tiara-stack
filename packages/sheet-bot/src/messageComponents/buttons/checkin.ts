@@ -2,7 +2,7 @@ import { InteractionsRegistry } from "dfx/gateway";
 import { ButtonStyle, MessageFlags } from "discord-api-types/v10";
 import { Ix } from "dfx/index";
 import { Effect, Layer, Option, pipe } from "effect";
-import { CHECKIN_BUTTON_CUSTOM_ID } from "sheet-ingress-api/discordComponents";
+import { CHECKIN_ACTION_ID } from "sheet-ingress-api/clientActions";
 import { discordGatewayLayer } from "../../discord/gateway";
 import {
   MessageComponentInteractionResponse,
@@ -15,6 +15,7 @@ import { Interaction } from "dfx-discord-utils/utils";
 import { discordApplicationLayer } from "../../discord/application";
 import { SheetWorkflowsClient, SheetWorkflowsRequestContext } from "@/services";
 import { interactionDeadlineEpochMs } from "@/utils/interactionDeadline";
+import { config } from "@/config";
 
 const getInteractionMessage = Effect.gen(function* () {
   const interactionMessage = yield* Interaction.message();
@@ -27,7 +28,7 @@ const getInteractionMessage = Effect.gen(function* () {
 const makeCheckinButtonData = (disabled = false) =>
   makeButtonData((b) =>
     b
-      .setCustomId(CHECKIN_BUTTON_CUSTOM_ID)
+      .setCustomId(CHECKIN_ACTION_ID)
       .setLabel("Check in")
       .setStyle(ButtonStyle.Primary)
       .setEmoji({ id: "907705464215711834", name: "Miku_Happy" })
@@ -49,12 +50,14 @@ const makeCheckinButtonHandler = Effect.gen(function* () {
         const message = Option.getOrThrow(yield* getInteractionMessage);
         const interactionToken = yield* InteractionToken;
         const interaction = yield* Ix.Interaction;
+        const clientId = yield* config.sheetBotClientId;
 
         yield* sheetWorkflowsClient.get().dispatch.checkinButton({
           payload: {
+            client: { platform: "discord", clientId },
             messageId: message.id,
-            interactionToken: interactionToken.token,
-            interactionDeadlineEpochMs: interactionDeadlineEpochMs(interaction.id),
+            interactionResponseToken: interactionToken.token,
+            interactionResponseDeadlineEpochMs: interactionDeadlineEpochMs(interaction.id),
           },
         });
       }),

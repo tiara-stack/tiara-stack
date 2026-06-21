@@ -4,7 +4,7 @@ export * as MessageSlot from "sheet-ingress-api/schemas/messageSlot";
 export * as MessageRoomOrder from "sheet-ingress-api/schemas/messageRoomOrder";
 export * as MessageCheckin from "sheet-ingress-api/schemas/messageCheckin";
 export * as Checkin from "sheet-ingress-api/schemas/checkin";
-export * as GuildConfig from "sheet-ingress-api/schemas/guildConfig";
+export * as WorkspaceConfig from "sheet-ingress-api/schemas/workspaceConfig";
 export * as Discord from "sheet-ingress-api/schemas/discord";
 export * as Permissions from "sheet-ingress-api/schemas/permissions";
 export * as Middlewares from "sheet-ingress-api/schemas/middlewares";

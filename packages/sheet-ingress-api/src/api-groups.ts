@@ -1,8 +1,9 @@
 export { CalcApi } from "./handlers/calc/api";
 export { CheckinApi } from "./handlers/checkin/api";
+export { ClientDeliveryApi } from "./handlers/clientDelivery/api";
 export { DispatchApi } from "./handlers/dispatch/api";
 export { DiscordApi } from "./handlers/discord/api";
-export { GuildConfigApi } from "./handlers/guildConfig/api";
+export { WorkspaceConfigApi } from "./handlers/workspaceConfig/api";
 export { HealthApi } from "./handlers/health/api";
 export { IngressBotApi } from "./handlers/ingressBot/api";
 export { MessageCheckinApi } from "./handlers/messageCheckin/api";

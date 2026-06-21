@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import { describe, expect, it } from "@effect/vitest";
 import { vi } from "vitest";
 import { Cause, Effect, Exit, Option } from "effect";
@@ -18,6 +19,8 @@ const makeRoomOrder = (
   overrides: Partial<ConstructorParameters<typeof MessageRoomOrder>[0]> = {},
 ) =>
   new MessageRoomOrder({
+    clientPlatform: "discord",
+    clientId: "discord-main",
     messageId: "room-order-message-1",
     hour: 20,
     previousFills: [],
@@ -25,13 +28,13 @@ const makeRoomOrder = (
     rank: 0,
     tentative: false,
     monitor: Option.none(),
-    guildId: Option.some("registered-guild-1"),
-    messageChannelId: Option.some("running-channel-1"),
+    workspaceId: Option.some("registered-guild-1"),
+    conversationId: Option.some("running-channel-1"),
     createdByUserId: Option.none(),
     sendClaimId: Option.none(),
     sendClaimedAt: Option.none(),
     sentMessageId: Option.none(),
-    sentMessageChannelId: Option.none(),
+    sentConversationId: Option.none(),
     sentAt: Option.none(),
     tentativeUpdateClaimId: Option.none(),
     tentativeUpdateClaimedAt: Option.none(),
@@ -57,21 +60,21 @@ const runAuthorization = <A, E, R>(
   const getMessageRoomOrder = vi.fn(() =>
     lookupError === undefined ? Effect.succeed(roomOrder) : Effect.fail(lookupError),
   );
-  const requireMonitorGuild = vi.fn(() => Effect.void);
+  const requireMonitorWorkspace = vi.fn(() => Effect.void);
 
   const provided = effect.pipe(
     Effect.provideService(MessageLookup, {
       getMessageRoomOrder,
     } as never),
     Effect.provideService(AuthorizationService, {
-      requireMonitorGuild,
+      requireMonitorWorkspace,
     } as never),
   ) as Effect.Effect<A, E, never>;
 
   return Effect.runPromiseExit(provided).then((exit) => ({
     exit,
     getMessageRoomOrder,
-    requireMonitorGuild,
+    requireMonitorWorkspace,
   }));
 };
 
@@ -92,12 +95,12 @@ describe("room-order button proxy authorization", () => {
   });
 
   it("requires registered records for room-order button policy", async () => {
-    const { exit, requireMonitorGuild } = await runAuthorization(
+    const { exit, requireMonitorWorkspace } = await runAuthorization(
       requireRegisteredRoomOrderButton({ messageId: "missing-message-1" }),
     );
 
     expect(Exit.isFailure(exit)).toBe(true);
-    expect(requireMonitorGuild).not.toHaveBeenCalled();
+    expect(requireMonitorWorkspace).not.toHaveBeenCalled();
     if (Exit.isFailure(exit)) {
       expect(Cause.pretty(exit.cause)).toContain(MESSAGE_ROOM_ORDER_NOT_REGISTERED_ERROR_MESSAGE);
     }
@@ -118,37 +121,37 @@ describe("room-order button proxy authorization", () => {
   });
 
   it("authorizes registered button actions against the persisted message guild", async () => {
-    const { exit, requireMonitorGuild } = await runAuthorization(
+    const { exit, requireMonitorWorkspace } = await runAuthorization(
       requireRegisteredRoomOrderButton({ messageId: "room-order-message-1" }),
       { roomOrder: Option.some(makeRoomOrder()) },
     );
 
     expect(Exit.isSuccess(exit)).toBe(true);
-    expect(requireMonitorGuild).toHaveBeenCalledWith("registered-guild-1");
+    expect(requireMonitorWorkspace).toHaveBeenCalledWith("registered-guild-1");
   });
 
   it("allows pinTentative fallback authorization by verified payload guild when no record exists", async () => {
-    const { exit, requireMonitorGuild } = await runAuthorization(
+    const { exit, requireMonitorWorkspace } = await runAuthorization(
       requireRoomOrderPinTentativeButton({
-        guildId: "fallback-guild-1",
+        workspaceId: "fallback-guild-1",
         messageId: "unregistered-room-order-message-1",
       }),
     );
 
     expect(Exit.isSuccess(exit)).toBe(true);
-    expect(requireMonitorGuild).toHaveBeenCalledWith("fallback-guild-1");
+    expect(requireMonitorWorkspace).toHaveBeenCalledWith("fallback-guild-1");
   });
 
   it("uses the persisted message guild for pinTentative when a record exists", async () => {
-    const { exit, requireMonitorGuild } = await runAuthorization(
+    const { exit, requireMonitorWorkspace } = await runAuthorization(
       requireRoomOrderPinTentativeButton({
-        guildId: "payload-guild-1",
+        workspaceId: "payload-guild-1",
         messageId: "room-order-message-1",
       }),
       { roomOrder: Option.some(makeRoomOrder()) },
     );
 
     expect(Exit.isSuccess(exit)).toBe(true);
-    expect(requireMonitorGuild).toHaveBeenCalledWith("registered-guild-1");
+    expect(requireMonitorWorkspace).toHaveBeenCalledWith("registered-guild-1");
   });
 });

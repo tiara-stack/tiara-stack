@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import { HttpClient } from "effect/unstable/http";
 import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
 import { Context, Effect, Layer } from "effect";

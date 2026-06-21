@@ -8,15 +8,15 @@ describe("sendTentativeRoomOrder", () => {
 
     await Effect.runPromise(
       sendTentativeRoomOrder({
-        guildId: "guild-1",
-        runningChannelId: "channel-1",
+        workspaceId: "guild-1",
+        runningConversationId: "channel-1",
         hour: 20,
         fillCount: 5,
         createdByUserId: "user-1",
         roomOrderService: {
           generate: () =>
             Effect.succeed({
-              content: "Room order content",
+              content: [{ type: "text", text: "Room order content" }],
               range: { minRank: 0, maxRank: 1 },
               rank: 0,
               hour: 20,

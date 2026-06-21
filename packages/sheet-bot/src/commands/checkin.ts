@@ -55,11 +55,11 @@ const makeManualSubCommand = Effect.gen(function* () {
           sheetWorkflowsClient.get().dispatch.checkin({
             payload: {
               ...base,
-              guildId,
+              workspaceId: guildId,
               ...(Option.isSome(channelNameOption)
-                ? { channelName: channelNameOption.value }
+                ? { conversationName: channelNameOption.value }
                 : {
-                    channelId: interactionChannelId,
+                    conversationId: interactionChannelId,
                   }),
               ...pipe(
                 command.optionValueOptional("hour"),
@@ -109,8 +109,8 @@ const makeTestAutoSubCommand = Effect.gen(function* () {
           sheetWorkflowsClient.get().dispatch.autoCheckinTest({
             payload: {
               ...base,
-              guildId,
-              anchorChannelId,
+              workspaceId: guildId,
+              anchorConversationId: anchorChannelId,
             },
           }),
         )(),

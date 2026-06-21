@@ -26,7 +26,7 @@ const ScheduleViewUrlParam = Schema.optional(ScheduleView);
 export class ScheduleApi extends HttpApiGroup.make("schedule")
   .add(
     HttpApiEndpoint.get("getAllPopulatedSchedules", "/schedule/getAllPopulatedSchedules", {
-      query: Schema.Struct({ guildId: Schema.String, view: ScheduleViewUrlParam }),
+      query: Schema.Struct({ workspaceId: Schema.String, view: ScheduleViewUrlParam }),
       success: PopulatedScheduleResponse,
       error: ScheduleError,
     }),
@@ -34,7 +34,7 @@ export class ScheduleApi extends HttpApiGroup.make("schedule")
   .add(
     HttpApiEndpoint.get("getDayPopulatedSchedules", "/schedule/getDayPopulatedSchedules", {
       query: Schema.Struct({
-        guildId: Schema.String,
+        workspaceId: Schema.String,
         day: Schema.NumberFromString,
         view: ScheduleViewUrlParam,
       }),
@@ -43,20 +43,24 @@ export class ScheduleApi extends HttpApiGroup.make("schedule")
     }),
   )
   .add(
-    HttpApiEndpoint.get("getChannelPopulatedSchedules", "/schedule/getChannelPopulatedSchedules", {
-      query: Schema.Struct({
-        guildId: Schema.String,
-        channel: Schema.String,
-        view: ScheduleViewUrlParam,
-      }),
-      success: PopulatedScheduleResponse,
-      error: ScheduleError,
-    }),
+    HttpApiEndpoint.get(
+      "getConversationPopulatedSchedules",
+      "/schedule/getConversationPopulatedSchedules",
+      {
+        query: Schema.Struct({
+          workspaceId: Schema.String,
+          conversationName: Schema.String,
+          view: ScheduleViewUrlParam,
+        }),
+        success: PopulatedScheduleResponse,
+        error: ScheduleError,
+      },
+    ),
   )
   .add(
     HttpApiEndpoint.get("getDayPlayerSchedule", "/schedule/getDayPlayerSchedule", {
       query: Schema.Struct({
-        guildId: Schema.String,
+        workspaceId: Schema.String,
         day: Schema.NumberFromString,
         accountId: Schema.String,
         view: ScheduleViewUrlParam,

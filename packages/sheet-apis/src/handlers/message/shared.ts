@@ -1,15 +1,15 @@
 import { Option } from "effect";
 
-export const getModernMessageGuildId = <
+export const getModernMessageWorkspaceId = <
   T extends {
-    guildId: Option.Option<string>;
-    messageChannelId: Option.Option<string>;
+    workspaceId: Option.Option<string>;
+    conversationId: Option.Option<string>;
   },
 >(
   record: T,
 ) =>
-  Option.match(record.guildId, {
-    onSome: (guildId) =>
-      Option.isSome(record.messageChannelId) ? Option.some(guildId) : Option.none(),
+  Option.match(record.workspaceId, {
+    onSome: (workspaceId) =>
+      Option.isSome(record.conversationId) ? Option.some(workspaceId) : Option.none(),
     onNone: () => Option.none(),
   });

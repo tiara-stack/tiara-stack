@@ -7,7 +7,7 @@
     "version": 1,
     "dialect": "postgresql",
     "tables": {
-      "configGuild": {
+      "configWorkspace": {
         "name": "sheet_db_config_guild",
         "columns": {
           "guildId": {
@@ -71,7 +71,7 @@
           }
         ]
       },
-      "configGuildManagerRole": {
+      "configWorkspaceMonitorRole": {
         "name": "sheet_db_config_guild_manager_role",
         "columns": {
           "guildId": {
@@ -122,7 +122,7 @@
         "primaryKey": ["guildId", "roleId"],
         "indexes": []
       },
-      "configGuildChannel": {
+      "configWorkspaceConversation": {
         "name": "sheet_db_config_guild_channel",
         "columns": {
           "guildId": {
@@ -847,7 +847,7 @@
     "version": 1,
     "dialect": "postgresql",
     "tables": {
-      "configGuild": {
+      "configWorkspace": {
         "name": "sheet_db_config_guild",
         "columns": {
           "guildId": {
@@ -911,7 +911,7 @@
           }
         ]
       },
-      "configGuildManagerRole": {
+      "configWorkspaceMonitorRole": {
         "name": "sheet_db_config_guild_manager_role",
         "columns": {
           "guildId": {
@@ -962,7 +962,7 @@
         "primaryKey": ["guildId", "roleId"],
         "indexes": []
       },
-      "configGuildChannel": {
+      "configWorkspaceConversation": {
         "name": "sheet_db_config_guild_channel",
         "columns": {
           "guildId": {

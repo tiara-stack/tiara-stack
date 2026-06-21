@@ -1,37 +1,24 @@
-import { Array, Effect, HashMap, Layer, Option } from "effect";
+import { Array, Effect, HashMap, Layer } from "effect";
 import { MonitorRpcs } from "sheet-ingress-api/sheet-apis-rpc";
-import { withCurrentGuildAuthFromQuery } from "@/handlers/shared/guildAuthorization";
-import { AuthorizationService, GuildConfigService, MonitorService } from "@/services";
-
-const getSheetIdFromGuildId = Effect.fn("monitor.getSheetIdFromGuildId")(function* (
-  guildId: string,
-  guildConfigService: typeof GuildConfigService.Service,
-) {
-  const guildConfig = yield* guildConfigService.getGuildConfig(guildId);
-
-  if (Option.isNone(guildConfig)) {
-    return yield* Effect.die(new Error(`Guild config not found for guildId: ${guildId}`));
-  }
-
-  if (Option.isNone(guildConfig.value.sheetId)) {
-    return yield* Effect.die(new Error(`sheetId not found for guildId: ${guildId}`));
-  }
-
-  return guildConfig.value.sheetId.value;
-});
+import { withCurrentWorkspaceAuthFromQuery } from "@/handlers/shared/workspaceAuthorization";
+import { getSheetIdFromWorkspaceId } from "@/handlers/shared/workspaceConfig";
+import { AuthorizationService, WorkspaceConfigService, MonitorService } from "@/services";
 
 export const monitorLayer = MonitorRpcs.toLayer(
   Effect.gen(function* () {
     const authorizationService = yield* AuthorizationService;
     const monitorService = yield* MonitorService;
-    const guildConfigService = yield* GuildConfigService;
-    const withQueryGuildAuth = withCurrentGuildAuthFromQuery(authorizationService);
+    const workspaceConfigService = yield* WorkspaceConfigService;
+    const withQueryWorkspaceAuth = withCurrentWorkspaceAuthFromQuery(authorizationService);
 
     return {
-      "monitor.getMonitorMaps": withQueryGuildAuth(
+      "monitor.getMonitorMaps": withQueryWorkspaceAuth(
         Effect.fnUntraced(function* ({ query }) {
-          yield* authorizationService.requireMonitorGuild(query.guildId);
-          const sheetId = yield* getSheetIdFromGuildId(query.guildId, guildConfigService);
+          yield* authorizationService.requireMonitorWorkspace(query.workspaceId);
+          const sheetId = yield* getSheetIdFromWorkspaceId(
+            query.workspaceId,
+            workspaceConfigService,
+          );
           const monitorMaps = yield* monitorService.getMonitorMaps(sheetId);
 
           return {
@@ -50,20 +37,28 @@ export const monitorLayer = MonitorRpcs.toLayer(
           };
         }),
       ),
-      "monitor.getByIds": withQueryGuildAuth(
+      "monitor.getByIds": withQueryWorkspaceAuth(
         Effect.fnUntraced(function* ({ query }) {
-          yield* authorizationService.requireMonitorGuild(query.guildId);
-          const sheetId = yield* getSheetIdFromGuildId(query.guildId, guildConfigService);
+          yield* authorizationService.requireMonitorWorkspace(query.workspaceId);
+          const sheetId = yield* getSheetIdFromWorkspaceId(
+            query.workspaceId,
+            workspaceConfigService,
+          );
           return yield* monitorService.getByIds(sheetId, query.ids);
         }),
       ),
-      "monitor.getByNames": withQueryGuildAuth(
+      "monitor.getByNames": withQueryWorkspaceAuth(
         Effect.fnUntraced(function* ({ query }) {
-          yield* authorizationService.requireMonitorGuild(query.guildId);
-          const sheetId = yield* getSheetIdFromGuildId(query.guildId, guildConfigService);
+          yield* authorizationService.requireMonitorWorkspace(query.workspaceId);
+          const sheetId = yield* getSheetIdFromWorkspaceId(
+            query.workspaceId,
+            workspaceConfigService,
+          );
           return yield* monitorService.getByNames(sheetId, query.names);
         }),
       ),
     };
   }),
-).pipe(Layer.provide([AuthorizationService.layer, MonitorService.layer, GuildConfigService.layer]));
+).pipe(
+  Layer.provide([AuthorizationService.layer, MonitorService.layer, WorkspaceConfigService.layer]),
+);

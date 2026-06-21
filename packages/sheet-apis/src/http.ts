@@ -7,7 +7,7 @@ import { SheetApisRpcs } from "sheet-ingress-api/sheet-apis-rpc";
 import { calcLayer } from "./handlers/calc";
 import { checkinLayer } from "./handlers/checkin";
 import { discordLayer } from "./handlers/discord";
-import { guildConfigLayer } from "./handlers/guildConfig";
+import { workspaceConfigLayer } from "./handlers/workspaceConfig";
 import { healthLayer } from "./handlers/health";
 import { messageCheckinLayer } from "./handlers/messageCheckin";
 import { messageRoomOrderLayer } from "./handlers/messageRoomOrder";
@@ -27,7 +27,7 @@ const rpcHandlersLayer = Layer.mergeAll(
   calcLayer,
   checkinLayer,
   healthLayer,
-  guildConfigLayer,
+  workspaceConfigLayer,
   messageCheckinLayer,
   messageRoomOrderLayer,
   messageSlotLayer,

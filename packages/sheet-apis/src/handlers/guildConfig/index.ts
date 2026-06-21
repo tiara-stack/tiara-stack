@@ -1,1 +1,0 @@
-export { guildConfigLayer } from "./http";

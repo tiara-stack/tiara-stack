@@ -1,45 +1,9 @@
+// fallow-ignore-file code-duplication
 import { describe, expect, it } from "@effect/vitest";
 import { Option } from "effect";
-import {
-  PartialNamePlayer,
-  Player,
-  PopulatedBreakSchedule,
-  PopulatedSchedule,
-  PopulatedSchedulePlayer,
-} from "sheet-ingress-api/schemas/sheet";
+import { PopulatedBreakSchedule } from "sheet-ingress-api/schemas/sheet";
 import { diffFillParticipants, getScheduleFills, toFillParticipant } from "./fillMovement";
-
-const makeResolvedFill = (id: string, name: string) =>
-  new PopulatedSchedulePlayer({
-    player: new Player({
-      index: 0,
-      id,
-      name,
-    }),
-    enc: false,
-  });
-
-const makePartialFill = (name: string) =>
-  new PopulatedSchedulePlayer({
-    player: new PartialNamePlayer({ name }),
-    enc: false,
-  });
-
-const makeSchedule = (fills: ReadonlyArray<PopulatedSchedulePlayer>) =>
-  new PopulatedSchedule({
-    channel: "room-1",
-    day: 1,
-    visible: true,
-    hour: Option.some(1),
-    hourWindow: Option.none(),
-    fills: [0, 1, 2, 3, 4].map((index) =>
-      index < fills.length ? Option.some(fills[index]!) : Option.none(),
-    ),
-    overfills: [],
-    standbys: [],
-    runners: [],
-    monitor: Option.none(),
-  });
+import { makePartialFill, makeResolvedFill, makeSchedule } from "./testHelpers";
 
 describe("fillMovement", () => {
   it("returns populated fills and ignores break schedules", () => {
@@ -129,8 +93,8 @@ describe("fillMovement", () => {
     );
 
     expect(movement.out).toEqual([]);
-    expect(movement.stay.map(({ label, name }) => ({ label, name }))).toEqual([
-      { label: "<@1>", name: "Alicia" },
+    expect(movement.stay.map(({ name, userId }) => ({ name, userId }))).toEqual([
+      { name: "Alicia", userId: "1" },
     ]);
     expect(movement.in).toEqual([]);
   });

@@ -1,20 +1,51 @@
-import { InteractionsRegistry } from "dfx/gateway";
-import { Ix } from "dfx/index";
+// fallow-ignore-file code-duplication
 import { ApplicationIntegrationType, InteractionContextType } from "discord-api-types/v10";
-import { Effect, Layer, Option } from "effect";
+import { Effect, Option } from "effect";
 import { CommandHelper, InteractionResponse } from "dfx-discord-utils/utils";
-import { discordGatewayLayer } from "../discord/gateway";
-import { discordApplicationLayer } from "../discord/application";
 import { SheetWorkflowsClient, SheetWorkflowsRequestContext } from "../services";
 import {
   makeDispatchBase,
+  optionalPayloadField,
   requireBoolean,
   requireResolvedId,
   requireString,
   resolveChannelId,
   resolveGuildId,
+  serverIdOption,
 } from "../utils/commandHelpers";
+import { registerGlobalCommandLayer } from "../utils/registerGlobalCommandLayer";
 import { runSheetWorkflowsDispatch } from "../utils/sheetWorkflowsDispatch";
+
+const optionalDecodedField = <const Key extends string, Value>(
+  key: Key,
+  value: Option.Option<unknown>,
+  decode: (value: unknown) => Effect.Effect<Value, Error>,
+) =>
+  Option.match(value, {
+    onSome: (optionValue) => Effect.map(decode(optionValue), (decoded) => ({ [key]: decoded })),
+    onNone: () => Effect.succeed({}),
+  }) as Effect.Effect<Partial<Record<Key, Value>>, Error>;
+
+const optionalBooleanUnsetField = <const Key extends string>(
+  key: Key,
+  value: Option.Option<unknown>,
+) =>
+  optionalPayloadField(
+    key,
+    Option.map(value, () => true as const),
+  );
+
+const resolveChannelCommandPayloadBase = (
+  serverId: Option.Option<string>,
+  channel: Option.Option<unknown>,
+) =>
+  Effect.gen(function* () {
+    const workspaceId = yield* resolveGuildId(serverId);
+    const conversationId = yield* resolveChannelId(channel);
+    const base = yield* makeDispatchBase;
+
+    return { ...base, workspaceId, conversationId };
+  });
 
 const makeListConfigSubCommand = Effect.gen(function* () {
   const sheetWorkflowsClient = yield* SheetWorkflowsClient;
@@ -27,23 +58,22 @@ const makeListConfigSubCommand = Effect.gen(function* () {
         .addChannelOption((builder) =>
           builder.setName("channel").setDescription("The channel to list the config for"),
         )
-        .addStringOption((builder) =>
-          builder.setName("server_id").setDescription("The server id to list the config for"),
-        ),
+        .addStringOption(serverIdOption("The server id to list the config for")),
     Effect.fn("channel.list_config")(function* (command) {
       const response = yield* InteractionResponse;
       yield* response.deferReply();
 
-      const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
-      const channelId = yield* resolveChannelId(command.optionChannelValueOptional("channel"));
-      const base = yield* makeDispatchBase;
+      const payloadBase = yield* resolveChannelCommandPayloadBase(
+        command.optionValueOptional("server_id"),
+        command.optionChannelValueOptional("channel"),
+      );
 
       yield* runSheetWorkflowsDispatch(
         response,
         "the channel config list",
         SheetWorkflowsRequestContext.asInteractionUser(() =>
-          sheetWorkflowsClient.get().dispatch.channelListConfig({
-            payload: { ...base, guildId, channelId },
+          sheetWorkflowsClient.get().dispatch.conversationListConfig({
+            payload: payloadBase,
           }),
         )(),
       );
@@ -76,42 +106,46 @@ const makeSetSubCommand = Effect.gen(function* () {
             .setName("checkin_channel")
             .setDescription("The channel to send check in messages to"),
         )
-        .addStringOption((builder) =>
-          builder.setName("server_id").setDescription("The server id to set the config for"),
-        ),
+        .addStringOption(serverIdOption("The server id to set the config for")),
     Effect.fn("channel.set")(function* (command) {
       const response = yield* InteractionResponse;
       yield* response.deferReply();
 
-      const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
-      const channelId = yield* resolveChannelId(command.optionChannelValueOptional("channel"));
-      const running = command.optionValueOptional("running");
-      const name = command.optionValueOptional("name");
-      const role = command.optionRoleValueOptional("role");
-      const checkinChannel = command.optionChannelValueOptional("checkin_channel");
-      const runningValue = Option.isSome(running)
-        ? yield* requireBoolean(running.value, "running")
-        : undefined;
-      const nameValue = Option.isSome(name) ? yield* requireString(name.value, "name") : undefined;
-      const roleId = Option.isSome(role) ? yield* requireResolvedId(role.value, "role") : undefined;
-      const checkinChannelId = Option.isSome(checkinChannel)
-        ? yield* requireResolvedId(checkinChannel.value, "check-in channel")
-        : undefined;
-      const base = yield* makeDispatchBase;
-
+      const payloadBase = yield* resolveChannelCommandPayloadBase(
+        command.optionValueOptional("server_id"),
+        command.optionChannelValueOptional("channel"),
+      );
+      const runningPayload = yield* optionalDecodedField(
+        "running",
+        command.optionValueOptional("running"),
+        (value) => requireBoolean(value, "running"),
+      );
+      const namePayload = yield* optionalDecodedField(
+        "name",
+        command.optionValueOptional("name"),
+        (value) => requireString(value, "name"),
+      );
+      const rolePayload = yield* optionalDecodedField(
+        "roleId",
+        command.optionRoleValueOptional("role"),
+        (value) => requireResolvedId(value, "role"),
+      );
+      const checkinChannelPayload = yield* optionalDecodedField(
+        "checkinChannelId",
+        command.optionChannelValueOptional("checkin_channel"),
+        (value) => requireResolvedId(value, "check-in channel"),
+      );
       yield* runSheetWorkflowsDispatch(
         response,
         "the channel config update",
         SheetWorkflowsRequestContext.asInteractionUser(() =>
-          sheetWorkflowsClient.get().dispatch.channelSet({
+          sheetWorkflowsClient.get().dispatch.conversationSet({
             payload: {
-              ...base,
-              guildId,
-              channelId,
-              ...(runningValue === undefined ? {} : { running: runningValue }),
-              ...(nameValue === undefined ? {} : { name: nameValue }),
-              ...(roleId === undefined ? {} : { roleId }),
-              ...(checkinChannelId === undefined ? {} : { checkinChannelId }),
+              ...payloadBase,
+              ...runningPayload,
+              ...namePayload,
+              ...rolePayload,
+              ...checkinChannelPayload,
             },
           }),
         )(),
@@ -145,34 +179,30 @@ const makeUnsetSubCommand = Effect.gen(function* () {
             .setName("checkin_channel")
             .setDescription("Unset the checkin channel of the channel"),
         )
-        .addStringOption((builder) =>
-          builder.setName("server_id").setDescription("The server id to unset the config for"),
-        ),
+        .addStringOption(serverIdOption("The server id to unset the config for")),
     Effect.fn("channel.unset")(function* (command) {
       const response = yield* InteractionResponse;
       yield* response.deferReply();
 
-      const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
-      const channelId = yield* resolveChannelId(command.optionChannelValueOptional("channel"));
-      const base = yield* makeDispatchBase;
+      const payloadBase = yield* resolveChannelCommandPayloadBase(
+        command.optionValueOptional("server_id"),
+        command.optionChannelValueOptional("channel"),
+      );
 
       yield* runSheetWorkflowsDispatch(
         response,
         "the channel config update",
         SheetWorkflowsRequestContext.asInteractionUser(() =>
-          sheetWorkflowsClient.get().dispatch.channelUnset({
+          sheetWorkflowsClient.get().dispatch.conversationUnset({
             payload: {
-              ...base,
-              guildId,
-              channelId,
-              ...(Option.getOrUndefined(command.optionValueOptional("running"))
-                ? { running: true }
-                : {}),
-              ...(Option.getOrUndefined(command.optionValueOptional("name")) ? { name: true } : {}),
-              ...(Option.getOrUndefined(command.optionValueOptional("role")) ? { role: true } : {}),
-              ...(Option.getOrUndefined(command.optionValueOptional("checkin_channel"))
-                ? { checkinChannel: true }
-                : {}),
+              ...payloadBase,
+              ...optionalBooleanUnsetField("running", command.optionValueOptional("running")),
+              ...optionalBooleanUnsetField("name", command.optionValueOptional("name")),
+              ...optionalBooleanUnsetField("role", command.optionValueOptional("role")),
+              ...optionalBooleanUnsetField(
+                "checkinConversation",
+                command.optionValueOptional("checkin_channel"),
+              ),
             },
           }),
         )(),
@@ -212,21 +242,4 @@ const makeChannelCommand = Effect.gen(function* () {
   );
 });
 
-const makeGlobalChannelCommand = Effect.gen(function* () {
-  const channelCommand = yield* makeChannelCommand;
-
-  return CommandHelper.makeGlobalCommand(channelCommand.data, channelCommand.handler as never);
-});
-
-export const channelCommandLayer = Layer.effectDiscard(
-  Effect.gen(function* () {
-    const registry = yield* InteractionsRegistry;
-    const command = yield* makeGlobalChannelCommand;
-
-    yield* registry.register(Ix.builder.add(command).catchAllCause(Effect.log));
-  }),
-).pipe(
-  Layer.provide(
-    Layer.mergeAll(discordGatewayLayer, discordApplicationLayer, SheetWorkflowsClient.layer),
-  ),
-);
+export const channelCommandLayer = registerGlobalCommandLayer(makeChannelCommand);

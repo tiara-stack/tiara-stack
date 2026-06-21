@@ -3,12 +3,12 @@ import { makeSheetZeroApi, mutators } from "sheet-db-schema/zero";
 import { ZeroApiClient } from "typhoon-zero/zeroApi";
 import { DefaultTaggedClass } from "typhoon-core/schema";
 import {
-  GuildChannelConfig,
-  GuildConfig,
-  GuildFeatureFlag,
-  GuildConfigMonitorRole,
-  GuildUpdateAnnouncementDelivery,
-} from "sheet-ingress-api/schemas/guildConfig";
+  WorkspaceConversationConfig,
+  WorkspaceConfig,
+  WorkspaceFeatureFlag,
+  WorkspaceMonitorRole,
+  WorkspaceUpdateAnnouncementDelivery,
+} from "sheet-ingress-api/schemas/workspaceConfig";
 import { MessageCheckin, MessageCheckinMember } from "sheet-ingress-api/schemas/messageCheckin";
 import {
   MessageRoomOrder,
@@ -16,21 +16,29 @@ import {
 } from "sheet-ingress-api/schemas/messageRoomOrder";
 import { MessageSlot } from "sheet-ingress-api/schemas/messageSlot";
 import { ZeroClient } from "./zeroClient";
+import type { MessageKey } from "./messageKey";
+import type { SheetTextPart } from "sheet-ingress-api/schemas/client";
 
 const successSchemas = {
-  guildConfig: {
-    getAutoCheckinGuilds: Schema.Array(DefaultTaggedClass(GuildConfig)),
-    getGuildConfigByGuildId: Schema.OptionFromNullishOr(DefaultTaggedClass(GuildConfig)),
-    getGuildMonitorRoles: Schema.Array(DefaultTaggedClass(GuildConfigMonitorRole)),
-    getGuildFeatureFlags: Schema.Array(DefaultTaggedClass(GuildFeatureFlag)),
-    getGuildsForFeatureFlag: Schema.Array(DefaultTaggedClass(GuildFeatureFlag)),
-    getGuildFeatureFlag: Schema.OptionFromNullishOr(DefaultTaggedClass(GuildFeatureFlag)),
-    getGuildUpdateAnnouncementDelivery: Schema.OptionFromNullishOr(
-      DefaultTaggedClass(GuildUpdateAnnouncementDelivery),
+  workspaceConfig: {
+    getAutoCheckinWorkspaces: Schema.Array(DefaultTaggedClass(WorkspaceConfig)),
+    getWorkspaceConfigByWorkspaceId: Schema.OptionFromNullishOr(
+      DefaultTaggedClass(WorkspaceConfig),
     ),
-    getGuildChannels: Schema.Array(DefaultTaggedClass(GuildChannelConfig)),
-    getGuildChannelById: Schema.OptionFromNullishOr(DefaultTaggedClass(GuildChannelConfig)),
-    getGuildChannelByName: Schema.OptionFromNullishOr(DefaultTaggedClass(GuildChannelConfig)),
+    getWorkspaceMonitorRoles: Schema.Array(DefaultTaggedClass(WorkspaceMonitorRole)),
+    getWorkspaceFeatureFlags: Schema.Array(DefaultTaggedClass(WorkspaceFeatureFlag)),
+    getWorkspacesForFeatureFlag: Schema.Array(DefaultTaggedClass(WorkspaceFeatureFlag)),
+    getWorkspaceFeatureFlag: Schema.OptionFromNullishOr(DefaultTaggedClass(WorkspaceFeatureFlag)),
+    getWorkspaceUpdateAnnouncementDelivery: Schema.OptionFromNullishOr(
+      DefaultTaggedClass(WorkspaceUpdateAnnouncementDelivery),
+    ),
+    getWorkspaceConversations: Schema.Array(DefaultTaggedClass(WorkspaceConversationConfig)),
+    getWorkspaceConversationById: Schema.OptionFromNullishOr(
+      DefaultTaggedClass(WorkspaceConversationConfig),
+    ),
+    getWorkspaceConversationByName: Schema.OptionFromNullishOr(
+      DefaultTaggedClass(WorkspaceConversationConfig),
+    ),
   },
   messageCheckin: {
     getMessageCheckinData: Schema.OptionFromNullishOr(DefaultTaggedClass(MessageCheckin)),
@@ -62,200 +70,232 @@ interface MessageRoomOrderEntryInput {
 }
 
 export interface SheetZeroClientApi {
-  readonly guildConfig: {
-    readonly getAutoCheckinGuilds: (args: {}) => QueryResult<GuildConfig[]>;
-    readonly getGuildConfigByGuildId: (args: {
-      readonly guildId: string;
-    }) => QueryResult<Option.Option<GuildConfig>>;
-    readonly getGuildMonitorRoles: (args: {
-      readonly guildId: string;
-    }) => QueryResult<GuildConfigMonitorRole[]>;
-    readonly getGuildFeatureFlags: (args: {
-      readonly guildId: string;
-    }) => QueryResult<GuildFeatureFlag[]>;
-    readonly getGuildsForFeatureFlag: (args: {
+  readonly workspaceConfig: {
+    readonly getAutoCheckinWorkspaces: (args: {}) => QueryResult<WorkspaceConfig[]>;
+    readonly getWorkspaceConfigByWorkspaceId: (args: {
+      readonly workspaceId: string;
+    }) => QueryResult<Option.Option<WorkspaceConfig>>;
+    readonly getWorkspaceMonitorRoles: (args: {
+      readonly workspaceId: string;
+    }) => QueryResult<WorkspaceMonitorRole[]>;
+    readonly getWorkspaceFeatureFlags: (args: {
+      readonly workspaceId: string;
+    }) => QueryResult<WorkspaceFeatureFlag[]>;
+    readonly getWorkspacesForFeatureFlag: (args: {
       readonly flagName: string;
-    }) => QueryResult<GuildFeatureFlag[]>;
-    readonly getGuildFeatureFlag: (args: {
-      readonly guildId: string;
+    }) => QueryResult<WorkspaceFeatureFlag[]>;
+    readonly getWorkspaceFeatureFlag: (args: {
+      readonly workspaceId: string;
       readonly flagName: string;
-    }) => QueryResult<Option.Option<GuildFeatureFlag>>;
-    readonly getGuildUpdateAnnouncementDelivery: (args: {
-      readonly guildId: string;
+    }) => QueryResult<Option.Option<WorkspaceFeatureFlag>>;
+    readonly getWorkspaceUpdateAnnouncementDelivery: (args: {
+      readonly workspaceId: string;
       readonly announcementId: string;
-    }) => QueryResult<Option.Option<GuildUpdateAnnouncementDelivery>>;
-    readonly getGuildChannels: (args: {
-      readonly guildId: string;
+    }) => QueryResult<Option.Option<WorkspaceUpdateAnnouncementDelivery>>;
+    readonly getWorkspaceConversations: (args: {
+      readonly workspaceId: string;
       readonly running?: boolean | undefined;
-    }) => QueryResult<GuildChannelConfig[]>;
-    readonly getGuildChannelById: (args: {
-      readonly guildId: string;
-      readonly channelId: string;
+    }) => QueryResult<WorkspaceConversationConfig[]>;
+    readonly getWorkspaceConversationById: (args: {
+      readonly workspaceId: string;
+      readonly conversationId: string;
       readonly running?: boolean | undefined;
-    }) => QueryResult<Option.Option<GuildChannelConfig>>;
-    readonly getGuildChannelByName: (args: {
-      readonly guildId: string;
-      readonly channelName: string;
+    }) => QueryResult<Option.Option<WorkspaceConversationConfig>>;
+    readonly getWorkspaceConversationByName: (args: {
+      readonly workspaceId: string;
+      readonly conversationName: string;
       readonly running?: boolean | undefined;
-    }) => QueryResult<Option.Option<GuildChannelConfig>>;
-    readonly upsertGuildConfig: MutatorResult<{
-      readonly guildId: string;
+    }) => QueryResult<Option.Option<WorkspaceConversationConfig>>;
+    readonly upsertWorkspaceConfig: MutatorResult<{
+      readonly workspaceId: string;
       readonly sheetId?: string | null | undefined;
       readonly autoCheckin?: boolean | null | undefined;
     }>;
-    readonly addGuildMonitorRole: MutatorResult<{
-      readonly guildId: string;
+    readonly addWorkspaceMonitorRole: MutatorResult<{
+      readonly workspaceId: string;
       readonly roleId: string;
     }>;
-    readonly removeGuildMonitorRole: MutatorResult<{
-      readonly guildId: string;
+    readonly removeWorkspaceMonitorRole: MutatorResult<{
+      readonly workspaceId: string;
       readonly roleId: string;
     }>;
-    readonly addGuildFeatureFlag: MutatorResult<{
-      readonly guildId: string;
+    readonly addWorkspaceFeatureFlag: MutatorResult<{
+      readonly workspaceId: string;
       readonly flagName: string;
     }>;
-    readonly removeGuildFeatureFlag: MutatorResult<{
-      readonly guildId: string;
+    readonly removeWorkspaceFeatureFlag: MutatorResult<{
+      readonly workspaceId: string;
       readonly flagName: string;
     }>;
-    readonly recordGuildUpdateAnnouncementDelivery: MutatorResult<{
-      readonly guildId: string;
+    readonly recordWorkspaceUpdateAnnouncementDelivery: MutatorResult<{
+      readonly workspaceId: string;
       readonly announcementId: string;
       readonly publishedAt: number;
       readonly deliveredAt: number;
-      readonly channelId: string;
+      readonly conversationId: string;
       readonly messageId: string;
     }>;
-    readonly claimGuildUpdateAnnouncementDelivery: MutatorResult<{
-      readonly guildId: string;
+    readonly claimWorkspaceUpdateAnnouncementDelivery: MutatorResult<{
+      readonly workspaceId: string;
       readonly announcementId: string;
       readonly publishedAt: number;
       readonly claimToken: string;
     }>;
-    readonly releaseGuildUpdateAnnouncementDeliveryClaim: MutatorResult<{
-      readonly guildId: string;
+    readonly releaseWorkspaceUpdateAnnouncementDeliveryClaim: MutatorResult<{
+      readonly workspaceId: string;
       readonly announcementId: string;
       readonly claimToken: string;
     }>;
-    readonly upsertGuildChannelConfig: MutatorResult<{
-      readonly guildId: string;
-      readonly channelId: string;
+    readonly upsertWorkspaceConversationConfig: MutatorResult<{
+      readonly workspaceId: string;
+      readonly conversationId: string;
       readonly name?: string | null | undefined;
       readonly running?: boolean | null | undefined;
       readonly roleId?: string | null | undefined;
-      readonly checkinChannelId?: string | null | undefined;
+      readonly checkinConversationId?: string | null | undefined;
     }>;
   };
   readonly messageCheckin: {
-    readonly getMessageCheckinData: (args: {
-      readonly messageId: string;
-    }) => QueryResult<Option.Option<MessageCheckin>>;
-    readonly getMessageCheckinMembers: (args: {
-      readonly messageId: string;
-    }) => QueryResult<MessageCheckinMember[]>;
+    readonly getMessageCheckinData: (
+      args: MessageKey,
+    ) => QueryResult<Option.Option<MessageCheckin>>;
+    readonly getMessageCheckinMembers: (args: MessageKey) => QueryResult<MessageCheckinMember[]>;
     readonly upsertMessageCheckinData: MutatorResult<{
+      readonly clientPlatform: string;
+      readonly clientId: string;
       readonly messageId: string;
-      readonly initialMessage: string;
+      readonly initialMessage: ReadonlyArray<SheetTextPart>;
       readonly hour: number;
-      readonly channelId: string;
+      readonly runningConversationId: string;
       readonly roleId?: string | null | undefined;
-      readonly guildId: string | null;
-      readonly messageChannelId: string | null;
+      readonly workspaceId: string | null;
+      readonly conversationId: string | null;
       readonly createdByUserId: string | null;
     }>;
     readonly addMessageCheckinMembers: MutatorResult<{
+      readonly clientPlatform: string;
+      readonly clientId: string;
       readonly messageId: string;
       readonly memberIds: readonly string[];
     }>;
     readonly persistMessageCheckin: MutatorResult<{
+      readonly clientPlatform: string;
+      readonly clientId: string;
       readonly messageId: string;
       readonly data: {
-        readonly initialMessage: string;
+        readonly initialMessage: ReadonlyArray<SheetTextPart>;
         readonly hour: number;
-        readonly channelId: string;
+        readonly runningConversationId: string;
         readonly roleId?: string | null | undefined;
-        readonly guildId: string | null;
-        readonly messageChannelId: string | null;
+        readonly workspaceId: string | null;
+        readonly conversationId: string | null;
         readonly createdByUserId: string | null;
       };
       readonly memberIds: readonly string[];
     }>;
     readonly setMessageCheckinMemberCheckinAt: MutatorResult<{
+      readonly clientPlatform: string;
+      readonly clientId: string;
       readonly messageId: string;
       readonly memberId: string;
       readonly checkinAt: number;
       readonly checkinClaimId?: string | undefined;
     }>;
     readonly setMessageCheckinMemberCheckinAtIfUnset: MutatorResult<{
+      readonly clientPlatform: string;
+      readonly clientId: string;
       readonly messageId: string;
       readonly memberId: string;
       readonly checkinAt: number;
       readonly checkinClaimId: string;
     }>;
     readonly removeMessageCheckinMember: MutatorResult<{
+      readonly clientPlatform: string;
+      readonly clientId: string;
       readonly messageId: string;
       readonly memberId: string;
     }>;
   };
   readonly messageRoomOrder: {
-    readonly getMessageRoomOrder: (args: {
-      readonly messageId: string;
-    }) => QueryResult<Option.Option<MessageRoomOrder>>;
+    readonly getMessageRoomOrder: (
+      args: MessageKey,
+    ) => QueryResult<Option.Option<MessageRoomOrder>>;
     readonly getMessageRoomOrderEntry: (args: {
+      readonly clientPlatform: string;
+      readonly clientId: string;
       readonly messageId: string;
       readonly rank: number;
     }) => QueryResult<MessageRoomOrderEntry[]>;
-    readonly getMessageRoomOrderRange: (args: {
-      readonly messageId: string;
-    }) => QueryResult<MessageRoomOrderEntry[]>;
+    readonly getMessageRoomOrderRange: (args: MessageKey) => QueryResult<MessageRoomOrderEntry[]>;
     readonly decrementMessageRoomOrderRank: MutatorResult<{
+      readonly clientPlatform: string;
+      readonly clientId: string;
       readonly messageId: string;
       readonly expectedRank?: number | undefined;
       readonly tentativeUpdateClaimId?: string | undefined;
     }>;
     readonly incrementMessageRoomOrderRank: MutatorResult<{
+      readonly clientPlatform: string;
+      readonly clientId: string;
       readonly messageId: string;
       readonly expectedRank?: number | undefined;
       readonly tentativeUpdateClaimId?: string | undefined;
     }>;
     readonly claimMessageRoomOrderSend: MutatorResult<{
+      readonly clientPlatform: string;
+      readonly clientId: string;
       readonly messageId: string;
       readonly claimId: string;
     }>;
     readonly completeMessageRoomOrderSend: MutatorResult<{
+      readonly clientPlatform: string;
+      readonly clientId: string;
       readonly messageId: string;
       readonly claimId: string;
       readonly sentMessageId: string;
-      readonly sentMessageChannelId: string;
+      readonly sentConversationId: string;
       readonly sentAt: number;
     }>;
     readonly releaseMessageRoomOrderSendClaim: MutatorResult<{
+      readonly clientPlatform: string;
+      readonly clientId: string;
       readonly messageId: string;
       readonly claimId: string;
     }>;
     readonly claimMessageRoomOrderTentativeUpdate: MutatorResult<{
+      readonly clientPlatform: string;
+      readonly clientId: string;
       readonly messageId: string;
       readonly claimId: string;
     }>;
     readonly releaseMessageRoomOrderTentativeUpdateClaim: MutatorResult<{
+      readonly clientPlatform: string;
+      readonly clientId: string;
       readonly messageId: string;
       readonly claimId: string;
     }>;
     readonly claimMessageRoomOrderTentativePin: MutatorResult<{
+      readonly clientPlatform: string;
+      readonly clientId: string;
       readonly messageId: string;
       readonly claimId: string;
     }>;
     readonly completeMessageRoomOrderTentativePin: MutatorResult<{
+      readonly clientPlatform: string;
+      readonly clientId: string;
       readonly messageId: string;
       readonly claimId: string;
       readonly pinnedAt: number;
     }>;
     readonly releaseMessageRoomOrderTentativePinClaim: MutatorResult<{
+      readonly clientPlatform: string;
+      readonly clientId: string;
       readonly messageId: string;
       readonly claimId: string;
     }>;
     readonly upsertMessageRoomOrder: MutatorResult<{
+      readonly clientPlatform: string;
+      readonly clientId: string;
       readonly messageId: string;
       readonly previousFills: readonly string[];
       readonly fills: readonly string[];
@@ -263,11 +303,13 @@ export interface SheetZeroClientApi {
       readonly rank: number;
       readonly tentative?: boolean | undefined;
       readonly monitor?: string | null | undefined;
-      readonly guildId: string | null;
-      readonly messageChannelId: string | null;
+      readonly workspaceId: string | null;
+      readonly conversationId: string | null;
       readonly createdByUserId: string | null;
     }>;
     readonly persistMessageRoomOrder: MutatorResult<{
+      readonly clientPlatform: string;
+      readonly clientId: string;
       readonly messageId: string;
       readonly data: {
         readonly previousFills: readonly string[];
@@ -276,31 +318,35 @@ export interface SheetZeroClientApi {
         readonly rank: number;
         readonly tentative?: boolean | undefined;
         readonly monitor?: string | null | undefined;
-        readonly guildId: string | null;
-        readonly messageChannelId: string | null;
+        readonly workspaceId: string | null;
+        readonly conversationId: string | null;
         readonly createdByUserId: string | null;
       };
       readonly entries: readonly MessageRoomOrderEntryInput[];
     }>;
     readonly upsertMessageRoomOrderEntry: MutatorResult<{
+      readonly clientPlatform: string;
+      readonly clientId: string;
       readonly messageId: string;
       readonly entries: readonly MessageRoomOrderEntryInput[];
     }>;
     readonly removeMessageRoomOrderEntry: MutatorResult<{
+      readonly clientPlatform: string;
+      readonly clientId: string;
       readonly messageId: string;
       readonly rank: number;
       readonly position: number;
     }>;
   };
   readonly messageSlot: {
-    readonly getMessageSlotData: (args: {
-      readonly messageId: string;
-    }) => QueryResult<Option.Option<MessageSlot>>;
+    readonly getMessageSlotData: (args: MessageKey) => QueryResult<Option.Option<MessageSlot>>;
     readonly upsertMessageSlotData: MutatorResult<{
+      readonly clientPlatform: string;
+      readonly clientId: string;
       readonly messageId: string;
       readonly day: number;
-      readonly guildId: string | null;
-      readonly messageChannelId: string | null;
+      readonly workspaceId: string | null;
+      readonly conversationId: string | null;
       readonly createdByUserId: string | null;
     }>;
   };

@@ -1,3 +1,5 @@
+// fallow-ignore-file code-duplication
+// fallow-ignore-file complexity
 import {
   Chunk,
   Cause,
@@ -10,34 +12,36 @@ import {
   Option,
   Predicate,
   Random,
-  Schema,
   String as EffectString,
   pipe,
 } from "effect";
-import { DiscordMessageRequestSchema } from "dfx-discord-utils/discord/schema";
+import type {
+  ClientRef,
+  SheetOutboundMessage,
+  SheetTextPart,
+} from "sheet-ingress-api/schemas/client";
 import {
-  formatTentativeRoomOrderContent,
   hasTentativeRoomOrderPrefix,
   shouldSendTentativeRoomOrder,
-} from "sheet-ingress-api/discordComponents";
+} from "sheet-ingress-api/clientActions";
 import type { MessageRoomOrder } from "sheet-ingress-api/schemas/messageRoomOrder";
 import type { MessageSlot } from "sheet-ingress-api/schemas/messageSlot";
 import type {
-  AutoCheckinTestChannelResult,
+  AutoCheckinTestConversationResult,
   AutoCheckinTestDispatchPayload,
   AutoCheckinTestDispatchResult,
   CheckinDispatchPayload,
   CheckinDispatchResult,
   CheckinHandleButtonPayload,
   CheckinHandleButtonResult,
-  ChannelListConfigDispatchPayload,
-  ChannelListConfigDispatchResult,
-  ChannelSetDispatchPayload,
-  ChannelSetDispatchResult,
-  ChannelUnsetDispatchPayload,
-  ChannelUnsetDispatchResult,
-  GuildWelcomeDispatchPayload,
-  GuildWelcomeDispatchResult,
+  ConversationListConfigDispatchPayload,
+  ConversationListConfigDispatchResult,
+  ConversationSetDispatchPayload,
+  ConversationSetDispatchResult,
+  ConversationUnsetDispatchPayload,
+  ConversationUnsetDispatchResult,
+  WorkspaceWelcomeDispatchPayload,
+  WorkspaceWelcomeDispatchResult,
   KickoutDispatchPayload,
   KickoutDispatchResult,
   RoomOrderButtonResult,
@@ -49,20 +53,20 @@ import type {
   RoomOrderSendButtonPayload,
   ScheduleListDispatchPayload,
   ScheduleListDispatchResult,
-  ServiceGuildFeatureFlagDispatchPayload,
-  ServiceGuildFeatureFlagDispatchResult,
+  ServiceWorkspaceFeatureFlagDispatchPayload,
+  ServiceWorkspaceFeatureFlagDispatchResult,
   ServiceStatusDispatchPayload,
   ServiceStatusDispatchResult,
-  ServerAddMonitorRoleDispatchPayload,
-  ServerAddMonitorRoleDispatchResult,
-  ServerListConfigDispatchPayload,
-  ServerListConfigDispatchResult,
-  ServerRemoveMonitorRoleDispatchPayload,
-  ServerRemoveMonitorRoleDispatchResult,
-  ServerSetAutoCheckinDispatchPayload,
-  ServerSetAutoCheckinDispatchResult,
-  ServerSetSheetDispatchPayload,
-  ServerSetSheetDispatchResult,
+  WorkspaceAddMonitorRoleDispatchPayload,
+  WorkspaceAddMonitorRoleDispatchResult,
+  WorkspaceListConfigDispatchPayload,
+  WorkspaceListConfigDispatchResult,
+  WorkspaceRemoveMonitorRoleDispatchPayload,
+  WorkspaceRemoveMonitorRoleDispatchResult,
+  WorkspaceSetAutoCheckinDispatchPayload,
+  WorkspaceSetAutoCheckinDispatchResult,
+  WorkspaceSetSheetDispatchPayload,
+  WorkspaceSetSheetDispatchResult,
   ScreenshotDispatchPayload,
   ScreenshotDispatchResult,
   SlotButtonDispatchPayload,
@@ -86,37 +90,35 @@ import {
   roomOrderActionRow,
   slotActionRow,
   tentativeRoomOrderActionRow,
-  tentativeRoomOrderPinActionRow,
-} from "./discordComponents";
-import { IngressBotClient } from "./ingressBotClient";
+} from "./messageComponents";
+import type { SheetMessageComponent } from "sheet-ingress-api/schemas/client";
+import { ClientDeliveryClient, ClientDeliveryClientRef } from "./clientDeliveryClient";
 import { buildRoomOrderContent } from "./roomOrderContent";
 import { SheetApisClient } from "./sheetApisClient";
-import { uniqueChannelNames } from "./autoCheckinChannels";
-
-const MessageFlags = {
-  Ephemeral: 64,
-} as const;
+import { uniqueConversationNames } from "./autoCheckinConversations";
+import * as MessageText from "./messageText";
+import { sendTentativeRoomOrder, tentativeRoomOrderContent } from "./tentativeRoomOrder";
 
 const updateAnnouncementsFeatureFlag = "update-announcements";
 
-type DiscordMessage = {
+type DeliveredMessage = {
   readonly id: string;
-  readonly channel_id: string;
+  readonly conversation_id: string;
 };
 
-type DiscordChannelCacheEntry = {
+type ClientConversationCacheEntry = {
   readonly parentId: string;
   readonly resourceId: string;
   readonly value: {
     readonly id: string;
     readonly type: number;
-    readonly guild_id?: string;
+    readonly workspace_id?: string;
     readonly name?: string;
     readonly position?: number;
   };
 };
 
-type MessagePayload = Schema.Schema.Type<typeof DiscordMessageRequestSchema>;
+type MessagePayload = SheetOutboundMessage;
 type SheetServiceApi = {
   readonly getEventConfig: ReturnType<
     typeof makeSheetApisServices
@@ -126,6 +128,8 @@ type RoomOrderRankDirection = "previous" | "next";
 type RoomOrderButtonPayload = RoomOrderPreviousButtonPayload;
 type RoomOrderButtonMode = "normal" | "tentative";
 type MessageEmbed = NonNullable<NonNullable<MessagePayload["embeds"]>[number]>;
+type MessageTextValue = ReadonlyArray<SheetTextPart>;
+type MessageTextInput = string | MessageTextValue;
 
 type DispatchRequester = {
   readonly accountId: string;
@@ -133,12 +137,27 @@ type DispatchRequester = {
 };
 
 type DispatchMessageSink = {
-  readonly sendPrimary: (payload: MessagePayload) => Effect.Effect<DiscordMessage, unknown, never>;
-  readonly updatePrimary: (
-    message: DiscordMessage,
+  readonly sendPrimary: (
     payload: MessagePayload,
-  ) => Effect.Effect<DiscordMessage, unknown, never>;
+  ) => Effect.Effect<DeliveredMessage, unknown, never>;
+  readonly updatePrimary: (
+    message: DeliveredMessage,
+    payload: MessagePayload,
+  ) => Effect.Effect<DeliveredMessage, unknown, never>;
 };
+
+type MessageKey = {
+  readonly clientPlatform: string;
+  readonly clientId: string;
+  readonly messageId: string;
+};
+
+const messageKeyFor = (messageId: string): Effect.Effect<MessageKey, never, never> =>
+  Effect.map(ClientDeliveryClientRef, (client) => ({
+    clientPlatform: client.platform,
+    clientId: client.clientId,
+    messageId,
+  }));
 
 const optionalArgumentError = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(
@@ -151,229 +170,358 @@ const makeSheetApisServices = (sheetApisClient: typeof SheetApisClient.Service) 
 
   const messageRoomOrderService = {
     getMessageRoomOrder: (messageId: string) =>
-      optionalArgumentError(
-        sheetApis.messageRoomOrder.getMessageRoomOrder({ query: { messageId } }),
-      ),
+      Effect.gen(function* () {
+        const key = yield* messageKeyFor(messageId);
+        return yield* optionalArgumentError(
+          sheetApis.messageRoomOrder.getMessageRoomOrder({ query: key }),
+        );
+      }),
     upsertMessageRoomOrder: (
       messageId: string,
       data: Parameters<
         typeof sheetApis.messageRoomOrder.upsertMessageRoomOrder
       >[0]["payload"]["data"],
-    ) => sheetApis.messageRoomOrder.upsertMessageRoomOrder({ payload: { messageId, data } }),
+    ) =>
+      Effect.gen(function* () {
+        const key = yield* messageKeyFor(messageId);
+        return yield* sheetApis.messageRoomOrder.upsertMessageRoomOrder({
+          payload: { ...key, data },
+        });
+      }),
     persistMessageRoomOrder: (
       messageId: string,
       payload: Omit<
         Parameters<typeof sheetApis.messageRoomOrder.persistMessageRoomOrder>[0]["payload"],
-        "messageId"
+        keyof MessageKey
       >,
     ) =>
-      sheetApis.messageRoomOrder.persistMessageRoomOrder({
-        payload: { messageId, ...payload },
+      Effect.gen(function* () {
+        const key = yield* messageKeyFor(messageId);
+        return yield* sheetApis.messageRoomOrder.persistMessageRoomOrder({
+          payload: { ...key, ...payload },
+        });
       }),
     decrementMessageRoomOrderRank: (
       messageId: string,
       payload: Omit<
         Parameters<typeof sheetApis.messageRoomOrder.decrementMessageRoomOrderRank>[0]["payload"],
-        "messageId"
+        keyof MessageKey
       >,
     ) =>
-      sheetApis.messageRoomOrder.decrementMessageRoomOrderRank({
-        payload: { messageId, ...payload },
+      Effect.gen(function* () {
+        const key = yield* messageKeyFor(messageId);
+        return yield* sheetApis.messageRoomOrder.decrementMessageRoomOrderRank({
+          payload: { ...key, ...payload },
+        });
       }),
     incrementMessageRoomOrderRank: (
       messageId: string,
       payload: Omit<
         Parameters<typeof sheetApis.messageRoomOrder.incrementMessageRoomOrderRank>[0]["payload"],
-        "messageId"
+        keyof MessageKey
       >,
     ) =>
-      sheetApis.messageRoomOrder.incrementMessageRoomOrderRank({
-        payload: { messageId, ...payload },
+      Effect.gen(function* () {
+        const key = yield* messageKeyFor(messageId);
+        return yield* sheetApis.messageRoomOrder.incrementMessageRoomOrderRank({
+          payload: { ...key, ...payload },
+        });
       }),
     getMessageRoomOrderEntry: (messageId: string, rank: number) =>
-      sheetApis.messageRoomOrder.getMessageRoomOrderEntry({ query: { messageId, rank } }),
+      Effect.gen(function* () {
+        const key = yield* messageKeyFor(messageId);
+        return yield* sheetApis.messageRoomOrder.getMessageRoomOrderEntry({
+          query: { ...key, rank },
+        });
+      }),
     getMessageRoomOrderRange: (messageId: string) =>
-      optionalArgumentError(
-        sheetApis.messageRoomOrder.getMessageRoomOrderRange({ query: { messageId } }),
-      ),
+      Effect.gen(function* () {
+        const key = yield* messageKeyFor(messageId);
+        return yield* optionalArgumentError(
+          sheetApis.messageRoomOrder.getMessageRoomOrderRange({ query: key }),
+        );
+      }),
     removeMessageRoomOrderEntry: (messageId: string) =>
-      sheetApis.messageRoomOrder.removeMessageRoomOrderEntry({ payload: { messageId } }),
+      Effect.gen(function* () {
+        const key = yield* messageKeyFor(messageId);
+        return yield* sheetApis.messageRoomOrder.removeMessageRoomOrderEntry({ payload: key });
+      }),
     claimMessageRoomOrderSend: (messageId: string, claimId: string) =>
-      sheetApis.messageRoomOrder.claimMessageRoomOrderSend({ payload: { messageId, claimId } }),
+      Effect.gen(function* () {
+        const key = yield* messageKeyFor(messageId);
+        return yield* sheetApis.messageRoomOrder.claimMessageRoomOrderSend({
+          payload: { ...key, claimId },
+        });
+      }),
     completeMessageRoomOrderSend: (
       messageId: string,
       claimId: string,
-      sentMessage: { readonly id: string; readonly channelId: string },
+      sentMessage: { readonly id: string; readonly conversationId: string },
     ) =>
-      sheetApis.messageRoomOrder.completeMessageRoomOrderSend({
-        payload: { messageId, claimId, sentMessage },
+      Effect.gen(function* () {
+        const key = yield* messageKeyFor(messageId);
+        return yield* sheetApis.messageRoomOrder.completeMessageRoomOrderSend({
+          payload: { ...key, claimId, sentMessage },
+        });
       }),
     releaseMessageRoomOrderSendClaim: (messageId: string, claimId: string) =>
-      sheetApis.messageRoomOrder.releaseMessageRoomOrderSendClaim({
-        payload: { messageId, claimId },
+      Effect.gen(function* () {
+        const key = yield* messageKeyFor(messageId);
+        return yield* sheetApis.messageRoomOrder.releaseMessageRoomOrderSendClaim({
+          payload: { ...key, claimId },
+        });
       }),
     claimMessageRoomOrderTentativeUpdate: (messageId: string, claimId: string) =>
-      sheetApis.messageRoomOrder.claimMessageRoomOrderTentativeUpdate({
-        payload: { messageId, claimId },
+      Effect.gen(function* () {
+        const key = yield* messageKeyFor(messageId);
+        return yield* sheetApis.messageRoomOrder.claimMessageRoomOrderTentativeUpdate({
+          payload: { ...key, claimId },
+        });
       }),
     releaseMessageRoomOrderTentativeUpdateClaim: (messageId: string, claimId: string) =>
-      sheetApis.messageRoomOrder.releaseMessageRoomOrderTentativeUpdateClaim({
-        payload: { messageId, claimId },
+      Effect.gen(function* () {
+        const key = yield* messageKeyFor(messageId);
+        return yield* sheetApis.messageRoomOrder.releaseMessageRoomOrderTentativeUpdateClaim({
+          payload: { ...key, claimId },
+        });
       }),
     claimMessageRoomOrderTentativePin: (messageId: string, claimId: string) =>
-      sheetApis.messageRoomOrder.claimMessageRoomOrderTentativePin({
-        payload: { messageId, claimId },
+      Effect.gen(function* () {
+        const key = yield* messageKeyFor(messageId);
+        return yield* sheetApis.messageRoomOrder.claimMessageRoomOrderTentativePin({
+          payload: { ...key, claimId },
+        });
       }),
     completeMessageRoomOrderTentativePin: (messageId: string, claimId: string) =>
-      sheetApis.messageRoomOrder.completeMessageRoomOrderTentativePin({
-        payload: { messageId, claimId },
+      Effect.gen(function* () {
+        const key = yield* messageKeyFor(messageId);
+        return yield* sheetApis.messageRoomOrder.completeMessageRoomOrderTentativePin({
+          payload: { ...key, claimId },
+        });
       }),
     releaseMessageRoomOrderTentativePinClaim: (messageId: string, claimId: string) =>
-      sheetApis.messageRoomOrder.releaseMessageRoomOrderTentativePinClaim({
-        payload: { messageId, claimId },
+      Effect.gen(function* () {
+        const key = yield* messageKeyFor(messageId);
+        return yield* sheetApis.messageRoomOrder.releaseMessageRoomOrderTentativePinClaim({
+          payload: { ...key, claimId },
+        });
       }),
     markMessageRoomOrderTentative: (messageId: string) =>
-      sheetApis.messageRoomOrder.markMessageRoomOrderTentative({
-        payload: { messageId },
+      Effect.gen(function* () {
+        const key = yield* messageKeyFor(messageId);
+        return yield* sheetApis.messageRoomOrder.markMessageRoomOrderTentative({
+          payload: key,
+        });
       }),
   };
 
   return {
     checkinService: {
-      generate: (payload: CheckinDispatchPayload) => sheetApis.checkin.generate({ payload }),
+      generate: (payload: CheckinDispatchPayload) =>
+        sheetApis.checkin.generate({
+          payload: {
+            workspaceId: payload.workspaceId,
+            ...(payload.conversationId === undefined
+              ? {}
+              : { conversationId: payload.conversationId }),
+            ...(payload.conversationName === undefined
+              ? {}
+              : { conversationName: payload.conversationName }),
+            ...(payload.hour === undefined ? {} : { hour: payload.hour }),
+            ...(payload.template === undefined ? {} : { template: payload.template }),
+          },
+        }),
     },
-    guildConfigService: {
-      getGuildConfig: (guildId: string) =>
-        optionalArgumentError(sheetApis.guildConfig.getGuildConfig({ query: { guildId } })),
-      upsertGuildConfig: (
-        guildId: string,
+    workspaceConfigService: {
+      getWorkspaceConfig: (workspaceId: string) =>
+        optionalArgumentError(
+          sheetApis.workspaceConfig.getWorkspaceConfig({ query: { workspaceId } }),
+        ),
+      upsertWorkspaceConfig: (
+        workspaceId: string,
         config: {
           readonly sheetId?: string | null | undefined;
           readonly autoCheckin?: boolean | null | undefined;
         },
-      ) => sheetApis.guildConfig.upsertGuildConfig({ payload: { guildId, config } }),
-      getGuildMonitorRoles: (guildId: string) =>
-        sheetApis.guildConfig.getGuildMonitorRoles({ query: { guildId } }),
-      getGuildFeatureFlags: (guildId: string) =>
-        sheetApis.guildConfig.getGuildFeatureFlags({ query: { guildId } }),
-      claimGuildUpdateAnnouncementDelivery: (claim: {
-        readonly guildId: string;
+      ) => sheetApis.workspaceConfig.upsertWorkspaceConfig({ payload: { workspaceId, config } }),
+      getWorkspaceMonitorRoles: (workspaceId: string) =>
+        sheetApis.workspaceConfig.getWorkspaceMonitorRoles({ query: { workspaceId } }),
+      getWorkspaceFeatureFlags: (workspaceId: string) =>
+        sheetApis.workspaceConfig.getWorkspaceFeatureFlags({ query: { workspaceId } }),
+      claimWorkspaceUpdateAnnouncementDelivery: (claim: {
+        readonly workspaceId: string;
         readonly announcementId: string;
         readonly publishedAt: DateTime.Utc;
         readonly claimToken: string;
-      }) => sheetApis.guildConfig.claimGuildUpdateAnnouncementDelivery({ payload: claim }),
-      releaseGuildUpdateAnnouncementDeliveryClaim: (claim: {
-        readonly guildId: string;
+      }) => sheetApis.workspaceConfig.claimWorkspaceUpdateAnnouncementDelivery({ payload: claim }),
+      releaseWorkspaceUpdateAnnouncementDeliveryClaim: (claim: {
+        readonly workspaceId: string;
         readonly announcementId: string;
         readonly claimToken: string;
-      }) => sheetApis.guildConfig.releaseGuildUpdateAnnouncementDeliveryClaim({ payload: claim }),
-      addGuildMonitorRole: (guildId: string, roleId: string) =>
-        sheetApis.guildConfig.addGuildMonitorRole({ payload: { guildId, roleId } }),
-      removeGuildMonitorRole: (guildId: string, roleId: string) =>
-        sheetApis.guildConfig.removeGuildMonitorRole({ payload: { guildId, roleId } }),
-      addGuildFeatureFlag: (guildId: string, flagName: string) =>
-        sheetApis.guildConfig.addGuildFeatureFlag({ payload: { guildId, flagName } }),
-      removeGuildFeatureFlag: (guildId: string, flagName: string) =>
-        sheetApis.guildConfig.removeGuildFeatureFlag({ payload: { guildId, flagName } }),
-      recordGuildUpdateAnnouncementDelivery: (delivery: {
-        readonly guildId: string;
+      }) =>
+        sheetApis.workspaceConfig.releaseWorkspaceUpdateAnnouncementDeliveryClaim({
+          payload: claim,
+        }),
+      addWorkspaceMonitorRole: (workspaceId: string, roleId: string) =>
+        sheetApis.workspaceConfig.addWorkspaceMonitorRole({ payload: { workspaceId, roleId } }),
+      removeWorkspaceMonitorRole: (workspaceId: string, roleId: string) =>
+        sheetApis.workspaceConfig.removeWorkspaceMonitorRole({ payload: { workspaceId, roleId } }),
+      addWorkspaceFeatureFlag: (workspaceId: string, flagName: string) =>
+        sheetApis.workspaceConfig.addWorkspaceFeatureFlag({ payload: { workspaceId, flagName } }),
+      removeWorkspaceFeatureFlag: (workspaceId: string, flagName: string) =>
+        sheetApis.workspaceConfig.removeWorkspaceFeatureFlag({
+          payload: { workspaceId, flagName },
+        }),
+      recordWorkspaceUpdateAnnouncementDelivery: (delivery: {
+        readonly workspaceId: string;
         readonly announcementId: string;
         readonly publishedAt: DateTime.Utc;
         readonly deliveredAt: DateTime.Utc;
-        readonly channelId: string;
+        readonly conversationId: string;
         readonly messageId: string;
-      }) => sheetApis.guildConfig.recordGuildUpdateAnnouncementDelivery({ payload: delivery }),
-      upsertGuildChannelConfig: (
-        guildId: string,
-        channelId: string,
+      }) =>
+        sheetApis.workspaceConfig.recordWorkspaceUpdateAnnouncementDelivery({ payload: delivery }),
+      upsertWorkspaceConversationConfig: (
+        workspaceId: string,
+        conversationId: string,
         config: {
           readonly name?: string | null | undefined;
           readonly running?: boolean | null | undefined;
           readonly roleId?: string | null | undefined;
-          readonly checkinChannelId?: string | null | undefined;
+          readonly checkinConversationId?: string | null | undefined;
         },
       ) =>
-        sheetApis.guildConfig.upsertGuildChannelConfig({
-          payload: { guildId, channelId, config },
+        sheetApis.workspaceConfig.upsertWorkspaceConversationConfig({
+          payload: { workspaceId, conversationId, config },
         }),
-      getGuildChannelById: (query: {
-        readonly guildId: string;
-        readonly channelId: string;
+      getWorkspaceConversationById: (query: {
+        readonly workspaceId: string;
+        readonly conversationId: string;
         readonly running?: boolean | undefined;
-      }) => optionalArgumentError(sheetApis.guildConfig.getGuildChannelById({ query })),
-      getGuildChannelByName: (query: {
-        readonly guildId: string;
-        readonly channelName: string;
+      }) =>
+        optionalArgumentError(sheetApis.workspaceConfig.getWorkspaceConversationById({ query })),
+      getWorkspaceConversationByName: (query: {
+        readonly workspaceId: string;
+        readonly conversationName: string;
         readonly running?: boolean | undefined;
-      }) => optionalArgumentError(sheetApis.guildConfig.getGuildChannelByName({ query })),
-      getGuildChannels: (guildId: string, running: boolean) =>
-        sheetApis.guildConfig.getGuildChannels({ query: { guildId, running } }),
+      }) =>
+        optionalArgumentError(sheetApis.workspaceConfig.getWorkspaceConversationByName({ query })),
+      getWorkspaceConversations: (workspaceId: string, running: boolean) =>
+        sheetApis.workspaceConfig.getWorkspaceConversations({ query: { workspaceId, running } }),
     },
     messageCheckinService: {
       getMessageCheckinData: (messageId: string) =>
-        optionalArgumentError(
-          sheetApis.messageCheckin.getMessageCheckinData({ query: { messageId } }),
-        ),
+        Effect.gen(function* () {
+          const key = yield* messageKeyFor(messageId);
+          return yield* optionalArgumentError(
+            sheetApis.messageCheckin.getMessageCheckinData({ query: key }),
+          );
+        }),
       getMessageCheckinMembers: (messageId: string) =>
-        sheetApis.messageCheckin.getMessageCheckinMembers({ query: { messageId } }),
+        Effect.gen(function* () {
+          const key = yield* messageKeyFor(messageId);
+          return yield* sheetApis.messageCheckin.getMessageCheckinMembers({ query: key });
+        }),
       persistMessageCheckin: (
         messageId: string,
         payload: Omit<
           Parameters<typeof sheetApis.messageCheckin.persistMessageCheckin>[0]["payload"],
-          "messageId"
+          keyof MessageKey
         >,
-      ) => sheetApis.messageCheckin.persistMessageCheckin({ payload: { messageId, ...payload } }),
+      ) =>
+        Effect.gen(function* () {
+          const key = yield* messageKeyFor(messageId);
+          return yield* sheetApis.messageCheckin.persistMessageCheckin({
+            payload: { ...key, ...payload },
+          });
+        }),
       setMessageCheckinMemberCheckinAtIfUnset: (
         messageId: string,
         memberId: string,
         checkinAt: number,
         checkinClaimId: string,
       ) =>
-        sheetApis.messageCheckin.setMessageCheckinMemberCheckinAtIfUnset({
-          payload: { messageId, memberId, checkinAt, checkinClaimId },
+        Effect.gen(function* () {
+          const key = yield* messageKeyFor(messageId);
+          return yield* sheetApis.messageCheckin.setMessageCheckinMemberCheckinAtIfUnset({
+            payload: { ...key, memberId, checkinAt, checkinClaimId },
+          });
         }),
     },
     messageRoomOrderService,
     messageSlotService: {
       getMessageSlotData: (messageId: string) =>
-        optionalArgumentError(sheetApis.messageSlot.getMessageSlotData({ query: { messageId } })),
+        Effect.gen(function* () {
+          const key = yield* messageKeyFor(messageId);
+          return yield* optionalArgumentError(
+            sheetApis.messageSlot.getMessageSlotData({ query: key }),
+          );
+        }),
       upsertMessageSlotData: (
         messageId: string,
         data: Parameters<typeof sheetApis.messageSlot.upsertMessageSlotData>[0]["payload"]["data"],
-      ) => sheetApis.messageSlot.upsertMessageSlotData({ payload: { messageId, data } }),
+      ) =>
+        Effect.gen(function* () {
+          const key = yield* messageKeyFor(messageId);
+          return yield* sheetApis.messageSlot.upsertMessageSlotData({
+            payload: { ...key, data },
+          });
+        }),
     },
     roomOrderService: {
       generate: (
-        payload: RoomOrderDispatchPayload | { guildId: string; channelId: string; hour: number },
-      ) => sheetApis.roomOrder.generate({ payload }),
+        payload:
+          | RoomOrderDispatchPayload
+          | { workspaceId: string; conversationId: string; hour: number },
+      ) =>
+        sheetApis.roomOrder.generate({
+          payload: {
+            workspaceId: payload.workspaceId,
+            ...("conversationId" in payload && payload.conversationId !== undefined
+              ? { conversationId: payload.conversationId }
+              : {}),
+            ...("conversationName" in payload && payload.conversationName !== undefined
+              ? { conversationName: payload.conversationName }
+              : {}),
+            ...("hour" in payload && payload.hour !== undefined ? { hour: payload.hour } : {}),
+            ...("healNeeded" in payload && payload.healNeeded !== undefined
+              ? { healNeeded: payload.healNeeded }
+              : {}),
+          },
+        }),
     },
     scheduleService: {
-      dayPopulatedFillerSchedules: (guildId: string, day: number) =>
+      dayPopulatedFillerSchedules: (workspaceId: string, day: number) =>
         sheetApis.schedule
-          .getDayPopulatedSchedules({ query: { guildId, day, view: "filler" } })
+          .getDayPopulatedSchedules({ query: { workspaceId, day, view: "filler" } })
           .pipe(Effect.map(({ schedules }) => schedules)),
-      dayPlayerSchedule: (guildId: string, day: number, accountId: string) =>
+      dayPlayerSchedule: (workspaceId: string, day: number, accountId: string) =>
         sheetApis.schedule.getDayPlayerSchedule({
-          query: { guildId, day, accountId, view: "filler" },
+          query: { workspaceId, day, accountId, view: "filler" },
         }),
-      channelPopulatedMonitorSchedules: (guildId: string, channel: string) =>
+      conversationPopulatedMonitorSchedules: (workspaceId: string, conversation: string) =>
         sheetApis.schedule
-          .getChannelPopulatedSchedules({ query: { guildId, channel, view: "monitor" } })
+          .getConversationPopulatedSchedules({
+            query: { workspaceId, conversationName: conversation, view: "monitor" },
+          })
           .pipe(Effect.map(({ schedules }) => schedules)),
     },
     sheetService: {
-      getEventConfig: (guildId: string) => sheetApis.sheet.getEventConfig({ query: { guildId } }),
+      getEventConfig: (workspaceId: string) =>
+        sheetApis.sheet.getEventConfig({ query: { workspaceId } }),
     },
     statusService: {
       getServicesStatus: () => sheetApis.status.getServices({}),
     },
     playerService: {
-      getTeamsByIds: (guildId: string, ids: readonly string[]) =>
-        sheetApis.player.getTeamsByIds({ query: { guildId, ids } }),
+      getTeamsByIds: (workspaceId: string, ids: readonly string[]) =>
+        sheetApis.player.getTeamsByIds({ query: { workspaceId, ids } }),
     },
     screenshotService: {
-      getScreenshot: (guildId: string, channel: string, day: number) =>
-        sheetApis.screenshot.getScreenshot({ query: { guildId, channel, day } }),
+      getScreenshot: (workspaceId: string, conversation: string, day: number) =>
+        sheetApis.screenshot.getScreenshot({
+          query: { workspaceId, conversationName: conversation, day },
+        }),
     },
   };
 };
@@ -382,39 +530,51 @@ const logEnableFailure = (message: string) => (error: unknown) =>
   Effect.logWarning(message).pipe(Effect.annotateLogs({ cause: globalThis.String(error) }));
 
 const makeInteractionMessageSink = (
-  botClient: typeof IngressBotClient.Service,
-  interactionToken: string,
+  botClient: typeof ClientDeliveryClient.Service,
+  interactionResponseToken: string,
 ): DispatchMessageSink => ({
-  sendPrimary: (payload) => botClient.updateOriginalInteractionResponse(interactionToken, payload),
+  sendPrimary: (payload) =>
+    botClient.updateOriginalInteractionResponse(interactionResponseToken, payload),
   updatePrimary: (_message, payload) =>
-    botClient.updateOriginalInteractionResponse(interactionToken, payload),
+    botClient.updateOriginalInteractionResponse(interactionResponseToken, payload),
 });
 
-const makeChannelMessageSink = (
-  botClient: typeof IngressBotClient.Service,
-  channelId: string,
+const makeConversationMessageSink = (
+  botClient: typeof ClientDeliveryClient.Service,
+  conversationId: string,
 ): DispatchMessageSink => ({
-  sendPrimary: (payload) => botClient.sendMessage(channelId, payload),
+  sendPrimary: (payload) => botClient.sendMessage(conversationId, payload),
   updatePrimary: (message, payload) =>
-    botClient.updateMessage(message.channel_id, message.id, payload),
+    botClient.updateMessage(message.conversation_id, message.id, payload),
 });
 
 const makeMessageSink = (
-  botClient: typeof IngressBotClient.Service,
-  channelId: string,
-  interactionToken: string | undefined,
+  botClient: typeof ClientDeliveryClient.Service,
+  conversationId: string,
+  interactionResponseToken: string | undefined,
 ): DispatchMessageSink =>
-  typeof interactionToken === "string"
-    ? makeInteractionMessageSink(botClient, interactionToken)
-    : makeChannelMessageSink(botClient, channelId);
+  typeof interactionResponseToken === "string"
+    ? makeInteractionMessageSink(botClient, interactionResponseToken)
+    : makeConversationMessageSink(botClient, conversationId);
 
-const mentionUser = (userId: string): string => `<@${userId}>`;
+const textValue = (value: MessageTextInput): MessageTextValue =>
+  typeof value === "string" ? [MessageText.text(value)] : value;
 
-const mentionChannel = (channelId: string): string => `<#${channelId}>`;
+const conversationMentionValue = (
+  client: ClientRef,
+  workspaceId: string,
+  conversationId: string,
+): MessageTextValue => [
+  MessageText.conversationMention(MessageText.conversationRef(client, workspaceId, conversationId)),
+];
 
-const mentionRole = (roleId: string): string => `<@&${roleId}>`;
-
-const subtext = (value: string): string => `-# ${value}`;
+const roleMentionValue = (
+  client: ClientRef,
+  workspaceId: string,
+  roleId: string,
+): MessageTextValue => [
+  MessageText.roleMention(MessageText.workspaceRef(client, workspaceId), roleId),
+];
 
 const escapeMarkdown = (value: string): string =>
   value
@@ -426,33 +586,53 @@ const escapeMarkdown = (value: string): string =>
     .replaceAll("|", "\\|")
     .replaceAll(">", "\\>");
 
-const resolveGuildDisplayName = (
-  botClient: typeof IngressBotClient.Service,
-  guildId: string,
-): Effect.Effect<string> =>
-  botClient.getGuild(guildId).pipe(
-    Effect.map((guild) => {
-      const name = guild.name.trim();
-      return name.length > 0 ? escapeMarkdown(name) : "this server";
+const resolveWorkspaceDisplayName = (
+  botClient: typeof ClientDeliveryClient.Service,
+  workspaceId: string,
+): Effect.Effect<MessageTextValue> =>
+  botClient.getWorkspace(workspaceId).pipe(
+    Effect.map((workspace) => {
+      const name = workspace.name.trim();
+      return name.length > 0
+        ? [MessageText.text(escapeMarkdown(name))]
+        : [MessageText.text("this "), MessageText.clientTerm("workspace")];
     }),
-    Effect.catch(() => Effect.succeed("this server")),
+    Effect.catch(() =>
+      Effect.succeed([MessageText.text("this "), MessageText.clientTerm("workspace")]),
+    ),
   );
 
 const bold = (value: string): string => `**${value}**`;
 
-const time = (epochSeconds: number): string => `<t:${Math.floor(epochSeconds)}:t>`;
+const time = (epochSeconds: number): string => new Date(epochSeconds * 1000).toISOString();
 
 const makeEmbed = (embed: {
-  readonly title?: string;
-  readonly description?: string | null;
+  readonly title?: MessageTextInput;
+  readonly description?: MessageTextInput | null;
   readonly fields?: ReadonlyArray<{
-    readonly name: string;
-    readonly value: string;
+    readonly name: MessageTextInput;
+    readonly value: MessageTextInput;
     readonly inline?: boolean;
   }>;
-  readonly footer?: { readonly text: string };
+  readonly footer?: { readonly text: MessageTextInput };
   readonly color?: number;
-}) => embed;
+}): MessageEmbed => ({
+  ...embed,
+  ...(embed.title === undefined ? {} : { title: textValue(embed.title) }),
+  ...(embed.description === undefined
+    ? {}
+    : { description: embed.description === null ? null : textValue(embed.description) }),
+  ...(embed.fields === undefined
+    ? {}
+    : {
+        fields: embed.fields.map((field) => ({
+          ...field,
+          name: textValue(field.name),
+          value: textValue(field.value),
+        })),
+      }),
+  ...(embed.footer === undefined ? {} : { footer: { text: textValue(embed.footer.text) } }),
+});
 
 const autoCheckinTestHour = 1;
 const autoCheckinTestColor = 0xf59e0b;
@@ -465,17 +645,14 @@ const truncateAutoCheckinTestFailureDetail = (value: string): string =>
     ? value
     : `${value.slice(0, autoCheckinTestFailureDetailLength - 3)}...`;
 
-const noMentions = () => ({ parse: [] as const });
-
-const discordMessageUrl = (guildId: string, message: DiscordMessage): string =>
-  `https://discord.com/channels/${guildId}/${message.channel_id}/${message.id}`;
+const clientMessageLabel = (message: DeliveredMessage): string => `message ${message.id}`;
 
 const makeAutoCheckinTestEmbed = (embed: {
-  readonly title: string;
-  readonly description?: string | null;
+  readonly title: MessageTextInput;
+  readonly description?: MessageTextInput | null;
   readonly fields?: ReadonlyArray<{
-    readonly name: string;
-    readonly value: string;
+    readonly name: MessageTextInput;
+    readonly value: MessageTextInput;
     readonly inline?: boolean;
   }>;
 }) =>
@@ -487,18 +664,25 @@ const makeAutoCheckinTestEmbed = (embed: {
 
 const makeWebScheduleEmbed = () =>
   makeEmbed({
-    description: "📅 **Preview**: View your schedule online at <https://schedule.theerapakg.moe/>",
+    description: [
+      MessageText.text("📅 "),
+      MessageText.strong([MessageText.text("Preview")]),
+      MessageText.text(": View your schedule online at "),
+      MessageText.externalLink("https://schedule.theerapakg.moe/"),
+    ],
     color: 0x5865f2,
   });
 
 const isAutoCheckinEnabled = (autoCheckin: Option.Option<boolean>) =>
   Option.getOrElse(autoCheckin, () => false);
 
-const formatChannelConfigFields = (config: {
+const formatConversationConfigFields = (config: {
+  readonly client: ClientRef;
+  readonly workspaceId: string;
   readonly name: Option.Option<string>;
   readonly running: Option.Option<boolean>;
   readonly roleId: Option.Option<string>;
-  readonly checkinChannelId: Option.Option<string>;
+  readonly checkinConversationId: Option.Option<string>;
 }) => [
   {
     name: "Name",
@@ -507,18 +691,22 @@ const formatChannelConfigFields = (config: {
       onNone: () => "None!",
     }),
   },
-  { name: "Running channel", value: Option.getOrUndefined(config.running) ? "Yes" : "No" },
   {
-    name: "Role",
+    name: [MessageText.clientTerm("runDestination", { casing: "sentence" })],
+    value: Option.getOrUndefined(config.running) ? "Yes" : "No",
+  },
+  {
+    name: [MessageText.clientTerm("monitorRole", { casing: "sentence" })],
     value: Option.match(config.roleId, {
-      onSome: mentionRole,
+      onSome: (roleId) => roleMentionValue(config.client, config.workspaceId, roleId),
       onNone: () => "None!",
     }),
   },
   {
-    name: "Checkin channel",
-    value: Option.match(config.checkinChannelId, {
-      onSome: mentionChannel,
+    name: [MessageText.clientTerm("checkinDestination", { casing: "sentence" })],
+    value: Option.match(config.checkinConversationId, {
+      onSome: (conversationId) =>
+        conversationMentionValue(config.client, config.workspaceId, conversationId),
       onNone: () => "None!",
     }),
   },
@@ -552,8 +740,13 @@ const welcomeEmbed = () =>
     fields: [
       {
         name: "Google Sheet adapter required",
-        value:
-          "This bot needs a compatible Google Sheet adapter before it can do useful work. For now, message <@394295776655966219> (Theerie) to get one.",
+        value: [
+          MessageText.text(
+            "This bot needs a compatible Google Sheet adapter before it can do useful work. For now, message ",
+          ),
+          MessageText.userMention("394295776655966219"),
+          MessageText.text(" (Theerie) to get one."),
+        ],
       },
       {
         name: "Run your own bot",
@@ -563,7 +756,7 @@ const welcomeEmbed = () =>
       {
         name: "Self-hosting requirements",
         value:
-          "You will need a Discord application and bot token, a Google Cloud service account with Sheets access, Postgres, Redis, and either Docker Compose or a Kubernetes cluster. Optional pieces include Infisical for secret sync and an OTLP endpoint for traces/metrics.",
+          "You will need a client application and bot token, a Google Cloud service account with Sheets access, Postgres, Redis, and either Docker Compose or a Kubernetes cluster. Optional pieces include Infisical for secret sync and an OTLP endpoint for traces/metrics.",
       },
     ],
     footer: {
@@ -571,72 +764,83 @@ const welcomeEmbed = () =>
     },
   });
 
-const sendableGuildChannelTypes = new Set([0, 5]);
+const sendableWorkspaceConversationTypes = new Set([0, 5]);
 
-const isSendableGuildChannel = (channel: DiscordChannelCacheEntry) =>
-  sendableGuildChannelTypes.has(channel.value.type);
+const isSendableWorkspaceConversation = (conversation: ClientConversationCacheEntry) =>
+  sendableWorkspaceConversationTypes.has(conversation.value.type);
 
-const channelPosition = (channel: DiscordChannelCacheEntry) =>
-  typeof channel.value.position === "number" ? channel.value.position : Number.MAX_SAFE_INTEGER;
+const conversationPosition = (conversation: ClientConversationCacheEntry) =>
+  typeof conversation.value.position === "number"
+    ? conversation.value.position
+    : Number.MAX_SAFE_INTEGER;
 
-const guildWelcomeChannelCandidates = (
-  channels: ReadonlyArray<DiscordChannelCacheEntry>,
-  systemChannelId: string | undefined,
+const workspaceWelcomeConversationCandidates = (
+  conversations: ReadonlyArray<ClientConversationCacheEntry>,
+  systemConversationId: string | undefined,
 ) => {
-  const sendableChannels = channels.filter(isSendableGuildChannel);
-  const byId = new Map(sendableChannels.map((channel) => [channel.resourceId, channel]));
-  const candidates: Array<DiscordChannelCacheEntry> = [];
+  const sendableConversations = conversations.filter(isSendableWorkspaceConversation);
+  const byId = new Map(
+    sendableConversations.map((conversation) => [conversation.resourceId, conversation]),
+  );
+  const candidates: Array<ClientConversationCacheEntry> = [];
   const seen = new Set<string>();
-  const addCandidate = (channel: DiscordChannelCacheEntry | undefined) => {
-    if (channel !== undefined && !seen.has(channel.resourceId)) {
-      seen.add(channel.resourceId);
-      candidates.push(channel);
+  const addCandidate = (conversation: ClientConversationCacheEntry | undefined) => {
+    if (conversation !== undefined && !seen.has(conversation.resourceId)) {
+      seen.add(conversation.resourceId);
+      candidates.push(conversation);
     }
   };
 
-  if (systemChannelId !== undefined) {
-    addCandidate(byId.get(systemChannelId));
+  if (systemConversationId !== undefined) {
+    addCandidate(byId.get(systemConversationId));
   }
 
-  addCandidate(sendableChannels.find((channel) => channel.value.name?.toLowerCase() === "general"));
+  addCandidate(
+    sendableConversations.find(
+      (conversation) => conversation.value.name?.toLowerCase() === "general",
+    ),
+  );
 
-  for (const channel of [...sendableChannels].sort((left, right) => {
-    const positionDifference = channelPosition(left) - channelPosition(right);
+  for (const conversation of [...sendableConversations].sort((left, right) => {
+    const positionDifference = conversationPosition(left) - conversationPosition(right);
     return positionDifference === 0
       ? left.resourceId.localeCompare(right.resourceId)
       : positionDifference;
   })) {
-    addCandidate(channel);
+    addCandidate(conversation);
   }
 
   return candidates;
 };
 
-const sendGuildAnnouncementWithWelcomeHeuristic = (params: {
-  readonly botClient: typeof IngressBotClient.Service;
-  readonly guildId: string;
-  readonly systemChannelId: string | undefined;
+const sendWorkspaceAnnouncementWithWelcomeHeuristic = (params: {
+  readonly botClient: typeof ClientDeliveryClient.Service;
+  readonly workspaceId: string;
+  readonly systemConversationId: string | undefined;
   readonly messagePayload: MessagePayload;
   readonly logLabel: string;
 }) =>
   Effect.gen(function* () {
-    const channels = yield* params.botClient.getChannelsForParent(params.guildId);
-    const candidates = guildWelcomeChannelCandidates(channels, params.systemChannelId);
+    const conversations = yield* params.botClient.getConversationsForParent(params.workspaceId);
+    const candidates = workspaceWelcomeConversationCandidates(
+      conversations,
+      params.systemConversationId,
+    );
 
-    for (const channel of candidates) {
+    for (const conversation of candidates) {
       const sentMessage = yield* params.botClient
-        .sendMessage(channel.resourceId, params.messagePayload)
+        .sendMessage(conversation.resourceId, params.messagePayload)
         .pipe(
           Effect.map(Option.some),
           Effect.catchCause((cause) =>
             Effect.logWarning(`Failed to send ${params.logLabel}`).pipe(
               Effect.annotateLogs({
-                guildId: params.guildId,
-                channelId: channel.resourceId,
-                channelName: channel.value.name,
+                workspaceId: params.workspaceId,
+                conversationId: conversation.resourceId,
+                conversationName: conversation.value.name,
               }),
               Effect.andThen(Effect.logDebug(cause)),
-              Effect.as(Option.none<DiscordMessage>()),
+              Effect.as(Option.none<DeliveredMessage>()),
             ),
           ),
         );
@@ -745,15 +949,22 @@ const joinDedupeAdjacent = (items: ReadonlyArray<string>) =>
   pipe(Chunk.fromIterable(items), Chunk.dedupeAdjacent, Chunk.join("\n"));
 
 const renderCheckedInContent = (
-  initialMessage: string,
+  initialMessage: ReadonlyArray<SheetTextPart>,
   members: ReadonlyArray<{ readonly memberId: string; readonly checkinAt: Option.Option<unknown> }>,
 ) => {
-  const checkedInMentions = members
-    .filter((member) => Option.isSome(member.checkinAt))
-    .map((member) => mentionUser(member.memberId));
+  const checkedInMentions = members.filter((member) => Option.isSome(member.checkinAt));
 
   return checkedInMentions.length > 0
-    ? `${initialMessage}\n\nChecked in: ${checkedInMentions.join(" ")}`
+    ? MessageText.parts(
+        ...initialMessage,
+        MessageText.text("\n\nChecked in: "),
+        ...checkedInMentions.flatMap((member, index) =>
+          MessageText.parts(
+            index === 0 ? undefined : MessageText.text(" "),
+            MessageText.userMention(member.memberId),
+          ),
+        ),
+      )
     : initialMessage;
 };
 
@@ -764,14 +975,14 @@ const fillParticipantFromName = (name: string) => ({
 });
 
 const renderRoomOrderReply = Effect.fn("DispatchService.renderRoomOrderReply")(function* ({
-  guildId,
+  workspaceId,
   messageId,
   mode,
   roomOrder,
   sheetService,
   messageRoomOrderService,
 }: {
-  readonly guildId: string;
+  readonly workspaceId: string;
   readonly messageId: string;
   readonly mode: "normal" | "tentative";
   readonly roomOrder: MessageRoomOrder;
@@ -780,7 +991,7 @@ const renderRoomOrderReply = Effect.fn("DispatchService.renderRoomOrderReply")(f
     typeof makeSheetApisServices
   >["messageRoomOrderService"];
 }) {
-  yield* Effect.annotateCurrentSpan({ guildId, messageId, mode, hour: roomOrder.hour });
+  yield* Effect.annotateCurrentSpan({ workspaceId, messageId, mode, hour: roomOrder.hour });
   const maybeRange = yield* messageRoomOrderService.getMessageRoomOrderRange(messageId);
   const entries = yield* messageRoomOrderService.getMessageRoomOrderEntry(
     messageId,
@@ -790,7 +1001,7 @@ const renderRoomOrderReply = Effect.fn("DispatchService.renderRoomOrderReply")(f
     onSome: Effect.succeed,
     onNone: () => Effect.fail(makeArgumentError("Cannot render room order, no entries found")),
   });
-  const eventConfig = yield* sheetService.getEventConfig(guildId);
+  const eventConfig = yield* sheetService.getEventConfig(workspaceId);
   const start = pipe(
     eventConfig.startTime,
     DateTime.addDuration(Duration.hours(roomOrder.hour - 1)),
@@ -809,7 +1020,7 @@ const renderRoomOrderReply = Effect.fn("DispatchService.renderRoomOrderReply")(f
 
   return mode === "tentative"
     ? {
-        content: formatTentativeRoomOrderContent(content),
+        content: tentativeRoomOrderContent(content),
         components: [tentativeRoomOrderActionRow(range, roomOrder.rank)],
       }
     : {
@@ -818,126 +1029,13 @@ const renderRoomOrderReply = Effect.fn("DispatchService.renderRoomOrderReply")(f
       };
 });
 
-const sendTentativeRoomOrder = Effect.fn("DispatchService.sendTentativeRoomOrder")(function* ({
-  guildId,
-  runningChannelId,
-  hour,
-  fillCount,
-  createdByUserId,
-  botClient,
-  roomOrderService,
-  messageRoomOrderService,
-}: {
-  readonly guildId: string;
-  readonly runningChannelId: string;
-  readonly hour: number;
-  readonly fillCount: number;
-  readonly createdByUserId: string | null;
-  readonly botClient: typeof IngressBotClient.Service;
-  readonly roomOrderService: ReturnType<typeof makeSheetApisServices>["roomOrderService"];
-  readonly messageRoomOrderService: ReturnType<
-    typeof makeSheetApisServices
-  >["messageRoomOrderService"];
-}) {
-  yield* Effect.annotateCurrentSpan({
-    guildId,
-    channelId: runningChannelId,
-    hour,
-    fillCount,
-  });
-  if (!shouldSendTentativeRoomOrder(fillCount)) {
-    return null;
-  }
-
-  return yield* Effect.gen(function* () {
-    const generated = yield* roomOrderService.generate({
-      guildId,
-      channelId: runningChannelId,
-      hour,
-    });
-
-    const sentMessage = yield* botClient.sendMessage(runningChannelId, {
-      content: formatTentativeRoomOrderContent(generated.content),
-      components: [tentativeRoomOrderActionRow(generated.range, generated.rank)],
-    });
-
-    yield* Effect.gen(function* () {
-      yield* messageRoomOrderService.persistMessageRoomOrder(sentMessage.id, {
-        data: {
-          previousFills: generated.previousFills,
-          fills: generated.fills,
-          hour: generated.hour,
-          rank: generated.rank,
-          tentative: true,
-          monitor: generated.monitor,
-          guildId,
-          messageChannelId: sentMessage.channel_id,
-          createdByUserId,
-        },
-        entries: generated.entries,
-      });
-    }).pipe(
-      Effect.catchCause((cause) =>
-        Effect.logError("Failed to persist tentative room order").pipe(
-          Effect.annotateLogs({
-            guildId,
-            runningChannelId,
-            hour,
-            messageId: sentMessage.id,
-          }),
-          Effect.andThen(Effect.logError(cause)),
-          Effect.andThen(
-            botClient
-              .updateMessage(sentMessage.channel_id, sentMessage.id, {
-                components: [tentativeRoomOrderPinActionRow()],
-              })
-              .pipe(
-                Effect.catchCause((updateCause) =>
-                  Effect.logError(
-                    "Failed to persist tentative room order and downgrade buttons",
-                  ).pipe(
-                    Effect.annotateLogs({
-                      guildId,
-                      runningChannelId,
-                      hour,
-                      messageId: sentMessage.id,
-                    }),
-                    Effect.andThen(Effect.logError(cause)),
-                    Effect.andThen(Effect.logError(updateCause)),
-                  ),
-                ),
-              ),
-          ),
-        ),
-      ),
-    );
-
-    return {
-      messageId: sentMessage.id,
-      messageChannelId: sentMessage.channel_id,
-    };
-  }).pipe(
-    Effect.catchCause((cause) =>
-      Effect.logError("Failed to send tentative room order").pipe(
-        Effect.annotateLogs({
-          guildId,
-          runningChannelId,
-          hour,
-        }),
-        Effect.andThen(Effect.logError(cause)),
-        Effect.as(null),
-      ),
-    ),
-  );
-});
-
 export class DispatchService extends Context.Service<DispatchService>()("DispatchService", {
   make: Effect.gen(function* () {
-    const botClient = yield* IngressBotClient;
+    const botClient = yield* ClientDeliveryClient;
     const sheetApisClient = yield* SheetApisClient;
     const {
       checkinService,
-      guildConfigService,
+      workspaceConfigService,
       messageCheckinService,
       messageRoomOrderService,
       messageSlotService,
@@ -956,7 +1054,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       errorMessage: string,
     ) =>
       botClient
-        .updateOriginalInteractionResponse(payload.interactionToken, {
+        .updateOriginalInteractionResponse(payload.interactionResponseToken, {
           content,
           components: [],
         })
@@ -969,8 +1067,8 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
     const requireRoomOrderMatch = (payload: RoomOrderButtonPayload, roomOrder: MessageRoomOrder) =>
       Effect.gen(function* () {
         if (
-          !Option.contains(roomOrder.guildId, payload.guildId) ||
-          !Option.contains(roomOrder.messageChannelId, payload.messageChannelId)
+          !Option.contains(roomOrder.workspaceId, payload.workspaceId) ||
+          !Option.contains(roomOrder.conversationId, payload.messageConversationId)
         ) {
           return yield* failRoomOrderInteraction(
             payload,
@@ -1008,43 +1106,45 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
     const handleFallbackTentativePin = Effect.fn(
       "DispatchService.roomOrderPinTentativeButton.handleFallbackTentativePin",
     )(function* (payload: RoomOrderPinTentativeButtonPayload) {
-      const fallbackChannel = yield* guildConfigService.getGuildChannelById({
-        guildId: payload.guildId,
-        channelId: payload.messageChannelId,
+      const fallbackConversation = yield* workspaceConfigService.getWorkspaceConversationById({
+        workspaceId: payload.workspaceId,
+        conversationId: payload.messageConversationId,
         running: true,
       });
-      if (Option.isNone(fallbackChannel)) {
-        yield* botClient.updateOriginalInteractionResponse(payload.interactionToken, {
-          content: "This channel is not a registered running channel.",
+      if (Option.isNone(fallbackConversation)) {
+        yield* botClient.updateOriginalInteractionResponse(payload.interactionResponseToken, {
+          content: "This conversation is not a registered running conversation.",
           components: [],
         });
         return yield* Effect.fail(
           markInteractionFailureHandled(
             makeArgumentError(
-              "Cannot handle room-order button, message channel is not a registered running channel",
+              "Cannot handle room-order button, message conversation is not a registered running conversation",
             ),
           ),
         );
       }
 
-      const pinned = yield* botClient.createPin(payload.messageChannelId, payload.messageId).pipe(
-        Effect.as(true),
-        Effect.catchCause((cause) =>
-          Effect.logError("Failed to pin fallback tentative room order").pipe(
-            Effect.annotateLogs({
-              guildId: payload.guildId,
-              channelId: payload.messageChannelId,
-              messageId: payload.messageId,
-            }),
-            Effect.andThen(Effect.logError(cause)),
-            Effect.as(false),
+      const pinned = yield* botClient
+        .createPin(payload.messageConversationId, payload.messageId)
+        .pipe(
+          Effect.as(true),
+          Effect.catchCause((cause) =>
+            Effect.logError("Failed to pin fallback tentative room order").pipe(
+              Effect.annotateLogs({
+                workspaceId: payload.workspaceId,
+                conversationId: payload.messageConversationId,
+                messageId: payload.messageId,
+              }),
+              Effect.andThen(Effect.logError(cause)),
+              Effect.as(false),
+            ),
           ),
-        ),
-      );
+        );
 
       const cleanedUp = pinned
         ? yield* botClient
-            .updateMessage(payload.messageChannelId, payload.messageId, {
+            .updateMessage(payload.messageConversationId, payload.messageId, {
               components: [],
             })
             .pipe(
@@ -1052,8 +1152,8 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
               Effect.catchCause((cause) =>
                 Effect.logError("Failed to clean up fallback tentative room order").pipe(
                   Effect.annotateLogs({
-                    guildId: payload.guildId,
-                    channelId: payload.messageChannelId,
+                    workspaceId: payload.workspaceId,
+                    conversationId: payload.messageConversationId,
                     messageId: payload.messageId,
                   }),
                   Effect.andThen(Effect.logError(cause)),
@@ -1068,14 +1168,14 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           ? "pinned tentative room order!"
           : "pinned tentative room order, but failed to clean up the message."
         : "tentative room order could not be pinned.";
-      yield* botClient.updateOriginalInteractionResponse(payload.interactionToken, {
+      yield* botClient.updateOriginalInteractionResponse(payload.interactionResponseToken, {
         content: detail,
         components: [],
       });
 
       return {
         messageId: payload.messageId,
-        messageChannelId: payload.messageChannelId,
+        messageConversationId: payload.messageConversationId,
         status: pinned ? (cleanedUp ? "pinned" : "partial") : "failed",
         detail,
       } satisfies RoomOrderButtonResult;
@@ -1084,22 +1184,22 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
     const loadRequiredRoomOrderContext = Effect.fn("DispatchService.loadRequiredRoomOrderContext")(
       function* (payload: RoomOrderButtonPayload, initialRoomOrder: MessageRoomOrder) {
         yield* requireRoomOrderMatch(payload, initialRoomOrder);
-        const trustedGuildId = yield* Option.match(initialRoomOrder.guildId, {
+        const trustedWorkspaceId = yield* Option.match(initialRoomOrder.workspaceId, {
           onSome: Effect.succeed,
           onNone: () =>
             failRoomOrderInteraction(
               payload,
-              "This room-order message guild is not registered.",
-              "Cannot handle room-order button, message guild is not registered",
+              "This room-order message workspace is not registered.",
+              "Cannot handle room-order button, message workspace is not registered",
             ),
         });
-        const trustedMessageChannelId = yield* Option.match(initialRoomOrder.messageChannelId, {
+        const trustedMessageConversationId = yield* Option.match(initialRoomOrder.conversationId, {
           onSome: Effect.succeed,
           onNone: () =>
             failRoomOrderInteraction(
               payload,
-              "This room-order message channel is not registered.",
-              "Cannot handle room-order button, message channel is not registered",
+              "This room-order message conversation is not registered.",
+              "Cannot handle room-order button, message conversation is not registered",
             ),
         });
         const messageHasTentativePrefix = hasTentativeRoomOrderPrefix(payload.messageContent ?? "");
@@ -1109,9 +1209,9 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
                 Effect.catchCause((cause) =>
                   Effect.logError("Failed to repair legacy tentative room-order flag").pipe(
                     Effect.annotateLogs({
-                      guildId: trustedGuildId,
+                      workspaceId: trustedWorkspaceId,
                       messageId: payload.messageId,
-                      channelId: trustedMessageChannelId,
+                      conversationId: trustedMessageConversationId,
                     }),
                     Effect.andThen(Effect.logError(cause)),
                     Effect.as(initialRoomOrder),
@@ -1129,7 +1229,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           replyMode: "normal" | "tentative" = mode,
         ) =>
           renderRoomOrderReply({
-            guildId: trustedGuildId,
+            workspaceId: trustedWorkspaceId,
             messageId: payload.messageId,
             mode: replyMode,
             roomOrder,
@@ -1139,9 +1239,9 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
 
         const updateInteraction = (
           content: string,
-          components: ReadonlyArray<Record<string, unknown>> = [],
+          components: ReadonlyArray<SheetMessageComponent> = [],
         ) =>
-          botClient.updateOriginalInteractionResponse(payload.interactionToken, {
+          botClient.updateOriginalInteractionResponse(payload.interactionResponseToken, {
             content,
             components,
           });
@@ -1179,8 +1279,8 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
 
         return {
           initialRoomOrder,
-          trustedGuildId,
-          trustedMessageChannelId,
+          trustedWorkspaceId,
+          trustedMessageConversationId,
           mode,
           interactionResponseType,
           renderReply,
@@ -1199,7 +1299,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         onSome: Effect.succeed,
         onNone: () =>
           botClient
-            .updateOriginalInteractionResponse(payload.interactionToken, {
+            .updateOriginalInteractionResponse(payload.interactionResponseToken, {
               content: "This room-order message is not registered.",
               components: [],
             })
@@ -1216,30 +1316,30 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
 
     const roomOrderButtonResult = (
       payload: RoomOrderButtonPayload,
-      messageChannelId: string,
+      messageConversationId: string,
       status: RoomOrderButtonResult["status"],
       detail: string | null,
     ) =>
       ({
         messageId: payload.messageId,
-        messageChannelId,
+        messageConversationId,
         status,
         detail,
       }) satisfies RoomOrderButtonResult;
 
     const denyRoomOrderButton = Effect.fn("DispatchService.denyRoomOrderButton")(function* ({
       detail,
-      messageChannelId,
+      messageConversationId,
       payload,
       updateInteraction,
     }: {
       readonly detail: string;
-      readonly messageChannelId: string;
+      readonly messageConversationId: string;
       readonly payload: RoomOrderButtonPayload;
       readonly updateInteraction: (content: string) => Effect.Effect<unknown, unknown>;
     }) {
       yield* updateInteraction(detail);
-      return roomOrderButtonResult(payload, messageChannelId, "denied", detail);
+      return roomOrderButtonResult(payload, messageConversationId, "denied", detail);
     });
 
     const acknowledgeRoomOrderButton = (
@@ -1297,14 +1397,14 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       function* ({
         claimedRoomOrder,
         getRoomOrderBusyDetail,
-        messageChannelId,
+        messageConversationId,
         payload,
         updateClaimId,
         updateInteraction,
       }: {
         readonly claimedRoomOrder: MessageRoomOrder;
         readonly getRoomOrderBusyDetail: (roomOrder: MessageRoomOrder) => string;
-        readonly messageChannelId: string;
+        readonly messageConversationId: string;
         readonly payload: RoomOrderButtonPayload;
         readonly updateClaimId: string;
         readonly updateInteraction: (content: string) => Effect.Effect<unknown, unknown>;
@@ -1317,7 +1417,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           return Option.some(
             yield* denyRoomOrderButton({
               detail: getRoomOrderBusyDetail(claimedRoomOrder),
-              messageChannelId,
+              messageConversationId,
               payload,
               updateInteraction,
             }),
@@ -1332,7 +1432,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       direction,
       getRoomOrderBusyDetail,
       initialRoomOrder,
-      messageChannelId,
+      messageConversationId,
       payload,
       updateClaimId,
       updateInteraction,
@@ -1340,7 +1440,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       readonly direction: RoomOrderRankDirection;
       readonly getRoomOrderBusyDetail: (roomOrder: MessageRoomOrder) => string;
       readonly initialRoomOrder: MessageRoomOrder;
-      readonly messageChannelId: string;
+      readonly messageConversationId: string;
       readonly payload: RoomOrderButtonPayload;
       readonly updateClaimId: string;
       readonly updateInteraction: (content: string) => Effect.Effect<unknown, unknown>;
@@ -1380,7 +1480,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         _tag: "denied" as const,
         result: yield* denyRoomOrderButton({
           detail,
-          messageChannelId,
+          messageConversationId,
           payload,
           updateInteraction,
         }),
@@ -1391,7 +1491,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       function* ({
         direction,
         interactionResponseType,
-        messageChannelId,
+        messageConversationId,
         mode,
         payload,
         renderReply,
@@ -1401,7 +1501,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       }: {
         readonly direction: RoomOrderRankDirection;
         readonly interactionResponseType: "reply" | "update";
-        readonly messageChannelId: string;
+        readonly messageConversationId: string;
         readonly mode: RoomOrderButtonMode;
         readonly payload: RoomOrderButtonPayload;
         readonly renderReply: (
@@ -1424,7 +1524,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
 
         if (mode === "tentative" || interactionResponseType === "reply") {
           yield* botClient
-            .updateMessage(messageChannelId, payload.messageId, reply)
+            .updateMessage(messageConversationId, payload.messageId, reply)
             .pipe(Effect.catchCause(rollback));
           yield* releaseTentativeUpdateClaim(payload.messageId, updateClaimId);
           yield* acknowledgeRoomOrderButton(
@@ -1435,7 +1535,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         }
 
         yield* botClient
-          .updateOriginalInteractionResponse(payload.interactionToken, reply)
+          .updateOriginalInteractionResponse(payload.interactionResponseToken, reply)
           .pipe(Effect.catchCause(rollback));
         yield* releaseTentativeUpdateClaim(payload.messageId, updateClaimId);
       },
@@ -1448,15 +1548,15 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         direction: RoomOrderRankDirection,
       ) {
         yield* Effect.annotateCurrentSpan({
-          guildId: payload.guildId,
-          channelId: payload.messageChannelId,
+          workspaceId: payload.workspaceId,
+          conversationId: payload.messageConversationId,
           messageId: payload.messageId,
           direction,
         });
         const maybeInitialRoomOrder = yield* loadInitialRoomOrder(payload, authorizedRoomOrder);
         const initialRoomOrder = yield* requireInitialRoomOrder(payload, maybeInitialRoomOrder);
         const {
-          trustedMessageChannelId,
+          trustedMessageConversationId,
           mode,
           interactionResponseType,
           renderReply,
@@ -1467,7 +1567,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         if (mode === "tentative" && Option.isSome(initialRoomOrder.tentativePinnedAt)) {
           return yield* denyRoomOrderButton({
             detail: "tentative room order is already pinned.",
-            messageChannelId: trustedMessageChannelId,
+            messageConversationId: trustedMessageConversationId,
             payload,
             updateInteraction,
           });
@@ -1491,7 +1591,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         const unavailableClaim = yield* requireTentativeUpdateClaim({
           claimedRoomOrder,
           getRoomOrderBusyDetail,
-          messageChannelId: trustedMessageChannelId,
+          messageConversationId: trustedMessageConversationId,
           payload,
           updateClaimId,
           updateInteraction,
@@ -1504,7 +1604,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           direction,
           getRoomOrderBusyDetail,
           initialRoomOrder,
-          messageChannelId: trustedMessageChannelId,
+          messageConversationId: trustedMessageConversationId,
           payload,
           updateClaimId,
           updateInteraction,
@@ -1516,7 +1616,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         yield* publishRoomOrderRankUpdate({
           direction,
           interactionResponseType,
-          messageChannelId: trustedMessageChannelId,
+          messageConversationId: trustedMessageConversationId,
           mode,
           payload,
           renderReply,
@@ -1525,7 +1625,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           updateInteraction,
         });
 
-        return roomOrderButtonResult(payload, trustedMessageChannelId, "updated", null);
+        return roomOrderButtonResult(payload, trustedMessageConversationId, "updated", null);
       },
     );
 
@@ -1535,20 +1635,20 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       initialRoomOrder,
       mode,
       payload,
-      trustedMessageChannelId,
+      trustedMessageConversationId,
       updateInteraction,
     }: {
       readonly initialRoomOrder: MessageRoomOrder;
       readonly mode: RoomOrderButtonMode;
       readonly payload: RoomOrderSendButtonPayload;
-      readonly trustedMessageChannelId: string;
+      readonly trustedMessageConversationId: string;
       readonly updateInteraction: (content: string) => Effect.Effect<unknown, unknown>;
     }) {
       if (mode === "tentative") {
         return Option.some(
           yield* denyRoomOrderButton({
             detail: "cannot send a tentative room order.",
-            messageChannelId: trustedMessageChannelId,
+            messageConversationId: trustedMessageConversationId,
             payload,
             updateInteraction,
           }),
@@ -1556,13 +1656,13 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       }
       if (
         Option.isSome(initialRoomOrder.sentMessageId) &&
-        Option.isSome(initialRoomOrder.sentMessageChannelId)
+        Option.isSome(initialRoomOrder.sentConversationId)
       ) {
         const detail = "room order was already sent.";
         yield* updateInteraction(detail);
         return Option.some({
           messageId: initialRoomOrder.sentMessageId.value,
-          messageChannelId: initialRoomOrder.sentMessageChannelId.value,
+          messageConversationId: initialRoomOrder.sentConversationId.value,
           status: "sent",
           detail,
         } satisfies RoomOrderButtonResult);
@@ -1571,7 +1671,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         return Option.some(
           yield* denyRoomOrderButton({
             detail: "tentative room order is already pinned.",
-            messageChannelId: trustedMessageChannelId,
+            messageConversationId: trustedMessageConversationId,
             payload,
             updateInteraction,
           }),
@@ -1587,25 +1687,25 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         claimedRoomOrder,
         getRoomOrderBusyDetail,
         payload,
-        trustedMessageChannelId,
+        trustedMessageConversationId,
         updateInteraction,
       }: {
         readonly claimId: string;
         readonly claimedRoomOrder: MessageRoomOrder;
         readonly getRoomOrderBusyDetail: (roomOrder: MessageRoomOrder) => string;
         readonly payload: RoomOrderSendButtonPayload;
-        readonly trustedMessageChannelId: string;
+        readonly trustedMessageConversationId: string;
         readonly updateInteraction: (content: string) => Effect.Effect<unknown, unknown>;
       }) {
         if (
           Option.isSome(claimedRoomOrder.sentMessageId) &&
-          Option.isSome(claimedRoomOrder.sentMessageChannelId)
+          Option.isSome(claimedRoomOrder.sentConversationId)
         ) {
           const detail = "room order was already sent.";
           yield* updateInteraction(detail);
           return Option.some({
             messageId: claimedRoomOrder.sentMessageId.value,
-            messageChannelId: claimedRoomOrder.sentMessageChannelId.value,
+            messageConversationId: claimedRoomOrder.sentConversationId.value,
             status: "sent",
             detail,
           } satisfies RoomOrderButtonResult);
@@ -1614,7 +1714,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           return Option.some(
             yield* denyRoomOrderButton({
               detail: getRoomOrderBusyDetail(claimedRoomOrder),
-              messageChannelId: trustedMessageChannelId,
+              messageConversationId: trustedMessageConversationId,
               payload,
               updateInteraction,
             }),
@@ -1652,7 +1752,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       claimedRoomOrder,
       payload,
       renderReply,
-      trustedMessageChannelId,
+      trustedMessageConversationId,
       updateInteraction,
     }: {
       readonly claimId: string;
@@ -1662,17 +1762,15 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         roomOrder: MessageRoomOrder,
         replyMode: "normal",
       ) => Effect.Effect<MessagePayload, unknown>;
-      readonly trustedMessageChannelId: string;
+      readonly trustedMessageConversationId: string;
       readonly updateInteraction: (content: string) => Effect.Effect<unknown, unknown>;
     }) {
       const reply = yield* renderReply(claimedRoomOrder, "normal").pipe(
         Effect.catchCause((cause) => failRoomOrderSend(payload, claimId, updateInteraction, cause)),
       );
       return yield* botClient
-        .sendMessage(trustedMessageChannelId, {
+        .sendMessage(trustedMessageConversationId, {
           content: reply.content,
-          nonce: payload.messageId,
-          enforce_nonce: true,
         })
         .pipe(
           Effect.catchCause((cause) =>
@@ -1691,7 +1789,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
     }: {
       readonly claimId: string;
       readonly payload: RoomOrderSendButtonPayload;
-      readonly sentMessage: { readonly id: string; readonly channel_id: string };
+      readonly sentMessage: { readonly id: string; readonly conversation_id: string };
       readonly updateInteraction: (content: string) => Effect.Effect<unknown, unknown>;
     }) {
       const completedRoomOrder = yield* messageRoomOrderService.completeMessageRoomOrderSend(
@@ -1699,13 +1797,13 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         claimId,
         {
           id: sentMessage.id,
-          channelId: sentMessage.channel_id,
+          conversationId: sentMessage.conversation_id,
         },
       );
       if (
         Option.isNone(completedRoomOrder.sendClaimId) &&
         Option.contains(completedRoomOrder.sentMessageId, sentMessage.id) &&
-        Option.contains(completedRoomOrder.sentMessageChannelId, sentMessage.channel_id)
+        Option.contains(completedRoomOrder.sentConversationId, sentMessage.conversation_id)
       ) {
         return Option.none<RoomOrderButtonResult>();
       }
@@ -1714,7 +1812,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       yield* updateInteraction(detail);
       return Option.some({
         messageId: sentMessage.id,
-        messageChannelId: sentMessage.channel_id,
+        messageConversationId: sentMessage.conversation_id,
         status: "partial",
         detail,
       } satisfies RoomOrderButtonResult);
@@ -1722,18 +1820,18 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
 
     const pinSentRoomOrder = Effect.fn("DispatchService.pinSentRoomOrder")(function* ({
       sentMessage,
-      trustedGuildId,
+      trustedWorkspaceId,
     }: {
-      readonly sentMessage: { readonly id: string; readonly channel_id: string };
-      readonly trustedGuildId: string;
+      readonly sentMessage: { readonly id: string; readonly conversation_id: string };
+      readonly trustedWorkspaceId: string;
     }) {
-      return yield* botClient.createPin(sentMessage.channel_id, sentMessage.id).pipe(
+      return yield* botClient.createPin(sentMessage.conversation_id, sentMessage.id).pipe(
         Effect.as(true),
         Effect.catchCause((cause) =>
           Effect.logError("Failed to pin sent room order").pipe(
             Effect.annotateLogs({
-              guildId: trustedGuildId,
-              channelId: sentMessage.channel_id,
+              workspaceId: trustedWorkspaceId,
+              conversationId: sentMessage.conversation_id,
               messageId: sentMessage.id,
             }),
             Effect.andThen(Effect.logError(cause)),
@@ -1748,15 +1846,15 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       authorizedRoomOrder?: MessageRoomOrder,
     ) {
       yield* Effect.annotateCurrentSpan({
-        guildId: payload.guildId,
-        channelId: payload.messageChannelId,
+        workspaceId: payload.workspaceId,
+        conversationId: payload.messageConversationId,
         messageId: payload.messageId,
       });
       const maybeInitialRoomOrder = yield* loadInitialRoomOrder(payload, authorizedRoomOrder);
       const initialRoomOrder = yield* requireInitialRoomOrder(payload, maybeInitialRoomOrder);
       const {
-        trustedGuildId,
-        trustedMessageChannelId,
+        trustedWorkspaceId,
+        trustedMessageConversationId,
         mode,
         renderReply,
         updateInteraction,
@@ -1767,7 +1865,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         initialRoomOrder,
         mode,
         payload,
-        trustedMessageChannelId,
+        trustedMessageConversationId,
         updateInteraction,
       });
       if (Option.isSome(preflightResult)) {
@@ -1790,7 +1888,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         claimedRoomOrder,
         getRoomOrderBusyDetail,
         payload,
-        trustedMessageChannelId,
+        trustedMessageConversationId,
         updateInteraction,
       });
       if (Option.isSome(claimResult)) {
@@ -1802,7 +1900,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         claimedRoomOrder,
         payload,
         renderReply,
-        trustedMessageChannelId,
+        trustedMessageConversationId,
         updateInteraction,
       });
       const trackingResult = yield* completeRoomOrderSendTracking({
@@ -1815,7 +1913,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         return trackingResult.value;
       }
 
-      const pinned = yield* pinSentRoomOrder({ sentMessage, trustedGuildId });
+      const pinned = yield* pinSentRoomOrder({ sentMessage, trustedWorkspaceId });
 
       const detail = pinned
         ? "sent room order and pinned it!"
@@ -1824,7 +1922,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
 
       return {
         messageId: sentMessage.id,
-        messageChannelId: sentMessage.channel_id,
+        messageConversationId: sentMessage.conversation_id,
         status: pinned ? "pinned" : "partial",
         detail,
       } satisfies RoomOrderButtonResult;
@@ -1843,12 +1941,12 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       function* ({
         mode,
         payload,
-        trustedMessageChannelId,
+        trustedMessageConversationId,
         updateInteraction,
       }: {
         readonly mode: RoomOrderButtonMode;
         readonly payload: RoomOrderPinTentativeButtonPayload;
-        readonly trustedMessageChannelId: string;
+        readonly trustedMessageConversationId: string;
         readonly updateInteraction: (content: string) => Effect.Effect<unknown, unknown>;
       }) {
         if (mode === "tentative") {
@@ -1858,7 +1956,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         return Option.some(
           yield* denyRoomOrderButton({
             detail: "cannot pin a non-tentative room order.",
-            messageChannelId: trustedMessageChannelId,
+            messageConversationId: trustedMessageConversationId,
             payload,
             updateInteraction,
           }),
@@ -1872,21 +1970,21 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         pinClaimId,
         pinClaimedRoomOrder,
         payload,
-        trustedMessageChannelId,
+        trustedMessageConversationId,
         updateInteraction,
       }: {
         readonly getRoomOrderBusyDetail: (roomOrder: MessageRoomOrder) => string;
         readonly pinClaimId: string;
         readonly pinClaimedRoomOrder: MessageRoomOrder;
         readonly payload: RoomOrderPinTentativeButtonPayload;
-        readonly trustedMessageChannelId: string;
+        readonly trustedMessageConversationId: string;
         readonly updateInteraction: (content: string) => Effect.Effect<unknown, unknown>;
       }) {
         if (Option.isSome(pinClaimedRoomOrder.tentativePinnedAt)) {
           return Option.some(
             yield* denyRoomOrderButton({
               detail: "tentative room order is already pinned.",
-              messageChannelId: trustedMessageChannelId,
+              messageConversationId: trustedMessageConversationId,
               payload,
               updateInteraction,
             }),
@@ -1896,7 +1994,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           return Option.some(
             yield* denyRoomOrderButton({
               detail: getRoomOrderBusyDetail(pinClaimedRoomOrder),
-              messageChannelId: trustedMessageChannelId,
+              messageConversationId: trustedMessageConversationId,
               payload,
               updateInteraction,
             }),
@@ -1909,20 +2007,20 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
 
     const createTentativePin = Effect.fn("DispatchService.createTentativePin")(function* ({
       payload,
-      trustedGuildId,
-      trustedMessageChannelId,
+      trustedWorkspaceId,
+      trustedMessageConversationId,
     }: {
       readonly payload: RoomOrderPinTentativeButtonPayload;
-      readonly trustedGuildId: string;
-      readonly trustedMessageChannelId: string;
+      readonly trustedWorkspaceId: string;
+      readonly trustedMessageConversationId: string;
     }) {
-      return yield* botClient.createPin(trustedMessageChannelId, payload.messageId).pipe(
+      return yield* botClient.createPin(trustedMessageConversationId, payload.messageId).pipe(
         Effect.as(true),
         Effect.catchCause((cause) =>
           Effect.logError("Failed to pin tentative room order").pipe(
             Effect.annotateLogs({
-              guildId: trustedGuildId,
-              channelId: trustedMessageChannelId,
+              workspaceId: trustedWorkspaceId,
+              conversationId: trustedMessageConversationId,
               messageId: payload.messageId,
             }),
             Effect.andThen(Effect.logError(cause)),
@@ -1935,14 +2033,14 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
     const completeTentativePin = Effect.fn("DispatchService.completeTentativePin")(function* ({
       pinClaimId,
       payload,
-      trustedGuildId,
-      trustedMessageChannelId,
+      trustedWorkspaceId,
+      trustedMessageConversationId,
       updateInteraction,
     }: {
       readonly pinClaimId: string;
       readonly payload: RoomOrderPinTentativeButtonPayload;
-      readonly trustedGuildId: string;
-      readonly trustedMessageChannelId: string;
+      readonly trustedWorkspaceId: string;
+      readonly trustedMessageConversationId: string;
       readonly updateInteraction: (content: string) => Effect.Effect<unknown, unknown>;
     }) {
       return yield* messageRoomOrderService
@@ -1954,8 +2052,8 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
               const detail = "pinned tentative room order, but failed to track it.";
               yield* Effect.logError("Failed to track pinned tentative room order").pipe(
                 Effect.annotateLogs({
-                  guildId: trustedGuildId,
-                  channelId: trustedMessageChannelId,
+                  workspaceId: trustedWorkspaceId,
+                  conversationId: trustedMessageConversationId,
                   messageId: payload.messageId,
                 }),
                 Effect.andThen(Effect.logError(cause)),
@@ -1975,8 +2073,8 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       payload,
       pinnedRoomOrder,
       renderReply,
-      trustedGuildId,
-      trustedMessageChannelId,
+      trustedWorkspaceId,
+      trustedMessageConversationId,
     }: {
       readonly initialRoomOrder: MessageRoomOrder;
       readonly payload: RoomOrderPinTentativeButtonPayload;
@@ -1985,14 +2083,14 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         roomOrder: MessageRoomOrder,
         replyMode: "normal",
       ) => Effect.Effect<MessagePayload, unknown>;
-      readonly trustedGuildId: string;
-      readonly trustedMessageChannelId: string;
+      readonly trustedWorkspaceId: string;
+      readonly trustedMessageConversationId: string;
     }) {
       return yield* Effect.gen(function* () {
         const latestReply = yield* renderReply(pinnedRoomOrder ?? initialRoomOrder, "normal");
 
         return yield* botClient
-          .updateMessage(trustedMessageChannelId, payload.messageId, {
+          .updateMessage(trustedMessageConversationId, payload.messageId, {
             content: latestReply.content,
             components: [],
           })
@@ -2001,8 +2099,8 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
             Effect.catchCause((cause) =>
               Effect.logError("Failed to clean up pinned tentative room order").pipe(
                 Effect.annotateLogs({
-                  guildId: trustedGuildId,
-                  channelId: trustedMessageChannelId,
+                  workspaceId: trustedWorkspaceId,
+                  conversationId: trustedMessageConversationId,
                   messageId: payload.messageId,
                 }),
                 Effect.andThen(Effect.logError(cause)),
@@ -2014,8 +2112,8 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         Effect.catchCause((cause) =>
           Effect.logError("Failed to render pinned tentative room order cleanup").pipe(
             Effect.annotateLogs({
-              guildId: trustedGuildId,
-              channelId: trustedMessageChannelId,
+              workspaceId: trustedWorkspaceId,
+              conversationId: trustedMessageConversationId,
               messageId: payload.messageId,
             }),
             Effect.andThen(Effect.logError(cause)),
@@ -2030,8 +2128,8 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       pinClaimId,
       payload,
       renderReply,
-      trustedGuildId,
-      trustedMessageChannelId,
+      trustedWorkspaceId,
+      trustedMessageConversationId,
       updateInteraction,
     }: {
       readonly initialRoomOrder: MessageRoomOrder;
@@ -2041,14 +2139,14 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         roomOrder: MessageRoomOrder,
         replyMode: "normal",
       ) => Effect.Effect<MessagePayload, unknown>;
-      readonly trustedGuildId: string;
-      readonly trustedMessageChannelId: string;
+      readonly trustedWorkspaceId: string;
+      readonly trustedMessageConversationId: string;
       readonly updateInteraction: (content: string) => Effect.Effect<unknown, unknown>;
     }) {
       const pinned = yield* createTentativePin({
         payload,
-        trustedGuildId,
-        trustedMessageChannelId,
+        trustedWorkspaceId,
+        trustedMessageConversationId,
       });
       if (!pinned) {
         yield* messageRoomOrderService
@@ -2056,20 +2154,20 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           .pipe(Effect.catchCause(() => Effect.void));
         const detail = "tentative room order could not be pinned.";
         yield* updateInteraction(detail);
-        return roomOrderButtonResult(payload, trustedMessageChannelId, "failed", detail);
+        return roomOrderButtonResult(payload, trustedMessageConversationId, "failed", detail);
       }
 
       const maybePinnedRoomOrder = yield* completeTentativePin({
         pinClaimId,
         payload,
-        trustedGuildId,
-        trustedMessageChannelId,
+        trustedWorkspaceId,
+        trustedMessageConversationId,
         updateInteraction,
       });
       if (Option.isNone(maybePinnedRoomOrder)) {
         return roomOrderButtonResult(
           payload,
-          trustedMessageChannelId,
+          trustedMessageConversationId,
           "partial",
           "pinned tentative room order, but failed to track it.",
         );
@@ -2079,7 +2177,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       if (Option.isNone(pinnedRoomOrder.tentativePinnedAt)) {
         const detail = "pinned tentative room order, but failed to track it.";
         yield* updateInteraction(detail);
-        return roomOrderButtonResult(payload, trustedMessageChannelId, "partial", detail);
+        return roomOrderButtonResult(payload, trustedMessageConversationId, "partial", detail);
       }
 
       const cleanedUp = yield* cleanupTentativePin({
@@ -2087,8 +2185,8 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         payload,
         pinnedRoomOrder,
         renderReply,
-        trustedGuildId,
-        trustedMessageChannelId,
+        trustedWorkspaceId,
+        trustedMessageConversationId,
       });
       const detail = cleanedUp
         ? "pinned tentative room order!"
@@ -2096,7 +2194,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       yield* acknowledgeRoomOrderButton(updateInteraction, detail);
       return roomOrderButtonResult(
         payload,
-        trustedMessageChannelId,
+        trustedMessageConversationId,
         cleanedUp ? "pinned" : "partial",
         detail,
       );
@@ -2109,8 +2207,8 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       authorizedRoomOrder?: MessageRoomOrder | null,
     ) {
       yield* Effect.annotateCurrentSpan({
-        guildId: payload.guildId,
-        channelId: payload.messageChannelId,
+        workspaceId: payload.workspaceId,
+        conversationId: payload.messageConversationId,
         messageId: payload.messageId,
       });
       const maybeInitialRoomOrder = yield* loadInitialRoomOrder(payload, authorizedRoomOrder);
@@ -2120,8 +2218,8 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       }
       const initialRoomOrder = maybeInitialRoomOrder.value;
       const {
-        trustedGuildId,
-        trustedMessageChannelId,
+        trustedWorkspaceId,
+        trustedMessageConversationId,
         mode,
         renderReply,
         updateInteraction,
@@ -2131,7 +2229,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       const notTentative = yield* requireTentativePinMode({
         mode,
         payload,
-        trustedMessageChannelId,
+        trustedMessageConversationId,
         updateInteraction,
       });
       if (Option.isSome(notTentative)) {
@@ -2157,7 +2255,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         pinClaimId,
         pinClaimedRoomOrder,
         payload,
-        trustedMessageChannelId,
+        trustedMessageConversationId,
         updateInteraction,
       });
       if (Option.isSome(unavailableClaim)) {
@@ -2169,18 +2267,18 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         pinClaimId,
         payload,
         renderReply,
-        trustedGuildId,
-        trustedMessageChannelId,
+        trustedWorkspaceId,
+        trustedMessageConversationId,
         updateInteraction,
       });
     });
 
     const makeSlotEmbeds = Effect.fn("DispatchService.makeSlotEmbeds")(function* (
-      guildId: string,
+      workspaceId: string,
       day: number,
     ) {
-      const eventConfig = yield* sheetService.getEventConfig(guildId);
-      const daySchedule = yield* scheduleService.dayPopulatedFillerSchedules(guildId, day);
+      const eventConfig = yield* sheetService.getEventConfig(workspaceId);
+      const daySchedule = yield* scheduleService.dayPopulatedFillerSchedules(workspaceId, day);
       const sortedSchedules = daySchedule
         .flatMap((schedule) =>
           Option.match(schedule.hour, {
@@ -2221,8 +2319,8 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         requester: DispatchRequester,
       ) {
         yield* Effect.annotateCurrentSpan({
-          guildId: payload.guildId,
-          anchorChannelId: payload.anchorChannelId,
+          workspaceId: payload.workspaceId,
+          anchorConversationId: payload.anchorConversationId,
           hour: autoCheckinTestHour,
           "requester.accountId": requester.accountId,
           "requester.userId": requester.userId,
@@ -2230,10 +2328,10 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         });
 
         const makeAnchorPayload = (
-          description: string,
+          description: MessageTextInput,
           fields: ReadonlyArray<{
-            readonly name: string;
-            readonly value: string;
+            readonly name: MessageTextInput;
+            readonly value: MessageTextInput;
             readonly inline?: boolean;
           }> = [],
         ) =>
@@ -2246,35 +2344,53 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
                 fields,
               }),
             ],
-            allowed_mentions: noMentions(),
+            allowedMentions: "none",
           }) satisfies MessagePayload;
 
         const createAnchor = (messagePayload: MessagePayload) =>
-          typeof payload.interactionToken === "string"
-            ? botClient.updateOriginalInteractionResponse(payload.interactionToken, messagePayload)
-            : botClient.sendMessage(payload.anchorChannelId, messagePayload);
+          typeof payload.interactionResponseToken === "string"
+            ? botClient.updateOriginalInteractionResponse(
+                payload.interactionResponseToken,
+                messagePayload,
+              )
+            : botClient.sendMessage(payload.anchorConversationId, messagePayload);
 
         const anchorMessage = yield* createAnchor(
           makeAnchorPayload(
-            [
-              `Testing first-hour auto check-in for guild ${payload.guildId}.`,
-              `Requested by ${mentionUser(requester.accountId)}.`,
-              autoCheckinTestNotice,
-            ].join("\n"),
+            MessageText.lines(
+              [
+                MessageText.text("Testing first-hour auto check-in for "),
+                MessageText.clientTerm("workspace"),
+                MessageText.text(` ${payload.workspaceId}.`),
+              ],
+              [
+                MessageText.text("Requested by "),
+                MessageText.userMention(requester.accountId),
+                MessageText.text("."),
+              ],
+              [MessageText.text(autoCheckinTestNotice)],
+            ),
           ),
         );
         const updateAnchor = (messagePayload: MessagePayload) =>
-          typeof payload.interactionToken === "string"
-            ? botClient.updateOriginalInteractionResponse(payload.interactionToken, messagePayload)
-            : botClient.updateMessage(anchorMessage.channel_id, anchorMessage.id, messagePayload);
-        const anchorMessageUrl = discordMessageUrl(payload.guildId, anchorMessage);
+          typeof payload.interactionResponseToken === "string"
+            ? botClient.updateOriginalInteractionResponse(
+                payload.interactionResponseToken,
+                messagePayload,
+              )
+            : botClient.updateMessage(
+                anchorMessage.conversation_id,
+                anchorMessage.id,
+                messagePayload,
+              );
+        const anchorMessageLabel = clientMessageLabel(anchorMessage);
         const withAnchorField = (embed: MessageEmbed): MessageEmbed => {
           const fields =
             (
               embed as {
                 readonly fields?: ReadonlyArray<{
-                  readonly name: string;
-                  readonly value: string;
+                  readonly name: MessageTextInput;
+                  readonly value: MessageTextInput;
                   readonly inline?: boolean;
                 }>;
               }
@@ -2282,50 +2398,86 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
 
           return {
             ...embed,
-            fields: [...fields, { name: "Test run", value: `[Open summary](${anchorMessageUrl})` }],
+            fields: [
+              ...fields,
+              {
+                name: [MessageText.clientTerm("testRun", { casing: "sentence" })],
+                value: anchorMessageLabel,
+              },
+            ],
           };
         };
         const referencedMessagePayload = (embed: MessageEmbed) =>
           ({
             content: null,
             embeds: [withAnchorField(embed)],
-            allowed_mentions: noMentions(),
+            allowedMentions: "none",
           }) satisfies MessagePayload;
 
-        const runTestChannel = (
-          channelName: string,
-        ): Effect.Effect<AutoCheckinTestChannelResult, never, never> => {
-          let runningChannelId: string | null = null;
-          let checkinChannelId: string | null = null;
+        const runTestConversation = (
+          conversationName: string,
+        ): Effect.Effect<AutoCheckinTestConversationResult, never, never> => {
+          let runningConversationId: string | null = null;
+          let checkinConversationId: string | null = null;
 
           return Effect.gen(function* () {
             const generated = yield* checkinService.generate({
-              dispatchRequestId: `${payload.dispatchRequestId}:${channelName}`,
-              guildId: payload.guildId,
-              channelName,
+              client: payload.client,
+              dispatchRequestId: `${payload.dispatchRequestId}:${conversationName}`,
+              workspaceId: payload.workspaceId,
+              conversationName,
               hour: autoCheckinTestHour,
             });
-            runningChannelId = generated.runningChannelId;
-            checkinChannelId = generated.checkinChannelId;
+            const generatedMonitorCheckinMessage = MessageText.materializeGeneratedText(
+              payload.client,
+              payload.workspaceId,
+              generated.monitorCheckinMessage,
+            );
+            const generatedMonitorFailureMessage =
+              generated.monitorFailureMessage === null
+                ? null
+                : MessageText.materializeGeneratedText(
+                    payload.client,
+                    payload.workspaceId,
+                    generated.monitorFailureMessage,
+                  );
+            const generatedInitialMessage =
+              generated.initialMessage === null
+                ? null
+                : MessageText.materializeGeneratedText(
+                    payload.client,
+                    payload.workspaceId,
+                    generated.initialMessage,
+                  );
+            runningConversationId = generated.runningConversationId;
+            checkinConversationId = generated.checkinConversationId;
 
-            if (generated.initialMessage === null) {
+            if (generatedInitialMessage === null) {
               const monitorPreviewMessage = yield* botClient.sendMessage(
-                generated.runningChannelId,
+                generated.runningConversationId,
                 referencedMessagePayload(
                   makeAutoCheckinTestEmbed({
                     title: "TEST RUN: Check-in skipped",
-                    description: [
-                      generated.monitorCheckinMessage,
-                      ...Option.match(Option.fromNullishOr(generated.monitorFailureMessage), {
-                        onSome: (failure) => [subtext(failure)],
+                    description: MessageText.lines(
+                      generatedMonitorCheckinMessage,
+                      ...Option.match(Option.fromNullishOr(generatedMonitorFailureMessage), {
+                        onSome: (failure) => [[MessageText.subtle(failure)]],
                         onNone: () => [],
                       }),
-                    ].join("\n"),
+                    ),
                     fields: [
-                      { name: "Channel", value: channelName, inline: true },
                       {
-                        name: "Running channel",
-                        value: mentionChannel(generated.runningChannelId),
+                        name: [MessageText.clientTerm("conversation", { casing: "sentence" })],
+                        value: conversationName,
+                        inline: true,
+                      },
+                      {
+                        name: [MessageText.clientTerm("runDestination", { casing: "sentence" })],
+                        value: conversationMentionValue(
+                          payload.client,
+                          payload.workspaceId,
+                          generated.runningConversationId,
+                        ),
                         inline: true,
                       },
                       { name: "Hour", value: globalThis.String(generated.hour), inline: true },
@@ -2335,34 +2487,49 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
               );
 
               return {
-                channelName,
-                runningChannelId: generated.runningChannelId,
-                checkinChannelId: generated.checkinChannelId,
+                conversationName,
+                runningConversationId: generated.runningConversationId,
+                checkinConversationId: generated.checkinConversationId,
                 hour: generated.hour,
                 status: "skipped",
                 checkinPreviewMessageId: null,
                 monitorPreviewMessageId: monitorPreviewMessage.id,
                 tentativeRoomOrderPreviewMessageId: null,
-                error: generated.monitorFailureMessage,
-              } satisfies AutoCheckinTestChannelResult;
+                error:
+                  generatedMonitorFailureMessage === null
+                    ? null
+                    : MessageText.renderPlainText(generatedMonitorFailureMessage),
+              } satisfies AutoCheckinTestConversationResult;
             }
 
             const checkinPreviewMessage = yield* botClient.sendMessage(
-              generated.checkinChannelId,
+              generated.checkinConversationId,
               referencedMessagePayload(
                 makeAutoCheckinTestEmbed({
                   title: "TEST RUN: Check-in message",
-                  description: generated.initialMessage,
+                  description: generatedInitialMessage,
                   fields: [
-                    { name: "Channel", value: channelName, inline: true },
                     {
-                      name: "Running channel",
-                      value: mentionChannel(generated.runningChannelId),
+                      name: [MessageText.clientTerm("conversation", { casing: "sentence" })],
+                      value: conversationName,
                       inline: true,
                     },
                     {
-                      name: "Check-in channel",
-                      value: mentionChannel(generated.checkinChannelId),
+                      name: [MessageText.clientTerm("runDestination", { casing: "sentence" })],
+                      value: conversationMentionValue(
+                        payload.client,
+                        payload.workspaceId,
+                        generated.runningConversationId,
+                      ),
+                      inline: true,
+                    },
+                    {
+                      name: [MessageText.clientTerm("checkinDestination", { casing: "sentence" })],
+                      value: conversationMentionValue(
+                        payload.client,
+                        payload.workspaceId,
+                        generated.checkinConversationId,
+                      ),
                       inline: true,
                     },
                     { name: "Hour", value: globalThis.String(generated.hour), inline: true },
@@ -2372,22 +2539,30 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
             );
 
             const monitorPreviewMessage = yield* botClient.sendMessage(
-              generated.runningChannelId,
+              generated.runningConversationId,
               referencedMessagePayload(
                 makeAutoCheckinTestEmbed({
                   title: "TEST RUN: Monitor auto check-in summary",
-                  description: [
-                    generated.monitorCheckinMessage,
-                    ...Option.match(Option.fromNullishOr(generated.monitorFailureMessage), {
-                      onSome: (failure) => [subtext(failure)],
+                  description: MessageText.lines(
+                    generatedMonitorCheckinMessage,
+                    ...Option.match(Option.fromNullishOr(generatedMonitorFailureMessage), {
+                      onSome: (failure) => [[MessageText.subtle(failure)]],
                       onNone: () => [],
                     }),
-                  ].join("\n"),
+                  ),
                   fields: [
-                    { name: "Channel", value: channelName, inline: true },
                     {
-                      name: "Running channel",
-                      value: mentionChannel(generated.runningChannelId),
+                      name: [MessageText.clientTerm("conversation", { casing: "sentence" })],
+                      value: conversationName,
+                      inline: true,
+                    },
+                    {
+                      name: [MessageText.clientTerm("runDestination", { casing: "sentence" })],
+                      value: conversationMentionValue(
+                        payload.client,
+                        payload.workspaceId,
+                        generated.runningConversationId,
+                      ),
                       inline: true,
                     },
                     { name: "Hour", value: globalThis.String(generated.hour), inline: true },
@@ -2401,22 +2576,37 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
             )
               ? yield* Effect.gen(function* () {
                   const roomOrder = yield* roomOrderService.generate({
-                    guildId: payload.guildId,
-                    channelId: generated.runningChannelId,
+                    workspaceId: payload.workspaceId,
+                    conversationId: generated.runningConversationId,
                     hour: generated.hour,
                   });
+                  const roomOrderContent = MessageText.materializeGeneratedText(
+                    payload.client,
+                    payload.workspaceId,
+                    roomOrder.content,
+                  );
 
                   return yield* botClient.sendMessage(
-                    generated.runningChannelId,
+                    generated.runningConversationId,
                     referencedMessagePayload(
                       makeAutoCheckinTestEmbed({
                         title: "TEST RUN: Tentative room order",
-                        description: formatTentativeRoomOrderContent(roomOrder.content),
+                        description: tentativeRoomOrderContent(roomOrderContent),
                         fields: [
-                          { name: "Channel", value: channelName, inline: true },
                           {
-                            name: "Running channel",
-                            value: mentionChannel(generated.runningChannelId),
+                            name: [MessageText.clientTerm("conversation", { casing: "sentence" })],
+                            value: conversationName,
+                            inline: true,
+                          },
+                          {
+                            name: [
+                              MessageText.clientTerm("runDestination", { casing: "sentence" }),
+                            ],
+                            value: conversationMentionValue(
+                              payload.client,
+                              payload.workspaceId,
+                              generated.runningConversationId,
+                            ),
                             inline: true,
                           },
                           { name: "Hour", value: globalThis.String(generated.hour), inline: true },
@@ -2428,58 +2618,62 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
               : null;
 
             return {
-              channelName,
-              runningChannelId: generated.runningChannelId,
-              checkinChannelId: generated.checkinChannelId,
+              conversationName,
+              runningConversationId: generated.runningConversationId,
+              checkinConversationId: generated.checkinConversationId,
               hour: generated.hour,
               status: "sent",
               checkinPreviewMessageId: checkinPreviewMessage.id,
               monitorPreviewMessageId: monitorPreviewMessage.id,
               tentativeRoomOrderPreviewMessageId: tentativeRoomOrderPreviewMessage?.id ?? null,
               error: null,
-            } satisfies AutoCheckinTestChannelResult;
+            } satisfies AutoCheckinTestConversationResult;
           }).pipe(
             Effect.catchCause((cause) =>
               Effect.succeed({
-                channelName,
-                runningChannelId,
-                checkinChannelId,
+                conversationName,
+                runningConversationId,
+                checkinConversationId,
                 hour: autoCheckinTestHour,
                 status: "failed",
                 checkinPreviewMessageId: null,
                 monitorPreviewMessageId: null,
                 tentativeRoomOrderPreviewMessageId: null,
                 error: Cause.pretty(cause),
-              } satisfies AutoCheckinTestChannelResult),
+              } satisfies AutoCheckinTestConversationResult),
             ),
           );
         };
 
-        const channels = yield* guildConfigService.getGuildChannels(payload.guildId, true);
-        const channelNames = uniqueChannelNames(channels);
-
-        const channelResults: ReadonlyArray<AutoCheckinTestChannelResult> = yield* Effect.forEach(
-          channelNames,
-          runTestChannel,
-          { concurrency: autoCheckinConcurrency },
+        const conversations = yield* workspaceConfigService.getWorkspaceConversations(
+          payload.workspaceId,
+          true,
         );
+        const conversationNames = uniqueConversationNames(conversations);
 
-        const sentCount = channelResults.filter((result) => result.status === "sent").length;
-        const skippedCount = channelResults.filter((result) => result.status === "skipped").length;
-        const failedResults = channelResults.filter((result) => result.status === "failed");
+        const conversationResults: ReadonlyArray<AutoCheckinTestConversationResult> =
+          yield* Effect.forEach(conversationNames, runTestConversation, {
+            concurrency: autoCheckinConcurrency,
+          });
+
+        const sentCount = conversationResults.filter((result) => result.status === "sent").length;
+        const skippedCount = conversationResults.filter(
+          (result) => result.status === "skipped",
+        ).length;
+        const failedResults = conversationResults.filter((result) => result.status === "failed");
         const failedCount = failedResults.length;
         const firstFailure = failedResults[0];
         const summaryParts = [
-          `Tested hour ${autoCheckinTestHour} across ${channelResults.length} configured running channel(s).`,
+          `Tested hour ${autoCheckinTestHour} across ${conversationResults.length} configured running conversation(s).`,
           `Sent: ${sentCount}. Skipped: ${skippedCount}. Failed: ${failedCount}.`,
           failedResults.length > 0
-            ? `Failed channels: ${failedResults.map((result) => result.channelName).join(", ")}`
-            : "No channel failures.",
+            ? `Failed conversations: ${failedResults.map((result) => result.conversationName).join(", ")}`
+            : "No conversation failures.",
           ...(firstFailure === undefined
             ? []
             : [
                 [
-                  `First failure detail for ${firstFailure.channelName}:`,
+                  `First failure detail for ${firstFailure.conversationName}:`,
                   truncateAutoCheckinTestFailureDetail(firstFailure.error ?? "Unknown error"),
                 ].join("\n"),
               ]),
@@ -2488,21 +2682,25 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         yield* updateAnchor(
           makeAnchorPayload(summaryParts.join("\n"), [
             { name: "Hour", value: globalThis.String(autoCheckinTestHour), inline: true },
-            { name: "Channels", value: globalThis.String(channelResults.length), inline: true },
+            {
+              name: "Conversations",
+              value: globalThis.String(conversationResults.length),
+              inline: true,
+            },
             { name: "Failed", value: globalThis.String(failedCount), inline: true },
           ]),
         );
 
         return {
-          guildId: payload.guildId,
+          workspaceId: payload.workspaceId,
           hour: autoCheckinTestHour,
           anchorMessageId: anchorMessage.id,
-          anchorMessageChannelId: anchorMessage.channel_id,
-          channelCount: channelResults.length,
+          anchorMessageConversationId: anchorMessage.conversation_id,
+          conversationCount: conversationResults.length,
           sentCount,
           skippedCount,
           failedCount,
-          channels: channelResults,
+          conversations: conversationResults,
         } satisfies AutoCheckinTestDispatchResult;
       }),
       checkin: Effect.fn("DispatchService.checkin")(function* (
@@ -2510,56 +2708,69 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         requester: DispatchRequester,
       ) {
         yield* Effect.annotateCurrentSpan({
-          guildId: payload.guildId,
-          channelName: payload.channelName,
+          workspaceId: payload.workspaceId,
+          conversationName: payload.conversationName,
           hour: payload.hour,
           "requester.accountId": requester.accountId,
           "requester.userId": requester.userId,
         });
         const createdByUserId = requester.userId;
         const generated = yield* checkinService.generate(payload);
+        const monitorCheckinMessage = MessageText.materializeGeneratedText(
+          payload.client,
+          payload.workspaceId,
+          generated.monitorCheckinMessage,
+        );
+        const initialMessage =
+          generated.initialMessage === null
+            ? null
+            : MessageText.materializeGeneratedText(
+                payload.client,
+                payload.workspaceId,
+                generated.initialMessage,
+              );
         const messageSink = makeMessageSink(
           botClient,
-          generated.runningChannelId,
-          payload.interactionToken,
+          generated.runningConversationId,
+          payload.interactionResponseToken,
         );
         const primaryMessage = yield* messageSink.sendPrimary(
-          typeof payload.interactionToken === "string"
+          typeof payload.interactionResponseToken === "string"
             ? {
-                content: "Dispatching check-in...",
-                flags: MessageFlags.Ephemeral,
+                content: [MessageText.text("Dispatching check-in...")],
+                visibility: "ephemeral",
               }
             : {
-                content: generated.monitorCheckinMessage,
+                content: monitorCheckinMessage,
               },
         );
 
-        let checkinMessage: DiscordMessage | null = null;
+        let checkinMessage: DeliveredMessage | null = null;
         let tentativeRoomOrderMessage: {
           readonly messageId: string;
-          readonly messageChannelId: string;
+          readonly messageConversationId: string;
         } | null = null;
 
-        if (generated.initialMessage !== null) {
-          checkinMessage = yield* botClient.sendMessage(generated.checkinChannelId, {
-            content: generated.initialMessage,
+        if (initialMessage !== null) {
+          checkinMessage = yield* botClient.sendMessage(generated.checkinConversationId, {
+            content: initialMessage,
           });
 
           yield* messageCheckinService.persistMessageCheckin(checkinMessage.id, {
             data: {
-              initialMessage: generated.initialMessage,
+              initialMessage,
               hour: generated.hour,
-              channelId: generated.runningChannelId,
+              runningConversationId: generated.runningConversationId,
               roleId: generated.roleId,
-              guildId: payload.guildId,
-              messageChannelId: generated.checkinChannelId,
+              workspaceId: payload.workspaceId,
+              conversationId: generated.checkinConversationId,
               createdByUserId,
             },
             memberIds: generated.fillIds,
           });
 
           yield* botClient
-            .updateMessage(checkinMessage.channel_id, checkinMessage.id, {
+            .updateMessage(checkinMessage.conversation_id, checkinMessage.id, {
               components: [checkinActionRow()],
             })
             .pipe(
@@ -2571,28 +2782,30 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
             );
 
           tentativeRoomOrderMessage = yield* sendTentativeRoomOrder({
-            guildId: payload.guildId,
-            runningChannelId: generated.runningChannelId,
+            workspaceId: payload.workspaceId,
+            runningConversationId: generated.runningConversationId,
             hour: generated.hour,
             fillCount: generated.fillCount,
             createdByUserId,
+            client: payload.client,
             botClient,
             roomOrderService,
             messageRoomOrderService,
+            logPrefix: "",
           });
         }
 
         const finalPrimaryMessage =
-          typeof payload.interactionToken === "string"
+          typeof payload.interactionResponseToken === "string"
             ? checkinMessage === null
               ? yield* messageSink.updatePrimary(primaryMessage, {
-                  content: generated.monitorCheckinMessage,
-                  flags: MessageFlags.Ephemeral,
+                  content: monitorCheckinMessage,
+                  visibility: "ephemeral",
                 })
               : yield* messageSink
                   .updatePrimary(primaryMessage, {
-                    content: generated.monitorCheckinMessage,
-                    flags: MessageFlags.Ephemeral,
+                    content: monitorCheckinMessage,
+                    visibility: "ephemeral",
                   })
                   .pipe(
                     Effect.catch((error) =>
@@ -2605,14 +2818,15 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
 
         return {
           hour: generated.hour,
-          runningChannelId: generated.runningChannelId,
-          checkinChannelId: generated.checkinChannelId,
+          runningConversationId: generated.runningConversationId,
+          checkinConversationId: generated.checkinConversationId,
           checkinMessageId: checkinMessage?.id ?? null,
-          checkinMessageChannelId: checkinMessage?.channel_id ?? null,
+          checkinMessageConversationId: checkinMessage?.conversation_id ?? null,
           primaryMessageId: finalPrimaryMessage.id,
-          primaryMessageChannelId: finalPrimaryMessage.channel_id,
+          primaryMessageConversationId: finalPrimaryMessage.conversation_id,
           tentativeRoomOrderMessageId: tentativeRoomOrderMessage?.messageId ?? null,
-          tentativeRoomOrderMessageChannelId: tentativeRoomOrderMessage?.messageChannelId ?? null,
+          tentativeRoomOrderMessageConversationId:
+            tentativeRoomOrderMessage?.messageConversationId ?? null,
         } satisfies CheckinDispatchResult;
       }),
       roomOrder: Effect.fn("DispatchService.roomOrder")(function* (
@@ -2620,21 +2834,26 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         requester: DispatchRequester,
       ) {
         yield* Effect.annotateCurrentSpan({
-          guildId: payload.guildId,
-          channelId: payload.channelId,
+          workspaceId: payload.workspaceId,
+          conversationId: payload.conversationId,
           hour: payload.hour,
           "requester.accountId": requester.accountId,
           "requester.userId": requester.userId,
         });
         const createdByUserId = requester.userId;
         const generated = yield* roomOrderService.generate(payload);
+        const content = MessageText.materializeGeneratedText(
+          payload.client,
+          payload.workspaceId,
+          generated.content,
+        );
         const messageSink = makeMessageSink(
           botClient,
-          generated.runningChannelId,
-          payload.interactionToken,
+          generated.runningConversationId,
+          payload.interactionResponseToken,
         );
         const message = yield* messageSink.sendPrimary({
-          content: generated.content,
+          content,
           components: [roomOrderActionRow(generated.range, generated.rank, true)],
         });
 
@@ -2646,8 +2865,8 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
             rank: generated.rank,
             tentative: false,
             monitor: generated.monitor,
-            guildId: payload.guildId,
-            messageChannelId: message.channel_id,
+            workspaceId: payload.workspaceId,
+            conversationId: message.conversation_id,
             createdByUserId,
           },
           entries: generated.entries,
@@ -2667,9 +2886,9 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
 
         return {
           messageId: enabledMessage.id,
-          messageChannelId: enabledMessage.channel_id,
+          messageConversationId: enabledMessage.conversation_id,
           hour: generated.hour,
-          runningChannelId: generated.runningChannelId,
+          runningConversationId: generated.runningConversationId,
           rank: generated.rank,
         } satisfies RoomOrderDispatchResult;
       }),
@@ -2678,18 +2897,18 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         requester: DispatchRequester,
       ) {
         yield* Effect.annotateCurrentSpan({
-          guildId: payload.guildId,
-          channelId: payload.channelId,
-          channelName: payload.channelName,
+          workspaceId: payload.workspaceId,
+          conversationId: payload.conversationId,
+          conversationName: payload.conversationName,
           hour: payload.hour,
           "requester.accountId": requester.accountId,
           "requester.userId": requester.userId,
         });
-        const updateInteraction = (content: string) =>
-          typeof payload.interactionToken === "string"
-            ? botClient.updateOriginalInteractionResponse(payload.interactionToken, {
-                content,
-                allowed_mentions: { parse: [] },
+        const updateInteraction = (content: MessageTextInput) =>
+          typeof payload.interactionResponseToken === "string"
+            ? botClient.updateOriginalInteractionResponse(payload.interactionResponseToken, {
+                content: textValue(content),
+                allowedMentions: "none",
               })
             : Effect.void;
         const date = yield* DateTime.now;
@@ -2698,8 +2917,8 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         if (minute >= 40) {
           yield* updateInteraction("Cannot kick out until next hour starts");
           return {
-            guildId: payload.guildId,
-            runningChannelId: payload.channelId ?? "",
+            workspaceId: payload.workspaceId,
+            runningConversationId: payload.conversationId ?? "",
             hour: payload.hour ?? 0,
             roleId: null,
             removedMemberIds: [],
@@ -2711,59 +2930,59 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           payload.hour ??
           pipe(
             DateTime.distance(
-              (yield* sheetService.getEventConfig(payload.guildId)).startTime,
+              (yield* sheetService.getEventConfig(payload.workspaceId)).startTime,
               pipe(DateTime.addDuration(date, "20 minutes"), DateTime.startOf("hour")),
             ),
             Duration.toHours,
             Math.floor,
             (value) => value + 1,
           );
-        const maybeRunningChannel =
-          typeof payload.channelName === "string"
-            ? yield* guildConfigService.getGuildChannelByName({
-                guildId: payload.guildId,
-                channelName: payload.channelName,
+        const maybeRunningConversation =
+          typeof payload.conversationName === "string"
+            ? yield* workspaceConfigService.getWorkspaceConversationByName({
+                workspaceId: payload.workspaceId,
+                conversationName: payload.conversationName,
                 running: true,
               })
-            : yield* guildConfigService.getGuildChannelById({
-                guildId: payload.guildId,
-                channelId: payload.channelId ?? "",
+            : yield* workspaceConfigService.getWorkspaceConversationById({
+                workspaceId: payload.workspaceId,
+                conversationId: payload.conversationId ?? "",
                 running: true,
               });
-        const runningChannel = yield* Option.match(maybeRunningChannel, {
+        const runningConversation = yield* Option.match(maybeRunningConversation, {
           onSome: Effect.succeed,
           onNone: () =>
-            updateInteraction("Cannot kick out, running channel not found").pipe(
+            updateInteraction("Cannot kick out, running conversation not found").pipe(
               Effect.andThen(
                 Effect.fail(
                   markInteractionFailureHandled(
-                    makeArgumentError("Cannot kick out, running channel not found"),
+                    makeArgumentError("Cannot kick out, running conversation not found"),
                   ),
                 ),
               ),
             ),
         });
-        const channelName = yield* Option.match(runningChannel.name, {
+        const conversationName = yield* Option.match(runningConversation.name, {
           onSome: Effect.succeed,
           onNone: () =>
-            updateInteraction("Cannot kick out, channel has no name").pipe(
+            updateInteraction("Cannot kick out, conversation has no name").pipe(
               Effect.andThen(
                 Effect.fail(
                   markInteractionFailureHandled(
-                    makeArgumentError("Cannot kick out, channel has no name"),
+                    makeArgumentError("Cannot kick out, conversation has no name"),
                   ),
                 ),
               ),
             ),
         });
-        const runningChannelId = runningChannel.channelId;
-        const roleId = Option.getOrNull(runningChannel.roleId);
+        const runningConversationId = runningConversation.conversationId;
+        const roleId = Option.getOrNull(runningConversation.roleId);
 
         if (roleId === null) {
-          yield* updateInteraction("No role configured for this channel");
+          yield* updateInteraction("No role configured for this conversation");
           return {
-            guildId: payload.guildId,
-            runningChannelId,
+            workspaceId: payload.workspaceId,
+            runningConversationId,
             hour,
             roleId: null,
             removedMemberIds: [],
@@ -2771,25 +2990,25 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           } satisfies KickoutDispatchResult;
         }
 
-        const scheduleItem = (yield* scheduleService.channelPopulatedMonitorSchedules(
-          payload.guildId,
-          channelName,
+        const scheduleItem = (yield* scheduleService.conversationPopulatedMonitorSchedules(
+          payload.workspaceId,
+          conversationName,
         )).find((schedule) => Option.contains(schedule.hour, hour));
         if (scheduleItem === undefined) {
           yield* Effect.logWarning("Skipping kickout because no schedule was found").pipe(
             Effect.annotateLogs({
-              guildId: payload.guildId,
-              runningChannelId,
-              channelName,
+              workspaceId: payload.workspaceId,
+              runningConversationId,
+              conversationName,
               hour,
             }),
           );
           yield* updateInteraction(
-            "No schedule found for this channel and hour; no players kicked out",
+            "No schedule found for this conversation and hour; no players kicked out",
           );
           return {
-            guildId: payload.guildId,
-            runningChannelId,
+            workspaceId: payload.workspaceId,
+            runningConversationId,
             hour,
             roleId,
             removedMemberIds: [],
@@ -2811,20 +3030,20 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
               ),
           }),
         );
-        const members = yield* botClient.getMembersForParent(payload.guildId);
+        const members = yield* botClient.getMembersForParent(payload.workspaceId);
         const removedMemberIds = members
           .filter((member) => member.value.roles.includes(roleId))
           .map((member) => member.value.user.id)
           .filter((memberId) => !fillIds.includes(memberId));
 
         const removalResults = yield* Effect.forEach(removedMemberIds, (memberId) =>
-          botClient.removeGuildMemberRole(payload.guildId, memberId, roleId).pipe(
+          botClient.removeWorkspaceMemberRole(payload.workspaceId, memberId, roleId).pipe(
             Effect.as({ memberId, removed: true as const }),
             Effect.catchCause((cause) =>
               Effect.logError("Failed to remove kickout role from member").pipe(
                 Effect.annotateLogs({
-                  guildId: payload.guildId,
-                  runningChannelId,
+                  workspaceId: payload.workspaceId,
+                  runningConversationId,
                   memberId,
                   roleId,
                 }),
@@ -2840,13 +3059,21 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
 
         yield* updateInteraction(
           actualRemovedIds.length > 0
-            ? `Kicked out ${actualRemovedIds.map(mentionUser).join(" ")}`
-            : "No players to kick out",
+            ? MessageText.parts(
+                MessageText.text("Kicked out "),
+                ...actualRemovedIds.flatMap((userId, index) =>
+                  MessageText.parts(
+                    index === 0 ? undefined : MessageText.text(" "),
+                    MessageText.userMention(userId),
+                  ),
+                ),
+              )
+            : [MessageText.text("No players to kick out")],
         );
 
         return {
-          guildId: payload.guildId,
-          runningChannelId,
+          workspaceId: payload.workspaceId,
+          runningConversationId,
           hour,
           roleId,
           removedMemberIds: actualRemovedIds,
@@ -2858,27 +3085,31 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         requester: DispatchRequester,
       ) {
         yield* Effect.annotateCurrentSpan({
-          guildId: payload.guildId,
-          channelId: payload.channelId,
+          workspaceId: payload.workspaceId,
+          conversationId: payload.conversationId,
           day: payload.day,
           "requester.accountId": requester.accountId,
           "requester.userId": requester.userId,
         });
-        const message = yield* botClient.sendMessage(payload.channelId, {
-          content: `Press the button below to get the current open slots for day ${payload.day}`,
+        const message = yield* botClient.sendMessage(payload.conversationId, {
+          content: [
+            MessageText.text(
+              `Press the button below to get the current open slots for day ${payload.day}`,
+            ),
+          ],
           components: [slotActionRow()],
         });
 
         yield* messageSlotService
           .upsertMessageSlotData(message.id, {
             day: payload.day,
-            guildId: payload.guildId,
-            messageChannelId: payload.channelId,
+            workspaceId: payload.workspaceId,
+            conversationId: payload.conversationId,
             createdByUserId: requester.userId,
           })
           .pipe(
             Effect.catchCause((cause) =>
-              botClient.deleteMessage(payload.channelId, message.id).pipe(
+              botClient.deleteMessage(payload.conversationId, message.id).pipe(
                 Effect.catchCause(() => Effect.void),
                 Effect.andThen(Effect.failCause(cause)),
               ),
@@ -2886,16 +3117,16 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           );
 
         yield* botClient
-          .updateOriginalInteractionResponse(payload.interactionToken, {
-            content: "Slot button sent!",
-            flags: MessageFlags.Ephemeral,
+          .updateOriginalInteractionResponse(payload.interactionResponseToken, {
+            content: [MessageText.text("Slot button sent!")],
+            visibility: "ephemeral",
           })
           .pipe(
             Effect.catchCause((cause) =>
               Effect.logError("Failed to update slot button interaction response").pipe(
                 Effect.annotateLogs({
-                  guildId: payload.guildId,
-                  channelId: payload.channelId,
+                  workspaceId: payload.workspaceId,
+                  conversationId: payload.conversationId,
                   messageId: message.id,
                 }),
                 Effect.andThen(Effect.logError(cause)),
@@ -2905,240 +3136,336 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
 
         return {
           messageId: message.id,
-          messageChannelId: message.channel_id,
+          messageConversationId: message.conversation_id,
           day: payload.day,
         } satisfies SlotButtonDispatchResult;
       }),
       slotList: Effect.fn("DispatchService.slotList")(function* (payload: SlotListDispatchPayload) {
         yield* Effect.annotateCurrentSpan({
-          guildId: payload.guildId,
+          workspaceId: payload.workspaceId,
           day: payload.day,
           messageType: payload.messageType,
         });
-        const slotEmbeds = yield* makeSlotEmbeds(payload.guildId, payload.day);
+        const slotEmbeds = yield* makeSlotEmbeds(payload.workspaceId, payload.day);
 
-        yield* botClient.updateOriginalInteractionResponse(payload.interactionToken, {
+        yield* botClient.updateOriginalInteractionResponse(payload.interactionResponseToken, {
           embeds: [...slotEmbeds, makeWebScheduleEmbed()],
         });
 
         return {
-          guildId: payload.guildId,
+          workspaceId: payload.workspaceId,
           day: payload.day,
           messageType: payload.messageType,
         } satisfies SlotListDispatchResult;
       }),
-      channelListConfig: Effect.fn("DispatchService.channelListConfig")(function* (
-        payload: ChannelListConfigDispatchPayload,
+      conversationListConfig: Effect.fn("DispatchService.conversationListConfig")(function* (
+        payload: ConversationListConfigDispatchPayload,
       ) {
-        const maybeConfig = yield* guildConfigService.getGuildChannelById({
-          guildId: payload.guildId,
-          channelId: payload.channelId,
+        const maybeConfig = yield* workspaceConfigService.getWorkspaceConversationById({
+          workspaceId: payload.workspaceId,
+          conversationId: payload.conversationId,
         });
         const config = yield* Option.match(maybeConfig, {
           onSome: Effect.succeed,
           onNone: () =>
             Effect.fail(
               makeArgumentError(
-                `Cannot list channel config, channel ${payload.channelId} is not configured`,
+                `Cannot list conversation config, conversation ${payload.conversationId} is not configured`,
               ),
             ),
         });
 
-        yield* botClient.updateOriginalInteractionResponse(payload.interactionToken, {
+        yield* botClient.updateOriginalInteractionResponse(payload.interactionResponseToken, {
           embeds: [
             makeEmbed({
-              title: "Config for this channel",
-              fields: formatChannelConfigFields(config),
+              title: [MessageText.text("Config for this "), MessageText.clientTerm("conversation")],
+              fields: formatConversationConfigFields({
+                client: payload.client,
+                workspaceId: payload.workspaceId,
+                name: config.name,
+                running: config.running,
+                roleId: config.roleId,
+                checkinConversationId: config.checkinConversationId,
+              }),
             }),
           ],
         });
 
         return {
-          guildId: payload.guildId,
-          channelId: payload.channelId,
-        } satisfies ChannelListConfigDispatchResult;
+          workspaceId: payload.workspaceId,
+          conversationId: payload.conversationId,
+        } satisfies ConversationListConfigDispatchResult;
       }),
-      channelSet: Effect.fn("DispatchService.channelSet")(function* (
-        payload: ChannelSetDispatchPayload,
+      conversationSet: Effect.fn("DispatchService.conversationSet")(function* (
+        payload: ConversationSetDispatchPayload,
       ) {
-        const config = yield* guildConfigService.upsertGuildChannelConfig(
-          payload.guildId,
-          payload.channelId,
+        const config = yield* workspaceConfigService.upsertWorkspaceConversationConfig(
+          payload.workspaceId,
+          payload.conversationId,
           {
             ...(payload.running === undefined ? {} : { running: payload.running }),
             ...(payload.name === undefined ? {} : { name: payload.name }),
             ...(payload.roleId === undefined ? {} : { roleId: payload.roleId }),
-            ...(payload.checkinChannelId === undefined
+            ...(payload.checkinConversationId === undefined
               ? {}
-              : { checkinChannelId: payload.checkinChannelId }),
+              : { checkinConversationId: payload.checkinConversationId }),
           },
         );
 
-        yield* botClient.updateOriginalInteractionResponse(payload.interactionToken, {
+        yield* botClient.updateOriginalInteractionResponse(payload.interactionResponseToken, {
           embeds: [
             makeEmbed({
               title: "Success!",
-              description: `${mentionChannel(payload.channelId)} configuration updated`,
-              fields: formatChannelConfigFields(config),
+              description: [
+                ...conversationMentionValue(
+                  payload.client,
+                  payload.workspaceId,
+                  payload.conversationId,
+                ),
+                MessageText.text(" configuration updated"),
+              ],
+              fields: formatConversationConfigFields({
+                client: payload.client,
+                workspaceId: payload.workspaceId,
+                name: config.name,
+                running: config.running,
+                roleId: config.roleId,
+                checkinConversationId: config.checkinConversationId,
+              }),
             }),
           ],
         });
 
         return {
-          guildId: payload.guildId,
-          channelId: payload.channelId,
-        } satisfies ChannelSetDispatchResult;
+          workspaceId: payload.workspaceId,
+          conversationId: payload.conversationId,
+        } satisfies ConversationSetDispatchResult;
       }),
-      channelUnset: Effect.fn("DispatchService.channelUnset")(function* (
-        payload: ChannelUnsetDispatchPayload,
+      conversationUnset: Effect.fn("DispatchService.conversationUnset")(function* (
+        payload: ConversationUnsetDispatchPayload,
       ) {
-        const config = yield* guildConfigService.upsertGuildChannelConfig(
-          payload.guildId,
-          payload.channelId,
+        const config = yield* workspaceConfigService.upsertWorkspaceConversationConfig(
+          payload.workspaceId,
+          payload.conversationId,
           {
             ...(payload.running ? { running: null } : {}),
             ...(payload.name ? { name: null } : {}),
             ...(payload.role ? { roleId: null } : {}),
-            ...(payload.checkinChannel ? { checkinChannelId: null } : {}),
+            ...(payload.checkinConversation ? { checkinConversationId: null } : {}),
           },
         );
 
-        yield* botClient.updateOriginalInteractionResponse(payload.interactionToken, {
+        yield* botClient.updateOriginalInteractionResponse(payload.interactionResponseToken, {
           embeds: [
             makeEmbed({
               title: "Success!",
-              description: `${mentionChannel(payload.channelId)} configuration updated`,
-              fields: formatChannelConfigFields(config),
+              description: [
+                ...conversationMentionValue(
+                  payload.client,
+                  payload.workspaceId,
+                  payload.conversationId,
+                ),
+                MessageText.text(" configuration updated"),
+              ],
+              fields: formatConversationConfigFields({
+                client: payload.client,
+                workspaceId: payload.workspaceId,
+                name: config.name,
+                running: config.running,
+                roleId: config.roleId,
+                checkinConversationId: config.checkinConversationId,
+              }),
             }),
           ],
         });
 
         return {
-          guildId: payload.guildId,
-          channelId: payload.channelId,
-        } satisfies ChannelUnsetDispatchResult;
+          workspaceId: payload.workspaceId,
+          conversationId: payload.conversationId,
+        } satisfies ConversationUnsetDispatchResult;
       }),
-      serverListConfig: Effect.fn("DispatchService.serverListConfig")(function* (
-        payload: ServerListConfigDispatchPayload,
+      workspaceListConfig: Effect.fn("DispatchService.workspaceListConfig")(function* (
+        payload: WorkspaceListConfigDispatchPayload,
       ) {
-        const guildDisplayName = yield* resolveGuildDisplayName(botClient, payload.guildId);
-        const maybeGuildConfig = yield* guildConfigService.getGuildConfig(payload.guildId);
-        const guildConfig = yield* Option.match(maybeGuildConfig, {
+        const workspaceDisplayName = yield* resolveWorkspaceDisplayName(
+          botClient,
+          payload.workspaceId,
+        );
+        const maybeWorkspaceConfig = yield* workspaceConfigService.getWorkspaceConfig(
+          payload.workspaceId,
+        );
+        const workspaceConfig = yield* Option.match(maybeWorkspaceConfig, {
           onSome: Effect.succeed,
           onNone: () =>
-            Effect.fail(makeArgumentError(`Cannot list config for guild ${payload.guildId}`)),
+            Effect.fail(
+              makeArgumentError(`Cannot list config for workspace ${payload.workspaceId}`),
+            ),
         });
-        const monitorRoles = yield* guildConfigService.getGuildMonitorRoles(payload.guildId);
-        const sheetId = Option.match(guildConfig.sheetId, {
+        const monitorRoles = yield* workspaceConfigService.getWorkspaceMonitorRoles(
+          payload.workspaceId,
+        );
+        const sheetId = Option.match(workspaceConfig.sheetId, {
           onSome: escapeMarkdown,
           onNone: () => "None",
         });
 
-        yield* botClient.updateOriginalInteractionResponse(payload.interactionToken, {
+        yield* botClient.updateOriginalInteractionResponse(payload.interactionResponseToken, {
           embeds: [
             makeEmbed({
-              title: `Config for ${guildDisplayName}`,
-              description: [
-                `Sheet id: ${sheetId}`,
-                `Auto check-in: ${
-                  isAutoCheckinEnabled(guildConfig.autoCheckin) ? "Enabled" : "Disabled"
-                }`,
-                `Monitor roles: ${
-                  monitorRoles.length > 0
-                    ? monitorRoles.map((role) => mentionRole(role.roleId)).join(", ")
-                    : "None"
-                }`,
-              ].join("\n"),
+              title: [MessageText.text("Config for "), ...workspaceDisplayName],
+              description: MessageText.lines(
+                [MessageText.text(`Sheet id: ${sheetId}`)],
+                [
+                  MessageText.text(
+                    `Auto check-in: ${
+                      isAutoCheckinEnabled(workspaceConfig.autoCheckin) ? "Enabled" : "Disabled"
+                    }`,
+                  ),
+                ],
+                [
+                  MessageText.clientTerm("monitorRole", {
+                    form: "plural",
+                    casing: "sentence",
+                  }),
+                  MessageText.text(": "),
+                  ...(monitorRoles.length > 0
+                    ? MessageText.joinText(
+                        monitorRoles.map((role) =>
+                          roleMentionValue(payload.client, payload.workspaceId, role.roleId),
+                        ),
+                        ", ",
+                      )
+                    : [MessageText.text("None")]),
+                ],
+              ),
             }),
           ],
         });
 
         return {
-          guildId: payload.guildId,
+          workspaceId: payload.workspaceId,
           monitorRoleCount: monitorRoles.length,
-        } satisfies ServerListConfigDispatchResult;
+        } satisfies WorkspaceListConfigDispatchResult;
       }),
-      serverAddMonitorRole: Effect.fn("DispatchService.serverAddMonitorRole")(function* (
-        payload: ServerAddMonitorRoleDispatchPayload,
+      workspaceAddMonitorRole: Effect.fn("DispatchService.workspaceAddMonitorRole")(function* (
+        payload: WorkspaceAddMonitorRoleDispatchPayload,
       ) {
-        const guildDisplayName = yield* resolveGuildDisplayName(botClient, payload.guildId);
-        yield* guildConfigService.addGuildMonitorRole(payload.guildId, payload.roleId);
-        yield* botClient.updateOriginalInteractionResponse(payload.interactionToken, {
+        const workspaceDisplayName = yield* resolveWorkspaceDisplayName(
+          botClient,
+          payload.workspaceId,
+        );
+        yield* workspaceConfigService.addWorkspaceMonitorRole(payload.workspaceId, payload.roleId);
+        yield* botClient.updateOriginalInteractionResponse(payload.interactionResponseToken, {
           embeds: [
             makeEmbed({
               title: "Success!",
-              description: `${mentionRole(payload.roleId)} is now a monitor role for ${guildDisplayName}`,
+              description: [
+                ...roleMentionValue(payload.client, payload.workspaceId, payload.roleId),
+                MessageText.text(" is now a "),
+                MessageText.clientTerm("monitorRole"),
+                MessageText.text(" for "),
+                ...workspaceDisplayName,
+              ],
             }),
           ],
         });
         return {
-          guildId: payload.guildId,
+          workspaceId: payload.workspaceId,
           roleId: payload.roleId,
-        } satisfies ServerAddMonitorRoleDispatchResult;
+        } satisfies WorkspaceAddMonitorRoleDispatchResult;
       }),
-      serverRemoveMonitorRole: Effect.fn("DispatchService.serverRemoveMonitorRole")(function* (
-        payload: ServerRemoveMonitorRoleDispatchPayload,
+      workspaceRemoveMonitorRole: Effect.fn("DispatchService.workspaceRemoveMonitorRole")(
+        function* (payload: WorkspaceRemoveMonitorRoleDispatchPayload) {
+          const workspaceDisplayName = yield* resolveWorkspaceDisplayName(
+            botClient,
+            payload.workspaceId,
+          );
+          yield* workspaceConfigService.removeWorkspaceMonitorRole(
+            payload.workspaceId,
+            payload.roleId,
+          );
+          yield* botClient.updateOriginalInteractionResponse(payload.interactionResponseToken, {
+            embeds: [
+              makeEmbed({
+                title: "Success!",
+                description: [
+                  ...roleMentionValue(payload.client, payload.workspaceId, payload.roleId),
+                  MessageText.text(" is no longer a "),
+                  MessageText.clientTerm("monitorRole"),
+                  MessageText.text(" for "),
+                  ...workspaceDisplayName,
+                ],
+              }),
+            ],
+          });
+          return {
+            workspaceId: payload.workspaceId,
+            roleId: payload.roleId,
+          } satisfies WorkspaceRemoveMonitorRoleDispatchResult;
+        },
+      ),
+      workspaceSetSheet: Effect.fn("DispatchService.workspaceSetSheet")(function* (
+        payload: WorkspaceSetSheetDispatchPayload,
       ) {
-        const guildDisplayName = yield* resolveGuildDisplayName(botClient, payload.guildId);
-        yield* guildConfigService.removeGuildMonitorRole(payload.guildId, payload.roleId);
-        yield* botClient.updateOriginalInteractionResponse(payload.interactionToken, {
-          embeds: [
-            makeEmbed({
-              title: "Success!",
-              description: `${mentionRole(payload.roleId)} is no longer a monitor role for ${guildDisplayName}`,
-            }),
-          ],
-        });
-        return {
-          guildId: payload.guildId,
-          roleId: payload.roleId,
-        } satisfies ServerRemoveMonitorRoleDispatchResult;
-      }),
-      serverSetSheet: Effect.fn("DispatchService.serverSetSheet")(function* (
-        payload: ServerSetSheetDispatchPayload,
-      ) {
-        const guildDisplayName = yield* resolveGuildDisplayName(botClient, payload.guildId);
-        yield* guildConfigService.upsertGuildConfig(payload.guildId, { sheetId: payload.sheetId });
-        yield* botClient.updateOriginalInteractionResponse(payload.interactionToken, {
-          embeds: [
-            makeEmbed({
-              title: "Success!",
-              description: `Sheet id for ${guildDisplayName} is now set to ${escapeMarkdown(
-                payload.sheetId,
-              )}`,
-            }),
-          ],
-        });
-        return {
-          guildId: payload.guildId,
+        const workspaceDisplayName = yield* resolveWorkspaceDisplayName(
+          botClient,
+          payload.workspaceId,
+        );
+        yield* workspaceConfigService.upsertWorkspaceConfig(payload.workspaceId, {
           sheetId: payload.sheetId,
-        } satisfies ServerSetSheetDispatchResult;
-      }),
-      serverSetAutoCheckin: Effect.fn("DispatchService.serverSetAutoCheckin")(function* (
-        payload: ServerSetAutoCheckinDispatchPayload,
-      ) {
-        const guildDisplayName = yield* resolveGuildDisplayName(botClient, payload.guildId);
-        const guildConfig = yield* guildConfigService.upsertGuildConfig(payload.guildId, {
-          autoCheckin: payload.autoCheckin,
         });
-        const autoCheckin = isAutoCheckinEnabled(guildConfig.autoCheckin);
-        yield* botClient.updateOriginalInteractionResponse(payload.interactionToken, {
+        yield* botClient.updateOriginalInteractionResponse(payload.interactionResponseToken, {
           embeds: [
             makeEmbed({
               title: "Success!",
-              description: `Auto check-in for ${guildDisplayName} is now ${
-                autoCheckin ? "enabled" : "disabled"
-              }.`,
+              description: [
+                MessageText.text("Sheet id for "),
+                ...workspaceDisplayName,
+                MessageText.text(` is now set to ${escapeMarkdown(payload.sheetId)}`),
+              ],
             }),
           ],
         });
         return {
-          guildId: payload.guildId,
+          workspaceId: payload.workspaceId,
+          sheetId: payload.sheetId,
+        } satisfies WorkspaceSetSheetDispatchResult;
+      }),
+      workspaceSetAutoCheckin: Effect.fn("DispatchService.workspaceSetAutoCheckin")(function* (
+        payload: WorkspaceSetAutoCheckinDispatchPayload,
+      ) {
+        const workspaceDisplayName = yield* resolveWorkspaceDisplayName(
+          botClient,
+          payload.workspaceId,
+        );
+        const workspaceConfig = yield* workspaceConfigService.upsertWorkspaceConfig(
+          payload.workspaceId,
+          {
+            autoCheckin: payload.autoCheckin,
+          },
+        );
+        const autoCheckin = isAutoCheckinEnabled(workspaceConfig.autoCheckin);
+        yield* botClient.updateOriginalInteractionResponse(payload.interactionResponseToken, {
+          embeds: [
+            makeEmbed({
+              title: "Success!",
+              description: [
+                MessageText.text("Auto check-in for "),
+                ...workspaceDisplayName,
+                MessageText.text(` is now ${autoCheckin ? "enabled" : "disabled"}.`),
+              ],
+            }),
+          ],
+        });
+        return {
+          workspaceId: payload.workspaceId,
           autoCheckin,
-        } satisfies ServerSetAutoCheckinDispatchResult;
+        } satisfies WorkspaceSetAutoCheckinDispatchResult;
       }),
       teamList: Effect.fn("DispatchService.teamList")(function* (payload: TeamListDispatchPayload) {
-        const teams = yield* playerService.getTeamsByIds(payload.guildId, [payload.targetUserId]);
+        const teams = yield* playerService.getTeamsByIds(payload.workspaceId, [
+          payload.targetUserId,
+        ]);
         const formattedTeams = teams
           .flat()
           // Exclude "tierer_hint" entries: these are internal/temporary suggestions used by the
@@ -3171,7 +3498,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
             }),
           );
 
-        yield* botClient.updateOriginalInteractionResponse(payload.interactionToken, {
+        yield* botClient.updateOriginalInteractionResponse(payload.interactionResponseToken, {
           embeds: [
             makeEmbed({
               title: `${escapeMarkdown(payload.targetUsername)}'s Teams`,
@@ -3190,7 +3517,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         });
 
         return {
-          guildId: payload.guildId,
+          workspaceId: payload.workspaceId,
           targetUserId: payload.targetUserId,
           teamCount: formattedTeams.length,
         } satisfies TeamListDispatchResult;
@@ -3199,11 +3526,11 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         payload: ScheduleListDispatchPayload,
       ) {
         const { schedule } = yield* scheduleService.dayPlayerSchedule(
-          payload.guildId,
+          payload.workspaceId,
           payload.day,
           payload.targetUserId,
         );
-        yield* botClient.updateOriginalInteractionResponse(payload.interactionToken, {
+        yield* botClient.updateOriginalInteractionResponse(payload.interactionResponseToken, {
           embeds: [
             makeEmbed({
               title: `${escapeMarkdown(payload.targetUsername)}'s Schedule for Day ${payload.day}`,
@@ -3223,7 +3550,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         });
 
         return {
-          guildId: payload.guildId,
+          workspaceId: payload.workspaceId,
           day: payload.day,
           targetUserId: payload.targetUserId,
           invisible: schedule.invisible,
@@ -3233,21 +3560,13 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         payload: ScreenshotDispatchPayload,
       ) {
         const screenshot = yield* screenshotService.getScreenshot(
-          payload.guildId,
-          payload.channelName,
+          payload.workspaceId,
+          payload.conversationName,
           payload.day,
         );
         yield* botClient.updateOriginalInteractionResponseWithFiles(
-          payload.interactionToken,
-          {
-            attachments: [
-              {
-                id: "0",
-                description: `Day ${payload.day}'s schedule screenshot`,
-                filename: "screenshot.png",
-              },
-            ],
-          },
+          payload.interactionResponseToken,
+          {},
           [
             {
               name: "screenshot.png",
@@ -3258,8 +3577,8 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         );
 
         return {
-          guildId: payload.guildId,
-          channelName: payload.channelName,
+          workspaceId: payload.workspaceId,
+          conversationName: payload.conversationName,
           day: payload.day,
           byteLength: screenshot.byteLength,
         } satisfies ScreenshotDispatchResult;
@@ -3273,7 +3592,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           const okCount = status.services.filter((service) => service.status === "ok").length;
           const downCount = status.services.length - okCount;
 
-          yield* botClient.updateOriginalInteractionResponse(payload.interactionToken, {
+          yield* botClient.updateOriginalInteractionResponse(payload.interactionResponseToken, {
             embeds: [
               makeEmbed({
                 title: "Service Status",
@@ -3302,7 +3621,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         }).pipe(
           Effect.catch((error) =>
             botClient
-              .updateOriginalInteractionResponse(payload.interactionToken, {
+              .updateOriginalInteractionResponse(payload.interactionResponseToken, {
                 content: "Failed to check service status. Please try again.",
               })
               .pipe(
@@ -3312,50 +3631,52 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           ),
         );
       }),
-      guildWelcome: Effect.fn("DispatchService.guildWelcome")(function* (
-        payload: GuildWelcomeDispatchPayload,
+      workspaceWelcome: Effect.fn("DispatchService.workspaceWelcome")(function* (
+        payload: WorkspaceWelcomeDispatchPayload,
       ) {
         yield* Effect.annotateCurrentSpan({
-          guildId: payload.guildId,
-          guildName: payload.guildName,
-          systemChannelId: payload.systemChannelId,
+          workspaceId: payload.workspaceId,
+          workspaceName: payload.workspaceName,
+          systemConversationId: payload.systemConversationId,
         });
 
         const messagePayload = {
           embeds: [welcomeEmbed()],
         } satisfies MessagePayload;
 
-        const sentMessage = yield* sendGuildAnnouncementWithWelcomeHeuristic({
+        const sentMessage = yield* sendWorkspaceAnnouncementWithWelcomeHeuristic({
           botClient,
-          guildId: payload.guildId,
-          systemChannelId: payload.systemChannelId,
+          workspaceId: payload.workspaceId,
+          systemConversationId: payload.systemConversationId,
           messagePayload,
-          logLabel: "guild welcome message",
+          logLabel: "workspace welcome message",
         });
 
         return {
-          guildId: payload.guildId,
-          channelId: sentMessage.channel_id,
+          workspaceId: payload.workspaceId,
+          conversationId: sentMessage.conversation_id,
           messageId: sentMessage.id,
-        } satisfies GuildWelcomeDispatchResult;
+        } satisfies WorkspaceWelcomeDispatchResult;
       }),
       updateAnnouncement: Effect.fn("DispatchService.updateAnnouncement")(function* (
         payload: UpdateAnnouncementDispatchPayload,
       ) {
         yield* Effect.annotateCurrentSpan({
-          guildId: payload.guildId,
-          guildName: payload.guildName,
+          workspaceId: payload.workspaceId,
+          workspaceName: payload.workspaceName,
           announcementId: payload.announcement.id,
-          systemChannelId: payload.systemChannelId,
+          systemConversationId: payload.systemConversationId,
         });
 
-        const featureFlags = yield* guildConfigService.getGuildFeatureFlags(payload.guildId);
+        const featureFlags = yield* workspaceConfigService.getWorkspaceFeatureFlags(
+          payload.workspaceId,
+        );
         if (!featureFlags.some((flag) => flag.flagName === updateAnnouncementsFeatureFlag)) {
           return {
-            guildId: payload.guildId,
+            workspaceId: payload.workspaceId,
             announcementId: payload.announcement.id,
             status: "skipped_not_gated",
-            announcementChannelId: null,
+            announcementConversationId: null,
             announcementMessageId: null,
           } satisfies UpdateAnnouncementDispatchResult;
         }
@@ -3371,28 +3692,28 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         const publishedAt = DateTime.makeUnsafe(payload.announcement.publishedAt);
         const random = yield* Random.next;
         const claimToken = `${payload.dispatchRequestId}:${random}`;
-        const claim = yield* guildConfigService.claimGuildUpdateAnnouncementDelivery({
-          guildId: payload.guildId,
+        const claim = yield* workspaceConfigService.claimWorkspaceUpdateAnnouncementDelivery({
+          workspaceId: payload.workspaceId,
           announcementId: payload.announcement.id,
           publishedAt,
           claimToken,
         });
         if (claim.status === "already_delivered" && Option.isSome(claim.delivery)) {
           return {
-            guildId: payload.guildId,
+            workspaceId: payload.workspaceId,
             announcementId: payload.announcement.id,
             status: "skipped_already_delivered",
-            announcementChannelId: claim.delivery.value.channelId,
+            announcementConversationId: claim.delivery.value.conversationId,
             announcementMessageId: claim.delivery.value.messageId,
           } satisfies UpdateAnnouncementDispatchResult;
         }
 
         if (claim.status !== "claimed") {
           return {
-            guildId: payload.guildId,
+            workspaceId: payload.workspaceId,
             announcementId: payload.announcement.id,
             status: "skipped_already_delivered",
-            announcementChannelId: null,
+            announcementConversationId: null,
             announcementMessageId: null,
           } satisfies UpdateAnnouncementDispatchResult;
         }
@@ -3410,17 +3731,17 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           ],
         } satisfies MessagePayload;
 
-        const sentMessage = yield* sendGuildAnnouncementWithWelcomeHeuristic({
+        const sentMessage = yield* sendWorkspaceAnnouncementWithWelcomeHeuristic({
           botClient,
-          guildId: payload.guildId,
-          systemChannelId: payload.systemChannelId,
+          workspaceId: payload.workspaceId,
+          systemConversationId: payload.systemConversationId,
           messagePayload,
           logLabel: "update announcement",
         }).pipe(
           Effect.catchCause((cause) =>
-            guildConfigService
-              .releaseGuildUpdateAnnouncementDeliveryClaim({
-                guildId: payload.guildId,
+            workspaceConfigService
+              .releaseWorkspaceUpdateAnnouncementDeliveryClaim({
+                workspaceId: payload.workspaceId,
                 announcementId: payload.announcement.id,
                 claimToken,
               })
@@ -3431,33 +3752,33 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           ),
         );
 
-        yield* guildConfigService.recordGuildUpdateAnnouncementDelivery({
-          guildId: payload.guildId,
+        yield* workspaceConfigService.recordWorkspaceUpdateAnnouncementDelivery({
+          workspaceId: payload.workspaceId,
           announcementId: payload.announcement.id,
           publishedAt,
           deliveredAt,
-          channelId: sentMessage.channel_id,
+          conversationId: sentMessage.conversation_id,
           messageId: sentMessage.id,
         });
 
         return {
-          guildId: payload.guildId,
+          workspaceId: payload.workspaceId,
           announcementId: payload.announcement.id,
           status: "sent",
-          announcementChannelId: sentMessage.channel_id,
+          announcementConversationId: sentMessage.conversation_id,
           announcementMessageId: sentMessage.id,
         } satisfies UpdateAnnouncementDispatchResult;
       }),
-      serviceAddGuildFeatureFlag: Effect.fn("DispatchService.serviceAddGuildFeatureFlag")(
-        function* (payload: ServiceGuildFeatureFlagDispatchPayload) {
+      serviceAddWorkspaceFeatureFlag: Effect.fn("DispatchService.serviceAddWorkspaceFeatureFlag")(
+        function* (payload: ServiceWorkspaceFeatureFlagDispatchPayload) {
           yield* Effect.annotateCurrentSpan({
-            guildId: payload.guildId,
+            workspaceId: payload.workspaceId,
             flagName: payload.flagName,
-            systemChannelId: payload.systemChannelId,
+            systemConversationId: payload.systemConversationId,
           });
 
-          const flag = yield* guildConfigService.addGuildFeatureFlag(
-            payload.guildId,
+          const flag = yield* workspaceConfigService.addWorkspaceFeatureFlag(
+            payload.workspaceId,
             payload.flagName,
           );
           const messagePayload = {
@@ -3469,95 +3790,95 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
               }),
             ],
           } satisfies MessagePayload;
-          const sentMessage = yield* sendGuildAnnouncementWithWelcomeHeuristic({
+          const sentMessage = yield* sendWorkspaceAnnouncementWithWelcomeHeuristic({
             botClient,
-            guildId: payload.guildId,
-            systemChannelId: payload.systemChannelId,
+            workspaceId: payload.workspaceId,
+            systemConversationId: payload.systemConversationId,
             messagePayload,
-            logLabel: "guild feature flag enlistment announcement",
+            logLabel: "workspace feature flag enlistment announcement",
           }).pipe(
             Effect.map(Option.some),
             Effect.catchCause((cause) =>
-              Effect.logWarning("Failed to announce guild feature flag enlistment").pipe(
+              Effect.logWarning("Failed to announce workspace feature flag enlistment").pipe(
                 Effect.annotateLogs({
-                  guildId: payload.guildId,
+                  workspaceId: payload.workspaceId,
                   flagName: flag.flagName,
                 }),
                 Effect.andThen(Effect.logDebug(cause)),
-                Effect.as(Option.none<DiscordMessage>()),
+                Effect.as(Option.none<DeliveredMessage>()),
               ),
             ),
           );
 
           return {
-            guildId: payload.guildId,
+            workspaceId: payload.workspaceId,
             flagName: flag.flagName,
-            announcementChannelId: Option.match(sentMessage, {
-              onSome: (message) => message.channel_id,
+            announcementConversationId: Option.match(sentMessage, {
+              onSome: (message) => message.conversation_id,
               onNone: () => null,
             }),
             announcementMessageId: Option.match(sentMessage, {
               onSome: (message) => message.id,
               onNone: () => null,
             }),
-          } satisfies ServiceGuildFeatureFlagDispatchResult;
+          } satisfies ServiceWorkspaceFeatureFlagDispatchResult;
         },
       ),
-      serviceRemoveGuildFeatureFlag: Effect.fn("DispatchService.serviceRemoveGuildFeatureFlag")(
-        function* (payload: ServiceGuildFeatureFlagDispatchPayload) {
-          yield* Effect.annotateCurrentSpan({
-            guildId: payload.guildId,
-            flagName: payload.flagName,
-            systemChannelId: payload.systemChannelId,
-          });
+      serviceRemoveWorkspaceFeatureFlag: Effect.fn(
+        "DispatchService.serviceRemoveWorkspaceFeatureFlag",
+      )(function* (payload: ServiceWorkspaceFeatureFlagDispatchPayload) {
+        yield* Effect.annotateCurrentSpan({
+          workspaceId: payload.workspaceId,
+          flagName: payload.flagName,
+          systemConversationId: payload.systemConversationId,
+        });
 
-          const flag = yield* guildConfigService.removeGuildFeatureFlag(
-            payload.guildId,
-            payload.flagName,
-          );
-          const messagePayload = {
-            embeds: [
-              makeEmbed({
-                title: "Feature flag disabled",
-                description: `This server has been delisted from \`${escapeMarkdown(flag.flagName)}\`.`,
-                color: 0xed4245,
+        const flag = yield* workspaceConfigService.removeWorkspaceFeatureFlag(
+          payload.workspaceId,
+          payload.flagName,
+        );
+        const messagePayload = {
+          embeds: [
+            makeEmbed({
+              title: "Feature flag disabled",
+              description: `This server has been delisted from \`${escapeMarkdown(flag.flagName)}\`.`,
+              color: 0xed4245,
+            }),
+          ],
+        } satisfies MessagePayload;
+        const sentMessage = yield* sendWorkspaceAnnouncementWithWelcomeHeuristic({
+          botClient,
+          workspaceId: payload.workspaceId,
+          systemConversationId: payload.systemConversationId,
+          messagePayload,
+          logLabel: "workspace feature flag delistment announcement",
+        }).pipe(
+          Effect.map(Option.some),
+          Effect.catchCause((cause) =>
+            Effect.logWarning("Failed to announce workspace feature flag delistment").pipe(
+              Effect.annotateLogs({
+                workspaceId: payload.workspaceId,
+                flagName: flag.flagName,
               }),
-            ],
-          } satisfies MessagePayload;
-          const sentMessage = yield* sendGuildAnnouncementWithWelcomeHeuristic({
-            botClient,
-            guildId: payload.guildId,
-            systemChannelId: payload.systemChannelId,
-            messagePayload,
-            logLabel: "guild feature flag delistment announcement",
-          }).pipe(
-            Effect.map(Option.some),
-            Effect.catchCause((cause) =>
-              Effect.logWarning("Failed to announce guild feature flag delistment").pipe(
-                Effect.annotateLogs({
-                  guildId: payload.guildId,
-                  flagName: flag.flagName,
-                }),
-                Effect.andThen(Effect.logDebug(cause)),
-                Effect.as(Option.none<DiscordMessage>()),
-              ),
+              Effect.andThen(Effect.logDebug(cause)),
+              Effect.as(Option.none<DeliveredMessage>()),
             ),
-          );
+          ),
+        );
 
-          return {
-            guildId: payload.guildId,
-            flagName: flag.flagName,
-            announcementChannelId: Option.match(sentMessage, {
-              onSome: (message) => message.channel_id,
-              onNone: () => null,
-            }),
-            announcementMessageId: Option.match(sentMessage, {
-              onSome: (message) => message.id,
-              onNone: () => null,
-            }),
-          } satisfies ServiceGuildFeatureFlagDispatchResult;
-        },
-      ),
+        return {
+          workspaceId: payload.workspaceId,
+          flagName: flag.flagName,
+          announcementConversationId: Option.match(sentMessage, {
+            onSome: (message) => message.conversation_id,
+            onNone: () => null,
+          }),
+          announcementMessageId: Option.match(sentMessage, {
+            onSome: (message) => message.id,
+            onNone: () => null,
+          }),
+        } satisfies ServiceWorkspaceFeatureFlagDispatchResult;
+      }),
       slotOpenButton: Effect.fn("DispatchService.slotOpenButton")(function* (
         payload: SlotOpenButtonPayload,
         messageSlot: MessageSlot,
@@ -3566,39 +3887,41 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           messageId: payload.messageId,
           day: messageSlot.day,
         });
-        const guildId = Option.getOrUndefined(messageSlot.guildId);
-        const messageChannelId = Option.getOrUndefined(messageSlot.messageChannelId);
-        if (guildId === undefined) {
-          yield* botClient.updateOriginalInteractionResponse(payload.interactionToken, {
+        const workspaceId = Option.getOrUndefined(messageSlot.workspaceId);
+        const messageConversationId = Option.getOrUndefined(messageSlot.conversationId);
+        if (workspaceId === undefined) {
+          yield* botClient.updateOriginalInteractionResponse(payload.interactionResponseToken, {
             content: "This slot message is not registered to a server.",
           });
           return yield* Effect.fail(
             markInteractionFailureHandled(
-              makeArgumentError("Cannot handle slot button, message guild is not registered"),
+              makeArgumentError("Cannot handle slot button, message workspace is not registered"),
             ),
           );
         }
 
-        if (messageChannelId === undefined) {
-          yield* botClient.updateOriginalInteractionResponse(payload.interactionToken, {
-            content: "This slot message channel is not registered.",
+        if (messageConversationId === undefined) {
+          yield* botClient.updateOriginalInteractionResponse(payload.interactionResponseToken, {
+            content: "This slot message conversation is not registered.",
           });
           return yield* Effect.fail(
             markInteractionFailureHandled(
-              makeArgumentError("Cannot handle slot button, message channel is not registered"),
+              makeArgumentError(
+                "Cannot handle slot button, message conversation is not registered",
+              ),
             ),
           );
         }
 
-        const slotEmbeds = yield* makeSlotEmbeds(guildId, messageSlot.day);
+        const slotEmbeds = yield* makeSlotEmbeds(workspaceId, messageSlot.day);
 
-        yield* botClient.updateOriginalInteractionResponse(payload.interactionToken, {
+        yield* botClient.updateOriginalInteractionResponse(payload.interactionResponseToken, {
           embeds: slotEmbeds,
         });
 
         return {
           messageId: payload.messageId,
-          guildId,
+          workspaceId,
           day: messageSlot.day,
         } satisfies SlotOpenButtonResult;
       }),
@@ -3620,7 +3943,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         );
         const failCheckinInteraction = (content: string, errorMessage: string) =>
           botClient
-            .updateOriginalInteractionResponse(payload.interactionToken, {
+            .updateOriginalInteractionResponse(payload.interactionResponseToken, {
               content,
             })
             .pipe(
@@ -3636,20 +3959,20 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
               "Cannot handle check-in button, message is not registered",
             ),
         });
-        const messageChannelId = yield* Option.match(messageCheckinData.messageChannelId, {
+        const messageConversationId = yield* Option.match(messageCheckinData.conversationId, {
           onSome: Effect.succeed,
           onNone: () =>
             failCheckinInteraction(
-              "This check-in message channel is not registered.",
-              "Cannot handle check-in button, message channel is not registered",
+              "This check-in message conversation is not registered.",
+              "Cannot handle check-in button, message conversation is not registered",
             ),
         });
-        const guildId = yield* Option.match(messageCheckinData.guildId, {
+        const workspaceId = yield* Option.match(messageCheckinData.workspaceId, {
           onSome: Effect.succeed,
           onNone: () =>
             failCheckinInteraction(
-              "This check-in message guild is not registered.",
-              "Cannot handle check-in button, message guild is not registered",
+              "This check-in message workspace is not registered.",
+              "Cannot handle check-in button, message workspace is not registered",
             ),
         });
 
@@ -3663,7 +3986,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           .pipe(
             Effect.catch((error) =>
               botClient
-                .updateOriginalInteractionResponse(payload.interactionToken, {
+                .updateOriginalInteractionResponse(payload.interactionResponseToken, {
                   content: "We could not check you in. Please try again.",
                 })
                 .pipe(Effect.andThen(Effect.fail(markInteractionFailureHandled(error)))),
@@ -3674,7 +3997,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           checkinAt,
         );
 
-        yield* botClient.updateOriginalInteractionResponse(payload.interactionToken, {
+        yield* botClient.updateOriginalInteractionResponse(payload.interactionResponseToken, {
           content: isFirstCheckin
             ? "You have been checked in!"
             : "You have already been checked in!",
@@ -3686,7 +4009,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         const content = renderCheckedInContent(messageCheckinData.initialMessage, checkedInMembers);
 
         yield* botClient
-          .updateMessage(messageChannelId, payload.messageId, {
+          .updateMessage(messageConversationId, payload.messageId, {
             content,
             components: [checkinActionRow()],
           })
@@ -3694,9 +4017,9 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
             Effect.catchCause((cause) =>
               Effect.logError("Failed to update check-in message after button check-in").pipe(
                 Effect.annotateLogs({
-                  guildId,
+                  workspaceId,
                   messageId: payload.messageId,
-                  messageChannelId,
+                  messageConversationId,
                   accountId,
                 }),
                 Effect.andThen(Effect.logError(cause)),
@@ -3706,16 +4029,16 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
 
         if (isFirstCheckin) {
           yield* botClient
-            .sendMessage(messageCheckinData.channelId, {
-              content: `${mentionUser(accountId)} has checked in!`,
+            .sendMessage(messageCheckinData.runningConversationId, {
+              content: [MessageText.userMention(accountId), MessageText.text(" has checked in!")],
             })
             .pipe(
               Effect.catchCause((cause) =>
                 Effect.logError("Failed to announce button check-in").pipe(
                   Effect.annotateLogs({
-                    guildId,
+                    workspaceId,
                     accountId,
-                    channelId: messageCheckinData.channelId,
+                    conversationId: messageCheckinData.runningConversationId,
                     messageId: payload.messageId,
                   }),
                   Effect.andThen(Effect.logError(cause)),
@@ -3726,12 +4049,12 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
 
         if (Option.isSome(messageCheckinData.roleId)) {
           const roleId = messageCheckinData.roleId.value;
-          // Re-apply the role on repeat clicks to repair missed Discord side effects.
-          yield* botClient.addGuildMemberRole(guildId, accountId, roleId).pipe(
+          // Re-apply the role on repeat clicks to repair missed adapter side effects.
+          yield* botClient.addWorkspaceMemberRole(workspaceId, accountId, roleId).pipe(
             Effect.catchCause((cause) =>
               Effect.logError("Failed to add check-in role after button check-in").pipe(
                 Effect.annotateLogs({
-                  guildId,
+                  workspaceId,
                   accountId,
                   roleId,
                   messageId: payload.messageId,
@@ -3744,7 +4067,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
 
         return {
           messageId: payload.messageId,
-          messageChannelId,
+          messageConversationId,
           checkedInMemberId: accountId,
         } satisfies CheckinHandleButtonResult;
       }),
@@ -3777,6 +4100,6 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
 }) {
   // fallow-ignore-next-line unused-class-member
   static layer = Layer.effect(DispatchService, this.make).pipe(
-    Layer.provide(Layer.mergeAll(IngressBotClient.layer, SheetApisClient.layer)),
+    Layer.provide(Layer.mergeAll(ClientDeliveryClient.layer, SheetApisClient.layer)),
   );
 }

@@ -1,5 +1,5 @@
 import { GuildsApiCacheView } from "dfx-discord-utils/discord/cache/guilds";
-import { HttpClient } from "effect/unstable/http";
+import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 import { Effect, Layer, Redacted, Schema } from "effect";
 import { makeArgumentError } from "typhoon-core/error";
 import { DiscordRpcs } from "sheet-ingress-api/sheet-apis-rpc";
@@ -9,6 +9,9 @@ import { discordLayer as discordServiceLayer, DiscordAccessTokenService } from "
 const DiscordMyGuild = Schema.Struct({
   id: Schema.String,
 });
+
+const discordApiUrl = (path: string): string =>
+  new URL(path, "https://discord.com/api/v10/").toString();
 
 const formatError = (error: unknown) =>
   error instanceof Error
@@ -35,11 +38,9 @@ export const discordLayer = DiscordRpcs.toLayer(
           },
         })
         .pipe(
+          Effect.flatMap(HttpClientResponse.filterStatusOk),
           Effect.mapError((error) => makeArgumentError(`${failureMessage}: ${formatError(error)}`)),
         );
-      if (response.status < 200 || response.status >= 300) {
-        return yield* Effect.fail(makeArgumentError(`${failureMessage}: ${response.status}`));
-      }
 
       return yield* response.json.pipe(
         Effect.mapError((error) =>
@@ -52,7 +53,7 @@ export const discordLayer = DiscordRpcs.toLayer(
       "discord.getCurrentUser": Effect.fnUntraced(function* () {
         const accessToken = yield* discordAccessTokenService.getCurrentUserDiscordAccessToken();
         const json = yield* getDiscordJson(
-          "https://discord.com/api/v10/users/@me",
+          discordApiUrl("users/@me"),
           accessToken,
           "Failed to fetch Discord user",
         );
@@ -66,7 +67,7 @@ export const discordLayer = DiscordRpcs.toLayer(
       "discord.getCurrentUserGuilds": Effect.fnUntraced(function* () {
         const accessToken = yield* discordAccessTokenService.getCurrentUserDiscordAccessToken();
         const json = yield* getDiscordJson(
-          "https://discord.com/api/v10/users/@me/guilds",
+          discordApiUrl("users/@me/guilds"),
           accessToken,
           "Failed to fetch Discord guilds",
         );

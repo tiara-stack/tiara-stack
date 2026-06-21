@@ -4,6 +4,9 @@ const nonEmptyString = Schema.NonEmptyString;
 const nonEmptySecret = Schema.Redacted(nonEmptyString);
 
 export const config = {
+  sheetBotClientId: Config.schema(nonEmptyString, "SHEET_BOT_CLIENT_ID").pipe(
+    Config.withDefault("discord-main"),
+  ),
   discordToken: Config.schema(Schema.Redacted(Schema.String), "DISCORD_TOKEN"),
   podNamespace: Config.string("POD_NAMESPACE"),
   redisUrl: Config.schema(Schema.Redacted(Schema.String), "REDIS_URL"),

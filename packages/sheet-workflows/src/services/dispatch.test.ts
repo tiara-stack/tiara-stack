@@ -1,21 +1,22 @@
+// fallow-ignore-file code-duplication
 import { describe, expect, it } from "@effect/vitest";
 import { Cause, DateTime, Effect, Exit, Option } from "effect";
 import { TestClock } from "effect/testing";
-import { formatTentativeRoomOrderContent } from "sheet-ingress-api/discordComponents";
+import { formatTentativeRoomOrderContent } from "sheet-ingress-api/clientActions";
 import type {
   AutoCheckinTestDispatchPayload,
-  ChannelListConfigDispatchPayload,
-  ChannelSetDispatchPayload,
-  ChannelUnsetDispatchPayload,
-  GuildWelcomeDispatchPayload,
+  ConversationListConfigDispatchPayload,
+  ConversationSetDispatchPayload,
+  ConversationUnsetDispatchPayload,
+  WorkspaceWelcomeDispatchPayload,
   KickoutDispatchPayload,
   ScheduleListDispatchPayload,
-  ServiceGuildFeatureFlagDispatchPayload,
-  ServerAddMonitorRoleDispatchPayload,
-  ServerListConfigDispatchPayload,
-  ServerRemoveMonitorRoleDispatchPayload,
-  ServerSetAutoCheckinDispatchPayload,
-  ServerSetSheetDispatchPayload,
+  ServiceWorkspaceFeatureFlagDispatchPayload,
+  WorkspaceAddMonitorRoleDispatchPayload,
+  WorkspaceListConfigDispatchPayload,
+  WorkspaceRemoveMonitorRoleDispatchPayload,
+  WorkspaceSetAutoCheckinDispatchPayload,
+  WorkspaceSetSheetDispatchPayload,
   ScreenshotDispatchPayload,
   ServiceStatusDispatchPayload,
   SlotButtonDispatchPayload,
@@ -24,12 +25,12 @@ import type {
   UpdateAnnouncementDispatchPayload,
 } from "sheet-ingress-api/handlers/dispatch/schema";
 import {
-  GuildChannelConfig,
-  GuildConfig,
-  GuildFeatureFlag,
-  GuildConfigMonitorRole,
-  GuildUpdateAnnouncementDelivery,
-} from "sheet-ingress-api/schemas/guildConfig";
+  WorkspaceConversationConfig,
+  WorkspaceConfig,
+  WorkspaceFeatureFlag,
+  WorkspaceMonitorRole,
+  WorkspaceUpdateAnnouncementDelivery,
+} from "sheet-ingress-api/schemas/workspaceConfig";
 import { MessageSlot } from "sheet-ingress-api/schemas/messageSlot";
 import {
   MessageRoomOrder,
@@ -43,50 +44,69 @@ import {
   Team,
 } from "sheet-ingress-api/schemas/sheet";
 import { EventConfig } from "sheet-ingress-api/schemas/sheetConfig";
-import { DispatchService, IngressBotClient, SheetApisClient } from "@/services";
+import { DispatchService, ClientDeliveryClient, SheetApisClient } from "@/services";
+import {
+  makeSheetApisClient as makeBaseSheetApisClient,
+  normalizePayloadText,
+  renderTextForTest,
+  text,
+} from "./testHelpers";
 
-const guildWelcomePayload: GuildWelcomeDispatchPayload = {
-  dispatchRequestId: "discord-guild-create:guild-1:2026-05-31T00:00:00.000Z",
-  guildId: "guild-1",
-  guildName: "Guild One",
+const discordClient = { platform: "discord", clientId: "discord-main" } as const;
+
+const makeSheetApisClient = (
+  services: Record<string, unknown>,
+  prefix = "Unexpected Sheet API call",
+) => makeBaseSheetApisClient(services, prefix);
+
+const workspaceWelcomePayload: WorkspaceWelcomeDispatchPayload = {
+  client: discordClient,
+  dispatchRequestId: "discord-workspace-create:workspace-1:2026-05-31T00:00:00.000Z",
+  workspaceId: "workspace-1",
+  workspaceName: "Workspace One",
   joinedAt: "2026-05-31T00:00:00.000Z",
-  systemChannelId: "system-channel",
+  systemConversationId: "system-conversation",
 };
 
 const slotButtonPayload: SlotButtonDispatchPayload = {
+  client: discordClient,
   dispatchRequestId: "dispatch-slot-button",
-  guildId: "guild-1",
-  channelId: "channel-1",
+  workspaceId: "workspace-1",
+  conversationId: "conversation-1",
   day: 2,
-  interactionToken: "interaction-token",
-  interactionDeadlineEpochMs: 1_700_000_000_000,
+  interactionResponseToken: "interaction-token",
+  interactionResponseDeadlineEpochMs: 1_700_000_000_000,
 };
 
 const slotOpenButtonPayload: SlotOpenButtonPayload = {
+  client: discordClient,
   messageId: "message-1",
-  interactionToken: "interaction-token",
-  interactionDeadlineEpochMs: 1_700_000_000_000,
+  interactionResponseToken: "interaction-token",
+  interactionResponseDeadlineEpochMs: 1_700_000_000_000,
 };
 
 const serviceStatusPayload: ServiceStatusDispatchPayload = {
+  client: discordClient,
   dispatchRequestId: "dispatch-service-status",
-  interactionToken: "interaction-token",
-  interactionDeadlineEpochMs: 1_700_000_000_000,
+  interactionResponseToken: "interaction-token",
+  interactionResponseDeadlineEpochMs: 1_700_000_000_000,
 };
 
-const serviceGuildFeatureFlagPayload: ServiceGuildFeatureFlagDispatchPayload = {
-  dispatchRequestId: "dispatch-service-add-guild-feature-flag",
-  guildId: "guild-1",
+const serviceWorkspaceFeatureFlagPayload: ServiceWorkspaceFeatureFlagDispatchPayload = {
+  client: discordClient,
+  dispatchRequestId: "dispatch-service-add-workspace-feature-flag",
+  workspaceId: "workspace-1",
   flagName: "beta-feature",
-  systemChannelId: "system-channel",
+  systemConversationId: "system-conversation",
 };
 
 const updateAnnouncementPayload: UpdateAnnouncementDispatchPayload = {
-  dispatchRequestId: "discord-update-announcement:guild-1:update-announcements-2026-06-05",
-  guildId: "guild-1",
-  guildName: "Guild One",
+  client: discordClient,
+  dispatchRequestId: "discord-update-announcement:workspace-1:update-announcements-2026-06-05",
+  workspaceId: "workspace-1",
+  workspaceName: "Workspace One",
   joinedAt: "2026-06-04T16:59:59.999Z",
-  systemChannelId: "system-channel",
+  systemConversationId: "system-conversation",
   announcement: {
     id: "update-announcements-2026-06-05",
     publishedAt: "2026-06-04T17:00:00.000Z",
@@ -97,38 +117,42 @@ const updateAnnouncementPayload: UpdateAnnouncementDispatchPayload = {
 };
 
 const screenshotPayload: ScreenshotDispatchPayload = {
+  client: discordClient,
   dispatchRequestId: "dispatch-screenshot",
-  guildId: "guild-1",
-  channelName: "main",
+  workspaceId: "workspace-1",
+  conversationName: "main",
   day: 2,
-  interactionToken: "interaction-token",
-  interactionDeadlineEpochMs: 1_700_000_000_000,
+  interactionResponseToken: "interaction-token",
+  interactionResponseDeadlineEpochMs: 1_700_000_000_000,
 };
 
 const commandBase = {
-  interactionToken: "interaction-token",
-  interactionDeadlineEpochMs: 1_700_000_000_000,
+  client: discordClient,
+  interactionResponseToken: "interaction-token",
+  interactionResponseDeadlineEpochMs: 1_700_000_000_000,
 };
 
 const autoCheckinTestPayload: AutoCheckinTestDispatchPayload = {
   ...commandBase,
   dispatchRequestId: "dispatch-auto-checkin-test",
-  guildId: "guild-1",
-  anchorChannelId: "anchor-channel-1",
+  workspaceId: "workspace-1",
+  anchorConversationId: "anchor-conversation-1",
 };
 
-const channelConfigPayload = {
+const conversationConfigPayload = {
   ...commandBase,
-  dispatchRequestId: "dispatch-channel-config",
-  guildId: "guild-1",
-  channelId: "channel-1",
+  dispatchRequestId: "dispatch-conversation-config",
+  workspaceId: "workspace-1",
+  conversationId: "conversation-1",
 };
 
 const messageSlot = new MessageSlot({
+  clientPlatform: "discord",
+  clientId: "discord-main",
   messageId: slotOpenButtonPayload.messageId,
   day: 2,
-  guildId: Option.some("guild-1"),
-  messageChannelId: Option.some("channel-1"),
+  workspaceId: Option.some("workspace-1"),
+  conversationId: Option.some("conversation-1"),
   createdByUserId: Option.some("discord-user-1"),
   createdAt: Option.none(),
   updatedAt: Option.none(),
@@ -141,16 +165,22 @@ const requester = {
 };
 
 const firstEmbedDescription = (payload: unknown): string | null | undefined =>
-  (payload as { embeds?: ReadonlyArray<{ description?: string | null }> }).embeds?.[0]?.description;
+  renderTextForTest(
+    (payload as { embeds?: ReadonlyArray<{ description?: unknown }> }).embeds?.[0]?.description,
+  );
 
 const firstEmbedFields = (
   payload: unknown,
 ): ReadonlyArray<{ readonly name: string; readonly value: string; readonly inline?: boolean }> =>
   (
     payload as {
-      embeds?: ReadonlyArray<{ fields?: ReadonlyArray<{ name: string; value: string }> }>;
+      embeds?: ReadonlyArray<{ fields?: ReadonlyArray<{ name: unknown; value: unknown }> }>;
     }
-  ).embeds?.[0]?.fields ?? [];
+  ).embeds?.[0]?.fields?.map((field) => ({
+    ...field,
+    name: renderTextForTest(field.name) ?? "",
+    value: renderTextForTest(field.value) ?? "",
+  })) ?? [];
 
 const makeSchedule = (hour: number, fillIds: ReadonlyArray<string>) =>
   new PopulatedSchedule({
@@ -179,115 +209,97 @@ const makeSchedule = (hour: number, fillIds: ReadonlyArray<string>) =>
     monitor: Option.none(),
   });
 
-const unexpected = (name: string) => () => Effect.die(`Unexpected Sheet API call: ${name}`);
-
-const makeSheetApisClient = (services: Record<string, unknown>) =>
-  ({
-    get: () =>
-      new Proxy(services, {
-        get(target, group: string) {
-          if (group in target) {
-            return target[group];
-          }
-
-          return new Proxy(
-            {},
-            {
-              get: (_service, method: string) => unexpected(`${group}.${method}`),
-            },
-          );
-        },
-      }),
-  }) as never;
-
 const makeMessageSlotSheetApisClient = (
   upsertMessageSlotData: (args: unknown) => Effect.Effect<unknown, unknown>,
 ) =>
-  makeSheetApisClient({
-    messageSlot: {
-      upsertMessageSlotData,
+  makeSheetApisClient(
+    {
+      messageSlot: {
+        upsertMessageSlotData,
+      },
     },
-  });
+    "Unexpected Sheet API call",
+  );
 
 const runSlotButton = (
-  botClient: typeof IngressBotClient.Service,
+  botClient: typeof ClientDeliveryClient.Service,
   sheetApisClient: typeof SheetApisClient.Service,
 ) =>
   Effect.gen(function* () {
     const service = yield* DispatchService.make;
     return yield* service.slotButton(slotButtonPayload, requester);
   }).pipe(
-    Effect.provideService(IngressBotClient, botClient),
+    Effect.provideService(ClientDeliveryClient, botClient),
     Effect.provideService(SheetApisClient, sheetApisClient),
   );
 
 const runSlotOpenButton = (
-  botClient: typeof IngressBotClient.Service,
+  botClient: typeof ClientDeliveryClient.Service,
   sheetApisClient: typeof SheetApisClient.Service,
 ) =>
   Effect.gen(function* () {
     const service = yield* DispatchService.make;
     return yield* service.slotOpenButton(slotOpenButtonPayload, messageSlot);
   }).pipe(
-    Effect.provideService(IngressBotClient, botClient),
+    Effect.provideService(ClientDeliveryClient, botClient),
     Effect.provideService(SheetApisClient, sheetApisClient),
   );
 
 const runServiceStatus = (
-  botClient: typeof IngressBotClient.Service,
+  botClient: typeof ClientDeliveryClient.Service,
   sheetApisClient: typeof SheetApisClient.Service,
 ) =>
   Effect.gen(function* () {
     const service = yield* DispatchService.make;
     return yield* service.serviceStatus(serviceStatusPayload);
   }).pipe(
-    Effect.provideService(IngressBotClient, botClient),
+    Effect.provideService(ClientDeliveryClient, botClient),
     Effect.provideService(SheetApisClient, sheetApisClient),
   );
 
-const runGuildWelcome = (
-  botClient: typeof IngressBotClient.Service,
+const runWorkspaceWelcome = (
+  botClient: typeof ClientDeliveryClient.Service,
   sheetApisClient: typeof SheetApisClient.Service,
 ) =>
   Effect.gen(function* () {
     const service = yield* DispatchService.make;
-    return yield* service.guildWelcome(guildWelcomePayload);
+    return yield* service.workspaceWelcome(workspaceWelcomePayload);
   }).pipe(
-    Effect.provideService(IngressBotClient, botClient),
+    Effect.provideService(ClientDeliveryClient, botClient),
     Effect.provideService(SheetApisClient, sheetApisClient),
   );
 
-const runServiceAddGuildFeatureFlag = (
-  botClient: typeof IngressBotClient.Service,
+const runServiceAddWorkspaceFeatureFlag = (
+  botClient: typeof ClientDeliveryClient.Service,
   sheetApisClient: typeof SheetApisClient.Service,
-  payload: ServiceGuildFeatureFlagDispatchPayload = serviceGuildFeatureFlagPayload,
+  payload: ServiceWorkspaceFeatureFlagDispatchPayload = serviceWorkspaceFeatureFlagPayload,
 ) =>
   Effect.gen(function* () {
     const service = yield* DispatchService.make;
-    return yield* service.serviceAddGuildFeatureFlag(payload);
+    return yield* service.serviceAddWorkspaceFeatureFlag(payload);
   }).pipe(
-    Effect.provideService(IngressBotClient, botClient),
+    Effect.provideService(ClientDeliveryClient, botClient),
     Effect.provideService(SheetApisClient, sheetApisClient),
   );
 
-const runServiceRemoveGuildFeatureFlag = (
-  botClient: typeof IngressBotClient.Service,
+const runServiceRemoveWorkspaceFeatureFlag = (
+  botClient: typeof ClientDeliveryClient.Service,
   sheetApisClient: typeof SheetApisClient.Service,
-  payload: ServiceGuildFeatureFlagDispatchPayload = {
-    ...serviceGuildFeatureFlagPayload,
-    dispatchRequestId: "dispatch-service-remove-guild-feature-flag",
+  payload: ServiceWorkspaceFeatureFlagDispatchPayload = {
+    ...serviceWorkspaceFeatureFlagPayload,
+    dispatchRequestId: "dispatch-service-remove-workspace-feature-flag",
   },
 ) =>
   Effect.gen(function* () {
     const service = yield* DispatchService.make;
-    return yield* service.serviceRemoveGuildFeatureFlag(payload);
+    return yield* service.serviceRemoveWorkspaceFeatureFlag(payload);
   }).pipe(
-    Effect.provideService(IngressBotClient, botClient),
+    Effect.provideService(ClientDeliveryClient, botClient),
     Effect.provideService(SheetApisClient, sheetApisClient),
   );
 
 const runUpdateAnnouncement = (
-  botClient: typeof IngressBotClient.Service,
+  botClient: typeof ClientDeliveryClient.Service,
   sheetApisClient: typeof SheetApisClient.Service,
   payload: UpdateAnnouncementDispatchPayload = updateAnnouncementPayload,
 ) =>
@@ -295,24 +307,24 @@ const runUpdateAnnouncement = (
     const service = yield* DispatchService.make;
     return yield* service.updateAnnouncement(payload);
   }).pipe(
-    Effect.provideService(IngressBotClient, botClient),
+    Effect.provideService(ClientDeliveryClient, botClient),
     Effect.provideService(SheetApisClient, sheetApisClient),
   );
 
 const runScreenshot = (
-  botClient: typeof IngressBotClient.Service,
+  botClient: typeof ClientDeliveryClient.Service,
   sheetApisClient: typeof SheetApisClient.Service,
 ) =>
   Effect.gen(function* () {
     const service = yield* DispatchService.make;
     return yield* service.screenshot(screenshotPayload);
   }).pipe(
-    Effect.provideService(IngressBotClient, botClient),
+    Effect.provideService(ClientDeliveryClient, botClient),
     Effect.provideService(SheetApisClient, sheetApisClient),
   );
 
 const runWithDispatchService = <A>(
-  botClient: typeof IngressBotClient.Service,
+  botClient: typeof ClientDeliveryClient.Service,
   sheetApisClient: typeof SheetApisClient.Service,
   f: (service: typeof DispatchService.Service) => Effect.Effect<A, unknown>,
 ) =>
@@ -320,41 +332,68 @@ const runWithDispatchService = <A>(
     const service = yield* DispatchService.make;
     return yield* f(service);
   }).pipe(
-    Effect.provideService(IngressBotClient, botClient),
+    Effect.provideService(ClientDeliveryClient, botClient),
     Effect.provideService(SheetApisClient, sheetApisClient),
   );
 
-const makeInteractionUpdateBotClient = (
-  updateCalls: Array<{ readonly interactionToken: string; readonly payload: unknown }>,
-) =>
+const makeInteractionUpdateBotClient = (updateCalls: Array<unknown>) =>
   ({
-    getGuild: (guildId: string) =>
-      Effect.succeed({ id: guildId, name: guildId === "guild-1" ? "Guild One" : guildId }),
-    updateOriginalInteractionResponse: (interactionToken: string, payload: unknown) => {
-      updateCalls.push({ interactionToken, payload });
-      return Effect.succeed({ id: "message-1", channel_id: "channel-1" });
+    getWorkspace: (workspaceId: string) =>
+      Effect.succeed({
+        id: workspaceId,
+        name: workspaceId === "workspace-1" ? "Workspace One" : workspaceId,
+      }),
+    updateOriginalInteractionResponse: (interactionResponseToken: string, payload: unknown) => {
+      updateCalls.push({ interactionResponseToken, payload: normalizePayloadText(payload) });
+      return Effect.succeed({ id: "message-1", conversation_id: "conversation-1" });
     },
   }) as never;
 
-const makeGuildChannelConfig = (
-  overrides: Partial<ConstructorParameters<typeof GuildChannelConfig>[0]> = {},
+const makeKickoutPayload = (
+  overrides: Partial<KickoutDispatchPayload> = {},
+): KickoutDispatchPayload => ({
+  client: discordClient,
+  dispatchRequestId: "dispatch-kickout",
+  workspaceId: "workspace-1",
+  conversationId: "conversation-1",
+  hour: 1,
+  interactionResponseToken: "interaction-token",
+  ...overrides,
+});
+
+const expectInteractionUpdateContent = (updateCalls: ReadonlyArray<unknown>, content: string) => {
+  expect(updateCalls).toEqual([
+    {
+      interactionResponseToken: "interaction-token",
+      payload: {
+        content,
+        allowedMentions: "none",
+      },
+    },
+  ]);
+};
+
+const makeWorkspaceConversationConfig = (
+  overrides: Partial<ConstructorParameters<typeof WorkspaceConversationConfig>[0]> = {},
 ) =>
-  new GuildChannelConfig({
-    guildId: "guild-1",
-    channelId: "channel-1",
+  new WorkspaceConversationConfig({
+    workspaceId: "workspace-1",
+    conversationId: "conversation-1",
     name: Option.some("main"),
     running: Option.some(true),
     roleId: Option.some("role-1"),
-    checkinChannelId: Option.some("checkin-channel-1"),
+    checkinConversationId: Option.some("checkin-conversation-1"),
     createdAt: Option.none(),
     updatedAt: Option.none(),
     deletedAt: Option.none(),
     ...overrides,
   });
 
-const makeGuildConfig = (overrides: Partial<ConstructorParameters<typeof GuildConfig>[0]> = {}) =>
-  new GuildConfig({
-    guildId: "guild-1",
+const makeWorkspaceConfig = (
+  overrides: Partial<ConstructorParameters<typeof WorkspaceConfig>[0]> = {},
+) =>
+  new WorkspaceConfig({
+    workspaceId: "workspace-1",
     sheetId: Option.some("sheet-1"),
     autoCheckin: Option.some(true),
     createdAt: Option.none(),
@@ -363,11 +402,11 @@ const makeGuildConfig = (overrides: Partial<ConstructorParameters<typeof GuildCo
     ...overrides,
   });
 
-const makeGuildFeatureFlag = (
-  overrides: Partial<ConstructorParameters<typeof GuildFeatureFlag>[0]> = {},
+const makeWorkspaceFeatureFlag = (
+  overrides: Partial<ConstructorParameters<typeof WorkspaceFeatureFlag>[0]> = {},
 ) =>
-  new GuildFeatureFlag({
-    guildId: "guild-1",
+  new WorkspaceFeatureFlag({
+    workspaceId: "workspace-1",
     flagName: "beta-feature",
     createdAt: Option.none(),
     updatedAt: Option.none(),
@@ -375,17 +414,17 @@ const makeGuildFeatureFlag = (
     ...overrides,
   });
 
-const makeGuildUpdateAnnouncementDelivery = (
-  overrides: Partial<ConstructorParameters<typeof GuildUpdateAnnouncementDelivery>[0]> = {},
+const makeWorkspaceUpdateAnnouncementDelivery = (
+  overrides: Partial<ConstructorParameters<typeof WorkspaceUpdateAnnouncementDelivery>[0]> = {},
 ) =>
-  new GuildUpdateAnnouncementDelivery({
-    guildId: "guild-1",
+  new WorkspaceUpdateAnnouncementDelivery({
+    workspaceId: "workspace-1",
     announcementId: updateAnnouncementPayload.announcement.id,
     publishedAt: Option.some(
       DateTime.makeUnsafe(updateAnnouncementPayload.announcement.publishedAt),
     ),
     deliveredAt: Option.some(DateTime.makeUnsafe("2026-06-04T17:01:00.000Z")),
-    channelId: "system-channel",
+    conversationId: "system-conversation",
     messageId: "update-message",
     createdAt: Option.none(),
     updatedAt: Option.none(),
@@ -402,45 +441,47 @@ const makeGatedUpdateAnnouncementSheetApisClient = (
     readonly releaseCalls?: Array<unknown>;
     readonly claimResult?: {
       readonly status: "claimed" | "already_claimed" | "already_delivered";
-      readonly delivery: Option.Option<GuildUpdateAnnouncementDelivery>;
+      readonly delivery: Option.Option<WorkspaceUpdateAnnouncementDelivery>;
     };
   } = {},
 ) =>
   makeSheetApisClient({
-    guildConfig: {
-      getGuildFeatureFlags: () =>
-        Effect.succeed([makeGuildFeatureFlag({ flagName: updateAnnouncementsFeatureFlagName })]),
-      claimGuildUpdateAnnouncementDelivery: (args: unknown) => {
+    workspaceConfig: {
+      getWorkspaceFeatureFlags: () =>
+        Effect.succeed([
+          makeWorkspaceFeatureFlag({ flagName: updateAnnouncementsFeatureFlagName }),
+        ]),
+      claimWorkspaceUpdateAnnouncementDelivery: (args: unknown) => {
         options.claimCalls?.push(args);
         return Effect.succeed(
           options.claimResult ?? {
             status: "claimed" as const,
-            delivery: Option.some(makeGuildUpdateAnnouncementDelivery()),
+            delivery: Option.some(makeWorkspaceUpdateAnnouncementDelivery()),
           },
         );
       },
-      releaseGuildUpdateAnnouncementDeliveryClaim: (args: unknown) => {
+      releaseWorkspaceUpdateAnnouncementDeliveryClaim: (args: unknown) => {
         options.releaseCalls?.push(args);
         return Effect.void;
       },
-      recordGuildUpdateAnnouncementDelivery: (args: unknown) => {
+      recordWorkspaceUpdateAnnouncementDelivery: (args: unknown) => {
         recordCalls.push(args);
-        return Effect.succeed(makeGuildUpdateAnnouncementDelivery());
+        return Effect.succeed(makeWorkspaceUpdateAnnouncementDelivery());
       },
     },
   });
 
-const makeChannelEntry = (overrides: {
+const makeConversationEntry = (overrides: {
   readonly id: string;
   readonly type?: number;
   readonly name?: string;
   readonly position?: number;
 }) => ({
-  parentId: "guild-1",
+  parentId: "workspace-1",
   resourceId: overrides.id,
   value: {
     id: overrides.id,
-    guild_id: "guild-1",
+    workspace_id: "workspace-1",
     type: overrides.type ?? 0,
     name: overrides.name ?? overrides.id,
     position: overrides.position ?? 0,
@@ -448,18 +489,21 @@ const makeChannelEntry = (overrides: {
 });
 
 const roomOrderButtonPayload = {
-  guildId: "guild-1",
+  client: discordClient,
+  workspaceId: "workspace-1",
   messageId: "room-order-message-1",
-  messageChannelId: "channel-1",
+  messageConversationId: "conversation-1",
   messageContent: null,
-  interactionToken: "interaction-token",
-  interactionDeadlineEpochMs: 1_700_000_000_000,
+  interactionResponseToken: "interaction-token",
+  interactionResponseDeadlineEpochMs: 1_700_000_000_000,
 };
 
 const makeMessageRoomOrder = (
   overrides: Partial<ConstructorParameters<typeof MessageRoomOrder>[0]> = {},
 ) =>
   new MessageRoomOrder({
+    clientPlatform: "discord",
+    clientId: "discord-main",
     messageId: roomOrderButtonPayload.messageId,
     previousFills: [],
     fills: ["Akito"],
@@ -467,13 +511,13 @@ const makeMessageRoomOrder = (
     rank: 2,
     tentative: false,
     monitor: Option.none(),
-    guildId: Option.some("guild-1"),
-    messageChannelId: Option.some("channel-1"),
+    workspaceId: Option.some("workspace-1"),
+    conversationId: Option.some("conversation-1"),
     createdByUserId: Option.some("discord-user-1"),
     sendClaimId: Option.none(),
     sendClaimedAt: Option.none(),
     sentMessageId: Option.none(),
-    sentMessageChannelId: Option.none(),
+    sentConversationId: Option.none(),
     sentAt: Option.none(),
     tentativeUpdateClaimId: Option.none(),
     tentativeUpdateClaimedAt: Option.none(),
@@ -490,6 +534,8 @@ const roomOrderRange = new MessageRoomOrderRange({ minRank: 1, maxRank: 3 });
 
 const roomOrderEntries = [
   new MessageRoomOrderEntry({
+    clientPlatform: "discord",
+    clientId: "discord-main",
     messageId: roomOrderButtonPayload.messageId,
     rank: 2,
     position: 0,
@@ -507,12 +553,7 @@ const roomOrderEventConfig = new EventConfig({
 });
 
 const makeRoomOrderUpdateBotClient = (updateCalls: Array<unknown> = []) =>
-  ({
-    updateOriginalInteractionResponse: (interactionToken: string, payload: unknown) => {
-      updateCalls.push({ interactionToken, payload });
-      return Effect.succeed({ id: "interaction-message-1", channel_id: "channel-1" });
-    },
-  }) as never;
+  makeInteractionUpdateBotClient(updateCalls);
 
 const makeRoomOrderRankSheetApisClient = (
   apiCalls: Array<string>,
@@ -567,7 +608,7 @@ const makeRoomOrderSendSheetApisClient = (
         return Effect.succeed(
           makeMessageRoomOrder({
             sentMessageId: Option.some("sent-message-1"),
-            sentMessageChannelId: Option.some("channel-1"),
+            sentConversationId: Option.some("conversation-1"),
           }),
         );
       },
@@ -581,15 +622,18 @@ const makeRoomOrderSendSheetApisClient = (
 
 describe("DispatchService", () => {
   it("sends first-hour auto check-in test previews without persistent message state", async () => {
-    const updateCalls: Array<{ readonly interactionToken: string; readonly payload: unknown }> = [];
-    const sendCalls: Array<{ readonly channelId: string; readonly payload: unknown }> = [];
+    const updateCalls: Array<{
+      readonly interactionResponseToken: string;
+      readonly payload: unknown;
+    }> = [];
+    const sendCalls: Array<{ readonly conversationId: string; readonly payload: unknown }> = [];
     const checkinGenerateCalls: Array<unknown> = [];
     const roomOrderGenerateCalls: Array<unknown> = [];
     const sheetApisClient = makeSheetApisClient({
-      guildConfig: {
-        getGuildChannels: (args: unknown) => {
-          expect(args).toEqual({ query: { guildId: "guild-1", running: true } });
-          return Effect.succeed([makeGuildChannelConfig()]);
+      workspaceConfig: {
+        getWorkspaceConversations: (args: unknown) => {
+          expect(args).toEqual({ query: { workspaceId: "workspace-1", running: true } });
+          return Effect.succeed([makeWorkspaceConversationConfig()]);
         },
       },
       checkin: {
@@ -597,12 +641,12 @@ describe("DispatchService", () => {
           checkinGenerateCalls.push(args);
           return Effect.succeed({
             hour: 1,
-            runningChannelId: "channel-1",
-            checkinChannelId: "checkin-channel-1",
+            runningConversationId: "conversation-1",
+            checkinConversationId: "checkin-conversation-1",
             fillCount: 5,
             roleId: "role-1",
-            initialMessage: "Check in <@user-1> <@&role-1>",
-            monitorCheckinMessage: "Monitor summary <@monitor-1>",
+            initialMessage: text("Check in user-1"),
+            monitorCheckinMessage: text("Monitor summary monitor-1"),
             monitorUserId: "monitor-1",
             monitorFailureMessage: null,
             fillIds: ["user-1", "user-2", "user-3", "user-4", "user-5"],
@@ -613,8 +657,8 @@ describe("DispatchService", () => {
         generate: (args: unknown) => {
           roomOrderGenerateCalls.push(args);
           return Effect.succeed({
-            content: "Room order content <@user-1>",
-            runningChannelId: "channel-1",
+            content: text("Room order content user-1"),
+            runningConversationId: "conversation-1",
             range: roomOrderRange,
             rank: 1,
             hour: 1,
@@ -633,16 +677,16 @@ describe("DispatchService", () => {
       },
     });
     const botClient = {
-      updateOriginalInteractionResponse: (interactionToken: string, payload: unknown) => {
-        updateCalls.push({ interactionToken, payload });
-        return Effect.succeed({ id: "anchor-message", channel_id: "anchor-channel-1" });
+      updateOriginalInteractionResponse: (interactionResponseToken: string, payload: unknown) => {
+        updateCalls.push({ interactionResponseToken, payload: normalizePayloadText(payload) });
+        return Effect.succeed({ id: "anchor-message", conversation_id: "anchor-conversation-1" });
       },
       updateMessage: () => Effect.die("test run must update the anchor through the interaction"),
-      sendMessage: (channelId: string, payload: unknown) => {
-        sendCalls.push({ channelId, payload });
+      sendMessage: (conversationId: string, payload: unknown) => {
+        sendCalls.push({ conversationId, payload: normalizePayloadText(payload) });
         return Effect.succeed({
           id: `preview-message-${sendCalls.length}`,
-          channel_id: channelId,
+          conversation_id: conversationId,
         });
       },
     } as never;
@@ -654,20 +698,20 @@ describe("DispatchService", () => {
     );
 
     expect(result).toMatchObject({
-      guildId: "guild-1",
+      workspaceId: "workspace-1",
       hour: 1,
       anchorMessageId: "anchor-message",
-      anchorMessageChannelId: "anchor-channel-1",
-      channelCount: 1,
+      anchorMessageConversationId: "anchor-conversation-1",
+      conversationCount: 1,
       sentCount: 1,
       skippedCount: 0,
       failedCount: 0,
     });
-    expect(result.channels).toEqual([
+    expect(result.conversations).toEqual([
       {
-        channelName: "main",
-        runningChannelId: "channel-1",
-        checkinChannelId: "checkin-channel-1",
+        conversationName: "main",
+        runningConversationId: "conversation-1",
+        checkinConversationId: "checkin-conversation-1",
         hour: 1,
         status: "sent",
         checkinPreviewMessageId: "preview-message-1",
@@ -679,34 +723,32 @@ describe("DispatchService", () => {
     expect(checkinGenerateCalls).toEqual([
       {
         payload: {
-          dispatchRequestId: "dispatch-auto-checkin-test:main",
-          guildId: "guild-1",
-          channelName: "main",
+          workspaceId: "workspace-1",
+          conversationName: "main",
           hour: 1,
         },
       },
     ]);
     expect(roomOrderGenerateCalls).toEqual([
-      { payload: { guildId: "guild-1", channelId: "channel-1", hour: 1 } },
+      { payload: { workspaceId: "workspace-1", conversationId: "conversation-1", hour: 1 } },
     ]);
     expect(updateCalls).toHaveLength(2);
-    expect(firstEmbedDescription(updateCalls[0]?.payload)).toContain("Requested by <@account-1>.");
-    expect(firstEmbedDescription(updateCalls[0]?.payload)).not.toContain("<@discord-user-1>");
-    expect(sendCalls.map((call) => call.channelId)).toEqual([
-      "checkin-channel-1",
-      "channel-1",
-      "channel-1",
+    expect(firstEmbedDescription(updateCalls[0]?.payload)).toContain("Requested by @account-1.");
+    expect(firstEmbedDescription(updateCalls[0]?.payload)).not.toContain("@discord-user-1");
+    expect(sendCalls.map((call) => call.conversationId)).toEqual([
+      "checkin-conversation-1",
+      "conversation-1",
+      "conversation-1",
     ]);
     for (const call of sendCalls) {
       expect(call.payload).toMatchObject({
         content: null,
-        allowed_mentions: { parse: [] },
+        allowedMentions: "none",
       });
       expect(call.payload).not.toHaveProperty("message_reference");
       expect(firstEmbedFields(call.payload)).toContainEqual({
         name: "Test run",
-        value:
-          "[Open summary](https://discord.com/channels/guild-1/anchor-channel-1/anchor-message)",
+        value: "message anchor-message",
       });
       expect((call.payload as { embeds?: ReadonlyArray<unknown> }).embeds).toHaveLength(1);
       expect(
@@ -721,23 +763,26 @@ describe("DispatchService", () => {
     }
   });
 
-  it("omits native message references for same-channel auto check-in test previews", async () => {
-    const updateCalls: Array<{ readonly interactionToken: string; readonly payload: unknown }> = [];
-    const sendCalls: Array<{ readonly channelId: string; readonly payload: unknown }> = [];
+  it("omits native message references for same-conversation auto check-in test previews", async () => {
+    const updateCalls: Array<{
+      readonly interactionResponseToken: string;
+      readonly payload: unknown;
+    }> = [];
+    const sendCalls: Array<{ readonly conversationId: string; readonly payload: unknown }> = [];
     const sheetApisClient = makeSheetApisClient({
-      guildConfig: {
-        getGuildChannels: () => Effect.succeed([makeGuildChannelConfig()]),
+      workspaceConfig: {
+        getWorkspaceConversations: () => Effect.succeed([makeWorkspaceConversationConfig()]),
       },
       checkin: {
         generate: () =>
           Effect.succeed({
             hour: 1,
-            runningChannelId: "anchor-channel-1",
-            checkinChannelId: "anchor-channel-1",
+            runningConversationId: "anchor-conversation-1",
+            checkinConversationId: "anchor-conversation-1",
             fillCount: 0,
             roleId: "role-1",
             initialMessage: null,
-            monitorCheckinMessage: "Monitor summary",
+            monitorCheckinMessage: text("Monitor summary"),
             monitorUserId: "monitor-1",
             monitorFailureMessage: null,
             fillIds: [],
@@ -745,14 +790,14 @@ describe("DispatchService", () => {
       },
     });
     const botClient = {
-      updateOriginalInteractionResponse: (interactionToken: string, payload: unknown) => {
-        updateCalls.push({ interactionToken, payload });
-        return Effect.succeed({ id: "anchor-message", channel_id: "anchor-channel-1" });
+      updateOriginalInteractionResponse: (interactionResponseToken: string, payload: unknown) => {
+        updateCalls.push({ interactionResponseToken, payload: normalizePayloadText(payload) });
+        return Effect.succeed({ id: "anchor-message", conversation_id: "anchor-conversation-1" });
       },
       updateMessage: () => Effect.die("test run must update the anchor through the interaction"),
-      sendMessage: (channelId: string, payload: unknown) => {
-        sendCalls.push({ channelId, payload });
-        return Effect.succeed({ id: "preview-message-1", channel_id: channelId });
+      sendMessage: (conversationId: string, payload: unknown) => {
+        sendCalls.push({ conversationId, payload: normalizePayloadText(payload) });
+        return Effect.succeed({ id: "preview-message-1", conversation_id: conversationId });
       },
     } as never;
 
@@ -763,43 +808,46 @@ describe("DispatchService", () => {
     );
 
     expect(result).toMatchObject({
-      channelCount: 1,
+      conversationCount: 1,
       sentCount: 0,
       skippedCount: 1,
       failedCount: 0,
     });
     expect(sendCalls).toHaveLength(1);
     expect(sendCalls[0]).toMatchObject({
-      channelId: "anchor-channel-1",
+      conversationId: "anchor-conversation-1",
       payload: {
         content: null,
-        allowed_mentions: { parse: [] },
+        allowedMentions: "none",
       },
     });
     expect(sendCalls[0]?.payload).not.toHaveProperty("message_reference");
     expect(firstEmbedFields(sendCalls[0]?.payload)).toContainEqual({
       name: "Test run",
-      value: "[Open summary](https://discord.com/channels/guild-1/anchor-channel-1/anchor-message)",
+      value: "message anchor-message",
     });
   });
 
-  it("surfaces first auto check-in test channel failure details in the summary", async () => {
-    const updateCalls: Array<{ readonly interactionToken: string; readonly payload: unknown }> = [];
+  it("surfaces first auto check-in test conversation failure details in the summary", async () => {
+    const updateCalls: Array<{
+      readonly interactionResponseToken: string;
+      readonly payload: unknown;
+    }> = [];
     const sheetApisClient = makeSheetApisClient({
-      guildConfig: {
-        getGuildChannels: () => Effect.succeed([makeGuildChannelConfig()]),
+      workspaceConfig: {
+        getWorkspaceConversations: () => Effect.succeed([makeWorkspaceConversationConfig()]),
       },
       checkin: {
         generate: () => Effect.fail(new Error("Unable to parse range: 'Day 9'!J3:N23")),
       },
     });
     const botClient = {
-      updateOriginalInteractionResponse: (interactionToken: string, payload: unknown) => {
-        updateCalls.push({ interactionToken, payload });
-        return Effect.succeed({ id: "anchor-message", channel_id: "anchor-channel-1" });
+      updateOriginalInteractionResponse: (interactionResponseToken: string, payload: unknown) => {
+        updateCalls.push({ interactionResponseToken, payload: normalizePayloadText(payload) });
+        return Effect.succeed({ id: "anchor-message", conversation_id: "anchor-conversation-1" });
       },
       updateMessage: () => Effect.die("test run must update the anchor through the interaction"),
-      sendMessage: () => Effect.die("failed channel must not send preview messages"),
+      sendMessage: () => Effect.die("failed conversation must not send preview messages"),
     } as never;
 
     const result = await Effect.runPromise(
@@ -809,18 +857,18 @@ describe("DispatchService", () => {
     );
 
     expect(result).toMatchObject({
-      channelCount: 1,
+      conversationCount: 1,
       sentCount: 0,
       skippedCount: 0,
       failedCount: 1,
     });
-    expect(result.channels[0]).toMatchObject({
-      channelName: "main",
+    expect(result.conversations[0]).toMatchObject({
+      conversationName: "main",
       status: "failed",
     });
-    expect(result.channels[0]?.error).toContain("Unable to parse range: 'Day 9'!J3:N23");
+    expect(result.conversations[0]?.error).toContain("Unable to parse range: 'Day 9'!J3:N23");
     expect(updateCalls).toHaveLength(2);
-    expect(firstEmbedDescription(updateCalls[1]?.payload)).toContain("Failed channels: main");
+    expect(firstEmbedDescription(updateCalls[1]?.payload)).toContain("Failed conversations: main");
     expect(firstEmbedDescription(updateCalls[1]?.payload)).toContain(
       "First failure detail for main:",
     );
@@ -829,29 +877,29 @@ describe("DispatchService", () => {
     );
   });
 
-  it("sends the guild welcome embed to the system channel first", async () => {
-    const sendCalls: Array<{ readonly channelId: string; readonly payload: unknown }> = [];
+  it("sends the workspace welcome embed to the system conversation first", async () => {
+    const sendCalls: Array<{ readonly conversationId: string; readonly payload: unknown }> = [];
     const botClient = {
-      getChannelsForParent: () =>
+      getConversationsForParent: () =>
         Effect.succeed([
-          makeChannelEntry({ id: "general", name: "general", position: 1 }),
-          makeChannelEntry({ id: "system-channel", name: "welcome", position: 2 }),
+          makeConversationEntry({ id: "general", name: "general", position: 1 }),
+          makeConversationEntry({ id: "system-conversation", name: "welcome", position: 2 }),
         ]),
-      sendMessage: (channelId: string, payload: unknown) => {
-        sendCalls.push({ channelId, payload });
-        return Effect.succeed({ id: "welcome-message", channel_id: channelId });
+      sendMessage: (conversationId: string, payload: unknown) => {
+        sendCalls.push({ conversationId, payload: normalizePayloadText(payload) });
+        return Effect.succeed({ id: "welcome-message", conversation_id: conversationId });
       },
     } as never;
 
-    const result = await Effect.runPromise(runGuildWelcome(botClient, makeSheetApisClient({})));
+    const result = await Effect.runPromise(runWorkspaceWelcome(botClient, makeSheetApisClient({})));
 
     expect(result).toEqual({
-      guildId: "guild-1",
-      channelId: "system-channel",
+      workspaceId: "workspace-1",
+      conversationId: "system-conversation",
       messageId: "welcome-message",
     });
     expect(sendCalls).toHaveLength(1);
-    expect(sendCalls[0]?.channelId).toBe("system-channel");
+    expect(sendCalls[0]?.conversationId).toBe("system-conversation");
     expect(sendCalls[0]?.payload).toEqual({
       embeds: [
         {
@@ -863,7 +911,7 @@ describe("DispatchService", () => {
             {
               name: "Google Sheet adapter required",
               value:
-                "This bot needs a compatible Google Sheet adapter before it can do useful work. For now, message <@394295776655966219> (Theerie) to get one.",
+                "This bot needs a compatible Google Sheet adapter before it can do useful work. For now, message @394295776655966219 (Theerie) to get one.",
             },
             {
               name: "Run your own bot",
@@ -873,7 +921,7 @@ describe("DispatchService", () => {
             {
               name: "Self-hosting requirements",
               value:
-                "You will need a Discord application and bot token, a Google Cloud service account with Sheets access, Postgres, Redis, and either Docker Compose or a Kubernetes cluster. Optional pieces include Infisical for secret sync and an OTLP endpoint for traces/metrics.",
+                "You will need a client application and bot token, a Google Cloud service account with Sheets access, Postgres, Redis, and either Docker Compose or a Kubernetes cluster. Optional pieces include Infisical for secret sync and an OTLP endpoint for traces/metrics.",
             },
           ],
           footer: {
@@ -884,42 +932,46 @@ describe("DispatchService", () => {
     });
   });
 
-  it("falls back to general and then sorted sendable channels for guild welcome", async () => {
+  it("falls back to general and then sorted sendable conversations for workspace welcome", async () => {
     const sendCalls: Array<string> = [];
     const botClient = {
-      getChannelsForParent: () =>
+      getConversationsForParent: () =>
         Effect.succeed([
-          makeChannelEntry({ id: "voice", type: 2, name: "voice", position: 0 }),
-          makeChannelEntry({ id: "late", name: "late", position: 20 }),
-          makeChannelEntry({ id: "general", name: "General", position: 50 }),
-          makeChannelEntry({ id: "early", name: "early", position: 10 }),
+          makeConversationEntry({ id: "voice", type: 2, name: "voice", position: 0 }),
+          makeConversationEntry({ id: "late", name: "late", position: 20 }),
+          makeConversationEntry({ id: "general", name: "General", position: 50 }),
+          makeConversationEntry({ id: "early", name: "early", position: 10 }),
         ]),
-      sendMessage: (channelId: string) => {
-        sendCalls.push(channelId);
-        return channelId === "general"
+      sendMessage: (conversationId: string) => {
+        sendCalls.push(conversationId);
+        return conversationId === "general"
           ? Effect.fail(new Error("cannot send general"))
-          : Effect.succeed({ id: `message-${channelId}`, channel_id: channelId });
+          : Effect.succeed({ id: `message-${conversationId}`, conversation_id: conversationId });
       },
     } as never;
 
-    const result = await Effect.runPromise(runGuildWelcome(botClient, makeSheetApisClient({})));
+    const result = await Effect.runPromise(runWorkspaceWelcome(botClient, makeSheetApisClient({})));
 
     expect(result).toEqual({
-      guildId: "guild-1",
-      channelId: "early",
+      workspaceId: "workspace-1",
+      conversationId: "early",
       messageId: "message-early",
     });
     expect(sendCalls).toEqual(["general", "early"]);
   });
 
-  it("fails guild welcome when no channel can receive the message", async () => {
+  it("fails workspace welcome when no conversation can receive the message", async () => {
     const botClient = {
-      getChannelsForParent: () =>
-        Effect.succeed([makeChannelEntry({ id: "voice", type: 2, name: "voice", position: 0 })]),
+      getConversationsForParent: () =>
+        Effect.succeed([
+          makeConversationEntry({ id: "voice", type: 2, name: "voice", position: 0 }),
+        ]),
       sendMessage: () => Effect.die("sendMessage should not be called"),
     } as never;
 
-    const exit = await Effect.runPromiseExit(runGuildWelcome(botClient, makeSheetApisClient({})));
+    const exit = await Effect.runPromiseExit(
+      runWorkspaceWelcome(botClient, makeSheetApisClient({})),
+    );
 
     expect(Exit.isFailure(exit)).toBe(true);
     expect(
@@ -936,43 +988,45 @@ describe("DispatchService", () => {
     ).toBe(true);
   });
 
-  it("adds a guild feature flag and announces to the system channel first", async () => {
+  it("adds a workspace feature flag and announces to the system conversation first", async () => {
     const sheetApiCalls: Array<unknown> = [];
-    const sendCalls: Array<{ readonly channelId: string; readonly payload: unknown }> = [];
+    const sendCalls: Array<{ readonly conversationId: string; readonly payload: unknown }> = [];
     const sheetApisClient = makeSheetApisClient({
-      guildConfig: {
-        addGuildFeatureFlag: (args: unknown) => {
+      workspaceConfig: {
+        addWorkspaceFeatureFlag: (args: unknown) => {
           sheetApiCalls.push(args);
-          return Effect.succeed(makeGuildFeatureFlag());
+          return Effect.succeed(makeWorkspaceFeatureFlag());
         },
       },
     });
     const botClient = {
-      getChannelsForParent: () =>
+      getConversationsForParent: () =>
         Effect.succeed([
-          makeChannelEntry({ id: "general", name: "general", position: 1 }),
-          makeChannelEntry({ id: "system-channel", name: "welcome", position: 2 }),
+          makeConversationEntry({ id: "general", name: "general", position: 1 }),
+          makeConversationEntry({ id: "system-conversation", name: "welcome", position: 2 }),
         ]),
-      sendMessage: (channelId: string, payload: unknown) => {
-        sendCalls.push({ channelId, payload });
-        return Effect.succeed({ id: "feature-message", channel_id: channelId });
+      sendMessage: (conversationId: string, payload: unknown) => {
+        sendCalls.push({ conversationId, payload: normalizePayloadText(payload) });
+        return Effect.succeed({ id: "feature-message", conversation_id: conversationId });
       },
     } as never;
 
     const result = await Effect.runPromise(
-      runServiceAddGuildFeatureFlag(botClient, sheetApisClient),
+      runServiceAddWorkspaceFeatureFlag(botClient, sheetApisClient),
     );
 
     expect(result).toEqual({
-      guildId: "guild-1",
+      workspaceId: "workspace-1",
       flagName: "beta-feature",
-      announcementChannelId: "system-channel",
+      announcementConversationId: "system-conversation",
       announcementMessageId: "feature-message",
     });
-    expect(sheetApiCalls).toEqual([{ payload: { guildId: "guild-1", flagName: "beta-feature" } }]);
+    expect(sheetApiCalls).toEqual([
+      { payload: { workspaceId: "workspace-1", flagName: "beta-feature" } },
+    ]);
     expect(sendCalls).toEqual([
       {
-        channelId: "system-channel",
+        conversationId: "system-conversation",
         payload: {
           embeds: [
             {
@@ -986,75 +1040,77 @@ describe("DispatchService", () => {
     ]);
   });
 
-  it("removes a guild feature flag and falls back to general for the announcement", async () => {
+  it("removes a workspace feature flag and falls back to general for the announcement", async () => {
     const sheetApiCalls: Array<unknown> = [];
     const sendCalls: Array<string> = [];
     const sheetApisClient = makeSheetApisClient({
-      guildConfig: {
-        removeGuildFeatureFlag: (args: unknown) => {
+      workspaceConfig: {
+        removeWorkspaceFeatureFlag: (args: unknown) => {
           sheetApiCalls.push(args);
-          return Effect.succeed(makeGuildFeatureFlag());
+          return Effect.succeed(makeWorkspaceFeatureFlag());
         },
       },
     });
     const botClient = {
-      getChannelsForParent: () =>
+      getConversationsForParent: () =>
         Effect.succeed([
-          makeChannelEntry({ id: "general", name: "general", position: 1 }),
-          makeChannelEntry({ id: "early", name: "early", position: 0 }),
+          makeConversationEntry({ id: "general", name: "general", position: 1 }),
+          makeConversationEntry({ id: "early", name: "early", position: 0 }),
         ]),
-      sendMessage: (channelId: string) => {
-        sendCalls.push(channelId);
-        return Effect.succeed({ id: "feature-message", channel_id: channelId });
+      sendMessage: (conversationId: string) => {
+        sendCalls.push(conversationId);
+        return Effect.succeed({ id: "feature-message", conversation_id: conversationId });
       },
     } as never;
 
     const result = await Effect.runPromise(
-      runServiceRemoveGuildFeatureFlag(botClient, sheetApisClient, {
-        ...serviceGuildFeatureFlagPayload,
-        dispatchRequestId: "dispatch-service-remove-guild-feature-flag",
-        systemChannelId: "missing-system-channel",
+      runServiceRemoveWorkspaceFeatureFlag(botClient, sheetApisClient, {
+        ...serviceWorkspaceFeatureFlagPayload,
+        dispatchRequestId: "dispatch-service-remove-workspace-feature-flag",
+        systemConversationId: "missing-system-conversation",
       }),
     );
 
     expect(result).toEqual({
-      guildId: "guild-1",
+      workspaceId: "workspace-1",
       flagName: "beta-feature",
-      announcementChannelId: "general",
+      announcementConversationId: "general",
       announcementMessageId: "feature-message",
     });
-    expect(sheetApiCalls).toEqual([{ payload: { guildId: "guild-1", flagName: "beta-feature" } }]);
+    expect(sheetApiCalls).toEqual([
+      { payload: { workspaceId: "workspace-1", flagName: "beta-feature" } },
+    ]);
     expect(sendCalls).toEqual(["general"]);
   });
 
-  it("keeps guild feature flag mutation success when the announcement cannot be sent", async () => {
+  it("keeps workspace feature flag mutation success when the announcement cannot be sent", async () => {
     const sheetApisClient = makeSheetApisClient({
-      guildConfig: {
-        addGuildFeatureFlag: () => Effect.succeed(makeGuildFeatureFlag()),
+      workspaceConfig: {
+        addWorkspaceFeatureFlag: () => Effect.succeed(makeWorkspaceFeatureFlag()),
       },
     });
     const botClient = {
-      getChannelsForParent: () =>
-        Effect.succeed([makeChannelEntry({ id: "general", name: "general", position: 1 })]),
+      getConversationsForParent: () =>
+        Effect.succeed([makeConversationEntry({ id: "general", name: "general", position: 1 })]),
       sendMessage: () => Effect.fail(new Error("cannot send")),
     } as never;
 
     const result = await Effect.runPromise(
-      runServiceAddGuildFeatureFlag(botClient, sheetApisClient),
+      runServiceAddWorkspaceFeatureFlag(botClient, sheetApisClient),
     );
 
     expect(result).toEqual({
-      guildId: "guild-1",
+      workspaceId: "workspace-1",
       flagName: "beta-feature",
-      announcementChannelId: null,
+      announcementConversationId: null,
       announcementMessageId: null,
     });
   });
 
-  it("skips update announcements for guilds without the gate feature flag", async () => {
+  it("skips update announcements for workspaces without the gate feature flag", async () => {
     const sheetApisClient = makeSheetApisClient({
-      guildConfig: {
-        getGuildFeatureFlags: () => Effect.succeed([]),
+      workspaceConfig: {
+        getWorkspaceFeatureFlags: () => Effect.succeed([]),
       },
     });
     const botClient = {} as never;
@@ -1062,10 +1118,10 @@ describe("DispatchService", () => {
     const result = await Effect.runPromise(runUpdateAnnouncement(botClient, sheetApisClient));
 
     expect(result).toEqual({
-      guildId: "guild-1",
+      workspaceId: "workspace-1",
       announcementId: "update-announcements-2026-06-05",
       status: "skipped_not_gated",
-      announcementChannelId: null,
+      announcementConversationId: null,
       announcementMessageId: null,
     });
   });
@@ -1074,7 +1130,7 @@ describe("DispatchService", () => {
     const sheetApisClient = makeGatedUpdateAnnouncementSheetApisClient([], {
       claimResult: {
         status: "already_delivered",
-        delivery: Option.some(makeGuildUpdateAnnouncementDelivery()),
+        delivery: Option.some(makeWorkspaceUpdateAnnouncementDelivery()),
       },
     });
     const botClient = {} as never;
@@ -1082,10 +1138,10 @@ describe("DispatchService", () => {
     const result = await Effect.runPromise(runUpdateAnnouncement(botClient, sheetApisClient));
 
     expect(result).toEqual({
-      guildId: "guild-1",
+      workspaceId: "workspace-1",
       announcementId: "update-announcements-2026-06-05",
       status: "skipped_already_delivered",
-      announcementChannelId: "system-channel",
+      announcementConversationId: "system-conversation",
       announcementMessageId: "update-message",
     });
   });
@@ -1099,20 +1155,20 @@ describe("DispatchService", () => {
       },
     });
     const botClient = {
-      getChannelsForParent: () => Effect.succeed([]),
-      sendMessage: (channelId: string, payload: unknown) => {
-        sendCalls.push({ channelId, payload });
-        return Effect.succeed({ id: "update-message", channel_id: channelId });
+      getConversationsForParent: () => Effect.succeed([]),
+      sendMessage: (conversationId: string, payload: unknown) => {
+        sendCalls.push({ conversationId, payload: normalizePayloadText(payload) });
+        return Effect.succeed({ id: "update-message", conversation_id: conversationId });
       },
     } as never;
 
     const result = await Effect.runPromise(runUpdateAnnouncement(botClient, sheetApisClient));
 
     expect(result).toEqual({
-      guildId: "guild-1",
+      workspaceId: "workspace-1",
       announcementId: "update-announcements-2026-06-05",
       status: "skipped_already_delivered",
-      announcementChannelId: null,
+      announcementConversationId: null,
       announcementMessageId: null,
     });
     expect(sendCalls).toEqual([]);
@@ -1121,34 +1177,34 @@ describe("DispatchService", () => {
   it("sends gated update announcements and records delivery", async () => {
     const claimCalls: Array<unknown> = [];
     const recordCalls: Array<unknown> = [];
-    const sendCalls: Array<{ readonly channelId: string; readonly payload: unknown }> = [];
+    const sendCalls: Array<{ readonly conversationId: string; readonly payload: unknown }> = [];
     const sheetApisClient = makeGatedUpdateAnnouncementSheetApisClient(recordCalls, {
       claimCalls,
     });
     const botClient = {
-      getChannelsForParent: () =>
+      getConversationsForParent: () =>
         Effect.succeed([
-          makeChannelEntry({ id: "general", name: "general", position: 1 }),
-          makeChannelEntry({ id: "system-channel", name: "welcome", position: 2 }),
+          makeConversationEntry({ id: "general", name: "general", position: 1 }),
+          makeConversationEntry({ id: "system-conversation", name: "welcome", position: 2 }),
         ]),
-      sendMessage: (channelId: string, payload: unknown) => {
-        sendCalls.push({ channelId, payload });
-        return Effect.succeed({ id: "update-message", channel_id: channelId });
+      sendMessage: (conversationId: string, payload: unknown) => {
+        sendCalls.push({ conversationId, payload: normalizePayloadText(payload) });
+        return Effect.succeed({ id: "update-message", conversation_id: conversationId });
       },
     } as never;
 
     const result = await Effect.runPromise(runUpdateAnnouncement(botClient, sheetApisClient));
 
     expect(result).toEqual({
-      guildId: "guild-1",
+      workspaceId: "workspace-1",
       announcementId: "update-announcements-2026-06-05",
       status: "sent",
-      announcementChannelId: "system-channel",
+      announcementConversationId: "system-conversation",
       announcementMessageId: "update-message",
     });
     expect(sendCalls).toEqual([
       {
-        channelId: "system-channel",
+        conversationId: "system-conversation",
         payload: {
           embeds: [
             {
@@ -1163,16 +1219,16 @@ describe("DispatchService", () => {
     expect(claimCalls).toHaveLength(1);
     expect(claimCalls[0]).toMatchObject({
       payload: {
-        guildId: "guild-1",
+        workspaceId: "workspace-1",
         announcementId: "update-announcements-2026-06-05",
       },
     });
     expect(recordCalls).toHaveLength(1);
     expect(recordCalls[0]).toMatchObject({
       payload: {
-        guildId: "guild-1",
+        workspaceId: "workspace-1",
         announcementId: "update-announcements-2026-06-05",
-        channelId: "system-channel",
+        conversationId: "system-conversation",
         messageId: "update-message",
       },
     });
@@ -1185,8 +1241,8 @@ describe("DispatchService", () => {
       releaseCalls,
     });
     const botClient = {
-      getChannelsForParent: () =>
-        Effect.succeed([makeChannelEntry({ id: "system-channel", name: "welcome" })]),
+      getConversationsForParent: () =>
+        Effect.succeed([makeConversationEntry({ id: "system-conversation", name: "welcome" })]),
       sendMessage: () => Effect.fail(new Error("cannot send")),
     } as never;
 
@@ -1197,7 +1253,7 @@ describe("DispatchService", () => {
     expect(releaseCalls).toHaveLength(1);
     expect(releaseCalls[0]).toMatchObject({
       payload: {
-        guildId: "guild-1",
+        workspaceId: "workspace-1",
         announcementId: "update-announcements-2026-06-05",
       },
     });
@@ -1206,9 +1262,9 @@ describe("DispatchService", () => {
   it("persists slot button metadata with the requester Discord user id", async () => {
     const upsertCalls: Array<unknown> = [];
     const botClient = {
-      sendMessage: () => Effect.succeed({ id: "message-1", channel_id: "channel-1" }),
+      sendMessage: () => Effect.succeed({ id: "message-1", conversation_id: "conversation-1" }),
       updateOriginalInteractionResponse: () =>
-        Effect.succeed({ id: "interaction-message-1", channel_id: "channel-1" }),
+        Effect.succeed({ id: "interaction-message-1", conversation_id: "conversation-1" }),
     } as never;
     const sheetApisClient = makeMessageSlotSheetApisClient((args) => {
       upsertCalls.push(args);
@@ -1219,17 +1275,19 @@ describe("DispatchService", () => {
 
     expect(result).toEqual({
       messageId: "message-1",
-      messageChannelId: "channel-1",
+      messageConversationId: "conversation-1",
       day: 2,
     });
     expect(upsertCalls).toEqual([
       {
         payload: {
+          clientPlatform: "discord",
+          clientId: "discord-main",
           messageId: "message-1",
           data: {
             day: 2,
-            guildId: "guild-1",
-            messageChannelId: "channel-1",
+            workspaceId: "workspace-1",
+            conversationId: "conversation-1",
             createdByUserId: "discord-user-1",
           },
         },
@@ -1240,9 +1298,9 @@ describe("DispatchService", () => {
   it("deletes the slot button message when metadata persistence fails", async () => {
     const deleteCalls: Array<ReadonlyArray<string>> = [];
     const botClient = {
-      sendMessage: () => Effect.succeed({ id: "message-1", channel_id: "channel-1" }),
-      deleteMessage: (channelId: string, messageId: string) => {
-        deleteCalls.push([channelId, messageId]);
+      sendMessage: () => Effect.succeed({ id: "message-1", conversation_id: "conversation-1" }),
+      deleteMessage: (conversationId: string, messageId: string) => {
+        deleteCalls.push([conversationId, messageId]);
         return Effect.succeed({});
       },
     } as never;
@@ -1258,13 +1316,13 @@ describe("DispatchService", () => {
           .filter(Cause.isFailReason)
           .some((reason) => reason.error === upsertError),
     ).toBe(true);
-    expect(deleteCalls).toEqual([["channel-1", "message-1"]]);
+    expect(deleteCalls).toEqual([["conversation-1", "message-1"]]);
   });
 
   it("returns slot button success when the final interaction update fails", async () => {
     const upsertCalls: Array<unknown> = [];
     const botClient = {
-      sendMessage: () => Effect.succeed({ id: "message-1", channel_id: "channel-1" }),
+      sendMessage: () => Effect.succeed({ id: "message-1", conversation_id: "conversation-1" }),
       updateOriginalInteractionResponse: () => Effect.fail(new Error("interaction update failed")),
     } as never;
     const sheetApisClient = makeMessageSlotSheetApisClient((args) => {
@@ -1276,7 +1334,7 @@ describe("DispatchService", () => {
 
     expect(result).toEqual({
       messageId: "message-1",
-      messageChannelId: "channel-1",
+      messageConversationId: "conversation-1",
       day: 2,
     });
     expect(upsertCalls).toHaveLength(1);
@@ -1284,12 +1342,7 @@ describe("DispatchService", () => {
 
   it("renders persisted slot button clicks from the cluster", async () => {
     const updateCalls: Array<unknown> = [];
-    const botClient = {
-      updateOriginalInteractionResponse: (interactionToken: string, payload: unknown) => {
-        updateCalls.push({ interactionToken, payload });
-        return Effect.succeed({ id: "interaction-message-1", channel_id: "channel-1" });
-      },
-    } as never;
+    const botClient = makeInteractionUpdateBotClient(updateCalls);
     const sheetApisClient = makeSheetApisClient({
       sheet: {
         getEventConfig: () =>
@@ -1309,17 +1362,17 @@ describe("DispatchService", () => {
 
     expect(result).toEqual({
       messageId: "message-1",
-      guildId: "guild-1",
+      workspaceId: "workspace-1",
       day: 2,
     });
     expect(updateCalls).toEqual([
       {
-        interactionToken: "interaction-token",
+        interactionResponseToken: "interaction-token",
         payload: {
           embeds: [
             {
               title: "Day 2 Open Slots",
-              description: "**+3 |** **hour 1** <t:1774526400:t>-<t:1774530000:t>",
+              description: "**+3 |** **hour 1** 2026-03-26T12:00:00.000Z-2026-03-26T13:00:00.000Z",
             },
             {
               title: "Day 2 Filled Slots",
@@ -1334,12 +1387,7 @@ describe("DispatchService", () => {
   it("updates the interaction with a service status embed", async () => {
     const updateCalls: Array<unknown> = [];
     const checkedAt = DateTime.makeUnsafe("2026-05-23T12:00:00.000Z");
-    const botClient = {
-      updateOriginalInteractionResponse: (interactionToken: string, payload: unknown) => {
-        updateCalls.push({ interactionToken, payload });
-        return Effect.succeed({ id: "interaction-message-1", channel_id: "channel-1" });
-      },
-    } as never;
+    const botClient = makeInteractionUpdateBotClient(updateCalls);
     const sheetApisClient = makeSheetApisClient({
       status: {
         getServices: () =>
@@ -1379,7 +1427,7 @@ describe("DispatchService", () => {
     });
     expect(updateCalls).toEqual([
       {
-        interactionToken: "interaction-token",
+        interactionResponseToken: "interaction-token",
         payload: {
           embeds: [
             {
@@ -1423,13 +1471,13 @@ describe("DispatchService", () => {
 
     expect(result).toEqual({
       messageId: roomOrderButtonPayload.messageId,
-      messageChannelId: roomOrderButtonPayload.messageChannelId,
+      messageConversationId: roomOrderButtonPayload.messageConversationId,
       status: "updated",
       detail: null,
     });
-    expect(apiCalls).toEqual(["claim", "release", "decrement", "release"]);
+    expect(apiCalls).toEqual(["claim", "decrement", "release"]);
     expect(updateCalls).toHaveLength(1);
-    expect(updateCalls[0]).toMatchObject({ interactionToken: "interaction-token" });
+    expect(updateCalls[0]).toMatchObject({ interactionResponseToken: "interaction-token" });
   });
 
   it("handles next room-order buttons through the increment path", async () => {
@@ -1445,7 +1493,7 @@ describe("DispatchService", () => {
     );
 
     expect(result.status).toBe("updated");
-    expect(apiCalls).toEqual(["claim", "release", "increment", "release"]);
+    expect(apiCalls).toEqual(["claim", "increment", "release"]);
   });
 
   it("handles send room-order buttons through the send claim path", async () => {
@@ -1455,11 +1503,11 @@ describe("DispatchService", () => {
     const botClient = {
       updateOriginalInteractionResponse: () => {
         botCalls.push("interaction");
-        return Effect.succeed({ id: "interaction-message-1", channel_id: "channel-1" });
+        return Effect.succeed({ id: "interaction-message-1", conversation_id: "conversation-1" });
       },
       sendMessage: () => {
         botCalls.push("send");
-        return Effect.succeed({ id: "sent-message-1", channel_id: "channel-1" });
+        return Effect.succeed({ id: "sent-message-1", conversation_id: "conversation-1" });
       },
       createPin: () => {
         botCalls.push("pin");
@@ -1476,11 +1524,11 @@ describe("DispatchService", () => {
 
     expect(result).toEqual({
       messageId: "sent-message-1",
-      messageChannelId: "channel-1",
+      messageConversationId: "conversation-1",
       status: "pinned",
       detail: "sent room order and pinned it!",
     });
-    expect(apiCalls).toEqual(["claimSend", "releaseSend", "completeSend"]);
+    expect(apiCalls).toEqual(["claimSend", "completeSend"]);
     expect(botCalls).toEqual(["send", "pin", "interaction"]);
   });
 
@@ -1490,7 +1538,7 @@ describe("DispatchService", () => {
     const botClient = {
       updateOriginalInteractionResponse: () => {
         botCalls.push("interaction");
-        return Effect.succeed({ id: "interaction-message-1", channel_id: "channel-1" });
+        return Effect.succeed({ id: "interaction-message-1", conversation_id: "conversation-1" });
       },
       createPin: () => {
         botCalls.push("pin");
@@ -1501,8 +1549,8 @@ describe("DispatchService", () => {
       messageRoomOrder: {
         getMessageRoomOrder: () => Effect.succeed(initialRoomOrder),
       },
-      guildConfig: {
-        getGuildChannelById: () => Effect.succeed(makeGuildChannelConfig()),
+      workspaceConfig: {
+        getWorkspaceConversationById: () => Effect.succeed(makeWorkspaceConversationConfig()),
       },
     });
 
@@ -1514,7 +1562,7 @@ describe("DispatchService", () => {
 
     expect(result).toEqual({
       messageId: roomOrderButtonPayload.messageId,
-      messageChannelId: roomOrderButtonPayload.messageChannelId,
+      messageConversationId: roomOrderButtonPayload.messageConversationId,
       status: "denied",
       detail: "cannot pin a non-tentative room order.",
     });
@@ -1530,16 +1578,16 @@ describe("DispatchService", () => {
       },
       updateMessage: () => {
         botCalls.push("cleanup");
-        return Effect.succeed({ id: "room-order-message-1", channel_id: "channel-1" });
+        return Effect.succeed({ id: "room-order-message-1", conversation_id: "conversation-1" });
       },
       updateOriginalInteractionResponse: () => {
         botCalls.push("interaction");
-        return Effect.succeed({ id: "interaction-message-1", channel_id: "channel-1" });
+        return Effect.succeed({ id: "interaction-message-1", conversation_id: "conversation-1" });
       },
     } as never;
     const sheetApisClient = makeSheetApisClient({
-      guildConfig: {
-        getGuildChannelById: () => Effect.succeed(makeGuildChannelConfig()),
+      workspaceConfig: {
+        getWorkspaceConversationById: () => Effect.succeed(makeWorkspaceConversationConfig()),
       },
     });
 
@@ -1557,7 +1605,7 @@ describe("DispatchService", () => {
 
     expect(result).toEqual({
       messageId: "room-order-message-1",
-      messageChannelId: "channel-1",
+      messageConversationId: "conversation-1",
       status: "pinned",
       detail: "pinned tentative room order!",
     });
@@ -1573,12 +1621,12 @@ describe("DispatchService", () => {
       },
       updateOriginalInteractionResponse: () => {
         botCalls.push("interaction");
-        return Effect.succeed({ id: "interaction-message-1", channel_id: "channel-1" });
+        return Effect.succeed({ id: "interaction-message-1", conversation_id: "conversation-1" });
       },
     } as never;
     const sheetApisClient = makeSheetApisClient({
-      guildConfig: {
-        getGuildChannelById: () => Effect.succeed(makeGuildChannelConfig()),
+      workspaceConfig: {
+        getWorkspaceConversationById: () => Effect.succeed(makeWorkspaceConversationConfig()),
       },
     });
 
@@ -1592,55 +1640,28 @@ describe("DispatchService", () => {
     expect(botCalls).toEqual(["interaction"]);
   });
 
-  it("updates the interaction before failing when kickout cannot find a running channel", async () => {
+  it("updates the interaction before failing when kickout cannot find a running conversation", async () => {
     const updateCalls: Array<unknown> = [];
-    const botClient = {
-      updateOriginalInteractionResponse: (interactionToken: string, payload: unknown) => {
-        updateCalls.push({ interactionToken, payload });
-        return Effect.succeed({ id: "interaction-message-1", channel_id: "channel-1" });
-      },
-    } as never;
+    const botClient = makeInteractionUpdateBotClient(updateCalls);
     const sheetApisClient = makeSheetApisClient({
-      guildConfig: {
-        getGuildChannelById: () => Effect.fail({ _tag: "ArgumentError", message: "missing" }),
+      workspaceConfig: {
+        getWorkspaceConversationById: () =>
+          Effect.fail({ _tag: "ArgumentError", message: "missing" }),
       },
     });
 
     const exit = await Effect.runPromiseExit(
-      runKickout(
-        {
-          dispatchRequestId: "dispatch-kickout",
-          guildId: "guild-1",
-          channelId: "channel-1",
-          hour: 1,
-          interactionToken: "interaction-token",
-        },
-        botClient,
-        sheetApisClient,
-      ),
+      runKickout(makeKickoutPayload(), botClient, sheetApisClient),
     );
 
     expect(Exit.isFailure(exit)).toBe(true);
-    expect(updateCalls).toEqual([
-      {
-        interactionToken: "interaction-token",
-        payload: {
-          content: "Cannot kick out, running channel not found",
-          allowed_mentions: { parse: [] },
-        },
-      },
-    ]);
+    expectInteractionUpdateContent(updateCalls, "Cannot kick out, running conversation not found");
   });
 
   it("returns tooEarly and skips sheet lookups when kickout runs too late in the hour", async () => {
     const updateCalls: Array<unknown> = [];
     const sheetApiCalls: Array<string> = [];
-    const botClient = {
-      updateOriginalInteractionResponse: (interactionToken: string, payload: unknown) => {
-        updateCalls.push({ interactionToken, payload });
-        return Effect.succeed({ id: "interaction-message-1", channel_id: "channel-1" });
-      },
-    } as never;
+    const botClient = makeInteractionUpdateBotClient(updateCalls);
     const sheetApisClient = makeSheetApisClient(
       new Proxy(
         {},
@@ -1651,7 +1672,7 @@ describe("DispatchService", () => {
               {
                 get: (_service, method: string) => {
                   sheetApiCalls.push(`${group}.${method}`);
-                  return unexpected(`${group}.${method}`);
+                  return () => Effect.die(`Unexpected Sheet API call: ${group}.${method}`);
                 },
               },
             ),
@@ -1661,13 +1682,7 @@ describe("DispatchService", () => {
 
     const result = await Effect.runPromise(
       runKickout(
-        {
-          dispatchRequestId: "dispatch-kickout",
-          guildId: "guild-1",
-          channelId: "channel-1",
-          hour: 1,
-          interactionToken: "interaction-token",
-        },
+        makeKickoutPayload(),
         botClient,
         sheetApisClient,
         Date.parse("2026-05-13T00:40:00.000Z"),
@@ -1675,39 +1690,26 @@ describe("DispatchService", () => {
     );
 
     expect(result).toEqual({
-      guildId: "guild-1",
-      runningChannelId: "channel-1",
+      workspaceId: "workspace-1",
+      runningConversationId: "conversation-1",
       hour: 1,
       roleId: null,
       removedMemberIds: [],
       status: "tooEarly",
     });
-    expect(updateCalls).toEqual([
-      {
-        interactionToken: "interaction-token",
-        payload: {
-          content: "Cannot kick out until next hour starts",
-          allowed_mentions: { parse: [] },
-        },
-      },
-    ]);
+    expectInteractionUpdateContent(updateCalls, "Cannot kick out until next hour starts");
     expect(sheetApiCalls).toEqual([]);
   });
 
-  it("updates the interaction before failing when kickout channel has no name", async () => {
+  it("updates the interaction before failing when kickout conversation has no name", async () => {
     const updateCalls: Array<unknown> = [];
-    const botClient = {
-      updateOriginalInteractionResponse: (interactionToken: string, payload: unknown) => {
-        updateCalls.push({ interactionToken, payload });
-        return Effect.succeed({ id: "interaction-message-1", channel_id: "channel-1" });
-      },
-    } as never;
+    const botClient = makeInteractionUpdateBotClient(updateCalls);
     const sheetApisClient = makeSheetApisClient({
-      guildConfig: {
-        getGuildChannelById: () =>
+      workspaceConfig: {
+        getWorkspaceConversationById: () =>
           Effect.succeed({
-            guildId: "guild-1",
-            channelId: "channel-1",
+            workspaceId: "workspace-1",
+            conversationId: "conversation-1",
             name: Option.none(),
             roleId: Option.some("role-1"),
             running: Option.some(true),
@@ -1716,92 +1718,56 @@ describe("DispatchService", () => {
     });
 
     const exit = await Effect.runPromiseExit(
-      runKickout(
-        {
-          dispatchRequestId: "dispatch-kickout",
-          guildId: "guild-1",
-          channelId: "channel-1",
-          hour: 1,
-          interactionToken: "interaction-token",
-        },
-        botClient,
-        sheetApisClient,
-      ),
+      runKickout(makeKickoutPayload(), botClient, sheetApisClient),
     );
 
     expect(Exit.isFailure(exit)).toBe(true);
-    expect(updateCalls).toEqual([
-      {
-        interactionToken: "interaction-token",
-        payload: {
-          content: "Cannot kick out, channel has no name",
-          allowed_mentions: { parse: [] },
-        },
-      },
-    ]);
+    expectInteractionUpdateContent(updateCalls, "Cannot kick out, conversation has no name");
   });
 
-  it("does not remove roles when kickout has no schedule for the channel hour", async () => {
+  it("does not remove roles when kickout has no schedule for the conversation hour", async () => {
     const updateCalls: Array<unknown> = [];
     const removeCalls: Array<ReadonlyArray<string>> = [];
     const botClient = {
-      updateOriginalInteractionResponse: (interactionToken: string, payload: unknown) => {
-        updateCalls.push({ interactionToken, payload });
-        return Effect.succeed({ id: "interaction-message-1", channel_id: "channel-1" });
-      },
+      ...(makeInteractionUpdateBotClient(updateCalls) as Record<string, unknown>),
       getMembersForParent: () => Effect.die("members should not be loaded without a schedule"),
-      removeGuildMemberRole: (guildId: string, memberId: string, roleId: string) => {
-        removeCalls.push([guildId, memberId, roleId]);
+      removeWorkspaceMemberRole: (workspaceId: string, memberId: string, roleId: string) => {
+        removeCalls.push([workspaceId, memberId, roleId]);
         return Effect.succeed({});
       },
     } as never;
     const sheetApisClient = makeSheetApisClient({
-      guildConfig: {
-        getGuildChannelById: () =>
+      workspaceConfig: {
+        getWorkspaceConversationById: () =>
           Effect.succeed({
-            guildId: "guild-1",
-            channelId: "channel-1",
+            workspaceId: "workspace-1",
+            conversationId: "conversation-1",
             name: Option.some("main"),
             roleId: Option.some("role-1"),
             running: Option.some(true),
           }),
       },
       schedule: {
-        getChannelPopulatedSchedules: () => Effect.succeed({ schedules: [] }),
+        getConversationPopulatedSchedules: () => Effect.succeed({ schedules: [] }),
       },
     });
 
     const result = await Effect.runPromise(
-      runKickout(
-        {
-          dispatchRequestId: "dispatch-kickout",
-          guildId: "guild-1",
-          channelId: "channel-1",
-          hour: 1,
-          interactionToken: "interaction-token",
-        },
-        botClient,
-        sheetApisClient,
-      ),
+      runKickout(makeKickoutPayload(), botClient, sheetApisClient),
     );
 
     expect(result).toEqual({
-      guildId: "guild-1",
-      runningChannelId: "channel-1",
+      workspaceId: "workspace-1",
+      runningConversationId: "conversation-1",
       hour: 1,
       roleId: "role-1",
       removedMemberIds: [],
       status: "empty",
     });
-    expect(updateCalls).toEqual([
-      {
-        interactionToken: "interaction-token",
-        payload: {
-          content: "No schedule found for this channel and hour; no players kicked out",
-          allowed_mentions: { parse: [] },
-        },
-      },
-    ]);
+    expectInteractionUpdateContent(
+      updateCalls,
+      "No schedule found for this conversation and hour; no players kicked out",
+    );
     expect(removeCalls).toEqual([]);
   });
 
@@ -1809,97 +1775,79 @@ describe("DispatchService", () => {
     const updateCalls: Array<unknown> = [];
     const removeCalls: Array<ReadonlyArray<string>> = [];
     const botClient = {
-      updateOriginalInteractionResponse: (interactionToken: string, payload: unknown) => {
-        updateCalls.push({ interactionToken, payload });
-        return Effect.succeed({ id: "interaction-message-1", channel_id: "channel-1" });
-      },
+      ...(makeInteractionUpdateBotClient(updateCalls) as Record<string, unknown>),
       getMembersForParent: () =>
         Effect.succeed([
           {
-            parentId: "guild-1",
+            parentId: "workspace-1",
             resourceId: "member-1",
             value: { user: { id: "member-1" }, roles: ["role-1"] },
           },
           {
-            parentId: "guild-1",
+            parentId: "workspace-1",
             resourceId: "member-2",
             value: { user: { id: "member-2" }, roles: ["role-1"] },
           },
           {
-            parentId: "guild-1",
+            parentId: "workspace-1",
             resourceId: "member-3",
             value: { user: { id: "member-3" }, roles: ["role-1"] },
           },
         ]),
-      removeGuildMemberRole: (guildId: string, memberId: string, roleId: string) => {
-        removeCalls.push([guildId, memberId, roleId]);
+      removeWorkspaceMemberRole: (workspaceId: string, memberId: string, roleId: string) => {
+        removeCalls.push([workspaceId, memberId, roleId]);
         return memberId === "member-2"
           ? Effect.fail(new Error("Discord role removal failed"))
           : Effect.succeed({});
       },
     } as never;
     const sheetApisClient = makeSheetApisClient({
-      guildConfig: {
-        getGuildChannelById: () =>
+      workspaceConfig: {
+        getWorkspaceConversationById: () =>
           Effect.succeed({
-            guildId: "guild-1",
-            channelId: "channel-1",
+            workspaceId: "workspace-1",
+            conversationId: "conversation-1",
             name: Option.some("main"),
             roleId: Option.some("role-1"),
             running: Option.some(true),
           }),
       },
       schedule: {
-        getChannelPopulatedSchedules: () =>
+        getConversationPopulatedSchedules: () =>
           Effect.succeed({ schedules: [makeSchedule(1, ["member-1"])] }),
       },
     });
 
     const result = await Effect.runPromise(
-      runKickout(
-        {
-          dispatchRequestId: "dispatch-kickout",
-          guildId: "guild-1",
-          channelId: "channel-1",
-          hour: 1,
-          interactionToken: "interaction-token",
-        },
-        botClient,
-        sheetApisClient,
-      ),
+      runKickout(makeKickoutPayload(), botClient, sheetApisClient),
     );
 
     expect(result).toEqual({
-      guildId: "guild-1",
-      runningChannelId: "channel-1",
+      workspaceId: "workspace-1",
+      runningConversationId: "conversation-1",
       hour: 1,
       roleId: "role-1",
       removedMemberIds: ["member-3"],
       status: "removed",
     });
     expect(removeCalls).toEqual([
-      ["guild-1", "member-2", "role-1"],
-      ["guild-1", "member-3", "role-1"],
+      ["workspace-1", "member-2", "role-1"],
+      ["workspace-1", "member-3", "role-1"],
     ]);
-    expect(updateCalls).toEqual([
-      {
-        interactionToken: "interaction-token",
-        payload: {
-          content: "Kicked out <@member-3>",
-          allowed_mentions: { parse: [] },
-        },
-      },
-    ]);
+    expectInteractionUpdateContent(updateCalls, "Kicked out @member-3");
   });
 
-  it("lists channel config with formatted fields", async () => {
-    const updateCalls: Array<{ readonly interactionToken: string; readonly payload: unknown }> = [];
+  it("lists conversation config with formatted fields", async () => {
+    const updateCalls: Array<{
+      readonly interactionResponseToken: string;
+      readonly payload: unknown;
+    }> = [];
     const sheetApiCalls: Array<unknown> = [];
     const sheetApisClient = makeSheetApisClient({
-      guildConfig: {
-        getGuildChannelById: (args: unknown) => {
+      workspaceConfig: {
+        getWorkspaceConversationById: (args: unknown) => {
           sheetApiCalls.push(args);
-          return Effect.succeed(makeGuildChannelConfig());
+          return Effect.succeed(makeWorkspaceConversationConfig());
         },
       },
     });
@@ -1909,27 +1857,29 @@ describe("DispatchService", () => {
         makeInteractionUpdateBotClient(updateCalls),
         sheetApisClient,
         (service) =>
-          service.channelListConfig({
-            ...channelConfigPayload,
-            dispatchRequestId: "dispatch-channel-list-config",
-          } satisfies ChannelListConfigDispatchPayload),
+          service.conversationListConfig({
+            ...conversationConfigPayload,
+            dispatchRequestId: "dispatch-conversation-list-config",
+          } satisfies ConversationListConfigDispatchPayload),
       ),
     );
 
-    expect(result).toEqual({ guildId: "guild-1", channelId: "channel-1" });
-    expect(sheetApiCalls).toEqual([{ query: { guildId: "guild-1", channelId: "channel-1" } }]);
+    expect(result).toEqual({ workspaceId: "workspace-1", conversationId: "conversation-1" });
+    expect(sheetApiCalls).toEqual([
+      { query: { workspaceId: "workspace-1", conversationId: "conversation-1" } },
+    ]);
     expect(updateCalls).toEqual([
       {
-        interactionToken: "interaction-token",
+        interactionResponseToken: "interaction-token",
         payload: {
           embeds: [
             {
-              title: "Config for this channel",
+              title: "Config for this conversation",
               fields: [
                 { name: "Name", value: "main" },
-                { name: "Running channel", value: "Yes" },
-                { name: "Role", value: "<@&role-1>" },
-                { name: "Checkin channel", value: "<#checkin-channel-1>" },
+                { name: "Run destination", value: "Yes" },
+                { name: "Monitor role", value: "@role:role-1" },
+                { name: "Check-in destination", value: "#checkin-conversation-1" },
               ],
             },
           ],
@@ -1938,14 +1888,17 @@ describe("DispatchService", () => {
     ]);
   });
 
-  it("updates channel config and returns the channel result", async () => {
-    const updateCalls: Array<{ readonly interactionToken: string; readonly payload: unknown }> = [];
+  it("updates conversation config and returns the conversation result", async () => {
+    const updateCalls: Array<{
+      readonly interactionResponseToken: string;
+      readonly payload: unknown;
+    }> = [];
     const sheetApiCalls: Array<unknown> = [];
     const sheetApisClient = makeSheetApisClient({
-      guildConfig: {
-        upsertGuildChannelConfig: (args: unknown) => {
+      workspaceConfig: {
+        upsertWorkspaceConversationConfig: (args: unknown) => {
           sheetApiCalls.push(args);
-          return Effect.succeed(makeGuildChannelConfig({ name: Option.some("side") }));
+          return Effect.succeed(makeWorkspaceConversationConfig({ name: Option.some("side") }));
         },
       },
     });
@@ -1955,28 +1908,28 @@ describe("DispatchService", () => {
         makeInteractionUpdateBotClient(updateCalls),
         sheetApisClient,
         (service) =>
-          service.channelSet({
-            ...channelConfigPayload,
-            dispatchRequestId: "dispatch-channel-set",
+          service.conversationSet({
+            ...conversationConfigPayload,
+            dispatchRequestId: "dispatch-conversation-set",
             running: false,
             name: "side",
             roleId: "role-2",
-            checkinChannelId: "checkin-channel-2",
-          } satisfies ChannelSetDispatchPayload),
+            checkinConversationId: "checkin-conversation-2",
+          } satisfies ConversationSetDispatchPayload),
       ),
     );
 
-    expect(result).toEqual({ guildId: "guild-1", channelId: "channel-1" });
+    expect(result).toEqual({ workspaceId: "workspace-1", conversationId: "conversation-1" });
     expect(sheetApiCalls).toEqual([
       {
         payload: {
-          guildId: "guild-1",
-          channelId: "channel-1",
+          workspaceId: "workspace-1",
+          conversationId: "conversation-1",
           config: {
             running: false,
             name: "side",
             roleId: "role-2",
-            checkinChannelId: "checkin-channel-2",
+            checkinConversationId: "checkin-conversation-2",
           },
         },
       },
@@ -1985,26 +1938,29 @@ describe("DispatchService", () => {
       embeds: [
         {
           title: "Success!",
-          description: "<#channel-1> configuration updated",
+          description: "#conversation-1 configuration updated",
           fields: expect.arrayContaining([{ name: "Name", value: "side" }]),
         },
       ],
     });
   });
 
-  it("unsets channel config fields", async () => {
-    const updateCalls: Array<{ readonly interactionToken: string; readonly payload: unknown }> = [];
+  it("unsets conversation config fields", async () => {
+    const updateCalls: Array<{
+      readonly interactionResponseToken: string;
+      readonly payload: unknown;
+    }> = [];
     const sheetApiCalls: Array<unknown> = [];
     const sheetApisClient = makeSheetApisClient({
-      guildConfig: {
-        upsertGuildChannelConfig: (args: unknown) => {
+      workspaceConfig: {
+        upsertWorkspaceConversationConfig: (args: unknown) => {
           sheetApiCalls.push(args);
           return Effect.succeed(
-            makeGuildChannelConfig({
+            makeWorkspaceConversationConfig({
               name: Option.none(),
               running: Option.none(),
               roleId: Option.none(),
-              checkinChannelId: Option.none(),
+              checkinConversationId: Option.none(),
             }),
           );
         },
@@ -2016,28 +1972,28 @@ describe("DispatchService", () => {
         makeInteractionUpdateBotClient(updateCalls),
         sheetApisClient,
         (service) =>
-          service.channelUnset({
-            ...channelConfigPayload,
-            dispatchRequestId: "dispatch-channel-unset",
+          service.conversationUnset({
+            ...conversationConfigPayload,
+            dispatchRequestId: "dispatch-conversation-unset",
             running: true,
             name: true,
             role: true,
-            checkinChannel: true,
-          } satisfies ChannelUnsetDispatchPayload),
+            checkinConversation: true,
+          } satisfies ConversationUnsetDispatchPayload),
       ),
     );
 
-    expect(result).toEqual({ guildId: "guild-1", channelId: "channel-1" });
+    expect(result).toEqual({ workspaceId: "workspace-1", conversationId: "conversation-1" });
     expect(sheetApiCalls).toEqual([
       {
         payload: {
-          guildId: "guild-1",
-          channelId: "channel-1",
+          workspaceId: "workspace-1",
+          conversationId: "conversation-1",
           config: {
             running: null,
             name: null,
             roleId: null,
-            checkinChannelId: null,
+            checkinConversationId: null,
           },
         },
       },
@@ -2048,19 +2004,22 @@ describe("DispatchService", () => {
   });
 
   it("lists server config with monitor role mentions", async () => {
-    const updateCalls: Array<{ readonly interactionToken: string; readonly payload: unknown }> = [];
+    const updateCalls: Array<{
+      readonly interactionResponseToken: string;
+      readonly payload: unknown;
+    }> = [];
     const sheetApiCalls: Array<unknown> = [];
     const sheetApisClient = makeSheetApisClient({
-      guildConfig: {
-        getGuildConfig: (args: unknown) => {
-          sheetApiCalls.push(["getGuildConfig", args]);
-          return Effect.succeed(makeGuildConfig());
+      workspaceConfig: {
+        getWorkspaceConfig: (args: unknown) => {
+          sheetApiCalls.push(["getWorkspaceConfig", args]);
+          return Effect.succeed(makeWorkspaceConfig());
         },
-        getGuildMonitorRoles: (args: unknown) => {
-          sheetApiCalls.push(["getGuildMonitorRoles", args]);
+        getWorkspaceMonitorRoles: (args: unknown) => {
+          sheetApiCalls.push(["getWorkspaceMonitorRoles", args]);
           return Effect.succeed([
-            new GuildConfigMonitorRole({
-              guildId: "guild-1",
+            new WorkspaceMonitorRole({
+              workspaceId: "workspace-1",
               roleId: "role-1",
               createdAt: Option.none(),
               updatedAt: Option.none(),
@@ -2076,35 +2035,38 @@ describe("DispatchService", () => {
         makeInteractionUpdateBotClient(updateCalls),
         sheetApisClient,
         (service) =>
-          service.serverListConfig({
+          service.workspaceListConfig({
             ...commandBase,
             dispatchRequestId: "dispatch-server-list-config",
-            guildId: "guild-1",
-          } satisfies ServerListConfigDispatchPayload),
+            workspaceId: "workspace-1",
+          } satisfies WorkspaceListConfigDispatchPayload),
       ),
     );
 
-    expect(result).toEqual({ guildId: "guild-1", monitorRoleCount: 1 });
+    expect(result).toEqual({ workspaceId: "workspace-1", monitorRoleCount: 1 });
     expect(sheetApiCalls).toEqual([
-      ["getGuildConfig", { query: { guildId: "guild-1" } }],
-      ["getGuildMonitorRoles", { query: { guildId: "guild-1" } }],
+      ["getWorkspaceConfig", { query: { workspaceId: "workspace-1" } }],
+      ["getWorkspaceMonitorRoles", { query: { workspaceId: "workspace-1" } }],
     ]);
     expect(updateCalls[0]?.payload).toMatchObject({
       embeds: [
         {
-          title: "Config for Guild One",
-          description: "Sheet id: sheet-1\nAuto check-in: Enabled\nMonitor roles: <@&role-1>",
+          title: "Config for Workspace One",
+          description: "Sheet id: sheet-1\nAuto check-in: Enabled\nMonitor role: @role:role-1",
         },
       ],
     });
   });
 
   it("adds a server monitor role", async () => {
-    const updateCalls: Array<{ readonly interactionToken: string; readonly payload: unknown }> = [];
+    const updateCalls: Array<{
+      readonly interactionResponseToken: string;
+      readonly payload: unknown;
+    }> = [];
     const sheetApiCalls: Array<unknown> = [];
     const sheetApisClient = makeSheetApisClient({
-      guildConfig: {
-        addGuildMonitorRole: (args: unknown) => {
+      workspaceConfig: {
+        addWorkspaceMonitorRole: (args: unknown) => {
           sheetApiCalls.push(args);
           return Effect.succeed({});
         },
@@ -2116,28 +2078,31 @@ describe("DispatchService", () => {
         makeInteractionUpdateBotClient(updateCalls),
         sheetApisClient,
         (service) =>
-          service.serverAddMonitorRole({
+          service.workspaceAddMonitorRole({
             ...commandBase,
             dispatchRequestId: "dispatch-server-add-monitor-role",
-            guildId: "guild-1",
+            workspaceId: "workspace-1",
             roleId: "role-1",
-          } satisfies ServerAddMonitorRoleDispatchPayload),
+          } satisfies WorkspaceAddMonitorRoleDispatchPayload),
       ),
     );
 
-    expect(result).toEqual({ guildId: "guild-1", roleId: "role-1" });
-    expect(sheetApiCalls).toEqual([{ payload: { guildId: "guild-1", roleId: "role-1" } }]);
+    expect(result).toEqual({ workspaceId: "workspace-1", roleId: "role-1" });
+    expect(sheetApiCalls).toEqual([{ payload: { workspaceId: "workspace-1", roleId: "role-1" } }]);
     expect(updateCalls[0]?.payload).toMatchObject({
-      embeds: [{ description: "<@&role-1> is now a monitor role for Guild One" }],
+      embeds: [{ description: "@role:role-1 is now a monitor role for Workspace One" }],
     });
   });
 
   it("removes a server monitor role", async () => {
-    const updateCalls: Array<{ readonly interactionToken: string; readonly payload: unknown }> = [];
+    const updateCalls: Array<{
+      readonly interactionResponseToken: string;
+      readonly payload: unknown;
+    }> = [];
     const sheetApiCalls: Array<unknown> = [];
     const sheetApisClient = makeSheetApisClient({
-      guildConfig: {
-        removeGuildMonitorRole: (args: unknown) => {
+      workspaceConfig: {
+        removeWorkspaceMonitorRole: (args: unknown) => {
           sheetApiCalls.push(args);
           return Effect.succeed({});
         },
@@ -2149,30 +2114,33 @@ describe("DispatchService", () => {
         makeInteractionUpdateBotClient(updateCalls),
         sheetApisClient,
         (service) =>
-          service.serverRemoveMonitorRole({
+          service.workspaceRemoveMonitorRole({
             ...commandBase,
             dispatchRequestId: "dispatch-server-remove-monitor-role",
-            guildId: "guild-1",
+            workspaceId: "workspace-1",
             roleId: "role-1",
-          } satisfies ServerRemoveMonitorRoleDispatchPayload),
+          } satisfies WorkspaceRemoveMonitorRoleDispatchPayload),
       ),
     );
 
-    expect(result).toEqual({ guildId: "guild-1", roleId: "role-1" });
-    expect(sheetApiCalls).toEqual([{ payload: { guildId: "guild-1", roleId: "role-1" } }]);
+    expect(result).toEqual({ workspaceId: "workspace-1", roleId: "role-1" });
+    expect(sheetApiCalls).toEqual([{ payload: { workspaceId: "workspace-1", roleId: "role-1" } }]);
     expect(updateCalls[0]?.payload).toMatchObject({
-      embeds: [{ description: "<@&role-1> is no longer a monitor role for Guild One" }],
+      embeds: [{ description: "@role:role-1 is no longer a monitor role for Workspace One" }],
     });
   });
 
   it("sets the server sheet id", async () => {
-    const updateCalls: Array<{ readonly interactionToken: string; readonly payload: unknown }> = [];
+    const updateCalls: Array<{
+      readonly interactionResponseToken: string;
+      readonly payload: unknown;
+    }> = [];
     const sheetApiCalls: Array<unknown> = [];
     const sheetApisClient = makeSheetApisClient({
-      guildConfig: {
-        upsertGuildConfig: (args: unknown) => {
+      workspaceConfig: {
+        upsertWorkspaceConfig: (args: unknown) => {
           sheetApiCalls.push(args);
-          return Effect.succeed(makeGuildConfig({ sheetId: Option.some("sheet-2") }));
+          return Effect.succeed(makeWorkspaceConfig({ sheetId: Option.some("sheet-2") }));
         },
       },
     });
@@ -2182,32 +2150,35 @@ describe("DispatchService", () => {
         makeInteractionUpdateBotClient(updateCalls),
         sheetApisClient,
         (service) =>
-          service.serverSetSheet({
+          service.workspaceSetSheet({
             ...commandBase,
             dispatchRequestId: "dispatch-server-set-sheet",
-            guildId: "guild-1",
+            workspaceId: "workspace-1",
             sheetId: "sheet-2",
-          } satisfies ServerSetSheetDispatchPayload),
+          } satisfies WorkspaceSetSheetDispatchPayload),
       ),
     );
 
-    expect(result).toEqual({ guildId: "guild-1", sheetId: "sheet-2" });
+    expect(result).toEqual({ workspaceId: "workspace-1", sheetId: "sheet-2" });
     expect(sheetApiCalls).toEqual([
-      { payload: { guildId: "guild-1", config: { sheetId: "sheet-2" } } },
+      { payload: { workspaceId: "workspace-1", config: { sheetId: "sheet-2" } } },
     ]);
     expect(updateCalls[0]?.payload).toMatchObject({
-      embeds: [{ description: "Sheet id for Guild One is now set to sheet-2" }],
+      embeds: [{ description: "Sheet id for Workspace One is now set to sheet-2" }],
     });
   });
 
   it("sets server auto check-in", async () => {
-    const updateCalls: Array<{ readonly interactionToken: string; readonly payload: unknown }> = [];
+    const updateCalls: Array<{
+      readonly interactionResponseToken: string;
+      readonly payload: unknown;
+    }> = [];
     const sheetApiCalls: Array<unknown> = [];
     const sheetApisClient = makeSheetApisClient({
-      guildConfig: {
-        upsertGuildConfig: (args: unknown) => {
+      workspaceConfig: {
+        upsertWorkspaceConfig: (args: unknown) => {
           sheetApiCalls.push(args);
-          return Effect.succeed(makeGuildConfig({ autoCheckin: Option.some(false) }));
+          return Effect.succeed(makeWorkspaceConfig({ autoCheckin: Option.some(false) }));
         },
       },
     });
@@ -2217,26 +2188,29 @@ describe("DispatchService", () => {
         makeInteractionUpdateBotClient(updateCalls),
         sheetApisClient,
         (service) =>
-          service.serverSetAutoCheckin({
+          service.workspaceSetAutoCheckin({
             ...commandBase,
             dispatchRequestId: "dispatch-server-set-auto-checkin",
-            guildId: "guild-1",
+            workspaceId: "workspace-1",
             autoCheckin: false,
-          } satisfies ServerSetAutoCheckinDispatchPayload),
+          } satisfies WorkspaceSetAutoCheckinDispatchPayload),
       ),
     );
 
-    expect(result).toEqual({ guildId: "guild-1", autoCheckin: false });
+    expect(result).toEqual({ workspaceId: "workspace-1", autoCheckin: false });
     expect(sheetApiCalls).toEqual([
-      { payload: { guildId: "guild-1", config: { autoCheckin: false } } },
+      { payload: { workspaceId: "workspace-1", config: { autoCheckin: false } } },
     ]);
     expect(updateCalls[0]?.payload).toMatchObject({
-      embeds: [{ description: "Auto check-in for Guild One is now disabled." }],
+      embeds: [{ description: "Auto check-in for Workspace One is now disabled." }],
     });
   });
 
   it("formats a user's team list", async () => {
-    const updateCalls: Array<{ readonly interactionToken: string; readonly payload: unknown }> = [];
+    const updateCalls: Array<{
+      readonly interactionResponseToken: string;
+      readonly payload: unknown;
+    }> = [];
     const sheetApiCalls: Array<unknown> = [];
     const sheetApisClient = makeSheetApisClient({
       player: {
@@ -2268,15 +2242,15 @@ describe("DispatchService", () => {
           service.teamList({
             ...commandBase,
             dispatchRequestId: "dispatch-team-list",
-            guildId: "guild-1",
+            workspaceId: "workspace-1",
             targetUserId: "user-1",
             targetUsername: "Alice",
           } satisfies TeamListDispatchPayload),
       ),
     );
 
-    expect(result).toEqual({ guildId: "guild-1", targetUserId: "user-1", teamCount: 1 });
-    expect(sheetApiCalls).toEqual([{ query: { guildId: "guild-1", ids: ["user-1"] } }]);
+    expect(result).toEqual({ workspaceId: "workspace-1", targetUserId: "user-1", teamCount: 1 });
+    expect(sheetApiCalls).toEqual([{ query: { workspaceId: "workspace-1", ids: ["user-1"] } }]);
     expect(updateCalls[0]?.payload).toMatchObject({
       embeds: [
         {
@@ -2293,7 +2267,10 @@ describe("DispatchService", () => {
   });
 
   it("formats a user's schedule list", async () => {
-    const updateCalls: Array<{ readonly interactionToken: string; readonly payload: unknown }> = [];
+    const updateCalls: Array<{
+      readonly interactionResponseToken: string;
+      readonly payload: unknown;
+    }> = [];
     const sheetApiCalls: Array<unknown> = [];
     const sheetApisClient = makeSheetApisClient({
       schedule: {
@@ -2319,7 +2296,7 @@ describe("DispatchService", () => {
           service.scheduleList({
             ...commandBase,
             dispatchRequestId: "dispatch-schedule-list",
-            guildId: "guild-1",
+            workspaceId: "workspace-1",
             day: 2,
             targetUserId: "user-1",
             targetUsername: "Alice",
@@ -2328,13 +2305,13 @@ describe("DispatchService", () => {
     );
 
     expect(result).toEqual({
-      guildId: "guild-1",
+      workspaceId: "workspace-1",
       day: 2,
       targetUserId: "user-1",
       invisible: false,
     });
     expect(sheetApiCalls).toEqual([
-      { query: { guildId: "guild-1", day: 2, accountId: "user-1", view: "filler" } },
+      { query: { workspaceId: "workspace-1", day: 2, accountId: "user-1", view: "filler" } },
     ]);
     expect(updateCalls[0]?.payload).toMatchObject({
       embeds: [
@@ -2347,8 +2324,7 @@ describe("DispatchService", () => {
           ],
         },
         {
-          description:
-            "📅 **Preview**: View your schedule online at <https://schedule.theerapakg.moe/>",
+          description: "📅 Preview: View your schedule online at https://schedule.theerapakg.moe/",
         },
       ],
     });
@@ -2357,24 +2333,24 @@ describe("DispatchService", () => {
   it("updates screenshot responses with a png file payload", async () => {
     const screenshot = new Uint8Array([1, 2, 3, 4]);
     const fileCalls: Array<{
-      readonly interactionToken: string;
+      readonly interactionResponseToken: string;
       readonly payload: unknown;
       readonly files: unknown;
     }> = [];
     const botClient = {
       updateOriginalInteractionResponseWithFiles: (
-        interactionToken: string,
+        interactionResponseToken: string,
         payload: unknown,
         files: unknown,
       ) => {
-        fileCalls.push({ interactionToken, payload, files });
-        return Effect.succeed({ id: "message-1", channel_id: "channel-1" });
+        fileCalls.push({ interactionResponseToken, payload, files });
+        return Effect.succeed({ id: "message-1", conversation_id: "conversation-1" });
       },
     } as never;
     const sheetApisClient = makeSheetApisClient({
       screenshot: {
         getScreenshot: ({ query }: { readonly query: unknown }) => {
-          expect(query).toEqual({ guildId: "guild-1", channel: "main", day: 2 });
+          expect(query).toEqual({ workspaceId: "workspace-1", conversationName: "main", day: 2 });
           return Effect.succeed(screenshot);
         },
       },
@@ -2383,23 +2359,15 @@ describe("DispatchService", () => {
     const result = await Effect.runPromise(runScreenshot(botClient, sheetApisClient));
 
     expect(result).toEqual({
-      guildId: "guild-1",
-      channelName: "main",
+      workspaceId: "workspace-1",
+      conversationName: "main",
       day: 2,
       byteLength: 4,
     });
     expect(fileCalls).toEqual([
       {
-        interactionToken: "interaction-token",
-        payload: {
-          attachments: [
-            {
-              id: "0",
-              description: "Day 2's schedule screenshot",
-              filename: "screenshot.png",
-            },
-          ],
-        },
+        interactionResponseToken: "interaction-token",
+        payload: {},
         files: [
           {
             name: "screenshot.png",
@@ -2414,7 +2382,7 @@ describe("DispatchService", () => {
 
 const runKickout = (
   payload: KickoutDispatchPayload,
-  botClient: typeof IngressBotClient.Service,
+  botClient: typeof ClientDeliveryClient.Service,
   sheetApisClient: typeof SheetApisClient.Service,
   clockTime = Date.parse("2026-05-13T00:00:00.000Z"),
 ) =>
@@ -2424,7 +2392,7 @@ const runKickout = (
       const service = yield* DispatchService.make;
       return yield* service.kickout(payload, requester);
     }).pipe(
-      Effect.provideService(IngressBotClient, botClient),
+      Effect.provideService(ClientDeliveryClient, botClient),
       Effect.provideService(SheetApisClient, sheetApisClient),
       Effect.provide(TestClock.layer()),
     ),

@@ -1,10 +1,10 @@
 import { schema } from "effect-zero";
 import {
-  configGuild,
-  configGuildChannel,
-  configGuildFeatureFlag,
-  configGuildManagerRole,
-  configGuildUpdateAnnouncementDelivery,
+  configWorkspace,
+  configWorkspaceConversation,
+  configWorkspaceFeatureFlag,
+  configWorkspaceMonitorRole,
+  configWorkspaceUpdateAnnouncementDelivery,
   messageCheckin,
   messageCheckinMember,
   messageRoomOrder,
@@ -15,11 +15,11 @@ import {
 
 export default schema(
   {
-    configGuild,
-    configGuildChannel,
-    configGuildFeatureFlag,
-    configGuildManagerRole,
-    configGuildUpdateAnnouncementDelivery,
+    configWorkspace,
+    configWorkspaceConversation,
+    configWorkspaceFeatureFlag,
+    configWorkspaceMonitorRole,
+    configWorkspaceUpdateAnnouncementDelivery,
     messageCheckin,
     messageCheckinMember,
     messageRoomOrder,

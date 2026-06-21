@@ -1,35 +1,18 @@
-import { InteractionsRegistry } from "dfx/gateway";
-import {
-  ApplicationIntegrationType,
-  InteractionContextType,
-  MessageFlags,
-} from "discord-api-types/v10";
-import { Ix } from "dfx/index";
-import { Effect, Layer, Option, pipe } from "effect";
-import { discordGatewayLayer } from "../discord/gateway";
+// fallow-ignore-file code-duplication
+import { MessageFlags } from "discord-api-types/v10";
+import { Effect } from "effect";
 import { CommandHelper, InteractionResponse } from "dfx-discord-utils/utils";
-import { Interaction } from "dfx-discord-utils/utils";
-import { InteractionToken } from "dfx-discord-utils/utils";
 import { SheetWorkflowsClient, SheetWorkflowsRequestContext } from "../services";
-import { discordApplicationLayer } from "../discord/application";
-import { interactionDeadlineEpochMs } from "../utils/interactionDeadline";
+import {
+  makeDispatchBase,
+  optionalPayloadField,
+  resolveConversationTarget,
+} from "../utils/commandHelpers";
+import {
+  makeSingleSubCommand,
+  registerGlobalCommandLayer,
+} from "../utils/registerGlobalCommandLayer";
 import { runSheetWorkflowsDispatch } from "../utils/sheetWorkflowsDispatch";
-
-const getInteractionGuildId = Effect.gen(function* () {
-  const interactionGuild = yield* Interaction.guild();
-  return pipe(
-    interactionGuild,
-    Option.map((guild) => (guild as { id: string }).id),
-  );
-});
-
-const getInteractionChannelId = Effect.gen(function* () {
-  const interactionChannel = yield* Interaction.channel();
-  return pipe(
-    interactionChannel,
-    Option.map((channel) => (channel as { id: string }).id),
-  );
-});
 
 const makeManualSubCommand = Effect.gen(function* () {
   const sheetWorkflowsClient = yield* SheetWorkflowsClient;
@@ -53,45 +36,22 @@ const makeManualSubCommand = Effect.gen(function* () {
       const response = yield* InteractionResponse;
       yield* response.deferReply({ flags: MessageFlags.Ephemeral });
 
-      const serverId = command.optionValueOptional("server_id");
-      const guildId =
-        Option.getOrUndefined(serverId) ?? Option.getOrThrow(yield* getInteractionGuildId);
-
       const channelNameOption = command.optionValueOptional("channel_name");
-      const interactionChannelId = Option.isSome(channelNameOption)
-        ? undefined
-        : Option.getOrThrow(yield* getInteractionChannelId);
-      const interactionToken = yield* InteractionToken;
-      const interaction = yield* Ix.Interaction;
+      const target = yield* resolveConversationTarget(
+        command.optionValueOptional("server_id"),
+        channelNameOption,
+      );
+      const base = yield* makeDispatchBase;
       yield* runSheetWorkflowsDispatch(
         response,
         "the room order",
         SheetWorkflowsRequestContext.asInteractionUser(() =>
           sheetWorkflowsClient.get().dispatch.roomOrder({
             payload: {
-              dispatchRequestId: `discord-interaction:${interaction.id}`,
-              guildId,
-              interactionToken: interactionToken.token,
-              interactionDeadlineEpochMs: interactionDeadlineEpochMs(interaction.id),
-              ...(Option.isSome(channelNameOption)
-                ? { channelName: channelNameOption.value }
-                : {
-                    channelId: interactionChannelId,
-                  }),
-              ...pipe(
-                command.optionValueOptional("hour"),
-                Option.match({
-                  onSome: (hour) => ({ hour }),
-                  onNone: () => ({}),
-                }),
-              ),
-              ...pipe(
-                command.optionValueOptional("heal"),
-                Option.match({
-                  onSome: (healNeeded) => ({ healNeeded }),
-                  onNone: () => ({}),
-                }),
-              ),
+              ...base,
+              ...target,
+              ...optionalPayloadField("hour", command.optionValueOptional("hour")),
+              ...optionalPayloadField("healNeeded", command.optionValueOptional("heal")),
             },
           }),
         )(),
@@ -100,46 +60,11 @@ const makeManualSubCommand = Effect.gen(function* () {
   );
 });
 
-const makeRoomOrderCommand = Effect.gen(function* () {
-  const manualSubCommand = yield* makeManualSubCommand;
-
-  return yield* CommandHelper.makeCommand(
-    (builder) =>
-      builder
-        .setName("room_order")
-        .setDescription("Room order commands")
-        .setIntegrationTypes(
-          ApplicationIntegrationType.GuildInstall,
-          ApplicationIntegrationType.UserInstall,
-        )
-        .setContexts(
-          InteractionContextType.BotDM,
-          InteractionContextType.Guild,
-          InteractionContextType.PrivateChannel,
-        )
-        .addSubcommand(() => manualSubCommand.data),
-    (command) =>
-      command.subCommands({
-        manual: manualSubCommand.handler,
-      }),
-  );
+const makeRoomOrderCommand = makeSingleSubCommand({
+  commandName: "room_order",
+  commandDescription: "Room order commands",
+  subCommandName: "manual",
+  makeSubCommand: makeManualSubCommand,
 });
 
-const makeGlobalRoomOrderCommand = Effect.gen(function* () {
-  const roomOrderCommand = yield* makeRoomOrderCommand;
-
-  return CommandHelper.makeGlobalCommand(roomOrderCommand.data, roomOrderCommand.handler as never);
-});
-
-export const roomOrderCommandLayer = Layer.effectDiscard(
-  Effect.gen(function* () {
-    const registry = yield* InteractionsRegistry;
-    const command = yield* makeGlobalRoomOrderCommand;
-
-    yield* registry.register(Ix.builder.add(command).catchAllCause(Effect.log));
-  }),
-).pipe(
-  Layer.provide(
-    Layer.mergeAll(discordGatewayLayer, discordApplicationLayer, SheetWorkflowsClient.layer),
-  ),
-);
+export const roomOrderCommandLayer = registerGlobalCommandLayer(makeRoomOrderCommand);

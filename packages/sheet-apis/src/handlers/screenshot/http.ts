@@ -1,42 +1,33 @@
-import { Effect, Layer, Option } from "effect";
+import { Effect, Layer } from "effect";
 import { ScreenshotRpcs } from "sheet-ingress-api/sheet-apis-rpc";
-import { withCurrentGuildAuthFromQuery } from "@/handlers/shared/guildAuthorization";
-import { AuthorizationService, ScreenshotService, GuildConfigService } from "@/services";
-
-const getSheetIdFromGuildId = Effect.fn("screenshot.getSheetIdFromGuildId")(function* (
-  guildId: string,
-  guildConfigService: typeof GuildConfigService.Service,
-) {
-  const guildConfig = yield* guildConfigService.getGuildConfig(guildId);
-
-  if (Option.isNone(guildConfig)) {
-    return yield* Effect.die(new Error(`Guild config not found for guildId: ${guildId}`));
-  }
-
-  if (Option.isNone(guildConfig.value.sheetId)) {
-    return yield* Effect.die(new Error(`sheetId not found for guildId: ${guildId}`));
-  }
-
-  return guildConfig.value.sheetId.value;
-});
+import { withCurrentWorkspaceAuthFromQuery } from "@/handlers/shared/workspaceAuthorization";
+import { getSheetIdFromWorkspaceId } from "@/handlers/shared/workspaceConfig";
+import { AuthorizationService, ScreenshotService, WorkspaceConfigService } from "@/services";
 
 export const screenshotLayer = ScreenshotRpcs.toLayer(
   Effect.gen(function* () {
     const authorizationService = yield* AuthorizationService;
     const screenshotService = yield* ScreenshotService;
-    const guildConfigService = yield* GuildConfigService;
-    const withQueryGuildAuth = withCurrentGuildAuthFromQuery(authorizationService);
+    const workspaceConfigService = yield* WorkspaceConfigService;
+    const withQueryWorkspaceAuth = withCurrentWorkspaceAuthFromQuery(authorizationService);
 
     return {
-      "screenshot.getScreenshot": withQueryGuildAuth(
+      "screenshot.getScreenshot": withQueryWorkspaceAuth(
         Effect.fnUntraced(function* ({ query }) {
-          yield* authorizationService.requireMonitorGuild(query.guildId);
-          const sheetId = yield* getSheetIdFromGuildId(query.guildId, guildConfigService);
-          return yield* screenshotService.getScreenshot(sheetId, query.channel, query.day);
+          yield* authorizationService.requireMonitorWorkspace(query.workspaceId);
+          const sheetId = yield* getSheetIdFromWorkspaceId(
+            query.workspaceId,
+            workspaceConfigService,
+          );
+          return yield* screenshotService.getScreenshot(sheetId, query.conversationName, query.day);
         }),
       ),
     };
   }),
 ).pipe(
-  Layer.provide([AuthorizationService.layer, ScreenshotService.layer, GuildConfigService.layer]),
+  Layer.provide([
+    AuthorizationService.layer,
+    ScreenshotService.layer,
+    WorkspaceConfigService.layer,
+  ]),
 );

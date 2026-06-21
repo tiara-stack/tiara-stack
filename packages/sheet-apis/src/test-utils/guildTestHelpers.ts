@@ -4,14 +4,14 @@ import { CacheNotFoundError } from "dfx-discord-utils/discord/schema";
 import { Effect, HashSet, Redacted } from "effect";
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
 import type { SheetAuthOAuthScope } from "sheet-ingress-api/schemas/permissions";
-import { GuildConfigService } from "@/services";
+import { WorkspaceConfigService } from "@/services";
 
 export type TestPermission =
   | "service"
   | "app_owner"
-  | `member_guild:${string}`
-  | `monitor_guild:${string}`
-  | `manage_guild:${string}`
+  | `member_workspace:${string}`
+  | `monitor_workspace:${string}`
+  | `manage_workspace:${string}`
   | `account:discord:${string}`;
 
 export const makeUser = (
@@ -33,32 +33,32 @@ export const withUser =
   (effect: Effect.Effect<A, E, R>) =>
     effect.pipe(Effect.provideService(SheetAuthUser, makeUser(permissions, identity)));
 
-export const liveGuildServices =
+export const liveWorkspaceServices =
   (options?: {
     readonly memberAccountId?: string;
-    readonly memberGuildId?: string;
+    readonly memberWorkspaceId?: string;
     readonly memberRoles?: ReadonlyArray<string>;
     readonly monitorRoleIds?: ReadonlyArray<string>;
   }) =>
   <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     effect.pipe(
       Effect.provideService(MembersApiCacheView, {
-        get: (guildId: string, accountId: string) =>
+        get: (workspaceId: string, accountId: string) =>
           options?.memberAccountId === accountId &&
-          guildId === (options?.memberGuildId ?? "guild-1")
+          workspaceId === (options?.memberWorkspaceId ?? "guild-1")
             ? Effect.succeed({
                 roles: [...(options?.memberRoles ?? [])],
                 user: { id: accountId },
               })
             : Effect.fail(new CacheNotFoundError({ message: "not found" })),
       } as unknown as typeof MembersApiCacheView.Service),
-      Effect.provideService(GuildConfigService, {
-        getGuildMonitorRoles: () =>
+      Effect.provideService(WorkspaceConfigService, {
+        getWorkspaceMonitorRoles: () =>
           Effect.succeed((options?.monitorRoleIds ?? []).map((roleId) => ({ roleId }))),
       } as unknown as Pick<
-        typeof GuildConfigService.Service,
-        "getGuildMonitorRoles"
-      > as typeof GuildConfigService.Service),
+        typeof WorkspaceConfigService.Service,
+        "getWorkspaceMonitorRoles"
+      > as typeof WorkspaceConfigService.Service),
       Effect.provideService(RolesApiCacheView, {
         getForParent: () => Effect.succeed(new Map()),
       } as unknown as typeof RolesApiCacheView.Service),

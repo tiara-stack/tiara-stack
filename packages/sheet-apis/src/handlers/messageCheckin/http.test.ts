@@ -1,5 +1,6 @@
+// fallow-ignore-file code-duplication
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Option, Context } from "effect";
+import { Effect, Option } from "effect";
 import {
   LEGACY_MESSAGE_CHECKIN_ACCESS_ERROR,
   requireCheckinUpsertAccess,
@@ -10,31 +11,36 @@ import {
 } from "./http";
 import { Unauthorized } from "typhoon-core/error";
 import { MessageCheckin, MessageCheckinMember } from "sheet-ingress-api/schemas/messageCheckin";
-import { AuthorizationService, MessageCheckinService } from "@/services";
-import { getFailure, liveGuildServices, withUser } from "@/test-utils/guildTestHelpers";
+import { MessageCheckinService } from "@/services";
+import { getFailure, liveWorkspaceServices, withUser } from "@/test-utils/guildTestHelpers";
+import {
+  messageKey,
+  resolveMessageRecordRefs,
+  type MessageRecordOverrides,
+  withAuthorization,
+} from "../messageAuthTestHelpers";
 
 type MessageCheckinAccessService = Pick<
   typeof MessageCheckinService.Service,
   "getMessageCheckinData" | "getMessageCheckinMembers"
 >;
-type AuthorizationServiceApi = Context.Service.Shape<typeof AuthorizationService>;
 
-const makeMessageCheckinRecord = (overrides?: {
-  readonly guildId?: string | null;
-  readonly messageChannelId?: string | null;
-}) => {
-  const guildId = overrides && "guildId" in overrides ? overrides.guildId : "guild-1";
-  const messageChannelId =
-    overrides && "messageChannelId" in overrides ? overrides.messageChannelId : "message-channel-1";
+const makeMessageCheckinRecord = (overrides?: MessageRecordOverrides) => {
+  const refs = resolveMessageRecordRefs(overrides, {
+    workspaceId: "guild-1",
+    conversationId: "message-channel-1",
+  });
 
   return new MessageCheckin({
+    clientPlatform: "discord",
+    clientId: "discord-main",
     messageId: "message-1",
-    initialMessage: "check in",
+    initialMessage: [{ type: "text", text: "check in" }],
     hour: 1,
-    channelId: "channel-1",
+    runningConversationId: "channel-1",
     roleId: Option.none(),
-    guildId: Option.fromNullishOr(guildId),
-    messageChannelId: Option.fromNullishOr(messageChannelId),
+    workspaceId: Option.fromNullishOr(refs.workspaceId),
+    conversationId: Option.fromNullishOr(refs.conversationId),
     createdByUserId: Option.some("creator-1"),
     createdAt: Option.none(),
     updatedAt: Option.none(),
@@ -44,6 +50,8 @@ const makeMessageCheckinRecord = (overrides?: {
 
 const makeMessageCheckinMember = (memberId: string) =>
   new MessageCheckinMember({
+    clientPlatform: "discord",
+    clientId: "discord-main",
     messageId: "message-1",
     memberId,
     checkinAt: Option.none(),
@@ -62,25 +70,18 @@ const makeMessageCheckinService = (options?: {
     getMessageCheckinMembers: () => Effect.succeed([...(options?.members ?? [])]),
   }) satisfies MessageCheckinAccessService;
 
-const withAuthorization = Effect.fnUntraced(function* <A, E, R>(
-  f: (authorizationService: AuthorizationServiceApi) => Effect.Effect<A, E, R>,
-) {
-  const authorizationService = yield* AuthorizationService.make;
-  return yield* f(authorizationService);
-});
-
 describe("messageCheckin legacy access", () => {
   it.effect(
     "denies legacy reads for service users",
     Effect.fnUntraced(function* () {
       const service = makeMessageCheckinService({
-        record: makeMessageCheckinRecord({ guildId: null, messageChannelId: null }),
+        record: makeMessageCheckinRecord({ workspaceId: null, conversationId: null }),
       });
 
       const error = yield* getFailure(
         withAuthorization((authorizationService) =>
-          requireMessageCheckinReadAccess(authorizationService, service, "message-1"),
-        ).pipe(withUser(["service"]), liveGuildServices()),
+          requireMessageCheckinReadAccess(authorizationService, service, messageKey),
+        ).pipe(withUser(["service"]), liveWorkspaceServices()),
       );
 
       expect(error).toBeInstanceOf(Unauthorized);
@@ -92,15 +93,15 @@ describe("messageCheckin legacy access", () => {
     "denies partially legacy reads for regular users",
     Effect.fnUntraced(function* () {
       const service = makeMessageCheckinService({
-        record: makeMessageCheckinRecord({ guildId: "guild-1", messageChannelId: null }),
+        record: makeMessageCheckinRecord({ workspaceId: "guild-1", conversationId: null }),
       });
 
       const error = yield* getFailure(
         withAuthorization((authorizationService) =>
-          requireMessageCheckinReadAccess(authorizationService, service, "message-1"),
+          requireMessageCheckinReadAccess(authorizationService, service, messageKey),
         ).pipe(
           withUser([], { accountId: "discord-account-1", userId: "user-1" }),
-          liveGuildServices(),
+          liveWorkspaceServices(),
         ),
       );
 
@@ -113,13 +114,13 @@ describe("messageCheckin legacy access", () => {
     "denies legacy member reads for service users",
     Effect.fnUntraced(function* () {
       const service = makeMessageCheckinService({
-        record: makeMessageCheckinRecord({ guildId: null, messageChannelId: null }),
+        record: makeMessageCheckinRecord({ workspaceId: null, conversationId: null }),
       });
 
       const error = yield* getFailure(
         withAuthorization((authorizationService) =>
-          requireMessageCheckinMembersReadAccess(authorizationService, service, "message-1"),
-        ).pipe(withUser(["service"]), liveGuildServices()),
+          requireMessageCheckinMembersReadAccess(authorizationService, service, messageKey),
+        ).pipe(withUser(["service"]), liveWorkspaceServices()),
       );
 
       expect(error).toBeInstanceOf(Unauthorized);
@@ -132,12 +133,12 @@ describe("messageCheckin legacy access", () => {
     Effect.fnUntraced(function* () {
       let mutationCalls = 0;
       const service = makeMessageCheckinService({
-        record: makeMessageCheckinRecord({ guildId: null, messageChannelId: null }),
+        record: makeMessageCheckinRecord({ workspaceId: null, conversationId: null }),
       });
 
       const error = yield* getFailure(
         withAuthorization((authorizationService) =>
-          requireMessageCheckinMonitorMutationAccess(authorizationService, service, "message-1"),
+          requireMessageCheckinMonitorMutationAccess(authorizationService, service, messageKey),
         ).pipe(
           Effect.andThen(
             Effect.sync(() => {
@@ -145,7 +146,7 @@ describe("messageCheckin legacy access", () => {
             }),
           ),
           withUser(["service"]),
-          liveGuildServices(),
+          liveWorkspaceServices(),
         ),
       );
 
@@ -160,7 +161,7 @@ describe("messageCheckin legacy access", () => {
     Effect.fnUntraced(function* () {
       let mutationCalls = 0;
       const service = makeMessageCheckinService({
-        record: makeMessageCheckinRecord({ guildId: null, messageChannelId: null }),
+        record: makeMessageCheckinRecord({ workspaceId: null, conversationId: null }),
       });
 
       const error = yield* getFailure(
@@ -168,7 +169,7 @@ describe("messageCheckin legacy access", () => {
           requireMessageCheckinParticipantMutationAccess(
             authorizationService,
             service,
-            "message-1",
+            messageKey,
             "discord-account-1",
           ),
         ).pipe(
@@ -178,7 +179,7 @@ describe("messageCheckin legacy access", () => {
             }),
           ),
           withUser(["service"]),
-          liveGuildServices(),
+          liveWorkspaceServices(),
         ),
       );
 
@@ -195,8 +196,8 @@ describe("messageCheckin legacy access", () => {
 
       const error = yield* getFailure(
         withAuthorization((authorizationService) =>
-          requireCheckinUpsertAccess(authorizationService, service, "message-1"),
-        ).pipe(withUser(["service"]), liveGuildServices()),
+          requireCheckinUpsertAccess(authorizationService, service, messageKey),
+        ).pipe(withUser(["service"]), liveWorkspaceServices()),
       );
 
       expect(error).toBeInstanceOf(Unauthorized);
@@ -211,12 +212,12 @@ describe("messageCheckin legacy access", () => {
         requireCheckinUpsertAccess(
           authorizationService,
           makeMessageCheckinService(),
-          "message-1",
+          messageKey,
           "guild-1",
         ),
       ).pipe(
         withUser([], { accountId: "discord-account-1", userId: "user-1" }),
-        liveGuildServices({
+        liveWorkspaceServices({
           memberAccountId: "discord-account-1",
           memberRoles: ["monitor-role"],
           monitorRoleIds: ["monitor-role"],
@@ -234,11 +235,11 @@ describe("messageCheckin legacy access", () => {
           makeMessageCheckinService({
             record: makeMessageCheckinRecord(),
           }),
-          "message-1",
+          messageKey,
         ),
       ).pipe(
         withUser([], { accountId: "discord-account-1", userId: "user-1" }),
-        liveGuildServices({
+        liveWorkspaceServices({
           memberAccountId: "discord-account-1",
           memberRoles: ["monitor-role"],
           monitorRoleIds: ["monitor-role"],
@@ -258,11 +259,11 @@ describe("messageCheckin legacy access", () => {
           makeMessageCheckinService({
             record: makeMessageCheckinRecord(),
           }),
-          "message-1",
+          messageKey,
         ),
       ).pipe(
         withUser([], { accountId: "discord-account-1", userId: "user-1" }),
-        liveGuildServices({
+        liveWorkspaceServices({
           memberAccountId: "discord-account-1",
           memberRoles: ["monitor-role"],
           monitorRoleIds: ["monitor-role"],
@@ -284,7 +285,7 @@ describe("messageCheckin legacy access", () => {
               makeMessageCheckinMember("discord-account-2"),
             ],
           }),
-          "message-1",
+          messageKey,
           "discord-account-1",
         ),
       ).pipe(
@@ -292,7 +293,7 @@ describe("messageCheckin legacy access", () => {
           accountId: "discord-account-1",
           userId: "user-1",
         }),
-        liveGuildServices({
+        liveWorkspaceServices({
           memberAccountId: "discord-account-1",
           memberRoles: [],
           monitorRoleIds: ["monitor-role"],
@@ -314,11 +315,11 @@ describe("messageCheckin legacy access", () => {
               makeMessageCheckinMember("discord-account-2"),
             ],
           }),
-          "message-1",
+          messageKey,
         ),
       ).pipe(
         withUser([], { accountId: "discord-account-1", userId: "user-1" }),
-        liveGuildServices({
+        liveWorkspaceServices({
           memberAccountId: "discord-account-1",
           memberRoles: [],
           monitorRoleIds: ["monitor-role"],

@@ -6,14 +6,14 @@ import {
   CheckinDispatchPayload,
   DispatchAcceptedResult,
   BotCommandDispatchErrorSchemas,
-  ChannelListConfigDispatchPayload,
-  ChannelSetDispatchPayload,
-  ChannelUnsetDispatchPayload,
+  ConversationListConfigDispatchPayload,
+  ConversationSetDispatchPayload,
+  ConversationUnsetDispatchPayload,
   CheckinHandleButtonErrorSchemas,
   CheckinHandleButtonPayload,
   DispatchRoomOrderButtonMethods,
-  GuildWelcomeDispatchErrorSchemas,
-  GuildWelcomeDispatchPayload,
+  WorkspaceWelcomeDispatchErrorSchemas,
+  WorkspaceWelcomeDispatchPayload,
   KickoutDispatchErrorSchemas,
   KickoutDispatchPayload,
   RoomOrderDispatchErrorSchemas,
@@ -24,13 +24,13 @@ import {
   RoomOrderPreviousButtonPayload,
   RoomOrderSendButtonPayload,
   ScheduleListDispatchPayload,
-  ServiceGuildFeatureFlagDispatchPayload,
+  ServiceWorkspaceFeatureFlagDispatchPayload,
   ServiceStatusDispatchPayload,
-  ServerAddMonitorRoleDispatchPayload,
-  ServerListConfigDispatchPayload,
-  ServerRemoveMonitorRoleDispatchPayload,
-  ServerSetAutoCheckinDispatchPayload,
-  ServerSetSheetDispatchPayload,
+  WorkspaceAddMonitorRoleDispatchPayload,
+  WorkspaceListConfigDispatchPayload,
+  WorkspaceRemoveMonitorRoleDispatchPayload,
+  WorkspaceSetAutoCheckinDispatchPayload,
+  WorkspaceSetSheetDispatchPayload,
   ScreenshotDispatchPayload,
   SlotButtonDispatchPayload,
   SlotDispatchErrorSchemas,
@@ -107,10 +107,10 @@ export class DispatchApi extends HttpApiGroup.make("dispatch")
     }),
   )
   .add(
-    HttpApiEndpoint.post("guildWelcome", "/dispatch/guild/welcome", {
-      payload: GuildWelcomeDispatchPayload,
+    HttpApiEndpoint.post("workspaceWelcome", "/dispatch/workspace/welcome", {
+      payload: WorkspaceWelcomeDispatchPayload,
       success: DispatchAcceptedResult,
-      error: GuildWelcomeDispatchErrorSchemas,
+      error: WorkspaceWelcomeDispatchErrorSchemas,
     }),
   )
   .add(
@@ -121,75 +121,75 @@ export class DispatchApi extends HttpApiGroup.make("dispatch")
     }),
   )
   .add(
-    HttpApiEndpoint.post("serviceAddGuildFeatureFlag", "/dispatch/service/feature-flags/add", {
-      payload: ServiceGuildFeatureFlagDispatchPayload,
+    HttpApiEndpoint.post("serviceAddWorkspaceFeatureFlag", "/dispatch/service/feature-flags/add", {
+      payload: ServiceWorkspaceFeatureFlagDispatchPayload,
       success: DispatchAcceptedResult,
       error: BotCommandDispatchErrorSchemas,
     }),
   )
   .add(
     HttpApiEndpoint.post(
-      "serviceRemoveGuildFeatureFlag",
+      "serviceRemoveWorkspaceFeatureFlag",
       "/dispatch/service/feature-flags/remove",
       {
-        payload: ServiceGuildFeatureFlagDispatchPayload,
+        payload: ServiceWorkspaceFeatureFlagDispatchPayload,
         success: DispatchAcceptedResult,
         error: BotCommandDispatchErrorSchemas,
       },
     ),
   )
   .add(
-    HttpApiEndpoint.post("channelListConfig", "/dispatch/channel/list-config", {
-      payload: ChannelListConfigDispatchPayload,
+    HttpApiEndpoint.post("conversationListConfig", "/dispatch/conversation/list-config", {
+      payload: ConversationListConfigDispatchPayload,
       success: DispatchAcceptedResult,
       error: BotCommandDispatchErrorSchemas,
     }),
   )
   .add(
-    HttpApiEndpoint.post("channelSet", "/dispatch/channel/set", {
-      payload: ChannelSetDispatchPayload,
+    HttpApiEndpoint.post("conversationSet", "/dispatch/conversation/set", {
+      payload: ConversationSetDispatchPayload,
       success: DispatchAcceptedResult,
       error: BotCommandDispatchErrorSchemas,
     }),
   )
   .add(
-    HttpApiEndpoint.post("channelUnset", "/dispatch/channel/unset", {
-      payload: ChannelUnsetDispatchPayload,
+    HttpApiEndpoint.post("conversationUnset", "/dispatch/conversation/unset", {
+      payload: ConversationUnsetDispatchPayload,
       success: DispatchAcceptedResult,
       error: BotCommandDispatchErrorSchemas,
     }),
   )
   .add(
-    HttpApiEndpoint.post("serverListConfig", "/dispatch/server/list-config", {
-      payload: ServerListConfigDispatchPayload,
+    HttpApiEndpoint.post("workspaceListConfig", "/dispatch/workspace/list-config", {
+      payload: WorkspaceListConfigDispatchPayload,
       success: DispatchAcceptedResult,
       error: BotCommandDispatchErrorSchemas,
     }),
   )
   .add(
-    HttpApiEndpoint.post("serverAddMonitorRole", "/dispatch/server/add/monitor-role", {
-      payload: ServerAddMonitorRoleDispatchPayload,
+    HttpApiEndpoint.post("workspaceAddMonitorRole", "/dispatch/workspace/add/monitor-role", {
+      payload: WorkspaceAddMonitorRoleDispatchPayload,
       success: DispatchAcceptedResult,
       error: BotCommandDispatchErrorSchemas,
     }),
   )
   .add(
-    HttpApiEndpoint.post("serverRemoveMonitorRole", "/dispatch/server/remove/monitor-role", {
-      payload: ServerRemoveMonitorRoleDispatchPayload,
+    HttpApiEndpoint.post("workspaceRemoveMonitorRole", "/dispatch/workspace/remove/monitor-role", {
+      payload: WorkspaceRemoveMonitorRoleDispatchPayload,
       success: DispatchAcceptedResult,
       error: BotCommandDispatchErrorSchemas,
     }),
   )
   .add(
-    HttpApiEndpoint.post("serverSetSheet", "/dispatch/server/set/sheet", {
-      payload: ServerSetSheetDispatchPayload,
+    HttpApiEndpoint.post("workspaceSetSheet", "/dispatch/workspace/set/sheet", {
+      payload: WorkspaceSetSheetDispatchPayload,
       success: DispatchAcceptedResult,
       error: BotCommandDispatchErrorSchemas,
     }),
   )
   .add(
-    HttpApiEndpoint.post("serverSetAutoCheckin", "/dispatch/server/set/auto-checkin", {
-      payload: ServerSetAutoCheckinDispatchPayload,
+    HttpApiEndpoint.post("workspaceSetAutoCheckin", "/dispatch/workspace/set/auto-checkin", {
+      payload: WorkspaceSetAutoCheckinDispatchPayload,
       success: DispatchAcceptedResult,
       error: BotCommandDispatchErrorSchemas,
     }),

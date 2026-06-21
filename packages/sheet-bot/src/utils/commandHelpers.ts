@@ -1,9 +1,11 @@
 import { Ix } from "dfx/index";
 import { Effect, Option, Predicate, pipe } from "effect";
 import { Interaction, InteractionToken } from "dfx-discord-utils/utils";
+import type { NumberOptionBuilder, StringOptionBuilder } from "dfx-discord-utils/utils";
+import { config } from "../config";
 import { interactionDeadlineEpochMs } from "./interactionDeadline";
 
-export type DiscordUserIdentity = {
+type DiscordUserIdentity = {
   readonly id: string;
   readonly username: string;
 };
@@ -22,6 +24,11 @@ const getIdFromUnknown = (value: unknown): Option.Option<string> => {
 
   return Option.none();
 };
+
+const getStringFromUnknown = (value: unknown, key: string): Option.Option<string> =>
+  Predicate.hasProperty(value, key) && Predicate.isString(value[key])
+    ? Option.some(value[key])
+    : Option.none();
 
 export const requireResolvedId = (value: unknown, label: string): Effect.Effect<string, Error> =>
   pipe(
@@ -47,18 +54,29 @@ export const requireNumber = (value: unknown, label: string): Effect.Effect<numb
     ? Effect.succeed(value)
     : Effect.fail(new Error(`${label} must be a number`));
 
-export const toDiscordUserIdentity = (value: unknown): Option.Option<DiscordUserIdentity> => {
-  if (
-    Predicate.hasProperty(value, "id") &&
-    Predicate.isString(value.id) &&
-    Predicate.hasProperty(value, "username") &&
-    Predicate.isString(value.username)
-  ) {
-    return Option.some({ id: value.id, username: value.username });
-  }
+export const serverIdOption = (description: string) => (option: StringOptionBuilder) =>
+  option.setName("server_id").setDescription(description);
 
-  return Option.none();
-};
+export const requiredDayOption = (description: string) => (option: NumberOptionBuilder) =>
+  option.setName("day").setDescription(description).setRequired(true);
+
+export const optionalPayloadField = <const Key extends string, Value>(
+  key: Key,
+  value: Option.Option<Value>,
+): Partial<Record<Key, Value>> =>
+  pipe(
+    value,
+    Option.match({
+      onSome: (resolved) => ({ [key]: resolved }) as Record<Key, Value>,
+      onNone: () => ({}),
+    }),
+  );
+
+const toDiscordUserIdentity = (value: unknown): Option.Option<DiscordUserIdentity> =>
+  Option.all({
+    id: getStringFromUnknown(value, "id"),
+    username: getStringFromUnknown(value, "username"),
+  });
 
 const getInteractionGuildId = Effect.gen(function* () {
   const interactionGuild = yield* Interaction.guild();
@@ -109,7 +127,27 @@ export const resolveChannelId = (channelOption: Option.Option<unknown>) =>
     }),
   );
 
-export const getInteractionUser = Effect.gen(function* () {
+export const resolveConversationTarget = (
+  serverId: Option.Option<string>,
+  conversationName: Option.Option<string>,
+) =>
+  Effect.gen(function* () {
+    const workspaceId = yield* resolveGuildId(serverId);
+
+    if (Option.isSome(conversationName)) {
+      return {
+        workspaceId,
+        conversationName: conversationName.value,
+      };
+    }
+
+    return {
+      workspaceId,
+      conversationId: yield* resolveChannelId(Option.none()),
+    };
+  });
+
+const getInteractionUser = Effect.gen(function* () {
   const interactionUser = yield* Interaction.user();
   return yield* pipe(
     toDiscordUserIdentity(interactionUser),
@@ -120,12 +158,27 @@ export const getInteractionUser = Effect.gen(function* () {
   );
 });
 
+export const resolveTargetUserIdentity = (
+  selectedUser: Option.Option<{ readonly user: unknown }>,
+) =>
+  Effect.gen(function* () {
+    const interactionUser = yield* getInteractionUser;
+
+    return pipe(
+      selectedUser,
+      Option.flatMap(({ user }) => toDiscordUserIdentity(user)),
+      Option.getOrElse(() => interactionUser),
+    );
+  });
+
 export const makeDispatchBase = Effect.gen(function* () {
   const interactionToken = yield* InteractionToken;
   const interaction = yield* Ix.Interaction;
+  const clientId = yield* config.sheetBotClientId;
   return {
+    client: { platform: "discord", clientId },
     dispatchRequestId: `discord-interaction:${interaction.id}`,
-    interactionToken: interactionToken.token,
-    interactionDeadlineEpochMs: interactionDeadlineEpochMs(interaction.id),
+    interactionResponseToken: interactionToken.token,
+    interactionResponseDeadlineEpochMs: interactionDeadlineEpochMs(interaction.id),
   };
 });

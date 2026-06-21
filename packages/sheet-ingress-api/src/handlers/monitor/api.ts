@@ -20,7 +20,7 @@ const MonitorError = [
 export class MonitorApi extends HttpApiGroup.make("monitor")
   .add(
     HttpApiEndpoint.get("getMonitorMaps", "/monitor/getMonitorMaps", {
-      query: Schema.Struct({ guildId: Schema.String }),
+      query: Schema.Struct({ workspaceId: Schema.String }),
       success: Schema.Struct({
         idToMonitor: Schema.Array(
           Schema.Struct({
@@ -43,14 +43,14 @@ export class MonitorApi extends HttpApiGroup.make("monitor")
   )
   .add(
     HttpApiEndpoint.get("getByIds", "/monitor/getByIds", {
-      query: Schema.Struct({ guildId: Schema.String, ids: Schema.Array(Schema.String) }),
+      query: Schema.Struct({ workspaceId: Schema.String, ids: Schema.Array(Schema.String) }),
       success: Schema.Array(Schema.Array(Schema.Union([Monitor, PartialIdMonitor]))),
       error: MonitorError,
     }),
   )
   .add(
     HttpApiEndpoint.get("getByNames", "/monitor/getByNames", {
-      query: Schema.Struct({ guildId: Schema.String, names: Schema.Array(Schema.String) }),
+      query: Schema.Struct({ workspaceId: Schema.String, names: Schema.Array(Schema.String) }),
       success: Schema.Array(Schema.Array(Schema.Union([Monitor, PartialNameMonitor]))),
       error: MonitorError,
     }),

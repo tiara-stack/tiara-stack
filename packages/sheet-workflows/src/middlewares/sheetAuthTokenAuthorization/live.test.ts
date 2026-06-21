@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import { describe, expect, it } from "@effect/vitest";
 import { vi } from "vitest";
 import { ConfigProvider, Effect, HashSet, Redacted, Schema } from "effect";

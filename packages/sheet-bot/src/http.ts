@@ -6,30 +6,41 @@ import {
   HttpServerResponse,
   Multipart,
 } from "effect/unstable/http";
-import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { HttpApi, HttpApiBuilder } from "effect/unstable/httpapi";
 import { DiscordREST } from "dfx";
 import type * as Discord from "dfx/types";
 import { DiscordApplication, DiscordLayer } from "dfx-discord-utils/discord";
 import { DiscordApi } from "dfx-discord-utils/discord/api";
+import { ChannelsCache, GuildsCache, MembersCache } from "dfx-discord-utils/discord/cache";
 import {
   DiscordMessageRequestSchema,
   makeDiscordBotRestError,
   type DiscordBotRestError,
 } from "dfx-discord-utils/discord/schema";
 import { discordHttpApiHandlersLayer, handleBotRestError } from "dfx-discord-utils/discord/http";
-import { Effect, FileSystem, Layer, Schema } from "effect";
+import { Effect, FileSystem, Layer, Predicate, Schema } from "effect";
 import { createServer } from "http";
+import { ClientDeliveryApi } from "sheet-ingress-api/handlers/clientDelivery/api";
+import type {
+  ClientRef,
+  ConversationRef,
+  MessageRef,
+  SheetOutboundMessage,
+} from "sheet-ingress-api/schemas/client";
+import { makeArgumentError, makeUnknownError } from "typhoon-core/error";
 import { cachesLayer } from "./discord/cache";
 import { discordConfigLayer } from "./discord/config";
+import { config } from "./config";
+import { toDiscordMessagePayload } from "./discord/renderSheetMessage";
 import { sheetBotHttpAuthorizationLayer } from "./middlewares/discordHttpAuthorization/live";
 
 const UpdateOriginalInteractionResponseBodyPayloadSchema = Schema.Struct({
-  interactionToken: Schema.String,
+  interactionResponseToken: Schema.String,
   payload: DiscordMessageRequestSchema,
 });
 
 const UpdateOriginalInteractionResponseWithFilesBodyPayloadSchema = Schema.Struct({
-  interactionToken: Schema.String,
+  interactionResponseToken: Schema.String,
   payload: Schema.fromJsonString(DiscordMessageRequestSchema),
   files: Multipart.FilesSchema,
 });
@@ -41,14 +52,78 @@ const withoutMessageMentions = <A extends object>(payload: A): A => ({
   allowed_mentions: disabledMentions(),
 });
 
+class SheetBotClientDeliveryApi extends HttpApi.make("sheet-bot-client-delivery").add(
+  ClientDeliveryApi,
+) {}
+
+const clientRef = (clientId: string): ClientRef => ({ platform: "discord", clientId });
+
+const conversationToMessageRef = (
+  client: ClientRef,
+  conversation: ConversationRef,
+  message: { readonly id: string; readonly channel_id: string },
+): MessageRef => ({
+  conversation: {
+    workspace: {
+      client,
+      workspaceId: conversation.workspace.workspaceId,
+    },
+    conversationId: message.channel_id,
+  },
+  messageId: message.id,
+});
+
+const discordMessageToRef = (
+  client: ClientRef,
+  workspaceId: string,
+  message: { readonly id: string; readonly channel_id: string },
+): MessageRef => ({
+  conversation: {
+    workspace: {
+      client,
+      workspaceId,
+    },
+    conversationId: message.channel_id,
+  },
+  messageId: message.id,
+});
+
+const discordGuildMessageToRef = (
+  client: ClientRef,
+  message: { readonly id: string; readonly channel_id: string; readonly guild_id?: string },
+) =>
+  Predicate.isString(message.guild_id) && message.guild_id.trim().length > 0
+    ? Effect.succeed(discordMessageToRef(client, message.guild_id, message))
+    : Effect.fail(
+        makeArgumentError(
+          `Cannot create message ref for Discord message ${message.id}, guild_id is missing`,
+        ),
+      );
+
+const renderFiles = (message: SheetOutboundMessage) =>
+  message.files?.map(
+    (file) =>
+      new File([file.content as BlobPart], file.name, {
+        type: file.contentType,
+      }),
+  ) ?? [];
+
 const getObjectField = (value: unknown, field: string): unknown =>
-  typeof value === "object" && value !== null
-    ? (value as Record<string, unknown>)[field]
-    : undefined;
+  Predicate.isObject(value) ? value[field] : undefined;
+
+const getStringField = (value: unknown, field: string): string | undefined => {
+  const fieldValue = getObjectField(value, field);
+  return Predicate.isString(fieldValue) ? fieldValue : undefined;
+};
+
+const getNumberField = (value: unknown, field: string): number | undefined => {
+  const fieldValue = getObjectField(value, field);
+  return Predicate.isNumber(fieldValue) ? fieldValue : undefined;
+};
 
 const messageFromError = (message: string, error: unknown): string => {
   const detail = getObjectField(error, "message");
-  return typeof detail === "string" ? `${message}: ${detail}` : message;
+  return Predicate.isString(detail) ? `${message}: ${detail}` : message;
 };
 
 const handleFallbackPayloadError = <A, R>(
@@ -76,11 +151,11 @@ const botRestErrorStatuses = {
 
 const isDiscordBotRestError = (error: unknown): error is DiscordBotRestError => {
   const tag = getObjectField(error, "_tag");
-  return typeof tag === "string" && tag in botRestErrorStatuses;
+  return Predicate.isString(tag) && Predicate.hasProperty(botRestErrorStatuses, tag);
 };
 
 const statusFromBotRestError = (error: DiscordBotRestError): number =>
-  error._tag === "DiscordBotUpstreamError" && typeof error.status === "number"
+  error._tag === "DiscordBotUpstreamError" && Predicate.isNumber(error.status)
     ? error.status
     : botRestErrorStatuses[error._tag];
 
@@ -89,10 +164,180 @@ const botRestErrorResponse = (error: unknown) =>
     ? HttpServerResponse.json(error, { status: statusFromBotRestError(error) })
     : Effect.fail(error);
 
+const mapClientDeliveryAdapterError =
+  (message: string) =>
+  <A, E, R>(
+    effect: Effect.Effect<A, E, R>,
+  ): Effect.Effect<A, ReturnType<typeof makeUnknownError>, R> =>
+    effect.pipe(Effect.mapError((error) => makeUnknownError(message, error)));
+
 const discordHandlersLayer = discordHttpApiHandlersLayer.pipe(
   Layer.provide(DiscordApplication.restLayer),
   Layer.provide(DiscordLayer),
   Layer.provide(NodeFileSystem.layer),
+  Layer.provide([discordConfigLayer, cachesLayer]),
+);
+
+const clientDeliveryHandlersLayer = HttpApiBuilder.group(
+  SheetBotClientDeliveryApi,
+  "clientDelivery",
+  (handlers) =>
+    Effect.gen(function* () {
+      const application = yield* DiscordApplication;
+      const rest = yield* DiscordREST;
+      const guildsCache = yield* GuildsCache;
+      const channelsCache = yield* ChannelsCache;
+      const membersCache = yield* MembersCache;
+      const configuredClientId = yield* config.sheetBotClientId;
+      const configuredClient = clientRef(configuredClientId);
+
+      const requireThisClient = (client: ClientRef) =>
+        client.platform === "discord" && client.clientId === configuredClientId
+          ? Effect.void
+          : Effect.fail(
+              makeArgumentError(`Unknown Discord client ${client.platform}:${client.clientId}`),
+            );
+
+      return handlers
+        .handle("sendMessage", ({ payload }) =>
+          Effect.gen(function* () {
+            yield* requireThisClient(payload.conversation.workspace.client);
+            const message = yield* handleBotRestError(
+              rest.createMessage(
+                payload.conversation.conversationId,
+                toDiscordMessagePayload(payload.message),
+              ),
+              `Failed to send message to channel ${payload.conversation.conversationId}`,
+            ).pipe(mapClientDeliveryAdapterError("Failed to send client message"));
+            return conversationToMessageRef(configuredClient, payload.conversation, message);
+          }),
+        )
+        .handle("updateMessage", ({ payload }) =>
+          Effect.gen(function* () {
+            yield* requireThisClient(payload.messageRef.conversation.workspace.client);
+            const message = yield* handleBotRestError(
+              rest.updateMessage(
+                payload.messageRef.conversation.conversationId,
+                payload.messageRef.messageId,
+                toDiscordMessagePayload(payload.message),
+              ),
+              `Failed to update message ${payload.messageRef.messageId}`,
+            ).pipe(mapClientDeliveryAdapterError("Failed to update client message"));
+            return conversationToMessageRef(
+              configuredClient,
+              payload.messageRef.conversation,
+              message,
+            );
+          }),
+        )
+        .handle("updateInteraction", ({ payload }) =>
+          Effect.gen(function* () {
+            yield* requireThisClient(payload.interaction.client);
+            const files = renderFiles(payload.message);
+            const update = rest.updateOriginalWebhookMessage(
+              application.id,
+              payload.interaction.token,
+              {
+                payload: toDiscordMessagePayload(payload.message),
+              },
+            );
+            const message = yield* handleBotRestError(
+              files.length > 0 ? rest.withFiles(files)(update) : update,
+              "Failed to update original interaction response",
+            ).pipe(mapClientDeliveryAdapterError("Failed to update client interaction"));
+            return yield* discordGuildMessageToRef(configuredClient, message);
+          }),
+        )
+        .handle("pinMessage", ({ payload }) =>
+          Effect.gen(function* () {
+            yield* requireThisClient(payload.messageRef.conversation.workspace.client);
+            yield* handleBotRestError(
+              rest.createPin(
+                payload.messageRef.conversation.conversationId,
+                payload.messageRef.messageId,
+              ),
+              `Failed to pin message ${payload.messageRef.messageId}`,
+            ).pipe(mapClientDeliveryAdapterError("Failed to pin client message"));
+          }),
+        )
+        .handle("deleteMessage", ({ payload }) =>
+          Effect.gen(function* () {
+            yield* requireThisClient(payload.messageRef.conversation.workspace.client);
+            yield* handleBotRestError(
+              rest.deleteMessage(
+                payload.messageRef.conversation.conversationId,
+                payload.messageRef.messageId,
+              ),
+              `Failed to delete message ${payload.messageRef.messageId}`,
+            ).pipe(mapClientDeliveryAdapterError("Failed to delete client message"));
+          }),
+        )
+        .handle("getWorkspace", ({ params }) =>
+          Effect.gen(function* () {
+            yield* requireThisClient({ platform: params.platform, clientId: params.clientId });
+            const guild = yield* guildsCache
+              .get(params.workspaceId)
+              .pipe(mapClientDeliveryAdapterError("Failed to get client workspace"));
+            return { id: guild.id, name: guild.name };
+          }),
+        )
+        .handle("getConversations", ({ params }) =>
+          Effect.gen(function* () {
+            yield* requireThisClient({ platform: params.platform, clientId: params.clientId });
+            const channels = yield* channelsCache
+              .getForParent(params.workspaceId)
+              .pipe(mapClientDeliveryAdapterError("Failed to get client conversations"));
+            return Array.from(channels.entries()).map(([id, value]) => ({
+              id,
+              type: value.type,
+              workspaceId: getStringField(value, "guild_id"),
+              name: getStringField(value, "name"),
+              position: getNumberField(value, "position"),
+            }));
+          }),
+        )
+        .handle("getMembers", ({ params }) =>
+          Effect.gen(function* () {
+            yield* requireThisClient({ platform: params.platform, clientId: params.clientId });
+            const members = yield* membersCache
+              .getForParent(params.workspaceId)
+              .pipe(mapClientDeliveryAdapterError("Failed to get client members"));
+            return Array.from(members.entries()).map(([userId, value]) => ({
+              userId,
+              roleIds: [...value.roles],
+            }));
+          }),
+        )
+        .handle("addMemberRole", ({ payload }) =>
+          Effect.gen(function* () {
+            yield* requireThisClient(payload.workspace.client);
+            yield* handleBotRestError(
+              rest.addGuildMemberRole(
+                payload.workspace.workspaceId,
+                payload.userId,
+                payload.roleId,
+              ),
+              `Failed to add role ${payload.roleId}`,
+            ).pipe(mapClientDeliveryAdapterError("Failed to add client member role"));
+          }),
+        )
+        .handle("removeMemberRole", ({ payload }) =>
+          Effect.gen(function* () {
+            yield* requireThisClient(payload.workspace.client);
+            yield* handleBotRestError(
+              rest.deleteGuildMemberRole(
+                payload.workspace.workspaceId,
+                payload.userId,
+                payload.roleId,
+              ),
+              `Failed to remove role ${payload.roleId}`,
+            ).pipe(mapClientDeliveryAdapterError("Failed to remove client member role"));
+          }),
+        );
+    }),
+).pipe(
+  Layer.provide(DiscordApplication.restLayer),
+  Layer.provide(DiscordLayer),
   Layer.provide([discordConfigLayer, cachesLayer]),
 );
 
@@ -118,7 +363,7 @@ const updateOriginalInteractionResponseFallbackLayer = HttpRouter.add(
     );
 
     const message = yield* handleBotRestError(
-      rest.updateOriginalWebhookMessage(application.id, body.interactionToken, {
+      rest.updateOriginalWebhookMessage(application.id, body.interactionResponseToken, {
         payload: withoutMessageMentions(
           body.payload,
         ) as Discord.IncomingWebhookUpdateRequestPartial,
@@ -162,7 +407,7 @@ const updateOriginalInteractionResponseWithFilesFallbackLayer = HttpRouter.add(
 
     const message = yield* handleBotRestError(
       rest.withFiles(files)(
-        rest.updateOriginalWebhookMessage(application.id, body.interactionToken, {
+        rest.updateOriginalWebhookMessage(application.id, body.interactionResponseToken, {
           payload: withoutMessageMentions(
             body.payload,
           ) as Discord.IncomingWebhookUpdateRequestPartial,
@@ -176,6 +421,9 @@ const updateOriginalInteractionResponseWithFilesFallbackLayer = HttpRouter.add(
 );
 
 const apiRoutesLayer = Layer.provide(HttpApiBuilder.layer(DiscordApi), [discordHandlersLayer]).pipe(
+  Layer.merge(
+    Layer.provide(HttpApiBuilder.layer(SheetBotClientDeliveryApi), [clientDeliveryHandlersLayer]),
+  ),
   Layer.merge(updateOriginalInteractionResponseFallbackLayer),
   Layer.merge(updateOriginalInteractionResponseWithFilesFallbackLayer),
   Layer.provide(sheetBotHttpAuthorizationLayer),

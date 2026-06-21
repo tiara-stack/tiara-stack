@@ -16,6 +16,7 @@
     "build": "vp pack && tar -acf dist.tar.zst ./dist"
   },
   "dependencies": {
+    "@discordjs/formatters": "^0.6.2",
     "@effect/opentelemetry": "catalog:",
     "@effect/platform-node": "catalog:",
     "@opentelemetry/exporter-prometheus": "^0.207.0",

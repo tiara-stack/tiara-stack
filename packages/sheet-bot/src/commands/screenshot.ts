@@ -1,17 +1,16 @@
-import { InteractionsRegistry } from "dfx/gateway";
-import { Ix } from "dfx/index";
 import { ApplicationIntegrationType, InteractionContextType } from "discord-api-types/v10";
-import { Effect, Layer } from "effect";
-import { discordGatewayLayer } from "../discord/gateway";
+import { Effect } from "effect";
 import { CommandHelper, InteractionResponse } from "dfx-discord-utils/utils";
 import { SheetWorkflowsClient, SheetWorkflowsRequestContext } from "../services";
-import { discordApplicationLayer } from "../discord/application";
 import {
   makeDispatchBase,
   requireNumber,
   requireString,
+  requiredDayOption,
   resolveGuildId,
+  serverIdOption,
 } from "../utils/commandHelpers";
+import { registerGlobalCommandLayer } from "../utils/registerGlobalCommandLayer";
 import { runSheetWorkflowsDispatch } from "../utils/sheetWorkflowsDispatch";
 
 const makeScreenshotCommand = Effect.gen(function* () {
@@ -28,12 +27,8 @@ const makeScreenshotCommand = Effect.gen(function* () {
             .setDescription("The channel to get the screenshot for")
             .setRequired(true),
         )
-        .addNumberOption((option) =>
-          option.setName("day").setDescription("The day to get the slots for").setRequired(true),
-        )
-        .addStringOption((option) =>
-          option.setName("server_id").setDescription("The server to get the teams for"),
-        )
+        .addNumberOption(requiredDayOption("The day to get the slots for"))
+        .addStringOption(serverIdOption("The server to get the teams for"))
         .setIntegrationTypes(
           ApplicationIntegrationType.GuildInstall,
           ApplicationIntegrationType.UserInstall,
@@ -59,8 +54,8 @@ const makeScreenshotCommand = Effect.gen(function* () {
           sheetWorkflowsClient.get().dispatch.screenshot({
             payload: {
               ...base,
-              guildId,
-              channelName,
+              workspaceId: guildId,
+              conversationName: channelName,
               day,
             },
           }),
@@ -70,24 +65,4 @@ const makeScreenshotCommand = Effect.gen(function* () {
   );
 });
 
-const makeGlobalScreenshotCommand = Effect.gen(function* () {
-  const screenshotCommand = yield* makeScreenshotCommand;
-
-  return CommandHelper.makeGlobalCommand(
-    screenshotCommand.data,
-    screenshotCommand.handler as never,
-  );
-});
-
-export const screenshotCommandLayer = Layer.effectDiscard(
-  Effect.gen(function* () {
-    const registry = yield* InteractionsRegistry;
-    const command = yield* makeGlobalScreenshotCommand;
-
-    yield* registry.register(Ix.builder.add(command).catchAllCause(Effect.log));
-  }),
-).pipe(
-  Layer.provide(
-    Layer.mergeAll(discordGatewayLayer, discordApplicationLayer, SheetWorkflowsClient.layer),
-  ),
-);
+export const screenshotCommandLayer = registerGlobalCommandLayer(makeScreenshotCommand);

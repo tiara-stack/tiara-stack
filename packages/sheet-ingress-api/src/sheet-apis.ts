@@ -3,7 +3,7 @@ import {
   CalcApi,
   CheckinApi,
   DiscordApi,
-  GuildConfigApi,
+  WorkspaceConfigApi,
   HealthApi,
   MessageCheckinApi,
   MessageRoomOrderApi,
@@ -22,7 +22,7 @@ export class SheetApisApi extends HttpApi.make("api")
   .add(CalcApi)
   .add(CheckinApi)
   .add(HealthApi)
-  .add(GuildConfigApi)
+  .add(WorkspaceConfigApi)
   .add(MessageCheckinApi)
   .add(MessageRoomOrderApi)
   .add(MessageSlotApi)

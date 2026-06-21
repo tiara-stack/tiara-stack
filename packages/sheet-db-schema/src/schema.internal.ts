@@ -14,116 +14,134 @@ const updatedAt = () =>
 
 const deletedAt = () => pg.timestamp("deleted_at", { withTimezone: true });
 
-class ConfigGuild extends pg.Class<ConfigGuild>("ConfigGuild")({
-  table: "config_guild",
+class ConfigWorkspace extends pg.Class<ConfigWorkspace>("ConfigWorkspace")({
+  table: "config_workspace",
   fields: {
-    guildId: pg.varchar("guild_id").primaryKey(),
+    workspaceId: pg.varchar("workspace_id").primaryKey(),
     sheetId: pg.varchar("sheet_id"),
     autoCheckin: pg.boolean("auto_checkin"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
     deletedAt: deletedAt(),
   },
-  indexes: [pg.index("config_guild_sheet_id_idx").on("sheetId")],
+  indexes: [pg.index("config_workspace_sheet_id_idx").on("sheetId")],
 }) {}
 
-class ConfigGuildManagerRole extends pg.Class<ConfigGuildManagerRole>("ConfigGuildManagerRole")({
-  table: "config_guild_manager_role",
+class ConfigWorkspaceMonitorRole extends pg.Class<ConfigWorkspaceMonitorRole>(
+  "ConfigWorkspaceMonitorRole",
+)({
+  table: "config_workspace_monitor_role",
   fields: {
-    guildId: pg.varchar("guild_id").notNull(),
+    workspaceId: pg.varchar("workspace_id").notNull(),
     roleId: pg.varchar("role_id").notNull(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
     deletedAt: deletedAt(),
   },
-  primaryKey: ["guildId", "roleId"],
+  primaryKey: ["workspaceId", "roleId"],
 }) {}
 
-class ConfigGuildFeatureFlag extends pg.Class<ConfigGuildFeatureFlag>("ConfigGuildFeatureFlag")({
-  table: "config_guild_feature_flag",
+class ConfigWorkspaceFeatureFlag extends pg.Class<ConfigWorkspaceFeatureFlag>(
+  "ConfigWorkspaceFeatureFlag",
+)({
+  table: "config_workspace_feature_flag",
   fields: {
-    guildId: pg.varchar("guild_id").notNull(),
+    workspaceId: pg.varchar("workspace_id").notNull(),
     flagName: pg.varchar("flag_name").notNull(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
     deletedAt: deletedAt(),
   },
-  primaryKey: ["guildId", "flagName"],
-  indexes: [pg.index("config_guild_feature_flag_flag_name_idx").on("flagName")],
+  primaryKey: ["workspaceId", "flagName"],
+  indexes: [pg.index("config_workspace_feature_flag_flag_name_idx").on("flagName")],
 }) {}
 
-class ConfigGuildUpdateAnnouncementDelivery extends pg.Class<ConfigGuildUpdateAnnouncementDelivery>(
-  "ConfigGuildUpdateAnnouncementDelivery",
+class ConfigWorkspaceUpdateAnnouncementDelivery extends pg.Class<ConfigWorkspaceUpdateAnnouncementDelivery>(
+  "ConfigWorkspaceUpdateAnnouncementDelivery",
 )({
-  table: "config_guild_update_announcement_delivery",
+  table: "config_workspace_update_announcement_delivery",
   fields: {
-    guildId: pg.varchar("guild_id").notNull(),
+    workspaceId: pg.varchar("workspace_id").notNull(),
     announcementId: pg.varchar("announcement_id").notNull(),
     publishedAt: pg.timestamp("published_at", { withTimezone: true }).notNull(),
     deliveredAt: pg.timestamp("delivered_at", { withTimezone: true }).notNull(),
-    channelId: pg.varchar("channel_id").notNull(),
+    conversationId: pg.varchar("conversation_id").notNull(),
     messageId: pg.varchar("message_id").notNull(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
     deletedAt: deletedAt(),
   },
-  primaryKey: ["guildId", "announcementId"],
+  primaryKey: ["workspaceId", "announcementId"],
   indexes: [
-    pg.index("config_guild_update_announcement_delivery_announcement_id_idx").on("announcementId"),
+    pg
+      .index("config_workspace_update_announcement_delivery_announcement_id_idx")
+      .on("announcementId"),
   ],
 }) {}
 
-class ConfigGuildChannel extends pg.Class<ConfigGuildChannel>("ConfigGuildChannel")({
-  table: "config_guild_channel",
+class ConfigWorkspaceConversation extends pg.Class<ConfigWorkspaceConversation>(
+  "ConfigWorkspaceConversation",
+)({
+  table: "config_workspace_conversation",
   fields: {
-    guildId: pg.varchar("guild_id").notNull(),
-    channelId: pg.varchar("channel_id").notNull(),
+    workspaceId: pg.varchar("workspace_id").notNull(),
+    conversationId: pg.varchar("conversation_id").notNull(),
     name: pg.varchar("name"),
     running: pg.boolean("running"),
     roleId: pg.varchar("role_id"),
-    checkinChannelId: pg.varchar("checkin_channel_id"),
+    checkinConversationId: pg.varchar("checkin_conversation_id"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
     deletedAt: deletedAt(),
   },
-  primaryKey: ["guildId", "channelId"],
-  indexes: [pg.uniqueIndex("config_guild_channel_guild_id_name_idx").on("guildId", "name")],
+  primaryKey: ["workspaceId", "conversationId"],
+  indexes: [
+    pg.uniqueIndex("config_workspace_conversation_workspace_id_name_idx").on("workspaceId", "name"),
+  ],
 }) {}
 
 class MessageSlot extends pg.Class<MessageSlot>("MessageSlot")({
   table: "message_slot",
   fields: {
-    messageId: pg.varchar("message_id").primaryKey(),
+    clientPlatform: pg.varchar("client_platform").notNull(),
+    clientId: pg.varchar("client_id").notNull(),
+    messageId: pg.varchar("message_id").notNull(),
     day: pg.integer("day").notNull(),
-    guildId: pg.varchar("guild_id"),
-    messageChannelId: pg.varchar("message_channel_id"),
+    workspaceId: pg.varchar("workspace_id"),
+    conversationId: pg.varchar("conversation_id"),
     createdByUserId: pg.varchar("created_by_user_id"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
     deletedAt: deletedAt(),
   },
+  primaryKey: ["clientPlatform", "clientId", "messageId"],
 }) {}
 
 class MessageCheckin extends pg.Class<MessageCheckin>("MessageCheckin")({
   table: "message_checkin",
   fields: {
-    messageId: pg.varchar("message_id").primaryKey(),
-    initialMessage: pg.varchar("initial_message").notNull(),
+    clientPlatform: pg.varchar("client_platform").notNull(),
+    clientId: pg.varchar("client_id").notNull(),
+    messageId: pg.varchar("message_id").notNull(),
+    initialMessage: pg.jsonb("initial_message").notNull().decodeTo(ReadonlyJSONValue),
     hour: pg.integer("hour").notNull(),
-    channelId: pg.varchar("channel_id").notNull(),
+    runningConversationId: pg.varchar("running_conversation_id").notNull(),
     roleId: pg.varchar("role_id"),
-    guildId: pg.varchar("guild_id"),
-    messageChannelId: pg.varchar("message_channel_id"),
+    workspaceId: pg.varchar("workspace_id"),
+    conversationId: pg.varchar("conversation_id"),
     createdByUserId: pg.varchar("created_by_user_id"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
     deletedAt: deletedAt(),
   },
+  primaryKey: ["clientPlatform", "clientId", "messageId"],
 }) {}
 
 class MessageCheckinMember extends pg.Class<MessageCheckinMember>("MessageCheckinMember")({
   table: "message_checkin_member",
   fields: {
+    clientPlatform: pg.varchar("client_platform").notNull(),
+    clientId: pg.varchar("client_id").notNull(),
     messageId: pg.varchar("message_id").notNull(),
     memberId: pg.varchar("member_id").notNull(),
     checkinAt: pg.timestamp("checkin_at", { withTimezone: true }),
@@ -132,26 +150,28 @@ class MessageCheckinMember extends pg.Class<MessageCheckinMember>("MessageChecki
     updatedAt: updatedAt(),
     deletedAt: deletedAt(),
   },
-  primaryKey: ["messageId", "memberId"],
+  primaryKey: ["clientPlatform", "clientId", "messageId", "memberId"],
 }) {}
 
 class MessageRoomOrder extends pg.Class<MessageRoomOrder>("MessageRoomOrder")({
   table: "message_room_order",
   fields: {
-    messageId: pg.varchar("message_id").primaryKey(),
+    clientPlatform: pg.varchar("client_platform").notNull(),
+    clientId: pg.varchar("client_id").notNull(),
+    messageId: pg.varchar("message_id").notNull(),
     previousFills: pg.varchar("previous_fills").array().notNull(),
     fills: pg.varchar("fills").array().notNull(),
     hour: pg.integer("hour").notNull(),
     rank: pg.integer("rank").notNull(),
     tentative: pg.boolean("tentative").notNull(),
     monitor: pg.varchar("monitor"),
-    guildId: pg.varchar("guild_id"),
-    messageChannelId: pg.varchar("message_channel_id"),
+    workspaceId: pg.varchar("workspace_id"),
+    conversationId: pg.varchar("conversation_id"),
     createdByUserId: pg.varchar("created_by_user_id"),
     sendClaimId: pg.varchar("send_claim_id"),
     sendClaimedAt: pg.timestamp("send_claimed_at", { withTimezone: true }),
     sentMessageId: pg.varchar("sent_message_id"),
-    sentMessageChannelId: pg.varchar("sent_message_channel_id"),
+    sentConversationId: pg.varchar("sent_conversation_id"),
     sentAt: pg.timestamp("sent_at", { withTimezone: true }),
     tentativeUpdateClaimId: pg.varchar("tentative_update_claim_id"),
     tentativeUpdateClaimedAt: pg.timestamp("tentative_update_claimed_at", { withTimezone: true }),
@@ -162,11 +182,14 @@ class MessageRoomOrder extends pg.Class<MessageRoomOrder>("MessageRoomOrder")({
     updatedAt: updatedAt(),
     deletedAt: deletedAt(),
   },
+  primaryKey: ["clientPlatform", "clientId", "messageId"],
 }) {}
 
 class MessageRoomOrderEntry extends pg.Class<MessageRoomOrderEntry>("MessageRoomOrderEntry")({
   table: "message_room_order_entry",
   fields: {
+    clientPlatform: pg.varchar("client_platform").notNull(),
+    clientId: pg.varchar("client_id").notNull(),
     messageId: pg.varchar("message_id").notNull(),
     rank: pg.integer("rank").notNull(),
     position: pg.integer("position").notNull(),
@@ -178,8 +201,12 @@ class MessageRoomOrderEntry extends pg.Class<MessageRoomOrderEntry>("MessageRoom
     updatedAt: updatedAt(),
     deletedAt: deletedAt(),
   },
-  primaryKey: ["messageId", "rank", "position"],
-  indexes: [pg.index("message_room_order_entry_message_id_rank_idx").on("messageId", "rank")],
+  primaryKey: ["clientPlatform", "clientId", "messageId", "rank", "position"],
+  indexes: [
+    pg
+      .index("message_room_order_entry_client_message_rank_idx")
+      .on("clientPlatform", "clientId", "messageId", "rank"),
+  ],
 }) {}
 
 class SheetApisDispatchJobs extends pg.Class<SheetApisDispatchJobs>("SheetApisDispatchJobs")({
@@ -201,13 +228,13 @@ class SheetApisDispatchJobs extends pg.Class<SheetApisDispatchJobs>("SheetApisDi
   indexes: [pg.index("sheet_apis_dispatch_jobs_status_updated_at_idx").on("status", "updatedAt")],
 }) {}
 
-export const configGuild = asPgModel(ConfigGuild);
-export const configGuildManagerRole = asPgModel(ConfigGuildManagerRole);
-export const configGuildFeatureFlag = asPgModel(ConfigGuildFeatureFlag);
-export const configGuildUpdateAnnouncementDelivery = asPgModel(
-  ConfigGuildUpdateAnnouncementDelivery,
+export const configWorkspace = asPgModel(ConfigWorkspace);
+export const configWorkspaceMonitorRole = asPgModel(ConfigWorkspaceMonitorRole);
+export const configWorkspaceFeatureFlag = asPgModel(ConfigWorkspaceFeatureFlag);
+export const configWorkspaceUpdateAnnouncementDelivery = asPgModel(
+  ConfigWorkspaceUpdateAnnouncementDelivery,
 );
-export const configGuildChannel = asPgModel(ConfigGuildChannel);
+export const configWorkspaceConversation = asPgModel(ConfigWorkspaceConversation);
 export const messageSlot = asPgModel(MessageSlot);
 export const messageCheckin = asPgModel(MessageCheckin);
 export const messageCheckinMember = asPgModel(MessageCheckinMember);

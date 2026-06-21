@@ -8,6 +8,7 @@ import {
   MessageRoomOrderEntry,
   MessageRoomOrderRange,
 } from "sheet-ingress-api/schemas/messageRoomOrder";
+import type { MessageKey } from "./messageKey";
 
 export class MessageRoomOrderService extends Context.Service<MessageRoomOrderService>()(
   "MessageRoomOrderService",
@@ -16,13 +17,10 @@ export class MessageRoomOrderService extends Context.Service<MessageRoomOrderSer
       const zeroClient = yield* ZeroClient;
 
       const getMessageRoomOrder = Effect.fn("MessageRoomOrderService.getMessageRoomOrder")(
-        function* (messageId: string) {
-          const result = yield* zeroClient.run(
-            queries.messageRoomOrder.getMessageRoomOrder({ messageId }),
-            {
-              type: "complete",
-            },
-          );
+        function* (key: MessageKey) {
+          const result = yield* zeroClient.run(queries.messageRoomOrder.getMessageRoomOrder(key), {
+            type: "complete",
+          });
 
           return yield* Schema.decodeUnknownEffect(
             Schema.OptionFromNullishOr(DefaultTaggedClass(MessageRoomOrder)),
@@ -33,23 +31,20 @@ export class MessageRoomOrderService extends Context.Service<MessageRoomOrderSer
       const decrementMessageRoomOrderRank = Effect.fn(
         "MessageRoomOrderService.decrementMessageRoomOrderRank",
       )(function* (
-        messageId: string,
+        key: MessageKey,
         options: {
           readonly expectedRank?: number | undefined;
           readonly tentativeUpdateClaimId?: string | undefined;
         } = {},
       ) {
         const mutation = yield* zeroClient.mutate(
-          mutators.messageRoomOrder.decrementMessageRoomOrderRank({ messageId, ...options }),
+          mutators.messageRoomOrder.decrementMessageRoomOrderRank({ ...key, ...options }),
         );
         yield* mutation.server();
 
-        const result = yield* zeroClient.run(
-          queries.messageRoomOrder.getMessageRoomOrder({ messageId }),
-          {
-            type: "complete",
-          },
-        );
+        const result = yield* zeroClient.run(queries.messageRoomOrder.getMessageRoomOrder(key), {
+          type: "complete",
+        });
         const roomOrder = yield* Schema.decodeUnknownEffect(
           Schema.OptionFromNullishOr(DefaultTaggedClass(MessageRoomOrder)),
         )(result);
@@ -64,23 +59,20 @@ export class MessageRoomOrderService extends Context.Service<MessageRoomOrderSer
       const incrementMessageRoomOrderRank = Effect.fn(
         "MessageRoomOrderService.incrementMessageRoomOrderRank",
       )(function* (
-        messageId: string,
+        key: MessageKey,
         options: {
           readonly expectedRank?: number | undefined;
           readonly tentativeUpdateClaimId?: string | undefined;
         } = {},
       ) {
         const mutation = yield* zeroClient.mutate(
-          mutators.messageRoomOrder.incrementMessageRoomOrderRank({ messageId, ...options }),
+          mutators.messageRoomOrder.incrementMessageRoomOrderRank({ ...key, ...options }),
         );
         yield* mutation.server();
 
-        const result = yield* zeroClient.run(
-          queries.messageRoomOrder.getMessageRoomOrder({ messageId }),
-          {
-            type: "complete",
-          },
-        );
+        const result = yield* zeroClient.run(queries.messageRoomOrder.getMessageRoomOrder(key), {
+          type: "complete",
+        });
         const roomOrder = yield* Schema.decodeUnknownEffect(
           Schema.OptionFromNullishOr(DefaultTaggedClass(MessageRoomOrder)),
         )(result);
@@ -94,18 +86,15 @@ export class MessageRoomOrderService extends Context.Service<MessageRoomOrderSer
 
       const claimMessageRoomOrderSend = Effect.fn(
         "MessageRoomOrderService.claimMessageRoomOrderSend",
-      )(function* (messageId: string, claimId: string) {
+      )(function* (key: MessageKey, claimId: string) {
         const mutation = yield* zeroClient.mutate(
-          mutators.messageRoomOrder.claimMessageRoomOrderSend({ messageId, claimId }),
+          mutators.messageRoomOrder.claimMessageRoomOrderSend({ ...key, claimId }),
         );
         yield* mutation.server();
 
-        const result = yield* zeroClient.run(
-          queries.messageRoomOrder.getMessageRoomOrder({ messageId }),
-          {
-            type: "complete",
-          },
-        );
+        const result = yield* zeroClient.run(queries.messageRoomOrder.getMessageRoomOrder(key), {
+          type: "complete",
+        });
         const roomOrder = yield* Schema.decodeUnknownEffect(
           Schema.OptionFromNullishOr(DefaultTaggedClass(MessageRoomOrder)),
         )(result);
@@ -120,27 +109,24 @@ export class MessageRoomOrderService extends Context.Service<MessageRoomOrderSer
       const completeMessageRoomOrderSend = Effect.fn(
         "MessageRoomOrderService.completeMessageRoomOrderSend",
       )(function* (
-        messageId: string,
+        key: MessageKey,
         claimId: string,
-        sentMessage: { readonly id: string; readonly channelId: string },
+        sentMessage: { readonly id: string; readonly conversationId: string },
       ) {
         const mutation = yield* zeroClient.mutate(
           mutators.messageRoomOrder.completeMessageRoomOrderSend({
-            messageId,
+            ...key,
             claimId,
             sentMessageId: sentMessage.id,
-            sentMessageChannelId: sentMessage.channelId,
+            sentConversationId: sentMessage.conversationId,
             sentAt: Date.now(),
           }),
         );
         yield* mutation.server();
 
-        const result = yield* zeroClient.run(
-          queries.messageRoomOrder.getMessageRoomOrder({ messageId }),
-          {
-            type: "complete",
-          },
-        );
+        const result = yield* zeroClient.run(queries.messageRoomOrder.getMessageRoomOrder(key), {
+          type: "complete",
+        });
         const roomOrder = yield* Schema.decodeUnknownEffect(
           Schema.OptionFromNullishOr(DefaultTaggedClass(MessageRoomOrder)),
         )(result);
@@ -154,30 +140,27 @@ export class MessageRoomOrderService extends Context.Service<MessageRoomOrderSer
 
       const releaseMessageRoomOrderSendClaim = Effect.fn(
         "MessageRoomOrderService.releaseMessageRoomOrderSendClaim",
-      )(function* (messageId: string, claimId: string) {
+      )(function* (key: MessageKey, claimId: string) {
         const mutation = yield* zeroClient.mutate(
-          mutators.messageRoomOrder.releaseMessageRoomOrderSendClaim({ messageId, claimId }),
+          mutators.messageRoomOrder.releaseMessageRoomOrderSendClaim({ ...key, claimId }),
         );
         yield* mutation.server();
       });
 
       const claimMessageRoomOrderTentativeUpdate = Effect.fn(
         "MessageRoomOrderService.claimMessageRoomOrderTentativeUpdate",
-      )(function* (messageId: string, claimId: string) {
+      )(function* (key: MessageKey, claimId: string) {
         const mutation = yield* zeroClient.mutate(
           mutators.messageRoomOrder.claimMessageRoomOrderTentativeUpdate({
-            messageId,
+            ...key,
             claimId,
           }),
         );
         yield* mutation.server();
 
-        const result = yield* zeroClient.run(
-          queries.messageRoomOrder.getMessageRoomOrder({ messageId }),
-          {
-            type: "complete",
-          },
-        );
+        const result = yield* zeroClient.run(queries.messageRoomOrder.getMessageRoomOrder(key), {
+          type: "complete",
+        });
         const roomOrder = yield* Schema.decodeUnknownEffect(
           Schema.OptionFromNullishOr(DefaultTaggedClass(MessageRoomOrder)),
         )(result);
@@ -191,10 +174,10 @@ export class MessageRoomOrderService extends Context.Service<MessageRoomOrderSer
 
       const releaseMessageRoomOrderTentativeUpdateClaim = Effect.fn(
         "MessageRoomOrderService.releaseMessageRoomOrderTentativeUpdateClaim",
-      )(function* (messageId: string, claimId: string) {
+      )(function* (key: MessageKey, claimId: string) {
         const mutation = yield* zeroClient.mutate(
           mutators.messageRoomOrder.releaseMessageRoomOrderTentativeUpdateClaim({
-            messageId,
+            ...key,
             claimId,
           }),
         );
@@ -203,21 +186,18 @@ export class MessageRoomOrderService extends Context.Service<MessageRoomOrderSer
 
       const claimMessageRoomOrderTentativePin = Effect.fn(
         "MessageRoomOrderService.claimMessageRoomOrderTentativePin",
-      )(function* (messageId: string, claimId: string) {
+      )(function* (key: MessageKey, claimId: string) {
         const mutation = yield* zeroClient.mutate(
           mutators.messageRoomOrder.claimMessageRoomOrderTentativePin({
-            messageId,
+            ...key,
             claimId,
           }),
         );
         yield* mutation.server();
 
-        const result = yield* zeroClient.run(
-          queries.messageRoomOrder.getMessageRoomOrder({ messageId }),
-          {
-            type: "complete",
-          },
-        );
+        const result = yield* zeroClient.run(queries.messageRoomOrder.getMessageRoomOrder(key), {
+          type: "complete",
+        });
         const roomOrder = yield* Schema.decodeUnknownEffect(
           Schema.OptionFromNullishOr(DefaultTaggedClass(MessageRoomOrder)),
         )(result);
@@ -231,22 +211,19 @@ export class MessageRoomOrderService extends Context.Service<MessageRoomOrderSer
 
       const completeMessageRoomOrderTentativePin = Effect.fn(
         "MessageRoomOrderService.completeMessageRoomOrderTentativePin",
-      )(function* (messageId: string, claimId: string) {
+      )(function* (key: MessageKey, claimId: string) {
         const mutation = yield* zeroClient.mutate(
           mutators.messageRoomOrder.completeMessageRoomOrderTentativePin({
-            messageId,
+            ...key,
             claimId,
             pinnedAt: Date.now(),
           }),
         );
         yield* mutation.server();
 
-        const result = yield* zeroClient.run(
-          queries.messageRoomOrder.getMessageRoomOrder({ messageId }),
-          {
-            type: "complete",
-          },
-        );
+        const result = yield* zeroClient.run(queries.messageRoomOrder.getMessageRoomOrder(key), {
+          type: "complete",
+        });
         const roomOrder = yield* Schema.decodeUnknownEffect(
           Schema.OptionFromNullishOr(DefaultTaggedClass(MessageRoomOrder)),
         )(result);
@@ -260,10 +237,10 @@ export class MessageRoomOrderService extends Context.Service<MessageRoomOrderSer
 
       const releaseMessageRoomOrderTentativePinClaim = Effect.fn(
         "MessageRoomOrderService.releaseMessageRoomOrderTentativePinClaim",
-      )(function* (messageId: string, claimId: string) {
+      )(function* (key: MessageKey, claimId: string) {
         const mutation = yield* zeroClient.mutate(
           mutators.messageRoomOrder.releaseMessageRoomOrderTentativePinClaim({
-            messageId,
+            ...key,
             claimId,
           }),
         );
@@ -272,7 +249,7 @@ export class MessageRoomOrderService extends Context.Service<MessageRoomOrderSer
 
       const upsertMessageRoomOrder = Effect.fn("MessageRoomOrderService.upsertMessageRoomOrder")(
         function* (
-          messageId: string,
+          key: MessageKey,
           data: {
             previousFills: readonly string[];
             fills: readonly string[];
@@ -280,33 +257,30 @@ export class MessageRoomOrderService extends Context.Service<MessageRoomOrderSer
             rank: number;
             tentative?: boolean | undefined;
             monitor?: string | null | undefined;
-            guildId: string | null;
-            messageChannelId: string | null;
+            workspaceId: string | null;
+            conversationId: string | null;
             createdByUserId: string | null;
           },
         ) {
           const mutation = yield* zeroClient.mutate(
             mutators.messageRoomOrder.upsertMessageRoomOrder({
-              messageId,
+              ...key,
               previousFills: data.previousFills,
               fills: data.fills,
               hour: data.hour,
               rank: data.rank,
               tentative: data.tentative,
               monitor: data.monitor,
-              guildId: data.guildId,
-              messageChannelId: data.messageChannelId,
+              workspaceId: data.workspaceId,
+              conversationId: data.conversationId,
               createdByUserId: data.createdByUserId,
             }),
           );
           yield* mutation.server();
 
-          const result = yield* zeroClient.run(
-            queries.messageRoomOrder.getMessageRoomOrder({ messageId }),
-            {
-              type: "complete",
-            },
-          );
+          const result = yield* zeroClient.run(queries.messageRoomOrder.getMessageRoomOrder(key), {
+            type: "complete",
+          });
           const roomOrder = yield* Schema.decodeUnknownEffect(
             Schema.OptionFromNullishOr(DefaultTaggedClass(MessageRoomOrder)),
           )(result);
@@ -322,27 +296,24 @@ export class MessageRoomOrderService extends Context.Service<MessageRoomOrderSer
       const markMessageRoomOrderTentative = Effect.fn(
         "MessageRoomOrderService.markMessageRoomOrderTentative",
       )(function* (
-        messageId: string,
+        key: MessageKey,
         data: {
-          readonly guildId: string;
-          readonly messageChannelId: string;
+          readonly workspaceId: string;
+          readonly conversationId: string;
         },
       ) {
         const mutation = yield* zeroClient.mutate(
           mutators.messageRoomOrder.markMessageRoomOrderTentative({
-            messageId,
-            guildId: data.guildId,
-            messageChannelId: data.messageChannelId,
+            ...key,
+            workspaceId: data.workspaceId,
+            conversationId: data.conversationId,
           }),
         );
         yield* mutation.server();
 
-        const result = yield* zeroClient.run(
-          queries.messageRoomOrder.getMessageRoomOrder({ messageId }),
-          {
-            type: "complete",
-          },
-        );
+        const result = yield* zeroClient.run(queries.messageRoomOrder.getMessageRoomOrder(key), {
+          type: "complete",
+        });
         const roomOrder = yield* Schema.decodeUnknownEffect(
           Schema.OptionFromNullishOr(DefaultTaggedClass(MessageRoomOrder)),
         )(result);
@@ -356,7 +327,7 @@ export class MessageRoomOrderService extends Context.Service<MessageRoomOrderSer
 
       const persistMessageRoomOrder = Effect.fn("MessageRoomOrderService.persistMessageRoomOrder")(
         function* (
-          messageId: string,
+          key: MessageKey,
           payload: {
             data: {
               previousFills: readonly string[];
@@ -365,8 +336,8 @@ export class MessageRoomOrderService extends Context.Service<MessageRoomOrderSer
               rank: number;
               tentative?: boolean | undefined;
               monitor?: string | null | undefined;
-              guildId: string | null;
-              messageChannelId: string | null;
+              workspaceId: string | null;
+              conversationId: string | null;
               createdByUserId: string | null;
             };
             entries: readonly {
@@ -381,19 +352,16 @@ export class MessageRoomOrderService extends Context.Service<MessageRoomOrderSer
         ) {
           const mutation = yield* zeroClient.mutate(
             mutators.messageRoomOrder.persistMessageRoomOrder({
-              messageId,
+              ...key,
               data: payload.data,
               entries: payload.entries,
             }),
           );
           yield* mutation.server();
 
-          const result = yield* zeroClient.run(
-            queries.messageRoomOrder.getMessageRoomOrder({ messageId }),
-            {
-              type: "complete",
-            },
-          );
+          const result = yield* zeroClient.run(queries.messageRoomOrder.getMessageRoomOrder(key), {
+            type: "complete",
+          });
           const roomOrder = yield* Schema.decodeUnknownEffect(
             Schema.OptionFromNullishOr(DefaultTaggedClass(MessageRoomOrder)),
           )(result);
@@ -408,9 +376,9 @@ export class MessageRoomOrderService extends Context.Service<MessageRoomOrderSer
 
       const getMessageRoomOrderEntry = Effect.fn(
         "MessageRoomOrderService.getMessageRoomOrderEntry",
-      )(function* (messageId: string, rank: number) {
+      )(function* (key: MessageKey, rank: number) {
         const result = yield* zeroClient.run(
-          queries.messageRoomOrder.getMessageRoomOrderEntry({ messageId, rank }),
+          queries.messageRoomOrder.getMessageRoomOrderEntry({ ...key, rank }),
           { type: "complete" },
         );
 
@@ -421,9 +389,9 @@ export class MessageRoomOrderService extends Context.Service<MessageRoomOrderSer
 
       const getMessageRoomOrderRange = Effect.fn(
         "MessageRoomOrderService.getMessageRoomOrderRange",
-      )(function* (messageId: string) {
+      )(function* (key: MessageKey) {
         const result = yield* zeroClient.run(
-          queries.messageRoomOrder.getMessageRoomOrderRange({ messageId }),
+          queries.messageRoomOrder.getMessageRoomOrderRange(key),
           { type: "complete" },
         );
         const entries = yield* Schema.decodeEffect(
@@ -454,7 +422,7 @@ export class MessageRoomOrderService extends Context.Service<MessageRoomOrderSer
       const upsertMessageRoomOrderEntry = Effect.fn(
         "MessageRoomOrderService.upsertMessageRoomOrderEntry",
       )(function* (
-        messageId: string,
+        key: MessageKey,
         entries: readonly {
           rank: number;
           position: number;
@@ -465,12 +433,12 @@ export class MessageRoomOrderService extends Context.Service<MessageRoomOrderSer
         }[],
       ) {
         const mutation = yield* zeroClient.mutate(
-          mutators.messageRoomOrder.upsertMessageRoomOrderEntry({ messageId, entries }),
+          mutators.messageRoomOrder.upsertMessageRoomOrderEntry({ ...key, entries }),
         );
         yield* mutation.server();
 
         const result = yield* zeroClient.run(
-          queries.messageRoomOrder.getMessageRoomOrderRange({ messageId }),
+          queries.messageRoomOrder.getMessageRoomOrderRange(key),
           { type: "complete" },
         );
         const updatedEntries = yield* Schema.decodeEffect(
@@ -480,7 +448,9 @@ export class MessageRoomOrderService extends Context.Service<MessageRoomOrderSer
         return updatedEntries.map(
           (entry) =>
             new MessageRoomOrderEntry({
-              messageId,
+              clientPlatform: entry.clientPlatform,
+              clientId: entry.clientId,
+              messageId: entry.messageId,
               rank: entry.rank,
               position: entry.position,
               team: entry.team,
@@ -495,10 +465,11 @@ export class MessageRoomOrderService extends Context.Service<MessageRoomOrderSer
 
       const removeMessageRoomOrderEntry = Effect.fn(
         "MessageRoomOrderService.removeMessageRoomOrderEntry",
-      )(function* (messageId: string) {
+      )(function* (key: MessageKey) {
         const mutation = yield* zeroClient.mutate(
           mutators.messageRoomOrder.removeMessageRoomOrderEntry({
-            messageId,
+            ...key,
+            // Message-level cleanup removes the sentinel range entry stored at rank/position 0.
             rank: 0,
             position: 0,
           }),
@@ -506,7 +477,7 @@ export class MessageRoomOrderService extends Context.Service<MessageRoomOrderSer
         yield* mutation.server();
 
         const result = yield* zeroClient.run(
-          queries.messageRoomOrder.getMessageRoomOrderRange({ messageId }),
+          queries.messageRoomOrder.getMessageRoomOrderRange(key),
           { type: "complete" },
         );
         const updatedEntries = yield* Schema.decodeEffect(
@@ -516,7 +487,9 @@ export class MessageRoomOrderService extends Context.Service<MessageRoomOrderSer
         return updatedEntries.map(
           (entry) =>
             new MessageRoomOrderEntry({
-              messageId,
+              clientPlatform: entry.clientPlatform,
+              clientId: entry.clientId,
+              messageId: entry.messageId,
               rank: entry.rank,
               position: entry.position,
               team: entry.team,

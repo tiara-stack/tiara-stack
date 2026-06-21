@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import { HttpClient, HttpClientRequest } from "effect/unstable/http";
 import { HttpApiClient } from "effect/unstable/httpapi";
 import { Cache, Context, Duration, Effect, Exit, Layer, Redacted } from "effect";

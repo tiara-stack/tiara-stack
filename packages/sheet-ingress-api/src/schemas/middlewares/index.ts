@@ -1,2 +1,2 @@
-export * from "./sheetAuthGuildUser";
+export * from "./sheetAuthWorkspaceUser";
 export * from "./sheetAuthUser";

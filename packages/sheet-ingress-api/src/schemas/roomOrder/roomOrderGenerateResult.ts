@@ -1,12 +1,13 @@
 import { Schema } from "effect";
 import { GeneratedRoomOrderEntry } from "./generatedRoomOrderEntry";
 import { MessageRoomOrderRange } from "../messageRoomOrder";
+import { GeneratedSheetText } from "../client";
 
 export class RoomOrderGenerateResult extends Schema.TaggedClass<RoomOrderGenerateResult>()(
   "RoomOrderGenerateResult",
   {
-    content: Schema.String,
-    runningChannelId: Schema.String,
+    content: GeneratedSheetText,
+    runningConversationId: Schema.String,
     range: MessageRoomOrderRange,
     rank: Schema.Number,
     hour: Schema.Number,

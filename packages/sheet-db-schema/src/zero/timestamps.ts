@@ -1,4 +1,6 @@
+import { Predicate } from "effect";
+
 export const preserveOmitted = <Value>(
   value: Value | null | undefined,
   existingValue: Value | null | undefined,
-) => (typeof value === "undefined" ? existingValue : value);
+) => (Predicate.isUndefined(value) ? existingValue : value);

@@ -1,4 +1,6 @@
-import { Schema } from "effect";
+// fallow-ignore-file complexity
+import { Predicate, Schema } from "effect";
+import { ReadonlyJSONValue } from "typhoon-zero/schema";
 import { make, ZeroApiEndpoint, ZeroApiGroup } from "typhoon-zero/zeroApi";
 import { zeroTableAccess } from "./accessors";
 import {
@@ -18,17 +20,17 @@ declare module "@rocicorp/zero" {
 }
 
 export interface SheetZeroApiSuccessSchemas {
-  readonly guildConfig: {
-    readonly getAutoCheckinGuilds: Schema.Top;
-    readonly getGuildConfigByGuildId: Schema.Top;
-    readonly getGuildMonitorRoles: Schema.Top;
-    readonly getGuildFeatureFlags: Schema.Top;
-    readonly getGuildsForFeatureFlag: Schema.Top;
-    readonly getGuildFeatureFlag: Schema.Top;
-    readonly getGuildUpdateAnnouncementDelivery: Schema.Top;
-    readonly getGuildChannels: Schema.Top;
-    readonly getGuildChannelById: Schema.Top;
-    readonly getGuildChannelByName: Schema.Top;
+  readonly workspaceConfig: {
+    readonly getAutoCheckinWorkspaces: Schema.Top;
+    readonly getWorkspaceConfigByWorkspaceId: Schema.Top;
+    readonly getWorkspaceMonitorRoles: Schema.Top;
+    readonly getWorkspaceFeatureFlags: Schema.Top;
+    readonly getWorkspacesForFeatureFlag: Schema.Top;
+    readonly getWorkspaceFeatureFlag: Schema.Top;
+    readonly getWorkspaceUpdateAnnouncementDelivery: Schema.Top;
+    readonly getWorkspaceConversations: Schema.Top;
+    readonly getWorkspaceConversationById: Schema.Top;
+    readonly getWorkspaceConversationByName: Schema.Top;
   };
   readonly messageCheckin: {
     readonly getMessageCheckinData: Schema.Top;
@@ -45,17 +47,17 @@ export interface SheetZeroApiSuccessSchemas {
 }
 
 const defaultSuccessSchemas = {
-  guildConfig: {
-    getAutoCheckinGuilds: Schema.Any,
-    getGuildConfigByGuildId: Schema.Any,
-    getGuildMonitorRoles: Schema.Any,
-    getGuildFeatureFlags: Schema.Any,
-    getGuildsForFeatureFlag: Schema.Any,
-    getGuildFeatureFlag: Schema.Any,
-    getGuildUpdateAnnouncementDelivery: Schema.Any,
-    getGuildChannels: Schema.Any,
-    getGuildChannelById: Schema.Any,
-    getGuildChannelByName: Schema.Any,
+  workspaceConfig: {
+    getAutoCheckinWorkspaces: Schema.Any,
+    getWorkspaceConfigByWorkspaceId: Schema.Any,
+    getWorkspaceMonitorRoles: Schema.Any,
+    getWorkspaceFeatureFlags: Schema.Any,
+    getWorkspacesForFeatureFlag: Schema.Any,
+    getWorkspaceFeatureFlag: Schema.Any,
+    getWorkspaceUpdateAnnouncementDelivery: Schema.Any,
+    getWorkspaceConversations: Schema.Any,
+    getWorkspaceConversationById: Schema.Any,
+    getWorkspaceConversationByName: Schema.Any,
   },
   messageCheckin: {
     getMessageCheckinData: Schema.Any,
@@ -71,159 +73,169 @@ const defaultSuccessSchemas = {
   },
 } satisfies SheetZeroApiSuccessSchemas;
 
-const updateAnnouncementDeliveryPendingChannelId = "__pending_update_announcement_delivery__";
+const updateAnnouncementDeliveryPendingConversationId = "__pending_update_announcement_delivery__";
+
+const MessageKeyRequest = {
+  clientPlatform: Schema.String,
+  clientId: Schema.String,
+  messageId: Schema.String,
+} as const;
 
 const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSuccessSchemas>(
   success: SuccessSchemas,
 ) => {
-  const GuildConfigGroup = ZeroApiGroup.make("guildConfig").add(
-    ZeroApiEndpoint.query("getAutoCheckinGuilds", {
+  const WorkspaceConfigGroup = ZeroApiGroup.make("workspaceConfig").add(
+    ZeroApiEndpoint.query("getAutoCheckinWorkspaces", {
       request: Schema.Struct({}),
-      success: success.guildConfig.getAutoCheckinGuilds,
+      success: success.workspaceConfig.getAutoCheckinWorkspaces,
       query: () =>
-        zeroTableAccess.configGuild.listActiveWhere(
-          builder.configGuild.where("autoCheckin", "=", true),
+        zeroTableAccess.configWorkspace.listActiveWhere(
+          builder.configWorkspace.where("autoCheckin", "=", true),
         ),
     }),
-    ZeroApiEndpoint.query("getGuildConfigByGuildId", {
-      request: Schema.Struct({ guildId: Schema.String }),
-      success: success.guildConfig.getGuildConfigByGuildId,
-      query: ({ args: { guildId } }) =>
-        zeroTableAccess.configGuild.getActiveByPrimaryKey(builder.configGuild, { guildId }),
+    ZeroApiEndpoint.query("getWorkspaceConfigByWorkspaceId", {
+      request: Schema.Struct({ workspaceId: Schema.String }),
+      success: success.workspaceConfig.getWorkspaceConfigByWorkspaceId,
+      query: ({ args: { workspaceId } }) =>
+        zeroTableAccess.configWorkspace.getActiveByPrimaryKey(builder.configWorkspace, {
+          workspaceId,
+        }),
     }),
-    ZeroApiEndpoint.query("getGuildMonitorRoles", {
-      request: Schema.Struct({ guildId: Schema.String }),
-      success: success.guildConfig.getGuildMonitorRoles,
-      query: ({ args: { guildId } }) =>
-        zeroTableAccess.configGuildManagerRole.listActiveWhere(
-          builder.configGuildManagerRole.where("guildId", "=", guildId),
+    ZeroApiEndpoint.query("getWorkspaceMonitorRoles", {
+      request: Schema.Struct({ workspaceId: Schema.String }),
+      success: success.workspaceConfig.getWorkspaceMonitorRoles,
+      query: ({ args: { workspaceId } }) =>
+        zeroTableAccess.configWorkspaceMonitorRole.listActiveWhere(
+          builder.configWorkspaceMonitorRole.where("workspaceId", "=", workspaceId),
         ),
     }),
-    ZeroApiEndpoint.query("getGuildFeatureFlags", {
-      request: Schema.Struct({ guildId: Schema.String }),
-      success: success.guildConfig.getGuildFeatureFlags,
-      query: ({ args: { guildId } }) =>
-        zeroTableAccess.configGuildFeatureFlag.listActiveWhere(
-          builder.configGuildFeatureFlag.where("guildId", "=", guildId),
+    ZeroApiEndpoint.query("getWorkspaceFeatureFlags", {
+      request: Schema.Struct({ workspaceId: Schema.String }),
+      success: success.workspaceConfig.getWorkspaceFeatureFlags,
+      query: ({ args: { workspaceId } }) =>
+        zeroTableAccess.configWorkspaceFeatureFlag.listActiveWhere(
+          builder.configWorkspaceFeatureFlag.where("workspaceId", "=", workspaceId),
         ),
     }),
-    ZeroApiEndpoint.query("getGuildsForFeatureFlag", {
+    ZeroApiEndpoint.query("getWorkspacesForFeatureFlag", {
       request: Schema.Struct({ flagName: Schema.String }),
-      success: success.guildConfig.getGuildsForFeatureFlag,
+      success: success.workspaceConfig.getWorkspacesForFeatureFlag,
       query: ({ args: { flagName } }) =>
-        zeroTableAccess.configGuildFeatureFlag.listActiveWhere(
-          builder.configGuildFeatureFlag.where("flagName", "=", flagName),
+        zeroTableAccess.configWorkspaceFeatureFlag.listActiveWhere(
+          builder.configWorkspaceFeatureFlag.where("flagName", "=", flagName),
         ),
     }),
-    ZeroApiEndpoint.query("getGuildFeatureFlag", {
-      request: Schema.Struct({ guildId: Schema.String, flagName: Schema.String }),
-      success: success.guildConfig.getGuildFeatureFlag,
-      query: ({ args: { guildId, flagName } }) =>
-        zeroTableAccess.configGuildFeatureFlag.getActiveByPrimaryKey(
-          builder.configGuildFeatureFlag,
-          { guildId, flagName },
+    ZeroApiEndpoint.query("getWorkspaceFeatureFlag", {
+      request: Schema.Struct({ workspaceId: Schema.String, flagName: Schema.String }),
+      success: success.workspaceConfig.getWorkspaceFeatureFlag,
+      query: ({ args: { workspaceId, flagName } }) =>
+        zeroTableAccess.configWorkspaceFeatureFlag.getActiveByPrimaryKey(
+          builder.configWorkspaceFeatureFlag,
+          { workspaceId, flagName },
         ),
     }),
-    ZeroApiEndpoint.query("getGuildUpdateAnnouncementDelivery", {
-      request: Schema.Struct({ guildId: Schema.String, announcementId: Schema.String }),
-      success: success.guildConfig.getGuildUpdateAnnouncementDelivery,
-      query: ({ args: { guildId, announcementId } }) =>
-        zeroTableAccess.configGuildUpdateAnnouncementDelivery.getActiveByPrimaryKey(
-          builder.configGuildUpdateAnnouncementDelivery,
-          { guildId, announcementId },
+    ZeroApiEndpoint.query("getWorkspaceUpdateAnnouncementDelivery", {
+      request: Schema.Struct({ workspaceId: Schema.String, announcementId: Schema.String }),
+      success: success.workspaceConfig.getWorkspaceUpdateAnnouncementDelivery,
+      query: ({ args: { workspaceId, announcementId } }) =>
+        zeroTableAccess.configWorkspaceUpdateAnnouncementDelivery.getActiveByPrimaryKey(
+          builder.configWorkspaceUpdateAnnouncementDelivery,
+          { workspaceId, announcementId },
         ),
     }),
-    ZeroApiEndpoint.query("getGuildChannels", {
+    ZeroApiEndpoint.query("getWorkspaceConversations", {
       request: Schema.Struct({
-        guildId: Schema.String,
+        workspaceId: Schema.String,
         running: Schema.optional(Schema.Boolean),
       }),
-      success: success.guildConfig.getGuildChannels,
-      query: ({ args: { guildId, running } }) => {
-        const query = zeroTableAccess.configGuildChannel.listActiveWhere(
-          builder.configGuildChannel.where("guildId", "=", guildId),
+      success: success.workspaceConfig.getWorkspaceConversations,
+      query: ({ args: { workspaceId, running } }) => {
+        const query = zeroTableAccess.configWorkspaceConversation.listActiveWhere(
+          builder.configWorkspaceConversation.where("workspaceId", "=", workspaceId),
         );
 
-        return typeof running === "undefined" ? query : query.where("running", "=", running);
+        return Predicate.isUndefined(running) ? query : query.where("running", "=", running);
       },
     }),
-    ZeroApiEndpoint.query("getGuildChannelById", {
+    ZeroApiEndpoint.query("getWorkspaceConversationById", {
       request: Schema.Struct({
-        guildId: Schema.String,
-        channelId: Schema.String,
+        workspaceId: Schema.String,
+        conversationId: Schema.String,
         running: Schema.optional(Schema.Boolean),
       }),
-      success: success.guildConfig.getGuildChannelById,
-      query: ({ args: { guildId, channelId, running } }) => {
-        const query = zeroTableAccess.configGuildChannel.listActiveWhere(
-          builder.configGuildChannel
-            .where("guildId", "=", guildId)
-            .where("channelId", "=", channelId),
-        );
-
-        return (
-          typeof running === "undefined" ? query : query.where("running", "=", running)
-        ).one();
-      },
-    }),
-    ZeroApiEndpoint.query("getGuildChannelByName", {
-      request: Schema.Struct({
-        guildId: Schema.String,
-        channelName: Schema.String,
-        running: Schema.optional(Schema.Boolean),
-      }),
-      success: success.guildConfig.getGuildChannelByName,
-      query: ({ args: { guildId, channelName, running } }) => {
-        const query = zeroTableAccess.configGuildChannel.listActiveWhere(
-          builder.configGuildChannel.where("guildId", "=", guildId).where("name", "=", channelName),
+      success: success.workspaceConfig.getWorkspaceConversationById,
+      query: ({ args: { workspaceId, conversationId, running } }) => {
+        const query = zeroTableAccess.configWorkspaceConversation.listActiveWhere(
+          builder.configWorkspaceConversation
+            .where("workspaceId", "=", workspaceId)
+            .where("conversationId", "=", conversationId),
         );
 
         return (
-          typeof running === "undefined" ? query : query.where("running", "=", running)
+          Predicate.isUndefined(running) ? query : query.where("running", "=", running)
         ).one();
       },
     }),
-    ZeroApiEndpoint.mutator("upsertGuildConfig", {
+    ZeroApiEndpoint.query("getWorkspaceConversationByName", {
       request: Schema.Struct({
-        guildId: Schema.String,
+        workspaceId: Schema.String,
+        conversationName: Schema.String,
+        running: Schema.optional(Schema.Boolean),
+      }),
+      success: success.workspaceConfig.getWorkspaceConversationByName,
+      query: ({ args: { workspaceId, conversationName, running } }) => {
+        const query = zeroTableAccess.configWorkspaceConversation.listActiveWhere(
+          builder.configWorkspaceConversation
+            .where("workspaceId", "=", workspaceId)
+            .where("name", "=", conversationName),
+        );
+
+        return (
+          Predicate.isUndefined(running) ? query : query.where("running", "=", running)
+        ).one();
+      },
+    }),
+    ZeroApiEndpoint.mutator("upsertWorkspaceConfig", {
+      request: Schema.Struct({
+        workspaceId: Schema.String,
         sheetId: Schema.optional(Schema.NullOr(Schema.String)),
         autoCheckin: Schema.optional(Schema.NullOr(Schema.Boolean)),
       }),
       mutator: async ({ tx, args }) => {
-        const existingConfigGuild = await tx.run(
-          builder.configGuild.where("guildId", "=", args.guildId).one(),
+        const existingConfigWorkspace = await tx.run(
+          builder.configWorkspace.where("workspaceId", "=", args.workspaceId).one(),
         );
 
-        await tx.mutate.configGuild.upsert(
-          zeroTableAccess.configGuild.upsertWithTimestamps(
+        await tx.mutate.configWorkspace.upsert(
+          zeroTableAccess.configWorkspace.upsertWithTimestamps(
             {
-              guildId: args.guildId,
-              sheetId: preserveOmitted(args.sheetId, existingConfigGuild?.sheetId),
-              autoCheckin: preserveOmitted(args.autoCheckin, existingConfigGuild?.autoCheckin),
+              workspaceId: args.workspaceId,
+              sheetId: preserveOmitted(args.sheetId, existingConfigWorkspace?.sheetId),
+              autoCheckin: preserveOmitted(args.autoCheckin, existingConfigWorkspace?.autoCheckin),
               deletedAt: null,
             },
-            existingConfigGuild,
+            existingConfigWorkspace,
           ),
         );
       },
     }),
-    ZeroApiEndpoint.mutator("addGuildMonitorRole", {
+    ZeroApiEndpoint.mutator("addWorkspaceMonitorRole", {
       request: Schema.Struct({
-        guildId: Schema.String,
+        workspaceId: Schema.String,
         roleId: Schema.String,
       }),
       mutator: async ({ tx, args }) => {
         const existingRole = await tx.run(
-          builder.configGuildManagerRole
-            .where("guildId", "=", args.guildId)
+          builder.configWorkspaceMonitorRole
+            .where("workspaceId", "=", args.workspaceId)
             .where("roleId", "=", args.roleId)
             .one(),
         );
 
-        await tx.mutate.configGuildManagerRole.upsert(
-          zeroTableAccess.configGuildManagerRole.upsertWithTimestamps(
+        await tx.mutate.configWorkspaceMonitorRole.upsert(
+          zeroTableAccess.configWorkspaceMonitorRole.upsertWithTimestamps(
             {
-              guildId: args.guildId,
+              workspaceId: args.workspaceId,
               roleId: args.roleId,
               deletedAt: null,
             },
@@ -232,90 +244,90 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
         );
       },
     }),
-    ZeroApiEndpoint.mutator("removeGuildMonitorRole", {
+    ZeroApiEndpoint.mutator("removeWorkspaceMonitorRole", {
       request: Schema.Struct({
-        guildId: Schema.String,
+        workspaceId: Schema.String,
         roleId: Schema.String,
       }),
       mutator: async ({ tx, args }) =>
-        await tx.mutate.configGuildManagerRole.update(
-          zeroTableAccess.configGuildManagerRole.softDeleteByPrimaryKey({
-            guildId: args.guildId,
+        await tx.mutate.configWorkspaceMonitorRole.update(
+          zeroTableAccess.configWorkspaceMonitorRole.softDeleteByPrimaryKey({
+            workspaceId: args.workspaceId,
             roleId: args.roleId,
           }),
         ),
     }),
-    ZeroApiEndpoint.mutator("addGuildFeatureFlag", {
+    ZeroApiEndpoint.mutator("addWorkspaceFeatureFlag", {
       request: Schema.Struct({
-        guildId: Schema.String,
+        workspaceId: Schema.String,
         flagName: Schema.String,
       }),
       mutator: async ({ tx, args }) => {
         const existingFlag = await tx.run(
-          builder.configGuildFeatureFlag
-            .where("guildId", "=", args.guildId)
+          builder.configWorkspaceFeatureFlag
+            .where("workspaceId", "=", args.workspaceId)
             .where("flagName", "=", args.flagName)
             .one(),
         );
 
-        const value = zeroTableAccess.configGuildFeatureFlag.upsertWithTimestamps(
+        const value = zeroTableAccess.configWorkspaceFeatureFlag.upsertWithTimestamps(
           {
-            guildId: args.guildId,
+            workspaceId: args.workspaceId,
             flagName: args.flagName,
           },
           existingFlag,
         );
 
-        if (existingFlag?.deletedAt != null) {
-          await tx.mutate.configGuildFeatureFlag.delete({
-            guildId: args.guildId,
+        if (Predicate.isNotNullish(existingFlag?.deletedAt)) {
+          await tx.mutate.configWorkspaceFeatureFlag.delete({
+            workspaceId: args.workspaceId,
             flagName: args.flagName,
           });
-          await tx.mutate.configGuildFeatureFlag.insert(value);
+          await tx.mutate.configWorkspaceFeatureFlag.insert(value);
           return;
         }
 
-        await tx.mutate.configGuildFeatureFlag.upsert(value);
+        await tx.mutate.configWorkspaceFeatureFlag.upsert(value);
       },
     }),
-    ZeroApiEndpoint.mutator("removeGuildFeatureFlag", {
+    ZeroApiEndpoint.mutator("removeWorkspaceFeatureFlag", {
       request: Schema.Struct({
-        guildId: Schema.String,
+        workspaceId: Schema.String,
         flagName: Schema.String,
       }),
       mutator: async ({ tx, args }) =>
-        await tx.mutate.configGuildFeatureFlag.update(
-          zeroTableAccess.configGuildFeatureFlag.softDeleteByPrimaryKey({
-            guildId: args.guildId,
+        await tx.mutate.configWorkspaceFeatureFlag.update(
+          zeroTableAccess.configWorkspaceFeatureFlag.softDeleteByPrimaryKey({
+            workspaceId: args.workspaceId,
             flagName: args.flagName,
           }),
         ),
     }),
-    ZeroApiEndpoint.mutator("recordGuildUpdateAnnouncementDelivery", {
+    ZeroApiEndpoint.mutator("recordWorkspaceUpdateAnnouncementDelivery", {
       request: Schema.Struct({
-        guildId: Schema.String,
+        workspaceId: Schema.String,
         announcementId: Schema.String,
         publishedAt: Schema.Number,
         deliveredAt: Schema.Number,
-        channelId: Schema.String,
+        conversationId: Schema.String,
         messageId: Schema.String,
       }),
       mutator: async ({ tx, args }) => {
         const existingDelivery = await tx.run(
-          builder.configGuildUpdateAnnouncementDelivery
-            .where("guildId", "=", args.guildId)
+          builder.configWorkspaceUpdateAnnouncementDelivery
+            .where("workspaceId", "=", args.workspaceId)
             .where("announcementId", "=", args.announcementId)
             .one(),
         );
 
-        await tx.mutate.configGuildUpdateAnnouncementDelivery.upsert(
-          zeroTableAccess.configGuildUpdateAnnouncementDelivery.upsertWithTimestamps(
+        await tx.mutate.configWorkspaceUpdateAnnouncementDelivery.upsert(
+          zeroTableAccess.configWorkspaceUpdateAnnouncementDelivery.upsertWithTimestamps(
             {
-              guildId: args.guildId,
+              workspaceId: args.workspaceId,
               announcementId: args.announcementId,
               publishedAt: args.publishedAt,
               deliveredAt: args.deliveredAt,
-              channelId: args.channelId,
+              conversationId: args.conversationId,
               messageId: args.messageId,
               deletedAt: null,
             },
@@ -324,110 +336,114 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
         );
       },
     }),
-    ZeroApiEndpoint.mutator("claimGuildUpdateAnnouncementDelivery", {
+    ZeroApiEndpoint.mutator("claimWorkspaceUpdateAnnouncementDelivery", {
       request: Schema.Struct({
-        guildId: Schema.String,
+        workspaceId: Schema.String,
         announcementId: Schema.String,
         publishedAt: Schema.Number,
         claimToken: Schema.String,
       }),
       mutator: async ({ tx, args }) => {
         const existingDelivery = await tx.run(
-          builder.configGuildUpdateAnnouncementDelivery
-            .where("guildId", "=", args.guildId)
-            .where("announcementId", "=", args.announcementId)
-            .one(),
-        );
-
-        if (existingDelivery?.deletedAt == null && existingDelivery != null) {
-          return;
-        }
-
-        const value = zeroTableAccess.configGuildUpdateAnnouncementDelivery.upsertWithTimestamps(
-          {
-            guildId: args.guildId,
-            announcementId: args.announcementId,
-            publishedAt: args.publishedAt,
-            deliveredAt: Date.now(),
-            channelId: updateAnnouncementDeliveryPendingChannelId,
-            messageId: args.claimToken,
-            deletedAt: null,
-          },
-          existingDelivery,
-        );
-
-        if (existingDelivery?.deletedAt != null) {
-          await tx.mutate.configGuildUpdateAnnouncementDelivery.delete({
-            guildId: args.guildId,
-            announcementId: args.announcementId,
-          });
-          await tx.mutate.configGuildUpdateAnnouncementDelivery.insert(value);
-          return;
-        }
-
-        await tx.mutate.configGuildUpdateAnnouncementDelivery.insert(value);
-      },
-    }),
-    ZeroApiEndpoint.mutator("releaseGuildUpdateAnnouncementDeliveryClaim", {
-      request: Schema.Struct({
-        guildId: Schema.String,
-        announcementId: Schema.String,
-        claimToken: Schema.String,
-      }),
-      mutator: async ({ tx, args }) => {
-        const existingDelivery = await tx.run(
-          builder.configGuildUpdateAnnouncementDelivery
-            .where("guildId", "=", args.guildId)
+          builder.configWorkspaceUpdateAnnouncementDelivery
+            .where("workspaceId", "=", args.workspaceId)
             .where("announcementId", "=", args.announcementId)
             .one(),
         );
 
         if (
-          existingDelivery?.deletedAt == null &&
-          existingDelivery?.channelId === updateAnnouncementDeliveryPendingChannelId &&
+          Predicate.isNotNullish(existingDelivery) &&
+          Predicate.isNullish(existingDelivery.deletedAt)
+        ) {
+          return;
+        }
+
+        const value =
+          zeroTableAccess.configWorkspaceUpdateAnnouncementDelivery.upsertWithTimestamps(
+            {
+              workspaceId: args.workspaceId,
+              announcementId: args.announcementId,
+              publishedAt: args.publishedAt,
+              deliveredAt: Date.now(),
+              conversationId: updateAnnouncementDeliveryPendingConversationId,
+              messageId: args.claimToken,
+              deletedAt: null,
+            },
+            existingDelivery,
+          );
+
+        if (Predicate.isNotNullish(existingDelivery?.deletedAt)) {
+          await tx.mutate.configWorkspaceUpdateAnnouncementDelivery.delete({
+            workspaceId: args.workspaceId,
+            announcementId: args.announcementId,
+          });
+          await tx.mutate.configWorkspaceUpdateAnnouncementDelivery.insert(value);
+          return;
+        }
+
+        await tx.mutate.configWorkspaceUpdateAnnouncementDelivery.insert(value);
+      },
+    }),
+    ZeroApiEndpoint.mutator("releaseWorkspaceUpdateAnnouncementDeliveryClaim", {
+      request: Schema.Struct({
+        workspaceId: Schema.String,
+        announcementId: Schema.String,
+        claimToken: Schema.String,
+      }),
+      mutator: async ({ tx, args }) => {
+        const existingDelivery = await tx.run(
+          builder.configWorkspaceUpdateAnnouncementDelivery
+            .where("workspaceId", "=", args.workspaceId)
+            .where("announcementId", "=", args.announcementId)
+            .one(),
+        );
+
+        if (
+          Predicate.isNullish(existingDelivery?.deletedAt) &&
+          existingDelivery?.conversationId === updateAnnouncementDeliveryPendingConversationId &&
           existingDelivery.messageId === args.claimToken
         ) {
-          await tx.mutate.configGuildUpdateAnnouncementDelivery.update(
-            zeroTableAccess.configGuildUpdateAnnouncementDelivery.softDeleteByPrimaryKey({
-              guildId: args.guildId,
+          await tx.mutate.configWorkspaceUpdateAnnouncementDelivery.update(
+            zeroTableAccess.configWorkspaceUpdateAnnouncementDelivery.softDeleteByPrimaryKey({
+              workspaceId: args.workspaceId,
               announcementId: args.announcementId,
             }),
           );
         }
       },
     }),
-    ZeroApiEndpoint.mutator("upsertGuildChannelConfig", {
+    ZeroApiEndpoint.mutator("upsertWorkspaceConversationConfig", {
       request: Schema.Struct({
-        guildId: Schema.String,
-        channelId: Schema.String,
+        workspaceId: Schema.String,
+        conversationId: Schema.String,
         name: Schema.optional(Schema.NullOr(Schema.String)),
         running: Schema.optional(Schema.NullOr(Schema.Boolean)),
         roleId: Schema.optional(Schema.NullOr(Schema.String)),
-        checkinChannelId: Schema.optional(Schema.NullOr(Schema.String)),
+        checkinConversationId: Schema.optional(Schema.NullOr(Schema.String)),
       }),
       mutator: async ({ tx, args }) => {
-        const existingChannel = await tx.run(
-          builder.configGuildChannel
-            .where("guildId", "=", args.guildId)
-            .where("channelId", "=", args.channelId)
+        const existingConversation = await tx.run(
+          builder.configWorkspaceConversation
+            .where("workspaceId", "=", args.workspaceId)
+            .where("conversationId", "=", args.conversationId)
             .one(),
         );
 
-        await tx.mutate.configGuildChannel.upsert(
-          zeroTableAccess.configGuildChannel.upsertWithTimestamps(
+        await tx.mutate.configWorkspaceConversation.upsert(
+          zeroTableAccess.configWorkspaceConversation.upsertWithTimestamps(
             {
-              guildId: args.guildId,
-              channelId: args.channelId,
-              name: preserveOmitted(args.name, existingChannel?.name),
-              running: preserveOmitted(args.running, existingChannel?.running),
-              roleId: preserveOmitted(args.roleId, existingChannel?.roleId),
-              checkinChannelId: preserveOmitted(
-                args.checkinChannelId,
-                existingChannel?.checkinChannelId,
+              workspaceId: args.workspaceId,
+              conversationId: args.conversationId,
+              name: preserveOmitted(args.name, existingConversation?.name),
+              running: preserveOmitted(args.running, existingConversation?.running),
+              roleId: preserveOmitted(args.roleId, existingConversation?.roleId),
+              checkinConversationId: preserveOmitted(
+                args.checkinConversationId,
+                existingConversation?.checkinConversationId,
               ),
               deletedAt: null,
             },
-            existingChannel,
+            existingConversation,
           ),
         );
       },
@@ -436,47 +452,58 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
 
   const MessageCheckinGroup = ZeroApiGroup.make("messageCheckin").add(
     ZeroApiEndpoint.query("getMessageCheckinData", {
-      request: Schema.Struct({ messageId: Schema.String }),
+      request: Schema.Struct(MessageKeyRequest),
       success: success.messageCheckin.getMessageCheckinData,
-      query: ({ args: { messageId } }) =>
+      query: ({ args: { clientPlatform, clientId, messageId } }) =>
         zeroTableAccess.messageCheckin.getActiveByPrimaryKey(builder.messageCheckin, {
+          clientPlatform,
+          clientId,
           messageId,
         }),
     }),
     ZeroApiEndpoint.query("getMessageCheckinMembers", {
-      request: Schema.Struct({ messageId: Schema.String }),
+      request: Schema.Struct(MessageKeyRequest),
       success: success.messageCheckin.getMessageCheckinMembers,
-      query: ({ args: { messageId } }) =>
+      query: ({ args: { clientPlatform, clientId, messageId } }) =>
         zeroTableAccess.messageCheckinMember.listActiveWhere(
-          builder.messageCheckinMember.where("messageId", "=", messageId),
+          builder.messageCheckinMember
+            .where("clientPlatform", "=", clientPlatform)
+            .where("clientId", "=", clientId)
+            .where("messageId", "=", messageId),
         ),
     }),
     ZeroApiEndpoint.mutator("upsertMessageCheckinData", {
       request: Schema.Struct({
-        messageId: Schema.String,
-        initialMessage: Schema.String,
+        ...MessageKeyRequest,
+        initialMessage: Schema.Array(ReadonlyJSONValue),
         hour: Schema.Number,
-        channelId: Schema.String,
+        runningConversationId: Schema.String,
         roleId: Schema.optional(Schema.NullOr(Schema.String)),
-        guildId: Schema.NullOr(Schema.String),
-        messageChannelId: Schema.NullOr(Schema.String),
+        workspaceId: Schema.NullOr(Schema.String),
+        conversationId: Schema.NullOr(Schema.String),
         createdByUserId: Schema.NullOr(Schema.String),
       }),
       mutator: async ({ tx, args }) => {
         const existingCheckin = await tx.run(
-          builder.messageCheckin.where("messageId", "=", args.messageId).one(),
+          builder.messageCheckin
+            .where("clientPlatform", "=", args.clientPlatform)
+            .where("clientId", "=", args.clientId)
+            .where("messageId", "=", args.messageId)
+            .one(),
         );
 
         await tx.mutate.messageCheckin.upsert(
           zeroTableAccess.messageCheckin.upsertWithTimestamps(
             {
+              clientPlatform: args.clientPlatform,
+              clientId: args.clientId,
               messageId: args.messageId,
               initialMessage: args.initialMessage,
               hour: args.hour,
-              channelId: args.channelId,
+              runningConversationId: args.runningConversationId,
               roleId: args.roleId,
-              guildId: args.guildId,
-              messageChannelId: args.messageChannelId,
+              workspaceId: args.workspaceId,
+              conversationId: args.conversationId,
               createdByUserId: args.createdByUserId,
               deletedAt: null,
             },
@@ -487,7 +514,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
     }),
     ZeroApiEndpoint.mutator("addMessageCheckinMembers", {
       request: Schema.Struct({
-        messageId: Schema.String,
+        ...MessageKeyRequest,
         memberIds: Schema.Array(Schema.String),
       }),
       mutator: async ({ tx, args }) => {
@@ -495,6 +522,8 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
           args.memberIds.map(async (memberId) => {
             const existingMember = await tx.run(
               builder.messageCheckinMember
+                .where("clientPlatform", "=", args.clientPlatform)
+                .where("clientId", "=", args.clientId)
                 .where("messageId", "=", args.messageId)
                 .where("memberId", "=", memberId)
                 .one(),
@@ -503,6 +532,8 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
             return tx.mutate.messageCheckinMember.upsert(
               zeroTableAccess.messageCheckinMember.upsertWithTimestamps(
                 {
+                  clientPlatform: args.clientPlatform,
+                  clientId: args.clientId,
                   messageId: args.messageId,
                   memberId,
                   checkinAt: null,
@@ -518,33 +549,39 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
     }),
     ZeroApiEndpoint.mutator("persistMessageCheckin", {
       request: Schema.Struct({
-        messageId: Schema.String,
+        ...MessageKeyRequest,
         data: Schema.Struct({
-          initialMessage: Schema.String,
+          initialMessage: Schema.Array(ReadonlyJSONValue),
           hour: Schema.Number,
-          channelId: Schema.String,
+          runningConversationId: Schema.String,
           roleId: Schema.optional(Schema.NullOr(Schema.String)),
-          guildId: Schema.NullOr(Schema.String),
-          messageChannelId: Schema.NullOr(Schema.String),
+          workspaceId: Schema.NullOr(Schema.String),
+          conversationId: Schema.NullOr(Schema.String),
           createdByUserId: Schema.NullOr(Schema.String),
         }),
         memberIds: Schema.Array(Schema.String),
       }),
       mutator: async ({ tx, args }) => {
         const existingCheckin = await tx.run(
-          builder.messageCheckin.where("messageId", "=", args.messageId).one(),
+          builder.messageCheckin
+            .where("clientPlatform", "=", args.clientPlatform)
+            .where("clientId", "=", args.clientId)
+            .where("messageId", "=", args.messageId)
+            .one(),
         );
 
         await tx.mutate.messageCheckin.upsert(
           zeroTableAccess.messageCheckin.upsertWithTimestamps(
             {
+              clientPlatform: args.clientPlatform,
+              clientId: args.clientId,
               messageId: args.messageId,
               initialMessage: args.data.initialMessage,
               hour: args.data.hour,
-              channelId: args.data.channelId,
+              runningConversationId: args.data.runningConversationId,
               roleId: args.data.roleId,
-              guildId: args.data.guildId,
-              messageChannelId: args.data.messageChannelId,
+              workspaceId: args.data.workspaceId,
+              conversationId: args.data.conversationId,
               createdByUserId: args.data.createdByUserId,
               deletedAt: null,
             },
@@ -556,6 +593,8 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
           args.memberIds.map(async (memberId) => {
             const existingMember = await tx.run(
               builder.messageCheckinMember
+                .where("clientPlatform", "=", args.clientPlatform)
+                .where("clientId", "=", args.clientId)
                 .where("messageId", "=", args.messageId)
                 .where("memberId", "=", memberId)
                 .one(),
@@ -564,6 +603,8 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
             return tx.mutate.messageCheckinMember.upsert(
               zeroTableAccess.messageCheckinMember.upsertWithTimestamps(
                 {
+                  clientPlatform: args.clientPlatform,
+                  clientId: args.clientId,
                   messageId: args.messageId,
                   memberId,
                   checkinAt: null,
@@ -579,7 +620,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
     }),
     ZeroApiEndpoint.mutator("setMessageCheckinMemberCheckinAt", {
       request: Schema.Struct({
-        messageId: Schema.String,
+        ...MessageKeyRequest,
         memberId: Schema.String,
         checkinAt: Schema.Number,
         checkinClaimId: Schema.optional(Schema.String),
@@ -587,6 +628,8 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
       mutator: async ({ tx, args }) =>
         await tx.mutate.messageCheckinMember.update(
           zeroTableAccess.messageCheckinMember.updateWithTimestamp({
+            clientPlatform: args.clientPlatform,
+            clientId: args.clientId,
             messageId: args.messageId,
             memberId: args.memberId,
             checkinAt: args.checkinAt,
@@ -596,7 +639,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
     }),
     ZeroApiEndpoint.mutator("setMessageCheckinMemberCheckinAtIfUnset", {
       request: Schema.Struct({
-        messageId: Schema.String,
+        ...MessageKeyRequest,
         memberId: Schema.String,
         checkinAt: Schema.Number,
         checkinClaimId: Schema.String,
@@ -604,13 +647,17 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
       mutator: async ({ tx, args }) => {
         const member = await tx.run(
           zeroTableAccess.messageCheckinMember.getActiveByPrimaryKey(builder.messageCheckinMember, {
+            clientPlatform: args.clientPlatform,
+            clientId: args.clientId,
             messageId: args.messageId,
             memberId: args.memberId,
           }),
         );
-        if (!member || member.checkinAt !== null) return;
+        if (Predicate.isNullish(member) || Predicate.isNotNull(member.checkinAt)) return;
         await tx.mutate.messageCheckinMember.update(
           zeroTableAccess.messageCheckinMember.updateWithTimestamp({
+            clientPlatform: args.clientPlatform,
+            clientId: args.clientId,
             messageId: args.messageId,
             memberId: args.memberId,
             checkinAt: args.checkinAt,
@@ -621,12 +668,14 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
     }),
     ZeroApiEndpoint.mutator("removeMessageCheckinMember", {
       request: Schema.Struct({
-        messageId: Schema.String,
+        ...MessageKeyRequest,
         memberId: Schema.String,
       }),
       mutator: async ({ tx, args }) =>
         await tx.mutate.messageCheckinMember.update(
           zeroTableAccess.messageCheckinMember.softDeleteByPrimaryKey({
+            clientPlatform: args.clientPlatform,
+            clientId: args.clientId,
             messageId: args.messageId,
             memberId: args.memberId,
           }),
@@ -636,36 +685,43 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
 
   const MessageRoomOrderGroup = ZeroApiGroup.make("messageRoomOrder").add(
     ZeroApiEndpoint.query("getMessageRoomOrder", {
-      request: Schema.Struct({ messageId: Schema.String }),
+      request: Schema.Struct(MessageKeyRequest),
       success: success.messageRoomOrder.getMessageRoomOrder,
-      query: ({ args: { messageId } }) =>
+      query: ({ args: { clientPlatform, clientId, messageId } }) =>
         zeroTableAccess.messageRoomOrder.getActiveByPrimaryKey(builder.messageRoomOrder, {
+          clientPlatform,
+          clientId,
           messageId,
         }),
     }),
     ZeroApiEndpoint.query("getMessageRoomOrderEntry", {
-      request: Schema.Struct({ messageId: Schema.String, rank: Schema.Number }),
+      request: Schema.Struct({ ...MessageKeyRequest, rank: Schema.Number }),
       success: success.messageRoomOrder.getMessageRoomOrderEntry,
-      query: ({ args: { messageId, rank } }) =>
+      query: ({ args: { clientPlatform, clientId, messageId, rank } }) =>
         zeroTableAccess.messageRoomOrderEntry
           .listActiveWhere(
             builder.messageRoomOrderEntry
+              .where("clientPlatform", "=", clientPlatform)
+              .where("clientId", "=", clientId)
               .where("messageId", "=", messageId)
               .where("rank", "=", rank),
           )
           .orderBy("position", "asc"),
     }),
     ZeroApiEndpoint.query("getMessageRoomOrderRange", {
-      request: Schema.Struct({ messageId: Schema.String }),
+      request: Schema.Struct(MessageKeyRequest),
       success: success.messageRoomOrder.getMessageRoomOrderRange,
-      query: ({ args: { messageId } }) =>
+      query: ({ args: { clientPlatform, clientId, messageId } }) =>
         zeroTableAccess.messageRoomOrderEntry.listActiveWhere(
-          builder.messageRoomOrderEntry.where("messageId", "=", messageId),
+          builder.messageRoomOrderEntry
+            .where("clientPlatform", "=", clientPlatform)
+            .where("clientId", "=", clientId)
+            .where("messageId", "=", messageId),
         ),
     }),
     ZeroApiEndpoint.mutator("decrementMessageRoomOrderRank", {
       request: Schema.Struct({
-        messageId: Schema.String,
+        ...MessageKeyRequest,
         expectedRank: Schema.optional(Schema.Number),
         tentativeUpdateClaimId: Schema.optional(Schema.String),
       }),
@@ -673,13 +729,15 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
         const now = Date.now();
         const messageRoomOrder = await tx.run(
           builder.messageRoomOrder
+            .where("clientPlatform", "=", args.clientPlatform)
+            .where("clientId", "=", args.clientId)
             .where("messageId", "=", args.messageId)
             .where("deletedAt", "IS", null)
             .one(),
         );
         if (
-          !messageRoomOrder ||
-          messageRoomOrder.tentativePinnedAt !== null ||
+          Predicate.isNullish(messageRoomOrder) ||
+          Predicate.isNotNull(messageRoomOrder.tentativePinnedAt) ||
           (args.expectedRank !== undefined && messageRoomOrder.rank !== args.expectedRank) ||
           hasActiveSendClaim(messageRoomOrder, now) ||
           (hasActiveTentativeUpdateClaim(messageRoomOrder, now) &&
@@ -690,6 +748,8 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
         }
         await tx.mutate.messageRoomOrder.update(
           zeroTableAccess.messageRoomOrder.updateWithTimestamp({
+            clientPlatform: args.clientPlatform,
+            clientId: args.clientId,
             messageId: args.messageId,
             rank: messageRoomOrder.rank - 1,
           }),
@@ -698,7 +758,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
     }),
     ZeroApiEndpoint.mutator("incrementMessageRoomOrderRank", {
       request: Schema.Struct({
-        messageId: Schema.String,
+        ...MessageKeyRequest,
         expectedRank: Schema.optional(Schema.Number),
         tentativeUpdateClaimId: Schema.optional(Schema.String),
       }),
@@ -706,13 +766,15 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
         const now = Date.now();
         const messageRoomOrder = await tx.run(
           builder.messageRoomOrder
+            .where("clientPlatform", "=", args.clientPlatform)
+            .where("clientId", "=", args.clientId)
             .where("messageId", "=", args.messageId)
             .where("deletedAt", "IS", null)
             .one(),
         );
         if (
-          !messageRoomOrder ||
-          messageRoomOrder.tentativePinnedAt !== null ||
+          Predicate.isNullish(messageRoomOrder) ||
+          Predicate.isNotNull(messageRoomOrder.tentativePinnedAt) ||
           (args.expectedRank !== undefined && messageRoomOrder.rank !== args.expectedRank) ||
           hasActiveSendClaim(messageRoomOrder, now) ||
           (hasActiveTentativeUpdateClaim(messageRoomOrder, now) &&
@@ -723,6 +785,8 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
         }
         await tx.mutate.messageRoomOrder.update(
           zeroTableAccess.messageRoomOrder.updateWithTimestamp({
+            clientPlatform: args.clientPlatform,
+            clientId: args.clientId,
             messageId: args.messageId,
             rank: messageRoomOrder.rank + 1,
           }),
@@ -730,19 +794,21 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
       },
     }),
     ZeroApiEndpoint.mutator("claimMessageRoomOrderSend", {
-      request: Schema.Struct({ messageId: Schema.String, claimId: Schema.String }),
+      request: Schema.Struct({ ...MessageKeyRequest, claimId: Schema.String }),
       mutator: async ({ tx, args }) => {
         const now = Date.now();
         const messageRoomOrder = await tx.run(
           builder.messageRoomOrder
+            .where("clientPlatform", "=", args.clientPlatform)
+            .where("clientId", "=", args.clientId)
             .where("messageId", "=", args.messageId)
             .where("deletedAt", "IS", null)
             .one(),
         );
         if (
-          !messageRoomOrder ||
+          Predicate.isNullish(messageRoomOrder) ||
           messageRoomOrder.sentMessageId ||
-          messageRoomOrder.tentativePinnedAt !== null ||
+          Predicate.isNotNull(messageRoomOrder.tentativePinnedAt) ||
           isActiveSendClaim(messageRoomOrder.sendClaimId, messageRoomOrder.sendClaimedAt, now) ||
           hasActiveTentativeUpdateClaim(messageRoomOrder, now) ||
           hasActiveTentativePinClaim(messageRoomOrder, now)
@@ -751,6 +817,8 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
         }
         await tx.mutate.messageRoomOrder.update(
           zeroTableAccess.messageRoomOrder.updateWithTimestamp({
+            clientPlatform: args.clientPlatform,
+            clientId: args.clientId,
             messageId: args.messageId,
             sendClaimId: args.claimId,
             sendClaimedAt: now,
@@ -764,48 +832,62 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
     }),
     ZeroApiEndpoint.mutator("completeMessageRoomOrderSend", {
       request: Schema.Struct({
-        messageId: Schema.String,
+        ...MessageKeyRequest,
         claimId: Schema.String,
         sentMessageId: Schema.String,
-        sentMessageChannelId: Schema.String,
+        sentConversationId: Schema.String,
         sentAt: Schema.Number,
       }),
       mutator: async ({ tx, args }) => {
         const messageRoomOrder = await tx.run(
           builder.messageRoomOrder
+            .where("clientPlatform", "=", args.clientPlatform)
+            .where("clientId", "=", args.clientId)
             .where("messageId", "=", args.messageId)
             .where("deletedAt", "IS", null)
             .one(),
         );
-        if (!messageRoomOrder || messageRoomOrder.sendClaimId !== args.claimId) {
+        if (
+          Predicate.isNullish(messageRoomOrder) ||
+          messageRoomOrder.sendClaimId !== args.claimId
+        ) {
           return;
         }
         await tx.mutate.messageRoomOrder.update(
           zeroTableAccess.messageRoomOrder.updateWithTimestamp({
+            clientPlatform: args.clientPlatform,
+            clientId: args.clientId,
             messageId: args.messageId,
             sendClaimId: null,
             sendClaimedAt: null,
             sentMessageId: args.sentMessageId,
-            sentMessageChannelId: args.sentMessageChannelId,
+            sentConversationId: args.sentConversationId,
             sentAt: args.sentAt,
           }),
         );
       },
     }),
     ZeroApiEndpoint.mutator("releaseMessageRoomOrderSendClaim", {
-      request: Schema.Struct({ messageId: Schema.String, claimId: Schema.String }),
+      request: Schema.Struct({ ...MessageKeyRequest, claimId: Schema.String }),
       mutator: async ({ tx, args }) => {
         const messageRoomOrder = await tx.run(
           builder.messageRoomOrder
+            .where("clientPlatform", "=", args.clientPlatform)
+            .where("clientId", "=", args.clientId)
             .where("messageId", "=", args.messageId)
             .where("deletedAt", "IS", null)
             .one(),
         );
-        if (!messageRoomOrder || messageRoomOrder.sendClaimId !== args.claimId) {
+        if (
+          Predicate.isNullish(messageRoomOrder) ||
+          messageRoomOrder.sendClaimId !== args.claimId
+        ) {
           return;
         }
         await tx.mutate.messageRoomOrder.update(
           zeroTableAccess.messageRoomOrder.updateWithTimestamp({
+            clientPlatform: args.clientPlatform,
+            clientId: args.clientId,
             messageId: args.messageId,
             sendClaimId: null,
             sendClaimedAt: null,
@@ -814,18 +896,20 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
       },
     }),
     ZeroApiEndpoint.mutator("claimMessageRoomOrderTentativeUpdate", {
-      request: Schema.Struct({ messageId: Schema.String, claimId: Schema.String }),
+      request: Schema.Struct({ ...MessageKeyRequest, claimId: Schema.String }),
       mutator: async ({ tx, args }) => {
         const now = Date.now();
         const messageRoomOrder = await tx.run(
           builder.messageRoomOrder
+            .where("clientPlatform", "=", args.clientPlatform)
+            .where("clientId", "=", args.clientId)
             .where("messageId", "=", args.messageId)
             .where("deletedAt", "IS", null)
             .one(),
         );
         if (
-          !messageRoomOrder ||
-          messageRoomOrder.tentativePinnedAt !== null ||
+          Predicate.isNullish(messageRoomOrder) ||
+          Predicate.isNotNull(messageRoomOrder.tentativePinnedAt) ||
           hasStaleUntrackedSendClaim(messageRoomOrder, now) ||
           isActiveSendClaim(messageRoomOrder.sendClaimId, messageRoomOrder.sendClaimedAt, now) ||
           hasActiveTentativePinClaim(messageRoomOrder, now) ||
@@ -835,6 +919,8 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
         }
         await tx.mutate.messageRoomOrder.update(
           zeroTableAccess.messageRoomOrder.updateWithTimestamp({
+            clientPlatform: args.clientPlatform,
+            clientId: args.clientId,
             messageId: args.messageId,
             sendClaimId: null,
             sendClaimedAt: null,
@@ -847,19 +933,26 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
       },
     }),
     ZeroApiEndpoint.mutator("releaseMessageRoomOrderTentativeUpdateClaim", {
-      request: Schema.Struct({ messageId: Schema.String, claimId: Schema.String }),
+      request: Schema.Struct({ ...MessageKeyRequest, claimId: Schema.String }),
       mutator: async ({ tx, args }) => {
         const messageRoomOrder = await tx.run(
           builder.messageRoomOrder
+            .where("clientPlatform", "=", args.clientPlatform)
+            .where("clientId", "=", args.clientId)
             .where("messageId", "=", args.messageId)
             .where("deletedAt", "IS", null)
             .one(),
         );
-        if (!messageRoomOrder || messageRoomOrder.tentativeUpdateClaimId !== args.claimId) {
+        if (
+          Predicate.isNullish(messageRoomOrder) ||
+          messageRoomOrder.tentativeUpdateClaimId !== args.claimId
+        ) {
           return;
         }
         await tx.mutate.messageRoomOrder.update(
           zeroTableAccess.messageRoomOrder.updateWithTimestamp({
+            clientPlatform: args.clientPlatform,
+            clientId: args.clientId,
             messageId: args.messageId,
             tentativeUpdateClaimId: null,
             tentativeUpdateClaimedAt: null,
@@ -869,20 +962,22 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
     }),
     ZeroApiEndpoint.mutator("claimMessageRoomOrderTentativePin", {
       request: Schema.Struct({
-        messageId: Schema.String,
+        ...MessageKeyRequest,
         claimId: Schema.String,
       }),
       mutator: async ({ tx, args }) => {
         const now = Date.now();
         const messageRoomOrder = await tx.run(
           builder.messageRoomOrder
+            .where("clientPlatform", "=", args.clientPlatform)
+            .where("clientId", "=", args.clientId)
             .where("messageId", "=", args.messageId)
             .where("deletedAt", "IS", null)
             .one(),
         );
         if (
-          !messageRoomOrder ||
-          messageRoomOrder.tentativePinnedAt !== null ||
+          Predicate.isNullish(messageRoomOrder) ||
+          Predicate.isNotNull(messageRoomOrder.tentativePinnedAt) ||
           hasStaleUntrackedSendClaim(messageRoomOrder, now) ||
           isActiveSendClaim(messageRoomOrder.sendClaimId, messageRoomOrder.sendClaimedAt, now) ||
           hasActiveTentativePinClaim(messageRoomOrder, now) ||
@@ -892,6 +987,8 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
         }
         await tx.mutate.messageRoomOrder.update(
           zeroTableAccess.messageRoomOrder.updateWithTimestamp({
+            clientPlatform: args.clientPlatform,
+            clientId: args.clientId,
             messageId: args.messageId,
             sendClaimId: null,
             sendClaimedAt: null,
@@ -905,26 +1002,30 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
     }),
     ZeroApiEndpoint.mutator("completeMessageRoomOrderTentativePin", {
       request: Schema.Struct({
-        messageId: Schema.String,
+        ...MessageKeyRequest,
         claimId: Schema.String,
         pinnedAt: Schema.Number,
       }),
       mutator: async ({ tx, args }) => {
         const messageRoomOrder = await tx.run(
           builder.messageRoomOrder
+            .where("clientPlatform", "=", args.clientPlatform)
+            .where("clientId", "=", args.clientId)
             .where("messageId", "=", args.messageId)
             .where("deletedAt", "IS", null)
             .one(),
         );
         if (
-          !messageRoomOrder ||
-          messageRoomOrder.tentativePinnedAt !== null ||
+          Predicate.isNullish(messageRoomOrder) ||
+          Predicate.isNotNull(messageRoomOrder.tentativePinnedAt) ||
           messageRoomOrder.tentativePinClaimId !== args.claimId
         ) {
           return;
         }
         await tx.mutate.messageRoomOrder.update(
           zeroTableAccess.messageRoomOrder.updateWithTimestamp({
+            clientPlatform: args.clientPlatform,
+            clientId: args.clientId,
             messageId: args.messageId,
             tentativePinClaimId: null,
             tentativePinClaimedAt: null,
@@ -934,23 +1035,27 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
       },
     }),
     ZeroApiEndpoint.mutator("releaseMessageRoomOrderTentativePinClaim", {
-      request: Schema.Struct({ messageId: Schema.String, claimId: Schema.String }),
+      request: Schema.Struct({ ...MessageKeyRequest, claimId: Schema.String }),
       mutator: async ({ tx, args }) => {
         const messageRoomOrder = await tx.run(
           builder.messageRoomOrder
+            .where("clientPlatform", "=", args.clientPlatform)
+            .where("clientId", "=", args.clientId)
             .where("messageId", "=", args.messageId)
             .where("deletedAt", "IS", null)
             .one(),
         );
         if (
-          !messageRoomOrder ||
-          messageRoomOrder.tentativePinnedAt !== null ||
+          Predicate.isNullish(messageRoomOrder) ||
+          Predicate.isNotNull(messageRoomOrder.tentativePinnedAt) ||
           messageRoomOrder.tentativePinClaimId !== args.claimId
         ) {
           return;
         }
         await tx.mutate.messageRoomOrder.update(
           zeroTableAccess.messageRoomOrder.updateWithTimestamp({
+            clientPlatform: args.clientPlatform,
+            clientId: args.clientId,
             messageId: args.messageId,
             tentativePinClaimId: null,
             tentativePinClaimedAt: null,
@@ -960,41 +1065,49 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
     }),
     ZeroApiEndpoint.mutator("markMessageRoomOrderTentative", {
       request: Schema.Struct({
-        messageId: Schema.String,
-        guildId: Schema.String,
-        messageChannelId: Schema.String,
+        ...MessageKeyRequest,
+        workspaceId: Schema.String,
+        conversationId: Schema.String,
       }),
       mutator: async ({ tx, args }) =>
         await tx.mutate.messageRoomOrder.update(
           zeroTableAccess.messageRoomOrder.updateWithTimestamp({
+            clientPlatform: args.clientPlatform,
+            clientId: args.clientId,
             messageId: args.messageId,
             tentative: true,
-            guildId: args.guildId,
-            messageChannelId: args.messageChannelId,
+            workspaceId: args.workspaceId,
+            conversationId: args.conversationId,
           }),
         ),
     }),
     ZeroApiEndpoint.mutator("upsertMessageRoomOrder", {
       request: Schema.Struct({
-        messageId: Schema.String,
+        ...MessageKeyRequest,
         previousFills: Schema.Array(Schema.String),
         fills: Schema.Array(Schema.String),
         hour: Schema.Number,
         rank: Schema.Number,
         tentative: Schema.optional(Schema.Boolean),
         monitor: Schema.optional(Schema.NullOr(Schema.String)),
-        guildId: Schema.NullOr(Schema.String),
-        messageChannelId: Schema.NullOr(Schema.String),
+        workspaceId: Schema.NullOr(Schema.String),
+        conversationId: Schema.NullOr(Schema.String),
         createdByUserId: Schema.NullOr(Schema.String),
       }),
       mutator: async ({ tx, args }) => {
         const existingMessageRoomOrder = await tx.run(
-          builder.messageRoomOrder.where("messageId", "=", args.messageId).one(),
+          builder.messageRoomOrder
+            .where("clientPlatform", "=", args.clientPlatform)
+            .where("clientId", "=", args.clientId)
+            .where("messageId", "=", args.messageId)
+            .one(),
         );
 
         await tx.mutate.messageRoomOrder.upsert(
           zeroTableAccess.messageRoomOrder.upsertWithTimestamps(
             {
+              clientPlatform: args.clientPlatform,
+              clientId: args.clientId,
               messageId: args.messageId,
               previousFills: args.previousFills.slice(),
               fills: args.fills.slice(),
@@ -1002,8 +1115,8 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
               rank: args.rank,
               tentative: args.tentative ?? existingMessageRoomOrder?.tentative ?? false,
               monitor: args.monitor,
-              guildId: args.guildId,
-              messageChannelId: args.messageChannelId,
+              workspaceId: args.workspaceId,
+              conversationId: args.conversationId,
               createdByUserId: args.createdByUserId,
               deletedAt: null,
             },
@@ -1014,7 +1127,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
     }),
     ZeroApiEndpoint.mutator("persistMessageRoomOrder", {
       request: Schema.Struct({
-        messageId: Schema.String,
+        ...MessageKeyRequest,
         data: Schema.Struct({
           previousFills: Schema.Array(Schema.String),
           fills: Schema.Array(Schema.String),
@@ -1022,8 +1135,8 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
           rank: Schema.Number,
           tentative: Schema.optional(Schema.Boolean),
           monitor: Schema.optional(Schema.NullOr(Schema.String)),
-          guildId: Schema.NullOr(Schema.String),
-          messageChannelId: Schema.NullOr(Schema.String),
+          workspaceId: Schema.NullOr(Schema.String),
+          conversationId: Schema.NullOr(Schema.String),
           createdByUserId: Schema.NullOr(Schema.String),
         }),
         entries: Schema.Array(
@@ -1039,12 +1152,18 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
       }),
       mutator: async ({ tx, args }) => {
         const existingMessageRoomOrder = await tx.run(
-          builder.messageRoomOrder.where("messageId", "=", args.messageId).one(),
+          builder.messageRoomOrder
+            .where("clientPlatform", "=", args.clientPlatform)
+            .where("clientId", "=", args.clientId)
+            .where("messageId", "=", args.messageId)
+            .one(),
         );
 
         await tx.mutate.messageRoomOrder.upsert(
           zeroTableAccess.messageRoomOrder.upsertWithTimestamps(
             {
+              clientPlatform: args.clientPlatform,
+              clientId: args.clientId,
               messageId: args.messageId,
               previousFills: args.data.previousFills.slice(),
               fills: args.data.fills.slice(),
@@ -1052,8 +1171,8 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
               rank: args.data.rank,
               tentative: args.data.tentative ?? existingMessageRoomOrder?.tentative ?? false,
               monitor: args.data.monitor,
-              guildId: args.data.guildId,
-              messageChannelId: args.data.messageChannelId,
+              workspaceId: args.data.workspaceId,
+              conversationId: args.data.conversationId,
               createdByUserId: args.data.createdByUserId,
               deletedAt: null,
             },
@@ -1065,6 +1184,8 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
           args.entries.map(async (entry) => {
             const existingEntry = await tx.run(
               builder.messageRoomOrderEntry
+                .where("clientPlatform", "=", args.clientPlatform)
+                .where("clientId", "=", args.clientId)
                 .where("messageId", "=", args.messageId)
                 .where("rank", "=", entry.rank)
                 .where("position", "=", entry.position)
@@ -1074,6 +1195,8 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
             return tx.mutate.messageRoomOrderEntry.upsert(
               zeroTableAccess.messageRoomOrderEntry.upsertWithTimestamps(
                 {
+                  clientPlatform: args.clientPlatform,
+                  clientId: args.clientId,
                   messageId: args.messageId,
                   rank: entry.rank,
                   position: entry.position,
@@ -1092,7 +1215,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
     }),
     ZeroApiEndpoint.mutator("upsertMessageRoomOrderEntry", {
       request: Schema.Struct({
-        messageId: Schema.String,
+        ...MessageKeyRequest,
         entries: Schema.Array(
           Schema.Struct({
             rank: Schema.Number,
@@ -1109,6 +1232,8 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
           args.entries.map(async (entry) => {
             const existingEntry = await tx.run(
               builder.messageRoomOrderEntry
+                .where("clientPlatform", "=", args.clientPlatform)
+                .where("clientId", "=", args.clientId)
                 .where("messageId", "=", args.messageId)
                 .where("rank", "=", entry.rank)
                 .where("position", "=", entry.position)
@@ -1118,6 +1243,8 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
             return tx.mutate.messageRoomOrderEntry.upsert(
               zeroTableAccess.messageRoomOrderEntry.upsertWithTimestamps(
                 {
+                  clientPlatform: args.clientPlatform,
+                  clientId: args.clientId,
                   messageId: args.messageId,
                   rank: entry.rank,
                   position: entry.position,
@@ -1136,13 +1263,15 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
     }),
     ZeroApiEndpoint.mutator("removeMessageRoomOrderEntry", {
       request: Schema.Struct({
-        messageId: Schema.String,
+        ...MessageKeyRequest,
         rank: Schema.Number,
         position: Schema.Number,
       }),
       mutator: async ({ tx, args }) =>
         await tx.mutate.messageRoomOrderEntry.update(
           zeroTableAccess.messageRoomOrderEntry.softDeleteByPrimaryKey({
+            clientPlatform: args.clientPlatform,
+            clientId: args.clientId,
             messageId: args.messageId,
             rank: args.rank,
             position: args.position,
@@ -1153,31 +1282,41 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
 
   const MessageSlotGroup = ZeroApiGroup.make("messageSlot").add(
     ZeroApiEndpoint.query("getMessageSlotData", {
-      request: Schema.Struct({ messageId: Schema.String }),
+      request: Schema.Struct(MessageKeyRequest),
       success: success.messageSlot.getMessageSlotData,
-      query: ({ args: { messageId } }) =>
-        zeroTableAccess.messageSlot.getActiveByPrimaryKey(builder.messageSlot, { messageId }),
+      query: ({ args: { clientPlatform, clientId, messageId } }) =>
+        zeroTableAccess.messageSlot.getActiveByPrimaryKey(builder.messageSlot, {
+          clientPlatform,
+          clientId,
+          messageId,
+        }),
     }),
     ZeroApiEndpoint.mutator("upsertMessageSlotData", {
       request: Schema.Struct({
-        messageId: Schema.String,
+        ...MessageKeyRequest,
         day: Schema.Number,
-        guildId: Schema.NullOr(Schema.String),
-        messageChannelId: Schema.NullOr(Schema.String),
+        workspaceId: Schema.NullOr(Schema.String),
+        conversationId: Schema.NullOr(Schema.String),
         createdByUserId: Schema.NullOr(Schema.String),
       }),
       mutator: async ({ tx, args }) => {
         const existingSlot = await tx.run(
-          builder.messageSlot.where("messageId", "=", args.messageId).one(),
+          builder.messageSlot
+            .where("clientPlatform", "=", args.clientPlatform)
+            .where("clientId", "=", args.clientId)
+            .where("messageId", "=", args.messageId)
+            .one(),
         );
 
         await tx.mutate.messageSlot.upsert(
           zeroTableAccess.messageSlot.upsertWithTimestamps(
             {
+              clientPlatform: args.clientPlatform,
+              clientId: args.clientId,
               messageId: args.messageId,
               day: args.day,
-              guildId: args.guildId,
-              messageChannelId: args.messageChannelId,
+              workspaceId: args.workspaceId,
+              conversationId: args.conversationId,
               createdByUserId: args.createdByUserId,
               deletedAt: null,
             },
@@ -1189,7 +1328,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
   );
 
   return make("sheet")
-    .add(GuildConfigGroup)
+    .add(WorkspaceConfigGroup)
     .add(MessageCheckinGroup)
     .add(MessageRoomOrderGroup)
     .add(MessageSlotGroup);

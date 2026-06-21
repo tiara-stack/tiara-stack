@@ -11,6 +11,12 @@ const isMissingMessageRoomOrderError = (error: unknown) =>
   Predicate.hasProperty(error, "message") &&
   error.message === MESSAGE_ROOM_ORDER_NOT_REGISTERED_ERROR_MESSAGE;
 
+const defaultMessageKey = (messageId: string) => ({
+  clientPlatform: "discord" as const,
+  clientId: "discord-main",
+  messageId,
+});
+
 export class MessageLookup extends Context.Service<MessageLookup>()("MessageLookup", {
   make: Effect.gen(function* () {
     const sheetApisForwardingClient = yield* SheetApisForwardingClient;
@@ -31,7 +37,7 @@ export class MessageLookup extends Context.Service<MessageLookup>()("MessageLook
       (messageId) =>
         sheetApisRpcTokens.withServiceUser(
           sheetApisForwardingClient.messageCheckin
-            .getMessageCheckinData({ query: { messageId } })
+            .getMessageCheckinData({ query: defaultMessageKey(messageId) })
             .pipe(Effect.option),
         ),
       cacheOptions,
@@ -44,7 +50,7 @@ export class MessageLookup extends Context.Service<MessageLookup>()("MessageLook
       (messageId) =>
         sheetApisRpcTokens.withServiceUser(
           sheetApisForwardingClient.messageCheckin.getMessageCheckinMembers({
-            query: { messageId },
+            query: defaultMessageKey(messageId),
           }),
         ),
       cacheOptions,
@@ -57,7 +63,7 @@ export class MessageLookup extends Context.Service<MessageLookup>()("MessageLook
       (messageId) =>
         sheetApisRpcTokens.withServiceUser(
           sheetApisForwardingClient.messageRoomOrder
-            .getMessageRoomOrder({ query: { messageId } })
+            .getMessageRoomOrder({ query: defaultMessageKey(messageId) })
             .pipe(
               Effect.map(Option.some),
               Effect.catch((error) =>
@@ -73,7 +79,7 @@ export class MessageLookup extends Context.Service<MessageLookup>()("MessageLook
       (messageId) =>
         sheetApisRpcTokens.withServiceUser(
           sheetApisForwardingClient.messageSlot
-            .getMessageSlotData({ query: { messageId } })
+            .getMessageSlotData({ query: defaultMessageKey(messageId) })
             .pipe(Effect.option),
         ),
       cacheOptions,

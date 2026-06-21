@@ -18,9 +18,9 @@
       "types": "./dist/api.d.mts",
       "default": "./dist/api.mjs"
     },
-    "./discordComponents": {
-      "types": "./dist/discordComponents.d.mts",
-      "default": "./dist/discordComponents.mjs"
+    "./clientActions": {
+      "types": "./dist/clientActions.d.mts",
+      "default": "./dist/clientActions.mjs"
     },
     "./api-groups": {
       "types": "./dist/api-groups.d.mts",
@@ -34,6 +34,10 @@
     "./handlers/health/schema": {
       "types": "./dist/handlers/health/schema.d.mts",
       "default": "./dist/handlers/health/schema.mjs"
+    },
+    "./handlers/clientDelivery/api": {
+      "types": "./dist/handlers/clientDelivery/api.d.mts",
+      "default": "./dist/handlers/clientDelivery/api.mjs"
     },
     "./middlewares/sheetAuthTokenAuthorization/tag": {
       "types": "./dist/middlewares/sheetAuthTokenAuthorization/tag.d.mts",

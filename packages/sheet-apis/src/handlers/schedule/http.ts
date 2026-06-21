@@ -1,49 +1,37 @@
-import { Effect, Layer, Option } from "effect";
+// fallow-ignore-file complexity
+import { Effect, Layer } from "effect";
 import { ScheduleRpcs } from "sheet-ingress-api/sheet-apis-rpc";
-import { withCurrentGuildAuthFromQuery } from "@/handlers/shared/guildAuthorization";
-import { hasGuildPermission, hasPermission } from "@/services/authorization";
-import { SheetAuthGuildUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthGuildUser";
+import { withCurrentWorkspaceAuthFromQuery } from "@/handlers/shared/workspaceAuthorization";
+import { getSheetIdFromWorkspaceId } from "@/handlers/shared/workspaceConfig";
+import { hasWorkspacePermission, hasPermission } from "@/services/authorization";
+import { SheetAuthWorkspaceUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthWorkspaceUser";
 import { Unauthorized } from "typhoon-core/error";
 import {
   AuthorizationService,
-  GuildConfigService,
+  WorkspaceConfigService,
   ScheduleService,
   summarizeDayPlayerSchedule,
 } from "@/services";
 import { resolveScheduleViewFromPermissions } from "./shared";
 
-const getSheetIdFromGuildId = Effect.fn("schedule.getSheetIdFromGuildId")(function* (
-  guildId: string,
-  guildConfigService: typeof GuildConfigService.Service,
-) {
-  const guildConfig = yield* guildConfigService.getGuildConfig(guildId);
-
-  if (Option.isNone(guildConfig)) {
-    return yield* Effect.die(new Error(`Guild config not found for guildId: ${guildId}`));
-  }
-
-  if (Option.isNone(guildConfig.value.sheetId)) {
-    return yield* Effect.die(new Error(`sheetId not found for guildId: ${guildId}`));
-  }
-
-  return guildConfig.value.sheetId.value;
-});
-
 export const scheduleLayer = ScheduleRpcs.toLayer(
   Effect.gen(function* () {
     const authorizationService = yield* AuthorizationService;
     const scheduleService = yield* ScheduleService;
-    const guildConfigService = yield* GuildConfigService;
-    const withQueryGuildAuth = withCurrentGuildAuthFromQuery(authorizationService);
+    const workspaceConfigService = yield* WorkspaceConfigService;
+    const withQueryWorkspaceAuth = withCurrentWorkspaceAuthFromQuery(authorizationService);
 
     return {
-      "schedule.getAllPopulatedSchedules": withQueryGuildAuth(
+      "schedule.getAllPopulatedSchedules": withQueryWorkspaceAuth(
         Effect.fnUntraced(function* ({ query }) {
-          const sheetId = yield* getSheetIdFromGuildId(query.guildId, guildConfigService);
-          const resolvedUser = yield* SheetAuthGuildUser;
+          const sheetId = yield* getSheetIdFromWorkspaceId(
+            query.workspaceId,
+            workspaceConfigService,
+          );
+          const resolvedUser = yield* SheetAuthWorkspaceUser;
           const view = resolveScheduleViewFromPermissions(
             resolvedUser.permissions,
-            query.guildId,
+            query.workspaceId,
             query.view,
           );
           const schedules = yield* view === "monitor"
@@ -53,13 +41,16 @@ export const scheduleLayer = ScheduleRpcs.toLayer(
           return { schedules, view };
         }),
       ),
-      "schedule.getDayPopulatedSchedules": withQueryGuildAuth(
+      "schedule.getDayPopulatedSchedules": withQueryWorkspaceAuth(
         Effect.fnUntraced(function* ({ query }) {
-          const sheetId = yield* getSheetIdFromGuildId(query.guildId, guildConfigService);
-          const resolvedUser = yield* SheetAuthGuildUser;
+          const sheetId = yield* getSheetIdFromWorkspaceId(
+            query.workspaceId,
+            workspaceConfigService,
+          );
+          const resolvedUser = yield* SheetAuthWorkspaceUser;
           const view = resolveScheduleViewFromPermissions(
             resolvedUser.permissions,
-            query.guildId,
+            query.workspaceId,
             query.view,
           );
           const schedules = yield* view === "monitor"
@@ -69,28 +60,31 @@ export const scheduleLayer = ScheduleRpcs.toLayer(
           return { schedules, view };
         }),
       ),
-      "schedule.getChannelPopulatedSchedules": withQueryGuildAuth(
+      "schedule.getConversationPopulatedSchedules": withQueryWorkspaceAuth(
         Effect.fnUntraced(function* ({ query }) {
-          const sheetId = yield* getSheetIdFromGuildId(query.guildId, guildConfigService);
-          const resolvedUser = yield* SheetAuthGuildUser;
+          const sheetId = yield* getSheetIdFromWorkspaceId(
+            query.workspaceId,
+            workspaceConfigService,
+          );
+          const resolvedUser = yield* SheetAuthWorkspaceUser;
           const view = resolveScheduleViewFromPermissions(
             resolvedUser.permissions,
-            query.guildId,
+            query.workspaceId,
             query.view,
           );
           const schedules = yield* view === "monitor"
-            ? scheduleService.getChannelPopulatedSchedules(sheetId, query.channel)
-            : scheduleService.getChannelPopulatedFillerSchedules(sheetId, query.channel);
+            ? scheduleService.getChannelPopulatedSchedules(sheetId, query.conversationName)
+            : scheduleService.getChannelPopulatedFillerSchedules(sheetId, query.conversationName);
 
           return { schedules, view };
         }),
       ),
-      "schedule.getDayPlayerSchedule": withQueryGuildAuth(
+      "schedule.getDayPlayerSchedule": withQueryWorkspaceAuth(
         Effect.fnUntraced(function* ({ query }) {
-          const resolvedUser = yield* SheetAuthGuildUser;
+          const resolvedUser = yield* SheetAuthWorkspaceUser;
           const view = resolveScheduleViewFromPermissions(
             resolvedUser.permissions,
-            query.guildId,
+            query.workspaceId,
             query.view,
           );
 
@@ -98,14 +92,21 @@ export const scheduleLayer = ScheduleRpcs.toLayer(
             resolvedUser.accountId !== query.accountId &&
             !hasPermission(resolvedUser.permissions, "service") &&
             !hasPermission(resolvedUser.permissions, "app_owner") &&
-            !hasGuildPermission(resolvedUser.permissions, "monitor_guild", query.guildId)
+            !hasWorkspacePermission(
+              resolvedUser.permissions,
+              "monitor_workspace",
+              query.workspaceId,
+            )
           ) {
             return yield* Effect.fail(
               new Unauthorized({ message: "User does not have access to this user" }),
             );
           }
 
-          const sheetId = yield* getSheetIdFromGuildId(query.guildId, guildConfigService);
+          const sheetId = yield* getSheetIdFromWorkspaceId(
+            query.workspaceId,
+            workspaceConfigService,
+          );
           const schedules = yield* view === "monitor"
             ? scheduleService.getDayPopulatedSchedules(sheetId, query.day)
             : scheduleService.getDayPopulatedFillerSchedules(sheetId, query.day);
@@ -119,5 +120,5 @@ export const scheduleLayer = ScheduleRpcs.toLayer(
     };
   }),
 ).pipe(
-  Layer.provide([AuthorizationService.layer, ScheduleService.layer, GuildConfigService.layer]),
+  Layer.provide([AuthorizationService.layer, ScheduleService.layer, WorkspaceConfigService.layer]),
 );

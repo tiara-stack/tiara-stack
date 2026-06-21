@@ -22,9 +22,9 @@ export class CheckinApi extends HttpApiGroup.make("checkin")
   .add(
     HttpApiEndpoint.post("generate", "/checkin/generate", {
       payload: Schema.Struct({
-        guildId: Schema.String,
-        channelId: Schema.optional(Schema.String),
-        channelName: Schema.optional(Schema.String),
+        workspaceId: Schema.String,
+        conversationId: Schema.optional(Schema.String),
+        conversationName: Schema.optional(Schema.String),
         hour: Schema.optional(Schema.Number),
         template: Schema.optional(Schema.String),
       }),

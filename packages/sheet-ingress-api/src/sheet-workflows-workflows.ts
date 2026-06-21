@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
 import { Workflow, WorkflowProxy } from "effect/unstable/workflow";
 import { UnknownError } from "typhoon-core/error";
+import type { ClientRef } from "./schemas/client";
 import {
   annotateRpcScopePolicy,
   SheetRpcScopePolicies,
@@ -19,17 +20,17 @@ import {
   CheckinHandleButtonPayload,
   CheckinHandleButtonResult,
   BotCommandDispatchError,
-  ChannelListConfigDispatchPayload,
-  ChannelListConfigDispatchResult,
-  ChannelSetDispatchPayload,
-  ChannelSetDispatchResult,
-  ChannelUnsetDispatchPayload,
-  ChannelUnsetDispatchResult,
+  ConversationListConfigDispatchPayload,
+  ConversationListConfigDispatchResult,
+  ConversationSetDispatchPayload,
+  ConversationSetDispatchResult,
+  ConversationUnsetDispatchPayload,
+  ConversationUnsetDispatchResult,
   DispatchAcceptedResult,
   DispatchRoomOrderButtonMethods,
-  GuildWelcomeDispatchError,
-  GuildWelcomeDispatchPayload,
-  GuildWelcomeDispatchResult,
+  WorkspaceWelcomeDispatchError,
+  WorkspaceWelcomeDispatchPayload,
+  WorkspaceWelcomeDispatchResult,
   KickoutDispatchError,
   KickoutDispatchPayload,
   KickoutDispatchResult,
@@ -47,20 +48,20 @@ import {
   RoomOrderSendButtonResult,
   ScheduleListDispatchPayload,
   ScheduleListDispatchResult,
-  ServiceGuildFeatureFlagDispatchPayload,
-  ServiceGuildFeatureFlagDispatchResult,
+  ServiceWorkspaceFeatureFlagDispatchPayload,
+  ServiceWorkspaceFeatureFlagDispatchResult,
   ServiceStatusDispatchPayload,
   ServiceStatusDispatchResult,
-  ServerAddMonitorRoleDispatchPayload,
-  ServerAddMonitorRoleDispatchResult,
-  ServerListConfigDispatchPayload,
-  ServerListConfigDispatchResult,
-  ServerRemoveMonitorRoleDispatchPayload,
-  ServerRemoveMonitorRoleDispatchResult,
-  ServerSetAutoCheckinDispatchPayload,
-  ServerSetAutoCheckinDispatchResult,
-  ServerSetSheetDispatchPayload,
-  ServerSetSheetDispatchResult,
+  WorkspaceAddMonitorRoleDispatchPayload,
+  WorkspaceAddMonitorRoleDispatchResult,
+  WorkspaceListConfigDispatchPayload,
+  WorkspaceListConfigDispatchResult,
+  WorkspaceRemoveMonitorRoleDispatchPayload,
+  WorkspaceRemoveMonitorRoleDispatchResult,
+  WorkspaceSetAutoCheckinDispatchPayload,
+  WorkspaceSetAutoCheckinDispatchResult,
+  WorkspaceSetSheetDispatchPayload,
+  WorkspaceSetSheetDispatchResult,
   ScreenshotDispatchPayload,
   ScreenshotDispatchResult,
   SlotButtonDispatchPayload,
@@ -85,7 +86,7 @@ export const DispatchRequesterSchema = Schema.Struct({
 export type DispatchRequester = Schema.Schema.Type<typeof DispatchRequesterSchema>;
 
 export const DispatchAuthorizationSnapshotSchema = Schema.Struct({
-  guildId: Schema.String,
+  workspaceId: Schema.String,
   scope: Schema.Literals(["member", "monitor", "manage"]),
 });
 
@@ -102,7 +103,7 @@ const dispatchPayload = <Payload extends Schema.Top>(payload: Payload) =>
   Schema.Struct({
     requester: DispatchRequesterSchema,
     authorization: Schema.optional(DispatchAuthorizationSnapshotSchema),
-    interactionDeadlineEpochMs: Schema.optional(Schema.Number),
+    interactionResponseDeadlineEpochMs: Schema.optional(Schema.Number),
     payload,
   });
 
@@ -115,7 +116,7 @@ const dispatchPayload = <Payload extends Schema.Top>(payload: Payload) =>
 const roomOrderButtonPayload = <Payload extends Schema.Top>(payload: Payload) =>
   Schema.Struct({
     requester: DispatchRequesterSchema,
-    interactionDeadlineEpochMs: Schema.optional(Schema.Number),
+    interactionResponseDeadlineEpochMs: Schema.optional(Schema.Number),
     payload,
     authorizedRoomOrder: MessageRoomOrder,
   });
@@ -127,7 +128,7 @@ const roomOrderButtonPayload = <Payload extends Schema.Top>(payload: Payload) =>
  */
 const roomOrderPinTentativePayload = Schema.Struct({
   requester: DispatchRequesterSchema,
-  interactionDeadlineEpochMs: Schema.optional(Schema.Number),
+  interactionResponseDeadlineEpochMs: Schema.optional(Schema.Number),
   payload: RoomOrderPinTentativeButtonPayload,
   authorizedRoomOrder: Schema.optional(Schema.NullOr(MessageRoomOrder)),
 });
@@ -141,34 +142,52 @@ const workflowName = {
   slotList: "dispatch.slotList",
   slotOpenButton: "dispatch.slotOpenButton",
   serviceStatus: "dispatch.serviceStatus",
-  guildWelcome: "dispatch.guildWelcome",
+  workspaceWelcome: "dispatch.workspaceWelcome",
   updateAnnouncement: "dispatch.updateAnnouncement",
-  serviceAddGuildFeatureFlag: "dispatch.serviceAddGuildFeatureFlag",
-  serviceRemoveGuildFeatureFlag: "dispatch.serviceRemoveGuildFeatureFlag",
+  serviceAddWorkspaceFeatureFlag: "dispatch.serviceAddWorkspaceFeatureFlag",
+  serviceRemoveWorkspaceFeatureFlag: "dispatch.serviceRemoveWorkspaceFeatureFlag",
   checkinButton: "dispatch.checkinButton",
   roomOrderPreviousButton: "dispatch.roomOrderPreviousButton",
   roomOrderNextButton: "dispatch.roomOrderNextButton",
   roomOrderSendButton: "dispatch.roomOrderSendButton",
   roomOrderPinTentativeButton: "dispatch.roomOrderPinTentativeButton",
-  channelListConfig: "dispatch.channelListConfig",
-  channelSet: "dispatch.channelSet",
-  channelUnset: "dispatch.channelUnset",
-  serverListConfig: "dispatch.serverListConfig",
-  serverAddMonitorRole: "dispatch.serverAddMonitorRole",
-  serverRemoveMonitorRole: "dispatch.serverRemoveMonitorRole",
-  serverSetSheet: "dispatch.serverSetSheet",
-  serverSetAutoCheckin: "dispatch.serverSetAutoCheckin",
+  conversationListConfig: "dispatch.conversationListConfig",
+  conversationSet: "dispatch.conversationSet",
+  conversationUnset: "dispatch.conversationUnset",
+  workspaceListConfig: "dispatch.workspaceListConfig",
+  workspaceAddMonitorRole: "dispatch.workspaceAddMonitorRole",
+  workspaceRemoveMonitorRole: "dispatch.workspaceRemoveMonitorRole",
+  workspaceSetSheet: "dispatch.workspaceSetSheet",
+  workspaceSetAutoCheckin: "dispatch.workspaceSetAutoCheckin",
   teamList: "dispatch.teamList",
   scheduleList: "dispatch.scheduleList",
   screenshot: "dispatch.screenshot",
 } as const;
+
+const clientKey = (payload: { readonly client: ClientRef }) =>
+  `${payload.client.platform}:${payload.client.clientId}`;
+
+const dispatchRequestIdempotencyKey = (payload: {
+  readonly client: ClientRef;
+  readonly dispatchRequestId: string;
+}) => `${clientKey(payload)}:${payload.dispatchRequestId}`;
+
+const buttonIdempotencyKey = (
+  operation: string,
+  payload: {
+    readonly client: ClientRef;
+    readonly messageId: string;
+    readonly interactionResponseToken: string;
+  },
+) =>
+  `${clientKey(payload)}:button:${operation}:${payload.messageId}:${payload.interactionResponseToken}`;
 
 export const DispatchAutoCheckinTestWorkflow = Workflow.make({
   name: workflowName.autoCheckinTest,
   payload: dispatchPayload(AutoCheckinTestDispatchPayload),
   success: AutoCheckinTestDispatchResult,
   error: BotCommandDispatchError,
-  idempotencyKey: ({ payload }) => payload.dispatchRequestId,
+  idempotencyKey: ({ payload }) => dispatchRequestIdempotencyKey(payload),
 });
 
 export const DispatchCheckinWorkflow = Workflow.make({
@@ -176,7 +195,7 @@ export const DispatchCheckinWorkflow = Workflow.make({
   payload: dispatchPayload(CheckinDispatchPayload),
   success: CheckinDispatchResult,
   error: CheckinDispatchError,
-  idempotencyKey: ({ payload }) => payload.dispatchRequestId,
+  idempotencyKey: ({ payload }) => dispatchRequestIdempotencyKey(payload),
 });
 
 export const DispatchRoomOrderWorkflow = Workflow.make({
@@ -184,7 +203,7 @@ export const DispatchRoomOrderWorkflow = Workflow.make({
   payload: dispatchPayload(RoomOrderDispatchPayload),
   success: RoomOrderDispatchResult,
   error: RoomOrderDispatchError,
-  idempotencyKey: ({ payload }) => payload.dispatchRequestId,
+  idempotencyKey: ({ payload }) => dispatchRequestIdempotencyKey(payload),
 });
 
 export const DispatchKickoutWorkflow = Workflow.make({
@@ -192,7 +211,7 @@ export const DispatchKickoutWorkflow = Workflow.make({
   payload: dispatchPayload(KickoutDispatchPayload),
   success: KickoutDispatchResult,
   error: KickoutDispatchError,
-  idempotencyKey: ({ payload }) => payload.dispatchRequestId,
+  idempotencyKey: ({ payload }) => dispatchRequestIdempotencyKey(payload),
 });
 
 export const DispatchSlotButtonWorkflow = Workflow.make({
@@ -200,7 +219,7 @@ export const DispatchSlotButtonWorkflow = Workflow.make({
   payload: dispatchPayload(SlotButtonDispatchPayload),
   success: SlotButtonDispatchResult,
   error: SlotDispatchError,
-  idempotencyKey: ({ payload }) => payload.dispatchRequestId,
+  idempotencyKey: ({ payload }) => dispatchRequestIdempotencyKey(payload),
 });
 
 export const DispatchSlotListWorkflow = Workflow.make({
@@ -208,7 +227,7 @@ export const DispatchSlotListWorkflow = Workflow.make({
   payload: dispatchPayload(SlotListDispatchPayload),
   success: SlotListDispatchResult,
   error: SlotDispatchError,
-  idempotencyKey: ({ payload }) => payload.dispatchRequestId,
+  idempotencyKey: ({ payload }) => dispatchRequestIdempotencyKey(payload),
 });
 
 export const DispatchSlotOpenButtonWorkflow = Workflow.make({
@@ -216,8 +235,7 @@ export const DispatchSlotOpenButtonWorkflow = Workflow.make({
   payload: dispatchPayload(SlotOpenButtonPayload),
   success: SlotOpenButtonResult,
   error: SlotDispatchError,
-  idempotencyKey: ({ payload }) =>
-    `button:slotOpenButton:${payload.messageId}:${payload.interactionToken}`,
+  idempotencyKey: ({ payload }) => buttonIdempotencyKey("slotOpenButton", payload),
 });
 
 export const DispatchServiceStatusWorkflow = Workflow.make({
@@ -225,15 +243,15 @@ export const DispatchServiceStatusWorkflow = Workflow.make({
   payload: dispatchPayload(ServiceStatusDispatchPayload),
   success: ServiceStatusDispatchResult,
   error: UnknownError,
-  idempotencyKey: ({ payload }) => payload.dispatchRequestId,
+  idempotencyKey: ({ payload }) => dispatchRequestIdempotencyKey(payload),
 });
 
-export const DispatchGuildWelcomeWorkflow = Workflow.make({
-  name: workflowName.guildWelcome,
-  payload: dispatchPayload(GuildWelcomeDispatchPayload),
-  success: GuildWelcomeDispatchResult,
-  error: GuildWelcomeDispatchError,
-  idempotencyKey: ({ payload }) => payload.dispatchRequestId,
+export const DispatchWorkspaceWelcomeWorkflow = Workflow.make({
+  name: workflowName.workspaceWelcome,
+  payload: dispatchPayload(WorkspaceWelcomeDispatchPayload),
+  success: WorkspaceWelcomeDispatchResult,
+  error: WorkspaceWelcomeDispatchError,
+  idempotencyKey: ({ payload }) => dispatchRequestIdempotencyKey(payload),
 });
 
 export const DispatchUpdateAnnouncementWorkflow = Workflow.make({
@@ -241,23 +259,23 @@ export const DispatchUpdateAnnouncementWorkflow = Workflow.make({
   payload: dispatchPayload(UpdateAnnouncementDispatchPayload),
   success: UpdateAnnouncementDispatchResult,
   error: UpdateAnnouncementDispatchError,
-  idempotencyKey: ({ payload }) => payload.dispatchRequestId,
+  idempotencyKey: ({ payload }) => dispatchRequestIdempotencyKey(payload),
 });
 
-export const DispatchServiceAddGuildFeatureFlagWorkflow = Workflow.make({
-  name: workflowName.serviceAddGuildFeatureFlag,
-  payload: dispatchPayload(ServiceGuildFeatureFlagDispatchPayload),
-  success: ServiceGuildFeatureFlagDispatchResult,
+export const DispatchServiceAddWorkspaceFeatureFlagWorkflow = Workflow.make({
+  name: workflowName.serviceAddWorkspaceFeatureFlag,
+  payload: dispatchPayload(ServiceWorkspaceFeatureFlagDispatchPayload),
+  success: ServiceWorkspaceFeatureFlagDispatchResult,
   error: BotCommandDispatchError,
-  idempotencyKey: ({ payload }) => payload.dispatchRequestId,
+  idempotencyKey: ({ payload }) => dispatchRequestIdempotencyKey(payload),
 });
 
-export const DispatchServiceRemoveGuildFeatureFlagWorkflow = Workflow.make({
-  name: workflowName.serviceRemoveGuildFeatureFlag,
-  payload: dispatchPayload(ServiceGuildFeatureFlagDispatchPayload),
-  success: ServiceGuildFeatureFlagDispatchResult,
+export const DispatchServiceRemoveWorkspaceFeatureFlagWorkflow = Workflow.make({
+  name: workflowName.serviceRemoveWorkspaceFeatureFlag,
+  payload: dispatchPayload(ServiceWorkspaceFeatureFlagDispatchPayload),
+  success: ServiceWorkspaceFeatureFlagDispatchResult,
   error: BotCommandDispatchError,
-  idempotencyKey: ({ payload }) => payload.dispatchRequestId,
+  idempotencyKey: ({ payload }) => dispatchRequestIdempotencyKey(payload),
 });
 
 export const DispatchCheckinButtonWorkflow = Workflow.make({
@@ -265,8 +283,7 @@ export const DispatchCheckinButtonWorkflow = Workflow.make({
   payload: dispatchPayload(CheckinHandleButtonPayload),
   success: CheckinHandleButtonResult,
   error: CheckinHandleButtonError,
-  idempotencyKey: ({ payload }) =>
-    `button:checkinButton:${payload.messageId}:${payload.interactionToken}`,
+  idempotencyKey: ({ payload }) => buttonIdempotencyKey("checkinButton", payload),
 });
 
 export const DispatchRoomOrderPreviousButtonWorkflow = Workflow.make({
@@ -274,8 +291,7 @@ export const DispatchRoomOrderPreviousButtonWorkflow = Workflow.make({
   payload: roomOrderButtonPayload(RoomOrderPreviousButtonPayload),
   success: RoomOrderPreviousButtonResult,
   error: RoomOrderHandleButtonError,
-  idempotencyKey: ({ payload }) =>
-    `button:roomOrderPreviousButton:${payload.messageId}:${payload.interactionToken}`,
+  idempotencyKey: ({ payload }) => buttonIdempotencyKey("roomOrderPreviousButton", payload),
 });
 
 export const DispatchRoomOrderNextButtonWorkflow = Workflow.make({
@@ -283,8 +299,7 @@ export const DispatchRoomOrderNextButtonWorkflow = Workflow.make({
   payload: roomOrderButtonPayload(RoomOrderNextButtonPayload),
   success: RoomOrderNextButtonResult,
   error: RoomOrderHandleButtonError,
-  idempotencyKey: ({ payload }) =>
-    `button:roomOrderNextButton:${payload.messageId}:${payload.interactionToken}`,
+  idempotencyKey: ({ payload }) => buttonIdempotencyKey("roomOrderNextButton", payload),
 });
 
 export const DispatchRoomOrderSendButtonWorkflow = Workflow.make({
@@ -292,8 +307,7 @@ export const DispatchRoomOrderSendButtonWorkflow = Workflow.make({
   payload: roomOrderButtonPayload(RoomOrderSendButtonPayload),
   success: RoomOrderSendButtonResult,
   error: RoomOrderHandleButtonError,
-  idempotencyKey: ({ payload }) =>
-    `button:roomOrderSendButton:${payload.messageId}:${payload.interactionToken}`,
+  idempotencyKey: ({ payload }) => buttonIdempotencyKey("roomOrderSendButton", payload),
 });
 
 export const DispatchRoomOrderPinTentativeButtonWorkflow = Workflow.make({
@@ -301,72 +315,71 @@ export const DispatchRoomOrderPinTentativeButtonWorkflow = Workflow.make({
   payload: roomOrderPinTentativePayload,
   success: RoomOrderPinTentativeButtonResult,
   error: RoomOrderHandleButtonError,
-  idempotencyKey: ({ payload }) =>
-    `button:roomOrderPinTentativeButton:${payload.messageId}:${payload.interactionToken}`,
+  idempotencyKey: ({ payload }) => buttonIdempotencyKey("roomOrderPinTentativeButton", payload),
 });
 
-export const DispatchChannelListConfigWorkflow = Workflow.make({
-  name: workflowName.channelListConfig,
-  payload: dispatchPayload(ChannelListConfigDispatchPayload),
-  success: ChannelListConfigDispatchResult,
+export const DispatchConversationListConfigWorkflow = Workflow.make({
+  name: workflowName.conversationListConfig,
+  payload: dispatchPayload(ConversationListConfigDispatchPayload),
+  success: ConversationListConfigDispatchResult,
   error: BotCommandDispatchError,
-  idempotencyKey: ({ payload }) => payload.dispatchRequestId,
+  idempotencyKey: ({ payload }) => dispatchRequestIdempotencyKey(payload),
 });
 
-export const DispatchChannelSetWorkflow = Workflow.make({
-  name: workflowName.channelSet,
-  payload: dispatchPayload(ChannelSetDispatchPayload),
-  success: ChannelSetDispatchResult,
+export const DispatchConversationSetWorkflow = Workflow.make({
+  name: workflowName.conversationSet,
+  payload: dispatchPayload(ConversationSetDispatchPayload),
+  success: ConversationSetDispatchResult,
   error: BotCommandDispatchError,
-  idempotencyKey: ({ payload }) => payload.dispatchRequestId,
+  idempotencyKey: ({ payload }) => dispatchRequestIdempotencyKey(payload),
 });
 
-export const DispatchChannelUnsetWorkflow = Workflow.make({
-  name: workflowName.channelUnset,
-  payload: dispatchPayload(ChannelUnsetDispatchPayload),
-  success: ChannelUnsetDispatchResult,
+export const DispatchConversationUnsetWorkflow = Workflow.make({
+  name: workflowName.conversationUnset,
+  payload: dispatchPayload(ConversationUnsetDispatchPayload),
+  success: ConversationUnsetDispatchResult,
   error: BotCommandDispatchError,
-  idempotencyKey: ({ payload }) => payload.dispatchRequestId,
+  idempotencyKey: ({ payload }) => dispatchRequestIdempotencyKey(payload),
 });
 
-export const DispatchServerListConfigWorkflow = Workflow.make({
-  name: workflowName.serverListConfig,
-  payload: dispatchPayload(ServerListConfigDispatchPayload),
-  success: ServerListConfigDispatchResult,
+export const DispatchWorkspaceListConfigWorkflow = Workflow.make({
+  name: workflowName.workspaceListConfig,
+  payload: dispatchPayload(WorkspaceListConfigDispatchPayload),
+  success: WorkspaceListConfigDispatchResult,
   error: BotCommandDispatchError,
-  idempotencyKey: ({ payload }) => payload.dispatchRequestId,
+  idempotencyKey: ({ payload }) => dispatchRequestIdempotencyKey(payload),
 });
 
-export const DispatchServerAddMonitorRoleWorkflow = Workflow.make({
-  name: workflowName.serverAddMonitorRole,
-  payload: dispatchPayload(ServerAddMonitorRoleDispatchPayload),
-  success: ServerAddMonitorRoleDispatchResult,
+export const DispatchWorkspaceAddMonitorRoleWorkflow = Workflow.make({
+  name: workflowName.workspaceAddMonitorRole,
+  payload: dispatchPayload(WorkspaceAddMonitorRoleDispatchPayload),
+  success: WorkspaceAddMonitorRoleDispatchResult,
   error: BotCommandDispatchError,
-  idempotencyKey: ({ payload }) => payload.dispatchRequestId,
+  idempotencyKey: ({ payload }) => dispatchRequestIdempotencyKey(payload),
 });
 
-export const DispatchServerRemoveMonitorRoleWorkflow = Workflow.make({
-  name: workflowName.serverRemoveMonitorRole,
-  payload: dispatchPayload(ServerRemoveMonitorRoleDispatchPayload),
-  success: ServerRemoveMonitorRoleDispatchResult,
+export const DispatchWorkspaceRemoveMonitorRoleWorkflow = Workflow.make({
+  name: workflowName.workspaceRemoveMonitorRole,
+  payload: dispatchPayload(WorkspaceRemoveMonitorRoleDispatchPayload),
+  success: WorkspaceRemoveMonitorRoleDispatchResult,
   error: BotCommandDispatchError,
-  idempotencyKey: ({ payload }) => payload.dispatchRequestId,
+  idempotencyKey: ({ payload }) => dispatchRequestIdempotencyKey(payload),
 });
 
-export const DispatchServerSetSheetWorkflow = Workflow.make({
-  name: workflowName.serverSetSheet,
-  payload: dispatchPayload(ServerSetSheetDispatchPayload),
-  success: ServerSetSheetDispatchResult,
+export const DispatchWorkspaceSetSheetWorkflow = Workflow.make({
+  name: workflowName.workspaceSetSheet,
+  payload: dispatchPayload(WorkspaceSetSheetDispatchPayload),
+  success: WorkspaceSetSheetDispatchResult,
   error: BotCommandDispatchError,
-  idempotencyKey: ({ payload }) => payload.dispatchRequestId,
+  idempotencyKey: ({ payload }) => dispatchRequestIdempotencyKey(payload),
 });
 
-export const DispatchServerSetAutoCheckinWorkflow = Workflow.make({
-  name: workflowName.serverSetAutoCheckin,
-  payload: dispatchPayload(ServerSetAutoCheckinDispatchPayload),
-  success: ServerSetAutoCheckinDispatchResult,
+export const DispatchWorkspaceSetAutoCheckinWorkflow = Workflow.make({
+  name: workflowName.workspaceSetAutoCheckin,
+  payload: dispatchPayload(WorkspaceSetAutoCheckinDispatchPayload),
+  success: WorkspaceSetAutoCheckinDispatchResult,
   error: BotCommandDispatchError,
-  idempotencyKey: ({ payload }) => payload.dispatchRequestId,
+  idempotencyKey: ({ payload }) => dispatchRequestIdempotencyKey(payload),
 });
 
 export const DispatchTeamListWorkflow = Workflow.make({
@@ -374,7 +387,7 @@ export const DispatchTeamListWorkflow = Workflow.make({
   payload: dispatchPayload(TeamListDispatchPayload),
   success: TeamListDispatchResult,
   error: BotCommandDispatchError,
-  idempotencyKey: ({ payload }) => payload.dispatchRequestId,
+  idempotencyKey: ({ payload }) => dispatchRequestIdempotencyKey(payload),
 });
 
 export const DispatchScheduleListWorkflow = Workflow.make({
@@ -382,7 +395,7 @@ export const DispatchScheduleListWorkflow = Workflow.make({
   payload: dispatchPayload(ScheduleListDispatchPayload),
   success: ScheduleListDispatchResult,
   error: BotCommandDispatchError,
-  idempotencyKey: ({ payload }) => payload.dispatchRequestId,
+  idempotencyKey: ({ payload }) => dispatchRequestIdempotencyKey(payload),
 });
 
 export const DispatchScreenshotWorkflow = Workflow.make({
@@ -390,7 +403,7 @@ export const DispatchScreenshotWorkflow = Workflow.make({
   payload: dispatchPayload(ScreenshotDispatchPayload),
   success: ScreenshotDispatchResult,
   error: BotCommandDispatchError,
-  idempotencyKey: ({ payload }) => payload.dispatchRequestId,
+  idempotencyKey: ({ payload }) => dispatchRequestIdempotencyKey(payload),
 });
 
 export const DispatchWorkflows = [
@@ -402,23 +415,23 @@ export const DispatchWorkflows = [
   DispatchSlotListWorkflow,
   DispatchSlotOpenButtonWorkflow,
   DispatchServiceStatusWorkflow,
-  DispatchGuildWelcomeWorkflow,
+  DispatchWorkspaceWelcomeWorkflow,
   DispatchUpdateAnnouncementWorkflow,
-  DispatchServiceAddGuildFeatureFlagWorkflow,
-  DispatchServiceRemoveGuildFeatureFlagWorkflow,
+  DispatchServiceAddWorkspaceFeatureFlagWorkflow,
+  DispatchServiceRemoveWorkspaceFeatureFlagWorkflow,
   DispatchCheckinButtonWorkflow,
   DispatchRoomOrderPreviousButtonWorkflow,
   DispatchRoomOrderNextButtonWorkflow,
   DispatchRoomOrderSendButtonWorkflow,
   DispatchRoomOrderPinTentativeButtonWorkflow,
-  DispatchChannelListConfigWorkflow,
-  DispatchChannelSetWorkflow,
-  DispatchChannelUnsetWorkflow,
-  DispatchServerListConfigWorkflow,
-  DispatchServerAddMonitorRoleWorkflow,
-  DispatchServerRemoveMonitorRoleWorkflow,
-  DispatchServerSetSheetWorkflow,
-  DispatchServerSetAutoCheckinWorkflow,
+  DispatchConversationListConfigWorkflow,
+  DispatchConversationSetWorkflow,
+  DispatchConversationUnsetWorkflow,
+  DispatchWorkspaceListConfigWorkflow,
+  DispatchWorkspaceAddMonitorRoleWorkflow,
+  DispatchWorkspaceRemoveMonitorRoleWorkflow,
+  DispatchWorkspaceSetSheetWorkflow,
+  DispatchWorkspaceSetAutoCheckinWorkflow,
   DispatchTeamListWorkflow,
   DispatchScheduleListWorkflow,
   DispatchScreenshotWorkflow,
@@ -501,12 +514,12 @@ export const DispatchWorkflowOperations = {
     rpcTag: DispatchServiceStatusWorkflow.name,
     discardRpcTag: `${DispatchServiceStatusWorkflow.name}Discard`,
   },
-  guildWelcome: {
-    operation: "guildWelcome",
-    endpointName: "guildWelcome",
-    workflow: DispatchGuildWelcomeWorkflow,
-    rpcTag: DispatchGuildWelcomeWorkflow.name,
-    discardRpcTag: `${DispatchGuildWelcomeWorkflow.name}Discard`,
+  workspaceWelcome: {
+    operation: "workspaceWelcome",
+    endpointName: "workspaceWelcome",
+    workflow: DispatchWorkspaceWelcomeWorkflow,
+    rpcTag: DispatchWorkspaceWelcomeWorkflow.name,
+    discardRpcTag: `${DispatchWorkspaceWelcomeWorkflow.name}Discard`,
   },
   updateAnnouncement: {
     operation: "updateAnnouncement",
@@ -515,19 +528,19 @@ export const DispatchWorkflowOperations = {
     rpcTag: DispatchUpdateAnnouncementWorkflow.name,
     discardRpcTag: `${DispatchUpdateAnnouncementWorkflow.name}Discard`,
   },
-  serviceAddGuildFeatureFlag: {
-    operation: "serviceAddGuildFeatureFlag",
-    endpointName: "serviceAddGuildFeatureFlag",
-    workflow: DispatchServiceAddGuildFeatureFlagWorkflow,
-    rpcTag: DispatchServiceAddGuildFeatureFlagWorkflow.name,
-    discardRpcTag: `${DispatchServiceAddGuildFeatureFlagWorkflow.name}Discard`,
+  serviceAddWorkspaceFeatureFlag: {
+    operation: "serviceAddWorkspaceFeatureFlag",
+    endpointName: "serviceAddWorkspaceFeatureFlag",
+    workflow: DispatchServiceAddWorkspaceFeatureFlagWorkflow,
+    rpcTag: DispatchServiceAddWorkspaceFeatureFlagWorkflow.name,
+    discardRpcTag: `${DispatchServiceAddWorkspaceFeatureFlagWorkflow.name}Discard`,
   },
-  serviceRemoveGuildFeatureFlag: {
-    operation: "serviceRemoveGuildFeatureFlag",
-    endpointName: "serviceRemoveGuildFeatureFlag",
-    workflow: DispatchServiceRemoveGuildFeatureFlagWorkflow,
-    rpcTag: DispatchServiceRemoveGuildFeatureFlagWorkflow.name,
-    discardRpcTag: `${DispatchServiceRemoveGuildFeatureFlagWorkflow.name}Discard`,
+  serviceRemoveWorkspaceFeatureFlag: {
+    operation: "serviceRemoveWorkspaceFeatureFlag",
+    endpointName: "serviceRemoveWorkspaceFeatureFlag",
+    workflow: DispatchServiceRemoveWorkspaceFeatureFlagWorkflow,
+    rpcTag: DispatchServiceRemoveWorkspaceFeatureFlagWorkflow.name,
+    discardRpcTag: `${DispatchServiceRemoveWorkspaceFeatureFlagWorkflow.name}Discard`,
   },
   checkinButton: {
     operation: "checkinButton",
@@ -564,61 +577,61 @@ export const DispatchWorkflowOperations = {
     rpcTag: DispatchRoomOrderPinTentativeButtonWorkflow.name,
     discardRpcTag: `${DispatchRoomOrderPinTentativeButtonWorkflow.name}Discard`,
   },
-  channelListConfig: {
-    operation: "channelListConfig",
-    endpointName: "channelListConfig",
-    workflow: DispatchChannelListConfigWorkflow,
-    rpcTag: DispatchChannelListConfigWorkflow.name,
-    discardRpcTag: `${DispatchChannelListConfigWorkflow.name}Discard`,
+  conversationListConfig: {
+    operation: "conversationListConfig",
+    endpointName: "conversationListConfig",
+    workflow: DispatchConversationListConfigWorkflow,
+    rpcTag: DispatchConversationListConfigWorkflow.name,
+    discardRpcTag: `${DispatchConversationListConfigWorkflow.name}Discard`,
   },
-  channelSet: {
-    operation: "channelSet",
-    endpointName: "channelSet",
-    workflow: DispatchChannelSetWorkflow,
-    rpcTag: DispatchChannelSetWorkflow.name,
-    discardRpcTag: `${DispatchChannelSetWorkflow.name}Discard`,
+  conversationSet: {
+    operation: "conversationSet",
+    endpointName: "conversationSet",
+    workflow: DispatchConversationSetWorkflow,
+    rpcTag: DispatchConversationSetWorkflow.name,
+    discardRpcTag: `${DispatchConversationSetWorkflow.name}Discard`,
   },
-  channelUnset: {
-    operation: "channelUnset",
-    endpointName: "channelUnset",
-    workflow: DispatchChannelUnsetWorkflow,
-    rpcTag: DispatchChannelUnsetWorkflow.name,
-    discardRpcTag: `${DispatchChannelUnsetWorkflow.name}Discard`,
+  conversationUnset: {
+    operation: "conversationUnset",
+    endpointName: "conversationUnset",
+    workflow: DispatchConversationUnsetWorkflow,
+    rpcTag: DispatchConversationUnsetWorkflow.name,
+    discardRpcTag: `${DispatchConversationUnsetWorkflow.name}Discard`,
   },
-  serverListConfig: {
-    operation: "serverListConfig",
-    endpointName: "serverListConfig",
-    workflow: DispatchServerListConfigWorkflow,
-    rpcTag: DispatchServerListConfigWorkflow.name,
-    discardRpcTag: `${DispatchServerListConfigWorkflow.name}Discard`,
+  workspaceListConfig: {
+    operation: "workspaceListConfig",
+    endpointName: "workspaceListConfig",
+    workflow: DispatchWorkspaceListConfigWorkflow,
+    rpcTag: DispatchWorkspaceListConfigWorkflow.name,
+    discardRpcTag: `${DispatchWorkspaceListConfigWorkflow.name}Discard`,
   },
-  serverAddMonitorRole: {
-    operation: "serverAddMonitorRole",
-    endpointName: "serverAddMonitorRole",
-    workflow: DispatchServerAddMonitorRoleWorkflow,
-    rpcTag: DispatchServerAddMonitorRoleWorkflow.name,
-    discardRpcTag: `${DispatchServerAddMonitorRoleWorkflow.name}Discard`,
+  workspaceAddMonitorRole: {
+    operation: "workspaceAddMonitorRole",
+    endpointName: "workspaceAddMonitorRole",
+    workflow: DispatchWorkspaceAddMonitorRoleWorkflow,
+    rpcTag: DispatchWorkspaceAddMonitorRoleWorkflow.name,
+    discardRpcTag: `${DispatchWorkspaceAddMonitorRoleWorkflow.name}Discard`,
   },
-  serverRemoveMonitorRole: {
-    operation: "serverRemoveMonitorRole",
-    endpointName: "serverRemoveMonitorRole",
-    workflow: DispatchServerRemoveMonitorRoleWorkflow,
-    rpcTag: DispatchServerRemoveMonitorRoleWorkflow.name,
-    discardRpcTag: `${DispatchServerRemoveMonitorRoleWorkflow.name}Discard`,
+  workspaceRemoveMonitorRole: {
+    operation: "workspaceRemoveMonitorRole",
+    endpointName: "workspaceRemoveMonitorRole",
+    workflow: DispatchWorkspaceRemoveMonitorRoleWorkflow,
+    rpcTag: DispatchWorkspaceRemoveMonitorRoleWorkflow.name,
+    discardRpcTag: `${DispatchWorkspaceRemoveMonitorRoleWorkflow.name}Discard`,
   },
-  serverSetSheet: {
-    operation: "serverSetSheet",
-    endpointName: "serverSetSheet",
-    workflow: DispatchServerSetSheetWorkflow,
-    rpcTag: DispatchServerSetSheetWorkflow.name,
-    discardRpcTag: `${DispatchServerSetSheetWorkflow.name}Discard`,
+  workspaceSetSheet: {
+    operation: "workspaceSetSheet",
+    endpointName: "workspaceSetSheet",
+    workflow: DispatchWorkspaceSetSheetWorkflow,
+    rpcTag: DispatchWorkspaceSetSheetWorkflow.name,
+    discardRpcTag: `${DispatchWorkspaceSetSheetWorkflow.name}Discard`,
   },
-  serverSetAutoCheckin: {
-    operation: "serverSetAutoCheckin",
-    endpointName: "serverSetAutoCheckin",
-    workflow: DispatchServerSetAutoCheckinWorkflow,
-    rpcTag: DispatchServerSetAutoCheckinWorkflow.name,
-    discardRpcTag: `${DispatchServerSetAutoCheckinWorkflow.name}Discard`,
+  workspaceSetAutoCheckin: {
+    operation: "workspaceSetAutoCheckin",
+    endpointName: "workspaceSetAutoCheckin",
+    workflow: DispatchWorkspaceSetAutoCheckinWorkflow,
+    rpcTag: DispatchWorkspaceSetAutoCheckinWorkflow.name,
+    discardRpcTag: `${DispatchWorkspaceSetAutoCheckinWorkflow.name}Discard`,
   },
   teamList: {
     operation: "teamList",

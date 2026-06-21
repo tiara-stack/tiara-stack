@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { Schema } from "effect";
 import { SchemaError, ArgumentError, Unauthorized } from "typhoon-core/error";
@@ -5,23 +6,28 @@ import { QueryResultError } from "typhoon-zero/error";
 import { MessageCheckin, MessageCheckinMember } from "../../schemas/messageCheckin";
 import { SheetAuthTokenAuthorization } from "../../middlewares/sheetAuthTokenAuthorization/tag";
 import { SheetApisServiceUserFallback } from "../../middlewares/sheetApisServiceUserFallback/tag";
+import { ClientPlatform, SheetTextPart } from "../../schemas/client";
 
 const MessageCheckinDataPayload = Schema.Struct({
-  initialMessage: Schema.String,
+  initialMessage: Schema.Array(SheetTextPart),
   hour: Schema.Number,
-  channelId: Schema.String,
+  runningConversationId: Schema.String,
   roleId: Schema.optional(Schema.NullOr(Schema.String)),
-  guildId: Schema.NullOr(Schema.String),
-  messageChannelId: Schema.NullOr(Schema.String),
+  workspaceId: Schema.NullOr(Schema.String),
+  conversationId: Schema.NullOr(Schema.String),
   createdByUserId: Schema.NullOr(Schema.String),
 });
+
+const MessageKeyPayload = {
+  clientPlatform: ClientPlatform,
+  clientId: Schema.String,
+  messageId: Schema.String,
+} as const;
 
 export class MessageCheckinApi extends HttpApiGroup.make("messageCheckin")
   .add(
     HttpApiEndpoint.get("getMessageCheckinData", "/messageCheckin/getMessageCheckinData", {
-      query: Schema.Struct({
-        messageId: Schema.String,
-      }),
+      query: Schema.Struct(MessageKeyPayload),
       success: MessageCheckin,
       error: [SchemaError, QueryResultError, ArgumentError, Unauthorized],
     }),
@@ -29,7 +35,7 @@ export class MessageCheckinApi extends HttpApiGroup.make("messageCheckin")
   .add(
     HttpApiEndpoint.post("upsertMessageCheckinData", "/messageCheckin/upsertMessageCheckinData", {
       payload: Schema.Struct({
-        messageId: Schema.String,
+        ...MessageKeyPayload,
         data: MessageCheckinDataPayload,
       }),
       success: MessageCheckin,
@@ -38,9 +44,7 @@ export class MessageCheckinApi extends HttpApiGroup.make("messageCheckin")
   )
   .add(
     HttpApiEndpoint.get("getMessageCheckinMembers", "/messageCheckin/getMessageCheckinMembers", {
-      query: Schema.Struct({
-        messageId: Schema.String,
-      }),
+      query: Schema.Struct(MessageKeyPayload),
       success: Schema.Array(MessageCheckinMember),
       error: [SchemaError, QueryResultError, ArgumentError, Unauthorized],
     }),
@@ -48,7 +52,7 @@ export class MessageCheckinApi extends HttpApiGroup.make("messageCheckin")
   .add(
     HttpApiEndpoint.post("addMessageCheckinMembers", "/messageCheckin/addMessageCheckinMembers", {
       payload: Schema.Struct({
-        messageId: Schema.String,
+        ...MessageKeyPayload,
         memberIds: Schema.Array(Schema.String),
       }),
       success: Schema.Array(MessageCheckinMember),
@@ -58,7 +62,7 @@ export class MessageCheckinApi extends HttpApiGroup.make("messageCheckin")
   .add(
     HttpApiEndpoint.post("persistMessageCheckin", "/messageCheckin/persistMessageCheckin", {
       payload: Schema.Struct({
-        messageId: Schema.String,
+        ...MessageKeyPayload,
         data: MessageCheckinDataPayload,
         memberIds: Schema.Array(Schema.String),
       }),
@@ -72,7 +76,7 @@ export class MessageCheckinApi extends HttpApiGroup.make("messageCheckin")
       "/messageCheckin/setMessageCheckinMemberCheckinAt",
       {
         payload: Schema.Struct({
-          messageId: Schema.String,
+          ...MessageKeyPayload,
           memberId: Schema.String,
           checkinAt: Schema.Number,
         }),
@@ -87,7 +91,7 @@ export class MessageCheckinApi extends HttpApiGroup.make("messageCheckin")
       "/messageCheckin/setMessageCheckinMemberCheckinAtIfUnset",
       {
         payload: Schema.Struct({
-          messageId: Schema.String,
+          ...MessageKeyPayload,
           memberId: Schema.String,
           checkinAt: Schema.Number,
           checkinClaimId: Schema.String,
@@ -103,7 +107,7 @@ export class MessageCheckinApi extends HttpApiGroup.make("messageCheckin")
       "/messageCheckin/removeMessageCheckinMember",
       {
         payload: Schema.Struct({
-          messageId: Schema.String,
+          ...MessageKeyPayload,
           memberId: Schema.String,
         }),
         success: MessageCheckinMember,

@@ -40,7 +40,7 @@ export type PlayerDayScheduleResponse = Schema.Schema.Type<typeof PlayerDaySched
 export const getMaximumScheduleView = (permissions: PermissionSet, guildId: string): ScheduleView =>
   HashSet.has(permissions, "service") ||
   HashSet.has(permissions, "app_owner") ||
-  HashSet.has(permissions, `monitor_guild:${guildId}`)
+  HashSet.has(permissions, `monitor_workspace:${guildId}`)
     ? "monitor"
     : "filler";
 

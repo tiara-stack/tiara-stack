@@ -1,33 +1,17 @@
-import { Effect, Layer, Option } from "effect";
+import { Effect, Layer } from "effect";
 import { SheetRpcs } from "sheet-ingress-api/sheet-apis-rpc";
-import { withCurrentGuildAuthFromQuery } from "@/handlers/shared/guildAuthorization";
-import { SheetAuthGuildUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthGuildUser";
+import { withCurrentWorkspaceAuthFromQuery } from "@/handlers/shared/workspaceAuthorization";
+import { getSheetIdFromWorkspaceId } from "@/handlers/shared/workspaceConfig";
+import { SheetAuthWorkspaceUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthWorkspaceUser";
 import { BreakSchedule, Schedule } from "sheet-ingress-api/schemas/sheet";
 import {
   AuthorizationService,
   withScheduleHourWindow,
-  GuildConfigService,
+  WorkspaceConfigService,
   SheetConfigService,
   SheetService,
 } from "@/services";
 import { resolveScheduleViewFromPermissions } from "../schedule/shared";
-
-const getSheetIdFromGuildId = Effect.fn("sheet.getSheetIdFromGuildId")(function* (
-  guildId: string,
-  guildConfigService: typeof GuildConfigService.Service,
-) {
-  const guildConfig = yield* guildConfigService.getGuildConfig(guildId);
-
-  if (Option.isNone(guildConfig)) {
-    return yield* Effect.die(new Error(`Guild config not found for guildId: ${guildId}`));
-  }
-
-  if (Option.isNone(guildConfig.value.sheetId)) {
-    return yield* Effect.die(new Error(`sheetId not found for guildId: ${guildId}`));
-  }
-
-  return guildConfig.value.sheetId.value;
-});
 
 const withScheduleHourWindows = (
   schedules: ReadonlyArray<BreakSchedule | Schedule>,
@@ -39,29 +23,32 @@ export const sheetLayer = SheetRpcs.toLayer(
     const authorizationService = yield* AuthorizationService;
     const sheetService = yield* SheetService;
     const sheetConfigService = yield* SheetConfigService;
-    const guildConfigService = yield* GuildConfigService;
-    const withQueryGuildAuth = withCurrentGuildAuthFromQuery(authorizationService);
+    const workspaceConfigService = yield* WorkspaceConfigService;
+    const withQueryWorkspaceAuth = withCurrentWorkspaceAuthFromQuery(authorizationService);
 
     return {
       "sheet.getPlayers": Effect.fnUntraced(function* ({ query }) {
-        const sheetId = yield* getSheetIdFromGuildId(query.guildId, guildConfigService);
+        const sheetId = yield* getSheetIdFromWorkspaceId(query.workspaceId, workspaceConfigService);
         return yield* sheetService.getPlayers(sheetId);
       }),
       "sheet.getMonitors": Effect.fnUntraced(function* ({ query }) {
-        const sheetId = yield* getSheetIdFromGuildId(query.guildId, guildConfigService);
+        const sheetId = yield* getSheetIdFromWorkspaceId(query.workspaceId, workspaceConfigService);
         return yield* sheetService.getMonitors(sheetId);
       }),
       "sheet.getTeams": Effect.fnUntraced(function* ({ query }) {
-        const sheetId = yield* getSheetIdFromGuildId(query.guildId, guildConfigService);
+        const sheetId = yield* getSheetIdFromWorkspaceId(query.workspaceId, workspaceConfigService);
         return yield* sheetService.getTeams(sheetId);
       }),
-      "sheet.getAllSchedules": withQueryGuildAuth(
+      "sheet.getAllSchedules": withQueryWorkspaceAuth(
         Effect.fnUntraced(function* ({ query }) {
-          const sheetId = yield* getSheetIdFromGuildId(query.guildId, guildConfigService);
-          const resolvedUser = yield* SheetAuthGuildUser;
+          const sheetId = yield* getSheetIdFromWorkspaceId(
+            query.workspaceId,
+            workspaceConfigService,
+          );
+          const resolvedUser = yield* SheetAuthWorkspaceUser;
           const view = resolveScheduleViewFromPermissions(
             resolvedUser.permissions,
-            query.guildId,
+            query.workspaceId,
             query.view,
           );
           const { schedules, eventConfig } = yield* Effect.all({
@@ -78,13 +65,16 @@ export const sheetLayer = SheetRpcs.toLayer(
           };
         }),
       ),
-      "sheet.getDaySchedules": withQueryGuildAuth(
+      "sheet.getDaySchedules": withQueryWorkspaceAuth(
         Effect.fnUntraced(function* ({ query }) {
-          const sheetId = yield* getSheetIdFromGuildId(query.guildId, guildConfigService);
-          const resolvedUser = yield* SheetAuthGuildUser;
+          const sheetId = yield* getSheetIdFromWorkspaceId(
+            query.workspaceId,
+            workspaceConfigService,
+          );
+          const resolvedUser = yield* SheetAuthWorkspaceUser;
           const view = resolveScheduleViewFromPermissions(
             resolvedUser.permissions,
-            query.guildId,
+            query.workspaceId,
             query.view,
           );
           const { schedules, eventConfig } = yield* Effect.all({
@@ -101,20 +91,23 @@ export const sheetLayer = SheetRpcs.toLayer(
           };
         }),
       ),
-      "sheet.getChannelSchedules": withQueryGuildAuth(
+      "sheet.getConversationSchedules": withQueryWorkspaceAuth(
         Effect.fnUntraced(function* ({ query }) {
-          const sheetId = yield* getSheetIdFromGuildId(query.guildId, guildConfigService);
-          const resolvedUser = yield* SheetAuthGuildUser;
+          const sheetId = yield* getSheetIdFromWorkspaceId(
+            query.workspaceId,
+            workspaceConfigService,
+          );
+          const resolvedUser = yield* SheetAuthWorkspaceUser;
           const view = resolveScheduleViewFromPermissions(
             resolvedUser.permissions,
-            query.guildId,
+            query.workspaceId,
             query.view,
           );
           const { schedules, eventConfig } = yield* Effect.all({
             schedules:
               view === "monitor"
-                ? sheetService.getChannelSchedules(sheetId, query.channel)
-                : sheetService.getChannelFillerSchedules(sheetId, query.channel),
+                ? sheetService.getChannelSchedules(sheetId, query.conversationName)
+                : sheetService.getChannelFillerSchedules(sheetId, query.conversationName),
             eventConfig: sheetConfigService.getEventConfig(sheetId),
           });
 
@@ -125,23 +118,23 @@ export const sheetLayer = SheetRpcs.toLayer(
         }),
       ),
       "sheet.getRangesConfig": Effect.fnUntraced(function* ({ query }) {
-        const sheetId = yield* getSheetIdFromGuildId(query.guildId, guildConfigService);
+        const sheetId = yield* getSheetIdFromWorkspaceId(query.workspaceId, workspaceConfigService);
         return yield* sheetConfigService.getRangesConfig(sheetId);
       }),
       "sheet.getTeamConfig": Effect.fnUntraced(function* ({ query }) {
-        const sheetId = yield* getSheetIdFromGuildId(query.guildId, guildConfigService);
+        const sheetId = yield* getSheetIdFromWorkspaceId(query.workspaceId, workspaceConfigService);
         return yield* sheetConfigService.getTeamConfig(sheetId);
       }),
       "sheet.getEventConfig": Effect.fnUntraced(function* ({ query }) {
-        const sheetId = yield* getSheetIdFromGuildId(query.guildId, guildConfigService);
+        const sheetId = yield* getSheetIdFromWorkspaceId(query.workspaceId, workspaceConfigService);
         return yield* sheetConfigService.getEventConfig(sheetId);
       }),
       "sheet.getScheduleConfig": Effect.fnUntraced(function* ({ query }) {
-        const sheetId = yield* getSheetIdFromGuildId(query.guildId, guildConfigService);
+        const sheetId = yield* getSheetIdFromWorkspaceId(query.workspaceId, workspaceConfigService);
         return yield* sheetConfigService.getScheduleConfig(sheetId);
       }),
       "sheet.getRunnerConfig": Effect.fnUntraced(function* ({ query }) {
-        const sheetId = yield* getSheetIdFromGuildId(query.guildId, guildConfigService);
+        const sheetId = yield* getSheetIdFromWorkspaceId(query.workspaceId, workspaceConfigService);
         return yield* sheetConfigService.getRunnerConfig(sheetId);
       }),
     };
@@ -151,6 +144,6 @@ export const sheetLayer = SheetRpcs.toLayer(
     AuthorizationService.layer,
     SheetService.layer,
     SheetConfigService.layer,
-    GuildConfigService.layer,
+    WorkspaceConfigService.layer,
   ]),
 );

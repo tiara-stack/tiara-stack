@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import { DateTime, Deferred, Effect, Option, Redacted, Schema } from "effect";
 import { createAuthClient } from "better-auth/client";
 import { oauthProviderClient } from "@better-auth/oauth-provider/client";

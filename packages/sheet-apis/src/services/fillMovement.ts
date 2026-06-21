@@ -6,8 +6,8 @@ import {
 
 export type FillParticipant = {
   key: string;
-  label: string;
   name: string;
+  userId?: string;
 };
 
 const isPlayer = Predicate.isTagged("Player");
@@ -38,12 +38,11 @@ export const toFillParticipant = (schedulePlayer: PopulatedSchedulePlayer): Fill
   isPlayer(schedulePlayer.player)
     ? {
         key: `player:${schedulePlayer.player.id}`,
-        label: `<@${schedulePlayer.player.id}>`,
         name: schedulePlayer.player.name,
+        userId: schedulePlayer.player.id,
       }
     : {
         key: `name:${schedulePlayer.player.name}`,
-        label: schedulePlayer.player.name,
         name: schedulePlayer.player.name,
       };
 

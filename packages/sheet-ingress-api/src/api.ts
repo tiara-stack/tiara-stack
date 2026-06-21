@@ -4,9 +4,10 @@ import { SheetBotServiceAuthorization } from "./middlewares/sheetBotServiceAutho
 import {
   CalcApi,
   CheckinApi,
+  ClientDeliveryApi,
   DispatchApi,
   DiscordApi as SheetApisDiscordApi,
-  GuildConfigApi,
+  WorkspaceConfigApi,
   IngressBotApi,
   MessageCheckinApi,
   MessageRoomOrderApi,
@@ -37,7 +38,7 @@ class SheetIngressSheetApisApi extends HttpApi.make("api")
   .add(CalcApi)
   .add(CheckinApi)
   .add(DispatchApi)
-  .add(GuildConfigApi)
+  .add(WorkspaceConfigApi)
   .add(MessageCheckinApi)
   .add(MessageRoomOrderApi)
   .add(MessageSlotApi)
@@ -53,6 +54,7 @@ class SheetIngressSheetApisApi extends HttpApi.make("api")
   .annotate(OpenApi.Title, "Sheet APIs") {}
 
 class SheetIngressDiscordApiBase extends HttpApi.make("discord")
+  .add(ClientDeliveryApi.middleware(SheetBotServiceAuthorization))
   .add(ApplicationApi.middleware(SheetBotServiceAuthorization))
   .add(BotApi.middleware(SheetBotServiceAuthorization))
   .add(CacheApi.middleware(SheetBotServiceAuthorization))
@@ -76,3 +78,4 @@ export class Api extends ApiBase {}
 export { SheetApisApi };
 export { SheetWorkflowsApi };
 export { SheetIngressDiscordApiBase as SheetIngressDiscordApi };
+export { SheetIngressDiscordApiBase as SheetIngressClientDeliveryApi };

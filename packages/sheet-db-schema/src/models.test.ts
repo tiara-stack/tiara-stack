@@ -24,10 +24,12 @@ describe("sheet-db-schema model exports", () => {
 
     expect(
       Schema.decodeUnknownSync(messageSlotInsert)({
+        clientPlatform: "discord",
+        clientId: "discord-main",
         messageId: "message-1",
         day: 1,
-        guildId: "guild-1",
-        messageChannelId: "channel-1",
+        workspaceId: "guild-1",
+        conversationId: "channel-1",
         createdByUserId: "user-1",
         createdAt: 1_700_000_000_000,
         updatedAt: 1_700_000_000_100,
@@ -41,6 +43,8 @@ describe("sheet-db-schema model exports", () => {
 
     expect(
       Schema.decodeUnknownSync(messageRoomOrderEntryUpdate)({
+        clientPlatform: "discord",
+        clientId: "discord-main",
         messageId: "message-1",
         rank: 1,
         position: 2,
@@ -53,6 +57,8 @@ describe("sheet-db-schema model exports", () => {
         deletedAt: null,
       }),
     ).toMatchObject({
+      clientPlatform: "discord",
+      clientId: "discord-main",
       messageId: "message-1",
       rank: 1,
       position: 2,

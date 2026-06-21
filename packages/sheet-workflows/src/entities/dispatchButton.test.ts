@@ -1,10 +1,11 @@
+// fallow-ignore-file code-duplication
 import { describe, expect, it } from "@effect/vitest";
 import { vi } from "vitest";
 import { Deferred, Effect, Fiber, Option, Ref } from "effect";
 import { Entity, ShardingConfig } from "effect/unstable/cluster";
 import { WorkflowEngine } from "effect/unstable/workflow";
 import { markInteractionFailureHandled } from "@/handlers/shared/interactionFailure";
-import { DispatchService, IngressBotClient, SheetApisClient } from "@/services";
+import { DispatchService, ClientDeliveryClient, SheetApisClient } from "@/services";
 import { MessageRoomOrder } from "sheet-ingress-api/schemas/messageRoomOrder";
 import { dispatchButtonEntityLayer } from "@/workflows/dispatchRegistry";
 import {
@@ -18,27 +19,32 @@ const requester = {
   userId: "user-1",
 };
 
-const interactionDeadlineEpochMs = 4_102_444_800_000;
+const interactionResponseDeadlineEpochMs = 4_102_444_800_000;
+const discordClient = { platform: "discord", clientId: "discord-main" } as const;
 
 const checkinButtonRequest = {
   requester,
   payload: {
+    client: discordClient,
     messageId: "message-1",
-    interactionToken: "interaction-token",
-    interactionDeadlineEpochMs,
+    interactionResponseToken: "interaction-token",
+    interactionResponseDeadlineEpochMs,
   },
 };
 
 const slotOpenButtonRequest = {
   requester,
   payload: {
+    client: discordClient,
     messageId: "slot-message-1",
-    interactionToken: "interaction-token",
-    interactionDeadlineEpochMs,
+    interactionResponseToken: "interaction-token",
+    interactionResponseDeadlineEpochMs,
   },
 };
 
 const authorizedRoomOrder = new MessageRoomOrder({
+  clientPlatform: "discord",
+  clientId: "discord-main",
   messageId: "message-1",
   hour: 1,
   previousFills: [],
@@ -46,13 +52,13 @@ const authorizedRoomOrder = new MessageRoomOrder({
   rank: 1,
   tentative: false,
   monitor: Option.none(),
-  guildId: Option.some("guild-1"),
-  messageChannelId: Option.some("channel-1"),
+  workspaceId: Option.some("workspace-1"),
+  conversationId: Option.some("conversation-1"),
   createdByUserId: Option.some(requester.userId),
   sendClaimId: Option.none(),
   sendClaimedAt: Option.none(),
   sentMessageId: Option.none(),
-  sentMessageChannelId: Option.none(),
+  sentConversationId: Option.none(),
   sentAt: Option.none(),
   tentativeUpdateClaimId: Option.none(),
   tentativeUpdateClaimedAt: Option.none(),
@@ -68,29 +74,30 @@ const roomOrderButtonRequest = {
   requester,
   authorizedRoomOrder,
   payload: {
-    guildId: "guild-1",
+    client: discordClient,
+    workspaceId: "workspace-1",
     messageId: "message-1",
-    messageChannelId: "channel-1",
-    interactionToken: "interaction-token",
-    interactionDeadlineEpochMs,
+    messageConversationId: "conversation-1",
+    interactionResponseToken: "interaction-token",
+    interactionResponseDeadlineEpochMs,
   },
 };
 
 const checkinButtonResult = {
   messageId: "message-1",
-  messageChannelId: "channel-1",
+  messageConversationId: "conversation-1",
   checkedInMemberId: requester.accountId,
 };
 
 const slotOpenButtonResult = {
   messageId: "slot-message-1",
-  guildId: "guild-1",
+  workspaceId: "workspace-1",
   day: 1,
 };
 
 const roomOrderButtonResult = {
   messageId: "message-1",
-  messageChannelId: "channel-1",
+  messageConversationId: "conversation-1",
   status: "updated" as const,
   detail: null,
 };
@@ -318,12 +325,8 @@ describe("dispatch button entity", () => {
   );
 
   it.effect("preserves normalized failure behavior", () => {
-    const updateOriginalInteractionResponseWithFiles = vi.fn(
-      (
-        _interactionToken: string,
-        _payload: unknown,
-        _files: ReadonlyArray<{ readonly content: Uint8Array }>,
-      ) => Effect.void,
+    const updateOriginalInteractionResponse = vi.fn(
+      (_interactionResponseToken: string, _payload: unknown) => Effect.void,
     );
     return Effect.gen(function* () {
       const clientFor = yield* Entity.makeTestClient(
@@ -336,23 +339,21 @@ describe("dispatch button entity", () => {
         .pipe(Effect.exit);
 
       expect(exit._tag).toBe("Failure");
-      expect(updateOriginalInteractionResponseWithFiles).toHaveBeenCalledWith(
-        "interaction-token",
-        {
-          content:
-            "Dispatch failed. Please try again.\nUnexpected error: check-in failed\nFull error is attached.",
-          attachments: [{ id: "0", filename: "error.txt" }],
-        },
-        [
+      expect(updateOriginalInteractionResponse).toHaveBeenCalledWith("interaction-token", {
+        content:
+          "Dispatch failed. Please try again.\nUnexpected error: check-in failed\nFull error is attached.",
+        files: [
           expect.objectContaining({
             name: "error.txt",
             contentType: "text/plain",
             content: expect.any(Uint8Array),
           }),
         ],
-      );
-      const [, , files] = updateOriginalInteractionResponseWithFiles.mock.calls[0]!;
-      const [file] = files as ReadonlyArray<{ readonly content: Uint8Array }>;
+      });
+      const [, responsePayload] = updateOriginalInteractionResponse.mock.calls[0]!;
+      const [file] = (
+        responsePayload as { readonly files: ReadonlyArray<{ readonly content: Uint8Array }> }
+      ).files;
       expect(new TextDecoder().decode(file.content)).toContain("check-in failed");
     }).pipe(
       Effect.provideService(
@@ -361,8 +362,8 @@ describe("dispatch button entity", () => {
           checkinButton: () => Effect.fail(new Error("check-in failed")),
         }),
       ),
-      Effect.provideService(IngressBotClient, {
-        updateOriginalInteractionResponseWithFiles,
+      Effect.provideService(ClientDeliveryClient, {
+        updateOriginalInteractionResponse,
       } as never),
       Effect.provideService(SheetApisClient, sheetApisClientWithCheckinMember),
       Effect.provide(WorkflowEngine.layerMemory),
@@ -392,7 +393,7 @@ describe("dispatch button entity", () => {
             Effect.fail(markInteractionFailureHandled(new Error("check-in failed"))),
         }),
       ),
-      Effect.provideService(IngressBotClient, { updateOriginalInteractionResponse } as never),
+      Effect.provideService(ClientDeliveryClient, { updateOriginalInteractionResponse } as never),
       Effect.provideService(SheetApisClient, sheetApisClientWithCheckinMember),
       Effect.provide(WorkflowEngine.layerMemory),
       Effect.provide(TestShardingConfig),

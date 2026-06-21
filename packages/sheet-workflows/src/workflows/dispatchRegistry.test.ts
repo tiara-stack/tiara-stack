@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import { describe, expect, it } from "@effect/vitest";
 import { vi } from "vitest";
 import { Cause, Context, Duration, Effect, Exit, Layer, Option, Schema, Stream } from "effect";
@@ -17,13 +18,13 @@ import type {
   CheckinDispatchResult,
   CheckinHandleButtonPayload,
   CheckinHandleButtonResult,
-  GuildWelcomeDispatchPayload,
-  GuildWelcomeDispatchResult,
+  WorkspaceWelcomeDispatchPayload,
+  WorkspaceWelcomeDispatchResult,
   KickoutDispatchPayload,
   KickoutDispatchResult,
   RoomOrderPinTentativeButtonPayload,
-  ServiceGuildFeatureFlagDispatchPayload,
-  ServiceGuildFeatureFlagDispatchResult,
+  ServiceWorkspaceFeatureFlagDispatchPayload,
+  ServiceWorkspaceFeatureFlagDispatchResult,
   ServiceStatusDispatchPayload,
   ServiceStatusDispatchResult,
   SlotButtonDispatchPayload,
@@ -37,7 +38,7 @@ import type {
 } from "sheet-ingress-api/sheet-apis-rpc";
 import { Unauthorized } from "typhoon-core/error";
 import { markInteractionFailureHandled } from "@/handlers/shared/interactionFailure";
-import { DispatchService, IngressBotClient, SheetApisClient } from "@/services";
+import { DispatchService, ClientDeliveryClient, SheetApisClient } from "@/services";
 import {
   dispatchFailureMessage,
   dispatchFailureResponse,
@@ -59,70 +60,81 @@ const requester: DispatchRequester = {
   userId: "user-1",
 };
 
+const discordClient = { platform: "discord", clientId: "discord-main" } as const;
+
 const checkinPayload: CheckinDispatchPayload = {
+  client: discordClient,
   dispatchRequestId: "dispatch-1",
-  guildId: "guild-1",
-  channelId: "channel-1",
+  workspaceId: "workspace-1",
+  conversationId: "conversation-1",
 };
 
 const autoCheckinTestPayload: AutoCheckinTestDispatchPayload = {
+  client: discordClient,
   dispatchRequestId: "dispatch-auto-checkin-test",
-  guildId: "guild-1",
-  anchorChannelId: "anchor-channel-1",
-  interactionToken: "interaction-token",
-  interactionDeadlineEpochMs: 4_102_444_800_000,
+  workspaceId: "workspace-1",
+  anchorConversationId: "anchor-conversation-1",
+  interactionResponseToken: "interaction-token",
+  interactionResponseDeadlineEpochMs: 4_102_444_800_000,
 };
 
 const kickoutPayload: KickoutDispatchPayload = {
+  client: discordClient,
   dispatchRequestId: "dispatch-kickout",
-  guildId: "guild-1",
-  channelId: "channel-1",
+  workspaceId: "workspace-1",
+  conversationId: "conversation-1",
 };
 
 const slotButtonPayload: SlotButtonDispatchPayload = {
+  client: discordClient,
   dispatchRequestId: "dispatch-slot-button",
-  guildId: "guild-1",
-  channelId: "channel-1",
+  workspaceId: "workspace-1",
+  conversationId: "conversation-1",
   day: 1,
-  interactionToken: "interaction-token",
-  interactionDeadlineEpochMs: 4_102_444_800_000,
+  interactionResponseToken: "interaction-token",
+  interactionResponseDeadlineEpochMs: 4_102_444_800_000,
 };
 
 const slotListPayload: SlotListDispatchPayload = {
+  client: discordClient,
   dispatchRequestId: "dispatch-slot-list",
-  guildId: "guild-1",
+  workspaceId: "workspace-1",
   day: 1,
   messageType: "ephemeral",
-  interactionToken: "interaction-token",
-  interactionDeadlineEpochMs: 4_102_444_800_000,
+  interactionResponseToken: "interaction-token",
+  interactionResponseDeadlineEpochMs: 4_102_444_800_000,
 };
 
 const slotOpenButtonPayload: SlotOpenButtonPayload = {
+  client: discordClient,
   messageId: "slot-message-1",
-  interactionToken: "interaction-token",
-  interactionDeadlineEpochMs: 4_102_444_800_000,
+  interactionResponseToken: "interaction-token",
+  interactionResponseDeadlineEpochMs: 4_102_444_800_000,
 };
 
 const serviceStatusPayload: ServiceStatusDispatchPayload = {
+  client: discordClient,
   dispatchRequestId: "dispatch-service-status",
-  interactionToken: "interaction-token",
-  interactionDeadlineEpochMs: 4_102_444_800_000,
+  interactionResponseToken: "interaction-token",
+  interactionResponseDeadlineEpochMs: 4_102_444_800_000,
 };
 
-const guildWelcomePayload: GuildWelcomeDispatchPayload = {
-  dispatchRequestId: "discord-guild-create:guild-1:2026-05-31T00:00:00.000Z",
-  guildId: "guild-1",
-  guildName: "Guild One",
+const workspaceWelcomePayload: WorkspaceWelcomeDispatchPayload = {
+  client: discordClient,
+  dispatchRequestId: "discord-workspace-create:workspace-1:2026-05-31T00:00:00.000Z",
+  workspaceId: "workspace-1",
+  workspaceName: "Workspace One",
   joinedAt: "2026-05-31T00:00:00.000Z",
-  systemChannelId: "system-channel",
+  systemConversationId: "system-conversation",
 };
 
 const updateAnnouncementPayload: UpdateAnnouncementDispatchPayload = {
-  dispatchRequestId: "discord-update-announcement:guild-1:update-announcements-2026-06-05",
-  guildId: "guild-1",
-  guildName: "Guild One",
+  client: discordClient,
+  dispatchRequestId: "discord-update-announcement:workspace-1:update-announcements-2026-06-05",
+  workspaceId: "workspace-1",
+  workspaceName: "Workspace One",
   joinedAt: "2026-06-04T16:59:59.999Z",
-  systemChannelId: "system-channel",
+  systemConversationId: "system-conversation",
   announcement: {
     id: "update-announcements-2026-06-05",
     publishedAt: "2026-06-04T17:00:00.000Z",
@@ -132,27 +144,30 @@ const updateAnnouncementPayload: UpdateAnnouncementDispatchPayload = {
   },
 };
 
-const serviceGuildFeatureFlagPayload: ServiceGuildFeatureFlagDispatchPayload = {
-  dispatchRequestId: "dispatch-service-guild-feature-flag",
-  guildId: "guild-1",
+const serviceWorkspaceFeatureFlagPayload: ServiceWorkspaceFeatureFlagDispatchPayload = {
+  client: discordClient,
+  dispatchRequestId: "dispatch-service-workspace-feature-flag",
+  workspaceId: "workspace-1",
   flagName: "beta-feature",
-  systemChannelId: "system-channel",
+  systemConversationId: "system-conversation",
 };
 
-const interactionDeadlineEpochMs = 4_102_444_800_000;
+const interactionResponseDeadlineEpochMs = 4_102_444_800_000;
 
 const checkinButtonPayload: CheckinHandleButtonPayload = {
+  client: discordClient,
   messageId: "message-1",
-  interactionToken: "interaction-token",
-  interactionDeadlineEpochMs,
+  interactionResponseToken: "interaction-token",
+  interactionResponseDeadlineEpochMs,
 };
 
 const pinTentativePayload: RoomOrderPinTentativeButtonPayload = {
-  guildId: "guild-1",
+  client: discordClient,
+  workspaceId: "workspace-1",
   messageId: "message-1",
-  messageChannelId: "channel-1",
-  interactionToken: "interaction-token",
-  interactionDeadlineEpochMs,
+  messageConversationId: "conversation-1",
+  interactionResponseToken: "interaction-token",
+  interactionResponseDeadlineEpochMs,
 };
 
 type DispatchServiceMock = typeof DispatchService.Service;
@@ -191,23 +206,25 @@ const makeDispatchServiceMock = (overrides: Partial<DispatchServiceMock>): Dispa
   slotList: unexpectedDispatchServiceCall("slotList"),
   slotOpenButton: unexpectedDispatchServiceCall("slotOpenButton"),
   serviceStatus: unexpectedDispatchServiceCall("serviceStatus"),
-  guildWelcome: unexpectedDispatchServiceCall("guildWelcome"),
+  workspaceWelcome: unexpectedDispatchServiceCall("workspaceWelcome"),
   updateAnnouncement: unexpectedDispatchServiceCall("updateAnnouncement"),
-  serviceAddGuildFeatureFlag: unexpectedDispatchServiceCall("serviceAddGuildFeatureFlag"),
-  serviceRemoveGuildFeatureFlag: unexpectedDispatchServiceCall("serviceRemoveGuildFeatureFlag"),
+  serviceAddWorkspaceFeatureFlag: unexpectedDispatchServiceCall("serviceAddWorkspaceFeatureFlag"),
+  serviceRemoveWorkspaceFeatureFlag: unexpectedDispatchServiceCall(
+    "serviceRemoveWorkspaceFeatureFlag",
+  ),
   checkinButton: unexpectedDispatchServiceCall("checkinButton"),
   roomOrderPreviousButton: unexpectedDispatchServiceCall("roomOrderPreviousButton"),
   roomOrderNextButton: unexpectedDispatchServiceCall("roomOrderNextButton"),
   roomOrderSendButton: unexpectedDispatchServiceCall("roomOrderSendButton"),
   roomOrderPinTentativeButton: unexpectedDispatchServiceCall("roomOrderPinTentativeButton"),
-  channelListConfig: unexpectedDispatchServiceCall("channelListConfig"),
-  channelSet: unexpectedDispatchServiceCall("channelSet"),
-  channelUnset: unexpectedDispatchServiceCall("channelUnset"),
-  serverListConfig: unexpectedDispatchServiceCall("serverListConfig"),
-  serverAddMonitorRole: unexpectedDispatchServiceCall("serverAddMonitorRole"),
-  serverRemoveMonitorRole: unexpectedDispatchServiceCall("serverRemoveMonitorRole"),
-  serverSetSheet: unexpectedDispatchServiceCall("serverSetSheet"),
-  serverSetAutoCheckin: unexpectedDispatchServiceCall("serverSetAutoCheckin"),
+  conversationListConfig: unexpectedDispatchServiceCall("conversationListConfig"),
+  conversationSet: unexpectedDispatchServiceCall("conversationSet"),
+  conversationUnset: unexpectedDispatchServiceCall("conversationUnset"),
+  workspaceListConfig: unexpectedDispatchServiceCall("workspaceListConfig"),
+  workspaceAddMonitorRole: unexpectedDispatchServiceCall("workspaceAddMonitorRole"),
+  workspaceRemoveMonitorRole: unexpectedDispatchServiceCall("workspaceRemoveMonitorRole"),
+  workspaceSetSheet: unexpectedDispatchServiceCall("workspaceSetSheet"),
+  workspaceSetAutoCheckin: unexpectedDispatchServiceCall("workspaceSetAutoCheckin"),
   teamList: unexpectedDispatchServiceCall("teamList"),
   scheduleList: unexpectedDispatchServiceCall("scheduleList"),
   screenshot: unexpectedDispatchServiceCall("screenshot"),
@@ -237,6 +254,8 @@ const makeShardingMock = (overrides: Partial<ShardingMock>): ShardingMock =>
 
 const makeMessageCheckinMember = (memberId: string) =>
   new MessageCheckinMember({
+    clientPlatform: "discord",
+    clientId: "discord-main",
     messageId: checkinButtonPayload.messageId,
     memberId,
     checkinAt: Option.none(),
@@ -247,14 +266,16 @@ const makeMessageCheckinMember = (memberId: string) =>
   });
 
 const makeMessageSlot = (overrides?: {
-  readonly guildId?: Option.Option<string>;
-  readonly messageChannelId?: Option.Option<string>;
+  readonly workspaceId?: Option.Option<string>;
+  readonly conversationId?: Option.Option<string>;
 }) =>
   new MessageSlot({
+    clientPlatform: "discord",
+    clientId: "discord-main",
     messageId: slotOpenButtonPayload.messageId,
     day: 2,
-    guildId: overrides?.guildId ?? Option.some("guild-1"),
-    messageChannelId: overrides?.messageChannelId ?? Option.some("channel-1"),
+    workspaceId: overrides?.workspaceId ?? Option.some("workspace-1"),
+    conversationId: overrides?.conversationId ?? Option.some("conversation-1"),
     createdByUserId: Option.some(requester.userId),
     createdAt: Option.none(),
     updatedAt: Option.none(),
@@ -335,23 +356,23 @@ describe("dispatch workflow registry", () => {
       "slotList",
       "slotOpenButton",
       "serviceStatus",
-      "guildWelcome",
+      "workspaceWelcome",
       "updateAnnouncement",
-      "serviceAddGuildFeatureFlag",
-      "serviceRemoveGuildFeatureFlag",
+      "serviceAddWorkspaceFeatureFlag",
+      "serviceRemoveWorkspaceFeatureFlag",
       "checkinButton",
       "roomOrderPreviousButton",
       "roomOrderNextButton",
       "roomOrderSendButton",
       "roomOrderPinTentativeButton",
-      "channelListConfig",
-      "channelSet",
-      "channelUnset",
-      "serverListConfig",
-      "serverAddMonitorRole",
-      "serverRemoveMonitorRole",
-      "serverSetSheet",
-      "serverSetAutoCheckin",
+      "conversationListConfig",
+      "conversationSet",
+      "conversationUnset",
+      "workspaceListConfig",
+      "workspaceAddMonitorRole",
+      "workspaceRemoveMonitorRole",
+      "workspaceSetSheet",
+      "workspaceSetAutoCheckin",
       "teamList",
       "scheduleList",
       "screenshot",
@@ -422,14 +443,14 @@ describe("dispatch workflow registry", () => {
 
         expect(result).toEqual({
           hour: 1,
-          runningChannelId: "running-channel",
-          checkinChannelId: "checkin-channel",
+          runningConversationId: "running-conversation",
+          checkinConversationId: "checkin-conversation",
           checkinMessageId: "checkin-message",
-          checkinMessageChannelId: "checkin-channel",
+          checkinMessageConversationId: "checkin-conversation",
           primaryMessageId: "primary-message",
-          primaryMessageChannelId: "primary-channel",
+          primaryMessageConversationId: "primary-conversation",
           tentativeRoomOrderMessageId: null,
-          tentativeRoomOrderMessageChannelId: null,
+          tentativeRoomOrderMessageConversationId: null,
         });
       }).pipe(
         Effect.provideService(
@@ -441,14 +462,14 @@ describe("dispatch workflow registry", () => {
                 expect(currentRequester).toBe(requester);
                 return {
                   hour: 1,
-                  runningChannelId: "running-channel",
-                  checkinChannelId: "checkin-channel",
+                  runningConversationId: "running-conversation",
+                  checkinConversationId: "checkin-conversation",
                   checkinMessageId: "checkin-message",
-                  checkinMessageChannelId: "checkin-channel",
+                  checkinMessageConversationId: "checkin-conversation",
                   primaryMessageId: "primary-message",
-                  primaryMessageChannelId: "primary-channel",
+                  primaryMessageConversationId: "primary-conversation",
                   tentativeRoomOrderMessageId: null,
-                  tentativeRoomOrderMessageChannelId: null,
+                  tentativeRoomOrderMessageConversationId: null,
                 };
               }),
           }),
@@ -467,19 +488,19 @@ describe("dispatch workflow registry", () => {
         });
 
         expect(result).toEqual({
-          guildId: "guild-1",
+          workspaceId: "workspace-1",
           hour: 1,
           anchorMessageId: "anchor-message",
-          anchorMessageChannelId: "anchor-channel-1",
-          channelCount: 1,
+          anchorMessageConversationId: "anchor-conversation-1",
+          conversationCount: 1,
           sentCount: 1,
           skippedCount: 0,
           failedCount: 0,
-          channels: [
+          conversations: [
             {
-              channelName: "main",
-              runningChannelId: "running-channel",
-              checkinChannelId: "checkin-channel",
+              conversationName: "main",
+              runningConversationId: "running-conversation",
+              checkinConversationId: "checkin-conversation",
               hour: 1,
               status: "sent",
               checkinPreviewMessageId: "checkin-preview",
@@ -501,19 +522,19 @@ describe("dispatch workflow registry", () => {
                 expect(payload).toBe(autoCheckinTestPayload);
                 expect(currentRequester).toBe(requester);
                 return {
-                  guildId: "guild-1",
+                  workspaceId: "workspace-1",
                   hour: 1,
                   anchorMessageId: "anchor-message",
-                  anchorMessageChannelId: "anchor-channel-1",
-                  channelCount: 1,
+                  anchorMessageConversationId: "anchor-conversation-1",
+                  conversationCount: 1,
                   sentCount: 1,
                   skippedCount: 0,
                   failedCount: 0,
-                  channels: [
+                  conversations: [
                     {
-                      channelName: "main",
-                      runningChannelId: "running-channel",
-                      checkinChannelId: "checkin-channel",
+                      conversationName: "main",
+                      runningConversationId: "running-conversation",
+                      checkinConversationId: "checkin-conversation",
                       hour: 1,
                       status: "sent",
                       checkinPreviewMessageId: "checkin-preview",
@@ -540,8 +561,8 @@ describe("dispatch workflow registry", () => {
         });
 
         expect(result).toEqual({
-          guildId: "guild-1",
-          runningChannelId: "channel-1",
+          workspaceId: "workspace-1",
+          runningConversationId: "conversation-1",
           hour: 1,
           roleId: "role-1",
           removedMemberIds: ["account-2"],
@@ -556,8 +577,8 @@ describe("dispatch workflow registry", () => {
                 expect(payload).toBe(kickoutPayload);
                 expect(currentRequester).toBe(requester);
                 return {
-                  guildId: "guild-1",
-                  runningChannelId: "channel-1",
+                  workspaceId: "workspace-1",
+                  runningConversationId: "conversation-1",
                   hour: 1,
                   roleId: "role-1",
                   removedMemberIds: ["account-2"],
@@ -570,86 +591,92 @@ describe("dispatch workflow registry", () => {
     );
   });
 
-  it("requires manage-guild authorization snapshots for config mutation workflows", async () => {
+  it("requires manage-workspace authorization snapshots for config mutation workflows", async () => {
     type TestAuthorization = {
-      readonly guildId: string;
+      readonly workspaceId: string;
       readonly scope: "member" | "monitor" | "manage";
     };
-    const authorization: TestAuthorization = { guildId: "guild-1", scope: "manage" };
-    const unauthorized: TestAuthorization = { guildId: "guild-1", scope: "monitor" };
+    const authorization: TestAuthorization = { workspaceId: "workspace-1", scope: "manage" };
+    const unauthorized: TestAuthorization = { workspaceId: "workspace-1", scope: "monitor" };
     const cases = [
       (currentAuthorization: typeof authorization) =>
-        dispatchWorkflowRegistry.channelSet.authorize({
+        dispatchWorkflowRegistry.conversationSet.authorize({
           requester,
           authorization: currentAuthorization,
           payload: {
-            dispatchRequestId: "dispatch-channel-set",
-            guildId: "guild-1",
-            channelId: "channel-1",
+            client: discordClient,
+            dispatchRequestId: "dispatch-conversation-set",
+            workspaceId: "workspace-1",
+            conversationId: "conversation-1",
             running: true,
-            interactionToken: "interaction-token",
-            interactionDeadlineEpochMs,
+            interactionResponseToken: "interaction-token",
+            interactionResponseDeadlineEpochMs,
           },
         }),
       (currentAuthorization: typeof authorization) =>
-        dispatchWorkflowRegistry.channelUnset.authorize({
+        dispatchWorkflowRegistry.conversationUnset.authorize({
           requester,
           authorization: currentAuthorization,
           payload: {
-            dispatchRequestId: "dispatch-channel-unset",
-            guildId: "guild-1",
-            channelId: "channel-1",
+            client: discordClient,
+            dispatchRequestId: "dispatch-conversation-unset",
+            workspaceId: "workspace-1",
+            conversationId: "conversation-1",
             running: true,
-            interactionToken: "interaction-token",
-            interactionDeadlineEpochMs,
+            interactionResponseToken: "interaction-token",
+            interactionResponseDeadlineEpochMs,
           },
         }),
       (currentAuthorization: typeof authorization) =>
-        dispatchWorkflowRegistry.serverAddMonitorRole.authorize({
+        dispatchWorkflowRegistry.workspaceAddMonitorRole.authorize({
           requester,
           authorization: currentAuthorization,
           payload: {
+            client: discordClient,
             dispatchRequestId: "dispatch-server-add-monitor-role",
-            guildId: "guild-1",
+            workspaceId: "workspace-1",
             roleId: "role-1",
-            interactionToken: "interaction-token",
-            interactionDeadlineEpochMs,
+            interactionResponseToken: "interaction-token",
+            interactionResponseDeadlineEpochMs,
           },
         }),
       (currentAuthorization: typeof authorization) =>
-        dispatchWorkflowRegistry.serverRemoveMonitorRole.authorize({
+        dispatchWorkflowRegistry.workspaceRemoveMonitorRole.authorize({
           requester,
           authorization: currentAuthorization,
           payload: {
+            client: discordClient,
             dispatchRequestId: "dispatch-server-remove-monitor-role",
-            guildId: "guild-1",
+            workspaceId: "workspace-1",
             roleId: "role-1",
-            interactionToken: "interaction-token",
-            interactionDeadlineEpochMs,
+            interactionResponseToken: "interaction-token",
+            interactionResponseDeadlineEpochMs,
           },
         }),
       (currentAuthorization: typeof authorization) =>
-        dispatchWorkflowRegistry.serverSetSheet.authorize({
+        dispatchWorkflowRegistry.workspaceSetSheet.authorize({
           requester,
           authorization: currentAuthorization,
           payload: {
+            client: discordClient,
             dispatchRequestId: "dispatch-server-set-sheet",
-            guildId: "guild-1",
+            workspaceId: "workspace-1",
             sheetId: "sheet-1",
-            interactionToken: "interaction-token",
-            interactionDeadlineEpochMs,
+            interactionResponseToken: "interaction-token",
+            interactionResponseDeadlineEpochMs,
           },
         }),
       (currentAuthorization: typeof authorization) =>
-        dispatchWorkflowRegistry.serverSetAutoCheckin.authorize({
+        dispatchWorkflowRegistry.workspaceSetAutoCheckin.authorize({
           requester,
           authorization: currentAuthorization,
           payload: {
+            client: discordClient,
             dispatchRequestId: "dispatch-server-set-auto-checkin",
-            guildId: "guild-1",
+            workspaceId: "workspace-1",
             autoCheckin: true,
-            interactionToken: "interaction-token",
-            interactionDeadlineEpochMs,
+            interactionResponseToken: "interaction-token",
+            interactionResponseDeadlineEpochMs,
           },
         }),
     ];
@@ -661,17 +688,18 @@ describe("dispatch workflow registry", () => {
     }
   });
 
-  it("requires monitor-guild authorization snapshots for screenshot workflow", async () => {
+  it("requires monitor-workspace authorization snapshots for screenshot workflow", async () => {
     const request = {
       requester,
-      authorization: { guildId: "guild-1", scope: "monitor" as const },
+      authorization: { workspaceId: "workspace-1", scope: "monitor" as const },
       payload: {
+        client: discordClient,
         dispatchRequestId: "dispatch-screenshot",
-        guildId: "guild-1",
-        channelName: "run",
+        workspaceId: "workspace-1",
+        conversationName: "run",
         day: 1,
-        interactionToken: "interaction-token",
-        interactionDeadlineEpochMs,
+        interactionResponseToken: "interaction-token",
+        interactionResponseDeadlineEpochMs,
       },
     };
 
@@ -679,7 +707,7 @@ describe("dispatch workflow registry", () => {
     const denied = await Effect.runPromiseExit(
       dispatchWorkflowRegistry.screenshot.authorize({
         ...request,
-        authorization: { guildId: "guild-2", scope: "monitor" as const },
+        authorization: { workspaceId: "workspace-2", scope: "monitor" as const },
       }),
     );
     expect(denied._tag).toBe("Failure");
@@ -689,11 +717,12 @@ describe("dispatch workflow registry", () => {
     const base = {
       requester,
       payload: {
-        guildId: "guild-1",
+        client: discordClient,
+        workspaceId: "workspace-1",
         targetUserId: requester.accountId,
         targetUsername: "Requester",
-        interactionToken: "interaction-token",
-        interactionDeadlineEpochMs,
+        interactionResponseToken: "interaction-token",
+        interactionResponseDeadlineEpochMs,
       },
     };
 
@@ -710,7 +739,7 @@ describe("dispatch workflow registry", () => {
       }),
     );
 
-    const monitorAuthorization = { guildId: "guild-1", scope: "monitor" as const };
+    const monitorAuthorization = { workspaceId: "workspace-1", scope: "monitor" as const };
     await Effect.runPromise(
       dispatchWorkflowRegistry.teamList.authorize({
         ...base,
@@ -758,17 +787,17 @@ describe("dispatch workflow registry", () => {
 
         expect(buttonResult).toEqual({
           messageId: "message-1",
-          messageChannelId: "channel-1",
+          messageConversationId: "conversation-1",
           day: 1,
         });
         expect(listResult).toEqual({
-          guildId: "guild-1",
+          workspaceId: "workspace-1",
           day: 1,
           messageType: "ephemeral",
         });
         expect(openButtonResult).toEqual({
           messageId: "slot-message-1",
-          guildId: "guild-1",
+          workspaceId: "workspace-1",
           day: 2,
         });
       }).pipe(
@@ -781,7 +810,7 @@ describe("dispatch workflow registry", () => {
                 expect(currentRequester).toBe(requester);
                 return {
                   messageId: "message-1",
-                  messageChannelId: "channel-1",
+                  messageConversationId: "conversation-1",
                   day: 1,
                 } satisfies SlotButtonDispatchResult;
               }),
@@ -789,7 +818,7 @@ describe("dispatch workflow registry", () => {
               Effect.sync(() => {
                 expect(payload).toBe(slotListPayload);
                 return {
-                  guildId: "guild-1",
+                  workspaceId: "workspace-1",
                   day: 1,
                   messageType: "ephemeral",
                 } satisfies SlotListDispatchResult;
@@ -800,7 +829,7 @@ describe("dispatch workflow registry", () => {
                 expect(messageSlot).toBe(authorizedMessageSlot);
                 return {
                   messageId: payload.messageId,
-                  guildId: "guild-1",
+                  workspaceId: "workspace-1",
                   day: 2,
                 } satisfies SlotOpenButtonResult;
               }),
@@ -846,83 +875,90 @@ describe("dispatch workflow registry", () => {
     );
   });
 
-  it("routes guild welcome workflow execution to DispatchService", async () => {
-    const guildWelcome = vi.fn((payload: GuildWelcomeDispatchPayload) =>
+  it("routes workspace welcome workflow execution to DispatchService", async () => {
+    const workspaceWelcome = vi.fn((payload: WorkspaceWelcomeDispatchPayload) =>
       Effect.sync(() => {
-        expect(payload).toBe(guildWelcomePayload);
+        expect(payload).toBe(workspaceWelcomePayload);
         return {
-          guildId: "guild-1",
-          channelId: "channel-1",
+          workspaceId: "workspace-1",
+          conversationId: "conversation-1",
           messageId: "message-1",
-        } satisfies GuildWelcomeDispatchResult;
+        } satisfies WorkspaceWelcomeDispatchResult;
       }),
-    ) as DispatchServiceMock["guildWelcome"];
+    ) as DispatchServiceMock["workspaceWelcome"];
 
     await Effect.runPromise(
       Effect.gen(function* () {
-        const result = yield* dispatchWorkflowRegistry.guildWelcome.execute({
+        const result = yield* dispatchWorkflowRegistry.workspaceWelcome.execute({
           requester,
-          payload: guildWelcomePayload,
+          payload: workspaceWelcomePayload,
         });
 
         expect(result).toEqual({
-          guildId: "guild-1",
-          channelId: "channel-1",
+          workspaceId: "workspace-1",
+          conversationId: "conversation-1",
           messageId: "message-1",
         });
-        expect(guildWelcome).toHaveBeenCalledWith(guildWelcomePayload);
+        expect(workspaceWelcome).toHaveBeenCalledWith(workspaceWelcomePayload);
       }).pipe(
         Effect.provideService(
           DispatchService,
           makeDispatchServiceMock({
-            guildWelcome,
+            workspaceWelcome,
           }),
         ),
       ),
     );
   });
 
-  it("routes service guild feature flag workflows to DispatchService", async () => {
+  it("routes service workspace feature flag workflows to DispatchService", async () => {
     const resultPayload = {
-      guildId: "guild-1",
+      workspaceId: "workspace-1",
       flagName: "beta-feature",
-      announcementChannelId: "channel-1",
+      announcementConversationId: "conversation-1",
       announcementMessageId: "message-1",
-    } satisfies ServiceGuildFeatureFlagDispatchResult;
-    const serviceAddGuildFeatureFlag = vi.fn((payload: ServiceGuildFeatureFlagDispatchPayload) =>
-      Effect.sync(() => {
-        expect(payload).toBe(serviceGuildFeatureFlagPayload);
-        return resultPayload;
-      }),
-    ) as DispatchServiceMock["serviceAddGuildFeatureFlag"];
-    const serviceRemoveGuildFeatureFlag = vi.fn((payload: ServiceGuildFeatureFlagDispatchPayload) =>
-      Effect.sync(() => {
-        expect(payload).toBe(serviceGuildFeatureFlagPayload);
-        return resultPayload;
-      }),
-    ) as DispatchServiceMock["serviceRemoveGuildFeatureFlag"];
+    } satisfies ServiceWorkspaceFeatureFlagDispatchResult;
+    const serviceAddWorkspaceFeatureFlag = vi.fn(
+      (payload: ServiceWorkspaceFeatureFlagDispatchPayload) =>
+        Effect.sync(() => {
+          expect(payload).toBe(serviceWorkspaceFeatureFlagPayload);
+          return resultPayload;
+        }),
+    ) as DispatchServiceMock["serviceAddWorkspaceFeatureFlag"];
+    const serviceRemoveWorkspaceFeatureFlag = vi.fn(
+      (payload: ServiceWorkspaceFeatureFlagDispatchPayload) =>
+        Effect.sync(() => {
+          expect(payload).toBe(serviceWorkspaceFeatureFlagPayload);
+          return resultPayload;
+        }),
+    ) as DispatchServiceMock["serviceRemoveWorkspaceFeatureFlag"];
 
     await Effect.runPromise(
       Effect.gen(function* () {
-        const addResult = yield* dispatchWorkflowRegistry.serviceAddGuildFeatureFlag.execute({
+        const addResult = yield* dispatchWorkflowRegistry.serviceAddWorkspaceFeatureFlag.execute({
           requester,
-          payload: serviceGuildFeatureFlagPayload,
+          payload: serviceWorkspaceFeatureFlagPayload,
         });
-        const removeResult = yield* dispatchWorkflowRegistry.serviceRemoveGuildFeatureFlag.execute({
-          requester,
-          payload: serviceGuildFeatureFlagPayload,
-        });
+        const removeResult =
+          yield* dispatchWorkflowRegistry.serviceRemoveWorkspaceFeatureFlag.execute({
+            requester,
+            payload: serviceWorkspaceFeatureFlagPayload,
+          });
 
         expect(addResult).toEqual(resultPayload);
         expect(removeResult).toEqual(resultPayload);
-        expect(serviceAddGuildFeatureFlag).toHaveBeenCalledWith(serviceGuildFeatureFlagPayload);
-        expect(serviceRemoveGuildFeatureFlag).toHaveBeenCalledWith(serviceGuildFeatureFlagPayload);
+        expect(serviceAddWorkspaceFeatureFlag).toHaveBeenCalledWith(
+          serviceWorkspaceFeatureFlagPayload,
+        );
+        expect(serviceRemoveWorkspaceFeatureFlag).toHaveBeenCalledWith(
+          serviceWorkspaceFeatureFlagPayload,
+        );
       }).pipe(
         Effect.provideService(
           DispatchService,
           makeDispatchServiceMock({
-            serviceAddGuildFeatureFlag,
-            serviceRemoveGuildFeatureFlag,
+            serviceAddWorkspaceFeatureFlag,
+            serviceRemoveWorkspaceFeatureFlag,
           }),
         ),
       ),
@@ -931,10 +967,10 @@ describe("dispatch workflow registry", () => {
 
   it("routes update announcement workflows to DispatchService", async () => {
     const resultPayload = {
-      guildId: "guild-1",
+      workspaceId: "workspace-1",
       announcementId: "update-announcements-2026-06-05",
       status: "sent",
-      announcementChannelId: "channel-1",
+      announcementConversationId: "conversation-1",
       announcementMessageId: "message-1",
     } satisfies UpdateAnnouncementDispatchResult;
     const updateAnnouncement = vi.fn((payload: UpdateAnnouncementDispatchPayload) =>
@@ -988,7 +1024,7 @@ describe("dispatch workflow registry", () => {
             serviceStatus: serviceStatus as unknown as DispatchServiceMock["serviceStatus"],
           }),
         ),
-        Effect.provideService(IngressBotClient, {
+        Effect.provideService(ClientDeliveryClient, {
           updateOriginalInteractionResponse,
         } as never),
         Effect.provide(WorkflowEngine.layerMemory),
@@ -1001,12 +1037,8 @@ describe("dispatch workflow registry", () => {
   });
 
   it("includes the thrown error message for unhandled interaction failures", async () => {
-    const updateOriginalInteractionResponseWithFiles = vi.fn(
-      (
-        _interactionToken: string,
-        _payload: unknown,
-        _files: ReadonlyArray<{ readonly content: Uint8Array }>,
-      ) => Effect.void,
+    const updateOriginalInteractionResponse = vi.fn(
+      (_interactionResponseToken: string, _payload: unknown) => Effect.void,
     );
     const serviceStatus = vi.fn(() => Effect.fail(new Error("status failed")));
 
@@ -1028,8 +1060,8 @@ describe("dispatch workflow registry", () => {
             serviceStatus: serviceStatus as unknown as DispatchServiceMock["serviceStatus"],
           }),
         ),
-        Effect.provideService(IngressBotClient, {
-          updateOriginalInteractionResponseWithFiles,
+        Effect.provideService(ClientDeliveryClient, {
+          updateOriginalInteractionResponse,
         } as never),
         Effect.provide(WorkflowEngine.layerMemory),
       ),
@@ -1037,23 +1069,20 @@ describe("dispatch workflow registry", () => {
 
     expect(exit._tag).toBe("Failure");
     expect(serviceStatus).toHaveBeenCalledWith(serviceStatusPayload);
-    expect(updateOriginalInteractionResponseWithFiles).toHaveBeenCalledWith(
-      "interaction-token",
-      {
-        content:
-          "Dispatch failed. Please try again.\nUnexpected error: status failed\nFull error is attached.",
-        attachments: [{ id: "0", filename: "error.txt" }],
-      },
-      [
+    expect(updateOriginalInteractionResponse).toHaveBeenCalledWith("interaction-token", {
+      content:
+        "Dispatch failed. Please try again.\nUnexpected error: status failed\nFull error is attached.",
+      files: [
         expect.objectContaining({
           name: "error.txt",
           contentType: "text/plain",
           content: expect.any(Uint8Array),
         }),
       ],
-    );
-    const [, , files] = updateOriginalInteractionResponseWithFiles.mock.calls[0]!;
-    const [file] = files as ReadonlyArray<{ readonly content: Uint8Array }>;
+    });
+    const [, payload] = updateOriginalInteractionResponse.mock.calls[0]!;
+    const [file] = (payload as { readonly files: ReadonlyArray<{ readonly content: Uint8Array }> })
+      .files;
     expect(new TextDecoder().decode(file.content)).toContain("status failed");
   });
 
@@ -1093,14 +1122,17 @@ describe("dispatch workflow registry", () => {
     expect(response.payload).toEqual({
       content:
         "Dispatch failed. Please try again.\nUnexpected error: workflow exploded\nFull error is attached.",
-      attachments: [{ id: "0", filename: "error.txt" }],
+      files: [
+        {
+          name: "error.txt",
+          contentType: "text/plain",
+          content: expect.any(Uint8Array),
+        },
+      ],
     });
-    expect(response.files).toHaveLength(1);
-    expect(response.files[0]).toMatchObject({
-      name: "error.txt",
-      contentType: "text/plain",
-    });
-    expect(new TextDecoder().decode(response.files[0]!.content)).toContain("workflow exploded");
+    expect(new TextDecoder().decode(response.payload.files[0]!.content)).toContain(
+      "workflow exploded",
+    );
   });
 
   it("routes check-in button workflows through the dispatch button entity", async () => {
@@ -1121,7 +1153,7 @@ describe("dispatch workflow registry", () => {
         });
         return {
           messageId: checkinButtonPayload.messageId,
-          messageChannelId: "channel-1",
+          messageConversationId: "conversation-1",
           checkedInMemberId: requester.accountId,
         } satisfies CheckinHandleButtonResult;
       }),
@@ -1140,7 +1172,7 @@ describe("dispatch workflow registry", () => {
           Effect.sync(() =>
             expect(result).toEqual({
               messageId: checkinButtonPayload.messageId,
-              messageChannelId: "channel-1",
+              messageConversationId: "conversation-1",
               checkedInMemberId: requester.accountId,
             }),
           ),
@@ -1165,7 +1197,7 @@ describe("dispatch workflow registry", () => {
             }),
           ),
         ),
-        Effect.provideService(IngressBotClient, {
+        Effect.provideService(ClientDeliveryClient, {
           updateOriginalInteractionResponse: () => Effect.void,
         } as never),
         Effect.provide(WorkflowEngine.layerMemory),
@@ -1193,6 +1225,8 @@ describe("dispatch workflow registry", () => {
               getMessageSlotData: ({ query }) =>
                 Effect.sync(() => {
                   expect(query.messageId).toBe(slotOpenButtonPayload.messageId);
+                  expect(query.clientPlatform).toBe("discord");
+                  expect(query.clientId).toBe("discord-main");
                   return messageSlot;
                 }),
             }),
@@ -1223,8 +1257,8 @@ describe("dispatch workflow registry", () => {
               getMessageSlotData: () =>
                 Effect.succeed(
                   makeMessageSlot({
-                    guildId: Option.none(),
-                    messageChannelId: Option.some("channel-1"),
+                    workspaceId: Option.none(),
+                    conversationId: Option.some("conversation-1"),
                   }),
                 ),
             }),
@@ -1320,16 +1354,16 @@ describe("dispatch workflow registry", () => {
         },
       }),
     );
-    const guildWelcomeLeft = await Effect.runPromise(
-      dispatchWorkflowRegistry.guildWelcome.workflow.executionId({
+    const workspaceWelcomeLeft = await Effect.runPromise(
+      dispatchWorkflowRegistry.workspaceWelcome.workflow.executionId({
         requester,
-        payload: guildWelcomePayload,
+        payload: workspaceWelcomePayload,
       }),
     );
-    const guildWelcomeRight = await Effect.runPromise(
-      dispatchWorkflowRegistry.guildWelcome.workflow.executionId({
+    const workspaceWelcomeRight = await Effect.runPromise(
+      dispatchWorkflowRegistry.workspaceWelcome.workflow.executionId({
         requester: { accountId: "account-2", userId: "user-2" },
-        payload: guildWelcomePayload,
+        payload: workspaceWelcomePayload,
       }),
     );
     const updateAnnouncementLeft = await Effect.runPromise(
@@ -1347,7 +1381,7 @@ describe("dispatch workflow registry", () => {
 
     expect(left).toBe(right);
     expect(left).not.toBe(different);
-    expect(guildWelcomeLeft).toBe(guildWelcomeRight);
+    expect(workspaceWelcomeLeft).toBe(workspaceWelcomeRight);
     expect(updateAnnouncementLeft).toBe(updateAnnouncementRight);
   });
 });

@@ -2,18 +2,20 @@ import { Schema } from "effect";
 import { ClusterSchema } from "effect/unstable/cluster";
 import { Workflow } from "effect/unstable/workflow";
 
-const AutoCheckinChannelPayload = Schema.Struct({
-  guildId: Schema.String,
-  channelName: Schema.String,
+const AutoCheckinConversationPayload = Schema.Struct({
+  workspaceId: Schema.String,
+  conversationName: Schema.String,
   hour: Schema.Number,
   eventStartEpochMs: Schema.Number,
 });
 
-export type AutoCheckinChannelPayload = Schema.Schema.Type<typeof AutoCheckinChannelPayload>;
+export type AutoCheckinConversationPayload = Schema.Schema.Type<
+  typeof AutoCheckinConversationPayload
+>;
 
-export const AutoCheckinChannelResult = Schema.Struct({
-  guildId: Schema.String,
-  channelName: Schema.String,
+export const AutoCheckinConversationResult = Schema.Struct({
+  workspaceId: Schema.String,
+  conversationName: Schema.String,
   hour: Schema.Number,
   status: Schema.Literals(["sent", "skipped"]),
   checkinMessageId: Schema.NullOr(Schema.String),
@@ -21,13 +23,15 @@ export const AutoCheckinChannelResult = Schema.Struct({
   tentativeRoomOrderMessageId: Schema.NullOr(Schema.String),
 });
 
-export type AutoCheckinChannelResult = Schema.Schema.Type<typeof AutoCheckinChannelResult>;
+export type AutoCheckinConversationResult = Schema.Schema.Type<
+  typeof AutoCheckinConversationResult
+>;
 
-export const AutoCheckinChannelWorkflow = Workflow.make({
-  name: "autoCheckin.channel",
-  payload: AutoCheckinChannelPayload,
-  success: AutoCheckinChannelResult,
+export const AutoCheckinConversationWorkflow = Workflow.make({
+  name: "autoCheckin.conversation",
+  payload: AutoCheckinConversationPayload,
+  success: AutoCheckinConversationResult,
   error: Schema.Unknown,
-  idempotencyKey: ({ guildId, channelName, hour, eventStartEpochMs }) =>
-    `auto-checkin:${guildId}:${eventStartEpochMs}:${hour}:${channelName}`,
+  idempotencyKey: ({ workspaceId, conversationName, hour, eventStartEpochMs }) =>
+    `auto-checkin:${workspaceId}:${eventStartEpochMs}:${hour}:${conversationName}`,
 }).annotate(ClusterSchema.ShardGroup, () => "autoCheckin");

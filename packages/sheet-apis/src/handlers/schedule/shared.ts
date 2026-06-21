@@ -7,6 +7,6 @@ import {
 
 export const resolveScheduleViewFromPermissions = (
   permissions: PermissionSet,
-  guildId: string,
+  workspaceId: string,
   requestedView?: ScheduleView,
-) => getEffectiveScheduleView(getMaximumScheduleView(permissions, guildId), requestedView);
+) => getEffectiveScheduleView(getMaximumScheduleView(permissions, workspaceId), requestedView);

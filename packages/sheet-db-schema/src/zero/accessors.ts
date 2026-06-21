@@ -1,9 +1,9 @@
 import {
-  configGuild as configGuildModel,
-  configGuildChannel as configGuildChannelModel,
-  configGuildFeatureFlag as configGuildFeatureFlagModel,
-  configGuildManagerRole as configGuildManagerRoleModel,
-  configGuildUpdateAnnouncementDelivery as configGuildUpdateAnnouncementDeliveryModel,
+  configWorkspace as configWorkspaceModel,
+  configWorkspaceConversation as configWorkspaceConversationModel,
+  configWorkspaceFeatureFlag as configWorkspaceFeatureFlagModel,
+  configWorkspaceMonitorRole as configWorkspaceMonitorRoleModel,
+  configWorkspaceUpdateAnnouncementDelivery as configWorkspaceUpdateAnnouncementDeliveryModel,
   messageCheckin as messageCheckinModel,
   messageCheckinMember as messageCheckinMemberModel,
   messageRoomOrder as messageRoomOrderModel,
@@ -19,45 +19,49 @@ const timestampOptions = {
 } as const;
 
 export const zeroTableAccess = {
-  configGuild: defineZeroTableAccess(configGuildModel, builder.configGuild, {
-    primaryKey: ["guildId"],
+  configWorkspace: defineZeroTableAccess(configWorkspaceModel, builder.configWorkspace, {
+    primaryKey: ["workspaceId"],
     softDelete: "deletedAt",
     timestamps: timestampOptions,
   }),
-  configGuildManagerRole: defineZeroTableAccess(
-    configGuildManagerRoleModel,
-    builder.configGuildManagerRole,
+  configWorkspaceMonitorRole: defineZeroTableAccess(
+    configWorkspaceMonitorRoleModel,
+    builder.configWorkspaceMonitorRole,
     {
-      primaryKey: ["guildId", "roleId"],
+      primaryKey: ["workspaceId", "roleId"],
       softDelete: "deletedAt",
       timestamps: timestampOptions,
     },
   ),
-  configGuildFeatureFlag: defineZeroTableAccess(
-    configGuildFeatureFlagModel,
-    builder.configGuildFeatureFlag,
+  configWorkspaceFeatureFlag: defineZeroTableAccess(
+    configWorkspaceFeatureFlagModel,
+    builder.configWorkspaceFeatureFlag,
     {
-      primaryKey: ["guildId", "flagName"],
+      primaryKey: ["workspaceId", "flagName"],
       softDelete: "deletedAt",
       timestamps: timestampOptions,
     },
   ),
-  configGuildUpdateAnnouncementDelivery: defineZeroTableAccess(
-    configGuildUpdateAnnouncementDeliveryModel,
-    builder.configGuildUpdateAnnouncementDelivery,
+  configWorkspaceUpdateAnnouncementDelivery: defineZeroTableAccess(
+    configWorkspaceUpdateAnnouncementDeliveryModel,
+    builder.configWorkspaceUpdateAnnouncementDelivery,
     {
-      primaryKey: ["guildId", "announcementId"],
+      primaryKey: ["workspaceId", "announcementId"],
       softDelete: "deletedAt",
       timestamps: timestampOptions,
     },
   ),
-  configGuildChannel: defineZeroTableAccess(configGuildChannelModel, builder.configGuildChannel, {
-    primaryKey: ["guildId", "channelId"],
-    softDelete: "deletedAt",
-    timestamps: timestampOptions,
-  }),
+  configWorkspaceConversation: defineZeroTableAccess(
+    configWorkspaceConversationModel,
+    builder.configWorkspaceConversation,
+    {
+      primaryKey: ["workspaceId", "conversationId"],
+      softDelete: "deletedAt",
+      timestamps: timestampOptions,
+    },
+  ),
   messageCheckin: defineZeroTableAccess(messageCheckinModel, builder.messageCheckin, {
-    primaryKey: ["messageId"],
+    primaryKey: ["clientPlatform", "clientId", "messageId"],
     softDelete: "deletedAt",
     timestamps: timestampOptions,
   }),
@@ -65,13 +69,13 @@ export const zeroTableAccess = {
     messageCheckinMemberModel,
     builder.messageCheckinMember,
     {
-      primaryKey: ["messageId", "memberId"],
+      primaryKey: ["clientPlatform", "clientId", "messageId", "memberId"],
       softDelete: "deletedAt",
       timestamps: timestampOptions,
     },
   ),
   messageRoomOrder: defineZeroTableAccess(messageRoomOrderModel, builder.messageRoomOrder, {
-    primaryKey: ["messageId"],
+    primaryKey: ["clientPlatform", "clientId", "messageId"],
     softDelete: "deletedAt",
     timestamps: timestampOptions,
   }),
@@ -79,13 +83,13 @@ export const zeroTableAccess = {
     messageRoomOrderEntryModel,
     builder.messageRoomOrderEntry,
     {
-      primaryKey: ["messageId", "rank", "position"],
+      primaryKey: ["clientPlatform", "clientId", "messageId", "rank", "position"],
       softDelete: "deletedAt",
       timestamps: timestampOptions,
     },
   ),
   messageSlot: defineZeroTableAccess(messageSlotModel, builder.messageSlot, {
-    primaryKey: ["messageId"],
+    primaryKey: ["clientPlatform", "clientId", "messageId"],
     softDelete: "deletedAt",
     timestamps: timestampOptions,
   }),

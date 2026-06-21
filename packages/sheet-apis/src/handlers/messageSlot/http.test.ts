@@ -1,5 +1,6 @@
+// fallow-ignore-file code-duplication
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Option, Context } from "effect";
+import { Effect, Option } from "effect";
 import {
   LEGACY_MESSAGE_SLOT_ACCESS_ERROR,
   requireMessageSlotReadAccess,
@@ -7,25 +8,30 @@ import {
 } from "./http";
 import { Unauthorized } from "typhoon-core/error";
 import { MessageSlot } from "sheet-ingress-api/schemas/messageSlot";
-import { AuthorizationService, MessageSlotService } from "@/services";
-import { getFailure, liveGuildServices, withUser } from "@/test-utils/guildTestHelpers";
+import { MessageSlotService } from "@/services";
+import { getFailure, liveWorkspaceServices, withUser } from "@/test-utils/guildTestHelpers";
+import {
+  messageKey,
+  resolveMessageRecordRefs,
+  type MessageRecordOverrides,
+  withAuthorization,
+} from "../messageAuthTestHelpers";
 
 type MessageSlotAccessService = Pick<typeof MessageSlotService.Service, "getMessageSlotData">;
-type AuthorizationServiceApi = Context.Service.Shape<typeof AuthorizationService>;
 
-const makeMessageSlotRecord = (overrides?: {
-  readonly guildId?: string | null;
-  readonly messageChannelId?: string | null;
-}) => {
-  const guildId = overrides && "guildId" in overrides ? overrides.guildId : "guild-1";
-  const messageChannelId =
-    overrides && "messageChannelId" in overrides ? overrides.messageChannelId : "channel-1";
+const makeMessageSlotRecord = (overrides?: MessageRecordOverrides) => {
+  const refs = resolveMessageRecordRefs(overrides, {
+    workspaceId: "guild-1",
+    conversationId: "channel-1",
+  });
 
   return new MessageSlot({
+    clientPlatform: "discord",
+    clientId: "discord-main",
     messageId: "message-1",
     day: 1,
-    guildId: Option.fromNullishOr(guildId),
-    messageChannelId: Option.fromNullishOr(messageChannelId),
+    workspaceId: Option.fromNullishOr(refs.workspaceId),
+    conversationId: Option.fromNullishOr(refs.conversationId),
     createdByUserId: Option.some("creator-1"),
     createdAt: Option.none(),
     updatedAt: Option.none(),
@@ -38,13 +44,6 @@ const makeMessageSlotService = (record?: MessageSlot) =>
     getMessageSlotData: () => Effect.succeed(Option.fromNullishOr(record)),
   }) satisfies MessageSlotAccessService;
 
-const withAuthorization = Effect.fnUntraced(function* <A, E, R>(
-  f: (authorizationService: AuthorizationServiceApi) => Effect.Effect<A, E, R>,
-) {
-  const authorizationService = yield* AuthorizationService.make;
-  return yield* f(authorizationService);
-});
-
 describe("messageSlot legacy access", () => {
   it.effect(
     "denies legacy reads for service users",
@@ -54,11 +53,11 @@ describe("messageSlot legacy access", () => {
           requireMessageSlotReadAccess(
             authorizationService,
             makeMessageSlotService(
-              makeMessageSlotRecord({ guildId: null, messageChannelId: null }),
+              makeMessageSlotRecord({ workspaceId: null, conversationId: null }),
             ),
-            "message-1",
+            messageKey,
           ),
-        ).pipe(withUser(["service"]), liveGuildServices()),
+        ).pipe(withUser(["service"]), liveWorkspaceServices()),
       );
 
       expect(error).toBeInstanceOf(Unauthorized);
@@ -74,13 +73,13 @@ describe("messageSlot legacy access", () => {
           requireMessageSlotReadAccess(
             authorizationService,
             makeMessageSlotService(
-              makeMessageSlotRecord({ guildId: "guild-1", messageChannelId: null }),
+              makeMessageSlotRecord({ workspaceId: "guild-1", conversationId: null }),
             ),
-            "message-1",
+            messageKey,
           ),
         ).pipe(
           withUser([], { accountId: "discord-account-1", userId: "user-1" }),
-          liveGuildServices(),
+          liveWorkspaceServices(),
         ),
       );
 
@@ -98,9 +97,9 @@ describe("messageSlot legacy access", () => {
           requireMessageSlotUpsertAccess(
             authorizationService,
             makeMessageSlotService(
-              makeMessageSlotRecord({ guildId: null, messageChannelId: null }),
+              makeMessageSlotRecord({ workspaceId: null, conversationId: null }),
             ),
-            "message-1",
+            messageKey,
           ),
         ).pipe(
           Effect.andThen(
@@ -109,7 +108,7 @@ describe("messageSlot legacy access", () => {
             }),
           ),
           withUser(["service"]),
-          liveGuildServices(),
+          liveWorkspaceServices(),
         ),
       );
 
@@ -127,9 +126,9 @@ describe("messageSlot legacy access", () => {
           requireMessageSlotUpsertAccess(
             authorizationService,
             makeMessageSlotService(),
-            "message-1",
+            messageKey,
           ),
-        ).pipe(withUser(["service"]), liveGuildServices()),
+        ).pipe(withUser(["service"]), liveWorkspaceServices()),
       );
 
       expect(error).toBeInstanceOf(Unauthorized);
@@ -144,11 +143,11 @@ describe("messageSlot legacy access", () => {
         requireMessageSlotReadAccess(
           authorizationService,
           makeMessageSlotService(makeMessageSlotRecord()),
-          "message-1",
+          messageKey,
         ),
       ).pipe(
         withUser([], { accountId: "discord-account-1", userId: "user-1" }),
-        liveGuildServices({
+        liveWorkspaceServices({
           memberAccountId: "discord-account-1",
           memberRoles: [],
           monitorRoleIds: ["monitor-role"],
@@ -166,12 +165,12 @@ describe("messageSlot legacy access", () => {
         requireMessageSlotUpsertAccess(
           authorizationService,
           makeMessageSlotService(),
-          "message-1",
+          messageKey,
           "guild-1",
         ),
       ).pipe(
         withUser([], { accountId: "discord-account-1", userId: "user-1" }),
-        liveGuildServices({
+        liveWorkspaceServices({
           memberAccountId: "discord-account-1",
           memberRoles: ["monitor-role"],
           monitorRoleIds: ["monitor-role"],
@@ -187,11 +186,11 @@ describe("messageSlot legacy access", () => {
         requireMessageSlotUpsertAccess(
           authorizationService,
           makeMessageSlotService(makeMessageSlotRecord()),
-          "message-1",
+          messageKey,
         ),
       ).pipe(
         withUser([], { accountId: "discord-account-1", userId: "user-1" }),
-        liveGuildServices({
+        liveWorkspaceServices({
           memberAccountId: "discord-account-1",
           memberRoles: ["monitor-role"],
           monitorRoleIds: ["monitor-role"],

@@ -6,9 +6,6 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": resolve(__dirname, "src"),
-      "dfx-discord-utils/discord/schema": fileURLToPath(
-        new URL("../dfx-discord-utils/src/discord/schema/index.ts", import.meta.url),
-      ),
       "sheet-auth/client": fileURLToPath(new URL("../sheet-auth/src/client.ts", import.meta.url)),
       "sheet-auth/oauth": fileURLToPath(new URL("../sheet-auth/src/oauth.ts", import.meta.url)),
       "sheet-auth/oauth-resource-authorization": fileURLToPath(

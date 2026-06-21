@@ -29,6 +29,27 @@
       "when": 1780671199389,
       "tag": "0004_migration",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": 1,
+      "when": 1781941214240,
+      "tag": "0005_client_message_keys",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": 1,
+      "when": 1781960400000,
+      "tag": "0006_workspace_config_names",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": 1,
+      "when": 1781964000000,
+      "tag": "0007_checkin_initial_message_json",
+      "breakpoints": true
     }
   ]
 }

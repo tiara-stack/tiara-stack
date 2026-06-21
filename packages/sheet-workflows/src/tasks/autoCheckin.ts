@@ -7,9 +7,9 @@ export const autoCheckinTaskLayer = Layer.effectDiscard(
     const autoCheckinTask = Effect.fn("autoCheckinTask", { attributes: { task: "autoCheckin" } })(
       function* () {
         yield* Effect.log("running auto check-in task...");
-        const count = yield* autoCheckinService.enqueueDueChannels();
-        yield* Effect.annotateCurrentSpan({ enqueuedChannelCount: count });
-        yield* Effect.log(`enqueued ${count} auto check-in channel workflow(s)`);
+        const count = yield* autoCheckinService.enqueueDueConversations();
+        yield* Effect.annotateCurrentSpan({ enqueuedConversationCount: count });
+        yield* Effect.log(`enqueued ${count} auto check-in conversation workflow(s)`);
       },
     );
 

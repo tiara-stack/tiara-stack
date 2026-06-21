@@ -10,7 +10,7 @@ export class PermissionsApi extends HttpApiGroup.make("permissions")
   .add(
     HttpApiEndpoint.get("getCurrentUserPermissions", "/permissions", {
       query: Schema.Struct({
-        guildId: Schema.optional(Schema.String),
+        workspaceId: Schema.optional(Schema.String),
       }),
       success: CurrentUserPermissions,
       error: [SchemaError, QueryResultError, ArgumentError],

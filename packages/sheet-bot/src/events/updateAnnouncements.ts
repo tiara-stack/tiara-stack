@@ -1,10 +1,11 @@
 import { DiscordGateway } from "dfx/gateway";
-import { Duration, Effect, Layer, Schedule, Schema } from "effect";
+import { Duration, Effect, Layer, Predicate, Schedule, Schema } from "effect";
 import type {
   UpdateAnnouncement,
   UpdateAnnouncementDispatchPayload,
 } from "sheet-ingress-api/handlers/dispatch/schema";
 import type { ServicesStatusResponse } from "sheet-ingress-api/sheet-apis-rpc";
+import { config } from "../config";
 import { discordGatewayLayer } from "../discord/gateway";
 import { SheetWorkflowsClient, SheetWorkflowsRequestContext } from "../services";
 
@@ -40,6 +41,7 @@ export const updateAnnouncements = [
 export const makeUpdateAnnouncementDispatchPayloads = (
   guild: GuildCreateEvent,
   announcements: ReadonlyArray<UpdateAnnouncement> = updateAnnouncements,
+  clientId = "discord-main",
 ): ReadonlyArray<UpdateAnnouncementDispatchPayload> => {
   if (guild.unavailable === true) {
     return [];
@@ -56,12 +58,13 @@ export const makeUpdateAnnouncementDispatchPayloads = (
       return !Number.isNaN(publishedAtEpochMs) && publishedAtEpochMs > joinedAtEpochMs;
     })
     .map((announcement) => ({
+      client: { platform: "discord", clientId },
       dispatchRequestId: `discord-update-announcement:${guild.id}:${announcement.id}`,
-      guildId: guild.id,
-      guildName: guild.name,
+      workspaceId: guild.id,
+      workspaceName: guild.name,
       joinedAt: guild.joined_at,
-      ...(typeof guild.system_channel_id === "string"
-        ? { systemChannelId: guild.system_channel_id }
+      ...(Predicate.isString(guild.system_channel_id)
+        ? { systemConversationId: guild.system_channel_id }
         : {}),
       announcement,
     }));
@@ -95,6 +98,7 @@ export const updateAnnouncementsEventLayer = Layer.effectDiscard(
   Effect.gen(function* () {
     const gateway = yield* DiscordGateway;
     const sheetWorkflowsClient = yield* SheetWorkflowsClient;
+    const clientId = yield* config.sheetBotClientId;
     const waitForHealthyServices = yield* Effect.cached(
       waitForUpdateAnnouncementServices(sheetWorkflowsClient).pipe(
         Effect.tapError((error) =>
@@ -123,7 +127,11 @@ export const updateAnnouncementsEventLayer = Layer.effectDiscard(
             return;
           }
 
-          const payloads = makeUpdateAnnouncementDispatchPayloads(decodedGuild);
+          const payloads = makeUpdateAnnouncementDispatchPayloads(
+            decodedGuild,
+            updateAnnouncements,
+            clientId,
+          );
           if (payloads.length === 0) {
             return;
           }
@@ -140,8 +148,8 @@ export const updateAnnouncementsEventLayer = Layer.effectDiscard(
                 Effect.catchCause((cause) =>
                   Effect.logWarning("Failed to dispatch update announcement").pipe(
                     Effect.annotateLogs({
-                      guildId: payload.guildId,
-                      guildName: payload.guildName,
+                      workspaceId: payload.workspaceId,
+                      workspaceName: payload.workspaceName,
                       announcementId: payload.announcement.id,
                     }),
                     Effect.andThen(Effect.logDebug(cause)),

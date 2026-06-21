@@ -5,13 +5,18 @@ import { QueryResultError } from "typhoon-zero/error";
 import { MessageSlot } from "../../schemas/messageSlot";
 import { SheetAuthTokenAuthorization } from "../../middlewares/sheetAuthTokenAuthorization/tag";
 import { SheetApisServiceUserFallback } from "../../middlewares/sheetApisServiceUserFallback/tag";
+import { ClientPlatform } from "../../schemas/client";
+
+const MessageKeyPayload = {
+  clientPlatform: ClientPlatform,
+  clientId: Schema.String,
+  messageId: Schema.String,
+} as const;
 
 export class MessageSlotApi extends HttpApiGroup.make("messageSlot")
   .add(
     HttpApiEndpoint.get("getMessageSlotData", "/messageSlot/getMessageSlotData", {
-      query: Schema.Struct({
-        messageId: Schema.String,
-      }),
+      query: Schema.Struct(MessageKeyPayload),
       success: MessageSlot,
       error: [SchemaError, QueryResultError, ArgumentError],
     }),
@@ -19,11 +24,11 @@ export class MessageSlotApi extends HttpApiGroup.make("messageSlot")
   .add(
     HttpApiEndpoint.post("upsertMessageSlotData", "/messageSlot/upsertMessageSlotData", {
       payload: Schema.Struct({
-        messageId: Schema.String,
+        ...MessageKeyPayload,
         data: Schema.Struct({
           day: Schema.Number,
-          guildId: Schema.NullOr(Schema.String),
-          messageChannelId: Schema.NullOr(Schema.String),
+          workspaceId: Schema.NullOr(Schema.String),
+          conversationId: Schema.NullOr(Schema.String),
           createdByUserId: Schema.NullOr(Schema.String),
         }),
       }),

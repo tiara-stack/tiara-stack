@@ -1,6 +1,7 @@
 import { DiscordGateway } from "dfx/gateway";
-import { Effect, Layer } from "effect";
-import type { GuildWelcomeDispatchPayload } from "sheet-ingress-api/sheet-apis-rpc";
+import { Effect, Layer, Predicate } from "effect";
+import type { WorkspaceWelcomeDispatchPayload } from "sheet-ingress-api/sheet-apis-rpc";
+import { config } from "../config";
 import { discordGatewayLayer } from "../discord/gateway";
 import { SheetWorkflowsClient, SheetWorkflowsRequestContext } from "../services";
 
@@ -17,7 +18,8 @@ type GuildCreateEvent = {
 export const makeGuildWelcomeDispatchPayload = (
   guild: GuildCreateEvent,
   startupEpochMs: number,
-): GuildWelcomeDispatchPayload | null => {
+  clientId = "discord-main",
+): WorkspaceWelcomeDispatchPayload | null => {
   if (guild.unavailable === true) {
     return null;
   }
@@ -32,12 +34,13 @@ export const makeGuildWelcomeDispatchPayload = (
   }
 
   return {
+    client: { platform: "discord", clientId },
     dispatchRequestId: `discord-guild-create:${guild.id}:${guild.joined_at}`,
-    guildId: guild.id,
-    guildName: guild.name,
+    workspaceId: guild.id,
+    workspaceName: guild.name,
     joinedAt: guild.joined_at,
-    ...(typeof guild.system_channel_id === "string"
-      ? { systemChannelId: guild.system_channel_id }
+    ...(Predicate.isString(guild.system_channel_id)
+      ? { systemConversationId: guild.system_channel_id }
       : {}),
   };
 };
@@ -46,23 +49,24 @@ export const guildWelcomeEventLayer = Layer.effectDiscard(
   Effect.gen(function* () {
     const gateway = yield* DiscordGateway;
     const sheetWorkflowsClient = yield* SheetWorkflowsClient;
+    const clientId = yield* config.sheetBotClientId;
     const startupEpochMs = Date.now();
 
     yield* gateway
       .handleDispatch("GUILD_CREATE", (guild) => {
-        const payload = makeGuildWelcomeDispatchPayload(guild, startupEpochMs);
+        const payload = makeGuildWelcomeDispatchPayload(guild, startupEpochMs, clientId);
         if (payload === null) {
           return Effect.void;
         }
 
         return SheetWorkflowsRequestContext.asService(() =>
-          sheetWorkflowsClient.get().dispatch.guildWelcome({ payload }),
+          sheetWorkflowsClient.get().dispatch.workspaceWelcome({ payload }),
         )().pipe(
           Effect.catchCause((cause) =>
             Effect.logWarning("Failed to dispatch guild welcome message").pipe(
               Effect.annotateLogs({
-                guildId: payload.guildId,
-                guildName: payload.guildName,
+                workspaceId: payload.workspaceId,
+                workspaceName: payload.workspaceName,
               }),
               Effect.andThen(Effect.logDebug(cause)),
             ),

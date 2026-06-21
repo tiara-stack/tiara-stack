@@ -1,17 +1,17 @@
-import { InteractionsRegistry } from "dfx/gateway";
-import { Ix } from "dfx/index";
-import { ApplicationIntegrationType, InteractionContextType } from "discord-api-types/v10";
-import { Effect, Layer, Option } from "effect";
-import { discordGatewayLayer } from "../discord/gateway";
+// fallow-ignore-file code-duplication
+import { Effect } from "effect";
 import { CommandHelper, InteractionResponse } from "dfx-discord-utils/utils";
 import { SheetWorkflowsClient, SheetWorkflowsRequestContext } from "../services";
-import { discordApplicationLayer } from "../discord/application";
 import {
-  getInteractionUser,
   makeDispatchBase,
   resolveGuildId,
-  toDiscordUserIdentity,
+  resolveTargetUserIdentity,
+  serverIdOption,
 } from "../utils/commandHelpers";
+import {
+  makeSingleSubCommand,
+  registerGlobalCommandLayer,
+} from "../utils/registerGlobalCommandLayer";
 import { runSheetWorkflowsDispatch } from "../utils/sheetWorkflowsDispatch";
 
 const makeListSubCommand = Effect.gen(function* () {
@@ -25,19 +25,13 @@ const makeListSubCommand = Effect.gen(function* () {
         .addUserOption((option) =>
           option.setName("user").setDescription("The user to get the teams for"),
         )
-        .addStringOption((option) =>
-          option.setName("server_id").setDescription("The server to get the teams for"),
-        ),
+        .addStringOption(serverIdOption("The server to get the teams for")),
     Effect.fn("team.list")(function* (command) {
       const response = yield* InteractionResponse;
       yield* response.deferReply();
 
       const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
-      const interactionUser = yield* getInteractionUser;
-      const targetUser = command.optionUserValueOptional("user").pipe(
-        Option.flatMap(({ user }) => toDiscordUserIdentity(user)),
-        Option.getOrElse(() => interactionUser),
-      );
+      const targetUser = yield* resolveTargetUserIdentity(command.optionUserValueOptional("user"));
       const base = yield* makeDispatchBase;
 
       yield* runSheetWorkflowsDispatch(
@@ -47,7 +41,7 @@ const makeListSubCommand = Effect.gen(function* () {
           sheetWorkflowsClient.get().dispatch.teamList({
             payload: {
               ...base,
-              guildId,
+              workspaceId: guildId,
               targetUserId: targetUser.id,
               targetUsername: targetUser.username,
             },
@@ -58,46 +52,11 @@ const makeListSubCommand = Effect.gen(function* () {
   );
 });
 
-const makeTeamCommand = Effect.gen(function* () {
-  const listSubCommand = yield* makeListSubCommand;
-
-  return yield* CommandHelper.makeCommand(
-    (builder) =>
-      builder
-        .setName("team")
-        .setDescription("Team commands")
-        .setIntegrationTypes(
-          ApplicationIntegrationType.GuildInstall,
-          ApplicationIntegrationType.UserInstall,
-        )
-        .setContexts(
-          InteractionContextType.BotDM,
-          InteractionContextType.Guild,
-          InteractionContextType.PrivateChannel,
-        )
-        .addSubcommand(() => listSubCommand.data),
-    (command) =>
-      command.subCommands({
-        list: listSubCommand.handler,
-      }),
-  );
+const makeTeamCommand = makeSingleSubCommand({
+  commandName: "team",
+  commandDescription: "Team commands",
+  subCommandName: "list",
+  makeSubCommand: makeListSubCommand,
 });
 
-const makeGlobalTeamCommand = Effect.gen(function* () {
-  const teamCommand = yield* makeTeamCommand;
-
-  return CommandHelper.makeGlobalCommand(teamCommand.data, teamCommand.handler as never);
-});
-
-export const teamCommandLayer = Layer.effectDiscard(
-  Effect.gen(function* () {
-    const registry = yield* InteractionsRegistry;
-    const command = yield* makeGlobalTeamCommand;
-
-    yield* registry.register(Ix.builder.add(command).catchAllCause(Effect.log));
-  }),
-).pipe(
-  Layer.provide(
-    Layer.mergeAll(discordGatewayLayer, discordApplicationLayer, SheetWorkflowsClient.layer),
-  ),
-);
+export const teamCommandLayer = registerGlobalCommandLayer(makeTeamCommand);

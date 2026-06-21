@@ -40,8 +40,8 @@ const makeListConfigSubCommand = Effect.gen(function* () {
         SheetWorkflowsRequestContext.asInteractionUser(() =>
           Effect.gen(function* () {
             const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
-            return yield* sheetWorkflowsClient.get().dispatch.serverListConfig({
-              payload: { ...base, guildId },
+            return yield* sheetWorkflowsClient.get().dispatch.workspaceListConfig({
+              payload: { ...base, workspaceId: guildId },
             });
           }),
         )(),
@@ -72,8 +72,8 @@ const makeAddMonitorRoleSubCommand = Effect.gen(function* () {
         SheetWorkflowsRequestContext.asInteractionUser(() =>
           Effect.gen(function* () {
             const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
-            return yield* sheetWorkflowsClient.get().dispatch.serverAddMonitorRole({
-              payload: { ...base, guildId, roleId },
+            return yield* sheetWorkflowsClient.get().dispatch.workspaceAddMonitorRole({
+              payload: { ...base, workspaceId: guildId, roleId },
             });
           }),
         )(),
@@ -122,8 +122,8 @@ const makeRemoveMonitorRoleSubCommand = Effect.gen(function* () {
         SheetWorkflowsRequestContext.asInteractionUser(() =>
           Effect.gen(function* () {
             const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
-            return yield* sheetWorkflowsClient.get().dispatch.serverRemoveMonitorRole({
-              payload: { ...base, guildId, roleId },
+            return yield* sheetWorkflowsClient.get().dispatch.workspaceRemoveMonitorRole({
+              payload: { ...base, workspaceId: guildId, roleId },
             });
           }),
         )(),
@@ -170,8 +170,8 @@ const makeSetSheetSubCommand = Effect.gen(function* () {
         SheetWorkflowsRequestContext.asInteractionUser(() =>
           Effect.gen(function* () {
             const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
-            return yield* sheetWorkflowsClient.get().dispatch.serverSetSheet({
-              payload: { ...base, guildId, sheetId },
+            return yield* sheetWorkflowsClient.get().dispatch.workspaceSetSheet({
+              payload: { ...base, workspaceId: guildId, sheetId },
             });
           }),
         )(),
@@ -208,8 +208,8 @@ const makeSetAutoCheckinSubCommand = Effect.gen(function* () {
         SheetWorkflowsRequestContext.asInteractionUser(() =>
           Effect.gen(function* () {
             const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
-            return yield* sheetWorkflowsClient.get().dispatch.serverSetAutoCheckin({
-              payload: { ...base, guildId, autoCheckin },
+            return yield* sheetWorkflowsClient.get().dispatch.workspaceSetAutoCheckin({
+              payload: { ...base, workspaceId: guildId, autoCheckin },
             });
           }),
         )(),

@@ -1,3 +1,5 @@
+// fallow-ignore-file code-duplication
+// fallow-ignore-file complexity
 import { NodeFileSystem, NodeHttpClient, NodeHttpServer, NodeRuntime } from "@effect/platform-node";
 import { createServer } from "http";
 import { Effect, FileSystem, Layer, Logger, Option } from "effect";
@@ -12,8 +14,8 @@ import { Api } from "sheet-ingress-api/api";
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
 import {
   DispatchRoomOrderButtonMethods,
-  interactionTokenExpirySafetyMarginMs,
-  interactionTokenLifetimeMs,
+  interactionResponseTokenExpirySafetyMarginMs,
+  interactionResponseTokenLifetimeMs,
 } from "sheet-ingress-api/sheet-apis-rpc";
 import type { DispatchAuthorizationSnapshot } from "sheet-ingress-api/sheet-workflows-workflows";
 import { Unauthorized } from "typhoon-core/error";
@@ -24,7 +26,7 @@ import { healthRoutesLayer } from "./health";
 import {
   AuthorizationService,
   hasDiscordAccountPermission,
-  hasGuildPermission,
+  hasWorkspacePermission,
   hasPermission,
   SheetAuthTokenAuthorizationLive,
 } from "./services/authorization";
@@ -35,6 +37,7 @@ import { SheetWorkflowsForwardingClient } from "./services/sheetWorkflowsForward
 import { SheetApisForwardingClient } from "./services/sheetApisForwardingClient";
 import { SheetApisRpcTokens } from "./services/sheetApisRpcTokens";
 import { SheetBotForwardingClient } from "./services/sheetBotForwardingClient";
+import { ClientDeliveryForwardingClient } from "./services/clientDeliveryForwardingClient";
 import {
   clientArgsFrom,
   forwardSheetBot,
@@ -68,15 +71,15 @@ function isOriginAllowed(origin: string, allowedOrigins: string[]): boolean {
 
 const getModernMessageGuildId = <
   T extends {
-    readonly guildId: Option.Option<string>;
-    readonly messageChannelId: Option.Option<string>;
+    readonly workspaceId: Option.Option<string>;
+    readonly conversationId: Option.Option<string>;
   },
 >(
   record: T,
 ) =>
-  Option.match(record.guildId, {
+  Option.match(record.workspaceId, {
     onSome: (guildId) =>
-      Option.isSome(record.messageChannelId) ? Option.some(guildId) : Option.none(),
+      Option.isSome(record.conversationId) ? Option.some(guildId) : Option.none(),
     onNone: () => Option.none(),
   });
 
@@ -261,7 +264,9 @@ const forwardSheetWorkflowsDispatch =
       const interactionDeadlineEpochMs = hasInteractionDeadline
         ? Math.min(
             payload.interactionDeadlineEpochMs!,
-            Date.now() + interactionTokenLifetimeMs - interactionTokenExpirySafetyMarginMs,
+            Date.now() +
+              interactionResponseTokenLifetimeMs -
+              interactionResponseTokenExpirySafetyMarginMs,
           )
         : undefined;
       const workflowPayload =
@@ -371,16 +376,16 @@ const requireGuild = (scope: "member" | "monitor" | "manage", guildId: string) =
   Effect.gen(function* () {
     const authorization = yield* AuthorizationService;
     if (scope === "member") {
-      yield* authorization.requireGuildMember(guildId);
+      yield* authorization.requireWorkspaceMember(guildId);
     } else if (scope === "monitor") {
-      yield* authorization.requireMonitorGuild(guildId);
+      yield* authorization.requireMonitorWorkspace(guildId);
     } else {
-      yield* authorization.requireManageGuild(guildId);
+      yield* authorization.requireManageWorkspace(guildId);
     }
   });
 
 const requireGuildSnapshot = (scope: WorkflowAuthorizationSnapshot["scope"], guildId: string) =>
-  requireGuild(scope, guildId).pipe(Effect.as({ guildId, scope }));
+  requireGuild(scope, guildId).pipe(Effect.as({ workspaceId: guildId, scope }));
 
 const buildFileUploadFormData = (
   payload: {
@@ -427,7 +432,9 @@ const requireSelfOrMonitorSnapshot = (guildId: string, accountId: string) =>
   Effect.gen(function* () {
     const user = yield* SheetAuthUser;
     yield* requireSelfOrMonitor(guildId, accountId);
-    return user.accountId === accountId ? undefined : { guildId, scope: "monitor" as const };
+    return user.accountId === accountId
+      ? undefined
+      : { workspaceId: guildId, scope: "monitor" as const };
   });
 
 const asSheetApisProxyAuthorization = <
@@ -607,7 +614,7 @@ const requireMessageCheckinRead = (messageId: string) =>
       return yield* Effect.fail(missingMessage("message checkin data"));
     }
     const guildId = yield* getRequiredModernGuildId(record.value, "message check-in");
-    const accessLevel = yield* authorization.getCurrentGuildMonitorAccessLevel(guildId);
+    const accessLevel = yield* authorization.getCurrentWorkspaceMonitorAccessLevel(guildId);
     if (accessLevel === "monitor") {
       return;
     }
@@ -636,7 +643,7 @@ const getAuthorizedMessageCheckinMembers = (messageId: string) =>
       return yield* Effect.fail(missingMessage("message checkin data"));
     }
     const guildId = yield* getRequiredModernGuildId(record.value, "message check-in");
-    const accessLevel = yield* authorization.getCurrentGuildMonitorAccessLevel(guildId);
+    const accessLevel = yield* authorization.getCurrentWorkspaceMonitorAccessLevel(guildId);
     if (accessLevel === "monitor") {
       return yield* messages.getMessageCheckinMembers(messageId);
     }
@@ -694,7 +701,7 @@ const requireMessageCheckinParticipantMutation = (messageId: string, memberId: s
         new Unauthorized({ message: "User does not have access to this user" }),
       );
     }
-    yield* authorization.requireGuildMember(guildId);
+    yield* authorization.requireWorkspaceMember(guildId);
     const members = yield* messages.getMessageCheckinMembers(messageId);
     if (!members.some((member) => member.memberId === memberId)) {
       return yield* Effect.fail(
@@ -720,12 +727,12 @@ const requireMessageCheckinUpsert = (messageId: string, guildId?: string) =>
 const requireDayPlayerSchedule = (guildId: string, accountId: string) =>
   Effect.gen(function* () {
     const authorization = yield* AuthorizationService;
-    const resolvedUser = yield* authorization.resolveCurrentGuildUser(guildId);
+    const resolvedUser = yield* authorization.resolveCurrentWorkspaceUser(guildId);
     if (
       resolvedUser.accountId !== accountId &&
       !hasPermission(resolvedUser.permissions, "service") &&
       !hasPermission(resolvedUser.permissions, "app_owner") &&
-      !hasGuildPermission(resolvedUser.permissions, "monitor_guild", guildId)
+      !hasWorkspacePermission(resolvedUser.permissions, "monitor_workspace", guildId)
     ) {
       return yield* Effect.fail(
         new Unauthorized({ message: "User does not have access to this user" }),
@@ -743,7 +750,7 @@ const makeApiLayer = () => {
     HttpApiBuilder.group(Api, "checkin", (handlers) =>
       handlers.handle(
         "generate",
-        guildPayload("checkin", "generate", "monitor", (payload) => payload.guildId),
+        guildPayload("checkin", "generate", "monitor", (payload) => payload.workspaceId),
       ),
     ),
     HttpApiBuilder.group(Api, "dispatch", (handlers) =>
@@ -751,13 +758,13 @@ const makeApiLayer = () => {
         .handle(
           "checkin",
           authorizedSheetWorkflowsDispatch("checkin", ({ payload }) =>
-            requireGuild("monitor", payload.guildId),
+            requireGuild("monitor", payload.workspaceId),
           ),
         )
         .handle(
           "autoCheckinTest",
           authorizedSheetWorkflowsDispatch("autoCheckinTest", ({ payload }) =>
-            requireGuild("monitor", payload.guildId),
+            requireGuild("monitor", payload.workspaceId),
           ),
         )
         .handle(
@@ -772,26 +779,26 @@ const makeApiLayer = () => {
         .handle(
           "roomOrder",
           authorizedSheetWorkflowsDispatch("roomOrder", ({ payload }) =>
-            requireGuild("monitor", payload.guildId),
+            requireGuild("monitor", payload.workspaceId),
           ),
         )
         .handle(
           "kickout",
           authorizedSheetWorkflowsDispatch("kickout", ({ payload }) =>
-            requireGuild("monitor", payload.guildId),
+            requireGuild("monitor", payload.workspaceId),
           ),
         )
         .handle(
           "slotButton",
           authorizedSheetWorkflowsDispatch("slotButton", ({ payload }) =>
-            requireGuild("monitor", payload.guildId),
+            requireGuild("monitor", payload.workspaceId),
           ),
         )
         .handle(
           "slotList",
           authorizedSheetWorkflowsDispatch("slotList", ({ payload }) =>
             payload.messageType === "persistent"
-              ? requireGuild("monitor", payload.guildId)
+              ? requireGuild("monitor", payload.workspaceId)
               : Effect.void,
           ),
         )
@@ -805,83 +812,86 @@ const makeApiLayer = () => {
           "serviceStatus",
           authorizedSheetWorkflowsDispatch("serviceStatus", requireNonService),
         )
-        .handle("guildWelcome", authorizedSheetWorkflowsDispatch("guildWelcome", requireService))
+        .handle(
+          "workspaceWelcome",
+          authorizedSheetWorkflowsDispatch("workspaceWelcome", requireService),
+        )
         .handle(
           "updateAnnouncement",
           authorizedSheetWorkflowsDispatch("updateAnnouncement", requireService),
         )
         .handle(
-          "serviceAddGuildFeatureFlag",
-          authorizedSheetWorkflowsDispatch("serviceAddGuildFeatureFlag", requireService),
+          "serviceAddWorkspaceFeatureFlag",
+          authorizedSheetWorkflowsDispatch("serviceAddWorkspaceFeatureFlag", requireService),
         )
         .handle(
-          "serviceRemoveGuildFeatureFlag",
-          authorizedSheetWorkflowsDispatch("serviceRemoveGuildFeatureFlag", requireService),
+          "serviceRemoveWorkspaceFeatureFlag",
+          authorizedSheetWorkflowsDispatch("serviceRemoveWorkspaceFeatureFlag", requireService),
         )
         .handle(
-          "channelListConfig",
-          authorizedSheetWorkflowsDispatch("channelListConfig", ({ payload }) =>
-            requireGuildSnapshot("manage", payload.guildId),
+          "conversationListConfig",
+          authorizedSheetWorkflowsDispatch("conversationListConfig", ({ payload }) =>
+            requireGuildSnapshot("manage", payload.workspaceId),
           ),
         )
         .handle(
-          "channelSet",
-          authorizedSheetWorkflowsDispatch("channelSet", ({ payload }) =>
-            requireGuildSnapshot("manage", payload.guildId),
+          "conversationSet",
+          authorizedSheetWorkflowsDispatch("conversationSet", ({ payload }) =>
+            requireGuildSnapshot("manage", payload.workspaceId),
           ),
         )
         .handle(
-          "channelUnset",
-          authorizedSheetWorkflowsDispatch("channelUnset", ({ payload }) =>
-            requireGuildSnapshot("manage", payload.guildId),
+          "conversationUnset",
+          authorizedSheetWorkflowsDispatch("conversationUnset", ({ payload }) =>
+            requireGuildSnapshot("manage", payload.workspaceId),
           ),
         )
         .handle(
-          "serverListConfig",
-          authorizedSheetWorkflowsDispatch("serverListConfig", ({ payload }) =>
-            requireGuildSnapshot("manage", payload.guildId),
+          "workspaceListConfig",
+          authorizedSheetWorkflowsDispatch("workspaceListConfig", ({ payload }) =>
+            requireGuildSnapshot("manage", payload.workspaceId),
           ),
         )
         .handle(
-          "serverAddMonitorRole",
-          authorizedSheetWorkflowsDispatch("serverAddMonitorRole", ({ payload }) =>
-            requireGuildSnapshot("manage", payload.guildId),
+          "workspaceAddMonitorRole",
+          authorizedSheetWorkflowsDispatch("workspaceAddMonitorRole", ({ payload }) =>
+            requireGuildSnapshot("manage", payload.workspaceId),
           ),
         )
         .handle(
-          "serverRemoveMonitorRole",
-          authorizedSheetWorkflowsDispatch("serverRemoveMonitorRole", ({ payload }) =>
-            requireGuildSnapshot("manage", payload.guildId),
+          "workspaceRemoveMonitorRole",
+          authorizedSheetWorkflowsDispatch("workspaceRemoveMonitorRole", ({ payload }) =>
+            requireGuildSnapshot("manage", payload.workspaceId),
           ),
         )
         .handle(
-          "serverSetSheet",
-          authorizedSheetWorkflowsDispatch("serverSetSheet", ({ payload }) =>
-            requireGuildSnapshot("manage", payload.guildId),
+          "workspaceSetSheet",
+          authorizedSheetWorkflowsDispatch("workspaceSetSheet", ({ payload }) =>
+            requireGuildSnapshot("manage", payload.workspaceId),
           ),
         )
         .handle(
-          "serverSetAutoCheckin",
-          authorizedSheetWorkflowsDispatch("serverSetAutoCheckin", ({ payload }) =>
-            requireGuildSnapshot("manage", payload.guildId),
+          "workspaceSetAutoCheckin",
+          authorizedSheetWorkflowsDispatch("workspaceSetAutoCheckin", ({ payload }) =>
+            requireGuildSnapshot("manage", payload.workspaceId),
           ),
         )
         .handle(
           "teamList",
           authorizedSheetWorkflowsDispatch("teamList", ({ payload }) =>
-            requireSelfOrMonitorSnapshot(payload.guildId, payload.targetUserId),
+            requireSelfOrMonitorSnapshot(payload.workspaceId, payload.targetUserId),
           ),
         )
         .handle(
           "scheduleList",
           authorizedSheetWorkflowsDispatch("scheduleList", ({ payload }) =>
-            requireSelfOrMonitorSnapshot(payload.guildId, payload.targetUserId),
+            requireSelfOrMonitorSnapshot(payload.workspaceId, payload.targetUserId),
           ),
         )
         .handle(
           "screenshot",
           authorizedSheetWorkflowsDispatch("screenshot", ({ payload }) =>
-            requireGuildSnapshot("monitor", payload.guildId),
+            requireGuildSnapshot("monitor", payload.workspaceId),
           ),
         )
         .handle(
@@ -939,79 +949,124 @@ const makeApiLayer = () => {
     HttpApiBuilder.group(Api, "status", (handlers) =>
       handlers.handle("getServices", statusGetServices),
     ),
-    HttpApiBuilder.group(Api, "guildConfig", (handlers) =>
+    HttpApiBuilder.group(Api, "workspaceConfig", (handlers) =>
       handlers
-        .handle("getAutoCheckinGuilds", serviceOnly("guildConfig", "getAutoCheckinGuilds"))
         .handle(
-          "getGuildConfig",
-          guildQuery("guildConfig", "getGuildConfig", "manage", (query) => query.guildId),
+          "getAutoCheckinWorkspaces",
+          serviceOnly("workspaceConfig", "getAutoCheckinWorkspaces"),
         )
         .handle(
-          "upsertGuildConfig",
-          guildPayload("guildConfig", "upsertGuildConfig", "manage", (payload) => payload.guildId),
-        )
-        .handle(
-          "getGuildMonitorRoles",
-          guildQuery("guildConfig", "getGuildMonitorRoles", "member", (query) => query.guildId),
-        )
-        .handle("getGuildFeatureFlags", serviceOnly("guildConfig", "getGuildFeatureFlags"))
-        .handle("getGuildsForFeatureFlag", serviceOnly("guildConfig", "getGuildsForFeatureFlag"))
-        .handle(
-          "getGuildUpdateAnnouncementDelivery",
-          serviceOnly("guildConfig", "getGuildUpdateAnnouncementDelivery"),
-        )
-        .handle(
-          "getGuildChannels",
-          guildQuery("guildConfig", "getGuildChannels", "member", (query) => query.guildId),
-        )
-        .handle(
-          "addGuildMonitorRole",
-          guildPayload(
-            "guildConfig",
-            "addGuildMonitorRole",
+          "getWorkspaceConfig",
+          guildQuery(
+            "workspaceConfig",
+            "getWorkspaceConfig",
             "manage",
-            (payload) => payload.guildId,
+            (query) => query.workspaceId,
           ),
         )
         .handle(
-          "removeGuildMonitorRole",
+          "upsertWorkspaceConfig",
           guildPayload(
-            "guildConfig",
-            "removeGuildMonitorRole",
+            "workspaceConfig",
+            "upsertWorkspaceConfig",
             "manage",
-            (payload) => payload.guildId,
-          ),
-        )
-        .handle("addGuildFeatureFlag", serviceOnly("guildConfig", "addGuildFeatureFlag"))
-        .handle("removeGuildFeatureFlag", serviceOnly("guildConfig", "removeGuildFeatureFlag"))
-        .handle(
-          "recordGuildUpdateAnnouncementDelivery",
-          serviceOnly("guildConfig", "recordGuildUpdateAnnouncementDelivery"),
-        )
-        .handle(
-          "claimGuildUpdateAnnouncementDelivery",
-          serviceOnly("guildConfig", "claimGuildUpdateAnnouncementDelivery"),
-        )
-        .handle(
-          "releaseGuildUpdateAnnouncementDeliveryClaim",
-          serviceOnly("guildConfig", "releaseGuildUpdateAnnouncementDeliveryClaim"),
-        )
-        .handle(
-          "upsertGuildChannelConfig",
-          guildPayload(
-            "guildConfig",
-            "upsertGuildChannelConfig",
-            "manage",
-            (payload) => payload.guildId,
+            (payload) => payload.workspaceId,
           ),
         )
         .handle(
-          "getGuildChannelById",
-          guildQuery("guildConfig", "getGuildChannelById", "member", (query) => query.guildId),
+          "getWorkspaceMonitorRoles",
+          guildQuery(
+            "workspaceConfig",
+            "getWorkspaceMonitorRoles",
+            "member",
+            (query) => query.workspaceId,
+          ),
         )
         .handle(
-          "getGuildChannelByName",
-          guildQuery("guildConfig", "getGuildChannelByName", "member", (query) => query.guildId),
+          "getWorkspaceFeatureFlags",
+          serviceOnly("workspaceConfig", "getWorkspaceFeatureFlags"),
+        )
+        .handle(
+          "getWorkspacesForFeatureFlag",
+          serviceOnly("workspaceConfig", "getWorkspacesForFeatureFlag"),
+        )
+        .handle(
+          "getWorkspaceUpdateAnnouncementDelivery",
+          serviceOnly("workspaceConfig", "getWorkspaceUpdateAnnouncementDelivery"),
+        )
+        .handle(
+          "getWorkspaceConversations",
+          guildQuery(
+            "workspaceConfig",
+            "getWorkspaceConversations",
+            "member",
+            (query) => query.workspaceId,
+          ),
+        )
+        .handle(
+          "addWorkspaceMonitorRole",
+          guildPayload(
+            "workspaceConfig",
+            "addWorkspaceMonitorRole",
+            "manage",
+            (payload) => payload.workspaceId,
+          ),
+        )
+        .handle(
+          "removeWorkspaceMonitorRole",
+          guildPayload(
+            "workspaceConfig",
+            "removeWorkspaceMonitorRole",
+            "manage",
+            (payload) => payload.workspaceId,
+          ),
+        )
+        .handle(
+          "addWorkspaceFeatureFlag",
+          serviceOnly("workspaceConfig", "addWorkspaceFeatureFlag"),
+        )
+        .handle(
+          "removeWorkspaceFeatureFlag",
+          serviceOnly("workspaceConfig", "removeWorkspaceFeatureFlag"),
+        )
+        .handle(
+          "recordWorkspaceUpdateAnnouncementDelivery",
+          serviceOnly("workspaceConfig", "recordWorkspaceUpdateAnnouncementDelivery"),
+        )
+        .handle(
+          "claimWorkspaceUpdateAnnouncementDelivery",
+          serviceOnly("workspaceConfig", "claimWorkspaceUpdateAnnouncementDelivery"),
+        )
+        .handle(
+          "releaseWorkspaceUpdateAnnouncementDeliveryClaim",
+          serviceOnly("workspaceConfig", "releaseWorkspaceUpdateAnnouncementDeliveryClaim"),
+        )
+        .handle(
+          "upsertWorkspaceConversationConfig",
+          guildPayload(
+            "workspaceConfig",
+            "upsertWorkspaceConversationConfig",
+            "manage",
+            (payload) => payload.workspaceId,
+          ),
+        )
+        .handle(
+          "getWorkspaceConversationById",
+          guildQuery(
+            "workspaceConfig",
+            "getWorkspaceConversationById",
+            "member",
+            (query) => query.workspaceId,
+          ),
+        )
+        .handle(
+          "getWorkspaceConversationByName",
+          guildQuery(
+            "workspaceConfig",
+            "getWorkspaceConversationByName",
+            "member",
+            (query) => query.workspaceId,
+          ),
         ),
     ),
     HttpApiBuilder.group(Api, "messageCheckin", (handlers) =>
@@ -1027,7 +1082,7 @@ const makeApiLayer = () => {
           authorizedSheetApis("messageCheckin", "upsertMessageCheckinData", ({ payload }) =>
             requireMessageCheckinUpsert(
               payload.messageId,
-              typeof payload.data.guildId === "string" ? payload.data.guildId : undefined,
+              typeof payload.data.workspaceId === "string" ? payload.data.workspaceId : undefined,
             ),
           ),
         )
@@ -1045,7 +1100,7 @@ const makeApiLayer = () => {
           authorizedSheetApis("messageCheckin", "persistMessageCheckin", ({ payload }) =>
             requireMessageCheckinUpsert(
               payload.messageId,
-              typeof payload.data.guildId === "string" ? payload.data.guildId : undefined,
+              typeof payload.data.workspaceId === "string" ? payload.data.workspaceId : undefined,
             ),
           ),
         )
@@ -1084,7 +1139,7 @@ const makeApiLayer = () => {
           authorizedSheetApis("messageRoomOrder", "upsertMessageRoomOrder", ({ payload }) =>
             requireRoomOrderUpsert(
               payload.messageId,
-              typeof payload.data.guildId === "string" ? payload.data.guildId : undefined,
+              typeof payload.data.workspaceId === "string" ? payload.data.workspaceId : undefined,
             ),
           ),
         )
@@ -1093,7 +1148,7 @@ const makeApiLayer = () => {
           authorizedSheetApis("messageRoomOrder", "persistMessageRoomOrder", ({ payload }) =>
             requireRoomOrderUpsert(
               payload.messageId,
-              typeof payload.data.guildId === "string" ? payload.data.guildId : undefined,
+              typeof payload.data.workspaceId === "string" ? payload.data.workspaceId : undefined,
             ),
           ),
         )
@@ -1213,7 +1268,7 @@ const makeApiLayer = () => {
           authorizedSheetApis("messageSlot", "upsertMessageSlotData", ({ payload }) =>
             requireMessageSlotUpsert(
               payload.messageId,
-              typeof payload.data.guildId === "string" ? payload.data.guildId : undefined,
+              typeof payload.data.workspaceId === "string" ? payload.data.workspaceId : undefined,
             ),
           ),
         ),
@@ -1222,15 +1277,15 @@ const makeApiLayer = () => {
       handlers
         .handle(
           "getMonitorMaps",
-          guildQuery("monitor", "getMonitorMaps", "monitor", (query) => query.guildId),
+          guildQuery("monitor", "getMonitorMaps", "monitor", (query) => query.workspaceId),
         )
         .handle(
           "getByIds",
-          guildQuery("monitor", "getByIds", "monitor", (query) => query.guildId),
+          guildQuery("monitor", "getByIds", "monitor", (query) => query.workspaceId),
         )
         .handle(
           "getByNames",
-          guildQuery("monitor", "getByNames", "monitor", (query) => query.guildId),
+          guildQuery("monitor", "getByNames", "monitor", (query) => query.workspaceId),
         ),
     ),
     HttpApiBuilder.group(Api, "permissions", (handlers) =>
@@ -1239,8 +1294,8 @@ const makeApiLayer = () => {
         Effect.fnUntraced(function* ({ query }) {
           const authorization = yield* AuthorizationService;
           const resolvedUser =
-            typeof query.guildId === "string"
-              ? yield* authorization.resolveCurrentGuildUser(query.guildId)
+            typeof query.workspaceId === "string"
+              ? yield* authorization.resolveCurrentWorkspaceUser(query.workspaceId)
               : yield* SheetAuthUser;
 
           return {
@@ -1253,67 +1308,77 @@ const makeApiLayer = () => {
       handlers
         .handle(
           "getPlayerMaps",
-          guildQuery("player", "getPlayerMaps", "monitor", (query) => query.guildId),
+          guildQuery("player", "getPlayerMaps", "monitor", (query) => query.workspaceId),
         )
         .handle(
           "getByIds",
           singlePlayerOrMonitor("player", "getByIds", (query) => ({
-            guildId: query.guildId,
+            guildId: query.workspaceId,
             ids: query.ids,
           })),
         )
         .handle(
           "getByNames",
-          guildQuery("player", "getByNames", "monitor", (query) => query.guildId),
+          guildQuery("player", "getByNames", "monitor", (query) => query.workspaceId),
         )
         .handle(
           "getTeamsByIds",
           singlePlayerOrMonitor("player", "getTeamsByIds", (query) => ({
-            guildId: query.guildId,
+            guildId: query.workspaceId,
             ids: query.ids,
           })),
         )
         .handle(
           "getTeamsByNames",
-          guildQuery("player", "getTeamsByNames", "monitor", (query) => query.guildId),
+          guildQuery("player", "getTeamsByNames", "monitor", (query) => query.workspaceId),
         ),
     ),
     HttpApiBuilder.group(Api, "roomOrder", (handlers) =>
       handlers.handle(
         "generate",
-        guildPayload("roomOrder", "generate", "monitor", (payload) => payload.guildId),
+        guildPayload("roomOrder", "generate", "monitor", (payload) => payload.workspaceId),
       ),
     ),
     HttpApiBuilder.group(Api, "schedule", (handlers) =>
       handlers
         .handle(
           "getAllPopulatedSchedules",
-          guildQuery("schedule", "getAllPopulatedSchedules", "member", (query) => query.guildId),
+          guildQuery(
+            "schedule",
+            "getAllPopulatedSchedules",
+            "member",
+            (query) => query.workspaceId,
+          ),
         )
         .handle(
           "getDayPopulatedSchedules",
-          guildQuery("schedule", "getDayPopulatedSchedules", "member", (query) => query.guildId),
-        )
-        .handle(
-          "getChannelPopulatedSchedules",
           guildQuery(
             "schedule",
-            "getChannelPopulatedSchedules",
+            "getDayPopulatedSchedules",
             "member",
-            (query) => query.guildId,
+            (query) => query.workspaceId,
+          ),
+        )
+        .handle(
+          "getConversationPopulatedSchedules",
+          guildQuery(
+            "schedule",
+            "getConversationPopulatedSchedules",
+            "member",
+            (query) => query.workspaceId,
           ),
         )
         .handle(
           "getDayPlayerSchedule",
           authorizedSheetApis("schedule", "getDayPlayerSchedule", ({ query }) =>
-            requireDayPlayerSchedule(query.guildId, query.accountId),
+            requireDayPlayerSchedule(query.workspaceId, query.accountId),
           ),
         ),
     ),
     HttpApiBuilder.group(Api, "screenshot", (handlers) =>
       handlers.handle(
         "getScreenshot",
-        guildQuery("screenshot", "getScreenshot", "monitor", (query) => query.guildId),
+        guildQuery("screenshot", "getScreenshot", "monitor", (query) => query.workspaceId),
       ),
     ),
     HttpApiBuilder.group(Api, "sheet", (handlers) =>
@@ -1323,7 +1388,7 @@ const makeApiLayer = () => {
         .handle("getTeams", serviceOnly("sheet", "getTeams"))
         .handle("getAllSchedules", serviceOnly("sheet", "getAllSchedules"))
         .handle("getDaySchedules", serviceOnly("sheet", "getDaySchedules"))
-        .handle("getChannelSchedules", serviceOnly("sheet", "getChannelSchedules"))
+        .handle("getConversationSchedules", serviceOnly("sheet", "getConversationSchedules"))
         .handle("getRangesConfig", serviceOnly("sheet", "getRangesConfig"))
         .handle("getTeamConfig", serviceOnly("sheet", "getTeamConfig"))
         .handle("getEventConfig", serviceOnly("sheet", "getEventConfig"))
@@ -1332,6 +1397,82 @@ const makeApiLayer = () => {
     ),
     HttpApiBuilder.group(Api, "application", (handlers) =>
       handlers.handle("getApplication", forwardSheetBot("application", "getApplication")),
+    ),
+    HttpApiBuilder.group(Api, "clientDelivery", (handlers) =>
+      handlers
+        .handle("sendMessage", ({ payload }) =>
+          Effect.gen(function* () {
+            const client = yield* ClientDeliveryForwardingClient;
+            return yield* client.sendMessage(payload.conversation, payload.message);
+          }),
+        )
+        .handle("updateMessage", ({ payload }) =>
+          Effect.gen(function* () {
+            const client = yield* ClientDeliveryForwardingClient;
+            return yield* client.updateMessage(payload.messageRef, payload.message);
+          }),
+        )
+        .handle("updateInteraction", ({ payload }) =>
+          Effect.gen(function* () {
+            const client = yield* ClientDeliveryForwardingClient;
+            return yield* client.updateInteraction(payload.interaction, payload.message);
+          }),
+        )
+        .handle("pinMessage", ({ payload }) =>
+          Effect.gen(function* () {
+            const client = yield* ClientDeliveryForwardingClient;
+            return yield* client.pinMessage(payload.messageRef);
+          }),
+        )
+        .handle("deleteMessage", ({ payload }) =>
+          Effect.gen(function* () {
+            const client = yield* ClientDeliveryForwardingClient;
+            return yield* client.deleteMessage(payload.messageRef);
+          }),
+        )
+        .handle("getWorkspace", ({ params }) =>
+          Effect.gen(function* () {
+            const client = yield* ClientDeliveryForwardingClient;
+            return yield* client.getWorkspace({
+              client: { platform: params.platform, clientId: params.clientId },
+              workspaceId: params.workspaceId,
+            });
+          }),
+        )
+        .handle("getConversations", ({ params }) =>
+          Effect.gen(function* () {
+            const client = yield* ClientDeliveryForwardingClient;
+            return yield* client.getConversations({
+              client: { platform: params.platform, clientId: params.clientId },
+              workspaceId: params.workspaceId,
+            });
+          }),
+        )
+        .handle("getMembers", ({ params }) =>
+          Effect.gen(function* () {
+            const client = yield* ClientDeliveryForwardingClient;
+            return yield* client.getMembers({
+              client: { platform: params.platform, clientId: params.clientId },
+              workspaceId: params.workspaceId,
+            });
+          }),
+        )
+        .handle("addMemberRole", ({ payload }) =>
+          Effect.gen(function* () {
+            const client = yield* ClientDeliveryForwardingClient;
+            return yield* client.addMemberRole(payload.workspace, payload.userId, payload.roleId);
+          }),
+        )
+        .handle("removeMemberRole", ({ payload }) =>
+          Effect.gen(function* () {
+            const client = yield* ClientDeliveryForwardingClient;
+            return yield* client.removeMemberRole(
+              payload.workspace,
+              payload.userId,
+              payload.roleId,
+            );
+          }),
+        ),
     ),
     HttpApiBuilder.group(Api, "bot", (handlers) =>
       handlers
@@ -1435,6 +1576,7 @@ const makeApiLayer = () => {
     SheetApisRpcTokens.layer,
     SheetWorkflowsForwardingClient.layer,
     SheetBotForwardingClient.layer,
+    ClientDeliveryForwardingClient.layer,
     ServiceStatusService.layer,
   );
 

@@ -1,11 +1,11 @@
-import { makeArgumentError } from "typhoon-core/error";
-import { Effect, Layer, Option } from "effect";
-import { MessageSlotRpcs } from "sheet-ingress-api/sheet-apis-rpc";
-import { getModernMessageGuildId } from "@/handlers/message/shared";
-import { SheetAuthGuildUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthGuildUser";
-import { MessageSlot } from "sheet-ingress-api/schemas/messageSlot";
+import { Effect, Layer, Option, Predicate } from "effect";
+import { getModernMessageWorkspaceId } from "@/handlers/message/shared";
 import { AuthorizationService, MessageSlotService } from "@/services";
-import { Unauthorized } from "typhoon-core/error";
+import type { MessageKey } from "@/services/messageKey";
+import { MessageSlotRpcs } from "sheet-ingress-api/sheet-apis-rpc";
+import { MessageSlot } from "sheet-ingress-api/schemas/messageSlot";
+import { SheetAuthWorkspaceUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthWorkspaceUser";
+import { makeArgumentError, Unauthorized } from "typhoon-core/error";
 
 const missingMessageSlotError = () =>
   makeArgumentError("Cannot get message slot data, the message might not be registered");
@@ -20,13 +20,13 @@ type MessageSlotAccessService = Pick<typeof MessageSlotService.Service, "getMess
 
 type MessageSlotAuthContext = {
   readonly record: MessageSlot;
-  readonly guildId: string | null;
+  readonly workspaceId: string | null;
   readonly isLegacy: boolean;
 };
 
 const loadRequiredMessageSlotRecord = Effect.fn("messageSlot.loadRequiredMessageSlotRecord")(
-  function* (messageSlotService: MessageSlotAccessService, messageId: string) {
-    const record = yield* messageSlotService.getMessageSlotData(messageId);
+  function* (messageSlotService: MessageSlotAccessService, key: MessageKey) {
+    const record = yield* messageSlotService.getMessageSlotData(key);
 
     if (Option.isNone(record)) {
       return yield* Effect.fail(missingMessageSlotError());
@@ -37,67 +37,66 @@ const loadRequiredMessageSlotRecord = Effect.fn("messageSlot.loadRequiredMessage
 );
 
 const resolveMessageSlotAuthContext = (record: MessageSlot): MessageSlotAuthContext => {
-  const guildId = Option.getOrElse(getModernMessageGuildId(record), () => null);
+  const workspaceId = Option.getOrElse(getModernMessageWorkspaceId(record), () => null);
 
   return {
     record,
-    guildId,
-    isLegacy: guildId === null,
+    workspaceId,
+    isLegacy: Predicate.isNull(workspaceId),
   };
 };
 
-const getRequiredMessageSlotGuildId = Effect.fn("messageSlot.getRequiredMessageSlotGuildId")(
-  function* (authContext: MessageSlotAuthContext) {
-    if (authContext.isLegacy || authContext.guildId === null) {
-      return yield* denyLegacyMessageSlotAccess();
+const getRequiredMessageSlotWorkspaceId = Effect.fn(
+  "messageSlot.getRequiredMessageSlotWorkspaceId",
+)(function* (authContext: MessageSlotAuthContext) {
+  if (authContext.isLegacy || Predicate.isNull(authContext.workspaceId)) {
+    return yield* denyLegacyMessageSlotAccess();
+  }
+
+  return authContext.workspaceId;
+});
+
+const resolveMessageSlotUpsertWorkspaceId = Effect.fn(
+  "messageSlot.resolveMessageSlotUpsertWorkspaceId",
+)(function* (messageSlotService: MessageSlotAccessService, key: MessageKey, workspaceId?: string) {
+  const existingRecord = yield* messageSlotService.getMessageSlotData(key);
+
+  if (Option.isNone(existingRecord)) {
+    if (Predicate.isString(workspaceId)) {
+      return workspaceId;
     }
 
-    return authContext.guildId;
-  },
-);
+    return yield* denyLegacyMessageSlotAccess();
+  }
 
-const resolveMessageSlotUpsertGuildId = Effect.fn("messageSlot.resolveMessageSlotUpsertGuildId")(
-  function* (messageSlotService: MessageSlotAccessService, messageId: string, guildId?: string) {
-    const existingRecord = yield* messageSlotService.getMessageSlotData(messageId);
+  return yield* getRequiredMessageSlotWorkspaceId(
+    resolveMessageSlotAuthContext(existingRecord.value),
+  );
+});
 
-    if (Option.isNone(existingRecord)) {
-      if (typeof guildId === "string") {
-        return guildId;
-      }
-
-      return yield* denyLegacyMessageSlotAccess();
-    }
-
-    return yield* getRequiredMessageSlotGuildId(
-      resolveMessageSlotAuthContext(existingRecord.value),
-    );
-  },
-);
-
-const withResolvedMessageSlotGuildUser = <A, E, R>(
+const withResolvedMessageSlotWorkspaceUser = <A, E, R>(
   authorizationService: typeof AuthorizationService.Service,
   authContext: MessageSlotAuthContext,
   effect: Effect.Effect<A, E, R>,
 ) =>
-  (authContext.guildId === null
+  (Predicate.isNull(authContext.workspaceId)
     ? effect
-    : authorizationService.provideCurrentGuildUser(authContext.guildId, effect)) as Effect.Effect<
-    A,
-    E,
-    Exclude<R, SheetAuthGuildUser>
-  >;
+    : authorizationService.provideCurrentWorkspaceUser(
+        authContext.workspaceId,
+        effect,
+      )) as Effect.Effect<A, E, Exclude<R, SheetAuthWorkspaceUser>>;
 
 const requireMessageSlotReadPermission = Effect.fn("messageSlot.requireMessageSlotReadPermission")(
   function* (
     authorizationService: typeof AuthorizationService.Service,
     authContext: MessageSlotAuthContext,
   ) {
-    const guildId = yield* getRequiredMessageSlotGuildId(authContext);
+    const workspaceId = yield* getRequiredMessageSlotWorkspaceId(authContext);
 
-    return yield* withResolvedMessageSlotGuildUser(
+    return yield* withResolvedMessageSlotWorkspaceUser(
       authorizationService,
       authContext,
-      authorizationService.requireGuildMember(guildId),
+      authorizationService.requireWorkspaceMember(workspaceId),
     );
   },
 );
@@ -107,18 +106,18 @@ export const requireMessageSlotUpsertAccess = Effect.fn(
 )(function* (
   authorizationService: typeof AuthorizationService.Service,
   messageSlotService: MessageSlotAccessService,
-  messageId: string,
-  guildId?: string,
+  key: MessageKey,
+  workspaceId?: string,
 ) {
-  const resolvedGuildId = yield* resolveMessageSlotUpsertGuildId(
+  const resolvedWorkspaceId = yield* resolveMessageSlotUpsertWorkspaceId(
     messageSlotService,
-    messageId,
-    guildId,
+    key,
+    workspaceId,
   );
 
-  return yield* authorizationService.provideCurrentGuildUser(
-    resolvedGuildId,
-    authorizationService.requireMonitorGuild(resolvedGuildId),
+  return yield* authorizationService.provideCurrentWorkspaceUser(
+    resolvedWorkspaceId,
+    authorizationService.requireMonitorWorkspace(resolvedWorkspaceId),
   );
 });
 
@@ -126,9 +125,9 @@ export const requireMessageSlotReadAccess = Effect.fn("messageSlot.requireMessag
   function* (
     authorizationService: typeof AuthorizationService.Service,
     messageSlotService: MessageSlotAccessService,
-    messageId: string,
+    key: MessageKey,
   ) {
-    const record = yield* loadRequiredMessageSlotRecord(messageSlotService, messageId);
+    const record = yield* loadRequiredMessageSlotRecord(messageSlotService, key);
     const authContext = resolveMessageSlotAuthContext(record);
 
     yield* requireMessageSlotReadPermission(authorizationService, authContext);
@@ -144,21 +143,17 @@ export const messageSlotLayer = MessageSlotRpcs.toLayer(
 
     return {
       "messageSlot.getMessageSlotData": Effect.fnUntraced(function* ({ query }) {
-        return yield* requireMessageSlotReadAccess(
-          authorizationService,
-          messageSlotService,
-          query.messageId,
-        );
+        return yield* requireMessageSlotReadAccess(authorizationService, messageSlotService, query);
       }),
       "messageSlot.upsertMessageSlotData": Effect.fnUntraced(function* ({ payload }) {
         yield* requireMessageSlotUpsertAccess(
           authorizationService,
           messageSlotService,
-          payload.messageId,
-          typeof payload.data.guildId === "string" ? payload.data.guildId : undefined,
+          payload,
+          Predicate.isString(payload.data.workspaceId) ? payload.data.workspaceId : undefined,
         );
 
-        return yield* messageSlotService.upsertMessageSlotData(payload.messageId, payload.data);
+        return yield* messageSlotService.upsertMessageSlotData(payload, payload.data);
       }),
     };
   }),

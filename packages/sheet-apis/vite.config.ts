@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import { fileURLToPath } from "url";
 import { defineConfig } from "vite-plus";
 

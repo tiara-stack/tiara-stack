@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { config } from "@/config";
 import { Interaction } from "dfx-discord-utils";
 import { DiscordInteraction } from "dfx/Interactions/context";
-import { HttpClient, HttpClientRequest } from "effect/unstable/http";
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 import { HttpApiClient } from "effect/unstable/httpapi";
 import {
   Cache,
@@ -11,9 +11,9 @@ import {
   Effect,
   Exit,
   Match,
-  Schema,
   Layer,
   Option,
+  Predicate,
   Redacted,
   Context,
 } from "effect";
@@ -23,6 +23,7 @@ import {
   exchangeOAuthToken,
 } from "sheet-auth/client";
 import { DISCORD_SERVICE_USER_ID_SENTINEL } from "sheet-auth/oauth";
+import type { ClientRef } from "sheet-ingress-api/schemas/client";
 import { ServicesStatusResponse } from "sheet-ingress-api/sheet-apis-rpc";
 import { SheetWorkflowsApi } from "sheet-ingress-api/sheet-workflows";
 import { SheetAuthClient } from "./sheetAuthClient";
@@ -44,6 +45,39 @@ type TokenCacheEntry = {
 };
 
 const accessTokenType = "urn:ietf:params:oauth:token-type:access_token";
+
+const withClientPayload = <T>(args: T, client: ClientRef): T => {
+  if (!Predicate.isObject(args) || !Predicate.hasProperty(args, "payload")) {
+    return args;
+  }
+
+  const payload = args.payload;
+  if (!Predicate.isObject(payload)) {
+    return args;
+  }
+
+  return {
+    ...args,
+    payload: {
+      ...payload,
+      client: Predicate.hasProperty(payload, "client") ? payload.client : client,
+    },
+  };
+};
+
+const withClientDispatch = <TDispatch extends object>(
+  dispatch: TDispatch,
+  client: ClientRef,
+): TDispatch =>
+  new Proxy(dispatch as Record<PropertyKey, unknown>, {
+    get(target, property, receiver) {
+      const value = Reflect.get(target, property, receiver);
+      if (!Predicate.isFunction(value)) {
+        return value;
+      }
+      return (args: unknown) => value.call(target, withClientPayload(args, client));
+    },
+  }) as TDispatch;
 
 export const workflowRequesterActorScopes = (discordUserId: string) =>
   discordUserId === DISCORD_SERVICE_USER_ID_SENTINEL
@@ -126,6 +160,7 @@ export class SheetWorkflowsClient extends Context.Service<SheetWorkflowsClient>(
       const sheetAuthClient = yield* SheetAuthClient;
       const httpClient = yield* HttpClient.HttpClient;
       const baseUrl = yield* config.sheetIngressBaseUrl;
+      const sheetBotClientId = yield* config.sheetBotClientId;
       const oauthClientId = yield* config.sheetAuthOAuthClientId;
       const oauthClientSecret = yield* config.sheetAuthOAuthClientSecret;
       const subjectTokenKubernetesTokenPath =
@@ -273,21 +308,23 @@ export class SheetWorkflowsClient extends Context.Service<SheetWorkflowsClient>(
         httpClient: httpClientWithToken,
         baseUrl,
       });
+      const workflowClient = {
+        ...client,
+        dispatch: withClientDispatch(client.dispatch, {
+          platform: "discord",
+          clientId: sheetBotClientId,
+        }),
+      };
 
       return {
-        get: () => client,
+        get: () => workflowClient,
         getServicesStatus: Effect.fn("SheetWorkflowsClient.getServicesStatus")(function* () {
-          const response = yield* httpClientWithToken.get(`${baseUrl}/status/services`);
-
-          if (response.status < 200 || response.status >= 300) {
-            const body = yield* response.text.pipe(Effect.catch(() => Effect.succeed("")));
-            return yield* Effect.fail(
-              new Error(`Service status request failed with HTTP ${response.status}: ${body}`),
+          return yield* httpClientWithToken
+            .get(`${baseUrl}/status/services`)
+            .pipe(
+              Effect.flatMap(HttpClientResponse.filterStatusOk),
+              Effect.flatMap(HttpClientResponse.schemaBodyJson(ServicesStatusResponse)),
             );
-          }
-
-          const body = yield* response.json;
-          return yield* Schema.decodeUnknownEffect(ServicesStatusResponse)(body);
         }),
       };
     }),

@@ -485,6 +485,9 @@ importers:
 
   packages/sheet-bot:
     dependencies:
+      '@discordjs/formatters':
+        specifier: ^0.6.2
+        version: 0.6.2
       '@effect/opentelemetry':
         specifier: 'catalog:'
         version: 4.0.0-beta.67(@opentelemetry/api-logs@0.207.0)(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.2.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-logs@0.207.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-metrics@2.2.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@2.2.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-node@2.0.1(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.41.1)(effect@4.0.0-beta.67)
@@ -957,12 +960,6 @@ importers:
       '@opentelemetry/sdk-trace-base':
         specifier: ^2.2.0
         version: 2.2.0(@opentelemetry/api@1.9.0)
-      dfx:
-        specifier: 'catalog:'
-        version: 1.0.13(effect@4.0.0-beta.67)
-      dfx-discord-utils:
-        specifier: workspace:*
-        version: link:../dfx-discord-utils
       effect:
         specifier: 'catalog:'
         version: 4.0.0-beta.67
@@ -7219,7 +7216,7 @@ snapshots:
 
   '@discordjs/formatters@0.6.2':
     dependencies:
-      discord-api-types: 0.38.38
+      discord-api-types: 0.38.43
 
   '@discordjs/util@1.2.0':
     dependencies:

@@ -11,9 +11,10 @@ import {
 import { Interaction, InteractionToken } from "dfx-discord-utils/utils";
 import { ButtonStyle, MessageFlags } from "discord-api-types/v10";
 import { discordApplicationLayer } from "../../discord/application";
-import { SLOT_BUTTON_CUSTOM_ID } from "sheet-ingress-api/discordComponents";
+import { SLOT_OPEN_ACTION_ID } from "sheet-ingress-api/clientActions";
 import { SheetWorkflowsClient, SheetWorkflowsRequestContext } from "@/services";
 import { interactionDeadlineEpochMs } from "@/utils/interactionDeadline";
+import { config } from "@/config";
 
 const getInteractionMessageId = Effect.gen(function* () {
   const interactionMessage = yield* Interaction.message();
@@ -24,7 +25,7 @@ const getInteractionMessageId = Effect.gen(function* () {
 });
 
 const slotButtonData = makeButtonData((b) =>
-  b.setCustomId(SLOT_BUTTON_CUSTOM_ID).setLabel("Open slots").setStyle(ButtonStyle.Primary),
+  b.setCustomId(SLOT_OPEN_ACTION_ID).setLabel("Open slots").setStyle(ButtonStyle.Primary),
 );
 
 const makeSlotButtonHandler = Effect.gen(function* () {
@@ -40,12 +41,14 @@ const makeSlotButtonHandler = Effect.gen(function* () {
         const messageId = Option.getOrThrow(yield* getInteractionMessageId);
         const interactionToken = yield* InteractionToken;
         const interaction = yield* Ix.Interaction;
+        const clientId = yield* config.sheetBotClientId;
 
         yield* sheetWorkflowsClient.get().dispatch.slotOpenButton({
           payload: {
+            client: { platform: "discord", clientId },
             messageId,
-            interactionToken: interactionToken.token,
-            interactionDeadlineEpochMs: interactionDeadlineEpochMs(interaction.id),
+            interactionResponseToken: interactionToken.token,
+            interactionResponseDeadlineEpochMs: interactionDeadlineEpochMs(interaction.id),
           },
         });
       }),

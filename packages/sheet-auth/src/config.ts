@@ -1,3 +1,4 @@
+// fallow-ignore-file code-duplication
 import { Config, Option, Schema, SchemaGetter, String } from "effect";
 
 const split = (separator: string) =>

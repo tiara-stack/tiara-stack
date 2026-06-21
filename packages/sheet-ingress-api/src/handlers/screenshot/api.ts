@@ -21,8 +21,8 @@ export class ScreenshotApi extends HttpApiGroup.make("screenshot")
   .add(
     HttpApiEndpoint.get("getScreenshot", "/screenshot/getScreenshot", {
       query: Schema.Struct({
-        guildId: Schema.String,
-        channel: Schema.String,
+        workspaceId: Schema.String,
+        conversationName: Schema.String,
         day: Schema.NumberFromString,
       }),
       success: Schema.Uint8Array,
