@@ -17,7 +17,6 @@ export class SheetBotForwardingClient extends Context.Service<SheetBotForwarding
   },
 ) {
   static layer = Layer.effect(SheetBotForwardingClient, this.make).pipe(
-    Layer.provide(SheetBotHttpClient.layer),
-    Layer.provide(SheetApisRpcTokens.layer),
+    Layer.provide(SheetBotHttpClient.layer.pipe(Layer.provide(SheetApisRpcTokens.layer))),
   );
 }

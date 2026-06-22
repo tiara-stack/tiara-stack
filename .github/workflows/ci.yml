@@ -290,11 +290,36 @@ jobs:
           namespace="${K8S_NAMESPACE}"
           registry="registry.digitalocean.com/${REGISTRY_NAME}"
 
+          dump_deploy_diagnostics() {
+            echo "::group::Helm release"
+            helm status tiara-stack --namespace "$namespace" || true
+            helm history tiara-stack --namespace "$namespace" --max 10 || true
+            echo "::endgroup::"
+
+            echo "::group::Kubernetes resources"
+            kubectl -n "$namespace" get deploy,rs,pods -l app.kubernetes.io/instance=tiara-stack -o wide || true
+            kubectl -n "$namespace" get events --sort-by=.lastTimestamp || true
+            echo "::endgroup::"
+
+            echo "::group::Pod descriptions"
+            kubectl -n "$namespace" describe pods -l app.kubernetes.io/instance=tiara-stack || true
+            echo "::endgroup::"
+
+            echo "::group::Pod logs"
+            while IFS= read -r pod; do
+              echo "## ${pod}"
+              kubectl -n "$namespace" logs "$pod" --all-containers --tail=100 || true
+              kubectl -n "$namespace" logs "$pod" --all-containers --previous --tail=100 || true
+            done < <(kubectl -n "$namespace" get pods -l app.kubernetes.io/instance=tiara-stack -o name || true)
+            echo "::endgroup::"
+          }
+
+          set +e
           helm upgrade --install tiara-stack "$GITHUB_WORKSPACE/charts/tiara-stack" \
             --namespace "$namespace" \
             --create-namespace \
             --take-ownership \
-            --atomic \
+            --wait \
             --timeout 10m \
             --values "$GITHUB_WORKSPACE/charts/tiara-stack/values.yaml" \
             --values "$GITHUB_WORKSPACE/charts/tiara-stack/values-production.yaml" \
@@ -304,3 +329,11 @@ jobs:
             --set-string "global.imagePullSecrets[0].name=${REGISTRY_NAME}" \
             --set-string "global.appImage.registry=${registry}" \
             --set-string "global.appImage.tag=${IMAGE_TAG}"
+          deploy_status=$?
+          set -e
+
+          if [[ $deploy_status -ne 0 ]]; then
+            dump_deploy_diagnostics
+            helm rollback tiara-stack --namespace "$namespace" --wait --timeout 10m || true
+            exit "$deploy_status"
+          fi

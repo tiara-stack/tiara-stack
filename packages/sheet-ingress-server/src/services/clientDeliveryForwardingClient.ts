@@ -223,5 +223,6 @@ export class ClientDeliveryForwardingClient extends Context.Service<ClientDelive
 ) {
   static layer = Layer.effect(ClientDeliveryForwardingClient, this.make).pipe(
     Layer.provide(ClientRegistry.layer),
+    Layer.provide(SheetApisRpcTokens.layer),
   );
 }
