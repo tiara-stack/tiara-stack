@@ -21,6 +21,11 @@ import { SheetApisRpcTokens } from "./sheetApisRpcTokens";
 const urlFor = (baseUrl: string, path: string) =>
   new URL(path.replace(/^\//, ""), baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`).toString();
 
+const jsonRequest = {
+  PATCH: HttpClientRequest.patch,
+  POST: HttpClientRequest.post,
+} as const;
+
 const mapForwardingError = (message: string) => (error: unknown) =>
   error instanceof Unauthorized ? error : makeUnknownError(message, error);
 
@@ -47,7 +52,8 @@ export class ClientDeliveryForwardingClient extends Context.Service<ClientDelive
           ),
         );
 
-      const postJson = <A>(
+      const sendJson = <A>(
+        method: keyof typeof jsonRequest,
         entry: { readonly baseUrl: string; readonly serviceTokenResource: string },
         path: string,
         payload: unknown,
@@ -55,7 +61,7 @@ export class ClientDeliveryForwardingClient extends Context.Service<ClientDelive
       ) =>
         Effect.gen(function* () {
           const httpClient = authedHttpClientFor(entry);
-          return yield* HttpClientRequest.post(urlFor(entry.baseUrl, path)).pipe(
+          return yield* jsonRequest[method](urlFor(entry.baseUrl, path)).pipe(
             HttpClientRequest.bodyJson(payload),
             Effect.flatMap(httpClient.execute),
             Effect.flatMap(HttpClientResponse.filterStatusOk),
@@ -70,7 +76,8 @@ export class ClientDeliveryForwardingClient extends Context.Service<ClientDelive
           message: SheetOutboundMessage,
         ) {
           const entry = yield* registry.resolve(conversation.workspace.client);
-          return yield* postJson(
+          return yield* sendJson(
+            "POST",
             entry,
             "/clients/messages/send",
             { conversation, message },
@@ -82,7 +89,8 @@ export class ClientDeliveryForwardingClient extends Context.Service<ClientDelive
           message: SheetOutboundMessage,
         ) {
           const entry = yield* registry.resolve(messageRef.conversation.workspace.client);
-          return yield* postJson(
+          return yield* sendJson(
+            "PATCH",
             entry,
             "/clients/messages/update",
             { messageRef, message },
@@ -94,7 +102,8 @@ export class ClientDeliveryForwardingClient extends Context.Service<ClientDelive
           message: SheetOutboundMessage,
         ) {
           const entry = yield* registry.resolve(interaction.client);
-          return yield* postJson(
+          return yield* sendJson(
+            "PATCH",
             entry,
             "/clients/interactions/original-response",
             { interaction, message },
