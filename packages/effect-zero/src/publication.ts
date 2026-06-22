@@ -3,6 +3,7 @@ import { SqlClient } from "effect/unstable/sql";
 import type {
   JsonValue,
   MigrationExtension,
+  MigrationExtensionContext,
   MigrationExtensionResult,
   ResolvedConfig,
 } from "effect-sql-kit";
@@ -124,6 +125,57 @@ const sameColumns = (left: PublicationTableSnapshot, right: PublicationTableSnap
   left.columns.length === right.columns.length &&
   left.columns.every((column, index) => right.columns[index] === column);
 
+const quotedIdentifierPattern = `"(?:""|[^"])+"`;
+const bareIdentifierPattern = `[a-zA-Z_][a-zA-Z0-9_$]*`;
+const sqlIdentifierPattern = `(?:${quotedIdentifierPattern}|${bareIdentifierPattern})`;
+const alterColumnTypePattern = new RegExp(
+  String.raw`\balter\s+table\s+(?:only\s+)?(?:(?<schema>${sqlIdentifierPattern})\.)?(?<table>${sqlIdentifierPattern})[\s\S]*?\balter\s+column\s+(?<column>${sqlIdentifierPattern})\s+type\b`,
+  "gi",
+);
+
+const unquoteIdentifier = (identifier: string): string =>
+  identifier.startsWith('"') && identifier.endsWith('"')
+    ? identifier.slice(1, -1).replaceAll('""', '"')
+    : identifier;
+
+const normalizedIdentifier = (identifier: string): string =>
+  unquoteIdentifier(identifier).toLowerCase();
+
+const normalizedTableKey = (table: PublicationTableSnapshot): string =>
+  `${table.schema.toLowerCase()}.${table.name.toLowerCase()}`;
+
+const publishedColumnTypeAlterTables = (
+  statements: NonNullable<MigrationExtensionContext["statements"]>,
+  snapshot: PublicationSnapshot,
+): readonly PublicationTableSnapshot[] => {
+  const tables = new Map(snapshot.tables.map((table) => [normalizedTableKey(table), table]));
+  const affectedKeys = new Set<string>();
+
+  for (const statement of statements) {
+    for (const match of statement.sql.matchAll(alterColumnTypePattern)) {
+      const groups = match.groups;
+      if (!groups) {
+        continue;
+      }
+      const schema = normalizedIdentifier(groups.schema ?? defaultTableSchema);
+      const table = normalizedIdentifier(groups.table);
+      const column = normalizedIdentifier(groups.column);
+      const key = `${schema}.${table}`;
+      const publishedTable = tables.get(key);
+      if (
+        publishedTable?.columns.some((publishedColumn) => publishedColumn.toLowerCase() === column)
+      ) {
+        affectedKeys.add(key);
+      }
+    }
+  }
+
+  return [...affectedKeys].flatMap((key) => {
+    const table = tables.get(key);
+    return table ? [table] : [];
+  });
+};
+
 const columnName = (fieldName: string, config: unknown): string | undefined => {
   if (config === false) {
     return undefined;
@@ -183,14 +235,125 @@ const buildSnapshot = (options: Required<ZeroPublicationOptions>): PublicationSn
   return Schema.decodeUnknownSync(PublicationSnapshotSchema)({ name, tables });
 };
 
+type PublicationTableDiff = {
+  readonly previousTables: ReadonlyMap<string, PublicationTableSnapshot>;
+  readonly added: readonly PublicationTableSnapshot[];
+  readonly removed: readonly PublicationTableSnapshot[];
+  readonly effectiveCurrent: PublicationSnapshot;
+};
+
+const publicationTableDiff = (
+  previous: PublicationSnapshot,
+  current: PublicationSnapshot,
+  dropRemovedTables: boolean,
+): PublicationTableDiff => {
+  const previousTables = new Map(previous.tables.map((table) => [tableKey(table), table]));
+  const currentTables = new Map(current.tables.map((table) => [tableKey(table), table]));
+  const added = current.tables.filter((table) => !previousTables.has(tableKey(table)));
+  const removed = previous.tables.filter((table) => !currentTables.has(tableKey(table)));
+  const retainedRemoved = dropRemovedTables ? [] : removed;
+  return {
+    previousTables,
+    added,
+    removed,
+    effectiveCurrent: {
+      ...current,
+      tables: [...current.tables, ...retainedRemoved].sort((left, right) =>
+        tableKey(left).localeCompare(tableKey(right)),
+      ),
+    },
+  };
+};
+
+const destructiveTableSet = (
+  dropRemovedTables: boolean,
+  removed: readonly PublicationTableSnapshot[],
+): { readonly destructive?: true } =>
+  dropRemovedTables && removed.length > 0 ? { destructive: true } : {};
+
+const typeAlterPublicationResult = ({
+  current,
+  diff,
+  dropRemovedTables,
+  statements,
+}: {
+  readonly current: PublicationSnapshot;
+  readonly diff: PublicationTableDiff;
+  readonly dropRemovedTables: boolean;
+  readonly statements: NonNullable<MigrationExtensionContext["statements"]>;
+}): MigrationExtensionResult | undefined => {
+  const typeAlterTables = publishedColumnTypeAlterTables(statements, {
+    name: current.name,
+    tables: [...diff.previousTables.values()],
+  });
+  return typeAlterTables.length === 0
+    ? undefined
+    : {
+        beforeStatements: [{ sql: dropTableSql(current.name, typeAlterTables) }],
+        statements: [
+          {
+            sql: setTableSql(diff.effectiveCurrent),
+            ...destructiveTableSet(dropRemovedTables, diff.removed),
+          },
+        ],
+        snapshot: diff.effectiveCurrent as JsonValue,
+      };
+};
+
+const changedColumnPublicationResult = (
+  current: PublicationSnapshot,
+  diff: PublicationTableDiff,
+  dropRemovedTables: boolean,
+): MigrationExtensionResult | undefined => {
+  const changedColumns = current.tables.some((table) => {
+    const previousTable = diff.previousTables.get(tableKey(table));
+    return previousTable ? !sameColumns(previousTable, table) : false;
+  });
+  const snapshot = dropRemovedTables ? current : diff.effectiveCurrent;
+  return changedColumns
+    ? {
+        statements: [
+          {
+            sql: setTableSql(snapshot),
+            ...destructiveTableSet(dropRemovedTables, diff.removed),
+          },
+        ],
+        snapshot: snapshot as JsonValue,
+      }
+    : undefined;
+};
+
+const tableSetPublicationResult = (
+  current: PublicationSnapshot,
+  diff: PublicationTableDiff,
+  dropRemovedTables: boolean,
+): MigrationExtensionResult => {
+  const statements: MigrationExtensionResult["statements"][number][] = [];
+  if (diff.added.length > 0) {
+    statements.push({ sql: addTableSql(current.name, diff.added) });
+  }
+  if (dropRemovedTables && diff.removed.length > 0) {
+    statements.push({
+      sql: dropTableSql(current.name, diff.removed),
+      destructive: true,
+    });
+  }
+  return {
+    statements,
+    snapshot: diff.effectiveCurrent as JsonValue,
+  };
+};
+
 const generateStatements = ({
   previous,
   current,
   dropRemovedTables,
+  statements: baseStatements,
 }: {
   readonly previous?: PublicationSnapshot;
   readonly current: PublicationSnapshot;
   readonly dropRemovedTables: boolean;
+  readonly statements: NonNullable<MigrationExtensionContext["statements"]>;
 }): MigrationExtensionResult => {
   if (!previous) {
     return { statements: [{ sql: createPublicationSql(current) }], snapshot: current as JsonValue };
@@ -206,49 +369,17 @@ const generateStatements = ({
     };
   }
 
-  const previousTables = new Map(previous.tables.map((table) => [tableKey(table), table]));
-  const currentTables = new Map(current.tables.map((table) => [tableKey(table), table]));
-  const added = current.tables.filter((table) => !previousTables.has(tableKey(table)));
-  const removed = previous.tables.filter((table) => !currentTables.has(tableKey(table)));
-  const retainedRemoved = dropRemovedTables ? [] : removed;
-  const effectiveCurrent: PublicationSnapshot = {
-    ...current,
-    tables: [...current.tables, ...retainedRemoved].sort((left, right) =>
-      tableKey(left).localeCompare(tableKey(right)),
-    ),
-  };
-  const changedColumns = current.tables.some((table) => {
-    const previousTable = previousTables.get(tableKey(table));
-    return previousTable ? !sameColumns(previousTable, table) : false;
-  });
-
-  if (changedColumns) {
-    const removesTables = dropRemovedTables && removed.length > 0;
-    return {
-      statements: [
-        {
-          sql: setTableSql(dropRemovedTables ? current : effectiveCurrent),
-          ...(removesTables ? { destructive: true } : {}),
-        },
-      ],
-      snapshot: (dropRemovedTables ? current : effectiveCurrent) as JsonValue,
-    };
-  }
-
-  const statements: MigrationExtensionResult["statements"][number][] = [];
-  if (added.length > 0) {
-    statements.push({ sql: addTableSql(current.name, added) });
-  }
-  if (dropRemovedTables && removed.length > 0) {
-    statements.push({
-      sql: dropTableSql(current.name, removed),
-      destructive: true,
-    });
-  }
-  return {
-    statements,
-    snapshot: effectiveCurrent as JsonValue,
-  };
+  const diff = publicationTableDiff(previous, current, dropRemovedTables);
+  return (
+    typeAlterPublicationResult({
+      current,
+      diff,
+      dropRemovedTables,
+      statements: baseStatements,
+    }) ??
+    changedColumnPublicationResult(current, diff, dropRemovedTables) ??
+    tableSetPublicationResult(current, diff, dropRemovedTables)
+  );
 };
 
 const introspectPublication = (publicationName: string) =>
@@ -362,6 +493,7 @@ export const zeroPublication = (options: ZeroPublicationOptions): MigrationExten
         previous,
         current,
         dropRemovedTables: resolved.dropRemovedTables,
+        statements: context.statements ?? [],
       });
     },
     introspect: (context: { readonly config: ResolvedConfig }) => {

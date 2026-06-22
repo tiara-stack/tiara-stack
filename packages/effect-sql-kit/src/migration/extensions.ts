@@ -1,5 +1,6 @@
 import { Effect, Predicate, Schema } from "effect";
 import { JsonValueSchema, MigrationExtensionResultSchema } from "../cli/schema";
+import type { MigrationStatement } from "../diff/types";
 import type {
   EffectSqlSchema,
   JsonValue,
@@ -52,12 +53,14 @@ export const runMigrationExtensionsEffect = ({
   schema,
   previous,
   current,
+  statements,
   previousExtensions,
 }: {
   readonly config: ResolvedConfig;
   readonly schema: EffectSqlSchema;
   readonly previous: SchemaSnapshot;
   readonly current: SchemaSnapshot;
+  readonly statements?: readonly MigrationStatement[];
   readonly previousExtensions: Readonly<Record<string, JsonValue>>;
 }): Effect.Effect<readonly (MigrationExtensionResult & { readonly name: string })[], unknown> =>
   Effect.gen(function* () {
@@ -72,6 +75,7 @@ export const runMigrationExtensionsEffect = ({
               schema,
               previous,
               current,
+              statements,
               previousExtensions,
             }),
           ),

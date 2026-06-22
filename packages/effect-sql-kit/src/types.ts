@@ -69,6 +69,7 @@ export type MigrationExtensionContext = {
   readonly schema: EffectSqlSchema;
   readonly previous: SchemaSnapshot;
   readonly current: SchemaSnapshot;
+  readonly statements?: readonly MigrationStatement[];
   readonly previousExtensions: Readonly<Record<string, JsonValue>>;
 };
 
@@ -80,6 +81,7 @@ export type MigrationExtensionIntrospectContext = {
 };
 
 export type MigrationExtensionResult = {
+  readonly beforeStatements?: readonly MigrationStatement[];
   readonly statements: readonly MigrationStatement[];
   readonly snapshot: JsonValue;
 };

@@ -76,10 +76,14 @@ export const generateMigrationEffect = ({
       schema: schemaWithPrefix,
       previous,
       current,
+      statements,
       previousExtensions: (previousStored?.extensions ?? {}) as Readonly<Record<string, JsonValue>>,
     });
+    const extensionBeforeStatements = extensionResults.flatMap(
+      (result) => result.beforeStatements ?? [],
+    );
     const extensionStatements = extensionResults.flatMap((result) => result.statements);
-    const allStatements = [...statements, ...extensionStatements];
+    const allStatements = [...extensionBeforeStatements, ...statements, ...extensionStatements];
     const extensionSnapshots = yield* extensionSnapshotsEffect(extensionResults);
     const unsupported = allStatements.filter((statement) => statement.unsupported);
     if (unsupported.length > 0 && !custom) {

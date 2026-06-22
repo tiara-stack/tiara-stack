@@ -37,6 +37,7 @@ const MigrationStatementSchema = Schema.Struct({
 
 export const MigrationExtensionResultSchema: Schema.Schema<MigrationExtensionResult> =
   Schema.Struct({
+    beforeStatements: Schema.optional(Schema.Array(MigrationStatementSchema)),
     statements: Schema.Array(MigrationStatementSchema),
     snapshot: JsonValueSchema,
   });
