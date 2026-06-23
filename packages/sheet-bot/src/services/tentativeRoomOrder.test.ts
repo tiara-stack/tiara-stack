@@ -3,11 +3,11 @@ import { Effect } from "effect";
 import { sendTentativeRoomOrder } from "./tentativeRoomOrder";
 
 describe("sendTentativeRoomOrder", () => {
-  it("persists auto check-in room orders as tentative", async () => {
-    const persisted: unknown[] = [];
+  it.live("persists auto check-in room orders as tentative", () =>
+    Effect.gen(function* () {
+      const persisted: unknown[] = [];
 
-    await Effect.runPromise(
-      sendTentativeRoomOrder({
+      yield* sendTentativeRoomOrder({
         workspaceId: "guild-1",
         runningConversationId: "channel-1",
         hour: 20,
@@ -49,15 +49,15 @@ describe("sendTentativeRoomOrder", () => {
             } as never),
           updateMessage: () => Effect.succeed({} as never),
         },
-      }),
-    );
+      });
 
-    expect(persisted).toEqual([
-      expect.objectContaining({
-        data: expect.objectContaining({
-          tentative: true,
+      expect(persisted).toEqual([
+        expect.objectContaining({
+          data: expect.objectContaining({
+            tentative: true,
+          }),
         }),
-      }),
-    ]);
-  });
+      ]);
+    }),
+  );
 });

@@ -14,12 +14,12 @@ const makeRepositoryLayer = () => {
 };
 
 describe("ReviewRepository", () => {
-  it("withSqlite migrates a fresh database before running the effect", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "tiara-review-db."));
-    const dbPath = join(dir, "nested", "reviews.sqlite");
-    try {
-      const runCount = await Effect.runPromise(
-        withSqlite(
+  it.live("withSqlite migrates a fresh database before running the effect", () =>
+    Effect.gen(function* () {
+      const dir = mkdtempSync(join(tmpdir(), "tiara-review-db."));
+      const dbPath = join(dir, "nested", "reviews.sqlite");
+      try {
+        const runCount = yield* withSqlite(
           dbPath,
           Effect.gen(function* () {
             const sql = yield* SqlClient.SqlClient;
@@ -37,19 +37,19 @@ describe("ReviewRepository", () => {
             );
             return rows[0]?.count ?? 0;
           }),
-        ),
-      );
-      expect(runCount).toBe(1);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
+        );
+        expect(runCount).toBe(1);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }),
+  );
 
-  it("creates schema idempotently and loads unresolved prior findings for the same repo", async () => {
-    const { dir, layer } = makeRepositoryLayer();
-    try {
-      const findings = await Effect.runPromise(
-        Effect.gen(function* () {
+  it.live("creates schema idempotently and loads unresolved prior findings for the same repo", () =>
+    Effect.gen(function* () {
+      const { dir, layer } = makeRepositoryLayer();
+      try {
+        const findings = yield* Effect.gen(function* () {
           const repository = yield* ReviewRepository;
           yield* repository.run(
             Effect.gen(function* () {
@@ -172,22 +172,22 @@ describe("ReviewRepository", () => {
               currentRunId: "current-run",
             }),
           );
-        }).pipe(Effect.provide(layer)),
-      );
+        }).pipe(Effect.provide(layer));
 
-      expect(findings.map((finding) => finding.id)).toEqual(["finding-open"]);
-      expect(findings[0]?.baseRef).toBe("HEAD");
-      expect(findings[0]?.source).toBe("orchestrator");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
+        expect(findings.map((finding) => finding.id)).toEqual(["finding-open"]);
+        expect(findings[0]?.baseRef).toBe("HEAD");
+        expect(findings[0]?.source).toBe("orchestrator");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }),
+  );
 
-  it("loads review input findings from orchestrator history and external imports", async () => {
-    const { dir, layer } = makeRepositoryLayer();
-    try {
-      const findings = await Effect.runPromise(
-        Effect.gen(function* () {
+  it.live("loads review input findings from orchestrator history and external imports", () =>
+    Effect.gen(function* () {
+      const { dir, layer } = makeRepositoryLayer();
+      try {
+        const findings = yield* Effect.gen(function* () {
           const repository = yield* ReviewRepository;
           yield* repository.run(
             Effect.gen(function* () {
@@ -391,30 +391,30 @@ describe("ReviewRepository", () => {
               currentRunId: "current-run",
             }),
           );
-        }).pipe(Effect.provide(layer)),
-      );
+        }).pipe(Effect.provide(layer));
 
-      expect(findings.map((finding) => finding.id).sort()).toEqual([
-        "current-external-open",
-        "previous-external-open",
-        "previous-orchestrator-open",
-      ]);
-      expect(findings.find((finding) => finding.id === "current-external-open")?.source).toBe(
-        "external-review",
-      );
-      expect(findings.find((finding) => finding.id === "previous-orchestrator-open")?.source).toBe(
-        "orchestrator",
-      );
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
+        expect(findings.map((finding) => finding.id).sort()).toEqual([
+          "current-external-open",
+          "previous-external-open",
+          "previous-orchestrator-open",
+        ]);
+        expect(findings.find((finding) => finding.id === "current-external-open")?.source).toBe(
+          "external-review",
+        );
+        expect(
+          findings.find((finding) => finding.id === "previous-orchestrator-open")?.source,
+        ).toBe("orchestrator");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }),
+  );
 
-  it("rolls back batched finding inserts when one row fails", async () => {
-    const { dbPath, dir, layer } = makeRepositoryLayer();
-    try {
-      await Effect.runPromise(
-        Effect.gen(function* () {
+  it.live("rolls back batched finding inserts when one row fails", () =>
+    Effect.gen(function* () {
+      const { dbPath, dir, layer } = makeRepositoryLayer();
+      try {
+        yield* Effect.gen(function* () {
           const repository = yield* ReviewRepository;
           yield* repository.run(
             repository.insertRun({
@@ -433,11 +433,9 @@ describe("ReviewRepository", () => {
               status: "running",
             }),
           );
-        }).pipe(Effect.provide(layer)),
-      );
+        }).pipe(Effect.provide(layer));
 
-      await expect(
-        Effect.runPromise(
+        const exit770 = yield* Effect.exit(
           Effect.gen(function* () {
             const repository = yield* ReviewRepository;
             yield* repository.run(
@@ -466,30 +464,29 @@ describe("ReviewRepository", () => {
               }),
             );
           }).pipe(Effect.provide(layer)),
-        ),
-      ).rejects.toBeDefined();
+        );
+        expect(exit770._tag).toBe("Failure");
 
-      const insertedCount = await Effect.runPromise(
-        Effect.gen(function* () {
+        const insertedCount = yield* Effect.gen(function* () {
           const sql = yield* SqlClient.SqlClient;
           const rows = yield* sql.unsafe<{ readonly count: number }>(
             `select count(*) as count from findings where run_id = 'run-1'`,
           );
           return rows[0]?.count;
-        }).pipe(Effect.provide(sqliteLayer(dbPath))),
-      );
+        }).pipe(Effect.provide(sqliteLayer(dbPath)));
 
-      expect(insertedCount).toBe(0);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
+        expect(insertedCount).toBe(0);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }),
+  );
 
-  it("preserves agent thread IDs when updateAgent omits codexThreadId", async () => {
-    const { dbPath, dir, layer } = makeRepositoryLayer();
-    try {
-      await Effect.runPromise(
-        Effect.gen(function* () {
+  it.live("preserves agent thread IDs when updateAgent omits codexThreadId", () =>
+    Effect.gen(function* () {
+      const { dbPath, dir, layer } = makeRepositoryLayer();
+      try {
+        yield* Effect.gen(function* () {
           const repository = yield* ReviewRepository;
           yield* repository.run(
             Effect.gen(function* () {
@@ -530,145 +527,143 @@ describe("ReviewRepository", () => {
               });
             }),
           );
-        }).pipe(Effect.provide(layer)),
-      );
-      const threadId = await Effect.runPromise(
-        Effect.gen(function* () {
+        }).pipe(Effect.provide(layer));
+        const threadId = yield* Effect.gen(function* () {
           const sql = yield* SqlClient.SqlClient;
           const rows = yield* sql.unsafe<{ readonly codex_thread_id: string | null }>(
             `select codex_thread_id from review_agents where id = 'agent-1'`,
           );
           return rows[0]?.codex_thread_id;
-        }).pipe(Effect.provide(sqliteLayer(dbPath))),
-      );
+        }).pipe(Effect.provide(sqliteLayer(dbPath)));
 
-      expect(threadId).toBe("thread-1");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
+        expect(threadId).toBe("thread-1");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }),
+  );
 
-  it("dedupes review input findings and lets orchestrator findings supersede current imports", async () => {
-    const { dbPath, dir, layer } = makeRepositoryLayer();
-    try {
-      const result = await Effect.runPromise(
-        Effect.gen(function* () {
-          const repository = yield* ReviewRepository;
-          const duplicateFinding = {
-            severity: "medium" as const,
-            type: "logic-bug" as const,
-            location: "a.ts:1",
-            issue: "Duplicate issue",
-            evidence: "evidence",
-            suggestedFix: "fix",
-          };
-          yield* repository.run(
-            Effect.gen(function* () {
-              for (const id of ["previous-run", "current-run"]) {
+  it.live(
+    "dedupes review input findings and lets orchestrator findings supersede current imports",
+    () =>
+      Effect.gen(function* () {
+        const { dbPath, dir, layer } = makeRepositoryLayer();
+        try {
+          const result = yield* Effect.gen(function* () {
+            const repository = yield* ReviewRepository;
+            const duplicateFinding = {
+              severity: "medium" as const,
+              type: "logic-bug" as const,
+              location: "a.ts:1",
+              issue: "Duplicate issue",
+              evidence: "evidence",
+              suggestedFix: "fix",
+            };
+            yield* repository.run(
+              Effect.gen(function* () {
+                for (const id of ["previous-run", "current-run"]) {
+                  yield* repository.insertRun({
+                    id,
+                    repoRoot: "/repo",
+                    branch: "main",
+                    headCommit: "head",
+                    baseRef: "HEAD",
+                    baseCommit: "head",
+                    checkpointRef: `${id}-checkpoint`,
+                    checkpointCommit: `${id}-checkpoint-commit`,
+                    checkpointCreatedAtMillis: 1_000,
+                    diffHash: "hash",
+                    diffStatJson: "{}",
+                    createdAt: 1,
+                    status: id === "previous-run" ? "completed" : "running",
+                  });
+                }
                 yield* repository.insertRun({
-                  id,
+                  id: "other-branch-run",
                   repoRoot: "/repo",
-                  branch: "main",
+                  branch: "other",
                   headCommit: "head",
                   baseRef: "HEAD",
                   baseCommit: "head",
-                  checkpointRef: `${id}-checkpoint`,
-                  checkpointCommit: `${id}-checkpoint-commit`,
+                  checkpointRef: "other-branch-run-checkpoint",
+                  checkpointCommit: "other-branch-run-checkpoint-commit",
                   checkpointCreatedAtMillis: 1_000,
                   diffHash: "hash",
                   diffStatJson: "{}",
                   createdAt: 1,
-                  status: id === "previous-run" ? "completed" : "running",
+                  status: "completed",
                 });
-              }
-              yield* repository.insertRun({
-                id: "other-branch-run",
+                yield* repository.insertFindings({
+                  runId: "previous-run",
+                  agentId: null,
+                  source: "external-review",
+                  findings: [{ id: "previous-external-duplicate", ...duplicateFinding }],
+                });
+                yield* repository.insertFindings({
+                  runId: "current-run",
+                  agentId: null,
+                  source: "external-review",
+                  findings: [{ id: "current-external-duplicate", ...duplicateFinding }],
+                });
+                yield* repository.insertFindings({
+                  runId: "previous-run",
+                  agentId: null,
+                  source: "orchestrator",
+                  findings: [{ id: "previous-orchestrator-duplicate", ...duplicateFinding }],
+                });
+                yield* repository.insertFindings({
+                  runId: "other-branch-run",
+                  agentId: null,
+                  source: "orchestrator",
+                  findings: [{ id: "other-branch-duplicate", ...duplicateFinding }],
+                });
+              }),
+            );
+
+            const before = yield* repository.run(
+              repository.loadReviewInputFindings({
                 repoRoot: "/repo",
-                branch: "other",
-                headCommit: "head",
-                baseRef: "HEAD",
-                baseCommit: "head",
-                checkpointRef: "other-branch-run-checkpoint",
-                checkpointCommit: "other-branch-run-checkpoint-commit",
-                checkpointCreatedAtMillis: 1_000,
-                diffHash: "hash",
-                diffStatJson: "{}",
-                createdAt: 1,
-                status: "completed",
-              });
-              yield* repository.insertFindings({
-                runId: "previous-run",
-                agentId: null,
-                source: "external-review",
-                findings: [{ id: "previous-external-duplicate", ...duplicateFinding }],
-              });
-              yield* repository.insertFindings({
-                runId: "current-run",
-                agentId: null,
-                source: "external-review",
-                findings: [{ id: "current-external-duplicate", ...duplicateFinding }],
-              });
-              yield* repository.insertFindings({
-                runId: "previous-run",
-                agentId: null,
-                source: "orchestrator",
-                findings: [{ id: "previous-orchestrator-duplicate", ...duplicateFinding }],
-              });
-              yield* repository.insertFindings({
-                runId: "other-branch-run",
-                agentId: null,
-                source: "orchestrator",
-                findings: [{ id: "other-branch-duplicate", ...duplicateFinding }],
-              });
-            }),
-          );
+                currentRunId: "current-run",
+              }),
+            );
+            yield* repository.run(
+              repository.markSupersededByDedupeKeys(
+                [dedupeKeyForFinding(duplicateFinding)],
+                "current-run",
+              ),
+            );
+            const after = yield* repository.run(
+              repository.loadReviewInputFindings({
+                repoRoot: "/repo",
+                currentRunId: "current-run",
+              }),
+            );
+            return { before, after };
+          }).pipe(Effect.provide(layer));
+          const otherBranchStatus = yield* Effect.gen(function* () {
+            const sql = yield* SqlClient.SqlClient;
+            const rows = yield* sql.unsafe<{ readonly status: string }>(
+              `select status from findings where id = 'other-branch-duplicate'`,
+            );
+            return rows[0]?.status;
+          }).pipe(Effect.provide(sqliteLayer(dbPath)));
 
-          const before = yield* repository.run(
-            repository.loadReviewInputFindings({
-              repoRoot: "/repo",
-              currentRunId: "current-run",
-            }),
-          );
-          yield* repository.run(
-            repository.markSupersededByDedupeKeys(
-              [dedupeKeyForFinding(duplicateFinding)],
-              "current-run",
-            ),
-          );
-          const after = yield* repository.run(
-            repository.loadReviewInputFindings({
-              repoRoot: "/repo",
-              currentRunId: "current-run",
-            }),
-          );
-          return { before, after };
-        }).pipe(Effect.provide(layer)),
-      );
-      const otherBranchStatus = await Effect.runPromise(
-        Effect.gen(function* () {
-          const sql = yield* SqlClient.SqlClient;
-          const rows = yield* sql.unsafe<{ readonly status: string }>(
-            `select status from findings where id = 'other-branch-duplicate'`,
-          );
-          return rows[0]?.status;
-        }).pipe(Effect.provide(sqliteLayer(dbPath))),
-      );
+          expect(result.before.map((finding) => finding.id)).toEqual([
+            "previous-orchestrator-duplicate",
+          ]);
+          expect(result.after).toEqual([]);
+          expect(otherBranchStatus).toBe("open");
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
+      }),
+  );
 
-      expect(result.before.map((finding) => finding.id)).toEqual([
-        "previous-orchestrator-duplicate",
-      ]);
-      expect(result.after).toEqual([]);
-      expect(otherBranchStatus).toBe("open");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it("marks hidden external-review duplicates fixed when the visible prior is fixed", async () => {
-    const { dir, layer } = makeRepositoryLayer();
-    try {
-      const findings = await Effect.runPromise(
-        Effect.gen(function* () {
+  it.live("marks hidden external-review duplicates fixed when the visible prior is fixed", () =>
+    Effect.gen(function* () {
+      const { dir, layer } = makeRepositoryLayer();
+      try {
+        const findings = yield* Effect.gen(function* () {
           const repository = yield* ReviewRepository;
           const duplicateFinding = {
             severity: "medium" as const,
@@ -741,29 +736,29 @@ describe("ReviewRepository", () => {
             }),
           );
           return { currentRunFindings, laterRunFindings };
-        }).pipe(Effect.provide(layer)),
-      );
+        }).pipe(Effect.provide(layer));
 
-      expect(findings.currentRunFindings).toEqual([]);
-      expect(findings.laterRunFindings).toEqual([]);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
+        expect(findings.currentRunFindings).toEqual([]);
+        expect(findings.laterRunFindings).toEqual([]);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }),
+  );
 
-  it("rolls back orchestrator finalization when completing the run fails", async () => {
-    const { dbPath, dir, layer } = makeRepositoryLayer();
-    try {
-      const duplicateFinding = {
-        severity: "medium" as const,
-        type: "logic-bug" as const,
-        location: "a.ts:1",
-        issue: "Duplicate issue",
-        evidence: "evidence",
-        suggestedFix: "fix",
-      };
-      await Effect.runPromise(
-        Effect.gen(function* () {
+  it.live("rolls back orchestrator finalization when completing the run fails", () =>
+    Effect.gen(function* () {
+      const { dbPath, dir, layer } = makeRepositoryLayer();
+      try {
+        const duplicateFinding = {
+          severity: "medium" as const,
+          type: "logic-bug" as const,
+          location: "a.ts:1",
+          issue: "Duplicate issue",
+          evidence: "evidence",
+          suggestedFix: "fix",
+        };
+        yield* Effect.gen(function* () {
           const repository = yield* ReviewRepository;
           yield* repository.run(
             Effect.gen(function* () {
@@ -812,10 +807,8 @@ describe("ReviewRepository", () => {
               });
             }),
           );
-        }).pipe(Effect.provide(layer)),
-      );
-      await Effect.runPromise(
-        withSqlite(
+        }).pipe(Effect.provide(layer));
+        yield* withSqlite(
           dbPath,
           Effect.gen(function* () {
             const sql = yield* SqlClient.SqlClient;
@@ -828,10 +821,8 @@ describe("ReviewRepository", () => {
                end`,
             );
           }),
-        ),
-      );
-      await expect(
-        Effect.runPromise(
+        );
+        const exit2679 = yield* Effect.exit(
           Effect.gen(function* () {
             const repository = yield* ReviewRepository;
             yield* repository.run(
@@ -855,11 +846,10 @@ describe("ReviewRepository", () => {
               }),
             );
           }).pipe(Effect.provide(layer)),
-        ),
-      ).rejects.toBeDefined();
+        );
+        expect(exit2679._tag).toBe("Failure");
 
-      const rows = await Effect.runPromise(
-        withSqlite(
+        const rows = yield* withSqlite(
           dbPath,
           Effect.gen(function* () {
             const sql = yield* SqlClient.SqlClient;
@@ -886,26 +876,26 @@ describe("ReviewRepository", () => {
               agentStatus: agent[0]?.status,
             };
           }),
-        ),
-      );
+        );
 
-      expect(rows).toEqual({
-        priorStatus: "open",
-        currentCount: 0,
-        recheckCount: 0,
-        runStatus: "running",
-        agentStatus: "running",
-      });
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
+        expect(rows).toEqual({
+          priorStatus: "open",
+          currentCount: 0,
+          recheckCount: 0,
+          runStatus: "running",
+          agentStatus: "running",
+        });
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }),
+  );
 
-  it("links recheck records to matching current-run orchestrator findings", async () => {
-    const { dbPath, dir, layer } = makeRepositoryLayer();
-    try {
-      await Effect.runPromise(
-        Effect.gen(function* () {
+  it.live("links recheck records to matching current-run orchestrator findings", () =>
+    Effect.gen(function* () {
+      const { dbPath, dir, layer } = makeRepositoryLayer();
+      try {
+        yield* Effect.gen(function* () {
           const repository = yield* ReviewRepository;
           yield* repository.run(
             Effect.gen(function* () {
@@ -984,11 +974,9 @@ describe("ReviewRepository", () => {
               });
             }),
           );
-        }).pipe(Effect.provide(layer)),
-      );
+        }).pipe(Effect.provide(layer));
 
-      const recheck = await Effect.runPromise(
-        withSqlite(
+        const recheck = yield* withSqlite(
           dbPath,
           Effect.gen(function* () {
             const sql = yield* SqlClient.SqlClient;
@@ -1003,23 +991,23 @@ describe("ReviewRepository", () => {
             );
             return rows[0];
           }),
-        ),
-      );
+        );
 
-      expect(recheck).toEqual({
-        finding_id: "current-finding",
-        prior_finding_id: "prior-finding",
-      });
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
+        expect(recheck).toEqual({
+          finding_id: "current-finding",
+          prior_finding_id: "prior-finding",
+        });
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }),
+  );
 
-  it("persists rechecks with unknown prior finding IDs without violating foreign keys", async () => {
-    const { dir, layer } = makeRepositoryLayer();
-    try {
-      await Effect.runPromise(
-        Effect.gen(function* () {
+  it.live("persists rechecks with unknown prior finding IDs without violating foreign keys", () =>
+    Effect.gen(function* () {
+      const { dir, layer } = makeRepositoryLayer();
+      try {
+        yield* Effect.gen(function* () {
           const repository = yield* ReviewRepository;
           yield* repository.run(
             Effect.gen(function* () {
@@ -1051,18 +1039,18 @@ describe("ReviewRepository", () => {
               });
             }),
           );
-        }).pipe(Effect.provide(layer)),
-      );
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
+        }).pipe(Effect.provide(layer));
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }),
+  );
 
-  it("ignores prior finding IDs from other repos or branches", async () => {
-    const { dbPath, dir, layer } = makeRepositoryLayer();
-    try {
-      await Effect.runPromise(
-        Effect.gen(function* () {
+  it.live("ignores prior finding IDs from other repos or branches", () =>
+    Effect.gen(function* () {
+      const { dbPath, dir, layer } = makeRepositoryLayer();
+      try {
+        yield* Effect.gen(function* () {
           const repository = yield* ReviewRepository;
           yield* repository.run(
             Effect.gen(function* () {
@@ -1138,11 +1126,9 @@ describe("ReviewRepository", () => {
               });
             }),
           );
-        }).pipe(Effect.provide(layer)),
-      );
+        }).pipe(Effect.provide(layer));
 
-      const rows = await Effect.runPromise(
-        withSqlite(
+        const rows = yield* withSqlite(
           dbPath,
           Effect.gen(function* () {
             const sql = yield* SqlClient.SqlClient;
@@ -1165,24 +1151,24 @@ describe("ReviewRepository", () => {
             );
             return { rechecks, findings };
           }),
-        ),
-      );
+        );
 
-      expect(rows.rechecks).toEqual([{ prior_finding_id: null }, { prior_finding_id: null }]);
-      expect(rows.findings).toEqual([
-        { id: "other-branch-finding", status: "open" },
-        { id: "other-repo-finding", status: "open" },
-      ]);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
+        expect(rows.rechecks).toEqual([{ prior_finding_id: null }, { prior_finding_id: null }]);
+        expect(rows.findings).toEqual([
+          { id: "other-branch-finding", status: "open" },
+          { id: "other-repo-finding", status: "open" },
+        ]);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }),
+  );
 
-  it("loads the latest completed checkpoint for the same repo and branch", async () => {
-    const { dir, layer } = makeRepositoryLayer();
-    try {
-      const checkpoint = await Effect.runPromise(
-        Effect.gen(function* () {
+  it.live("loads the latest completed checkpoint for the same repo and branch", () =>
+    Effect.gen(function* () {
+      const { dir, layer } = makeRepositoryLayer();
+      try {
+        const checkpoint = yield* Effect.gen(function* () {
           const repository = yield* ReviewRepository;
           yield* repository.run(
             Effect.gen(function* () {
@@ -1252,21 +1238,21 @@ describe("ReviewRepository", () => {
             }),
           );
           return yield* repository.run(repository.loadLatestCompletedCheckpoint("/repo", "main"));
-        }).pipe(Effect.provide(layer)),
-      );
+        }).pipe(Effect.provide(layer));
 
-      expect(checkpoint?.checkpointRef).toBe("newer-completed-early-ref");
-      expect(checkpoint?.checkpointCommit).toBe("newer-completed-early-commit");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
+        expect(checkpoint?.checkpointRef).toBe("newer-completed-early-ref");
+        expect(checkpoint?.checkpointCommit).toBe("newer-completed-early-commit");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }),
+  );
 
-  it("normalizes legacy second-based checkpoint timestamps during migration", async () => {
-    const { dbPath, dir, layer } = makeRepositoryLayer();
-    try {
-      await Effect.runPromise(
-        Effect.gen(function* () {
+  it.live("normalizes legacy second-based checkpoint timestamps during migration", () =>
+    Effect.gen(function* () {
+      const { dbPath, dir, layer } = makeRepositoryLayer();
+      try {
+        yield* Effect.gen(function* () {
           const repository = yield* ReviewRepository;
           yield* repository.run(
             repository.insertRun({
@@ -1286,11 +1272,9 @@ describe("ReviewRepository", () => {
               status: "completed",
             }),
           );
-        }).pipe(Effect.provide(layer)),
-      );
+        }).pipe(Effect.provide(layer));
 
-      const timestamp = await Effect.runPromise(
-        Effect.gen(function* () {
+        const timestamp = yield* Effect.gen(function* () {
           const sql = yield* SqlClient.SqlClient;
           yield* sql`update review_runs set checkpoint_created_at = ${1_700_000_000}, created_at = ${1_700_000_005} where id = 'legacy-run'`;
           yield* sql`delete from schema_migrations where id = 'normalize-checkpoint-created-at-v1'`;
@@ -1300,12 +1284,12 @@ describe("ReviewRepository", () => {
             `select checkpoint_created_at from review_runs where id = 'legacy-run'`,
           );
           return rows[0]?.checkpoint_created_at;
-        }).pipe(Effect.provide(sqliteLayer(dbPath))),
-      );
+        }).pipe(Effect.provide(sqliteLayer(dbPath)));
 
-      expect(timestamp).toBe(1_700_000_000_000);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
+        expect(timestamp).toBe(1_700_000_000_000);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }),
+  );
 });

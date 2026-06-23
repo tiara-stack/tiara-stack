@@ -3,51 +3,63 @@ import { ConfigProvider, Effect } from "effect";
 import { config } from "./config";
 
 const readWorkflowRole = (env: Record<string, unknown>) =>
-  Effect.runPromise(
-    config.sheetWorkflowsRole.pipe(
-      Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(env))),
-    ),
+  config.sheetWorkflowsRole.pipe(
+    Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(env))),
   );
 
 const readRunnerHealthLabelSelector = (env: Record<string, unknown>) =>
-  Effect.runPromise(
-    config.workflowsRunnerHealthLabelSelector.pipe(
-      Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(env))),
-    ),
+  config.workflowsRunnerHealthLabelSelector.pipe(
+    Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(env))),
   );
 
 describe("sheet-workflows config", () => {
-  it("defaults SHEET_WORKFLOWS_ROLE to combined", async () => {
-    await expect(readWorkflowRole({})).resolves.toBe("combined");
-  });
+  it.effect("defaults SHEET_WORKFLOWS_ROLE to combined", () =>
+    Effect.gen(function* () {
+      expect(yield* readWorkflowRole({})).toBe("combined");
+    }),
+  );
 
-  it("accepts SHEET_WORKFLOWS_ROLE=api", async () => {
-    await expect(readWorkflowRole({ SHEET_WORKFLOWS_ROLE: "api" })).resolves.toBe("api");
-  });
+  it.effect("accepts SHEET_WORKFLOWS_ROLE=api", () =>
+    Effect.gen(function* () {
+      expect(yield* readWorkflowRole({ SHEET_WORKFLOWS_ROLE: "api" })).toBe("api");
+    }),
+  );
 
-  it("accepts SHEET_WORKFLOWS_ROLE=runner", async () => {
-    await expect(readWorkflowRole({ SHEET_WORKFLOWS_ROLE: "runner" })).resolves.toBe("runner");
-  });
+  it.effect("accepts SHEET_WORKFLOWS_ROLE=runner", () =>
+    Effect.gen(function* () {
+      expect(yield* readWorkflowRole({ SHEET_WORKFLOWS_ROLE: "runner" })).toBe("runner");
+    }),
+  );
 
-  it("rejects invalid SHEET_WORKFLOWS_ROLE values", async () => {
-    await expect(readWorkflowRole({ SHEET_WORKFLOWS_ROLE: "worker" })).rejects.toThrow();
-  });
+  it.effect("rejects invalid SHEET_WORKFLOWS_ROLE values", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(readWorkflowRole({ SHEET_WORKFLOWS_ROLE: "worker" }));
+      expect(exit._tag).toBe("Failure");
+    }),
+  );
 
-  it("defaults WORKFLOWS_RUNNER_HEALTH_LABEL_SELECTOR to sheet-workflows", async () => {
-    await expect(readRunnerHealthLabelSelector({})).resolves.toBe("app=sheet-workflows");
-  });
+  it.effect("defaults WORKFLOWS_RUNNER_HEALTH_LABEL_SELECTOR to sheet-workflows", () =>
+    Effect.gen(function* () {
+      expect(yield* readRunnerHealthLabelSelector({})).toBe("app=sheet-workflows");
+    }),
+  );
 
-  it("accepts WORKFLOWS_RUNNER_HEALTH_LABEL_SELECTOR overrides", async () => {
-    await expect(
-      readRunnerHealthLabelSelector({
-        WORKFLOWS_RUNNER_HEALTH_LABEL_SELECTOR: "app=sheet-workflows-runner",
-      }),
-    ).resolves.toBe("app=sheet-workflows-runner");
-  });
+  it.effect("accepts WORKFLOWS_RUNNER_HEALTH_LABEL_SELECTOR overrides", () =>
+    Effect.gen(function* () {
+      expect(
+        yield* readRunnerHealthLabelSelector({
+          WORKFLOWS_RUNNER_HEALTH_LABEL_SELECTOR: "app=sheet-workflows-runner",
+        }),
+      ).toBe("app=sheet-workflows-runner");
+    }),
+  );
 
-  it("rejects empty WORKFLOWS_RUNNER_HEALTH_LABEL_SELECTOR values", async () => {
-    await expect(
-      readRunnerHealthLabelSelector({ WORKFLOWS_RUNNER_HEALTH_LABEL_SELECTOR: "" }),
-    ).rejects.toThrow();
-  });
+  it.effect("rejects empty WORKFLOWS_RUNNER_HEALTH_LABEL_SELECTOR values", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(
+        readRunnerHealthLabelSelector({ WORKFLOWS_RUNNER_HEALTH_LABEL_SELECTOR: "" }),
+      );
+      expect(exit._tag).toBe("Failure");
+    }),
+  );
 });

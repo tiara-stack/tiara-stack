@@ -51,20 +51,22 @@ const failuresFromExit = (exit: Exit.Exit<unknown, unknown>) =>
     : [];
 
 describe("CodexLanguageModel", () => {
-  it("generateText returns final text from Codex final response", async () => {
-    const program = LanguageModel.generateText({ prompt: "review this" });
-    const response = await Effect.runPromise(
-      program.pipe(Effect.provide(withFakeClient(() => Effect.succeed(runResult("looks good"))))),
-    );
+  it.effect("generateText returns final text from Codex final response", () =>
+    Effect.gen(function* () {
+      const program = LanguageModel.generateText({ prompt: "review this" });
+      const response = yield* program.pipe(
+        Effect.provide(withFakeClient(() => Effect.succeed(runResult("looks good")))),
+      );
 
-    expect(response.text).toBe("looks good");
-    expect(response.content.some((part) => part.type === "finish")).toBe(true);
-  });
+      expect(response.text).toBe("looks good");
+      expect(response.content.some((part) => part.type === "finish")).toBe(true);
+    }),
+  );
 
-  it("preserves message roles when flattening multi-message prompts", async () => {
-    let captured: RunOptions | undefined;
-    await Effect.runPromise(
-      LanguageModel.generateText({
+  it.effect("preserves message roles when flattening multi-message prompts", () =>
+    Effect.gen(function* () {
+      let captured: RunOptions | undefined;
+      yield* LanguageModel.generateText({
         prompt: [
           { role: "system", content: "follow policy" },
           { role: "user", content: "review this" },
@@ -76,16 +78,16 @@ describe("CodexLanguageModel", () => {
             return Effect.succeed(runResult("looks good"));
           }),
         ),
-      ),
-    );
+      );
 
-    expect(captured?.prompt).toBe("system:\nfollow policy\n\nuser:\nreview this");
-  });
+      expect(captured?.prompt).toBe("system:\nfollow policy\n\nuser:\nreview this");
+    }),
+  );
 
-  it("merges provider and service environment config", async () => {
-    let captured: RunOptions | undefined;
-    await Effect.runPromise(
-      LanguageModel.generateText({ prompt: "review" }).pipe(
+  it.effect("merges provider and service environment config", () =>
+    Effect.gen(function* () {
+      let captured: RunOptions | undefined;
+      yield* LanguageModel.generateText({ prompt: "review" }).pipe(
         Effect.provide(
           Layer.provide(
             CodexLanguageModel.layer({
@@ -106,23 +108,23 @@ describe("CodexLanguageModel", () => {
             env: { SERVICE_ONLY: "service", SHARED: "service" },
           }),
         ),
-      ),
-    );
+      );
 
-    expect(captured?.clientOptions?.env).toEqual({
-      PROVIDER_ONLY: "provider",
-      SERVICE_ONLY: "service",
-      SHARED: "service",
-    });
-  });
+      expect(captured?.clientOptions?.env).toEqual({
+        PROVIDER_ONLY: "provider",
+        SERVICE_ONLY: "service",
+        SHARED: "service",
+      });
+    }),
+  );
 
-  it("resumes the Codex thread tracked from prior response metadata", async () => {
-    const firstUser = Prompt.make("first").content[0]!;
-    const assistant = Prompt.make([{ role: "assistant", content: "first answer" }]).content[0]!;
-    const secondUser = Prompt.make("continue").content[0]!;
-    const captured: Array<RunOptions> = [];
-    await Effect.runPromise(
-      Effect.gen(function* () {
+  it.effect("resumes the Codex thread tracked from prior response metadata", () =>
+    Effect.gen(function* () {
+      const firstUser = Prompt.make("first").content[0]!;
+      const assistant = Prompt.make([{ role: "assistant", content: "first answer" }]).content[0]!;
+      const secondUser = Prompt.make("continue").content[0]!;
+      const captured: Array<RunOptions> = [];
+      yield* Effect.gen(function* () {
         yield* LanguageModel.generateText({
           prompt: Prompt.fromMessages([firstUser]),
         });
@@ -137,43 +139,43 @@ describe("CodexLanguageModel", () => {
           }),
         ),
         Effect.provide(Layer.effect(ResponseIdTracker.ResponseIdTracker, ResponseIdTracker.make)),
-      ),
-    );
+      );
 
-    expect(captured[1]?.threadId).toBe("thread_1");
-  });
+      expect(captured[1]?.threadId).toBe("thread_1");
+    }),
+  );
 
-  it("generateObject passes JSON schema to Codex run and decodes a valid object", async () => {
-    let captured: RunOptions | undefined;
-    const Output = Schema.Struct({ ok: Schema.Boolean });
-    const program = LanguageModel.generateObject({
-      prompt: "return json",
-      schema: Output,
-      objectName: "codex_test_output",
-    });
+  it.effect("generateObject passes JSON schema to Codex run and decodes a valid object", () =>
+    Effect.gen(function* () {
+      let captured: RunOptions | undefined;
+      const Output = Schema.Struct({ ok: Schema.Boolean });
+      const program = LanguageModel.generateObject({
+        prompt: "return json",
+        schema: Output,
+        objectName: "codex_test_output",
+      });
 
-    const response = await Effect.runPromise(
-      program.pipe(
+      const response = yield* program.pipe(
         Effect.provide(
           withFakeClient((options) => {
             captured = options;
             return Effect.succeed(runResult(JSON.stringify({ ok: true })));
           }),
         ),
-      ),
-    );
+      );
 
-    expect(response.value).toEqual({ ok: true });
-    expect(captured?.turnOptions?.outputSchema).toMatchObject({
-      type: "object",
-      properties: { ok: { type: "boolean" } },
-    });
-  });
+      expect(response.value).toEqual({ ok: true });
+      expect(captured?.turnOptions?.outputSchema).toMatchObject({
+        type: "object",
+        properties: { ok: { type: "boolean" } },
+      });
+    }),
+  );
 
-  it("generateObject ignores provider-executed MCP tool parts when decoding JSON", async () => {
-    const Output = Schema.Struct({ ok: Schema.Boolean });
-    const response = await Effect.runPromise(
-      LanguageModel.generateObject({
+  it.effect("generateObject ignores provider-executed MCP tool parts when decoding JSON", () =>
+    Effect.gen(function* () {
+      const Output = Schema.Struct({ ok: Schema.Boolean });
+      const response = yield* LanguageModel.generateObject({
         prompt: "return json",
         schema: Output,
         objectName: "codex_test_output",
@@ -199,22 +201,22 @@ describe("CodexLanguageModel", () => {
             ),
           ),
         ),
-      ),
-    );
+      );
 
-    expect(response.value).toEqual({ ok: true });
-    expect(
-      response.content.some((part) => (part as { readonly type: string }).type === "tool-call"),
-    ).toBe(false);
-    expect(
-      response.content.some((part) => (part as { readonly type: string }).type === "tool-result"),
-    ).toBe(false);
-  });
+      expect(response.value).toEqual({ ok: true });
+      expect(
+        response.content.some((part) => (part as { readonly type: string }).type === "tool-call"),
+      ).toBe(false);
+      expect(
+        response.content.some((part) => (part as { readonly type: string }).type === "tool-result"),
+      ).toBe(false);
+    }),
+  );
 
-  it("generateObject extracts JSON before trailing text", async () => {
-    const Output = Schema.Struct({ ok: Schema.Boolean });
-    const response = await Effect.runPromise(
-      LanguageModel.generateObject({
+  it.effect("generateObject extracts JSON before trailing text", () =>
+    Effect.gen(function* () {
+      const Output = Schema.Struct({ ok: Schema.Boolean });
+      const response = yield* LanguageModel.generateObject({
         prompt: "return json",
         schema: Output,
         objectName: "codex_test_output",
@@ -224,16 +226,16 @@ describe("CodexLanguageModel", () => {
             Effect.succeed(runResult(`${JSON.stringify({ ok: true })}\nextra trailing text`)),
           ),
         ),
-      ),
-    );
+      );
 
-    expect(response.value).toEqual({ ok: true });
-  });
+      expect(response.value).toEqual({ ok: true });
+    }),
+  );
 
-  it("generateObject extracts array JSON values", async () => {
-    const Output = Schema.Array(Schema.Struct({ ok: Schema.Boolean }));
-    const response = await Effect.runPromise(
-      LanguageModel.generateObject({
+  it.effect("generateObject extracts array JSON values", () =>
+    Effect.gen(function* () {
+      const Output = Schema.Array(Schema.Struct({ ok: Schema.Boolean }));
+      const response = yield* LanguageModel.generateObject({
         prompt: "return json",
         schema: Output,
         objectName: "codex_test_output",
@@ -243,16 +245,16 @@ describe("CodexLanguageModel", () => {
             Effect.succeed(runResult(`${JSON.stringify([{ ok: true }])}\nextra trailing text`)),
           ),
         ),
-      ),
-    );
+      );
 
-    expect(response.value).toEqual([{ ok: true }]);
-  });
+      expect(response.value).toEqual([{ ok: true }]);
+    }),
+  );
 
-  it("generateObject skips earlier JSON objects that do not match the schema", async () => {
-    const Output = Schema.Struct({ ok: Schema.Boolean });
-    const response = await Effect.runPromise(
-      LanguageModel.generateObject({
+  it.effect("generateObject skips earlier JSON objects that do not match the schema", () =>
+    Effect.gen(function* () {
+      const Output = Schema.Struct({ ok: Schema.Boolean });
+      const response = yield* LanguageModel.generateObject({
         prompt: "return json",
         schema: Output,
         objectName: "codex_test_output",
@@ -270,16 +272,16 @@ describe("CodexLanguageModel", () => {
             ),
           ),
         ),
-      ),
-    );
+      );
 
-    expect(response.value).toEqual({ ok: true });
-  });
+      expect(response.value).toEqual({ ok: true });
+    }),
+  );
 
-  it("generateObject keeps scanning after malformed JSON candidates", async () => {
-    const Output = Schema.Struct({ ok: Schema.Boolean });
-    const response = await Effect.runPromise(
-      LanguageModel.generateObject({
+  it.effect("generateObject keeps scanning after malformed JSON candidates", () =>
+    Effect.gen(function* () {
+      const Output = Schema.Struct({ ok: Schema.Boolean });
+      const response = yield* LanguageModel.generateObject({
         prompt: "return json",
         schema: Output,
         objectName: "codex_test_output",
@@ -289,183 +291,203 @@ describe("CodexLanguageModel", () => {
             Effect.succeed(runResult(`{"a":[1}\n${JSON.stringify({ ok: true })}`)),
           ),
         ),
-      ),
-    );
+      );
 
-    expect(response.value).toEqual({ ok: true });
-  });
+      expect(response.value).toEqual({ ok: true });
+    }),
+  );
 
-  it("generateObject fails oversized structured responses before scanning", async () => {
-    const Output = Schema.Struct({ ok: Schema.Boolean });
-    const exit = await Effect.runPromiseExit(
-      LanguageModel.generateObject({
-        prompt: "return json",
-        schema: Output,
-        objectName: "codex_test_output",
-      }).pipe(
-        Effect.provide(
-          withFakeClient(() =>
-            Effect.succeed(runResult(`${"x".repeat(1_100_000)}\n${JSON.stringify({ ok: true })}`)),
+  it.effect("generateObject fails oversized structured responses before scanning", () =>
+    Effect.gen(function* () {
+      const Output = Schema.Struct({ ok: Schema.Boolean });
+      const exit = yield* Effect.exit(
+        LanguageModel.generateObject({
+          prompt: "return json",
+          schema: Output,
+          objectName: "codex_test_output",
+        }).pipe(
+          Effect.provide(
+            withFakeClient(() =>
+              Effect.succeed(
+                runResult(`${"x".repeat(1_100_000)}\n${JSON.stringify({ ok: true })}`),
+              ),
+            ),
           ),
         ),
-      ),
-    );
+      );
 
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (Exit.isFailure(exit)) {
-      expect(String(failuresFromExit(exit)[0])).toContain("structured response exceeded");
-    }
-  });
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(String(failuresFromExit(exit)[0])).toContain("structured response exceeded");
+      }
+    }),
+  );
 
-  it("generateObject uses configured structured response size limits", async () => {
-    const Output = Schema.Struct({ ok: Schema.Boolean });
-    const exit = await Effect.runPromiseExit(
-      LanguageModel.generateObject({
-        prompt: "return json",
-        schema: Output,
-        objectName: "codex_test_output",
-      }).pipe(
-        Effect.provide(
-          Layer.provide(
-            CodexLanguageModel.layer({
-              model: "gpt-5-codex",
-              config: { structuredResponseMaxCharacters: 20 },
-            }),
-            Layer.succeed(CodexClient, {
-              run: () => Effect.succeed(runResult(`${JSON.stringify({ ok: true })} trailing text`)),
-              runStreamed: () => Stream.empty,
-            }),
+  it.effect("generateObject uses configured structured response size limits", () =>
+    Effect.gen(function* () {
+      const Output = Schema.Struct({ ok: Schema.Boolean });
+      const exit = yield* Effect.exit(
+        LanguageModel.generateObject({
+          prompt: "return json",
+          schema: Output,
+          objectName: "codex_test_output",
+        }).pipe(
+          Effect.provide(
+            Layer.provide(
+              CodexLanguageModel.layer({
+                model: "gpt-5-codex",
+                config: { structuredResponseMaxCharacters: 20 },
+              }),
+              Layer.succeed(CodexClient, {
+                run: () =>
+                  Effect.succeed(runResult(`${JSON.stringify({ ok: true })} trailing text`)),
+                runStreamed: () => Stream.empty,
+              }),
+            ),
           ),
         ),
-      ),
-    );
+      );
 
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (Exit.isFailure(exit)) {
-      expect(String(failuresFromExit(exit)[0])).toContain("exceeded 20 characters");
-    }
-  });
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(String(failuresFromExit(exit)[0])).toContain("exceeded 20 characters");
+      }
+    }),
+  );
 
-  it("generateObject falls back to the default structured response size for invalid configured limits", async () => {
-    const Output = Schema.Struct({ ok: Schema.Boolean });
-    const response = await Effect.runPromise(
-      LanguageModel.generateObject({
+  it.effect(
+    "generateObject falls back to the default structured response size for invalid configured limits",
+    () =>
+      Effect.gen(function* () {
+        const Output = Schema.Struct({ ok: Schema.Boolean });
+        const response = yield* LanguageModel.generateObject({
+          prompt: "return json",
+          schema: Output,
+          objectName: "codex_test_output",
+        }).pipe(
+          Effect.provide(
+            Layer.provide(
+              CodexLanguageModel.layer({
+                model: "gpt-5-codex",
+                config: { structuredResponseMaxCharacters: Number.NaN },
+              }),
+              Layer.succeed(CodexClient, {
+                run: () => Effect.succeed(runResult(JSON.stringify({ ok: true }))),
+                runStreamed: () => Stream.empty,
+              }),
+            ),
+          ),
+        );
+
+        expect(response.value).toEqual({ ok: true });
+      }),
+  );
+
+  it.effect("generateObject does not extract primitive-looking prose tokens", () =>
+    Effect.gen(function* () {
+      const Output = Schema.Boolean;
+      const program = LanguageModel.generateObject({
         prompt: "return json",
         schema: Output,
         objectName: "codex_test_output",
-      }).pipe(
-        Effect.provide(
-          Layer.provide(
-            CodexLanguageModel.layer({
-              model: "gpt-5-codex",
-              config: { structuredResponseMaxCharacters: Number.NaN },
-            }),
-            Layer.succeed(CodexClient, {
-              run: () => Effect.succeed(runResult(JSON.stringify({ ok: true }))),
-              runStreamed: () => Stream.empty,
-            }),
+      } as any).pipe(
+        Effect.provide(withFakeClient(() => Effect.succeed(runResult("The result was true")))),
+      ) as Effect.Effect<unknown, unknown, never>;
+      const exit = yield* Effect.exit(program);
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        const failures = failuresFromExit(exit);
+        expect(failures[0]).toBeInstanceOf(AiError.AiError);
+        expect(String(failures[0])).toContain(
+          "Codex structured response did not contain JSON matching the schema",
+        );
+      }
+    }),
+  );
+
+  it.effect("generateObject does not extract leading primitive prose", () =>
+    Effect.gen(function* () {
+      const Output = Schema.Boolean;
+      const program = LanguageModel.generateObject({
+        prompt: "return json",
+        schema: Output,
+        objectName: "codex_test_output",
+      } as any).pipe(
+        Effect.provide(withFakeClient(() => Effect.succeed(runResult("true, and so on")))),
+      ) as Effect.Effect<unknown, unknown, never>;
+      const exit = yield* Effect.exit(program);
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        const failures = failuresFromExit(exit);
+        expect(failures[0]).toBeInstanceOf(AiError.AiError);
+        expect(String(failures[0])).toContain(
+          "Codex structured response did not contain JSON matching the schema",
+        );
+      }
+    }),
+  );
+
+  it.effect("generateObject maps invalid output to AiError", () =>
+    Effect.gen(function* () {
+      const Output = Schema.Struct({ ok: Schema.Boolean });
+      const exit = yield* Effect.exit(
+        LanguageModel.generateObject({
+          prompt: "return json",
+          schema: Output,
+          objectName: "codex_test_output",
+        }).pipe(
+          Effect.provide(
+            withFakeClient(() => Effect.succeed(runResult(JSON.stringify({ ok: "no" })))),
           ),
         ),
-      ),
-    );
-
-    expect(response.value).toEqual({ ok: true });
-  });
-
-  it("generateObject does not extract primitive-looking prose tokens", async () => {
-    const Output = Schema.Boolean;
-    const program = LanguageModel.generateObject({
-      prompt: "return json",
-      schema: Output,
-      objectName: "codex_test_output",
-    } as any).pipe(
-      Effect.provide(withFakeClient(() => Effect.succeed(runResult("The result was true")))),
-    ) as Effect.Effect<unknown, unknown, never>;
-    const exit = await Effect.runPromiseExit(program);
-
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (Exit.isFailure(exit)) {
-      const failures = failuresFromExit(exit);
-      expect(failures[0]).toBeInstanceOf(AiError.AiError);
-      expect(String(failures[0])).toContain(
-        "Codex structured response did not contain JSON matching the schema",
       );
-    }
-  });
 
-  it("generateObject does not extract leading primitive prose", async () => {
-    const Output = Schema.Boolean;
-    const program = LanguageModel.generateObject({
-      prompt: "return json",
-      schema: Output,
-      objectName: "codex_test_output",
-    } as any).pipe(
-      Effect.provide(withFakeClient(() => Effect.succeed(runResult("true, and so on")))),
-    ) as Effect.Effect<unknown, unknown, never>;
-    const exit = await Effect.runPromiseExit(program);
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        const failures = failuresFromExit(exit);
+        expect(failures[0]).toBeInstanceOf(AiError.AiError);
+        expect(String(failures[0])).toContain(
+          "Codex structured response did not contain JSON matching the schema",
+        );
+      }
+    }),
+  );
 
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (Exit.isFailure(exit)) {
-      const failures = failuresFromExit(exit);
-      expect(failures[0]).toBeInstanceOf(AiError.AiError);
-      expect(String(failures[0])).toContain(
-        "Codex structured response did not contain JSON matching the schema",
-      );
-    }
-  });
-
-  it("generateObject maps invalid output to AiError", async () => {
-    const Output = Schema.Struct({ ok: Schema.Boolean });
-    const exit = await Effect.runPromiseExit(
-      LanguageModel.generateObject({
-        prompt: "return json",
-        schema: Output,
-        objectName: "codex_test_output",
-      }).pipe(
-        Effect.provide(
-          withFakeClient(() => Effect.succeed(runResult(JSON.stringify({ ok: "no" })))),
+  it.effect("maps Codex timeouts to AiError", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(
+        LanguageModel.generateText({ prompt: "slow" }).pipe(
+          Effect.provide(withFakeClient(() => Effect.fail(new CodexTimeout({ timeoutMs: 100 })))),
         ),
-      ),
-    );
-
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (Exit.isFailure(exit)) {
-      const failures = failuresFromExit(exit);
-      expect(failures[0]).toBeInstanceOf(AiError.AiError);
-      expect(String(failures[0])).toContain(
-        "Codex structured response did not contain JSON matching the schema",
       );
-    }
-  });
 
-  it("maps Codex timeouts to AiError", async () => {
-    const exit = await Effect.runPromiseExit(
-      LanguageModel.generateText({ prompt: "slow" }).pipe(
-        Effect.provide(withFakeClient(() => Effect.fail(new CodexTimeout({ timeoutMs: 100 })))),
-      ),
-    );
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        const failures = failuresFromExit(exit);
+        expect(failures.length).toBeGreaterThan(0);
+        expect(failures[0]).toBeInstanceOf(AiError.AiError);
+        expect(String(failures[0])).toContain("Codex timed out after 100ms");
+      }
+    }),
+  );
 
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (Exit.isFailure(exit)) {
-      const failures = failuresFromExit(exit);
-      expect(failures.length).toBeGreaterThan(0);
-      expect(failures[0]).toBeInstanceOf(AiError.AiError);
-      expect(String(failures[0])).toContain("Codex timed out after 100ms");
-    }
-  });
-
-  it("represents MCP tool events as provider-executed tool parts", async () => {
-    const GraphTool = Tool.providerDefined({
-      id: "codex.mcp_graph_resolve_symbol",
-      customName: "mcp.graph.resolve_symbol",
-      providerName: "resolve_symbol",
-      parameters: Schema.Unknown,
-      success: Schema.Unknown,
-      failure: Schema.Unknown,
-    })();
-    const GraphToolkit = Toolkit.make(GraphTool);
-    const response = await Effect.runPromise(
-      LanguageModel.generateText({ prompt: "use graph", toolkit: GraphToolkit }).pipe(
+  it.effect("represents MCP tool events as provider-executed tool parts", () =>
+    Effect.gen(function* () {
+      const GraphTool = Tool.providerDefined({
+        id: "codex.mcp_graph_resolve_symbol",
+        customName: "mcp.graph.resolve_symbol",
+        providerName: "resolve_symbol",
+        parameters: Schema.Unknown,
+        success: Schema.Unknown,
+        failure: Schema.Unknown,
+      })();
+      const GraphToolkit = Toolkit.make(GraphTool);
+      const response = yield* LanguageModel.generateText({
+        prompt: "use graph",
+        toolkit: GraphToolkit,
+      }).pipe(
         Effect.provide(
           withFakeClient(() =>
             Effect.succeed(
@@ -483,20 +505,20 @@ describe("CodexLanguageModel", () => {
             ),
           ),
         ),
-      ),
-    );
+      );
 
-    expect(response.toolCalls).toHaveLength(1);
-    expect(response.toolCalls[0]).toMatchObject({
-      id: "tool_1",
-      name: "mcp.graph.resolve_symbol",
-      providerExecuted: true,
-    });
-    expect(response.toolResults[0]).toMatchObject({
-      id: "tool_1",
-      name: "mcp.graph.resolve_symbol",
-      providerExecuted: true,
-      isFailure: false,
-    });
-  });
+      expect(response.toolCalls).toHaveLength(1);
+      expect(response.toolCalls[0]).toMatchObject({
+        id: "tool_1",
+        name: "mcp.graph.resolve_symbol",
+        providerExecuted: true,
+      });
+      expect(response.toolResults[0]).toMatchObject({
+        id: "tool_1",
+        name: "mcp.graph.resolve_symbol",
+        providerExecuted: true,
+        isFailure: false,
+      });
+    }),
+  );
 });

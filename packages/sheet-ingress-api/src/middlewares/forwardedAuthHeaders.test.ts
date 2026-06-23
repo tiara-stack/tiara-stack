@@ -1,6 +1,6 @@
 // fallow-ignore-file code-duplication
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Redacted } from "effect";
+import { Cause, Effect, Exit, Redacted } from "effect";
 import { Headers } from "effect/unstable/http";
 import {
   decodeForwardedSheetAuthUser,
@@ -15,11 +15,9 @@ const makeHeaders = (headers: Record<string, string>) =>
   );
 
 const decode = (headers: Record<string, string>) =>
-  Effect.runPromise(
-    decodeForwardedSheetAuthUser(makeHeaders(headers), {
-      unavailableToken: Redacted.make("unavailable"),
-    }),
-  );
+  decodeForwardedSheetAuthUser(makeHeaders(headers), {
+    unavailableToken: Redacted.make("unavailable"),
+  });
 
 describe("decodeForwardedSheetAuthUser", () => {
   const baseHeaders = {
@@ -29,37 +27,49 @@ describe("decodeForwardedSheetAuthUser", () => {
     "x-sheet-auth-scopes": "sheet.read",
   };
 
-  it("fails when forwarded scopes include an unknown scope", async () => {
-    await expect(
-      decode({
+  it.effect("fails when forwarded scopes include an unknown scope", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(
+        decode({
+          ...baseHeaders,
+          "x-sheet-auth-scopes": "sheet.read,unknown.scope",
+        }),
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(Cause.pretty(exit.cause)).toContain("unknown.scope");
+      }
+    }),
+  );
+
+  it.effect("prefers the neutral forwarded sheet-auth token header", () =>
+    Effect.gen(function* () {
+      const user = yield* decode({
         ...baseHeaders,
-        "x-sheet-auth-scopes": "sheet.read,unknown.scope",
-      }),
-    ).rejects.toThrow("Invalid forwarded auth scopes");
-  });
+        [SHEET_AUTH_TOKEN_HEADER]: "Bearer oauth-token",
+        [SHEET_AUTH_SESSION_TOKEN_HEADER]: "Bearer session-token",
+      });
 
-  it("prefers the neutral forwarded sheet-auth token header", async () => {
-    const user = await decode({
-      ...baseHeaders,
-      [SHEET_AUTH_TOKEN_HEADER]: "Bearer oauth-token",
-      [SHEET_AUTH_SESSION_TOKEN_HEADER]: "Bearer session-token",
-    });
+      expect(Redacted.value(user.token)).toBe("oauth-token");
+    }),
+  );
 
-    expect(Redacted.value(user.token)).toBe("oauth-token");
-  });
+  it.effect("falls back to the legacy forwarded session token header", () =>
+    Effect.gen(function* () {
+      const user = yield* decode({
+        ...baseHeaders,
+        [SHEET_AUTH_SESSION_TOKEN_HEADER]: "Bearer session-token",
+      });
 
-  it("falls back to the legacy forwarded session token header", async () => {
-    const user = await decode({
-      ...baseHeaders,
-      [SHEET_AUTH_SESSION_TOKEN_HEADER]: "Bearer session-token",
-    });
+      expect(Redacted.value(user.token)).toBe("session-token");
+    }),
+  );
 
-    expect(Redacted.value(user.token)).toBe("session-token");
-  });
+  it.effect("uses the unavailable token when neither forwarded token header is present", () =>
+    Effect.gen(function* () {
+      const user = yield* decode(baseHeaders);
 
-  it("uses the unavailable token when neither forwarded token header is present", async () => {
-    const user = await decode(baseHeaders);
-
-    expect(Redacted.value(user.token)).toBe("unavailable");
-  });
+      expect(Redacted.value(user.token)).toBe("unavailable");
+    }),
+  );
 });

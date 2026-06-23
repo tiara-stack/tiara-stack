@@ -23,9 +23,9 @@ const config = (extensions: ResolvedConfig["extensions"]): ResolvedConfig => ({
 });
 
 describe("push statement builder", () => {
-  it("combines schema and extension statements", async () => {
-    const statements = await Effect.runPromise(
-      buildPushStatementsEffect({
+  it.effect("combines schema and extension statements", () =>
+    Effect.gen(function* () {
+      const statements = yield* buildPushStatementsEffect({
         config: config([
           {
             _tag: "EffectSqlKitMigrationExtension",
@@ -40,15 +40,15 @@ describe("push statement builder", () => {
         schema,
         live,
         desired,
-      }).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
-    );
+      }).pipe(Effect.provideService(SqlClient.SqlClient, sql));
 
-    expect(statements).toEqual([{ sql: "alter publication zero_data add table users" }]);
-  });
+      expect(statements).toEqual([{ sql: "alter publication zero_data add table users" }]);
+    }),
+  );
 
-  it("keeps unsupported extension statements in the returned statement list", async () => {
-    const statements = await Effect.runPromise(
-      buildPushStatementsEffect({
+  it.effect("keeps unsupported extension statements in the returned statement list", () =>
+    Effect.gen(function* () {
+      const statements = yield* buildPushStatementsEffect({
         config: config([
           {
             _tag: "EffectSqlKitMigrationExtension",
@@ -68,15 +68,15 @@ describe("push statement builder", () => {
         schema,
         live,
         desired,
-      }).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
-    );
+      }).pipe(Effect.provideService(SqlClient.SqlClient, sql));
 
-    expect(statements).toEqual([
-      {
-        sql: "",
-        unsupported: true,
-        reason: "unsupported extension statement",
-      },
-    ]);
-  });
+      expect(statements).toEqual([
+        {
+          sql: "",
+          unsupported: true,
+          reason: "unsupported extension statement",
+        },
+      ]);
+    }),
+  );
 });

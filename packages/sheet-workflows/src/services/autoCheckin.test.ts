@@ -115,305 +115,316 @@ const runService = <A, E>(
     readonly clockTime?: string;
   },
 ) =>
-  Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        if (options.clockTime) {
-          yield* TestClock.setTime(Date.parse(options.clockTime));
-        }
-        const service = yield* AutoCheckinService.make;
-        return yield* effect(service);
-      }).pipe(
-        Effect.provideService(SheetApisClient, options.sheetApisClient),
-        Effect.provideService(ClientDeliveryClient, options.botClient ?? ({} as never)),
-        Effect.provideService(
-          AutoCheckinWorkflowClient,
-          options.workflowClient ??
-            ({
-              enqueueConversation: () => Effect.die("Unexpected workflow enqueue"),
-            } as never),
-        ),
-        Effect.provide(TestClock.layer()),
+  Effect.scoped(
+    Effect.gen(function* () {
+      if (options.clockTime) {
+        yield* TestClock.setTime(Date.parse(options.clockTime));
+      }
+      const service = yield* AutoCheckinService.make;
+      return yield* effect(service);
+    }).pipe(
+      Effect.provideService(SheetApisClient, options.sheetApisClient),
+      Effect.provideService(ClientDeliveryClient, options.botClient ?? ({} as never)),
+      Effect.provideService(
+        AutoCheckinWorkflowClient,
+        options.workflowClient ??
+          ({
+            enqueueConversation: () => Effect.die("Unexpected workflow enqueue"),
+          } as never),
       ),
+      Effect.provide(TestClock.layer()),
     ),
   );
 
 describe("AutoCheckinService", () => {
-  it("derives the target hour and enqueues unique named running conversations", async () => {
-    const enqueued: AutoCheckinConversationPayload[] = [];
-    const sheetApisClient = makeSheetApisClient({
-      sheet: {
-        getEventConfig: () =>
-          Effect.succeed(
-            new EventConfig({
-              startTime: DateTime.makeUnsafe("2026-03-26T12:00:00.000Z"),
-            }),
-          ),
-      },
-      workspaceConfig: {
-        getWorkspaceConversations: () =>
-          Effect.succeed([
-            makeWorkspaceConversation(Option.some("main")),
-            makeWorkspaceConversation(Option.some("main")),
-            makeWorkspaceConversation(Option.some("side")),
-            makeWorkspaceConversation(Option.some("")),
-            makeWorkspaceConversation(Option.none()),
-          ]),
-      },
-    });
-
-    const count = await runService((service) => service.enqueueWorkspace("workspace-1"), {
-      sheetApisClient,
-      workflowClient: {
-        enqueueConversation: (payload: AutoCheckinConversationPayload) => {
-          enqueued.push(payload);
-          return Effect.succeed(`execution-${enqueued.length}`);
+  it.effect("derives the target hour and enqueues unique named running conversations", () =>
+    Effect.gen(function* () {
+      const enqueued: AutoCheckinConversationPayload[] = [];
+      const sheetApisClient = makeSheetApisClient({
+        sheet: {
+          getEventConfig: () =>
+            Effect.succeed(
+              new EventConfig({
+                startTime: DateTime.makeUnsafe("2026-03-26T12:00:00.000Z"),
+              }),
+            ),
         },
-      } as never,
-      clockTime: "2026-03-26T13:40:00.000Z",
-    });
+        workspaceConfig: {
+          getWorkspaceConversations: () =>
+            Effect.succeed([
+              makeWorkspaceConversation(Option.some("main")),
+              makeWorkspaceConversation(Option.some("main")),
+              makeWorkspaceConversation(Option.some("side")),
+              makeWorkspaceConversation(Option.some("")),
+              makeWorkspaceConversation(Option.none()),
+            ]),
+        },
+      });
 
-    expect(count).toBe(2);
-    expect(enqueued).toEqual([
-      {
+      const count = yield* runService((service) => service.enqueueWorkspace("workspace-1"), {
+        sheetApisClient,
+        workflowClient: {
+          enqueueConversation: (payload: AutoCheckinConversationPayload) => {
+            enqueued.push(payload);
+            return Effect.succeed(`execution-${enqueued.length}`);
+          },
+        } as never,
+        clockTime: "2026-03-26T13:40:00.000Z",
+      });
+
+      expect(count).toBe(2);
+      expect(enqueued).toEqual([
+        {
+          workspaceId: "workspace-1",
+          conversationName: "main",
+          hour: 3,
+          eventStartEpochMs: Date.parse("2026-03-26T12:00:00.000Z"),
+        },
+        {
+          workspaceId: "workspace-1",
+          conversationName: "side",
+          hour: 3,
+          eventStartEpochMs: Date.parse("2026-03-26T12:00:00.000Z"),
+        },
+      ]);
+    }),
+  );
+
+  it.effect("continues enqueueing when one conversation enqueue fails", () =>
+    Effect.gen(function* () {
+      const sheetApisClient = makeSheetApisClient({
+        sheet: {
+          getEventConfig: () =>
+            Effect.succeed(
+              new EventConfig({
+                startTime: DateTime.makeUnsafe("2026-03-26T12:00:00.000Z"),
+              }),
+            ),
+        },
+        workspaceConfig: {
+          getWorkspaceConversations: () =>
+            Effect.succeed([
+              makeWorkspaceConversation(Option.some("main")),
+              makeWorkspaceConversation(Option.some("side")),
+            ]),
+        },
+      });
+
+      const count = yield* runService((service) => service.enqueueWorkspace("workspace-1"), {
+        sheetApisClient,
+        workflowClient: {
+          enqueueConversation: (payload: AutoCheckinConversationPayload) =>
+            payload.conversationName === "main"
+              ? Effect.fail(new Error("enqueue failed"))
+              : Effect.succeed("execution-side"),
+        } as never,
+        clockTime: "2026-03-26T13:40:00.000Z",
+      });
+
+      expect(count).toBe(1);
+    }),
+  );
+
+  it.effect("continues enqueueing workspaces when one workspace fails", () =>
+    Effect.gen(function* () {
+      const sheetApisClient = makeSheetApisClient({
+        workspaceConfig: {
+          getAutoCheckinWorkspaces: () =>
+            Effect.succeed([
+              makeWorkspaceConfig("workspace-1"),
+              makeWorkspaceConfig("workspace-2"),
+            ]),
+          getWorkspaceConversations: ({
+            query,
+          }: {
+            readonly query: { readonly workspaceId: string };
+          }) =>
+            query.workspaceId === "workspace-1"
+              ? Effect.fail(new Error("workspace failed"))
+              : Effect.succeed([makeWorkspaceConversation(Option.some("side"))]),
+        },
+        sheet: {
+          getEventConfig: ({ query }: { readonly query: { readonly workspaceId: string } }) =>
+            query.workspaceId === "workspace-1"
+              ? Effect.fail(new Error("event config failed"))
+              : Effect.succeed(
+                  new EventConfig({
+                    startTime: DateTime.makeUnsafe("2026-03-26T12:00:00.000Z"),
+                  }),
+                ),
+        },
+      });
+
+      const count = yield* runService((service) => service.enqueueDueConversations(), {
+        sheetApisClient,
+        workflowClient: {
+          enqueueConversation: () => Effect.succeed("execution-side"),
+        } as never,
+        clockTime: "2026-03-26T13:40:00.000Z",
+      });
+
+      expect(count).toBe(1);
+    }),
+  );
+
+  it.effect("processes a sent auto check-in conversation", () =>
+    Effect.gen(function* () {
+      const botCalls: Array<unknown> = [];
+      const persistCheckinCalls: Array<unknown> = [];
+      const persistRoomOrderCalls: Array<unknown> = [];
+      const sheetApisClient = makeSheetApisClient({
+        checkin: {
+          generate: () => Effect.succeed(makeGeneratedCheckin()),
+        },
+        messageCheckin: {
+          persistMessageCheckin: (args: unknown) => {
+            persistCheckinCalls.push(args);
+            return Effect.succeed({});
+          },
+        },
+        roomOrder: {
+          generate: () => Effect.succeed(makeRoomOrder()),
+        },
+        messageRoomOrder: {
+          persistMessageRoomOrder: (args: unknown) => {
+            persistRoomOrderCalls.push(args);
+            return Effect.succeed({});
+          },
+        },
+      });
+
+      const result = yield* runService((service) => service.processConversation(payload), {
+        sheetApisClient,
+        botClient: makeBotClient(botCalls),
+      });
+
+      expect(result).toEqual({
         workspaceId: "workspace-1",
         conversationName: "main",
         hour: 3,
-        eventStartEpochMs: Date.parse("2026-03-26T12:00:00.000Z"),
-      },
-      {
-        workspaceId: "workspace-1",
-        conversationName: "side",
-        hour: 3,
-        eventStartEpochMs: Date.parse("2026-03-26T12:00:00.000Z"),
-      },
-    ]);
-  });
-
-  it("continues enqueueing when one conversation enqueue fails", async () => {
-    const sheetApisClient = makeSheetApisClient({
-      sheet: {
-        getEventConfig: () =>
-          Effect.succeed(
-            new EventConfig({
-              startTime: DateTime.makeUnsafe("2026-03-26T12:00:00.000Z"),
-            }),
-          ),
-      },
-      workspaceConfig: {
-        getWorkspaceConversations: () =>
-          Effect.succeed([
-            makeWorkspaceConversation(Option.some("main")),
-            makeWorkspaceConversation(Option.some("side")),
-          ]),
-      },
-    });
-
-    const count = await runService((service) => service.enqueueWorkspace("workspace-1"), {
-      sheetApisClient,
-      workflowClient: {
-        enqueueConversation: (payload: AutoCheckinConversationPayload) =>
-          payload.conversationName === "main"
-            ? Effect.fail(new Error("enqueue failed"))
-            : Effect.succeed("execution-side"),
-      } as never,
-      clockTime: "2026-03-26T13:40:00.000Z",
-    });
-
-    expect(count).toBe(1);
-  });
-
-  it("continues enqueueing workspaces when one workspace fails", async () => {
-    const sheetApisClient = makeSheetApisClient({
-      workspaceConfig: {
-        getAutoCheckinWorkspaces: () =>
-          Effect.succeed([makeWorkspaceConfig("workspace-1"), makeWorkspaceConfig("workspace-2")]),
-        getWorkspaceConversations: ({
-          query,
-        }: {
-          readonly query: { readonly workspaceId: string };
-        }) =>
-          query.workspaceId === "workspace-1"
-            ? Effect.fail(new Error("workspace failed"))
-            : Effect.succeed([makeWorkspaceConversation(Option.some("side"))]),
-      },
-      sheet: {
-        getEventConfig: ({ query }: { readonly query: { readonly workspaceId: string } }) =>
-          query.workspaceId === "workspace-1"
-            ? Effect.fail(new Error("event config failed"))
-            : Effect.succeed(
-                new EventConfig({
-                  startTime: DateTime.makeUnsafe("2026-03-26T12:00:00.000Z"),
-                }),
-              ),
-      },
-    });
-
-    const count = await runService((service) => service.enqueueDueConversations(), {
-      sheetApisClient,
-      workflowClient: {
-        enqueueConversation: () => Effect.succeed("execution-side"),
-      } as never,
-      clockTime: "2026-03-26T13:40:00.000Z",
-    });
-
-    expect(count).toBe(1);
-  });
-
-  it("processes a sent auto check-in conversation", async () => {
-    const botCalls: Array<unknown> = [];
-    const persistCheckinCalls: Array<unknown> = [];
-    const persistRoomOrderCalls: Array<unknown> = [];
-    const sheetApisClient = makeSheetApisClient({
-      checkin: {
-        generate: () => Effect.succeed(makeGeneratedCheckin()),
-      },
-      messageCheckin: {
-        persistMessageCheckin: (args: unknown) => {
-          persistCheckinCalls.push(args);
-          return Effect.succeed({});
+        status: "sent",
+        checkinMessageId: "checkin-conversation-message-1",
+        monitorMessageId: "running-conversation-message-3",
+        tentativeRoomOrderMessageId: "running-conversation-message-4",
+      });
+      expect(botCalls).toMatchObject([
+        {
+          method: "sendMessage",
+          conversationId: "checkin-conversation",
+          message: {
+            content: "check in now\nSent automatically via auto check-in.",
+          },
         },
-      },
-      roomOrder: {
-        generate: () => Effect.succeed(makeRoomOrder()),
-      },
-      messageRoomOrder: {
-        persistMessageRoomOrder: (args: unknown) => {
-          persistRoomOrderCalls.push(args);
-          return Effect.succeed({});
+        {
+          method: "updateMessage",
+          conversationId: "checkin-conversation",
+          messageId: "checkin-conversation-message-1",
         },
-      },
-    });
-
-    const result = await runService((service) => service.processConversation(payload), {
-      sheetApisClient,
-      botClient: makeBotClient(botCalls),
-    });
-
-    expect(result).toEqual({
-      workspaceId: "workspace-1",
-      conversationName: "main",
-      hour: 3,
-      status: "sent",
-      checkinMessageId: "checkin-conversation-message-1",
-      monitorMessageId: "running-conversation-message-3",
-      tentativeRoomOrderMessageId: "running-conversation-message-4",
-    });
-    expect(botCalls).toMatchObject([
-      {
-        method: "sendMessage",
-        conversationId: "checkin-conversation",
-        message: {
-          content: "check in now\nSent automatically via auto check-in.",
+        {
+          method: "sendMessage",
+          conversationId: "running-conversation",
+          message: {
+            content: "@monitor-1",
+          },
         },
-      },
-      {
-        method: "updateMessage",
-        conversationId: "checkin-conversation",
-        messageId: "checkin-conversation-message-1",
-      },
-      {
-        method: "sendMessage",
-        conversationId: "running-conversation",
-        message: {
-          content: "@monitor-1",
+        {
+          method: "sendMessage",
+          conversationId: "running-conversation",
+          message: {
+            content: "(tentative)\nroom order",
+          },
         },
-      },
-      {
-        method: "sendMessage",
-        conversationId: "running-conversation",
-        message: {
-          content: "(tentative)\nroom order",
+      ]);
+      expect(persistCheckinCalls).toEqual([
+        {
+          payload: {
+            clientPlatform: "discord",
+            clientId: "discord-main",
+            messageId: "checkin-conversation-message-1",
+            data: {
+              initialMessage: [
+                { type: "text", text: "check in now" },
+                { type: "text", text: "\n" },
+                {
+                  type: "subtle",
+                  parts: [{ type: "text", text: "Sent automatically via auto check-in." }],
+                },
+              ],
+              hour: 3,
+              runningConversationId: "running-conversation",
+              roleId: "role-1",
+              workspaceId: "workspace-1",
+              conversationId: "checkin-conversation",
+              createdByUserId: null,
+            },
+            memberIds: ["member-1", "member-2"],
+          },
         },
-      },
-    ]);
-    expect(persistCheckinCalls).toEqual([
-      {
+      ]);
+      expect(persistRoomOrderCalls).toHaveLength(1);
+      expect(persistRoomOrderCalls[0]).toMatchObject({
         payload: {
           clientPlatform: "discord",
           clientId: "discord-main",
-          messageId: "checkin-conversation-message-1",
+          messageId: "running-conversation-message-4",
           data: {
-            initialMessage: [
-              { type: "text", text: "check in now" },
-              { type: "text", text: "\n" },
-              {
-                type: "subtle",
-                parts: [{ type: "text", text: "Sent automatically via auto check-in." }],
-              },
-            ],
-            hour: 3,
-            runningConversationId: "running-conversation",
-            roleId: "role-1",
+            tentative: true,
             workspaceId: "workspace-1",
-            conversationId: "checkin-conversation",
+            conversationId: "running-conversation",
             createdByUserId: null,
           },
-          memberIds: ["member-1", "member-2"],
         },
-      },
-    ]);
-    expect(persistRoomOrderCalls).toHaveLength(1);
-    expect(persistRoomOrderCalls[0]).toMatchObject({
-      payload: {
-        clientPlatform: "discord",
-        clientId: "discord-main",
-        messageId: "running-conversation-message-4",
-        data: {
-          tentative: true,
-          workspaceId: "workspace-1",
+      });
+    }),
+  );
+
+  it.effect("sends only the monitor summary when generated check-in has no initial message", () =>
+    Effect.gen(function* () {
+      const botCalls: Array<unknown> = [];
+      const sheetApisClient = makeSheetApisClient({
+        checkin: {
+          generate: () =>
+            Effect.succeed(
+              makeGeneratedCheckin({
+                initialMessage: null,
+                fillCount: 0,
+                monitorUserId: null,
+                monitorFailureMessage: null,
+              }),
+            ),
+        },
+      });
+
+      const result = yield* runService((service) => service.processConversation(payload), {
+        sheetApisClient,
+        botClient: makeBotClient(botCalls),
+      });
+
+      expect(result).toEqual({
+        workspaceId: "workspace-1",
+        conversationName: "main",
+        hour: 3,
+        status: "skipped",
+        checkinMessageId: null,
+        monitorMessageId: "running-conversation-message-1",
+        tentativeRoomOrderMessageId: null,
+      });
+      expect(botCalls).toEqual([
+        {
+          method: "sendMessage",
           conversationId: "running-conversation",
-          createdByUserId: null,
+          message: {
+            content: undefined,
+            embeds: [
+              {
+                title: "Auto check-in summary for monitors",
+                description: "monitor summary\nSent automatically via auto check-in.",
+              },
+            ],
+            allowedMentions: "none",
+          },
         },
-      },
-    });
-  });
-
-  it("sends only the monitor summary when generated check-in has no initial message", async () => {
-    const botCalls: Array<unknown> = [];
-    const sheetApisClient = makeSheetApisClient({
-      checkin: {
-        generate: () =>
-          Effect.succeed(
-            makeGeneratedCheckin({
-              initialMessage: null,
-              fillCount: 0,
-              monitorUserId: null,
-              monitorFailureMessage: null,
-            }),
-          ),
-      },
-    });
-
-    const result = await runService((service) => service.processConversation(payload), {
-      sheetApisClient,
-      botClient: makeBotClient(botCalls),
-    });
-
-    expect(result).toEqual({
-      workspaceId: "workspace-1",
-      conversationName: "main",
-      hour: 3,
-      status: "skipped",
-      checkinMessageId: null,
-      monitorMessageId: "running-conversation-message-1",
-      tentativeRoomOrderMessageId: null,
-    });
-    expect(botCalls).toEqual([
-      {
-        method: "sendMessage",
-        conversationId: "running-conversation",
-        message: {
-          content: undefined,
-          embeds: [
-            {
-              title: "Auto check-in summary for monitors",
-              description: "monitor summary\nSent automatically via auto check-in.",
-            },
-          ],
-          allowedMentions: "none",
-        },
-      },
-    ]);
-  });
+      ]);
+    }),
+  );
 });

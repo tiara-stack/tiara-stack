@@ -17,19 +17,17 @@ const run = <A, E, R>(
   ),
   sheetApisRpcTokens: never = makeSheetApisRpcTokens(),
 ) =>
-  Effect.runPromise(
-    Effect.scoped(
-      effect.pipe(
-        Effect.provide(SheetBotHttpClient.layer),
-        Effect.provideService(SheetApisRpcTokens, sheetApisRpcTokens),
-        Effect.provideService(HttpClient.HttpClient, httpClient),
-        Effect.provide(
-          ConfigProvider.layer(
-            ConfigProvider.fromUnknown({ SHEET_BOT_BASE_URL: "http://sheet-bot" }),
-          ),
+  Effect.scoped(
+    effect.pipe(
+      Effect.provide(SheetBotHttpClient.layer),
+      Effect.provideService(SheetApisRpcTokens, sheetApisRpcTokens),
+      Effect.provideService(HttpClient.HttpClient, httpClient),
+      Effect.provide(
+        ConfigProvider.layer(
+          ConfigProvider.fromUnknown({ SHEET_BOT_BASE_URL: "http://sheet-bot" }),
         ),
-      ) as Effect.Effect<A, E, never>,
-    ),
+      ),
+    ) as Effect.Effect<A, E, never>,
   );
 
 type ForwardingClient = Effect.Success<typeof SheetBotForwardingClient.make>;
@@ -95,28 +93,34 @@ const expectFormDataRequestBody = (
 };
 
 describe("SheetBotForwardingClient", () => {
-  it("exposes application and cache compatibility wrappers", async () => {
-    const client = await run(SheetBotForwardingClient.make);
+  it.live("exposes application and cache compatibility wrappers", () =>
+    Effect.gen(function* () {
+      const client = yield* run(SheetBotForwardingClient.make);
 
-    expect(client.application.getApplication).toEqual(expect.any(Function));
-    expect(client.bot.createInteractionResponse).toEqual(expect.any(Function));
-    expect(client.bot.sendMessage).toEqual(expect.any(Function));
-    expect(client.bot.updateMessage).toEqual(expect.any(Function));
-    expect(client.bot.updateOriginalInteractionResponse).toEqual(expect.any(Function));
-    expect(client.bot.createPin).toEqual(expect.any(Function));
-    expect(client.bot.deleteMessage).toEqual(expect.any(Function));
-    expect(client.bot.addGuildMemberRole).toEqual(expect.any(Function));
-    expect(client.bot.removeGuildMemberRole).toEqual(expect.any(Function));
-    expect(client.cache.getMember).toEqual(expect.any(Function));
-  });
+      expect(client.application.getApplication).toEqual(expect.any(Function));
+      expect(client.bot.createInteractionResponse).toEqual(expect.any(Function));
+      expect(client.bot.sendMessage).toEqual(expect.any(Function));
+      expect(client.bot.updateMessage).toEqual(expect.any(Function));
+      expect(client.bot.updateOriginalInteractionResponse).toEqual(expect.any(Function));
+      expect(client.bot.createPin).toEqual(expect.any(Function));
+      expect(client.bot.deleteMessage).toEqual(expect.any(Function));
+      expect(client.bot.addGuildMemberRole).toEqual(expect.any(Function));
+      expect(client.bot.removeGuildMemberRole).toEqual(expect.any(Function));
+      expect(client.cache.getMember).toEqual(expect.any(Function));
+    }),
+  );
 
-  it("adds the ingress bearer token to sheet-bot HTTP API requests", async () => {
-    const request = await captureForwardedRequest((client) => client.application.getApplication());
+  it.live("adds the ingress bearer token to sheet-bot HTTP API requests", () =>
+    Effect.gen(function* () {
+      const request = yield* captureForwardedRequest((client) =>
+        client.application.getApplication(),
+      );
 
-    expectForwardedSheetBotRequest(request, "http://sheet-bot/application");
-  });
+      expectForwardedSheetBotRequest(request, "http://sheet-bot/application");
+    }),
+  );
 
-  it.each([
+  it.live.each([
     {
       expectedUrl: `http://sheet-bot/bot/interactions/${interactionToken}/original-response`,
       name: "includes the interaction token when updating the original interaction response",
@@ -159,55 +163,59 @@ describe("SheetBotForwardingClient", () => {
         });
       },
     },
-  ])("$name", async ({ bodyKind, expectedBody, expectedUrl, runRequest }) => {
-    const request = await captureForwardedRequest(
-      (client) => runRequest(client) as Effect.Effect<unknown, unknown, never>,
-    );
+  ])("$name", ({ bodyKind, expectedBody, expectedUrl, runRequest }) =>
+    Effect.gen(function* () {
+      const request = yield* captureForwardedRequest(
+        (client) => runRequest(client) as Effect.Effect<unknown, unknown, never>,
+      );
 
-    expectForwardedSheetBotRequest(request, expectedUrl);
-    if (bodyKind === "json") {
-      expectJsonRequestBody(request, expectedBody);
-    }
-    if (bodyKind === "formData") {
-      expectFormDataRequestBody(request, expectedBody);
-    }
-  });
+      expectForwardedSheetBotRequest(request, expectedUrl);
+      if (bodyKind === "json") {
+        expectJsonRequestBody(request, expectedBody);
+      }
+      if (bodyKind === "formData") {
+        expectFormDataRequestBody(request, expectedBody);
+      }
+    }),
+  );
 
-  it("surfaces ingress token failures as HTTP client errors", async () => {
-    const ingressTokenFailure = new Error("ingress token refresh failed");
-    const sheetApisRpcTokens = {
-      getServiceToken: () => Effect.fail(ingressTokenFailure),
-    } as never;
+  it.live("surfaces ingress token failures as HTTP client errors", () =>
+    Effect.gen(function* () {
+      const ingressTokenFailure = new Error("ingress token refresh failed");
+      const sheetApisRpcTokens = {
+        getServiceToken: () => Effect.fail(ingressTokenFailure),
+      } as never;
 
-    const exit = await Effect.runPromiseExit(
-      Effect.scoped(
-        Effect.gen(function* () {
-          const client = yield* SheetBotForwardingClient.make;
-          return yield* client.application.getApplication();
-        }).pipe(
-          Effect.provide(SheetBotHttpClient.layer),
-          Effect.provideService(SheetApisRpcTokens, sheetApisRpcTokens),
-          Effect.provideService(
-            HttpClient.HttpClient,
-            HttpClient.make((request) =>
-              Effect.succeed(
-                HttpClientResponse.fromWeb(request, new Response("{}", { status: 500 })),
+      const exit = yield* Effect.exit(
+        Effect.scoped(
+          Effect.gen(function* () {
+            const client = yield* SheetBotForwardingClient.make;
+            return yield* client.application.getApplication();
+          }).pipe(
+            Effect.provide(SheetBotHttpClient.layer),
+            Effect.provideService(SheetApisRpcTokens, sheetApisRpcTokens),
+            Effect.provideService(
+              HttpClient.HttpClient,
+              HttpClient.make((request) =>
+                Effect.succeed(
+                  HttpClientResponse.fromWeb(request, new Response("{}", { status: 500 })),
+                ),
+              ),
+            ),
+            Effect.provide(
+              ConfigProvider.layer(
+                ConfigProvider.fromUnknown({ SHEET_BOT_BASE_URL: "http://sheet-bot" }),
               ),
             ),
           ),
-          Effect.provide(
-            ConfigProvider.layer(
-              ConfigProvider.fromUnknown({ SHEET_BOT_BASE_URL: "http://sheet-bot" }),
-            ),
-          ),
         ),
-      ),
-    );
+      );
 
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (Exit.isFailure(exit)) {
-      const cause = Cause.pretty(exit.cause);
-      expect(cause).toContain("ingress token refresh failed");
-    }
-  });
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        const cause = Cause.pretty(exit.cause);
+        expect(cause).toContain("ingress token refresh failed");
+      }
+    }),
+  );
 });

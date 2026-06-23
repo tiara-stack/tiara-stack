@@ -71,11 +71,13 @@ const runAuthorization = <A, E, R>(
     } as never),
   ) as Effect.Effect<A, E, never>;
 
-  return Effect.runPromiseExit(provided).then((exit) => ({
-    exit,
-    getMessageRoomOrder,
-    requireMonitorWorkspace,
-  }));
+  return Effect.exit(provided).pipe(
+    Effect.map((exit) => ({
+      exit,
+      getMessageRoomOrder,
+      requireMonitorWorkspace,
+    })),
+  );
 };
 
 describe("room-order button proxy authorization", () => {
@@ -94,64 +96,76 @@ describe("room-order button proxy authorization", () => {
     ).toBe(requireRoomOrderPinTentativeButton);
   });
 
-  it("requires registered records for room-order button policy", async () => {
-    const { exit, requireMonitorWorkspace } = await runAuthorization(
-      requireRegisteredRoomOrderButton({ messageId: "missing-message-1" }),
-    );
+  it.effect("requires registered records for room-order button policy", () =>
+    Effect.gen(function* () {
+      const { exit, requireMonitorWorkspace } = yield* runAuthorization(
+        requireRegisteredRoomOrderButton({ messageId: "missing-message-1" }),
+      );
 
-    expect(Exit.isFailure(exit)).toBe(true);
-    expect(requireMonitorWorkspace).not.toHaveBeenCalled();
-    if (Exit.isFailure(exit)) {
-      expect(Cause.pretty(exit.cause)).toContain(MESSAGE_ROOM_ORDER_NOT_REGISTERED_ERROR_MESSAGE);
-    }
-  });
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(requireMonitorWorkspace).not.toHaveBeenCalled();
+      if (Exit.isFailure(exit)) {
+        expect(Cause.pretty(exit.cause)).toContain(MESSAGE_ROOM_ORDER_NOT_REGISTERED_ERROR_MESSAGE);
+      }
+    }),
+  );
 
-  it("propagates unexpected message lookup failures without rewriting them", async () => {
-    const lookupError = new Error("database unavailable");
-    const { exit } = await runAuthorization(
-      requireRegisteredRoomOrderButton({ messageId: "message-1" }),
-      { lookupError },
-    );
+  it.effect("propagates unexpected message lookup failures without rewriting them", () =>
+    Effect.gen(function* () {
+      const lookupError = new Error("database unavailable");
+      const { exit } = yield* runAuthorization(
+        requireRegisteredRoomOrderButton({ messageId: "message-1" }),
+        { lookupError },
+      );
 
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (Exit.isFailure(exit)) {
-      expect(Cause.pretty(exit.cause)).toContain("database unavailable");
-      expect(Cause.pretty(exit.cause)).not.toContain("Cannot authorize message room order");
-    }
-  });
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(Cause.pretty(exit.cause)).toContain("database unavailable");
+        expect(Cause.pretty(exit.cause)).not.toContain("Cannot authorize message room order");
+      }
+    }),
+  );
 
-  it("authorizes registered button actions against the persisted message guild", async () => {
-    const { exit, requireMonitorWorkspace } = await runAuthorization(
-      requireRegisteredRoomOrderButton({ messageId: "room-order-message-1" }),
-      { roomOrder: Option.some(makeRoomOrder()) },
-    );
+  it.effect("authorizes registered button actions against the persisted message guild", () =>
+    Effect.gen(function* () {
+      const { exit, requireMonitorWorkspace } = yield* runAuthorization(
+        requireRegisteredRoomOrderButton({ messageId: "room-order-message-1" }),
+        { roomOrder: Option.some(makeRoomOrder()) },
+      );
 
-    expect(Exit.isSuccess(exit)).toBe(true);
-    expect(requireMonitorWorkspace).toHaveBeenCalledWith("registered-guild-1");
-  });
+      expect(Exit.isSuccess(exit)).toBe(true);
+      expect(requireMonitorWorkspace).toHaveBeenCalledWith("registered-guild-1");
+    }),
+  );
 
-  it("allows pinTentative fallback authorization by verified payload guild when no record exists", async () => {
-    const { exit, requireMonitorWorkspace } = await runAuthorization(
-      requireRoomOrderPinTentativeButton({
-        workspaceId: "fallback-guild-1",
-        messageId: "unregistered-room-order-message-1",
+  it.effect(
+    "allows pinTentative fallback authorization by verified payload guild when no record exists",
+    () =>
+      Effect.gen(function* () {
+        const { exit, requireMonitorWorkspace } = yield* runAuthorization(
+          requireRoomOrderPinTentativeButton({
+            workspaceId: "fallback-guild-1",
+            messageId: "unregistered-room-order-message-1",
+          }),
+        );
+
+        expect(Exit.isSuccess(exit)).toBe(true);
+        expect(requireMonitorWorkspace).toHaveBeenCalledWith("fallback-guild-1");
       }),
-    );
+  );
 
-    expect(Exit.isSuccess(exit)).toBe(true);
-    expect(requireMonitorWorkspace).toHaveBeenCalledWith("fallback-guild-1");
-  });
+  it.effect("uses the persisted message guild for pinTentative when a record exists", () =>
+    Effect.gen(function* () {
+      const { exit, requireMonitorWorkspace } = yield* runAuthorization(
+        requireRoomOrderPinTentativeButton({
+          workspaceId: "payload-guild-1",
+          messageId: "room-order-message-1",
+        }),
+        { roomOrder: Option.some(makeRoomOrder()) },
+      );
 
-  it("uses the persisted message guild for pinTentative when a record exists", async () => {
-    const { exit, requireMonitorWorkspace } = await runAuthorization(
-      requireRoomOrderPinTentativeButton({
-        workspaceId: "payload-guild-1",
-        messageId: "room-order-message-1",
-      }),
-      { roomOrder: Option.some(makeRoomOrder()) },
-    );
-
-    expect(Exit.isSuccess(exit)).toBe(true);
-    expect(requireMonitorWorkspace).toHaveBeenCalledWith("registered-guild-1");
-  });
+      expect(Exit.isSuccess(exit)).toBe(true);
+      expect(requireMonitorWorkspace).toHaveBeenCalledWith("registered-guild-1");
+    }),
+  );
 });

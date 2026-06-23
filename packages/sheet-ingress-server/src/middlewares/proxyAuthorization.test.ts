@@ -21,10 +21,10 @@ type SheetAuthUserType = Context.Service.Shape<typeof SheetAuthUser>;
 const options = { endpoint: undefined as never, group: undefined as never };
 
 const runPromise = <A, E>(effect: Effect.Effect<A, E, unknown>) =>
-  Effect.runPromise(effect as Effect.Effect<A, E, never>);
+  effect as Effect.Effect<A, E, never>;
 
 const runPromiseExit = <A, E>(effect: Effect.Effect<A, E, unknown>) =>
-  Effect.runPromiseExit(effect as Effect.Effect<A, E, never>);
+  Effect.exit(effect as Effect.Effect<A, E, never>);
 
 const makeUser = (accountId: string, permissions: Iterable<Permission> = []) =>
   ({
@@ -52,177 +52,202 @@ const captureUser = (ref: Ref.Ref<SheetAuthUserType | undefined>) =>
   });
 
 describe("proxy authorization middleware", () => {
-  it("provides anonymous user when no auth user exists", async () => {
-    const user = await runPromise(
-      Effect.gen(function* () {
-        const middleware = yield* SheetApisAnonymousUserFallback;
-        const ref = yield* Ref.make<SheetAuthUserType | undefined>(undefined);
-        yield* middleware(captureUser(ref), options);
-        return yield* Ref.get(ref);
-      }).pipe(Effect.provide(SheetApisAnonymousUserFallbackLive)),
-    );
+  it.effect("provides anonymous user when no auth user exists", () =>
+    Effect.gen(function* () {
+      const user = yield* runPromise(
+        Effect.gen(function* () {
+          const middleware = yield* SheetApisAnonymousUserFallback;
+          const ref = yield* Ref.make<SheetAuthUserType | undefined>(undefined);
+          yield* middleware(captureUser(ref), options);
+          return yield* Ref.get(ref);
+        }).pipe(Effect.provide(SheetApisAnonymousUserFallbackLive)),
+      );
 
-    expect(user?.accountId).toBe("anonymous");
-    expect(user?.userId).toBe("anonymous");
-    expect(HashSet.size(user?.permissions ?? HashSet.empty())).toBe(0);
-  });
+      expect(user?.accountId).toBe("anonymous");
+      expect(user?.userId).toBe("anonymous");
+      expect(HashSet.size(user?.permissions ?? HashSet.empty())).toBe(0);
+    }),
+  );
 
-  it("preserves an existing auth user for anonymous fallback", async () => {
-    const existing = makeUser("discord-user");
-    const user = await runPromise(
-      Effect.gen(function* () {
-        const middleware = yield* SheetApisAnonymousUserFallback;
-        const ref = yield* Ref.make<SheetAuthUserType | undefined>(undefined);
-        yield* middleware(captureUser(ref), options).pipe(
-          Effect.provideService(SheetAuthUser, existing),
-        );
-        return yield* Ref.get(ref);
-      }).pipe(Effect.provide(SheetApisAnonymousUserFallbackLive)),
-    );
+  it.effect("preserves an existing auth user for anonymous fallback", () =>
+    Effect.gen(function* () {
+      const existing = makeUser("discord-user");
+      const user = yield* runPromise(
+        Effect.gen(function* () {
+          const middleware = yield* SheetApisAnonymousUserFallback;
+          const ref = yield* Ref.make<SheetAuthUserType | undefined>(undefined);
+          yield* middleware(captureUser(ref), options).pipe(
+            Effect.provideService(SheetAuthUser, existing),
+          );
+          return yield* Ref.get(ref);
+        }).pipe(Effect.provide(SheetApisAnonymousUserFallbackLive)),
+      );
 
-    expect(user).toEqual(existing);
-  });
+      expect(user).toEqual(existing);
+    }),
+  );
 
-  it("provides service user when no auth user exists", async () => {
-    let getServiceUserCalls = 0;
-    const serviceUser = makeServiceUser();
-    const tokens = {
-      getServiceUser: () =>
-        Effect.sync(() => {
-          getServiceUserCalls += 1;
-          return serviceUser;
-        }),
-    } as never;
+  it.effect("provides service user when no auth user exists", () =>
+    Effect.gen(function* () {
+      let getServiceUserCalls = 0;
+      const serviceUser = makeServiceUser();
+      const tokens = {
+        getServiceUser: () =>
+          Effect.sync(() => {
+            getServiceUserCalls += 1;
+            return serviceUser;
+          }),
+      } as never;
 
-    const user = await runPromise(
-      Effect.gen(function* () {
-        const middleware = yield* SheetApisServiceUserFallback;
-        const ref = yield* Ref.make<SheetAuthUserType | undefined>(undefined);
-        yield* middleware(captureUser(ref), options);
-        return yield* Ref.get(ref);
-      }).pipe(
-        Effect.provide(SheetApisServiceUserFallbackLive),
-        Effect.provideService(SheetApisRpcTokens, tokens),
-      ),
-    );
+      const user = yield* runPromise(
+        Effect.gen(function* () {
+          const middleware = yield* SheetApisServiceUserFallback;
+          const ref = yield* Ref.make<SheetAuthUserType | undefined>(undefined);
+          yield* middleware(captureUser(ref), options);
+          return yield* Ref.get(ref);
+        }).pipe(
+          Effect.provide(SheetApisServiceUserFallbackLive),
+          Effect.provideService(SheetApisRpcTokens, tokens),
+        ),
+      );
 
-    expect(user).toEqual(serviceUser);
-    expect(getServiceUserCalls).toBe(1);
-  });
+      expect(user).toEqual(serviceUser);
+      expect(getServiceUserCalls).toBe(1);
+    }),
+  );
 
-  it("preserves existing auth user and does not resolve service user", async () => {
-    let getServiceUserCalls = 0;
-    const existing = makeUser("discord-user");
-    const tokens = {
-      getServiceUser: () =>
-        Effect.sync(() => {
-          getServiceUserCalls += 1;
-          return makeServiceUser();
-        }),
-    } as never;
+  it.effect("preserves existing auth user and does not resolve service user", () =>
+    Effect.gen(function* () {
+      let getServiceUserCalls = 0;
+      const existing = makeUser("discord-user");
+      const tokens = {
+        getServiceUser: () =>
+          Effect.sync(() => {
+            getServiceUserCalls += 1;
+            return makeServiceUser();
+          }),
+      } as never;
 
-    const user = await runPromise(
-      Effect.gen(function* () {
-        const middleware = yield* SheetApisServiceUserFallback;
-        const ref = yield* Ref.make<SheetAuthUserType | undefined>(undefined);
-        yield* middleware(captureUser(ref), options).pipe(
-          Effect.provideService(SheetAuthUser, existing),
-        );
-        return yield* Ref.get(ref);
-      }).pipe(
-        Effect.provide(SheetApisServiceUserFallbackLive),
-        Effect.provideService(SheetApisRpcTokens, tokens),
-      ),
-    );
+      const user = yield* runPromise(
+        Effect.gen(function* () {
+          const middleware = yield* SheetApisServiceUserFallback;
+          const ref = yield* Ref.make<SheetAuthUserType | undefined>(undefined);
+          yield* middleware(captureUser(ref), options).pipe(
+            Effect.provideService(SheetAuthUser, existing),
+          );
+          return yield* Ref.get(ref);
+        }).pipe(
+          Effect.provide(SheetApisServiceUserFallbackLive),
+          Effect.provideService(SheetApisRpcTokens, tokens),
+        ),
+      );
 
-    expect(user).toEqual(existing);
-    expect(getServiceUserCalls).toBe(0);
-  });
+      expect(user).toEqual(existing);
+      expect(getServiceUserCalls).toBe(0);
+    }),
+  );
 
-  it("maps service user fallback failures to Unauthorized", async () => {
-    const tokens = {
-      getServiceUser: () => Effect.fail(new Error("service user unavailable")),
-    } as never;
+  it.effect("maps service user fallback failures to Unauthorized", () =>
+    Effect.gen(function* () {
+      const tokens = {
+        getServiceUser: () => Effect.fail(new Error("service user unavailable")),
+      } as never;
 
-    const exit = await runPromiseExit(
-      Effect.gen(function* () {
-        const middleware = yield* SheetApisServiceUserFallback;
-        const ref = yield* Ref.make<SheetAuthUserType | undefined>(undefined);
-        return yield* middleware(captureUser(ref), options);
-      }).pipe(
-        Effect.provide(SheetApisServiceUserFallbackLive),
-        Effect.provideService(SheetApisRpcTokens, tokens),
-      ),
-    );
+      const exit = yield* runPromiseExit(
+        Effect.gen(function* () {
+          const middleware = yield* SheetApisServiceUserFallback;
+          const ref = yield* Ref.make<SheetAuthUserType | undefined>(undefined);
+          return yield* middleware(captureUser(ref), options);
+        }).pipe(
+          Effect.provide(SheetApisServiceUserFallbackLive),
+          Effect.provideService(SheetApisRpcTokens, tokens),
+        ),
+      );
 
-    expect(exit._tag).toBe("Failure");
-    if (exit._tag === "Failure") {
-      const cause = Cause.pretty(exit.cause);
-      expect(cause).toContain("Unauthorized");
-      expect(cause).toContain("Failed to create service-user auth session");
-    }
-  });
+      expect(exit._tag).toBe("Failure");
+      if (exit._tag === "Failure") {
+        const cause = Cause.pretty(exit.cause);
+        expect(cause).toContain("Unauthorized");
+        expect(cause).toContain("Failed to create service-user auth session");
+      }
+    }),
+  );
 
-  it("allows sheet-bot service tokens", async () => {
-    const resolver = {
-      resolveToken: () => Effect.succeed(makeServiceUser()),
-    } as never;
+  it.effect("allows sheet-bot service tokens", () =>
+    Effect.gen(function* () {
+      const resolver = {
+        resolveToken: () => Effect.succeed(makeServiceUser()),
+      } as never;
 
-    const response = await runPromise(
-      Effect.gen(function* () {
-        const middleware = yield* SheetBotServiceAuthorization;
-        return yield* middleware.sheetBotServiceToken(Effect.succeed(HttpServerResponse.empty()), {
-          ...options,
-          credential: Redacted.make("service-token"),
-        });
-      }).pipe(
-        Effect.provide(SheetBotServiceAuthorizationLive),
-        Effect.provideService(SheetAuthUserResolver, resolver),
-      ),
-    );
+      const response = yield* runPromise(
+        Effect.gen(function* () {
+          const middleware = yield* SheetBotServiceAuthorization;
+          return yield* middleware.sheetBotServiceToken(
+            Effect.succeed(HttpServerResponse.empty()),
+            {
+              ...options,
+              credential: Redacted.make("service-token"),
+            },
+          );
+        }).pipe(
+          Effect.provide(SheetBotServiceAuthorizationLive),
+          Effect.provideService(SheetAuthUserResolver, resolver),
+        ),
+      );
 
-    expect(response).toEqual(HttpServerResponse.empty());
-  });
+      expect(response).toEqual(HttpServerResponse.empty());
+    }),
+  );
 
-  it("rejects sheet-bot tokens without service permission", async () => {
-    const resolver = {
-      resolveToken: () => Effect.succeed(makeUser("discord-user")),
-    } as never;
+  it.effect("rejects sheet-bot tokens without service permission", () =>
+    Effect.gen(function* () {
+      const resolver = {
+        resolveToken: () => Effect.succeed(makeUser("discord-user")),
+      } as never;
 
-    const exit = await runPromiseExit(
-      Effect.gen(function* () {
-        const middleware = yield* SheetBotServiceAuthorization;
-        return yield* middleware.sheetBotServiceToken(Effect.succeed(HttpServerResponse.empty()), {
-          ...options,
-          credential: Redacted.make("user-token"),
-        });
-      }).pipe(
-        Effect.provide(SheetBotServiceAuthorizationLive),
-        Effect.provideService(SheetAuthUserResolver, resolver),
-      ),
-    );
+      const exit = yield* runPromiseExit(
+        Effect.gen(function* () {
+          const middleware = yield* SheetBotServiceAuthorization;
+          return yield* middleware.sheetBotServiceToken(
+            Effect.succeed(HttpServerResponse.empty()),
+            {
+              ...options,
+              credential: Redacted.make("user-token"),
+            },
+          );
+        }).pipe(
+          Effect.provide(SheetBotServiceAuthorizationLive),
+          Effect.provideService(SheetAuthUserResolver, resolver),
+        ),
+      );
 
-    expect(exit._tag).toBe("Failure");
-  });
+      expect(exit._tag).toBe("Failure");
+    }),
+  );
 
-  it("treats sheet-bot resolver failures as unauthorized", async () => {
-    const resolver = {
-      resolveToken: () => Effect.fail(new Unauthorized({ message: "bad token" })),
-    } as never;
+  it.effect("treats sheet-bot resolver failures as unauthorized", () =>
+    Effect.gen(function* () {
+      const resolver = {
+        resolveToken: () => Effect.fail(new Unauthorized({ message: "bad token" })),
+      } as never;
 
-    const exit = await runPromiseExit(
-      Effect.gen(function* () {
-        const middleware = yield* SheetBotServiceAuthorization;
-        return yield* middleware.sheetBotServiceToken(Effect.succeed(HttpServerResponse.empty()), {
-          ...options,
-          credential: Redacted.make("bad-token"),
-        });
-      }).pipe(
-        Effect.provide(SheetBotServiceAuthorizationLive),
-        Effect.provideService(SheetAuthUserResolver, resolver),
-      ),
-    );
+      const exit = yield* runPromiseExit(
+        Effect.gen(function* () {
+          const middleware = yield* SheetBotServiceAuthorization;
+          return yield* middleware.sheetBotServiceToken(
+            Effect.succeed(HttpServerResponse.empty()),
+            {
+              ...options,
+              credential: Redacted.make("bad-token"),
+            },
+          );
+        }).pipe(
+          Effect.provide(SheetBotServiceAuthorizationLive),
+          Effect.provideService(SheetAuthUserResolver, resolver),
+        ),
+      );
 
-    expect(exit._tag).toBe("Failure");
-  });
+      expect(exit._tag).toBe("Failure");
+    }),
+  );
 });

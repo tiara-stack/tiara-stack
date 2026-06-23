@@ -4,33 +4,35 @@ import { HttpRouter, HttpServerRequest } from "effect/unstable/http";
 import { healthRoutesLayer } from "./health";
 
 const runHealthRoute = (path: "/live" | "/ready") =>
-  Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const handler = yield* HttpRouter.toHttpEffect(
-          healthRoutesLayer.pipe(Layer.provide(HttpRouter.layer)),
-        );
+  Effect.scoped(
+    Effect.gen(function* () {
+      const handler = yield* HttpRouter.toHttpEffect(
+        healthRoutesLayer.pipe(Layer.provide(HttpRouter.layer)),
+      );
 
-        return yield* handler.pipe(
-          Effect.provideService(
-            HttpServerRequest.HttpServerRequest,
-            HttpServerRequest.fromWeb(new Request(`http://localhost${path}`)),
-          ),
-        );
-      }),
-    ),
+      return yield* handler.pipe(
+        Effect.provideService(
+          HttpServerRequest.HttpServerRequest,
+          HttpServerRequest.fromWeb(new Request(`http://localhost${path}`)),
+        ),
+      );
+    }),
   );
 
 describe("health routes", () => {
-  it("serves live checks", async () => {
-    const response = await runHealthRoute("/live");
+  it.effect("serves live checks", () =>
+    Effect.gen(function* () {
+      const response = yield* runHealthRoute("/live");
 
-    expect(response.status).toBe(200);
-  });
+      expect(response.status).toBe(200);
+    }),
+  );
 
-  it("serves ready checks", async () => {
-    const response = await runHealthRoute("/ready");
+  it.effect("serves ready checks", () =>
+    Effect.gen(function* () {
+      const response = yield* runHealthRoute("/ready");
 
-    expect(response.status).toBe(200);
-  });
+      expect(response.status).toBe(200);
+    }),
+  );
 });

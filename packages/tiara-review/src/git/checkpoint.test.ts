@@ -28,90 +28,94 @@ const makeRepo = () => {
 };
 
 describe("checkpoint", () => {
-  it("captures tracked and untracked files without modifying branch or real index", async () => {
-    const repo = makeRepo();
-    try {
-      const originalHead = git(repo, ["rev-parse", "HEAD"]);
-      writeFileSync(join(repo, "tracked.txt"), "changed\n");
-      writeFileSync(join(repo, "untracked.txt"), "new\n");
-      writeFileSync(join(repo, ".gitignore"), "ignored.txt\n");
-      writeFileSync(join(repo, "ignored.txt"), "ignored\n");
+  it.live("captures tracked and untracked files without modifying branch or real index", () =>
+    Effect.gen(function* () {
+      const repo = makeRepo();
+      try {
+        const originalHead = git(repo, ["rev-parse", "HEAD"]);
+        writeFileSync(join(repo, "tracked.txt"), "changed\n");
+        writeFileSync(join(repo, "untracked.txt"), "new\n");
+        writeFileSync(join(repo, ".gitignore"), "ignored.txt\n");
+        writeFileSync(join(repo, "ignored.txt"), "ignored\n");
 
-      const checkpoint = await Effect.runPromise(captureCheckpoint(repo));
+        const checkpoint = yield* captureCheckpoint(repo);
 
-      expect(checkpoint.checkpointRef).toMatch(/^refs\/tiara-review-checkpoints\//);
-      expect(git(repo, ["rev-parse", "HEAD"])).toBe(originalHead);
-      expect(git(repo, ["status", "--short"])).toContain(" M tracked.txt");
-      expect(git(repo, ["status", "--short"])).toContain("?? untracked.txt");
-      expect(git(repo, ["show", `${checkpoint.checkpointCommit}:tracked.txt`])).toBe("changed");
-      expect(git(repo, ["show", `${checkpoint.checkpointCommit}:untracked.txt`])).toBe("new");
-      expect(() => git(repo, ["show", `${checkpoint.checkpointCommit}:ignored.txt`])).toThrow();
-      expect(readFileSync(join(repo, "tracked.txt"), "utf8")).toBe("changed\n");
-    } finally {
-      rmSync(repo, { recursive: true, force: true });
-    }
-  });
+        expect(checkpoint.checkpointRef).toMatch(/^refs\/tiara-review-checkpoints\//);
+        expect(git(repo, ["rev-parse", "HEAD"])).toBe(originalHead);
+        expect(git(repo, ["status", "--short"])).toContain(" M tracked.txt");
+        expect(git(repo, ["status", "--short"])).toContain("?? untracked.txt");
+        expect(git(repo, ["show", `${checkpoint.checkpointCommit}:tracked.txt`])).toBe("changed");
+        expect(git(repo, ["show", `${checkpoint.checkpointCommit}:untracked.txt`])).toBe("new");
+        expect(() => git(repo, ["show", `${checkpoint.checkpointCommit}:ignored.txt`])).toThrow();
+        expect(readFileSync(join(repo, "tracked.txt"), "utf8")).toBe("changed\n");
+      } finally {
+        rmSync(repo, { recursive: true, force: true });
+      }
+    }),
+  );
 
-  it("chooses HEAD when there is no prior checkpoint", async () => {
-    const repo = makeRepo();
-    try {
-      writeFileSync(join(repo, "tracked.txt"), "changed\n");
-      const checkpoint = await Effect.runPromise(captureCheckpoint(repo));
-      const base = await Effect.runPromise(
-        determineReviewBaseFromCompletedCheckpoint(repo, checkpoint, null),
-      );
-      const head = await Effect.runPromise(getHeadCommit(repo));
-      expect(base.baseRef).toBe("HEAD");
-      expect(base.baseCommit).toBe(head);
-    } finally {
-      rmSync(repo, { recursive: true, force: true });
-    }
-  });
+  it.live("chooses HEAD when there is no prior checkpoint", () =>
+    Effect.gen(function* () {
+      const repo = makeRepo();
+      try {
+        writeFileSync(join(repo, "tracked.txt"), "changed\n");
+        const checkpoint = yield* captureCheckpoint(repo);
+        const base = yield* determineReviewBaseFromCompletedCheckpoint(repo, checkpoint, null);
+        const head = yield* getHeadCommit(repo);
+        expect(base.baseRef).toBe("HEAD");
+        expect(base.baseCommit).toBe(head);
+      } finally {
+        rmSync(repo, { recursive: true, force: true });
+      }
+    }),
+  );
 
-  it("chooses a prior checkpoint newer than HEAD", async () => {
-    const repo = makeRepo();
-    try {
-      writeFileSync(join(repo, "tracked.txt"), "first\n");
-      const prior = await Effect.runPromise(captureCheckpoint(repo));
-      writeFileSync(join(repo, "tracked.txt"), "second\n");
-      const current = await Effect.runPromise(captureCheckpoint(repo));
-      const base = await Effect.runPromise(
-        determineReviewBaseFromCompletedCheckpoint(repo, current, prior),
-      );
-      expect(base.baseRef).toBe(prior.checkpointCommit);
-      expect(base.priorCheckpointRef).toBe(prior.checkpointRef);
-    } finally {
-      rmSync(repo, { recursive: true, force: true });
-    }
-  });
+  it.live("chooses a prior checkpoint newer than HEAD", () =>
+    Effect.gen(function* () {
+      const repo = makeRepo();
+      try {
+        writeFileSync(join(repo, "tracked.txt"), "first\n");
+        const prior = yield* captureCheckpoint(repo);
+        writeFileSync(join(repo, "tracked.txt"), "second\n");
+        const current = yield* captureCheckpoint(repo);
+        const base = yield* determineReviewBaseFromCompletedCheckpoint(repo, current, prior);
+        expect(base.baseRef).toBe(prior.checkpointCommit);
+        expect(base.priorCheckpointRef).toBe(prior.checkpointRef);
+      } finally {
+        rmSync(repo, { recursive: true, force: true });
+      }
+    }),
+  );
 
-  it("falls back to HEAD when a completed checkpoint commit is unavailable", async () => {
-    const repo = makeRepo();
-    try {
-      await new Promise((resolve) => setTimeout(resolve, 1100));
-      writeFileSync(join(repo, "tracked.txt"), "changed\n");
-      const current = await Effect.runPromise(captureCheckpoint(repo));
-      const base = await Effect.runPromise(
-        determineReviewBaseFromCompletedCheckpoint(repo, current, {
+  it.live("falls back to HEAD when a completed checkpoint commit is unavailable", () =>
+    Effect.gen(function* () {
+      const repo = makeRepo();
+      try {
+        yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 1100)));
+        writeFileSync(join(repo, "tracked.txt"), "changed\n");
+        const current = yield* captureCheckpoint(repo);
+        const base = yield* determineReviewBaseFromCompletedCheckpoint(repo, current, {
           checkpointRef: "refs/tiara-review-checkpoints/missing",
           checkpointCommit: "0000000000000000000000000000000000000000",
           createdAt: current.createdAt + 1,
-        }),
-      );
-      const head = await Effect.runPromise(getHeadCommit(repo));
-      expect(base.baseRef).toBe("HEAD");
-      expect(base.baseCommit).toBe(head);
-    } finally {
-      rmSync(repo, { recursive: true, force: true });
-    }
-  });
+        });
+        const head = yield* getHeadCommit(repo);
+        expect(base.baseRef).toBe("HEAD");
+        expect(base.baseCommit).toBe(head);
+      } finally {
+        rmSync(repo, { recursive: true, force: true });
+      }
+    }),
+  );
 
-  it("resolves repo root", async () => {
-    const repo = makeRepo();
-    try {
-      await expect(Effect.runPromise(resolveRepoRoot(repo))).resolves.toBe(repo);
-    } finally {
-      rmSync(repo, { recursive: true, force: true });
-    }
-  });
+  it.live("resolves repo root", () =>
+    Effect.gen(function* () {
+      const repo = makeRepo();
+      try {
+        expect(yield* resolveRepoRoot(repo)).toBe(repo);
+      } finally {
+        rmSync(repo, { recursive: true, force: true });
+      }
+    }),
+  );
 });

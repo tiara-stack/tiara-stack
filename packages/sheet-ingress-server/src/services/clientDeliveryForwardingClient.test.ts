@@ -44,14 +44,12 @@ const run = <A, E, R>(
     Effect.succeed(HttpClientResponse.fromWeb(request, new Response("{}", { status: 500 }))),
   ),
 ) =>
-  Effect.runPromise(
-    Effect.scoped(
-      effect.pipe(
-        Effect.provideService(ClientRegistry, makeClientRegistry()),
-        Effect.provideService(SheetApisRpcTokens, makeSheetApisRpcTokens()),
-        Effect.provideService(HttpClient.HttpClient, httpClient),
-      ) as Effect.Effect<A, E, never>,
-    ),
+  Effect.scoped(
+    effect.pipe(
+      Effect.provideService(ClientRegistry, makeClientRegistry()),
+      Effect.provideService(SheetApisRpcTokens, makeSheetApisRpcTokens()),
+      Effect.provideService(HttpClient.HttpClient, httpClient),
+    ) as Effect.Effect<A, E, never>,
   );
 
 type ForwardingClient = Effect.Success<typeof ClientDeliveryForwardingClient.make>;
@@ -102,7 +100,7 @@ const expectJsonRequestBody = (request: HttpClientRequest.HttpClientRequest, bod
 };
 
 describe("ClientDeliveryForwardingClient", () => {
-  it.each([
+  it.live.each([
     {
       body: { conversation: conversationRef, message: outboundMessage },
       method: "POST",
@@ -170,16 +168,18 @@ describe("ClientDeliveryForwardingClient", () => {
         client.removeMemberRole(workspaceRef, "user-1", "role-1"),
       url: "http://sheet-bot/clients/members/roles/remove",
     },
-  ])("$name", async ({ body, method, runRequest, url }) => {
-    const request = await captureForwardedRequest(
-      (client) => runRequest(client) as Effect.Effect<unknown, unknown, never>,
-    );
+  ])("$name", ({ body, method, runRequest, url }) =>
+    Effect.gen(function* () {
+      const request = yield* captureForwardedRequest(
+        (client) => runRequest(client) as Effect.Effect<unknown, unknown, never>,
+      );
 
-    expectForwardedClientRequest(request, method, url);
-    expectJsonRequestBody(request, body);
-  });
+      expectForwardedClientRequest(request, method, url);
+      expectJsonRequestBody(request, body);
+    }),
+  );
 
-  it.each([
+  it.live.each([
     {
       name: "gets workspaces with GET",
       runRequest: (client: ForwardingClient) => client.getWorkspace(workspaceRef),
@@ -195,46 +195,50 @@ describe("ClientDeliveryForwardingClient", () => {
       runRequest: (client: ForwardingClient) => client.getMembers(workspaceRef),
       url: "http://sheet-bot/clients/discord/discord-main/workspaces/guild-1/members",
     },
-  ])("$name", async ({ runRequest, url }) => {
-    const request = await captureForwardedRequest(
-      (client) => runRequest(client) as Effect.Effect<unknown, unknown, never>,
-    );
+  ])("$name", ({ runRequest, url }) =>
+    Effect.gen(function* () {
+      const request = yield* captureForwardedRequest(
+        (client) => runRequest(client) as Effect.Effect<unknown, unknown, never>,
+      );
 
-    expectForwardedClientRequest(request, "GET", url);
-  });
+      expectForwardedClientRequest(request, "GET", url);
+    }),
+  );
 
-  it("encodes outbound file content before forwarding interaction responses", async () => {
-    const interaction = {
-      client: clientRef,
-      deadlineEpochMs: 1_783_000_000_000,
-      token: "interaction-token",
-    } as const;
-    const request = await captureForwardedRequest(
-      (client) =>
-        client.updateInteraction(interaction, outboundMessageWithFile) as Effect.Effect<
-          unknown,
-          unknown,
-          never
-        >,
-    );
+  it.live("encodes outbound file content before forwarding interaction responses", () =>
+    Effect.gen(function* () {
+      const interaction = {
+        client: clientRef,
+        deadlineEpochMs: 1_783_000_000_000,
+        token: "interaction-token",
+      } as const;
+      const request = yield* captureForwardedRequest(
+        (client) =>
+          client.updateInteraction(interaction, outboundMessageWithFile) as Effect.Effect<
+            unknown,
+            unknown,
+            never
+          >,
+      );
 
-    expectForwardedClientRequest(
-      request,
-      "PATCH",
-      "http://sheet-bot/clients/interactions/original-response",
-    );
-    expectJsonRequestBody(request, {
-      interaction,
-      message: {
-        ...outboundMessageWithFile,
-        files: [
-          {
-            content: "dHJhY2UgZGV0YWlscw==",
-            contentType: "text/plain",
-            name: "error.txt",
-          },
-        ],
-      },
-    });
-  });
+      expectForwardedClientRequest(
+        request,
+        "PATCH",
+        "http://sheet-bot/clients/interactions/original-response",
+      );
+      expectJsonRequestBody(request, {
+        interaction,
+        message: {
+          ...outboundMessageWithFile,
+          files: [
+            {
+              content: "dHJhY2UgZGV0YWlscw==",
+              contentType: "text/plain",
+              name: "error.txt",
+            },
+          ],
+        },
+      });
+    }),
+  );
 });

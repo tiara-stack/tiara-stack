@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { Effect, Predicate, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import type {
   JsonValue,
@@ -69,20 +69,22 @@ const fakeSql = (rows: readonly unknown[]): SqlClient.SqlClient =>
 const introspect = (
   extension: MigrationExtension,
   rows: readonly unknown[],
-): Promise<JsonValue | undefined> => {
+): Effect.Effect<JsonValue | undefined, unknown> => {
   const introspectable = extension as IntrospectableMigrationExtension;
   if (!introspectable.introspect) {
     throw new Error("expected extension to define introspect");
   }
   const result = introspectable.introspect(context());
   if (!Effect.isEffect(result)) {
-    return Promise.resolve(result);
+    if (Predicate.isPromise(result)) {
+      return Effect.promise(() => result);
+    }
+    return Effect.succeed(result);
   }
-  return Effect.runPromise(
-    result.pipe(Effect.provideService(SqlClient.SqlClient, fakeSql(rows))) as Effect.Effect<
-      JsonValue | undefined
-    >,
-  );
+  return result.pipe(Effect.provideService(SqlClient.SqlClient, fakeSql(rows))) as Effect.Effect<
+    JsonValue | undefined,
+    unknown
+  >;
 };
 
 describe("zeroPublication", () => {
@@ -310,137 +312,163 @@ describe("zeroPublication", () => {
     );
   });
 
-  it("introspects undefined when the publication does not exist", async () => {
-    const users = table(model, { name: "users", key: ["id"] });
-    const extension = zeroPublication({ schema: schema({ users }) });
+  it.effect("introspects undefined when the publication does not exist", () =>
+    Effect.gen(function* () {
+      const users = table(model, { name: "users", key: ["id"] });
+      const extension = zeroPublication({ schema: schema({ users }) });
 
-    await expect(introspect(extension, [])).resolves.toBeUndefined();
-  });
+      expect(yield* introspect(extension, [])).toBeUndefined();
+    }),
+  );
 
-  it("introspects existing publication tables and columns deterministically", async () => {
-    const users = table(model, { name: "users", key: ["id"] });
-    const extension = zeroPublication({ schema: schema({ users }) });
+  it.effect("introspects existing publication tables and columns deterministically", () =>
+    Effect.gen(function* () {
+      const users = table(model, { name: "users", key: ["id"] });
+      const extension = zeroPublication({ schema: schema({ users }) });
 
-    await expect(
-      introspect(extension, [
+      expect(
+        yield* introspect(extension, [
+          {
+            publication_name: "zero_data",
+            puballtables: false,
+            publication_schemas: [],
+            table_schema: "public",
+            table_name: "users",
+            columns: ["secret", "id", "name"],
+          },
+          {
+            publication_name: "zero_data",
+            puballtables: false,
+            publication_schemas: [],
+            table_schema: "public",
+            table_name: "accounts",
+            columns: ["name", "id"],
+          },
+        ]),
+      ).toEqual({
+        name: "zero_data",
+        tables: [
+          {
+            schema: "public",
+            name: "accounts",
+            columns: ["id", "name"],
+          },
+          {
+            schema: "public",
+            name: "users",
+            columns: ["id", "name", "secret"],
+          },
+        ],
+      });
+    }),
+  );
+
+  it.effect("does not emit statements when push introspection matches desired publication", () =>
+    Effect.gen(function* () {
+      const users = table(model, { name: "users", key: ["id"] });
+      const extension = zeroPublication({ schema: schema({ users }) });
+      const snapshot = yield* introspect(extension, [
         {
           publication_name: "zero_data",
           puballtables: false,
           publication_schemas: [],
           table_schema: "public",
           table_name: "users",
-          columns: ["secret", "id", "name"],
-        },
-        {
-          publication_name: "zero_data",
-          puballtables: false,
-          publication_schemas: [],
-          table_schema: "public",
-          table_name: "accounts",
-          columns: ["name", "id"],
-        },
-      ]),
-    ).resolves.toEqual({
-      name: "zero_data",
-      tables: [
-        {
-          schema: "public",
-          name: "accounts",
-          columns: ["id", "name"],
-        },
-        {
-          schema: "public",
-          name: "users",
           columns: ["id", "name", "secret"],
         },
-      ],
-    });
-  });
+      ]);
 
-  it("does not emit statements when push introspection matches desired publication", async () => {
-    const users = table(model, { name: "users", key: ["id"] });
-    const extension = zeroPublication({ schema: schema({ users }) });
-    const snapshot = await introspect(extension, [
-      {
-        publication_name: "zero_data",
-        puballtables: false,
-        publication_schemas: [],
-        table_schema: "public",
-        table_name: "users",
-        columns: ["id", "name", "secret"],
-      },
-    ]);
+      const result = generate(extension, { [publicationKey]: snapshot! });
 
-    const result = generate(extension, { [publicationKey]: snapshot! });
+      expect(result.statements).toEqual([]);
+    }),
+  );
 
-    expect(result.statements).toEqual([]);
-  });
+  it.effect("creates a publication when push introspection finds no publication", () =>
+    Effect.gen(function* () {
+      const users = table(model, { name: "users", key: ["id"] });
+      const extension = zeroPublication({ schema: schema({ users }) });
+      const snapshot = yield* introspect(extension, []);
 
-  it("creates a publication when push introspection finds no publication", async () => {
-    const users = table(model, { name: "users", key: ["id"] });
-    const extension = zeroPublication({ schema: schema({ users }) });
-    const snapshot = await introspect(extension, []);
+      const result = generate(
+        extension,
+        snapshot === undefined ? {} : { [publicationKey]: snapshot },
+      );
 
-    const result = generate(
-      extension,
-      snapshot === undefined ? {} : { [publicationKey]: snapshot },
-    );
+      expect(result.statements.map((statement) => statement.sql)).toEqual([
+        'CREATE PUBLICATION "zero_data" FOR TABLE\n  "public"."users" ("id", "name", "secret");',
+      ]);
+    }),
+  );
 
-    expect(result.statements.map((statement) => statement.sql)).toEqual([
-      'CREATE PUBLICATION "zero_data" FOR TABLE\n  "public"."users" ("id", "name", "secret");',
-    ]);
-  });
+  it.effect("rejects malformed publication introspection rows", () =>
+    Effect.gen(function* () {
+      const users = table(model, { name: "users", key: ["id"] });
+      const extension = zeroPublication({ schema: schema({ users }) });
 
-  it("rejects malformed publication introspection rows", async () => {
-    const users = table(model, { name: "users", key: ["id"] });
-    const extension = zeroPublication({ schema: schema({ users }) });
+      const exit = yield* Effect.exit(
+        introspect(extension, [
+          {
+            publication_name: "zero_data",
+            puballtables: false,
+            publication_schemas: [],
+            table_schema: "public",
+            table_name: "users",
+            columns: null,
+          },
+        ]),
+      );
+      expect(exit._tag).toBe("Failure");
+      if (exit._tag === "Failure") {
+        expect(String(exit.cause)).toContain(
+          "effect-zero: invalid publication introspection row for zero_data",
+        );
+      }
+    }),
+  );
 
-    await expect(
-      introspect(extension, [
-        {
-          publication_name: "zero_data",
-          puballtables: false,
-          publication_schemas: [],
-          table_schema: "public",
-          table_name: "users",
-          columns: null,
-        },
-      ]),
-    ).rejects.toThrow("effect-zero: invalid publication introspection row for zero_data");
-  });
+  it.effect("rejects all-tables and schema-level publication modes during push introspection", () =>
+    Effect.gen(function* () {
+      const users = table(model, { name: "users", key: ["id"] });
+      const extension = zeroPublication({ schema: schema({ users }) });
 
-  it("rejects all-tables and schema-level publication modes during push introspection", async () => {
-    const users = table(model, { name: "users", key: ["id"] });
-    const extension = zeroPublication({ schema: schema({ users }) });
+      const allTablesExit = yield* Effect.exit(
+        introspect(extension, [
+          {
+            publication_name: "zero_data",
+            puballtables: true,
+            publication_schemas: [],
+            table_schema: null,
+            table_name: null,
+            columns: [],
+          },
+        ]),
+      );
+      expect(allTablesExit._tag).toBe("Failure");
+      if (allTablesExit._tag === "Failure") {
+        expect(String(allTablesExit.cause)).toContain(
+          "effect-zero: publication zero_data uses FOR ALL TABLES, which zeroPublication push cannot diff",
+        );
+      }
 
-    await expect(
-      introspect(extension, [
-        {
-          publication_name: "zero_data",
-          puballtables: true,
-          publication_schemas: [],
-          table_schema: null,
-          table_name: null,
-          columns: [],
-        },
-      ]),
-    ).rejects.toThrow(
-      "effect-zero: publication zero_data uses FOR ALL TABLES, which zeroPublication push cannot diff",
-    );
-
-    await expect(
-      introspect(extension, [
-        {
-          publication_name: "zero_data",
-          puballtables: false,
-          publication_schemas: ["public"],
-          table_schema: null,
-          table_name: null,
-          columns: [],
-        },
-      ]),
-    ).rejects.toThrow(
-      "effect-zero: publication zero_data uses schema-level publication entries (public), which zeroPublication push cannot diff",
-    );
-  });
+      const schemaExit = yield* Effect.exit(
+        introspect(extension, [
+          {
+            publication_name: "zero_data",
+            puballtables: false,
+            publication_schemas: ["public"],
+            table_schema: null,
+            table_name: null,
+            columns: [],
+          },
+        ]),
+      );
+      expect(schemaExit._tag).toBe("Failure");
+      if (schemaExit._tag === "Failure") {
+        expect(String(schemaExit.cause)).toContain(
+          "effect-zero: publication zero_data uses schema-level publication entries (public), which zeroPublication push cannot diff",
+        );
+      }
+    }),
+  );
 });

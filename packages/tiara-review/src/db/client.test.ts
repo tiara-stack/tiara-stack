@@ -19,13 +19,15 @@ const fakeSql = (input: {
   }) as unknown as SqlClient.SqlClient;
 
 describe("withImmediateTransaction", () => {
-  it("rolls back and re-raises when commit fails", async () => {
-    const calls: Array<string> = [];
-    const sql = fakeSql({ calls, failOn: "COMMIT" });
+  it.effect("rolls back and re-raises when commit fails", () =>
+    Effect.gen(function* () {
+      const calls: Array<string> = [];
+      const sql = fakeSql({ calls, failOn: "COMMIT" });
 
-    const exit = await Effect.runPromiseExit(withImmediateTransaction(sql, Effect.succeed("ok")));
+      const exit = yield* Effect.exit(withImmediateTransaction(sql, Effect.succeed("ok")));
 
-    expect(Exit.isFailure(exit)).toBe(true);
-    expect(calls).toEqual(["BEGIN IMMEDIATE", "COMMIT", "ROLLBACK"]);
-  });
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(calls).toEqual(["BEGIN IMMEDIATE", "COMMIT", "ROLLBACK"]);
+    }),
+  );
 });

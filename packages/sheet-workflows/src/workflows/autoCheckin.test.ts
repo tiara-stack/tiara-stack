@@ -36,26 +36,26 @@ describe("auto check-in workflow", () => {
     expect(shardGroup(undefined as never)).toBe("autoCheckin");
   });
 
-  it("routes conversation processing to AutoCheckinService", async () => {
-    const service = {
-      enqueueDueConversations: () => Effect.die("Unexpected enqueueDueConversations call"),
-      enqueueWorkspace: () => Effect.die("Unexpected enqueueWorkspace call"),
-      processConversation: (currentPayload: AutoCheckinConversationPayload) =>
-        Effect.sync(() => {
-          expect(currentPayload).toEqual(payload);
-          return result;
-        }),
-    } satisfies typeof AutoCheckinService.Service;
+  it.live("routes conversation processing to AutoCheckinService", () =>
+    Effect.gen(function* () {
+      const service = {
+        enqueueDueConversations: () => Effect.die("Unexpected enqueueDueConversations call"),
+        enqueueWorkspace: () => Effect.die("Unexpected enqueueWorkspace call"),
+        processConversation: (currentPayload: AutoCheckinConversationPayload) =>
+          Effect.sync(() => {
+            expect(currentPayload).toEqual(payload);
+            return result;
+          }),
+      } satisfies typeof AutoCheckinService.Service;
 
-    await Effect.runPromise(
-      AutoCheckinConversationWorkflow.execute(payload).pipe(
+      yield* AutoCheckinConversationWorkflow.execute(payload).pipe(
         Effect.tap((processed) => Effect.sync(() => expect(processed).toEqual(result))),
         Effect.provide(autoCheckinWorkflowLayer),
         Effect.provideService(AutoCheckinService, service),
         Effect.provide(WorkflowEngine.layerMemory),
-      ),
-    );
-  });
+      );
+    }),
+  );
 
   it.effect(
     "builds deterministic workflow execution ids from workspace, event, hour, and conversation",

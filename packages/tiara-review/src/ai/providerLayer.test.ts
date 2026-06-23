@@ -22,19 +22,29 @@ describe("provider layer helpers", () => {
     expect(makeKimiGraphTools(baseOptions)).toBeUndefined();
   });
 
-  it("requires a model for HTTP providers", async () => {
-    await expect(
-      Effect.runPromise(makeLanguageModelLayer({ ...baseOptions, provider: "openai" })),
-    ).rejects.toBeInstanceOf(CodexAgentFailed);
-  });
+  it.effect("requires a model for HTTP providers", () =>
+    Effect.gen(function* () {
+      const exit5 = yield* Effect.exit(
+        makeLanguageModelLayer({ ...baseOptions, provider: "openai" }),
+      );
+      expect(exit5._tag).toBe("Failure");
+      if (exit5._tag === "Failure") {
+        expect(String(exit5.cause)).toContain(CodexAgentFailed.name);
+      }
+    }),
+  );
 
-  it("rejects blank HTTP provider models", async () => {
-    await expect(
-      Effect.runPromise(
+  it.effect("rejects blank HTTP provider models", () =>
+    Effect.gen(function* () {
+      const exit5 = yield* Effect.exit(
         makeLanguageModelLayer({ ...baseOptions, provider: "openai", model: "   " }),
-      ),
-    ).rejects.toBeInstanceOf(CodexAgentFailed);
-  });
+      );
+      expect(exit5._tag).toBe("Failure");
+      if (exit5._tag === "Failure") {
+        expect(String(exit5.cause)).toContain(CodexAgentFailed.name);
+      }
+    }),
+  );
 
   it("maps Kimi session config fields defensively", () => {
     expect(

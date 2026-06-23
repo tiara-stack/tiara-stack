@@ -433,9 +433,9 @@ describe("dispatch workflow registry", () => {
     }),
   );
 
-  it("routes check-in workflow execution to DispatchService", async () => {
-    await Effect.runPromise(
-      Effect.gen(function* () {
+  it.live("routes check-in workflow execution to DispatchService", () =>
+    Effect.gen(function* () {
+      yield* Effect.gen(function* () {
         const result = yield* dispatchWorkflowRegistry.checkin.execute({
           requester,
           payload: checkinPayload,
@@ -475,13 +475,13 @@ describe("dispatch workflow registry", () => {
           }),
         ),
         Effect.provide(Layer.empty),
-      ),
-    );
-  });
+      );
+    }),
+  );
 
-  it("routes auto check-in test workflow execution to DispatchService", async () => {
-    await Effect.runPromise(
-      Effect.gen(function* () {
+  it.live("routes auto check-in test workflow execution to DispatchService", () =>
+    Effect.gen(function* () {
+      yield* Effect.gen(function* () {
         const result = yield* dispatchWorkflowRegistry.autoCheckinTest.execute({
           requester,
           payload: autoCheckinTestPayload,
@@ -548,13 +548,13 @@ describe("dispatch workflow registry", () => {
           }),
         ),
         Effect.provide(Layer.empty),
-      ),
-    );
-  });
+      );
+    }),
+  );
 
-  it("routes kickout workflow execution to DispatchService", async () => {
-    await Effect.runPromise(
-      Effect.gen(function* () {
+  it.live("routes kickout workflow execution to DispatchService", () =>
+    Effect.gen(function* () {
+      yield* Effect.gen(function* () {
         const result = yield* dispatchWorkflowRegistry.kickout.execute({
           requester,
           payload: kickoutPayload,
@@ -587,161 +587,161 @@ describe("dispatch workflow registry", () => {
               }),
           }),
         ),
-      ),
-    );
-  });
+      );
+    }),
+  );
 
-  it("requires manage-workspace authorization snapshots for config mutation workflows", async () => {
-    type TestAuthorization = {
-      readonly workspaceId: string;
-      readonly scope: "member" | "monitor" | "manage";
-    };
-    const authorization: TestAuthorization = { workspaceId: "workspace-1", scope: "manage" };
-    const unauthorized: TestAuthorization = { workspaceId: "workspace-1", scope: "monitor" };
-    const cases = [
-      (currentAuthorization: typeof authorization) =>
-        dispatchWorkflowRegistry.conversationSet.authorize({
-          requester,
-          authorization: currentAuthorization,
-          payload: {
-            client: discordClient,
-            dispatchRequestId: "dispatch-conversation-set",
-            workspaceId: "workspace-1",
-            conversationId: "conversation-1",
-            running: true,
-            interactionResponseToken: "interaction-token",
-            interactionResponseDeadlineEpochMs,
-          },
-        }),
-      (currentAuthorization: typeof authorization) =>
-        dispatchWorkflowRegistry.conversationUnset.authorize({
-          requester,
-          authorization: currentAuthorization,
-          payload: {
-            client: discordClient,
-            dispatchRequestId: "dispatch-conversation-unset",
-            workspaceId: "workspace-1",
-            conversationId: "conversation-1",
-            running: true,
-            interactionResponseToken: "interaction-token",
-            interactionResponseDeadlineEpochMs,
-          },
-        }),
-      (currentAuthorization: typeof authorization) =>
-        dispatchWorkflowRegistry.workspaceAddMonitorRole.authorize({
-          requester,
-          authorization: currentAuthorization,
-          payload: {
-            client: discordClient,
-            dispatchRequestId: "dispatch-server-add-monitor-role",
-            workspaceId: "workspace-1",
-            roleId: "role-1",
-            interactionResponseToken: "interaction-token",
-            interactionResponseDeadlineEpochMs,
-          },
-        }),
-      (currentAuthorization: typeof authorization) =>
-        dispatchWorkflowRegistry.workspaceRemoveMonitorRole.authorize({
-          requester,
-          authorization: currentAuthorization,
-          payload: {
-            client: discordClient,
-            dispatchRequestId: "dispatch-server-remove-monitor-role",
-            workspaceId: "workspace-1",
-            roleId: "role-1",
-            interactionResponseToken: "interaction-token",
-            interactionResponseDeadlineEpochMs,
-          },
-        }),
-      (currentAuthorization: typeof authorization) =>
-        dispatchWorkflowRegistry.workspaceSetSheet.authorize({
-          requester,
-          authorization: currentAuthorization,
-          payload: {
-            client: discordClient,
-            dispatchRequestId: "dispatch-server-set-sheet",
-            workspaceId: "workspace-1",
-            sheetId: "sheet-1",
-            interactionResponseToken: "interaction-token",
-            interactionResponseDeadlineEpochMs,
-          },
-        }),
-      (currentAuthorization: typeof authorization) =>
-        dispatchWorkflowRegistry.workspaceSetAutoCheckin.authorize({
-          requester,
-          authorization: currentAuthorization,
-          payload: {
-            client: discordClient,
-            dispatchRequestId: "dispatch-server-set-auto-checkin",
-            workspaceId: "workspace-1",
-            autoCheckin: true,
-            interactionResponseToken: "interaction-token",
-            interactionResponseDeadlineEpochMs,
-          },
-        }),
-    ];
+  it.live("requires manage-workspace authorization snapshots for config mutation workflows", () =>
+    Effect.gen(function* () {
+      type TestAuthorization = {
+        readonly workspaceId: string;
+        readonly scope: "member" | "monitor" | "manage";
+      };
+      const authorization: TestAuthorization = { workspaceId: "workspace-1", scope: "manage" };
+      const unauthorized: TestAuthorization = { workspaceId: "workspace-1", scope: "monitor" };
+      const cases = [
+        (currentAuthorization: typeof authorization) =>
+          dispatchWorkflowRegistry.conversationSet.authorize({
+            requester,
+            authorization: currentAuthorization,
+            payload: {
+              client: discordClient,
+              dispatchRequestId: "dispatch-conversation-set",
+              workspaceId: "workspace-1",
+              conversationId: "conversation-1",
+              running: true,
+              interactionResponseToken: "interaction-token",
+              interactionResponseDeadlineEpochMs,
+            },
+          }),
+        (currentAuthorization: typeof authorization) =>
+          dispatchWorkflowRegistry.conversationUnset.authorize({
+            requester,
+            authorization: currentAuthorization,
+            payload: {
+              client: discordClient,
+              dispatchRequestId: "dispatch-conversation-unset",
+              workspaceId: "workspace-1",
+              conversationId: "conversation-1",
+              running: true,
+              interactionResponseToken: "interaction-token",
+              interactionResponseDeadlineEpochMs,
+            },
+          }),
+        (currentAuthorization: typeof authorization) =>
+          dispatchWorkflowRegistry.workspaceAddMonitorRole.authorize({
+            requester,
+            authorization: currentAuthorization,
+            payload: {
+              client: discordClient,
+              dispatchRequestId: "dispatch-server-add-monitor-role",
+              workspaceId: "workspace-1",
+              roleId: "role-1",
+              interactionResponseToken: "interaction-token",
+              interactionResponseDeadlineEpochMs,
+            },
+          }),
+        (currentAuthorization: typeof authorization) =>
+          dispatchWorkflowRegistry.workspaceRemoveMonitorRole.authorize({
+            requester,
+            authorization: currentAuthorization,
+            payload: {
+              client: discordClient,
+              dispatchRequestId: "dispatch-server-remove-monitor-role",
+              workspaceId: "workspace-1",
+              roleId: "role-1",
+              interactionResponseToken: "interaction-token",
+              interactionResponseDeadlineEpochMs,
+            },
+          }),
+        (currentAuthorization: typeof authorization) =>
+          dispatchWorkflowRegistry.workspaceSetSheet.authorize({
+            requester,
+            authorization: currentAuthorization,
+            payload: {
+              client: discordClient,
+              dispatchRequestId: "dispatch-server-set-sheet",
+              workspaceId: "workspace-1",
+              sheetId: "sheet-1",
+              interactionResponseToken: "interaction-token",
+              interactionResponseDeadlineEpochMs,
+            },
+          }),
+        (currentAuthorization: typeof authorization) =>
+          dispatchWorkflowRegistry.workspaceSetAutoCheckin.authorize({
+            requester,
+            authorization: currentAuthorization,
+            payload: {
+              client: discordClient,
+              dispatchRequestId: "dispatch-server-set-auto-checkin",
+              workspaceId: "workspace-1",
+              autoCheckin: true,
+              interactionResponseToken: "interaction-token",
+              interactionResponseDeadlineEpochMs,
+            },
+          }),
+      ];
 
-    for (const authorize of cases) {
-      await Effect.runPromise(authorize(authorization));
-      const denied = await Effect.runPromiseExit(authorize(unauthorized));
+      for (const authorize of cases) {
+        yield* authorize(authorization);
+        const denied = yield* Effect.exit(authorize(unauthorized));
+        expect(denied._tag).toBe("Failure");
+      }
+    }),
+  );
+
+  it.live("requires monitor-workspace authorization snapshots for screenshot workflow", () =>
+    Effect.gen(function* () {
+      const request = {
+        requester,
+        authorization: { workspaceId: "workspace-1", scope: "monitor" as const },
+        payload: {
+          client: discordClient,
+          dispatchRequestId: "dispatch-screenshot",
+          workspaceId: "workspace-1",
+          conversationName: "run",
+          day: 1,
+          interactionResponseToken: "interaction-token",
+          interactionResponseDeadlineEpochMs,
+        },
+      };
+
+      yield* dispatchWorkflowRegistry.screenshot.authorize(request);
+      const denied = yield* Effect.exit(
+        dispatchWorkflowRegistry.screenshot.authorize({
+          ...request,
+          authorization: { workspaceId: "workspace-2", scope: "monitor" as const },
+        }),
+      );
       expect(denied._tag).toBe("Failure");
-    }
-  });
+    }),
+  );
 
-  it("requires monitor-workspace authorization snapshots for screenshot workflow", async () => {
-    const request = {
-      requester,
-      authorization: { workspaceId: "workspace-1", scope: "monitor" as const },
-      payload: {
-        client: discordClient,
-        dispatchRequestId: "dispatch-screenshot",
-        workspaceId: "workspace-1",
-        conversationName: "run",
-        day: 1,
-        interactionResponseToken: "interaction-token",
-        interactionResponseDeadlineEpochMs,
-      },
-    };
+  it.live("allows team and schedule list for self or monitor snapshots", () =>
+    Effect.gen(function* () {
+      const base = {
+        requester,
+        payload: {
+          client: discordClient,
+          workspaceId: "workspace-1",
+          targetUserId: requester.accountId,
+          targetUsername: "Requester",
+          interactionResponseToken: "interaction-token",
+          interactionResponseDeadlineEpochMs,
+        },
+      };
 
-    await Effect.runPromise(dispatchWorkflowRegistry.screenshot.authorize(request));
-    const denied = await Effect.runPromiseExit(
-      dispatchWorkflowRegistry.screenshot.authorize({
-        ...request,
-        authorization: { workspaceId: "workspace-2", scope: "monitor" as const },
-      }),
-    );
-    expect(denied._tag).toBe("Failure");
-  });
-
-  it("allows team and schedule list for self or monitor snapshots", async () => {
-    const base = {
-      requester,
-      payload: {
-        client: discordClient,
-        workspaceId: "workspace-1",
-        targetUserId: requester.accountId,
-        targetUsername: "Requester",
-        interactionResponseToken: "interaction-token",
-        interactionResponseDeadlineEpochMs,
-      },
-    };
-
-    await Effect.runPromise(
-      dispatchWorkflowRegistry.teamList.authorize({
+      yield* dispatchWorkflowRegistry.teamList.authorize({
         ...base,
         payload: { ...base.payload, dispatchRequestId: "dispatch-team-list" },
-      }),
-    );
-    await Effect.runPromise(
-      dispatchWorkflowRegistry.scheduleList.authorize({
+      });
+      yield* dispatchWorkflowRegistry.scheduleList.authorize({
         ...base,
         payload: { ...base.payload, dispatchRequestId: "dispatch-schedule-list", day: 1 },
-      }),
-    );
+      });
 
-    const monitorAuthorization = { workspaceId: "workspace-1", scope: "monitor" as const };
-    await Effect.runPromise(
-      dispatchWorkflowRegistry.teamList.authorize({
+      const monitorAuthorization = { workspaceId: "workspace-1", scope: "monitor" as const };
+      yield* dispatchWorkflowRegistry.teamList.authorize({
         ...base,
         authorization: monitorAuthorization,
         payload: {
@@ -749,26 +749,26 @@ describe("dispatch workflow registry", () => {
           dispatchRequestId: "dispatch-team-list-other",
           targetUserId: "account-2",
         },
-      }),
-    );
-    const denied = await Effect.runPromiseExit(
-      dispatchWorkflowRegistry.scheduleList.authorize({
-        ...base,
-        payload: {
-          ...base.payload,
-          dispatchRequestId: "dispatch-schedule-list-other",
-          day: 1,
-          targetUserId: "account-2",
-        },
-      }),
-    );
-    expect(denied._tag).toBe("Failure");
-  });
+      });
+      const denied = yield* Effect.exit(
+        dispatchWorkflowRegistry.scheduleList.authorize({
+          ...base,
+          payload: {
+            ...base.payload,
+            dispatchRequestId: "dispatch-schedule-list-other",
+            day: 1,
+            targetUserId: "account-2",
+          },
+        }),
+      );
+      expect(denied._tag).toBe("Failure");
+    }),
+  );
 
-  it("routes slot workflows to DispatchService", async () => {
-    const authorizedMessageSlot = makeMessageSlot();
-    await Effect.runPromise(
-      Effect.gen(function* () {
+  it.live("routes slot workflows to DispatchService", () =>
+    Effect.gen(function* () {
+      const authorizedMessageSlot = makeMessageSlot();
+      yield* Effect.gen(function* () {
         const buttonResult = yield* dispatchWorkflowRegistry.slotButton.execute({
           requester,
           payload: slotButtonPayload,
@@ -835,24 +835,24 @@ describe("dispatch workflow registry", () => {
               }),
           }),
         ),
-      ),
-    );
-  });
+      );
+    }),
+  );
 
-  it("routes service status workflow execution to DispatchService", async () => {
-    const serviceStatus = vi.fn((payload: ServiceStatusDispatchPayload) =>
-      Effect.sync(() => {
-        expect(payload).toBe(serviceStatusPayload);
-        return {
-          overallStatus: "ok",
-          okCount: 7,
-          downCount: 0,
-        } satisfies ServiceStatusDispatchResult;
-      }),
-    ) as DispatchServiceMock["serviceStatus"];
+  it.live("routes service status workflow execution to DispatchService", () =>
+    Effect.gen(function* () {
+      const serviceStatus = vi.fn((payload: ServiceStatusDispatchPayload) =>
+        Effect.sync(() => {
+          expect(payload).toBe(serviceStatusPayload);
+          return {
+            overallStatus: "ok",
+            okCount: 7,
+            downCount: 0,
+          } satisfies ServiceStatusDispatchResult;
+        }),
+      ) as DispatchServiceMock["serviceStatus"];
 
-    await Effect.runPromise(
-      Effect.gen(function* () {
+      yield* Effect.gen(function* () {
         const result = yield* dispatchWorkflowRegistry.serviceStatus.execute({
           requester,
           payload: serviceStatusPayload,
@@ -871,24 +871,24 @@ describe("dispatch workflow registry", () => {
             serviceStatus,
           }),
         ),
-      ),
-    );
-  });
+      );
+    }),
+  );
 
-  it("routes workspace welcome workflow execution to DispatchService", async () => {
-    const workspaceWelcome = vi.fn((payload: WorkspaceWelcomeDispatchPayload) =>
-      Effect.sync(() => {
-        expect(payload).toBe(workspaceWelcomePayload);
-        return {
-          workspaceId: "workspace-1",
-          conversationId: "conversation-1",
-          messageId: "message-1",
-        } satisfies WorkspaceWelcomeDispatchResult;
-      }),
-    ) as DispatchServiceMock["workspaceWelcome"];
+  it.live("routes workspace welcome workflow execution to DispatchService", () =>
+    Effect.gen(function* () {
+      const workspaceWelcome = vi.fn((payload: WorkspaceWelcomeDispatchPayload) =>
+        Effect.sync(() => {
+          expect(payload).toBe(workspaceWelcomePayload);
+          return {
+            workspaceId: "workspace-1",
+            conversationId: "conversation-1",
+            messageId: "message-1",
+          } satisfies WorkspaceWelcomeDispatchResult;
+        }),
+      ) as DispatchServiceMock["workspaceWelcome"];
 
-    await Effect.runPromise(
-      Effect.gen(function* () {
+      yield* Effect.gen(function* () {
         const result = yield* dispatchWorkflowRegistry.workspaceWelcome.execute({
           requester,
           payload: workspaceWelcomePayload,
@@ -907,34 +907,34 @@ describe("dispatch workflow registry", () => {
             workspaceWelcome,
           }),
         ),
-      ),
-    );
-  });
+      );
+    }),
+  );
 
-  it("routes service workspace feature flag workflows to DispatchService", async () => {
-    const resultPayload = {
-      workspaceId: "workspace-1",
-      flagName: "beta-feature",
-      announcementConversationId: "conversation-1",
-      announcementMessageId: "message-1",
-    } satisfies ServiceWorkspaceFeatureFlagDispatchResult;
-    const serviceAddWorkspaceFeatureFlag = vi.fn(
-      (payload: ServiceWorkspaceFeatureFlagDispatchPayload) =>
-        Effect.sync(() => {
-          expect(payload).toBe(serviceWorkspaceFeatureFlagPayload);
-          return resultPayload;
-        }),
-    ) as DispatchServiceMock["serviceAddWorkspaceFeatureFlag"];
-    const serviceRemoveWorkspaceFeatureFlag = vi.fn(
-      (payload: ServiceWorkspaceFeatureFlagDispatchPayload) =>
-        Effect.sync(() => {
-          expect(payload).toBe(serviceWorkspaceFeatureFlagPayload);
-          return resultPayload;
-        }),
-    ) as DispatchServiceMock["serviceRemoveWorkspaceFeatureFlag"];
+  it.live("routes service workspace feature flag workflows to DispatchService", () =>
+    Effect.gen(function* () {
+      const resultPayload = {
+        workspaceId: "workspace-1",
+        flagName: "beta-feature",
+        announcementConversationId: "conversation-1",
+        announcementMessageId: "message-1",
+      } satisfies ServiceWorkspaceFeatureFlagDispatchResult;
+      const serviceAddWorkspaceFeatureFlag = vi.fn(
+        (payload: ServiceWorkspaceFeatureFlagDispatchPayload) =>
+          Effect.sync(() => {
+            expect(payload).toBe(serviceWorkspaceFeatureFlagPayload);
+            return resultPayload;
+          }),
+      ) as DispatchServiceMock["serviceAddWorkspaceFeatureFlag"];
+      const serviceRemoveWorkspaceFeatureFlag = vi.fn(
+        (payload: ServiceWorkspaceFeatureFlagDispatchPayload) =>
+          Effect.sync(() => {
+            expect(payload).toBe(serviceWorkspaceFeatureFlagPayload);
+            return resultPayload;
+          }),
+      ) as DispatchServiceMock["serviceRemoveWorkspaceFeatureFlag"];
 
-    await Effect.runPromise(
-      Effect.gen(function* () {
+      yield* Effect.gen(function* () {
         const addResult = yield* dispatchWorkflowRegistry.serviceAddWorkspaceFeatureFlag.execute({
           requester,
           payload: serviceWorkspaceFeatureFlagPayload,
@@ -961,27 +961,27 @@ describe("dispatch workflow registry", () => {
             serviceRemoveWorkspaceFeatureFlag,
           }),
         ),
-      ),
-    );
-  });
+      );
+    }),
+  );
 
-  it("routes update announcement workflows to DispatchService", async () => {
-    const resultPayload = {
-      workspaceId: "workspace-1",
-      announcementId: "update-announcements-2026-06-05",
-      status: "sent",
-      announcementConversationId: "conversation-1",
-      announcementMessageId: "message-1",
-    } satisfies UpdateAnnouncementDispatchResult;
-    const updateAnnouncement = vi.fn((payload: UpdateAnnouncementDispatchPayload) =>
-      Effect.sync(() => {
-        expect(payload).toBe(updateAnnouncementPayload);
-        return resultPayload;
-      }),
-    ) as DispatchServiceMock["updateAnnouncement"];
+  it.live("routes update announcement workflows to DispatchService", () =>
+    Effect.gen(function* () {
+      const resultPayload = {
+        workspaceId: "workspace-1",
+        announcementId: "update-announcements-2026-06-05",
+        status: "sent",
+        announcementConversationId: "conversation-1",
+        announcementMessageId: "message-1",
+      } satisfies UpdateAnnouncementDispatchResult;
+      const updateAnnouncement = vi.fn((payload: UpdateAnnouncementDispatchPayload) =>
+        Effect.sync(() => {
+          expect(payload).toBe(updateAnnouncementPayload);
+          return resultPayload;
+        }),
+      ) as DispatchServiceMock["updateAnnouncement"];
 
-    await Effect.runPromise(
-      Effect.gen(function* () {
+      yield* Effect.gen(function* () {
         const result = yield* dispatchWorkflowRegistry.updateAnnouncement.execute({
           requester,
           payload: updateAnnouncementPayload,
@@ -996,18 +996,56 @@ describe("dispatch workflow registry", () => {
             updateAnnouncement,
           }),
         ),
-      ),
-    );
-  });
+      );
+    }),
+  );
 
-  it("does not overwrite handled interaction failure replies with the generic dispatch failure", async () => {
-    const updateOriginalInteractionResponse = vi.fn(() => Effect.void);
-    const serviceStatus = vi.fn(() =>
-      Effect.fail(markInteractionFailureHandled(new Error("status failed"))),
-    );
+  it.live(
+    "does not overwrite handled interaction failure replies with the generic dispatch failure",
+    () =>
+      Effect.gen(function* () {
+        const updateOriginalInteractionResponse = vi.fn(() => Effect.void);
+        const serviceStatus = vi.fn(() =>
+          Effect.fail(markInteractionFailureHandled(new Error("status failed"))),
+        );
 
-    const exit = await Effect.runPromise(
-      Effect.exit(
+        const exit = yield* Effect.exit(
+          DispatchServiceStatusWorkflow.execute({
+            requester,
+            payload: serviceStatusPayload,
+          }),
+        ).pipe(
+          Effect.provide(
+            DispatchServiceStatusWorkflow.toLayer(
+              makeWorkflowHandler({ ...dispatchWorkflowRegistry.serviceStatus }),
+            ),
+          ),
+          Effect.provideService(
+            DispatchService,
+            makeDispatchServiceMock({
+              serviceStatus: serviceStatus as unknown as DispatchServiceMock["serviceStatus"],
+            }),
+          ),
+          Effect.provideService(ClientDeliveryClient, {
+            updateOriginalInteractionResponse,
+          } as never),
+          Effect.provide(WorkflowEngine.layerMemory),
+        );
+
+        expect(exit._tag).toBe("Failure");
+        expect(serviceStatus).toHaveBeenCalledWith(serviceStatusPayload);
+        expect(updateOriginalInteractionResponse).not.toHaveBeenCalled();
+      }),
+  );
+
+  it.live("includes the thrown error message for unhandled interaction failures", () =>
+    Effect.gen(function* () {
+      const updateOriginalInteractionResponse = vi.fn(
+        (_interactionResponseToken: string, _payload: unknown) => Effect.void,
+      );
+      const serviceStatus = vi.fn(() => Effect.fail(new Error("status failed")));
+
+      const exit = yield* Effect.exit(
         DispatchServiceStatusWorkflow.execute({
           requester,
           payload: serviceStatusPayload,
@@ -1028,63 +1066,28 @@ describe("dispatch workflow registry", () => {
           updateOriginalInteractionResponse,
         } as never),
         Effect.provide(WorkflowEngine.layerMemory),
-      ),
-    );
+      );
 
-    expect(exit._tag).toBe("Failure");
-    expect(serviceStatus).toHaveBeenCalledWith(serviceStatusPayload);
-    expect(updateOriginalInteractionResponse).not.toHaveBeenCalled();
-  });
-
-  it("includes the thrown error message for unhandled interaction failures", async () => {
-    const updateOriginalInteractionResponse = vi.fn(
-      (_interactionResponseToken: string, _payload: unknown) => Effect.void,
-    );
-    const serviceStatus = vi.fn(() => Effect.fail(new Error("status failed")));
-
-    const exit = await Effect.runPromise(
-      Effect.exit(
-        DispatchServiceStatusWorkflow.execute({
-          requester,
-          payload: serviceStatusPayload,
-        }),
-      ).pipe(
-        Effect.provide(
-          DispatchServiceStatusWorkflow.toLayer(
-            makeWorkflowHandler({ ...dispatchWorkflowRegistry.serviceStatus }),
-          ),
-        ),
-        Effect.provideService(
-          DispatchService,
-          makeDispatchServiceMock({
-            serviceStatus: serviceStatus as unknown as DispatchServiceMock["serviceStatus"],
+      expect(exit._tag).toBe("Failure");
+      expect(serviceStatus).toHaveBeenCalledWith(serviceStatusPayload);
+      expect(updateOriginalInteractionResponse).toHaveBeenCalledWith("interaction-token", {
+        content:
+          "Dispatch failed. Please try again.\nUnexpected error: status failed\nFull error is attached.",
+        files: [
+          expect.objectContaining({
+            name: "error.txt",
+            contentType: "text/plain",
+            content: expect.any(Uint8Array),
           }),
-        ),
-        Effect.provideService(ClientDeliveryClient, {
-          updateOriginalInteractionResponse,
-        } as never),
-        Effect.provide(WorkflowEngine.layerMemory),
-      ),
-    );
-
-    expect(exit._tag).toBe("Failure");
-    expect(serviceStatus).toHaveBeenCalledWith(serviceStatusPayload);
-    expect(updateOriginalInteractionResponse).toHaveBeenCalledWith("interaction-token", {
-      content:
-        "Dispatch failed. Please try again.\nUnexpected error: status failed\nFull error is attached.",
-      files: [
-        expect.objectContaining({
-          name: "error.txt",
-          contentType: "text/plain",
-          content: expect.any(Uint8Array),
-        }),
-      ],
-    });
-    const [, payload] = updateOriginalInteractionResponse.mock.calls[0]!;
-    const [file] = (payload as { readonly files: ReadonlyArray<{ readonly content: Uint8Array }> })
-      .files;
-    expect(new TextDecoder().decode(file.content)).toContain("status failed");
-  });
+        ],
+      });
+      const [, payload] = updateOriginalInteractionResponse.mock.calls[0]!;
+      const [file] = (
+        payload as { readonly files: ReadonlyArray<{ readonly content: Uint8Array }> }
+      ).files;
+      expect(new TextDecoder().decode(file.content)).toContain("status failed");
+    }),
+  );
 
   it("formats typed dispatch failures with actionable labels", () => {
     expect(
@@ -1135,36 +1138,35 @@ describe("dispatch workflow registry", () => {
     );
   });
 
-  it("routes check-in button workflows through the dispatch button entity", async () => {
-    const expectedExecutionId = await Effect.runPromise(
-      dispatchWorkflowRegistry.checkinButton.workflow.executionId({
-        requester,
-        payload: checkinButtonPayload,
-      }),
-    );
-    const checkinButton = vi.fn((payload: unknown) =>
-      Effect.sync(() => {
-        expect(payload).toEqual({
-          request: {
-            requester,
-            payload: checkinButtonPayload,
-          },
-          executionId: expectedExecutionId,
+  it.live("routes check-in button workflows through the dispatch button entity", () =>
+    Effect.gen(function* () {
+      const expectedExecutionId =
+        yield* dispatchWorkflowRegistry.checkinButton.workflow.executionId({
+          requester,
+          payload: checkinButtonPayload,
         });
-        return {
-          messageId: checkinButtonPayload.messageId,
-          messageConversationId: "conversation-1",
-          checkedInMemberId: requester.accountId,
-        } satisfies CheckinHandleButtonResult;
-      }),
-    );
-    const makeClient = vi.fn((entityId: string) => {
-      expect(entityId).toBe(checkinButtonPayload.messageId);
-      return { checkinButton } as never;
-    });
+      const checkinButton = vi.fn((payload: unknown) =>
+        Effect.sync(() => {
+          expect(payload).toEqual({
+            request: {
+              requester,
+              payload: checkinButtonPayload,
+            },
+            executionId: expectedExecutionId,
+          });
+          return {
+            messageId: checkinButtonPayload.messageId,
+            messageConversationId: "conversation-1",
+            checkedInMemberId: requester.accountId,
+          } satisfies CheckinHandleButtonResult;
+        }),
+      );
+      const makeClient = vi.fn((entityId: string) => {
+        expect(entityId).toBe(checkinButtonPayload.messageId);
+        return { checkinButton } as never;
+      });
 
-    await Effect.runPromise(
-      DispatchCheckinButtonWorkflow.execute({
+      yield* DispatchCheckinButtonWorkflow.execute({
         requester,
         payload: checkinButtonPayload,
       }).pipe(
@@ -1201,17 +1203,17 @@ describe("dispatch workflow registry", () => {
           updateOriginalInteractionResponse: () => Effect.void,
         } as never),
         Effect.provide(WorkflowEngine.layerMemory),
-      ),
-    );
+      );
 
-    expect(makeClient).toHaveBeenCalledTimes(1);
-    expect(checkinButton).toHaveBeenCalledTimes(1);
-  });
+      expect(makeClient).toHaveBeenCalledTimes(1);
+      expect(checkinButton).toHaveBeenCalledTimes(1);
+    }),
+  );
 
-  it("authorizes slot open buttons from modern message slot records", async () => {
-    const messageSlot = makeMessageSlot();
-    await Effect.runPromise(
-      Effect.gen(function* () {
+  it.live("authorizes slot open buttons from modern message slot records", () =>
+    Effect.gen(function* () {
+      const messageSlot = makeMessageSlot();
+      yield* Effect.gen(function* () {
         const authorized = yield* dispatchWorkflowRegistry.slotOpenButton.authorize({
           requester,
           payload: slotOpenButtonPayload,
@@ -1232,13 +1234,13 @@ describe("dispatch workflow registry", () => {
             }),
           ),
         ),
-      ),
-    );
-  });
+      );
+    }),
+  );
 
-  it("rejects legacy slot open button records without modern authorization fields", async () => {
-    await Effect.runPromise(
-      Effect.gen(function* () {
+  it.live("rejects legacy slot open button records without modern authorization fields", () =>
+    Effect.gen(function* () {
+      yield* Effect.gen(function* () {
         const denied = yield* dispatchWorkflowRegistry.slotOpenButton
           .authorize({
             requester,
@@ -1264,13 +1266,13 @@ describe("dispatch workflow registry", () => {
             }),
           ),
         ),
-      ),
-    );
-  });
+      );
+    }),
+  );
 
-  it("rejects missing slot open button records", async () => {
-    await Effect.runPromise(
-      Effect.gen(function* () {
+  it.live("rejects missing slot open button records", () =>
+    Effect.gen(function* () {
+      yield* Effect.gen(function* () {
         const denied = yield* dispatchWorkflowRegistry.slotOpenButton
           .authorize({
             requester,
@@ -1291,13 +1293,13 @@ describe("dispatch workflow registry", () => {
             }),
           ),
         ),
-      ),
-    );
-  });
+      );
+    }),
+  );
 
-  it("rejects check-in button access for non-participants", async () => {
-    await Effect.runPromise(
-      Effect.gen(function* () {
+  it.live("rejects check-in button access for non-participants", () =>
+    Effect.gen(function* () {
+      yield* Effect.gen(function* () {
         const denied = yield* dispatchWorkflowRegistry.checkinButton
           .authorize({
             requester,
@@ -1315,9 +1317,9 @@ describe("dispatch workflow registry", () => {
             }),
           ),
         ),
-      ),
-    );
-  });
+      );
+    }),
+  );
 
   it.effect("allows pin-tentative workflow payloads without an authorization snapshot", () =>
     Effect.gen(function* () {
@@ -1332,56 +1334,48 @@ describe("dispatch workflow registry", () => {
     }),
   );
 
-  it("builds deterministic workflow execution ids", async () => {
-    const left = await Effect.runPromise(
-      dispatchWorkflowRegistry.checkin.workflow.executionId({
+  it.live("builds deterministic workflow execution ids", () =>
+    Effect.gen(function* () {
+      const left = yield* dispatchWorkflowRegistry.checkin.workflow.executionId({
         requester,
         payload: checkinPayload,
-      }),
-    );
-    const right = await Effect.runPromise(
-      dispatchWorkflowRegistry.checkin.workflow.executionId({
+      });
+      const right = yield* dispatchWorkflowRegistry.checkin.workflow.executionId({
         requester: { accountId: "account-2", userId: "user-2" },
         payload: checkinPayload,
-      }),
-    );
-    const different = await Effect.runPromise(
-      dispatchWorkflowRegistry.checkin.workflow.executionId({
+      });
+      const different = yield* dispatchWorkflowRegistry.checkin.workflow.executionId({
         requester,
         payload: {
           ...checkinPayload,
           dispatchRequestId: "dispatch-2",
         },
-      }),
-    );
-    const workspaceWelcomeLeft = await Effect.runPromise(
-      dispatchWorkflowRegistry.workspaceWelcome.workflow.executionId({
-        requester,
-        payload: workspaceWelcomePayload,
-      }),
-    );
-    const workspaceWelcomeRight = await Effect.runPromise(
-      dispatchWorkflowRegistry.workspaceWelcome.workflow.executionId({
-        requester: { accountId: "account-2", userId: "user-2" },
-        payload: workspaceWelcomePayload,
-      }),
-    );
-    const updateAnnouncementLeft = await Effect.runPromise(
-      dispatchWorkflowRegistry.updateAnnouncement.workflow.executionId({
-        requester,
-        payload: updateAnnouncementPayload,
-      }),
-    );
-    const updateAnnouncementRight = await Effect.runPromise(
-      dispatchWorkflowRegistry.updateAnnouncement.workflow.executionId({
-        requester: { accountId: "account-2", userId: "user-2" },
-        payload: updateAnnouncementPayload,
-      }),
-    );
+      });
+      const workspaceWelcomeLeft =
+        yield* dispatchWorkflowRegistry.workspaceWelcome.workflow.executionId({
+          requester,
+          payload: workspaceWelcomePayload,
+        });
+      const workspaceWelcomeRight =
+        yield* dispatchWorkflowRegistry.workspaceWelcome.workflow.executionId({
+          requester: { accountId: "account-2", userId: "user-2" },
+          payload: workspaceWelcomePayload,
+        });
+      const updateAnnouncementLeft =
+        yield* dispatchWorkflowRegistry.updateAnnouncement.workflow.executionId({
+          requester,
+          payload: updateAnnouncementPayload,
+        });
+      const updateAnnouncementRight =
+        yield* dispatchWorkflowRegistry.updateAnnouncement.workflow.executionId({
+          requester: { accountId: "account-2", userId: "user-2" },
+          payload: updateAnnouncementPayload,
+        });
 
-    expect(left).toBe(right);
-    expect(left).not.toBe(different);
-    expect(workspaceWelcomeLeft).toBe(workspaceWelcomeRight);
-    expect(updateAnnouncementLeft).toBe(updateAnnouncementRight);
-  });
+      expect(left).toBe(right);
+      expect(left).not.toBe(different);
+      expect(workspaceWelcomeLeft).toBe(workspaceWelcomeRight);
+      expect(updateAnnouncementLeft).toBe(updateAnnouncementRight);
+    }),
+  );
 });

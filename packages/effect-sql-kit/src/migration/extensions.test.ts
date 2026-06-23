@@ -23,32 +23,34 @@ const config = (extensions: ResolvedConfig["extensions"]): ResolvedConfig => ({
 });
 
 describe("migration extension helpers", () => {
-  it("rejects duplicate extension names", async () => {
-    const extension = {
-      _tag: "EffectSqlKitMigrationExtension" as const,
-      name: "duplicate",
-      generate: () => ({ statements: [], snapshot: null }),
-    };
+  it.effect("rejects duplicate extension names", () =>
+    Effect.gen(function* () {
+      const extension = {
+        _tag: "EffectSqlKitMigrationExtension" as const,
+        name: "duplicate",
+        generate: () => ({ statements: [], snapshot: null }),
+      };
 
-    const exit = await Effect.runPromiseExit(
-      runMigrationExtensionsEffect({
-        config: config([extension, extension]),
-        schema,
-        previous,
-        current,
-        previousExtensions: {},
-      }),
-    );
+      const exit = yield* Effect.exit(
+        runMigrationExtensionsEffect({
+          config: config([extension, extension]),
+          schema,
+          previous,
+          current,
+          previousExtensions: {},
+        }),
+      );
 
-    expect(Exit.isFailure(exit)).toBe(true);
-    expect(Exit.isFailure(exit) ? String(exit.cause) : "").toContain(
-      "effect-sql-kit: duplicate migration extension name(s): duplicate",
-    );
-  });
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(Exit.isFailure(exit) ? String(exit.cause) : "").toContain(
+        "effect-sql-kit: duplicate migration extension name(s): duplicate",
+      );
+    }),
+  );
 
-  it("runs extension generation and decodes snapshots", async () => {
-    const result = await Effect.runPromise(
-      runMigrationExtensionsEffect({
+  it.effect("runs extension generation and decodes snapshots", () =>
+    Effect.gen(function* () {
+      const result = yield* runMigrationExtensionsEffect({
         config: config([
           {
             _tag: "EffectSqlKitMigrationExtension",
@@ -60,44 +62,46 @@ describe("migration extension helpers", () => {
         previous,
         current,
         previousExtensions: {},
-      }),
-    );
+      });
 
-    expect(result).toEqual([
-      {
-        name: "custom",
-        statements: [{ sql: "select 1" }],
-        snapshot: { ok: true },
-      },
-    ]);
-  });
+      expect(result).toEqual([
+        {
+          name: "custom",
+          statements: [{ sql: "select 1" }],
+          snapshot: { ok: true },
+        },
+      ]);
+    }),
+  );
 
-  it("rejects invalid extension generation results", async () => {
-    const exit = await Effect.runPromiseExit(
-      runMigrationExtensionsEffect({
-        config: config([
-          {
-            _tag: "EffectSqlKitMigrationExtension",
-            name: "invalid",
-            generate: () => ({ statements: [], snapshot: undefined }) as never,
-          },
-        ]),
-        schema,
-        previous,
-        current,
-        previousExtensions: {},
-      }),
-    );
+  it.effect("rejects invalid extension generation results", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(
+        runMigrationExtensionsEffect({
+          config: config([
+            {
+              _tag: "EffectSqlKitMigrationExtension",
+              name: "invalid",
+              generate: () => ({ statements: [], snapshot: undefined }) as never,
+            },
+          ]),
+          schema,
+          previous,
+          current,
+          previousExtensions: {},
+        }),
+      );
 
-    expect(Exit.isFailure(exit)).toBe(true);
-    expect(Exit.isFailure(exit) ? String(exit.cause) : "").toContain(
-      "effect-sql-kit: invalid migration extension result from invalid",
-    );
-  });
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(Exit.isFailure(exit) ? String(exit.cause) : "").toContain(
+        "effect-sql-kit: invalid migration extension result from invalid",
+      );
+    }),
+  );
 
-  it("introspects only extensions with an introspection hook", async () => {
-    const snapshots = await Effect.runPromise(
-      introspectMigrationExtensionsEffect({
+  it.effect("introspects only extensions with an introspection hook", () =>
+    Effect.gen(function* () {
+      const snapshots = yield* introspectMigrationExtensionsEffect({
         config: config([
           {
             _tag: "EffectSqlKitMigrationExtension",
@@ -114,38 +118,40 @@ describe("migration extension helpers", () => {
         schema,
         previous,
         current,
-      }).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
-    );
+      }).pipe(Effect.provideService(SqlClient.SqlClient, sql));
 
-    expect(snapshots).toEqual({ present: { ok: true } });
-  });
+      expect(snapshots).toEqual({ present: { ok: true } });
+    }),
+  );
 
-  it("rejects invalid introspection snapshots", async () => {
-    const exit = await Effect.runPromiseExit(
-      introspectMigrationExtensionsEffect({
-        config: config([
-          {
-            _tag: "EffectSqlKitMigrationExtension",
-            name: "invalid",
-            generate: () => ({ statements: [], snapshot: null }),
-            introspect: () => undefined,
-          },
-          {
-            _tag: "EffectSqlKitMigrationExtension",
-            name: "also-invalid",
-            generate: () => ({ statements: [], snapshot: null }),
-            introspect: () => ({ value: undefined }) as never,
-          },
-        ]),
-        schema,
-        previous,
-        current,
-      }).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
-    );
+  it.effect("rejects invalid introspection snapshots", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(
+        introspectMigrationExtensionsEffect({
+          config: config([
+            {
+              _tag: "EffectSqlKitMigrationExtension",
+              name: "invalid",
+              generate: () => ({ statements: [], snapshot: null }),
+              introspect: () => undefined,
+            },
+            {
+              _tag: "EffectSqlKitMigrationExtension",
+              name: "also-invalid",
+              generate: () => ({ statements: [], snapshot: null }),
+              introspect: () => ({ value: undefined }) as never,
+            },
+          ]),
+          schema,
+          previous,
+          current,
+        }).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
+      );
 
-    expect(Exit.isFailure(exit)).toBe(true);
-    expect(Exit.isFailure(exit) ? String(exit.cause) : "").toContain(
-      "effect-sql-kit: invalid migration extension snapshot from also-invalid",
-    );
-  });
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(Exit.isFailure(exit) ? String(exit.cause) : "").toContain(
+        "effect-sql-kit: invalid migration extension snapshot from also-invalid",
+      );
+    }),
+  );
 });

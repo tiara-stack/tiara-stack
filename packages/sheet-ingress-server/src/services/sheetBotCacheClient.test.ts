@@ -49,48 +49,48 @@ const run = <A, E, R>(
   );
 
 describe("SheetBotCacheClient", () => {
-  it("maps missing bot cache members to Option.none", async () => {
-    const { client, getMember } = makeSheetBotForwardingClient({
-      getMember: vi.fn(() =>
-        Effect.fail({
-          _tag: "CacheNotFoundError",
-          message: "Member not found",
-        }),
-      ),
-    });
+  it.live("maps missing bot cache members to Option.none", () =>
+    Effect.gen(function* () {
+      const { client, getMember } = makeSheetBotForwardingClient({
+        getMember: vi.fn(() =>
+          Effect.fail({
+            _tag: "CacheNotFoundError",
+            message: "Member not found",
+          }),
+        ),
+      });
 
-    const result = await Effect.runPromise(
-      run(
+      const result = yield* run(
         Effect.gen(function* () {
           const cache = yield* SheetBotCacheClient;
           return yield* cache.getMember("guild-1", "user-1");
         }),
         client,
-      ),
-    );
+      );
 
-    expect(Option.isNone(result)).toBe(true);
-    expect(getMember).toHaveBeenCalledWith({
-      params: { parentId: "guild-1", resourceId: "user-1" },
-    });
-  });
+      expect(Option.isNone(result)).toBe(true);
+      expect(getMember).toHaveBeenCalledWith({
+        params: { parentId: "guild-1", resourceId: "user-1" },
+      });
+    }),
+  );
 
-  it("converts role cache entries to a role map", async () => {
-    const { client, getRolesForParent } = makeSheetBotForwardingClient();
+  it.live("converts role cache entries to a role map", () =>
+    Effect.gen(function* () {
+      const { client, getRolesForParent } = makeSheetBotForwardingClient();
 
-    const result = await Effect.runPromise(
-      run(
+      const result = yield* run(
         Effect.gen(function* () {
           const cache = yield* SheetBotCacheClient;
           return yield* cache.getRolesForGuild("guild-1");
         }),
         client,
-      ),
-    );
+      );
 
-    expect(result).toEqual(new Map([["role-1", { id: "role-1", permissions: "8" }]]));
-    expect(getRolesForParent).toHaveBeenCalledWith({
-      params: { parentId: "guild-1" },
-    });
-  });
+      expect(result).toEqual(new Map([["role-1", { id: "role-1", permissions: "8" }]]));
+      expect(getRolesForParent).toHaveBeenCalledWith({
+        params: { parentId: "guild-1" },
+      });
+    }),
+  );
 });

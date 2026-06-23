@@ -30,80 +30,92 @@ const runReadiness = (
     readonly queries?: string[];
   } = {},
 ) =>
-  Effect.runPromise(
-    effect.pipe(
-      Effect.provideService(SqlClient.SqlClient, fakeSql(rows, options.queries)),
-      Effect.provide(configLayer(options.env)),
-    ) as Effect.Effect<boolean>,
-  );
+  effect.pipe(
+    Effect.provideService(SqlClient.SqlClient, fakeSql(rows, options.queries)),
+    Effect.provide(configLayer(options.env)),
+  ) as Effect.Effect<boolean>;
 
 describe("cluster readiness", () => {
-  it("marks the current runner ready when its healthy heartbeat is recent", async () => {
-    const queries: string[] = [];
-    const ready = await runReadiness(isCurrentClusterRunnerReady, [{ ready: true }], { queries });
+  it.effect("marks the current runner ready when its healthy heartbeat is recent", () =>
+    Effect.gen(function* () {
+      const queries: string[] = [];
+      const ready = yield* runReadiness(isCurrentClusterRunnerReady, [{ ready: true }], {
+        queries,
+      });
 
-    expect(ready).toBe(true);
-    const query = queries.join("\n");
-    expect(query).toContain('"sheet_workflows_runners".address = ?');
-    expect(query).not.toContain("sheet_workflows_locks");
-  });
+      expect(ready).toBe(true);
+      const query = queries.join("\n");
+      expect(query).toContain('"sheet_workflows_runners".address = ?');
+      expect(query).not.toContain("sheet_workflows_locks");
+    }),
+  );
 
-  it("marks the current runner unready when it has no recent healthy heartbeat", async () => {
-    await expect(runReadiness(isCurrentClusterRunnerReady, [{ ready: false }])).resolves.toBe(
-      false,
-    );
-  });
+  it.effect("marks the current runner unready when it has no recent healthy heartbeat", () =>
+    Effect.gen(function* () {
+      expect(yield* runReadiness(isCurrentClusterRunnerReady, [{ ready: false }])).toBe(false);
+    }),
+  );
 
-  it("marks the current runner unready when its heartbeat is stale", async () => {
-    await expect(runReadiness(isCurrentClusterRunnerReady, [{ ready: false }])).resolves.toBe(
-      false,
-    );
-  });
+  it.effect("marks the current runner unready when its heartbeat is stale", () =>
+    Effect.gen(function* () {
+      expect(yield* runReadiness(isCurrentClusterRunnerReady, [{ ready: false }])).toBe(false);
+    }),
+  );
 
-  it("marks the runner fleet ready when any healthy runner has a recent heartbeat", async () => {
-    const queries: string[] = [];
-    const ready = await runReadiness(isClusterRunnerFleetReady, [{ ready: true }], { queries });
+  it.effect("marks the runner fleet ready when any healthy runner has a recent heartbeat", () =>
+    Effect.gen(function* () {
+      const queries: string[] = [];
+      const ready = yield* runReadiness(isClusterRunnerFleetReady, [{ ready: true }], { queries });
 
-    expect(ready).toBe(true);
-    const query = queries.join("\n");
-    expect(query).toContain('"sheet_workflows_runners"');
-    expect(query).not.toContain("sheet_workflows_locks");
-  });
+      expect(ready).toBe(true);
+      const query = queries.join("\n");
+      expect(query).toContain('"sheet_workflows_runners"');
+      expect(query).not.toContain("sheet_workflows_locks");
+    }),
+  );
 
-  it("marks the runner fleet unready when no healthy runner has a recent heartbeat", async () => {
-    await expect(runReadiness(isClusterRunnerFleetReady, [{ ready: false }])).resolves.toBe(false);
-  });
+  it.effect("marks the runner fleet unready when no healthy runner has a recent heartbeat", () =>
+    Effect.gen(function* () {
+      expect(yield* runReadiness(isClusterRunnerFleetReady, [{ ready: false }])).toBe(false);
+    }),
+  );
 
-  it("uses fleet readiness for api role", async () => {
-    const queries: string[] = [];
-    const ready = await runReadiness(isWorkflowApiReady, [{ ready: true }], {
-      env: { SHEET_WORKFLOWS_ROLE: "api" },
-      queries,
-    });
+  it.effect("uses fleet readiness for api role", () =>
+    Effect.gen(function* () {
+      const queries: string[] = [];
+      const ready = yield* runReadiness(isWorkflowApiReady, [{ ready: true }], {
+        env: { SHEET_WORKFLOWS_ROLE: "api" },
+        queries,
+      });
 
-    expect(ready).toBe(true);
-    expect(queries.join("\n")).not.toContain('"sheet_workflows_runners".address = ?');
-  });
+      expect(ready).toBe(true);
+      expect(queries.join("\n")).not.toContain('"sheet_workflows_runners".address = ?');
+    }),
+  );
 
-  it("uses current runner readiness for combined role", async () => {
-    const queries: string[] = [];
-    const ready = await runReadiness(isWorkflowApiReady, [{ ready: true }], {
-      env: { SHEET_WORKFLOWS_ROLE: "combined" },
-      queries,
-    });
+  it.effect("uses current runner readiness for combined role", () =>
+    Effect.gen(function* () {
+      const queries: string[] = [];
+      const ready = yield* runReadiness(isWorkflowApiReady, [{ ready: true }], {
+        env: { SHEET_WORKFLOWS_ROLE: "combined" },
+        queries,
+      });
 
-    expect(ready).toBe(true);
-    expect(queries.join("\n")).toContain('"sheet_workflows_runners".address = ?');
-  });
+      expect(ready).toBe(true);
+      expect(queries.join("\n")).toContain('"sheet_workflows_runners".address = ?');
+    }),
+  );
 
-  it("uses current runner readiness for runner role", async () => {
-    const queries: string[] = [];
-    const ready = await runReadiness(isWorkflowApiReady, [{ ready: true }], {
-      env: { SHEET_WORKFLOWS_ROLE: "runner" },
-      queries,
-    });
+  it.effect("uses current runner readiness for runner role", () =>
+    Effect.gen(function* () {
+      const queries: string[] = [];
+      const ready = yield* runReadiness(isWorkflowApiReady, [{ ready: true }], {
+        env: { SHEET_WORKFLOWS_ROLE: "runner" },
+        queries,
+      });
 
-    expect(ready).toBe(true);
-    expect(queries.join("\n")).toContain('"sheet_workflows_runners".address = ?');
-  });
+      expect(ready).toBe(true);
+      expect(queries.join("\n")).toContain('"sheet_workflows_runners".address = ?');
+    }),
+  );
 });

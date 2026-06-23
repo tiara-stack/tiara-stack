@@ -30,99 +30,101 @@ describe("KimiClient", () => {
     createSessionMock.mockReset();
   });
 
-  it("collects finalResponse from text content only", async () => {
-    const turn = makeTurn([
-      { type: "ContentPart", payload: { type: "think", think: "Let me analyze..." } },
-      { type: "ContentPart", payload: { type: "text", text: '{"ok":true}' } },
-    ]);
-    createSessionMock.mockReturnValue({
-      sessionId: "session_1",
-      prompt: vi.fn(() => turn),
-      close: vi.fn(),
-    });
+  it.effect("collects finalResponse from text content only", () =>
+    Effect.gen(function* () {
+      const turn = makeTurn([
+        { type: "ContentPart", payload: { type: "think", think: "Let me analyze..." } },
+        { type: "ContentPart", payload: { type: "text", text: '{"ok":true}' } },
+      ]);
+      createSessionMock.mockReturnValue({
+        sessionId: "session_1",
+        prompt: vi.fn(() => turn),
+        close: vi.fn(),
+      });
 
-    const result = await Effect.runPromise(
-      Effect.gen(function* () {
+      const result = yield* Effect.gen(function* () {
         const client = yield* KimiClient;
         return yield* client.run({
           prompt: "return json",
           workDir: "/tmp/repo",
         });
-      }).pipe(Effect.provide(KimiClient.layer)),
-    );
+      }).pipe(Effect.provide(KimiClient.layer));
 
-    expect(result.finalResponse).toBe('{"ok":true}');
-    expect(result.events).toHaveLength(2);
-  });
+      expect(result.finalResponse).toBe('{"ok":true}');
+      expect(result.events).toHaveLength(2);
+    }),
+  );
 
-  it("uses configured timeout when run options omit timeout", async () => {
-    const interrupt = vi.fn();
-    const close = vi.fn();
-    const turn = {
-      [Symbol.asyncIterator]() {
-        return {
-          next: () => new Promise<IteratorResult<unknown>>(() => undefined),
-        };
-      },
-      result: new Promise(() => undefined),
-      approve: vi.fn(),
-      interrupt,
-    };
-    createSessionMock.mockReturnValue({
-      sessionId: "session_1",
-      prompt: vi.fn(() => turn),
-      close,
-    });
+  it.live("uses configured timeout when run options omit timeout", () =>
+    Effect.gen(function* () {
+      const interrupt = vi.fn();
+      const close = vi.fn();
+      const turn = {
+        [Symbol.asyncIterator]() {
+          return {
+            next: () => new Promise<IteratorResult<unknown>>(() => undefined),
+          };
+        },
+        result: new Promise(() => undefined),
+        approve: vi.fn(),
+        interrupt,
+      };
+      createSessionMock.mockReturnValue({
+        sessionId: "session_1",
+        prompt: vi.fn(() => turn),
+        close,
+      });
 
-    const exit = await Effect.runPromiseExit(
-      Effect.gen(function* () {
-        const client = yield* KimiClient;
-        return yield* client.run({
-          prompt: "slow",
-          workDir: "/tmp/repo",
-        });
-      }).pipe(
-        Effect.provide(
-          Layer.provide(
-            KimiClient.layer,
-            Layer.succeed(Config, { timeoutMs: 1, cleanupGraceMs: 1 }),
+      const exit = yield* Effect.exit(
+        Effect.gen(function* () {
+          const client = yield* KimiClient;
+          return yield* client.run({
+            prompt: "slow",
+            workDir: "/tmp/repo",
+          });
+        }).pipe(
+          Effect.provide(
+            Layer.provide(
+              KimiClient.layer,
+              Layer.succeed(Config, { timeoutMs: 1, cleanupGraceMs: 1 }),
+            ),
           ),
         ),
-      ),
-    );
+      );
 
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (Exit.isFailure(exit)) {
-      const failure = exit.cause.reasons.find(Cause.isFailReason)?.error;
-      expect(failure).toBeInstanceOf(KimiTimeout);
-      expect((failure as KimiTimeout).timeoutMs).toBe(1);
-    }
-    expect(interrupt).toHaveBeenCalledTimes(1);
-    expect(close).toHaveBeenCalledTimes(1);
-  });
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        const failure = exit.cause.reasons.find(Cause.isFailReason)?.error;
+        expect(failure).toBeInstanceOf(KimiTimeout);
+        expect((failure as KimiTimeout).timeoutMs).toBe(1);
+      }
+      expect(interrupt).toHaveBeenCalledTimes(1);
+      expect(close).toHaveBeenCalledTimes(1);
+    }),
+  );
 
-  it("does not inherit configured external tools when run options opt out", async () => {
-    const configuredTool = {
-      name: "configured",
-      description: "configured",
-      parameters: {},
-      handler: vi.fn(),
-    };
-    const runTool = {
-      name: "run",
-      description: "run",
-      parameters: {},
-      handler: vi.fn(),
-    };
-    const turn = makeTurn([]);
-    createSessionMock.mockReturnValue({
-      sessionId: "session_1",
-      prompt: vi.fn(() => turn),
-      close: vi.fn(),
-    });
+  it.live("does not inherit configured external tools when run options opt out", () =>
+    Effect.gen(function* () {
+      const configuredTool = {
+        name: "configured",
+        description: "configured",
+        parameters: {},
+        handler: vi.fn(),
+      };
+      const runTool = {
+        name: "run",
+        description: "run",
+        parameters: {},
+        handler: vi.fn(),
+      };
+      const turn = makeTurn([]);
+      createSessionMock.mockReturnValue({
+        sessionId: "session_1",
+        prompt: vi.fn(() => turn),
+        close: vi.fn(),
+      });
 
-    await Effect.runPromise(
-      Effect.gen(function* () {
+      yield* Effect.gen(function* () {
         const client = yield* KimiClient;
         return yield* client.run({
           prompt: "tools",
@@ -137,24 +139,24 @@ describe("KimiClient", () => {
             Layer.succeed(Config, { externalTools: [configuredTool] }),
           ),
         ),
-      ),
-    );
+      );
 
-    expect(createSessionMock).toHaveBeenCalledWith(
-      expect.objectContaining({ externalTools: [runTool] }),
-    );
-  });
+      expect(createSessionMock).toHaveBeenCalledWith(
+        expect.objectContaining({ externalTools: [runTool] }),
+      );
+    }),
+  );
 
-  it("merges configured and per-run environment overrides", async () => {
-    const turn = makeTurn([]);
-    createSessionMock.mockReturnValue({
-      sessionId: "session_1",
-      prompt: vi.fn(() => turn),
-      close: vi.fn(),
-    });
+  it.live("merges configured and per-run environment overrides", () =>
+    Effect.gen(function* () {
+      const turn = makeTurn([]);
+      createSessionMock.mockReturnValue({
+        sessionId: "session_1",
+        prompt: vi.fn(() => turn),
+        close: vi.fn(),
+      });
 
-    await Effect.runPromise(
-      Effect.gen(function* () {
+      yield* Effect.gen(function* () {
         const client = yield* KimiClient;
         return yield* client.run({
           prompt: "env",
@@ -184,37 +186,37 @@ describe("KimiClient", () => {
             }),
           ),
         ),
-      ),
-    );
+      );
 
-    expect(createSessionMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        env: {
-          SESSION_ONLY: "session",
-          CONFIG_ONLY: "config",
-          REQUEST_ONLY: "request",
-          SHARED: "request",
-        },
-      }),
-    );
-  });
+      expect(createSessionMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          env: {
+            SESSION_ONLY: "session",
+            CONFIG_ONLY: "config",
+            REQUEST_ONLY: "request",
+            SHARED: "request",
+          },
+        }),
+      );
+    }),
+  );
 
-  it("inherits configured external tools by default for direct client use", async () => {
-    const configuredTool = {
-      name: "configured",
-      description: "configured",
-      parameters: {},
-      handler: vi.fn(),
-    };
-    const turn = makeTurn([]);
-    createSessionMock.mockReturnValue({
-      sessionId: "session_1",
-      prompt: vi.fn(() => turn),
-      close: vi.fn(),
-    });
+  it.live("inherits configured external tools by default for direct client use", () =>
+    Effect.gen(function* () {
+      const configuredTool = {
+        name: "configured",
+        description: "configured",
+        parameters: {},
+        handler: vi.fn(),
+      };
+      const turn = makeTurn([]);
+      createSessionMock.mockReturnValue({
+        sessionId: "session_1",
+        prompt: vi.fn(() => turn),
+        close: vi.fn(),
+      });
 
-    await Effect.runPromise(
-      Effect.gen(function* () {
+      yield* Effect.gen(function* () {
         const client = yield* KimiClient;
         return yield* client.run({
           prompt: "tools",
@@ -227,256 +229,256 @@ describe("KimiClient", () => {
             Layer.succeed(Config, { externalTools: [configuredTool] }),
           ),
         ),
-      ),
-    );
+      );
 
-    expect(createSessionMock).toHaveBeenCalledWith(
-      expect.objectContaining({ externalTools: [configuredTool] }),
-    );
-  });
+      expect(createSessionMock).toHaveBeenCalledWith(
+        expect.objectContaining({ externalTools: [configuredTool] }),
+      );
+    }),
+  );
 
-  it("rejects approval requests by default", async () => {
-    const turn = makeTurn([
-      {
-        type: "ApprovalRequest",
-        payload: {
-          id: "approval_1",
-          action: "Run shell command",
-          description: "git fetch origin main",
-          display: [{ type: "shell", language: "bash", command: "git fetch origin main" }],
+  it.live("rejects approval requests by default", () =>
+    Effect.gen(function* () {
+      const turn = makeTurn([
+        {
+          type: "ApprovalRequest",
+          payload: {
+            id: "approval_1",
+            action: "Run shell command",
+            description: "git fetch origin main",
+            display: [{ type: "shell", language: "bash", command: "git fetch origin main" }],
+          },
         },
-      },
-    ]);
-    createSessionMock.mockReturnValue({
-      sessionId: "session_1",
-      prompt: vi.fn(() => turn),
-      close: vi.fn(),
-    });
+      ]);
+      createSessionMock.mockReturnValue({
+        sessionId: "session_1",
+        prompt: vi.fn(() => turn),
+        close: vi.fn(),
+      });
 
-    await Effect.runPromise(
-      Effect.gen(function* () {
+      yield* Effect.gen(function* () {
         const client = yield* KimiClient;
         return yield* client.run({
           prompt: "fetch",
           workDir: "/tmp/repo",
         });
-      }).pipe(Effect.provide(KimiClient.layer)),
-    );
+      }).pipe(Effect.provide(KimiClient.layer));
 
-    expect(turn.approve).toHaveBeenCalledWith("approval_1", "reject");
-  });
+      expect(turn.approve).toHaveBeenCalledWith("approval_1", "reject");
+    }),
+  );
 
-  it("approves simple git inspection commands when read-only git approvals are enabled", async () => {
-    const turn = makeTurn([
-      {
-        type: "ApprovalRequest",
-        payload: {
-          id: "approval_1",
-          action: "Run shell command",
-          description: "git diff -- packages/effect-ai-kimi/src/KimiClient.ts",
-          display: [
-            {
-              type: "shell",
-              language: "bash",
-              command: "git diff -- packages/effect-ai-kimi/src/KimiClient.ts",
-            },
-          ],
+  it.live("approves simple git inspection commands when read-only git approvals are enabled", () =>
+    Effect.gen(function* () {
+      const turn = makeTurn([
+        {
+          type: "ApprovalRequest",
+          payload: {
+            id: "approval_1",
+            action: "Run shell command",
+            description: "git diff -- packages/effect-ai-kimi/src/KimiClient.ts",
+            display: [
+              {
+                type: "shell",
+                language: "bash",
+                command: "git diff -- packages/effect-ai-kimi/src/KimiClient.ts",
+              },
+            ],
+          },
         },
-      },
-      {
-        type: "ApprovalRequest",
-        payload: {
-          id: "approval_2",
-          action: "Run shell command",
-          description: "git ls-remote origin main && git diff origin/main...HEAD",
-          display: [
-            {
-              type: "shell",
-              language: "bash",
-              command: "git ls-remote origin main && git diff origin/main...HEAD",
-            },
-          ],
+        {
+          type: "ApprovalRequest",
+          payload: {
+            id: "approval_2",
+            action: "Run shell command",
+            description: "git ls-remote origin main && git diff origin/main...HEAD",
+            display: [
+              {
+                type: "shell",
+                language: "bash",
+                command: "git ls-remote origin main && git diff origin/main...HEAD",
+              },
+            ],
+          },
         },
-      },
-    ]);
-    createSessionMock.mockReturnValue({
-      sessionId: "session_1",
-      prompt: vi.fn(() => turn),
-      close: vi.fn(),
-    });
+      ]);
+      createSessionMock.mockReturnValue({
+        sessionId: "session_1",
+        prompt: vi.fn(() => turn),
+        close: vi.fn(),
+      });
 
-    await Effect.runPromise(
-      Effect.gen(function* () {
-        const client = yield* KimiClient;
-        return yield* client.run({
-          prompt: "fetch",
-          workDir: "/tmp/repo",
-          approvalPolicy: "allow-read-only-git",
-        });
-      }).pipe(Effect.provide(KimiClient.layer)),
-    );
-
-    expect(turn.approve).toHaveBeenCalledWith("approval_1", "approve");
-    expect(turn.approve).toHaveBeenCalledWith("approval_2", "approve");
-  });
-
-  it("rejects unsafe shell chains even when read-only git approvals are enabled", async () => {
-    const turn = makeTurn([
-      {
-        type: "ApprovalRequest",
-        payload: {
-          id: "approval_1",
-          action: "Run shell command",
-          description: "git fetch origin main; rm -rf .git",
-          display: [
-            { type: "shell", language: "bash", command: "git fetch origin main; rm -rf .git" },
-          ],
-        },
-      },
-    ]);
-    createSessionMock.mockReturnValue({
-      sessionId: "session_1",
-      prompt: vi.fn(() => turn),
-      close: vi.fn(),
-    });
-
-    await Effect.runPromise(
-      Effect.gen(function* () {
+      yield* Effect.gen(function* () {
         const client = yield* KimiClient;
         return yield* client.run({
           prompt: "fetch",
           workDir: "/tmp/repo",
           approvalPolicy: "allow-read-only-git",
         });
-      }).pipe(Effect.provide(KimiClient.layer)),
-    );
+      }).pipe(Effect.provide(KimiClient.layer));
 
-    expect(turn.approve).toHaveBeenCalledWith("approval_1", "reject");
-  });
+      expect(turn.approve).toHaveBeenCalledWith("approval_1", "approve");
+      expect(turn.approve).toHaveBeenCalledWith("approval_2", "approve");
+    }),
+  );
 
-  it("rejects mutating git commands when read-only git approvals are enabled", async () => {
-    const turn = makeTurn([
-      {
-        type: "ApprovalRequest",
-        payload: {
-          id: "approval_1",
-          action: "Run shell command",
-          description: "git fetch origin main",
-          display: [{ type: "shell", language: "bash", command: "git fetch origin main" }],
+  it.live("rejects unsafe shell chains even when read-only git approvals are enabled", () =>
+    Effect.gen(function* () {
+      const turn = makeTurn([
+        {
+          type: "ApprovalRequest",
+          payload: {
+            id: "approval_1",
+            action: "Run shell command",
+            description: "git fetch origin main; rm -rf .git",
+            display: [
+              { type: "shell", language: "bash", command: "git fetch origin main; rm -rf .git" },
+            ],
+          },
         },
-      },
-      {
-        type: "ApprovalRequest",
-        payload: {
-          id: "approval_2",
-          action: "Run shell command",
-          description: "git diff --output=/tmp/review.diff",
-          display: [
-            { type: "shell", language: "bash", command: "git diff --output=/tmp/review.diff" },
-          ],
-        },
-      },
-    ]);
-    createSessionMock.mockReturnValue({
-      sessionId: "session_1",
-      prompt: vi.fn(() => turn),
-      close: vi.fn(),
-    });
+      ]);
+      createSessionMock.mockReturnValue({
+        sessionId: "session_1",
+        prompt: vi.fn(() => turn),
+        close: vi.fn(),
+      });
 
-    await Effect.runPromise(
-      Effect.gen(function* () {
+      yield* Effect.gen(function* () {
+        const client = yield* KimiClient;
+        return yield* client.run({
+          prompt: "fetch",
+          workDir: "/tmp/repo",
+          approvalPolicy: "allow-read-only-git",
+        });
+      }).pipe(Effect.provide(KimiClient.layer));
+
+      expect(turn.approve).toHaveBeenCalledWith("approval_1", "reject");
+    }),
+  );
+
+  it.live("rejects mutating git commands when read-only git approvals are enabled", () =>
+    Effect.gen(function* () {
+      const turn = makeTurn([
+        {
+          type: "ApprovalRequest",
+          payload: {
+            id: "approval_1",
+            action: "Run shell command",
+            description: "git fetch origin main",
+            display: [{ type: "shell", language: "bash", command: "git fetch origin main" }],
+          },
+        },
+        {
+          type: "ApprovalRequest",
+          payload: {
+            id: "approval_2",
+            action: "Run shell command",
+            description: "git diff --output=/tmp/review.diff",
+            display: [
+              { type: "shell", language: "bash", command: "git diff --output=/tmp/review.diff" },
+            ],
+          },
+        },
+      ]);
+      createSessionMock.mockReturnValue({
+        sessionId: "session_1",
+        prompt: vi.fn(() => turn),
+        close: vi.fn(),
+      });
+
+      yield* Effect.gen(function* () {
         const client = yield* KimiClient;
         return yield* client.run({
           prompt: "inspect",
           workDir: "/tmp/repo",
           approvalPolicy: "allow-read-only-git",
         });
-      }).pipe(Effect.provide(KimiClient.layer)),
-    );
+      }).pipe(Effect.provide(KimiClient.layer));
 
-    expect(turn.approve).toHaveBeenCalledWith("approval_1", "reject");
-    expect(turn.approve).toHaveBeenCalledWith("approval_2", "reject");
-  });
+      expect(turn.approve).toHaveBeenCalledWith("approval_1", "reject");
+      expect(turn.approve).toHaveBeenCalledWith("approval_2", "reject");
+    }),
+  );
 
-  it("rejects mixed approval payloads unless every shell command is allowed", async () => {
-    const turn = makeTurn([
-      {
-        type: "ApprovalRequest",
-        payload: {
-          id: "approval_1",
-          action: "Run shell command",
-          description: "git status",
-          display: [
-            { type: "shell", language: "bash", command: "git status" },
-            { type: "shell", language: "bash", command: "git fetch origin main" },
-          ],
+  it.live("rejects mixed approval payloads unless every shell command is allowed", () =>
+    Effect.gen(function* () {
+      const turn = makeTurn([
+        {
+          type: "ApprovalRequest",
+          payload: {
+            id: "approval_1",
+            action: "Run shell command",
+            description: "git status",
+            display: [
+              { type: "shell", language: "bash", command: "git status" },
+              { type: "shell", language: "bash", command: "git fetch origin main" },
+            ],
+          },
         },
-      },
-      {
-        type: "ApprovalRequest",
-        payload: {
-          id: "approval_2",
-          action: "Run shell command",
-          description: "git status",
+        {
+          type: "ApprovalRequest",
+          payload: {
+            id: "approval_2",
+            action: "Run shell command",
+            description: "git status",
+          },
         },
-      },
-    ]);
-    createSessionMock.mockReturnValue({
-      sessionId: "session_1",
-      prompt: vi.fn(() => turn),
-      close: vi.fn(),
-    });
+      ]);
+      createSessionMock.mockReturnValue({
+        sessionId: "session_1",
+        prompt: vi.fn(() => turn),
+        close: vi.fn(),
+      });
 
-    await Effect.runPromise(
-      Effect.gen(function* () {
+      yield* Effect.gen(function* () {
         const client = yield* KimiClient;
         return yield* client.run({
           prompt: "inspect",
           workDir: "/tmp/repo",
           approvalPolicy: "allow-read-only-git",
         });
-      }).pipe(Effect.provide(KimiClient.layer)),
-    );
+      }).pipe(Effect.provide(KimiClient.layer));
 
-    expect(turn.approve).toHaveBeenCalledWith("approval_1", "reject");
-    expect(turn.approve).toHaveBeenCalledWith("approval_2", "reject");
-  });
+      expect(turn.approve).toHaveBeenCalledWith("approval_1", "reject");
+      expect(turn.approve).toHaveBeenCalledWith("approval_2", "reject");
+    }),
+  );
 
-  it("rejects top-level git config injection in approved git inspection commands", async () => {
-    const turn = makeTurn([
-      {
-        type: "ApprovalRequest",
-        payload: {
-          id: "approval_1",
-          action: "Run shell command",
-          description: "git -c core.sshCommand=/tmp/evil fetch origin main",
-          display: [
-            {
-              type: "shell",
-              language: "bash",
-              command: "git -c core.sshCommand=/tmp/evil fetch origin main",
-            },
-          ],
+  it.live("rejects top-level git config injection in approved git inspection commands", () =>
+    Effect.gen(function* () {
+      const turn = makeTurn([
+        {
+          type: "ApprovalRequest",
+          payload: {
+            id: "approval_1",
+            action: "Run shell command",
+            description: "git -c core.sshCommand=/tmp/evil fetch origin main",
+            display: [
+              {
+                type: "shell",
+                language: "bash",
+                command: "git -c core.sshCommand=/tmp/evil fetch origin main",
+              },
+            ],
+          },
         },
-      },
-    ]);
-    createSessionMock.mockReturnValue({
-      sessionId: "session_1",
-      prompt: vi.fn(() => turn),
-      close: vi.fn(),
-    });
+      ]);
+      createSessionMock.mockReturnValue({
+        sessionId: "session_1",
+        prompt: vi.fn(() => turn),
+        close: vi.fn(),
+      });
 
-    await Effect.runPromise(
-      Effect.gen(function* () {
+      yield* Effect.gen(function* () {
         const client = yield* KimiClient;
         return yield* client.run({
           prompt: "fetch",
           workDir: "/tmp/repo",
           approvalPolicy: "allow-read-only-git",
         });
-      }).pipe(Effect.provide(KimiClient.layer)),
-    );
+      }).pipe(Effect.provide(KimiClient.layer));
 
-    expect(turn.approve).toHaveBeenCalledWith("approval_1", "reject");
-  });
+      expect(turn.approve).toHaveBeenCalledWith("approval_1", "reject");
+    }),
+  );
 });

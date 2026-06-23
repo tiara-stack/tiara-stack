@@ -1,7 +1,7 @@
 // fallow-ignore-file code-duplication
 import { beforeEach, describe, expect, it } from "@effect/vitest";
 import { vi } from "vitest";
-import { Cause, Effect, HashSet, Layer, Redacted } from "effect";
+import { Cause, Effect, Exit, HashSet, Layer, Redacted } from "effect";
 import { getDiscordAccessToken, getDiscordAccessTokenWithOAuth } from "sheet-auth/client";
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
 import { ArgumentError } from "typhoon-core/error";
@@ -29,7 +29,7 @@ const makeUser = (token: string) => ({
 });
 
 const run = <A, E, R>(effect: Effect.Effect<A, E, R>, token = "sheet-auth-session-token") =>
-  Effect.runPromise(provide(effect, token));
+  provide(effect, token);
 
 const provide = <A, E, R>(effect: Effect.Effect<A, E, R>, token = "sheet-auth-session-token") =>
   effect.pipe(
@@ -43,87 +43,95 @@ describe("DiscordAccessTokenService", () => {
     vi.clearAllMocks();
   });
 
-  it("retrieves the current user's Discord access token through sheet-auth", async () => {
-    vi.mocked(getDiscordAccessTokenWithOAuth).mockReturnValueOnce(
-      Effect.succeed({ accessToken: Redacted.make("discord-access-token") }) as never,
-    );
+  it.effect("retrieves the current user's Discord access token through sheet-auth", () =>
+    Effect.gen(function* () {
+      vi.mocked(getDiscordAccessTokenWithOAuth).mockReturnValueOnce(
+        Effect.succeed({ accessToken: Redacted.make("discord-access-token") }) as never,
+      );
 
-    const accessToken = await run(
-      Effect.gen(function* () {
-        const service = yield* DiscordAccessTokenService;
-        return yield* service.getCurrentUserDiscordAccessToken();
-      }),
-    );
-
-    expect(Redacted.value(accessToken)).toBe("discord-access-token");
-    expect(getDiscordAccessTokenWithOAuth).toHaveBeenCalledWith(
-      {},
-      { Authorization: "Bearer sheet-auth-session-token" },
-    );
-    expect(getDiscordAccessToken).not.toHaveBeenCalled();
-  });
-
-  it("falls back to the Better Auth session endpoint during rollout", async () => {
-    vi.mocked(getDiscordAccessTokenWithOAuth).mockReturnValueOnce(
-      Effect.fail(new Error("oauth failed")) as never,
-    );
-    vi.mocked(getDiscordAccessToken).mockReturnValueOnce(
-      Effect.succeed({ accessToken: Redacted.make("discord-access-token") }) as never,
-    );
-
-    const accessToken = await run(
-      Effect.gen(function* () {
-        const service = yield* DiscordAccessTokenService;
-        return yield* service.getCurrentUserDiscordAccessToken();
-      }),
-    );
-
-    expect(Redacted.value(accessToken)).toBe("discord-access-token");
-    expect(getDiscordAccessToken).toHaveBeenCalledWith(
-      {},
-      { Authorization: "Bearer sheet-auth-session-token" },
-    );
-  });
-
-  it("fails when the sheet-auth session token is unavailable", async () => {
-    const exit = await Effect.runPromiseExit(
-      provide(
+      const accessToken = yield* run(
         Effect.gen(function* () {
           const service = yield* DiscordAccessTokenService;
           return yield* service.getCurrentUserDiscordAccessToken();
         }),
-        SHEET_AUTH_SESSION_TOKEN_UNAVAILABLE,
-      ),
-    );
+      );
 
-    expect(exit._tag).toBe("Failure");
-    if (exit._tag === "Failure") {
-      expect(Cause.pretty(exit.cause)).toContain("Missing sheet-auth session token");
-    }
-    expect(getDiscordAccessTokenWithOAuth).not.toHaveBeenCalled();
-    expect(getDiscordAccessToken).not.toHaveBeenCalled();
-  });
+      expect(Redacted.value(accessToken)).toBe("discord-access-token");
+      expect(getDiscordAccessTokenWithOAuth).toHaveBeenCalledWith(
+        {},
+        { Authorization: "Bearer sheet-auth-session-token" },
+      );
+      expect(getDiscordAccessToken).not.toHaveBeenCalled();
+    }),
+  );
 
-  it("maps sheet-auth lookup failures to ArgumentError", async () => {
-    vi.mocked(getDiscordAccessTokenWithOAuth).mockReturnValueOnce(
-      Effect.fail(new Error("sheet-auth failed")) as never,
-    );
-    vi.mocked(getDiscordAccessToken).mockReturnValueOnce(
-      Effect.fail(new Error("sheet-auth session failed")) as never,
-    );
+  it.effect("falls back to the Better Auth session endpoint during rollout", () =>
+    Effect.gen(function* () {
+      vi.mocked(getDiscordAccessTokenWithOAuth).mockReturnValueOnce(
+        Effect.fail(new Error("oauth failed")) as never,
+      );
+      vi.mocked(getDiscordAccessToken).mockReturnValueOnce(
+        Effect.succeed({ accessToken: Redacted.make("discord-access-token") }) as never,
+      );
 
-    const exit = await Effect.runPromiseExit(
-      provide(
+      const accessToken = yield* run(
         Effect.gen(function* () {
           const service = yield* DiscordAccessTokenService;
           return yield* service.getCurrentUserDiscordAccessToken();
         }),
-      ),
-    );
+      );
 
-    expect(exit._tag).toBe("Failure");
-    if (exit._tag === "Failure") {
-      expect(Cause.pretty(exit.cause)).toContain(ArgumentError.name);
-    }
-  });
+      expect(Redacted.value(accessToken)).toBe("discord-access-token");
+      expect(getDiscordAccessToken).toHaveBeenCalledWith(
+        {},
+        { Authorization: "Bearer sheet-auth-session-token" },
+      );
+    }),
+  );
+
+  it.live("fails when the sheet-auth session token is unavailable", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(
+        provide(
+          Effect.gen(function* () {
+            const service = yield* DiscordAccessTokenService;
+            return yield* service.getCurrentUserDiscordAccessToken();
+          }),
+          SHEET_AUTH_SESSION_TOKEN_UNAVAILABLE,
+        ),
+      );
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(Cause.pretty(exit.cause)).toContain("Missing sheet-auth session token");
+      }
+      expect(getDiscordAccessTokenWithOAuth).not.toHaveBeenCalled();
+      expect(getDiscordAccessToken).not.toHaveBeenCalled();
+    }),
+  );
+
+  it.live("maps sheet-auth lookup failures to ArgumentError", () =>
+    Effect.gen(function* () {
+      vi.mocked(getDiscordAccessTokenWithOAuth).mockReturnValueOnce(
+        Effect.fail(new Error("sheet-auth failed")) as never,
+      );
+      vi.mocked(getDiscordAccessToken).mockReturnValueOnce(
+        Effect.fail(new Error("sheet-auth session failed")) as never,
+      );
+
+      const exit = yield* Effect.exit(
+        provide(
+          Effect.gen(function* () {
+            const service = yield* DiscordAccessTokenService;
+            return yield* service.getCurrentUserDiscordAccessToken();
+          }),
+        ),
+      );
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(Cause.pretty(exit.cause)).toContain(ArgumentError.name);
+      }
+    }),
+  );
 });

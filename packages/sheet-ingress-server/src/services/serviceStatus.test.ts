@@ -26,22 +26,22 @@ describe("ServiceStatusService", () => {
     "http://sheet-web-service/ready",
   ];
 
-  it("reports ok when every service returns 2xx", async () => {
-    await Effect.runPromise(
-      Effect.gen(function* () {
+  it.live("reports ok when every service returns 2xx", () =>
+    Effect.gen(function* () {
+      yield* Effect.gen(function* () {
         const result = yield* runStatusCheck((request) => Effect.succeed(response(request, 200)));
 
         expect(result.overallStatus).toBe("ok");
         expect(result.services).toHaveLength(7);
         expect(result.services.every((service) => service.status === "ok")).toBe(true);
         expect(result.services.every((service) => service.httpStatus === 200)).toBe(true);
-      }),
-    );
-  });
+      });
+    }),
+  );
 
-  it("checks Kubernetes service ports instead of container ports", async () => {
-    await Effect.runPromise(
-      Effect.gen(function* () {
+  it.live("checks Kubernetes service ports instead of container ports", () =>
+    Effect.gen(function* () {
+      yield* Effect.gen(function* () {
         const urls: Array<string> = [];
         yield* runStatusCheck((request) => {
           urls.push(request.url);
@@ -50,13 +50,13 @@ describe("ServiceStatusService", () => {
 
         expect(urls).toHaveLength(expectedServiceUrls.length);
         expect(new Set(urls)).toEqual(new Set(expectedServiceUrls));
-      }),
-    );
-  });
+      });
+    }),
+  );
 
-  it("reports degraded when a service returns non-2xx", async () => {
-    await Effect.runPromise(
-      Effect.gen(function* () {
+  it.live("reports degraded when a service returns non-2xx", () =>
+    Effect.gen(function* () {
+      yield* Effect.gen(function* () {
         const result = yield* runStatusCheck((request) =>
           Effect.succeed(response(request, request.url.includes("sheet-bot-service") ? 503 : 200)),
         );
@@ -68,13 +68,13 @@ describe("ServiceStatusService", () => {
           httpStatus: 503,
           error: "HTTP 503",
         });
-      }),
-    );
-  });
+      });
+    }),
+  );
 
-  it("reports degraded when a service request fails", async () => {
-    await Effect.runPromise(
-      Effect.gen(function* () {
+  it.live("reports degraded when a service request fails", () =>
+    Effect.gen(function* () {
+      yield* Effect.gen(function* () {
         const result = yield* runStatusCheck((request) =>
           request.url.includes("sheet-web-service")
             ? Effect.fail(new Error("connection refused") as never)
@@ -89,13 +89,13 @@ describe("ServiceStatusService", () => {
           latencyMs: null,
           error: "connection refused",
         });
-      }),
-    );
-  });
+      });
+    }),
+  );
 
-  it("reports degraded when a service request times out", async () => {
-    await Effect.runPromise(
-      Effect.gen(function* () {
+  it.live("reports degraded when a service request times out", () =>
+    Effect.gen(function* () {
+      yield* Effect.gen(function* () {
         const result = yield* runStatusCheck((request) =>
           request.url.includes("sheet-web-service")
             ? Effect.never
@@ -110,13 +110,13 @@ describe("ServiceStatusService", () => {
           error: "timeout",
         });
         expect(sheetWeb?.latencyMs).toEqual(expect.any(Number));
-      }),
-    );
-  });
+      });
+    }),
+  );
 
-  it("reports degraded with a string error when a service request fails without a cause", async () => {
-    await Effect.runPromise(
-      Effect.gen(function* () {
+  it.live("reports degraded with a string error when a service request fails without a cause", () =>
+    Effect.gen(function* () {
+      yield* Effect.gen(function* () {
         const result = yield* runStatusCheck((request) =>
           request.url.includes("sheet-web-service")
             ? Effect.fail(undefined as never)
@@ -131,13 +131,13 @@ describe("ServiceStatusService", () => {
           latencyMs: null,
           error: "undefined",
         });
-      }),
-    );
-  });
+      });
+    }),
+  );
 
-  it("reports degraded when a service request fails with a circular BigInt cause", async () => {
-    await Effect.runPromise(
-      Effect.gen(function* () {
+  it.live("reports degraded when a service request fails with a circular BigInt cause", () =>
+    Effect.gen(function* () {
+      yield* Effect.gen(function* () {
         const cause: Record<string, unknown> = { count: 1n };
         cause.self = cause;
 
@@ -155,7 +155,7 @@ describe("ServiceStatusService", () => {
           latencyMs: null,
           error: '{"count":"1","self":"[Circular]"}',
         });
-      }),
-    );
-  });
+      });
+    }),
+  );
 });

@@ -32,32 +32,32 @@ describe("external review import", () => {
     expect(prompt).not.toContain("```markdown");
   });
 
-  it("decodes structured parser output, dedupes findings, and preserves warnings", async () => {
-    const client = new MockCodexClient({
-      findings: [
-        {
-          severity: "medium",
-          type: "logic-bug",
-          location: "a.ts:1",
-          issue: "Imported issue",
-          evidence: "evidence",
-          suggestedFix: "fix",
-        },
-        {
-          severity: "medium",
-          type: "logic-bug",
-          location: "a.ts:1",
-          issue: "Imported issue",
-          evidence: "duplicate evidence",
-          suggestedFix: "fix",
-        },
-      ],
-      skippedFindings: [{ reason: "missing issue", excerpt: "bad block" }],
-      warnings: ["defaulted severity"],
-    });
+  it.effect("decodes structured parser output, dedupes findings, and preserves warnings", () =>
+    Effect.gen(function* () {
+      const client = new MockCodexClient({
+        findings: [
+          {
+            severity: "medium",
+            type: "logic-bug",
+            location: "a.ts:1",
+            issue: "Imported issue",
+            evidence: "evidence",
+            suggestedFix: "fix",
+          },
+          {
+            severity: "medium",
+            type: "logic-bug",
+            location: "a.ts:1",
+            issue: "Imported issue",
+            evidence: "duplicate evidence",
+            suggestedFix: "fix",
+          },
+        ],
+        skippedFindings: [{ reason: "missing issue", excerpt: "bad block" }],
+        warnings: ["defaulted severity"],
+      });
 
-    const result = await Effect.runPromise(
-      parseExternalReviewWithCodex(
+      const result = yield* parseExternalReviewWithCodex(
         {
           markdown: "review markdown",
           repoRoot: "/repo",
@@ -66,35 +66,37 @@ describe("external review import", () => {
           timeoutMs: 123,
         },
         client,
-      ),
-    );
+      );
 
-    expect(client.options[0]?.aspect).toBe("external-review-parser");
-    expect(client.options[0]?.model).toBe("gpt-test");
-    expect(result.threadId).toBe("thread-parser");
-    expect(result.findings).toHaveLength(1);
-    expect(result.skippedFindingCount).toBe(2);
-    expect(result.warnings).toContain("defaulted severity");
-    expect(result.warnings.some((warning) => warning.includes("duplicate"))).toBe(true);
-  });
+      expect(client.options[0]?.aspect).toBe("external-review-parser");
+      expect(client.options[0]?.model).toBe("gpt-test");
+      expect(result.threadId).toBe("thread-parser");
+      expect(result.findings).toHaveLength(1);
+      expect(result.skippedFindingCount).toBe(2);
+      expect(result.warnings).toContain("defaulted severity");
+      expect(result.warnings.some((warning) => warning.includes("duplicate"))).toBe(true);
+    }),
+  );
 
-  it("rejects invalid structured parser output", async () => {
-    const client = new MockCodexClient({
-      findings: [{ severity: "critical" }],
-      skippedFindings: [],
-      warnings: [],
-    });
+  it.effect("rejects invalid structured parser output", () =>
+    Effect.gen(function* () {
+      const client = new MockCodexClient({
+        findings: [{ severity: "critical" }],
+        skippedFindings: [],
+        warnings: [],
+      });
 
-    const exit = await Effect.runPromiseExit(
-      parseExternalReviewWithCodex(
-        {
-          markdown: "review markdown",
-          repoRoot: "/repo",
-        },
-        client,
-      ),
-    );
+      const exit = yield* Effect.exit(
+        parseExternalReviewWithCodex(
+          {
+            markdown: "review markdown",
+            repoRoot: "/repo",
+          },
+          client,
+        ),
+      );
 
-    expect(Exit.isFailure(exit)).toBe(true);
-  });
+      expect(Exit.isFailure(exit)).toBe(true);
+    }),
+  );
 });
