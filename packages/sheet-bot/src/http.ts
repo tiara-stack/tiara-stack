@@ -88,17 +88,15 @@ const discordMessageToRef = (
   messageId: message.id,
 });
 
-const discordGuildMessageToRef = (
+export const discordInteractionMessageToRef = (
   client: ClientRef,
   message: { readonly id: string; readonly channel_id: string; readonly guild_id?: string },
 ) =>
-  Predicate.isString(message.guild_id) && message.guild_id.trim().length > 0
-    ? Effect.succeed(discordMessageToRef(client, message.guild_id, message))
-    : Effect.fail(
-        makeArgumentError(
-          `Cannot create message ref for Discord message ${message.id}, guild_id is missing`,
-        ),
-      );
+  discordMessageToRef(
+    client,
+    Predicate.isString(message.guild_id) ? message.guild_id : "",
+    message,
+  );
 
 const renderFiles = (message: SheetOutboundMessage) =>
   message.files?.map(
@@ -245,7 +243,7 @@ const clientDeliveryHandlersLayer = HttpApiBuilder.group(
               files.length > 0 ? rest.withFiles(files)(update) : update,
               "Failed to update original interaction response",
             ).pipe(mapClientDeliveryAdapterError("Failed to update client interaction"));
-            return yield* discordGuildMessageToRef(configuredClient, message);
+            return discordInteractionMessageToRef(configuredClient, message);
           }),
         )
         .handle("pinMessage", ({ payload }) =>

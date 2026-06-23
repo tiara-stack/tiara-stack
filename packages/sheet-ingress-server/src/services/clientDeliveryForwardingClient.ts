@@ -6,7 +6,7 @@ import {
   ClientWorkspace,
   DeliveryMessage,
 } from "sheet-ingress-api/handlers/clientDelivery/api";
-import type {
+import {
   ConversationRef,
   InteractionRef,
   MessageRef,
@@ -25,6 +25,31 @@ const jsonRequest = {
   PATCH: HttpClientRequest.patch,
   POST: HttpClientRequest.post,
 } as const;
+
+const SendMessagePayload = Schema.Struct({
+  conversation: ConversationRef,
+  message: SheetOutboundMessage,
+});
+
+const UpdateMessagePayload = Schema.Struct({
+  messageRef: MessageRef,
+  message: SheetOutboundMessage,
+});
+
+const UpdateInteractionPayload = Schema.Struct({
+  interaction: InteractionRef,
+  message: SheetOutboundMessage,
+});
+
+const MessageRefPayload = Schema.Struct({
+  messageRef: MessageRef,
+});
+
+const MemberRolePayload = Schema.Struct({
+  workspace: WorkspaceRef,
+  userId: Schema.String,
+  roleId: Schema.String,
+});
 
 const mapForwardingError = (message: string) => (error: unknown) =>
   error instanceof Unauthorized ? error : makeUnknownError(message, error);
@@ -57,16 +82,42 @@ export class ClientDeliveryForwardingClient extends Context.Service<ClientDelive
         entry: { readonly baseUrl: string; readonly serviceTokenResource: string },
         path: string,
         payload: unknown,
+        payloadSchema: Schema.Codec<unknown, unknown, never, never>,
         schema: Schema.Schema<A>,
       ) =>
         Effect.gen(function* () {
           const httpClient = authedHttpClientFor(entry);
+          const encodedPayload = yield* Schema.encodeUnknownEffect(payloadSchema)(payload).pipe(
+            Effect.mapError(mapForwardingError(`Failed to encode client request to ${path}`)),
+          );
           return yield* jsonRequest[method](urlFor(entry.baseUrl, path)).pipe(
-            HttpClientRequest.bodyJson(payload),
+            HttpClientRequest.bodyJson(encodedPayload),
             Effect.flatMap(httpClient.execute),
             Effect.flatMap(HttpClientResponse.filterStatusOk),
             Effect.flatMap(HttpClientResponse.schemaBodyJson(schema)),
             Effect.mapError(mapForwardingError(`Failed to forward client request to ${path}`)),
+          );
+        });
+
+      const sendJsonVoid = (
+        method: keyof typeof jsonRequest,
+        entry: { readonly baseUrl: string; readonly serviceTokenResource: string },
+        path: string,
+        payload: unknown,
+        payloadSchema: Schema.Codec<unknown, unknown, never, never>,
+        message: string,
+      ) =>
+        Effect.gen(function* () {
+          const httpClient = authedHttpClientFor(entry);
+          const encodedPayload = yield* Schema.encodeUnknownEffect(payloadSchema)(payload).pipe(
+            Effect.mapError(mapForwardingError(`Failed to encode client request to ${path}`)),
+          );
+          return yield* jsonRequest[method](urlFor(entry.baseUrl, path)).pipe(
+            HttpClientRequest.bodyJson(encodedPayload),
+            Effect.flatMap(httpClient.execute),
+            Effect.flatMap(HttpClientResponse.filterStatusOk),
+            Effect.asVoid,
+            Effect.mapError(mapForwardingError(message)),
           );
         });
 
@@ -81,6 +132,7 @@ export class ClientDeliveryForwardingClient extends Context.Service<ClientDelive
             entry,
             "/clients/messages/send",
             { conversation, message },
+            SendMessagePayload,
             DeliveryMessage,
           );
         }),
@@ -94,6 +146,7 @@ export class ClientDeliveryForwardingClient extends Context.Service<ClientDelive
             entry,
             "/clients/messages/update",
             { messageRef, message },
+            UpdateMessagePayload,
             DeliveryMessage,
           );
         }),
@@ -107,6 +160,7 @@ export class ClientDeliveryForwardingClient extends Context.Service<ClientDelive
             entry,
             "/clients/interactions/original-response",
             { interaction, message },
+            UpdateInteractionPayload,
             DeliveryMessage,
           );
         }),
@@ -114,28 +168,26 @@ export class ClientDeliveryForwardingClient extends Context.Service<ClientDelive
           messageRef: MessageRef,
         ) {
           const entry = yield* registry.resolve(messageRef.conversation.workspace.client);
-          const httpClient = authedHttpClientFor(entry);
-          return yield* HttpClientRequest.post(urlFor(entry.baseUrl, "/clients/messages/pin")).pipe(
-            HttpClientRequest.bodyJson({ messageRef }),
-            Effect.flatMap(httpClient.execute),
-            Effect.flatMap(HttpClientResponse.filterStatusOk),
-            Effect.asVoid,
-            Effect.mapError(mapForwardingError("Failed to forward client pin request")),
+          return yield* sendJsonVoid(
+            "POST",
+            entry,
+            "/clients/messages/pin",
+            { messageRef },
+            MessageRefPayload,
+            "Failed to forward client pin request",
           );
         }),
         deleteMessage: Effect.fn("ClientDeliveryForwardingClient.deleteMessage")(function* (
           messageRef: MessageRef,
         ) {
           const entry = yield* registry.resolve(messageRef.conversation.workspace.client);
-          const httpClient = authedHttpClientFor(entry);
-          return yield* HttpClientRequest.post(
-            urlFor(entry.baseUrl, "/clients/messages/delete"),
-          ).pipe(
-            HttpClientRequest.bodyJson({ messageRef }),
-            Effect.flatMap(httpClient.execute),
-            Effect.flatMap(HttpClientResponse.filterStatusOk),
-            Effect.asVoid,
-            Effect.mapError(mapForwardingError("Failed to forward client delete request")),
+          return yield* sendJsonVoid(
+            "POST",
+            entry,
+            "/clients/messages/delete",
+            { messageRef },
+            MessageRefPayload,
+            "Failed to forward client delete request",
           );
         }),
         getWorkspace: Effect.fn("ClientDeliveryForwardingClient.getWorkspace")(function* (
@@ -198,15 +250,13 @@ export class ClientDeliveryForwardingClient extends Context.Service<ClientDelive
           roleId: string,
         ) {
           const entry = yield* registry.resolve(workspace.client);
-          const httpClient = authedHttpClientFor(entry);
-          return yield* HttpClientRequest.post(
-            urlFor(entry.baseUrl, "/clients/members/roles/add"),
-          ).pipe(
-            HttpClientRequest.bodyJson({ workspace, userId, roleId }),
-            Effect.flatMap(httpClient.execute),
-            Effect.flatMap(HttpClientResponse.filterStatusOk),
-            Effect.asVoid,
-            Effect.mapError(mapForwardingError("Failed to forward client add-role request")),
+          return yield* sendJsonVoid(
+            "POST",
+            entry,
+            "/clients/members/roles/add",
+            { workspace, userId, roleId },
+            MemberRolePayload,
+            "Failed to forward client add-role request",
           );
         }),
         removeMemberRole: Effect.fn("ClientDeliveryForwardingClient.removeMemberRole")(function* (
@@ -215,15 +265,13 @@ export class ClientDeliveryForwardingClient extends Context.Service<ClientDelive
           roleId: string,
         ) {
           const entry = yield* registry.resolve(workspace.client);
-          const httpClient = authedHttpClientFor(entry);
-          return yield* HttpClientRequest.post(
-            urlFor(entry.baseUrl, "/clients/members/roles/remove"),
-          ).pipe(
-            HttpClientRequest.bodyJson({ workspace, userId, roleId }),
-            Effect.flatMap(httpClient.execute),
-            Effect.flatMap(HttpClientResponse.filterStatusOk),
-            Effect.asVoid,
-            Effect.mapError(mapForwardingError("Failed to forward client remove-role request")),
+          return yield* sendJsonVoid(
+            "POST",
+            entry,
+            "/clients/members/roles/remove",
+            { workspace, userId, roleId },
+            MemberRolePayload,
+            "Failed to forward client remove-role request",
           );
         }),
       };

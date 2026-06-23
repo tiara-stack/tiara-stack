@@ -11,6 +11,16 @@ const workspaceRef = { client: clientRef, workspaceId: "guild-1" } as const;
 const conversationRef = { workspace: workspaceRef, conversationId: "channel-1" } as const;
 const messageRef = { conversation: conversationRef, messageId: "message-1" } as const;
 const outboundMessage = { content: "Done" } as const;
+const outboundMessageWithFile = {
+  content: "Failed",
+  files: [
+    {
+      content: new TextEncoder().encode("trace details"),
+      contentType: "text/plain",
+      name: "error.txt",
+    },
+  ],
+} as const;
 
 const makeClientRegistry = () =>
   ({
@@ -191,5 +201,40 @@ describe("ClientDeliveryForwardingClient", () => {
     );
 
     expectForwardedClientRequest(request, "GET", url);
+  });
+
+  it("encodes outbound file content before forwarding interaction responses", async () => {
+    const interaction = {
+      client: clientRef,
+      deadlineEpochMs: 1_783_000_000_000,
+      token: "interaction-token",
+    } as const;
+    const request = await captureForwardedRequest(
+      (client) =>
+        client.updateInteraction(interaction, outboundMessageWithFile) as Effect.Effect<
+          unknown,
+          unknown,
+          never
+        >,
+    );
+
+    expectForwardedClientRequest(
+      request,
+      "PATCH",
+      "http://sheet-bot/clients/interactions/original-response",
+    );
+    expectJsonRequestBody(request, {
+      interaction,
+      message: {
+        ...outboundMessageWithFile,
+        files: [
+          {
+            content: "dHJhY2UgZGV0YWlscw==",
+            contentType: "text/plain",
+            name: "error.txt",
+          },
+        ],
+      },
+    });
   });
 });
