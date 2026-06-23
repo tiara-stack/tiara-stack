@@ -645,8 +645,6 @@ const truncateAutoCheckinTestFailureDetail = (value: string): string =>
     ? value
     : `${value.slice(0, autoCheckinTestFailureDetailLength - 3)}...`;
 
-const clientMessageLabel = (message: DeliveredMessage): string => `message ${message.id}`;
-
 const makeAutoCheckinTestEmbed = (embed: {
   readonly title: MessageTextInput;
   readonly description?: MessageTextInput | null;
@@ -2383,7 +2381,21 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
                 anchorMessage.id,
                 messagePayload,
               );
-        const anchorMessageLabel = clientMessageLabel(anchorMessage);
+        const anchorMessageLink = [
+          MessageText.messageLink(
+            {
+              conversation: {
+                workspace: {
+                  client: payload.client,
+                  workspaceId: payload.workspaceId,
+                },
+                conversationId: anchorMessage.conversation_id,
+              },
+              messageId: anchorMessage.id,
+            },
+            "message",
+          ),
+        ];
         const withAnchorField = (embed: MessageEmbed): MessageEmbed => {
           const fields =
             (
@@ -2402,7 +2414,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
               ...fields,
               {
                 name: [MessageText.clientTerm("testRun", { casing: "sentence" })],
-                value: anchorMessageLabel,
+                value: anchorMessageLink,
               },
             ],
           };

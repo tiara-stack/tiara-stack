@@ -182,6 +182,34 @@ const firstEmbedFields = (
     value: renderTextForTest(field.value) ?? "",
   })) ?? [];
 
+const firstRawEmbedFields = (
+  payload: unknown,
+): ReadonlyArray<{ readonly name: unknown; readonly value: unknown; readonly inline?: boolean }> =>
+  (
+    payload as {
+      embeds?: ReadonlyArray<{ fields?: ReadonlyArray<{ name: unknown; value: unknown }> }>;
+    }
+  ).embeds?.[0]?.fields ?? [];
+
+const expectTestRunAnchorLink = (payload: unknown) => {
+  const testRunField = firstRawEmbedFields(payload).find(
+    (field) => renderTextForTest(field.name) === "Test run",
+  );
+
+  expect(testRunField?.value).toEqual([
+    expect.objectContaining({
+      type: "messageLink",
+      label: "message",
+      message: expect.objectContaining({
+        messageId: "anchor-message",
+        conversation: expect.objectContaining({
+          conversationId: "anchor-conversation-1",
+        }),
+      }),
+    }),
+  ]);
+};
+
 const makeSchedule = (hour: number, fillIds: ReadonlyArray<string>) =>
   new PopulatedSchedule({
     channel: "main",
@@ -626,7 +654,11 @@ describe("DispatchService", () => {
       readonly interactionResponseToken: string;
       readonly payload: unknown;
     }> = [];
-    const sendCalls: Array<{ readonly conversationId: string; readonly payload: unknown }> = [];
+    const sendCalls: Array<{
+      readonly conversationId: string;
+      readonly payload: unknown;
+      readonly rawPayload: unknown;
+    }> = [];
     const checkinGenerateCalls: Array<unknown> = [];
     const roomOrderGenerateCalls: Array<unknown> = [];
     const sheetApisClient = makeSheetApisClient({
@@ -683,7 +715,11 @@ describe("DispatchService", () => {
       },
       updateMessage: () => Effect.die("test run must update the anchor through the interaction"),
       sendMessage: (conversationId: string, payload: unknown) => {
-        sendCalls.push({ conversationId, payload: normalizePayloadText(payload) });
+        sendCalls.push({
+          conversationId,
+          payload: normalizePayloadText(payload),
+          rawPayload: payload,
+        });
         return Effect.succeed({
           id: `preview-message-${sendCalls.length}`,
           conversation_id: conversationId,
@@ -748,8 +784,9 @@ describe("DispatchService", () => {
       expect(call.payload).not.toHaveProperty("message_reference");
       expect(firstEmbedFields(call.payload)).toContainEqual({
         name: "Test run",
-        value: "message anchor-message",
+        value: "message",
       });
+      expectTestRunAnchorLink(call.rawPayload);
       expect((call.payload as { embeds?: ReadonlyArray<unknown> }).embeds).toHaveLength(1);
       expect(
         (call.payload as { embeds: ReadonlyArray<{ title?: string; footer?: { text?: string } }> })
@@ -768,7 +805,11 @@ describe("DispatchService", () => {
       readonly interactionResponseToken: string;
       readonly payload: unknown;
     }> = [];
-    const sendCalls: Array<{ readonly conversationId: string; readonly payload: unknown }> = [];
+    const sendCalls: Array<{
+      readonly conversationId: string;
+      readonly payload: unknown;
+      readonly rawPayload: unknown;
+    }> = [];
     const sheetApisClient = makeSheetApisClient({
       workspaceConfig: {
         getWorkspaceConversations: () => Effect.succeed([makeWorkspaceConversationConfig()]),
@@ -796,7 +837,11 @@ describe("DispatchService", () => {
       },
       updateMessage: () => Effect.die("test run must update the anchor through the interaction"),
       sendMessage: (conversationId: string, payload: unknown) => {
-        sendCalls.push({ conversationId, payload: normalizePayloadText(payload) });
+        sendCalls.push({
+          conversationId,
+          payload: normalizePayloadText(payload),
+          rawPayload: payload,
+        });
         return Effect.succeed({ id: "preview-message-1", conversation_id: conversationId });
       },
     } as never;
@@ -824,8 +869,9 @@ describe("DispatchService", () => {
     expect(sendCalls[0]?.payload).not.toHaveProperty("message_reference");
     expect(firstEmbedFields(sendCalls[0]?.payload)).toContainEqual({
       name: "Test run",
-      value: "message anchor-message",
+      value: "message",
     });
+    expectTestRunAnchorLink(sendCalls[0]?.rawPayload);
   });
 
   it("surfaces first auto check-in test conversation failure details in the summary", async () => {

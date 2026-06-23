@@ -8,6 +8,7 @@ type TestTextPart = {
   readonly userId?: string;
   readonly roleId?: string;
   readonly conversation?: { readonly conversationId: string };
+  readonly message?: { readonly messageId: string };
   readonly parts?: ReadonlyArray<unknown>;
   readonly label?: string;
   readonly url?: string;
@@ -37,6 +38,8 @@ const renderers: Record<string, (part: TestTextPart) => string> = {
   userMention: (part) => `@${part.userId ?? ""}`,
   conversationMention: (part) => `#${part.conversation?.conversationId ?? ""}`,
   roleMention: (part) => `@role:${part.roleId ?? ""}`,
+  messageLink: (part) =>
+    part.label ?? (part.message?.messageId ? `message ${part.message.messageId}` : "message"),
   strong: nestedParts,
   subtle: nestedParts,
   strikethrough: nestedParts,

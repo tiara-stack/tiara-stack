@@ -1,3 +1,4 @@
+import { Predicate } from "effect";
 import {
   conversationRefFrom,
   workspaceRefFrom,
@@ -5,6 +6,7 @@ import {
   type ConversationRef,
   type GeneratedSheetText,
   type GeneratedSheetTextPart,
+  type MessageRef,
   type SheetClientTerm,
   type SheetClientTermCasing,
   type SheetClientTermForm,
@@ -71,6 +73,12 @@ export const userMention = (userId: string): SheetTextPart => ({
 export const conversationMention = (conversation: ConversationRef): SheetTextPart => ({
   type: "conversationMention",
   conversation,
+});
+
+export const messageLink = (message: MessageRef, label?: string): SheetTextPart => ({
+  type: "messageLink",
+  message,
+  ...(Predicate.isUndefined(label) ? {} : { label }),
 });
 
 export const roleMention = (workspace: WorkspaceRef, roleId: string): SheetTextPart => ({
