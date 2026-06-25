@@ -524,7 +524,7 @@ const runDispatchWorkflowOperation = <
   );
 };
 
-const dispatchViaButtonEntity = <
+export const dispatchViaButtonEntity = <
   TOperation extends DispatchButtonOperation,
   TAuthorization,
   RAuthorize,
@@ -545,44 +545,33 @@ const dispatchViaButtonEntity = <
     const dispatchers = {
       slotOpenButton: (nextRequest: unknown) =>
         client.slotOpenButton({
-          request: Schema.decodeUnknownSync(DispatchSlotOpenButtonWorkflow.payloadSchema)(
-            nextRequest,
-          ),
+          request: nextRequest as typeof DispatchSlotOpenButtonWorkflow.payloadSchema.Type,
           executionId,
         }),
       checkinButton: (nextRequest: unknown) =>
         client.checkinButton({
-          request: Schema.decodeUnknownSync(DispatchCheckinButtonWorkflow.payloadSchema)(
-            nextRequest,
-          ),
+          request: nextRequest as typeof DispatchCheckinButtonWorkflow.payloadSchema.Type,
           executionId,
         }),
       roomOrderPreviousButton: (nextRequest: unknown) =>
         client.roomOrderPreviousButton({
-          request: Schema.decodeUnknownSync(DispatchRoomOrderPreviousButtonWorkflow.payloadSchema)(
-            nextRequest,
-          ),
+          request: nextRequest as typeof DispatchRoomOrderPreviousButtonWorkflow.payloadSchema.Type,
           executionId,
         }),
       roomOrderNextButton: (nextRequest: unknown) =>
         client.roomOrderNextButton({
-          request: Schema.decodeUnknownSync(DispatchRoomOrderNextButtonWorkflow.payloadSchema)(
-            nextRequest,
-          ),
+          request: nextRequest as typeof DispatchRoomOrderNextButtonWorkflow.payloadSchema.Type,
           executionId,
         }),
       roomOrderSendButton: (nextRequest: unknown) =>
         client.roomOrderSendButton({
-          request: Schema.decodeUnknownSync(DispatchRoomOrderSendButtonWorkflow.payloadSchema)(
-            nextRequest,
-          ),
+          request: nextRequest as typeof DispatchRoomOrderSendButtonWorkflow.payloadSchema.Type,
           executionId,
         }),
       roomOrderPinTentativeButton: (nextRequest: unknown) =>
         client.roomOrderPinTentativeButton({
-          request: Schema.decodeUnknownSync(
-            DispatchRoomOrderPinTentativeButtonWorkflow.payloadSchema,
-          )(nextRequest),
+          request:
+            nextRequest as typeof DispatchRoomOrderPinTentativeButtonWorkflow.payloadSchema.Type,
           executionId,
         }),
     } satisfies Record<

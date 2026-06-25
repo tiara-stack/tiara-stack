@@ -36,9 +36,9 @@ const roomOrderHeaderLine = (
   parts(
     strong([text(`Hour ${hour}`)]),
     text(" "),
-    timestamp(DateTime.toEpochMillis(start), "longDate"),
+    timestamp(DateTime.toEpochMillis(start)),
     text(" - "),
-    timestamp(DateTime.toEpochMillis(end), "longDate"),
+    timestamp(DateTime.toEpochMillis(end)),
   );
 
 const monitorLine = (monitor: string | null): SheetTextPart[] | null =>

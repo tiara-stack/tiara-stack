@@ -98,9 +98,9 @@ export const buildRoomOrderContent = (
       parts(
         strong([text(`Hour ${hour}`)]),
         text(" "),
-        timestamp(DateTime.toEpochMillis(start), "longDate"),
+        timestamp(DateTime.toEpochMillis(start)),
         text(" - "),
-        timestamp(DateTime.toEpochMillis(end), "longDate"),
+        timestamp(DateTime.toEpochMillis(end)),
       ),
       ...(Predicate.isNull(monitor) ? [] : [parts(inlineCode("Monitor:"), text(` ${monitor}`))]),
       [text("")],

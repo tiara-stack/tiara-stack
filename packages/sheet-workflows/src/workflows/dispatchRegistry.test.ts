@@ -6,6 +6,7 @@ import { ClusterSchema, Sharding } from "effect/unstable/cluster";
 import type { HttpApiClient } from "effect/unstable/httpapi";
 import { WorkflowEngine } from "effect/unstable/workflow";
 import { MessageCheckinMember } from "sheet-ingress-api/schemas/messageCheckin";
+import { MessageRoomOrder } from "sheet-ingress-api/schemas/messageRoomOrder";
 import { MessageSlot } from "sheet-ingress-api/schemas/messageSlot";
 import {
   DispatchWorkflows as SheetIngressDispatchWorkflows,
@@ -23,6 +24,8 @@ import type {
   KickoutDispatchPayload,
   KickoutDispatchResult,
   RoomOrderPinTentativeButtonPayload,
+  RoomOrderSendButtonPayload,
+  RoomOrderSendButtonResult,
   ServiceWorkspaceFeatureFlagDispatchPayload,
   ServiceWorkspaceFeatureFlagDispatchResult,
   ServiceStatusDispatchPayload,
@@ -42,6 +45,7 @@ import { DispatchService, ClientDeliveryClient, SheetApisClient } from "@/servic
 import {
   dispatchFailureMessage,
   dispatchFailureResponse,
+  dispatchViaButtonEntity,
   dispatchWorkflowNames,
   dispatchWorkflowRegistry,
   isClusterPersistenceCause,
@@ -170,19 +174,33 @@ const pinTentativePayload: RoomOrderPinTentativeButtonPayload = {
   interactionResponseDeadlineEpochMs,
 };
 
+const roomOrderSendButtonPayload: RoomOrderSendButtonPayload = {
+  client: discordClient,
+  workspaceId: "workspace-1",
+  messageId: "room-order-message-1",
+  messageConversationId: "conversation-1",
+  interactionResponseToken: "interaction-token",
+  interactionResponseDeadlineEpochMs,
+};
+
 type DispatchServiceMock = typeof DispatchService.Service;
 type ShardingMock = typeof Sharding.Sharding.Service;
 type SheetApisClientMock = typeof SheetApisClient.Service;
 type SheetApisApiClient = ReturnType<SheetApisClientMock["get"]>;
 type MessageCheckinClient = SheetApisApiClient["messageCheckin"];
+type MessageRoomOrderClient = SheetApisApiClient["messageRoomOrder"];
 type MessageSlotClient = SheetApisApiClient["messageSlot"];
 type GetMessageCheckinMembersRequest = Parameters<
   MessageCheckinClient["getMessageCheckinMembers"]
 >[0];
+type GetMessageRoomOrderRequest = Parameters<MessageRoomOrderClient["getMessageRoomOrder"]>[0];
 type GetMessageSlotDataRequest = Parameters<MessageSlotClient["getMessageSlotData"]>[0];
 type GetMessageCheckinMembersMock = (
   request: GetMessageCheckinMembersRequest,
 ) => Effect.Effect<ReadonlyArray<MessageCheckinMember>>;
+type GetMessageRoomOrderMock = (
+  request: GetMessageRoomOrderRequest,
+) => Effect.Effect<MessageRoomOrder, unknown>;
 type GetMessageSlotDataMock = (
   request: GetMessageSlotDataRequest,
 ) => Effect.Effect<MessageSlot, unknown>;
@@ -282,8 +300,38 @@ const makeMessageSlot = (overrides?: {
     deletedAt: Option.none(),
   });
 
+const makeMessageRoomOrder = () =>
+  new MessageRoomOrder({
+    clientPlatform: "discord",
+    clientId: "discord-main",
+    messageId: roomOrderSendButtonPayload.messageId,
+    previousFills: [],
+    fills: [],
+    hour: 1,
+    rank: 1,
+    tentative: false,
+    monitor: Option.none(),
+    workspaceId: Option.some(roomOrderSendButtonPayload.workspaceId),
+    conversationId: Option.some(roomOrderSendButtonPayload.messageConversationId),
+    createdByUserId: Option.some(requester.userId),
+    sendClaimId: Option.none(),
+    sendClaimedAt: Option.none(),
+    sentMessageId: Option.none(),
+    sentConversationId: Option.none(),
+    sentAt: Option.none(),
+    tentativeUpdateClaimId: Option.none(),
+    tentativeUpdateClaimedAt: Option.none(),
+    tentativePinClaimId: Option.none(),
+    tentativePinClaimedAt: Option.none(),
+    tentativePinnedAt: Option.none(),
+    createdAt: Option.none(),
+    updatedAt: Option.none(),
+    deletedAt: Option.none(),
+  });
+
 const makeSheetApisClientMock = (overrides: {
   readonly getMessageCheckinMembers?: GetMessageCheckinMembersMock;
+  readonly getMessageRoomOrder?: GetMessageRoomOrderMock;
   readonly getMessageSlotData?: GetMessageSlotDataMock;
 }): SheetApisClientMock => {
   const getMessageCheckinMembers: MessageCheckinClient["getMessageCheckinMembers"] = (request) => {
@@ -322,11 +370,33 @@ const makeSheetApisClientMock = (overrides: {
   const messageCheckin: Pick<MessageCheckinClient, "getMessageCheckinMembers"> = {
     getMessageCheckinMembers,
   };
+  const getMessageRoomOrder = (request: GetMessageRoomOrderRequest) => {
+    if (request.responseMode !== "decoded-only") {
+      return Effect.die(`Unexpected responseMode ${request.responseMode}`);
+    }
+
+    return (
+      overrides.getMessageRoomOrder?.(request) ??
+      Effect.die("Unexpected SheetApisClient.messageRoomOrder.getMessageRoomOrder access")
+    ).pipe(
+      Effect.map(
+        (messageRoomOrder) =>
+          messageRoomOrder as DecodedResponse<
+            MessageRoomOrder,
+            NonNullable<typeof request.responseMode>
+          >,
+      ),
+    );
+  };
+  const messageRoomOrder: Pick<MessageRoomOrderClient, "getMessageRoomOrder"> = {
+    getMessageRoomOrder:
+      getMessageRoomOrder as unknown as MessageRoomOrderClient["getMessageRoomOrder"],
+  };
   const messageSlot: Pick<MessageSlotClient, "getMessageSlotData"> = {
     getMessageSlotData: getMessageSlotData as unknown as MessageSlotClient["getMessageSlotData"],
   };
   const client = new Proxy(
-    { messageCheckin, messageSlot },
+    { messageCheckin, messageRoomOrder, messageSlot },
     {
       get(target, property) {
         if (property in target) {
@@ -1208,6 +1278,84 @@ describe("dispatch workflow registry", () => {
       expect(makeClient).toHaveBeenCalledTimes(1);
       expect(checkinButton).toHaveBeenCalledTimes(1);
     }),
+  );
+
+  it.live(
+    "routes decoded room-order button authorization snapshots through the dispatch button entity",
+    () =>
+      Effect.gen(function* () {
+        const authorizedRoomOrder = makeMessageRoomOrder();
+        const expectedExecutionId =
+          yield* dispatchWorkflowRegistry.roomOrderSendButton.workflow.executionId({
+            requester,
+            payload: roomOrderSendButtonPayload,
+            authorizedRoomOrder,
+          });
+        const roomOrderSendButton = vi.fn((payload: unknown) =>
+          Effect.sync(() => {
+            const dispatchRequest = payload as {
+              readonly request: {
+                readonly payload: RoomOrderSendButtonPayload;
+                readonly authorizedRoomOrder: MessageRoomOrder;
+              };
+              readonly executionId: string;
+            };
+            expect(dispatchRequest.request.payload.messageId).toBe(
+              roomOrderSendButtonPayload.messageId,
+            );
+            expect(dispatchRequest.request.authorizedRoomOrder).toBe(authorizedRoomOrder);
+            expect(dispatchRequest.executionId).toBe(expectedExecutionId);
+            expect(payload).toEqual({
+              request: {
+                requester,
+                payload: roomOrderSendButtonPayload,
+                authorizedRoomOrder,
+              },
+              executionId: expectedExecutionId,
+            });
+            return {
+              messageId: "sent-message-1",
+              messageConversationId: roomOrderSendButtonPayload.messageConversationId,
+              status: "sent",
+              detail: null,
+            } satisfies RoomOrderSendButtonResult;
+          }),
+        );
+        const makeClient = vi.fn((entityId: string) => {
+          expect(entityId).toBe(roomOrderSendButtonPayload.messageId);
+          return { roomOrderSendButton } as never;
+        });
+
+        yield* dispatchViaButtonEntity(
+          { ...dispatchWorkflowRegistry.roomOrderSendButton },
+          {
+            requester,
+            payload: roomOrderSendButtonPayload,
+            authorizedRoomOrder,
+          },
+          expectedExecutionId,
+        ).pipe(
+          Effect.tap((result) =>
+            Effect.sync(() =>
+              expect(result).toEqual({
+                messageId: "sent-message-1",
+                messageConversationId: roomOrderSendButtonPayload.messageConversationId,
+                status: "sent",
+                detail: null,
+              }),
+            ),
+          ),
+          Effect.provideService(
+            Sharding.Sharding,
+            makeShardingMock({
+              makeClient: () => Effect.succeed(makeClient),
+            }),
+          ),
+        );
+
+        expect(makeClient).toHaveBeenCalledTimes(1);
+        expect(roomOrderSendButton).toHaveBeenCalledTimes(1);
+      }),
   );
 
   it.live("authorizes slot open buttons from modern message slot records", () =>

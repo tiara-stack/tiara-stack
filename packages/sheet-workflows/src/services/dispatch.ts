@@ -1766,7 +1766,14 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       const reply = yield* renderReply(claimedRoomOrder, "normal").pipe(
         Effect.catchCause((cause) => failRoomOrderSend(payload, claimId, updateInteraction, cause)),
       );
-      return yield* botClient
+      yield* Effect.logInfo("Sending room-order message").pipe(
+        Effect.annotateLogs({
+          workspaceId: payload.workspaceId,
+          conversationId: trustedMessageConversationId,
+          sourceMessageId: payload.messageId,
+        }),
+      );
+      const sentMessage = yield* botClient
         .sendMessage(trustedMessageConversationId, {
           content: reply.content,
         })
@@ -1775,6 +1782,15 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
             failRoomOrderSend(payload, claimId, updateInteraction, cause),
           ),
         );
+      yield* Effect.logInfo("Sent room-order message").pipe(
+        Effect.annotateLogs({
+          workspaceId: payload.workspaceId,
+          conversationId: sentMessage.conversation_id,
+          sourceMessageId: payload.messageId,
+          sentMessageId: sentMessage.id,
+        }),
+      );
+      return sentMessage;
     });
 
     const completeRoomOrderSendTracking = Effect.fn(
@@ -1803,6 +1819,13 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         Option.contains(completedRoomOrder.sentMessageId, sentMessage.id) &&
         Option.contains(completedRoomOrder.sentConversationId, sentMessage.conversation_id)
       ) {
+        yield* Effect.logInfo("Tracked sent room-order message").pipe(
+          Effect.annotateLogs({
+            conversationId: sentMessage.conversation_id,
+            sourceMessageId: payload.messageId,
+            sentMessageId: sentMessage.id,
+          }),
+        );
         return Option.none<RoomOrderButtonResult>();
       }
 
@@ -1867,6 +1890,15 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         updateInteraction,
       });
       if (Option.isSome(preflightResult)) {
+        yield* Effect.logInfo("Room-order send preflight returned without sending").pipe(
+          Effect.annotateLogs({
+            workspaceId: trustedWorkspaceId,
+            conversationId: trustedMessageConversationId,
+            messageId: payload.messageId,
+            status: preflightResult.value.status,
+            detail: preflightResult.value.detail ?? "",
+          }),
+        );
         return preflightResult.value;
       }
 
@@ -1912,6 +1944,15 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       }
 
       const pinned = yield* pinSentRoomOrder({ sentMessage, trustedWorkspaceId });
+      yield* Effect.logInfo("Completed room-order send button").pipe(
+        Effect.annotateLogs({
+          workspaceId: trustedWorkspaceId,
+          conversationId: sentMessage.conversation_id,
+          sourceMessageId: payload.messageId,
+          sentMessageId: sentMessage.id,
+          pinned,
+        }),
+      );
 
       const detail = pinned
         ? "sent room order and pinned it!"

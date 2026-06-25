@@ -132,7 +132,7 @@ const makeRoomOrderSendButtonHandler = Effect.gen(function* () {
     SheetWorkflowsRequestContext.asInteractionUser(
       Effect.fn("roomOrderSendButton")(function* () {
         const response = yield* MessageComponentInteractionResponse;
-        yield* response.deferUpdate({ flags: MessageFlags.Ephemeral });
+        yield* response.deferReply({ flags: MessageFlags.Ephemeral });
         const payload = yield* makeRoomOrderButtonPayload();
         yield* sheetWorkflowsClient
           .get()
