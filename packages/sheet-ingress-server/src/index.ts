@@ -21,6 +21,7 @@ import type { DispatchAuthorizationSnapshot } from "sheet-ingress-api/sheet-work
 import { Unauthorized } from "typhoon-core/error";
 import { dotEnvConfigProviderLayer } from "typhoon-core/config";
 import { ArgumentError, makeArgumentError } from "typhoon-core/error";
+import type { ClientRef } from "sheet-ingress-api/schemas/client";
 import { config } from "./config";
 import { healthRoutesLayer } from "./health";
 import {
@@ -247,11 +248,13 @@ const forwardSheetWorkflowsDispatch =
       const requester = yield* SheetAuthUser;
       const { payload } = clientArgsFrom(args) as {
         readonly payload: {
+          readonly client: ClientRef;
           readonly interactionToken?: string | undefined;
           readonly interactionDeadlineEpochMs?: number | undefined;
           readonly messageId?: string | undefined;
         };
       };
+      const clientRef = payload.client;
       const hasInteractionToken = payload.interactionToken !== undefined;
       const hasInteractionDeadline = payload.interactionDeadlineEpochMs !== undefined;
       if (hasInteractionToken !== hasInteractionDeadline) {
@@ -288,7 +291,7 @@ const forwardSheetWorkflowsDispatch =
       const requireRegisteredRoomOrder = Effect.gen(function* () {
         const messages = yield* MessageLookup;
         const messageId = yield* requireMessageId();
-        const authorizedRoomOrder = yield* messages.getMessageRoomOrder(messageId);
+        const authorizedRoomOrder = yield* messages.getMessageRoomOrder(messageId, clientRef);
         return yield* Option.match(authorizedRoomOrder, {
           onSome: Effect.succeed,
           onNone: () =>
@@ -316,7 +319,7 @@ const forwardSheetWorkflowsDispatch =
           Effect.gen(function* () {
             const messages = yield* MessageLookup;
             const messageId = yield* requireMessageId();
-            const authorizedRoomOrder = yield* messages.getMessageRoomOrder(messageId);
+            const authorizedRoomOrder = yield* messages.getMessageRoomOrder(messageId, clientRef);
             return {
               ...basePayload,
               authorizedRoomOrder: Option.match(authorizedRoomOrder, {
@@ -900,7 +903,8 @@ const makeApiLayer = () => {
             DispatchRoomOrderButtonMethods.previous.endpointName,
             ({ payload }) =>
               roomOrderButtonProxyAuthorizers[DispatchRoomOrderButtonMethods.previous.endpointName](
-                payload,
+                { messageId: payload.messageId },
+                payload.client,
               ),
           ),
         )
@@ -910,7 +914,8 @@ const makeApiLayer = () => {
             DispatchRoomOrderButtonMethods.next.endpointName,
             ({ payload }) =>
               roomOrderButtonProxyAuthorizers[DispatchRoomOrderButtonMethods.next.endpointName](
-                payload,
+                { messageId: payload.messageId },
+                payload.client,
               ),
           ),
         )
@@ -920,7 +925,8 @@ const makeApiLayer = () => {
             DispatchRoomOrderButtonMethods.send.endpointName,
             ({ payload }) =>
               roomOrderButtonProxyAuthorizers[DispatchRoomOrderButtonMethods.send.endpointName](
-                payload,
+                { messageId: payload.messageId },
+                payload.client,
               ),
           ),
         )
@@ -931,7 +937,7 @@ const makeApiLayer = () => {
             ({ payload }) =>
               roomOrderButtonProxyAuthorizers[
                 DispatchRoomOrderButtonMethods.pinTentative.endpointName
-              ](payload),
+              ]({ workspaceId: payload.workspaceId, messageId: payload.messageId }, payload.client),
           ),
         ),
     ),

@@ -7,6 +7,8 @@ import { ClientRegistry } from "./clientRegistry";
 import { SheetApisRpcTokens } from "./sheetApisRpcTokens";
 
 const clientRef = { platform: "discord", clientId: "discord-main" } as const;
+const altClientRef = { platform: "discord", clientId: "discord-alt" } as const;
+const altWorkspaceRef = { client: altClientRef, workspaceId: "guild-1" } as const;
 const workspaceRef = { client: clientRef, workspaceId: "guild-1" } as const;
 const conversationRef = { workspace: workspaceRef, conversationId: "channel-1" } as const;
 const messageRef = { conversation: conversationRef, messageId: "message-1" } as const;
@@ -31,6 +33,24 @@ const makeClientRegistry = () =>
         platform: clientRef.platform,
         serviceTokenResource: "sheet-bot",
       }),
+  }) as never;
+
+const makeClientRegistryWithAlt = () =>
+  ({
+    resolve: (ref: { platform: string; clientId: string }) =>
+      ref.clientId === "discord-alt"
+        ? Effect.succeed({
+            baseUrl: "http://sheet-bot-discord-alt",
+            clientId: "discord-alt",
+            platform: "discord",
+            serviceTokenResource: "sheet-bot-alt",
+          })
+        : Effect.succeed({
+            baseUrl: "http://sheet-bot",
+            clientId: clientRef.clientId,
+            platform: clientRef.platform,
+            serviceTokenResource: "sheet-bot",
+          }),
   }) as never;
 
 const makeSheetApisRpcTokens = () =>
@@ -79,6 +99,27 @@ const captureForwardedRequest = <A, E>(
       return request;
     }),
     httpClient,
+  );
+};
+
+const captureForwardedRequestWithRegistry = <A, E>(
+  useClient: (client: ForwardingClient) => Effect.Effect<A, E, never>,
+  clientRegistry: ReturnType<typeof makeClientRegistryWithAlt>,
+) => {
+  const { httpClient, requestReceived } = makeRequestCapturingClient();
+
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const client = yield* ClientDeliveryForwardingClient.make;
+      const fiber = yield* Effect.forkScoped(Effect.ignore(useClient(client)));
+      const request = yield* Deferred.await(requestReceived);
+      yield* Fiber.interrupt(fiber);
+      return request;
+    }).pipe(
+      Effect.provideService(ClientRegistry, clientRegistry),
+      Effect.provideService(SheetApisRpcTokens, makeSheetApisRpcTokens()),
+      Effect.provideService(HttpClient.HttpClient, httpClient),
+    ) as Effect.Effect<HttpClientRequest.HttpClientRequest, never, never>,
   );
 };
 
@@ -238,6 +279,35 @@ describe("ClientDeliveryForwardingClient", () => {
             },
           ],
         },
+      });
+    }),
+  );
+
+  it.effect("forwards non-default ClientRef to alternate base URL", () =>
+    Effect.gen(function* () {
+      const altConversationRef = {
+        workspace: altWorkspaceRef,
+        conversationId: "channel-1",
+      } as const;
+
+      const request = yield* captureForwardedRequestWithRegistry(
+        (client) =>
+          client.sendMessage(altConversationRef, outboundMessage) as Effect.Effect<
+            unknown,
+            unknown,
+            never
+          >,
+        makeClientRegistryWithAlt(),
+      );
+
+      // Use manual assertions instead of expectForwardedClientRequest
+      // because the alt client uses a different auth token
+      expect(request.method).toBe("POST");
+      expect(request.url).toBe("http://sheet-bot-discord-alt/clients/messages/send");
+      expect(request.headers["x-sheet-ingress-auth"]).toBe("Bearer sheet-bot-alt-token");
+      expectJsonRequestBody(request, {
+        conversation: altConversationRef,
+        message: outboundMessage,
       });
     }),
   );

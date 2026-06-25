@@ -13,6 +13,11 @@ import { SheetApisRpcTokens } from "./sheetApisRpcTokens";
 
 const sheetBotResource = "sheet-bot";
 
+// NOTE: This is a single-target HTTP client that uses SHEET_BOT_BASE_URL.
+// It intentionally targets the primary bot instance. For multi-client routing,
+// use ClientDeliveryForwardingClient with ClientRegistry instead.
+// This client is used for: authorization cache reads, bot proxy, and application-owner lookup.
+
 class MissingInteractionTokenError extends Data.TaggedError("MissingInteractionTokenError")<{
   readonly message: string;
 }> {}

@@ -11,7 +11,15 @@ const redisLayer = Layer.unwrap(
   }),
 );
 
-const prefixedUnstorageLayer = Unstorage.prefixedLayer("discord:").pipe(Layer.provide(redisLayer));
+export const makePrefixedUnstorageLayer = <E>(storageLayer: Layer.Layer<Unstorage, E, never>) =>
+  Layer.unwrap(
+    Effect.gen(function* () {
+      const clientId = yield* config.sheetBotClientId;
+      return Unstorage.prefixedLayer(`discord:${clientId}:`).pipe(Layer.provide(storageLayer));
+    }),
+  );
+
+const prefixedUnstorageLayer = makePrefixedUnstorageLayer(redisLayer);
 
 export const cachesLayer = discordCachesLayer.pipe(
   Layer.provide([prefixedUnstorageLayer, discordConfigLayer]),

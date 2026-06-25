@@ -1,4 +1,5 @@
 import { Effect, Option } from "effect";
+import { ClientRef } from "sheet-ingress-api/schemas/client";
 import {
   MESSAGE_ROOM_ORDER_NOT_REGISTERED_ERROR_MESSAGE,
   DispatchRoomOrderButtonMethods,
@@ -57,10 +58,13 @@ const requireMonitorWorkspace = (guildId: string) =>
     yield* authorization.requireMonitorWorkspace(guildId);
   });
 
-export const requireRegisteredRoomOrderButton = (payload: RegisteredRoomOrderButtonPayload) =>
+export const requireRegisteredRoomOrderButton = (
+  payload: RegisteredRoomOrderButtonPayload,
+  clientRef?: ClientRef,
+) =>
   Effect.gen(function* () {
     const messages = yield* MessageLookup;
-    const record = yield* messages.getMessageRoomOrder(payload.messageId);
+    const record = yield* messages.getMessageRoomOrder(payload.messageId, clientRef);
     if (Option.isNone(record)) {
       return yield* Effect.fail(missingRoomOrder());
     }
@@ -68,10 +72,13 @@ export const requireRegisteredRoomOrderButton = (payload: RegisteredRoomOrderBut
     return yield* requireMonitorWorkspace(guildId);
   }).pipe(Effect.mapError(authorizationError));
 
-export const requireRoomOrderPinTentativeButton = (payload: RoomOrderButtonPayload) =>
+export const requireRoomOrderPinTentativeButton = (
+  payload: RoomOrderButtonPayload,
+  clientRef?: ClientRef,
+) =>
   Effect.gen(function* () {
     const messages = yield* MessageLookup;
-    const record = yield* messages.getMessageRoomOrder(payload.messageId);
+    const record = yield* messages.getMessageRoomOrder(payload.messageId, clientRef);
     if (Option.isSome(record)) {
       const guildId = yield* getRequiredModernGuildId(record.value);
       return yield* requireMonitorWorkspace(guildId);

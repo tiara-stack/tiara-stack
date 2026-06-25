@@ -13,41 +13,45 @@ const makeSheetApisForwardingClient = ({
 }: {
   readonly roomOrderError?: unknown;
 } = {}) => {
-  const getMessageCheckinData = vi.fn(({ query }: { query: { messageId: string } }) =>
-    Effect.succeed({
-      messageId: query.messageId,
-      messageChannelId: "channel-1",
-      checkinChannelId: "checkin-channel-1",
-      checkinMessageId: "checkin-message-1",
-      title: "Checkin",
-    }),
-  );
-  const getMessageCheckinMembers = vi.fn(({ query }: { query: { messageId: string } }) =>
-    Effect.succeed([
-      {
+  const getMessageCheckinData = vi.fn(
+    ({ query }: { query: { messageId: string; clientPlatform: string; clientId: string } }) =>
+      Effect.succeed({
         messageId: query.messageId,
-        memberId: "member-1",
-        checkinAt: null,
-      },
-    ]),
+        messageChannelId: "channel-1",
+        checkinChannelId: "checkin-channel-1",
+        checkinMessageId: "checkin-message-1",
+        title: "Checkin",
+      }),
   );
-  const getMessageRoomOrder = vi.fn(({ query }: { query: { messageId: string } }) =>
-    roomOrderError === undefined
-      ? Effect.succeed({
+  const getMessageCheckinMembers = vi.fn(
+    ({ query }: { query: { messageId: string; clientPlatform: string; clientId: string } }) =>
+      Effect.succeed([
+        {
           messageId: query.messageId,
-          messageChannelId: "channel-1",
-          roomOrderMessageId: "room-order-message-1",
-          title: "Room order",
-        })
-      : Effect.fail(roomOrderError),
+          memberId: "member-1",
+          checkinAt: null,
+        },
+      ]),
   );
-  const getMessageSlotData = vi.fn(({ query }: { query: { messageId: string } }) =>
-    Effect.succeed({
-      messageId: query.messageId,
-      messageChannelId: "channel-1",
-      slotMessageId: "slot-message-1",
-      title: "Slot",
-    }),
+  const getMessageRoomOrder = vi.fn(
+    ({ query }: { query: { messageId: string; clientPlatform: string; clientId: string } }) =>
+      roomOrderError === undefined
+        ? Effect.succeed({
+            messageId: query.messageId,
+            messageChannelId: "channel-1",
+            roomOrderMessageId: "room-order-message-1",
+            title: "Room order",
+          })
+        : Effect.fail(roomOrderError),
+  );
+  const getMessageSlotData = vi.fn(
+    ({ query }: { query: { messageId: string; clientPlatform: string; clientId: string } }) =>
+      Effect.succeed({
+        messageId: query.messageId,
+        messageChannelId: "channel-1",
+        slotMessageId: "slot-message-1",
+        title: "Slot",
+      }),
   );
 
   return {
@@ -89,8 +93,11 @@ const runLookup = <A, E, R>(
     } as never),
   );
 
+const defaultClientRef = { platform: "discord" as const, clientId: "discord-main" };
+const altClientRef = { platform: "discord" as const, clientId: "discord-alt" };
+
 describe("MessageLookup", () => {
-  it.live("caches message checkin data lookups by message id", () =>
+  it.effect("caches message checkin data lookups by message id", () =>
     Effect.gen(function* () {
       const { client, getMessageCheckinData } = makeSheetApisForwardingClient();
 
@@ -110,7 +117,7 @@ describe("MessageLookup", () => {
     }),
   );
 
-  it.live("caches checkin member, room order, and slot lookups independently", () =>
+  it.effect("caches checkin member, room order, and slot lookups independently", () =>
     Effect.gen(function* () {
       const { client, getMessageCheckinMembers, getMessageRoomOrder, getMessageSlotData } =
         makeSheetApisForwardingClient();
@@ -136,7 +143,7 @@ describe("MessageLookup", () => {
     }),
   );
 
-  it.live("maps missing room-order records to none and preserves lookup failures", () =>
+  it.effect("maps missing room-order records to none and preserves lookup failures", () =>
     Effect.gen(function* () {
       const missingClient = makeSheetApisForwardingClient({
         roomOrderError: makeArgumentError(MESSAGE_ROOM_ORDER_NOT_REGISTERED_ERROR_MESSAGE),
@@ -170,6 +177,94 @@ describe("MessageLookup", () => {
       if (Exit.isFailure(exit)) {
         expect(Cause.pretty(exit.cause)).toContain("database unavailable");
       }
+    }),
+  );
+
+  it.effect("uses default client ref when no clientRef is provided", () =>
+    Effect.gen(function* () {
+      const { client, getMessageCheckinData } = makeSheetApisForwardingClient();
+
+      yield* runLookup(
+        Effect.gen(function* () {
+          const lookup = yield* MessageLookup;
+          return yield* lookup.getMessageCheckinData("message-1");
+        }),
+        client,
+      );
+
+      expect(getMessageCheckinData).toHaveBeenCalledWith(
+        expect.objectContaining({
+          query: expect.objectContaining({
+            clientPlatform: "discord",
+            clientId: "discord-main",
+            messageId: "message-1",
+          }),
+        }),
+      );
+    }),
+  );
+
+  it.effect("uses provided clientRef in sheet API query keys", () =>
+    Effect.gen(function* () {
+      const { client, getMessageCheckinData, getMessageRoomOrder, getMessageSlotData } =
+        makeSheetApisForwardingClient();
+
+      yield* runLookup(
+        Effect.gen(function* () {
+          const lookup = yield* MessageLookup;
+          yield* lookup.getMessageCheckinData("message-1", altClientRef);
+          yield* lookup.getMessageRoomOrder("message-1", altClientRef);
+          yield* lookup.getMessageSlotData("message-1", altClientRef);
+        }),
+        client,
+      );
+
+      expect(getMessageCheckinData).toHaveBeenCalledWith(
+        expect.objectContaining({
+          query: expect.objectContaining({
+            clientPlatform: "discord",
+            clientId: "discord-alt",
+            messageId: "message-1",
+          }),
+        }),
+      );
+      expect(getMessageRoomOrder).toHaveBeenCalledWith(
+        expect.objectContaining({
+          query: expect.objectContaining({
+            clientPlatform: "discord",
+            clientId: "discord-alt",
+            messageId: "message-1",
+          }),
+        }),
+      );
+      expect(getMessageSlotData).toHaveBeenCalledWith(
+        expect.objectContaining({
+          query: expect.objectContaining({
+            clientPlatform: "discord",
+            clientId: "discord-alt",
+            messageId: "message-1",
+          }),
+        }),
+      );
+    }),
+  );
+
+  it.effect("caches lookups separately for different clientRefs", () =>
+    Effect.gen(function* () {
+      const { client, getMessageCheckinData } = makeSheetApisForwardingClient();
+
+      yield* runLookup(
+        Effect.gen(function* () {
+          const lookup = yield* MessageLookup;
+          yield* lookup.getMessageCheckinData("message-1", defaultClientRef);
+          yield* lookup.getMessageCheckinData("message-1", altClientRef);
+          yield* lookup.getMessageCheckinData("message-1", defaultClientRef);
+          yield* lookup.getMessageCheckinData("message-1", altClientRef);
+        }),
+        client,
+      );
+
+      expect(getMessageCheckinData).toHaveBeenCalledTimes(2);
     }),
   );
 });
