@@ -816,6 +816,22 @@ const makeApiLayer = () => {
           authorizedSheetWorkflowsDispatch("serviceStatus", requireNonService),
         )
         .handle(
+          "preferenceDmStatus",
+          authorizedSheetWorkflowsDispatch("preferenceDmStatus", requireNonService),
+        )
+        .handle(
+          "preferenceDmEnable",
+          authorizedSheetWorkflowsDispatch("preferenceDmEnable", requireNonService),
+        )
+        .handle(
+          "preferenceDmDisable",
+          authorizedSheetWorkflowsDispatch("preferenceDmDisable", requireNonService),
+        )
+        .handle(
+          "preferenceDmSetClient",
+          authorizedSheetWorkflowsDispatch("preferenceDmSetClient", requireNonService),
+        )
+        .handle(
           "workspaceWelcome",
           authorizedSheetWorkflowsDispatch("workspaceWelcome", requireService),
         )
@@ -950,6 +966,33 @@ const makeApiLayer = () => {
         .handle(
           "getCurrentUserGuilds",
           authorizedSheetApis("discord", "getCurrentUserGuilds", requireNonService),
+        ),
+    ),
+    HttpApiBuilder.group(Api, "userConfig", (handlers) =>
+      handlers
+        .handle(
+          "getCurrentUserPlatformConfig",
+          authorizedSheetApis("userConfig", "getCurrentUserPlatformConfig", requireNonService),
+        )
+        .handle(
+          "upsertCurrentUserPlatformConfig",
+          authorizedSheetApis("userConfig", "upsertCurrentUserPlatformConfig", requireNonService),
+        )
+        .handle(
+          "listSupportedNotificationClients",
+          authorizedSheetApis("userConfig", "listSupportedNotificationClients", requireNonService),
+        )
+        .handle(
+          "getCheckinDmRecipients",
+          authorizedSheetApis("userConfig", "getCheckinDmRecipients", requireService),
+        )
+        .handle(
+          "getUserPlatformConfig",
+          authorizedSheetApis("userConfig", "getUserPlatformConfig", requireService),
+        )
+        .handle(
+          "upsertUserPlatformConfig",
+          authorizedSheetApis("userConfig", "upsertUserPlatformConfig", requireService),
         ),
     ),
     HttpApiBuilder.group(Api, "status", (handlers) =>
@@ -1412,6 +1455,13 @@ const makeApiLayer = () => {
             return yield* client.sendMessage(payload.conversation, payload.message);
           }),
         )
+        .handle("sendDirectMessage", ({ payload }) =>
+          Effect.gen(function* () {
+            yield* requireService();
+            const client = yield* ClientDeliveryForwardingClient;
+            return yield* client.sendDirectMessage(payload.recipient, payload.message);
+          }),
+        )
         .handle("updateMessage", ({ payload }) =>
           Effect.gen(function* () {
             const client = yield* ClientDeliveryForwardingClient;
@@ -1434,6 +1484,13 @@ const makeApiLayer = () => {
           Effect.gen(function* () {
             const client = yield* ClientDeliveryForwardingClient;
             return yield* client.deleteMessage(payload.messageRef);
+          }),
+        )
+        .handle("listClients", () =>
+          Effect.gen(function* () {
+            yield* requireService();
+            const client = yield* ClientDeliveryForwardingClient;
+            return yield* client.listClients();
           }),
         )
         .handle("getWorkspace", ({ params }) =>

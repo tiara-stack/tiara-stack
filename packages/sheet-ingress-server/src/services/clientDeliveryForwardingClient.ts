@@ -7,6 +7,7 @@ import {
   DeliveryMessage,
 } from "sheet-ingress-api/handlers/clientDelivery/api";
 import {
+  ClientUserRef,
   ConversationRef,
   InteractionRef,
   MessageRef,
@@ -28,6 +29,11 @@ const jsonRequest = {
 
 const SendMessagePayload = Schema.Struct({
   conversation: ConversationRef,
+  message: SheetOutboundMessage,
+});
+
+const SendDirectMessagePayload = Schema.Struct({
+  recipient: ClientUserRef,
   message: SheetOutboundMessage,
 });
 
@@ -122,6 +128,9 @@ export class ClientDeliveryForwardingClient extends Context.Service<ClientDelive
         });
 
       return {
+        listClients: Effect.fn("ClientDeliveryForwardingClient.listClients")(function* () {
+          return yield* registry.list();
+        }),
         sendMessage: Effect.fn("ClientDeliveryForwardingClient.sendMessage")(function* (
           conversation: ConversationRef,
           message: SheetOutboundMessage,
@@ -133,6 +142,20 @@ export class ClientDeliveryForwardingClient extends Context.Service<ClientDelive
             "/clients/messages/send",
             { conversation, message },
             SendMessagePayload,
+            DeliveryMessage,
+          );
+        }),
+        sendDirectMessage: Effect.fn("ClientDeliveryForwardingClient.sendDirectMessage")(function* (
+          recipient: ClientUserRef,
+          message: SheetOutboundMessage,
+        ) {
+          const entry = yield* registry.resolve(recipient.client);
+          return yield* sendJson(
+            "POST",
+            entry,
+            "/clients/users/messages/send",
+            { recipient, message },
+            SendDirectMessagePayload,
             DeliveryMessage,
           );
         }),

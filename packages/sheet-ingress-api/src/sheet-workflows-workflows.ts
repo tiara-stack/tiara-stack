@@ -34,6 +34,11 @@ import {
   KickoutDispatchError,
   KickoutDispatchPayload,
   KickoutDispatchResult,
+  PreferenceDmDisableDispatchPayload,
+  PreferenceDmDispatchResult,
+  PreferenceDmEnableDispatchPayload,
+  PreferenceDmSetClientDispatchPayload,
+  PreferenceDmStatusDispatchPayload,
   RoomOrderDispatchError,
   RoomOrderDispatchPayload,
   RoomOrderDispatchResult,
@@ -142,6 +147,10 @@ const workflowName = {
   slotList: "dispatch.slotList",
   slotOpenButton: "dispatch.slotOpenButton",
   serviceStatus: "dispatch.serviceStatus",
+  preferenceDmStatus: "dispatch.preferenceDmStatus",
+  preferenceDmEnable: "dispatch.preferenceDmEnable",
+  preferenceDmDisable: "dispatch.preferenceDmDisable",
+  preferenceDmSetClient: "dispatch.preferenceDmSetClient",
   workspaceWelcome: "dispatch.workspaceWelcome",
   updateAnnouncement: "dispatch.updateAnnouncement",
   serviceAddWorkspaceFeatureFlag: "dispatch.serviceAddWorkspaceFeatureFlag",
@@ -243,6 +252,38 @@ export const DispatchServiceStatusWorkflow = Workflow.make({
   payload: dispatchPayload(ServiceStatusDispatchPayload),
   success: ServiceStatusDispatchResult,
   error: UnknownError,
+  idempotencyKey: ({ payload }) => dispatchRequestIdempotencyKey(payload),
+});
+
+export const DispatchPreferenceDmStatusWorkflow = Workflow.make({
+  name: workflowName.preferenceDmStatus,
+  payload: dispatchPayload(PreferenceDmStatusDispatchPayload),
+  success: PreferenceDmDispatchResult,
+  error: BotCommandDispatchError,
+  idempotencyKey: ({ payload }) => dispatchRequestIdempotencyKey(payload),
+});
+
+export const DispatchPreferenceDmEnableWorkflow = Workflow.make({
+  name: workflowName.preferenceDmEnable,
+  payload: dispatchPayload(PreferenceDmEnableDispatchPayload),
+  success: PreferenceDmDispatchResult,
+  error: BotCommandDispatchError,
+  idempotencyKey: ({ payload }) => dispatchRequestIdempotencyKey(payload),
+});
+
+export const DispatchPreferenceDmDisableWorkflow = Workflow.make({
+  name: workflowName.preferenceDmDisable,
+  payload: dispatchPayload(PreferenceDmDisableDispatchPayload),
+  success: PreferenceDmDispatchResult,
+  error: BotCommandDispatchError,
+  idempotencyKey: ({ payload }) => dispatchRequestIdempotencyKey(payload),
+});
+
+export const DispatchPreferenceDmSetClientWorkflow = Workflow.make({
+  name: workflowName.preferenceDmSetClient,
+  payload: dispatchPayload(PreferenceDmSetClientDispatchPayload),
+  success: PreferenceDmDispatchResult,
+  error: BotCommandDispatchError,
   idempotencyKey: ({ payload }) => dispatchRequestIdempotencyKey(payload),
 });
 
@@ -415,6 +456,10 @@ export const DispatchWorkflows = [
   DispatchSlotListWorkflow,
   DispatchSlotOpenButtonWorkflow,
   DispatchServiceStatusWorkflow,
+  DispatchPreferenceDmStatusWorkflow,
+  DispatchPreferenceDmEnableWorkflow,
+  DispatchPreferenceDmDisableWorkflow,
+  DispatchPreferenceDmSetClientWorkflow,
   DispatchWorkspaceWelcomeWorkflow,
   DispatchUpdateAnnouncementWorkflow,
   DispatchServiceAddWorkspaceFeatureFlagWorkflow,
@@ -513,6 +558,34 @@ export const DispatchWorkflowOperations = {
     workflow: DispatchServiceStatusWorkflow,
     rpcTag: DispatchServiceStatusWorkflow.name,
     discardRpcTag: `${DispatchServiceStatusWorkflow.name}Discard`,
+  },
+  preferenceDmStatus: {
+    operation: "preferenceDmStatus",
+    endpointName: "preferenceDmStatus",
+    workflow: DispatchPreferenceDmStatusWorkflow,
+    rpcTag: DispatchPreferenceDmStatusWorkflow.name,
+    discardRpcTag: `${DispatchPreferenceDmStatusWorkflow.name}Discard`,
+  },
+  preferenceDmEnable: {
+    operation: "preferenceDmEnable",
+    endpointName: "preferenceDmEnable",
+    workflow: DispatchPreferenceDmEnableWorkflow,
+    rpcTag: DispatchPreferenceDmEnableWorkflow.name,
+    discardRpcTag: `${DispatchPreferenceDmEnableWorkflow.name}Discard`,
+  },
+  preferenceDmDisable: {
+    operation: "preferenceDmDisable",
+    endpointName: "preferenceDmDisable",
+    workflow: DispatchPreferenceDmDisableWorkflow,
+    rpcTag: DispatchPreferenceDmDisableWorkflow.name,
+    discardRpcTag: `${DispatchPreferenceDmDisableWorkflow.name}Discard`,
+  },
+  preferenceDmSetClient: {
+    operation: "preferenceDmSetClient",
+    endpointName: "preferenceDmSetClient",
+    workflow: DispatchPreferenceDmSetClientWorkflow,
+    rpcTag: DispatchPreferenceDmSetClientWorkflow.name,
+    discardRpcTag: `${DispatchPreferenceDmSetClientWorkflow.name}Discard`,
   },
   workspaceWelcome: {
     operation: "workspaceWelcome",

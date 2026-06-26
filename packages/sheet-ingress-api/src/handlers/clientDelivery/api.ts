@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { ArgumentError, UnknownError, Unauthorized } from "typhoon-core/error";
 import {
+  ClientUserRef,
   ClientPlatform,
   ConversationRef,
   InteractionRef,
@@ -9,6 +10,7 @@ import {
   SheetOutboundMessage,
   WorkspaceRef,
 } from "../../schemas/client";
+import { SupportedNotificationClient } from "../../schemas/userConfig";
 
 export const DeliveryMessage = MessageRef;
 
@@ -37,6 +39,16 @@ export class ClientDeliveryApi extends HttpApiGroup.make("clientDelivery")
     HttpApiEndpoint.post("sendMessage", "/clients/messages/send", {
       payload: Schema.Struct({
         conversation: ConversationRef,
+        message: SheetOutboundMessage,
+      }),
+      success: DeliveryMessage,
+      error: DeliveryErrors,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("sendDirectMessage", "/clients/users/messages/send", {
+      payload: Schema.Struct({
+        recipient: ClientUserRef,
         message: SheetOutboundMessage,
       }),
       success: DeliveryMessage,
@@ -78,6 +90,12 @@ export class ClientDeliveryApi extends HttpApiGroup.make("clientDelivery")
         messageRef: MessageRef,
       }),
       success: Schema.Void,
+      error: DeliveryErrors,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.get("listClients", "/clients", {
+      success: Schema.Array(SupportedNotificationClient),
       error: DeliveryErrors,
     }),
   )

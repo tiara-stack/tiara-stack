@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 import { describe, expect, it } from "@effect/vitest";
-import { messageRoomOrder, messageRoomOrderEntry, messageSlot } from "./models";
+import { configUserPlatform, messageRoomOrder, messageRoomOrderEntry, messageSlot } from "./models";
 
 type VariantWithFields = Schema.Codec<unknown, unknown> & {
   readonly fields: Record<string, unknown>;
@@ -8,7 +8,12 @@ type VariantWithFields = Schema.Codec<unknown, unknown> & {
 
 describe("sheet-db-schema model exports", () => {
   it("exposes Effect model variants from precise model exports", () => {
-    for (const model of [messageRoomOrder, messageRoomOrderEntry, messageSlot]) {
+    for (const model of [
+      configUserPlatform,
+      messageRoomOrder,
+      messageRoomOrderEntry,
+      messageSlot,
+    ]) {
       expect(model.insert).toBeDefined();
       expect(model.update).toBeDefined();
       expect(model.json).toBeDefined();

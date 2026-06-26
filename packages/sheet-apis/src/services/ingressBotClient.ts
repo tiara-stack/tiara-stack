@@ -83,6 +83,9 @@ export class IngressBotClient extends Context.Service<IngressBotClient>()("Ingre
     });
 
     return {
+      listClients: Effect.fn("IngressBotClient.listClients")(function* () {
+        return yield* client.clientDelivery.listClients({});
+      }),
       sendMessage: Effect.fn("IngressBotClient.sendMessage")(function* (
         channelId: string,
         payload: Parameters<typeof client.bot.sendMessage>[0]["payload"],

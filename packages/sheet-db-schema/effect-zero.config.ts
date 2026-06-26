@@ -1,5 +1,6 @@
 import { schema } from "effect-zero";
 import {
+  configUserPlatform,
   configWorkspace,
   configWorkspaceConversation,
   configWorkspaceFeatureFlag,
@@ -16,6 +17,7 @@ import {
 export default schema(
   {
     configWorkspace,
+    configUserPlatform,
     configWorkspaceConversation,
     configWorkspaceFeatureFlag,
     configWorkspaceMonitorRole,

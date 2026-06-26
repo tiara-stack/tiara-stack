@@ -17,3 +17,4 @@ export { ScheduleApi } from "./handlers/schedule/api";
 export { ScreenshotApi } from "./handlers/screenshot/api";
 export { SheetApi } from "./handlers/sheet/api";
 export { StatusApi } from "./handlers/status/api";
+export { UserConfigApi } from "./handlers/userConfig/api";

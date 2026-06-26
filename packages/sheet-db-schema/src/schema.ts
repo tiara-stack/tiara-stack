@@ -1,6 +1,7 @@
 import { schema as effectSqlSchema } from "effect-sql-schema";
 import type { EffectSqlTable } from "effect-sql-schema";
 import {
+  configUserPlatform as internalConfigUserPlatform,
   configWorkspace as internalConfigWorkspace,
   configWorkspaceConversation as internalConfigWorkspaceConversation,
   configWorkspaceFeatureFlag as internalConfigWorkspaceFeatureFlag,
@@ -23,6 +24,7 @@ export const configWorkspaceMonitorRole = internalConfigWorkspaceMonitorRole as 
 export const configWorkspaceFeatureFlag = internalConfigWorkspaceFeatureFlag as unknown as PgTable;
 export const configWorkspaceUpdateAnnouncementDelivery =
   internalConfigWorkspaceUpdateAnnouncementDelivery as unknown as PgTable;
+export const configUserPlatform = internalConfigUserPlatform as unknown as PgTable;
 export const configWorkspaceConversation =
   internalConfigWorkspaceConversation as unknown as PgTable;
 export const messageSlot = internalMessageSlot as unknown as PgTable;
@@ -37,6 +39,7 @@ export const schema = effectSqlSchema({
   configWorkspaceMonitorRole,
   configWorkspaceFeatureFlag,
   configWorkspaceUpdateAnnouncementDelivery,
+  configUserPlatform,
   configWorkspaceConversation,
   messageSlot,
   messageCheckin,

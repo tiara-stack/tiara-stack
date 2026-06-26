@@ -210,6 +210,28 @@ const clientDeliveryHandlersLayer = HttpApiBuilder.group(
             return conversationToMessageRef(configuredClient, payload.conversation, message);
           }),
         )
+        .handle("sendDirectMessage", ({ payload }) =>
+          Effect.gen(function* () {
+            yield* requireThisClient(payload.recipient.client);
+            const dmChannel = yield* handleBotRestError(
+              rest.createDm({
+                recipient_id: payload.recipient.userId,
+              } as Discord.CreatePrivateChannelRequest),
+              `Failed to open direct message channel for user ${payload.recipient.userId}`,
+            ).pipe(mapClientDeliveryAdapterError("Failed to open client direct message"));
+            const message = yield* handleBotRestError(
+              rest.createMessage(
+                dmChannel.id,
+                withoutMessageMentions(
+                  toDiscordMessagePayload(payload.message),
+                ) as Discord.MessageCreateRequest,
+              ),
+              `Failed to send direct message to user ${payload.recipient.userId}`,
+            ).pipe(mapClientDeliveryAdapterError("Failed to send client direct message"));
+            return discordMessageToRef(configuredClient, "", message);
+          }),
+        )
+        .handle("listClients", () => Effect.succeed([configuredClient]))
         .handle("updateMessage", ({ payload }) =>
           Effect.gen(function* () {
             yield* requireThisClient(payload.messageRef.conversation.workspace.client);

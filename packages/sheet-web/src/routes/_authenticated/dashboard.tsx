@@ -1,5 +1,5 @@
 import { createFileRoute, Link, Outlet, useLocation } from "@tanstack/react-router";
-import { Calendar, Users, ChevronRight, type LucideIcon } from "lucide-react";
+import { Bell, Calendar, Users, ChevronRight, type LucideIcon } from "lucide-react";
 
 // Route loader that fetches session on load using Atom Registry
 export const Route = createFileRoute("/_authenticated/dashboard")({
@@ -43,21 +43,25 @@ function DashboardLayout() {
   );
 }
 
-type DashboardTabId = "shifts" | "guilds";
+type DashboardTabId = "shifts" | "guilds" | "preferences";
 
 type DashboardTabConfig = {
   id: DashboardTabId;
   icon: LucideIcon;
   label: string;
-  to: "/dashboard/shifts" | "/dashboard/guilds";
+  to: "/dashboard/shifts" | "/dashboard/guilds" | "/dashboard/preferences";
 };
 
 const tabs: readonly DashboardTabConfig[] = [
   { id: "shifts", icon: Calendar, label: "MY SHIFTS", to: "/dashboard/shifts" },
   { id: "guilds", icon: Users, label: "GUILDS", to: "/dashboard/guilds" },
+  { id: "preferences", icon: Bell, label: "PREFERENCES", to: "/dashboard/preferences" },
 ];
 
 const getActiveTab = (pathname: string): DashboardTabId => {
+  if (pathname.includes("/preferences")) {
+    return "preferences";
+  }
   if (pathname.includes("/guilds")) {
     return "guilds";
   }

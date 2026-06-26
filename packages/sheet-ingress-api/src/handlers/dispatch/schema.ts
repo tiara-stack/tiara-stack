@@ -5,7 +5,7 @@ import { FeatureFlagName } from "../../schemas/workspaceConfig";
 import { GoogleSheetsError } from "../../schemas/google";
 import { ParserFieldError } from "../../schemas/sheet/error";
 import { SheetConfigError } from "../../schemas/sheetConfig";
-import { ClientRef } from "../../schemas/client";
+import { ClientPlatform, ClientRef } from "../../schemas/client";
 
 export const interactionResponseTokenLifetimeMs = 15 * 60 * 1000;
 export const interactionResponseTokenExpirySafetyMarginMs = 30 * 1000;
@@ -596,6 +596,52 @@ export const ServiceStatusDispatchResult = Schema.Struct({
 
 export type ServiceStatusDispatchResult = Schema.Schema.Type<typeof ServiceStatusDispatchResult>;
 
+export const PreferenceDmStatusDispatchPayload = Schema.Struct({
+  ...CommandDispatchPayloadBase,
+  platform: Schema.optional(ClientPlatform),
+});
+
+export type PreferenceDmStatusDispatchPayload = Schema.Schema.Type<
+  typeof PreferenceDmStatusDispatchPayload
+>;
+
+export const PreferenceDmEnableDispatchPayload = Schema.Struct({
+  ...CommandDispatchPayloadBase,
+  platform: Schema.optional(ClientPlatform),
+  defaultClientId: Schema.optional(Schema.String),
+});
+
+export type PreferenceDmEnableDispatchPayload = Schema.Schema.Type<
+  typeof PreferenceDmEnableDispatchPayload
+>;
+
+export const PreferenceDmDisableDispatchPayload = Schema.Struct({
+  ...CommandDispatchPayloadBase,
+  platform: Schema.optional(ClientPlatform),
+});
+
+export type PreferenceDmDisableDispatchPayload = Schema.Schema.Type<
+  typeof PreferenceDmDisableDispatchPayload
+>;
+
+export const PreferenceDmSetClientDispatchPayload = Schema.Struct({
+  ...CommandDispatchPayloadBase,
+  platform: Schema.optional(ClientPlatform),
+  defaultClientId: Schema.String,
+});
+
+export type PreferenceDmSetClientDispatchPayload = Schema.Schema.Type<
+  typeof PreferenceDmSetClientDispatchPayload
+>;
+
+export const PreferenceDmDispatchResult = Schema.Struct({
+  platform: ClientPlatform,
+  checkinDmEnabled: Schema.Boolean,
+  defaultClientId: Schema.NullOr(Schema.String),
+});
+
+export type PreferenceDmDispatchResult = Schema.Schema.Type<typeof PreferenceDmDispatchResult>;
+
 export const DispatchRoomOrderButtonMethods = {
   previous: {
     endpointName: "roomOrderPreviousButton",
@@ -630,6 +676,10 @@ export const DispatchAcceptedResult = Schema.Struct({
     "slotList",
     "slotOpenButton",
     "serviceStatus",
+    "preferenceDmStatus",
+    "preferenceDmEnable",
+    "preferenceDmDisable",
+    "preferenceDmSetClient",
     "workspaceWelcome",
     "updateAnnouncement",
     "serviceAddWorkspaceFeatureFlag",

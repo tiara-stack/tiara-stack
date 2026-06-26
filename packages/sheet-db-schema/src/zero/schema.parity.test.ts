@@ -64,6 +64,18 @@ const normalizeSchema = (input: typeof schema) => ({
 
 const expectedSchema = {
   tables: {
+    configUserPlatform: table(
+      "configUserPlatform",
+      sheetDb("config_user_platform"),
+      ["platform", "userId"],
+      [
+        ["platform", "string", false],
+        ["userId", "string", false, "user_id"],
+        ["defaultClientId", "string", true, "default_client_id"],
+        ["checkinDmEnabled", "boolean", false, "checkin_dm_enabled"],
+        ...auditColumns,
+      ],
+    ),
     configWorkspace: table(
       "configWorkspace",
       sheetDb("config_workspace"),

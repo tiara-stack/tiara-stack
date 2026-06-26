@@ -20,6 +20,10 @@ declare module "@rocicorp/zero" {
 }
 
 export interface SheetZeroApiSuccessSchemas {
+  readonly userConfig: {
+    readonly getUserPlatformConfig: Schema.Top;
+    readonly getCheckinDmEnabledUserConfigs: Schema.Top;
+  };
   readonly workspaceConfig: {
     readonly getAutoCheckinWorkspaces: Schema.Top;
     readonly getWorkspaceConfigByWorkspaceId: Schema.Top;
@@ -47,6 +51,10 @@ export interface SheetZeroApiSuccessSchemas {
 }
 
 const defaultSuccessSchemas = {
+  userConfig: {
+    getUserPlatformConfig: Schema.Any,
+    getCheckinDmEnabledUserConfigs: Schema.Any,
+  },
   workspaceConfig: {
     getAutoCheckinWorkspaces: Schema.Any,
     getWorkspaceConfigByWorkspaceId: Schema.Any,
@@ -84,6 +92,68 @@ const MessageKeyRequest = {
 const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSuccessSchemas>(
   success: SuccessSchemas,
 ) => {
+  const UserConfigGroup = ZeroApiGroup.make("userConfig").add(
+    ZeroApiEndpoint.query("getUserPlatformConfig", {
+      request: Schema.Struct({
+        platform: Schema.String,
+        userId: Schema.String,
+      }),
+      success: success.userConfig.getUserPlatformConfig,
+      query: ({ args: { platform, userId } }) =>
+        zeroTableAccess.configUserPlatform.getActiveByPrimaryKey(builder.configUserPlatform, {
+          platform,
+          userId,
+        }),
+    }),
+    ZeroApiEndpoint.query("getCheckinDmEnabledUserConfigs", {
+      request: Schema.Struct({
+        platform: Schema.String,
+        userIds: Schema.Array(Schema.String),
+      }),
+      success: success.userConfig.getCheckinDmEnabledUserConfigs,
+      query: ({ args: { platform, userIds } }) =>
+        zeroTableAccess.configUserPlatform.listActiveWhere(
+          builder.configUserPlatform
+            .where("platform", "=", platform)
+            .where("userId", "IN", userIds)
+            .where("checkinDmEnabled", "=", true)
+            .where("defaultClientId", "IS NOT", null),
+        ),
+    }),
+    ZeroApiEndpoint.mutator("upsertUserPlatformConfig", {
+      request: Schema.Struct({
+        platform: Schema.String,
+        userId: Schema.String,
+        checkinDmEnabled: Schema.Boolean,
+        defaultClientId: Schema.optional(Schema.NullOr(Schema.String)),
+      }),
+      mutator: async ({ tx, args }) => {
+        const existingConfig = await tx.run(
+          builder.configUserPlatform
+            .where("platform", "=", args.platform)
+            .where("userId", "=", args.userId)
+            .one(),
+        );
+
+        await tx.mutate.configUserPlatform.upsert(
+          zeroTableAccess.configUserPlatform.upsertWithTimestamps(
+            {
+              platform: args.platform,
+              userId: args.userId,
+              checkinDmEnabled: args.checkinDmEnabled,
+              defaultClientId: preserveOmitted(
+                args.defaultClientId,
+                existingConfig?.defaultClientId,
+              ),
+              deletedAt: null,
+            },
+            existingConfig,
+          ),
+        );
+      },
+    }),
+  );
+
   const WorkspaceConfigGroup = ZeroApiGroup.make("workspaceConfig").add(
     ZeroApiEndpoint.query("getAutoCheckinWorkspaces", {
       request: Schema.Struct({}),
@@ -1328,6 +1398,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
   );
 
   return make("sheet")
+    .add(UserConfigGroup)
     .add(WorkspaceConfigGroup)
     .add(MessageCheckinGroup)
     .add(MessageRoomOrderGroup)

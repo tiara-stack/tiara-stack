@@ -16,6 +16,10 @@ import {
   WorkspaceWelcomeDispatchPayload,
   KickoutDispatchErrorSchemas,
   KickoutDispatchPayload,
+  PreferenceDmDisableDispatchPayload,
+  PreferenceDmEnableDispatchPayload,
+  PreferenceDmSetClientDispatchPayload,
+  PreferenceDmStatusDispatchPayload,
   RoomOrderDispatchErrorSchemas,
   RoomOrderDispatchPayload,
   RoomOrderHandleButtonErrorSchemas,
@@ -104,6 +108,34 @@ export class DispatchApi extends HttpApiGroup.make("dispatch")
       payload: ServiceStatusDispatchPayload,
       success: DispatchAcceptedResult,
       error: UnknownError,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("preferenceDmStatus", "/dispatch/preference/dm/status", {
+      payload: PreferenceDmStatusDispatchPayload,
+      success: DispatchAcceptedResult,
+      error: BotCommandDispatchErrorSchemas,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("preferenceDmEnable", "/dispatch/preference/dm/enable", {
+      payload: PreferenceDmEnableDispatchPayload,
+      success: DispatchAcceptedResult,
+      error: BotCommandDispatchErrorSchemas,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("preferenceDmDisable", "/dispatch/preference/dm/disable", {
+      payload: PreferenceDmDisableDispatchPayload,
+      success: DispatchAcceptedResult,
+      error: BotCommandDispatchErrorSchemas,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("preferenceDmSetClient", "/dispatch/preference/dm/client", {
+      payload: PreferenceDmSetClientDispatchPayload,
+      success: DispatchAcceptedResult,
+      error: BotCommandDispatchErrorSchemas,
     }),
   )
   .add(

@@ -28,6 +28,18 @@ export class SheetApisForwardingClient extends Context.Service<SheetApisForwardi
           getCurrentUser: callNoInput(rpcClient["discord.getCurrentUser"]),
           getCurrentUserGuilds: callNoInput(rpcClient["discord.getCurrentUserGuilds"]),
         },
+        userConfig: {
+          getCurrentUserPlatformConfig: call(rpcClient["userConfig.getCurrentUserPlatformConfig"]),
+          upsertCurrentUserPlatformConfig: call(
+            rpcClient["userConfig.upsertCurrentUserPlatformConfig"],
+          ),
+          listSupportedNotificationClients: callNoInput(
+            rpcClient["userConfig.listSupportedNotificationClients"],
+          ),
+          getCheckinDmRecipients: call(rpcClient["userConfig.getCheckinDmRecipients"]),
+          getUserPlatformConfig: call(rpcClient["userConfig.getUserPlatformConfig"]),
+          upsertUserPlatformConfig: call(rpcClient["userConfig.upsertUserPlatformConfig"]),
+        },
         workspaceConfig: {
           getAutoCheckinWorkspaces: callNoInput(
             rpcClient["workspaceConfig.getAutoCheckinWorkspaces"],

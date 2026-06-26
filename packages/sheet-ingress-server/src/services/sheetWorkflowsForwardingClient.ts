@@ -61,6 +61,18 @@ export class SheetWorkflowsForwardingClient extends Context.Service<SheetWorkflo
           serviceStatus: accept(DispatchWorkflowOperations.serviceStatus, (args) =>
             rpcClient[DispatchWorkflowOperations.serviceStatus.discardRpcTag](args),
           ),
+          preferenceDmStatus: accept(DispatchWorkflowOperations.preferenceDmStatus, (args) =>
+            rpcClient[DispatchWorkflowOperations.preferenceDmStatus.discardRpcTag](args),
+          ),
+          preferenceDmEnable: accept(DispatchWorkflowOperations.preferenceDmEnable, (args) =>
+            rpcClient[DispatchWorkflowOperations.preferenceDmEnable.discardRpcTag](args),
+          ),
+          preferenceDmDisable: accept(DispatchWorkflowOperations.preferenceDmDisable, (args) =>
+            rpcClient[DispatchWorkflowOperations.preferenceDmDisable.discardRpcTag](args),
+          ),
+          preferenceDmSetClient: accept(DispatchWorkflowOperations.preferenceDmSetClient, (args) =>
+            rpcClient[DispatchWorkflowOperations.preferenceDmSetClient.discardRpcTag](args),
+          ),
           workspaceWelcome: accept(DispatchWorkflowOperations.workspaceWelcome, (args) =>
             rpcClient[DispatchWorkflowOperations.workspaceWelcome.discardRpcTag](args),
           ),

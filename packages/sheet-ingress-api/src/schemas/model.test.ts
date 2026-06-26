@@ -8,6 +8,7 @@ import {
   WorkspaceFeatureFlag,
   WorkspaceMonitorRole,
 } from "./workspaceConfig";
+import { UserPlatformConfig } from "./userConfig";
 import { MessageCheckin, MessageCheckinMember } from "./messageCheckin";
 import { MessageRoomOrder, MessageRoomOrderEntry } from "./messageRoomOrder";
 import { MessageSlot } from "./messageSlot";
@@ -93,6 +94,19 @@ describe("model-derived persisted schemas", () => {
       _tag: "WorkspaceFeatureFlag",
       workspaceId: "workspace-1",
       flagName: "beta-feature",
+      createdAt: 1_700_000_000_000,
+      updatedAt: 1_700_000_000_100,
+      deletedAt: null,
+    });
+  });
+
+  it("round-trips user platform config row schemas without wire-shape drift", () => {
+    expectWireRoundTrip(UserPlatformConfig, {
+      _tag: "UserPlatformConfig",
+      platform: "discord",
+      userId: "discord-user-1",
+      defaultClientId: "discord-main",
+      checkinDmEnabled: true,
       createdAt: 1_700_000_000_000,
       updatedAt: 1_700_000_000_100,
       deletedAt: null,

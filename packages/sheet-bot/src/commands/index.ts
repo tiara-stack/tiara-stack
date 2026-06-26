@@ -1,6 +1,7 @@
 export * from "./checkin";
 export * from "./channel";
 export * from "./kickout";
+export * from "./preference";
 export * from "./roomOrder";
 export * from "./screenshot";
 export * from "./schedule";

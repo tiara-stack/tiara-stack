@@ -56,6 +56,22 @@ type ClientDeliveryApiClient = {
         readonly message: SheetOutboundMessage;
       };
     }) => Effect.Effect<MessageRef, unknown>;
+    readonly sendDirectMessage: (args: {
+      readonly payload: {
+        readonly recipient: {
+          readonly client: ClientRef;
+          readonly userId: string;
+        };
+        readonly message: SheetOutboundMessage;
+      };
+    }) => Effect.Effect<MessageRef, unknown>;
+    readonly listClients: (args: {}) => Effect.Effect<
+      ReadonlyArray<{
+        readonly platform: string;
+        readonly clientId: string;
+      }>,
+      unknown
+    >;
     readonly updateMessage: (args: {
       readonly payload: {
         readonly messageRef: MessageRef;
@@ -255,6 +271,19 @@ export class ClientDeliveryClient extends Context.Service<ClientDeliveryClient>(
             payload: { conversation: conversationRef(clientRef, conversationId), message: payload },
           });
           return deliveryMessageFromRef(ref);
+        }),
+        sendDirectMessage: Effect.fn("ClientDeliveryClient.sendDirectMessage")(function* (
+          userId: string,
+          payload: SheetOutboundMessage,
+        ) {
+          const clientRef = boundClientRef ?? (yield* ClientDeliveryClientRef);
+          const ref = yield* apiClient.clientDelivery.sendDirectMessage({
+            payload: { recipient: { client: clientRef, userId }, message: payload },
+          });
+          return deliveryMessageFromRef(ref);
+        }),
+        listClients: Effect.fn("ClientDeliveryClient.listClients")(function* () {
+          return yield* apiClient.clientDelivery.listClients({});
         }),
         updateMessage: Effect.fn("ClientDeliveryClient.updateMessage")(function* (
           conversationId: string,

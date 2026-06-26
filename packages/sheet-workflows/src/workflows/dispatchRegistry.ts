@@ -40,6 +40,10 @@ import {
   DispatchConversationUnsetWorkflow,
   DispatchWorkspaceWelcomeWorkflow,
   DispatchKickoutWorkflow,
+  DispatchPreferenceDmDisableWorkflow,
+  DispatchPreferenceDmEnableWorkflow,
+  DispatchPreferenceDmSetClientWorkflow,
+  DispatchPreferenceDmStatusWorkflow,
   DispatchRoomOrderNextButtonWorkflow,
   DispatchRoomOrderPinTentativeButtonWorkflow,
   DispatchRoomOrderPreviousButtonWorkflow,
@@ -698,6 +702,55 @@ export const dispatchWorkflowRegistry = {
         return yield* service.serviceStatus(request.payload);
       }),
   },
+  preferenceDmStatus: {
+    operation: "preferenceDmStatus",
+    workflow: DispatchPreferenceDmStatusWorkflow,
+    getInteractionToken: (request: typeof DispatchPreferenceDmStatusWorkflow.payloadSchema.Type) =>
+      request.payload.interactionResponseToken,
+    authorize: () => Effect.void,
+    execute: (request: typeof DispatchPreferenceDmStatusWorkflow.payloadSchema.Type) =>
+      Effect.gen(function* () {
+        const service = yield* DispatchService;
+        return yield* service.preferenceDmStatus(request.payload, request.requester);
+      }),
+  },
+  preferenceDmEnable: {
+    operation: "preferenceDmEnable",
+    workflow: DispatchPreferenceDmEnableWorkflow,
+    getInteractionToken: (request: typeof DispatchPreferenceDmEnableWorkflow.payloadSchema.Type) =>
+      request.payload.interactionResponseToken,
+    authorize: () => Effect.void,
+    execute: (request: typeof DispatchPreferenceDmEnableWorkflow.payloadSchema.Type) =>
+      Effect.gen(function* () {
+        const service = yield* DispatchService;
+        return yield* service.preferenceDmEnable(request.payload, request.requester);
+      }),
+  },
+  preferenceDmDisable: {
+    operation: "preferenceDmDisable",
+    workflow: DispatchPreferenceDmDisableWorkflow,
+    getInteractionToken: (request: typeof DispatchPreferenceDmDisableWorkflow.payloadSchema.Type) =>
+      request.payload.interactionResponseToken,
+    authorize: () => Effect.void,
+    execute: (request: typeof DispatchPreferenceDmDisableWorkflow.payloadSchema.Type) =>
+      Effect.gen(function* () {
+        const service = yield* DispatchService;
+        return yield* service.preferenceDmDisable(request.payload, request.requester);
+      }),
+  },
+  preferenceDmSetClient: {
+    operation: "preferenceDmSetClient",
+    workflow: DispatchPreferenceDmSetClientWorkflow,
+    getInteractionToken: (
+      request: typeof DispatchPreferenceDmSetClientWorkflow.payloadSchema.Type,
+    ) => request.payload.interactionResponseToken,
+    authorize: () => Effect.void,
+    execute: (request: typeof DispatchPreferenceDmSetClientWorkflow.payloadSchema.Type) =>
+      Effect.gen(function* () {
+        const service = yield* DispatchService;
+        return yield* service.preferenceDmSetClient(request.payload, request.requester);
+      }),
+  },
   workspaceWelcome: {
     operation: "workspaceWelcome",
     workflow: DispatchWorkspaceWelcomeWorkflow,
@@ -1050,6 +1103,26 @@ export const dispatchWorkflowLayer = Layer.mergeAll(
   DispatchServiceStatusWorkflow.toLayer(
     makeWorkflowHandler({
       ...dispatchWorkflowRegistry.serviceStatus,
+    }),
+  ),
+  DispatchPreferenceDmStatusWorkflow.toLayer(
+    makeWorkflowHandler({
+      ...dispatchWorkflowRegistry.preferenceDmStatus,
+    }),
+  ),
+  DispatchPreferenceDmEnableWorkflow.toLayer(
+    makeWorkflowHandler({
+      ...dispatchWorkflowRegistry.preferenceDmEnable,
+    }),
+  ),
+  DispatchPreferenceDmDisableWorkflow.toLayer(
+    makeWorkflowHandler({
+      ...dispatchWorkflowRegistry.preferenceDmDisable,
+    }),
+  ),
+  DispatchPreferenceDmSetClientWorkflow.toLayer(
+    makeWorkflowHandler({
+      ...dispatchWorkflowRegistry.preferenceDmSetClient,
     }),
   ),
   DispatchWorkspaceWelcomeWorkflow.toLayer(

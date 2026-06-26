@@ -8,6 +8,10 @@ import {
   DispatchConversationUnsetWorkflow as BaseDispatchConversationUnsetWorkflow,
   DispatchWorkspaceWelcomeWorkflow as BaseDispatchWorkspaceWelcomeWorkflow,
   DispatchKickoutWorkflow as BaseDispatchKickoutWorkflow,
+  DispatchPreferenceDmDisableWorkflow as BaseDispatchPreferenceDmDisableWorkflow,
+  DispatchPreferenceDmEnableWorkflow as BaseDispatchPreferenceDmEnableWorkflow,
+  DispatchPreferenceDmSetClientWorkflow as BaseDispatchPreferenceDmSetClientWorkflow,
+  DispatchPreferenceDmStatusWorkflow as BaseDispatchPreferenceDmStatusWorkflow,
   DispatchRoomOrderNextButtonWorkflow as BaseDispatchRoomOrderNextButtonWorkflow,
   DispatchRoomOrderPinTentativeButtonWorkflow as BaseDispatchRoomOrderPinTentativeButtonWorkflow,
   DispatchRoomOrderPreviousButtonWorkflow as BaseDispatchRoomOrderPreviousButtonWorkflow,
@@ -71,6 +75,24 @@ export const DispatchServiceStatusWorkflow = BaseDispatchServiceStatusWorkflow.a
   ClusterSchema.ShardGroup,
   dispatchShardGroup,
 );
+
+export const DispatchPreferenceDmStatusWorkflow = BaseDispatchPreferenceDmStatusWorkflow.annotate(
+  ClusterSchema.ShardGroup,
+  dispatchShardGroup,
+);
+
+export const DispatchPreferenceDmEnableWorkflow = BaseDispatchPreferenceDmEnableWorkflow.annotate(
+  ClusterSchema.ShardGroup,
+  dispatchShardGroup,
+);
+
+export const DispatchPreferenceDmDisableWorkflow = BaseDispatchPreferenceDmDisableWorkflow.annotate(
+  ClusterSchema.ShardGroup,
+  dispatchShardGroup,
+);
+
+export const DispatchPreferenceDmSetClientWorkflow =
+  BaseDispatchPreferenceDmSetClientWorkflow.annotate(ClusterSchema.ShardGroup, dispatchShardGroup);
 
 export const DispatchWorkspaceWelcomeWorkflow = BaseDispatchWorkspaceWelcomeWorkflow.annotate(
   ClusterSchema.ShardGroup,
@@ -186,6 +208,10 @@ export const DispatchWorkflows = [
   DispatchSlotListWorkflow,
   DispatchSlotOpenButtonWorkflow,
   DispatchServiceStatusWorkflow,
+  DispatchPreferenceDmStatusWorkflow,
+  DispatchPreferenceDmEnableWorkflow,
+  DispatchPreferenceDmDisableWorkflow,
+  DispatchPreferenceDmSetClientWorkflow,
   DispatchWorkspaceWelcomeWorkflow,
   DispatchUpdateAnnouncementWorkflow,
   DispatchServiceAddWorkspaceFeatureFlagWorkflow,

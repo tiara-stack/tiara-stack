@@ -1,4 +1,5 @@
 export {
+  configUserPlatform,
   configWorkspace,
   configWorkspaceConversation,
   configWorkspaceFeatureFlag,

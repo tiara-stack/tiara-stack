@@ -4,6 +4,7 @@ import { dotEnvConfigProviderLayer } from "typhoon-core/config";
 import { channelCommandLayer } from "./commands/channel";
 import { checkinCommandLayer } from "./commands/checkin";
 import { kickoutCommandLayer } from "./commands/kickout";
+import { preferenceCommandLayer } from "./commands/preference";
 import { roomOrderCommandLayer } from "./commands/roomOrder";
 import { scheduleCommandLayer } from "./commands/schedule";
 import { screenshotCommandLayer } from "./commands/screenshot";
@@ -24,6 +25,7 @@ const botLayer = Layer.mergeAll(
   channelCommandLayer,
   checkinCommandLayer,
   kickoutCommandLayer,
+  preferenceCommandLayer,
   roomOrderCommandLayer,
   screenshotCommandLayer,
   scheduleCommandLayer,

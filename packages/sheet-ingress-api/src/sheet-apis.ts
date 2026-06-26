@@ -16,6 +16,7 @@ import {
   ScreenshotApi,
   SheetApi,
   StatusApi,
+  UserConfigApi,
 } from "./api-groups";
 
 export class SheetApisApi extends HttpApi.make("api")
@@ -35,4 +36,5 @@ export class SheetApisApi extends HttpApi.make("api")
   .add(ScheduleApi)
   .add(DiscordApi)
   .add(StatusApi)
+  .add(UserConfigApi)
   .annotate(OpenApi.Title, "Sheet APIs") {}

@@ -20,6 +20,13 @@ export class ClientRegistry extends Context.Service<ClientRegistry>()("ClientReg
     );
 
     return {
+      list: Effect.fn("ClientRegistry.list")(function* () {
+        yield* Effect.void;
+        return entries.map((entry) => ({
+          platform: entry.platform,
+          clientId: entry.clientId,
+        }));
+      }),
       resolve: Effect.fn("ClientRegistry.resolve")(function* (client: ClientRef) {
         const entry = byClient.get(clientRegistryKey(client));
         if (entry === undefined) {

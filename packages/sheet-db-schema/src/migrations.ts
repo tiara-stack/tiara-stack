@@ -7,6 +7,7 @@ import migration0004 from "../effect-sql-migrations/0004_migration";
 import migration0005 from "../effect-sql-migrations/0005_client_message_keys";
 import migration0006 from "../effect-sql-migrations/0006_workspace_config_names";
 import migration0007 from "../effect-sql-migrations/0007_checkin_initial_message_json";
+import migration0008 from "../effect-sql-migrations/0008_user_platform_config";
 
 export const sheetDbMigrationTable = "sheet_db_effect_sql_migrations";
 
@@ -18,4 +19,5 @@ export const sheetDbMigrations: Loader = Effect.succeed([
   [5, "client_message_keys", Effect.succeed(migration0005)],
   [6, "workspace_config_names", Effect.succeed(migration0006)],
   [7, "checkin_initial_message_json", Effect.succeed(migration0007)],
+  [8, "user_platform_config", Effect.succeed(migration0008)],
 ]);

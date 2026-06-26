@@ -79,6 +79,20 @@ class ConfigWorkspaceUpdateAnnouncementDelivery extends pg.Class<ConfigWorkspace
   ],
 }) {}
 
+class ConfigUserPlatform extends pg.Class<ConfigUserPlatform>("ConfigUserPlatform")({
+  table: "config_user_platform",
+  fields: {
+    platform: pg.varchar("platform").notNull(),
+    userId: pg.varchar("user_id").notNull(),
+    defaultClientId: pg.varchar("default_client_id"),
+    checkinDmEnabled: pg.boolean("checkin_dm_enabled").notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+    deletedAt: deletedAt(),
+  },
+  primaryKey: ["platform", "userId"],
+}) {}
+
 class ConfigWorkspaceConversation extends pg.Class<ConfigWorkspaceConversation>(
   "ConfigWorkspaceConversation",
 )({
@@ -234,6 +248,7 @@ export const configWorkspaceFeatureFlag = asPgModel(ConfigWorkspaceFeatureFlag);
 export const configWorkspaceUpdateAnnouncementDelivery = asPgModel(
   ConfigWorkspaceUpdateAnnouncementDelivery,
 );
+export const configUserPlatform = asPgModel(ConfigUserPlatform);
 export const configWorkspaceConversation = asPgModel(ConfigWorkspaceConversation);
 export const messageSlot = asPgModel(MessageSlot);
 export const messageCheckin = asPgModel(MessageCheckin);

@@ -1,4 +1,5 @@
 import {
+  configUserPlatform as configUserPlatformModel,
   configWorkspace as configWorkspaceModel,
   configWorkspaceConversation as configWorkspaceConversationModel,
   configWorkspaceFeatureFlag as configWorkspaceFeatureFlagModel,
@@ -21,6 +22,11 @@ const timestampOptions = {
 export const zeroTableAccess = {
   configWorkspace: defineZeroTableAccess(configWorkspaceModel, builder.configWorkspace, {
     primaryKey: ["workspaceId"],
+    softDelete: "deletedAt",
+    timestamps: timestampOptions,
+  }),
+  configUserPlatform: defineZeroTableAccess(configUserPlatformModel, builder.configUserPlatform, {
+    primaryKey: ["platform", "userId"],
     softDelete: "deletedAt",
     timestamps: timestampOptions,
   }),

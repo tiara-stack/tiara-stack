@@ -4,6 +4,7 @@ import { WorkflowEngine } from "effect/unstable/workflow";
 import { makeArgumentError } from "typhoon-core/error";
 import { checkinActionRow } from "./messageComponents";
 import { ClientDeliveryClient, ClientDeliveryClientRef } from "./clientDeliveryClient";
+import { sendCheckinOpeningDmReminders } from "./checkinDmReminders";
 import { SheetApisClient } from "./sheetApisClient";
 import { uniqueConversationNames } from "./autoCheckinConversations";
 import * as MessageText from "./messageText";
@@ -69,6 +70,12 @@ const makeSheetApisServices = (sheetApisClient: typeof SheetApisClient.Service) 
             conversationName: payload.conversationName,
             hour: payload.hour,
           },
+        }),
+    },
+    userConfigService: {
+      getCheckinDmRecipients: (platform: string, userIds: ReadonlyArray<string>) =>
+        sheetApis.userConfig.getCheckinDmRecipients({
+          payload: { platform, userIds: [...userIds] },
         }),
     },
     workspaceConfigService: {
@@ -171,6 +178,7 @@ export class AutoCheckinService extends Context.Service<AutoCheckinService>()(
       const autoCheckinConcurrency = yield* config.autoCheckinConcurrency;
       const {
         checkinService,
+        userConfigService,
         workspaceConfigService,
         messageCheckinService,
         messageRoomOrderService,
@@ -330,6 +338,31 @@ export class AutoCheckinService extends Context.Service<AutoCheckinService>()(
                   ),
                 ),
               );
+
+            yield* sendCheckinOpeningDmReminders({
+              platform: client.platform,
+              workspaceId: payload.workspaceId,
+              runningConversationId: generated.runningConversationId,
+              runningConversationName: payload.conversationName,
+              checkinConversationId: generated.checkinConversationId,
+              hour: generated.hour,
+              fillIds: generated.fillIds,
+              concurrency: autoCheckinConcurrency,
+              userConfigService,
+              botClient,
+            }).pipe(
+              Effect.catchCause((cause) =>
+                Effect.logError("Failed to process auto check-in opening DM reminders").pipe(
+                  Effect.annotateLogs({
+                    workspaceId: payload.workspaceId,
+                    conversationName: payload.conversationName,
+                    checkinConversationId: generated.checkinConversationId,
+                    hour: generated.hour,
+                  }),
+                  Effect.andThen(Effect.logError(cause)),
+                ),
+              ),
+            );
           }
 
           const embedDescription = MessageText.lines(

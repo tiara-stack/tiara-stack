@@ -9,6 +9,7 @@ import {
   WorkspaceMonitorRole,
   WorkspaceUpdateAnnouncementDelivery,
 } from "sheet-ingress-api/schemas/workspaceConfig";
+import { UserPlatformConfig } from "sheet-ingress-api/schemas/userConfig";
 import { MessageCheckin, MessageCheckinMember } from "sheet-ingress-api/schemas/messageCheckin";
 import {
   MessageRoomOrder,
@@ -20,6 +21,10 @@ import type { MessageKey } from "./messageKey";
 import type { SheetTextPart } from "sheet-ingress-api/schemas/client";
 
 const successSchemas = {
+  userConfig: {
+    getUserPlatformConfig: Schema.OptionFromNullishOr(DefaultTaggedClass(UserPlatformConfig)),
+    getCheckinDmEnabledUserConfigs: Schema.Array(DefaultTaggedClass(UserPlatformConfig)),
+  },
   workspaceConfig: {
     getAutoCheckinWorkspaces: Schema.Array(DefaultTaggedClass(WorkspaceConfig)),
     getWorkspaceConfigByWorkspaceId: Schema.OptionFromNullishOr(
@@ -70,6 +75,22 @@ interface MessageRoomOrderEntryInput {
 }
 
 export interface SheetZeroClientApi {
+  readonly userConfig: {
+    readonly getUserPlatformConfig: (args: {
+      readonly platform: string;
+      readonly userId: string;
+    }) => QueryResult<Option.Option<UserPlatformConfig>>;
+    readonly getCheckinDmEnabledUserConfigs: (args: {
+      readonly platform: string;
+      readonly userIds: ReadonlyArray<string>;
+    }) => QueryResult<UserPlatformConfig[]>;
+    readonly upsertUserPlatformConfig: MutatorResult<{
+      readonly platform: string;
+      readonly userId: string;
+      readonly checkinDmEnabled: boolean;
+      readonly defaultClientId?: string | null | undefined;
+    }>;
+  };
   readonly workspaceConfig: {
     readonly getAutoCheckinWorkspaces: (args: {}) => QueryResult<WorkspaceConfig[]>;
     readonly getWorkspaceConfigByWorkspaceId: (args: {

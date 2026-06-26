@@ -23,6 +23,11 @@ import {
   MessageRoomOrderRange,
 } from "./schemas/messageRoomOrder";
 import { MessageSlot } from "./schemas/messageSlot";
+import {
+  CheckinDmRecipient,
+  SupportedNotificationClient,
+  UserPlatformConfig,
+} from "./schemas/userConfig";
 import { Unauthorized } from "typhoon-core/error";
 import { CurrentUserPermissions } from "./schemas/permissions";
 import { RoomOrderGenerateResult } from "./schemas/roomOrder";
@@ -79,6 +84,11 @@ import {
   KickoutDispatchError,
   KickoutDispatchPayload,
   KickoutDispatchResult,
+  PreferenceDmDisableDispatchPayload,
+  PreferenceDmDispatchResult,
+  PreferenceDmEnableDispatchPayload,
+  PreferenceDmSetClientDispatchPayload,
+  PreferenceDmStatusDispatchPayload,
   RoomOrderDispatchError,
   RoomOrderDispatchPayload,
   RoomOrderDispatchResult,
@@ -133,6 +143,11 @@ export {
   KickoutDispatchError,
   KickoutDispatchPayload,
   KickoutDispatchResult,
+  PreferenceDmDisableDispatchPayload,
+  PreferenceDmDispatchResult,
+  PreferenceDmEnableDispatchPayload,
+  PreferenceDmSetClientDispatchPayload,
+  PreferenceDmStatusDispatchPayload,
   RoomOrderButtonBasePayload,
   RoomOrderButtonInteractionResponseType,
   RoomOrderButtonResult,
@@ -620,6 +635,59 @@ export const WorkspaceConfigRpcs = RpcGroup.make(
     }),
     success: WorkspaceConversationConfig,
     error: Schema.Union([SchemaError, QueryResultError, ArgumentError]),
+  }),
+);
+
+export const UserConfigRpcs = RpcGroup.make(
+  protectedRpc("userConfig.getCurrentUserPlatformConfig", {
+    scopePolicy: readScopePolicy,
+    payload: Query({ platform: ClientPlatform }),
+    success: Schema.Option(UserPlatformConfig),
+    error: Schema.Union([SchemaError, QueryResultError, ArgumentError]),
+  }),
+  protectedRpc("userConfig.upsertCurrentUserPlatformConfig", {
+    scopePolicy: writeScopePolicy,
+    payload: Payload({
+      platform: ClientPlatform,
+      checkinDmEnabled: Schema.Boolean,
+      defaultClientId: Schema.optional(Schema.NullOr(Schema.String)),
+    }),
+    success: UserPlatformConfig,
+    error: Schema.Union([SchemaError, QueryResultError, MutatorResultError, ArgumentError]),
+  }),
+  protectedRpc("userConfig.listSupportedNotificationClients", {
+    scopePolicy: readScopePolicy,
+    success: Schema.Array(SupportedNotificationClient),
+    error: Schema.Union([SchemaError, ArgumentError]),
+  }),
+  protectedRpc("userConfig.getCheckinDmRecipients", {
+    scopePolicy: serviceScopePolicy,
+    payload: Payload({
+      platform: ClientPlatform,
+      userIds: Schema.Array(Schema.String),
+    }),
+    success: Schema.Array(CheckinDmRecipient),
+    error: Schema.Union([SchemaError, QueryResultError, ArgumentError]),
+  }),
+  protectedRpc("userConfig.getUserPlatformConfig", {
+    scopePolicy: serviceScopePolicy,
+    payload: Payload({
+      platform: ClientPlatform,
+      userId: Schema.String,
+    }),
+    success: Schema.Option(UserPlatformConfig),
+    error: Schema.Union([SchemaError, QueryResultError, ArgumentError]),
+  }),
+  protectedRpc("userConfig.upsertUserPlatformConfig", {
+    scopePolicy: serviceScopePolicy,
+    payload: Payload({
+      platform: ClientPlatform,
+      userId: Schema.String,
+      checkinDmEnabled: Schema.Boolean,
+      defaultClientId: Schema.optional(Schema.NullOr(Schema.String)),
+    }),
+    success: UserPlatformConfig,
+    error: Schema.Union([SchemaError, QueryResultError, MutatorResultError, ArgumentError]),
   }),
 );
 
@@ -1127,4 +1195,5 @@ export const SheetApisRpcs = CalcRpcs.merge(
   ScreenshotRpcs,
   SheetRpcs,
   StatusRpcs,
+  UserConfigRpcs,
 );

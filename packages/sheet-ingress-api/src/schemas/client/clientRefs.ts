@@ -36,6 +36,13 @@ export const MessageRef = Schema.Struct({
 
 export type MessageRef = Schema.Schema.Type<typeof MessageRef>;
 
+export const ClientUserRef = Schema.Struct({
+  client: ClientRef,
+  userId: Schema.String,
+});
+
+export type ClientUserRef = Schema.Schema.Type<typeof ClientUserRef>;
+
 export const InteractionRef = Schema.Struct({
   client: ClientRef,
   token: Schema.String,
