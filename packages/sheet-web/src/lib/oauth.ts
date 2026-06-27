@@ -20,6 +20,7 @@ import {
 
 const oauthCookieName = "sheet-web-oauth";
 const pkceCookieName = "sheet-web-oauth-pkce";
+const sheetWebOAuthResource = "sheet-ingress";
 const refreshSkewSeconds = 60;
 
 type SheetWebOAuthTokenSet = {
@@ -155,11 +156,17 @@ const tokenResponseToTokenSet = (response: unknown): SheetWebOAuthTokenSet => {
 const isAuthorizationFailure = (error: unknown) =>
   error instanceof OAuthTokenRequestError && (error.status === 401 || error.status === 403);
 
-const refreshTokenRequestBody = (tokenSet: SheetWebOAuthTokenSet, clientId: string) =>
+export const isJwtAccessToken = (token: string) => {
+  const parts = token.split(".");
+  return parts.length === 3 && parts.every((part) => part.length > 0);
+};
+
+export const refreshTokenRequestBody = (tokenSet: SheetWebOAuthTokenSet, clientId: string) =>
   new URLSearchParams({
     grant_type: "refresh_token",
     client_id: clientId,
     refresh_token: tokenSet.refreshToken ?? "",
+    resource: sheetWebOAuthResource,
   });
 
 const mergeRefreshTokenSet = (
@@ -180,7 +187,7 @@ const validOAuthCallback = (
       : Option.none<{ readonly code: string; readonly codeVerifier: string }>(),
   );
 
-const authorizationCodeRequestBody = (
+export const authorizationCodeRequestBody = (
   config: Awaited<ReturnType<typeof loadOAuthConfig>>,
   callback: { readonly code: string; readonly codeVerifier: string },
 ) =>
@@ -190,6 +197,7 @@ const authorizationCodeRequestBody = (
     code: callback.code,
     redirect_uri: new URL(config.redirectPath, config.appBaseUrl).href,
     code_verifier: callback.codeVerifier,
+    resource: sheetWebOAuthResource,
   });
 
 const fetchToken = async (authBaseUrl: URL, body: URLSearchParams) => {
@@ -241,7 +249,10 @@ const ensureSheetWebOAuthAccessTokenServerFn = createServerFn({ method: "GET" })
     }
 
     const tokenSet = maybeToken.value;
-    if (tokenSet.expiresAt - Math.floor(Date.now() / 1000) > refreshSkewSeconds) {
+    if (
+      isJwtAccessToken(tokenSet.accessToken) &&
+      tokenSet.expiresAt - Math.floor(Date.now() / 1000) > refreshSkewSeconds
+    ) {
       return tokenSet.accessToken;
     }
 
@@ -284,7 +295,7 @@ export const createSheetWebOAuthAuthorizationUrl = createServerFn({ method: "POS
     url.searchParams.set("nonce", nonce);
     url.searchParams.set("code_challenge", codeChallenge(codeVerifier));
     url.searchParams.set("code_challenge_method", "S256");
-    url.searchParams.set("resource", "sheet-ingress");
+    url.searchParams.set("resource", sheetWebOAuthResource);
 
     return { redirectTo: url.href };
   },
