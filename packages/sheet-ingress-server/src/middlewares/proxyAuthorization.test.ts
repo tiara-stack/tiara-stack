@@ -199,6 +199,32 @@ describe("proxy authorization middleware", () => {
     }),
   );
 
+  it.effect("provides resolved sheet-bot service users to handlers", () =>
+    Effect.gen(function* () {
+      const serviceUser = makeServiceUser();
+      const resolver = {
+        resolveToken: () => Effect.succeed(serviceUser),
+      } as never;
+
+      const user = yield* runPromise(
+        Effect.gen(function* () {
+          const middleware = yield* SheetBotServiceAuthorization;
+          const ref = yield* Ref.make<SheetAuthUserType | undefined>(undefined);
+          yield* middleware.sheetBotServiceToken(captureUser(ref) as never, {
+            ...options,
+            credential: Redacted.make("service-token"),
+          });
+          return yield* Ref.get(ref);
+        }).pipe(
+          Effect.provide(SheetBotServiceAuthorizationLive),
+          Effect.provideService(SheetAuthUserResolver, resolver),
+        ),
+      );
+
+      expect(user).toEqual(serviceUser);
+    }),
+  );
+
   it.effect("rejects sheet-bot tokens without service permission", () =>
     Effect.gen(function* () {
       const resolver = {

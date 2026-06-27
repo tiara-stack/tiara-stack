@@ -19,10 +19,13 @@ export const SheetBotServiceAuthorizationLive = Layer.effect(
   SheetBotServiceAuthorization,
   Effect.gen(function* () {
     const sheetAuthUserResolver = yield* SheetAuthUserResolver;
-    const servicePermissionCache = yield* Cache.makeWith(
+    const serviceUserCache = yield* Cache.makeWith(
       (token: string) =>
         sheetAuthUserResolver.resolveToken(Redacted.make(token)).pipe(
-          Effect.map(({ permissions }) => hasPermission(permissions, "service")),
+          Effect.filterOrFail(
+            ({ permissions }) => hasPermission(permissions, "service"),
+            () => new Unauthorized({ message: "Unauthorized" }),
+          ),
           Effect.tapError((error) =>
             Effect.logWarning("Failed to authorize service token for bot proxy route", error),
           ),
@@ -39,15 +42,10 @@ export const SheetBotServiceAuthorizationLive = Layer.effect(
     return SheetBotServiceAuthorization.of({
       sheetBotServiceToken: Effect.fn("SheetBotServiceAuthorization.sheetBotServiceToken")(
         function* (httpEffect, { credential }) {
-          const hasServicePermission = yield* Cache.get(
-            servicePermissionCache,
-            Redacted.value(credential),
-          ).pipe(Effect.catch(() => Effect.succeed(false)));
-          if (!hasServicePermission) {
-            return yield* Effect.fail(new Unauthorized({ message: "Unauthorized" }));
-          }
-
-          return yield* httpEffect;
+          const serviceUser = yield* Cache.get(serviceUserCache, Redacted.value(credential)).pipe(
+            Effect.catch(() => Effect.fail(new Unauthorized({ message: "Unauthorized" }))),
+          );
+          return yield* httpEffect.pipe(Effect.provideService(SheetAuthUser, serviceUser));
         },
       ),
     });
