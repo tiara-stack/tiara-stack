@@ -1441,7 +1441,10 @@ const makeApiLayer = () => {
         .handle("getConversationSchedules", serviceOnly("sheet", "getConversationSchedules"))
         .handle("getRangesConfig", serviceOnly("sheet", "getRangesConfig"))
         .handle("getTeamConfig", serviceOnly("sheet", "getTeamConfig"))
-        .handle("getEventConfig", serviceOnly("sheet", "getEventConfig"))
+        .handle(
+          "getEventConfig",
+          guildQuery("sheet", "getEventConfig", "member", (query) => query.workspaceId),
+        )
         .handle("getScheduleConfig", serviceOnly("sheet", "getScheduleConfig"))
         .handle("getRunnerConfig", serviceOnly("sheet", "getRunnerConfig")),
     ),
