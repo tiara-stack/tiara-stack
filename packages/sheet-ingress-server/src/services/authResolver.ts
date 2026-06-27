@@ -1,12 +1,26 @@
-import { Cache, Context, Duration, Effect, Exit, HashSet, Layer, Option, Redacted } from "effect";
+import {
+  Cache,
+  Context,
+  Duration,
+  Effect,
+  Exit,
+  HashSet,
+  Layer,
+  Option,
+  Redacted,
+  Schema,
+} from "effect";
 import {
   getSheetAuthIdentity,
   type SheetAuthClient as SheetAuthClientValue,
 } from "sheet-auth/client";
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
 import { Unauthorized } from "typhoon-core/error";
-import type { Permission, PermissionSet } from "sheet-ingress-api/schemas/permissions";
-import type { SheetAuthOAuthScope } from "sheet-ingress-api/schemas/permissions";
+import {
+  SheetAuthOAuthScope,
+  type Permission,
+  type PermissionSet,
+} from "sheet-ingress-api/schemas/permissions";
 import { SheetBotForwardingClient } from "./sheetBotForwardingClient";
 import { SheetAuthClient } from "./sheetAuthClient";
 
@@ -30,6 +44,13 @@ const hasPermission = (permissions: PermissionSet, permission: Permission) =>
 
 const appendPermission = (permissions: PermissionSet, permission: Permission): PermissionSet =>
   HashSet.add(permissions, permission);
+
+const isSheetAuthOAuthScope = Schema.is(SheetAuthOAuthScope);
+
+export const sheetAuthOAuthScopeSetFromIterable = (
+  scopes: Iterable<string>,
+): ReadonlySet<SheetAuthOAuthScope> =>
+  new Set(Array.from(scopes).filter(isSheetAuthOAuthScope)) as ReadonlySet<SheetAuthOAuthScope>;
 
 const makeUnauthorized = (message: string, cause?: unknown) =>
   new Unauthorized({
@@ -57,7 +78,7 @@ const resolveCachedAuthorization = Effect.fn("resolveCachedAuthorization")(funct
         (permission): permission is Permission => permission === "service",
       ),
     ),
-    scopes: new Set(identity.scopes as SheetAuthOAuthScope[]) as ReadonlySet<SheetAuthOAuthScope>,
+    scopes: sheetAuthOAuthScopeSetFromIterable(identity.scopes),
   } satisfies CachedAuthorization;
 });
 
