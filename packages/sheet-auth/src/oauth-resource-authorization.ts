@@ -5,6 +5,7 @@ import { oauthProviderResourceClient } from "@better-auth/oauth-provider/resourc
 import { Unauthorized } from "typhoon-core/error";
 export { getBearerToken } from "./utils/bearer-token";
 import { getBearerToken } from "./utils/bearer-token";
+import { oauthResourceMetadataMappings } from "./oauth-resource-metadata";
 
 const defaultHeaderName = "x-sheet-ingress-auth";
 
@@ -48,13 +49,6 @@ const tokenTtl = (exp: number | undefined, now: number, successfulTokenTtlCap: D
   typeof exp === "number"
     ? Duration.min(successfulTokenTtlCap, Duration.millis(exp * 1000 - now))
     : successfulTokenTtlCap;
-
-const resourceMetadataMappings = (issuer: string, audience: string) =>
-  URL.canParse(audience)
-    ? undefined
-    : {
-        [audience]: `${issuer.replace(/\/$/, "")}/.well-known/oauth-protected-resource/${audience}`,
-      };
 
 const getAuthorizationServerIssuer = (issuer: string) => {
   const issuerBaseUrl = issuer.replace(/\/$/, "");
@@ -164,7 +158,7 @@ export const makeOAuthResourceTokenAuthorizer = <E = Unauthorized>(
                 audience,
                 issuer: authorizationServerIssuer,
               },
-              resourceMetadataMappings: resourceMetadataMappings(issuer, audience),
+              resourceMetadataMappings: oauthResourceMetadataMappings(issuer, audience),
               scopes: [...requiredScopes],
             }),
           catch: (cause) => cause,

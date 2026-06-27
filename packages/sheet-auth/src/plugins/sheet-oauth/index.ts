@@ -17,6 +17,7 @@ import { oauthProviderResourceClient } from "@better-auth/oauth-provider/resourc
 import { Schema } from "effect";
 import { jwtVerify, SignJWT, type JWTPayload } from "jose";
 import { DISCORD_SERVICE_USER_ID_SENTINEL, UserTokenDefaultScopes } from "../../oauth";
+import { oauthResourceMetadataMappings } from "../../oauth-resource-metadata";
 import { getBearerToken } from "../../utils/bearer-token";
 
 const TokenExchangeGrantType = "urn:ietf:params:oauth:grant-type:token-exchange";
@@ -324,7 +325,7 @@ const isTrustedClient = async (
   return isTrustedMetadata(client?.metadata);
 };
 
-const verifyOAuthAccessToken = async (
+export const verifyOAuthAccessToken = async (
   token: string,
   options: SheetOAuthOptions,
 ): Promise<Record<string, unknown>> => {
@@ -335,6 +336,7 @@ const verifyOAuthAccessToken = async (
       audience: [...options.validAudiences],
       issuer: options.issuer.replace(/\/$/, ""),
     },
+    resourceMetadataMappings: oauthResourceMetadataMappings(options.issuer, options.validAudiences),
   });
 };
 
