@@ -45,6 +45,7 @@ import {
   forwardSheetBotPayload,
   type SheetBotProxyHandler,
 } from "./services/sheetBotProxy";
+import { sheetApisRpcArgsFromHttpArgs } from "./services/sheetApisProxy";
 import { ServiceStatusService } from "./services/serviceStatus";
 import { normalizeServicesStatusResponse } from "./services/statusResponse";
 import { TelemetryLive } from "./telemetry";
@@ -205,7 +206,7 @@ const forwardSheetApis =
           new Error(`Unknown sheet-apis proxy target: ${group}.${endpoint}`),
         );
       }
-      return yield* endpointClient.call(groupClient, clientArgsFrom(args));
+      return yield* endpointClient.call(groupClient, sheetApisRpcArgsFromHttpArgs(args));
     }) as ReturnType<SheetApisProxyHandler<GroupName, EndpointName, never>>;
 
 const authorizedSheetApis =
