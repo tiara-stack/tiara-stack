@@ -32,6 +32,7 @@ export const userConfigLayer = UserConfigRpcs.toLayer(
           user.accountId,
           {
             checkinDmEnabled: payload.checkinDmEnabled,
+            monitorDmEnabled: payload.monitorDmEnabled,
             defaultClientId: payload.defaultClientId,
           },
         );
@@ -43,6 +44,10 @@ export const userConfigLayer = UserConfigRpcs.toLayer(
         yield* authorizationService.requireService();
         return yield* userConfigService.getCheckinDmRecipients(payload.platform, payload.userIds);
       }),
+      "userConfig.getMonitorDmRecipients": Effect.fnUntraced(function* ({ payload }) {
+        yield* authorizationService.requireService();
+        return yield* userConfigService.getMonitorDmRecipients(payload.platform, payload.userIds);
+      }),
       "userConfig.getUserPlatformConfig": Effect.fnUntraced(function* ({ payload }) {
         yield* authorizationService.requireService();
         return yield* userConfigService.getUserPlatformConfig(payload.platform, payload.userId);
@@ -51,6 +56,7 @@ export const userConfigLayer = UserConfigRpcs.toLayer(
         yield* authorizationService.requireService();
         return yield* userConfigService.upsertUserPlatformConfig(payload.platform, payload.userId, {
           checkinDmEnabled: payload.checkinDmEnabled,
+          monitorDmEnabled: payload.monitorDmEnabled,
           defaultClientId: payload.defaultClientId,
         });
       }),

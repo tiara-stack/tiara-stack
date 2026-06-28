@@ -37,6 +37,7 @@ export class SheetApisForwardingClient extends Context.Service<SheetApisForwardi
             rpcClient["userConfig.listSupportedNotificationClients"],
           ),
           getCheckinDmRecipients: call(rpcClient["userConfig.getCheckinDmRecipients"]),
+          getMonitorDmRecipients: call(rpcClient["userConfig.getMonitorDmRecipients"]),
           getUserPlatformConfig: call(rpcClient["userConfig.getUserPlatformConfig"]),
           upsertUserPlatformConfig: call(rpcClient["userConfig.upsertUserPlatformConfig"]),
         },

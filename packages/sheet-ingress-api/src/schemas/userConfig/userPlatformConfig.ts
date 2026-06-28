@@ -9,6 +9,7 @@ const UserPlatformConfigFields = validateTaggedFields<{
   readonly userId: StringField;
   readonly defaultClientId: StringOptionField;
   readonly checkinDmEnabled: BooleanField;
+  readonly monitorDmEnabled: BooleanField;
   readonly createdAt: DateTimeOptionField;
   readonly updatedAt: DateTimeOptionField;
   readonly deletedAt: DateTimeOptionField;
@@ -17,6 +18,7 @@ const UserPlatformConfigFields = validateTaggedFields<{
   "userId",
   "defaultClientId",
   "checkinDmEnabled",
+  "monitorDmEnabled",
   "createdAt",
   "updatedAt",
   "deletedAt",
@@ -41,3 +43,11 @@ export const CheckinDmRecipient = Schema.Struct({
 });
 
 export type CheckinDmRecipient = typeof CheckinDmRecipient.Type;
+
+export const MonitorDmRecipient = Schema.Struct({
+  platform: ClientPlatform,
+  userId: Schema.String,
+  defaultClientId: Schema.String,
+});
+
+export type MonitorDmRecipient = typeof MonitorDmRecipient.Type;

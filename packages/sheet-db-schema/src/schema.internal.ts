@@ -86,6 +86,7 @@ class ConfigUserPlatform extends pg.Class<ConfigUserPlatform>("ConfigUserPlatfor
     userId: pg.varchar("user_id").notNull(),
     defaultClientId: pg.varchar("default_client_id"),
     checkinDmEnabled: pg.boolean("checkin_dm_enabled").notNull(),
+    monitorDmEnabled: pg.boolean("monitor_dm_enabled").notNull(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
     deletedAt: deletedAt(),

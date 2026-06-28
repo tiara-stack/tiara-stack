@@ -88,6 +88,20 @@ const makeRoomOrder = () =>
 
 const makeBotClient = (calls: Array<unknown>) =>
   ({
+    forClient: (client: unknown) => ({
+      sendDirectMessage: (userId: string, message: unknown) => {
+        calls.push({
+          method: "sendDirectMessage",
+          client,
+          userId,
+          message: normalizePayloadText(message),
+        });
+        return Effect.succeed({
+          id: `direct-message-${calls.length}`,
+          conversation_id: `dm-${userId}`,
+        });
+      },
+    }),
     sendMessage: (conversationId: string, message: unknown) => {
       calls.push({ method: "sendMessage", conversationId, message: normalizePayloadText(message) });
       return Effect.succeed({
@@ -285,6 +299,21 @@ describe("AutoCheckinService", () => {
         roomOrder: {
           generate: () => Effect.succeed(makeRoomOrder()),
         },
+        userConfig: {
+          getCheckinDmRecipients: () => Effect.succeed([]),
+          getMonitorDmRecipients: (args: unknown) => {
+            expect(args).toEqual({
+              payload: { platform: "discord", userIds: ["monitor-1"] },
+            });
+            return Effect.succeed([
+              {
+                platform: "discord",
+                userId: "monitor-1",
+                defaultClientId: "discord-main",
+              },
+            ]);
+          },
+        },
         messageRoomOrder: {
           persistMessageRoomOrder: (args: unknown) => {
             persistRoomOrderCalls.push(args);
@@ -304,8 +333,8 @@ describe("AutoCheckinService", () => {
         hour: 3,
         status: "sent",
         checkinMessageId: "checkin-conversation-message-1",
-        monitorMessageId: "running-conversation-message-3",
-        tentativeRoomOrderMessageId: "running-conversation-message-4",
+        monitorMessageId: "running-conversation-message-4",
+        tentativeRoomOrderMessageId: "running-conversation-message-5",
       });
       expect(botCalls).toMatchObject([
         {
@@ -319,6 +348,16 @@ describe("AutoCheckinService", () => {
           method: "updateMessage",
           conversationId: "checkin-conversation",
           messageId: "checkin-conversation-message-1",
+        },
+        {
+          method: "sendDirectMessage",
+          client: { platform: "discord", clientId: "discord-main" },
+          userId: "monitor-1",
+          message: {
+            content:
+              "Check-in is open for hour 3.\nServer: workspace-1\nRunning channel: main\nYou are assigned as monitor for this hour.\nOpen the running channel for the monitor summary and next steps.",
+            allowedMentions: "none",
+          },
         },
         {
           method: "sendMessage",
@@ -366,7 +405,7 @@ describe("AutoCheckinService", () => {
         payload: {
           clientPlatform: "discord",
           clientId: "discord-main",
-          messageId: "running-conversation-message-4",
+          messageId: "running-conversation-message-5",
           data: {
             tentative: true,
             workspaceId: "workspace-1",

@@ -23,6 +23,7 @@ export interface SheetZeroApiSuccessSchemas {
   readonly userConfig: {
     readonly getUserPlatformConfig: Schema.Top;
     readonly getCheckinDmEnabledUserConfigs: Schema.Top;
+    readonly getMonitorDmEnabledUserConfigs: Schema.Top;
   };
   readonly workspaceConfig: {
     readonly getAutoCheckinWorkspaces: Schema.Top;
@@ -54,6 +55,7 @@ const defaultSuccessSchemas = {
   userConfig: {
     getUserPlatformConfig: Schema.Any,
     getCheckinDmEnabledUserConfigs: Schema.Any,
+    getMonitorDmEnabledUserConfigs: Schema.Any,
   },
   workspaceConfig: {
     getAutoCheckinWorkspaces: Schema.Any,
@@ -120,11 +122,27 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
             .where("defaultClientId", "IS NOT", null),
         ),
     }),
+    ZeroApiEndpoint.query("getMonitorDmEnabledUserConfigs", {
+      request: Schema.Struct({
+        platform: Schema.String,
+        userIds: Schema.Array(Schema.String),
+      }),
+      success: success.userConfig.getMonitorDmEnabledUserConfigs,
+      query: ({ args: { platform, userIds } }) =>
+        zeroTableAccess.configUserPlatform.listActiveWhere(
+          builder.configUserPlatform
+            .where("platform", "=", platform)
+            .where("userId", "IN", userIds)
+            .where("monitorDmEnabled", "=", true)
+            .where("defaultClientId", "IS NOT", null),
+        ),
+    }),
     ZeroApiEndpoint.mutator("upsertUserPlatformConfig", {
       request: Schema.Struct({
         platform: Schema.String,
         userId: Schema.String,
         checkinDmEnabled: Schema.Boolean,
+        monitorDmEnabled: Schema.Boolean,
         defaultClientId: Schema.optional(Schema.NullOr(Schema.String)),
       }),
       mutator: async ({ tx, args }) => {
@@ -141,6 +159,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
               platform: args.platform,
               userId: args.userId,
               checkinDmEnabled: args.checkinDmEnabled,
+              monitorDmEnabled: args.monitorDmEnabled,
               defaultClientId: preserveOmitted(
                 args.defaultClientId,
                 existingConfig?.defaultClientId,

@@ -73,6 +73,7 @@ const expectedSchema = {
         ["userId", "string", false, "user_id"],
         ["defaultClientId", "string", true, "default_client_id"],
         ["checkinDmEnabled", "boolean", false, "checkin_dm_enabled"],
+        ["monitorDmEnabled", "boolean", false, "monitor_dm_enabled"],
         ...auditColumns,
       ],
     ),

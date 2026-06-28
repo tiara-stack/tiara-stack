@@ -55,23 +55,36 @@ export class UserConfigService extends Context.Service<UserConfigService>()("Use
         userId: string,
         config: {
           readonly checkinDmEnabled: boolean;
+          readonly monitorDmEnabled: boolean;
           readonly defaultClientId?: string | null | undefined;
         },
       ) {
         yield* requireSupportedPlatform(platform);
-        if (config.checkinDmEnabled && !config.defaultClientId) {
+        const existingConfig = yield* zero.userConfig.getUserPlatformConfig({
+          platform,
+          userId,
+        });
+        const effectiveDefaultClientId =
+          config.defaultClientId === undefined
+            ? Option.match(existingConfig, {
+                onNone: () => null,
+                onSome: (existing) => Option.getOrNull(existing.defaultClientId),
+              })
+            : config.defaultClientId;
+        if ((config.checkinDmEnabled || config.monitorDmEnabled) && !effectiveDefaultClientId) {
           return yield* Effect.fail(
-            makeArgumentError("A default notification client is required to enable check-in DMs"),
+            makeArgumentError("A default notification client is required to enable DMs"),
           );
         }
-        if (config.defaultClientId) {
-          yield* requireSupportedClient(platform, config.defaultClientId);
+        if (effectiveDefaultClientId) {
+          yield* requireSupportedClient(platform, effectiveDefaultClientId);
         }
 
         yield* zero.userConfig.upsertUserPlatformConfig({
           platform,
           userId,
           checkinDmEnabled: config.checkinDmEnabled,
+          monitorDmEnabled: config.monitorDmEnabled,
           defaultClientId: config.defaultClientId,
         });
 
@@ -104,6 +117,7 @@ export class UserConfigService extends Context.Service<UserConfigService>()("Use
         accountId: string,
         config: {
           readonly checkinDmEnabled: boolean;
+          readonly monitorDmEnabled: boolean;
           readonly defaultClientId?: string | null | undefined;
         },
       ) {
@@ -119,6 +133,31 @@ export class UserConfigService extends Context.Service<UserConfigService>()("Use
           return [];
         }
         const configs = yield* zero.userConfig.getCheckinDmEnabledUserConfigs({
+          platform,
+          userIds: requestedUserIds,
+        });
+        return configs.flatMap((config) =>
+          Option.isSome(config.defaultClientId)
+            ? [
+                {
+                  platform: config.platform,
+                  userId: config.userId,
+                  defaultClientId: config.defaultClientId.value,
+                },
+              ]
+            : [],
+        );
+      }),
+      getMonitorDmRecipients: Effect.fn("UserConfigService.getMonitorDmRecipients")(function* (
+        platform: string,
+        userIds: ReadonlyArray<string>,
+      ) {
+        yield* requireSupportedPlatform(platform);
+        const requestedUserIds = [...new Set(userIds)];
+        if (requestedUserIds.length === 0) {
+          return [];
+        }
+        const configs = yield* zero.userConfig.getMonitorDmEnabledUserConfigs({
           platform,
           userIds: requestedUserIds,
         });

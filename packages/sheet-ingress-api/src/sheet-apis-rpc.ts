@@ -25,6 +25,7 @@ import {
 import { MessageSlot } from "./schemas/messageSlot";
 import {
   CheckinDmRecipient,
+  MonitorDmRecipient,
   SupportedNotificationClient,
   UserPlatformConfig,
 } from "./schemas/userConfig";
@@ -650,6 +651,7 @@ export const UserConfigRpcs = RpcGroup.make(
     payload: Payload({
       platform: ClientPlatform,
       checkinDmEnabled: Schema.Boolean,
+      monitorDmEnabled: Schema.Boolean,
       defaultClientId: Schema.optional(Schema.NullOr(Schema.String)),
     }),
     success: UserPlatformConfig,
@@ -669,6 +671,15 @@ export const UserConfigRpcs = RpcGroup.make(
     success: Schema.Array(CheckinDmRecipient),
     error: Schema.Union([SchemaError, QueryResultError, ArgumentError]),
   }),
+  protectedRpc("userConfig.getMonitorDmRecipients", {
+    scopePolicy: serviceScopePolicy,
+    payload: Payload({
+      platform: ClientPlatform,
+      userIds: Schema.Array(Schema.String),
+    }),
+    success: Schema.Array(MonitorDmRecipient),
+    error: Schema.Union([SchemaError, QueryResultError, ArgumentError]),
+  }),
   protectedRpc("userConfig.getUserPlatformConfig", {
     scopePolicy: serviceScopePolicy,
     payload: Payload({
@@ -684,6 +695,7 @@ export const UserConfigRpcs = RpcGroup.make(
       platform: ClientPlatform,
       userId: Schema.String,
       checkinDmEnabled: Schema.Boolean,
+      monitorDmEnabled: Schema.Boolean,
       defaultClientId: Schema.optional(Schema.NullOr(Schema.String)),
     }),
     success: UserPlatformConfig,

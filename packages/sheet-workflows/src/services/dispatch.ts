@@ -99,11 +99,21 @@ import {
 import type { SheetMessageComponent } from "sheet-ingress-api/schemas/client";
 import { ClientDeliveryClient, ClientDeliveryClientRef } from "./clientDeliveryClient";
 import { buildRoomOrderContent } from "./roomOrderContent";
-import { sendCheckinOpeningDmReminders } from "./checkinDmReminders";
+import {
+  sendCheckinOpeningDmReminders,
+  sendMonitorCheckinOpeningDmPing,
+} from "./checkinDmReminders";
 import { SheetApisClient } from "./sheetApisClient";
 import { uniqueConversationNames } from "./autoCheckinConversations";
 import * as MessageText from "./messageText";
 import { sendTentativeRoomOrder, tentativeRoomOrderContent } from "./tentativeRoomOrder";
+
+type PreferenceDmKind = PreferenceDmStatusDispatchPayload["kind"];
+
+type PreferenceDmToggleConfig = {
+  readonly checkinDmEnabled: boolean;
+  readonly monitorDmEnabled: boolean;
+};
 
 const updateAnnouncementsFeatureFlag = "update-announcements";
 
@@ -348,6 +358,7 @@ const makeSheetApisServices = (sheetApisClient: typeof SheetApisClient.Service) 
         userId: string,
         config: {
           readonly checkinDmEnabled: boolean;
+          readonly monitorDmEnabled: boolean;
           readonly defaultClientId?: string | null | undefined;
         },
       ) =>
@@ -356,6 +367,10 @@ const makeSheetApisServices = (sheetApisClient: typeof SheetApisClient.Service) 
         }),
       getCheckinDmRecipients: (platform: string, userIds: ReadonlyArray<string>) =>
         sheetApis.userConfig.getCheckinDmRecipients({
+          payload: { platform, userIds: [...userIds] },
+        }),
+      getMonitorDmRecipients: (platform: string, userIds: ReadonlyArray<string>) =>
+        sheetApis.userConfig.getMonitorDmRecipients({
           payload: { platform, userIds: [...userIds] },
         }),
     },
@@ -1093,18 +1108,61 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
     const preferenceDmResultFromConfig = (platformConfig: {
       readonly platform: string;
       readonly checkinDmEnabled: boolean;
+      readonly monitorDmEnabled: boolean;
       readonly defaultClientId: Option.Option<string>;
     }): PreferenceDmDispatchResult => ({
       platform: platformConfig.platform,
       checkinDmEnabled: platformConfig.checkinDmEnabled,
+      monitorDmEnabled: platformConfig.monitorDmEnabled,
       defaultClientId: Option.getOrNull(platformConfig.defaultClientId),
     });
 
     const disabledPreferenceDmResult = (platform: string): PreferenceDmDispatchResult => ({
       platform,
       checkinDmEnabled: false,
+      monitorDmEnabled: false,
       defaultClientId: null,
     });
+
+    const dmKindSettings = {
+      checkin: {
+        label: "Check-in DM reminders",
+        enabled: (result: PreferenceDmDispatchResult) => result.checkinDmEnabled,
+        update: (config: PreferenceDmToggleConfig, enabled: boolean) => ({
+          ...config,
+          checkinDmEnabled: enabled,
+        }),
+      },
+      monitor: {
+        label: "Monitor DM pings",
+        enabled: (result: PreferenceDmDispatchResult) => result.monitorDmEnabled,
+        update: (config: PreferenceDmToggleConfig, enabled: boolean) => ({
+          ...config,
+          monitorDmEnabled: enabled,
+        }),
+      },
+    } satisfies Record<
+      PreferenceDmKind,
+      {
+        readonly label: string;
+        readonly enabled: (result: PreferenceDmDispatchResult) => boolean;
+        readonly update: (
+          config: PreferenceDmToggleConfig,
+          enabled: boolean,
+        ) => PreferenceDmToggleConfig;
+      }
+    >;
+
+    const dmKindLabel = (kind: PreferenceDmKind) => dmKindSettings[kind].label;
+
+    const dmKindEnabled = (result: PreferenceDmDispatchResult, kind: PreferenceDmKind) =>
+      dmKindSettings[kind].enabled(result);
+
+    const updateDmKind = (
+      config: PreferenceDmToggleConfig,
+      kind: PreferenceDmKind,
+      enabled: boolean,
+    ) => dmKindSettings[kind].update(config, enabled);
 
     const respondPreferenceDm = (
       interactionResponseToken: string,
@@ -1116,7 +1174,8 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           headline,
           `Platform: ${result.platform}`,
           `Default client: ${result.defaultClientId ?? "not set"}`,
-          `Reminders: ${result.checkinDmEnabled ? "enabled" : "disabled"}`,
+          `Check-in reminders: ${result.checkinDmEnabled ? "enabled" : "disabled"}`,
+          `Monitor pings: ${result.monitorDmEnabled ? "enabled" : "disabled"}`,
         ].join("\n"),
       });
 
@@ -2916,6 +2975,30 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
             ),
           );
 
+          yield* sendMonitorCheckinOpeningDmPing({
+            platform: payload.client.platform,
+            workspaceId: payload.workspaceId,
+            runningConversationId: generated.runningConversationId,
+            runningConversationName: payload.conversationName,
+            checkinConversationId: generated.checkinConversationId,
+            hour: generated.hour,
+            monitorUserId: generated.monitorUserId,
+            concurrency: autoCheckinConcurrency,
+            userConfigService,
+            botClient,
+          }).pipe(
+            Effect.catchCause((cause) =>
+              Effect.logError("Failed to process check-in monitor DM ping").pipe(
+                Effect.annotateLogs({
+                  workspaceId: payload.workspaceId,
+                  checkinConversationId: generated.checkinConversationId,
+                  hour: generated.hour,
+                }),
+                Effect.andThen(Effect.logError(cause)),
+              ),
+            ),
+          );
+
           tentativeRoomOrderMessage = yield* sendTentativeRoomOrder({
             workspaceId: payload.workspaceId,
             runningConversationId: generated.runningConversationId,
@@ -3782,7 +3865,9 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
 
         yield* respondPreferenceDm(
           payload.interactionResponseToken,
-          `Check-in DM reminders are ${result.checkinDmEnabled ? "enabled" : "disabled"}.`,
+          `${dmKindLabel(payload.kind)} are ${
+            dmKindEnabled(result, payload.kind) ? "enabled" : "disabled"
+          }.`,
           result,
         );
 
@@ -3794,11 +3879,25 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       ) {
         const platform = payload.platform ?? "discord";
         const defaultClientId = payload.defaultClientId ?? payload.client.clientId;
+        const current = yield* userConfigService.getUserPlatformConfig(
+          platform,
+          requester.accountId,
+        );
+        const currentConfig = Option.match(current, {
+          onNone: () => ({
+            checkinDmEnabled: false,
+            monitorDmEnabled: false,
+          }),
+          onSome: (platformConfig) => ({
+            checkinDmEnabled: platformConfig.checkinDmEnabled,
+            monitorDmEnabled: platformConfig.monitorDmEnabled,
+          }),
+        });
         const config = yield* userConfigService.upsertUserPlatformConfig(
           platform,
           requester.accountId,
           {
-            checkinDmEnabled: true,
+            ...updateDmKind(currentConfig, payload.kind, true),
             defaultClientId,
           },
         );
@@ -3806,7 +3905,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
 
         yield* respondPreferenceDm(
           payload.interactionResponseToken,
-          "Check-in DM reminders are enabled.",
+          `${dmKindLabel(payload.kind)} are enabled.`,
           result,
         );
 
@@ -3817,18 +3916,32 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         requester: DispatchRequester,
       ) {
         const platform = payload.platform ?? "discord";
+        const current = yield* userConfigService.getUserPlatformConfig(
+          platform,
+          requester.accountId,
+        );
+        const currentConfig = Option.match(current, {
+          onNone: () => ({
+            checkinDmEnabled: false,
+            monitorDmEnabled: false,
+          }),
+          onSome: (platformConfig) => ({
+            checkinDmEnabled: platformConfig.checkinDmEnabled,
+            monitorDmEnabled: platformConfig.monitorDmEnabled,
+          }),
+        });
         const config = yield* userConfigService.upsertUserPlatformConfig(
           platform,
           requester.accountId,
           {
-            checkinDmEnabled: false,
+            ...updateDmKind(currentConfig, payload.kind, false),
           },
         );
         const result = preferenceDmResultFromConfig(config);
 
         yield* respondPreferenceDm(
           payload.interactionResponseToken,
-          "Check-in DM reminders are disabled.",
+          `${dmKindLabel(payload.kind)} are disabled.`,
           result,
         );
 
@@ -3851,6 +3964,10 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
               onNone: () => false,
               onSome: (platformConfig) => platformConfig.checkinDmEnabled,
             }),
+            monitorDmEnabled: Option.match(current, {
+              onNone: () => false,
+              onSome: (platformConfig) => platformConfig.monitorDmEnabled,
+            }),
             defaultClientId: payload.defaultClientId,
           },
         );
@@ -3858,7 +3975,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
 
         yield* respondPreferenceDm(
           payload.interactionResponseToken,
-          "Default check-in DM client updated.",
+          "Shared DM client updated.",
           result,
         );
 

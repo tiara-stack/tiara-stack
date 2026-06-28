@@ -4,7 +4,10 @@ import { WorkflowEngine } from "effect/unstable/workflow";
 import { makeArgumentError } from "typhoon-core/error";
 import { checkinActionRow } from "./messageComponents";
 import { ClientDeliveryClient, ClientDeliveryClientRef } from "./clientDeliveryClient";
-import { sendCheckinOpeningDmReminders } from "./checkinDmReminders";
+import {
+  sendCheckinOpeningDmReminders,
+  sendMonitorCheckinOpeningDmPing,
+} from "./checkinDmReminders";
 import { SheetApisClient } from "./sheetApisClient";
 import { uniqueConversationNames } from "./autoCheckinConversations";
 import * as MessageText from "./messageText";
@@ -75,6 +78,10 @@ const makeSheetApisServices = (sheetApisClient: typeof SheetApisClient.Service) 
     userConfigService: {
       getCheckinDmRecipients: (platform: string, userIds: ReadonlyArray<string>) =>
         sheetApis.userConfig.getCheckinDmRecipients({
+          payload: { platform, userIds: [...userIds] },
+        }),
+      getMonitorDmRecipients: (platform: string, userIds: ReadonlyArray<string>) =>
+        sheetApis.userConfig.getMonitorDmRecipients({
           payload: { platform, userIds: [...userIds] },
         }),
     },
@@ -353,6 +360,31 @@ export class AutoCheckinService extends Context.Service<AutoCheckinService>()(
             }).pipe(
               Effect.catchCause((cause) =>
                 Effect.logError("Failed to process auto check-in opening DM reminders").pipe(
+                  Effect.annotateLogs({
+                    workspaceId: payload.workspaceId,
+                    conversationName: payload.conversationName,
+                    checkinConversationId: generated.checkinConversationId,
+                    hour: generated.hour,
+                  }),
+                  Effect.andThen(Effect.logError(cause)),
+                ),
+              ),
+            );
+
+            yield* sendMonitorCheckinOpeningDmPing({
+              platform: client.platform,
+              workspaceId: payload.workspaceId,
+              runningConversationId: generated.runningConversationId,
+              runningConversationName: payload.conversationName,
+              checkinConversationId: generated.checkinConversationId,
+              hour: generated.hour,
+              monitorUserId: generated.monitorUserId,
+              concurrency: autoCheckinConcurrency,
+              userConfigService,
+              botClient,
+            }).pipe(
+              Effect.catchCause((cause) =>
+                Effect.logError("Failed to process auto check-in monitor DM ping").pipe(
                   Effect.annotateLogs({
                     workspaceId: payload.workspaceId,
                     conversationName: payload.conversationName,

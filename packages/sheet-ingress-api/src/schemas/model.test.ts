@@ -107,6 +107,7 @@ describe("model-derived persisted schemas", () => {
       userId: "discord-user-1",
       defaultClientId: "discord-main",
       checkinDmEnabled: true,
+      monitorDmEnabled: false,
       createdAt: 1_700_000_000_000,
       updatedAt: 1_700_000_000_100,
       deletedAt: null,

@@ -7,6 +7,7 @@ import { SheetApisServiceUserFallback } from "../../middlewares/sheetApisService
 import { ClientPlatform } from "../../schemas/client";
 import {
   CheckinDmRecipient,
+  MonitorDmRecipient,
   SupportedNotificationClient,
   UserPlatformConfig,
 } from "../../schemas/userConfig";
@@ -26,6 +27,7 @@ export class UserConfigApi extends HttpApiGroup.make("userConfig")
       payload: Schema.Struct({
         platform: ClientPlatform,
         checkinDmEnabled: Schema.Boolean,
+        monitorDmEnabled: Schema.Boolean,
         defaultClientId: Schema.optional(Schema.NullOr(Schema.String)),
       }),
       success: UserPlatformConfig,
@@ -49,6 +51,16 @@ export class UserConfigApi extends HttpApiGroup.make("userConfig")
     }),
   )
   .add(
+    HttpApiEndpoint.post("getMonitorDmRecipients", "/userConfig/monitorDmRecipients", {
+      payload: Schema.Struct({
+        platform: ClientPlatform,
+        userIds: Schema.Array(Schema.String),
+      }),
+      success: Schema.Array(MonitorDmRecipient),
+      error: [SchemaError, QueryResultError, ArgumentError],
+    }),
+  )
+  .add(
     HttpApiEndpoint.post("getUserPlatformConfig", "/userConfig/platform/get", {
       payload: Schema.Struct({
         platform: ClientPlatform,
@@ -64,6 +76,7 @@ export class UserConfigApi extends HttpApiGroup.make("userConfig")
         platform: ClientPlatform,
         userId: Schema.String,
         checkinDmEnabled: Schema.Boolean,
+        monitorDmEnabled: Schema.Boolean,
         defaultClientId: Schema.optional(Schema.NullOr(Schema.String)),
       }),
       success: UserPlatformConfig,

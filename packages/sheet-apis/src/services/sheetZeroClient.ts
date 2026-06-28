@@ -24,6 +24,7 @@ const successSchemas = {
   userConfig: {
     getUserPlatformConfig: Schema.OptionFromNullishOr(DefaultTaggedClass(UserPlatformConfig)),
     getCheckinDmEnabledUserConfigs: Schema.Array(DefaultTaggedClass(UserPlatformConfig)),
+    getMonitorDmEnabledUserConfigs: Schema.Array(DefaultTaggedClass(UserPlatformConfig)),
   },
   workspaceConfig: {
     getAutoCheckinWorkspaces: Schema.Array(DefaultTaggedClass(WorkspaceConfig)),
@@ -84,10 +85,15 @@ export interface SheetZeroClientApi {
       readonly platform: string;
       readonly userIds: ReadonlyArray<string>;
     }) => QueryResult<UserPlatformConfig[]>;
+    readonly getMonitorDmEnabledUserConfigs: (args: {
+      readonly platform: string;
+      readonly userIds: ReadonlyArray<string>;
+    }) => QueryResult<UserPlatformConfig[]>;
     readonly upsertUserPlatformConfig: MutatorResult<{
       readonly platform: string;
       readonly userId: string;
       readonly checkinDmEnabled: boolean;
+      readonly monitorDmEnabled: boolean;
       readonly defaultClientId?: string | null | undefined;
     }>;
   };

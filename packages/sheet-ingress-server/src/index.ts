@@ -988,6 +988,10 @@ const makeApiLayer = () => {
           authorizedSheetApis("userConfig", "getCheckinDmRecipients", requireService),
         )
         .handle(
+          "getMonitorDmRecipients",
+          authorizedSheetApis("userConfig", "getMonitorDmRecipients", requireService),
+        )
+        .handle(
           "getUserPlatformConfig",
           authorizedSheetApis("userConfig", "getUserPlatformConfig", requireService),
         )

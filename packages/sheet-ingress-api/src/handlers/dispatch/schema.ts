@@ -596,8 +596,13 @@ export const ServiceStatusDispatchResult = Schema.Struct({
 
 export type ServiceStatusDispatchResult = Schema.Schema.Type<typeof ServiceStatusDispatchResult>;
 
+export const PreferenceDmKind = Schema.Literals(["checkin", "monitor"]);
+
+export type PreferenceDmKind = Schema.Schema.Type<typeof PreferenceDmKind>;
+
 export const PreferenceDmStatusDispatchPayload = Schema.Struct({
   ...CommandDispatchPayloadBase,
+  kind: PreferenceDmKind,
   platform: Schema.optional(ClientPlatform),
 });
 
@@ -607,6 +612,7 @@ export type PreferenceDmStatusDispatchPayload = Schema.Schema.Type<
 
 export const PreferenceDmEnableDispatchPayload = Schema.Struct({
   ...CommandDispatchPayloadBase,
+  kind: PreferenceDmKind,
   platform: Schema.optional(ClientPlatform),
   defaultClientId: Schema.optional(Schema.String),
 });
@@ -617,6 +623,7 @@ export type PreferenceDmEnableDispatchPayload = Schema.Schema.Type<
 
 export const PreferenceDmDisableDispatchPayload = Schema.Struct({
   ...CommandDispatchPayloadBase,
+  kind: PreferenceDmKind,
   platform: Schema.optional(ClientPlatform),
 });
 
@@ -637,6 +644,7 @@ export type PreferenceDmSetClientDispatchPayload = Schema.Schema.Type<
 export const PreferenceDmDispatchResult = Schema.Struct({
   platform: ClientPlatform,
   checkinDmEnabled: Schema.Boolean,
+  monitorDmEnabled: Schema.Boolean,
   defaultClientId: Schema.NullOr(Schema.String),
 });
 

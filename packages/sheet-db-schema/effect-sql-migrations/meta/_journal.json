@@ -57,6 +57,13 @@
       "when": 1781967600000,
       "tag": "0008_user_platform_config",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": 1,
+      "when": 1782630393731,
+      "tag": "0009_user_platform_monitor_dm",
+      "breakpoints": true
     }
   ]
 }

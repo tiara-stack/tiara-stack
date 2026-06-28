@@ -30,6 +30,7 @@ const supportedNotificationClientsAtom = SheetApisClient.query(
 type UpsertCurrentUserPlatformConfigPayload = {
   readonly platform: string;
   readonly checkinDmEnabled: boolean;
+  readonly monitorDmEnabled: boolean;
   readonly defaultClientId?: string | null | undefined;
 };
 

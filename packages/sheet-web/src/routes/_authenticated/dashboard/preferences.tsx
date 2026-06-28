@@ -18,6 +18,7 @@ export const Route = createFileRoute("/_authenticated/dashboard/preferences")({
 
 type PreferencesForm = {
   readonly checkinDmEnabled: boolean;
+  readonly monitorDmEnabled: boolean;
   readonly defaultClientId: string;
 };
 
@@ -25,6 +26,7 @@ type FormSetter = Dispatch<SetStateAction<PreferencesForm>>;
 
 const emptyForm = (): PreferencesForm => ({
   checkinDmEnabled: false,
+  monitorDmEnabled: false,
   defaultClientId: "",
 });
 
@@ -59,14 +61,23 @@ const clientsValue = (result: ReturnType<typeof useSupportedNotificationClientsR
 const onlyDiscordClientId = (discordClients: readonly SupportedNotificationClient[]) =>
   discordClients.length === 1 ? (discordClients[0]?.clientId ?? "") : "";
 
+const hasDiscordClientId = (
+  discordClients: readonly SupportedNotificationClient[],
+  clientId: string,
+) => discordClients.some((client) => client.clientId === clientId);
+
 const defaultClientIdFor = (
   config: Option.Option<UserPlatformConfig>,
   discordClients: readonly SupportedNotificationClient[],
 ) =>
   Option.match(config, {
     onNone: () => onlyDiscordClientId(discordClients),
-    onSome: (value) =>
-      Option.getOrNull(value.defaultClientId) ?? onlyDiscordClientId(discordClients),
+    onSome: (value) => {
+      const defaultClientId = Option.getOrNull(value.defaultClientId);
+      return defaultClientId !== null && hasDiscordClientId(discordClients, defaultClientId)
+        ? defaultClientId
+        : onlyDiscordClientId(discordClients);
+    },
   });
 
 const checkinDmEnabledFor = (config: Option.Option<UserPlatformConfig>) =>
@@ -75,17 +86,49 @@ const checkinDmEnabledFor = (config: Option.Option<UserPlatformConfig>) =>
     onSome: (value) => value.checkinDmEnabled,
   });
 
+const monitorDmEnabledFor = (config: Option.Option<UserPlatformConfig>) =>
+  Option.match(config, {
+    onNone: () => false,
+    onSome: (value) => value.monitorDmEnabled,
+  });
+
 const initialForm = (
   config: Option.Option<UserPlatformConfig>,
   discordClients: readonly SupportedNotificationClient[],
 ): PreferencesForm => ({
   checkinDmEnabled: checkinDmEnabledFor(config),
+  monitorDmEnabled: monitorDmEnabledFor(config),
   defaultClientId: defaultClientIdFor(config, discordClients),
 });
 
-const validationErrorFor = (form: PreferencesForm) =>
-  form.checkinDmEnabled && form.defaultClientId.length === 0
-    ? "Select a Discord client before enabling check-in DM reminders."
+const dmNotificationsEnabled = (form: PreferencesForm) =>
+  form.checkinDmEnabled || form.monitorDmEnabled;
+
+type FormValidator = (
+  form: PreferencesForm,
+  discordClients: readonly SupportedNotificationClient[],
+) => string | undefined;
+
+const dmNotificationValidators = [
+  ((form) =>
+    form.defaultClientId.length === 0
+      ? "Select a Discord client before enabling DM notifications."
+      : undefined) satisfies FormValidator,
+  ((form, discordClients) =>
+    hasDiscordClientId(discordClients, form.defaultClientId)
+      ? undefined
+      : "Select an available Discord client before enabling DM notifications.") satisfies FormValidator,
+];
+
+const validationErrorFor = (
+  form: PreferencesForm,
+  discordClients: readonly SupportedNotificationClient[],
+) =>
+  dmNotificationsEnabled(form)
+    ? dmNotificationValidators.reduce<string | undefined>(
+        (error, validator) => error ?? validator(form, discordClients),
+        undefined,
+      )
     : undefined;
 
 const payloadDefaultClientId = (form: PreferencesForm) =>
@@ -101,7 +144,7 @@ function PreferencesHeader(props: { readonly displayName: string; readonly userI
           </div>
           <div>
             <p className="text-[10px] font-bold tracking-[0.2em] text-[#33ccbb]">PREFERENCES</p>
-            <h2 className="text-lg font-black tracking-tight">CHECK-IN REMINDERS</h2>
+            <h2 className="text-lg font-black tracking-tight">DM NOTIFICATIONS</h2>
           </div>
         </div>
         <div className="text-left md:text-right">
@@ -129,10 +172,11 @@ function ReminderInfo() {
   return (
     <section className="bg-[#0f1615] p-6">
       <p className="text-xs font-black uppercase tracking-[0.18em] text-[#33ccbb]">
-        Check-in DM reminders
+        DM notifications
       </p>
       <p className="mt-3 text-sm leading-6 text-white/65">
-        Receive a short Discord DM when a manual or automatic check-in opens for you.
+        Receive a short Discord DM when check-in opens for you or when you are assigned as the
+        monitor.
       </p>
     </section>
   );
@@ -189,6 +233,33 @@ function ReminderToggle(props: {
   );
 }
 
+function MonitorPingToggle(props: {
+  readonly disabled: boolean;
+  readonly form: PreferencesForm;
+  readonly setForm: FormSetter;
+}) {
+  return (
+    <label className="flex items-center justify-between gap-4 border border-[#33ccbb]/20 bg-black/20 px-4 py-3">
+      <span>
+        <span className="block text-sm font-bold text-white">Monitor DM pings</span>
+        <span className="block text-xs text-white/50">When assigned as monitor for an hour</span>
+      </span>
+      <input
+        checked={props.form.monitorDmEnabled}
+        className="h-5 w-5 accent-[#33ccbb]"
+        disabled={props.disabled}
+        type="checkbox"
+        onChange={(event) =>
+          props.setForm((current) => ({
+            ...current,
+            monitorDmEnabled: event.target.checked,
+          }))
+        }
+      />
+    </label>
+  );
+}
+
 function ClientSelect(props: {
   readonly disabled: boolean;
   readonly discordClients: readonly SupportedNotificationClient[];
@@ -235,6 +306,7 @@ function ReminderForm(props: {
   return (
     <section className="space-y-5 bg-[#0f1615] p-6">
       <ReminderToggle disabled={props.disabled} form={props.form} setForm={props.setForm} />
+      <MonitorPingToggle disabled={props.disabled} form={props.form} setForm={props.setForm} />
       <ClientSelect
         disabled={props.disabled}
         discordClients={props.discordClients}
@@ -323,6 +395,7 @@ function useSavePreference(props: {
       await upsertConfig({
         platform: "discord",
         checkinDmEnabled: props.form.checkinDmEnabled,
+        monitorDmEnabled: props.form.monitorDmEnabled,
         defaultClientId: payloadDefaultClientId(props.form),
       });
       setSaved(true);
@@ -339,7 +412,7 @@ function useSavePreference(props: {
 function PreferencesPage() {
   const data = usePreferenceData();
   const { form, setForm } = useInitializedForm(data);
-  const validationError = validationErrorFor(form);
+  const validationError = validationErrorFor(form, data.discordClients);
   const saveState = useSavePreference({ form, validationError });
   const loadError = saveState.saveError ?? data.loadError;
   const disabled = saveState.saving || data.waiting;
