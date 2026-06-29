@@ -27,6 +27,32 @@ const resourceMapToEntries = <A>(map: ReadonlyMap<string, A>, resourceId: string
   }));
 
 const isCacheMissError = Predicate.isTagged("CacheMissError");
+const cacheNotFoundDiscordCodes = new Set([10003, 10004, 10007, 10011]);
+
+const hasObjectLikeProperty =
+  <K extends PropertyKey>(property: K) =>
+  (value: unknown): value is { [P in K]: { [x: PropertyKey]: unknown } | Array<unknown> } =>
+    Predicate.hasProperty(property)(value) && Predicate.isObjectOrArray(value[property]);
+
+const hasNumberProperty =
+  <K extends PropertyKey>(property: K) =>
+  (value: unknown): value is { [P in K]: number } =>
+    Predicate.hasProperty(property)(value) && Predicate.isNumber(value[property]);
+
+const hasNotFoundResponseStatus = (error: unknown): boolean =>
+  hasObjectLikeProperty("response")(error) &&
+  hasNumberProperty("status")(error.response) &&
+  error.response.status === 404;
+
+const hasCacheNotFoundDiscordCode = (error: unknown): boolean =>
+  hasObjectLikeProperty("data")(error) &&
+  hasNumberProperty("code")(error.data) &&
+  cacheNotFoundDiscordCodes.has(error.data.code);
+
+const isDiscordRestNotFoundError = Predicate.or(
+  hasNotFoundResponseStatus,
+  hasCacheNotFoundDiscordCode,
+);
 
 const handleCacheError = <A>(
   effect: Effect.Effect<A, unknown, never>,
@@ -34,7 +60,7 @@ const handleCacheError = <A>(
 ): Effect.Effect<A, CacheNotFoundError, never> =>
   effect.pipe(
     Effect.catch((err) => {
-      if (isCacheMissError(err)) {
+      if (isCacheMissError(err) || isDiscordRestNotFoundError(err)) {
         return Effect.fail(new CacheNotFoundError({ message: notFoundMessage }));
       }
       return Effect.die(err);
