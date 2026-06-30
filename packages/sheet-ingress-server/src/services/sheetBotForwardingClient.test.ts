@@ -1,13 +1,25 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Cause, ConfigProvider, Deferred, Effect, Exit, Fiber } from "effect";
+import { Cause, ConfigProvider, Deferred, Effect, Exit, Fiber, HashSet, Redacted } from "effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 import { SheetApisRpcTokens } from "./sheetApisRpcTokens";
 import { SheetBotForwardingClient } from "./sheetBotForwardingClient";
 import { SheetBotHttpClient } from "./sheetBotHttpClient";
 
+const makeServiceUser = () =>
+  Effect.succeed({
+    accountId: "service",
+    userId: "service",
+    permissions: HashSet.fromIterable(["service"]),
+    scopes: new Set(["service"]) as never,
+    token: Redacted.make("unavailable"),
+    tokenType: "service",
+  });
+
 const makeSheetApisRpcTokens = () =>
   ({
-    getServiceToken: () => Effect.succeed("ingress-token"),
+    getServiceUser: makeServiceUser,
+    getServiceToken: () => Effect.succeed("ingress-service-token"),
+    getDelegatedAuthorization: () => Effect.succeed(Redacted.make("ingress-delegated-token")),
   }) as never;
 
 const run = <A, E, R>(
@@ -68,7 +80,7 @@ const expectForwardedSheetBotRequest = (
   url: string,
 ) => {
   expect(request.url).toBe(url);
-  expect(request.headers["x-sheet-ingress-auth"]).toBe("Bearer ingress-token");
+  expect(request.headers.authorization).toBe("Bearer ingress-service-token");
 };
 
 const expectJsonRequestBody = (request: HttpClientRequest.HttpClientRequest, body: object) => {
@@ -183,7 +195,10 @@ describe("SheetBotForwardingClient", () => {
     Effect.gen(function* () {
       const ingressTokenFailure = new Error("ingress token refresh failed");
       const sheetApisRpcTokens = {
+        getServiceUser: makeServiceUser,
         getServiceToken: () => Effect.fail(ingressTokenFailure),
+        getDelegatedAuthorization: () =>
+          Effect.fail(new Error("delegated token path should not be used")),
       } as never;
 
       const exit = yield* Effect.exit(

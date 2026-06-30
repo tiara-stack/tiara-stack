@@ -1,298 +1,106 @@
-// fallow-ignore-file code-duplication
+import { Cause, Context, Effect, Exit, HashSet, Option, Predicate, Redacted, Ref } from "effect";
+import { HttpServerResponse } from "effect/unstable/http";
 import { describe, expect, it } from "@effect/vitest";
-import { vi } from "vitest";
-import { Cause, ConfigProvider, Effect, Exit, HashSet, Redacted, Schema } from "effect";
-import { Headers } from "effect/unstable/http";
-import { Rpc } from "effect/unstable/rpc";
-import { SheetApisRpcAuthorization } from "sheet-ingress-api/middlewares/sheetApisRpcAuthorization/tag";
-import { SheetApisRpcs } from "sheet-ingress-api/sheet-apis-rpc";
+import {
+  decodeForwardedSheetAuthUserBearer,
+  encodeForwardedSheetAuthUserBearer,
+} from "sheet-ingress-api/middlewares/forwardedAuthHeaders";
+import { SheetAuthTokenAuthorization } from "sheet-ingress-api/middlewares/sheetAuthTokenAuthorization/tag";
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
-import { SHEET_AUTH_SESSION_TOKEN_UNAVAILABLE } from "@/services/discordAccessToken";
+import type { Permission, SheetAuthOAuthScope } from "sheet-ingress-api/schemas/permissions";
+import { Unauthorized } from "typhoon-core/error";
 import { SheetAuthTokenAuthorizationLive } from "./live";
 
-interface AuthorizedUser {
-  readonly accountId: string;
-  readonly userId: string;
-  readonly permissions: HashSet.HashSet<string>;
-  readonly token: string;
-}
+const existingUser = {
+  accountId: "discord-user-existing",
+  userId: "user-existing",
+  permissions: HashSet.make("account:discord:discord-user-existing" as Permission),
+  scopes: new Set(["sheet.read" as SheetAuthOAuthScope]),
+  token: Redacted.make("existing-token"),
+  tokenType: "session" as const,
+};
 
-vi.mock("sheet-auth/oauth-resource-authorization", async () => {
-  const { Effect } = await import("effect");
-  return {
-    makeOAuthResourceTokenAuthorizer: vi.fn(() =>
-      Effect.succeed({
-        requireAuthorizedBearerToken: vi.fn(() => Effect.void),
-        requireAuthorizedHeaders: vi.fn(() => Effect.void),
-      }),
-    ),
-  };
-});
-
-const makeHeaders = (headers: Record<string, string>) =>
-  Object.entries(headers).reduce(
-    (acc, [key, value]) => Headers.set(acc, key, value),
-    Headers.empty,
-  );
-
-const readAuthorizedUser: Effect.Effect<AuthorizedUser, never, SheetAuthUser> = Effect.gen(
-  function* () {
-    const user = yield* SheetAuthUser;
-    return {
-      accountId: user.accountId,
-      userId: user.userId,
-      permissions: user.permissions,
-      token: Redacted.value(user.token),
-    };
-  },
-);
-
-const runMiddleware = (
-  headers: Headers.Headers,
-  rpcTag = "permissions.getCurrentUserPermissions",
+const runMiddleware = <E, R>(
+  effect: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
+  credential = Redacted.make("invalid-forwarded-bearer"),
 ) =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const authorization = yield* SheetApisRpcAuthorization;
-      const user = yield* authorization(readAuthorizedUser as never, {
-        client: {} as never,
-        requestId: 0 as never,
-        rpc: SheetApisRpcs.requests.get(rpcTag) as never,
-        payload: undefined,
-        headers,
-      });
-      return user as unknown as AuthorizedUser;
-    }).pipe(
-      Effect.provide(SheetAuthTokenAuthorizationLive),
-      Effect.provide(
-        ConfigProvider.layer(
-          ConfigProvider.fromUnknown({
-            POD_NAMESPACE: "default",
-            SHEET_AUTH_ISSUER: "https://sheet-auth.example.test",
-            SHEET_AUTH_OAUTH_AUDIENCE: "sheet-apis",
-          }),
-        ),
-      ),
-    ),
-  );
-
-const runUnconfiguredMiddleware = (headers: Headers.Headers) =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const authorization = yield* SheetApisRpcAuthorization;
-      const user = yield* authorization(readAuthorizedUser as never, {
-        client: {} as never,
-        requestId: 0 as never,
-        rpc: Rpc.make("unconfigured.rpc", { success: Schema.Void }).middleware(
-          SheetApisRpcAuthorization,
-        ) as never,
-        payload: undefined,
-        headers,
-      });
-      return user as unknown as AuthorizedUser;
-    }).pipe(
-      Effect.provide(SheetAuthTokenAuthorizationLive),
-      Effect.provide(
-        ConfigProvider.layer(
-          ConfigProvider.fromUnknown({
-            POD_NAMESPACE: "default",
-            SHEET_AUTH_ISSUER: "https://sheet-auth.example.test",
-            SHEET_AUTH_OAUTH_AUDIENCE: "sheet-apis",
-          }),
-        ),
-      ),
-    ),
-  );
+  Effect.gen(function* () {
+    const authorization = yield* SheetAuthTokenAuthorization;
+    return yield* authorization.sheetAuthToken(effect as never, {
+      credential,
+      endpoint: {} as never,
+      group: {} as never,
+    });
+  }).pipe(Effect.provide(SheetAuthTokenAuthorizationLive)) as Effect.Effect<
+    HttpServerResponse.HttpServerResponse,
+    E,
+    never
+  >;
 
 describe("SheetAuthTokenAuthorizationLive", () => {
-  it.live("provides forwarded sheet-auth session token on SheetAuthUser", () =>
+  it.effect("reuses an existing SheetAuthUser before decoding the bearer fallback", () =>
     Effect.gen(function* () {
-      const user = yield* runMiddleware(
-        makeHeaders({
-          "x-sheet-ingress-auth": "Bearer ingress-token",
-          "x-sheet-auth-user-id": "user-1",
-          "x-sheet-auth-account-id": "discord-user-1",
-          "x-sheet-auth-permissions": "account:discord:discord-user-1",
-          "x-sheet-auth-scopes": "sheet.read",
-          "x-sheet-auth-session-token": "Bearer sheet-auth-session-token",
+      const observedUser = yield* Ref.make<
+        Option.Option<Context.Service.Shape<typeof SheetAuthUser>>
+      >(Option.none());
+      yield* runMiddleware(
+        Effect.gen(function* () {
+          const user = yield* SheetAuthUser;
+          yield* Ref.set(observedUser, Option.some(user));
+          return HttpServerResponse.empty();
         }),
+      ).pipe(Effect.provideService(SheetAuthUser, existingUser));
+      const user = yield* Ref.get(observedUser);
+
+      expect(Option.isSome(user)).toBe(true);
+      if (Option.isSome(user)) {
+        expect(user.value.userId).toBe("user-existing");
+        expect(Redacted.value(user.value.token)).toBe("existing-token");
+        expect(user.value.tokenType).toBe("session");
+      }
+    }),
+  );
+
+  it.effect("rejects an invalid forwarded bearer when no existing user is available", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(
+        runMiddleware(
+          Effect.gen(function* () {
+            yield* SheetAuthUser;
+            return HttpServerResponse.empty();
+          }),
+        ),
       );
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        const failure: unknown = exit.cause.reasons.find(Cause.isFailReason)?.error;
+        expect(failure).toBeInstanceOf(Unauthorized);
+        expect(Predicate.isTagged("Unauthorized")(failure)).toBe(true);
+      }
+    }),
+  );
+
+  it.effect("round-trips forwarded sheet-auth users through the bearer envelope", () =>
+    Effect.gen(function* () {
+      const token = encodeForwardedSheetAuthUserBearer({
+        accountId: "discord-user-1",
+        userId: "user-1",
+        permissions: HashSet.make("account:discord:discord-user-1" as Permission),
+        scopes: new Set(["sheet.read" as SheetAuthOAuthScope]),
+        token: Redacted.make("sheet-auth-session-token"),
+        tokenType: "session",
+      });
+
+      const user = yield* decodeForwardedSheetAuthUserBearer(token, {
+        unavailableToken: Redacted.make("unavailable"),
+      });
 
       expect(user.accountId).toBe("discord-user-1");
       expect(user.userId).toBe("user-1");
       expect(HashSet.has(user.permissions, "account:discord:discord-user-1")).toBe(true);
-      expect(user.token).toBe("sheet-auth-session-token");
-    }),
-  );
-
-  it.live("uses unavailable sentinel when no sheet-auth session token is forwarded", () =>
-    Effect.gen(function* () {
-      const user = yield* runMiddleware(
-        makeHeaders({
-          "x-sheet-ingress-auth": "Bearer ingress-token",
-          "x-sheet-auth-user-id": "service-user",
-          "x-sheet-auth-account-id": "service",
-          "x-sheet-auth-permissions": "service",
-        }),
-        "sheet.getPlayers",
-      );
-
-      expect(user.token).toBe(SHEET_AUTH_SESSION_TOKEN_UNAVAILABLE);
-    }),
-  );
-
-  it.live("rejects forwarded users that lack the route OAuth scope", () =>
-    Effect.gen(function* () {
-      const effect = runMiddleware(
-        makeHeaders({
-          "x-sheet-ingress-auth": "Bearer ingress-token",
-          "x-sheet-auth-user-id": "user-1",
-          "x-sheet-auth-account-id": "discord-user-1",
-          "x-sheet-auth-permissions": "account:discord:discord-user-1",
-          "x-sheet-auth-scopes": "sheet.write",
-        }),
-        "permissions.getCurrentUserPermissions",
-      );
-
-      const exit = yield* Effect.exit(effect);
-      expect(Exit.isFailure(exit)).toBe(true);
-      if (Exit.isFailure(exit)) {
-        expect(Cause.pretty(exit.cause)).toContain(
-          "permissions.getCurrentUserPermissions requires sheet.read scope",
-        );
-      }
-    }),
-  );
-
-  it.live("rejects protected RPCs without a declared scope policy", () =>
-    Effect.gen(function* () {
-      const effect = runUnconfiguredMiddleware(
-        makeHeaders({
-          "x-sheet-ingress-auth": "Bearer ingress-token",
-          "x-sheet-auth-user-id": "user-1",
-          "x-sheet-auth-account-id": "discord-user-1",
-          "x-sheet-auth-permissions": "account:discord:discord-user-1",
-          "x-sheet-auth-scopes": "sheet.read",
-        }),
-      );
-
-      const exit = yield* Effect.exit(effect);
-      expect(Exit.isFailure(exit)).toBe(true);
-      if (Exit.isFailure(exit)) {
-        expect(Cause.pretty(exit.cause)).toContain(
-          "No OAuth scope policy configured for unconfigured.rpc",
-        );
-      }
-    }),
-  );
-
-  it.live("allows sheet.write RPCs with sheet.write scope", () =>
-    Effect.gen(function* () {
-      const user = yield* runMiddleware(
-        makeHeaders({
-          "x-sheet-ingress-auth": "Bearer ingress-token",
-          "x-sheet-auth-user-id": "user-1",
-          "x-sheet-auth-account-id": "discord-user-1",
-          "x-sheet-auth-permissions": "account:discord:discord-user-1",
-          "x-sheet-auth-scopes": "sheet.write",
-        }),
-        "messageSlot.upsertMessageSlotData",
-      );
-
-      expect(user.accountId).toBe("discord-user-1");
-    }),
-  );
-
-  it.live("rejects sheet.write RPCs with only sheet.read scope", () =>
-    Effect.gen(function* () {
-      const effect = runMiddleware(
-        makeHeaders({
-          "x-sheet-ingress-auth": "Bearer ingress-token",
-          "x-sheet-auth-user-id": "user-1",
-          "x-sheet-auth-account-id": "discord-user-1",
-          "x-sheet-auth-permissions": "account:discord:discord-user-1",
-          "x-sheet-auth-scopes": "sheet.read",
-        }),
-        "messageSlot.upsertMessageSlotData",
-      );
-
-      const exit = yield* Effect.exit(effect);
-      expect(Exit.isFailure(exit)).toBe(true);
-      if (Exit.isFailure(exit)) {
-        expect(Cause.pretty(exit.cause)).toContain(
-          "messageSlot.upsertMessageSlotData requires sheet.write scope",
-        );
-      }
-    }),
-  );
-
-  it.live("allows sheet.manage RPCs with sheet.manage scope", () =>
-    Effect.gen(function* () {
-      const user = yield* runMiddleware(
-        makeHeaders({
-          "x-sheet-ingress-auth": "Bearer ingress-token",
-          "x-sheet-auth-user-id": "user-1",
-          "x-sheet-auth-account-id": "discord-user-1",
-          "x-sheet-auth-permissions": "account:discord:discord-user-1",
-          "x-sheet-auth-scopes": "sheet.manage",
-        }),
-        "workspaceConfig.getWorkspaceConfig",
-      );
-
-      expect(user.accountId).toBe("discord-user-1");
-    }),
-  );
-
-  it.live("allows service RPCs with service permission", () =>
-    Effect.gen(function* () {
-      const user = yield* runMiddleware(
-        makeHeaders({
-          "x-sheet-ingress-auth": "Bearer ingress-token",
-          "x-sheet-auth-user-id": "service-user",
-          "x-sheet-auth-account-id": "service",
-          "x-sheet-auth-permissions": "service",
-        }),
-        "sheet.getPlayers",
-      );
-
-      expect(HashSet.has(user.permissions, "service")).toBe(true);
-    }),
-  );
-
-  it.live("rejects service RPCs for ordinary user scopes", () =>
-    Effect.gen(function* () {
-      const effect = runMiddleware(
-        makeHeaders({
-          "x-sheet-ingress-auth": "Bearer ingress-token",
-          "x-sheet-auth-user-id": "user-1",
-          "x-sheet-auth-account-id": "discord-user-1",
-          "x-sheet-auth-permissions": "account:discord:discord-user-1",
-          "x-sheet-auth-scopes": "sheet.read,sheet.write,sheet.manage",
-        }),
-        "sheet.getPlayers",
-      );
-
-      const exit = yield* Effect.exit(effect);
-      expect(Exit.isFailure(exit)).toBe(true);
-      if (Exit.isFailure(exit)) {
-        expect(Cause.pretty(exit.cause)).toContain("sheet.getPlayers requires service permission");
-      }
-    }),
-  );
-
-  it.live("allows none-policy RPCs after ingress forwarding auth succeeds", () =>
-    Effect.gen(function* () {
-      const user = yield* runMiddleware(
-        makeHeaders({
-          "x-sheet-ingress-auth": "Bearer ingress-token",
-          "x-sheet-auth-user-id": "user-1",
-          "x-sheet-auth-account-id": "discord-user-1",
-          "x-sheet-auth-permissions": "account:discord:discord-user-1",
-        }),
-        "status.getServices",
-      );
-
-      expect(user.accountId).toBe("discord-user-1");
+      expect(Redacted.value(user.token)).toBe("sheet-auth-session-token");
+      expect(user.tokenType).toBe("session");
     }),
   );
 });

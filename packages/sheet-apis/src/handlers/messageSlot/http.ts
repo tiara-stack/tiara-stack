@@ -2,7 +2,7 @@ import { Effect, Layer, Option, Predicate } from "effect";
 import { getModernMessageWorkspaceId } from "@/handlers/message/shared";
 import { AuthorizationService, MessageSlotService } from "@/services";
 import type { MessageKey } from "@/services/messageKey";
-import { MessageSlotRpcs } from "sheet-ingress-api/sheet-apis-rpc";
+import { type HandlerMap, sheetApisGroupLayer } from "@/handlers/shared/httpApiLayer";
 import { MessageSlot } from "sheet-ingress-api/schemas/messageSlot";
 import { SheetAuthWorkspaceUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthWorkspaceUser";
 import { makeArgumentError, Unauthorized } from "typhoon-core/error";
@@ -136,7 +136,8 @@ export const requireMessageSlotReadAccess = Effect.fn("messageSlot.requireMessag
   },
 );
 
-export const messageSlotLayer = MessageSlotRpcs.toLayer(
+export const messageSlotLayer = sheetApisGroupLayer(
+  "messageSlot",
   Effect.gen(function* () {
     const authorizationService = yield* AuthorizationService;
     const messageSlotService = yield* MessageSlotService;
@@ -155,6 +156,6 @@ export const messageSlotLayer = MessageSlotRpcs.toLayer(
 
         return yield* messageSlotService.upsertMessageSlotData(payload, payload.data);
       }),
-    };
+    } satisfies HandlerMap<"messageSlot">;
   }),
 ).pipe(Layer.provide([AuthorizationService.layer, MessageSlotService.layer]));

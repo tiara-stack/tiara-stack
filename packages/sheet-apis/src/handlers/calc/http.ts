@@ -1,16 +1,17 @@
 import { Array, Chunk, Effect, HashMap, HashSet, Layer, Option, pipe } from "effect";
-import { CalcRpcs } from "sheet-ingress-api/sheet-apis-rpc";
+import { type HandlerMap, sheetApisGroupLayer } from "@/handlers/shared/httpApiLayer";
 import { CalcConfig, CalcService, PlayerService } from "@/services";
 import { PlayerTeam } from "sheet-ingress-api/schemas/sheet";
 import { Room } from "sheet-ingress-api/schemas/sheet/room";
 import { Array as ArrayUtils } from "typhoon-core/utils";
 
-export const calcLayer = CalcRpcs.toLayer(
+export const calcLayer = sheetApisGroupLayer(
+  "calc",
   Effect.gen(function* () {
     const calcService = yield* CalcService;
     const playerService = yield* PlayerService;
 
-    return CalcRpcs.of({
+    return {
       "calc.calcBot": Effect.fnUntraced(function* ({ payload }) {
         const config = new CalcConfig(payload.config);
         const playerTeams = yield* Effect.forEach(payload.players, (player) =>
@@ -79,6 +80,6 @@ export const calcLayer = CalcRpcs.toLayer(
         const rooms = yield* calcService.calc(config, playerTeams);
         return Chunk.toArray(rooms);
       }),
-    });
+    } satisfies HandlerMap<"calc">;
   }),
 ).pipe(Layer.provide([CalcService.layer, PlayerService.layer]));

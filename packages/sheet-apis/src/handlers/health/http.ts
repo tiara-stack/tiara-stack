@@ -1,7 +1,7 @@
 import { DateTime, Effect } from "effect";
-import { HealthRpcs } from "sheet-ingress-api/sheet-apis-rpc";
+import { sheetApisGroupLayer } from "@/handlers/shared/httpApiLayer";
 
-export const healthLayer = HealthRpcs.toLayer({
+export const healthLayer = sheetApisGroupLayer("health", {
   "health.live": Effect.fnUntraced(function* () {
     const timestamp = yield* DateTime.now;
     return { status: "ok" as const, timestamp };

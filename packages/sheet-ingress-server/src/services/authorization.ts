@@ -14,6 +14,7 @@ import {
 import { SheetAuthTokenAuthorization } from "sheet-ingress-api/middlewares/sheetAuthTokenAuthorization/tag";
 import { SheetAuthWorkspaceUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthWorkspaceUser";
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
+import type { SheetAuthUserTokenType } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
 import { Unauthorized } from "typhoon-core/error";
 import type { Permission, PermissionSet } from "sheet-ingress-api/schemas/permissions";
 import type { SheetAuthOAuthScope } from "sheet-ingress-api/schemas/permissions";
@@ -35,6 +36,7 @@ class ResolvedWorkspaceUserCacheKey extends Data.Class<{
   readonly permissions: PermissionSet;
   readonly scopes: ReadonlySet<SheetAuthOAuthScope>;
   readonly token: Redacted.Redacted<string>;
+  readonly tokenType: SheetAuthUserTokenType;
   readonly userId: string;
 }> {}
 
@@ -279,6 +281,7 @@ export class AuthorizationService extends Context.Service<AuthorizationService>(
             permissions: key.permissions,
             scopes: key.scopes,
             token: key.token,
+            tokenType: key.tokenType,
             userId: key.userId,
           };
           return yield* resolveSheetAuthWorkspaceUser(user, key.guildId);
@@ -301,6 +304,7 @@ export class AuthorizationService extends Context.Service<AuthorizationService>(
             permissions: user.permissions,
             scopes: user.scopes,
             token: user.token,
+            tokenType: user.tokenType,
             userId: user.userId,
           }),
         );
@@ -468,6 +472,7 @@ export const SheetAuthTokenAuthorizationLive = Layer.effect(
           permissions: resolvedUser.permissions,
           scopes: resolvedUser.scopes,
           token: credential,
+          tokenType: resolvedUser.tokenType,
         });
       }),
     });

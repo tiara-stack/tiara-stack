@@ -26,6 +26,7 @@ const makeUser = (
   permissions: permissionSetFromIterable(permissions as never),
   scopes: new Set() as never,
   token: Redacted.make("token-1"),
+  tokenType: "session" as const,
 });
 
 const makeSheetApisForwardingClient = (monitorRoleIds: ReadonlyArray<string> = []) => {

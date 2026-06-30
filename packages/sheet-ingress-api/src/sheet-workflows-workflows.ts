@@ -1,14 +1,7 @@
 import { Schema } from "effect";
-import { Rpc } from "effect/unstable/rpc";
-import { Workflow, WorkflowProxy } from "effect/unstable/workflow";
+import { Workflow } from "effect/unstable/workflow";
 import { UnknownError } from "typhoon-core/error";
 import type { ClientRef } from "./schemas/client";
-import {
-  annotateRpcScopePolicy,
-  SheetRpcScopePolicies,
-  SheetRpcScopePolicyAnnotation,
-} from "./middlewares/rpcScopePolicy";
-import { SheetApisRpcAuthorization } from "./middlewares/sheetApisRpcAuthorization/tag";
 import { MessageRoomOrder } from "./schemas/messageRoomOrder";
 import {
   AutoCheckinTestDispatchPayload,
@@ -101,6 +94,8 @@ export type DispatchAuthorizationSnapshot = Schema.Schema.Type<
 
 /** Public execution-id schema returned by workflow discard dispatch RPCs. */
 export const DispatchWorkflowExecutionId = Schema.String;
+/** Public resume payload schema shared by workflow RPC and HTTP dispatch contracts. */
+export const DispatchWorkflowResumePayload = Schema.Struct({ executionId: Schema.String });
 /** Public accepted-result alias for sheet-workflows workflow dispatch APIs. */
 export const DispatchWorkflowAcceptedResult = DispatchAcceptedResult;
 
@@ -482,25 +477,48 @@ export const DispatchWorkflows = [
   DispatchScreenshotWorkflow,
 ] as const;
 
-const dispatchWorkflowScopePolicy = SheetRpcScopePolicies.oauth("workflow.dispatch");
+export type DispatchWorkflowRequestDescriptor = {
+  readonly _tag: string;
+  readonly payloadSchema?: Schema.Decoder<unknown>;
+  readonly successSchema: Schema.Decoder<unknown>;
+  readonly errorSchema?: Schema.Decoder<unknown>;
+};
 
-const makeDispatchWorkflowRpcs = (workflows: typeof DispatchWorkflows) =>
-  WorkflowProxy.toRpcGroup(workflows)
-    .annotateRpcs(SheetRpcScopePolicyAnnotation, dispatchWorkflowScopePolicy)
-    .add(
-      ...workflows.map((workflow) =>
-        annotateRpcScopePolicy(
-          Rpc.make(`${workflow.name}Discard`, {
-            payload: workflow.payloadSchema,
-            success: DispatchWorkflowExecutionId,
-          }).annotateMerge(workflow.annotations),
-          dispatchWorkflowScopePolicy,
-        ),
-      ),
-    );
+export const DispatchWorkflowRequests = new Map<string, DispatchWorkflowRequestDescriptor>(
+  DispatchWorkflows.flatMap(
+    (workflow): ReadonlyArray<readonly [string, DispatchWorkflowRequestDescriptor]> => [
+      [
+        workflow.name,
+        {
+          _tag: workflow.name,
+          payloadSchema: workflow.payloadSchema,
+          successSchema: workflow.successSchema,
+          errorSchema: workflow.errorSchema,
+        },
+      ] as const,
+      [
+        `${workflow.name}Discard`,
+        {
+          _tag: `${workflow.name}Discard`,
+          payloadSchema: workflow.payloadSchema,
+          successSchema: DispatchWorkflowExecutionId,
+        },
+      ] as const,
+      [
+        `${workflow.name}Resume`,
+        {
+          _tag: `${workflow.name}Resume`,
+          payloadSchema: DispatchWorkflowResumePayload,
+          successSchema: Schema.Void,
+        },
+      ] as const,
+    ],
+  ),
+);
 
-export const DispatchWorkflowRpcs =
-  makeDispatchWorkflowRpcs(DispatchWorkflows).middleware(SheetApisRpcAuthorization);
+export const DispatchWorkflowRpcs = {
+  requests: DispatchWorkflowRequests,
+};
 
 export const DispatchWorkflowOperations = {
   autoCheckinTest: {

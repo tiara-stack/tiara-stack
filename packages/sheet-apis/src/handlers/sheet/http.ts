@@ -1,5 +1,5 @@
 import { Effect, Layer } from "effect";
-import { SheetRpcs } from "sheet-ingress-api/sheet-apis-rpc";
+import { type HandlerMap, sheetApisGroupLayer } from "@/handlers/shared/httpApiLayer";
 import { withCurrentWorkspaceAuthFromQuery } from "@/handlers/shared/workspaceAuthorization";
 import { getSheetIdFromWorkspaceId } from "@/handlers/shared/workspaceConfig";
 import { SheetAuthWorkspaceUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthWorkspaceUser";
@@ -18,27 +18,57 @@ const withScheduleHourWindows = (
   startTime: Parameters<typeof withScheduleHourWindow>[0],
 ) => schedules.map((schedule) => withScheduleHourWindow(startTime, schedule));
 
-export const sheetLayer = SheetRpcs.toLayer(
+export const sheetLayer = sheetApisGroupLayer(
+  "sheet",
   Effect.gen(function* () {
     const authorizationService = yield* AuthorizationService;
     const sheetService = yield* SheetService;
     const sheetConfigService = yield* SheetConfigService;
     const workspaceConfigService = yield* WorkspaceConfigService;
     const withQueryWorkspaceAuth = withCurrentWorkspaceAuthFromQuery(authorizationService);
+    const withMonitorQueryWorkspaceAuth = <
+      Args extends { query: { workspaceId: string } },
+      A,
+      E,
+      R,
+    >(
+      body: (args: Args) => Effect.Effect<A, E, R>,
+    ) =>
+      withQueryWorkspaceAuth(
+        Effect.fnUntraced(function* (args: Args) {
+          yield* authorizationService.requireMonitorWorkspace(args.query.workspaceId);
+          return yield* body(args);
+        }),
+      );
 
     return {
-      "sheet.getPlayers": Effect.fnUntraced(function* ({ query }) {
-        const sheetId = yield* getSheetIdFromWorkspaceId(query.workspaceId, workspaceConfigService);
-        return yield* sheetService.getPlayers(sheetId);
-      }),
-      "sheet.getMonitors": Effect.fnUntraced(function* ({ query }) {
-        const sheetId = yield* getSheetIdFromWorkspaceId(query.workspaceId, workspaceConfigService);
-        return yield* sheetService.getMonitors(sheetId);
-      }),
-      "sheet.getTeams": Effect.fnUntraced(function* ({ query }) {
-        const sheetId = yield* getSheetIdFromWorkspaceId(query.workspaceId, workspaceConfigService);
-        return yield* sheetService.getTeams(sheetId);
-      }),
+      "sheet.getPlayers": withMonitorQueryWorkspaceAuth(
+        Effect.fnUntraced(function* ({ query }) {
+          const sheetId = yield* getSheetIdFromWorkspaceId(
+            query.workspaceId,
+            workspaceConfigService,
+          );
+          return yield* sheetService.getPlayers(sheetId);
+        }),
+      ),
+      "sheet.getMonitors": withMonitorQueryWorkspaceAuth(
+        Effect.fnUntraced(function* ({ query }) {
+          const sheetId = yield* getSheetIdFromWorkspaceId(
+            query.workspaceId,
+            workspaceConfigService,
+          );
+          return yield* sheetService.getMonitors(sheetId);
+        }),
+      ),
+      "sheet.getTeams": withMonitorQueryWorkspaceAuth(
+        Effect.fnUntraced(function* ({ query }) {
+          const sheetId = yield* getSheetIdFromWorkspaceId(
+            query.workspaceId,
+            workspaceConfigService,
+          );
+          return yield* sheetService.getTeams(sheetId);
+        }),
+      ),
       "sheet.getAllSchedules": withQueryWorkspaceAuth(
         Effect.fnUntraced(function* ({ query }) {
           const sheetId = yield* getSheetIdFromWorkspaceId(
@@ -117,27 +147,52 @@ export const sheetLayer = SheetRpcs.toLayer(
           };
         }),
       ),
-      "sheet.getRangesConfig": Effect.fnUntraced(function* ({ query }) {
-        const sheetId = yield* getSheetIdFromWorkspaceId(query.workspaceId, workspaceConfigService);
-        return yield* sheetConfigService.getRangesConfig(sheetId);
-      }),
-      "sheet.getTeamConfig": Effect.fnUntraced(function* ({ query }) {
-        const sheetId = yield* getSheetIdFromWorkspaceId(query.workspaceId, workspaceConfigService);
-        return yield* sheetConfigService.getTeamConfig(sheetId);
-      }),
-      "sheet.getEventConfig": Effect.fnUntraced(function* ({ query }) {
-        const sheetId = yield* getSheetIdFromWorkspaceId(query.workspaceId, workspaceConfigService);
-        return yield* sheetConfigService.getEventConfig(sheetId);
-      }),
-      "sheet.getScheduleConfig": Effect.fnUntraced(function* ({ query }) {
-        const sheetId = yield* getSheetIdFromWorkspaceId(query.workspaceId, workspaceConfigService);
-        return yield* sheetConfigService.getScheduleConfig(sheetId);
-      }),
-      "sheet.getRunnerConfig": Effect.fnUntraced(function* ({ query }) {
-        const sheetId = yield* getSheetIdFromWorkspaceId(query.workspaceId, workspaceConfigService);
-        return yield* sheetConfigService.getRunnerConfig(sheetId);
-      }),
-    };
+      "sheet.getRangesConfig": withMonitorQueryWorkspaceAuth(
+        Effect.fnUntraced(function* ({ query }) {
+          const sheetId = yield* getSheetIdFromWorkspaceId(
+            query.workspaceId,
+            workspaceConfigService,
+          );
+          return yield* sheetConfigService.getRangesConfig(sheetId);
+        }),
+      ),
+      "sheet.getTeamConfig": withMonitorQueryWorkspaceAuth(
+        Effect.fnUntraced(function* ({ query }) {
+          const sheetId = yield* getSheetIdFromWorkspaceId(
+            query.workspaceId,
+            workspaceConfigService,
+          );
+          return yield* sheetConfigService.getTeamConfig(sheetId);
+        }),
+      ),
+      "sheet.getEventConfig": withMonitorQueryWorkspaceAuth(
+        Effect.fnUntraced(function* ({ query }) {
+          const sheetId = yield* getSheetIdFromWorkspaceId(
+            query.workspaceId,
+            workspaceConfigService,
+          );
+          return yield* sheetConfigService.getEventConfig(sheetId);
+        }),
+      ),
+      "sheet.getScheduleConfig": withMonitorQueryWorkspaceAuth(
+        Effect.fnUntraced(function* ({ query }) {
+          const sheetId = yield* getSheetIdFromWorkspaceId(
+            query.workspaceId,
+            workspaceConfigService,
+          );
+          return yield* sheetConfigService.getScheduleConfig(sheetId);
+        }),
+      ),
+      "sheet.getRunnerConfig": withMonitorQueryWorkspaceAuth(
+        Effect.fnUntraced(function* ({ query }) {
+          const sheetId = yield* getSheetIdFromWorkspaceId(
+            query.workspaceId,
+            workspaceConfigService,
+          );
+          return yield* sheetConfigService.getRunnerConfig(sheetId);
+        }),
+      ),
+    } satisfies HandlerMap<"sheet">;
   }),
 ).pipe(
   Layer.provide([

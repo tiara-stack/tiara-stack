@@ -14,15 +14,18 @@ import { setSessionCookie } from "better-auth/cookies";
 import { decryptOAuthToken, setTokenUtil } from "better-auth/oauth2";
 import { signJWT } from "better-auth/plugins";
 import { oauthProviderResourceClient } from "@better-auth/oauth-provider/resource-client";
-import { Schema } from "effect";
+import { Predicate, Schema } from "effect";
 import { jwtVerify, SignJWT, type JWTPayload } from "jose";
-import { DISCORD_SERVICE_USER_ID_SENTINEL, UserTokenDefaultScopes } from "../../oauth";
+import {
+  AccessTokenType,
+  DISCORD_SERVICE_USER_ID_SENTINEL,
+  JwtTokenType,
+  SessionTokenType,
+  TokenExchangeGrantType,
+  UserTokenDefaultScopes,
+} from "../../oauth";
 import { oauthResourceMetadataMappings } from "../../oauth-resource-metadata";
 import { getBearerToken } from "../../utils/bearer-token";
-
-const TokenExchangeGrantType = "urn:ietf:params:oauth:grant-type:token-exchange";
-const AccessTokenType = "urn:ietf:params:oauth:token-type:access_token";
-const JwtTokenType = "urn:ietf:params:oauth:token-type:jwt";
 
 const trustedDiscordSessionBody = Schema.Struct({
   discordUserId: Schema.String,
@@ -365,6 +368,45 @@ const makeSessionIdentity = async (
   };
 };
 
+const getSessionSubjectUserId = (session: Record<string, unknown> | undefined) =>
+  Predicate.hasProperty(session, "userId") && Predicate.isString(session.userId)
+    ? session.userId
+    : undefined;
+
+const getSessionSubjectExpiresAt = (session: Record<string, unknown> | undefined) => {
+  if (!Predicate.hasProperty(session, "expiresAt")) {
+    return undefined;
+  }
+  const { expiresAt } = session;
+  if (Predicate.isDate(expiresAt)) {
+    return expiresAt;
+  }
+  return Predicate.isString(expiresAt) ? new Date(expiresAt) : undefined;
+};
+
+const assertValidSessionSubject = (session: Record<string, unknown> | undefined) => {
+  const userId = getSessionSubjectUserId(session);
+  const expiresAt = getSessionSubjectExpiresAt(session);
+  if (!userId || !expiresAt) {
+    throw oauthError("UNAUTHORIZED", "invalid_request", "Invalid session subject token");
+  }
+  if (!Number.isFinite(expiresAt.getTime()) || expiresAt.getTime() <= Date.now()) {
+    throw oauthError("UNAUTHORIZED", "invalid_request", "Expired session subject token");
+  }
+  return { userId, expiresAt };
+};
+
+const resolveSessionByToken = async (
+  ctx: EndpointContext,
+  token: string,
+): Promise<{ readonly userId: string; readonly expiresAt: Date }> => {
+  const session = await ctx.context.internalAdapter.findOne({
+    model: "session",
+    where: [{ field: "token", value: token }],
+  });
+  return assertValidSessionSubject(session);
+};
+
 const tokenExpiresAt = (payload: Record<string, unknown>) =>
   typeof payload.exp === "number" ? new Date(payload.exp * 1000).toISOString() : undefined;
 
@@ -408,6 +450,20 @@ const makeServiceIdentity = (
   expiresAt: tokenExpiresAt(payload),
 });
 
+const makeTokenExchangeActorIdentity = (
+  payload: Record<string, unknown>,
+  clientId: string | undefined,
+  scopes: readonly string[],
+): SheetAuthResolvedIdentity => ({
+  tokenType: "oauth_access_token",
+  userId: clientId ?? "oauth_client",
+  accountId: clientId ?? "oauth_client",
+  clientId,
+  permissions: [],
+  scopes,
+  expiresAt: tokenExpiresAt(payload),
+});
+
 const makeUserAccessTokenIdentity = async (
   ctx: EndpointContext,
   payload: Record<string, unknown>,
@@ -443,6 +499,7 @@ const makeAccessTokenIdentity = async (
   ctx: EndpointContext,
   token: string,
   options: SheetOAuthOptions,
+  optionsOverride?: { readonly allowTokenExchangeActor?: boolean },
 ): Promise<SheetAuthResolvedIdentity> => {
   const payload = await verifyOAuthAccessToken(token, options);
   const scopes = splitScopes(payload.scope);
@@ -457,6 +514,14 @@ const makeAccessTokenIdentity = async (
     }
 
     return makeServiceIdentity(payload, clientId, scopes);
+  }
+  if (
+    optionsOverride?.allowTokenExchangeActor === true &&
+    isTrusted &&
+    scopes.includes("token.exchange") &&
+    !Predicate.isString(payload.sub)
+  ) {
+    return makeTokenExchangeActorIdentity(payload, clientId, scopes);
   }
 
   return await makeUserAccessTokenIdentity(ctx, payload, clientId, scopes);
@@ -857,11 +922,9 @@ const requireTokenExchangeActor = async (
     throw oauthError("UNAUTHORIZED", "invalid_request", "Missing actor token");
   }
 
-  const actor = await makeAccessTokenIdentity(ctx, actorToken, options);
-  if (!actor.permissions.includes("service")) {
-    throw oauthError("UNAUTHORIZED", "invalid_request", "Actor token must be a service token");
-  }
-
+  const actor = await makeAccessTokenIdentity(ctx, actorToken, options, {
+    allowTokenExchangeActor: true,
+  });
   const actorScopes = options.tokenExchange?.actorScopes ?? ["token.exchange"];
   if (!actorScopes.some((scope) => actor.scopes.includes(scope))) {
     throw oauthError("UNAUTHORIZED", "insufficient_scope", "Actor token cannot exchange tokens");
@@ -915,6 +978,22 @@ const resolveAccessTokenSubject = async (
   };
 };
 
+const resolveSessionTokenSubject = async (
+  ctx: EndpointContext,
+): Promise<SheetOAuthTokenExchangeSubject> => {
+  const session = await resolveSessionByToken(ctx, ctx.body.subject_token);
+  const account = await findSubjectAccountForUser(ctx.context.internalAdapter, session.userId);
+  if (!account) {
+    throw oauthError("UNAUTHORIZED", "invalid_request", "No linked Discord account found");
+  }
+
+  return {
+    userId: session.userId,
+    accountId: account.accountId,
+    scopes: [...UserTokenDefaultScopes],
+  };
+};
+
 const resolveConfiguredSubject = async (
   ctx: EndpointContext,
   actor: SheetAuthResolvedIdentity,
@@ -949,6 +1028,10 @@ const resolveTokenExchangeSubject = async (
     return await resolveAccessTokenSubject(ctx, options);
   }
 
+  if (ctx.body.subject_token_type === SessionTokenType) {
+    return await resolveSessionTokenSubject(ctx);
+  }
+
   return await resolveConfiguredSubject(ctx, actor, options);
 };
 
@@ -963,9 +1046,12 @@ const signTokenExchangeAccessToken = async (
   },
 ): Promise<SheetOAuthTokenExchangeResponse> => {
   const iat = Math.floor(Date.now() / 1000);
-  const expiresIn = options.tokenExchange?.accessTokenExpiresIn ?? 3600;
+  const expiresIn = options.tokenExchange?.accessTokenExpiresIn ?? 300;
   const exp = iat + expiresIn;
   const scope = input.scopes.join(" ");
+  if (!input.subject.accountId) {
+    throw oauthError("BAD_REQUEST", "invalid_request", "Token exchange subject is missing account");
+  }
   const actorClaims = {
     sub: input.actor.userId,
     client_id: input.actor.clientId,
@@ -976,6 +1062,7 @@ const signTokenExchangeAccessToken = async (
       ...input.subject.claims,
       iss: options.issuer.replace(/\/$/, ""),
       sub: input.subject.userId,
+      account_id: input.subject.accountId,
       aud: input.audience,
       azp: input.actor.clientId,
       client_id: input.actor.clientId,

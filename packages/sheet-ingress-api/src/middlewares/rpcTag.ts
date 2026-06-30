@@ -1,5 +1,4 @@
 import { Effect, Option, Schema, SchemaGetter, SchemaIssue } from "effect";
-import { Rpc } from "effect/unstable/rpc";
 
 export type RpcTagSource = "_tag" | "string" | "tag" | "name" | "rpcTag";
 
@@ -23,30 +22,18 @@ const RpcTagInputSchema = Schema.Union([
 type RpcTagInput = Schema.Schema.Type<typeof RpcTagInputSchema>;
 
 const isString = Schema.is(Schema.String);
+const objectTagSources = ["_tag", "tag", "name", "rpcTag"] as const;
 
 const resolveRpcTag = (rpc: RpcTagInput): RpcTagResult | undefined => {
   if (isString(rpc)) {
     return { tag: rpc, source: "string" };
   }
 
-  const candidates = rpc as {
-    readonly _tag?: unknown;
-    readonly tag?: unknown;
-    readonly name?: unknown;
-    readonly rpcTag?: unknown;
-  };
-
-  if (isString(candidates._tag)) {
-    return { tag: candidates._tag, source: "_tag" };
-  }
-  if (isString(candidates.tag)) {
-    return { tag: candidates.tag, source: "tag" };
-  }
-  if (isString(candidates.name)) {
-    return { tag: candidates.name, source: "name" };
-  }
-  if (isString(candidates.rpcTag)) {
-    return { tag: candidates.rpcTag, source: "rpcTag" };
+  for (const source of objectTagSources) {
+    const tag = rpc[source];
+    if (isString(tag)) {
+      return { tag, source };
+    }
   }
 
   return undefined;
@@ -66,6 +53,4 @@ const RpcTagSchema = RpcTagInputSchema.pipe(
 );
 
 export const getRpcTag = (rpc: unknown): RpcTagResult | undefined =>
-  Rpc.isRpc(rpc)
-    ? { tag: rpc._tag, source: "_tag" }
-    : Option.getOrUndefined(Schema.decodeUnknownOption(RpcTagSchema)(rpc));
+  Option.getOrUndefined(Schema.decodeUnknownOption(RpcTagSchema)(rpc));

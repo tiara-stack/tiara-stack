@@ -37,6 +37,7 @@ const makeUser = (
   permissions: permissionSetFromIterable(permissions),
   scopes: new Set() as never,
   token: Redacted.make("token"),
+  tokenType: "session" as const,
 });
 
 const permissionValues = (permissions: Iterable<TestPermission>) =>

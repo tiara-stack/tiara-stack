@@ -1,14 +1,14 @@
 import { Effect, Layer, Option, Predicate } from "effect";
 import { getModernMessageWorkspaceId } from "@/handlers/message/shared";
+import { type HandlerMap, sheetApisGroupLayer } from "@/handlers/shared/httpApiLayer";
 import { AuthorizationService, MessageRoomOrderService } from "@/services";
 import type { MessageKey } from "@/services/messageKey";
-import {
-  MESSAGE_ROOM_ORDER_NOT_REGISTERED_ERROR_MESSAGE,
-  MessageRoomOrderRpcs,
-} from "sheet-ingress-api/sheet-apis-rpc";
 import { MessageRoomOrder } from "sheet-ingress-api/schemas/messageRoomOrder";
 import { SheetAuthWorkspaceUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthWorkspaceUser";
 import { makeArgumentError, Unauthorized } from "typhoon-core/error";
+
+export const MESSAGE_ROOM_ORDER_NOT_REGISTERED_ERROR_MESSAGE =
+  "Cannot get message room order, the message might not be registered";
 
 const missingMessageRoomOrderError = () =>
   makeArgumentError(MESSAGE_ROOM_ORDER_NOT_REGISTERED_ERROR_MESSAGE);
@@ -157,7 +157,8 @@ const requireRoomOrderMonitorMutationAccess = Effect.fn(
   return authContext.record;
 });
 
-export const messageRoomOrderLayer = MessageRoomOrderRpcs.toLayer(
+export const messageRoomOrderLayer = sheetApisGroupLayer(
+  "messageRoomOrder",
   Effect.gen(function* () {
     const authorizationService = yield* AuthorizationService;
     const messageRoomOrderService = yield* MessageRoomOrderService;
@@ -396,6 +397,6 @@ export const messageRoomOrderLayer = MessageRoomOrderRpcs.toLayer(
           conversationId,
         });
       }),
-    };
+    } satisfies HandlerMap<"messageRoomOrder">;
   }),
 ).pipe(Layer.provide([AuthorizationService.layer, MessageRoomOrderService.layer]));

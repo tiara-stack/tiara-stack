@@ -51,6 +51,7 @@ describe("decodeForwardedSheetAuthUser", () => {
       });
 
       expect(Redacted.value(user.token)).toBe("oauth-token");
+      expect(user.tokenType).toBe("oauth_access_token");
     }),
   );
 
@@ -62,6 +63,7 @@ describe("decodeForwardedSheetAuthUser", () => {
       });
 
       expect(Redacted.value(user.token)).toBe("session-token");
+      expect(user.tokenType).toBe("session");
     }),
   );
 
@@ -70,6 +72,7 @@ describe("decodeForwardedSheetAuthUser", () => {
       const user = yield* decode(baseHeaders);
 
       expect(Redacted.value(user.token)).toBe("unavailable");
+      expect(user.tokenType).toBe("unavailable");
     }),
   );
 });

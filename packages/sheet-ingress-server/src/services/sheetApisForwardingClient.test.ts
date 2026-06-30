@@ -9,6 +9,12 @@ import { SheetApisRpcTokens } from "./sheetApisRpcTokens";
 const makeSheetApisRpcTokens = () =>
   ({
     getServiceToken: (resource: string) => Effect.succeed(`${resource}-token`),
+    getDelegatedAuthorization: ({ resource }: { readonly resource: string }) =>
+      Effect.succeed(
+        Redacted.make(
+          resource === "sheet-bot" ? `${resource}-token` : `${resource}-delegated-token`,
+        ),
+      ),
   }) as never;
 
 const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
@@ -20,52 +26,47 @@ const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
       permissions: HashSet.empty(),
       scopes: new Set() as never,
       token: Redacted.make("sheet-auth-session-token"),
+      tokenType: "session",
     }),
-  ) as Effect.Effect<A, E, never>;
-
-describe("SheetApisForwardingClient", () => {
-  it.effect(
-    "builds sheet-apis ingress headers with sheet-auth session token but no Discord access token",
-    () =>
-      Effect.gen(function* () {
-        const headers = yield* run(getIngressRpcHeaders({ serviceTokenResource: "sheet-apis" }));
-
-        expect(Option.getOrUndefined(Headers.get(headers, "x-sheet-ingress-auth"))).toBe(
-          "Bearer sheet-apis-token",
-        );
-        expect(Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-user-id"))).toBe("user-1");
-        expect(Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-account-id"))).toBe(
-          "discord-user-1",
-        );
-        expect(Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-session-token"))).toBe(
-          "Bearer sheet-auth-session-token",
-        );
-        expect(Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-token"))).toBe(
-          "Bearer sheet-auth-session-token",
-        );
-        expect(Option.isNone(Headers.get(headers, "x-sheet-discord-access-token"))).toBe(true);
-      }),
   );
 
-  it.effect(
-    "builds sheet-bot ingress headers with the sheet-bot service token and shared auth context",
-    () =>
-      Effect.gen(function* () {
-        const headers = yield* run(getIngressRpcHeaders({ serviceTokenResource: "sheet-bot" }));
+const runWithoutUser = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  effect.pipe(Effect.provideService(SheetApisRpcTokens, makeSheetApisRpcTokens()));
 
-        expect(Option.getOrUndefined(Headers.get(headers, "x-sheet-ingress-auth"))).toBe(
-          "Bearer sheet-bot-token",
-        );
-        expect(Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-user-id"))).toBe("user-1");
-        expect(Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-account-id"))).toBe(
-          "discord-user-1",
-        );
-        expect(Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-session-token"))).toBe(
-          "Bearer sheet-auth-session-token",
-        );
-        expect(Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-token"))).toBe(
-          "Bearer sheet-auth-session-token",
-        );
-      }),
+describe("SheetApisForwardingClient", () => {
+  it.effect("builds sheet-apis ingress headers with a delegated bearer token", () =>
+    Effect.gen(function* () {
+      const headers = yield* run(getIngressRpcHeaders({ serviceTokenResource: "sheet-apis" }));
+
+      expect(Option.getOrUndefined(Headers.get(headers, "authorization"))).toBe(
+        "Bearer sheet-apis-delegated-token",
+      );
+      expect(Option.isNone(Headers.get(headers, "x-sheet-ingress-auth"))).toBe(true);
+      expect(Option.isNone(Headers.get(headers, "x-sheet-auth-session-token"))).toBe(true);
+      expect(Option.isNone(Headers.get(headers, "x-sheet-auth-token"))).toBe(true);
+    }),
+  );
+
+  it.effect("builds sheet-bot ingress headers with a service bearer token", () =>
+    Effect.gen(function* () {
+      const headers = yield* run(getIngressRpcHeaders({ serviceTokenResource: "sheet-bot" }));
+
+      expect(Option.getOrUndefined(Headers.get(headers, "authorization"))).toBe(
+        "Bearer sheet-bot-token",
+      );
+      expect(Option.isNone(Headers.get(headers, "x-sheet-ingress-auth"))).toBe(true);
+    }),
+  );
+
+  it.effect("uses a service bearer token when no SheetAuthUser is available", () =>
+    Effect.gen(function* () {
+      const headers = yield* runWithoutUser(
+        getIngressRpcHeaders({ serviceTokenResource: "sheet-apis" }),
+      );
+
+      expect(Option.getOrUndefined(Headers.get(headers, "authorization"))).toBe(
+        "Bearer sheet-apis-token",
+      );
+    }),
   );
 });

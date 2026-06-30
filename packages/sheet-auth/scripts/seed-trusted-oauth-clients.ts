@@ -23,7 +23,21 @@ const defaultTrustedClients = [
     envPrefix: "SHEET_INGRESS",
     name: "sheet-ingress-server",
     kind: "sheet-ingress-server",
-    scopes: ["ingress.forward"],
+    scopes: ["service", "ingress.forward"],
+  },
+  {
+    envPrefix: "SHEET_INGRESS_EXCHANGE",
+    name: "sheet-ingress-token-exchange",
+    kind: "sheet-ingress-token-exchange",
+    scopes: [
+      "token.exchange",
+      "ingress.forward",
+      "sheet.read",
+      "sheet.write",
+      "sheet.manage",
+      "workflow.dispatch",
+      "bot.impersonate",
+    ],
   },
   {
     envPrefix: "SHEET_BOT",

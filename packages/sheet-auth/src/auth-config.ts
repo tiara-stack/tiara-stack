@@ -28,6 +28,7 @@ interface CreateAuthOptions {
   cookieDomain?: string;
   tokenExchangeSubjectJwtSecret?: string;
   tokenExchangeSubjectJwtIssuer?: string;
+  tokenExchangeAccessTokenExpiresIn?: number;
   subjectTokenKubernetesAudience?: string;
   subjectTokenKubernetesAllowedServiceAccounts?: readonly string[];
   subjectTokenKubernetesReviewerTokenPath?: string;
@@ -66,6 +67,22 @@ const InternalOAuthResourceAudiences = [
   "sheet-workflows",
   "sheet-bot",
 ] as const;
+const TokenExchangeAccessTokenMaxExpiresIn = 300;
+
+const tokenExchangeAccessTokenExpiresInOrThrow = (value: number | undefined) => {
+  const expiresIn = value ?? TokenExchangeAccessTokenMaxExpiresIn;
+  if (
+    !Number.isInteger(expiresIn) ||
+    expiresIn <= 0 ||
+    expiresIn > TokenExchangeAccessTokenMaxExpiresIn
+  ) {
+    throw new Error(
+      `tokenExchangeAccessTokenExpiresIn must be an integer between 1 and ${TokenExchangeAccessTokenMaxExpiresIn}`,
+    );
+  }
+
+  return expiresIn;
+};
 
 export const oauthAudiences = (baseUrl: string, audiences: readonly string[] | undefined) =>
   audiences?.length ? [...audiences] : [baseUrl, ...InternalOAuthResourceAudiences];
@@ -165,6 +182,7 @@ const createSheetOAuthPlugin = ({
   trustedOAuthClientIds,
   tokenExchangeSubjectJwtSecret,
   tokenExchangeSubjectJwtIssuer,
+  tokenExchangeAccessTokenExpiresIn,
   subjectTokenKubernetesAudience,
   subjectTokenKubernetesAllowedServiceAccounts,
   subjectTokenKubernetesReviewerTokenPath,
@@ -178,19 +196,25 @@ const createSheetOAuthPlugin = ({
   | "trustedOAuthClientIds"
   | "tokenExchangeSubjectJwtSecret"
   | "tokenExchangeSubjectJwtIssuer"
+  | "tokenExchangeAccessTokenExpiresIn"
   | "subjectTokenKubernetesAudience"
   | "subjectTokenKubernetesAllowedServiceAccounts"
   | "subjectTokenKubernetesReviewerTokenPath"
   | "subjectTokenKubernetesCaPath"
   | "subjectTokenKubernetesTokenReviewUrl"
->) =>
-  sheetOAuth({
+>) => {
+  const accessTokenExpiresIn = tokenExchangeAccessTokenExpiresInOrThrow(
+    tokenExchangeAccessTokenExpiresIn,
+  );
+
+  return sheetOAuth({
     issuer: baseUrl,
     jwksUrl: oauthJwksUrl,
     validAudiences: oauthAudiences(baseUrl, oauthValidAudiences),
     trustedClientIds: new Set(trustedOAuthClientIds ?? []),
     tokenExchange: {
       actorScopes: ["token.exchange"],
+      accessTokenExpiresIn,
       subjectResolvers: createTokenExchangeSubjectResolvers({
         baseUrl,
         tokenExchangeSubjectJwtSecret,
@@ -212,6 +236,7 @@ const createSheetOAuthPlugin = ({
       },
     },
   });
+};
 
 const authTrustedOrigins = (baseUrl: string, trustedOrigins: string[] | undefined) =>
   trustedOrigins ?? [baseUrl];
@@ -228,6 +253,7 @@ function createBaseAuth({
   cookieDomain,
   tokenExchangeSubjectJwtSecret,
   tokenExchangeSubjectJwtIssuer,
+  tokenExchangeAccessTokenExpiresIn,
   subjectTokenKubernetesAudience,
   subjectTokenKubernetesAllowedServiceAccounts,
   subjectTokenKubernetesReviewerTokenPath,
@@ -260,6 +286,7 @@ function createBaseAuth({
         trustedOAuthClientIds,
         tokenExchangeSubjectJwtSecret,
         tokenExchangeSubjectJwtIssuer,
+        tokenExchangeAccessTokenExpiresIn,
         subjectTokenKubernetesAudience,
         subjectTokenKubernetesAllowedServiceAccounts,
         subjectTokenKubernetesReviewerTokenPath,
@@ -302,6 +329,7 @@ export function authConfig({
   cookieDomain,
   tokenExchangeSubjectJwtSecret,
   tokenExchangeSubjectJwtIssuer,
+  tokenExchangeAccessTokenExpiresIn,
   subjectTokenKubernetesAudience,
   subjectTokenKubernetesAllowedServiceAccounts,
   subjectTokenKubernetesReviewerTokenPath,
@@ -327,6 +355,7 @@ export function authConfig({
     cookieDomain,
     tokenExchangeSubjectJwtSecret,
     tokenExchangeSubjectJwtIssuer,
+    tokenExchangeAccessTokenExpiresIn,
     subjectTokenKubernetesAudience,
     subjectTokenKubernetesAllowedServiceAccounts,
     subjectTokenKubernetesReviewerTokenPath,

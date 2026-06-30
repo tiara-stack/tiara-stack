@@ -1,10 +1,11 @@
 import { Array, Effect, HashMap, Layer } from "effect";
-import { MonitorRpcs } from "sheet-ingress-api/sheet-apis-rpc";
+import { type HandlerMap, sheetApisGroupLayer } from "@/handlers/shared/httpApiLayer";
 import { withCurrentWorkspaceAuthFromQuery } from "@/handlers/shared/workspaceAuthorization";
 import { getSheetIdFromWorkspaceId } from "@/handlers/shared/workspaceConfig";
 import { AuthorizationService, WorkspaceConfigService, MonitorService } from "@/services";
 
-export const monitorLayer = MonitorRpcs.toLayer(
+export const monitorLayer = sheetApisGroupLayer(
+  "monitor",
   Effect.gen(function* () {
     const authorizationService = yield* AuthorizationService;
     const monitorService = yield* MonitorService;
@@ -57,7 +58,7 @@ export const monitorLayer = MonitorRpcs.toLayer(
           return yield* monitorService.getByNames(sheetId, query.names);
         }),
       ),
-    };
+    } satisfies HandlerMap<"monitor">;
   }),
 ).pipe(
   Layer.provide([AuthorizationService.layer, MonitorService.layer, WorkspaceConfigService.layer]),

@@ -1,7 +1,7 @@
 // fallow-ignore-file code-duplication
 import { describe, expect, it } from "@effect/vitest";
 import { vi } from "vitest";
-import { Effect, HashSet, Option, Redacted } from "effect";
+import { Context, Effect, HashSet, Option, Redacted } from "effect";
 import { Headers } from "effect/unstable/http";
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
 import { MessageRoomOrder } from "sheet-ingress-api/schemas/messageRoomOrder";
@@ -9,15 +9,34 @@ import { DispatchRoomOrderButtonMethods } from "sheet-ingress-api/sheet-apis-rpc
 import { DispatchWorkflowOperations } from "sheet-ingress-api/sheet-workflows-workflows";
 import { getIngressRpcHeaders } from "./rpcAuthorizationClient";
 import { SheetWorkflowsForwardingClient } from "./sheetWorkflowsForwardingClient";
-import { SheetWorkflowsRpcClient } from "./sheetWorkflowsRpcClient";
+import { SheetWorkflowsHttpClient } from "./sheetWorkflowsHttpClient";
 import { SheetApisRpcTokens } from "./sheetApisRpcTokens";
 
 const dispatchClient = { platform: "discord", clientId: "discord-main" } as const;
 
-const makeSheetApisRpcTokens = () =>
-  ({
-    getServiceToken: (resource: string) => Effect.succeed(`${resource}-token`),
-  }) as never;
+const makeSheetApisRpcTokens = (): Context.Service.Shape<typeof SheetApisRpcTokens> => ({
+  getServiceUser: Effect.fn("test.getServiceUser")(() =>
+    Effect.succeed({
+      accountId: "service",
+      userId: "service",
+      permissions: HashSet.fromIterable(["service"]),
+      scopes: new Set(["service"]) as never,
+      token: Redacted.make("unavailable"),
+      tokenType: "service",
+    }),
+  ),
+  getServiceToken: Effect.fn("test.getServiceToken")((resource: string) =>
+    Effect.succeed(`${resource}-token`),
+  ),
+  getDelegatedAuthorization: Effect.fn("test.getDelegatedAuthorization")(({ resource, user }) => {
+    void user;
+    return Effect.succeed(Redacted.make(`${resource}-delegated-token`));
+  }),
+  withServiceUser: Effect.fn("test.withServiceUser")(function* (effect) {
+    const serviceUser = yield* makeSheetApisRpcTokens().getServiceUser();
+    return yield* effect.pipe(Effect.provideService(SheetAuthUser, serviceUser));
+  }),
+});
 
 const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(
@@ -28,115 +47,102 @@ const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
       permissions: HashSet.empty(),
       scopes: new Set() as never,
       token: Redacted.make("sheet-auth-session-token"),
+      tokenType: "session",
     }),
-  ) as Effect.Effect<A, E, never>;
+  );
+
+const runWithoutUser = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  effect.pipe(Effect.provideService(SheetApisRpcTokens, makeSheetApisRpcTokens()));
 
 describe("SheetWorkflowsForwardingClient", () => {
-  it.effect(
-    "builds sheet-workflows ingress headers with sheet-auth session token but no Discord access token",
-    () =>
-      Effect.gen(function* () {
-        const headers = yield* run(
-          getIngressRpcHeaders({ serviceTokenResource: "sheet-workflows" }),
-        );
-
-        expect(Option.getOrUndefined(Headers.get(headers, "x-sheet-ingress-auth"))).toBe(
-          "Bearer sheet-workflows-token",
-        );
-        expect(Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-user-id"))).toBe("user-1");
-        expect(Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-account-id"))).toBe(
-          "discord-user-1",
-        );
-        expect(Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-session-token"))).toBe(
-          "Bearer sheet-auth-session-token",
-        );
-        expect(Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-token"))).toBe(
-          "Bearer sheet-auth-session-token",
-        );
-        expect(Option.isNone(Headers.get(headers, "x-sheet-discord-access-token"))).toBe(true);
-      }),
-  );
-
-  it.effect(
-    "builds sheet-bot ingress headers with the sheet-bot service token and shared auth context",
-    () =>
-      Effect.gen(function* () {
-        const headers = yield* run(getIngressRpcHeaders({ serviceTokenResource: "sheet-bot" }));
-
-        expect(Option.getOrUndefined(Headers.get(headers, "x-sheet-ingress-auth"))).toBe(
-          "Bearer sheet-bot-token",
-        );
-        expect(Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-user-id"))).toBe("user-1");
-        expect(Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-account-id"))).toBe(
-          "discord-user-1",
-        );
-        expect(Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-session-token"))).toBe(
-          "Bearer sheet-auth-session-token",
-        );
-        expect(Option.getOrUndefined(Headers.get(headers, "x-sheet-auth-token"))).toBe(
-          "Bearer sheet-auth-session-token",
-        );
-      }),
-  );
-
-  it.live("keeps split room-order forwarding methods aligned with shared button metadata", () =>
+  it.effect("builds sheet-workflows ingress headers with a delegated bearer token", () =>
     Effect.gen(function* () {
-      const makeDiscard = (operation: {
+      const headers = yield* run(getIngressRpcHeaders({ serviceTokenResource: "sheet-workflows" }));
+
+      expect(Option.getOrUndefined(Headers.get(headers, "authorization"))).toBe(
+        "Bearer sheet-workflows-delegated-token",
+      );
+      expect(Option.isNone(Headers.get(headers, "x-sheet-ingress-auth"))).toBe(true);
+      expect(Option.isNone(Headers.get(headers, "x-sheet-auth-session-token"))).toBe(true);
+      expect(Option.isNone(Headers.get(headers, "x-sheet-auth-token"))).toBe(true);
+    }),
+  );
+
+  it.effect("builds sheet-bot ingress headers with a service bearer token", () =>
+    Effect.gen(function* () {
+      const headers = yield* runWithoutUser(
+        getIngressRpcHeaders({ serviceTokenResource: "sheet-bot" }),
+      );
+
+      expect(Option.getOrUndefined(Headers.get(headers, "authorization"))).toBe(
+        "Bearer sheet-bot-token",
+      );
+      expect(Option.isNone(Headers.get(headers, "x-sheet-ingress-auth"))).toBe(true);
+    }),
+  );
+
+  it.effect("keeps split room-order forwarding methods aligned with shared button metadata", () =>
+    Effect.gen(function* () {
+      const makeDispatch = (operation: {
         readonly workflow: { executionId: (payload: never) => Effect.Effect<string> };
-      }) => vi.fn((payload) => operation.workflow.executionId(payload as never));
-      const rpcClient = {
-        [DispatchWorkflowOperations.autoCheckinTest.discardRpcTag]: makeDiscard(
+      }) =>
+        vi.fn((request: { readonly payload: never }) =>
+          operation.workflow.executionId(request.payload),
+        );
+      const dispatchWorkflows = {
+        [DispatchWorkflowOperations.autoCheckinTest.rpcTag]: makeDispatch(
           DispatchWorkflowOperations.autoCheckinTest,
         ),
-        [DispatchWorkflowOperations.checkin.discardRpcTag]: makeDiscard(
+        [DispatchWorkflowOperations.checkin.rpcTag]: makeDispatch(
           DispatchWorkflowOperations.checkin,
         ),
-        [DispatchWorkflowOperations.checkinButton.discardRpcTag]: makeDiscard(
+        [DispatchWorkflowOperations.checkinButton.rpcTag]: makeDispatch(
           DispatchWorkflowOperations.checkinButton,
         ),
-        [DispatchWorkflowOperations.roomOrder.discardRpcTag]: makeDiscard(
+        [DispatchWorkflowOperations.roomOrder.rpcTag]: makeDispatch(
           DispatchWorkflowOperations.roomOrder,
         ),
-        [DispatchWorkflowOperations.kickout.discardRpcTag]: makeDiscard(
+        [DispatchWorkflowOperations.kickout.rpcTag]: makeDispatch(
           DispatchWorkflowOperations.kickout,
         ),
-        [DispatchWorkflowOperations.slotButton.discardRpcTag]: makeDiscard(
+        [DispatchWorkflowOperations.slotButton.rpcTag]: makeDispatch(
           DispatchWorkflowOperations.slotButton,
         ),
-        [DispatchWorkflowOperations.slotList.discardRpcTag]: makeDiscard(
+        [DispatchWorkflowOperations.slotList.rpcTag]: makeDispatch(
           DispatchWorkflowOperations.slotList,
         ),
-        [DispatchWorkflowOperations.serviceStatus.discardRpcTag]: makeDiscard(
+        [DispatchWorkflowOperations.serviceStatus.rpcTag]: makeDispatch(
           DispatchWorkflowOperations.serviceStatus,
         ),
-        [DispatchWorkflowOperations.workspaceWelcome.discardRpcTag]: makeDiscard(
+        [DispatchWorkflowOperations.workspaceWelcome.rpcTag]: makeDispatch(
           DispatchWorkflowOperations.workspaceWelcome,
         ),
-        [DispatchWorkflowOperations.serviceAddWorkspaceFeatureFlag.discardRpcTag]: makeDiscard(
+        [DispatchWorkflowOperations.serviceAddWorkspaceFeatureFlag.rpcTag]: makeDispatch(
           DispatchWorkflowOperations.serviceAddWorkspaceFeatureFlag,
         ),
-        [DispatchWorkflowOperations.serviceRemoveWorkspaceFeatureFlag.discardRpcTag]: makeDiscard(
+        [DispatchWorkflowOperations.serviceRemoveWorkspaceFeatureFlag.rpcTag]: makeDispatch(
           DispatchWorkflowOperations.serviceRemoveWorkspaceFeatureFlag,
         ),
-        [DispatchWorkflowOperations.slotOpenButton.discardRpcTag]: makeDiscard(
+        [DispatchWorkflowOperations.slotOpenButton.rpcTag]: makeDispatch(
           DispatchWorkflowOperations.slotOpenButton,
         ),
-        [DispatchWorkflowOperations.roomOrderPreviousButton.discardRpcTag]: makeDiscard(
+        [DispatchWorkflowOperations.roomOrderPreviousButton.rpcTag]: makeDispatch(
           DispatchWorkflowOperations.roomOrderPreviousButton,
         ),
-        [DispatchWorkflowOperations.roomOrderNextButton.discardRpcTag]: makeDiscard(
+        [DispatchWorkflowOperations.roomOrderNextButton.rpcTag]: makeDispatch(
           DispatchWorkflowOperations.roomOrderNextButton,
         ),
-        [DispatchWorkflowOperations.roomOrderSendButton.discardRpcTag]: makeDiscard(
+        [DispatchWorkflowOperations.roomOrderSendButton.rpcTag]: makeDispatch(
           DispatchWorkflowOperations.roomOrderSendButton,
         ),
-        [DispatchWorkflowOperations.roomOrderPinTentativeButton.discardRpcTag]: makeDiscard(
+        [DispatchWorkflowOperations.roomOrderPinTentativeButton.rpcTag]: makeDispatch(
           DispatchWorkflowOperations.roomOrderPinTentativeButton,
         ),
       };
+      const httpClient = { dispatchWorkflows };
 
       const client = yield* SheetWorkflowsForwardingClient.make.pipe(
-        Effect.provideService(SheetWorkflowsRpcClient, rpcClient as never),
+        Effect.provideService(SheetWorkflowsHttpClient, httpClient as never),
       );
       const expectDispatchResult = (
         effect: Effect.Effect<unknown, unknown, never>,
@@ -146,11 +152,11 @@ describe("SheetWorkflowsForwardingClient", () => {
           const result = yield* effect;
           expect(result).toMatchObject(expected);
         });
-      const expectDiscarded = <O extends { readonly discardRpcTag: keyof typeof rpcClient }>(
+      const expectDispatched = <O extends { readonly rpcTag: keyof typeof dispatchWorkflows }>(
         operation: O,
         payload: unknown,
       ) => {
-        expect(rpcClient[operation.discardRpcTag]).toHaveBeenCalledWith(payload);
+        expect(dispatchWorkflows[operation.rpcTag]).toHaveBeenCalledWith({ payload });
       };
 
       const requester = { accountId: "account-1", userId: "user-1" };
@@ -213,7 +219,7 @@ describe("SheetWorkflowsForwardingClient", () => {
           operation: "autoCheckinTest",
         },
       );
-      expectDiscarded(DispatchWorkflowOperations.autoCheckinTest, {
+      expectDispatched(DispatchWorkflowOperations.autoCheckinTest, {
         requester,
         payload: {
           client: dispatchClient,
@@ -233,7 +239,7 @@ describe("SheetWorkflowsForwardingClient", () => {
           operation: "checkin",
         },
       );
-      expectDiscarded(DispatchWorkflowOperations.checkin, checkinPayload);
+      expectDispatched(DispatchWorkflowOperations.checkin, checkinPayload);
       yield* expectDispatchResult(
         client.dispatch.checkinButton({
           requester,
@@ -246,7 +252,7 @@ describe("SheetWorkflowsForwardingClient", () => {
         } as never) as Effect.Effect<unknown, unknown, never>,
         { operation: "checkinButton" },
       );
-      expectDiscarded(DispatchWorkflowOperations.checkinButton, {
+      expectDispatched(DispatchWorkflowOperations.checkinButton, {
         requester,
         payload: {
           client: dispatchClient,
@@ -266,7 +272,7 @@ describe("SheetWorkflowsForwardingClient", () => {
         } as never) as Effect.Effect<unknown, unknown, never>,
         { operation: "roomOrder" },
       );
-      expectDiscarded(DispatchWorkflowOperations.roomOrder, {
+      expectDispatched(DispatchWorkflowOperations.roomOrder, {
         requester,
         payload: {
           client: dispatchClient,
@@ -285,7 +291,7 @@ describe("SheetWorkflowsForwardingClient", () => {
         } as never) as Effect.Effect<unknown, unknown, never>,
         { operation: "kickout" },
       );
-      expectDiscarded(DispatchWorkflowOperations.kickout, {
+      expectDispatched(DispatchWorkflowOperations.kickout, {
         requester,
         payload: {
           client: dispatchClient,
@@ -308,7 +314,7 @@ describe("SheetWorkflowsForwardingClient", () => {
         } as never) as Effect.Effect<unknown, unknown, never>,
         { operation: "slotButton" },
       );
-      expectDiscarded(DispatchWorkflowOperations.slotButton, {
+      expectDispatched(DispatchWorkflowOperations.slotButton, {
         requester,
         payload: {
           client: dispatchClient,
@@ -335,7 +341,7 @@ describe("SheetWorkflowsForwardingClient", () => {
         } as never) as Effect.Effect<unknown, unknown, never>,
         { operation: "slotList" },
       );
-      expectDiscarded(DispatchWorkflowOperations.slotList, {
+      expectDispatched(DispatchWorkflowOperations.slotList, {
         requester,
         payload: {
           client: dispatchClient,
@@ -359,7 +365,7 @@ describe("SheetWorkflowsForwardingClient", () => {
         } as never) as Effect.Effect<unknown, unknown, never>,
         { operation: "slotOpenButton" },
       );
-      expectDiscarded(DispatchWorkflowOperations.slotOpenButton, {
+      expectDispatched(DispatchWorkflowOperations.slotOpenButton, {
         requester,
         payload: {
           client: dispatchClient,
@@ -380,7 +386,7 @@ describe("SheetWorkflowsForwardingClient", () => {
         } as never) as Effect.Effect<unknown, unknown, never>,
         { operation: "serviceStatus" },
       );
-      expectDiscarded(DispatchWorkflowOperations.serviceStatus, {
+      expectDispatched(DispatchWorkflowOperations.serviceStatus, {
         requester,
         payload: {
           client: dispatchClient,
@@ -403,7 +409,7 @@ describe("SheetWorkflowsForwardingClient", () => {
         } as never) as Effect.Effect<unknown, unknown, never>,
         { operation: "workspaceWelcome" },
       );
-      expectDiscarded(DispatchWorkflowOperations.workspaceWelcome, {
+      expectDispatched(DispatchWorkflowOperations.workspaceWelcome, {
         requester,
         payload: {
           client: dispatchClient,
@@ -437,11 +443,11 @@ describe("SheetWorkflowsForwardingClient", () => {
         ) as Effect.Effect<unknown, unknown, never>,
         { operation: "serviceRemoveWorkspaceFeatureFlag" },
       );
-      expectDiscarded(
+      expectDispatched(
         DispatchWorkflowOperations.serviceAddWorkspaceFeatureFlag,
         serviceFeatureFlagPayload,
       );
-      expectDiscarded(
+      expectDispatched(
         DispatchWorkflowOperations.serviceRemoveWorkspaceFeatureFlag,
         serviceFeatureFlagPayload,
       );
@@ -483,7 +489,7 @@ describe("SheetWorkflowsForwardingClient", () => {
           },
         );
         if (operation !== undefined) {
-          expectDiscarded(operation, payload);
+          expectDispatched(operation, payload);
         }
       }
     }),

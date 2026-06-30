@@ -15,6 +15,7 @@ const makeSheetIngressAuthorizer = Effect.gen(function* () {
     issuer: sheetAuthIssuer,
     audience,
     requiredScopes: ["ingress.forward"],
+    headerName: "authorization",
   });
 });
 

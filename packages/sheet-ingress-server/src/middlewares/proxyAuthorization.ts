@@ -1,9 +1,8 @@
-import { Cache, Context, Duration, Effect, Exit, HashSet, Layer, Option, Redacted } from "effect";
+import { Cache, Context, Duration, Effect, Exit, Layer, Option, Redacted } from "effect";
 import { SheetApisAnonymousUserFallback } from "sheet-ingress-api/middlewares/sheetApisAnonymousUserFallback/tag";
 import { SheetApisServiceUserFallback } from "sheet-ingress-api/middlewares/sheetApisServiceUserFallback/tag";
 import { SheetBotServiceAuthorization } from "sheet-ingress-api/middlewares/sheetBotServiceAuthorization/tag";
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
-import type { SheetAuthOAuthScope } from "sheet-ingress-api/schemas/permissions";
 import { Unauthorized } from "typhoon-core/error";
 import { hasPermission } from "../services/authorization";
 import { SheetAuthUserResolver } from "../services/authResolver";
@@ -87,15 +86,7 @@ export const SheetApisAnonymousUserFallbackLive = Layer.succeed(
         return yield* httpEffect.pipe(Effect.provideService(SheetAuthUser, maybeUser.value));
       }
 
-      return yield* httpEffect.pipe(
-        Effect.provideService(SheetAuthUser, {
-          accountId: "anonymous",
-          userId: "anonymous",
-          permissions: HashSet.empty(),
-          scopes: new Set() as ReadonlySet<SheetAuthOAuthScope>,
-          token: Redacted.make("anonymous-token-unavailable"),
-        }),
-      );
+      return yield* httpEffect;
     }),
   ),
 );

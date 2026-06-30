@@ -62,6 +62,10 @@ export const config = {
   tokenExchangeSubjectJwtIssuer: Config.option(
     Config.schema(Schema.NonEmptyString, "SHEET_AUTH_TOKEN_EXCHANGE_SUBJECT_JWT_ISSUER"),
   ),
+  tokenExchangeAccessTokenExpiresIn: Config.schema(
+    Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 300 })),
+    "SHEET_AUTH_TOKEN_EXCHANGE_ACCESS_TOKEN_EXPIRES_IN",
+  ).pipe(Config.withDefault(300)),
   subjectTokenKubernetesAudience: Config.schema(
     Schema.NonEmptyString,
     "SHEET_AUTH_SUBJECT_TOKEN_KUBERNETES_AUDIENCE",

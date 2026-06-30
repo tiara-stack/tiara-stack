@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { SheetApisRpcAuthorization } from "sheet-ingress-api/middlewares/sheetApisRpcAuthorization/tag";
+import { SheetIngressServiceAuthorization } from "sheet-ingress-api/middlewares/sheetIngressServiceAuthorization/tag";
 import { SheetApisRpcs } from "sheet-ingress-api/sheet-apis-rpc";
 
 describe("SheetApisRpcs", () => {
@@ -26,7 +26,7 @@ describe("SheetApisRpcs", () => {
     expect(SheetApisRpcs.requests.has("roomOrder.handleButton")).toBe(false);
   });
 
-  it("requires authorization middleware on clients", () => {
-    expect(SheetApisRpcAuthorization.requiredForClient).toBe(true);
+  it("does not require internal ingress service authorization on generated clients", () => {
+    expect(SheetIngressServiceAuthorization.requiredForClient).toBe(false);
   });
 });

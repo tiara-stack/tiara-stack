@@ -67,6 +67,7 @@ scrape policies default to the `monitoring` namespace; override
 - `sheetIngressBaseUrl`
 - `sheetApisServiceClientId`
 - `sheetApisServiceClientSecret`
+- `sheetAuthTrustedDelegationClientIds`
 
 `sheet-apis-secret-path`
 
@@ -91,6 +92,7 @@ scrape policies default to the `monitoring` namespace; override
 - `sheetIngressBaseUrl`
 - `sheetWorkflowsServiceClientId`
 - `sheetWorkflowsServiceClientSecret`
+- `sheetAuthTrustedDelegationClientIds`
 
 `sdbs-secret`
 
@@ -107,6 +109,8 @@ scrape policies default to the `monitoring` namespace; override
 - `trustedOrigins`
 - `sheetIngressServiceClientId`
 - `sheetIngressServiceClientSecret`
+- `sheetAuthOAuthTokenExchangeClientId` optional
+- `sheetAuthOAuthTokenExchangeClientSecret` optional
 
 `sheet-web-secret`
 

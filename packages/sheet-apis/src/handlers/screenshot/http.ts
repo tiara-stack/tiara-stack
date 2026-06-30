@@ -1,10 +1,11 @@
 import { Effect, Layer } from "effect";
-import { ScreenshotRpcs } from "sheet-ingress-api/sheet-apis-rpc";
+import { type HandlerMap, sheetApisGroupLayer } from "@/handlers/shared/httpApiLayer";
 import { withCurrentWorkspaceAuthFromQuery } from "@/handlers/shared/workspaceAuthorization";
 import { getSheetIdFromWorkspaceId } from "@/handlers/shared/workspaceConfig";
 import { AuthorizationService, ScreenshotService, WorkspaceConfigService } from "@/services";
 
-export const screenshotLayer = ScreenshotRpcs.toLayer(
+export const screenshotLayer = sheetApisGroupLayer(
+  "screenshot",
   Effect.gen(function* () {
     const authorizationService = yield* AuthorizationService;
     const screenshotService = yield* ScreenshotService;
@@ -22,7 +23,7 @@ export const screenshotLayer = ScreenshotRpcs.toLayer(
           return yield* screenshotService.getScreenshot(sheetId, query.conversationName, query.day);
         }),
       ),
-    };
+    } satisfies HandlerMap<"screenshot">;
   }),
 ).pipe(
   Layer.provide([

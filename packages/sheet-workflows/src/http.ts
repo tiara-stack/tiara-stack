@@ -1,12 +1,11 @@
 import { NodeFileSystem, NodeHttpServer } from "@effect/platform-node";
 import { HttpRouter, HttpServer, HttpServerResponse } from "effect/unstable/http";
-import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
+import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { Effect, Layer } from "effect";
 import { createServer } from "http";
-import { SheetWorkflowsRpcs } from "sheet-ingress-api/sheet-workflows-rpc";
+import { SheetWorkflowsInternalApi } from "sheet-ingress-api/sheet-workflows-internal";
 import { clusterWorkflowEngineClientLayer } from "./cluster";
 import { dispatchLayer } from "./handlers/dispatch";
-import { healthLayer as healthRpcLayer } from "./handlers/health";
 import { SheetAuthTokenAuthorizationLive } from "./middlewares/sheetAuthTokenAuthorization/live";
 import {
   isCurrentClusterRunnerReady,
@@ -15,18 +14,15 @@ import {
   SheetApisClient,
 } from "./services";
 import { config } from "./config";
+import { SheetIngressServiceAuthorizationLive } from "./middlewares/sheetIngressServiceAuthorization/live";
 
-const rpcHandlersLayer = Layer.mergeAll(dispatchLayer, healthRpcLayer);
+const apiHandlersLayer = Layer.mergeAll(dispatchLayer);
 
-const rpcRoutesLayer = RpcServer.layerHttp({
-  group: SheetWorkflowsRpcs,
-  path: "/rpc",
-  protocol: "http",
-}).pipe(
-  Layer.provide(rpcHandlersLayer),
+const apiRoutesLayer = HttpApiBuilder.layer(SheetWorkflowsInternalApi).pipe(
+  Layer.provide(apiHandlersLayer),
   Layer.provide(clusterWorkflowEngineClientLayer),
+  Layer.provide(SheetIngressServiceAuthorizationLive),
   Layer.provide(SheetAuthTokenAuthorizationLive),
-  Layer.provide(RpcSerialization.layerJson),
   Layer.merge(HttpRouter.add("GET", "/live", HttpServerResponse.empty({ status: 200 }))),
   Layer.merge(
     HttpRouter.add(
@@ -47,7 +43,7 @@ const httpServerLayer = Layer.unwrap(
   }),
 );
 
-export const httpLayer = HttpRouter.serve(rpcRoutesLayer).pipe(
+export const httpLayer = HttpRouter.serve(apiRoutesLayer).pipe(
   Layer.provide(SheetApisClient.layer),
   Layer.provide(postgresSqlLayer),
   Layer.provide(NodeFileSystem.layer),

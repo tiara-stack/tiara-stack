@@ -1,10 +1,11 @@
 import { Array, Effect, HashMap, Layer } from "effect";
-import { PlayerRpcs } from "sheet-ingress-api/sheet-apis-rpc";
+import { type HandlerMap, sheetApisGroupLayer } from "@/handlers/shared/httpApiLayer";
 import { withCurrentWorkspaceAuthFromQuery } from "@/handlers/shared/workspaceAuthorization";
 import { getSheetIdFromWorkspaceId } from "@/handlers/shared/workspaceConfig";
 import { AuthorizationService, PlayerService, WorkspaceConfigService } from "@/services";
 
-export const playerLayer = PlayerRpcs.toLayer(
+export const playerLayer = sheetApisGroupLayer(
+  "player",
   Effect.gen(function* () {
     const authorizationService = yield* AuthorizationService;
     const playerService = yield* PlayerService;
@@ -95,7 +96,7 @@ export const playerLayer = PlayerRpcs.toLayer(
           return [teams] as const;
         }),
       ),
-    };
+    } satisfies HandlerMap<"player">;
   }),
 ).pipe(
   Layer.provide([AuthorizationService.layer, PlayerService.layer, WorkspaceConfigService.layer]),

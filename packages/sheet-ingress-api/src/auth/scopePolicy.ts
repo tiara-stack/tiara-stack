@@ -1,6 +1,6 @@
 import { Effect, HashSet } from "effect";
 import { Unauthorized } from "typhoon-core/error";
-import { getRpcScopePolicy, type SheetRpcScopePolicy } from "../middlewares/rpcScopePolicy";
+import { getSheetScopePolicy, type SheetScopePolicy } from "../middlewares/rpcScopePolicy";
 import { getRpcTag } from "../middlewares/rpcTag";
 import { SheetAuthUser } from "../schemas/middlewares/sheetAuthUser";
 import type { Permission, SheetAuthOAuthScope } from "../schemas/permissions";
@@ -36,7 +36,7 @@ const requireUserScopePolicy = (
 
 export const requireKnownScopePolicy = (
   rpcTag: string,
-  policy: SheetRpcScopePolicy,
+  policy: SheetScopePolicy,
   user: ForwardedSheetAuthUser,
 ) => {
   if (policy._tag === "none") {
@@ -66,7 +66,7 @@ export const requireWorkflowScopePolicy = (
     }
     const rpcTag = rpcTagResult.tag;
 
-    const policy = getRpcScopePolicy(rpc);
+    const policy = getSheetScopePolicy(rpc);
     if (!policy) {
       return yield* Effect.fail(
         new Unauthorized({ message: `No OAuth scope policy configured for ${rpcTag}` }),
@@ -74,4 +74,20 @@ export const requireWorkflowScopePolicy = (
     }
 
     return yield* requireKnownScopePolicy(rpcTag, policy, user);
+  });
+
+export const requireHttpEndpointScopePolicy = (
+  endpoint: { readonly name: string },
+  user: ForwardedSheetAuthUser,
+  _options: Omit<RequireWorkflowScopePolicyOptions, "fallbackLogMessage">,
+) =>
+  Effect.gen(function* () {
+    const policy = getSheetScopePolicy(endpoint);
+    if (!policy) {
+      return yield* Effect.fail(
+        new Unauthorized({ message: `No OAuth scope policy configured for ${endpoint.name}` }),
+      );
+    }
+
+    return yield* requireKnownScopePolicy(endpoint.name, policy, user);
   });

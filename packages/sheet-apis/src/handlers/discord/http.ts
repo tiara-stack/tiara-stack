@@ -2,7 +2,7 @@ import { GuildsApiCacheView } from "dfx-discord-utils/discord/cache/guilds";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 import { Effect, Layer, Redacted, Schema } from "effect";
 import { makeArgumentError } from "typhoon-core/error";
-import { DiscordRpcs } from "sheet-ingress-api/sheet-apis-rpc";
+import { sheetApisGroupLayer } from "@/handlers/shared/httpApiLayer";
 import { Discord } from "@/schema";
 import { discordLayer as discordServiceLayer, DiscordAccessTokenService } from "@/services";
 
@@ -20,7 +20,8 @@ const formatError = (error: unknown) =>
       ? error
       : JSON.stringify(error);
 
-export const discordLayer = DiscordRpcs.toLayer(
+export const discordLayer = sheetApisGroupLayer(
+  "discord",
   Effect.gen(function* () {
     const guildsCache = yield* GuildsApiCacheView;
     const httpClient = yield* HttpClient.HttpClient;

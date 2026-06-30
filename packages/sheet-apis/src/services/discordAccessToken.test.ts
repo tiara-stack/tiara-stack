@@ -26,6 +26,7 @@ const makeUser = (token: string) => ({
   permissions: HashSet.empty(),
   scopes: new Set() as never,
   token: Redacted.make(token),
+  tokenType: "session" as const,
 });
 
 const run = <A, E, R>(effect: Effect.Effect<A, E, R>, token = "sheet-auth-session-token") =>

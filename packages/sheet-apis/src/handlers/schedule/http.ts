@@ -1,6 +1,6 @@
 // fallow-ignore-file complexity
 import { Effect, Layer } from "effect";
-import { ScheduleRpcs } from "sheet-ingress-api/sheet-apis-rpc";
+import { type HandlerMap, sheetApisGroupLayer } from "@/handlers/shared/httpApiLayer";
 import { withCurrentWorkspaceAuthFromQuery } from "@/handlers/shared/workspaceAuthorization";
 import { getSheetIdFromWorkspaceId } from "@/handlers/shared/workspaceConfig";
 import { hasWorkspacePermission, hasPermission } from "@/services/authorization";
@@ -14,7 +14,8 @@ import {
 } from "@/services";
 import { resolveScheduleViewFromPermissions } from "./shared";
 
-export const scheduleLayer = ScheduleRpcs.toLayer(
+export const scheduleLayer = sheetApisGroupLayer(
+  "schedule",
   Effect.gen(function* () {
     const authorizationService = yield* AuthorizationService;
     const scheduleService = yield* ScheduleService;
@@ -117,7 +118,7 @@ export const scheduleLayer = ScheduleRpcs.toLayer(
           };
         }),
       ),
-    };
+    } satisfies HandlerMap<"schedule">;
   }),
 ).pipe(
   Layer.provide([AuthorizationService.layer, ScheduleService.layer, WorkspaceConfigService.layer]),

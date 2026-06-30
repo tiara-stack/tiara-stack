@@ -1,7 +1,7 @@
 // fallow-ignore-file code-duplication
 import { describe, expect, it } from "@effect/vitest";
-import { Cause, Context, Effect, HashSet, Redacted, Ref } from "effect";
-import { HttpServerResponse } from "effect/unstable/http";
+import { Cause, Context, Effect, HashSet, Option, Redacted, Ref } from "effect";
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { SheetApisAnonymousUserFallback } from "sheet-ingress-api/middlewares/sheetApisAnonymousUserFallback/tag";
 import { SheetApisServiceUserFallback } from "sheet-ingress-api/middlewares/sheetApisServiceUserFallback/tag";
 import { SheetBotServiceAuthorization } from "sheet-ingress-api/middlewares/sheetBotServiceAuthorization/tag";
@@ -20,6 +20,19 @@ type SheetAuthUserType = Context.Service.Shape<typeof SheetAuthUser>;
 
 const options = { endpoint: undefined as never, group: undefined as never };
 
+const provideHttpRequestContext = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  effect.pipe(
+    Effect.provideService(
+      HttpServerRequest.HttpServerRequest,
+      HttpServerRequest.fromWeb(new Request("http://localhost/test")),
+    ),
+    Effect.provideService(HttpServerRequest.ParsedSearchParams, {}),
+    Effect.provideService(HttpRouter.RouteContext, {
+      params: {},
+      route: undefined as never,
+    }),
+  );
+
 const runPromise = <A, E>(effect: Effect.Effect<A, E, unknown>) =>
   effect as Effect.Effect<A, E, never>;
 
@@ -33,6 +46,7 @@ const makeUser = (accountId: string, permissions: Iterable<Permission> = []) =>
     permissions: HashSet.fromIterable(permissions),
     scopes: new Set() as never,
     token: Redacted.make(`${accountId}-token`),
+    tokenType: "session",
   }) as SheetAuthUserType;
 
 const makeServiceUser = () =>
@@ -42,6 +56,7 @@ const makeServiceUser = () =>
     permissions: HashSet.fromIterable(["service"]),
     scopes: new Set(["service"]) as never,
     token: Redacted.make("service-token"),
+    tokenType: "service",
   }) satisfies SheetAuthUserType;
 
 const captureUser = (ref: Ref.Ref<SheetAuthUserType | undefined>) =>
@@ -51,33 +66,40 @@ const captureUser = (ref: Ref.Ref<SheetAuthUserType | undefined>) =>
     return HttpServerResponse.empty();
   });
 
+const captureOptionalUser = (ref: Ref.Ref<SheetAuthUserType | undefined>) =>
+  Effect.gen(function* () {
+    const maybeUser = yield* Effect.serviceOption(SheetAuthUser);
+    yield* Ref.set(ref, Option.getOrUndefined(maybeUser));
+    return HttpServerResponse.empty();
+  });
+
 describe("proxy authorization middleware", () => {
-  it.effect("provides anonymous user when no auth user exists", () =>
+  it.effect("does not provide anonymous user when no auth user exists", () =>
     Effect.gen(function* () {
-      const user = yield* runPromise(
+      const user = yield* Effect.scoped(
         Effect.gen(function* () {
           const middleware = yield* SheetApisAnonymousUserFallback;
           const ref = yield* Ref.make<SheetAuthUserType | undefined>(undefined);
-          yield* middleware(captureUser(ref), options);
+          yield* provideHttpRequestContext(middleware(captureOptionalUser(ref), options));
           return yield* Ref.get(ref);
         }).pipe(Effect.provide(SheetApisAnonymousUserFallbackLive)),
       );
 
-      expect(user?.accountId).toBe("anonymous");
-      expect(user?.userId).toBe("anonymous");
-      expect(HashSet.size(user?.permissions ?? HashSet.empty())).toBe(0);
+      expect(user).toBeUndefined();
     }),
   );
 
   it.effect("preserves an existing auth user for anonymous fallback", () =>
     Effect.gen(function* () {
       const existing = makeUser("discord-user");
-      const user = yield* runPromise(
+      const user = yield* Effect.scoped(
         Effect.gen(function* () {
           const middleware = yield* SheetApisAnonymousUserFallback;
           const ref = yield* Ref.make<SheetAuthUserType | undefined>(undefined);
-          yield* middleware(captureUser(ref), options).pipe(
-            Effect.provideService(SheetAuthUser, existing),
+          yield* provideHttpRequestContext(
+            middleware(captureOptionalUser(ref), options).pipe(
+              Effect.provideService(SheetAuthUser, existing),
+            ),
           );
           return yield* Ref.get(ref);
         }).pipe(Effect.provide(SheetApisAnonymousUserFallbackLive)),

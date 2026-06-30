@@ -1,5 +1,5 @@
 import { Effect, Layer, Option, Predicate } from "effect";
-import { WorkspaceConfigRpcs } from "sheet-ingress-api/sheet-apis-rpc";
+import { type HandlerMap, sheetApisGroupLayer } from "@/handlers/shared/httpApiLayer";
 import {
   withCurrentWorkspaceAuthFromPayload,
   withCurrentWorkspaceAuthFromQuery,
@@ -17,7 +17,8 @@ const missingRunningFilterMessage = (
   messageWithRunning: string,
 ) => (Predicate.isUndefined(running) ? messageWithoutRunning : messageWithRunning);
 
-export const workspaceConfigLayer = WorkspaceConfigRpcs.toLayer(
+export const workspaceConfigLayer = sheetApisGroupLayer(
+  "workspaceConfig",
   Effect.gen(function* () {
     const authorizationService = yield* AuthorizationService;
     const workspaceConfigService = yield* WorkspaceConfigService;
@@ -188,6 +189,6 @@ export const workspaceConfigLayer = WorkspaceConfigRpcs.toLayer(
 
         return config.value;
       }),
-    };
+    } satisfies HandlerMap<"workspaceConfig">;
   }),
 ).pipe(Layer.provide([AuthorizationService.layer, WorkspaceConfigService.layer]));

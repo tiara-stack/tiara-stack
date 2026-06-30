@@ -15,6 +15,7 @@ import {
   type SheetAuthClient as SheetAuthClientValue,
 } from "sheet-auth/client";
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
+import type { SheetAuthUserTokenType } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
 import { Unauthorized } from "typhoon-core/error";
 import {
   SheetAuthOAuthScope,
@@ -32,6 +33,7 @@ interface CachedAuthorization {
   readonly accountId: string;
   readonly permissions: PermissionSet;
   readonly scopes: ReadonlySet<SheetAuthOAuthScope>;
+  readonly tokenType: SheetAuthUserTokenType;
 }
 
 type SheetAuthUserType = Context.Service.Shape<typeof SheetAuthUser>;
@@ -79,6 +81,7 @@ const resolveCachedAuthorization = Effect.fn("resolveCachedAuthorization")(funct
       ),
     ),
     scopes: sheetAuthOAuthScopeSetFromIterable(identity.scopes),
+    tokenType: identity.tokenType,
   } satisfies CachedAuthorization;
 });
 
@@ -170,6 +173,7 @@ export class SheetAuthUserResolver extends Context.Service<SheetAuthUserResolver
             permissions,
             scopes: authorization.scopes,
             token,
+            tokenType: authorization.tokenType,
           } satisfies SheetAuthUserType;
         }),
       };

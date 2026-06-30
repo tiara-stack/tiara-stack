@@ -24,6 +24,25 @@ export const config = {
   sheetAuthOAuthAudience: Config.string("SHEET_AUTH_OAUTH_AUDIENCE").pipe(
     Config.withDefault("sheet-workflows"),
   ),
+  sheetAuthTrustedDelegationClientIds: Config.string(
+    "SHEET_AUTH_TRUSTED_DELEGATION_CLIENT_IDS",
+  ).pipe(
+    Config.map((value) => {
+      const clientIds: string[] = [];
+      for (const entry of value.split(",")) {
+        const clientId = entry.trim();
+        if (clientId.length > 0) {
+          clientIds.push(clientId);
+        }
+      }
+      return clientIds;
+    }),
+    Config.mapOrFail((clientIds) =>
+      Schema.decodeUnknownEffect(Schema.NonEmptyArray(nonEmptyString))(clientIds).pipe(
+        Effect.mapError((error) => new Config.ConfigError(error)),
+      ),
+    ),
+  ),
   postgresUrl: Config.schema(Schema.Redacted(Schema.String), "POSTGRES_URL"),
   workflowsRunnerHost: Config.string("WORKFLOWS_RUNNER_HOST"),
   workflowsRunnerPort: Config.port("WORKFLOWS_RUNNER_PORT").pipe(Config.withDefault(34431)),

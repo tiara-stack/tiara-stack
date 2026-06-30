@@ -241,6 +241,8 @@ imagePullSecrets:
       secretKey: sheetApisServiceClientSecret
     - name: SHEET_AUTH_OAUTH_AUDIENCE
       value: sheet-apis
+    - name: SHEET_AUTH_TRUSTED_DELEGATION_CLIENT_IDS
+      secretKey: sheetAuthTrustedDelegationClientIds
     - name: SHEET_INGRESS_BASE_URL
       secretKey: sheetIngressBaseUrl
     - name: SERVICE_ACCOUNT_JWKS_AUTH_TOKEN_PATH
@@ -351,6 +353,8 @@ imagePullSecrets:
       secretKey: sheetWorkflowsServiceClientSecret
     - name: SHEET_AUTH_OAUTH_AUDIENCE
       value: sheet-workflows
+    - name: SHEET_AUTH_TRUSTED_DELEGATION_CLIENT_IDS
+      secretKey: sheetAuthTrustedDelegationClientIds
     - name: SHEET_INGRESS_BASE_URL
       secretKey: sheetIngressBaseUrl
     - name: SERVICE_ACCOUNT_JWKS_AUTH_TOKEN_PATH
@@ -417,6 +421,8 @@ imagePullSecrets:
       secretKey: sheetWorkflowsServiceClientSecret
     - name: SHEET_AUTH_OAUTH_AUDIENCE
       value: sheet-workflows
+    - name: SHEET_AUTH_TRUSTED_DELEGATION_CLIENT_IDS
+      secretKey: sheetAuthTrustedDelegationClientIds
     - name: SHEET_INGRESS_BASE_URL
       secretKey: sheetIngressBaseUrl
     - name: SERVICE_ACCOUNT_JWKS_AUTH_TOKEN_PATH
@@ -493,6 +499,12 @@ imagePullSecrets:
       secretKey: sheetIngressServiceClientId
     - name: SHEET_AUTH_OAUTH_CLIENT_SECRET
       secretKey: sheetIngressServiceClientSecret
+    - name: SHEET_AUTH_OAUTH_TOKEN_EXCHANGE_CLIENT_ID
+      secretKey: sheetAuthOAuthTokenExchangeClientId
+      optional: true
+    - name: SHEET_AUTH_OAUTH_TOKEN_EXCHANGE_CLIENT_SECRET
+      secretKey: sheetAuthOAuthTokenExchangeClientSecret
+      optional: true
     - name: TRUSTED_ORIGINS
       secretKey: trustedOrigins
   networkPolicyFrom:

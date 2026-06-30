@@ -1,6 +1,6 @@
 // fallow-ignore-file code-duplication
 import { describe, expect, it } from "@effect/vitest";
-import { Deferred, Effect, Fiber } from "effect";
+import { Deferred, Effect, Fiber, HashSet, Redacted } from "effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 import { ClientDeliveryForwardingClient } from "./clientDeliveryForwardingClient";
 import { ClientRegistry } from "./clientRegistry";
@@ -55,7 +55,18 @@ const makeClientRegistryWithAlt = () =>
 
 const makeSheetApisRpcTokens = () =>
   ({
-    getServiceToken: (resource: string) => Effect.succeed(`${resource}-token`),
+    getServiceUser: () =>
+      Effect.succeed({
+        accountId: "service",
+        userId: "service",
+        permissions: HashSet.fromIterable(["service"]),
+        scopes: new Set(["service"]) as never,
+        token: Redacted.make("unavailable"),
+        tokenType: "service",
+      }),
+    getServiceToken: (resource: string) => Effect.succeed(`${resource}-service-token`),
+    getDelegatedAuthorization: ({ resource }: { readonly resource: string }) =>
+      Effect.succeed(Redacted.make(`${resource}-delegated-token`)),
   }) as never;
 
 const run = <A, E, R>(
@@ -130,7 +141,7 @@ const expectForwardedClientRequest = (
 ) => {
   expect(request.method).toBe(method);
   expect(request.url).toBe(url);
-  expect(request.headers["x-sheet-ingress-auth"]).toBe("Bearer sheet-bot-token");
+  expect(request.headers.authorization).toBe("Bearer sheet-bot-service-token");
 };
 
 const expectJsonRequestBody = (request: HttpClientRequest.HttpClientRequest, body: object) => {
@@ -304,7 +315,7 @@ describe("ClientDeliveryForwardingClient", () => {
       // because the alt client uses a different auth token
       expect(request.method).toBe("POST");
       expect(request.url).toBe("http://sheet-bot-discord-alt/clients/messages/send");
-      expect(request.headers["x-sheet-ingress-auth"]).toBe("Bearer sheet-bot-alt-token");
+      expect(request.headers.authorization).toBe("Bearer sheet-bot-alt-service-token");
       expectJsonRequestBody(request, {
         conversation: altConversationRef,
         message: outboundMessage,

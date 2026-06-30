@@ -1,9 +1,9 @@
 import { NodeFileSystem, NodeHttpServer } from "@effect/platform-node";
 import { HttpRouter, HttpServer, HttpServerResponse } from "effect/unstable/http";
-import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
+import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { Layer } from "effect";
 import { createServer } from "http";
-import { SheetApisRpcs } from "sheet-ingress-api/sheet-apis-rpc";
+import { SheetApisInternalApi } from "sheet-ingress-api/sheet-apis-internal";
 import { calcLayer } from "./handlers/calc";
 import { checkinLayer } from "./handlers/checkin";
 import { discordLayer } from "./handlers/discord";
@@ -23,6 +23,7 @@ import { sheetLayer } from "./handlers/sheet";
 import { statusLayer } from "./handlers/status";
 import { userConfigLayer } from "./handlers/userConfig";
 import { discordLayer as discordServiceLayer } from "./services/discord";
+import { SheetIngressServiceAuthorizationLive } from "./middlewares/sheetIngressServiceAuthorization/live";
 
 const rpcHandlersLayer = Layer.mergeAll(
   calcLayer,
@@ -44,20 +45,16 @@ const rpcHandlersLayer = Layer.mergeAll(
   userConfigLayer,
 );
 
-const rpcRoutesLayer = RpcServer.layerHttp({
-  group: SheetApisRpcs,
-  path: "/rpc",
-  protocol: "http",
-}).pipe(
+const apiRoutesLayer = HttpApiBuilder.layer(SheetApisInternalApi).pipe(
   Layer.provide(rpcHandlersLayer),
+  Layer.provide(SheetIngressServiceAuthorizationLive),
   Layer.provide(SheetAuthTokenAuthorizationLive),
-  Layer.provide(RpcSerialization.layerJson),
   Layer.merge(HttpRouter.add("GET", "/live", HttpServerResponse.empty({ status: 200 }))),
   Layer.merge(HttpRouter.add("GET", "/ready", HttpServerResponse.empty({ status: 200 }))),
   Layer.provideMerge(HttpRouter.layer),
 );
 
-export const httpLayer = HttpRouter.serve(rpcRoutesLayer).pipe(
+export const httpLayer = HttpRouter.serve(apiRoutesLayer).pipe(
   Layer.provide(discordServiceLayer),
   Layer.provide(NodeFileSystem.layer),
   HttpServer.withLogAddress,

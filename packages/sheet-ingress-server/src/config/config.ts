@@ -1,5 +1,5 @@
 // fallow-ignore-file code-duplication
-import { Config, Schema, SchemaGetter } from "effect";
+import { Config, Effect, Option, Schema, SchemaGetter } from "effect";
 
 const split = (separator: string) =>
   Schema.String.pipe(
@@ -11,6 +11,14 @@ const split = (separator: string) =>
 
 const nonEmptyString = Schema.NonEmptyString;
 const nonEmptySecret = Schema.Redacted(nonEmptyString);
+const tokenExchangeClientId = Config.schema(
+  nonEmptyString,
+  "SHEET_AUTH_OAUTH_TOKEN_EXCHANGE_CLIENT_ID",
+);
+const tokenExchangeClientSecret = Config.schema(
+  nonEmptySecret,
+  "SHEET_AUTH_OAUTH_TOKEN_EXCHANGE_CLIENT_SECRET",
+);
 const SheetClientConfig = Schema.Struct({
   platform: Schema.Literals(["discord"]),
   clientId: Schema.String,
@@ -19,6 +27,21 @@ const SheetClientConfig = Schema.Struct({
 });
 
 const sheetClients = Schema.fromJsonString(Schema.Array(SheetClientConfig));
+const sheetAuthOAuthTokenExchangeClientCredentials = Config.make((provider) =>
+  Effect.gen(function* () {
+    const clientId = yield* Config.option(tokenExchangeClientId).parse(provider);
+    const clientSecret = yield* Config.option(tokenExchangeClientSecret).parse(provider);
+
+    if (Option.isSome(clientId) && Option.isNone(clientSecret)) {
+      yield* tokenExchangeClientSecret.parse(provider);
+    }
+    if (Option.isNone(clientId) && Option.isSome(clientSecret)) {
+      yield* tokenExchangeClientId.parse(provider);
+    }
+
+    return { clientId, clientSecret };
+  }),
+);
 
 export const config = {
   port: Config.port("PORT").pipe(Config.withDefault(3000)),
@@ -38,6 +61,12 @@ export const config = {
   sheetAuthIssuer: Config.string("SHEET_AUTH_ISSUER"),
   sheetAuthOAuthClientId: Config.schema(nonEmptyString, "SHEET_AUTH_OAUTH_CLIENT_ID"),
   sheetAuthOAuthClientSecret: Config.schema(nonEmptySecret, "SHEET_AUTH_OAUTH_CLIENT_SECRET"),
+  sheetAuthOAuthTokenExchangeClientId: sheetAuthOAuthTokenExchangeClientCredentials.pipe(
+    Config.map(({ clientId }) => clientId),
+  ),
+  sheetAuthOAuthTokenExchangeClientSecret: sheetAuthOAuthTokenExchangeClientCredentials.pipe(
+    Config.map(({ clientSecret }) => clientSecret),
+  ),
   trustedOrigins: Config.schema(
     split(",").pipe(
       Schema.decodeTo(Schema.Array(Schema.Trim), {

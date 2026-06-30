@@ -1,11 +1,12 @@
 import { Context, Effect, Layer, Option } from "effect";
-import { UserConfigRpcs } from "sheet-ingress-api/sheet-apis-rpc";
+import { type HandlerMap, sheetApisGroupLayer } from "@/handlers/shared/httpApiLayer";
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
 import { AuthorizationService, UserConfigService } from "@/services";
 
 type SheetAuthUserType = Context.Service.Shape<typeof SheetAuthUser>;
 
-export const userConfigLayer = UserConfigRpcs.toLayer(
+export const userConfigLayer = sheetApisGroupLayer(
+  "userConfig",
   Effect.gen(function* () {
     const authorizationService = yield* AuthorizationService;
     const userConfigService = yield* UserConfigService;
@@ -18,10 +19,10 @@ export const userConfigLayer = UserConfigRpcs.toLayer(
     });
 
     return {
-      "userConfig.getCurrentUserPlatformConfig": Effect.fnUntraced(function* ({ query }) {
+      "userConfig.getCurrentUserPlatformConfig": Effect.fnUntraced(function* ({ params }) {
         const user = yield* getAuthUser;
         return yield* userConfigService.getCurrentUserPlatformConfig(
-          query.platform,
+          params.platform,
           user.accountId,
         );
       }),
@@ -60,6 +61,6 @@ export const userConfigLayer = UserConfigRpcs.toLayer(
           defaultClientId: payload.defaultClientId,
         });
       }),
-    } as any;
+    } satisfies HandlerMap<"userConfig">;
   }),
 ).pipe(Layer.provide([AuthorizationService.layer, UserConfigService.layer]));

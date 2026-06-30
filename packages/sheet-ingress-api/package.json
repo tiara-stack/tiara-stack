@@ -58,9 +58,9 @@
       "development": "./src/middlewares/rpcScopePolicy.ts",
       "default": "./dist/middlewares/rpcScopePolicy.mjs"
     },
-    "./middlewares/sheetApisRpcAuthorization/tag": {
-      "types": "./dist/middlewares/sheetApisRpcAuthorization/tag.d.mts",
-      "default": "./dist/middlewares/sheetApisRpcAuthorization/tag.mjs"
+    "./middlewares/sheetIngressServiceAuthorization/tag": {
+      "types": "./dist/middlewares/sheetIngressServiceAuthorization/tag.d.mts",
+      "default": "./dist/middlewares/sheetIngressServiceAuthorization/tag.mjs"
     },
     "./middlewares/sheetBotServiceAuthorization/tag": {
       "types": "./dist/middlewares/sheetBotServiceAuthorization/tag.d.mts",
@@ -78,6 +78,10 @@
       "types": "./dist/sheet-apis.d.mts",
       "default": "./dist/sheet-apis.mjs"
     },
+    "./sheet-apis-internal": {
+      "types": "./dist/sheet-apis-internal.d.mts",
+      "default": "./dist/sheet-apis-internal.mjs"
+    },
     "./sheet-apis-rpc": {
       "types": "./dist/sheet-apis-rpc.d.mts",
       "default": "./dist/sheet-apis-rpc.mjs"
@@ -85,6 +89,10 @@
     "./sheet-workflows": {
       "types": "./dist/sheet-workflows.d.mts",
       "default": "./dist/sheet-workflows.mjs"
+    },
+    "./sheet-workflows-internal": {
+      "types": "./dist/sheet-workflows-internal.d.mts",
+      "default": "./dist/sheet-workflows-internal.mjs"
     },
     "./sheet-workflows-rpc": {
       "types": "./dist/sheet-workflows-rpc.d.mts",

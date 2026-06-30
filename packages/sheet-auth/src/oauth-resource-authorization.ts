@@ -1,4 +1,4 @@
-import { Cache, Clock, Duration, Effect, Exit, Option } from "effect";
+import { Cache, Clock, Duration, Effect, Exit, Option, Predicate } from "effect";
 import { Headers } from "effect/unstable/http";
 import type { JWTPayload } from "jose";
 import { oauthProviderResourceClient } from "@better-auth/oauth-provider/resource-client";
@@ -22,6 +22,9 @@ export interface OAuthResourceTokenAuthorizerOptions<E = Unauthorized> {
 }
 
 export interface VerifiedOAuthResourceToken {
+  readonly accountId: string | undefined;
+  readonly actorClientId: string | undefined;
+  readonly actorSub: string | undefined;
   readonly clientId: string | undefined;
   readonly exp: number | undefined;
   readonly scopes: ReadonlySet<string>;
@@ -41,6 +44,30 @@ const payloadClientId = (payload: JWTPayload) =>
     : typeof payload.client_id === "string"
       ? payload.client_id
       : undefined;
+
+const payloadStringProperty = <const Key extends PropertyKey>(payload: JWTPayload, key: Key) =>
+  Predicate.hasProperty(payload, key) && Predicate.isString(payload[key])
+    ? payload[key]
+    : undefined;
+
+const payloadActor = (payload: JWTPayload) => {
+  const actor = payload.act;
+  if (!Predicate.isObject(actor) || Array.isArray(actor)) {
+    return {
+      actorClientId: undefined,
+      actorSub: undefined,
+    };
+  }
+
+  return {
+    actorClientId:
+      Predicate.hasProperty(actor, "client_id") && Predicate.isString(actor.client_id)
+        ? actor.client_id
+        : undefined,
+    actorSub:
+      Predicate.hasProperty(actor, "sub") && Predicate.isString(actor.sub) ? actor.sub : undefined,
+  };
+};
 
 const payloadExpiration = (payload: JWTPayload) =>
   typeof payload.exp === "number" ? payload.exp : undefined;
@@ -139,11 +166,16 @@ export const makeOAuthResourceTokenAuthorizer = <E = Unauthorized>(
           return yield* Effect.fail(makeUnauthorized({ message: "Expired OAuth resource token" }));
         }
 
+        const { actorClientId, actorSub } = payloadActor(payload);
+
         return {
+          accountId: payloadStringProperty(payload, "account_id"),
+          actorClientId,
+          actorSub,
           clientId: payloadClientId(payload),
           exp,
           scopes: scopeSet,
-          sub: typeof payload.sub === "string" ? payload.sub : undefined,
+          sub: payloadStringProperty(payload, "sub"),
           ttl: tokenTtl(exp, now, successfulTokenTtlCap),
         };
       });

@@ -14,6 +14,17 @@ export const config = {
   sheetAuthOAuthAudience: Config.string("SHEET_AUTH_OAUTH_AUDIENCE").pipe(
     Config.withDefault("sheet-apis"),
   ),
+  sheetAuthTrustedDelegationClientIds: Config.string(
+    "SHEET_AUTH_TRUSTED_DELEGATION_CLIENT_IDS",
+  ).pipe(
+    Config.withDefault(""),
+    Config.map((value) =>
+      value
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean),
+    ),
+  ),
   redisUrl: Config.schema(Schema.Redacted(Schema.String), "REDIS_URL"),
   sheetIngressBaseUrl: Config.schema(Schema.String, "SHEET_INGRESS_BASE_URL"),
 };

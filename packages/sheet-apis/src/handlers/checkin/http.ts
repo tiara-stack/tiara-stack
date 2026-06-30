@@ -1,9 +1,10 @@
 import { Effect, Layer } from "effect";
-import { CheckinRpcs } from "sheet-ingress-api/sheet-apis-rpc";
+import { type HandlerMap, sheetApisGroupLayer } from "@/handlers/shared/httpApiLayer";
 import { withCurrentWorkspaceAuthFromPayload } from "@/handlers/shared/workspaceAuthorization";
 import { AuthorizationService, CheckinService } from "@/services";
 
-export const checkinLayer = CheckinRpcs.toLayer(
+export const checkinLayer = sheetApisGroupLayer(
+  "checkin",
   Effect.gen(function* () {
     const authorizationService = yield* AuthorizationService;
     const checkinService = yield* CheckinService;
@@ -16,6 +17,6 @@ export const checkinLayer = CheckinRpcs.toLayer(
           return yield* checkinService.generate(payload);
         }),
       ),
-    };
+    } satisfies HandlerMap<"checkin">;
   }),
 ).pipe(Layer.provide([AuthorizationService.layer, CheckinService.layer]));

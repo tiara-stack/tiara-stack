@@ -23,6 +23,7 @@ export const makeUser = (
   permissions: HashSet.fromIterable(permissions),
   scopes: new Set<SheetAuthOAuthScope>(),
   token: Redacted.make("token"),
+  tokenType: "session" as const,
 });
 
 export const withUser =

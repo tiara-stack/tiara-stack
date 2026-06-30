@@ -8,7 +8,7 @@ import {
   MessageCheckinService,
 } from "@/services";
 import type { MessageKey } from "@/services/messageKey";
-import { MessageCheckinRpcs } from "sheet-ingress-api/sheet-apis-rpc";
+import { type HandlerMap, sheetApisGroupLayer } from "@/handlers/shared/httpApiLayer";
 import { MessageCheckin, MessageCheckinMember } from "sheet-ingress-api/schemas/messageCheckin";
 import { SheetAuthWorkspaceUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthWorkspaceUser";
 import { makeArgumentError, Unauthorized } from "typhoon-core/error";
@@ -393,9 +393,10 @@ const messageCheckinHandlers = Effect.gen(function* () {
 
       return yield* messageCheckinService.removeMessageCheckinMember(payload, payload.memberId);
     }),
-  };
+  } satisfies HandlerMap<"messageCheckin">;
 });
 
-export const messageCheckinLayer = MessageCheckinRpcs.toLayer(
-  messageCheckinHandlers as Parameters<typeof MessageCheckinRpcs.toLayer>[0],
+export const messageCheckinLayer = sheetApisGroupLayer(
+  "messageCheckin",
+  messageCheckinHandlers,
 ).pipe(Layer.provide([AuthorizationService.layer, MessageCheckinService.layer]));

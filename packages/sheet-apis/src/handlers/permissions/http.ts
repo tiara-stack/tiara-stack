@@ -1,9 +1,10 @@
 import { Effect, Layer, Predicate } from "effect";
-import { PermissionsRpcs } from "sheet-ingress-api/sheet-apis-rpc";
+import { type HandlerMap, sheetApisGroupLayer } from "@/handlers/shared/httpApiLayer";
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
 import { AuthorizationService } from "@/services";
 
-export const permissionsLayer = PermissionsRpcs.toLayer(
+export const permissionsLayer = sheetApisGroupLayer(
+  "permissions",
   Effect.gen(function* () {
     const authorizationService = yield* AuthorizationService;
 
@@ -16,6 +17,6 @@ export const permissionsLayer = PermissionsRpcs.toLayer(
           permissions: resolvedUser.permissions,
         };
       }),
-    };
+    } satisfies HandlerMap<"permissions">;
   }),
 ).pipe(Layer.provide([AuthorizationService.layer]));

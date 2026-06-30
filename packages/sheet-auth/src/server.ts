@@ -39,6 +39,7 @@ const authServiceLayer = Layer.effect(
     const cookieDomain = yield* config.cookieDomain;
     const tokenExchangeSubjectJwtSecret = yield* config.tokenExchangeSubjectJwtSecret;
     const tokenExchangeSubjectJwtIssuer = yield* config.tokenExchangeSubjectJwtIssuer;
+    const tokenExchangeAccessTokenExpiresIn = yield* config.tokenExchangeAccessTokenExpiresIn;
     const subjectTokenKubernetesAudience = yield* config.subjectTokenKubernetesAudience;
     const subjectTokenKubernetesAllowedServiceAccounts =
       yield* config.subjectTokenKubernetesAllowedServiceAccounts;
@@ -70,6 +71,7 @@ const authServiceLayer = Layer.effect(
         Option.map(tokenExchangeSubjectJwtSecret, Redacted.value),
       ),
       tokenExchangeSubjectJwtIssuer: Option.getOrUndefined(tokenExchangeSubjectJwtIssuer),
+      tokenExchangeAccessTokenExpiresIn,
       subjectTokenKubernetesAudience,
       subjectTokenKubernetesAllowedServiceAccounts,
       subjectTokenKubernetesReviewerTokenPath,

@@ -13,6 +13,7 @@ export const InternalSheetAuthOAuthScopeValues = [
   "service",
   "ingress.forward",
   "bot.impersonate",
+  "token.exchange",
 ] as const;
 
 export const SheetAuthOAuthScope = Schema.Literals([
