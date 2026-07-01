@@ -23,6 +23,7 @@ import { sheetLayer } from "./handlers/sheet";
 import { statusLayer } from "./handlers/status";
 import { userConfigLayer } from "./handlers/userConfig";
 import { discordLayer as discordServiceLayer } from "./services/discord";
+import { SheetApisServiceUserFallbackLive } from "./middlewares/sheetApisServiceUserFallback/live";
 import { SheetIngressServiceAuthorizationLive } from "./middlewares/sheetIngressServiceAuthorization/live";
 
 const rpcHandlersLayer = Layer.mergeAll(
@@ -49,6 +50,7 @@ const apiRoutesLayer = HttpApiBuilder.layer(SheetApisInternalApi).pipe(
   Layer.provide(rpcHandlersLayer),
   Layer.provide(SheetIngressServiceAuthorizationLive),
   Layer.provide(SheetAuthTokenAuthorizationLive),
+  Layer.provide(SheetApisServiceUserFallbackLive),
   Layer.merge(HttpRouter.add("GET", "/live", HttpServerResponse.empty({ status: 200 }))),
   Layer.merge(HttpRouter.add("GET", "/ready", HttpServerResponse.empty({ status: 200 }))),
   Layer.provideMerge(HttpRouter.layer),

@@ -26,7 +26,7 @@ export type SheetBotProxyHandler<
   never,
   SheetBotForwardingClient
 >;
-type SheetBotEndpointClient = (args: unknown) => Effect.Effect<unknown, unknown, unknown>;
+type SheetBotEndpointClient = (args: unknown) => Effect.Effect<unknown, unknown, never>;
 
 const getSheetBotEndpoint = Effect.fnUntraced(function* (
   group: SheetBotGroupName,

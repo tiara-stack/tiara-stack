@@ -2,7 +2,7 @@ import { GuildsApiCacheView } from "dfx-discord-utils/discord/cache/guilds";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 import { Effect, Layer, Redacted, Schema } from "effect";
 import { makeArgumentError } from "typhoon-core/error";
-import { sheetApisGroupLayer } from "@/handlers/shared/httpApiLayer";
+import { type HandlerMap, sheetApisGroupLayer } from "@/handlers/shared/httpApiLayer";
 import { Discord } from "@/schema";
 import { discordLayer as discordServiceLayer, DiscordAccessTokenService } from "@/services";
 
@@ -105,6 +105,6 @@ export const discordLayer = sheetApisGroupLayer(
           ),
         );
       }),
-    };
+    } satisfies HandlerMap<"discord">;
   }),
 ).pipe(Layer.provide([discordServiceLayer, DiscordAccessTokenService.layer]));

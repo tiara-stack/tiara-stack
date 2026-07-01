@@ -15,6 +15,6 @@ const main = httpLayer.pipe(
   Layer.provide(configProviderLayer),
   Layer.launch,
   Effect.orDie,
-) as Effect.Effect<never, never, never>;
+);
 
 NodeRuntime.runMain(main);

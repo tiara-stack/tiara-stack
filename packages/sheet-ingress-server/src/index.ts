@@ -130,6 +130,28 @@ const corsMiddlewareLayer = Layer.unwrap(
 type SheetIngressGroups = (typeof Api)["groups"][keyof (typeof Api)["groups"]];
 type SheetApisForwardingClientService = typeof SheetApisForwardingClient.Service;
 type SheetWorkflowsForwardingClientService = typeof SheetWorkflowsForwardingClient.Service;
+type IngressRequestServices =
+  | AuthorizationService
+  | MessageLookup
+  | SheetApisForwardingClient
+  | SheetApisRpcTokens
+  | SheetWorkflowsForwardingClient
+  | SheetBotForwardingClient
+  | ClientDeliveryForwardingClient
+  | ServiceStatusService;
+type IsUnknown<T> = unknown extends T ? ([keyof T] extends [never] ? true : false) : false;
+type NormalizeUnknownRequest<R> =
+  R extends HttpRouter.Request<infer Kind, infer T>
+    ? IsUnknown<T> extends true
+      ? HttpRouter.Request.From<Kind, IngressRequestServices>
+      : [T] extends [SheetAuthUser]
+        ? never
+        : R
+    : R;
+type NormalizeLayerUnknownRequest<LayerValue> =
+  LayerValue extends Layer.Layer<infer ROut, infer E, infer RIn>
+    ? Layer.Layer<ROut, E, NormalizeUnknownRequest<RIn>>
+    : never;
 type SheetApisGroupName = Extract<
   keyof SheetApisForwardingClientService,
   HttpApiGroup.Name<SheetIngressGroups>
@@ -163,7 +185,7 @@ type SheetApisProxyHandler<
   SheetApisProxyError<GroupName, EndpointName>,
   SheetApisForwardingClient | R
 >;
-type SheetApisEndpointClient = (args: unknown) => Effect.Effect<unknown, unknown, unknown>;
+type SheetApisEndpointClient = (args: unknown) => Effect.Effect<unknown, unknown, never>;
 type SheetWorkflowsDispatchEndpointName = Extract<
   keyof SheetWorkflowsForwardingClientService["dispatch"],
   string
@@ -189,6 +211,9 @@ type SheetWorkflowsDispatchHandler<
   SheetWorkflowsDispatchError<EndpointName>,
   SheetWorkflowsForwardingClient | R
 >;
+
+const withKnownIngressRequestServices = <LayerValue>(layer: LayerValue) =>
+  layer as unknown as NormalizeLayerUnknownRequest<LayerValue>;
 
 const forwardSheetApis =
   <GroupName extends SheetApisGroupName, EndpointName extends SheetApisEndpointName<GroupName>>(
@@ -1651,19 +1676,19 @@ const makeApiLayer = () => {
     ServiceStatusService.layer,
   );
 
-  return HttpApiBuilder.layer(Api).pipe(
-    Layer.provide(ProxyLayers),
-    Layer.provide(
-      SheetBotServiceAuthorizationLive.pipe(Layer.provide(SheetAuthUserResolver.layer)),
+  return withKnownIngressRequestServices(
+    HttpApiBuilder.layer(Api).pipe(
+      Layer.provide(ProxyLayers),
+      Layer.provide(
+        SheetBotServiceAuthorizationLive.pipe(Layer.provide(SheetAuthUserResolver.layer)),
+      ),
+      Layer.provide(SheetApisServiceUserFallbackLive.pipe(Layer.provide(SheetApisRpcTokens.layer))),
+      Layer.provide(SheetApisAnonymousUserFallbackLive),
+      Layer.provide(SheetAuthTokenAuthorizationLive),
+      Layer.merge(HttpApiSwagger.layer(Api)),
+      Layer.merge(healthRoutesLayer),
     ),
-    Layer.provide(SheetApisServiceUserFallbackLive.pipe(Layer.provide(SheetApisRpcTokens.layer))),
-    Layer.provide(SheetApisAnonymousUserFallbackLive),
-    Layer.provide(SheetAuthTokenAuthorizationLive),
-    Layer.merge(HttpApiSwagger.layer(Api)),
-    Layer.merge(healthRoutesLayer),
-    HttpRouter.provideRequest(RequestServicesLive),
-    Layer.provide(corsMiddlewareLayer),
-  );
+  ).pipe(HttpRouter.provideRequest(RequestServicesLive), Layer.provide(corsMiddlewareLayer));
 };
 
 const configProviderLayer = dotEnvConfigProviderLayer().pipe(Layer.provide(NodeFileSystem.layer));
@@ -1688,4 +1713,4 @@ const MainLive = HttpLive.pipe(
   Layer.provide(configProviderLayer),
 );
 
-NodeRuntime.runMain(Effect.orDie(Layer.launch(MainLive)) as Effect.Effect<never, never, never>);
+NodeRuntime.runMain(Effect.orDie(Layer.launch(MainLive)));

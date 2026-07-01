@@ -226,6 +226,8 @@ We use Graphite for managing stacked pull requests. The following guidelines are
 
 This project utilizes the Effect library for composability and type-safety. The catalog version of the library being used is 4.0.0-beta.56. Use Effect/Schema for runtime validation except where existing code uses another validation library, or otherwise stated.
 
+Do not cast away Effect or Layer environment requirements. Avoid `as Effect.Effect<..., ..., never>`, `as never`, or similar casts around `Layer.launch`, `NodeRuntime.runMain`, provider helpers, and test runners. Let inferred requirements surface missing services at compile time; if an adapter truly needs a cast, keep it local and do not erase the final app/runtime environment.
+
 Use Effect's `Predicate` module for reusable predicate/type-guard helpers instead of hand-written comparison checks such as raw `typeof`, `instanceof`, tag equality, or property checks. Prefer `Predicate.isTagged`, `Predicate.hasProperty`, primitive predicates, and predicate combinators so type guards are consistent and composable.
 
 Avoid large `if`/`else` chains and `switch` statements for value dispatch. Prefer Effect's `Match` module when matching tagged unions or structured cases, and prefer typed lookup tables for simple enum/string-to-value mappings. Keep imperative branching only when it is genuinely clearer for stateful algorithms, early exits, or low-level parser loops.

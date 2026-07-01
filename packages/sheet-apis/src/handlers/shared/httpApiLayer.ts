@@ -17,37 +17,83 @@ type SheetApisInternalEndpointName<Name extends SheetApisInternalGroupName> = Ht
 type SheetApisInternalEndpointHandler<
   GroupName extends SheetApisInternalGroupName,
   EndpointName extends SheetApisInternalEndpointName<GroupName>,
-> = (
-  request: HttpApiEndpoint.Request<
-    HttpApiEndpoint.WithName<SheetApisInternalEndpoint<GroupName>, EndpointName>
-  >,
-) => Effect.Effect<unknown, unknown, unknown>;
+> = HttpApiEndpoint.HandlerWithName<
+  SheetApisInternalEndpoint<GroupName>,
+  EndpointName,
+  unknown,
+  unknown
+>;
 
-export type HandlerMap<GroupName extends SheetApisInternalGroupName> = Partial<{
-  [EndpointName in SheetApisInternalEndpointName<GroupName> as
-    | EndpointName
-    | `${GroupName}.${EndpointName}`]: SheetApisInternalEndpointHandler<GroupName, EndpointName>;
-}>;
-
-type MutableHandlers = {
-  readonly handle: (name: never, handler: never) => MutableHandlers;
+export type HandlerMap<GroupName extends SheetApisInternalGroupName> = {
+  [EndpointName in SheetApisInternalEndpointName<GroupName> as `${GroupName}.${EndpointName}`]: SheetApisInternalEndpointHandler<
+    GroupName,
+    EndpointName
+  >;
 };
 
-const endpointNameFromKey = (groupName: string, key: string) =>
-  key.startsWith(`${groupName}.`) ? key.slice(groupName.length + 1) : key;
+type SheetApisHandlers<GroupName extends SheetApisInternalGroupName> =
+  HttpApiBuilder.Handlers.FromGroup<SheetApisInternalGroupFor<GroupName>>;
 
-export const sheetApisGroupLayer = <const GroupName extends SheetApisInternalGroupName, E, R>(
+type HandlerMapEntry<GroupName extends SheetApisInternalGroupName> = {
+  [EndpointName in SheetApisInternalEndpointName<GroupName>]: readonly [
+    `${GroupName}.${EndpointName}`,
+    SheetApisInternalEndpointHandler<GroupName, EndpointName>,
+  ];
+}[SheetApisInternalEndpointName<GroupName>];
+
+type DynamicSheetApisHandlers<GroupName extends SheetApisInternalGroupName> = {
+  readonly handle: (
+    name: SheetApisInternalEndpointName<GroupName>,
+    handler: unknown,
+  ) => SheetApisHandlers<GroupName>;
+};
+
+const handlerMapEntries = <GroupName extends SheetApisInternalGroupName>(
+  handlerMap: HandlerMap<GroupName>,
+) => Object.entries(handlerMap) as Array<HandlerMapEntry<GroupName>>;
+
+const endpointNameFromKey = <const GroupName extends SheetApisInternalGroupName>(
   groupName: GroupName,
-  build: Effect.Effect<HandlerMap<GroupName>, E, R> | HandlerMap<GroupName>,
-) =>
-  HttpApiBuilder.group(SheetApisInternalApi, groupName, ((handlers: unknown) =>
-    Effect.gen(function* () {
-      const handlerMap = Effect.isEffect(build) ? yield* build : build;
-      let current = handlers as unknown as MutableHandlers;
+  key: `${GroupName}.${SheetApisInternalEndpointName<GroupName>}`,
+): SheetApisInternalEndpointName<GroupName> =>
+  key.slice(groupName.length + 1) as SheetApisInternalEndpointName<GroupName>;
 
-      for (const [key, handler] of Object.entries(handlerMap)) {
-        current = current.handle(endpointNameFromKey(groupName, key) as never, handler as never);
+const handleEndpoint = <const GroupName extends SheetApisInternalGroupName>(
+  handlers: SheetApisHandlers<GroupName>,
+  groupName: GroupName,
+  [key, handler]: HandlerMapEntry<GroupName>,
+): SheetApisHandlers<GroupName> => {
+  const dynamicHandlers = handlers as unknown as DynamicSheetApisHandlers<GroupName>;
+  return dynamicHandlers.handle(endpointNameFromKey(groupName, key), handler);
+};
+
+const completedHandlers = <const GroupName extends SheetApisInternalGroupName>(
+  handlers: SheetApisHandlers<GroupName>,
+) => handlers as unknown as HttpApiBuilder.Handlers<never, never>;
+
+const resolveHandlerMap = <Handlers, E, R>(
+  build: Effect.Effect<Handlers, E, R> | Handlers,
+): Effect.Effect<Handlers, E, R> =>
+  Effect.isEffect(build) ? (build as Effect.Effect<Handlers, E, R>) : Effect.succeed(build);
+
+export const sheetApisGroupLayer = <
+  const GroupName extends SheetApisInternalGroupName,
+  const Handlers extends HandlerMap<GroupName>,
+  E = never,
+  R = never,
+>(
+  groupName: GroupName,
+  build: Effect.Effect<Handlers, E, R> | Handlers,
+) =>
+  HttpApiBuilder.group(SheetApisInternalApi, groupName, (handlers) =>
+    Effect.gen(function* () {
+      const handlerMap = yield* resolveHandlerMap(build);
+      let current = handlers;
+
+      for (const entry of handlerMapEntries(handlerMap as HandlerMap<GroupName>)) {
+        current = handleEndpoint(current, groupName, entry);
       }
 
-      return current as never;
-    })) as never);
+      return completedHandlers(current);
+    }),
+  );
