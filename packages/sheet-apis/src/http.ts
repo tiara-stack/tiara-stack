@@ -8,7 +8,6 @@ import { calcLayer } from "./handlers/calc";
 import { checkinLayer } from "./handlers/checkin";
 import { discordLayer } from "./handlers/discord";
 import { workspaceConfigLayer } from "./handlers/workspaceConfig";
-import { healthLayer } from "./handlers/health";
 import { messageCheckinLayer } from "./handlers/messageCheckin";
 import { messageRoomOrderLayer } from "./handlers/messageRoomOrder";
 import { messageSlotLayer } from "./handlers/messageSlot";
@@ -30,7 +29,6 @@ import { SheetIngressServiceAuthorizationLive } from "./middlewares/sheetIngress
 const rpcHandlersLayer = Layer.mergeAll(
   calcLayer,
   checkinLayer,
-  healthLayer,
   workspaceConfigLayer,
   messageCheckinLayer,
   messageRoomOrderLayer,

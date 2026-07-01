@@ -4,7 +4,6 @@ import {
   CheckinApi,
   DiscordApi,
   WorkspaceConfigApi,
-  HealthApi,
   MessageCheckinApi,
   MessageRoomOrderApi,
   MessageSlotApi,
@@ -32,7 +31,6 @@ const internal = <
 export class SheetApisInternalApi extends HttpApi.make("api")
   .add(internal(CalcApi))
   .add(internal(CheckinApi))
-  .add(internal(HealthApi))
   .add(internal(WorkspaceConfigApi))
   .add(internal(MessageCheckinApi))
   .add(internal(MessageRoomOrderApi))
