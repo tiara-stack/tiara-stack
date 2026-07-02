@@ -134,7 +134,20 @@ imagePullSecrets:
 {{- required (printf "unknown default secret key %s" .) (index $names .) -}}
 {{- end -}}
 
+{{- define "tiara-stack.trustedDelegationEnv" -}}
+- name: SHEET_AUTH_TRUSTED_INGRESS_CLIENT_ID
+  secretName: {{ .ingressSecretName }}
+  secretKey: sheetIngressServiceClientId
+- name: SHEET_AUTH_TRUSTED_TOKEN_EXCHANGE_CLIENT_IDS
+  secretKey: sheetAuthTrustedDelegationClientIds
+- name: SHEET_AUTH_TRUSTED_DELEGATION_CLIENT_IDS
+  value: "$(SHEET_AUTH_TRUSTED_INGRESS_CLIENT_ID),$(SHEET_AUTH_TRUSTED_TOKEN_EXCHANGE_CLIENT_IDS)"
+{{- end -}}
+
 {{- define "tiara-stack.serviceSpecs" -}}
+{{- $sheetIngressValues := .Values.services.sheetIngressServer | default dict -}}
+{{- $sheetIngressSecretRef := $sheetIngressValues.secretRef | default dict -}}
+{{- $sheetIngressSecretName := default (include "tiara-stack.defaultSecretName" "sheetIngressServer") $sheetIngressSecretRef.name -}}
 - key: sheetAuth
   name: sheet-auth
   portName: sheet-auth-svc
@@ -241,8 +254,7 @@ imagePullSecrets:
       secretKey: sheetApisServiceClientSecret
     - name: SHEET_AUTH_OAUTH_AUDIENCE
       value: sheet-apis
-    - name: SHEET_AUTH_TRUSTED_DELEGATION_CLIENT_IDS
-      secretKey: sheetAuthTrustedDelegationClientIds
+{{ include "tiara-stack.trustedDelegationEnv" (dict "ingressSecretName" $sheetIngressSecretName) | nindent 4 }}
     - name: SHEET_INGRESS_BASE_URL
       secretKey: sheetIngressBaseUrl
     - name: SERVICE_ACCOUNT_JWKS_AUTH_TOKEN_PATH
@@ -353,8 +365,7 @@ imagePullSecrets:
       secretKey: sheetWorkflowsServiceClientSecret
     - name: SHEET_AUTH_OAUTH_AUDIENCE
       value: sheet-workflows
-    - name: SHEET_AUTH_TRUSTED_DELEGATION_CLIENT_IDS
-      secretKey: sheetAuthTrustedDelegationClientIds
+{{ include "tiara-stack.trustedDelegationEnv" (dict "ingressSecretName" $sheetIngressSecretName) | nindent 4 }}
     - name: SHEET_INGRESS_BASE_URL
       secretKey: sheetIngressBaseUrl
     - name: SERVICE_ACCOUNT_JWKS_AUTH_TOKEN_PATH
@@ -421,8 +432,7 @@ imagePullSecrets:
       secretKey: sheetWorkflowsServiceClientSecret
     - name: SHEET_AUTH_OAUTH_AUDIENCE
       value: sheet-workflows
-    - name: SHEET_AUTH_TRUSTED_DELEGATION_CLIENT_IDS
-      secretKey: sheetAuthTrustedDelegationClientIds
+{{ include "tiara-stack.trustedDelegationEnv" (dict "ingressSecretName" $sheetIngressSecretName) | nindent 4 }}
     - name: SHEET_INGRESS_BASE_URL
       secretKey: sheetIngressBaseUrl
     - name: SERVICE_ACCOUNT_JWKS_AUTH_TOKEN_PATH

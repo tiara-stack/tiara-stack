@@ -89,7 +89,7 @@ spec:
               {{- else if $env.secretKey }}
               valueFrom:
                 secretKeyRef:
-                  name: {{ default $svc.secretName $secretRef.name }}
+                  name: {{ default (default $svc.secretName $secretRef.name) $env.secretName }}
                   key: {{ $env.secretKey }}
                   {{- if $env.optional }}
                   optional: true
