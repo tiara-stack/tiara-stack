@@ -603,6 +603,30 @@
         "googleServiceAccountSecretRef": {
           "$ref": "#/definitions/secretRefWithKey"
         },
+        "seedTrustedOAuthClients": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "backoffLimit": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "activeDeadlineSeconds": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "ttlSecondsAfterFinished": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "resources": {
+              "$ref": "#/definitions/resources"
+            }
+          }
+        },
         "serviceMonitor": {
           "type": "object",
           "additionalProperties": false,

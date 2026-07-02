@@ -1,7 +1,12 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Schema } from "effect";
+import { Unauthorized } from "typhoon-core/error";
 import { Api, SheetApisApi, SheetWorkflowsApi } from "./api";
-import { DispatchAcceptedResult } from "./handlers/dispatch/schema";
+import {
+  BotCommandDispatchError,
+  DispatchAcceptedResult,
+  ServiceStatusDispatchError,
+} from "./handlers/dispatch/schema";
 import { SheetWorkflowsRpcs } from "./sheet-workflows-rpc";
 import { DispatchRoomOrderButtonMethods, SheetApisRpcs } from "./sheet-apis-rpc";
 
@@ -180,6 +185,19 @@ describe("Api", () => {
       method: "PATCH",
       name: "updateOriginalInteractionResponseWithFiles",
       path: "/bot/interactions/original-response/files",
+    });
+  });
+
+  it("declares authorization failures emitted by dispatch workflows", () => {
+    const error = new Unauthorized({ message: "Invalid ingress delegation" });
+
+    expect(Schema.encodeUnknownSync(ServiceStatusDispatchError)(error)).toMatchObject({
+      _tag: "Unauthorized",
+      message: "Invalid ingress delegation",
+    });
+    expect(Schema.encodeUnknownSync(BotCommandDispatchError)(error)).toMatchObject({
+      _tag: "Unauthorized",
+      message: "Invalid ingress delegation",
     });
   });
 });

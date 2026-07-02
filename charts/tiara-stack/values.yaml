@@ -83,6 +83,8 @@ services:
     replicas: 1
     secretRef:
       name: sheet-auth-secret
+    seedTrustedOAuthClients:
+      enabled: true
     env: {}
     serviceMonitor:
       enabled: true

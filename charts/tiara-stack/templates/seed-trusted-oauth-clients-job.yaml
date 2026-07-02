@@ -1,0 +1,183 @@
+{{- $root := . -}}
+{{- $sheetAuthValues := ($root.Values.services.sheetAuth | default dict) -}}
+{{- $seedValues := ($sheetAuthValues.seedTrustedOAuthClients | default dict) -}}
+{{- if and $sheetAuthValues.enabled (default true $seedValues.enabled) }}
+{{- $sheetAuthSecretRef := ($sheetAuthValues.secretRef | default dict) -}}
+{{- $sheetAuthSecretName := default "sheet-auth-secret" $sheetAuthSecretRef.name -}}
+{{- $sheetApisValues := ($root.Values.services.sheetApis | default dict) -}}
+{{- $sheetApisSecretRef := ($sheetApisValues.secretRef | default dict) -}}
+{{- $sheetBotValues := ($root.Values.services.sheetBot | default dict) -}}
+{{- $sheetBotSecretRef := ($sheetBotValues.secretRef | default dict) -}}
+{{- $sheetIngressValues := ($root.Values.services.sheetIngressServer | default dict) -}}
+{{- $sheetIngressSecretRef := ($sheetIngressValues.secretRef | default dict) -}}
+{{- $sheetWebValues := ($root.Values.services.sheetWeb | default dict) -}}
+{{- $sheetWebSecretRef := ($sheetWebValues.secretRef | default dict) -}}
+{{- $sheetWorkflowsValues := ($root.Values.services.sheetWorkflows | default dict) -}}
+{{- $sheetWorkflowsSecretRef := ($sheetWorkflowsValues.secretRef | default dict) -}}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ printf "%s-seed-trusted-oauth-clients" (include "tiara-stack.fullname" $root) | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "tiara-stack.labels" $root | nindent 4 }}
+    app: sheet-auth
+  annotations:
+    "helm.sh/hook": pre-upgrade,post-install,post-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+    "helm.sh/hook-weight": "5"
+spec:
+  backoffLimit: {{ default 3 $seedValues.backoffLimit }}
+  activeDeadlineSeconds: {{ default 300 $seedValues.activeDeadlineSeconds }}
+  ttlSecondsAfterFinished: {{ default 300 $seedValues.ttlSecondsAfterFinished }}
+  template:
+    metadata:
+      labels:
+        {{- include "tiara-stack.labels" $root | nindent 8 }}
+        app: sheet-auth
+    spec:
+      restartPolicy: Never
+      serviceAccountName: sheet-auth
+      automountServiceAccountToken: false
+      {{- include "tiara-stack.imagePullSecrets" $root.Values.global.imagePullSecrets | nindent 6 }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: seed-trusted-oauth-clients
+          image: {{ include "tiara-stack.image" (dict "root" $root "name" "sheet-auth" "image" $sheetAuthValues.image) | quote }}
+          imagePullPolicy: {{ include "tiara-stack.imagePullPolicy" (dict "root" $root "image" $sheetAuthValues.image) }}
+          command:
+            - node
+            - --enable-source-maps
+            - ./dist/seed-trusted-oauth-clients.mjs
+          resources:
+            {{- if hasKey $seedValues "resources" }}
+            {{- toYaml $seedValues.resources | nindent 12 }}
+            {{- else }}
+            {{- toYaml $root.Values.global.defaultResources | nindent 12 }}
+            {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: POSTGRES_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $sheetAuthSecretName }}
+                  key: postgresUrl
+            {{- if $sheetIngressValues.enabled }}
+            - name: SHEET_INGRESS_OAUTH_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default "sheet-ingress-server-secret" $sheetIngressSecretRef.name }}
+                  key: sheetIngressServiceClientId
+            - name: SHEET_INGRESS_OAUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default "sheet-ingress-server-secret" $sheetIngressSecretRef.name }}
+                  key: sheetIngressServiceClientSecret
+            - name: SHEET_INGRESS_EXCHANGE_OAUTH_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default "sheet-ingress-server-secret" $sheetIngressSecretRef.name }}
+                  key: sheetAuthOAuthTokenExchangeClientId
+                  optional: true
+            - name: SHEET_INGRESS_EXCHANGE_OAUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default "sheet-ingress-server-secret" $sheetIngressSecretRef.name }}
+                  key: sheetAuthOAuthTokenExchangeClientSecret
+                  optional: true
+            {{- end }}
+            {{- if $sheetBotValues.enabled }}
+            - name: SHEET_BOT_OAUTH_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default "sheet-bot-secret" $sheetBotSecretRef.name }}
+                  key: sheetBotServiceClientId
+            - name: SHEET_BOT_OAUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default "sheet-bot-secret" $sheetBotSecretRef.name }}
+                  key: sheetBotServiceClientSecret
+            {{- end }}
+            {{- if $sheetApisValues.enabled }}
+            - name: SHEET_APIS_OAUTH_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default "sheet-apis-secret" $sheetApisSecretRef.name }}
+                  key: sheetApisServiceClientId
+            - name: SHEET_APIS_OAUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default "sheet-apis-secret" $sheetApisSecretRef.name }}
+                  key: sheetApisServiceClientSecret
+            {{- end }}
+            {{- if $sheetWorkflowsValues.enabled }}
+            - name: SHEET_WORKFLOWS_OAUTH_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default "sheet-workflows-secret" $sheetWorkflowsSecretRef.name }}
+                  key: sheetWorkflowsServiceClientId
+            - name: SHEET_WORKFLOWS_OAUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default "sheet-workflows-secret" $sheetWorkflowsSecretRef.name }}
+                  key: sheetWorkflowsServiceClientSecret
+            {{- end }}
+            {{- if $sheetWebValues.enabled }}
+            - name: SHEET_WEB_BASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default "sheet-web-secret" $sheetWebSecretRef.name }}
+                  key: appBaseUrl
+                  optional: true
+            - name: SHEET_WEB_OAUTH_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default "sheet-web-secret" $sheetWebSecretRef.name }}
+                  key: sheetWebOauthClientId
+                  optional: true
+            - name: SHEET_WEB_OAUTH_REDIRECT_PATH
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default "sheet-web-secret" $sheetWebSecretRef.name }}
+                  key: sheetWebOauthRedirectPath
+                  optional: true
+            - name: SHEET_WEB_OAUTH_SCOPES
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default "sheet-web-secret" $sheetWebSecretRef.name }}
+                  key: sheetWebOauthScopes
+                  optional: true
+            {{- end }}
+            {{- if $root.Values.global.caCertificate.enabled }}
+            - name: NODE_EXTRA_CA_CERTS
+              value: /usr/local/share/ca-certificates/tiarastack/tiarastack.crt
+            {{- end }}
+          {{- if $root.Values.global.caCertificate.enabled }}
+          volumeMounts:
+            - name: sheet-auth-ca-certificate
+              readOnly: true
+              mountPath: "/usr/local/share/ca-certificates/tiarastack"
+          {{- end }}
+      {{- if $root.Values.global.caCertificate.enabled }}
+      volumes:
+        - name: sheet-auth-ca-certificate
+          configMap:
+            name: {{ include "tiara-stack.caConfigMapName" (dict "root" $root) }}
+            items:
+              - key: {{ $root.Values.global.caCertificate.key }}
+                path: tiarastack.crt
+      {{- end }}
+{{- end }}

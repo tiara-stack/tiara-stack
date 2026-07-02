@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { ArgumentError, SchemaError, UnknownError } from "typhoon-core/error";
+import { ArgumentError, SchemaError, Unauthorized, UnknownError } from "typhoon-core/error";
 import { QueryResultError } from "typhoon-zero/error";
 import { FeatureFlagName } from "../../schemas/workspaceConfig";
 import { GoogleSheetsError } from "../../schemas/google";
@@ -19,7 +19,11 @@ export const CheckinGenerateErrorSchemas = [
   ArgumentError,
 ] as const;
 
-export const CheckinDispatchErrorSchemas = [...CheckinGenerateErrorSchemas, UnknownError] as const;
+export const CheckinDispatchErrorSchemas = [
+  ...CheckinGenerateErrorSchemas,
+  Unauthorized,
+  UnknownError,
+] as const;
 export const CheckinDispatchError = Schema.Union(CheckinDispatchErrorSchemas);
 
 export const CheckinHandleButtonErrorSchemas = CheckinDispatchErrorSchemas;
@@ -36,6 +40,7 @@ export const RoomOrderGenerateErrorSchemas = [
 
 export const RoomOrderDispatchErrorSchemas = [
   ...RoomOrderGenerateErrorSchemas,
+  Unauthorized,
   UnknownError,
 ] as const;
 export const RoomOrderDispatchError = Schema.Union(RoomOrderDispatchErrorSchemas);
@@ -50,6 +55,7 @@ export const KickoutDispatchErrorSchemas = [
   SchemaError,
   QueryResultError,
   ArgumentError,
+  Unauthorized,
   UnknownError,
 ] as const;
 export const KickoutDispatchError = Schema.Union(KickoutDispatchErrorSchemas);
@@ -61,17 +67,23 @@ export const SlotDispatchErrorSchemas = [
   SchemaError,
   QueryResultError,
   ArgumentError,
+  Unauthorized,
   UnknownError,
 ] as const;
 export const SlotDispatchError = Schema.Union(SlotDispatchErrorSchemas);
 
-export const WorkspaceWelcomeDispatchErrorSchemas = [ArgumentError, UnknownError] as const;
+export const WorkspaceWelcomeDispatchErrorSchemas = [
+  ArgumentError,
+  Unauthorized,
+  UnknownError,
+] as const;
 export const WorkspaceWelcomeDispatchError = Schema.Union(WorkspaceWelcomeDispatchErrorSchemas);
 
 export const UpdateAnnouncementDispatchErrorSchemas = [
   SchemaError,
   QueryResultError,
   ArgumentError,
+  Unauthorized,
   UnknownError,
 ] as const;
 export const UpdateAnnouncementDispatchError = Schema.Union(UpdateAnnouncementDispatchErrorSchemas);
@@ -83,9 +95,13 @@ export const BotCommandDispatchErrorSchemas = [
   SchemaError,
   QueryResultError,
   ArgumentError,
+  Unauthorized,
   UnknownError,
 ] as const;
 export const BotCommandDispatchError = Schema.Union(BotCommandDispatchErrorSchemas);
+
+export const ServiceStatusDispatchErrorSchemas = [Unauthorized, UnknownError] as const;
+export const ServiceStatusDispatchError = Schema.Union(ServiceStatusDispatchErrorSchemas);
 
 const CommandDispatchPayloadBase = {
   client: ClientRef,

@@ -29,6 +29,7 @@ import {
   RoomOrderSendButtonPayload,
   ScheduleListDispatchPayload,
   ServiceWorkspaceFeatureFlagDispatchPayload,
+  ServiceStatusDispatchErrorSchemas,
   ServiceStatusDispatchPayload,
   WorkspaceAddMonitorRoleDispatchPayload,
   WorkspaceListConfigDispatchPayload,
@@ -44,7 +45,6 @@ import {
   UpdateAnnouncementDispatchErrorSchemas,
   UpdateAnnouncementDispatchPayload,
 } from "./schema";
-import { UnknownError } from "typhoon-core/error";
 
 export class DispatchApi extends HttpApiGroup.make("dispatch")
   .add(
@@ -107,7 +107,7 @@ export class DispatchApi extends HttpApiGroup.make("dispatch")
     HttpApiEndpoint.post("serviceStatus", "/dispatch/status/services", {
       payload: ServiceStatusDispatchPayload,
       success: DispatchAcceptedResult,
-      error: UnknownError,
+      error: ServiceStatusDispatchErrorSchemas,
     }),
   )
   .add(

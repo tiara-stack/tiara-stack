@@ -29,6 +29,9 @@ export default defineConfig({
     {
       entry: {
         server: fileURLToPath(new URL("./src/server.ts", import.meta.url)),
+        "seed-trusted-oauth-clients": fileURLToPath(
+          new URL("./scripts/seed-trusted-oauth-clients.ts", import.meta.url),
+        ),
       },
       sourcemap: true,
       deps: {

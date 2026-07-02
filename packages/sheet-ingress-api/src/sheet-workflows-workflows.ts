@@ -1,6 +1,5 @@
 import { Schema } from "effect";
 import { Workflow } from "effect/unstable/workflow";
-import { UnknownError } from "typhoon-core/error";
 import type { ClientRef } from "./schemas/client";
 import { MessageRoomOrder } from "./schemas/messageRoomOrder";
 import {
@@ -48,6 +47,7 @@ import {
   ScheduleListDispatchResult,
   ServiceWorkspaceFeatureFlagDispatchPayload,
   ServiceWorkspaceFeatureFlagDispatchResult,
+  ServiceStatusDispatchError,
   ServiceStatusDispatchPayload,
   ServiceStatusDispatchResult,
   WorkspaceAddMonitorRoleDispatchPayload,
@@ -246,7 +246,7 @@ export const DispatchServiceStatusWorkflow = Workflow.make({
   name: workflowName.serviceStatus,
   payload: dispatchPayload(ServiceStatusDispatchPayload),
   success: ServiceStatusDispatchResult,
-  error: UnknownError,
+  error: ServiceStatusDispatchError,
   idempotencyKey: ({ payload }) => dispatchRequestIdempotencyKey(payload),
 });
 
