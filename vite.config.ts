@@ -10,11 +10,12 @@ export default defineConfig({
       "charts/tiara-stack/templates",
       "dist",
       ".output",
+      ".ts-out",
       "node_modules",
     ],
   },
   lint: {
-    ignorePatterns: [".output", "dist", "node_modules"],
+    ignorePatterns: [".output", ".ts-out", "dist", "node_modules"],
     options: { typeAware: true, typeCheck: true },
   },
 });

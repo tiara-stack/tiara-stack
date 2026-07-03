@@ -17,6 +17,7 @@ dist-ssr
 .tiara
 .cache
 .output
+.ts-out
 .env
 
 # Editor directories and files
