@@ -1,0 +1,71 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "packages/typhoon-core/tsconfig.build.json"
+    },
+    {
+      "path": "packages/typhoon-zero/tsconfig.build.json"
+    },
+    {
+      "path": "packages/dfx-discord-utils/tsconfig.build.json"
+    },
+    {
+      "path": "packages/vibecord/tsconfig.build.json"
+    },
+    {
+      "path": "packages/effect-sql-schema/tsconfig.build.json"
+    },
+    {
+      "path": "packages/effect-sql-kit/tsconfig.build.json"
+    },
+    {
+      "path": "packages/effect-zero/tsconfig.build.json"
+    },
+    {
+      "path": "packages/sheet-auth/tsconfig.build.json"
+    },
+    {
+      "path": "packages/sheet-ingress-api/tsconfig.build.json"
+    },
+    {
+      "path": "packages/sheet-db-schema/tsconfig.build.json"
+    },
+    {
+      "path": "packages/sheet-bot/tsconfig.build.json"
+    },
+    {
+      "path": "packages/sheet-apis/tsconfig.build.json"
+    },
+    {
+      "path": "packages/sheet-ingress-server/tsconfig.build.json"
+    },
+    {
+      "path": "packages/sheet-web/tsconfig.build.json"
+    },
+    {
+      "path": "packages/sheet-workflows/tsconfig.build.json"
+    },
+    {
+      "path": "packages/effect-ai-codex/tsconfig.build.json"
+    },
+    {
+      "path": "packages/effect-ai-kimi/tsconfig.build.json"
+    },
+    {
+      "path": "packages/tiara-review/tsconfig.build.json"
+    },
+    {
+      "path": "packages/sheet-db-server/tsconfig.build.json"
+    },
+    {
+      "path": "packages/sheet-formulas/tsconfig.build.json"
+    },
+    {
+      "path": "packages/start-atom/tsconfig.build.json"
+    },
+    {
+      "path": "packages/effect-platform-apps-script/tsconfig.build.json"
+    }
+  ]
+}
