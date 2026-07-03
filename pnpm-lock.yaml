@@ -60,6 +60,9 @@ importers:
 
   .:
     devDependencies:
+      '@effect/language-service':
+        specifier: 0.86.2
+        version: 0.86.2
       '@types/node':
         specifier: 'catalog:'
         version: 24.10.9
@@ -69,6 +72,9 @@ importers:
       tsx:
         specifier: 'catalog:'
         version: 4.22.3
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.1.15
         version: '@voidzero-dev/vite-plus-core@0.1.15(@types/node@24.10.9)(esbuild@0.19.12)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0)'
@@ -1558,6 +1564,10 @@ packages:
       effect: ^4.0.0-beta.67
       react: ^19.2.4
       scheduler: '*'
+
+  '@effect/language-service@0.86.2':
+    resolution: {integrity: sha512-SaPln+8srOqDJDUwNTDmP5e+IYpEDr9+1epGznnsLqu8xvo6VnxyWARdeLpqvZJlb0Pgy9ca7ppqvvdWbHPXAg==}
+    hasBin: true
 
   '@effect/opentelemetry@4.0.0-beta.67':
     resolution: {integrity: sha512-nQf+swATat/c/LqJ2aB3BaKdWqL8nj1XPTAz7p8V24x6Or4Y99kHGHhk4PlYDALMUGciRBGgBBC/YwGsyvF5YA==}
@@ -7264,6 +7274,8 @@ snapshots:
       effect: 4.0.0-beta.67
       react: 19.3.0-canary-98ce535f-20260226
       scheduler: 0.28.0-canary-98ce535f-20260226
+
+  '@effect/language-service@0.86.2': {}
 
   '@effect/opentelemetry@4.0.0-beta.67(@opentelemetry/api-logs@0.207.0)(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.2.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-logs@0.207.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-metrics@2.2.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@2.2.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-node@2.0.1(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.41.1)(effect@4.0.0-beta.67)':
     dependencies:

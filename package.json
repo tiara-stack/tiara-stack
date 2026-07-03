@@ -6,7 +6,8 @@
     "format": "vp run -r format",
     "lint": "vp run -r lint",
     "test": "pnpm -r --if-present --filter './packages/*' test",
-    "checks": "pnpm format && pnpm lint && pnpm test",
+    "check:effect-lsp": "NODE_OPTIONS='--max-old-space-size=4096' effect-language-service diagnostics --project tsconfig.json --format text --lspconfig '{}'",
+    "checks": "pnpm format && pnpm lint && pnpm check:effect-lsp && pnpm test",
     "format:apply": "vp run -r format:apply",
     "build": "vp run -r build",
     "compose:generate-secrets": "tsx deploy/compose/scripts/generate-secrets.ts --no-overwrite",
@@ -14,9 +15,11 @@
     "prepare": "vp config"
   },
   "devDependencies": {
+    "@effect/language-service": "0.86.2",
     "@types/node": "catalog:",
     "effect": "catalog:",
     "tsx": "catalog:",
+    "typescript": "^5.9.3",
     "vite": "catalog:",
     "vite-plus": "catalog:"
   },
