@@ -1,5 +1,6 @@
 {
   "include": ["**/*.ts", "**/*.tsx"],
+  "exclude": ["node_modules", "dist", ".output", ".tsbuildinfo"],
   "compilerOptions": {
     "target": "ES2022",
     "jsx": "react-jsx",
@@ -26,6 +27,8 @@
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "noEmit": true,
+    "incremental": true,
+    "tsBuildInfoFile": "./.tsbuildinfo",
 
     /* Linting */
     "skipLibCheck": true,
