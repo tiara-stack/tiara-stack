@@ -8,6 +8,12 @@ import type {
   ResolvedConfig,
 } from "effect-sql-kit";
 import type { EffectZeroSchema, EffectZeroTable } from "./types";
+import * as Data from "effect/Data";
+
+class EffectZeroPublicationError extends Data.TaggedError("EffectZeroPublicationError")<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 
 export type MigrationExtensionLike = MigrationExtension;
 
@@ -424,28 +430,24 @@ order by ns.nspname, c.relname`,
       Schema.decodeUnknownEffect(PublicationRowSchema)(row).pipe(
         Effect.mapError(
           (error) =>
-            new Error(
-              `effect-zero: invalid publication introspection row for ${publicationName}: ${String(error)}`,
-            ),
+            new EffectZeroPublicationError({
+              message: `effect-zero: invalid publication introspection row for ${publicationName}: ${String(error)}`,
+            }),
         ),
       ),
     );
     if (decodedRows.some((row) => row.puballtables)) {
-      return yield* Effect.fail(
-        new Error(
-          `effect-zero: publication ${publicationName} uses FOR ALL TABLES, which zeroPublication push cannot diff`,
-        ),
-      );
+      return yield* new EffectZeroPublicationError({
+        message: `effect-zero: publication ${publicationName} uses FOR ALL TABLES, which zeroPublication push cannot diff`,
+      });
     }
     const publicationSchemas = [
       ...new Set(decodedRows.flatMap((row) => row.publication_schemas)),
     ].sort((left, right) => left.localeCompare(right));
     if (publicationSchemas.length > 0) {
-      return yield* Effect.fail(
-        new Error(
-          `effect-zero: publication ${publicationName} uses schema-level publication entries (${publicationSchemas.join(", ")}), which zeroPublication push cannot diff`,
-        ),
-      );
+      return yield* new EffectZeroPublicationError({
+        message: `effect-zero: publication ${publicationName} uses schema-level publication entries (${publicationSchemas.join(", ")}), which zeroPublication push cannot diff`,
+      });
     }
 
     const snapshot = {

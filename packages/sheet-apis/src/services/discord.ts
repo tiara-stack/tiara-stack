@@ -8,6 +8,12 @@ import { createOAuthClientCredentialsToken } from "sheet-auth/client";
 import { DISCORD_SERVICE_USER_ID_SENTINEL } from "sheet-auth/oauth";
 import { config } from "@/config";
 import { SheetAuthClient } from "./sheetAuthClient";
+import * as Data from "effect/Data";
+
+class SheetApisServicesDiscordError extends Data.TaggedError("SheetApisServicesDiscordError")<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 
 type TokenCacheEntry = {
   readonly token: Redacted.Redacted<string> | undefined;
@@ -71,7 +77,9 @@ const serviceUserAuthHttpClientLayer = Layer.effect(
         const { failed, token } = yield* Cache.get(tokenCache, DISCORD_SERVICE_USER_ID_SENTINEL);
 
         if (failed || !token) {
-          return yield* Effect.fail(new Error("Failed to create OAuth service token"));
+          return yield* new SheetApisServicesDiscordError({
+            message: "Failed to create OAuth service token",
+          });
         }
 
         return HttpClientRequest.bearerToken(request, Redacted.value(token));

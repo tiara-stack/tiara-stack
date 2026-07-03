@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Schedule from "effect/Schedule";
 import { SqlClient } from "effect/unstable/sql";
@@ -21,6 +22,11 @@ import {
   type SymbolDependentsResult,
   type SymbolLookupResult,
 } from "./types";
+
+class TiaraReviewGraphStoreError extends Data.TaggedError("TiaraReviewGraphStoreError")<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 
 type VersionRow = {
   readonly id: string;
@@ -229,15 +235,15 @@ const loadVersionChain = (sql: SqlClient.SqlClient, versionId: string) =>
       Effect.flatMap((rows) =>
         Effect.gen(function* () {
           if (rows.length === 0) {
-            return yield* Effect.fail(new DependencyGraphVersionNotFound({ versionId }));
+            return yield* new DependencyGraphVersionNotFound({ versionId });
           }
           const versions = rows.map(toVersion);
           const versionIds = new Set(versions.map((version) => version.id));
           const oldestVersion = versions[0]!;
           if (oldestVersion.baseVersionId && !versionIds.has(oldestVersion.baseVersionId)) {
-            return yield* Effect.fail(
-              new DependencyGraphVersionNotFound({ versionId: oldestVersion.baseVersionId }),
-            );
+            return yield* new DependencyGraphVersionNotFound({
+              versionId: oldestVersion.baseVersionId,
+            });
           }
           return versions;
         }),
@@ -493,24 +499,20 @@ const isAncestorCommit = (repoRoot: string, ancestorCommit: string, checkpointCo
             return false;
           }
           if (!checkpointExists) {
-            return yield* Effect.fail(
-              new DependencyGraphFailed({
-                message: `Checkpoint commit is not available in this repository: ${checkpointCommit}`,
-                cause,
-              }),
-            );
+            return yield* new DependencyGraphFailed({
+              message: `Checkpoint commit is not available in this repository: ${checkpointCommit}`,
+              cause,
+            });
           }
           const shallowRepository = yield* isShallowRepository(repoRoot);
           const mergeBaseAvailable = shallowRepository
             ? yield* hasMergeBase(repoRoot, ancestorCommit, checkpointCommit)
             : true;
           if (!shallowRepository || mergeBaseAvailable) {
-            return yield* Effect.fail(
-              new DependencyGraphFailed({
-                message: `Unable to determine dependency graph commit ancestry for ${ancestorCommit}..${checkpointCommit}`,
-                cause,
-              }),
-            );
+            return yield* new DependencyGraphFailed({
+              message: `Unable to determine dependency graph commit ancestry for ${ancestorCommit}..${checkpointCommit}`,
+              cause,
+            });
           }
           yield* Effect.logWarning(
             JSON.stringify({
@@ -522,7 +524,7 @@ const isAncestorCommit = (repoRoot: string, ancestorCommit: string, checkpointCo
           );
           return false;
         }
-        return yield* Effect.fail(cause);
+        return yield* cause;
       }),
     ),
   );
@@ -712,7 +714,7 @@ const loadSqliteBindParameterBudget = (sql: SqlClient.SqlClient) =>
       sqliteBindParameterBudgetByClient.set(sql, pending);
       return pending;
     },
-    catch: (cause) => cause,
+    catch: (cause) => new TiaraReviewGraphStoreError({ message: String(cause), cause }),
   });
 
 const graphRecordChunkSize = (parameterBudget: number, columnsPerRow: number) =>
@@ -986,12 +988,10 @@ const waitForGraphVersion = (sql: SqlClient.SqlClient, versionId: string) =>
         if (isLeaseExpiredGraphVersion(version)) {
           return null;
         }
-        return yield* Effect.fail(
-          new DependencyGraphFailed({
-            message: `Dependency graph build failed for version ${versionId}`,
-            cause: version.error,
-          }),
-        );
+        return yield* new DependencyGraphFailed({
+          message: `Dependency graph build failed for version ${versionId}`,
+          cause: version.error,
+        });
       }
       const leaseExpiresAt = version.leaseExpiresAt;
       if (leaseExpiresAt === undefined || leaseExpiresAt === null || leaseExpiresAt <= now()) {
@@ -1002,11 +1002,9 @@ const waitForGraphVersion = (sql: SqlClient.SqlClient, versionId: string) =>
         }
       }
       if (Date.now() - waitStartedAt >= graphVersionWaitTimeoutMillis) {
-        return yield* Effect.fail(
-          new DependencyGraphFailed({
-            message: `Timed out waiting for dependency graph version ${versionId}`,
-          }),
-        );
+        return yield* new DependencyGraphFailed({
+          message: `Timed out waiting for dependency graph version ${versionId}`,
+        });
       }
       yield* sleepMillis(graphVersionPollIntervalMillis);
     }
@@ -1192,11 +1190,9 @@ export const ensureDependencyGraphVersion = (input: {
             [versionId],
           );
           if (activeClaim.length === 0) {
-            return yield* Effect.fail(
-              new DependencyGraphFailed({
-                message: `Dependency graph build lease expired before completing version ${versionId}`,
-              }),
-            );
+            return yield* new DependencyGraphFailed({
+              message: `Dependency graph build lease expired before completing version ${versionId}`,
+            });
           }
           yield* sql`
             update dependency_graph_versions
@@ -1237,12 +1233,10 @@ export const ensureDependencyGraphVersion = (input: {
       }
       return yield* loadVersion(sql, versionId);
     }).pipe(
-      Effect.catch((cause) =>
-        Effect.fail(
-          cause instanceof DependencyGraphFailed
-            ? cause
-            : new DependencyGraphFailed({ message: "Failed to build dependency graph", cause }),
-        ),
+      Effect.mapError((cause) =>
+        cause instanceof DependencyGraphFailed
+          ? cause
+          : new DependencyGraphFailed({ message: "Failed to build dependency graph", cause }),
       ),
     ),
   );
@@ -1297,11 +1291,9 @@ export const lookupDependencyGraphSymbolEffect = (input: {
         parameters.push(input.line, input.column, input.line, input.column);
       }
     } else if (input.column) {
-      return yield* Effect.fail(
-        new DependencyGraphFailed({
-          message: "Symbol lookup column requires line",
-        }),
-      );
+      return yield* new DependencyGraphFailed({
+        message: "Symbol lookup column requires line",
+      });
     }
     parameters.push(input.limit ?? 20);
     const symbols = yield* sql.unsafe<SymbolRow>(

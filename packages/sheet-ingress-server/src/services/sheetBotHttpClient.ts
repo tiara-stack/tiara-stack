@@ -60,9 +60,9 @@ export class SheetBotHttpClient extends Context.Service<SheetBotHttpClient>()(
           }) =>
             Effect.gen(function* () {
               if (interactionToken.trim().length === 0) {
-                return yield* Effect.fail(
-                  new MissingInteractionTokenError({ message: "Missing interaction token" }),
-                );
+                return yield* new MissingInteractionTokenError({
+                  message: "Missing interaction token",
+                });
               }
               const url = new URL(
                 "bot/interactions/original-response",
@@ -108,9 +108,9 @@ export class SheetBotHttpClient extends Context.Service<SheetBotHttpClient>()(
           }) =>
             Effect.gen(function* () {
               if (params.interactionToken.trim().length === 0) {
-                return yield* Effect.fail(
-                  new MissingInteractionTokenError({ message: "Missing interaction token" }),
-                );
+                return yield* new MissingInteractionTokenError({
+                  message: "Missing interaction token",
+                });
               }
               const url = new URL(
                 `bot/interactions/${encodeURIComponent(

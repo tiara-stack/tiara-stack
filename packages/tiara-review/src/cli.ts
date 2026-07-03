@@ -56,11 +56,9 @@ const runCommand = Command.make(
     Effect.gen(function* () {
       const externalReviewMarkdown = config.reviewStdin ? yield* readStdin() : undefined;
       if (config.reviewStdin && externalReviewMarkdown?.trim().length === 0) {
-        return yield* Effect.fail(
-          new EmptyReviewStdin({
-            message: "--review-stdin was provided but stdin was empty",
-          }),
-        );
+        return yield* new EmptyReviewStdin({
+          message: "--review-stdin was provided but stdin was empty",
+        });
       }
       const fileConfig = yield* loadReviewConfig(
         config.configPath._tag === "Some" ? expandHomePath(config.configPath.value) : undefined,

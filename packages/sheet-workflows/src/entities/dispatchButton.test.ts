@@ -1,13 +1,21 @@
 // fallow-ignore-file code-duplication
 import { describe, expect, it } from "@effect/vitest";
 import { vi } from "vitest";
-import { Deferred, Effect, Fiber, Option, Ref } from "effect";
+import { Deferred, Effect, Fiber, Layer, Option, Ref } from "effect";
 import { Entity, ShardingConfig } from "effect/unstable/cluster";
 import { WorkflowEngine } from "effect/unstable/workflow";
 import { markInteractionFailureHandled } from "@/handlers/shared/interactionFailure";
 import { DispatchService, ClientDeliveryClient, SheetApisClient } from "@/services";
 import { MessageRoomOrder } from "sheet-ingress-api/schemas/messageRoomOrder";
 import { dispatchButtonEntityLayer } from "@/workflows/dispatchRegistry";
+import * as Data from "effect/Data";
+
+class SheetWorkflowsEntitiesDispatchButtonTestError extends Data.TaggedError(
+  "SheetWorkflowsEntitiesDispatchButtonTestError",
+)<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 import {
   DispatchButtonEntity,
   type DispatchButtonEntityHandlers,
@@ -356,18 +364,27 @@ describe("dispatch button entity", () => {
       ).files;
       expect(new TextDecoder().decode(file.content)).toContain("check-in failed");
     }).pipe(
-      Effect.provideService(
-        DispatchService,
-        makeDispatchServiceMock({
-          checkinButton: () => Effect.fail(new Error("check-in failed")),
-        }),
+      Effect.provide(
+        Layer.mergeAll(
+          Layer.succeed(
+            DispatchService,
+            makeDispatchServiceMock({
+              checkinButton: () =>
+                Effect.fail(
+                  new SheetWorkflowsEntitiesDispatchButtonTestError({
+                    message: "check-in failed",
+                  }),
+                ),
+            }),
+          ),
+          Layer.succeed(ClientDeliveryClient, {
+            updateOriginalInteractionResponse,
+          } as never),
+          Layer.succeed(SheetApisClient, sheetApisClientWithCheckinMember),
+          WorkflowEngine.layerMemory,
+          TestShardingConfig,
+        ),
       ),
-      Effect.provideService(ClientDeliveryClient, {
-        updateOriginalInteractionResponse,
-      } as never),
-      Effect.provideService(SheetApisClient, sheetApisClientWithCheckinMember),
-      Effect.provide(WorkflowEngine.layerMemory),
-      Effect.provide(TestShardingConfig),
     );
   });
 
@@ -386,17 +403,21 @@ describe("dispatch button entity", () => {
       expect(exit._tag).toBe("Failure");
       expect(updateOriginalInteractionResponse).not.toHaveBeenCalled();
     }).pipe(
-      Effect.provideService(
-        DispatchService,
-        makeDispatchServiceMock({
-          checkinButton: () =>
-            Effect.fail(markInteractionFailureHandled(new Error("check-in failed"))),
-        }),
+      Effect.provide(
+        Layer.mergeAll(
+          Layer.succeed(
+            DispatchService,
+            makeDispatchServiceMock({
+              checkinButton: () =>
+                Effect.fail(markInteractionFailureHandled(new Error("check-in failed"))),
+            }),
+          ),
+          Layer.succeed(ClientDeliveryClient, { updateOriginalInteractionResponse } as never),
+          Layer.succeed(SheetApisClient, sheetApisClientWithCheckinMember),
+          WorkflowEngine.layerMemory,
+          TestShardingConfig,
+        ),
       ),
-      Effect.provideService(ClientDeliveryClient, { updateOriginalInteractionResponse } as never),
-      Effect.provideService(SheetApisClient, sheetApisClientWithCheckinMember),
-      Effect.provide(WorkflowEngine.layerMemory),
-      Effect.provide(TestShardingConfig),
     );
   });
 });

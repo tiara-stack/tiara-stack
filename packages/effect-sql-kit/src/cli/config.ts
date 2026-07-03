@@ -5,6 +5,12 @@ import type { EffectSqlKitConfig, EffectSqlSchema, ResolvedConfig } from "../typ
 import { getDefaultConfigFilePathEffect, importFileEffect } from "./configFile";
 import { isEffectSqlSchema, resolveConfigExport, resolveSchemaExport } from "./moduleExport";
 import { EffectSqlKitConfigSchema, EffectSqlSchemaExportSchema } from "./schema";
+import * as Data from "effect/Data";
+
+class EffectSqlKitCliConfigError extends Data.TaggedError("EffectSqlKitCliConfigError")<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 
 export const loadConfigEffect = (
   configPath?: string,
@@ -18,9 +24,9 @@ export const loadConfigEffect = (
     const resolvedPath = configPath ?? (yield* getDefaultConfigFilePathEffect);
     if (!resolvedPath) {
       if (!overrides?.dialect) {
-        return yield* Effect.fail(
-          new Error("effect-sql-kit: no effect-sql.config.ts found; pass --config or --dialect"),
-        );
+        return yield* new EffectSqlKitCliConfigError({
+          message: "effect-sql-kit: no effect-sql.config.ts found; pass --config or --dialect",
+        });
       }
       return {
         config: yield* resolveConfigEffect(overrides as EffectSqlKitConfig),
@@ -53,15 +59,17 @@ export const loadSchemaEffect = (
   Effect.gen(function* () {
     const filePath = schemaPath ?? config.schema;
     if (!filePath) {
-      return yield* Effect.fail(
-        new Error("effect-sql-kit: schema path is required in config or --schema"),
-      );
+      return yield* new EffectSqlKitCliConfigError({
+        message: "effect-sql-kit: schema path is required in config or --schema",
+      });
     }
     const imported = yield* importFileEffect(filePath);
     const sqlSchema = resolveSchemaExport(imported);
     const decoded = yield* Schema.decodeUnknownEffect(EffectSqlSchemaExportSchema)(sqlSchema);
     if (!isEffectSqlSchema(decoded)) {
-      return yield* Effect.fail(new Error("effect-sql-kit: invalid schema export"));
+      return yield* new EffectSqlKitCliConfigError({
+        message: "effect-sql-kit: invalid schema export",
+      });
     }
     return {
       ...decoded,

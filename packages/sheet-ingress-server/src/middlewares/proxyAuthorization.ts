@@ -42,7 +42,7 @@ export const SheetBotServiceAuthorizationLive = Layer.effect(
       sheetBotServiceToken: Effect.fn("SheetBotServiceAuthorization.sheetBotServiceToken")(
         function* (httpEffect, { credential }) {
           const serviceUser = yield* Cache.get(serviceUserCache, Redacted.value(credential)).pipe(
-            Effect.catch(() => Effect.fail(new Unauthorized({ message: "Unauthorized" }))),
+            Effect.mapError(() => new Unauthorized({ message: "Unauthorized" })),
           );
           return yield* httpEffect.pipe(Effect.provideService(SheetAuthUser, serviceUser));
         },

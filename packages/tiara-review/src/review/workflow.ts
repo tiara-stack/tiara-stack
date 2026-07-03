@@ -595,12 +595,10 @@ export const runCheckpointedReviewWithClient = (
               failureUpdateExit.cause,
             );
           }
-          return yield* Effect.fail(
-            new OrchestratorFailed({
-              message: "Orchestrator failed",
-              cause: orchestratorExit.cause,
-            }),
-          );
+          return yield* new OrchestratorFailed({
+            message: "Orchestrator failed",
+            cause: orchestratorExit.cause,
+          });
         }
 
         const consolidated = orchestratorExit.value.output;

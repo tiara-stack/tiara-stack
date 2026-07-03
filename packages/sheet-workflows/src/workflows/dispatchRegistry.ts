@@ -417,16 +417,14 @@ export const makeWorkflowHandler =
     options: DispatchWorkflowHandlerOptions<TWorkflow, TAuthorization, RAuthorize, RExecute>,
   ): DispatchWorkflowHandler<TWorkflow, RAuthorize | RExecute | ClientDeliveryClient> =>
   (request, executionId) =>
-    Effect.gen(function* () {
-      return yield* retryClusterPersistenceCause(
-        Activity.make({
-          name: `dispatch.${options.operation}.${executionId}.execute`,
-          success: options.workflow.successSchema,
-          error: options.workflow.errorSchema,
-          execute: runDispatchWorkflowOperation(options, request, executionId),
-        }),
-      );
-    }) as Effect.Effect<
+    retryClusterPersistenceCause(
+      Activity.make({
+        name: `dispatch.${options.operation}.${executionId}.execute`,
+        success: options.workflow.successSchema,
+        error: options.workflow.errorSchema,
+        execute: runDispatchWorkflowOperation(options, request, executionId),
+      }),
+    ) as Effect.Effect<
       DispatchWorkflowSuccess<TWorkflow>,
       DispatchWorkflowError<TWorkflow>,
       RAuthorize | RExecute | ClientDeliveryClient
@@ -437,20 +435,18 @@ export const makeButtonWorkflowHandler =
     options: DispatchButtonWorkflowHandlerOptions<TOperation, TAuthorization, RAuthorize, RExecute>,
   ): DispatchWorkflowHandler<DispatchButtonWorkflowByOperation[TOperation], Sharding.Sharding> =>
   (request, executionId) =>
-    Effect.gen(function* () {
-      return yield* retryClusterPersistenceCause(
-        Activity.make({
-          name: `dispatch.${options.operation}.${executionId}.execute`,
-          success: options.workflow.successSchema,
-          error: options.workflow.errorSchema,
-          execute: dispatchViaButtonEntity(options, request, executionId) as Effect.Effect<
-            DispatchWorkflowSuccess<DispatchButtonWorkflowByOperation[TOperation]>,
-            DispatchWorkflowError<DispatchButtonWorkflowByOperation[TOperation]>,
-            Sharding.Sharding
-          >,
-        }),
-      );
-    }) as Effect.Effect<
+    retryClusterPersistenceCause(
+      Activity.make({
+        name: `dispatch.${options.operation}.${executionId}.execute`,
+        success: options.workflow.successSchema,
+        error: options.workflow.errorSchema,
+        execute: dispatchViaButtonEntity(options, request, executionId) as Effect.Effect<
+          DispatchWorkflowSuccess<DispatchButtonWorkflowByOperation[TOperation]>,
+          DispatchWorkflowError<DispatchButtonWorkflowByOperation[TOperation]>,
+          Sharding.Sharding
+        >,
+      }),
+    ) as Effect.Effect<
       DispatchWorkflowSuccess<DispatchButtonWorkflowByOperation[TOperation]>,
       DispatchWorkflowError<DispatchButtonWorkflowByOperation[TOperation]>,
       Sharding.Sharding

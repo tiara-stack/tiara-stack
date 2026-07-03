@@ -26,5 +26,5 @@ export const runDependencyGraphMcpServer = (input: {
 }) =>
   Effect.gen(function* () {
     yield* migrate(input.dbPath);
-    yield* Layer.launch(dependencyGraphMcpServerLayer(input));
+    return yield* Layer.launch(dependencyGraphMcpServerLayer(input));
   }).pipe(Effect.provide(sqliteLayer(input.dbPath)));

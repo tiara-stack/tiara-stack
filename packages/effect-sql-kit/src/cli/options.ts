@@ -2,6 +2,12 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import { Flag } from "effect/unstable/cli";
 import type { EffectSqlKitConfig } from "../types";
+import * as Data from "effect/Data";
+
+class EffectSqlKitCliOptionsError extends Data.TaggedError("EffectSqlKitCliOptionsError")<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 
 export const optionalValue = <A>(option: Option.Option<A>): A | undefined =>
   Option.isSome(option) ? option.value : undefined;
@@ -9,7 +15,7 @@ export const optionalValue = <A>(option: Option.Option<A>): A | undefined =>
 export const tryPromise = <A>(try_: () => Promise<A>) =>
   Effect.tryPromise({
     try: try_,
-    catch: (cause) => cause,
+    catch: (cause) => new EffectSqlKitCliOptionsError({ message: String(cause), cause: cause }),
   });
 
 export const configFlags = {

@@ -7,6 +7,12 @@ import { createSheetAuthClient, getSession } from "sheet-auth/client";
 import { appBaseUrlAtom, authBaseUrlAtom } from "#/lib/configAtoms";
 import { runtimeAtom } from "#/lib/runtime";
 import { useCallback } from "react";
+import * as Data from "effect/Data";
+
+class SheetWebLibAuthError extends Data.TaggedError("SheetWebLibAuthError")<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 
 const getRequestHeadersFn = createIsomorphicFn()
   .server(() => getRequestHeaders())
@@ -48,7 +54,7 @@ const signOut = runtimeAtom.fn(
 
     yield* Effect.tryPromise({
       try: () => authClient.signOut(),
-      catch: () => new Error("Failed to sign out"),
+      catch: () => new SheetWebLibAuthError({ message: "Failed to sign out" }),
     });
 
     yield* Reactivity.invalidate(["session"]);

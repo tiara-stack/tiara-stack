@@ -55,17 +55,6 @@ export interface Service {
   readonly runStreamed: (options: RunOptions) => Stream.Stream<ThreadEvent, CodexError>;
 }
 
-export class CodexClient extends Context.Service<CodexClient, Service>()(
-  "effect-ai-codex/CodexClient",
-  {
-    make: Effect.gen(function* () {
-      return yield* make;
-    }),
-  },
-) {
-  static layer = Layer.effect(CodexClient, this.make);
-}
-
 export const make: Effect.Effect<Service> = Effect.gen(function* () {
   const config = yield* Effect.serviceOption(Config).pipe(
     Effect.map((option) => (option._tag === "Some" ? option.value : undefined)),
@@ -130,37 +119,49 @@ export const make: Effect.Effect<Service> = Effect.gen(function* () {
     });
   const runStreamed = (options: RunOptions) =>
     Stream.unwrap(
-      Effect.tryPromise({
-        try: async () => {
-          const abortController = new AbortController();
-          const threadOptions = mergeThreadOptions(config, options.threadOptions);
-          const codex = getCodex(options.clientOptions);
-          const thread = options.threadId
-            ? codex.resumeThread(options.threadId, threadOptions)
-            : codex.startThread(threadOptions);
-          const streamedPromise = thread.runStreamed(options.prompt, {
-            ...options.turnOptions,
-            signal: abortController.signal,
-          });
-          const timeoutMs = options.timeoutMs ?? config?.timeoutMs;
-          const events = await runWithAbortTimeout({
-            runPromise: streamedPromise.then((streamed) =>
-              Effect.runPromise(collectStreamEvents(streamed.events)),
-            ),
-            abort: () => abortController.abort(),
-            timeoutMs,
-            cleanupGraceMs: options.cleanupGraceMs ?? config?.cleanupGraceMs,
-            timeoutError: () => new CodexTimeout({ timeoutMs: timeoutMs ?? 0 }),
-          });
-          return Stream.fromIterable(events);
-        },
-        catch: (cause) =>
-          cause instanceof CodexTimeout || cause instanceof CodexStreamParseError
-            ? cause
-            : cause instanceof DOMException && cause.name === "AbortError"
-              ? new CodexTimeout({ timeoutMs: options.timeoutMs ?? config?.timeoutMs ?? 0 })
-              : new CodexSdkError({ message: messageFromCause(cause), cause }),
+      Effect.gen(function* () {
+        const context = yield* Effect.context<never>();
+        return yield* Effect.tryPromise({
+          try: async () => {
+            const abortController = new AbortController();
+            const threadOptions = mergeThreadOptions(config, options.threadOptions);
+            const codex = getCodex(options.clientOptions);
+            const thread = options.threadId
+              ? codex.resumeThread(options.threadId, threadOptions)
+              : codex.startThread(threadOptions);
+            const streamedPromise = thread.runStreamed(options.prompt, {
+              ...options.turnOptions,
+              signal: abortController.signal,
+            });
+            const timeoutMs = options.timeoutMs ?? config?.timeoutMs;
+            const events = await runWithAbortTimeout({
+              runPromise: streamedPromise.then((streamed) =>
+                Effect.runPromiseWith(context)(collectStreamEvents(streamed.events)),
+              ),
+              abort: () => abortController.abort(),
+              timeoutMs,
+              cleanupGraceMs: options.cleanupGraceMs ?? config?.cleanupGraceMs,
+              timeoutError: () => new CodexTimeout({ timeoutMs: timeoutMs ?? 0 }),
+            });
+            return Stream.fromIterable(events);
+          },
+          catch: (cause) =>
+            cause instanceof CodexTimeout || cause instanceof CodexStreamParseError
+              ? cause
+              : cause instanceof DOMException && cause.name === "AbortError"
+                ? new CodexTimeout({ timeoutMs: options.timeoutMs ?? config?.timeoutMs ?? 0 })
+                : new CodexSdkError({ message: messageFromCause(cause), cause }),
+        });
       }),
     );
   return { run, runStreamed };
 });
+
+export class CodexClient extends Context.Service<CodexClient, Service>()(
+  "effect-ai-codex/CodexClient",
+  {
+    make,
+  },
+) {
+  static layer = Layer.effect(CodexClient, this.make);
+}

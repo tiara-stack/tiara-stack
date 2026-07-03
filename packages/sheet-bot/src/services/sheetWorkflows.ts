@@ -28,6 +28,13 @@ import { ServicesStatusResponse } from "sheet-ingress-api/sheet-apis-rpc";
 import { SheetWorkflowsApi } from "sheet-ingress-api/sheet-workflows";
 import { SheetAuthClient } from "./sheetAuthClient";
 
+class SheetBotServicesSheetWorkflowsError extends Data.TaggedError(
+  "SheetBotServicesSheetWorkflowsError",
+)<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
+
 type SheetWorkflowsRequester = Data.TaggedEnum<{
   Service: {};
   DiscordUser: { readonly discordUserId: string };
@@ -97,11 +104,11 @@ const readKubernetesServiceAccountToken = (path: string) =>
   Effect.tryPromise({
     try: async () => Redacted.make((await readFile(path, "utf8")).trim()),
     catch: (error) =>
-      new Error(
-        `Failed to read Kubernetes service account token: ${
+      new SheetBotServicesSheetWorkflowsError({
+        message: `Failed to read Kubernetes service account token: ${
           error instanceof Error ? error.message : String(error)
         }`,
-      ),
+      }),
   });
 
 const sheetWorkflowsRequestContextTag = Context.Reference<SheetWorkflowsRequestContextType>(
@@ -295,9 +302,9 @@ export class SheetWorkflowsClient extends Context.Service<SheetWorkflowsClient>(
           const { token, failed } = yield* getRequesterToken(requester);
 
           if (requester._tag === "DiscordUser" && (token === undefined || failed)) {
-            return yield* Effect.fail(
-              new Error("Failed to get Discord user auth token for sheet-workflows request"),
-            );
+            return yield* new SheetBotServicesSheetWorkflowsError({
+              message: "Failed to get Discord user auth token for sheet-workflows request",
+            });
           }
 
           return token ? HttpClientRequest.bearerToken(request, Redacted.value(token)) : request;

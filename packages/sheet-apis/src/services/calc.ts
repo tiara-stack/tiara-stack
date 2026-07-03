@@ -171,23 +171,21 @@ export const cartesianTeams = (
                 ),
                 Array.match({
                   onEmpty: () =>
-                    pipe(
-                      Array.make(
-                        new PlayerTeam({
-                          type: "Placeholder",
-                          playerId: Array.headNonEmpty(headTeams).playerId,
-                          playerName: Array.headNonEmpty(headTeams).playerName,
-                          teamName: pipe(
-                            Array.headNonEmpty(headTeams).playerName,
-                            Option.map((name) => `${name} | placeholder`),
-                            Option.getOrElse(() => "Placeholder"),
-                          ),
-                          lead: 0,
-                          backline: 0,
-                          talent: 0,
-                          tags: HashSet.make("placeholder"),
-                        }),
-                      ),
+                    Array.make(
+                      new PlayerTeam({
+                        type: "Placeholder",
+                        playerId: Array.headNonEmpty(headTeams).playerId,
+                        playerName: Array.headNonEmpty(headTeams).playerName,
+                        teamName: pipe(
+                          Array.headNonEmpty(headTeams).playerName,
+                          Option.map((name) => `${name} | placeholder`),
+                          Option.getOrElse(() => "Placeholder"),
+                        ),
+                        lead: 0,
+                        backline: 0,
+                        talent: 0,
+                        tags: HashSet.make("placeholder"),
+                      }),
                     ),
                   onNonEmpty: Function.identity,
                 }),

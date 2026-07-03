@@ -4,6 +4,14 @@ import { Interaction, InteractionToken } from "dfx-discord-utils/utils";
 import type { NumberOptionBuilder, StringOptionBuilder } from "dfx-discord-utils/utils";
 import { config } from "../config";
 import { interactionDeadlineEpochMs } from "./interactionDeadline";
+import * as Data from "effect/Data";
+
+class SheetBotUtilsCommandHelpersError extends Data.TaggedError(
+  "SheetBotUtilsCommandHelpersError",
+)<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 
 type DiscordUserIdentity = {
   readonly id: string;
@@ -15,7 +23,11 @@ const isDiscordSnowflakeId = (value: string): boolean => /^\d{17,20}$/.test(valu
 const decodeDiscordSnowflakeId = (value: string, label: string): Effect.Effect<string, Error> =>
   isDiscordSnowflakeId(value)
     ? Effect.succeed(value)
-    : Effect.fail(new Error(`Invalid ${label}: expected Discord snowflake ID`));
+    : Effect.fail(
+        new SheetBotUtilsCommandHelpersError({
+          message: `Invalid ${label}: expected Discord snowflake ID`,
+        }),
+      );
 
 const getIdFromUnknown = (value: unknown): Option.Option<string> => {
   if (Predicate.hasProperty(value, "id") && Predicate.isString(value.id)) {
@@ -35,24 +47,25 @@ export const requireResolvedId = (value: unknown, label: string): Effect.Effect<
     getIdFromUnknown(value),
     Option.match({
       onSome: (id) => decodeDiscordSnowflakeId(id, label),
-      onNone: () => Effect.fail(new Error(`${label} is missing an id`)),
+      onNone: () =>
+        Effect.fail(new SheetBotUtilsCommandHelpersError({ message: `${label} is missing an id` })),
     }),
   );
 
 export const requireString = (value: unknown, label: string): Effect.Effect<string, Error> =>
   Predicate.isString(value)
     ? Effect.succeed(value)
-    : Effect.fail(new Error(`${label} must be a string`));
+    : Effect.fail(new SheetBotUtilsCommandHelpersError({ message: `${label} must be a string` }));
 
 export const requireBoolean = (value: unknown, label: string): Effect.Effect<boolean, Error> =>
   Predicate.isBoolean(value)
     ? Effect.succeed(value)
-    : Effect.fail(new Error(`${label} must be a boolean`));
+    : Effect.fail(new SheetBotUtilsCommandHelpersError({ message: `${label} must be a boolean` }));
 
 export const requireNumber = (value: unknown, label: string): Effect.Effect<number, Error> =>
   Predicate.isNumber(value)
     ? Effect.succeed(value)
-    : Effect.fail(new Error(`${label} must be a number`));
+    : Effect.fail(new SheetBotUtilsCommandHelpersError({ message: `${label} must be a number` }));
 
 export const serverIdOption = (description: string) => (option: StringOptionBuilder) =>
   option.setName("server_id").setDescription(description);
@@ -94,7 +107,12 @@ export const resolveGuildId = (serverId: Option.Option<string>) =>
     const selectedId = pipe(
       serverId,
       Option.orElse(() => interactionGuildId),
-      Option.getOrThrowWith(() => new Error("Guild not found in interaction or command options")),
+      Option.getOrThrowWith(
+        () =>
+          new SheetBotUtilsCommandHelpersError({
+            message: "Guild not found in interaction or command options",
+          }),
+      ),
     );
 
     return yield* decodeDiscordSnowflakeId(selectedId, "guild ID");
@@ -119,7 +137,12 @@ export const resolveChannelId = (channelOption: Option.Option<unknown>) =>
               id,
               Option.match({
                 onSome: (value) => decodeDiscordSnowflakeId(value, "channel ID"),
-                onNone: () => Effect.fail(new Error("Channel not found in interaction")),
+                onNone: () =>
+                  Effect.fail(
+                    new SheetBotUtilsCommandHelpersError({
+                      message: "Channel not found in interaction",
+                    }),
+                  ),
               }),
             ),
           ),
@@ -153,7 +176,12 @@ const getInteractionUser = Effect.gen(function* () {
     toDiscordUserIdentity(interactionUser),
     Option.match({
       onSome: Effect.succeed,
-      onNone: () => Effect.fail(new Error("Interaction user is missing id or username")),
+      onNone: () =>
+        Effect.fail(
+          new SheetBotUtilsCommandHelpersError({
+            message: "Interaction user is missing id or username",
+          }),
+        ),
     }),
   );
 });

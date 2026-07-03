@@ -1,4 +1,5 @@
 import { Cache, Clock, Duration, Effect, Exit, Option, Predicate } from "effect";
+import * as Data from "effect/Data";
 import { Headers } from "effect/unstable/http";
 import type { JWTPayload } from "jose";
 import { oauthProviderResourceClient } from "@better-auth/oauth-provider/resource-client";
@@ -6,6 +7,11 @@ import { Unauthorized } from "typhoon-core/error";
 export { getBearerToken } from "./utils/bearer-token";
 import { getBearerToken } from "./utils/bearer-token";
 import { oauthResourceMetadataMappings } from "./oauth-resource-metadata";
+
+class OAuthResourceAuthorizationError extends Data.TaggedError("OAuthResourceAuthorizationError")<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 
 const defaultHeaderName = "x-sheet-ingress-auth";
 
@@ -113,7 +119,7 @@ const getAuthorizationServerIssuer = (issuer: string) => {
 
       return metadata.issuer.replace(/\/$/, "");
     },
-    catch: (cause) => cause,
+    catch: (cause) => new OAuthResourceAuthorizationError({ message: String(cause), cause }),
   }).pipe(
     Effect.tapError((cause) =>
       Effect.logWarning("Failed to resolve OAuth authorization server issuer", {
@@ -193,7 +199,7 @@ export const makeOAuthResourceTokenAuthorizer = <E = Unauthorized>(
               resourceMetadataMappings: oauthResourceMetadataMappings(issuer, audience),
               scopes: [...requiredScopes],
             }),
-          catch: (cause) => cause,
+          catch: (cause) => new OAuthResourceAuthorizationError({ message: String(cause), cause }),
         }).pipe(
           Effect.tapError((cause) =>
             Effect.logWarning("Failed to verify OAuth resource token", {

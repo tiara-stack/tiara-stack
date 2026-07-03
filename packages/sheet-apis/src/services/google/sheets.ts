@@ -5,7 +5,6 @@ import type { RegexContext } from "arkregex/internal/regex.ts";
 import {
   Array,
   Effect,
-  Function,
   HashMap,
   Layer,
   Option,
@@ -398,13 +397,10 @@ export class GoogleSheets extends Context.Service<GoogleSheets>()("GoogleSheets"
         params: sheets_v4.Params$Resource$Spreadsheets$Get,
         options?: MethodOptions,
       ) => {
-        const response = pipe(
-          Effect.tryPromise({
-            try: () => googleSheets.spreadsheets.get(params, options),
-            catch: Function.identity,
-          }),
-          Effect.catch((error) => Effect.fail(googleSheetsErrorFromUnknown(error))),
-        );
+        const response = Effect.tryPromise({
+          try: () => googleSheets.spreadsheets.get(params, options),
+          catch: googleSheetsErrorFromUnknown,
+        });
 
         return pipe(
           response,
@@ -457,11 +453,8 @@ export class GoogleSheets extends Context.Service<GoogleSheets>()("GoogleSheets"
       ) =>
         Effect.tryPromise({
           try: () => googleSheets.spreadsheets.values.batchGet(params, options),
-          catch: Function.identity,
-        }).pipe(
-          Effect.catch((error) => Effect.fail(googleSheetsErrorFromUnknown(error))),
-          Effect.withSpan("GoogleSheets.get"),
-        ),
+          catch: googleSheetsErrorFromUnknown,
+        }).pipe(Effect.withSpan("GoogleSheets.get")),
       getHashMap: <K>(
         ranges: HashMap.HashMap<K, string>,
         params?: Omit<sheets_v4.Params$Resource$Spreadsheets$Values$Batchget, "ranges">,
@@ -476,11 +469,8 @@ export class GoogleSheets extends Context.Service<GoogleSheets>()("GoogleSheets"
                   { ...params, ranges: Array.copy(orderedRanges) },
                   options,
                 ),
-              catch: Function.identity,
-            }).pipe(
-              Effect.catch((error) => Effect.fail(googleSheetsErrorFromUnknown(error))),
-              Effect.map((response) => response.data.valueRanges ?? []),
-            ),
+              catch: googleSheetsErrorFromUnknown,
+            }).pipe(Effect.map((response) => response.data.valueRanges ?? [])),
           ),
           Effect.withSpan("GoogleSheets.getHashMap"),
         ),
@@ -502,8 +492,8 @@ export class GoogleSheets extends Context.Service<GoogleSheets>()("GoogleSheets"
                   },
                   options,
                 ),
-              catch: Function.identity,
-            }).pipe(Effect.catch((error) => Effect.fail(googleSheetsErrorFromUnknown(error))));
+              catch: googleSheetsErrorFromUnknown,
+            });
 
             return pipe(
               response,
@@ -556,17 +546,13 @@ export class GoogleSheets extends Context.Service<GoogleSheets>()("GoogleSheets"
       ) =>
         Effect.tryPromise({
           try: () => googleSheets.spreadsheets.values.batchUpdate(params, options),
-          catch: Function.identity,
-        }).pipe(
-          Effect.catch((error) => Effect.fail(googleSheetsErrorFromUnknown(error))),
-          Effect.withSpan("GoogleSheets.update"),
-        ),
+          catch: googleSheetsErrorFromUnknown,
+        }).pipe(Effect.withSpan("GoogleSheets.update")),
       getSheetGids: (sheetId: string) =>
         Effect.tryPromise({
           try: () => googleSheets.spreadsheets.get({ spreadsheetId: sheetId }),
-          catch: Function.identity,
+          catch: googleSheetsErrorFromUnknown,
         }).pipe(
-          Effect.catch((error) => Effect.fail(googleSheetsErrorFromUnknown(error))),
           Effect.map((sheet) =>
             pipe(
               sheet.data.sheets ?? [],

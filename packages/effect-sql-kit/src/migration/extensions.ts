@@ -1,4 +1,5 @@
 import { Effect, Predicate, Schema } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { JsonValueSchema, MigrationExtensionResultSchema } from "../cli/schema";
 import type { MigrationStatement } from "../diff/types";
 import type {
@@ -9,6 +10,14 @@ import type {
   ResolvedConfig,
 } from "../types";
 import type { SchemaSnapshot } from "../snapshot";
+import * as Data from "effect/Data";
+
+class EffectSqlKitMigrationExtensionsError extends Data.TaggedError(
+  "EffectSqlKitMigrationExtensionsError",
+)<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 
 const isMigrationExtension = (value: unknown): value is MigrationExtension =>
   Predicate.isTagged("EffectSqlKitMigrationExtension")(value) &&
@@ -31,20 +40,20 @@ const duplicateValues = (values: readonly string[]): readonly string[] => {
 
 const validateMigrationExtensionsEffect = (
   extensions: readonly MigrationExtension[],
-): Effect.Effect<void, Error> =>
+): Effect.Effect<void, Error, never> =>
   Effect.gen(function* () {
     const duplicateNames = duplicateValues(extensions.map((extension) => extension.name));
     if (duplicateNames.length > 0) {
-      return yield* Effect.fail(
-        new Error(
-          `effect-sql-kit: duplicate migration extension name(s): ${duplicateNames.join(", ")}`,
-        ),
-      );
+      return yield* new EffectSqlKitMigrationExtensionsError({
+        message: `effect-sql-kit: duplicate migration extension name(s): ${duplicateNames.join(", ")}`,
+      });
     }
 
     const invalid = extensions.find((extension) => !isMigrationExtension(extension));
     if (invalid) {
-      return yield* Effect.fail(new Error("effect-sql-kit: invalid migration extension"));
+      return yield* new EffectSqlKitMigrationExtensionsError({
+        message: "effect-sql-kit: invalid migration extension",
+      });
     }
   });
 
@@ -62,7 +71,11 @@ export const runMigrationExtensionsEffect = ({
   readonly current: SchemaSnapshot;
   readonly statements?: readonly MigrationStatement[];
   readonly previousExtensions: Readonly<Record<string, JsonValue>>;
-}): Effect.Effect<readonly (MigrationExtensionResult & { readonly name: string })[], unknown> =>
+}): Effect.Effect<
+  readonly (MigrationExtensionResult & { readonly name: string })[],
+  unknown,
+  never
+> =>
   Effect.gen(function* () {
     yield* validateMigrationExtensionsEffect(config.extensions);
 
@@ -85,9 +98,9 @@ export const runMigrationExtensionsEffect = ({
         ).pipe(
           Effect.mapError(
             (error) =>
-              new Error(
-                `effect-sql-kit: invalid migration extension result from ${extension.name}: ${String(error)}`,
-              ),
+              new EffectSqlKitMigrationExtensionsError({
+                message: `effect-sql-kit: invalid migration extension result from ${extension.name}: ${String(error)}`,
+              }),
           ),
         );
         return {
@@ -96,7 +109,11 @@ export const runMigrationExtensionsEffect = ({
         } as MigrationExtensionResult & { readonly name: string };
       }),
     )) as readonly (MigrationExtensionResult & { readonly name: string })[];
-  }) as Effect.Effect<readonly (MigrationExtensionResult & { readonly name: string })[], unknown>;
+  }) as Effect.Effect<
+    readonly (MigrationExtensionResult & { readonly name: string })[],
+    unknown,
+    never
+  >;
 
 export const introspectMigrationExtensionsEffect = ({
   config,
@@ -108,14 +125,14 @@ export const introspectMigrationExtensionsEffect = ({
   readonly schema: EffectSqlSchema;
   readonly previous: SchemaSnapshot;
   readonly current: SchemaSnapshot;
-}) =>
+}): Effect.Effect<Readonly<Record<string, JsonValue>>, unknown, SqlClient.SqlClient> =>
   Effect.gen(function* () {
     yield* validateMigrationExtensionsEffect(config.extensions);
 
     const entries = yield* Effect.forEach(config.extensions, (extension) => {
       const introspect = extension.introspect;
       if (!introspect) {
-        return Effect.succeed(undefined);
+        return Effect.void as Effect.Effect<undefined, never, never>;
       }
 
       return Effect.gen(function* () {
@@ -125,22 +142,24 @@ export const introspectMigrationExtensionsEffect = ({
           previous,
           current,
         });
-        const snapshot = yield* Effect.isEffect(result)
-          ? result
-          : Effect.promise(() => Promise.resolve(result));
+        const snapshotEffect: Effect.Effect<JsonValue | undefined, unknown, SqlClient.SqlClient> =
+          Effect.isEffect(result)
+            ? (result as Effect.Effect<JsonValue | undefined, unknown, SqlClient.SqlClient>)
+            : Effect.promise(() => Promise.resolve(result));
+        const snapshot = yield* snapshotEffect;
         if (snapshot === undefined) {
           return undefined;
         }
         const decoded = yield* Schema.decodeUnknownEffect(JsonValueSchema)(snapshot).pipe(
           Effect.mapError(
             (error) =>
-              new Error(
-                `effect-sql-kit: invalid migration extension snapshot from ${extension.name}: ${String(error)}`,
-              ),
+              new EffectSqlKitMigrationExtensionsError({
+                message: `effect-sql-kit: invalid migration extension snapshot from ${extension.name}: ${String(error)}`,
+              }),
           ),
         );
         return [extension.name, decoded] as const;
-      });
+      }) as Effect.Effect<readonly [string, JsonValue] | undefined, unknown, SqlClient.SqlClient>;
     });
 
     return Object.fromEntries(
@@ -150,16 +169,14 @@ export const introspectMigrationExtensionsEffect = ({
 
 export const extensionSnapshotsEffect = (
   extensionResults: readonly (MigrationExtensionResult & { readonly name: string })[],
-): Effect.Effect<Readonly<Record<string, JsonValue>>, Error> =>
+): Effect.Effect<Readonly<Record<string, JsonValue>>, Error, never> =>
   Effect.gen(function* () {
     const duplicates = duplicateValues(extensionResults.map((result) => result.name));
 
     if (duplicates.length > 0) {
-      return yield* Effect.fail(
-        new Error(
-          `effect-sql-kit: duplicate migration extension result name(s): ${duplicates.join(", ")}`,
-        ),
-      );
+      return yield* new EffectSqlKitMigrationExtensionsError({
+        message: `effect-sql-kit: duplicate migration extension result name(s): ${duplicates.join(", ")}`,
+      });
     }
 
     return Object.fromEntries(

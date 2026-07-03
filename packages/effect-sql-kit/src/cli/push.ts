@@ -20,6 +20,12 @@ import { snapshotSchema } from "../snapshot";
 import type { EffectSqlSchema } from "../types";
 import { loadConfig, loadConfigEffect, loadSchemaEffect } from "./config";
 import { configFlags, configInputToOverrides, optionalValue, tryPromise } from "./options";
+import * as Data from "effect/Data";
+
+class EffectSqlKitCliPushError extends Data.TaggedError("EffectSqlKitCliPushError")<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 
 const confirmEffect = (message: string) =>
   tryPromise(async (): Promise<boolean> => {
@@ -60,7 +66,7 @@ const runWithClient = async <A>(
     ]);
     const pgConfig = { url: Redacted.make(url) } satisfies PgPoolConfig;
     return await Effect.runPromise(
-      effect.pipe(Effect.provide(PgClient.layer(pgConfig)), Effect.provide(NodeServices.layer)),
+      effect.pipe(Effect.provide(Layer.mergeAll(PgClient.layer(pgConfig), NodeServices.layer))),
     );
   }
   const [{ SqliteClient }, { NodeServices, NodeFileSystem, NodePath }] = await Promise.all([
@@ -69,8 +75,14 @@ const runWithClient = async <A>(
   ]);
   return await Effect.runPromise(
     effect.pipe(
-      Effect.provide(SqliteClient.layer({ filename: url })),
-      Effect.provide(Layer.mergeAll(NodeServices.layer, NodeFileSystem.layer, NodePath.layer)),
+      Effect.provide(
+        Layer.mergeAll(
+          SqliteClient.layer({ filename: url }),
+          NodeServices.layer,
+          NodeFileSystem.layer,
+          NodePath.layer,
+        ),
+      ),
     ),
   );
 };
@@ -90,7 +102,7 @@ export const buildPushStatementsEffect = ({
   readonly schema: EffectSqlSchema;
   readonly live: ReturnType<typeof snapshotSchema>;
   readonly desired: ReturnType<typeof snapshotSchema>;
-}) =>
+}): Effect.Effect<readonly MigrationStatement[], unknown, SqlClient.SqlClient> =>
   Effect.gen(function* () {
     const diff =
       config.dialect === "postgresql" ? diffPg(live, desired) : diffSqlite(live, desired);
@@ -153,9 +165,9 @@ export const pushCommand = Command.make(
       );
       const unsupported = allStatements.filter((statement) => statement.unsupported);
       if (unsupported.length > 0) {
-        return yield* Effect.fail(
-          new Error(unsupported.map((statement) => statement.reason).join("\n")),
-        );
+        return yield* new EffectSqlKitCliPushError({
+          message: unsupported.map((statement) => statement.reason).join("\n"),
+        });
       }
       const statements = allStatements.filter((statement) => statement.sql.trim().length > 0);
       if (statements.length === 0) {

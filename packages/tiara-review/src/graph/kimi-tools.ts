@@ -11,6 +11,12 @@ import {
   lookupDependencyGraphSymbolEffect,
 } from "./store";
 import { graphToolErrorMessage } from "./toolkit";
+import * as Data from "effect/Data";
+
+class TiaraReviewGraphKimiToolsError extends Data.TaggedError("TiaraReviewGraphKimiToolsError")<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 import {
   ResolveSymbol,
   ResolveSymbolParams,
@@ -54,7 +60,9 @@ const makeRunGraphTool = (dbPath: string) => {
 
 const decodeParams = <S extends Schema.Top>(schema: S, params: Record<string, unknown>) =>
   Schema.decodeUnknownEffect(schema)(params).pipe(
-    Effect.catch((cause) => Effect.fail(new Error(graphToolErrorMessage(cause)))),
+    Effect.mapError(
+      (cause) => new TiaraReviewGraphKimiToolsError({ message: graphToolErrorMessage(cause) }),
+    ),
   );
 
 export const makeKimiDependencyGraphTools = (input: {

@@ -8,6 +8,14 @@ import type { ServicesStatusResponse } from "sheet-ingress-api/sheet-apis-rpc";
 import { config } from "../config";
 import { discordGatewayLayer } from "../discord/gateway";
 import { SheetWorkflowsClient, SheetWorkflowsRequestContext } from "../services";
+import * as Data from "effect/Data";
+
+class SheetBotEventsUpdateAnnouncementsError extends Data.TaggedError(
+  "SheetBotEventsUpdateAnnouncementsError",
+)<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 
 const GuildCreateEvent = Schema.Struct({
   id: Schema.String,
@@ -85,9 +93,9 @@ const waitForUpdateAnnouncementServices = Effect.fn("waitForUpdateAnnouncementSe
     .filter((service) => service.status !== "ok")
     .map((service) => service.name)
     .join(", ");
-  return yield* Effect.fail(
-    new Error(`Update announcement dependencies are not healthy: ${downServices}`),
-  );
+  return yield* new SheetBotEventsUpdateAnnouncementsError({
+    message: `Update announcement dependencies are not healthy: ${downServices}`,
+  });
 });
 
 const updateAnnouncementDispatchRetrySchedule = Schedule.spaced(Duration.seconds(5)).pipe(

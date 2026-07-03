@@ -16,8 +16,19 @@ import {
   ClientDeliveryClient,
   SheetApisClient,
 } from "@/services";
-import type { AutoCheckinConversationPayload } from "@/workflows/autoCheckinContract";
+import type {
+  AutoCheckinConversationPayload,
+  AutoCheckinConversationResult,
+} from "@/workflows/autoCheckinContract";
 import { makeSheetApisClient, normalizePayloadText, text } from "./testHelpers";
+import * as Data from "effect/Data";
+
+class SheetWorkflowsServicesAutoCheckinTestError extends Data.TaggedError(
+  "SheetWorkflowsServicesAutoCheckinTestError",
+)<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 
 const payload: AutoCheckinConversationPayload = {
   workspaceId: "workspace-1",
@@ -121,7 +132,7 @@ const makeBotClient = (calls: Array<unknown>) =>
   }) as never;
 
 const runService = <A, E>(
-  effect: (service: typeof AutoCheckinService.Service) => Effect.Effect<A, E>,
+  effect: (service: typeof AutoCheckinService.Service) => Effect.Effect<A, E, never>,
   options: {
     readonly sheetApisClient: typeof SheetApisClient.Service;
     readonly botClient?: typeof ClientDeliveryClient.Service;
@@ -229,7 +240,9 @@ describe("AutoCheckinService", () => {
         workflowClient: {
           enqueueConversation: (payload: AutoCheckinConversationPayload) =>
             payload.conversationName === "main"
-              ? Effect.fail(new Error("enqueue failed"))
+              ? Effect.fail(
+                  new SheetWorkflowsServicesAutoCheckinTestError({ message: "enqueue failed" }),
+                )
               : Effect.succeed("execution-side"),
         } as never,
         clockTime: "2026-03-26T13:40:00.000Z",
@@ -254,13 +267,19 @@ describe("AutoCheckinService", () => {
             readonly query: { readonly workspaceId: string };
           }) =>
             query.workspaceId === "workspace-1"
-              ? Effect.fail(new Error("workspace failed"))
+              ? Effect.fail(
+                  new SheetWorkflowsServicesAutoCheckinTestError({ message: "workspace failed" }),
+                )
               : Effect.succeed([makeWorkspaceConversation(Option.some("side"))]),
         },
         sheet: {
           getEventConfig: ({ query }: { readonly query: { readonly workspaceId: string } }) =>
             query.workspaceId === "workspace-1"
-              ? Effect.fail(new Error("event config failed"))
+              ? Effect.fail(
+                  new SheetWorkflowsServicesAutoCheckinTestError({
+                    message: "event config failed",
+                  }),
+                )
               : Effect.succeed(
                   new EventConfig({
                     startTime: DateTime.makeUnsafe("2026-03-26T12:00:00.000Z"),
@@ -322,10 +341,18 @@ describe("AutoCheckinService", () => {
         },
       });
 
-      const result = yield* runService((service) => service.processConversation(payload), {
-        sheetApisClient,
-        botClient: makeBotClient(botCalls),
-      });
+      const result = yield* runService(
+        (service) =>
+          service.processConversation(payload) as Effect.Effect<
+            AutoCheckinConversationResult,
+            unknown,
+            never
+          >,
+        {
+          sheetApisClient,
+          botClient: makeBotClient(botCalls),
+        },
+      );
 
       expect(result).toEqual({
         workspaceId: "workspace-1",
@@ -434,10 +461,18 @@ describe("AutoCheckinService", () => {
         },
       });
 
-      const result = yield* runService((service) => service.processConversation(payload), {
-        sheetApisClient,
-        botClient: makeBotClient(botCalls),
-      });
+      const result = yield* runService(
+        (service) =>
+          service.processConversation(payload) as Effect.Effect<
+            AutoCheckinConversationResult,
+            unknown,
+            never
+          >,
+        {
+          sheetApisClient,
+          botClient: makeBotClient(botCalls),
+        },
+      );
 
       expect(result).toEqual({
         workspaceId: "workspace-1",

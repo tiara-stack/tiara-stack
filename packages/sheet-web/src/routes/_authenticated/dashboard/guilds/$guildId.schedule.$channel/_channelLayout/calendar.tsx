@@ -35,9 +35,7 @@ export const Route = createFileRoute(
     const currentDateZoned = makeZoned(timeZone, currentDate);
 
     const calendarDays = await Effect.runPromise(
-      ensureResultAtomData(context.atomRegistry, calendarDaysAtom(currentDateZoned)).pipe(
-        Effect.catch(() => Effect.die("Failed to load calendar days")),
-      ),
+      ensureResultAtomData(context.atomRegistry, calendarDaysAtom(currentDateZoned)),
     );
 
     const rangeStart = Array.headNonEmpty(calendarDays).day;

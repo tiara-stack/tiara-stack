@@ -1,4 +1,4 @@
-import { Cron, Effect, Layer, Schedule, pipe } from "effect";
+import { Cron, Effect, Layer, Schedule } from "effect";
 import { AutoCheckinService } from "@/services";
 
 export const autoCheckinTaskLayer = Layer.effectDiscard(
@@ -13,13 +13,11 @@ export const autoCheckinTaskLayer = Layer.effectDiscard(
       },
     );
 
-    yield* pipe(
-      autoCheckinTask().pipe(
-        Effect.annotateLogs({ task: "autoCheckin" }),
-        Effect.withSpan("sheet-workflows.task.autoCheckin", {
-          attributes: { task: "autoCheckin" },
-        }),
-      ),
+    yield* autoCheckinTask().pipe(
+      Effect.annotateLogs({ task: "autoCheckin" }),
+      Effect.withSpan("sheet-workflows.task.autoCheckin", {
+        attributes: { task: "autoCheckin" },
+      }),
       Effect.schedule(
         Schedule.cron(
           Cron.make({

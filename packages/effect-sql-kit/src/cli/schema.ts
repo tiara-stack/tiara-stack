@@ -42,8 +42,7 @@ export const MigrationExtensionResultSchema: Schema.Schema<MigrationExtensionRes
     snapshot: JsonValueSchema,
   });
 
-const MigrationExtensionSchema = Schema.Struct({
-  _tag: Schema.Literal("EffectSqlKitMigrationExtension"),
+const MigrationExtensionSchema = Schema.TaggedStruct("EffectSqlKitMigrationExtension", {
   name: Schema.String,
   generate: FunctionSchema,
   introspect: Schema.optional(FunctionSchema),
@@ -85,8 +84,7 @@ export const ResolvedConfigSchema = Schema.Struct({
   extensions: Schema.Array(MigrationExtensionSchema),
 });
 
-export const EffectSqlSchemaExportSchema = Schema.Struct({
-  _tag: Schema.Literal("EffectSqlSchema"),
+export const EffectSqlSchemaExportSchema = Schema.TaggedStruct("EffectSqlSchema", {
   tables: Schema.Record(Schema.String, Schema.Unknown),
   prefix: Schema.optional(Schema.String),
 });

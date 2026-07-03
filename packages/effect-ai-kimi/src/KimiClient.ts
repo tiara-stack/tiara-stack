@@ -82,17 +82,6 @@ export interface Service {
   readonly runStreamed: (options: RunOptions) => Stream.Stream<StreamEvent, KimiError>;
 }
 
-export class KimiClient extends Context.Service<KimiClient, Service>()(
-  "effect-ai-kimi/KimiClient",
-  {
-    make: Effect.gen(function* () {
-      return yield* make;
-    }),
-  },
-) {
-  static layer = Layer.effect(KimiClient, this.make);
-}
-
 export const make: Effect.Effect<Service> = Effect.gen(function* () {
   const config = yield* Effect.serviceOption(Config).pipe(
     Effect.map((option) => (option._tag === "Some" ? option.value : undefined)),
@@ -162,3 +151,12 @@ export const make: Effect.Effect<Service> = Effect.gen(function* () {
     Stream.unwrap(run(options).pipe(Effect.map((result) => Stream.fromIterable(result.events))));
   return { run, runStreamed };
 });
+
+export class KimiClient extends Context.Service<KimiClient, Service>()(
+  "effect-ai-kimi/KimiClient",
+  {
+    make,
+  },
+) {
+  static layer = Layer.effect(KimiClient, this.make);
+}

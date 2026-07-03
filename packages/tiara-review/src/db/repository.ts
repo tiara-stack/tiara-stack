@@ -245,8 +245,7 @@ const makeReviewRepository = (dbPath: string, sql: SqlClient.SqlClient) => {
     dbPath,
     run: <A, E, R>(effect: Effect.Effect<A, E, R>) => effect,
     insertRun: (runRecord: ReviewRunRecord) =>
-      Effect.gen(function* () {
-        yield* sql`
+      sql`
           insert into review_runs (
             id, repo_root, branch, head_commit, base_ref, base_commit, checkpoint_ref,
             checkpoint_commit, checkpoint_created_at, diff_hash, diff_stat_json, created_at,
@@ -258,8 +257,7 @@ const makeReviewRepository = (dbPath: string, sql: SqlClient.SqlClient) => {
             ${runRecord.status}, ${runRecord.safetyConfidence ?? null},
             ${runRecord.reportMarkdown ?? null}, ${runRecord.reportJson ?? null}, ${runRecord.error ?? null}
           )
-        `;
-      }),
+        `,
     completeRun: (input: {
       readonly runId: string;
       readonly status: RunStatus;
@@ -270,16 +268,14 @@ const makeReviewRepository = (dbPath: string, sql: SqlClient.SqlClient) => {
       readonly error?: string | null;
     }) => completeRunRow(input),
     insertAgent: (agent: ReviewAgentRecord) =>
-      Effect.gen(function* () {
-        yield* sql`
+      sql`
           insert into review_agents (
             id, run_id, aspect, codex_thread_id, status, started_at, completed_at, error
           ) values (
             ${agent.id}, ${agent.runId}, ${agent.aspect}, ${agent.codexThreadId ?? null}, ${agent.status},
             ${agent.startedAt}, ${agent.completedAt ?? null}, ${agent.error ?? null}
           )
-        `;
-      }),
+        `,
     updateAgent: (input: {
       readonly id: string;
       readonly status: AgentStatus;

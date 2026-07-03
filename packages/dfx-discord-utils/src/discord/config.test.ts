@@ -4,9 +4,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { discordConfigLayer } from "./config";
 
 const getTestConfig = (options: Parameters<typeof discordConfigLayer>[0]) =>
-  Effect.gen(function* () {
-    return yield* DiscordConfig.DiscordConfig;
-  }).pipe(Effect.provide(discordConfigLayer(options)));
+  DiscordConfig.DiscordConfig.pipe(Effect.provide(discordConfigLayer(options)));
 
 describe("discordConfigLayer", () => {
   it.effect("builds dfx Discord config from Effect configs", () =>

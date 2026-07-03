@@ -5,6 +5,12 @@ import { join } from "node:path";
 import { spawn } from "node:child_process";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as Data from "effect/Data";
+
+class TiaraReviewGitCheckpointError extends Data.TaggedError("TiaraReviewGitCheckpointError")<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 import {
   type Checkpoint,
   type ReviewBase,
@@ -96,9 +102,7 @@ export const resolveRepoRoot = (cwd: string): Effect.Effect<string, NotGitReposi
   Effect.gen(function* () {
     const inside = yield* gitText(cwd, ["rev-parse", "--is-inside-work-tree"]);
     if (inside !== "true") {
-      return yield* Effect.fail(
-        new NotGitRepository({ cwd, message: "Path is not inside a Git working tree" }),
-      );
+      return yield* new NotGitRepository({ cwd, message: "Path is not inside a Git working tree" });
     }
     return yield* gitText(cwd, ["rev-parse", "--show-toplevel"]);
   }).pipe(
@@ -191,12 +195,13 @@ export const captureCheckpoint = (repoRoot: string) =>
     const exit = yield* Effect.exit(effect);
     yield* Effect.tryPromise({
       try: () => rm(tempDir, { recursive: true, force: true }),
-      catch: (cause) => cause,
+      catch: (cause) => new TiaraReviewGitCheckpointError({ message: String(cause), cause: cause }),
     }).pipe(Effect.ignore);
     if (Exit.isFailure(exit)) {
-      return yield* Effect.fail(
-        new CheckpointFailed({ message: "Unable to capture review checkpoint", cause: exit.cause }),
-      );
+      return yield* new CheckpointFailed({
+        message: "Unable to capture review checkpoint",
+        cause: exit.cause,
+      });
     }
     return exit.value;
   });

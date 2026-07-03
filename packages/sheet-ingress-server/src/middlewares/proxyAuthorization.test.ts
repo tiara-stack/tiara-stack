@@ -10,6 +10,14 @@ import type { Permission } from "sheet-ingress-api/schemas/permissions";
 import { Unauthorized } from "typhoon-core/error";
 import { SheetAuthUserResolver } from "../services/authResolver";
 import { SheetApisRpcTokens } from "../services/sheetApisRpcTokens";
+import * as Data from "effect/Data";
+
+class SheetIngressServerMiddlewaresProxyAuthorizationTestError extends Data.TaggedError(
+  "SheetIngressServerMiddlewaresProxyAuthorizationTestError",
+)<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 import {
   SheetApisAnonymousUserFallbackLive,
   SheetApisServiceUserFallbackLive,
@@ -172,7 +180,12 @@ describe("proxy authorization middleware", () => {
   it.effect("maps service user fallback failures to Unauthorized", () =>
     Effect.gen(function* () {
       const tokens = {
-        getServiceUser: () => Effect.fail(new Error("service user unavailable")),
+        getServiceUser: () =>
+          Effect.fail(
+            new SheetIngressServerMiddlewaresProxyAuthorizationTestError({
+              message: "service user unavailable",
+            }),
+          ),
       } as never;
 
       const exit = yield* runPromiseExit(

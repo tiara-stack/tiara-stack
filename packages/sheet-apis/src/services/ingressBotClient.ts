@@ -7,6 +7,14 @@ import { DISCORD_SERVICE_USER_ID_SENTINEL } from "sheet-auth/oauth";
 import { SheetIngressDiscordApi } from "sheet-ingress-api/api";
 import { config } from "@/config";
 import { SheetAuthClient } from "./sheetAuthClient";
+import * as Data from "effect/Data";
+
+class SheetApisServicesIngressBotClientError extends Data.TaggedError(
+  "SheetApisServicesIngressBotClientError",
+)<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 
 type TokenCacheEntry = {
   readonly token: Redacted.Redacted<string> | undefined;
@@ -70,7 +78,9 @@ export class IngressBotClient extends Context.Service<IngressBotClient>()("Ingre
         const { failed, token } = yield* Cache.get(tokenCache, DISCORD_SERVICE_USER_ID_SENTINEL);
 
         if (failed || !token) {
-          return yield* Effect.fail(new Error("Failed to create OAuth service token"));
+          return yield* new SheetApisServicesIngressBotClientError({
+            message: "Failed to create OAuth service token",
+          });
         }
 
         return HttpClientRequest.bearerToken(request, Redacted.value(token));

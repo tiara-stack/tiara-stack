@@ -89,24 +89,24 @@ describe("CodexLanguageModel", () => {
       let captured: RunOptions | undefined;
       yield* LanguageModel.generateText({ prompt: "review" }).pipe(
         Effect.provide(
-          Layer.provide(
-            CodexLanguageModel.layer({
-              model: "gpt-5-codex",
-              config: { env: { PROVIDER_ONLY: "provider", SHARED: "provider" } },
-            }),
-            Layer.succeed(CodexClient, {
-              run: (options) => {
-                captured = options;
-                return Effect.succeed(runResult("ok"));
-              },
-              runStreamed: () => Stream.empty,
+          Layer.mergeAll(
+            Layer.provide(
+              CodexLanguageModel.layer({
+                model: "gpt-5-codex",
+                config: { env: { PROVIDER_ONLY: "provider", SHARED: "provider" } },
+              }),
+              Layer.succeed(CodexClient, {
+                run: (options) => {
+                  captured = options;
+                  return Effect.succeed(runResult("ok"));
+                },
+                runStreamed: () => Stream.empty,
+              }),
+            ),
+            Layer.succeed(CodexConfig, {
+              env: { SERVICE_ONLY: "service", SHARED: "service" },
             }),
           ),
-        ),
-        Effect.provide(
-          Layer.succeed(CodexConfig, {
-            env: { SERVICE_ONLY: "service", SHARED: "service" },
-          }),
         ),
       );
 
@@ -133,12 +133,14 @@ describe("CodexLanguageModel", () => {
         });
       }).pipe(
         Effect.provide(
-          withFakeClient((options) => {
-            captured.push(options);
-            return Effect.succeed(runResult("continued"));
-          }),
+          Layer.mergeAll(
+            withFakeClient((options) => {
+              captured.push(options);
+              return Effect.succeed(runResult("continued"));
+            }),
+            Layer.effect(ResponseIdTracker.ResponseIdTracker, ResponseIdTracker.make),
+          ),
         ),
-        Effect.provide(Layer.effect(ResponseIdTracker.ResponseIdTracker, ResponseIdTracker.make)),
       );
 
       expect(captured[1]?.threadId).toBe("thread_1");

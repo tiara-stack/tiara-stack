@@ -10,6 +10,14 @@ import {
   SHEET_AUTH_SESSION_TOKEN_UNAVAILABLE,
 } from "./discordAccessToken";
 import { SheetAuthClient } from "./sheetAuthClient";
+import * as Data from "effect/Data";
+
+class SheetApisServicesDiscordAccessTokenTestError extends Data.TaggedError(
+  "SheetApisServicesDiscordAccessTokenTestError",
+)<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 
 vi.mock("sheet-auth/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("sheet-auth/client")>();
@@ -69,7 +77,9 @@ describe("DiscordAccessTokenService", () => {
   it.effect("falls back to the Better Auth session endpoint during rollout", () =>
     Effect.gen(function* () {
       vi.mocked(getDiscordAccessTokenWithOAuth).mockReturnValueOnce(
-        Effect.fail(new Error("oauth failed")) as never,
+        Effect.fail(
+          new SheetApisServicesDiscordAccessTokenTestError({ message: "oauth failed" }),
+        ) as never,
       );
       vi.mocked(getDiscordAccessToken).mockReturnValueOnce(
         Effect.succeed({ accessToken: Redacted.make("discord-access-token") }) as never,
@@ -114,10 +124,16 @@ describe("DiscordAccessTokenService", () => {
   it.live("maps sheet-auth lookup failures to ArgumentError", () =>
     Effect.gen(function* () {
       vi.mocked(getDiscordAccessTokenWithOAuth).mockReturnValueOnce(
-        Effect.fail(new Error("sheet-auth failed")) as never,
+        Effect.fail(
+          new SheetApisServicesDiscordAccessTokenTestError({ message: "sheet-auth failed" }),
+        ) as never,
       );
       vi.mocked(getDiscordAccessToken).mockReturnValueOnce(
-        Effect.fail(new Error("sheet-auth session failed")) as never,
+        Effect.fail(
+          new SheetApisServicesDiscordAccessTokenTestError({
+            message: "sheet-auth session failed",
+          }),
+        ) as never,
       );
 
       const exit = yield* Effect.exit(

@@ -385,10 +385,11 @@ export class WrappedCommandHelper<A> {
   > {
     const commands_ = commands as Record<string, any>;
 
-    return Effect.fnUntraced(function* (wrapped: WrappedCommandHelper<A>) {
-      yield* Effect.log(wrapped.subcommand, Object.keys(commands_));
+    const { data, helper, subcommand } = this;
+    return Effect.gen(function* () {
+      yield* Effect.log(subcommand, Object.keys(commands_));
 
-      const command = Option.flatMap(wrapped.subcommand, (subcommand) =>
+      const command = Option.flatMap(subcommand, (subcommand) =>
         Record.get(commands_, subcommand.name),
       );
 
@@ -396,7 +397,7 @@ export class WrappedCommandHelper<A> {
         Discord.APIApplicationCommandInteractionDataOption<
           (typeof Discord.InteractionTypes)["APPLICATION_COMMAND"]
         >
-      > = Option.map(wrapped.subcommand, (subcommand) =>
+      > = Option.map(subcommand, (subcommand) =>
         "options" in subcommand && subcommand.options ? subcommand.options : [],
       ).pipe(Option.getOrElse(() => []));
 
@@ -404,7 +405,7 @@ export class WrappedCommandHelper<A> {
         onSome: (command) =>
           command(
             new WrappedCommandHelper(
-              wrapped.helper,
+              helper,
               Array.findFirst(
                 options,
                 (option) => option.type === Discord.ApplicationCommandOptionType.SUB_COMMAND_GROUP,
@@ -419,9 +420,9 @@ export class WrappedCommandHelper<A> {
               options,
             ),
           ),
-        onNone: () => new SubCommandNotFound({ data: wrapped.data }),
+        onNone: () => new SubCommandNotFound({ data }),
       });
-    })(this) as any;
+    }) as any;
   }
 
   get optionsMap() {

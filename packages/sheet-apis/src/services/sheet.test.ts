@@ -100,10 +100,10 @@ const runGetAllSchedules = ({
   overfills?: string;
   standbys?: string;
 }) =>
-  Effect.fnUntraced(function* () {
+  Effect.gen(function* () {
     const sheetService = yield* SheetService.make;
     return yield* sheetService.getAllSchedules("sheet-1");
-  })().pipe(
+  }).pipe(
     Effect.provideService(
       GoogleSheets,
       makeGoogleSheets({

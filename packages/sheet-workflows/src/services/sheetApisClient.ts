@@ -6,6 +6,14 @@ import { DISCORD_SERVICE_USER_ID_SENTINEL } from "sheet-auth/oauth";
 import { SheetApisApi } from "sheet-ingress-api/sheet-apis";
 import { config } from "@/config";
 import { SheetAuthClient } from "./sheetAuthClient";
+import * as Data from "effect/Data";
+
+class SheetWorkflowsServicesSheetApisClientError extends Data.TaggedError(
+  "SheetWorkflowsServicesSheetApisClientError",
+)<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 
 type TokenCacheEntry = {
   token: Redacted.Redacted<string> | undefined;
@@ -75,7 +83,9 @@ export class SheetApisClient extends Context.Service<SheetApisClient>()("SheetAp
 
         yield* Effect.annotateCurrentSpan({ tokenAvailable: !failed && token !== undefined });
         if (failed || !token) {
-          return yield* Effect.fail(new Error("Failed to create OAuth service token"));
+          return yield* new SheetWorkflowsServicesSheetApisClientError({
+            message: "Failed to create OAuth service token",
+          });
         }
 
         return HttpClientRequest.bearerToken(request, Redacted.value(token));

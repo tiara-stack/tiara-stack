@@ -67,7 +67,7 @@ const provideFakeZero = <A, E>(
 const makeFakeZeroClient = (options: Partial<FakeZeroClient>): FakeZeroClient =>
   ({
     zero: {} as never,
-    run: () => Effect.succeed(undefined),
+    run: () => Effect.void,
     mutate: () =>
       Effect.succeed({
         client: () => Effect.void,

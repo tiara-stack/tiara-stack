@@ -18,9 +18,12 @@ const program = Effect.gen(function* () {
 
 pipe(
   program,
-  Effect.provide(discordApplicationLayer),
-  Effect.provide(DiscordRESTMemoryLive.pipe(Layer.provide(discordConfigLayer))),
-  Effect.provide(NodeHttpClient.layerFetch),
+  Effect.provide(
+    Layer.mergeAll(
+      discordApplicationLayer,
+      DiscordRESTMemoryLive.pipe(Layer.provide(discordConfigLayer)),
+    ).pipe(Layer.provideMerge(NodeHttpClient.layerFetch)),
+  ),
   Effect.scoped,
   NodeRuntime.runMain(),
 );

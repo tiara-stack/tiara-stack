@@ -13,6 +13,14 @@ import type { MessageComponentInteractionResponseContext } from "dfx-discord-uti
 import { discordApplicationLayer } from "../../discord/application";
 import { discordGatewayLayer } from "../../discord/gateway";
 import { sdkClient, type VibecordButtonInteraction } from "../../sdk/index";
+import * as Data from "effect/Data";
+
+class VibecordMessageComponentsButtonsIndexError extends Data.TaggedError(
+  "VibecordMessageComponentsButtonsIndexError",
+)<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 
 const makeAdapter = (response: MessageComponentInteractionResponseContext, customId: string) =>
   Effect.gen(function* () {
@@ -22,7 +30,12 @@ const makeAdapter = (response: MessageComponentInteractionResponseContext, custo
     const message = (yield* Interaction.message().pipe(
       Effect.flatMap(
         Option.match({
-          onNone: () => Effect.fail(new Error("Interaction has no message")),
+          onNone: () =>
+            Effect.fail(
+              new VibecordMessageComponentsButtonsIndexError({
+                message: "Interaction has no message",
+              }),
+            ),
           onSome: Effect.succeed,
         }),
       ),
@@ -34,7 +47,11 @@ const makeAdapter = (response: MessageComponentInteractionResponseContext, custo
     };
     const enqueueInitialResponse = (effect: Effect.Effect<unknown, unknown, never>) => {
       if (initialResponseQueued) {
-        return Promise.reject(new Error("Interaction initial response already queued"));
+        return Promise.reject(
+          new VibecordMessageComponentsButtonsIndexError({
+            message: "Interaction initial response already queued",
+          }),
+        );
       }
       initialResponseQueued = true;
       return enqueue(effect);
