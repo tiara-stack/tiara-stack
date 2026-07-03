@@ -16,6 +16,22 @@ export default defineConfig({
   },
   lint: {
     ignorePatterns: [".output", ".ts-out", "dist", "node_modules"],
+    jsPlugins: ["./packages/effect-lint/oxlint-plugin.mjs"],
+    rules: {
+      "effect/unnecessaryPipe": "warn",
+      "effect/unnecessaryPipeChain": "warn",
+      "effect/unnecessaryEffectGen": "warn",
+      "effect/effectMapVoid": "warn",
+      "effect/effectSucceedWithVoid": "warn",
+      "effect/schemaStructWithTag": "warn",
+      "effect/schemaUnionOfLiterals": "warn",
+      "effect/unnecessaryArrowBlock": "warn",
+      "effect/globalFetch": "warn",
+      "effect/processEnv": "warn",
+      "effect/globalDate": "warn",
+      "effect/globalConsole": "warn",
+      "effect/globalRandom": "warn",
+    },
     options: { typeAware: true, typeCheck: true },
   },
 });

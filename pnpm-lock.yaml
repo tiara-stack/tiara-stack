@@ -69,6 +69,9 @@ importers:
       effect:
         specifier: 'catalog:'
         version: 4.0.0-beta.67
+      effect-lint:
+        specifier: workspace:*
+        version: link:packages/effect-lint
       tsx:
         specifier: 'catalog:'
         version: 4.22.3
@@ -173,6 +176,28 @@ importers:
       '@effect/vitest':
         specifier: 'catalog:'
         version: 4.0.0-beta.67(@voidzero-dev/vite-plus-test@0.1.15(@opentelemetry/api@1.9.0)(@types/node@24.10.9)(@voidzero-dev/vite-plus-core@0.1.15(@types/node@24.10.9)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(jiti@2.6.1)(jsdom@27.4.0(@noble/hashes@2.0.1))(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(effect@4.0.0-beta.67)
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.10.9
+      vite:
+        specifier: npm:@voidzero-dev/vite-plus-core@0.1.15
+        version: '@voidzero-dev/vite-plus-core@0.1.15(@types/node@24.10.9)(esbuild@0.19.12)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0)'
+      vite-plus:
+        specifier: 'catalog:'
+        version: 0.1.15(@opentelemetry/api@1.9.0)(@types/node@24.10.9)(@voidzero-dev/vite-plus-core@0.1.15(@types/node@24.10.9)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(jiti@2.6.1)(jsdom@27.4.0(@noble/hashes@2.0.1))(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0)
+      vitest:
+        specifier: npm:@voidzero-dev/vite-plus-test@0.1.15
+        version: '@voidzero-dev/vite-plus-test@0.1.15(@opentelemetry/api@1.9.0)(@types/node@24.10.9)(@voidzero-dev/vite-plus-core@0.1.15(@types/node@24.10.9)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(jiti@2.6.1)(jsdom@27.4.0(@noble/hashes@2.0.1))(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0)'
+
+  packages/effect-lint:
+    dependencies:
+      '@effect/language-service':
+        specifier: 0.86.2
+        version: 0.86.2
+      glob:
+        specifier: ^11.0.3
+        version: 11.0.3
+    devDependencies:
       '@types/node':
         specifier: 'catalog:'
         version: 24.10.9

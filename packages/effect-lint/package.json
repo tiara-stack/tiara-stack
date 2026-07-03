@@ -1,0 +1,39 @@
+{
+  "name": "effect-lint",
+  "version": "0.0.0",
+  "private": true,
+  "bin": {
+    "effect-lint": "./dist/cli.mjs"
+  },
+  "files": [
+    "./dist/**",
+    "./oxlint-plugin.mjs"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    },
+    "./oxlint-plugin": "./oxlint-plugin.mjs",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "format": "vp fmt --check",
+    "format:apply": "vp fmt",
+    "lint": "vp lint src",
+    "test": "vp test run --passWithNoTests",
+    "test:watch": "vp test",
+    "build": "vp pack"
+  },
+  "dependencies": {
+    "@effect/language-service": "0.86.2",
+    "glob": "^11.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
+    "vitest": "catalog:"
+  }
+}
