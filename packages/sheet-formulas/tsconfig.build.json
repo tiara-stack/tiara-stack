@@ -1,0 +1,27 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "tsBuildInfoFile": ".ts-out/.tsbuildinfo"
+  },
+  "references": [
+    {
+      "path": "../effect-platform-apps-script/tsconfig.build.json"
+    },
+    {
+      "path": "../sheet-ingress-api/tsconfig.build.json"
+    },
+    {
+      "path": "../typhoon-core/tsconfig.build.json"
+    }
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    ".output",
+    ".ts-out",
+    ".tsbuildinfo",
+    "**/*.test.ts",
+    "**/*.test.tsx"
+  ]
+}

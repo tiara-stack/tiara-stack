@@ -60,7 +60,8 @@ const successSchemas = {
   },
 } as const;
 
-export const SheetZeroApi = makeSheetZeroApi(successSchemas);
+export const SheetZeroApi: ReturnType<typeof makeSheetZeroApi<typeof successSchemas>> =
+  makeSheetZeroApi(successSchemas);
 
 type QueryResult<A> = Effect.Effect<A, ZeroApiClient.QueryError, never>;
 

@@ -1,0 +1,38 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "composite": true,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "rootDir": ".",
+    "outDir": ".ts-out",
+    "tsBuildInfoFile": ".ts-out/.tsbuildinfo"
+  },
+  "references": [
+    {
+      "path": "../effect-sql-kit/tsconfig.build.json"
+    },
+    {
+      "path": "../effect-sql-schema/tsconfig.build.json"
+    },
+    {
+      "path": "../effect-zero/tsconfig.build.json"
+    },
+    {
+      "path": "../typhoon-core/tsconfig.build.json"
+    },
+    {
+      "path": "../typhoon-zero/tsconfig.build.json"
+    }
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    ".output",
+    ".ts-out",
+    ".tsbuildinfo",
+    "**/*.test.ts",
+    "**/*.test.tsx"
+  ]
+}

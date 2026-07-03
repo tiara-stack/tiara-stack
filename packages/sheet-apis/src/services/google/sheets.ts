@@ -374,200 +374,235 @@ const parseA1RangeKey = (range: string) =>
 const gridDataToKey = (sheetTitle: string, gridData: sheets_v4.Schema$GridData) =>
   toRangeKey(sheetTitle, (gridData.startRow ?? 0) + 1, (gridData.startColumn ?? 0) + 1);
 
-export class GoogleSheets extends Context.Service<GoogleSheets>()("GoogleSheets", {
-  make: Effect.gen(function* () {
-    const googleAuthService = yield* GoogleAuthService;
-    const auth = googleAuthService.getAuth();
-    const googleSheets = yield* Effect.try({
-      try: () =>
-        sheets({
-          version: "v4",
-          auth,
-        }),
-      catch: (cause) =>
-        new GoogleSheetsError({
-          message: "Failed to create Google Sheets client",
-          cause: googleSheetsErrorCause(cause),
-        }),
-    });
+type GoogleSheetsResult<A> = Effect.Effect<A, GoogleSheetsError, never>;
 
-    return {
-      sheets: googleSheets,
-      getRowDatas: (
-        params: sheets_v4.Params$Resource$Spreadsheets$Get,
-        options?: MethodOptions,
-      ) => {
-        const response = Effect.tryPromise({
-          try: () => googleSheets.spreadsheets.get(params, options),
-          catch: googleSheetsErrorFromUnknown,
-        });
+interface GoogleSheetsService {
+  readonly sheets: unknown;
+  readonly getRowDatas: (
+    params: sheets_v4.Params$Resource$Spreadsheets$Get,
+    options?: MethodOptions,
+  ) => GoogleSheetsResult<sheets_v4.Schema$RowData[][]>;
+  readonly get: (
+    params: sheets_v4.Params$Resource$Spreadsheets$Values$Batchget,
+    options?: MethodOptions,
+  ) => GoogleSheetsResult<{ readonly data: sheets_v4.Schema$BatchGetValuesResponse }>;
+  readonly getHashMap: <K>(
+    ranges: HashMap.HashMap<K, string>,
+    params?: Omit<sheets_v4.Params$Resource$Spreadsheets$Values$Batchget, "ranges">,
+    options?: MethodOptions,
+  ) => GoogleSheetsResult<HashMap.HashMap<K, sheets_v4.Schema$ValueRange>>;
+  readonly getRowDatasHashMap: <K>(
+    ranges: HashMap.HashMap<K, string>,
+    params?: Omit<sheets_v4.Params$Resource$Spreadsheets$Get, "ranges">,
+    options?: MethodOptions,
+  ) => GoogleSheetsResult<HashMap.HashMap<K, sheets_v4.Schema$RowData[]>>;
+  readonly update: (
+    params?: sheets_v4.Params$Resource$Spreadsheets$Values$Batchupdate,
+    options?: MethodOptions,
+  ) => GoogleSheetsResult<{ readonly data: sheets_v4.Schema$BatchUpdateValuesResponse }>;
+  readonly getSheetGids: (
+    sheetId: string,
+  ) => GoogleSheetsResult<HashMap.HashMap<string | null | undefined, Option.Option<number>>>;
+}
 
-        return pipe(
-          response,
-          Effect.map((sheet) =>
-            pipe(
-              sheet.data.sheets ?? [],
-              Array.map((sheet) => ({
-                sheet: sheet.properties?.title ?? "",
-                gridData: sheet.data ?? [],
-              })),
-              Array.flatMap(({ sheet, gridData }) =>
-                pipe(
-                  gridData,
-                  Array.map(
-                    (gridData) => [gridDataToKey(sheet, gridData), gridData.rowData ?? []] as const,
+export class GoogleSheets extends Context.Service<GoogleSheets, GoogleSheetsService>()(
+  "GoogleSheets",
+  {
+    make: Effect.gen(function* () {
+      const googleAuthService = yield* GoogleAuthService;
+      const auth = googleAuthService.getAuth();
+      const googleSheets: sheets_v4.Sheets = yield* Effect.try({
+        try: () =>
+          sheets({
+            version: "v4",
+            auth,
+          }),
+        catch: (cause) =>
+          new GoogleSheetsError({
+            message: "Failed to create Google Sheets client",
+            cause: googleSheetsErrorCause(cause),
+          }),
+      });
+
+      return {
+        sheets: googleSheets,
+        getRowDatas: (
+          params: sheets_v4.Params$Resource$Spreadsheets$Get,
+          options?: MethodOptions,
+        ) => {
+          const response = Effect.tryPromise({
+            try: () => googleSheets.spreadsheets.get(params, options),
+            catch: googleSheetsErrorFromUnknown,
+          });
+
+          return pipe(
+            response,
+            Effect.map((sheet) =>
+              pipe(
+                sheet.data.sheets ?? [],
+                Array.map((sheet) => ({
+                  sheet: sheet.properties?.title ?? "",
+                  gridData: sheet.data ?? [],
+                })),
+                Array.flatMap(({ sheet, gridData }) =>
+                  pipe(
+                    gridData,
+                    Array.map(
+                      (gridData) =>
+                        [gridDataToKey(sheet, gridData), gridData.rowData ?? []] as const,
+                    ),
                   ),
                 ),
+                HashMap.fromIterable,
               ),
-              HashMap.fromIterable,
             ),
-          ),
-          Effect.map((map) =>
-            pipe(
-              params.ranges ?? [],
-              Array.map((range) =>
-                pipe(
-                  range,
-                  parseA1RangeKey,
-                  Option.flatMap((key) => HashMap.get(map, key)),
+            Effect.map((map) =>
+              pipe(
+                params.ranges ?? [],
+                Array.map((range) =>
+                  pipe(
+                    range,
+                    parseA1RangeKey,
+                    Option.flatMap((key) => HashMap.get(map, key)),
+                  ),
                 ),
+                Array.getSomes,
               ),
-              Array.getSomes,
             ),
+            Effect.flatMap((rowDatas) =>
+              rowDatas.length === (params.ranges?.length ?? 0)
+                ? Effect.succeed(rowDatas)
+                : Effect.fail(
+                    new GoogleSheetsError({
+                      message: "Row datas length does not match ranges length",
+                    }),
+                  ),
+            ),
+            Effect.withSpan("GoogleSheets.getRowDatas"),
+          );
+        },
+        get: (
+          params: sheets_v4.Params$Resource$Spreadsheets$Values$Batchget,
+          options?: MethodOptions,
+        ) =>
+          Effect.tryPromise({
+            try: () => googleSheets.spreadsheets.values.batchGet(params, options),
+            catch: googleSheetsErrorFromUnknown,
+          }).pipe(Effect.withSpan("GoogleSheets.get")),
+        getHashMap: <K>(
+          ranges: HashMap.HashMap<K, string>,
+          params?: Omit<sheets_v4.Params$Resource$Spreadsheets$Values$Batchget, "ranges">,
+          options?: MethodOptions,
+        ) =>
+          pipe(
+            ranges,
+            Utils.hashMapPositional((orderedRanges: readonly string[]) =>
+              Effect.tryPromise({
+                try: () =>
+                  googleSheets.spreadsheets.values.batchGet(
+                    { ...params, ranges: Array.copy(orderedRanges) },
+                    options,
+                  ),
+                catch: googleSheetsErrorFromUnknown,
+              }).pipe(Effect.map((response) => response.data.valueRanges ?? [])),
+            ),
+            Effect.withSpan("GoogleSheets.getHashMap"),
           ),
-          Effect.flatMap((rowDatas) =>
-            rowDatas.length === (params.ranges?.length ?? 0)
-              ? Effect.succeed(rowDatas)
-              : Effect.fail(
-                  new GoogleSheetsError({
-                    message: "Row datas length does not match ranges length",
-                  }),
-                ),
-          ),
-          Effect.withSpan("GoogleSheets.getRowDatas"),
-        );
-      },
-      get: (
-        params: sheets_v4.Params$Resource$Spreadsheets$Values$Batchget,
-        options?: MethodOptions,
-      ) =>
-        Effect.tryPromise({
-          try: () => googleSheets.spreadsheets.values.batchGet(params, options),
-          catch: googleSheetsErrorFromUnknown,
-        }).pipe(Effect.withSpan("GoogleSheets.get")),
-      getHashMap: <K>(
-        ranges: HashMap.HashMap<K, string>,
-        params?: Omit<sheets_v4.Params$Resource$Spreadsheets$Values$Batchget, "ranges">,
-        options?: MethodOptions,
-      ) =>
-        pipe(
-          ranges,
-          Utils.hashMapPositional((orderedRanges: readonly string[]) =>
-            Effect.tryPromise({
-              try: () =>
-                googleSheets.spreadsheets.values.batchGet(
-                  { ...params, ranges: Array.copy(orderedRanges) },
-                  options,
-                ),
-              catch: googleSheetsErrorFromUnknown,
-            }).pipe(Effect.map((response) => response.data.valueRanges ?? [])),
-          ),
-          Effect.withSpan("GoogleSheets.getHashMap"),
-        ),
-      getRowDatasHashMap: <K>(
-        ranges: HashMap.HashMap<K, string>,
-        params?: Omit<sheets_v4.Params$Resource$Spreadsheets$Get, "ranges">,
-        options?: MethodOptions,
-      ) =>
-        pipe(
-          ranges,
-          Utils.hashMapPositional((orderedRanges: readonly string[]) => {
-            const response = Effect.tryPromise({
-              try: () =>
-                googleSheets.spreadsheets.get(
-                  {
-                    ...params,
-                    ranges: Array.copy(orderedRanges),
-                    includeGridData: true,
-                  },
-                  options,
-                ),
-              catch: googleSheetsErrorFromUnknown,
-            });
+        getRowDatasHashMap: <K>(
+          ranges: HashMap.HashMap<K, string>,
+          params?: Omit<sheets_v4.Params$Resource$Spreadsheets$Get, "ranges">,
+          options?: MethodOptions,
+        ) =>
+          pipe(
+            ranges,
+            Utils.hashMapPositional((orderedRanges: readonly string[]) => {
+              const response = Effect.tryPromise({
+                try: () =>
+                  googleSheets.spreadsheets.get(
+                    {
+                      ...params,
+                      ranges: Array.copy(orderedRanges),
+                      includeGridData: true,
+                    },
+                    options,
+                  ),
+                catch: googleSheetsErrorFromUnknown,
+              });
 
-            return pipe(
-              response,
-              Effect.map((response) =>
-                pipe(
-                  response.data.sheets ?? [],
-                  Array.map((sheet) => ({
-                    sheet: sheet.properties?.title ?? "",
-                    gridData: sheet.data ?? [],
-                  })),
-                  Array.flatMap(({ sheet, gridData }) =>
-                    pipe(
-                      gridData,
-                      Array.map(
-                        (data) => [gridDataToKey(sheet, data), data.rowData ?? []] as const,
+              return pipe(
+                response,
+                Effect.map((response) =>
+                  pipe(
+                    response.data.sheets ?? [],
+                    Array.map((sheet) => ({
+                      sheet: sheet.properties?.title ?? "",
+                      gridData: sheet.data ?? [],
+                    })),
+                    Array.flatMap(({ sheet, gridData }) =>
+                      pipe(
+                        gridData,
+                        Array.map(
+                          (data) => [gridDataToKey(sheet, data), data.rowData ?? []] as const,
+                        ),
                       ),
                     ),
+                    HashMap.fromIterable,
                   ),
-                  HashMap.fromIterable,
                 ),
-              ),
-              Effect.flatMap((map) => {
-                const rowDatas = pipe(
-                  orderedRanges,
-                  Array.map((range) =>
-                    pipe(
-                      range,
-                      parseA1RangeKey,
-                      Option.flatMap((key) => HashMap.get(map, key)),
+                Effect.flatMap((map) => {
+                  const rowDatas = pipe(
+                    orderedRanges,
+                    Array.map((range) =>
+                      pipe(
+                        range,
+                        parseA1RangeKey,
+                        Option.flatMap((key) => HashMap.get(map, key)),
+                      ),
                     ),
-                  ),
-                  Array.getSomes,
-                );
+                    Array.getSomes,
+                  );
 
-                return rowDatas.length === orderedRanges.length
-                  ? Effect.succeed(rowDatas)
-                  : Effect.fail(
-                      new GoogleSheetsError({
-                        message: "Row datas length does not match ranges length",
-                      }),
-                    );
-              }),
-            );
-          }),
-          Effect.withSpan("GoogleSheets.getRowDatasHashMap"),
-        ),
-      update: (
-        params?: sheets_v4.Params$Resource$Spreadsheets$Values$Batchupdate,
-        options?: MethodOptions,
-      ) =>
-        Effect.tryPromise({
-          try: () => googleSheets.spreadsheets.values.batchUpdate(params, options),
-          catch: googleSheetsErrorFromUnknown,
-        }).pipe(Effect.withSpan("GoogleSheets.update")),
-      getSheetGids: (sheetId: string) =>
-        Effect.tryPromise({
-          try: () => googleSheets.spreadsheets.get({ spreadsheetId: sheetId }),
-          catch: googleSheetsErrorFromUnknown,
-        }).pipe(
-          Effect.map((sheet) =>
-            pipe(
-              sheet.data.sheets ?? [],
-              Array.map((sheet) => sheet.properties),
-              Array.map(Option.fromNullishOr),
-              Array.getSomes,
-              ArrayUtils.Collect.toHashMapByKey("title"),
-              HashMap.map(({ sheetId }) => Option.fromNullishOr(sheetId)),
-            ),
+                  return rowDatas.length === orderedRanges.length
+                    ? Effect.succeed(rowDatas)
+                    : Effect.fail(
+                        new GoogleSheetsError({
+                          message: "Row datas length does not match ranges length",
+                        }),
+                      );
+                }),
+              );
+            }),
+            Effect.withSpan("GoogleSheets.getRowDatasHashMap"),
           ),
-          Effect.withSpan("GoogleSheets.getSheetGids"),
-        ),
-    };
-  }),
-}) {
+        update: (
+          params?: sheets_v4.Params$Resource$Spreadsheets$Values$Batchupdate,
+          options?: MethodOptions,
+        ) =>
+          Effect.tryPromise({
+            try: () => googleSheets.spreadsheets.values.batchUpdate(params, options),
+            catch: googleSheetsErrorFromUnknown,
+          }).pipe(Effect.withSpan("GoogleSheets.update")),
+        getSheetGids: (sheetId: string) =>
+          Effect.tryPromise({
+            try: () => googleSheets.spreadsheets.get({ spreadsheetId: sheetId }),
+            catch: googleSheetsErrorFromUnknown,
+          }).pipe(
+            Effect.map((sheet) =>
+              pipe(
+                sheet.data.sheets ?? [],
+                Array.map((sheet) => sheet.properties),
+                Array.map(Option.fromNullishOr),
+                Array.getSomes,
+                ArrayUtils.Collect.toHashMapByKey("title"),
+                HashMap.map(({ sheetId }) => Option.fromNullishOr(sheetId)),
+              ),
+            ),
+            Effect.withSpan("GoogleSheets.getSheetGids"),
+          ),
+      };
+    }),
+  },
+) {
   static layer = Layer.effect(GoogleSheets, this.make).pipe(Layer.provide(GoogleAuthService.layer));
 
   static parseRowDatas = parseRowDatas;

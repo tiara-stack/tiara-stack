@@ -1,0 +1,27 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "tsBuildInfoFile": ".ts-out/.tsbuildinfo"
+  },
+  "references": [
+    {
+      "path": "../sheet-db-schema/tsconfig.build.json"
+    },
+    {
+      "path": "../typhoon-core/tsconfig.build.json"
+    },
+    {
+      "path": "../typhoon-zero/tsconfig.build.json"
+    }
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    ".output",
+    ".ts-out",
+    ".tsbuildinfo",
+    "**/*.test.ts",
+    "**/*.test.tsx"
+  ]
+}
