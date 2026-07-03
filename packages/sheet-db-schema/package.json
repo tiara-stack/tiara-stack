@@ -35,6 +35,7 @@
     "format": "vp fmt --check",
     "format:apply": "vp fmt",
     "lint": "vp lint src",
+    "check:effect-lsp": "NODE_OPTIONS='--max-old-space-size=4096' effect-language-service diagnostics --project tsconfig.json --format text --lspconfig '{}'",
     "pretest": "pnpm build",
     "test": "vp test run",
     "build": "pnpm --filter effect-sql-schema build && pnpm --filter effect-zero build && pnpm --filter typhoon-zero... build && node ../effect-zero/dist/cli/index.mjs generate --config ./effect-zero.config.ts --output ./src/zero/schema.ts --skip-declare --format --force && vp pack",
