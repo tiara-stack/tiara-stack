@@ -1,5 +1,11 @@
 import { Effect } from "effect";
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import * as Data from "effect/Data";
+
+class SheetAuthWebForwarderError extends Data.TaggedError("SheetAuthWebForwarderError")<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 
 type HandlerParams = {
   readonly request: HttpServerRequest.HttpServerRequest;
@@ -24,7 +30,8 @@ export const createForwarder =
         onSuccess: (webRequest) =>
           Effect.tryPromise({
             try: () => webHandler(webRequest),
-            catch: (error) => error,
+            catch: (error) =>
+              new SheetAuthWebForwarderError({ message: String(error), cause: error }),
           }).pipe(
             Effect.match({
               onFailure: (error) => {

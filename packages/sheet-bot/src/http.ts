@@ -33,6 +33,12 @@ import { discordConfigLayer } from "./discord/config";
 import { config } from "./config";
 import { toDiscordMessagePayload } from "./discord/renderSheetMessage";
 import { sheetBotHttpAuthorizationLayer } from "./middlewares/discordHttpAuthorization/live";
+import * as Data from "effect/Data";
+
+class SheetBotHttpError extends Data.TaggedError("SheetBotHttpError")<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 
 const UpdateOriginalInteractionResponseBodyPayloadSchema = Schema.Struct({
   interactionResponseToken: Schema.String,
@@ -372,7 +378,7 @@ const updateOriginalInteractionResponseFallbackLayer = HttpRouter.add(
       Effect.flatMap((text) =>
         Effect.try({
           try: () => JSON.parse(text) as unknown,
-          catch: (error) => error,
+          catch: (error) => new SheetBotHttpError({ message: String(error), cause: error }),
         }),
       ),
       Effect.flatMap(

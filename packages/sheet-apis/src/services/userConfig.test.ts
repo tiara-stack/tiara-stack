@@ -24,7 +24,7 @@ const makeConfig = (overrides: {
   });
 
 const run = <A, E>(
-  effect: (service: typeof UserConfigService.Service) => Effect.Effect<A, E>,
+  effect: (service: typeof UserConfigService.Service) => Effect.Effect<A, E, never>,
   options: {
     readonly zero: unknown;
     readonly ingressBotClient?: unknown;
@@ -88,7 +88,7 @@ describe("UserConfigService", () => {
               checkinDmEnabled: false,
               monitorDmEnabled: true,
               defaultClientId: null,
-            }),
+            }) as Effect.Effect<UserPlatformConfig, ArgumentError, never>,
           {
             zero: {
               userConfig: {

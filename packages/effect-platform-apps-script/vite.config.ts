@@ -28,6 +28,9 @@ export default defineConfig({
       neverBundle: ["@effect/platform", "effect"],
       onlyBundle: false,
     },
+    dts: {
+      tsgo: true,
+    },
   },
   lint: {
     ignorePatterns: ["dist"],

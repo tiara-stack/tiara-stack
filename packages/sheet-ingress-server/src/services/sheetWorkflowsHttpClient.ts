@@ -8,22 +8,28 @@ import { withIngressHttpHeaders } from "./rpcAuthorizationClient";
 
 const sheetWorkflowsResource = "sheet-workflows";
 
-export class SheetWorkflowsHttpClient extends Context.Service<SheetWorkflowsHttpClient>()(
-  "SheetWorkflowsHttpClient",
-  {
-    make: Effect.gen(function* () {
-      const baseUrl = yield* config.sheetWorkflowsBaseUrl;
-      const httpClient = yield* HttpClient.HttpClient;
+interface SheetWorkflowsHttpClientShape {
+  readonly dispatchWorkflows: HttpApiClient.ForApi<
+    typeof SheetWorkflowsInternalApi
+  >["dispatchWorkflows"];
+}
 
-      return yield* HttpApiClient.makeWith(SheetWorkflowsInternalApi, {
-        httpClient: withIngressHttpHeaders(httpClient, {
-          serviceTokenResource: sheetWorkflowsResource,
-        }),
-        baseUrl,
-      });
-    }),
-  },
-) {
+export class SheetWorkflowsHttpClient extends Context.Service<
+  SheetWorkflowsHttpClient,
+  SheetWorkflowsHttpClientShape
+>()("SheetWorkflowsHttpClient", {
+  make: Effect.gen(function* () {
+    const baseUrl = yield* config.sheetWorkflowsBaseUrl;
+    const httpClient = yield* HttpClient.HttpClient;
+
+    return yield* HttpApiClient.makeWith(SheetWorkflowsInternalApi, {
+      httpClient: withIngressHttpHeaders(httpClient, {
+        serviceTokenResource: sheetWorkflowsResource,
+      }),
+      baseUrl,
+    });
+  }),
+}) {
   static layer = Layer.effect(SheetWorkflowsHttpClient, this.make).pipe(
     Layer.provide(SheetApisRpcTokens.layer),
   );

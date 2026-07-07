@@ -36,8 +36,9 @@ jobs:
           persist-credentials: false
 
       - name: Setup Vite+
-        uses: voidzero-dev/setup-vp@ca1c46663915d6c1042ae23bd39ab85718bfb0fa # v1
+        uses: tiara-stack/setup-vp@291c3e884862fce3e7530351b63f0e8ab12cbc7b # v1
         with:
+          version: "0.2.3"
           node-version: "22"
           cache: true
 
@@ -53,10 +54,28 @@ jobs:
         run: vp install
 
       - name: Run Build
-        run: vp run -r build
+        run: vp run -w build
 
-      - name: Run Checks
-        run: vp check
+      - name: Run Format
+        id: run_format
+        continue-on-error: true
+        run: vp run -w format
+
+      - name: Run Lint
+        id: run_lint
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: vp run -w lint
+
+      - name: Run Test
+        id: run_test
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: vp run -w test
+
+      - name: Check Workspace Results
+        if: ${{ !cancelled() && (steps.run_format.outcome == 'failure' || steps.run_lint.outcome == 'failure' || steps.run_test.outcome == 'failure') }}
+        run: exit 1
 
       - name: Lint Helm chart
         run: |
@@ -158,6 +177,16 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Setup Vite+
+        uses: tiara-stack/setup-vp@291c3e884862fce3e7530351b63f0e8ab12cbc7b # v1
+        with:
+          version: "0.2.3"
+          node-version: "22"
+          cache: true
+
+      - name: Install Dependencies
+        run: vp install
 
       - name: Run Fallow audit
         uses: fallow-rs/fallow@9492a4d98b5c4ca95670716fced39029cc28f375 # v2

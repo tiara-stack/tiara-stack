@@ -140,27 +140,27 @@ describe("KimiLanguageModel", () => {
       let captured: RunOptions | undefined;
       yield* LanguageModel.generateText({ prompt: "env" }).pipe(
         Effect.provide(
-          Layer.provide(
-            KimiLanguageModel.layer({
-              model: "kimi-k2",
-              config: {
-                workDir: "/tmp/repo",
-                env: { PROVIDER_ONLY: "provider", SHARED: "provider" },
-              },
-            }),
-            Layer.succeed(KimiClient, {
-              run: (options) => {
-                captured = options;
-                return Effect.succeed(runResult("ok"));
-              },
-              runStreamed: () => Stream.empty,
+          Layer.mergeAll(
+            Layer.provide(
+              KimiLanguageModel.layer({
+                model: "kimi-k2",
+                config: {
+                  workDir: "/tmp/repo",
+                  env: { PROVIDER_ONLY: "provider", SHARED: "provider" },
+                },
+              }),
+              Layer.succeed(KimiClient, {
+                run: (options) => {
+                  captured = options;
+                  return Effect.succeed(runResult("ok"));
+                },
+                runStreamed: () => Stream.empty,
+              }),
+            ),
+            Layer.succeed(KimiConfig, {
+              env: { SERVICE_ONLY: "service", SHARED: "service" },
             }),
           ),
-        ),
-        Effect.provide(
-          Layer.succeed(KimiConfig, {
-            env: { SERVICE_ONLY: "service", SHARED: "service" },
-          }),
         ),
       );
 

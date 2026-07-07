@@ -1,6 +1,6 @@
 {
   "include": ["**/*.ts", "**/*.tsx", "*.ts", "*.tsx"],
-  "exclude": ["./dist"],
+  "exclude": ["node_modules", "dist", ".output", ".tsbuildinfo"],
   "compilerOptions": {
     "strict": true,
     "esModuleInterop": true,
@@ -24,6 +24,8 @@
       "*": ["./*"],
       "~~/*": ["./*"],
       "@@/*": ["./*"]
-    }
+    },
+    "incremental": true,
+    "tsBuildInfoFile": "./.tsbuildinfo"
   }
 }

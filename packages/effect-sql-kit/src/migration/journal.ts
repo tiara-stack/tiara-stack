@@ -6,6 +6,14 @@ import type { JsonValue } from "../types";
 import { snapshotVersion } from "../snapshot";
 import { slugify } from "../util";
 import { DialectSchema, JsonValueSchema } from "../cli/schema";
+import * as Data from "effect/Data";
+
+class EffectSqlKitMigrationJournalError extends Data.TaggedError(
+  "EffectSqlKitMigrationJournalError",
+)<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 
 export type JournalEntry = {
   readonly idx: number;
@@ -48,7 +56,8 @@ const StoredSnapshotSchema = Schema.Struct({
 const parseJsonEffect = (content: string) =>
   Effect.try({
     try: () => JSON.parse(content) as unknown,
-    catch: (cause) => cause,
+    catch: (cause) =>
+      new EffectSqlKitMigrationJournalError({ message: String(cause), cause: cause }),
   });
 
 const isMissingPathError = (error: unknown) =>
@@ -70,7 +79,7 @@ const existsEffect = (fs: FileSystem.FileSystem, filePath: string) =>
     if (isMissingPathError(existsResult.failure)) {
       return false;
     }
-    return yield* Effect.fail(existsResult.failure);
+    return yield* existsResult.failure;
   });
 
 export const readJournalEffect = (out: string, dialect: "postgresql" | "sqlite") =>
@@ -92,11 +101,9 @@ export const readJournalEffect = (out: string, dialect: "postgresql" | "sqlite")
       yield* parseJsonEffect(content),
     );
     if (journal.dialect !== dialect) {
-      return yield* Effect.fail(
-        new Error(
-          `effect-sql-kit: migration folder dialect is ${journal.dialect}, expected ${dialect}`,
-        ),
-      );
+      return yield* new EffectSqlKitMigrationJournalError({
+        message: `effect-sql-kit: migration folder dialect is ${journal.dialect}, expected ${dialect}`,
+      });
     }
     return journal satisfies Journal;
   });

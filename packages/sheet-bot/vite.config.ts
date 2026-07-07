@@ -8,8 +8,25 @@ const git = simpleGit();
 const date = lightFormat(new Date(), "yyyyMMdd");
 const hash = (await git.revparse("HEAD").catch(() => "unknown")).substring(0, 7);
 const alwaysBundleDependencies = () => true;
-const sheetIngressApiDist = fileURLToPath(new URL("../sheet-ingress-api/dist", import.meta.url));
 const sheetDbSchemaModels = fileURLToPath(import.meta.resolve("sheet-db-schema/models"));
+const declarationFilePattern = /\.d\.[cm]?ts$/;
+const effectDeclarationExternalPlugin = () => ({
+  name: "sheet-bot:external-effect-dts",
+  resolveId: {
+    order: "pre" as const,
+    handler(id: string, importer?: string) {
+      if (
+        importer?.replaceAll("\\", "/").match(declarationFilePattern) &&
+        id.startsWith("effect/")
+      ) {
+        return {
+          id,
+          external: true,
+        };
+      }
+    },
+  },
+});
 
 export default defineConfig({
   resolve: {
@@ -33,8 +50,12 @@ export default defineConfig({
     },
     alias: {
       "sheet-db-schema/models": sheetDbSchemaModels,
-      "sheet-ingress-api": sheetIngressApiDist,
     },
+    tsconfig: "tsconfig.build.json",
+    dts: {
+      tsgo: true,
+    },
+    plugins: [effectDeclarationExternalPlugin()],
     deps: {
       alwaysBundle: alwaysBundleDependencies,
       onlyBundle: false,

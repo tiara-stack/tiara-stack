@@ -19,6 +19,10 @@ export default defineConfig({
     outputOptions: { name: "sheetFormulas" },
     target: "es6",
     minify: true,
+    tsconfig: "tsconfig.build.json",
+    dts: {
+      tsgo: true,
+    },
     deps: {
       alwaysBundle: [/^.*$/],
       onlyBundle: false,

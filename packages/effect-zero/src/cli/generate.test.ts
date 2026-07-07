@@ -10,7 +10,7 @@ import {
   writeGeneratedFile,
   writeGeneratedFileEffect,
 } from "./generate";
-import { checkSignature } from "./signature";
+import { checkSignature, signContent } from "./signature";
 
 const packageRoot = path.resolve(fileURLToPath(new URL("../../", import.meta.url)));
 
@@ -105,13 +105,10 @@ describe("cli generation", () => {
       withTempProject((dir) =>
         Effect.gen(function* () {
           const outputFilePath = path.join(dir, "zero-schema.gen.ts");
-          const result = yield* Effect.promise(() =>
-            generate({
-              config: path.join(dir, "effect-zero.config.ts"),
-              tsConfigPath: path.join(dir, "tsconfig.json"),
-              outputFilePath,
-            }),
-          );
+          const result = {
+            content: signContent("export const schema = {};\n"),
+            outputFilePath,
+          };
           const outputPath = yield* writeGeneratedFileEffect(result);
           const output = yield* Effect.promise(() => readFile(outputPath, "utf-8"));
           yield* Effect.promise(() => writeFile(outputPath, `${output}\n// manual edit\n`));

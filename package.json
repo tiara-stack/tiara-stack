@@ -5,10 +5,10 @@
   "scripts": {
     "format": "vp run -r format",
     "lint": "vp run -r lint",
-    "test": "pnpm -r --if-present --filter './packages/*' test",
-    "checks": "pnpm format && pnpm lint && pnpm test",
+    "test": "vp run -F './packages/*' test",
+    "checks": "status=0; vp run -w format || status=$?; vp run -w lint || status=$?; vp run -w test || status=$?; exit $status",
     "format:apply": "vp run -r format:apply",
-    "build": "vp run -r build",
+    "build": "vp run -r --concurrency-limit 1 build",
     "compose:generate-secrets": "tsx deploy/compose/scripts/generate-secrets.ts --no-overwrite",
     "compose:migrate-sheet-db": "tsx deploy/compose/scripts/migrate-sheet-db.ts",
     "prepare": "vp config"
@@ -17,6 +17,7 @@
     "@types/node": "catalog:",
     "effect": "catalog:",
     "tsx": "catalog:",
+    "typescript": "^5.9.3",
     "vite": "catalog:",
     "vite-plus": "catalog:"
   },

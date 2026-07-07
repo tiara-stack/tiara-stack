@@ -119,8 +119,8 @@ export const sendTentativeRoomOrder = Effect.fn("sendTentativeRoomOrder")(functi
       components: [tentativeRoomOrderActionRow(generated.range, generated.rank).toJSON()],
     });
 
-    yield* Effect.gen(function* () {
-      yield* messageRoomOrderService.persistMessageRoomOrder(sentMessage.id, {
+    yield* messageRoomOrderService
+      .persistMessageRoomOrder(sentMessage.id, {
         data: {
           previousFills: generated.previousFills,
           fills: generated.fills,
@@ -133,42 +133,42 @@ export const sendTentativeRoomOrder = Effect.fn("sendTentativeRoomOrder")(functi
           createdByUserId,
         },
         entries: generated.entries,
-      });
-    }).pipe(
-      Effect.catchCause((cause) =>
-        Effect.logError("Failed to persist tentative room order").pipe(
-          Effect.annotateLogs({
-            workspaceId,
-            runningConversationId,
-            hour,
-            messageId: sentMessage.id,
-          }),
-          Effect.andThen(Effect.logError(cause)),
-          Effect.andThen(
-            sender
-              .updateMessage(sentMessage.channel_id, sentMessage.id, {
-                components: [tentativeRoomOrderPinActionRow().toJSON()],
-              })
-              .pipe(
-                Effect.catchCause((updateCause) =>
-                  Effect.logError(
-                    "Failed to persist tentative room order and downgrade buttons",
-                  ).pipe(
-                    Effect.annotateLogs({
-                      workspaceId,
-                      runningConversationId,
-                      hour,
-                      messageId: sentMessage.id,
-                    }),
-                    Effect.andThen(Effect.logError(cause)),
-                    Effect.andThen(Effect.logError(updateCause)),
+      })
+      .pipe(
+        Effect.catchCause((cause) =>
+          Effect.logError("Failed to persist tentative room order").pipe(
+            Effect.annotateLogs({
+              workspaceId,
+              runningConversationId,
+              hour,
+              messageId: sentMessage.id,
+            }),
+            Effect.andThen(Effect.logError(cause)),
+            Effect.andThen(
+              sender
+                .updateMessage(sentMessage.channel_id, sentMessage.id, {
+                  components: [tentativeRoomOrderPinActionRow().toJSON()],
+                })
+                .pipe(
+                  Effect.catchCause((updateCause) =>
+                    Effect.logError(
+                      "Failed to persist tentative room order and downgrade buttons",
+                    ).pipe(
+                      Effect.annotateLogs({
+                        workspaceId,
+                        runningConversationId,
+                        hour,
+                        messageId: sentMessage.id,
+                      }),
+                      Effect.andThen(Effect.logError(cause)),
+                      Effect.andThen(Effect.logError(updateCause)),
+                    ),
                   ),
                 ),
-              ),
+            ),
           ),
         ),
-      ),
-    );
+      );
 
     return {
       messageId: sentMessage.id,

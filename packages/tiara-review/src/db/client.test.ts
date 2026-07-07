@@ -3,6 +3,12 @@ import * as Exit from "effect/Exit";
 import type { SqlClient } from "effect/unstable/sql";
 import { describe, expect, it } from "@effect/vitest";
 import { withImmediateTransaction } from "./client";
+import * as Data from "effect/Data";
+
+class TiaraReviewDbClientTestError extends Data.TaggedError("TiaraReviewDbClientTestError")<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 
 const fakeSql = (input: {
   readonly failOn?: string;
@@ -13,7 +19,7 @@ const fakeSql = (input: {
       Effect.gen(function* () {
         input.calls.push(statement);
         if (statement === input.failOn) {
-          return yield* Effect.fail(new Error(`${statement} failed`));
+          return yield* new TiaraReviewDbClientTestError({ message: `${statement} failed` });
         }
       }),
   }) as unknown as SqlClient.SqlClient;

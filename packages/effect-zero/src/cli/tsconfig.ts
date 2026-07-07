@@ -1,5 +1,11 @@
 import { parse as parseJsonc, type ParseError as JsoncParseError } from "jsonc-parser";
 import { Console, Effect, FileSystem, Path, Result, Schema } from "effect";
+import * as Data from "effect/Data";
+
+class EffectZeroCliTsconfigError extends Data.TaggedError("EffectZeroCliTsconfigError")<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 
 const TsConfigReferenceSchema = Schema.Struct({
   path: Schema.String,
@@ -71,9 +77,9 @@ export const discoverAllTsConfigsEffect = (
         const tsConfig = yield* Schema.decodeUnknownEffect(TsConfigSchema)(parsed).pipe(
           Effect.mapError(
             (error) =>
-              new Error(
-                `effect-zero: Error processing tsconfig file ${tsConfigPath}: ${String(error)}`,
-              ),
+              new EffectZeroCliTsconfigError({
+                message: `effect-zero: Error processing tsconfig file ${tsConfigPath}: ${String(error)}`,
+              }),
           ),
         );
 

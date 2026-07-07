@@ -81,7 +81,7 @@ export const migrate = (dbPath: string) =>
         }
       }),
     );
-  }).pipe(Effect.catch((cause) => Effect.fail(new DatabaseMigrationFailed({ dbPath, cause }))));
+  }).pipe(Effect.mapError((cause) => new DatabaseMigrationFailed({ dbPath, cause })));
 
 export const withSqlite = <A, E, R>(
   dbPath: string,

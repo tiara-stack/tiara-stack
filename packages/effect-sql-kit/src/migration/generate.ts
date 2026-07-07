@@ -14,6 +14,14 @@ import {
   writeMigrationRecordEffect,
 } from "./journal";
 import { renderEffectMigration } from "./render";
+import * as Data from "effect/Data";
+
+class EffectSqlKitMigrationGenerateError extends Data.TaggedError(
+  "EffectSqlKitMigrationGenerateError",
+)<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 
 export type GenerateOptions = {
   readonly config: ResolvedConfig;
@@ -43,11 +51,9 @@ export const generateMigrationEffect = ({
     };
     const current = snapshotSchema(schemaWithPrefix);
     if (current.dialect !== config.dialect) {
-      return yield* Effect.fail(
-        new Error(
-          `effect-sql-kit: config dialect ${config.dialect} does not match schema dialect ${current.dialect}`,
-        ),
-      );
+      return yield* new EffectSqlKitMigrationGenerateError({
+        message: `effect-sql-kit: config dialect ${config.dialect} does not match schema dialect ${current.dialect}`,
+      });
     }
 
     const journal = yield* readJournalEffect(config.out, config.dialect);
@@ -87,9 +93,9 @@ export const generateMigrationEffect = ({
     const extensionSnapshots = yield* extensionSnapshotsEffect(extensionResults);
     const unsupported = allStatements.filter((statement) => statement.unsupported);
     if (unsupported.length > 0 && !custom) {
-      return yield* Effect.fail(
-        new Error(unsupported.map((statement) => statement.reason).join("\n")),
-      );
+      return yield* new EffectSqlKitMigrationGenerateError({
+        message: unsupported.map((statement) => statement.reason).join("\n"),
+      });
     }
     if (
       !custom &&
@@ -169,6 +175,7 @@ const generateWithDrizzleEffect = ({
         ? await api.generateMigration(previousResult.value, currentResult.value)
         : await api.generateSQLiteMigration(previousResult.value, currentResult.value);
     },
-    catch: (error) => error,
+    catch: (error) =>
+      new EffectSqlKitMigrationGenerateError({ message: String(error), cause: error }),
   }).pipe(Effect.catch(() => Effect.succeed([])));
 };

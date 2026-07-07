@@ -9,17 +9,15 @@ export const getSheetIdFromWorkspaceId = Effect.fn("handlers.getSheetIdFromWorks
   const workspaceConfig = yield* workspaceConfigService.getWorkspaceConfig(workspaceId);
 
   if (Option.isNone(workspaceConfig)) {
-    return yield* Effect.fail(
-      new SheetConfigError({
-        message: `Workspace config not found for workspaceId: ${workspaceId}`,
-      }),
-    );
+    return yield* new SheetConfigError({
+      message: `Workspace config not found for workspaceId: ${workspaceId}`,
+    });
   }
 
   if (Option.isNone(workspaceConfig.value.sheetId)) {
-    return yield* Effect.fail(
-      new SheetConfigError({ message: `sheetId not found for workspaceId: ${workspaceId}` }),
-    );
+    return yield* new SheetConfigError({
+      message: `sheetId not found for workspaceId: ${workspaceId}`,
+    });
   }
 
   return workspaceConfig.value.sheetId.value;

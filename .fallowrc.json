@@ -9,6 +9,7 @@
     "packages/typhoon-core/src/error/index.ts",
     "packages/vibecord/src/bot/index.ts"
   ],
+  "ignorePatterns": ["native/**"],
   "publicPackages": [
     "dfx-discord-utils",
     "effect-platform-apps-script",

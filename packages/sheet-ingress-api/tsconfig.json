@@ -23,6 +23,9 @@
       "@@/*": ["./*"],
       "~/*": ["./src/*"],
       "@/*": ["./src/*"]
-    }
-  }
+    },
+    "incremental": true,
+    "tsBuildInfoFile": "./.tsbuildinfo"
+  },
+  "exclude": ["node_modules", "dist", ".output", ".tsbuildinfo"]
 }

@@ -24,7 +24,7 @@ const runPostgres = async (config: Awaited<ReturnType<typeof loadConfig>>["confi
     loader: fromDirectory(config.out),
     table: config.migrations.table,
     schemaDirectory: undefined,
-  }).pipe(Effect.provide(PgClient.layer(pgConfig)), Effect.provide(NodeServices.layer));
+  }).pipe(Effect.provide(Layer.mergeAll(PgClient.layer(pgConfig), NodeServices.layer)));
   return await Effect.runPromise(program);
 };
 
@@ -45,8 +45,14 @@ const runSqlite = async (config: Awaited<ReturnType<typeof loadConfig>>["config"
     loader: fromDirectory(config.out),
     table: config.migrations.table,
   }).pipe(
-    Effect.provide(SqliteClient.layer({ filename })),
-    Effect.provide(Layer.mergeAll(NodeFileSystem.layer, NodePath.layer, NodeServices.layer)),
+    Effect.provide(
+      Layer.mergeAll(
+        SqliteClient.layer({ filename }),
+        NodeFileSystem.layer,
+        NodePath.layer,
+        NodeServices.layer,
+      ),
+    ),
   );
   return await Effect.runPromise(program);
 };

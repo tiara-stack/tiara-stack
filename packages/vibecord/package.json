@@ -49,7 +49,6 @@
     "@effect/vitest": "catalog:",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "catalog:",
-    "@typescript/native-preview": "latest",
     "drizzle-kit": "^0.30.0",
     "pathe": "^2.0.3",
     "vite": "catalog:",

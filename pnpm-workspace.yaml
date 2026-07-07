@@ -14,7 +14,7 @@ catalog:
     "@effect/atom-react": npm:@effect/atom-react@4.0.0-beta.67,
     "@effect/ai-openai": npm:@effect/ai-openai@4.0.0-beta.67,
     "@effect/ai-openrouter": npm:@effect/ai-openrouter@4.0.0-beta.67,
-    "@effect/vitest": npm:@effect/vitest@4.0.0-beta.67,
+    "@effect/vitest": npm:@tiara-stack/effect-vitest@4.0.0-beta.93.tiara.2,
     "@effect/platform-node": npm:@effect/platform-node@4.0.0-beta.67,
     "@effect/opentelemetry": npm:@effect/opentelemetry@4.0.0-beta.67,
     "@effect/sql-sqlite-node": npm:@effect/sql-sqlite-node@4.0.0-beta.67,
@@ -23,21 +23,18 @@ catalog:
     dfx: npm:dfx@1.0.13,
     effect: npm:effect@4.0.0-beta.67,
     tsx: npm:tsx@4.22.3,
-    vite: npm:@voidzero-dev/vite-plus-core@0.1.15,
-    vitest: npm:@voidzero-dev/vite-plus-test@0.1.15,
-    vite-plus: 0.1.15,
+    vite: npm:@voidzero-dev/vite-plus-core@0.2.2,
+    vitest: 4.1.9,
+    vite-plus: npm:@tiara-stack/vite-plus@0.2.4,
   }
 
 ignoredBuiltDependencies: []
 overrides:
+  "@tiara-stack/tsgo-effect": 0.1.2
+  "@tiara-stack/tsgolint-effect": 0.1.2
   better-auth: 1.6.16
   vite: "catalog:"
   vitest: "catalog:"
-packageExtensions:
-  "@effect/vitest@4.0.0-beta.67":
-    dependencies:
-      "@vitest/runner": 4.1.2
-      vitest: npm:@voidzero-dev/vite-plus-test@0.1.15
 patchedDependencies:
   better-auth@1.6.16: patches/better-auth@1.6.16.patch
 peerDependencyRules:

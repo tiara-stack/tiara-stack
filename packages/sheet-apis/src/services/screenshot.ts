@@ -71,9 +71,9 @@ export class ScreenshotService extends Context.Service<ScreenshotService>()("Scr
               display: "swap",
             }),
           )
-          .pipe(Effect.catch((error) => Effect.fail(makeUnknownError("Error getting CSS", error))));
+          .pipe(Effect.mapError((error) => makeUnknownError("Error getting CSS", error)));
         const cssText = yield* cssResponse.text.pipe(
-          Effect.catch((error) => Effect.fail(makeUnknownError("Error getting CSS", error))),
+          Effect.mapError((error) => makeUnknownError("Error getting CSS", error)),
         );
         const css = cssText.replace(/font-family: '([^']+)';/g, `font-family: 'docs-$1';`);
 

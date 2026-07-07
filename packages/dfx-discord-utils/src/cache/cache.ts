@@ -12,9 +12,9 @@ const retryPolicy = Schedule.exponential("500 millis").pipe(
 );
 
 // Conditional type for put operation based on readonly flag
-type PutEffect<ReadonlyValue extends boolean, EDriver, EMiss> = ReadonlyValue extends true
+type PutEffect<ReadonlyValue extends boolean, EDriver, EMiss, EId> = ReadonlyValue extends true
   ? Effect.Effect<never, CacheReadonlyError, never>
-  : Effect.Effect<void, EDriver | EMiss>;
+  : Effect.Effect<void, EDriver | EMiss | EId>;
 
 // Conditional type for update operation based on readonly flag
 type UpdateEffect<
@@ -42,7 +42,7 @@ export interface ReverseLookupCache<
   ReadonlyValue extends boolean = false,
 > {
   readonly get: (parentId: string, resourceId: string) => Effect.Effect<A, EMiss | EDriver>;
-  readonly put: (_: A) => PutEffect<ReadonlyValue, EDriver, EMiss>;
+  readonly put: (_: A) => PutEffect<ReadonlyValue, EDriver, EMiss, never>;
   readonly update: <R, E>(
     parentId: string,
     resourceId: string,
@@ -156,10 +156,10 @@ export const makeWithReverseLookup = Effect.fn("cache.makeWithReverseLookup")(
       readonly
         ? (Effect.fail(
             new CacheReadonlyError({ message: "Cannot put in readonly cache" }),
-          ) as PutEffect<typeof readonly, EDriver, EMiss>)
+          ) as PutEffect<typeof readonly, EDriver, EMiss, EId>)
         : Effect.flatMap(id(_), ([parentId, resourceId]) =>
             driver.set(parentId, resourceId, _),
-          )) as (_: A) => PutEffect<ReadonlyValue, EDriver, EMiss>;
+          )) as (_: A) => PutEffect<ReadonlyValue, EDriver, EMiss, EId>;
 
     const update = (<R, E>(
       parentId: string,

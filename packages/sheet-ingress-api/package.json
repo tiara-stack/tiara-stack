@@ -22,6 +22,10 @@
       "types": "./dist/clientActions.d.mts",
       "default": "./dist/clientActions.mjs"
     },
+    "./tokenCache": {
+      "types": "./dist/tokenCache.d.mts",
+      "default": "./dist/tokenCache.mjs"
+    },
     "./api-groups": {
       "types": "./dist/api-groups.d.mts",
       "default": "./dist/api-groups.mjs"
@@ -125,7 +129,6 @@
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
-    "@typescript/native-preview": "7.0.0-dev.20260327.2",
     "vite": "catalog:",
     "vite-plus": "catalog:",
     "vitest": "catalog:"

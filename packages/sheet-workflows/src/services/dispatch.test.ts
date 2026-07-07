@@ -45,6 +45,14 @@ import {
 } from "sheet-ingress-api/schemas/sheet";
 import { EventConfig } from "sheet-ingress-api/schemas/sheetConfig";
 import { DispatchService, ClientDeliveryClient, SheetApisClient } from "@/services";
+import * as Data from "effect/Data";
+
+class SheetWorkflowsServicesDispatchTestError extends Data.TaggedError(
+  "SheetWorkflowsServicesDispatchTestError",
+)<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 import {
   makeSheetApisClient as makeBaseSheetApisClient,
   normalizePayloadText,
@@ -889,7 +897,12 @@ describe("DispatchService", () => {
           getWorkspaceConversations: () => Effect.succeed([makeWorkspaceConversationConfig()]),
         },
         checkin: {
-          generate: () => Effect.fail(new Error("Unable to parse range: 'Day 9'!J3:N23")),
+          generate: () =>
+            Effect.fail(
+              new SheetWorkflowsServicesDispatchTestError({
+                message: "Unable to parse range: 'Day 9'!J3:N23",
+              }),
+            ),
         },
       });
       const botClient = {
@@ -1002,7 +1015,9 @@ describe("DispatchService", () => {
           sendMessage: (conversationId: string) => {
             sendCalls.push(conversationId);
             return conversationId === "general"
-              ? Effect.fail(new Error("cannot send general"))
+              ? Effect.fail(
+                  new SheetWorkflowsServicesDispatchTestError({ message: "cannot send general" }),
+                )
               : Effect.succeed({
                   id: `message-${conversationId}`,
                   conversation_id: conversationId,
@@ -1158,7 +1173,8 @@ describe("DispatchService", () => {
             Effect.succeed([
               makeConversationEntry({ id: "general", name: "general", position: 1 }),
             ]),
-          sendMessage: () => Effect.fail(new Error("cannot send")),
+          sendMessage: () =>
+            Effect.fail(new SheetWorkflowsServicesDispatchTestError({ message: "cannot send" })),
         } as never;
 
         const result = yield* runServiceAddWorkspaceFeatureFlag(botClient, sheetApisClient);
@@ -1317,7 +1333,8 @@ describe("DispatchService", () => {
       const botClient = {
         getConversationsForParent: () =>
           Effect.succeed([makeConversationEntry({ id: "system-conversation", name: "welcome" })]),
-        sendMessage: () => Effect.fail(new Error("cannot send")),
+        sendMessage: () =>
+          Effect.fail(new SheetWorkflowsServicesDispatchTestError({ message: "cannot send" })),
       } as never;
 
       const exit = yield* Effect.exit(runUpdateAnnouncement(botClient, sheetApisClient));
@@ -1404,7 +1421,9 @@ describe("DispatchService", () => {
       const botClient = {
         sendMessage: () => Effect.succeed({ id: "message-1", conversation_id: "conversation-1" }),
         updateOriginalInteractionResponse: () =>
-          Effect.fail(new Error("interaction update failed")),
+          Effect.fail(
+            new SheetWorkflowsServicesDispatchTestError({ message: "interaction update failed" }),
+          ),
       } as never;
       const sheetApisClient = makeMessageSlotSheetApisClient((args) => {
         upsertCalls.push(args);
@@ -1896,7 +1915,11 @@ describe("DispatchService", () => {
           removeWorkspaceMemberRole: (workspaceId: string, memberId: string, roleId: string) => {
             removeCalls.push([workspaceId, memberId, roleId]);
             return memberId === "member-2"
-              ? Effect.fail(new Error("Discord role removal failed"))
+              ? Effect.fail(
+                  new SheetWorkflowsServicesDispatchTestError({
+                    message: "Discord role removal failed",
+                  }),
+                )
               : Effect.succeed({});
           },
         } as never;

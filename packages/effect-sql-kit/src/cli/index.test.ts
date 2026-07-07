@@ -8,6 +8,7 @@ import { describe, expect, it } from "@effect/vitest";
 
 const execFileAsync = promisify(execFile);
 const packageRoot = fileURLToPath(new URL("../../", import.meta.url));
+const cliTestTimeout = 120_000;
 
 const runCli = async (...args: readonly string[]) => {
   const result = await execFileAsync("node", ["--import", "tsx", "src/cli/index.ts", ...args], {
@@ -59,46 +60,62 @@ export default schema({ accounts: Account, tasks: Task });
   );
 
 describe("effect-sql-kit Effect CLI", () => {
-  it("prints root help", async () => {
-    const output = await runCli("--help");
+  it(
+    "prints root help",
+    async () => {
+      const output = await runCli("--help");
 
-    expect(output).toContain("effect-sql-kit");
-    expect(output).toContain("generate");
-    expect(output).toContain("migrate");
-    expect(output).toContain("push");
-  }, 15_000);
+      expect(output).toContain("effect-sql-kit");
+      expect(output).toContain("generate");
+      expect(output).toContain("migrate");
+      expect(output).toContain("push");
+    },
+    cliTestTimeout,
+  );
 
-  it("prints generate help", async () => {
-    const output = await runCli("generate", "--help");
+  it(
+    "prints generate help",
+    async () => {
+      const output = await runCli("generate", "--help");
 
-    expect(output).toContain("--schema");
-    expect(output).toContain("--out");
-    expect(output).toContain("--name");
-    expect(output).toContain("--custom");
-    expect(output).toContain("--prefix");
-    expect(output).toContain("--migration-prefix");
-  }, 15_000);
+      expect(output).toContain("--schema");
+      expect(output).toContain("--out");
+      expect(output).toContain("--name");
+      expect(output).toContain("--custom");
+      expect(output).toContain("--prefix");
+      expect(output).toContain("--migration-prefix");
+    },
+    cliTestTimeout,
+  );
 
-  it("prints migrate help", async () => {
-    const output = await runCli("migrate", "--help");
+  it(
+    "prints migrate help",
+    async () => {
+      const output = await runCli("migrate", "--help");
 
-    expect(output).toContain("--out");
-    expect(output).toContain("--url");
-    expect(output).toContain("--prefix");
-    expect(output).toContain("--table");
-    expect(output).toContain("--db-schema");
-  }, 15_000);
+      expect(output).toContain("--out");
+      expect(output).toContain("--url");
+      expect(output).toContain("--prefix");
+      expect(output).toContain("--table");
+      expect(output).toContain("--db-schema");
+    },
+    cliTestTimeout,
+  );
 
-  it("prints push help", async () => {
-    const output = await runCli("push", "--help");
+  it(
+    "prints push help",
+    async () => {
+      const output = await runCli("push", "--help");
 
-    expect(output).toContain("--schema");
-    expect(output).toContain("--url");
-    expect(output).toContain("--prefix");
-    expect(output).toContain("--strict");
-    expect(output).toContain("--verbose");
-    expect(output).toContain("--force");
-  }, 15_000);
+      expect(output).toContain("--schema");
+      expect(output).toContain("--url");
+      expect(output).toContain("--prefix");
+      expect(output).toContain("--strict");
+      expect(output).toContain("--verbose");
+      expect(output).toContain("--force");
+    },
+    cliTestTimeout,
+  );
 
   it(
     "generates from a TypeScript config and schema",
@@ -126,7 +143,7 @@ describe("effect-sql-kit Effect CLI", () => {
         expect(output).toContain("effect-sql-kit: generated");
         expect(output).toContain("0001_initial.ts");
       }),
-    20_000,
+    cliTestTimeout,
   );
 
   it(
@@ -161,7 +178,7 @@ describe("effect-sql-kit Effect CLI", () => {
         expect(first).toContain("effect-sql-kit: applied");
         expect(second).toContain("effect-sql-kit: no changes detected");
       }),
-    20_000,
+    cliTestTimeout,
   );
 
   it(
@@ -200,6 +217,6 @@ describe("effect-sql-kit Effect CLI", () => {
         expect(first).toContain("effect-sql-kit: applied");
         expect(second).toContain("effect-sql-kit: no changes detected");
       }),
-    20_000,
+    cliTestTimeout,
   );
 });

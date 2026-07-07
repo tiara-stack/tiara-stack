@@ -15,6 +15,14 @@ import type {
 } from "sheet-ingress-api/schemas/client";
 import { config } from "@/config";
 import { SheetAuthClient } from "./sheetAuthClient";
+import * as Data from "effect/Data";
+
+class SheetWorkflowsServicesClientDeliveryClientError extends Data.TaggedError(
+  "SheetWorkflowsServicesClientDeliveryClientError",
+)<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 
 type TokenCacheEntry = {
   readonly token: Redacted.Redacted<string> | undefined;
@@ -248,7 +256,9 @@ export class ClientDeliveryClient extends Context.Service<ClientDeliveryClient>(
 
           yield* Effect.annotateCurrentSpan({ tokenAvailable: !failed && token !== undefined });
           if (failed || !token) {
-            return yield* Effect.fail(new Error("Failed to create OAuth service token"));
+            return yield* new SheetWorkflowsServicesClientDeliveryClientError({
+              message: "Failed to create OAuth service token",
+            });
           }
           return HttpClientRequest.bearerToken(request, Redacted.value(token));
         }).pipe(Effect.withSpan("ClientDeliveryClient.mapAuthRequest")),

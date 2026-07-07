@@ -25,12 +25,12 @@ const clientWorkflowLayers = Layer.mergeAll(
 
 const clusterServerLayer = clusterHttpLayer.pipe(Layer.provide(shardingConfigLayer));
 
-const runnerLayer = Layer.mergeAll(clusterServerLayer, runnerHealthLayer);
+const runnerLayer = runnerHealthLayer.pipe(Layer.provideMerge(clusterServerLayer));
 
 const appLayersByRole = {
   api: clientWorkflowLayers,
   runner: runnerLayer,
-  combined: Layer.mergeAll(clientWorkflowLayers, clusterServerLayer),
+  combined: clientWorkflowLayers.pipe(Layer.provideMerge(clusterServerLayer)),
 };
 
 const appLayer = Layer.unwrap(

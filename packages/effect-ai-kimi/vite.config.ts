@@ -15,6 +15,9 @@ export default defineConfig({
     deps: {
       onlyBundle: false,
     },
+    dts: {
+      tsgo: true,
+    },
   },
   lint: {
     ignorePatterns: ["dist"],

@@ -2,6 +2,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { vi } from "vitest";
 import { Cause, Context, Duration, Effect, Exit, Layer, Option, Schema, Stream } from "effect";
+import * as Data from "effect/Data";
 import { ClusterSchema, Sharding } from "effect/unstable/cluster";
 import type { HttpApiClient } from "effect/unstable/httpapi";
 import { WorkflowEngine } from "effect/unstable/workflow";
@@ -65,6 +66,11 @@ const requester: DispatchRequester = {
 };
 
 const discordClient = { platform: "discord", clientId: "discord-main" } as const;
+
+class DispatchRegistryTestError extends Data.TaggedError("DispatchRegistryTestError")<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 
 const checkinPayload: CheckinDispatchPayload = {
   client: discordClient,
@@ -513,160 +519,154 @@ describe("dispatch workflow registry", () => {
 
   it.live("routes check-in workflow execution to DispatchService", () =>
     Effect.gen(function* () {
-      yield* Effect.gen(function* () {
-        const result = yield* dispatchWorkflowRegistry.checkin.execute({
-          requester,
-          payload: checkinPayload,
-        });
+      const result = yield* dispatchWorkflowRegistry.checkin.execute({
+        requester,
+        payload: checkinPayload,
+      });
 
-        expect(result).toEqual({
-          hour: 1,
-          runningConversationId: "running-conversation",
-          checkinConversationId: "checkin-conversation",
-          checkinMessageId: "checkin-message",
-          checkinMessageConversationId: "checkin-conversation",
-          primaryMessageId: "primary-message",
-          primaryMessageConversationId: "primary-conversation",
-          tentativeRoomOrderMessageId: null,
-          tentativeRoomOrderMessageConversationId: null,
-        });
-      }).pipe(
-        Effect.provideService(
-          DispatchService,
-          makeDispatchServiceMock({
-            checkin: (payload: CheckinDispatchPayload, currentRequester: DispatchRequester) =>
-              Effect.sync((): CheckinDispatchResult => {
-                expect(payload).toBe(checkinPayload);
-                expect(currentRequester).toBe(requester);
-                return {
-                  hour: 1,
-                  runningConversationId: "running-conversation",
-                  checkinConversationId: "checkin-conversation",
-                  checkinMessageId: "checkin-message",
-                  checkinMessageConversationId: "checkin-conversation",
-                  primaryMessageId: "primary-message",
-                  primaryMessageConversationId: "primary-conversation",
-                  tentativeRoomOrderMessageId: null,
-                  tentativeRoomOrderMessageConversationId: null,
-                };
-              }),
-          }),
-        ),
-        Effect.provide(Layer.empty),
-      );
-    }),
+      expect(result).toEqual({
+        hour: 1,
+        runningConversationId: "running-conversation",
+        checkinConversationId: "checkin-conversation",
+        checkinMessageId: "checkin-message",
+        checkinMessageConversationId: "checkin-conversation",
+        primaryMessageId: "primary-message",
+        primaryMessageConversationId: "primary-conversation",
+        tentativeRoomOrderMessageId: null,
+        tentativeRoomOrderMessageConversationId: null,
+      });
+    }).pipe(
+      Effect.provideService(
+        DispatchService,
+        makeDispatchServiceMock({
+          checkin: (payload: CheckinDispatchPayload, currentRequester: DispatchRequester) =>
+            Effect.sync((): CheckinDispatchResult => {
+              expect(payload).toBe(checkinPayload);
+              expect(currentRequester).toBe(requester);
+              return {
+                hour: 1,
+                runningConversationId: "running-conversation",
+                checkinConversationId: "checkin-conversation",
+                checkinMessageId: "checkin-message",
+                checkinMessageConversationId: "checkin-conversation",
+                primaryMessageId: "primary-message",
+                primaryMessageConversationId: "primary-conversation",
+                tentativeRoomOrderMessageId: null,
+                tentativeRoomOrderMessageConversationId: null,
+              };
+            }),
+        }),
+      ),
+      Effect.provide(Layer.empty),
+    ),
   );
 
   it.live("routes auto check-in test workflow execution to DispatchService", () =>
     Effect.gen(function* () {
-      yield* Effect.gen(function* () {
-        const result = yield* dispatchWorkflowRegistry.autoCheckinTest.execute({
-          requester,
-          payload: autoCheckinTestPayload,
-        });
+      const result = yield* dispatchWorkflowRegistry.autoCheckinTest.execute({
+        requester,
+        payload: autoCheckinTestPayload,
+      });
 
-        expect(result).toEqual({
-          workspaceId: "workspace-1",
-          hour: 1,
-          anchorMessageId: "anchor-message",
-          anchorMessageConversationId: "anchor-conversation-1",
-          conversationCount: 1,
-          sentCount: 1,
-          skippedCount: 0,
-          failedCount: 0,
-          conversations: [
-            {
-              conversationName: "main",
-              runningConversationId: "running-conversation",
-              checkinConversationId: "checkin-conversation",
-              hour: 1,
-              status: "sent",
-              checkinPreviewMessageId: "checkin-preview",
-              monitorPreviewMessageId: "monitor-preview",
-              tentativeRoomOrderPreviewMessageId: null,
-              error: null,
-            },
-          ],
-        });
-      }).pipe(
-        Effect.provideService(
-          DispatchService,
-          makeDispatchServiceMock({
-            autoCheckinTest: (
-              payload: AutoCheckinTestDispatchPayload,
-              currentRequester: DispatchRequester,
-            ) =>
-              Effect.sync((): AutoCheckinTestDispatchResult => {
-                expect(payload).toBe(autoCheckinTestPayload);
-                expect(currentRequester).toBe(requester);
-                return {
-                  workspaceId: "workspace-1",
-                  hour: 1,
-                  anchorMessageId: "anchor-message",
-                  anchorMessageConversationId: "anchor-conversation-1",
-                  conversationCount: 1,
-                  sentCount: 1,
-                  skippedCount: 0,
-                  failedCount: 0,
-                  conversations: [
-                    {
-                      conversationName: "main",
-                      runningConversationId: "running-conversation",
-                      checkinConversationId: "checkin-conversation",
-                      hour: 1,
-                      status: "sent",
-                      checkinPreviewMessageId: "checkin-preview",
-                      monitorPreviewMessageId: "monitor-preview",
-                      tentativeRoomOrderPreviewMessageId: null,
-                      error: null,
-                    },
-                  ],
-                };
-              }),
-          }),
-        ),
-        Effect.provide(Layer.empty),
-      );
-    }),
+      expect(result).toEqual({
+        workspaceId: "workspace-1",
+        hour: 1,
+        anchorMessageId: "anchor-message",
+        anchorMessageConversationId: "anchor-conversation-1",
+        conversationCount: 1,
+        sentCount: 1,
+        skippedCount: 0,
+        failedCount: 0,
+        conversations: [
+          {
+            conversationName: "main",
+            runningConversationId: "running-conversation",
+            checkinConversationId: "checkin-conversation",
+            hour: 1,
+            status: "sent",
+            checkinPreviewMessageId: "checkin-preview",
+            monitorPreviewMessageId: "monitor-preview",
+            tentativeRoomOrderPreviewMessageId: null,
+            error: null,
+          },
+        ],
+      });
+    }).pipe(
+      Effect.provideService(
+        DispatchService,
+        makeDispatchServiceMock({
+          autoCheckinTest: (
+            payload: AutoCheckinTestDispatchPayload,
+            currentRequester: DispatchRequester,
+          ) =>
+            Effect.sync((): AutoCheckinTestDispatchResult => {
+              expect(payload).toBe(autoCheckinTestPayload);
+              expect(currentRequester).toBe(requester);
+              return {
+                workspaceId: "workspace-1",
+                hour: 1,
+                anchorMessageId: "anchor-message",
+                anchorMessageConversationId: "anchor-conversation-1",
+                conversationCount: 1,
+                sentCount: 1,
+                skippedCount: 0,
+                failedCount: 0,
+                conversations: [
+                  {
+                    conversationName: "main",
+                    runningConversationId: "running-conversation",
+                    checkinConversationId: "checkin-conversation",
+                    hour: 1,
+                    status: "sent",
+                    checkinPreviewMessageId: "checkin-preview",
+                    monitorPreviewMessageId: "monitor-preview",
+                    tentativeRoomOrderPreviewMessageId: null,
+                    error: null,
+                  },
+                ],
+              };
+            }),
+        }),
+      ),
+      Effect.provide(Layer.empty),
+    ),
   );
 
   it.live("routes kickout workflow execution to DispatchService", () =>
     Effect.gen(function* () {
-      yield* Effect.gen(function* () {
-        const result = yield* dispatchWorkflowRegistry.kickout.execute({
-          requester,
-          payload: kickoutPayload,
-        });
+      const result = yield* dispatchWorkflowRegistry.kickout.execute({
+        requester,
+        payload: kickoutPayload,
+      });
 
-        expect(result).toEqual({
-          workspaceId: "workspace-1",
-          runningConversationId: "conversation-1",
-          hour: 1,
-          roleId: "role-1",
-          removedMemberIds: ["account-2"],
-          status: "removed",
-        });
-      }).pipe(
-        Effect.provideService(
-          DispatchService,
-          makeDispatchServiceMock({
-            kickout: (payload, currentRequester) =>
-              Effect.sync(() => {
-                expect(payload).toBe(kickoutPayload);
-                expect(currentRequester).toBe(requester);
-                return {
-                  workspaceId: "workspace-1",
-                  runningConversationId: "conversation-1",
-                  hour: 1,
-                  roleId: "role-1",
-                  removedMemberIds: ["account-2"],
-                  status: "removed",
-                } satisfies KickoutDispatchResult;
-              }),
-          }),
-        ),
-      );
-    }),
+      expect(result).toEqual({
+        workspaceId: "workspace-1",
+        runningConversationId: "conversation-1",
+        hour: 1,
+        roleId: "role-1",
+        removedMemberIds: ["account-2"],
+        status: "removed",
+      });
+    }).pipe(
+      Effect.provideService(
+        DispatchService,
+        makeDispatchServiceMock({
+          kickout: (payload, currentRequester) =>
+            Effect.sync(() => {
+              expect(payload).toBe(kickoutPayload);
+              expect(currentRequester).toBe(requester);
+              return {
+                workspaceId: "workspace-1",
+                runningConversationId: "conversation-1",
+                hour: 1,
+                roleId: "role-1",
+                removedMemberIds: ["account-2"],
+                status: "removed",
+              } satisfies KickoutDispatchResult;
+            }),
+        }),
+      ),
+    ),
   );
 
   it.live("requires manage-workspace authorization snapshots for config mutation workflows", () =>
@@ -1121,7 +1121,9 @@ describe("dispatch workflow registry", () => {
       const updateOriginalInteractionResponse = vi.fn(
         (_interactionResponseToken: string, _payload: unknown) => Effect.void,
       );
-      const serviceStatus = vi.fn(() => Effect.fail(new Error("status failed")));
+      const serviceStatus = vi.fn(() =>
+        Effect.fail(new DispatchRegistryTestError({ message: "status failed" })),
+      );
 
       const exit = yield* Effect.exit(
         DispatchServiceStatusWorkflow.execute({
@@ -1396,85 +1398,79 @@ describe("dispatch workflow registry", () => {
 
   it.live("rejects legacy slot open button records without modern authorization fields", () =>
     Effect.gen(function* () {
-      yield* Effect.gen(function* () {
-        const denied = yield* dispatchWorkflowRegistry.slotOpenButton
-          .authorize({
-            requester,
-            payload: slotOpenButtonPayload,
-          })
-          .pipe(Effect.flip);
+      const denied = yield* dispatchWorkflowRegistry.slotOpenButton
+        .authorize({
+          requester,
+          payload: slotOpenButtonPayload,
+        })
+        .pipe(Effect.flip);
 
-        expect(denied).toMatchObject({
-          _tag: "Unauthorized",
-          message: "Legacy message slot records are no longer accessible",
-        });
-      }).pipe(
-        Effect.provide(
-          Layer.succeed(SheetApisClient)(
-            makeSheetApisClientMock({
-              getMessageSlotData: () =>
-                Effect.succeed(
-                  makeMessageSlot({
-                    workspaceId: Option.none(),
-                    conversationId: Option.some("conversation-1"),
-                  }),
-                ),
-            }),
-          ),
+      expect(denied).toMatchObject({
+        _tag: "Unauthorized",
+        message: "Legacy message slot records are no longer accessible",
+      });
+    }).pipe(
+      Effect.provide(
+        Layer.succeed(SheetApisClient)(
+          makeSheetApisClientMock({
+            getMessageSlotData: () =>
+              Effect.succeed(
+                makeMessageSlot({
+                  workspaceId: Option.none(),
+                  conversationId: Option.some("conversation-1"),
+                }),
+              ),
+          }),
         ),
-      );
-    }),
+      ),
+    ),
   );
 
   it.live("rejects missing slot open button records", () =>
     Effect.gen(function* () {
-      yield* Effect.gen(function* () {
-        const denied = yield* dispatchWorkflowRegistry.slotOpenButton
-          .authorize({
-            requester,
-            payload: slotOpenButtonPayload,
-          })
-          .pipe(Effect.flip);
+      const denied = yield* dispatchWorkflowRegistry.slotOpenButton
+        .authorize({
+          requester,
+          payload: slotOpenButtonPayload,
+        })
+        .pipe(Effect.flip);
 
-        expect(denied).toMatchObject({
-          _tag: "ArgumentError",
-          message: "message slot not found",
-        });
-      }).pipe(
-        Effect.provide(
-          Layer.succeed(SheetApisClient)(
-            makeSheetApisClientMock({
-              getMessageSlotData: () =>
-                Effect.fail({ _tag: "ArgumentError", message: "message slot not found" }),
-            }),
-          ),
+      expect(denied).toMatchObject({
+        _tag: "ArgumentError",
+        message: "message slot not found",
+      });
+    }).pipe(
+      Effect.provide(
+        Layer.succeed(SheetApisClient)(
+          makeSheetApisClientMock({
+            getMessageSlotData: () =>
+              Effect.fail({ _tag: "ArgumentError", message: "message slot not found" }),
+          }),
         ),
-      );
-    }),
+      ),
+    ),
   );
 
   it.live("rejects check-in button access for non-participants", () =>
     Effect.gen(function* () {
-      yield* Effect.gen(function* () {
-        const denied = yield* dispatchWorkflowRegistry.checkinButton
-          .authorize({
-            requester,
-            payload: checkinButtonPayload,
-          })
-          .pipe(Effect.flip);
+      const denied = yield* dispatchWorkflowRegistry.checkinButton
+        .authorize({
+          requester,
+          payload: checkinButtonPayload,
+        })
+        .pipe(Effect.flip);
 
-        expect(denied).toBeInstanceOf(Unauthorized);
-      }).pipe(
-        Effect.provide(
-          Layer.succeed(SheetApisClient)(
-            makeSheetApisClientMock({
-              getMessageCheckinMembers: () =>
-                Effect.succeed([makeMessageCheckinMember("different-account")]),
-            }),
-          ),
+      expect(denied).toBeInstanceOf(Unauthorized);
+    }).pipe(
+      Effect.provide(
+        Layer.succeed(SheetApisClient)(
+          makeSheetApisClientMock({
+            getMessageCheckinMembers: () =>
+              Effect.succeed([makeMessageCheckinMember("different-account")]),
+          }),
         ),
-      );
-    }),
+      ),
+    ),
   );
 
   it.effect("allows pin-tentative workflow payloads without an authorization snapshot", () =>

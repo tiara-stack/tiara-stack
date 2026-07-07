@@ -14,6 +14,14 @@ import {
 import { SheetApisForwardingClient } from "./sheetApisForwardingClient";
 import { SheetApisRpcTokens } from "./sheetApisRpcTokens";
 import { SheetBotCacheClient } from "./sheetBotCacheClient";
+import * as Data from "effect/Data";
+
+class SheetIngressServerServicesAuthorizationTestError extends Data.TaggedError(
+  "SheetIngressServerServicesAuthorizationTestError",
+)<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 
 type SheetBotCacheClientApi = typeof SheetBotCacheClient.Service;
 
@@ -114,15 +122,13 @@ describe("authorization permission helpers", () => {
 
 describe("AuthorizationService", () => {
   it.live("allows service users through requireService", () =>
-    Effect.gen(function* () {
-      yield* runAuthorization(
-        Effect.gen(function* () {
-          const authorization = yield* AuthorizationService;
-          yield* authorization.requireService();
-        }),
-        { user: makeUser(["service"]) },
-      );
-    }),
+    runAuthorization(
+      Effect.gen(function* () {
+        const authorization = yield* AuthorizationService;
+        yield* authorization.requireService();
+      }),
+      { user: makeUser(["service"]) },
+    ),
   );
 
   it.live("rejects non-service users from requireService", () =>
@@ -312,7 +318,10 @@ describe("AuthorizationService", () => {
     Effect.gen(function* () {
       const sheetApisForwardingClient = {
         workspaceConfig: {
-          getWorkspaceMonitorRoles: () => Effect.fail(new Error("lookup failed")),
+          getWorkspaceMonitorRoles: () =>
+            Effect.fail(
+              new SheetIngressServerServicesAuthorizationTestError({ message: "lookup failed" }),
+            ),
         },
       } as never;
       const sheetBotCacheClient = makeSheetBotCacheClient({

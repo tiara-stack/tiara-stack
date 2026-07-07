@@ -206,7 +206,7 @@ export class MessageCheckinService extends Context.Service<MessageCheckinService
         const member = Array.findFirst(members, (item) => item.memberId === memberId);
 
         if (Option.isNone(member)) {
-          return yield* Effect.fail(memberNotRegisteredError());
+          return yield* memberNotRegisteredError();
         }
 
         return member.value;

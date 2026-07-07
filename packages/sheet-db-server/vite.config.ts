@@ -28,6 +28,9 @@ export default defineConfig({
       alwaysBundle: [/^.*$/],
       onlyBundle: false,
     },
+    dts: {
+      tsgo: true,
+    },
   },
   lint: {
     ignorePatterns: ["dist"],

@@ -29,7 +29,6 @@
   "dependencies": {},
   "devDependencies": {
     "@types/google-apps-script": "^1.0.99",
-    "@typescript/native-preview": "latest",
     "glob": "^11.0.1",
     "pathe": "^2.0.3",
     "vite": "catalog:",

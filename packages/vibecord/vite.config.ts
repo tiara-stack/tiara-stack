@@ -8,6 +8,10 @@ export default defineConfig({
       register: fileURLToPath(new URL("src/register.ts", import.meta.url)),
     },
     sourcemap: true,
+    tsconfig: "tsconfig.build.json",
+    dts: {
+      tsgo: true,
+    },
     deps: {
       alwaysBundle: [/^.*$/],
       neverBundle: ["zlib-sync"],

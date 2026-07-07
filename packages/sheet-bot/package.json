@@ -34,7 +34,6 @@
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
-    "@typescript/native-preview": "latest",
     "date-fns": "^4.1.0",
     "pathe": "^2.0.3",
     "simple-git": "^3.30.0",

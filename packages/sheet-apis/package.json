@@ -54,7 +54,6 @@
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
-    "@typescript/native-preview": "latest",
     "glob": "^11.0.1",
     "pathe": "^2.0.3",
     "vite": "catalog:",

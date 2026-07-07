@@ -3,6 +3,12 @@ import type { Project } from "ts-morph";
 import { tsImport } from "tsx/esm/api";
 import type { EffectZeroSchema } from "../types";
 import { EffectZeroSchemaExportSchema } from "./schema";
+import * as Data from "effect/Data";
+
+class EffectZeroCliConfigError extends Data.TaggedError("EffectZeroCliConfigError")<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 
 const defaultConfigFilePath = "effect-zero.config.ts";
 
@@ -39,25 +45,25 @@ export const getConfigFromFileEffect = ({
     const fullConfigPath = path.resolve(process.cwd(), configFilePath);
     const relativeConfigPath = path.relative(process.cwd(), fullConfigPath);
     if (relativeConfigPath.startsWith("..") || path.isAbsolute(relativeConfigPath)) {
-      return yield* Effect.fail(
-        new Error("effect-zero: Config file must be inside the current working directory"),
-      );
+      return yield* new EffectZeroCliConfigError({
+        message: "effect-zero: Config file must be inside the current working directory",
+      });
     }
     const existsResult = yield* Effect.result(fs.exists(fullConfigPath));
     const exists = Result.isSuccess(existsResult) ? existsResult.success : false;
     if (!exists) {
-      return yield* Effect.fail(
-        new Error(`effect-zero: Failed to find config file at ${fullConfigPath}`),
-      );
+      return yield* new EffectZeroCliConfigError({
+        message: `effect-zero: Failed to find config file at ${fullConfigPath}`,
+      });
     }
 
     const fileUrl = yield* path.toFileUrl(fullConfigPath);
     const imported = yield* Effect.tryPromise({
       try: () => tsImport(fileUrl.href, import.meta.url),
       catch: (error) =>
-        new Error(
-          `effect-zero: Failed to import config file at ${fullConfigPath}. ${String(error)}`,
-        ),
+        new EffectZeroCliConfigError({
+          message: `effect-zero: Failed to import config file at ${fullConfigPath}. ${String(error)}`,
+        }),
     });
     const defaultExport = imported?.default;
     const namedExport = imported?.schema;
@@ -72,16 +78,16 @@ export const getConfigFromFileEffect = ({
     const zeroSchema = exportName === "default" ? defaultExport : (namedExport ?? cjsNamedExport);
 
     if (!zeroSchema) {
-      return yield* Effect.fail(
-        new Error(
-          "effect-zero: No config found in the config file - export `default` or `schema`.",
-        ),
-      );
+      return yield* new EffectZeroCliConfigError({
+        message: "effect-zero: No config found in the config file - export `default` or `schema`.",
+      });
     }
 
     const decoded = yield* Schema.decodeUnknownEffect(EffectZeroSchemaExportSchema)(zeroSchema);
     if (!isEffectZeroSchema(decoded)) {
-      return yield* Effect.fail(new Error("effect-zero: invalid config schema export"));
+      return yield* new EffectZeroCliConfigError({
+        message: "effect-zero: invalid config schema export",
+      });
     }
 
     yield* ensureConfigTypeInProject({
@@ -110,9 +116,9 @@ const ensureConfigTypeInProject = ({
     const sourceFile =
       tsProject.getSourceFile(configPath) ?? tsProject.addSourceFileAtPathIfExists(configPath);
     if (!sourceFile) {
-      return yield* Effect.fail(
-        new Error(`effect-zero: Failed to find type definitions for ${configPath}`),
-      );
+      return yield* new EffectZeroCliConfigError({
+        message: `effect-zero: Failed to find type definitions for ${configPath}`,
+      });
     }
 
     if (

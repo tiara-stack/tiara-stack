@@ -55,7 +55,6 @@
     "@types/node": "catalog:",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
-    "@typescript/native-preview": "latest",
     "@vitejs/plugin-react": "^5.0.4",
     "babel-plugin-react-compiler": "^1.0.0",
     "jsdom": "^27.0.0",

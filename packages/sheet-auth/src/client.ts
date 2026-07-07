@@ -567,6 +567,7 @@ export function getSession(
 ): Effect.Effect<Option.Option<Session>, SessionResponseError> {
   return Effect.gen(function* () {
     const tokenDeferred = yield* Deferred.make<string | undefined>();
+    const context = yield* Effect.context<never>();
     const authClient = betterAuthCoreClient(client);
     const session = yield* Effect.tryPromise({
       try: async () =>
@@ -575,7 +576,9 @@ export function getSession(
             headers,
             onSuccess: async (ctx) => {
               const token = ctx.response.headers.get("set-auth-token");
-              await Effect.runPromise(Deferred.succeed(tokenDeferred, token ?? undefined));
+              await Effect.runPromiseWith(context)(
+                Deferred.succeed(tokenDeferred, token ?? undefined),
+              );
             },
           },
         }),
@@ -588,14 +591,11 @@ export function getSession(
     });
 
     if (session.error) {
-      yield* Effect.fail(
-        new SessionResponseError({
-          statusText: session.error.statusText,
-          message: `${session.error.statusText}: ${session.error.message || "Failed to get session"}`,
-          cause: session.error,
-        }),
-      );
-      return Option.none();
+      return yield* new SessionResponseError({
+        statusText: session.error.statusText,
+        message: `${session.error.statusText}: ${session.error.message || "Failed to get session"}`,
+        cause: session.error,
+      });
     }
 
     const token = yield* Deferred.await(tokenDeferred);
@@ -661,23 +661,19 @@ export function getAccount(
     });
 
     if (accounts.error) {
-      return yield* Effect.fail(
-        new AccountError({
-          statusText: accounts.error.statusText,
-          message: `${accounts.error.statusText}: ${accounts.error.message || "Failed to get accounts"}`,
-          cause: accounts.error,
-        }),
-      );
+      return yield* new AccountError({
+        statusText: accounts.error.statusText,
+        message: `${accounts.error.statusText}: ${accounts.error.message || "Failed to get accounts"}`,
+        cause: accounts.error,
+      });
     }
 
     const account = accounts.data?.find((account) => providerIds.includes(account.providerId));
     if (!account) {
-      return yield* Effect.fail(
-        new AccountError({
-          statusText: "ACCOUNT_NOT_FOUND",
-          message: "ACCOUNT_NOT_FOUND: Account not found",
-        }),
-      );
+      return yield* new AccountError({
+        statusText: "ACCOUNT_NOT_FOUND",
+        message: "ACCOUNT_NOT_FOUND: Account not found",
+      });
     }
 
     return new Account({
@@ -733,22 +729,18 @@ export function getDiscordAccessToken(
     });
 
     if (accessToken.error) {
-      return yield* Effect.fail(
-        new DiscordAccessTokenError({
-          statusText: accessToken.error.statusText,
-          message: `${accessToken.error.statusText}: ${accessToken.error.message || "Failed to get Discord access token"}`,
-          cause: accessToken.error,
-        }),
-      );
+      return yield* new DiscordAccessTokenError({
+        statusText: accessToken.error.statusText,
+        message: `${accessToken.error.statusText}: ${accessToken.error.message || "Failed to get Discord access token"}`,
+        cause: accessToken.error,
+      });
     }
 
     if (!accessToken.data?.accessToken) {
-      return yield* Effect.fail(
-        new DiscordAccessTokenError({
-          statusText: "NO_DISCORD_ACCESS_TOKEN",
-          message: "NO_DISCORD_ACCESS_TOKEN: No Discord access token returned from Better Auth",
-        }),
-      );
+      return yield* new DiscordAccessTokenError({
+        statusText: "NO_DISCORD_ACCESS_TOKEN",
+        message: "NO_DISCORD_ACCESS_TOKEN: No Discord access token returned from Better Auth",
+      });
     }
 
     return { accessToken: Redacted.make(accessToken.data.accessToken) };
@@ -778,22 +770,18 @@ export function getDiscordAccessTokenWithOAuth(
     });
 
     if (accessToken.error) {
-      return yield* Effect.fail(
-        new DiscordAccessTokenError({
-          statusText: accessToken.error.statusText,
-          message: `${accessToken.error.statusText}: ${accessToken.error.message || "Failed to get Discord access token"}`,
-          cause: accessToken.error,
-        }),
-      );
+      return yield* new DiscordAccessTokenError({
+        statusText: accessToken.error.statusText,
+        message: `${accessToken.error.statusText}: ${accessToken.error.message || "Failed to get Discord access token"}`,
+        cause: accessToken.error,
+      });
     }
 
     if (!accessToken.data?.accessToken) {
-      return yield* Effect.fail(
-        new DiscordAccessTokenError({
-          statusText: "NO_DISCORD_ACCESS_TOKEN",
-          message: "NO_DISCORD_ACCESS_TOKEN: No Discord access token returned from sheet-auth",
-        }),
-      );
+      return yield* new DiscordAccessTokenError({
+        statusText: "NO_DISCORD_ACCESS_TOKEN",
+        message: "NO_DISCORD_ACCESS_TOKEN: No Discord access token returned from sheet-auth",
+      });
     }
 
     return { accessToken: Redacted.make(accessToken.data.accessToken) };
@@ -821,15 +809,13 @@ export function getSheetAuthIdentity(
     });
 
     if (response.error || !response.data) {
-      return yield* Effect.fail(
-        new SheetAuthIdentityError({
-          statusText: response.error?.statusText ?? "GET_SHEET_AUTH_IDENTITY_FAILED",
-          message: `${response.error?.statusText ?? "GET_SHEET_AUTH_IDENTITY_FAILED"}: ${
-            response.error?.message || "Failed to resolve sheet-auth identity"
-          }`,
-          cause: response.error,
-        }),
-      );
+      return yield* new SheetAuthIdentityError({
+        statusText: response.error?.statusText ?? "GET_SHEET_AUTH_IDENTITY_FAILED",
+        message: `${response.error?.statusText ?? "GET_SHEET_AUTH_IDENTITY_FAILED"}: ${
+          response.error?.message || "Failed to resolve sheet-auth identity"
+        }`,
+        cause: response.error,
+      });
     }
 
     return response.data;
@@ -859,14 +845,12 @@ export function createOAuthClientCredentialsToken(
     });
 
     if (response.error || !response.data) {
-      return yield* Effect.fail(
-        makeOAuthClientCredentialsTokenError(
-          response.error?.statusText ?? "CREATE_OAUTH_CLIENT_CREDENTIALS_TOKEN_FAILED",
-          `${response.error?.statusText ?? "CREATE_OAUTH_CLIENT_CREDENTIALS_TOKEN_FAILED"}: ${
-            response.error?.message || "Failed to create OAuth client credentials token"
-          }`,
-          response.error,
-        ),
+      return yield* makeOAuthClientCredentialsTokenError(
+        response.error?.statusText ?? "CREATE_OAUTH_CLIENT_CREDENTIALS_TOKEN_FAILED",
+        `${response.error?.statusText ?? "CREATE_OAUTH_CLIENT_CREDENTIALS_TOKEN_FAILED"}: ${
+          response.error?.message || "Failed to create OAuth client credentials token"
+        }`,
+        response.error,
       );
     }
 
@@ -896,14 +880,12 @@ export function exchangeOAuthToken(
     });
 
     if (response.error || !response.data) {
-      return yield* Effect.fail(
-        makeOAuthTokenExchangeError(
-          response.error?.statusText ?? "EXCHANGE_OAUTH_TOKEN_FAILED",
-          `${response.error?.statusText ?? "EXCHANGE_OAUTH_TOKEN_FAILED"}: ${
-            response.error?.message || "Failed to exchange OAuth token"
-          }`,
-          response.error,
-        ),
+      return yield* makeOAuthTokenExchangeError(
+        response.error?.statusText ?? "EXCHANGE_OAUTH_TOKEN_FAILED",
+        `${response.error?.statusText ?? "EXCHANGE_OAUTH_TOKEN_FAILED"}: ${
+          response.error?.message || "Failed to exchange OAuth token"
+        }`,
+        response.error,
       );
     }
 
@@ -945,14 +927,12 @@ export function createOAuthSubjectToken(
     });
 
     if (response.error || !response.data) {
-      return yield* Effect.fail(
-        makeOAuthSubjectTokenError(
-          response.error?.statusText ?? "CREATE_OAUTH_SUBJECT_TOKEN_FAILED",
-          `${response.error?.statusText ?? "CREATE_OAUTH_SUBJECT_TOKEN_FAILED"}: ${
-            response.error?.message || "Failed to create OAuth subject token"
-          }`,
-          response.error,
-        ),
+      return yield* makeOAuthSubjectTokenError(
+        response.error?.statusText ?? "CREATE_OAUTH_SUBJECT_TOKEN_FAILED",
+        `${response.error?.statusText ?? "CREATE_OAUTH_SUBJECT_TOKEN_FAILED"}: ${
+          response.error?.message || "Failed to create OAuth subject token"
+        }`,
+        response.error,
       );
     }
 
@@ -972,6 +952,7 @@ export function createTrustedDiscordSession(
 ): Effect.Effect<Session, TrustedDiscordSessionError> {
   return Effect.gen(function* () {
     const tokenDeferred = yield* Deferred.make<string | undefined>();
+    const context = yield* Effect.context<never>();
     const response = yield* Effect.tryPromise({
       try: async () =>
         await client.sheetAuth.trustedDiscordSession({
@@ -984,7 +965,9 @@ export function createTrustedDiscordSession(
             },
             onSuccess: async (ctx) => {
               const token = ctx.response.headers.get("set-auth-token");
-              await Effect.runPromise(Deferred.succeed(tokenDeferred, token ?? undefined));
+              await Effect.runPromiseWith(context)(
+                Deferred.succeed(tokenDeferred, token ?? undefined),
+              );
             },
           },
         }),
@@ -999,15 +982,13 @@ export function createTrustedDiscordSession(
     });
 
     if (response.error || !response.data) {
-      return yield* Effect.fail(
-        new TrustedDiscordSessionError({
-          statusText: response.error?.statusText ?? "TRUSTED_DISCORD_SESSION_FAILED",
-          message: `${response.error?.statusText ?? "TRUSTED_DISCORD_SESSION_FAILED"}: ${
-            response.error?.message || "Failed to create trusted Discord session"
-          }`,
-          cause: response.error,
-        }),
-      );
+      return yield* new TrustedDiscordSessionError({
+        statusText: response.error?.statusText ?? "TRUSTED_DISCORD_SESSION_FAILED",
+        message: `${response.error?.statusText ?? "TRUSTED_DISCORD_SESSION_FAILED"}: ${
+          response.error?.message || "Failed to create trusted Discord session"
+        }`,
+        cause: response.error,
+      });
     }
 
     const token = yield* Deferred.await(tokenDeferred);

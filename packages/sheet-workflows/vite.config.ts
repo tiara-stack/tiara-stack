@@ -3,7 +3,6 @@ import { fileURLToPath } from "url";
 import { defineConfig } from "vite-plus";
 
 const alwaysBundleDependencies = () => true;
-const sheetIngressApiDist = fileURLToPath(new URL("../sheet-ingress-api/dist", import.meta.url));
 const sheetDbSchemaModels = fileURLToPath(import.meta.resolve("sheet-db-schema/models"));
 
 export default defineConfig({
@@ -23,9 +22,12 @@ export default defineConfig({
       },
       alias: {
         "sheet-db-schema/models": sheetDbSchemaModels,
-        "sheet-ingress-api": sheetIngressApiDist,
       },
       sourcemap: true,
+      tsconfig: "tsconfig.build.json",
+      dts: {
+        tsgo: true,
+      },
       deps: {
         alwaysBundle: alwaysBundleDependencies,
         onlyBundle: false,

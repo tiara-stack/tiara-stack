@@ -95,7 +95,7 @@ const flattenMutationPhase = (
   Effect.fn("ZeroApiClient.mutationPhase")(function* () {
     const result = yield* phase();
     if (result instanceof MutatorResultAppError || result instanceof MutatorResultZeroError) {
-      return yield* Effect.fail(result);
+      return yield* result;
     }
   });
 

@@ -7,6 +7,12 @@ import { getConfigFromFileEffect, getDefaultConfigFilePathEffect } from "./confi
 import { checkSignature, signContent } from "./signature";
 import { discoverAllTsConfigsEffect } from "./tsconfig";
 import { addSourceFilesFromTsConfigSafe, ensureSourceFileInProject } from "./ts-project";
+import * as Data from "effect/Data";
+
+class EffectZeroCliGenerateError extends Data.TaggedError("EffectZeroCliGenerateError")<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 
 const defaultOutputFile = "./zero-schema.gen.ts";
 const defaultTsConfigFile = "./tsconfig.json";
@@ -61,7 +67,9 @@ const runFormatter = (
       }),
     );
     if (exitCode !== 0) {
-      return yield* Effect.fail(new Error(`${command} exited with code ${exitCode}`));
+      return yield* new EffectZeroCliGenerateError({
+        message: `${command} exited with code ${exitCode}`,
+      });
     }
   });
 
@@ -72,7 +80,9 @@ const validateOutputPathEffect = (outputPath: string): Effect.Effect<string, Err
     const resolved = path.resolve(root, outputPath);
     const relative = path.relative(root, resolved);
     if (relative.startsWith("..") || path.isAbsolute(relative)) {
-      return yield* Effect.fail(new Error(`effect-zero: output path must be inside ${root}`));
+      return yield* new EffectZeroCliGenerateError({
+        message: `effect-zero: output path must be inside ${root}`,
+      });
     }
     return resolved;
   });
@@ -125,11 +135,10 @@ export const generateEffect = (
     const configFilePath = opts.config ?? defaultConfigFilePath;
 
     if (!configFilePath) {
-      return yield* Effect.fail(
-        new Error(
+      return yield* new EffectZeroCliGenerateError({
+        message:
           "effect-zero: No config file found. Create effect-zero.config.ts or pass --config.",
-        ),
-      );
+      });
     }
 
     const tsProject = new Project({
@@ -163,7 +172,9 @@ export const generateEffect = (
     const result = yield* getConfigFromFileEffect({ configFilePath, tsProject });
 
     if (Object.keys(result.zeroSchema.tables ?? {}).length === 0) {
-      return yield* Effect.fail(new Error("effect-zero: No tables found in the schema."));
+      return yield* new EffectZeroCliGenerateError({
+        message: "effect-zero: No tables found in the schema.",
+      });
     }
 
     const generated = getGeneratedSchema({
@@ -216,11 +227,9 @@ export const writeGeneratedFileEffect = ({
       const exists = yield* fs.exists(outputPath);
       const existing = exists ? yield* fs.readFileString(outputPath) : undefined;
       if (existing && checkSignature(existing) === "modified") {
-        return yield* Effect.fail(
-          new Error(
-            `effect-zero: ${outputPath} has been manually modified. Use --force to overwrite.`,
-          ),
-        );
+        return yield* new EffectZeroCliGenerateError({
+          message: `effect-zero: ${outputPath} has been manually modified. Use --force to overwrite.`,
+        });
       }
     }
 

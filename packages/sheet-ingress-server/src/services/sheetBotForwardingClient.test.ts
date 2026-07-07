@@ -4,6 +4,14 @@ import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstab
 import { SheetApisRpcTokens } from "./sheetApisRpcTokens";
 import { SheetBotForwardingClient } from "./sheetBotForwardingClient";
 import { SheetBotHttpClient } from "./sheetBotHttpClient";
+import * as Data from "effect/Data";
+
+class SheetIngressServerServicesSheetBotForwardingClientTestError extends Data.TaggedError(
+  "SheetIngressServerServicesSheetBotForwardingClientTestError",
+)<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
 
 const makeServiceUser = () =>
   Effect.succeed({
@@ -198,7 +206,11 @@ describe("SheetBotForwardingClient", () => {
         getServiceUser: makeServiceUser,
         getServiceToken: () => Effect.fail(ingressTokenFailure),
         getDelegatedAuthorization: () =>
-          Effect.fail(new Error("delegated token path should not be used")),
+          Effect.fail(
+            new SheetIngressServerServicesSheetBotForwardingClientTestError({
+              message: "delegated token path should not be used",
+            }),
+          ),
       } as never;
 
       const exit = yield* Effect.exit(

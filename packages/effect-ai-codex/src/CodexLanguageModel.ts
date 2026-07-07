@@ -15,7 +15,7 @@ import * as Response from "effect/unstable/ai/Response";
 import * as Tool from "effect/unstable/ai/Tool";
 import { CodexClient, type RunOptions, type RunResult } from "./CodexClient";
 import { Config as CodexConfig, type ConfigShape } from "./CodexConfig";
-import { type CodexError, CodexTimeout } from "./CodexError";
+import { type CodexError, CodexTimeout, messageFromCause } from "./CodexError";
 
 export type Config = ConfigShape;
 
@@ -564,39 +564,46 @@ export const make = ({
         const result = yield* client
           .run(makeRunOptions(options, config, modelId))
           .pipe(Effect.mapError((error) => toAiError("generateText", error)));
-        try {
-          const structuredOutput =
-            options.responseFormat.type === "json"
-              ? (() => {
-                  const decoder = Schema.decodeUnknownSync(
-                    options.responseFormat.schema as Schema.Decoder<unknown>,
-                  );
-                  const maxCharacters = structuredResponseMaxCharacters(
-                    config.structuredResponseMaxCharacters,
-                  );
-                  return {
-                    maxCharacters,
-                    strictItemTypes: config.strictStructuredResponseItemTypes ?? false,
-                    isValidValue: (value: unknown) => {
-                      try {
-                        decoder(value);
-                        return true;
-                      } catch {
-                        return false;
-                      }
-                    },
-                  };
-                })()
-              : undefined;
-          return structuredOutput === undefined
-            ? runTextResultToParts(result, modelId)
-            : runStructuredResultToParts(result, modelId, structuredOutput);
-        } catch (error) {
-          if (isStructuredResponseError(error)) {
-            return yield* Effect.fail(structuredResponseError("generateText", error));
-          }
-          throw error;
-        }
+        return yield* Effect.try({
+          try: () => {
+            const structuredOutput =
+              options.responseFormat.type === "json"
+                ? (() => {
+                    const decoder = Schema.decodeUnknownSync(
+                      options.responseFormat.schema as Schema.Decoder<unknown>,
+                    );
+                    const maxCharacters = structuredResponseMaxCharacters(
+                      config.structuredResponseMaxCharacters,
+                    );
+                    return {
+                      maxCharacters,
+                      strictItemTypes: config.strictStructuredResponseItemTypes ?? false,
+                      isValidValue: (value: unknown) => {
+                        try {
+                          decoder(value);
+                          return true;
+                        } catch {
+                          return false;
+                        }
+                      },
+                    };
+                  })()
+                : undefined;
+            return structuredOutput === undefined
+              ? runTextResultToParts(result, modelId)
+              : runStructuredResultToParts(result, modelId, structuredOutput);
+          },
+          catch: (error) =>
+            isStructuredResponseError(error)
+              ? structuredResponseError("generateText", error)
+              : AiError.make({
+                  module: "CodexLanguageModel",
+                  method: "generateText",
+                  reason: new AiError.InternalProviderError({
+                    description: messageFromCause(error),
+                  }),
+                }),
+        });
       }),
       streamText: (options) =>
         Stream.unwrap(
