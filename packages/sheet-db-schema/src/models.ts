@@ -4,11 +4,13 @@ export {
   configWorkspaceConversation,
   configWorkspaceFeatureFlag,
   configWorkspaceMonitorRole,
+  configWorkspaceTeamSubmissionChannel,
   configWorkspaceUpdateAnnouncementDelivery,
   messageCheckin,
   messageCheckinMember,
   messageRoomOrder,
   messageRoomOrderEntry,
   messageSlot,
+  messageTeamSubmission,
   sheetApisDispatchJobs,
 } from "./schema.internal";

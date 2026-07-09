@@ -63,6 +63,9 @@ import {
   DispatchSlotListWorkflow,
   DispatchSlotOpenButtonWorkflow,
   DispatchTeamListWorkflow,
+  DispatchTeamSubmissionConfirmButtonWorkflow,
+  DispatchTeamSubmissionRejectButtonWorkflow,
+  DispatchTeamSubmissionWorkflow,
   DispatchUpdateAnnouncementWorkflow,
   DispatchWorkflows,
 } from "./dispatchWorkflows";
@@ -232,6 +235,8 @@ type DispatchButtonWorkflowByOperation = {
   readonly roomOrderNextButton: typeof DispatchRoomOrderNextButtonWorkflow;
   readonly roomOrderSendButton: typeof DispatchRoomOrderSendButtonWorkflow;
   readonly roomOrderPinTentativeButton: typeof DispatchRoomOrderPinTentativeButtonWorkflow;
+  readonly teamSubmissionConfirmButton: typeof DispatchTeamSubmissionConfirmButtonWorkflow;
+  readonly teamSubmissionRejectButton: typeof DispatchTeamSubmissionRejectButtonWorkflow;
 };
 
 type DispatchButtonWorkflowHandlerOptions<
@@ -572,6 +577,18 @@ export const dispatchViaButtonEntity = <
         client.roomOrderPinTentativeButton({
           request:
             nextRequest as typeof DispatchRoomOrderPinTentativeButtonWorkflow.payloadSchema.Type,
+          executionId,
+        }),
+      teamSubmissionConfirmButton: (nextRequest: unknown) =>
+        client.teamSubmissionConfirmButton({
+          request:
+            nextRequest as typeof DispatchTeamSubmissionConfirmButtonWorkflow.payloadSchema.Type,
+          executionId,
+        }),
+      teamSubmissionRejectButton: (nextRequest: unknown) =>
+        client.teamSubmissionRejectButton({
+          request:
+            nextRequest as typeof DispatchTeamSubmissionRejectButtonWorkflow.payloadSchema.Type,
           executionId,
         }),
     } satisfies Record<
@@ -993,6 +1010,51 @@ export const dispatchWorkflowRegistry = {
         return yield* service.teamList(request.payload);
       }),
   },
+  teamSubmission: {
+    operation: "teamSubmission",
+    workflow: DispatchTeamSubmissionWorkflow,
+    getInteractionToken: () => undefined,
+    authorize: () => Effect.void,
+    execute: (request: typeof DispatchTeamSubmissionWorkflow.payloadSchema.Type) =>
+      Effect.gen(function* () {
+        const service = yield* DispatchService;
+        return yield* service.teamSubmission(request.payload);
+      }),
+  },
+  teamSubmissionConfirmButton: {
+    operation: "teamSubmissionConfirmButton",
+    workflow: DispatchTeamSubmissionConfirmButtonWorkflow,
+    getInteractionToken: (
+      request: typeof DispatchTeamSubmissionConfirmButtonWorkflow.payloadSchema.Type,
+    ) => request.payload.interactionResponseToken,
+    authorize: (request: typeof DispatchTeamSubmissionConfirmButtonWorkflow.payloadSchema.Type) =>
+      Effect.succeed(request.requester),
+    execute: (
+      request: typeof DispatchTeamSubmissionConfirmButtonWorkflow.payloadSchema.Type,
+      requester: DispatchRequester,
+    ) =>
+      Effect.gen(function* () {
+        const service = yield* DispatchService;
+        return yield* service.teamSubmissionConfirmButton(request.payload, requester);
+      }),
+  },
+  teamSubmissionRejectButton: {
+    operation: "teamSubmissionRejectButton",
+    workflow: DispatchTeamSubmissionRejectButtonWorkflow,
+    getInteractionToken: (
+      request: typeof DispatchTeamSubmissionRejectButtonWorkflow.payloadSchema.Type,
+    ) => request.payload.interactionResponseToken,
+    authorize: (request: typeof DispatchTeamSubmissionRejectButtonWorkflow.payloadSchema.Type) =>
+      Effect.succeed(request.requester),
+    execute: (
+      request: typeof DispatchTeamSubmissionRejectButtonWorkflow.payloadSchema.Type,
+      requester: DispatchRequester,
+    ) =>
+      Effect.gen(function* () {
+        const service = yield* DispatchService;
+        return yield* service.teamSubmissionRejectButton(request.payload, requester);
+      }),
+  },
   scheduleList: {
     operation: "scheduleList",
     workflow: DispatchScheduleListWorkflow,
@@ -1055,6 +1117,18 @@ export const dispatchButtonEntityLayer = makeDispatchButtonEntityLayer({
   roomOrderPinTentativeButton: ({ payload }) =>
     runDispatchWorkflowOperation(
       dispatchWorkflowRegistry.roomOrderPinTentativeButton,
+      payload.request,
+      payload.executionId,
+    ),
+  teamSubmissionConfirmButton: ({ payload }) =>
+    runDispatchWorkflowOperation(
+      dispatchWorkflowRegistry.teamSubmissionConfirmButton,
+      payload.request,
+      payload.executionId,
+    ),
+  teamSubmissionRejectButton: ({ payload }) =>
+    runDispatchWorkflowOperation(
+      dispatchWorkflowRegistry.teamSubmissionRejectButton,
       payload.request,
       payload.executionId,
     ),
@@ -1209,6 +1283,21 @@ export const dispatchWorkflowLayer = Layer.mergeAll(
   DispatchTeamListWorkflow.toLayer(
     makeWorkflowHandler({
       ...dispatchWorkflowRegistry.teamList,
+    }),
+  ),
+  DispatchTeamSubmissionWorkflow.toLayer(
+    makeWorkflowHandler({
+      ...dispatchWorkflowRegistry.teamSubmission,
+    }),
+  ),
+  DispatchTeamSubmissionConfirmButtonWorkflow.toLayer(
+    makeButtonWorkflowHandler({
+      ...dispatchWorkflowRegistry.teamSubmissionConfirmButton,
+    }),
+  ),
+  DispatchTeamSubmissionRejectButtonWorkflow.toLayer(
+    makeButtonWorkflowHandler({
+      ...dispatchWorkflowRegistry.teamSubmissionRejectButton,
     }),
   ),
   DispatchScheduleListWorkflow.toLayer(

@@ -2,6 +2,7 @@ import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstab
 import { Context, Effect, Layer, Schema } from "effect";
 import {
   ClientConversation,
+  DeliveryEmoji,
   ClientMember,
   ClientWorkspace,
   DeliveryMessage,
@@ -49,6 +50,11 @@ const UpdateInteractionPayload = Schema.Struct({
 
 const MessageRefPayload = Schema.Struct({
   messageRef: MessageRef,
+});
+
+const MessageReactionPayload = Schema.Struct({
+  messageRef: MessageRef,
+  emoji: DeliveryEmoji,
 });
 
 const MemberRolePayload = Schema.Struct({
@@ -213,6 +219,32 @@ export class ClientDeliveryForwardingClient extends Context.Service<ClientDelive
             "Failed to forward client delete request",
           );
         }),
+        addMessageReaction: Effect.fn("ClientDeliveryForwardingClient.addMessageReaction")(
+          function* (messageRef: MessageRef, emoji: typeof DeliveryEmoji.Type) {
+            const entry = yield* registry.resolve(messageRef.conversation.workspace.client);
+            return yield* sendJsonVoid(
+              "POST",
+              entry,
+              "/clients/messages/reactions/add",
+              { messageRef, emoji },
+              MessageReactionPayload,
+              "Failed to forward client add-reaction request",
+            );
+          },
+        ),
+        removeMessageReaction: Effect.fn("ClientDeliveryForwardingClient.removeMessageReaction")(
+          function* (messageRef: MessageRef, emoji: typeof DeliveryEmoji.Type) {
+            const entry = yield* registry.resolve(messageRef.conversation.workspace.client);
+            return yield* sendJsonVoid(
+              "POST",
+              entry,
+              "/clients/messages/reactions/remove",
+              { messageRef, emoji },
+              MessageReactionPayload,
+              "Failed to forward client remove-reaction request",
+            );
+          },
+        ),
         getWorkspace: Effect.fn("ClientDeliveryForwardingClient.getWorkspace")(function* (
           workspace: WorkspaceRef,
         ) {

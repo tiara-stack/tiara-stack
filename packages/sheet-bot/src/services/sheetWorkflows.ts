@@ -2,19 +2,13 @@ import { readFile } from "node:fs/promises";
 import { config } from "@/config";
 import { Interaction } from "dfx-discord-utils";
 import { DiscordInteraction } from "dfx/Interactions/context";
-import {
-  HttpClient,
-  HttpClientError,
-  HttpClientRequest,
-  HttpClientResponse,
-} from "effect/unstable/http";
+import { HttpClient, HttpClientError, HttpClientResponse } from "effect/unstable/http";
 import { HttpApiClient } from "effect/unstable/httpapi";
 import {
   Cache,
   Data,
   Duration,
   Effect,
-  Exit,
   Match,
   Layer,
   Option,
@@ -32,7 +26,7 @@ import { DISCORD_SERVICE_USER_ID_SENTINEL } from "sheet-auth/oauth";
 import type { ClientRef } from "sheet-ingress-api/schemas/client";
 import { ServicesStatusResponse } from "sheet-ingress-api/sheet-apis-rpc";
 import { SheetWorkflowsApi } from "sheet-ingress-api/sheet-workflows";
-import type { TokenCacheEntry } from "sheet-ingress-api/tokenCache";
+import { makeCachedBearerTokenHttpClient } from "./oauthHttpClient";
 import { SheetAuthClient } from "./sheetAuthClient";
 
 class SheetBotServicesSheetWorkflowsError extends Data.TaggedError(
@@ -75,6 +69,7 @@ interface SheetWorkflowsClientShape {
 }
 
 const accessTokenType = "urn:ietf:params:oauth:token-type:access_token";
+const workflowRequesterTokenCacheCapacity = 500;
 
 const withClientPayload = <T>(args: T, client: ClientRef): T => {
   if (!Predicate.isObject(args) || !Predicate.hasProperty(args, "payload")) {
@@ -228,115 +223,96 @@ export class SheetWorkflowsClient extends Context.Service<
       },
     );
 
-    const tokenCache = yield* Cache.makeWith<string, TokenCacheEntry>(
-      Effect.fn("SheetWorkflowsClient.lookup")(function* (discordUserId: string) {
-        let oauthSession:
-          | {
-              token: Redacted.Redacted<string> | undefined;
-              expiresAt: number | undefined;
-            }
-          | undefined;
-
-        oauthSession = yield* createOAuthClientCredentialsToken(sheetAuthClient, {
-          clientId: oauthClientId,
-          clientSecret: oauthClientSecret,
-          scope: workflowRequesterActorScopes(discordUserId),
-          resource: "sheet-ingress",
-        }).pipe(
-          Effect.flatMap((token) =>
-            discordUserId === DISCORD_SERVICE_USER_ID_SENTINEL
-              ? Effect.succeed({
-                  token: token.accessToken,
-                  expiresAt: token.expiresAt,
-                })
-              : createDiscordUserToken(token, discordUserId),
-          ),
-          Effect.tap(() =>
-            Effect.logDebug("Using OAuth token for sheet-workflows request", { discordUserId }),
-          ),
-          Effect.matchEffect({
-            onSuccess: (session) => Effect.succeed(session),
-            onFailure: (error) =>
-              Effect.logError("Failed to create OAuth token for sheet-workflows request", {
-                error,
-                discordUserId,
-              }).pipe(Effect.as(undefined)),
-          }),
-        );
-
-        if (oauthSession?.token) {
-          const millisUntilExpiration = oauthSession.expiresAt
-            ? oauthSession.expiresAt * 1000 - Date.now() - 60_000
-            : Duration.toMillis(Duration.minutes(5));
-          return {
-            token: oauthSession.token,
-            timeToLive: Duration.max(Duration.millis(millisUntilExpiration), Duration.seconds(15)),
-            failed: false,
-          };
-        }
-
-        return {
-          token: undefined,
-          timeToLive: Duration.minutes(1),
-          failed: true,
-        };
-      }),
-      {
-        capacity: Infinity,
-        timeToLive: Exit.match({
-          onFailure: () => Duration.minutes(1),
-          onSuccess: ({ timeToLive }) => timeToLive,
-        }),
-      },
-    );
-
-    const getRequesterToken = Effect.fn("SheetWorkflowsClient.getRequesterToken")(function* (
-      requester: SheetWorkflowsRequester,
-    ) {
-      const cacheKey = Match.value(requester).pipe(
-        Match.tagsExhaustive({
-          Service: () => DISCORD_SERVICE_USER_ID_SENTINEL,
-          DiscordUser: (requester) => requester.discordUserId,
-        }),
-      );
-      return yield* Match.value(requester).pipe(
-        Match.tagsExhaustive({
-          Service: () => Cache.get(tokenCache, cacheKey),
-          DiscordUser: () => Cache.get(tokenCache, cacheKey),
-        }),
-      );
-    });
-
-    const httpClientWithToken = HttpClient.mapRequestEffect(
+    const httpClientWithToken = yield* makeCachedBearerTokenHttpClient({
       httpClient,
-      Effect.fnUntraced(function* (request) {
-        const { requester } = yield* Effect.serviceOption(sheetWorkflowsRequestContextTag).pipe(
-          Effect.map(
-            Option.getOrElse(
-              (): SheetWorkflowsRequestContextType => ({
-                requester: SheetWorkflowsRequester.Service(),
-              }),
+      allowMissingToken: true,
+      cacheCapacity: workflowRequesterTokenCacheCapacity,
+      lookupName: "SheetWorkflowsClient.lookup",
+      lookup: (discordUserId: string) =>
+        Effect.gen(function* () {
+          const requesterKind =
+            discordUserId === DISCORD_SERVICE_USER_ID_SENTINEL ? "service" : "discordUser";
+          const oauthSession = yield* createOAuthClientCredentialsToken(sheetAuthClient, {
+            clientId: oauthClientId,
+            clientSecret: oauthClientSecret,
+            scope: workflowRequesterActorScopes(discordUserId),
+            resource: "sheet-ingress",
+          }).pipe(
+            Effect.flatMap((token) =>
+              discordUserId === DISCORD_SERVICE_USER_ID_SENTINEL
+                ? Effect.succeed({
+                    token: token.accessToken,
+                    expiresAt: token.expiresAt,
+                  })
+                : createDiscordUserToken(token, discordUserId),
             ),
-          ),
-        );
-        const { token, failed } = yield* getRequesterToken(requester);
+            Effect.tap(() =>
+              Effect.logDebug("Using OAuth token for sheet-workflows request", { requesterKind }),
+            ),
+            Effect.matchEffect({
+              onSuccess: (session) => Effect.succeed(session),
+              onFailure: (error) =>
+                Effect.logError("Failed to create OAuth token for sheet-workflows request", {
+                  error,
+                  requesterKind,
+                }).pipe(Effect.as(undefined)),
+            }),
+          );
 
-        const requesterTokenFailed = Match.value(requester).pipe(
-          Match.tagsExhaustive({
-            Service: () => false,
-            DiscordUser: () => token === undefined || failed,
-          }),
-        );
+          if (oauthSession?.token) {
+            const millisUntilExpiration = oauthSession.expiresAt
+              ? oauthSession.expiresAt * 1000 - Date.now() - 60_000
+              : Duration.toMillis(Duration.minutes(5));
+            return {
+              token: oauthSession.token,
+              timeToLive: Duration.max(
+                Duration.millis(millisUntilExpiration),
+                Duration.seconds(15),
+              ),
+              failed: false,
+            };
+          }
 
-        if (requesterTokenFailed) {
-          return yield* new SheetBotServicesSheetWorkflowsError({
-            message: "Failed to get Discord user auth token for sheet-workflows request",
-          });
-        }
+          return {
+            token: undefined,
+            timeToLive: Duration.minutes(1),
+            failed: true,
+          };
+        }),
+      missingToken: Effect.fail(
+        new SheetBotServicesSheetWorkflowsError({
+          message: "Failed to get auth token for sheet-workflows request",
+        }),
+      ),
+      tokenEntry: (tokenCache) =>
+        Effect.gen(function* () {
+          const { requester } = yield* Effect.serviceOption(sheetWorkflowsRequestContextTag).pipe(
+            Effect.map(
+              Option.getOrElse(
+                (): SheetWorkflowsRequestContextType => ({
+                  requester: SheetWorkflowsRequester.Service(),
+                }),
+              ),
+            ),
+          );
+          const cacheKey = Match.value(requester).pipe(
+            Match.tagsExhaustive({
+              Service: () => DISCORD_SERVICE_USER_ID_SENTINEL,
+              DiscordUser: (requester) => requester.discordUserId,
+            }),
+          );
+          const entry = yield* Cache.get(tokenCache, cacheKey);
 
-        return token ? HttpClientRequest.bearerToken(request, Redacted.value(token)) : request;
-      }),
-    ) as unknown as HttpClient.HttpClient;
+          const requesterTokenFailed = Match.value(requester).pipe(
+            Match.tagsExhaustive({
+              Service: () => entry.failed,
+              DiscordUser: () => entry.token === undefined || entry.failed,
+            }),
+          );
+
+          return { ...entry, failed: requesterTokenFailed };
+        }),
+    });
 
     const client = yield* HttpApiClient.makeWith(SheetWorkflowsApi, {
       httpClient: httpClientWithToken,

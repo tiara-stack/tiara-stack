@@ -264,7 +264,7 @@
         "primaryKey": ["workspaceId", "announcementId"],
         "indexes": [
           {
-            "name": "sheet_db_config_workspace_update_announcement_delivery_announcement_id_idx",
+            "name": "sheet_db_config_workspace_update_ann_delivery_announcement_idx",
             "unique": false,
             "fields": ["announcementId"]
           }
@@ -1322,7 +1322,7 @@
         "primaryKey": ["workspaceId", "announcementId"],
         "indexes": [
           {
-            "name": "sheet_db_config_workspace_update_announcement_delivery_announcement_id_idx",
+            "name": "sheet_db_config_workspace_update_ann_delivery_announcement_idx",
             "unique": false,
             "fields": ["announcementId"]
           }

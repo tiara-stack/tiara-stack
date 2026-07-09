@@ -92,6 +92,18 @@ export class WorkspaceConfigService extends Context.Service<WorkspaceConfigServi
             });
           },
         ),
+        getTeamSubmissionChannelByConversationId: Effect.fn(
+          "WorkspaceConfigService.getTeamSubmissionChannelByConversationId",
+        )(function* (params: { workspaceId: string; conversationId: string }) {
+          return yield* zero.workspaceConfig.getTeamSubmissionChannelByConversationId(params);
+        }),
+        getTeamSubmissionChannelsForWorkspace: Effect.fn(
+          "WorkspaceConfigService.getTeamSubmissionChannelsForWorkspace",
+        )(function* (workspaceId: string) {
+          return yield* zero.workspaceConfig.getTeamSubmissionChannelsForWorkspace({
+            workspaceId,
+          });
+        }),
         addWorkspaceMonitorRole: Effect.fn("WorkspaceConfigService.addWorkspaceMonitorRole")(
           function* (workspaceId: string, roleId: string) {
             yield* zero.workspaceConfig.addWorkspaceMonitorRole({ workspaceId, roleId });
@@ -271,6 +283,56 @@ export class WorkspaceConfigService extends Context.Service<WorkspaceConfigServi
           }
 
           return conversation.value;
+        }),
+        upsertTeamSubmissionChannel: Effect.fn(
+          "WorkspaceConfigService.upsertTeamSubmissionChannel",
+        )(function* (
+          workspaceId: string,
+          conversationId: string,
+          config: {
+            destinationTeamConfigName?: string | null | undefined;
+            writeMode?: "upsert" | undefined;
+            removedRowStrategy?: "blank" | undefined;
+            requireValidOshi?: boolean | undefined;
+          },
+        ) {
+          yield* zero.workspaceConfig.upsertTeamSubmissionChannel({
+            workspaceId,
+            conversationId,
+            destinationTeamConfigName: config.destinationTeamConfigName,
+            writeMode: config.writeMode ?? "upsert",
+            removedRowStrategy: config.removedRowStrategy ?? "blank",
+            requireValidOshi: config.requireValidOshi,
+          });
+          const channel = yield* zero.workspaceConfig.getTeamSubmissionChannelByConversationId({
+            workspaceId,
+            conversationId,
+          });
+
+          if (Option.isNone(channel)) {
+            return yield* Effect.die(makeDBQueryError("Failed to upsert team submission channel"));
+          }
+
+          return channel.value;
+        }),
+        removeTeamSubmissionChannel: Effect.fn(
+          "WorkspaceConfigService.removeTeamSubmissionChannel",
+        )(function* (workspaceId: string, conversationId: string) {
+          const channel = yield* zero.workspaceConfig.getTeamSubmissionChannelByConversationId({
+            workspaceId,
+            conversationId,
+          });
+
+          if (Option.isNone(channel)) {
+            return yield* Effect.fail(
+              makeArgumentError(
+                `Team submission channel ${conversationId} is not configured for workspace ${workspaceId}`,
+              ),
+            );
+          }
+
+          yield* zero.workspaceConfig.removeTeamSubmissionChannel({ workspaceId, conversationId });
+          return channel.value;
         }),
         getWorkspaceConversationById: Effect.fn(
           "WorkspaceConfigService.getWorkspaceConversationById",

@@ -20,7 +20,7 @@ import {
 import { discordHttpApiHandlersLayer, handleBotRestError } from "dfx-discord-utils/discord/http";
 import { Effect, FileSystem, Layer, Predicate, Schema } from "effect";
 import { createServer } from "http";
-import { ClientDeliveryApi } from "sheet-ingress-api/handlers/clientDelivery/api";
+import { ClientDeliveryApi, DeliveryEmoji } from "sheet-ingress-api/handlers/clientDelivery/api";
 import type {
   ClientRef,
   ConversationRef,
@@ -55,6 +55,12 @@ const disabledMentions = () => ({ parse: [] });
 
 const withoutMessageMentions = <A extends object>(payload: A): A => ({
   ...payload,
+  allowed_mentions: disabledMentions(),
+});
+
+const directMessagePayload = <A extends { readonly message_reference?: unknown }>(payload: A) => ({
+  ...payload,
+  message_reference: undefined,
   allowed_mentions: disabledMentions(),
 });
 
@@ -202,6 +208,9 @@ const clientDeliveryHandlersLayer = HttpApiBuilder.group(
               makeArgumentError(`Unknown Discord client ${client.platform}:${client.clientId}`),
             );
 
+      const reactionRouteEmoji = (emoji: typeof DeliveryEmoji.Type) =>
+        encodeURIComponent(emoji.id ? `${emoji.name}:${emoji.id}` : emoji.name);
+
       return handlers
         .handle("sendMessage", ({ payload }) =>
           Effect.gen(function* () {
@@ -228,7 +237,7 @@ const clientDeliveryHandlersLayer = HttpApiBuilder.group(
             const message = yield* handleBotRestError(
               rest.createMessage(
                 dmChannel.id,
-                withoutMessageMentions(
+                directMessagePayload(
                   toDiscordMessagePayload(payload.message),
                 ) as Discord.MessageCreateRequest,
               ),
@@ -296,6 +305,32 @@ const clientDeliveryHandlersLayer = HttpApiBuilder.group(
               ),
               `Failed to delete message ${payload.messageRef.messageId}`,
             ).pipe(mapClientDeliveryAdapterError("Failed to delete client message"));
+          }),
+        )
+        .handle("addMessageReaction", ({ payload }) =>
+          Effect.gen(function* () {
+            yield* requireThisClient(payload.messageRef.conversation.workspace.client);
+            yield* handleBotRestError(
+              rest.addMyMessageReaction(
+                payload.messageRef.conversation.conversationId,
+                payload.messageRef.messageId,
+                reactionRouteEmoji(payload.emoji),
+              ),
+              `Failed to add reaction to message ${payload.messageRef.messageId}`,
+            ).pipe(mapClientDeliveryAdapterError("Failed to add client message reaction"));
+          }),
+        )
+        .handle("removeMessageReaction", ({ payload }) =>
+          Effect.gen(function* () {
+            yield* requireThisClient(payload.messageRef.conversation.workspace.client);
+            yield* handleBotRestError(
+              rest.deleteMyMessageReaction(
+                payload.messageRef.conversation.conversationId,
+                payload.messageRef.messageId,
+                reactionRouteEmoji(payload.emoji),
+              ),
+              `Failed to remove reaction from message ${payload.messageRef.messageId}`,
+            ).pipe(mapClientDeliveryAdapterError("Failed to remove client message reaction"));
           }),
         )
         .handle("getWorkspace", ({ params }) =>

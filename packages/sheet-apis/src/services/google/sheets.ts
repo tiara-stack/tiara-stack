@@ -400,6 +400,10 @@ interface GoogleSheetsService {
     params?: sheets_v4.Params$Resource$Spreadsheets$Values$Batchupdate,
     options?: MethodOptions,
   ) => GoogleSheetsResult<{ readonly data: sheets_v4.Schema$BatchUpdateValuesResponse }>;
+  readonly append: (
+    params?: sheets_v4.Params$Resource$Spreadsheets$Values$Append,
+    options?: MethodOptions,
+  ) => GoogleSheetsResult<{ readonly data: sheets_v4.Schema$AppendValuesResponse }>;
   readonly getSheetGids: (
     sheetId: string,
   ) => GoogleSheetsResult<HashMap.HashMap<string | null | undefined, Option.Option<number>>>;
@@ -582,6 +586,14 @@ export class GoogleSheets extends Context.Service<GoogleSheets, GoogleSheetsServ
             try: () => googleSheets.spreadsheets.values.batchUpdate(params, options),
             catch: googleSheetsErrorFromUnknown,
           }).pipe(Effect.withSpan("GoogleSheets.update")),
+        append: (
+          params?: sheets_v4.Params$Resource$Spreadsheets$Values$Append,
+          options?: MethodOptions,
+        ) =>
+          Effect.tryPromise({
+            try: () => googleSheets.spreadsheets.values.append(params, options),
+            catch: googleSheetsErrorFromUnknown,
+          }).pipe(Effect.withSpan("GoogleSheets.append")),
         getSheetGids: (sheetId: string) =>
           Effect.tryPromise({
             try: () => googleSheets.spreadsheets.get({ spreadsheetId: sheetId }),

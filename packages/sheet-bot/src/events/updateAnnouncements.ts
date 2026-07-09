@@ -47,6 +47,14 @@ export const updateAnnouncements = [
       "Hi! Tiara has an update to sign-in and service access. You can keep signing in with Discord like before, and developers can now create and manage OAuth clients from the dashboard for their own Sheet integrations. The dashboard and bot also use the same OAuth-based access behind the scenes now, which should make access more reliable and easier to build on. If anything feels off, signing out and back in should refresh your access.",
     color: 0x57f287,
   },
+  {
+    id: "team-submission-confirmations-2026-07-08",
+    publishedAt: "2026-07-08T00:00:00.000Z",
+    title: "Team submission confirmations",
+    description:
+      "Team submission channels can now show an in-channel confirmation flow while teams are added to the sheet. This is opt-in: a server admin must enable the team-submission-confirmations workspace feature flag before Tiara uses the new reaction, progress embed, and confirm/reject buttons.",
+    color: 0x57f287,
+  },
 ] as const satisfies ReadonlyArray<UpdateAnnouncement>;
 
 export const makeUpdateAnnouncementDispatchPayloads = (

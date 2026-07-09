@@ -110,7 +110,7 @@ export function theeCalc(calcSheet: GoogleAppsScript.Spreadsheet.Sheet) {
           Effect.Do,
           Effect.bind("url", () =>
             pipe(
-              settingSheet.getRange("AJ8").getValue(),
+              settingSheet.getRange("AK8").getValue(),
               Schema.decodeUnknownEffect(Schema.String),
             ),
           ),
@@ -473,7 +473,7 @@ export function tzLongStamps({
       ),
       Effect.bind("start", ({ settingSheet }) =>
         pipe(
-          settingSheet.getRange("O8").getValue(),
+          settingSheet.getRange("P8").getValue(),
           Schema.decodeUnknownEffect(
             pipe(
               Schema.Number,
@@ -491,7 +491,7 @@ export function tzLongStamps({
       ),
       Effect.bind("tzsLookup", ({ settingSheet }) =>
         pipe(
-          settingSheet.getRange("AK8:AL").getValues(),
+          settingSheet.getRange("AL8:AM").getValues(),
           Schema.decodeUnknownEffect(Schema.Array(Schema.Tuple([Schema.String, Schema.String]))),
           Effect.map(HashMap.fromIterable),
         ),

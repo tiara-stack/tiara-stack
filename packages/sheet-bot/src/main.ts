@@ -13,11 +13,13 @@ import { slotCommandLayer } from "./commands/slot";
 import { statusCommandLayer } from "./commands/status";
 import { teamCommandLayer } from "./commands/team";
 import { guildWelcomeEventLayer } from "./events/guildWelcome";
+import { teamSubmissionMonitorEventLayer } from "./events/teamSubmissionMonitor";
 import { updateAnnouncementsEventLayer } from "./events/updateAnnouncements";
 import { httpLayer } from "./http";
 import { checkinButtonLayer } from "./messageComponents/buttons/checkin";
 import { roomOrderButtonLayer } from "./messageComponents/buttons/roomOrder";
 import { slotButtonLayer } from "./messageComponents/buttons/slot";
+import { teamSubmissionButtonLayer } from "./messageComponents/buttons/teamSubmission";
 import { MetricsLive } from "./metrics";
 import { TracesLive } from "./traces";
 
@@ -34,10 +36,12 @@ const botLayer = Layer.mergeAll(
   statusCommandLayer,
   teamCommandLayer,
   guildWelcomeEventLayer,
+  teamSubmissionMonitorEventLayer,
   updateAnnouncementsEventLayer,
   checkinButtonLayer,
   roomOrderButtonLayer,
   slotButtonLayer,
+  teamSubmissionButtonLayer,
 );
 
 const configProviderLayer = dotEnvConfigProviderLayer().pipe(Layer.provide(NodeFileSystem.layer));

@@ -8,8 +8,11 @@ import {
   WorkspaceConfig,
   WorkspaceFeatureFlag,
   WorkspaceMonitorRole,
+  WorkspaceTeamSubmissionChannel,
   WorkspaceUpdateAnnouncementDelivery,
   WorkspaceUpdateAnnouncementDeliveryClaimResult,
+  TeamSubmissionRemovedRowStrategy,
+  TeamSubmissionWriteMode,
 } from "../../schemas/workspaceConfig";
 import { SheetAuthTokenAuthorization } from "../../middlewares/sheetAuthTokenAuthorization/tag";
 import { SheetApisServiceUserFallback } from "../../middlewares/sheetApisServiceUserFallback/tag";
@@ -90,6 +93,33 @@ export class WorkspaceConfigApi extends HttpApiGroup.make("workspaceConfig")
       success: Schema.Array(WorkspaceConversationConfig),
       error: [SchemaError, QueryResultError],
     }),
+  )
+  .add(
+    HttpApiEndpoint.get(
+      "getTeamSubmissionChannelByConversationId",
+      "/workspaceConfig/getTeamSubmissionChannelByConversationId",
+      {
+        query: Schema.Struct({
+          workspaceId: Schema.String,
+          conversationId: Schema.String,
+        }),
+        success: WorkspaceTeamSubmissionChannel,
+        error: [SchemaError, QueryResultError, ArgumentError],
+      },
+    ),
+  )
+  .add(
+    HttpApiEndpoint.get(
+      "getTeamSubmissionChannelsForWorkspace",
+      "/workspaceConfig/getTeamSubmissionChannelsForWorkspace",
+      {
+        query: Schema.Struct({
+          workspaceId: Schema.String,
+        }),
+        success: Schema.Array(WorkspaceTeamSubmissionChannel),
+        error: [SchemaError, QueryResultError],
+      },
+    ),
   )
   .add(
     HttpApiEndpoint.get(
@@ -219,6 +249,40 @@ export class WorkspaceConfigApi extends HttpApiGroup.make("workspaceConfig")
         }),
         success: WorkspaceConversationConfig,
         error: [SchemaError, QueryResultError, MutatorResultError],
+      },
+    ),
+  )
+  .add(
+    HttpApiEndpoint.post(
+      "upsertTeamSubmissionChannel",
+      "/workspaceConfig/upsertTeamSubmissionChannel",
+      {
+        payload: Schema.Struct({
+          workspaceId: Schema.String,
+          conversationId: Schema.String,
+          config: Schema.Struct({
+            destinationTeamConfigName: Schema.optional(Schema.NullOr(Schema.String)),
+            writeMode: Schema.optional(TeamSubmissionWriteMode),
+            removedRowStrategy: Schema.optional(TeamSubmissionRemovedRowStrategy),
+            requireValidOshi: Schema.optional(Schema.Boolean),
+          }),
+        }),
+        success: WorkspaceTeamSubmissionChannel,
+        error: [SchemaError, QueryResultError, MutatorResultError],
+      },
+    ),
+  )
+  .add(
+    HttpApiEndpoint.post(
+      "removeTeamSubmissionChannel",
+      "/workspaceConfig/removeTeamSubmissionChannel",
+      {
+        payload: Schema.Struct({
+          workspaceId: Schema.String,
+          conversationId: Schema.String,
+        }),
+        success: WorkspaceTeamSubmissionChannel,
+        error: [SchemaError, QueryResultError, MutatorResultError, ArgumentError],
       },
     ),
   )

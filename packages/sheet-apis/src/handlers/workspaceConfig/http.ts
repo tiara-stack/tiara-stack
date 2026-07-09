@@ -83,6 +83,33 @@ export const workspaceConfigLayer = sheetApisGroupLayer(
           ...optionalRunningFilter(query.running),
         });
       }),
+      "workspaceConfig.getTeamSubmissionChannelByConversationId": Effect.fnUntraced(function* ({
+        query,
+      }) {
+        yield* authorizationService.requireService();
+        const config = yield* workspaceConfigService.getTeamSubmissionChannelByConversationId({
+          workspaceId: query.workspaceId,
+          conversationId: query.conversationId,
+        });
+
+        if (Option.isNone(config)) {
+          return yield* Effect.fail(
+            makeArgumentError(
+              "Cannot get team submission channel, the workspace or conversation might not be registered",
+            ),
+          );
+        }
+
+        return config.value;
+      }),
+      "workspaceConfig.getTeamSubmissionChannelsForWorkspace": Effect.fnUntraced(function* ({
+        query,
+      }) {
+        yield* authorizationService.requireService();
+        return yield* workspaceConfigService.getTeamSubmissionChannelsForWorkspace(
+          query.workspaceId,
+        );
+      }),
       "workspaceConfig.addWorkspaceMonitorRole": withPayloadWorkspaceAuth(
         Effect.fnUntraced(function* ({ payload }) {
           yield* authorizationService.requireManageWorkspace(payload.workspaceId);
@@ -142,6 +169,25 @@ export const workspaceConfigLayer = sheetApisGroupLayer(
             payload.workspaceId,
             payload.conversationId,
             payload.config,
+          );
+        }),
+      ),
+      "workspaceConfig.upsertTeamSubmissionChannel": withPayloadWorkspaceAuth(
+        Effect.fnUntraced(function* ({ payload }) {
+          yield* authorizationService.requireManageWorkspace(payload.workspaceId);
+          return yield* workspaceConfigService.upsertTeamSubmissionChannel(
+            payload.workspaceId,
+            payload.conversationId,
+            payload.config,
+          );
+        }),
+      ),
+      "workspaceConfig.removeTeamSubmissionChannel": withPayloadWorkspaceAuth(
+        Effect.fnUntraced(function* ({ payload }) {
+          yield* authorizationService.requireManageWorkspace(payload.workspaceId);
+          return yield* workspaceConfigService.removeTeamSubmissionChannel(
+            payload.workspaceId,
+            payload.conversationId,
           );
         }),
       ),

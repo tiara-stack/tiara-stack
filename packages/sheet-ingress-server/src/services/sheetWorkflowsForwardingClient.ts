@@ -203,6 +203,25 @@ export class SheetWorkflowsForwardingClient extends Context.Service<SheetWorkflo
               payload: args,
             }),
           ),
+          teamSubmission: accept(DispatchWorkflowOperations.teamSubmission, (args) =>
+            httpClient.dispatchWorkflows[DispatchWorkflowOperations.teamSubmission.rpcTag]({
+              payload: args,
+            }),
+          ),
+          teamSubmissionConfirmButton: accept(
+            DispatchWorkflowOperations.teamSubmissionConfirmButton,
+            (args) =>
+              httpClient.dispatchWorkflows[
+                DispatchWorkflowOperations.teamSubmissionConfirmButton.rpcTag
+              ]({ payload: args }),
+          ),
+          teamSubmissionRejectButton: accept(
+            DispatchWorkflowOperations.teamSubmissionRejectButton,
+            (args) =>
+              httpClient.dispatchWorkflows[
+                DispatchWorkflowOperations.teamSubmissionRejectButton.rpcTag
+              ]({ payload: args }),
+          ),
           scheduleList: accept(DispatchWorkflowOperations.scheduleList, (args) =>
             httpClient.dispatchWorkflows[DispatchWorkflowOperations.scheduleList.rpcTag]({
               payload: args,

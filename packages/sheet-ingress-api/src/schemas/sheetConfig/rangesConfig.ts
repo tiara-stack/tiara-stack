@@ -6,4 +6,5 @@ export class RangesConfig extends Schema.TaggedClass<RangesConfig>()("RangesConf
   userNotes: Schema.OptionFromNullOr(Schema.String),
   monitorIds: Schema.OptionFromNullOr(Schema.String),
   monitorNames: Schema.OptionFromNullOr(Schema.String),
+  oshis: Schema.OptionFromNullOr(Schema.String),
 }) {}

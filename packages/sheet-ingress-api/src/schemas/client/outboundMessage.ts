@@ -170,8 +170,16 @@ export const SheetOutboundMessage = Schema.Struct({
   embeds: Schema.optional(Schema.Array(SheetMessageEmbed)),
   components: Schema.optional(Schema.Array(SheetMessageComponent)),
   files: Schema.optional(Schema.Array(SheetOutboundFile)),
+  messageReference: Schema.optional(
+    Schema.Struct({
+      message: MessageRef,
+      failIfNotExists: Schema.optional(Schema.Boolean),
+    }),
+  ),
   visibility: Schema.optional(Schema.Literals(["public", "ephemeral"])),
   allowedMentions: Schema.optional(Schema.Literals(["none", "default"])),
+  nonce: Schema.optional(Schema.NullOr(Schema.Union([Schema.Number, Schema.String]))),
+  enforceNonce: Schema.optional(Schema.NullOr(Schema.Boolean)),
 });
 
 export type SheetOutboundMessage = Schema.Schema.Type<typeof SheetOutboundMessage>;

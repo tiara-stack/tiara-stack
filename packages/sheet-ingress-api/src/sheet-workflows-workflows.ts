@@ -20,6 +20,7 @@ import {
   ConversationUnsetDispatchResult,
   DispatchAcceptedResult,
   DispatchRoomOrderButtonMethods,
+  DispatchTeamSubmissionButtonMethods,
   WorkspaceWelcomeDispatchError,
   WorkspaceWelcomeDispatchPayload,
   WorkspaceWelcomeDispatchResult,
@@ -71,6 +72,14 @@ import {
   SlotOpenButtonResult,
   TeamListDispatchPayload,
   TeamListDispatchResult,
+  TeamSubmissionDispatchError,
+  TeamSubmissionButtonDispatchError,
+  TeamSubmissionConfirmButtonDispatchPayload,
+  TeamSubmissionConfirmButtonDispatchResult,
+  TeamSubmissionDispatchPayload,
+  TeamSubmissionDispatchResult,
+  TeamSubmissionRejectButtonDispatchPayload,
+  TeamSubmissionRejectButtonDispatchResult,
   UpdateAnnouncementDispatchError,
   UpdateAnnouncementDispatchPayload,
   UpdateAnnouncementDispatchResult,
@@ -164,6 +173,9 @@ const workflowName = {
   workspaceSetSheet: "dispatch.workspaceSetSheet",
   workspaceSetAutoCheckin: "dispatch.workspaceSetAutoCheckin",
   teamList: "dispatch.teamList",
+  teamSubmission: "dispatch.teamSubmission",
+  teamSubmissionConfirmButton: "dispatch.teamSubmission.confirmButton",
+  teamSubmissionRejectButton: "dispatch.teamSubmission.rejectButton",
   scheduleList: "dispatch.scheduleList",
   screenshot: "dispatch.screenshot",
 } as const;
@@ -442,6 +454,31 @@ export const DispatchScreenshotWorkflow = Workflow.make({
   idempotencyKey: ({ payload }) => dispatchRequestIdempotencyKey(payload),
 });
 
+export const DispatchTeamSubmissionWorkflow = Workflow.make({
+  name: workflowName.teamSubmission,
+  payload: dispatchPayload(TeamSubmissionDispatchPayload),
+  success: TeamSubmissionDispatchResult,
+  error: TeamSubmissionDispatchError,
+  idempotencyKey: ({ payload }) =>
+    `${clientKey(payload)}:team-submission:${payload.workspaceId}:${payload.conversationId}:${payload.messageId}:${payload.dispatchRequestId}`,
+});
+
+export const DispatchTeamSubmissionConfirmButtonWorkflow = Workflow.make({
+  name: workflowName.teamSubmissionConfirmButton,
+  payload: dispatchPayload(TeamSubmissionConfirmButtonDispatchPayload),
+  success: TeamSubmissionConfirmButtonDispatchResult,
+  error: TeamSubmissionButtonDispatchError,
+  idempotencyKey: ({ payload }) => buttonIdempotencyKey("teamSubmissionConfirmButton", payload),
+});
+
+export const DispatchTeamSubmissionRejectButtonWorkflow = Workflow.make({
+  name: workflowName.teamSubmissionRejectButton,
+  payload: dispatchPayload(TeamSubmissionRejectButtonDispatchPayload),
+  success: TeamSubmissionRejectButtonDispatchResult,
+  error: TeamSubmissionButtonDispatchError,
+  idempotencyKey: ({ payload }) => buttonIdempotencyKey("teamSubmissionRejectButton", payload),
+});
+
 export const DispatchWorkflows = [
   DispatchAutoCheckinTestWorkflow,
   DispatchCheckinWorkflow,
@@ -473,6 +510,9 @@ export const DispatchWorkflows = [
   DispatchWorkspaceSetSheetWorkflow,
   DispatchWorkspaceSetAutoCheckinWorkflow,
   DispatchTeamListWorkflow,
+  DispatchTeamSubmissionWorkflow,
+  DispatchTeamSubmissionConfirmButtonWorkflow,
+  DispatchTeamSubmissionRejectButtonWorkflow,
   DispatchScheduleListWorkflow,
   DispatchScreenshotWorkflow,
 ] as const;
@@ -730,6 +770,27 @@ export const DispatchWorkflowOperations = {
     workflow: DispatchTeamListWorkflow,
     rpcTag: DispatchTeamListWorkflow.name,
     discardRpcTag: `${DispatchTeamListWorkflow.name}Discard`,
+  },
+  teamSubmission: {
+    operation: "teamSubmission",
+    endpointName: "teamSubmission",
+    workflow: DispatchTeamSubmissionWorkflow,
+    rpcTag: DispatchTeamSubmissionWorkflow.name,
+    discardRpcTag: `${DispatchTeamSubmissionWorkflow.name}Discard`,
+  },
+  teamSubmissionConfirmButton: {
+    operation: "teamSubmissionConfirmButton",
+    endpointName: DispatchTeamSubmissionButtonMethods.confirm.endpointName,
+    workflow: DispatchTeamSubmissionConfirmButtonWorkflow,
+    rpcTag: DispatchTeamSubmissionConfirmButtonWorkflow.name,
+    discardRpcTag: `${DispatchTeamSubmissionConfirmButtonWorkflow.name}Discard`,
+  },
+  teamSubmissionRejectButton: {
+    operation: "teamSubmissionRejectButton",
+    endpointName: DispatchTeamSubmissionButtonMethods.reject.endpointName,
+    workflow: DispatchTeamSubmissionRejectButtonWorkflow,
+    rpcTag: DispatchTeamSubmissionRejectButtonWorkflow.name,
+    discardRpcTag: `${DispatchTeamSubmissionRejectButtonWorkflow.name}Discard`,
   },
   scheduleList: {
     operation: "scheduleList",

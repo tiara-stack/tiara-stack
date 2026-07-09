@@ -928,6 +928,18 @@ const makeApiLayer = () => {
           ),
         )
         .handle(
+          "teamSubmission",
+          authorizedSheetWorkflowsDispatch("teamSubmission", requireService),
+        )
+        .handle(
+          "teamSubmissionConfirmButton",
+          authorizedSheetWorkflowsDispatch("teamSubmissionConfirmButton", requireNonService),
+        )
+        .handle(
+          "teamSubmissionRejectButton",
+          authorizedSheetWorkflowsDispatch("teamSubmissionRejectButton", requireNonService),
+        )
+        .handle(
           "scheduleList",
           authorizedSheetWorkflowsDispatch("scheduleList", ({ payload }) =>
             requireSelfOrMonitorSnapshot(payload.workspaceId, payload.targetUserId),
@@ -1028,6 +1040,13 @@ const makeApiLayer = () => {
     HttpApiBuilder.group(Api, "status", (handlers) =>
       handlers.handle("getServices", statusGetServices),
     ),
+    HttpApiBuilder.group(Api, "teamSubmission", (handlers) =>
+      handlers
+        .handle("upsertFromDiscord", serviceOnly("teamSubmission", "upsertFromDiscord"))
+        .handle("setConfirmationMessage", serviceOnly("teamSubmission", "setConfirmationMessage"))
+        .handle("revertFromDiscord", serviceOnly("teamSubmission", "revertFromDiscord"))
+        .handle("confirmFromDiscord", serviceOnly("teamSubmission", "confirmFromDiscord")),
+    ),
     HttpApiBuilder.group(Api, "workspaceConfig", (handlers) =>
       handlers
         .handle(
@@ -1083,6 +1102,19 @@ const makeApiLayer = () => {
           ),
         )
         .handle(
+          "getTeamSubmissionChannelByConversationId",
+          serviceOnly("workspaceConfig", "getTeamSubmissionChannelByConversationId"),
+        )
+        .handle(
+          "getTeamSubmissionChannelsForWorkspace",
+          guildQuery(
+            "workspaceConfig",
+            "getTeamSubmissionChannelsForWorkspace",
+            "manage",
+            (query) => query.workspaceId,
+          ),
+        )
+        .handle(
           "addWorkspaceMonitorRole",
           guildPayload(
             "workspaceConfig",
@@ -1125,6 +1157,24 @@ const makeApiLayer = () => {
           guildPayload(
             "workspaceConfig",
             "upsertWorkspaceConversationConfig",
+            "manage",
+            (payload) => payload.workspaceId,
+          ),
+        )
+        .handle(
+          "upsertTeamSubmissionChannel",
+          guildPayload(
+            "workspaceConfig",
+            "upsertTeamSubmissionChannel",
+            "manage",
+            (payload) => payload.workspaceId,
+          ),
+        )
+        .handle(
+          "removeTeamSubmissionChannel",
+          guildPayload(
+            "workspaceConfig",
+            "removeTeamSubmissionChannel",
             "manage",
             (payload) => payload.workspaceId,
           ),
@@ -1517,6 +1567,18 @@ const makeApiLayer = () => {
           Effect.gen(function* () {
             const client = yield* ClientDeliveryForwardingClient;
             return yield* client.deleteMessage(payload.messageRef);
+          }),
+        )
+        .handle("addMessageReaction", ({ payload }) =>
+          Effect.gen(function* () {
+            const client = yield* ClientDeliveryForwardingClient;
+            return yield* client.addMessageReaction(payload.messageRef, payload.emoji);
+          }),
+        )
+        .handle("removeMessageReaction", ({ payload }) =>
+          Effect.gen(function* () {
+            const client = yield* ClientDeliveryForwardingClient;
+            return yield* client.removeMessageReaction(payload.messageRef, payload.emoji);
           }),
         )
         .handle("listClients", () =>

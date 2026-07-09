@@ -39,4 +39,5 @@ export class TeamConfig extends Schema.TaggedClass<TeamConfig>()("TeamConfig", {
   tagsConfig: Schema.OptionFromNullOr(
     Schema.Union([TeamTagsConstantsConfig, TeamTagsRangesConfig]),
   ),
+  oshiRange: Schema.OptionFromNullOr(Schema.String),
 }) {}

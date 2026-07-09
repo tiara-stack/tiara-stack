@@ -173,6 +173,16 @@ export const toDiscordMessagePayload = (message: SheetOutboundMessage) =>
     components: message.components?.map(renderComponent),
     flags: message.visibility === "ephemeral" ? 64 : undefined,
     allowed_mentions: message.allowedMentions === "none" ? { parse: [] } : undefined,
+    message_reference: message.messageReference
+      ? {
+          message_id: message.messageReference.message.messageId,
+          channel_id: message.messageReference.message.conversation.conversationId,
+          guild_id: message.messageReference.message.conversation.workspace.workspaceId,
+          fail_if_not_exists: message.messageReference.failIfNotExists,
+        }
+      : undefined,
+    nonce: message.nonce ?? undefined,
+    enforce_nonce: message.enforceNonce ?? undefined,
   }) as Discord.MessageCreateRequest &
     Discord.MessageEditRequestPartial &
     Discord.IncomingWebhookUpdateRequestPartial;

@@ -135,6 +135,8 @@ const defaultHandlers = (
       ...roomOrderButtonResult,
       status: "pinned" as const,
     }),
+  teamSubmissionConfirmButton: () => Effect.succeed({ status: "confirmed" as const }),
+  teamSubmissionRejectButton: () => Effect.succeed({ status: "rejected" as const }),
   ...overrides,
 });
 
@@ -151,6 +153,8 @@ const makeDispatchServiceMock = (
     roomOrderNextButton: () => Effect.die("Unexpected roomOrderNextButton call"),
     roomOrderSendButton: () => Effect.die("Unexpected roomOrderSendButton call"),
     roomOrderPinTentativeButton: () => Effect.die("Unexpected roomOrderPinTentativeButton call"),
+    teamSubmissionConfirmButton: () => Effect.die("Unexpected teamSubmissionConfirmButton call"),
+    teamSubmissionRejectButton: () => Effect.die("Unexpected teamSubmissionRejectButton call"),
     ...overrides,
   }) as typeof DispatchService.Service;
 

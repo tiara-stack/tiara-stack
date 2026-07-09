@@ -1,13 +1,18 @@
 import { Context, Effect, Layer, Option, Schema } from "effect";
+import { TeamSubmissionStatus } from "sheet-db-schema";
 import { makeSheetZeroApi, mutators } from "sheet-db-schema/zero";
 import { ZeroApiClient } from "typhoon-zero/zeroApi";
 import { DefaultTaggedClass } from "typhoon-core/schema";
+import { ClientPlatform } from "sheet-ingress-api/schemas/client";
 import {
   WorkspaceConversationConfig,
   WorkspaceConfig,
   WorkspaceFeatureFlag,
   WorkspaceMonitorRole,
+  WorkspaceTeamSubmissionChannel,
   WorkspaceUpdateAnnouncementDelivery,
+  TeamSubmissionRemovedRowStrategy,
+  TeamSubmissionWriteMode,
 } from "sheet-ingress-api/schemas/workspaceConfig";
 import { UserPlatformConfig } from "sheet-ingress-api/schemas/userConfig";
 import { MessageCheckin, MessageCheckinMember } from "sheet-ingress-api/schemas/messageCheckin";
@@ -16,6 +21,12 @@ import {
   MessageRoomOrderEntry,
 } from "sheet-ingress-api/schemas/messageRoomOrder";
 import { MessageSlot } from "sheet-ingress-api/schemas/messageSlot";
+import {
+  MessageTeamSubmission,
+  ParsedTeamEntry,
+  TeamSubmissionRollbackSnapshot,
+  TeamSubmissionRowMapping,
+} from "sheet-ingress-api/schemas/teamSubmission";
 import { ZeroClient } from "./zeroClient";
 import type { MessageKey } from "./messageKey";
 import type { SheetTextPart } from "sheet-ingress-api/schemas/client";
@@ -45,6 +56,12 @@ const successSchemas = {
     getWorkspaceConversationByName: Schema.OptionFromNullishOr(
       DefaultTaggedClass(WorkspaceConversationConfig),
     ),
+    getTeamSubmissionChannelByConversationId: Schema.OptionFromNullishOr(
+      DefaultTaggedClass(WorkspaceTeamSubmissionChannel),
+    ),
+    getTeamSubmissionChannelsForWorkspace: Schema.Array(
+      DefaultTaggedClass(WorkspaceTeamSubmissionChannel),
+    ),
   },
   messageCheckin: {
     getMessageCheckinData: Schema.OptionFromNullishOr(DefaultTaggedClass(MessageCheckin)),
@@ -57,6 +74,12 @@ const successSchemas = {
   },
   messageSlot: {
     getMessageSlotData: Schema.OptionFromNullishOr(DefaultTaggedClass(MessageSlot)),
+  },
+  messageTeamSubmission: {
+    getMessageTeamSubmission: Schema.OptionFromNullishOr(DefaultTaggedClass(MessageTeamSubmission)),
+    getMessageTeamSubmissionByDiscordMessage: Schema.OptionFromNullishOr(
+      DefaultTaggedClass(MessageTeamSubmission),
+    ),
   },
 } as const;
 
@@ -134,6 +157,13 @@ export interface SheetZeroClientApi {
       readonly conversationName: string;
       readonly running?: boolean | undefined;
     }) => QueryResult<Option.Option<WorkspaceConversationConfig>>;
+    readonly getTeamSubmissionChannelByConversationId: (args: {
+      readonly workspaceId: string;
+      readonly conversationId: string;
+    }) => QueryResult<Option.Option<WorkspaceTeamSubmissionChannel>>;
+    readonly getTeamSubmissionChannelsForWorkspace: (args: {
+      readonly workspaceId: string;
+    }) => QueryResult<WorkspaceTeamSubmissionChannel[]>;
     readonly upsertWorkspaceConfig: MutatorResult<{
       readonly workspaceId: string;
       readonly sheetId?: string | null | undefined;
@@ -181,6 +211,18 @@ export interface SheetZeroClientApi {
       readonly running?: boolean | null | undefined;
       readonly roleId?: string | null | undefined;
       readonly checkinConversationId?: string | null | undefined;
+    }>;
+    readonly upsertTeamSubmissionChannel: MutatorResult<{
+      readonly workspaceId: string;
+      readonly conversationId: string;
+      readonly destinationTeamConfigName?: string | null | undefined;
+      readonly writeMode: Schema.Schema.Type<typeof TeamSubmissionWriteMode>;
+      readonly removedRowStrategy: Schema.Schema.Type<typeof TeamSubmissionRemovedRowStrategy>;
+      readonly requireValidOshi?: boolean | undefined;
+    }>;
+    readonly removeTeamSubmissionChannel: MutatorResult<{
+      readonly workspaceId: string;
+      readonly conversationId: string;
     }>;
   };
   readonly messageCheckin: {
@@ -376,6 +418,40 @@ export interface SheetZeroClientApi {
       readonly workspaceId: string | null;
       readonly conversationId: string | null;
       readonly createdByUserId: string | null;
+    }>;
+  };
+  readonly messageTeamSubmission: {
+    readonly getMessageTeamSubmission: (args: {
+      readonly workspaceId: string;
+      readonly conversationId: string;
+      readonly messageId: string;
+    }) => QueryResult<Option.Option<MessageTeamSubmission>>;
+    readonly getMessageTeamSubmissionByDiscordMessage: (args: {
+      readonly discordGuildId: string;
+      readonly discordChannelId: string;
+      readonly messageId: string;
+    }) => QueryResult<Option.Option<MessageTeamSubmission>>;
+    readonly upsertMessageTeamSubmission: MutatorResult<{
+      readonly workspaceId: string;
+      readonly conversationId: string;
+      readonly messageId: string;
+      readonly clientPlatform: Schema.Schema.Type<typeof ClientPlatform>;
+      readonly clientId: string;
+      readonly discordGuildId: string;
+      readonly discordChannelId: string;
+      readonly discordAuthorId: string;
+      readonly sheetId: string;
+      readonly confirmationMessageId?: string | null | undefined;
+      readonly parsedSubmission: ReadonlyArray<ParsedTeamEntry>;
+      readonly rowMappings: ReadonlyArray<TeamSubmissionRowMapping>;
+      readonly rollbackSnapshot?: TeamSubmissionRollbackSnapshot | null;
+      readonly status: Schema.Schema.Type<typeof TeamSubmissionStatus>;
+    }>;
+    readonly setMessageTeamSubmissionConfirmation: MutatorResult<{
+      readonly workspaceId: string;
+      readonly conversationId: string;
+      readonly messageId: string;
+      readonly confirmationMessageId: string;
     }>;
   };
 }

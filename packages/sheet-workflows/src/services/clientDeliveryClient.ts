@@ -35,6 +35,11 @@ type DeliveryMessage = {
   readonly conversation_id: string;
 };
 
+type DeliveryEmoji = {
+  readonly id?: string | undefined;
+  readonly name: string;
+};
+
 type LegacyConversationEntry = {
   readonly parentId: string;
   readonly resourceId: string;
@@ -97,6 +102,12 @@ type ClientDeliveryApiClient = {
     }) => Effect.Effect<void, unknown>;
     readonly deleteMessage: (args: {
       readonly payload: { readonly messageRef: MessageRef };
+    }) => Effect.Effect<void, unknown>;
+    readonly addMessageReaction: (args: {
+      readonly payload: { readonly messageRef: MessageRef; readonly emoji: DeliveryEmoji };
+    }) => Effect.Effect<void, unknown>;
+    readonly removeMessageReaction: (args: {
+      readonly payload: { readonly messageRef: MessageRef; readonly emoji: DeliveryEmoji };
     }) => Effect.Effect<void, unknown>;
     readonly getWorkspace: (args: {
       readonly params: {
@@ -350,6 +361,26 @@ export class ClientDeliveryClient extends Context.Service<ClientDeliveryClient>(
           const clientRef = boundClientRef ?? (yield* ClientDeliveryClientRef);
           return yield* apiClient.clientDelivery.deleteMessage({
             payload: { messageRef: messageRef(clientRef, conversationId, messageId) },
+          });
+        }),
+        addMessageReaction: Effect.fn("ClientDeliveryClient.addMessageReaction")(function* (
+          conversationId: string,
+          messageId: string,
+          emoji: DeliveryEmoji,
+        ) {
+          const clientRef = boundClientRef ?? (yield* ClientDeliveryClientRef);
+          return yield* apiClient.clientDelivery.addMessageReaction({
+            payload: { messageRef: messageRef(clientRef, conversationId, messageId), emoji },
+          });
+        }),
+        removeMessageReaction: Effect.fn("ClientDeliveryClient.removeMessageReaction")(function* (
+          conversationId: string,
+          messageId: string,
+          emoji: DeliveryEmoji,
+        ) {
+          const clientRef = boundClientRef ?? (yield* ClientDeliveryClientRef);
+          return yield* apiClient.clientDelivery.removeMessageReaction({
+            payload: { messageRef: messageRef(clientRef, conversationId, messageId), emoji },
           });
         }),
         addWorkspaceMemberRole: Effect.fn("ClientDeliveryClient.addWorkspaceMemberRole")(function* (

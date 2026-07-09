@@ -21,6 +21,8 @@ import type {
   ServiceStatusDispatchPayload,
   SlotButtonDispatchPayload,
   SlotOpenButtonPayload,
+  TeamSubmissionConfirmButtonDispatchPayload,
+  TeamSubmissionDispatchPayload,
   TeamListDispatchPayload,
   UpdateAnnouncementDispatchPayload,
 } from "sheet-ingress-api/handlers/dispatch/schema";
@@ -122,6 +124,29 @@ const updateAnnouncementPayload: UpdateAnnouncementDispatchPayload = {
     description: "Update announcement description",
     color: 0x5865f2,
   },
+};
+
+const teamSubmissionPayload: TeamSubmissionDispatchPayload = {
+  client: discordClient,
+  dispatchRequestId: "dispatch-team-submission",
+  workspaceId: "workspace-1",
+  conversationId: "conversation-1",
+  messageId: "source-message-1",
+  authorId: "discord-user-1",
+  authorDisplayName: "Alice",
+  content: "full fill: Cool Team",
+  editedAt: null,
+};
+
+const teamSubmissionButtonPayload: TeamSubmissionConfirmButtonDispatchPayload = {
+  client: discordClient,
+  dispatchRequestId: "dispatch-team-submission-button",
+  workspaceId: "workspace-1",
+  conversationId: "conversation-1",
+  messageId: "source-message-1",
+  confirmationMessageId: "confirmation-message-1",
+  interactionResponseToken: "interaction-token",
+  interactionResponseDeadlineEpochMs: 1_700_000_000_000,
 };
 
 const screenshotPayload: ScreenshotDispatchPayload = {
@@ -384,6 +409,126 @@ const makeInteractionUpdateBotClient = (updateCalls: Array<unknown>) =>
       return Effect.succeed({ id: "message-1", conversation_id: "conversation-1" });
     },
   }) as never;
+
+const makeTeamSubmissionUpsertResult = () => ({
+  sourceMessage: {
+    conversation: {
+      workspace: { client: discordClient, workspaceId: "workspace-1" },
+      conversationId: "conversation-1",
+    },
+    messageId: "source-message-1",
+  },
+  confirmationMessage: Option.none(),
+  parsedTeams: [
+    {
+      stableKey: "fullFill:1",
+      playerName: "Alice",
+      teamName: "Cool Team",
+      teamType: "fullFill" as const,
+      notes: [],
+      teamConfigName: "main",
+      oshi: { candidate: null, value: null, status: "none" as const },
+    },
+  ],
+  rowMappings: [
+    {
+      stableKey: "fullFill:1",
+      playerNameRange: "Teams!A2",
+      teamNameRange: "Teams!B2",
+      oshiRange: null,
+      rowIndex: 2,
+    },
+  ],
+  rollbackSnapshot: [
+    {
+      stableKey: "fullFill:1",
+      range: "Teams!A2:B2",
+      values: [["", ""]],
+    },
+  ],
+  skippedTeams: [],
+  confirmationText: "Registered teams from Alice",
+  status: "registered" as const,
+});
+
+const makeConfirmedTeamSubmissionResult = () => ({
+  ...makeTeamSubmissionUpsertResult(),
+  confirmationMessage: Option.some({
+    conversation: {
+      workspace: { client: discordClient, workspaceId: "workspace-1" },
+      conversationId: "conversation-1",
+    },
+    messageId: "confirmation-message-1",
+  }),
+});
+
+const makeTeamSubmissionDeliveryClient = (
+  calls: Array<unknown>,
+  options: {
+    readonly failAddMessageReaction?: boolean;
+    readonly failInteractionUpdate?: boolean;
+    readonly failUpdateMessage?: boolean;
+  } = {},
+) => {
+  const client = {
+    forClient: () => client,
+    sendMessage: (conversationId: string, payload: unknown) => {
+      calls.push({ method: "sendMessage", conversationId, payload: normalizePayloadText(payload) });
+      return Effect.succeed({ id: "confirmation-message-1", conversation_id: conversationId });
+    },
+    updateMessage: (conversationId: string, messageId: string, payload: unknown) => {
+      calls.push({
+        method: "updateMessage",
+        conversationId,
+        messageId,
+        payload: normalizePayloadText(payload),
+      });
+      if (options.failUpdateMessage) {
+        return Effect.fail(
+          new SheetWorkflowsServicesDispatchTestError({
+            message: "message update failed",
+          }),
+        );
+      }
+      return Effect.succeed({ id: messageId, conversation_id: conversationId });
+    },
+    deleteMessage: (conversationId: string, messageId: string) => {
+      calls.push({ method: "deleteMessage", conversationId, messageId });
+      return Effect.void;
+    },
+    addMessageReaction: (conversationId: string, messageId: string, emoji: unknown) => {
+      calls.push({ method: "addMessageReaction", conversationId, messageId, emoji });
+      if (options.failAddMessageReaction) {
+        return Effect.fail(
+          new SheetWorkflowsServicesDispatchTestError({
+            message: "reaction failed",
+          }),
+        );
+      }
+      return Effect.void;
+    },
+    removeMessageReaction: (conversationId: string, messageId: string, emoji: unknown) => {
+      calls.push({ method: "removeMessageReaction", conversationId, messageId, emoji });
+      return Effect.void;
+    },
+    updateOriginalInteractionResponse: (interactionResponseToken: string, payload: unknown) => {
+      calls.push({
+        method: "updateOriginalInteractionResponse",
+        interactionResponseToken,
+        payload: normalizePayloadText(payload),
+      });
+      if (options.failInteractionUpdate) {
+        return Effect.fail(
+          new SheetWorkflowsServicesDispatchTestError({
+            message: "interaction update failed",
+          }),
+        );
+      }
+      return Effect.succeed({ id: "interaction-message-1", conversation_id: "conversation-1" });
+    },
+  };
+  return client as never;
+};
 
 const makeKickoutPayload = (
   overrides: Partial<KickoutDispatchPayload> = {},
@@ -2388,6 +2533,567 @@ describe("DispatchService", () => {
           },
         ],
       });
+    }),
+  );
+
+  it.effect("uses the text confirmation path when team submission confirmations are disabled", () =>
+    Effect.gen(function* () {
+      const deliveryCalls: Array<unknown> = [];
+      const sheetApiCalls: Array<unknown> = [];
+      const sheetApisClient = makeSheetApisClient({
+        workspaceConfig: {
+          getWorkspaceFeatureFlags: () => Effect.succeed([]),
+        },
+        teamSubmission: {
+          upsertFromDiscord: (args: unknown) => {
+            sheetApiCalls.push(["upsertFromDiscord", args]);
+            return Effect.succeed(makeTeamSubmissionUpsertResult());
+          },
+          setConfirmationMessage: (args: unknown) => {
+            sheetApiCalls.push(["setConfirmationMessage", args]);
+            return Effect.succeed(makeConfirmedTeamSubmissionResult());
+          },
+        },
+      });
+
+      const result = yield* runWithDispatchService(
+        makeTeamSubmissionDeliveryClient(deliveryCalls),
+        sheetApisClient,
+        (service) => service.teamSubmission(teamSubmissionPayload),
+      );
+
+      expect(result.status).toBe("registered");
+      expect(sheetApiCalls).toEqual([
+        ["upsertFromDiscord", { payload: teamSubmissionPayload }],
+        [
+          "setConfirmationMessage",
+          {
+            payload: {
+              workspaceId: "workspace-1",
+              conversationId: "conversation-1",
+              messageId: "source-message-1",
+              confirmationMessageId: "confirmation-message-1",
+            },
+          },
+        ],
+      ]);
+      expect(deliveryCalls).toEqual([
+        {
+          method: "sendMessage",
+          conversationId: "conversation-1",
+          payload: {
+            content: "Registered teams from Alice",
+            allowedMentions: "none",
+            nonce: "source-message-1",
+            enforceNonce: true,
+          },
+        },
+      ]);
+    }),
+  );
+
+  it.effect(
+    "adds a reaction and edits the reply embed when team submission confirmations succeed",
+    () =>
+      Effect.gen(function* () {
+        const deliveryCalls: Array<unknown> = [];
+        const sheetApisClient = makeSheetApisClient({
+          workspaceConfig: {
+            getWorkspaceFeatureFlags: () =>
+              Effect.succeed([
+                makeWorkspaceFeatureFlag({ flagName: "team-submission-confirmations" }),
+              ]),
+          },
+          teamSubmission: {
+            upsertFromDiscord: () => Effect.succeed(makeTeamSubmissionUpsertResult()),
+            setConfirmationMessage: () => Effect.succeed(makeConfirmedTeamSubmissionResult()),
+          },
+        });
+
+        const result = yield* runWithDispatchService(
+          makeTeamSubmissionDeliveryClient(deliveryCalls),
+          sheetApisClient,
+          (service) => service.teamSubmission(teamSubmissionPayload),
+        );
+
+        expect(result.status).toBe("registered");
+        expect(deliveryCalls).toMatchObject([
+          {
+            method: "sendMessage",
+            conversationId: "conversation-1",
+            payload: {
+              embeds: [{ title: "Adding teams to the sheet", color: 0xfee75c }],
+              messageReference: {
+                failIfNotExists: false,
+              },
+            },
+          },
+          {
+            method: "addMessageReaction",
+            conversationId: "conversation-1",
+            messageId: "source-message-1",
+            emoji: { id: "907705464215711834", name: "Miku_Happy" },
+          },
+          {
+            method: "updateMessage",
+            conversationId: "conversation-1",
+            messageId: "confirmation-message-1",
+            payload: {
+              embeds: [
+                {
+                  title: "Teams added to the sheet",
+                  description: "• Alice - Cool Team (fullFill)",
+                  color: 0x57f287,
+                },
+              ],
+              allowedMentions: "none",
+            },
+          },
+        ]);
+      }),
+  );
+
+  it.effect("continues writing teams when adding the source reaction fails", () =>
+    Effect.gen(function* () {
+      const deliveryCalls: Array<unknown> = [];
+      const sheetApiCalls: Array<readonly [string, unknown]> = [];
+      const sheetApisClient = makeSheetApisClient({
+        workspaceConfig: {
+          getWorkspaceFeatureFlags: () =>
+            Effect.succeed([
+              makeWorkspaceFeatureFlag({ flagName: "team-submission-confirmations" }),
+            ]),
+        },
+        teamSubmission: {
+          upsertFromDiscord: (args: unknown) => {
+            sheetApiCalls.push(["upsertFromDiscord", args]);
+            return Effect.succeed(makeTeamSubmissionUpsertResult());
+          },
+          setConfirmationMessage: (args: unknown) => {
+            sheetApiCalls.push(["setConfirmationMessage", args]);
+            return Effect.succeed(makeConfirmedTeamSubmissionResult());
+          },
+        },
+      });
+
+      const result = yield* runWithDispatchService(
+        makeTeamSubmissionDeliveryClient(deliveryCalls, { failAddMessageReaction: true }),
+        sheetApisClient,
+        (service) => service.teamSubmission(teamSubmissionPayload),
+      );
+
+      expect(result.status).toBe("registered");
+      expect(sheetApiCalls.map(([method]) => method)).toEqual([
+        "upsertFromDiscord",
+        "setConfirmationMessage",
+      ]);
+      expect(deliveryCalls).toMatchObject([
+        { method: "sendMessage" },
+        { method: "addMessageReaction", messageId: "source-message-1" },
+        { method: "updateMessage", messageId: "confirmation-message-1" },
+      ]);
+    }),
+  );
+
+  it.effect("fails visibly when the final confirmation reply update fails", () =>
+    Effect.gen(function* () {
+      const deliveryCalls: Array<unknown> = [];
+      const sheetApiCalls: Array<readonly [string, unknown]> = [];
+      const sheetApisClient = makeSheetApisClient({
+        workspaceConfig: {
+          getWorkspaceFeatureFlags: () =>
+            Effect.succeed([
+              makeWorkspaceFeatureFlag({ flagName: "team-submission-confirmations" }),
+            ]),
+        },
+        teamSubmission: {
+          upsertFromDiscord: (args: unknown) => {
+            sheetApiCalls.push(["upsertFromDiscord", args]);
+            return Effect.succeed(makeTeamSubmissionUpsertResult());
+          },
+          setConfirmationMessage: (args: unknown) => {
+            sheetApiCalls.push(["setConfirmationMessage", args]);
+            return Effect.succeed(makeConfirmedTeamSubmissionResult());
+          },
+        },
+      });
+
+      const exit = yield* Effect.exit(
+        runWithDispatchService(
+          makeTeamSubmissionDeliveryClient(deliveryCalls, { failUpdateMessage: true }),
+          sheetApisClient,
+          (service) => service.teamSubmission(teamSubmissionPayload),
+        ),
+      );
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(sheetApiCalls.map(([method]) => method)).toEqual(["upsertFromDiscord"]);
+      expect(deliveryCalls).toMatchObject([
+        { method: "sendMessage" },
+        { method: "addMessageReaction", messageId: "source-message-1" },
+        {
+          method: "updateMessage",
+          messageId: "confirmation-message-1",
+          payload: { embeds: [{ title: "Teams added to the sheet" }] },
+        },
+        {
+          method: "updateMessage",
+          messageId: "confirmation-message-1",
+          payload: { embeds: [{ title: "Teams added, but confirmation failed" }] },
+        },
+      ]);
+    }),
+  );
+
+  it.effect(
+    "removes the reaction and edits the reply embed when team submission writing fails",
+    () =>
+      Effect.gen(function* () {
+        const deliveryCalls: Array<unknown> = [];
+        const sheetApisClient = makeSheetApisClient({
+          workspaceConfig: {
+            getWorkspaceFeatureFlags: () =>
+              Effect.succeed([
+                makeWorkspaceFeatureFlag({ flagName: "team-submission-confirmations" }),
+              ]),
+          },
+          teamSubmission: {
+            upsertFromDiscord: () =>
+              Effect.fail(
+                new SheetWorkflowsServicesDispatchTestError({
+                  message: "upsert failed",
+                }),
+              ),
+          },
+        });
+
+        const exit = yield* Effect.exit(
+          runWithDispatchService(
+            makeTeamSubmissionDeliveryClient(deliveryCalls),
+            sheetApisClient,
+            (service) => service.teamSubmission(teamSubmissionPayload),
+          ),
+        );
+
+        expect(Exit.isFailure(exit)).toBe(true);
+        expect(deliveryCalls).toMatchObject([
+          { method: "sendMessage" },
+          { method: "addMessageReaction" },
+          { method: "removeMessageReaction", messageId: "source-message-1" },
+          {
+            method: "updateMessage",
+            payload: {
+              embeds: [{ title: "Could not add teams", color: 0xed4245 }],
+              components: [],
+              allowedMentions: "none",
+            },
+          },
+        ]);
+      }),
+  );
+
+  it.effect("confirms a team submission by marking it confirmed and deleting the reply", () =>
+    Effect.gen(function* () {
+      const deliveryCalls: Array<unknown> = [];
+      const sheetApiCalls: Array<unknown> = [];
+      const sheetApisClient = makeSheetApisClient({
+        teamSubmission: {
+          confirmFromDiscord: (args: unknown) => {
+            sheetApiCalls.push(args);
+            return Effect.succeed({ status: "confirmed" });
+          },
+        },
+      });
+
+      const result = yield* runWithDispatchService(
+        makeTeamSubmissionDeliveryClient(deliveryCalls),
+        sheetApisClient,
+        (service) => service.teamSubmissionConfirmButton(teamSubmissionButtonPayload, requester),
+      );
+
+      expect(result).toEqual({ status: "confirmed" });
+      expect(sheetApiCalls).toEqual([
+        {
+          payload: {
+            client: discordClient,
+            workspaceId: "workspace-1",
+            conversationId: "conversation-1",
+            messageId: "source-message-1",
+            confirmationMessageId: "confirmation-message-1",
+            requesterUserId: "account-1",
+          },
+        },
+      ]);
+      expect(deliveryCalls).toEqual([
+        {
+          method: "updateOriginalInteractionResponse",
+          interactionResponseToken: "interaction-token",
+          payload: {
+            content: "Team submission confirmed.",
+            allowedMentions: "none",
+          },
+        },
+        {
+          method: "deleteMessage",
+          conversationId: "conversation-1",
+          messageId: "confirmation-message-1",
+        },
+        {
+          method: "removeMessageReaction",
+          conversationId: "conversation-1",
+          messageId: "source-message-1",
+          emoji: { id: "907705464215711834", name: "Miku_Happy" },
+        },
+      ]);
+    }),
+  );
+
+  it.effect("resolves the confirm interaction when confirmation fails", () =>
+    Effect.gen(function* () {
+      const deliveryCalls: Array<unknown> = [];
+      const sheetApisClient = makeSheetApisClient({
+        teamSubmission: {
+          confirmFromDiscord: () =>
+            Effect.fail(
+              new SheetWorkflowsServicesDispatchTestError({
+                message: "confirm failed",
+              }),
+            ),
+        },
+      });
+
+      const exit = yield* Effect.exit(
+        runWithDispatchService(
+          makeTeamSubmissionDeliveryClient(deliveryCalls),
+          sheetApisClient,
+          (service) => service.teamSubmissionConfirmButton(teamSubmissionButtonPayload, requester),
+        ),
+      );
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(deliveryCalls).toEqual([
+        {
+          method: "updateOriginalInteractionResponse",
+          interactionResponseToken: "interaction-token",
+          payload: {
+            content: "Could not confirm this team submission. Please try again.",
+            allowedMentions: "none",
+          },
+        },
+      ]);
+    }),
+  );
+
+  it.effect("still deletes the reply when confirmed interaction response update fails", () =>
+    Effect.gen(function* () {
+      const deliveryCalls: Array<unknown> = [];
+      const sheetApisClient = makeSheetApisClient({
+        teamSubmission: {
+          confirmFromDiscord: () => Effect.succeed({ status: "confirmed" }),
+        },
+      });
+
+      const result = yield* runWithDispatchService(
+        makeTeamSubmissionDeliveryClient(deliveryCalls, { failInteractionUpdate: true }),
+        sheetApisClient,
+        (service) => service.teamSubmissionConfirmButton(teamSubmissionButtonPayload, requester),
+      );
+
+      expect(result).toEqual({ status: "confirmed" });
+      expect(deliveryCalls).toMatchObject([
+        {
+          method: "updateOriginalInteractionResponse",
+          payload: {
+            content: "Team submission confirmed.",
+            allowedMentions: "none",
+          },
+        },
+        {
+          method: "deleteMessage",
+          conversationId: "conversation-1",
+          messageId: "confirmation-message-1",
+        },
+        {
+          method: "removeMessageReaction",
+          conversationId: "conversation-1",
+          messageId: "source-message-1",
+        },
+      ]);
+    }),
+  );
+
+  it.effect(
+    "rejects a team submission by rolling back, removing the reaction, and deleting the reply",
+    () =>
+      Effect.gen(function* () {
+        const deliveryCalls: Array<unknown> = [];
+        const sheetApisClient = makeSheetApisClient({
+          teamSubmission: {
+            revertFromDiscord: () =>
+              Effect.succeed({
+                status: "rejected",
+                rowMappings: [],
+                rollbackSnapshot: [],
+                confirmationText: "Rolled back.",
+              }),
+          },
+        });
+
+        const result = yield* runWithDispatchService(
+          makeTeamSubmissionDeliveryClient(deliveryCalls),
+          sheetApisClient,
+          (service) => service.teamSubmissionRejectButton(teamSubmissionButtonPayload, requester),
+        );
+
+        expect(result).toEqual({ status: "rejected" });
+        expect(deliveryCalls).toEqual([
+          {
+            method: "updateOriginalInteractionResponse",
+            interactionResponseToken: "interaction-token",
+            payload: {
+              content: "Team submission rejected and rolled back.",
+              allowedMentions: "none",
+            },
+          },
+          {
+            method: "removeMessageReaction",
+            conversationId: "conversation-1",
+            messageId: "source-message-1",
+            emoji: { id: "907705464215711834", name: "Miku_Happy" },
+          },
+          {
+            method: "deleteMessage",
+            conversationId: "conversation-1",
+            messageId: "confirmation-message-1",
+          },
+        ]);
+      }),
+  );
+
+  it.effect("still deletes the reply when rejected interaction response update fails", () =>
+    Effect.gen(function* () {
+      const deliveryCalls: Array<unknown> = [];
+      const sheetApisClient = makeSheetApisClient({
+        teamSubmission: {
+          revertFromDiscord: () =>
+            Effect.succeed({
+              status: "rejected",
+              rowMappings: [],
+              rollbackSnapshot: [],
+              confirmationText: "Rolled back.",
+            }),
+        },
+      });
+
+      const result = yield* runWithDispatchService(
+        makeTeamSubmissionDeliveryClient(deliveryCalls, { failInteractionUpdate: true }),
+        sheetApisClient,
+        (service) => service.teamSubmissionRejectButton(teamSubmissionButtonPayload, requester),
+      );
+
+      expect(result).toEqual({ status: "rejected" });
+      expect(deliveryCalls).toMatchObject([
+        {
+          method: "updateOriginalInteractionResponse",
+          payload: {
+            content: "Team submission rejected and rolled back.",
+            allowedMentions: "none",
+          },
+        },
+        { method: "removeMessageReaction", messageId: "source-message-1" },
+        {
+          method: "deleteMessage",
+          conversationId: "conversation-1",
+          messageId: "confirmation-message-1",
+        },
+      ]);
+    }),
+  );
+
+  it.effect("keeps and edits the reply when team submission rollback fails", () =>
+    Effect.gen(function* () {
+      const deliveryCalls: Array<unknown> = [];
+      const sheetApisClient = makeSheetApisClient({
+        teamSubmission: {
+          revertFromDiscord: () =>
+            Effect.succeed({
+              status: "rollbackFailed",
+              rowMappings: [],
+              rollbackSnapshot: [],
+              confirmationText: "Rollback failed.",
+            }),
+        },
+      });
+
+      const result = yield* runWithDispatchService(
+        makeTeamSubmissionDeliveryClient(deliveryCalls),
+        sheetApisClient,
+        (service) => service.teamSubmissionRejectButton(teamSubmissionButtonPayload, requester),
+      );
+
+      expect(result).toEqual({ status: "rollbackFailed" });
+      expect(deliveryCalls).toMatchObject([
+        {
+          method: "updateOriginalInteractionResponse",
+          interactionResponseToken: "interaction-token",
+          payload: {
+            content: "Rollback failed. Please check the updated reply.",
+            allowedMentions: "none",
+          },
+        },
+        { method: "removeMessageReaction", messageId: "source-message-1" },
+        {
+          method: "updateMessage",
+          conversationId: "conversation-1",
+          messageId: "confirmation-message-1",
+          payload: {
+            embeds: [
+              {
+                title: "Rollback failed",
+                description: "Rollback failed.",
+                color: 0xed4245,
+              },
+            ],
+            allowedMentions: "none",
+          },
+        },
+      ]);
+    }),
+  );
+
+  it.effect("preserves the reply and reaction when the rollback API fails before rollback", () =>
+    Effect.gen(function* () {
+      const deliveryCalls: Array<unknown> = [];
+      const sheetApisClient = makeSheetApisClient({
+        teamSubmission: {
+          revertFromDiscord: () =>
+            Effect.fail(
+              new SheetWorkflowsServicesDispatchTestError({
+                message: "rollback update failed",
+              }),
+            ),
+        },
+      });
+
+      const exit = yield* Effect.exit(
+        runWithDispatchService(
+          makeTeamSubmissionDeliveryClient(deliveryCalls),
+          sheetApisClient,
+          (service) => service.teamSubmissionRejectButton(teamSubmissionButtonPayload, requester),
+        ),
+      );
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(deliveryCalls).toEqual([
+        {
+          method: "updateOriginalInteractionResponse",
+          interactionResponseToken: "interaction-token",
+          payload: {
+            content: "Could not reject this team submission. Please try again.",
+            allowedMentions: "none",
+          },
+        },
+      ]);
     }),
   );
 

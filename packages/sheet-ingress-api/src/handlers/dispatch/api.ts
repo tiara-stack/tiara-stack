@@ -42,6 +42,12 @@ import {
   SlotListDispatchPayload,
   SlotOpenButtonPayload,
   TeamListDispatchPayload,
+  TeamSubmissionDispatchErrorSchemas,
+  TeamSubmissionDispatchPayload,
+  DispatchTeamSubmissionButtonMethods,
+  TeamSubmissionButtonDispatchErrorSchemas,
+  TeamSubmissionConfirmButtonDispatchPayload,
+  TeamSubmissionRejectButtonDispatchPayload,
   UpdateAnnouncementDispatchErrorSchemas,
   UpdateAnnouncementDispatchPayload,
 } from "./schema";
@@ -232,6 +238,35 @@ export class DispatchApi extends HttpApiGroup.make("dispatch")
       success: DispatchAcceptedResult,
       error: BotCommandDispatchErrorSchemas,
     }),
+  )
+  .add(
+    HttpApiEndpoint.post("teamSubmission", "/dispatch/team/submission", {
+      payload: TeamSubmissionDispatchPayload,
+      success: DispatchAcceptedResult,
+      error: TeamSubmissionDispatchErrorSchemas,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post(
+      DispatchTeamSubmissionButtonMethods.confirm.endpointName,
+      DispatchTeamSubmissionButtonMethods.confirm.path,
+      {
+        payload: TeamSubmissionConfirmButtonDispatchPayload,
+        success: DispatchAcceptedResult,
+        error: TeamSubmissionButtonDispatchErrorSchemas,
+      },
+    ),
+  )
+  .add(
+    HttpApiEndpoint.post(
+      DispatchTeamSubmissionButtonMethods.reject.endpointName,
+      DispatchTeamSubmissionButtonMethods.reject.path,
+      {
+        payload: TeamSubmissionRejectButtonDispatchPayload,
+        success: DispatchAcceptedResult,
+        error: TeamSubmissionButtonDispatchErrorSchemas,
+      },
+    ),
   )
   .add(
     HttpApiEndpoint.post("scheduleList", "/dispatch/schedule/list", {

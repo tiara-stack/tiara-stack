@@ -20,6 +20,7 @@ import { scheduleLayer } from "./handlers/schedule";
 import { screenshotLayer } from "./handlers/screenshot";
 import { sheetLayer } from "./handlers/sheet";
 import { statusLayer } from "./handlers/status";
+import { teamSubmissionLayer } from "./handlers/teamSubmission";
 import { userConfigLayer } from "./handlers/userConfig";
 import { discordLayer as discordServiceLayer } from "./services/discord";
 import { SheetApisAnonymousUserFallbackLive } from "./middlewares/sheetApisAnonymousUserFallback/live";
@@ -42,6 +43,7 @@ const rpcHandlersLayer = Layer.mergeAll(
   scheduleLayer,
   discordLayer,
   statusLayer,
+  teamSubmissionLayer,
   userConfigLayer,
 );
 

@@ -8,6 +8,8 @@ import {
   DispatchRoomOrderPreviousButtonWorkflow,
   DispatchRoomOrderSendButtonWorkflow,
   DispatchSlotOpenButtonWorkflow,
+  DispatchTeamSubmissionConfirmButtonWorkflow,
+  DispatchTeamSubmissionRejectButtonWorkflow,
 } from "@/workflows/dispatchWorkflows";
 
 const dispatchShardGroup = () => "dispatch";
@@ -49,6 +51,16 @@ export const DispatchButtonEntity = Entity.make("DispatchButton", [
     success: DispatchRoomOrderPinTentativeButtonWorkflow.successSchema,
     error: DispatchRoomOrderPinTentativeButtonWorkflow.errorSchema,
   }),
+  Rpc.make("teamSubmissionConfirmButton", {
+    payload: dispatchButtonPayload(DispatchTeamSubmissionConfirmButtonWorkflow.payloadSchema),
+    success: DispatchTeamSubmissionConfirmButtonWorkflow.successSchema,
+    error: DispatchTeamSubmissionConfirmButtonWorkflow.errorSchema,
+  }),
+  Rpc.make("teamSubmissionRejectButton", {
+    payload: dispatchButtonPayload(DispatchTeamSubmissionRejectButtonWorkflow.payloadSchema),
+    success: DispatchTeamSubmissionRejectButtonWorkflow.successSchema,
+    error: DispatchTeamSubmissionRejectButtonWorkflow.errorSchema,
+  }),
 ]).annotate(ClusterSchema.ShardGroup, dispatchShardGroup);
 
 const dispatchButtonOperations = [
@@ -58,6 +70,8 @@ const dispatchButtonOperations = [
   "roomOrderNextButton",
   "roomOrderSendButton",
   "roomOrderPinTentativeButton",
+  "teamSubmissionConfirmButton",
+  "teamSubmissionRejectButton",
 ] as const;
 
 export type DispatchButtonOperation = (typeof dispatchButtonOperations)[number];
@@ -110,6 +124,20 @@ export type DispatchButtonEntityHandlers<R = never> = {
   ) => Effect.Effect<
     typeof DispatchRoomOrderPinTentativeButtonWorkflow.successSchema.Type,
     typeof DispatchRoomOrderPinTentativeButtonWorkflow.errorSchema.Type,
+    R
+  >;
+  readonly teamSubmissionConfirmButton: (
+    request: DispatchButtonRequest<typeof DispatchTeamSubmissionConfirmButtonWorkflow>,
+  ) => Effect.Effect<
+    typeof DispatchTeamSubmissionConfirmButtonWorkflow.successSchema.Type,
+    typeof DispatchTeamSubmissionConfirmButtonWorkflow.errorSchema.Type,
+    R
+  >;
+  readonly teamSubmissionRejectButton: (
+    request: DispatchButtonRequest<typeof DispatchTeamSubmissionRejectButtonWorkflow>,
+  ) => Effect.Effect<
+    typeof DispatchTeamSubmissionRejectButtonWorkflow.successSchema.Type,
+    typeof DispatchTeamSubmissionRejectButtonWorkflow.errorSchema.Type,
     R
   >;
 };

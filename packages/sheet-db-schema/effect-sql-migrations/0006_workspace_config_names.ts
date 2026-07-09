@@ -64,7 +64,7 @@ ALTER TABLE "sheet_db_config_workspace_update_announcement_delivery"
 ALTER TABLE "sheet_db_config_workspace_update_announcement_delivery"
   RENAME CONSTRAINT "sheet_db_config_guild_update_announcement_delivery_pkey" TO "sheet_db_config_workspace_update_announcement_delivery_pkey";
 ALTER INDEX "sheet_db_config_guild_update_announcement_delivery_announcement_id_idx"
-  RENAME TO "sheet_db_config_workspace_update_announcement_delivery_announcement_id_idx";
+  RENAME TO "sheet_db_config_workspace_update_ann_delivery_announcement_idx";
 `).withoutTransform;
 
   // --> statement-breakpoint

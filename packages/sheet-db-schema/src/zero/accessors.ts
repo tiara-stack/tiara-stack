@@ -4,11 +4,13 @@ import {
   configWorkspaceConversation as configWorkspaceConversationModel,
   configWorkspaceFeatureFlag as configWorkspaceFeatureFlagModel,
   configWorkspaceMonitorRole as configWorkspaceMonitorRoleModel,
+  configWorkspaceTeamSubmissionChannel as configWorkspaceTeamSubmissionChannelModel,
   configWorkspaceUpdateAnnouncementDelivery as configWorkspaceUpdateAnnouncementDeliveryModel,
   messageCheckin as messageCheckinModel,
   messageCheckinMember as messageCheckinMemberModel,
   messageRoomOrder as messageRoomOrderModel,
   messageRoomOrderEntry as messageRoomOrderEntryModel,
+  messageTeamSubmission as messageTeamSubmissionModel,
   messageSlot as messageSlotModel,
 } from "../models";
 import { builder } from "./schema";
@@ -66,6 +68,15 @@ export const zeroTableAccess = {
       timestamps: timestampOptions,
     },
   ),
+  configWorkspaceTeamSubmissionChannel: defineZeroTableAccess(
+    configWorkspaceTeamSubmissionChannelModel,
+    builder.configWorkspaceTeamSubmissionChannel,
+    {
+      primaryKey: ["workspaceId", "conversationId"],
+      softDelete: "deletedAt",
+      timestamps: timestampOptions,
+    },
+  ),
   messageCheckin: defineZeroTableAccess(messageCheckinModel, builder.messageCheckin, {
     primaryKey: ["clientPlatform", "clientId", "messageId"],
     softDelete: "deletedAt",
@@ -99,4 +110,13 @@ export const zeroTableAccess = {
     softDelete: "deletedAt",
     timestamps: timestampOptions,
   }),
+  messageTeamSubmission: defineZeroTableAccess(
+    messageTeamSubmissionModel,
+    builder.messageTeamSubmission,
+    {
+      primaryKey: ["workspaceId", "conversationId", "messageId"],
+      softDelete: "deletedAt",
+      timestamps: timestampOptions,
+    },
+  ),
 };

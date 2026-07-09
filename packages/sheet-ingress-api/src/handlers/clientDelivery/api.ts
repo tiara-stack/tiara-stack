@@ -14,6 +14,11 @@ import { SupportedNotificationClient } from "../../schemas/userConfig";
 
 export const DeliveryMessage = MessageRef;
 
+export const DeliveryEmoji = Schema.Struct({
+  id: Schema.optional(Schema.String),
+  name: Schema.String,
+});
+
 export const ClientWorkspace = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
@@ -88,6 +93,26 @@ export class ClientDeliveryApi extends HttpApiGroup.make("clientDelivery")
     HttpApiEndpoint.post("deleteMessage", "/clients/messages/delete", {
       payload: Schema.Struct({
         messageRef: MessageRef,
+      }),
+      success: Schema.Void,
+      error: DeliveryErrors,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("addMessageReaction", "/clients/messages/reactions/add", {
+      payload: Schema.Struct({
+        messageRef: MessageRef,
+        emoji: DeliveryEmoji,
+      }),
+      success: Schema.Void,
+      error: DeliveryErrors,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("removeMessageReaction", "/clients/messages/reactions/remove", {
+      payload: Schema.Struct({
+        messageRef: MessageRef,
+        emoji: DeliveryEmoji,
       }),
       success: Schema.Void,
       error: DeliveryErrors,

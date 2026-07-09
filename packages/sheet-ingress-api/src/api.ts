@@ -20,6 +20,7 @@ import {
   ScreenshotApi,
   SheetApi,
   StatusApi,
+  TeamSubmissionApi,
   UserConfigApi,
 } from "./api-groups";
 import { SheetApisApi } from "./sheet-apis";
@@ -52,6 +53,7 @@ class SheetIngressSheetApisApi extends HttpApi.make("api")
   .add(ScheduleApi)
   .add(SheetApisDiscordApi)
   .add(StatusApi)
+  .add(TeamSubmissionApi)
   .add(UserConfigApi)
   .annotate(OpenApi.Title, "Sheet APIs") {}
 

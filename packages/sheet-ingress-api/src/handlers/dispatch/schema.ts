@@ -1,11 +1,19 @@
 import { Schema } from "effect";
 import { ArgumentError, SchemaError, Unauthorized, UnknownError } from "typhoon-core/error";
-import { QueryResultError } from "typhoon-zero/error";
+import { MutatorResultError, QueryResultError } from "typhoon-zero/error";
 import { FeatureFlagName } from "../../schemas/workspaceConfig";
 import { GoogleSheetsError } from "../../schemas/google";
 import { ParserFieldError } from "../../schemas/sheet/error";
 import { SheetConfigError } from "../../schemas/sheetConfig";
 import { ClientPlatform, ClientRef } from "../../schemas/client";
+import {
+  TeamSubmissionConfirmButtonPayload,
+  TeamSubmissionConfirmButtonResult,
+  TeamSubmissionRejectButtonPayload,
+  TeamSubmissionRejectButtonResult,
+  TeamSubmissionUpsertFromDiscordPayload,
+  TeamSubmissionUpsertResult,
+} from "../../schemas/teamSubmission";
 
 export const interactionResponseTokenLifetimeMs = 15 * 60 * 1000;
 export const interactionResponseTokenExpirySafetyMarginMs = 30 * 1000;
@@ -102,6 +110,12 @@ export const BotCommandDispatchError = Schema.Union(BotCommandDispatchErrorSchem
 
 export const ServiceStatusDispatchErrorSchemas = [Unauthorized, UnknownError] as const;
 export const ServiceStatusDispatchError = Schema.Union(ServiceStatusDispatchErrorSchemas);
+
+export const TeamSubmissionDispatchErrorSchemas = [
+  ...BotCommandDispatchErrorSchemas,
+  MutatorResultError,
+] as const;
+export const TeamSubmissionDispatchError = Schema.Union(TeamSubmissionDispatchErrorSchemas);
 
 const CommandDispatchPayloadBase = {
   client: ClientRef,
@@ -251,6 +265,39 @@ export const KickoutDispatchResult = Schema.Struct({
 });
 
 export type KickoutDispatchResult = Schema.Schema.Type<typeof KickoutDispatchResult>;
+
+export const TeamSubmissionDispatchPayload = TeamSubmissionUpsertFromDiscordPayload;
+export type TeamSubmissionDispatchPayload = Schema.Schema.Type<
+  typeof TeamSubmissionDispatchPayload
+>;
+
+export const TeamSubmissionDispatchResult = TeamSubmissionUpsertResult;
+export type TeamSubmissionDispatchResult = Schema.Schema.Type<typeof TeamSubmissionDispatchResult>;
+
+export const TeamSubmissionButtonDispatchErrorSchemas = TeamSubmissionDispatchErrorSchemas;
+export const TeamSubmissionButtonDispatchError = Schema.Union(
+  TeamSubmissionButtonDispatchErrorSchemas,
+);
+
+export const TeamSubmissionConfirmButtonDispatchPayload = TeamSubmissionConfirmButtonPayload;
+export type TeamSubmissionConfirmButtonDispatchPayload = Schema.Schema.Type<
+  typeof TeamSubmissionConfirmButtonDispatchPayload
+>;
+
+export const TeamSubmissionConfirmButtonDispatchResult = TeamSubmissionConfirmButtonResult;
+export type TeamSubmissionConfirmButtonDispatchResult = Schema.Schema.Type<
+  typeof TeamSubmissionConfirmButtonDispatchResult
+>;
+
+export const TeamSubmissionRejectButtonDispatchPayload = TeamSubmissionRejectButtonPayload;
+export type TeamSubmissionRejectButtonDispatchPayload = Schema.Schema.Type<
+  typeof TeamSubmissionRejectButtonDispatchPayload
+>;
+
+export const TeamSubmissionRejectButtonDispatchResult = TeamSubmissionRejectButtonResult;
+export type TeamSubmissionRejectButtonDispatchResult = Schema.Schema.Type<
+  typeof TeamSubmissionRejectButtonDispatchResult
+>;
 
 export const SlotButtonDispatchPayload = Schema.Struct({
   ...ClientDispatchPayloadBase,
@@ -689,6 +736,19 @@ export const DispatchRoomOrderButtonMethods = {
   },
 } as const;
 
+export const DispatchTeamSubmissionButtonMethods = {
+  confirm: {
+    endpointName: "teamSubmissionConfirmButton",
+    path: "/dispatch/team/submission/buttons/confirm",
+    rpcTag: "dispatch.teamSubmission.confirmButton",
+  },
+  reject: {
+    endpointName: "teamSubmissionRejectButton",
+    path: "/dispatch/team/submission/buttons/reject",
+    rpcTag: "dispatch.teamSubmission.rejectButton",
+  },
+} as const;
+
 export const DispatchAcceptedResult = Schema.Struct({
   executionId: Schema.String,
   operation: Schema.Literals([
@@ -722,6 +782,9 @@ export const DispatchAcceptedResult = Schema.Struct({
     "workspaceSetSheet",
     "workspaceSetAutoCheckin",
     "teamList",
+    "teamSubmission",
+    "teamSubmissionConfirmButton",
+    "teamSubmissionRejectButton",
     "scheduleList",
     "screenshot",
   ]),

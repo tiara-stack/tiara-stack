@@ -35,6 +35,16 @@ describe("makeUpdateAnnouncementDispatchPayloads", () => {
         systemConversationId: "system-channel",
         announcement: updateAnnouncements[1],
       },
+      {
+        client: { platform: "discord", clientId: "discord-main" },
+        dispatchRequestId:
+          "discord-update-announcement:guild-1:team-submission-confirmations-2026-07-08",
+        workspaceId: "guild-1",
+        workspaceName: "Guild One",
+        joinedAt: "2026-06-04T16:59:59.999Z",
+        systemConversationId: "system-channel",
+        announcement: updateAnnouncements[2],
+      },
     ]);
   });
 

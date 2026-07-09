@@ -11,6 +11,11 @@ import {
   isActiveSendClaim,
 } from "./claimHelpers";
 import { builder, type Schema as ZeroSchema } from "./schema";
+import {
+  TeamSubmissionRemovedRowStrategy,
+  TeamSubmissionWriteMode,
+} from "../teamSubmissionChannelConfig";
+import { TeamSubmissionStatus } from "../teamSubmissionStatus";
 import { preserveOmitted } from "./timestamps";
 
 declare module "@rocicorp/zero" {
@@ -36,6 +41,8 @@ export interface SheetZeroApiSuccessSchemas {
     readonly getWorkspaceConversations: Schema.Top;
     readonly getWorkspaceConversationById: Schema.Top;
     readonly getWorkspaceConversationByName: Schema.Top;
+    readonly getTeamSubmissionChannelByConversationId: Schema.Top;
+    readonly getTeamSubmissionChannelsForWorkspace: Schema.Top;
   };
   readonly messageCheckin: {
     readonly getMessageCheckinData: Schema.Top;
@@ -48,6 +55,10 @@ export interface SheetZeroApiSuccessSchemas {
   };
   readonly messageSlot: {
     readonly getMessageSlotData: Schema.Top;
+  };
+  readonly messageTeamSubmission: {
+    readonly getMessageTeamSubmission: Schema.Top;
+    readonly getMessageTeamSubmissionByDiscordMessage: Schema.Top;
   };
 }
 
@@ -68,6 +79,8 @@ const defaultSuccessSchemas = {
     getWorkspaceConversations: Schema.Any,
     getWorkspaceConversationById: Schema.Any,
     getWorkspaceConversationByName: Schema.Any,
+    getTeamSubmissionChannelByConversationId: Schema.Any,
+    getTeamSubmissionChannelsForWorkspace: Schema.Any,
   },
   messageCheckin: {
     getMessageCheckinData: Schema.Any,
@@ -80,6 +93,10 @@ const defaultSuccessSchemas = {
   },
   messageSlot: {
     getMessageSlotData: Schema.Any,
+  },
+  messageTeamSubmission: {
+    getMessageTeamSubmission: Schema.Any,
+    getMessageTeamSubmissionByDiscordMessage: Schema.Any,
   },
 } satisfies SheetZeroApiSuccessSchemas;
 
@@ -283,6 +300,26 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
           Predicate.isUndefined(running) ? query : query.where("running", "=", running)
         ).one();
       },
+    }),
+    ZeroApiEndpoint.query("getTeamSubmissionChannelByConversationId", {
+      request: Schema.Struct({
+        workspaceId: Schema.String,
+        conversationId: Schema.String,
+      }),
+      success: success.workspaceConfig.getTeamSubmissionChannelByConversationId,
+      query: ({ args: { workspaceId, conversationId } }) =>
+        zeroTableAccess.configWorkspaceTeamSubmissionChannel.getActiveByPrimaryKey(
+          builder.configWorkspaceTeamSubmissionChannel,
+          { workspaceId, conversationId },
+        ),
+    }),
+    ZeroApiEndpoint.query("getTeamSubmissionChannelsForWorkspace", {
+      request: Schema.Struct({ workspaceId: Schema.String }),
+      success: success.workspaceConfig.getTeamSubmissionChannelsForWorkspace,
+      query: ({ args: { workspaceId } }) =>
+        zeroTableAccess.configWorkspaceTeamSubmissionChannel.listActiveWhere(
+          builder.configWorkspaceTeamSubmissionChannel.where("workspaceId", "=", workspaceId),
+        ),
     }),
     ZeroApiEndpoint.mutator("upsertWorkspaceConfig", {
       request: Schema.Struct({
@@ -536,6 +573,56 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
           ),
         );
       },
+    }),
+    ZeroApiEndpoint.mutator("upsertTeamSubmissionChannel", {
+      request: Schema.Struct({
+        workspaceId: Schema.String,
+        conversationId: Schema.String,
+        destinationTeamConfigName: Schema.optional(Schema.NullOr(Schema.String)),
+        writeMode: TeamSubmissionWriteMode,
+        removedRowStrategy: TeamSubmissionRemovedRowStrategy,
+        requireValidOshi: Schema.optional(Schema.Boolean),
+      }),
+      mutator: async ({ tx, args }) => {
+        const existingChannel = await tx.run(
+          builder.configWorkspaceTeamSubmissionChannel
+            .where("workspaceId", "=", args.workspaceId)
+            .where("conversationId", "=", args.conversationId)
+            .one(),
+        );
+
+        await tx.mutate.configWorkspaceTeamSubmissionChannel.upsert(
+          zeroTableAccess.configWorkspaceTeamSubmissionChannel.upsertWithTimestamps(
+            {
+              workspaceId: args.workspaceId,
+              conversationId: args.conversationId,
+              destinationTeamConfigName: preserveOmitted(
+                args.destinationTeamConfigName,
+                existingChannel?.destinationTeamConfigName,
+              ),
+              writeMode: args.writeMode,
+              removedRowStrategy: args.removedRowStrategy,
+              requireValidOshi:
+                preserveOmitted(args.requireValidOshi, existingChannel?.requireValidOshi) ?? false,
+              deletedAt: null,
+            },
+            existingChannel,
+          ),
+        );
+      },
+    }),
+    ZeroApiEndpoint.mutator("removeTeamSubmissionChannel", {
+      request: Schema.Struct({
+        workspaceId: Schema.String,
+        conversationId: Schema.String,
+      }),
+      mutator: async ({ tx, args }) =>
+        await tx.mutate.configWorkspaceTeamSubmissionChannel.update(
+          zeroTableAccess.configWorkspaceTeamSubmissionChannel.softDeleteByPrimaryKey({
+            workspaceId: args.workspaceId,
+            conversationId: args.conversationId,
+          }),
+        ),
     }),
   );
 
@@ -1416,12 +1503,123 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
     }),
   );
 
+  const MessageTeamSubmissionGroup = ZeroApiGroup.make("messageTeamSubmission").add(
+    ZeroApiEndpoint.query("getMessageTeamSubmission", {
+      request: Schema.Struct({
+        workspaceId: Schema.String,
+        conversationId: Schema.String,
+        messageId: Schema.String,
+      }),
+      success: success.messageTeamSubmission.getMessageTeamSubmission,
+      query: ({ args: { workspaceId, conversationId, messageId } }) =>
+        zeroTableAccess.messageTeamSubmission.getActiveByPrimaryKey(builder.messageTeamSubmission, {
+          workspaceId,
+          conversationId,
+          messageId,
+        }),
+    }),
+    ZeroApiEndpoint.query("getMessageTeamSubmissionByDiscordMessage", {
+      request: Schema.Struct({
+        discordGuildId: Schema.String,
+        discordChannelId: Schema.String,
+        messageId: Schema.String,
+      }),
+      success: success.messageTeamSubmission.getMessageTeamSubmissionByDiscordMessage,
+      query: ({ args: { discordGuildId, discordChannelId, messageId } }) =>
+        zeroTableAccess.messageTeamSubmission
+          .listActiveWhere(
+            builder.messageTeamSubmission
+              .where("discordGuildId", "=", discordGuildId)
+              .where("discordChannelId", "=", discordChannelId)
+              .where("messageId", "=", messageId),
+          )
+          .one(),
+    }),
+    ZeroApiEndpoint.mutator("upsertMessageTeamSubmission", {
+      request: Schema.Struct({
+        workspaceId: Schema.String,
+        conversationId: Schema.String,
+        messageId: Schema.String,
+        clientPlatform: Schema.String,
+        clientId: Schema.String,
+        discordGuildId: Schema.String,
+        discordChannelId: Schema.String,
+        discordAuthorId: Schema.String,
+        sheetId: Schema.String,
+        confirmationMessageId: Schema.optional(Schema.NullOr(Schema.String)),
+        parsedSubmission: ReadonlyJSONValue,
+        rowMappings: ReadonlyJSONValue,
+        rollbackSnapshot: Schema.optional(Schema.NullOr(ReadonlyJSONValue)),
+        status: TeamSubmissionStatus,
+      }),
+      mutator: async ({ tx, args }) => {
+        const existingSubmission = await tx.run(
+          builder.messageTeamSubmission
+            .where("workspaceId", "=", args.workspaceId)
+            .where("conversationId", "=", args.conversationId)
+            .where("messageId", "=", args.messageId)
+            .one(),
+        );
+
+        await tx.mutate.messageTeamSubmission.upsert(
+          zeroTableAccess.messageTeamSubmission.upsertWithTimestamps(
+            {
+              workspaceId: args.workspaceId,
+              conversationId: args.conversationId,
+              messageId: args.messageId,
+              clientPlatform: args.clientPlatform,
+              clientId: args.clientId,
+              discordGuildId: args.discordGuildId,
+              discordChannelId: args.discordChannelId,
+              discordAuthorId: args.discordAuthorId,
+              sheetId: args.sheetId,
+              confirmationMessageId: preserveOmitted(
+                args.confirmationMessageId,
+                existingSubmission?.confirmationMessageId,
+              ),
+              parsedSubmission: args.parsedSubmission,
+              rowMappings: args.rowMappings,
+              rollbackSnapshot: preserveOmitted(
+                args.rollbackSnapshot,
+                existingSubmission?.rollbackSnapshot,
+              ),
+              version: Predicate.isNotNullish(existingSubmission)
+                ? existingSubmission.version + 1
+                : 1,
+              status: args.status,
+              deletedAt: null,
+            },
+            existingSubmission,
+          ),
+        );
+      },
+    }),
+    ZeroApiEndpoint.mutator("setMessageTeamSubmissionConfirmation", {
+      request: Schema.Struct({
+        workspaceId: Schema.String,
+        conversationId: Schema.String,
+        messageId: Schema.String,
+        confirmationMessageId: Schema.String,
+      }),
+      mutator: async ({ tx, args }) =>
+        await tx.mutate.messageTeamSubmission.update(
+          zeroTableAccess.messageTeamSubmission.updateWithTimestamp({
+            workspaceId: args.workspaceId,
+            conversationId: args.conversationId,
+            messageId: args.messageId,
+            confirmationMessageId: args.confirmationMessageId,
+          }),
+        ),
+    }),
+  );
+
   return make("sheet")
     .add(UserConfigGroup)
     .add(WorkspaceConfigGroup)
     .add(MessageCheckinGroup)
     .add(MessageRoomOrderGroup)
-    .add(MessageSlotGroup);
+    .add(MessageSlotGroup)
+    .add(MessageTeamSubmissionGroup);
 };
 
 export function makeSheetZeroApi(): ReturnType<

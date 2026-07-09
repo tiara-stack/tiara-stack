@@ -154,6 +154,7 @@ const teamConfigParser = ([range]: sheets_v4.Schema$ValueRange[]) =>
           "isvRanges",
           "tagsType",
           "tags",
+          "oshiRange",
         ],
         Schema.String,
       ).pipe(
@@ -167,6 +168,7 @@ const teamConfigParser = ([range]: sheets_v4.Schema$ValueRange[]) =>
             isvRanges: GoogleSheets.cellToStringSchema,
             tagsType: GoogleSheets.cellToLiteralSchema(["constants", "ranges"]),
             tags: GoogleSheets.cellToStringSchema,
+            oshiRange: GoogleSheets.cellToStringSchema,
           }),
         ),
       ),
@@ -175,7 +177,19 @@ const teamConfigParser = ([range]: sheets_v4.Schema$ValueRange[]) =>
     Effect.map(Array.getSuccesses),
     Effect.map(
       Array.map(
-        ([{ name, sheet, playerNameRange, teamNameRange, isvType, isvRanges, tagsType, tags }]) =>
+        ([
+          {
+            name,
+            sheet,
+            playerNameRange,
+            teamNameRange,
+            isvType,
+            isvRanges,
+            tagsType,
+            tags,
+            oshiRange,
+          },
+        ]) =>
           new TeamConfig({
             name,
             sheet,
@@ -183,6 +197,7 @@ const teamConfigParser = ([range]: sheets_v4.Schema$ValueRange[]) =>
             teamNameRange,
             isvConfig: parseTeamIsvConfig(isvType, isvRanges),
             tagsConfig: parseTeamTagsConfig(tagsType, tags),
+            oshiRange,
           }),
       ),
     ),
@@ -269,6 +284,7 @@ export class SheetConfigService extends Context.Service<SheetConfigService>()(
             userNotes: Schema.NullishOr(Schema.String),
             monitorIds: Schema.NullishOr(Schema.String),
             monitorNames: Schema.NullishOr(Schema.String),
+            oshis: Schema.NullishOr(Schema.String),
           }).pipe(
             Schema.encodeKeys({
               userIds: "User IDs",
@@ -276,6 +292,7 @@ export class SheetConfigService extends Context.Service<SheetConfigService>()(
               userNotes: "User Notes",
               monitorIds: "Moni IDs",
               monitorNames: "Moni Names",
+              oshis: "Oshis",
             }),
             Schema.decodeTo(DefaultTaggedClass(RangesConfig)),
           ),
@@ -287,7 +304,7 @@ export class SheetConfigService extends Context.Service<SheetConfigService>()(
       ) {
         const response = yield* googleSheets.get({
           spreadsheetId: sheetId,
-          ranges: ["'Thee's Sheet Settings'!E8:L"],
+          ranges: ["'Thee's Sheet Settings'!E8:M"],
         });
         const ranges = yield* Option.fromNullishOr(response.data.valueRanges).pipe(
           Option.match({
@@ -309,7 +326,7 @@ export class SheetConfigService extends Context.Service<SheetConfigService>()(
       ) {
         const response = yield* googleSheets.get({
           spreadsheetId: sheetId,
-          ranges: ["'Thee's Sheet Settings'!N8:O"],
+          ranges: ["'Thee's Sheet Settings'!O8:P"],
         });
 
         const range = yield* Option.fromNullishOr(response.data.valueRanges).pipe(
@@ -349,7 +366,7 @@ export class SheetConfigService extends Context.Service<SheetConfigService>()(
       ) {
         const response = yield* googleSheets.get({
           spreadsheetId: sheetId,
-          ranges: ["'Thee's Sheet Settings'!Q8:AD"],
+          ranges: ["'Thee's Sheet Settings'!R8:AE"],
         });
         const ranges = yield* Option.fromNullishOr(response.data.valueRanges).pipe(
           Option.match({
@@ -371,7 +388,7 @@ export class SheetConfigService extends Context.Service<SheetConfigService>()(
       ) {
         const response = yield* googleSheets.get({
           spreadsheetId: sheetId,
-          ranges: ["'Thee's Sheet Settings'!AF8:AG"],
+          ranges: ["'Thee's Sheet Settings'!AG8:AH"],
         });
         const ranges = yield* Option.fromNullishOr(response.data.valueRanges).pipe(
           Option.match({

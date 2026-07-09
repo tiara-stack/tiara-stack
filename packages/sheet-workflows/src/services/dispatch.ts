@@ -7,11 +7,13 @@ import {
   DateTime,
   Duration,
   Effect,
+  Exit,
   Layer,
   Match,
   Option,
   Predicate,
   Random,
+  Schedule,
   String as EffectString,
   pipe,
 } from "effect";
@@ -82,6 +84,12 @@ import type {
   SlotOpenButtonResult,
   TeamListDispatchPayload,
   TeamListDispatchResult,
+  TeamSubmissionConfirmButtonDispatchPayload,
+  TeamSubmissionConfirmButtonDispatchResult,
+  TeamSubmissionDispatchPayload,
+  TeamSubmissionDispatchResult,
+  TeamSubmissionRejectButtonDispatchPayload,
+  TeamSubmissionRejectButtonDispatchResult,
   UpdateAnnouncementDispatchPayload,
   UpdateAnnouncementDispatchResult,
 } from "sheet-ingress-api/sheet-apis-rpc";
@@ -95,6 +103,7 @@ import {
   roomOrderActionRow,
   slotActionRow,
   tentativeRoomOrderActionRow,
+  teamSubmissionConfirmationActionRow,
 } from "./messageComponents";
 import type { SheetMessageComponent } from "sheet-ingress-api/schemas/client";
 import { ClientDeliveryClient, ClientDeliveryClientRef } from "./clientDeliveryClient";
@@ -116,6 +125,16 @@ type PreferenceDmToggleConfig = {
 };
 
 const updateAnnouncementsFeatureFlag = "update-announcements";
+const teamSubmissionConfirmationsFeatureFlag = "team-submission-confirmations";
+const teamSubmissionReaction = { id: "907705464215711834", name: "Miku_Happy" } as const;
+const teamSubmissionProgressColor = 0xfee75c;
+const teamSubmissionSuccessColor = 0x57f287;
+const teamSubmissionErrorColor = 0xed4245;
+
+const ignoreDiscordCleanupFailure = (message: string) =>
+  Effect.catchCause((cause) =>
+    Effect.logWarning(message).pipe(Effect.andThen(Effect.logDebug(cause))),
+  );
 
 type DeliveredMessage = {
   readonly id: string;
@@ -3740,6 +3759,198 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           teamCount: formattedTeams.length,
         } satisfies TeamListDispatchResult;
       }),
+      teamSubmission: Effect.fn("DispatchService.teamSubmission")(function* (
+        payload: TeamSubmissionDispatchPayload,
+      ) {
+        yield* Effect.annotateCurrentSpan({
+          workspaceId: payload.workspaceId,
+          conversationId: payload.conversationId,
+          messageId: payload.messageId,
+        });
+        const deliveryClient = botClient.forClient(payload.client);
+        const featureFlags = yield* workspaceConfigService.getWorkspaceFeatureFlags(
+          payload.workspaceId,
+        );
+        const confirmationsEnabled = featureFlags.some(
+          (flag) => flag.flagName === teamSubmissionConfirmationsFeatureFlag,
+        );
+
+        if (!confirmationsEnabled) {
+          const result = yield* sheetApisClient.get().teamSubmission.upsertFromDiscord({ payload });
+          const confirmationPayload = {
+            content: result.confirmationText,
+            allowedMentions: "none" as const,
+          };
+          const confirmationSendPayload = {
+            ...confirmationPayload,
+            nonce: payload.messageId,
+            enforceNonce: true,
+          };
+          const confirmation = yield* Option.match(result.confirmationMessage, {
+            onSome: (message) =>
+              deliveryClient.updateMessage(
+                message.conversation.conversationId,
+                message.messageId,
+                confirmationPayload,
+              ),
+            onNone: () =>
+              deliveryClient.sendMessage(payload.conversationId, confirmationSendPayload),
+          });
+
+          const updatedResult = yield* sheetApisClient
+            .get()
+            .teamSubmission.setConfirmationMessage({
+              payload: {
+                workspaceId: payload.workspaceId,
+                conversationId: payload.conversationId,
+                messageId: payload.messageId,
+                confirmationMessageId: confirmation.id,
+              },
+            })
+            .pipe(
+              Effect.retry({
+                schedule: Schedule.spaced(Duration.seconds(1)),
+                times: 2,
+              }),
+            );
+
+          return updatedResult satisfies TeamSubmissionDispatchResult;
+        }
+
+        const sourceMessage = {
+          conversation: {
+            workspace: { client: payload.client, workspaceId: payload.workspaceId },
+            conversationId: payload.conversationId,
+          },
+          messageId: payload.messageId,
+        };
+        const progressMessage = yield* deliveryClient.sendMessage(payload.conversationId, {
+          embeds: [
+            makeEmbed({
+              title: "Adding teams to the sheet",
+              description: "Tiara is parsing this submission and writing the teams now.",
+              color: teamSubmissionProgressColor,
+            }),
+          ],
+          messageReference: { message: sourceMessage, failIfNotExists: false },
+          allowedMentions: "none",
+          nonce: payload.messageId,
+          enforceNonce: true,
+        });
+        const result = yield* Effect.gen(function* () {
+          yield* deliveryClient
+            .addMessageReaction(payload.conversationId, payload.messageId, teamSubmissionReaction)
+            .pipe(ignoreDiscordCleanupFailure("Failed to add team submission reaction"));
+          return yield* sheetApisClient.get().teamSubmission.upsertFromDiscord({ payload });
+        }).pipe(
+          Effect.catch((error) =>
+            Effect.gen(function* () {
+              yield* deliveryClient
+                .removeMessageReaction(
+                  payload.conversationId,
+                  payload.messageId,
+                  teamSubmissionReaction,
+                )
+                .pipe(ignoreDiscordCleanupFailure("Failed to remove team submission reaction"));
+              yield* deliveryClient
+                .updateMessage(payload.conversationId, progressMessage.id, {
+                  embeds: [
+                    makeEmbed({
+                      title: "Could not add teams",
+                      description: "Tiara could not write this submission to the sheet.",
+                      color: teamSubmissionErrorColor,
+                    }),
+                  ],
+                  components: [],
+                  allowedMentions: "none",
+                })
+                .pipe(
+                  ignoreDiscordCleanupFailure("Failed to update team submission failure reply"),
+                );
+              return yield* Effect.fail(error);
+            }),
+          ),
+        );
+
+        const addedTeams =
+          result.parsedTeams.length === 0
+            ? "No teams were registered."
+            : result.parsedTeams
+                .map(
+                  (team) =>
+                    `• ${escapeMarkdown(team.playerName)} - ${escapeMarkdown(team.teamName)} (${team.teamType})`,
+                )
+                .join("\n");
+        const skippedTeams =
+          result.skippedTeams.length === 0
+            ? ""
+            : `\n\nSkipped:\n${result.skippedTeams
+                .map(
+                  (team) => `• ${escapeMarkdown(team.teamName)} - ${escapeMarkdown(team.reason)}`,
+                )
+                .join("\n")}`;
+
+        const updatedResult = yield* Effect.gen(function* () {
+          const confirmation = yield* deliveryClient.updateMessage(
+            payload.conversationId,
+            progressMessage.id,
+            {
+              embeds: [
+                makeEmbed({
+                  title: "Teams added to the sheet",
+                  description: `${addedTeams}${skippedTeams}`,
+                  color: teamSubmissionSuccessColor,
+                }),
+              ],
+              components: [teamSubmissionConfirmationActionRow()],
+              allowedMentions: "none",
+            },
+          );
+
+          return yield* sheetApisClient
+            .get()
+            .teamSubmission.setConfirmationMessage({
+              payload: {
+                workspaceId: payload.workspaceId,
+                conversationId: payload.conversationId,
+                messageId: payload.messageId,
+                confirmationMessageId: confirmation.id,
+              },
+            })
+            .pipe(
+              Effect.retry({
+                schedule: Schedule.spaced(Duration.seconds(1)),
+                times: 2,
+              }),
+            );
+        }).pipe(
+          Effect.catch((error) =>
+            Effect.gen(function* () {
+              yield* deliveryClient
+                .updateMessage(payload.conversationId, progressMessage.id, {
+                  embeds: [
+                    makeEmbed({
+                      title: "Teams added, but confirmation failed",
+                      description:
+                        "Tiara wrote the teams to the sheet, but could not finish the confirmation controls.",
+                      color: teamSubmissionErrorColor,
+                    }),
+                  ],
+                  components: [],
+                  allowedMentions: "none",
+                })
+                .pipe(
+                  ignoreDiscordCleanupFailure(
+                    "Failed to update team submission confirmation failure reply",
+                  ),
+                );
+              return yield* Effect.fail(error);
+            }),
+          ),
+        );
+
+        return updatedResult satisfies TeamSubmissionDispatchResult;
+      }),
       scheduleList: Effect.fn("DispatchService.scheduleList")(function* (
         payload: ScheduleListDispatchPayload,
       ) {
@@ -4445,6 +4656,142 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       ) {
         return handleRoomOrderPinTentativeButton(payload, authorizedRoomOrder);
       },
+      teamSubmissionConfirmButton: Effect.fn("DispatchService.teamSubmissionConfirmButton")(
+        function* (
+          payload: TeamSubmissionConfirmButtonDispatchPayload,
+          requester: DispatchRequester,
+        ) {
+          const deliveryClient = botClient.forClient(payload.client);
+          const finishInteractionBestEffort = (content: string) =>
+            botClient
+              .updateOriginalInteractionResponse(payload.interactionResponseToken, {
+                content,
+                allowedMentions: "none",
+              })
+              .pipe(
+                ignoreDiscordCleanupFailure(
+                  "Failed to update team submission confirm interaction response",
+                ),
+              );
+          const removeReaction = () =>
+            deliveryClient
+              .removeMessageReaction(
+                payload.conversationId,
+                payload.messageId,
+                teamSubmissionReaction,
+              )
+              .pipe(ignoreDiscordCleanupFailure("Failed to remove team submission reaction"));
+
+          yield* pipe(
+            sheetApisClient.get().teamSubmission.confirmFromDiscord({
+              payload: {
+                client: payload.client,
+                workspaceId: payload.workspaceId,
+                conversationId: payload.conversationId,
+                messageId: payload.messageId,
+                confirmationMessageId: payload.confirmationMessageId,
+                requesterUserId: requester.accountId,
+              },
+            }),
+            Effect.exit,
+            Effect.flatMap(
+              Exit.match({
+                onFailure: (cause) =>
+                  finishInteractionBestEffort(
+                    "Could not confirm this team submission. Please try again.",
+                  ).pipe(Effect.andThen(Effect.failCause(cause))),
+                onSuccess: Effect.succeed,
+              }),
+            ),
+          );
+          yield* finishInteractionBestEffort("Team submission confirmed.");
+          yield* deliveryClient
+            .deleteMessage(payload.conversationId, payload.confirmationMessageId)
+            .pipe(ignoreDiscordCleanupFailure("Failed to delete team submission confirmation"));
+          yield* removeReaction();
+
+          return { status: "confirmed" } satisfies TeamSubmissionConfirmButtonDispatchResult;
+        },
+      ),
+      teamSubmissionRejectButton: Effect.fn("DispatchService.teamSubmissionRejectButton")(
+        function* (
+          payload: TeamSubmissionRejectButtonDispatchPayload,
+          requester: DispatchRequester,
+        ) {
+          const deliveryClient = botClient.forClient(payload.client);
+          const removeReaction = () =>
+            deliveryClient
+              .removeMessageReaction(
+                payload.conversationId,
+                payload.messageId,
+                teamSubmissionReaction,
+              )
+              .pipe(ignoreDiscordCleanupFailure("Failed to remove team submission reaction"));
+          const editRollbackFailedReply = (confirmationText: string) =>
+            deliveryClient.updateMessage(payload.conversationId, payload.confirmationMessageId, {
+              embeds: [
+                makeEmbed({
+                  title: "Rollback failed",
+                  description: confirmationText,
+                  color: teamSubmissionErrorColor,
+                }),
+              ],
+              components: [teamSubmissionConfirmationActionRow(true)],
+              allowedMentions: "none",
+            });
+          const finishInteractionBestEffort = (content: string) =>
+            botClient
+              .updateOriginalInteractionResponse(payload.interactionResponseToken, {
+                content,
+                allowedMentions: "none",
+              })
+              .pipe(
+                ignoreDiscordCleanupFailure(
+                  "Failed to update team submission interaction response",
+                ),
+              );
+          const result = yield* pipe(
+            sheetApisClient.get().teamSubmission.revertFromDiscord({
+              payload: {
+                client: payload.client,
+                workspaceId: payload.workspaceId,
+                conversationId: payload.conversationId,
+                messageId: payload.messageId,
+                confirmationMessageId: payload.confirmationMessageId,
+                requesterUserId: requester.accountId,
+              },
+            }),
+            Effect.exit,
+            Effect.flatMap(
+              Exit.match({
+                onFailure: (cause) =>
+                  finishInteractionBestEffort(
+                    "Could not reject this team submission. Please try again.",
+                  ).pipe(Effect.andThen(Effect.failCause(cause))),
+                onSuccess: Effect.succeed,
+              }),
+            ),
+          );
+          if (result.status === "rejected") {
+            yield* finishInteractionBestEffort("Team submission rejected and rolled back.");
+            yield* removeReaction();
+            yield* deliveryClient
+              .deleteMessage(payload.conversationId, payload.confirmationMessageId)
+              .pipe(ignoreDiscordCleanupFailure("Failed to delete team submission confirmation"));
+            return { status: "rejected" } satisfies TeamSubmissionRejectButtonDispatchResult;
+          }
+
+          yield* finishInteractionBestEffort("Rollback failed. Please check the updated reply.");
+          yield* removeReaction();
+          yield* editRollbackFailedReply(result.confirmationText).pipe(
+            ignoreDiscordCleanupFailure("Failed to update team submission rollback failure reply"),
+          );
+
+          return {
+            status: "rollbackFailed",
+          } satisfies TeamSubmissionRejectButtonDispatchResult;
+        },
+      ),
     };
   }),
 }) {

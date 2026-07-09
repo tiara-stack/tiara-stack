@@ -19,6 +19,7 @@ export * from "./screenshot";
 export * from "./schedule";
 export * from "./sheet";
 export * from "./sheetConfig";
+export * from "./teamSubmission";
 export * from "./sheetAuthClient";
 export * from "./userConfig";
 export * from "./zeroClient";

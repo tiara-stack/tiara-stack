@@ -31,6 +31,9 @@ import {
   DispatchSlotListWorkflow as BaseDispatchSlotListWorkflow,
   DispatchSlotOpenButtonWorkflow as BaseDispatchSlotOpenButtonWorkflow,
   DispatchTeamListWorkflow as BaseDispatchTeamListWorkflow,
+  DispatchTeamSubmissionConfirmButtonWorkflow as BaseDispatchTeamSubmissionConfirmButtonWorkflow,
+  DispatchTeamSubmissionRejectButtonWorkflow as BaseDispatchTeamSubmissionRejectButtonWorkflow,
+  DispatchTeamSubmissionWorkflow as BaseDispatchTeamSubmissionWorkflow,
   DispatchUpdateAnnouncementWorkflow as BaseDispatchUpdateAnnouncementWorkflow,
 } from "sheet-ingress-api/sheet-workflows-workflows";
 
@@ -189,6 +192,23 @@ export const DispatchTeamListWorkflow = BaseDispatchTeamListWorkflow.annotate(
   dispatchShardGroup,
 );
 
+export const DispatchTeamSubmissionWorkflow = BaseDispatchTeamSubmissionWorkflow.annotate(
+  ClusterSchema.ShardGroup,
+  dispatchShardGroup,
+);
+
+export const DispatchTeamSubmissionConfirmButtonWorkflow =
+  BaseDispatchTeamSubmissionConfirmButtonWorkflow.annotate(
+    ClusterSchema.ShardGroup,
+    dispatchShardGroup,
+  );
+
+export const DispatchTeamSubmissionRejectButtonWorkflow =
+  BaseDispatchTeamSubmissionRejectButtonWorkflow.annotate(
+    ClusterSchema.ShardGroup,
+    dispatchShardGroup,
+  );
+
 export const DispatchScheduleListWorkflow = BaseDispatchScheduleListWorkflow.annotate(
   ClusterSchema.ShardGroup,
   dispatchShardGroup,
@@ -230,6 +250,9 @@ export const DispatchWorkflows = [
   DispatchWorkspaceSetSheetWorkflow,
   DispatchWorkspaceSetAutoCheckinWorkflow,
   DispatchTeamListWorkflow,
+  DispatchTeamSubmissionWorkflow,
+  DispatchTeamSubmissionConfirmButtonWorkflow,
+  DispatchTeamSubmissionRejectButtonWorkflow,
   DispatchScheduleListWorkflow,
   DispatchScreenshotWorkflow,
 ] as const;

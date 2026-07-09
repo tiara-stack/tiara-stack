@@ -5,6 +5,8 @@ import {
   ROOM_ORDER_SEND_ACTION_ID,
   ROOM_ORDER_TENTATIVE_PIN_ACTION_ID,
   SLOT_OPEN_ACTION_ID,
+  TEAM_SUBMISSION_CONFIRM_ACTION_ID,
+  TEAM_SUBMISSION_REJECT_ACTION_ID,
 } from "sheet-ingress-api/clientActions";
 import type { SheetActionButton, SheetMessageActionRow } from "sheet-ingress-api/schemas/client";
 
@@ -95,3 +97,19 @@ export const tentativeRoomOrderActionRow = (
 
 export const tentativeRoomOrderPinActionRow = (disabled = false) =>
   actionRow(tentativePinButton(disabled));
+
+export const teamSubmissionConfirmationActionRow = (disabled = false) =>
+  actionRow(
+    button({
+      actionId: TEAM_SUBMISSION_CONFIRM_ACTION_ID,
+      label: "Confirm",
+      style: "success",
+      disabled,
+    }),
+    button({
+      actionId: TEAM_SUBMISSION_REJECT_ACTION_ID,
+      label: "Reject",
+      style: "danger",
+      disabled,
+    }),
+  );

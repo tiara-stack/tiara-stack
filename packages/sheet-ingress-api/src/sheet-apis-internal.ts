@@ -15,6 +15,7 @@ import {
   ScreenshotApi,
   SheetApi,
   StatusApi,
+  TeamSubmissionApi,
   UserConfigApi,
 } from "./api-groups";
 import { SheetIngressServiceAuthorization } from "./middlewares/sheetIngressServiceAuthorization/tag";
@@ -44,5 +45,6 @@ export class SheetApisInternalApi extends HttpApi.make("api")
   .add(internal(ScheduleApi))
   .add(internal(DiscordApi))
   .add(internal(StatusApi))
+  .add(internal(TeamSubmissionApi))
   .add(internal(UserConfigApi))
   .annotate(OpenApi.Title, "Sheet APIs Internal") {}

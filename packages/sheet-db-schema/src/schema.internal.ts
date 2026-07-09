@@ -2,6 +2,11 @@ import { pg } from "effect-sql-schema";
 import type { EffectSqlTable } from "effect-sql-schema";
 import type { Model } from "effect/unstable/schema";
 import { ReadonlyJSONValue } from "typhoon-zero/schema";
+import {
+  TeamSubmissionRemovedRowStrategy,
+  TeamSubmissionWriteMode,
+} from "./teamSubmissionChannelConfig";
+import { TeamSubmissionStatus } from "./teamSubmissionStatus";
 
 type PgModel = Model.Any & Omit<EffectSqlTable<"postgresql">, "name">;
 const asPgModel = <const T extends PgModel>(model: T) => model;
@@ -72,11 +77,7 @@ class ConfigWorkspaceUpdateAnnouncementDelivery extends pg.Class<ConfigWorkspace
     deletedAt: deletedAt(),
   },
   primaryKey: ["workspaceId", "announcementId"],
-  indexes: [
-    pg
-      .index("config_workspace_update_announcement_delivery_announcement_id_idx")
-      .on("announcementId"),
-  ],
+  indexes: [pg.index("config_workspace_update_ann_delivery_announcement_idx").on("announcementId")],
 }) {}
 
 class ConfigUserPlatform extends pg.Class<ConfigUserPlatform>("ConfigUserPlatform")({
@@ -113,6 +114,28 @@ class ConfigWorkspaceConversation extends pg.Class<ConfigWorkspaceConversation>(
   indexes: [
     pg.uniqueIndex("config_workspace_conversation_workspace_id_name_idx").on("workspaceId", "name"),
   ],
+}) {}
+
+class ConfigWorkspaceTeamSubmissionChannel extends pg.Class<ConfigWorkspaceTeamSubmissionChannel>(
+  "ConfigWorkspaceTeamSubmissionChannel",
+)({
+  table: "config_workspace_team_submission_channel",
+  fields: {
+    workspaceId: pg.varchar("workspace_id").notNull(),
+    conversationId: pg.varchar("conversation_id").notNull(),
+    destinationTeamConfigName: pg.varchar("destination_team_config_name"),
+    writeMode: pg.varchar("write_mode").notNull().decodeTo(TeamSubmissionWriteMode),
+    removedRowStrategy: pg
+      .varchar("removed_row_strategy")
+      .notNull()
+      .decodeTo(TeamSubmissionRemovedRowStrategy),
+    requireValidOshi: pg.boolean("require_valid_oshi").notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+    deletedAt: deletedAt(),
+  },
+  primaryKey: ["workspaceId", "conversationId"],
+  indexes: [pg.index("config_workspace_team_sub_channel_conv_idx").on("conversationId")],
 }) {}
 
 class MessageSlot extends pg.Class<MessageSlot>("MessageSlot")({
@@ -224,6 +247,39 @@ class MessageRoomOrderEntry extends pg.Class<MessageRoomOrderEntry>("MessageRoom
   ],
 }) {}
 
+class MessageTeamSubmission extends pg.Class<MessageTeamSubmission>("MessageTeamSubmission")({
+  table: "message_team_submission",
+  fields: {
+    workspaceId: pg.varchar("workspace_id").notNull(),
+    conversationId: pg.varchar("conversation_id").notNull(),
+    messageId: pg.varchar("message_id").notNull(),
+    clientPlatform: pg.varchar("client_platform").notNull(),
+    clientId: pg.varchar("client_id").notNull(),
+    discordGuildId: pg.varchar("discord_guild_id").notNull(),
+    discordChannelId: pg.varchar("discord_channel_id").notNull(),
+    discordAuthorId: pg.varchar("discord_author_id").notNull(),
+    sheetId: pg.varchar("sheet_id").notNull(),
+    confirmationMessageId: pg.varchar("confirmation_message_id"),
+    parsedSubmission: pg.jsonb("parsed_submission").notNull().decodeTo(ReadonlyJSONValue),
+    rowMappings: pg.jsonb("row_mappings").notNull().decodeTo(ReadonlyJSONValue),
+    rollbackSnapshot: pg.jsonb("rollback_snapshot").decodeTo(ReadonlyJSONValue),
+    version: pg.integer("version").notNull(),
+    status: pg.varchar("status").notNull().decodeTo(TeamSubmissionStatus),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+    deletedAt: deletedAt(),
+  },
+  primaryKey: ["workspaceId", "conversationId", "messageId"],
+  indexes: [
+    pg
+      .uniqueIndex("message_team_submission_discord_message_idx")
+      .on("discordGuildId", "discordChannelId", "messageId"),
+    pg
+      .index("message_team_submission_client_message_idx")
+      .on("clientPlatform", "clientId", "messageId"),
+  ],
+}) {}
+
 class SheetApisDispatchJobs extends pg.Class<SheetApisDispatchJobs>("SheetApisDispatchJobs")({
   table: "sheet_apis_dispatch_jobs",
   fields: {
@@ -251,9 +307,11 @@ export const configWorkspaceUpdateAnnouncementDelivery = asPgModel(
 );
 export const configUserPlatform = asPgModel(ConfigUserPlatform);
 export const configWorkspaceConversation = asPgModel(ConfigWorkspaceConversation);
+export const configWorkspaceTeamSubmissionChannel = asPgModel(ConfigWorkspaceTeamSubmissionChannel);
 export const messageSlot = asPgModel(MessageSlot);
 export const messageCheckin = asPgModel(MessageCheckin);
 export const messageCheckinMember = asPgModel(MessageCheckinMember);
 export const messageRoomOrder = asPgModel(MessageRoomOrder);
 export const messageRoomOrderEntry = asPgModel(MessageRoomOrderEntry);
+export const messageTeamSubmission = asPgModel(MessageTeamSubmission);
 export const sheetApisDispatchJobs = asPgModel(SheetApisDispatchJobs);
