@@ -16,6 +16,8 @@ global:
     existingConfigMap: ""
     key: ca-certificate.crt
     value: ""
+  nodeSelector: {}
+  tolerations: []
 secrets:
   create: false
 
@@ -86,6 +88,8 @@ services:
     seedTrustedOAuthClients:
       enabled: true
     env: {}
+    nodeSelector: {}
+    tolerations: []
     serviceMonitor:
       enabled: true
 
@@ -102,6 +106,8 @@ services:
       name: sheet-apis-secret-path
       key: google-service-account.json
     env: {}
+    nodeSelector: {}
+    tolerations: []
     serviceMonitor:
       enabled: true
 
@@ -115,6 +121,8 @@ services:
     secretRef:
       name: sheet-bot-secret
     env: {}
+    nodeSelector: {}
+    tolerations: []
     serviceMonitor:
       enabled: true
 
@@ -128,6 +136,8 @@ services:
     secretRef:
       name: sheet-workflows-secret
     env: {}
+    nodeSelector: {}
+    tolerations: []
     serviceMonitor:
       enabled: true
 
@@ -141,6 +151,8 @@ services:
     secretRef:
       name: sheet-workflows-secret
     env: {}
+    nodeSelector: {}
+    tolerations: []
     serviceMonitor:
       enabled: true
 
@@ -161,6 +173,8 @@ services:
       limits:
         cpu: "1"
         memory: 1Gi
+    nodeSelector: {}
+    tolerations: []
     serviceMonitor:
       enabled: true
 
@@ -181,6 +195,8 @@ services:
       limits:
         cpu: "1"
         memory: 1Gi
+    nodeSelector: {}
+    tolerations: []
     serviceMonitor:
       enabled: true
 
@@ -194,6 +210,8 @@ services:
     secretRef:
       name: sheet-web-secret
     env: {}
+    nodeSelector: {}
+    tolerations: []
     serviceMonitor:
       enabled: false
 
@@ -213,6 +231,8 @@ zeroCache:
     limits:
       cpu: "1"
       memory: 1Gi
+  nodeSelector: {}
+  tolerations: []
   envoy:
     configMapNameOverride: ""
     tokenRefreshIntervalSeconds: 300

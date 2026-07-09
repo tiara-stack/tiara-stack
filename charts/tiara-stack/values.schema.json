@@ -69,6 +69,12 @@
         },
         "defaultResources": {
           "$ref": "#/definitions/resources"
+        },
+        "nodeSelector": {
+          "$ref": "#/definitions/nodeSelector"
+        },
+        "tolerations": {
+          "$ref": "#/definitions/tolerations"
         }
       }
     },
@@ -443,6 +449,12 @@
         "resources": {
           "$ref": "#/definitions/resources"
         },
+        "nodeSelector": {
+          "$ref": "#/definitions/nodeSelector"
+        },
+        "tolerations": {
+          "$ref": "#/definitions/tolerations"
+        },
         "envoy": {
           "type": "object",
           "additionalProperties": false,
@@ -624,8 +636,20 @@
             },
             "resources": {
               "$ref": "#/definitions/resources"
+            },
+            "nodeSelector": {
+              "$ref": "#/definitions/nodeSelector"
+            },
+            "tolerations": {
+              "$ref": "#/definitions/tolerations"
             }
           }
+        },
+        "nodeSelector": {
+          "$ref": "#/definitions/nodeSelector"
+        },
+        "tolerations": {
+          "$ref": "#/definitions/tolerations"
         },
         "serviceMonitor": {
           "type": "object",
@@ -671,6 +695,38 @@
           "type": "object",
           "additionalProperties": {
             "type": "string"
+          }
+        }
+      }
+    },
+    "nodeSelector": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "tolerations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "operator": {
+            "type": "string",
+            "enum": ["Exists", "Equal"]
+          },
+          "value": {
+            "type": "string"
+          },
+          "effect": {
+            "type": "string",
+            "enum": ["NoSchedule", "PreferNoSchedule", "NoExecute"]
+          },
+          "tolerationSeconds": {
+            "type": ["integer", "null"]
           }
         }
       }

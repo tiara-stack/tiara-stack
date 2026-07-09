@@ -1,6 +1,8 @@
 {{- $root := . -}}
 {{- $sheetAuthValues := ($root.Values.services.sheetAuth | default dict) -}}
 {{- $seedValues := ($sheetAuthValues.seedTrustedOAuthClients | default dict) -}}
+{{- $seedNodeSelector := coalesce (dig "seedTrustedOAuthClients" "nodeSelector" dict $sheetAuthValues) $sheetAuthValues.nodeSelector $root.Values.global.nodeSelector -}}
+{{- $seedTolerations := coalesce (dig "seedTrustedOAuthClients" "tolerations" list $sheetAuthValues) $sheetAuthValues.tolerations $root.Values.global.tolerations -}}
 {{- if and $sheetAuthValues.enabled (default true $seedValues.enabled) }}
 {{- $sheetAuthSecretRef := ($sheetAuthValues.secretRef | default dict) -}}
 {{- $sheetAuthSecretName := default "sheet-auth-secret" $sheetAuthSecretRef.name -}}
@@ -47,6 +49,14 @@ spec:
         fsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
+      {{- with $seedNodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $seedTolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: seed-trusted-oauth-clients
           image: {{ include "tiara-stack.image" (dict "root" $root "name" "sheet-auth" "image" $sheetAuthValues.image) | quote }}

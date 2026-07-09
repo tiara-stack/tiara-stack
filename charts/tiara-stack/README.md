@@ -161,6 +161,60 @@ kubectl -n tiara-stack-prod create secret tls theerapakg-moe-tls \
   --key=privkey.pem
 ```
 
+## Scheduling
+
+Use `nodeSelector` and `tolerations` to control where TiaraStack pods run. Set
+them globally for all workloads or per-workload to override the default.
+
+```yaml
+# Pin every workload to a dedicated node pool.
+global:
+  nodeSelector:
+    workload: tiara-stack
+  tolerations:
+    - key: dedicated
+      operator: Equal
+      value: tiara-stack
+      effect: NoSchedule
+
+# Override scheduling for just the Zero Cache StatefulSet.
+zeroCache:
+  nodeSelector:
+    workload: zero-cache
+  tolerations:
+    - key: dedicated
+      operator: Equal
+      value: zero-cache
+      effect: NoSchedule
+
+# Override scheduling for a single service Deployment.
+services:
+  sheetBot:
+    nodeSelector:
+      workload: sheet-bot
+    tolerations:
+      - key: dedicated
+        operator: Equal
+        value: sheet-bot
+        effect: NoSchedule
+```
+
+The `seed-trusted-oauth-clients` Job inherits the `services.sheetAuth`
+scheduling values and can be overridden further through
+`services.sheetAuth.seedTrustedOAuthClients.nodeSelector` and
+`services.sheetAuth.seedTrustedOAuthClients.tolerations`.
+
+The precedence order is: per-workload > parent service (`sheetAuth` for the seed
+job) > global.
+
+Because the templates use `coalesce`, an empty `nodeSelector: {}` or
+`tolerations: []` at a lower level is treated as unset and will fall through to
+the parent service or global values. You cannot use an empty value to explicitly
+clear inherited scheduling constraints for a single workload.
+
+The default `values.yaml` sets `nodeSelector: {}` and `tolerations: []` on every
+workload, so omitting these fields leaves pods unconstrained.
+
 ## Infisical Operator
 
 The chart can optionally render Infisical operator resources that reconcile the

@@ -32,6 +32,14 @@ spec:
         fsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
+      {{- with (coalesce .Values.zeroCache.nodeSelector .Values.global.nodeSelector) }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with (coalesce .Values.zeroCache.tolerations .Values.global.tolerations) }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: zero-cache
           image: {{ printf "%s:%s" .Values.zeroCache.image.repository .Values.zeroCache.image.tag | quote }}

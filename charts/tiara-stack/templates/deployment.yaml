@@ -43,6 +43,14 @@ spec:
       {{- if $svc.terminationGracePeriodSeconds }}
       terminationGracePeriodSeconds: {{ $svc.terminationGracePeriodSeconds }}
       {{- end }}
+      {{- with (coalesce $serviceValues.nodeSelector $root.Values.global.nodeSelector) }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with (coalesce $serviceValues.tolerations $root.Values.global.tolerations) }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: {{ $svc.name }}
           image: {{ include "tiara-stack.image" (dict "root" $root "name" (default $svc.name $svc.imageName) "image" $serviceValues.image) | quote }}
