@@ -1,6 +1,6 @@
 // fallow-ignore-file code-duplication
 import { describe, expect, it } from "@effect/vitest";
-import { Cause, DateTime, Effect, Exit, Option } from "effect";
+import { Cause, DateTime, Effect, Exit, Option, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import { formatTentativeRoomOrderContent } from "sheet-ingress-api/clientActions";
 import type {
@@ -26,6 +26,7 @@ import type {
   TeamListDispatchPayload,
   UpdateAnnouncementDispatchPayload,
 } from "sheet-ingress-api/handlers/dispatch/schema";
+import { UpdateAnnouncementDispatchError } from "sheet-ingress-api/handlers/dispatch/schema";
 import {
   WorkspaceConversationConfig,
   WorkspaceConfig,
@@ -615,6 +616,26 @@ const makeWorkspaceUpdateAnnouncementDelivery = (
 
 const updateAnnouncementsFeatureFlagName = "update-announcements";
 
+// These failure-path tests stop before Discord delivery, but keep the expected
+// delivery surface explicit so accidental sends fail loudly.
+const unusedUpdateAnnouncementBotClient = {
+  getConversationsForParent: () => Effect.die("feature flag failure should not read conversations"),
+  sendMessage: () => Effect.die("feature flag failure should not send messages"),
+} satisfies Pick<
+  typeof ClientDeliveryClient.Service,
+  "getConversationsForParent" | "sendMessage"
+> as unknown as typeof ClientDeliveryClient.Service;
+
+const updateAnnouncementSuccessBotClient = {
+  getConversationsForParent: () =>
+    Effect.succeed([makeConversationEntry({ id: "system-conversation", name: "welcome" })]),
+  sendMessage: () =>
+    Effect.succeed({ id: "update-message", conversation_id: "system-conversation" }),
+} satisfies Pick<
+  typeof ClientDeliveryClient.Service,
+  "getConversationsForParent" | "sendMessage"
+> as unknown as typeof ClientDeliveryClient.Service;
+
 const makeGatedUpdateAnnouncementSheetApisClient = (
   recordCalls: Array<unknown>,
   options: {
@@ -650,6 +671,31 @@ const makeGatedUpdateAnnouncementSheetApisClient = (
         return Effect.succeed(makeWorkspaceUpdateAnnouncementDelivery());
       },
     },
+  });
+
+const expectSerializableUpdateAnnouncementFailure = (
+  exit: Exit.Exit<unknown, unknown>,
+  message: string,
+  causeSnippet: string,
+) =>
+  Effect.gen(function* () {
+    expect(Exit.isFailure(exit)).toBe(true);
+    const failures = Exit.isFailure(exit)
+      ? exit.cause.reasons.filter(Cause.isFailReason).map((reason) => reason.error)
+      : [];
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatchObject({
+      _tag: "UnknownError",
+      message,
+    });
+    expect(typeof (failures[0] as { readonly cause?: unknown }).cause).toBe("string");
+
+    const encoded = yield* Schema.encodeUnknownEffect(UpdateAnnouncementDispatchError)(failures[0]);
+    expect(encoded).toMatchObject({
+      _tag: "UnknownError",
+      message,
+      cause: expect.stringContaining(causeSnippet),
+    });
   });
 
 const makeConversationEntry = (overrides: {
@@ -1493,6 +1539,150 @@ describe("DispatchService", () => {
           announcementId: "update-announcements-2026-06-05",
         },
       });
+    }),
+  );
+
+  it.effect("serializes update announcement dispatch failures", () =>
+    Effect.gen(function* () {
+      const sheetApisClient = makeSheetApisClient({
+        workspaceConfig: {
+          getWorkspaceFeatureFlags: () =>
+            Effect.fail(
+              new SheetWorkflowsServicesDispatchTestError({
+                message: "feature flags unavailable",
+                cause: { endpoint: "workspaceConfig.getWorkspaceFeatureFlags" },
+              }),
+            ),
+        },
+      });
+
+      const exit = yield* Effect.exit(
+        runUpdateAnnouncement(unusedUpdateAnnouncementBotClient, sheetApisClient),
+      );
+
+      yield* expectSerializableUpdateAnnouncementFailure(
+        exit,
+        "Failed to load update announcement feature flags",
+        "feature flags unavailable",
+      );
+    }),
+  );
+
+  it.effect("serializes update announcement claim failures", () =>
+    Effect.gen(function* () {
+      const sheetApisClient = makeSheetApisClient({
+        workspaceConfig: {
+          getWorkspaceFeatureFlags: () =>
+            Effect.succeed([
+              makeWorkspaceFeatureFlag({ flagName: updateAnnouncementsFeatureFlagName }),
+            ]),
+          claimWorkspaceUpdateAnnouncementDelivery: () =>
+            Effect.fail(
+              new SheetWorkflowsServicesDispatchTestError({
+                message: "claim failed",
+                cause: { endpoint: "claimWorkspaceUpdateAnnouncementDelivery" },
+              }),
+            ),
+        },
+      });
+
+      const exit = yield* Effect.exit(
+        runUpdateAnnouncement(unusedUpdateAnnouncementBotClient, sheetApisClient),
+      );
+
+      yield* expectSerializableUpdateAnnouncementFailure(
+        exit,
+        "Failed to claim update announcement delivery",
+        "claim failed",
+      );
+    }),
+  );
+
+  it.effect("serializes update announcement send failures", () =>
+    Effect.gen(function* () {
+      const releaseCalls: Array<unknown> = [];
+      const sheetApisClient = makeGatedUpdateAnnouncementSheetApisClient([], {
+        releaseCalls,
+      });
+      const botClient = {
+        getConversationsForParent: () =>
+          Effect.succeed([makeConversationEntry({ id: "system-conversation", name: "welcome" })]),
+        sendMessage: () =>
+          Effect.fail(
+            new SheetWorkflowsServicesDispatchTestError({
+              message: "send failed",
+              cause: { endpoint: "clientDelivery.sendMessage" },
+            }),
+          ),
+      } satisfies Pick<
+        typeof ClientDeliveryClient.Service,
+        "getConversationsForParent" | "sendMessage"
+      > as unknown as typeof ClientDeliveryClient.Service;
+
+      const exit = yield* Effect.exit(runUpdateAnnouncement(botClient, sheetApisClient));
+
+      yield* expectSerializableUpdateAnnouncementFailure(
+        exit,
+        "Failed to send update announcement",
+        "send failed",
+      );
+      expect(releaseCalls).toHaveLength(1);
+    }),
+  );
+
+  it.effect("serializes update announcement delivery-record failures", () =>
+    Effect.gen(function* () {
+      const sheetApisClient = makeSheetApisClient({
+        workspaceConfig: {
+          getWorkspaceFeatureFlags: () =>
+            Effect.succeed([
+              makeWorkspaceFeatureFlag({ flagName: updateAnnouncementsFeatureFlagName }),
+            ]),
+          claimWorkspaceUpdateAnnouncementDelivery: () =>
+            Effect.succeed({
+              status: "claimed" as const,
+              delivery: Option.some(makeWorkspaceUpdateAnnouncementDelivery()),
+            }),
+          recordWorkspaceUpdateAnnouncementDelivery: () =>
+            Effect.fail(
+              new SheetWorkflowsServicesDispatchTestError({
+                message: "record failed",
+                cause: { endpoint: "recordWorkspaceUpdateAnnouncementDelivery" },
+              }),
+            ),
+        },
+      });
+
+      const exit = yield* Effect.exit(
+        runUpdateAnnouncement(updateAnnouncementSuccessBotClient, sheetApisClient),
+      );
+
+      yield* expectSerializableUpdateAnnouncementFailure(
+        exit,
+        "Failed to record update announcement delivery",
+        "record failed",
+      );
+    }),
+  );
+
+  it.effect("does not serialize update announcement interrupts", () =>
+    Effect.gen(function* () {
+      const sheetApisClient = makeSheetApisClient({
+        workspaceConfig: {
+          getWorkspaceFeatureFlags: () => Effect.interrupt,
+        },
+      });
+
+      const exit = yield* Effect.exit(
+        runUpdateAnnouncement(unusedUpdateAnnouncementBotClient, sheetApisClient),
+      );
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(Exit.isFailure(exit) && Cause.hasInterrupts(exit.cause)).toBe(true);
+      expect(
+        Exit.isFailure(exit) &&
+          exit.cause.reasons.filter(Cause.isFailReason).map((reason) => reason.error),
+      ).toEqual([]);
     }),
   );
 

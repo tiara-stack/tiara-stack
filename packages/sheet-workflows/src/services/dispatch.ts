@@ -131,6 +131,17 @@ const teamSubmissionProgressColor = 0xfee75c;
 const teamSubmissionSuccessColor = 0x57f287;
 const teamSubmissionErrorColor = 0xed4245;
 
+const makeSerializableUnknownError = (message: string, cause: Cause.Cause<unknown>) =>
+  makeUnknownError(message, Cause.pretty(cause).trim());
+
+const failSerializableUnknownError = (message: string, cause: Cause.Cause<unknown>) =>
+  Cause.hasInterrupts(cause)
+    ? Effect.failCause(cause)
+    : Effect.fail(makeSerializableUnknownError(message, cause));
+
+const catchSerializableUnknownError = (message: string) =>
+  Effect.catchCause((cause: Cause.Cause<unknown>) => failSerializableUnknownError(message, cause));
+
 const ignoreDiscordCleanupFailure = (message: string) =>
   Effect.catchCause((cause) =>
     Effect.logWarning(message).pipe(Effect.andThen(Effect.logDebug(cause))),
@@ -880,6 +891,7 @@ const sendWorkspaceAnnouncementWithWelcomeHeuristic = (params: {
   readonly logLabel: string;
 }) =>
   Effect.gen(function* () {
+    const deliveryFailures: Array<string> = [];
     const conversations = yield* params.botClient.getConversationsForParent(params.workspaceId);
     const candidates = workspaceWelcomeConversationCandidates(
       conversations,
@@ -899,6 +911,7 @@ const sendWorkspaceAnnouncementWithWelcomeHeuristic = (params: {
                 conversationName: conversation.value.name,
               }),
               Effect.andThen(Effect.logDebug(cause)),
+              Effect.andThen(Effect.sync(() => deliveryFailures.push(Cause.pretty(cause).trim()))),
               Effect.as(Option.none<DeliveredMessage>()),
             ),
           ),
@@ -909,7 +922,11 @@ const sendWorkspaceAnnouncementWithWelcomeHeuristic = (params: {
       }
     }
 
-    return yield* Effect.fail(makeArgumentError(`Cannot send ${params.logLabel}`));
+    const deliveryFailureDetails =
+      deliveryFailures.length === 0 ? "" : `: ${deliveryFailures.join("\n")}`;
+    return yield* Effect.fail(
+      makeArgumentError(`Cannot send ${params.logLabel}${deliveryFailureDetails}`),
+    );
   });
 
 const formatDateTime = (dateTime: DateTime.DateTime) => DateTime.toEpochMillis(dateTime) / 1000;
@@ -4229,9 +4246,9 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           systemConversationId: payload.systemConversationId,
         });
 
-        const featureFlags = yield* workspaceConfigService.getWorkspaceFeatureFlags(
-          payload.workspaceId,
-        );
+        const featureFlags = yield* workspaceConfigService
+          .getWorkspaceFeatureFlags(payload.workspaceId)
+          .pipe(catchSerializableUnknownError("Failed to load update announcement feature flags"));
         if (!featureFlags.some((flag) => flag.flagName === updateAnnouncementsFeatureFlag)) {
           return {
             workspaceId: payload.workspaceId,
@@ -4253,12 +4270,14 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         const publishedAt = DateTime.makeUnsafe(payload.announcement.publishedAt);
         const random = yield* Random.next;
         const claimToken = `${payload.dispatchRequestId}:${random}`;
-        const claim = yield* workspaceConfigService.claimWorkspaceUpdateAnnouncementDelivery({
-          workspaceId: payload.workspaceId,
-          announcementId: payload.announcement.id,
-          publishedAt,
-          claimToken,
-        });
+        const claim = yield* workspaceConfigService
+          .claimWorkspaceUpdateAnnouncementDelivery({
+            workspaceId: payload.workspaceId,
+            announcementId: payload.announcement.id,
+            publishedAt,
+            claimToken,
+          })
+          .pipe(catchSerializableUnknownError("Failed to claim update announcement delivery"));
         if (claim.status === "already_delivered" && Option.isSome(claim.delivery)) {
           return {
             workspaceId: payload.workspaceId,
@@ -4308,19 +4327,23 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
               })
               .pipe(
                 Effect.catchCause(() => Effect.void),
-                Effect.andThen(Effect.failCause(cause)),
+                Effect.andThen(
+                  failSerializableUnknownError("Failed to send update announcement", cause),
+                ),
               ),
           ),
         );
 
-        yield* workspaceConfigService.recordWorkspaceUpdateAnnouncementDelivery({
-          workspaceId: payload.workspaceId,
-          announcementId: payload.announcement.id,
-          publishedAt,
-          deliveredAt,
-          conversationId: sentMessage.conversation_id,
-          messageId: sentMessage.id,
-        });
+        yield* workspaceConfigService
+          .recordWorkspaceUpdateAnnouncementDelivery({
+            workspaceId: payload.workspaceId,
+            announcementId: payload.announcement.id,
+            publishedAt,
+            deliveredAt,
+            conversationId: sentMessage.conversation_id,
+            messageId: sentMessage.id,
+          })
+          .pipe(catchSerializableUnknownError("Failed to record update announcement delivery"));
 
         return {
           workspaceId: payload.workspaceId,
