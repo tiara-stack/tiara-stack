@@ -14,14 +14,33 @@ import {
   messageSlot as messageSlotModel,
 } from "../models";
 import { builder } from "./schema";
-import { defineZeroTableAccess } from "./tableAccess";
+import { defineZeroTableAccess, type ZeroTableAccess } from "./tableAccess";
 
 const timestampOptions = {
   createdAt: "createdAt",
   updatedAt: "updatedAt",
 } as const;
 
-export const zeroTableAccess = {
+type ZeroTableAccessRegistry = Readonly<
+  Record<
+    | "configUserPlatform"
+    | "configWorkspace"
+    | "configWorkspaceConversation"
+    | "configWorkspaceFeatureFlag"
+    | "configWorkspaceMonitorRole"
+    | "configWorkspaceTeamSubmissionChannel"
+    | "configWorkspaceUpdateAnnouncementDelivery"
+    | "messageCheckin"
+    | "messageCheckinMember"
+    | "messageRoomOrder"
+    | "messageRoomOrderEntry"
+    | "messageSlot"
+    | "messageTeamSubmission",
+    ZeroTableAccess
+  >
+>;
+
+export const zeroTableAccess: ZeroTableAccessRegistry = {
   configWorkspace: defineZeroTableAccess(configWorkspaceModel, builder.configWorkspace, {
     primaryKey: ["workspaceId"],
     softDelete: "deletedAt",

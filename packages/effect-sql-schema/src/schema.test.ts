@@ -1,7 +1,8 @@
 import { Schema } from "effect";
-import { describe, expect, it } from "@effect/vitest";
+import { describe, expect, expectTypeOf, it } from "@effect/vitest";
 import { pg, schema, sqlite } from "./index";
 import { snapshotSchema } from "./snapshot";
+import type { EffectSqlColumn } from "./types";
 
 describe("effect-sql-schema", () => {
   it("defines Postgres model classes", () => {
@@ -27,6 +28,56 @@ describe("effect-sql-schema", () => {
     expect(
       (User as unknown as { readonly fields: Record<string, unknown> }).fields.id,
     ).toBeDefined();
+    expectTypeOf(User.columns.id.data.fieldSchema).toEqualTypeOf<typeof UserId>();
+    expectTypeOf(User.fields.id).toEqualTypeOf<typeof UserId>();
+    expectTypeOf(User.fields.name).toEqualTypeOf<typeof Schema.String>();
+    expectTypeOf(User.fields.age).toEqualTypeOf<Schema.NullOr<typeof Schema.Int>>();
+  });
+
+  it("preserves fluent column transition types", () => {
+    const column = pg.integer();
+
+    expectTypeOf(column.notNull()).toEqualTypeOf<
+      EffectSqlColumn<"postgresql", "integer", typeof Schema.Int, true, "none">
+    >();
+    expectTypeOf(column.primaryKey()).toEqualTypeOf<
+      EffectSqlColumn<"postgresql", "integer", typeof Schema.Int, true, "none">
+    >();
+    expectTypeOf(column.default(0)).toEqualTypeOf<
+      EffectSqlColumn<"postgresql", "integer", typeof Schema.Int, false, "database">
+    >();
+    expectTypeOf(column.defaultSql("0")).toEqualTypeOf<
+      EffectSqlColumn<"postgresql", "integer", typeof Schema.Int, false, "database">
+    >();
+    expectTypeOf(column.defaultRandom()).toEqualTypeOf<
+      EffectSqlColumn<"postgresql", "integer", typeof Schema.Int, false, "database">
+    >();
+    expectTypeOf(column.generatedByDatabase()).toEqualTypeOf<
+      EffectSqlColumn<"postgresql", "integer", typeof Schema.Int, false, "database">
+    >();
+    expectTypeOf(column.generatedByApp()).toEqualTypeOf<
+      EffectSqlColumn<"postgresql", "integer", typeof Schema.Int, false, "application">
+    >();
+    expectTypeOf(column.decodeTo(Schema.String)).toEqualTypeOf<
+      EffectSqlColumn<"postgresql", "integer", typeof Schema.String, false, "none">
+    >();
+  });
+
+  it("makes declared primary-key fields non-null before constructing the model", () => {
+    class User extends pg.Class<User>("User")({
+      table: "users",
+      fields: {
+        id: pg.uuid(),
+        name: pg.text(),
+      },
+      primaryKey: ["id"],
+    }) {}
+
+    expectTypeOf(User.fields.id).toEqualTypeOf<typeof Schema.String>();
+    expectTypeOf(User.fields.name).toEqualTypeOf<Schema.NullOr<typeof Schema.String>>();
+    expectTypeOf(User.columns.id).toEqualTypeOf<
+      EffectSqlColumn<"postgresql", "uuid", typeof Schema.String, true, "none">
+    >();
   });
 
   it("marks database generated fields as omitted from inserts", () => {

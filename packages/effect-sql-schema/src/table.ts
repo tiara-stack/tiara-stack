@@ -1,5 +1,5 @@
-import { Match, Schema } from "effect";
-import { Model } from "effect/unstable/schema";
+import { Match, Predicate, Schema } from "effect";
+import { Model, VariantSchema } from "effect/unstable/schema";
 import type {
   ClassDefinition,
   Dialect,
@@ -17,28 +17,74 @@ const identifierFromModel = (model: EffectSqlModel): string | undefined => {
   return typeof id === "string" ? id : undefined;
 };
 
-const nullableFieldSchema = (column: EffectSqlColumn): Schema.Top =>
-  column.data.notNull || column.data.primaryKey
-    ? column.data.fieldSchema
-    : Schema.NullOr(column.data.fieldSchema);
+type AnyColumn = EffectSqlColumn<any, any, any, any, any>;
 
-const modelField = (column: EffectSqlColumn): Schema.Top => {
-  const schema = nullableFieldSchema(column);
-  return Match.value(column.data.generation).pipe(
-    Match.when("database", () => Model.Generated(schema) as unknown as Schema.Top),
-    Match.when("application", () => Model.GeneratedByApp(schema) as unknown as Schema.Top),
-    Match.orElse(() => schema),
-  );
+type ColumnFieldSchema<Column extends AnyColumn> = Column["data"]["fieldSchema"];
+
+type NullableFieldSchema<Column extends AnyColumn> =
+  NonNullable<Column["data"]["notNull"]> extends true
+    ? ColumnFieldSchema<Column>
+    : Schema.NullOr<ColumnFieldSchema<Column>>;
+
+type ModelField<Column extends AnyColumn> =
+  NonNullable<Column["data"]["generation"]> extends "database"
+    ? Model.Generated<NullableFieldSchema<Column>>
+    : NonNullable<Column["data"]["generation"]> extends "application"
+      ? Model.GeneratedByApp<NullableFieldSchema<Column>>
+      : NullableFieldSchema<Column>;
+
+type ModelFields<Fields extends Record<string, AnyColumn>> = {
+  [K in keyof Fields]: ModelField<Fields[K]>;
 };
 
-const attachTableName = <D extends Dialect>(
-  tableName: string,
-  column: EffectSqlColumn<D>,
-): EffectSqlColumn<D> =>
+type PrimaryKeyColumns<
+  Fields extends Record<string, AnyColumn>,
+  PrimaryKey extends readonly (keyof Fields & string)[],
+> = {
+  [K in keyof Fields]: K extends PrimaryKey[number]
+    ? ReturnType<Fields[K]["primaryKey"]>
+    : Fields[K];
+};
+
+type ModelVariant = "select" | "insert" | "update" | "json" | "jsonCreate" | "jsonUpdate";
+
+type ModelClass<Self, Fields extends Record<string, AnyColumn>> = VariantSchema.Class<
+  Self,
+  ModelFields<Fields>,
+  Schema.Struct<VariantSchema.ExtractFields<"select", ModelFields<Fields>, true>>
+> & {
+  readonly [V in ModelVariant]: VariantSchema.Extract<V, VariantSchema.Struct<ModelFields<Fields>>>;
+};
+
+// Model.Class cannot retain a mapped generic field object when it is invoked from
+// this column adapter, even though the runtime class is built from that exact
+// object. Keep the assertion here so every caller receives the original field
+// map instead of repeating (and potentially widening) the bridge downstream.
+const asModelClass = <Self, Fields extends Record<string, AnyColumn>>(
+  value: object,
+): ModelClass<Self, Fields> => value as ModelClass<Self, Fields>;
+
+const nullableFieldSchema = <Column extends AnyColumn>(
+  column: Column,
+): NullableFieldSchema<Column> =>
+  column.data.notNull || column.data.primaryKey
+    ? (column.data.fieldSchema as NullableFieldSchema<Column>)
+    : (Schema.NullOr(column.data.fieldSchema) as NullableFieldSchema<Column>);
+
+const modelField = <Column extends AnyColumn>(column: Column): ModelField<Column> => {
+  const schema = nullableFieldSchema(column);
+  return Match.value(column.data.generation).pipe(
+    Match.when("database", () => Model.Generated(schema)),
+    Match.when("application", () => Model.GeneratedByApp(schema)),
+    Match.orElse(() => schema),
+  ) as ModelField<Column>;
+};
+
+const attachTableName = <Column extends AnyColumn>(tableName: string, column: Column): Column =>
   ({
     ...column,
     tableName,
-  }) as EffectSqlColumn<D>;
+  }) as Column;
 
 export const defineTable = <const D extends Dialect, const Model extends EffectSqlModel>(
   dialect: D,
@@ -80,23 +126,27 @@ export const defineTable = <const D extends Dialect, const Model extends EffectS
   });
 };
 
-const finalizeTable = <const D extends Dialect, const Model extends EffectSqlModel>(
+const finalizeTable = <
+  const D extends Dialect,
+  const Model extends EffectSqlModel,
+  const Columns extends Record<string, EffectSqlColumn<D, any, any, any, any>>,
+>(
   dialect: D,
   model: Model,
   options: {
     readonly name: string;
     readonly schema?: string;
-    readonly columns: Record<FieldName<Model>, EffectSqlColumn<D>>;
+    readonly columns: Columns;
     readonly primaryKey?: readonly FieldName<Model>[];
     readonly indexes?: readonly IndexDefinition[];
   },
-): EffectSqlTable<D, Model> => {
+): EffectSqlTable<D, Model, Columns> => {
   const columns = { ...options.columns };
   const primaryKey = new Set<string>(options.primaryKey ?? []);
   for (const [fieldName, column] of Object.entries(columns)) {
     if (column.data.primaryKey) {
       primaryKey.add(fieldName);
-      columns[fieldName as FieldName<Model>] = column.notNull() as EffectSqlColumn<D>;
+      columns[fieldName as keyof Columns] = column.notNull() as Columns[keyof Columns];
     }
   }
 
@@ -107,15 +157,18 @@ const finalizeTable = <const D extends Dialect, const Model extends EffectSqlMod
   }
 
   for (const key of primaryKey) {
-    const column = columns[key as FieldName<Model>];
+    const column = columns[key as keyof Columns];
     if (!column) {
       throw new Error(`effect-sql-schema: primary key ${options.name}.${key} was not generated`);
     }
-    columns[key as FieldName<Model>] = column.primaryKey() as EffectSqlColumn<D>;
+    columns[key as keyof Columns] = column.primaryKey() as Columns[keyof Columns];
   }
 
   for (const [fieldName, column] of Object.entries(columns)) {
-    columns[fieldName as FieldName<Model>] = attachTableName(options.name, column);
+    columns[fieldName as keyof Columns] = attachTableName(
+      options.name,
+      column,
+    ) as Columns[keyof Columns];
   }
 
   return {
@@ -125,14 +178,17 @@ const finalizeTable = <const D extends Dialect, const Model extends EffectSqlMod
     name: options.name,
     sqlName: options.name,
     schema: options.schema,
-    columns,
+    columns: columns as Columns,
     primaryKey: [...primaryKey] as Array<FieldName<Model>>,
     indexes: options.indexes ?? [],
   };
 };
 
-const tableDefinition = <Fields extends Record<string, EffectSqlColumn>>(
-  definition: ClassDefinition<Fields>,
+const tableDefinition = <
+  Fields extends Record<string, AnyColumn>,
+  PrimaryKey extends readonly (keyof Fields & string)[],
+>(
+  definition: ClassDefinition<Fields, PrimaryKey>,
 ) =>
   typeof definition.table === "string"
     ? { name: definition.table, schema: undefined }
@@ -141,12 +197,16 @@ const tableDefinition = <Fields extends Record<string, EffectSqlColumn>>(
 export const defineClass =
   <const D extends Dialect>(dialect: D) =>
   <Self>(identifier: string) =>
-  <const Fields extends Record<string, EffectSqlColumn<D>>>(
-    definition: ClassDefinition<Fields>,
+  <
+    const Fields extends Record<string, EffectSqlColumn<D, any, any, any, any>>,
+    const PrimaryKey extends readonly (keyof Fields & string)[] = readonly [],
+  >(
+    definition: ClassDefinition<Fields, PrimaryKey>,
   ) => {
     const table = tableDefinition(definition);
-    const columns = {} as Record<keyof Fields & string, EffectSqlColumn<D>>;
-    const fields = {} as Record<keyof Fields & string, Schema.Top>;
+    const primaryKey = new Set<string>(definition.primaryKey ?? []);
+    const columns = {} as PrimaryKeyColumns<Fields, PrimaryKey>;
+    const fields = {} as ModelFields<PrimaryKeyColumns<Fields, PrimaryKey>>;
 
     for (const [fieldName, column] of Object.entries(definition.fields) as Array<
       [keyof Fields & string, EffectSqlColumn<D>]
@@ -166,17 +226,25 @@ export const defineClass =
         );
       }
       const namedColumn = column.asField(fieldName) as EffectSqlColumn<D>;
-      columns[fieldName] = namedColumn;
-      fields[fieldName] = modelField(namedColumn);
+      const normalizedColumn = primaryKey.has(fieldName) ? namedColumn.primaryKey() : namedColumn;
+      columns[fieldName] = normalizedColumn as PrimaryKeyColumns<Fields, PrimaryKey>[keyof Fields &
+        string];
+      fields[fieldName] = modelField(normalizedColumn) as ModelFields<
+        PrimaryKeyColumns<Fields, PrimaryKey>
+      >[keyof Fields & string];
     }
 
     const makeClass = Model.Class<Self>(identifier);
-    const klass = makeClass(fields as Parameters<typeof makeClass>[0]);
-    const tableMetadata = finalizeTable(dialect, klass as unknown as EffectSqlModel, {
+    const classResult = makeClass(fields);
+    if (Predicate.isString(classResult)) {
+      throw new Error(classResult);
+    }
+    const klass = asModelClass<Self, PrimaryKeyColumns<Fields, PrimaryKey>>(classResult);
+    const tableMetadata = finalizeTable(dialect, klass, {
       name: table.name,
       schema: table.schema,
       columns,
-      primaryKey: definition.primaryKey as readonly FieldName<EffectSqlModel>[] | undefined,
+      primaryKey: definition.primaryKey as readonly FieldName<typeof klass>[] | undefined,
       indexes: definition.indexes,
     });
 

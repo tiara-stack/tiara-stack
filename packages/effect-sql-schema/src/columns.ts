@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 import { defaultColumnSchema } from "./internal/columnSchema";
 import type {
+  ColumnGeneration,
   ColumnData,
   Dialect,
   EffectSqlColumn,
@@ -8,13 +9,20 @@ import type {
   ReferenceResolver,
   SqlDefaultValue,
 } from "./types";
+import type { DefaultColumnSchema } from "./internal/columnSchema";
 
-const clone = <D extends Dialect, K extends string>(
-  data: ColumnData & { readonly dialect: D; readonly kind: K },
-): EffectSqlColumn<D, K> => {
+const clone = <
+  D extends Dialect,
+  K extends string,
+  FieldSchema extends Schema.Top,
+  NotNull extends boolean,
+  Generation extends ColumnGeneration,
+>(
+  data: ColumnData<D, K, FieldSchema, NotNull, Generation>,
+): EffectSqlColumn<D, K, FieldSchema, NotNull, Generation> => {
   const defaultGeneration = () =>
     data.generation === undefined || data.generation === "none" ? "database" : data.generation;
-  const make = (patch: Partial<ColumnData>): EffectSqlColumn<D, K> =>
+  const make = (patch: Partial<ColumnData>): EffectSqlColumn =>
     clone({
       ...data,
       ...patch,
@@ -35,7 +43,7 @@ const clone = <D extends Dialect, K extends string>(
           ...(data.config ? { elementConfig: data.config } : {}),
         },
         fieldSchema: Schema.Array(data.fieldSchema),
-      }) as EffectSqlColumn<D, "array">,
+      }),
     notNull: () => make({ notNull: true }),
     nullable: () => make({ notNull: false }),
     primaryKey: () => make({ primaryKey: true, notNull: true }),
@@ -63,15 +71,19 @@ const clone = <D extends Dialect, K extends string>(
       }),
     references: (resolver: ReferenceResolver, options?: ReferenceOptions) =>
       make({ references: { resolver, options } }),
-  };
+  } as EffectSqlColumn<D, K, FieldSchema, NotNull, Generation>;
 };
 
-export const makeColumn = <D extends Dialect, K extends string>(
+export const makeColumn = <
+  const D extends Dialect,
+  const K extends string,
+  const Config extends Record<string, unknown> | undefined = undefined,
+>(
   dialect: D,
   kind: K,
   name?: string,
-  config?: Record<string, unknown>,
-): EffectSqlColumn<D, K> =>
+  config?: Config,
+): EffectSqlColumn<D, K, DefaultColumnSchema<D, K, Config>, false, "none"> =>
   clone({
     dialect,
     kind,

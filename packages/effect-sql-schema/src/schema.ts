@@ -1,6 +1,6 @@
-import type { EffectSqlSchema, EffectSqlSchemaOptions, EffectSqlTable } from "./types";
+import type { AnyEffectSqlTable, EffectSqlSchema, EffectSqlSchemaOptions } from "./types";
 
-export const schema = <const Tables extends Record<string, EffectSqlTable>>(
+export const schema = <const Tables extends Record<string, AnyEffectSqlTable>>(
   tables: Tables,
   options?: EffectSqlSchemaOptions,
 ): EffectSqlSchema<Tables> => ({

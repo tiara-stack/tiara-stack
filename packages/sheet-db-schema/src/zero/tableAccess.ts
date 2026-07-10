@@ -200,3 +200,5 @@ export const defineZeroTableAccess = <
     wherePrimaryKey,
   };
 };
+
+export type ZeroTableAccess = ReturnType<typeof defineZeroTableAccess>;

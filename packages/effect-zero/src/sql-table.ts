@@ -1,8 +1,8 @@
 import { Predicate } from "effect";
-import type { EffectSqlTable } from "effect-sql-schema";
+import type { AnyEffectSqlTable } from "effect-sql-schema";
 import type { ColumnOptions, EffectZeroTable, ZeroValueType } from "./types";
 
-export type SchemaTable = EffectZeroTable | EffectSqlTable;
+export type SchemaTable = EffectZeroTable | AnyEffectSqlTable;
 
 const zeroTypesByColumnKind: Record<string, ZeroValueType> = {
   boolean: "boolean",
@@ -24,10 +24,10 @@ const zeroTypesByColumnKind: Record<string, ZeroValueType> = {
 
 const zeroType = (kind: string): ZeroValueType => zeroTypesByColumnKind[kind] ?? "string";
 
-export const isEffectSqlTable = (value: unknown): value is EffectSqlTable =>
+export const isEffectSqlTable = (value: unknown): value is AnyEffectSqlTable =>
   Predicate.isTagged("EffectSqlTable")(value);
 
-export const fromSqlTable = <const Table extends EffectSqlTable>(
+export const fromSqlTable = <const Table extends AnyEffectSqlTable>(
   table: Table,
   options?: {
     readonly name?: string;

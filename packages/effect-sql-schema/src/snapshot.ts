@@ -1,4 +1,4 @@
-import type { EffectSqlColumn, EffectSqlSchema, EffectSqlTable } from "./types";
+import type { AnyEffectSqlColumn, AnyEffectSqlTable, EffectSqlSchema } from "./types";
 
 export const snapshotVersion = 1;
 
@@ -58,15 +58,15 @@ export type StoredSnapshot = {
   readonly extensions?: Readonly<Record<string, JsonValue>>;
 };
 
-const columnName = (column: EffectSqlColumn): string =>
+const columnName = (column: AnyEffectSqlColumn): string =>
   column.data.name ?? column.data.fieldName ?? "";
 
 const prefixedIdentifierName = (prefix: string | undefined, name: string): string =>
   prefix ? `${prefix.replace(/_+$/, "")}_${name}` : name;
 
 const referenceSnapshot = (
-  column: EffectSqlColumn,
-  tableNameMap: ReadonlyMap<EffectSqlColumn, string>,
+  column: AnyEffectSqlColumn,
+  tableNameMap: ReadonlyMap<AnyEffectSqlColumn, string>,
 ): ColumnSnapshot["references"] => {
   const reference = column.data.references;
   if (!reference) {
@@ -87,8 +87,8 @@ const referenceSnapshot = (
 };
 
 export const snapshotTable = (
-  table: EffectSqlTable,
-  allTableNames?: ReadonlyMap<EffectSqlColumn, string>,
+  table: AnyEffectSqlTable,
+  allTableNames?: ReadonlyMap<AnyEffectSqlColumn, string>,
   options?: { readonly prefix?: string },
 ): TableSnapshot => {
   const tableName = prefixedIdentifierName(options?.prefix, table.sqlName ?? table.name);
@@ -131,7 +131,7 @@ export const snapshotSchema = (config: EffectSqlSchema): SchemaSnapshot => {
     throw new Error("effect-sql-schema: schema must contain at least one table");
   }
   const dialect = first[1].dialect;
-  const tableNameMap = new Map<EffectSqlColumn, string>();
+  const tableNameMap = new Map<AnyEffectSqlColumn, string>();
   for (const [, table] of entries) {
     const tableName = prefixedIdentifierName(config.prefix, table.sqlName ?? table.name);
     for (const column of Object.values(table.columns)) {

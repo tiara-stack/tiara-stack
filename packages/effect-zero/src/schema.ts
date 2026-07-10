@@ -3,7 +3,7 @@ import type { EffectZeroSchema, EffectZeroTable, RelationshipConfig } from "./ty
 import { fromSqlTable, isEffectSqlTable, type SchemaTable } from "./sql-table";
 
 type NormalizedTables<Tables extends Record<string, SchemaTable>> = {
-  readonly [K in keyof Tables]: Tables[K] extends EffectSqlTable<any, infer Model>
+  readonly [K in keyof Tables]: Tables[K] extends EffectSqlTable<any, infer Model, any>
     ? EffectZeroTable<Model>
     : Tables[K] extends EffectZeroTable
       ? Tables[K]
@@ -31,7 +31,10 @@ const normalizeTables = <const Tables extends Record<string, SchemaTable>>(
           }
         : table;
   }
-  return normalized as never;
+  // Object.entries necessarily widens the source keys while the loop preserves
+  // each table's model at runtime. Restore that mapped key/model relationship at
+  // this single construction boundary instead of erasing the result with never.
+  return normalized as NormalizedTables<Tables>;
 };
 
 export const schema = <const Tables extends Record<string, SchemaTable>>(

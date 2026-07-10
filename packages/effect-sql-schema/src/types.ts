@@ -20,18 +20,24 @@ export type ReferenceOptions = {
   readonly onUpdate?: ReferenceAction;
 };
 
-export type ReferenceResolver = () => EffectSqlColumn<any, any>;
+export type ReferenceResolver = () => EffectSqlColumn<any, any, any, any, any>;
 
-export type ColumnData = {
-  readonly dialect: Dialect;
-  readonly kind: string;
+export type ColumnData<
+  D extends Dialect = Dialect,
+  K extends string = string,
+  FieldSchema extends Schema.Top = Schema.Top,
+  NotNull extends boolean = boolean,
+  Generation extends ColumnGeneration = ColumnGeneration,
+> = {
+  readonly dialect: D;
+  readonly kind: K;
   readonly fieldName?: string;
   readonly name?: string;
-  readonly fieldSchema: Schema.Top;
-  readonly notNull?: boolean;
+  readonly fieldSchema: FieldSchema;
+  readonly notNull?: NotNull;
   readonly primaryKey?: boolean;
   readonly unique?: string | boolean;
-  readonly generation?: ColumnGeneration;
+  readonly generation?: Generation;
   readonly defaultValue?: SqlDefaultValue;
   readonly defaultExpression?: string;
   readonly references?: {
@@ -46,32 +52,66 @@ export type DecodeTransformation<To extends Schema.Top> = {
   readonly encode: SchemaGetter.Getter<Schema.Top["Type"], To["Encoded"]>;
 };
 
-export type EffectSqlColumn<D extends Dialect = Dialect, K extends string = string> = {
+export type EffectSqlColumn<
+  D extends Dialect = Dialect,
+  K extends string = string,
+  FieldSchema extends Schema.Top = Schema.Top,
+  NotNull extends boolean = boolean,
+  Generation extends ColumnGeneration = ColumnGeneration,
+> = {
   readonly _tag: "EffectSqlColumn";
-  readonly data: ColumnData & { readonly dialect: D; readonly kind: K };
-  readonly asField: (fieldName: string) => EffectSqlColumn<D, K>;
-  readonly array: () => EffectSqlColumn<D, "array">;
-  readonly notNull: () => EffectSqlColumn<D, K>;
-  readonly nullable: () => EffectSqlColumn<D, K>;
-  readonly primaryKey: () => EffectSqlColumn<D, K>;
-  readonly unique: (name?: string) => EffectSqlColumn<D, K>;
-  readonly default: (value: SqlDefaultValue) => EffectSqlColumn<D, K>;
-  readonly defaultSql: (sql: string) => EffectSqlColumn<D, K>;
-  readonly defaultRandom: () => EffectSqlColumn<D, K>;
-  readonly generatedByDatabase: () => EffectSqlColumn<D, K>;
-  readonly generatedByApp: () => EffectSqlColumn<D, K>;
+  readonly data: ColumnData<D, K, FieldSchema, NotNull, Generation>;
+  readonly asField: (fieldName: string) => EffectSqlColumn<D, K, FieldSchema, NotNull, Generation>;
+  readonly array: () => EffectSqlColumn<
+    D,
+    "array",
+    Schema.$Array<FieldSchema>,
+    NotNull,
+    Generation
+  >;
+  readonly notNull: () => EffectSqlColumn<D, K, FieldSchema, true, Generation>;
+  readonly nullable: () => EffectSqlColumn<D, K, FieldSchema, false, Generation>;
+  readonly primaryKey: () => EffectSqlColumn<D, K, FieldSchema, true, Generation>;
+  readonly unique: (name?: string) => EffectSqlColumn<D, K, FieldSchema, NotNull, Generation>;
+  readonly default: (
+    value: SqlDefaultValue,
+  ) => EffectSqlColumn<
+    D,
+    K,
+    FieldSchema,
+    NotNull,
+    Generation extends "none" ? "database" : Generation
+  >;
+  readonly defaultSql: (
+    sql: string,
+  ) => EffectSqlColumn<
+    D,
+    K,
+    FieldSchema,
+    NotNull,
+    Generation extends "none" ? "database" : Generation
+  >;
+  readonly defaultRandom: () => EffectSqlColumn<
+    D,
+    K,
+    FieldSchema,
+    NotNull,
+    Generation extends "none" ? "database" : Generation
+  >;
+  readonly generatedByDatabase: () => EffectSqlColumn<D, K, FieldSchema, NotNull, "database">;
+  readonly generatedByApp: () => EffectSqlColumn<D, K, FieldSchema, NotNull, "application">;
   readonly decodeTo: <To extends Schema.Top>(
     to: To,
     transformation?: DecodeTransformation<To>,
-  ) => EffectSqlColumn<D, K>;
+  ) => EffectSqlColumn<D, K, To, NotNull, Generation>;
   readonly references: (
     resolver: ReferenceResolver,
     options?: ReferenceOptions,
-  ) => EffectSqlColumn<D, K>;
+  ) => EffectSqlColumn<D, K, FieldSchema, NotNull, Generation>;
 };
 
 export type TableColumns<Model extends EffectSqlModel> = Partial<
-  Record<FieldName<Model>, EffectSqlColumn | false>
+  Record<FieldName<Model>, EffectSqlColumn<any, any, any, any, any> | false>
 >;
 
 export type IndexDefinition = {
@@ -89,9 +129,12 @@ export type TableOptions<Model extends EffectSqlModel> = {
   readonly indexes?: readonly IndexDefinition[];
 };
 
-export type ClassField = EffectSqlColumn;
+export type ClassField = EffectSqlColumn<any, any, any, any, any>;
 
-export type ClassDefinition<Fields extends Record<string, ClassField>> = {
+export type ClassDefinition<
+  Fields extends Record<string, ClassField>,
+  PrimaryKey extends readonly (keyof Fields & string)[] = readonly (keyof Fields & string)[],
+> = {
   readonly table:
     | string
     | {
@@ -99,13 +142,17 @@ export type ClassDefinition<Fields extends Record<string, ClassField>> = {
         readonly schema?: string;
       };
   readonly fields: Fields;
-  readonly primaryKey?: readonly (keyof Fields & string)[];
+  readonly primaryKey?: PrimaryKey;
   readonly indexes?: readonly IndexDefinition[];
 };
 
 export type EffectSqlTable<
   D extends Dialect = Dialect,
   Model extends EffectSqlModel = EffectSqlModel,
+  Columns extends Record<string, EffectSqlColumn<D, any, any, any, any>> = Record<
+    FieldName<Model>,
+    EffectSqlColumn<D, any, any, any, any>
+  >,
 > = {
   readonly _tag: "EffectSqlTable";
   readonly dialect: D;
@@ -113,13 +160,17 @@ export type EffectSqlTable<
   readonly name: string;
   readonly sqlName: string;
   readonly schema?: string;
-  readonly columns: Record<FieldName<Model>, EffectSqlColumn<D>>;
+  readonly columns: Columns;
   readonly primaryKey: readonly FieldName<Model>[];
   readonly indexes: readonly IndexDefinition[];
 };
 
+export type AnyEffectSqlColumn = EffectSqlColumn<any, any, any, any, any>;
+
+export type AnyEffectSqlTable = EffectSqlTable<any, any, Record<string, AnyEffectSqlColumn>>;
+
 export type EffectSqlSchema<
-  Tables extends Record<string, EffectSqlTable> = Record<string, EffectSqlTable>,
+  Tables extends Record<string, AnyEffectSqlTable> = Record<string, AnyEffectSqlTable>,
 > = {
   readonly _tag: "EffectSqlSchema";
   readonly tables: Tables;

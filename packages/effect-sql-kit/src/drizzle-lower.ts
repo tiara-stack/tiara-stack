@@ -30,6 +30,38 @@ type SqliteBuilder = {
   readonly notNull: () => unknown;
 };
 
+type RuntimeTableFactory<Builder> = (
+  name: string,
+  columns: Record<string, Builder>,
+  extraConfig: (table: Record<string, unknown>) => readonly unknown[],
+) => unknown;
+
+// Drizzle's builders intentionally infer a static column object and non-empty
+// column tuples. This package reconstructs the same values from validated
+// Effect SQL metadata at runtime, so those types cannot be inferred at the call
+// site. Keep every Drizzle bridge here:
+// - config restores the kind-specific config selected by the factory lookup;
+// - sqliteBuilder exposes only the modifier methods shared by SQLite builders;
+// - defaultValue bridges incompatible overload inputs across builder unions;
+// - table invokes a generic table factory with a runtime column record;
+// - index / primaryKey bridge validated fields to Drizzle's non-empty tuples.
+const drizzleAdapter = {
+  config: <Config>(value: unknown): Config => value as Config,
+  sqliteBuilder: (value: unknown): SqliteBuilder => value as SqliteBuilder,
+  defaultValue: <Result>(builder: { readonly default: unknown }, value: unknown): Result =>
+    (builder.default as (input: unknown) => Result)(value),
+  table: <Builder>(
+    factory: unknown,
+    name: string,
+    columns: Record<string, Builder>,
+    extraConfig: (table: Record<string, unknown>) => readonly unknown[],
+  ): unknown => (factory as RuntimeTableFactory<Builder>)(name, columns, extraConfig),
+  index: (builder: unknown, columns: readonly unknown[]): unknown =>
+    (builder as { readonly on: (...values: unknown[]) => unknown }).on(...columns),
+  primaryKey: (factory: unknown, columns: readonly unknown[]): unknown =>
+    (factory as (config: { readonly columns: readonly unknown[] }) => unknown)({ columns }),
+};
+
 type PgModule = typeof import("drizzle-orm/pg-core");
 type SqliteModule = typeof import("drizzle-orm/sqlite-core");
 type DrizzleOrmModule = typeof import("drizzle-orm");
@@ -120,16 +152,20 @@ type PgScalarFactory = (pg: PgModule, name: string, config: unknown) => PgScalar
 
 const pgScalarFactories: Record<string, PgScalarFactory> = {
   uuid: (pg, name) => pg.uuid(name),
-  varchar: (pg, name, config) => pg.varchar(name, config as Parameters<typeof pg.varchar>[1]),
+  varchar: (pg, name, config) =>
+    pg.varchar(name, drizzleAdapter.config<Parameters<typeof pg.varchar>[1]>(config)),
   integer: (pg, name) => pg.integer(name),
-  bigint: (pg, name, config) => pg.bigint(name, config as Parameters<typeof pg.bigint>[1]),
+  bigint: (pg, name, config) =>
+    pg.bigint(name, drizzleAdapter.config<Parameters<typeof pg.bigint>[1]>(config)),
   real: (pg, name) => pg.real(name),
   doublePrecision: (pg, name) => pg.doublePrecision(name),
-  numeric: (pg, name, config) => pg.numeric(name, config as Parameters<typeof pg.numeric>[1]),
+  numeric: (pg, name, config) =>
+    pg.numeric(name, drizzleAdapter.config<Parameters<typeof pg.numeric>[1]>(config)),
   boolean: (pg, name) => pg.boolean(name),
   json: (pg, name) => pg.json(name),
   jsonb: (pg, name) => pg.jsonb(name),
-  timestamp: (pg, name, config) => pg.timestamp(name, config as Parameters<typeof pg.timestamp>[1]),
+  timestamp: (pg, name, config) =>
+    pg.timestamp(name, drizzleAdapter.config<Parameters<typeof pg.timestamp>[1]>(config)),
   date: (pg, name) => pg.date(name),
   text: (pg, name) => pg.text(name),
 };
@@ -173,7 +209,7 @@ const applyPgColumnModifiers = (
     column.data.defaultExpression !== undefined
       ? scalar.default(drizzleOrm.sql.raw(column.data.defaultExpression))
       : column.data.defaultValue !== undefined
-        ? scalar.default(column.data.defaultValue as never)
+        ? drizzleAdapter.defaultValue<PgDefaultedBuilder>(scalar, column.data.defaultValue)
         : scalar;
   return column.data.primaryKey && table.primaryKey.length === 1
     ? withDefault.primaryKey()
@@ -208,13 +244,12 @@ const pgIndexConfig = (
   drizzleTable: Record<string, unknown>,
 ) =>
   table.indexes.map((index) =>
-    (
-      (index.unique
+    drizzleAdapter.index(
+      index.unique
         ? pg.uniqueIndex(prefixedIdentifierName(schema.prefix, index.name))
-        : pg.index(prefixedIdentifierName(schema.prefix, index.name))) as unknown as {
-        readonly on: (...columns: unknown[]) => unknown;
-      }
-    ).on(...requireDrizzleFields(drizzleTable, tableName, `index ${index.name}`, index.fields)),
+        : pg.index(prefixedIdentifierName(schema.prefix, index.name)),
+      requireDrizzleFields(drizzleTable, tableName, `index ${index.name}`, index.fields),
+    ),
   );
 
 const lowerPgTable = (
@@ -225,28 +260,19 @@ const lowerPgTable = (
 ): unknown => {
   const tableName = tableDisplayName(table, schema.prefix);
   const columns = lowerPgColumns(pg, drizzleOrm, table);
-  const pgTable = pg.pgTable as unknown as (
-    name: string,
-    columns: Record<string, PgFinalBuilder>,
-    extraConfig: (table: Record<string, unknown>) => readonly unknown[],
-  ) => unknown;
   if (table.primaryKey.length > 1) {
     validateTableFields(columns, tableName, "primary key", table.primaryKey);
   }
   for (const index of table.indexes) {
     validateTableFields(columns, tableName, `index ${index.name}`, index.fields);
   }
-  return pgTable(tableName, columns, (drizzleTable) => [
+  return drizzleAdapter.table(pg.pgTable, tableName, columns, (drizzleTable) => [
     ...(table.primaryKey.length > 1
       ? [
-          pg.primaryKey({
-            columns: requireDrizzleFields(
-              drizzleTable,
-              tableName,
-              "primary key",
-              table.primaryKey,
-            ) as never,
-          }),
+          drizzleAdapter.primaryKey(
+            pg.primaryKey,
+            requireDrizzleFields(drizzleTable, tableName, "primary key", table.primaryKey),
+          ),
         ]
       : []),
     ...pgIndexConfig(pg, schema, table, tableName, drizzleTable),
@@ -269,11 +295,13 @@ type SqliteBuilderFactory = (sqlite: SqliteModule, name: string, config: unknown
 
 const sqliteBuilderFactories: Record<string, SqliteBuilderFactory> = {
   integer: (sqlite, name, config) =>
-    sqlite.integer(name, config as Parameters<typeof sqlite.integer>[1]) as SqliteBuilder,
-  real: (sqlite, name) => sqlite.real(name) as SqliteBuilder,
-  blob: (sqlite, name) => sqlite.blob(name) as SqliteBuilder,
-  numeric: (sqlite, name) => sqlite.numeric(name) as SqliteBuilder,
-  text: (sqlite, name) => sqlite.text(name) as SqliteBuilder,
+    drizzleAdapter.sqliteBuilder(
+      sqlite.integer(name, drizzleAdapter.config<Parameters<typeof sqlite.integer>[1]>(config)),
+    ),
+  real: (sqlite, name) => drizzleAdapter.sqliteBuilder(sqlite.real(name)),
+  blob: (sqlite, name) => drizzleAdapter.sqliteBuilder(sqlite.blob(name)),
+  numeric: (sqlite, name) => drizzleAdapter.sqliteBuilder(sqlite.numeric(name)),
+  text: (sqlite, name) => drizzleAdapter.sqliteBuilder(sqlite.text(name)),
 };
 
 const makeSqliteBuilder = (sqlite: SqliteModule, name: string, column: EffectSqlColumn) => {
@@ -299,7 +327,7 @@ const lowerSqliteColumns = (
       column.data.defaultExpression !== undefined
         ? builder.default(drizzleOrm.sql.raw(column.data.defaultExpression))
         : column.data.defaultValue !== undefined
-          ? builder.default(column.data.defaultValue as never)
+          ? drizzleAdapter.defaultValue<SqliteBuilder>(builder, column.data.defaultValue)
           : builder;
     columns[fieldName] =
       column.data.primaryKey && table.primaryKey.length === 1
@@ -319,13 +347,12 @@ const sqliteIndexConfig = (
   drizzleTable: Record<string, unknown>,
 ) =>
   table.indexes.map((index) =>
-    (
-      (index.unique
+    drizzleAdapter.index(
+      index.unique
         ? sqlite.uniqueIndex(prefixedIdentifierName(schema.prefix, index.name))
-        : sqlite.index(prefixedIdentifierName(schema.prefix, index.name))) as unknown as {
-        readonly on: (...columns: unknown[]) => unknown;
-      }
-    ).on(...requireDrizzleFields(drizzleTable, tableName, `index ${index.name}`, index.fields)),
+        : sqlite.index(prefixedIdentifierName(schema.prefix, index.name)),
+      requireDrizzleFields(drizzleTable, tableName, `index ${index.name}`, index.fields),
+    ),
   );
 
 const lowerSqliteTable = (
@@ -336,28 +363,19 @@ const lowerSqliteTable = (
 ): unknown => {
   const tableName = tableDisplayName(table, schema.prefix);
   const columns = lowerSqliteColumns(sqlite, drizzleOrm, table);
-  const sqliteTable = sqlite.sqliteTable as unknown as (
-    name: string,
-    columns: Record<string, unknown>,
-    extraConfig: (table: Record<string, unknown>) => readonly unknown[],
-  ) => unknown;
   if (table.primaryKey.length > 1) {
     validateTableFields(columns, tableName, "primary key", table.primaryKey);
   }
   for (const index of table.indexes) {
     validateTableFields(columns, tableName, `index ${index.name}`, index.fields);
   }
-  return sqliteTable(tableName, columns, (drizzleTable) => [
+  return drizzleAdapter.table(sqlite.sqliteTable, tableName, columns, (drizzleTable) => [
     ...(table.primaryKey.length > 1
       ? [
-          sqlite.primaryKey({
-            columns: requireDrizzleFields(
-              drizzleTable,
-              tableName,
-              "primary key",
-              table.primaryKey,
-            ) as never,
-          }),
+          drizzleAdapter.primaryKey(
+            sqlite.primaryKey,
+            requireDrizzleFields(drizzleTable, tableName, "primary key", table.primaryKey),
+          ),
         ]
       : []),
     ...sqliteIndexConfig(sqlite, schema, table, tableName, drizzleTable),
