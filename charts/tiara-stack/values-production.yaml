@@ -39,6 +39,13 @@ ingress:
       servicePort: 4848
 
 global:
+  nodeSelector:
+    deployment: tiara-stack
+  tolerations:
+    - key: deployment
+      operator: Equal
+      value: tiara-stack
+      effect: NoSchedule
   caCertificate:
     enabled: true
     existingConfigMap: tiara-stack-ca-certificate
