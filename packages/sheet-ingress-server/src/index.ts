@@ -54,6 +54,11 @@ import {
   SheetApisServiceUserFallbackLive,
   SheetBotServiceAuthorizationLive,
 } from "./middlewares/proxyAuthorization";
+import {
+  adaptTableHandlerArgument,
+  invokeTableHandler,
+  withKnownRequestServices,
+} from "./httpApiAdapter";
 
 function isOriginAllowed(origin: string, allowedOrigins: string[]): boolean {
   return allowedOrigins.some((allowed) => {
@@ -128,6 +133,14 @@ const corsMiddlewareLayer = Layer.unwrap(
 );
 
 type SheetIngressGroups = (typeof Api)["groups"][keyof (typeof Api)["groups"]];
+type SheetIngressGroupName = HttpApiGroup.Name<SheetIngressGroups>;
+type IngressHandlerTable = {
+  readonly [GroupName in SheetIngressGroupName]: (
+    handlers: HttpApiBuilder.Handlers.FromGroup<
+      HttpApiGroup.WithName<SheetIngressGroups, GroupName>
+    >,
+  ) => HttpApiBuilder.Handlers<unknown, never>;
+};
 type SheetApisForwardingClientService = typeof SheetApisForwardingClient.Service;
 type SheetWorkflowsForwardingClientService = typeof SheetWorkflowsForwardingClient.Service;
 type IngressRequestServices =
@@ -139,19 +152,6 @@ type IngressRequestServices =
   | SheetBotForwardingClient
   | ClientDeliveryForwardingClient
   | ServiceStatusService;
-type IsUnknown<T> = unknown extends T ? ([keyof T] extends [never] ? true : false) : false;
-type NormalizeUnknownRequest<R> =
-  R extends HttpRouter.Request<infer Kind, infer T>
-    ? IsUnknown<T> extends true
-      ? HttpRouter.Request.From<Kind, IngressRequestServices>
-      : [T] extends [SheetAuthUser]
-        ? never
-        : R
-    : R;
-type NormalizeLayerUnknownRequest<LayerValue> =
-  LayerValue extends Layer.Layer<infer ROut, infer E, infer RIn>
-    ? Layer.Layer<ROut, E, NormalizeUnknownRequest<RIn>>
-    : never;
 type SheetApisGroupName = Extract<
   keyof SheetApisForwardingClientService,
   HttpApiGroup.Name<SheetIngressGroups>
@@ -162,7 +162,7 @@ type SheetApisGroup<GroupName extends SheetApisGroupName> = HttpApiGroup.WithNam
 >;
 type SheetApisEndpointName<GroupName extends SheetApisGroupName> = Extract<
   HttpApiEndpoint.Name<HttpApiGroup.Endpoints<SheetApisGroup<GroupName>>>,
-  keyof SheetApisForwardingClientService[GroupName] & string
+  string
 >;
 type SheetApisEndpoint<GroupName extends SheetApisGroupName> = HttpApiGroup.Endpoints<
   SheetApisGroup<GroupName>
@@ -171,6 +171,23 @@ type SheetApisProxyRequest<
   GroupName extends SheetApisGroupName,
   EndpointName extends SheetApisEndpointName<GroupName>,
 > = HttpApiEndpoint.Request<HttpApiEndpoint.WithName<SheetApisEndpoint<GroupName>, EndpointName>>;
+type SheetApisClientHandler<
+  GroupName extends SheetApisGroupName,
+  EndpointName extends SheetApisEndpointName<GroupName>,
+> = EndpointName extends keyof SheetApisForwardingClientService[GroupName]
+  ? Extract<
+      SheetApisForwardingClientService[GroupName][EndpointName],
+      (...args: never[]) => unknown
+    >
+  : never;
+type SheetApisHandlerTable = {
+  readonly [GroupName in SheetApisGroupName]: {
+    readonly [EndpointName in SheetApisEndpointName<GroupName>]: SheetApisClientHandler<
+      GroupName,
+      EndpointName
+    >;
+  };
+};
 type SheetApisProxyError<
   GroupName extends SheetApisGroupName,
   EndpointName extends SheetApisEndpointName<GroupName>,
@@ -185,11 +202,21 @@ type SheetApisProxyHandler<
   SheetApisProxyError<GroupName, EndpointName>,
   SheetApisForwardingClient | R
 >;
-type SheetApisEndpointClient = (args: unknown) => Effect.Effect<unknown, unknown, never>;
+type SheetWorkflowsDispatchEndpoints = HttpApiGroup.Endpoints<
+  HttpApiGroup.WithName<SheetIngressGroups, "dispatch">
+>;
 type SheetWorkflowsDispatchEndpointName = Extract<
-  keyof SheetWorkflowsForwardingClientService["dispatch"],
+  HttpApiEndpoint.Name<SheetWorkflowsDispatchEndpoints>,
   string
 >;
+type SheetWorkflowsDispatchHandlerTable = {
+  readonly [EndpointName in SheetWorkflowsDispatchEndpointName]: EndpointName extends keyof SheetWorkflowsForwardingClientService["dispatch"]
+    ? Extract<
+        SheetWorkflowsForwardingClientService["dispatch"][EndpointName],
+        (...args: never[]) => unknown
+      >
+    : never;
+};
 type SheetWorkflowsDispatchRequest<EndpointName extends SheetWorkflowsDispatchEndpointName> =
   HttpApiEndpoint.Request<
     HttpApiEndpoint.WithName<
@@ -212,9 +239,6 @@ type SheetWorkflowsDispatchHandler<
   SheetWorkflowsForwardingClient | R
 >;
 
-const withKnownIngressRequestServices = <LayerValue>(layer: LayerValue) =>
-  layer as unknown as NormalizeLayerUnknownRequest<LayerValue>;
-
 const forwardSheetApis =
   <GroupName extends SheetApisGroupName, EndpointName extends SheetApisEndpointName<GroupName>>(
     group: GroupName,
@@ -224,14 +248,16 @@ const forwardSheetApis =
     Effect.gen(function* () {
       const args = rawArgs as SheetApisProxyRequest<GroupName, EndpointName>;
       const client = yield* SheetApisForwardingClient;
-      const groupClient = client[group] as unknown as Record<string, SheetApisEndpointClient>;
-      const endpointClient = groupClient?.[endpoint];
-      if (typeof endpointClient !== "function") {
-        return yield* Effect.die(
-          new Error(`Unknown sheet-apis proxy target: ${group}.${endpoint}`),
-        );
-      }
-      return yield* endpointClient.call(groupClient, sheetApisRpcArgsFromHttpArgs(args));
+      const handlerTable: SheetApisHandlerTable = client satisfies SheetApisHandlerTable;
+      return yield* invokeTableHandler(
+        handlerTable[group],
+        endpoint,
+        adaptTableHandlerArgument(
+          handlerTable[group],
+          endpoint,
+          sheetApisRpcArgsFromHttpArgs(args),
+        ),
+      );
     }) as ReturnType<SheetApisProxyHandler<GroupName, EndpointName, never>>;
 
 const authorizedSheetApis =
@@ -246,7 +272,7 @@ const authorizedSheetApis =
     Effect.gen(function* () {
       const args = rawArgs as SheetApisProxyRequest<GroupName, EndpointName>;
       yield* authorize(args);
-      return yield* forwardSheetApis(group, endpoint)(rawArgs as never);
+      return yield* forwardSheetApis(group, endpoint)(rawArgs);
     }) as ReturnType<SheetApisProxyHandler<GroupName, EndpointName, R>>;
 
 const statusGetServices: SheetApisProxyHandler<
@@ -270,7 +296,8 @@ const forwardSheetWorkflowsDispatch =
     Effect.gen(function* () {
       const args = rawArgs as SheetWorkflowsDispatchRequest<EndpointName>;
       const client = yield* SheetWorkflowsForwardingClient;
-      const endpointClient = client.dispatch[endpoint];
+      const handlerTable: SheetWorkflowsDispatchHandlerTable =
+        client.dispatch satisfies SheetWorkflowsDispatchHandlerTable;
       const requester = yield* SheetAuthUser;
       const { payload } = clientArgsFrom(args) as {
         readonly payload: {
@@ -359,7 +386,11 @@ const forwardSheetWorkflowsDispatch =
         dispatchPayloadAugmenters[endpoint as keyof typeof dispatchPayloadAugmenters] ??
         (() => Effect.succeed(basePayload));
       const finalPayload = yield* augmentPayload();
-      return yield* endpointClient(finalPayload as never);
+      return yield* invokeTableHandler(
+        handlerTable,
+        endpoint,
+        adaptTableHandlerArgument(handlerTable, endpoint, finalPayload),
+      );
     }) as ReturnType<SheetWorkflowsDispatchHandler<EndpointName, never>>;
 
 const authorizedSheetWorkflowsDispatch =
@@ -377,10 +408,7 @@ const authorizedSheetWorkflowsDispatch =
     Effect.gen(function* () {
       const args = rawArgs as SheetWorkflowsDispatchRequest<EndpointName>;
       const authorization = yield* authorize(args);
-      return yield* forwardSheetWorkflowsDispatch(
-        endpoint,
-        authorization ?? undefined,
-      )(rawArgs as never);
+      return yield* forwardSheetWorkflowsDispatch(endpoint, authorization ?? undefined)(rawArgs);
     }) as ReturnType<SheetWorkflowsDispatchHandler<EndpointName, R>>;
 
 type WorkflowAuthorizationSnapshot = DispatchAuthorizationSnapshot;
@@ -770,19 +798,17 @@ const requireDayPlayerSchedule = (guildId: string, accountId: string) =>
   });
 
 const makeApiLayer = () => {
-  const ProxyLayers = Layer.mergeAll(
-    HttpApiBuilder.group(Api, "calc", (handlers) =>
+  const ingressHandlerTable = {
+    calc: (handlers) =>
       handlers
         .handle("calcBot", serviceOnly("calc", "calcBot"))
         .handle("calcSheet", forwardSheetApis("calc", "calcSheet")),
-    ),
-    HttpApiBuilder.group(Api, "checkin", (handlers) =>
+    checkin: (handlers) =>
       handlers.handle(
         "generate",
         guildPayload("checkin", "generate", "monitor", (payload) => payload.workspaceId),
       ),
-    ),
-    HttpApiBuilder.group(Api, "dispatch", (handlers) =>
+    dispatch: (handlers) =>
       handlers
         .handle(
           "checkin",
@@ -994,8 +1020,7 @@ const makeApiLayer = () => {
               ]({ workspaceId: payload.workspaceId, messageId: payload.messageId }, payload.client),
           ),
         ),
-    ),
-    HttpApiBuilder.group(Api, "discord", (handlers) =>
+    discord: (handlers) =>
       handlers
         .handle(
           "getCurrentUser",
@@ -1005,8 +1030,7 @@ const makeApiLayer = () => {
           "getCurrentUserGuilds",
           authorizedSheetApis("discord", "getCurrentUserGuilds", requireNonService),
         ),
-    ),
-    HttpApiBuilder.group(Api, "userConfig", (handlers) =>
+    userConfig: (handlers) =>
       handlers
         .handle(
           "getCurrentUserPlatformConfig",
@@ -1036,18 +1060,14 @@ const makeApiLayer = () => {
           "upsertUserPlatformConfig",
           authorizedSheetApis("userConfig", "upsertUserPlatformConfig", requireService),
         ),
-    ),
-    HttpApiBuilder.group(Api, "status", (handlers) =>
-      handlers.handle("getServices", statusGetServices),
-    ),
-    HttpApiBuilder.group(Api, "teamSubmission", (handlers) =>
+    status: (handlers) => handlers.handle("getServices", statusGetServices),
+    teamSubmission: (handlers) =>
       handlers
         .handle("upsertFromDiscord", serviceOnly("teamSubmission", "upsertFromDiscord"))
         .handle("setConfirmationMessage", serviceOnly("teamSubmission", "setConfirmationMessage"))
         .handle("revertFromDiscord", serviceOnly("teamSubmission", "revertFromDiscord"))
         .handle("confirmFromDiscord", serviceOnly("teamSubmission", "confirmFromDiscord")),
-    ),
-    HttpApiBuilder.group(Api, "workspaceConfig", (handlers) =>
+    workspaceConfig: (handlers) =>
       handlers
         .handle(
           "getAutoCheckinWorkspaces",
@@ -1197,8 +1217,7 @@ const makeApiLayer = () => {
             (query) => query.workspaceId,
           ),
         ),
-    ),
-    HttpApiBuilder.group(Api, "messageCheckin", (handlers) =>
+    messageCheckin: (handlers) =>
       handlers
         .handle(
           "getMessageCheckinData",
@@ -1254,8 +1273,7 @@ const makeApiLayer = () => {
             requireMessageCheckinParticipantMutation(payload.messageId, payload.memberId),
           ),
         ),
-    ),
-    HttpApiBuilder.group(Api, "messageRoomOrder", (handlers) =>
+    messageRoomOrder: (handlers) =>
       handlers
         .handle(
           "getMessageRoomOrder",
@@ -1383,8 +1401,7 @@ const makeApiLayer = () => {
             requireRoomOrderMonitor(payload.messageId),
           ),
         ),
-    ),
-    HttpApiBuilder.group(Api, "messageSlot", (handlers) =>
+    messageSlot: (handlers) =>
       handlers
         .handle(
           "getMessageSlotData",
@@ -1401,8 +1418,7 @@ const makeApiLayer = () => {
             ),
           ),
         ),
-    ),
-    HttpApiBuilder.group(Api, "monitor", (handlers) =>
+    monitor: (handlers) =>
       handlers
         .handle(
           "getMonitorMaps",
@@ -1416,8 +1432,7 @@ const makeApiLayer = () => {
           "getByNames",
           guildQuery("monitor", "getByNames", "monitor", (query) => query.workspaceId),
         ),
-    ),
-    HttpApiBuilder.group(Api, "permissions", (handlers) =>
+    permissions: (handlers) =>
       handlers.handle(
         "getCurrentUserPermissions",
         Effect.fnUntraced(function* ({ query }) {
@@ -1432,8 +1447,7 @@ const makeApiLayer = () => {
           };
         }),
       ),
-    ),
-    HttpApiBuilder.group(Api, "player", (handlers) =>
+    player: (handlers) =>
       handlers
         .handle(
           "getPlayerMaps",
@@ -1461,14 +1475,12 @@ const makeApiLayer = () => {
           "getTeamsByNames",
           guildQuery("player", "getTeamsByNames", "monitor", (query) => query.workspaceId),
         ),
-    ),
-    HttpApiBuilder.group(Api, "roomOrder", (handlers) =>
+    roomOrder: (handlers) =>
       handlers.handle(
         "generate",
         guildPayload("roomOrder", "generate", "monitor", (payload) => payload.workspaceId),
       ),
-    ),
-    HttpApiBuilder.group(Api, "schedule", (handlers) =>
+    schedule: (handlers) =>
       handlers
         .handle(
           "getAllPopulatedSchedules",
@@ -1503,14 +1515,12 @@ const makeApiLayer = () => {
             requireDayPlayerSchedule(query.workspaceId, query.accountId),
           ),
         ),
-    ),
-    HttpApiBuilder.group(Api, "screenshot", (handlers) =>
+    screenshot: (handlers) =>
       handlers.handle(
         "getScreenshot",
         guildQuery("screenshot", "getScreenshot", "monitor", (query) => query.workspaceId),
       ),
-    ),
-    HttpApiBuilder.group(Api, "sheet", (handlers) =>
+    sheet: (handlers) =>
       handlers
         .handle("getPlayers", serviceOnly("sheet", "getPlayers"))
         .handle("getMonitors", serviceOnly("sheet", "getMonitors"))
@@ -1526,11 +1536,9 @@ const makeApiLayer = () => {
         )
         .handle("getScheduleConfig", serviceOnly("sheet", "getScheduleConfig"))
         .handle("getRunnerConfig", serviceOnly("sheet", "getRunnerConfig")),
-    ),
-    HttpApiBuilder.group(Api, "application", (handlers) =>
+    application: (handlers) =>
       handlers.handle("getApplication", forwardSheetBot("application", "getApplication")),
-    ),
-    HttpApiBuilder.group(Api, "clientDelivery", (handlers) =>
+    clientDelivery: (handlers) =>
       handlers
         .handle("sendMessage", ({ payload }) =>
           Effect.gen(function* () {
@@ -1631,8 +1639,7 @@ const makeApiLayer = () => {
             );
           }),
         ),
-    ),
-    HttpApiBuilder.group(Api, "bot", (handlers) =>
+    bot: (handlers) =>
       handlers
         .handle(
           "createInteractionResponse",
@@ -1669,8 +1676,7 @@ const makeApiLayer = () => {
         .handle("deleteMessage", forwardSheetBot("bot", "deleteMessage"))
         .handle("addGuildMemberRole", forwardSheetBot("bot", "addGuildMemberRole"))
         .handle("removeGuildMemberRole", forwardSheetBot("bot", "removeGuildMemberRole")),
-    ),
-    HttpApiBuilder.group(Api, "ingressBot", (handlers) =>
+    ingressBot: (handlers) =>
       handlers
         .handle(
           "updateOriginalInteractionResponse",
@@ -1698,8 +1704,7 @@ const makeApiLayer = () => {
               SheetBotProxyHandler<"bot", "updateOriginalInteractionResponseWithFiles">
             >,
         ),
-    ),
-    HttpApiBuilder.group(Api, "cache", (handlers) =>
+    cache: (handlers) =>
       handlers
         .handle("getGuild", forwardSheetBot("cache", "getGuild"))
         .handle("getGuildSize", forwardSheetBot("cache", "getGuildSize"))
@@ -1724,7 +1729,32 @@ const makeApiLayer = () => {
         )
         .handle("getRolesSizeForResource", forwardSheetBot("cache", "getRolesSizeForResource"))
         .handle("getMembersSizeForResource", forwardSheetBot("cache", "getMembersSizeForResource")),
-    ),
+  } satisfies IngressHandlerTable;
+
+  const ProxyLayers = Layer.mergeAll(
+    HttpApiBuilder.group(Api, "calc", ingressHandlerTable.calc),
+    HttpApiBuilder.group(Api, "checkin", ingressHandlerTable.checkin),
+    HttpApiBuilder.group(Api, "dispatch", ingressHandlerTable.dispatch),
+    HttpApiBuilder.group(Api, "discord", ingressHandlerTable.discord),
+    HttpApiBuilder.group(Api, "userConfig", ingressHandlerTable.userConfig),
+    HttpApiBuilder.group(Api, "status", ingressHandlerTable.status),
+    HttpApiBuilder.group(Api, "teamSubmission", ingressHandlerTable.teamSubmission),
+    HttpApiBuilder.group(Api, "workspaceConfig", ingressHandlerTable.workspaceConfig),
+    HttpApiBuilder.group(Api, "messageCheckin", ingressHandlerTable.messageCheckin),
+    HttpApiBuilder.group(Api, "messageRoomOrder", ingressHandlerTable.messageRoomOrder),
+    HttpApiBuilder.group(Api, "messageSlot", ingressHandlerTable.messageSlot),
+    HttpApiBuilder.group(Api, "monitor", ingressHandlerTable.monitor),
+    HttpApiBuilder.group(Api, "permissions", ingressHandlerTable.permissions),
+    HttpApiBuilder.group(Api, "player", ingressHandlerTable.player),
+    HttpApiBuilder.group(Api, "roomOrder", ingressHandlerTable.roomOrder),
+    HttpApiBuilder.group(Api, "schedule", ingressHandlerTable.schedule),
+    HttpApiBuilder.group(Api, "screenshot", ingressHandlerTable.screenshot),
+    HttpApiBuilder.group(Api, "sheet", ingressHandlerTable.sheet),
+    HttpApiBuilder.group(Api, "application", ingressHandlerTable.application),
+    HttpApiBuilder.group(Api, "clientDelivery", ingressHandlerTable.clientDelivery),
+    HttpApiBuilder.group(Api, "bot", ingressHandlerTable.bot),
+    HttpApiBuilder.group(Api, "ingressBot", ingressHandlerTable.ingressBot),
+    HttpApiBuilder.group(Api, "cache", ingressHandlerTable.cache),
   );
 
   const RequestServicesLive = Layer.mergeAll(
@@ -1738,7 +1768,7 @@ const makeApiLayer = () => {
     ServiceStatusService.layer,
   );
 
-  return withKnownIngressRequestServices(
+  return withKnownRequestServices<IngressRequestServices, SheetAuthUser>()(
     HttpApiBuilder.layer(Api).pipe(
       Layer.provide(ProxyLayers),
       Layer.provide(
