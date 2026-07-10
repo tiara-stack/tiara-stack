@@ -1,32 +1,17 @@
 import { Schema } from "effect";
-import { configUserPlatform } from "sheet-db-schema/models";
+import { AuditTimestampFields } from "../auditTimestamps";
 import { ClientPlatform } from "../client/clientRefs";
-import type { BooleanField, DateTimeOptionField, StringField, StringOptionField } from "../model";
-import { modelTaggedFields, validateTaggedFields } from "../model";
-
-const UserPlatformConfigFields = validateTaggedFields<{
-  readonly platform: StringField;
-  readonly userId: StringField;
-  readonly defaultClientId: StringOptionField;
-  readonly checkinDmEnabled: BooleanField;
-  readonly monitorDmEnabled: BooleanField;
-  readonly createdAt: DateTimeOptionField;
-  readonly updatedAt: DateTimeOptionField;
-  readonly deletedAt: DateTimeOptionField;
-}>(modelTaggedFields(configUserPlatform), [
-  "platform",
-  "userId",
-  "defaultClientId",
-  "checkinDmEnabled",
-  "monitorDmEnabled",
-  "createdAt",
-  "updatedAt",
-  "deletedAt",
-] as const);
 
 export class UserPlatformConfig extends Schema.TaggedClass<UserPlatformConfig>()(
   "UserPlatformConfig",
-  UserPlatformConfigFields,
+  {
+    platform: Schema.String,
+    userId: Schema.String,
+    defaultClientId: Schema.OptionFromNullOr(Schema.String),
+    checkinDmEnabled: Schema.Boolean,
+    monitorDmEnabled: Schema.Boolean,
+    ...AuditTimestampFields,
+  },
 ) {}
 
 export const SupportedNotificationClient = Schema.Struct({

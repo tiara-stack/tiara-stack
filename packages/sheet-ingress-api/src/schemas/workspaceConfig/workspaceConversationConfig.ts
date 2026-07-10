@@ -1,36 +1,15 @@
 import { Schema } from "effect";
-import { configWorkspaceConversation } from "sheet-db-schema/models";
-import type {
-  BooleanOptionField,
-  DateTimeOptionField,
-  StringField,
-  StringOptionField,
-} from "../model";
-import { modelTaggedFields, validateTaggedFields } from "../model";
-
-const WorkspaceConversationConfigFields = validateTaggedFields<{
-  readonly workspaceId: StringField;
-  readonly conversationId: StringField;
-  readonly name: StringOptionField;
-  readonly running: BooleanOptionField;
-  readonly roleId: StringOptionField;
-  readonly checkinConversationId: StringOptionField;
-  readonly createdAt: DateTimeOptionField;
-  readonly updatedAt: DateTimeOptionField;
-  readonly deletedAt: DateTimeOptionField;
-}>(modelTaggedFields(configWorkspaceConversation), [
-  "workspaceId",
-  "conversationId",
-  "name",
-  "running",
-  "roleId",
-  "checkinConversationId",
-  "createdAt",
-  "updatedAt",
-  "deletedAt",
-] as const);
+import { AuditTimestampFields } from "../auditTimestamps";
 
 export class WorkspaceConversationConfig extends Schema.TaggedClass<WorkspaceConversationConfig>()(
   "WorkspaceConversationConfig",
-  WorkspaceConversationConfigFields,
+  {
+    workspaceId: Schema.String,
+    conversationId: Schema.String,
+    name: Schema.OptionFromNullOr(Schema.String),
+    running: Schema.OptionFromNullOr(Schema.Boolean),
+    roleId: Schema.OptionFromNullOr(Schema.String),
+    checkinConversationId: Schema.OptionFromNullOr(Schema.String),
+    ...AuditTimestampFields,
+  },
 ) {}

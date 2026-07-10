@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { TeamSubmissionStatus as TeamSubmissionStatusSchema } from "sheet-db-schema";
+import { TeamSubmissionStatus as TeamSubmissionStatusSchema } from "sheet-models";
 import { ClientPlatform, ClientRef, MessageRef } from "../client";
 
 export const ParsedTeamType = Schema.Literals(["fullFill", "heal", "encore", "alt"]);

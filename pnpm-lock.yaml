@@ -564,6 +564,9 @@ importers:
       effect-zero:
         specifier: workspace:*
         version: link:../effect-zero
+      sheet-models:
+        specifier: workspace:*
+        version: link:../sheet-models
       typhoon-core:
         specifier: workspace:*
         version: link:../typhoon-core
@@ -696,12 +699,9 @@ importers:
       effect:
         specifier: 'catalog:'
         version: 4.0.0-beta.67
-      effect-sql-schema:
+      sheet-models:
         specifier: workspace:*
-        version: link:../effect-sql-schema
-      sheet-db-schema:
-        specifier: workspace:*
-        version: link:../sheet-db-schema
+        version: link:../sheet-models
       typhoon-core:
         specifier: workspace:*
         version: link:../typhoon-core
@@ -770,6 +770,25 @@ importers:
       pathe:
         specifier: ^2.0.3
         version: 2.0.3
+      vite:
+        specifier: npm:@voidzero-dev/vite-plus-core@0.2.2
+        version: '@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.0)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0)'
+      vite-plus:
+        specifier: 'catalog:'
+        version: '@tiara-stack/vite-plus@0.2.4(@opentelemetry/api@1.9.0)(@tiara-stack/vite-plus@0.2.4)(@types/node@24.10.9)(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.0)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(esbuild@0.28.0)(jiti@2.6.1)(jsdom@27.4.0(@noble/hashes@2.0.1))(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0)'
+      vitest:
+        specifier: 4.1.9
+        version: 4.1.9(@opentelemetry/api@1.9.0)(@types/node@24.10.9)(@vitest/browser-preview@4.1.9)(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.0)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(jsdom@27.4.0(@noble/hashes@2.0.1))
+
+  packages/sheet-models:
+    dependencies:
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.67
+    devDependencies:
+      '@effect/vitest':
+        specifier: 'catalog:'
+        version: '@tiara-stack/effect-vitest@4.0.0-beta.93.tiara.2(@tiara-stack/vite-plus@0.2.4(@opentelemetry/api@1.9.0)(@tiara-stack/vite-plus@0.2.4)(@types/node@24.10.9)(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.0)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(esbuild@0.28.0)(jiti@2.6.1)(jsdom@27.4.0(@noble/hashes@2.0.1))(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(effect@4.0.0-beta.67)'
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.2.2
         version: '@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.0)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0)'

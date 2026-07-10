@@ -122,8 +122,7 @@
   },
   "dependencies": {
     "dfx-discord-utils": "workspace:*",
-    "effect-sql-schema": "workspace:*",
-    "sheet-db-schema": "workspace:*",
+    "sheet-models": "workspace:*",
     "typhoon-core": "workspace:*",
     "typhoon-zero": "workspace:*"
   },

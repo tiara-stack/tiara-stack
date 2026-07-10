@@ -1,8 +1,14 @@
 import { Schema } from "effect";
-import type { ColumnData } from "effect-sql-schema";
+
+type ModelColumnData = {
+  readonly fieldSchema: Schema.Top;
+  readonly kind: string;
+  readonly notNull?: boolean;
+  readonly primaryKey?: boolean;
+};
 
 type ModelColumn = {
-  readonly data: Pick<ColumnData, "fieldSchema" | "kind" | "notNull" | "primaryKey">;
+  readonly data: ModelColumnData;
 };
 
 type ModelTable = {

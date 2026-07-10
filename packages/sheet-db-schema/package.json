@@ -47,6 +47,7 @@
     "effect-sql-kit": "workspace:*",
     "effect-sql-schema": "workspace:*",
     "effect-zero": "workspace:*",
+    "sheet-models": "workspace:*",
     "typhoon-core": "workspace:*",
     "typhoon-zero": "workspace:*"
   },

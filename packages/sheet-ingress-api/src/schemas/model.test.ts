@@ -1,5 +1,4 @@
 import { Schema } from "effect";
-import { messageRoomOrderEntry as messageRoomOrderEntryModel } from "sheet-db-schema/models";
 import { describe, expect, it } from "@effect/vitest";
 import {
   FeatureFlagName,
@@ -14,6 +13,27 @@ import { MessageRoomOrder, MessageRoomOrderEntry } from "./messageRoomOrder";
 import { MessageSlot } from "./messageSlot";
 import type { DateTimeOptionField, NumberField, StringArrayField, StringField } from "./model";
 import { modelTaggedFields, validateTaggedFields } from "./model";
+
+const messageRoomOrderEntryModel = {
+  columns: {
+    clientPlatform: {
+      data: { fieldSchema: Schema.String, kind: "varchar", notNull: true },
+    },
+    clientId: { data: { fieldSchema: Schema.String, kind: "varchar", notNull: true } },
+    messageId: { data: { fieldSchema: Schema.String, kind: "varchar", notNull: true } },
+    rank: { data: { fieldSchema: Schema.Number, kind: "integer", notNull: true } },
+    position: { data: { fieldSchema: Schema.Number, kind: "integer", notNull: true } },
+    hour: { data: { fieldSchema: Schema.Number, kind: "integer", notNull: true } },
+    team: { data: { fieldSchema: Schema.String, kind: "varchar", notNull: true } },
+    tags: {
+      data: { fieldSchema: Schema.Array(Schema.String), kind: "array", notNull: true },
+    },
+    effectValue: { data: { fieldSchema: Schema.Number, kind: "integer", notNull: true } },
+    createdAt: { data: { fieldSchema: Schema.Number, kind: "timestamp", notNull: true } },
+    updatedAt: { data: { fieldSchema: Schema.Number, kind: "timestamp", notNull: true } },
+    deletedAt: { data: { fieldSchema: Schema.Number, kind: "timestamp" } },
+  },
+} as const;
 
 const expectWireRoundTrip = (
   schema: Schema.Codec<unknown, Record<string, unknown>>,
@@ -56,7 +76,7 @@ class FullMessageRoomOrderEntry extends Schema.TaggedClass<FullMessageRoomOrderE
   FullMessageRoomOrderEntryFields,
 ) {}
 
-describe("model-derived persisted schemas", () => {
+describe("persisted wire schemas", () => {
   it("round-trips workspace config row schemas without wire-shape drift", () => {
     expectWireRoundTrip(WorkspaceConfig, {
       _tag: "WorkspaceConfig",

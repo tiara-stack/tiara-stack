@@ -1,40 +1,17 @@
 import { Schema } from "effect";
-import { messageRoomOrderEntry } from "sheet-db-schema/models";
-import type { DateTimeOptionField, NumberField, StringArrayField, StringField } from "../model";
-import { modelTaggedFields, validateTaggedFields } from "../model";
-
-const MessageRoomOrderEntryFields = validateTaggedFields<{
-  readonly clientPlatform: StringField;
-  readonly clientId: StringField;
-  readonly messageId: StringField;
-  readonly rank: NumberField;
-  readonly position: NumberField;
-  readonly team: StringField;
-  readonly tags: StringArrayField;
-  readonly effectValue: NumberField;
-  readonly createdAt: DateTimeOptionField;
-  readonly updatedAt: DateTimeOptionField;
-  readonly deletedAt: DateTimeOptionField;
-}>(
-  modelTaggedFields(messageRoomOrderEntry, {
-    omit: new Set(["hour"]),
-  }),
-  [
-    "clientPlatform",
-    "clientId",
-    "messageId",
-    "rank",
-    "position",
-    "team",
-    "tags",
-    "effectValue",
-    "createdAt",
-    "updatedAt",
-    "deletedAt",
-  ] as const,
-);
+import { AuditTimestampFields } from "../auditTimestamps";
 
 export class MessageRoomOrderEntry extends Schema.TaggedClass<MessageRoomOrderEntry>()(
   "MessageRoomOrderEntry",
-  MessageRoomOrderEntryFields,
+  {
+    clientPlatform: Schema.String,
+    clientId: Schema.String,
+    messageId: Schema.String,
+    rank: Schema.Number,
+    position: Schema.Number,
+    team: Schema.String,
+    tags: Schema.Array(Schema.String),
+    effectValue: Schema.Number,
+    ...AuditTimestampFields,
+  },
 ) {}

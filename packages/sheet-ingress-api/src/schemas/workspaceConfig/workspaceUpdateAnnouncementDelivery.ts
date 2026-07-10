@@ -1,33 +1,17 @@
 import { Schema } from "effect";
-import { configWorkspaceUpdateAnnouncementDelivery } from "sheet-db-schema/models";
-import type { DateTimeOptionField, StringField } from "../model";
-import { modelTaggedFields, validateTaggedFields } from "../model";
-
-const WorkspaceUpdateAnnouncementDeliveryFields = validateTaggedFields<{
-  readonly workspaceId: StringField;
-  readonly announcementId: StringField;
-  readonly publishedAt: DateTimeOptionField;
-  readonly deliveredAt: DateTimeOptionField;
-  readonly conversationId: StringField;
-  readonly messageId: StringField;
-  readonly createdAt: DateTimeOptionField;
-  readonly updatedAt: DateTimeOptionField;
-  readonly deletedAt: DateTimeOptionField;
-}>(modelTaggedFields(configWorkspaceUpdateAnnouncementDelivery), [
-  "workspaceId",
-  "announcementId",
-  "publishedAt",
-  "deliveredAt",
-  "conversationId",
-  "messageId",
-  "createdAt",
-  "updatedAt",
-  "deletedAt",
-] as const);
+import { AuditTimestampFields } from "../auditTimestamps";
 
 export class WorkspaceUpdateAnnouncementDelivery extends Schema.TaggedClass<WorkspaceUpdateAnnouncementDelivery>()(
   "WorkspaceUpdateAnnouncementDelivery",
-  WorkspaceUpdateAnnouncementDeliveryFields,
+  {
+    workspaceId: Schema.String,
+    announcementId: Schema.String,
+    publishedAt: Schema.OptionFromNullOr(Schema.DateTimeUtcFromMillis),
+    deliveredAt: Schema.OptionFromNullOr(Schema.DateTimeUtcFromMillis),
+    conversationId: Schema.String,
+    messageId: Schema.String,
+    ...AuditTimestampFields,
+  },
 ) {}
 
 export const WorkspaceUpdateAnnouncementDeliveryClaimResult = Schema.Struct({
