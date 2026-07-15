@@ -1,10 +1,10 @@
 import type { CommandInteractionResponseContext } from "dfx-discord-utils/utils";
 import { Duration, Effect } from "effect";
 
-const sheetWorkflowsDispatchTimeout = Duration.seconds(10);
+const sheetWorkflowsDispatchTimeout = Duration.seconds(30);
 
 export const runSheetWorkflowsDispatch = <A, E, R>(
-  response: CommandInteractionResponseContext,
+  response: Pick<CommandInteractionResponseContext, "editReply">,
   operation: string,
   effect: Effect.Effect<A, E, R>,
 ) =>
