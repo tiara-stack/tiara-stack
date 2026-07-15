@@ -64,4 +64,38 @@ describe("verifyOAuthAccessToken", () => {
       },
     });
   });
+
+  it("maps malformed token failures to unauthorized", async () => {
+    resourceClientMock.verifyAccessToken.mockRejectedValue(
+      Object.assign(new Error("JWT malformed"), { code: "ERR_JWT_INVALID" }),
+    );
+
+    await expect(
+      verifyOAuthAccessToken("malformed-token", {
+        issuer: "https://auth.example.com",
+        validAudiences: ["sheet-ingress"],
+      }),
+    ).rejects.toMatchObject({
+      status: "UNAUTHORIZED",
+      body: expect.objectContaining({ message: "Invalid OAuth access token" }),
+    });
+  });
+
+  it("maps a missing JWKS key to a recoverable server error", async () => {
+    resourceClientMock.verifyAccessToken.mockRejectedValue(
+      Object.assign(new Error("no applicable key found"), {
+        code: "ERR_JWKS_NO_MATCHING_KEY",
+      }),
+    );
+
+    await expect(
+      verifyOAuthAccessToken("rotated-key-token", {
+        issuer: "https://auth.example.com",
+        validAudiences: ["sheet-ingress"],
+      }),
+    ).rejects.toMatchObject({
+      status: "SERVICE_UNAVAILABLE",
+      body: expect.objectContaining({ message: "OAuth token verification unavailable" }),
+    });
+  });
 });

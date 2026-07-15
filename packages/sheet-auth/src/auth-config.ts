@@ -8,7 +8,12 @@ import { createSecondaryStorage } from "./storage";
 import type { Driver } from "unstorage";
 import * as schema from "./schema";
 import { sessionToken } from "./plugins/session-token";
-import { DefaultRegisteredClientScopes, OAuthScopes, PublicOAuthScopes } from "./oauth";
+import {
+  DefaultRegisteredClientScopes,
+  OAuthScopes,
+  PublicOAuthScopes,
+  UserTokenDefaultScopes,
+} from "./oauth";
 import {
   createJwtSubjectTokenResolver,
   resolveUserByDiscordId,
@@ -125,17 +130,18 @@ const createTokenExchangeSubjectResolvers = ({
       issuer: tokenExchangeSubjectJwtIssuer ?? baseUrl,
       audience: baseUrl,
       resolveSubject: async ({ ctx, subject, payload }) => {
-        const discordPrefix = "discord:";
-        if (!subject.startsWith(discordPrefix)) {
+        const discordSubjectMatch = /^discord:(\d+)$/.exec(subject);
+        const discordUserId = discordSubjectMatch?.[1];
+        if (!discordUserId) {
           return undefined;
         }
 
-        const discordUserId = subject.slice(discordPrefix.length);
         const user = await resolveUserByDiscordId(ctx.context.internalAdapter, discordUserId);
 
         return {
           userId: user.id,
           accountId: discordUserId,
+          scopes: [...UserTokenDefaultScopes],
           claims: {
             ext: {
               iss: payload.iss,
@@ -264,7 +270,7 @@ function createBaseAuth({
   const options: AuthOptions = {
     baseURL: baseUrl,
     basePath: "/",
-    database: drizzleAdapter(db, { provider: "pg", schema }),
+    database: drizzleAdapter(db, { provider: "pg", schema, transaction: true }),
     socialProviders: {
       discord: {
         clientId: discordClientId,
