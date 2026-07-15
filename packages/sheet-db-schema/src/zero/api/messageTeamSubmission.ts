@@ -3,7 +3,7 @@ import { ReadonlyJSONValue } from "typhoon-zero/schema";
 import { ZeroApiEndpoint, ZeroApiGroup } from "typhoon-zero/zeroApi";
 import { TeamSubmissionStatus } from "../../teamSubmissionStatus";
 import { zeroTableAccess } from "../accessors";
-import { preserveOmitted } from "../timestamps";
+import { activeRecord, preserveOmitted } from "../timestamps";
 import type { SheetZeroApiSuccessSchemas } from "./successSchemas";
 
 export const makeMessageTeamSubmissionGroup = <
@@ -71,6 +71,7 @@ export const makeMessageTeamSubmissionGroup = <
             .where("messageId", "=", args.messageId)
             .one(),
         );
+        const activeExistingSubmission = activeRecord(existingSubmission);
 
         await tx.mutate.messageTeamSubmission.upsert(
           zeroTableAccess.messageTeamSubmission.upsertWithTimestamps(
@@ -86,21 +87,21 @@ export const makeMessageTeamSubmissionGroup = <
               sheetId: args.sheetId,
               confirmationMessageId: preserveOmitted(
                 args.confirmationMessageId,
-                existingSubmission?.confirmationMessageId,
+                activeExistingSubmission?.confirmationMessageId,
               ),
               parsedSubmission: args.parsedSubmission,
               rowMappings: args.rowMappings,
               rollbackSnapshot: preserveOmitted(
                 args.rollbackSnapshot,
-                existingSubmission?.rollbackSnapshot,
+                activeExistingSubmission?.rollbackSnapshot,
               ),
-              version: Predicate.isNotNullish(existingSubmission)
-                ? existingSubmission.version + 1
+              version: Predicate.isNotNullish(activeExistingSubmission)
+                ? activeExistingSubmission.version + 1
                 : 1,
               status: args.status,
               deletedAt: null,
             },
-            existingSubmission,
+            activeExistingSubmission,
           ),
         );
       },

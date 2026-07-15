@@ -59,13 +59,14 @@ patchedDependencies:
 importers:
 
   .:
+    dependencies:
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.67
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
         version: 24.10.9
-      effect:
-        specifier: 'catalog:'
-        version: 4.0.0-beta.67
       tsx:
         specifier: 'catalog:'
         version: 4.22.3

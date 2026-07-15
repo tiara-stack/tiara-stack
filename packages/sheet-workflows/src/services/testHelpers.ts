@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { ClientDeliveryClient } from "./clientDeliveryClient";
 
 export const text = (value: string) => [{ type: "text" as const, text: value }];
 
@@ -87,6 +88,49 @@ export const normalizePayloadText = (value: unknown): unknown => {
 };
 
 const unexpected = (prefix: string, name: string) => () => Effect.die(`${prefix}: ${name}`);
+
+type ClientDeliveryService = typeof ClientDeliveryClient.Service;
+type BoundClientDeliveryService = ReturnType<ClientDeliveryService["forClient"]>;
+
+const makeBoundClientDeliveryMock = (
+  overrides: Partial<BoundClientDeliveryService> = {},
+): BoundClientDeliveryService => {
+  const unexpectedCall = (operation: string) => Effect.die(`Unexpected ${operation} call`);
+  return {
+    sendMessage: () => unexpectedCall("sendMessage"),
+    sendDirectMessage: () => unexpectedCall("sendDirectMessage"),
+    listClients: () => unexpectedCall("listClients"),
+    updateMessage: () => unexpectedCall("updateMessage"),
+    updateOriginalInteractionResponse: () => unexpectedCall("updateOriginalInteractionResponse"),
+    updateOriginalInteractionResponseWithFiles: () =>
+      unexpectedCall("updateOriginalInteractionResponseWithFiles"),
+    createPin: () => unexpectedCall("createPin"),
+    deleteMessage: () => unexpectedCall("deleteMessage"),
+    addMessageReaction: () => unexpectedCall("addMessageReaction"),
+    removeMessageReaction: () => unexpectedCall("removeMessageReaction"),
+    addWorkspaceMemberRole: () => unexpectedCall("addWorkspaceMemberRole"),
+    removeWorkspaceMemberRole: () => unexpectedCall("removeWorkspaceMemberRole"),
+    getWorkspace: () => unexpectedCall("getWorkspace"),
+    getMembersForParent: () => unexpectedCall("getMembersForParent"),
+    getConversationsForParent: () => unexpectedCall("getConversationsForParent"),
+    ...overrides,
+  };
+};
+
+export const makeClientDeliveryMock = (
+  overrides: Partial<ClientDeliveryService> = {},
+): ClientDeliveryService => {
+  const { forClient, ...boundOverrides } = overrides;
+  const bound = makeBoundClientDeliveryMock(boundOverrides);
+  return {
+    ...bound,
+    forClient:
+      forClient ??
+      function (this: ClientDeliveryService) {
+        return this;
+      },
+  };
+};
 
 export const makeSheetApisClient = (
   services: Record<string, unknown>,

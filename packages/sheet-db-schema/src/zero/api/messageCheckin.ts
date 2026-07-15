@@ -237,6 +237,38 @@ export const makeMessageCheckinGroup = <const SuccessSchemas extends SheetZeroAp
           }),
         ),
     }),
+    ZeroApiEndpoint.mutator("removeMessageCheckin", {
+      request: Schema.Struct(MessageKeyRequest),
+      mutator: async ({ tx, args }) => {
+        const members = await tx.run(
+          zeroTableAccess.messageCheckinMember.listActiveWhere(
+            zeroTableAccess.messageCheckinMember.table
+              .where("clientPlatform", "=", args.clientPlatform)
+              .where("clientId", "=", args.clientId)
+              .where("messageId", "=", args.messageId),
+          ),
+        );
+        await Promise.all([
+          tx.mutate.messageCheckin.update(
+            zeroTableAccess.messageCheckin.softDeleteByPrimaryKey({
+              clientPlatform: args.clientPlatform,
+              clientId: args.clientId,
+              messageId: args.messageId,
+            }),
+          ),
+          ...members.map((member) =>
+            tx.mutate.messageCheckinMember.update(
+              zeroTableAccess.messageCheckinMember.softDeleteByPrimaryKey({
+                clientPlatform: member.clientPlatform,
+                clientId: member.clientId,
+                messageId: member.messageId,
+                memberId: member.memberId,
+              }),
+            ),
+          ),
+        ]);
+      },
+    }),
   );
 
 export type MessageCheckinGroup<SuccessSchemas extends SheetZeroApiSuccessSchemas> = ReturnType<

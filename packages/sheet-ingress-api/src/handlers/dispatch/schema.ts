@@ -442,7 +442,12 @@ export type UpdateAnnouncementDispatchPayload = Schema.Schema.Type<
 export const UpdateAnnouncementDispatchResult = Schema.Struct({
   workspaceId: Schema.String,
   announcementId: Schema.String,
-  status: Schema.Literals(["sent", "skipped_not_gated", "skipped_already_delivered"]),
+  status: Schema.Literals([
+    "sent",
+    "skipped_not_gated",
+    "skipped_already_claimed",
+    "skipped_already_delivered",
+  ]),
   announcementConversationId: Schema.NullOr(Schema.String),
   announcementMessageId: Schema.NullOr(Schema.String),
 });

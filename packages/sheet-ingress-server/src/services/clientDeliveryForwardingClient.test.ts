@@ -1,7 +1,8 @@
 // fallow-ignore-file code-duplication
 import { describe, expect, it } from "@effect/vitest";
-import { Deferred, Effect, Fiber, HashSet, Redacted } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber, HashSet, Redacted } from "effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
+import { DiscordBotNotFoundError } from "sheet-ingress-api/handlers/clientDelivery/api";
 import { ClientDeliveryForwardingClient } from "./clientDeliveryForwardingClient";
 import { ClientRegistry } from "./clientRegistry";
 import { SheetApisRpcTokens } from "./sheetApisRpcTokens";
@@ -23,6 +24,9 @@ const outboundMessageWithFile = {
     },
   ],
 } as const;
+
+const extractFailure = <A, E>(exit: Exit.Exit<A, E>): E | undefined =>
+  Exit.isFailure(exit) ? exit.cause.reasons.find(Cause.isFailReason)?.error : undefined;
 
 const makeClientRegistry = () =>
   ({
@@ -151,7 +155,89 @@ const expectJsonRequestBody = (request: HttpClientRequest.HttpClientRequest, bod
   }
 };
 
+const makeJsonHttpClient = (body: unknown, status: number) =>
+  HttpClient.make((request) =>
+    Effect.succeed(
+      HttpClientResponse.fromWeb(request, new Response(JSON.stringify(body), { status })),
+    ),
+  );
+
 describe("ClientDeliveryForwardingClient", () => {
+  it.effect("preserves a typed not-found error from message delivery", () => {
+    const httpClient = makeJsonHttpClient(
+      { _tag: "DiscordBotNotFoundError", message: "message not found", status: 404 },
+      404,
+    );
+    return run(
+      Effect.gen(function* () {
+        const client = yield* ClientDeliveryForwardingClient.make;
+        const exit = yield* Effect.exit(client.updateMessage(messageRef, outboundMessage));
+        const error = extractFailure(exit);
+
+        expect(error).toBeInstanceOf(DiscordBotNotFoundError);
+        expect(error).toMatchObject({
+          _tag: "DiscordBotNotFoundError",
+          status: 404,
+        });
+      }),
+      httpClient,
+    );
+  });
+
+  it.effect("preserves a typed not-found error from workspace delivery", () => {
+    const httpClient = makeJsonHttpClient(
+      { _tag: "DiscordBotNotFoundError", message: "workspace not found", status: 404 },
+      404,
+    );
+    return run(
+      Effect.gen(function* () {
+        const client = yield* ClientDeliveryForwardingClient.make;
+        const exit = yield* Effect.exit(client.getWorkspace(workspaceRef));
+        const error = extractFailure(exit);
+
+        expect(error).toBeInstanceOf(DiscordBotNotFoundError);
+        expect(error).toMatchObject({
+          _tag: "DiscordBotNotFoundError",
+          status: 404,
+        });
+      }),
+      httpClient,
+    );
+  });
+
+  it.effect("does not misclassify unrelated downstream not-found responses", () => {
+    const httpClient = makeJsonHttpClient(
+      { _tag: "UnknownError", message: "message not found" },
+      404,
+    );
+    return run(
+      Effect.gen(function* () {
+        const client = yield* ClientDeliveryForwardingClient.make;
+        const exit = yield* Effect.exit(client.updateMessage(messageRef, outboundMessage));
+        const error = extractFailure(exit);
+
+        expect(error).not.toBeInstanceOf(DiscordBotNotFoundError);
+        expect(error).toMatchObject({ _tag: "UnknownError" });
+      }),
+      httpClient,
+    );
+  });
+
+  it.effect("does not trust a not-found tag without the required error fields", () => {
+    const httpClient = makeJsonHttpClient({ _tag: "DiscordBotNotFoundError" }, 404);
+    return run(
+      Effect.gen(function* () {
+        const client = yield* ClientDeliveryForwardingClient.make;
+        const exit = yield* Effect.exit(client.updateMessage(messageRef, outboundMessage));
+        const error = extractFailure(exit);
+
+        expect(error).not.toBeInstanceOf(DiscordBotNotFoundError);
+        expect(error).toMatchObject({ _tag: "UnknownError" });
+      }),
+      httpClient,
+    );
+  });
+
   it.live.each([
     {
       body: { conversation: conversationRef, message: outboundMessage },

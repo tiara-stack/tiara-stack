@@ -5,10 +5,10 @@ import { AuthorizationService, MessageRoomOrderService } from "@/services";
 import type { MessageKey } from "@/services/messageKey";
 import { MessageRoomOrder } from "sheet-ingress-api/schemas/messageRoomOrder";
 import { SheetAuthWorkspaceUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthWorkspaceUser";
+import { MESSAGE_ROOM_ORDER_NOT_REGISTERED_ERROR_MESSAGE } from "sheet-ingress-api/sheet-apis-rpc";
 import { makeArgumentError, Unauthorized } from "typhoon-core/error";
 
-export const MESSAGE_ROOM_ORDER_NOT_REGISTERED_ERROR_MESSAGE =
-  "Cannot get message room order, the message might not be registered";
+export { MESSAGE_ROOM_ORDER_NOT_REGISTERED_ERROR_MESSAGE };
 
 const missingMessageRoomOrderError = () =>
   makeArgumentError(MESSAGE_ROOM_ORDER_NOT_REGISTERED_ERROR_MESSAGE);

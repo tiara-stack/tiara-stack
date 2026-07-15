@@ -54,8 +54,8 @@ export class UserConfigService extends Context.Service<UserConfigService>()("Use
         platform: string,
         userId: string,
         config: {
-          readonly checkinDmEnabled: boolean;
-          readonly monitorDmEnabled: boolean;
+          readonly checkinDmEnabled?: boolean | undefined;
+          readonly monitorDmEnabled?: boolean | undefined;
           readonly defaultClientId?: string | null | undefined;
         },
       ) {
@@ -64,14 +64,29 @@ export class UserConfigService extends Context.Service<UserConfigService>()("Use
           platform,
           userId,
         });
+        const activeExistingConfig = Option.filter(existingConfig, (existing) =>
+          Option.isNone(existing.deletedAt),
+        );
         const effectiveDefaultClientId =
           config.defaultClientId === undefined
-            ? Option.match(existingConfig, {
+            ? Option.match(activeExistingConfig, {
                 onNone: () => null,
                 onSome: (existing) => Option.getOrNull(existing.defaultClientId),
               })
             : config.defaultClientId;
-        if ((config.checkinDmEnabled || config.monitorDmEnabled) && !effectiveDefaultClientId) {
+        const checkinDmEnabled =
+          config.checkinDmEnabled ??
+          Option.match(activeExistingConfig, {
+            onNone: () => false,
+            onSome: (existing) => existing.checkinDmEnabled,
+          });
+        const monitorDmEnabled =
+          config.monitorDmEnabled ??
+          Option.match(activeExistingConfig, {
+            onNone: () => false,
+            onSome: (existing) => existing.monitorDmEnabled,
+          });
+        if ((checkinDmEnabled || monitorDmEnabled) && !effectiveDefaultClientId) {
           return yield* Effect.fail(
             makeArgumentError("A default notification client is required to enable DMs"),
           );
@@ -83,9 +98,7 @@ export class UserConfigService extends Context.Service<UserConfigService>()("Use
         yield* zero.userConfig.upsertUserPlatformConfig({
           platform,
           userId,
-          checkinDmEnabled: config.checkinDmEnabled,
-          monitorDmEnabled: config.monitorDmEnabled,
-          defaultClientId: config.defaultClientId,
+          ...config,
         });
 
         const updated = yield* zero.userConfig.getUserPlatformConfig({
@@ -116,8 +129,8 @@ export class UserConfigService extends Context.Service<UserConfigService>()("Use
         platform: string,
         accountId: string,
         config: {
-          readonly checkinDmEnabled: boolean;
-          readonly monitorDmEnabled: boolean;
+          readonly checkinDmEnabled?: boolean | undefined;
+          readonly monitorDmEnabled?: boolean | undefined;
           readonly defaultClientId?: string | null | undefined;
         },
       ) {

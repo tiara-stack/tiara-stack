@@ -1,15 +1,18 @@
 // fallow-ignore-file code-duplication
 import { describe, expect, it } from "@effect/vitest";
-import { Cause, DateTime, Effect, Exit, Option, Predicate, Schema } from "effect";
+import { Cause, DateTime, Duration, Effect, Exit, Fiber, Option, Predicate, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import { formatTentativeRoomOrderContent } from "sheet-ingress-api/clientActions";
+import { DiscordBotNotFoundError } from "sheet-ingress-api/handlers/clientDelivery/api";
 import type {
   AutoCheckinTestDispatchPayload,
+  CheckinDispatchPayload,
   ConversationListConfigDispatchPayload,
   ConversationSetDispatchPayload,
   ConversationUnsetDispatchPayload,
   WorkspaceWelcomeDispatchPayload,
   KickoutDispatchPayload,
+  RoomOrderDispatchPayload,
   ScheduleListDispatchPayload,
   ServiceWorkspaceFeatureFlagDispatchPayload,
   WorkspaceAddMonitorRoleDispatchPayload,
@@ -47,8 +50,16 @@ import {
   Team,
 } from "sheet-ingress-api/schemas/sheet";
 import { EventConfig } from "sheet-ingress-api/schemas/sheetConfig";
+import { makeArgumentError } from "typhoon-core/error";
 import { DispatchService, ClientDeliveryClient, SheetApisClient } from "@/services";
+import {
+  isInteractionFailureHandled,
+  unwrapInteractionFailure,
+} from "@/handlers/shared/interactionFailure";
 import * as Data from "effect/Data";
+import { makeMessageSink } from "./dispatch/clients/messageDelivery";
+import { makeDeliveryNonce } from "./dispatch/pure/deliveryNonce";
+import { boundEmbedDescription, escapeMarkdown } from "./dispatch/pure/rendering";
 
 class SheetWorkflowsServicesDispatchTestError extends Data.TaggedError(
   "SheetWorkflowsServicesDispatchTestError",
@@ -57,6 +68,7 @@ class SheetWorkflowsServicesDispatchTestError extends Data.TaggedError(
   readonly cause?: unknown;
 }> {}
 import {
+  makeClientDeliveryMock,
   makeSheetApisClient as makeBaseSheetApisClient,
   normalizePayloadText,
   renderTextForTest,
@@ -171,6 +183,14 @@ const autoCheckinTestPayload: AutoCheckinTestDispatchPayload = {
   dispatchRequestId: "dispatch-auto-checkin-test",
   workspaceId: "workspace-1",
   anchorConversationId: "anchor-conversation-1",
+};
+
+const roomOrderPayload: RoomOrderDispatchPayload = {
+  ...commandBase,
+  dispatchRequestId: "dispatch-room-order",
+  workspaceId: "workspace-1",
+  conversationId: "conversation-1",
+  hour: 1,
 };
 
 const conversationConfigPayload = {
@@ -295,6 +315,18 @@ const runSlotButton = (
     Effect.provideService(SheetApisClient, sheetApisClient),
   );
 
+const runRoomOrder = (
+  botClient: typeof ClientDeliveryClient.Service,
+  sheetApisClient: typeof SheetApisClient.Service,
+) =>
+  Effect.gen(function* () {
+    const service = yield* DispatchService.make;
+    return yield* service.roomOrder(roomOrderPayload, requester);
+  }).pipe(
+    Effect.provideService(ClientDeliveryClient, botClient),
+    Effect.provideService(SheetApisClient, sheetApisClient),
+  );
+
 const runSlotOpenButton = (
   botClient: typeof ClientDeliveryClient.Service,
   sheetApisClient: typeof SheetApisClient.Service,
@@ -398,8 +430,11 @@ const runWithDispatchService = <A>(
     Effect.provideService(SheetApisClient, sheetApisClient),
   );
 
-const makeInteractionUpdateBotClient = (updateCalls: Array<unknown>) =>
-  ({
+const makeInteractionUpdateBotClient = (
+  updateCalls: Array<unknown>,
+  overrides: Partial<typeof ClientDeliveryClient.Service> = {},
+) =>
+  makeClientDeliveryMock({
     getWorkspace: (workspaceId: string) =>
       Effect.succeed({
         id: workspaceId,
@@ -409,7 +444,8 @@ const makeInteractionUpdateBotClient = (updateCalls: Array<unknown>) =>
       updateCalls.push({ interactionResponseToken, payload: normalizePayloadText(payload) });
       return Effect.succeed({ id: "message-1", conversation_id: "conversation-1" });
     },
-  }) as never;
+    ...overrides,
+  });
 
 const makeTeamSubmissionUpsertResult = () => ({
   sourceMessage: {
@@ -468,14 +504,27 @@ const makeTeamSubmissionDeliveryClient = (
   options: {
     readonly failAddMessageReaction?: boolean;
     readonly failInteractionUpdate?: boolean;
+    readonly failSendMessage?: boolean;
     readonly failUpdateMessage?: boolean;
+    readonly updateMessageError?: unknown;
+    readonly sentMessageId?: string;
   } = {},
 ) => {
   const client = {
     forClient: () => client,
     sendMessage: (conversationId: string, payload: unknown) => {
       calls.push({ method: "sendMessage", conversationId, payload: normalizePayloadText(payload) });
-      return Effect.succeed({ id: "confirmation-message-1", conversation_id: conversationId });
+      if (options.failSendMessage) {
+        return Effect.fail(
+          new SheetWorkflowsServicesDispatchTestError({
+            message: "message delivery failed",
+          }),
+        );
+      }
+      return Effect.succeed({
+        id: options.sentMessageId ?? "confirmation-message-1",
+        conversation_id: conversationId,
+      });
     },
     updateMessage: (conversationId: string, messageId: string, payload: unknown) => {
       calls.push({
@@ -484,6 +533,9 @@ const makeTeamSubmissionDeliveryClient = (
         messageId,
         payload: normalizePayloadText(payload),
       });
+      if (options.updateMessageError !== undefined) {
+        return Effect.fail(options.updateMessageError);
+      }
       if (options.failUpdateMessage) {
         return Effect.fail(
           new SheetWorkflowsServicesDispatchTestError({
@@ -618,29 +670,24 @@ const updateAnnouncementsFeatureFlagName = "update-announcements";
 
 // These failure-path tests stop before Discord delivery, but keep the expected
 // delivery surface explicit so accidental sends fail loudly.
-const unusedUpdateAnnouncementBotClient = {
+const unusedUpdateAnnouncementBotClient = makeClientDeliveryMock({
   getConversationsForParent: () => Effect.die("feature flag failure should not read conversations"),
   sendMessage: () => Effect.die("feature flag failure should not send messages"),
-} satisfies Pick<
-  typeof ClientDeliveryClient.Service,
-  "getConversationsForParent" | "sendMessage"
-> as unknown as typeof ClientDeliveryClient.Service;
+});
 
-const updateAnnouncementSuccessBotClient = {
+const updateAnnouncementSuccessBotClient = makeClientDeliveryMock({
   getConversationsForParent: () =>
     Effect.succeed([makeConversationEntry({ id: "system-conversation", name: "welcome" })]),
   sendMessage: () =>
     Effect.succeed({ id: "update-message", conversation_id: "system-conversation" }),
-} satisfies Pick<
-  typeof ClientDeliveryClient.Service,
-  "getConversationsForParent" | "sendMessage"
-> as unknown as typeof ClientDeliveryClient.Service;
+});
 
 const makeGatedUpdateAnnouncementSheetApisClient = (
   recordCalls: Array<unknown>,
   options: {
     readonly claimCalls?: Array<unknown>;
     readonly releaseCalls?: Array<unknown>;
+    readonly releaseEffect?: Effect.Effect<void, unknown>;
     readonly claimResult?: {
       readonly status: "claimed" | "already_claimed" | "already_delivered";
       readonly delivery: Option.Option<WorkspaceUpdateAnnouncementDelivery>;
@@ -664,7 +711,7 @@ const makeGatedUpdateAnnouncementSheetApisClient = (
       },
       releaseWorkspaceUpdateAnnouncementDeliveryClaim: (args: unknown) => {
         options.releaseCalls?.push(args);
-        return Effect.void;
+        return options.releaseEffect ?? Effect.void;
       },
       recordWorkspaceUpdateAnnouncementDelivery: (args: unknown) => {
         recordCalls.push(args);
@@ -688,7 +735,7 @@ const expectSerializableUpdateAnnouncementFailure = (
       _tag: "UnknownError",
       message,
     });
-    expect(typeof (failures[0] as { readonly cause?: unknown }).cause).toBe("string");
+    expect(Predicate.isString((failures[0] as { readonly cause?: unknown }).cause)).toBe(true);
 
     const encoded = yield* Schema.encodeUnknownEffect(UpdateAnnouncementDispatchError)(failures[0]);
     expect(encoded).toMatchObject({
@@ -779,12 +826,26 @@ const roomOrderEventConfig = new EventConfig({
   startTime: DateTime.makeUnsafe("2026-03-26T12:00:00.000Z"),
 });
 
-const makeRoomOrderUpdateBotClient = (updateCalls: Array<unknown> = []) =>
-  makeInteractionUpdateBotClient(updateCalls);
+const makeRoomOrderUpdateBotClient = (
+  updateCalls: Array<unknown> = [],
+  overrides: Partial<typeof ClientDeliveryClient.Service> = {},
+) => makeInteractionUpdateBotClient(updateCalls, overrides);
 
 const makeRoomOrderRankSheetApisClient = (
   apiCalls: Array<string>,
   initialRoomOrder: MessageRoomOrder,
+  claimedRank = initialRoomOrder.rank,
+  expectedRankCalls: Array<number> = [],
+  options: {
+    readonly getMessageRoomOrderEntry?: () => Effect.Effect<
+      ReadonlyArray<MessageRoomOrderEntry>,
+      unknown
+    >;
+    readonly incrementMessageRoomOrderRank?: (payload: {
+      readonly expectedRank: number;
+      readonly tentativeUpdateClaimId: string;
+    }) => Effect.Effect<MessageRoomOrder, unknown>;
+  } = {},
 ) =>
   makeSheetApisClient({
     messageRoomOrder: {
@@ -792,23 +853,50 @@ const makeRoomOrderRankSheetApisClient = (
       claimMessageRoomOrderTentativeUpdate: ({ payload }: { payload: { claimId: string } }) => {
         apiCalls.push("claim");
         return Effect.succeed(
-          makeMessageRoomOrder({ tentativeUpdateClaimId: Option.some(payload.claimId) }),
+          makeMessageRoomOrder({
+            rank: claimedRank,
+            tentativeUpdateClaimId: Option.some(payload.claimId),
+          }),
         );
       },
       releaseMessageRoomOrderTentativeUpdateClaim: () => {
         apiCalls.push("release");
         return Effect.succeed({});
       },
-      decrementMessageRoomOrderRank: () => {
+      decrementMessageRoomOrderRank: ({
+        payload,
+      }: {
+        payload: { expectedRank: number; tentativeUpdateClaimId: string };
+      }) => {
         apiCalls.push("decrement");
-        return Effect.succeed(makeMessageRoomOrder({ rank: 1 }));
+        expectedRankCalls.push(payload.expectedRank);
+        return Effect.succeed(
+          makeMessageRoomOrder({
+            rank: payload.expectedRank - 1,
+            tentativeUpdateClaimId: Option.some(payload.tentativeUpdateClaimId),
+          }),
+        );
       },
-      incrementMessageRoomOrderRank: () => {
+      incrementMessageRoomOrderRank: ({
+        payload,
+      }: {
+        payload: { expectedRank: number; tentativeUpdateClaimId: string };
+      }) => {
         apiCalls.push("increment");
-        return Effect.succeed(makeMessageRoomOrder({ rank: 3 }));
+        expectedRankCalls.push(payload.expectedRank);
+        return (
+          options.incrementMessageRoomOrderRank?.(payload) ??
+          Effect.succeed(
+            makeMessageRoomOrder({
+              rank: payload.expectedRank + 1,
+              tentativeUpdateClaimId: Option.some(payload.tentativeUpdateClaimId),
+            }),
+          )
+        );
       },
       getMessageRoomOrderRange: () => Effect.succeed(roomOrderRange),
-      getMessageRoomOrderEntry: () => Effect.succeed(roomOrderEntries),
+      getMessageRoomOrderEntry:
+        options.getMessageRoomOrderEntry ?? (() => Effect.succeed(roomOrderEntries)),
     },
     sheet: {
       getEventConfig: () => Effect.succeed(roomOrderEventConfig),
@@ -818,12 +906,21 @@ const makeRoomOrderRankSheetApisClient = (
 const makeRoomOrderSendSheetApisClient = (
   apiCalls: Array<string>,
   initialRoomOrder: MessageRoomOrder,
+  claimIds: Array<string> = [],
+  completeMessageRoomOrderSend: () => Effect.Effect<MessageRoomOrder, unknown> = () =>
+    Effect.succeed(
+      makeMessageRoomOrder({
+        sentMessageId: Option.some("sent-message-1"),
+        sentConversationId: Option.some("conversation-1"),
+      }),
+    ),
 ) =>
   makeSheetApisClient({
     messageRoomOrder: {
       getMessageRoomOrder: () => Effect.succeed(initialRoomOrder),
       claimMessageRoomOrderSend: ({ payload }: { payload: { claimId: string } }) => {
         apiCalls.push("claimSend");
+        claimIds.push(payload.claimId);
         return Effect.succeed(makeMessageRoomOrder({ sendClaimId: Option.some(payload.claimId) }));
       },
       releaseMessageRoomOrderSendClaim: () => {
@@ -832,12 +929,7 @@ const makeRoomOrderSendSheetApisClient = (
       },
       completeMessageRoomOrderSend: () => {
         apiCalls.push("completeSend");
-        return Effect.succeed(
-          makeMessageRoomOrder({
-            sentMessageId: Option.some("sent-message-1"),
-            sentConversationId: Option.some("conversation-1"),
-          }),
-        );
+        return completeMessageRoomOrderSend();
       },
       getMessageRoomOrderRange: () => Effect.succeed(roomOrderRange),
       getMessageRoomOrderEntry: () => Effect.succeed(roomOrderEntries),
@@ -848,7 +940,96 @@ const makeRoomOrderSendSheetApisClient = (
   });
 
 describe("DispatchService", () => {
-  it.live("sends first-hour auto check-in test previews without persistent message state", () =>
+  it("escapes masked-link Markdown punctuation", () => {
+    expect(escapeMarkdown("# [label](https://example.com) - + ! <tag>")).toBe(
+      "\\# \\[label\\]\\(https://example.com\\) \\- \\+ \\! \\<tag\\>",
+    );
+  });
+
+  it("bounds embed descriptions with a readable overflow summary", () => {
+    const overflowSummary = "\n… Summary truncated.";
+    const description = boundEmbedDescription("x".repeat(5_000), overflowSummary);
+
+    expect(description).toHaveLength(4_096);
+    expect(description.endsWith(overflowSummary)).toBe(true);
+    expect(boundEmbedDescription("x".repeat(5_000), "s".repeat(5_000))).toHaveLength(4_096);
+  });
+
+  it("bounds delivery nonces deterministically", () => {
+    const source = "dispatch:workspace:conversation:message-kind";
+
+    expect(makeDeliveryNonce("short-nonce")).toBe("short-nonce");
+    expect(makeDeliveryNonce(source)).toHaveLength(25);
+    expect(makeDeliveryNonce(source)).toBe(makeDeliveryNonce(source));
+  });
+
+  it.effect("uses conversation delivery for empty interaction tokens", () =>
+    Effect.gen(function* () {
+      const sendCalls: Array<unknown> = [];
+      const botClient = makeClientDeliveryMock({
+        sendMessage: (conversationId: string, payload: unknown) => {
+          sendCalls.push({ conversationId, payload });
+          return Effect.succeed({ id: "message-1", conversation_id: conversationId });
+        },
+        updateOriginalInteractionResponse: () =>
+          Effect.die("empty interaction tokens must not use interaction delivery"),
+      });
+
+      const result = yield* makeMessageSink(botClient, "conversation-1", "").sendPrimary({
+        content: "message",
+      });
+
+      expect(result).toEqual({ id: "message-1", conversation_id: "conversation-1" });
+      expect(sendCalls).toEqual([
+        { conversationId: "conversation-1", payload: { content: "message" } },
+      ]);
+    }),
+  );
+
+  it.effect("fails the persisted room order when enabling its controls fails", () =>
+    Effect.gen(function* () {
+      const updateCalls: Array<unknown> = [];
+      const botClient = makeClientDeliveryMock({
+        updateOriginalInteractionResponse: (_token: string, payload: unknown) =>
+          Effect.suspend(() => {
+            updateCalls.push(payload);
+            return updateCalls.length === 1
+              ? Effect.succeed({ id: "room-order-message", conversation_id: "conversation-1" })
+              : Effect.fail(
+                  new SheetWorkflowsServicesDispatchTestError({ message: "update failed" }),
+                );
+          }),
+      });
+      const sheetApisClient = makeSheetApisClient({
+        roomOrder: {
+          generate: () =>
+            Effect.succeed({
+              content: text("Room order"),
+              runningConversationId: "conversation-1",
+              range: roomOrderRange,
+              rank: 1,
+              hour: 1,
+              monitor: null,
+              previousFills: [],
+              fills: ["user-1"],
+              entries: [],
+            }),
+        },
+        messageRoomOrder: {
+          persistMessageRoomOrder: () => Effect.void,
+        },
+      });
+
+      const fiber = yield* Effect.forkChild(runRoomOrder(botClient, sheetApisClient));
+      yield* TestClock.adjust(Duration.seconds(1));
+      const exit = yield* Effect.exit(Fiber.join(fiber));
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(updateCalls).toHaveLength(4);
+    }),
+  );
+
+  it.effect("returns auto-checkin test results when the summary update fails", () =>
     Effect.gen(function* () {
       const updateCalls: Array<{
         readonly interactionResponseToken: string;
@@ -909,10 +1090,19 @@ describe("DispatchService", () => {
             Effect.die("test run must not persist room-order messages"),
         },
       });
-      const botClient = {
+      const botClient = makeClientDeliveryMock({
         updateOriginalInteractionResponse: (interactionResponseToken: string, payload: unknown) => {
           updateCalls.push({ interactionResponseToken, payload: normalizePayloadText(payload) });
-          return Effect.succeed({ id: "anchor-message", conversation_id: "anchor-conversation-1" });
+          return updateCalls.length === 1
+            ? Effect.succeed({
+                id: "anchor-message",
+                conversation_id: "anchor-conversation-1",
+              })
+            : Effect.fail(
+                new SheetWorkflowsServicesDispatchTestError({
+                  message: "summary update failed",
+                }),
+              );
         },
         updateMessage: () => Effect.die("test run must update the anchor through the interaction"),
         sendMessage: (conversationId: string, payload: unknown) => {
@@ -926,7 +1116,7 @@ describe("DispatchService", () => {
             conversation_id: conversationId,
           });
         },
-      } as never;
+      });
 
       const result = yield* runWithDispatchService(botClient, sheetApisClient, (service) =>
         service.autoCheckinTest(autoCheckinTestPayload, requester),
@@ -968,8 +1158,10 @@ describe("DispatchService", () => {
         { payload: { workspaceId: "workspace-1", conversationId: "conversation-1", hour: 1 } },
       ]);
       expect(updateCalls).toHaveLength(2);
-      expect(firstEmbedDescription(updateCalls[0]?.payload)).toContain("Requested by @account-1.");
-      expect(firstEmbedDescription(updateCalls[0]?.payload)).not.toContain("@discord-user-1");
+      expect(firstEmbedDescription(updateCalls[0]?.payload)).toContain(
+        "Requested by @discord-user-1.",
+      );
+      expect(firstEmbedDescription(updateCalls[0]?.payload)).not.toContain("@account-1");
       expect(sendCalls.map((call) => call.conversationId)).toEqual([
         "checkin-conversation-1",
         "conversation-1",
@@ -1003,81 +1195,166 @@ describe("DispatchService", () => {
     }),
   );
 
-  it.live("omits native message references for same-conversation auto check-in test previews", () =>
+  it.effect("replaces a public monitor message when check-in delivery fails", () =>
     Effect.gen(function* () {
       const updateCalls: Array<{
-        readonly interactionResponseToken: string;
+        readonly messageId: string;
         readonly payload: unknown;
-      }> = [];
-      const sendCalls: Array<{
-        readonly conversationId: string;
-        readonly payload: unknown;
-        readonly rawPayload: unknown;
       }> = [];
       const sheetApisClient = makeSheetApisClient({
-        workspaceConfig: {
-          getWorkspaceConversations: () => Effect.succeed([makeWorkspaceConversationConfig()]),
-        },
         checkin: {
           generate: () =>
             Effect.succeed({
               hour: 1,
-              runningConversationId: "anchor-conversation-1",
-              checkinConversationId: "anchor-conversation-1",
+              runningConversationId: "running-conversation",
+              checkinConversationId: "checkin-conversation",
               fillCount: 0,
-              roleId: "role-1",
-              initialMessage: null,
-              monitorCheckinMessage: text("Monitor summary"),
-              monitorUserId: "monitor-1",
+              roleId: null,
+              initialMessage: text("Check in"),
+              monitorCheckinMessage: text("Check-in opened"),
+              monitorUserId: null,
               monitorFailureMessage: null,
               fillIds: [],
             }),
         },
-      });
-      const botClient = {
-        updateOriginalInteractionResponse: (interactionResponseToken: string, payload: unknown) => {
-          updateCalls.push({ interactionResponseToken, payload: normalizePayloadText(payload) });
-          return Effect.succeed({ id: "anchor-message", conversation_id: "anchor-conversation-1" });
+        messageCheckin: {
+          persistMessageCheckin: () => Effect.succeed({}),
+          getMessageCheckinData: () => Effect.succeed(Option.none()),
+          removeMessageCheckin: () => Effect.void,
         },
-        updateMessage: () => Effect.die("test run must update the anchor through the interaction"),
-        sendMessage: (conversationId: string, payload: unknown) => {
-          sendCalls.push({
-            conversationId,
-            payload: normalizePayloadText(payload),
-            rawPayload: payload,
+      });
+      const botClient = makeClientDeliveryMock({
+        sendMessage: (conversationId) =>
+          Effect.succeed({
+            id:
+              conversationId === "running-conversation"
+                ? "primary-monitor-message"
+                : "checkin-message",
+            conversation_id: conversationId,
+          }),
+        updateMessage: (_conversationId, messageId, updatePayload) => {
+          return Effect.suspend(() => {
+            updateCalls.push({ messageId, payload: normalizePayloadText(updatePayload) });
+            return messageId === "checkin-message"
+              ? Effect.fail(
+                  new SheetWorkflowsServicesDispatchTestError({
+                    message: "check-in enablement failed",
+                  }),
+                )
+              : Effect.succeed({ id: messageId, conversation_id: "running-conversation" });
           });
-          return Effect.succeed({ id: "preview-message-1", conversation_id: conversationId });
         },
-      } as never;
+        deleteMessage: () => Effect.void,
+      });
+      const checkinPayload: CheckinDispatchPayload = {
+        client: discordClient,
+        dispatchRequestId: "dispatch-checkin-failure",
+        workspaceId: "workspace-1",
+      };
 
-      const result = yield* runWithDispatchService(botClient, sheetApisClient, (service) =>
-        service.autoCheckinTest(autoCheckinTestPayload, requester),
+      const fiber = yield* Effect.forkChild(
+        runWithDispatchService(botClient, sheetApisClient, (service) =>
+          service.checkin(checkinPayload, requester),
+        ).pipe(Effect.exit),
       );
+      yield* TestClock.adjust(Duration.seconds(1));
+      const exit = yield* Fiber.join(fiber);
 
-      expect(result).toMatchObject({
-        conversationCount: 1,
-        sentCount: 0,
-        skippedCount: 1,
-        failedCount: 0,
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(updateCalls.filter(({ messageId }) => messageId === "checkin-message")).toHaveLength(
+        3,
+      );
+      expect(updateCalls).toContainEqual({
+        messageId: "primary-monitor-message",
+        payload: { content: "Check-in delivery failed. Please try again." },
       });
-      expect(sendCalls).toHaveLength(1);
-      expect(sendCalls[0]).toMatchObject({
-        conversationId: "anchor-conversation-1",
-        payload: {
-          content: null,
-          allowedMentions: "none",
-        },
-      });
-      expect(sendCalls[0]?.payload).not.toHaveProperty("message_reference");
-      expect(firstEmbedFields(sendCalls[0]?.payload)).toContainEqual({
-        name: "Test run",
-        value: "message",
-      });
-      expectTestRunAnchorLink(sendCalls[0]?.rawPayload);
     }),
   );
 
-  it.live("surfaces first auto check-in test conversation failure details in the summary", () =>
+  it.effect(
+    "omits native message references for same-conversation auto check-in test previews",
+    () =>
+      Effect.gen(function* () {
+        const updateCalls: Array<{
+          readonly interactionResponseToken: string;
+          readonly payload: unknown;
+        }> = [];
+        const sendCalls: Array<{
+          readonly conversationId: string;
+          readonly payload: unknown;
+          readonly rawPayload: unknown;
+        }> = [];
+        const sheetApisClient = makeSheetApisClient({
+          workspaceConfig: {
+            getWorkspaceConversations: () => Effect.succeed([makeWorkspaceConversationConfig()]),
+          },
+          checkin: {
+            generate: () =>
+              Effect.succeed({
+                hour: 1,
+                runningConversationId: "anchor-conversation-1",
+                checkinConversationId: "anchor-conversation-1",
+                fillCount: 0,
+                roleId: "role-1",
+                initialMessage: null,
+                monitorCheckinMessage: text("Monitor summary"),
+                monitorUserId: "monitor-1",
+                monitorFailureMessage: null,
+                fillIds: [],
+              }),
+          },
+        });
+        const botClient = makeClientDeliveryMock({
+          updateOriginalInteractionResponse: (
+            interactionResponseToken: string,
+            payload: unknown,
+          ) => {
+            updateCalls.push({ interactionResponseToken, payload: normalizePayloadText(payload) });
+            return Effect.succeed({
+              id: "anchor-message",
+              conversation_id: "anchor-conversation-1",
+            });
+          },
+          updateMessage: () =>
+            Effect.die("test run must update the anchor through the interaction"),
+          sendMessage: (conversationId: string, payload: unknown) => {
+            sendCalls.push({
+              conversationId,
+              payload: normalizePayloadText(payload),
+              rawPayload: payload,
+            });
+            return Effect.succeed({ id: "preview-message-1", conversation_id: conversationId });
+          },
+        });
+
+        const result = yield* runWithDispatchService(botClient, sheetApisClient, (service) =>
+          service.autoCheckinTest(autoCheckinTestPayload, requester),
+        );
+
+        expect(result).toMatchObject({
+          conversationCount: 1,
+          sentCount: 0,
+          skippedCount: 1,
+          failedCount: 0,
+        });
+        expect(sendCalls).toHaveLength(1);
+        expect(sendCalls[0]).toMatchObject({
+          conversationId: "anchor-conversation-1",
+          payload: {
+            content: null,
+            allowedMentions: "none",
+          },
+        });
+        expect(sendCalls[0]?.payload).not.toHaveProperty("message_reference");
+        expect(firstEmbedFields(sendCalls[0]?.payload)).toContainEqual({
+          name: "Test run",
+          value: "message",
+        });
+        expectTestRunAnchorLink(sendCalls[0]?.rawPayload);
+      }),
+  );
+
+  it.effect("sanitizes auto check-in test conversation failure details in the summary", () =>
     Effect.gen(function* () {
       const updateCalls: Array<{
         readonly interactionResponseToken: string;
@@ -1096,14 +1373,14 @@ describe("DispatchService", () => {
             ),
         },
       });
-      const botClient = {
+      const botClient = makeClientDeliveryMock({
         updateOriginalInteractionResponse: (interactionResponseToken: string, payload: unknown) => {
           updateCalls.push({ interactionResponseToken, payload: normalizePayloadText(payload) });
           return Effect.succeed({ id: "anchor-message", conversation_id: "anchor-conversation-1" });
         },
         updateMessage: () => Effect.die("test run must update the anchor through the interaction"),
         sendMessage: () => Effect.die("failed conversation must not send preview messages"),
-      } as never;
+      });
 
       const result = yield* runWithDispatchService(botClient, sheetApisClient, (service) =>
         service.autoCheckinTest(autoCheckinTestPayload, requester),
@@ -1119,7 +1396,7 @@ describe("DispatchService", () => {
         conversationName: "main",
         status: "failed",
       });
-      expect(result.conversations[0]?.error).toContain("Unable to parse range: 'Day 9'!J3:N23");
+      expect(result.conversations[0]?.error).toBe("Test run failed; see server logs.");
       expect(updateCalls).toHaveLength(2);
       expect(firstEmbedDescription(updateCalls[1]?.payload)).toContain(
         "Failed conversations: main",
@@ -1128,15 +1405,15 @@ describe("DispatchService", () => {
         "First failure detail for main:",
       );
       expect(firstEmbedDescription(updateCalls[1]?.payload)).toContain(
-        "Unable to parse range: 'Day 9'!J3:N23",
+        "Test run failed; see server logs.",
       );
     }),
   );
 
-  it.live("sends the workspace welcome embed to the system conversation first", () =>
+  it.effect("sends the workspace welcome embed to the system conversation first", () =>
     Effect.gen(function* () {
       const sendCalls: Array<{ readonly conversationId: string; readonly payload: unknown }> = [];
-      const botClient = {
+      const botClient = makeClientDeliveryMock({
         getConversationsForParent: () =>
           Effect.succeed([
             makeConversationEntry({ id: "general", name: "general", position: 1 }),
@@ -1146,7 +1423,7 @@ describe("DispatchService", () => {
           sendCalls.push({ conversationId, payload: normalizePayloadText(payload) });
           return Effect.succeed({ id: "welcome-message", conversation_id: conversationId });
         },
-      } as never;
+      });
 
       const result = yield* runWorkspaceWelcome(botClient, makeSheetApisClient({}));
 
@@ -1158,6 +1435,8 @@ describe("DispatchService", () => {
       expect(sendCalls).toHaveLength(1);
       expect(sendCalls[0]?.conversationId).toBe("system-conversation");
       expect(sendCalls[0]?.payload).toEqual({
+        nonce: makeDeliveryNonce(workspaceWelcomePayload.dispatchRequestId),
+        enforceNonce: true,
         embeds: [
           {
             title: "Thanks for adding Tiara",
@@ -1190,52 +1469,46 @@ describe("DispatchService", () => {
     }),
   );
 
-  it.live(
-    "falls back to general and then sorted sendable conversations for workspace welcome",
-    () =>
-      Effect.gen(function* () {
-        const sendCalls: Array<string> = [];
-        const botClient = {
-          getConversationsForParent: () =>
-            Effect.succeed([
-              makeConversationEntry({ id: "voice", type: 2, name: "voice", position: 0 }),
-              makeConversationEntry({ id: "late", name: "late", position: 20 }),
-              makeConversationEntry({ id: "general", name: "General", position: 50 }),
-              makeConversationEntry({ id: "early", name: "early", position: 10 }),
-            ]),
-          sendMessage: (conversationId: string) => {
-            sendCalls.push(conversationId);
-            return conversationId === "general"
-              ? Effect.fail(
-                  new SheetWorkflowsServicesDispatchTestError({ message: "cannot send general" }),
-                )
-              : Effect.succeed({
-                  id: `message-${conversationId}`,
-                  conversation_id: conversationId,
-                });
-          },
-        } as never;
+  it.effect("stops workspace welcome fallback after an ambiguous send failure", () =>
+    Effect.gen(function* () {
+      const sendCalls: Array<string> = [];
+      const botClient = makeClientDeliveryMock({
+        getConversationsForParent: () =>
+          Effect.succeed([
+            makeConversationEntry({ id: "voice", type: 2, name: "voice", position: 0 }),
+            makeConversationEntry({ id: "late", name: "late", position: 20 }),
+            makeConversationEntry({ id: "general", name: "General", position: 50 }),
+            makeConversationEntry({ id: "early", name: "early", position: 10 }),
+          ]),
+        sendMessage: (conversationId: string) => {
+          sendCalls.push(conversationId);
+          return conversationId === "general"
+            ? Effect.fail(
+                new SheetWorkflowsServicesDispatchTestError({ message: "cannot send general" }),
+              )
+            : Effect.succeed({
+                id: `message-${conversationId}`,
+                conversation_id: conversationId,
+              });
+        },
+      });
 
-        const result = yield* runWorkspaceWelcome(botClient, makeSheetApisClient({}));
+      const exit = yield* Effect.exit(runWorkspaceWelcome(botClient, makeSheetApisClient({})));
 
-        expect(result).toEqual({
-          workspaceId: "workspace-1",
-          conversationId: "early",
-          messageId: "message-early",
-        });
-        expect(sendCalls).toEqual(["general", "early"]);
-      }),
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(sendCalls).toEqual(["general"]);
+    }),
   );
 
-  it.live("fails workspace welcome when no conversation can receive the message", () =>
+  it.effect("fails workspace welcome when no conversation can receive the message", () =>
     Effect.gen(function* () {
-      const botClient = {
+      const botClient = makeClientDeliveryMock({
         getConversationsForParent: () =>
           Effect.succeed([
             makeConversationEntry({ id: "voice", type: 2, name: "voice", position: 0 }),
           ]),
         sendMessage: () => Effect.die("sendMessage should not be called"),
-      } as never;
+      });
 
       const exit = yield* Effect.exit(runWorkspaceWelcome(botClient, makeSheetApisClient({})));
 
@@ -1244,7 +1517,13 @@ describe("DispatchService", () => {
         Exit.isFailure(exit) &&
           exit.cause.reasons
             .filter(Cause.isFailReason)
-            .some((reason) => Predicate.isTagged("ArgumentError")(reason.error)),
+            .some(
+              (reason) =>
+                Predicate.isObject(reason.error) &&
+                reason.error !== null &&
+                "_tag" in reason.error &&
+                reason.error._tag === "ArgumentError",
+            ),
       ).toBe(true);
     }),
   );
@@ -1261,7 +1540,7 @@ describe("DispatchService", () => {
           },
         },
       });
-      const botClient = {
+      const botClient = makeClientDeliveryMock({
         getConversationsForParent: () =>
           Effect.succeed([
             makeConversationEntry({ id: "general", name: "general", position: 1 }),
@@ -1271,7 +1550,7 @@ describe("DispatchService", () => {
           sendCalls.push({ conversationId, payload: normalizePayloadText(payload) });
           return Effect.succeed({ id: "feature-message", conversation_id: conversationId });
         },
-      } as never;
+      });
 
       const result = yield* runServiceAddWorkspaceFeatureFlag(botClient, sheetApisClient);
 
@@ -1288,6 +1567,8 @@ describe("DispatchService", () => {
         {
           conversationId: "system-conversation",
           payload: {
+            nonce: makeDeliveryNonce("dispatch-service-add-workspace-feature-flag"),
+            enforceNonce: true,
             embeds: [
               {
                 title: "Feature flag enabled",
@@ -1438,7 +1719,7 @@ describe("DispatchService", () => {
       expect(result).toEqual({
         workspaceId: "workspace-1",
         announcementId: "update-announcements-2026-06-05",
-        status: "skipped_already_delivered",
+        status: "skipped_already_claimed",
         announcementConversationId: null,
         announcementMessageId: null,
       });
@@ -1479,6 +1760,10 @@ describe("DispatchService", () => {
         {
           conversationId: "system-conversation",
           payload: {
+            nonce: makeDeliveryNonce(
+              "discord-update-announcement:workspace-1:update-announcements-2026-06-05",
+            ),
+            enforceNonce: true,
             embeds: [
               {
                 title: "Update announcements",
@@ -1536,17 +1821,15 @@ describe("DispatchService", () => {
     }),
   );
 
-  it.effect("serializes update announcement dispatch failures", () =>
+  it.effect("preserves update announcement feature-flag failures", () =>
     Effect.gen(function* () {
+      const featureFlagError = new SheetWorkflowsServicesDispatchTestError({
+        message: "feature flags unavailable",
+        cause: { endpoint: "workspaceConfig.getWorkspaceFeatureFlags" },
+      });
       const sheetApisClient = makeSheetApisClient({
         workspaceConfig: {
-          getWorkspaceFeatureFlags: () =>
-            Effect.fail(
-              new SheetWorkflowsServicesDispatchTestError({
-                message: "feature flags unavailable",
-                cause: { endpoint: "workspaceConfig.getWorkspaceFeatureFlags" },
-              }),
-            ),
+          getWorkspaceFeatureFlags: () => Effect.fail(featureFlagError),
         },
       });
 
@@ -1554,29 +1837,24 @@ describe("DispatchService", () => {
         runUpdateAnnouncement(unusedUpdateAnnouncementBotClient, sheetApisClient),
       );
 
-      yield* expectSerializableUpdateAnnouncementFailure(
-        exit,
-        "Failed to load update announcement feature flags",
-        "feature flags unavailable",
-      );
+      const failure = Exit.isFailure(exit) ? Cause.findErrorOption(exit.cause) : Option.none();
+      expect(Option.isSome(failure) && failure.value).toBe(featureFlagError);
     }),
   );
 
-  it.effect("serializes update announcement claim failures", () =>
+  it.effect("preserves update announcement claim failures", () =>
     Effect.gen(function* () {
+      const claimError = new SheetWorkflowsServicesDispatchTestError({
+        message: "claim failed",
+        cause: { endpoint: "claimWorkspaceUpdateAnnouncementDelivery" },
+      });
       const sheetApisClient = makeSheetApisClient({
         workspaceConfig: {
           getWorkspaceFeatureFlags: () =>
             Effect.succeed([
               makeWorkspaceFeatureFlag({ flagName: updateAnnouncementsFeatureFlagName }),
             ]),
-          claimWorkspaceUpdateAnnouncementDelivery: () =>
-            Effect.fail(
-              new SheetWorkflowsServicesDispatchTestError({
-                message: "claim failed",
-                cause: { endpoint: "claimWorkspaceUpdateAnnouncementDelivery" },
-              }),
-            ),
+          claimWorkspaceUpdateAnnouncementDelivery: () => Effect.fail(claimError),
         },
       });
 
@@ -1584,11 +1862,8 @@ describe("DispatchService", () => {
         runUpdateAnnouncement(unusedUpdateAnnouncementBotClient, sheetApisClient),
       );
 
-      yield* expectSerializableUpdateAnnouncementFailure(
-        exit,
-        "Failed to claim update announcement delivery",
-        "claim failed",
-      );
+      const failure = Exit.isFailure(exit) ? Cause.findErrorOption(exit.cause) : Option.none();
+      expect(Option.isSome(failure) && failure.value).toBe(claimError);
     }),
   );
 
@@ -1598,7 +1873,7 @@ describe("DispatchService", () => {
       const sheetApisClient = makeGatedUpdateAnnouncementSheetApisClient([], {
         releaseCalls,
       });
-      const botClient = {
+      const botClient = makeClientDeliveryMock({
         getConversationsForParent: () =>
           Effect.succeed([makeConversationEntry({ id: "system-conversation", name: "welcome" })]),
         sendMessage: () =>
@@ -1608,23 +1883,56 @@ describe("DispatchService", () => {
               cause: { endpoint: "clientDelivery.sendMessage" },
             }),
           ),
-      } satisfies Pick<
-        typeof ClientDeliveryClient.Service,
-        "getConversationsForParent" | "sendMessage"
-      > as unknown as typeof ClientDeliveryClient.Service;
+      });
 
       const exit = yield* Effect.exit(runUpdateAnnouncement(botClient, sheetApisClient));
 
       yield* expectSerializableUpdateAnnouncementFailure(
         exit,
         "Failed to send update announcement",
-        "send failed",
+        "Cannot send update announcement",
       );
       expect(releaseCalls).toHaveLength(1);
     }),
   );
 
-  it.effect("serializes update announcement delivery-record failures", () =>
+  it.effect("preserves update announcement send failures when claim release fails", () =>
+    Effect.gen(function* () {
+      const releaseCalls: Array<unknown> = [];
+      const sheetApisClient = makeGatedUpdateAnnouncementSheetApisClient([], {
+        releaseCalls,
+        releaseEffect: Effect.fail(
+          new SheetWorkflowsServicesDispatchTestError({ message: "release failed" }),
+        ),
+      });
+      const botClient = makeClientDeliveryMock({
+        getConversationsForParent: () =>
+          Effect.succeed([makeConversationEntry({ id: "system-conversation", name: "welcome" })]),
+        sendMessage: () =>
+          Effect.fail(
+            new SheetWorkflowsServicesDispatchTestError({
+              message: "send failed",
+              cause: { endpoint: "clientDelivery.sendMessage" },
+            }),
+          ),
+      });
+
+      const fiber = yield* Effect.forkChild(
+        Effect.exit(runUpdateAnnouncement(botClient, sheetApisClient)),
+      );
+      yield* TestClock.adjust(Duration.seconds(1));
+      const exit = yield* Fiber.join(fiber);
+
+      yield* expectSerializableUpdateAnnouncementFailure(
+        exit,
+        "Failed to send update announcement",
+        "Cannot send update announcement",
+      );
+      expect(releaseCalls).toHaveLength(1);
+    }),
+  );
+
+  it.effect("fails update announcement dispatch when delivery recording remains pending", () =>
     Effect.gen(function* () {
       const sheetApisClient = makeSheetApisClient({
         workspaceConfig: {
@@ -1647,13 +1955,15 @@ describe("DispatchService", () => {
         },
       });
 
-      const exit = yield* Effect.exit(
-        runUpdateAnnouncement(updateAnnouncementSuccessBotClient, sheetApisClient),
+      const fiber = yield* Effect.forkChild(
+        Effect.exit(runUpdateAnnouncement(updateAnnouncementSuccessBotClient, sheetApisClient)),
       );
+      yield* TestClock.adjust(Duration.seconds(1));
+      const exit = yield* Fiber.join(fiber);
 
       yield* expectSerializableUpdateAnnouncementFailure(
         exit,
-        "Failed to record update announcement delivery",
+        "Failed to record update announcement delivery after successful send",
         "record failed",
       );
     }),
@@ -1683,11 +1993,15 @@ describe("DispatchService", () => {
   it.live("persists slot button metadata with the requester Discord user id", () =>
     Effect.gen(function* () {
       const upsertCalls: Array<unknown> = [];
-      const botClient = {
-        sendMessage: () => Effect.succeed({ id: "message-1", conversation_id: "conversation-1" }),
+      const sendCalls: Array<unknown> = [];
+      const botClient = makeClientDeliveryMock({
+        sendMessage: (_conversationId: string, message: unknown) => {
+          sendCalls.push(message);
+          return Effect.succeed({ id: "message-1", conversation_id: "conversation-1" });
+        },
         updateOriginalInteractionResponse: () =>
           Effect.succeed({ id: "interaction-message-1", conversation_id: "conversation-1" }),
-      } as never;
+      });
       const sheetApisClient = makeMessageSlotSheetApisClient((args) => {
         upsertCalls.push(args);
         return Effect.succeed({});
@@ -1700,6 +2014,9 @@ describe("DispatchService", () => {
         messageConversationId: "conversation-1",
         day: 2,
       });
+      expect(sendCalls).toEqual([
+        expect.objectContaining({ nonce: "dispatch-slot-button", enforceNonce: true }),
+      ]);
       expect(upsertCalls).toEqual([
         {
           payload: {
@@ -1721,13 +2038,14 @@ describe("DispatchService", () => {
   it.live("deletes the slot button message when metadata persistence fails", () =>
     Effect.gen(function* () {
       const deleteCalls: Array<ReadonlyArray<string>> = [];
-      const botClient = {
-        sendMessage: () => Effect.succeed({ id: "message-1", conversation_id: "conversation-1" }),
+      const botClient = makeClientDeliveryMock({
+        sendMessage: () =>
+          Effect.succeed({ id: "message-1", conversation_id: "delivered-conversation-1" }),
         deleteMessage: (conversationId: string, messageId: string) => {
           deleteCalls.push([conversationId, messageId]);
           return Effect.succeed({});
         },
-      } as never;
+      });
       const upsertError = new Error("upsert failed");
       const sheetApisClient = makeMessageSlotSheetApisClient(() => Effect.fail(upsertError));
 
@@ -1740,20 +2058,20 @@ describe("DispatchService", () => {
             .filter(Cause.isFailReason)
             .some((reason) => reason.error === upsertError),
       ).toBe(true);
-      expect(deleteCalls).toEqual([["conversation-1", "message-1"]]);
+      expect(deleteCalls).toEqual([["delivered-conversation-1", "message-1"]]);
     }),
   );
 
-  it.live("returns slot button success when the final interaction update fails", () =>
+  it.effect("returns slot button success when the final interaction update fails", () =>
     Effect.gen(function* () {
       const upsertCalls: Array<unknown> = [];
-      const botClient = {
+      const botClient = makeClientDeliveryMock({
         sendMessage: () => Effect.succeed({ id: "message-1", conversation_id: "conversation-1" }),
         updateOriginalInteractionResponse: () =>
           Effect.fail(
             new SheetWorkflowsServicesDispatchTestError({ message: "interaction update failed" }),
           ),
-      } as never;
+      });
       const sheetApisClient = makeMessageSlotSheetApisClient((args) => {
         upsertCalls.push(args);
         return Effect.succeed({});
@@ -1803,8 +2121,7 @@ describe("DispatchService", () => {
             embeds: [
               {
                 title: "Day 2 Open Slots",
-                description:
-                  "**+3 |** **hour 1** 2026-03-26T12:00:00.000Z-2026-03-26T13:00:00.000Z",
+                description: "**+3 |** **hour 1** 12:00-13:00",
               },
               {
                 title: "Day 2 Filled Slots",
@@ -1891,6 +2208,33 @@ describe("DispatchService", () => {
     }),
   );
 
+  it.effect("preserves status lookup failures when the failure response cannot be sent", () =>
+    Effect.gen(function* () {
+      const lookupError = new SheetWorkflowsServicesDispatchTestError({
+        message: "status lookup failed",
+      });
+      const botClient = makeClientDeliveryMock({
+        updateOriginalInteractionResponse: () =>
+          Effect.fail(
+            new SheetWorkflowsServicesDispatchTestError({
+              message: "failure response failed",
+            }),
+          ),
+      });
+      const sheetApisClient = makeSheetApisClient({
+        status: {
+          getServices: () => Effect.fail(lookupError),
+        },
+      });
+
+      const exit = yield* Effect.exit(runServiceStatus(botClient, sheetApisClient));
+      const failure = Exit.isFailure(exit) ? Cause.findErrorOption(exit.cause) : Option.none();
+
+      expect(Option.getOrNull(failure)).toBe(lookupError);
+      expect(Option.isSome(failure) && isInteractionFailureHandled(failure.value)).toBe(false);
+    }),
+  );
+
   it.live("handles previous room-order buttons through the decrement path", () =>
     Effect.gen(function* () {
       const updateCalls: Array<unknown> = [];
@@ -1915,7 +2259,7 @@ describe("DispatchService", () => {
     }),
   );
 
-  it.live("handles next room-order buttons through the increment path", () =>
+  it.effect("handles next room-order buttons through the increment path", () =>
     Effect.gen(function* () {
       const apiCalls: Array<string> = [];
       const initialRoomOrder = makeMessageRoomOrder();
@@ -1931,26 +2275,132 @@ describe("DispatchService", () => {
     }),
   );
 
-  it.live("handles send room-order buttons through the send claim path", () =>
+  it.effect("uses the claimed room-order rank as the navigation baseline", () =>
+    Effect.gen(function* () {
+      const apiCalls: Array<string> = [];
+      const expectedRankCalls: Array<number> = [];
+      const initialRoomOrder = makeMessageRoomOrder({ rank: 2 });
+      const botClient = makeRoomOrderUpdateBotClient();
+      const sheetApisClient = makeRoomOrderRankSheetApisClient(
+        apiCalls,
+        initialRoomOrder,
+        3,
+        expectedRankCalls,
+      );
+
+      const result = yield* runWithDispatchService(botClient, sheetApisClient, (service) =>
+        service.roomOrderNextButton(roomOrderButtonPayload, initialRoomOrder),
+      );
+
+      expect(result.status).toBe("updated");
+      expect(expectedRankCalls).toEqual([3]);
+      expect(apiCalls).toEqual(["claim", "increment", "release"]);
+    }),
+  );
+
+  it.effect("preserves a room-order update claim for an ambiguous returned rank", () =>
+    Effect.gen(function* () {
+      const apiCalls: Array<string> = [];
+      const initialRoomOrder = makeMessageRoomOrder({ rank: 2 });
+      const sheetApisClient = makeRoomOrderRankSheetApisClient(
+        apiCalls,
+        initialRoomOrder,
+        initialRoomOrder.rank,
+        [],
+        {
+          incrementMessageRoomOrderRank: (payload) =>
+            Effect.succeed(
+              makeMessageRoomOrder({
+                rank: payload.expectedRank + 2,
+                tentativeUpdateClaimId: Option.some(payload.tentativeUpdateClaimId),
+              }),
+            ),
+        },
+      );
+
+      const exit = yield* Effect.exit(
+        runWithDispatchService(makeRoomOrderUpdateBotClient(), sheetApisClient, (service) =>
+          service.roomOrderNextButton(roomOrderButtonPayload, initialRoomOrder),
+        ),
+      );
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(apiCalls).toEqual(["claim", "increment"]);
+      expect(Cause.pretty(Exit.isFailure(exit) ? exit.cause : Cause.empty)).toContain(
+        "Room-order rank update returned an ambiguous persisted state; update claim preserved",
+      );
+    }),
+  );
+
+  it.effect("preserves navigation failures when the rollback response cannot be sent", () =>
+    Effect.gen(function* () {
+      const apiCalls: Array<string> = [];
+      const renderError = new SheetWorkflowsServicesDispatchTestError({
+        message: "room-order render failed",
+      });
+      const botClient = makeRoomOrderUpdateBotClient([], {
+        updateOriginalInteractionResponse: () =>
+          Effect.fail(
+            new SheetWorkflowsServicesDispatchTestError({
+              message: "rollback response failed",
+            }),
+          ),
+      });
+      const initialRoomOrder = makeMessageRoomOrder();
+      const sheetApisClient = makeRoomOrderRankSheetApisClient(
+        apiCalls,
+        initialRoomOrder,
+        initialRoomOrder.rank,
+        [],
+        { getMessageRoomOrderEntry: () => Effect.fail(renderError) },
+      );
+
+      const exit = yield* Effect.exit(
+        runWithDispatchService(botClient, sheetApisClient, (service) =>
+          service.roomOrderNextButton(roomOrderButtonPayload, initialRoomOrder),
+        ),
+      );
+      const failure = Exit.isFailure(exit) ? Cause.findErrorOption(exit.cause) : Option.none();
+
+      expect(apiCalls).toEqual(["claim", "increment", "decrement", "release"]);
+      expect(Option.isSome(failure)).toBe(true);
+      expect(Option.isSome(failure) && isInteractionFailureHandled(failure.value)).toBe(true);
+      expect(Cause.pretty(Exit.isFailure(exit) ? exit.cause : Cause.empty)).toContain(
+        "room-order render failed",
+      );
+      expect(Cause.pretty(Exit.isFailure(exit) ? exit.cause : Cause.empty)).not.toContain(
+        "rollback response failed",
+      );
+    }),
+  );
+
+  it.effect("handles send room-order buttons through the send claim path", () =>
     Effect.gen(function* () {
       const apiCalls: Array<string> = [];
       const botCalls: Array<string> = [];
+      const sentPayloads: Array<unknown> = [];
+      const claimIds: Array<string> = [];
       const initialRoomOrder = makeMessageRoomOrder();
-      const botClient = {
+      const botClient = makeClientDeliveryMock({
         updateOriginalInteractionResponse: () => {
           botCalls.push("interaction");
           return Effect.succeed({ id: "interaction-message-1", conversation_id: "conversation-1" });
         },
-        sendMessage: () => {
+        sendMessage: (_conversationId: string, message: unknown) => {
           botCalls.push("send");
+          sentPayloads.push(message);
           return Effect.succeed({ id: "sent-message-1", conversation_id: "conversation-1" });
         },
         createPin: () => {
           botCalls.push("pin");
           return Effect.succeed({});
         },
-      } as never;
-      const sheetApisClient = makeRoomOrderSendSheetApisClient(apiCalls, initialRoomOrder);
+      });
+      const sheetApisClient = makeRoomOrderSendSheetApisClient(
+        apiCalls,
+        initialRoomOrder,
+        claimIds,
+      );
 
       const result = yield* runWithDispatchService(botClient, sheetApisClient, (service) =>
         service.roomOrderSendButton(roomOrderButtonPayload, initialRoomOrder),
@@ -1963,7 +2413,126 @@ describe("DispatchService", () => {
         detail: "sent room order and pinned it!",
       });
       expect(apiCalls).toEqual(["claimSend", "completeSend"]);
+      expect(claimIds).toEqual(["room-order-send:room-order-message-1"]);
+      expect(sentPayloads).toMatchObject([
+        {
+          nonce: makeDeliveryNonce("room-order-send:room-order-message-1"),
+          enforceNonce: true,
+          content: expect.any(Array),
+          components: expect.any(Array),
+        },
+      ]);
       expect(botCalls).toEqual(["send", "pin", "interaction"]);
+    }),
+  );
+
+  it.effect("retries pinning a room-order message that was already sent", () =>
+    Effect.gen(function* () {
+      const apiCalls: Array<string> = [];
+      const botCalls: Array<string> = [];
+      const initialRoomOrder = makeMessageRoomOrder({
+        sentMessageId: Option.some("sent-message-1"),
+        sentConversationId: Option.some("conversation-1"),
+      });
+      const botClient = makeClientDeliveryMock({
+        createPin: (conversationId, messageId) => {
+          botCalls.push(`pin:${conversationId}:${messageId}`);
+          return Effect.void;
+        },
+        updateOriginalInteractionResponse: () => {
+          botCalls.push("interaction");
+          return Effect.succeed({ id: "interaction-message-1", conversation_id: "conversation-1" });
+        },
+      });
+      const sheetApisClient = makeRoomOrderSendSheetApisClient(apiCalls, initialRoomOrder);
+
+      const result = yield* runWithDispatchService(botClient, sheetApisClient, (service) =>
+        service.roomOrderSendButton(roomOrderButtonPayload, initialRoomOrder),
+      );
+
+      expect(result).toEqual({
+        messageId: "sent-message-1",
+        messageConversationId: "conversation-1",
+        status: "pinned",
+        detail: "room order was already sent and is now pinned.",
+      });
+      expect(apiCalls).toEqual([]);
+      expect(botCalls).toEqual(["pin:conversation-1:sent-message-1", "interaction"]);
+    }),
+  );
+
+  it.effect("returns a partial send when tracking is inconsistent and its update fails", () =>
+    Effect.gen(function* () {
+      const apiCalls: Array<string> = [];
+      const initialRoomOrder = makeMessageRoomOrder();
+      const botClient = makeClientDeliveryMock({
+        sendMessage: () =>
+          Effect.succeed({ id: "sent-message-1", conversation_id: "conversation-1" }),
+        updateOriginalInteractionResponse: () =>
+          Effect.fail(
+            new SheetWorkflowsServicesDispatchTestError({
+              message: "interaction update failed",
+            }),
+          ),
+      });
+      const sheetApisClient = makeRoomOrderSendSheetApisClient(apiCalls, initialRoomOrder, [], () =>
+        Effect.succeed(makeMessageRoomOrder()),
+      );
+
+      const result = yield* runWithDispatchService(botClient, sheetApisClient, (service) =>
+        service.roomOrderSendButton(roomOrderButtonPayload, initialRoomOrder),
+      );
+
+      expect(result).toEqual({
+        messageId: "sent-message-1",
+        messageConversationId: "conversation-1",
+        status: "partial",
+        detail: "sent room order, but failed to track it.",
+      });
+      expect(apiCalls).toEqual(["claimSend", "completeSend"]);
+    }),
+  );
+
+  it.effect("returns a partial send when tracking is ambiguous and its update fails", () =>
+    Effect.gen(function* () {
+      const apiCalls: Array<string> = [];
+      const initialRoomOrder = makeMessageRoomOrder();
+      const botClient = makeClientDeliveryMock({
+        sendMessage: () =>
+          Effect.succeed({ id: "sent-message-1", conversation_id: "conversation-1" }),
+        updateOriginalInteractionResponse: () =>
+          Effect.fail(
+            new SheetWorkflowsServicesDispatchTestError({
+              message: "interaction update failed",
+            }),
+          ),
+      });
+      const sheetApisClient = makeRoomOrderSendSheetApisClient(apiCalls, initialRoomOrder, [], () =>
+        Effect.fail(new SheetWorkflowsServicesDispatchTestError({ message: "tracking failed" })),
+      );
+      const fiber = yield* Effect.forkChild(
+        runWithDispatchService(botClient, sheetApisClient, (service) =>
+          service.roomOrderSendButton(roomOrderButtonPayload, initialRoomOrder),
+        ),
+      );
+      yield* TestClock.adjust(Duration.seconds(5));
+
+      const result = yield* Fiber.join(fiber);
+
+      expect(result).toEqual({
+        messageId: "sent-message-1",
+        messageConversationId: "conversation-1",
+        status: "partial",
+        detail: "sent room order, but tracking could not be confirmed; the claim was preserved.",
+      });
+      expect(apiCalls).toEqual([
+        "claimSend",
+        "completeSend",
+        "completeSend",
+        "completeSend",
+        "completeSend",
+        "completeSend",
+      ]);
     }),
   );
 
@@ -2022,6 +2591,13 @@ describe("DispatchService", () => {
         },
       } as never;
       const sheetApisClient = makeSheetApisClient({
+        messageRoomOrder: {
+          getMessageRoomOrder: () =>
+            Effect.fail({
+              _tag: "ArgumentError",
+              message: "Cannot get message room order, the message might not be registered",
+            }),
+        },
         workspaceConfig: {
           getWorkspaceConversationById: () => Effect.succeed(makeWorkspaceConversationConfig()),
         },
@@ -2047,6 +2623,116 @@ describe("DispatchService", () => {
     }),
   );
 
+  it.effect("preserves partial tentative-pin results when the notification fails", () =>
+    Effect.gen(function* () {
+      const botCalls: Array<string> = [];
+      const initialRoomOrder = makeMessageRoomOrder({ tentative: true });
+      const botClient = makeClientDeliveryMock({
+        createPin: () => {
+          botCalls.push("pin");
+          return Effect.fail(
+            new SheetWorkflowsServicesDispatchTestError({ message: "pin failed" }),
+          );
+        },
+        updateMessage: (_conversationId: string, messageId: string) => {
+          botCalls.push("cleanup");
+          return Effect.succeed({ id: messageId, conversation_id: "conversation-1" });
+        },
+        updateOriginalInteractionResponse: () => {
+          botCalls.push("interaction");
+          return Effect.fail(
+            new SheetWorkflowsServicesDispatchTestError({
+              message: "partial notification failed",
+            }),
+          );
+        },
+      });
+      const sheetApisClient = makeSheetApisClient({
+        messageRoomOrder: {
+          getMessageRoomOrder: () => Effect.succeed(initialRoomOrder),
+          claimMessageRoomOrderTentativePin: ({ payload }: { payload: { claimId: string } }) =>
+            Effect.succeed(
+              makeMessageRoomOrder({
+                tentative: true,
+                tentativePinClaimId: Option.some(payload.claimId),
+              }),
+            ),
+          getMessageRoomOrderRange: () => Effect.succeed(roomOrderRange),
+          getMessageRoomOrderEntry: () => Effect.succeed(roomOrderEntries),
+        },
+        workspaceConfig: {
+          getWorkspaceConversationById: () => Effect.succeed(makeWorkspaceConversationConfig()),
+        },
+        sheet: {
+          getEventConfig: () => Effect.succeed(roomOrderEventConfig),
+        },
+      });
+
+      const fiber = yield* Effect.forkChild(
+        runWithDispatchService(botClient, sheetApisClient, (service) =>
+          service.roomOrderPinTentativeButton(roomOrderButtonPayload, initialRoomOrder),
+        ),
+      );
+      yield* TestClock.adjust(Duration.seconds(1));
+      const result = yield* Fiber.join(fiber);
+
+      expect(result).toEqual({
+        messageId: roomOrderButtonPayload.messageId,
+        messageConversationId: roomOrderButtonPayload.messageConversationId,
+        status: "partial",
+        detail:
+          "tentative room-order pin could not be confirmed; message controls were removed and its claim was preserved.",
+      });
+      expect(botCalls).toEqual(["pin", "cleanup", "interaction"]);
+    }),
+  );
+
+  it.effect("retries failed tentative-pin claim cleanup on authorization mismatch", () =>
+    Effect.gen(function* () {
+      const releaseCalls: Array<string> = [];
+      const initialRoomOrder = makeMessageRoomOrder({ tentative: true });
+      const sheetApisClient = makeSheetApisClient({
+        messageRoomOrder: {
+          getMessageRoomOrder: () => Effect.succeed(initialRoomOrder),
+          claimMessageRoomOrderTentativePin: ({ payload }: { payload: { claimId: string } }) =>
+            Effect.succeed(
+              makeMessageRoomOrder({
+                tentative: true,
+                workspaceId: Option.some("different-workspace"),
+                tentativePinClaimId: Option.some(payload.claimId),
+              }),
+            ),
+          releaseMessageRoomOrderTentativePinClaim: () =>
+            Effect.suspend(() => {
+              releaseCalls.push("release");
+              return Effect.fail(
+                new SheetWorkflowsServicesDispatchTestError({ message: "release failed" }),
+              );
+            }),
+          getMessageRoomOrderRange: () => Effect.succeed(roomOrderRange),
+          getMessageRoomOrderEntry: () => Effect.succeed(roomOrderEntries),
+        },
+        workspaceConfig: {
+          getWorkspaceConversationById: () => Effect.succeed(makeWorkspaceConversationConfig()),
+        },
+        sheet: {
+          getEventConfig: () => Effect.succeed(roomOrderEventConfig),
+        },
+      });
+      const fiber = yield* Effect.forkChild(
+        runWithDispatchService(makeRoomOrderUpdateBotClient(), sheetApisClient, (service) =>
+          service.roomOrderPinTentativeButton(roomOrderButtonPayload, initialRoomOrder),
+        ).pipe(Effect.exit),
+      );
+      yield* TestClock.adjust(Duration.seconds(1));
+
+      const exit = yield* Fiber.join(fiber);
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(releaseCalls).toHaveLength(3);
+    }),
+  );
+
   it.live("rejects legacy pin payloads without the tentative marker", () =>
     Effect.gen(function* () {
       const botCalls: Array<string> = [];
@@ -2061,6 +2747,13 @@ describe("DispatchService", () => {
         },
       } as never;
       const sheetApisClient = makeSheetApisClient({
+        messageRoomOrder: {
+          getMessageRoomOrder: () =>
+            Effect.fail({
+              _tag: "ArgumentError",
+              message: "Cannot get message room order, the message might not be registered",
+            }),
+        },
         workspaceConfig: {
           getWorkspaceConversationById: () => Effect.succeed(makeWorkspaceConversationConfig()),
         },
@@ -2086,7 +2779,11 @@ describe("DispatchService", () => {
         const sheetApisClient = makeSheetApisClient({
           workspaceConfig: {
             getWorkspaceConversationById: () =>
-              Effect.fail({ _tag: "ArgumentError", message: "missing" }),
+              Effect.fail({
+                _tag: "ArgumentError",
+                message:
+                  "Cannot get conversation by id, the workspace or the conversation id might not be registered or does not match the specified running status",
+              }),
           },
         });
 
@@ -2100,6 +2797,36 @@ describe("DispatchService", () => {
           "Cannot kick out, running conversation not found",
         );
       }),
+  );
+
+  it.effect("does not update an interaction for an empty kickout response token", () =>
+    Effect.gen(function* () {
+      const botClient = makeClientDeliveryMock({
+        updateOriginalInteractionResponse: () =>
+          Effect.die("empty interaction token must not be delivered"),
+      });
+      const sheetApisClient = makeSheetApisClient({
+        workspaceConfig: {
+          getWorkspaceConversationById: () =>
+            Effect.fail({
+              _tag: "ArgumentError",
+              message:
+                "Cannot get conversation by id, the workspace or the conversation id might not be registered or does not match the specified running status",
+            }),
+        },
+      });
+
+      const exit = yield* Effect.exit(
+        runKickout(
+          makeKickoutPayload({ interactionResponseToken: "" }),
+          botClient,
+          sheetApisClient,
+        ),
+      );
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(false);
+    }),
   );
 
   it.live("returns tooEarly and skips sheet lookups when kickout runs too late in the hour", () =>
@@ -2173,14 +2900,13 @@ describe("DispatchService", () => {
     Effect.gen(function* () {
       const updateCalls: Array<unknown> = [];
       const removeCalls: Array<ReadonlyArray<string>> = [];
-      const botClient = {
-        ...(makeInteractionUpdateBotClient(updateCalls) as Record<string, unknown>),
+      const botClient = makeInteractionUpdateBotClient(updateCalls, {
         getMembersForParent: () => Effect.die("members should not be loaded without a schedule"),
         removeWorkspaceMemberRole: (workspaceId: string, memberId: string, roleId: string) => {
           removeCalls.push([workspaceId, memberId, roleId]);
           return Effect.succeed({});
         },
-      } as never;
+      });
       const sheetApisClient = makeSheetApisClient({
         workspaceConfig: {
           getWorkspaceConversationById: () =>
@@ -2215,76 +2941,73 @@ describe("DispatchService", () => {
     }),
   );
 
-  it.live(
-    "continues kickout removals and updates the interaction when one role removal fails",
-    () =>
-      Effect.gen(function* () {
-        const updateCalls: Array<unknown> = [];
-        const removeCalls: Array<ReadonlyArray<string>> = [];
-        const botClient = {
-          ...(makeInteractionUpdateBotClient(updateCalls) as Record<string, unknown>),
-          getMembersForParent: () =>
-            Effect.succeed([
-              {
-                parentId: "workspace-1",
-                resourceId: "member-1",
-                value: { user: { id: "member-1" }, roles: ["role-1"] },
-              },
-              {
-                parentId: "workspace-1",
-                resourceId: "member-2",
-                value: { user: { id: "member-2" }, roles: ["role-1"] },
-              },
-              {
-                parentId: "workspace-1",
-                resourceId: "member-3",
-                value: { user: { id: "member-3" }, roles: ["role-1"] },
-              },
-            ]),
-          removeWorkspaceMemberRole: (workspaceId: string, memberId: string, roleId: string) => {
-            removeCalls.push([workspaceId, memberId, roleId]);
-            return memberId === "member-2"
-              ? Effect.fail(
-                  new SheetWorkflowsServicesDispatchTestError({
-                    message: "Discord role removal failed",
-                  }),
-                )
-              : Effect.succeed({});
-          },
-        } as never;
-        const sheetApisClient = makeSheetApisClient({
-          workspaceConfig: {
-            getWorkspaceConversationById: () =>
-              Effect.succeed({
-                workspaceId: "workspace-1",
-                conversationId: "conversation-1",
-                name: Option.some("main"),
-                roleId: Option.some("role-1"),
-                running: Option.some(true),
-              }),
-          },
-          schedule: {
-            getConversationPopulatedSchedules: () =>
-              Effect.succeed({ schedules: [makeSchedule(1, ["member-1"])] }),
-          },
-        });
+  it.effect("reports partial kickout failures after attempting every removal", () =>
+    Effect.gen(function* () {
+      const updateCalls: Array<unknown> = [];
+      const removeCalls: Array<ReadonlyArray<string>> = [];
+      const botClient = makeInteractionUpdateBotClient(updateCalls, {
+        getMembersForParent: () =>
+          Effect.succeed([
+            {
+              parentId: "workspace-1",
+              resourceId: "member-1",
+              value: { user: { id: "member-1" }, roles: ["role-1"] },
+            },
+            {
+              parentId: "workspace-1",
+              resourceId: "member-2",
+              value: { user: { id: "member-2" }, roles: ["role-1"] },
+            },
+            {
+              parentId: "workspace-1",
+              resourceId: "member-3",
+              value: { user: { id: "member-3" }, roles: ["role-1"] },
+            },
+          ]),
+        removeWorkspaceMemberRole: (workspaceId: string, memberId: string, roleId: string) => {
+          removeCalls.push([workspaceId, memberId, roleId]);
+          return memberId === "member-2"
+            ? Effect.fail(
+                new SheetWorkflowsServicesDispatchTestError({
+                  message: "Discord role removal failed",
+                }),
+              )
+            : Effect.succeed({});
+        },
+      });
+      const sheetApisClient = makeSheetApisClient({
+        workspaceConfig: {
+          getWorkspaceConversationById: () =>
+            Effect.succeed({
+              workspaceId: "workspace-1",
+              conversationId: "conversation-1",
+              name: Option.some("main"),
+              roleId: Option.some("role-1"),
+              running: Option.some(true),
+            }),
+        },
+        schedule: {
+          getConversationPopulatedSchedules: () =>
+            Effect.succeed({ schedules: [makeSchedule(1, ["member-1"])] }),
+        },
+      });
 
-        const result = yield* runKickout(makeKickoutPayload(), botClient, sheetApisClient);
+      const exit = yield* Effect.exit(runKickout(makeKickoutPayload(), botClient, sheetApisClient));
 
-        expect(result).toEqual({
-          workspaceId: "workspace-1",
-          runningConversationId: "conversation-1",
-          hour: 1,
-          roleId: "role-1",
-          removedMemberIds: ["member-3"],
-          status: "removed",
-        });
-        expect(removeCalls).toEqual([
-          ["workspace-1", "member-2", "role-1"],
-          ["workspace-1", "member-3", "role-1"],
-        ]);
-        expectInteractionUpdateContent(updateCalls, "Kicked out @member-3");
-      }),
+      expect(Exit.isFailure(exit)).toBe(true);
+      const failure = Exit.isFailure(exit) ? Cause.findErrorOption(exit.cause) : Option.none();
+      expect(Option.getOrNull(failure)).toMatchObject({
+        error: {
+          _tag: "UnknownError",
+          cause: { failedMemberIds: ["member-2"], removedMemberIds: ["member-3"] },
+        },
+      });
+      expect(removeCalls).toEqual([
+        ["workspace-1", "member-2", "role-1"],
+        ["workspace-1", "member-3", "role-1"],
+      ]);
+      expectInteractionUpdateContent(updateCalls, "Kicked out @member-3; 1 role removal(s) failed");
+    }),
   );
 
   it.live("lists conversation config with formatted fields", () =>
@@ -2404,6 +3127,10 @@ describe("DispatchService", () => {
       const sheetApiCalls: Array<unknown> = [];
       const sheetApisClient = makeSheetApisClient({
         workspaceConfig: {
+          getWorkspaceConversationById: (args: unknown) => {
+            sheetApiCalls.push(args);
+            return Effect.succeed(makeWorkspaceConversationConfig());
+          },
           upsertWorkspaceConversationConfig: (args: unknown) => {
             sheetApiCalls.push(args);
             return Effect.succeed(
@@ -2434,6 +3161,7 @@ describe("DispatchService", () => {
 
       expect(result).toEqual({ workspaceId: "workspace-1", conversationId: "conversation-1" });
       expect(sheetApiCalls).toEqual([
+        { query: { workspaceId: "workspace-1", conversationId: "conversation-1" } },
         {
           payload: {
             workspaceId: "workspace-1",
@@ -2450,6 +3178,68 @@ describe("DispatchService", () => {
       expect(updateCalls[0]?.payload).toMatchObject({
         embeds: [{ fields: expect.arrayContaining([{ name: "Name", value: "None!" }]) }],
       });
+    }),
+  );
+
+  it.effect("does not create a conversation config while unsetting missing fields", () =>
+    Effect.gen(function* () {
+      const upsertWorkspaceConversationConfig = () =>
+        Effect.die("missing config must not be upserted");
+      const sheetApisClient = makeSheetApisClient({
+        workspaceConfig: {
+          getWorkspaceConversationById: () =>
+            Effect.fail(
+              makeArgumentError(
+                "Cannot get conversation by id, the workspace or the conversation id might not be registered",
+              ),
+            ),
+          upsertWorkspaceConversationConfig,
+        },
+      });
+
+      const exit = yield* runWithDispatchService(
+        makeInteractionUpdateBotClient([]),
+        sheetApisClient,
+        (service) =>
+          service.conversationUnset({
+            ...conversationConfigPayload,
+            dispatchRequestId: "dispatch-conversation-unset-missing",
+            name: true,
+          } satisfies ConversationUnsetDispatchPayload),
+      ).pipe(Effect.exit);
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      const error = Exit.isFailure(exit) ? Cause.findErrorOption(exit.cause) : Option.none();
+      expect(Option.getOrNull(error)).toMatchObject({
+        message: "Cannot unset conversation config, conversation conversation-1 is not configured",
+      });
+    }),
+  );
+
+  it.effect("preserves unexpected conversation lookup argument errors", () =>
+    Effect.gen(function* () {
+      const lookupError = makeArgumentError("conversation lookup request was invalid");
+      const sheetApisClient = makeSheetApisClient({
+        workspaceConfig: {
+          getWorkspaceConversationById: () => Effect.fail(lookupError),
+          upsertWorkspaceConversationConfig: () =>
+            Effect.die("invalid lookup must not be followed by an upsert"),
+        },
+      });
+
+      const exit = yield* runWithDispatchService(
+        makeInteractionUpdateBotClient([]),
+        sheetApisClient,
+        (service) =>
+          service.conversationUnset({
+            ...conversationConfigPayload,
+            dispatchRequestId: "dispatch-conversation-unset-invalid-lookup",
+            name: true,
+          } satisfies ConversationUnsetDispatchPayload),
+      ).pipe(Effect.exit);
+
+      const failure = Exit.isFailure(exit) ? Cause.findErrorOption(exit.cause) : Option.none();
+      expect(Option.getOrNull(failure)).toBe(lookupError);
     }),
   );
 
@@ -2501,7 +3291,7 @@ describe("DispatchService", () => {
         embeds: [
           {
             title: "Config for Workspace One",
-            description: "Sheet id: sheet-1\nAuto check-in: Enabled\nMonitor role: @role:role-1",
+            description: "Sheet id: sheet\\-1\nAuto check-in: Enabled\nMonitor role: @role:role-1",
           },
         ],
       });
@@ -2617,7 +3407,7 @@ describe("DispatchService", () => {
         { payload: { workspaceId: "workspace-1", config: { sheetId: "sheet-2" } } },
       ]);
       expect(updateCalls[0]?.payload).toMatchObject({
-        embeds: [{ description: "Sheet id for Workspace One is now set to sheet-2" }],
+        embeds: [{ description: "Sheet id for Workspace One is now set to sheet\\-2" }],
       });
     }),
   );
@@ -2660,7 +3450,7 @@ describe("DispatchService", () => {
     }),
   );
 
-  it.live("formats a user's team list", () =>
+  it.effect("formats a user's team list", () =>
     Effect.gen(function* () {
       const updateCalls: Array<{
         readonly interactionResponseToken: string;
@@ -2720,6 +3510,63 @@ describe("DispatchService", () => {
     }),
   );
 
+  it.effect("summarizes team lists that exceed Discord embed limits", () =>
+    Effect.gen(function* () {
+      const updateCalls: Array<{
+        readonly interactionResponseToken: string;
+        readonly payload: unknown;
+      }> = [];
+      const sheetApisClient = makeSheetApisClient({
+        player: {
+          getTeamsByIds: () =>
+            Effect.succeed([
+              Array.from(
+                { length: 30 },
+                (_, index) =>
+                  new Team({
+                    type: "player",
+                    playerId: Option.some("user-1"),
+                    playerName: Option.some("Alice"),
+                    teamName: Option.some(`Team ${index + 1}`),
+                    tags: ["tag1"],
+                    lead: 100,
+                    backline: 200,
+                    talent: Option.some(50),
+                  }),
+              ),
+            ]),
+        },
+      });
+
+      const result = yield* runWithDispatchService(
+        makeInteractionUpdateBotClient(updateCalls),
+        sheetApisClient,
+        (service) =>
+          service.teamList({
+            ...commandBase,
+            dispatchRequestId: "dispatch-large-team-list",
+            workspaceId: "workspace-1",
+            targetUserId: "user-1",
+            targetUsername: "Alice",
+          } satisfies TeamListDispatchPayload),
+      );
+
+      expect(result.teamCount).toBe(30);
+      expect(updateCalls[0]?.payload).toMatchObject({
+        embeds: [
+          {
+            fields: expect.arrayContaining([
+              {
+                name: "More teams",
+                value: "6 additional teams were omitted.",
+              },
+            ]),
+          },
+        ],
+      });
+    }),
+  );
+
   it.effect("uses the text confirmation path when team submission confirmations are disabled", () =>
     Effect.gen(function* () {
       const deliveryCalls: Array<unknown> = [];
@@ -2768,11 +3615,135 @@ describe("DispatchService", () => {
           payload: {
             content: "Registered teams from Alice",
             allowedMentions: "none",
-            nonce: "source-message-1",
+            nonce: makeDeliveryNonce("team-submission-confirmation:source-message-1"),
             enforceNonce: true,
           },
         },
       ]);
+    }),
+  );
+
+  it.effect("replaces a deleted stored text confirmation", () =>
+    Effect.gen(function* () {
+      const deliveryCalls: Array<unknown> = [];
+      const setConfirmationCalls: Array<unknown> = [];
+      const sheetApisClient = makeSheetApisClient({
+        workspaceConfig: {
+          getWorkspaceFeatureFlags: () => Effect.succeed([]),
+        },
+        teamSubmission: {
+          upsertFromDiscord: () => Effect.succeed(makeConfirmedTeamSubmissionResult()),
+          setConfirmationMessage: (args: unknown) => {
+            setConfirmationCalls.push(args);
+            return Effect.succeed(makeConfirmedTeamSubmissionResult());
+          },
+        },
+      });
+
+      const result = yield* runWithDispatchService(
+        makeTeamSubmissionDeliveryClient(deliveryCalls, {
+          updateMessageError: new DiscordBotNotFoundError({
+            message: "Confirmation message not found",
+            status: 404,
+          }),
+          sentMessageId: "replacement-confirmation-message",
+        }),
+        sheetApisClient,
+        (service) => service.teamSubmission(teamSubmissionPayload),
+      );
+
+      expect(result.status).toBe("registered");
+      expect(deliveryCalls).toMatchObject([
+        { method: "updateMessage", messageId: "confirmation-message-1" },
+        { method: "sendMessage", conversationId: "conversation-1" },
+      ]);
+      expect(setConfirmationCalls).toEqual([
+        {
+          payload: {
+            workspaceId: "workspace-1",
+            conversationId: "conversation-1",
+            messageId: "source-message-1",
+            confirmationMessageId: "replacement-confirmation-message",
+          },
+        },
+      ]);
+    }),
+  );
+
+  it.effect("reports when persisted teams cannot receive a text confirmation", () =>
+    Effect.gen(function* () {
+      const deliveryCalls: Array<unknown> = [];
+      const sheetApiCalls: Array<string> = [];
+      const sheetApisClient = makeSheetApisClient({
+        workspaceConfig: {
+          getWorkspaceFeatureFlags: () => Effect.succeed([]),
+        },
+        teamSubmission: {
+          upsertFromDiscord: () => {
+            sheetApiCalls.push("upsertFromDiscord");
+            return Effect.succeed(makeTeamSubmissionUpsertResult());
+          },
+        },
+      });
+
+      const exit = yield* Effect.exit(
+        runWithDispatchService(
+          makeTeamSubmissionDeliveryClient(deliveryCalls, { failSendMessage: true }),
+          sheetApisClient,
+          (service) => service.teamSubmission(teamSubmissionPayload),
+        ),
+      );
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      const failure = Exit.isFailure(exit) ? Cause.findErrorOption(exit.cause) : Option.none();
+      expect(Option.isSome(failure) && isInteractionFailureHandled(failure.value)).toBe(true);
+      if (Option.isSome(failure)) {
+        expect(unwrapInteractionFailure(failure.value)).toMatchObject({
+          message:
+            "Teams were added, but Tiara could not deliver the confirmation message. Please check the sheet.",
+        });
+      }
+      expect(sheetApiCalls).toEqual(["upsertFromDiscord"]);
+      expect(deliveryCalls).toMatchObject([
+        { method: "sendMessage", conversationId: "conversation-1" },
+      ]);
+    }),
+  );
+
+  it.effect("does not recurse indefinitely through cyclic delivery error causes", () =>
+    Effect.gen(function* () {
+      const firstError: { cause?: unknown } = {};
+      const secondError: { cause?: unknown } = { cause: firstError };
+      firstError.cause = secondError;
+      const sheetApisClient = makeSheetApisClient({
+        workspaceConfig: {
+          getWorkspaceFeatureFlags: () => Effect.succeed([]),
+        },
+        teamSubmission: {
+          upsertFromDiscord: () => Effect.succeed(makeConfirmedTeamSubmissionResult()),
+        },
+      });
+
+      const exit = yield* Effect.exit(
+        runWithDispatchService(
+          makeTeamSubmissionDeliveryClient([], { updateMessageError: firstError }),
+          sheetApisClient,
+          (service) => service.teamSubmission(teamSubmissionPayload),
+        ),
+      );
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(exit.cause.reasons.every(Cause.isFailReason)).toBe(true);
+        const failure = Cause.findErrorOption(exit.cause);
+        expect(Option.isSome(failure) && isInteractionFailureHandled(failure.value)).toBe(true);
+        if (Option.isSome(failure)) {
+          expect(unwrapInteractionFailure(failure.value)).toMatchObject({
+            message:
+              "Teams were added, but Tiara could not deliver the confirmation message. Please check the sheet.",
+          });
+        }
+      }
     }),
   );
 
@@ -2810,6 +3781,8 @@ describe("DispatchService", () => {
               messageReference: {
                 failIfNotExists: false,
               },
+              nonce: makeDeliveryNonce("team-submission-progress:source-message-1"),
+              enforceNonce: true,
             },
           },
           {
@@ -2920,6 +3893,7 @@ describe("DispatchService", () => {
           messageId: "confirmation-message-1",
           payload: { embeds: [{ title: "Teams added to the sheet" }] },
         },
+        { method: "removeMessageReaction", messageId: "source-message-1" },
         {
           method: "updateMessage",
           messageId: "confirmation-message-1",
@@ -3218,15 +4192,6 @@ describe("DispatchService", () => {
       expect(result).toEqual({ status: "rollbackFailed" });
       expect(deliveryCalls).toMatchObject([
         {
-          method: "updateOriginalInteractionResponse",
-          interactionResponseToken: "interaction-token",
-          payload: {
-            content: "Rollback failed. Please check the updated reply.",
-            allowedMentions: "none",
-          },
-        },
-        { method: "removeMessageReaction", messageId: "source-message-1" },
-        {
           method: "updateMessage",
           conversationId: "conversation-1",
           messageId: "confirmation-message-1",
@@ -3241,6 +4206,52 @@ describe("DispatchService", () => {
             allowedMentions: "none",
           },
         },
+        {
+          method: "updateOriginalInteractionResponse",
+          interactionResponseToken: "interaction-token",
+          payload: {
+            content: "Rollback failed. Please check the updated reply.",
+            allowedMentions: "none",
+          },
+        },
+        { method: "removeMessageReaction", messageId: "source-message-1" },
+      ]);
+    }),
+  );
+
+  it.effect("finishes rollback-failed interactions when publishing the reply fails", () =>
+    Effect.gen(function* () {
+      const deliveryCalls: Array<unknown> = [];
+      const sheetApisClient = makeSheetApisClient({
+        teamSubmission: {
+          revertFromDiscord: () =>
+            Effect.succeed({
+              status: "rollbackFailed",
+              rowMappings: [],
+              rollbackSnapshot: [],
+              confirmationText: "Rollback failed.",
+            }),
+        },
+      });
+
+      const result = yield* runWithDispatchService(
+        makeTeamSubmissionDeliveryClient(deliveryCalls, { failUpdateMessage: true }),
+        sheetApisClient,
+        (service) => service.teamSubmissionRejectButton(teamSubmissionButtonPayload, requester),
+      );
+
+      expect(result).toEqual({ status: "rollbackFailed" });
+      expect(deliveryCalls).toMatchObject([
+        {
+          method: "updateMessage",
+          conversationId: "conversation-1",
+          messageId: "confirmation-message-1",
+        },
+        {
+          method: "updateOriginalInteractionResponse",
+          interactionResponseToken: "interaction-token",
+        },
+        { method: "removeMessageReaction", messageId: "source-message-1" },
       ]);
     }),
   );

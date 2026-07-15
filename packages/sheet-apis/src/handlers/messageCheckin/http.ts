@@ -352,6 +352,15 @@ const messageCheckinHandlers = Effect.gen(function* () {
         memberIds: payload.memberIds,
       });
     }),
+    "messageCheckin.removeMessageCheckin": Effect.fnUntraced(function* ({ payload }) {
+      yield* requireMessageCheckinMonitorMutationAccess(
+        authorizationService,
+        messageCheckinService,
+        payload,
+      );
+
+      yield* messageCheckinService.removeMessageCheckin(payload);
+    }),
     "messageCheckin.setMessageCheckinMemberCheckinAt": Effect.fnUntraced(function* ({ payload }) {
       yield* requireMessageCheckinParticipantMutationAccess(
         authorizationService,

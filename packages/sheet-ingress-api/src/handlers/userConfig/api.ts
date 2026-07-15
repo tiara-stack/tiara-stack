@@ -26,8 +26,8 @@ export class UserConfigApi extends HttpApiGroup.make("userConfig")
     HttpApiEndpoint.post("upsertCurrentUserPlatformConfig", "/userConfig/current/platform", {
       payload: Schema.Struct({
         platform: ClientPlatform,
-        checkinDmEnabled: Schema.Boolean,
-        monitorDmEnabled: Schema.Boolean,
+        checkinDmEnabled: Schema.optional(Schema.Boolean),
+        monitorDmEnabled: Schema.optional(Schema.Boolean),
         defaultClientId: Schema.optional(Schema.NullOr(Schema.String)),
       }),
       success: UserPlatformConfig,
@@ -75,8 +75,8 @@ export class UserConfigApi extends HttpApiGroup.make("userConfig")
       payload: Schema.Struct({
         platform: ClientPlatform,
         userId: Schema.String,
-        checkinDmEnabled: Schema.Boolean,
-        monitorDmEnabled: Schema.Boolean,
+        checkinDmEnabled: Schema.optional(Schema.Boolean),
+        monitorDmEnabled: Schema.optional(Schema.Boolean),
         defaultClientId: Schema.optional(Schema.NullOr(Schema.String)),
       }),
       success: UserPlatformConfig,

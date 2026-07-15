@@ -72,6 +72,12 @@ export const messageHandlers = {
         authorizedSheetApis("messageCheckin", "removeMessageCheckinMember", ({ payload }) =>
           requireMessageCheckinParticipantMutation(payload.messageId, payload.memberId),
         ),
+      )
+      .handle(
+        "removeMessageCheckin",
+        authorizedSheetApis("messageCheckin", "removeMessageCheckin", ({ payload }) =>
+          requireMessageCheckinMonitor(payload.messageId),
+        ),
       ),
   messageRoomOrder: (handlers) =>
     handlers

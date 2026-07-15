@@ -10,6 +10,8 @@ import migration0007 from "../effect-sql-migrations/0007_checkin_initial_message
 import migration0008 from "../effect-sql-migrations/0008_user_platform_config";
 import migration0009 from "../effect-sql-migrations/0009_user_platform_monitor_dm";
 import migration0010 from "../effect-sql-migrations/0010_migration";
+import migration0011 from "../effect-sql-migrations/0011_user_platform_dm_invariant";
+import migration0012 from "../effect-sql-migrations/0012_user_platform_dm_invariant_validation";
 
 export const sheetDbMigrationTable = "sheet_db_effect_sql_migrations";
 
@@ -24,4 +26,6 @@ export const sheetDbMigrations: Loader = Effect.succeed([
   [8, "user_platform_config", Effect.succeed(migration0008)],
   [9, "user_platform_monitor_dm", Effect.succeed(migration0009)],
   [10, "team_submission_monitoring", Effect.succeed(migration0010)],
+  [11, "user_platform_dm_invariant", Effect.succeed(migration0011)],
+  [12, "user_platform_dm_invariant_validation", Effect.succeed(migration0012)],
 ]);

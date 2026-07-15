@@ -14,50 +14,59 @@ import {
 
 const dispatchShardGroup = () => "dispatch";
 
-const dispatchButtonPayload = <Request extends Schema.Top>(request: Request) =>
-  Schema.Struct({
-    request,
-    executionId: Schema.String,
-  });
+const dispatchButtonPayload = <Request extends Schema.Top>(request: Request) => ({
+  request,
+  executionId: Schema.String,
+});
+
+const dispatchButtonPrimaryKey = (payload: { readonly executionId: string }) => payload.executionId;
 
 export const DispatchButtonEntity = Entity.make("DispatchButton", [
   Rpc.make("slotOpenButton", {
     payload: dispatchButtonPayload(DispatchSlotOpenButtonWorkflow.payloadSchema),
+    primaryKey: dispatchButtonPrimaryKey,
     success: DispatchSlotOpenButtonWorkflow.successSchema,
     error: DispatchSlotOpenButtonWorkflow.errorSchema,
   }),
   Rpc.make("checkinButton", {
     payload: dispatchButtonPayload(DispatchCheckinButtonWorkflow.payloadSchema),
+    primaryKey: dispatchButtonPrimaryKey,
     success: DispatchCheckinButtonWorkflow.successSchema,
     error: DispatchCheckinButtonWorkflow.errorSchema,
   }),
   Rpc.make("roomOrderPreviousButton", {
     payload: dispatchButtonPayload(DispatchRoomOrderPreviousButtonWorkflow.payloadSchema),
+    primaryKey: dispatchButtonPrimaryKey,
     success: DispatchRoomOrderPreviousButtonWorkflow.successSchema,
     error: DispatchRoomOrderPreviousButtonWorkflow.errorSchema,
   }),
   Rpc.make("roomOrderNextButton", {
     payload: dispatchButtonPayload(DispatchRoomOrderNextButtonWorkflow.payloadSchema),
+    primaryKey: dispatchButtonPrimaryKey,
     success: DispatchRoomOrderNextButtonWorkflow.successSchema,
     error: DispatchRoomOrderNextButtonWorkflow.errorSchema,
   }),
   Rpc.make("roomOrderSendButton", {
     payload: dispatchButtonPayload(DispatchRoomOrderSendButtonWorkflow.payloadSchema),
+    primaryKey: dispatchButtonPrimaryKey,
     success: DispatchRoomOrderSendButtonWorkflow.successSchema,
     error: DispatchRoomOrderSendButtonWorkflow.errorSchema,
   }),
   Rpc.make("roomOrderPinTentativeButton", {
     payload: dispatchButtonPayload(DispatchRoomOrderPinTentativeButtonWorkflow.payloadSchema),
+    primaryKey: dispatchButtonPrimaryKey,
     success: DispatchRoomOrderPinTentativeButtonWorkflow.successSchema,
     error: DispatchRoomOrderPinTentativeButtonWorkflow.errorSchema,
   }),
   Rpc.make("teamSubmissionConfirmButton", {
     payload: dispatchButtonPayload(DispatchTeamSubmissionConfirmButtonWorkflow.payloadSchema),
+    primaryKey: dispatchButtonPrimaryKey,
     success: DispatchTeamSubmissionConfirmButtonWorkflow.successSchema,
     error: DispatchTeamSubmissionConfirmButtonWorkflow.errorSchema,
   }),
   Rpc.make("teamSubmissionRejectButton", {
     payload: dispatchButtonPayload(DispatchTeamSubmissionRejectButtonWorkflow.payloadSchema),
+    primaryKey: dispatchButtonPrimaryKey,
     success: DispatchTeamSubmissionRejectButtonWorkflow.successSchema,
     error: DispatchTeamSubmissionRejectButtonWorkflow.errorSchema,
   }),

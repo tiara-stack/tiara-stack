@@ -11,6 +11,7 @@ import {
 import { tentativeRoomOrderActionRow, tentativeRoomOrderPinActionRow } from "./messageComponents";
 import { ClientDeliveryClient } from "./clientDeliveryClient";
 import * as MessageText from "./messageText";
+import { recoverNonInterruptCause } from "./dispatch/pure/failure";
 
 type RoomOrderService = {
   readonly generate: (payload: {
@@ -110,33 +111,39 @@ export const sendTentativeRoomOrder = Effect.fn("sendTentativeRoomOrder")(functi
       })
       .pipe(
         Effect.catchCause((cause) =>
-          Effect.logError(`Failed to persist ${logSubject}`).pipe(
-            Effect.annotateLogs({
-              workspaceId,
-              runningConversationId,
-              hour,
-              messageId: sentMessage.id,
-            }),
-            Effect.andThen(Effect.logError(cause)),
-            Effect.andThen(
-              botClient
-                .updateMessage(sentMessage.conversation_id, sentMessage.id, {
-                  components: [tentativeRoomOrderPinActionRow()],
-                })
-                .pipe(
-                  Effect.catchCause((updateCause) =>
-                    Effect.logError(`Failed to persist ${logSubject} and downgrade buttons`).pipe(
-                      Effect.annotateLogs({
-                        workspaceId,
-                        runningConversationId,
-                        hour,
-                        messageId: sentMessage.id,
-                      }),
-                      Effect.andThen(Effect.logError(cause)),
-                      Effect.andThen(Effect.logError(updateCause)),
+          recoverNonInterruptCause(cause, () =>
+            Effect.logError(`Failed to persist ${logSubject}`).pipe(
+              Effect.annotateLogs({
+                workspaceId,
+                runningConversationId,
+                hour,
+                messageId: sentMessage.id,
+              }),
+              Effect.andThen(Effect.logError(cause)),
+              Effect.andThen(
+                botClient
+                  .updateMessage(sentMessage.conversation_id, sentMessage.id, {
+                    components: [tentativeRoomOrderPinActionRow()],
+                  })
+                  .pipe(
+                    Effect.catchCause((updateCause) =>
+                      recoverNonInterruptCause(updateCause, () =>
+                        Effect.logError(
+                          `Failed to persist ${logSubject} and downgrade buttons`,
+                        ).pipe(
+                          Effect.annotateLogs({
+                            workspaceId,
+                            runningConversationId,
+                            hour,
+                            messageId: sentMessage.id,
+                          }),
+                          Effect.andThen(Effect.logError(cause)),
+                          Effect.andThen(Effect.logError(updateCause)),
+                        ),
+                      ),
                     ),
                   ),
-                ),
+              ),
             ),
           ),
         ),
@@ -148,14 +155,16 @@ export const sendTentativeRoomOrder = Effect.fn("sendTentativeRoomOrder")(functi
     };
   }).pipe(
     Effect.catchCause((cause) =>
-      Effect.logError(`Failed to send ${logSubject}`).pipe(
-        Effect.annotateLogs({
-          workspaceId,
-          runningConversationId,
-          hour,
-        }),
-        Effect.andThen(Effect.logError(cause)),
-        Effect.as(null),
+      recoverNonInterruptCause(cause, () =>
+        Effect.logError(`Failed to send ${logSubject}`).pipe(
+          Effect.annotateLogs({
+            workspaceId,
+            runningConversationId,
+            hour,
+          }),
+          Effect.andThen(Effect.logError(cause)),
+          Effect.as(null),
+        ),
       ),
     ),
   );

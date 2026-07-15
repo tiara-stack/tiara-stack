@@ -3,7 +3,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { vi } from "vitest";
 import { Cause, Context, Duration, Effect, Exit, Layer, Option, Schema, Stream } from "effect";
 import * as Data from "effect/Data";
-import { ClusterSchema, Sharding } from "effect/unstable/cluster";
+import { ClusterError, ClusterSchema, Sharding } from "effect/unstable/cluster";
 import type { HttpApiClient } from "effect/unstable/httpapi";
 import { WorkflowEngine } from "effect/unstable/workflow";
 import { MessageCheckinMember } from "sheet-ingress-api/schemas/messageCheckin";
@@ -37,10 +37,12 @@ import type {
   SlotListDispatchResult,
   SlotOpenButtonPayload,
   SlotOpenButtonResult,
+  TeamSubmissionDispatchPayload,
   UpdateAnnouncementDispatchPayload,
   UpdateAnnouncementDispatchResult,
 } from "sheet-ingress-api/sheet-apis-rpc";
 import { Unauthorized } from "typhoon-core/error";
+import { MutatorResultAppError } from "typhoon-zero/error";
 import { markInteractionFailureHandled } from "@/handlers/shared/interactionFailure";
 import { DispatchService, ClientDeliveryClient, SheetApisClient } from "@/services";
 import {
@@ -57,8 +59,11 @@ import {
 import {
   DispatchCheckinButtonWorkflow,
   DispatchServiceStatusWorkflow,
+  DispatchTeamSubmissionWorkflow,
   DispatchWorkflows,
 } from "./dispatchWorkflows";
+import { runDispatchWorkflowOperation } from "./dispatch/activityBoundary";
+import { makeClientDeliveryMock } from "@/services/testHelpers";
 
 const requester: DispatchRequester = {
   accountId: "account-1",
@@ -190,6 +195,15 @@ const roomOrderSendButtonPayload: RoomOrderSendButtonPayload = {
 };
 
 type DispatchServiceMock = typeof DispatchService.Service;
+type UpdateOriginalInteractionResponse =
+  typeof ClientDeliveryClient.Service.updateOriginalInteractionResponse;
+const mockedClientDeliveryLayer = (
+  updateOriginalInteractionResponse: UpdateOriginalInteractionResponse,
+) =>
+  Layer.succeed(ClientDeliveryClient, {
+    ...makeClientDeliveryMock(),
+    updateOriginalInteractionResponse,
+  });
 type ShardingMock = typeof Sharding.Sharding.Service;
 type SheetApisClientMock = typeof SheetApisClient.Service;
 type SheetApisApiClient = ReturnType<SheetApisClientMock["get"]>;
@@ -478,15 +492,21 @@ describe("dispatch workflow registry", () => {
 
   it.effect("detects cluster persistence defects", () =>
     Effect.sync(() => {
+      const persistenceError = new ClusterError.PersistenceError({
+        cause: new Error("persistence failed"),
+      });
+      expect(isClusterPersistenceCause(Cause.die(persistenceError))).toBe(true);
+      expect(isClusterPersistenceCause(Cause.die(new Error("other defect")))).toBe(false);
       expect(
         isClusterPersistenceCause(
-          Cause.die({
-            _tag: "PersistenceError",
-            name: "~effect/cluster/ClusterError/PersistenceError",
-          }),
+          Cause.combine(Cause.die(persistenceError), Cause.fail("typed failure")),
         ),
-      ).toBe(true);
-      expect(isClusterPersistenceCause(Cause.die(new Error("other defect")))).toBe(false);
+      ).toBe(false);
+      expect(
+        isClusterPersistenceCause(
+          Cause.die({ _tag: "PersistenceError", cause: new Error("unbranded error") }),
+        ),
+      ).toBe(false);
     }),
   );
 
@@ -497,7 +517,9 @@ describe("dispatch workflow registry", () => {
         Effect.suspend(() => {
           persistenceAttempts += 1;
           return persistenceAttempts < 3
-            ? Effect.die({ _tag: "PersistenceError" })
+            ? Effect.die(
+                new ClusterError.PersistenceError({ cause: new Error("persistence failed") }),
+              )
             : Effect.succeed("ok");
         }),
         3,
@@ -520,6 +542,121 @@ describe("dispatch workflow registry", () => {
       expect(persistenceAttempts).toBe(3);
       expect(Exit.isFailure(typedFailure)).toBe(true);
       expect(typedAttempts).toBe(1);
+    }),
+  );
+
+  it.effect("honors the configured cluster persistence attempt count", () =>
+    Effect.gen(function* () {
+      let attempts = 0;
+      const persistenceDefect = new ClusterError.PersistenceError({
+        cause: new Error("persistence failed"),
+      });
+      const exhausted = yield* Effect.exit(
+        retryClusterPersistenceCause(
+          Effect.suspend(() => {
+            attempts += 1;
+            return Effect.die(persistenceDefect);
+          }),
+          3,
+          Duration.zero,
+        ),
+      );
+
+      expect(Exit.isFailure(exhausted)).toBe(true);
+      if (Exit.isFailure(exhausted)) {
+        expect(
+          exhausted.cause.reasons.some(
+            (reason) => Cause.isDieReason(reason) && reason.defect === persistenceDefect,
+          ),
+        ).toBe(true);
+      }
+      expect(attempts).toBe(3);
+    }),
+  );
+
+  it.effect("preserves interrupt causes without retrying them", () =>
+    Effect.gen(function* () {
+      let attempts = 0;
+      const interruptCause = Cause.interrupt(17);
+      const interrupted = yield* Effect.exit(
+        retryClusterPersistenceCause(
+          Effect.suspend(() => {
+            attempts += 1;
+            return Effect.failCause(interruptCause);
+          }),
+          3,
+          Duration.zero,
+        ),
+      );
+
+      expect(Exit.isFailure(interrupted)).toBe(true);
+      if (Exit.isFailure(interrupted)) {
+        expect(interrupted.cause).toEqual(interruptCause);
+      }
+      expect(attempts).toBe(1);
+    }),
+  );
+
+  it.effect("does not retry when the persistence attempt limit is one or less", () =>
+    Effect.gen(function* () {
+      const attempts = yield* Effect.forEach([1, 0, -1], (remainingAttempts) => {
+        let count = 0;
+        return retryClusterPersistenceCause(
+          Effect.suspend(() => {
+            count += 1;
+            return Effect.die(
+              new ClusterError.PersistenceError({ cause: new Error("persistence failed") }),
+            );
+          }),
+          remainingAttempts,
+          Duration.zero,
+        ).pipe(
+          Effect.exit,
+          Effect.map(() => count),
+        );
+      });
+
+      expect(attempts).toEqual([1, 1, 1]);
+    }),
+  );
+
+  it.effect("preserves workflow-specific mutator failures", () =>
+    Effect.gen(function* () {
+      const error = new MutatorResultAppError({ type: "app", message: "mutation failed" });
+      const payload: TeamSubmissionDispatchPayload = {
+        client: discordClient,
+        dispatchRequestId: "dispatch-team-submission",
+        workspaceId: "workspace-1",
+        conversationId: "conversation-1",
+        messageId: "message-1",
+        authorId: "user-1",
+        authorDisplayName: "User One",
+        content: "full fill: Team One",
+        editedAt: null,
+      };
+      const exit = yield* Effect.exit(
+        runDispatchWorkflowOperation(
+          {
+            operation: "teamSubmission",
+            workflow: DispatchTeamSubmissionWorkflow,
+            getInteractionToken: () => undefined,
+            authorize: () => Effect.void,
+            execute: () => Effect.fail(error),
+          },
+          { requester, payload },
+          "execution-1",
+        ).pipe(Effect.provideService(ClientDeliveryClient, makeClientDeliveryMock())),
+      );
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      const failReason = Exit.isFailure(exit)
+        ? exit.cause.reasons.find(Cause.isFailReason)
+        : undefined;
+      expect(failReason?.error).toMatchObject({
+        _tag: error._tag,
+        type: error.type,
+        message: error.message,
+      });
     }),
   );
 
@@ -685,6 +822,12 @@ describe("dispatch workflow registry", () => {
       const unauthorized: TestAuthorization = { workspaceId: "workspace-1", scope: "monitor" };
       const cases = [
         (currentAuthorization: typeof authorization) =>
+          dispatchWorkflowRegistry.kickout.authorize({
+            requester,
+            authorization: currentAuthorization,
+            payload: kickoutPayload,
+          }),
+        (currentAuthorization: typeof authorization) =>
           dispatchWorkflowRegistry.conversationSet.authorize({
             requester,
             authorization: currentAuthorization,
@@ -774,6 +917,26 @@ describe("dispatch workflow registry", () => {
     }),
   );
 
+  it.effect("requires monitor-workspace authorization for auto check-in previews", () =>
+    Effect.gen(function* () {
+      const request = {
+        requester,
+        authorization: { workspaceId: "workspace-1", scope: "monitor" as const },
+        payload: autoCheckinTestPayload,
+      };
+
+      yield* dispatchWorkflowRegistry.autoCheckinTest.authorize(request);
+      const denied = yield* Effect.exit(
+        dispatchWorkflowRegistry.autoCheckinTest.authorize({
+          ...request,
+          authorization: { workspaceId: "workspace-2", scope: "monitor" as const },
+        }),
+      );
+
+      expect(Exit.isFailure(denied)).toBe(true);
+    }),
+  );
+
   it.live("requires monitor-workspace authorization snapshots for screenshot workflow", () =>
     Effect.gen(function* () {
       const request = {
@@ -808,7 +971,7 @@ describe("dispatch workflow registry", () => {
         payload: {
           client: discordClient,
           workspaceId: "workspace-1",
-          targetUserId: requester.accountId,
+          targetUserId: requester.userId,
           targetUsername: "Requester",
           interactionResponseToken: "interaction-token",
           interactionResponseDeadlineEpochMs,
@@ -831,7 +994,7 @@ describe("dispatch workflow registry", () => {
         payload: {
           ...base.payload,
           dispatchRequestId: "dispatch-team-list-other",
-          targetUserId: "account-2",
+          targetUserId: "user-2",
         },
       });
       const denied = yield* Effect.exit(
@@ -841,7 +1004,7 @@ describe("dispatch workflow registry", () => {
             ...base.payload,
             dispatchRequestId: "dispatch-schedule-list-other",
             day: 1,
-            targetUserId: "account-2",
+            targetUserId: "user-2",
           },
         }),
       );
@@ -1088,8 +1251,11 @@ describe("dispatch workflow registry", () => {
     "does not overwrite handled interaction failure replies with the generic dispatch failure",
     () =>
       Effect.gen(function* () {
-        const updateOriginalInteractionResponse = vi.fn(() => Effect.void);
-        const serviceStatus = vi.fn(() =>
+        const updateOriginalInteractionResponse = vi.fn<UpdateOriginalInteractionResponse>(
+          (_token, _payload) =>
+            Effect.succeed({ id: "failure-message", conversation_id: "interaction" }),
+        );
+        const serviceStatus: DispatchServiceMock["serviceStatus"] = vi.fn(() =>
           Effect.fail(markInteractionFailureHandled(new Error("status failed"))),
         );
 
@@ -1107,12 +1273,10 @@ describe("dispatch workflow registry", () => {
           Effect.provideService(
             DispatchService,
             makeDispatchServiceMock({
-              serviceStatus: serviceStatus as unknown as DispatchServiceMock["serviceStatus"],
+              serviceStatus,
             }),
           ),
-          Effect.provideService(ClientDeliveryClient, {
-            updateOriginalInteractionResponse,
-          } as never),
+          Effect.provide(mockedClientDeliveryLayer(updateOriginalInteractionResponse)),
           Effect.provide(WorkflowEngine.layerMemory),
         );
 
@@ -1122,12 +1286,49 @@ describe("dispatch workflow registry", () => {
       }),
   );
 
+  it.live("does not notify interaction failures for empty response tokens", () =>
+    Effect.gen(function* () {
+      const updateOriginalInteractionResponse = vi.fn<UpdateOriginalInteractionResponse>(
+        (_token, _payload) =>
+          Effect.succeed({ id: "failure-message", conversation_id: "interaction" }),
+      );
+      const serviceStatus: DispatchServiceMock["serviceStatus"] = vi.fn(() =>
+        Effect.fail(new DispatchRegistryTestError({ message: "status failed" })),
+      );
+
+      const exit = yield* Effect.exit(
+        DispatchServiceStatusWorkflow.execute({
+          requester,
+          payload: { ...serviceStatusPayload, interactionResponseToken: "" },
+        }),
+      ).pipe(
+        Effect.provide(
+          DispatchServiceStatusWorkflow.toLayer(
+            makeWorkflowHandler({ ...dispatchWorkflowRegistry.serviceStatus }),
+          ),
+        ),
+        Effect.provideService(
+          DispatchService,
+          makeDispatchServiceMock({
+            serviceStatus,
+          }),
+        ),
+        Effect.provide(mockedClientDeliveryLayer(updateOriginalInteractionResponse)),
+        Effect.provide(WorkflowEngine.layerMemory),
+      );
+
+      expect(exit._tag).toBe("Failure");
+      expect(updateOriginalInteractionResponse).not.toHaveBeenCalled();
+    }),
+  );
+
   it.live("includes the thrown error message for unhandled interaction failures", () =>
     Effect.gen(function* () {
-      const updateOriginalInteractionResponse = vi.fn(
-        (_interactionResponseToken: string, _payload: unknown) => Effect.void,
+      const updateOriginalInteractionResponse = vi.fn<UpdateOriginalInteractionResponse>(
+        (_interactionResponseToken, _payload) =>
+          Effect.succeed({ id: "failure-message", conversation_id: "interaction" }),
       );
-      const serviceStatus = vi.fn(() =>
+      const serviceStatus: DispatchServiceMock["serviceStatus"] = vi.fn(() =>
         Effect.fail(new DispatchRegistryTestError({ message: "status failed" })),
       );
 
@@ -1145,33 +1346,26 @@ describe("dispatch workflow registry", () => {
         Effect.provideService(
           DispatchService,
           makeDispatchServiceMock({
-            serviceStatus: serviceStatus as unknown as DispatchServiceMock["serviceStatus"],
+            serviceStatus,
           }),
         ),
-        Effect.provideService(ClientDeliveryClient, {
-          updateOriginalInteractionResponse,
-        } as never),
+        Effect.provide(mockedClientDeliveryLayer(updateOriginalInteractionResponse)),
         Effect.provide(WorkflowEngine.layerMemory),
       );
 
       expect(exit._tag).toBe("Failure");
       expect(serviceStatus).toHaveBeenCalledWith(serviceStatusPayload);
-      expect(updateOriginalInteractionResponse).toHaveBeenCalledWith("interaction-token", {
-        content:
-          "Dispatch failed. Please try again.\nUnexpected error: status failed\nFull error is attached.",
-        files: [
-          expect.objectContaining({
-            name: "error.txt",
-            contentType: "text/plain",
-            content: expect.any(Uint8Array),
-          }),
-        ],
-      });
+      expect(updateOriginalInteractionResponse).toHaveBeenCalledWith(
+        "interaction-token",
+        expect.objectContaining({
+          content: expect.stringMatching(
+            /^Dispatch failed\. Please try again\.\nReference: [^\n]+$/,
+          ),
+          allowedMentions: "none",
+        }),
+      );
       const [, payload] = updateOriginalInteractionResponse.mock.calls[0]!;
-      const [file] = (
-        payload as { readonly files: ReadonlyArray<{ readonly content: Uint8Array }> }
-      ).files;
-      expect(new TextDecoder().decode(file.content)).toContain("status failed");
+      expect(payload).not.toHaveProperty("files");
     }),
   );
 
@@ -1181,47 +1375,33 @@ describe("dispatch workflow registry", () => {
         _tag: "SheetConfigError",
         message: "Error getting ranges config, no value ranges found",
       }),
-    ).toBe(
-      "Dispatch failed. Please try again.\nSheet config error: Error getting ranges config, no value ranges found",
-    );
+    ).toBe("Dispatch failed. Please try again.\nSheet config error.");
 
     expect(
       dispatchFailureMessage({ _tag: "ArgumentError", message: "message slot not found" }),
-    ).toBe("Dispatch failed. Please try again.\nRequest error: message slot not found");
+    ).toBe("Dispatch failed. Please try again.\nRequest error.");
 
     expect(
       dispatchFailureMessage({ _tag: "FutureTaggedError", message: "new failure shape" }),
-    ).toBe("Dispatch failed. Please try again.\nUnexpected error: new failure shape");
+    ).toBe("Dispatch failed. Please try again.\nUnexpected error.");
   });
 
-  it("truncates long dispatch failure details", () => {
+  it("does not expose dispatch failure details", () => {
     const content = dispatchFailureMessage({
       _tag: "SchemaError",
       message: "x".repeat(2_000),
     });
-    const detail = content.split("Data format error: ")[1]!;
 
-    expect(detail.length).toBeLessThanOrEqual(1_200);
-    expect(content).toMatch(/^Dispatch failed\. Please try again\.\nData format error: x+\.\.\.$/);
+    expect(content).toBe("Dispatch failed. Please try again.\nData format error.");
   });
 
-  it("attaches the full dispatch failure trace as a text file", () => {
-    const response = dispatchFailureResponse(new Error("workflow exploded"));
+  it("returns a sanitized dispatch failure with a correlation reference", () => {
+    const response = dispatchFailureResponse(new Error("workflow exploded"), "correlation-1");
 
     expect(response.payload).toEqual({
-      content:
-        "Dispatch failed. Please try again.\nUnexpected error: workflow exploded\nFull error is attached.",
-      files: [
-        {
-          name: "error.txt",
-          contentType: "text/plain",
-          content: expect.any(Uint8Array),
-        },
-      ],
+      content: "Dispatch failed. Please try again.\nReference: correlation-1",
+      allowedMentions: "none",
     });
-    expect(new TextDecoder().decode(response.payload.files[0]!.content)).toContain(
-      "workflow exploded",
-    );
   });
 
   it.live("routes check-in button workflows through the dispatch button entity", () =>

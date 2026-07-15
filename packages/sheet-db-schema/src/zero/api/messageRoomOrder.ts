@@ -9,7 +9,7 @@ import {
   hasStaleUntrackedSendClaim,
   isActiveSendClaim,
 } from "../claimHelpers";
-import { preserveOmitted } from "../timestamps";
+import { activeRecord, preserveOmitted } from "../timestamps";
 import { MessageKeyRequest } from "./requests";
 import type { SheetZeroApiSuccessSchemas } from "./successSchemas";
 
@@ -87,17 +87,21 @@ const upsertRoomOrderRecord = async (
   data: typeof MessageRoomOrderDataInput.Type,
 ) => {
   const existing = await findMessageRoomOrder(tx, key);
+  const activeExisting = activeRecord(existing);
   const tentative = Option.getOrElse(
     Option.fromNullishOr(
-      preserveOmitted(data.tentative, Option.getOrUndefined(optionalField(existing, "tentative"))),
+      preserveOmitted(
+        data.tentative,
+        Option.getOrUndefined(optionalField(activeExisting, "tentative")),
+      ),
     ),
     () => false,
   );
   const monitor = preserveOmitted(
     data.monitor,
-    Option.getOrUndefined(optionalField(existing, "monitor")),
+    Option.getOrUndefined(optionalField(activeExisting, "monitor")),
   );
-  const rank = Option.getOrElse(optionalField(existing, "rank"), () => data.rank);
+  const rank = Option.getOrElse(optionalField(activeExisting, "rank"), () => data.rank);
   await tx.mutate.messageRoomOrder.upsert(
     zeroTableAccess.messageRoomOrder.upsertWithTimestamps(
       {
@@ -115,7 +119,7 @@ const upsertRoomOrderRecord = async (
         createdByUserId: data.createdByUserId,
         deletedAt: null,
       },
-      existing,
+      activeExisting,
     ),
   );
 };

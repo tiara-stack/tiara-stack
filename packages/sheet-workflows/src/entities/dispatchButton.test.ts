@@ -1,7 +1,7 @@
 // fallow-ignore-file code-duplication
 import { describe, expect, it } from "@effect/vitest";
 import { vi } from "vitest";
-import { Deferred, Effect, Fiber, Layer, Option, Ref } from "effect";
+import { Deferred, Effect, Fiber, Layer, Logger, Option, Ref } from "effect";
 import { Entity, ShardingConfig } from "effect/unstable/cluster";
 import { WorkflowEngine } from "effect/unstable/workflow";
 import { markInteractionFailureHandled } from "@/handlers/shared/interactionFailure";
@@ -337,6 +337,10 @@ describe("dispatch button entity", () => {
   );
 
   it.effect("preserves normalized failure behavior", () => {
+    const logMessages: Array<unknown> = [];
+    const logger = Logger.make(({ message }) => {
+      logMessages.push(message);
+    });
     const updateOriginalInteractionResponse = vi.fn(
       (_interactionResponseToken: string, _payload: unknown) => Effect.void,
     );
@@ -352,21 +356,22 @@ describe("dispatch button entity", () => {
 
       expect(exit._tag).toBe("Failure");
       expect(updateOriginalInteractionResponse).toHaveBeenCalledWith("interaction-token", {
-        content:
-          "Dispatch failed. Please try again.\nUnexpected error: check-in failed\nFull error is attached.",
-        files: [
-          expect.objectContaining({
-            name: "error.txt",
-            contentType: "text/plain",
-            content: expect.any(Uint8Array),
-          }),
-        ],
+        content: expect.stringMatching(/^Dispatch failed\. Please try again\.\nReference: [^\n]+$/),
+        allowedMentions: "none",
       });
       const [, responsePayload] = updateOriginalInteractionResponse.mock.calls[0]!;
-      const [file] = (
-        responsePayload as { readonly files: ReadonlyArray<{ readonly content: Uint8Array }> }
-      ).files;
-      expect(new TextDecoder().decode(file.content)).toContain("check-in failed");
+      expect(responsePayload).not.toHaveProperty("files");
+      const reference = (responsePayload as { readonly content: string }).content.split(
+        "Reference: ",
+      )[1];
+      expect(reference).toBeDefined();
+      expect(logMessages).toContainEqual([
+        "Dispatch operation failed",
+        expect.objectContaining({
+          correlationId: reference,
+          error: expect.stringContaining("check-in failed"),
+        }),
+      ]);
     }).pipe(
       Effect.provide(
         Layer.mergeAll(
@@ -389,6 +394,7 @@ describe("dispatch button entity", () => {
           TestShardingConfig,
         ),
       ),
+      Effect.provide(Logger.layer([logger])),
     );
   });
 

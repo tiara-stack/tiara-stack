@@ -1,8 +1,22 @@
 import { Schema } from "effect";
+import { makeArgumentError } from "typhoon-core/error";
 import { ZeroApiEndpoint, ZeroApiGroup } from "typhoon-zero/zeroApi";
 import { zeroTableAccess } from "../accessors";
-import { preserveOmitted } from "../timestamps";
+import { activeRecord, preserveOmitted } from "../timestamps";
 import type { SheetZeroApiSuccessSchemas } from "./successSchemas";
+
+const resolveDmEnabled = (requested: boolean | undefined, existing: boolean | undefined) =>
+  requested ?? existing ?? false;
+
+const validateDmPreferences = (
+  checkinDmEnabled: boolean,
+  monitorDmEnabled: boolean,
+  defaultClientId: string | null | undefined,
+) => {
+  if ((checkinDmEnabled || monitorDmEnabled) && !defaultClientId) {
+    throw makeArgumentError("A default notification client is required to enable DMs");
+  }
+};
 
 const enabledUserConfigsQuery =
   (field: "checkinDmEnabled" | "monitorDmEnabled") =>
@@ -58,8 +72,8 @@ export const makeUserConfigGroup = <const SuccessSchemas extends SheetZeroApiSuc
       request: Schema.Struct({
         platform: Schema.String,
         userId: Schema.String,
-        checkinDmEnabled: Schema.Boolean,
-        monitorDmEnabled: Schema.Boolean,
+        checkinDmEnabled: Schema.optional(Schema.Boolean),
+        monitorDmEnabled: Schema.optional(Schema.Boolean),
         defaultClientId: Schema.optional(Schema.NullOr(Schema.String)),
       }),
       mutator: async ({ tx, args }) => {
@@ -69,21 +83,32 @@ export const makeUserConfigGroup = <const SuccessSchemas extends SheetZeroApiSuc
             .where("userId", "=", args.userId)
             .one(),
         );
+        const activeExistingConfig = activeRecord(existingConfig);
+        const checkinDmEnabled = resolveDmEnabled(
+          args.checkinDmEnabled,
+          activeExistingConfig?.checkinDmEnabled,
+        );
+        const monitorDmEnabled = resolveDmEnabled(
+          args.monitorDmEnabled,
+          activeExistingConfig?.monitorDmEnabled,
+        );
+        const defaultClientId = preserveOmitted(
+          args.defaultClientId,
+          activeExistingConfig?.defaultClientId,
+        );
+        validateDmPreferences(checkinDmEnabled, monitorDmEnabled, defaultClientId);
 
         await tx.mutate.configUserPlatform.upsert(
           zeroTableAccess.configUserPlatform.upsertWithTimestamps(
             {
               platform: args.platform,
               userId: args.userId,
-              checkinDmEnabled: args.checkinDmEnabled,
-              monitorDmEnabled: args.monitorDmEnabled,
-              defaultClientId: preserveOmitted(
-                args.defaultClientId,
-                existingConfig?.defaultClientId,
-              ),
+              checkinDmEnabled,
+              monitorDmEnabled,
+              defaultClientId,
               deletedAt: null,
             },
-            existingConfig,
+            activeExistingConfig,
           ),
         );
       },

@@ -1,3 +1,4 @@
+import { DiscordBotNotFoundError } from "dfx-discord-utils/discord/schema";
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { ArgumentError, UnknownError, Unauthorized } from "typhoon-core/error";
@@ -11,6 +12,8 @@ import {
   WorkspaceRef,
 } from "../../schemas/client";
 import { SupportedNotificationClient } from "../../schemas/userConfig";
+
+export { DiscordBotNotFoundError };
 
 export const DeliveryMessage = MessageRef;
 
@@ -37,7 +40,12 @@ export const ClientMember = Schema.Struct({
   roleIds: Schema.Array(Schema.String),
 });
 
-const DeliveryErrors = [ArgumentError, Unauthorized, UnknownError] as const;
+const DeliveryErrors = [
+  ArgumentError,
+  DiscordBotNotFoundError,
+  Unauthorized,
+  UnknownError,
+] as const;
 
 export class ClientDeliveryApi extends HttpApiGroup.make("clientDelivery")
   .add(

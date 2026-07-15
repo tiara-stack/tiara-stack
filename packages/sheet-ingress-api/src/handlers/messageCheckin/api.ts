@@ -71,6 +71,13 @@ export class MessageCheckinApi extends HttpApiGroup.make("messageCheckin")
     }),
   )
   .add(
+    HttpApiEndpoint.post("removeMessageCheckin", "/messageCheckin/removeMessageCheckin", {
+      payload: Schema.Struct(MessageKeyPayload),
+      success: Schema.Void,
+      error: [SchemaError, QueryResultError, ArgumentError, Unauthorized],
+    }),
+  )
+  .add(
     HttpApiEndpoint.post(
       "setMessageCheckinMemberCheckinAt",
       "/messageCheckin/setMessageCheckinMemberCheckinAt",

@@ -1,5 +1,11 @@
-import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
-import { Context, Effect, Layer, Schema } from "effect";
+import { DiscordBotNotFoundError } from "dfx-discord-utils/discord/schema";
+import {
+  HttpClient,
+  HttpClientError,
+  HttpClientRequest,
+  HttpClientResponse,
+} from "effect/unstable/http";
+import { Context, Effect, Layer, Predicate, Schema } from "effect";
 import {
   ClientConversation,
   DeliveryEmoji,
@@ -15,7 +21,7 @@ import {
   SheetOutboundMessage,
   WorkspaceRef,
 } from "sheet-ingress-api/schemas/client";
-import { makeUnknownError, Unauthorized } from "typhoon-core/error";
+import { makeUnknownError, Unauthorized, UnknownError } from "typhoon-core/error";
 import { ClientRegistry } from "./clientRegistry";
 import { getIngressRpcHeaders } from "./rpcAuthorizationClient";
 import { SheetApisRpcTokens } from "./sheetApisRpcTokens";
@@ -63,8 +69,36 @@ const MemberRolePayload = Schema.Struct({
   roleId: Schema.String,
 });
 
-const mapForwardingError = (message: string) => (error: unknown) =>
-  error instanceof Unauthorized ? error : makeUnknownError(message, error);
+const isUnauthorized = (error: unknown): error is Unauthorized =>
+  Predicate.isError(error) && Predicate.isTagged(error, "Unauthorized");
+
+const mapForwardingError = (message: string) => (error: unknown) => {
+  if (isUnauthorized(error)) {
+    return error;
+  }
+  return makeUnknownError(message, error);
+};
+
+type ForwardingError = Unauthorized | UnknownError | DiscordBotNotFoundError;
+
+const failForwardingError =
+  (message: string) =>
+  (error: unknown): Effect.Effect<never, ForwardingError> => {
+    if (
+      HttpClientError.isHttpClientError(error) &&
+      Predicate.isTagged(error.reason, "StatusCodeError") &&
+      error.reason.response.status === 404
+    ) {
+      return error.reason.response.json.pipe(
+        Effect.flatMap(Schema.decodeUnknownEffect(DiscordBotNotFoundError)),
+        Effect.matchEffect({
+          onFailure: () => Effect.fail(mapForwardingError(message)(error)),
+          onSuccess: Effect.fail,
+        }),
+      );
+    }
+    return Effect.fail(mapForwardingError(message)(error));
+  };
 
 export class ClientDeliveryForwardingClient extends Context.Service<ClientDeliveryForwardingClient>()(
   "ClientDeliveryForwardingClient",
@@ -107,7 +141,7 @@ export class ClientDeliveryForwardingClient extends Context.Service<ClientDelive
             Effect.flatMap(httpClient.execute),
             Effect.flatMap(HttpClientResponse.filterStatusOk),
             Effect.flatMap(HttpClientResponse.schemaBodyJson(schema)),
-            Effect.mapError(mapForwardingError(`Failed to forward client request to ${path}`)),
+            Effect.catch(failForwardingError(`Failed to forward client request to ${path}`)),
           );
         });
 
@@ -129,7 +163,7 @@ export class ClientDeliveryForwardingClient extends Context.Service<ClientDelive
             Effect.flatMap(httpClient.execute),
             Effect.flatMap(HttpClientResponse.filterStatusOk),
             Effect.asVoid,
-            Effect.mapError(mapForwardingError(message)),
+            Effect.catch(failForwardingError(message)),
           );
         });
 
@@ -260,7 +294,7 @@ export class ClientDeliveryForwardingClient extends Context.Service<ClientDelive
             httpClient.execute,
             Effect.flatMap(HttpClientResponse.filterStatusOk),
             Effect.flatMap(HttpClientResponse.schemaBodyJson(ClientWorkspace)),
-            Effect.mapError(mapForwardingError("Failed to forward client workspace request")),
+            Effect.catch(failForwardingError("Failed to forward client workspace request")),
           );
         }),
         getConversations: Effect.fn("ClientDeliveryForwardingClient.getConversations")(function* (
@@ -278,7 +312,7 @@ export class ClientDeliveryForwardingClient extends Context.Service<ClientDelive
             httpClient.execute,
             Effect.flatMap(HttpClientResponse.filterStatusOk),
             Effect.flatMap(HttpClientResponse.schemaBodyJson(Schema.Array(ClientConversation))),
-            Effect.mapError(mapForwardingError("Failed to forward client conversations request")),
+            Effect.catch(failForwardingError("Failed to forward client conversations request")),
           );
         }),
         getMembers: Effect.fn("ClientDeliveryForwardingClient.getMembers")(function* (
@@ -296,7 +330,7 @@ export class ClientDeliveryForwardingClient extends Context.Service<ClientDelive
             httpClient.execute,
             Effect.flatMap(HttpClientResponse.filterStatusOk),
             Effect.flatMap(HttpClientResponse.schemaBodyJson(Schema.Array(ClientMember))),
-            Effect.mapError(mapForwardingError("Failed to forward client members request")),
+            Effect.catch(failForwardingError("Failed to forward client members request")),
           );
         }),
         addMemberRole: Effect.fn("ClientDeliveryForwardingClient.addMemberRole")(function* (

@@ -116,8 +116,8 @@ export interface SheetZeroClientApi {
     readonly upsertUserPlatformConfig: MutatorResult<{
       readonly platform: string;
       readonly userId: string;
-      readonly checkinDmEnabled: boolean;
-      readonly monitorDmEnabled: boolean;
+      readonly checkinDmEnabled?: boolean | undefined;
+      readonly monitorDmEnabled?: boolean | undefined;
       readonly defaultClientId?: string | null | undefined;
     }>;
   };
@@ -264,6 +264,7 @@ export interface SheetZeroClientApi {
       };
       readonly memberIds: readonly string[];
     }>;
+    readonly removeMessageCheckin: MutatorResult<MessageKey>;
     readonly setMessageCheckinMemberCheckinAt: MutatorResult<{
       readonly clientPlatform: string;
       readonly clientId: string;

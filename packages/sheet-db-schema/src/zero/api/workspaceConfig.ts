@@ -5,7 +5,7 @@ import {
   TeamSubmissionWriteMode,
 } from "../../teamSubmissionChannelConfig";
 import { zeroTableAccess } from "../accessors";
-import { preserveOmitted } from "../timestamps";
+import { activeRecord, preserveOmitted } from "../timestamps";
 import type { SheetZeroApiSuccessSchemas } from "./successSchemas";
 
 const updateAnnouncementDeliveryPendingConversationId = "__pending_update_announcement_delivery__";
@@ -234,16 +234,20 @@ export const makeWorkspaceConfigGroup = <const SuccessSchemas extends SheetZeroA
         const existingConfigWorkspace = await tx.run(
           zeroTableAccess.configWorkspace.table.where("workspaceId", "=", args.workspaceId).one(),
         );
+        const activeExistingConfigWorkspace = activeRecord(existingConfigWorkspace);
 
         await tx.mutate.configWorkspace.upsert(
           zeroTableAccess.configWorkspace.upsertWithTimestamps(
             {
               workspaceId: args.workspaceId,
-              sheetId: preserveOmitted(args.sheetId, existingConfigWorkspace?.sheetId),
-              autoCheckin: preserveOmitted(args.autoCheckin, existingConfigWorkspace?.autoCheckin),
+              sheetId: preserveOmitted(args.sheetId, activeExistingConfigWorkspace?.sheetId),
+              autoCheckin: preserveOmitted(
+                args.autoCheckin,
+                activeExistingConfigWorkspace?.autoCheckin,
+              ),
               deletedAt: null,
             },
-            existingConfigWorkspace,
+            activeExistingConfigWorkspace,
           ),
         );
       },
@@ -457,7 +461,8 @@ export const makeWorkspaceConfigGroup = <const SuccessSchemas extends SheetZeroA
             .where("conversationId", "=", args.conversationId)
             .one(),
         );
-        const existingValues = existingConversation ?? {
+        const activeExistingConversation = activeRecord(existingConversation);
+        const existingValues = activeExistingConversation ?? {
           name: undefined,
           running: undefined,
           roleId: undefined,
@@ -478,7 +483,7 @@ export const makeWorkspaceConfigGroup = <const SuccessSchemas extends SheetZeroA
               ),
               deletedAt: null,
             },
-            existingConversation,
+            activeExistingConversation,
           ),
         );
       },
@@ -499,6 +504,7 @@ export const makeWorkspaceConfigGroup = <const SuccessSchemas extends SheetZeroA
             .where("conversationId", "=", args.conversationId)
             .one(),
         );
+        const activeExistingChannel = activeRecord(existingChannel);
 
         await tx.mutate.configWorkspaceTeamSubmissionChannel.upsert(
           zeroTableAccess.configWorkspaceTeamSubmissionChannel.upsertWithTimestamps(
@@ -507,15 +513,16 @@ export const makeWorkspaceConfigGroup = <const SuccessSchemas extends SheetZeroA
               conversationId: args.conversationId,
               destinationTeamConfigName: preserveOmitted(
                 args.destinationTeamConfigName,
-                existingChannel?.destinationTeamConfigName,
+                activeExistingChannel?.destinationTeamConfigName,
               ),
               writeMode: args.writeMode,
               removedRowStrategy: args.removedRowStrategy,
               requireValidOshi:
-                preserveOmitted(args.requireValidOshi, existingChannel?.requireValidOshi) ?? false,
+                preserveOmitted(args.requireValidOshi, activeExistingChannel?.requireValidOshi) ??
+                false,
               deletedAt: null,
             },
-            existingChannel,
+            activeExistingChannel,
           ),
         );
       },

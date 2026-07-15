@@ -154,6 +154,15 @@ export class MessageCheckinService extends Context.Service<MessageCheckinService
         },
       );
 
+      const removeMessageCheckin = Effect.fn("MessageCheckinService.removeMessageCheckin")(
+        function* (key: MessageKey) {
+          const mutation = yield* zeroClient.mutate(
+            mutators.messageCheckin.removeMessageCheckin(key),
+          );
+          yield* mutation.server();
+        },
+      );
+
       const setMessageCheckinMemberCheckinAt = Effect.fn(
         "MessageCheckinService.setMessageCheckinMemberCheckinAt",
       )(function* (key: MessageKey, memberId: string, checkinAt: number, checkinClaimId?: string) {
@@ -241,6 +250,7 @@ export class MessageCheckinService extends Context.Service<MessageCheckinService
         getMessageCheckinMembers,
         addMessageCheckinMembers,
         persistMessageCheckin,
+        removeMessageCheckin,
         setMessageCheckinMemberCheckinAt,
         setMessageCheckinMemberCheckinAtIfUnset,
         removeMessageCheckinMember,
