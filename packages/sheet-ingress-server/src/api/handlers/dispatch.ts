@@ -20,6 +20,12 @@ const requireMonitorWorkspace = ({
   readonly payload: { readonly workspaceId: string };
 }) => requireGuild("monitor", payload.workspaceId);
 
+const requireMonitorWorkspaceSnapshot = ({
+  payload,
+}: {
+  readonly payload: { readonly workspaceId: string };
+}) => requireGuildSnapshot("monitor", payload.workspaceId);
+
 const requireManageWorkspaceSnapshot = ({
   payload,
 }: {
@@ -32,7 +38,7 @@ export const dispatchHandlers = {
       .handle("checkin", authorizedSheetWorkflowsDispatch("checkin", requireMonitorWorkspace))
       .handle(
         "autoCheckinTest",
-        authorizedSheetWorkflowsDispatch("autoCheckinTest", requireMonitorWorkspace),
+        authorizedSheetWorkflowsDispatch("autoCheckinTest", requireMonitorWorkspaceSnapshot),
       )
       .handle(
         "checkinButton",
@@ -44,7 +50,10 @@ export const dispatchHandlers = {
         ),
       )
       .handle("roomOrder", authorizedSheetWorkflowsDispatch("roomOrder", requireMonitorWorkspace))
-      .handle("kickout", authorizedSheetWorkflowsDispatch("kickout", requireMonitorWorkspace))
+      .handle(
+        "kickout",
+        authorizedSheetWorkflowsDispatch("kickout", requireManageWorkspaceSnapshot),
+      )
       .handle("slotButton", authorizedSheetWorkflowsDispatch("slotButton", requireMonitorWorkspace))
       .handle(
         "slotList",
