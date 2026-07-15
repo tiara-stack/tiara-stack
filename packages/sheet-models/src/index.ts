@@ -5,6 +5,8 @@ export const TeamSubmissionStatus = Schema.Literals([
   "updated",
   "empty",
   "failed",
+  "applying",
+  "reverting",
   "confirmed",
   "rejected",
   "rollbackFailed",

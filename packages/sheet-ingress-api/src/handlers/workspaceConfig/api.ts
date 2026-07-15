@@ -226,6 +226,7 @@ export class WorkspaceConfigApi extends HttpApiGroup.make("workspaceConfig")
           deliveredAt: Schema.DateTimeUtcFromMillis,
           conversationId: Schema.String,
           messageId: Schema.String,
+          claimToken: Schema.String,
         }),
         success: WorkspaceUpdateAnnouncementDelivery,
         error: [SchemaError, QueryResultError, MutatorResultError],

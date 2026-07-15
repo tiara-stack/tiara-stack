@@ -64,6 +64,7 @@
     "@effect/opentelemetry": "catalog:",
     "@effect/platform-node": "catalog:",
     "dfx": "catalog:",
-    "effect": "catalog:"
+    "effect": "catalog:",
+    "sheet-models": "workspace:*"
   }
 }

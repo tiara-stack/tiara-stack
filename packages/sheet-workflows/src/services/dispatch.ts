@@ -7,7 +7,6 @@ import {
   DateTime,
   Duration,
   Effect,
-  Exit,
   Layer,
   Match,
   Option,
@@ -142,9 +141,29 @@ const failSerializableUnknownError = (message: string, cause: Cause.Cause<unknow
 const catchSerializableUnknownError = (message: string) =>
   Effect.catchCause((cause: Cause.Cause<unknown>) => failSerializableUnknownError(message, cause));
 
+const isNonInterruptCause = <E>(cause: Cause.Cause<E>) => !Cause.hasInterrupts(cause);
+
+// Interruption deliberately bypasses best-effort cleanup so cancellation remains prompt. Room-order
+// claims are reclaimable after the 10-minute claim lease, and update-announcement delivery claims
+// are reclaimable after their 5-minute lease, so an interrupted worker cannot leave a permanent lock.
+const ignoreNonInterruptFailure = Effect.catchCauseIf(isNonInterruptCause, () => Effect.void);
+
 const ignoreDiscordCleanupFailure = (message: string) =>
-  Effect.catchCause((cause) =>
+  Effect.catchCauseIf(isNonInterruptCause, (cause) =>
     Effect.logWarning(message).pipe(Effect.andThen(Effect.logDebug(cause))),
+  );
+
+const logNonInterruptFailure = <A>(
+  message: string,
+  annotations: Readonly<Record<string, string | number | boolean>>,
+  fallback: A,
+) =>
+  Effect.catchCauseIf(isNonInterruptCause, (cause) =>
+    Effect.logError(message).pipe(
+      Effect.annotateLogs(annotations),
+      Effect.andThen(Effect.logError(cause)),
+      Effect.as(fallback),
+    ),
   );
 
 type DeliveredMessage = {
@@ -451,6 +470,7 @@ const makeSheetApisServices = (sheetApisClient: typeof SheetApisClient.Service) 
         readonly deliveredAt: DateTime.Utc;
         readonly conversationId: string;
         readonly messageId: string;
+        readonly claimToken: string;
       }) =>
         sheetApis.workspaceConfig.recordWorkspaceUpdateAnnouncementDelivery({ payload: delivery }),
       upsertWorkspaceConversationConfig: (
@@ -625,12 +645,12 @@ const makeMessageSink = (
   conversationId: string,
   interactionResponseToken: string | undefined,
 ): DispatchMessageSink =>
-  typeof interactionResponseToken === "string"
+  Predicate.isString(interactionResponseToken)
     ? makeInteractionMessageSink(botClient, interactionResponseToken)
     : makeConversationMessageSink(botClient, conversationId);
 
 const textValue = (value: MessageTextInput): MessageTextValue =>
-  typeof value === "string" ? [MessageText.text(value)] : value;
+  Predicate.isString(value) ? [MessageText.text(value)] : value;
 
 const conversationMentionValue = (
   client: ClientRef,
@@ -840,7 +860,7 @@ const isSendableWorkspaceConversation = (conversation: ClientConversationCacheEn
   sendableWorkspaceConversationTypes.has(conversation.value.type);
 
 const conversationPosition = (conversation: ClientConversationCacheEntry) =>
-  typeof conversation.value.position === "number"
+  Predicate.isNumber(conversation.value.position)
     ? conversation.value.position
     : Number.MAX_SAFE_INTEGER;
 
@@ -903,7 +923,7 @@ const sendWorkspaceAnnouncementWithWelcomeHeuristic = (params: {
         .sendMessage(conversation.resourceId, params.messagePayload)
         .pipe(
           Effect.map(Option.some),
-          Effect.catchCause((cause) =>
+          Effect.catchCauseIf(isNonInterruptCause, (cause) =>
             Effect.logWarning(`Failed to send ${params.logLabel}`).pipe(
               Effect.annotateLogs({
                 workspaceId: params.workspaceId,
@@ -1235,11 +1255,8 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       releaseClaim: Effect.Effect<unknown, unknown, never>,
     ) =>
       requireRoomOrderMatch(payload, roomOrder).pipe(
-        Effect.catchCause((cause) =>
-          releaseClaim.pipe(
-            Effect.catchCause(() => Effect.void),
-            Effect.andThen(Effect.failCause(cause)),
-          ),
+        Effect.catchCauseIf(isNonInterruptCause, (cause) =>
+          releaseClaim.pipe(ignoreNonInterruptFailure, Effect.andThen(Effect.failCause(cause))),
         ),
       );
 
@@ -1280,16 +1297,14 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         .createPin(payload.messageConversationId, payload.messageId)
         .pipe(
           Effect.as(true),
-          Effect.catchCause((cause) =>
-            Effect.logError("Failed to pin fallback tentative room order").pipe(
-              Effect.annotateLogs({
-                workspaceId: payload.workspaceId,
-                conversationId: payload.messageConversationId,
-                messageId: payload.messageId,
-              }),
-              Effect.andThen(Effect.logError(cause)),
-              Effect.as(false),
-            ),
+          logNonInterruptFailure(
+            "Failed to pin fallback tentative room order",
+            {
+              workspaceId: payload.workspaceId,
+              conversationId: payload.messageConversationId,
+              messageId: payload.messageId,
+            },
+            false,
           ),
         );
 
@@ -1300,16 +1315,14 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
             })
             .pipe(
               Effect.as(true),
-              Effect.catchCause((cause) =>
-                Effect.logError("Failed to clean up fallback tentative room order").pipe(
-                  Effect.annotateLogs({
-                    workspaceId: payload.workspaceId,
-                    conversationId: payload.messageConversationId,
-                    messageId: payload.messageId,
-                  }),
-                  Effect.andThen(Effect.logError(cause)),
-                  Effect.as(false),
-                ),
+              logNonInterruptFailure(
+                "Failed to clean up fallback tentative room order",
+                {
+                  workspaceId: payload.workspaceId,
+                  conversationId: payload.messageConversationId,
+                  messageId: payload.messageId,
+                },
+                false,
               ),
             )
         : false;
@@ -1357,7 +1370,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         const effectiveInitialRoomOrder =
           !initialRoomOrder.tentative && messageHasTentativePrefix
             ? yield* messageRoomOrderService.markMessageRoomOrderTentative(payload.messageId).pipe(
-                Effect.catchCause((cause) =>
+                Effect.catchCauseIf(isNonInterruptCause, (cause) =>
                   Effect.logError("Failed to repair legacy tentative room-order flag").pipe(
                     Effect.annotateLogs({
                       workspaceId: trustedWorkspaceId,
@@ -1498,7 +1511,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       content: string,
     ) =>
       updateInteraction(content).pipe(
-        Effect.catchCause((cause) =>
+        Effect.catchCauseIf(isNonInterruptCause, (cause) =>
           Effect.logError("Failed to update room-order button acknowledgement").pipe(
             Effect.andThen(Effect.logError(cause)),
           ),
@@ -1508,15 +1521,13 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
     const releaseTentativeUpdateClaim = (messageId: string, updateClaimId: string) =>
       messageRoomOrderService
         .releaseMessageRoomOrderTentativeUpdateClaim(messageId, updateClaimId)
-        .pipe(Effect.catchCause(() => Effect.void));
+        .pipe(ignoreNonInterruptFailure);
 
     const rollbackRoomOrderRankUpdate = (
       payload: RoomOrderButtonPayload,
       updateClaimId: string,
       updatedRank: MessageRoomOrder,
       direction: RoomOrderRankDirection,
-      updateInteraction: (content: string) => Effect.Effect<unknown, unknown>,
-      cause: Cause.Cause<unknown>,
     ) =>
       (direction === "previous"
         ? messageRoomOrderService.incrementMessageRoomOrderRank(payload.messageId, {
@@ -1528,20 +1539,8 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
             tentativeUpdateClaimId: updateClaimId,
           })
       ).pipe(
-        Effect.catchCause(() => Effect.void),
+        ignoreNonInterruptFailure,
         Effect.andThen(releaseTentativeUpdateClaim(payload.messageId, updateClaimId)),
-        Effect.andThen(
-          updateInteraction("room order could not be updated.").pipe(
-            Effect.catchCause(() => Effect.void),
-          ),
-        ),
-        Effect.andThen(
-          Effect.fail(
-            markInteractionFailureHandled(
-              makeUnknownError("Failed to update room-order button interaction", cause),
-            ),
-          ),
-        ),
       );
 
     const requireTentativeUpdateClaim = Effect.fn("DispatchService.requireTentativeUpdateClaim")(
@@ -1608,7 +1607,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
               tentativeUpdateClaimId: updateClaimId,
             })
       ).pipe(
-        Effect.catchCause((cause) =>
+        Effect.catchCauseIf(isNonInterruptCause, (cause) =>
           releaseTentativeUpdateClaim(payload.messageId, updateClaimId).pipe(
             Effect.andThen(Effect.failCause(cause)),
           ),
@@ -1662,15 +1661,26 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         readonly updatedRank: MessageRoomOrder;
         readonly updateInteraction: (content: string) => Effect.Effect<unknown, unknown>;
       }) {
-        const rollback = (cause: Cause.Cause<unknown>) =>
-          rollbackRoomOrderRankUpdate(
-            payload,
-            updateClaimId,
-            updatedRank,
-            direction,
-            updateInteraction,
-            cause,
+        const rollback = (cause: Cause.Cause<unknown>) => {
+          const rollbackState = Effect.uninterruptible(
+            rollbackRoomOrderRankUpdate(payload, updateClaimId, updatedRank, direction),
           );
+          if (Cause.hasInterrupts(cause)) {
+            return rollbackState.pipe(Effect.andThen(Effect.failCause(cause)));
+          }
+          return rollbackState.pipe(
+            Effect.andThen(
+              updateInteraction("room order could not be updated.").pipe(ignoreNonInterruptFailure),
+            ),
+            Effect.andThen(
+              Effect.fail(
+                markInteractionFailureHandled(
+                  makeUnknownError("Failed to update room-order button interaction", cause),
+                ),
+              ),
+            ),
+          );
+        };
         const reply = yield* renderReply(updatedRank).pipe(Effect.catchCause(rollback));
 
         if (mode === "tentative" || interactionResponseType === "reply") {
@@ -1882,21 +1892,21 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       updateInteraction: (content: string) => Effect.Effect<unknown, unknown>,
       cause: Cause.Cause<unknown>,
     ) =>
-      messageRoomOrderService.releaseMessageRoomOrderSendClaim(payload.messageId, claimId).pipe(
-        Effect.catchCause(() => Effect.void),
-        Effect.andThen(
-          updateInteraction("room order could not be sent.").pipe(
-            Effect.catchCause(() => Effect.void),
+      messageRoomOrderService
+        .releaseMessageRoomOrderSendClaim(payload.messageId, claimId)
+        .pipe(
+          ignoreNonInterruptFailure,
+          Effect.andThen(
+            updateInteraction("room order could not be sent.").pipe(ignoreNonInterruptFailure),
           ),
-        ),
-        Effect.andThen(
-          Effect.fail(
-            markInteractionFailureHandled(
-              makeUnknownError("Failed to send room-order button interaction", cause),
+          Effect.andThen(
+            Effect.fail(
+              markInteractionFailureHandled(
+                makeUnknownError("Failed to send room-order button interaction", cause),
+              ),
             ),
           ),
-        ),
-      );
+        );
 
     const sendRoomOrderMessage = Effect.fn("DispatchService.sendRoomOrderMessage")(function* ({
       claimId,
@@ -1917,7 +1927,9 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       readonly updateInteraction: (content: string) => Effect.Effect<unknown, unknown>;
     }) {
       const reply = yield* renderReply(claimedRoomOrder, "normal").pipe(
-        Effect.catchCause((cause) => failRoomOrderSend(payload, claimId, updateInteraction, cause)),
+        Effect.catchCauseIf(isNonInterruptCause, (cause) =>
+          failRoomOrderSend(payload, claimId, updateInteraction, cause),
+        ),
       );
       yield* Effect.logInfo("Sending room-order message").pipe(
         Effect.annotateLogs({
@@ -1931,7 +1943,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           content: reply.content,
         })
         .pipe(
-          Effect.catchCause((cause) =>
+          Effect.catchCauseIf(isNonInterruptCause, (cause) =>
             failRoomOrderSend(payload, claimId, updateInteraction, cause),
           ),
         );
@@ -2001,7 +2013,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
     }) {
       return yield* botClient.createPin(sentMessage.conversation_id, sentMessage.id).pipe(
         Effect.as(true),
-        Effect.catchCause((cause) =>
+        Effect.catchCauseIf(isNonInterruptCause, (cause) =>
           Effect.logError("Failed to pin sent room order").pipe(
             Effect.annotateLogs({
               workspaceId: trustedWorkspaceId,
@@ -2208,7 +2220,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
     }) {
       return yield* botClient.createPin(trustedMessageConversationId, payload.messageId).pipe(
         Effect.as(true),
-        Effect.catchCause((cause) =>
+        Effect.catchCauseIf(isNonInterruptCause, (cause) =>
           Effect.logError("Failed to pin tentative room order").pipe(
             Effect.annotateLogs({
               workspaceId: trustedWorkspaceId,
@@ -2239,7 +2251,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         .completeMessageRoomOrderTentativePin(payload.messageId, pinClaimId)
         .pipe(
           Effect.map(Option.some),
-          Effect.catchCause((cause) =>
+          Effect.catchCauseIf(isNonInterruptCause, (cause) =>
             Effect.gen(function* () {
               const detail = "pinned tentative room order, but failed to track it.";
               yield* Effect.logError("Failed to track pinned tentative room order").pipe(
@@ -2250,10 +2262,10 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
                 }),
                 Effect.andThen(Effect.logError(cause)),
               );
-              yield* updateInteraction(detail).pipe(Effect.catchCause(() => Effect.void));
+              yield* updateInteraction(detail).pipe(ignoreNonInterruptFailure);
               yield* messageRoomOrderService
                 .releaseMessageRoomOrderTentativePinClaim(payload.messageId, pinClaimId)
-                .pipe(Effect.catchCause(() => Effect.void));
+                .pipe(ignoreNonInterruptFailure);
               return Option.none<MessageRoomOrder>();
             }),
           ),
@@ -2288,7 +2300,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           })
           .pipe(
             Effect.as(true),
-            Effect.catchCause((cause) =>
+            Effect.catchCauseIf(isNonInterruptCause, (cause) =>
               Effect.logError("Failed to clean up pinned tentative room order").pipe(
                 Effect.annotateLogs({
                   workspaceId: trustedWorkspaceId,
@@ -2301,7 +2313,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
             ),
           );
       }).pipe(
-        Effect.catchCause((cause) =>
+        Effect.catchCauseIf(isNonInterruptCause, (cause) =>
           Effect.logError("Failed to render pinned tentative room order cleanup").pipe(
             Effect.annotateLogs({
               workspaceId: trustedWorkspaceId,
@@ -2343,7 +2355,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       if (!pinned) {
         yield* messageRoomOrderService
           .releaseMessageRoomOrderTentativePinClaim(payload.messageId, pinClaimId)
-          .pipe(Effect.catchCause(() => Effect.void));
+          .pipe(ignoreNonInterruptFailure);
         const detail = "tentative room order could not be pinned.";
         yield* updateInteraction(detail);
         return roomOrderButtonResult(payload, trustedMessageConversationId, "failed", detail);
@@ -2540,7 +2552,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           }) satisfies MessagePayload;
 
         const createAnchor = (messagePayload: MessagePayload) =>
-          typeof payload.interactionResponseToken === "string"
+          Predicate.isString(payload.interactionResponseToken)
             ? botClient.updateOriginalInteractionResponse(
                 payload.interactionResponseToken,
                 messagePayload,
@@ -2565,7 +2577,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           ),
         );
         const updateAnchor = (messagePayload: MessagePayload) =>
-          typeof payload.interactionResponseToken === "string"
+          Predicate.isString(payload.interactionResponseToken)
             ? botClient.updateOriginalInteractionResponse(
                 payload.interactionResponseToken,
                 messagePayload,
@@ -2835,7 +2847,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
               error: null,
             } satisfies AutoCheckinTestConversationResult;
           }).pipe(
-            Effect.catchCause((cause) =>
+            Effect.catchCauseIf(isNonInterruptCause, (cause) =>
               Effect.succeed({
                 conversationName,
                 runningConversationId,
@@ -2848,6 +2860,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
                 error: Cause.pretty(cause),
               } satisfies AutoCheckinTestConversationResult),
             ),
+            Effect.orDie,
           );
         };
 
@@ -2941,7 +2954,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           payload.interactionResponseToken,
         );
         const primaryMessage = yield* messageSink.sendPrimary(
-          typeof payload.interactionResponseToken === "string"
+          Predicate.isString(payload.interactionResponseToken)
             ? {
                 content: [MessageText.text("Dispatching check-in...")],
                 visibility: "ephemeral",
@@ -2999,15 +3012,14 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
             userConfigService,
             botClient,
           }).pipe(
-            Effect.catchCause((cause) =>
-              Effect.logError("Failed to process check-in opening DM reminders").pipe(
-                Effect.annotateLogs({
-                  workspaceId: payload.workspaceId,
-                  checkinConversationId: generated.checkinConversationId,
-                  hour: generated.hour,
-                }),
-                Effect.andThen(Effect.logError(cause)),
-              ),
+            logNonInterruptFailure(
+              "Failed to process check-in opening DM reminders",
+              {
+                workspaceId: payload.workspaceId,
+                checkinConversationId: generated.checkinConversationId,
+                hour: generated.hour,
+              },
+              undefined,
             ),
           );
 
@@ -3023,15 +3035,14 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
             userConfigService,
             botClient,
           }).pipe(
-            Effect.catchCause((cause) =>
-              Effect.logError("Failed to process check-in monitor DM ping").pipe(
-                Effect.annotateLogs({
-                  workspaceId: payload.workspaceId,
-                  checkinConversationId: generated.checkinConversationId,
-                  hour: generated.hour,
-                }),
-                Effect.andThen(Effect.logError(cause)),
-              ),
+            logNonInterruptFailure(
+              "Failed to process check-in monitor DM ping",
+              {
+                workspaceId: payload.workspaceId,
+                checkinConversationId: generated.checkinConversationId,
+                hour: generated.hour,
+              },
+              undefined,
             ),
           );
 
@@ -3049,26 +3060,20 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           });
         }
 
-        const finalPrimaryMessage =
-          typeof payload.interactionResponseToken === "string"
-            ? checkinMessage === null
-              ? yield* messageSink.updatePrimary(primaryMessage, {
-                  content: monitorCheckinMessage,
-                  visibility: "ephemeral",
-                })
-              : yield* messageSink
-                  .updatePrimary(primaryMessage, {
-                    content: monitorCheckinMessage,
-                    visibility: "ephemeral",
-                  })
-                  .pipe(
-                    Effect.catch((error) =>
-                      logEnableFailure(
-                        "Failed to update check-in primary response after persistence; leaving progress message",
-                      )(error).pipe(Effect.as(primaryMessage)),
-                    ),
-                  )
-            : primaryMessage;
+        const finalPrimaryMessage = Predicate.isString(payload.interactionResponseToken)
+          ? yield* messageSink
+              .updatePrimary(primaryMessage, {
+                content: monitorCheckinMessage,
+                visibility: "ephemeral",
+              })
+              .pipe(
+                Effect.catch((error) =>
+                  logEnableFailure(
+                    "Failed to update check-in primary response after persistence; leaving progress message",
+                  )(error).pipe(Effect.as(primaryMessage)),
+                ),
+              )
+          : primaryMessage;
 
         return {
           hour: generated.hour,
@@ -3159,7 +3164,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           "requester.userId": requester.userId,
         });
         const updateInteraction = (content: MessageTextInput) =>
-          typeof payload.interactionResponseToken === "string"
+          Predicate.isString(payload.interactionResponseToken)
             ? botClient.updateOriginalInteractionResponse(payload.interactionResponseToken, {
                 content: textValue(content),
                 allowedMentions: "none",
@@ -3191,18 +3196,17 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
             Math.floor,
             (value) => value + 1,
           );
-        const maybeRunningConversation =
-          typeof payload.conversationName === "string"
-            ? yield* workspaceConfigService.getWorkspaceConversationByName({
-                workspaceId: payload.workspaceId,
-                conversationName: payload.conversationName,
-                running: true,
-              })
-            : yield* workspaceConfigService.getWorkspaceConversationById({
-                workspaceId: payload.workspaceId,
-                conversationId: payload.conversationId ?? "",
-                running: true,
-              });
+        const maybeRunningConversation = Predicate.isString(payload.conversationName)
+          ? yield* workspaceConfigService.getWorkspaceConversationByName({
+              workspaceId: payload.workspaceId,
+              conversationName: payload.conversationName,
+              running: true,
+            })
+          : yield* workspaceConfigService.getWorkspaceConversationById({
+              workspaceId: payload.workspaceId,
+              conversationId: payload.conversationId ?? "",
+              running: true,
+            });
         const runningConversation = yield* Option.match(maybeRunningConversation, {
           onSome: Effect.succeed,
           onNone: () =>
@@ -3293,7 +3297,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
         const removalResults = yield* Effect.forEach(removedMemberIds, (memberId) =>
           botClient.removeWorkspaceMemberRole(payload.workspaceId, memberId, roleId).pipe(
             Effect.as({ memberId, removed: true as const }),
-            Effect.catchCause((cause) =>
+            Effect.catchCauseIf(isNonInterruptCause, (cause) =>
               Effect.logError("Failed to remove kickout role from member").pipe(
                 Effect.annotateLogs({
                   workspaceId: payload.workspaceId,
@@ -3362,11 +3366,10 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
             createdByUserId: requester.userId,
           })
           .pipe(
-            Effect.catchCause((cause) =>
-              botClient.deleteMessage(payload.conversationId, message.id).pipe(
-                Effect.catchCause(() => Effect.void),
-                Effect.andThen(Effect.failCause(cause)),
-              ),
+            Effect.catchCauseIf(isNonInterruptCause, (cause) =>
+              botClient
+                .deleteMessage(payload.conversationId, message.id)
+                .pipe(ignoreNonInterruptFailure, Effect.andThen(Effect.failCause(cause))),
             ),
           );
 
@@ -3376,7 +3379,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
             visibility: "ephemeral",
           })
           .pipe(
-            Effect.catchCause((cause) =>
+            Effect.catchCauseIf(isNonInterruptCause, (cause) =>
               Effect.logError("Failed to update slot button interaction response").pipe(
                 Effect.annotateLogs({
                   workspaceId: payload.workspaceId,
@@ -4298,13 +4301,12 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           } satisfies UpdateAnnouncementDispatchResult;
         }
 
-        const deliveredAt = yield* DateTime.now;
         const messagePayload = {
           embeds: [
             makeEmbed({
               title: payload.announcement.title,
               description: payload.announcement.description,
-              ...(typeof payload.announcement.color === "number"
+              ...(Predicate.isNumber(payload.announcement.color)
                 ? { color: payload.announcement.color }
                 : {}),
             }),
@@ -4318,7 +4320,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           messagePayload,
           logLabel: "update announcement",
         }).pipe(
-          Effect.catchCause((cause) =>
+          Effect.catchCauseIf(isNonInterruptCause, (cause) =>
             workspaceConfigService
               .releaseWorkspaceUpdateAnnouncementDeliveryClaim({
                 workspaceId: payload.workspaceId,
@@ -4326,13 +4328,14 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
                 claimToken,
               })
               .pipe(
-                Effect.catchCause(() => Effect.void),
+                ignoreNonInterruptFailure,
                 Effect.andThen(
                   failSerializableUnknownError("Failed to send update announcement", cause),
                 ),
               ),
           ),
         );
+        const deliveredAt = yield* DateTime.now;
 
         yield* workspaceConfigService
           .recordWorkspaceUpdateAnnouncementDelivery({
@@ -4342,6 +4345,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
             deliveredAt,
             conversationId: sentMessage.conversation_id,
             messageId: sentMessage.id,
+            claimToken,
           })
           .pipe(catchSerializableUnknownError("Failed to record update announcement delivery"));
 
@@ -4382,7 +4386,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
             logLabel: "workspace feature flag enlistment announcement",
           }).pipe(
             Effect.map(Option.some),
-            Effect.catchCause((cause) =>
+            Effect.catchCauseIf(isNonInterruptCause, (cause) =>
               Effect.logWarning("Failed to announce workspace feature flag enlistment").pipe(
                 Effect.annotateLogs({
                   workspaceId: payload.workspaceId,
@@ -4438,7 +4442,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           logLabel: "workspace feature flag delistment announcement",
         }).pipe(
           Effect.map(Option.some),
-          Effect.catchCause((cause) =>
+          Effect.catchCauseIf(isNonInterruptCause, (cause) =>
             Effect.logWarning("Failed to announce workspace feature flag delistment").pipe(
               Effect.annotateLogs({
                 workspaceId: payload.workspaceId,
@@ -4598,7 +4602,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
             components: [checkinActionRow()],
           })
           .pipe(
-            Effect.catchCause((cause) =>
+            Effect.catchCauseIf(isNonInterruptCause, (cause) =>
               Effect.logError("Failed to update check-in message after button check-in").pipe(
                 Effect.annotateLogs({
                   workspaceId,
@@ -4617,7 +4621,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
               content: [MessageText.userMention(accountId), MessageText.text(" has checked in!")],
             })
             .pipe(
-              Effect.catchCause((cause) =>
+              Effect.catchCauseIf(isNonInterruptCause, (cause) =>
                 Effect.logError("Failed to announce button check-in").pipe(
                   Effect.annotateLogs({
                     workspaceId,
@@ -4635,7 +4639,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
           const roleId = messageCheckinData.roleId.value;
           // Re-apply the role on repeat clicks to repair missed adapter side effects.
           yield* botClient.addWorkspaceMemberRole(workspaceId, accountId, roleId).pipe(
-            Effect.catchCause((cause) =>
+            Effect.catchCauseIf(isNonInterruptCause, (cause) =>
               Effect.logError("Failed to add check-in role after button check-in").pipe(
                 Effect.annotateLogs({
                   workspaceId,
@@ -4705,28 +4709,25 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
               )
               .pipe(ignoreDiscordCleanupFailure("Failed to remove team submission reaction"));
 
-          yield* pipe(
-            sheetApisClient.get().teamSubmission.confirmFromDiscord({
+          yield* sheetApisClient
+            .get()
+            .teamSubmission.confirmFromDiscord({
               payload: {
                 client: payload.client,
                 workspaceId: payload.workspaceId,
                 conversationId: payload.conversationId,
                 messageId: payload.messageId,
                 confirmationMessageId: payload.confirmationMessageId,
-                requesterUserId: requester.accountId,
+                requesterUserId: requester.userId,
               },
-            }),
-            Effect.exit,
-            Effect.flatMap(
-              Exit.match({
-                onFailure: (cause) =>
-                  finishInteractionBestEffort(
-                    "Could not confirm this team submission. Please try again.",
-                  ).pipe(Effect.andThen(Effect.failCause(cause))),
-                onSuccess: Effect.succeed,
-              }),
-            ),
-          );
+            })
+            .pipe(
+              Effect.catchCauseIf(isNonInterruptCause, (cause) =>
+                finishInteractionBestEffort(
+                  "Could not confirm this team submission. Please try again.",
+                ).pipe(Effect.andThen(Effect.failCause(cause))),
+              ),
+            );
           yield* finishInteractionBestEffort("Team submission confirmed.");
           yield* deliveryClient
             .deleteMessage(payload.conversationId, payload.confirmationMessageId)
@@ -4773,28 +4774,25 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
                   "Failed to update team submission interaction response",
                 ),
               );
-          const result = yield* pipe(
-            sheetApisClient.get().teamSubmission.revertFromDiscord({
+          const result = yield* sheetApisClient
+            .get()
+            .teamSubmission.revertFromDiscord({
               payload: {
                 client: payload.client,
                 workspaceId: payload.workspaceId,
                 conversationId: payload.conversationId,
                 messageId: payload.messageId,
                 confirmationMessageId: payload.confirmationMessageId,
-                requesterUserId: requester.accountId,
+                requesterUserId: requester.userId,
               },
-            }),
-            Effect.exit,
-            Effect.flatMap(
-              Exit.match({
-                onFailure: (cause) =>
-                  finishInteractionBestEffort(
-                    "Could not reject this team submission. Please try again.",
-                  ).pipe(Effect.andThen(Effect.failCause(cause))),
-                onSuccess: Effect.succeed,
-              }),
-            ),
-          );
+            })
+            .pipe(
+              Effect.catchCauseIf(isNonInterruptCause, (cause) =>
+                finishInteractionBestEffort(
+                  "Could not reject this team submission. Please try again.",
+                ).pipe(Effect.andThen(Effect.failCause(cause))),
+              ),
+            );
           if (result.status === "rejected") {
             yield* finishInteractionBestEffort("Team submission rejected and rolled back.");
             yield* removeReaction();

@@ -38,6 +38,7 @@
     "effect": "catalog:",
     "postgres": "^3.4.7",
     "sheet-db-schema": "workspace:*",
+    "sheet-models": "workspace:*",
     "typhoon-core": "workspace:*",
     "typhoon-zero": "workspace:*"
   },

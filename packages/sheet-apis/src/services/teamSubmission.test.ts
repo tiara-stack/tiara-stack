@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Context, Effect, Exit, Layer, Option } from "effect";
+import { Cause, Context, Effect, Exit, Layer, Option, Predicate } from "effect";
 import {
   RangesConfig,
   TeamConfig,
@@ -15,6 +15,12 @@ import { GoogleSheets } from "./google/sheets";
 import { SheetConfigService } from "./sheetConfig";
 import { SheetZeroClient } from "./sheetZeroClient";
 import { parseTeamSubmissionMessage, TeamSubmissionService } from "./teamSubmission";
+import {
+  appendRangeForCells,
+  cellForRow,
+  parseA1Start,
+  renderConfirmation,
+} from "./teamSubmission/pure";
 import { WorkspaceConfigService } from "./workspaceConfig";
 
 type GoogleSheetsApi = Context.Service.Shape<typeof GoogleSheets>;
@@ -22,15 +28,26 @@ type SheetConfigServiceApi = Context.Service.Shape<typeof SheetConfigService>;
 type WorkspaceConfigServiceApi = Context.Service.Shape<typeof WorkspaceConfigService>;
 type SheetZeroClientApi = Context.Service.Shape<typeof SheetZeroClient>;
 
-const teamConfig = new TeamConfig({
-  name: Option.some("fill"),
-  sheet: Option.some("Teams"),
-  playerNameRange: Option.some("'Teams'!A2:A"),
-  teamNameRange: Option.some("'Teams'!B2:B"),
-  isvConfig: Option.none(),
-  tagsConfig: Option.some(new TeamTagsConstantsConfig({ tags: ["full fill", "heal"] })),
-  oshiRange: Option.some("'Teams'!D2:D"),
-});
+const makeTeamConfig = ({
+  name = "fill",
+  tags = ["full fill", "heal"],
+  teamNameRange = "'Teams'!B2:B",
+}: {
+  readonly name?: string;
+  readonly tags?: ReadonlyArray<string>;
+  readonly teamNameRange?: string;
+} = {}) =>
+  new TeamConfig({
+    name: Option.some(name),
+    sheet: Option.some("Teams"),
+    playerNameRange: Option.some("'Teams'!A2:A"),
+    teamNameRange: Option.some(teamNameRange),
+    isvConfig: Option.none(),
+    tagsConfig: Option.some(new TeamTagsConstantsConfig({ tags: [...tags] })),
+    oshiRange: Option.some("'Teams'!D2:D"),
+  });
+
+const teamConfig = makeTeamConfig();
 
 const rangesConfig = new RangesConfig({
   userIds: "Users!A2:A",
@@ -116,7 +133,7 @@ const makeExistingSubmissionFixture = ({
     conversationId: payload.conversationId,
     messageId: payload.messageId,
     clientPlatform: payload.client.platform,
-    confirmationMessageId: Option.none(),
+    confirmationMessageId: Option.some("confirmation-message-1"),
     rowMappings,
     parsedSubmission,
     version: 1,
@@ -134,6 +151,7 @@ const makeGoogleSheetsMock = ({
   appendedValues,
   updates,
   appendStartRow = 2,
+  existingRangeValues = {},
   failAppend = false,
   failUpdate = false,
 }: {
@@ -141,6 +159,7 @@ const makeGoogleSheetsMock = ({
   readonly appendedValues?: string[][][];
   readonly updates?: Array<{ range: string; values: string[][] }>;
   readonly appendStartRow?: number;
+  readonly existingRangeValues?: Readonly<Record<string, string[][]>>;
   readonly failAppend?: boolean;
   readonly failUpdate?: boolean;
 }) =>
@@ -152,7 +171,10 @@ const makeGoogleSheetsMock = ({
           data: {
             valueRanges: ranges.map((range) => ({
               range,
-              values: range === "'Oshis'!A2:A" ? [["Rin"], ["Miku Rin"]] : [],
+              values:
+                range === "'Oshis'!A2:A"
+                  ? [["Rin"], ["Miku Rin"]]
+                  : (existingRangeValues[range] ?? []),
             })),
           },
         }),
@@ -194,28 +216,33 @@ const makeZeroMock = ({
   existingSubmission = Option.none<MessageTeamSubmission>(),
   persisted,
   confirmationUpdates,
+  failPersistAt,
 }: {
   readonly existingSubmission?: Option.Option<MessageTeamSubmission>;
   readonly persisted?: unknown[];
   readonly confirmationUpdates?: unknown[];
+  readonly failPersistAt?: number;
 } = {}) =>
-  Layer.sync(
-    SheetZeroClient,
-    () =>
-      ({
-        messageTeamSubmission: {
-          getMessageTeamSubmission: () => Effect.succeed(existingSubmission),
-          upsertMessageTeamSubmission: (value: unknown) =>
-            Effect.sync(() => {
-              persisted?.push(value);
-            }),
-          setMessageTeamSubmissionConfirmation: (value: unknown) =>
-            Effect.sync(() => {
-              confirmationUpdates?.push(value);
-            }),
-        },
-      }) as unknown as SheetZeroClientApi,
-  );
+  Layer.sync(SheetZeroClient, () => {
+    let persistCount = 0;
+    return {
+      messageTeamSubmission: {
+        getMessageTeamSubmission: () => Effect.succeed(existingSubmission),
+        upsertMessageTeamSubmission: (value: unknown) =>
+          Effect.gen(function* () {
+            persistCount += 1;
+            if (persistCount === failPersistAt) {
+              return yield* Effect.fail(new Error("Persistence failed"));
+            }
+            persisted?.push(value);
+          }),
+        setMessageTeamSubmissionConfirmation: (value: unknown) =>
+          Effect.sync(() => {
+            confirmationUpdates?.push(value);
+          }),
+      },
+    } as unknown as SheetZeroClientApi;
+  });
 
 const runUpsert = ({
   googleSheets,
@@ -262,12 +289,29 @@ const runRevert = ({
     ),
   );
 
+const runRollbackSnapshot = (
+  rollbackSnapshot: TeamSubmissionRollbackSnapshot,
+  status: MessageTeamSubmission["status"] = "registered",
+) => {
+  const updates: Array<{ range: string; values: string[][] }> = [];
+  const existingSubmission = makeExistingSubmissionFixture({
+    status,
+    rollbackSnapshot: Option.some(rollbackSnapshot),
+  });
+  return runRevert({
+    googleSheets: makeGoogleSheetsMock({ updates }),
+    zero: makeZeroMock({ existingSubmission: Option.some(existingSubmission) }),
+  }).pipe(Effect.map((result) => ({ result, updates })));
+};
+
 const runConfirm = ({
   zero,
   requesterUserId = payload.authorId,
+  confirmationMessageId = "confirmation-message-1",
 }: {
   readonly zero: Layer.Layer<SheetZeroClient>;
   readonly requesterUserId?: string;
+  readonly confirmationMessageId?: string;
 }) =>
   Effect.gen(function* () {
     const service = yield* TeamSubmissionService.make;
@@ -276,7 +320,7 @@ const runConfirm = ({
       workspaceId: payload.workspaceId,
       conversationId: payload.conversationId,
       messageId: payload.messageId,
-      confirmationMessageId: "confirmation-message-1",
+      confirmationMessageId,
       requesterUserId,
     });
   }).pipe(
@@ -310,6 +354,78 @@ const runSetConfirmation = ({ zero }: { readonly zero: Layer.Layer<SheetZeroClie
     ),
   );
 
+const runInvalidOshiUpsert = (content: string, expectedReason: string) =>
+  Effect.gen(function* () {
+    const appendedRanges: string[] = [];
+    const result = yield* runUpsert({
+      googleSheets: makeGoogleSheetsMock({ appendedRanges }),
+      zero: makeZeroMock(),
+      workspaceConfigService: makeWorkspaceConfigService({ requireValidOshi: true }),
+      inputPayload: { ...payload, content },
+    });
+
+    expect(appendedRanges).toEqual([]);
+    expect(result.rowMappings).toEqual([]);
+    expect(result.skippedTeams.map((entry) => entry.reason)).toEqual([expectedReason]);
+    return result;
+  });
+
+const runExistingUpsert = (
+  updates: Array<{ range: string; values: string[][] }>,
+  options: {
+    readonly sheetConfigService?: Layer.Layer<SheetConfigService>;
+    readonly inputPayload?: TeamSubmissionUpsertFromDiscordPayload;
+  } = {},
+) =>
+  runUpsert({
+    googleSheets: makeGoogleSheetsMock({ updates, failAppend: true }),
+    zero: makeZeroMock({
+      existingSubmission: Option.some(makeExistingSubmissionFixture()),
+    }),
+    ...options,
+  });
+
+const expectBlankedRow = (
+  updates: ReadonlyArray<{ range: string; values: string[][] }>,
+  row: number,
+) => {
+  for (const column of ["A", "B", "D"]) {
+    expect(updates).toContainEqual({ range: `'Teams'!${column}${row}`, values: [[""]] });
+  }
+};
+
+const existingRollbackSnapshot = [
+  {
+    stableKey: "fullFill:1",
+    range: "'Teams'!A2:B2",
+    values: [["Old Player", "Old Team"]],
+  },
+] as const;
+
+const makeRejectedActionFixture = (status: MessageTeamSubmission["status"] = "registered") => {
+  const persisted: unknown[] = [];
+  const existingSubmission = makeExistingSubmissionFixture({
+    status,
+    rollbackSnapshot: Option.some(existingRollbackSnapshot),
+  });
+  const zero = makeZeroMock({ existingSubmission: Option.some(existingSubmission), persisted });
+  return {
+    persisted,
+    zero,
+    googleSheets: makeGoogleSheetsMock({ failAppend: true, failUpdate: true }),
+  };
+};
+
+const expectFailedExits = (...exits: ReadonlyArray<Exit.Exit<unknown, unknown>>) => {
+  for (const exit of exits) {
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      const failure = exit.cause.reasons.find(Cause.isFailReason)?.error;
+      expect(Predicate.isTagged("ArgumentError")(failure)).toBe(true);
+    }
+  }
+};
+
 describe("parseTeamSubmissionMessage", () => {
   it("parses labeled submissions with multiple full fill options and exact oshi candidate", () => {
     const result = parseTeamSubmissionMessage(
@@ -325,11 +441,11 @@ describe("parseTeamSubmissionMessage", () => {
 
     expect(result.oshiCandidate).toBe("Rin");
     expect(result.entries.map((entry) => entry.stableKey)).toEqual([
-      "fullFill:1",
-      "fullFill:2",
-      "heal:1",
-      "encore:1",
-      "alt:1",
+      "fullFill:hero%20team",
+      "fullFill:hero%20team%202",
+      "heal:nurse%20team",
+      "encore:encore%20team",
+      "alt:backup%20team",
     ]);
     expect(result.entries.map((entry) => entry.playerName)).toEqual([
       "Theerie (full fill 1)",
@@ -354,6 +470,58 @@ describe("parseTeamSubmissionMessage", () => {
       ["heal", "Player", "Heal team (4* lead)"],
     ]);
   });
+
+  it("keeps stable keys attached to team content when same-type entries are reordered", () => {
+    const first = parseTeamSubmissionMessage(
+      ["full fill: Alpha", "full fill: Beta"].join("\n"),
+      "Player",
+    );
+    const reordered = parseTeamSubmissionMessage(
+      ["full fill: Beta", "full fill: Alpha"].join("\n"),
+      "Player",
+    );
+
+    const keysByTeam = (entries: ReadonlyArray<{ teamName: string; stableKey: string }>) =>
+      Object.fromEntries(entries.map((entry) => [entry.teamName, entry.stableKey]));
+    expect(keysByTeam(reordered.entries)).toEqual(keysByTeam(first.entries));
+  });
+
+  it("preserves unknown colon prefixes as part of inferred team names", () => {
+    const result = parseTeamSubmissionMessage("Team: Alpha", "Player");
+
+    expect(result.entries.map((entry) => [entry.teamType, entry.teamName])).toEqual([
+      ["fullFill", "Team: Alpha"],
+    ]);
+  });
+
+  it("omits labeled entries whose team name is blank", () => {
+    const result = parseTeamSubmissionMessage("heal:   ", "Player");
+
+    expect(result.entries).toEqual([]);
+  });
+
+  it("parses and emits quoted A1 ranges containing apostrophes", () => {
+    expect(parseA1Start("'Manager''s Teams'!A2:A")).toEqual({
+      sheet: "Manager's Teams",
+      column: "A",
+      row: 2,
+    });
+    expect(cellForRow("'Manager''s Teams'!A2:A", 7)).toBe("'Manager''s Teams'!A7");
+    expect(
+      appendRangeForCells("'Manager''s Teams'!A2:A", "'Manager''s Teams'!B2:B", null)?.range,
+    ).toBe("'Manager''s Teams'!A:B");
+  });
+
+  it("bounds confirmation messages and reports omitted entries", () => {
+    const parsed = parseTeamSubmissionMessage(
+      Array.from({ length: 100 }, (_, index) => `alt: ${"Team ".repeat(8)}${index}`).join("\n"),
+      "Player",
+    );
+    const confirmation = renderConfirmation(payload, parsed.entries);
+
+    expect(confirmation.length).toBeLessThanOrEqual(2_000);
+    expect(confirmation).toMatch(/- … and \d+ more$/);
+  });
 });
 
 describe("TeamSubmissionService.upsertFromDiscord", () => {
@@ -361,31 +529,145 @@ describe("TeamSubmissionService.upsertFromDiscord", () => {
     Effect.gen(function* () {
       const appendedRanges: string[] = [];
       const appendedValues: string[][][] = [];
+      const updates: Array<{ range: string; values: string[][] }> = [];
       const persisted: unknown[] = [];
-      const googleSheets = makeGoogleSheetsMock({ appendedRanges, appendedValues });
+      const googleSheets = makeGoogleSheetsMock({ appendedRanges, appendedValues, updates });
       const zero = makeZeroMock({ persisted });
 
       const result = yield* runUpsert({ googleSheets, zero });
 
       expect(appendedRanges).toEqual(["'Teams'!A:D", "'Teams'!A:D"]);
       expect(appendedValues).toEqual([
-        [["Player", "Full Team", "", "Rin"]],
-        [["Player", "Heal Team", "", "Rin"]],
+        [
+          [
+            "Player\u2063tiara:guild-1:channel-1:message-1:fullFill:full%20team\u2063",
+            "Full Team",
+            "",
+            "Rin",
+          ],
+        ],
+        [
+          [
+            "Player\u2063tiara:guild-1:channel-1:message-1:heal:heal%20team\u2063",
+            "Heal Team",
+            "",
+            "Rin",
+          ],
+        ],
       ]);
       expect(result.rowMappings.map((mapping) => mapping.rowIndex)).toEqual([2, 3]);
       expect(result.parsedTeams.map((entry) => entry.oshi.status)).toEqual(["matched", "matched"]);
-      expect(persisted).toHaveLength(1);
+      expect(updates).toContainEqual({ range: "'Teams'!A2", values: [["Player"]] });
+      expect(persisted).toHaveLength(6);
+      expect(persisted.map((entry) => (entry as { status: string }).status)).toEqual([
+        "applying",
+        "applying",
+        "applying",
+        "applying",
+        "applying",
+        "registered",
+      ]);
       expect(
         (persisted.at(-1) as { rowMappings: ReadonlyArray<unknown> }).rowMappings,
       ).toHaveLength(2);
       expect(result.rollbackSnapshot).toEqual([
-        { stableKey: "fullFill:1", range: "'Teams'!A2", values: [] },
-        { stableKey: "fullFill:1", range: "'Teams'!B2", values: [] },
-        { stableKey: "fullFill:1", range: "'Teams'!D2", values: [] },
-        { stableKey: "heal:1", range: "'Teams'!A3", values: [] },
-        { stableKey: "heal:1", range: "'Teams'!B3", values: [] },
-        { stableKey: "heal:1", range: "'Teams'!D3", values: [] },
+        { stableKey: "fullFill:full%20team", range: "'Teams'!A2", values: [] },
+        { stableKey: "fullFill:full%20team", range: "'Teams'!B2", values: [] },
+        { stableKey: "fullFill:full%20team", range: "'Teams'!D2", values: [] },
+        { stableKey: "heal:heal%20team", range: "'Teams'!A3", values: [] },
+        { stableKey: "heal:heal%20team", range: "'Teams'!B3", values: [] },
+        { stableKey: "heal:heal%20team", range: "'Teams'!D3", values: [] },
       ]);
+    }),
+  );
+
+  it.effect("does not append when pending recovery persistence fails", () =>
+    Effect.gen(function* () {
+      const appendedRanges: string[] = [];
+      const exit = yield* Effect.exit(
+        runUpsert({
+          googleSheets: makeGoogleSheetsMock({ appendedRanges }),
+          zero: makeZeroMock({ failPersistAt: 1 }),
+          inputPayload: { ...payload, content: "full fill: Full Team" },
+        }),
+      );
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(Cause.pretty(exit.cause)).toContain("Persistence failed");
+      }
+      expect(appendedRanges).toEqual([]);
+    }),
+  );
+
+  it.effect("reconciles an append that succeeded before finalization", () =>
+    Effect.gen(function* () {
+      const firstPersisted: unknown[] = [];
+      const firstAppends: string[] = [];
+      const inputPayload = { ...payload, content: "full fill: Full Team" };
+      const firstExit = yield* Effect.exit(
+        runUpsert({
+          googleSheets: makeGoogleSheetsMock({ appendedRanges: firstAppends }),
+          zero: makeZeroMock({ persisted: firstPersisted, failPersistAt: 2 }),
+          inputPayload,
+        }),
+      );
+
+      expect(Exit.isFailure(firstExit)).toBe(true);
+      expect(firstAppends).toEqual(["'Teams'!A:D"]);
+      const pending = firstPersisted[0] as {
+        parsedSubmission: MessageTeamSubmission["parsedSubmission"];
+        rowMappings: MessageTeamSubmission["rowMappings"];
+        rollbackSnapshot: TeamSubmissionRollbackSnapshot;
+      };
+      expect(pending.rowMappings[0]?.rowIndex).toBe(0);
+
+      const retryAppends: string[] = [];
+      const result = yield* runUpsert({
+        googleSheets: makeGoogleSheetsMock({
+          appendedRanges: retryAppends,
+          existingRangeValues: {
+            "'Teams'!A:D": [
+              [],
+              [
+                "Player\u2063tiara:guild-1:channel-1:message-1:fullFill:full%20team\u2063",
+                "Full Team",
+                "",
+                "",
+              ],
+            ],
+          },
+        }),
+        zero: makeZeroMock({
+          existingSubmission: Option.some(
+            makeExistingSubmissionFixture({
+              parsedSubmission: pending.parsedSubmission,
+              rowMappings: pending.rowMappings,
+              rollbackSnapshot: Option.some(pending.rollbackSnapshot),
+              status: "applying",
+            }),
+          ),
+        }),
+        inputPayload,
+      });
+
+      expect(retryAppends).toEqual([]);
+      expect(result.rowMappings[0]?.rowIndex).toBe(2);
+    }),
+  );
+
+  it.effect("retries a finalized submission without appending duplicate rows", () =>
+    Effect.gen(function* () {
+      const appendedRanges: string[] = [];
+      const result = yield* runUpsert({
+        googleSheets: makeGoogleSheetsMock({ appendedRanges, failAppend: true }),
+        zero: makeZeroMock({
+          existingSubmission: Option.some(makeExistingSubmissionFixture()),
+        }),
+      });
+
+      expect(appendedRanges).toEqual([]);
+      expect(result.rowMappings).toEqual(defaultRowMappings);
     }),
   );
 
@@ -414,6 +696,12 @@ describe("TeamSubmissionService.upsertFromDiscord", () => {
     }),
   );
 
+  it.effect("skips entries without an oshi when valid oshi is required", () =>
+    Effect.gen(function* () {
+      yield* runInvalidOshiUpsert("full fill: Full Team", "Oshi is required");
+    }),
+  );
+
   it.effect("matches oshi candidates by substring while returning the sheet value", () =>
     Effect.gen(function* () {
       const googleSheets = makeGoogleSheetsMock({ appendedRanges: [] });
@@ -436,38 +724,17 @@ describe("TeamSubmissionService.upsertFromDiscord", () => {
 
   it.effect("skips oshi candidates that match more than one configured oshi", () =>
     Effect.gen(function* () {
-      const appendedRanges: string[] = [];
-      const googleSheets = makeGoogleSheetsMock({ appendedRanges });
-      const zero = makeZeroMock();
-
-      const result = yield* runUpsert({
-        googleSheets,
-        zero,
-        workspaceConfigService: makeWorkspaceConfigService({ requireValidOshi: true }),
-        inputPayload: {
-          ...payload,
-          content: ["oshi: Miku Rin", "full fill: Full Team"].join("\n"),
-        },
-      });
-
-      expect(appendedRanges).toEqual([]);
-      expect(result.rowMappings).toEqual([]);
-      expect(result.skippedTeams.map((entry) => entry.reason)).toEqual([
+      yield* runInvalidOshiUpsert(
+        ["oshi: Miku Rin", "full fill: Full Team"].join("\n"),
         "Oshi Miku Rin is not valid",
-      ]);
+      );
     }),
   );
 
   it.effect("updates existing rows and blanks rows removed by message edits", () =>
     Effect.gen(function* () {
       const updates: Array<{ range: string; values: string[][] }> = [];
-      const existingSubmission = makeExistingSubmissionFixture();
-      const googleSheets = makeGoogleSheetsMock({ updates, failAppend: true });
-      const zero = makeZeroMock({ existingSubmission: Option.some(existingSubmission) });
-
-      const result = yield* runUpsert({
-        googleSheets,
-        zero,
+      const result = yield* runExistingUpsert(updates, {
         inputPayload: {
           ...payload,
           content: ["oshi: Rin", "full fill: Full Team"].join("\n"),
@@ -478,9 +745,7 @@ describe("TeamSubmissionService.upsertFromDiscord", () => {
       expect(updates).toContainEqual({ range: "'Teams'!A2", values: [["Player"]] });
       expect(updates).toContainEqual({ range: "'Teams'!B2", values: [["Full Team"]] });
       expect(updates).toContainEqual({ range: "'Teams'!D2", values: [["Rin"]] });
-      expect(updates).toContainEqual({ range: "'Teams'!A3", values: [[""]] });
-      expect(updates).toContainEqual({ range: "'Teams'!B3", values: [[""]] });
-      expect(updates).toContainEqual({ range: "'Teams'!D3", values: [[""]] });
+      expectBlankedRow(updates, 3);
     }),
   );
 
@@ -506,40 +771,20 @@ describe("TeamSubmissionService.upsertFromDiscord", () => {
     () =>
       Effect.gen(function* () {
         const updates: Array<{ range: string; values: string[][] }> = [];
-        const fullFillConfig = new TeamConfig({
-          name: Option.some("fill"),
-          sheet: Option.some("Teams"),
-          playerNameRange: Option.some("'Teams'!A2:A"),
-          teamNameRange: Option.some("'Teams'!B2:B"),
-          isvConfig: Option.none(),
-          tagsConfig: Option.some(new TeamTagsConstantsConfig({ tags: ["full fill"] })),
-          oshiRange: Option.some("'Teams'!D2:D"),
+        const fullFillConfig = makeTeamConfig({ tags: ["full fill"] });
+        const unwritableHealConfig = makeTeamConfig({
+          name: "heal",
+          tags: ["heal"],
+          teamNameRange: "auto",
         });
-        const unwritableHealConfig = new TeamConfig({
-          name: Option.some("heal"),
-          sheet: Option.some("Teams"),
-          playerNameRange: Option.some("'Teams'!A2:A"),
-          teamNameRange: Option.some("auto"),
-          isvConfig: Option.none(),
-          tagsConfig: Option.some(new TeamTagsConstantsConfig({ tags: ["heal"] })),
-          oshiRange: Option.some("'Teams'!D2:D"),
-        });
-        const existingSubmission = makeExistingSubmissionFixture();
-        const googleSheets = makeGoogleSheetsMock({ updates, failAppend: true });
-        const zero = makeZeroMock({ existingSubmission: Option.some(existingSubmission) });
-
-        const result = yield* runUpsert({
-          googleSheets,
-          zero,
+        const result = yield* runExistingUpsert(updates, {
           sheetConfigService: makeSheetConfigService([fullFillConfig, unwritableHealConfig]),
         });
 
         expect(result.rowMappings.map((mapping) => mapping.stableKey)).toEqual(["fullFill:1"]);
         expect(result.skippedTeams.map((entry) => entry.stableKey)).toEqual(["heal:1"]);
         expect(result.confirmationText).toContain("skipped Player | heal | Heal Team");
-        expect(updates).toContainEqual({ range: "'Teams'!A3", values: [[""]] });
-        expect(updates).toContainEqual({ range: "'Teams'!B3", values: [[""]] });
-        expect(updates).toContainEqual({ range: "'Teams'!D3", values: [[""]] });
+        expectBlankedRow(updates, 3);
       }),
   );
 
@@ -573,6 +818,32 @@ describe("TeamSubmissionService.upsertFromDiscord", () => {
       expect((persisted.at(-1) as { rollbackSnapshot: unknown }).rollbackSnapshot).toEqual(
         rollbackSnapshot,
       );
+      expect(persisted.map((entry) => (entry as { status: string }).status)).toEqual([
+        "reverting",
+        "rollbackFailed",
+      ]);
+    }),
+  );
+
+  it.effect("ignores pending append sentinels when reverting concrete ranges", () =>
+    Effect.gen(function* () {
+      const rollbackSnapshot = [
+        { stableKey: "fullFill:1", range: "", values: [] },
+        { stableKey: "heal:1", range: "'Teams'!A3:B3", values: [["Old Player"]] },
+      ];
+      const { result, updates } = yield* runRollbackSnapshot(rollbackSnapshot);
+
+      expect(result.status).toBe("rejected");
+      expect(updates).toEqual([{ range: "'Teams'!A3:B3", values: [["Old Player", ""]] }]);
+    }),
+  );
+
+  it.effect("retries a rejection left in reverting after the sheet was restored", () =>
+    Effect.gen(function* () {
+      const { result, updates } = yield* runRollbackSnapshot(existingRollbackSnapshot, "reverting");
+
+      expect(result.status).toBe("rejected");
+      expect(updates).not.toHaveLength(0);
     }),
   );
 
@@ -604,51 +875,20 @@ describe("TeamSubmissionService.upsertFromDiscord", () => {
 
   it.effect("rejects upsert, confirm, and revert actions for terminal submissions", () =>
     Effect.gen(function* () {
-      const persisted: unknown[] = [];
-      const existingSubmission = makeExistingSubmissionFixture({
-        status: "confirmed",
-        rollbackSnapshot: Option.some([
-          {
-            stableKey: "fullFill:1",
-            range: "'Teams'!A2:B2",
-            values: [["Old Player", "Old Team"]],
-          },
-        ]),
-      });
-      const zero = makeZeroMock({
-        existingSubmission: Option.some(existingSubmission),
-        persisted,
-      });
-      const googleSheets = makeGoogleSheetsMock({ failAppend: true, failUpdate: true });
+      const { googleSheets, persisted, zero } = makeRejectedActionFixture("confirmed");
 
       const upsertExit = yield* Effect.exit(runUpsert({ googleSheets, zero }));
       const revertExit = yield* Effect.exit(runRevert({ googleSheets, zero }));
       const confirmExit = yield* Effect.exit(runConfirm({ zero }));
 
-      expect(Exit.isFailure(upsertExit)).toBe(true);
-      expect(Exit.isFailure(revertExit)).toBe(true);
-      expect(Exit.isFailure(confirmExit)).toBe(true);
+      expectFailedExits(upsertExit, revertExit, confirmExit);
       expect(persisted).toEqual([]);
     }),
   );
 
   it.effect("rejects confirm and revert actions from a different requester", () =>
     Effect.gen(function* () {
-      const persisted: unknown[] = [];
-      const existingSubmission = makeExistingSubmissionFixture({
-        rollbackSnapshot: Option.some([
-          {
-            stableKey: "fullFill:1",
-            range: "'Teams'!A2:B2",
-            values: [["Old Player", "Old Team"]],
-          },
-        ]),
-      });
-      const zero = makeZeroMock({
-        existingSubmission: Option.some(existingSubmission),
-        persisted,
-      });
-      const googleSheets = makeGoogleSheetsMock({ failUpdate: true });
+      const { googleSheets, persisted, zero } = makeRejectedActionFixture();
 
       const revertExit = yield* Effect.exit(
         runRevert({ googleSheets, zero, requesterUserId: "different-user" }),
@@ -657,8 +897,20 @@ describe("TeamSubmissionService.upsertFromDiscord", () => {
         runConfirm({ zero, requesterUserId: "different-user" }),
       );
 
-      expect(Exit.isFailure(revertExit)).toBe(true);
-      expect(Exit.isFailure(confirmExit)).toBe(true);
+      expectFailedExits(revertExit, confirmExit);
+      expect(persisted).toEqual([]);
+    }),
+  );
+
+  it.effect("rejects confirmation from a different confirmation message", () =>
+    Effect.gen(function* () {
+      const { persisted, zero } = makeRejectedActionFixture();
+
+      const confirmExit = yield* Effect.exit(
+        runConfirm({ zero, confirmationMessageId: "different-confirmation-message" }),
+      );
+
+      expectFailedExits(confirmExit);
       expect(persisted).toEqual([]);
     }),
   );

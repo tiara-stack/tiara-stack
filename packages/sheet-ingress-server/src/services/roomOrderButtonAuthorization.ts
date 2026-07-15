@@ -11,12 +11,8 @@ import {
   Unauthorized,
 } from "typhoon-core/error";
 import { AuthorizationService } from "./authorization";
+import { requireModernMessageGuildId } from "./messageAuthorization";
 import { MessageLookup } from "./messageLookup";
-
-type ModernMessageRecord = {
-  readonly workspaceId: Option.Option<string>;
-  readonly conversationId: Option.Option<string>;
-};
 
 type RoomOrderButtonPayload = {
   readonly workspaceId: string;
@@ -27,25 +23,12 @@ type RegisteredRoomOrderButtonPayload = {
   readonly messageId: string;
 };
 
-const getModernMessageGuildId = (record: ModernMessageRecord) =>
-  Option.match(record.workspaceId, {
-    onSome: (guildId) =>
-      Option.isSome(record.conversationId) ? Option.some(guildId) : Option.none(),
-    onNone: () => Option.none(),
-  });
-
 const missingRoomOrder = () => makeArgumentError(MESSAGE_ROOM_ORDER_NOT_REGISTERED_ERROR_MESSAGE);
 
 const legacyRoomOrderDenied = () =>
   Effect.fail(
     new Unauthorized({ message: "Legacy message room order records are no longer accessible" }),
   );
-
-const getRequiredModernGuildId = (record: ModernMessageRecord) =>
-  Option.match(getModernMessageGuildId(record), {
-    onSome: Effect.succeed,
-    onNone: legacyRoomOrderDenied,
-  });
 
 const authorizationError = (cause: unknown) =>
   cause instanceof Unauthorized || cause instanceof ArgumentError
@@ -68,7 +51,7 @@ export const requireRegisteredRoomOrderButton = (
     if (Option.isNone(record)) {
       return yield* Effect.fail(missingRoomOrder());
     }
-    const guildId = yield* getRequiredModernGuildId(record.value);
+    const guildId = yield* requireModernMessageGuildId(record.value, legacyRoomOrderDenied);
     return yield* requireMonitorWorkspace(guildId);
   }).pipe(Effect.mapError(authorizationError));
 
@@ -80,7 +63,7 @@ export const requireRoomOrderPinTentativeButton = (
     const messages = yield* MessageLookup;
     const record = yield* messages.getMessageRoomOrder(payload.messageId, clientRef);
     if (Option.isSome(record)) {
-      const guildId = yield* getRequiredModernGuildId(record.value);
+      const guildId = yield* requireModernMessageGuildId(record.value, legacyRoomOrderDenied);
       return yield* requireMonitorWorkspace(guildId);
     }
 

@@ -21,24 +21,26 @@ const timestampOptions = {
   updatedAt: "updatedAt",
 } as const;
 
-type ZeroTableAccessRegistry = Readonly<
-  Record<
-    | "configUserPlatform"
-    | "configWorkspace"
-    | "configWorkspaceConversation"
-    | "configWorkspaceFeatureFlag"
-    | "configWorkspaceMonitorRole"
-    | "configWorkspaceTeamSubmissionChannel"
-    | "configWorkspaceUpdateAnnouncementDelivery"
-    | "messageCheckin"
-    | "messageCheckinMember"
-    | "messageRoomOrder"
-    | "messageRoomOrderEntry"
-    | "messageSlot"
-    | "messageTeamSubmission",
-    ZeroTableAccess
-  >
->;
+type ZeroTableName =
+  | "configUserPlatform"
+  | "configWorkspace"
+  | "configWorkspaceConversation"
+  | "configWorkspaceFeatureFlag"
+  | "configWorkspaceMonitorRole"
+  | "configWorkspaceTeamSubmissionChannel"
+  | "configWorkspaceUpdateAnnouncementDelivery"
+  | "messageCheckin"
+  | "messageCheckinMember"
+  | "messageRoomOrder"
+  | "messageRoomOrderEntry"
+  | "messageSlot"
+  | "messageTeamSubmission";
+
+type ZeroTableAccessRegistry = Readonly<{
+  [Name in ZeroTableName]: ZeroTableAccess & {
+    readonly table: (typeof builder)[Name];
+  };
+}>;
 
 export const zeroTableAccess: ZeroTableAccessRegistry = {
   configWorkspace: defineZeroTableAccess(configWorkspaceModel, builder.configWorkspace, {

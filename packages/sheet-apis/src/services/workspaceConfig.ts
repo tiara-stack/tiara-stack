@@ -186,6 +186,7 @@ export class WorkspaceConfigService extends Context.Service<WorkspaceConfigServi
           readonly deliveredAt: DateTime.Utc;
           readonly conversationId: string;
           readonly messageId: string;
+          readonly claimToken: string;
         }) {
           yield* zero.workspaceConfig.recordWorkspaceUpdateAnnouncementDelivery({
             ...delivery,

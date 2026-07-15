@@ -1,10 +1,17 @@
-import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
+import {
+  HttpClient,
+  HttpClientError,
+  HttpClientRequest,
+  HttpClientResponse,
+} from "effect/unstable/http";
 import { HttpApiClient } from "effect/unstable/httpapi";
-import { Context, Data, Effect, Layer } from "effect";
+import { Context, Data, Effect, Layer, Predicate } from "effect";
 import { DiscordApi } from "dfx-discord-utils/discord/api";
 import {
   DiscordMessageSchema,
   type DiscordMessageRequestSchema,
+  type DiscordBotRestError,
+  makeDiscordBotRestError,
 } from "dfx-discord-utils/discord/schema";
 import { Unauthorized } from "typhoon-core/error";
 import { config } from "@/config";
@@ -12,6 +19,21 @@ import { getIngressRpcHeaders } from "./rpcAuthorizationClient";
 import { SheetApisRpcTokens } from "./sheetApisRpcTokens";
 
 const sheetBotResource = "sheet-bot";
+
+const isResponseError = Predicate.or(
+  Predicate.isTagged("StatusCodeError"),
+  Predicate.or(Predicate.isTagged("DecodeError"), Predicate.isTagged("EmptyBodyError")),
+);
+
+const mapDiscordBotHttpError = <Error>(
+  error: Error,
+): Exclude<Error, HttpClientError.HttpClientError> | DiscordBotRestError =>
+  HttpClientError.isHttpClientError(error)
+    ? makeDiscordBotRestError({
+        message: "Sheet bot HTTP request failed",
+        status: isResponseError(error.reason) ? error.reason.response.status : undefined,
+      })
+    : (error as Exclude<Error, HttpClientError.HttpClientError>);
 
 // NOTE: This is a single-target HTTP client that uses SHEET_BOT_BASE_URL.
 // It intentionally targets the primary bot instance. For multi-client routing,
@@ -74,6 +96,7 @@ export class SheetBotHttpClient extends Context.Service<SheetBotHttpClient>()(
                 Effect.flatMap(httpClient.execute),
                 Effect.flatMap(HttpClientResponse.filterStatusOk),
                 Effect.flatMap(HttpClientResponse.schemaBodyJson(DiscordMessageSchema)),
+                Effect.mapError(mapDiscordBotHttpError),
               );
             }),
           updateOriginalInteractionResponseWithFilesByPayload: ({
@@ -97,6 +120,7 @@ export class SheetBotHttpClient extends Context.Service<SheetBotHttpClient>()(
               httpClient.execute,
               Effect.flatMap(HttpClientResponse.filterStatusOk),
               Effect.flatMap(HttpClientResponse.schemaBodyJson(DiscordMessageSchema)),
+              Effect.mapError(mapDiscordBotHttpError),
             );
           },
           updateOriginalInteractionResponseWithFiles: ({
@@ -124,6 +148,7 @@ export class SheetBotHttpClient extends Context.Service<SheetBotHttpClient>()(
                 httpClient.execute,
                 Effect.flatMap(HttpClientResponse.filterStatusOk),
                 Effect.flatMap(HttpClientResponse.schemaBodyJson(DiscordMessageSchema)),
+                Effect.mapError(mapDiscordBotHttpError),
               );
             }),
         },

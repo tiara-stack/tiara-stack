@@ -47,7 +47,6 @@
     "effect-sql-kit": "workspace:*",
     "effect-sql-schema": "workspace:*",
     "effect-zero": "workspace:*",
-    "sheet-models": "workspace:*",
     "typhoon-core": "workspace:*",
     "typhoon-zero": "workspace:*"
   },
@@ -56,11 +55,13 @@
     "@types/node": "catalog:",
     "dotenv": "^17.2.3",
     "pathe": "^2.0.3",
+    "sheet-models": "workspace:*",
     "vite": "catalog:",
     "vite-plus": "catalog:",
     "vitest": "catalog:"
   },
   "peerDependencies": {
-    "effect": "catalog:"
+    "effect": "catalog:",
+    "sheet-models": "workspace:*"
   }
 }

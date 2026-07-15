@@ -192,6 +192,7 @@ export interface SheetZeroClientApi {
       readonly deliveredAt: number;
       readonly conversationId: string;
       readonly messageId: string;
+      readonly claimToken: string;
     }>;
     readonly claimWorkspaceUpdateAnnouncementDelivery: MutatorResult<{
       readonly workspaceId: string;

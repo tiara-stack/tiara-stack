@@ -1,4 +1,3 @@
-// fallow-ignore-file code-duplication
 import { Config, Effect, Option, Schema, SchemaGetter } from "effect";
 
 const split = (separator: string) =>
@@ -44,6 +43,10 @@ const sheetAuthOAuthTokenExchangeClientCredentials = Config.make((provider) =>
 );
 
 export const config = {
+  environment: Config.schema(
+    Schema.Literals(["development", "production", "test"]),
+    "NODE_ENV",
+  ).pipe(Config.withDefault("production")),
   port: Config.port("PORT").pipe(Config.withDefault(3000)),
   sheetApisBaseUrl: Config.string("SHEET_APIS_BASE_URL"),
   sheetWorkflowsBaseUrl: Config.string("SHEET_WORKFLOWS_BASE_URL"),

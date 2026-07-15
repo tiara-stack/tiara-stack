@@ -1,6 +1,6 @@
 // fallow-ignore-file code-duplication
 import { describe, expect, it } from "@effect/vitest";
-import { Cause, DateTime, Effect, Exit, Option, Schema } from "effect";
+import { Cause, DateTime, Effect, Exit, Option, Predicate, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import { formatTentativeRoomOrderContent } from "sheet-ingress-api/clientActions";
 import type {
@@ -1244,13 +1244,7 @@ describe("DispatchService", () => {
         Exit.isFailure(exit) &&
           exit.cause.reasons
             .filter(Cause.isFailReason)
-            .some(
-              (reason) =>
-                typeof reason.error === "object" &&
-                reason.error !== null &&
-                "_tag" in reason.error &&
-                reason.error._tag === "ArgumentError",
-            ),
+            .some((reason) => Predicate.isTagged("ArgumentError")(reason.error)),
       ).toBe(true);
     }),
   );
@@ -3010,7 +3004,7 @@ describe("DispatchService", () => {
             conversationId: "conversation-1",
             messageId: "source-message-1",
             confirmationMessageId: "confirmation-message-1",
-            requesterUserId: "account-1",
+            requesterUserId: "discord-user-1",
           },
         },
       ]);

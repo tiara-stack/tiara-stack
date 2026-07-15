@@ -84,11 +84,14 @@ const parseRowDatas = <
     Array.map((rows) => Array.map(rows, (row) => row.values ?? [])),
     Array.map(ArrayUtils.WithDefault.wrap<sheets_v4.Schema$CellData[][]>({ default: () => [] })),
     Array.map(ArrayUtils.WithDefault.map((row) => [row])),
-    (ranges) =>
-      Array.reduce(Array.tailNonEmpty(ranges), Array.headNonEmpty(ranges), (acc, curr) =>
-        pipe(acc, ArrayUtils.WithDefault.zipArray(curr)),
-      ),
-    ArrayUtils.WithDefault.toArray,
+    (ranges) => {
+      const firstRange = Array.headNonEmpty(ranges);
+      return pipe(
+        Array.tailNonEmpty(ranges),
+        Array.reduce(firstRange, (acc, curr) => pipe(acc, ArrayUtils.WithDefault.zipArray(curr))),
+        ArrayUtils.WithDefault.toArray,
+      );
+    },
   );
 
   return Effect.forEach(
@@ -134,9 +137,8 @@ const parseValueRanges = <
     ArrayUtils.WithDefault.toArray,
   );
 
-  return Effect.forEach(
-    rows,
-    (rows) =>
+  return Effect.all(
+    rows.map((rows) =>
       Effect.succeed(
         pipe(
           rows,
@@ -144,6 +146,7 @@ const parseValueRanges = <
           Result.flatMap(Schema.decodeResult(rowSchemas)),
         ),
       ),
+    ),
     { concurrency: "unbounded" },
   ).pipe(Effect.withSpan("parseValueRanges"));
 };
