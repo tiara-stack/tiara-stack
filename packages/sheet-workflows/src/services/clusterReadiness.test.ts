@@ -46,7 +46,10 @@ describe("cluster readiness", () => {
       expect(ready).toBe(true);
       const query = queries.join("\n");
       expect(query).toContain('"sheet_workflows_runners".address = ?');
-      expect(query).not.toContain("sheet_workflows_locks");
+      expect(query).toContain('"sheet_workflows_locks".address = ?');
+      expect(query).toContain(") = ?");
+      const lockCountSubquery = query.split("SELECT COUNT(*)")[1]?.split(") = ?")[0];
+      expect(lockCountSubquery).toContain('"sheet_workflows_locks".address = ?');
     }),
   );
 
@@ -69,8 +72,9 @@ describe("cluster readiness", () => {
 
       expect(ready).toBe(true);
       const query = queries.join("\n");
-      expect(query).toContain('"sheet_workflows_runners"');
-      expect(query).not.toContain("sheet_workflows_locks");
+      expect(query).toContain('FROM "sheet_workflows_runners" AS runner');
+      expect(query).toContain('"sheet_workflows_locks".address = runner.address');
+      expect(query).toContain(") = ?");
     }),
   );
 

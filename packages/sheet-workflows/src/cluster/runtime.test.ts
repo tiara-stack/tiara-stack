@@ -1,7 +1,26 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Option } from "effect";
+import { ConfigProvider, Effect, Option } from "effect";
 import { RunnerAddress, ShardingConfig } from "effect/unstable/cluster";
-import { clientOnlyWorkflowShardingConfig } from "./runtime";
+import { clientOnlyWorkflowShardingConfig, shardingConfigLayer } from "./runtime";
+
+it.effect("uses expiry-aware database shard locks", () =>
+  Effect.gen(function* () {
+    const shardingConfig = yield* ShardingConfig.ShardingConfig;
+
+    expect(shardingConfig.shardLockDisableAdvisory).toBe(true);
+    expect(shardingConfig.shardsPerGroup).toBe(300);
+    expect(shardingConfig.availableShardGroups).toEqual(["dispatch", "autoCheckin"]);
+  }).pipe(
+    Effect.provide(shardingConfigLayer),
+    Effect.provide(
+      ConfigProvider.layer(
+        ConfigProvider.fromUnknown({
+          WORKFLOWS_RUNNER_HOST: "sheet-workflows-runner",
+        }),
+      ),
+    ),
+  ),
+);
 
 describe("clientOnlyWorkflowShardingConfig", () => {
   it("prevents workflow API clients from registering as runners", () => {

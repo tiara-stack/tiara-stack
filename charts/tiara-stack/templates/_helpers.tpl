@@ -378,6 +378,7 @@ imagePullSecrets:
 - key: sheetWorkflowsRunner
   name: sheet-workflows-runner
   imageName: sheet-workflows
+  deploymentStrategy: Recreate
   portName: wf-health
   metricPortName: wf-runner-met
   secretName: sheet-workflows-secret

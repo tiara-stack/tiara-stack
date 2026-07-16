@@ -46,6 +46,10 @@ export const shardingConfigLayer = Layer.unwrap(
       assignedShardGroups: shardGroups,
       availableShardGroups: shardGroups,
       shardsPerGroup: 300,
+      // Production PostgreSQL can sit behind a managed connection pool. Session-level
+      // advisory locks can then outlive a runner connection and strand its shards.
+      // Expiry-aware lock rows let another healthy runner recover those shards.
+      shardLockDisableAdvisory: true,
       entityMailboxCapacity: 4096,
       entityMaxIdleTime: Duration.minutes(5),
       simulateRemoteSerialization: false,

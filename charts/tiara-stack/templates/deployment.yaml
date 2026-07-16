@@ -17,9 +17,14 @@ spec:
     matchLabels:
       {{- include "tiara-stack.selectorLabels" (dict "root" $root "name" $svc.name) | nindent 6 }}
   strategy:
+    {{- if eq (default "RollingUpdate" $svc.deploymentStrategy) "Recreate" }}
+    type: Recreate
+    {{- else }}
+    type: RollingUpdate
     rollingUpdate:
       maxSurge: 1
       maxUnavailable: {{ if hasKey $svc "maxUnavailable" }}{{ $svc.maxUnavailable }}{{ else if eq (int (default 1 $serviceValues.replicas)) 1 }}0{{ else }}1{{ end }}
+    {{- end }}
   minReadySeconds: 5
   template:
     metadata:

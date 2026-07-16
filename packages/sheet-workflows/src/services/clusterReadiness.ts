@@ -7,6 +7,8 @@ type ClusterReadinessRow = {
 };
 
 const HEARTBEAT_WINDOW_SECONDS = 35;
+const SHARD_LOCK_WINDOW_SECONDS = 35;
+const EXPECTED_SHARD_LOCK_COUNT = 600;
 
 const ClusterRunnerReadinessSnapshotRowSchema = Schema.Struct({
   address: Schema.String,
@@ -40,6 +42,18 @@ export const isCurrentClusterRunnerReady = Effect.gen(function* () {
       WHERE "sheet_workflows_runners".address = ${address}
         AND "sheet_workflows_runners".healthy = TRUE
         AND "sheet_workflows_runners".last_heartbeat > NOW() - (${HEARTBEAT_WINDOW_SECONDS} * INTERVAL '1 second')
+        AND EXISTS (
+          SELECT 1
+          FROM "sheet_workflows_locks"
+          WHERE "sheet_workflows_locks".address = ${address}
+            AND "sheet_workflows_locks".acquired_at > NOW() - (${SHARD_LOCK_WINDOW_SECONDS} * INTERVAL '1 second')
+        )
+        AND (
+          SELECT COUNT(*)
+          FROM "sheet_workflows_locks"
+          WHERE "sheet_workflows_locks".address = ${address}
+            AND "sheet_workflows_locks".acquired_at > NOW() - (${SHARD_LOCK_WINDOW_SECONDS} * INTERVAL '1 second')
+        ) = ${EXPECTED_SHARD_LOCK_COUNT}
     ) AS ready
   `;
   return row?.ready === true;
@@ -57,9 +71,20 @@ export const isClusterRunnerFleetReady = Effect.gen(function* () {
   const [row] = yield* sql<ClusterReadinessRow>`
     SELECT EXISTS (
       SELECT 1
-      FROM "sheet_workflows_runners"
-      WHERE "sheet_workflows_runners".healthy = TRUE
-        AND "sheet_workflows_runners".last_heartbeat > NOW() - (${HEARTBEAT_WINDOW_SECONDS} * INTERVAL '1 second')
+      FROM "sheet_workflows_runners" AS runner
+      WHERE runner.healthy = TRUE
+        AND runner.last_heartbeat > NOW() - (${HEARTBEAT_WINDOW_SECONDS} * INTERVAL '1 second')
+        AND EXISTS (
+          SELECT 1
+          FROM "sheet_workflows_locks"
+          WHERE "sheet_workflows_locks".address = runner.address
+            AND "sheet_workflows_locks".acquired_at > NOW() - (${SHARD_LOCK_WINDOW_SECONDS} * INTERVAL '1 second')
+        )
+        AND (
+          SELECT COUNT(*)
+          FROM "sheet_workflows_locks"
+          WHERE "sheet_workflows_locks".acquired_at > NOW() - (${SHARD_LOCK_WINDOW_SECONDS} * INTERVAL '1 second')
+        ) = ${EXPECTED_SHARD_LOCK_COUNT}
     ) AS ready
   `;
   return row?.ready === true;
