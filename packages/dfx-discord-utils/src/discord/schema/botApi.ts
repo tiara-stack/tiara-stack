@@ -270,7 +270,7 @@ export const makeDiscordBotRestError = ({
   status,
 }: {
   readonly message: string;
-  readonly status?: number;
+  readonly status?: number | undefined;
 }): DiscordBotRestError => {
   if (status === 400) {
     return new DiscordBotBadRequestError({ message, status });

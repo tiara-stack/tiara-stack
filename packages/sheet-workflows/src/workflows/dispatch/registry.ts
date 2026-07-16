@@ -50,7 +50,7 @@ import {
 } from "./authorization";
 
 type InteractionTokenRequest = {
-  readonly payload: { readonly interactionResponseToken?: string };
+  readonly payload: { readonly interactionResponseToken?: string | undefined };
 };
 
 const getInteractionToken = <TRequest extends InteractionTokenRequest>(request: TRequest) =>

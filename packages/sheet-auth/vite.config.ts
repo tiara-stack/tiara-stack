@@ -1,7 +1,7 @@
 import { fileURLToPath } from "url";
-import { defineConfig } from "vite-plus";
+import { app } from "tooling-config/vite";
 
-export default defineConfig({
+export default app({
   pack: [
     {
       entry: {
@@ -17,13 +17,8 @@ export default defineConfig({
           new URL("./src/plugins/sheet-oauth/client.ts", import.meta.url),
         ),
       },
-      sourcemap: true,
       deps: {
         neverBundle: ["@better-fetch/fetch", "@standard-schema/spec", "nanostores"],
-        onlyBundle: false,
-      },
-      dts: {
-        tsgo: true,
       },
     },
     {
@@ -33,18 +28,10 @@ export default defineConfig({
           new URL("./scripts/seed-trusted-oauth-clients.ts", import.meta.url),
         ),
       },
-      sourcemap: true,
+      dts: false,
       deps: {
         alwaysBundle: [/^.*$/],
-        onlyBundle: false,
       },
     },
   ],
-  lint: {
-    ignorePatterns: ["dist"],
-    options: {
-      typeAware: true,
-      typeCheck: true,
-    },
-  },
 });

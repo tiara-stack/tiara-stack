@@ -91,7 +91,7 @@ describe("makeUpdateAnnouncementDispatchPayloads", () => {
         {
           id: "guild-1",
           name: "Guild One",
-          joined_at: announcements[0].publishedAt,
+          joined_at: announcements[0]!.publishedAt,
         },
         announcements,
       ),

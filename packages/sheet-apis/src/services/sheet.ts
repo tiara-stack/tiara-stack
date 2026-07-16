@@ -80,7 +80,7 @@ const getConfigFieldRowData =
       Effect.withSpan("getConfigFieldRowData"),
     );
 
-const playerParser = ([userIds, userSheetNames]: sheets_v4.Schema$ValueRange[]) =>
+const playerParser = ([userIds = {}, userSheetNames = {}]: sheets_v4.Schema$ValueRange[]) =>
   pipe(
     GoogleSheets.parseValueRanges(
       [userIds, userSheetNames],
@@ -111,7 +111,7 @@ const playerParser = ([userIds, userSheetNames]: sheets_v4.Schema$ValueRange[]) 
     Effect.withSpan("playerParser"),
   );
 
-const monitorParser = ([monitorIds, monitorNames]: sheets_v4.Schema$ValueRange[]) =>
+const monitorParser = ([monitorIds = {}, monitorNames = {}]: sheets_v4.Schema$ValueRange[]) =>
   pipe(
     GoogleSheets.parseValueRanges(
       [monitorIds, monitorNames],

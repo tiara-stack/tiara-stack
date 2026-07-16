@@ -22,16 +22,16 @@ import { makeKimiGraphTools, makeLanguageModelLayer } from "./providerLayer";
 export type AiRunOptions = {
   readonly aspect: AgentAspect;
   readonly repoRoot: string;
-  readonly provider?: AiProvider;
-  readonly providerConfig?: ResolvedReviewProviderConfig;
-  readonly model?: string;
-  readonly modelReasoningEffort?: ReasoningEffort;
-  readonly timeoutMs?: number;
+  readonly provider?: AiProvider | undefined;
+  readonly providerConfig?: ResolvedReviewProviderConfig | undefined;
+  readonly model?: string | undefined;
+  readonly modelReasoningEffort?: ReasoningEffort | undefined;
+  readonly timeoutMs?: number | undefined;
   readonly schema: Schema.Top;
-  readonly graphVersionId?: string;
-  readonly graphDbPath?: string;
-  readonly graphMcpCommand?: string;
-  readonly graphMcpArgsPrefix?: ReadonlyArray<string>;
+  readonly graphVersionId?: string | undefined;
+  readonly graphDbPath?: string | undefined;
+  readonly graphMcpCommand?: string | undefined;
+  readonly graphMcpArgsPrefix?: ReadonlyArray<string> | undefined;
 };
 
 export type AiRunResult<A> = {
@@ -49,15 +49,15 @@ export interface AiReviewClient {
 const responseId = (
   content: ReadonlyArray<{
     readonly type: string;
-    readonly id?: string;
+    readonly id?: string | undefined;
     readonly metadata?: unknown;
   }>,
 ) => {
   const metadataPart = content.find((part) => part.type === "response-metadata");
   const metadata = metadataPart?.metadata as
     | {
-        readonly codex?: { readonly threadId?: string | null };
-        readonly kimi?: { readonly sessionId?: string | null };
+        readonly codex?: { readonly threadId?: string | null } | undefined;
+        readonly kimi?: { readonly sessionId?: string | null } | undefined;
       }
     | undefined;
   return metadata?.codex?.threadId ?? metadata?.kimi?.sessionId ?? metadataPart?.id ?? null;

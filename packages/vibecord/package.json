@@ -42,15 +42,14 @@
     "drizzle-orm": "^0.45.1",
     "effect": "catalog:",
     "remend": "^1.3.0",
-    "simple-git": "^3.30.0",
-    "typhoon-core": "workspace:*"
+    "simple-git": "^3.30.0"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "catalog:",
     "drizzle-kit": "^0.30.0",
-    "pathe": "^2.0.3",
+    "tooling-config": "workspace:*",
     "vite": "catalog:",
     "vite-plus": "catalog:",
     "vitest": "catalog:"

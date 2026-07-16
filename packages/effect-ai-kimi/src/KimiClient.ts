@@ -106,6 +106,7 @@ export const make: Effect.Effect<Service> = Effect.gen(function* () {
         };
         const approvalPolicy = options.approvalPolicy ?? config?.approvalPolicy ?? "reject";
         const timeoutMs = options.timeoutMs ?? config?.timeoutMs;
+        const cleanupGraceMs = options.cleanupGraceMs ?? config?.cleanupGraceMs;
         const runPromise = (async () => {
           session = createSession(mergeSessionOptions(config, options));
           turn = session.prompt(options.prompt);
@@ -131,8 +132,8 @@ export const make: Effect.Effect<Service> = Effect.gen(function* () {
                 await closeSession();
               }
             },
-            timeoutMs,
-            cleanupGraceMs: options.cleanupGraceMs ?? config?.cleanupGraceMs,
+            ...(timeoutMs === undefined ? {} : { timeoutMs }),
+            ...(cleanupGraceMs === undefined ? {} : { cleanupGraceMs }),
             timeoutError: () => new KimiTimeout({ timeoutMs: timeoutMs ?? 0 }),
           });
         } finally {

@@ -165,9 +165,9 @@ export const writeMigrationRecordEffect = ({
   readonly prefix: string;
   readonly idx: number;
   readonly breakpoints: boolean;
-  readonly prevSnapshotId?: string;
+  readonly prevSnapshotId?: string | undefined;
   readonly drizzle?: unknown;
-  readonly extensions?: Readonly<Record<string, JsonValue>>;
+  readonly extensions?: Readonly<Record<string, JsonValue>> | undefined;
 }) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;

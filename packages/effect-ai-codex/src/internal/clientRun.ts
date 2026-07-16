@@ -28,19 +28,25 @@ const stableStringify = (value: unknown): string => {
 export const mergeClientOptions = (
   config: ConfigShape | undefined,
   options: CodexOptions | undefined,
-): CodexOptions => ({
-  codexPathOverride: options?.codexPathOverride ?? config?.codexPathOverride,
-  baseUrl: options?.baseUrl ?? config?.baseUrl,
-  apiKey: options?.apiKey ?? config?.apiKey,
-  env:
+): CodexOptions => {
+  const codexPathOverride = options?.codexPathOverride ?? config?.codexPathOverride;
+  const baseUrl = options?.baseUrl ?? config?.baseUrl;
+  const apiKey = options?.apiKey ?? config?.apiKey;
+  const env =
     options?.env !== undefined && config?.env !== undefined
       ? { ...config.env, ...options.env }
-      : (options?.env ?? config?.env),
-  config: {
-    ...config?.config,
-    ...options?.config,
-  },
-});
+      : (options?.env ?? config?.env);
+  return {
+    ...(codexPathOverride === undefined ? {} : { codexPathOverride }),
+    ...(baseUrl === undefined ? {} : { baseUrl }),
+    ...(apiKey === undefined ? {} : { apiKey }),
+    ...(env === undefined ? {} : { env }),
+    config: {
+      ...config?.config,
+      ...options?.config,
+    },
+  };
+};
 
 export const clientOptionsCacheKey = (options: CodexOptions): string => {
   const sensitiveHash = createHash("sha256")

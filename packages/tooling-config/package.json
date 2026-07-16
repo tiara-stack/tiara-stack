@@ -1,0 +1,14 @@
+{
+  "name": "tooling-config",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./vite": "./src/vite.ts"
+  },
+  "dependencies": {
+    "glob": "^11.0.3",
+    "pathe": "^2.0.3",
+    "vite-plus": "catalog:"
+  }
+}

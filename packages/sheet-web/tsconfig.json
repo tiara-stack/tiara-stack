@@ -1,39 +1,51 @@
 {
-  "include": ["**/*.ts", "**/*.tsx"],
-  "exclude": ["node_modules", "dist", ".output", ".tsbuildinfo"],
+  "extends": "../../tsconfig.browser.json",
+  "include": ["**/*.ts", "**/*.tsx", "**/*.mts"],
+  "exclude": ["node_modules", "dist", ".output", ".ts-out"],
   "compilerOptions": {
-    "target": "ES2022",
-    "jsx": "react-jsx",
-    "module": "ESNext",
+    "outDir": "./.ts-out",
+    "rootDir": ".",
+    "tsBuildInfoFile": "./.ts-out/.tsbuildinfo",
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+    "emitDeclarationOnly": false,
+    "types": ["vite/client", "react/canary"],
+    "allowImportingTsExtensions": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true,
     "paths": {
       "sheet-auth": ["../sheet-auth/src/index.ts"],
       "sheet-auth/*": ["../sheet-auth/src/*"],
       "sheet-ingress-api": ["../sheet-ingress-api/src/index.ts"],
       "sheet-ingress-api/*": ["../sheet-ingress-api/src/*"],
-      "*": ["./*"],
-      "~~/*": ["./*"],
-      "@@/*": ["./*"],
-      "~/*": ["./src/*"],
-      "@/*": ["./src/*"],
+      "start-atom": ["../start-atom/src/index.ts"],
+      "typhoon-core": ["../typhoon-core/src/index.ts"],
+      "typhoon-core/*": ["../typhoon-core/src/*"],
+      "typhoon-zero": ["../typhoon-zero/src/index.ts"],
+      "typhoon-zero/*": ["../typhoon-zero/src/*"],
       "#/*": ["./src/*"]
+    }
+  },
+  "references": [
+    {
+      "path": "../sheet-auth"
     },
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": ["vite/client", "react/canary"],
-
-    /* Bundler mode */
-    "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
-    "verbatimModuleSyntax": true,
-    "noEmit": true,
-    "incremental": true,
-    "tsBuildInfoFile": "./.tsbuildinfo",
-
-    /* Linting */
-    "skipLibCheck": true,
-    "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true,
-    "noUncheckedSideEffectImports": true
-  }
+    {
+      "path": "../sheet-ingress-api"
+    },
+    {
+      "path": "../start-atom"
+    },
+    {
+      "path": "../typhoon-core"
+    },
+    {
+      "path": "../typhoon-zero"
+    },
+    {
+      "path": "../tooling-config"
+    }
+  ]
 }

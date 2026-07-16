@@ -127,9 +127,9 @@ const validateTableFields = (
 };
 
 const requireArrayElementKind = (columnData: {
-  readonly name?: string;
-  readonly fieldName?: string;
-  readonly config?: Record<string, unknown>;
+  readonly name?: string | undefined;
+  readonly fieldName?: string | undefined;
+  readonly config?: Record<string, unknown> | undefined;
 }): string => {
   const elementKind = columnData.config?.elementKind;
   if (typeof elementKind !== "string" || !supportedPgArrayElementKinds.has(elementKind)) {

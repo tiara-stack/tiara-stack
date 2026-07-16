@@ -1,11 +1,10 @@
-// fallow-ignore-file code-duplication
 import { fileURLToPath } from "url";
-import { defineConfig } from "vite-plus";
+import { app } from "tooling-config/vite";
 
 const alwaysBundleDependencies = () => true;
 const sheetDbSchemaModels = fileURLToPath(import.meta.resolve("sheet-db-schema/models"));
 
-export default defineConfig({
+export default app({
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
@@ -33,14 +32,7 @@ export default defineConfig({
         "api-groups": fileURLToPath(new URL("./src/api-groups.ts", import.meta.url)),
         schema: fileURLToPath(new URL("./src/schema.ts", import.meta.url)),
       },
-      sourcemap: true,
       tsconfig: "tsconfig.build.json",
-      dts: {
-        tsgo: true,
-      },
-      deps: {
-        onlyBundle: false,
-      },
     },
     {
       entry: {
@@ -49,23 +41,11 @@ export default defineConfig({
       alias: {
         "sheet-db-schema/models": sheetDbSchemaModels,
       },
-      sourcemap: true,
       tsconfig: "tsconfig.build.json",
-      dts: {
-        tsgo: true,
-      },
       deps: {
         alwaysBundle: alwaysBundleDependencies,
         neverBundle: ["playwright", "playwright-core"],
-        onlyBundle: false,
       },
     },
   ],
-  lint: {
-    ignorePatterns: ["dist"],
-    options: {
-      typeAware: true,
-      typeCheck: true,
-    },
-  },
 });

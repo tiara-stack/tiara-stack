@@ -44,7 +44,7 @@ const columnTypeFormatters: Record<string, ColumnTypeFormatter> = {
 };
 
 const columnType = (column: ColumnSnapshot): string =>
-  (columnTypeFormatters[column.kind] ?? columnTypeFormatters.text)(column);
+  (columnTypeFormatters[column.kind] ?? (() => "text"))(column);
 
 const literal = (value: ColumnSnapshot["default"]): string => {
   if (value === null) return "null";

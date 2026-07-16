@@ -40,7 +40,7 @@ const readBooleanConfig = (name: string, config: Config.Config<boolean>) =>
   );
 
 export type GeneratorOptions = {
-  readonly config?: string;
+  readonly config?: string | undefined;
   readonly tsConfigPath?: string;
   readonly format?: boolean;
   readonly outputFilePath?: string;

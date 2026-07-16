@@ -16,16 +16,18 @@ export type ColumnSnapshot = {
   readonly kind: string;
   readonly notNull: boolean;
   readonly primaryKey: boolean;
-  readonly unique?: string | boolean;
-  readonly default?: string | number | boolean | null;
-  readonly defaultSql?: string;
-  readonly references?: {
-    readonly table: string;
-    readonly column: string;
-    readonly onDelete?: string;
-    readonly onUpdate?: string;
-  };
-  readonly config?: Record<string, unknown>;
+  readonly unique?: string | boolean | undefined;
+  readonly default?: string | number | boolean | null | undefined;
+  readonly defaultSql?: string | undefined;
+  readonly references?:
+    | {
+        readonly table: string;
+        readonly column: string;
+        readonly onDelete?: string | undefined;
+        readonly onUpdate?: string | undefined;
+      }
+    | undefined;
+  readonly config?: Record<string, unknown> | undefined;
 };
 
 export type IndexSnapshot = {
@@ -36,7 +38,7 @@ export type IndexSnapshot = {
 
 export type TableSnapshot = {
   readonly name: string;
-  readonly schema?: string;
+  readonly schema?: string | undefined;
   readonly columns: Record<string, ColumnSnapshot>;
   readonly primaryKey: readonly string[];
   readonly indexes: readonly IndexSnapshot[];
@@ -55,7 +57,7 @@ export type StoredSnapshot = {
   readonly prevId: string;
   readonly schema: SchemaSnapshot;
   readonly drizzle?: unknown;
-  readonly extensions?: Readonly<Record<string, JsonValue>>;
+  readonly extensions?: Readonly<Record<string, JsonValue>> | undefined;
 };
 
 const columnName = (column: AnyEffectSqlColumn): string =>
@@ -89,7 +91,7 @@ const referenceSnapshot = (
 export const snapshotTable = (
   table: AnyEffectSqlTable,
   allTableNames?: ReadonlyMap<AnyEffectSqlColumn, string>,
-  options?: { readonly prefix?: string },
+  options?: { readonly prefix?: string | undefined },
 ): TableSnapshot => {
   const tableName = prefixedIdentifierName(options?.prefix, table.sqlName ?? table.name);
   const tableNameMap = new Map(allTableNames);

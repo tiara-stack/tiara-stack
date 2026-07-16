@@ -2,6 +2,7 @@ import type {
   Query,
   ReadonlyJSONValue,
   RunOptions,
+  DefaultSchema,
   Schema as ZeroSchema,
   Transaction,
 } from "@rocicorp/zero";
@@ -100,7 +101,7 @@ export const query = <
 export const mutator = <
   const Name extends string,
   Request extends Schema.Top,
-  TSchema extends ZeroSchema,
+  TSchema extends ZeroSchema = DefaultSchema,
   TContext = unknown,
   TWrappedTransaction = unknown,
 >(

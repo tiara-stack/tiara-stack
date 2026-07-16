@@ -1,0 +1,29 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/bob" },
+    { "path": "packages/dfx-discord-utils" },
+    { "path": "packages/effect-ai-codex" },
+    { "path": "packages/effect-ai-kimi" },
+    { "path": "packages/effect-platform-apps-script" },
+    { "path": "packages/effect-sql-kit" },
+    { "path": "packages/effect-sql-schema" },
+    { "path": "packages/effect-zero" },
+    { "path": "packages/sheet-apis" },
+    { "path": "packages/sheet-auth" },
+    { "path": "packages/sheet-bot" },
+    { "path": "packages/sheet-db-schema" },
+    { "path": "packages/sheet-db-server" },
+    { "path": "packages/sheet-formulas" },
+    { "path": "packages/sheet-ingress-api" },
+    { "path": "packages/sheet-ingress-server" },
+    { "path": "packages/sheet-models" },
+    { "path": "packages/sheet-workflows" },
+    { "path": "packages/start-atom" },
+    { "path": "packages/tiara-review" },
+    { "path": "packages/tooling-config" },
+    { "path": "packages/typhoon-core" },
+    { "path": "packages/typhoon-zero" },
+    { "path": "packages/vibecord" }
+  ]
+}

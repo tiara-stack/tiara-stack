@@ -40,10 +40,10 @@ const normalizeTables = <const Tables extends Record<string, SchemaTable>>(
 export const schema = <const Tables extends Record<string, SchemaTable>>(
   tables: Tables,
   options?: {
-    readonly relationships?: RelationshipConfig;
-    readonly prefix?: string;
-    readonly enableLegacyQueries?: boolean;
-    readonly enableLegacyMutators?: boolean;
+    readonly relationships?: RelationshipConfig | undefined;
+    readonly prefix?: string | undefined;
+    readonly enableLegacyQueries?: boolean | undefined;
+    readonly enableLegacyMutators?: boolean | undefined;
   },
 ): EffectZeroSchema<NormalizedTables<Tables>> => ({
   tables: normalizeTables(tables, options?.prefix),

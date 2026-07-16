@@ -25,20 +25,20 @@ interface CreateAuthOptions {
   postgresUrl: string;
   discordClientId: string;
   discordClientSecret: string;
-  oauthValidAudiences?: readonly string[];
-  oauthJwksUrl?: string;
-  trustedOAuthClientIds?: readonly string[];
+  oauthValidAudiences?: readonly string[] | undefined;
+  oauthJwksUrl?: string | undefined;
+  trustedOAuthClientIds?: readonly string[] | undefined;
   baseUrl: string;
-  trustedOrigins?: string[];
-  cookieDomain?: string;
-  tokenExchangeSubjectJwtSecret?: string;
-  tokenExchangeSubjectJwtIssuer?: string;
-  tokenExchangeAccessTokenExpiresIn?: number;
-  subjectTokenKubernetesAudience?: string;
-  subjectTokenKubernetesAllowedServiceAccounts?: readonly string[];
-  subjectTokenKubernetesReviewerTokenPath?: string;
-  subjectTokenKubernetesCaPath?: string;
-  subjectTokenKubernetesTokenReviewUrl?: string;
+  trustedOrigins?: string[] | undefined;
+  cookieDomain?: string | undefined;
+  tokenExchangeSubjectJwtSecret?: string | undefined;
+  tokenExchangeSubjectJwtIssuer?: string | undefined;
+  tokenExchangeAccessTokenExpiresIn?: number | undefined;
+  subjectTokenKubernetesAudience?: string | undefined;
+  subjectTokenKubernetesAllowedServiceAccounts?: readonly string[] | undefined;
+  subjectTokenKubernetesReviewerTokenPath?: string | undefined;
+  subjectTokenKubernetesCaPath?: string | undefined;
+  subjectTokenKubernetesTokenReviewUrl?: string | undefined;
   secondaryStorageDriver: Driver;
 }
 
@@ -312,7 +312,7 @@ function createBaseAuth({
       cookiePrefix: "sheet_auth",
       crossSubDomainCookies: {
         enabled: true,
-        domain: cookieDomain,
+        ...(cookieDomain === undefined ? {} : { domain: cookieDomain }),
       },
     },
     trustedOrigins: authTrustedOrigins(baseUrl, trustedOrigins),

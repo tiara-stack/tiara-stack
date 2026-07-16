@@ -5,16 +5,16 @@ import { typedEntries } from "./util";
 
 export type InferredColumn = {
   readonly name: string;
-  readonly serverName?: string;
+  readonly serverName?: string | undefined;
   readonly type: ZeroValueType;
   readonly customType: string;
   readonly optional: boolean;
-  readonly enumValues?: readonly string[];
+  readonly enumValues?: readonly string[] | undefined;
 };
 
 export type InferredTable = {
   readonly name: string;
-  readonly serverName?: string;
+  readonly serverName?: string | undefined;
   readonly columns: Record<string, InferredColumn>;
   readonly primaryKey: readonly string[];
 };

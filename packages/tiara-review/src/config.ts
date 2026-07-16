@@ -128,14 +128,14 @@ const ReviewProviderConfigSchema = Schema.Struct({
 
 export type CliRunOptions = {
   readonly cwd: string;
-  readonly provider?: AiProvider;
-  readonly model?: string;
-  readonly reasoning?: ReasoningEffort;
-  readonly dbPath?: string;
-  readonly timeoutMs?: number;
-  readonly externalReviewMarkdown?: string;
-  readonly graphMcpCommand?: string;
-  readonly graphMcpArgsPrefix?: ReadonlyArray<string>;
+  readonly provider?: AiProvider | undefined;
+  readonly model?: string | undefined;
+  readonly reasoning?: ReasoningEffort | undefined;
+  readonly dbPath?: string | undefined;
+  readonly timeoutMs?: number | undefined;
+  readonly externalReviewMarkdown?: string | undefined;
+  readonly graphMcpCommand?: string | undefined;
+  readonly graphMcpArgsPrefix?: ReadonlyArray<string> | undefined;
 };
 
 export const loadReviewConfig = (

@@ -5,7 +5,7 @@
   "keywords": [],
   "author": "",
   "bin": {
-    "effect-sql-kit": "./dist/cli/index.mjs"
+    "effect-sql-kit": "./bin/effect-sql-kit.mjs"
   },
   "files": [
     "./dist/**"
@@ -39,6 +39,7 @@
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
+    "tooling-config": "workspace:*",
     "tsx": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:",

@@ -44,7 +44,7 @@ describe("relationships", () => {
       },
     );
 
-    expect(zeroSchema.relationships.users.posts).toEqual([
+    expect(zeroSchema.relationships.users!.posts).toEqual([
       {
         sourceField: ["id"],
         destField: ["authorId"],
@@ -52,7 +52,7 @@ describe("relationships", () => {
         cardinality: "many",
       },
     ]);
-    expect(zeroSchema.relationships.posts.author).toEqual([
+    expect(zeroSchema.relationships.posts!.author).toEqual([
       {
         sourceField: ["authorId"],
         destField: ["id"],

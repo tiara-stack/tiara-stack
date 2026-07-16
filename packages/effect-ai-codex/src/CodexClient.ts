@@ -96,11 +96,12 @@ export const make: Effect.Effect<Service> = Effect.gen(function* () {
           signal: abortController.signal,
         });
         const timeoutMs = options.timeoutMs ?? config?.timeoutMs;
+        const cleanupGraceMs = options.cleanupGraceMs ?? config?.cleanupGraceMs;
         const result = await runWithAbortTimeout({
           runPromise,
           abort: () => abortController.abort(),
-          timeoutMs,
-          cleanupGraceMs: options.cleanupGraceMs ?? config?.cleanupGraceMs,
+          ...(timeoutMs === undefined ? {} : { timeoutMs }),
+          ...(cleanupGraceMs === undefined ? {} : { cleanupGraceMs }),
           timeoutError: () => new CodexTimeout({ timeoutMs: timeoutMs ?? 0 }),
         });
         return {
@@ -134,13 +135,14 @@ export const make: Effect.Effect<Service> = Effect.gen(function* () {
               signal: abortController.signal,
             });
             const timeoutMs = options.timeoutMs ?? config?.timeoutMs;
+            const cleanupGraceMs = options.cleanupGraceMs ?? config?.cleanupGraceMs;
             const events = await runWithAbortTimeout({
               runPromise: streamedPromise.then((streamed) =>
                 Effect.runPromiseWith(context)(collectStreamEvents(streamed.events)),
               ),
               abort: () => abortController.abort(),
-              timeoutMs,
-              cleanupGraceMs: options.cleanupGraceMs ?? config?.cleanupGraceMs,
+              ...(timeoutMs === undefined ? {} : { timeoutMs }),
+              ...(cleanupGraceMs === undefined ? {} : { cleanupGraceMs }),
               timeoutError: () => new CodexTimeout({ timeoutMs: timeoutMs ?? 0 }),
             });
             return Stream.fromIterable(events);

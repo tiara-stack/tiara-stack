@@ -5,7 +5,7 @@
   "keywords": [],
   "author": "",
   "bin": {
-    "effect-zero": "./dist/cli/index.mjs"
+    "effect-zero": "./bin/effect-zero.mjs"
   },
   "files": [
     "./dist/**"
@@ -29,7 +29,6 @@
   },
   "dependencies": {
     "@effect/platform-node": "catalog:",
-    "@rocicorp/zero": "^0.25.9",
     "camelcase": "^9.0.0",
     "effect-sql-kit": "workspace:*",
     "effect-sql-schema": "workspace:*",
@@ -40,6 +39,7 @@
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
+    "tooling-config": "workspace:*",
     "vite": "catalog:",
     "vite-plus": "catalog:",
     "vitest": "catalog:"

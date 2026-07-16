@@ -69,6 +69,20 @@ export const OAuthClientUpdateInputSchema = Schema.Struct({
   ...OAuthClientOptionalInputFields,
 });
 
+const withoutUndefined = <A extends Record<string, unknown>>(input: A) =>
+  Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined));
+
+export const normalizeOAuthClientCreateInput = (
+  input: typeof OAuthClientCreateInputSchema.Type,
+): OAuthClientCreateInput => {
+  const { redirect_uris, ...optional } = input;
+  return { redirect_uris, ...withoutUndefined(optional) } as OAuthClientCreateInput;
+};
+
+export const normalizeOAuthClientUpdateInput = (
+  input: typeof OAuthClientUpdateInputSchema.Type,
+): OAuthClientUpdateInput => withoutUndefined(input) as OAuthClientUpdateInput;
+
 type CreateOAuthClientMutation = OAuthClientCreateInput;
 
 type UpdateOAuthClientMutation = {
@@ -97,7 +111,11 @@ const createOAuthClientAtom = runtimeAtom.fn(
   Effect.fnUntraced(function* (payload: CreateOAuthClientMutation, ctx: Atom.FnContext) {
     const input = yield* Schema.decodeUnknownEffect(OAuthClientCreateInputSchema)(payload);
     const authClient = yield* ctx.result(authClientAtom);
-    const created = yield* createOAuthClient(authClient, input, getRequestHeadersFn());
+    const created = yield* createOAuthClient(
+      authClient,
+      normalizeOAuthClientCreateInput(input),
+      getRequestHeadersFn(),
+    );
     yield* invalidateOAuthClients;
     return created;
   }),
@@ -109,7 +127,12 @@ const updateOAuthClientAtom = runtimeAtom.fn(
       payload,
     );
     const authClient = yield* ctx.result(authClientAtom);
-    const updated = yield* updateOAuthClient(authClient, clientId, input, getRequestHeadersFn());
+    const updated = yield* updateOAuthClient(
+      authClient,
+      clientId,
+      normalizeOAuthClientUpdateInput(input),
+      getRequestHeadersFn(),
+    );
     yield* invalidateOAuthClients;
     return updated;
   }),

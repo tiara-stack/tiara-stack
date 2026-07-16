@@ -40,6 +40,7 @@
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
+    "tooling-config": "workspace:*",
     "tsx": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:",

@@ -36,7 +36,7 @@ const populateSchedule = (
 
   const fills = Array.makeBy(5, (index) =>
     pipe(
-      schedule.fills[index],
+      schedule.fills[index] ?? Option.none(),
       Option.flatMap((rawPlayer) =>
         Option.some(
           new PopulatedSchedulePlayer({

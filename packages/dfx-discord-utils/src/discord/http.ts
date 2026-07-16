@@ -121,12 +121,13 @@ export const handleBotRestError = <A>(
   message: string,
 ): Effect.Effect<A, DiscordBotRestError, never> =>
   effect.pipe(
-    Effect.mapError((error) =>
-      makeDiscordBotRestError({
+    Effect.mapError((error) => {
+      const status = statusFromError(error);
+      return makeDiscordBotRestError({
         message: messageFromError(message, error),
-        status: statusFromError(error),
-      }),
-    ),
+        ...(status === undefined ? {} : { status }),
+      });
+    }),
   );
 
 const disabledMentions = () => ({ parse: [] });
@@ -139,7 +140,7 @@ const withoutMessageMentions = <A extends object>(payload: A): A => ({
 const withoutInteractionMessageMentions = <
   A extends {
     readonly type: number;
-    readonly data?: object | null;
+    readonly data?: object | null | undefined;
   },
 >(
   payload: A,

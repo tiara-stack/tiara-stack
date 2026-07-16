@@ -37,8 +37,15 @@ type ZeroTableName =
   | "messageTeamSubmission";
 
 type ZeroTableAccessRegistry = Readonly<{
-  [Name in ZeroTableName]: ZeroTableAccess & {
+  [Name in ZeroTableName]: Omit<ZeroTableAccess, "upsertWithTimestamps" | "updateWithTimestamp"> & {
     readonly table: (typeof builder)[Name];
+    readonly upsertWithTimestamps: <const Value extends Record<string, unknown>>(
+      value: Value,
+      existing?: Partial<Record<"createdAt", number | undefined>>,
+    ) => Value & Record<"createdAt" | "updatedAt", number>;
+    readonly updateWithTimestamp: <const Value extends Record<string, unknown>>(
+      value: Value,
+    ) => Value & Record<"updatedAt", number>;
   };
 }>;
 

@@ -112,7 +112,11 @@ export const validateTaggedFields = <
   }
 
   for (const key of expectedKeys) {
-    asCodec(fields[key]);
+    const field = fields[key];
+    if (field === undefined) {
+      throw new TypeError(`Model field ${key} is missing`);
+    }
+    asCodec(field);
   }
 
   return fields as unknown as Fields;

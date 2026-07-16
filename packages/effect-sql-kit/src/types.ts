@@ -31,30 +31,30 @@ export type JsonValue =
   | { readonly [key: string]: JsonValue };
 
 export type MigrationConfig = {
-  readonly table?: string;
-  readonly schema?: string;
+  readonly table?: string | undefined;
+  readonly schema?: string | undefined;
 };
 
 export type EffectSqlKitConfig = {
   readonly dialect: Dialect;
-  readonly schema?: string;
-  readonly out?: string;
-  readonly prefix?: string;
+  readonly schema?: string | undefined;
+  readonly out?: string | undefined;
+  readonly prefix?: string | undefined;
   readonly dbCredentials?: {
-    readonly url?: string;
+    readonly url?: string | undefined;
   };
-  readonly migrations?: MigrationConfig;
-  readonly breakpoints?: boolean;
-  readonly extensions?: readonly MigrationExtension[];
+  readonly migrations?: MigrationConfig | undefined;
+  readonly breakpoints?: boolean | undefined;
+  readonly extensions?: readonly MigrationExtension[] | undefined;
 };
 
 export type ResolvedConfig = {
   readonly dialect: Dialect;
-  readonly schema?: string;
+  readonly schema?: string | undefined;
   readonly out: string;
   readonly prefix: string;
   readonly dbCredentials?: {
-    readonly url?: string;
+    readonly url?: string | undefined;
   };
   readonly migrations: {
     readonly table: string;
@@ -69,7 +69,7 @@ export type MigrationExtensionContext = {
   readonly schema: EffectSqlSchema;
   readonly previous: SchemaSnapshot;
   readonly current: SchemaSnapshot;
-  readonly statements?: readonly MigrationStatement[];
+  readonly statements?: readonly MigrationStatement[] | undefined;
   readonly previousExtensions: Readonly<Record<string, JsonValue>>;
 };
 
@@ -81,7 +81,7 @@ export type MigrationExtensionIntrospectContext = {
 };
 
 export type MigrationExtensionResult = {
-  readonly beforeStatements?: readonly MigrationStatement[];
+  readonly beforeStatements?: readonly MigrationStatement[] | undefined;
   readonly statements: readonly MigrationStatement[];
   readonly snapshot: JsonValue;
 };
@@ -92,11 +92,13 @@ export type MigrationExtension = {
   readonly generate: (
     context: MigrationExtensionContext,
   ) => MigrationExtensionResult | Promise<MigrationExtensionResult>;
-  readonly introspect?: (
-    context: MigrationExtensionIntrospectContext,
-  ) =>
-    | JsonValue
-    | undefined
-    | Promise<JsonValue | undefined>
-    | Effect.Effect<JsonValue | undefined, unknown, SqlClient.SqlClient>;
+  readonly introspect?:
+    | ((
+        context: MigrationExtensionIntrospectContext,
+      ) =>
+        | JsonValue
+        | undefined
+        | Promise<JsonValue | undefined>
+        | Effect.Effect<JsonValue | undefined, unknown, SqlClient.SqlClient>)
+    | undefined;
 };

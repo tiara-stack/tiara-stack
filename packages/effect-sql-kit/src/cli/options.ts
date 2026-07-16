@@ -56,12 +56,16 @@ export const configInputToOverrides = (input: ConfigInput): Partial<EffectSqlKit
 
   const url = optionalValue(input.url);
 
+  const dialect = optionalValue(input.dialect);
+  const schema = optionalValue(input.schema);
+  const out = optionalValue(input.out);
+  const prefix = optionalValue(input.prefix);
   return {
-    dialect: optionalValue(input.dialect),
-    schema: optionalValue(input.schema),
-    out: optionalValue(input.out),
-    prefix: optionalValue(input.prefix),
-    dbCredentials: url ? { url } : undefined,
-    migrations,
+    ...(dialect === undefined ? {} : { dialect }),
+    ...(schema === undefined ? {} : { schema }),
+    ...(out === undefined ? {} : { out }),
+    ...(prefix === undefined ? {} : { prefix }),
+    ...(url === undefined ? {} : { dbCredentials: { url } }),
+    ...(migrations === undefined ? {} : { migrations }),
   };
 };

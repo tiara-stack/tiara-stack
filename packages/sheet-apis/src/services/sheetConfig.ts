@@ -28,7 +28,7 @@ import { DefaultTaggedClass, OptionArrayToOptionStructValueSchema } from "typhoo
 import { ScopedCache } from "typhoon-core/utils";
 import { GoogleSheets } from "./google/sheets";
 
-const scheduleConfigParser = ([range]: sheets_v4.Schema$ValueRange[]) =>
+const scheduleConfigParser = ([range = {}]: sheets_v4.Schema$ValueRange[]) =>
   GoogleSheets.parseValueRanges(
     [range],
     Schema.Tuple([
@@ -140,7 +140,7 @@ const parseTeamTagsConfig = (
     },
   });
 
-const teamConfigParser = ([range]: sheets_v4.Schema$ValueRange[]) =>
+const teamConfigParser = ([range = {}]: sheets_v4.Schema$ValueRange[]) =>
   GoogleSheets.parseValueRanges(
     [range],
     Schema.Tuple([
@@ -206,13 +206,16 @@ const teamConfigParser = ([range]: sheets_v4.Schema$ValueRange[]) =>
 
 const hourRangeParser = (range: string): HourRange => {
   const [start, end] = range.split("-").map((item) => item.trim());
+  if (start === undefined || end === undefined) {
+    throw new RangeError(`Invalid hour range: ${range}`);
+  }
   return new HourRange({
     start: Number.parseInt(start, 10),
     end: Number.parseInt(end, 10),
   });
 };
 
-const runnerConfigParser = ([range]: sheets_v4.Schema$ValueRange[]) =>
+const runnerConfigParser = ([range = {}]: sheets_v4.Schema$ValueRange[]) =>
   GoogleSheets.parseValueRanges(
     [range],
     Schema.Tuple([

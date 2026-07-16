@@ -30,9 +30,11 @@ export const isEffectSqlTable = (value: unknown): value is AnyEffectSqlTable =>
 export const fromSqlTable = <const Table extends AnyEffectSqlTable>(
   table: Table,
   options?: {
-    readonly name?: string;
-    readonly serverName?: string;
-    readonly columns?: Partial<Record<keyof Table["columns"] & string, boolean | ColumnOptions>>;
+    readonly name?: string | undefined;
+    readonly serverName?: string | undefined;
+    readonly columns?:
+      | Partial<Record<keyof Table["columns"] & string, boolean | ColumnOptions>>
+      | undefined;
   },
 ): EffectZeroTable<Table["model"]> => {
   const tableName = table.sqlName ?? table.name;

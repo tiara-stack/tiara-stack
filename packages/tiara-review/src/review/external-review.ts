@@ -83,11 +83,11 @@ export const parseExternalReviewWithAi = (
   input: {
     readonly markdown: string;
     readonly repoRoot: string;
-    readonly provider?: AiProvider;
-    readonly providerConfig?: ResolvedReviewProviderConfig;
-    readonly model?: string;
-    readonly modelReasoningEffort?: ReasoningEffort;
-    readonly timeoutMs?: number;
+    readonly provider?: AiProvider | undefined;
+    readonly providerConfig?: ResolvedReviewProviderConfig | undefined;
+    readonly model?: string | undefined;
+    readonly modelReasoningEffort?: ReasoningEffort | undefined;
+    readonly timeoutMs?: number | undefined;
   },
   client: CodexReviewClient,
 ): Effect.Effect<

@@ -1260,11 +1260,11 @@ const loadActiveSymbolByKey = (
 
 export const lookupDependencyGraphSymbolEffect = (input: {
   readonly versionId: string;
-  readonly name?: string;
-  readonly file?: string;
-  readonly line?: number;
-  readonly column?: number;
-  readonly limit?: number;
+  readonly name?: string | undefined;
+  readonly file?: string | undefined;
+  readonly line?: number | undefined;
+  readonly column?: number | undefined;
+  readonly limit?: number | undefined;
 }) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
@@ -1318,8 +1318,8 @@ export const lookupDependencyGraphSymbol = (
 export const getSymbolDependenciesEffect = (input: {
   readonly versionId: string;
   readonly symbolKey: string;
-  readonly edgeKinds?: ReadonlyArray<DependencyEdgeKind>;
-  readonly limit?: number;
+  readonly edgeKinds?: ReadonlyArray<DependencyEdgeKind> | undefined;
+  readonly limit?: number | undefined;
 }) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
@@ -1364,8 +1364,8 @@ export const getSymbolDependencies = (
 export const getSymbolDependentsEffect = (input: {
   readonly versionId: string;
   readonly symbolKey: string;
-  readonly edgeKinds?: ReadonlyArray<DependencyEdgeKind>;
-  readonly limit?: number;
+  readonly edgeKinds?: ReadonlyArray<DependencyEdgeKind> | undefined;
+  readonly limit?: number | undefined;
 }) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;

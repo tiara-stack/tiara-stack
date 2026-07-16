@@ -50,6 +50,9 @@
       "path": "packages/sheet-ingress-server"
     },
     {
+      "path": "packages/sheet-models"
+    },
+    {
       "path": "packages/sheet-web"
     },
     {
@@ -60,6 +63,9 @@
     },
     {
       "path": "packages/tiara-review"
+    },
+    {
+      "path": "packages/tooling-config"
     },
     {
       "path": "packages/typhoon-core"

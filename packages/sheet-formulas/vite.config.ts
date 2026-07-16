@@ -1,5 +1,6 @@
 import { fileURLToPath } from "url";
-import { defineConfig, Rolldown } from "vite-plus";
+import { Rolldown } from "vite-plus";
+import { appsScript } from "tooling-config/vite";
 
 const bigIntRewrite = (): Rolldown.Plugin => ({
   name: "bigIntRewrite",
@@ -11,48 +12,17 @@ const bigIntRewrite = (): Rolldown.Plugin => ({
   },
 });
 
-export default defineConfig({
+export default appsScript({
   pack: {
     entry: { index: fileURLToPath(new URL("src/index.ts", import.meta.url)) },
-    sourcemap: true,
     format: "umd",
     outputOptions: { name: "sheetFormulas" },
     target: "es6",
     minify: true,
     tsconfig: "tsconfig.build.json",
-    dts: {
-      tsgo: true,
-    },
     deps: {
       alwaysBundle: [/^.*$/],
-      onlyBundle: false,
     },
     plugins: [bigIntRewrite()],
-  },
-  lint: {
-    ignorePatterns: ["dist"],
-    env: {
-      browser: true,
-      es2022: true,
-    },
-    plugins: ["unicorn", "typescript", "oxc"],
-    rules: {
-      "no-unused-vars": [
-        "error",
-        {
-          args: "all",
-          argsIgnorePattern: "^_",
-          caughtErrors: "all",
-          caughtErrorsIgnorePattern: "^_",
-          destructuredArrayIgnorePattern: "^_",
-          varsIgnorePattern: "^_",
-          ignoreRestSiblings: true,
-        },
-      ],
-    },
-    options: {
-      typeAware: true,
-      typeCheck: true,
-    },
   },
 });

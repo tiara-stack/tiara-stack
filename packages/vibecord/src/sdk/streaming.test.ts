@@ -173,7 +173,7 @@ describe("DiscordStreamingMessage", () => {
     await streamingMessage.flush();
 
     expect(messages).toHaveLength(1);
-    expect(messages[0].sentContent).toBe("Hello");
+    expect(messages[0]!.sentContent).toBe("Hello");
   });
 
   it("uses an updated thread for future sends", async () => {
@@ -192,7 +192,7 @@ describe("DiscordStreamingMessage", () => {
 
     expect(first.thread.send).not.toHaveBeenCalled();
     expect(second.messages).toHaveLength(1);
-    expect(second.messages[0].sentContent).toBe("Hello");
+    expect(second.messages[0]!.sentContent).toBe("Hello");
   });
 
   it("throttles intermediate edits", async () => {
@@ -214,13 +214,13 @@ describe("DiscordStreamingMessage", () => {
     });
 
     expect(thread.send).toHaveBeenCalledTimes(1);
-    expect(messages[0].edits).toEqual([]);
+    expect(messages[0]!.edits).toEqual([]);
 
     await vi.advanceTimersByTimeAsync(499);
-    expect(messages[0].edits).toEqual([]);
+    expect(messages[0]!.edits).toEqual([]);
 
     await vi.advanceTimersByTimeAsync(1);
-    expect(messages[0].edits).toEqual(["Hello world"]);
+    expect(messages[0]!.edits).toEqual(["Hello world"]);
 
     await streamingMessage.flush();
     vi.useRealTimers();
@@ -264,7 +264,7 @@ describe("DiscordStreamingMessage", () => {
       partId: "t1",
     });
     await vi.advanceTimersByTimeAsync(500);
-    expect(messages[0].edits).toEqual(["Hello there"]);
+    expect(messages[0]!.edits).toEqual(["Hello there"]);
 
     await streamingMessage.pushDelta({
       sessionId: "s1",
@@ -273,12 +273,12 @@ describe("DiscordStreamingMessage", () => {
       partId: "t1",
     });
     await vi.advanceTimersByTimeAsync(500);
-    expect(messages[0].edits).toEqual(["Hello there"]);
+    expect(messages[0]!.edits).toEqual(["Hello there"]);
 
     resolveFirstEdit?.();
     await vi.advanceTimersByTimeAsync(500);
 
-    expect(messages[0].edits).toEqual(["Hello there", "Hello there world"]);
+    expect(messages[0]!.edits).toEqual(["Hello there", "Hello there world"]);
 
     await streamingMessage.flush();
     vi.useRealTimers();
@@ -333,7 +333,7 @@ describe("DiscordStreamingMessage", () => {
     await streamingMessage.flush();
     await vi.advanceTimersByTimeAsync(500);
 
-    expect(messages[0].edits).toEqual(["Hello there", "Hello there world "]);
+    expect(messages[0]!.edits).toEqual(["Hello there", "Hello there world "]);
 
     vi.useRealTimers();
   });
@@ -395,7 +395,7 @@ describe("DiscordStreamingMessage", () => {
     });
 
     expect(messages.length).toBeGreaterThan(1);
-    expect(messages[1].sentContent).toContain("| A | B |");
+    expect(messages[1]!.sentContent).toContain("| A | B |");
 
     await streamingMessage.flush();
   });
@@ -455,7 +455,7 @@ describe("DiscordStreamingMessage", () => {
       "[SDK] Streaming message edit failed",
       expect.any(Error),
     );
-    expect(messages[0].edits.at(-1)).toBe("Hello world ");
+    expect(messages[0]!.edits.at(-1)).toBe("Hello world ");
     vi.useRealTimers();
   });
 
@@ -479,7 +479,7 @@ describe("DiscordStreamingMessage", () => {
     await streamingMessage.flush();
 
     expect(messages).toHaveLength(2);
-    expect(messages[1].sentContent).toBe("Hello world");
+    expect(messages[1]!.sentContent).toBe("Hello world");
     expect(logger.warn).toHaveBeenCalledWith(
       "[SDK] Final streaming message edit failed",
       expect.any(Error),
@@ -501,7 +501,7 @@ describe("DiscordStreamingMessage", () => {
 
     expect(thread.send).toHaveBeenCalledTimes(2);
     expect(messages).toHaveLength(1);
-    expect(messages[0].sentContent).toBe("Hello");
+    expect(messages[0]!.sentContent).toBe("Hello");
     expect(logger.warn).toHaveBeenCalledWith(
       "[SDK] Streaming message send failed",
       expect.any(Error),

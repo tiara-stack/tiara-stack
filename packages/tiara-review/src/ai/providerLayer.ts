@@ -25,17 +25,25 @@ const codexModelConfig = (options: AiRunOptions): CodexLanguageModel.Config => {
     approvalPolicy: "never" as const,
     webSearchMode: "disabled" as const,
     networkAccessEnabled: false,
-    model: options.model,
-    modelReasoningEffort: options.modelReasoningEffort,
+    ...(options.model === undefined ? {} : { model: options.model }),
+    ...(options.modelReasoningEffort === undefined
+      ? {}
+      : { modelReasoningEffort: options.modelReasoningEffort }),
   };
   const baseConfig: CodexLanguageModel.Config = {
     thread,
-    timeoutMs: options.timeoutMs,
-    cleanupGraceMs: codexConfig?.cleanupGraceMs,
-    apiKey: codexConfig?.apiKey,
-    baseUrl: codexConfig?.baseUrl,
-    codexPathOverride: codexConfig?.codexPathOverride,
-    config: codexConfig?.config as CodexLanguageModel.Config["config"],
+    ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+    ...(codexConfig?.cleanupGraceMs === undefined
+      ? {}
+      : { cleanupGraceMs: codexConfig.cleanupGraceMs }),
+    ...(codexConfig?.apiKey === undefined ? {} : { apiKey: codexConfig.apiKey }),
+    ...(codexConfig?.baseUrl === undefined ? {} : { baseUrl: codexConfig.baseUrl }),
+    ...(codexConfig?.codexPathOverride === undefined
+      ? {}
+      : { codexPathOverride: codexConfig.codexPathOverride }),
+    ...(codexConfig?.config === undefined
+      ? {}
+      : { config: codexConfig.config as NonNullable<CodexLanguageModel.Config["config"]> }),
   };
   if (!options.graphVersionId || !options.graphDbPath || !options.graphMcpCommand) {
     return baseConfig;
@@ -92,7 +100,12 @@ export const kimiSessionConfig = (
   if (raw === undefined) {
     return undefined;
   }
-  return Option.getOrUndefined(Schema.decodeUnknownOption(KimiSessionConfigSchema)(raw));
+  const decoded = Option.getOrUndefined(Schema.decodeUnknownOption(KimiSessionConfigSchema)(raw));
+  return decoded === undefined
+    ? undefined
+    : (Object.fromEntries(
+        Object.entries(decoded).filter(([, value]) => value !== undefined),
+      ) as KimiLanguageModel.Config["session"]);
 };
 
 export const makeKimiGraphTools = (options: AiRunOptions): KimiDependencyGraphTools | undefined =>
@@ -111,20 +124,23 @@ export const kimiModelConfig = (
   const thinking =
     kimiConfig?.thinking ??
     (options.modelReasoningEffort === "high" || options.modelReasoningEffort === "xhigh");
+  const session = kimiSessionConfig(kimiConfig);
   return {
     workDir: options.repoRoot,
-    executable: kimiConfig?.executable,
-    env: kimiConfig?.env,
+    ...(kimiConfig?.executable === undefined ? {} : { executable: kimiConfig.executable }),
+    ...(kimiConfig?.env === undefined ? {} : { env: kimiConfig.env }),
     thinking,
     approvalPolicy: kimiConfig?.approvalPolicy ?? "allow-read-only-git",
     yoloMode: kimiConfig?.yoloMode ?? false,
-    agentFile: kimiConfig?.agentFile,
-    skillsDir: kimiConfig?.skillsDir,
-    shareDir: kimiConfig?.shareDir,
-    timeoutMs: options.timeoutMs,
-    cleanupGraceMs: kimiConfig?.cleanupGraceMs,
-    session: kimiSessionConfig(kimiConfig),
-    externalTools,
+    ...(kimiConfig?.agentFile === undefined ? {} : { agentFile: kimiConfig.agentFile }),
+    ...(kimiConfig?.skillsDir === undefined ? {} : { skillsDir: kimiConfig.skillsDir }),
+    ...(kimiConfig?.shareDir === undefined ? {} : { shareDir: kimiConfig.shareDir }),
+    ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+    ...(kimiConfig?.cleanupGraceMs === undefined
+      ? {}
+      : { cleanupGraceMs: kimiConfig.cleanupGraceMs }),
+    ...(session === undefined ? {} : { session }),
+    ...(externalTools === undefined ? {} : { externalTools }),
   };
 };
 
@@ -195,14 +211,15 @@ type LanguageModelLayerFactory = (
 const languageModelLayerFactories: Record<AiProvider, LanguageModelLayerFactory> = {
   codex: (options) =>
     Effect.succeed(
-      CodexLanguageModel.layer({ model: options.model, config: codexModelConfig(options) }).pipe(
-        Layer.provide(CodexClient.CodexClient.layer),
-      ),
+      CodexLanguageModel.layer({
+        ...(options.model === undefined ? {} : { model: options.model }),
+        config: codexModelConfig(options),
+      }).pipe(Layer.provide(CodexClient.CodexClient.layer)),
     ),
   kimi: (options, kimiExternalTools) =>
     Effect.succeed(
       KimiLanguageModel.layer({
-        model: options.model,
+        ...(options.model === undefined ? {} : { model: options.model }),
         config: kimiModelConfig(options, kimiExternalTools),
       }).pipe(Layer.provide(KimiClient.KimiClient.layer)),
     ),

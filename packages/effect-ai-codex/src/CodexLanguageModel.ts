@@ -505,24 +505,25 @@ const makeRunOptions = (
   modelId: string | undefined,
 ): RunOptions => ({
   prompt: promptToString(options.prompt),
-  threadId: options.previousResponseId,
+  ...(options.previousResponseId === undefined ? {} : { threadId: options.previousResponseId }),
   threadOptions: {
     ...config?.thread,
-    model: modelId,
+    ...(modelId === undefined ? {} : { model: modelId }),
   },
-  timeoutMs: config?.timeoutMs,
-  cleanupGraceMs: config?.cleanupGraceMs,
+  ...(config?.timeoutMs === undefined ? {} : { timeoutMs: config.timeoutMs }),
+  ...(config?.cleanupGraceMs === undefined ? {} : { cleanupGraceMs: config.cleanupGraceMs }),
   clientOptions: {
-    codexPathOverride: config?.codexPathOverride,
-    baseUrl: config?.baseUrl,
-    apiKey: config?.apiKey,
-    env: config?.env,
-    config: config?.config,
+    ...(config?.codexPathOverride === undefined
+      ? {}
+      : { codexPathOverride: config.codexPathOverride }),
+    ...(config?.baseUrl === undefined ? {} : { baseUrl: config.baseUrl }),
+    ...(config?.apiKey === undefined ? {} : { apiKey: config.apiKey }),
+    ...(config?.env === undefined ? {} : { env: config.env }),
+    ...(config?.config === undefined ? {} : { config: config.config }),
   },
-  turnOptions:
-    options.responseFormat.type === "json"
-      ? { outputSchema: Tool.getJsonSchemaFromSchema(options.responseFormat.schema) }
-      : undefined,
+  ...(options.responseFormat.type === "json"
+    ? { turnOptions: { outputSchema: Tool.getJsonSchemaFromSchema(options.responseFormat.schema) } }
+    : {}),
 });
 
 const mergeEnv = (
@@ -537,7 +538,11 @@ export const model = (
   modelName: string,
   config?: Omit<Config, "thread">,
 ): AiModel.Model<"codex", LanguageModel.LanguageModel, CodexClient> =>
-  AiModel.make("codex", modelName, layer({ model: modelName, config }));
+  AiModel.make(
+    "codex",
+    modelName,
+    layer({ model: modelName, ...(config === undefined ? {} : { config }) }),
+  );
 
 export const make = ({
   model,
@@ -551,10 +556,11 @@ export const make = ({
     const makeConfig = Effect.gen(function* () {
       const serviceConfig = yield* Effect.serviceOption(CodexConfig);
       const serviceConfigValue = serviceConfig._tag === "Some" ? serviceConfig.value : undefined;
+      const env = mergeEnv(providerConfig?.env, serviceConfigValue?.env);
       return {
         ...providerConfig,
         ...serviceConfigValue,
-        env: mergeEnv(providerConfig?.env, serviceConfigValue?.env),
+        ...(env === undefined ? {} : { env }),
       };
     });
     return yield* LanguageModel.make({

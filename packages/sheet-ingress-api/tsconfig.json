@@ -1,31 +1,42 @@
 {
-  "include": ["**/*.ts", "**/*.tsx", "*.ts", "*.tsx"],
+  "extends": "../../tsconfig.browser.json",
+  "include": ["**/*.ts", "**/*.tsx", "**/*.mts"],
+  "exclude": ["node_modules", "dist", ".output", ".ts-out"],
   "compilerOptions": {
-    "strict": true,
-    "esModuleInterop": true,
-    "jsx": "react-jsx",
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "lib": ["DOM", "DOM.Iterable", "ES2022"],
-    "isolatedModules": true,
-    "resolveJsonModule": true,
-    "skipLibCheck": true,
-    "target": "ES2022",
+    "outDir": "./.ts-out",
+    "rootDir": ".",
+    "tsBuildInfoFile": "./.ts-out/.tsbuildinfo",
     "verbatimModuleSyntax": true,
-    "allowJs": true,
-    "forceConsistentCasingInFileNames": true,
-    "noEmit": true,
     "paths": {
-      "dfx-discord-utils": ["../dfx-discord-utils/src/index.ts"],
-      "dfx-discord-utils/*": ["../dfx-discord-utils/src/*"],
       "*": ["./*"],
       "~~/*": ["./*"],
       "@@/*": ["./*"],
       "~/*": ["./src/*"],
-      "@/*": ["./src/*"]
-    },
-    "incremental": true,
-    "tsBuildInfoFile": "./.tsbuildinfo"
+      "@/*": ["./src/*"],
+      "dfx-discord-utils": ["../dfx-discord-utils/src/index.ts"],
+      "dfx-discord-utils/*": ["../dfx-discord-utils/src/*"],
+      "sheet-models": ["../sheet-models/src/index.ts"],
+      "typhoon-core": ["../typhoon-core/src/index.ts"],
+      "typhoon-core/*": ["../typhoon-core/src/*"],
+      "typhoon-zero": ["../typhoon-zero/src/index.ts"],
+      "typhoon-zero/*": ["../typhoon-zero/src/*"]
+    }
   },
-  "exclude": ["node_modules", "dist", ".output", ".tsbuildinfo"]
+  "references": [
+    {
+      "path": "../dfx-discord-utils"
+    },
+    {
+      "path": "../sheet-models"
+    },
+    {
+      "path": "../typhoon-core"
+    },
+    {
+      "path": "../typhoon-zero"
+    },
+    {
+      "path": "../tooling-config"
+    }
+  ]
 }

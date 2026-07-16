@@ -1,35 +1,48 @@
 {
-  "include": ["**/*.ts", "**/*.tsx", "*.ts", "*.tsx"],
+  "extends": "../../tsconfig.browser.json",
+  "include": ["**/*.ts", "**/*.tsx", "**/*.mts"],
+  "exclude": ["node_modules", "dist", ".output", ".ts-out"],
   "compilerOptions": {
-    "strict": true,
-    "esModuleInterop": true,
-    "jsx": "react-jsx",
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "lib": ["DOM", "DOM.Iterable", "ES2022"],
-    "isolatedModules": true,
-    "resolveJsonModule": true,
-    "skipLibCheck": true,
-    "target": "ES2022",
+    "outDir": "./.ts-out",
+    "rootDir": ".",
+    "tsBuildInfoFile": "./.ts-out/.tsbuildinfo",
     "verbatimModuleSyntax": true,
-    "allowJs": true,
-    "forceConsistentCasingInFileNames": true,
-    "noEmit": true,
     "paths": {
-      "sheet-auth/client": ["../sheet-auth/src/client.ts"],
-      "sheet-auth/oauth": ["../sheet-auth/src/oauth.ts"],
-      "sheet-auth/oauth-resource-authorization": [
-        "../sheet-auth/src/oauth-resource-authorization.ts"
-      ],
-      "sheet-ingress-api/*": ["../sheet-ingress-api/src/*"],
       "*": ["./*"],
       "~~/*": ["./*"],
       "@@/*": ["./*"],
       "~/*": ["./src/*"],
-      "@/*": ["./src/*"]
-    },
-    "incremental": true,
-    "tsBuildInfoFile": "./.tsbuildinfo"
+      "@/*": ["./src/*"],
+      "sheet-auth": ["../sheet-auth/src/index.ts"],
+      "sheet-auth/*": ["../sheet-auth/src/*"],
+      "sheet-db-schema": ["../sheet-db-schema/src/schema.ts"],
+      "sheet-db-schema/*": ["../sheet-db-schema/src/*"],
+      "sheet-ingress-api": ["../sheet-ingress-api/src/index.ts"],
+      "sheet-ingress-api/*": ["../sheet-ingress-api/src/*"],
+      "typhoon-core": ["../typhoon-core/src/index.ts"],
+      "typhoon-core/*": ["../typhoon-core/src/*"],
+      "typhoon-zero": ["../typhoon-zero/src/index.ts"],
+      "typhoon-zero/*": ["../typhoon-zero/src/*"]
+    }
   },
-  "exclude": ["node_modules", "dist", ".output", ".tsbuildinfo"]
+  "references": [
+    {
+      "path": "../sheet-auth"
+    },
+    {
+      "path": "../sheet-db-schema"
+    },
+    {
+      "path": "../sheet-ingress-api"
+    },
+    {
+      "path": "../typhoon-core"
+    },
+    {
+      "path": "../typhoon-zero"
+    },
+    {
+      "path": "../tooling-config"
+    }
+  ]
 }
