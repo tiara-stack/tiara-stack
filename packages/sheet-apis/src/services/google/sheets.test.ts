@@ -62,4 +62,29 @@ describe("GoogleSheets", () => {
     expect(cell).toBeDefined();
     expect(GoogleSheets.rowDataCellIsBold(cell!)).toBe(true);
   });
+
+  it("prefers effective format when checking whether a cell is underlined", () => {
+    const [cell] = Schema.decodeUnknownSync(GoogleSheets.rowDataSchema)([
+      {
+        formattedValue: "Alice",
+        effectiveFormat: { textFormat: { underline: true } },
+        userEnteredFormat: { textFormat: { underline: false } },
+      },
+    ]);
+
+    expect(cell).toBeDefined();
+    expect(GoogleSheets.rowDataCellIsUnderline(cell!)).toBe(true);
+  });
+
+  it("falls back to user-entered underline format when effective format is missing", () => {
+    const [cell] = Schema.decodeUnknownSync(GoogleSheets.rowDataSchema)([
+      {
+        formattedValue: "Alice",
+        userEnteredFormat: { textFormat: { underline: true } },
+      },
+    ]);
+
+    expect(cell).toBeDefined();
+    expect(GoogleSheets.rowDataCellIsUnderline(cell!)).toBe(true);
+  });
 });

@@ -153,6 +153,7 @@ const parseValueRanges = <
 
 const textFormatSchema = Schema.Struct({
   bold: Schema.optional(Schema.NullOr(Schema.Boolean)),
+  underline: Schema.optional(Schema.NullOr(Schema.Boolean)),
 });
 const cellFormatSchema = Schema.Struct({
   textFormat: Schema.optional(Schema.NullOr(textFormatSchema)),
@@ -171,6 +172,11 @@ const rowSchema = Schema.Array(cellSchema);
 const rowDataCellIsBold = (rowDataCell: Schema.Schema.Type<typeof rowDataCellSchema>) =>
   rowDataCell.effectiveFormat?.textFormat?.bold ??
   rowDataCell.userEnteredFormat?.textFormat?.bold ??
+  false;
+
+const rowDataCellIsUnderline = (rowDataCell: Schema.Schema.Type<typeof rowDataCellSchema>) =>
+  rowDataCell.effectiveFormat?.textFormat?.underline ??
+  rowDataCell.userEnteredFormat?.textFormat?.underline ??
   false;
 
 const rowDataCellToCellSchema = Schema.toType(rowDataCellSchema).pipe(
@@ -632,6 +638,7 @@ export class GoogleSheets extends Context.Service<GoogleSheets, GoogleSheetsServ
   static rowDataToRowSchema = rowDataToRowSchema;
   static rowDataToCellSchema = rowDataToCellSchema;
   static rowDataCellIsBold = rowDataCellIsBold;
+  static rowDataCellIsUnderline = rowDataCellIsUnderline;
   static toStringSchema = toStringSchema;
   static cellToStringSchema = cellToSchema(toStringSchema);
   static toNumberSchema = toNumberSchema;

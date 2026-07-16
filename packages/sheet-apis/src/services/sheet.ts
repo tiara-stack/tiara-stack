@@ -196,11 +196,12 @@ type RowDataCell = Schema.Schema.Type<typeof GoogleSheets.rowDataSchema>[number]
 const isRegexEnc = (value: string) => playerNameRegex.exec(value)?.groups?.enc !== undefined;
 
 const isFillEnc = (encType: string, fillCell: RowDataCell, value: string) =>
-  encType === "regex"
-    ? isRegexEnc(value)
-    : encType === "bold"
-      ? GoogleSheets.rowDataCellIsBold(fillCell)
-      : false;
+  Match.value(encType).pipe(
+    Match.when("regex", () => isRegexEnc(value)),
+    Match.when("bold", () => GoogleSheets.rowDataCellIsBold(fillCell)),
+    Match.when("underline", () => GoogleSheets.rowDataCellIsUnderline(fillCell)),
+    Match.orElse(() => false),
+  );
 
 const teamBaseParser = (
   teamConfigValue: FilteredTeamConfigValue,

@@ -5,7 +5,7 @@ import { SheetConfigService } from "./sheetConfig";
 
 type GoogleSheetsApi = Context.Service.Shape<typeof GoogleSheets>;
 
-const makeGoogleSheets = () =>
+const makeGoogleSheets = (encType: string) =>
   ({
     get: () =>
       Effect.succeed({
@@ -20,7 +20,7 @@ const makeGoogleSheets = () =>
                   "A1:A1",
                   "B1:B1",
                   null,
-                  "bold",
+                  encType,
                   "C1:G1",
                   "H1:H1",
                   "I1:I1",
@@ -47,7 +47,21 @@ describe("SheetConfigService", () => {
         expect(config).toBeDefined();
         expect(config?.encType).toEqual(Option.some("bold"));
       },
-      Effect.provideService(GoogleSheets, makeGoogleSheets()),
+      Effect.provideService(GoogleSheets, makeGoogleSheets("bold")),
+    ),
+  );
+
+  it.effect(
+    "accepts underline as a schedule encType",
+    Effect.fnUntraced(
+      function* () {
+        const sheetConfigService = yield* SheetConfigService.make;
+        const [config] = yield* sheetConfigService.getScheduleConfig("sheet-1");
+
+        expect(config).toBeDefined();
+        expect(config?.encType).toEqual(Option.some("underline"));
+      },
+      Effect.provideService(GoogleSheets, makeGoogleSheets("underline")),
     ),
   );
 });

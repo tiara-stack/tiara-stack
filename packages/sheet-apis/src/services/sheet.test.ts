@@ -12,20 +12,26 @@ type SheetConfigServiceApi = Context.Service.Shape<typeof SheetConfigService>;
 
 const scheduleSheet = "Schedule";
 
+interface CellFormatOptions {
+  readonly effectiveBold?: boolean;
+  readonly effectiveUnderline?: boolean;
+  readonly userEnteredBold?: boolean;
+  readonly userEnteredUnderline?: boolean;
+}
+
+const hasTextFormat = (bold: boolean | undefined, underline: boolean | undefined) =>
+  Predicate.isBoolean(bold) || Predicate.isBoolean(underline);
+
+const makeCellFormat = (bold: boolean | undefined, underline: boolean | undefined) =>
+  hasTextFormat(bold, underline) ? { textFormat: { bold, underline } } : undefined;
+
 const makeCell = (
   formattedValue?: string,
-  options?: {
-    effectiveBold?: boolean;
-    userEnteredBold?: boolean;
-  },
+  options: CellFormatOptions = {},
 ): sheets_v4.Schema$CellData => ({
-  ...(formattedValue === undefined ? {} : { formattedValue }),
-  ...(typeof options?.effectiveBold === "boolean"
-    ? { effectiveFormat: { textFormat: { bold: options.effectiveBold } } }
-    : {}),
-  ...(typeof options?.userEnteredBold === "boolean"
-    ? { userEnteredFormat: { textFormat: { bold: options.userEnteredBold } } }
-    : {}),
+  formattedValue,
+  effectiveFormat: makeCellFormat(options.effectiveBold, options.effectiveUnderline),
+  userEnteredFormat: makeCellFormat(options.userEnteredBold, options.userEnteredUnderline),
 });
 
 const makeRow = (...values: sheets_v4.Schema$CellData[]): sheets_v4.Schema$RowData => ({
@@ -34,7 +40,7 @@ const makeRow = (...values: sheets_v4.Schema$CellData[]): sheets_v4.Schema$RowDa
 
 const makeRange = (range: string) => `'${scheduleSheet}'!${range}`;
 
-const makeScheduleConfig = (encType: "none" | "regex" | "bold") =>
+const makeScheduleConfig = (encType: "none" | "regex" | "bold" | "underline") =>
   new ScheduleConfig({
     channel: Option.some("main"),
     day: Option.some(1),
@@ -52,7 +58,7 @@ const makeScheduleConfig = (encType: "none" | "regex" | "bold") =>
     draft: Option.none(),
   });
 
-const makeSheetConfigService = (encType: "none" | "regex" | "bold") =>
+const makeSheetConfigService = (encType: "none" | "regex" | "bold" | "underline") =>
   ({
     getScheduleConfig: () => Effect.succeed([makeScheduleConfig(encType)]),
     getRunnerConfig: () => Effect.succeed([]),
@@ -95,7 +101,7 @@ const runGetAllSchedules = ({
   overfills,
   standbys,
 }: {
-  encType: "none" | "regex" | "bold";
+  encType: "none" | "regex" | "bold" | "underline";
   fills: sheets_v4.Schema$CellData[];
   overfills?: string;
   standbys?: string;
@@ -190,6 +196,91 @@ describe("SheetService schedule enc parsing", () => {
         makeCell("Alice", { effectiveBold: true }),
         makeCell("Bob"),
         makeCell("Carol", { userEnteredBold: true }),
+        makeCell(),
+        makeCell(),
+      ],
+    }).pipe(
+      Effect.map((schedules) => {
+        const schedule = getSchedule(schedules);
+
+        expect(getFill(schedule, 0)).toMatchObject({ player: "Alice", enc: true });
+        expect(getFill(schedule, 1)).toMatchObject({ player: "Bob", enc: false });
+        expect(getFill(schedule, 2)).toMatchObject({ player: "Carol", enc: true });
+      }),
+    ),
+  );
+
+  it.effect("marks an underlined fill from effective format", () =>
+    runGetAllSchedules({
+      encType: "underline",
+      fills: [
+        makeCell("Alice", { effectiveUnderline: true }),
+        makeCell("Bob"),
+        makeCell(),
+        makeCell(),
+        makeCell(),
+      ],
+    }).pipe(
+      Effect.map((schedules) => {
+        const schedule = getSchedule(schedules);
+
+        expect(getFill(schedule, 0)).toMatchObject({ player: "Alice", enc: true });
+        expect(getFill(schedule, 1)).toMatchObject({ player: "Bob", enc: false });
+      }),
+    ),
+  );
+
+  it.effect("falls back to user-entered underline format when effective format is absent", () =>
+    runGetAllSchedules({
+      encType: "underline",
+      fills: [
+        makeCell("Alice", { userEnteredUnderline: true }),
+        makeCell(),
+        makeCell(),
+        makeCell(),
+        makeCell(),
+      ],
+    }).pipe(
+      Effect.map((schedules) => {
+        const schedule = getSchedule(schedules);
+        expect(getFill(schedule, 0)).toMatchObject({ player: "Alice", enc: true });
+      }),
+    ),
+  );
+
+  it.effect(
+    "leaves all fills non-enc in underline mode when no cell is underlined, even with suffix text",
+    () =>
+      runGetAllSchedules({
+        encType: "underline",
+        fills: [makeCell("Alice (enc)"), makeCell("Bob"), makeCell(), makeCell(), makeCell()],
+        overfills: "Carol (e), Dana",
+        standbys: "Erin (enc), Finn",
+      }).pipe(
+        Effect.map((schedules) => {
+          const schedule = getSchedule(schedules);
+
+          expect(getFill(schedule, 0)).toMatchObject({ player: "Alice (enc)", enc: false });
+          expect(getFill(schedule, 1)).toMatchObject({ player: "Bob", enc: false });
+          expect(schedule.overfills).toMatchObject([
+            { player: "Carol (e)", enc: false },
+            { player: "Dana", enc: false },
+          ]);
+          expect(schedule.standbys).toMatchObject([
+            { player: "Erin (enc)", enc: false },
+            { player: "Finn", enc: false },
+          ]);
+        }),
+      ),
+  );
+
+  it.effect("marks every underlined fill as enc in underline mode", () =>
+    runGetAllSchedules({
+      encType: "underline",
+      fills: [
+        makeCell("Alice", { effectiveUnderline: true }),
+        makeCell("Bob"),
+        makeCell("Carol", { userEnteredUnderline: true }),
         makeCell(),
         makeCell(),
       ],

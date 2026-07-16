@@ -59,7 +59,7 @@ const scheduleConfigParser = ([range]: sheets_v4.Schema$ValueRange[]) =>
             hourRange: GoogleSheets.cellToStringSchema,
             breakRange: GoogleSheets.cellToStringSchema,
             monitorRange: GoogleSheets.cellToStringSchema,
-            encType: GoogleSheets.cellToLiteralSchema(["none", "regex", "bold"]),
+            encType: GoogleSheets.cellToLiteralSchema(["none", "regex", "bold", "underline"]),
             fillRange: GoogleSheets.cellToStringSchema,
             overfillRange: GoogleSheets.cellToStringSchema,
             standbyRange: GoogleSheets.cellToStringSchema,
