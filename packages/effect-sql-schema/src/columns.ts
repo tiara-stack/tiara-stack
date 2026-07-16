@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { defaultColumnSchema } from "./internal/columnSchema";
+import { defaultColumnSchema } from "./internal/columnSchema.js";
 import type {
   ColumnGeneration,
   ColumnData,
@@ -8,8 +8,8 @@ import type {
   ReferenceOptions,
   ReferenceResolver,
   SqlDefaultValue,
-} from "./types";
-import type { DefaultColumnSchema } from "./internal/columnSchema";
+} from "./types.js";
+import type { DefaultColumnSchema } from "./internal/columnSchema.js";
 
 const clone = <
   D extends Dialect,

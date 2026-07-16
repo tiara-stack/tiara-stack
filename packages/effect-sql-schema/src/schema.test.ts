@@ -1,8 +1,8 @@
 import { Schema } from "effect";
 import { describe, expect, expectTypeOf, it } from "@effect/vitest";
-import { pg, schema, sqlite } from "./index";
-import { snapshotSchema } from "./snapshot";
-import type { EffectSqlColumn } from "./types";
+import { pg, schema, sqlite } from "./index.mjs";
+import { snapshotSchema } from "./snapshot.mjs";
+import type { EffectSqlColumn, TableOptions } from "./types.js";
 
 describe("effect-sql-schema", () => {
   it("defines Postgres model classes", () => {
@@ -60,6 +60,25 @@ describe("effect-sql-schema", () => {
     >();
     expectTypeOf(column.decodeTo(Schema.String)).toEqualTypeOf<
       EffectSqlColumn<"postgresql", "integer", typeof Schema.String, false, "none">
+    >();
+  });
+
+  it("preserves SQLite integer mode types", () => {
+    const booleanColumn = sqlite.integer("active", { mode: "boolean" });
+    const timestampColumn = sqlite.integer({ mode: "timestamp" });
+    const timestampMillisecondsColumn = sqlite.integer("updatedAt", { mode: "timestamp_ms" });
+    const numberColumn = sqlite.integer({ mode: "number" });
+    const defaultColumn = sqlite.integer();
+
+    expectTypeOf(booleanColumn.data.fieldSchema).toEqualTypeOf<typeof Schema.Boolean>();
+    expectTypeOf(timestampColumn.data.fieldSchema).toEqualTypeOf<typeof Schema.Number>();
+    expectTypeOf(timestampMillisecondsColumn.data.fieldSchema).toEqualTypeOf<
+      typeof Schema.Number
+    >();
+    expectTypeOf(numberColumn.data.fieldSchema).toEqualTypeOf<typeof Schema.Number>();
+    expectTypeOf(defaultColumn.data.fieldSchema).toEqualTypeOf<typeof Schema.Number>();
+    expectTypeOf<{ readonly mode: "unsupported" }>().not.toExtend<
+      NonNullable<Parameters<typeof sqlite.integer>[1]>
     >();
   });
 
@@ -174,6 +193,36 @@ describe("effect-sql-schema", () => {
     const snapshot = snapshotSchema(schema({ users }));
     expect(snapshot.tables.users?.columns.id?.kind).toBe("uuid");
     expect(snapshot.tables.users?.columns.id?.defaultSql).toBe("gen_random_uuid()");
+    expectTypeOf(users.columns.id).toEqualTypeOf<
+      EffectSqlColumn<"postgresql", "uuid", typeof Schema.String, true, "database">
+    >();
+    expectTypeOf(users.columns.name).toEqualTypeOf<
+      EffectSqlColumn<"postgresql", "text", typeof Schema.String, true, "none">
+    >();
+  });
+
+  it("keeps table columns tied to model fields", () => {
+    const model = { fields: { id: Schema.String, ignored: Schema.String } };
+    const id = pg.uuid().primaryKey();
+    const users = pg.table(model, {
+      name: "users",
+      columns: {
+        id,
+        ignored: false,
+      },
+    });
+
+    expect(users.columns).not.toHaveProperty("ignored");
+    expectTypeOf<keyof typeof users.columns>().toEqualTypeOf<"id">();
+    expectTypeOf(users.columns.id).toEqualTypeOf<typeof id>();
+
+    type UnknownColumnOptions = TableOptions<
+      typeof model,
+      { readonly id: typeof id; readonly unknown: typeof id }
+    >;
+    expectTypeOf<{
+      readonly columns: { readonly id: typeof id; readonly unknown: typeof id };
+    }>().not.toExtend<UnknownColumnOptions>();
   });
 
   it("defines SQLite tables", () => {
@@ -188,6 +237,9 @@ describe("effect-sql-schema", () => {
     );
 
     expect(snapshotSchema(schema({ users })).dialect).toBe("sqlite");
+    expectTypeOf(users.columns.id).toEqualTypeOf<
+      EffectSqlColumn<"sqlite", "text", typeof Schema.String, true, "none">
+    >();
   });
 
   it("prefixes table names in schema snapshots", () => {

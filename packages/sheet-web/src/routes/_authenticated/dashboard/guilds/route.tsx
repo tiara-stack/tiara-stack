@@ -1,7 +1,7 @@
 import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
 import { Suspense } from "react";
 import { Effect } from "effect";
-import { Discord } from "sheet-apis/schema";
+import { Discord } from "sheet-ingress-api/schemas";
 import { Avatar, AvatarImage, AvatarFallback } from "#/components/ui/avatar";
 import { Skeleton } from "#/components/ui/skeleton";
 import { currentUserGuildsAtom, useCurrentUserGuilds } from "#/lib/discord";

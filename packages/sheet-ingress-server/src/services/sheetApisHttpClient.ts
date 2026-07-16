@@ -1,7 +1,7 @@
 import { HttpClient } from "effect/unstable/http";
 import { HttpApiClient } from "effect/unstable/httpapi";
 import { Context, Effect, Layer } from "effect";
-import { SheetApisInternalApi } from "sheet-ingress-api/sheet-apis-internal";
+import { SheetApisInternalApi } from "sheet-ingress-api/internal";
 import { config } from "@/config";
 import { SheetApisRpcTokens } from "./sheetApisRpcTokens";
 import { withIngressHttpHeaders } from "./rpcAuthorizationClient";

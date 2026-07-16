@@ -1,6 +1,6 @@
 import { Cache, Context, Duration, Effect, Exit, Layer, Redacted } from "effect";
 import { getDiscordAccessToken, getDiscordAccessTokenWithOAuth } from "sheet-auth/client";
-import { SHEET_AUTH_SESSION_TOKEN_UNAVAILABLE } from "sheet-ingress-api/middlewares/forwardedAuthHeaders";
+import { SHEET_AUTH_SESSION_TOKEN_UNAVAILABLE } from "sheet-ingress-api/internal";
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
 import { makeArgumentError } from "typhoon-core/error";
 import { SheetAuthClient } from "./sheetAuthClient";

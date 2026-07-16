@@ -114,6 +114,21 @@ export type TableColumns<Model extends EffectSqlModel> = Partial<
   Record<FieldName<Model>, EffectSqlColumn<any, any, any, any, any> | false>
 >;
 
+export type ModelTableColumns<
+  Model extends EffectSqlModel,
+  Columns extends TableColumns<Model>,
+> = Columns & Record<Exclude<keyof Columns, FieldName<Model>>, never>;
+
+export type DefinedTableColumns<
+  D extends Dialect,
+  Columns extends Partial<Record<string, AnyEffectSqlColumn | false>>,
+> = {
+  [K in keyof Columns as Columns[K] extends false | undefined ? never : K]: Extract<
+    Columns[K],
+    EffectSqlColumn<D, any, any, any, any>
+  >;
+};
+
 export type IndexDefinition = {
   readonly dialect: Dialect;
   readonly name: string;
@@ -121,10 +136,13 @@ export type IndexDefinition = {
   readonly fields: readonly string[];
 };
 
-export type TableOptions<Model extends EffectSqlModel> = {
+export type TableOptions<
+  Model extends EffectSqlModel,
+  Columns extends TableColumns<Model> = TableColumns<Model>,
+> = {
   readonly name?: string;
   readonly schema?: string;
-  readonly columns?: TableColumns<Model>;
+  readonly columns?: ModelTableColumns<Model, Columns>;
   readonly primaryKey?: readonly FieldName<Model>[];
   readonly indexes?: readonly IndexDefinition[];
 };

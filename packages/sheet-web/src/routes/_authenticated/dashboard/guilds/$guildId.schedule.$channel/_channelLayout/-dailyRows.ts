@@ -1,5 +1,5 @@
 import { Predicate } from "effect";
-import { Sheet } from "sheet-apis/schema";
+import { Sheet } from "sheet-ingress-api/schemas";
 
 const isPopulatedSchedule = (
   schedule: Sheet.PopulatedScheduleResult,

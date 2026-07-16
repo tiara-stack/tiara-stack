@@ -13,7 +13,7 @@ import {
   computeScheduleHour,
   formatDayKey,
 } from "#/lib/schedule";
-import { Sheet } from "sheet-apis/schema";
+import { Sheet } from "sheet-ingress-api/schemas";
 import { eventConfigAtom, useEventConfig } from "#/lib/sheet";
 import { useNowByHour } from "#/lib/dateTime";
 import { useDateTime } from "#/hooks/useDateTime";

@@ -37,7 +37,6 @@
     "nitro": "npm:nitro-nightly@latest",
     "react": "19.3.0-canary-98ce535f-20260226",
     "react-dom": "19.3.0-canary-98ce535f-20260226",
-    "sheet-apis": "workspace:*",
     "sheet-auth": "workspace:*",
     "sheet-ingress-api": "workspace:*",
     "start-atom": "workspace:*",

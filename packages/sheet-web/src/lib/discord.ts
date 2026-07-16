@@ -4,7 +4,7 @@ import { SheetApisClient } from "#/lib/sheetApis";
 import { Duration, Schema } from "effect";
 import { ArgumentError, SchemaError } from "typhoon-core/error";
 import { QueryResultAppError, QueryResultParseError } from "typhoon-zero/error";
-import { Discord } from "sheet-apis/schema";
+import { Discord } from "sheet-ingress-api/schemas";
 
 const _currentUserAtom = SheetApisClient.query("discord", "getCurrentUser", {});
 

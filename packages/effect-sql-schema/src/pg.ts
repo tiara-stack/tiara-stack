@@ -1,11 +1,78 @@
-import { makeColumn } from "./columns";
-import { defineClass, defineTable, makeIndex } from "./table";
-import type { EffectSqlModel, TableOptions } from "./types";
+import { makeColumn } from "./columns.js";
+import { defineClass, defineTable, makeIndex } from "./table.js";
+import type { DefaultColumnSchema } from "./internal/columnSchema.js";
+import type {
+  DefinedTableColumns,
+  EffectSqlColumn,
+  EffectSqlModel,
+  EffectSqlTable,
+  IndexDefinition,
+  ModelTableColumns,
+  TableOptions,
+  TableColumns,
+} from "./types.js";
 
-export const pg = {
+type PgColumn<
+  Kind extends string,
+  Config extends Record<string, unknown> | undefined = undefined,
+> = EffectSqlColumn<
+  "postgresql",
+  Kind,
+  DefaultColumnSchema<"postgresql", Kind, Config>,
+  false,
+  "none"
+>;
+
+type Pg = {
+  Class: ReturnType<typeof defineClass<"postgresql">>;
+  table: <const Model extends EffectSqlModel, const Columns extends TableColumns<Model>>(
+    model: Model,
+    options: Omit<TableOptions<Model, Columns>, "columns"> & {
+      readonly columns: ModelTableColumns<Model, Columns>;
+    },
+  ) => EffectSqlTable<
+    "postgresql",
+    Model,
+    DefinedTableColumns<"postgresql", ModelTableColumns<Model, Columns>>
+  >;
+  text: (name?: string) => PgColumn<"text">;
+  varchar: (
+    nameOrOptions?: string | { readonly length?: number },
+    options?: { readonly length?: number },
+  ) => PgColumn<"varchar", { readonly length?: number } | undefined>;
+  uuid: (name?: string) => PgColumn<"uuid">;
+  integer: (name?: string) => PgColumn<"integer">;
+  bigint: (name?: string) => PgColumn<"bigint">;
+  real: (name?: string) => PgColumn<"real">;
+  doublePrecision: (name?: string) => PgColumn<"doublePrecision">;
+  numeric: (
+    nameOrOptions?: string | { readonly precision?: number; readonly scale?: number },
+    options?: { readonly precision?: number; readonly scale?: number },
+  ) => PgColumn<"numeric", { readonly precision?: number; readonly scale?: number } | undefined>;
+  boolean: (name?: string) => PgColumn<"boolean">;
+  json: (name?: string) => PgColumn<"json">;
+  jsonb: (name?: string) => PgColumn<"jsonb">;
+  timestamp: (
+    nameOrOptions?: string | { readonly withTimezone?: boolean },
+    options?: { readonly withTimezone?: boolean },
+  ) => PgColumn<"timestamp", { readonly withTimezone?: boolean } | undefined>;
+  date: (name?: string) => PgColumn<"date">;
+  index: (name: string) => { readonly on: (...fields: string[]) => IndexDefinition };
+  uniqueIndex: (name: string) => { readonly on: (...fields: string[]) => IndexDefinition };
+};
+
+export const pg: Pg = {
   Class: defineClass("postgresql"),
-  table: <const Model extends EffectSqlModel>(model: Model, options: TableOptions<Model>) =>
-    defineTable("postgresql", model, options),
+  table: <const Model extends EffectSqlModel, const Columns extends TableColumns<Model>>(
+    model: Model,
+    options: Omit<TableOptions<Model, Columns>, "columns"> & {
+      readonly columns: ModelTableColumns<Model, Columns>;
+    },
+  ): EffectSqlTable<
+    "postgresql",
+    Model,
+    DefinedTableColumns<"postgresql", ModelTableColumns<Model, Columns>>
+  > => defineTable<"postgresql", Model, Columns>("postgresql", model, options),
   text: (name?: string) => makeColumn("postgresql", "text", name),
   varchar: (
     nameOrOptions?: string | { readonly length?: number },

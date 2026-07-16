@@ -3,7 +3,7 @@ import { HttpRouter, HttpServer, HttpServerResponse } from "effect/unstable/http
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { Layer } from "effect";
 import { createServer } from "http";
-import { SheetApisInternalApi } from "sheet-ingress-api/sheet-apis-internal";
+import { SheetApisInternalApi } from "sheet-ingress-api/internal";
 import { calcLayer } from "./handlers/calc";
 import { checkinLayer } from "./handlers/checkin";
 import { discordLayer } from "./handlers/discord";

@@ -1,6 +1,6 @@
 // fallow-ignore-file code-duplication
 import { Effect, Layer, Option } from "effect";
-import { SheetAuthTokenAuthorization } from "sheet-ingress-api/middlewares/sheetAuthTokenAuthorization/tag";
+import { SheetAuthTokenAuthorization } from "sheet-ingress-api/internal";
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
 import { Unauthorized } from "typhoon-core/error";
 

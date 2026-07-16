@@ -11,7 +11,7 @@ import {
   Option,
   Redacted,
 } from "effect";
-import { SheetAuthTokenAuthorization } from "sheet-ingress-api/middlewares/sheetAuthTokenAuthorization/tag";
+import { SheetAuthTokenAuthorization } from "sheet-ingress-api/internal";
 import { SheetAuthWorkspaceUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthWorkspaceUser";
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
 import type { SheetAuthUserTokenType } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";

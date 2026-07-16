@@ -3,7 +3,7 @@ import { HttpRouter, HttpServer, HttpServerResponse } from "effect/unstable/http
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { Effect, Layer } from "effect";
 import { createServer } from "http";
-import { SheetWorkflowsInternalApi } from "sheet-ingress-api/sheet-workflows-internal";
+import { SheetWorkflowsInternalApi } from "sheet-ingress-api/internal";
 import { clusterWorkflowEngineClientLayer } from "./cluster";
 import { dispatchLayer } from "./handlers/dispatch";
 import { SheetAuthTokenAuthorizationLive } from "./middlewares/sheetAuthTokenAuthorization/live";

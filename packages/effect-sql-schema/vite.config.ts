@@ -4,16 +4,14 @@ import { defineConfig } from "vite-plus";
 export default defineConfig({
   pack: {
     entry: {
-      index: fileURLToPath(new URL("src/index.ts", import.meta.url)),
-      snapshot: fileURLToPath(new URL("src/snapshot.ts", import.meta.url)),
+      index: fileURLToPath(new URL("src/index.mts", import.meta.url)),
+      snapshot: fileURLToPath(new URL("src/snapshot.mts", import.meta.url)),
     },
     sourcemap: true,
     deps: {
       onlyBundle: false,
     },
-    dts: {
-      tsgo: true,
-    },
+    dts: false,
   },
   lint: {
     ignorePatterns: ["dist"],

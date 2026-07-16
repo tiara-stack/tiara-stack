@@ -3,7 +3,7 @@ import { Effect, HashSet, Layer, Predicate, Redacted, Schema } from "effect";
 import { makeOAuthResourceTokenAuthorizer } from "sheet-auth/oauth-resource-authorization";
 import type { VerifiedOAuthResourceToken } from "sheet-auth/oauth-resource-authorization";
 import { DISCORD_SERVICE_USER_ID_SENTINEL } from "sheet-auth/oauth";
-import { SheetIngressServiceAuthorization } from "sheet-ingress-api/middlewares/sheetIngressServiceAuthorization/tag";
+import { SheetIngressServiceAuthorization } from "sheet-ingress-api/internal";
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
 import { SheetAuthOAuthScope, type Permission } from "sheet-ingress-api/schemas/permissions";
 import { Unauthorized } from "typhoon-core/error";

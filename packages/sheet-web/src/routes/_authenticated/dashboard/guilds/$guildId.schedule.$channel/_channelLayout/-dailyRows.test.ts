@@ -1,6 +1,6 @@
 import { Option } from "effect";
 import { describe, expect, it } from "@effect/vitest";
-import { Sheet } from "sheet-apis/schema";
+import { Sheet } from "sheet-ingress-api/schemas";
 import { classifyDailyHourSchedules, getDailyHourSchedules } from "./-dailyRows";
 
 const makeBreakSchedule = () =>

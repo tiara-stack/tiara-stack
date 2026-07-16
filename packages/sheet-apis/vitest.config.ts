@@ -6,9 +6,6 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": resolve(__dirname, "src"),
-      "sheet-ingress-api/middlewares/forwardedAuthHeaders": fileURLToPath(
-        new URL("../sheet-ingress-api/src/middlewares/forwardedAuthHeaders.ts", import.meta.url),
-      ),
       "sheet-ingress-api": fileURLToPath(new URL("../sheet-ingress-api/src", import.meta.url)),
     },
   },

@@ -1,6 +1,6 @@
 import { useAtomSuspense } from "@effect/atom-react";
 import { Atom, AsyncResult } from "effect/unstable/reactivity";
-import { Sheet, Google, SheetConfig } from "sheet-apis/schema";
+import { Sheet, Google, SheetConfig } from "sheet-ingress-api/schemas";
 import { SheetApisClient } from "#/lib/sheetApis";
 import { Schema } from "effect";
 import { SchemaError } from "typhoon-core/error";

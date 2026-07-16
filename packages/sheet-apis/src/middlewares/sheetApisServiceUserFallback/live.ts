@@ -1,5 +1,5 @@
 import { Effect, Layer, Option } from "effect";
-import { SheetApisServiceUserFallback } from "sheet-ingress-api/middlewares/sheetApisServiceUserFallback/tag";
+import { SheetApisServiceUserFallback } from "sheet-ingress-api/internal";
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
 import { Unauthorized } from "typhoon-core/error";
 

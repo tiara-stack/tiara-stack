@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import type { Dialect } from "../types";
+import type { Dialect } from "../types.js";
 
 const defaultKindSchemas: Record<string, Schema.Top> = {
   bigint: Schema.BigInt,

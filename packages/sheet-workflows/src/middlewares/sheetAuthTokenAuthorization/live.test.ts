@@ -4,8 +4,8 @@ import { describe, expect, it } from "@effect/vitest";
 import {
   decodeForwardedSheetAuthUserBearer,
   encodeForwardedSheetAuthUserBearer,
-} from "sheet-ingress-api/middlewares/forwardedAuthHeaders";
-import { SheetAuthTokenAuthorization } from "sheet-ingress-api/middlewares/sheetAuthTokenAuthorization/tag";
+  SheetAuthTokenAuthorization,
+} from "sheet-ingress-api/internal";
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
 import type { Permission, SheetAuthOAuthScope } from "sheet-ingress-api/schemas/permissions";
 import { Unauthorized } from "typhoon-core/error";

@@ -1,7 +1,9 @@
 import { Cache, Context, Duration, Effect, Exit, Layer, Option, Redacted } from "effect";
-import { SheetApisAnonymousUserFallback } from "sheet-ingress-api/middlewares/sheetApisAnonymousUserFallback/tag";
-import { SheetApisServiceUserFallback } from "sheet-ingress-api/middlewares/sheetApisServiceUserFallback/tag";
-import { SheetBotServiceAuthorization } from "sheet-ingress-api/middlewares/sheetBotServiceAuthorization/tag";
+import {
+  SheetApisAnonymousUserFallback,
+  SheetApisServiceUserFallback,
+  SheetBotServiceAuthorization,
+} from "sheet-ingress-api/internal";
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
 import { Unauthorized } from "typhoon-core/error";
 import { hasPermission } from "../services/authorization";

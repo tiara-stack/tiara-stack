@@ -41,12 +41,17 @@ export default defineConfig({
       api: fileURLToPath(new URL("./src/api.ts", import.meta.url)),
       "auth/scopePolicy": fileURLToPath(new URL("./src/auth/scopePolicy.ts", import.meta.url)),
       clientActions: fileURLToPath(new URL("./src/clientActions.ts", import.meta.url)),
+      internal: fileURLToPath(new URL("./src/internal.ts", import.meta.url)),
+      schemas: fileURLToPath(new URL("./src/schemas.ts", import.meta.url)),
       tokenCache: fileURLToPath(new URL("./src/tokenCache.ts", import.meta.url)),
       "handlers/health/schema": fileURLToPath(
         new URL("./src/handlers/health/schema.ts", import.meta.url),
       ),
       "handlers/clientDelivery/api": fileURLToPath(
         new URL("./src/handlers/clientDelivery/api.ts", import.meta.url),
+      ),
+      "handlers/dispatch/schema": fileURLToPath(
+        new URL("./src/handlers/dispatch/schema.ts", import.meta.url),
       ),
       index: fileURLToPath(new URL("./src/index.ts", import.meta.url)),
       "middlewares/sheetAuthTokenAuthorization/tag": fileURLToPath(

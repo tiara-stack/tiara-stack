@@ -1,4 +1,4 @@
-import type { AnyEffectSqlColumn, AnyEffectSqlTable, EffectSqlSchema } from "./types";
+import type { AnyEffectSqlColumn, AnyEffectSqlTable, EffectSqlSchema } from "./types.js";
 
 export const snapshotVersion = 1;
 

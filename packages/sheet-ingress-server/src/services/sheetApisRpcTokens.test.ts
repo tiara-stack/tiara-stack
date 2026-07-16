@@ -13,7 +13,7 @@ import {
 } from "effect";
 import { createOAuthClientCredentialsToken, exchangeOAuthToken } from "sheet-auth/client";
 import { DISCORD_SERVICE_USER_ID_SENTINEL } from "sheet-auth/oauth";
-import { SHEET_AUTH_SESSION_TOKEN_UNAVAILABLE } from "sheet-ingress-api/middlewares/forwardedAuthHeaders";
+import { SHEET_AUTH_SESSION_TOKEN_UNAVAILABLE } from "sheet-ingress-api/internal";
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
 import type { Permission, SheetAuthOAuthScope } from "sheet-ingress-api/schemas/permissions";
 import { Unauthorized } from "typhoon-core/error";

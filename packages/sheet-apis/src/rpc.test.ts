@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { SheetIngressServiceAuthorization } from "sheet-ingress-api/middlewares/sheetIngressServiceAuthorization/tag";
+import { SheetIngressServiceAuthorization } from "sheet-ingress-api/internal";
 import { SheetApisRpcs } from "sheet-ingress-api/sheet-apis-rpc";
 
 describe("SheetApisRpcs", () => {

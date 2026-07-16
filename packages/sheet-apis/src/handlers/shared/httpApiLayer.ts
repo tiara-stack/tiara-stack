@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { HttpApiBuilder, HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
-import { SheetApisInternalApi } from "sheet-ingress-api/sheet-apis-internal";
+import { SheetApisInternalApi } from "sheet-ingress-api/internal";
 
 type SheetApisInternalGroup = (typeof SheetApisInternalApi)["groups"][string];
 type SheetApisInternalGroupName = HttpApiGroup.Name<SheetApisInternalGroup>;

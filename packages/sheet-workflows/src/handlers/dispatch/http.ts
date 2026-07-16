@@ -1,10 +1,7 @@
 import { Effect, Layer, Schema } from "effect";
 import { WorkflowEngine } from "effect/unstable/workflow";
 import { HttpApiBuilder, HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
-import {
-  DispatchWorkflowHttpApi,
-  SheetWorkflowsInternalApi,
-} from "sheet-ingress-api/sheet-workflows-internal";
+import { DispatchWorkflowHttpApi, SheetWorkflowsInternalApi } from "sheet-ingress-api/internal";
 import { DispatchWorkflowResumePayload } from "sheet-ingress-api/sheet-workflows-workflows";
 import { DispatchWorkflows } from "@/workflows/dispatchWorkflows";
 

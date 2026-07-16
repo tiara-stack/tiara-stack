@@ -16,7 +16,6 @@
     },
     "./schema": {
       "types": "./dist/schema.d.mts",
-      "development": "./src/schema.ts",
       "default": "./dist/schema.mjs"
     },
     "./api-groups": {

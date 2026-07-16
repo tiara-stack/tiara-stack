@@ -2,9 +2,11 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Cause, Context, Effect, HashSet, Option, Redacted, Ref } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
-import { SheetApisAnonymousUserFallback } from "sheet-ingress-api/middlewares/sheetApisAnonymousUserFallback/tag";
-import { SheetApisServiceUserFallback } from "sheet-ingress-api/middlewares/sheetApisServiceUserFallback/tag";
-import { SheetBotServiceAuthorization } from "sheet-ingress-api/middlewares/sheetBotServiceAuthorization/tag";
+import {
+  SheetApisAnonymousUserFallback,
+  SheetApisServiceUserFallback,
+  SheetBotServiceAuthorization,
+} from "sheet-ingress-api/internal";
 import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
 import type { Permission } from "sheet-ingress-api/schemas/permissions";
 import { Unauthorized } from "typhoon-core/error";

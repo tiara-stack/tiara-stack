@@ -10,23 +10,19 @@
   "type": "module",
   "exports": {
     ".": {
-      "types": "./src/schema.ts",
-      "development": "./src/schema.ts",
+      "types": "./dist/index.d.mts",
       "default": "./dist/index.mjs"
     },
     "./models": {
-      "types": "./src/models.ts",
-      "development": "./src/models.ts",
+      "types": "./dist/models.d.mts",
       "default": "./dist/models.mjs"
     },
     "./migrations": {
-      "types": "./src/migrations.ts",
-      "development": "./src/migrations.ts",
+      "types": "./dist/migrations.d.mts",
       "default": "./dist/migrations.mjs"
     },
     "./zero": {
       "types": "./dist/zero.d.mts",
-      "development": "./src/zero/index.ts",
       "default": "./dist/zero.mjs"
     },
     "./package.json": "./package.json"

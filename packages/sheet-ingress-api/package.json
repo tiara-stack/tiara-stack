@@ -30,11 +30,6 @@
       "types": "./dist/api-groups.d.mts",
       "default": "./dist/api-groups.mjs"
     },
-    "./auth/scopePolicy": {
-      "types": "./dist/auth/scopePolicy.d.mts",
-      "development": "./src/auth/scopePolicy.ts",
-      "default": "./dist/auth/scopePolicy.mjs"
-    },
     "./handlers/health/schema": {
       "types": "./dist/handlers/health/schema.d.mts",
       "default": "./dist/handlers/health/schema.mjs"
@@ -43,48 +38,17 @@
       "types": "./dist/handlers/clientDelivery/api.d.mts",
       "default": "./dist/handlers/clientDelivery/api.mjs"
     },
-    "./middlewares/sheetAuthTokenAuthorization/tag": {
-      "types": "./dist/middlewares/sheetAuthTokenAuthorization/tag.d.mts",
-      "default": "./dist/middlewares/sheetAuthTokenAuthorization/tag.mjs"
+    "./handlers/dispatch/schema": {
+      "types": "./dist/handlers/dispatch/schema.d.mts",
+      "default": "./dist/handlers/dispatch/schema.mjs"
     },
-    "./middlewares/forwardedAuthHeaders": {
-      "types": "./dist/middlewares/forwardedAuthHeaders.d.mts",
-      "development": "./src/middlewares/forwardedAuthHeaders.ts",
-      "default": "./dist/middlewares/forwardedAuthHeaders.mjs"
-    },
-    "./middlewares/rpcTag": {
-      "types": "./dist/middlewares/rpcTag.d.mts",
-      "development": "./src/middlewares/rpcTag.ts",
-      "default": "./dist/middlewares/rpcTag.mjs"
-    },
-    "./middlewares/rpcScopePolicy": {
-      "types": "./dist/middlewares/rpcScopePolicy.d.mts",
-      "development": "./src/middlewares/rpcScopePolicy.ts",
-      "default": "./dist/middlewares/rpcScopePolicy.mjs"
-    },
-    "./middlewares/sheetIngressServiceAuthorization/tag": {
-      "types": "./dist/middlewares/sheetIngressServiceAuthorization/tag.d.mts",
-      "default": "./dist/middlewares/sheetIngressServiceAuthorization/tag.mjs"
-    },
-    "./middlewares/sheetBotServiceAuthorization/tag": {
-      "types": "./dist/middlewares/sheetBotServiceAuthorization/tag.d.mts",
-      "default": "./dist/middlewares/sheetBotServiceAuthorization/tag.mjs"
-    },
-    "./middlewares/sheetApisServiceUserFallback/tag": {
-      "types": "./dist/middlewares/sheetApisServiceUserFallback/tag.d.mts",
-      "default": "./dist/middlewares/sheetApisServiceUserFallback/tag.mjs"
-    },
-    "./middlewares/sheetApisAnonymousUserFallback/tag": {
-      "types": "./dist/middlewares/sheetApisAnonymousUserFallback/tag.d.mts",
-      "default": "./dist/middlewares/sheetApisAnonymousUserFallback/tag.mjs"
+    "./internal": {
+      "types": "./dist/internal.d.mts",
+      "default": "./dist/internal.mjs"
     },
     "./sheet-apis": {
       "types": "./dist/sheet-apis.d.mts",
       "default": "./dist/sheet-apis.mjs"
-    },
-    "./sheet-apis-internal": {
-      "types": "./dist/sheet-apis-internal.d.mts",
-      "default": "./dist/sheet-apis-internal.mjs"
     },
     "./sheet-apis-rpc": {
       "types": "./dist/sheet-apis-rpc.d.mts",
@@ -94,10 +58,6 @@
       "types": "./dist/sheet-workflows.d.mts",
       "default": "./dist/sheet-workflows.mjs"
     },
-    "./sheet-workflows-internal": {
-      "types": "./dist/sheet-workflows-internal.d.mts",
-      "default": "./dist/sheet-workflows-internal.mjs"
-    },
     "./sheet-workflows-rpc": {
       "types": "./dist/sheet-workflows-rpc.d.mts",
       "default": "./dist/sheet-workflows-rpc.mjs"
@@ -105,6 +65,10 @@
     "./sheet-workflows-workflows": {
       "types": "./dist/sheet-workflows-workflows.d.mts",
       "default": "./dist/sheet-workflows-workflows.mjs"
+    },
+    "./schemas": {
+      "types": "./dist/schemas.d.mts",
+      "default": "./dist/schemas.mjs"
     },
     "./schemas/*": {
       "types": "./dist/schemas/*.d.mts",

@@ -2,14 +2,17 @@ import { Match, Predicate, Schema } from "effect";
 import { Model, VariantSchema } from "effect/unstable/schema";
 import type {
   ClassDefinition,
+  DefinedTableColumns,
   Dialect,
   EffectSqlColumn,
   EffectSqlModel,
   EffectSqlTable,
   FieldName,
   IndexDefinition,
+  ModelTableColumns,
   TableOptions,
-} from "./types";
+  TableColumns,
+} from "./types.js";
 
 const identifierFromModel = (model: EffectSqlModel): string | undefined => {
   const ast = (model as { readonly ast?: { readonly annotations?: Record<string, unknown> } }).ast;
@@ -86,11 +89,17 @@ const attachTableName = <Column extends AnyColumn>(tableName: string, column: Co
     tableName,
   }) as Column;
 
-export const defineTable = <const D extends Dialect, const Model extends EffectSqlModel>(
+export const defineTable = <
+  const D extends Dialect,
+  const Model extends EffectSqlModel,
+  const Columns extends TableColumns<Model>,
+>(
   dialect: D,
   model: Model,
-  options: TableOptions<Model>,
-): EffectSqlTable<D, Model> => {
+  options: Omit<TableOptions<Model, Columns>, "columns"> & {
+    readonly columns: ModelTableColumns<Model, Columns>;
+  },
+): EffectSqlTable<D, Model, DefinedTableColumns<D, ModelTableColumns<Model, Columns>>> => {
   const name = options.name ?? identifierFromModel(model);
   if (!name) {
     throw new Error(
@@ -98,9 +107,10 @@ export const defineTable = <const D extends Dialect, const Model extends EffectS
     );
   }
 
-  const columns = {} as Record<FieldName<Model>, EffectSqlColumn<D>>;
+  const columns = {} as Record<string, EffectSqlColumn<D>>;
+  const configuredColumns = options.columns as TableColumns<Model>;
   for (const fieldName of Object.keys(model.fields) as Array<FieldName<Model>>) {
-    const configured = options.columns?.[fieldName];
+    const configured = configuredColumns?.[fieldName];
     if (configured === false) {
       continue;
     }
@@ -120,7 +130,7 @@ export const defineTable = <const D extends Dialect, const Model extends EffectS
   return finalizeTable(dialect, model, {
     name,
     schema: options.schema,
-    columns,
+    columns: columns as DefinedTableColumns<D, ModelTableColumns<Model, Columns>>,
     primaryKey: options.primaryKey,
     indexes: options.indexes,
   });

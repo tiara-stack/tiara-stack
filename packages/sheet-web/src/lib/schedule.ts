@@ -1,6 +1,6 @@
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
 import { useAtomSuspense } from "@effect/atom-react";
-import { Sheet, Google, SheetConfig } from "sheet-apis/schema";
+import { Sheet, Google, SheetConfig } from "sheet-ingress-api/schemas";
 import { SheetApisClient } from "#/lib/sheetApis";
 import {
   Array,
@@ -19,7 +19,7 @@ import { QueryResultAppError, QueryResultParseError } from "typhoon-zero/error";
 import { useMemo } from "react";
 import { zoneId } from "#/hooks/useDateTimeZoned";
 
-// Re-export types from sheet-apis
+// Re-export the shared schedule type for route consumers.
 export type SchedulePlayer = Sheet.PopulatedSchedulePlayer;
 
 const GuildScheduleErrorSchema = Schema.revealCodec(
