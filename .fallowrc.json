@@ -18,51 +18,11 @@
     "sheet-ingress-api",
     "typhoon-core"
   ],
-  "ignoreDependencies": [
-    "@rocicorp/zero",
-    "effect-platform-apps-script",
-    "effect-sql-kit",
-    "effect-zero",
-    "ioredis",
-    "sheet-apis",
-    "sheet-db-schema",
-    "start-atom",
-    "typhoon-core",
-    "typhoon-zero",
-    "vitest",
-    "zod"
-  ],
-  "ignoreExports": [
-    {
-      "file": "packages/typhoon-core/src/utils/array/withDefault.ts",
-      "exports": [
-        "ArrayWithDefault",
-        "wrap",
-        "wrapEither",
-        "wrapOption",
-        "toArray",
-        "getDefault",
-        "zip",
-        "zipArray",
-        "map",
-        "replaceKeysFromHead"
-      ]
-    },
-    {
-      "file": "packages/typhoon-zero/src/zeroApi/zeroApi.ts",
-      "exports": ["Any", "make"]
-    },
-    {
-      "file": "packages/typhoon-zero/src/zeroApi/zeroApiEndpoint.ts",
-      "exports": ["Any"]
-    },
-    {
-      "file": "packages/typhoon-zero/src/zeroApi/zeroApiClient.ts",
-      "exports": ["make"]
-    },
-    {
-      "file": "packages/typhoon-zero/src/zeroApi/zeroApiGroup.ts",
-      "exports": ["Any", "make"]
-    }
-  ]
+  "audit": {
+    "deadCodeBaseline": ".github/fallow-baselines/dead-code.json",
+    "healthBaseline": ".github/fallow-baselines/health.json",
+    "dupesBaseline": ".github/fallow-baselines/dupes.json"
+  },
+  "ignoreDependencies": [],
+  "ignoreExports": []
 }
