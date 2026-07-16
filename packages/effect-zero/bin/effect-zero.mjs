@@ -1,11 +1,7 @@
 #!/usr/bin/env node
 
-import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import "tsx/esm";
 
-const cli = fileURLToPath(new URL("../dist/cli/index.mjs", import.meta.url));
-const result = spawnSync(process.execPath, [cli, ...process.argv.slice(2)], {
-  stdio: "inherit",
-});
+const { runMain } = await import("../src/cli/index.ts");
 
-process.exitCode = result.status ?? 1;
+runMain();

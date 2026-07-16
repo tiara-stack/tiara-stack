@@ -63,6 +63,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 24.10.9
+      '@typescript/native-preview':
+        specifier: 7.0.0-dev.20260707.2
+        version: 7.0.0-dev.20260707.2
       effect:
         specifier: 'catalog:'
         version: 4.0.0-beta.67
@@ -228,6 +231,9 @@ importers:
       jiti:
         specifier: ^2.6.1
         version: 2.6.1
+      tsx:
+        specifier: 'catalog:'
+        version: 4.22.3
     devDependencies:
       '@effect/vitest':
         specifier: 'catalog:'
@@ -238,9 +244,6 @@ importers:
       tooling-config:
         specifier: workspace:*
         version: link:../tooling-config
-      tsx:
-        specifier: 'catalog:'
-        version: 4.22.3
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.2.2
         version: '@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.25.5)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0)'

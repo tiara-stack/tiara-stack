@@ -22,7 +22,9 @@
       "sheet-ingress-api": ["../sheet-ingress-api/src/index.ts"],
       "sheet-ingress-api/*": ["../sheet-ingress-api/src/*"],
       "typhoon-core": ["../typhoon-core/src/index.ts"],
-      "typhoon-core/*": ["../typhoon-core/src/*"]
+      "typhoon-core/*": ["../typhoon-core/src/*"],
+      "typhoon-zero": ["../typhoon-zero/src/index.ts"],
+      "typhoon-zero/*": ["../typhoon-zero/src/*"]
     }
   },
   "references": [
@@ -40,6 +42,9 @@
     },
     {
       "path": "../typhoon-core"
+    },
+    {
+      "path": "../typhoon-zero"
     },
     {
       "path": "../tooling-config"

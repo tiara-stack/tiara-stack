@@ -23,16 +23,28 @@ const hasTextFormat = (bold: boolean | undefined, underline: boolean | undefined
   Predicate.isBoolean(bold) || Predicate.isBoolean(underline);
 
 const makeCellFormat = (bold: boolean | undefined, underline: boolean | undefined) =>
-  hasTextFormat(bold, underline) ? { textFormat: { bold, underline } } : undefined;
+  hasTextFormat(bold, underline)
+    ? {
+        textFormat: {
+          ...(bold === undefined ? {} : { bold }),
+          ...(underline === undefined ? {} : { underline }),
+        },
+      }
+    : undefined;
 
 const makeCell = (
   formattedValue?: string,
   options: CellFormatOptions = {},
-): sheets_v4.Schema$CellData => ({
-  formattedValue,
-  effectiveFormat: makeCellFormat(options.effectiveBold, options.effectiveUnderline),
-  userEnteredFormat: makeCellFormat(options.userEnteredBold, options.userEnteredUnderline),
-});
+): sheets_v4.Schema$CellData => {
+  const effectiveFormat = makeCellFormat(options.effectiveBold, options.effectiveUnderline);
+  const userEnteredFormat = makeCellFormat(options.userEnteredBold, options.userEnteredUnderline);
+
+  return {
+    ...(formattedValue === undefined ? {} : { formattedValue }),
+    ...(effectiveFormat === undefined ? {} : { effectiveFormat }),
+    ...(userEnteredFormat === undefined ? {} : { userEnteredFormat }),
+  };
+};
 
 const makeRow = (...values: sheets_v4.Schema$CellData[]): sheets_v4.Schema$RowData => ({
   values,
