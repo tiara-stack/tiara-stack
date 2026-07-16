@@ -115,7 +115,7 @@ export const makeCheckinOperations = ({
             ],
             [
               MessageText.text("Requested by "),
-              MessageText.userMention(requester.userId),
+              MessageText.userMention(requester.accountId),
               MessageText.text("."),
             ],
             [MessageText.text(autoCheckinTestNotice)],
@@ -467,7 +467,7 @@ export const makeCheckinOperations = ({
       "requester.accountId": requester.accountId,
       "requester.userId": requester.userId,
     });
-    const createdByUserId = requester.userId;
+    const createdByUserId = requester.accountId;
     const interactionResponseToken =
       Predicate.isString(payload.interactionResponseToken) &&
       payload.interactionResponseToken.length > 0

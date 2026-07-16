@@ -86,7 +86,9 @@ import {
 } from "./handlers/dispatch/schema";
 
 export const DispatchRequesterSchema = Schema.Struct({
+  // Discord user ID from the linked auth account.
   accountId: Schema.String,
+  // Better Auth user ID for the auth-system user record.
   userId: Schema.String,
 });
 

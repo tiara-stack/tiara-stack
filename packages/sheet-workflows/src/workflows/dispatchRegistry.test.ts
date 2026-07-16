@@ -66,8 +66,8 @@ import { runDispatchWorkflowOperation } from "./dispatch/activityBoundary";
 import { makeClientDeliveryMock } from "@/services/testHelpers";
 
 const requester: DispatchRequester = {
-  accountId: "account-1",
-  userId: "user-1",
+  accountId: "discord-user-1",
+  userId: "auth-user-1",
 };
 
 const discordClient = { platform: "discord", clientId: "discord-main" } as const;
@@ -321,7 +321,7 @@ const makeMessageSlot = (overrides?: {
     day: 2,
     workspaceId: overrides?.workspaceId ?? Option.some("workspace-1"),
     conversationId: overrides?.conversationId ?? Option.some("conversation-1"),
-    createdByUserId: Option.some(requester.userId),
+    createdByUserId: Option.some(requester.accountId),
     createdAt: Option.none(),
     updatedAt: Option.none(),
     deletedAt: Option.none(),
@@ -340,7 +340,7 @@ const makeMessageRoomOrder = () =>
     monitor: Option.none(),
     workspaceId: Option.some(roomOrderSendButtonPayload.workspaceId),
     conversationId: Option.some(roomOrderSendButtonPayload.messageConversationId),
-    createdByUserId: Option.some(requester.userId),
+    createdByUserId: Option.some(requester.accountId),
     sendClaimId: Option.none(),
     sendClaimedAt: Option.none(),
     sentMessageId: Option.none(),
@@ -971,7 +971,7 @@ describe("dispatch workflow registry", () => {
         payload: {
           client: discordClient,
           workspaceId: "workspace-1",
-          targetUserId: requester.userId,
+          targetUserId: requester.accountId,
           targetUsername: "Requester",
           interactionResponseToken: "interaction-token",
           interactionResponseDeadlineEpochMs,

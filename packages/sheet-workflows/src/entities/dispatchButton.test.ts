@@ -62,7 +62,7 @@ const authorizedRoomOrder = new MessageRoomOrder({
   monitor: Option.none(),
   workspaceId: Option.some("workspace-1"),
   conversationId: Option.some("conversation-1"),
-  createdByUserId: Option.some(requester.userId),
+  createdByUserId: Option.some(requester.accountId),
   sendClaimId: Option.none(),
   sendClaimedAt: Option.none(),
   sentMessageId: Option.none(),

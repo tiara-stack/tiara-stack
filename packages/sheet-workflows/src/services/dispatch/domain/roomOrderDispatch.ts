@@ -51,7 +51,7 @@ export const makeRoomOrderOperations = ({
       "requester.accountId": requester.accountId,
       "requester.userId": requester.userId,
     });
-    const createdByUserId = requester.userId;
+    const createdByUserId = requester.accountId;
     const generated = yield* roomOrderService.generate(payload);
     const content = MessageText.materializeGeneratedText(
       payload.client,

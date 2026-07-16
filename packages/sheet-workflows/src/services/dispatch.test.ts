@@ -6,6 +6,7 @@ import { formatTentativeRoomOrderContent } from "sheet-ingress-api/clientActions
 import { DiscordBotNotFoundError } from "sheet-ingress-api/handlers/clientDelivery/api";
 import type {
   AutoCheckinTestDispatchPayload,
+  CheckinHandleButtonPayload,
   CheckinDispatchPayload,
   ConversationListConfigDispatchPayload,
   ConversationSetDispatchPayload,
@@ -97,6 +98,13 @@ const slotButtonPayload: SlotButtonDispatchPayload = {
   workspaceId: "workspace-1",
   conversationId: "conversation-1",
   day: 2,
+  interactionResponseToken: "interaction-token",
+  interactionResponseDeadlineEpochMs: 1_700_000_000_000,
+};
+
+const checkinButtonPayload: CheckinHandleButtonPayload = {
+  client: discordClient,
+  messageId: "checkin-message-1",
   interactionResponseToken: "interaction-token",
   interactionResponseDeadlineEpochMs: 1_700_000_000_000,
 };
@@ -214,8 +222,8 @@ const messageSlot = new MessageSlot({
 });
 
 const requester = {
-  accountId: "account-1",
-  userId: "discord-user-1",
+  accountId: "discord-user-1",
+  userId: "auth-user-1",
 };
 
 const firstEmbedDescription = (payload: unknown): string | null | undefined =>
@@ -1161,7 +1169,7 @@ describe("DispatchService", () => {
       expect(firstEmbedDescription(updateCalls[0]?.payload)).toContain(
         "Requested by @discord-user-1.",
       );
-      expect(firstEmbedDescription(updateCalls[0]?.payload)).not.toContain("@account-1");
+      expect(firstEmbedDescription(updateCalls[0]?.payload)).not.toContain("@auth-user-1");
       expect(sendCalls.map((call) => call.conversationId)).toEqual([
         "checkin-conversation-1",
         "conversation-1",
@@ -2029,6 +2037,80 @@ describe("DispatchService", () => {
               conversationId: "conversation-1",
               createdByUserId: "discord-user-1",
             },
+          },
+        },
+      ]);
+    }),
+  );
+
+  it.effect("uses the requester Discord user id for check-in side effects and output", () =>
+    Effect.gen(function* () {
+      const memberMutationCalls: Array<unknown> = [];
+      const roleCalls: Array<ReadonlyArray<string>> = [];
+      const sendCalls: Array<{ readonly conversationId: string; readonly payload: unknown }> = [];
+      const botClient = makeClientDeliveryMock({
+        updateOriginalInteractionResponse: () =>
+          Effect.succeed({ id: "interaction-message-1", conversation_id: "conversation-1" }),
+        addWorkspaceMemberRole: (workspaceId, memberId, roleId) => {
+          roleCalls.push([workspaceId, memberId, roleId]);
+          return Effect.succeed({});
+        },
+        updateMessage: (_conversationId, messageId) =>
+          Effect.succeed({ id: messageId, conversation_id: "checkin-conversation-1" }),
+        sendMessage: (conversationId, payload) => {
+          sendCalls.push({ conversationId, payload });
+          return Effect.succeed({ id: "announcement-1", conversation_id: conversationId });
+        },
+      });
+      const sheetApisClient = makeSheetApisClient({
+        messageCheckin: {
+          getMessageCheckinData: () =>
+            Effect.succeed({
+              initialMessage: text("Check in"),
+              runningConversationId: "running-conversation-1",
+              roleId: Option.some("role-1"),
+              workspaceId: Option.some("workspace-1"),
+              conversationId: Option.some("checkin-conversation-1"),
+            }),
+          setMessageCheckinMemberCheckinAtIfUnset: (args: {
+            readonly payload: { readonly checkinClaimId: string };
+          }) => {
+            memberMutationCalls.push(args);
+            return Effect.succeed({
+              memberId: "discord-user-1",
+              checkinAt: Option.some({}),
+              checkinClaimId: Option.some(args.payload.checkinClaimId),
+            });
+          },
+          getMessageCheckinMembers: () =>
+            Effect.succeed([
+              {
+                memberId: "discord-user-1",
+                checkinAt: Option.some({}),
+              },
+            ]),
+        },
+      });
+
+      const result = yield* runWithDispatchService(botClient, sheetApisClient, (service) =>
+        service.checkinButton(checkinButtonPayload, requester),
+      );
+
+      expect(result.checkedInMemberId).toBe("discord-user-1");
+      expect(memberMutationCalls).toEqual([
+        {
+          payload: expect.objectContaining({ memberId: "discord-user-1" }),
+        },
+      ]);
+      expect(roleCalls).toEqual([["workspace-1", "discord-user-1", "role-1"]]);
+      expect(sendCalls).toEqual([
+        {
+          conversationId: "running-conversation-1",
+          payload: {
+            content: [
+              { type: "userMention", userId: "discord-user-1" },
+              { type: "text", text: " has checked in!" },
+            ],
           },
         },
       ]);

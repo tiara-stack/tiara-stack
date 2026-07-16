@@ -33,7 +33,6 @@ export const makeCheckinButtonOperations = ({
       "requester.userId": requester.userId,
     });
     const accountId = requester.accountId;
-    const userId = requester.userId;
     const checkinAt = DateTime.toEpochMillis(yield* DateTime.now);
     const checkinClaimId = yield* Random.nextUUIDv4;
 
@@ -108,7 +107,7 @@ export const makeCheckinButtonOperations = ({
     if (Option.isSome(messageCheckinData.roleId)) {
       const roleId = messageCheckinData.roleId.value;
       // Re-apply the role on repeat clicks to repair missed adapter side effects.
-      yield* botClient.addWorkspaceMemberRole(workspaceId, userId, roleId).pipe(
+      yield* botClient.addWorkspaceMemberRole(workspaceId, accountId, roleId).pipe(
         Effect.retry(shortRoleRetrySchedule),
         logNonInterruptFailure(
           "Failed to add check-in role after button check-in",
@@ -149,7 +148,7 @@ export const makeCheckinButtonOperations = ({
     if (isFirstCheckin) {
       yield* botClient
         .sendMessage(messageCheckinData.runningConversationId, {
-          content: [MessageText.userMention(userId), MessageText.text(" has checked in!")],
+          content: [MessageText.userMention(accountId), MessageText.text(" has checked in!")],
         })
         .pipe(
           logNonInterruptFailure(

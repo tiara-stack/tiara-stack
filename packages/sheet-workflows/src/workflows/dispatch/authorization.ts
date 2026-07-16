@@ -162,6 +162,6 @@ export const requireSelfOrAuthorizedWorkspace = (
   },
   scope: DispatchAuthorizationSnapshot["scope"],
 ) =>
-  request.requester.userId === request.payload.targetUserId
+  request.requester.accountId === request.payload.targetUserId
     ? Effect.void
     : requireAuthorizedWorkspace(request.authorization, request.payload.workspaceId, scope);

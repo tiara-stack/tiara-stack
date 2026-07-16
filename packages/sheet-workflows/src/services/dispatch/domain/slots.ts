@@ -53,7 +53,7 @@ export const makeSlotOperations = ({
         day: payload.day,
         workspaceId: payload.workspaceId,
         conversationId: payload.conversationId,
-        createdByUserId: requester.userId,
+        createdByUserId: requester.accountId,
       })
       .pipe(
         Effect.catchCause((cause) =>
