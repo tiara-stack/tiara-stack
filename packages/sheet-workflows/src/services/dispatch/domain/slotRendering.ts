@@ -1,4 +1,6 @@
-import { Effect, Option, String as EffectString, pipe } from "effect";
+import { Effect, Option } from "effect";
+import type { SheetTextPart } from "sheet-ingress-api/schemas/client";
+import * as MessageText from "../../messageText";
 import { makeSheetApisServices } from "../clients/sheetApis";
 import { formatFilledSlot, formatOpenSlot, joinDedupeAdjacent, makeEmbed } from "../pure/rendering";
 
@@ -6,12 +8,12 @@ type SheetApisServices = ReturnType<typeof makeSheetApisServices>;
 
 const renderSlotSection = <Schedule>(
   schedules: ReadonlyArray<Schedule>,
-  formatter: (schedule: Schedule) => string,
+  formatter: (schedule: Schedule) => ReadonlyArray<SheetTextPart>,
   fallback: string,
-) =>
-  pipe(schedules.map(formatter), joinDedupeAdjacent, (description) =>
-    EffectString.isEmpty(description) ? fallback : description,
-  );
+) => {
+  const description = joinDedupeAdjacent(schedules.map(formatter));
+  return description.length === 0 ? MessageText.parts(MessageText.text(fallback)) : description;
+};
 
 export const makeSlotEmbedRenderer = ({
   scheduleService,

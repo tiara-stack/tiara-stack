@@ -1,4 +1,4 @@
-import { DateTime, Effect } from "effect";
+import { Effect } from "effect";
 import type {
   ScheduleListDispatchPayload,
   ScheduleListDispatchResult,
@@ -9,6 +9,7 @@ import type {
 } from "sheet-ingress-api/sheet-apis-rpc";
 import { markInteractionFailureHandled } from "@/handlers/shared/interactionFailure";
 import { ClientDeliveryClient } from "../../clientDeliveryClient";
+import * as MessageText from "../../messageText";
 import { logNonInterruptFailure } from "../clients/messageDelivery";
 import { makeSheetApisServices } from "../clients/sheetApis";
 import {
@@ -121,19 +122,21 @@ export const makeStatusOperations = ({
       embeds: [
         makeEmbed({
           title: "Service Status",
-          description:
-            status.overallStatus === "ok"
-              ? "All services are ready."
-              : "Some services are not ready.",
+          description: MessageText.parts(
+            MessageText.text(
+              status.overallStatus === "ok"
+                ? "All services are ready."
+                : "Some services are not ready.",
+            ),
+            MessageText.text("\nChecked at "),
+            MessageText.timestamp(status.checkedAt.epochMilliseconds),
+          ),
           color: status.overallStatus === "ok" ? 0x57f287 : 0xfee75c,
           fields: status.services.map((service) => ({
             name: service.name,
             value: formatServiceStatusFieldValue(service),
             inline: true,
           })),
-          footer: {
-            text: `Checked at ${DateTime.formatIso(status.checkedAt)}`,
-          },
         }),
       ],
     });

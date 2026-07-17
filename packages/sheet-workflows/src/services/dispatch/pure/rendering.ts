@@ -1,13 +1,4 @@
-import {
-  Chunk,
-  DateTime,
-  Duration,
-  Match,
-  Option,
-  Predicate,
-  String as EffectString,
-  pipe,
-} from "effect";
+import { DateTime, Duration, Match, Option, Predicate, pipe } from "effect";
 import type {
   ClientRef,
   SheetOutboundMessage,
@@ -86,8 +77,6 @@ export const boundEmbedDescription = (description: string, overflowSummary: stri
           .slice(0, discordEmbedDescriptionLimit - boundedSummary.length)
           .trimEnd()}${boundedSummary}`;
       })();
-
-const bold = (value: string): string => `**${value}**`;
 
 export const makeEmbed = (embed: {
   readonly title?: MessageTextInput;
@@ -326,15 +315,12 @@ export const hourWindowFor = (
 const formatHourWindow = (hourWindow: {
   readonly start: DateTime.DateTime;
   readonly end: DateTime.DateTime;
-}) => {
-  const formatTime = DateTime.format({
-    hour: "2-digit",
-    hourCycle: "h23",
-    locale: "en-GB",
-    minute: "2-digit",
-  });
-  return `${formatTime(hourWindow.start)}-${formatTime(hourWindow.end)}`;
-};
+}): MessageTextValue =>
+  MessageText.parts(
+    MessageText.timestamp(DateTime.toEpochMillis(hourWindow.start), "shortTime"),
+    MessageText.text(" - "),
+    MessageText.timestamp(DateTime.toEpochMillis(hourWindow.end), "shortTime"),
+  );
 
 const formatScheduleRange = (
   schedule: Sheet.PopulatedBreakSchedule | Sheet.PopulatedSchedule,
@@ -349,7 +335,7 @@ const formatScheduleRange = (
           schedule.hour,
           Option.match({
             onSome: (hour) => formatHourWindow(hourWindowFor(eventConfig, hour)),
-            onNone: () => "??-??",
+            onNone: () => MessageText.parts(MessageText.text("??-??")),
           }),
         ),
     }),
@@ -362,8 +348,8 @@ const formatScheduleSlotParts = (
   empty: Sheet.PopulatedSchedule.empty(schedule),
   hourString: pipe(
     schedule.hour,
-    Option.map((hour) => bold(`hour ${hour}`)),
-    Option.getOrElse(() => bold("hour ??")),
+    Option.map((hour) => MessageText.strong([MessageText.text(`hour ${hour}`)])),
+    Option.getOrElse(() => MessageText.strong([MessageText.text("hour ??")])),
   ),
   rangeString: formatScheduleRange(schedule, eventConfig),
 });
@@ -372,19 +358,28 @@ const formatSlot = (
   schedule: Sheet.PopulatedBreakSchedule | Sheet.PopulatedSchedule,
   eventConfig: { readonly startTime: DateTime.DateTime },
   mode: "open" | "filled",
-) =>
+): MessageTextValue =>
   Match.value(schedule).pipe(
     Match.tagsExhaustive({
-      PopulatedBreakSchedule: () => "",
+      PopulatedBreakSchedule: () => MessageText.parts(),
       PopulatedSchedule: (schedule) => {
         const { empty, hourString, rangeString } = formatScheduleSlotParts(schedule, eventConfig);
         const visible =
           mode === "open" ? !schedule.visible || empty > 0 : schedule.visible && empty === 0;
         if (!visible) {
-          return "";
+          return MessageText.parts();
         }
-        const slotCountString = mode === "open" && schedule.visible ? bold(`+${empty} |`) : "";
-        return [slotCountString, hourString, rangeString].filter(EffectString.isNonEmpty).join(" ");
+        const slotCount =
+          mode === "open" && schedule.visible
+            ? MessageText.strong([MessageText.text(`+${empty} |`)])
+            : undefined;
+        return MessageText.parts(
+          slotCount,
+          slotCount === undefined ? undefined : MessageText.text(" "),
+          hourString,
+          MessageText.text(" "),
+          ...rangeString,
+        );
       },
     }),
   );
@@ -399,13 +394,18 @@ export const formatFilledSlot = (
   eventConfig: { readonly startTime: DateTime.DateTime },
 ) => formatSlot(schedule, eventConfig, "filled");
 
-export const joinDedupeAdjacent = (items: ReadonlyArray<string>) =>
-  pipe(
-    Chunk.fromIterable(items),
-    Chunk.filter(EffectString.isNonEmpty),
-    Chunk.dedupeAdjacent,
-    Chunk.join("\n"),
+export const joinDedupeAdjacent = (items: ReadonlyArray<MessageTextValue>): MessageTextValue => {
+  const keyedItems = items
+    .filter((item) => item.length > 0)
+    .map((item) => ({ item, plainText: MessageText.renderPlainText(item) }));
+  const dedupedItems = keyedItems.filter(
+    ({ plainText }, index) => index === 0 || plainText !== keyedItems[index - 1]?.plainText,
   );
+  return MessageText.joinText(
+    dedupedItems.map(({ item }) => item),
+    "\n",
+  );
+};
 
 export const renderCheckedInContent = (
   initialMessage: ReadonlyArray<SheetTextPart>,

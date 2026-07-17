@@ -2203,7 +2203,7 @@ describe("DispatchService", () => {
             embeds: [
               {
                 title: "Day 2 Open Slots",
-                description: "**+3 |** **hour 1** 12:00-13:00",
+                description: "+3 | hour 1 <t:1774526400:t> - <t:1774530000:t>",
               },
               {
                 title: "Day 2 Filled Slots",
@@ -2265,7 +2265,7 @@ describe("DispatchService", () => {
             embeds: [
               {
                 title: "Service Status",
-                description: "Some services are not ready.",
+                description: "Some services are not ready.\nChecked at <t:1779537600:F>",
                 color: 0xfee75c,
                 fields: [
                   {
@@ -2279,9 +2279,6 @@ describe("DispatchService", () => {
                     inline: true,
                   },
                 ],
-                footer: {
-                  text: "Checked at 2026-05-23T12:00:00.000Z",
-                },
               },
             ],
           },

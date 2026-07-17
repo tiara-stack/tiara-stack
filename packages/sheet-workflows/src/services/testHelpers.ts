@@ -15,6 +15,8 @@ type TestTextPart = {
   readonly url?: string;
   readonly term?: string;
   readonly casing?: string;
+  readonly epochMs?: number;
+  readonly style?: string;
 };
 
 const clientTerms: Record<string, string> = {
@@ -33,6 +35,19 @@ const renderClientTerm = (part: TestTextPart): string => {
 
 const nestedParts = (part: TestTextPart): string => renderTextForTest(part.parts ?? []) ?? "";
 
+const timestampStyles: Record<string, string> = {
+  shortTime: "t",
+  longTime: "T",
+  shortDate: "d",
+  longDate: "D",
+  relative: "R",
+};
+
+const renderTimestamp = (part: TestTextPart): string => {
+  const epochSeconds = Math.floor((part.epochMs ?? 0) / 1_000);
+  return `<t:${epochSeconds}:${timestampStyles[part.style ?? ""] ?? "F"}>`;
+};
+
 const renderers: Record<string, (part: TestTextPart) => string> = {
   text: (part) => part.text ?? "",
   inlineCode: (part) => part.text ?? "",
@@ -46,6 +61,7 @@ const renderers: Record<string, (part: TestTextPart) => string> = {
   strikethrough: nestedParts,
   externalLink: (part) => part.label ?? part.url ?? "",
   clientTerm: renderClientTerm,
+  timestamp: renderTimestamp,
 };
 
 const renderPartForTest = (part: unknown): string => {
