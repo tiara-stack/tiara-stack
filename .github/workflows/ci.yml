@@ -94,13 +94,12 @@ jobs:
           K8S_NAMESPACE: ${{ vars.K8S_NAMESPACE }}
         run: |
           source .github/scripts/validate-deploy-vars.sh
-          ret=0
-          validate_deploy_vars optional || ret=$?
-          if [[ $ret -eq 2 ]]; then
-            exit 0
-          elif [[ $ret -ne 0 ]]; then
-            exit 1
-          fi
+          : "${INFISICAL_PROJECT_ID:=ci-template-project}"
+          : "${INFISICAL_ADDRESS:=https://infisical.example.invalid}"
+          : "${ZERO_CACHE_EXISTING_VOLUME_NAME:=ci-zero-cache}"
+          : "${REGISTRY_NAME:=ci-registry}"
+          : "${K8S_NAMESPACE:=ci-template}"
+          validate_deploy_vars strict
 
           registry="registry.digitalocean.com/${REGISTRY_NAME}"
 
