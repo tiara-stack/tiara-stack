@@ -1,22 +1,10 @@
-// fallow-ignore-file code-duplication
-import { globSync } from "glob";
-import path from "pathe";
 import { fileURLToPath } from "url";
-import { defineConfig } from "vite-plus";
-
-const filePaths = [
-  ...globSync("./src/index.ts", { nodir: true }).map((file) =>
-    fileURLToPath(new URL(file, import.meta.url)),
-  ),
-  ...globSync("./src/**/index.ts", { nodir: true }).map((file) =>
-    fileURLToPath(new URL(file, import.meta.url)),
-  ),
-];
+import { app, packageEntries } from "tooling-config/vite";
 
 const alwaysBundleDependencies = () => true;
 const sheetDbSchemaModels = fileURLToPath(import.meta.resolve("sheet-db-schema/models"));
 
-export default defineConfig({
+export default app({
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
@@ -31,33 +19,13 @@ export default defineConfig({
     },
   },
   pack: {
-    entry: Object.fromEntries(
-      filePaths.map((filePath) => {
-        const relativePath = path.relative("./src", filePath);
-        const parsed = path.parse(relativePath);
-        const module = path.join(parsed.dir.replace(/\.+\//g, ""), parsed.name);
-
-        return [module, filePath];
-      }),
-    ),
+    entry: packageEntries(import.meta.url, ["./src/index.ts", "./src/**/index.ts"]),
     alias: {
       "sheet-db-schema/models": sheetDbSchemaModels,
     },
-    sourcemap: true,
     tsconfig: "tsconfig.build.json",
-    dts: {
-      tsgo: true,
-    },
     deps: {
       alwaysBundle: alwaysBundleDependencies,
-      onlyBundle: false,
-    },
-  },
-  lint: {
-    ignorePatterns: ["dist"],
-    options: {
-      typeAware: true,
-      typeCheck: true,
     },
   },
 });

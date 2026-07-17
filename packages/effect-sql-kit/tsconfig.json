@@ -17,6 +17,9 @@
   "references": [
     {
       "path": "../effect-sql-schema"
+    },
+    {
+      "path": "../tooling-config"
     }
   ]
 }

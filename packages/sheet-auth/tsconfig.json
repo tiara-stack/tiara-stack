@@ -17,6 +17,9 @@
   "references": [
     {
       "path": "../typhoon-core"
+    },
+    {
+      "path": "../tooling-config"
     }
   ]
 }

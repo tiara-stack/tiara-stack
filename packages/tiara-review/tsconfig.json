@@ -20,6 +20,9 @@
     },
     {
       "path": "../effect-ai-kimi"
+    },
+    {
+      "path": "../tooling-config"
     }
   ]
 }

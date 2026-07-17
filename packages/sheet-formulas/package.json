@@ -28,7 +28,7 @@
   "devDependencies": {
     "@types/google-apps-script": "^1.0.99",
     "@types/node": "catalog:",
-    "pathe": "^2.0.3",
+    "tooling-config": "workspace:*",
     "vite": "catalog:",
     "vite-plus": "catalog:"
   }

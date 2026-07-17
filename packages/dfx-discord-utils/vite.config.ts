@@ -1,16 +1,5 @@
-import { globSync } from "glob";
-import path from "pathe";
 import { fileURLToPath } from "url";
-import { defineConfig } from "vite-plus";
-
-const filePaths = [
-  ...globSync("./src/index.ts", { nodir: true }).map((file) =>
-    fileURLToPath(new URL(file, import.meta.url)),
-  ),
-  ...globSync("./src/*/index.ts", { nodir: true }).map((file) =>
-    fileURLToPath(new URL(file, import.meta.url)),
-  ),
-];
+import { library, packageEntries } from "tooling-config/vite";
 
 const directEntries = {
   "discord/api": fileURLToPath(new URL("./src/discord/api.ts", import.meta.url)),
@@ -32,7 +21,7 @@ const directEntries = {
   ),
 };
 
-export default defineConfig({
+export default library({
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
@@ -41,31 +30,11 @@ export default defineConfig({
   },
   pack: {
     entry: {
-      ...Object.fromEntries(
-        filePaths.map((filePath) => {
-          const relativePath = path.relative("./src", filePath);
-          const parsed = path.parse(relativePath);
-          const module = path.join(parsed.dir.replace(/\.+\//g, ""), parsed.name);
-
-          return [module, filePath];
-        }),
-      ),
+      ...packageEntries(import.meta.url, ["./src/index.ts", "./src/*/index.ts"]),
       ...directEntries,
     },
-    sourcemap: true,
     deps: {
       neverBundle: ["@effect/platform", "@effect/platform-node", "dfx", "effect"],
-      onlyBundle: false,
-    },
-    dts: {
-      tsgo: true,
-    },
-  },
-  lint: {
-    ignorePatterns: ["dist"],
-    options: {
-      typeAware: true,
-      typeCheck: true,
     },
   },
 });

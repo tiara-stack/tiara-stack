@@ -1,11 +1,10 @@
-// fallow-ignore-file code-duplication
 import { fileURLToPath } from "url";
-import { defineConfig } from "vite-plus";
+import { app } from "tooling-config/vite";
 
 const alwaysBundleDependencies = () => true;
 const sheetDbSchemaModels = fileURLToPath(import.meta.resolve("sheet-db-schema/models"));
 
-export default defineConfig({
+export default app({
   resolve: {
     alias: {
       "sheet-auth/client": fileURLToPath(new URL("../sheet-auth/src/client.ts", import.meta.url)),
@@ -23,22 +22,10 @@ export default defineConfig({
       alias: {
         "sheet-db-schema/models": sheetDbSchemaModels,
       },
-      sourcemap: true,
       tsconfig: "tsconfig.build.json",
-      dts: {
-        tsgo: true,
-      },
       deps: {
         alwaysBundle: alwaysBundleDependencies,
-        onlyBundle: false,
       },
     },
   ],
-  lint: {
-    ignorePatterns: ["dist"],
-    options: {
-      typeAware: true,
-      typeCheck: true,
-    },
-  },
 });

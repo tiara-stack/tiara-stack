@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url";
-import { defineConfig } from "vite-plus";
+import { library } from "tooling-config/vite";
 
-export default defineConfig({
+export default library({
   pack: {
     entry: {
       KimiClient: fileURLToPath(new URL("src/KimiClient.ts", import.meta.url)),
@@ -10,20 +10,6 @@ export default defineConfig({
       KimiLanguageModel: fileURLToPath(new URL("src/KimiLanguageModel.ts", import.meta.url)),
       KimiTelemetry: fileURLToPath(new URL("src/KimiTelemetry.ts", import.meta.url)),
       index: fileURLToPath(new URL("src/index.ts", import.meta.url)),
-    },
-    sourcemap: true,
-    deps: {
-      onlyBundle: false,
-    },
-    dts: {
-      tsgo: true,
-    },
-  },
-  lint: {
-    ignorePatterns: ["dist"],
-    options: {
-      typeAware: true,
-      typeCheck: true,
     },
   },
 });

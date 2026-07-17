@@ -39,8 +39,7 @@
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
-    "glob": "^11.0.1",
-    "pathe": "^2.0.3",
+    "tooling-config": "workspace:*",
     "vite": "catalog:",
     "vite-plus": "catalog:",
     "vitest": "catalog:"

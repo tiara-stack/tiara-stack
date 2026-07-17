@@ -14,5 +14,10 @@
       "~/*": ["./src/*"],
       "@/*": ["./src/*"]
     }
-  }
+  },
+  "references": [
+    {
+      "path": "../tooling-config"
+    }
+  ]
 }

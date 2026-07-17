@@ -1,8 +1,7 @@
-// fallow-ignore-file code-duplication
-import { defineConfig } from "vite-plus";
 import { lightFormat } from "date-fns";
 import { fileURLToPath } from "url";
 import simpleGit from "simple-git";
+import { app } from "tooling-config/vite";
 
 const git = simpleGit();
 const date = lightFormat(new Date(), "yyyyMMdd");
@@ -28,7 +27,7 @@ const effectDeclarationExternalPlugin = () => ({
   },
 });
 
-export default defineConfig({
+export default app({
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
@@ -42,7 +41,6 @@ export default defineConfig({
       index: "src/index.ts",
       main: "src/main.ts",
     },
-    sourcemap: true,
     env: {
       BUILD_DATE: date,
       BUILD_HASH: hash,
@@ -52,20 +50,9 @@ export default defineConfig({
       "sheet-db-schema/models": sheetDbSchemaModels,
     },
     tsconfig: "tsconfig.build.json",
-    dts: {
-      tsgo: true,
-    },
     plugins: [effectDeclarationExternalPlugin()],
     deps: {
       alwaysBundle: alwaysBundleDependencies,
-      onlyBundle: false,
-    },
-  },
-  lint: {
-    ignorePatterns: ["dist"],
-    options: {
-      typeAware: true,
-      typeCheck: true,
     },
   },
 });

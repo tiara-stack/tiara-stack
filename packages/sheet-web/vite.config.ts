@@ -1,4 +1,3 @@
-import { defineConfig } from "vite-plus";
 import { devtools } from "@tanstack/devtools-vite";
 
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
@@ -6,17 +5,11 @@ import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { nitro } from "nitro/vite";
+import { browserApp } from "tooling-config/vite";
 
-const config = defineConfig({
+const config = browserApp({
   resolve: {
     tsconfigPaths: true,
-  },
-  lint: {
-    ignorePatterns: [".output", "dist"],
-    options: {
-      typeAware: true,
-      typeCheck: true,
-    },
   },
   plugins: [
     devtools(),

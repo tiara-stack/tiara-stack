@@ -57,6 +57,7 @@
     "@vitejs/plugin-react": "^5.0.4",
     "babel-plugin-react-compiler": "^1.0.0",
     "jsdom": "^27.0.0",
+    "tooling-config": "workspace:*",
     "vite": "catalog:",
     "vite-plus": "catalog:",
     "vitest": "catalog:"

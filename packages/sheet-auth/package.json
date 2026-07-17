@@ -75,6 +75,7 @@
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
     "drizzle-kit": "^0.31.4",
+    "tooling-config": "workspace:*",
     "vite": "catalog:",
     "vite-plus": "catalog:",
     "vitest": "catalog:"

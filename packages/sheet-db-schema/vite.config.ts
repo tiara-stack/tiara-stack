@@ -1,46 +1,13 @@
 import { fileURLToPath } from "url";
-import { defineConfig } from "vite-plus";
+import { library } from "tooling-config/vite";
 
-export default defineConfig({
+export default library({
   pack: {
     entry: {
       index: fileURLToPath(new URL("src/schema.ts", import.meta.url)),
       migrations: fileURLToPath(new URL("src/migrations.ts", import.meta.url)),
       models: fileURLToPath(new URL("src/models.ts", import.meta.url)),
       zero: fileURLToPath(new URL("src/zero/index.ts", import.meta.url)),
-    },
-    sourcemap: true,
-    deps: {
-      onlyBundle: false,
-    },
-    dts: {
-      tsgo: true,
-    },
-  },
-  lint: {
-    ignorePatterns: ["dist"],
-    env: {
-      browser: true,
-      es2022: true,
-    },
-    plugins: ["unicorn", "typescript", "oxc"],
-    rules: {
-      "no-unused-vars": [
-        "error",
-        {
-          args: "all",
-          argsIgnorePattern: "^_",
-          caughtErrors: "all",
-          caughtErrorsIgnorePattern: "^_",
-          destructuredArrayIgnorePattern: "^_",
-          varsIgnorePattern: "^_",
-          ignoreRestSiblings: true,
-        },
-      ],
-    },
-    options: {
-      typeAware: true,
-      typeCheck: true,
     },
   },
 });

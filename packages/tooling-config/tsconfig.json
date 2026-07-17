@@ -5,14 +5,6 @@
   "compilerOptions": {
     "outDir": "./.ts-out",
     "rootDir": ".",
-    "tsBuildInfoFile": "./.ts-out/.tsbuildinfo",
-    "paths": {
-      "*": ["./*"]
-    }
-  },
-  "references": [
-    {
-      "path": "../tooling-config"
-    }
-  ]
+    "tsBuildInfoFile": "./.ts-out/.tsbuildinfo"
+  }
 }

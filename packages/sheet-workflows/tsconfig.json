@@ -40,6 +40,9 @@
     },
     {
       "path": "../typhoon-zero"
+    },
+    {
+      "path": "../tooling-config"
     }
   ]
 }

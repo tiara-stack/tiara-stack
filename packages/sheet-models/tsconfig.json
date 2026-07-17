@@ -9,5 +9,10 @@
     "paths": {
       "*": ["./*"]
     }
-  }
+  },
+  "references": [
+    {
+      "path": "../tooling-config"
+    }
+  ]
 }

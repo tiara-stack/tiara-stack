@@ -21,6 +21,7 @@
     { "path": "packages/sheet-workflows" },
     { "path": "packages/start-atom" },
     { "path": "packages/tiara-review" },
+    { "path": "packages/tooling-config" },
     { "path": "packages/typhoon-core" },
     { "path": "packages/typhoon-zero" },
     { "path": "packages/vibecord" }

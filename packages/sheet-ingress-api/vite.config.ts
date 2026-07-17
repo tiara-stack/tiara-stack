@@ -1,6 +1,6 @@
 import { readdirSync } from "fs";
 import { fileURLToPath } from "url";
-import { defineConfig } from "vite-plus";
+import { library } from "tooling-config/vite";
 
 const srcDir = fileURLToPath(new URL("./src", import.meta.url));
 
@@ -24,7 +24,7 @@ const collectEntries = (relativeDir: string): Record<string, string> =>
       }),
   );
 
-export default defineConfig({
+export default library({
   resolve: {
     alias: {
       "dfx-discord-utils/discord/api": fileURLToPath(
@@ -93,7 +93,6 @@ export default defineConfig({
       ),
       ...collectEntries("schemas"),
     },
-    sourcemap: true,
     tsconfig: "tsconfig.build.json",
     alias: {
       "dfx-discord-utils/discord/api": fileURLToPath(
@@ -102,19 +101,6 @@ export default defineConfig({
       "dfx-discord-utils/discord/schema": fileURLToPath(
         new URL("../dfx-discord-utils/src/discord/schema/index.ts", import.meta.url),
       ),
-    },
-    dts: {
-      tsgo: true,
-    },
-    deps: {
-      onlyBundle: false,
-    },
-  },
-  lint: {
-    ignorePatterns: ["dist"],
-    options: {
-      typeAware: true,
-      typeCheck: true,
     },
   },
 });

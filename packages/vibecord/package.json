@@ -50,7 +50,7 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "catalog:",
     "drizzle-kit": "^0.30.0",
-    "pathe": "^2.0.3",
+    "tooling-config": "workspace:*",
     "vite": "catalog:",
     "vite-plus": "catalog:",
     "vitest": "catalog:"
