@@ -42,8 +42,7 @@
     "drizzle-orm": "^0.45.1",
     "effect": "catalog:",
     "remend": "^1.3.0",
-    "simple-git": "^3.30.0",
-    "typhoon-core": "workspace:*"
+    "simple-git": "^3.30.0"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",

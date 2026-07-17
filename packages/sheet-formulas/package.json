@@ -22,8 +22,7 @@
     "core-js": "^3.44.0",
     "effect": "catalog:",
     "effect-platform-apps-script": "workspace:*",
-    "sheet-ingress-api": "workspace:*",
-    "typhoon-core": "workspace:*"
+    "sheet-ingress-api": "workspace:*"
   },
   "devDependencies": {
     "@types/google-apps-script": "^1.0.99",

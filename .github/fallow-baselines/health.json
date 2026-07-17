@@ -1,0 +1,275 @@
+{
+  "finding_counts": {
+    "deploy/compose/scripts/migrate-sheet-db.ts": {
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "packages/dfx-discord-utils/src/discord/http.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/effect-ai-codex/src/CodexLanguageModel.ts": {
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 2
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/effect-ai-codex/src/internal/clientRun.ts": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "packages/effect-ai-kimi/src/KimiClient.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/effect-ai-kimi/src/KimiLanguageModel.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/effect-ai-kimi/src/internal/clientRun.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "packages/effect-platform-apps-script/src/HttpClient.ts": {
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "packages/effect-sql-kit/src/cli/push.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/effect-sql-kit/src/introspect/pg.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "packages/effect-sql-kit/src/migration/generate.ts": {
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "packages/effect-zero/src/cli/config.ts": {
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "packages/effect-zero/src/infer.ts": {
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "packages/effect-zero/src/sql-table.ts": {
+      "complexity_moderate": {
+        "count": 1
+      }
+    },
+    "packages/sheet-apis/src/services/calc.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/sheet-apis/src/services/sheet.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/sheet-web/src/components/Header.tsx": {
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "packages/sheet-web/src/lib/atomRegistry.ts": {
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "packages/sheet-web/src/routes/_authenticated/dashboard/guilds/$guildId.schedule.$channel/_channelLayout/-transition.ts": {
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "packages/sheet-web/src/routes/_authenticated/dashboard/guilds/$guildId.schedule.$channel/_channelLayout/calendar.tsx": {
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 3
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/sheet-web/src/routes/_authenticated/dashboard/guilds/$guildId.schedule.$channel/_channelLayout/daily.tsx": {
+      "complexity_critical": {
+        "count": 3
+      },
+      "crap_critical": {
+        "count": 4
+      }
+    },
+    "packages/tiara-review/src/ai/client.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/tiara-review/src/ai/providerLayer.ts": {
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "packages/tiara-review/src/cli.ts": {
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/tiara-review/src/config.ts": {
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/tiara-review/src/git/checkpoint.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/tiara-review/src/graph/extract.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/tiara-review/src/graph/store.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 4
+      }
+    },
+    "packages/tiara-review/src/review/workflow.ts": {
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/tooling-config/src/vite.ts": {
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "packages/vibecord/src/commands/session/index.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 2
+      },
+      "crap_high": {
+        "count": 2
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/vibecord/src/sdk/index.ts": {
+      "complexity_critical": {
+        "count": 2
+      },
+      "crap_critical": {
+        "count": 8
+      },
+      "crap_high": {
+        "count": 9
+      },
+      "crap_moderate": {
+        "count": 3
+      }
+    },
+    "packages/vibecord/src/sdk/streaming.ts": {
+      "complexity_high": {
+        "count": 1
+      },
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/vibecord/src/services/git.ts": {
+      "crap_moderate": {
+        "count": 2
+      }
+    }
+  },
+  "runtime_coverage_findings": [],
+  "target_keys": [
+    "packages/sheet-workflows/src/services/testHelpers.ts:high impact",
+    "packages/sheet-workflows/src/services/dispatch/pure/failure.ts:high impact"
+  ]
+}

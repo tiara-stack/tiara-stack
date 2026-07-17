@@ -287,9 +287,6 @@ importers:
       '@effect/platform-node':
         specifier: 'catalog:'
         version: 4.0.0-beta.67(effect@4.0.0-beta.67)(ioredis@5.9.3)
-      '@rocicorp/zero':
-        specifier: ^0.25.9
-        version: 0.25.9(@opentelemetry/core@2.2.0(@opentelemetry/api@1.9.0))
       camelcase:
         specifier: ^9.0.0
         version: 9.0.0
@@ -689,9 +686,6 @@ importers:
       sheet-ingress-api:
         specifier: workspace:*
         version: link:../sheet-ingress-api
-      typhoon-core:
-        specifier: workspace:*
-        version: link:../typhoon-core
     devDependencies:
       '@types/google-apps-script':
         specifier: ^1.0.99
@@ -1197,9 +1191,6 @@ importers:
       simple-git:
         specifier: ^3.30.0
         version: 3.30.0
-      typhoon-core:
-        specifier: workspace:*
-        version: link:../typhoon-core
     devDependencies:
       '@effect/vitest':
         specifier: 'catalog:'
