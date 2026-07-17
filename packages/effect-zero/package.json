@@ -5,7 +5,7 @@
   "keywords": [],
   "author": "",
   "bin": {
-    "effect-zero": "./dist/cli/index.mjs"
+    "effect-zero": "./bin/effect-zero.mjs"
   },
   "files": [
     "./dist/**"

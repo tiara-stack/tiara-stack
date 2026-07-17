@@ -5,7 +5,7 @@
   "keywords": [],
   "author": "",
   "bin": {
-    "effect-sql-kit": "./dist/cli/index.mjs"
+    "effect-sql-kit": "./bin/effect-sql-kit.mjs"
   },
   "files": [
     "./dist/**"
@@ -34,12 +34,12 @@
     "drizzle-kit": "^0.31.4",
     "drizzle-orm": "^0.45.1",
     "effect-sql-schema": "workspace:*",
-    "jiti": "^2.6.1"
+    "jiti": "^2.6.1",
+    "tsx": "catalog:"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
-    "tsx": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:",
     "vitest": "catalog:"

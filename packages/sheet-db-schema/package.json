@@ -33,10 +33,10 @@
     "lint": "vp lint src",
     "pretest": "pnpm build",
     "test": "vp test run",
-    "build": "pnpm --filter effect-sql-schema build && pnpm --filter effect-zero build && pnpm --filter typhoon-zero... build && node ../effect-zero/dist/cli/index.mjs generate --config ./effect-zero.config.ts --output ./src/zero/schema.ts --skip-declare --format --force && vp pack",
-    "db:generate": "pnpm --filter effect-sql-schema build && pnpm --filter effect-zero build && pnpm --filter effect-sql-kit build && node ../effect-sql-kit/dist/cli/index.mjs generate",
-    "db:migrate": "pnpm --filter effect-sql-schema build && pnpm --filter effect-zero build && pnpm --filter effect-sql-kit build && node ../effect-sql-kit/dist/cli/index.mjs migrate",
-    "db:push": "pnpm --filter effect-sql-schema build && pnpm --filter effect-zero build && pnpm --filter effect-sql-kit build && node ../effect-sql-kit/dist/cli/index.mjs push"
+    "build": "pnpm --filter effect-sql-schema build && pnpm --filter effect-zero build && pnpm --filter typhoon-zero... build && pnpm exec effect-zero generate --config ./effect-zero.config.ts --output ./src/zero/schema.ts --skip-declare --format --force && vp pack",
+    "db:generate": "pnpm --filter effect-sql-schema build && pnpm --filter effect-zero build && pnpm --filter effect-sql-kit build && pnpm exec effect-sql-kit generate",
+    "db:migrate": "pnpm --filter effect-sql-schema build && pnpm --filter effect-zero build && pnpm --filter effect-sql-kit build && pnpm exec effect-sql-kit migrate",
+    "db:push": "pnpm --filter effect-sql-schema build && pnpm --filter effect-zero build && pnpm --filter effect-sql-kit build && pnpm exec effect-sql-kit push"
   },
   "dependencies": {
     "@rocicorp/zero": "^0.25.9",
