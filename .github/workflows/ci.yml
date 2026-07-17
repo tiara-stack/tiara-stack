@@ -38,7 +38,7 @@ jobs:
       - name: Setup Vite+
         uses: tiara-stack/setup-vp@291c3e884862fce3e7530351b63f0e8ab12cbc7b # v1
         with:
-          version: "0.2.3"
+          version: "0.2.4"
           node-version: "22"
           cache: true
 
@@ -181,7 +181,7 @@ jobs:
       - name: Setup Vite+
         uses: tiara-stack/setup-vp@291c3e884862fce3e7530351b63f0e8ab12cbc7b # v1
         with:
-          version: "0.2.3"
+          version: "0.2.4"
           node-version: "22"
           cache: true
 
