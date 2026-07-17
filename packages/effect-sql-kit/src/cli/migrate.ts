@@ -23,7 +23,6 @@ const runPostgres = async (config: Awaited<ReturnType<typeof loadConfig>>["confi
   const program = PgMigrator.run({
     loader: fromDirectory(config.out),
     table: config.migrations.table,
-    schemaDirectory: undefined,
   }).pipe(Effect.provide(Layer.mergeAll(PgClient.layer(pgConfig), NodeServices.layer)));
   return await Effect.runPromise(program);
 };

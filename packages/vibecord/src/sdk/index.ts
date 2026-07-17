@@ -145,8 +145,8 @@ const computeDiff = (oldText: string, newText: string): { lines: string[] } => {
     pushUnchangedContextLines(
       result,
       lines,
-      index > 0 ? changes[index - 1] : null,
-      index < changes.length - 1 ? changes[index + 1] : null,
+      index > 0 ? (changes[index - 1] ?? null) : null,
+      index < changes.length - 1 ? (changes[index + 1] ?? null) : null,
     );
   });
 
@@ -165,7 +165,7 @@ async function storeButtonMappings(
     sessionId: string;
     requestId: string;
     optionValue: string;
-    userId?: string;
+    userId?: string | undefined;
   }>,
 ): Promise<void> {
   const db = getDb();
@@ -1289,11 +1289,11 @@ class VibecordClient {
   async createSession(cwd: string): Promise<{
     sessionId: string;
     models?: {
-      currentModelId?: string;
+      currentModelId?: string | undefined;
       availableModels: Array<{ modelId: string; name: string; description?: string }>;
     };
     modes?: {
-      currentModeId?: string;
+      currentModeId?: string | undefined;
       availableModes: Array<{ id: string; name: string; description?: string }>;
     };
   }> {
@@ -1449,8 +1449,8 @@ class VibecordClient {
   async getSessionInfo(cwd: string): Promise<{
     models: Array<{ id: string; name: string }>;
     modes: Array<{ id: string; name: string }>;
-    currentModelId?: string;
-    currentModeId?: string;
+    currentModelId?: string | undefined;
+    currentModeId?: string | undefined;
   }> {
     if (!this.client) {
       throw new Error("Not connected to OpenCode");

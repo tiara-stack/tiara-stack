@@ -39,61 +39,63 @@ export type JsonConfigValue =
   | { readonly [key: string]: JsonConfigValue };
 
 export type CodexReviewProviderConfig = {
-  readonly apiKey?: string;
-  readonly baseUrl?: string;
-  readonly codexPathOverride?: string;
-  readonly cleanupGraceMs?: number;
-  readonly config?: { readonly [key: string]: JsonConfigValue };
+  readonly apiKey?: string | undefined;
+  readonly baseUrl?: string | undefined;
+  readonly codexPathOverride?: string | undefined;
+  readonly cleanupGraceMs?: number | undefined;
+  readonly config?: { readonly [key: string]: JsonConfigValue } | undefined;
 };
 
 export type OpenAiReviewProviderConfig = {
-  readonly apiKey?: string;
-  readonly apiUrl?: string;
-  readonly organizationId?: string;
-  readonly projectId?: string;
-  readonly config?: { readonly [key: string]: JsonConfigValue };
+  readonly apiKey?: string | undefined;
+  readonly apiUrl?: string | undefined;
+  readonly organizationId?: string | undefined;
+  readonly projectId?: string | undefined;
+  readonly config?: { readonly [key: string]: JsonConfigValue } | undefined;
 };
 
 export type OpenRouterReviewProviderConfig = {
-  readonly apiKey?: string;
-  readonly apiUrl?: string;
-  readonly siteReferrer?: string;
-  readonly siteTitle?: string;
-  readonly config?: { readonly [key: string]: JsonConfigValue };
+  readonly apiKey?: string | undefined;
+  readonly apiUrl?: string | undefined;
+  readonly siteReferrer?: string | undefined;
+  readonly siteTitle?: string | undefined;
+  readonly config?: { readonly [key: string]: JsonConfigValue } | undefined;
 };
 
 export type KimiReviewProviderConfig = {
-  readonly executable?: string;
-  readonly env?: Record<string, string>;
-  readonly thinking?: boolean;
-  readonly yoloMode?: boolean;
-  readonly approvalPolicy?: "reject" | "allow-read-only-git";
-  readonly agentFile?: string;
-  readonly skillsDir?: string;
-  readonly shareDir?: string;
-  readonly cleanupGraceMs?: number;
-  readonly config?: { readonly [key: string]: JsonConfigValue };
+  readonly executable?: string | undefined;
+  readonly env?: Record<string, string> | undefined;
+  readonly thinking?: boolean | undefined;
+  readonly yoloMode?: boolean | undefined;
+  readonly approvalPolicy?: "reject" | "allow-read-only-git" | undefined;
+  readonly agentFile?: string | undefined;
+  readonly skillsDir?: string | undefined;
+  readonly shareDir?: string | undefined;
+  readonly cleanupGraceMs?: number | undefined;
+  readonly config?: { readonly [key: string]: JsonConfigValue } | undefined;
 };
 
 export type ReviewProviderConfig = {
-  readonly provider?: AiProvider;
-  readonly model?: string;
-  readonly modelReasoningEffort?: ReasoningEffort;
-  readonly timeoutMs?: number;
-  readonly dbPath?: string;
-  readonly providers?: {
-    readonly codex?: CodexReviewProviderConfig;
-    readonly openai?: OpenAiReviewProviderConfig;
-    readonly openrouter?: OpenRouterReviewProviderConfig;
-    readonly kimi?: KimiReviewProviderConfig;
-  };
+  readonly provider?: AiProvider | undefined;
+  readonly model?: string | undefined;
+  readonly modelReasoningEffort?: ReasoningEffort | undefined;
+  readonly timeoutMs?: number | undefined;
+  readonly dbPath?: string | undefined;
+  readonly providers?:
+    | {
+        readonly codex?: CodexReviewProviderConfig | undefined;
+        readonly openai?: OpenAiReviewProviderConfig | undefined;
+        readonly openrouter?: OpenRouterReviewProviderConfig | undefined;
+        readonly kimi?: KimiReviewProviderConfig | undefined;
+      }
+    | undefined;
 };
 
 export type ResolvedReviewProviderConfig = {
-  readonly codex?: CodexReviewProviderConfig;
-  readonly openai?: OpenAiReviewProviderConfig;
-  readonly openrouter?: OpenRouterReviewProviderConfig;
-  readonly kimi?: KimiReviewProviderConfig;
+  readonly codex?: CodexReviewProviderConfig | undefined;
+  readonly openai?: OpenAiReviewProviderConfig | undefined;
+  readonly openrouter?: OpenRouterReviewProviderConfig | undefined;
+  readonly kimi?: KimiReviewProviderConfig | undefined;
 };
 
 export type Checkpoint = {
@@ -125,10 +127,10 @@ export type DiffInfo = {
 };
 
 export type ReviewFinding = {
-  readonly id?: string;
+  readonly id?: string | undefined;
   readonly severity: Severity;
   readonly type: FindingType;
-  readonly location?: string | null;
+  readonly location?: string | null | undefined;
   readonly issue: string;
   readonly evidence: string;
   readonly suggestedFix: string;
@@ -173,15 +175,15 @@ export type ConsolidatedReview = {
 
 export type ReviewRunConfig = {
   readonly cwd: string;
-  readonly dbPath?: string;
-  readonly provider?: AiProvider;
-  readonly providerConfig?: ResolvedReviewProviderConfig;
-  readonly model?: string;
-  readonly modelReasoningEffort?: ReasoningEffort;
-  readonly timeoutMs?: number;
-  readonly externalReviewMarkdown?: string;
-  readonly graphMcpCommand?: string;
-  readonly graphMcpArgsPrefix?: ReadonlyArray<string>;
+  readonly dbPath?: string | undefined;
+  readonly provider?: AiProvider | undefined;
+  readonly providerConfig?: ResolvedReviewProviderConfig | undefined;
+  readonly model?: string | undefined;
+  readonly modelReasoningEffort?: ReasoningEffort | undefined;
+  readonly timeoutMs?: number | undefined;
+  readonly externalReviewMarkdown?: string | undefined;
+  readonly graphMcpCommand?: string | undefined;
+  readonly graphMcpArgsPrefix?: ReadonlyArray<string> | undefined;
 };
 
 export type ExternalReviewImportResult = {
@@ -200,18 +202,18 @@ export type ReviewRunResult = {
   readonly findings: ReadonlyArray<ReviewFinding>;
   readonly reportMarkdown: string;
   readonly failedAspects: ReadonlyArray<ReviewAspect>;
-  readonly externalReviewImport?: ExternalReviewImportResult;
+  readonly externalReviewImport?: ExternalReviewImportResult | undefined;
 };
 
 export type ReviewAgentRecord = {
   readonly id: string;
   readonly runId: string;
   readonly aspect: AgentAspect;
-  readonly codexThreadId?: string | null;
+  readonly codexThreadId?: string | null | undefined;
   readonly status: AgentStatus;
   readonly startedAt: number;
-  readonly completedAt?: number | null;
-  readonly error?: string | null;
+  readonly completedAt?: number | null | undefined;
+  readonly error?: string | null | undefined;
 };
 
 export type ReviewRunRecord = {
@@ -227,12 +229,12 @@ export type ReviewRunRecord = {
   readonly diffHash: string;
   readonly diffStatJson: string;
   readonly createdAt: number;
-  readonly completedAt?: number | null;
+  readonly completedAt?: number | null | undefined;
   readonly status: RunStatus;
-  readonly safetyConfidence?: SafetyConfidence | null;
-  readonly reportMarkdown?: string | null;
-  readonly reportJson?: string | null;
-  readonly error?: string | null;
+  readonly safetyConfidence?: SafetyConfidence | null | undefined;
+  readonly reportMarkdown?: string | null | undefined;
+  readonly reportJson?: string | null | undefined;
+  readonly error?: string | null | undefined;
 };
 
 export class NotGitRepository extends Data.TaggedError("NotGitRepository")<{

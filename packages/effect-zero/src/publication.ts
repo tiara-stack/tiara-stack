@@ -163,6 +163,9 @@ const publishedColumnTypeAlterTables = (
       if (!groups) {
         continue;
       }
+      if (groups.table === undefined || groups.column === undefined) {
+        continue;
+      }
       const schema = normalizedIdentifier(groups.schema ?? defaultTableSchema);
       const table = normalizedIdentifier(groups.table);
       const column = normalizedIdentifier(groups.column);
@@ -356,7 +359,7 @@ const generateStatements = ({
   dropRemovedTables,
   statements: baseStatements,
 }: {
-  readonly previous?: PublicationSnapshot;
+  readonly previous?: PublicationSnapshot | undefined;
   readonly current: PublicationSnapshot;
   readonly dropRemovedTables: boolean;
   readonly statements: NonNullable<MigrationExtensionContext["statements"]>;

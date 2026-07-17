@@ -4,6 +4,9 @@ export const getBearerToken = (authorization: string | null | undefined) => {
     return undefined;
   }
 
-  const token = match[1].trim();
+  const token = match[1]?.trim();
+  if (token === undefined) {
+    return undefined;
+  }
   return token.length === 0 ? undefined : token;
 };

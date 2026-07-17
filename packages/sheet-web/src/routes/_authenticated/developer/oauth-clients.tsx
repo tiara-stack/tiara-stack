@@ -28,6 +28,8 @@ import { Button } from "#/components/ui/button";
 import {
   OAuthClientCreateInputSchema,
   OAuthClientUpdateInputSchema,
+  normalizeOAuthClientCreateInput,
+  normalizeOAuthClientUpdateInput,
   useCreateOAuthClient,
   useDeleteOAuthClient,
   useOAuthClientsResult,
@@ -72,7 +74,7 @@ type ActiveOperation = {
 
 type ClientFormPayload = {
   input: OAuthClientCreateInput | OAuthClientUpdateInput;
-  error?: string;
+  error?: string | undefined;
 };
 
 type BackgroundAccessibilityState = {
@@ -467,7 +469,7 @@ const updateOAuthClientFromForm = async (
   const input = await Effect.runPromise(
     Schema.decodeUnknownEffect(OAuthClientUpdateInputSchema)(payload.input),
   );
-  await context.updateClient({ clientId, input });
+  await context.updateClient({ clientId, input: normalizeOAuthClientUpdateInput(input) });
 };
 
 const createOAuthClientFromForm = async (
@@ -481,7 +483,7 @@ const createOAuthClientFromForm = async (
       token_endpoint_auth_method: form.kind === "public" ? "none" : "client_secret_basic",
     }),
   );
-  const created = await context.createClient(input);
+  const created = await context.createClient(normalizeOAuthClientCreateInput(input));
   revealClientSecret(context.setRevealedSecret, created.client_id, created.client_secret);
 };
 
@@ -1254,7 +1256,7 @@ function ListEditor({
           <div key={index} className="flex gap-2">
             <Input
               placeholder={placeholder}
-              required={required}
+              {...(required === undefined ? {} : { required })}
               value={value}
               onChange={(nextValue) =>
                 onChange(

@@ -189,16 +189,18 @@ export const makeOAuthResourceTokenAuthorizer = <E = Unauthorized>(
     const tokenCache = yield* Cache.makeWith(
       (token: string) =>
         Effect.tryPromise({
-          try: () =>
-            verifier(token, {
+          try: () => {
+            const resourceMetadataMappings = oauthResourceMetadataMappings(issuer, audience);
+            return verifier(token, {
               jwksUrl,
               verifyOptions: {
                 audience,
                 issuer: authorizationServerIssuer,
               },
-              resourceMetadataMappings: oauthResourceMetadataMappings(issuer, audience),
+              ...(resourceMetadataMappings === undefined ? {} : { resourceMetadataMappings }),
               scopes: [...requiredScopes],
-            }),
+            });
+          },
           catch: (cause) => new OAuthResourceAuthorizationError({ message: String(cause), cause }),
         }).pipe(
           Effect.tapError((cause) =>

@@ -16,8 +16,8 @@ export type ColumnGeneration = "none" | "database" | "application";
 export type ReferenceAction = "cascade" | "restrict" | "no action" | "set null" | "set default";
 
 export type ReferenceOptions = {
-  readonly onDelete?: ReferenceAction;
-  readonly onUpdate?: ReferenceAction;
+  readonly onDelete?: ReferenceAction | undefined;
+  readonly onUpdate?: ReferenceAction | undefined;
 };
 
 export type ReferenceResolver = () => EffectSqlColumn<any, any, any, any, any>;
@@ -31,20 +31,20 @@ export type ColumnData<
 > = {
   readonly dialect: D;
   readonly kind: K;
-  readonly fieldName?: string;
-  readonly name?: string;
+  readonly fieldName?: string | undefined;
+  readonly name?: string | undefined;
   readonly fieldSchema: FieldSchema;
-  readonly notNull?: NotNull;
-  readonly primaryKey?: boolean;
-  readonly unique?: string | boolean;
-  readonly generation?: Generation;
-  readonly defaultValue?: SqlDefaultValue;
-  readonly defaultExpression?: string;
+  readonly notNull?: NotNull | undefined;
+  readonly primaryKey?: boolean | undefined;
+  readonly unique?: string | boolean | undefined;
+  readonly generation?: Generation | undefined;
+  readonly defaultValue?: SqlDefaultValue | undefined;
+  readonly defaultExpression?: string | undefined;
   readonly references?: {
     readonly resolver: ReferenceResolver;
-    readonly options?: ReferenceOptions;
+    readonly options?: ReferenceOptions | undefined;
   };
-  readonly config?: Record<string, unknown>;
+  readonly config?: Record<string, unknown> | undefined;
 };
 
 export type DecodeTransformation<To extends Schema.Top> = {
@@ -140,11 +140,11 @@ export type TableOptions<
   Model extends EffectSqlModel,
   Columns extends TableColumns<Model> = TableColumns<Model>,
 > = {
-  readonly name?: string;
-  readonly schema?: string;
+  readonly name?: string | undefined;
+  readonly schema?: string | undefined;
   readonly columns?: ModelTableColumns<Model, Columns>;
-  readonly primaryKey?: readonly FieldName<Model>[];
-  readonly indexes?: readonly IndexDefinition[];
+  readonly primaryKey?: readonly FieldName<Model>[] | undefined;
+  readonly indexes?: readonly IndexDefinition[] | undefined;
 };
 
 export type ClassField = EffectSqlColumn<any, any, any, any, any>;
@@ -157,11 +157,11 @@ export type ClassDefinition<
     | string
     | {
         readonly name: string;
-        readonly schema?: string;
+        readonly schema?: string | undefined;
       };
   readonly fields: Fields;
-  readonly primaryKey?: PrimaryKey;
-  readonly indexes?: readonly IndexDefinition[];
+  readonly primaryKey?: PrimaryKey | undefined;
+  readonly indexes?: readonly IndexDefinition[] | undefined;
 };
 
 export type EffectSqlTable<
@@ -177,7 +177,7 @@ export type EffectSqlTable<
   readonly model: Model;
   readonly name: string;
   readonly sqlName: string;
-  readonly schema?: string;
+  readonly schema?: string | undefined;
   readonly columns: Columns;
   readonly primaryKey: readonly FieldName<Model>[];
   readonly indexes: readonly IndexDefinition[];
@@ -192,9 +192,9 @@ export type EffectSqlSchema<
 > = {
   readonly _tag: "EffectSqlSchema";
   readonly tables: Tables;
-  readonly prefix?: string;
+  readonly prefix?: string | undefined;
 };
 
 export type EffectSqlSchemaOptions = {
-  readonly prefix?: string;
+  readonly prefix?: string | undefined;
 };

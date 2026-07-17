@@ -449,9 +449,13 @@ export class ClientDeliveryClient extends Context.Service<ClientDeliveryClient>(
                 value: {
                   id: conversation.id,
                   type: conversation.type,
-                  workspace_id: conversation.workspaceId,
-                  name: conversation.name,
-                  position: conversation.position,
+                  ...(conversation.workspaceId === undefined
+                    ? {}
+                    : { workspace_id: conversation.workspaceId }),
+                  ...(conversation.name === undefined ? {} : { name: conversation.name }),
+                  ...(conversation.position === undefined
+                    ? {}
+                    : { position: conversation.position }),
                 },
               }),
             );

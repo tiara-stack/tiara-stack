@@ -33,6 +33,10 @@ export const verifyOAuthAccessToken = async (
   options: SheetOAuthOptions,
 ): Promise<Record<string, unknown>> => {
   const verifier = oauthProviderResourceClient().getActions().verifyAccessToken;
+  const resourceMetadataMappings = oauthResourceMetadataMappings(
+    options.issuer,
+    options.validAudiences,
+  );
   return await Effect.runPromise(
     Effect.tryPromise({
       try: () =>
@@ -42,10 +46,7 @@ export const verifyOAuthAccessToken = async (
             audience: [...options.validAudiences],
             issuer: options.issuer.replace(/\/$/, ""),
           },
-          resourceMetadataMappings: oauthResourceMetadataMappings(
-            options.issuer,
-            options.validAudiences,
-          ),
+          ...(resourceMetadataMappings === undefined ? {} : { resourceMetadataMappings }),
         }),
       catch: (error) => error,
     }).pipe(

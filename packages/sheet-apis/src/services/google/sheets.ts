@@ -8,6 +8,7 @@ import {
   HashMap,
   Layer,
   Option,
+  Predicate,
   pipe,
   Result,
   Schema,
@@ -359,25 +360,32 @@ const parseA1RangeKey = (range: string) =>
   pipe(
     /^(?:'((?:[^']|'')*)'|([^!]+))!(.+)$/u.exec(range),
     Option.fromNullishOr,
-    Option.flatMap(([, quoted, unquoted, reference]) =>
-      pipe(
+    Option.flatMap(([, quoted, unquoted, reference]) => {
+      if (Predicate.isUndefined(reference)) {
+        return Option.none();
+      }
+      return pipe(
         reference.split(":").at(0),
         Option.fromNullishOr,
         Option.flatMap((start) =>
           pipe(
             /^\$?([A-Za-z]+)\$?(\d+)$/u.exec(start),
             Option.fromNullishOr,
-            Option.map(([, col, row]) =>
-              toRangeKey(
-                (quoted ?? unquoted ?? "").replace(/''/g, "'"),
-                Number.parseInt(row, 10),
-                colToNumber(col),
-              ),
+            Option.flatMap(([, col, row]) =>
+              Predicate.isUndefined(col) || Predicate.isUndefined(row)
+                ? Option.none()
+                : Option.some(
+                    toRangeKey(
+                      (quoted ?? unquoted ?? "").replace(/''/g, "'"),
+                      Number.parseInt(row, 10),
+                      colToNumber(col),
+                    ),
+                  ),
             ),
           ),
         ),
-      ),
-    ),
+      );
+    }),
   );
 
 const gridDataToKey = (sheetTitle: string, gridData: sheets_v4.Schema$GridData) =>

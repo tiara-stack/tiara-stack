@@ -44,7 +44,7 @@ export const playerLayer = sheetApisGroupLayer(
             query.ids.length === 1
               ? authorizationService.requireDiscordAccountIdOrMonitorGuild(
                   query.workspaceId,
-                  query.ids[0],
+                  query.ids[0]!,
                 )
               : authorizationService.requireMonitorWorkspace(query.workspaceId);
 
@@ -72,7 +72,7 @@ export const playerLayer = sheetApisGroupLayer(
             query.ids.length === 1
               ? authorizationService.requireDiscordAccountIdOrMonitorGuild(
                   query.workspaceId,
-                  query.ids[0],
+                  query.ids[0]!,
                 )
               : authorizationService.requireMonitorWorkspace(query.workspaceId);
 

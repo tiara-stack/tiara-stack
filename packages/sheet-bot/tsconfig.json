@@ -1,36 +1,46 @@
 {
-  "include": ["**/*.ts", "**/*.tsx", "*.ts", "*.tsx"],
+  "extends": "../../tsconfig.browser.json",
+  "include": ["**/*.ts", "**/*.tsx", "**/*.mts"],
+  "exclude": ["node_modules", "dist", ".output", ".ts-out"],
   "compilerOptions": {
-    "strict": true,
-    "esModuleInterop": true,
-    "jsx": "react-jsx",
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
+    "outDir": "./.ts-out",
+    "rootDir": ".",
+    "tsBuildInfoFile": "./.ts-out/.tsbuildinfo",
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
-    "lib": ["DOM", "DOM.Iterable", "ES2022"],
-    "isolatedModules": true,
-    "resolveJsonModule": true,
-    "skipLibCheck": true,
-    "target": "ES2022",
-    "allowJs": true,
-    "forceConsistentCasingInFileNames": true,
-    "noEmit": true,
     "paths": {
-      "dfx-discord-utils": ["../dfx-discord-utils/src/index.ts"],
-      "dfx-discord-utils/*": ["../dfx-discord-utils/src/*"],
-      "dfx-discord-utils/discord/schema": ["../dfx-discord-utils/src/discord/schema/index.ts"],
-      "sheet-auth": ["../sheet-auth/src/index.ts"],
-      "sheet-auth/*": ["../sheet-auth/src/*"],
-      "sheet-ingress-api/*": ["../sheet-ingress-api/src/*"],
       "*": ["./*"],
       "~~/*": ["./*"],
       "@@/*": ["./*"],
       "~/*": ["./src/*"],
-      "@/*": ["./src/*"]
-    },
-    "incremental": true,
-    "tsBuildInfoFile": "./.tsbuildinfo"
+      "@/*": ["./src/*"],
+      "dfx-discord-utils": ["../dfx-discord-utils/src/index.ts"],
+      "dfx-discord-utils/*": ["../dfx-discord-utils/src/*"],
+      "sheet-auth": ["../sheet-auth/src/index.ts"],
+      "sheet-auth/*": ["../sheet-auth/src/*"],
+      "sheet-db-schema": ["../sheet-db-schema/src/schema.ts"],
+      "sheet-db-schema/*": ["../sheet-db-schema/src/*"],
+      "sheet-ingress-api": ["../sheet-ingress-api/src/index.ts"],
+      "sheet-ingress-api/*": ["../sheet-ingress-api/src/*"],
+      "typhoon-core": ["../typhoon-core/src/index.ts"],
+      "typhoon-core/*": ["../typhoon-core/src/*"]
+    }
   },
-  "exclude": ["node_modules", "dist", ".output", ".tsbuildinfo"]
+  "references": [
+    {
+      "path": "../dfx-discord-utils"
+    },
+    {
+      "path": "../sheet-auth"
+    },
+    {
+      "path": "../sheet-db-schema"
+    },
+    {
+      "path": "../sheet-ingress-api"
+    },
+    {
+      "path": "../typhoon-core"
+    }
+  ]
 }

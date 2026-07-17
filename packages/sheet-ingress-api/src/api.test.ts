@@ -65,77 +65,77 @@ describe("Api", () => {
 
     for (const method of roomOrderButtonMethods) {
       expect(SheetWorkflowsRpcs.requests.has(method.rpcTag)).toBe(true);
-      expect(SheetWorkflowsApi.groups.dispatch.endpoints[method.endpointName]).toMatchObject({
+      expect(SheetWorkflowsApi.groups.dispatch!.endpoints[method.endpointName]).toMatchObject({
         method: "POST",
         name: method.endpointName,
         path: method.path,
       });
-      expect(Api.groups.dispatch.endpoints[method.endpointName]).toMatchObject({
+      expect(Api.groups.dispatch!.endpoints[method.endpointName]).toMatchObject({
         method: "POST",
         name: method.endpointName,
         path: method.path,
       });
     }
 
-    expect(SheetWorkflowsApi.groups.dispatch.endpoints.slotOpenButton).toMatchObject({
+    expect(SheetWorkflowsApi.groups.dispatch!.endpoints.slotOpenButton).toMatchObject({
       method: "POST",
       name: "slotOpenButton",
       path: "/dispatch/slot/buttons/open",
     });
-    expect(SheetWorkflowsApi.groups.dispatch.endpoints.autoCheckinTest).toMatchObject({
+    expect(SheetWorkflowsApi.groups.dispatch!.endpoints.autoCheckinTest).toMatchObject({
       method: "POST",
       name: "autoCheckinTest",
       path: "/dispatch/auto-checkin/test",
     });
-    expect(SheetWorkflowsApi.groups.dispatch.endpoints.serviceStatus).toMatchObject({
+    expect(SheetWorkflowsApi.groups.dispatch!.endpoints.serviceStatus).toMatchObject({
       method: "POST",
       name: "serviceStatus",
       path: "/dispatch/status/services",
     });
-    expect(SheetWorkflowsApi.groups.dispatch.endpoints.workspaceWelcome).toMatchObject({
+    expect(SheetWorkflowsApi.groups.dispatch!.endpoints.workspaceWelcome).toMatchObject({
       method: "POST",
       name: "workspaceWelcome",
       path: "/dispatch/workspace/welcome",
     });
-    expect(SheetWorkflowsApi.groups.dispatch.endpoints.updateAnnouncement).toMatchObject({
+    expect(SheetWorkflowsApi.groups.dispatch!.endpoints.updateAnnouncement).toMatchObject({
       method: "POST",
       name: "updateAnnouncement",
       path: "/dispatch/update-announcement",
     });
-    expect(Api.groups.dispatch.endpoints.slotOpenButton).toMatchObject({
+    expect(Api.groups.dispatch!.endpoints.slotOpenButton).toMatchObject({
       method: "POST",
       name: "slotOpenButton",
       path: "/dispatch/slot/buttons/open",
     });
-    expect(Api.groups.dispatch.endpoints.autoCheckinTest).toMatchObject({
+    expect(Api.groups.dispatch!.endpoints.autoCheckinTest).toMatchObject({
       method: "POST",
       name: "autoCheckinTest",
       path: "/dispatch/auto-checkin/test",
     });
-    expect(Api.groups.dispatch.endpoints.serviceStatus).toMatchObject({
+    expect(Api.groups.dispatch!.endpoints.serviceStatus).toMatchObject({
       method: "POST",
       name: "serviceStatus",
       path: "/dispatch/status/services",
     });
-    expect(Api.groups.dispatch.endpoints.workspaceWelcome).toMatchObject({
+    expect(Api.groups.dispatch!.endpoints.workspaceWelcome).toMatchObject({
       method: "POST",
       name: "workspaceWelcome",
       path: "/dispatch/workspace/welcome",
     });
-    expect(Api.groups.dispatch.endpoints.updateAnnouncement).toMatchObject({
+    expect(Api.groups.dispatch!.endpoints.updateAnnouncement).toMatchObject({
       method: "POST",
       name: "updateAnnouncement",
       path: "/dispatch/update-announcement",
     });
 
-    expect(SheetApisApi.groups.checkin.endpoints).not.toHaveProperty("dispatch");
-    expect(SheetApisApi.groups.checkin.endpoints).not.toHaveProperty("handleButton");
-    expect(SheetApisApi.groups.roomOrder.endpoints).not.toHaveProperty("dispatch");
-    expect(SheetApisApi.groups.roomOrder.endpoints).not.toHaveProperty("handleButton");
-    expect(Api.groups.checkin.endpoints).not.toHaveProperty("dispatch");
-    expect(Api.groups.checkin.endpoints).not.toHaveProperty("handleButton");
-    expect(Api.groups.roomOrder.endpoints).not.toHaveProperty("dispatch");
-    expect(Api.groups.roomOrder.endpoints).not.toHaveProperty("handleButton");
+    expect(SheetApisApi.groups.checkin!.endpoints).not.toHaveProperty("dispatch");
+    expect(SheetApisApi.groups.checkin!.endpoints).not.toHaveProperty("handleButton");
+    expect(SheetApisApi.groups.roomOrder!.endpoints).not.toHaveProperty("dispatch");
+    expect(SheetApisApi.groups.roomOrder!.endpoints).not.toHaveProperty("handleButton");
+    expect(Api.groups.checkin!.endpoints).not.toHaveProperty("dispatch");
+    expect(Api.groups.checkin!.endpoints).not.toHaveProperty("handleButton");
+    expect(Api.groups.roomOrder!.endpoints).not.toHaveProperty("dispatch");
+    expect(Api.groups.roomOrder!.endpoints).not.toHaveProperty("handleButton");
   });
 
   it("declares workflow discard RPCs as returning execution ids", () => {
@@ -174,13 +174,13 @@ describe("Api", () => {
   });
 
   it("keeps long interaction tokens out of ingress bot paths", () => {
-    expect(Api.groups.ingressBot.endpoints.updateOriginalInteractionResponse).toMatchObject({
+    expect(Api.groups.ingressBot!.endpoints.updateOriginalInteractionResponse).toMatchObject({
       method: "PATCH",
       name: "updateOriginalInteractionResponse",
       path: "/bot/interactions/original-response",
     });
     expect(
-      Api.groups.ingressBot.endpoints.updateOriginalInteractionResponseWithFiles,
+      Api.groups.ingressBot!.endpoints.updateOriginalInteractionResponseWithFiles,
     ).toMatchObject({
       method: "PATCH",
       name: "updateOriginalInteractionResponseWithFiles",

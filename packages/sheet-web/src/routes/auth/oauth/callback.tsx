@@ -3,14 +3,14 @@ import { completeSheetWebOAuthAuthorization } from "#/lib/oauth";
 
 export const Route = createFileRoute("/auth/oauth/callback")({
   validateSearch: (search: Record<string, unknown>) => ({
-    code: typeof search.code === "string" ? search.code : undefined,
-    state: typeof search.state === "string" ? search.state : undefined,
+    ...(typeof search.code === "string" ? { code: search.code } : {}),
+    ...(typeof search.state === "string" ? { state: search.state } : {}),
   }),
   beforeLoad: async ({ search }) => {
     const result = await completeSheetWebOAuthAuthorization({
       data: {
-        code: search.code,
-        state: search.state,
+        ...(search.code === undefined ? {} : { code: search.code }),
+        ...(search.state === undefined ? {} : { state: search.state }),
       },
     });
 

@@ -63,7 +63,7 @@ export const makeGuildConfigOperations = ({
     botClient.updateOriginalInteractionResponse(payload.interactionResponseToken, {
       embeds: [
         makeEmbed({
-          title,
+          ...(title === undefined ? {} : { title }),
           ...(description === undefined ? {} : { description }),
           fields: formatConversationConfigFields({
             client: payload.client,

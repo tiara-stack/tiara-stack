@@ -80,18 +80,16 @@ class AppsScriptResponse
             }
           }
         }
-        const init: ResponseInit = {
-          headers,
-        };
-        if (this.source.getResponseCode()) {
-          init.status = this.source.getResponseCode();
-        }
+        const status = this.source.getResponseCode();
+        const init: ResponseInit = status ? { headers, status } : { headers };
         const content = this.source.getContent();
         const uint8Array = Uint8Array.from(content);
+        const contentType = headers.get("content-type");
         return new globalThis.Response(
-          new globalThis.Blob([uint8Array.buffer], {
-            type: headers.get("content-type") || undefined,
-          }),
+          new globalThis.Blob(
+            [uint8Array.buffer],
+            contentType === null ? undefined : { type: contentType },
+          ),
           init,
         ).formData();
       },
@@ -189,7 +187,10 @@ const waitForResponse = (
       const headers: Record<string, string> = {};
       for (const key in httpRequest.headers) {
         if (key.toLowerCase() !== "content-length") {
-          headers[key] = httpRequest.headers[key];
+          const value = httpRequest.headers[key];
+          if (value !== undefined) {
+            headers[key] = value;
+          }
         }
       }
 
@@ -221,7 +222,10 @@ export const make: Effect.Effect<Client.HttpClient> = Effect.sync(() =>
 
     const headersObj: Record<string, string> = {};
     for (const key in request.headers) {
-      headersObj[key] = request.headers[key];
+      const value = request.headers[key];
+      if (value !== undefined) {
+        headersObj[key] = value;
+      }
     }
 
     const httpRequest: AppsScriptHttpRequest = {

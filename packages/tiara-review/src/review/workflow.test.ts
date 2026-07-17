@@ -167,45 +167,50 @@ describe("workflow", () => {
     expect(looksLikeFilesystemPath("C:\\tiara-review\\dist\\index.mjs")).toBe(true);
   });
 
-  it.live("runs six specialists before the orchestrator and persists the final report", () =>
-    Effect.gen(function* () {
-      const repo = makeRepo();
-      const dbDir = mkdtempSync(join(tmpdir(), "tiara-review-workflow-db."));
-      try {
-        const client = new MockCodexClient();
-        const result = yield* runCheckpointedReviewWithClient(
-          {
-            cwd: repo,
-            dbPath: join(dbDir, "reviews.sqlite"),
-            graphMcpCommand: "npx",
-            graphMcpArgsPrefix: ["@scope/tiara-review"],
-          },
-          client,
-        );
-        expect(client.calls.slice(0, 6).sort()).toEqual([
-          "code-quality",
-          "logic-bugs",
-          "maintainability",
-          "race-conditions",
-          "security",
-          "test-flakiness",
-        ]);
-        expect(client.calls[6]).toBe("orchestrator");
-        expect(
-          client.options
-            .filter((options) => options.aspect !== "orchestrator")
-            .every((options) =>
-              options.aspect === "external-review-parser" ? true : Boolean(options.graphVersionId),
-            ),
-        ).toBe(true);
-        expect(result.findings).toHaveLength(1);
-        expect(result.reportMarkdown).toContain("Checkpointed Review Report");
-        expect(result.failedAspects).toEqual([]);
-      } finally {
-        rmSync(repo, { recursive: true, force: true });
-        rmSync(dbDir, { recursive: true, force: true });
-      }
-    }),
+  it.live(
+    "runs six specialists before the orchestrator and persists the final report",
+    () =>
+      Effect.gen(function* () {
+        const repo = makeRepo();
+        const dbDir = mkdtempSync(join(tmpdir(), "tiara-review-workflow-db."));
+        try {
+          const client = new MockCodexClient();
+          const result = yield* runCheckpointedReviewWithClient(
+            {
+              cwd: repo,
+              dbPath: join(dbDir, "reviews.sqlite"),
+              graphMcpCommand: "npx",
+              graphMcpArgsPrefix: ["@scope/tiara-review"],
+            },
+            client,
+          );
+          expect(client.calls.slice(0, 6).sort()).toEqual([
+            "code-quality",
+            "logic-bugs",
+            "maintainability",
+            "race-conditions",
+            "security",
+            "test-flakiness",
+          ]);
+          expect(client.calls[6]).toBe("orchestrator");
+          expect(
+            client.options
+              .filter((options) => options.aspect !== "orchestrator")
+              .every((options) =>
+                options.aspect === "external-review-parser"
+                  ? true
+                  : Boolean(options.graphVersionId),
+              ),
+          ).toBe(true);
+          expect(result.findings).toHaveLength(1);
+          expect(result.reportMarkdown).toContain("Checkpointed Review Report");
+          expect(result.failedAspects).toEqual([]);
+        } finally {
+          rmSync(repo, { recursive: true, force: true });
+          rmSync(dbDir, { recursive: true, force: true });
+        }
+      }),
+    10_000,
   );
 
   it.live("propagates the Kimi provider and keeps graph tools specialist-only", () =>

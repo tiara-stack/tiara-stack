@@ -310,7 +310,7 @@ export const runCheckpointedReviewWithClient = (
         readonly agentId: string;
         readonly status: AgentStatus;
         readonly error: string;
-        readonly codexThreadId?: string | null;
+        readonly codexThreadId?: string | null | undefined;
       }) =>
         repository.run(
           repository.updateAgent({

@@ -26,9 +26,9 @@ class EffectSqlKitMigrationGenerateError extends Data.TaggedError(
 export type GenerateOptions = {
   readonly config: ResolvedConfig;
   readonly schema: EffectSqlSchema;
-  readonly name?: string;
-  readonly custom?: boolean;
-  readonly prefix?: "index" | "timestamp";
+  readonly name?: string | undefined;
+  readonly custom?: boolean | undefined;
+  readonly prefix?: "index" | "timestamp" | undefined;
 };
 
 export type GenerateResult = {

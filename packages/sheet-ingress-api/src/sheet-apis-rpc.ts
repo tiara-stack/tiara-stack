@@ -9,8 +9,8 @@ export const MESSAGE_ROOM_ORDER_NOT_REGISTERED_ERROR_MESSAGE =
 
 type RequestDescriptor = {
   readonly _tag: string;
-  readonly successSchema?: Schema.Top;
-  readonly errorSchema?: Schema.Top;
+  readonly successSchema?: Schema.Top | undefined;
+  readonly errorSchema?: Schema.Top | undefined;
   readonly errorSchemas: ReadonlySet<Schema.Top>;
 };
 

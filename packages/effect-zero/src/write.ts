@@ -59,8 +59,7 @@ const writeObjectReferenceMap = (
   writer.write("{");
   if (entries.length > 0) {
     writer.newLine();
-    for (let i = 0; i < entries.length; i++) {
-      const key = entries[i];
+    for (const [i, key] of entries.entries()) {
       writer.write(`${indentString}  ${JSON.stringify(key)}: ${names.get(key) ?? "undefined"}`);
       if (i < entries.length - 1) {
         writer.write(",");
@@ -92,8 +91,7 @@ const writeJsonValue = (writer: CodeBlockWriter, value: unknown, indent = 0) => 
     writer.write("{");
     if (entries.length > 0) {
       writer.newLine();
-      for (let i = 0; i < entries.length; i++) {
-        const [key, child] = entries[i];
+      for (const [i, [key, child]] of entries.entries()) {
         writer.write(`${indentString}  ${JSON.stringify(key)}: `);
         writeJsonValue(writer, child, indent + 2);
         if (i < entries.length - 1) {
@@ -139,8 +137,7 @@ const writeTableObject = (writer: CodeBlockWriter, tableName: string, table: Inf
   const columnEntries = typedEntries(table.columns);
   if (columnEntries.length > 0) {
     writer.newLine();
-    for (let i = 0; i < columnEntries.length; i++) {
-      const [columnName, column] = columnEntries[i];
+    for (const [i, [columnName, column]] of columnEntries.entries()) {
       writer.write(`    ${JSON.stringify(columnName)}: `);
       writeColumn(writer, column, 6);
       if (i < columnEntries.length - 1) {

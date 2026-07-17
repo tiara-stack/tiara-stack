@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Option, Context } from "effect";
 import { GoogleSheets } from "./google/sheets";
-import { SheetConfigService } from "./sheetConfig";
+import { hourRangeParser, SheetConfigService } from "./sheetConfig";
 
 type GoogleSheetsApi = Context.Service.Shape<typeof GoogleSheets>;
 
@@ -64,4 +64,21 @@ describe("SheetConfigService", () => {
       Effect.provideService(GoogleSheets, makeGoogleSheets("underline")),
     ),
   );
+});
+
+describe("hourRangeParser", () => {
+  it("parses valid hour ranges", () => {
+    expect(hourRangeParser("1-2")).toMatchObject({ start: 1, end: 2 });
+  });
+
+  it("rejects malformed hour ranges", () => {
+    for (const range of ["1-", "foo-2", "1-2-3"]) {
+      expect(() => hourRangeParser(range)).toThrow(`Invalid hour range: ${range}`);
+    }
+  });
+
+  it("rejects unsafe integer boundaries", () => {
+    const range = "1-9007199254740993";
+    expect(() => hourRangeParser(range)).toThrow(`Invalid hour range: ${range}`);
+  });
 });

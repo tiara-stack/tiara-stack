@@ -1,27 +1,28 @@
 {
-  "include": ["**/*.ts", "*.ts"],
+  "extends": "../../tsconfig.browser.json",
+  "include": ["**/*.ts", "**/*.tsx", "**/*.mts"],
+  "exclude": ["node_modules", "dist", ".output", ".ts-out"],
   "compilerOptions": {
-    "strict": true,
-    "esModuleInterop": true,
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "lib": ["DOM", "DOM.Iterable", "ES2022"],
-    "isolatedModules": true,
-    "resolveJsonModule": true,
-    "skipLibCheck": true,
-    "target": "ES2022",
-    "allowJs": true,
-    "forceConsistentCasingInFileNames": true,
-    "noEmit": true,
+    "outDir": "./.ts-out",
+    "rootDir": ".",
+    "tsBuildInfoFile": "./.ts-out/.tsbuildinfo",
     "paths": {
-      "effect-sql-kit": ["../effect-sql-kit/src/index.ts"],
-      "effect-zero": ["./src/index.ts"],
       "*": ["./*"],
       "~~/*": ["./*"],
-      "@@/*": ["./*"]
-    },
-    "incremental": true,
-    "tsBuildInfoFile": "./.tsbuildinfo"
+      "@@/*": ["./*"],
+      "effect-sql-kit": ["../effect-sql-kit/src/index.ts"],
+      "effect-sql-schema": ["../effect-sql-schema/src/index.mts"],
+      "effect-sql-schema/snapshot": ["../effect-sql-schema/src/snapshot.mts"],
+      "effect-sql-schema/*": ["../effect-sql-schema/src/*"],
+      "effect-zero": ["./src/index.ts"]
+    }
   },
-  "exclude": ["node_modules", "dist", ".output", ".tsbuildinfo"]
+  "references": [
+    {
+      "path": "../effect-sql-kit"
+    },
+    {
+      "path": "../effect-sql-schema"
+    }
+  ]
 }

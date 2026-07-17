@@ -404,25 +404,34 @@ const makeRunOptions = (
   Effect.gen(function* () {
     const workDir = yield* requireWorkDir(config?.workDir);
     const session = config?.session;
+    const sessionId = options.previousResponseId ?? session?.sessionId;
+    const thinking = config?.thinking ?? session?.thinking;
+    const executable = config?.executable ?? session?.executable;
+    const env = config?.env ?? session?.env;
+    const yoloMode = config?.yoloMode ?? session?.yoloMode;
+    const agentFile = config?.agentFile ?? session?.agentFile;
+    const skillsDir = config?.skillsDir ?? session?.skillsDir;
+    const shareDir = config?.shareDir ?? session?.shareDir;
     return {
       prompt: `${promptToString(options.prompt)}${jsonInstruction(options)}`,
       workDir,
-      sessionId: options.previousResponseId ?? session?.sessionId,
-      model: modelId,
-      thinking: config?.thinking ?? session?.thinking,
-      approvalPolicy: config?.approvalPolicy,
-      timeoutMs: config?.timeoutMs,
-      cleanupGraceMs: config?.cleanupGraceMs,
-      externalTools: config?.externalTools,
-      inheritConfigExternalTools: config?.externalTools === undefined ? undefined : false,
+      ...(sessionId === undefined ? {} : { sessionId }),
+      ...(modelId === undefined ? {} : { model: modelId }),
+      ...(thinking === undefined ? {} : { thinking }),
+      ...(config?.approvalPolicy === undefined ? {} : { approvalPolicy: config.approvalPolicy }),
+      ...(config?.timeoutMs === undefined ? {} : { timeoutMs: config.timeoutMs }),
+      ...(config?.cleanupGraceMs === undefined ? {} : { cleanupGraceMs: config.cleanupGraceMs }),
+      ...(config?.externalTools === undefined
+        ? {}
+        : { externalTools: config.externalTools, inheritConfigExternalTools: false }),
       sessionOptions: {
-        clientInfo: session?.clientInfo,
-        executable: config?.executable ?? session?.executable,
-        env: config?.env ?? session?.env,
-        yoloMode: config?.yoloMode ?? session?.yoloMode,
-        agentFile: config?.agentFile ?? session?.agentFile,
-        skillsDir: config?.skillsDir ?? session?.skillsDir,
-        shareDir: config?.shareDir ?? session?.shareDir,
+        ...(session?.clientInfo === undefined ? {} : { clientInfo: session.clientInfo }),
+        ...(executable === undefined ? {} : { executable }),
+        ...(env === undefined ? {} : { env }),
+        ...(yoloMode === undefined ? {} : { yoloMode }),
+        ...(agentFile === undefined ? {} : { agentFile }),
+        ...(skillsDir === undefined ? {} : { skillsDir }),
+        ...(shareDir === undefined ? {} : { shareDir }),
       },
     };
   });
@@ -447,7 +456,11 @@ export const model = (
   modelName: string,
   config?: Omit<Config, "session">,
 ): AiModel.Model<"kimi", LanguageModel.LanguageModel, KimiClient> =>
-  AiModel.make("kimi", modelName, layer({ model: modelName, config }));
+  AiModel.make(
+    "kimi",
+    modelName,
+    layer({ model: modelName, ...(config === undefined ? {} : { config }) }),
+  );
 
 export const make = ({
   model,
@@ -461,14 +474,16 @@ export const make = ({
     const makeConfig = Effect.gen(function* () {
       const serviceConfig = yield* Effect.serviceOption(KimiConfig);
       const serviceConfigValue = serviceConfig._tag === "Some" ? serviceConfig.value : undefined;
+      const env = mergeEnv(providerConfig?.env, serviceConfigValue?.env);
+      const externalTools = mergeExternalTools(
+        providerConfig?.externalTools,
+        serviceConfigValue?.externalTools,
+      );
       return {
         ...providerConfig,
         ...serviceConfigValue,
-        env: mergeEnv(providerConfig?.env, serviceConfigValue?.env),
-        externalTools: mergeExternalTools(
-          providerConfig?.externalTools,
-          serviceConfigValue?.externalTools,
-        ),
+        ...(env === undefined ? {} : { env }),
+        ...(externalTools === undefined ? {} : { externalTools }),
       };
     });
     return yield* LanguageModel.make({

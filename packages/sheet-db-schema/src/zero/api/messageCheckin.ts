@@ -1,4 +1,4 @@
-import type { Schema as RocicorpSchema, Transaction } from "@rocicorp/zero";
+import type { DefaultSchema as RocicorpSchema, Transaction } from "@rocicorp/zero";
 import { Option, Predicate, Schema } from "effect";
 import { ReadonlyJSONValue } from "typhoon-zero/schema";
 import { ZeroApiEndpoint, ZeroApiGroup } from "typhoon-zero/zeroApi";

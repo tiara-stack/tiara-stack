@@ -1,28 +1,27 @@
 {
-  "include": ["**/*.ts", "**/*.tsx", "*.ts", "*.tsx"],
+  "extends": "../../tsconfig.browser.json",
+  "include": ["**/*.ts", "**/*.tsx", "**/*.mts"],
+  "exclude": ["node_modules", "dist", ".output", ".ts-out"],
   "compilerOptions": {
-    "strict": true,
-    "esModuleInterop": true,
-    "jsx": "react-jsx",
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "lib": ["DOM", "DOM.Iterable", "ES2022"],
-    "isolatedModules": true,
-    "resolveJsonModule": true,
-    "skipLibCheck": true,
-    "target": "ES2022",
-    "allowJs": true,
-    "forceConsistentCasingInFileNames": true,
-    "noEmit": true,
+    "outDir": "./.ts-out",
+    "rootDir": ".",
+    "tsBuildInfoFile": "./.ts-out/.tsbuildinfo",
     "paths": {
-      "dfx-discord-utils": ["../dfx-discord-utils/src/index.ts"],
-      "dfx-discord-utils/*": ["../dfx-discord-utils/src/*"],
       "*": ["./*"],
       "~~/*": ["./*"],
-      "@@/*": ["./*"]
-    },
-    "incremental": true,
-    "tsBuildInfoFile": "./.tsbuildinfo"
+      "@@/*": ["./*"],
+      "dfx-discord-utils": ["../dfx-discord-utils/src/index.ts"],
+      "dfx-discord-utils/*": ["../dfx-discord-utils/src/*"],
+      "typhoon-core": ["../typhoon-core/src/index.ts"],
+      "typhoon-core/*": ["../typhoon-core/src/*"]
+    }
   },
-  "exclude": ["node_modules", "dist", ".output", ".tsbuildinfo"]
+  "references": [
+    {
+      "path": "../dfx-discord-utils"
+    },
+    {
+      "path": "../typhoon-core"
+    }
+  ]
 }

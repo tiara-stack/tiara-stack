@@ -145,10 +145,10 @@ const finalizeTable = <
   model: Model,
   options: {
     readonly name: string;
-    readonly schema?: string;
+    readonly schema?: string | undefined;
     readonly columns: Columns;
-    readonly primaryKey?: readonly FieldName<Model>[];
-    readonly indexes?: readonly IndexDefinition[];
+    readonly primaryKey?: readonly FieldName<Model>[] | undefined;
+    readonly indexes?: readonly IndexDefinition[] | undefined;
   },
 ): EffectSqlTable<D, Model, Columns> => {
   const columns = { ...options.columns };

@@ -359,7 +359,7 @@ export const parseSubmissionLine = (line: string, inferredIndex: number): Parsed
   }
 
   const explicitType = colonIndex >= 0 ? lineType(label) : null;
-  const type = explicitType ?? inferredTypes[Math.min(inferredIndex, inferredTypes.length - 1)];
+  const type = explicitType ?? inferredTypes[Math.min(inferredIndex, inferredTypes.length - 1)]!;
   const value = explicitType === null ? line : labeledValue;
   return {
     _tag: "teams",

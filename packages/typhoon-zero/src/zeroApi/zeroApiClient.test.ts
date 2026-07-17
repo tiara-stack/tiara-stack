@@ -45,7 +45,7 @@ const getByCount = ZeroApiEndpoint.query("getByCount", {
 const setCount = ZeroApiEndpoint.mutator("setCount", {
   request: Schema.Struct({ id: Schema.String, count: Schema.Number }),
   mutator: async ({ args, tx }) => {
-    await tx.mutate.item.update(args);
+    await tx.mutate.item!.update(args);
   },
 });
 

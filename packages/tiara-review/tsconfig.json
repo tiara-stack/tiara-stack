@@ -1,27 +1,25 @@
 {
-  "include": ["**/*.ts", "*.ts"],
+  "extends": "../../tsconfig.browser.json",
+  "include": ["**/*.ts", "**/*.tsx", "**/*.mts"],
+  "exclude": ["node_modules", "dist", ".output", ".ts-out"],
   "compilerOptions": {
-    "strict": true,
-    "esModuleInterop": true,
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "lib": ["DOM", "DOM.Iterable", "ES2022"],
-    "isolatedModules": true,
-    "resolveJsonModule": true,
-    "skipLibCheck": true,
-    "target": "ES2022",
-    "allowJs": true,
-    "forceConsistentCasingInFileNames": true,
-    "noEmit": true,
+    "outDir": "./.ts-out",
+    "rootDir": ".",
+    "tsBuildInfoFile": "./.ts-out/.tsbuildinfo",
     "paths": {
-      "effect-ai-codex": ["../effect-ai-codex/src/index.ts"],
-      "effect-ai-kimi": ["../effect-ai-kimi/src/index.ts"],
       "*": ["./*"],
       "~~/*": ["./*"],
-      "@@/*": ["./*"]
-    },
-    "incremental": true,
-    "tsBuildInfoFile": "./.tsbuildinfo"
+      "@@/*": ["./*"],
+      "effect-ai-codex": ["../effect-ai-codex/src/index.ts"],
+      "effect-ai-kimi": ["../effect-ai-kimi/src/index.ts"]
+    }
   },
-  "exclude": ["node_modules", "dist", ".output", ".tsbuildinfo"]
+  "references": [
+    {
+      "path": "../effect-ai-codex"
+    },
+    {
+      "path": "../effect-ai-kimi"
+    }
+  ]
 }

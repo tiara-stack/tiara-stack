@@ -582,7 +582,7 @@ type ExtractWorkerMessage =
       readonly error: {
         readonly name: string;
         readonly message: string;
-        readonly stack?: string;
+        readonly stack?: string | undefined;
       };
     };
 
@@ -652,7 +652,9 @@ const superviseExtractionRuntime = (input: {
         } else {
           const error = new Error(message.error.message);
           error.name = message.error.name;
-          error.stack = message.error.stack;
+          if (message.error.stack !== undefined) {
+            error.stack = message.error.stack;
+          }
           settle(() => reject(error));
         }
       },

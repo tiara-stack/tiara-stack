@@ -156,7 +156,7 @@ export const singlePlayerOrMonitor = <
       extractQuery<SheetApisProxyRequest<GroupName, EndpointName>>(args),
     );
     return (
-      ids.length === 1 ? requireSelfOrMonitor(guildId, ids[0]) : requireGuild("monitor", guildId)
+      ids.length === 1 ? requireSelfOrMonitor(guildId, ids[0]!) : requireGuild("monitor", guildId)
     ).pipe(Effect.mapError(authorizationArgumentError(`${group}.${endpoint}`)));
   });
 

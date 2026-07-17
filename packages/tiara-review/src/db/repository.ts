@@ -64,7 +64,7 @@ const makeReviewRepository = (dbPath: string, sql: SqlClient.SqlClient) => {
   const updateAgentRow = (input: {
     readonly id: string;
     readonly status: AgentStatus;
-    readonly codexThreadId?: string | null;
+    readonly codexThreadId?: string | null | undefined;
     readonly completedAt?: number | null;
     readonly error?: string | null;
   }) =>
@@ -279,7 +279,7 @@ const makeReviewRepository = (dbPath: string, sql: SqlClient.SqlClient) => {
     updateAgent: (input: {
       readonly id: string;
       readonly status: AgentStatus;
-      readonly codexThreadId?: string | null;
+      readonly codexThreadId?: string | null | undefined;
       readonly completedAt?: number | null;
       readonly error?: string | null;
     }) => updateAgentRow(input),

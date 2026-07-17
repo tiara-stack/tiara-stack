@@ -9,25 +9,25 @@ export type EffectZeroModel = {
 export type FieldName<Model extends EffectZeroModel> = Extract<keyof Model["fields"], string>;
 
 export type ColumnOptions = {
-  readonly name?: string;
-  readonly serverName?: string;
-  readonly type?: ZeroValueType;
-  readonly optional?: boolean;
+  readonly name?: string | undefined;
+  readonly serverName?: string | undefined;
+  readonly type?: ZeroValueType | undefined;
+  readonly optional?: boolean | undefined;
 };
 
 export type TableOptions<Model extends EffectZeroModel> = {
-  readonly name?: string;
-  readonly serverName?: string;
+  readonly name?: string | undefined;
+  readonly serverName?: string | undefined;
   readonly key: readonly FieldName<Model>[];
-  readonly columns?: Partial<Record<FieldName<Model>, boolean | ColumnOptions>>;
+  readonly columns?: Partial<Record<FieldName<Model>, boolean | ColumnOptions>> | undefined;
 };
 
 export type EffectZeroTable<Model extends EffectZeroModel = EffectZeroModel> = {
   readonly model: Model;
   readonly name: string;
-  readonly serverName?: string;
+  readonly serverName?: string | undefined;
   readonly key: readonly string[];
-  readonly columns?: Partial<Record<string, boolean | ColumnOptions>>;
+  readonly columns?: Partial<Record<string, boolean | ColumnOptions>> | undefined;
 };
 
 export type RelationshipStep = {
@@ -46,9 +46,9 @@ export type EffectZeroSchema<
 > = {
   readonly tables: Tables;
   readonly relationships: RelationshipConfig;
-  readonly prefix?: string;
-  readonly enableLegacyQueries?: boolean;
-  readonly enableLegacyMutators?: boolean;
+  readonly prefix?: string | undefined;
+  readonly enableLegacyQueries?: boolean | undefined;
+  readonly enableLegacyMutators?: boolean | undefined;
 };
 
 export type ColumnType<

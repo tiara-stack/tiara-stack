@@ -151,7 +151,7 @@ function CalendarPendingPage() {
             return (
               <motion.div
                 key={index}
-                layoutId={layoutId}
+                {...(layoutId === undefined ? {} : { layoutId })}
                 transition={{
                   layout: morphLayoutTransition,
                 }}
@@ -211,7 +211,7 @@ function getMonthYearParts(dateTime: DateTime.Zoned): { month: string; year: str
     "NOVEMBER",
     "DECEMBER",
   ];
-  return { month: monthNames[parts.month - 1], year: String(parts.year) };
+  return { month: monthNames[parts.month - 1]!, year: String(parts.year) };
 }
 
 // Format day of month for display
@@ -237,9 +237,9 @@ function SlidingTextInner({
     <motion.span
       initial={direction === 0 ? false : { y: direction > 0 ? "100%" : "-100%", opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
-      exit={
-        exitDirection === 0 ? undefined : { y: exitDirection > 0 ? "-100%" : "100%", opacity: 0 }
-      }
+      {...(exitDirection === 0
+        ? {}
+        : { exit: { y: exitDirection > 0 ? "-100%" : "100%", opacity: 0 } })}
       transition={monthSlideTransition}
       className={className}
       style={isPresent ? { display: "block" } : { position: "absolute", inset: 0 }}
@@ -262,7 +262,12 @@ function SlidingText({
   return (
     <div className="relative h-[1lh] overflow-hidden">
       <AnimatePresence initial={false} mode="sync">
-        <SlidingTextInner key={text} text={text} direction={direction} className={className} />
+        <SlidingTextInner
+          key={text}
+          text={text}
+          direction={direction}
+          {...(className === undefined ? {} : { className })}
+        />
       </AnimatePresence>
     </div>
   );
@@ -291,9 +296,9 @@ function DayGridPresenceShell({
             }
       }
       animate={{ y: 0, opacity: 1 }}
-      exit={
-        exitDirection === 0 ? undefined : { y: exitDirection > 0 ? "-100%" : "100%", opacity: 0 }
-      }
+      {...(exitDirection === 0
+        ? {}
+        : { exit: { y: exitDirection > 0 ? "-100%" : "100%", opacity: 0 } })}
       transition={monthSlideTransition}
       className={isPresent ? "relative w-full" : "absolute inset-0 w-full"}
       style={{ pointerEvents: isPresent ? undefined : "none" }}

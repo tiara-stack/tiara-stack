@@ -1,31 +1,32 @@
 {
-  "include": ["**/*.ts", "**/*.tsx", "*.ts", "*.tsx"],
-  "exclude": ["node_modules", "dist", ".output", ".tsbuildinfo"],
+  "extends": "../../tsconfig.apps-script.json",
+  "include": ["**/*.ts", "**/*.tsx", "**/*.mts"],
+  "exclude": ["node_modules", "dist", ".output", ".ts-out"],
   "compilerOptions": {
-    "strict": true,
-    "esModuleInterop": true,
-    "jsx": "react-jsx",
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "lib": ["DOM", "DOM.Iterable", "ES2022"],
-    "types": ["google-apps-script"],
-    "isolatedModules": true,
-    "resolveJsonModule": true,
-    "skipLibCheck": true,
-    "target": "ES2022",
-    "allowJs": true,
-    "forceConsistentCasingInFileNames": true,
-    "noEmit": true,
+    "outDir": "./.ts-out",
+    "rootDir": ".",
+    "tsBuildInfoFile": "./.ts-out/.tsbuildinfo",
     "paths": {
+      "*": ["./*"],
+      "~~/*": ["./*"],
+      "@@/*": ["./*"],
       "effect-platform-apps-script": ["../effect-platform-apps-script/src/index.ts"],
       "effect-platform-apps-script/*": ["../effect-platform-apps-script/src/*"],
       "sheet-ingress-api": ["../sheet-ingress-api/src/index.ts"],
       "sheet-ingress-api/*": ["../sheet-ingress-api/src/*"],
-      "*": ["./*"],
-      "~~/*": ["./*"],
-      "@@/*": ["./*"]
+      "typhoon-core": ["../typhoon-core/src/index.ts"],
+      "typhoon-core/*": ["../typhoon-core/src/*"]
+    }
+  },
+  "references": [
+    {
+      "path": "../effect-platform-apps-script"
     },
-    "incremental": true,
-    "tsBuildInfoFile": "./.tsbuildinfo"
-  }
+    {
+      "path": "../sheet-ingress-api"
+    },
+    {
+      "path": "../typhoon-core"
+    }
+  ]
 }

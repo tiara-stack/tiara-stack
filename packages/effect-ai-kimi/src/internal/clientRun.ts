@@ -19,23 +19,13 @@ type KimiContentPart = KimiTextContentPart | KimiThinkContentPart | { readonly t
 export const mergeSessionOptions = (
   config: ConfigShape | undefined,
   options: RunOptions,
-): SessionOptions => ({
-  ...config?.session,
-  ...options.sessionOptions,
-  workDir: options.workDir,
-  sessionId: options.sessionId ?? options.sessionOptions?.sessionId ?? config?.session?.sessionId,
-  model: options.model ?? options.sessionOptions?.model ?? config?.session?.model,
-  thinking:
-    options.thinking ??
-    options.sessionOptions?.thinking ??
-    config?.thinking ??
-    config?.session?.thinking ??
-    false,
-  yoloMode:
-    options.sessionOptions?.yoloMode ?? config?.yoloMode ?? config?.session?.yoloMode ?? false,
-  executable:
-    options.sessionOptions?.executable ?? config?.executable ?? config?.session?.executable,
-  env:
+): SessionOptions => {
+  const sessionId =
+    options.sessionId ?? options.sessionOptions?.sessionId ?? config?.session?.sessionId;
+  const model = options.model ?? options.sessionOptions?.model ?? config?.session?.model;
+  const executable =
+    options.sessionOptions?.executable ?? config?.executable ?? config?.session?.executable;
+  const env =
     options.sessionOptions?.env !== undefined ||
     config?.env !== undefined ||
     config?.session?.env !== undefined
@@ -44,16 +34,40 @@ export const mergeSessionOptions = (
           ...config?.env,
           ...options.sessionOptions?.env,
         }
-      : undefined,
-  externalTools: [
-    ...(options.inheritConfigExternalTools === false ? [] : (config?.externalTools ?? [])),
-    ...(options.externalTools ?? []),
-  ] as Array<ExternalTool>,
-  agentFile: options.sessionOptions?.agentFile ?? config?.agentFile ?? config?.session?.agentFile,
-  skillsDir: options.sessionOptions?.skillsDir ?? config?.skillsDir ?? config?.session?.skillsDir,
-  shareDir: options.sessionOptions?.shareDir ?? config?.shareDir ?? config?.session?.shareDir,
-  clientInfo: options.sessionOptions?.clientInfo ?? config?.session?.clientInfo,
-});
+      : undefined;
+  const agentFile =
+    options.sessionOptions?.agentFile ?? config?.agentFile ?? config?.session?.agentFile;
+  const skillsDir =
+    options.sessionOptions?.skillsDir ?? config?.skillsDir ?? config?.session?.skillsDir;
+  const shareDir =
+    options.sessionOptions?.shareDir ?? config?.shareDir ?? config?.session?.shareDir;
+  const clientInfo = options.sessionOptions?.clientInfo ?? config?.session?.clientInfo;
+  return {
+    ...config?.session,
+    ...options.sessionOptions,
+    workDir: options.workDir,
+    ...(sessionId === undefined ? {} : { sessionId }),
+    ...(model === undefined ? {} : { model }),
+    thinking:
+      options.thinking ??
+      options.sessionOptions?.thinking ??
+      config?.thinking ??
+      config?.session?.thinking ??
+      false,
+    yoloMode:
+      options.sessionOptions?.yoloMode ?? config?.yoloMode ?? config?.session?.yoloMode ?? false,
+    ...(executable === undefined ? {} : { executable }),
+    ...(env === undefined ? {} : { env }),
+    externalTools: [
+      ...(options.inheritConfigExternalTools === false ? [] : (config?.externalTools ?? [])),
+      ...(options.externalTools ?? []),
+    ] as Array<ExternalTool>,
+    ...(agentFile === undefined ? {} : { agentFile }),
+    ...(skillsDir === undefined ? {} : { skillsDir }),
+    ...(shareDir === undefined ? {} : { shareDir }),
+    ...(clientInfo === undefined ? {} : { clientInfo }),
+  };
+};
 
 const contentPartText = (part: ContentPart) => {
   const content = part as KimiContentPart;

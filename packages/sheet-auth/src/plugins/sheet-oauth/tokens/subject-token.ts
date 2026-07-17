@@ -5,8 +5,8 @@ import { oauthError } from "../errors";
 import { MaxSubjectTokenLifetimeSeconds } from "../schemas";
 import type {
   SheetOAuthEndpointContext,
+  SheetOAuthKubernetesSubjectTokenMintingOptions,
   SheetOAuthOptions,
-  SheetOAuthSubjectTokenMintingOptions,
   SheetOAuthSubjectTokenResponse,
 } from "../types";
 import { JwtTokenType } from "../../../oauth";
@@ -14,7 +14,14 @@ import { encodeJwtSecret, normalizeJwtIdentifier } from "./jwt";
 
 const assertSubjectTokenMintingConfigured = (
   options: SheetOAuthOptions,
-): Required<SheetOAuthSubjectTokenMintingOptions> => {
+): {
+  readonly secret: string;
+  readonly issuer: string;
+  readonly audience: string;
+  readonly expiresIn: number;
+  readonly allowedSubjectPrefixes: readonly string[];
+  readonly kubernetes: SheetOAuthKubernetesSubjectTokenMintingOptions;
+} => {
   const minting = options.tokenExchange?.subjectTokenMinting;
   if (!minting?.secret || !minting.kubernetes) {
     throw oauthError(

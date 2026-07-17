@@ -8,6 +8,7 @@ import {
   Function,
   HashSet,
   Option,
+  Predicate,
   Layer,
   Context,
   String,
@@ -72,8 +73,7 @@ const applyRoomEncAndDoormat = (roomTeam: Room) => {
 
   let encIndex = -1;
   let bestEffectValue = -Infinity;
-  for (let i = 0; i < teams.length; i++) {
-    const t = teams[i];
+  for (const [i, t] of teams.entries()) {
     if (
       HashSet.has(t.tags, "encable") &&
       PlayerTeam.getEffectValue(t) > bestEffectValue &&
@@ -87,8 +87,7 @@ const applyRoomEncAndDoormat = (roomTeam: Room) => {
   let tiererOverride = false;
   if (encIndex === -1) {
     let bestTalent = -Infinity;
-    for (let i = 0; i < teams.length; i++) {
-      const t = teams[i];
+    for (const [i, t] of teams.entries()) {
       if (HashSet.has(t.tags, "tierer") && t.talent > bestTalent) {
         bestTalent = t.talent;
         encIndex = i;
@@ -102,6 +101,9 @@ const applyRoomEncAndDoormat = (roomTeam: Room) => {
   }
 
   const encTeam = teams[encIndex];
+  if (Predicate.isUndefined(encTeam)) {
+    return roomTeam;
+  }
   const updatedTeams = teams.map((t, i) => {
     if (i === encIndex) {
       return PlayerTeam.addTags(HashSet.make(tiererOverride ? "tierer_enc_override" : "enc"))(t);

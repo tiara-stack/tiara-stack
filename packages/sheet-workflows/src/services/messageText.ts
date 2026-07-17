@@ -130,7 +130,11 @@ const materializeGeneratedTextPartWith = (
       strikethrough(materializeGeneratedText(client, workspaceId, part.parts)),
     subtle: (part) => subtle(materializeGeneratedText(client, workspaceId, part.parts)),
     externalLink: (part) => externalLink(part.url, part.label),
-    clientTerm: (part) => clientTerm(part.term, { form: part.form, casing: part.casing }),
+    clientTerm: (part) =>
+      clientTerm(part.term, {
+        ...(part.form === undefined ? {} : { form: part.form }),
+        ...(part.casing === undefined ? {} : { casing: part.casing }),
+      }),
   } satisfies {
     readonly [Type in GeneratedSheetTextPart["type"]]: (
       part: GeneratedSheetTextPartOf<Type>,

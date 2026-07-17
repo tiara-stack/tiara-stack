@@ -349,7 +349,7 @@ function DailyScheduleContent() {
   const virtualizer = useVirtualizer({
     count: virtualDays.length,
     getScrollElement: () => parentRef.current,
-    getItemKey: (index) => formatDayKey(virtualDays[index].dateKey),
+    getItemKey: (index) => formatDayKey(virtualDays[index]!.dateKey),
     estimateSize: () => ESTIMATE_SIZE,
     initialOffset: -INITIAL_START_OFFSET * ESTIMATE_SIZE,
     overscan: 3,
@@ -429,6 +429,9 @@ function DailyScheduleContent() {
       >
         {virtualizer.getVirtualItems().map((virtualItem) => {
           const dayData = virtualDays[virtualItem.index];
+          if (Predicate.isUndefined(dayData)) {
+            return null;
+          }
           const isActive = DateTime.Equivalence(dayData.dateKey, currentDateKey);
 
           return (
