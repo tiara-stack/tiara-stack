@@ -23,6 +23,6 @@
     "healthBaseline": ".github/fallow-baselines/health.json",
     "dupesBaseline": ".github/fallow-baselines/dupes.json"
   },
-  "ignoreDependencies": ["collections"],
+  "ignoreDependencies": ["collections", "sheet-message-content"],
   "ignoreExports": []
 }

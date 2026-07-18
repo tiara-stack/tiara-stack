@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.browser.json",
+  "include": ["**/*.ts", "**/*.tsx", "**/*.mts"],
+  "exclude": ["node_modules", "dist", ".output", ".ts-out"],
+  "compilerOptions": {
+    "outDir": "./.ts-out",
+    "rootDir": ".",
+    "tsBuildInfoFile": "./.ts-out/.tsbuildinfo",
+    "verbatimModuleSyntax": true,
+    "paths": {
+      "*": ["./*"],
+      "sheet-ingress-api": ["../sheet-ingress-api/src/index.ts"],
+      "sheet-ingress-api/*": ["../sheet-ingress-api/src/*"]
+    }
+  },
+  "references": [{ "path": "../sheet-ingress-api" }, { "path": "../tooling-config" }]
+}
