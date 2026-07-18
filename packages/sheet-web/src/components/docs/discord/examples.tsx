@@ -21,8 +21,19 @@ import { DiscordMessage } from "./discord-message";
 
 const client = { platform: "discord", clientId: "tiarabot" };
 const workspaceId = "sekai-tiering";
+const outgoingFiller = { key: "filler-1", name: "AiriFan39" };
+const incomingFiller = { key: "filler-2", name: "Theerie the Miku Enjoyer" };
+const stayingFillers = [
+  { key: "filler-3", name: "Wonderlands" },
+  { key: "filler-4", name: "Vivid BAD SQUAD" },
+  { key: "filler-5", name: "Leo/need" },
+] as const;
 const labels = {
-  users: { "filler-1": "AiriFan", "filler-2": "MikuEnjoyer", "monitor-1": "Moni" },
+  users: {
+    [outgoingFiller.key]: outgoingFiller.name,
+    [incomingFiller.key]: incomingFiller.name,
+    "monitor-1": "Moni",
+  },
   conversations: { "running-1": "marathon-room", "checkin-1": "check-ins" },
 };
 const checkinTime = Date.UTC(2026, 6, 18, 12, 45);
@@ -33,9 +44,7 @@ const ExampleDiscordMessage = (
 ) => <DiscordMessage {...props} referenceEpochMs={referenceTime} />;
 
 const checkinContent = MessageText.parts(
-  MessageText.userMention("filler-1"),
-  MessageText.text(" "),
-  MessageText.userMention("filler-2"),
+  MessageText.userMention(incomingFiller.key),
   MessageText.text(" Press the button below to check in, and head to "),
   MessageText.conversationMention(MessageText.conversationRef(client, workspaceId, "running-1")),
   MessageText.text(" for "),
@@ -49,14 +58,29 @@ const roomOrderContent = buildRoomOrderContent(
   DateTime.makeUnsafe("2026-07-18T12:00:00.000Z"),
   DateTime.makeUnsafe("2026-07-18T13:00:00.000Z"),
   "Moni",
-  [{ key: "filler-2", name: "MikuEnjoyer" }],
-  [{ key: "filler-1", name: "AiriFan" }],
+  [outgoingFiller, ...stayingFillers],
+  [incomingFiller, ...stayingFillers],
   [
-    { position: 0, team: "Bloom Team", tags: ["tierer"], effectValue: 0 },
-    { position: 1, team: "Nightcord", tags: ["enc"], effectValue: 35 },
-    { position: 2, team: "Wonderlands", tags: [], effectValue: 30 },
-    { position: 3, team: "Vivid BAD SQUAD", tags: ["not_enc"], effectValue: 28 },
-    { position: 4, team: "Leo/need", tags: [], effectValue: 25 },
+    { position: 0, team: "Bloom Team | Tierer", tags: ["tierer"], effectValue: 0 },
+    {
+      position: 1,
+      team: `${incomingFiller.name} | Full Fill`,
+      tags: ["enc"],
+      effectValue: 232,
+    },
+    {
+      position: 2,
+      team: `${stayingFillers[0].name} | Full Fill`,
+      tags: [],
+      effectValue: 224,
+    },
+    {
+      position: 3,
+      team: `${stayingFillers[1].name} | Full Fill`,
+      tags: ["not_enc"],
+      effectValue: 218,
+    },
+    { position: 4, team: `${stayingFillers[2].name} | Heal`, tags: [], effectValue: 180 },
   ],
 );
 
@@ -65,9 +89,9 @@ const range = { minRank: 0, maxRank: 2 };
 const monitorCheckinContent = makeMonitorCheckinMessage({
   initialMessage: checkinContent,
   empty: 0,
-  out: [{ name: "MikuEnjoyer" }],
-  stay: [{ name: "AiriFan" }],
-  in: [],
+  out: [outgoingFiller],
+  stay: stayingFillers,
+  in: [incomingFiller],
   lookupFailedMessage: Option.none(),
 });
 
@@ -83,8 +107,7 @@ const checkinButtonResult = {
 
 const checkedInPrompt = checkinPromptMessage(
   renderCheckedInContent(checkinContent, [
-    { memberId: "filler-1", checkinAt: Option.some(checkinTime) },
-    { memberId: "filler-2", checkinAt: Option.none() },
+    { memberId: incomingFiller.key, checkinAt: Option.some(checkinTime) },
   ]),
 );
 
@@ -117,7 +140,7 @@ export const CheckedInPromptExample = () => (
 );
 export const CheckinAnnouncementExample = () => (
   <ExampleDiscordMessage
-    message={checkinAnnouncementMessage("filler-1")}
+    message={checkinAnnouncementMessage(incomingFiller.key)}
     labels={labels}
     channel="marathon-room"
   />
