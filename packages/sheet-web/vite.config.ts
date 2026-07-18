@@ -18,7 +18,10 @@ const config = browserApp({
   plugins: [
     mdx(),
     devtools(),
-    nitro({ rollupConfig: { external: [/^@sentry\//, "tslib"] } }),
+    nitro({
+      rollupConfig: { external: [/^@sentry\//] },
+      traceDeps: ["tslib"],
+    }),
     tailwindcss(),
     tanstackStart(),
     viteReact({
