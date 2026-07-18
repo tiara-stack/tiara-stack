@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import { DateTime } from "effect";
-import { buildRoomOrderContent } from "./roomOrderContent";
+import { buildRoomOrderContent } from "sheet-message-content/roomOrderContent";
 
 const roomOrderContentHeader = (start: DateTime.DateTime, end: DateTime.DateTime) =>
   buildRoomOrderContent(1, start, end, null, [], [], []).slice(0, 5);

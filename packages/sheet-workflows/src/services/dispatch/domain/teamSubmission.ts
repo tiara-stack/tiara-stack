@@ -9,11 +9,11 @@ import type {
 import { makeUnknownError } from "typhoon-core/error";
 import { markInteractionFailureHandled } from "@/handlers/shared/interactionFailure";
 import { ClientDeliveryClient } from "../../clientDeliveryClient";
-import { teamSubmissionConfirmationActionRow } from "../../messageComponents";
+import { teamSubmissionConfirmationActionRow } from "sheet-message-content/components";
 import { SheetApisClient } from "../../sheetApisClient";
 import { makeSheetApisServices } from "../clients/sheetApis";
 import { makeDeliveryNonce } from "../pure/deliveryNonce";
-import { boundEmbedDescription, escapeMarkdown, makeEmbed } from "../pure/rendering";
+import { boundEmbedDescription, escapeMarkdown, makeEmbed } from "sheet-message-content/rendering";
 import {
   ignoreDiscordCleanupFailure,
   removeTeamSubmissionReaction,

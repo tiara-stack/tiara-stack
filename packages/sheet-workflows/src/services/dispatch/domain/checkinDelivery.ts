@@ -9,7 +9,8 @@ import {
   sendMonitorCheckinOpeningDmPing,
 } from "../../checkinDmReminders";
 import { ClientDeliveryClient } from "../../clientDeliveryClient";
-import { checkinActionRow } from "../../messageComponents";
+import { checkinActionRow } from "sheet-message-content/components";
+import { checkinPromptMessage } from "sheet-message-content/checkinPrompt";
 import { sendTentativeRoomOrder } from "../../tentativeRoomOrder";
 import {
   compensateDeliveryFailure,
@@ -78,10 +79,9 @@ export const deliverCheckin = Effect.fn("DispatchService.deliverCheckin")(functi
   readonly userConfigService: UserConfigService;
 }) {
   const checkinMessage = yield* botClient.sendMessage(generated.checkinConversationId, {
+    ...checkinPromptMessage(initialMessage, true),
     nonce: makeDeliveryNonce(payload.dispatchRequestId),
     enforceNonce: true,
-    content: initialMessage,
-    components: [checkinActionRow(true)],
   });
   yield* messageCheckinService
     .persistMessageCheckin(checkinMessage.id, {

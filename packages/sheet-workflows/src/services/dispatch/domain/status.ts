@@ -9,7 +9,7 @@ import type {
 } from "sheet-ingress-api/sheet-apis-rpc";
 import { markInteractionFailureHandled } from "@/handlers/shared/interactionFailure";
 import { ClientDeliveryClient } from "../../clientDeliveryClient";
-import * as MessageText from "../../messageText";
+import * as MessageText from "sheet-message-content/text";
 import { logNonInterruptFailure } from "../clients/messageDelivery";
 import { makeSheetApisServices } from "../clients/sheetApis";
 import {
@@ -18,7 +18,7 @@ import {
   formatServiceStatusFieldValue,
   makeEmbed,
   makeWebScheduleEmbed,
-} from "../pure/rendering";
+} from "sheet-message-content/rendering";
 
 type SheetApisServices = ReturnType<typeof makeSheetApisServices>;
 

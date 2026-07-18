@@ -7,11 +7,11 @@ import type { DispatchRequester } from "sheet-ingress-api/sheet-workflows-workfl
 import { makeArgumentError } from "typhoon-core/error";
 import { markInteractionFailureHandled } from "@/handlers/shared/interactionFailure";
 import { ClientDeliveryClient } from "../../clientDeliveryClient";
-import { checkinActionRow } from "../../messageComponents";
-import * as MessageText from "../../messageText";
+import { checkinActionRow } from "sheet-message-content/components";
+import { checkinAnnouncementMessage } from "sheet-message-content/checkinAnnouncement";
 import { makeSheetApisServices } from "../clients/sheetApis";
 import { logNonInterruptFailure } from "../clients/messageDelivery";
-import { renderCheckedInContent } from "../pure/rendering";
+import { renderCheckedInContent } from "sheet-message-content/rendering";
 import { shortRoleRetrySchedule } from "../pure/retry";
 
 type MessageCheckinService = ReturnType<typeof makeSheetApisServices>["messageCheckinService"];
@@ -147,9 +147,10 @@ export const makeCheckinButtonOperations = ({
 
     if (isFirstCheckin) {
       yield* botClient
-        .sendMessage(messageCheckinData.runningConversationId, {
-          content: [MessageText.userMention(accountId), MessageText.text(" has checked in!")],
-        })
+        .sendMessage(
+          messageCheckinData.runningConversationId,
+          checkinAnnouncementMessage(accountId),
+        )
         .pipe(
           logNonInterruptFailure(
             "Failed to announce button check-in",

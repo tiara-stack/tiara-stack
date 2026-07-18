@@ -1,16 +1,14 @@
 import { Effect } from "effect";
-import type { ClientRef, SheetTextPart } from "sheet-ingress-api/schemas/client";
+import type { ClientRef } from "sheet-ingress-api/schemas/client";
 import type {
   GeneratedRoomOrderEntry,
   RoomOrderGenerateResult,
 } from "sheet-ingress-api/schemas/roomOrder";
-import {
-  shouldSendTentativeRoomOrder,
-  TENTATIVE_ROOM_ORDER_PREFIX,
-} from "sheet-ingress-api/clientActions";
-import { tentativeRoomOrderActionRow, tentativeRoomOrderPinActionRow } from "./messageComponents";
+import { shouldSendTentativeRoomOrder } from "sheet-ingress-api/clientActions";
+import { tentativeRoomOrderPinActionRow } from "sheet-message-content/components";
+import { tentativeRoomOrderMessage } from "sheet-message-content/roomOrderMessage";
 import { ClientDeliveryClient } from "./clientDeliveryClient";
-import * as MessageText from "./messageText";
+import * as MessageText from "sheet-message-content/text";
 import { recoverNonInterruptCause } from "./dispatch/pure/failure";
 
 type RoomOrderService = {
@@ -42,9 +40,6 @@ type MessageRoomOrderService = {
     payload: PersistTentativeRoomOrderPayload,
   ) => Effect.Effect<unknown, unknown>;
 };
-
-export const tentativeRoomOrderContent = (content: ReadonlyArray<SheetTextPart>): SheetTextPart[] =>
-  MessageText.lines([MessageText.text(TENTATIVE_ROOM_ORDER_PREFIX)], content);
 
 export const sendTentativeRoomOrder = Effect.fn("sendTentativeRoomOrder")(function* ({
   workspaceId,
@@ -90,8 +85,7 @@ export const sendTentativeRoomOrder = Effect.fn("sendTentativeRoomOrder")(functi
     const content = MessageText.materializeGeneratedText(client, workspaceId, generated.content);
 
     const sentMessage = yield* botClient.sendMessage(runningConversationId, {
-      content: tentativeRoomOrderContent(content),
-      components: [tentativeRoomOrderActionRow(generated.range, generated.rank)],
+      ...tentativeRoomOrderMessage(content, generated.range, generated.rank),
     });
 
     yield* messageRoomOrderService

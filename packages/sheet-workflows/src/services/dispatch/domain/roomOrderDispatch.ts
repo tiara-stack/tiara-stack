@@ -10,8 +10,9 @@ import type {
 } from "sheet-ingress-api/sheet-apis-rpc";
 import type { DispatchRequester } from "sheet-ingress-api/sheet-workflows-workflows";
 import { ClientDeliveryClient } from "../../clientDeliveryClient";
-import { roomOrderActionRow } from "../../messageComponents";
-import * as MessageText from "../../messageText";
+import { roomOrderActionRow } from "sheet-message-content/components";
+import { roomOrderDraftMessage } from "sheet-message-content/roomOrderMessage";
+import * as MessageText from "sheet-message-content/text";
 import {
   logEnableFailure,
   makeMessageSink,
@@ -64,10 +65,9 @@ export const makeRoomOrderOperations = ({
       payload.interactionResponseToken,
     );
     const message = yield* messageSink.sendPrimary({
+      ...roomOrderDraftMessage(content, generated.range, generated.rank, true),
       nonce: makeDeliveryNonce(`room-order-dispatch:${payload.dispatchRequestId}`),
       enforceNonce: true,
-      content,
-      components: [roomOrderActionRow(generated.range, generated.rank, true)],
     });
 
     yield* messageRoomOrderService

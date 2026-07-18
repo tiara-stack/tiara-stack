@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Option } from "effect";
-import { formatConversationConfigFields } from "./rendering";
+import { formatConversationConfigFields } from "sheet-message-content/rendering";
 
 const runningFieldValue = (running: Option.Option<boolean>) =>
   formatConversationConfigFields({

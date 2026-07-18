@@ -19,7 +19,7 @@ import type {
 } from "sheet-ingress-api/sheet-apis-rpc";
 import { makeArgumentError } from "typhoon-core/error";
 import { ClientDeliveryClient } from "../../clientDeliveryClient";
-import * as MessageText from "../../messageText";
+import * as MessageText from "sheet-message-content/text";
 import { makeSheetApisServices } from "../clients/sheetApis";
 import { requireSome } from "../pure/option";
 import { resolveWorkspaceDisplayName } from "../clients/workspace";
@@ -27,10 +27,10 @@ import {
   conversationMentionValue,
   escapeMarkdown,
   formatConversationConfigFields,
-  isAutoCheckinEnabled,
   makeEmbed,
   roleMentionValue,
-} from "../pure/rendering";
+} from "sheet-message-content/rendering";
+import { isAutoCheckinEnabled } from "../pure/workflowPolicy";
 
 type WorkspaceConfigService = ReturnType<typeof makeSheetApisServices>["workspaceConfigService"];
 

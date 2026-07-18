@@ -7,12 +7,12 @@ import type {
 } from "sheet-ingress-api/sheet-apis-rpc";
 import type { DispatchRequester } from "sheet-ingress-api/sheet-workflows-workflows";
 import { ClientDeliveryClient } from "../../clientDeliveryClient";
-import { slotActionRow } from "../../messageComponents";
-import * as MessageText from "../../messageText";
+import { slotActionRow } from "sheet-message-content/components";
+import * as MessageText from "sheet-message-content/text";
 import { logNonInterruptFailure, reconcileDeliveryPersistence } from "../clients/messageDelivery";
 import { makeSheetApisServices } from "../clients/sheetApis";
 import { makeDeliveryNonce } from "../pure/deliveryNonce";
-import { makeWebScheduleEmbed } from "../pure/rendering";
+import { makeWebScheduleEmbed } from "sheet-message-content/rendering";
 import type { SlotEmbedRenderer } from "./slotRendering";
 
 type SheetApisServices = ReturnType<typeof makeSheetApisServices>;

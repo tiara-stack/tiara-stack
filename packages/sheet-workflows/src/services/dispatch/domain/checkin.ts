@@ -11,8 +11,8 @@ import type { DispatchRequester } from "sheet-ingress-api/sheet-workflows-workfl
 import { markInteractionFailureHandled } from "@/handlers/shared/interactionFailure";
 import { uniqueConversationNames } from "../../autoCheckinConversations";
 import { ClientDeliveryClient } from "../../clientDeliveryClient";
-import * as MessageText from "../../messageText";
-import { tentativeRoomOrderContent } from "../../tentativeRoomOrder";
+import * as MessageText from "sheet-message-content/text";
+import { tentativeRoomOrderContent } from "sheet-message-content/roomOrderMessage";
 import { logNonInterruptFailure, makeMessageSink } from "../clients/messageDelivery";
 import { makeSheetApisServices } from "../clients/sheetApis";
 import { makeDeliveryNonce } from "../pure/deliveryNonce";
@@ -24,7 +24,7 @@ import {
   conversationMentionValue,
   makeAutoCheckinTestEmbed,
   truncateAutoCheckinTestFailureDetail,
-} from "../pure/rendering";
+} from "sheet-message-content/rendering";
 import {
   deliverCheckin,
   finalizeCheckinPrimaryMessage,

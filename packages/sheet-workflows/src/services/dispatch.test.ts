@@ -60,7 +60,7 @@ import {
 import * as Data from "effect/Data";
 import { makeMessageSink } from "./dispatch/clients/messageDelivery";
 import { makeDeliveryNonce } from "./dispatch/pure/deliveryNonce";
-import { boundEmbedDescription, escapeMarkdown } from "./dispatch/pure/rendering";
+import { boundEmbedDescription, escapeMarkdown } from "sheet-message-content/rendering";
 
 class SheetWorkflowsServicesDispatchTestError extends Data.TaggedError(
   "SheetWorkflowsServicesDispatchTestError",

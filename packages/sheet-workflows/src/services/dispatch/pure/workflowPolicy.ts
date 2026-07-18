@@ -1,8 +1,6 @@
 import { Option, Predicate } from "effect";
 import type { ClientConversationCacheEntry } from "sheet-message-content/rendering";
 
-export * from "sheet-message-content/rendering";
-
 export const isAutoCheckinEnabled = (autoCheckin: Option.Option<boolean>) =>
   Option.getOrElse(autoCheckin, () => false);
 

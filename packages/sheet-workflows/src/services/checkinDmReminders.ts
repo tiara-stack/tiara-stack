@@ -1,7 +1,11 @@
 import { Effect } from "effect";
 import type { SheetOutboundMessage } from "sheet-ingress-api/schemas/client";
+import {
+  monitorPingMessage,
+  reminderMessage,
+  type CheckinDmMessageContext,
+} from "sheet-message-content/checkinMessages";
 import { ClientDeliveryClient } from "./clientDeliveryClient";
-import * as MessageText from "./messageText";
 
 type DmRecipient = {
   readonly platform: string;
@@ -9,13 +13,7 @@ type DmRecipient = {
   readonly defaultClientId: string;
 };
 
-type MessageContext = {
-  readonly workspaceId: string;
-  readonly runningConversationId: string;
-  readonly runningConversationName?: string | undefined;
-  readonly checkinConversationId: string;
-  readonly hour: number;
-};
+type MessageContext = CheckinDmMessageContext;
 
 type UserConfigService = {
   readonly getCheckinDmRecipients: (
@@ -27,32 +25,6 @@ type UserConfigService = {
     userIds: ReadonlyArray<string>,
   ) => Effect.Effect<ReadonlyArray<DmRecipient>, unknown>;
 };
-
-const openingLines = (params: MessageContext) => [
-  [MessageText.text(`Check-in is open for hour ${params.hour}.`)],
-  [MessageText.text(`Server: ${params.workspaceId}`)],
-  [
-    MessageText.text(
-      `Running channel: ${params.runningConversationName ?? params.runningConversationId}`,
-    ),
-  ],
-];
-
-const reminderMessage = (params: MessageContext): SheetOutboundMessage => ({
-  content: MessageText.lines(...openingLines(params), [
-    MessageText.text("Open the check-in message in the server and tap Check in."),
-  ]),
-  allowedMentions: "none",
-});
-
-const monitorPingMessage = (params: MessageContext): SheetOutboundMessage => ({
-  content: MessageText.lines(
-    ...openingLines(params),
-    [MessageText.text("You are assigned as monitor for this hour.")],
-    [MessageText.text("Open the running channel for the monitor summary and next steps.")],
-  ),
-  allowedMentions: "none",
-});
 
 const sendDirectMessages = Effect.fn("sendDirectMessages")(function* (params: {
   readonly recipients: ReadonlyArray<DmRecipient>;

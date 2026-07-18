@@ -1,12 +1,12 @@
 import { Effect, Option } from "effect";
 import type { MessageRoomOrder } from "sheet-ingress-api/schemas/messageRoomOrder";
 import { makeArgumentError } from "typhoon-core/error";
-import { buildRoomOrderContent } from "../../roomOrderContent";
-import { roomOrderActionRow, tentativeRoomOrderActionRow } from "../../messageComponents";
-import { tentativeRoomOrderContent } from "../../tentativeRoomOrder";
+import { buildRoomOrderContent } from "sheet-message-content/roomOrderContent";
+import { roomOrderActionRow, tentativeRoomOrderActionRow } from "sheet-message-content/components";
+import { tentativeRoomOrderContent } from "sheet-message-content/roomOrderMessage";
 import { makeSheetApisServices } from "../clients/sheetApis";
 import { requireSome } from "../pure/option";
-import { fillParticipantFromName, hourWindowFor } from "../pure/rendering";
+import { fillParticipantFromName, hourWindowFor } from "sheet-message-content/rendering";
 
 type SheetApisServices = ReturnType<typeof makeSheetApisServices>;
 

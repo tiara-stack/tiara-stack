@@ -7,10 +7,9 @@ import type {
 } from "sheet-ingress-api/sheet-apis-rpc";
 import type { DispatchRequester } from "sheet-ingress-api/sheet-workflows-workflows";
 import { ClientDeliveryClient } from "../../clientDeliveryClient";
-import { teamSubmissionConfirmationActionRow } from "../../messageComponents";
+import { teamSubmissionRollbackFailedMessage } from "sheet-message-content/teamSubmissionButtons";
 import { SheetApisClient } from "../../sheetApisClient";
 import { logNonInterruptFailure } from "../clients/messageDelivery";
-import { makeEmbed } from "../pure/rendering";
 import {
   ignoreDiscordCleanupFailure,
   makeFinishTeamSubmissionInteractionBestEffort,
@@ -65,17 +64,11 @@ export const makeTeamSubmissionButtonOperations = ({
   ) {
     const deliveryClient = botClient.forClient(payload.client);
     const editRollbackFailedReply = (confirmationText: string) =>
-      deliveryClient.updateMessage(payload.conversationId, payload.confirmationMessageId, {
-        embeds: [
-          makeEmbed({
-            title: "Rollback failed",
-            description: confirmationText,
-            color: teamSubmissionErrorColor,
-          }),
-        ],
-        components: [teamSubmissionConfirmationActionRow(true)],
-        allowedMentions: "none",
-      });
+      deliveryClient.updateMessage(
+        payload.conversationId,
+        payload.confirmationMessageId,
+        teamSubmissionRollbackFailedMessage(confirmationText, teamSubmissionErrorColor),
+      );
     const finishInteractionBestEffort = makeFinishTeamSubmissionInteractionBestEffort(
       botClient,
       payload,

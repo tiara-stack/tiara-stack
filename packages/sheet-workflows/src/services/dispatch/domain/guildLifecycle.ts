@@ -15,7 +15,7 @@ import { type DeliveredMessage, logNonInterruptFailure } from "../clients/messag
 import { sendWorkspaceAnnouncementWithWelcomeHeuristic } from "../clients/workspace";
 import { makeDeliveryNonce } from "../pure/deliveryNonce";
 import { recoverNonInterruptCause } from "../pure/failure";
-import { escapeInlineCode, makeEmbed, welcomeEmbed } from "../pure/rendering";
+import { escapeInlineCode, makeEmbed, welcomeEmbed } from "sheet-message-content/rendering";
 
 type MessagePayload = SheetOutboundMessage;
 const updateAnnouncementsFeatureFlag = "update-announcements";

@@ -2,10 +2,11 @@ import { Effect, Option } from "effect";
 import type { SheetOutboundMessage, SheetTextPart } from "sheet-ingress-api/schemas/client";
 import { makeArgumentError } from "typhoon-core/error";
 import { ClientDeliveryClient } from "../../clientDeliveryClient";
-import * as MessageText from "../../messageText";
+import * as MessageText from "sheet-message-content/text";
 import type { DeliveredMessage } from "./messageDelivery";
 import { logNonInterruptFailure } from "./messageDelivery";
-import { escapeMarkdown, workspaceWelcomeConversationCandidates } from "../pure/rendering";
+import { escapeMarkdown } from "sheet-message-content/rendering";
+import { workspaceWelcomeConversationCandidates } from "../pure/workflowPolicy";
 
 type MessagePayload = SheetOutboundMessage;
 type MessageTextValue = ReadonlyArray<SheetTextPart>;

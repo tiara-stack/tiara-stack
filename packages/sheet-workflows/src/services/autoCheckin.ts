@@ -2,7 +2,7 @@
 import { Context, DateTime, Duration, Effect, Layer, Option, pipe } from "effect";
 import { WorkflowEngine } from "effect/unstable/workflow";
 import { makeArgumentError } from "typhoon-core/error";
-import { checkinActionRow } from "./messageComponents";
+import { checkinActionRow } from "sheet-message-content/components";
 import { ClientDeliveryClient, ClientDeliveryClientRef } from "./clientDeliveryClient";
 import {
   sendCheckinOpeningDmReminders,
@@ -10,7 +10,7 @@ import {
 } from "./checkinDmReminders";
 import { SheetApisClient } from "./sheetApisClient";
 import { uniqueConversationNames } from "./autoCheckinConversations";
-import * as MessageText from "./messageText";
+import * as MessageText from "sheet-message-content/text";
 import { sendTentativeRoomOrder } from "./tentativeRoomOrder";
 import {
   AutoCheckinConversationResult,

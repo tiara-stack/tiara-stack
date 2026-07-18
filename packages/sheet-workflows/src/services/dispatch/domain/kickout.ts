@@ -8,12 +8,12 @@ import type { DispatchRequester } from "sheet-ingress-api/sheet-workflows-workfl
 import { makeArgumentError, makeUnknownError } from "typhoon-core/error";
 import { markInteractionFailureHandled } from "@/handlers/shared/interactionFailure";
 import { ClientDeliveryClient } from "../../clientDeliveryClient";
-import * as MessageText from "../../messageText";
+import * as MessageText from "sheet-message-content/text";
 import { makeSheetApisServices } from "../clients/sheetApis";
 import { logNonInterruptFailure } from "../clients/messageDelivery";
 import { recoverNonInterruptCause } from "../pure/failure";
 import { requireSome } from "../pure/option";
-import { textValue } from "../pure/rendering";
+import { textValue } from "sheet-message-content/rendering";
 
 type MessageTextInput = string | ReadonlyArray<SheetTextPart>;
 type SheetApisServices = ReturnType<typeof makeSheetApisServices>;
