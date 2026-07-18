@@ -17,6 +17,12 @@ export const publishedRoomOrderMessage = (
   content: ReadonlyArray<SheetTextPart>,
 ): SheetOutboundMessage => ({ content });
 
+export const roomOrderSendAcknowledgementMessage = (
+  pinned: boolean,
+): { readonly content: string } => ({
+  content: pinned ? "sent room order and pinned it!" : "sent room order, but failed to pin it.",
+});
+
 export const tentativeRoomOrderMessage = (
   content: ReadonlyArray<SheetTextPart>,
   range: { readonly minRank: number; readonly maxRank: number },
@@ -24,4 +30,12 @@ export const tentativeRoomOrderMessage = (
 ): SheetOutboundMessage => ({
   content: tentativeRoomOrderContent(content),
   components: [tentativeRoomOrderActionRow(range, rank)],
+});
+
+export const tentativeRoomOrderPinAcknowledgementMessage = (
+  cleanedUp: boolean,
+): { readonly content: string } => ({
+  content: cleanedUp
+    ? "pinned tentative room order!"
+    : "pinned tentative room order, but failed to clean up the message.",
 });

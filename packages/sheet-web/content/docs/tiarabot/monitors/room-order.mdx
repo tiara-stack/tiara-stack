@@ -14,6 +14,8 @@ Run `/room_order manual` with the underscore included. It accepts these optional
 
 TiaraBot resolves the running room/hour, generates an order from sheet data, and posts an interactive draft in the running room.
 
+<RoomOrderDraftExample />
+
 ## Check the event format
 
 For TiaraBot operations, World Link uses the same room-order flow as Marathon.
@@ -25,6 +27,28 @@ For CC (Cheerful Carnival), inspect each candidate order’s combined total befo
 - **Previous / Next** moves through generated order variants.
 - **Send** on a normal draft publishes the selected room order and attempts to pin it.
 - A tentative order produced during check-in has a separate **Pin** action and cannot use normal Send.
+
+### Published room order
+
+After **Send**, the ephemeral command response is replaced by a private acknowledgement:
+
+<RoomOrderSendResultExample />
+
+The selected order is posted as a new public message without draft controls, and TiaraBot attempts
+to pin it.
+
+<PublishedRoomOrderExample />
+
+### Tentative room order
+
+Check-in can prepare a tentative order with navigation and a dedicated **Pin** action.
+
+<TentativeRoomOrderExample />
+
+After **Pin**, TiaraBot privately acknowledges the button press. The original tentative message is
+kept in the channel without its controls and is pinned in place.
+
+<TentativeRoomOrderPinResultExample />
 
 If TiaraBot reports that delivery succeeded but pinning failed, pin the published message manually and avoid sending a duplicate. If the order is stale after a replacement, update the source schedule through the established process and generate it again.
 

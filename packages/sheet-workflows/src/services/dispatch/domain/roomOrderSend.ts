@@ -4,6 +4,7 @@ import type {
   RoomOrderButtonResult,
   RoomOrderSendButtonPayload,
 } from "sheet-ingress-api/sheet-apis-rpc";
+import { roomOrderSendAcknowledgementMessage } from "sheet-message-content/roomOrderMessage";
 import { makeUnknownError } from "typhoon-core/error";
 import { markInteractionFailureHandled } from "@/handlers/shared/interactionFailure";
 import { ClientDeliveryClient } from "../../clientDeliveryClient";
@@ -452,9 +453,7 @@ export const makeRoomOrderSend = ({
       }),
     );
 
-    const detail = pinned
-      ? "sent room order and pinned it!"
-      : "sent room order, but failed to pin it.";
+    const detail = roomOrderSendAcknowledgementMessage(pinned).content;
     yield* acknowledgeRoomOrderButton(updateInteraction, detail);
 
     return {

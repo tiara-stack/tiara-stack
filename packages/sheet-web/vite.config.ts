@@ -15,6 +15,9 @@ const config = browserApp({
   resolve: {
     tsconfigPaths: true,
   },
+  server: {
+    allowedHosts: ["hermes-dev.taile52624.ts.net"],
+  },
   plugins: [
     mdx(),
     devtools(),

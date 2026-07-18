@@ -48,6 +48,7 @@
     "react-dom": "19.3.0-canary-98ce535f-20260226",
     "sheet-auth": "workspace:*",
     "sheet-ingress-api": "workspace:*",
+    "sheet-message-content": "workspace:*",
     "start-atom": "workspace:*",
     "tailwind-merge": "^3.0.2",
     "tailwindcss": "^4.1.18",

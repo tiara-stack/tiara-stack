@@ -1,6 +1,7 @@
 export * from "./checkinAnnouncement";
 export * from "./checkinMessages";
 export * from "./checkinPrompt";
+export * from "./checkinSummary";
 export * from "./components";
 export * from "./rendering";
 export * from "./roomOrderContent";

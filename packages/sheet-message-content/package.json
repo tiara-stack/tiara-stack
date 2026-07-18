@@ -27,6 +27,7 @@
     "build": "vp pack && tar -acf dist.tar.zst ./dist"
   },
   "dependencies": {
+    "effect": "catalog:",
     "sheet-ingress-api": "workspace:*"
   },
   "devDependencies": {
@@ -35,8 +36,5 @@
     "vite": "catalog:",
     "vite-plus": "catalog:",
     "vitest": "catalog:"
-  },
-  "peerDependencies": {
-    "effect": "catalog:"
   }
 }

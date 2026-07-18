@@ -1,10 +1,8 @@
 import { Effect } from "effect";
 import type { SheetOutboundMessage } from "sheet-ingress-api/schemas/client";
-import {
-  monitorPingMessage,
-  reminderMessage,
-  type CheckinDmMessageContext,
-} from "sheet-message-content/checkinMessages";
+import { monitorPingMessage } from "sheet-message-content/checkinMessages";
+import { reminderMessage } from "sheet-message-content/checkinMessages";
+import type { CheckinDmMessageContext } from "sheet-message-content/checkinMessages";
 import { ClientDeliveryClient } from "./clientDeliveryClient";
 
 type DmRecipient = {

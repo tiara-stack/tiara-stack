@@ -20,17 +20,62 @@ TiaraBot then:
 4. sends configured filler check-in DMs and moni DM notifications.
 5. posts a tentative room order in the running channel when enough fills are available.
 
+### Moni summary returned by the command
+
+The command response is ephemeral. It confirms delivery and reports empty slots plus the players
+moving out, staying, and moving in for the selected hour. Manual check-in does not post a second
+summary in the running channel.
+
+<ManualCheckinResultExample />
+
+### Check-in prompt posted for fillers
+
+This is a separate public message in the running room’s configured check-in channel. The canonical
+filler instructions are on [Check in for your fill shift](/docs/tiarabot/fillers/check-in).
+
+<CheckinPromptExample />
+
+### Tentative room order posted by check-in
+
+When enough fills are available, check-in also creates this separate public message in the running
+channel. It is not part of the ephemeral command response.
+
+<TentativeRoomOrderExample />
+
 <Callout title="Automatic check-in is a separate flow">
   [Automatic check-in](/docs/tiarabot/monitors/auto-check-in) runs at minute 45, pings moni and
-  posts its summary directly in the running channel, and automatically prepares an eligible
+  posts an embed summary directly in the running channel, and automatically prepares an eligible
   tentative room order without a mana/moni command invocation.
 </Callout>
 
 Keep auto check-in disabled when the server uses `/checkin manual` for its own timing so the same hour is not opened by both paths.
 
+## Direct-message notifications
+
+Fillers who enabled check-in DMs receive this reminder:
+
+<FillerReminderExample />
+
+The assigned moni receives a separate notification when monitor DMs are enabled:
+
+<MonitorPingExample />
+
 ## Handle the result
 
-When a filler presses the button, TiaraBot records them, reapplies the running-room role when one is configured, updates the list, and announces the check-in. Use the missing/checked-in state plus `/schedule list` and `/slot list` to identify scheduled, overfill, or standby options.
+When a filler presses the button, TiaraBot privately confirms the interaction:
+
+<CheckinButtonResultExample />
+
+It then records the filler, reapplies the running-room role when one is configured, and updates the
+original check-in message:
+
+<CheckedInPromptExample />
+
+Finally, a successful first check-in creates a new announcement in the running channel:
+
+<CheckinAnnouncementExample />
+
+Use the checked-in state plus `/schedule list` and `/slot list` to identify scheduled, overfill, or standby options.
 
 The next escalation is server-specific: standby-first and direct-to-emergency are both valid local procedures. TiaraBot does not send that ping or assign the replacement.
 

@@ -8,10 +8,14 @@ import { makeArgumentError } from "typhoon-core/error";
 import { markInteractionFailureHandled } from "@/handlers/shared/interactionFailure";
 import { ClientDeliveryClient } from "../../clientDeliveryClient";
 import { checkinActionRow } from "sheet-message-content/components";
-import { checkinAnnouncementMessage } from "sheet-message-content/checkinAnnouncement";
+import {
+  checkinAnnouncementMessage,
+  checkinButtonAcknowledgementMessage,
+} from "sheet-message-content/checkinAnnouncement";
 import { makeSheetApisServices } from "../clients/sheetApis";
 import { logNonInterruptFailure } from "../clients/messageDelivery";
 import { renderCheckedInContent } from "sheet-message-content/rendering";
+import { requireSome } from "../pure/option";
 import { shortRoleRetrySchedule } from "../pure/retry";
 
 type MessageCheckinService = ReturnType<typeof makeSheetApisServices>["messageCheckinService"];
@@ -53,11 +57,7 @@ export const makeCheckinButtonOperations = ({
       value: Option.Option<A>,
       content: string,
       errorMessage: string,
-    ) =>
-      Option.match(value, {
-        onSome: Effect.succeed,
-        onNone: () => failCheckinInteraction(content, errorMessage),
-      });
+    ) => requireSome(value, () => failCheckinInteraction(content, errorMessage));
     const messageCheckinData = yield* requireRegisteredField(
       maybeMessageCheckinData,
       "This check-in message is not registered.",
@@ -93,9 +93,10 @@ export const makeCheckinButtonOperations = ({
     const isFirstCheckin = Option.contains(checkedInMember.checkinClaimId, checkinClaimId);
 
     yield* botClient
-      .updateOriginalInteractionResponse(payload.interactionResponseToken, {
-        content: isFirstCheckin ? "You have been checked in!" : "You have already been checked in!",
-      })
+      .updateOriginalInteractionResponse(
+        payload.interactionResponseToken,
+        checkinButtonAcknowledgementMessage(isFirstCheckin),
+      )
       .pipe(
         logNonInterruptFailure(
           "Failed to acknowledge button check-in",

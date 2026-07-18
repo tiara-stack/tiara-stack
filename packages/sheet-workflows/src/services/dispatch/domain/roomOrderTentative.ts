@@ -5,6 +5,7 @@ import type {
   RoomOrderButtonResult,
   RoomOrderPinTentativeButtonPayload,
 } from "sheet-ingress-api/sheet-apis-rpc";
+import { tentativeRoomOrderPinAcknowledgementMessage } from "sheet-message-content/roomOrderMessage";
 import { ClientDeliveryClient } from "../../clientDeliveryClient";
 import { logNonInterruptFailure } from "../clients/messageDelivery";
 import { claimRetrySchedule } from "../pure/retry";
@@ -310,9 +311,7 @@ export const makeRoomOrderTentative = ({
       trustedWorkspaceId,
       trustedMessageConversationId,
     });
-    const detail = cleanedUp
-      ? "pinned tentative room order!"
-      : "pinned tentative room order, but failed to clean up the message.";
+    const detail = tentativeRoomOrderPinAcknowledgementMessage(cleanedUp).content;
     yield* acknowledgeRoomOrderButton(updateInteraction, detail);
     return roomOrderButtonResult(
       payload,

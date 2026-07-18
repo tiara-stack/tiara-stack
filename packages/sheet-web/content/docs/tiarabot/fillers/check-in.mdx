@@ -5,15 +5,36 @@ description: Respond to a TiaraBot check-in and enter the correct running room.
 
 ## Follow TiaraBot’s check-in
 
+This is the canonical check-in prompt. The names, channel, hour, and timestamp change with the
+schedule.
+
+<CheckinPromptExample />
+
 The check-in may be scheduled automatically by TiaraBot or manually triggered by mana/moni at your server’s chosen time. In either case, when the check-in message or DM arrives:
 
 1. Verify the displayed hour and running-room context.
 2. Press **Check in** once.
-3. Wait for “You have been checked in!” If you already responded, TiaraBot says so.
+3. Wait for the private confirmation shown below. If you already responded, TiaraBot says so.
 4. Open the running channel. When the server uses a room-access role, the check-in grants it.
 5. Follow the host’s pinned room order and in-game room code.
 
+### Confirmation shown after pressing Check in
+
+This is a private response to your button press, not a new message for the channel.
+
+<CheckinButtonResultExample />
+
+### Updated check-in list
+
+The original message is updated in the check-in channel so everyone can see who has responded.
+
+<CheckedInPromptExample />
+
+### Running-room announcement
+
 On success, TiaraBot records your response, reapplies the running-room role when one is configured, updates the check-in list, and announces your check-in in the running room.
+
+<CheckinAnnouncementExample />
 
 <Callout title="What the button does not verify">
   Check-in does not validate your in-game team, ISV, Encore setup, song/difficulty, network, or

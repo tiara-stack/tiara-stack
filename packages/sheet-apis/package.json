@@ -46,6 +46,7 @@
     "sheet-auth": "workspace:*",
     "sheet-db-schema": "workspace:*",
     "sheet-ingress-api": "workspace:*",
+    "sheet-message-content": "workspace:*",
     "typhoon-core": "workspace:*",
     "typhoon-zero": "workspace:*",
     "ufo": "^1.6.1"

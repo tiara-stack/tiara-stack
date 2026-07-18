@@ -25,10 +25,10 @@ import { getSheetIdFromWorkspaceId, requireRunningConversation } from "./workspa
 import { diffFillParticipants, getScheduleFills, toFillParticipant } from "./fillMovement";
 import type { FillParticipant } from "./fillMovement";
 import type { GeneratedSheetText } from "sheet-ingress-api/schemas/client";
+import { makeMonitorCheckinMessage } from "sheet-message-content/checkinSummary";
 import {
   clientTerm,
   conversationMention,
-  joinText,
   parts,
   strikethrough,
   strong,
@@ -280,37 +280,6 @@ const getMonitorInfo = (schedule: Option.Option<PopulatedScheduleResult>) => {
       };
 };
 
-export const makeMonitorCheckinMessage = ({
-  initialMessage,
-  empty,
-  emptySlotMessage,
-  playerChangesMessage,
-  lookupFailedMessage,
-}: {
-  initialMessage: GeneratedSheetText | null;
-  empty: number;
-  emptySlotMessage: GeneratedSheetText;
-  playerChangesMessage: GeneratedSheetText;
-  lookupFailedMessage: Option.Option<string>;
-}) =>
-  initialMessage
-    ? joinText(
-        [
-          [text("Check-in message sent!")],
-          emptySlotMessage,
-          playerChangesMessage,
-          ...Option.toArray(Option.map(lookupFailedMessage, (message) => [text(message)])),
-        ],
-        "\n",
-      )
-    : joinText(
-        [
-          [text("No check-in message sent, no new players to check in")],
-          ...(empty > 0 && empty < SLOTS_PER_ROW ? [emptySlotMessage] : []),
-        ],
-        "\n",
-      );
-
 const formatConversationString = (
   roleId: Option.Option<string>,
   conversationId: string,
@@ -329,19 +298,6 @@ const formatConversationString = (
         ),
       )
     : parts(text("head to "), conversationMention(conversationId));
-
-const renderParticipantGroup = (
-  label: "Out" | "Stay" | "In",
-  participants: ReadonlyArray<FillParticipant>,
-): GeneratedSheetText =>
-  participants.length > 0
-    ? parts(
-        text(`${label}: `),
-        ...participants.flatMap((participant, index) =>
-          parts(index === 0 ? undefined : text(" "), text(participant.name)),
-        ),
-      )
-    : [text(`${label}: None`)];
 
 const renderParticipantMentions = (
   participants: ReadonlyArray<FillParticipant>,
@@ -486,17 +442,6 @@ export class CheckinService extends Context.Service<CheckinService>()("CheckinSe
           Option.isSome(schedule) && isPopulatedSchedule(schedule.value)
             ? PopulatedSchedule.empty(schedule.value)
             : SLOTS_PER_ROW;
-        const emptySlotMessage = [
-          text(`${empty > 0 ? `+${empty}` : "No"} empty slot${empty === 1 ? "" : "s"}`),
-        ];
-        const playerChangesMessage = joinText(
-          [
-            renderParticipantGroup("Out", fillMovement.out),
-            renderParticipantGroup("Stay", fillMovement.stay),
-            renderParticipantGroup("In", fillMovement.in),
-          ],
-          "\n",
-        );
         const lookupFailedMessage = getLookupFailedMessage(schedule);
         const monitorInfo = getMonitorInfo(schedule);
 
@@ -513,8 +458,9 @@ export class CheckinService extends Context.Service<CheckinService>()("CheckinSe
           monitorCheckinMessage: makeMonitorCheckinMessage({
             initialMessage,
             empty,
-            emptySlotMessage,
-            playerChangesMessage,
+            out: fillMovement.out,
+            stay: fillMovement.stay,
+            in: fillMovement.in,
             lookupFailedMessage,
           }),
           monitorUserId: monitorInfo.monitorUserId,

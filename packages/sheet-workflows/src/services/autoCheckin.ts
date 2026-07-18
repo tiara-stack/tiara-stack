@@ -1,8 +1,12 @@
 // fallow-ignore-file code-duplication
-import { Context, DateTime, Duration, Effect, Layer, Option, pipe } from "effect";
+import { Context, DateTime, Duration, Effect, Layer, pipe } from "effect";
 import { WorkflowEngine } from "effect/unstable/workflow";
 import { makeArgumentError } from "typhoon-core/error";
 import { checkinActionRow } from "sheet-message-content/components";
+import {
+  autoCheckinSummaryMessage,
+  formatAutoCheckinContent,
+} from "sheet-message-content/checkinSummary";
 import { ClientDeliveryClient, ClientDeliveryClientRef } from "./clientDeliveryClient";
 import {
   sendCheckinOpeningDmReminders,
@@ -36,21 +40,6 @@ const messageKeyFor = (messageId: string): Effect.Effect<MessageKey> =>
     clientId: client.clientId,
     messageId,
   }));
-
-const autoCheckinNotice = "Sent automatically via auto check-in.";
-
-const makeEmbed = (embed: {
-  readonly title?: ReadonlyArray<MessageText.SheetTextPart> | string;
-  readonly description?: ReadonlyArray<MessageText.SheetTextPart> | string | null;
-  readonly fields?: ReadonlyArray<{
-    readonly name: ReadonlyArray<MessageText.SheetTextPart> | string;
-    readonly value: ReadonlyArray<MessageText.SheetTextPart> | string;
-  }>;
-  readonly color?: number;
-}) => embed;
-
-const formatCheckinContent = (content: ReadonlyArray<MessageText.SheetTextPart>) =>
-  MessageText.lines(content, [MessageText.subtle([MessageText.text(autoCheckinNotice)])]);
 
 const deriveTargetHour = (eventStart: DateTime.DateTime, target: DateTime.DateTime): number => {
   const targetHourStart = pipe(target, DateTime.startOf("hour"));
@@ -311,7 +300,7 @@ export class AutoCheckinService extends Context.Service<AutoCheckinService>()(
 
           let checkinMessage: DeliveredMessage | null = null;
           if (initialMessage !== null) {
-            const formattedInitialMessage = formatCheckinContent(initialMessage);
+            const formattedInitialMessage = formatAutoCheckinContent(initialMessage);
             checkinMessage = yield* botClient.sendMessage(generated.checkinConversationId, {
               content: formattedInitialMessage,
             });
@@ -397,30 +386,14 @@ export class AutoCheckinService extends Context.Service<AutoCheckinService>()(
             );
           }
 
-          const embedDescription = MessageText.lines(
-            monitorCheckinMessage,
-            ...Option.match(Option.fromNullishOr(monitorFailureMessage), {
-              onSome: (failure) => [[MessageText.subtle(failure)]],
-              onNone: () => [],
+          const monitorMessage = yield* botClient.sendMessage(
+            generated.runningConversationId,
+            autoCheckinSummaryMessage({
+              monitorUserId: generated.monitorUserId,
+              monitorCheckinMessage,
+              monitorFailureMessage,
             }),
-            [MessageText.subtle([MessageText.text(autoCheckinNotice)])],
           );
-          const monitorUserId = Option.getOrUndefined(
-            Option.fromNullishOr(generated.monitorUserId),
-          );
-          const monitorMessage = yield* botClient.sendMessage(generated.runningConversationId, {
-            content:
-              typeof monitorUserId === "string"
-                ? [MessageText.userMention(monitorUserId)]
-                : undefined,
-            embeds: [
-              makeEmbed({
-                title: [MessageText.text("Auto check-in summary for monitors")],
-                description: embedDescription,
-              }),
-            ],
-            allowedMentions: typeof monitorUserId === "string" ? "default" : "none",
-          });
           const tentativeRoomOrderMessage =
             initialMessage !== null
               ? yield* sendTentativeRoomOrder({

@@ -15,6 +15,7 @@ export default browserLibrary({
         new URL("./src/teamSubmissionButtons.ts", import.meta.url),
       ),
       checkinPrompt: fileURLToPath(new URL("./src/checkinPrompt.ts", import.meta.url)),
+      checkinSummary: fileURLToPath(new URL("./src/checkinSummary.ts", import.meta.url)),
       checkinAnnouncement: fileURLToPath(new URL("./src/checkinAnnouncement.ts", import.meta.url)),
       roomOrderMessage: fileURLToPath(new URL("./src/roomOrderMessage.ts", import.meta.url)),
     },

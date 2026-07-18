@@ -381,6 +381,9 @@ importers:
       sheet-ingress-api:
         specifier: workspace:*
         version: link:../sheet-ingress-api
+      sheet-message-content:
+        specifier: workspace:*
+        version: link:../sheet-message-content
       sheet-models:
         specifier: workspace:*
         version: link:../sheet-models
@@ -922,6 +925,9 @@ importers:
       sheet-ingress-api:
         specifier: workspace:*
         version: link:../sheet-ingress-api
+      sheet-message-content:
+        specifier: workspace:*
+        version: link:../sheet-message-content
       start-atom:
         specifier: workspace:*
         version: link:../start-atom
