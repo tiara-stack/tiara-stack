@@ -9,6 +9,25 @@ const renderMessage = (message: SheetOutboundMessage) =>
   renderToStaticMarkup(<DiscordMessage message={message} referenceEpochMs={referenceEpochMs} />);
 
 describe("DiscordMessage", () => {
+  it("aligns command invocations with the bot name and connects them to the bot avatar", () => {
+    const markup = renderToStaticMarkup(
+      <DiscordMessage
+        command={{ name: "room_order manual", userName: "Theerie" }}
+        message={{ content: "Done" }}
+        referenceEpochMs={referenceEpochMs}
+      />,
+    );
+
+    expect(markup).toContain(
+      'class="relative mx-4 flex items-center gap-1.5 pl-[52px] pt-3 text-[13px] leading-5"',
+    );
+    expect(markup).toContain("absolute left-0 top-3 h-7 w-[52px]");
+    expect(markup).toContain('d="M20 25V17C20 14.24 22.24 12 25 12H49"');
+    expect(markup).toContain('stroke-linecap="round"');
+    expect(markup).toContain("flex size-4 shrink-0 items-center justify-center");
+    expect(markup).toContain("block -translate-y-px leading-none");
+  });
+
   it("renders relative timestamps from the explicit reference time", () => {
     const markup = renderMessage({
       content: [

@@ -1,5 +1,5 @@
 import { Cause, Effect, Option } from "effect";
-import type { SheetTextPart } from "sheet-ingress-api/schemas/client";
+import type { SheetOutboundMessage, SheetTextPart } from "sheet-ingress-api/schemas/client";
 import type {
   CheckinDispatchPayload,
   CheckinDispatchResult,
@@ -23,7 +23,6 @@ import { makeSheetApisServices } from "../clients/sheetApis";
 import { makeDeliveryNonce } from "../pure/deliveryNonce";
 import { messageEnableRetrySchedule } from "../pure/retry";
 
-type MessageTextInput = string | ReadonlyArray<SheetTextPart>;
 type SheetApisServices = ReturnType<typeof makeSheetApisServices>;
 type GeneratedCheckin = Effect.Success<ReturnType<SheetApisServices["checkinService"]["generate"]>>;
 type MessageSink = ReturnType<typeof makeMessageSink>;
@@ -224,13 +223,13 @@ export const deliverCheckin = Effect.fn("DispatchService.deliverCheckin")(functi
 
 export const finalizeCheckinPrimaryMessage = ({
   hasInteractionToken,
-  messageContent,
+  message,
   messageSink,
   primaryMessage,
   recoverUpdateFailure,
 }: {
   readonly hasInteractionToken: boolean;
-  readonly messageContent: MessageTextInput;
+  readonly message: SheetOutboundMessage;
   readonly messageSink: MessageSink;
   readonly primaryMessage: DeliveredMessage;
   readonly recoverUpdateFailure: boolean;
@@ -238,10 +237,7 @@ export const finalizeCheckinPrimaryMessage = ({
   if (!hasInteractionToken) {
     return Effect.succeed(primaryMessage);
   }
-  const update = messageSink.updatePrimary(primaryMessage, {
-    content: messageContent,
-    visibility: "ephemeral",
-  });
+  const update = messageSink.updatePrimary(primaryMessage, { ...message, visibility: "ephemeral" });
   return recoverUpdateFailure
     ? update.pipe(
         Effect.catchCause((cause) =>

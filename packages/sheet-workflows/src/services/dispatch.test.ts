@@ -1203,6 +1203,66 @@ describe("DispatchService", () => {
     }),
   );
 
+  it.effect("returns the manual check-in summary as an ephemeral embed without a moni ping", () =>
+    Effect.gen(function* () {
+      const updateCalls: Array<unknown> = [];
+      const sheetApisClient = makeSheetApisClient({
+        checkin: {
+          generate: () =>
+            Effect.succeed({
+              hour: 1,
+              runningConversationId: "running-conversation",
+              checkinConversationId: "checkin-conversation",
+              fillCount: 0,
+              roleId: null,
+              initialMessage: null,
+              monitorCheckinMessage: [
+                { type: "text" as const, text: "Out: " },
+                { type: "userMention" as const, userId: "filler-1" },
+              ],
+              monitorUserId: "monitor-1",
+              monitorFailureMessage: null,
+              fillIds: [],
+            }),
+        },
+      });
+      const botClient = makeClientDeliveryMock({
+        updateOriginalInteractionResponse: (interactionResponseToken, payload) => {
+          updateCalls.push({ interactionResponseToken, payload: normalizePayloadText(payload) });
+          return Effect.succeed({ id: "primary-message", conversation_id: "running-conversation" });
+        },
+      });
+
+      yield* runWithDispatchService(botClient, sheetApisClient, (service) =>
+        service.checkin(
+          {
+            client: discordClient,
+            dispatchRequestId: "dispatch-manual-checkin",
+            workspaceId: "workspace-1",
+            interactionResponseToken: "interaction-token",
+          },
+          requester,
+        ),
+      );
+
+      expect(updateCalls).toHaveLength(2);
+      expect(updateCalls[1]).toEqual({
+        interactionResponseToken: "interaction-token",
+        payload: {
+          content: null,
+          embeds: [
+            {
+              title: "Check-in summary for monitors",
+              description: "Out: @filler-1",
+            },
+          ],
+          allowedMentions: "none",
+          visibility: "ephemeral",
+        },
+      });
+    }),
+  );
+
   it.effect("replaces a public monitor message when check-in delivery fails", () =>
     Effect.gen(function* () {
       const updateCalls: Array<{

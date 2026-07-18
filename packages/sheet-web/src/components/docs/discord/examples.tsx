@@ -7,6 +7,7 @@ import {
   checkinButtonAcknowledgementMessage,
   checkinPromptMessage,
   makeMonitorCheckinMessage,
+  manualCheckinSummaryMessage,
   monitorPingMessage,
   publishedRoomOrderMessage,
   renderCheckedInContent,
@@ -21,12 +22,16 @@ import { DiscordMessage } from "./discord-message";
 
 const client = { platform: "discord", clientId: "tiarabot" };
 const workspaceId = "sekai-tiering";
-const outgoingFiller = { key: "filler-1", name: "AiriFan39" };
-const incomingFiller = { key: "filler-2", name: "Theerie the Miku Enjoyer" };
+const outgoingFiller = { key: "filler-1", name: "AiriFan39", userId: "filler-1" };
+const incomingFiller = {
+  key: "filler-2",
+  name: "Theerie the Miku Enjoyer",
+  userId: "filler-2",
+};
 const stayingFillers = [
-  { key: "filler-3", name: "Wonderlands" },
-  { key: "filler-4", name: "Vivid BAD SQUAD" },
-  { key: "filler-5", name: "Leo/need" },
+  { key: "filler-3", name: "Wonderlands", userId: "filler-3" },
+  { key: "filler-4", name: "Vivid BAD SQUAD", userId: "filler-4" },
+  { key: "filler-5", name: "Leo/need", userId: "filler-5" },
 ] as const;
 const labels = {
   users: {
@@ -96,8 +101,8 @@ const monitorCheckinContent = makeMonitorCheckinMessage({
 });
 
 const manualResult = {
+  ...manualCheckinSummaryMessage({ monitorCheckinMessage: monitorCheckinContent }),
   visibility: "ephemeral",
-  content: monitorCheckinContent,
 } as const;
 
 const checkinButtonResult = {

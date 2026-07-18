@@ -307,16 +307,28 @@ const DiscordLocation = ({
 );
 
 const CommandInvocation = ({ command }: { readonly command: DiscordCommandInvocation }) => (
-  <div className="relative mx-4 flex items-center gap-2 pb-1 pt-4 pl-5 text-[13px] leading-5">
-    <span
+  <div className="relative mx-4 flex items-center gap-1.5 pl-[52px] pt-3 text-[13px] leading-5">
+    <svg
       aria-hidden="true"
-      className="absolute left-[5px] top-[25px] h-[34px] w-[14px] rounded-tl-md border-l-2 border-t-2 border-[#4e5058]"
-    />
-    <span
-      aria-hidden="true"
-      className="grid size-5 shrink-0 place-items-center rounded-full bg-[linear-gradient(145deg,#ffd6e7,#735bf2)] text-[9px] font-black text-[#26272b]"
+      viewBox="0 0 52 28"
+      className="pointer-events-none absolute left-0 top-3 h-7 w-[52px] overflow-visible text-[#4e5058]"
     >
-      {(command.userName ?? "Theerie").slice(0, 1).toUpperCase()}
+      <path
+        d="M20 25V17C20 14.24 22.24 12 25 12H49"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="2"
+      />
+    </svg>
+    <span
+      aria-hidden="true"
+      className="flex size-4 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(145deg,#ffd6e7,#735bf2)] text-[8px] font-black text-[#26272b]"
+    >
+      <span className="block -translate-y-px leading-none">
+        {(command.userName ?? "Theerie").slice(0, 1).toUpperCase()}
+      </span>
     </span>
     <span className="font-semibold text-[#5c9cf5]">{command.userName ?? "Theerie"}</span>
     <span className="text-[#b5bac1]">used</span>

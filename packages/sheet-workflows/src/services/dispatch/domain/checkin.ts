@@ -11,6 +11,7 @@ import type { DispatchRequester } from "sheet-ingress-api/sheet-workflows-workfl
 import { markInteractionFailureHandled } from "@/handlers/shared/interactionFailure";
 import { uniqueConversationNames } from "../../autoCheckinConversations";
 import { ClientDeliveryClient } from "../../clientDeliveryClient";
+import { manualCheckinSummaryMessage } from "sheet-message-content/checkinSummary";
 import * as MessageText from "sheet-message-content/text";
 import { tentativeRoomOrderContent } from "sheet-message-content/roomOrderMessage";
 import { logNonInterruptFailure, makeMessageSink } from "../clients/messageDelivery";
@@ -480,6 +481,7 @@ export const makeCheckinOperations = ({
       payload.workspaceId,
       generated.monitorCheckinMessage,
     );
+    const monitorSummaryMessage = manualCheckinSummaryMessage({ monitorCheckinMessage });
     const initialMessage =
       generated.initialMessage === null
         ? null
@@ -500,7 +502,7 @@ export const makeCheckinOperations = ({
             visibility: "ephemeral",
           }
         : {
-            content: monitorCheckinMessage,
+            ...monitorSummaryMessage,
           }),
       nonce: makeDeliveryNonce(`${payload.dispatchRequestId}:primary-monitor`),
       enforceNonce: true,
@@ -526,9 +528,9 @@ export const makeCheckinOperations = ({
                 (hasInteractionToken
                   ? finalizeCheckinPrimaryMessage({
                       hasInteractionToken,
-                      messageContent: [
-                        MessageText.text("Check-in delivery failed. Please try again."),
-                      ],
+                      message: {
+                        content: [MessageText.text("Check-in delivery failed. Please try again.")],
+                      },
                       messageSink,
                       primaryMessage,
                       recoverUpdateFailure: false,
@@ -552,7 +554,7 @@ export const makeCheckinOperations = ({
     const { checkinMessage, tentativeRoomOrderMessage } = delivery;
     const finalPrimaryMessage = yield* finalizeCheckinPrimaryMessage({
       hasInteractionToken,
-      messageContent: monitorCheckinMessage,
+      message: monitorSummaryMessage,
       messageSink,
       primaryMessage,
       recoverUpdateFailure: true,

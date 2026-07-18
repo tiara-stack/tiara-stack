@@ -1,6 +1,10 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Option } from "effect";
-import { autoCheckinSummaryMessage, makeMonitorCheckinMessage } from "./checkinSummary";
+import {
+  autoCheckinSummaryMessage,
+  makeMonitorCheckinMessage,
+  manualCheckinSummaryMessage,
+} from "./checkinSummary";
 import { textValue } from "./rendering";
 import { renderPlainText } from "./text";
 
@@ -8,16 +12,29 @@ describe("check-in summaries", () => {
   const monitorCheckinMessage = makeMonitorCheckinMessage({
     initialMessage: [{ type: "text", text: "check-in prompt" }],
     empty: 0,
-    out: [{ name: "MikuEnjoyer" }],
-    stay: [{ name: "AiriFan" }],
+    out: [{ name: "MikuEnjoyer", userId: "filler-out" }],
+    stay: [{ name: "AiriFan", userId: "filler-stay" }],
     in: [],
     lookupFailedMessage: Option.none(),
   });
 
   it("renders the manual command's exact production summary", () => {
     expect(renderPlainText(monitorCheckinMessage)).toBe(
-      "Check-in message sent!\nNo empty slots\nOut: MikuEnjoyer\nStay: AiriFan\nIn: None",
+      "Check-in message sent!\nNo empty slots\nOut: @filler-out\nStay: @filler-stay\nIn: None",
     );
+  });
+
+  it("uses names when a filler has no user ID", () => {
+    const message = makeMonitorCheckinMessage({
+      initialMessage: [{ type: "text", text: "check-in prompt" }],
+      empty: 0,
+      out: [{ name: "Sheet-only filler" }],
+      stay: [],
+      in: [],
+      lookupFailedMessage: Option.none(),
+    });
+
+    expect(renderPlainText(message)).toContain("Out: Sheet-only filler");
   });
 
   it("keeps the production no-change empty-slot rules", () => {
@@ -56,7 +73,20 @@ describe("check-in summaries", () => {
       { type: "text", text: "Auto check-in summary for monitors" },
     ]);
     expect(renderPlainText(textValue(message.embeds?.[0]?.description ?? []))).toBe(
-      "Check-in message sent!\nNo empty slots\nOut: MikuEnjoyer\nStay: AiriFan\nIn: None\nSent automatically via auto check-in.",
+      "Check-in message sent!\nNo empty slots\nOut: @filler-out\nStay: @filler-stay\nIn: None\nSent automatically via auto check-in.",
+    );
+  });
+
+  it("wraps the manual summary in an embed without a monitor ping or auto-check-in line", () => {
+    const message = manualCheckinSummaryMessage({ monitorCheckinMessage });
+
+    expect(message.content).toBeNull();
+    expect(message.allowedMentions).toBe("none");
+    expect(message.embeds?.[0]?.title).toEqual([
+      { type: "text", text: "Check-in summary for monitors" },
+    ]);
+    expect(renderPlainText(textValue(message.embeds?.[0]?.description ?? []))).toBe(
+      "Check-in message sent!\nNo empty slots\nOut: @filler-out\nStay: @filler-stay\nIn: None",
     );
   });
 });
