@@ -1,0 +1,26 @@
+---
+title: Post and update the schedule
+description: Use /screenshot, /schedule list, and /slot for schedule posts and live openings.
+---
+
+## Capture the schedule sheet
+
+Run `/screenshot` with the required `channel_name` and `day` (and `server_id` only when needed). TiaraBot opens the configured schedule tab/range in the linked Google Sheet and returns it as `screenshot.png`.
+
+Attach that image to your server’s schedule, booming, opening-hours, or update post. TiaraBot does not write the announcement text or choose its timing.
+
+<Callout title="Schedule image only">
+  `/screenshot` does not capture a runner’s EP, cutoff, tier rank, in-game screen, or Challenge
+  Show.
+</Callout>
+
+## Verify one person
+
+Use `/schedule list day:<day> user:<person>` for an ephemeral Fill/Overfill/Standby lookup. It is useful for a conflict or replacement check, not as the full public schedule.
+
+## Publish current openings
+
+- `/slot list day:<day>` returns Open Slots and Filled Slots.
+- `/slot button day:<day>` posts a persistent **Open slots** button. Each press refreshes the current open-slot response.
+
+These are read-only views. Use the returned information with your server’s schedule-sign-up procedure. Some servers ping earlier or later. TiaraBot does not impose that timing.

@@ -1,0 +1,137 @@
+{{- if .Values.meilisearch.enabled }}
+{{- $name := include "tiara-stack.meilisearchName" . -}}
+{{- $secretName := default (include "tiara-stack.defaultSecretName" "meilisearch") .Values.meilisearch.secretRef.name -}}
+{{- $replicas := int (default 1 .Values.meilisearch.replicas) -}}
+{{- if gt $replicas 1 }}
+{{- fail "meilisearch.replicas must be at most 1 until clustering is configured" }}
+{{- end }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "tiara-stack.labels" . | nindent 4 }}
+    app: {{ $name }}
+spec:
+  serviceName: {{ include "tiara-stack.meilisearchServiceName" . }}
+  replicas: {{ $replicas }}
+  selector:
+    matchLabels:
+      app: {{ $name }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      annotations:
+        reloader.stakater.com/auto: "true"
+      labels:
+        {{- include "tiara-stack.labels" . | nindent 8 }}
+        app: {{ $name }}
+    spec:
+      automountServiceAccountToken: false
+      {{- with (coalesce .Values.meilisearch.imagePullSecrets .Values.global.imagePullSecrets) }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      {{- with (coalesce .Values.meilisearch.nodeSelector .Values.global.nodeSelector) }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with (coalesce .Values.meilisearch.tolerations .Values.global.tolerations) }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: meilisearch
+          image: {{ printf "%s:%s" .Values.meilisearch.image.repository .Values.meilisearch.image.tag | quote }}
+          imagePullPolicy: {{ .Values.meilisearch.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.meilisearch.resources | nindent 12 }}
+          ports:
+            - name: meili-http
+              containerPort: {{ .Values.meilisearch.service.port }}
+          env:
+            - name: MEILI_ENV
+              value: production
+            - name: MEILI_HTTP_ADDR
+              value: "0.0.0.0:{{ .Values.meilisearch.service.port }}"
+            - name: MEILI_DB_PATH
+              value: /meili_data/data.ms
+            - name: MEILI_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: meilisearchMasterKey
+          startupProbe:
+            httpGet:
+              path: /health
+              port: meili-http
+            periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: meili-http
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: meili-http
+            periodSeconds: 5
+          volumeMounts:
+            - name: meilisearch-data
+              mountPath: /meili_data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if not .Values.meilisearch.persistence.enabled }}
+        - name: meilisearch-data
+          emptyDir: {}
+        {{- end }}
+  {{- if .Values.meilisearch.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: meilisearch-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ .Values.meilisearch.persistence.size }}
+        {{- with .Values.meilisearch.persistence.storageClassName }}
+        storageClassName: {{ . }}
+        {{- end }}
+        {{- with .Values.meilisearch.persistence.existingVolumeName }}
+        volumeName: {{ . | quote }}
+        {{- end }}
+  {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tiara-stack.meilisearchServiceName" . }}
+  labels:
+    {{- include "tiara-stack.labels" . | nindent 4 }}
+    app: {{ $name }}
+spec:
+  clusterIP: None
+  ports:
+    - name: meili-http
+      port: {{ .Values.meilisearch.service.port }}
+      targetPort: meili-http
+  selector:
+    app: {{ $name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}

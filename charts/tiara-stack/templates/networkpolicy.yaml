@@ -84,6 +84,34 @@ spec:
 {{- end }}
 {{- end }}
 {{- end }}
+{{- if and $root.Values.networkPolicies.enabled $root.Values.meilisearch.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "tiara-stack.meilisearchName" $root }}-service-ingress
+  labels:
+    {{- include "tiara-stack.labels" $root | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: {{ include "tiara-stack.meilisearchName" $root }}
+      app.kubernetes.io/instance: {{ $root.Release.Name }}
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: sheet-web
+              app.kubernetes.io/instance: {{ $root.Release.Name }}
+        - podSelector:
+            matchLabels:
+              app: meilisearch-indexer
+              app.kubernetes.io/instance: {{ $root.Release.Name }}
+      ports:
+        - protocol: TCP
+          port: meili-http
+{{- end }}
 {{- if and .Values.networkPolicies.enabled .Values.zeroCache.enabled }}
 ---
 apiVersion: networking.k8s.io/v1

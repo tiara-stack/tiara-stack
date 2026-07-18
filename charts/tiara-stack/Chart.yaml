@@ -2,7 +2,7 @@ apiVersion: v2
 name: tiara-stack
 description: Consolidated TiaraStack application services
 type: application
-version: 0.1.0
+version: 0.2.0
 kubeVersion: ">=1.24.0-0"
 # Application image versions are supplied by CI through global.appImage.tag.
 appVersion: "0.0.0"

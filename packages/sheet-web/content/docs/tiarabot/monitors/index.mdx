@@ -1,0 +1,18 @@
+---
+title: TiaraBot for mana/moni
+description: Operate TiaraBot during a Project Sekai tiering shift.
+---
+
+This section is a TiaraBot operations runbook. It assumes you already know how your event server handles schedule-sign-up pings, standby, emergency escalation, booming/opening hours, private-room recovery, and human coordination.
+
+## Shift path
+
+1. Confirm the event server and running-room wiring.
+2. Capture/post the schedule and inspect live openings.
+3. Use [automatic check-in](/docs/tiarabot/monitors/auto-check-in) at minute 45 or run [`/checkin manual`](/docs/tiarabot/monitors/check-ins) at your server’s chosen time.
+4. Use check-in state for the server’s standby/emergency process.
+5. Generate, select, send, and pin room order.
+6. If the running room uses an access role, clean up stale role access and rerun affected bot steps after replacements.
+7. Use `/status` and contact Theerie when a bot problem persists.
+
+Server procedures around schedule sign-ups and replacements can vary. Servers can also choose between TiaraBot’s auto check-in timing and their own timing through `/checkin manual`.

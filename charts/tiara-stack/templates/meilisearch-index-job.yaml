@@ -1,0 +1,65 @@
+{{- if and .Values.meilisearch.enabled .Values.meilisearch.indexingJob.enabled }}
+{{- $sheetWeb := .Values.services.sheetWeb -}}
+{{- $secretName := default (include "tiara-stack.defaultSecretName" "meilisearch") .Values.meilisearch.secretRef.name -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ printf "%s-docs-index-%s" (include "tiara-stack.fullname" .) .Values.meilisearch.indexingJob.nameSuffix | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "tiara-stack.labels" . | nindent 4 }}
+    app: meilisearch-indexer
+  {{- if .Values.meilisearch.indexingJob.hook }}
+  annotations:
+    helm.sh/hook: post-install
+    helm.sh/hook-weight: "10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+  {{- end }}
+spec:
+  backoffLimit: {{ .Values.meilisearch.indexingJob.backoffLimit }}
+  ttlSecondsAfterFinished: {{ .Values.meilisearch.indexingJob.ttlSecondsAfterFinished }}
+  template:
+    metadata:
+      labels:
+        app: meilisearch-indexer
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      {{- include "tiara-stack.imagePullSecrets" .Values.global.imagePullSecrets | nindent 6 }}
+      {{- with (coalesce $sheetWeb.nodeSelector .Values.global.nodeSelector) }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with (coalesce $sheetWeb.tolerations .Values.global.tolerations) }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: index-docs
+          image: {{ include "tiara-stack.image" (dict "root" . "name" "sheet-web" "image" $sheetWeb.image) | quote }}
+          imagePullPolicy: {{ include "tiara-stack.imagePullPolicy" (dict "root" . "image" $sheetWeb.image) }}
+          command: ["node", ".output/server/docs-search-index.mjs", "--mode={{ .Values.meilisearch.indexingJob.mode }}"]
+          env:
+            - name: MEILISEARCH_HOST
+              value: "http://{{ include "tiara-stack.meilisearchServiceName" . }}:{{ .Values.meilisearch.service.port }}"
+            - name: MEILISEARCH_INDEX_UID
+              value: {{ .Values.meilisearch.indexUid | quote }}
+            - name: MEILISEARCH_ADMIN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: meilisearchAdminApiKey
+          resources:
+            {{- toYaml .Values.global.defaultResources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+{{- end }}

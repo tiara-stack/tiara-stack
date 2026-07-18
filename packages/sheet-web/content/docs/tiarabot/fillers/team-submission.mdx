@@ -1,0 +1,25 @@
+---
+title: Submit and verify a fill team
+description: Use the gated team-submission monitor and /team list where Theerie has enabled them.
+---
+
+<Callout type="warn" title="May be unavailable">
+  Team submission is unstable and feature-gated by Theerie per server. If there is no configured
+  submission channel, follow your server’s manual team process.
+</Callout>
+
+## Submit where enabled
+
+Post your fill-team message in the configured team-submission channel using that server’s accepted format. TiaraBot watches new messages and edits in that channel only.
+
+It reacts while processing, writes recognized teams to the sheet, and replies with teams that were added or skipped. Correct the source message when the reply identifies a parse problem or skipped team.
+
+## Verify saved information
+
+Run `/team list` to inspect your own teams, or use its optional `user` and `server_id` inputs for another lookup. The result shows saved team names and tags plus:
+
+- lead/backline ISV, such as `100/500`.
+- talent when stored.
+- effect percentage.
+
+The result is read-only. It does not submit or edit a team.

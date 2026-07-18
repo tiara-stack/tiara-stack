@@ -9,7 +9,7 @@ values outside Helm by default.
 - Helm 3.8+
 - cert-manager when using the production TLS defaults
 - Infisical operator when `infisical.enabled=true`
-- A StorageClass compatible with `zeroCache.persistence.storageClassName`;
+- A StorageClass compatible with the Zero Cache and Meilisearch persistence settings;
   production defaults to `do-block-storage`
 
 ## Install
@@ -121,6 +121,12 @@ scrape policies default to the `monitoring` namespace; override
 - `sheetWebOauthClientId` optional
 - `sheetWebOauthRedirectPath` optional
 - `sheetWebOauthScopes` optional
+- `meilisearchSearchApiKey` (search-only key; safe for the public search proxy)
+
+`meilisearch-secret`
+
+- `meilisearchMasterKey` (Meilisearch process secret)
+- `meilisearchAdminApiKey` (index-management key used only by indexing jobs)
 
 `zero-secret`
 
@@ -262,6 +268,7 @@ The default Infisical paths are:
 - `/tiara-stack/sheet-ingress-server-secret`
 - `/tiara-stack/sheet-web-secret`
 - `/tiara-stack/zero-secret`
+- `/tiara-stack/meilisearch-secret`
 
 **Important:** each path must contain keys matching the Kubernetes Secret keys
 exactly, including case; the chart does not transform or normalize key names.
@@ -302,3 +309,28 @@ database open/write, permission denied, or read-only filesystem errors and the
 pod may restart. Check the Zero Cache logs and pod events, then use the default
 `/data/zero.db`, enable persistence, or point `zeroReplicaFile` at another
 writable mounted volume with suitable ownership.
+
+## Meilisearch docs search
+
+Meilisearch runs as a dedicated, single-replica StatefulSet. It is not a
+sidecar: this lets the public SheetWeb runtime and short-lived indexing jobs use
+the same durable index without coupling search restarts to either workload.
+The service is cluster-internal and its NetworkPolicy accepts traffic only from
+SheetWeb and the docs indexer.
+
+Persistence follows the Zero Cache convention. The default 5 GiB RWO claim is
+retained when the StatefulSet is deleted. Production uses `do-block-storage`;
+set `meilisearch.persistence.existingVolumeName` to bind a pre-created retained
+volume. The deployment workflow accepts this as the
+`MEILISEARCH_EXISTING_VOLUME_NAME` repository variable.
+
+All three keys stay in Infisical. The master and admin/indexer keys live under
+`/tiara-stack/meilisearch-secret`; the search-only key lives under
+`/tiara-stack/sheet-web-secret`. Never pass the master or admin key to SheetWeb
+or browser code.
+
+On first install, Helm runs the index job as a bootstrap/fallback hook. After
+each successful app deployment, CI renders the same job without hook metadata
+and performs the primary incremental sync from the manifest bundled in the
+SheetWeb image. Use `meilisearch.indexingJob.mode=full` for a manual atomic
+rebuild when recovering an index.

@@ -1,0 +1,30 @@
+---
+title: Use automatic check-in
+description: Let TiaraBot open check-in at minute 45, notify moni in the running channel, and prepare tentative room order.
+---
+
+## Enable automatic check-in
+
+Use `/server set auto_checkin` to enable automatic check-in for the event server. Confirm the schedule sheet and each running channel’s `name` and `checkin_channel` configuration before relying on it.
+
+## What happens at minute 45
+
+At minute 45 of each hour, TiaraBot processes the next due check-in for configured running channels. For each check-in, it:
+
+1. posts the filler-facing **Check in** prompt in the configured check-in channel.
+2. sends enabled filler check-in DMs.
+3. pings the scheduled moni when one is resolved and posts the moni summary directly in the running channel.
+4. sends the moni DM notification when that preference is enabled.
+5. automatically posts a tentative room order in the running channel when enough fills are available.
+
+The running-channel summary is an important difference from `/checkin manual`: automatic check-in has no mana/moni command response to update, so the moni-facing room changes are posted directly in the running channel instead.
+
+## Operate the automatic result
+
+At minute 45, open the running channel from the moni ping. Review the expected and missing fills, then use the tentative room-order controls and your server’s standby/emergency process as needed.
+
+Filler check-ins continue to update and announce in the running channel. A tentative room order is still a draft. Select the correct version and pin or send the final order through the existing room-order flow.
+
+## Use server-controlled timing instead
+
+If the server should not open at minute 45, disable auto check-in and use [`/checkin manual`](/docs/tiarabot/monitors/check-ins) at the server’s chosen time. Manual check-in creates the same filler-facing button and can also prepare a tentative room order, but its moni summary is returned through the invoking command response.

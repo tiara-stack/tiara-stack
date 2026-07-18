@@ -14,24 +14,7 @@
       "additionalProperties": false,
       "properties": {
         "imagePullSecrets": {
-          "type": "array",
-          "items": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                  "name": {
-                    "type": "string"
-                  }
-                },
-                "required": ["name"]
-              }
-            ]
-          }
+          "$ref": "#/definitions/imagePullSecrets"
         },
         "appImage": {
           "type": "object",
@@ -497,6 +480,50 @@
         }
       }
     },
+    "meilisearch": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "replicas": { "type": "integer", "minimum": 1, "maximum": 1 },
+        "image": { "$ref": "#/definitions/image" },
+        "imagePullSecrets": { "$ref": "#/definitions/imagePullSecrets" },
+        "service": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+          }
+        },
+        "secretRef": { "$ref": "#/definitions/secretRef" },
+        "indexUid": { "type": "string", "minLength": 1 },
+        "resources": { "$ref": "#/definitions/resources" },
+        "nodeSelector": { "$ref": "#/definitions/nodeSelector" },
+        "tolerations": { "$ref": "#/definitions/tolerations" },
+        "persistence": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "storageClassName": { "type": "string" },
+            "size": { "type": "string" },
+            "existingVolumeName": { "type": "string" }
+          }
+        },
+        "indexingJob": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "hook": { "type": "boolean" },
+            "mode": { "type": "string", "enum": ["incremental", "full"] },
+            "nameSuffix": { "type": "string", "minLength": 1, "maxLength": 63, "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" },
+            "backoffLimit": { "type": "integer", "minimum": 0 },
+            "ttlSecondsAfterFinished": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
     "monitoring": {
       "type": "object",
       "additionalProperties": false,
@@ -567,6 +594,26 @@
     "pullPolicy": {
       "type": "string",
       "enum": ["Always", "IfNotPresent", "Never", ""]
+    },
+    "imagePullSecrets": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": ["name"]
+          }
+        ]
+      }
     },
     "image": {
       "type": "object",

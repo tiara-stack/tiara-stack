@@ -8,6 +8,12 @@ import { Skeleton } from "#/components/ui/skeleton";
 import { useSignOut, useSignInWithSocialProvider, useSession } from "#/lib/auth";
 import { Option } from "effect";
 
+const desktopNavigationLinkClass =
+  "inline-flex h-10 items-center gap-2 border-b-2 border-transparent px-1 text-sm font-bold tracking-wide text-[#33ccbb] transition-colors hover:border-[#33ccbb] hover:text-white";
+
+const mobileNavigationLinkClass =
+  "flex items-center gap-3 text-2xl font-black text-white transition-colors hover:text-[#33ccbb]";
+
 function AuthSection() {
   const session = useSession();
 
@@ -15,12 +21,10 @@ function AuthSection() {
   const signInWithDiscord = useSignInWithSocialProvider("discord");
 
   return Option.match(session, {
+    // fallow-ignore-next-line complexity
     onSome: (session) => (
       <div className="flex items-center gap-4">
-        <Link
-          to="/dashboard/shifts"
-          className="hidden sm:flex items-center gap-2 px-4 h-10 bg-[#33ccbb]/10 border border-[#33ccbb]/30 text-[#33ccbb] hover:bg-[#33ccbb]/20 font-bold text-sm tracking-wide transition-colors"
-        >
+        <Link to="/dashboard/shifts" className={desktopNavigationLinkClass}>
           <LayoutDashboard className="w-4 h-4" />
           DASHBOARD
         </Link>
@@ -70,6 +74,7 @@ function MobileAuthSection({ onNavigate }: { onNavigate: () => void }) {
   const signInWithDiscord = useSignInWithSocialProvider("discord");
 
   return Option.match(session, {
+    // fallow-ignore-next-line complexity
     onSome: (session) => (
       <div className="pt-4 border-t border-[#33ccbb]/20 space-y-4">
         <div className="flex items-center gap-3 mb-4">
@@ -86,11 +91,7 @@ function MobileAuthSection({ onNavigate }: { onNavigate: () => void }) {
           </Avatar>
           <span className="text-lg font-bold text-white">{session.user.name || "User"}</span>
         </div>
-        <Link
-          to="/dashboard/shifts"
-          onClick={onNavigate}
-          className="flex items-center justify-center gap-2 w-full bg-[#33ccbb]/10 border border-[#33ccbb]/30 text-[#33ccbb] hover:bg-[#33ccbb]/20 h-14 font-bold text-lg tracking-wide transition-colors"
-        >
+        <Link to="/dashboard/shifts" onClick={onNavigate} className={mobileNavigationLinkClass}>
           <LayoutDashboard className="w-5 h-5" />
           DASHBOARD
         </Link>
@@ -127,7 +128,12 @@ function HeaderFallback() {
             SHEET<span className="text-[#33ccbb]">WEB</span>
           </span>
         </div>
-        <div className="w-24 h-10 bg-[#33ccbb]/10 animate-pulse rounded" />
+        <div className="flex items-center gap-8">
+          <Link to="/docs/$" params={{ _splat: "" }} className={desktopNavigationLinkClass}>
+            DOCS
+          </Link>
+          <div className="w-24 h-10 bg-[#33ccbb]/10 animate-pulse rounded" />
+        </div>
       </div>
     </header>
   );
@@ -153,12 +159,9 @@ function HeaderContent() {
 
           {/* Desktop Navigation */}
           <nav className="hidden md:flex items-center gap-8">
-            <a
-              href="#features"
-              className="text-sm font-bold text-[#33ccbb] hover:text-white transition-colors tracking-wide"
-            >
-              FEATURES
-            </a>
+            <Link to="/docs/$" params={{ _splat: "" }} className={desktopNavigationLinkClass}>
+              DOCS
+            </Link>
             <AuthSection />
           </nav>
 
@@ -207,13 +210,14 @@ function HeaderContent() {
             >
               HOME
             </Link>
-            <a
-              href="#features"
+            <Link
+              to="/docs/$"
+              params={{ _splat: "" }}
               onClick={() => setIsOpen(false)}
-              className="block text-2xl font-black text-white hover:text-[#33ccbb] transition-colors"
+              className={mobileNavigationLinkClass}
             >
-              FEATURES
-            </a>
+              DOCS
+            </Link>
             <MobileAuthSection onNavigate={() => setIsOpen(false)} />
           </nav>
         </div>

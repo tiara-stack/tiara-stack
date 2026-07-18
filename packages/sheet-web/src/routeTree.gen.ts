@@ -13,10 +13,12 @@ import { Route as ReadyRouteImport } from './routes/ready'
 import { Route as LiveRouteImport } from './routes/live'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as DocsSplatRouteImport } from './routes/docs/$'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedDashboardIndexRouteImport } from './routes/_authenticated/dashboard/index'
 import { Route as AuthOauthStartRouteImport } from './routes/auth/oauth/start'
 import { Route as AuthOauthCallbackRouteImport } from './routes/auth/oauth/callback'
+import { Route as ApiDocsSearchRouteImport } from './routes/api/docs/search'
 import { Route as AuthenticatedDeveloperOauthClientsRouteImport } from './routes/_authenticated/developer/oauth-clients'
 import { Route as AuthenticatedDashboardShiftsRouteImport } from './routes/_authenticated/dashboard/shifts'
 import { Route as AuthenticatedDashboardPreferencesRouteImport } from './routes/_authenticated/dashboard/preferences'
@@ -47,6 +49,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DocsSplatRoute = DocsSplatRouteImport.update({
+  id: '/docs/$',
+  path: '/docs/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
@@ -66,6 +73,11 @@ const AuthOauthStartRoute = AuthOauthStartRouteImport.update({
 const AuthOauthCallbackRoute = AuthOauthCallbackRouteImport.update({
   id: '/auth/oauth/callback',
   path: '/auth/oauth/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiDocsSearchRoute = ApiDocsSearchRouteImport.update({
+  id: '/api/docs/search',
+  path: '/api/docs/search',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthenticatedDeveloperOauthClientsRoute =
@@ -142,10 +154,12 @@ export interface FileRoutesByFullPath {
   '/live': typeof LiveRoute
   '/ready': typeof ReadyRoute
   '/dashboard': typeof AuthenticatedDashboardRouteWithChildren
+  '/docs/$': typeof DocsSplatRoute
   '/dashboard/guilds': typeof AuthenticatedDashboardGuildsRouteRouteWithChildren
   '/dashboard/preferences': typeof AuthenticatedDashboardPreferencesRoute
   '/dashboard/shifts': typeof AuthenticatedDashboardShiftsRoute
   '/developer/oauth-clients': typeof AuthenticatedDeveloperOauthClientsRoute
+  '/api/docs/search': typeof ApiDocsSearchRoute
   '/auth/oauth/callback': typeof AuthOauthCallbackRoute
   '/auth/oauth/start': typeof AuthOauthStartRoute
   '/dashboard/': typeof AuthenticatedDashboardIndexRoute
@@ -160,9 +174,11 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/live': typeof LiveRoute
   '/ready': typeof ReadyRoute
+  '/docs/$': typeof DocsSplatRoute
   '/dashboard/preferences': typeof AuthenticatedDashboardPreferencesRoute
   '/dashboard/shifts': typeof AuthenticatedDashboardShiftsRoute
   '/developer/oauth-clients': typeof AuthenticatedDeveloperOauthClientsRoute
+  '/api/docs/search': typeof ApiDocsSearchRoute
   '/auth/oauth/callback': typeof AuthOauthCallbackRoute
   '/auth/oauth/start': typeof AuthOauthStartRoute
   '/dashboard': typeof AuthenticatedDashboardIndexRoute
@@ -179,10 +195,12 @@ export interface FileRoutesById {
   '/live': typeof LiveRoute
   '/ready': typeof ReadyRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRouteWithChildren
+  '/docs/$': typeof DocsSplatRoute
   '/_authenticated/dashboard/guilds': typeof AuthenticatedDashboardGuildsRouteRouteWithChildren
   '/_authenticated/dashboard/preferences': typeof AuthenticatedDashboardPreferencesRoute
   '/_authenticated/dashboard/shifts': typeof AuthenticatedDashboardShiftsRoute
   '/_authenticated/developer/oauth-clients': typeof AuthenticatedDeveloperOauthClientsRoute
+  '/api/docs/search': typeof ApiDocsSearchRoute
   '/auth/oauth/callback': typeof AuthOauthCallbackRoute
   '/auth/oauth/start': typeof AuthOauthStartRoute
   '/_authenticated/dashboard/': typeof AuthenticatedDashboardIndexRoute
@@ -200,10 +218,12 @@ export interface FileRouteTypes {
     | '/live'
     | '/ready'
     | '/dashboard'
+    | '/docs/$'
     | '/dashboard/guilds'
     | '/dashboard/preferences'
     | '/dashboard/shifts'
     | '/developer/oauth-clients'
+    | '/api/docs/search'
     | '/auth/oauth/callback'
     | '/auth/oauth/start'
     | '/dashboard/'
@@ -218,9 +238,11 @@ export interface FileRouteTypes {
     | '/'
     | '/live'
     | '/ready'
+    | '/docs/$'
     | '/dashboard/preferences'
     | '/dashboard/shifts'
     | '/developer/oauth-clients'
+    | '/api/docs/search'
     | '/auth/oauth/callback'
     | '/auth/oauth/start'
     | '/dashboard'
@@ -236,10 +258,12 @@ export interface FileRouteTypes {
     | '/live'
     | '/ready'
     | '/_authenticated/dashboard'
+    | '/docs/$'
     | '/_authenticated/dashboard/guilds'
     | '/_authenticated/dashboard/preferences'
     | '/_authenticated/dashboard/shifts'
     | '/_authenticated/developer/oauth-clients'
+    | '/api/docs/search'
     | '/auth/oauth/callback'
     | '/auth/oauth/start'
     | '/_authenticated/dashboard/'
@@ -256,6 +280,8 @@ export interface RootRouteChildren {
   AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
   LiveRoute: typeof LiveRoute
   ReadyRoute: typeof ReadyRoute
+  DocsSplatRoute: typeof DocsSplatRoute
+  ApiDocsSearchRoute: typeof ApiDocsSearchRoute
   AuthOauthCallbackRoute: typeof AuthOauthCallbackRoute
   AuthOauthStartRoute: typeof AuthOauthStartRoute
 }
@@ -290,6 +316,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/docs/$': {
+      id: '/docs/$'
+      path: '/docs/$'
+      fullPath: '/docs/$'
+      preLoaderRoute: typeof DocsSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/dashboard': {
       id: '/_authenticated/dashboard'
       path: '/dashboard'
@@ -316,6 +349,13 @@ declare module '@tanstack/react-router' {
       path: '/auth/oauth/callback'
       fullPath: '/auth/oauth/callback'
       preLoaderRoute: typeof AuthOauthCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/docs/search': {
+      id: '/api/docs/search'
+      path: '/api/docs/search'
+      fullPath: '/api/docs/search'
+      preLoaderRoute: typeof ApiDocsSearchRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated/developer/oauth-clients': {
@@ -487,6 +527,8 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRoute: AuthenticatedRouteWithChildren,
   LiveRoute: LiveRoute,
   ReadyRoute: ReadyRoute,
+  DocsSplatRoute: DocsSplatRoute,
+  ApiDocsSearchRoute: ApiDocsSearchRoute,
   AuthOauthCallbackRoute: AuthOauthCallbackRoute,
   AuthOauthStartRoute: AuthOauthStartRoute,
 }

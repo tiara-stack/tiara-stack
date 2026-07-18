@@ -1,0 +1,42 @@
+---
+title: Configure an event server
+description: Connect the schedule sheet, monitor roles, running rooms, optional access roles, and check-in destinations.
+---
+
+## Inspect before changing
+
+Use `/server list_config` and `/channel list_config` before a shift or after a handoff. Target another installed server only when necessary with `server_id`.
+
+## Event-server settings
+
+`/server` supports these configuration changes:
+
+- `/server set sheet`: Link the Google Sheet used for schedule-backed operations.
+- `/server set auto_checkin`: Enable or disable [TiaraBot’s minute-45 automatic check-in](/docs/tiarabot/monitors/auto-check-in).
+- `/server add monitor_role` and `/server remove monitor_role`: Control recognized moni roles.
+
+It is not a general event-profile command.
+
+## Running-room settings
+
+Use `/channel set` on the current or selected Discord channel to configure:
+
+- `running`: Whether the channel is a running/private-room coordination channel.
+- `name`: The logical channel name used by commands such as `/screenshot`.
+- `role`: An optional room-access role TiaraBot reapplies at check-in and removes during kickout cleanup.
+- `checkin_channel`: Where the filler-facing Check in message is sent.
+
+Use `/channel unset` to remove only the mistaken field, then `/channel list_config` to verify the result.
+
+## Optional running-room access role
+
+The running-room `role` is optional. When it is configured, TiaraBot assumes the Discord channel’s permissions use that role as a visibility gate. TiaraBot grants the role at check-in and `/kickout manual` removes it from people who should no longer have room access.
+
+The visibility gate can keep unrelated people from seeing the in-game room code and entering to break or grief the room. `/channel set` only tells TiaraBot which role to manage. Mana/moni or server staff must configure the Discord channel permissions separately.
+
+If the running room is visible without a managed role, leave `role` unset. TiaraBot will not manage room access, and there is no need to run `/kickout manual`.
+
+<Callout type="warn" title="Separate feature configuration">
+  `/channel` does not configure every announcement or the unstable team-submission monitor. Theerie
+  controls team-submission availability per server.
+</Callout>

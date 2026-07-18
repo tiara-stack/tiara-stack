@@ -39,7 +39,7 @@ export function setupStartAtomCoreIntegration<TRouter extends AnyRouter>({
   const ogHydrate = router.options.hydrate;
   const ogDehydrate = router.options.dehydrate;
 
-  if (isServer) {
+  if (isServer ?? router.isServer) {
     router.options.dehydrate = async (): Promise<DehydratedAtomState> => {
       const ogDehydrated = (await ogDehydrate?.()) ?? {};
       const atomStream = createPushableStream<Array<Hydration.DehydratedAtom>>();

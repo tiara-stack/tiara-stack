@@ -1,6 +1,6 @@
 {
   "extends": "../../tsconfig.browser.json",
-  "include": ["**/*.ts", "**/*.tsx", "**/*.mts"],
+  "include": ["**/*.ts", "**/*.tsx", "**/*.mts", ".source/**/*.ts"],
   "exclude": ["node_modules", "dist", ".output", ".ts-out"],
   "compilerOptions": {
     "outDir": "./.ts-out",
@@ -25,7 +25,8 @@
       "typhoon-core/*": ["../typhoon-core/src/*"],
       "typhoon-zero": ["../typhoon-zero/src/index.ts"],
       "typhoon-zero/*": ["../typhoon-zero/src/*"],
-      "#/*": ["./src/*"]
+      "#/*": ["./src/*"],
+      "collections/*": ["./.source/*"]
     }
   },
   "references": [

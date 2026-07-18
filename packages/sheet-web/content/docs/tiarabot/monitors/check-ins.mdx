@@ -1,0 +1,37 @@
+---
+title: Run a manual check-in
+description: Open TiaraBot check-in at a server-chosen time and handle its result.
+---
+
+## Create a manual check-in
+
+Use `/checkin manual` when a manual trigger is required. Inputs are optional:
+
+- `channel_name`: Target a configured running room by logical name. Otherwise, use the current room context.
+- `hour`: Resolve a specific schedule hour.
+- `server_id`: Target another installed event server.
+- `template`: Select a supported check-in template.
+
+TiaraBot then:
+
+1. reads expected fills from the sheet.
+2. posts the filler-facing **Check in** button in the running room’s configured check-in channel.
+3. returns the moni summary through the invoking mana/moni’s command response.
+4. sends configured filler check-in DMs and moni DM notifications.
+5. posts a tentative room order in the running channel when enough fills are available.
+
+<Callout title="Automatic check-in is a separate flow">
+  [Automatic check-in](/docs/tiarabot/monitors/auto-check-in) runs at minute 45, pings moni and
+  posts its summary directly in the running channel, and automatically prepares an eligible
+  tentative room order without a mana/moni command invocation.
+</Callout>
+
+Keep auto check-in disabled when the server uses `/checkin manual` for its own timing so the same hour is not opened by both paths.
+
+## Handle the result
+
+When a filler presses the button, TiaraBot records them, reapplies the running-room role when one is configured, updates the list, and announces the check-in. Use the missing/checked-in state plus `/schedule list` and `/slot list` to identify scheduled, overfill, or standby options.
+
+The next escalation is server-specific: standby-first and direct-to-emergency are both valid local procedures. TiaraBot does not send that ping or assign the replacement.
+
+Use `/preference monitor-dm status|enable|disable` to control your monitor notification. It does not change the schedule or check-in timing.

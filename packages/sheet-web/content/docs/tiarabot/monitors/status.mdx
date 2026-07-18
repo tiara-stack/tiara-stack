@@ -1,0 +1,22 @@
+---
+title: Check TiaraBot readiness
+description: Use /status to distinguish a bot-service problem from a room or schedule problem.
+---
+
+Run `/status` to receive:
+
+- an overall ready or degraded result.
+- the time of the check.
+- one readiness field per configured TiaraBot service.
+
+This is not runner status, event pace, room health, schedule freshness, EP/cutoff tracking, or Challenge Show status.
+
+Retry a transient command failure once when `/status` is healthy. If the bot remains degraded or a command consistently fails, switch to your manual runbook and contact **Theerie** with:
+
+- command/control and visible response.
+- event server and channel.
+- time of failure.
+- relevant Discord message link.
+- whether the current room is blocked.
+
+Fillers should report problems to their server’s mana/moni first. Mana/moni handle escalation to Theerie.

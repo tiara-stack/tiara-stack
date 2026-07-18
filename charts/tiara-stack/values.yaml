@@ -256,6 +256,42 @@ zeroCache:
     size: 5Gi
     existingVolumeName: ""
 
+meilisearch:
+  enabled: true
+  replicas: 1
+  image:
+    repository: getmeili/meilisearch
+    tag: "v1.48.1"
+    pullPolicy: IfNotPresent
+  service:
+    port: 7700
+  secretRef:
+    name: meilisearch-secret
+  indexUid: tiarabot-docs
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  nodeSelector: {}
+  tolerations: []
+  persistence:
+    enabled: true
+    storageClassName: ""
+    size: 5Gi
+    existingVolumeName: ""
+  indexingJob:
+    enabled: true
+    # Helm runs this on first install. CI renders the same job without hook
+    # annotations after each deploy for the primary incremental sync path.
+    hook: true
+    mode: incremental
+    nameSuffix: bootstrap
+    backoffLimit: 2
+    ttlSecondsAfterFinished: 3600
+
 monitoring:
   prometheusNamespace: monitoring
   serviceMonitor:

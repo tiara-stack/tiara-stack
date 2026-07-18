@@ -72,6 +72,14 @@ app.kubernetes.io/instance: {{ .root.Release.Name }}
 {{- default "zero-cache-service" .Values.zeroCache.serviceNameOverride -}}
 {{- end -}}
 
+{{- define "tiara-stack.meilisearchName" -}}
+{{- printf "%s-meilisearch" (include "tiara-stack.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "tiara-stack.meilisearchServiceName" -}}
+{{- printf "%s-service" (include "tiara-stack.meilisearchName" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
 {{- define "tiara-stack.zeroCacheHeadlessServiceName" -}}
 {{- printf "%s-headless" (include "tiara-stack.zeroCacheName" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
@@ -130,6 +138,7 @@ imagePullSecrets:
   "sheetIngressServer" "sheet-ingress-server-secret"
   "sheetWeb" "sheet-web-secret"
   "zeroCache" "zero-secret"
+  "meilisearch" "meilisearch-secret"
 -}}
 {{- required (printf "unknown default secret key %s" .) (index $names .) -}}
 {{- end -}}
@@ -566,4 +575,13 @@ imagePullSecrets:
     - name: SHEET_WEB_OAUTH_SCOPES
       secretKey: sheetWebOauthScopes
       optional: true
+    {{- /* SheetWeb is the only workload that queries the Meilisearch docs index. */}}
+    {{- if .Values.meilisearch.enabled }}
+    - name: MEILISEARCH_HOST
+      value: "http://{{ include "tiara-stack.meilisearchServiceName" . }}:{{ .Values.meilisearch.service.port }}"
+    - name: MEILISEARCH_INDEX_UID
+      value: {{ .Values.meilisearch.indexUid | quote }}
+    - name: MEILISEARCH_SEARCH_API_KEY
+      secretKey: meilisearchSearchApiKey
+    {{- end }}
 {{- end -}}

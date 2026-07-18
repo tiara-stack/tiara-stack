@@ -112,8 +112,10 @@ spec:
 {{- if $sheetApisValues.enabled }}{{- $secretNames = append $secretNames (default (include "tiara-stack.defaultSecretName" "sheetApisGoogleServiceAccount") $sheetApisGoogleSecretRef.name) -}}{{- end -}}
 {{- $zeroCacheSecretRef := .Values.zeroCache.secretRef | default dict -}}
 {{- if .Values.zeroCache.enabled }}{{- $secretNames = append $secretNames (default (include "tiara-stack.defaultSecretName" "zeroCache") $zeroCacheSecretRef.name) -}}{{- end -}}
+{{- $meilisearchSecretRef := .Values.meilisearch.secretRef | default dict -}}
+{{- if .Values.meilisearch.enabled }}{{- $secretNames = append $secretNames (default (include "tiara-stack.defaultSecretName" "meilisearch") $meilisearchSecretRef.name) -}}{{- end -}}
 {{- if eq (len $secretNames) 0 -}}
-{{- fail ".Values.infisical.managedSecrets.create=true requires at least one enabled service or zeroCache entry to generate InfisicalStaticSecret resources" -}}
+{{- fail ".Values.infisical.managedSecrets.create=true requires at least one enabled service, zeroCache entry, or Meilisearch entry to generate InfisicalStaticSecret resources" -}}
 {{- end -}}
 {{- range $secretName := $secretNames }}
 {{- if not (hasKey $seenSecrets $secretName) }}

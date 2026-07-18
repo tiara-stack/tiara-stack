@@ -1,0 +1,31 @@
+---
+title: Generate and post room order
+description: Use /room_order manual and its navigation, send, and pin controls.
+---
+
+## Generate the draft
+
+Run `/room_order manual` with the underscore included. It accepts these optional inputs:
+
+- `channel_name`.
+- `hour`.
+- `heal` for the healer-needed value.
+- `server_id`.
+
+TiaraBot resolves the running room/hour, generates an order from sheet data, and posts an interactive draft in the running room.
+
+## Check the event format
+
+For TiaraBot operations, World Link uses the same room-order flow as Marathon.
+
+For CC (Cheerful Carnival), inspect each candidate order’s combined total before publishing it. Select an order that stays within the threshold your server uses to avoid slower matchmaking. TiaraBot does not replace the mana/moni decision on whether that total is acceptable.
+
+## Select and publish
+
+- **Previous / Next** moves through generated order variants.
+- **Send** on a normal draft publishes the selected room order and attempts to pin it.
+- A tentative order produced during check-in has a separate **Pin** action and cannot use normal Send.
+
+If TiaraBot reports that delivery succeeded but pinning failed, pin the published message manually and avoid sending a duplicate. If the order is stale after a replacement, update the source schedule through the established process and generate it again.
+
+Room order is not a filler position-claim form. Fillers read the selected/pinned result.

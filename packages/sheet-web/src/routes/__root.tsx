@@ -1,10 +1,17 @@
 import { AtomRegistry } from "effect/unstable/reactivity";
-import { HeadContent, Scripts, createRootRouteWithContext } from "@tanstack/react-router";
+import {
+  HeadContent,
+  Scripts,
+  createRootRouteWithContext,
+  useRouterState,
+} from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { TanStackDevtools } from "@tanstack/react-devtools";
 import { MotionConfig } from "motion/react";
+import { RootProvider } from "fumadocs-ui/provider/tanstack";
 import { TooltipProvider } from "#/components/ui/tooltip";
 import { Button } from "#/components/ui/button";
+import { MeilisearchSearchDialog } from "#/components/docs/search-dialog";
 
 import Header from "../components/Header";
 import { Background } from "../components/Background";
@@ -60,7 +67,9 @@ export const Route = createRootRouteWithContext<RouterContext>()({
       },
     ],
   }),
-  loader: async ({ context }) => {
+  loader: async ({ context, location }) => {
+    if (location.pathname === "/docs" || location.pathname.startsWith("/docs/")) return;
+
     console.log("loading session");
     await Effect.runPromise(ensureResultAtomData(context.atomRegistry, sessionAtom));
     console.log("session loaded");
@@ -70,31 +79,47 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 });
 
 function RootDocument({ children }: { children: React.ReactNode }) {
+  const isDocsRoute = useRouterState({
+    select: (state) =>
+      state.location.pathname === "/docs" || state.location.pathname.startsWith("/docs/"),
+  });
+
   return (
-    <html lang="en">
+    <html lang="en" className="dark" suppressHydrationWarning>
       <head>
         <HeadContent />
       </head>
-      <body className="bg-[#0a0f0e]">
-        <TooltipProvider>
-          <MotionConfig reducedMotion="user">
-            <Background />
-            <Header />
-            {children}
-          </MotionConfig>
-          <TanStackDevtools
-            config={{
-              position: "bottom-right",
-            }}
-            plugins={[
-              {
-                name: "Tanstack Router",
-                render: <TanStackRouterDevtoolsPanel />,
-              },
-            ]}
-          />
-          <Scripts />
-        </TooltipProvider>
+      <body className={isDocsRoute ? "docs-shell bg-[#0a0f0e]" : "bg-[#0a0f0e]"}>
+        <RootProvider
+          theme={{ enabled: false }}
+          search={{
+            SearchDialog: MeilisearchSearchDialog,
+            links: [
+              ["TiaraBot overview", "/docs/tiarabot"],
+              ["When TiaraBot pings", "/docs/tiarabot/quick-reference/pings-and-actions"],
+            ],
+          }}
+        >
+          <TooltipProvider>
+            <MotionConfig reducedMotion="user">
+              {!isDocsRoute && <Background />}
+              {!isDocsRoute && <Header />}
+              {children}
+            </MotionConfig>
+            <TanStackDevtools
+              config={{
+                position: "bottom-right",
+              }}
+              plugins={[
+                {
+                  name: "Tanstack Router",
+                  render: <TanStackRouterDevtoolsPanel />,
+                },
+              ]}
+            />
+            <Scripts />
+          </TooltipProvider>
+        </RootProvider>
       </body>
     </html>
   );

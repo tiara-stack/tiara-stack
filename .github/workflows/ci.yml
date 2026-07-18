@@ -93,6 +93,7 @@ jobs:
           INFISICAL_PROJECT_ID: ${{ vars.INFISICAL_PROJECT_ID }}
           INFISICAL_ADDRESS: ${{ vars.INFISICAL_ADDRESS }}
           ZERO_CACHE_EXISTING_VOLUME_NAME: ${{ vars.ZERO_CACHE_EXISTING_VOLUME_NAME }}
+          MEILISEARCH_EXISTING_VOLUME_NAME: ${{ vars.MEILISEARCH_EXISTING_VOLUME_NAME }}
           REGISTRY_NAME: ${{ vars.REGISTRY_NAME }}
           K8S_NAMESPACE: ${{ vars.K8S_NAMESPACE }}
         run: |
@@ -100,6 +101,7 @@ jobs:
           : "${INFISICAL_PROJECT_ID:=ci-template-project}"
           : "${INFISICAL_ADDRESS:=https://infisical.example.invalid}"
           : "${ZERO_CACHE_EXISTING_VOLUME_NAME:=ci-zero-cache}"
+          : "${MEILISEARCH_EXISTING_VOLUME_NAME:=ci-meilisearch}"
           : "${REGISTRY_NAME:=ci-registry}"
           : "${K8S_NAMESPACE:=ci-template}"
           validate_deploy_vars strict
@@ -113,6 +115,7 @@ jobs:
             --set-string "infisical.projectId=${INFISICAL_PROJECT_ID}" \
             --set-string "infisical.connection.address=${INFISICAL_ADDRESS}" \
             --set-string "zeroCache.persistence.existingVolumeName=${ZERO_CACHE_EXISTING_VOLUME_NAME}" \
+            --set-string "meilisearch.persistence.existingVolumeName=${MEILISEARCH_EXISTING_VOLUME_NAME}" \
             --set-string "global.imagePullSecrets[0].name=${REGISTRY_NAME}" \
             --set-string "global.appImage.registry=${registry}" \
             --set-string global.appImage.tag=template-validation
@@ -189,6 +192,9 @@ jobs:
 
       - name: Install Dependencies
         run: vp install
+
+      - name: Generate SheetWeb documentation collections
+        run: vp run --filter sheet-web docs:generate
 
       - name: Run Fallow audit
         uses: fallow-rs/fallow@9492a4d98b5c4ca95670716fced39029cc28f375 # v2
@@ -362,6 +368,7 @@ jobs:
           INFISICAL_PROJECT_ID: ${{ vars.INFISICAL_PROJECT_ID }}
           INFISICAL_ADDRESS: ${{ vars.INFISICAL_ADDRESS }}
           ZERO_CACHE_EXISTING_VOLUME_NAME: ${{ vars.ZERO_CACHE_EXISTING_VOLUME_NAME }}
+          MEILISEARCH_EXISTING_VOLUME_NAME: ${{ vars.MEILISEARCH_EXISTING_VOLUME_NAME }}
           IMAGE_TAG: ${{ steps.vars.outputs.tag }}
         shell: bash
         run: |
@@ -407,6 +414,7 @@ jobs:
             --set-string "infisical.projectId=${INFISICAL_PROJECT_ID}" \
             --set-string "infisical.connection.address=${INFISICAL_ADDRESS}" \
             --set-string "zeroCache.persistence.existingVolumeName=${ZERO_CACHE_EXISTING_VOLUME_NAME}" \
+            --set-string "meilisearch.persistence.existingVolumeName=${MEILISEARCH_EXISTING_VOLUME_NAME}" \
             --set-string "global.imagePullSecrets[0].name=${REGISTRY_NAME}" \
             --set-string "global.appImage.registry=${registry}" \
             --set-string "global.appImage.tag=${IMAGE_TAG}"
@@ -418,3 +426,30 @@ jobs:
             helm rollback tiara-stack --namespace "$namespace" --wait --timeout 10m || true
             exit "$deploy_status"
           fi
+
+          # The post-install hook bootstraps a new cluster. This deployment job
+          # is the primary ongoing incremental sync for every shipped docs image.
+          index_job="tiara-stack-docs-index-${IMAGE_TAG}"
+          kubectl -n "$namespace" delete "job/${index_job}" --ignore-not-found --wait=true --timeout=30s || {
+            echo "Timed out deleting the previous docs index job: ${index_job}" >&2
+            kubectl -n "$namespace" get "job/${index_job}" -o yaml || true
+            exit 1
+          }
+          helm template tiara-stack "$GITHUB_WORKSPACE/charts/tiara-stack" \
+            --namespace "$namespace" \
+            --values "$GITHUB_WORKSPACE/charts/tiara-stack/values.yaml" \
+            --values "$GITHUB_WORKSPACE/charts/tiara-stack/values-production.yaml" \
+            --show-only templates/meilisearch-index-job.yaml \
+            --set-string "infisical.projectId=${INFISICAL_PROJECT_ID}" \
+            --set-string "infisical.connection.address=${INFISICAL_ADDRESS}" \
+            --set-string "global.imagePullSecrets[0].name=${REGISTRY_NAME}" \
+            --set-string "global.appImage.registry=${registry}" \
+            --set-string "global.appImage.tag=${IMAGE_TAG}" \
+            --set-string "meilisearch.indexingJob.nameSuffix=${IMAGE_TAG}" \
+            --set "meilisearch.indexingJob.hook=false" | kubectl -n "$namespace" apply -f -
+          kubectl -n "$namespace" wait --for=condition=complete "job/${index_job}" --timeout=5m || {
+            kubectl -n "$namespace" logs "job/${index_job}" --all-containers || true
+            kubectl -n "$namespace" describe "job/${index_job}" || true
+            exit 1
+          }
+          kubectl -n "$namespace" logs "job/${index_job}" --all-containers

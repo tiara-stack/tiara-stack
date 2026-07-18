@@ -45,6 +45,11 @@ validate_rfc1123_subdomain() {
     return 1
   fi
 
+  if [[ "${value}" == .* || "${value}" == *. || "${value}" == *..* ]]; then
+    echo "${name} must not contain leading, trailing, or consecutive dots" >&2
+    return 1
+  fi
+
   if [[ ${#value} -gt 253 ]]; then
     echo "${name} must be at most 253 characters" >&2
     return 1
@@ -105,6 +110,9 @@ validate_deploy_vars() {
   validate_url_without_comma INFISICAL_ADDRESS "${INFISICAL_ADDRESS}" || return 1
   if [[ -n "${ZERO_CACHE_EXISTING_VOLUME_NAME}" ]]; then
     validate_rfc1123_subdomain ZERO_CACHE_EXISTING_VOLUME_NAME "${ZERO_CACHE_EXISTING_VOLUME_NAME}" || return 1
+  fi
+  if [[ -n "${MEILISEARCH_EXISTING_VOLUME_NAME}" ]]; then
+    validate_rfc1123_subdomain MEILISEARCH_EXISTING_VOLUME_NAME "${MEILISEARCH_EXISTING_VOLUME_NAME}" || return 1
   fi
   return 0
 }

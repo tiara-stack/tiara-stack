@@ -2,6 +2,10 @@
 
 @import "tailwindcss";
 
+@import "fumadocs-ui/css/neutral.css";
+
+@import "fumadocs-ui/css/preset.css";
+
 @import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
@@ -12,6 +16,12 @@
 
 html {
   scroll-behavior: smooth;
+  scrollbar-gutter: stable;
+}
+
+html > body[data-scroll-locked] {
+  margin-right: 0 !important;
+  --removed-body-scroll-bar-size: 0px !important;
 }
 
 body {
@@ -79,6 +89,49 @@ body {
   --input: rgba(51, 204, 187, 0.1);
   --ring: #33ccbb;
   --radius: 0;
+}
+
+.dark {
+  --color-fd-background: #0a0f0e;
+  --color-fd-foreground: #f5fffd;
+  --color-fd-muted: #111b19;
+  --color-fd-muted-foreground: #8ba8a3;
+  --color-fd-popover: #0f1816;
+  --color-fd-popover-foreground: #f5fffd;
+  --color-fd-card: #0f1816;
+  --color-fd-card-foreground: #f5fffd;
+  --color-fd-border: rgba(51, 204, 187, 0.2);
+  --color-fd-primary: #33ccbb;
+  --color-fd-primary-foreground: #0a0f0e;
+  --color-fd-secondary: #14201e;
+  --color-fd-secondary-foreground: #d8f7f2;
+  --color-fd-accent: rgba(51, 204, 187, 0.12);
+  --color-fd-accent-foreground: #5be0d1;
+  --color-fd-ring: #33ccbb;
+  --color-fd-overlay: rgba(3, 8, 7, 0.82);
+}
+
+.docs-shell {
+  background:
+    linear-gradient(rgba(51, 204, 187, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(51, 204, 187, 0.025) 1px, transparent 1px), #0a0f0e;
+  background-size: 40px 40px;
+}
+
+.docs-shell #nd-sidebar,
+.docs-shell header {
+  backdrop-filter: blur(18px);
+}
+
+.docs-shell [data-card] {
+  transition:
+    border-color 160ms ease,
+    transform 160ms ease;
+}
+
+.docs-shell [data-card]:hover {
+  border-color: rgba(51, 204, 187, 0.55);
+  transform: translateY(-2px);
 }
 
 @theme inline {

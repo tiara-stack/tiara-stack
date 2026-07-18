@@ -1,0 +1,14 @@
+{
+  "title": "For mana/moni",
+  "pages": [
+    "index",
+    "server-setup",
+    "post-schedule",
+    "auto-check-in",
+    "check-ins",
+    "room-order",
+    "slots-and-standins",
+    "team-submissions",
+    "status"
+  ]
+}

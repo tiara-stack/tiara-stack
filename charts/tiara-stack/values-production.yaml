@@ -55,3 +55,8 @@ zeroCache:
     # DigitalOcean-specific storage class. Replace for other providers, or
     # leave empty to use the cluster default.
     storageClassName: do-block-storage
+
+meilisearch:
+  persistence:
+    # Match zero-cache retention: bind a pre-created DigitalOcean volume in CI.
+    storageClassName: do-block-storage

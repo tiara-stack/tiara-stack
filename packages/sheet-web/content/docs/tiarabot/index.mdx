@@ -1,0 +1,47 @@
+---
+title: TiaraBot operating guide
+description: What TiaraBot handles for fillers and mana/moni during Project Sekai tiering.
+---
+
+TiaraBot connects an event server’s schedule sheet to Discord. It exposes individual fill schedules, open slots, check-ins, schedule screenshots, room order, saved fill-team information, and service readiness.
+
+It does **not** choose a runner’s team, spend energy or crystals, play Envy/LnF/Melt/HCM, join a private co-op room, assign an open slot, or write your server’s emergency ping.
+
+## Pick your role
+
+<Cards>
+  <Card
+    title="Filler / support"
+    description="Your schedule, team, check-in, room access, and problems."
+    href="/docs/tiarabot/fillers"
+  />
+  <Card
+    title="Mana / moni"
+    description="Setup, schedule posts, check-ins, room order, slots, and bot health."
+    href="/docs/tiarabot/monitors"
+  />
+  <Card
+    title="Quick command reference"
+    description="Exact command paths, inputs, output, and boundaries."
+    href="/docs/tiarabot/quick-reference/commands"
+  />
+  <Card
+    title="Command permissions and parameters"
+    description="Caller access, required inputs, optional inputs, defaults, and Discord prerequisites."
+    href="/docs/tiarabot/command-reference"
+  />
+</Cards>
+
+## Check-in timing and procedure
+
+TiaraBot provides the same check-in procedure whether the check-in is automatic or manually triggered. With auto check-in enabled, TiaraBot schedules the check-in timing. A server that keeps its own timing can have mana/moni run `/checkin manual` instead.
+
+Other procedures can vary. Servers may send schedule-sign-up/open-slot pings earlier or later. Some use standby well before a slot and escalate to emergency. Others go directly to emergency. TiaraBot supplies schedule and slot data for either approach without choosing the server’s escalation policy.
+
+## Team submission availability
+
+<Callout type="warn" title="Unstable, server-gated feature">
+  Team submission is enabled or disabled per server by **Theerie**, the bot owner. If your server
+  has no monitored team-submission channel or confirmation controls, use its established manual
+  process. The rest of TiaraBot remains usable.
+</Callout>
