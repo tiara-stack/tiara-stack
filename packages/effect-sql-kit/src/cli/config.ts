@@ -73,6 +73,6 @@ export const loadSchemaEffect = (
     }
     return {
       ...decoded,
-      prefix: config.prefix ?? decoded.prefix,
+      prefix: config.prefix.length > 0 ? config.prefix : decoded.prefix,
     };
   });

@@ -1,4 +1,11 @@
-import type { AnyEffectSqlColumn, AnyEffectSqlTable, EffectSqlSchema } from "./types.js";
+import type {
+  AnyEffectSqlColumn,
+  AnyEffectSqlTable,
+  EffectSqlSchema,
+  RelationshipConfig,
+  RelationshipDefinition,
+  RelationshipStep,
+} from "./types.js";
 
 export const snapshotVersion = 1;
 
@@ -48,6 +55,8 @@ export type SchemaSnapshot = {
   readonly version: typeof snapshotVersion;
   readonly dialect: "postgresql" | "sqlite";
   readonly tables: Record<string, TableSnapshot>;
+  /** Absent only in snapshots written before relationship metadata became canonical. */
+  readonly relationships?: RelationshipConfig | undefined;
 };
 
 export type StoredSnapshot = {
@@ -58,6 +67,29 @@ export type StoredSnapshot = {
   readonly schema: SchemaSnapshot;
   readonly drizzle?: unknown;
   readonly extensions?: Readonly<Record<string, JsonValue>> | undefined;
+};
+
+const snapshotRelationshipStep = (step: RelationshipStep): RelationshipStep => ({
+  ...step,
+  sourceField: [...step.sourceField],
+  destField: [...step.destField],
+});
+
+const snapshotRelationship = ([first, ...rest]: RelationshipDefinition): RelationshipDefinition => [
+  snapshotRelationshipStep(first),
+  ...rest.map(snapshotRelationshipStep),
+];
+
+const snapshotRelationships = (relationships: RelationshipConfig): RelationshipConfig => {
+  const snapshot: Record<string, Record<string, RelationshipDefinition>> = {};
+  for (const [sourceSchema, definitions] of Object.entries(relationships)) {
+    const sourceSnapshot: Record<string, RelationshipDefinition> = {};
+    for (const [name, definition] of Object.entries(definitions)) {
+      sourceSnapshot[name] = snapshotRelationship(definition);
+    }
+    snapshot[sourceSchema] = sourceSnapshot;
+  }
+  return snapshot;
 };
 
 const columnName = (column: AnyEffectSqlColumn): string =>
@@ -153,6 +185,7 @@ export const snapshotSchema = (config: EffectSqlSchema): SchemaSnapshot => {
     version: snapshotVersion,
     dialect,
     tables,
+    relationships: snapshotRelationships(config.relationships ?? {}),
   };
 };
 
@@ -160,4 +193,5 @@ export const emptySnapshot = (dialect: "postgresql" | "sqlite"): SchemaSnapshot 
   version: snapshotVersion,
   dialect,
   tables: {},
+  relationships: {},
 });

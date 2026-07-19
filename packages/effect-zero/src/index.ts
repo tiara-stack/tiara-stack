@@ -1,5 +1,7 @@
 export { many, one } from "./relationships";
 export { zeroPublication } from "./publication";
+export { inferTable } from "./infer";
+export { fromSqlSchema } from "./schema";
 export { schema } from "./schema";
 export { fromSqlTable } from "./sql-table";
 export { table } from "./table";

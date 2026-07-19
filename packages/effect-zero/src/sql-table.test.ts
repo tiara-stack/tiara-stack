@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
-import { pg } from "effect-sql-schema";
-import { fromSqlTable, schema } from "./index";
+import { pg, schema as sqlSchema } from "effect-sql-schema";
+import { fromSqlSchema, fromSqlTable, schema } from "./index";
 
 describe("effect-sql-schema adapter", () => {
   it("converts SQL DSL tables into Zero tables", () => {
@@ -104,6 +104,35 @@ describe("effect-sql-schema adapter", () => {
       serverName: "users",
       key: ["id"],
     });
+  });
+
+  it("projects a complete canonical SQL schema", () => {
+    class User extends pg.Class<User>("User")({
+      table: "users",
+      fields: { id: pg.uuid().primaryKey() },
+    }) {}
+    const relationships = {
+      users: {
+        self: [
+          {
+            sourceField: ["id"],
+            destField: ["id"],
+            destSchema: "users",
+            cardinality: "one",
+          },
+        ],
+      },
+    } as const;
+    const canonical = sqlSchema({ users: User }, { prefix: "app", relationships });
+
+    const projected = fromSqlSchema(canonical);
+
+    expect(projected.tables.users).toMatchObject({
+      name: "users",
+      serverName: "app_users",
+      key: ["id"],
+    });
+    expect(projected.relationships).toBe(relationships);
   });
 
   it("uses the schema object key as the Zero table name for SQL DSL tables", () => {

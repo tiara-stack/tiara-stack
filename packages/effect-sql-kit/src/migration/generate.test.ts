@@ -1,10 +1,11 @@
+import { NodeServices } from "@effect/platform-node";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { afterEach, describe, expect, it } from "@effect/vitest";
 import { pg, schema, sqlite } from "../index";
-import { generateMigration } from "./generate";
+import { generateMigration, generateMigrationEffect } from "./generate";
 
 let dirs: string[] = [];
 
@@ -100,6 +101,37 @@ describe("generateMigration", () => {
     expect(migration).toContain('create table "app_users"');
     expect(migration).toContain('create index "app_users_email_idx"');
   });
+
+  it.live("uses the canonical schema prefix when config prefix is empty", () =>
+    Effect.gen(function* () {
+      const out = yield* Effect.promise(temp);
+      const users = sqlite.table(
+        { fields: { id: Schema.String } },
+        {
+          name: "users",
+          columns: { id: sqlite.text().primaryKey() },
+        },
+      );
+
+      const result = yield* generateMigrationEffect({
+        config: {
+          dialect: "sqlite",
+          out,
+          prefix: "",
+          migrations: { table: "effect_sql_migrations", schema: "public" },
+          breakpoints: true,
+          extensions: [],
+        },
+        schema: schema({ users }, { prefix: "canonical" }),
+        name: "initial",
+      }).pipe(Effect.provide(NodeServices.layer));
+
+      const migration = yield* Effect.promise(() =>
+        readFile(join(out, `${result.tag}.ts`), "utf8"),
+      );
+      expect(migration).toContain('create table "canonical_users"');
+    }),
+  );
 
   it("uses config prefix for generated Postgres migration SQL", async () => {
     const out = await temp();

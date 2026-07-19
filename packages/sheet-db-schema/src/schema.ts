@@ -42,19 +42,22 @@ export type {
 export { TeamSubmissionStatus } from "./teamSubmissionStatus";
 export type { TeamSubmissionStatus as TeamSubmissionStatusType } from "./teamSubmissionStatus";
 
-export const schema = effectSqlSchema({
-  configWorkspace,
-  configWorkspaceMonitorRole,
-  configWorkspaceFeatureFlag,
-  configWorkspaceUpdateAnnouncementDelivery,
-  configUserPlatform,
-  configWorkspaceConversation,
-  configWorkspaceTeamSubmissionChannel,
-  messageSlot,
-  messageCheckin,
-  messageCheckinMember,
-  messageRoomOrder,
-  messageRoomOrderEntry,
-  messageTeamSubmission,
-  sheetApisDispatchJobs,
-});
+export const schema = effectSqlSchema(
+  {
+    configWorkspace,
+    configWorkspaceMonitorRole,
+    configWorkspaceFeatureFlag,
+    configWorkspaceUpdateAnnouncementDelivery,
+    configUserPlatform,
+    configWorkspaceConversation,
+    configWorkspaceTeamSubmissionChannel,
+    messageSlot,
+    messageCheckin,
+    messageCheckinMember,
+    messageRoomOrder,
+    messageRoomOrderEntry,
+    messageTeamSubmission,
+    sheetApisDispatchJobs,
+  },
+  { prefix: "sheet_db" },
+);

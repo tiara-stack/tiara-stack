@@ -1,4 +1,11 @@
 import type * as Schema from "effect/Schema";
+import type {
+  RelationshipConfig,
+  RelationshipDefinition,
+  RelationshipStep,
+} from "effect-sql-schema";
+
+export type { RelationshipConfig, RelationshipDefinition, RelationshipStep };
 
 export type ZeroValueType = "string" | "number" | "boolean" | "json";
 
@@ -29,17 +36,6 @@ export type EffectZeroTable<Model extends EffectZeroModel = EffectZeroModel> = {
   readonly key: readonly string[];
   readonly columns?: Partial<Record<string, boolean | ColumnOptions>> | undefined;
 };
-
-export type RelationshipStep = {
-  readonly destSchema: string;
-  readonly sourceField: readonly string[];
-  readonly destField: readonly string[];
-  readonly cardinality: "one" | "many";
-};
-
-export type RelationshipDefinition = readonly [RelationshipStep, ...RelationshipStep[]];
-
-export type RelationshipConfig = Record<string, Record<string, RelationshipDefinition>>;
 
 export type EffectZeroSchema<
   Tables extends Record<string, EffectZeroTable> = Record<string, EffectZeroTable>,

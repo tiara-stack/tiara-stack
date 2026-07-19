@@ -56,6 +56,9 @@ jobs:
       - name: Run Build
         run: vp run -w build
 
+      - name: Check generated database schemas and assertion baselines
+        run: vp run --filter sheet-db-schema schema:check:built
+
       - name: Build TypeScript project references
         run: vp exec tsgo -b tsconfig.build.json --pretty false
 

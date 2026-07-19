@@ -315,4 +315,79 @@ describe("effect-sql-schema", () => {
 
     expect(snapshot.tables.posts?.columns.userId?.references?.table).toBe("app_users");
   });
+
+  it("keeps relationships in the canonical schema snapshot", () => {
+    class User extends pg.Class<User>("User")({
+      table: "users",
+      fields: { id: pg.uuid().primaryKey() },
+    }) {}
+    class Post extends pg.Class<Post>("Post")({
+      table: "posts",
+      fields: {
+        id: pg.uuid().primaryKey(),
+        userId: pg.uuid("user_id").notNull(),
+      },
+    }) {}
+    const relationships = {
+      users: {
+        posts: [
+          {
+            sourceField: ["id"],
+            destField: ["userId"],
+            destSchema: "posts",
+            cardinality: "many",
+          },
+        ],
+      },
+    } as const;
+
+    const canonical = schema({ users: User, posts: Post }, { relationships });
+
+    expect(canonical.relationships).toBe(relationships);
+    expect(snapshotSchema(canonical).relationships).toEqual(relationships);
+
+    const withoutRelationships = schema({ users: User, posts: Post });
+    expect(withoutRelationships.relationships).toEqual({});
+  });
+
+  it("isolates snapshot relationships from later source mutations", () => {
+    class User extends pg.Class<User>("User")({
+      table: "users",
+      fields: { id: pg.uuid().primaryKey() },
+    }) {}
+    class Post extends pg.Class<Post>("Post")({
+      table: "posts",
+      fields: { id: pg.uuid().primaryKey() },
+    }) {}
+    const step = {
+      sourceField: ["id"],
+      destField: ["userId"],
+      destSchema: "posts",
+      cardinality: "many" as const,
+    };
+    const steps: [typeof step] = [step];
+    const users: Record<string, typeof steps> = { posts: steps };
+    const relationships: Record<string, typeof users> = { users };
+    const snapshot = snapshotSchema(schema({ users: User, posts: Post }, { relationships }));
+
+    step.sourceField[0] = "changedId";
+    step.destField.push("changedUserId");
+    step.destSchema = "comments";
+    steps.push({ ...step });
+    delete users.posts;
+    delete relationships.users;
+
+    expect(snapshot.relationships).toEqual({
+      users: {
+        posts: [
+          {
+            sourceField: ["id"],
+            destField: ["userId"],
+            destSchema: "posts",
+            cardinality: "many",
+          },
+        ],
+      },
+    });
+  });
 });

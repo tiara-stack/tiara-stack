@@ -68,14 +68,12 @@ describe("generated schema", () => {
         tsProject: project,
         zeroSchema,
         outputFilePath: path.join(dir, "zero-schema.gen.ts"),
-        configImport: {
-          exportName: "default",
-          configFilePath: path.join(dir, "effect-zero.config.ts"),
-        },
       });
 
-      expect(generated).toContain('from "./effect-zero.config.js"');
-      expect(generated).toContain("customType: null as unknown as string");
+      expect(generated).toContain("function customType<T>(): T");
+      expect(generated).toContain("customType: customType<string>()");
+      expect(generated.match(/as unknown as/g)).toHaveLength(1);
+      expect(generated).not.toContain("as never");
       expect(generated).toContain("createBuilder(schema)");
       expect(generated).toContain('"destSchema": "posts"');
     } finally {
@@ -118,10 +116,6 @@ describe("generated schema", () => {
         tsProject: project,
         zeroSchema,
         outputFilePath: path.join(dir, "zero-schema.gen.ts"),
-        configImport: {
-          exportName: "default",
-          configFilePath: path.join(dir, "effect-zero.config.ts"),
-        },
       });
 
       expect(generated).toContain('serverName: "app_users"');

@@ -109,13 +109,92 @@ describe("migration journal effects", () => {
               dialect: "sqlite",
               id: "snapshot-id",
               prevId: "00000000-0000-0000-0000-000000000000",
-              schema: {},
+              schema: { version: 1, dialect: "sqlite", tables: {} },
             }),
           );
 
           const journal = yield* readJournalEffect(out, "sqlite");
           const snapshot = yield* readLatestSnapshotEffect(out, journal);
           expect(snapshot?.id).toBe("snapshot-id");
+        }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.live("falls back to the generated index snapshot name", () =>
+    withJournal(
+      JSON.stringify({
+        version: 1,
+        dialect: "sqlite",
+        entries: [
+          {
+            idx: 10,
+            version: 1,
+            when: 1,
+            tag: "0010_team_submission_confirmations",
+            breakpoints: true,
+          },
+        ],
+      }),
+      (out) =>
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          yield* fs.writeFileString(
+            path.join(out, "meta", "0010_snapshot.json"),
+            JSON.stringify({
+              version: 1,
+              dialect: "sqlite",
+              id: "snapshot-id",
+              prevId: "00000000-0000-0000-0000-000000000000",
+              schema: { version: 1, dialect: "sqlite", tables: {} },
+            }),
+          );
+
+          const journal = yield* readJournalEffect(out, "sqlite");
+          const snapshot = yield* readLatestSnapshotEffect(out, journal);
+          expect(snapshot?.id).toBe("snapshot-id");
+        }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.live("prefers the tagged snapshot over the generated index snapshot", () =>
+    withJournal(
+      JSON.stringify({
+        version: 1,
+        dialect: "sqlite",
+        entries: [
+          {
+            idx: 10,
+            version: 1,
+            when: 1,
+            tag: "0010_team_submission_confirmations",
+            breakpoints: true,
+          },
+        ],
+      }),
+      (out) =>
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          for (const [name, id] of [
+            ["0010_team_submission_snapshot.json", "tagged-snapshot-id"],
+            ["0010_snapshot.json", "generated-snapshot-id"],
+          ] as const) {
+            yield* fs.writeFileString(
+              path.join(out, "meta", name),
+              JSON.stringify({
+                version: 1,
+                dialect: "sqlite",
+                id,
+                prevId: "00000000-0000-0000-0000-000000000000",
+                schema: { version: 1, dialect: "sqlite", tables: {} },
+              }),
+            );
+          }
+
+          const journal = yield* readJournalEffect(out, "sqlite");
+          const snapshot = yield* readLatestSnapshotEffect(out, journal);
+          expect(snapshot?.id).toBe("tagged-snapshot-id");
         }),
     ).pipe(Effect.provide(NodeServices.layer)),
   );

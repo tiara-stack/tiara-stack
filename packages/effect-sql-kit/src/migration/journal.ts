@@ -43,12 +43,67 @@ const JournalSchema = Schema.Struct({
   entries: Schema.Array(JournalEntrySchema),
 });
 
+const RelationshipStepSchema = Schema.Struct({
+  destSchema: Schema.String,
+  sourceField: Schema.Array(Schema.String),
+  destField: Schema.Array(Schema.String),
+  cardinality: Schema.Union([Schema.Literal("one"), Schema.Literal("many")]),
+});
+
+const RelationshipConfigSchema = Schema.Record(
+  Schema.String,
+  Schema.Record(Schema.String, Schema.NonEmptyArray(RelationshipStepSchema)),
+);
+
+const ColumnReferenceSchema = Schema.Struct({
+  table: Schema.String,
+  column: Schema.String,
+  onDelete: Schema.optionalKey(Schema.String),
+  onUpdate: Schema.optionalKey(Schema.String),
+});
+
+const ColumnSnapshotSchema = Schema.Struct({
+  fieldName: Schema.String,
+  name: Schema.String,
+  kind: Schema.String,
+  notNull: Schema.Boolean,
+  primaryKey: Schema.Boolean,
+  unique: Schema.optionalKey(Schema.Union([Schema.String, Schema.Boolean])),
+  default: Schema.optionalKey(
+    Schema.Union([Schema.String, Schema.Number, Schema.Boolean, Schema.Null]),
+  ),
+  defaultSql: Schema.optionalKey(Schema.String),
+  references: Schema.optionalKey(ColumnReferenceSchema),
+  config: Schema.optionalKey(Schema.Record(Schema.String, Schema.Unknown)),
+});
+
+const IndexSnapshotSchema = Schema.Struct({
+  name: Schema.String,
+  unique: Schema.Boolean,
+  fields: Schema.Array(Schema.String),
+});
+
+const TableSnapshotSchema = Schema.Struct({
+  name: Schema.String,
+  schema: Schema.optionalKey(Schema.String),
+  columns: Schema.Record(Schema.String, ColumnSnapshotSchema),
+  primaryKey: Schema.Array(Schema.String),
+  indexes: Schema.Array(IndexSnapshotSchema),
+});
+
+const SchemaSnapshotSchema = Schema.Struct({
+  version: Schema.Literal(snapshotVersion),
+  dialect: DialectSchema,
+  tables: Schema.Record(Schema.String, TableSnapshotSchema),
+  relationships: Schema.optionalKey(RelationshipConfigSchema),
+});
+
 const StoredSnapshotSchema = Schema.Struct({
-  version: Schema.Number,
+  version: Schema.Literal(snapshotVersion),
   dialect: DialectSchema,
   id: Schema.String,
   prevId: Schema.String,
-  schema: Schema.Unknown,
+  schema: SchemaSnapshotSchema,
   drizzle: Schema.optionalKey(Schema.Unknown),
   extensions: Schema.optionalKey(Schema.Record(Schema.String, JsonValueSchema)),
 });
@@ -118,7 +173,7 @@ const readStoredSnapshotEffect = (out: string, prefix: string) =>
     );
     const parsed = yield* parseJsonEffect(content);
     const decoded = yield* Schema.decodeUnknownEffect(StoredSnapshotSchema)(parsed);
-    return decoded as StoredSnapshot;
+    return decoded satisfies StoredSnapshot;
   });
 
 export const readLatestSnapshotEffect = (out: string, journal: Journal) =>
@@ -128,7 +183,15 @@ export const readLatestSnapshotEffect = (out: string, journal: Journal) =>
       return undefined;
     }
     const separatorIndex = latest.tag.lastIndexOf("_");
-    const prefix = separatorIndex === -1 ? latest.tag : latest.tag.slice(0, separatorIndex);
+    const taggedPrefix = separatorIndex === -1 ? latest.tag : latest.tag.slice(0, separatorIndex);
+    const migrationPrefix = /^(?:\d{17}_\d{4}|\d{4})/.exec(latest.tag)?.[0];
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const taggedSnapshotExists = yield* existsEffect(
+      fs,
+      path.join(out, "meta", `${taggedPrefix}_snapshot.json`),
+    );
+    const prefix = taggedSnapshotExists ? taggedPrefix : (migrationPrefix ?? taggedPrefix);
     return yield* readStoredSnapshotEffect(out, prefix);
   });
 

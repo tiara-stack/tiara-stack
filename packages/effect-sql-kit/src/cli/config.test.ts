@@ -307,4 +307,38 @@ export default schema({ users: User });
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
   );
+
+  it.live("preserves a canonical schema prefix when config does not override it", () =>
+    withTempDir((dir) =>
+      Effect.gen(function* () {
+        yield* linkNodeModules(dir);
+        const schemaPath = join(dir, "schema.ts");
+        yield* Effect.promise(() =>
+          writeFile(
+            schemaPath,
+            `import { schema, sqlite } from "effect-sql-schema";
+
+class User extends sqlite.Class<User>("User")({
+  table: "users",
+  fields: { id: sqlite.text().primaryKey() },
+}) {}
+
+export default schema({ users: User }, { prefix: "canonical" });
+`,
+          ),
+        );
+
+        const loaded = yield* loadSchemaEffect(schemaPath, {
+          dialect: "sqlite",
+          out: "./migrations",
+          prefix: "",
+          migrations: { table: "effect_sql_migrations", schema: "public" },
+          breakpoints: true,
+          extensions: [],
+        });
+
+        expect(loaded.prefix).toBe("canonical");
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+  );
 });

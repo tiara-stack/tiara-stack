@@ -181,11 +181,6 @@ export const generateEffect = (
       tsProject,
       zeroSchema: result.zeroSchema,
       outputFilePath: resolvedOutputFilePath,
-      configImport: {
-        exportName: result.exportName,
-        configFilePath: result.configFilePath,
-      },
-      jsExtensionOverride: opts.jsFileExtension ? "force" : "auto",
       skipTypes: Boolean(opts.skipTypes),
       skipBuilder: Boolean(opts.skipBuilder),
       skipDeclare: Boolean(opts.skipDeclare),

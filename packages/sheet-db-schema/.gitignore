@@ -41,5 +41,3 @@ volume.yaml
 
 .nx/cache
 .nx/workspace-data
-
-src/zero/schema.ts

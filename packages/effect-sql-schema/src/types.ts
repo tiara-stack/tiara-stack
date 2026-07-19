@@ -187,14 +187,31 @@ export type AnyEffectSqlColumn = EffectSqlColumn<any, any, any, any, any>;
 
 export type AnyEffectSqlTable = EffectSqlTable<any, any, Record<string, AnyEffectSqlColumn>>;
 
+export type RelationshipCardinality = "one" | "many";
+
+export type RelationshipStep = {
+  readonly destSchema: string;
+  readonly sourceField: readonly string[];
+  readonly destField: readonly string[];
+  readonly cardinality: RelationshipCardinality;
+};
+
+export type RelationshipDefinition = readonly [RelationshipStep, ...RelationshipStep[]];
+
+export type RelationshipConfig = Readonly<
+  Record<string, Readonly<Record<string, RelationshipDefinition>>>
+>;
+
 export type EffectSqlSchema<
   Tables extends Record<string, AnyEffectSqlTable> = Record<string, AnyEffectSqlTable>,
 > = {
   readonly _tag: "EffectSqlSchema";
   readonly tables: Tables;
+  readonly relationships: RelationshipConfig;
   readonly prefix?: string | undefined;
 };
 
 export type EffectSqlSchemaOptions = {
   readonly prefix?: string | undefined;
+  readonly relationships?: RelationshipConfig | undefined;
 };

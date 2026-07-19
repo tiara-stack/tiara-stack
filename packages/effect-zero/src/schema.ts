@@ -1,4 +1,4 @@
-import type { EffectSqlTable } from "effect-sql-schema";
+import type { AnyEffectSqlTable, EffectSqlSchema, EffectSqlTable } from "effect-sql-schema";
 import type { EffectZeroSchema, EffectZeroTable, RelationshipConfig } from "./types";
 import { fromSqlTable, isEffectSqlTable, type SchemaTable } from "./sql-table";
 
@@ -52,3 +52,11 @@ export const schema = <const Tables extends Record<string, SchemaTable>>(
   enableLegacyQueries: options?.enableLegacyQueries,
   enableLegacyMutators: options?.enableLegacyMutators,
 });
+
+export const fromSqlSchema = <const Tables extends Record<string, AnyEffectSqlTable>>(
+  sqlSchema: EffectSqlSchema<Tables>,
+): EffectZeroSchema<NormalizedTables<Tables>> =>
+  schema(sqlSchema.tables, {
+    prefix: sqlSchema.prefix,
+    relationships: sqlSchema.relationships,
+  });

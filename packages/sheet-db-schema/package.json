@@ -34,6 +34,11 @@
     "pretest": "pnpm build",
     "test": "vp test run",
     "build": "pnpm --filter effect-sql-schema build && pnpm --filter effect-zero build && pnpm --filter typhoon-zero... build && pnpm exec effect-zero generate --config ./effect-zero.config.ts --output ./src/zero/schema.ts --skip-declare --format --force && vp pack",
+    "schema:generate": "pnpm build && pnpm --filter effect-sql-kit build && pnpm exec effect-sql-kit generate",
+    "schema:check:assertions": "node ./scripts/check-zero-schema-assertions.mjs",
+    "schema:check:diff": "schema_changes=$(git status --short --untracked-files=all -- src/zero/schema.ts effect-sql-migrations) && test -z \"$schema_changes\" && pnpm schema:check:assertions",
+    "schema:check:built": "pnpm exec effect-sql-kit generate && pnpm schema:check:diff",
+    "schema:check": "pnpm schema:generate && pnpm schema:check:diff",
     "db:generate": "pnpm --filter effect-sql-schema build && pnpm --filter effect-zero build && pnpm --filter effect-sql-kit build && pnpm exec effect-sql-kit generate",
     "db:migrate": "pnpm --filter effect-sql-schema build && pnpm --filter effect-zero build && pnpm --filter effect-sql-kit build && pnpm exec effect-sql-kit migrate",
     "db:push": "pnpm --filter effect-sql-schema build && pnpm --filter effect-zero build && pnpm --filter effect-sql-kit build && pnpm exec effect-sql-kit push"
@@ -47,6 +52,7 @@
     "typhoon-zero": "workspace:*"
   },
   "devDependencies": {
+    "@effect/platform-node": "catalog:",
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
     "dotenv": "^17.2.3",

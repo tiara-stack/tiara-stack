@@ -47,7 +47,7 @@ export const generateMigrationEffect = ({
   Effect.gen(function* () {
     const schemaWithPrefix = {
       ...schema,
-      prefix: config.prefix ?? schema.prefix,
+      prefix: config.prefix.length > 0 ? config.prefix : schema.prefix,
     };
     const current = snapshotSchema(schemaWithPrefix);
     if (current.dialect !== config.dialect) {
