@@ -1,36 +1,60 @@
-import type { SheetOutboundMessage } from "sheet-ingress-api/schemas/client";
+import { Predicate } from "effect";
+import type { ClientRef, SheetOutboundMessage } from "sheet-ingress-api/schemas/client";
+import { escapeMarkdown, makeEmbed } from "./rendering";
 import * as MessageText from "./text";
 
 export type CheckinDmMessageContext = {
+  readonly client: ClientRef;
   readonly workspaceId: string;
+  readonly workspaceName?: string | undefined;
   readonly runningConversationId: string;
-  readonly runningConversationName?: string | undefined;
   readonly checkinConversationId: string;
   readonly hour: number;
 };
 
-const openingLines = (params: CheckinDmMessageContext) => [
-  [MessageText.text(`Check-in is open for hour ${params.hour}.`)],
-  [MessageText.text(`Server: ${params.workspaceId}`)],
-  [
-    MessageText.text(
-      `Running channel: ${params.runningConversationName ?? params.runningConversationId}`,
-    ),
-  ],
-];
+const channelMention = (params: CheckinDmMessageContext, conversationId: string) =>
+  MessageText.conversationMention(
+    MessageText.conversationRef(params.client, params.workspaceId, conversationId),
+  );
+
+const workspaceNameLine = (workspaceName: string | undefined) =>
+  Predicate.isString(workspaceName)
+    ? [[MessageText.text(`Server: ${escapeMarkdown(workspaceName)}`)]]
+    : [];
 
 export const reminderMessage = (params: CheckinDmMessageContext): SheetOutboundMessage => ({
-  content: MessageText.lines(...openingLines(params), [
-    MessageText.text("Open the check-in message in the server and tap Check in."),
-  ]),
+  content: null,
+  embeds: [
+    makeEmbed({
+      title: `Check-in is open for hour ${params.hour}`,
+      description: MessageText.lines(
+        ...workspaceNameLine(params.workspaceName),
+        [
+          MessageText.text("Check-in channel: "),
+          channelMention(params, params.checkinConversationId),
+        ],
+        [MessageText.text("Open the check-in message and tap Check in.")],
+      ),
+    }),
+  ],
   allowedMentions: "none",
 });
 
 export const monitorPingMessage = (params: CheckinDmMessageContext): SheetOutboundMessage => ({
-  content: MessageText.lines(
-    ...openingLines(params),
-    [MessageText.text("You are assigned as monitor for this hour.")],
-    [MessageText.text("Open the running channel for the monitor summary and next steps.")],
-  ),
+  content: null,
+  embeds: [
+    makeEmbed({
+      title: `Check-in is open for hour ${params.hour}`,
+      description: MessageText.lines(
+        ...workspaceNameLine(params.workspaceName),
+        [
+          MessageText.text("Running channel: "),
+          channelMention(params, params.runningConversationId),
+        ],
+        [MessageText.text("You are assigned as monitor for this hour.")],
+        [MessageText.text("Open the running channel for the monitor summary and next steps.")],
+      ),
+    }),
+  ],
   allowedMentions: "none",
 });

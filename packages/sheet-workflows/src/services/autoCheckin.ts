@@ -1,5 +1,5 @@
 // fallow-ignore-file code-duplication
-import { Context, DateTime, Duration, Effect, Layer, pipe } from "effect";
+import { Context, DateTime, Duration, Effect, Layer, Option, pipe } from "effect";
 import { WorkflowEngine } from "effect/unstable/workflow";
 import { makeArgumentError } from "typhoon-core/error";
 import { checkinActionRow } from "sheet-message-content/components";
@@ -14,6 +14,7 @@ import {
 } from "./checkinDmReminders";
 import { SheetApisClient } from "./sheetApisClient";
 import { uniqueConversationNames } from "./autoCheckinConversations";
+import { resolveWorkspaceName } from "./dispatch/clients/workspace";
 import * as MessageText from "sheet-message-content/text";
 import { sendTentativeRoomOrder } from "./tentativeRoomOrder";
 import {
@@ -335,11 +336,17 @@ export class AutoCheckinService extends Context.Service<AutoCheckinService>()(
                 ),
               );
 
+            const workspaceName = yield* resolveWorkspaceName(botClient, payload.workspaceId);
+            const openingDmWorkspace = Option.isSome(workspaceName)
+              ? { workspaceName: workspaceName.value }
+              : {};
+
             yield* sendCheckinOpeningDmReminders({
+              ...openingDmWorkspace,
+              client,
               platform: client.platform,
               workspaceId: payload.workspaceId,
               runningConversationId: generated.runningConversationId,
-              runningConversationName: payload.conversationName,
               checkinConversationId: generated.checkinConversationId,
               hour: generated.hour,
               fillIds: generated.fillIds,
@@ -361,10 +368,11 @@ export class AutoCheckinService extends Context.Service<AutoCheckinService>()(
             );
 
             yield* sendMonitorCheckinOpeningDmPing({
+              ...openingDmWorkspace,
+              client,
               platform: client.platform,
               workspaceId: payload.workspaceId,
               runningConversationId: generated.runningConversationId,
-              runningConversationName: payload.conversationName,
               checkinConversationId: generated.checkinConversationId,
               hour: generated.hour,
               monitorUserId: generated.monitorUserId,

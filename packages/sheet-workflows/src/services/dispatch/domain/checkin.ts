@@ -17,6 +17,7 @@ import { tentativeRoomOrderContent } from "sheet-message-content/roomOrderMessag
 import { logNonInterruptFailure, makeMessageSink } from "../clients/messageDelivery";
 import { makeSheetApisServices } from "../clients/sheetApis";
 import { makeDeliveryNonce } from "../pure/deliveryNonce";
+import { resolveWorkspaceDisplayName } from "../clients/workspace";
 import { recoverNonInterruptCause } from "../pure/failure";
 import {
   autoCheckinTestHour,
@@ -93,6 +94,7 @@ export const makeCheckinOperations = ({
       payload.anchorConversationId,
       payload.interactionResponseToken,
     );
+    const workspaceDisplayName = yield* resolveWorkspaceDisplayName(botClient, payload.workspaceId);
     const withTestDeliveryNonce = (
       conversationId: string,
       messageKind: string,
@@ -111,8 +113,8 @@ export const makeCheckinOperations = ({
           MessageText.lines(
             [
               MessageText.text("Testing first-hour auto check-in for "),
-              MessageText.clientTerm("workspace"),
-              MessageText.text(` ${payload.workspaceId}.`),
+              ...workspaceDisplayName,
+              MessageText.text("."),
             ],
             [
               MessageText.text("Requested by "),

@@ -123,9 +123,10 @@ const autoMonitorSummary = autoCheckinSummaryMessage({
 });
 
 const dmContext = {
-  workspaceId: "Sekai Tiering",
+  client,
+  workspaceId,
+  workspaceName: "Sekai Tiering",
   runningConversationId: "running-1",
-  runningConversationName: "marathon-room",
   checkinConversationId: "checkin-1",
   hour: 4,
 };

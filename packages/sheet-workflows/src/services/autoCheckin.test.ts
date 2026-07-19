@@ -99,6 +99,7 @@ const makeRoomOrder = () =>
 
 const makeBotClient = (calls: Array<unknown>) =>
   ({
+    getWorkspace: () => Effect.succeed({ id: "workspace-1", name: "Workspace One" }),
     forClient: (client: unknown) => ({
       sendDirectMessage: (userId: string, message: unknown) => {
         calls.push({
@@ -381,8 +382,14 @@ describe("AutoCheckinService", () => {
           client: { platform: "discord", clientId: "discord-main" },
           userId: "monitor-1",
           message: {
-            content:
-              "Check-in is open for hour 3.\nServer: workspace-1\nRunning channel: main\nYou are assigned as monitor for this hour.\nOpen the running channel for the monitor summary and next steps.",
+            content: null,
+            embeds: [
+              {
+                title: "Check-in is open for hour 3",
+                description:
+                  "Server: Workspace One\nRunning channel: #running-conversation\nYou are assigned as monitor for this hour.\nOpen the running channel for the monitor summary and next steps.",
+              },
+            ],
             allowedMentions: "none",
           },
         },

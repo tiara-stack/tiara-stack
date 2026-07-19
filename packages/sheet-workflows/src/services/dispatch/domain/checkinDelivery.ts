@@ -22,6 +22,7 @@ import {
 import { makeSheetApisServices } from "../clients/sheetApis";
 import { makeDeliveryNonce } from "../pure/deliveryNonce";
 import { messageEnableRetrySchedule } from "../pure/retry";
+import { resolveWorkspaceName } from "../clients/workspace";
 
 type SheetApisServices = ReturnType<typeof makeSheetApisServices>;
 type GeneratedCheckin = Effect.Success<ReturnType<SheetApisServices["checkinService"]["generate"]>>;
@@ -151,11 +152,13 @@ export const deliverCheckin = Effect.fn("DispatchService.deliverCheckin")(functi
         ),
       ),
     );
+  const workspaceName = yield* resolveWorkspaceName(botClient, payload.workspaceId);
   const openingDmDelivery = {
+    ...(Option.isSome(workspaceName) ? { workspaceName: workspaceName.value } : {}),
+    client: payload.client,
     platform: payload.client.platform,
     workspaceId: payload.workspaceId,
     runningConversationId: generated.runningConversationId,
-    runningConversationName: payload.conversationName,
     checkinConversationId: generated.checkinConversationId,
     hour: generated.hour,
     concurrency: autoCheckinConcurrency,

@@ -1099,6 +1099,7 @@ describe("DispatchService", () => {
         },
       });
       const botClient = makeClientDeliveryMock({
+        getWorkspace: () => Effect.succeed({ id: "workspace-1", name: "Workspace One" }),
         updateOriginalInteractionResponse: (interactionResponseToken: string, payload: unknown) => {
           updateCalls.push({ interactionResponseToken, payload: normalizePayloadText(payload) });
           return updateCalls.length === 1
@@ -1166,6 +1167,10 @@ describe("DispatchService", () => {
         { payload: { workspaceId: "workspace-1", conversationId: "conversation-1", hour: 1 } },
       ]);
       expect(updateCalls).toHaveLength(2);
+      expect(firstEmbedDescription(updateCalls[0]?.payload)).toContain(
+        "Testing first-hour auto check-in for Workspace One.",
+      );
+      expect(firstEmbedDescription(updateCalls[0]?.payload)).not.toContain("workspace-1");
       expect(firstEmbedDescription(updateCalls[0]?.payload)).toContain(
         "Requested by @discord-user-1.",
       );
@@ -1373,6 +1378,7 @@ describe("DispatchService", () => {
           },
         });
         const botClient = makeClientDeliveryMock({
+          getWorkspace: () => Effect.succeed({ id: "workspace-1", name: "Workspace One" }),
           updateOriginalInteractionResponse: (
             interactionResponseToken: string,
             payload: unknown,
@@ -1442,6 +1448,7 @@ describe("DispatchService", () => {
         },
       });
       const botClient = makeClientDeliveryMock({
+        getWorkspace: () => Effect.succeed({ id: "workspace-1", name: "Workspace One" }),
         updateOriginalInteractionResponse: (interactionResponseToken: string, payload: unknown) => {
           updateCalls.push({ interactionResponseToken, payload: normalizePayloadText(payload) });
           return Effect.succeed({ id: "anchor-message", conversation_id: "anchor-conversation-1" });

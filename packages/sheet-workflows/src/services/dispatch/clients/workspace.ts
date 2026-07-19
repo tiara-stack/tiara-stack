@@ -11,22 +11,31 @@ import { workspaceWelcomeConversationCandidates } from "../pure/workflowPolicy";
 type MessagePayload = SheetOutboundMessage;
 type MessageTextValue = ReadonlyArray<SheetTextPart>;
 
+export const resolveWorkspaceName = (
+  botClient: typeof ClientDeliveryClient.Service,
+  workspaceId: string,
+): Effect.Effect<Option.Option<string>, unknown> =>
+  botClient.getWorkspace(workspaceId).pipe(
+    Effect.map((workspace) => workspace.name.trim()),
+    Effect.map((name) => (name.length > 0 ? Option.some(name) : Option.none<string>())),
+    logNonInterruptFailure(
+      "Failed to resolve workspace name",
+      { workspaceId },
+      Effect.succeed(Option.none<string>()),
+      "warning",
+    ),
+  );
+
 export const resolveWorkspaceDisplayName = (
   botClient: typeof ClientDeliveryClient.Service,
   workspaceId: string,
 ): Effect.Effect<MessageTextValue, unknown> =>
-  botClient.getWorkspace(workspaceId).pipe(
-    Effect.map((workspace) => {
-      const name = workspace.name.trim();
-      return name.length > 0
-        ? [MessageText.text(escapeMarkdown(name))]
-        : [MessageText.text("this "), MessageText.clientTerm("workspace")];
-    }),
-    logNonInterruptFailure(
-      "Failed to resolve workspace display name",
-      { workspaceId },
-      Effect.succeed([MessageText.text("this "), MessageText.clientTerm("workspace")]),
-      "warning",
+  resolveWorkspaceName(botClient, workspaceId).pipe(
+    Effect.map(
+      Option.match({
+        onSome: (name) => [MessageText.text(escapeMarkdown(name))],
+        onNone: () => [MessageText.text("this "), MessageText.clientTerm("workspace")],
+      }),
     ),
   );
 
