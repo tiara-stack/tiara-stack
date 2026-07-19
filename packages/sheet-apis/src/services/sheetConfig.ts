@@ -445,7 +445,5 @@ export class SheetConfigService extends Context.Service<SheetConfigService>()(
     }),
   },
 ) {
-  static layer = Layer.effect(SheetConfigService, this.make).pipe(
-    Layer.provide(GoogleSheets.layer),
-  );
+  static layer = Layer.effect(SheetConfigService, this.make);
 }

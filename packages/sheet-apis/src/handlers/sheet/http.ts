@@ -194,11 +194,4 @@ export const sheetLayer = sheetApisGroupLayer(
       ),
     } satisfies HandlerMap<"sheet">;
   }),
-).pipe(
-  Layer.provide([
-    AuthorizationService.layer,
-    SheetService.layer,
-    SheetConfigService.layer,
-    WorkspaceConfigService.layer,
-  ]),
-);
+).pipe(Layer.provide([AuthorizationService.layer, WorkspaceConfigService.layer]));

@@ -136,6 +136,31 @@ const runGetAllSchedules = ({
     Effect.provideService(SheetConfigService, makeSheetConfigService(encType)),
   );
 
+describe("SheetService config delegation", () => {
+  it.effect("passes config lookups through without wrapping them in another cache", () => {
+    const sheetConfigService = {
+      getRangesConfig: () => Effect.never,
+      getTeamConfig: () => Effect.never,
+      getEventConfig: () => Effect.never,
+      getScheduleConfig: () => Effect.never,
+      getRunnerConfig: () => Effect.never,
+    } as unknown as SheetConfigServiceApi;
+
+    return Effect.gen(function* () {
+      const sheetService = yield* SheetService.make;
+
+      expect(sheetService.getRangesConfig).toBe(sheetConfigService.getRangesConfig);
+      expect(sheetService.getTeamConfig).toBe(sheetConfigService.getTeamConfig);
+      expect(sheetService.getEventConfig).toBe(sheetConfigService.getEventConfig);
+      expect(sheetService.getScheduleConfig).toBe(sheetConfigService.getScheduleConfig);
+      expect(sheetService.getRunnerConfig).toBe(sheetConfigService.getRunnerConfig);
+    }).pipe(
+      Effect.provideService(GoogleSheets, {} as GoogleSheetsApi),
+      Effect.provideService(SheetConfigService, sheetConfigService),
+    );
+  });
+});
+
 describe("SheetService schedule enc parsing", () => {
   it.effect("marks a bold fill from effective format", () =>
     runGetAllSchedules({

@@ -975,24 +975,6 @@ export class SheetService extends Context.Service<SheetService>()("SheetService"
     const sheet = yield* GoogleSheets;
     const sheetConfigService = yield* SheetConfigService;
 
-    const getRangesConfig = Effect.fn("SheetService.getRangesConfig")(function* (sheetId: string) {
-      return yield* sheetConfigService.getRangesConfig(sheetId);
-    });
-    const getTeamConfig = Effect.fn("SheetService.getTeamConfig")(function* (sheetId: string) {
-      return yield* sheetConfigService.getTeamConfig(sheetId);
-    });
-    const getEventConfig = Effect.fn("SheetService.getEventConfig")(function* (sheetId: string) {
-      return yield* sheetConfigService.getEventConfig(sheetId);
-    });
-    const getScheduleConfig = Effect.fn("SheetService.getScheduleConfig")(function* (
-      sheetId: string,
-    ) {
-      return yield* sheetConfigService.getScheduleConfig(sheetId);
-    });
-    const getRunnerConfig = Effect.fn("SheetService.getRunnerConfig")(function* (sheetId: string) {
-      return yield* sheetConfigService.getRunnerConfig(sheetId);
-    });
-
     const getPlayers = Effect.fn("SheetService.getPlayers")(function* (sheetId: string) {
       const rangesConfig = yield* sheetConfigService.getRangesConfig(sheetId);
       const response = yield* sheet.get({
@@ -1097,11 +1079,6 @@ export class SheetService extends Context.Service<SheetService>()("SheetService"
     );
 
     const caches = yield* Effect.all({
-      getRangesConfigCache: ScopedCache.make({ lookup: getRangesConfig }),
-      getTeamConfigCache: ScopedCache.make({ lookup: getTeamConfig }),
-      getEventConfigCache: ScopedCache.make({ lookup: getEventConfig }),
-      getScheduleConfigCache: ScopedCache.make({ lookup: getScheduleConfig }),
-      getRunnerConfigCache: ScopedCache.make({ lookup: getRunnerConfig }),
       getPlayersCache: ScopedCache.make({ lookup: getPlayers }),
       getMonitorsCache: ScopedCache.make({ lookup: getMonitors }),
       getTeamsCache: ScopedCache.make({ lookup: getTeams }),
@@ -1126,11 +1103,11 @@ export class SheetService extends Context.Service<SheetService>()("SheetService"
     });
 
     return {
-      getRangesConfig: (sheetId: string) => caches.getRangesConfigCache.get(sheetId),
-      getTeamConfig: (sheetId: string) => caches.getTeamConfigCache.get(sheetId),
-      getEventConfig: (sheetId: string) => caches.getEventConfigCache.get(sheetId),
-      getScheduleConfig: (sheetId: string) => caches.getScheduleConfigCache.get(sheetId),
-      getRunnerConfig: (sheetId: string) => caches.getRunnerConfigCache.get(sheetId),
+      getRangesConfig: sheetConfigService.getRangesConfig,
+      getTeamConfig: sheetConfigService.getTeamConfig,
+      getEventConfig: sheetConfigService.getEventConfig,
+      getScheduleConfig: sheetConfigService.getScheduleConfig,
+      getRunnerConfig: sheetConfigService.getRunnerConfig,
       getPlayers: (sheetId: string) => caches.getPlayersCache.get(sheetId),
       getMonitors: (sheetId: string) => caches.getMonitorsCache.get(sheetId),
       getTeams: (sheetId: string) => caches.getTeamsCache.get(sheetId),
@@ -1147,8 +1124,5 @@ export class SheetService extends Context.Service<SheetService>()("SheetService"
     };
   }),
 }) {
-  static layer = Layer.effect(SheetService, this.make).pipe(
-    Layer.provide(SheetConfigService.layer),
-    Layer.provide(GoogleSheets.layer),
-  );
+  static layer = Layer.effect(SheetService, this.make);
 }

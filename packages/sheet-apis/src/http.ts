@@ -23,6 +23,7 @@ import { statusLayer } from "./handlers/status";
 import { teamSubmissionLayer } from "./handlers/teamSubmission";
 import { userConfigLayer } from "./handlers/userConfig";
 import { discordLayer as discordServiceLayer } from "./services/discord";
+import { GoogleSheets, SheetConfigService, SheetService } from "./services";
 import { SheetApisAnonymousUserFallbackLive } from "./middlewares/sheetApisAnonymousUserFallback/live";
 import { SheetApisServiceUserFallbackLive } from "./middlewares/sheetApisServiceUserFallback/live";
 import { SheetIngressServiceAuthorizationLive } from "./middlewares/sheetIngressServiceAuthorization/live";
@@ -45,6 +46,10 @@ const rpcHandlersLayer = Layer.mergeAll(
   statusLayer,
   teamSubmissionLayer,
   userConfigLayer,
+).pipe(
+  Layer.provide(SheetService.layer),
+  Layer.provide(SheetConfigService.layer),
+  Layer.provide(GoogleSheets.layer),
 );
 
 const apiRoutesLayer = HttpApiBuilder.layer(SheetApisInternalApi).pipe(
