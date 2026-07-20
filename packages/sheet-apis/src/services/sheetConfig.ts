@@ -19,16 +19,98 @@ import {
   pipe,
   Schema,
   SchemaGetter,
+  SchemaIssue,
   Context,
   String,
   Layer,
+  Metric,
   Record,
+  Result,
 } from "effect";
 import { DefaultTaggedClass, OptionArrayToOptionStructValueSchema } from "typhoon-core/schema";
 import { ScopedCache } from "typhoon-core/utils";
 import { GoogleSheets } from "./google/sheets";
 
-const scheduleConfigParser = ([range = {}]: sheets_v4.Schema$ValueRange[]) =>
+const configSheet = "Thee's Sheet Settings";
+
+interface ConfigRangeCoordinates {
+  readonly spreadsheetId: string;
+  readonly range: string;
+  readonly startRow: number;
+}
+
+interface ConfigRowFailure {
+  readonly reason: "hour_range" | "schema_validation";
+  readonly details: string;
+}
+
+export const sheetConfigRejectedRows = Metric.counter("sheet_config_rejected_rows_total", {
+  description: "Number of rejected Google Sheets configuration rows",
+  incremental: true,
+});
+
+const formatSchemaIssue = SchemaIssue.makeFormatterDefault();
+
+const schemaFailure = (issue: SchemaIssue.Issue): ConfigRowFailure => ({
+  reason: "schema_validation",
+  details: formatSchemaIssue(issue),
+});
+
+const mapRowSchemaFailures = <A>(rows: ReadonlyArray<Result.Result<A, SchemaIssue.Issue>>) =>
+  Array.map(rows, Result.mapError(schemaFailure));
+
+const validateConfigRows = <A>(
+  rows: ReadonlyArray<Result.Result<A, ConfigRowFailure>>,
+  coordinates: ConfigRangeCoordinates,
+) =>
+  Effect.gen(function* () {
+    const [failures, successes] = Array.separate(
+      Array.map(rows, (result, index) =>
+        pipe(
+          result,
+          Result.mapError((failure) => ({
+            row: coordinates.startRow + index,
+            failure,
+          })),
+        ),
+      ),
+    );
+
+    if (failures.length > 0) {
+      yield* Effect.forEach(
+        failures,
+        ({ failure }) =>
+          Metric.update(
+            Metric.withAttributes(sheetConfigRejectedRows, {
+              sheet: configSheet,
+              range: coordinates.range,
+              reason: failure.reason,
+            }),
+            1,
+          ),
+        { discard: true },
+      );
+
+      return yield* Effect.fail(
+        new SheetConfigError({
+          message: [
+            `Invalid sheet configuration in spreadsheet "${coordinates.spreadsheetId}"`,
+            ...failures.map(
+              ({ failure, row }) =>
+                `sheet="${configSheet}" range="${coordinates.range}" row=${row}: ${failure.details}`,
+            ),
+          ].join("\n"),
+        }),
+      );
+    }
+
+    return successes;
+  });
+
+const scheduleConfigParser = (
+  [range = {}]: sheets_v4.Schema$ValueRange[],
+  coordinates: ConfigRangeCoordinates,
+) =>
   GoogleSheets.parseValueRanges(
     [range],
     Schema.Tuple([
@@ -72,8 +154,9 @@ const scheduleConfigParser = ([range = {}]: sheets_v4.Schema$ValueRange[]) =>
       ),
     ]),
   ).pipe(
-    Effect.map(Array.getSuccesses),
-    Effect.map(Array.map(([config]) => new ScheduleConfig(config))),
+    Effect.map(mapRowSchemaFailures),
+    Effect.map(Array.map(Result.map(([config]) => new ScheduleConfig(config)))),
+    Effect.flatMap((rows) => validateConfigRows(rows, coordinates)),
     Effect.withSpan("scheduleConfigParser"),
   );
 
@@ -140,7 +223,10 @@ const parseTeamTagsConfig = (
     },
   });
 
-const teamConfigParser = ([range = {}]: sheets_v4.Schema$ValueRange[]) =>
+const teamConfigParser = (
+  [range = {}]: sheets_v4.Schema$ValueRange[],
+  coordinates: ConfigRangeCoordinates,
+) =>
   GoogleSheets.parseValueRanges(
     [range],
     Schema.Tuple([
@@ -174,59 +260,81 @@ const teamConfigParser = ([range = {}]: sheets_v4.Schema$ValueRange[]) =>
       ),
     ]),
   ).pipe(
-    Effect.map(Array.getSuccesses),
+    Effect.map(mapRowSchemaFailures),
     Effect.map(
       Array.map(
-        ([
-          {
-            name,
-            sheet,
-            playerNameRange,
-            teamNameRange,
-            isvType,
-            isvRanges,
-            tagsType,
-            tags,
-            oshiRange,
-          },
-        ]) =>
-          new TeamConfig({
-            name,
-            sheet,
-            playerNameRange,
-            teamNameRange,
-            isvConfig: parseTeamIsvConfig(isvType, isvRanges),
-            tagsConfig: parseTeamTagsConfig(tagsType, tags),
-            oshiRange,
-          }),
+        Result.map(
+          ([
+            {
+              name,
+              sheet,
+              playerNameRange,
+              teamNameRange,
+              isvType,
+              isvRanges,
+              tagsType,
+              tags,
+              oshiRange,
+            },
+          ]) =>
+            new TeamConfig({
+              name,
+              sheet,
+              playerNameRange,
+              teamNameRange,
+              isvConfig: parseTeamIsvConfig(isvType, isvRanges),
+              tagsConfig: parseTeamTagsConfig(tagsType, tags),
+              oshiRange,
+            }),
+        ),
       ),
     ),
+    Effect.flatMap((rows) => validateConfigRows(rows, coordinates)),
     Effect.withSpan("teamConfigParser"),
   );
 
-export const hourRangeParser = (range: string): HourRange => {
-  const [start, end, ...extra] = range.split("-").map((item) => item.trim());
-  if (
-    start === undefined ||
-    end === undefined ||
-    extra.length > 0 ||
-    !/^\d+$/.test(start) ||
-    !/^\d+$/.test(end)
-  ) {
-    throw new RangeError(`Invalid hour range: ${range}`);
-  }
-  const parsedStart = Number.parseInt(start, 10);
-  const parsedEnd = Number.parseInt(end, 10);
-  if (!Number.isSafeInteger(parsedStart) || !Number.isSafeInteger(parsedEnd)) {
-    throw new RangeError(`Invalid hour range: ${range}`);
-  }
-  return new HourRange({
-    start: parsedStart,
-    end: parsedEnd,
-  });
-};
+const hourRangeValueSchema = Schema.Struct({
+  start: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 23 })),
+  end: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 23 })),
+}).check(
+  Schema.makeFilter(({ end, start }) =>
+    start <= end
+      ? undefined
+      : { path: ["end"], issue: "end must be greater than or equal to start" },
+  ),
+);
 
-const runnerConfigParser = ([range = {}]: sheets_v4.Schema$ValueRange[]) =>
+export const hourRangeSchema = Schema.Trim.check(
+  Schema.isPattern(/^\d+\s*-\s*\d+$/u, {
+    message: "expected hour range grammar start-end",
+  }),
+).pipe(
+  Schema.decodeTo(hourRangeValueSchema, {
+    decode: SchemaGetter.transform((range) => {
+      const [start = "", end = ""] = range.split("-").map((item) => item.trim());
+      return {
+        start: Number.parseInt(start, 10),
+        end: Number.parseInt(end, 10),
+      };
+    }),
+    encode: SchemaGetter.transform(({ end, start }) => `${start}-${end}`),
+  }),
+);
+
+const decodeHourRange = Schema.decodeUnknownResult(hourRangeSchema);
+
+export const hourRangeParser = (range: string): HourRange =>
+  Result.match(decodeHourRange(range), {
+    onSuccess: (value) => new HourRange(value),
+    onFailure: (issue) => {
+      throw new RangeError(`Invalid hour range: ${range}\n${formatSchemaIssue(issue)}`);
+    },
+  });
+
+const runnerConfigParser = (
+  [range = {}]: sheets_v4.Schema$ValueRange[],
+  coordinates: ConfigRangeCoordinates,
+) =>
   GoogleSheets.parseValueRanges(
     [range],
     Schema.Tuple([
@@ -240,21 +348,66 @@ const runnerConfigParser = ([range = {}]: sheets_v4.Schema$ValueRange[]) =>
       ),
     ]),
   ).pipe(
-    Effect.map(Array.getSuccesses),
+    Effect.map(mapRowSchemaFailures),
     Effect.map(
       Array.map(
-        ([{ name, hours }]) =>
-          new RunnerConfig({
-            name,
-            hours: pipe(
-              hours,
-              Option.getOrElse(() => []),
-              Array.map(hourRangeParser),
+        Result.flatMap(([{ name, hours }]) => {
+          const decodedHours = pipe(
+            hours,
+            Option.getOrElse(() => []),
+            Array.map((hour, index) =>
+              pipe(
+                decodeHourRange(hour),
+                Result.map((value) => new HourRange(value)),
+                Result.mapError(
+                  (issue): ConfigRowFailure => ({
+                    reason: "hour_range",
+                    details: `field=hours[${index}]: ${formatSchemaIssue(issue)}`,
+                  }),
+                ),
+              ),
             ),
-          }),
+          );
+          const [failures, decodedHourRanges] = Array.separate(decodedHours);
+
+          return failures.length > 0
+            ? Result.fail<ConfigRowFailure>({
+                reason: "hour_range",
+                details: failures.map(({ details }) => details).join("\n"),
+              })
+            : Result.succeed(
+                new RunnerConfig({
+                  name,
+                  hours: decodedHourRanges,
+                }),
+              );
+        }),
       ),
     ),
+    Effect.flatMap((rows) => validateConfigRows(rows, coordinates)),
     Effect.withSpan("runnerConfigParser"),
+  );
+
+const keyValueRangeSchema = Schema.Array(
+  Schema.Union([
+    Schema.Tuple([]),
+    Schema.Tuple([Schema.String]),
+    Schema.Tuple([Schema.String, Schema.Unknown]),
+  ]),
+);
+
+const decodeKeyValueRange = (range: unknown) =>
+  Schema.decodeUnknownEffect(keyValueRangeSchema)(range).pipe(
+    Effect.map(
+      Array.filterMap(([key, value]) =>
+        Option.fromNullishOr(key).pipe(
+          Option.match({
+            onNone: () => Result.failVoid,
+            onSome: (presentKey) => Result.succeed([presentKey, value ?? null] as const),
+          }),
+        ),
+      ),
+    ),
   );
 
 let serviceInstanceCount = 0;
@@ -289,7 +442,7 @@ export class SheetConfigService extends Context.Service<SheetConfigService>()(
               ),
           }),
         );
-        const rangeStruct = Record.fromEntries(range as [string, any][]);
+        const rangeStruct = Record.fromEntries(yield* decodeKeyValueRange(range));
 
         return yield* Schema.decodeUnknownEffect(
           Schema.Struct({
@@ -332,7 +485,11 @@ export class SheetConfigService extends Context.Service<SheetConfigService>()(
           }),
         );
 
-        return yield* teamConfigParser(ranges);
+        return yield* teamConfigParser(ranges, {
+          spreadsheetId: sheetId,
+          range: "E8:M",
+          startRow: 8,
+        });
       });
 
       const getEventConfig = Effect.fn("SheetConfigService.getEventConfig")(function* (
@@ -356,7 +513,7 @@ export class SheetConfigService extends Context.Service<SheetConfigService>()(
               ),
           }),
         );
-        const rangeStruct = Record.fromEntries(range as [string, any][]);
+        const rangeStruct = Record.fromEntries(yield* decodeKeyValueRange(range));
 
         return yield* Schema.decodeUnknownEffect(
           Schema.Struct({
@@ -394,7 +551,11 @@ export class SheetConfigService extends Context.Service<SheetConfigService>()(
           }),
         );
 
-        return yield* scheduleConfigParser(ranges);
+        return yield* scheduleConfigParser(ranges, {
+          spreadsheetId: sheetId,
+          range: "R8:AE",
+          startRow: 8,
+        });
       });
 
       const getRunnerConfig = Effect.fn("SheetConfigService.getRunnerConfig")(function* (
@@ -416,7 +577,11 @@ export class SheetConfigService extends Context.Service<SheetConfigService>()(
           }),
         );
 
-        return yield* runnerConfigParser(ranges);
+        return yield* runnerConfigParser(ranges, {
+          spreadsheetId: sheetId,
+          range: "AG8:AH",
+          startRow: 8,
+        });
       });
 
       console.log(`[SheetConfigService #${instanceId}] Creating caches...`);
