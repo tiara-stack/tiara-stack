@@ -1,10 +1,11 @@
 import { GuildsApiCacheView } from "dfx-discord-utils/discord/cache/guilds";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
-import { Effect, Layer, Redacted, Schema } from "effect";
+import { Effect, Layer, Match, Metric, Predicate, Redacted, Schema } from "effect";
 import { makeArgumentError } from "typhoon-core/error";
 import { type HandlerMap, sheetApisGroupLayer } from "@/handlers/shared/httpApiLayer";
 import { Discord } from "@/schema";
 import { discordLayer as discordServiceLayer, DiscordAccessTokenService } from "@/services";
+import { discordGuildCacheFailures } from "@/metrics/discord";
 
 const DiscordMyGuild = Schema.Struct({
   id: Schema.String,
@@ -13,12 +14,97 @@ const DiscordMyGuild = Schema.Struct({
 const discordApiUrl = (path: string): string =>
   new URL(path, "https://discord.com/api/v10/").toString();
 
-const formatError = (error: unknown) =>
-  error instanceof Error
-    ? error.message
-    : typeof error === "string"
-      ? error
-      : JSON.stringify(error);
+const formatError = Match.type<unknown>().pipe(
+  Match.when(Predicate.isError, (error) => error.message),
+  Match.when(Predicate.isString, (error) => error),
+  Match.orElse((error) => JSON.stringify(error)),
+);
+
+const hasStringTag = (error: unknown): error is { readonly _tag: string } =>
+  Predicate.hasProperty(error, "_tag") && Predicate.isString(error._tag);
+
+const cacheFailureReason = Match.type<unknown>().pipe(
+  Match.when(hasStringTag, (error) => error._tag),
+  Match.orElse(() => "UnknownCacheError"),
+);
+
+type GuildCacheLookup<Guild, CacheError> =
+  | { readonly _tag: "Success"; readonly guild: Guild }
+  | {
+      readonly _tag: "Failure";
+      readonly error: CacheError;
+      readonly guildId: string;
+      readonly reason: string;
+    };
+
+const isGuildCacheFailure = <Guild, CacheError>(
+  lookup: GuildCacheLookup<Guild, CacheError>,
+): lookup is Extract<GuildCacheLookup<Guild, CacheError>, { readonly _tag: "Failure" }> =>
+  Predicate.isTagged(lookup, "Failure");
+
+const isGuildCacheSuccess = <Guild, CacheError>(
+  lookup: GuildCacheLookup<Guild, CacheError>,
+): lookup is Extract<GuildCacheLookup<Guild, CacheError>, { readonly _tag: "Success" }> =>
+  Predicate.isTagged(lookup, "Success");
+
+// Bound remote cache pressure while keeping the current user's guild lookup latency low.
+const guildCacheLookupConcurrency = 16;
+
+export const resolveCachedDiscordGuilds = <Guild, CacheError>(
+  guildIds: ReadonlyArray<string>,
+  getGuild: (guildId: string) => Effect.Effect<Guild, CacheError>,
+) =>
+  Effect.gen(function* () {
+    const guildLookups = yield* Effect.forEach(
+      guildIds,
+      (guildId) =>
+        getGuild(guildId).pipe(
+          Effect.match({
+            onSuccess: (guild) => ({ _tag: "Success" as const, guild }),
+            onFailure: (error) => ({
+              _tag: "Failure" as const,
+              error,
+              guildId,
+              reason: cacheFailureReason(error),
+            }),
+          }),
+        ),
+      { concurrency: guildCacheLookupConcurrency },
+    );
+
+    const failures = guildLookups.filter(isGuildCacheFailure);
+
+    yield* Effect.forEach(
+      failures,
+      ({ error, guildId, reason }) =>
+        Effect.all(
+          [
+            Effect.logWarning("Discord guild cache lookup failed").pipe(
+              Effect.annotateLogs({ error: formatError(error), guildId, reason }),
+            ),
+            Metric.update(
+              Metric.withAttributes(discordGuildCacheFailures, {
+                reason,
+              }),
+              1,
+            ),
+          ],
+          { discard: true },
+        ),
+      { concurrency: "unbounded", discard: true },
+    );
+
+    // Guilds drive authorization and UI state, so never expose a partially resolved set.
+    if (failures.length > 0) {
+      return yield* Effect.fail(
+        makeArgumentError(
+          `Failed to resolve ${failures.length} of ${guildLookups.length} Discord guilds from cache`,
+        ),
+      );
+    }
+
+    return guildLookups.filter(isGuildCacheSuccess).map(({ guild }) => guild);
+  });
 
 export const discordLayer = sheetApisGroupLayer(
   "discord",
@@ -81,20 +167,9 @@ export const discordLayer = sheetApisGroupLayer(
           ),
         );
 
-        const maybeGuilds = yield* Effect.forEach(
-          userGuilds,
-          ({ id }) =>
-            guildsCache.get(id).pipe(
-              Effect.matchEffect({
-                onSuccess: (guild) => Effect.succeed(guild),
-                onFailure: () => Effect.succeed(null),
-              }),
-            ),
-          { concurrency: "unbounded" },
-        );
-
-        const cachedGuilds = maybeGuilds.filter(
-          (guild): guild is NonNullable<typeof guild> => guild !== null,
+        const cachedGuilds = yield* resolveCachedDiscordGuilds(
+          userGuilds.map(({ id }) => id),
+          (guildId) => guildsCache.get(guildId),
         );
 
         return yield* Schema.decodeUnknownEffect(Schema.Array(Discord.DiscordGuild))(

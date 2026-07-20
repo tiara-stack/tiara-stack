@@ -1,15 +1,12 @@
 import {
   APIApplicationCommandOptionChoice,
+  ApplicationCommandOptionType,
   ApplicationIntegrationType,
   ChannelType,
   InteractionContextType,
 } from "discord-api-types/v10";
 import {
   ApplicationCommandOptionBase,
-  ApplicationCommandOptionChannelTypesMixin,
-  ApplicationCommandOptionWithChoicesMixin,
-  ApplicationCommandOptionWithAutocompleteMixin,
-  ApplicationCommandNumericOptionMinMaxValueMixin,
   SharedNameAndDescription,
   SharedSlashCommand,
   SharedSlashCommandOptions,
@@ -29,16 +26,18 @@ import {
   SlashCommandAttachmentOption,
   SlashCommandMentionableOption,
 } from "@discordjs/builders";
-import { Discord } from "dfx";
-import { Function, Types } from "effect";
-import { mix } from "ts-mixer";
+import { Types } from "effect";
 
 interface BuilderTypeLambda<BaseBuilderType> {
   readonly BaseBuilderType: BaseBuilderType;
   readonly InnerType: unknown;
 }
 
-type BuilderKind<F extends BuilderTypeLambda<any>, InnerType> = F extends {
+interface JsonBuilder {
+  toJSON(): unknown;
+}
+
+type BuilderKind<F extends BuilderTypeLambda<unknown>, InnerType> = F extends {
   readonly BuilderType: unknown;
 }
   ? F & {
@@ -46,42 +45,24 @@ type BuilderKind<F extends BuilderTypeLambda<any>, InnerType> = F extends {
     }
   : never;
 
-type BaseBuilderType<F extends BuilderTypeLambda<any>> = F["BaseBuilderType"];
-type BuilderType<F extends BuilderTypeLambda<any>, InnerType> = BuilderKind<
+type BaseBuilderType<F extends BuilderTypeLambda<unknown>> = F["BaseBuilderType"];
+type BuilderType<F extends BuilderTypeLambda<unknown>, InnerType> = BuilderKind<
   F,
   InnerType
 >["BuilderType"];
 
-export const BuilderTypeId = Symbol("CommandBuilder/BuilderTypeId");
-export type BuilderTypeId = typeof BuilderTypeId;
+const BuilderStateTypeId = Symbol("CommandBuilder/BuilderStateTypeId");
 
-interface BuilderVariance<
-  in out BuilderT extends BuilderTypeLambda<any>,
-  in out InnerType extends unknown,
-> {
-  [BuilderTypeId]: {
-    _BuilderT: Types.Invariant<BuilderT>;
-    _InnerType: Types.Invariant<InnerType>;
-  };
+interface BuilderState<out InnerType> {
+  readonly [BuilderStateTypeId]: Types.Covariant<InnerType>;
 }
 
-type BuilderBuilderT<
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  B extends BuilderVariance<any, any>,
-> = [B] extends [BuilderVariance<infer BuilderT, any>] ? BuilderT : never;
+type BuilderInnerType<B> = B extends BuilderState<infer InnerType> ? InnerType : never;
 
-type BuilderInnerType<
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  B extends BuilderVariance<any, any>,
-> = [B] extends [BuilderVariance<any, infer InnerType>] ? InnerType : never;
-
-const builderVariance: <
-  BuilderT extends BuilderTypeLambda<any>,
-  InnerType extends unknown,
->() => BuilderVariance<BuilderT, InnerType>[BuilderTypeId] = () => ({
-  _BuilderT: Function.identity,
-  _InnerType: Function.identity,
-});
+const builderState =
+  <InnerType>(): BuilderState<InnerType>[typeof BuilderStateTypeId] =>
+  (value) =>
+    value;
 
 type ReplaceKey<A, Key extends string, Value> = Types.Simplify<
   Omit<A, Key> & { [K in Key]: Value }
@@ -105,12 +86,11 @@ type AppendAllKey<A, Key extends string, Value extends ReadonlyArray<unknown>> =
   }
 >;
 
-class DummyBase {
-  constructor(..._args: any[]) {}
-}
-
-abstract class SharedBuilderToJSON<BuilderT extends BuilderTypeLambda<any>, InnerType = unknown> {
-  readonly [BuilderTypeId] = builderVariance<BuilderT, InnerType>();
+abstract class SharedBuilderToJSON<
+  BuilderT extends BuilderTypeLambda<JsonBuilder>,
+  InnerType = unknown,
+> {
+  readonly [BuilderStateTypeId] = builderState<InnerType>();
   abstract readonly builder: BaseBuilderType<BuilderT>;
 
   toJSON(): InnerType {
@@ -122,13 +102,13 @@ export abstract class SharedNameAndDescriptionBuilder<
   BuilderT extends BuilderTypeLambda<SharedNameAndDescription>,
   InnerType = unknown,
 > {
-  readonly [BuilderTypeId] = builderVariance<BuilderT, InnerType>();
+  readonly [BuilderStateTypeId] = builderState<InnerType>();
   abstract readonly builder: BaseBuilderType<BuilderT>;
 
   setName<const Name extends string>(name: Name) {
     this.builder.setName(name);
     return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
+      BuilderT,
       ReplaceKey<BuilderInnerType<typeof this>, "name", Name>
     >;
   }
@@ -136,7 +116,7 @@ export abstract class SharedNameAndDescriptionBuilder<
   setDescription<const Description extends string>(description: Description) {
     this.builder.setDescription(description);
     return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
+      BuilderT,
       ReplaceKey<InnerType, "description", Description>
     >;
   }
@@ -146,13 +126,13 @@ export abstract class SharedCommand<
   BuilderT extends BuilderTypeLambda<SharedSlashCommand>,
   InnerType = unknown,
 > {
-  readonly [BuilderTypeId] = builderVariance<BuilderT, InnerType>();
+  readonly [BuilderStateTypeId] = builderState<InnerType>();
   abstract readonly builder: BaseBuilderType<BuilderT>;
 
   setContexts<const Contexts extends ReadonlyArray<InteractionContextType>>(...contexts: Contexts) {
     this.builder.setContexts(...contexts);
     return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
+      BuilderT,
       ReplaceKey<BuilderInnerType<typeof this>, "contexts", Contexts>
     >;
   }
@@ -162,7 +142,7 @@ export abstract class SharedCommand<
   ) {
     this.builder.setIntegrationTypes(...integrationTypes);
     return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
+      BuilderT,
       ReplaceKey<InnerType, "integration_types", IntegrationTypes>
     >;
   }
@@ -172,38 +152,24 @@ export abstract class SharedCommand<
   ) {
     this.builder.setDefaultMemberPermissions(defaultMemberPermissions);
     return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
+      BuilderT,
       ReplaceKey<InnerType, "default_member_permissions", DefaultMemberPermissions>
     >;
   }
 
   setNSFW<const NSFW extends boolean>(nsfw: NSFW) {
     this.builder.setNSFW(nsfw);
-    return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
-      ReplaceKey<InnerType, "nsfw", NSFW>
-    >;
+    return this as unknown as BuilderType<BuilderT, ReplaceKey<InnerType, "nsfw", NSFW>>;
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
-export interface CommandOptionBuilder<
-  BuilderT extends BuilderTypeLambda<ApplicationCommandOptionBase>,
-  InnerType = unknown,
-> extends SharedNameAndDescriptionBuilder<BuilderT, InnerType> {}
-
-@mix(SharedNameAndDescriptionBuilder)
 export abstract class CommandOptionBuilder<
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   BuilderT extends BuilderTypeLambda<ApplicationCommandOptionBase>,
   InnerType = unknown,
-> {
+> extends SharedNameAndDescriptionBuilder<BuilderT, InnerType> {
   setRequired<const Required extends boolean>(required: Required) {
     this.builder.setRequired(required);
-    return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
-      ReplaceKey<InnerType, "required", Required>
-    >;
+    return this as unknown as BuilderType<BuilderT, ReplaceKey<InnerType, "required", Required>>;
   }
 }
 
@@ -212,7 +178,7 @@ interface AttachmentOptionBuilderTypeLambda extends BuilderTypeLambda<SlashComma
 }
 
 export class AttachmentOptionBuilder<
-  A = { type: typeof Discord.ApplicationCommandOptionType.ATTACHMENT },
+  A = { type: typeof ApplicationCommandOptionType.Attachment },
 > extends CommandOptionBuilder<AttachmentOptionBuilderTypeLambda, A> {
   builder = new SlashCommandAttachmentOption();
 }
@@ -222,7 +188,7 @@ interface BooleanOptionBuilderTypeLambda extends BuilderTypeLambda<SlashCommandB
 }
 
 export class BooleanOptionBuilder<
-  A = { type: typeof Discord.ApplicationCommandOptionType.BOOLEAN },
+  A = { type: typeof ApplicationCommandOptionType.Boolean },
 > extends CommandOptionBuilder<BooleanOptionBuilderTypeLambda, A> {
   builder = new SlashCommandBooleanOption();
 }
@@ -239,106 +205,22 @@ type AllowedChannelTypes =
   | ChannelType.GuildForum
   | ChannelType.GuildMedia;
 
-abstract class CommandOptionChannelTypesMixin<
-  BuilderT extends BuilderTypeLambda<ApplicationCommandOptionChannelTypesMixin>,
-  InnerType = unknown,
-> {
-  readonly [BuilderTypeId] = builderVariance<BuilderT, InnerType>();
-  abstract readonly builder: BaseBuilderType<BuilderT>;
-
-  addChannelTypes<const ChannelTypes extends ReadonlyArray<AllowedChannelTypes>>(
-    ...channelTypes: ChannelTypes
-  ): BuilderType<BuilderT, AppendAllKey<InnerType, "channel_types", ChannelTypes>> {
-    this.builder.addChannelTypes(...channelTypes);
-    return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
-      AppendAllKey<BuilderInnerType<typeof this>, "channel_types", ChannelTypes>
-    >;
-  }
-}
-
 interface ChannelOptionBuilderTypeLambda extends BuilderTypeLambda<SlashCommandChannelOption> {
   readonly BuilderType: ChannelOptionBuilder<this["InnerType"]>;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
-export interface ChannelOptionBuilder<
-  A = { type: typeof Discord.ApplicationCommandOptionType.CHANNEL },
->
-  extends
-    CommandOptionBuilder<ChannelOptionBuilderTypeLambda, A>,
-    CommandOptionChannelTypesMixin<ChannelOptionBuilderTypeLambda, A> {}
-
-@mix(CommandOptionBuilder, CommandOptionChannelTypesMixin)
-export class ChannelOptionBuilder extends DummyBase {
+export class ChannelOptionBuilder<
+  A = { type: typeof ApplicationCommandOptionType.Channel },
+> extends CommandOptionBuilder<ChannelOptionBuilderTypeLambda, A> {
   readonly builder = new SlashCommandChannelOption();
-}
 
-abstract class CommandNumericOptionMinMaxValueMixin<
-  BuilderT extends BuilderTypeLambda<ApplicationCommandNumericOptionMinMaxValueMixin>,
-  InnerType = unknown,
-> {
-  readonly [BuilderTypeId] = builderVariance<BuilderT, InnerType>();
-  abstract readonly builder: BaseBuilderType<BuilderT>;
-
-  setMinValue<const MinValue extends number>(minValue: MinValue) {
-    this.builder.setMinValue(minValue);
+  addChannelTypes<const ChannelTypes extends ReadonlyArray<AllowedChannelTypes>>(
+    ...channelTypes: ChannelTypes
+  ): BuilderType<ChannelOptionBuilderTypeLambda, AppendAllKey<A, "channel_types", ChannelTypes>> {
+    this.builder.addChannelTypes(...channelTypes);
     return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
-      ReplaceKey<BuilderInnerType<typeof this>, "min_value", MinValue>
-    >;
-  }
-
-  setMaxValue<const MaxValue extends number>(maxValue: MaxValue) {
-    this.builder.setMaxValue(maxValue);
-    return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
-      ReplaceKey<BuilderInnerType<typeof this>, "max_value", MaxValue>
-    >;
-  }
-}
-
-abstract class CommandOptionWithAutocompleteMixin<
-  BuilderT extends BuilderTypeLambda<ApplicationCommandOptionWithAutocompleteMixin>,
-  InnerType = unknown,
-> {
-  readonly [BuilderTypeId] = builderVariance<BuilderT, InnerType>();
-  abstract readonly builder: BaseBuilderType<BuilderT>;
-
-  setAutocomplete<const Autocomplete extends boolean>(autocomplete: Autocomplete) {
-    this.builder.setAutocomplete(autocomplete);
-    return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
-      ReplaceKey<BuilderInnerType<typeof this>, "autocomplete", Autocomplete>
-    >;
-  }
-}
-
-abstract class CommandOptionWithChoicesMixin<
-  ChoiceType extends number | string,
-  BuilderT extends BuilderTypeLambda<ApplicationCommandOptionWithChoicesMixin<any>>,
-  InnerType = unknown,
-> {
-  readonly [BuilderTypeId] = builderVariance<BuilderT, InnerType>();
-  abstract readonly builder: BaseBuilderType<BuilderT>;
-
-  addChoices<const Choices extends ReadonlyArray<APIApplicationCommandOptionChoice<ChoiceType>>>(
-    ...choices: Choices
-  ): BuilderType<BuilderT, AppendAllKey<InnerType, "choices", Choices>> {
-    this.builder.addChoices(...choices);
-    return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
-      AppendAllKey<BuilderInnerType<typeof this>, "choices", Choices>
-    >;
-  }
-
-  setChoices<const Choices extends ReadonlyArray<APIApplicationCommandOptionChoice<ChoiceType>>>(
-    ...choices: Choices
-  ) {
-    this.builder.setChoices(...choices);
-    return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
-      ReplaceKey<BuilderInnerType<typeof this>, "choices", Choices>
+      ChannelOptionBuilderTypeLambda,
+      AppendAllKey<A, "channel_types", ChannelTypes>
     >;
   }
 }
@@ -347,25 +229,54 @@ interface IntegerOptionBuilderTypeLambda extends BuilderTypeLambda<SlashCommandI
   readonly BuilderType: IntegerOptionBuilder<this["InnerType"]>;
 }
 
-// Integer option with choices, min/max, and autocomplete
-// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
-export interface IntegerOptionBuilder<
-  A = { type: typeof Discord.ApplicationCommandOptionType.INTEGER },
->
-  extends
-    CommandOptionBuilder<IntegerOptionBuilderTypeLambda, A>,
-    CommandNumericOptionMinMaxValueMixin<IntegerOptionBuilderTypeLambda, A>,
-    CommandOptionWithChoicesMixin<number, IntegerOptionBuilderTypeLambda, A>,
-    CommandOptionWithAutocompleteMixin<IntegerOptionBuilderTypeLambda, A> {}
-
-@mix(
-  CommandOptionBuilder,
-  CommandNumericOptionMinMaxValueMixin,
-  CommandOptionWithChoicesMixin,
-  CommandOptionWithAutocompleteMixin,
-)
-export class IntegerOptionBuilder extends DummyBase {
+export class IntegerOptionBuilder<
+  A = { type: typeof ApplicationCommandOptionType.Integer },
+> extends CommandOptionBuilder<IntegerOptionBuilderTypeLambda, A> {
   readonly builder = new SlashCommandIntegerOption();
+
+  setMinValue<const MinValue extends number>(minValue: MinValue) {
+    this.builder.setMinValue(minValue);
+    return this as unknown as BuilderType<
+      IntegerOptionBuilderTypeLambda,
+      ReplaceKey<A, "min_value", MinValue>
+    >;
+  }
+
+  setMaxValue<const MaxValue extends number>(maxValue: MaxValue) {
+    this.builder.setMaxValue(maxValue);
+    return this as unknown as BuilderType<
+      IntegerOptionBuilderTypeLambda,
+      ReplaceKey<A, "max_value", MaxValue>
+    >;
+  }
+
+  addChoices<const Choices extends ReadonlyArray<APIApplicationCommandOptionChoice<number>>>(
+    ...choices: Choices
+  ) {
+    this.builder.addChoices(...choices);
+    return this as unknown as BuilderType<
+      IntegerOptionBuilderTypeLambda,
+      AppendAllKey<A, "choices", Choices>
+    >;
+  }
+
+  setChoices<const Choices extends ReadonlyArray<APIApplicationCommandOptionChoice<number>>>(
+    ...choices: Choices
+  ) {
+    this.builder.setChoices(...choices);
+    return this as unknown as BuilderType<
+      IntegerOptionBuilderTypeLambda,
+      ReplaceKey<A, "choices", Choices>
+    >;
+  }
+
+  setAutocomplete<const Autocomplete extends boolean>(autocomplete: Autocomplete) {
+    this.builder.setAutocomplete(autocomplete);
+    return this as unknown as BuilderType<
+      IntegerOptionBuilderTypeLambda,
+      ReplaceKey<A, "autocomplete", Autocomplete>
+    >;
+  }
 }
 
 interface MentionableOptionBuilderTypeLambda extends BuilderTypeLambda<SlashCommandMentionableOption> {
@@ -373,7 +284,7 @@ interface MentionableOptionBuilderTypeLambda extends BuilderTypeLambda<SlashComm
 }
 
 export class MentionableOptionBuilder<
-  A = { type: typeof Discord.ApplicationCommandOptionType.MENTIONABLE },
+  A = { type: typeof ApplicationCommandOptionType.Mentionable },
 > extends CommandOptionBuilder<MentionableOptionBuilderTypeLambda, A> {
   readonly builder = new SlashCommandMentionableOption();
 }
@@ -382,25 +293,54 @@ interface NumberOptionBuilderTypeLambda extends BuilderTypeLambda<SlashCommandNu
   readonly BuilderType: NumberOptionBuilder<this["InnerType"]>;
 }
 
-// Number option with choices, min/max, and autocomplete
-// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
-export interface NumberOptionBuilder<
-  A = { type: typeof Discord.ApplicationCommandOptionType.NUMBER },
->
-  extends
-    CommandOptionBuilder<NumberOptionBuilderTypeLambda, A>,
-    CommandNumericOptionMinMaxValueMixin<NumberOptionBuilderTypeLambda, A>,
-    CommandOptionWithChoicesMixin<number, NumberOptionBuilderTypeLambda, A>,
-    CommandOptionWithAutocompleteMixin<NumberOptionBuilderTypeLambda, A> {}
-
-@mix(
-  CommandOptionBuilder,
-  CommandNumericOptionMinMaxValueMixin,
-  CommandOptionWithChoicesMixin,
-  CommandOptionWithAutocompleteMixin,
-)
-export class NumberOptionBuilder extends DummyBase {
+export class NumberOptionBuilder<
+  A = { type: typeof ApplicationCommandOptionType.Number },
+> extends CommandOptionBuilder<NumberOptionBuilderTypeLambda, A> {
   readonly builder = new SlashCommandNumberOption();
+
+  setMinValue<const MinValue extends number>(minValue: MinValue) {
+    this.builder.setMinValue(minValue);
+    return this as unknown as BuilderType<
+      NumberOptionBuilderTypeLambda,
+      ReplaceKey<A, "min_value", MinValue>
+    >;
+  }
+
+  setMaxValue<const MaxValue extends number>(maxValue: MaxValue) {
+    this.builder.setMaxValue(maxValue);
+    return this as unknown as BuilderType<
+      NumberOptionBuilderTypeLambda,
+      ReplaceKey<A, "max_value", MaxValue>
+    >;
+  }
+
+  addChoices<const Choices extends ReadonlyArray<APIApplicationCommandOptionChoice<number>>>(
+    ...choices: Choices
+  ) {
+    this.builder.addChoices(...choices);
+    return this as unknown as BuilderType<
+      NumberOptionBuilderTypeLambda,
+      AppendAllKey<A, "choices", Choices>
+    >;
+  }
+
+  setChoices<const Choices extends ReadonlyArray<APIApplicationCommandOptionChoice<number>>>(
+    ...choices: Choices
+  ) {
+    this.builder.setChoices(...choices);
+    return this as unknown as BuilderType<
+      NumberOptionBuilderTypeLambda,
+      ReplaceKey<A, "choices", Choices>
+    >;
+  }
+
+  setAutocomplete<const Autocomplete extends boolean>(autocomplete: Autocomplete) {
+    this.builder.setAutocomplete(autocomplete);
+    return this as unknown as BuilderType<
+      NumberOptionBuilderTypeLambda,
+      ReplaceKey<A, "autocomplete", Autocomplete>
+    >;
+  }
 }
 
 interface RoleOptionBuilderTypeLambda extends BuilderTypeLambda<SlashCommandRoleOption> {
@@ -408,7 +348,7 @@ interface RoleOptionBuilderTypeLambda extends BuilderTypeLambda<SlashCommandRole
 }
 
 export class RoleOptionBuilder<
-  A = { type: typeof Discord.ApplicationCommandOptionType.ROLE },
+  A = { type: typeof ApplicationCommandOptionType.Role },
 > extends CommandOptionBuilder<RoleOptionBuilderTypeLambda, A> {
   readonly builder = new SlashCommandRoleOption();
 }
@@ -417,24 +357,43 @@ interface StringOptionBuilderTypeLambda extends BuilderTypeLambda<SlashCommandSt
   readonly BuilderType: StringOptionBuilder<this["InnerType"]>;
 }
 
-// String option with choices and autocomplete
-// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
-export interface StringOptionBuilder<
-  A = { type: typeof Discord.ApplicationCommandOptionType.STRING },
->
-  extends
-    CommandOptionBuilder<StringOptionBuilderTypeLambda, A>,
-    CommandOptionWithChoicesMixin<string, StringOptionBuilderTypeLambda, A>,
-    CommandOptionWithAutocompleteMixin<StringOptionBuilderTypeLambda, A> {}
-
-@mix(CommandOptionBuilder, CommandOptionWithChoicesMixin, CommandOptionWithAutocompleteMixin)
-export class StringOptionBuilder extends DummyBase {
+export class StringOptionBuilder<
+  A = { type: typeof ApplicationCommandOptionType.String },
+> extends CommandOptionBuilder<StringOptionBuilderTypeLambda, A> {
   readonly builder = new SlashCommandStringOption();
+
+  addChoices<const Choices extends ReadonlyArray<APIApplicationCommandOptionChoice<string>>>(
+    ...choices: Choices
+  ) {
+    this.builder.addChoices(...choices);
+    return this as unknown as BuilderType<
+      StringOptionBuilderTypeLambda,
+      AppendAllKey<A, "choices", Choices>
+    >;
+  }
+
+  setChoices<const Choices extends ReadonlyArray<APIApplicationCommandOptionChoice<string>>>(
+    ...choices: Choices
+  ) {
+    this.builder.setChoices(...choices);
+    return this as unknown as BuilderType<
+      StringOptionBuilderTypeLambda,
+      ReplaceKey<A, "choices", Choices>
+    >;
+  }
+
+  setAutocomplete<const Autocomplete extends boolean>(autocomplete: Autocomplete) {
+    this.builder.setAutocomplete(autocomplete);
+    return this as unknown as BuilderType<
+      StringOptionBuilderTypeLambda,
+      ReplaceKey<A, "autocomplete", Autocomplete>
+    >;
+  }
 
   setMinLength<const MinLength extends number>(minLength: MinLength) {
     this.builder.setMinLength(minLength);
     return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
+      StringOptionBuilderTypeLambda,
       ReplaceKey<BuilderInnerType<typeof this>, "min_length", MinLength>
     >;
   }
@@ -442,7 +401,7 @@ export class StringOptionBuilder extends DummyBase {
   setMaxLength<const MaxLength extends number>(maxLength: MaxLength) {
     this.builder.setMaxLength(maxLength);
     return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
+      StringOptionBuilderTypeLambda,
       ReplaceKey<BuilderInnerType<typeof this>, "max_length", MaxLength>
     >;
   }
@@ -453,16 +412,18 @@ interface UserOptionBuilderTypeLambda extends BuilderTypeLambda<SlashCommandUser
 }
 
 export class UserOptionBuilder<
-  A = { type: typeof Discord.ApplicationCommandOptionType.USER },
+  A = { type: typeof ApplicationCommandOptionType.User },
 > extends CommandOptionBuilder<UserOptionBuilderTypeLambda, A> {
   readonly builder = new SlashCommandUserOption();
 }
 
 abstract class SharedCommandOptionsBuilder<
-  BuilderT extends BuilderTypeLambda<SharedSlashCommandOptions<any>>,
+  BuilderT extends BuilderTypeLambda<
+    SharedSlashCommandOptions<SlashCommandOptionsOnlyBuilder | SlashCommandSubcommandBuilder>
+  >,
   InnerType = unknown,
 > {
-  readonly [BuilderTypeId] = builderVariance<BuilderT, InnerType>();
+  readonly [BuilderStateTypeId] = builderState<InnerType>();
   abstract readonly builder: BaseBuilderType<BuilderT>;
 
   addBooleanOption<const InnerOption>(
@@ -470,7 +431,7 @@ abstract class SharedCommandOptionsBuilder<
   ): BuilderType<BuilderT, AppendKey<InnerType, "options", InnerOption>> {
     this.builder.addBooleanOption(input(new BooleanOptionBuilder()).builder);
     return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
+      BuilderT,
       AppendKey<BuilderInnerType<typeof this>, "options", InnerOption>
     >;
   }
@@ -480,7 +441,7 @@ abstract class SharedCommandOptionsBuilder<
   ): BuilderType<BuilderT, AppendKey<InnerType, "options", InnerOption>> {
     this.builder.addUserOption(input(new UserOptionBuilder()).builder);
     return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
+      BuilderT,
       AppendKey<BuilderInnerType<typeof this>, "options", InnerOption>
     >;
   }
@@ -490,7 +451,7 @@ abstract class SharedCommandOptionsBuilder<
   ): BuilderType<BuilderT, AppendKey<InnerType, "options", InnerOption>> {
     this.builder.addChannelOption(input(new ChannelOptionBuilder()).builder);
     return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
+      BuilderT,
       AppendKey<BuilderInnerType<typeof this>, "options", InnerOption>
     >;
   }
@@ -500,7 +461,7 @@ abstract class SharedCommandOptionsBuilder<
   ): BuilderType<BuilderT, AppendKey<InnerType, "options", InnerOption>> {
     this.builder.addRoleOption(input(new RoleOptionBuilder()).builder);
     return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
+      BuilderT,
       AppendKey<BuilderInnerType<typeof this>, "options", InnerOption>
     >;
   }
@@ -510,7 +471,7 @@ abstract class SharedCommandOptionsBuilder<
   ): BuilderType<BuilderT, AppendKey<InnerType, "options", InnerOption>> {
     this.builder.addAttachmentOption(input(new AttachmentOptionBuilder()).builder);
     return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
+      BuilderT,
       AppendKey<BuilderInnerType<typeof this>, "options", InnerOption>
     >;
   }
@@ -520,7 +481,7 @@ abstract class SharedCommandOptionsBuilder<
   ): BuilderType<BuilderT, AppendKey<InnerType, "options", InnerOption>> {
     this.builder.addMentionableOption(input(new MentionableOptionBuilder()).builder);
     return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
+      BuilderT,
       AppendKey<BuilderInnerType<typeof this>, "options", InnerOption>
     >;
   }
@@ -530,7 +491,7 @@ abstract class SharedCommandOptionsBuilder<
   ): BuilderType<BuilderT, AppendKey<InnerType, "options", InnerOption>> {
     this.builder.addStringOption(input(new StringOptionBuilder()).builder);
     return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
+      BuilderT,
       AppendKey<BuilderInnerType<typeof this>, "options", InnerOption>
     >;
   }
@@ -540,17 +501,17 @@ abstract class SharedCommandOptionsBuilder<
   ): BuilderType<BuilderT, AppendKey<InnerType, "options", InnerOption>> {
     this.builder.addIntegerOption(input(new IntegerOptionBuilder()).builder);
     return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
+      BuilderT,
       AppendKey<BuilderInnerType<typeof this>, "options", InnerOption>
     >;
   }
 
   addNumberOption<const InnerOption>(
     input: (builder: NumberOptionBuilder) => NumberOptionBuilder<InnerOption>,
-  ): BuilderType<BuilderBuilderT<typeof this>, AppendKey<InnerType, "options", InnerOption>> {
+  ): BuilderType<BuilderT, AppendKey<InnerType, "options", InnerOption>> {
     this.builder.addNumberOption(input(new NumberOptionBuilder()).builder);
     return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
+      BuilderT,
       AppendKey<BuilderInnerType<typeof this>, "options", InnerOption>
     >;
   }
@@ -560,27 +521,18 @@ interface SubCommandGroupBuilderTypeLambda extends BuilderTypeLambda<SlashComman
   readonly BuilderType: SubCommandGroupBuilder<this["InnerType"]>;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
-export interface SubCommandGroupBuilder<
-  A = { type: typeof Discord.ApplicationCommandOptionType.SUB_COMMAND_GROUP },
->
-  extends
-    SharedNameAndDescriptionBuilder<SubCommandGroupBuilderTypeLambda, A>,
-    SharedBuilderToJSON<SubCommandGroupBuilderTypeLambda, A> {}
-
-@mix(SharedNameAndDescriptionBuilder, SharedBuilderToJSON)
 export class SubCommandGroupBuilder<
-  A = { type: typeof Discord.ApplicationCommandOptionType.SUB_COMMAND_GROUP },
-> {
+  A = { type: typeof ApplicationCommandOptionType.SubcommandGroup },
+> extends SharedNameAndDescriptionBuilder<SubCommandGroupBuilderTypeLambda, A> {
   readonly builder = new SlashCommandSubcommandGroupBuilder();
 
   addSubcommand<const InnerOption>(
     input: (builder: SubCommandBuilder) => SubCommandBuilder<InnerOption>,
-  ): BuilderType<BuilderBuilderT<typeof this>, AppendKey<A, "options", InnerOption>> {
+  ): BuilderType<SubCommandGroupBuilderTypeLambda, AppendKey<A, "options", InnerOption>> {
     this.builder.addSubcommand(input(new SubCommandBuilder()).builder);
     return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
-      AppendKey<BuilderInnerType<typeof this>, "options", InnerOption>
+      SubCommandGroupBuilderTypeLambda,
+      AppendKey<A, "options", InnerOption>
     >;
   }
 
@@ -593,20 +545,23 @@ interface SubCommandBuilderTypeLambda extends BuilderTypeLambda<SlashCommandSubc
   readonly BuilderType: SubCommandBuilder<this["InnerType"]>;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
-export interface SubCommandBuilder<
-  A = { type: typeof Discord.ApplicationCommandOptionType.SUB_COMMAND },
->
-  extends
-    SharedNameAndDescriptionBuilder<SubCommandBuilderTypeLambda, A>,
-    SharedCommandOptionsBuilder<SubCommandBuilderTypeLambda, A>,
-    SharedBuilderToJSON<SubCommandBuilderTypeLambda, A> {}
-
-@mix(SharedNameAndDescriptionBuilder, SharedCommandOptionsBuilder, SharedBuilderToJSON)
 export class SubCommandBuilder<
-  A = { type: typeof Discord.ApplicationCommandOptionType.SUB_COMMAND },
-> {
+  A = { type: typeof ApplicationCommandOptionType.Subcommand },
+> extends SharedCommandOptionsBuilder<SubCommandBuilderTypeLambda, A> {
   readonly builder = new SlashCommandSubcommandBuilder();
+
+  setName<const Name extends string>(name: Name) {
+    this.builder.setName(name);
+    return this as unknown as BuilderType<SubCommandBuilderTypeLambda, ReplaceKey<A, "name", Name>>;
+  }
+
+  setDescription<const Description extends string>(description: Description) {
+    this.builder.setDescription(description);
+    return this as unknown as BuilderType<
+      SubCommandBuilderTypeLambda,
+      ReplaceKey<A, "description", Description>
+    >;
+  }
 
   toJSON(): A {
     return this.builder.toJSON() as A;
@@ -614,10 +569,12 @@ export class SubCommandBuilder<
 }
 
 abstract class SharedCommandSubCommandsBuilder<
-  BuilderT extends BuilderTypeLambda<SharedSlashCommandSubcommands<any>>,
+  BuilderT extends BuilderTypeLambda<
+    SharedSlashCommandSubcommands<SlashCommandSubcommandsOnlyBuilder>
+  >,
   InnerType = unknown,
 > {
-  readonly [BuilderTypeId] = builderVariance<BuilderT, InnerType>();
+  readonly [BuilderStateTypeId] = builderState<InnerType>();
   abstract readonly builder: BaseBuilderType<BuilderT>;
 
   addSubcommandGroup<const InnerOption>(
@@ -625,7 +582,7 @@ abstract class SharedCommandSubCommandsBuilder<
   ): BuilderType<BuilderT, AppendKey<InnerType, "options", InnerOption>> {
     this.builder.addSubcommandGroup(input(new SubCommandGroupBuilder()).builder);
     return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
+      BuilderT,
       AppendKey<BuilderInnerType<typeof this>, "options", InnerOption>
     >;
   }
@@ -635,7 +592,7 @@ abstract class SharedCommandSubCommandsBuilder<
   ): BuilderType<BuilderT, AppendKey<InnerType, "options", InnerOption>> {
     this.builder.addSubcommand(input(new SubCommandBuilder()).builder);
     return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
+      BuilderT,
       AppendKey<BuilderInnerType<typeof this>, "options", InnerOption>
     >;
   }
@@ -645,51 +602,99 @@ interface CommandBuilderTypeLambda extends BuilderTypeLambda<SlashCommandBuilder
   readonly BuilderType: CommandBuilder<this["InnerType"]>;
 }
 
-// @ts-expect-error TypeId is intentionally different
-// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
-export interface CommandBuilder<A = unknown>
-  extends
-    SharedNameAndDescriptionBuilder<CommandBuilderTypeLambda, A>,
-    SharedCommandOptionsBuilder<CommandOptionsOnlyBuilderTypeLambda, A>,
-    SharedCommandSubCommandsBuilder<CommandSubCommandsOnlyBuilderTypeLambda, A>,
-    SharedCommand<CommandBuilderTypeLambda, A>,
-    SharedBuilderToJSON<CommandBuilderTypeLambda, A> {}
-
 interface CommandOptionsOnlyBuilderTypeLambda extends BuilderTypeLambda<SlashCommandOptionsOnlyBuilder> {
   readonly BuilderType: CommandOptionsOnlyBuilder<this["InnerType"]>;
 }
 
-// @ts-expect-error TypeId is intentionally different
-// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
 export interface CommandOptionsOnlyBuilder<A = unknown>
   extends
     SharedNameAndDescriptionBuilder<CommandOptionsOnlyBuilderTypeLambda, A>,
     SharedCommandOptionsBuilder<CommandOptionsOnlyBuilderTypeLambda, A>,
-    SharedCommand<CommandBuilderTypeLambda, A>,
+    SharedCommand<CommandOptionsOnlyBuilderTypeLambda, A>,
     SharedBuilderToJSON<CommandOptionsOnlyBuilderTypeLambda, A> {}
 
 interface CommandSubCommandsOnlyBuilderTypeLambda extends BuilderTypeLambda<SlashCommandSubcommandsOnlyBuilder> {
   readonly BuilderType: CommandSubCommandsOnlyBuilder<this["InnerType"]>;
 }
 
-// @ts-expect-error TypeId is intentionally different
-// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
 export interface CommandSubCommandsOnlyBuilder<A = unknown>
   extends
     SharedNameAndDescriptionBuilder<CommandSubCommandsOnlyBuilderTypeLambda, A>,
     SharedCommandSubCommandsBuilder<CommandSubCommandsOnlyBuilderTypeLambda, A>,
-    SharedCommand<CommandBuilderTypeLambda, A>,
+    SharedCommand<CommandSubCommandsOnlyBuilderTypeLambda, A>,
     SharedBuilderToJSON<CommandSubCommandsOnlyBuilderTypeLambda, A> {}
 
-@mix(
-  SharedNameAndDescriptionBuilder,
-  SharedCommandOptionsBuilder,
-  SharedCommandSubCommandsBuilder,
-  SharedCommand,
-  SharedBuilderToJSON,
-)
-export class CommandBuilder<A = unknown> {
+export class CommandBuilder<A = unknown> extends SharedCommandOptionsBuilder<
+  CommandOptionsOnlyBuilderTypeLambda,
+  A
+> {
   readonly builder = new SlashCommandBuilder();
+
+  setName<const Name extends string>(name: Name) {
+    this.builder.setName(name);
+    return this as unknown as BuilderType<CommandBuilderTypeLambda, ReplaceKey<A, "name", Name>>;
+  }
+
+  setDescription<const Description extends string>(description: Description) {
+    this.builder.setDescription(description);
+    return this as unknown as BuilderType<
+      CommandBuilderTypeLambda,
+      ReplaceKey<A, "description", Description>
+    >;
+  }
+
+  setContexts<const Contexts extends ReadonlyArray<InteractionContextType>>(...contexts: Contexts) {
+    this.builder.setContexts(...contexts);
+    return this as unknown as BuilderType<
+      CommandBuilderTypeLambda,
+      ReplaceKey<A, "contexts", Contexts>
+    >;
+  }
+
+  setIntegrationTypes<const IntegrationTypes extends ReadonlyArray<ApplicationIntegrationType>>(
+    ...integrationTypes: IntegrationTypes
+  ) {
+    this.builder.setIntegrationTypes(...integrationTypes);
+    return this as unknown as BuilderType<
+      CommandBuilderTypeLambda,
+      ReplaceKey<A, "integration_types", IntegrationTypes>
+    >;
+  }
+
+  setDefaultMemberPermissions<const DefaultMemberPermissions extends bigint>(
+    defaultMemberPermissions: DefaultMemberPermissions,
+  ) {
+    this.builder.setDefaultMemberPermissions(defaultMemberPermissions);
+    return this as unknown as BuilderType<
+      CommandBuilderTypeLambda,
+      ReplaceKey<A, "default_member_permissions", DefaultMemberPermissions>
+    >;
+  }
+
+  setNSFW<const NSFW extends boolean>(nsfw: NSFW) {
+    this.builder.setNSFW(nsfw);
+    return this as unknown as BuilderType<CommandBuilderTypeLambda, ReplaceKey<A, "nsfw", NSFW>>;
+  }
+
+  addSubcommandGroup<const InnerOption>(
+    input: (builder: SubCommandGroupBuilder) => SubCommandGroupBuilder<InnerOption>,
+  ): BuilderType<CommandSubCommandsOnlyBuilderTypeLambda, AppendKey<A, "options", InnerOption>> {
+    this.builder.addSubcommandGroup(input(new SubCommandGroupBuilder()).builder);
+    return this as unknown as BuilderType<
+      CommandSubCommandsOnlyBuilderTypeLambda,
+      AppendKey<A, "options", InnerOption>
+    >;
+  }
+
+  addSubcommand<const InnerOption>(
+    input: (builder: SubCommandBuilder) => SubCommandBuilder<InnerOption>,
+  ): BuilderType<CommandSubCommandsOnlyBuilderTypeLambda, AppendKey<A, "options", InnerOption>> {
+    this.builder.addSubcommand(input(new SubCommandBuilder()).builder);
+    return this as unknown as BuilderType<
+      CommandSubCommandsOnlyBuilderTypeLambda,
+      AppendKey<A, "options", InnerOption>
+    >;
+  }
 
   toJSON(): A {
     return this.builder.toJSON() as A;

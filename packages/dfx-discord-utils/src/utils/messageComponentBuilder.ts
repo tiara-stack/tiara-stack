@@ -1,19 +1,22 @@
-import { APIMessageComponentEmoji, ButtonStyle, Snowflake } from "discord-api-types/v10";
+import {
+  APIMessageComponentEmoji,
+  ButtonStyle,
+  ComponentType as DiscordComponentType,
+  Snowflake,
+} from "discord-api-types/v10";
 import {
   ActionRowBuilder as BaseActionRowBuilder,
   ButtonBuilder as BaseButtonBuilder,
   ComponentBuilder as BaseComponentBuilder,
 } from "@discordjs/builders";
-import { Function, Types } from "effect";
-import { mix } from "ts-mixer";
-import { Discord } from "dfx";
+import { Types } from "effect";
 
 interface BuilderTypeLambda<BaseBuilderType> {
   readonly BaseBuilderType: BaseBuilderType;
   readonly InnerType: unknown;
 }
 
-type BuilderKind<F extends BuilderTypeLambda<any>, InnerType> = F extends {
+type BuilderKind<F extends BuilderTypeLambda<unknown>, InnerType> = F extends {
   readonly BuilderType: unknown;
 }
   ? F & {
@@ -21,49 +24,31 @@ type BuilderKind<F extends BuilderTypeLambda<any>, InnerType> = F extends {
     }
   : never;
 
-type BaseBuilderType<F extends BuilderTypeLambda<any>> = F["BaseBuilderType"];
-type BuilderType<F extends BuilderTypeLambda<any>, InnerType> = BuilderKind<
+type BaseBuilderType<F extends BuilderTypeLambda<unknown>> = F["BaseBuilderType"];
+type BuilderType<F extends BuilderTypeLambda<unknown>, InnerType> = BuilderKind<
   F,
   InnerType
 >["BuilderType"];
 
-const BuilderTypeId = Symbol("MessageComponentBuilder/BuilderTypeId");
-type BuilderTypeId = typeof BuilderTypeId;
+const BuilderStateTypeId = Symbol("MessageComponentBuilder/BuilderStateTypeId");
 
-interface BuilderVariance<
-  in out BuilderT extends BuilderTypeLambda<any>,
-  in out InnerType extends unknown,
-> {
-  [BuilderTypeId]: {
-    _BuilderT: Types.Invariant<BuilderT>;
-    _InnerType: Types.Invariant<InnerType>;
-  };
+interface BuilderState<out InnerType> {
+  readonly [BuilderStateTypeId]: Types.Covariant<InnerType>;
 }
 
-type BuilderBuilderT<
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  B extends BuilderVariance<any, any>,
-> = [B] extends [BuilderVariance<infer BuilderT, any>] ? BuilderT : never;
+type BuilderInnerType<B> = B extends BuilderState<infer InnerType> ? InnerType : never;
 
-type BuilderInnerType<
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  B extends BuilderVariance<any, any>,
-> = [B] extends [BuilderVariance<any, infer InnerType>] ? InnerType : never;
-
-type BuilderInnerTypes<B extends ReadonlyArray<BuilderVariance<any, any>>> = B extends readonly [
-  infer First extends BuilderVariance<any, any>,
-  ...infer Rest extends ReadonlyArray<BuilderVariance<any, any>>,
+type BuilderInnerTypes<B extends ReadonlyArray<BuilderState<unknown>>> = B extends readonly [
+  infer First extends BuilderState<unknown>,
+  ...infer Rest extends ReadonlyArray<BuilderState<unknown>>,
 ]
   ? [BuilderInnerType<First>, ...BuilderInnerTypes<Rest>]
   : [];
 
-const builderVariance: <
-  BuilderT extends BuilderTypeLambda<any>,
-  InnerType extends unknown,
->() => BuilderVariance<BuilderT, InnerType>[BuilderTypeId] = () => ({
-  _BuilderT: Function.identity,
-  _InnerType: Function.identity,
-});
+const builderState =
+  <InnerType>(): BuilderState<InnerType>[typeof BuilderStateTypeId] =>
+  (value) =>
+    value;
 
 type ReplaceKey<A, Key extends string, Value> = Types.Simplify<
   Omit<A, Key> & { [K in Key]: Value }
@@ -78,8 +63,11 @@ type AppendAllKey<A, Key extends string, Value extends ReadonlyArray<unknown>> =
   }
 >;
 
-abstract class SharedBuilderToJSON<BuilderT extends BuilderTypeLambda<any>, InnerType = unknown> {
-  readonly [BuilderTypeId] = builderVariance<BuilderT, InnerType>();
+abstract class SharedBuilderToJSON<
+  BuilderT extends BuilderTypeLambda<BaseComponentBuilder>,
+  InnerType = unknown,
+> {
+  readonly [BuilderStateTypeId] = builderState<InnerType>();
   abstract readonly builder: BaseBuilderType<BuilderT>;
 
   toJSON(): InnerType {
@@ -88,26 +76,17 @@ abstract class SharedBuilderToJSON<BuilderT extends BuilderTypeLambda<any>, Inne
 }
 
 abstract class ComponentBuilder<
-  BuilderT extends BuilderTypeLambda<BaseComponentBuilder<any>>,
+  BuilderT extends BuilderTypeLambda<BaseComponentBuilder>,
   InnerType = unknown,
-> {
-  readonly [BuilderTypeId] = builderVariance<BuilderT, InnerType>();
-  abstract readonly builder: BaseBuilderType<BuilderT>;
-
+> extends SharedBuilderToJSON<BuilderT, InnerType> {
   setId<const Id extends number>(id: Id) {
     this.builder.setId(id);
-    return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
-      ReplaceKey<BuilderInnerType<typeof this>, "id", Id>
-    >;
+    return this as unknown as BuilderType<BuilderT, ReplaceKey<InnerType, "id", Id>>;
   }
 
   clearId() {
     this.builder.clearId();
-    return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
-      ReplaceKey<InnerType, "id", undefined>
-    >;
+    return this as unknown as BuilderType<BuilderT, ReplaceKey<InnerType, "id", undefined>>;
   }
 }
 
@@ -115,20 +94,15 @@ interface ButtonBuilderTypeLambda extends BuilderTypeLambda<BaseButtonBuilder> {
   readonly BuilderType: ButtonBuilder<this["InnerType"]>;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
-export interface ButtonBuilder<A = { type: typeof Discord.MessageComponentTypes.BUTTON }>
-  extends
-    ComponentBuilder<ButtonBuilderTypeLambda, A>,
-    SharedBuilderToJSON<ButtonBuilderTypeLambda, A> {}
-
-@mix(ComponentBuilder, SharedBuilderToJSON)
-export class ButtonBuilder<A = { type: typeof Discord.MessageComponentTypes.BUTTON }> {
+export class ButtonBuilder<
+  A = { type: typeof DiscordComponentType.Button },
+> extends ComponentBuilder<ButtonBuilderTypeLambda, A> {
   readonly builder = new BaseButtonBuilder();
 
   setStyle<const Style extends ButtonStyle>(style: Style) {
     this.builder.setStyle(style);
     return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
+      ButtonBuilderTypeLambda,
       ReplaceKey<BuilderInnerType<typeof this>, "style", Style>
     >;
   }
@@ -136,7 +110,7 @@ export class ButtonBuilder<A = { type: typeof Discord.MessageComponentTypes.BUTT
   setURL<const Url extends string>(url: Url) {
     this.builder.setURL(url);
     return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
+      ButtonBuilderTypeLambda,
       ReplaceKey<BuilderInnerType<typeof this>, "url", Url>
     >;
   }
@@ -144,7 +118,7 @@ export class ButtonBuilder<A = { type: typeof Discord.MessageComponentTypes.BUTT
   setCustomId<const CustomId extends string>(customId: CustomId) {
     this.builder.setCustomId(customId);
     return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
+      ButtonBuilderTypeLambda,
       ReplaceKey<BuilderInnerType<typeof this>, "custom_id", CustomId>
     >;
   }
@@ -152,7 +126,7 @@ export class ButtonBuilder<A = { type: typeof Discord.MessageComponentTypes.BUTT
   setSKUId<const SKUId extends Snowflake>(skuId: SKUId) {
     this.builder.setSKUId(skuId);
     return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
+      ButtonBuilderTypeLambda,
       ReplaceKey<BuilderInnerType<typeof this>, "sku_id", SKUId>
     >;
   }
@@ -160,7 +134,7 @@ export class ButtonBuilder<A = { type: typeof Discord.MessageComponentTypes.BUTT
   setEmoji<const Emoji extends APIMessageComponentEmoji>(emoji: Emoji) {
     this.builder.setEmoji(emoji);
     return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
+      ButtonBuilderTypeLambda,
       ReplaceKey<BuilderInnerType<typeof this>, "emoji", Emoji>
     >;
   }
@@ -168,7 +142,7 @@ export class ButtonBuilder<A = { type: typeof Discord.MessageComponentTypes.BUTT
   setDisabled<const Disabled extends boolean>(disabled: Disabled) {
     this.builder.setDisabled(disabled);
     return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
+      ButtonBuilderTypeLambda,
       ReplaceKey<BuilderInnerType<typeof this>, "disabled", Disabled>
     >;
   }
@@ -176,67 +150,50 @@ export class ButtonBuilder<A = { type: typeof Discord.MessageComponentTypes.BUTT
   setLabel<const Label extends string>(label: Label) {
     this.builder.setLabel(label);
     return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
+      ButtonBuilderTypeLambda,
       ReplaceKey<BuilderInnerType<typeof this>, "label", Label>
     >;
   }
-
-  toJSON(): A {
-    return this.builder.toJSON() as A;
-  }
 }
 
-export type MessageActionRowComponentBuilder = ButtonBuilder<any>;
+export type MessageActionRowComponentBuilder = ButtonBuilder<unknown>;
 export type AnyComponentBuilder = MessageActionRowComponentBuilder;
 
 interface ActionRowBuilderTypeLambda<
-  ComponentType extends AnyComponentBuilder,
-> extends BuilderTypeLambda<BaseActionRowBuilder<any>> {
-  readonly BuilderType: ActionRowBuilder<ComponentType, this["InnerType"]>;
+  ComponentBuilderType extends AnyComponentBuilder,
+> extends BuilderTypeLambda<BaseActionRowBuilder<BaseButtonBuilder>> {
+  readonly BuilderType: ActionRowBuilder<ComponentBuilderType, this["InnerType"]>;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
-export interface ActionRowBuilder<
-  ComponentType extends AnyComponentBuilder,
-  A = { type: typeof Discord.MessageComponentTypes.ACTION_ROW },
->
-  extends
-    ComponentBuilder<ActionRowBuilderTypeLambda<ComponentType>, A>,
-    SharedBuilderToJSON<ActionRowBuilderTypeLambda<ComponentType>, A> {}
-
 export class ActionRowBuilder<
-  ComponentType extends AnyComponentBuilder,
-  A = { type: typeof Discord.MessageComponentTypes.ACTION_ROW },
-> {
-  readonly builder = new BaseActionRowBuilder();
+  ComponentBuilderType extends AnyComponentBuilder,
+  A = { type: typeof DiscordComponentType.ActionRow },
+> extends ComponentBuilder<ActionRowBuilderTypeLambda<ComponentBuilderType>, A> {
+  readonly builder = new BaseActionRowBuilder<BaseButtonBuilder>();
 
-  addComponent<const Components extends ReadonlyArray<ComponentType>>(
+  addComponents<const Components extends ReadonlyArray<ComponentBuilderType>>(
     ...components: Components
   ): BuilderType<
-    BuilderBuilderT<typeof this>,
+    ActionRowBuilderTypeLambda<ComponentBuilderType>,
     AppendAllKey<A, "components", BuilderInnerTypes<Components>>
   > {
     this.builder.addComponents(components.map((c) => c.builder));
     return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
-      AppendAllKey<BuilderInnerType<typeof this>, "components", BuilderInnerTypes<Components>>
+      ActionRowBuilderTypeLambda<ComponentBuilderType>,
+      AppendAllKey<A, "components", BuilderInnerTypes<Components>>
     >;
   }
 
-  setComponents<const Components extends ReadonlyArray<ComponentType>>(
+  setComponents<const Components extends ReadonlyArray<ComponentBuilderType>>(
     ...components: Components
   ): BuilderType<
-    BuilderBuilderT<typeof this>,
+    ActionRowBuilderTypeLambda<ComponentBuilderType>,
     ReplaceKey<A, "components", BuilderInnerTypes<Components>>
   > {
     this.builder.setComponents(components.map((c) => c.builder));
     return this as unknown as BuilderType<
-      BuilderBuilderT<typeof this>,
-      ReplaceKey<BuilderInnerType<typeof this>, "components", BuilderInnerTypes<Components>>
+      ActionRowBuilderTypeLambda<ComponentBuilderType>,
+      ReplaceKey<A, "components", BuilderInnerTypes<Components>>
     >;
-  }
-
-  toJSON(): A {
-    return this.builder.toJSON() as A;
   }
 }

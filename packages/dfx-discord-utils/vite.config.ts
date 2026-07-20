@@ -2,6 +2,7 @@ import { fileURLToPath } from "url";
 import { library, packageEntries } from "tooling-config/vite";
 
 const directEntries = {
+  "utils/builders": fileURLToPath(new URL("./src/utils/builders/index.ts", import.meta.url)),
   "discord/api": fileURLToPath(new URL("./src/discord/api.ts", import.meta.url)),
   "discord/cache": fileURLToPath(new URL("./src/discord/cache/index.ts", import.meta.url)),
   "discord/cache/shared": fileURLToPath(new URL("./src/discord/cache/shared.ts", import.meta.url)),

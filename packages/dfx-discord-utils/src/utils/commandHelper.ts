@@ -1,6 +1,6 @@
 import type { HttpClientError } from "effect/unstable/http";
 import { Discord, Ix } from "dfx";
-import { MessageFlags } from "discord-api-types/v10";
+import { ApplicationCommandOptionType, MessageFlags } from "discord-api-types/v10";
 import type { DiscordRESTError } from "dfx/DiscordREST";
 import { GlobalApplicationCommand, GuildApplicationCommand } from "dfx/Interactions/definitions";
 import { CommandHelper } from "dfx/Interactions/commandHelper";
@@ -9,7 +9,7 @@ import {
   type DiscordApplicationCommand,
   type DiscordInteraction,
 } from "dfx/Interactions/context";
-import { Array, Effect, Fiber, FiberMap, Option, pipe, Record, Scope } from "effect";
+import { Array, Effect, Fiber, FiberMap, HashMap, Option, pipe, Record, Scope } from "effect";
 import {
   CommandBuilder,
   CommandOptionsOnlyBuilder,
@@ -25,13 +25,12 @@ import type { CommandInteractionResponseContext } from "./interactionResponse";
 export type { HttpClientError, DiscordRESTError };
 
 type CommandOptionType = Exclude<
-  Discord.ApplicationCommandOptionType,
-  | typeof Discord.ApplicationCommandOptionType.SUB_COMMAND
-  | typeof Discord.ApplicationCommandOptionType.SUB_COMMAND_GROUP
+  ApplicationCommandOptionType,
+  ApplicationCommandOptionType.Subcommand | ApplicationCommandOptionType.SubcommandGroup
 >;
 
 interface CommandOption {
-  readonly type: any;
+  readonly type: ApplicationCommandOptionType;
   readonly name: string;
   readonly options?: ReadonlyArray<CommandOption>;
 }
@@ -54,7 +53,7 @@ type SubCommandGroups<A> = A extends { readonly options: ReadonlyArray<CommandOp
   ? Extract<
       A["options"][number],
       {
-        readonly type: typeof Discord.ApplicationCommandOptionType.SUB_COMMAND_GROUP;
+        readonly type: ApplicationCommandOptionType.SubcommandGroup;
         readonly options?: ReadonlyArray<CommandOption>;
       }
     >
@@ -66,7 +65,7 @@ type SubCommands<A> = A extends { readonly options: ReadonlyArray<CommandOption>
   ? Extract<
       A["options"][number],
       {
-        readonly type: typeof Discord.ApplicationCommandOptionType.SUB_COMMAND;
+        readonly type: ApplicationCommandOptionType.Subcommand;
         readonly options?: ReadonlyArray<CommandOption>;
       }
     >
@@ -81,8 +80,8 @@ type SubCommandWithName<A, Name extends SubCommandGroupNames<A> | SubCommandName
       A["options"][number],
       {
         readonly type:
-          | typeof Discord.ApplicationCommandOptionType.SUB_COMMAND_GROUP
-          | typeof Discord.ApplicationCommandOptionType.SUB_COMMAND;
+          | ApplicationCommandOptionType.SubcommandGroup
+          | ApplicationCommandOptionType.Subcommand;
         readonly options?: ReadonlyArray<CommandOption>;
         readonly name: Name;
       }
@@ -107,68 +106,62 @@ type RequiredCommandOptions<A> = OptionsWithLiteral<
 type CommandWithName<A, N> = Extract<CommandOptions<A>, { readonly name: N }>;
 
 type ResolvableType =
-  | typeof Discord.ApplicationCommandOptionType.ROLE
-  | typeof Discord.ApplicationCommandOptionType.USER
-  | typeof Discord.ApplicationCommandOptionType.MENTIONABLE
-  | typeof Discord.ApplicationCommandOptionType.CHANNEL;
+  | ApplicationCommandOptionType.Role
+  | ApplicationCommandOptionType.User
+  | ApplicationCommandOptionType.Mentionable
+  | ApplicationCommandOptionType.Channel;
 
 type ResolvableOptions<A> = OptionsWithLiteral<A, { readonly type: ResolvableType }>;
-type RoleOptions<A> = OptionsWithLiteral<
-  A,
-  { readonly type: typeof Discord.ApplicationCommandOptionType.ROLE }
->;
-type UserOptions<A> = OptionsWithLiteral<
-  A,
-  { readonly type: typeof Discord.ApplicationCommandOptionType.USER }
->;
+type RoleOptions<A> = OptionsWithLiteral<A, { readonly type: ApplicationCommandOptionType.Role }>;
+type UserOptions<A> = OptionsWithLiteral<A, { readonly type: ApplicationCommandOptionType.User }>;
 type MentionableOptions<A> = OptionsWithLiteral<
   A,
-  { readonly type: typeof Discord.ApplicationCommandOptionType.MENTIONABLE }
+  { readonly type: ApplicationCommandOptionType.Mentionable }
 >;
 type ChannelOptions<A> = OptionsWithLiteral<
   A,
-  { readonly type: typeof Discord.ApplicationCommandOptionType.CHANNEL }
+  { readonly type: ApplicationCommandOptionType.Channel }
 >;
 
 type RequiredRoleOptions<A> = OptionsWithLiteral<
   A,
-  { readonly type: typeof Discord.ApplicationCommandOptionType.ROLE; readonly required: true }
+  { readonly type: ApplicationCommandOptionType.Role; readonly required: true }
 >;
 type RequiredUserOptions<A> = OptionsWithLiteral<
   A,
-  { readonly type: typeof Discord.ApplicationCommandOptionType.USER; readonly required: true }
+  { readonly type: ApplicationCommandOptionType.User; readonly required: true }
 >;
 type RequiredMentionableOptions<A> = OptionsWithLiteral<
   A,
   {
-    readonly type: typeof Discord.ApplicationCommandOptionType.MENTIONABLE;
+    readonly type: ApplicationCommandOptionType.Mentionable;
     readonly required: true;
   }
 >;
 type RequiredChannelOptions<A> = OptionsWithLiteral<
   A,
-  { readonly type: typeof Discord.ApplicationCommandOptionType.CHANNEL; readonly required: true }
+  { readonly type: ApplicationCommandOptionType.Channel; readonly required: true }
 >;
 
 // Type mapping from Discord enum values to TypeScript types
-type OptionTypeToTs<T> = T extends typeof Discord.ApplicationCommandOptionType.STRING
+type OptionTypeToTs<T> = T extends ApplicationCommandOptionType.String
   ? string
-  : T extends typeof Discord.ApplicationCommandOptionType.INTEGER
+  : T extends ApplicationCommandOptionType.Integer
     ? number
-    : T extends typeof Discord.ApplicationCommandOptionType.NUMBER
+    : T extends ApplicationCommandOptionType.Number
       ? number
-      : T extends typeof Discord.ApplicationCommandOptionType.BOOLEAN
+      : T extends ApplicationCommandOptionType.Boolean
         ? boolean
-        : T extends typeof Discord.ApplicationCommandOptionType.USER
+        : T extends ApplicationCommandOptionType.User
           ? {
               user: Discord.UserResponse;
               member: Option.Option<Omit<Discord.GuildMemberResponse, "user" | "deaf" | "mute">>;
             }
-          : T extends typeof Discord.ApplicationCommandOptionType.CHANNEL
+          : T extends ApplicationCommandOptionType.Channel
             ? Discord.GuildChannelResponse
-            : T extends typeof Discord.ApplicationCommandOptionType.ROLE
+            : T extends ApplicationCommandOptionType.Role
               ? Discord.GuildRoleResponse
-              : T extends typeof Discord.ApplicationCommandOptionType.MENTIONABLE
+              : T extends ApplicationCommandOptionType.Mentionable
                 ?
                     | Discord.GuildRoleResponse
                     | {
@@ -177,20 +170,20 @@ type OptionTypeToTs<T> = T extends typeof Discord.ApplicationCommandOptionType.S
                           Omit<Discord.GuildMemberResponse, "user" | "deaf" | "mute">
                         >;
                       }
-                : T extends typeof Discord.ApplicationCommandOptionType.ATTACHMENT
+                : T extends ApplicationCommandOptionType.Attachment
                   ? Discord.AttachmentResponse
                   : string | number | boolean;
 
 type CommandRoleValue<A, N> = CommandWithName<
   A,
   N
->["type"] extends typeof Discord.ApplicationCommandOptionType.ROLE
+>["type"] extends ApplicationCommandOptionType.Role
   ? Discord.GuildRoleResponse
   : string;
 type CommandUserValue<A, N> = CommandWithName<
   A,
   N
->["type"] extends typeof Discord.ApplicationCommandOptionType.USER
+>["type"] extends ApplicationCommandOptionType.User
   ? {
       user: Discord.UserResponse;
       member: Option.Option<Omit<Discord.GuildMemberResponse, "user" | "deaf" | "mute">>;
@@ -199,7 +192,7 @@ type CommandUserValue<A, N> = CommandWithName<
 type CommandMentionableValue<A, N> = CommandWithName<
   A,
   N
->["type"] extends typeof Discord.ApplicationCommandOptionType.MENTIONABLE
+>["type"] extends ApplicationCommandOptionType.Mentionable
   ?
       | Discord.GuildRoleResponse
       | {
@@ -210,7 +203,7 @@ type CommandMentionableValue<A, N> = CommandWithName<
 type CommandChannelValue<A, N> = CommandWithName<
   A,
   N
->["type"] extends typeof Discord.ApplicationCommandOptionType.CHANNEL
+>["type"] extends ApplicationCommandOptionType.Channel
   ? Discord.GuildChannelResponse
   : string;
 
@@ -425,7 +418,7 @@ export class WrappedCommandHelper<A> {
     }) as any;
   }
 
-  get optionsMap() {
+  get optionsMap(): HashMap.HashMap<string, string | undefined> {
     return this.helper.optionsMap;
   }
 }
@@ -539,7 +532,7 @@ export const makeSubCommand = Effect.fnUntraced(function* <
   data: (builder: SubCommandBuilder) => SubCommandBuilder<A>,
   handler: (
     commandHelper: WrappedCommandHelper<
-      A & { readonly type: typeof Discord.ApplicationCommandOptionType.SUB_COMMAND }
+      A & { readonly type: ApplicationCommandOptionType.Subcommand }
     >,
   ) => Effect.Effect<unknown, E, R>,
 ) {

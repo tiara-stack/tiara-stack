@@ -17,7 +17,7 @@ export default defineConfig({
     ],
   },
   lint: {
-    ignorePatterns: [".output", ".ts-out", "dist", "node_modules", "native"],
+    ignorePatterns: [".output", ".ts-out", "dist", "node_modules", "native", "packages/*/test-d"],
     options: { typeAware: true, typeCheck: true },
   },
 });

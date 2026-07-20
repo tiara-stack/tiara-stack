@@ -76,6 +76,11 @@
       "development": "./src/utils/index.ts",
       "default": "./dist/utils/index.mjs"
     },
+    "./utils/builders": {
+      "types": "./dist/utils/builders.d.mts",
+      "development": "./src/utils/builders/index.ts",
+      "default": "./dist/utils/builders.mjs"
+    },
     "./cache": {
       "types": "./dist/cache/index.d.mts",
       "development": "./src/cache/index.ts",
@@ -91,20 +96,21 @@
     "format": "vp fmt --check",
     "format:apply": "vp fmt",
     "lint": "vp lint src",
-    "test": "vp test run --passWithNoTests",
+    "test": "vp test run --passWithNoTests && pnpm test:type",
+    "test:type": "vp pack && tsd --typings dist/utils/builders.d.mts --files 'test-d/**/*.test-d.ts'",
     "test:watch": "vp test",
     "build": "vp pack"
   },
   "dependencies": {
     "@discordjs/builders": "^1.13.1",
     "discord-api-types": "^0.38.38",
-    "ts-mixer": "^6.0.4",
     "typhoon-core": "workspace:*",
     "unstorage": "^1.17.4"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "tooling-config": "workspace:*",
+    "tsd": "^0.33.0",
     "vite": "catalog:",
     "vite-plus": "catalog:",
     "vitest": "catalog:"
@@ -113,5 +119,12 @@
     "@effect/platform-node": "catalog:",
     "dfx": "catalog:",
     "effect": "catalog:"
+  },
+  "tsd": {
+    "compilerOptions": {
+      "composite": false,
+      "module": "Node16",
+      "strict": true
+    }
   }
 }
