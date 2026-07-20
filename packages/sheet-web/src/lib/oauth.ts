@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { NodeFileSystem } from "@effect/platform-node";
+import { NodeFileSystem, NodeHttpClient } from "@effect/platform-node";
 import { createServerFn } from "@tanstack/react-start";
 import {
   deleteCookie,
@@ -7,7 +7,25 @@ import {
   getRequestHeaders,
   setCookie,
 } from "@tanstack/react-start/server";
-import { Effect, Layer, Option, Schema } from "effect";
+import {
+  Cause,
+  Data,
+  Duration,
+  Effect,
+  Layer,
+  ManagedRuntime,
+  Match,
+  Metric,
+  Option,
+  Predicate,
+  Schema,
+} from "effect";
+import {
+  HttpClient,
+  HttpClientError,
+  HttpClientRequest,
+  HttpClientResponse,
+} from "effect/unstable/http";
 import { createSheetAuthClient, getSession } from "sheet-auth/client";
 import { dotEnvConfigProviderLayer } from "typhoon-core/config";
 import {
@@ -22,6 +40,7 @@ const oauthCookieName = "sheet-web-oauth";
 const pkceCookieName = "sheet-web-oauth-pkce";
 const sheetWebOAuthResource = "sheet-ingress";
 const refreshSkewSeconds = 60;
+const oauthTokenRequestTimeout = Duration.seconds(5);
 
 type SheetWebOAuthTokenSet = {
   readonly accessToken: string;
@@ -59,6 +78,36 @@ const OAuthTokenResponse = Schema.Struct({
   expires_in: Schema.optional(Schema.Number),
   scope: Schema.optional(Schema.String),
 });
+
+export const SheetWebOAuthCompletionInput = Schema.Struct({
+  code: Schema.optionalKey(Schema.NonEmptyString),
+  state: Schema.optionalKey(Schema.NonEmptyString),
+});
+
+type OAuthOperation = "authorization_code" | "refresh";
+type OAuthRequestOutcome = "failure" | "success" | "timeout";
+type OAuthRefreshErrorReason =
+  | "authorization"
+  | "invalid_response"
+  | "missing_refresh_token"
+  | "request_failure"
+  | "timeout";
+
+const sheetWebOAuthTokenRequests = Metric.counter("sheet_web_oauth_token_requests_total", {
+  description: "Sheet web OAuth token endpoint requests",
+  incremental: true,
+});
+
+const sheetWebOAuthRefreshErrors = Metric.counter("sheet_web_oauth_refresh_errors_total", {
+  description: "Sheet web OAuth refresh errors that require reauthorization or retry",
+  incremental: true,
+});
+
+export const oauthTokenRequestMetric = (operation: OAuthOperation, outcome: OAuthRequestOutcome) =>
+  Metric.withAttributes(sheetWebOAuthTokenRequests, { operation, outcome });
+
+export const oauthRefreshErrorMetric = (reason: OAuthRefreshErrorReason) =>
+  Metric.withAttributes(sheetWebOAuthRefreshErrors, { reason });
 
 const serverConfigLayer = dotEnvConfigProviderLayer().pipe(Layer.provide(NodeFileSystem.layer));
 
@@ -99,14 +148,11 @@ const decodeCookieValue = <A>(
   }
 };
 
-class OAuthTokenRequestError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-  ) {
-    super(message);
-  }
-}
+class OAuthTokenRequestError extends Data.TaggedError("OAuthTokenRequestError")<{
+  readonly status: number;
+}> {}
+
+class OAuthMissingRefreshTokenError extends Data.TaggedError("OAuthMissingRefreshTokenError") {}
 
 const setTokenCookie = async (tokenSet: SheetWebOAuthTokenSet, appBaseUrl: URL) => {
   const maxAge = Math.max(tokenSet.expiresAt - Math.floor(Date.now() / 1000), 60);
@@ -141,20 +187,29 @@ const codeChallenge = (codeVerifier: string) =>
 const tokenResponseExpiresAt = (token: Schema.Schema.Type<typeof OAuthTokenResponse>) =>
   token.expires_at ?? Math.floor(Date.now() / 1000) + (token.expires_in ?? 3600);
 
-const tokenResponseToTokenSet = (response: unknown): SheetWebOAuthTokenSet => {
-  const token = Schema.decodeUnknownSync(OAuthTokenResponse)(response);
+const tokenResponseToTokenSet = (
+  token: Schema.Schema.Type<typeof OAuthTokenResponse>,
+): SheetWebOAuthTokenSet => ({
+  accessToken: token.access_token,
+  refreshToken: token.refresh_token,
+  tokenType: token.token_type,
+  expiresAt: tokenResponseExpiresAt(token),
+  scope: token.scope ?? "",
+});
 
-  return {
-    accessToken: token.access_token,
-    refreshToken: token.refresh_token,
-    tokenType: token.token_type,
-    expiresAt: tokenResponseExpiresAt(token),
-    scope: token.scope ?? "",
-  };
-};
+const isOAuthTokenRequestError = (error: unknown): error is OAuthTokenRequestError =>
+  Predicate.isTagged(error, "OAuthTokenRequestError") &&
+  Predicate.hasProperty(error, "status") &&
+  Predicate.isNumber(error.status);
 
 const isAuthorizationFailure = (error: unknown) =>
-  error instanceof OAuthTokenRequestError && (error.status === 401 || error.status === 403);
+  isOAuthTokenRequestError(error) && (error.status === 401 || error.status === 403);
+
+export const isExpectedOAuthFailure = (error: unknown) =>
+  Cause.isTimeoutError(error) ||
+  isOAuthTokenRequestError(error) ||
+  Predicate.isTagged(error, "SchemaError") ||
+  HttpClientError.isHttpClientError(error);
 
 export const isJwtAccessToken = (token: string) => {
   const parts = token.split(".");
@@ -200,33 +255,127 @@ export const authorizationCodeRequestBody = (
     resource: sheetWebOAuthResource,
   });
 
-const fetchToken = async (authBaseUrl: URL, body: URLSearchParams) => {
-  const response = await fetch(new URL("/oauth2/token", authBaseUrl), {
-    method: "POST",
-    headers: {
-      "content-type": "application/x-www-form-urlencoded",
-    },
-    body,
-  });
+const oauthErrorStatus = (error: unknown) =>
+  isOAuthTokenRequestError(error) ? error.status : undefined;
 
-  if (!response.ok) {
-    throw new OAuthTokenRequestError(
-      `OAuth token request failed with HTTP ${response.status}`,
-      response.status,
+const oauthErrorReason = (error: unknown): OAuthRefreshErrorReason =>
+  Match.value(error).pipe(
+    Match.when(Cause.isTimeoutError, () => "timeout" as const),
+    Match.when(isAuthorizationFailure, () => "authorization" as const),
+    Match.when(
+      (candidate: unknown) => Predicate.isTagged(candidate, "OAuthMissingRefreshTokenError"),
+      () => "missing_refresh_token" as const,
+    ),
+    Match.when(
+      (candidate: unknown) => Predicate.isTagged(candidate, "SchemaError"),
+      () => "invalid_response" as const,
+    ),
+    Match.orElse(() => "request_failure" as const),
+  );
+
+const recordOAuthTokenRequest = (
+  operation: OAuthOperation,
+  outcome: OAuthRequestOutcome,
+  status?: number,
+) =>
+  Effect.all([
+    Metric.update(oauthTokenRequestMetric(operation, outcome), 1),
+    Effect.logInfo("Sheet web OAuth token request completed").pipe(
+      Effect.annotateLogs({
+        oauth_operation: operation,
+        oauth_outcome: outcome,
+        ...(status === undefined ? {} : { http_status: status }),
+      }),
+    ),
+  ]).pipe(Effect.asVoid);
+
+const recordOAuthRefreshError = (error: unknown) => {
+  const reason = oauthErrorReason(error);
+  const status = oauthErrorStatus(error);
+  return Effect.all([
+    Metric.update(oauthRefreshErrorMetric(reason), 1),
+    Effect.logError("Sheet web OAuth token refresh failed; reauthorization is required").pipe(
+      Effect.annotateLogs({
+        oauth_operation: "refresh",
+        oauth_error_reason: reason,
+        ...(status === undefined ? {} : { http_status: status }),
+      }),
+    ),
+  ]).pipe(Effect.asVoid);
+};
+
+const fetchToken = (
+  authBaseUrl: URL,
+  body: URLSearchParams,
+  timeout: Duration.Input = oauthTokenRequestTimeout,
+) =>
+  Effect.gen(function* () {
+    const httpClient = yield* HttpClient.HttpClient;
+    const response = yield* HttpClientRequest.post(new URL("/oauth2/token", authBaseUrl)).pipe(
+      HttpClientRequest.bodyUrlParams(body),
+      httpClient.execute,
+      Effect.flatMap(HttpClientResponse.filterStatusOk),
+      Effect.mapError((error) => {
+        if (
+          HttpClientError.isHttpClientError(error) &&
+          Predicate.isTagged(error.reason, "StatusCodeError")
+        ) {
+          return new OAuthTokenRequestError({ status: error.reason.response.status });
+        }
+        return error;
+      }),
     );
-  }
+    const token = yield* HttpClientResponse.schemaBodyJson(OAuthTokenResponse)(response);
+    return tokenResponseToTokenSet(token);
+  }).pipe(Effect.timeout(timeout));
 
-  return tokenResponseToTokenSet(await response.json());
+const requestOAuthToken = (
+  operation: OAuthOperation,
+  authBaseUrl: URL,
+  body: URLSearchParams,
+  timeout: Duration.Input = oauthTokenRequestTimeout,
+) =>
+  fetchToken(authBaseUrl, body, timeout).pipe(
+    Effect.tap(() => recordOAuthTokenRequest(operation, "success")),
+    Effect.tapError((error) =>
+      recordOAuthTokenRequest(
+        operation,
+        Cause.isTimeoutError(error) ? "timeout" : "failure",
+        oauthErrorStatus(error),
+      ),
+    ),
+  );
+
+const oauthHttpRuntime = ManagedRuntime.make(NodeHttpClient.layerNodeHttp);
+
+export const runOAuthTokenRequest = (
+  operation: OAuthOperation,
+  authBaseUrl: URL,
+  body: URLSearchParams,
+  timeout: Duration.Input = oauthTokenRequestTimeout,
+  runtime: ManagedRuntime.ManagedRuntime<HttpClient.HttpClient, never> = oauthHttpRuntime,
+) => runtime.runPromise(requestOAuthToken(operation, authBaseUrl, body, timeout));
+
+export const handleOAuthRefreshError = async (
+  error: unknown,
+  clearCookie: () => Promise<void> = clearTokenCookie,
+) => {
+  await Effect.runPromise(recordOAuthRefreshError(error));
+  if (isAuthorizationFailure(error)) {
+    await clearCookie();
+  }
+  return Option.none<SheetWebOAuthTokenSet>();
 };
 
 const refreshToken = async (tokenSet: SheetWebOAuthTokenSet) => {
   if (!tokenSet.refreshToken) {
-    return Option.none<SheetWebOAuthTokenSet>();
+    return handleOAuthRefreshError(new OAuthMissingRefreshTokenError());
   }
 
   const config = await loadOAuthConfig();
   try {
-    const refreshed = await fetchToken(
+    const refreshed = await runOAuthTokenRequest(
+      "refresh",
       config.authBaseUrl,
       refreshTokenRequestBody(tokenSet, config.clientId),
     );
@@ -234,10 +383,7 @@ const refreshToken = async (tokenSet: SheetWebOAuthTokenSet) => {
     await setTokenCookie(merged, config.appBaseUrl);
     return Option.some(merged);
   } catch (error) {
-    if (isAuthorizationFailure(error)) {
-      await clearTokenCookie();
-    }
-    return Option.none<SheetWebOAuthTokenSet>();
+    return handleOAuthRefreshError(error);
   }
 };
 
@@ -302,7 +448,7 @@ export const createSheetWebOAuthAuthorizationUrl = createServerFn({ method: "POS
 );
 
 export const completeSheetWebOAuthAuthorization = createServerFn({ method: "POST" })
-  .inputValidator((input: { readonly code?: string; readonly state?: string }) => input)
+  .inputValidator((input: unknown) => Schema.decodeUnknownSync(SheetWebOAuthCompletionInput)(input))
   .handler(async ({ data }) => {
     const config = await loadOAuthConfig();
     const pkce = await getPkceCookie();
@@ -313,17 +459,20 @@ export const completeSheetWebOAuthAuthorization = createServerFn({ method: "POST
       return { ok: false };
     }
 
+    let tokenSet: SheetWebOAuthTokenSet;
     try {
-      const tokenSet = await fetchToken(
+      tokenSet = await runOAuthTokenRequest(
+        "authorization_code",
         config.authBaseUrl,
         authorizationCodeRequestBody(config, callback.value),
       );
-      await setTokenCookie(tokenSet, config.appBaseUrl);
-      return { ok: true };
     } catch (error) {
-      if (error instanceof OAuthTokenRequestError) {
+      if (isExpectedOAuthFailure(error)) {
         return { ok: false };
       }
       throw error;
     }
+
+    await setTokenCookie(tokenSet, config.appBaseUrl);
+    return { ok: true };
   });
