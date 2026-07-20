@@ -126,7 +126,16 @@ export const makeCheckinButtonOperations = ({
     const checkedInMembers = yield* messageCheckinService.getMessageCheckinMembers(
       payload.messageId,
     );
-    const content = renderCheckedInContent(messageCheckinData.initialMessage, checkedInMembers);
+    // Ensure the current user's check-in is included in the rendered content even if the
+    // persistence query raced with the initial data fetch. We also verify the fetched row
+    // has checkinAt set, in case the query returned a stale row from before persistence.
+    const hasCurrentMemberCheckedIn = checkedInMembers.some(
+      (member) => member.memberId === accountId && Option.isSome(member.checkinAt),
+    );
+    const allCheckedInMembers = hasCurrentMemberCheckedIn
+      ? checkedInMembers
+      : [...checkedInMembers.filter((member) => member.memberId !== accountId), checkedInMember];
+    const content = renderCheckedInContent(messageCheckinData.initialMessage, allCheckedInMembers);
 
     yield* botClient
       .updateMessage(messageConversationId, payload.messageId, {
