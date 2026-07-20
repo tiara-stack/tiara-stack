@@ -4,7 +4,7 @@ import { Cache, Context, Duration, Effect, Exit, Layer, Redacted } from "effect"
 import { createOAuthClientCredentialsToken } from "sheet-auth/client";
 import { DISCORD_SERVICE_USER_ID_SENTINEL } from "sheet-auth/oauth";
 import { SheetApisApi } from "sheet-ingress-api/sheet-apis";
-import type { TokenCacheEntry } from "sheet-ingress-api/tokenCache";
+import type { TokenCacheEntry } from "sheet-ingress-api/internal";
 import { config } from "@/config";
 import { SheetAuthClient } from "./sheetAuthClient";
 import * as Data from "effect/Data";

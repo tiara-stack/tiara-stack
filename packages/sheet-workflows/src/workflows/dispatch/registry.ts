@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type { DispatchRequester } from "sheet-ingress-api/sheet-workflows-workflows";
+import type { DispatchRequester } from "sheet-ingress-api/internal";
 import { MessageRoomOrder } from "sheet-ingress-api/schemas/messageRoomOrder";
 import type { MessageSlot } from "sheet-ingress-api/schemas/messageSlot";
 import { DispatchService } from "@/services";

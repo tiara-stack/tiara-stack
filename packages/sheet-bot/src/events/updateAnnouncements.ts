@@ -3,7 +3,7 @@ import { Duration, Effect, Layer, Predicate, Schedule, Schema } from "effect";
 import type {
   UpdateAnnouncement,
   UpdateAnnouncementDispatchPayload,
-} from "sheet-ingress-api/handlers/dispatch/schema";
+} from "sheet-ingress-api/dispatch";
 import { config } from "../config";
 import { discordGatewayLayer } from "../discord/gateway";
 import {

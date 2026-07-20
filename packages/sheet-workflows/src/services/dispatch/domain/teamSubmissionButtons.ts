@@ -5,7 +5,7 @@ import type {
   TeamSubmissionRejectButtonDispatchPayload,
   TeamSubmissionRejectButtonDispatchResult,
 } from "sheet-ingress-api/sheet-apis-rpc";
-import type { DispatchRequester } from "sheet-ingress-api/sheet-workflows-workflows";
+import type { DispatchRequester } from "sheet-ingress-api/internal";
 import { ClientDeliveryClient } from "../../clientDeliveryClient";
 import { teamSubmissionRollbackFailedMessage } from "sheet-message-content/teamSubmissionButtons";
 import { SheetApisClient } from "../../sheetApisClient";

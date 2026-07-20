@@ -1,4 +1,4 @@
-import { ParserFieldError } from "sheet-ingress-api/schemas/sheet/error";
+import { ParserFieldError } from "sheet-ingress-api/schemas/sheet";
 import {
   HourRange,
   RunnerConfig,

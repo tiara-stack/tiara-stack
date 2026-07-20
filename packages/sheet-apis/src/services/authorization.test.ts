@@ -11,8 +11,8 @@ import {
   hasDiscordAccountPermission,
   permissionSetFromIterable,
 } from "./authorization";
-import { SheetAuthWorkspaceUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthWorkspaceUser";
-import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
+import { SheetAuthWorkspaceUser } from "sheet-ingress-api/internal";
+import { SheetAuthUser } from "sheet-ingress-api/internal";
 import { WorkspaceConfigService } from "@/services";
 
 type MembersApiCacheViewService = Context.Service.Shape<typeof MembersApiCacheView>;

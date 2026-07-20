@@ -12,7 +12,7 @@ import { MessageSlot } from "sheet-ingress-api/schemas/messageSlot";
 import {
   DispatchWorkflows as SheetIngressDispatchWorkflows,
   type DispatchRequester,
-} from "sheet-ingress-api/sheet-workflows-workflows";
+} from "sheet-ingress-api/internal";
 import type {
   AutoCheckinTestDispatchPayload,
   AutoCheckinTestDispatchResult,

@@ -2,7 +2,7 @@ import { Effect, Layer } from "effect";
 import { HttpRouter } from "effect/unstable/http";
 import { HttpApiBuilder, HttpApiSwagger } from "effect/unstable/httpapi";
 import { Api } from "sheet-ingress-api/api";
-import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
+import { SheetAuthUser } from "sheet-ingress-api/internal";
 import { corsMiddlewareLayer } from "../cors";
 import { config } from "../config";
 import { healthRoutesLayer } from "../health";

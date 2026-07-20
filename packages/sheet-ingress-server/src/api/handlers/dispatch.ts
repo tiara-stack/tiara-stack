@@ -1,5 +1,5 @@
 import { Effect, Match } from "effect";
-import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
+import { SheetAuthUser } from "sheet-ingress-api/internal";
 import { DispatchRoomOrderButtonMethods } from "sheet-ingress-api/sheet-apis-rpc";
 import { roomOrderButtonProxyAuthorizers } from "../../services/roomOrderButtonAuthorization";
 import {

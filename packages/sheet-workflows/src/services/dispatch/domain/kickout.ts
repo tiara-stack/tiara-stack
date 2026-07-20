@@ -4,7 +4,7 @@ import type {
   KickoutDispatchPayload,
   KickoutDispatchResult,
 } from "sheet-ingress-api/sheet-apis-rpc";
-import type { DispatchRequester } from "sheet-ingress-api/sheet-workflows-workflows";
+import type { DispatchRequester } from "sheet-ingress-api/internal";
 import { makeArgumentError, makeUnknownError } from "typhoon-core/error";
 import { markInteractionFailureHandled } from "@/handlers/shared/interactionFailure";
 import { ClientDeliveryClient } from "../../clientDeliveryClient";

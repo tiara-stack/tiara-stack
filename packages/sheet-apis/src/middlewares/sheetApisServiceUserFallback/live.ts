@@ -1,6 +1,6 @@
 import { Effect, Layer, Option } from "effect";
 import { SheetApisServiceUserFallback } from "sheet-ingress-api/internal";
-import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
+import { SheetAuthUser } from "sheet-ingress-api/internal";
 import { Unauthorized } from "typhoon-core/error";
 
 export const SheetApisServiceUserFallbackLive = Layer.succeed(

@@ -4,7 +4,7 @@ import { type HandlerMap, sheetApisGroupLayer } from "@/handlers/shared/httpApiL
 import { withCurrentWorkspaceAuthFromQuery } from "@/handlers/shared/workspaceAuthorization";
 import { getSheetIdFromWorkspaceId } from "@/handlers/shared/workspaceConfig";
 import { hasWorkspacePermission, hasPermission } from "@/services/authorization";
-import { SheetAuthWorkspaceUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthWorkspaceUser";
+import { SheetAuthWorkspaceUser } from "sheet-ingress-api/internal";
 import { Unauthorized } from "typhoon-core/error";
 import {
   AuthorizationService,

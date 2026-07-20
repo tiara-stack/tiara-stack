@@ -1,5 +1,5 @@
 import { Effect, Predicate } from "effect";
-import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
+import { SheetAuthUser } from "sheet-ingress-api/internal";
 import { AuthorizationService } from "../../services/authorization";
 import {
   guildPayload,

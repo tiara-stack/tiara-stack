@@ -22,25 +22,17 @@
       "types": "./dist/clientActions.d.mts",
       "default": "./dist/clientActions.mjs"
     },
-    "./tokenCache": {
-      "types": "./dist/tokenCache.d.mts",
-      "default": "./dist/tokenCache.mjs"
-    },
     "./api-groups": {
       "types": "./dist/api-groups.d.mts",
       "default": "./dist/api-groups.mjs"
     },
-    "./handlers/health/schema": {
-      "types": "./dist/handlers/health/schema.d.mts",
-      "default": "./dist/handlers/health/schema.mjs"
+    "./client-delivery": {
+      "types": "./dist/client-delivery.d.mts",
+      "default": "./dist/client-delivery.mjs"
     },
-    "./handlers/clientDelivery/api": {
-      "types": "./dist/handlers/clientDelivery/api.d.mts",
-      "default": "./dist/handlers/clientDelivery/api.mjs"
-    },
-    "./handlers/dispatch/schema": {
-      "types": "./dist/handlers/dispatch/schema.d.mts",
-      "default": "./dist/handlers/dispatch/schema.mjs"
+    "./dispatch": {
+      "types": "./dist/dispatch.d.mts",
+      "default": "./dist/dispatch.mjs"
     },
     "./internal": {
       "types": "./dist/internal.d.mts",
@@ -62,17 +54,65 @@
       "types": "./dist/sheet-workflows-rpc.d.mts",
       "default": "./dist/sheet-workflows-rpc.mjs"
     },
-    "./sheet-workflows-workflows": {
-      "types": "./dist/sheet-workflows-workflows.d.mts",
-      "default": "./dist/sheet-workflows-workflows.mjs"
-    },
     "./schemas": {
       "types": "./dist/schemas.d.mts",
       "default": "./dist/schemas.mjs"
     },
-    "./schemas/*": {
-      "types": "./dist/schemas/*.d.mts",
-      "default": "./dist/schemas/*.mjs"
+    "./schemas/checkin": {
+      "types": "./dist/schemas/checkin.d.mts",
+      "default": "./dist/schemas/checkin.mjs"
+    },
+    "./schemas/client": {
+      "types": "./dist/schemas/client.d.mts",
+      "default": "./dist/schemas/client.mjs"
+    },
+    "./schemas/discord": {
+      "types": "./dist/schemas/discord.d.mts",
+      "default": "./dist/schemas/discord.mjs"
+    },
+    "./schemas/google": {
+      "types": "./dist/schemas/google.d.mts",
+      "default": "./dist/schemas/google.mjs"
+    },
+    "./schemas/messageCheckin": {
+      "types": "./dist/schemas/messageCheckin.d.mts",
+      "default": "./dist/schemas/messageCheckin.mjs"
+    },
+    "./schemas/messageRoomOrder": {
+      "types": "./dist/schemas/messageRoomOrder.d.mts",
+      "default": "./dist/schemas/messageRoomOrder.mjs"
+    },
+    "./schemas/messageSlot": {
+      "types": "./dist/schemas/messageSlot.d.mts",
+      "default": "./dist/schemas/messageSlot.mjs"
+    },
+    "./schemas/permissions": {
+      "types": "./dist/schemas/permissions.d.mts",
+      "default": "./dist/schemas/permissions.mjs"
+    },
+    "./schemas/roomOrder": {
+      "types": "./dist/schemas/roomOrder.d.mts",
+      "default": "./dist/schemas/roomOrder.mjs"
+    },
+    "./schemas/sheet": {
+      "types": "./dist/schemas/sheet.d.mts",
+      "default": "./dist/schemas/sheet.mjs"
+    },
+    "./schemas/sheetConfig": {
+      "types": "./dist/schemas/sheetConfig.d.mts",
+      "default": "./dist/schemas/sheetConfig.mjs"
+    },
+    "./schemas/teamSubmission": {
+      "types": "./dist/schemas/teamSubmission.d.mts",
+      "default": "./dist/schemas/teamSubmission.mjs"
+    },
+    "./schemas/userConfig": {
+      "types": "./dist/schemas/userConfig.d.mts",
+      "default": "./dist/schemas/userConfig.mjs"
+    },
+    "./schemas/workspaceConfig": {
+      "types": "./dist/schemas/workspaceConfig.d.mts",
+      "default": "./dist/schemas/workspaceConfig.mjs"
     },
     "./package.json": "./package.json"
   },

@@ -3,7 +3,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { vi } from "vitest";
 import { Cause, Duration, Effect, Exit, Layer, Option, Redacted } from "effect";
 import { TestClock } from "effect/testing";
-import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
+import { SheetAuthUser } from "sheet-ingress-api/internal";
 import {
   AuthorizationService,
   hasDiscordAccountPermission,

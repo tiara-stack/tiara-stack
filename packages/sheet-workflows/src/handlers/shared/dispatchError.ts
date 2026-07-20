@@ -8,7 +8,7 @@ import {
 } from "typhoon-core/error";
 import type { QueryResultError } from "typhoon-zero/error";
 import type { GoogleSheetsError } from "sheet-ingress-api/schemas/google";
-import type { ParserFieldError } from "sheet-ingress-api/schemas/sheet/error";
+import type { ParserFieldError } from "sheet-ingress-api/schemas/sheet";
 import type { SheetConfigError } from "sheet-ingress-api/schemas/sheetConfig";
 
 type DispatchError =

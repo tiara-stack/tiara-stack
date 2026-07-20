@@ -35,7 +35,7 @@ import {
   DispatchTeamSubmissionRejectButtonWorkflow as BaseDispatchTeamSubmissionRejectButtonWorkflow,
   DispatchTeamSubmissionWorkflow as BaseDispatchTeamSubmissionWorkflow,
   DispatchUpdateAnnouncementWorkflow as BaseDispatchUpdateAnnouncementWorkflow,
-} from "sheet-ingress-api/sheet-workflows-workflows";
+} from "sheet-ingress-api/internal";
 
 const dispatchShardGroup = () => "dispatch";
 

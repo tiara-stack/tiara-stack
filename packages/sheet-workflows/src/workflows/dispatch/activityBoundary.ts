@@ -1,10 +1,7 @@
 import { Cause, Duration, Effect, Option, Predicate, Random, Schema } from "effect";
 import { Activity } from "effect/unstable/workflow";
 import { DispatchButtonEntity, type DispatchButtonOperation } from "@/entities/dispatchButton";
-import {
-  type DispatchWorkflowOperation,
-  type DispatchRequester,
-} from "sheet-ingress-api/sheet-workflows-workflows";
+import { type DispatchWorkflowOperation, type DispatchRequester } from "sheet-ingress-api/internal";
 import type { ClientRef } from "sheet-ingress-api/schemas/client";
 import { normalizeDispatchError } from "@/handlers/shared/dispatchError";
 import {

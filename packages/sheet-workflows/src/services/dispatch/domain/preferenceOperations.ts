@@ -5,7 +5,7 @@ import type {
   PreferenceDmSetClientDispatchPayload,
   PreferenceDmStatusDispatchPayload,
 } from "sheet-ingress-api/sheet-apis-rpc";
-import type { DispatchRequester } from "sheet-ingress-api/sheet-workflows-workflows";
+import type { DispatchRequester } from "sheet-ingress-api/internal";
 import { makeSheetApisServices } from "../clients/sheetApis";
 import { makePreferenceDmHelpers } from "./preferences";
 

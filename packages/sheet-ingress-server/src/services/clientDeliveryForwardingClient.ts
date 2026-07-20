@@ -12,7 +12,7 @@ import {
   ClientMember,
   ClientWorkspace,
   DeliveryMessage,
-} from "sheet-ingress-api/handlers/clientDelivery/api";
+} from "sheet-ingress-api/client-delivery";
 import {
   ClientUserRef,
   ConversationRef,

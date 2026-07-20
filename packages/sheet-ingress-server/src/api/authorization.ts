@@ -1,6 +1,6 @@
 import { Effect, Option, Predicate } from "effect";
-import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
-import type { DispatchAuthorizationSnapshot } from "sheet-ingress-api/sheet-workflows-workflows";
+import { SheetAuthUser } from "sheet-ingress-api/internal";
+import type { DispatchAuthorizationSnapshot } from "sheet-ingress-api/internal";
 import { ArgumentError, makeArgumentError, Unauthorized } from "typhoon-core/error";
 import {
   AuthorizationService,

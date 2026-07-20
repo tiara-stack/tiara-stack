@@ -8,7 +8,7 @@ import type {
   RoomOrderPreviousButtonPayload,
   RoomOrderSendButtonPayload,
 } from "sheet-ingress-api/sheet-apis-rpc";
-import type { DispatchRequester } from "sheet-ingress-api/sheet-workflows-workflows";
+import type { DispatchRequester } from "sheet-ingress-api/internal";
 import { ClientDeliveryClient } from "../../clientDeliveryClient";
 import { roomOrderActionRow } from "sheet-message-content/components";
 import { roomOrderDraftMessage } from "sheet-message-content/roomOrderMessage";

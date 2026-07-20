@@ -2,7 +2,7 @@ import { Array, Chunk, Effect, HashMap, HashSet, Layer, Option, pipe } from "eff
 import { type HandlerMap, sheetApisGroupLayer } from "@/handlers/shared/httpApiLayer";
 import { CalcConfig, CalcService, PlayerService } from "@/services";
 import { PlayerTeam } from "sheet-ingress-api/schemas/sheet";
-import { Room } from "sheet-ingress-api/schemas/sheet/room";
+import { Room } from "sheet-ingress-api/schemas/sheet";
 import { Array as ArrayUtils } from "typhoon-core/utils";
 
 export const calcLayer = sheetApisGroupLayer(

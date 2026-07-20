@@ -1,5 +1,5 @@
 import { PlayerTeam } from "sheet-ingress-api/schemas/sheet";
-import { Room } from "sheet-ingress-api/schemas/sheet/room";
+import { Room } from "sheet-ingress-api/schemas/sheet";
 import {
   Array,
   Chunk,

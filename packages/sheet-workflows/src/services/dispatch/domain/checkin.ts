@@ -7,7 +7,7 @@ import type {
   AutoCheckinTestDispatchResult,
   CheckinDispatchPayload,
 } from "sheet-ingress-api/sheet-apis-rpc";
-import type { DispatchRequester } from "sheet-ingress-api/sheet-workflows-workflows";
+import type { DispatchRequester } from "sheet-ingress-api/internal";
 import { markInteractionFailureHandled } from "@/handlers/shared/interactionFailure";
 import { uniqueConversationNames } from "../../autoCheckinConversations";
 import { ClientDeliveryClient } from "../../clientDeliveryClient";

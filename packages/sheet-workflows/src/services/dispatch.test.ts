@@ -3,7 +3,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { Cause, DateTime, Duration, Effect, Exit, Fiber, Option, Predicate, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import { formatTentativeRoomOrderContent } from "sheet-ingress-api/clientActions";
-import { DiscordBotNotFoundError } from "sheet-ingress-api/handlers/clientDelivery/api";
+import { DiscordBotNotFoundError } from "sheet-ingress-api/client-delivery";
 import type {
   AutoCheckinTestDispatchPayload,
   CheckinHandleButtonPayload,
@@ -29,8 +29,8 @@ import type {
   TeamSubmissionDispatchPayload,
   TeamListDispatchPayload,
   UpdateAnnouncementDispatchPayload,
-} from "sheet-ingress-api/handlers/dispatch/schema";
-import { UpdateAnnouncementDispatchError } from "sheet-ingress-api/handlers/dispatch/schema";
+} from "sheet-ingress-api/dispatch";
+import { UpdateAnnouncementDispatchError } from "sheet-ingress-api/dispatch";
 import {
   WorkspaceConversationConfig,
   WorkspaceConfig,

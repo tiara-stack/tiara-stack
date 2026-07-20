@@ -12,9 +12,9 @@ import {
   Redacted,
 } from "effect";
 import { SheetAuthTokenAuthorization } from "sheet-ingress-api/internal";
-import { SheetAuthWorkspaceUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthWorkspaceUser";
-import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
-import type { SheetAuthUserTokenType } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
+import { SheetAuthWorkspaceUser } from "sheet-ingress-api/internal";
+import { SheetAuthUser } from "sheet-ingress-api/internal";
+import type { SheetAuthUserTokenType } from "sheet-ingress-api/internal";
 import { Unauthorized } from "typhoon-core/error";
 import type { Permission, PermissionSet } from "sheet-ingress-api/schemas/permissions";
 import type { SheetAuthOAuthScope } from "sheet-ingress-api/schemas/permissions";

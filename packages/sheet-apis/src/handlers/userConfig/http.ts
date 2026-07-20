@@ -1,6 +1,6 @@
 import { Context, Effect, Layer, Option } from "effect";
 import { type HandlerMap, sheetApisGroupLayer } from "@/handlers/shared/httpApiLayer";
-import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
+import { SheetAuthUser } from "sheet-ingress-api/internal";
 import { AuthorizationService, UserConfigService } from "@/services";
 
 type SheetAuthUserType = Context.Service.Shape<typeof SheetAuthUser>;

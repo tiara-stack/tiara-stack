@@ -1,5 +1,5 @@
 import { Context, Effect, Layer } from "effect";
-import { DispatchWorkflowOperations } from "sheet-ingress-api/sheet-workflows-workflows";
+import { DispatchWorkflowOperations } from "sheet-ingress-api/internal";
 import { SheetWorkflowsHttpClient } from "./sheetWorkflowsHttpClient";
 
 type DispatchWorkflowOperation =

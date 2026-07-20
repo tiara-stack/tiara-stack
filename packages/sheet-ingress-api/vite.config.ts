@@ -40,19 +40,11 @@ export default library({
       "api-groups": fileURLToPath(new URL("./src/api-groups.ts", import.meta.url)),
       api: fileURLToPath(new URL("./src/api.ts", import.meta.url)),
       "auth/scopePolicy": fileURLToPath(new URL("./src/auth/scopePolicy.ts", import.meta.url)),
+      "client-delivery": fileURLToPath(new URL("./src/client-delivery.ts", import.meta.url)),
       clientActions: fileURLToPath(new URL("./src/clientActions.ts", import.meta.url)),
+      dispatch: fileURLToPath(new URL("./src/dispatch.ts", import.meta.url)),
       internal: fileURLToPath(new URL("./src/internal.ts", import.meta.url)),
       schemas: fileURLToPath(new URL("./src/schemas.ts", import.meta.url)),
-      tokenCache: fileURLToPath(new URL("./src/tokenCache.ts", import.meta.url)),
-      "handlers/health/schema": fileURLToPath(
-        new URL("./src/handlers/health/schema.ts", import.meta.url),
-      ),
-      "handlers/clientDelivery/api": fileURLToPath(
-        new URL("./src/handlers/clientDelivery/api.ts", import.meta.url),
-      ),
-      "handlers/dispatch/schema": fileURLToPath(
-        new URL("./src/handlers/dispatch/schema.ts", import.meta.url),
-      ),
       index: fileURLToPath(new URL("./src/index.ts", import.meta.url)),
       "middlewares/sheetAuthTokenAuthorization/tag": fileURLToPath(
         new URL("./src/middlewares/sheetAuthTokenAuthorization/tag.ts", import.meta.url),
@@ -87,9 +79,6 @@ export default library({
       ),
       "sheet-workflows-rpc": fileURLToPath(
         new URL("./src/sheet-workflows-rpc.ts", import.meta.url),
-      ),
-      "sheet-workflows-workflows": fileURLToPath(
-        new URL("./src/sheet-workflows-workflows.ts", import.meta.url),
       ),
       ...collectEntries("schemas"),
     },

@@ -2,7 +2,7 @@ import { Effect, Layer } from "effect";
 import { type HandlerMap, sheetApisGroupLayer } from "@/handlers/shared/httpApiLayer";
 import { withCurrentWorkspaceAuthFromQuery } from "@/handlers/shared/workspaceAuthorization";
 import { getSheetIdFromWorkspaceId } from "@/handlers/shared/workspaceConfig";
-import { SheetAuthWorkspaceUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthWorkspaceUser";
+import { SheetAuthWorkspaceUser } from "sheet-ingress-api/internal";
 import { BreakSchedule, Schedule } from "sheet-ingress-api/schemas/sheet";
 import {
   AuthorizationService,

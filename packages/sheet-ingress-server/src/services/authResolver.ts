@@ -14,8 +14,8 @@ import {
   getSheetAuthIdentity,
   type SheetAuthClient as SheetAuthClientValue,
 } from "sheet-auth/client";
-import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
-import type { SheetAuthUserTokenType } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
+import { SheetAuthUser } from "sheet-ingress-api/internal";
+import type { SheetAuthUserTokenType } from "sheet-ingress-api/internal";
 import { Unauthorized } from "typhoon-core/error";
 import {
   SheetAuthOAuthScope,

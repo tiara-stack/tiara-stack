@@ -2,7 +2,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Cause, Deferred, Effect, Exit, Fiber, HashSet, Redacted } from "effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
-import { DiscordBotNotFoundError } from "sheet-ingress-api/handlers/clientDelivery/api";
+import { DiscordBotNotFoundError } from "sheet-ingress-api/client-delivery";
 import { ClientDeliveryForwardingClient } from "./clientDeliveryForwardingClient";
 import { ClientRegistry } from "./clientRegistry";
 import { SheetApisRpcTokens } from "./sheetApisRpcTokens";

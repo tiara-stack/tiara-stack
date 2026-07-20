@@ -1,12 +1,12 @@
 import { Effect, Option, Predicate } from "effect";
 import type { ClientRef } from "sheet-ingress-api/schemas/client";
-import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
+import { SheetAuthUser } from "sheet-ingress-api/internal";
 import {
   DispatchRoomOrderButtonMethods,
   interactionResponseTokenExpirySafetyMarginMs,
   interactionResponseTokenLifetimeMs,
 } from "sheet-ingress-api/sheet-apis-rpc";
-import type { DispatchAuthorizationSnapshot } from "sheet-ingress-api/sheet-workflows-workflows";
+import type { DispatchAuthorizationSnapshot } from "sheet-ingress-api/internal";
 import { makeArgumentError } from "typhoon-core/error";
 import { adaptTableHandlerArgument, invokeTableHandler } from "../httpApiAdapter";
 import { MessageLookup } from "../services/messageLookup";

@@ -2,7 +2,7 @@ import { MembersApiCacheView } from "dfx-discord-utils/discord/cache/members";
 import { RolesApiCacheView } from "dfx-discord-utils/discord/cache/roles";
 import { CacheNotFoundError } from "dfx-discord-utils/discord/schema";
 import { Effect, HashSet, Redacted } from "effect";
-import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
+import { SheetAuthUser } from "sheet-ingress-api/internal";
 import type { SheetAuthOAuthScope } from "sheet-ingress-api/schemas/permissions";
 import { WorkspaceConfigService } from "@/services";
 

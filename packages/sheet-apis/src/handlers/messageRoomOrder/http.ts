@@ -4,7 +4,7 @@ import { type HandlerMap, sheetApisGroupLayer } from "@/handlers/shared/httpApiL
 import { AuthorizationService, MessageRoomOrderService } from "@/services";
 import type { MessageKey } from "@/services/messageKey";
 import { MessageRoomOrder } from "sheet-ingress-api/schemas/messageRoomOrder";
-import { SheetAuthWorkspaceUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthWorkspaceUser";
+import { SheetAuthWorkspaceUser } from "sheet-ingress-api/internal";
 import { MESSAGE_ROOM_ORDER_NOT_REGISTERED_ERROR_MESSAGE } from "sheet-ingress-api/sheet-apis-rpc";
 import { makeArgumentError, Unauthorized } from "typhoon-core/error";
 

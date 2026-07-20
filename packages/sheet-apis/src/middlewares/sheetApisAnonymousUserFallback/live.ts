@@ -1,6 +1,6 @@
 import { Effect, Layer, Option } from "effect";
 import { SheetApisAnonymousUserFallback } from "sheet-ingress-api/internal";
-import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
+import { SheetAuthUser } from "sheet-ingress-api/internal";
 
 export const SheetApisAnonymousUserFallbackLive = Layer.succeed(
   SheetApisAnonymousUserFallback,

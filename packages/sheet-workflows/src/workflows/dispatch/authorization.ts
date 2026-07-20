@@ -7,10 +7,7 @@ import {
   type RoomOrderPinTentativeButtonPayload,
   type RoomOrderPreviousButtonPayload,
 } from "sheet-ingress-api/sheet-apis-rpc";
-import type {
-  DispatchAuthorizationSnapshot,
-  DispatchRequester,
-} from "sheet-ingress-api/sheet-workflows-workflows";
+import type { DispatchAuthorizationSnapshot, DispatchRequester } from "sheet-ingress-api/internal";
 import { Unauthorized } from "typhoon-core/error";
 import { normalizeDispatchError } from "@/handlers/shared/dispatchError";
 import { SheetApisClient } from "@/services";

@@ -4,7 +4,7 @@ import {
   SheetApisServiceUserFallback,
   SheetBotServiceAuthorization,
 } from "sheet-ingress-api/internal";
-import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
+import { SheetAuthUser } from "sheet-ingress-api/internal";
 import { Unauthorized } from "typhoon-core/error";
 import { hasPermission } from "../services/authorization";
 import { SheetAuthUserResolver } from "../services/authResolver";

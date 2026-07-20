@@ -20,7 +20,7 @@ import {
 import { discordHttpApiHandlersLayer, handleBotRestError } from "dfx-discord-utils/discord/http";
 import { Effect, FileSystem, Layer, Predicate, Schema } from "effect";
 import { createServer } from "http";
-import { ClientDeliveryApi, DeliveryEmoji } from "sheet-ingress-api/handlers/clientDelivery/api";
+import { ClientDeliveryApi, DeliveryEmoji } from "sheet-ingress-api/client-delivery";
 import type {
   ClientRef,
   ConversationRef,

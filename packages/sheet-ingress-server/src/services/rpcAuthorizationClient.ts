@@ -1,6 +1,6 @@
 import { Effect, Option, Redacted } from "effect";
 import { Headers, HttpClient, HttpClientRequest } from "effect/unstable/http";
-import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
+import { SheetAuthUser } from "sheet-ingress-api/internal";
 import { SheetApisRpcTokens } from "./sheetApisRpcTokens";
 
 interface IngressRpcHeadersConfig {

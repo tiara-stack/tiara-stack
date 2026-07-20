@@ -8,5 +8,4 @@ export * as WorkspaceConfig from "sheet-ingress-api/schemas/workspaceConfig";
 export * as UserConfig from "sheet-ingress-api/schemas/userConfig";
 export * as Discord from "sheet-ingress-api/schemas/discord";
 export * as Permissions from "sheet-ingress-api/schemas/permissions";
-export * as Middlewares from "sheet-ingress-api/schemas/middlewares";
 export * as Google from "sheet-ingress-api/schemas/google";

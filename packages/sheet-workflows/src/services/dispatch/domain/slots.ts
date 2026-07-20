@@ -5,7 +5,7 @@ import type {
   SlotListDispatchPayload,
   SlotListDispatchResult,
 } from "sheet-ingress-api/sheet-apis-rpc";
-import type { DispatchRequester } from "sheet-ingress-api/sheet-workflows-workflows";
+import type { DispatchRequester } from "sheet-ingress-api/internal";
 import { ClientDeliveryClient } from "../../clientDeliveryClient";
 import { slotActionRow } from "sheet-message-content/components";
 import * as MessageText from "sheet-message-content/text";

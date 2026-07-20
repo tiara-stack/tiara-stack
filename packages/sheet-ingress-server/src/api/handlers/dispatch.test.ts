@@ -1,6 +1,6 @@
 import { expect, layer } from "@effect/vitest";
 import { Context, Effect, HashSet, Layer, Option, Redacted } from "effect";
-import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
+import { SheetAuthUser } from "sheet-ingress-api/internal";
 import { vi } from "vitest";
 import { AuthorizationService } from "../../services/authorization";
 import { MessageLookup } from "../../services/messageLookup";

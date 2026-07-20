@@ -3,7 +3,7 @@ import type {
   CheckinHandleButtonPayload,
   CheckinHandleButtonResult,
 } from "sheet-ingress-api/sheet-apis-rpc";
-import type { DispatchRequester } from "sheet-ingress-api/sheet-workflows-workflows";
+import type { DispatchRequester } from "sheet-ingress-api/internal";
 import { makeArgumentError } from "typhoon-core/error";
 import { markInteractionFailureHandled } from "@/handlers/shared/interactionFailure";
 import { ClientDeliveryClient } from "../../clientDeliveryClient";

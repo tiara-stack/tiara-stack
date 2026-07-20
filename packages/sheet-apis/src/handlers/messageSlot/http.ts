@@ -4,7 +4,7 @@ import { AuthorizationService, MessageSlotService } from "@/services";
 import type { MessageKey } from "@/services/messageKey";
 import { type HandlerMap, sheetApisGroupLayer } from "@/handlers/shared/httpApiLayer";
 import { MessageSlot } from "sheet-ingress-api/schemas/messageSlot";
-import { SheetAuthWorkspaceUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthWorkspaceUser";
+import { SheetAuthWorkspaceUser } from "sheet-ingress-api/internal";
 import { makeArgumentError, Unauthorized } from "typhoon-core/error";
 
 const missingMessageSlotError = () =>

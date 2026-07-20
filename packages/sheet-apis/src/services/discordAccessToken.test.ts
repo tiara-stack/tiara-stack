@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "@effect/vitest";
 import { vi } from "vitest";
 import { Cause, Effect, Exit, HashSet, Layer, Redacted } from "effect";
 import { getDiscordAccessToken, getDiscordAccessTokenWithOAuth } from "sheet-auth/client";
-import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
+import { SheetAuthUser } from "sheet-ingress-api/internal";
 import { ArgumentError } from "typhoon-core/error";
 import {
   DiscordAccessTokenService,

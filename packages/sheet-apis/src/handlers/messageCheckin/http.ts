@@ -10,7 +10,7 @@ import {
 import type { MessageKey } from "@/services/messageKey";
 import { type HandlerMap, sheetApisGroupLayer } from "@/handlers/shared/httpApiLayer";
 import { MessageCheckin, MessageCheckinMember } from "sheet-ingress-api/schemas/messageCheckin";
-import { SheetAuthWorkspaceUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthWorkspaceUser";
+import { SheetAuthWorkspaceUser } from "sheet-ingress-api/internal";
 import { makeArgumentError, Unauthorized } from "typhoon-core/error";
 
 const missingMessageCheckinError = () =>

@@ -6,7 +6,7 @@ import {
   SessionTokenType,
 } from "sheet-auth/oauth";
 import { SHEET_AUTH_SESSION_TOKEN_UNAVAILABLE } from "sheet-ingress-api/internal";
-import { SheetAuthUser } from "sheet-ingress-api/schemas/middlewares/sheetAuthUser";
+import { SheetAuthUser } from "sheet-ingress-api/internal";
 import type { SheetAuthOAuthScope } from "sheet-ingress-api/schemas/permissions";
 import { Unauthorized } from "typhoon-core/error";
 import { config } from "@/config";
