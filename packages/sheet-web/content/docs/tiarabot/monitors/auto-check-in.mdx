@@ -67,6 +67,12 @@ Filler check-ins continue to update the prompt and announce in the running chann
 
 A tentative room order is still a draft. Select the correct version and pin the final order through the existing room-order flow.
 
+## Automatic lockdown-role cleanup at minute 15
+
+For every server with automatic check-in enabled, TiaraBot also runs lockdown-role cleanup at minute 15 of each hour. For each configured running channel, it reads the current hour’s scheduled fills and removes the channel’s lockdown role from members who are not in that fill list.
+
+Channels without a configured lockdown role are skipped. Before minute 40, use `/kick manual` for ad-hoc cleanup when the schedule or room assignment changes after the automatic pass. From minute 40 through minute 59, TiaraBot rejects manual cleanup to protect fills scheduled through minute 00 of the next hour.
+
 ## Use server-controlled timing instead
 
 If the server should not open at minute 45, disable auto check-in and use [`/checkin manual`](/docs/tiarabot/monitors/check-ins) at the server’s chosen time. Manual check-in creates the same filler-facing button and can also prepare a tentative room order, but its moni summary is returned through the invoking command response.

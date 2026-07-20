@@ -12,6 +12,14 @@ export const autoCheckinTaskLayer = Layer.effectDiscard(
         yield* Effect.log(`enqueued ${count} auto check-in conversation workflow(s)`);
       },
     );
+    const autoKickTask = Effect.fn("autoKickTask", { attributes: { task: "autoKick" } })(
+      function* () {
+        yield* Effect.log("running automatic lockdown-role cleanup task...");
+        const count = yield* autoCheckinService.runDueKicks();
+        yield* Effect.annotateCurrentSpan({ processedConversationCount: count });
+        yield* Effect.log(`processed ${count} automatic lockdown-role cleanup(s)`);
+      },
+    );
 
     yield* autoCheckinTask().pipe(
       Effect.annotateLogs({ task: "autoCheckin" }),
@@ -23,6 +31,25 @@ export const autoCheckinTaskLayer = Layer.effectDiscard(
           Cron.make({
             seconds: [0],
             minutes: [45],
+            hours: [],
+            days: [],
+            months: [],
+            weekdays: [],
+          }),
+        ),
+      ),
+      Effect.forkScoped,
+    );
+    yield* autoKickTask().pipe(
+      Effect.annotateLogs({ task: "autoKick" }),
+      Effect.withSpan("sheet-workflows.task.autoKick", {
+        attributes: { task: "autoKick" },
+      }),
+      Effect.schedule(
+        Schedule.cron(
+          Cron.make({
+            seconds: [0],
+            minutes: [15],
             hours: [],
             days: [],
             months: [],

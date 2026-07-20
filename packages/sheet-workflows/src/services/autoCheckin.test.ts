@@ -11,6 +11,11 @@ import { MessageRoomOrderRange } from "sheet-ingress-api/schemas/messageRoomOrde
 import { RoomOrderGenerateResult } from "sheet-ingress-api/schemas/roomOrder";
 import { EventConfig } from "sheet-ingress-api/schemas/sheetConfig";
 import {
+  Player,
+  PopulatedSchedule,
+  PopulatedSchedulePlayer,
+} from "sheet-ingress-api/schemas/sheet";
+import {
   AutoCheckinService,
   AutoCheckinWorkflowClient,
   ClientDeliveryClient,
@@ -47,7 +52,10 @@ const makeWorkspaceConfig = (workspaceId: string) =>
     deletedAt: Option.none(),
   });
 
-const makeWorkspaceConversation = (name: Option.Option<string>) =>
+const makeWorkspaceConversation = (
+  name: Option.Option<string>,
+  overrides: Partial<ConstructorParameters<typeof WorkspaceConversationConfig>[0]> = {},
+) =>
   new WorkspaceConversationConfig({
     workspaceId: "workspace-1",
     conversationId: `conversation-${Option.getOrElse(name, () => "unnamed")}`,
@@ -58,6 +66,30 @@ const makeWorkspaceConversation = (name: Option.Option<string>) =>
     createdAt: Option.none(),
     updatedAt: Option.none(),
     deletedAt: Option.none(),
+    ...overrides,
+  });
+
+const makeSchedule = (hour: number, fillIds: ReadonlyArray<string>) =>
+  new PopulatedSchedule({
+    channel: "main",
+    day: 1,
+    visible: true,
+    hour: Option.some(hour),
+    hourWindow: Option.none(),
+    fills: Array.from({ length: 5 }, (_value, index) =>
+      Option.fromNullishOr(
+        fillIds[index] === undefined
+          ? undefined
+          : new PopulatedSchedulePlayer({
+              player: new Player({ index, id: fillIds[index], name: fillIds[index] }),
+              enc: false,
+            }),
+      ),
+    ),
+    overfills: [],
+    standbys: [],
+    runners: [],
+    monitor: Option.none(),
   });
 
 const makeGeneratedCheckin = (overrides?: {
@@ -298,6 +330,179 @@ describe("AutoCheckinService", () => {
       });
 
       expect(count).toBe(1);
+    }),
+  );
+
+  it.effect("cleans lockdown roles for the current hour and skips unconfigured conversations", () =>
+    Effect.gen(function* () {
+      const scheduleCalls: Array<unknown> = [];
+      const removeCalls: Array<ReadonlyArray<string>> = [];
+      const sheetApisClient = makeSheetApisClient({
+        sheet: {
+          getEventConfig: () =>
+            Effect.succeed(
+              new EventConfig({
+                startTime: DateTime.makeUnsafe("2026-03-26T12:00:00.000Z"),
+              }),
+            ),
+        },
+        workspaceConfig: {
+          getWorkspaceConversations: () =>
+            Effect.succeed([
+              makeWorkspaceConversation(Option.some("main"), {
+                conversationId: "conversation-main",
+                roleId: Option.some("role-main"),
+              }),
+              makeWorkspaceConversation(Option.some("side"), {
+                conversationId: "conversation-side",
+                roleId: Option.none(),
+              }),
+            ]),
+        },
+        schedule: {
+          getConversationPopulatedSchedules: (args: unknown) => {
+            scheduleCalls.push(args);
+            return Effect.succeed({ schedules: [makeSchedule(2, ["member-fill"])] });
+          },
+        },
+      });
+      const botClient = {
+        getMembersForParent: () =>
+          Effect.succeed([
+            {
+              parentId: "workspace-1",
+              resourceId: "member-fill",
+              value: { user: { id: "member-fill" }, roles: ["role-main"] },
+            },
+            {
+              parentId: "workspace-1",
+              resourceId: "member-remove",
+              value: { user: { id: "member-remove" }, roles: ["role-main"] },
+            },
+            {
+              parentId: "workspace-1",
+              resourceId: "member-unrelated",
+              value: { user: { id: "member-unrelated" }, roles: ["other-role"] },
+            },
+          ]),
+        removeWorkspaceMemberRole: (workspaceId: string, memberId: string, roleId: string) => {
+          removeCalls.push([workspaceId, memberId, roleId]);
+          return Effect.void;
+        },
+      } as never;
+
+      const count = yield* runService((service) => service.kickWorkspace("workspace-1"), {
+        sheetApisClient,
+        botClient,
+        clockTime: "2026-03-26T13:15:00.000Z",
+      });
+
+      expect(count).toBe(1);
+      expect(scheduleCalls).toEqual([
+        {
+          query: {
+            workspaceId: "workspace-1",
+            conversationName: "main",
+            view: "monitor",
+          },
+        },
+      ]);
+      expect(removeCalls).toEqual([["workspace-1", "member-remove", "role-main"]]);
+    }),
+  );
+
+  it.effect("isolates automatic kick failures between conversations and workspaces", () =>
+    Effect.gen(function* () {
+      const conversationCalls: Array<unknown> = [];
+      let memberLookupCount = 0;
+      const removeCalls: Array<ReadonlyArray<string>> = [];
+      const sheetApisClient = makeSheetApisClient({
+        workspaceConfig: {
+          getAutoCheckinWorkspaces: () =>
+            Effect.succeed([
+              makeWorkspaceConfig("workspace-failed"),
+              makeWorkspaceConfig("workspace-2"),
+            ]),
+          getWorkspaceConversations: (args: {
+            readonly query: { readonly workspaceId: string; readonly running: boolean };
+          }) => {
+            conversationCalls.push(args);
+            return args.query.workspaceId === "workspace-2"
+              ? Effect.succeed([
+                  makeWorkspaceConversation(Option.some("broken"), {
+                    workspaceId: "workspace-2",
+                    conversationId: "conversation-broken",
+                    roleId: Option.some("role-broken"),
+                  }),
+                  makeWorkspaceConversation(Option.some("main"), {
+                    workspaceId: "workspace-2",
+                    conversationId: "conversation-main",
+                    roleId: Option.some("role-main"),
+                  }),
+                  makeWorkspaceConversation(Option.some("secondary"), {
+                    workspaceId: "workspace-2",
+                    conversationId: "conversation-secondary",
+                    roleId: Option.some("role-secondary"),
+                  }),
+                ])
+              : Effect.die(`Unexpected conversation lookup for ${args.query.workspaceId}`);
+          },
+        },
+        sheet: {
+          getEventConfig: ({ query }: { readonly query: { readonly workspaceId: string } }) =>
+            query.workspaceId === "workspace-failed"
+              ? Effect.fail(
+                  new SheetWorkflowsServicesAutoCheckinTestError({
+                    message: "event config failed",
+                  }),
+                )
+              : Effect.succeed(
+                  new EventConfig({
+                    startTime: DateTime.makeUnsafe("2026-03-26T12:00:00.000Z"),
+                  }),
+                ),
+        },
+        schedule: {
+          getConversationPopulatedSchedules: ({
+            query,
+          }: {
+            readonly query: { readonly conversationName: string };
+          }) =>
+            query.conversationName === "broken"
+              ? Effect.fail(
+                  new SheetWorkflowsServicesAutoCheckinTestError({ message: "schedule failed" }),
+                )
+              : Effect.succeed({ schedules: [makeSchedule(2, [])] }),
+        },
+      });
+      const botClient = {
+        getMembersForParent: () =>
+          Effect.sync(() => {
+            memberLookupCount += 1;
+            return [
+              {
+                parentId: "workspace-2",
+                resourceId: "member-remove",
+                value: { user: { id: "member-remove" }, roles: ["role-main"] },
+              },
+            ];
+          }),
+        removeWorkspaceMemberRole: (workspaceId: string, memberId: string, roleId: string) => {
+          removeCalls.push([workspaceId, memberId, roleId]);
+          return Effect.void;
+        },
+      } as never;
+
+      const count = yield* runService((service) => service.runDueKicks(), {
+        sheetApisClient,
+        botClient,
+        clockTime: "2026-03-26T13:15:00.000Z",
+      });
+
+      expect(count).toBe(2);
+      expect(conversationCalls).toEqual([{ query: { workspaceId: "workspace-2", running: true } }]);
+      expect(memberLookupCount).toBe(1);
+      expect(removeCalls).toEqual([["workspace-2", "member-remove", "role-main"]]);
     }),
   );
 

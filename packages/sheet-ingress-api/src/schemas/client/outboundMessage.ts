@@ -17,6 +17,7 @@ export const SheetClientTerm = Schema.Literals([
   "runDestination",
   "checkinDestination",
   "monitorRole",
+  "lockdownRole",
   "message",
   "testRun",
 ]);

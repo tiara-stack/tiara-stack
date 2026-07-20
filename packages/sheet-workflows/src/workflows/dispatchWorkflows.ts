@@ -1,3 +1,4 @@
+// fallow-ignore-file duplicate-export
 import { ClusterSchema } from "effect/unstable/cluster";
 import {
   DispatchAutoCheckinTestWorkflow as BaseDispatchAutoCheckinTestWorkflow,
@@ -7,7 +8,7 @@ import {
   DispatchConversationSetWorkflow as BaseDispatchConversationSetWorkflow,
   DispatchConversationUnsetWorkflow as BaseDispatchConversationUnsetWorkflow,
   DispatchWorkspaceWelcomeWorkflow as BaseDispatchWorkspaceWelcomeWorkflow,
-  DispatchKickoutWorkflow as BaseDispatchKickoutWorkflow,
+  DispatchKickWorkflow as BaseDispatchKickWorkflow,
   DispatchPreferenceDmDisableWorkflow as BaseDispatchPreferenceDmDisableWorkflow,
   DispatchPreferenceDmEnableWorkflow as BaseDispatchPreferenceDmEnableWorkflow,
   DispatchPreferenceDmSetClientWorkflow as BaseDispatchPreferenceDmSetClientWorkflow,
@@ -54,7 +55,7 @@ export const DispatchRoomOrderWorkflow = BaseDispatchRoomOrderWorkflow.annotate(
   dispatchShardGroup,
 );
 
-export const DispatchKickoutWorkflow = BaseDispatchKickoutWorkflow.annotate(
+export const DispatchKickWorkflow = BaseDispatchKickWorkflow.annotate(
   ClusterSchema.ShardGroup,
   dispatchShardGroup,
 );
@@ -223,7 +224,7 @@ export const DispatchWorkflows = [
   DispatchAutoCheckinTestWorkflow,
   DispatchCheckinWorkflow,
   DispatchRoomOrderWorkflow,
-  DispatchKickoutWorkflow,
+  DispatchKickWorkflow,
   DispatchSlotButtonWorkflow,
   DispatchSlotListWorkflow,
   DispatchSlotOpenButtonWorkflow,

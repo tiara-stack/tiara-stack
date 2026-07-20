@@ -1,3 +1,4 @@
+// fallow-ignore-file duplicate-export
 import { Schema } from "effect";
 import { Workflow } from "effect/unstable/workflow";
 import type { ClientRef } from "./schemas/client";
@@ -24,9 +25,9 @@ import {
   WorkspaceWelcomeDispatchError,
   WorkspaceWelcomeDispatchPayload,
   WorkspaceWelcomeDispatchResult,
-  KickoutDispatchError,
-  KickoutDispatchPayload,
-  KickoutDispatchResult,
+  KickDispatchError,
+  KickDispatchPayload,
+  KickDispatchResult,
   PreferenceDmDisableDispatchPayload,
   PreferenceDmDispatchResult,
   PreferenceDmEnableDispatchPayload,
@@ -148,7 +149,7 @@ const workflowName = {
   autoCheckinTest: "dispatch.autoCheckinTest",
   checkin: "dispatch.checkin",
   roomOrder: "dispatch.roomOrder",
-  kickout: "dispatch.kickout",
+  kick: "dispatch.kick",
   slotButton: "dispatch.slotButton",
   slotList: "dispatch.slotList",
   slotOpenButton: "dispatch.slotOpenButton",
@@ -224,11 +225,11 @@ export const DispatchRoomOrderWorkflow = Workflow.make({
   idempotencyKey: ({ payload }) => dispatchRequestIdempotencyKey(payload),
 });
 
-export const DispatchKickoutWorkflow = Workflow.make({
-  name: workflowName.kickout,
-  payload: dispatchPayload(KickoutDispatchPayload),
-  success: KickoutDispatchResult,
-  error: KickoutDispatchError,
+export const DispatchKickWorkflow = Workflow.make({
+  name: workflowName.kick,
+  payload: dispatchPayload(KickDispatchPayload),
+  success: KickDispatchResult,
+  error: KickDispatchError,
   idempotencyKey: ({ payload }) => dispatchRequestIdempotencyKey(payload),
 });
 
@@ -485,7 +486,7 @@ export const DispatchWorkflows = [
   DispatchAutoCheckinTestWorkflow,
   DispatchCheckinWorkflow,
   DispatchRoomOrderWorkflow,
-  DispatchKickoutWorkflow,
+  DispatchKickWorkflow,
   DispatchSlotButtonWorkflow,
   DispatchSlotListWorkflow,
   DispatchSlotOpenButtonWorkflow,
@@ -584,12 +585,12 @@ export const DispatchWorkflowOperations = {
     rpcTag: DispatchRoomOrderWorkflow.name,
     discardRpcTag: `${DispatchRoomOrderWorkflow.name}Discard`,
   },
-  kickout: {
-    operation: "kickout",
-    endpointName: "kickout",
-    workflow: DispatchKickoutWorkflow,
-    rpcTag: DispatchKickoutWorkflow.name,
-    discardRpcTag: `${DispatchKickoutWorkflow.name}Discard`,
+  kick: {
+    operation: "kick",
+    endpointName: "kick",
+    workflow: DispatchKickWorkflow,
+    rpcTag: DispatchKickWorkflow.name,
+    discardRpcTag: `${DispatchKickWorkflow.name}Discard`,
   },
   slotButton: {
     operation: "slotButton",

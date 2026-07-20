@@ -8,7 +8,7 @@ import {
   DispatchConversationSetWorkflow,
   DispatchConversationUnsetWorkflow,
   DispatchWorkspaceWelcomeWorkflow,
-  DispatchKickoutWorkflow,
+  DispatchKickWorkflow,
   DispatchPreferenceDmDisableWorkflow,
   DispatchPreferenceDmEnableWorkflow,
   DispatchPreferenceDmSetClientWorkflow,
@@ -102,7 +102,7 @@ const dispatchWorkflowLayers = [
   ),
   DispatchCheckinWorkflow.toLayer(makeWorkflowHandler(dispatchWorkflowRegistry.checkin)),
   DispatchRoomOrderWorkflow.toLayer(makeWorkflowHandler(dispatchWorkflowRegistry.roomOrder)),
-  DispatchKickoutWorkflow.toLayer(makeWorkflowHandler(dispatchWorkflowRegistry.kickout)),
+  DispatchKickWorkflow.toLayer(makeWorkflowHandler(dispatchWorkflowRegistry.kick)),
   DispatchSlotButtonWorkflow.toLayer(makeWorkflowHandler(dispatchWorkflowRegistry.slotButton)),
   DispatchSlotListWorkflow.toLayer(makeWorkflowHandler(dispatchWorkflowRegistry.slotList)),
   DispatchSlotOpenButtonWorkflow.toLayer(

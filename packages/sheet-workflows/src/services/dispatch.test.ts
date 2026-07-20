@@ -1,6 +1,17 @@
 // fallow-ignore-file code-duplication
 import { describe, expect, it } from "@effect/vitest";
-import { Cause, DateTime, Duration, Effect, Exit, Fiber, Option, Predicate, Schema } from "effect";
+import {
+  Cause,
+  Clock,
+  DateTime,
+  Duration,
+  Effect,
+  Exit,
+  Fiber,
+  Option,
+  Predicate,
+  Schema,
+} from "effect";
 import { TestClock } from "effect/testing";
 import { formatTentativeRoomOrderContent } from "sheet-ingress-api/clientActions";
 import { DiscordBotNotFoundError } from "sheet-ingress-api/client-delivery";
@@ -12,7 +23,7 @@ import type {
   ConversationSetDispatchPayload,
   ConversationUnsetDispatchPayload,
   WorkspaceWelcomeDispatchPayload,
-  KickoutDispatchPayload,
+  KickDispatchPayload,
   RoomOrderDispatchPayload,
   ScheduleListDispatchPayload,
   ServiceWorkspaceFeatureFlagDispatchPayload,
@@ -591,11 +602,9 @@ const makeTeamSubmissionDeliveryClient = (
   return client as never;
 };
 
-const makeKickoutPayload = (
-  overrides: Partial<KickoutDispatchPayload> = {},
-): KickoutDispatchPayload => ({
+const makeKickPayload = (overrides: Partial<KickDispatchPayload> = {}): KickDispatchPayload => ({
   client: discordClient,
-  dispatchRequestId: "dispatch-kickout",
+  dispatchRequestId: "dispatch-kick",
   workspaceId: "workspace-1",
   conversationId: "conversation-1",
   hour: 1,
@@ -2917,7 +2926,7 @@ describe("DispatchService", () => {
   );
 
   it.live(
-    "updates the interaction before failing when kickout cannot find a running conversation",
+    "updates the interaction before failing when kick cannot find a running conversation",
     () =>
       Effect.gen(function* () {
         const updateCalls: Array<unknown> = [];
@@ -2933,9 +2942,7 @@ describe("DispatchService", () => {
           },
         });
 
-        const exit = yield* Effect.exit(
-          runKickout(makeKickoutPayload(), botClient, sheetApisClient),
-        );
+        const exit = yield* Effect.exit(runKick(makeKickPayload(), botClient, sheetApisClient));
 
         expect(Exit.isFailure(exit)).toBe(true);
         expectInteractionUpdateContent(
@@ -2945,7 +2952,7 @@ describe("DispatchService", () => {
       }),
   );
 
-  it.effect("does not update an interaction for an empty kickout response token", () =>
+  it.effect("does not update an interaction for an empty kick response token", () =>
     Effect.gen(function* () {
       const botClient = makeClientDeliveryMock({
         updateOriginalInteractionResponse: () =>
@@ -2963,11 +2970,7 @@ describe("DispatchService", () => {
       });
 
       const exit = yield* Effect.exit(
-        runKickout(
-          makeKickoutPayload({ interactionResponseToken: "" }),
-          botClient,
-          sheetApisClient,
-        ),
+        runKick(makeKickPayload({ interactionResponseToken: "" }), botClient, sheetApisClient),
       );
 
       expect(Exit.isFailure(exit)).toBe(true);
@@ -2975,7 +2978,7 @@ describe("DispatchService", () => {
     }),
   );
 
-  it.live("returns tooEarly and skips sheet lookups when kickout runs too late in the hour", () =>
+  it.live("returns tooEarly and skips sheet lookups when kick runs too late in the hour", () =>
     Effect.gen(function* () {
       const updateCalls: Array<unknown> = [];
       const sheetApiCalls: Array<string> = [];
@@ -2998,8 +3001,8 @@ describe("DispatchService", () => {
         ),
       );
 
-      const result = yield* runKickout(
-        makeKickoutPayload(),
+      const result = yield* runKick(
+        makeKickPayload(),
         botClient,
         sheetApisClient,
         Date.parse("2026-05-13T00:40:00.000Z"),
@@ -3018,7 +3021,7 @@ describe("DispatchService", () => {
     }),
   );
 
-  it.live("updates the interaction before failing when kickout conversation has no name", () =>
+  it.live("updates the interaction before failing when kick conversation has no name", () =>
     Effect.gen(function* () {
       const updateCalls: Array<unknown> = [];
       const botClient = makeInteractionUpdateBotClient(updateCalls);
@@ -3035,14 +3038,14 @@ describe("DispatchService", () => {
         },
       });
 
-      const exit = yield* Effect.exit(runKickout(makeKickoutPayload(), botClient, sheetApisClient));
+      const exit = yield* Effect.exit(runKick(makeKickPayload(), botClient, sheetApisClient));
 
       expect(Exit.isFailure(exit)).toBe(true);
       expectInteractionUpdateContent(updateCalls, "Cannot kick out, conversation has no name");
     }),
   );
 
-  it.live("does not remove roles when kickout has no schedule for the conversation hour", () =>
+  it.live("does not remove roles when kick has no schedule for the conversation hour", () =>
     Effect.gen(function* () {
       const updateCalls: Array<unknown> = [];
       const removeCalls: Array<ReadonlyArray<string>> = [];
@@ -3069,7 +3072,7 @@ describe("DispatchService", () => {
         },
       });
 
-      const result = yield* runKickout(makeKickoutPayload(), botClient, sheetApisClient);
+      const result = yield* runKick(makeKickPayload(), botClient, sheetApisClient);
 
       expect(result).toEqual({
         workspaceId: "workspace-1",
@@ -3087,7 +3090,7 @@ describe("DispatchService", () => {
     }),
   );
 
-  it.effect("reports partial kickout failures after attempting every removal", () =>
+  it.live("reports partial kick failures after attempting every removal", () =>
     Effect.gen(function* () {
       const updateCalls: Array<unknown> = [];
       const removeCalls: Array<ReadonlyArray<string>> = [];
@@ -3111,14 +3114,18 @@ describe("DispatchService", () => {
             },
           ]),
         removeWorkspaceMemberRole: (workspaceId: string, memberId: string, roleId: string) => {
-          removeCalls.push([workspaceId, memberId, roleId]);
-          return memberId === "member-2"
-            ? Effect.fail(
-                new SheetWorkflowsServicesDispatchTestError({
-                  message: "Discord role removal failed",
-                }),
-              )
-            : Effect.succeed({});
+          const recordCall = Effect.sync(() => removeCalls.push([workspaceId, memberId, roleId]));
+          return recordCall.pipe(
+            Effect.andThen(
+              memberId === "member-2"
+                ? Effect.fail(
+                    new SheetWorkflowsServicesDispatchTestError({
+                      message: "Discord role removal failed",
+                    }),
+                  )
+                : Effect.succeed({}),
+            ),
+          );
         },
       });
       const sheetApisClient = makeSheetApisClient({
@@ -3138,7 +3145,9 @@ describe("DispatchService", () => {
         },
       });
 
-      const exit = yield* Effect.exit(runKickout(makeKickoutPayload(), botClient, sheetApisClient));
+      const exit = yield* Effect.exit(
+        runKickWithLiveSleep(makeKickPayload(), botClient, sheetApisClient),
+      );
 
       expect(Exit.isFailure(exit)).toBe(true);
       const failure = Exit.isFailure(exit) ? Cause.findErrorOption(exit.cause) : Option.none();
@@ -3148,10 +3157,14 @@ describe("DispatchService", () => {
           cause: { failedMemberIds: ["member-2"], removedMemberIds: ["member-3"] },
         },
       });
-      expect(removeCalls).toEqual([
-        ["workspace-1", "member-2", "role-1"],
-        ["workspace-1", "member-3", "role-1"],
-      ]);
+      expect(removeCalls).toHaveLength(4);
+      expect(removeCalls.filter((call) => call[1] === "member-1")).toHaveLength(0);
+      expect(removeCalls.filter((call) => call[1] === "member-2")).toHaveLength(3);
+      expect(removeCalls.filter((call) => call[1] === "member-3")).toHaveLength(1);
+      for (const [workspaceId, , roleId] of removeCalls) {
+        expect(workspaceId).toBe("workspace-1");
+        expect(roleId).toBe("role-1");
+      }
       expectInteractionUpdateContent(updateCalls, "Kicked out @member-3; 1 role removal(s) failed");
     }),
   );
@@ -3196,7 +3209,7 @@ describe("DispatchService", () => {
                 fields: [
                   { name: "Name", value: "main" },
                   { name: "Run destination", value: "Yes" },
-                  { name: "Monitor role", value: "@role:role-1" },
+                  { name: "Lockdown role", value: "@role:role-1" },
                   { name: "Check-in destination", value: "#checkin-conversation-1" },
                 ],
               },
@@ -4555,8 +4568,8 @@ describe("DispatchService", () => {
   );
 });
 
-const runKickout = (
-  payload: KickoutDispatchPayload,
+const runKick = (
+  payload: KickDispatchPayload,
   botClient: typeof ClientDeliveryClient.Service,
   sheetApisClient: typeof SheetApisClient.Service,
   clockTime = Date.parse("2026-05-13T00:00:00.000Z"),
@@ -4565,10 +4578,35 @@ const runKickout = (
     Effect.gen(function* () {
       yield* TestClock.setTime(clockTime);
       const service = yield* DispatchService.make;
-      return yield* service.kickout(payload, requester);
+      return yield* service.kick(payload, requester);
     }).pipe(
       Effect.provideService(ClientDeliveryClient, botClient),
       Effect.provideService(SheetApisClient, sheetApisClient),
       Effect.provide(TestClock.layer()),
     ),
+  );
+
+const runKickWithLiveSleep = (
+  payload: KickDispatchPayload,
+  botClient: typeof ClientDeliveryClient.Service,
+  sheetApisClient: typeof SheetApisClient.Service,
+  clockTime = Date.parse("2026-05-13T00:00:00.000Z"),
+) =>
+  Effect.gen(function* () {
+    const liveClock = yield* Clock.Clock;
+    const fixedNanos = BigInt(clockTime) * 1_000_000n;
+    const fixedClock: Clock.Clock = {
+      currentTimeMillisUnsafe: () => clockTime,
+      currentTimeMillis: Effect.succeed(clockTime),
+      currentTimeNanosUnsafe: () => fixedNanos,
+      currentTimeNanos: Effect.succeed(fixedNanos),
+      sleep: (duration) => liveClock.sleep(duration),
+    };
+    const service = yield* DispatchService.make;
+    return yield* service
+      .kick(payload, requester)
+      .pipe(Effect.provideService(Clock.Clock, fixedClock));
+  }).pipe(
+    Effect.provideService(ClientDeliveryClient, botClient),
+    Effect.provideService(SheetApisClient, sheetApisClient),
   );

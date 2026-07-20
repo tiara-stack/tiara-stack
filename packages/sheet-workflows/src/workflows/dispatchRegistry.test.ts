@@ -12,7 +12,7 @@ import { MessageSlot } from "sheet-ingress-api/schemas/messageSlot";
 import {
   DispatchWorkflows as SheetIngressDispatchWorkflows,
   type DispatchRequester,
-} from "sheet-ingress-api/internal";
+} from "sheet-ingress-api/sheet-workflows-workflows";
 import type {
   AutoCheckinTestDispatchPayload,
   AutoCheckinTestDispatchResult,
@@ -22,8 +22,8 @@ import type {
   CheckinHandleButtonResult,
   WorkspaceWelcomeDispatchPayload,
   WorkspaceWelcomeDispatchResult,
-  KickoutDispatchPayload,
-  KickoutDispatchResult,
+  KickDispatchPayload,
+  KickDispatchResult,
   RoomOrderPinTentativeButtonPayload,
   RoomOrderSendButtonPayload,
   RoomOrderSendButtonResult,
@@ -66,8 +66,8 @@ import { runDispatchWorkflowOperation } from "./dispatch/activityBoundary";
 import { makeClientDeliveryMock } from "@/services/testHelpers";
 
 const requester: DispatchRequester = {
-  accountId: "discord-user-1",
-  userId: "auth-user-1",
+  accountId: "account-1",
+  userId: "user-1",
 };
 
 const discordClient = { platform: "discord", clientId: "discord-main" } as const;
@@ -93,9 +93,9 @@ const autoCheckinTestPayload: AutoCheckinTestDispatchPayload = {
   interactionResponseDeadlineEpochMs: 4_102_444_800_000,
 };
 
-const kickoutPayload: KickoutDispatchPayload = {
+const kickPayload: KickDispatchPayload = {
   client: discordClient,
-  dispatchRequestId: "dispatch-kickout",
+  dispatchRequestId: "dispatch-kick",
   workspaceId: "workspace-1",
   conversationId: "conversation-1",
 };
@@ -239,7 +239,7 @@ const makeDispatchServiceMock = (overrides: Partial<DispatchServiceMock>): Dispa
   autoCheckinTest: unexpectedDispatchServiceCall("autoCheckinTest"),
   checkin: unexpectedDispatchServiceCall("checkin"),
   roomOrder: unexpectedDispatchServiceCall("roomOrder"),
-  kickout: unexpectedDispatchServiceCall("kickout"),
+  kick: unexpectedDispatchServiceCall("kick"),
   slotButton: unexpectedDispatchServiceCall("slotButton"),
   slotList: unexpectedDispatchServiceCall("slotList"),
   slotOpenButton: unexpectedDispatchServiceCall("slotOpenButton"),
@@ -321,7 +321,7 @@ const makeMessageSlot = (overrides?: {
     day: 2,
     workspaceId: overrides?.workspaceId ?? Option.some("workspace-1"),
     conversationId: overrides?.conversationId ?? Option.some("conversation-1"),
-    createdByUserId: Option.some(requester.accountId),
+    createdByUserId: Option.some(requester.userId),
     createdAt: Option.none(),
     updatedAt: Option.none(),
     deletedAt: Option.none(),
@@ -340,7 +340,7 @@ const makeMessageRoomOrder = () =>
     monitor: Option.none(),
     workspaceId: Option.some(roomOrderSendButtonPayload.workspaceId),
     conversationId: Option.some(roomOrderSendButtonPayload.messageConversationId),
-    createdByUserId: Option.some(requester.accountId),
+    createdByUserId: Option.some(requester.userId),
     sendClaimId: Option.none(),
     sendClaimedAt: Option.none(),
     sentMessageId: Option.none(),
@@ -448,7 +448,7 @@ describe("dispatch workflow registry", () => {
       "autoCheckinTest",
       "checkin",
       "roomOrder",
-      "kickout",
+      "kick",
       "slotButton",
       "slotList",
       "slotOpenButton",
@@ -775,11 +775,11 @@ describe("dispatch workflow registry", () => {
     ),
   );
 
-  it.live("routes kickout workflow execution to DispatchService", () =>
+  it.live("routes kick workflow execution to DispatchService", () =>
     Effect.gen(function* () {
-      const result = yield* dispatchWorkflowRegistry.kickout.execute({
+      const result = yield* dispatchWorkflowRegistry.kick.execute({
         requester,
-        payload: kickoutPayload,
+        payload: kickPayload,
       });
 
       expect(result).toEqual({
@@ -794,9 +794,9 @@ describe("dispatch workflow registry", () => {
       Effect.provideService(
         DispatchService,
         makeDispatchServiceMock({
-          kickout: (payload, currentRequester) =>
+          kick: (payload, currentRequester) =>
             Effect.sync(() => {
-              expect(payload).toBe(kickoutPayload);
+              expect(payload).toBe(kickPayload);
               expect(currentRequester).toBe(requester);
               return {
                 workspaceId: "workspace-1",
@@ -805,7 +805,7 @@ describe("dispatch workflow registry", () => {
                 roleId: "role-1",
                 removedMemberIds: ["account-2"],
                 status: "removed",
-              } satisfies KickoutDispatchResult;
+              } satisfies KickDispatchResult;
             }),
         }),
       ),
@@ -821,12 +821,6 @@ describe("dispatch workflow registry", () => {
       const authorization: TestAuthorization = { workspaceId: "workspace-1", scope: "manage" };
       const unauthorized: TestAuthorization = { workspaceId: "workspace-1", scope: "monitor" };
       const cases = [
-        (currentAuthorization: typeof authorization) =>
-          dispatchWorkflowRegistry.kickout.authorize({
-            requester,
-            authorization: currentAuthorization,
-            payload: kickoutPayload,
-          }),
         (currentAuthorization: typeof authorization) =>
           dispatchWorkflowRegistry.conversationSet.authorize({
             requester,
@@ -914,6 +908,33 @@ describe("dispatch workflow registry", () => {
         const denied = yield* Effect.exit(authorize(unauthorized));
         expect(denied._tag).toBe("Failure");
       }
+    }),
+  );
+
+  it.effect("requires monitor-workspace authorization snapshots for kick workflow", () =>
+    Effect.gen(function* () {
+      const request = {
+        requester,
+        authorization: { workspaceId: "workspace-1", scope: "monitor" as const },
+        payload: kickPayload,
+      };
+
+      yield* dispatchWorkflowRegistry.kick.authorize(request);
+      const workspaceMismatchDenied = yield* Effect.exit(
+        dispatchWorkflowRegistry.kick.authorize({
+          ...request,
+          authorization: { workspaceId: "workspace-2", scope: "monitor" as const },
+        }),
+      );
+      const manageOnlyDenied = yield* Effect.exit(
+        dispatchWorkflowRegistry.kick.authorize({
+          ...request,
+          authorization: { workspaceId: "workspace-1", scope: "manage" as const },
+        }),
+      );
+
+      expect(Exit.isFailure(workspaceMismatchDenied)).toBe(true);
+      expect(Exit.isFailure(manageOnlyDenied)).toBe(true);
     }),
   );
 

@@ -157,6 +157,7 @@ const terms = {
   runDestination: { singular: "run destination", plural: "run destinations" },
   checkinDestination: { singular: "check-in destination", plural: "check-in destinations" },
   monitorRole: { singular: "monitor role", plural: "monitor roles" },
+  lockdownRole: { singular: "lockdown role", plural: "lockdown roles" },
   message: { singular: "message", plural: "messages" },
   testRun: { singular: "test run", plural: "test runs" },
 } satisfies Record<SheetClientTerm, Record<SheetClientTermForm, string>>;

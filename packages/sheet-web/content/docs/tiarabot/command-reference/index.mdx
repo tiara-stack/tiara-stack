@@ -33,16 +33,16 @@ Monitor roles are registered with `/server add monitor_role`. Manage Server is c
 
 ## Check-in and room operations
 
-| Command              | Caller access  | Required parameters | Optional parameters                             |
-| -------------------- | -------------- | ------------------- | ----------------------------------------------- |
-| `/checkin manual`    | Monitor.       | None                | `channel_name`, `hour`, `server_id`, `template` |
-| `/checkin test_auto` | Monitor.       | None                | `server_id`                                     |
-| `/room_order manual` | Monitor.       | None                | `channel_name`, `hour`, `heal`, `server_id`     |
-| `/kickout manual`    | Manage server. | None                | `hour`, `channel_name`, `server_id`             |
+| Command              | Caller access | Required parameters | Optional parameters                             |
+| -------------------- | ------------- | ------------------- | ----------------------------------------------- |
+| `/checkin manual`    | Monitor.      | None                | `channel_name`, `hour`, `server_id`, `template` |
+| `/checkin test_auto` | Monitor.      | None                | `server_id`                                     |
+| `/room_order manual` | Monitor.      | None                | `channel_name`, `hour`, `heal`, `server_id`     |
+| `/kick manual`       | Monitor.      | None                | `hour`, `channel_name`, `server_id`             |
 
-When `channel_name` is omitted, the manual check-in, room-order, and kickout commands use the current Discord channel to resolve the running room. The optional `template` on `/checkin manual` is an advanced Handlebars message template. The optional `heal` value tells room order how many healer positions are needed.
+When `channel_name` is omitted, the manual check-in, room-order, and kick commands use the current Discord channel to resolve the running room. The optional `template` on `/checkin manual` is an advanced Handlebars message template. The optional `heal` value tells room order how many healer positions are needed.
 
-`/kickout manual` is useful only when the running channel has a configured room role. TiaraBot rejects the command from minute 40 through minute 59 so fillers scheduled through minute 00 of the next hour are not removed early.
+For automatic-check-in servers, TiaraBot cleans each configured running channel’s lockdown role at minute 15. `/kick manual` is the fallback for ad-hoc cleanup and is useful only when the running channel has a configured lockdown role. TiaraBot rejects the command from minute 40 through minute 59 so fillers scheduled through minute 00 of the next hour are not removed early.
 
 ## Personal DM preferences
 
@@ -82,15 +82,15 @@ All `/channel` commands require Manage Server or Administrator in the target ser
 | `/channel set`         | None                | `channel`, `running`, `name`, `role`, `checkin_channel`, `server_id` |
 | `/channel unset`       | None                | `channel`, `running`, `name`, `role`, `checkin_channel`, `server_id` |
 
-`channel` defaults to the current Discord channel. On `/channel unset`, set each field flag to true when that stored value should be cleared. The optional `role` is the running-room visibility role. If it is not set, TiaraBot does not grant or remove room access roles and `/kickout manual` is not needed.
+`channel` defaults to the current Discord channel. On `/channel unset`, set each field flag to true when that stored value should be cleared. The optional `role` is the running-channel lockdown role, which `/channel list_config` labels **Lockdown role**. It is separate from the server-level TiaraBot monitor roles that authorize commands labeled **Monitor** in this reference. If it is not set, TiaraBot does not grant or remove lockdown roles and `/kick manual` is not needed.
 
-These commands store TiaraBot's channel mapping. They do not change Discord channel permission overwrites. If a room role is configured, TiaraBot needs Manage Roles and its bot role must sit above the managed room role.
+These commands store TiaraBot's channel mapping. They do not change Discord channel permission overwrites. If a lockdown role is configured, TiaraBot needs Manage Roles and its bot role must sit above that role.
 
 ## Message controls
 
 | Control                          | Caller access       | Parameters | Notes                                                                                           |
 | -------------------------------- | ------------------- | ---------- | ----------------------------------------------------------------------------------------------- |
-| Check-in button                  | Check-in filler.    | None       | Records that filler and restores the configured room role when the room uses one.               |
+| Check-in button                  | Check-in filler.    | None       | Records that filler and restores the configured lockdown role when the room uses one.           |
 | Open Slots button                | Any eligible user.  | None       | Refreshes the slot list attached to the registered TiaraBot message.                            |
 | Room-order Previous or Next      | Monitor.            | None       | Changes the interactive draft.                                                                  |
 | Room-order Send or Pin tentative | Monitor.            | None       | Sends the selected order or pins the tentative order. TiaraBot needs Manage Messages to pin it. |

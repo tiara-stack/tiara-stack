@@ -24,6 +24,7 @@ const terms = {
   runDestination: ["run destination", "run destinations"],
   checkinDestination: ["check-in destination", "check-in destinations"],
   monitorRole: ["monitor role", "monitor roles"],
+  lockdownRole: ["lockdown role", "lockdown roles"],
   message: ["message", "messages"],
   testRun: ["test run", "test runs"],
 } as const;

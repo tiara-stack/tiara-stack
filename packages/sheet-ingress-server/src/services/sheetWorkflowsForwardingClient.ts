@@ -53,8 +53,8 @@ export class SheetWorkflowsForwardingClient extends Context.Service<SheetWorkflo
               payload: args,
             }),
           ),
-          kickout: accept(DispatchWorkflowOperations.kickout, (args) =>
-            httpClient.dispatchWorkflows[DispatchWorkflowOperations.kickout.rpcTag]({
+          kick: accept(DispatchWorkflowOperations.kick, (args) =>
+            httpClient.dispatchWorkflows[DispatchWorkflowOperations.kick.rpcTag]({
               payload: args,
             }),
           ),

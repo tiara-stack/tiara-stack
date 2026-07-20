@@ -48,6 +48,7 @@ const discordTerms = {
   runDestination: { singular: "running channel", plural: "running channels" },
   checkinDestination: { singular: "check-in channel", plural: "check-in channels" },
   monitorRole: { singular: "monitor role", plural: "monitor roles" },
+  lockdownRole: { singular: "lockdown role", plural: "lockdown roles" },
   message: { singular: "message", plural: "messages" },
   testRun: { singular: "test run", plural: "test runs" },
 } satisfies Record<SheetClientTerm, Record<SheetClientTermForm, string>>;

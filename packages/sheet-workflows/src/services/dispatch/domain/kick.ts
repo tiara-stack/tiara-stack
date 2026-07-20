@@ -1,9 +1,6 @@
-import { Cause, DateTime, Duration, Effect, Match, Option, pipe, Predicate } from "effect";
+import { DateTime, Effect, Option, Predicate } from "effect";
 import type { SheetTextPart } from "sheet-ingress-api/schemas/client";
-import type {
-  KickoutDispatchPayload,
-  KickoutDispatchResult,
-} from "sheet-ingress-api/sheet-apis-rpc";
+import type { KickDispatchPayload, KickDispatchResult } from "sheet-ingress-api/sheet-apis-rpc";
 import type { DispatchRequester } from "sheet-ingress-api/internal";
 import { makeArgumentError, makeUnknownError } from "typhoon-core/error";
 import { markInteractionFailureHandled } from "@/handlers/shared/interactionFailure";
@@ -11,27 +8,34 @@ import { ClientDeliveryClient } from "../../clientDeliveryClient";
 import * as MessageText from "sheet-message-content/text";
 import { makeSheetApisServices } from "../clients/sheetApis";
 import { logNonInterruptFailure } from "../clients/messageDelivery";
-import { recoverNonInterruptCause } from "../pure/failure";
 import { requireSome } from "../pure/option";
 import { textValue } from "sheet-message-content/rendering";
+import { deriveKickHour, makeKickRemover } from "../../kick";
 
 type MessageTextInput = string | ReadonlyArray<SheetTextPart>;
 type SheetApisServices = ReturnType<typeof makeSheetApisServices>;
 type UpdateInteraction = (content: MessageTextInput) => Effect.Effect<unknown, unknown, never>;
 
-export const makeKickoutOperation = ({
+export const makeKickOperation = ({
   botClient,
+  removalConcurrency,
   scheduleService,
   sheetService,
   workspaceConfigService,
 }: {
   readonly botClient: typeof ClientDeliveryClient.Service;
+  readonly removalConcurrency: number;
   readonly scheduleService: SheetApisServices["scheduleService"];
   readonly sheetService: SheetApisServices["sheetService"];
   readonly workspaceConfigService: SheetApisServices["workspaceConfigService"];
 }) => {
+  const removeKickMembers = makeKickRemover({
+    botClient,
+    removalConcurrency,
+    scheduleService,
+  });
   const makeUpdateInteraction =
-    (payload: KickoutDispatchPayload): UpdateInteraction =>
+    (payload: KickDispatchPayload): UpdateInteraction =>
     (content) =>
       Predicate.isString(payload.interactionResponseToken) &&
       payload.interactionResponseToken.length > 0
@@ -41,11 +45,11 @@ export const makeKickoutOperation = ({
           })
         : Effect.void;
   const emptyResult = (
-    payload: KickoutDispatchPayload,
+    payload: KickDispatchPayload,
     runningConversationId: string,
     hour: number,
     roleId: string | null,
-    status: KickoutDispatchResult["status"],
+    status: KickDispatchResult["status"],
   ) => ({
     workspaceId: payload.workspaceId,
     runningConversationId,
@@ -58,22 +62,14 @@ export const makeKickoutOperation = ({
     updateInteraction(message).pipe(
       Effect.andThen(Effect.fail(markInteractionFailureHandled(makeArgumentError(message)))),
     );
-  const resolveHour = (payload: KickoutDispatchPayload, date: DateTime.DateTime) =>
+  const resolveHour = (payload: KickDispatchPayload, date: DateTime.DateTime) =>
     payload.hour !== undefined
       ? Effect.succeed(payload.hour)
-      : sheetService.getEventConfig(payload.workspaceId).pipe(
-          Effect.map((eventConfig) =>
-            pipe(
-              DateTime.distance(eventConfig.startTime, DateTime.startOf(date, "hour")),
-              Duration.toHours,
-              Math.floor,
-              (value) => value + 1,
-              (value) => Math.max(0, value),
-            ),
-          ),
-        );
-  const loadRunningConversation = Effect.fn("DispatchService.loadKickoutConversation")(function* (
-    payload: KickoutDispatchPayload,
+      : sheetService
+          .getEventConfig(payload.workspaceId)
+          .pipe(Effect.map((eventConfig) => deriveKickHour(eventConfig.startTime, date)));
+  const loadRunningConversation = Effect.fn("DispatchService.loadKickConversation")(function* (
+    payload: KickDispatchPayload,
     updateInteraction: UpdateInteraction,
   ) {
     const maybeConversation = Predicate.isString(payload.conversationName)
@@ -95,69 +91,8 @@ export const makeKickoutOperation = ({
     );
     return { conversation, conversationName };
   });
-  const scheduleFillIds = (
-    scheduleItem: Effect.Success<
-      ReturnType<SheetApisServices["scheduleService"]["conversationPopulatedMonitorSchedules"]>
-    >[number],
-  ): ReadonlyArray<string> =>
-    Match.value(scheduleItem).pipe(
-      Match.tagsExhaustive({
-        PopulatedBreakSchedule: () => [],
-        PopulatedSchedule: (schedule) =>
-          schedule.fills.filter(Option.isSome).flatMap((player) =>
-            Match.value(player.value.player).pipe(
-              Match.tagsExhaustive({
-                Player: (player) => [player.id],
-                PartialNamePlayer: () => [],
-              }),
-            ),
-          ),
-      }),
-    );
-  const removeUnexpectedMembers = Effect.fn("DispatchService.removeKickoutMembers")(function* (
-    payload: KickoutDispatchPayload,
-    runningConversationId: string,
-    roleId: string,
-    fillIds: ReadonlyArray<string>,
-  ) {
-    const members = yield* botClient.getMembersForParent(payload.workspaceId);
-    const removedMemberIds = members
-      .filter((member) => member.value.roles.includes(roleId))
-      .map((member) => member.value.user.id)
-      .filter((memberId) => !fillIds.includes(memberId));
-    const removalResults = yield* Effect.forEach(
-      removedMemberIds,
-      (memberId) =>
-        botClient.removeWorkspaceMemberRole(payload.workspaceId, memberId, roleId).pipe(
-          Effect.as({ memberId, removed: true } as const),
-          Effect.catchCause((cause) =>
-            recoverNonInterruptCause(cause, () =>
-              Effect.logError("Failed to remove kickout role from member").pipe(
-                Effect.annotateLogs({
-                  workspaceId: payload.workspaceId,
-                  runningConversationId,
-                  memberId,
-                  roleId,
-                }),
-                Effect.andThen(Effect.logError(Cause.pretty(cause))),
-                Effect.as({ memberId, removed: false } as const),
-              ),
-            ),
-          ),
-        ),
-      { concurrency: 4 },
-    );
-    return {
-      removedMemberIds: removalResults
-        .filter((result) => result.removed)
-        .map((result) => result.memberId),
-      failedMemberIds: removalResults
-        .filter((result) => !result.removed)
-        .map((result) => result.memberId),
-    };
-  });
-  const finishKickoutRemovals = Effect.fn("DispatchService.finishKickoutRemovals")(function* (
-    payload: KickoutDispatchPayload,
+  const finishKickRemovals = Effect.fn("DispatchService.finishKickRemovals")(function* (
+    payload: KickDispatchPayload,
     updateInteraction: UpdateInteraction,
     runningConversationId: string,
     hour: number,
@@ -186,7 +121,7 @@ export const makeKickoutOperation = ({
           ),
     ).pipe(
       logNonInterruptFailure(
-        "Failed to deliver completed kickout result",
+        "Failed to deliver completed kick result",
         { workspaceId: payload.workspaceId, runningConversationId, hour, roleId },
         Effect.void,
       ),
@@ -194,7 +129,7 @@ export const makeKickoutOperation = ({
     if (failedMemberIds.length > 0) {
       return yield* Effect.fail(
         markInteractionFailureHandled(
-          makeUnknownError("Failed to remove kickout role from some members", {
+          makeUnknownError("Failed to remove kick role from some members", {
             failedMemberIds,
             removedMemberIds,
           }),
@@ -208,11 +143,11 @@ export const makeKickoutOperation = ({
       roleId,
       removedMemberIds,
       status: removedMemberIds.length > 0 ? "removed" : "empty",
-    } satisfies KickoutDispatchResult;
+    } satisfies KickDispatchResult;
   });
 
-  return Effect.fn("DispatchService.kickout")(function* (
-    payload: KickoutDispatchPayload,
+  return Effect.fn("DispatchService.kick")(function* (
+    payload: KickDispatchPayload,
     _requester: DispatchRequester,
   ) {
     yield* Effect.annotateCurrentSpan({
@@ -246,32 +181,22 @@ export const makeKickoutOperation = ({
       return emptyResult(payload, runningConversationId, hour, null, "missingRole");
     }
 
-    const scheduleItem = (yield* scheduleService.conversationPopulatedMonitorSchedules(
-      payload.workspaceId,
+    const removalResult = yield* removeKickMembers({
+      workspaceId: payload.workspaceId,
+      runningConversationId,
       conversationName,
-    )).find((schedule) => Option.contains(schedule.hour, hour));
-    if (scheduleItem === undefined) {
-      yield* Effect.logWarning("Skipping kickout because no schedule was found").pipe(
-        Effect.annotateLogs({
-          workspaceId: payload.workspaceId,
-          runningConversationId,
-          conversationName,
-          hour,
-        }),
-      );
+      roleId,
+      hour,
+    });
+    if (!removalResult.scheduleFound) {
       yield* updateInteraction(
         "No schedule found for this conversation and hour; no players kicked out",
       );
       return emptyResult(payload, runningConversationId, hour, roleId, "empty");
     }
 
-    const { failedMemberIds, removedMemberIds } = yield* removeUnexpectedMembers(
-      payload,
-      runningConversationId,
-      roleId,
-      scheduleFillIds(scheduleItem),
-    );
-    return yield* finishKickoutRemovals(
+    const { failedMemberIds, removedMemberIds } = removalResult;
+    return yield* finishKickRemovals(
       payload,
       updateInteraction,
       runningConversationId,

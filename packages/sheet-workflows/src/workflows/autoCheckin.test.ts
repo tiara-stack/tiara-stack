@@ -41,6 +41,8 @@ describe("auto check-in workflow", () => {
       const service = {
         enqueueDueConversations: () => Effect.die("Unexpected enqueueDueConversations call"),
         enqueueWorkspace: () => Effect.die("Unexpected enqueueWorkspace call"),
+        kickWorkspace: () => Effect.die("Unexpected kickWorkspace call"),
+        runDueKicks: () => Effect.die("Unexpected runDueKicks call"),
         processConversation: (currentPayload: AutoCheckinConversationPayload) =>
           Effect.sync(() => {
             expect(currentPayload).toEqual(payload);

@@ -122,22 +122,13 @@ export const requireSlotOpenButtonAccess = (payload: {
     return messageSlot satisfies MessageSlot;
   });
 
-const scopeRank = {
-  member: 0,
-  monitor: 1,
-  manage: 2,
-} as const;
-
 export const requireAuthorizedWorkspace = (
   authorization: DispatchAuthorizationSnapshot | undefined,
   workspaceId: string,
   scope: DispatchAuthorizationSnapshot["scope"],
 ) =>
   Effect.gen(function* () {
-    if (
-      authorization?.workspaceId === workspaceId &&
-      scopeRank[authorization.scope] >= scopeRank[scope]
-    ) {
+    if (authorization?.workspaceId === workspaceId && authorization.scope === scope) {
       return;
     }
 

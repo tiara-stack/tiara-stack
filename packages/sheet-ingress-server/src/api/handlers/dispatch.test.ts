@@ -36,7 +36,7 @@ const TestLayer = Layer.mergeAll(
   Layer.succeed(SheetAuthUser, testUser),
 );
 
-const getDispatchRoute = (name: "autoCheckinTest" | "kickout") => {
+const getDispatchRoute = (name: "autoCheckinTest" | "kick") => {
   const routes = new Map<string, TestRouteHandler>();
   const handlers = {
     handle(routeName: string, handler: unknown) {
@@ -53,7 +53,7 @@ const getDispatchRoute = (name: "autoCheckinTest" | "kickout") => {
 };
 
 const runRoute = (
-  name: "autoCheckinTest" | "kickout",
+  name: "autoCheckinTest" | "kick",
   payload: Record<string, unknown>,
   authorizationService: Context.Service.Shape<typeof AuthorizationService>,
   forwardingClient: Context.Service.Shape<typeof SheetWorkflowsForwardingClient>,
@@ -97,31 +97,32 @@ layer(TestLayer)("dispatch handlers", (it) => {
     }),
   );
 
-  it.effect("forwards manage authorization for kickout", () =>
+  it.effect("forwards monitor authorization for kick", () =>
     Effect.gen(function* () {
-      const requireManageWorkspace: Context.Service.Shape<
+      const requireMonitorWorkspace: Context.Service.Shape<
         typeof AuthorizationService
-      >["requireManageWorkspace"] = vi.fn(() => Effect.as(SheetAuthUser, undefined));
-      const kickout = vi.fn(() => Effect.succeed({ status: "accepted" }));
+      >["requireMonitorWorkspace"] = vi.fn(() => Effect.as(SheetAuthUser, undefined));
+      const kick = vi.fn(() => Effect.succeed({ status: "accepted" }));
       const payload = {
         client: { platform: "discord", clientId: "discord-main" },
-        dispatchRequestId: "dispatch-kickout",
+        dispatchRequestId: "dispatch-kick",
         workspaceId: "workspace-1",
       };
 
       yield* runRoute(
-        "kickout",
+        "kick",
         payload,
-        { requireManageWorkspace } as unknown as Context.Service.Shape<typeof AuthorizationService>,
-        { dispatch: { kickout } } as unknown as Context.Service.Shape<
+        { requireMonitorWorkspace } as unknown as Context.Service.Shape<
+          typeof AuthorizationService
+        >,
+        { dispatch: { kick } } as unknown as Context.Service.Shape<
           typeof SheetWorkflowsForwardingClient
         >,
       );
 
-      expect(requireManageWorkspace).toHaveBeenCalledWith("workspace-1");
-      expect(kickout).toHaveBeenCalledWith({
+      expect(requireMonitorWorkspace).toHaveBeenCalledWith("workspace-1");
+      expect(kick).toHaveBeenCalledWith({
         requester: { accountId: "discord-user-1", userId: "user-1" },
-        authorization: { workspaceId: "workspace-1", scope: "manage" },
         payload,
       });
     }),

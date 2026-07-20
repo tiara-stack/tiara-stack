@@ -102,9 +102,7 @@ describe("SheetWorkflowsForwardingClient", () => {
         [DispatchWorkflowOperations.roomOrder.rpcTag]: makeDispatch(
           DispatchWorkflowOperations.roomOrder,
         ),
-        [DispatchWorkflowOperations.kickout.rpcTag]: makeDispatch(
-          DispatchWorkflowOperations.kickout,
-        ),
+        [DispatchWorkflowOperations.kick.rpcTag]: makeDispatch(DispatchWorkflowOperations.kick),
         [DispatchWorkflowOperations.slotButton.rpcTag]: makeDispatch(
           DispatchWorkflowOperations.slotButton,
         ),
@@ -281,21 +279,21 @@ describe("SheetWorkflowsForwardingClient", () => {
         },
       });
       yield* expectDispatchResult(
-        client.dispatch.kickout({
+        client.dispatch.kick({
           requester,
           payload: {
             client: dispatchClient,
-            dispatchRequestId: "dispatch-kickout",
+            dispatchRequestId: "dispatch-kick",
             workspaceId: "workspace-1",
           },
         } as never) as Effect.Effect<unknown, unknown, never>,
-        { operation: "kickout" },
+        { operation: "kick" },
       );
-      expectDispatched(DispatchWorkflowOperations.kickout, {
+      expectDispatched(DispatchWorkflowOperations.kick, {
         requester,
         payload: {
           client: dispatchClient,
-          dispatchRequestId: "dispatch-kickout",
+          dispatchRequestId: "dispatch-kick",
           workspaceId: "workspace-1",
         },
       });

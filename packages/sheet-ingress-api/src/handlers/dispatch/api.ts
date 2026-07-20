@@ -14,8 +14,8 @@ import {
   DispatchRoomOrderButtonMethods,
   WorkspaceWelcomeDispatchErrorSchemas,
   WorkspaceWelcomeDispatchPayload,
-  KickoutDispatchErrorSchemas,
-  KickoutDispatchPayload,
+  KickDispatchErrorSchemas,
+  KickDispatchPayload,
   PreferenceDmDisableDispatchPayload,
   PreferenceDmEnableDispatchPayload,
   PreferenceDmSetClientDispatchPayload,
@@ -82,10 +82,10 @@ export class DispatchApi extends HttpApiGroup.make("dispatch")
     }),
   )
   .add(
-    HttpApiEndpoint.post("kickout", "/dispatch/kickout", {
-      payload: KickoutDispatchPayload,
+    HttpApiEndpoint.post("kick", "/dispatch/kick", {
+      payload: KickDispatchPayload,
       success: DispatchAcceptedResult,
-      error: KickoutDispatchErrorSchemas,
+      error: KickDispatchErrorSchemas,
     }),
   )
   .add(

@@ -11,7 +11,7 @@ import {
   DispatchConversationSetWorkflow,
   DispatchConversationUnsetWorkflow,
   DispatchWorkspaceWelcomeWorkflow,
-  DispatchKickoutWorkflow,
+  DispatchKickWorkflow,
   DispatchPreferenceDmDisableWorkflow,
   DispatchPreferenceDmEnableWorkflow,
   DispatchPreferenceDmSetClientWorkflow,
@@ -96,13 +96,14 @@ export const dispatchWorkflowRegistry = {
     execute: (request: typeof DispatchRoomOrderWorkflow.payloadSchema.Type) =>
       withDispatchService((service) => service.roomOrder(request.payload, request.requester)),
   },
-  kickout: {
-    operation: "kickout",
-    workflow: DispatchKickoutWorkflow,
+  kick: {
+    operation: "kick",
+    workflow: DispatchKickWorkflow,
     getInteractionToken,
-    authorize: authorizeManageWorkspace<typeof DispatchKickoutWorkflow.payloadSchema.Type>(),
-    execute: (request: typeof DispatchKickoutWorkflow.payloadSchema.Type) =>
-      withDispatchService((service) => service.kickout(request.payload, request.requester)),
+    authorize: (request: typeof DispatchKickWorkflow.payloadSchema.Type) =>
+      requireAuthorizedWorkspace(request.authorization, request.payload.workspaceId, "monitor"),
+    execute: (request: typeof DispatchKickWorkflow.payloadSchema.Type) =>
+      withDispatchService((service) => service.kick(request.payload, request.requester)),
   },
   slotButton: {
     operation: "slotButton",

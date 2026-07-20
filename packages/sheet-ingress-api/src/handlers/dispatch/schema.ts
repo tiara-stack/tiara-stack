@@ -56,7 +56,7 @@ export const RoomOrderDispatchError = Schema.Union(RoomOrderDispatchErrorSchemas
 export const RoomOrderHandleButtonErrorSchemas = RoomOrderDispatchErrorSchemas;
 export const RoomOrderHandleButtonError = Schema.Union(RoomOrderHandleButtonErrorSchemas);
 
-export const KickoutDispatchErrorSchemas = [
+export const KickDispatchErrorSchemas = [
   GoogleSheetsError,
   ParserFieldError,
   SheetConfigError,
@@ -66,7 +66,7 @@ export const KickoutDispatchErrorSchemas = [
   Unauthorized,
   UnknownError,
 ] as const;
-export const KickoutDispatchError = Schema.Union(KickoutDispatchErrorSchemas);
+export const KickDispatchError = Schema.Union(KickDispatchErrorSchemas);
 
 export const SlotDispatchErrorSchemas = [
   GoogleSheetsError,
@@ -242,7 +242,7 @@ export const RoomOrderDispatchResult = Schema.Struct({
 
 export type RoomOrderDispatchResult = Schema.Schema.Type<typeof RoomOrderDispatchResult>;
 
-export const KickoutDispatchPayload = Schema.Struct({
+export const KickDispatchPayload = Schema.Struct({
   ...ClientDispatchPayloadBase,
   dispatchRequestId: Schema.String,
   workspaceId: Schema.String,
@@ -253,9 +253,9 @@ export const KickoutDispatchPayload = Schema.Struct({
   interactionResponseDeadlineEpochMs: Schema.optional(Schema.Number),
 });
 
-export type KickoutDispatchPayload = Schema.Schema.Type<typeof KickoutDispatchPayload>;
+export type KickDispatchPayload = Schema.Schema.Type<typeof KickDispatchPayload>;
 
-export const KickoutDispatchResult = Schema.Struct({
+export const KickDispatchResult = Schema.Struct({
   workspaceId: Schema.String,
   runningConversationId: Schema.String,
   hour: Schema.Number,
@@ -264,7 +264,7 @@ export const KickoutDispatchResult = Schema.Struct({
   status: Schema.Literals(["removed", "empty", "tooEarly", "missingRole"]),
 });
 
-export type KickoutDispatchResult = Schema.Schema.Type<typeof KickoutDispatchResult>;
+export type KickDispatchResult = Schema.Schema.Type<typeof KickDispatchResult>;
 
 export const TeamSubmissionDispatchPayload = TeamSubmissionUpsertFromDiscordPayload;
 export type TeamSubmissionDispatchPayload = Schema.Schema.Type<
@@ -760,7 +760,7 @@ export const DispatchAcceptedResult = Schema.Struct({
     "autoCheckinTest",
     "checkin",
     "roomOrder",
-    "kickout",
+    "kick",
     "slotButton",
     "slotList",
     "slotOpenButton",

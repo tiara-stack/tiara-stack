@@ -64,6 +64,10 @@ export const config = {
   autoCheckinConcurrency: Config.schema(positiveInt, "AUTO_CHECKIN_CONCURRENCY").pipe(
     Config.withDefault(50),
   ),
+  // Bound automatic kick conversations independently from check-in workflow enqueues.
+  autoKickConcurrency: Config.schema(positiveInt, "AUTO_KICK_CONCURRENCY").pipe(
+    Config.withDefault(4),
+  ),
   workflowsSmokeWorkflowEnabled: Config.boolean("WORKFLOWS_SMOKE_WORKFLOW_ENABLED").pipe(
     Config.withDefault(false),
   ),

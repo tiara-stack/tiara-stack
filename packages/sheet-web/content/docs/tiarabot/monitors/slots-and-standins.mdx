@@ -1,6 +1,6 @@
 ---
 title: Manage slots, stand-ins, and room access
-description: Inspect slots and manage optional running-room role access.
+description: Inspect slots and manage optional running-room lockdown-role access.
 ---
 
 ## Find the replacement pool
@@ -9,11 +9,13 @@ Use `/slot list` and the **Open slots** button to see Open/Filled Slots. Use tar
 
 Apply your server’s established flow after the TiaraBot check-in. Some servers ping standby well in advance and escalate if the slot stays empty. Others go directly to emergency.
 
-## Clean up an optional running-room role
+## Clean up an optional lockdown role
 
-Only use `/kickout manual` when the running channel has a configured room-access role. With optional `channel_name`, `hour`, and `server_id` inputs, TiaraBot reads the sheet and removes that role from members who are **not** scheduled as fills for the resolved hour.
+For servers with automatic check-in enabled, TiaraBot performs this cleanup automatically at minute 15: it removes each running channel’s lockdown role from members who are **not** scheduled as fills for the current hour.
 
-If no role is configured in TiaraBot, it does not manage role-gated room access and no kickout is needed. The command makes no changes and reports that the conversation has no configured role.
+Use `/kick manual` as a fallback for ad-hoc cleanup when the running channel has a configured lockdown role. With optional `channel_name`, `hour`, and `server_id` inputs, TiaraBot reads the sheet and removes that role from members who are **not** scheduled as fills for the resolved hour.
+
+If no lockdown role is configured in TiaraBot, it does not manage role-gated room access and no kick is needed. Automatic cleanup skips the channel; the manual command makes no changes and reports that the conversation has no configured role.
 
 The command does not:
 
@@ -21,6 +23,6 @@ The command does not:
 - edit or fill a slot.
 - assign or ping a replacement.
 
-TiaraBot rejects every kickout invocation at or after minute 40 until the next hour begins, including invocations with an explicit `hour`. This prevents mana/moni from prematurely removing fillers who should remain in the running room through minute 00 of the next hour. Before minute 40, use an explicit `hour` when context is ambiguous.
+TiaraBot rejects every kick invocation at or after minute 40 until the next hour begins, including invocations with an explicit `hour`. This prevents mana/moni from prematurely removing fillers who should remain in the running room through minute 00 of the next hour. Before minute 40, use an explicit `hour` when context is ambiguous.
 
 After a replacement is recorded in the source schedule, rerun affected check-in and room-order steps.

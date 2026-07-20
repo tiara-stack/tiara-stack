@@ -15,8 +15,8 @@ describe("SheetWorkflowsRpcs", () => {
     expect(SheetWorkflowsRpcs.requests.has("dispatch.checkinButtonDiscard")).toBe(true);
     expect(SheetWorkflowsRpcs.requests.has("dispatch.roomOrder")).toBe(true);
     expect(SheetWorkflowsRpcs.requests.has("dispatch.roomOrderDiscard")).toBe(true);
-    expect(SheetWorkflowsRpcs.requests.has("dispatch.kickout")).toBe(true);
-    expect(SheetWorkflowsRpcs.requests.has("dispatch.kickoutDiscard")).toBe(true);
+    expect(SheetWorkflowsRpcs.requests.has("dispatch.kick")).toBe(true);
+    expect(SheetWorkflowsRpcs.requests.has("dispatch.kickDiscard")).toBe(true);
     expect(SheetWorkflowsRpcs.requests.has("dispatch.slotButton")).toBe(true);
     expect(SheetWorkflowsRpcs.requests.has("dispatch.slotButtonDiscard")).toBe(true);
     expect(SheetWorkflowsRpcs.requests.has("dispatch.slotList")).toBe(true);

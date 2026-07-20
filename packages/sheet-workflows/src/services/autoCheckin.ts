@@ -2,6 +2,7 @@
 import { Context, DateTime, Duration, Effect, Layer, Option, pipe } from "effect";
 import { WorkflowEngine } from "effect/unstable/workflow";
 import { makeArgumentError } from "typhoon-core/error";
+import type { WorkspaceConversationConfig } from "sheet-ingress-api/schemas/workspaceConfig";
 import { checkinActionRow } from "sheet-message-content/components";
 import {
   autoCheckinSummaryMessage,
@@ -23,6 +24,11 @@ import {
 } from "@/workflows/autoCheckinContract";
 import type { AutoCheckinConversationPayload } from "@/workflows/autoCheckinContract";
 import { config } from "@/config";
+import { deriveKickHour, makeKickRemover } from "./kick";
+
+type WorkspaceMembers = Effect.Success<
+  ReturnType<(typeof ClientDeliveryClient.Service)["getMembersForParent"]>
+>;
 
 type DeliveredMessage = {
   readonly id: string;
@@ -79,6 +85,14 @@ const makeSheetApisServices = (sheetApisClient: typeof SheetApisClient.Service) 
       getAutoCheckinWorkspaces: () => sheetApis.workspaceConfig.getAutoCheckinWorkspaces(),
       getWorkspaceConversations: (workspaceId: string, running: boolean) =>
         sheetApis.workspaceConfig.getWorkspaceConversations({ query: { workspaceId, running } }),
+    },
+    scheduleService: {
+      conversationPopulatedMonitorSchedules: (workspaceId: string, conversationName: string) =>
+        sheetApis.schedule
+          .getConversationPopulatedSchedules({
+            query: { workspaceId, conversationName, view: "monitor" },
+          })
+          .pipe(Effect.map(({ schedules }) => schedules)),
     },
     messageCheckinService: {
       persistMessageCheckin: (
@@ -173,6 +187,7 @@ export class AutoCheckinService extends Context.Service<AutoCheckinService>()(
       const sheetApisClient = yield* SheetApisClient;
       const workflowClient = yield* AutoCheckinWorkflowClient;
       const autoCheckinConcurrency = yield* config.autoCheckinConcurrency;
+      const autoKickConcurrency = yield* config.autoKickConcurrency;
       const {
         checkinService,
         userConfigService,
@@ -180,8 +195,14 @@ export class AutoCheckinService extends Context.Service<AutoCheckinService>()(
         messageCheckinService,
         messageRoomOrderService,
         roomOrderService,
+        scheduleService,
         sheetService,
       } = makeSheetApisServices(sheetApisClient);
+      const removeKickMembers = makeKickRemover({
+        botClient,
+        removalConcurrency: autoKickConcurrency,
+        scheduleService,
+      });
 
       const enqueueWorkspace = Effect.fn("AutoCheckinService.enqueueWorkspace")(function* (
         workspaceId: string,
@@ -227,8 +248,99 @@ export class AutoCheckinService extends Context.Service<AutoCheckinService>()(
         return enqueuedCount;
       });
 
+      const kickConversation = Effect.fn("AutoCheckinService.kickConversation")(function* (
+        workspaceId: string,
+        hour: number,
+        conversation: WorkspaceConversationConfig,
+        members: WorkspaceMembers,
+      ) {
+        return yield* Option.match(conversation.roleId, {
+          onNone: () => Effect.succeed(0),
+          onSome: (roleId) =>
+            Option.match(conversation.name, {
+              onNone: () =>
+                Effect.logWarning("Skipping auto-kick for unnamed conversation").pipe(
+                  Effect.annotateLogs({
+                    workspaceId,
+                    runningConversationId: conversation.conversationId,
+                    hour,
+                    roleId,
+                  }),
+                  Effect.as(0),
+                ),
+              onSome: (conversationName) =>
+                removeKickMembers({
+                  workspaceId,
+                  runningConversationId: conversation.conversationId,
+                  conversationName,
+                  roleId,
+                  hour,
+                  members,
+                }).pipe(
+                  Effect.tap((result) =>
+                    Effect.logInfo("Completed automatic lockdown-role cleanup").pipe(
+                      Effect.annotateLogs({
+                        workspaceId,
+                        runningConversationId: conversation.conversationId,
+                        conversationName,
+                        roleId,
+                        hour,
+                        scheduleFound: result.scheduleFound,
+                        removedCount: result.removedMemberIds.length,
+                        failedCount: result.failedMemberIds.length,
+                      }),
+                    ),
+                  ),
+                  Effect.as(1),
+                  Effect.catchCause((cause) =>
+                    Effect.logError("Failed automatic lockdown-role cleanup").pipe(
+                      Effect.annotateLogs({
+                        workspaceId,
+                        runningConversationId: conversation.conversationId,
+                        conversationName,
+                        roleId,
+                        hour,
+                      }),
+                      Effect.andThen(Effect.logError(cause)),
+                      Effect.as(0),
+                    ),
+                  ),
+                ),
+            }),
+        });
+      });
+
+      const kickWorkspace = Effect.fn("AutoCheckinService.kickWorkspace")(function* (
+        workspaceId: string,
+      ) {
+        const date = yield* DateTime.now;
+        const eventConfig = yield* sheetService.getEventConfig(workspaceId);
+        const hour = deriveKickHour(eventConfig.startTime, date);
+        yield* Effect.annotateCurrentSpan({ workspaceId, hour, autoKickConcurrency });
+        const conversations = yield* workspaceConfigService.getWorkspaceConversations(
+          workspaceId,
+          true,
+        );
+        const managedConversations = conversations.filter((conversation) =>
+          Option.isSome(conversation.roleId),
+        );
+        if (managedConversations.length === 0) {
+          return 0;
+        }
+        const members = yield* botClient.getMembersForParent(workspaceId);
+        const counts = yield* Effect.forEach(
+          managedConversations,
+          (conversation) => kickConversation(workspaceId, hour, conversation, members),
+          { concurrency: 1 },
+        );
+        const processedCount = counts.reduce((sum, count) => sum + count, 0);
+        yield* Effect.annotateCurrentSpan({ processedConversationCount: processedCount });
+        return processedCount;
+      });
+
       return {
         enqueueWorkspace,
+        kickWorkspace,
         enqueueDueConversations: Effect.fn("AutoCheckinService.enqueueDueConversations")(
           function* () {
             yield* Effect.annotateCurrentSpan({ autoCheckinConcurrency });
@@ -256,6 +368,30 @@ export class AutoCheckinService extends Context.Service<AutoCheckinService>()(
             return enqueuedCount;
           },
         ),
+        runDueKicks: Effect.fn("AutoCheckinService.runDueKicks")(function* () {
+          yield* Effect.annotateCurrentSpan({ autoKickConcurrency });
+          const workspaceConfigs = yield* workspaceConfigService.getAutoCheckinWorkspaces();
+          const counts = yield* Effect.forEach(
+            workspaceConfigs,
+            (workspaceConfig) =>
+              kickWorkspace(workspaceConfig.workspaceId).pipe(
+                Effect.catchCause((cause) =>
+                  Effect.logError("Failed automatic lockdown-role cleanup for workspace").pipe(
+                    Effect.annotateLogs({ workspaceId: workspaceConfig.workspaceId }),
+                    Effect.andThen(Effect.logError(cause)),
+                    Effect.as(0),
+                  ),
+                ),
+              ),
+            { concurrency: 1 },
+          );
+          const processedCount = counts.reduce((sum, count) => sum + count, 0);
+          yield* Effect.annotateCurrentSpan({
+            workspaceCount: workspaceConfigs.length,
+            processedConversationCount: processedCount,
+          });
+          return processedCount;
+        }),
         // fallow-ignore-next-line complexity
         processConversation: Effect.fn("AutoCheckinService.processConversation")(function* (
           payload: AutoCheckinConversationPayload,

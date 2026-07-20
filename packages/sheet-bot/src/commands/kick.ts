@@ -30,7 +30,7 @@ const makeManualSubCommand = Effect.gen(function* () {
         .addStringOption((builder) =>
           builder.setName("server_id").setDescription("The server to kick out users for"),
         ),
-    Effect.fn("kickout.manual")(function* (command) {
+    Effect.fn("kick.manual")(function* (command) {
       const response = yield* InteractionResponse;
       yield* response.deferReply();
 
@@ -42,9 +42,9 @@ const makeManualSubCommand = Effect.gen(function* () {
       const base = yield* makeDispatchBase;
       yield* runSheetWorkflowsDispatch(
         response,
-        "the kickout",
+        "the kick",
         SheetWorkflowsRequestContext.asInteractionUser(() =>
-          sheetWorkflowsClient.get().dispatch.kickout({
+          sheetWorkflowsClient.get().dispatch.kick({
             payload: {
               ...base,
               ...target,
@@ -57,11 +57,11 @@ const makeManualSubCommand = Effect.gen(function* () {
   );
 });
 
-const makeKickoutCommand = makeSingleSubCommand({
-  commandName: "kickout",
-  commandDescription: "Kick out commands",
+const makeKickCommand = makeSingleSubCommand({
+  commandName: "kick",
+  commandDescription: "Kick commands",
   subCommandName: "manual",
   makeSubCommand: makeManualSubCommand,
 });
 
-export const kickoutCommandLayer = registerGlobalCommandLayer(makeKickoutCommand);
+export const kickCommandLayer = registerGlobalCommandLayer(makeKickCommand);

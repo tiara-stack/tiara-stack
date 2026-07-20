@@ -50,10 +50,7 @@ export const dispatchHandlers = {
         ),
       )
       .handle("roomOrder", authorizedSheetWorkflowsDispatch("roomOrder", requireMonitorWorkspace))
-      .handle(
-        "kickout",
-        authorizedSheetWorkflowsDispatch("kickout", requireManageWorkspaceSnapshot),
-      )
+      .handle("kick", authorizedSheetWorkflowsDispatch("kick", requireMonitorWorkspace))
       .handle("slotButton", authorizedSheetWorkflowsDispatch("slotButton", requireMonitorWorkspace))
       .handle(
         "slotList",

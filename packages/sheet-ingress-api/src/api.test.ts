@@ -16,7 +16,7 @@ const dispatchRpcNames = [
   "dispatch.checkin",
   "dispatch.checkinButton",
   "dispatch.roomOrder",
-  "dispatch.kickout",
+  "dispatch.kick",
   "dispatch.slotButton",
   "dispatch.slotList",
   "dispatch.slotOpenButton",

@@ -3,15 +3,15 @@ title: Pings and actions
 description: Immediate actions for TiaraBot messages and related server pings.
 ---
 
-| What appears                     | Who acts  | Action now                                                                                                     |
-| -------------------------------- | --------- | -------------------------------------------------------------------------------------------------------------- |
-| Check-in DM/message              | Filler    | Verify hour/room, press **Check in** once, then enter the running-room context.                                |
-| Check-in announcement            | Mana/moni | Confirm the expected filler and room role when configured. Investigate a wrong hour or room before room order. |
-| Missing filler in check-in state | Mana/moni | Use schedule/slot data, then apply the server’s standby or emergency process.                                  |
-| Team-submission reply            | Filler    | Correct skipped or incorrect teams.                                                                            |
-| Team Confirm/Reject controls     | Mana/moni | Where Theerie enabled them, accept or roll back the already-written submission.                                |
-| Tentative room order             | Mana/moni | Select with Previous/Next, then Pin or generate a normal final order.                                          |
-| Pinned room order                | Filler    | Read the selected order and follow the host’s room code/instructions.                                          |
-| Manual standby/emergency ping    | Filler    | Respond through the server’s process. Contact your server’s mana/moni if unclear.                              |
+| What appears                     | Who acts  | Action now                                                                                                         |
+| -------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------ |
+| Check-in DM/message              | Filler    | Verify hour/room, press **Check in** once, then enter the running-room context.                                    |
+| Check-in announcement            | Mana/moni | Confirm the expected filler and lockdown role when configured. Investigate a wrong hour or room before room order. |
+| Missing filler in check-in state | Mana/moni | Use schedule/slot data, then apply the server’s standby or emergency process.                                      |
+| Team-submission reply            | Filler    | Correct skipped or incorrect teams.                                                                                |
+| Team Confirm/Reject controls     | Mana/moni | Where Theerie enabled them, accept or roll back the already-written submission.                                    |
+| Tentative room order             | Mana/moni | Select with Previous/Next, then Pin or generate a normal final order.                                              |
+| Pinned room order                | Filler    | Read the selected order and follow the host’s room code/instructions.                                              |
+| Manual standby/emergency ping    | Filler    | Respond through the server’s process. Contact your server’s mana/moni if unclear.                                  |
 
 Auto check-in uses TiaraBot’s timing. `/checkin manual` supports server-chosen timing with the same check-in procedure. Schedule-sign-up timing and standby/emergency escalation remain server-specific.

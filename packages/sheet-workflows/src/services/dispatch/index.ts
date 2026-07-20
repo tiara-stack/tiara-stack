@@ -7,7 +7,7 @@ import { makeCheckinOperations } from "./domain/checkin";
 import { makeCheckinButtonOperations } from "./domain/checkinButton";
 import { makeGuildConfigOperations } from "./domain/guildConfig";
 import { makeGuildLifecycleOperations } from "./domain/guildLifecycle";
-import { makeKickoutOperation } from "./domain/kickout";
+import { makeKickOperation } from "./domain/kick";
 import { makePreferenceDmOperations } from "./domain/preferenceOperations";
 import { makePreferenceDmHelpers } from "./domain/preferences";
 import { makeRoomOrderHelpers } from "./domain/roomOrder";
@@ -40,6 +40,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       screenshotService,
     } = makeSheetApisServices(sheetApisClient);
     const autoCheckinConcurrency = yield* config.autoCheckinConcurrency;
+    const kickRemovalConcurrency = yield* config.autoKickConcurrency;
 
     const {
       disabledPreferenceDmResult,
@@ -83,9 +84,10 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       messageSlotService,
     });
     const guildConfigOperations = makeGuildConfigOperations({ botClient, workspaceConfigService });
-    const kickoutOperations = {
-      kickout: makeKickoutOperation({
+    const kickOperations = {
+      kick: makeKickOperation({
         botClient,
+        removalConcurrency: kickRemovalConcurrency,
         scheduleService,
         sheetService,
         workspaceConfigService,
@@ -137,7 +139,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       roomOrderOperations,
       slotOperations,
       guildConfigOperations,
-      kickoutOperations,
+      kickOperations,
       teamSubmissionOperations,
       statusOperations,
       preferenceDmOperations,

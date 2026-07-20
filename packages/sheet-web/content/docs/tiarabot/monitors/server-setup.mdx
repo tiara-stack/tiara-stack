@@ -1,6 +1,6 @@
 ---
 title: Configure an event server
-description: Connect the schedule sheet, monitor roles, running rooms, optional access roles, and check-in destinations.
+description: Connect the schedule sheet, monitor roles, running rooms, optional lockdown roles, and check-in destinations.
 ---
 
 ## Inspect before changing
@@ -23,18 +23,22 @@ Use `/channel set` on the current or selected Discord channel to configure:
 
 - `running`: Whether the channel is a running/private-room coordination channel.
 - `name`: The logical channel name used by commands such as `/screenshot`.
-- `role`: An optional room-access role TiaraBot reapplies at check-in and removes during kickout cleanup.
+- `role`: An optional lockdown role TiaraBot reapplies at check-in and removes during kick cleanup.
 - `checkin_channel`: Where the filler-facing Check in message is sent.
 
 Use `/channel unset` to remove only the mistaken field, then `/channel list_config` to verify the result.
 
-## Optional running-room access role
+The `/channel list_config` response labels this channel-level field **Lockdown role**.
 
-The running-room `role` is optional. When it is configured, TiaraBot assumes the Discord channel’s permissions use that role as a visibility gate. TiaraBot grants the role at check-in and `/kickout manual` removes it from people who should no longer have room access.
+## Optional lockdown role
+
+The running-room lockdown `role` is optional. When it is configured, TiaraBot assumes the Discord channel’s permissions use that role as a visibility gate. TiaraBot grants the lockdown role at check-in and removes it from people who should no longer have room access during automatic cleanup on automatic-check-in servers or during manual kick cleanup.
+
+This lockdown role is separate from the server-level monitor roles registered with `/server add monitor_role`. Monitor roles authorize mana/moni commands; the lockdown role gates visibility for one running channel.
 
 The visibility gate can keep unrelated people from seeing the in-game room code and entering to break or grief the room. `/channel set` only tells TiaraBot which role to manage. Mana/moni or server staff must configure the Discord channel permissions separately.
 
-If the running room is visible without a managed role, leave `role` unset. TiaraBot will not manage room access, and there is no need to run `/kickout manual`.
+If the running room is visible without a managed role, leave `role` unset. TiaraBot will skip lockdown-role cleanup for that channel, and there is no need to run `/kick manual`.
 
 <Callout type="warn" title="Separate feature configuration">
   `/channel` does not configure every announcement or the unstable team-submission monitor. Theerie

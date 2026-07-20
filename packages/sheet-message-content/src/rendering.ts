@@ -166,7 +166,7 @@ export const formatConversationConfigFields = (config: {
     }),
   },
   {
-    name: [MessageText.clientTerm("monitorRole", { casing: "sentence" })],
+    name: [MessageText.clientTerm("lockdownRole", { casing: "sentence" })],
     value: Option.match(config.roleId, {
       onSome: (roleId) => roleMentionValue(config.client, config.workspaceId, roleId),
       onNone: () => "None!",

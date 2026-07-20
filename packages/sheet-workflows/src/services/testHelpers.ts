@@ -23,6 +23,7 @@ const clientTerms: Record<string, string> = {
   runDestination: "run destination",
   checkinDestination: "check-in destination",
   monitorRole: "monitor role",
+  lockdownRole: "lockdown role",
   testRun: "test run",
 };
 
