@@ -1,0 +1,38 @@
+---
+title: Set up lockdown channel permissions
+description: Apply or remove the Discord permission overwrites used by a running channel's lockdown role.
+---
+
+Use these commands after the running channel has a **Lockdown role** configured in TiaraBot. You can confirm the role with `/channel list_config`.
+
+## Apply lockdown permissions
+
+Run `/channel lockdown_setup` and select the running channel. TiaraBot replaces that channel's permission overwrites with:
+
+| Role                         | Channel permissions                                                                                   |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Lockdown role                | View Channel, Read Message History, Send Messages, Use External Emojis                                |
+| Each configured monitor role | View Channel, Read Message History, Send Messages, Use External Emojis, Manage Channels, Pin Messages |
+| Everyone else                | View Channel denied                                                                                   |
+
+The lockdown role is the channel-level role shown by `/channel list_config`. Monitor roles are the server-level roles registered with `/server add monitor_role`.
+
+<Callout type="warn" title="Existing overwrites are replaced">
+  Check the selected channel before running the command. Any member-specific or additional role
+  overwrites on that channel are removed when the lockdown permissions are applied.
+</Callout>
+
+## Remove lockdown permissions
+
+Run `/channel lockdown_undo` and select the channel to remove all of its permission overwrites. The channel then uses its inherited server and category permissions again, including the default visibility for `@everyone`.
+
+Use undo when the channel no longer needs the lockdown visibility gate. It does not remove the Lockdown role from TiaraBot's saved channel configuration.
+
+## Who can run these commands
+
+Either of these can run lockdown setup and undo:
+
+- a member holding a monitor role registered for the server.
+- a member with Discord's Manage Server permission.
+
+TiaraBot must be allowed to manage the selected channel. If the command fails, confirm its Discord role has **Manage Channels**, then retry once before contacting Theerie.

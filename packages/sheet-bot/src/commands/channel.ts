@@ -211,10 +211,61 @@ const makeUnsetSubCommand = Effect.gen(function* () {
   );
 });
 
+const makeLockdownSubCommand = (
+  operation: "setup" | "undo",
+  dispatch: (
+    client: ReturnType<(typeof SheetWorkflowsClient.Service)["get"]>,
+    payload: Effect.Success<ReturnType<typeof resolveChannelCommandPayloadBase>>,
+  ) => Effect.Effect<unknown, unknown>,
+) =>
+  Effect.gen(function* () {
+    const sheetWorkflowsClient = yield* SheetWorkflowsClient;
+    const commandName = operation === "setup" ? "lockdown_setup" : "lockdown_undo";
+
+    return yield* CommandHelper.makeSubCommand(
+      (builder) =>
+        builder
+          .setName(commandName)
+          .setDescription(
+            operation === "setup"
+              ? "Set up lockdown permissions for a channel"
+              : "Remove all permission overwrites from a channel",
+          )
+          .addChannelOption((builder) =>
+            builder.setName("channel").setDescription("The channel to update").setRequired(true),
+          ),
+      Effect.fn(`channel.${commandName}`)(function* (command) {
+        const response = yield* InteractionResponse;
+        yield* response.deferReply();
+        const payload = yield* resolveChannelCommandPayloadBase(
+          Option.none(),
+          command.optionChannelValueOptional("channel"),
+        );
+        yield* runSheetWorkflowsDispatch(
+          response,
+          `the channel lockdown ${operation}`,
+          SheetWorkflowsRequestContext.asInteractionUser(() =>
+            dispatch(sheetWorkflowsClient.get(), payload),
+          )(),
+        );
+      }),
+    );
+  });
+
+const makeLockdownSetupSubCommand = makeLockdownSubCommand("setup", (client, payload) =>
+  client.dispatch.conversationLockdownSetup({ payload }),
+);
+
+const makeLockdownUndoSubCommand = makeLockdownSubCommand("undo", (client, payload) =>
+  client.dispatch.conversationLockdownUndo({ payload }),
+);
+
 const makeChannelCommand = Effect.gen(function* () {
   const listConfigSubCommand = yield* makeListConfigSubCommand;
   const setSubCommand = yield* makeSetSubCommand;
   const unsetSubCommand = yield* makeUnsetSubCommand;
+  const lockdownSetupSubCommand = yield* makeLockdownSetupSubCommand;
+  const lockdownUndoSubCommand = yield* makeLockdownUndoSubCommand;
 
   return yield* CommandHelper.makeCommand(
     (builder) =>
@@ -232,12 +283,16 @@ const makeChannelCommand = Effect.gen(function* () {
         )
         .addSubcommand(() => listConfigSubCommand.data)
         .addSubcommand(() => setSubCommand.data)
-        .addSubcommand(() => unsetSubCommand.data),
+        .addSubcommand(() => unsetSubCommand.data)
+        .addSubcommand(() => lockdownSetupSubCommand.data)
+        .addSubcommand(() => lockdownUndoSubCommand.data),
     (command) =>
       command.subCommands({
         list_config: listConfigSubCommand.handler,
         set: setSubCommand.handler,
         unset: unsetSubCommand.handler,
+        lockdown_setup: lockdownSetupSubCommand.handler,
+        lockdown_undo: lockdownUndoSubCommand.handler,
       }),
   );
 });

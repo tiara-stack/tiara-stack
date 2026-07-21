@@ -167,6 +167,20 @@ export class SheetWorkflowsForwardingClient extends Context.Service<SheetWorkflo
               payload: args,
             }),
           ),
+          conversationLockdownSetup: accept(
+            DispatchWorkflowOperations.conversationLockdownSetup,
+            (args) =>
+              httpClient.dispatchWorkflows[
+                DispatchWorkflowOperations.conversationLockdownSetup.rpcTag
+              ]({ payload: args }),
+          ),
+          conversationLockdownUndo: accept(
+            DispatchWorkflowOperations.conversationLockdownUndo,
+            (args) =>
+              httpClient.dispatchWorkflows[
+                DispatchWorkflowOperations.conversationLockdownUndo.rpcTag
+              ]({ payload: args }),
+          ),
           workspaceListConfig: accept(DispatchWorkflowOperations.workspaceListConfig, (args) =>
             httpClient.dispatchWorkflows[DispatchWorkflowOperations.workspaceListConfig.rpcTag]({
               payload: args,

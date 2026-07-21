@@ -118,6 +118,8 @@ const makeBoundClientDeliveryMock = (
     sendDirectMessage: () => unexpectedCall("sendDirectMessage"),
     listClients: () => unexpectedCall("listClients"),
     updateMessage: () => unexpectedCall("updateMessage"),
+    updateConversationPermissionOverwrites: () =>
+      unexpectedCall("updateConversationPermissionOverwrites"),
     updateOriginalInteractionResponse: () => unexpectedCall("updateOriginalInteractionResponse"),
     updateOriginalInteractionResponseWithFiles: () =>
       unexpectedCall("updateOriginalInteractionResponseWithFiles"),

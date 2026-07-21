@@ -13,12 +13,13 @@ import { DiscordApplication, DiscordLayer } from "dfx-discord-utils/discord";
 import { DiscordApi } from "dfx-discord-utils/discord/api";
 import { ChannelsCache, GuildsCache, MembersCache } from "dfx-discord-utils/discord/cache";
 import {
+  ChannelPermissionOverwrite,
   DiscordMessageRequestSchema,
   makeDiscordBotRestError,
   type DiscordBotRestError,
 } from "dfx-discord-utils/discord/schema";
 import { discordHttpApiHandlersLayer, handleBotRestError } from "dfx-discord-utils/discord/http";
-import { Effect, FileSystem, Layer, Predicate, Schema } from "effect";
+import { Effect, Equal, FileSystem, Layer, Predicate, Schema } from "effect";
 import { createServer } from "http";
 import { ClientDeliveryApi, DeliveryEmoji } from "sheet-ingress-api/client-delivery";
 import type {
@@ -181,6 +182,53 @@ const mapClientDeliveryAdapterError =
   ): Effect.Effect<A, ReturnType<typeof makeUnknownError>, R> =>
     effect.pipe(Effect.mapError((error) => makeUnknownError(message, error)));
 
+type UpdateConversationHandlerRequest = {
+  readonly payload: {
+    readonly conversation: ConversationRef;
+    readonly permissionOverwrites: ReadonlyArray<typeof ChannelPermissionOverwrite.Type>;
+  };
+};
+
+type UpdateConversationRest = {
+  readonly updateChannel: (
+    channelId: string,
+    payload: {
+      readonly permission_overwrites: ReadonlyArray<typeof ChannelPermissionOverwrite.Type>;
+    },
+  ) => Effect.Effect<unknown, unknown>;
+};
+
+const isThisDiscordClient = (configuredClientId: string): Predicate.Predicate<ClientRef> =>
+  Predicate.Struct({
+    platform: Equal.equals("discord"),
+    clientId: Equal.equals(configuredClientId),
+  });
+
+const requireThisPlatformAndClient = (configuredClientId: string, client: ClientRef) =>
+  Effect.succeed(client).pipe(
+    Effect.filterOrFail(isThisDiscordClient(configuredClientId), ({ platform, clientId }) =>
+      makeArgumentError(`Unknown Discord client ${platform}:${clientId}`),
+    ),
+    Effect.asVoid,
+  );
+
+export const makeUpdateConversationHandler = (
+  configuredClientId: string,
+  rest: UpdateConversationRest,
+) =>
+  Effect.fn("SheetBotClientDelivery.updateConversation")(function* ({
+    payload,
+  }: UpdateConversationHandlerRequest) {
+    const client = payload.conversation.workspace.client;
+    yield* requireThisPlatformAndClient(configuredClientId, client);
+    yield* handleBotRestError(
+      rest.updateChannel(payload.conversation.conversationId, {
+        permission_overwrites: [...payload.permissionOverwrites],
+      }),
+      `Failed to update conversation ${payload.conversation.conversationId}`,
+    ).pipe(mapClientDeliveryAdapterError("Failed to update client conversation"));
+  });
+
 const discordHandlersLayer = discordHttpApiHandlersLayer.pipe(
   Layer.provide(DiscordApplication.restLayer),
   Layer.provide(DiscordLayer),
@@ -202,11 +250,7 @@ const clientDeliveryHandlersLayer = HttpApiBuilder.group(
       const configuredClient = clientRef(configuredClientId);
 
       const requireThisClient = (client: ClientRef) =>
-        client.platform === "discord" && client.clientId === configuredClientId
-          ? Effect.void
-          : Effect.fail(
-              makeArgumentError(`Unknown Discord client ${client.platform}:${client.clientId}`),
-            );
+        requireThisPlatformAndClient(configuredClientId, client);
 
       const reactionRouteEmoji = (emoji: typeof DeliveryEmoji.Type) =>
         encodeURIComponent(emoji.id ? `${emoji.name}:${emoji.id}` : emoji.name);
@@ -265,6 +309,7 @@ const clientDeliveryHandlersLayer = HttpApiBuilder.group(
             );
           }),
         )
+        .handle("updateConversation", makeUpdateConversationHandler(configuredClientId, rest))
         .handle("updateInteraction", ({ payload }) =>
           Effect.gen(function* () {
             yield* requireThisClient(payload.interaction.client);

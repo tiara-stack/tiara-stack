@@ -32,6 +32,15 @@ const requireManageWorkspaceSnapshot = ({
   readonly payload: { readonly workspaceId: string };
 }) => requireGuildSnapshot("manage", payload.workspaceId);
 
+const requireMonitorOrManageWorkspaceSnapshot = ({
+  payload,
+}: {
+  readonly payload: { readonly workspaceId: string };
+}) =>
+  requireGuildSnapshot("monitor", payload.workspaceId).pipe(
+    Effect.catch(() => requireGuildSnapshot("manage", payload.workspaceId)),
+  );
+
 export const dispatchHandlers = {
   dispatch: (handlers) =>
     handlers
@@ -111,6 +120,20 @@ export const dispatchHandlers = {
       .handle(
         "conversationUnset",
         authorizedSheetWorkflowsDispatch("conversationUnset", requireManageWorkspaceSnapshot),
+      )
+      .handle(
+        "conversationLockdownSetup",
+        authorizedSheetWorkflowsDispatch(
+          "conversationLockdownSetup",
+          requireMonitorOrManageWorkspaceSnapshot,
+        ),
+      )
+      .handle(
+        "conversationLockdownUndo",
+        authorizedSheetWorkflowsDispatch(
+          "conversationLockdownUndo",
+          requireMonitorOrManageWorkspaceSnapshot,
+        ),
       )
       .handle(
         "workspaceListConfig",

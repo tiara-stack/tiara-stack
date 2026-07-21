@@ -40,6 +40,13 @@ type DeliveryEmoji = {
   readonly name: string;
 };
 
+type DeliveryChannelPermissionOverwrite = {
+  readonly id: string;
+  readonly type: 0 | 1;
+  readonly allow: string;
+  readonly deny: string;
+};
+
 type LegacyConversationEntry = {
   readonly parentId: string;
   readonly resourceId: string;
@@ -91,6 +98,12 @@ type ClientDeliveryApiClient = {
         readonly message: SheetOutboundMessage;
       };
     }) => Effect.Effect<MessageRef, unknown>;
+    readonly updateConversation: (args: {
+      readonly payload: {
+        readonly conversation: ConversationRef;
+        readonly permissionOverwrites: ReadonlyArray<DeliveryChannelPermissionOverwrite>;
+      };
+    }) => Effect.Effect<void, unknown>;
     readonly updateInteraction: (args: {
       readonly payload: {
         readonly interaction: InteractionRef;
@@ -319,6 +332,21 @@ export class ClientDeliveryClient extends Context.Service<ClientDeliveryClient>(
             },
           });
           return deliveryMessageFromRef(ref);
+        }),
+        updateConversationPermissionOverwrites: Effect.fn(
+          "ClientDeliveryClient.updateConversationPermissionOverwrites",
+        )(function* (
+          workspaceId: string,
+          conversationId: string,
+          permissionOverwrites: ReadonlyArray<DeliveryChannelPermissionOverwrite>,
+        ) {
+          const clientRef = boundClientRef ?? (yield* ClientDeliveryClientRef);
+          return yield* apiClient.clientDelivery.updateConversation({
+            payload: {
+              conversation: conversationRef(clientRef, conversationId, workspaceId),
+              permissionOverwrites,
+            },
+          });
         }),
         updateOriginalInteractionResponse: Effect.fn(
           "ClientDeliveryClient.updateOriginalInteractionResponse",

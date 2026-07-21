@@ -3,6 +3,7 @@
   "pages": [
     "index",
     "server-setup",
+    "lockdown-channels",
     "post-schedule",
     "auto-check-in",
     "check-ins",

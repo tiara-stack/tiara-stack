@@ -13,6 +13,8 @@ import {
   CheckinHandleButtonPayload,
   CheckinHandleButtonResult,
   BotCommandDispatchError,
+  ConversationLockdownDispatchPayload,
+  ConversationLockdownDispatchResult,
   ConversationListConfigDispatchPayload,
   ConversationListConfigDispatchResult,
   ConversationSetDispatchPayload,
@@ -170,6 +172,8 @@ const workflowName = {
   conversationListConfig: "dispatch.conversationListConfig",
   conversationSet: "dispatch.conversationSet",
   conversationUnset: "dispatch.conversationUnset",
+  conversationLockdownSetup: "dispatch.conversationLockdownSetup",
+  conversationLockdownUndo: "dispatch.conversationLockdownUndo",
   workspaceListConfig: "dispatch.workspaceListConfig",
   workspaceAddMonitorRole: "dispatch.workspaceAddMonitorRole",
   workspaceRemoveMonitorRole: "dispatch.workspaceRemoveMonitorRole",
@@ -393,6 +397,22 @@ export const DispatchConversationUnsetWorkflow = Workflow.make({
   idempotencyKey: ({ payload }) => dispatchRequestIdempotencyKey(payload),
 });
 
+export const DispatchConversationLockdownSetupWorkflow = Workflow.make({
+  name: workflowName.conversationLockdownSetup,
+  payload: dispatchPayload(ConversationLockdownDispatchPayload),
+  success: ConversationLockdownDispatchResult,
+  error: BotCommandDispatchError,
+  idempotencyKey: ({ payload }) => dispatchRequestIdempotencyKey(payload),
+});
+
+export const DispatchConversationLockdownUndoWorkflow = Workflow.make({
+  name: workflowName.conversationLockdownUndo,
+  payload: dispatchPayload(ConversationLockdownDispatchPayload),
+  success: ConversationLockdownDispatchResult,
+  error: BotCommandDispatchError,
+  idempotencyKey: ({ payload }) => dispatchRequestIdempotencyKey(payload),
+});
+
 export const DispatchWorkspaceListConfigWorkflow = Workflow.make({
   name: workflowName.workspaceListConfig,
   payload: dispatchPayload(WorkspaceListConfigDispatchPayload),
@@ -507,6 +527,8 @@ export const DispatchWorkflows = [
   DispatchConversationListConfigWorkflow,
   DispatchConversationSetWorkflow,
   DispatchConversationUnsetWorkflow,
+  DispatchConversationLockdownSetupWorkflow,
+  DispatchConversationLockdownUndoWorkflow,
   DispatchWorkspaceListConfigWorkflow,
   DispatchWorkspaceAddMonitorRoleWorkflow,
   DispatchWorkspaceRemoveMonitorRoleWorkflow,
@@ -731,6 +753,20 @@ export const DispatchWorkflowOperations = {
     workflow: DispatchConversationUnsetWorkflow,
     rpcTag: DispatchConversationUnsetWorkflow.name,
     discardRpcTag: `${DispatchConversationUnsetWorkflow.name}Discard`,
+  },
+  conversationLockdownSetup: {
+    operation: "conversationLockdownSetup",
+    endpointName: "conversationLockdownSetup",
+    workflow: DispatchConversationLockdownSetupWorkflow,
+    rpcTag: DispatchConversationLockdownSetupWorkflow.name,
+    discardRpcTag: `${DispatchConversationLockdownSetupWorkflow.name}Discard`,
+  },
+  conversationLockdownUndo: {
+    operation: "conversationLockdownUndo",
+    endpointName: "conversationLockdownUndo",
+    workflow: DispatchConversationLockdownUndoWorkflow,
+    rpcTag: DispatchConversationLockdownUndoWorkflow.name,
+    discardRpcTag: `${DispatchConversationLockdownUndoWorkflow.name}Discard`,
   },
   workspaceListConfig: {
     operation: "workspaceListConfig",

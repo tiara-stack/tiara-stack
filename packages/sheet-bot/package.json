@@ -33,7 +33,7 @@
     "@opentelemetry/sdk-trace-base": "^2.2.0",
     "dfx": "catalog:",
     "dfx-discord-utils": "workspace:*",
-    "discord-api-types": "^0.38.38",
+    "discord-api-types": "catalog:",
     "effect": "catalog:",
     "sheet-auth": "workspace:*",
     "sheet-db-schema": "workspace:*",

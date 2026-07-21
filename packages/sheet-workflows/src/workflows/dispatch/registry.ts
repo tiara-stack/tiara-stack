@@ -8,6 +8,8 @@ import {
   DispatchCheckinButtonWorkflow,
   DispatchCheckinWorkflow,
   DispatchConversationListConfigWorkflow,
+  DispatchConversationLockdownSetupWorkflow,
+  DispatchConversationLockdownUndoWorkflow,
   DispatchConversationSetWorkflow,
   DispatchConversationUnsetWorkflow,
   DispatchWorkspaceWelcomeWorkflow,
@@ -64,6 +66,19 @@ type ManageWorkspaceRequest = {
 const authorizeManageWorkspace = <TRequest extends ManageWorkspaceRequest>() =>
   Effect.fn("DispatchWorkflow.authorizeManageWorkspace")(function* (request: TRequest) {
     yield* requireAuthorizedWorkspace(request.authorization, request.payload.workspaceId, "manage");
+  });
+
+const authorizeMonitorOrManageWorkspace = <TRequest extends ManageWorkspaceRequest>() =>
+  Effect.fn("DispatchWorkflow.authorizeMonitorOrManageWorkspace")(function* (request: TRequest) {
+    yield* requireAuthorizedWorkspace(
+      request.authorization,
+      request.payload.workspaceId,
+      "manage",
+    ).pipe(
+      Effect.catchTag("Unauthorized", () =>
+        requireAuthorizedWorkspace(request.authorization, request.payload.workspaceId, "monitor"),
+      ),
+    );
   });
 
 const withDispatchService = <A, E, R>(
@@ -305,6 +320,28 @@ export const dispatchWorkflowRegistry = {
       authorizeManageWorkspace<typeof DispatchConversationUnsetWorkflow.payloadSchema.Type>(),
     execute: (request: typeof DispatchConversationUnsetWorkflow.payloadSchema.Type) =>
       withDispatchService((service) => service.conversationUnset(request.payload)),
+  },
+  conversationLockdownSetup: {
+    operation: "conversationLockdownSetup",
+    workflow: DispatchConversationLockdownSetupWorkflow,
+    getInteractionToken,
+    authorize:
+      authorizeMonitorOrManageWorkspace<
+        typeof DispatchConversationLockdownSetupWorkflow.payloadSchema.Type
+      >(),
+    execute: (request: typeof DispatchConversationLockdownSetupWorkflow.payloadSchema.Type) =>
+      withDispatchService((service) => service.conversationLockdownSetup(request.payload)),
+  },
+  conversationLockdownUndo: {
+    operation: "conversationLockdownUndo",
+    workflow: DispatchConversationLockdownUndoWorkflow,
+    getInteractionToken,
+    authorize:
+      authorizeMonitorOrManageWorkspace<
+        typeof DispatchConversationLockdownUndoWorkflow.payloadSchema.Type
+      >(),
+    execute: (request: typeof DispatchConversationLockdownUndoWorkflow.payloadSchema.Type) =>
+      withDispatchService((service) => service.conversationLockdownUndo(request.payload)),
   },
   workspaceListConfig: {
     operation: "workspaceListConfig",

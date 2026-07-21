@@ -1,4 +1,7 @@
-import { DiscordBotNotFoundError } from "dfx-discord-utils/discord/schema";
+import {
+  ChannelPermissionOverwrite,
+  DiscordBotNotFoundError,
+} from "dfx-discord-utils/discord/schema";
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { ArgumentError, UnknownError, Unauthorized } from "typhoon-core/error";
@@ -65,6 +68,16 @@ export class ClientDeliveryApi extends HttpApiGroup.make("clientDelivery")
         message: SheetOutboundMessage,
       }),
       success: DeliveryMessage,
+      error: DeliveryErrors,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.patch("updateConversation", "/clients/conversations/update", {
+      payload: Schema.Struct({
+        conversation: ConversationRef,
+        permissionOverwrites: Schema.Array(ChannelPermissionOverwrite),
+      }),
+      success: Schema.Void,
       error: DeliveryErrors,
     }),
   )

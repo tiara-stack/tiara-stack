@@ -1,5 +1,8 @@
 import { Effect, Option } from "effect";
+import { PermissionFlagsBits } from "discord-api-types/v10";
 import type {
+  ConversationLockdownDispatchPayload,
+  ConversationLockdownDispatchResult,
   ConversationListConfigDispatchPayload,
   ConversationListConfigDispatchResult,
   ConversationSetDispatchPayload,
@@ -42,6 +45,7 @@ export const makeGuildConfigOperations = ({
   readonly workspaceConfigService: WorkspaceConfigService;
 }) => {
   type ConversationPayload =
+    | ConversationLockdownDispatchPayload
     | ConversationListConfigDispatchPayload
     | ConversationSetDispatchPayload
     | ConversationUnsetDispatchPayload;
@@ -117,6 +121,38 @@ export const makeGuildConfigOperations = ({
     ]);
     return conversationResult(payload);
   });
+  const lockdownRoleBits =
+    PermissionFlagsBits.ViewChannel |
+    PermissionFlagsBits.ReadMessageHistory |
+    PermissionFlagsBits.SendMessages |
+    PermissionFlagsBits.UseExternalEmojis;
+  const lockdownRolePermissions = lockdownRoleBits.toString();
+  const monitorRolePermissions = (
+    lockdownRoleBits |
+    PermissionFlagsBits.ManageChannels |
+    PermissionFlagsBits.PinMessages
+  ).toString();
+  const respondLockdownChange = (
+    payload: ConversationLockdownDispatchPayload,
+    action: "set up" | "removed",
+  ) =>
+    botClient.updateOriginalInteractionResponse(payload.interactionResponseToken, {
+      embeds: [
+        makeEmbed({
+          title: "Success!",
+          description: [
+            MessageText.text("Lockdown permissions "),
+            MessageText.text(action),
+            MessageText.text(" for "),
+            ...conversationMentionValue(
+              payload.client,
+              payload.workspaceId,
+              payload.conversationId,
+            ),
+          ],
+        }),
+      ],
+    });
 
   return {
     conversationListConfig: Effect.fn("DispatchService.conversationListConfig")(function* (
@@ -193,6 +229,82 @@ export const makeGuildConfigOperations = ({
         payload,
         mutation,
       )) satisfies ConversationUnsetDispatchResult;
+    }),
+    conversationLockdownSetup: Effect.fn("DispatchService.conversationLockdownSetup")(function* (
+      payload: ConversationLockdownDispatchPayload,
+    ) {
+      yield* Effect.annotateCurrentSpan({
+        workspaceId: payload.workspaceId,
+        conversationId: payload.conversationId,
+      });
+      const [maybeConfig, monitorRoles] = yield* Effect.all(
+        [
+          workspaceConfigService.getWorkspaceConversationById({
+            workspaceId: payload.workspaceId,
+            conversationId: payload.conversationId,
+          }),
+          workspaceConfigService.getWorkspaceMonitorRoles(payload.workspaceId),
+        ],
+        { concurrency: 2 },
+      );
+      const config = yield* requireSome(maybeConfig, () =>
+        Effect.fail(
+          makeArgumentError(
+            `Cannot set up lockdown permissions, conversation ${payload.conversationId} is not configured`,
+          ),
+        ),
+      );
+      const roleId = yield* requireSome(config.roleId, () =>
+        Effect.fail(
+          makeArgumentError(
+            `Cannot set up lockdown permissions, conversation ${payload.conversationId} has no lockdown role`,
+          ),
+        ),
+      );
+
+      // This command intentionally establishes the complete channel permission baseline. Discord
+      // treats this payload as a replacement, so overwrites outside this managed lockdown model
+      // are removed rather than carried into a running channel.
+      yield* botClient.updateConversationPermissionOverwrites(
+        payload.workspaceId,
+        payload.conversationId,
+        [
+          { id: roleId, type: 0, allow: lockdownRolePermissions, deny: "0" },
+          ...monitorRoles
+            .filter(({ roleId: monitorRoleId }) => monitorRoleId !== roleId)
+            .map(({ roleId: monitorRoleId }) => ({
+              id: monitorRoleId,
+              type: 0 as const,
+              allow: monitorRolePermissions,
+              deny: "0",
+            })),
+          {
+            id: payload.workspaceId,
+            type: 0,
+            allow: "0",
+            deny: PermissionFlagsBits.ViewChannel.toString(),
+          },
+        ],
+      );
+      yield* respondLockdownChange(payload, "set up");
+      return conversationResult(payload) satisfies ConversationLockdownDispatchResult;
+    }),
+    conversationLockdownUndo: Effect.fn("DispatchService.conversationLockdownUndo")(function* (
+      payload: ConversationLockdownDispatchPayload,
+    ) {
+      yield* Effect.annotateCurrentSpan({
+        workspaceId: payload.workspaceId,
+        conversationId: payload.conversationId,
+      });
+      // Undo intentionally restores Discord's inherited defaults by clearing every explicit
+      // overwrite, including entries that were not part of the lockdown setup payload.
+      yield* botClient.updateConversationPermissionOverwrites(
+        payload.workspaceId,
+        payload.conversationId,
+        [],
+      );
+      yield* respondLockdownChange(payload, "removed");
+      return conversationResult(payload) satisfies ConversationLockdownDispatchResult;
     }),
     workspaceListConfig: Effect.fn("DispatchService.workspaceListConfig")(function* (
       payload: WorkspaceListConfigDispatchPayload,

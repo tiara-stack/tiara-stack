@@ -6,6 +6,7 @@ import {
   CheckinDispatchPayload,
   DispatchAcceptedResult,
   BotCommandDispatchErrorSchemas,
+  ConversationLockdownDispatchPayload,
   ConversationListConfigDispatchPayload,
   ConversationSetDispatchPayload,
   ConversationUnsetDispatchPayload,
@@ -193,6 +194,20 @@ export class DispatchApi extends HttpApiGroup.make("dispatch")
   .add(
     HttpApiEndpoint.post("conversationUnset", "/dispatch/conversation/unset", {
       payload: ConversationUnsetDispatchPayload,
+      success: DispatchAcceptedResult,
+      error: BotCommandDispatchErrorSchemas,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("conversationLockdownSetup", "/dispatch/conversation/lockdown/setup", {
+      payload: ConversationLockdownDispatchPayload,
+      success: DispatchAcceptedResult,
+      error: BotCommandDispatchErrorSchemas,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("conversationLockdownUndo", "/dispatch/conversation/lockdown/undo", {
+      payload: ConversationLockdownDispatchPayload,
       success: DispatchAcceptedResult,
       error: BotCommandDispatchErrorSchemas,
     }),

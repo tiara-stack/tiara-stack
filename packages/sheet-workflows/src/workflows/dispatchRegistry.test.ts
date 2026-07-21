@@ -262,6 +262,8 @@ const makeDispatchServiceMock = (overrides: Partial<DispatchServiceMock>): Dispa
   conversationListConfig: unexpectedDispatchServiceCall("conversationListConfig"),
   conversationSet: unexpectedDispatchServiceCall("conversationSet"),
   conversationUnset: unexpectedDispatchServiceCall("conversationUnset"),
+  conversationLockdownSetup: unexpectedDispatchServiceCall("conversationLockdownSetup"),
+  conversationLockdownUndo: unexpectedDispatchServiceCall("conversationLockdownUndo"),
   workspaceListConfig: unexpectedDispatchServiceCall("workspaceListConfig"),
   workspaceAddMonitorRole: unexpectedDispatchServiceCall("workspaceAddMonitorRole"),
   workspaceRemoveMonitorRole: unexpectedDispatchServiceCall("workspaceRemoveMonitorRole"),
@@ -469,6 +471,8 @@ describe("dispatch workflow registry", () => {
       "conversationListConfig",
       "conversationSet",
       "conversationUnset",
+      "conversationLockdownSetup",
+      "conversationLockdownUndo",
       "workspaceListConfig",
       "workspaceAddMonitorRole",
       "workspaceRemoveMonitorRole",
@@ -907,6 +911,49 @@ describe("dispatch workflow registry", () => {
         yield* authorize(authorization);
         const denied = yield* Effect.exit(authorize(unauthorized));
         expect(denied._tag).toBe("Failure");
+      }
+    }),
+  );
+
+  it.effect("allows monitor or manage authorization for lockdown workflows", () =>
+    Effect.gen(function* () {
+      const payload = {
+        client: discordClient,
+        dispatchRequestId: "dispatch-conversation-lockdown",
+        workspaceId: "workspace-1",
+        conversationId: "conversation-1",
+        interactionResponseToken: "interaction-token",
+        interactionResponseDeadlineEpochMs,
+      };
+
+      const lockdownWorkflows = [
+        dispatchWorkflowRegistry.conversationLockdownSetup,
+        dispatchWorkflowRegistry.conversationLockdownUndo,
+      ];
+      const permittedScopes = ["monitor", "manage"] as const;
+
+      for (const workflow of lockdownWorkflows) {
+        for (const scope of permittedScopes) {
+          yield* workflow.authorize({
+            requester,
+            authorization: { workspaceId: "workspace-1", scope },
+            payload,
+          });
+        }
+
+        const denied = yield* Effect.exit(
+          workflow.authorize({
+            requester,
+            authorization: { workspaceId: "workspace-1", scope: "member" },
+            payload,
+          }),
+        );
+        expect(Exit.isFailure(denied)).toBe(true);
+        const error = Exit.isFailure(denied) ? Cause.findErrorOption(denied.cause) : Option.none();
+        expect(Option.getOrNull(error)).toMatchObject({
+          _tag: "Unauthorized",
+          message: "Dispatch requester is not authorized to monitor workspace workspace-1",
+        });
       }
     }),
   );

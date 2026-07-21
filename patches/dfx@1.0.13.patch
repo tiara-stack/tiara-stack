@@ -1,0 +1,43 @@
+--- a/src/DiscordREST/Generated.ts
++++ b/src/DiscordREST/Generated.ts
+@@ -1949,7 +1949,7 @@ export interface ChannelPermissionOverwriteRequest {
+   readonly id: SnowflakeType
+   readonly type?: ChannelPermissionOverwrites | null | undefined
+-  readonly allow?: number | null | undefined
+-  readonly deny?: number | null | undefined
++  readonly allow?: string | null | undefined
++  readonly deny?: string | null | undefined
+ }
+ 
+ export interface UpdateDefaultReactionEmojiRequest {
+@@ -3755,8 +3755,8 @@ export type ListMessageReactionsByEmoji200 = ReadonlyArray<UserResponse>
+ 
+ export interface SetChannelPermissionOverwriteRequest {
+   readonly type?: ChannelPermissionOverwrites | null | undefined
+-  readonly allow?: number | null | undefined
+-  readonly deny?: number | null | undefined
++  readonly allow?: string | null | undefined
++  readonly deny?: string | null | undefined
+ }
+ 
+ export type DeprecatedListPins200 = ReadonlyArray<MessageResponse>
+--- a/dist/DiscordREST/Generated.d.ts
++++ b/dist/DiscordREST/Generated.d.ts
+@@ -1556,6 +1556,6 @@ export interface ChannelPermissionOverwriteRequest {
+     readonly id: SnowflakeType;
+     readonly type?: ChannelPermissionOverwrites | null | undefined;
+-    readonly allow?: number | null | undefined;
+-    readonly deny?: number | null | undefined;
++    readonly allow?: string | null | undefined;
++    readonly deny?: string | null | undefined;
+ }
+ export interface UpdateDefaultReactionEmojiRequest {
+@@ -3020,6 +3020,6 @@ export type ListMessageReactionsByEmoji200 = ReadonlyArray<UserResponse>;
+ export interface SetChannelPermissionOverwriteRequest {
+     readonly type?: ChannelPermissionOverwrites | null | undefined;
+-    readonly allow?: number | null | undefined;
+-    readonly deny?: number | null | undefined;
++    readonly allow?: string | null | undefined;
++    readonly deny?: string | null | undefined;
+ }
+ export type DeprecatedListPins200 = ReadonlyArray<MessageResponse>;

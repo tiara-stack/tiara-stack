@@ -36,6 +36,17 @@ export const clientDeliveryHandlers = {
           }),
         ),
       )
+      .handle("updateConversation", ({ payload }) =>
+        requireServiceBefore(
+          Effect.gen(function* () {
+            const client = yield* ClientDeliveryForwardingClient;
+            return yield* client.updateConversation(
+              payload.conversation,
+              payload.permissionOverwrites,
+            );
+          }),
+        ),
+      )
       .handle("updateInteraction", ({ payload }) =>
         requireServiceBefore(
           Effect.gen(function* () {

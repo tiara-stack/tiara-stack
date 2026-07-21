@@ -13,6 +13,10 @@ const altWorkspaceRef = { client: altClientRef, workspaceId: "guild-1" } as cons
 const workspaceRef = { client: clientRef, workspaceId: "guild-1" } as const;
 const conversationRef = { workspace: workspaceRef, conversationId: "channel-1" } as const;
 const messageRef = { conversation: conversationRef, messageId: "message-1" } as const;
+const permissionOverwrites = [
+  { id: "role-1", type: 0, allow: "330752", deny: "0" },
+  { id: "guild-1", type: 0, allow: "0", deny: "1024" },
+] as const;
 const outboundMessage = { content: "Done" } as const;
 const outboundMessageWithFile = {
   content: "Failed",
@@ -238,6 +242,23 @@ describe("ClientDeliveryForwardingClient", () => {
     );
   });
 
+  it.effect("maps non-success conversation update responses to a forwarding error", () =>
+    run(
+      Effect.gen(function* () {
+        const client = yield* ClientDeliveryForwardingClient.make;
+        const exit = yield* Effect.exit(
+          client.updateConversation(conversationRef, permissionOverwrites),
+        );
+        const error = extractFailure(exit);
+
+        expect(error).toMatchObject({
+          _tag: "UnknownError",
+          message: "Failed to forward client conversation update request",
+        });
+      }),
+    ),
+  );
+
   it.live.each([
     {
       body: { conversation: conversationRef, message: outboundMessage },
@@ -253,6 +274,14 @@ describe("ClientDeliveryForwardingClient", () => {
       name: "updates messages with PATCH",
       runRequest: (client: ForwardingClient) => client.updateMessage(messageRef, outboundMessage),
       url: "http://sheet-bot/clients/messages/update",
+    },
+    {
+      body: { conversation: conversationRef, permissionOverwrites },
+      method: "PATCH",
+      name: "updates conversation permission overwrites with PATCH",
+      runRequest: (client: ForwardingClient) =>
+        client.updateConversation(conversationRef, permissionOverwrites),
+      url: "http://sheet-bot/clients/conversations/update",
     },
     {
       body: {

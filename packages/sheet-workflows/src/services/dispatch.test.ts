@@ -20,6 +20,7 @@ import type {
   CheckinHandleButtonPayload,
   CheckinDispatchPayload,
   ConversationListConfigDispatchPayload,
+  ConversationLockdownDispatchPayload,
   ConversationSetDispatchPayload,
   ConversationUnsetDispatchPayload,
   WorkspaceWelcomeDispatchPayload,
@@ -3336,6 +3337,245 @@ describe("DispatchService", () => {
       ]);
       expect(updateCalls[0]?.payload).toMatchObject({
         embeds: [{ fields: expect.arrayContaining([{ name: "Name", value: "None!" }]) }],
+      });
+    }),
+  );
+
+  it.effect("sets up conversation lockdown permission overwrites", () =>
+    Effect.gen(function* () {
+      const calls: Array<unknown> = [];
+      const botClient = makeClientDeliveryMock({
+        updateConversationPermissionOverwrites: (
+          workspaceId,
+          conversationId,
+          permissionOverwrites,
+        ) => {
+          calls.push({ workspaceId, conversationId, permissionOverwrites });
+          return Effect.void;
+        },
+        updateOriginalInteractionResponse: (interactionResponseToken, payload) => {
+          calls.push({ interactionResponseToken, payload: normalizePayloadText(payload) });
+          return Effect.succeed({ id: "response-1", conversation_id: "conversation-1" });
+        },
+      });
+      const sheetApisClient = makeSheetApisClient({
+        workspaceConfig: {
+          getWorkspaceConversationById: () => Effect.succeed(makeWorkspaceConversationConfig()),
+          getWorkspaceMonitorRoles: () =>
+            Effect.succeed([
+              new WorkspaceMonitorRole({
+                workspaceId: "workspace-1",
+                roleId: "monitor-role-1",
+                createdAt: Option.none(),
+                updatedAt: Option.none(),
+                deletedAt: Option.none(),
+              }),
+              new WorkspaceMonitorRole({
+                workspaceId: "workspace-1",
+                roleId: "monitor-role-2",
+                createdAt: Option.none(),
+                updatedAt: Option.none(),
+                deletedAt: Option.none(),
+              }),
+              new WorkspaceMonitorRole({
+                workspaceId: "workspace-1",
+                roleId: "role-1",
+                createdAt: Option.none(),
+                updatedAt: Option.none(),
+                deletedAt: Option.none(),
+              }),
+            ]),
+        },
+      });
+
+      const result = yield* runWithDispatchService(botClient, sheetApisClient, (service) =>
+        service.conversationLockdownSetup({
+          ...conversationConfigPayload,
+          dispatchRequestId: "dispatch-conversation-lockdown-setup",
+        } satisfies ConversationLockdownDispatchPayload),
+      );
+
+      expect(result).toEqual({ workspaceId: "workspace-1", conversationId: "conversation-1" });
+      expect(calls).toEqual([
+        {
+          workspaceId: "workspace-1",
+          conversationId: "conversation-1",
+          permissionOverwrites: [
+            { id: "role-1", type: 0, allow: "330752", deny: "0" },
+            { id: "monitor-role-1", type: 0, allow: "2251799814016016", deny: "0" },
+            { id: "monitor-role-2", type: 0, allow: "2251799814016016", deny: "0" },
+            { id: "workspace-1", type: 0, allow: "0", deny: "1024" },
+          ],
+        },
+        {
+          interactionResponseToken: "interaction-token",
+          payload: {
+            embeds: [
+              { title: "Success!", description: "Lockdown permissions set up for #conversation-1" },
+            ],
+          },
+        },
+      ]);
+    }),
+  );
+
+  it.effect("sets up lockdown permissions without monitor role overwrites", () =>
+    Effect.gen(function* () {
+      const calls: Array<unknown> = [];
+      const botClient = makeClientDeliveryMock({
+        updateConversationPermissionOverwrites: (
+          workspaceId,
+          conversationId,
+          permissionOverwrites,
+        ) => {
+          calls.push({ workspaceId, conversationId, permissionOverwrites });
+          return Effect.void;
+        },
+        updateOriginalInteractionResponse: (interactionResponseToken, payload) => {
+          calls.push({ interactionResponseToken, payload: normalizePayloadText(payload) });
+          return Effect.succeed({ id: "response-1", conversation_id: "conversation-1" });
+        },
+      });
+      const sheetApisClient = makeSheetApisClient({
+        workspaceConfig: {
+          getWorkspaceConversationById: () => Effect.succeed(makeWorkspaceConversationConfig()),
+          getWorkspaceMonitorRoles: () => Effect.succeed([]),
+        },
+      });
+
+      yield* runWithDispatchService(botClient, sheetApisClient, (service) =>
+        service.conversationLockdownSetup({
+          ...conversationConfigPayload,
+          dispatchRequestId: "dispatch-conversation-lockdown-setup-no-monitors",
+        } satisfies ConversationLockdownDispatchPayload),
+      );
+
+      expect(calls).toEqual([
+        {
+          workspaceId: "workspace-1",
+          conversationId: "conversation-1",
+          permissionOverwrites: [
+            { id: "role-1", type: 0, allow: "330752", deny: "0" },
+            { id: "workspace-1", type: 0, allow: "0", deny: "1024" },
+          ],
+        },
+        {
+          interactionResponseToken: "interaction-token",
+          payload: {
+            embeds: [
+              { title: "Success!", description: "Lockdown permissions set up for #conversation-1" },
+            ],
+          },
+        },
+      ]);
+    }),
+  );
+
+  it.effect("removes all conversation permission overwrites", () =>
+    Effect.gen(function* () {
+      const calls: Array<unknown> = [];
+      const botClient = makeClientDeliveryMock({
+        updateConversationPermissionOverwrites: (
+          workspaceId,
+          conversationId,
+          permissionOverwrites,
+        ) => {
+          calls.push({ workspaceId, conversationId, permissionOverwrites });
+          return Effect.void;
+        },
+        updateOriginalInteractionResponse: (interactionResponseToken, payload) => {
+          calls.push({ interactionResponseToken, payload: normalizePayloadText(payload) });
+          return Effect.succeed({ id: "response-1", conversation_id: "conversation-1" });
+        },
+      });
+
+      const result = yield* runWithDispatchService(botClient, makeSheetApisClient({}), (service) =>
+        service.conversationLockdownUndo({
+          ...conversationConfigPayload,
+          dispatchRequestId: "dispatch-conversation-lockdown-undo",
+        } satisfies ConversationLockdownDispatchPayload),
+      );
+
+      expect(result).toEqual({ workspaceId: "workspace-1", conversationId: "conversation-1" });
+      expect(calls).toEqual([
+        {
+          workspaceId: "workspace-1",
+          conversationId: "conversation-1",
+          permissionOverwrites: [],
+        },
+        {
+          interactionResponseToken: "interaction-token",
+          payload: {
+            embeds: [
+              {
+                title: "Success!",
+                description: "Lockdown permissions removed for #conversation-1",
+              },
+            ],
+          },
+        },
+      ]);
+    }),
+  );
+
+  it.effect("rejects lockdown setup when the conversation is not configured", () =>
+    Effect.gen(function* () {
+      const sheetApisClient = makeSheetApisClient({
+        workspaceConfig: {
+          // The raw Sheet API reports a missing record as this typed error; makeSheetApisServices
+          // converts it to Option.none before the dispatch operation calls requireSome.
+          getWorkspaceConversationById: () =>
+            Effect.fail(
+              makeArgumentError(
+                "Cannot get conversation by id, the workspace or the conversation id might not be registered",
+              ),
+            ),
+          getWorkspaceMonitorRoles: () => Effect.succeed([]),
+        },
+      });
+
+      const exit = yield* Effect.exit(
+        runWithDispatchService(makeClientDeliveryMock(), sheetApisClient, (service) =>
+          service.conversationLockdownSetup({
+            ...conversationConfigPayload,
+            dispatchRequestId: "dispatch-conversation-lockdown-setup-missing",
+          } satisfies ConversationLockdownDispatchPayload),
+        ),
+      );
+
+      const error = Exit.isFailure(exit) ? Cause.findErrorOption(exit.cause) : Option.none();
+      expect(Option.getOrNull(error)).toMatchObject({
+        _tag: "ArgumentError",
+        message:
+          "Cannot set up lockdown permissions, conversation conversation-1 is not configured",
+      });
+    }),
+  );
+
+  it.effect("rejects lockdown setup when the conversation has no lockdown role", () =>
+    Effect.gen(function* () {
+      const sheetApisClient = makeSheetApisClient({
+        workspaceConfig: {
+          getWorkspaceConversationById: () =>
+            Effect.succeed(makeWorkspaceConversationConfig({ roleId: Option.none() })),
+          getWorkspaceMonitorRoles: () => Effect.succeed([]),
+        },
+      });
+
+      const exit = yield* Effect.exit(
+        runWithDispatchService(makeClientDeliveryMock(), sheetApisClient, (service) =>
+          service.conversationLockdownSetup({
+            ...conversationConfigPayload,
+            dispatchRequestId: "dispatch-conversation-lockdown-setup-no-role",
+          } satisfies ConversationLockdownDispatchPayload),
+        ),
+      );
+
+      const error = Exit.isFailure(exit) ? Cause.findErrorOption(exit.cause) : Option.none();
+      expect(Option.getOrNull(error)).toMatchObject({
+        _tag: "ArgumentError",
+        message:
+          "Cannot set up lockdown permissions, conversation conversation-1 has no lockdown role",
       });
     }),
   );

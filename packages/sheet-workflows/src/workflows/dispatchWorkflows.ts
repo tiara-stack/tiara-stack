@@ -5,6 +5,8 @@ import {
   DispatchCheckinButtonWorkflow as BaseDispatchCheckinButtonWorkflow,
   DispatchCheckinWorkflow as BaseDispatchCheckinWorkflow,
   DispatchConversationListConfigWorkflow as BaseDispatchConversationListConfigWorkflow,
+  DispatchConversationLockdownSetupWorkflow as BaseDispatchConversationLockdownSetupWorkflow,
+  DispatchConversationLockdownUndoWorkflow as BaseDispatchConversationLockdownUndoWorkflow,
   DispatchConversationSetWorkflow as BaseDispatchConversationSetWorkflow,
   DispatchConversationUnsetWorkflow as BaseDispatchConversationUnsetWorkflow,
   DispatchWorkspaceWelcomeWorkflow as BaseDispatchWorkspaceWelcomeWorkflow,
@@ -160,6 +162,18 @@ export const DispatchConversationUnsetWorkflow = BaseDispatchConversationUnsetWo
   dispatchShardGroup,
 );
 
+export const DispatchConversationLockdownSetupWorkflow =
+  BaseDispatchConversationLockdownSetupWorkflow.annotate(
+    ClusterSchema.ShardGroup,
+    dispatchShardGroup,
+  );
+
+export const DispatchConversationLockdownUndoWorkflow =
+  BaseDispatchConversationLockdownUndoWorkflow.annotate(
+    ClusterSchema.ShardGroup,
+    dispatchShardGroup,
+  );
+
 export const DispatchWorkspaceListConfigWorkflow = BaseDispatchWorkspaceListConfigWorkflow.annotate(
   ClusterSchema.ShardGroup,
   dispatchShardGroup,
@@ -245,6 +259,8 @@ export const DispatchWorkflows = [
   DispatchConversationListConfigWorkflow,
   DispatchConversationSetWorkflow,
   DispatchConversationUnsetWorkflow,
+  DispatchConversationLockdownSetupWorkflow,
+  DispatchConversationLockdownUndoWorkflow,
   DispatchWorkspaceListConfigWorkflow,
   DispatchWorkspaceAddMonitorRoleWorkflow,
   DispatchWorkspaceRemoveMonitorRoleWorkflow,

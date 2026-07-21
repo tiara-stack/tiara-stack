@@ -5,6 +5,8 @@ import {
   DispatchCheckinButtonWorkflow,
   DispatchCheckinWorkflow,
   DispatchConversationListConfigWorkflow,
+  DispatchConversationLockdownSetupWorkflow,
+  DispatchConversationLockdownUndoWorkflow,
   DispatchConversationSetWorkflow,
   DispatchConversationUnsetWorkflow,
   DispatchWorkspaceWelcomeWorkflow,
@@ -158,6 +160,12 @@ const dispatchWorkflowLayers = [
   ),
   DispatchConversationUnsetWorkflow.toLayer(
     makeWorkflowHandler(dispatchWorkflowRegistry.conversationUnset),
+  ),
+  DispatchConversationLockdownSetupWorkflow.toLayer(
+    makeWorkflowHandler(dispatchWorkflowRegistry.conversationLockdownSetup),
+  ),
+  DispatchConversationLockdownUndoWorkflow.toLayer(
+    makeWorkflowHandler(dispatchWorkflowRegistry.conversationLockdownUndo),
   ),
   DispatchWorkspaceListConfigWorkflow.toLayer(
     makeWorkflowHandler(dispatchWorkflowRegistry.workspaceListConfig),

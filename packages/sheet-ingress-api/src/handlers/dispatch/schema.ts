@@ -517,6 +517,21 @@ export type ConversationUnsetDispatchResult = Schema.Schema.Type<
   typeof ConversationUnsetDispatchResult
 >;
 
+export const ConversationLockdownDispatchPayload = Schema.Struct({
+  ...CommandDispatchPayloadBase,
+  workspaceId: Schema.String,
+  conversationId: Schema.String,
+});
+
+export type ConversationLockdownDispatchPayload = Schema.Schema.Type<
+  typeof ConversationLockdownDispatchPayload
+>;
+
+export const ConversationLockdownDispatchResult = ConversationSetDispatchResult;
+export type ConversationLockdownDispatchResult = Schema.Schema.Type<
+  typeof ConversationLockdownDispatchResult
+>;
+
 export const WorkspaceListConfigDispatchPayload = Schema.Struct({
   ...CommandDispatchPayloadBase,
   workspaceId: Schema.String,
@@ -781,6 +796,8 @@ export const DispatchAcceptedResult = Schema.Struct({
     "conversationListConfig",
     "conversationSet",
     "conversationUnset",
+    "conversationLockdownSetup",
+    "conversationLockdownUndo",
     "workspaceListConfig",
     "workspaceAddMonitorRole",
     "workspaceRemoveMonitorRole",

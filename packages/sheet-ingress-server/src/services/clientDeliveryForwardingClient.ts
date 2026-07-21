@@ -1,4 +1,7 @@
-import { DiscordBotNotFoundError } from "dfx-discord-utils/discord/schema";
+import {
+  ChannelPermissionOverwrite,
+  DiscordBotNotFoundError,
+} from "dfx-discord-utils/discord/schema";
 import {
   HttpClient,
   HttpClientError,
@@ -47,6 +50,11 @@ const SendDirectMessagePayload = Schema.Struct({
 const UpdateMessagePayload = Schema.Struct({
   messageRef: MessageRef,
   message: SheetOutboundMessage,
+});
+
+const UpdateConversationPayload = Schema.Struct({
+  conversation: ConversationRef,
+  permissionOverwrites: Schema.Array(ChannelPermissionOverwrite),
 });
 
 const UpdateInteractionPayload = Schema.Struct({
@@ -213,6 +221,22 @@ export class ClientDeliveryForwardingClient extends Context.Service<ClientDelive
             DeliveryMessage,
           );
         }),
+        updateConversation: Effect.fn("ClientDeliveryForwardingClient.updateConversation")(
+          function* (
+            conversation: ConversationRef,
+            permissionOverwrites: ReadonlyArray<typeof ChannelPermissionOverwrite.Type>,
+          ) {
+            const entry = yield* registry.resolve(conversation.workspace.client);
+            return yield* sendJsonVoid(
+              "PATCH",
+              entry,
+              "/clients/conversations/update",
+              { conversation, permissionOverwrites },
+              UpdateConversationPayload,
+              "Failed to forward client conversation update request",
+            );
+          },
+        ),
         updateInteraction: Effect.fn("ClientDeliveryForwardingClient.updateInteraction")(function* (
           interaction: InteractionRef,
           message: SheetOutboundMessage,

@@ -7,14 +7,15 @@ This page lists the authorization TiaraBot checks for the person running each co
 
 ## Permission labels
 
-| Label              | Requirement                                                                                                                                                     |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Any Discord user   | No TiaraBot monitor role or Discord management permission is required.                                                                                          |
-| Self               | The command can read your own record. Looking up another person requires a configured monitor role.                                                             |
-| Monitor            | You must hold one of the target server's TiaraBot monitor roles. A member with Manage Server is not automatically treated as a monitor unless they hold a role. |
-| Manage server      | You must have Discord's Manage Server permission or Administrator in the target server. A TiaraBot monitor role alone is not enough.                            |
-| Check-in filler    | You must be one of the fillers recorded on that check-in prompt.                                                                                                |
-| Original submitter | You must be the Discord account that sent the team submission.                                                                                                  |
+| Label                    | Requirement                                                                                                                                                     |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Any Discord user         | No TiaraBot monitor role or Discord management permission is required.                                                                                          |
+| Self                     | The command can read your own record. Looking up another person requires a configured monitor role.                                                             |
+| Monitor                  | You must hold one of the target server's TiaraBot monitor roles. A member with Manage Server is not automatically treated as a monitor unless they hold a role. |
+| Monitor or Manage Server | You must hold a configured TiaraBot monitor role or have Discord's Manage Server permission in the target server.                                               |
+| Manage server            | You must have Discord's Manage Server permission or Administrator in the target server. A TiaraBot monitor role alone is not enough.                            |
+| Check-in filler          | You must be one of the fillers recorded on that check-in prompt.                                                                                                |
+| Original submitter       | You must be the Discord account that sent the team submission.                                                                                                  |
 
 Monitor roles are registered with `/server add monitor_role`. Manage Server is called Manage Guild in some Discord API output.
 
@@ -74,17 +75,21 @@ All `/server` commands require Manage Server or Administrator in the target serv
 
 ## Running-channel settings
 
-All `/channel` commands require Manage Server or Administrator in the target server.
+Channel configuration commands require Manage Server or Administrator in the target server. Lockdown setup and undo allow either a configured monitor role or Manage Server.
 
-| Command                | Required parameters | Optional parameters                                                  |
-| ---------------------- | ------------------- | -------------------------------------------------------------------- |
-| `/channel list_config` | None                | `channel`, `server_id`                                               |
-| `/channel set`         | None                | `channel`, `running`, `name`, `role`, `checkin_channel`, `server_id` |
-| `/channel unset`       | None                | `channel`, `running`, `name`, `role`, `checkin_channel`, `server_id` |
+| Command                   | Caller access             | Required parameters | Optional parameters                                                  |
+| ------------------------- | ------------------------- | ------------------- | -------------------------------------------------------------------- |
+| `/channel list_config`    | Manage Server.            | None                | `channel`, `server_id`                                               |
+| `/channel set`            | Manage Server.            | None                | `channel`, `running`, `name`, `role`, `checkin_channel`, `server_id` |
+| `/channel unset`          | Manage Server.            | None                | `channel`, `running`, `name`, `role`, `checkin_channel`, `server_id` |
+| `/channel lockdown_setup` | Monitor or Manage Server. | `channel`           | None                                                                 |
+| `/channel lockdown_undo`  | Monitor or Manage Server. | `channel`           | None                                                                 |
 
 `channel` defaults to the current Discord channel. On `/channel unset`, set each field flag to true when that stored value should be cleared. The optional `role` is the running-channel lockdown role, which `/channel list_config` labels **Lockdown role**. It is separate from the server-level TiaraBot monitor roles that authorize commands labeled **Monitor** in this reference. If it is not set, TiaraBot does not grant or remove lockdown roles and `/kick manual` is not needed.
 
-These commands store TiaraBot's channel mapping. They do not change Discord channel permission overwrites. If a lockdown role is configured, TiaraBot needs Manage Roles and its bot role must sit above that role.
+The configuration commands store TiaraBot's channel mapping. If a lockdown role is configured, TiaraBot needs Manage Roles and its bot role must sit above that role.
+
+`/channel lockdown_setup` replaces the selected channel's overwrites with the standard lockdown permissions: the Lockdown role can view, read, send, and use external emojis; configured monitor roles also receive Manage Channels and Pin Messages; and View Channel is denied for everyone else. `/channel lockdown_undo` removes all permission overwrites from the channel so its inherited permissions apply again. See [Set up lockdown channel permissions](/docs/tiarabot/monitors/lockdown-channels) before using either command.
 
 ## Message controls
 

@@ -21,6 +21,7 @@ catalog:
     "@effect/sql-pg": npm:@effect/sql-pg@4.0.0-beta.67,
     "@types/node": ^24.7.2,
     dfx: npm:dfx@1.0.13,
+    discord-api-types: ^0.38.38,
     effect: npm:effect@4.0.0-beta.67,
     tsx: npm:tsx@4.22.3,
     vite: npm:@voidzero-dev/vite-plus-core@0.2.2,
@@ -37,6 +38,7 @@ overrides:
   vitest: "catalog:"
 patchedDependencies:
   better-auth@1.6.16: patches/better-auth@1.6.16.patch
+  dfx@1.0.13: patches/dfx@1.0.13.patch
 peerDependencyRules:
   allowAny:
     - vite

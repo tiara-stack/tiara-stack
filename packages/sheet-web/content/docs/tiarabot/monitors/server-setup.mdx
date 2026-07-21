@@ -36,7 +36,7 @@ The running-room lockdown `role` is optional. When it is configured, TiaraBot as
 
 This lockdown role is separate from the server-level monitor roles registered with `/server add monitor_role`. Monitor roles authorize mana/moni commands; the lockdown role gates visibility for one running channel.
 
-The visibility gate can keep unrelated people from seeing the in-game room code and entering to break or grief the room. `/channel set` only tells TiaraBot which role to manage. Mana/moni or server staff must configure the Discord channel permissions separately.
+The visibility gate can keep unrelated people from seeing the in-game room code and entering to break or grief the room. `/channel set` tells TiaraBot which role to manage. After setting it, use [`/channel lockdown_setup`](/docs/tiarabot/monitors/lockdown-channels) to apply the standard Discord permission overwrites for the running channel.
 
 If the running room is visible without a managed role, leave `role` unset. TiaraBot will skip lockdown-role cleanup for that channel, and there is no need to run `/kick manual`.
 
