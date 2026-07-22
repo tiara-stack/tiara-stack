@@ -426,58 +426,170 @@ const expectFailedExits = (...exits: ReadonlyArray<Exit.Exit<unknown, unknown>>)
   }
 };
 
+const expectTeamTypes = (
+  entries: ReadonlyArray<{ readonly teamType: string }>,
+  expected: ReadonlyArray<string>,
+) => expect(entries.map((entry) => entry.teamType)).toEqual(expected);
+
 describe("parseTeamSubmissionMessage", () => {
-  it("parses labeled submissions with multiple full fill options and exact oshi candidate", () => {
+  it("parses labeled submissions with multiple team options and an exact oshi candidate", () => {
     const result = parseTeamSubmissionMessage(
       [
         "oshi: Rin",
-        "full fill: Hero Team or Hero Team 2",
-        "heal: Nurse Team (bd)",
-        "encore: Encore Team",
-        "alt: Backup Team",
+        "full fill: 150/700 or 150/710",
+        "heal: 100/690 4* or 80/670 BD",
+        "encore: 150/620 Encore",
+        "alt: 150/680 Backup",
       ].join("\n"),
       "Theerie",
     );
 
     expect(result.oshiCandidate).toBe("Rin");
-    expect(result.entries.map((entry) => entry.stableKey)).toEqual([
-      "fullFill:hero%20team",
-      "fullFill:hero%20team%202",
-      "heal:nurse%20team",
-      "encore:encore%20team",
-      "alt:backup%20team",
-    ]);
+    expect(result.disposition).toBe("accepted");
+    expectTeamTypes(result.entries, ["fullFill", "fullFill", "heal", "heal", "encore", "alt"]);
     expect(result.entries.map((entry) => entry.playerName)).toEqual([
       "Theerie (full fill 1)",
       "Theerie (full fill 2)",
       "Theerie",
       "Theerie",
+      "Theerie",
       "Theerie (alt 1)",
     ]);
-    expect(result.entries[2]?.notes).toEqual(["bd"]);
+    expect(result.entries[2]?.notes).toContain("4-star");
+    expect(result.entries[3]?.notes).toContain("birthday");
   });
 
-  it("infers full fill and heal when encore is omitted", () => {
+  it("captures the live labeled multiple-heal format and terminal emoji oshi", () => {
     const result = parseTeamSubmissionMessage(
-      ["Full team", "Heal team (4* lead)"].join("\n"),
+      ["FF: 140/700/324k", "H: 100/660/(4*)", "H: 80/640/(BD)", "Enc: 140/560/364k", "🎤"].join(
+        "\n",
+      ),
       "Player",
     );
 
-    expect(
-      result.entries.map((entry) => [entry.teamType, entry.playerName, entry.teamName]),
-    ).toEqual([
-      ["fullFill", "Player", "Full team"],
-      ["heal", "Player", "Heal team (4* lead)"],
+    expectTeamTypes(result.entries, ["fullFill", "heal", "heal", "encore"]);
+    expect(result.oshiCandidate).toBe("🎤");
+  });
+
+  it("parses numbered positional teams, legacy oshi text, and a carried alt heading", () => {
+    const result = parseTeamSubmissionMessage(
+      [
+        "1. 150/690 325k",
+        "2. 85/635",
+        "3. 150/620 336k",
+        "4. not na, 🎤",
+        "",
+        "alt:",
+        "1. 150/680",
+      ].join("\n"),
+      "Player",
+    );
+
+    expect(result.entries.map((entry) => [entry.teamType, entry.teamName])).toEqual([
+      ["fullFill", "150/690 325k"],
+      ["heal", "85/635"],
+      ["encore", "150/620 336k"],
+      ["alt", "150/680"],
     ]);
+    expect(result.oshiCandidate).toBe("not na, 🎤");
+  });
+
+  it("carries a heading across blank separator lines", () => {
+    const result = parseTeamSubmissionMessage(
+      ["ff: 150/700", "alt:", "", "150/680"].join("\n"),
+      "Player",
+    );
+
+    expectTeamTypes(result.entries, ["fullFill", "alt"]);
+  });
+
+  it("normalizes combined labels and splits alt alternatives", () => {
+    const result = parseTeamSubmissionMessage(
+      ["ff: 150/700", "heal: 100/650 (4☆)", "alt/enc: 150/670/326k or 150/590/335k", "🎤"].join(
+        "\n",
+      ),
+      "Player",
+    );
+
+    expectTeamTypes(result.entries, ["fullFill", "heal", "alt", "alt"]);
+    expect(result.entries.slice(2).every((entry) => entry.notes.includes("encore"))).toBe(true);
+  });
+
+  it("deduplicates inferred notes found in both syntax and team text", () => {
+    const result = parseTeamSubmissionMessage(
+      ["150/700", "80/650 (birthday)"].join("\n"),
+      "Player",
+    );
+
+    expect(result.entries[1]?.notes).toEqual(["birthday"]);
+  });
+
+  it("prefers explicit team labels over the emoji oshi heuristic", () => {
+    const result = parseTeamSubmissionMessage(
+      ["ff: 150/700", "birthday heal: cake 🎂"].join("\n"),
+      "Player",
+    );
+
+    expectTeamTypes(result.entries, ["fullFill", "heal"]);
+    expect(result.oshiCandidate).toBeNull();
+  });
+
+  it("lets inline role markers override positional inference", () => {
+    const result = parseTeamSubmissionMessage(
+      ["150/645", "130/580 alt", "80/595 4*"].join("\n"),
+      "Player",
+    );
+
+    expect(result.entries.map((entry) => [entry.teamType, entry.teamName])).toEqual([
+      ["fullFill", "150/645"],
+      ["alt", "130/580"],
+      ["heal", "80/595 4*"],
+    ]);
+  });
+
+  it("recognizes parenthesized 4-star inline heal markers", () => {
+    const result = parseTeamSubmissionMessage("80/650 (4*)", "Player");
+
+    expectTeamTypes(result.entries, ["heal"]);
+  });
+
+  it("advances positional fallback after explicit labels and captures a terminal name oshi", () => {
+    const result = parseTeamSubmissionMessage(
+      ["ff: 150/720", "heal: 100/690", "alt: 150/750 (no gph cap)", "akitoya"].join("\n"),
+      "Player",
+    );
+
+    expectTeamTypes(result.entries, ["fullFill", "heal", "alt"]);
+    expect(result.oshiCandidate).toBe("akitoya");
+  });
+
+  it("recognizes optional-colon labels and a spoiler alt after the shared oshi", () => {
+    const result = parseTeamSubmissionMessage(
+      ["ff 152/732", "heal 80/672 BD same as 4☆", "🎤", "||alt 150/740||"].join("\n"),
+      "Player",
+    );
+
+    expectTeamTypes(result.entries, ["fullFill", "heal", "alt"]);
+    expect(result.oshiCandidate).toBe("🎤");
+  });
+
+  it("strips markdown and numbering from aliases", () => {
+    const result = parseTeamSubmissionMessage(
+      ["### **main:** 150/700", "2) **4* heal:** 80/650", "- **enc:** 150/620"].join("\n"),
+      "Player",
+    );
+
+    expectTeamTypes(result.entries, ["fullFill", "heal", "encore"]);
+    expect(result.entries.map((entry) => entry.teamName)).toEqual(["150/700", "80/650", "150/620"]);
   });
 
   it("keeps stable keys attached to team content when same-type entries are reordered", () => {
     const first = parseTeamSubmissionMessage(
-      ["full fill: Alpha", "full fill: Beta"].join("\n"),
+      ["full fill: 140/700/324k", "full fill: 150/690 325k"].join("\n"),
       "Player",
     );
     const reordered = parseTeamSubmissionMessage(
-      ["full fill: Beta", "full fill: Alpha"].join("\n"),
+      ["full fill: 150/690 325k", "full fill: 140/700/324k"].join("\n"),
       "Player",
     );
 
@@ -486,18 +598,29 @@ describe("parseTeamSubmissionMessage", () => {
     expect(keysByTeam(reordered.entries)).toEqual(keysByTeam(first.entries));
   });
 
-  it("preserves unknown colon prefixes as part of inferred team names", () => {
-    const result = parseTeamSubmissionMessage("Team: Alpha", "Player");
+  it("keeps stable keys independent of trailing note order", () => {
+    const first = parseTeamSubmissionMessage("heal: 100/500 (birthday) (4-star)", "Player");
+    const reordered = parseTeamSubmissionMessage("heal: 100/500 (4-star) (birthday)", "Player");
 
-    expect(result.entries.map((entry) => [entry.teamType, entry.teamName])).toEqual([
-      ["fullFill", "Team: Alpha"],
-    ]);
+    expect(reordered.entries[0]?.stableKey).toBe(first.entries[0]?.stableKey);
   });
 
-  it("omits labeled entries whose team name is blank", () => {
-    const result = parseTeamSubmissionMessage("heal:   ", "Player");
+  it.each([
+    "will do!",
+    "added bp",
+    "main issue is scheduling",
+    "fill me in later",
+    "updates :]",
+    "Team Submission Format:\nfull fill then heal",
+    "> ff: 150/700",
+    "```\nff: 150/700\n```",
+    "alt:",
+    "🎤",
+  ])("rejects conversation, instructions, and orphan data: %s", (content) => {
+    const result = parseTeamSubmissionMessage(content, "Player");
 
     expect(result.entries).toEqual([]);
+    expect(result.disposition).toBe("notSubmission");
   });
 
   it("parses and emits quoted A1 ranges containing apostrophes", () => {
@@ -525,6 +648,181 @@ describe("parseTeamSubmissionMessage", () => {
 });
 
 describe("TeamSubmissionService.upsertFromDiscord", () => {
+  it.effect(
+    "ignores new non-submission messages without configuration, writes, or persistence",
+    () =>
+      Effect.gen(function* () {
+        const persisted: unknown[] = [];
+        const confirmationUpdates: unknown[] = [];
+        const workspaceConfigService = Layer.succeed(WorkspaceConfigService, {
+          getWorkspaceConfig: () => Effect.die("workspace config should not be read"),
+          getTeamSubmissionChannelByConversationId: () =>
+            Effect.die("team submission channel should not be read"),
+        } as unknown as WorkspaceConfigServiceApi);
+
+        const result = yield* runUpsert({
+          googleSheets: makeGoogleSheetsMock({ failAppend: true, failUpdate: true }),
+          zero: makeZeroMock({ persisted, confirmationUpdates }),
+          workspaceConfigService,
+          inputPayload: { ...payload, content: "will do!" },
+        });
+
+        expect(result.status).toBe("empty");
+        expect(result.confirmationText).toBe("");
+        expect(result.parsedTeams).toEqual([]);
+        expect(persisted).toEqual([]);
+        expect(confirmationUpdates).toEqual([]);
+      }),
+  );
+
+  it.effect("blanks existing rows when an edit is no longer a submission", () =>
+    Effect.gen(function* () {
+      const sheetUpdates: Array<{ range: string; values: string[][] }> = [];
+      const persisted: unknown[] = [];
+      const existingSubmission = makeExistingSubmissionFixture();
+      const result = yield* runUpsert({
+        googleSheets: makeGoogleSheetsMock({
+          updates: sheetUpdates,
+          existingRangeValues: {
+            "'Teams'!A2": [["Player"]],
+            "'Teams'!B2": [["Full Team"]],
+            "'Teams'!D2": [["Rin"]],
+            "'Teams'!A3": [["Player"]],
+            "'Teams'!B3": [["Heal Team"]],
+            "'Teams'!D3": [["Rin"]],
+          },
+        }),
+        zero: makeZeroMock({
+          existingSubmission: Option.some(existingSubmission),
+          persisted,
+        }),
+        inputPayload: { ...payload, content: "will do!" },
+      });
+
+      expectBlankedRow(sheetUpdates, 2);
+      expectBlankedRow(sheetUpdates, 3);
+      expect(persisted.map((entry) => (entry as { status: string }).status)).toEqual([
+        "applying",
+        "empty",
+      ]);
+      expect(persisted.at(-1)).toMatchObject({
+        confirmationMessageId: "confirmation-message-1",
+        parsedSubmission: [],
+        rowMappings: [],
+        status: "empty",
+      });
+      expect(result).toMatchObject({
+        confirmationText: "",
+        parsedTeams: [],
+        rowMappings: [],
+        rollbackSnapshot: null,
+        skippedTeams: [],
+        status: "empty",
+      });
+      expect(Option.isNone(result.confirmationMessage)).toBe(true);
+    }),
+  );
+
+  it.effect("silently ignores non-submission edits to locked submissions", () =>
+    Effect.gen(function* () {
+      const persisted: unknown[] = [];
+      const result = yield* runUpsert({
+        googleSheets: makeGoogleSheetsMock({ failAppend: true, failUpdate: true }),
+        zero: makeZeroMock({
+          existingSubmission: Option.some(makeExistingSubmissionFixture({ status: "confirmed" })),
+          persisted,
+        }),
+        inputPayload: { ...payload, content: "will do!" },
+      });
+
+      expect(result.status).toBe("empty");
+      expect(result.parsedTeams).toEqual([]);
+      expect(persisted).toEqual([]);
+    }),
+  );
+
+  it.effect("clears resolved rows while preserving provisional mappings on ignored edits", () =>
+    Effect.gen(function* () {
+      const sheetUpdates: Array<{ range: string; values: string[][] }> = [];
+      const persisted: unknown[] = [];
+      const pendingEntry = Option.getOrThrow(
+        Option.fromNullishOr(parseTeamSubmissionMessage("ff: 150/710", "Player").entries[0]),
+      );
+      const result = yield* runUpsert({
+        googleSheets: makeGoogleSheetsMock({ updates: sheetUpdates }),
+        zero: makeZeroMock({
+          existingSubmission: Option.some(
+            makeExistingSubmissionFixture({
+              rowMappings: [
+                {
+                  stableKey: "fullFill:resolved",
+                  playerNameRange: "'Teams'!A2",
+                  teamNameRange: "'Teams'!B2",
+                  oshiRange: "'Teams'!D2",
+                  rowIndex: 2,
+                },
+                {
+                  stableKey: pendingEntry.stableKey,
+                  playerNameRange: "'Teams'!A2:A",
+                  teamNameRange: "'Teams'!B2:B",
+                  oshiRange: "'Teams'!D2:D",
+                  rowIndex: 0,
+                },
+              ],
+              parsedSubmission: [pendingEntry],
+              status: "applying",
+            }),
+          ),
+          persisted,
+        }),
+        inputPayload: { ...payload, content: "will do!" },
+      });
+
+      expect(result.status).toBe("empty");
+      expectBlankedRow(sheetUpdates, 2);
+      expect(sheetUpdates.map(({ range }) => range)).toEqual([
+        "'Teams'!A2",
+        "'Teams'!B2",
+        "'Teams'!D2",
+      ]);
+      expect(persisted.at(-1)).toMatchObject({
+        parsedSubmission: [{ stableKey: pendingEntry.stableKey }],
+        rowMappings: [{ stableKey: pendingEntry.stableKey, rowIndex: 0 }],
+        status: "applying",
+      });
+    }),
+  );
+
+  it.effect("leaves an all-provisional ignored edit available for recovery", () =>
+    Effect.gen(function* () {
+      const persisted: unknown[] = [];
+      const result = yield* runUpsert({
+        googleSheets: makeGoogleSheetsMock({ failUpdate: true }),
+        zero: makeZeroMock({
+          existingSubmission: Option.some(
+            makeExistingSubmissionFixture({
+              rowMappings: [
+                {
+                  stableKey: "fullFill:pending",
+                  playerNameRange: "'Teams'!A2:A",
+                  teamNameRange: "'Teams'!B2:B",
+                  oshiRange: "'Teams'!D2:D",
+                  rowIndex: 0,
+                },
+              ],
+              status: "applying",
+            }),
+          ),
+          persisted,
+        }),
+        inputPayload: { ...payload, content: "will do!" },
+      });
+
+      expect(result.status).toBe("empty");
+      expect(persisted).toEqual([]);
+    }),
+  );
+
   it.effect("appends new rows and persists returned row mappings", () =>
     Effect.gen(function* () {
       const appendedRanges: string[] = [];

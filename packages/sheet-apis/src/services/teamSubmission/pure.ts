@@ -283,6 +283,14 @@ export const submissionLockKey = (payload: SubmissionLockPayload) =>
 
 export const normalizeLine = (line: string) => line.trim().replace(/\s+/g, " ");
 
+const powerPairPattern = /\b\d{2,3}\s*\/\s*\d{3}\b/;
+const customEmojiSource = "<a?:[A-Za-z0-9_]+:\\d+>";
+const customEmojiPattern = new RegExp(customEmojiSource, "g");
+const customEmojiTestPattern = new RegExp(customEmojiSource);
+const unicodeEmojiPattern = /\p{Extended_Pictographic}/u;
+
+export type TeamSubmissionDisposition = "accepted" | "notSubmission" | "oshiOnly";
+
 export const normalizeSectionAlias = (value: string) =>
   value
     .trim()
@@ -292,8 +300,18 @@ export const normalizeSectionAlias = (value: string) =>
     .toLowerCase();
 
 export const teamTypeAliases = {
-  fullFill: ["fullFill", "full fill", "fullfill", "fill", "ff"],
-  heal: ["heal", "healer"],
+  fullFill: ["fullFill", "full fill", "fullfill", "fill", "ff", "main"],
+  heal: [
+    "heal",
+    "healer",
+    "h",
+    "4* heal",
+    "4☆ heal",
+    "4-star heal",
+    "birthday heal",
+    "bday heal",
+    "bd heal",
+  ],
   encore: ["encore", "enc"],
   alt: ["alt", "alts", "alternative"],
 } as const;
@@ -301,6 +319,12 @@ export const teamTypeAliases = {
 export type ParsedLine = {
   readonly type: ParsedTeamEntry["teamType"];
   readonly teamName: string;
+  readonly notes: ReadonlyArray<string>;
+};
+
+type ExplicitTeamLabel = {
+  readonly type: ParsedTeamEntry["teamType"];
+  readonly value: string;
   readonly notes: ReadonlyArray<string>;
 };
 
@@ -322,6 +346,8 @@ export const splitFullFillOptions = (value: string) =>
     .map(normalizeLine)
     .filter(String.isNonEmpty);
 
+export const splitTeamOptions = splitFullFillOptions;
+
 export const teamTypeLabels: Record<
   ParsedTeamEntry["teamType"],
   ReadonlyArray<string>
@@ -342,13 +368,304 @@ export type ParsedSubmissionLine =
     };
 
 export const parsedLinesForValue = (type: ParsedTeamEntry["teamType"], value: string) =>
-  (type === "fullFill" ? splitFullFillOptions(value) : [normalizeLine(value)])
+  (["fullFill", "heal", "alt"].includes(type) ? splitTeamOptions(value) : [normalizeLine(value)])
     .filter(String.isNonEmpty)
     .map((teamName) => ({
       type,
       teamName,
-      notes: parentheticalNotes(teamName),
+      notes: [...new Set([...parentheticalNotes(teamName), ...semanticNotes(teamName)])],
     }));
+
+const stripLineFormatting = (line: string) => {
+  let value = line.trim();
+  if (value.startsWith(">")) {
+    return null;
+  }
+  if (value.startsWith("||") && value.endsWith("||") && value.length >= 4) {
+    value = value.slice(2, -2).trim();
+  }
+  value = value
+    .replace(/^#{1,6}\s+/, "")
+    .replace(/^(?:[-+*]|\d+[.)])\s+/, "")
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/__(.+?)__/g, "$1")
+    .replace(/^`([^`]+)`$/, "$1");
+  return normalizeLine(value);
+};
+
+const normalizedLabelPattern =
+  "alt\\s*\\/\\s*enc|enc\\s*\\/\\s*alt|4(?:\\*|☆|-star)\\s+heal|birthday\\s+heal|bday\\s+heal|bd\\s+heal|full\\s+fill|fullfill|alternative|healer|encore|alts|main|fill|heal|ff|enc|alt|h";
+const explicitLabelPattern = new RegExp(`^(${normalizedLabelPattern})\\s*:\\s*(.*)$`, "i");
+const inlineLabelPattern = new RegExp(`^(${normalizedLabelPattern})\\s+(.+)$`, "i");
+const headingLabelPattern = new RegExp(`^(${normalizedLabelPattern})\\s*:?$`, "i");
+
+const labelType = (label: string): ExplicitTeamLabel["type"] | null => {
+  const normalized = normalizeSectionAlias(label);
+  if (/^(?:alt\s*\/\s*enc|enc\s*\/\s*alt)$/.test(normalized)) {
+    return "alt";
+  }
+  return lineType(normalized);
+};
+
+const explicitTeamLabelFor = (label: string, value: string): ExplicitTeamLabel | null => {
+  const type = labelType(label);
+  if (type === null) {
+    return null;
+  }
+  return {
+    type,
+    value: normalizeLine(value),
+    notes: /\//.test(label) ? ["encore"] : semanticNotes(label),
+  };
+};
+
+const colonTeamLabel = (line: string) => {
+  const match = explicitLabelPattern.exec(line);
+  return match?.[1] ? explicitTeamLabelFor(match[1], match[2] ?? "") : null;
+};
+
+const inlineTeamLabel = (line: string) => {
+  const inline = inlineLabelPattern.exec(line);
+  return inline?.[1] && inline[2] && powerPairPattern.test(inline[2])
+    ? explicitTeamLabelFor(inline[1], inline[2])
+    : null;
+};
+
+const headingTeamLabel = (line: string) => {
+  const heading = headingLabelPattern.exec(line);
+  return heading?.[1] ? explicitTeamLabelFor(heading[1], "") : null;
+};
+
+const explicitTeamLabel = (line: string): ExplicitTeamLabel | null =>
+  colonTeamLabel(line) ?? inlineTeamLabel(line) ?? headingTeamLabel(line);
+
+const fourStarPattern = /(?:^|[\s(])4\s*(?:\*|☆)(?=[\s)]|$)|\b4-star\b/i;
+
+const semanticNotes = (value: string) => {
+  const notes: string[] = [];
+  if (/\b(?:bd|bday|birthday)\b/i.test(value)) {
+    notes.push("birthday");
+  }
+  if (fourStarPattern.test(value)) {
+    notes.push("4-star");
+  }
+  if (/\buncapped\b/i.test(value)) {
+    notes.push("uncapped");
+  }
+  return notes;
+};
+
+const mergeNotes = (line: ParsedLine, notes: ReadonlyArray<string>): ParsedLine => ({
+  ...line,
+  notes: [...new Set([...line.notes, ...notes])],
+});
+
+const inlineTeamType = (line: string): ExplicitTeamLabel | null => {
+  const suffixAlt = /^(.*?)\s+\b(?:alt|alts|alternative)\b(?:\s+(.*))?$/i.exec(line);
+  if (suffixAlt?.[1] && powerPairPattern.test(suffixAlt[1])) {
+    return {
+      type: "alt",
+      value: normalizeLine([suffixAlt[1], suffixAlt[2]].filter(Boolean).join(" ")),
+      notes: semanticNotes(line),
+    };
+  }
+  if (/\b(?:alt|alts|alternative)\b/i.test(line)) {
+    return { type: "alt", value: line, notes: semanticNotes(line) };
+  }
+  if (/\b(?:enc|encore)\b/i.test(line)) {
+    return { type: "encore", value: line, notes: semanticNotes(line) };
+  }
+  if (/\b(?:heal|healer|birthday|bday|bd)\b/i.test(line) || fourStarPattern.test(line)) {
+    return { type: "heal", value: line, notes: semanticNotes(line) };
+  }
+  if (/\b(?:full\s*fill|fill|ff|main)\b/i.test(line)) {
+    return { type: "fullFill", value: line, notes: semanticNotes(line) };
+  }
+  return null;
+};
+
+const containsEmoji = (value: string) =>
+  customEmojiTestPattern.test(value) || unicodeEmojiPattern.test(value);
+
+const isEmojiOnly = (value: string) => {
+  const withoutCustomEmoji = value.replace(customEmojiPattern, "");
+  const withoutUnicodeEmoji = withoutCustomEmoji.replace(
+    /[\p{Extended_Pictographic}\uFE0F\u200D\s,./|_-]/gu,
+    "",
+  );
+  return containsEmoji(value) && withoutUnicodeEmoji.length === 0;
+};
+
+const explicitOshiCandidate = (line: string) => {
+  const prefix = /^oshi(?:\s+lead)?\s*:\s*(.+)$/i.exec(line);
+  if (prefix?.[1]) {
+    return normalizeLine(prefix[1]);
+  }
+  const suffix = /^(.+?)\s+oshi(?:\s+lead)?$/i.exec(line);
+  return suffix?.[1] ? normalizeLine(suffix[1]) : null;
+};
+
+const isTerminalNameOnly = (value: string) =>
+  value.length <= 40 &&
+  /^(?:[\p{L}\p{N}_-]+)(?:\s+[\p{L}\p{N}_-]+){0,3}$/u.test(value) &&
+  !/\b(?:will|added|updated?|updates|thanks?|format|example)\b/i.test(value);
+
+const isInstructionalValue = (value: string) =>
+  !powerPairPattern.test(value) &&
+  /\b(?:then|followed\s+by|format|example|template|instructions?)\b/i.test(value);
+
+const cursorAfter = (cursor: number, type: ParsedTeamEntry["teamType"]) => {
+  const nextByType: Partial<Record<ParsedTeamEntry["teamType"], number>> = {
+    fullFill: 1,
+    heal: 2,
+    encore: 3,
+  };
+  return Math.max(cursor, nextByType[type] ?? cursor);
+};
+
+type TeamSubmissionScanner = {
+  inferredIndex: number;
+  readonly parsedLines: ParsedLine[];
+  readonly oshiCandidates: string[];
+  pendingType: ExplicitTeamLabel | null;
+};
+
+const normalizedSubmissionLines = (content: string) => {
+  const normalizedLines: Array<string | null> = [];
+  let inCodeFence = false;
+  for (const sourceLine of content.split(/\r?\n/)) {
+    if (/^\s*```/.test(sourceLine)) {
+      inCodeFence = !inCodeFence;
+      normalizedLines.push(null);
+    } else {
+      normalizedLines.push(inCodeFence ? null : stripLineFormatting(sourceLine));
+    }
+  }
+  return normalizedLines;
+};
+
+const appendParsedValue = (
+  scanner: TeamSubmissionScanner,
+  classification: ExplicitTeamLabel,
+  value = classification.value,
+) => {
+  scanner.parsedLines.push(
+    ...parsedLinesForValue(classification.type, value).map((parsed) =>
+      mergeNotes(parsed, classification.notes),
+    ),
+  );
+  scanner.inferredIndex = cursorAfter(scanner.inferredIndex, classification.type);
+  scanner.pendingType = null;
+};
+
+const scanExplicitTeamLabel = (scanner: TeamSubmissionScanner, explicit: ExplicitTeamLabel) => {
+  if (!String.isNonEmpty(explicit.value)) {
+    scanner.pendingType = explicit;
+  } else if (isInstructionalValue(explicit.value)) {
+    scanner.pendingType = null;
+  } else {
+    appendParsedValue(scanner, explicit);
+  }
+};
+
+const unlabeledOshiCandidate = (line: string, hasTeams: boolean) => {
+  if (!hasTeams || powerPairPattern.test(line) || line.length > 80) {
+    return null;
+  }
+  return isEmojiOnly(line) || containsEmoji(line) ? line : null;
+};
+
+const appendInferredTeam = (scanner: TeamSubmissionScanner, line: string) => {
+  const inline = inlineTeamType(line);
+  const type =
+    inline?.type ?? inferredTypes[Math.min(scanner.inferredIndex, inferredTypes.length - 1)]!;
+  if (inline === null) {
+    scanner.parsedLines.push(...parsedLinesForValue(type, line));
+    scanner.inferredIndex += 1;
+    scanner.pendingType = null;
+  } else {
+    appendParsedValue(scanner, inline);
+  }
+};
+
+const scanOshiLine = (scanner: TeamSubmissionScanner, line: string) => {
+  const explicitOshi = explicitOshiCandidate(line);
+  const candidate = explicitOshi ?? unlabeledOshiCandidate(line, scanner.parsedLines.length > 0);
+  if (candidate === null) {
+    return false;
+  }
+  scanner.oshiCandidates.push(candidate);
+  scanner.pendingType = null;
+  return true;
+};
+
+const scanNonTeamLine = (
+  scanner: TeamSubmissionScanner,
+  line: string,
+  isFinalMeaningfulLine: boolean,
+) => {
+  if (scanner.parsedLines.length > 0 && isFinalMeaningfulLine && isTerminalNameOnly(line)) {
+    scanner.oshiCandidates.push(line);
+  }
+  scanner.pendingType = null;
+};
+
+const scanSubmissionLine = (
+  scanner: TeamSubmissionScanner,
+  line: string | null,
+  isFinalMeaningfulLine: boolean,
+) => {
+  if (line === null) {
+    scanner.pendingType = null;
+    return;
+  }
+  if (!String.isNonEmpty(line)) {
+    return;
+  }
+  const explicitTeam = explicitTeamLabel(line);
+  if (explicitTeam !== null) {
+    scanExplicitTeamLabel(scanner, explicitTeam);
+    return;
+  }
+  if (scanOshiLine(scanner, line)) {
+    return;
+  }
+  if (scanner.pendingType !== null && powerPairPattern.test(line)) {
+    appendParsedValue(scanner, scanner.pendingType, line);
+    return;
+  }
+  if (!powerPairPattern.test(line)) {
+    scanNonTeamLine(scanner, line, isFinalMeaningfulLine);
+    return;
+  }
+  appendInferredTeam(scanner, line);
+};
+
+const entriesFromParsedLines = (
+  parsedLines: ReadonlyArray<ParsedLine>,
+  basePlayerName: string,
+  oshiCandidate: string | null,
+) => {
+  const typeCounts = new Map<ParsedTeamEntry["teamType"], number>();
+  const identityCounts = new Map<string, number>();
+  const totalFullFill = parsedLines.filter((line) => line.type === "fullFill").length;
+  return parsedLines.map((line) => {
+    const index = (typeCounts.get(line.type) ?? 0) + 1;
+    typeCounts.set(line.type, index);
+    const identity = stableEntryIdentity(line.type, line.teamName, line.notes);
+    const occurrence = (identityCounts.get(identity) ?? 0) + 1;
+    identityCounts.set(identity, occurrence);
+    const stableKey = occurrence === 1 ? identity : `${identity}:${occurrence}`;
+    return parsedEntryFromLine(
+      line,
+      index,
+      totalFullFill,
+      basePlayerName,
+      oshiCandidate,
+      stableKey,
+    );
+  });
+};
 
 export const parseSubmissionLine = (line: string, inferredIndex: number): ParsedSubmissionLine => {
   const colonIndex = line.indexOf(":");
@@ -402,7 +719,7 @@ const stableEntryIdentity = (
   notes: ReadonlyArray<string>,
 ) => {
   let normalizedTeamName = normalizeLine(teamName);
-  for (const note of notes) {
+  for (const note of [...notes].reverse()) {
     const suffix = `(${note})`;
     if (normalizedTeamName.endsWith(suffix)) {
       normalizedTeamName = normalizeLine(normalizedTeamName.slice(0, -suffix.length));
@@ -417,43 +734,38 @@ export const parseTeamSubmissionMessage = (
 ): {
   readonly entries: ReadonlyArray<ParsedTeamEntry>;
   readonly oshiCandidate: string | null;
+  readonly disposition: TeamSubmissionDisposition;
 } => {
-  const rawLines = content.split(/\r?\n/).map(normalizeLine).filter(String.isNonEmpty);
-  let inferredIndex = 0;
-  const parsedLines: ParsedLine[] = [];
-  let oshiCandidate: string | null = null;
-
-  for (const line of rawLines) {
-    const result = parseSubmissionLine(line, inferredIndex);
-    inferredIndex = result.inferredIndex;
-    if (result._tag === "oshi") {
-      oshiCandidate = result.value;
-      continue;
+  const normalizedLines = normalizedSubmissionLines(content);
+  const scanner: TeamSubmissionScanner = {
+    inferredIndex: 0,
+    parsedLines: [],
+    oshiCandidates: [],
+    pendingType: null,
+  };
+  let lastTruthyLineIndex = -1;
+  for (let index = normalizedLines.length - 1; index >= 0; index -= 1) {
+    if (normalizedLines[index]) {
+      lastTruthyLineIndex = index;
+      break;
     }
-    parsedLines.push(...result.lines);
   }
 
-  const typeCounts = new Map<ParsedTeamEntry["teamType"], number>();
-  const identityCounts = new Map<string, number>();
-  const totalFullFill = parsedLines.filter((line) => line.type === "fullFill").length;
-  const entries = parsedLines.map((line) => {
-    const index = (typeCounts.get(line.type) ?? 0) + 1;
-    typeCounts.set(line.type, index);
-    const identity = stableEntryIdentity(line.type, line.teamName, line.notes);
-    const occurrence = (identityCounts.get(identity) ?? 0) + 1;
-    identityCounts.set(identity, occurrence);
-    const stableKey = occurrence === 1 ? identity : `${identity}:${occurrence}`;
-    return parsedEntryFromLine(
-      line,
-      index,
-      totalFullFill,
-      basePlayerName,
-      oshiCandidate,
-      stableKey,
-    );
-  });
+  for (const [index, line] of normalizedLines.entries()) {
+    scanSubmissionLine(scanner, line, index === lastTruthyLineIndex);
+  }
 
-  return { entries, oshiCandidate };
+  const distinctOshiCandidates = [...new Set(scanner.oshiCandidates.map(normalizeLine))];
+  const oshiCandidate =
+    distinctOshiCandidates.length === 0 ? null : distinctOshiCandidates.join(" / ");
+  const entries = entriesFromParsedLines(scanner.parsedLines, basePlayerName, oshiCandidate);
+
+  return {
+    entries,
+    oshiCandidate,
+    disposition:
+      entries.length > 0 ? "accepted" : oshiCandidate === null ? "notSubmission" : "oshiOnly",
+  };
 };
 
 export const preserveExistingStableKeys = (

@@ -1,5 +1,6 @@
 import { Cause, Effect, Option, pipe } from "effect";
 import {
+  type MessageTeamSubmission,
   type ParsedTeamEntry,
   type TeamSubmissionRollbackSnapshot,
   type TeamSubmissionRowMapping,
@@ -12,6 +13,8 @@ import type { TeamSubmissionPersistence } from "./persistence";
 import {
   type ProcessedTeamSubmissionEntry,
   type ProcessedTeamSubmissionResult,
+  type SheetValueUpdate,
+  editableSubmissionStatuses,
   existingMappingByKey,
   existingTeamKeys,
   isProcessedResult,
@@ -23,6 +26,18 @@ import {
   sourceMessageRef,
 } from "./pure";
 import type { TeamSubmissionSupport } from "./support";
+
+const stableKeyByRangeFor = (mappings: Iterable<TeamSubmissionRowMapping>): Map<string, string> => {
+  const stableKeyByRange = new Map<string, string>();
+  for (const mapping of mappings) {
+    stableKeyByRange.set(mapping.playerNameRange, mapping.stableKey);
+    stableKeyByRange.set(mapping.teamNameRange, mapping.stableKey);
+    if (mapping.oshiRange !== null) {
+      stableKeyByRange.set(mapping.oshiRange, mapping.stableKey);
+    }
+  }
+  return stableKeyByRange;
+};
 
 export const makeUpsertFromDiscord = (
   {
@@ -43,12 +58,132 @@ export const makeUpsertFromDiscord = (
   }: TeamSubmissionSupport,
   { getExisting, persistSubmission, rollbackSnapshotForUpdates }: TeamSubmissionPersistence,
 ) => {
+  const persistApplyingSyncAndFinalize = Effect.fn(
+    "TeamSubmissionService.persistApplyingSyncAndFinalize",
+  )(function* ({
+    payload,
+    sheetId,
+    confirmationMessageId,
+    entries,
+    rowMappings,
+    rollbackSnapshot,
+    data,
+    status,
+  }: {
+    readonly payload: TeamSubmissionUpsertFromDiscordPayload;
+    readonly sheetId: string;
+    readonly confirmationMessageId: string | null;
+    readonly entries: ReadonlyArray<ParsedTeamEntry>;
+    readonly rowMappings: ReadonlyArray<TeamSubmissionRowMapping>;
+    readonly rollbackSnapshot: TeamSubmissionRollbackSnapshot | null;
+    readonly data: ReadonlyArray<SheetValueUpdate>;
+    readonly status: TeamSubmissionUpsertResult["status"];
+  }) {
+    if (data.length > 0) {
+      yield* persistSubmission(
+        payload,
+        sheetId,
+        confirmationMessageId,
+        entries,
+        rowMappings,
+        rollbackSnapshot,
+        "applying",
+      );
+      yield* googleSheets.update({
+        spreadsheetId: sheetId,
+        requestBody: {
+          valueInputOption: "USER_ENTERED",
+          data: [...data],
+        },
+      });
+    }
+    yield* persistSubmission(
+      payload,
+      sheetId,
+      confirmationMessageId,
+      entries,
+      rowMappings,
+      rollbackSnapshot,
+      status,
+    );
+  });
+
+  const clearIgnoredExisting = Effect.fn("TeamSubmissionService.clearIgnoredExisting")(function* (
+    payload: TeamSubmissionUpsertFromDiscordPayload,
+    submission: MessageTeamSubmission,
+  ) {
+    if (!editableSubmissionStatuses.has(submission.status)) {
+      return;
+    }
+    const resolvedMappings = new Map(
+      submission.rowMappings
+        .filter((mapping) => mapping.rowIndex > 0)
+        .map((mapping) => [mapping.stableKey, mapping] as const),
+    );
+    if (resolvedMappings.size === 0) {
+      return;
+    }
+    const pendingMappings = submission.rowMappings.filter((mapping) => mapping.rowIndex === 0);
+    const pendingKeys = new Set(pendingMappings.map((mapping) => mapping.stableKey));
+    const data = blankRemovedRows(new Set(resolvedMappings.keys()), new Set(), resolvedMappings);
+    const stableKeyByRange = stableKeyByRangeFor(resolvedMappings.values());
+    const cleanupRollbackSnapshot = yield* rollbackSnapshotForUpdates(
+      submission.sheetId,
+      data,
+      stableKeyByRange,
+    );
+    const previousRollbackSnapshot = Option.getOrNull(submission.rollbackSnapshot) ?? [];
+    const rollbackSnapshot = [
+      ...previousRollbackSnapshot.filter(({ stableKey }) => pendingKeys.has(stableKey)),
+      ...cleanupRollbackSnapshot,
+    ];
+    const confirmationMessageId = pipe(submission.confirmationMessageId, Option.getOrNull);
+    yield* persistApplyingSyncAndFinalize({
+      payload,
+      sheetId: submission.sheetId,
+      confirmationMessageId,
+      entries: submission.parsedSubmission.filter((entry) => pendingKeys.has(entry.stableKey)),
+      rowMappings: pendingMappings,
+      rollbackSnapshot,
+      data,
+      status: pendingMappings.length === 0 ? "empty" : "applying",
+    });
+  });
+
   const upsertFromDiscord = Effect.fn("TeamSubmissionService.upsertFromDiscord")(function* (
     payload: TeamSubmissionUpsertFromDiscordPayload,
   ) {
     return yield* withSubmissionLock(
       payload,
       Effect.gen(function* () {
+        const parsed = parseTeamSubmissionMessage(payload.content, payload.authorDisplayName);
+        const existing = yield* getExisting(payload);
+        if (parsed.disposition !== "accepted") {
+          yield* Effect.logInfo("Ignored non-submission message in team submission channel").pipe(
+            Effect.annotateLogs({
+              workspaceId: payload.workspaceId,
+              conversationId: payload.conversationId,
+              disposition: parsed.disposition,
+            }),
+          );
+          yield* pipe(
+            existing,
+            Option.match({
+              onNone: () => Effect.void,
+              onSome: (submission) => clearIgnoredExisting(payload, submission),
+            }),
+          );
+          return {
+            sourceMessage: sourceMessageRef(payload),
+            confirmationMessage: Option.none(),
+            parsedTeams: [],
+            rowMappings: [],
+            rollbackSnapshot: null,
+            skippedTeams: [],
+            confirmationText: "",
+            status: "empty",
+          } satisfies TeamSubmissionUpsertResult;
+        }
         const sheetId = yield* requireSheetId(payload);
         const channel = yield* requireChannel(payload);
         const { teamConfigs, rangesConfig } = yield* Effect.all({
@@ -57,7 +192,6 @@ export const makeUpsertFromDiscord = (
         });
         const validOshis = yield* readValidOshis(sheetId, rangesConfig);
         const teamConfigLookups = yield* buildTeamConfigLookups(sheetId, teamConfigs, validOshis);
-        const existing = yield* getExisting(payload);
         yield* pipe(
           existing,
           Option.match({
@@ -65,7 +199,6 @@ export const makeUpsertFromDiscord = (
             onSome: requireEditableSubmission,
           }),
         );
-        const parsed = parseTeamSubmissionMessage(payload.content, payload.authorDisplayName);
         const parsedEntries = Option.match(existing, {
           onNone: () => parsed.entries,
           onSome: (submission) => preserveExistingStableKeys(submission, parsed.entries),
@@ -221,21 +354,10 @@ export const makeUpsertFromDiscord = (
           ...registered.flatMap((entry) => entry.updates),
           ...blankRemovedRows(previousKeys, nextKeys, previousMappings),
         ];
-        const stableKeyByRange = new Map<string, string>();
-        for (const mapping of previousMappings.values()) {
-          stableKeyByRange.set(mapping.playerNameRange, mapping.stableKey);
-          stableKeyByRange.set(mapping.teamNameRange, mapping.stableKey);
-          if (mapping.oshiRange !== null) {
-            stableKeyByRange.set(mapping.oshiRange, mapping.stableKey);
-          }
-        }
-        for (const entry of registered) {
-          stableKeyByRange.set(entry.mapping.playerNameRange, entry.mapping.stableKey);
-          stableKeyByRange.set(entry.mapping.teamNameRange, entry.mapping.stableKey);
-          if (entry.mapping.oshiRange !== null) {
-            stableKeyByRange.set(entry.mapping.oshiRange, entry.mapping.stableKey);
-          }
-        }
+        const stableKeyByRange = stableKeyByRangeFor([
+          ...previousMappings.values(),
+          ...registered.map((entry) => entry.mapping),
+        ]);
         const rollbackSnapshot = withBlankAppendedRows(
           yield* rollbackSnapshotForUpdates(sheetId, data, stableKeyByRange),
           registered,
@@ -243,34 +365,16 @@ export const makeUpsertFromDiscord = (
         recoveryRollbackSnapshot = rollbackSnapshot;
 
         const status = statusForEntries(entries, existing);
-        if (data.length > 0) {
-          yield* persistSubmission(
-            payload,
-            sheetId,
-            confirmationMessageId,
-            entries,
-            rowMappings,
-            recoveryRollbackSnapshot,
-            "applying",
-          );
-          yield* googleSheets.update({
-            spreadsheetId: sheetId,
-            requestBody: {
-              valueInputOption: "USER_ENTERED",
-              data,
-            },
-          });
-        }
-
-        yield* persistSubmission(
+        yield* persistApplyingSyncAndFinalize({
           payload,
           sheetId,
           confirmationMessageId,
           entries,
           rowMappings,
-          recoveryRollbackSnapshot,
+          rollbackSnapshot: recoveryRollbackSnapshot,
+          data,
           status,
-        );
+        });
 
         return {
           sourceMessage: sourceMessageRef(payload),
