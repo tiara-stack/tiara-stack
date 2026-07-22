@@ -1,13 +1,12 @@
-import { Duration, Effect, Option, Predicate, Schedule } from "effect";
+import { Duration, Effect, Option, Schedule } from "effect";
 import * as Sheet from "sheet-ingress-api/schemas/sheet";
+import { isTeamSubmissionEnabled } from "sheet-ingress-api/schemas/teamSubmission";
 import type {
   TeamListDispatchPayload,
   TeamListDispatchResult,
   TeamSubmissionDispatchPayload,
   TeamSubmissionDispatchResult,
 } from "sheet-ingress-api/sheet-apis-rpc";
-import { makeUnknownError } from "typhoon-core/error";
-import { markInteractionFailureHandled } from "@/handlers/shared/interactionFailure";
 import { ClientDeliveryClient } from "../../clientDeliveryClient";
 import { teamSubmissionConfirmationActionRow } from "sheet-message-content/components";
 import { SheetApisClient } from "../../sheetApisClient";
@@ -21,18 +20,49 @@ import {
   teamSubmissionReaction,
 } from "./teamSubmissionCommon";
 
-const teamSubmissionConfirmationsFeatureFlag = "team-submission-confirmations";
 const teamSubmissionProgressColor = 0xfee75c;
 const teamSubmissionSuccessColor = 0x57f287;
 const discordEmbedCharacterLimit = 6_000;
 const discordEmbedFieldCountLimit = 25;
 const discordEmbedFieldNameLimit = 256;
 const discordEmbedFieldValueLimit = 1_024;
+const teamSubmissionSheetApiRetryPolicy = {
+  schedule: Schedule.spaced(Duration.seconds(1)),
+  times: 2,
+} as const;
+const teamSubmissionFeatureLookupRetryPolicy = {
+  schedule: Schedule.spaced(Duration.millis(50)),
+  times: 1,
+} as const;
+const teamSubmissionFeatureLookupTimeout = Duration.millis(500);
 
 type TeamListField = {
   readonly name: string;
   readonly value: string;
 };
+
+const sourceMessageFor = (
+  payload: TeamSubmissionDispatchPayload,
+): TeamSubmissionDispatchResult["sourceMessage"] => ({
+  conversation: {
+    workspace: { client: payload.client, workspaceId: payload.workspaceId },
+    conversationId: payload.conversationId,
+  },
+  messageId: payload.messageId,
+});
+
+const disabledTeamSubmissionResult = (
+  payload: TeamSubmissionDispatchPayload,
+): TeamSubmissionDispatchResult => ({
+  sourceMessage: sourceMessageFor(payload),
+  confirmationMessage: Option.none(),
+  parsedTeams: [],
+  rowMappings: [],
+  rollbackSnapshot: null,
+  skippedTeams: [],
+  confirmationText: "",
+  status: "empty",
+});
 
 const truncateWithEllipsis = (value: string, limit: number): string =>
   value.length <= limit ? value : `${value.slice(0, limit - 1)}…`;
@@ -141,12 +171,7 @@ export const makeTeamSubmissionOperations = ({
           confirmationMessageId,
         },
       })
-      .pipe(
-        Effect.retry({
-          schedule: Schedule.spaced(Duration.seconds(1)),
-          times: 2,
-        }),
-      );
+      .pipe(Effect.retry(teamSubmissionSheetApiRetryPolicy));
 
   return {
     teamList: Effect.fn("DispatchService.teamList")(function* (payload: TeamListDispatchPayload) {
@@ -224,80 +249,28 @@ export const makeTeamSubmissionOperations = ({
         conversationId: payload.conversationId,
         messageId: payload.messageId,
       });
-      const deliveryClient = botClient.forClient(payload.client);
-      const featureFlags = yield* workspaceConfigService.getWorkspaceFeatureFlags(
-        payload.workspaceId,
-      );
-      const confirmationsEnabled = featureFlags.some(
-        (flag) => flag.flagName === teamSubmissionConfirmationsFeatureFlag,
-      );
-
-      if (!confirmationsEnabled) {
-        const result = yield* sheetApisClient.get().teamSubmission.upsertFromDiscord({ payload });
-        const confirmationPayload = {
-          content: result.confirmationText,
-          allowedMentions: "none" as const,
-        };
-        const confirmationSendPayload = {
-          ...confirmationPayload,
-          nonce: makeDeliveryNonce(`team-submission-confirmation:${payload.messageId}`),
-          enforceNonce: true,
-        };
-        const confirmation = yield* Option.match(result.confirmationMessage, {
-          onSome: (message) =>
-            deliveryClient
-              .updateMessage(
-                message.conversation.conversationId,
-                message.messageId,
-                confirmationPayload,
-              )
-              .pipe(
-                Effect.catchIf(Predicate.isTagged("DiscordBotNotFoundError"), () =>
-                  deliveryClient.sendMessage(payload.conversationId, confirmationSendPayload),
-                ),
-              ),
-          onNone: () => deliveryClient.sendMessage(payload.conversationId, confirmationSendPayload),
-        }).pipe(
-          Effect.catch((error) =>
-            Effect.fail(
-              markInteractionFailureHandled(
-                makeUnknownError(
-                  "Teams were added, but Tiara could not deliver the confirmation message. Please check the sheet.",
-                  error,
-                ),
-              ),
-            ),
-          ),
+      const featureFlags = yield* workspaceConfigService
+        .getWorkspaceFeatureFlags(payload.workspaceId)
+        .pipe(
+          Effect.retry(teamSubmissionFeatureLookupRetryPolicy),
+          Effect.timeout(teamSubmissionFeatureLookupTimeout),
         );
+      const teamSubmissionEnabled = isTeamSubmissionEnabled(featureFlags);
 
-        const updatedResult = yield* setConfirmationMessage(payload, confirmation.id).pipe(
-          Effect.catch((error) =>
-            deliveryClient
-              .updateMessage(payload.conversationId, confirmation.id, {
-                content:
-                  "Teams were added, but confirmation tracking failed. Please retry the command.",
-                components: [],
-                allowedMentions: "none",
-              })
-              .pipe(
-                ignoreDiscordCleanupFailure(
-                  "Failed to mark untracked team submission confirmation",
-                ),
-                Effect.andThen(Effect.fail(error)),
-              ),
-          ),
+      if (!teamSubmissionEnabled) {
+        yield* Effect.logInfo("Ignored disabled team submission dispatch").pipe(
+          Effect.annotateLogs({
+            workspaceId: payload.workspaceId,
+            conversationId: payload.conversationId,
+            messageId: payload.messageId,
+            disposition: "disabled",
+          }),
         );
-
-        return updatedResult satisfies TeamSubmissionDispatchResult;
+        return disabledTeamSubmissionResult(payload);
       }
 
-      const sourceMessage = {
-        conversation: {
-          workspace: { client: payload.client, workspaceId: payload.workspaceId },
-          conversationId: payload.conversationId,
-        },
-        messageId: payload.messageId,
-      };
+      const deliveryClient = botClient.forClient(payload.client);
+      const sourceMessage = sourceMessageFor(payload);
       const progressMessage = yield* deliveryClient.sendMessage(payload.conversationId, {
         embeds: [
           makeEmbed({

@@ -1,6 +1,16 @@
-import { Schema } from "effect";
+import { Predicate, Schema } from "effect";
 import { TeamSubmissionStatus as TeamSubmissionStatusSchema } from "sheet-models";
 import { ClientPlatform, ClientRef, MessageRef } from "../client";
+
+export const TEAM_SUBMISSION_FEATURE_FLAG = "team-submission-confirmations";
+
+const isTeamSubmissionFeatureFlag = Predicate.Struct({
+  flagName: (flagName: string) => flagName === TEAM_SUBMISSION_FEATURE_FLAG,
+});
+
+export const isTeamSubmissionEnabled = (
+  featureFlags: ReadonlyArray<{ readonly flagName: string }>,
+) => featureFlags.some(isTeamSubmissionFeatureFlag);
 
 export const ParsedTeamType = Schema.Literals(["fullFill", "heal", "encore", "alt"]);
 export type ParsedTeamType = Schema.Schema.Type<typeof ParsedTeamType>;

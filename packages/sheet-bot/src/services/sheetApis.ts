@@ -3,6 +3,7 @@ import { HttpApiClient } from "effect/unstable/httpapi";
 import { Cache, Context, Data, Duration, Effect, Layer, Redacted } from "effect";
 import { createOAuthClientCredentialsToken } from "sheet-auth/client";
 import { DISCORD_SERVICE_USER_ID_SENTINEL } from "sheet-auth/oauth";
+import { isTeamSubmissionEnabled } from "sheet-ingress-api/schemas/teamSubmission";
 import { SheetApisApi } from "sheet-ingress-api/sheet-apis";
 import { config } from "@/config";
 import { makeCachedBearerTokenHttpClient } from "./oauthHttpClient";
@@ -17,7 +18,7 @@ class SheetBotServicesSheetApisClientError extends Data.TaggedError(
 
 interface SheetApisClientShape {
   readonly get: () => HttpApiClient.ForApi<typeof SheetApisApi>;
-  readonly isTeamSubmissionChannelConfigured: (
+  readonly isTeamSubmissionEnabled: (
     workspaceId: string,
     conversationId: string,
   ) => Effect.Effect<boolean, unknown, never>;
@@ -103,10 +104,11 @@ const makeSheetApisClientService = Effect.gen(function* () {
 
   return {
     get: () => client,
-    isTeamSubmissionChannelConfigured: Effect.fn(
-      "SheetApisClient.isTeamSubmissionChannelConfigured",
-    )(function* (workspaceId: string, conversationId: string) {
-      return yield* client.workspaceConfig
+    isTeamSubmissionEnabled: Effect.fn("SheetApisClient.isTeamSubmissionEnabled")(function* (
+      workspaceId: string,
+      conversationId: string,
+    ) {
+      const configured = yield* client.workspaceConfig
         .getTeamSubmissionChannelByConversationId({
           query: { workspaceId, conversationId },
         })
@@ -120,6 +122,13 @@ const makeSheetApisClientService = Effect.gen(function* () {
             ),
           ),
         );
+      if (!configured) {
+        return false;
+      }
+      const featureFlags = yield* client.workspaceConfig.getWorkspaceFeatureFlags({
+        query: { workspaceId },
+      });
+      return isTeamSubmissionEnabled(featureFlags);
     }),
   } satisfies SheetApisClientShape;
 });

@@ -1,5 +1,6 @@
 import { Effect, Match, Option, String, pipe } from "effect";
 import type { RangesConfig, TeamConfig } from "sheet-ingress-api/schemas/sheetConfig";
+import { TEAM_SUBMISSION_FEATURE_FLAG } from "sheet-ingress-api/schemas/teamSubmission";
 import {
   type MessageTeamSubmission,
   type ParsedOshi,
@@ -34,6 +35,26 @@ export const makeTeamSubmissionSupport = ({
   googleSheets,
   workspaceConfigService,
 }: Pick<TeamSubmissionDependencies, "googleSheets" | "workspaceConfigService">) => {
+  const isFeatureEnabled = Effect.fn("TeamSubmissionService.isFeatureEnabled")(function* (
+    workspaceId: string,
+  ) {
+    const flag = yield* workspaceConfigService.getWorkspaceFeatureFlag(
+      workspaceId,
+      TEAM_SUBMISSION_FEATURE_FLAG,
+    );
+    return Option.isSome(flag);
+  });
+
+  const requireFeatureEnabled = Effect.fn("TeamSubmissionService.requireFeatureEnabled")(function* (
+    workspaceId: string,
+  ) {
+    if (!(yield* isFeatureEnabled(workspaceId))) {
+      return yield* Effect.fail(
+        makeArgumentError(`Team submissions are not enabled for workspace ${workspaceId}`),
+      );
+    }
+  });
+
   const getConfigTags = Effect.fn("TeamSubmissionService.getConfigTags")(function* (
     sheetId: string,
     config: TeamConfig,
@@ -564,9 +585,11 @@ export const makeTeamSubmissionSupport = ({
     blankRollbackSnapshotForAppendedRows,
     buildTeamConfigLookups,
     confirmationMessage,
+    isFeatureEnabled,
     processParsedEntry,
     readValidOshis,
     requireChannel,
+    requireFeatureEnabled,
     requireSheetId,
     statusForEntries,
   };

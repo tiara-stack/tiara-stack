@@ -6,10 +6,11 @@ import {
   TeamTagsConstantsConfig,
 } from "sheet-ingress-api/schemas/sheetConfig";
 import { WorkspaceConfig } from "sheet-ingress-api/schemas/workspaceConfig";
-import type {
-  MessageTeamSubmission,
-  TeamSubmissionRollbackSnapshot,
-  TeamSubmissionUpsertFromDiscordPayload,
+import {
+  TEAM_SUBMISSION_FEATURE_FLAG,
+  type MessageTeamSubmission,
+  type TeamSubmissionRollbackSnapshot,
+  type TeamSubmissionUpsertFromDiscordPayload,
 } from "sheet-ingress-api/schemas/teamSubmission";
 import { GoogleSheets } from "./google/sheets";
 import { SheetConfigService } from "./sheetConfig";
@@ -80,8 +81,18 @@ const workspaceConfig = new WorkspaceConfig({
 
 const makeWorkspaceConfigService = ({
   requireValidOshi = false,
-}: { readonly requireValidOshi?: boolean } = {}) =>
+  teamSubmissionEnabled = true,
+}: {
+  readonly requireValidOshi?: boolean;
+  readonly teamSubmissionEnabled?: boolean;
+} = {}) =>
   Layer.succeed(WorkspaceConfigService, {
+    getWorkspaceFeatureFlag: (_workspaceId: string, flagName: string) =>
+      Effect.succeed(
+        teamSubmissionEnabled && flagName === TEAM_SUBMISSION_FEATURE_FLAG
+          ? Option.some({ flagName: TEAM_SUBMISSION_FEATURE_FLAG })
+          : Option.none(),
+      ),
     getWorkspaceConfig: () => Effect.succeed(Option.some(workspaceConfig)),
     getTeamSubmissionChannelByConversationId: () =>
       Effect.succeed(
@@ -263,6 +274,9 @@ const runUpsert = ({
   }).pipe(
     Effect.provide(Layer.mergeAll(googleSheets, sheetConfigService, workspaceConfigService, zero)),
   );
+
+const runIgnoredEdit = (options: Omit<Parameters<typeof runUpsert>[0], "inputPayload">) =>
+  runUpsert({ ...options, inputPayload: { ...payload, content: "will do!" } });
 
 const runRevert = ({
   googleSheets,
@@ -680,7 +694,7 @@ describe("TeamSubmissionService.upsertFromDiscord", () => {
       const sheetUpdates: Array<{ range: string; values: string[][] }> = [];
       const persisted: unknown[] = [];
       const existingSubmission = makeExistingSubmissionFixture();
-      const result = yield* runUpsert({
+      const result = yield* runIgnoredEdit({
         googleSheets: makeGoogleSheetsMock({
           updates: sheetUpdates,
           existingRangeValues: {
@@ -696,7 +710,6 @@ describe("TeamSubmissionService.upsertFromDiscord", () => {
           existingSubmission: Option.some(existingSubmission),
           persisted,
         }),
-        inputPayload: { ...payload, content: "will do!" },
       });
 
       expectBlankedRow(sheetUpdates, 2);
@@ -726,13 +739,12 @@ describe("TeamSubmissionService.upsertFromDiscord", () => {
   it.effect("silently ignores non-submission edits to locked submissions", () =>
     Effect.gen(function* () {
       const persisted: unknown[] = [];
-      const result = yield* runUpsert({
+      const result = yield* runIgnoredEdit({
         googleSheets: makeGoogleSheetsMock({ failAppend: true, failUpdate: true }),
         zero: makeZeroMock({
           existingSubmission: Option.some(makeExistingSubmissionFixture({ status: "confirmed" })),
           persisted,
         }),
-        inputPayload: { ...payload, content: "will do!" },
       });
 
       expect(result.status).toBe("empty");
@@ -748,7 +760,7 @@ describe("TeamSubmissionService.upsertFromDiscord", () => {
       const pendingEntry = Option.getOrThrow(
         Option.fromNullishOr(parseTeamSubmissionMessage("ff: 150/710", "Player").entries[0]),
       );
-      const result = yield* runUpsert({
+      const result = yield* runIgnoredEdit({
         googleSheets: makeGoogleSheetsMock({ updates: sheetUpdates }),
         zero: makeZeroMock({
           existingSubmission: Option.some(
@@ -775,7 +787,6 @@ describe("TeamSubmissionService.upsertFromDiscord", () => {
           ),
           persisted,
         }),
-        inputPayload: { ...payload, content: "will do!" },
       });
 
       expect(result.status).toBe("empty");
@@ -796,7 +807,7 @@ describe("TeamSubmissionService.upsertFromDiscord", () => {
   it.effect("leaves an all-provisional ignored edit available for recovery", () =>
     Effect.gen(function* () {
       const persisted: unknown[] = [];
-      const result = yield* runUpsert({
+      const result = yield* runIgnoredEdit({
         googleSheets: makeGoogleSheetsMock({ failUpdate: true }),
         zero: makeZeroMock({
           existingSubmission: Option.some(
@@ -815,7 +826,43 @@ describe("TeamSubmissionService.upsertFromDiscord", () => {
           ),
           persisted,
         }),
-        inputPayload: { ...payload, content: "will do!" },
+      });
+
+      expect(result.status).toBe("empty");
+      expect(persisted).toEqual([]);
+    }),
+  );
+
+  it.effect("rejects direct upserts when the team submission feature is disabled", () =>
+    Effect.gen(function* () {
+      const persisted: unknown[] = [];
+      const appendedRanges: string[] = [];
+      const exit = yield* Effect.exit(
+        runUpsert({
+          googleSheets: makeGoogleSheetsMock({ appendedRanges }),
+          zero: makeZeroMock({ persisted }),
+          workspaceConfigService: makeWorkspaceConfigService({ teamSubmissionEnabled: false }),
+        }),
+      );
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(appendedRanges).toEqual([]);
+      expect(persisted).toEqual([]);
+    }),
+  );
+
+  it.effect("does not clear ignored edits when the team submission feature is disabled", () =>
+    Effect.gen(function* () {
+      const persisted: unknown[] = [];
+      const googleSheets = makeGoogleSheetsMock({ failUpdate: true });
+      const zero = makeZeroMock({
+        existingSubmission: Option.some(makeExistingSubmissionFixture()),
+        persisted,
+      });
+      const result = yield* runIgnoredEdit({
+        googleSheets,
+        zero,
+        workspaceConfigService: makeWorkspaceConfigService({ teamSubmissionEnabled: false }),
       });
 
       expect(result.status).toBe("empty");

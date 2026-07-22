@@ -50,9 +50,11 @@ export const makeUpsertFromDiscord = (
     blankRollbackSnapshotForAppendedRows,
     buildTeamConfigLookups,
     confirmationMessage,
+    isFeatureEnabled,
     processParsedEntry,
     readValidOshis,
     requireChannel,
+    requireFeatureEnabled,
     requireSheetId,
     statusForEntries,
   }: TeamSubmissionSupport,
@@ -166,13 +168,12 @@ export const makeUpsertFromDiscord = (
               disposition: parsed.disposition,
             }),
           );
-          yield* pipe(
-            existing,
-            Option.match({
-              onNone: () => Effect.void,
-              onSome: (submission) => clearIgnoredExisting(payload, submission),
-            }),
-          );
+          if (Option.isSome(existing)) {
+            const featureEnabled = yield* isFeatureEnabled(payload.workspaceId);
+            if (featureEnabled) {
+              yield* clearIgnoredExisting(payload, existing.value);
+            }
+          }
           return {
             sourceMessage: sourceMessageRef(payload),
             confirmationMessage: Option.none(),
@@ -184,6 +185,7 @@ export const makeUpsertFromDiscord = (
             status: "empty",
           } satisfies TeamSubmissionUpsertResult;
         }
+        yield* requireFeatureEnabled(payload.workspaceId);
         const sheetId = yield* requireSheetId(payload);
         const channel = yield* requireChannel(payload);
         const { teamConfigs, rangesConfig } = yield* Effect.all({

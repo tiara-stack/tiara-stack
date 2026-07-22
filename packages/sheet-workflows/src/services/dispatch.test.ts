@@ -14,7 +14,6 @@ import {
 } from "effect";
 import { TestClock } from "effect/testing";
 import { formatTentativeRoomOrderContent } from "sheet-ingress-api/clientActions";
-import { DiscordBotNotFoundError } from "sheet-ingress-api/client-delivery";
 import type {
   AutoCheckinTestDispatchPayload,
   CheckinHandleButtonPayload,
@@ -63,12 +62,10 @@ import {
   Team,
 } from "sheet-ingress-api/schemas/sheet";
 import { EventConfig } from "sheet-ingress-api/schemas/sheetConfig";
+import { TEAM_SUBMISSION_FEATURE_FLAG } from "sheet-ingress-api/schemas/teamSubmission";
 import { makeArgumentError } from "typhoon-core/error";
 import { DispatchService, ClientDeliveryClient, SheetApisClient } from "@/services";
-import {
-  isInteractionFailureHandled,
-  unwrapInteractionFailure,
-} from "@/handlers/shared/interactionFailure";
+import { isInteractionFailureHandled } from "@/handlers/shared/interactionFailure";
 import * as Data from "effect/Data";
 import { makeMessageSink } from "./dispatch/clients/messageDelivery";
 import { makeDeliveryNonce } from "./dispatch/pure/deliveryNonce";
@@ -3966,7 +3963,7 @@ describe("DispatchService", () => {
     }),
   );
 
-  it.effect("uses the text confirmation path when team submission confirmations are disabled", () =>
+  it.effect("ignores team submissions when the feature flag is disabled", () =>
     Effect.gen(function* () {
       const deliveryCalls: Array<unknown> = [];
       const sheetApiCalls: Array<unknown> = [];
@@ -3992,102 +3989,62 @@ describe("DispatchService", () => {
         (service) => service.teamSubmission(teamSubmissionPayload),
       );
 
-      expect(result.status).toBe("registered");
-      expect(sheetApiCalls).toEqual([
-        ["upsertFromDiscord", { payload: teamSubmissionPayload }],
-        [
-          "setConfirmationMessage",
-          {
-            payload: {
-              workspaceId: "workspace-1",
-              conversationId: "conversation-1",
-              messageId: "source-message-1",
-              confirmationMessageId: "confirmation-message-1",
-            },
-          },
-        ],
-      ]);
-      expect(deliveryCalls).toEqual([
-        {
-          method: "sendMessage",
-          conversationId: "conversation-1",
-          payload: {
-            content: "Registered teams from Alice",
-            allowedMentions: "none",
-            nonce: makeDeliveryNonce("team-submission-confirmation:source-message-1"),
-            enforceNonce: true,
-          },
-        },
-      ]);
+      expect(result.status).toBe("empty");
+      expect(result.parsedTeams).toEqual([]);
+      expect(result.confirmationText).toBe("");
+      expect(sheetApiCalls).toEqual([]);
+      expect(deliveryCalls).toEqual([]);
     }),
   );
 
-  it.effect("replaces a deleted stored text confirmation", () =>
+  it.live("retries a transient team submission feature flag lookup", () =>
     Effect.gen(function* () {
-      const deliveryCalls: Array<unknown> = [];
-      const setConfirmationCalls: Array<unknown> = [];
+      let attempts = 0;
       const sheetApisClient = makeSheetApisClient({
         workspaceConfig: {
-          getWorkspaceFeatureFlags: () => Effect.succeed([]),
+          getWorkspaceFeatureFlags: () =>
+            Effect.suspend(() => {
+              attempts += 1;
+              return attempts === 1
+                ? Effect.fail(
+                    new SheetWorkflowsServicesDispatchTestError({
+                      message: "feature flag lookup failed",
+                    }),
+                  )
+                : Effect.succeed([
+                    makeWorkspaceFeatureFlag({ flagName: TEAM_SUBMISSION_FEATURE_FLAG }),
+                  ]);
+            }),
         },
         teamSubmission: {
-          upsertFromDiscord: () => Effect.succeed(makeConfirmedTeamSubmissionResult()),
-          setConfirmationMessage: (args: unknown) => {
-            setConfirmationCalls.push(args);
-            return Effect.succeed(makeConfirmedTeamSubmissionResult());
-          },
+          upsertFromDiscord: () => Effect.succeed(makeTeamSubmissionUpsertResult()),
+          setConfirmationMessage: () => Effect.succeed(makeConfirmedTeamSubmissionResult()),
         },
       });
 
       const result = yield* runWithDispatchService(
-        makeTeamSubmissionDeliveryClient(deliveryCalls, {
-          updateMessageError: new DiscordBotNotFoundError({
-            message: "Confirmation message not found",
-            status: 404,
-          }),
-          sentMessageId: "replacement-confirmation-message",
-        }),
+        makeTeamSubmissionDeliveryClient([]),
         sheetApisClient,
         (service) => service.teamSubmission(teamSubmissionPayload),
       );
 
+      expect(attempts).toBe(2);
       expect(result.status).toBe("registered");
-      expect(deliveryCalls).toMatchObject([
-        { method: "updateMessage", messageId: "confirmation-message-1" },
-        { method: "sendMessage", conversationId: "conversation-1" },
-      ]);
-      expect(setConfirmationCalls).toEqual([
-        {
-          payload: {
-            workspaceId: "workspace-1",
-            conversationId: "conversation-1",
-            messageId: "source-message-1",
-            confirmationMessageId: "replacement-confirmation-message",
-          },
-        },
-      ]);
     }),
   );
 
-  it.effect("reports when persisted teams cannot receive a text confirmation", () =>
+  it.live("fails closed within the feature flag lookup budget", () =>
     Effect.gen(function* () {
       const deliveryCalls: Array<unknown> = [];
-      const sheetApiCalls: Array<string> = [];
       const sheetApisClient = makeSheetApisClient({
         workspaceConfig: {
-          getWorkspaceFeatureFlags: () => Effect.succeed([]),
-        },
-        teamSubmission: {
-          upsertFromDiscord: () => {
-            sheetApiCalls.push("upsertFromDiscord");
-            return Effect.succeed(makeTeamSubmissionUpsertResult());
-          },
+          getWorkspaceFeatureFlags: () => Effect.never,
         },
       });
 
       const exit = yield* Effect.exit(
         runWithDispatchService(
-          makeTeamSubmissionDeliveryClient(deliveryCalls, { failSendMessage: true }),
+          makeTeamSubmissionDeliveryClient(deliveryCalls),
           sheetApisClient,
           (service) => service.teamSubmission(teamSubmissionPayload),
         ),
@@ -4095,54 +4052,8 @@ describe("DispatchService", () => {
 
       expect(Exit.isFailure(exit)).toBe(true);
       const failure = Exit.isFailure(exit) ? Cause.findErrorOption(exit.cause) : Option.none();
-      expect(Option.isSome(failure) && isInteractionFailureHandled(failure.value)).toBe(true);
-      if (Option.isSome(failure)) {
-        expect(unwrapInteractionFailure(failure.value)).toMatchObject({
-          message:
-            "Teams were added, but Tiara could not deliver the confirmation message. Please check the sheet.",
-        });
-      }
-      expect(sheetApiCalls).toEqual(["upsertFromDiscord"]);
-      expect(deliveryCalls).toMatchObject([
-        { method: "sendMessage", conversationId: "conversation-1" },
-      ]);
-    }),
-  );
-
-  it.effect("does not recurse indefinitely through cyclic delivery error causes", () =>
-    Effect.gen(function* () {
-      const firstError: { cause?: unknown } = {};
-      const secondError: { cause?: unknown } = { cause: firstError };
-      firstError.cause = secondError;
-      const sheetApisClient = makeSheetApisClient({
-        workspaceConfig: {
-          getWorkspaceFeatureFlags: () => Effect.succeed([]),
-        },
-        teamSubmission: {
-          upsertFromDiscord: () => Effect.succeed(makeConfirmedTeamSubmissionResult()),
-        },
-      });
-
-      const exit = yield* Effect.exit(
-        runWithDispatchService(
-          makeTeamSubmissionDeliveryClient([], { updateMessageError: firstError }),
-          sheetApisClient,
-          (service) => service.teamSubmission(teamSubmissionPayload),
-        ),
-      );
-
-      expect(Exit.isFailure(exit)).toBe(true);
-      if (Exit.isFailure(exit)) {
-        expect(exit.cause.reasons.every(Cause.isFailReason)).toBe(true);
-        const failure = Cause.findErrorOption(exit.cause);
-        expect(Option.isSome(failure) && isInteractionFailureHandled(failure.value)).toBe(true);
-        if (Option.isSome(failure)) {
-          expect(unwrapInteractionFailure(failure.value)).toMatchObject({
-            message:
-              "Teams were added, but Tiara could not deliver the confirmation message. Please check the sheet.",
-          });
-        }
-      }
+      expect(Option.isSome(failure) && Cause.isTimeoutError(failure.value)).toBe(true);
+      expect(deliveryCalls).toEqual([]);
     }),
   );
 
@@ -4155,7 +4066,7 @@ describe("DispatchService", () => {
           workspaceConfig: {
             getWorkspaceFeatureFlags: () =>
               Effect.succeed([
-                makeWorkspaceFeatureFlag({ flagName: "team-submission-confirmations" }),
+                makeWorkspaceFeatureFlag({ flagName: TEAM_SUBMISSION_FEATURE_FLAG }),
               ]),
           },
           teamSubmission: {
@@ -4216,9 +4127,7 @@ describe("DispatchService", () => {
       const sheetApisClient = makeSheetApisClient({
         workspaceConfig: {
           getWorkspaceFeatureFlags: () =>
-            Effect.succeed([
-              makeWorkspaceFeatureFlag({ flagName: "team-submission-confirmations" }),
-            ]),
+            Effect.succeed([makeWorkspaceFeatureFlag({ flagName: TEAM_SUBMISSION_FEATURE_FLAG })]),
         },
         teamSubmission: {
           upsertFromDiscord: (args: unknown) => {
@@ -4258,9 +4167,7 @@ describe("DispatchService", () => {
       const sheetApisClient = makeSheetApisClient({
         workspaceConfig: {
           getWorkspaceFeatureFlags: () =>
-            Effect.succeed([
-              makeWorkspaceFeatureFlag({ flagName: "team-submission-confirmations" }),
-            ]),
+            Effect.succeed([makeWorkspaceFeatureFlag({ flagName: TEAM_SUBMISSION_FEATURE_FLAG })]),
         },
         teamSubmission: {
           upsertFromDiscord: (args: unknown) => {
@@ -4311,7 +4218,7 @@ describe("DispatchService", () => {
           workspaceConfig: {
             getWorkspaceFeatureFlags: () =>
               Effect.succeed([
-                makeWorkspaceFeatureFlag({ flagName: "team-submission-confirmations" }),
+                makeWorkspaceFeatureFlag({ flagName: TEAM_SUBMISSION_FEATURE_FLAG }),
               ]),
           },
           teamSubmission: {

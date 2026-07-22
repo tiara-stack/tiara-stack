@@ -52,7 +52,7 @@ export const updateAnnouncements = [
     publishedAt: "2026-07-08T00:00:00.000Z",
     title: "Team submission confirmations",
     description:
-      "Team submission channels can now show an in-channel confirmation flow while teams are added to the sheet. This is opt-in: a server admin must enable the team-submission-confirmations workspace feature flag before Tiara uses the new reaction, progress embed, and confirm/reject buttons.",
+      "Team submission channels require the team-submission-confirmations workspace feature flag. When enabled, Tiara writes submissions with the reaction, progress embed, and submitter-owned confirm/reject flow; without it, messages are ignored.",
     color: 0x57f287,
   },
 ] as const satisfies ReadonlyArray<UpdateAnnouncement>;
