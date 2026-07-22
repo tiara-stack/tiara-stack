@@ -1,7 +1,9 @@
 import { type Effect, Layer, Schema } from "effect";
 import { ClusterSchema, Entity } from "effect/unstable/cluster";
 import { Rpc } from "effect/unstable/rpc";
-import {
+import { DispatchClusterWorkflows } from "@/workflows/dispatchWorkflows";
+
+const {
   DispatchCheckinButtonWorkflow,
   DispatchRoomOrderNextButtonWorkflow,
   DispatchRoomOrderPinTentativeButtonWorkflow,
@@ -10,7 +12,7 @@ import {
   DispatchSlotOpenButtonWorkflow,
   DispatchTeamSubmissionConfirmButtonWorkflow,
   DispatchTeamSubmissionRejectButtonWorkflow,
-} from "@/workflows/dispatchWorkflows";
+} = DispatchClusterWorkflows;
 
 const dispatchShardGroup = () => "dispatch";
 

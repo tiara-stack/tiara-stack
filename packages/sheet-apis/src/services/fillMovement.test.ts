@@ -1,4 +1,3 @@
-// fallow-ignore-file code-duplication
 import { describe, expect, it } from "@effect/vitest";
 import { Option } from "effect";
 import { PopulatedBreakSchedule } from "sheet-ingress-api/schemas/sheet";

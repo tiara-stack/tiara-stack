@@ -3,7 +3,9 @@ import { WorkflowEngine } from "effect/unstable/workflow";
 import { HttpApiBuilder, HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
 import { DispatchWorkflowHttpApi, SheetWorkflowsInternalApi } from "sheet-ingress-api/internal";
 import { DispatchWorkflowResumePayload } from "sheet-ingress-api/internal";
-import { DispatchWorkflows } from "@/workflows/dispatchWorkflows";
+import { DispatchClusterWorkflows } from "@/workflows/dispatchWorkflows";
+
+const { all: DispatchWorkflows } = DispatchClusterWorkflows;
 
 type DispatchLayer = Layer.Layer<
   HttpApiGroup.ApiGroup<"sheet-workflows-internal", "dispatchWorkflows">,

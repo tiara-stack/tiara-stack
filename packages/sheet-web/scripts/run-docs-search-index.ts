@@ -54,7 +54,6 @@ async function wait(task: Parameters<typeof client.tasks.waitForTask>[0]) {
   if (result.status !== "succeeded") throw new Error(`Meilisearch task ${result.uid} failed`);
 }
 
-// fallow-ignore-next-line complexity
 async function indexExists(uid: string) {
   try {
     await client.getIndex(uid);
@@ -84,7 +83,6 @@ async function configureAndPopulate(uid: string) {
   }
 }
 
-// fallow-ignore-next-line complexity
 async function incrementalSync() {
   const index = await configure(indexUid);
   const existing: Array<Pick<DocsSearchRecord, "id" | "contentHash">> = [];
@@ -114,7 +112,6 @@ async function incrementalSync() {
   );
 }
 
-// fallow-ignore-next-line complexity
 async function fullSync() {
   const temporaryUid = `${indexUid}-build-${Date.now()}`;
   let completed = false;

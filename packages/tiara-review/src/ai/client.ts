@@ -103,7 +103,6 @@ const isEmptyStructuredOutput = (error: unknown) =>
   );
 
 export class ProviderAiReviewClient implements AiReviewClient {
-  // fallow-ignore-next-line unused-class-member
   runStructured<A>(
     prompt: string,
     options: AiRunOptions,

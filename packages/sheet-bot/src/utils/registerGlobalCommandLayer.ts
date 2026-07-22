@@ -12,12 +12,9 @@ type BuiltCommand = {
   readonly handler: Parameters<typeof CommandHelper.makeGlobalCommand>[1];
 };
 
-type BuiltSubCommand = {
-  readonly data: unknown;
-  readonly handler: unknown;
-};
+type BuiltSubCommand = Effect.Success<ReturnType<typeof CommandHelper.makeSubCommand>>;
 
-export const makeSingleSubCommand = <
+const makeSingleSubCommand = <
   const CommandName extends string,
   const CommandDescription extends string,
   const SubCommandName extends string,
@@ -32,10 +29,10 @@ export const makeSingleSubCommand = <
   readonly commandName: CommandName;
   readonly commandDescription: CommandDescription;
   readonly subCommandName: SubCommandName;
-  readonly makeSubCommand: Effect.Effect<unknown, E, R>;
+  readonly makeSubCommand: Effect.Effect<BuiltSubCommand, E, R>;
 }) =>
   Effect.gen(function* () {
-    const subCommand = (yield* makeSubCommand) as BuiltSubCommand;
+    const subCommand = yield* makeSubCommand;
 
     return yield* CommandHelper.makeCommand(
       (builder) =>
@@ -76,3 +73,16 @@ export const registerGlobalCommandLayer = <E, R>(makeCommand: Effect.Effect<Buil
       Layer.mergeAll(discordGatewayLayer, discordApplicationLayer, SheetWorkflowsClient.layer),
     ),
   );
+
+export const registerSingleSubCommandLayer = <
+  const CommandName extends string,
+  const CommandDescription extends string,
+  const SubCommandName extends string,
+  E,
+  R,
+>(options: {
+  readonly commandName: CommandName;
+  readonly commandDescription: CommandDescription;
+  readonly subCommandName: SubCommandName;
+  readonly makeSubCommand: Effect.Effect<BuiltSubCommand, E, R>;
+}) => registerGlobalCommandLayer(makeSingleSubCommand(options));

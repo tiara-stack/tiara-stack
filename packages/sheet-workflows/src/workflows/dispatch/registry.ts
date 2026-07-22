@@ -3,7 +3,17 @@ import type { DispatchRequester } from "sheet-ingress-api/internal";
 import { MessageRoomOrder } from "sheet-ingress-api/schemas/messageRoomOrder";
 import type { MessageSlot } from "sheet-ingress-api/schemas/messageSlot";
 import { DispatchService } from "@/services";
+import { DispatchClusterWorkflows } from "../dispatchWorkflows";
 import {
+  requireAuthorizedWorkspace,
+  requireCheckinButtonAccess,
+  requireRegisteredRoomOrderButtonAccess,
+  requireRoomOrderPinTentativeButtonAccess,
+  requireSelfOrAuthorizedWorkspace,
+  requireSlotOpenButtonAccess,
+} from "./authorization";
+
+const {
   DispatchAutoCheckinTestWorkflow,
   DispatchCheckinButtonWorkflow,
   DispatchCheckinWorkflow,
@@ -41,15 +51,7 @@ import {
   DispatchTeamSubmissionRejectButtonWorkflow,
   DispatchTeamSubmissionWorkflow,
   DispatchUpdateAnnouncementWorkflow,
-} from "../dispatchWorkflows";
-import {
-  requireAuthorizedWorkspace,
-  requireCheckinButtonAccess,
-  requireRegisteredRoomOrderButtonAccess,
-  requireRoomOrderPinTentativeButtonAccess,
-  requireSelfOrAuthorizedWorkspace,
-  requireSlotOpenButtonAccess,
-} from "./authorization";
+} = DispatchClusterWorkflows;
 
 type InteractionTokenRequest = {
   readonly payload: { readonly interactionResponseToken?: string | undefined };

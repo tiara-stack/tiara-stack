@@ -1,4 +1,3 @@
-// fallow-ignore-file code-duplication
 import { describe, expect, it } from "@effect/vitest";
 import { vi } from "vitest";
 import { Cause, Effect, Exit, Option } from "effect";

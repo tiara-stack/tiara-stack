@@ -31,26 +31,44 @@ const lint = {
   },
 } satisfies NonNullable<UserConfig["lint"]>;
 
+const mergeRecord = <Defaults extends object, Overrides extends object>(
+  defaults: Defaults,
+  overrides: Overrides | undefined,
+) => ({
+  ...defaults,
+  ...overrides,
+});
+
+const browserEnv = (browser: boolean) => (browser ? { browser: true } : {});
+
+type LintConfig = NonNullable<UserConfig["lint"]>;
+
+const mergeIgnorePatterns = (overrides: LintConfig | undefined) => [
+  ...lint.ignorePatterns,
+  ...(overrides?.ignorePatterns ?? []),
+];
+
+const mergeLintEnv = (overrides: LintConfig | undefined, browser: boolean) =>
+  mergeRecord({ ...lint.env, ...browserEnv(browser) }, overrides?.env);
+
+const mergeLintOptions = (overrides: LintConfig | undefined) =>
+  mergeRecord(lint.options, overrides?.options);
+
+const mergeLintRules = (overrides: LintConfig | undefined) =>
+  mergeRecord(lint.rules, overrides?.rules);
+
+const mergedLint = (overrides: LintConfig | undefined, browser: boolean): LintConfig => ({
+  ...lint,
+  ...overrides,
+  ignorePatterns: mergeIgnorePatterns(overrides),
+  env: mergeLintEnv(overrides, browser),
+  options: mergeLintOptions(overrides),
+  rules: mergeLintRules(overrides),
+});
+
 const mergeLint = (config: UserConfig, browser: boolean): UserConfig => ({
   ...config,
-  lint: {
-    ...lint,
-    ...config.lint,
-    ignorePatterns: [...lint.ignorePatterns, ...(config.lint?.ignorePatterns ?? [])],
-    env: {
-      ...lint.env,
-      ...(browser ? { browser: true } : {}),
-      ...config.lint?.env,
-    },
-    options: {
-      ...lint.options,
-      ...config.lint?.options,
-    },
-    rules: {
-      ...lint.rules,
-      ...config.lint?.rules,
-    },
-  },
+  lint: mergedLint(config.lint, browser),
 });
 
 const mergePack = (pack: PackConfig): PackConfig => ({

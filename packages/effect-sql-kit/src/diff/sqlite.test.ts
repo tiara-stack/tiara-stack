@@ -1,368 +1,47 @@
 import { describe, expect, it } from "@effect/vitest";
+import { emptySnapshot } from "../snapshot";
 import { diffSqlite } from "./sqlite";
-import { emptySnapshot, type SchemaSnapshot } from "../snapshot";
+import { testSnapshot, testTable, testColumn } from "./testFixtures";
+import { testSqlNameContract } from "./sqlNameContract";
+
+const id = () => testColumn("id", { primaryKey: true });
+const sqliteSnapshot = (
+  tableKey: string,
+  name: string,
+  columns: Parameters<typeof testTable>[2],
+  options: Parameters<typeof testTable>[3] = {},
+) => testSnapshot("sqlite", tableKey, testTable("sqlite", name, columns, options));
 
 describe("SQLite push diff", () => {
+  testSqlNameContract({ dialect: "sqlite", idKind: "text", diff: diffSqlite });
+
   it("creates tables and safe columns", () => {
-    const next: SchemaSnapshot = {
-      version: 1,
-      dialect: "sqlite",
-      tables: {
-        users: {
-          name: "users",
-          columns: {
-            id: { fieldName: "id", name: "id", kind: "text", notNull: true, primaryKey: true },
-          },
-          primaryKey: ["id"],
-          indexes: [],
-        },
-      },
-    };
+    const next = sqliteSnapshot("users", "users", { id: id() });
 
     expect(diffSqlite(emptySnapshot("sqlite"), next).statements[0]?.sql).toContain("create table");
   });
 
   it("aborts rebuild cases", () => {
-    const prev: SchemaSnapshot = {
-      version: 1,
-      dialect: "sqlite",
-      tables: {
-        users: {
-          name: "users",
-          columns: {
-            id: { fieldName: "id", name: "id", kind: "text", notNull: true, primaryKey: true },
-            name: {
-              fieldName: "name",
-              name: "name",
-              kind: "text",
-              notNull: false,
-              primaryKey: false,
-            },
-          },
-          primaryKey: ["id"],
-          indexes: [],
-        },
-      },
-    };
-    const next: SchemaSnapshot = {
+    const prev = sqliteSnapshot("users", "users", {
+      id: id(),
+      name: testColumn("name", { notNull: false }),
+    });
+    const next = {
       ...prev,
-      tables: {
-        users: {
-          ...prev.tables.users!,
-          columns: {
-            id: prev.tables.users!.columns.id!,
-          },
-        },
-      },
+      tables: { users: { ...prev.tables.users!, columns: { id: id() } } },
     };
 
     expect(diffSqlite(prev, next).statements.some((statement) => statement.unsupported)).toBe(true);
   });
 
-  it("matches existing columns by SQL name", () => {
-    const prev: SchemaSnapshot = {
-      version: 1,
-      dialect: "sqlite",
-      tables: {
-        users: {
-          name: "users",
-          columns: {
-            id: { fieldName: "id", name: "id", kind: "text", notNull: true, primaryKey: true },
-            display_name: {
-              fieldName: "display_name",
-              name: "display_name",
-              kind: "text",
-              notNull: true,
-              primaryKey: false,
-            },
-            active: {
-              fieldName: "active",
-              name: "active",
-              kind: "integer",
-              notNull: true,
-              primaryKey: false,
-            },
-          },
-          primaryKey: ["id"],
-          indexes: [],
-        },
-      },
-    };
-    const next: SchemaSnapshot = {
-      version: 1,
-      dialect: "sqlite",
-      tables: {
-        users: {
-          name: "users",
-          columns: {
-            id: { fieldName: "id", name: "id", kind: "text", notNull: true, primaryKey: true },
-            displayName: {
-              fieldName: "displayName",
-              name: "display_name",
-              kind: "text",
-              notNull: true,
-              primaryKey: false,
-            },
-            active: {
-              fieldName: "active",
-              name: "active",
-              kind: "integer",
-              notNull: true,
-              primaryKey: false,
-              config: { mode: "boolean" },
-            },
-          },
-          primaryKey: ["id"],
-          indexes: [],
-        },
-      },
-    };
-
-    expect(diffSqlite(prev, next).statements).toEqual([]);
-  });
-
-  it("matches primary keys by SQL name", () => {
-    const prev: SchemaSnapshot = {
-      version: 1,
-      dialect: "sqlite",
-      tables: {
-        users: {
-          name: "users",
-          columns: {
-            user_id: {
-              fieldName: "user_id",
-              name: "user_id",
-              kind: "text",
-              notNull: true,
-              primaryKey: true,
-            },
-          },
-          primaryKey: ["user_id"],
-          indexes: [],
-        },
-      },
-    };
-    const next: SchemaSnapshot = {
-      version: 1,
-      dialect: "sqlite",
-      tables: {
-        users: {
-          name: "users",
-          columns: {
-            userId: {
-              fieldName: "userId",
-              name: "user_id",
-              kind: "text",
-              notNull: true,
-              primaryKey: true,
-            },
-          },
-          primaryKey: ["userId"],
-          indexes: [],
-        },
-      },
-    };
-
-    expect(diffSqlite(prev, next).statements).toEqual([]);
-  });
-
-  it("matches composite primary keys by SQL names", () => {
-    const prev: SchemaSnapshot = {
-      version: 1,
-      dialect: "sqlite",
-      tables: {
-        userRoles: {
-          name: "user_roles",
-          columns: {
-            user_id: {
-              fieldName: "user_id",
-              name: "user_id",
-              kind: "text",
-              notNull: true,
-              primaryKey: true,
-            },
-            org_id: {
-              fieldName: "org_id",
-              name: "org_id",
-              kind: "text",
-              notNull: true,
-              primaryKey: true,
-            },
-          },
-          primaryKey: ["user_id", "org_id"],
-          indexes: [],
-        },
-      },
-    };
-    const next: SchemaSnapshot = {
-      version: 1,
-      dialect: "sqlite",
-      tables: {
-        userRoles: {
-          name: "user_roles",
-          columns: {
-            userId: {
-              fieldName: "userId",
-              name: "user_id",
-              kind: "text",
-              notNull: true,
-              primaryKey: true,
-            },
-            orgId: {
-              fieldName: "orgId",
-              name: "org_id",
-              kind: "text",
-              notNull: true,
-              primaryKey: true,
-            },
-          },
-          primaryKey: ["userId", "orgId"],
-          indexes: [],
-        },
-      },
-    };
-
-    expect(diffSqlite(prev, next).statements).toEqual([]);
-  });
-
-  it("matches indexes by SQL column names", () => {
-    const prev: SchemaSnapshot = {
-      version: 1,
-      dialect: "sqlite",
-      tables: {
-        tasks: {
-          name: "tasks",
-          columns: {
-            id: { fieldName: "id", name: "id", kind: "text", notNull: true, primaryKey: true },
-            account_id: {
-              fieldName: "account_id",
-              name: "account_id",
-              kind: "text",
-              notNull: true,
-              primaryKey: false,
-            },
-          },
-          primaryKey: ["id"],
-          indexes: [{ name: "tasks_account_id_idx", unique: false, fields: ["account_id"] }],
-        },
-      },
-    };
-    const next: SchemaSnapshot = {
-      version: 1,
-      dialect: "sqlite",
-      tables: {
-        tasks: {
-          name: "tasks",
-          columns: {
-            id: { fieldName: "id", name: "id", kind: "text", notNull: true, primaryKey: true },
-            accountId: {
-              fieldName: "accountId",
-              name: "account_id",
-              kind: "text",
-              notNull: true,
-              primaryKey: false,
-            },
-          },
-          primaryKey: ["id"],
-          indexes: [{ name: "tasks_account_id_idx", unique: false, fields: ["accountId"] }],
-        },
-      },
-    };
-
-    expect(diffSqlite(prev, next).statements).toEqual([]);
-  });
-
-  it("matches multi-column indexes by SQL column names", () => {
-    const prev: SchemaSnapshot = {
-      version: 1,
-      dialect: "sqlite",
-      tables: {
-        userRoles: {
-          name: "user_roles",
-          columns: {
-            id: { fieldName: "id", name: "id", kind: "text", notNull: true, primaryKey: true },
-            a: {
-              fieldName: "a",
-              name: "a",
-              kind: "text",
-              notNull: true,
-              primaryKey: false,
-            },
-            b: {
-              fieldName: "b",
-              name: "b",
-              kind: "text",
-              notNull: true,
-              primaryKey: false,
-            },
-          },
-          primaryKey: ["id"],
-          indexes: [{ name: "user_roles_a_b_idx", unique: false, fields: ["a", "b"] }],
-        },
-      },
-    };
-    const next: SchemaSnapshot = {
-      version: 1,
-      dialect: "sqlite",
-      tables: {
-        userRoles: {
-          name: "user_roles",
-          columns: {
-            id: { fieldName: "id", name: "id", kind: "text", notNull: true, primaryKey: true },
-            aField: {
-              fieldName: "aField",
-              name: "a",
-              kind: "text",
-              notNull: true,
-              primaryKey: false,
-            },
-            bField: {
-              fieldName: "bField",
-              name: "b",
-              kind: "text",
-              notNull: true,
-              primaryKey: false,
-            },
-          },
-          primaryKey: ["id"],
-          indexes: [{ name: "user_roles_a_b_idx", unique: false, fields: ["aField", "bField"] }],
-        },
-      },
-    };
-
-    expect(diffSqlite(prev, next).statements).toEqual([]);
-  });
-
   it("emits index drop and create statements for changed multi-column indexes", () => {
-    const prev: SchemaSnapshot = {
-      version: 1,
-      dialect: "sqlite",
-      tables: {
-        userRoles: {
-          name: "user_roles",
-          columns: {
-            id: { fieldName: "id", name: "id", kind: "text", notNull: true, primaryKey: true },
-            a: {
-              fieldName: "a",
-              name: "a",
-              kind: "text",
-              notNull: true,
-              primaryKey: false,
-            },
-            b: {
-              fieldName: "b",
-              name: "b",
-              kind: "text",
-              notNull: true,
-              primaryKey: false,
-            },
-          },
-          primaryKey: ["id"],
-          indexes: [{ name: "user_roles_a_b_idx", unique: false, fields: ["a", "b"] }],
-        },
-      },
-    };
-    const next: SchemaSnapshot = {
+    const prev = sqliteSnapshot(
+      "userRoles",
+      "user_roles",
+      { id: id(), a: testColumn("a"), b: testColumn("b") },
+      { indexes: [{ name: "user_roles_a_b_idx", unique: false, fields: ["a", "b"] }] },
+    );
+    const next = {
       ...prev,
       tables: {
         userRoles: {
@@ -379,28 +58,13 @@ describe("SQLite push diff", () => {
   });
 
   it("emits index drop and create statements for changed indexes", () => {
-    const prev: SchemaSnapshot = {
-      version: 1,
-      dialect: "sqlite",
-      tables: {
-        tasks: {
-          name: "tasks",
-          columns: {
-            id: { fieldName: "id", name: "id", kind: "text", notNull: true, primaryKey: true },
-            title: {
-              fieldName: "title",
-              name: "title",
-              kind: "text",
-              notNull: true,
-              primaryKey: false,
-            },
-          },
-          primaryKey: ["id"],
-          indexes: [{ name: "tasks_title_idx", unique: false, fields: ["title"] }],
-        },
-      },
-    };
-    const next: SchemaSnapshot = {
+    const prev = sqliteSnapshot(
+      "tasks",
+      "tasks",
+      { id: id(), title: testColumn("title") },
+      { indexes: [{ name: "tasks_title_idx", unique: false, fields: ["title"] }] },
+    );
+    const next = {
       ...prev,
       tables: {
         tasks: {
@@ -417,27 +81,12 @@ describe("SQLite push diff", () => {
   });
 
   it("creates prefixed indexes on prefixed tables", () => {
-    const next: SchemaSnapshot = {
-      version: 1,
-      dialect: "sqlite",
-      tables: {
-        users: {
-          name: "app_users",
-          columns: {
-            id: { fieldName: "id", name: "id", kind: "text", notNull: true, primaryKey: true },
-            email: {
-              fieldName: "email",
-              name: "email",
-              kind: "text",
-              notNull: true,
-              primaryKey: false,
-            },
-          },
-          primaryKey: ["id"],
-          indexes: [{ name: "app_users_email_idx", unique: false, fields: ["email"] }],
-        },
-      },
-    };
+    const next = sqliteSnapshot(
+      "users",
+      "app_users",
+      { id: id(), email: testColumn("email") },
+      { indexes: [{ name: "app_users_email_idx", unique: false, fields: ["email"] }] },
+    );
 
     expect(
       diffSqlite(emptySnapshot("sqlite"), next).statements.map((statement) => statement.sql),
@@ -445,33 +94,13 @@ describe("SQLite push diff", () => {
   });
 
   it("matches live prefixed indexes during push diffs", () => {
-    const live: SchemaSnapshot = {
-      version: 1,
-      dialect: "sqlite",
-      tables: {
-        app_users: {
-          name: "app_users",
-          columns: {
-            id: { fieldName: "id", name: "id", kind: "text", notNull: true, primaryKey: true },
-            email: {
-              fieldName: "email",
-              name: "email",
-              kind: "text",
-              notNull: true,
-              primaryKey: false,
-            },
-          },
-          primaryKey: ["id"],
-          indexes: [{ name: "app_users_email_idx", unique: false, fields: ["email"] }],
-        },
-      },
-    };
-    const desired: SchemaSnapshot = {
-      ...live,
-      tables: {
-        users: live.tables.app_users!,
-      },
-    };
+    const live = sqliteSnapshot(
+      "app_users",
+      "app_users",
+      { id: id(), email: testColumn("email") },
+      { indexes: [{ name: "app_users_email_idx", unique: false, fields: ["email"] }] },
+    );
+    const desired = { ...live, tables: { users: live.tables.app_users! } };
 
     expect(diffSqlite(live, desired).statements).toEqual([]);
   });

@@ -1,4 +1,3 @@
-// fallow-ignore-file code-duplication
 import { describe, expect, it } from "@effect/vitest";
 import { Cause, Context, Effect, HashSet, Option, Redacted, Ref } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";

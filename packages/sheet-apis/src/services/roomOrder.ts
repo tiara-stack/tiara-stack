@@ -1,4 +1,3 @@
-// fallow-ignore-file code-duplication
 import { Chunk, DateTime, Duration, Effect, Layer, Option, Predicate, Context, pipe } from "effect";
 import { makeArgumentError } from "typhoon-core/error";
 import { WorkspaceConfigService } from "./workspaceConfig";
@@ -143,7 +142,6 @@ export class RoomOrderService extends Context.Service<RoomOrderService>()("RoomO
     const sheetService = yield* SheetService;
 
     return {
-      // fallow-ignore-next-line complexity
       generate: Effect.fn("RoomOrderService.generate")(function* (payload: {
         workspaceId: string;
         conversationId?: string | undefined;

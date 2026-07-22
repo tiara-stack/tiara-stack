@@ -20,23 +20,27 @@ type PgIndexRow = {
   readonly columns: readonly string[];
 };
 
-const normalizeScalarType = (dataType: string, udtName: string): string => {
-  if (udtName === "varchar" || dataType === "character varying") return "varchar";
-  if (udtName === "uuid") return "uuid";
-  if (udtName === "int4" || dataType === "integer") return "integer";
-  if (udtName === "int8" || dataType === "bigint") return "bigint";
-  if (udtName === "float4" || dataType === "real") return "real";
-  if (udtName === "float8" || dataType === "double precision") return "doublePrecision";
-  if (udtName === "numeric" || dataType === "numeric") return "numeric";
-  if (udtName === "bool" || dataType === "boolean") return "boolean";
-  if (udtName === "json" || dataType === "json") return "json";
-  if (udtName === "jsonb" || dataType === "jsonb") return "jsonb";
-  if (udtName === "timestamp" || udtName === "timestamptz" || dataType.includes("timestamp")) {
-    return "timestamp";
-  }
-  if (udtName === "date" || dataType === "date") return "date";
-  return "text";
+const scalarTypeAliases: Readonly<Record<string, string>> = {
+  varchar: "varchar",
+  uuid: "uuid",
+  int4: "integer",
+  int8: "bigint",
+  float4: "real",
+  real: "real",
+  float8: "doublePrecision",
+  numeric: "numeric",
+  bool: "boolean",
+  json: "json",
+  jsonb: "jsonb",
+  timestamp: "timestamp",
+  timestamptz: "timestamp",
+  date: "date",
 };
+
+const normalizeScalarType = (dataType: string, udtName: string): string =>
+  scalarTypeAliases[udtName] ??
+  scalarTypeAliases[dataType] ??
+  (dataType.includes("timestamp") ? "timestamp" : "text");
 
 const normalizeType = (row: PgColumnRow): string =>
   row.data_type === "ARRAY" || row.udt_name.startsWith("_")

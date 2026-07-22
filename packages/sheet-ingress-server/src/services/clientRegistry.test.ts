@@ -1,4 +1,3 @@
-// fallow-ignore-file code-duplication
 import { describe, expect, it } from "@effect/vitest";
 import { ConfigProvider, Effect, Exit, Layer } from "effect";
 import { ClientRegistry } from "./clientRegistry";

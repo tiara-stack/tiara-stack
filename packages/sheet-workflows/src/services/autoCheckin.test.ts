@@ -1,4 +1,3 @@
-// fallow-ignore-file code-duplication
 import { describe, expect, it } from "@effect/vitest";
 import { DateTime, Effect, Option } from "effect";
 import { TestClock } from "effect/testing";

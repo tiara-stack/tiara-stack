@@ -324,7 +324,6 @@ export class CheckinService extends Context.Service<CheckinService>()("CheckinSe
     const sheetConfigService = yield* SheetConfigService;
 
     return {
-      // fallow-ignore-next-line complexity
       generate: Effect.fn("CheckinService.generate")(function* (payload: {
         workspaceId: string;
         conversationId?: string | undefined;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
-import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 import { Effect } from "effect";
-import { ServiceStatusService } from "./serviceStatus";
+import { HttpClient, HttpClientResponse } from "effect/unstable/http";
+import { serviceStatusTargets, ServiceStatusService } from "./serviceStatus";
 
 const runStatusCheck = (handler: HttpClient.HttpClient["execute"]) =>
   Effect.gen(function* () {
@@ -15,19 +15,28 @@ const runStatusCheck = (handler: HttpClient.HttpClient["execute"]) =>
 const response = (request: Parameters<HttpClient.HttpClient["execute"]>[0], status: number) =>
   HttpClientResponse.fromWeb(request, new Response(null, { status }));
 
+const runWithSheetWebResponse = (
+  sheetWebResponse: Effect.Effect<HttpClientResponse.HttpClientResponse, any>,
+) =>
+  runStatusCheck((request) =>
+    request.url.includes("sheet-web-service")
+      ? sheetWebResponse
+      : Effect.succeed(response(request, 200)),
+  );
+
 describe("ServiceStatusService", () => {
   it.effect("reports ok when every service returns 2xx", () =>
     Effect.gen(function* () {
       const result = yield* runStatusCheck((request) => Effect.succeed(response(request, 200)));
 
       expect(result.overallStatus).toBe("ok");
-      expect(result.services).toHaveLength(7);
+      expect(result.services).toHaveLength(serviceStatusTargets.length);
       expect(result.services.every((service) => service.status === "ok")).toBe(true);
       expect(result.services.every((service) => service.httpStatus === 200)).toBe(true);
     }),
   );
 
-  it.effect("checks Kubernetes service ports instead of container ports", () =>
+  it.effect("checks each Kubernetes service URL", () =>
     Effect.gen(function* () {
       const urls: Array<string> = [];
       yield* runStatusCheck((request) => {
@@ -35,15 +44,8 @@ describe("ServiceStatusService", () => {
         return Effect.succeed(response(request, 200));
       });
 
-      expect(urls).toEqual([
-        "http://sheet-apis-service/ready",
-        "http://sheet-auth-service/ready",
-        "http://sheet-bot-service/ready",
-        "http://sheet-workflows-service/ready",
-        "http://sheet-db-server-service/ready",
-        "http://sheet-ingress-server-service/ready",
-        "http://sheet-web-service/ready",
-      ]);
+      expect(urls).toHaveLength(serviceStatusTargets.length);
+      expect(new Set(urls)).toEqual(new Set(serviceStatusTargets.map(({ url }) => url)));
     }),
   );
 
@@ -53,9 +55,8 @@ describe("ServiceStatusService", () => {
         Effect.succeed(response(request, request.url.includes("sheet-bot-service") ? 503 : 200)),
       );
 
-      const sheetBot = result.services.find((service) => service.name === "sheet-bot");
       expect(result.overallStatus).toBe("degraded");
-      expect(sheetBot).toMatchObject({
+      expect(result.services.find(({ name }) => name === "sheet-bot")).toMatchObject({
         status: "down",
         httpStatus: 503,
         error: "HTTP 503",
@@ -65,15 +66,10 @@ describe("ServiceStatusService", () => {
 
   it.effect("reports degraded when a service request fails", () =>
     Effect.gen(function* () {
-      const result = yield* runStatusCheck((request) =>
-        request.url.includes("sheet-web-service")
-          ? Effect.fail(new Error("connection refused") as never)
-          : Effect.succeed(response(request, 200)),
-      );
+      const result = yield* runWithSheetWebResponse(Effect.fail(new Error("connection refused")));
 
-      const sheetWeb = result.services.find((service) => service.name === "sheet-web");
       expect(result.overallStatus).toBe("degraded");
-      expect(sheetWeb).toMatchObject({
+      expect(result.services.find(({ name }) => name === "sheet-web")).toMatchObject({
         status: "down",
         httpStatus: null,
         latencyMs: null,
@@ -82,24 +78,32 @@ describe("ServiceStatusService", () => {
     }),
   );
 
-  it.effect(
-    "reports degraded with a string error when a service request fails without a cause",
-    () =>
-      Effect.gen(function* () {
-        const result = yield* runStatusCheck((request) =>
-          request.url.includes("sheet-web-service")
-            ? Effect.fail(undefined as never)
-            : Effect.succeed(response(request, 200)),
-        );
+  it.live("reports degraded when a service request times out", () =>
+    Effect.gen(function* () {
+      const result = yield* runWithSheetWebResponse(Effect.never);
 
-        const sheetWeb = result.services.find((service) => service.name === "sheet-web");
-        expect(result.overallStatus).toBe("degraded");
-        expect(sheetWeb).toMatchObject({
-          status: "down",
-          httpStatus: null,
-          latencyMs: null,
-          error: "undefined",
-        });
-      }),
+      expect(result.overallStatus).toBe("degraded");
+      expect(result.services.find(({ name }) => name === "sheet-web")).toMatchObject({
+        status: "down",
+        httpStatus: null,
+        error: "timeout",
+        latencyMs: expect.any(Number),
+      });
+    }),
+  );
+
+  it.effect("formats non-error and circular request failures", () =>
+    Effect.gen(function* () {
+      const circular: Record<string, unknown> = { count: 1n };
+      circular.self = circular;
+      const failures = [undefined, circular] as const;
+
+      for (const failure of failures) {
+        const result = yield* runWithSheetWebResponse(Effect.fail(failure));
+        expect(result.services.find(({ name }) => name === "sheet-web")?.error).toBe(
+          failure === undefined ? "undefined" : '{"count":"1","self":"[Circular]"}',
+        );
+      }
+    }),
   );
 });

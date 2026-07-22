@@ -32,7 +32,6 @@ function normalizeContent(parts: string[]) {
     .join("\n");
 }
 
-// fallow-ignore-next-line complexity
 export async function makeDocsSearchRecords(pages: DocsSearchPage[]) {
   const records: DocsSearchRecord[] = [];
 

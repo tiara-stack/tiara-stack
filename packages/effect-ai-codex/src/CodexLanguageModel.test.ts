@@ -50,6 +50,18 @@ const failuresFromExit = (exit: Exit.Exit<unknown, unknown>) =>
     ? exit.cause.reasons.filter(Cause.isFailReason).map((reason) => reason.error)
     : [];
 
+const BooleanOutput = Schema.Struct({ ok: Schema.Boolean });
+
+const generateBooleanObject = (
+  result: RunResult,
+  run: (options: RunOptions) => Effect.Effect<RunResult, never> = () => Effect.succeed(result),
+) =>
+  LanguageModel.generateObject({
+    prompt: "return json",
+    schema: BooleanOutput,
+    objectName: "codex_test_output",
+  }).pipe(Effect.provide(withFakeClient(run)));
+
 describe("CodexLanguageModel", () => {
   it.effect("generateText returns final text from Codex final response", () =>
     Effect.gen(function* () {
@@ -150,21 +162,11 @@ describe("CodexLanguageModel", () => {
   it.effect("generateObject passes JSON schema to Codex run and decodes a valid object", () =>
     Effect.gen(function* () {
       let captured: RunOptions | undefined;
-      const Output = Schema.Struct({ ok: Schema.Boolean });
-      const program = LanguageModel.generateObject({
-        prompt: "return json",
-        schema: Output,
-        objectName: "codex_test_output",
+      const result = runResult(JSON.stringify({ ok: true }));
+      const response = yield* generateBooleanObject(result, (options) => {
+        captured = options;
+        return Effect.succeed(result);
       });
-
-      const response = yield* program.pipe(
-        Effect.provide(
-          withFakeClient((options) => {
-            captured = options;
-            return Effect.succeed(runResult(JSON.stringify({ ok: true })));
-          }),
-        ),
-      );
 
       expect(response.value).toEqual({ ok: true });
       expect(captured?.turnOptions?.outputSchema).toMatchObject({
@@ -217,17 +219,8 @@ describe("CodexLanguageModel", () => {
 
   it.effect("generateObject extracts JSON before trailing text", () =>
     Effect.gen(function* () {
-      const Output = Schema.Struct({ ok: Schema.Boolean });
-      const response = yield* LanguageModel.generateObject({
-        prompt: "return json",
-        schema: Output,
-        objectName: "codex_test_output",
-      }).pipe(
-        Effect.provide(
-          withFakeClient(() =>
-            Effect.succeed(runResult(`${JSON.stringify({ ok: true })}\nextra trailing text`)),
-          ),
-        ),
+      const response = yield* generateBooleanObject(
+        runResult(`${JSON.stringify({ ok: true })}\nextra trailing text`),
       );
 
       expect(response.value).toEqual({ ok: true });
@@ -255,24 +248,13 @@ describe("CodexLanguageModel", () => {
 
   it.effect("generateObject skips earlier JSON objects that do not match the schema", () =>
     Effect.gen(function* () {
-      const Output = Schema.Struct({ ok: Schema.Boolean });
-      const response = yield* LanguageModel.generateObject({
-        prompt: "return json",
-        schema: Output,
-        objectName: "codex_test_output",
-      }).pipe(
-        Effect.provide(
-          withFakeClient(() =>
-            Effect.succeed(
-              runResult(
-                [
-                  "The graph result was:",
-                  JSON.stringify({ matches: [] }),
-                  JSON.stringify({ ok: true }),
-                ].join("\n"),
-              ),
-            ),
-          ),
+      const response = yield* generateBooleanObject(
+        runResult(
+          [
+            "The graph result was:",
+            JSON.stringify({ matches: [] }),
+            JSON.stringify({ ok: true }),
+          ].join("\n"),
         ),
       );
 
@@ -282,17 +264,8 @@ describe("CodexLanguageModel", () => {
 
   it.effect("generateObject keeps scanning after malformed JSON candidates", () =>
     Effect.gen(function* () {
-      const Output = Schema.Struct({ ok: Schema.Boolean });
-      const response = yield* LanguageModel.generateObject({
-        prompt: "return json",
-        schema: Output,
-        objectName: "codex_test_output",
-      }).pipe(
-        Effect.provide(
-          withFakeClient(() =>
-            Effect.succeed(runResult(`{"a":[1}\n${JSON.stringify({ ok: true })}`)),
-          ),
-        ),
+      const response = yield* generateBooleanObject(
+        runResult(`{"a":[1}\n${JSON.stringify({ ok: true })}`),
       );
 
       expect(response.value).toEqual({ ok: true });
@@ -301,20 +274,9 @@ describe("CodexLanguageModel", () => {
 
   it.effect("generateObject fails oversized structured responses before scanning", () =>
     Effect.gen(function* () {
-      const Output = Schema.Struct({ ok: Schema.Boolean });
       const exit = yield* Effect.exit(
-        LanguageModel.generateObject({
-          prompt: "return json",
-          schema: Output,
-          objectName: "codex_test_output",
-        }).pipe(
-          Effect.provide(
-            withFakeClient(() =>
-              Effect.succeed(
-                runResult(`${"x".repeat(1_100_000)}\n${JSON.stringify({ ok: true })}`),
-              ),
-            ),
-          ),
+        generateBooleanObject(
+          runResult(`${"x".repeat(1_100_000)}\n${JSON.stringify({ ok: true })}`),
         ),
       );
 
@@ -433,17 +395,8 @@ describe("CodexLanguageModel", () => {
 
   it.effect("generateObject maps invalid output to AiError", () =>
     Effect.gen(function* () {
-      const Output = Schema.Struct({ ok: Schema.Boolean });
       const exit = yield* Effect.exit(
-        LanguageModel.generateObject({
-          prompt: "return json",
-          schema: Output,
-          objectName: "codex_test_output",
-        }).pipe(
-          Effect.provide(
-            withFakeClient(() => Effect.succeed(runResult(JSON.stringify({ ok: "no" })))),
-          ),
-        ),
+        generateBooleanObject(runResult(JSON.stringify({ ok: "no" }))),
       );
 
       expect(Exit.isFailure(exit)).toBe(true);

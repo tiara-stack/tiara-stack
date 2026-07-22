@@ -1,7 +1,5 @@
 // This migration uses SqlClient from "effect/unstable/sql".
 // That module is unstable and may change across minor Effect releases; pin Effect versions or update this import when the API stabilizes.
-// fallow-ignore-file code-duplication
-// fallow-ignore-next-line code-duplication
 import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 

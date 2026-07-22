@@ -1,4 +1,3 @@
-// fallow-ignore-file code-duplication
 import { MembersApiCacheView } from "dfx-discord-utils/discord/cache/members";
 import { RolesApiCacheView } from "dfx-discord-utils/discord/cache/roles";
 import { CacheNotFoundError } from "dfx-discord-utils/discord/schema";
@@ -142,7 +141,6 @@ export class AuthorizationService extends Context.Service<AuthorizationService>(
 
       const resolveWorkspaceScopedPermissions = Effect.fn(
         "AuthorizationService.resolveWorkspaceScopedPermissions",
-        // fallow-ignore-next-line complexity
       )(function* (user: SheetAuthUserType, guildId: string) {
         if (
           hasPermission(user.permissions, "service") ||

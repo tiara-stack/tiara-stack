@@ -1,6 +1,6 @@
 {
   "extends": "../../tsconfig.apps-script.json",
-  "include": ["**/*.ts", "**/*.tsx", "**/*.mts"],
+  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.mts"],
   "exclude": ["node_modules", "dist", ".output", ".ts-out"],
   "compilerOptions": {
     "outDir": "./.ts-out",
@@ -12,10 +12,5 @@
       "~~/*": ["./*"],
       "@@/*": ["./*"]
     }
-  },
-  "references": [
-    {
-      "path": "../tooling-config"
-    }
-  ]
+  }
 }

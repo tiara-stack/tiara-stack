@@ -63,14 +63,6 @@
         "count": 1
       }
     },
-    "packages/effect-sql-kit/src/introspect/pg.ts": {
-      "complexity_critical": {
-        "count": 1
-      },
-      "crap_critical": {
-        "count": 1
-      }
-    },
     "packages/effect-sql-kit/src/migration/generate.ts": {
       "crap_critical": {
         "count": 1
@@ -94,7 +86,22 @@
         "count": 1
       }
     },
+    "packages/sheet-apis/src/handlers/schedule/http.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/sheet-apis/src/services/authorization.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
     "packages/sheet-apis/src/services/calc.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "packages/sheet-apis/src/services/roomOrder.ts": {
       "crap_moderate": {
         "count": 1
       }
@@ -104,6 +111,16 @@
         "count": 1
       }
     },
+    "packages/sheet-web/scripts/index-docs-search.ts": {
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "packages/sheet-web/scripts/run-docs-search-index.ts": {
+      "crap_moderate": {
+        "count": 3
+      }
+    },
     "packages/sheet-web/src/components/Header.tsx": {
       "crap_moderate": {
         "count": 2
@@ -111,6 +128,11 @@
     },
     "packages/sheet-web/src/lib/atomRegistry.ts": {
       "crap_critical": {
+        "count": 1
+      }
+    },
+    "packages/sheet-web/src/lib/docs/search-records.ts": {
+      "complexity_moderate": {
         "count": 1
       }
     },
@@ -135,10 +157,23 @@
     },
     "packages/sheet-web/src/routes/_authenticated/dashboard/guilds/$guildId.schedule.$channel/_channelLayout/daily.tsx": {
       "complexity_critical": {
-        "count": 3
+        "count": 2
       },
       "crap_critical": {
-        "count": 4
+        "count": 3
+      }
+    },
+    "packages/sheet-web/src/routes/api/docs/search.ts": {
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 2
+      }
+    },
+    "packages/sheet-workflows/src/services/autoCheckin.ts": {
+      "crap_moderate": {
+        "count": 1
       }
     },
     "packages/tiara-review/src/ai/client.ts": {
@@ -211,11 +246,6 @@
         "count": 1
       },
       "crap_moderate": {
-        "count": 1
-      }
-    },
-    "packages/tooling-config/src/vite.ts": {
-      "crap_high": {
         "count": 1
       }
     },

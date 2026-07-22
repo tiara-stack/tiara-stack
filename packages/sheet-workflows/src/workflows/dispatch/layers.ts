@@ -1,6 +1,14 @@
 import { Layer } from "effect";
 import { makeDispatchButtonEntityLayer } from "@/entities/dispatchButton";
+import { DispatchClusterWorkflows } from "../dispatchWorkflows";
 import {
+  makeButtonWorkflowHandler,
+  makeWorkflowHandler,
+  runDispatchWorkflowOperation,
+} from "./activityBoundary";
+import { dispatchWorkflowRegistry } from "./registry";
+
+const {
   DispatchAutoCheckinTestWorkflow,
   DispatchCheckinButtonWorkflow,
   DispatchCheckinWorkflow,
@@ -38,14 +46,8 @@ import {
   DispatchTeamSubmissionRejectButtonWorkflow,
   DispatchTeamSubmissionWorkflow,
   DispatchUpdateAnnouncementWorkflow,
-  DispatchWorkflows,
-} from "../dispatchWorkflows";
-import {
-  makeButtonWorkflowHandler,
-  makeWorkflowHandler,
-  runDispatchWorkflowOperation,
-} from "./activityBoundary";
-import { dispatchWorkflowRegistry } from "./registry";
+  all: DispatchWorkflows,
+} = DispatchClusterWorkflows;
 
 export const dispatchButtonEntityLayer = makeDispatchButtonEntityLayer({
   slotOpenButton: ({ payload }) =>

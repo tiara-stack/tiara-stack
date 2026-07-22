@@ -1,4 +1,3 @@
-// fallow-ignore-file code-duplication
 import { MessageFlags } from "discord-api-types/v10";
 import { Effect } from "effect";
 import { CommandHelper, InteractionResponse } from "dfx-discord-utils/utils";
@@ -8,10 +7,7 @@ import {
   optionalPayloadField,
   resolveConversationTarget,
 } from "../utils/commandHelpers";
-import {
-  makeSingleSubCommand,
-  registerGlobalCommandLayer,
-} from "../utils/registerGlobalCommandLayer";
+import { registerSingleSubCommandLayer } from "../utils/registerGlobalCommandLayer";
 import { runSheetWorkflowsDispatch } from "../utils/sheetWorkflowsDispatch";
 
 const makeManualSubCommand = Effect.gen(function* () {
@@ -60,11 +56,9 @@ const makeManualSubCommand = Effect.gen(function* () {
   );
 });
 
-const makeRoomOrderCommand = makeSingleSubCommand({
+export const roomOrderCommandLayer = registerSingleSubCommandLayer({
   commandName: "room_order",
   commandDescription: "Room order commands",
   subCommandName: "manual",
   makeSubCommand: makeManualSubCommand,
 });
-
-export const roomOrderCommandLayer = registerGlobalCommandLayer(makeRoomOrderCommand);

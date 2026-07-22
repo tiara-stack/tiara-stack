@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ChevronLeft } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { motion } from "motion/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { DateTime, Option, Effect, pipe, HashMap, Array, Duration, Predicate } from "effect";
@@ -476,32 +476,41 @@ interface BreakRowProps {
   isCurrentHour: boolean;
 }
 
-function BreakRow({
+interface TimelineHourRowProps extends BreakRowProps {
+  children: ReactNode;
+  contentClassName?: string;
+  dimmed?: boolean;
+}
+
+function TimelineHourRow({
   scheduleHour,
   scheduleDay,
   isScheduleDayBoundary,
   dateTimeParts,
   isDateTimeBoundary,
   isCurrentHour,
-}: BreakRowProps) {
+  children,
+  contentClassName,
+  dimmed = false,
+}: TimelineHourRowProps) {
+  const boundaryClassName =
+    isDateTimeBoundary &&
+    (isCurrentHour ? "border-t-2 border-t-[#041311]/15" : "border-t-2 border-t-[#33ccbb]/40");
+
   return (
     <div
       className={cn(
         "grid grid-cols-[140px_1fr] border-b border-[#33ccbb]/10 last:border-b-0",
-        isCurrentHour ? "bg-[#33ccbb]" : "opacity-40",
+        isCurrentHour ? "bg-[#33ccbb]" : dimmed && "opacity-40",
       )}
     >
-      {/* Left Side - Hour */}
       <div
         className={cn(
-          "border-r p-3 h-[44px] flex flex-col items-end justify-center",
+          "border-r p-3 min-h-[44px] flex flex-col items-end justify-center",
           isCurrentHour
             ? "border-[#041311]/15 bg-[#2fc0b2]"
             : "border-[#33ccbb]/10 bg-[#0f1615]/50",
-          isDateTimeBoundary &&
-            (isCurrentHour
-              ? "border-t-2 border-t-[#041311]/15"
-              : "border-t-2 border-t-[#33ccbb]/40"),
+          boundaryClassName,
         )}
       >
         {Option.isSome(scheduleDay) && isScheduleDayBoundary && (
@@ -526,17 +535,7 @@ function BreakRow({
         )}
       </div>
 
-      {/* Right Side - Date + Break */}
-      <div
-        className={cn(
-          "p-3 h-[44px] flex items-center gap-4",
-          isDateTimeBoundary &&
-            (isCurrentHour
-              ? "border-t-2 border-t-[#041311]/15"
-              : "border-t-2 border-t-[#33ccbb]/40"),
-        )}
-      >
-        {/* Actual Date Marker */}
+      <div className={cn("p-3 min-h-[44px] flex items-center gap-4", boundaryClassName)}>
         <div className="w-20 shrink-0">
           {isDateTimeBoundary ? (
             <div className="flex flex-col leading-tight">
@@ -569,40 +568,54 @@ function BreakRow({
           )}
         </div>
 
-        {/* Break Content */}
-        <div className="flex-1">
-          <div className="flex items-center gap-2">
-            <div
-              className={cn(
-                "w-2 h-2 rounded-full",
-                isCurrentHour ? "bg-[#041311]/35" : "bg-[#33ccbb]/30",
-              )}
-            />
-            <span
-              className={cn(
-                "text-sm font-medium italic",
-                isCurrentHour ? "text-[#041311]/80" : "text-white/40",
-              )}
-            >
-              Break
-            </span>
-          </div>
-        </div>
+        <div className={cn("flex-1", contentClassName)}>{children}</div>
       </div>
     </div>
   );
 }
 
+function BreakRow({
+  scheduleHour,
+  scheduleDay,
+  isScheduleDayBoundary,
+  dateTimeParts,
+  isDateTimeBoundary,
+  isCurrentHour,
+}: BreakRowProps) {
+  return (
+    <TimelineHourRow
+      scheduleHour={scheduleHour}
+      scheduleDay={scheduleDay}
+      isScheduleDayBoundary={isScheduleDayBoundary}
+      dateTimeParts={dateTimeParts}
+      isDateTimeBoundary={isDateTimeBoundary}
+      isCurrentHour={isCurrentHour}
+      dimmed
+    >
+      <div className="flex items-center gap-2">
+        <div
+          className={cn(
+            "w-2 h-2 rounded-full",
+            isCurrentHour ? "bg-[#041311]/35" : "bg-[#33ccbb]/30",
+          )}
+        />
+        <span
+          className={cn(
+            "text-sm font-medium italic",
+            isCurrentHour ? "text-[#041311]/80" : "text-white/40",
+          )}
+        >
+          Break
+        </span>
+      </div>
+    </TimelineHourRow>
+  );
+}
+
 // Schedule Row Component - Full row for schedule hours
-interface ScheduleHourRowProps {
+interface ScheduleHourRowProps extends BreakRowProps {
   schedules: Array.NonEmptyReadonlyArray<Sheet.PopulatedSchedule>;
-  scheduleHour: Option.Option<number>;
-  scheduleDay: Option.Option<number>;
-  isScheduleDayBoundary: boolean;
-  dateTimeParts: DateTime.DateTime.Parts;
-  isDateTimeBoundary: boolean;
   currentUserId: string | undefined;
-  isCurrentHour: boolean;
 }
 
 function ScheduleHourRow({
@@ -616,103 +629,24 @@ function ScheduleHourRow({
   isCurrentHour,
 }: ScheduleHourRowProps) {
   return (
-    <div
-      className={cn(
-        "grid grid-cols-[140px_1fr] border-b border-[#33ccbb]/10 last:border-b-0",
-        isCurrentHour && "bg-[#33ccbb]",
-      )}
+    <TimelineHourRow
+      scheduleHour={scheduleHour}
+      scheduleDay={scheduleDay}
+      isScheduleDayBoundary={isScheduleDayBoundary}
+      dateTimeParts={dateTimeParts}
+      isDateTimeBoundary={isDateTimeBoundary}
+      isCurrentHour={isCurrentHour}
+      contentClassName="space-y-2"
     >
-      {/* Left Side - Schedule Day + Hour */}
-      <div
-        className={cn(
-          "border-r p-3 h-[44px] flex flex-col items-end justify-center",
-          isCurrentHour
-            ? "border-[#041311]/15 bg-[#2fc0b2]"
-            : "border-[#33ccbb]/10 bg-[#0f1615]/50",
-          isDateTimeBoundary &&
-            (isCurrentHour
-              ? "border-t-2 border-t-[#041311]/15"
-              : "border-t-2 border-t-[#33ccbb]/40"),
-        )}
-      >
-        {Option.isSome(scheduleDay) && isScheduleDayBoundary && (
-          <span
-            className={cn(
-              "text-[9px] font-bold uppercase tracking-wider leading-none",
-              isCurrentHour ? "text-[#041311]/65" : "text-[#33ccbb]/60",
-            )}
-          >
-            Day {scheduleDay.value}
-          </span>
-        )}
-        {Option.isSome(scheduleHour) && (
-          <span
-            className={cn(
-              "text-sm font-bold tabular-nums leading-none",
-              isCurrentHour ? "text-[#041311]" : "text-[#33ccbb]/80",
-            )}
-          >
-            {scheduleHour.value}
-          </span>
-        )}
-      </div>
-
-      {/* Right Side - Actual Date + Hour */}
-      <div
-        className={cn(
-          "p-3 h-[44px] flex items-center gap-4",
-          isDateTimeBoundary &&
-            (isCurrentHour
-              ? "border-t-2 border-t-[#041311]/15"
-              : "border-t-2 border-t-[#33ccbb]/40"),
-        )}
-      >
-        {/* Actual Date Marker */}
-        <div className="w-20 shrink-0">
-          {isDateTimeBoundary ? (
-            <div className="flex flex-col leading-tight">
-              <span
-                className={cn(
-                  "text-xs font-black tabular-nums",
-                  isCurrentHour ? "text-[#041311]" : "text-white",
-                )}
-              >
-                {dateTimeParts.day}
-              </span>
-              <span
-                className={cn(
-                  "text-[9px] font-bold uppercase tracking-wider",
-                  isCurrentHour ? "text-[#041311]/70" : "text-[#33ccbb]",
-                )}
-              >
-                {dateTimeParts.month}/{dateTimeParts.year}
-              </span>
-            </div>
-          ) : (
-            <span
-              className={cn(
-                "text-xs font-bold tabular-nums",
-                isCurrentHour ? "text-[#041311]/80" : "text-white/40",
-              )}
-            >
-              {String(dateTimeParts.hour).padStart(2, "0")}:00
-            </span>
-          )}
-        </div>
-
-        {/* Schedule Content */}
-        <div className="flex-1 space-y-2">
-          {schedules.map((schedule, idx) => (
-            <ScheduleRow
-              key={idx}
-              schedule={schedule}
-              currentUserId={currentUserId}
-              isCurrentHour={isCurrentHour}
-            />
-          ))}
-        </div>
-      </div>
-    </div>
+      {schedules.map((schedule, idx) => (
+        <ScheduleRow
+          key={idx}
+          schedule={schedule}
+          currentUserId={currentUserId}
+          isCurrentHour={isCurrentHour}
+        />
+      ))}
+    </TimelineHourRow>
   );
 }
 

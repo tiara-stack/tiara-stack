@@ -116,7 +116,6 @@ function isOriginAllowed(origin: string, allowedOrigins: string[]): boolean {
 }
 
 // Auth handler routes - forwards all requests to Better Auth.
-// fallow-ignore-next-line code-duplication
 const authLayer = Layer.effectDiscard(
   Effect.gen(function* () {
     const auth = yield* AuthService;
@@ -148,7 +147,6 @@ const authLayer = Layer.effectDiscard(
 
 // Well-known routes - handles SERVER_ONLY metadata endpoints
 // by forwarding the helper Web handlers through Effect HTTP.
-// fallow-ignore-next-line code-duplication
 const wellKnownLayer = Layer.effectDiscard(
   Effect.gen(function* () {
     const auth = yield* AuthService;

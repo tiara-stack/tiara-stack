@@ -1,4 +1,3 @@
-// fallow-ignore-file code-duplication
 import { Context, DateTime, Duration, Effect, Layer, Option, pipe } from "effect";
 import { WorkflowEngine } from "effect/unstable/workflow";
 import { makeArgumentError } from "typhoon-core/error";
@@ -392,7 +391,6 @@ export class AutoCheckinService extends Context.Service<AutoCheckinService>()(
           });
           return processedCount;
         }),
-        // fallow-ignore-next-line complexity
         processConversation: Effect.fn("AutoCheckinService.processConversation")(function* (
           payload: AutoCheckinConversationPayload,
         ) {

@@ -1,4 +1,3 @@
-// fallow-ignore-file code-duplication
 import { DateTime, Deferred, Effect, Option, Redacted, Schema } from "effect";
 import { createAuthClient } from "better-auth/client";
 import { oauthProviderClient } from "@better-auth/oauth-provider/client";
@@ -509,6 +508,10 @@ export function createSheetAuthClient(baseURL: string): SheetAuthClient {
     plugins: [oauthProviderClient(), sheetOAuthClient()],
   }) as unknown as SheetAuthClient;
 }
+
+export const makeSheetAuthClient = <Error, Requirements>(
+  issuer: Effect.Effect<string, Error, Requirements>,
+) => issuer.pipe(Effect.map((url) => createSheetAuthClient(url.replace(/\/$/, ""))));
 
 const toSession = (
   data: {

@@ -1,4 +1,3 @@
-// fallow-ignore-file complexity
 import { Effect, Layer } from "effect";
 import { type HandlerMap, sheetApisGroupLayer } from "@/handlers/shared/httpApiLayer";
 import { withCurrentWorkspaceAuthFromQuery } from "@/handlers/shared/workspaceAuthorization";

@@ -1,4 +1,3 @@
-// fallow-ignore-file code-duplication
 import { NodeHttpClient } from "@effect/platform-node";
 import { apiCacheViewsLayer, Unstorage } from "dfx-discord-utils/discord/cache";
 import { DiscordApiClient } from "dfx-discord-utils/discord";

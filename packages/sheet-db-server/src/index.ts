@@ -1,4 +1,3 @@
-// fallow-ignore-file code-duplication
 import { NodeFileSystem, NodeRuntime } from "@effect/platform-node";
 import { Layer, Logger } from "effect";
 import { dotEnvConfigProviderLayer } from "typhoon-core/config";

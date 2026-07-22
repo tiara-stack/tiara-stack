@@ -1,4 +1,3 @@
-// fallow-ignore-file code-duplication
 import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { Schema } from "effect";
 import { SchemaError, ArgumentError, Unauthorized } from "typhoon-core/error";

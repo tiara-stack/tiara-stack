@@ -139,6 +139,35 @@ class MockCodexClient implements CodexReviewClient {
   }
 }
 
+type WorkflowConfig = Parameters<typeof runCheckpointedReviewWithClient>[0];
+
+interface WorkflowFixture {
+  readonly repo: string;
+  readonly dbDir: string;
+  readonly dbPath: string;
+}
+
+const runWorkflow = (
+  makeConfig: (fixture: WorkflowFixture) => WorkflowConfig,
+  client = new MockCodexClient(),
+) =>
+  Effect.acquireUseRelease(
+    Effect.sync(() => {
+      const repo = makeRepo();
+      const dbDir = mkdtempSync(join(tmpdir(), "tiara-review-workflow-db."));
+      return { repo, dbDir, dbPath: join(dbDir, "reviews.sqlite") };
+    }),
+    (fixture) =>
+      runCheckpointedReviewWithClient(makeConfig(fixture), client).pipe(
+        Effect.map((result) => ({ client, result })),
+      ),
+    ({ repo, dbDir }) =>
+      Effect.sync(() => {
+        rmSync(repo, { recursive: true, force: true });
+        rmSync(dbDir, { recursive: true, force: true });
+      }),
+  );
+
 describe("workflow", () => {
   it("keeps the default graph MCP entrypoint aligned with the package bin", () => {
     const packageJson = JSON.parse(
@@ -171,68 +200,21 @@ describe("workflow", () => {
     "runs six specialists before the orchestrator and persists the final report",
     () =>
       Effect.gen(function* () {
-        const repo = makeRepo();
-        const dbDir = mkdtempSync(join(tmpdir(), "tiara-review-workflow-db."));
-        try {
-          const client = new MockCodexClient();
-          const result = yield* runCheckpointedReviewWithClient(
-            {
-              cwd: repo,
-              dbPath: join(dbDir, "reviews.sqlite"),
-              graphMcpCommand: "npx",
-              graphMcpArgsPrefix: ["@scope/tiara-review"],
-            },
-            client,
-          );
-          expect(client.calls.slice(0, 6).sort()).toEqual([
-            "code-quality",
-            "logic-bugs",
-            "maintainability",
-            "race-conditions",
-            "security",
-            "test-flakiness",
-          ]);
-          expect(client.calls[6]).toBe("orchestrator");
-          expect(
-            client.options
-              .filter((options) => options.aspect !== "orchestrator")
-              .every((options) =>
-                options.aspect === "external-review-parser"
-                  ? true
-                  : Boolean(options.graphVersionId),
-              ),
-          ).toBe(true);
-          expect(result.findings).toHaveLength(1);
-          expect(result.reportMarkdown).toContain("Checkpointed Review Report");
-          expect(result.failedAspects).toEqual([]);
-        } finally {
-          rmSync(repo, { recursive: true, force: true });
-          rmSync(dbDir, { recursive: true, force: true });
-        }
-      }),
-    10_000,
-  );
-
-  it.live("propagates the Kimi provider and keeps graph tools specialist-only", () =>
-    Effect.gen(function* () {
-      const repo = makeRepo();
-      const dbDir = mkdtempSync(join(tmpdir(), "tiara-review-workflow-db."));
-      try {
-        const client = new MockCodexClient();
-        yield* runCheckpointedReviewWithClient(
-          {
-            cwd: repo,
-            dbPath: join(dbDir, "reviews.sqlite"),
-            provider: "kimi",
-            model: "kimi-k2",
-            externalReviewMarkdown: "external review markdown",
-            graphMcpCommand: "npx",
-            graphMcpArgsPrefix: ["@scope/tiara-review"],
-          },
-          client,
-        );
-
-        expect(client.options.every((options) => options.provider === "kimi")).toBe(true);
+        const { client, result } = yield* runWorkflow(({ repo, dbPath }) => ({
+          cwd: repo,
+          dbPath,
+          graphMcpCommand: "npx",
+          graphMcpArgsPrefix: ["@scope/tiara-review"],
+        }));
+        expect(client.calls.slice(0, 6).sort()).toEqual([
+          "code-quality",
+          "logic-bugs",
+          "maintainability",
+          "race-conditions",
+          "security",
+          "test-flakiness",
+        ]);
+        expect(client.calls[6]).toBe("orchestrator");
         expect(
           client.options
             .filter((options) => options.aspect !== "orchestrator")
@@ -240,171 +222,132 @@ describe("workflow", () => {
               options.aspect === "external-review-parser" ? true : Boolean(options.graphVersionId),
             ),
         ).toBe(true);
-        expect(
-          client.options.find((options) => options.aspect === "external-review-parser")
-            ?.graphVersionId,
-        ).toBeUndefined();
-        expect(
-          client.options.find((options) => options.aspect === "orchestrator")?.graphVersionId,
-        ).toBeUndefined();
-      } finally {
-        rmSync(repo, { recursive: true, force: true });
-        rmSync(dbDir, { recursive: true, force: true });
-      }
+        expect(result.findings).toHaveLength(1);
+        expect(result.reportMarkdown).toContain("Checkpointed Review Report");
+        expect(result.failedAspects).toEqual([]);
+      }),
+    10_000,
+  );
+
+  it.live("propagates the Kimi provider and keeps graph tools specialist-only", () =>
+    Effect.gen(function* () {
+      const { client } = yield* runWorkflow(({ repo, dbPath }) => ({
+        cwd: repo,
+        dbPath,
+        provider: "kimi",
+        model: "kimi-k2",
+        externalReviewMarkdown: "external review markdown",
+        graphMcpCommand: "npx",
+        graphMcpArgsPrefix: ["@scope/tiara-review"],
+      }));
+
+      expect(client.options.every((options) => options.provider === "kimi")).toBe(true);
+      expect(
+        client.options
+          .filter((options) => options.aspect !== "orchestrator")
+          .every((options) =>
+            options.aspect === "external-review-parser" ? true : Boolean(options.graphVersionId),
+          ),
+      ).toBe(true);
+      expect(
+        client.options.find((options) => options.aspect === "external-review-parser")
+          ?.graphVersionId,
+      ).toBeUndefined();
+      expect(
+        client.options.find((options) => options.aspect === "orchestrator")?.graphVersionId,
+      ).toBeUndefined();
     }),
   );
 
   it.live("does not forward graph tools when a custom MCP entrypoint is missing", () =>
     Effect.gen(function* () {
-      const repo = makeRepo();
-      const dbDir = mkdtempSync(join(tmpdir(), "tiara-review-workflow-db."));
-      try {
-        const client = new MockCodexClient();
-        const result = yield* runCheckpointedReviewWithClient(
-          {
-            cwd: repo,
-            dbPath: join(dbDir, "reviews.sqlite"),
-            graphMcpCommand: process.execPath,
-            graphMcpArgsPrefix: [join(repo, "missing-graph-mcp.js")],
-          },
-          client,
-        );
+      const { client, result } = yield* runWorkflow(({ repo, dbPath }) => ({
+        cwd: repo,
+        dbPath,
+        graphMcpCommand: process.execPath,
+        graphMcpArgsPrefix: [join(repo, "missing-graph-mcp.js")],
+      }));
 
-        const specialistOptions = client.options.filter(
-          (options) =>
-            options.aspect !== "orchestrator" && options.aspect !== "external-review-parser",
-        );
-        expect(specialistOptions.every((options) => options.graphVersionId === undefined)).toBe(
-          true,
-        );
-        expect(
-          client.prompts.some((prompt) =>
-            prompt.prompt.includes("Dependency graph tools are unavailable"),
-          ),
-        ).toBe(true);
-        expect(result.failedAspects).toEqual([]);
-      } finally {
-        rmSync(repo, { recursive: true, force: true });
-        rmSync(dbDir, { recursive: true, force: true });
-      }
+      const specialistOptions = client.options.filter(
+        (options) =>
+          options.aspect !== "orchestrator" && options.aspect !== "external-review-parser",
+      );
+      expect(specialistOptions.every((options) => options.graphVersionId === undefined)).toBe(true);
+      expect(
+        client.prompts.some((prompt) =>
+          prompt.prompt.includes("Dependency graph tools are unavailable"),
+        ),
+      ).toBe(true);
+      expect(result.failedAspects).toEqual([]);
     }),
   );
 
   it.live("does not forward graph tools when a custom MCP bare entrypoint is missing", () =>
     Effect.gen(function* () {
-      const repo = makeRepo();
-      const dbDir = mkdtempSync(join(tmpdir(), "tiara-review-workflow-db."));
-      try {
-        const client = new MockCodexClient();
-        yield* runCheckpointedReviewWithClient(
-          {
-            cwd: repo,
-            dbPath: join(dbDir, "reviews.sqlite"),
-            graphMcpCommand: process.execPath,
-            graphMcpArgsPrefix: ["missing-graph-mcp.js"],
-          },
-          client,
-        );
+      const { client } = yield* runWorkflow(({ repo, dbPath }) => ({
+        cwd: repo,
+        dbPath,
+        graphMcpCommand: process.execPath,
+        graphMcpArgsPrefix: ["missing-graph-mcp.js"],
+      }));
 
-        const specialistOptions = client.options.filter(
-          (options) =>
-            options.aspect !== "orchestrator" && options.aspect !== "external-review-parser",
-        );
-        expect(specialistOptions.every((options) => options.graphVersionId === undefined)).toBe(
-          true,
-        );
-      } finally {
-        rmSync(repo, { recursive: true, force: true });
-        rmSync(dbDir, { recursive: true, force: true });
-      }
+      const specialistOptions = client.options.filter(
+        (options) =>
+          options.aspect !== "orchestrator" && options.aspect !== "external-review-parser",
+      );
+      expect(specialistOptions.every((options) => options.graphVersionId === undefined)).toBe(true);
     }),
   );
 
   it.live("does not forward graph tools when a custom MCP command has no args prefix", () =>
     Effect.gen(function* () {
-      const repo = makeRepo();
-      const dbDir = mkdtempSync(join(tmpdir(), "tiara-review-workflow-db."));
-      try {
-        const client = new MockCodexClient();
-        yield* runCheckpointedReviewWithClient(
-          {
-            cwd: repo,
-            dbPath: join(dbDir, "reviews.sqlite"),
-            graphMcpCommand: process.execPath,
-          },
-          client,
-        );
+      const { client } = yield* runWorkflow(({ repo, dbPath }) => ({
+        cwd: repo,
+        dbPath,
+        graphMcpCommand: process.execPath,
+      }));
 
-        const specialistOptions = client.options.filter(
-          (options) =>
-            options.aspect !== "orchestrator" && options.aspect !== "external-review-parser",
-        );
-        expect(specialistOptions.every((options) => options.graphVersionId === undefined)).toBe(
-          true,
-        );
-      } finally {
-        rmSync(repo, { recursive: true, force: true });
-        rmSync(dbDir, { recursive: true, force: true });
-      }
+      const specialistOptions = client.options.filter(
+        (options) =>
+          options.aspect !== "orchestrator" && options.aspect !== "external-review-parser",
+      );
+      expect(specialistOptions.every((options) => options.graphVersionId === undefined)).toBe(true);
     }),
   );
 
   it.live("does not forward graph tools for non-allowlisted no-prefix MCP commands", () =>
     Effect.gen(function* () {
-      const repo = makeRepo();
-      const dbDir = mkdtempSync(join(tmpdir(), "tiara-review-workflow-db."));
-      try {
-        const client = new MockCodexClient();
-        yield* runCheckpointedReviewWithClient(
-          {
-            cwd: repo,
-            dbPath: join(dbDir, "reviews.sqlite"),
-            graphMcpCommand: "nodejs",
-          },
-          client,
-        );
+      const { client } = yield* runWorkflow(({ repo, dbPath }) => ({
+        cwd: repo,
+        dbPath,
+        graphMcpCommand: "nodejs",
+      }));
 
-        const specialistOptions = client.options.filter(
-          (options) =>
-            options.aspect !== "orchestrator" && options.aspect !== "external-review-parser",
-        );
-        expect(specialistOptions.every((options) => options.graphVersionId === undefined)).toBe(
-          true,
-        );
-      } finally {
-        rmSync(repo, { recursive: true, force: true });
-        rmSync(dbDir, { recursive: true, force: true });
-      }
+      const specialistOptions = client.options.filter(
+        (options) =>
+          options.aspect !== "orchestrator" && options.aspect !== "external-review-parser",
+      );
+      expect(specialistOptions.every((options) => options.graphVersionId === undefined)).toBe(true);
     }),
   );
 
   it.live("does not forward graph tools for no-prefix MCP commands inside the reviewed repo", () =>
     Effect.gen(function* () {
-      const repo = makeRepo();
-      const dbDir = mkdtempSync(join(tmpdir(), "tiara-review-workflow-db."));
-      try {
+      const client = new MockCodexClient();
+      yield* runWorkflow(({ repo, dbPath }) => {
         writeFileSync(join(repo, "tiara-review"), "");
-        const client = new MockCodexClient();
-        yield* runCheckpointedReviewWithClient(
-          {
-            cwd: repo,
-            dbPath: join(dbDir, "reviews.sqlite"),
-            graphMcpCommand: join(repo, "tiara-review"),
-          },
-          client,
-        );
+        return {
+          cwd: repo,
+          dbPath,
+          graphMcpCommand: join(repo, "tiara-review"),
+        };
+      }, client);
 
-        const specialistOptions = client.options.filter(
-          (options) =>
-            options.aspect !== "orchestrator" && options.aspect !== "external-review-parser",
-        );
-        expect(specialistOptions.every((options) => options.graphVersionId === undefined)).toBe(
-          true,
-        );
-      } finally {
-        rmSync(repo, { recursive: true, force: true });
-        rmSync(dbDir, { recursive: true, force: true });
-      }
+      const specialistOptions = client.options.filter(
+        (options) =>
+          options.aspect !== "orchestrator" && options.aspect !== "external-review-parser",
+      );
+      expect(specialistOptions.every((options) => options.graphVersionId === undefined)).toBe(true);
     }),
   );
 
@@ -527,23 +470,10 @@ describe("workflow", () => {
 
   it.live("continues to orchestration when one specialist fails", () =>
     Effect.gen(function* () {
-      const repo = makeRepo();
-      const dbDir = mkdtempSync(join(tmpdir(), "tiara-review-workflow-db."));
-      try {
-        const client = new MockCodexClient("security");
-        const result = yield* runCheckpointedReviewWithClient(
-          {
-            cwd: repo,
-            dbPath: join(dbDir, "reviews.sqlite"),
-          },
-          client,
-        );
-        expect(client.calls).toContain("orchestrator");
-        expect(result.failedAspects).toEqual(["security"]);
-      } finally {
-        rmSync(repo, { recursive: true, force: true });
-        rmSync(dbDir, { recursive: true, force: true });
-      }
+      const client = new MockCodexClient("security");
+      const { result } = yield* runWorkflow(({ repo, dbPath }) => ({ cwd: repo, dbPath }), client);
+      expect(client.calls).toContain("orchestrator");
+      expect(result.failedAspects).toEqual(["security"]);
     }),
   );
 
@@ -612,47 +542,36 @@ describe("workflow", () => {
 
   it.live("imports external review markdown before spawning specialists", () =>
     Effect.gen(function* () {
-      const repo = makeRepo();
-      const dbDir = mkdtempSync(join(tmpdir(), "tiara-review-workflow-db."));
-      try {
-        const client = new MockCodexClient();
-        const result = yield* runCheckpointedReviewWithClient(
-          {
-            cwd: repo,
-            dbPath: join(dbDir, "reviews.sqlite"),
-            externalReviewMarkdown: "external review markdown",
-          },
-          client,
-        );
+      const { client, result } = yield* runWorkflow(({ repo, dbPath }) => ({
+        cwd: repo,
+        dbPath,
+        externalReviewMarkdown: "external review markdown",
+      }));
 
-        expect(client.calls[0]).toBe("external-review-parser");
-        expect(client.calls.slice(1, 7).sort()).toEqual([
-          "code-quality",
-          "logic-bugs",
-          "maintainability",
-          "race-conditions",
-          "security",
-          "test-flakiness",
-        ]);
-        expect(result.externalReviewImport).toEqual({
-          importedFindingCount: 1,
-          skippedFindingCount: 1,
-          warnings: ["defaulted a field"],
-          codexThreadId: "thread-external-review-parser",
-        });
-        expect(client.prompts.find((entry) => entry.aspect === "security")?.prompt).toContain(
-          "Imported security issue",
-        );
-        expect(client.prompts.find((entry) => entry.aspect === "security")?.prompt).toContain(
-          "Source: external-review",
-        );
-        expect(
-          client.prompts.find((entry) => entry.aspect === "maintainability")?.prompt,
-        ).not.toContain("Imported security issue");
-      } finally {
-        rmSync(repo, { recursive: true, force: true });
-        rmSync(dbDir, { recursive: true, force: true });
-      }
+      expect(client.calls[0]).toBe("external-review-parser");
+      expect(client.calls.slice(1, 7).sort()).toEqual([
+        "code-quality",
+        "logic-bugs",
+        "maintainability",
+        "race-conditions",
+        "security",
+        "test-flakiness",
+      ]);
+      expect(result.externalReviewImport).toEqual({
+        importedFindingCount: 1,
+        skippedFindingCount: 1,
+        warnings: ["defaulted a field"],
+        codexThreadId: "thread-external-review-parser",
+      });
+      expect(client.prompts.find((entry) => entry.aspect === "security")?.prompt).toContain(
+        "Imported security issue",
+      );
+      expect(client.prompts.find((entry) => entry.aspect === "security")?.prompt).toContain(
+        "Source: external-review",
+      );
+      expect(
+        client.prompts.find((entry) => entry.aspect === "maintainability")?.prompt,
+      ).not.toContain("Imported security issue");
     }),
   );
 

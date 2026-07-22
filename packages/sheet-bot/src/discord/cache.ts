@@ -1,4 +1,3 @@
-// fallow-ignore-file code-duplication
 import { Effect, Layer, Redacted } from "effect";
 import { Unstorage, cachesLayer as discordCachesLayer } from "dfx-discord-utils/discord/cache";
 import { config } from "@/config";

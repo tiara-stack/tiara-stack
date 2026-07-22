@@ -1,4 +1,3 @@
-// fallow-ignore-file code-duplication
 import { describe, expect, it } from "@effect/vitest";
 import {
   Cause,
@@ -462,6 +461,18 @@ const makeInteractionUpdateBotClient = (
       return Effect.succeed({ id: "message-1", conversation_id: "conversation-1" });
     },
     ...overrides,
+  });
+
+const makePermissionUpdateBotClient = (calls: Array<unknown>) =>
+  makeClientDeliveryMock({
+    updateConversationPermissionOverwrites: (workspaceId, conversationId, permissionOverwrites) => {
+      calls.push({ workspaceId, conversationId, permissionOverwrites });
+      return Effect.void;
+    },
+    updateOriginalInteractionResponse: (interactionResponseToken, payload) => {
+      calls.push({ interactionResponseToken, payload: normalizePayloadText(payload) });
+      return Effect.succeed({ id: "response-1", conversation_id: "conversation-1" });
+    },
   });
 
 const makeTeamSubmissionUpsertResult = () => ({
@@ -3341,20 +3352,7 @@ describe("DispatchService", () => {
   it.effect("sets up conversation lockdown permission overwrites", () =>
     Effect.gen(function* () {
       const calls: Array<unknown> = [];
-      const botClient = makeClientDeliveryMock({
-        updateConversationPermissionOverwrites: (
-          workspaceId,
-          conversationId,
-          permissionOverwrites,
-        ) => {
-          calls.push({ workspaceId, conversationId, permissionOverwrites });
-          return Effect.void;
-        },
-        updateOriginalInteractionResponse: (interactionResponseToken, payload) => {
-          calls.push({ interactionResponseToken, payload: normalizePayloadText(payload) });
-          return Effect.succeed({ id: "response-1", conversation_id: "conversation-1" });
-        },
-      });
+      const botClient = makePermissionUpdateBotClient(calls);
       const sheetApisClient = makeSheetApisClient({
         workspaceConfig: {
           getWorkspaceConversationById: () => Effect.succeed(makeWorkspaceConversationConfig()),
@@ -3419,20 +3417,7 @@ describe("DispatchService", () => {
   it.effect("sets up lockdown permissions without monitor role overwrites", () =>
     Effect.gen(function* () {
       const calls: Array<unknown> = [];
-      const botClient = makeClientDeliveryMock({
-        updateConversationPermissionOverwrites: (
-          workspaceId,
-          conversationId,
-          permissionOverwrites,
-        ) => {
-          calls.push({ workspaceId, conversationId, permissionOverwrites });
-          return Effect.void;
-        },
-        updateOriginalInteractionResponse: (interactionResponseToken, payload) => {
-          calls.push({ interactionResponseToken, payload: normalizePayloadText(payload) });
-          return Effect.succeed({ id: "response-1", conversation_id: "conversation-1" });
-        },
-      });
+      const botClient = makePermissionUpdateBotClient(calls);
       const sheetApisClient = makeSheetApisClient({
         workspaceConfig: {
           getWorkspaceConversationById: () => Effect.succeed(makeWorkspaceConversationConfig()),
@@ -3471,20 +3456,7 @@ describe("DispatchService", () => {
   it.effect("removes all conversation permission overwrites", () =>
     Effect.gen(function* () {
       const calls: Array<unknown> = [];
-      const botClient = makeClientDeliveryMock({
-        updateConversationPermissionOverwrites: (
-          workspaceId,
-          conversationId,
-          permissionOverwrites,
-        ) => {
-          calls.push({ workspaceId, conversationId, permissionOverwrites });
-          return Effect.void;
-        },
-        updateOriginalInteractionResponse: (interactionResponseToken, payload) => {
-          calls.push({ interactionResponseToken, payload: normalizePayloadText(payload) });
-          return Effect.succeed({ id: "response-1", conversation_id: "conversation-1" });
-        },
-      });
+      const botClient = makePermissionUpdateBotClient(calls);
 
       const result = yield* runWithDispatchService(botClient, makeSheetApisClient({}), (service) =>
         service.conversationLockdownUndo({

@@ -1,4 +1,3 @@
-// fallow-ignore-file duplicate-export
 import { ClusterSchema } from "effect/unstable/cluster";
 import {
   DispatchAutoCheckinTestWorkflow as BaseDispatchAutoCheckinTestWorkflow,
@@ -42,199 +41,203 @@ import {
 
 const dispatchShardGroup = () => "dispatch";
 
-export const DispatchAutoCheckinTestWorkflow = BaseDispatchAutoCheckinTestWorkflow.annotate(
+const DispatchAutoCheckinTestWorkflow = BaseDispatchAutoCheckinTestWorkflow.annotate(
   ClusterSchema.ShardGroup,
   dispatchShardGroup,
 );
 
-export const DispatchCheckinWorkflow = BaseDispatchCheckinWorkflow.annotate(
+const DispatchCheckinWorkflow = BaseDispatchCheckinWorkflow.annotate(
   ClusterSchema.ShardGroup,
   dispatchShardGroup,
 );
 
-export const DispatchRoomOrderWorkflow = BaseDispatchRoomOrderWorkflow.annotate(
+const DispatchRoomOrderWorkflow = BaseDispatchRoomOrderWorkflow.annotate(
   ClusterSchema.ShardGroup,
   dispatchShardGroup,
 );
 
-export const DispatchKickWorkflow = BaseDispatchKickWorkflow.annotate(
+const DispatchKickWorkflow = BaseDispatchKickWorkflow.annotate(
   ClusterSchema.ShardGroup,
   dispatchShardGroup,
 );
 
-export const DispatchSlotButtonWorkflow = BaseDispatchSlotButtonWorkflow.annotate(
+const DispatchSlotButtonWorkflow = BaseDispatchSlotButtonWorkflow.annotate(
   ClusterSchema.ShardGroup,
   dispatchShardGroup,
 );
 
-export const DispatchSlotListWorkflow = BaseDispatchSlotListWorkflow.annotate(
+const DispatchSlotListWorkflow = BaseDispatchSlotListWorkflow.annotate(
   ClusterSchema.ShardGroup,
   dispatchShardGroup,
 );
 
-export const DispatchSlotOpenButtonWorkflow = BaseDispatchSlotOpenButtonWorkflow.annotate(
+const DispatchSlotOpenButtonWorkflow = BaseDispatchSlotOpenButtonWorkflow.annotate(
   ClusterSchema.ShardGroup,
   dispatchShardGroup,
 );
 
-export const DispatchServiceStatusWorkflow = BaseDispatchServiceStatusWorkflow.annotate(
+const DispatchServiceStatusWorkflow = BaseDispatchServiceStatusWorkflow.annotate(
   ClusterSchema.ShardGroup,
   dispatchShardGroup,
 );
 
-export const DispatchPreferenceDmStatusWorkflow = BaseDispatchPreferenceDmStatusWorkflow.annotate(
+const DispatchPreferenceDmStatusWorkflow = BaseDispatchPreferenceDmStatusWorkflow.annotate(
   ClusterSchema.ShardGroup,
   dispatchShardGroup,
 );
 
-export const DispatchPreferenceDmEnableWorkflow = BaseDispatchPreferenceDmEnableWorkflow.annotate(
+const DispatchPreferenceDmEnableWorkflow = BaseDispatchPreferenceDmEnableWorkflow.annotate(
   ClusterSchema.ShardGroup,
   dispatchShardGroup,
 );
 
-export const DispatchPreferenceDmDisableWorkflow = BaseDispatchPreferenceDmDisableWorkflow.annotate(
+const DispatchPreferenceDmDisableWorkflow = BaseDispatchPreferenceDmDisableWorkflow.annotate(
   ClusterSchema.ShardGroup,
   dispatchShardGroup,
 );
 
-export const DispatchPreferenceDmSetClientWorkflow =
-  BaseDispatchPreferenceDmSetClientWorkflow.annotate(ClusterSchema.ShardGroup, dispatchShardGroup);
-
-export const DispatchWorkspaceWelcomeWorkflow = BaseDispatchWorkspaceWelcomeWorkflow.annotate(
+const DispatchPreferenceDmSetClientWorkflow = BaseDispatchPreferenceDmSetClientWorkflow.annotate(
   ClusterSchema.ShardGroup,
   dispatchShardGroup,
 );
 
-export const DispatchUpdateAnnouncementWorkflow = BaseDispatchUpdateAnnouncementWorkflow.annotate(
+const DispatchWorkspaceWelcomeWorkflow = BaseDispatchWorkspaceWelcomeWorkflow.annotate(
   ClusterSchema.ShardGroup,
   dispatchShardGroup,
 );
 
-export const DispatchServiceAddWorkspaceFeatureFlagWorkflow =
+const DispatchUpdateAnnouncementWorkflow = BaseDispatchUpdateAnnouncementWorkflow.annotate(
+  ClusterSchema.ShardGroup,
+  dispatchShardGroup,
+);
+
+const DispatchServiceAddWorkspaceFeatureFlagWorkflow =
   BaseDispatchServiceAddWorkspaceFeatureFlagWorkflow.annotate(
     ClusterSchema.ShardGroup,
     dispatchShardGroup,
   );
 
-export const DispatchServiceRemoveWorkspaceFeatureFlagWorkflow =
+const DispatchServiceRemoveWorkspaceFeatureFlagWorkflow =
   BaseDispatchServiceRemoveWorkspaceFeatureFlagWorkflow.annotate(
     ClusterSchema.ShardGroup,
     dispatchShardGroup,
   );
 
-export const DispatchCheckinButtonWorkflow = BaseDispatchCheckinButtonWorkflow.annotate(
+const DispatchCheckinButtonWorkflow = BaseDispatchCheckinButtonWorkflow.annotate(
   ClusterSchema.ShardGroup,
   dispatchShardGroup,
 );
 
-export const DispatchRoomOrderPreviousButtonWorkflow =
+const DispatchRoomOrderPreviousButtonWorkflow =
   BaseDispatchRoomOrderPreviousButtonWorkflow.annotate(
     ClusterSchema.ShardGroup,
     dispatchShardGroup,
   );
 
-export const DispatchRoomOrderNextButtonWorkflow = BaseDispatchRoomOrderNextButtonWorkflow.annotate(
+const DispatchRoomOrderNextButtonWorkflow = BaseDispatchRoomOrderNextButtonWorkflow.annotate(
   ClusterSchema.ShardGroup,
   dispatchShardGroup,
 );
 
-export const DispatchRoomOrderSendButtonWorkflow = BaseDispatchRoomOrderSendButtonWorkflow.annotate(
+const DispatchRoomOrderSendButtonWorkflow = BaseDispatchRoomOrderSendButtonWorkflow.annotate(
   ClusterSchema.ShardGroup,
   dispatchShardGroup,
 );
 
-export const DispatchRoomOrderPinTentativeButtonWorkflow =
+const DispatchRoomOrderPinTentativeButtonWorkflow =
   BaseDispatchRoomOrderPinTentativeButtonWorkflow.annotate(
     ClusterSchema.ShardGroup,
     dispatchShardGroup,
   );
 
-export const DispatchConversationListConfigWorkflow =
-  BaseDispatchConversationListConfigWorkflow.annotate(ClusterSchema.ShardGroup, dispatchShardGroup);
-
-export const DispatchConversationSetWorkflow = BaseDispatchConversationSetWorkflow.annotate(
+const DispatchConversationListConfigWorkflow = BaseDispatchConversationListConfigWorkflow.annotate(
   ClusterSchema.ShardGroup,
   dispatchShardGroup,
 );
 
-export const DispatchConversationUnsetWorkflow = BaseDispatchConversationUnsetWorkflow.annotate(
+const DispatchConversationSetWorkflow = BaseDispatchConversationSetWorkflow.annotate(
   ClusterSchema.ShardGroup,
   dispatchShardGroup,
 );
 
-export const DispatchConversationLockdownSetupWorkflow =
+const DispatchConversationUnsetWorkflow = BaseDispatchConversationUnsetWorkflow.annotate(
+  ClusterSchema.ShardGroup,
+  dispatchShardGroup,
+);
+
+const DispatchConversationLockdownSetupWorkflow =
   BaseDispatchConversationLockdownSetupWorkflow.annotate(
     ClusterSchema.ShardGroup,
     dispatchShardGroup,
   );
 
-export const DispatchConversationLockdownUndoWorkflow =
+const DispatchConversationLockdownUndoWorkflow =
   BaseDispatchConversationLockdownUndoWorkflow.annotate(
     ClusterSchema.ShardGroup,
     dispatchShardGroup,
   );
 
-export const DispatchWorkspaceListConfigWorkflow = BaseDispatchWorkspaceListConfigWorkflow.annotate(
+const DispatchWorkspaceListConfigWorkflow = BaseDispatchWorkspaceListConfigWorkflow.annotate(
   ClusterSchema.ShardGroup,
   dispatchShardGroup,
 );
 
-export const DispatchWorkspaceAddMonitorRoleWorkflow =
+const DispatchWorkspaceAddMonitorRoleWorkflow =
   BaseDispatchWorkspaceAddMonitorRoleWorkflow.annotate(
     ClusterSchema.ShardGroup,
     dispatchShardGroup,
   );
 
-export const DispatchWorkspaceRemoveMonitorRoleWorkflow =
+const DispatchWorkspaceRemoveMonitorRoleWorkflow =
   BaseDispatchWorkspaceRemoveMonitorRoleWorkflow.annotate(
     ClusterSchema.ShardGroup,
     dispatchShardGroup,
   );
 
-export const DispatchWorkspaceSetSheetWorkflow = BaseDispatchWorkspaceSetSheetWorkflow.annotate(
+const DispatchWorkspaceSetSheetWorkflow = BaseDispatchWorkspaceSetSheetWorkflow.annotate(
   ClusterSchema.ShardGroup,
   dispatchShardGroup,
 );
 
-export const DispatchWorkspaceSetAutoCheckinWorkflow =
+const DispatchWorkspaceSetAutoCheckinWorkflow =
   BaseDispatchWorkspaceSetAutoCheckinWorkflow.annotate(
     ClusterSchema.ShardGroup,
     dispatchShardGroup,
   );
 
-export const DispatchTeamListWorkflow = BaseDispatchTeamListWorkflow.annotate(
+const DispatchTeamListWorkflow = BaseDispatchTeamListWorkflow.annotate(
   ClusterSchema.ShardGroup,
   dispatchShardGroup,
 );
 
-export const DispatchTeamSubmissionWorkflow = BaseDispatchTeamSubmissionWorkflow.annotate(
+const DispatchTeamSubmissionWorkflow = BaseDispatchTeamSubmissionWorkflow.annotate(
   ClusterSchema.ShardGroup,
   dispatchShardGroup,
 );
 
-export const DispatchTeamSubmissionConfirmButtonWorkflow =
+const DispatchTeamSubmissionConfirmButtonWorkflow =
   BaseDispatchTeamSubmissionConfirmButtonWorkflow.annotate(
     ClusterSchema.ShardGroup,
     dispatchShardGroup,
   );
 
-export const DispatchTeamSubmissionRejectButtonWorkflow =
+const DispatchTeamSubmissionRejectButtonWorkflow =
   BaseDispatchTeamSubmissionRejectButtonWorkflow.annotate(
     ClusterSchema.ShardGroup,
     dispatchShardGroup,
   );
 
-export const DispatchScheduleListWorkflow = BaseDispatchScheduleListWorkflow.annotate(
+const DispatchScheduleListWorkflow = BaseDispatchScheduleListWorkflow.annotate(
   ClusterSchema.ShardGroup,
   dispatchShardGroup,
 );
 
-export const DispatchScreenshotWorkflow = BaseDispatchScreenshotWorkflow.annotate(
+const DispatchScreenshotWorkflow = BaseDispatchScreenshotWorkflow.annotate(
   ClusterSchema.ShardGroup,
   dispatchShardGroup,
 );
 
-export const DispatchWorkflows = [
+const DispatchWorkflows = [
   DispatchAutoCheckinTestWorkflow,
   DispatchCheckinWorkflow,
   DispatchRoomOrderWorkflow,
@@ -273,3 +276,45 @@ export const DispatchWorkflows = [
   DispatchScheduleListWorkflow,
   DispatchScreenshotWorkflow,
 ] as const;
+
+/** Cluster-annotated workflow definitions used by the sheet-workflows runtime. */
+export const DispatchClusterWorkflows = {
+  DispatchAutoCheckinTestWorkflow,
+  DispatchCheckinWorkflow,
+  DispatchRoomOrderWorkflow,
+  DispatchKickWorkflow,
+  DispatchSlotButtonWorkflow,
+  DispatchSlotListWorkflow,
+  DispatchSlotOpenButtonWorkflow,
+  DispatchServiceStatusWorkflow,
+  DispatchPreferenceDmStatusWorkflow,
+  DispatchPreferenceDmEnableWorkflow,
+  DispatchPreferenceDmDisableWorkflow,
+  DispatchPreferenceDmSetClientWorkflow,
+  DispatchWorkspaceWelcomeWorkflow,
+  DispatchUpdateAnnouncementWorkflow,
+  DispatchServiceAddWorkspaceFeatureFlagWorkflow,
+  DispatchServiceRemoveWorkspaceFeatureFlagWorkflow,
+  DispatchCheckinButtonWorkflow,
+  DispatchRoomOrderPreviousButtonWorkflow,
+  DispatchRoomOrderNextButtonWorkflow,
+  DispatchRoomOrderSendButtonWorkflow,
+  DispatchRoomOrderPinTentativeButtonWorkflow,
+  DispatchConversationListConfigWorkflow,
+  DispatchConversationSetWorkflow,
+  DispatchConversationUnsetWorkflow,
+  DispatchConversationLockdownSetupWorkflow,
+  DispatchConversationLockdownUndoWorkflow,
+  DispatchWorkspaceListConfigWorkflow,
+  DispatchWorkspaceAddMonitorRoleWorkflow,
+  DispatchWorkspaceRemoveMonitorRoleWorkflow,
+  DispatchWorkspaceSetSheetWorkflow,
+  DispatchWorkspaceSetAutoCheckinWorkflow,
+  DispatchTeamListWorkflow,
+  DispatchTeamSubmissionWorkflow,
+  DispatchTeamSubmissionConfirmButtonWorkflow,
+  DispatchTeamSubmissionRejectButtonWorkflow,
+  DispatchScheduleListWorkflow,
+  DispatchScreenshotWorkflow,
+  all: DispatchWorkflows,
+} as const;

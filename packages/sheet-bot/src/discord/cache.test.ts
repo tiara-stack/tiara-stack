@@ -1,4 +1,3 @@
-// fallow-ignore-file code-duplication
 import { describe, expect, it } from "@effect/vitest";
 import { ConfigProvider, Effect, Layer } from "effect";
 import { Unstorage } from "dfx-discord-utils/discord/cache";

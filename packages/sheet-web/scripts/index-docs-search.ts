@@ -36,7 +36,6 @@ function plainText(value: string) {
 }
 
 const pages = await Promise.all(
-  // fallow-ignore-next-line complexity
   (await findMdxFiles(contentRoot)).map(async (path) => {
     const { content, data } = matter(await readFile(path, "utf8"));
     const relativePath = relative(contentRoot, path)

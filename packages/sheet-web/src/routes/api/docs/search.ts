@@ -18,7 +18,6 @@ const jsonHeaders = {
   "content-type": "application/json; charset=utf-8",
 };
 
-// fallow-ignore-next-line complexity
 async function readCappedBody(request: Request, maximumBytes: number) {
   if (!request.body) return "";
 
@@ -42,7 +41,6 @@ async function readCappedBody(request: Request, maximumBytes: number) {
 export const Route = createFileRoute("/api/docs/search")({
   server: {
     handlers: {
-      // fallow-ignore-next-line complexity
       POST: async ({ request }) => {
         const contentLength = Number(request.headers.get("content-length") ?? "0");
         if (contentLength > 2_048) {
@@ -99,7 +97,6 @@ export const Route = createFileRoute("/api/docs/search")({
             cropLength: 24,
           });
           const hits = Schema.decodeUnknownSync(Schema.Array(SearchHitSchema))(response.hits);
-          // fallow-ignore-next-line complexity
           const results: SortedResult[] = hits.map((hit) => {
             const content = hit.section || hit.content || hit.title;
             return {

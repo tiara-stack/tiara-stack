@@ -1,4 +1,3 @@
-// fallow-ignore-file code-duplication
 import { describe, expect, it } from "@effect/vitest";
 import { vi } from "vitest";
 import { Cause, Context, Duration, Effect, Exit, Layer, Option, Schema, Stream } from "effect";
@@ -56,14 +55,16 @@ import {
   makeWorkflowHandler,
   retryClusterPersistenceCause,
 } from "./dispatchRegistry";
-import {
+import { DispatchClusterWorkflows } from "./dispatchWorkflows";
+import { runDispatchWorkflowOperation } from "./dispatch/activityBoundary";
+import { makeClientDeliveryMock } from "@/services/testHelpers";
+
+const {
   DispatchCheckinButtonWorkflow,
   DispatchServiceStatusWorkflow,
   DispatchTeamSubmissionWorkflow,
-  DispatchWorkflows,
-} from "./dispatchWorkflows";
-import { runDispatchWorkflowOperation } from "./dispatch/activityBoundary";
-import { makeClientDeliveryMock } from "@/services/testHelpers";
+  all: DispatchWorkflows,
+} = DispatchClusterWorkflows;
 
 const requester: DispatchRequester = {
   accountId: "account-1",

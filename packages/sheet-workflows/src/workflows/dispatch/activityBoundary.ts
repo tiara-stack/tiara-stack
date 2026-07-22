@@ -9,7 +9,11 @@ import {
   unwrapInteractionFailure,
 } from "@/handlers/shared/interactionFailure";
 import { ClientDeliveryClient, ClientDeliveryClientRef } from "@/services";
-import {
+import { DispatchClusterWorkflows } from "../dispatchWorkflows";
+import { dispatchFailureResponse, dispatchFailureTrace } from "./failure";
+import { retryClusterPersistenceCause } from "./persistence";
+
+const {
   DispatchCheckinButtonWorkflow,
   DispatchRoomOrderNextButtonWorkflow,
   DispatchRoomOrderPinTentativeButtonWorkflow,
@@ -18,9 +22,7 @@ import {
   DispatchSlotOpenButtonWorkflow,
   DispatchTeamSubmissionConfirmButtonWorkflow,
   DispatchTeamSubmissionRejectButtonWorkflow,
-} from "../dispatchWorkflows";
-import { dispatchFailureResponse, dispatchFailureTrace } from "./failure";
-import { retryClusterPersistenceCause } from "./persistence";
+} = DispatchClusterWorkflows;
 
 const interactionFailureNotificationTimeout = Duration.seconds(10);
 

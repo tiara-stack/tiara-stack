@@ -1,4 +1,3 @@
-// fallow-ignore-file code-duplication
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer, type RequestListener } from "node:http";
 import { tmpdir } from "node:os";

@@ -1,4 +1,3 @@
-// fallow-ignore-file code-duplication
 import { DateTime } from "effect";
 import type { SheetTextPart } from "sheet-ingress-api/schemas/client";
 import { inlineCode, joinText, parts, strong, text, timestamp } from "./text";

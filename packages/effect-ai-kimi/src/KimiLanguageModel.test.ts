@@ -50,6 +50,18 @@ const failuresFromExit = (exit: Exit.Exit<unknown, unknown>) =>
     ? exit.cause.reasons.filter(Cause.isFailReason).map((reason) => reason.error)
     : [];
 
+const BooleanOutput = Schema.Struct({ ok: Schema.Boolean });
+
+const generateBooleanObject = (
+  result: RunResult,
+  run: (options: RunOptions) => Effect.Effect<RunResult, never> = () => Effect.succeed(result),
+) =>
+  LanguageModel.generateObject({
+    prompt: "return json",
+    schema: BooleanOutput,
+    objectName: "kimi_test_output",
+  }).pipe(Effect.provide(withFakeClient(run)));
+
 describe("KimiLanguageModel", () => {
   it.effect("generateText returns final text from Kimi content", () =>
     Effect.gen(function* () {
@@ -229,19 +241,11 @@ describe("KimiLanguageModel", () => {
   it.effect("generateObject appends JSON schema instructions and decodes valid JSON", () =>
     Effect.gen(function* () {
       let captured: RunOptions | undefined;
-      const Output = Schema.Struct({ ok: Schema.Boolean });
-      const response = yield* LanguageModel.generateObject({
-        prompt: "return json",
-        schema: Output,
-        objectName: "kimi_test_output",
-      }).pipe(
-        Effect.provide(
-          withFakeClient((options) => {
-            captured = options;
-            return Effect.succeed(runResult(JSON.stringify({ ok: true })));
-          }),
-        ),
-      );
+      const result = runResult(JSON.stringify({ ok: true }));
+      const response = yield* generateBooleanObject(result, (options) => {
+        captured = options;
+        return Effect.succeed(result);
+      });
 
       expect(response.value).toEqual({ ok: true });
       expect(captured?.prompt).toContain("return json\nReturn the final answer");
@@ -252,24 +256,13 @@ describe("KimiLanguageModel", () => {
 
   it.effect("generateObject extracts JSON when Kimi wraps it in prose", () =>
     Effect.gen(function* () {
-      const Output = Schema.Struct({ ok: Schema.Boolean });
-      const response = yield* LanguageModel.generateObject({
-        prompt: "return json",
-        schema: Output,
-        objectName: "kimi_test_output",
-      }).pipe(
-        Effect.provide(
-          withFakeClient(() =>
-            Effect.succeed(
-              runResult(
-                [
-                  "The earlier code looked like { ok: true }.",
-                  JSON.stringify({ matches: [] }),
-                  JSON.stringify({ ok: true }),
-                ].join("\n"),
-              ),
-            ),
-          ),
+      const response = yield* generateBooleanObject(
+        runResult(
+          [
+            "The earlier code looked like { ok: true }.",
+            JSON.stringify({ matches: [] }),
+            JSON.stringify({ ok: true }),
+          ].join("\n"),
         ),
       );
 
@@ -319,25 +312,14 @@ describe("KimiLanguageModel", () => {
 
   it.effect("generateObject ignores Kimi reasoning when decoding structured text", () =>
     Effect.gen(function* () {
-      const Output = Schema.Struct({ ok: Schema.Boolean });
-      const response = yield* LanguageModel.generateObject({
-        prompt: "return json",
-        schema: Output,
-        objectName: "kimi_test_output",
-      }).pipe(
-        Effect.provide(
-          withFakeClient(() =>
-            Effect.succeed(
-              runResult(JSON.stringify({ ok: true }), [
-                { type: "ContentPart", payload: { type: "think", think: "Let me analyze..." } },
-                {
-                  type: "ContentPart",
-                  payload: { type: "text", text: JSON.stringify({ ok: true }) },
-                },
-              ]),
-            ),
-          ),
-        ),
+      const response = yield* generateBooleanObject(
+        runResult(JSON.stringify({ ok: true }), [
+          { type: "ContentPart", payload: { type: "think", think: "Let me analyze..." } },
+          {
+            type: "ContentPart",
+            payload: { type: "text", text: JSON.stringify({ ok: true }) },
+          },
+        ]),
       );
 
       expect(response.value).toEqual({ ok: true });
@@ -386,14 +368,7 @@ describe("KimiLanguageModel", () => {
 
   it.effect("invalid JSON fails as an AiError", () =>
     Effect.gen(function* () {
-      const Output = Schema.Struct({ ok: Schema.Boolean });
-      const exit = yield* Effect.exit(
-        LanguageModel.generateObject({
-          prompt: "return json",
-          schema: Output,
-          objectName: "kimi_test_output",
-        }).pipe(Effect.provide(withFakeClient(() => Effect.succeed(runResult("{"))))),
-      );
+      const exit = yield* Effect.exit(generateBooleanObject(runResult("{")));
 
       expect(Exit.isFailure(exit)).toBe(true);
       if (Exit.isFailure(exit)) {

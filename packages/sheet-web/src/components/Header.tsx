@@ -21,7 +21,6 @@ function AuthSection() {
   const signInWithDiscord = useSignInWithSocialProvider("discord");
 
   return Option.match(session, {
-    // fallow-ignore-next-line complexity
     onSome: (session) => (
       <div className="flex items-center gap-4">
         <Link to="/dashboard/shifts" className={desktopNavigationLinkClass}>
@@ -74,7 +73,6 @@ function MobileAuthSection({ onNavigate }: { onNavigate: () => void }) {
   const signInWithDiscord = useSignInWithSocialProvider("discord");
 
   return Option.match(session, {
-    // fallow-ignore-next-line complexity
     onSome: (session) => (
       <div className="pt-4 border-t border-[#33ccbb]/20 space-y-4">
         <div className="flex items-center gap-3 mb-4">
