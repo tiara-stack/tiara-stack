@@ -31,6 +31,56 @@ import {
   tagMatchesEntry,
 } from "./pure";
 
+const normalizeOshiText = (value: string) =>
+  value
+    .normalize("NFKC")
+    .replace(/<a?:([A-Za-z0-9_]+):\d+>/g, " $1 ")
+    .replace(/<@[!&]?\d+>/g, " ")
+    .replace(/<#\d+>/g, " ")
+    .replace(/[\s*_~|`>#]+/g, " ")
+    .trim()
+    .toLowerCase();
+
+const letterOrNumberPattern = /[\p{L}\p{N}]/u;
+
+const hasPhraseBoundaryMatch = (candidate: string, phrase: string) => {
+  let index = candidate.indexOf(phrase);
+  while (index >= 0) {
+    const before = candidate.slice(0, index).match(/[\s\S]$/u)?.[0];
+    const after = candidate.slice(index + phrase.length).match(/^[\s\S]/u)?.[0];
+    const boundedBefore = before === undefined || !letterOrNumberPattern.test(before);
+    const boundedAfter = after === undefined || !letterOrNumberPattern.test(after);
+    if (boundedBefore && boundedAfter) {
+      return true;
+    }
+    index = candidate.indexOf(phrase, index + 1);
+  }
+  return false;
+};
+
+const normalizedOshiValues = (validOshis: ReadonlyArray<string>) => {
+  const values = new Map<string, string>();
+  for (const oshi of validOshis) {
+    const normalized = normalizeOshiText(oshi);
+    if (String.isNonEmpty(normalized) && !values.has(normalized)) {
+      values.set(normalized, oshi);
+    }
+  }
+  return values;
+};
+
+const matchingOshis = (candidate: string, validOshis: ReadonlyArray<string>) => {
+  const normalizedCandidate = normalizeOshiText(candidate);
+  const values = normalizedOshiValues(validOshis);
+  const exact = values.get(normalizedCandidate);
+  if (exact !== undefined) {
+    return [exact];
+  }
+  return [...values].flatMap(([normalized, canonical]) =>
+    hasPhraseBoundaryMatch(normalizedCandidate, normalized) ? [canonical] : [],
+  );
+};
+
 export const makeTeamSubmissionSupport = ({
   googleSheets,
   workspaceConfigService,
@@ -179,11 +229,7 @@ export const makeTeamSubmissionSupport = ({
       return { candidate, value: null, status: "notConfigured" };
     }
 
-    const normalizedCandidate = candidate.trim().toLowerCase();
-    const matches = validOshis.filter((oshi) => {
-      const normalizedOshi = oshi.trim().toLowerCase();
-      return String.isNonEmpty(normalizedOshi) && normalizedCandidate.includes(normalizedOshi);
-    });
+    const matches = matchingOshis(candidate, validOshis);
     if (matches.length === 1) {
       return { candidate, value: matches[0] ?? null, status: "matched" };
     }

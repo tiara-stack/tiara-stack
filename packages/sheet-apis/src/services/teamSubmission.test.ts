@@ -163,6 +163,7 @@ const makeGoogleSheetsMock = ({
   updates,
   appendStartRow = 2,
   existingRangeValues = {},
+  validOshis = ["Rin", "Miku Rin"],
   failAppend = false,
   failUpdate = false,
 }: {
@@ -171,6 +172,7 @@ const makeGoogleSheetsMock = ({
   readonly updates?: Array<{ range: string; values: string[][] }>;
   readonly appendStartRow?: number;
   readonly existingRangeValues?: Readonly<Record<string, string[][]>>;
+  readonly validOshis?: ReadonlyArray<string>;
   readonly failAppend?: boolean;
   readonly failUpdate?: boolean;
 }) =>
@@ -184,7 +186,7 @@ const makeGoogleSheetsMock = ({
               range,
               values:
                 range === "'Oshis'!A2:A"
-                  ? [["Rin"], ["Miku Rin"]]
+                  ? validOshis.map((oshi) => [oshi])
                   : (existingRangeValues[range] ?? []),
             })),
           },
@@ -1047,7 +1049,7 @@ describe("TeamSubmissionService.upsertFromDiscord", () => {
     }),
   );
 
-  it.effect("matches oshi candidates by substring while returning the sheet value", () =>
+  it.effect("matches oshi candidates on normalized phrase boundaries", () =>
     Effect.gen(function* () {
       const googleSheets = makeGoogleSheetsMock({ appendedRanges: [] });
       const zero = makeZeroMock();
@@ -1067,11 +1069,94 @@ describe("TeamSubmissionService.upsertFromDiscord", () => {
     }),
   );
 
+  it.effect("does not match configured oshis inside larger words", () =>
+    Effect.gen(function* () {
+      yield* runInvalidOshiUpsert(
+        ["oshi: Marin", "full fill: Full Team"].join("\n"),
+        "Oshi Marin is not valid",
+      );
+    }),
+  );
+
+  it.effect("does not match configured oshis beside astral Unicode letters", () =>
+    Effect.gen(function* () {
+      yield* runInvalidOshiUpsert(
+        ["oshi: 𐐀Rin", "full fill: Full Team"].join("\n"),
+        "Oshi 𐐀Rin is not valid",
+      );
+    }),
+  );
+
+  it.effect("prefers an exact normalized phrase over nested configured names", () =>
+    Effect.gen(function* () {
+      const result = yield* runUpsert({
+        googleSheets: makeGoogleSheetsMock({ appendedRanges: [] }),
+        zero: makeZeroMock(),
+        inputPayload: {
+          ...payload,
+          content: ["oshi: **Ｍｉｋｕ Ｒｉｎ**", "full fill: Full Team"].join("\n"),
+        },
+      });
+
+      expect(result.parsedTeams.map((entry) => entry.oshi)).toEqual([
+        { candidate: "Ｍｉｋｕ Ｒｉｎ", value: "Miku Rin", status: "matched" },
+      ]);
+    }),
+  );
+
+  it.effect("normalizes Discord custom emoji before matching", () =>
+    Effect.gen(function* () {
+      const result = yield* runUpsert({
+        googleSheets: makeGoogleSheetsMock({
+          appendedRanges: [],
+          validOshis: ["MikuHappy"],
+        }),
+        zero: makeZeroMock(),
+        inputPayload: {
+          ...payload,
+          content: ["full fill: Full Team", "<:MikuHappy:123456789>"].join("\n"),
+        },
+      });
+
+      expect(result.parsedTeams.map((entry) => entry.oshi)).toEqual([
+        {
+          candidate: "<:MikuHappy:123456789>",
+          value: "MikuHappy",
+          status: "matched",
+        },
+      ]);
+    }),
+  );
+
+  it.effect("removes Discord role mentions before matching", () =>
+    Effect.gen(function* () {
+      const result = yield* runUpsert({
+        googleSheets: makeGoogleSheetsMock({
+          appendedRanges: [],
+          validOshis: ["123", "Rin"],
+        }),
+        zero: makeZeroMock(),
+        inputPayload: {
+          ...payload,
+          content: ["oshi: <@&123> Rin", "full fill: Full Team"].join("\n"),
+        },
+      });
+
+      expect(result.parsedTeams.map((entry) => entry.oshi)).toEqual([
+        {
+          candidate: "<@&123> Rin",
+          value: "Rin",
+          status: "matched",
+        },
+      ]);
+    }),
+  );
+
   it.effect("skips oshi candidates that match more than one configured oshi", () =>
     Effect.gen(function* () {
       yield* runInvalidOshiUpsert(
-        ["oshi: Miku Rin", "full fill: Full Team"].join("\n"),
-        "Oshi Miku Rin is not valid",
+        ["oshi: my Miku Rin oshis", "full fill: Full Team"].join("\n"),
+        "Oshi my Miku Rin oshis is not valid",
       );
     }),
   );
