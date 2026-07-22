@@ -99,7 +99,9 @@ The configuration commands store TiaraBot's channel mapping. If a lockdown role 
 | Open Slots button                | Any eligible user.  | None       | Refreshes the slot list attached to the registered TiaraBot message.                            |
 | Room-order Previous or Next      | Monitor.            | None       | Changes the interactive draft.                                                                  |
 | Room-order Send or Pin tentative | Monitor.            | None       | Sends the selected order or pins the tentative order. TiaraBot needs Manage Messages to pin it. |
-| Team Confirm or Reject           | Original submitter. | None       | Available only when Theerie enables team submission and its confirmation controls.              |
+| Team Confirm or Reject           | Original submitter. | None       | Requires the configured channel and server feature flag. Unavailable after a terminal action.   |
+
+Team submission has one availability gate: the server feature flag must be enabled in addition to the monitored-channel mapping. Without it, TiaraBot does not dispatch, write, persist, react, or reply. **Confirm**, **Reject**, and rollback failure make a submission terminal; editing its source message afterward does not reopen it.
 
 ## Parameter defaults and targeting another server
 

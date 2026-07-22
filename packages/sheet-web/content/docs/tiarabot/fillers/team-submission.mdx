@@ -1,25 +1,54 @@
 ---
 title: Submit and verify a fill team
-description: Use the gated team-submission monitor and /team list where Theerie has enabled them.
+description: Submit fill teams in a TiaraBot-enabled channel and review the live sheet result.
 ---
 
-<Callout type="warn" title="May be unavailable">
-  Team submission is unstable and feature-gated by Theerie per server. If there is no configured
-  submission channel, follow your server’s manual team process.
+<Callout type="warn" title="Available only where fully enabled">
+  Team submission requires both a configured submission channel and TiaraBot's server feature flag.
+  If either is missing, TiaraBot ignores submission messages and your server's manual team process
+  applies.
 </Callout>
 
-## Submit where enabled
+## Submit a team
 
-Post your fill-team message in the configured team-submission channel using that server’s accepted format. TiaraBot watches new messages and edits in that channel only.
+Post in the configured team-submission channel. A candidate message needs either an ISV-style power pair such as `150/700` or a recognized colon label with a non-empty value, such as `full fill: Full Team`. Ordinary conversation is silently ignored. Put format examples in Discord quote lines or fenced code blocks so TiaraBot ignores them too.
 
-It reacts while processing, writes recognized teams to the sheet, and replies with teams that were added or skipped. Correct the source message when the reply identifies a parse problem or skipped team.
+The usual unlabeled order is full fill, heal, then encore. Labels let you change the order, submit multiple heals, or add alternatives. TiaraBot accepts numbered lines, Markdown headings or bold labels, and these common labels:
 
-## Verify saved information
+- Full fill: `FF`, `fill`, `main`, or `full fill`.
+- Heal: `H`, `heal`, `4* heal`, or `birthday heal`.
+- Encore: `enc` or `encore`.
+- Alternative: `alt`, `alternative`, or `alt/enc`.
 
-Run `/team list` to inspect your own teams, or use its optional `user` and `server_id` inputs for another lookup. The result shows saved team names and tags plus:
+For example:
 
-- lead/backline ISV, such as `100/500`.
-- talent when stored.
-- effect percentage.
+```text
+**FF:** 140/700/324k
+H: 100/660/(4*)
+H: 80/640/(BD)
+Enc: 140/560/364k
+[oshi emoji]
+```
 
-The result is read-only. It does not submit or edit a team.
+You can put a label on its own heading and the value on the next line. Full-fill, heal, and alt choices may use `or`, including `100/690 4* or 80/670 BD`. Inline forms such as `130/580 alt`, `||alt 150/740||`, and `150/675 Alt uncapped` are also accepted.
+
+## Add an oshi
+
+An oshi applies to every team in the message. Put one oshi after the team lines as an emoji-only or short name-only final line, or write a form such as `Akitoya oshi`, `oshi lead: Akitoya`, or `oshi: Akitoya`.
+
+Some server configurations require the submitted oshi to match exactly one configured oshi name. TiaraBot normalizes case and matches whole names or phrases; a partial match inside another name does not count.
+
+## Review and correct
+
+TiaraBot reacts while processing, writes recognized teams to the sheet, and replies with the teams added or skipped. The write happens before **Confirm** and **Reject** appear. Only the Discord account that posted the source message can use those controls.
+
+Edit the source message to correct a team before you press either button. After the submission is confirmed, rejected, or has a rollback failure, further edits cannot change it through this flow.
+
+- **Confirm** accepts the current write and removes the confirmation reply.
+- **Reject** restores TiaraBot's latest managed-cell snapshot. It is not a full sheet undo: newly appended rows are blanked rather than deleted, and unrelated cells are not restored.
+
+## Inspect the live sheet view
+
+Run `/team list` to read the teams currently resolved for your sheet name, or use its optional `user` and `server_id` inputs for another lookup when permitted. It shows team names and tags, lead/backline ISV, optional talent, and effect percentage.
+
+`/team list` reads the live sheet. It does not report whether a Discord submission is pending, confirmed, or rejected, and it does not submit or edit a team.

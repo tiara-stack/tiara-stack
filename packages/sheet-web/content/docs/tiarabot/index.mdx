@@ -41,7 +41,8 @@ Other procedures can vary. Servers may send schedule-sign-up/open-slot pings ear
 ## Team submission availability
 
 <Callout type="warn" title="Unstable, server-gated feature">
-  Team submission is enabled or disabled per server by **Theerie**, the bot owner. If your server
-  has no monitored team-submission channel or confirmation controls, use its established manual
-  process. The rest of TiaraBot remains usable.
+  Team submission requires a configured submission channel and TiaraBot's service-controlled feature
+  flag for that server. A configured channel without the flag is disabled: the bot does not write,
+  react, reply, or create a submission record. If either requirement is missing, use the server's
+  established manual process. The rest of TiaraBot remains usable.
 </Callout>

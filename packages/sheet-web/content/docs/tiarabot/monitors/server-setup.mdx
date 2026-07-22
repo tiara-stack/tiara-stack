@@ -41,6 +41,7 @@ The visibility gate can keep unrelated people from seeing the in-game room code 
 If the running room is visible without a managed role, leave `role` unset. TiaraBot will skip lockdown-role cleanup for that channel, and there is no need to run `/kick manual`.
 
 <Callout type="warn" title="Separate feature configuration">
-  `/channel` does not configure every announcement or the unstable team-submission monitor. Theerie
-  controls team-submission availability per server.
+  `/channel` does not expose team-submission setup. The service stores a separate monitored-channel
+  mapping and a service-controlled feature flag. Both must be present; configuring a channel without
+  enabling the flag does not monitor, write, react, reply, or create a submission record.
 </Callout>

@@ -1,25 +1,28 @@
 ---
 title: Monitor team submissions
-description: Operate the unstable Theerie-gated team submission and confirmation flow.
+description: Support TiaraBot's gated team-submission and submitter-confirmation flow.
 ---
 
-<Callout type="warn" title="Theerie-controlled feature gate">
-  Team submission is unstable. Theerie enables or disables it per server. If it is unavailable, use
-  the server’s manual team process and omit every confirmation step below.
+<Callout type="warn" title="Channel configuration and activation are both required">
+  A configured submission channel does not activate team submission by itself. TiaraBot's
+  service-controlled feature flag must also be enabled for the server. Without the flag, the bot
+  does not dispatch a workflow, write or persist a submission, react, or reply.
 </Callout>
 
-Where enabled, TiaraBot watches new and edited messages in the configured team-submission channel. It reacts, parses the filler’s message, writes recognized teams to the sheet, and reports added or skipped teams.
+Where fully enabled, TiaraBot watches new and edited messages in the configured channel. A candidate message needs either an ISV-style power pair such as `150/700` or a recognized colon label with a non-empty value, such as `full fill: Full Team`. Ordinary conversation is silently ignored. Put format examples in Discord quote lines or fenced code blocks so TiaraBot ignores them too.
 
-## Confirmation-enabled servers
+The parser accepts positional full-fill/heal/encore lines and explicit labels including `FF`, `main`, `fill`, `H`, `heal`, `4* heal`, `birthday heal`, `enc`, `alt`, and `alt/enc`. Numbered lines and Markdown heading or bold labels are normalized. It also recognizes inline and spoiler alts, `or` alternatives, and one shared oshi name or emoji for the message.
 
-The write happens **before** the controls appear.
+See [Submit and verify a fill team](/docs/tiarabot/fillers/team-submission) for examples fillers can copy.
 
-- **Confirm** accepts the written submission and removes the confirmation reply.
-- **Reject** attempts to roll back the write.
-- If rollback fails, follow the updated reply and inspect/correct the sheet manually.
+## Confirmation flow
 
-## Confirmation-disabled servers
+TiaraBot writes recognized teams before the controls appear. Only the original submitter can use **Confirm** or **Reject**; a mana/moni cannot act on another person's submission.
 
-TiaraBot writes automatically and returns a status reply without Confirm/Reject controls.
+- **Confirm** marks the submission terminal and removes the public confirmation reply.
+- **Reject** restores the latest snapshot of cells managed by the submission. It blanks newly appended team rows instead of deleting them and does not restore unrelated sheet cells.
+- A rollback failure leaves an updated reply for manual investigation.
 
-Use `/team list user:<filler>` for a read-only verification of saved tags, lead/backline ISV, optional talent, and effect percentage. It is not an input or edit command.
+The submitter can edit the source message to correct the write while it remains pending. Confirmation, rejection, and rollback failure are terminal: later source edits do not reopen or update that submission. Deleting the source message does not trigger rollback.
+
+Use `/team list user:<filler>` only as a read-only view of the teams currently resolved from the sheet. It does not verify the Discord submission record or its confirmation status.
