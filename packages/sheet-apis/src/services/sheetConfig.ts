@@ -294,8 +294,8 @@ const teamConfigParser = (
   );
 
 const hourRangeValueSchema = Schema.Struct({
-  start: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 23 })),
-  end: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 23 })),
+  start: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })),
+  end: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })),
 }).check(
   Schema.makeFilter(({ end, start }) =>
     start <= end
