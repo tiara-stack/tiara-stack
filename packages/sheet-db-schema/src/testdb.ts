@@ -15,7 +15,7 @@ import type {
 } from "@rocicorp/zero";
 import { zeroDrizzle } from "@rocicorp/zero/server/adapters/drizzle";
 import { drizzle } from "drizzle-orm/pglite";
-import { Data, Effect, Predicate, Schema, Scope } from "effect";
+import { Data, Effect, Option, Predicate, Schema, SchemaIssue, Scope } from "effect";
 import {
   snapshotSchema,
   type ColumnSnapshot,
@@ -256,6 +256,13 @@ type DynamicBuilder = Record<string, unknown>;
 const databaseError = (operation: string) => (cause: unknown) =>
   new TestDatabaseError({ operation, cause });
 
+const executorError = (operation: string) => (cause: unknown) =>
+  new Schema.SchemaError(
+    new SchemaIssue.InvalidValue(Option.some(cause), {
+      message: `Test database failed to ${operation}: ${String(cause)}`,
+    }),
+  );
+
 export const makeTestSheetZeroDatabase = <Context = undefined>(
   options: TestSheetZeroDatabaseOptions<Context> = {},
 ): Effect.Effect<TestSheetZeroDatabase<Context>, TestDatabaseError, Scope.Scope> =>
@@ -317,22 +324,27 @@ export const makeTestSheetZeroDatabase = <Context = undefined>(
       run: <Return>(
         request: QueryOrQueryRequest<any, any, any, SheetZeroSchema, Return, Context>,
       ) =>
-        Effect.promise(async () => {
-          const query = isQueryRequest(request)
-            ? request.query.fn({ args: request.args, ctx: context })
-            : request;
-          return (await zqlDb.run(query)) as HumanReadable<Return>;
+        Effect.tryPromise({
+          try: async () => {
+            const query = isQueryRequest(request)
+              ? request.query.fn({ args: request.args, ctx: context })
+              : request;
+            return (await zqlDb.run(query)) as HumanReadable<Return>;
+          },
+          catch: executorError("run query"),
         }),
       mutate: (request: MutateRequest<any, SheetZeroSchema, Context, any>) =>
         Effect.succeed({
           /** PGlite models authoritative server execution, not optimistic cache writes. */
           client: () => Effect.void,
           server: () =>
-            Effect.promise(() =>
-              zqlDb.transaction((tx) =>
-                request.mutator.fn({ args: request.args, ctx: context, tx }),
-              ),
-            ),
+            Effect.tryPromise({
+              try: () =>
+                zqlDb.transaction((tx) =>
+                  request.mutator.fn({ args: request.args, ctx: context, tx }),
+                ),
+              catch: executorError("run mutation"),
+            }),
         }),
     };
 
