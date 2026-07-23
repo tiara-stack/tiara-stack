@@ -110,8 +110,8 @@ describe("PGlite Sheet Zero contract", () => {
       const canonicalShape = ddlParityShape(canonicalSnapshot());
       const migrationShape = ddlParityShape(migration.schema);
 
-      expect(hash(canonicalShape)).toBe(hash(migrationShape));
       expect(canonicalShape).toEqual(migrationShape);
+      expect(hash(canonicalShape)).toBe(hash(migrationShape));
       expect(testDdlIntentionalDifferences).toEqual([
         expect.stringContaining("publication"),
         expect.stringContaining("CHECK"),
