@@ -21,6 +21,10 @@
       "types": "./dist/migrations.d.mts",
       "default": "./dist/migrations.mjs"
     },
+    "./testdb": {
+      "types": "./dist/testdb.d.mts",
+      "default": "./dist/testdb.mjs"
+    },
     "./zero": {
       "types": "./dist/zero.d.mts",
       "default": "./dist/zero.mjs"
@@ -54,8 +58,10 @@
   "devDependencies": {
     "@effect/platform-node": "catalog:",
     "@effect/vitest": "catalog:",
+    "@electric-sql/pglite": "^0.5.4",
     "@types/node": "catalog:",
     "dotenv": "^17.2.3",
+    "drizzle-orm": "0.45.1",
     "sheet-models": "workspace:*",
     "tooling-config": "workspace:*",
     "vite": "catalog:",
@@ -65,5 +71,6 @@
   "peerDependencies": {
     "effect": "catalog:",
     "sheet-models": "workspace:*"
-  }
+  },
+  "drizzleVersionPolicy": "Pin drizzle-orm to 0.45.1: 0.45.2 is incompatible with Zero 0.25.9 under exactOptionalPropertyTypes."
 }
