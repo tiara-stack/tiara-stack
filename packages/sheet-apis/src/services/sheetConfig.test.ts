@@ -132,8 +132,8 @@ describe("SheetConfigService", () => {
       expect(Exit.isFailure(exit)).toBe(true);
       expect(error?.message).toContain('range="AG8:AH" row=8');
       expect(error?.message).toContain("field=hours[0]");
-      expect(error?.message).toContain("between 0 and 23");
-    }).pipe(Effect.provide(makeGoogleSheetsWithRows([["runner", "1-24"]]))),
+      expect(error?.message).toContain("end must be greater than or equal to start");
+    }).pipe(Effect.provide(makeGoogleSheetsWithRows([["runner", "150-1"]]))),
   );
 
   it.effect("accepts key-only rows when optional range values are blank", () =>
@@ -163,6 +163,7 @@ describe("SheetConfigService", () => {
 describe("hourRangeParser", () => {
   it("parses valid hour ranges", () => {
     expect(hourRangeParser("1-2")).toMatchObject({ start: 1, end: 2 });
+    expect(hourRangeParser("1-150")).toMatchObject({ start: 1, end: 150 });
   });
 
   it("rejects malformed, missing, and non-numeric hour ranges", () => {
@@ -171,8 +172,8 @@ describe("hourRangeParser", () => {
     }
   });
 
-  it("rejects values outside the 0-23 hour bounds", () => {
-    for (const range of ["-1-2", "1-24", "1-9007199254740993"]) {
+  it("rejects values outside the non-negative safe integer bounds", () => {
+    for (const range of ["-1-2", "1-9007199254740993"]) {
       expect(() => hourRangeParser(range)).toThrow(`Invalid hour range: ${range}`);
     }
   });
