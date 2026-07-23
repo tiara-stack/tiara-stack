@@ -1,4 +1,4 @@
-import { describe, expect, it } from "@effect/vitest";
+import { describe, expect, it, layer } from "@effect/vitest";
 import { Cause, Context, Effect, Exit, Layer, Option, Predicate } from "effect";
 import {
   RangesConfig,
@@ -12,6 +12,7 @@ import {
   type TeamSubmissionRollbackSnapshot,
   type TeamSubmissionUpsertFromDiscordPayload,
 } from "sheet-ingress-api/schemas/teamSubmission";
+import { makeTestSheetZeroClient, type SheetSeeds, type TestSheetZero } from "../testdb";
 import { GoogleSheets } from "./google/sheets";
 import { SheetConfigService } from "./sheetConfig";
 import { SheetZeroClient } from "./sheetZeroClient";
@@ -28,6 +29,10 @@ type GoogleSheetsApi = Context.Service.Shape<typeof GoogleSheets>;
 type SheetConfigServiceApi = Context.Service.Shape<typeof SheetConfigService>;
 type WorkspaceConfigServiceApi = Context.Service.Shape<typeof WorkspaceConfigService>;
 type SheetZeroClientApi = Context.Service.Shape<typeof SheetZeroClient>;
+type MessageTeamSubmissionSeed = NonNullable<SheetSeeds["messageTeamSubmission"]>[number];
+
+const StatefulTestZero = Context.Service<TestSheetZero>("TeamSubmissionStatefulTestZero");
+const StatefulTestZeroLayer = Layer.effect(StatefulTestZero, makeTestSheetZeroClient());
 
 const makeTeamConfig = ({
   name = "fill",
@@ -156,6 +161,64 @@ const makeExistingSubmissionFixture = ({
     rollbackSnapshot,
     status,
   }) as unknown as MessageTeamSubmission;
+
+const makeExistingSubmissionSeed = ({
+  confirmationMessageId = "confirmation-message-1",
+  parsedSubmission = [],
+  rowMappings = defaultRowMappings,
+  rollbackSnapshot = null,
+  status = "registered",
+}: {
+  readonly confirmationMessageId?: string | null;
+  readonly parsedSubmission?: MessageTeamSubmission["parsedSubmission"];
+  readonly rowMappings?: MessageTeamSubmission["rowMappings"];
+  readonly rollbackSnapshot?: TeamSubmissionRollbackSnapshot | null;
+  readonly status?: MessageTeamSubmission["status"];
+} = {}) =>
+  ({
+    workspaceId: payload.workspaceId,
+    conversationId: payload.conversationId,
+    messageId: payload.messageId,
+    clientPlatform: payload.client.platform,
+    clientId: payload.client.clientId,
+    discordGuildId: payload.workspaceId,
+    discordChannelId: payload.conversationId,
+    discordAuthorId: payload.authorId,
+    sheetId: "sheet-1",
+    confirmationMessageId,
+    parsedSubmission,
+    rowMappings,
+    rollbackSnapshot,
+    version: 1,
+    status,
+    createdAt: 1_700_000_000_000,
+    updatedAt: 1_700_000_000_100,
+    deletedAt: null,
+  }) satisfies MessageTeamSubmissionSeed;
+
+const resetStatefulZero = (testZero: TestSheetZero, seed?: MessageTeamSubmissionSeed) =>
+  Effect.gen(function* () {
+    yield* testZero.reset;
+    if (seed) {
+      yield* testZero.seed({ messageTeamSubmission: [seed] });
+    }
+  });
+
+const runStatefulRollbackSnapshot = (
+  testZero: TestSheetZero,
+  rollbackSnapshot: TeamSubmissionRollbackSnapshot,
+  status: MessageTeamSubmission["status"] = "registered",
+) =>
+  Effect.gen(function* () {
+    yield* resetStatefulZero(testZero, makeExistingSubmissionSeed({ rollbackSnapshot, status }));
+    const updates: Array<{ range: string; values: string[][] }> = [];
+    const result = yield* runRevert({
+      googleSheets: makeGoogleSheetsMock({ updates }),
+      zero: testZero.layer,
+    });
+    const rows = yield* testZero.rows("messageTeamSubmission");
+    return { result, rows, updates };
+  });
 
 const makeGoogleSheetsMock = ({
   appendedRanges,
@@ -304,21 +367,6 @@ const runRevert = ({
       Layer.mergeAll(googleSheets, makeSheetConfigService(), makeWorkspaceConfigService(), zero),
     ),
   );
-
-const runRollbackSnapshot = (
-  rollbackSnapshot: TeamSubmissionRollbackSnapshot,
-  status: MessageTeamSubmission["status"] = "registered",
-) => {
-  const updates: Array<{ range: string; values: string[][] }> = [];
-  const existingSubmission = makeExistingSubmissionFixture({
-    status,
-    rollbackSnapshot: Option.some(rollbackSnapshot),
-  });
-  return runRevert({
-    googleSheets: makeGoogleSheetsMock({ updates }),
-    zero: makeZeroMock({ existingSubmission: Option.some(existingSubmission) }),
-  }).pipe(Effect.map((result) => ({ result, updates })));
-};
 
 const runConfirm = ({
   zero,
@@ -663,7 +711,7 @@ describe("parseTeamSubmissionMessage", () => {
   });
 });
 
-describe("TeamSubmissionService.upsertFromDiscord", () => {
+layer(StatefulTestZeroLayer)("TeamSubmissionService.upsertFromDiscord", (it) => {
   it.effect(
     "ignores new non-submission messages without configuration, writes, or persistence",
     () =>
@@ -691,11 +739,11 @@ describe("TeamSubmissionService.upsertFromDiscord", () => {
       }),
   );
 
-  it.effect("blanks existing rows when an edit is no longer a submission", () =>
+  it.effect("blanks existing rows and commits the empty submission state", () =>
     Effect.gen(function* () {
+      const testZero = yield* StatefulTestZero;
+      yield* resetStatefulZero(testZero, makeExistingSubmissionSeed());
       const sheetUpdates: Array<{ range: string; values: string[][] }> = [];
-      const persisted: unknown[] = [];
-      const existingSubmission = makeExistingSubmissionFixture();
       const result = yield* runIgnoredEdit({
         googleSheets: makeGoogleSheetsMock({
           updates: sheetUpdates,
@@ -708,23 +756,19 @@ describe("TeamSubmissionService.upsertFromDiscord", () => {
             "'Teams'!D3": [["Rin"]],
           },
         }),
-        zero: makeZeroMock({
-          existingSubmission: Option.some(existingSubmission),
-          persisted,
-        }),
+        zero: testZero.layer,
       });
+      const rows = yield* testZero.rows("messageTeamSubmission");
 
       expectBlankedRow(sheetUpdates, 2);
       expectBlankedRow(sheetUpdates, 3);
-      expect(persisted.map((entry) => (entry as { status: string }).status)).toEqual([
-        "applying",
-        "empty",
-      ]);
-      expect(persisted.at(-1)).toMatchObject({
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
         confirmationMessageId: "confirmation-message-1",
         parsedSubmission: [],
         rowMappings: [],
         status: "empty",
+        version: 3,
       });
       expect(result).toMatchObject({
         confirmationText: "",
@@ -874,14 +918,15 @@ describe("TeamSubmissionService.upsertFromDiscord", () => {
 
   it.effect("appends new rows and persists returned row mappings", () =>
     Effect.gen(function* () {
+      const testZero = yield* StatefulTestZero;
+      yield* resetStatefulZero(testZero);
       const appendedRanges: string[] = [];
       const appendedValues: string[][][] = [];
       const updates: Array<{ range: string; values: string[][] }> = [];
-      const persisted: unknown[] = [];
       const googleSheets = makeGoogleSheetsMock({ appendedRanges, appendedValues, updates });
-      const zero = makeZeroMock({ persisted });
 
-      const result = yield* runUpsert({ googleSheets, zero });
+      const result = yield* runUpsert({ googleSheets, zero: testZero.layer });
+      const rows = yield* testZero.rows("messageTeamSubmission");
 
       expect(appendedRanges).toEqual(["'Teams'!A:D", "'Teams'!A:D"]);
       expect(appendedValues).toEqual([
@@ -905,18 +950,9 @@ describe("TeamSubmissionService.upsertFromDiscord", () => {
       expect(result.rowMappings.map((mapping) => mapping.rowIndex)).toEqual([2, 3]);
       expect(result.parsedTeams.map((entry) => entry.oshi.status)).toEqual(["matched", "matched"]);
       expect(updates).toContainEqual({ range: "'Teams'!A2", values: [["Player"]] });
-      expect(persisted).toHaveLength(6);
-      expect(persisted.map((entry) => (entry as { status: string }).status)).toEqual([
-        "applying",
-        "applying",
-        "applying",
-        "applying",
-        "applying",
-        "registered",
-      ]);
-      expect(
-        (persisted.at(-1) as { rowMappings: ReadonlyArray<unknown> }).rowMappings,
-      ).toHaveLength(2);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ status: "registered", version: 6 });
+      expect(rows[0]?.rowMappings).toHaveLength(2);
       expect(result.rollbackSnapshot).toEqual([
         { stableKey: "fullFill:full%20team", range: "'Teams'!A2", values: [] },
         { stableKey: "fullFill:full%20team", range: "'Teams'!B2", values: [] },
@@ -1163,19 +1199,27 @@ describe("TeamSubmissionService.upsertFromDiscord", () => {
 
   it.effect("updates existing rows and blanks rows removed by message edits", () =>
     Effect.gen(function* () {
+      const testZero = yield* StatefulTestZero;
+      yield* resetStatefulZero(testZero, makeExistingSubmissionSeed());
       const updates: Array<{ range: string; values: string[][] }> = [];
-      const result = yield* runExistingUpsert(updates, {
+      const result = yield* runUpsert({
+        googleSheets: makeGoogleSheetsMock({ updates, failAppend: true }),
+        zero: testZero.layer,
         inputPayload: {
           ...payload,
           content: ["oshi: Rin", "full fill: Full Team"].join("\n"),
         },
       });
+      const rows = yield* testZero.rows("messageTeamSubmission");
 
       expect(result.rowMappings.map((mapping) => mapping.rowIndex)).toEqual([2]);
       expect(updates).toContainEqual({ range: "'Teams'!A2", values: [["Player"]] });
       expect(updates).toContainEqual({ range: "'Teams'!B2", values: [["Full Team"]] });
       expect(updates).toContainEqual({ range: "'Teams'!D2", values: [["Rin"]] });
       expectBlankedRow(updates, 3);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ status: "updated", version: 3 });
+      expect(rows[0]?.rowMappings).toHaveLength(1);
     }),
   );
 
@@ -1220,7 +1264,7 @@ describe("TeamSubmissionService.upsertFromDiscord", () => {
 
   it.effect("marks rollback failed and retains the snapshot when sheet rollback update fails", () =>
     Effect.gen(function* () {
-      const persisted: unknown[] = [];
+      const testZero = yield* StatefulTestZero;
       const rollbackSnapshot = [
         {
           stableKey: "fullFill:1",
@@ -1228,78 +1272,80 @@ describe("TeamSubmissionService.upsertFromDiscord", () => {
           values: [["Old Player", "Old Team"]],
         },
       ];
-      const existingSubmission = makeExistingSubmissionFixture({
-        rowMappings: [],
-        rollbackSnapshot: Option.some(rollbackSnapshot),
-      });
+      yield* resetStatefulZero(
+        testZero,
+        makeExistingSubmissionSeed({ rowMappings: [], rollbackSnapshot }),
+      );
       const googleSheets = makeGoogleSheetsMock({ failUpdate: true });
-      const zero = makeZeroMock({
-        existingSubmission: Option.some(existingSubmission),
-        persisted,
-      });
 
-      const result = yield* runRevert({ googleSheets, zero });
+      const result = yield* runRevert({ googleSheets, zero: testZero.layer });
+      const rows = yield* testZero.rows("messageTeamSubmission");
 
       expect(result.status).toBe("rollbackFailed");
       expect(result.rollbackSnapshot).toEqual(rollbackSnapshot);
-      expect((persisted.at(-1) as { status: string; rollbackSnapshot: unknown }).status).toBe(
-        "rollbackFailed",
-      );
-      expect((persisted.at(-1) as { rollbackSnapshot: unknown }).rollbackSnapshot).toEqual(
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
         rollbackSnapshot,
-      );
-      expect(persisted.map((entry) => (entry as { status: string }).status)).toEqual([
-        "reverting",
-        "rollbackFailed",
-      ]);
+        status: "rollbackFailed",
+        version: 3,
+      });
     }),
   );
 
   it.effect("ignores pending append sentinels when reverting concrete ranges", () =>
     Effect.gen(function* () {
+      const testZero = yield* StatefulTestZero;
       const rollbackSnapshot = [
         { stableKey: "fullFill:1", range: "", values: [] },
         { stableKey: "heal:1", range: "'Teams'!A3:B3", values: [["Old Player"]] },
       ];
-      const { result, updates } = yield* runRollbackSnapshot(rollbackSnapshot);
+      const { result, rows, updates } = yield* runStatefulRollbackSnapshot(
+        testZero,
+        rollbackSnapshot,
+      );
 
       expect(result.status).toBe("rejected");
       expect(updates).toEqual([{ range: "'Teams'!A3:B3", values: [["Old Player", ""]] }]);
+      expect(rows[0]).toMatchObject({ status: "rejected", version: 3 });
     }),
   );
 
   it.effect("retries a rejection left in reverting after the sheet was restored", () =>
     Effect.gen(function* () {
-      const { result, updates } = yield* runRollbackSnapshot(existingRollbackSnapshot, "reverting");
+      const testZero = yield* StatefulTestZero;
+      const { result, rows, updates } = yield* runStatefulRollbackSnapshot(
+        testZero,
+        existingRollbackSnapshot,
+        "reverting",
+      );
 
       expect(result.status).toBe("rejected");
       expect(updates).not.toHaveLength(0);
+      expect(rows[0]).toMatchObject({ status: "rejected", version: 3 });
     }),
   );
 
   it.effect("returns the persisted status when setting the confirmation message", () =>
     Effect.gen(function* () {
-      const confirmationUpdates: unknown[] = [];
-      const existingSubmission = makeExistingSubmissionFixture({
-        parsedSubmission: [],
-        status: "confirmed",
-      });
-      const zero = makeZeroMock({
-        existingSubmission: Option.some(existingSubmission),
-        confirmationUpdates,
-      });
+      const testZero = yield* StatefulTestZero;
+      yield* resetStatefulZero(
+        testZero,
+        makeExistingSubmissionSeed({
+          confirmationMessageId: "previous-confirmation-message",
+          parsedSubmission: [],
+          status: "confirmed",
+        }),
+      );
 
-      const result = yield* runSetConfirmation({ zero });
+      const result = yield* runSetConfirmation({ zero: testZero.layer });
+      const rows = yield* testZero.rows("messageTeamSubmission");
 
       expect(result.status).toBe("confirmed");
-      expect(confirmationUpdates).toEqual([
-        {
-          workspaceId: "guild-1",
-          conversationId: "channel-1",
-          messageId: "message-1",
-          confirmationMessageId: "confirmation-message-1",
-        },
-      ]);
+      expect(rows[0]).toMatchObject({
+        confirmationMessageId: "confirmation-message-1",
+        status: "confirmed",
+        version: 1,
+      });
     }),
   );
 
