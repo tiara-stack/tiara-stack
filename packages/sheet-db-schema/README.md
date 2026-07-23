@@ -13,3 +13,25 @@ captured with `pnpm db:generate` and applied with `pnpm db:migrate`.
 The previous SQL files under `migrations/` were historical Drizzle artifacts. They were not the
 production migration source for this package, so they were intentionally not ported to Effect SQL
 migrations.
+
+## PGlite Zero test database
+
+The `sheet-db-schema/testdb` subpath is a test-only, server-authoritative executor. It creates one
+in-memory PGlite database per Effect scope, applies DDL derived from the canonical snapshot, and
+executes generated Zero queries and mutators through Zero's public Drizzle server adapter. The
+`sheet-apis/testdb` subpath binds that executor to the real `SheetZeroClient` service.
+
+Reuse one scoped instance for a suite and call `reset` between cases. Reset uses `TRUNCATE` for all
+14 tables. An outer transaction rollback is faster, but it cannot safely wrap the nested
+transactions opened by authoritative Zero mutators, especially the mutators that use
+`Promise.all`; therefore it is measured only as a comparison and is not the reset implementation.
+
+The generated test DDL includes snapshot defaults, default SQL, column uniqueness, references,
+primary keys, and indexes. Its parity test compares the canonical structure with the latest stored
+migration snapshot. Publication statements, migration-only check constraints, and partial-index
+predicates are intentional differences because the canonical snapshot does not represent them.
+
+The kit does not replace Zero sync tests: it has no reactive client, optimistic cache phase,
+replication, or subscription behavior. It also does not expose a deterministic clock because the
+production timestamp helpers call `Date.now()` directly; adding that seam would require changing
+production helper APIs.

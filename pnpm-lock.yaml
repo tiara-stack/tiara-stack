@@ -110,7 +110,7 @@ importers:
         version: link:../typhoon-core
       unstorage:
         specifier: ^1.17.4
-        version: 1.17.4(db0@0.3.4(better-sqlite3@12.9.0)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7)))(ioredis@5.9.3)
+        version: 1.17.4(db0@0.3.4(@electric-sql/pglite@0.5.4)(better-sqlite3@12.9.0)(drizzle-orm@0.45.2(@electric-sql/pglite@0.5.4)(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7)))(ioredis@5.9.3)
     devDependencies:
       '@effect/vitest':
         specifier: 'catalog:'
@@ -225,7 +225,7 @@ importers:
         version: 0.31.4
       drizzle-orm:
         specifier: ^0.45.1
-        version: 0.45.1(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7)
+        version: 0.45.1(@electric-sql/pglite@0.5.4)(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7)
       effect:
         specifier: 'catalog:'
         version: 4.0.0-beta.67
@@ -424,7 +424,7 @@ importers:
     dependencies:
       '@better-auth/oauth-provider':
         specifier: ^1.6.16
-        version: 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@opentelemetry/api@1.9.0)(better-call@1.3.6(zod@4.3.6))(jose@6.1.3)(kysely@0.29.2)(nanostores@1.1.0))(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(better-auth@1.6.16(patch_hash=671e30c789cac6d2dae636c6b5783d75eb31f8ab6ef2403ea7c3a6c4eac4adb7)(@opentelemetry/api@1.9.0)(@tanstack/react-start@1.162.4(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(crossws@0.4.5(srvx@0.11.15))(react-dom@19.3.0-canary-98ce535f-20260226(react@19.2.4))(react@19.2.4))(better-sqlite3@12.9.0)(drizzle-kit@0.31.4)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7))(pg@8.20.0)(react-dom@19.3.0-canary-98ce535f-20260226(react@19.2.4))(react@19.2.4)(solid-js@1.9.11)(vitest@4.1.9))(better-call@1.3.6(zod@4.3.6))
+        version: 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@opentelemetry/api@1.9.0)(better-call@1.3.6(zod@4.3.6))(jose@6.1.3)(kysely@0.29.2)(nanostores@1.1.0))(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(better-auth@1.6.16(patch_hash=671e30c789cac6d2dae636c6b5783d75eb31f8ab6ef2403ea7c3a6c4eac4adb7)(@opentelemetry/api@1.9.0)(@tanstack/react-start@1.162.4(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(crossws@0.4.5(srvx@0.11.15))(react-dom@19.3.0-canary-98ce535f-20260226(react@19.2.4))(react@19.2.4))(better-sqlite3@12.9.0)(drizzle-kit@0.31.4)(drizzle-orm@0.45.2(@electric-sql/pglite@0.5.4)(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7))(pg@8.20.0)(react-dom@19.3.0-canary-98ce535f-20260226(react@19.2.4))(react@19.2.4)(solid-js@1.9.11)(vitest@4.1.9))(better-call@1.3.6(zod@4.3.6))
       '@better-fetch/fetch':
         specifier: 1.2.2
         version: 1.2.2
@@ -448,10 +448,10 @@ importers:
         version: 1.0.0
       better-auth:
         specifier: 1.6.16
-        version: 1.6.16(patch_hash=671e30c789cac6d2dae636c6b5783d75eb31f8ab6ef2403ea7c3a6c4eac4adb7)(@opentelemetry/api@1.9.0)(@tanstack/react-start@1.162.4(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(crossws@0.4.5(srvx@0.11.15))(react-dom@19.3.0-canary-98ce535f-20260226(react@19.2.4))(react@19.2.4))(better-sqlite3@12.9.0)(drizzle-kit@0.31.4)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7))(pg@8.20.0)(react-dom@19.3.0-canary-98ce535f-20260226(react@19.2.4))(react@19.2.4)(solid-js@1.9.11)(vitest@4.1.9)
+        version: 1.6.16(patch_hash=671e30c789cac6d2dae636c6b5783d75eb31f8ab6ef2403ea7c3a6c4eac4adb7)(@opentelemetry/api@1.9.0)(@tanstack/react-start@1.162.4(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(crossws@0.4.5(srvx@0.11.15))(react-dom@19.3.0-canary-98ce535f-20260226(react@19.2.4))(react@19.2.4))(better-sqlite3@12.9.0)(drizzle-kit@0.31.4)(drizzle-orm@0.45.2(@electric-sql/pglite@0.5.4)(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7))(pg@8.20.0)(react-dom@19.3.0-canary-98ce535f-20260226(react@19.2.4))(react@19.2.4)(solid-js@1.9.11)(vitest@4.1.9)
       drizzle-orm:
         specifier: ^0.45.2
-        version: 0.45.2(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7)
+        version: 0.45.2(@electric-sql/pglite@0.5.4)(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7)
       effect:
         specifier: 'catalog:'
         version: 4.0.0-beta.67
@@ -475,7 +475,7 @@ importers:
         version: link:../typhoon-core
       unstorage:
         specifier: ^1.17.4
-        version: 1.17.4(db0@0.3.4(better-sqlite3@12.9.0)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7)))(ioredis@5.9.3)
+        version: 1.17.4(db0@0.3.4(@electric-sql/pglite@0.5.4)(better-sqlite3@12.9.0)(drizzle-orm@0.45.2(@electric-sql/pglite@0.5.4)(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7)))(ioredis@5.9.3)
     devDependencies:
       '@effect/vitest':
         specifier: 'catalog:'
@@ -599,12 +599,18 @@ importers:
       '@effect/vitest':
         specifier: 'catalog:'
         version: '@tiara-stack/effect-vitest@4.0.0-beta.93.tiara.2(@tiara-stack/vite-plus@0.2.4(@opentelemetry/api@1.9.0)(@tiara-stack/vite-plus@0.2.4)(@types/node@24.10.9)(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(esbuild@0.28.1)(jiti@2.6.1)(jsdom@27.4.0(@noble/hashes@2.0.1))(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(effect@4.0.0-beta.67)'
+      '@electric-sql/pglite':
+        specifier: ^0.5.4
+        version: 0.5.4
       '@types/node':
         specifier: 'catalog:'
         version: 24.10.9
       dotenv:
         specifier: ^17.2.3
         version: 17.2.3
+      drizzle-orm:
+        specifier: 0.45.1
+        version: 0.45.1(@electric-sql/pglite@0.5.4)(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7)
       sheet-models:
         specifier: workspace:*
         version: link:../sheet-models
@@ -646,7 +652,7 @@ importers:
         version: 0.25.9(@opentelemetry/core@2.2.0(@opentelemetry/api@1.9.0))
       drizzle-orm:
         specifier: ^0.45.1
-        version: 0.45.1(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7)
+        version: 0.45.1(@electric-sql/pglite@0.5.4)(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7)
       effect:
         specifier: 'catalog:'
         version: 4.0.0-beta.67
@@ -919,7 +925,7 @@ importers:
         version: 12.35.1(react-dom@19.3.0-canary-98ce535f-20260226(react@19.3.0-canary-98ce535f-20260226))(react@19.3.0-canary-98ce535f-20260226)
       nitro:
         specifier: npm:nitro-nightly@latest
-        version: nitro-nightly@3.0.1-20260512-093145-0498ce70(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.2.3)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7))(giget@2.0.0)(ioredis@5.9.3)(jiti@2.6.1)(lru-cache@11.2.6)
+        version: nitro-nightly@3.0.1-20260512-093145-0498ce70(@electric-sql/pglite@0.5.4)(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.2.3)(drizzle-orm@0.45.2(@electric-sql/pglite@0.5.4)(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7))(giget@2.0.0)(ioredis@5.9.3)(jiti@2.6.1)(lru-cache@11.2.6)
       react:
         specifier: 19.3.0-canary-98ce535f-20260226
         version: 19.3.0-canary-98ce535f-20260226
@@ -1255,7 +1261,7 @@ importers:
         version: 0.38.43
       drizzle-orm:
         specifier: ^0.45.1
-        version: 0.45.1(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.6.2)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7)
+        version: 0.45.1(@electric-sql/pglite@0.5.4)(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.6.2)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7)
       effect:
         specifier: 'catalog:'
         version: 4.0.0-beta.67
@@ -1679,6 +1685,9 @@ packages:
     resolution: {integrity: sha512-W1DT1Uh/Y1S+xVm99Dg0MJGmugN5KOd4qMNL8opba7M9vyaBV6tZlhxgkp6dCOgz7SwtXo9qBbj6c2tTNDfXYw==}
     peerDependencies:
       effect: ^4.0.0-beta.67
+
+  '@electric-sql/pglite@0.5.4':
+    resolution: {integrity: sha512-yYZUyyXrHU7tPlCjwZQJ6hIG9DscdCCn7Uk0mYKwC1FeHX286AbcmFveMiRBEak8e9iPupjsoVImN3yJZVed2g==}
 
   '@emnapi/core@1.10.0':
     resolution: {integrity: sha512-yq6OkJ4p82CAfPl0u9mQebQHKPJkY7WrIuk205cTYnYe+k2Z8YBh11FrbRG/H6ihirqcacOgl2BIO8oyMQLeXw==}
@@ -9114,12 +9123,12 @@ snapshots:
     optionalDependencies:
       '@opentelemetry/api': 1.9.0
 
-  '@better-auth/drizzle-adapter@1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@opentelemetry/api@1.9.0)(better-call@1.3.6(zod@4.3.6))(jose@6.1.3)(kysely@0.29.2)(nanostores@1.1.0))(@better-auth/utils@0.4.1)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7))':
+  '@better-auth/drizzle-adapter@1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@opentelemetry/api@1.9.0)(better-call@1.3.6(zod@4.3.6))(jose@6.1.3)(kysely@0.29.2)(nanostores@1.1.0))(@better-auth/utils@0.4.1)(drizzle-orm@0.45.2(@electric-sql/pglite@0.5.4)(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7))':
     dependencies:
       '@better-auth/core': 1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@opentelemetry/api@1.9.0)(better-call@1.3.6(zod@4.3.6))(jose@6.1.3)(kysely@0.29.2)(nanostores@1.1.0)
       '@better-auth/utils': 0.4.1
     optionalDependencies:
-      drizzle-orm: 0.45.2(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7)
+      drizzle-orm: 0.45.2(@electric-sql/pglite@0.5.4)(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7)
 
   '@better-auth/kysely-adapter@1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@opentelemetry/api@1.9.0)(better-call@1.3.6(zod@4.3.6))(jose@6.1.3)(kysely@0.29.2)(nanostores@1.1.0))(@better-auth/utils@0.4.1)(kysely@0.29.2)':
     dependencies:
@@ -9138,12 +9147,12 @@ snapshots:
       '@better-auth/core': 1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@opentelemetry/api@1.9.0)(better-call@1.3.6(zod@4.3.6))(jose@6.1.3)(kysely@0.29.2)(nanostores@1.1.0)
       '@better-auth/utils': 0.4.1
 
-  '@better-auth/oauth-provider@1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@opentelemetry/api@1.9.0)(better-call@1.3.6(zod@4.3.6))(jose@6.1.3)(kysely@0.29.2)(nanostores@1.1.0))(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(better-auth@1.6.16(patch_hash=671e30c789cac6d2dae636c6b5783d75eb31f8ab6ef2403ea7c3a6c4eac4adb7)(@opentelemetry/api@1.9.0)(@tanstack/react-start@1.162.4(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(crossws@0.4.5(srvx@0.11.15))(react-dom@19.3.0-canary-98ce535f-20260226(react@19.2.4))(react@19.2.4))(better-sqlite3@12.9.0)(drizzle-kit@0.31.4)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7))(pg@8.20.0)(react-dom@19.3.0-canary-98ce535f-20260226(react@19.2.4))(react@19.2.4)(solid-js@1.9.11)(vitest@4.1.9))(better-call@1.3.6(zod@4.3.6))':
-    dependencies:
+  ? '@better-auth/oauth-provider@1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@opentelemetry/api@1.9.0)(better-call@1.3.6(zod@4.3.6))(jose@6.1.3)(kysely@0.29.2)(nanostores@1.1.0))(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(better-auth@1.6.16(patch_hash=671e30c789cac6d2dae636c6b5783d75eb31f8ab6ef2403ea7c3a6c4eac4adb7)(@opentelemetry/api@1.9.0)(@tanstack/react-start@1.162.4(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(crossws@0.4.5(srvx@0.11.15))(react-dom@19.3.0-canary-98ce535f-20260226(react@19.2.4))(react@19.2.4))(better-sqlite3@12.9.0)(drizzle-kit@0.31.4)(drizzle-orm@0.45.2(@electric-sql/pglite@0.5.4)(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7))(pg@8.20.0)(react-dom@19.3.0-canary-98ce535f-20260226(react@19.2.4))(react@19.2.4)(solid-js@1.9.11)(vitest@4.1.9))(better-call@1.3.6(zod@4.3.6))'
+  : dependencies:
       '@better-auth/core': 1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@opentelemetry/api@1.9.0)(better-call@1.3.6(zod@4.3.6))(jose@6.1.3)(kysely@0.29.2)(nanostores@1.1.0)
       '@better-auth/utils': 0.4.1
       '@better-fetch/fetch': 1.2.2
-      better-auth: 1.6.16(patch_hash=671e30c789cac6d2dae636c6b5783d75eb31f8ab6ef2403ea7c3a6c4eac4adb7)(@opentelemetry/api@1.9.0)(@tanstack/react-start@1.162.4(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(crossws@0.4.5(srvx@0.11.15))(react-dom@19.3.0-canary-98ce535f-20260226(react@19.2.4))(react@19.2.4))(better-sqlite3@12.9.0)(drizzle-kit@0.31.4)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7))(pg@8.20.0)(react-dom@19.3.0-canary-98ce535f-20260226(react@19.2.4))(react@19.2.4)(solid-js@1.9.11)(vitest@4.1.9)
+      better-auth: 1.6.16(patch_hash=671e30c789cac6d2dae636c6b5783d75eb31f8ab6ef2403ea7c3a6c4eac4adb7)(@opentelemetry/api@1.9.0)(@tanstack/react-start@1.162.4(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(crossws@0.4.5(srvx@0.11.15))(react-dom@19.3.0-canary-98ce535f-20260226(react@19.2.4))(react@19.2.4))(better-sqlite3@12.9.0)(drizzle-kit@0.31.4)(drizzle-orm@0.45.2(@electric-sql/pglite@0.5.4)(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7))(pg@8.20.0)(react-dom@19.3.0-canary-98ce535f-20260226(react@19.2.4))(react@19.2.4)(solid-js@1.9.11)(vitest@4.1.9)
       better-call: 1.3.6(zod@4.3.6)
       jose: 6.1.3
       zod: 4.3.6
@@ -9303,6 +9312,8 @@ snapshots:
     dependencies:
       better-sqlite3: 12.9.0
       effect: 4.0.0-beta.67
+
+  '@electric-sql/pglite@0.5.4': {}
 
   '@emnapi/core@1.10.0':
     dependencies:
@@ -12977,10 +12988,10 @@ snapshots:
     dependencies:
       safe-buffer: 5.1.2
 
-  better-auth@1.6.16(patch_hash=671e30c789cac6d2dae636c6b5783d75eb31f8ab6ef2403ea7c3a6c4eac4adb7)(@opentelemetry/api@1.9.0)(@tanstack/react-start@1.162.4(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(crossws@0.4.5(srvx@0.11.15))(react-dom@19.3.0-canary-98ce535f-20260226(react@19.2.4))(react@19.2.4))(better-sqlite3@12.9.0)(drizzle-kit@0.31.4)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7))(pg@8.20.0)(react-dom@19.3.0-canary-98ce535f-20260226(react@19.2.4))(react@19.2.4)(solid-js@1.9.11)(vitest@4.1.9):
+  better-auth@1.6.16(patch_hash=671e30c789cac6d2dae636c6b5783d75eb31f8ab6ef2403ea7c3a6c4eac4adb7)(@opentelemetry/api@1.9.0)(@tanstack/react-start@1.162.4(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(crossws@0.4.5(srvx@0.11.15))(react-dom@19.3.0-canary-98ce535f-20260226(react@19.2.4))(react@19.2.4))(better-sqlite3@12.9.0)(drizzle-kit@0.31.4)(drizzle-orm@0.45.2(@electric-sql/pglite@0.5.4)(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7))(pg@8.20.0)(react-dom@19.3.0-canary-98ce535f-20260226(react@19.2.4))(react@19.2.4)(solid-js@1.9.11)(vitest@4.1.9):
     dependencies:
       '@better-auth/core': 1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@opentelemetry/api@1.9.0)(better-call@1.3.6(zod@4.3.6))(jose@6.1.3)(kysely@0.29.2)(nanostores@1.3.0)
-      '@better-auth/drizzle-adapter': 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@opentelemetry/api@1.9.0)(better-call@1.3.6(zod@4.3.6))(jose@6.1.3)(kysely@0.29.2)(nanostores@1.1.0))(@better-auth/utils@0.4.1)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7))
+      '@better-auth/drizzle-adapter': 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@opentelemetry/api@1.9.0)(better-call@1.3.6(zod@4.3.6))(jose@6.1.3)(kysely@0.29.2)(nanostores@1.1.0))(@better-auth/utils@0.4.1)(drizzle-orm@0.45.2(@electric-sql/pglite@0.5.4)(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7))
       '@better-auth/kysely-adapter': 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@opentelemetry/api@1.9.0)(better-call@1.3.6(zod@4.3.6))(jose@6.1.3)(kysely@0.29.2)(nanostores@1.1.0))(@better-auth/utils@0.4.1)(kysely@0.29.2)
       '@better-auth/memory-adapter': 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@opentelemetry/api@1.9.0)(better-call@1.3.6(zod@4.3.6))(jose@6.1.3)(kysely@0.29.2)(nanostores@1.1.0))(@better-auth/utils@0.4.1)
       '@better-auth/mongo-adapter': 1.6.16(@better-auth/core@1.6.16(@better-auth/utils@0.4.1)(@better-fetch/fetch@1.2.2)(@opentelemetry/api@1.9.0)(better-call@1.3.6(zod@4.3.6))(jose@6.1.3)(kysely@0.29.2)(nanostores@1.1.0))(@better-auth/utils@0.4.1)
@@ -13000,7 +13011,7 @@ snapshots:
       '@tanstack/react-start': 1.162.4(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(crossws@0.4.5(srvx@0.11.15))(react-dom@19.3.0-canary-98ce535f-20260226(react@19.2.4))(react@19.2.4)
       better-sqlite3: 12.9.0
       drizzle-kit: 0.31.4
-      drizzle-orm: 0.45.2(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7)
+      drizzle-orm: 0.45.2(@electric-sql/pglite@0.5.4)(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7)
       pg: 8.20.0
       react: 19.2.4
       react-dom: 19.3.0-canary-98ce535f-20260226(react@19.2.4)
@@ -13318,10 +13329,11 @@ snapshots:
 
   date-fns@4.1.0: {}
 
-  db0@0.3.4(better-sqlite3@12.9.0)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7)):
+  db0@0.3.4(@electric-sql/pglite@0.5.4)(better-sqlite3@12.9.0)(drizzle-orm@0.45.2(@electric-sql/pglite@0.5.4)(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7)):
     optionalDependencies:
+      '@electric-sql/pglite': 0.5.4
       better-sqlite3: 12.9.0
-      drizzle-orm: 0.45.2(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7)
+      drizzle-orm: 0.45.2(@electric-sql/pglite@0.5.4)(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7)
 
   debug@4.4.3:
     dependencies:
@@ -13431,8 +13443,9 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  drizzle-orm@0.45.1(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.6.2)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7):
+  drizzle-orm@0.45.1(@electric-sql/pglite@0.5.4)(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.6.2)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7):
     optionalDependencies:
+      '@electric-sql/pglite': 0.5.4
       '@opentelemetry/api': 1.9.0
       '@types/better-sqlite3': 7.6.13
       '@types/pg': 8.16.0
@@ -13442,8 +13455,9 @@ snapshots:
       pg: 8.20.0
       postgres: 3.4.7
 
-  drizzle-orm@0.45.1(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7):
+  drizzle-orm@0.45.1(@electric-sql/pglite@0.5.4)(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7):
     optionalDependencies:
+      '@electric-sql/pglite': 0.5.4
       '@opentelemetry/api': 1.9.0
       '@types/better-sqlite3': 7.6.13
       '@types/pg': 8.16.0
@@ -13453,8 +13467,9 @@ snapshots:
       pg: 8.20.0
       postgres: 3.4.7
 
-  drizzle-orm@0.45.2(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7):
+  drizzle-orm@0.45.2(@electric-sql/pglite@0.5.4)(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7):
     optionalDependencies:
+      '@electric-sql/pglite': 0.5.4
       '@opentelemetry/api': 1.9.0
       '@types/better-sqlite3': 7.6.13
       '@types/pg': 8.16.0
@@ -15353,11 +15368,11 @@ snapshots:
 
   nf3@0.3.17: {}
 
-  nitro-nightly@3.0.1-20260512-093145-0498ce70(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.2.3)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7))(giget@2.0.0)(ioredis@5.9.3)(jiti@2.6.1)(lru-cache@11.2.6):
+  nitro-nightly@3.0.1-20260512-093145-0498ce70(@electric-sql/pglite@0.5.4)(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.2.3)(drizzle-orm@0.45.2(@electric-sql/pglite@0.5.4)(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7))(giget@2.0.0)(ioredis@5.9.3)(jiti@2.6.1)(lru-cache@11.2.6):
     dependencies:
       consola: 3.4.2
       crossws: 0.4.5(srvx@0.11.15)
-      db0: 0.3.4(better-sqlite3@12.9.0)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7))
+      db0: 0.3.4(@electric-sql/pglite@0.5.4)(better-sqlite3@12.9.0)(drizzle-orm@0.45.2(@electric-sql/pglite@0.5.4)(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7))
       env-runner: 0.1.7
       h3: 2.0.1-rc.22(crossws@0.4.5(srvx@0.11.15))
       hookable: 6.1.1
@@ -15368,7 +15383,7 @@ snapshots:
       rolldown: 1.0.0
       srvx: 0.11.15
       unenv: 2.0.0-rc.24
-      unstorage: 2.0.0-alpha.7(chokidar@5.0.0)(db0@0.3.4(better-sqlite3@12.9.0)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7)))(ioredis@5.9.3)(lru-cache@11.2.6)(ofetch@2.0.0-alpha.3)
+      unstorage: 2.0.0-alpha.7(chokidar@5.0.0)(db0@0.3.4(@electric-sql/pglite@0.5.4)(better-sqlite3@12.9.0)(drizzle-orm@0.45.2(@electric-sql/pglite@0.5.4)(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7)))(ioredis@5.9.3)(lru-cache@11.2.6)(ofetch@2.0.0-alpha.3)
     optionalDependencies:
       dotenv: 17.2.3
       giget: 2.0.0
@@ -16600,7 +16615,7 @@ snapshots:
       picomatch: 4.0.3
       webpack-virtual-modules: 0.6.2
 
-  unstorage@1.17.4(db0@0.3.4(better-sqlite3@12.9.0)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7)))(ioredis@5.9.3):
+  unstorage@1.17.4(db0@0.3.4(@electric-sql/pglite@0.5.4)(better-sqlite3@12.9.0)(drizzle-orm@0.45.2(@electric-sql/pglite@0.5.4)(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7)))(ioredis@5.9.3):
     dependencies:
       anymatch: 3.1.3
       chokidar: 5.0.0
@@ -16611,13 +16626,13 @@ snapshots:
       ofetch: 1.5.1
       ufo: 1.6.3
     optionalDependencies:
-      db0: 0.3.4(better-sqlite3@12.9.0)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7))
+      db0: 0.3.4(@electric-sql/pglite@0.5.4)(better-sqlite3@12.9.0)(drizzle-orm@0.45.2(@electric-sql/pglite@0.5.4)(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7))
       ioredis: 5.9.3
 
-  unstorage@2.0.0-alpha.7(chokidar@5.0.0)(db0@0.3.4(better-sqlite3@12.9.0)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7)))(ioredis@5.9.3)(lru-cache@11.2.6)(ofetch@2.0.0-alpha.3):
+  unstorage@2.0.0-alpha.7(chokidar@5.0.0)(db0@0.3.4(@electric-sql/pglite@0.5.4)(better-sqlite3@12.9.0)(drizzle-orm@0.45.2(@electric-sql/pglite@0.5.4)(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7)))(ioredis@5.9.3)(lru-cache@11.2.6)(ofetch@2.0.0-alpha.3):
     optionalDependencies:
       chokidar: 5.0.0
-      db0: 0.3.4(better-sqlite3@12.9.0)(drizzle-orm@0.45.2(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7))
+      db0: 0.3.4(@electric-sql/pglite@0.5.4)(better-sqlite3@12.9.0)(drizzle-orm@0.45.2(@electric-sql/pglite@0.5.4)(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7))
       ioredis: 5.9.3
       lru-cache: 11.2.6
       ofetch: 2.0.0-alpha.3
