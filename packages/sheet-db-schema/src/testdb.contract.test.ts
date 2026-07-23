@@ -123,7 +123,7 @@ describe("PGlite Sheet Zero contract", () => {
 
   it.live("executes the Zero 0.25 server-adapter contract in one scoped database", () =>
     Effect.gen(function* () {
-      const database = yield* makeTestSheetZeroDatabase();
+      const database = yield* makeTestSheetZeroDatabase({ measureTimings: true });
       const client = yield* ZeroApiClient.makeWithService(SheetZeroApi, database.executor, {
         mutators,
       });

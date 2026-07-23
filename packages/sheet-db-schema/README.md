@@ -25,6 +25,8 @@ Reuse one scoped instance for a suite and call `reset` between cases. Reset uses
 14 tables. An outer transaction rollback is faster, but it cannot safely wrap the nested
 transactions opened by authoritative Zero mutators, especially the mutators that use
 `Promise.all`; therefore it is measured only as a comparison and is not the reset implementation.
+Pass `measureTimings: true` when acquiring the database to run those reset microbenchmarks; normal
+suite acquisition skips them so tests pay only startup and schema-bootstrap costs.
 
 The generated test DDL includes snapshot defaults, default SQL, column uniqueness, references,
 primary keys, and indexes. Its parity test compares the canonical structure with the latest stored

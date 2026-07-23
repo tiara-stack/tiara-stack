@@ -94,8 +94,8 @@ export class TestDatabaseError extends Data.TaggedError("TestDatabaseError")<{
 export interface TestDatabaseTimings {
   readonly startupMs: number;
   readonly bootstrapMs: number;
-  readonly truncateResetMs: number;
-  readonly rollbackRoundTripMs: number;
+  readonly truncateResetMs: number | undefined;
+  readonly rollbackRoundTripMs: number | undefined;
 }
 
 export interface TestSheetZeroDatabase<Context> {
@@ -112,6 +112,8 @@ export interface TestSheetZeroDatabase<Context> {
 export interface TestSheetZeroDatabaseOptions<Context> {
   readonly seeds?: SheetSeeds | undefined;
   readonly context?: Context | undefined;
+  /** Run reset-strategy microbenchmarks during acquisition. Disabled for normal suites. */
+  readonly measureTimings?: boolean | undefined;
 }
 
 const quote = (identifier: string): string => `"${identifier.replaceAll('"', '""')}"`;
@@ -155,7 +157,9 @@ const columnDefinition = (column: ColumnSnapshot): string => {
   return parts.join(" ");
 };
 
-export const canonicalSnapshot = (): SchemaSnapshot => snapshotSchema(canonicalSchema);
+const canonicalSchemaSnapshot = snapshotSchema(canonicalSchema);
+
+export const canonicalSnapshot = (): SchemaSnapshot => canonicalSchemaSnapshot;
 
 /** Stable structural projection used to detect test-DDL drift from stored migrations. */
 export const ddlParityShape = (snapshot: SchemaSnapshot) =>
@@ -284,26 +288,30 @@ export const makeTestSheetZeroDatabase = <Context = undefined>(
     const zqlDb = zeroDrizzle(zeroSchema, db);
     const context = options.context as Context;
 
-    const resetSamples = 10;
-    const truncateStartedAt = performance.now();
-    for (let index = 0; index < resetSamples; index++) {
-      yield* Effect.tryPromise({
-        try: () => pg.exec(truncateCanonicalTablesSql),
-        catch: databaseError("benchmark truncate reset"),
-      });
+    let truncateResetMs: number | undefined;
+    let rollbackRoundTripMs: number | undefined;
+    if (options.measureTimings) {
+      const resetSamples = 10;
+      const truncateStartedAt = performance.now();
+      for (let index = 0; index < resetSamples; index++) {
+        yield* Effect.tryPromise({
+          try: () => pg.exec(truncateCanonicalTablesSql),
+          catch: databaseError("benchmark truncate reset"),
+        });
+      }
+      truncateResetMs = (performance.now() - truncateStartedAt) / resetSamples;
+      const rollbackStartedAt = performance.now();
+      for (let index = 0; index < resetSamples; index++) {
+        yield* Effect.tryPromise({
+          try: async () => {
+            await pg.exec("begin");
+            await pg.exec("rollback");
+          },
+          catch: databaseError("benchmark rollback reset"),
+        });
+      }
+      rollbackRoundTripMs = (performance.now() - rollbackStartedAt) / resetSamples;
     }
-    const truncateResetMs = (performance.now() - truncateStartedAt) / resetSamples;
-    const rollbackStartedAt = performance.now();
-    for (let index = 0; index < resetSamples; index++) {
-      yield* Effect.tryPromise({
-        try: async () => {
-          await pg.exec("begin");
-          await pg.exec("rollback");
-        },
-        catch: databaseError("benchmark rollback reset"),
-      });
-    }
-    const rollbackRoundTripMs = (performance.now() - rollbackStartedAt) / resetSamples;
 
     const executor: ZeroClient.ZeroClientExecutor<SheetZeroSchema, Context> = {
       run: <Return>(
@@ -334,6 +342,7 @@ export const makeTestSheetZeroDatabase = <Context = undefined>(
           zqlDb.transaction(async (tx) => {
             const dynamic = tx as unknown as DynamicTransaction;
             for (const [table, rows] of Object.entries(seeds)) {
+              if (!rows) continue;
               for (const row of rows) {
                 await dynamic.mutate[table]!.insert(row as Readonly<Record<string, unknown>>);
               }
