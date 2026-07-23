@@ -43,6 +43,17 @@ export interface ZeroClientTag<
  */
 export interface ZeroClient<S extends ZeroSchema, MD extends CustomMutatorDefs | undefined, C> {
   zero: Zero<S, MD, C>;
+  run: ZeroClientExecutor<S, C>["run"];
+  mutate: ZeroClientExecutor<S, C>["mutate"];
+}
+
+/**
+ * The authoritative execution surface consumed by ZeroApiClient.
+ *
+ * Server-side and test adapters do not need to manufacture a reactive `Zero`
+ * instance when they only execute generated queries and mutators.
+ */
+export interface ZeroClientExecutor<S extends ZeroSchema, C> {
   run: <TReturn>(
     query: QueryOrQueryRequest<any, any, any, S, TReturn, C>,
     runOptions?: RunOptions,
