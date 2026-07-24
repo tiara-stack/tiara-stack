@@ -137,19 +137,28 @@ export class PlayerService extends Context.Service<PlayerService>()("PlayerServi
       ids: readonly string[],
     ) {
       const teams = yield* sheetService.getTeams(sheetId);
-      const { idToPlayer } = yield* getPlayerMaps(sheetId);
+      const { idToPlayer, nameToPlayer } = yield* getPlayerMaps(sheetId);
       return yield* Effect.succeed(
         ids.flatMap((id) =>
           pipe(
             HashMap.get(idToPlayer, id),
             Option.map((players) =>
-              players.flatMap((player) =>
-                teams
-                  .filter((team) =>
-                    Option.exists(team.playerName, (playerName) => playerName === player.name),
-                  )
-                  .map(attachPlayerId(player.id)),
-              ),
+              players
+                .filter((player) =>
+                  pipe(
+                    HashMap.get(nameToPlayer, player.name),
+                    Option.exists(({ players: playersWithName }) =>
+                      playersWithName.every((playerWithName) => playerWithName.id === player.id),
+                    ),
+                  ),
+                )
+                .flatMap((player) =>
+                  teams
+                    .filter((team) =>
+                      Option.exists(team.playerName, (playerName) => playerName === player.name),
+                    )
+                    .map(attachPlayerId(player.id)),
+                ),
             ),
             Option.getOrElse(() => [] as Team[]),
           ),

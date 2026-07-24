@@ -4,6 +4,7 @@ import { WorkspaceConfigService } from "./workspaceConfig";
 import { ScheduleService } from "./schedule";
 import { CalcConfig, CalcService } from "./calc";
 import { SheetService } from "./sheet";
+import { PlayerService } from "./player";
 import { getSheetIdFromWorkspaceId, requireRunningConversation } from "./workspaceSheet";
 import {
   type FillParticipant,
@@ -18,12 +19,7 @@ import {
   RoomOrderGenerateResult,
 } from "sheet-ingress-api/schemas/roomOrder";
 import { MessageRoomOrderRange } from "sheet-ingress-api/schemas/messageRoomOrder";
-import {
-  Player,
-  PlayerTeam,
-  Team,
-  type PopulatedScheduleResult,
-} from "sheet-ingress-api/schemas/sheet";
+import { PlayerTeam, Team, type PopulatedScheduleResult } from "sheet-ingress-api/schemas/sheet";
 
 type SheetServiceApi = Context.Service.Shape<typeof SheetService>;
 
@@ -61,18 +57,6 @@ const deriveHourWindow = (sheetService: SheetServiceApi, sheetId: string, hour: 
       end: pipe(eventConfig.startTime, DateTime.addDuration(Duration.hours(hour))),
     })),
   );
-
-const toTeamWithPlayer = (player: Player, team: Team) =>
-  new Team({
-    type: team.type,
-    playerId: Option.some(player.id),
-    playerName: team.playerName,
-    teamName: team.teamName,
-    tags: team.tags,
-    lead: team.lead,
-    backline: team.backline,
-    talent: team.talent,
-  });
 
 export type RoomOrderContentEntry = {
   readonly position: number;
@@ -140,6 +124,7 @@ export class RoomOrderService extends Context.Service<RoomOrderService>()("RoomO
     const workspaceConfigService = yield* WorkspaceConfigService;
     const scheduleService = yield* ScheduleService;
     const sheetService = yield* SheetService;
+    const playerService = yield* PlayerService;
 
     return {
       generate: Effect.fn("RoomOrderService.generate")(function* (payload: {
@@ -206,7 +191,11 @@ export class RoomOrderService extends Context.Service<RoomOrderService>()("RoomO
             ? currentSchedule.monitor.value.monitor.name
             : null;
 
-        const allTeams = yield* sheetService.getTeams(sheetId);
+        const playerIds = [
+          ...new Set(fills.flatMap((fill) => (isPlayer(fill.player) ? [fill.player.id] : []))),
+        ];
+        const allTeams = yield* playerService.getTeamsByIds(sheetId, playerIds);
+
         const playerTeams = fills.map((fill) => {
           if (!isPlayer(fill.player)) {
             return [] as PlayerTeam[];
@@ -214,8 +203,7 @@ export class RoomOrderService extends Context.Service<RoomOrderService>()("RoomO
           const player = fill.player;
 
           return allTeams
-            .filter((team) => Option.exists(team.playerName, (name) => name === player.name))
-            .map((team) => toTeamWithPlayer(player, team))
+            .filter((team) => Option.exists(team.playerId, (playerId) => playerId === player.id))
             .map(
               (team) =>
                 new Team({
@@ -302,5 +290,6 @@ export class RoomOrderService extends Context.Service<RoomOrderService>()("RoomO
     Layer.provide(WorkspaceConfigService.layer),
     Layer.provide(ScheduleService.layer),
     Layer.provide(SheetService.layer),
+    Layer.provide(PlayerService.layer),
   );
 }

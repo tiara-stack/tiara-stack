@@ -203,4 +203,59 @@ describe("CalcService", () => {
       expect(HashSet.size(higherTalentTeam!.tags)).toBe(1);
     }, Effect.provide(CalcService.layer)),
   );
+
+  it.effect("selects the highest-effect encore candidate permitted by the tierer talent", () =>
+    Effect.gen(function* () {
+      const calcService = yield* CalcService;
+      const rooms = yield* calcService.calc(new CalcConfig({ healNeeded: 0, considerEnc: true }), [
+        [
+          makePlayerTeam({
+            playerId: Option.some("tierer"),
+            playerName: Option.some("Tierer"),
+            teamName: "Tierer",
+            lead: 5,
+            backline: 5,
+            talent: 5,
+            tags: ["tierer"],
+          }),
+        ],
+        [
+          makePlayerTeam({
+            playerId: Option.some("enc-player"),
+            playerName: Option.some("Encore Player"),
+            teamName: "Disallowed Full Fill",
+            lead: 40,
+            backline: 40,
+            talent: 4,
+            tags: ["encable"],
+          }),
+          makePlayerTeam({
+            playerId: Option.some("enc-player"),
+            playerName: Option.some("Encore Player (e)"),
+            teamName: "Allowed Full Fill",
+            lead: 30,
+            backline: 30,
+            talent: 6,
+            tags: ["encable"],
+          }),
+          makePlayerTeam({
+            playerId: Option.some("enc-player"),
+            playerName: Option.some("Encore Player (enc)"),
+            teamName: "Allowed Encore",
+            lead: 20,
+            backline: 20,
+            talent: 7,
+            tags: ["encable"],
+          }),
+        ],
+      ]);
+
+      const [bestRoom] = Chunk.toArray(rooms);
+      const roomTeams = Chunk.toArray(bestRoom?.teams ?? Chunk.empty());
+      const selectedEncore = roomTeams.find((team) => HashSet.has(team.tags, "enc"));
+
+      expect(selectedEncore?.teamName).toBe("Allowed Full Fill");
+      expect(roomTeams.some((team) => HashSet.has(team.tags, "placeholder"))).toBe(false);
+    }).pipe(Effect.provide(CalcService.layer)),
+  );
 });
