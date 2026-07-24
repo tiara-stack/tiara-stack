@@ -2583,9 +2583,9 @@ describe("DispatchService", () => {
           nonce: makeDeliveryNonce("room-order-send:room-order-message-1"),
           enforceNonce: true,
           content: expect.any(Array),
-          components: expect.any(Array),
         },
       ]);
+      expect(sentPayloads[0]).not.toHaveProperty("components");
       expect(botCalls).toEqual(["send", "pin", "interaction"]);
     }),
   );

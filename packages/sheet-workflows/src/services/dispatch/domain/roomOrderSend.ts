@@ -4,7 +4,10 @@ import type {
   RoomOrderButtonResult,
   RoomOrderSendButtonPayload,
 } from "sheet-ingress-api/sheet-apis-rpc";
-import { roomOrderSendAcknowledgementMessage } from "sheet-message-content/roomOrderMessage";
+import {
+  publishedRoomOrderMessage,
+  roomOrderSendAcknowledgementMessage,
+} from "sheet-message-content/roomOrderMessage";
 import { makeUnknownError } from "typhoon-core/error";
 import { markInteractionFailureHandled } from "@/handlers/shared/interactionFailure";
 import { ClientDeliveryClient } from "../../clientDeliveryClient";
@@ -270,7 +273,7 @@ export const makeRoomOrderSend = ({
     );
     const sentMessage = yield* botClient
       .sendMessage(trustedMessageConversationId, {
-        ...reply,
+        ...publishedRoomOrderMessage(reply.content),
         nonce: makeDeliveryNonce(`room-order-send:${payload.messageId}`),
         enforceNonce: true,
       })

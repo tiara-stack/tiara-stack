@@ -1,6 +1,10 @@
 import { Cause, Effect, Option, Predicate } from "effect";
 import { hasTentativeRoomOrderPrefix } from "sheet-ingress-api/clientActions";
-import type { SheetMessageComponent, SheetOutboundMessage } from "sheet-ingress-api/schemas/client";
+import type {
+  SheetMessageComponent,
+  SheetOutboundMessage,
+  SheetTextPart,
+} from "sheet-ingress-api/schemas/client";
 import type { MessageRoomOrder } from "sheet-ingress-api/schemas/messageRoomOrder";
 import type {
   RoomOrderButtonResult,
@@ -15,7 +19,9 @@ import { compensateDeliveryFailure, logNonInterruptFailure } from "../clients/me
 import { recoverNonInterruptCause } from "../pure/failure";
 import { claimRetrySchedule } from "../pure/retry";
 
-export type MessagePayload = SheetOutboundMessage;
+export type MessagePayload = SheetOutboundMessage & {
+  readonly content: ReadonlyArray<SheetTextPart>;
+};
 export type RoomOrderButtonPayloadBase = Pick<
   RoomOrderPreviousButtonPayload,
   | "workspaceId"
