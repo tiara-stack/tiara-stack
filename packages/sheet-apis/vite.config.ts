@@ -31,6 +31,7 @@ export default app({
       entry: {
         "api-groups": fileURLToPath(new URL("./src/api-groups.ts", import.meta.url)),
         schema: fileURLToPath(new URL("./src/schema.ts", import.meta.url)),
+        testdb: fileURLToPath(new URL("./src/testdb.ts", import.meta.url)),
       },
       tsconfig: "tsconfig.build.json",
     },

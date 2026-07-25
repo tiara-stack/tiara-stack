@@ -22,6 +22,10 @@
       "types": "./dist/api-groups.d.mts",
       "default": "./dist/api-groups.mjs"
     },
+    "./testdb": {
+      "types": "./dist/testdb.d.mts",
+      "default": "./dist/testdb.mjs"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
