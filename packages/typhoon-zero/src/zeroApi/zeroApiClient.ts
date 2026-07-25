@@ -102,7 +102,7 @@ const flattenMutationPhase = (
 const getArgs = (args: readonly unknown[]): unknown => (args.length > 0 ? args[0] : undefined);
 
 const makeQueryMethod = (
-  zeroClient: ZeroClient.ZeroClient<any, any, any>,
+  zeroClient: ZeroClient.ZeroClientExecutor<any, any>,
   registryMethod: (args?: unknown) => QueryOrQueryRequest<any, any, any, any, any, any>,
   group: ZeroApiGroup.Any,
   endpoint: ZeroApiEndpoint.AnyQuery,
@@ -117,7 +117,7 @@ const makeQueryMethod = (
   });
 
 const makeMutatorMethod = (
-  zeroClient: ZeroClient.ZeroClient<any, any, any>,
+  zeroClient: ZeroClient.ZeroClientExecutor<any, any>,
   registryMethod: (args?: unknown) => MutateRequest<any, any, any, any>,
   group: ZeroApiGroup.Any,
   endpoint: ZeroApiEndpoint.AnyMutator,
@@ -150,7 +150,7 @@ const makeMutatorMethod = (
 
 const makeClient = <Api extends ZeroApi.Any>(
   api: Api,
-  zeroClient: ZeroClient.ZeroClient<any, any, any>,
+  zeroClient: ZeroClient.ZeroClientExecutor<any, any>,
   registryOptions?: ClientRegistryOptions,
 ): Client<Api> => {
   const queries = registryOptions?.queries ?? (ZeroApiRegistry.toQueries(api) as any);
@@ -184,7 +184,7 @@ const makeClient = <Api extends ZeroApi.Any>(
 
 export const makeWithService = <Api extends ZeroApi.Any>(
   api: Api,
-  zeroClient: ZeroClient.ZeroClient<any, any, any>,
+  zeroClient: ZeroClient.ZeroClientExecutor<any, any>,
   registryOptions?: ClientRegistryOptions,
 ): Effect.Effect<Client<Api>, never, never> =>
   Effect.sync(() => makeClient(api, zeroClient, registryOptions));

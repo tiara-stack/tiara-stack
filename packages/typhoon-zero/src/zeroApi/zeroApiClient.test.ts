@@ -170,7 +170,8 @@ describe("ZeroApiClient", () => {
       const registeredMutators = ZeroApiRegistry.toMutators(TestApi);
       const client = yield* ZeroApiClient.makeWithService(
         TestApi,
-        makeFakeZeroClient({
+        {
+          run: makeFakeZeroClient({}).run,
           mutate: ((request: MutateRequest<any, any, any, any>) => {
             capturedMutator = request.mutator;
             return Effect.succeed({
@@ -178,7 +179,7 @@ describe("ZeroApiClient", () => {
               server: () => Effect.void,
             });
           }) as FakeZeroClient["mutate"],
-        }),
+        },
         { mutators: registeredMutators },
       );
 
