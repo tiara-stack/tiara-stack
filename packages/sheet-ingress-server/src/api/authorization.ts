@@ -34,7 +34,9 @@ const authorizationUnauthorized = (kind: string) => (cause: unknown) =>
   isUnauthorized(cause) ? cause : new Unauthorized({ message: `Cannot authorize ${kind}`, cause });
 
 const authorizationReadError = (kind: string) => (cause: unknown) =>
-  isUnauthorized(cause) ? cause : makeArgumentError(`Cannot authorize ${kind}`, cause);
+  isUnauthorized(cause) || isArgumentError(cause)
+    ? cause
+    : makeArgumentError(`Cannot authorize ${kind}`, cause);
 
 type QueryOf<Request> = Request extends { readonly query: infer Query } ? Query : never;
 type PayloadOf<Request> = Request extends { readonly payload: infer Payload } ? Payload : never;

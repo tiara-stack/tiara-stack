@@ -1,5 +1,6 @@
 import { expect, layer } from "@effect/vitest";
-import { Context, Effect, HashSet, Layer, Option, Redacted } from "effect";
+import { Cause, Context, Effect, Exit, HashSet, Layer, Option, Redacted, Schema } from "effect";
+import { CheckinHandleButtonError } from "sheet-ingress-api/dispatch";
 import { SheetAuthUser } from "sheet-ingress-api/internal";
 import { vi } from "vitest";
 import { AuthorizationService } from "../../services/authorization";
@@ -36,7 +37,7 @@ const TestLayer = Layer.mergeAll(
   Layer.succeed(SheetAuthUser, testUser),
 );
 
-const getDispatchRoute = (name: "autoCheckinTest" | "kick") => {
+const getDispatchRoute = (name: "autoCheckinTest" | "checkinButton" | "kick") => {
   const routes = new Map<string, TestRouteHandler>();
   const handlers = {
     handle(routeName: string, handler: unknown) {
@@ -53,7 +54,7 @@ const getDispatchRoute = (name: "autoCheckinTest" | "kick") => {
 };
 
 const runRoute = (
-  name: "autoCheckinTest" | "kick",
+  name: "autoCheckinTest" | "checkinButton" | "kick",
   payload: Record<string, unknown>,
   authorizationService: Context.Service.Shape<typeof AuthorizationService>,
   forwardingClient: Context.Service.Shape<typeof SheetWorkflowsForwardingClient>,
@@ -64,6 +65,37 @@ const runRoute = (
   );
 
 layer(TestLayer)("dispatch handlers", (it) => {
+  it.effect("returns a transport-safe error when a check-in message is missing", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(
+        runRoute(
+          "checkinButton",
+          {
+            client: { platform: "discord", clientId: "discord-main" },
+            messageId: "missing-message-1",
+            interactionResponseToken: "interaction-token-1",
+            interactionResponseDeadlineEpochMs: Date.now() + 60_000,
+          },
+          {} as Context.Service.Shape<typeof AuthorizationService>,
+          { dispatch: {} } as unknown as Context.Service.Shape<
+            typeof SheetWorkflowsForwardingClient
+          >,
+        ),
+      );
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      const error = Exit.isFailure(exit) ? Cause.findErrorOption(exit.cause) : Option.none();
+      expect(Option.getOrNull(error)).toMatchObject({
+        _tag: "ArgumentError",
+        message: "Cannot get message checkin data, the message might not be registered",
+        cause: undefined,
+      });
+      if (Option.isSome(error)) {
+        yield* Schema.encodeUnknownEffect(CheckinHandleButtonError)(error.value);
+      }
+    }),
+  );
+
   it.effect("forwards monitor authorization for auto-check-in tests", () =>
     Effect.gen(function* () {
       const requireMonitorWorkspace: Context.Service.Shape<

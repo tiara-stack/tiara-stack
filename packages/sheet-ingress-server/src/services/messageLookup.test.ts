@@ -13,7 +13,20 @@ const makeSheetApisForwardingClient = ({
   readonly roomOrderError?: unknown;
 } = {}) => {
   const getMessageCheckinData = vi.fn(
-    ({ query }: { query: { messageId: string; clientPlatform: string; clientId: string } }) =>
+    ({
+      query,
+    }: {
+      query: { messageId: string; clientPlatform: string; clientId: string };
+    }): Effect.Effect<
+      {
+        messageId: string;
+        messageChannelId: string;
+        checkinChannelId: string;
+        checkinMessageId: string;
+        title: string;
+      },
+      unknown
+    > =>
       Effect.succeed({
         messageId: query.messageId,
         messageChannelId: "channel-1",
@@ -113,6 +126,29 @@ describe("MessageLookup", () => {
       expect(getMessageCheckinData).toHaveBeenCalledTimes(1);
       expect(Option.isSome(result.first)).toBe(true);
       expect(result.second).toEqual(result.first);
+    }),
+  );
+
+  it.effect("does not cache a missing checkin record before persistence", () =>
+    Effect.gen(function* () {
+      const { client, getMessageCheckinData } = makeSheetApisForwardingClient();
+      getMessageCheckinData.mockImplementationOnce(() =>
+        Effect.fail(makeArgumentError("Message check-in is not registered")),
+      );
+
+      const result = yield* runLookup(
+        Effect.gen(function* () {
+          const lookup = yield* MessageLookup;
+          const beforePersistence = yield* lookup.getMessageCheckinData("message-1");
+          const afterPersistence = yield* lookup.getMessageCheckinData("message-1");
+          return { beforePersistence, afterPersistence };
+        }),
+        client,
+      );
+
+      expect(getMessageCheckinData).toHaveBeenCalledTimes(2);
+      expect(Option.isNone(result.beforePersistence)).toBe(true);
+      expect(Option.isSome(result.afterPersistence)).toBe(true);
     }),
   );
 

@@ -186,7 +186,15 @@ describe("interaction response service", () => {
       ) as Effect.Effect<void, never, never>;
 
       expect(calls).toHaveLength(1);
-      expect(calls[0]).toMatchObject({ method: "edit", token: "token-1" });
+      expect(calls[0]).toMatchObject({
+        method: "edit",
+        token: "token-1",
+        response: {
+          payload: {
+            content: expect.stringContaining("Error: boom"),
+          },
+        },
+      });
     }),
   );
 

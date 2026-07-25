@@ -64,6 +64,17 @@ export class MessageLookup extends Context.Service<MessageLookup>()("MessageLook
         onSuccess: () => Duration.seconds(5),
       }),
     };
+    const optionalCacheOptions = {
+      capacity: 1_000,
+      timeToLive: Exit.match<Option.Option<unknown>, unknown, Duration.Duration, Duration.Duration>(
+        {
+          onFailure: () => Duration.seconds(1),
+          // Upsert authorization reads before creating a message record. Do not let that
+          // expected miss hide the newly persisted record from an immediate button click.
+          onSuccess: (value) => (Option.isNone(value) ? Duration.zero : Duration.seconds(5)),
+        },
+      ),
+    };
 
     const messageCheckinDataCache = yield* Cache.makeWith<
       string,
@@ -76,7 +87,7 @@ export class MessageLookup extends Context.Service<MessageLookup>()("MessageLook
           .getMessageCheckinData({ query: messageKey(clientRef, messageId) })
           .pipe(Effect.option),
       );
-    }, cacheOptions);
+    }, optionalCacheOptions);
     const messageCheckinMembersCache = yield* Cache.makeWith<
       string,
       ReadonlyArray<MessageCheckinMember>,
@@ -107,7 +118,7 @@ export class MessageLookup extends Context.Service<MessageLookup>()("MessageLook
             ),
           ),
       );
-    }, cacheOptions);
+    }, optionalCacheOptions);
     const messageSlotDataCache = yield* Cache.makeWith<string, Option.Option<MessageSlot>, unknown>(
       (cacheKey) => {
         const { clientRef, messageId } = parseCacheKey(cacheKey);
@@ -117,7 +128,7 @@ export class MessageLookup extends Context.Service<MessageLookup>()("MessageLook
             .pipe(Effect.option),
         );
       },
-      cacheOptions,
+      optionalCacheOptions,
     );
 
     const cacheKey = (clientRef: ClientRef | undefined, messageId: string) =>
