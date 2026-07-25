@@ -58,7 +58,7 @@ const checkinMessageTemplates: [Weighted<string>, ...Weighted<string>[]] = [
   {
     value:
       "{{mentionsString}} The goddess Miku is calling for you to fill. Press the button below to check in, and {{conversationString}} {{hourString}} {{timeStampString}}",
-    weight: 0.25,
+    weight: 0.2,
   },
   {
     value:
@@ -83,6 +83,11 @@ const checkinMessageTemplates: [Weighted<string>, ...Weighted<string>[]] = [
   {
     value:
       "{{mentionsString}} The clock hits 25:00. Miku whispers from the empty SEKAI. Press the button below to check in, then {{conversationString}} {{hourString}} {{timeStampString}}",
+    weight: 0.05,
+  },
+  {
+    value:
+      "{{mentionsString}} It is ebi jail time! Check in now and {{conversationString}} {{hourString}} {{timeStampString}}.\n-# Perhaps you would encounter Miku on a purple background next time you roll if you fast CI? wink wink~",
     weight: 0.05,
   },
 ];
