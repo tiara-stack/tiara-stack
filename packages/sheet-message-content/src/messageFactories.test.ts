@@ -6,8 +6,9 @@ import {
 } from "./checkinAnnouncement";
 import { buildRoomOrderContent } from "./roomOrderContent";
 import { checkinActionRow, roomOrderActionRow, tentativeRoomOrderActionRow } from "./components";
-import { checkinPromptMessage } from "./checkinPrompt";
+import { checkinPromptMessage, generatingCheckinMessage } from "./checkinPrompt";
 import {
+  generatingRoomOrderMessage,
   publishedRoomOrderMessage,
   roomOrderDraftMessage,
   roomOrderSendAcknowledgementMessage,
@@ -21,6 +22,9 @@ describe("interactive message factories", () => {
   const content = [text("Room order")];
 
   it("uses the production check-in button", () => {
+    expect(generatingCheckinMessage()).toEqual({
+      content: [text("Generating check-in message...")],
+    });
     expect(checkinPromptMessage(content)).toEqual({
       content,
       components: [checkinActionRow()],
@@ -53,6 +57,9 @@ describe("interactive message factories", () => {
   });
 
   it("uses the production room-order controls", () => {
+    expect(generatingRoomOrderMessage()).toEqual({
+      content: [text("Generating room order message...")],
+    });
     expect(roomOrderDraftMessage(content, range, 1)).toEqual({
       content,
       components: [roomOrderActionRow(range, 1)],

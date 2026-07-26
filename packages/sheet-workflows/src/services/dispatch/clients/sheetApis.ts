@@ -17,6 +17,13 @@ type RoomOrderGeneratePayload =
   | RoomOrderDispatchPayload
   | { readonly workspaceId: string; readonly conversationId: string; readonly hour: number };
 
+type CheckinGeneratePayload =
+  | CheckinDispatchPayload
+  | (Pick<CheckinDispatchPayload, "workspaceId"> &
+      Partial<
+        Pick<CheckinDispatchPayload, "conversationId" | "conversationName" | "hour" | "template">
+      >);
+
 const isRoomOrderDispatchPayload = (
   payload: RoomOrderGeneratePayload,
 ): payload is RoomOrderDispatchPayload => Predicate.hasProperty(payload, "dispatchRequestId");
@@ -174,7 +181,7 @@ export const makeSheetApisServices = (sheetApisClient: typeof SheetApisClient.Se
 
   return {
     checkinService: {
-      generate: (payload: CheckinDispatchPayload) =>
+      generate: (payload: CheckinGeneratePayload) =>
         sheetApis.checkin.generate({
           payload: {
             workspaceId: payload.workspaceId,

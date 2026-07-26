@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Cause, Effect } from "effect";
 import type { ClientRef } from "sheet-ingress-api/schemas/client";
 import type {
   GeneratedRoomOrderEntry,
@@ -6,10 +6,15 @@ import type {
 } from "sheet-ingress-api/schemas/roomOrder";
 import { shouldSendTentativeRoomOrder } from "sheet-ingress-api/clientActions";
 import { tentativeRoomOrderPinActionRow } from "sheet-message-content/components";
-import { tentativeRoomOrderMessage } from "sheet-message-content/roomOrderMessage";
+import {
+  generatingRoomOrderMessage,
+  tentativeRoomOrderMessage,
+} from "sheet-message-content/roomOrderMessage";
 import { ClientDeliveryClient } from "./clientDeliveryClient";
 import * as MessageText from "sheet-message-content/text";
+import { logEnableFailure } from "./dispatch/clients/messageDelivery";
 import { recoverNonInterruptCause } from "./dispatch/pure/failure";
+import { messageEnableRetrySchedule } from "./dispatch/pure/retry";
 
 type RoomOrderService = {
   readonly generate: (payload: {
@@ -40,6 +45,11 @@ type MessageRoomOrderService = {
     payload: PersistTentativeRoomOrderPayload,
   ) => Effect.Effect<unknown, unknown>;
 };
+
+const alertDegradedTentativeRoomOrder = (cause: Cause.Cause<unknown>) =>
+  Effect.logError("Tentative room-order finalization requires intervention").pipe(
+    Effect.annotateLogs({ cause: Cause.pretty(cause) }),
+  );
 
 export const sendTentativeRoomOrder = Effect.fn("sendTentativeRoomOrder")(function* ({
   workspaceId,
@@ -85,10 +95,10 @@ export const sendTentativeRoomOrder = Effect.fn("sendTentativeRoomOrder")(functi
     const content = MessageText.materializeGeneratedText(client, workspaceId, generated.content);
 
     const sentMessage = yield* botClient.sendMessage(runningConversationId, {
-      ...tentativeRoomOrderMessage(content, generated.range, generated.rank),
+      ...generatingRoomOrderMessage(),
     });
 
-    yield* messageRoomOrderService
+    const persisted = yield* messageRoomOrderService
       .persistMessageRoomOrder(sentMessage.id, {
         data: {
           previousFills: generated.previousFills,
@@ -104,6 +114,7 @@ export const sendTentativeRoomOrder = Effect.fn("sendTentativeRoomOrder")(functi
         entries: generated.entries,
       })
       .pipe(
+        Effect.as(true),
         Effect.catchCause((cause) =>
           recoverNonInterruptCause(cause, () =>
             Effect.logError(`Failed to persist ${logSubject}`).pipe(
@@ -117,6 +128,7 @@ export const sendTentativeRoomOrder = Effect.fn("sendTentativeRoomOrder")(functi
               Effect.andThen(
                 botClient
                   .updateMessage(sentMessage.conversation_id, sentMessage.id, {
+                    ...tentativeRoomOrderMessage(content, generated.range, generated.rank),
                     components: [tentativeRoomOrderPinActionRow()],
                   })
                   .pipe(
@@ -139,9 +151,31 @@ export const sendTentativeRoomOrder = Effect.fn("sendTentativeRoomOrder")(functi
                   ),
               ),
             ),
-          ),
+          ).pipe(Effect.as(false)),
         ),
       );
+
+    if (persisted) {
+      yield* botClient
+        .updateMessage(
+          sentMessage.conversation_id,
+          sentMessage.id,
+          tentativeRoomOrderMessage(content, generated.range, generated.rank),
+        )
+        .pipe(
+          Effect.retry(messageEnableRetrySchedule),
+          Effect.catchCause((cause) =>
+            recoverNonInterruptCause(cause, () =>
+              logEnableFailure(
+                "Failed to finalize tentative room-order message after persistence; dispatch is degraded",
+              )(cause).pipe(
+                Effect.andThen(alertDegradedTentativeRoomOrder(cause)),
+                Effect.andThen(Effect.failCause(cause)),
+              ),
+            ),
+          ),
+        );
+    }
 
     return {
       messageId: sentMessage.id,

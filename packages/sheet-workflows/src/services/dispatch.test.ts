@@ -1012,7 +1012,7 @@ describe("DispatchService", () => {
     }),
   );
 
-  it.effect("fails the persisted room order when enabling its controls fails", () =>
+  it.effect("fails the persisted room order when finalizing its controls fails", () =>
     Effect.gen(function* () {
       const updateCalls: Array<unknown> = [];
       const botClient = makeClientDeliveryMock({
@@ -1052,6 +1052,18 @@ describe("DispatchService", () => {
 
       expect(Exit.isFailure(exit)).toBe(true);
       expect(updateCalls).toHaveLength(4);
+      expect(updateCalls[0]).toMatchObject({
+        content: [{ type: "text", text: "Generating room order message..." }],
+      });
+      expect(updateCalls[0]).not.toHaveProperty("components");
+      expect(updateCalls.slice(1)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            content: [{ type: "text", text: "Room order" }],
+            components: expect.any(Array),
+          }),
+        ]),
+      );
     }),
   );
 

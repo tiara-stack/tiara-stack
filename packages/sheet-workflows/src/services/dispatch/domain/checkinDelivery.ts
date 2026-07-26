@@ -9,8 +9,10 @@ import {
   sendMonitorCheckinOpeningDmPing,
 } from "../../checkinDmReminders";
 import { ClientDeliveryClient } from "../../clientDeliveryClient";
-import { checkinActionRow } from "sheet-message-content/components";
-import { checkinPromptMessage } from "sheet-message-content/checkinPrompt";
+import {
+  checkinPromptMessage,
+  generatingCheckinMessage,
+} from "sheet-message-content/checkinPrompt";
 import { sendTentativeRoomOrder } from "../../tentativeRoomOrder";
 import {
   compensateDeliveryFailure,
@@ -39,7 +41,7 @@ type MessageCheckinService = {
         readonly roleId: string | null;
         readonly workspaceId: string;
         readonly conversationId: string;
-        readonly createdByUserId: string;
+        readonly createdByUserId: string | null;
       };
       readonly memberIds: ReadonlyArray<string>;
     },
@@ -54,6 +56,83 @@ type MessageRoomOrderService = Parameters<
 >[0]["messageRoomOrderService"];
 type RoomOrderService = Parameters<typeof sendTentativeRoomOrder>[0]["roomOrderService"];
 type UserConfigService = Parameters<typeof sendCheckinOpeningDmReminders>[0]["userConfigService"];
+
+export const deliverPersistedCheckinMessage = Effect.fn(
+  "DispatchService.deliverPersistedCheckinMessage",
+)(function* ({
+  botClient,
+  checkinConversationId,
+  messageCheckinService,
+  persistence,
+  placeholderMessage,
+}: {
+  readonly botClient: typeof ClientDeliveryClient.Service;
+  readonly checkinConversationId: string;
+  readonly messageCheckinService: MessageCheckinService;
+  readonly persistence: Parameters<MessageCheckinService["persistMessageCheckin"]>[1];
+  readonly placeholderMessage: SheetOutboundMessage;
+}) {
+  const checkinMessage = yield* botClient.sendMessage(checkinConversationId, placeholderMessage);
+  yield* messageCheckinService.persistMessageCheckin(checkinMessage.id, persistence).pipe(
+    Effect.catchCause((cause) =>
+      reconcileDeliveryPersistence({
+        cause,
+        cleanup: botClient
+          .deleteMessage(checkinMessage.conversation_id, checkinMessage.id)
+          .pipe(Effect.retry(messageEnableRetrySchedule)),
+        lookup: messageCheckinService.getMessageCheckinData(checkinMessage.id),
+        lookupFailureAnnotations: {
+          conversationId: checkinMessage.conversation_id,
+          messageId: checkinMessage.id,
+        },
+        lookupFailureMessage:
+          "Failed to reconcile interrupted check-in persistence; delivered message preserved",
+      }),
+    ),
+  );
+  const cleanupAnnotations = {
+    conversationId: checkinMessage.conversation_id,
+    messageId: checkinMessage.id,
+  };
+  const cleanupFailedFinalization = Effect.all(
+    [
+      messageCheckinService
+        .removeMessageCheckin(checkinMessage.id)
+        .pipe(
+          Effect.retry(messageEnableRetrySchedule),
+          logNonInterruptFailure(
+            "Failed to remove persisted check-in after finalization failure",
+            cleanupAnnotations,
+            Effect.void,
+          ),
+        ),
+      botClient
+        .deleteMessage(checkinMessage.conversation_id, checkinMessage.id)
+        .pipe(
+          Effect.retry(messageEnableRetrySchedule),
+          logNonInterruptFailure(
+            "Failed to delete check-in placeholder after finalization failure",
+            cleanupAnnotations,
+            Effect.void,
+          ),
+        ),
+    ],
+    { concurrency: 2, discard: true },
+  );
+  yield* botClient
+    .updateMessage(checkinMessage.conversation_id, checkinMessage.id, {
+      ...checkinPromptMessage(persistence.data.initialMessage),
+    })
+    .pipe(
+      Effect.retry(messageEnableRetrySchedule),
+      Effect.catchCause((cause) =>
+        logEnableFailure("Failed to finalize persisted check-in message")(cause).pipe(
+          Effect.andThen(compensateDeliveryFailure(cause, cleanupFailedFinalization)),
+        ),
+      ),
+    );
+  return checkinMessage;
+});
 
 export const deliverCheckin = Effect.fn("DispatchService.deliverCheckin")(function* ({
   autoCheckinConcurrency,
@@ -78,13 +157,11 @@ export const deliverCheckin = Effect.fn("DispatchService.deliverCheckin")(functi
   readonly roomOrderService: RoomOrderService;
   readonly userConfigService: UserConfigService;
 }) {
-  const checkinMessage = yield* botClient.sendMessage(generated.checkinConversationId, {
-    ...checkinPromptMessage(initialMessage, true),
-    nonce: makeDeliveryNonce(payload.dispatchRequestId),
-    enforceNonce: true,
-  });
-  yield* messageCheckinService
-    .persistMessageCheckin(checkinMessage.id, {
+  const checkinMessage = yield* deliverPersistedCheckinMessage({
+    botClient,
+    checkinConversationId: generated.checkinConversationId,
+    messageCheckinService,
+    persistence: {
       data: {
         initialMessage,
         hour: generated.hour,
@@ -95,63 +172,13 @@ export const deliverCheckin = Effect.fn("DispatchService.deliverCheckin")(functi
         createdByUserId,
       },
       memberIds: generated.fillIds,
-    })
-    .pipe(
-      Effect.catchCause((cause) =>
-        reconcileDeliveryPersistence({
-          cause,
-          cleanup: botClient.deleteMessage(checkinMessage.conversation_id, checkinMessage.id),
-          lookup: messageCheckinService.getMessageCheckinData(checkinMessage.id),
-          lookupFailureAnnotations: {
-            conversationId: checkinMessage.conversation_id,
-            messageId: checkinMessage.id,
-          },
-          lookupFailureMessage:
-            "Failed to reconcile interrupted check-in persistence; delivered message preserved",
-        }),
-      ),
-    );
-  const cleanupAnnotations = {
-    conversationId: checkinMessage.conversation_id,
-    messageId: checkinMessage.id,
-  };
-  const cleanupFailedEnablement = Effect.all(
-    [
-      messageCheckinService
-        .removeMessageCheckin(checkinMessage.id)
-        .pipe(
-          Effect.retry(messageEnableRetrySchedule),
-          logNonInterruptFailure(
-            "Failed to remove persisted check-in after enablement failure",
-            cleanupAnnotations,
-            Effect.void,
-          ),
-        ),
-      botClient
-        .deleteMessage(checkinMessage.conversation_id, checkinMessage.id)
-        .pipe(
-          Effect.retry(messageEnableRetrySchedule),
-          logNonInterruptFailure(
-            "Failed to delete disabled check-in message after enablement failure",
-            cleanupAnnotations,
-            Effect.void,
-          ),
-        ),
-    ],
-    { concurrency: 2, discard: true },
-  );
-  yield* botClient
-    .updateMessage(checkinMessage.conversation_id, checkinMessage.id, {
-      components: [checkinActionRow()],
-    })
-    .pipe(
-      Effect.retry(messageEnableRetrySchedule),
-      Effect.catchCause((cause) =>
-        logEnableFailure("Failed to enable persisted check-in message")(cause).pipe(
-          Effect.andThen(compensateDeliveryFailure(cause, cleanupFailedEnablement)),
-        ),
-      ),
-    );
+    },
+    placeholderMessage: {
+      ...generatingCheckinMessage(),
+      nonce: makeDeliveryNonce(payload.dispatchRequestId),
+      enforceNonce: true,
+    },
+  });
   const workspaceName = yield* resolveWorkspaceName(botClient, payload.workspaceId);
   const openingDmDelivery = {
     ...(Option.isSome(workspaceName) ? { workspaceName: workspaceName.value } : {}),

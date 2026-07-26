@@ -2,7 +2,7 @@ import { Context, DateTime, Duration, Effect, Layer, Option, pipe } from "effect
 import { WorkflowEngine } from "effect/unstable/workflow";
 import { makeArgumentError } from "typhoon-core/error";
 import type { WorkspaceConversationConfig } from "sheet-ingress-api/schemas/workspaceConfig";
-import { checkinActionRow } from "sheet-message-content/components";
+import { generatingCheckinMessage } from "sheet-message-content/checkinPrompt";
 import {
   autoCheckinSummaryMessage,
   formatAutoCheckinContent,
@@ -14,12 +14,16 @@ import {
 } from "./checkinDmReminders";
 import { SheetApisClient } from "./sheetApisClient";
 import { uniqueConversationNames } from "./autoCheckinConversations";
+import { makeSheetApisServices as makeDispatchSheetApisServices } from "./dispatch/clients/sheetApis";
 import { resolveWorkspaceName } from "./dispatch/clients/workspace";
+import { deliverPersistedCheckinMessage } from "./dispatch/domain/checkinDelivery";
+import { makeDeliveryNonce } from "./dispatch/pure/deliveryNonce";
 import * as MessageText from "sheet-message-content/text";
 import { sendTentativeRoomOrder } from "./tentativeRoomOrder";
 import {
   AutoCheckinConversationResult,
   AutoCheckinConversationWorkflow,
+  autoCheckinConversationIdempotencyKey,
 } from "@/workflows/autoCheckinContract";
 import type { AutoCheckinConversationPayload } from "@/workflows/autoCheckinContract";
 import { config } from "@/config";
@@ -34,19 +38,6 @@ type DeliveredMessage = {
   readonly conversation_id: string;
 };
 
-type MessageKey = {
-  readonly clientPlatform: string;
-  readonly clientId: string;
-  readonly messageId: string;
-};
-
-const messageKeyFor = (messageId: string): Effect.Effect<MessageKey> =>
-  Effect.map(ClientDeliveryClientRef, (client) => ({
-    clientPlatform: client.platform,
-    clientId: client.clientId,
-    messageId,
-  }));
-
 const deriveTargetHour = (eventStart: DateTime.DateTime, target: DateTime.DateTime): number => {
   const targetHourStart = pipe(target, DateTime.startOf("hour"));
   return Math.floor(Duration.toHours(DateTime.distance(eventStart, targetHourStart))) + 1;
@@ -54,36 +45,21 @@ const deriveTargetHour = (eventStart: DateTime.DateTime, target: DateTime.DateTi
 
 const makeSheetApisServices = (sheetApisClient: typeof SheetApisClient.Service) => {
   const sheetApis = sheetApisClient.get();
+  const {
+    checkinService,
+    messageCheckinService,
+    messageRoomOrderService,
+    roomOrderService,
+    userConfigService,
+    workspaceConfigService,
+  } = makeDispatchSheetApisServices(sheetApisClient);
 
   return {
-    checkinService: {
-      generate: (payload: {
-        readonly workspaceId: string;
-        readonly conversationName: string;
-        readonly hour: number;
-      }) =>
-        sheetApis.checkin.generate({
-          payload: {
-            workspaceId: payload.workspaceId,
-            conversationName: payload.conversationName,
-            hour: payload.hour,
-          },
-        }),
-    },
-    userConfigService: {
-      getCheckinDmRecipients: (platform: string, userIds: ReadonlyArray<string>) =>
-        sheetApis.userConfig.getCheckinDmRecipients({
-          payload: { platform, userIds: [...userIds] },
-        }),
-      getMonitorDmRecipients: (platform: string, userIds: ReadonlyArray<string>) =>
-        sheetApis.userConfig.getMonitorDmRecipients({
-          payload: { platform, userIds: [...userIds] },
-        }),
-    },
+    checkinService,
+    userConfigService,
     workspaceConfigService: {
+      ...workspaceConfigService,
       getAutoCheckinWorkspaces: () => sheetApis.workspaceConfig.getAutoCheckinWorkspaces(),
-      getWorkspaceConversations: (workspaceId: string, running: boolean) =>
-        sheetApis.workspaceConfig.getWorkspaceConversations({ query: { workspaceId, running } }),
     },
     scheduleService: {
       conversationPopulatedMonitorSchedules: (workspaceId: string, conversationName: string) =>
@@ -93,50 +69,9 @@ const makeSheetApisServices = (sheetApisClient: typeof SheetApisClient.Service) 
           })
           .pipe(Effect.map(({ schedules }) => schedules)),
     },
-    messageCheckinService: {
-      persistMessageCheckin: (
-        messageId: string,
-        payload: Omit<
-          Parameters<typeof sheetApis.messageCheckin.persistMessageCheckin>[0]["payload"],
-          keyof MessageKey
-        >,
-      ) =>
-        Effect.gen(function* () {
-          const key = yield* messageKeyFor(messageId);
-          return yield* sheetApis.messageCheckin.persistMessageCheckin({
-            payload: { ...key, ...payload },
-          });
-        }),
-    },
-    messageRoomOrderService: {
-      persistMessageRoomOrder: (
-        messageId: string,
-        payload: Omit<
-          Parameters<typeof sheetApis.messageRoomOrder.persistMessageRoomOrder>[0]["payload"],
-          keyof MessageKey
-        >,
-      ) =>
-        Effect.gen(function* () {
-          const key = yield* messageKeyFor(messageId);
-          return yield* sheetApis.messageRoomOrder.persistMessageRoomOrder({
-            payload: { ...key, ...payload },
-          });
-        }),
-    },
-    roomOrderService: {
-      generate: (payload: {
-        readonly workspaceId: string;
-        readonly conversationId: string;
-        readonly hour: number;
-      }) =>
-        sheetApis.roomOrder.generate({
-          payload: {
-            workspaceId: payload.workspaceId,
-            conversationId: payload.conversationId,
-            hour: payload.hour,
-          },
-        }),
-    },
+    messageCheckinService,
+    messageRoomOrderService,
+    roomOrderService,
     sheetService: {
       getEventConfig: (workspaceId: string) =>
         sheetApis.sheet.getEventConfig({ query: { workspaceId } }),
@@ -436,39 +371,28 @@ export class AutoCheckinService extends Context.Service<AutoCheckinService>()(
           let checkinMessage: DeliveredMessage | null = null;
           if (initialMessage !== null) {
             const formattedInitialMessage = formatAutoCheckinContent(initialMessage);
-            checkinMessage = yield* botClient.sendMessage(generated.checkinConversationId, {
-              content: formattedInitialMessage,
-            });
-
-            yield* messageCheckinService.persistMessageCheckin(checkinMessage.id, {
-              data: {
-                initialMessage: formattedInitialMessage,
-                hour: generated.hour,
-                runningConversationId: generated.runningConversationId,
-                roleId: generated.roleId,
-                workspaceId: payload.workspaceId,
-                conversationId: generated.checkinConversationId,
-                createdByUserId: null,
+            checkinMessage = yield* deliverPersistedCheckinMessage({
+              botClient,
+              checkinConversationId: generated.checkinConversationId,
+              messageCheckinService,
+              persistence: {
+                data: {
+                  initialMessage: formattedInitialMessage,
+                  hour: generated.hour,
+                  runningConversationId: generated.runningConversationId,
+                  roleId: generated.roleId,
+                  workspaceId: payload.workspaceId,
+                  conversationId: generated.checkinConversationId,
+                  createdByUserId: null,
+                },
+                memberIds: generated.fillIds,
               },
-              memberIds: generated.fillIds,
+              placeholderMessage: {
+                ...generatingCheckinMessage(),
+                nonce: makeDeliveryNonce(autoCheckinConversationIdempotencyKey(payload)),
+                enforceNonce: true,
+              },
             });
-
-            yield* botClient
-              .updateMessage(checkinMessage.conversation_id, checkinMessage.id, {
-                components: [checkinActionRow()],
-              })
-              .pipe(
-                Effect.catchCause((cause) =>
-                  Effect.logError("Failed to enable auto check-in message after persistence").pipe(
-                    Effect.annotateLogs({
-                      workspaceId: payload.workspaceId,
-                      conversationName: payload.conversationName,
-                      messageId: checkinMessage?.id ?? "unknown",
-                    }),
-                    Effect.andThen(Effect.logError(cause)),
-                  ),
-                ),
-              );
 
             const workspaceName = yield* resolveWorkspaceName(botClient, payload.workspaceId);
             const openingDmWorkspace = Option.isSome(workspaceName)

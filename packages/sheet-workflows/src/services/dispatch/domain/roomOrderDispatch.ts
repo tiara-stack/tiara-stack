@@ -10,8 +10,10 @@ import type {
 } from "sheet-ingress-api/sheet-apis-rpc";
 import type { DispatchRequester } from "sheet-ingress-api/internal";
 import { ClientDeliveryClient } from "../../clientDeliveryClient";
-import { roomOrderActionRow } from "sheet-message-content/components";
-import { roomOrderDraftMessage } from "sheet-message-content/roomOrderMessage";
+import {
+  generatingRoomOrderMessage,
+  roomOrderDraftMessage,
+} from "sheet-message-content/roomOrderMessage";
 import * as MessageText from "sheet-message-content/text";
 import {
   logEnableFailure,
@@ -65,7 +67,7 @@ export const makeRoomOrderOperations = ({
       payload.interactionResponseToken,
     );
     const message = yield* messageSink.sendPrimary({
-      ...roomOrderDraftMessage(content, generated.range, generated.rank, true),
+      ...generatingRoomOrderMessage(),
       nonce: makeDeliveryNonce(`room-order-dispatch:${payload.dispatchRequestId}`),
       enforceNonce: true,
     });
@@ -98,14 +100,14 @@ export const makeRoomOrderOperations = ({
 
     yield* messageSink
       .updatePrimary(message, {
-        components: [roomOrderActionRow(generated.range, generated.rank)],
+        ...roomOrderDraftMessage(content, generated.range, generated.rank),
       })
       .pipe(
         Effect.retry(messageEnableRetrySchedule),
         Effect.catchCause((cause) =>
           recoverNonInterruptCause(cause, () =>
             logEnableFailure(
-              "Failed to enable room-order message after persistence; dispatch is degraded",
+              "Failed to finalize room-order message after persistence; dispatch is degraded",
             )(cause).pipe(
               Effect.andThen(alertDegradedRoomOrderDispatch(cause)),
               Effect.andThen(Effect.failCause(cause)),

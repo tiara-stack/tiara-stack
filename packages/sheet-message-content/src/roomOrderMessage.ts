@@ -3,6 +3,10 @@ import type { SheetOutboundMessage, SheetTextPart } from "sheet-ingress-api/sche
 import { roomOrderActionRow, tentativeRoomOrderActionRow } from "./components";
 import { lines, text } from "./text";
 
+export const generatingRoomOrderMessage = (): SheetOutboundMessage => ({
+  content: [text("Generating room order message...")],
+});
+
 export const tentativeRoomOrderContent = (content: ReadonlyArray<SheetTextPart>): SheetTextPart[] =>
   lines([text(TENTATIVE_ROOM_ORDER_PREFIX)], content);
 

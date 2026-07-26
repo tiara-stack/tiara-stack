@@ -13,6 +13,14 @@ export type AutoCheckinConversationPayload = Schema.Schema.Type<
   typeof AutoCheckinConversationPayload
 >;
 
+export const autoCheckinConversationIdempotencyKey = ({
+  workspaceId,
+  conversationName,
+  hour,
+  eventStartEpochMs,
+}: AutoCheckinConversationPayload) =>
+  `auto-checkin:${workspaceId}:${eventStartEpochMs}:${hour}:${conversationName}`;
+
 export const AutoCheckinConversationResult = Schema.Struct({
   workspaceId: Schema.String,
   conversationName: Schema.String,
@@ -32,6 +40,5 @@ export const AutoCheckinConversationWorkflow = Workflow.make({
   payload: AutoCheckinConversationPayload,
   success: AutoCheckinConversationResult,
   error: Schema.Unknown,
-  idempotencyKey: ({ workspaceId, conversationName, hour, eventStartEpochMs }) =>
-    `auto-checkin:${workspaceId}:${eventStartEpochMs}:${hour}:${conversationName}`,
+  idempotencyKey: autoCheckinConversationIdempotencyKey,
 }).annotate(ClusterSchema.ShardGroup, () => "autoCheckin");

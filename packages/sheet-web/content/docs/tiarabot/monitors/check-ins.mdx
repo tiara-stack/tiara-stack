@@ -33,13 +33,16 @@ check-in line. Manual check-in does not post a second summary in the running cha
 
 This is a separate public message in the running room’s configured check-in channel. The canonical
 filler instructions are on [Check in for your fill shift](/docs/tiarabot/fillers/check-in).
+It briefly says **Generating check-in message...** while TiaraBot registers it, then updates in
+place with the final prompt and **Check in** button.
 
 <CheckinPromptExample />
 
 ### Tentative room order posted by check-in
 
 When enough fills are available, check-in also creates this separate public message in the running
-channel. It is not part of the ephemeral command response.
+channel. It may briefly say **Generating room order message...** before the order and its controls
+appear. It is not part of the ephemeral command response.
 
 <TentativeRoomOrderExample />
 

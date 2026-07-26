@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { DateTime, Effect, Option } from "effect";
+import { DateTime, Duration, Effect, Exit, Fiber, Option } from "effect";
 import { TestClock } from "effect/testing";
 import { CheckinGenerateResult } from "sheet-ingress-api/schemas/checkin";
 import {
@@ -20,11 +20,12 @@ import {
   ClientDeliveryClient,
   SheetApisClient,
 } from "@/services";
-import type {
-  AutoCheckinConversationPayload,
-  AutoCheckinConversationResult,
+import {
+  autoCheckinConversationIdempotencyKey,
+  type AutoCheckinConversationPayload,
 } from "@/workflows/autoCheckinContract";
 import { makeSheetApisClient, normalizePayloadText, text } from "./testHelpers";
+import { makeDeliveryNonce } from "./dispatch/pure/deliveryNonce";
 import * as Data from "effect/Data";
 
 class SheetWorkflowsServicesAutoCheckinTestError extends Data.TaggedError(
@@ -40,6 +41,7 @@ const payload: AutoCheckinConversationPayload = {
   hour: 3,
   eventStartEpochMs: Date.parse("2026-03-26T12:00:00.000Z"),
 };
+const expectedAutoCheckinNonce = makeDeliveryNonce(autoCheckinConversationIdempotencyKey(payload));
 
 const makeWorkspaceConfig = (workspaceId: string) =>
   new WorkspaceConfig({
@@ -128,7 +130,10 @@ const makeRoomOrder = () =>
     entries: [],
   });
 
-const makeBotClient = (calls: Array<unknown>) =>
+const makeBotClient = (
+  calls: Array<unknown>,
+  overrides: Partial<typeof ClientDeliveryClient.Service> = {},
+) =>
   ({
     getWorkspace: () => Effect.succeed({ id: "workspace-1", name: "Workspace One" }),
     forClient: (client: unknown) => ({
@@ -161,10 +166,15 @@ const makeBotClient = (calls: Array<unknown>) =>
       });
       return Effect.succeed({ id: messageId, conversation_id: conversationId });
     },
+    deleteMessage: (conversationId: string, messageId: string) =>
+      Effect.sync(() => {
+        calls.push({ method: "deleteMessage", conversationId, messageId });
+      }),
+    ...overrides,
   }) as never;
 
-const runService = <A, E>(
-  effect: (service: typeof AutoCheckinService.Service) => Effect.Effect<A, E, never>,
+const runService = <A, E, R>(
+  effect: (service: typeof AutoCheckinService.Service) => Effect.Effect<A, E, R>,
   options: {
     readonly sheetApisClient: typeof SheetApisClient.Service;
     readonly botClient?: typeof ClientDeliveryClient.Service;
@@ -546,18 +556,10 @@ describe("AutoCheckinService", () => {
         },
       });
 
-      const result = yield* runService(
-        (service) =>
-          service.processConversation(payload) as Effect.Effect<
-            AutoCheckinConversationResult,
-            unknown,
-            never
-          >,
-        {
-          sheetApisClient,
-          botClient: makeBotClient(botCalls),
-        },
-      );
+      const result = yield* runService((service) => service.processConversation(payload), {
+        sheetApisClient,
+        botClient: makeBotClient(botCalls),
+      });
 
       expect(result).toEqual({
         workspaceId: "workspace-1",
@@ -573,13 +575,16 @@ describe("AutoCheckinService", () => {
           method: "sendMessage",
           conversationId: "checkin-conversation",
           message: {
-            content: "check in now\nSent automatically via auto check-in.",
+            content: "Generating check-in message...",
           },
         },
         {
           method: "updateMessage",
           conversationId: "checkin-conversation",
           messageId: "checkin-conversation-message-1",
+          message: {
+            content: "check in now\nSent automatically via auto check-in.",
+          },
         },
         {
           method: "sendDirectMessage",
@@ -607,6 +612,14 @@ describe("AutoCheckinService", () => {
         {
           method: "sendMessage",
           conversationId: "running-conversation",
+          message: {
+            content: "Generating room order message...",
+          },
+        },
+        {
+          method: "updateMessage",
+          conversationId: "running-conversation",
+          messageId: "running-conversation-message-5",
           message: {
             content: "(tentative)\nroom order",
           },
@@ -655,6 +668,130 @@ describe("AutoCheckinService", () => {
     }),
   );
 
+  it.effect("deletes the auto check-in placeholder when persistence fails", () =>
+    Effect.gen(function* () {
+      const botCalls: Array<unknown> = [];
+      const sheetApisClient = makeSheetApisClient({
+        checkin: {
+          generate: () => Effect.succeed(makeGeneratedCheckin()),
+        },
+        messageCheckin: {
+          persistMessageCheckin: () =>
+            Effect.fail(
+              new SheetWorkflowsServicesAutoCheckinTestError({
+                message: "persistence failed",
+              }),
+            ),
+        },
+      });
+      const botClient = makeBotClient(botCalls);
+
+      const exit = yield* Effect.exit(
+        runService((service) => service.processConversation(payload), {
+          sheetApisClient,
+          botClient,
+        }),
+      );
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(botCalls).toEqual([
+        {
+          method: "sendMessage",
+          conversationId: "checkin-conversation",
+          message: {
+            content: "Generating check-in message...",
+            nonce: expectedAutoCheckinNonce,
+            enforceNonce: true,
+          },
+        },
+        {
+          method: "deleteMessage",
+          conversationId: "checkin-conversation",
+          messageId: "checkin-conversation-message-1",
+        },
+      ]);
+    }),
+  );
+
+  it.effect("retries and compensates a failed auto check-in finalization", () =>
+    Effect.gen(function* () {
+      const botCalls: Array<unknown> = [];
+      const removeCalls: Array<unknown> = [];
+      let finalizationAttempts = 0;
+      const sheetApisClient = makeSheetApisClient({
+        checkin: {
+          generate: () => Effect.succeed(makeGeneratedCheckin()),
+        },
+        messageCheckin: {
+          persistMessageCheckin: () => Effect.succeed({}),
+          removeMessageCheckin: (args: unknown) => {
+            removeCalls.push(args);
+            return Effect.void;
+          },
+        },
+      });
+      const botClient = makeBotClient(botCalls, {
+        updateMessage: (conversationId, messageId, message) =>
+          Effect.suspend(() => {
+            finalizationAttempts += 1;
+            botCalls.push({
+              method: "updateMessage",
+              conversationId,
+              messageId,
+              message: normalizePayloadText(message),
+            });
+            return Effect.fail(
+              new SheetWorkflowsServicesAutoCheckinTestError({
+                message: "finalization failed",
+              }),
+            );
+          }),
+      });
+
+      const exit = yield* runService(
+        (service) =>
+          Effect.gen(function* () {
+            const fiber = yield* Effect.forkChild(
+              service.processConversation(payload).pipe(Effect.exit),
+            );
+            yield* TestClock.adjust(Duration.seconds(1));
+            return yield* Fiber.join(fiber);
+          }),
+        { sheetApisClient, botClient },
+      );
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(finalizationAttempts).toBe(3);
+      expect(removeCalls).toEqual([
+        {
+          payload: {
+            clientPlatform: "discord",
+            clientId: "discord-main",
+            messageId: "checkin-conversation-message-1",
+          },
+        },
+      ]);
+      expect(
+        botCalls.filter((call) => (call as { method: string }).method === "sendMessage"),
+      ).toEqual([
+        {
+          method: "sendMessage",
+          conversationId: "checkin-conversation",
+          message: {
+            content: "Generating check-in message...",
+            nonce: expectedAutoCheckinNonce,
+            enforceNonce: true,
+          },
+        },
+      ]);
+      expect(botCalls).toContainEqual({
+        method: "deleteMessage",
+        conversationId: "checkin-conversation",
+        messageId: "checkin-conversation-message-1",
+      });
+    }),
+  );
+
   it.effect("sends only the monitor summary when generated check-in has no initial message", () =>
     Effect.gen(function* () {
       const botCalls: Array<unknown> = [];
@@ -672,18 +809,10 @@ describe("AutoCheckinService", () => {
         },
       });
 
-      const result = yield* runService(
-        (service) =>
-          service.processConversation(payload) as Effect.Effect<
-            AutoCheckinConversationResult,
-            unknown,
-            never
-          >,
-        {
-          sheetApisClient,
-          botClient: makeBotClient(botCalls),
-        },
-      );
+      const result = yield* runService((service) => service.processConversation(payload), {
+        sheetApisClient,
+        botClient: makeBotClient(botCalls),
+      });
 
       expect(result).toEqual({
         workspaceId: "workspace-1",
