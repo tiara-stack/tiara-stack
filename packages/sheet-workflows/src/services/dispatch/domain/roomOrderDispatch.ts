@@ -67,7 +67,7 @@ export const makeRoomOrderOperations = ({
       payload.interactionResponseToken,
     );
     const message = yield* messageSink.sendPrimary({
-      ...generatingRoomOrderMessage(),
+      ...generatingRoomOrderMessage(content),
       nonce: makeDeliveryNonce(`room-order-dispatch:${payload.dispatchRequestId}`),
       enforceNonce: true,
     });

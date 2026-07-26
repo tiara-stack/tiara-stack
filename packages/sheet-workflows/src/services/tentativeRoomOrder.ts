@@ -8,6 +8,7 @@ import { shouldSendTentativeRoomOrder } from "sheet-ingress-api/clientActions";
 import { tentativeRoomOrderPinActionRow } from "sheet-message-content/components";
 import {
   generatingRoomOrderMessage,
+  tentativeRoomOrderContent,
   tentativeRoomOrderMessage,
 } from "sheet-message-content/roomOrderMessage";
 import { ClientDeliveryClient } from "./clientDeliveryClient";
@@ -95,7 +96,7 @@ export const sendTentativeRoomOrder = Effect.fn("sendTentativeRoomOrder")(functi
     const content = MessageText.materializeGeneratedText(client, workspaceId, generated.content);
 
     const sentMessage = yield* botClient.sendMessage(runningConversationId, {
-      ...generatingRoomOrderMessage(),
+      ...generatingRoomOrderMessage(tentativeRoomOrderContent(content)),
     });
 
     const persisted = yield* messageRoomOrderService

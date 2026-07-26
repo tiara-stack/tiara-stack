@@ -575,7 +575,8 @@ describe("AutoCheckinService", () => {
           method: "sendMessage",
           conversationId: "checkin-conversation",
           message: {
-            content: "Generating check-in message...",
+            content:
+              "check in now\nSent automatically via auto check-in.\nControls are being prepared...",
           },
         },
         {
@@ -613,7 +614,7 @@ describe("AutoCheckinService", () => {
           method: "sendMessage",
           conversationId: "running-conversation",
           message: {
-            content: "Generating room order message...",
+            content: "(tentative)\nroom order\nControls are being prepared...",
           },
         },
         {
@@ -699,7 +700,8 @@ describe("AutoCheckinService", () => {
           method: "sendMessage",
           conversationId: "checkin-conversation",
           message: {
-            content: "Generating check-in message...",
+            content:
+              "check in now\nSent automatically via auto check-in.\nControls are being prepared...",
             nonce: expectedAutoCheckinNonce,
             enforceNonce: true,
           },
@@ -778,7 +780,8 @@ describe("AutoCheckinService", () => {
           method: "sendMessage",
           conversationId: "checkin-conversation",
           message: {
-            content: "Generating check-in message...",
+            content:
+              "check in now\nSent automatically via auto check-in.\nControls are being prepared...",
             nonce: expectedAutoCheckinNonce,
             enforceNonce: true,
           },

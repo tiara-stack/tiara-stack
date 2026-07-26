@@ -13,9 +13,9 @@ Run `/room_order manual` with the underscore included. It accepts these optional
 - `server_id`.
 
 TiaraBot resolves the running room/hour, generates an order from sheet data, and posts an interactive draft in the running room.
-The message briefly says **Generating room order message...** while TiaraBot registers it, then
-updates in place with the draft and its **Previous**, **Next**, and **Send** controls. Wait for those
-controls before acting.
+The complete draft appears immediately and may briefly include the muted line **Controls are being
+prepared...** while TiaraBot registers it. TiaraBot then adds the **Previous**, **Next**, and
+**Send** controls. Wait for those controls before acting.
 
 <RoomOrderDraftExample />
 
@@ -45,7 +45,8 @@ to pin it.
 ### Tentative room order
 
 Check-in can prepare a tentative order with navigation and a dedicated **Pin** action.
-It uses the same generating message while TiaraBot prepares the interactive order.
+The complete order appears immediately with the same muted preparation line until TiaraBot adds
+the interactive controls.
 
 <TentativeRoomOrderExample />
 

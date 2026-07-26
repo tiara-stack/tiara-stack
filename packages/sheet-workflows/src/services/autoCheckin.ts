@@ -388,7 +388,7 @@ export class AutoCheckinService extends Context.Service<AutoCheckinService>()(
                 memberIds: generated.fillIds,
               },
               placeholderMessage: {
-                ...generatingCheckinMessage(),
+                ...generatingCheckinMessage(formattedInitialMessage),
                 nonce: makeDeliveryNonce(autoCheckinConversationIdempotencyKey(payload)),
                 enforceNonce: true,
               },

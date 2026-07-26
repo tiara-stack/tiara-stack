@@ -1,10 +1,12 @@
 import { TENTATIVE_ROOM_ORDER_PREFIX } from "sheet-ingress-api/clientActions";
 import type { SheetOutboundMessage, SheetTextPart } from "sheet-ingress-api/schemas/client";
 import { roomOrderActionRow, tentativeRoomOrderActionRow } from "./components";
-import { lines, text } from "./text";
+import { lines, subtle, text } from "./text";
 
-export const generatingRoomOrderMessage = (): SheetOutboundMessage => ({
-  content: [text("Generating room order message...")],
+export const generatingRoomOrderMessage = (
+  content: ReadonlyArray<SheetTextPart>,
+): SheetOutboundMessage => ({
+  content: lines(content, [subtle([text("Controls are being prepared...")])]),
 });
 
 export const tentativeRoomOrderContent = (content: ReadonlyArray<SheetTextPart>): SheetTextPart[] =>

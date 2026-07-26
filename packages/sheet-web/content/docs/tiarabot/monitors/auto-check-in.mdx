@@ -22,8 +22,9 @@ The running-channel summary is an important difference from `/checkin manual`: a
 ### Check-in prompt
 
 The filler-facing prompt is a new public message in the configured check-in channel.
-It briefly says **Generating check-in message...** while TiaraBot prepares it, then updates in place
-with the final prompt and **Check in** button.
+The complete prompt appears immediately so its mentions notify fillers. It may briefly include the
+muted line **Controls are being prepared...** while TiaraBot registers the message, then updates in
+place with the **Check in** button.
 
 <CheckinPromptExample />
 
@@ -51,8 +52,8 @@ to the public summary rather than repeating it.
 ### Tentative room order
 
 When enough fills are available, the tentative order appears as another new message in the running
-channel. It may briefly say **Generating room order message...** before the order and its controls
-appear.
+channel. The order appears immediately and may briefly include the muted line **Controls are being
+prepared...** before its controls appear.
 
 <TentativeRoomOrderExample />
 

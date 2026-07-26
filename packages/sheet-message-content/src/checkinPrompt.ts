@@ -1,9 +1,11 @@
 import type { SheetOutboundMessage, SheetTextPart } from "sheet-ingress-api/schemas/client";
 import { checkinActionRow } from "./components";
-import { text } from "./text";
+import { lines, subtle, text } from "./text";
 
-export const generatingCheckinMessage = (): SheetOutboundMessage => ({
-  content: [text("Generating check-in message...")],
+export const generatingCheckinMessage = (
+  content: ReadonlyArray<SheetTextPart>,
+): SheetOutboundMessage => ({
+  content: lines(content, [subtle([text("Controls are being prepared...")])]),
 });
 
 export const checkinPromptMessage = (

@@ -15,15 +15,15 @@ import {
   tentativeRoomOrderPinAcknowledgementMessage,
   tentativeRoomOrderMessage,
 } from "./roomOrderMessage";
-import { renderPlainText, text } from "./text";
+import { renderPlainText, subtle, text } from "./text";
 
 describe("interactive message factories", () => {
   const range = { minRank: 0, maxRank: 2 };
   const content = [text("Room order")];
 
   it("uses the production check-in button", () => {
-    expect(generatingCheckinMessage()).toEqual({
-      content: [text("Generating check-in message...")],
+    expect(generatingCheckinMessage(content)).toEqual({
+      content: [...content, text("\n"), subtle([text("Controls are being prepared...")])],
     });
     expect(checkinPromptMessage(content)).toEqual({
       content,
@@ -57,8 +57,8 @@ describe("interactive message factories", () => {
   });
 
   it("uses the production room-order controls", () => {
-    expect(generatingRoomOrderMessage()).toEqual({
-      content: [text("Generating room order message...")],
+    expect(generatingRoomOrderMessage(content)).toEqual({
+      content: [...content, text("\n"), subtle([text("Controls are being prepared...")])],
     });
     expect(roomOrderDraftMessage(content, range, 1)).toEqual({
       content,

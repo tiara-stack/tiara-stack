@@ -1053,7 +1053,14 @@ describe("DispatchService", () => {
       expect(Exit.isFailure(exit)).toBe(true);
       expect(updateCalls).toHaveLength(4);
       expect(updateCalls[0]).toMatchObject({
-        content: [{ type: "text", text: "Generating room order message..." }],
+        content: [
+          { type: "text", text: "Room order" },
+          { type: "text", text: "\n" },
+          {
+            type: "subtle",
+            parts: [{ type: "text", text: "Controls are being prepared..." }],
+          },
+        ],
       });
       expect(updateCalls[0]).not.toHaveProperty("components");
       expect(updateCalls.slice(1)).toEqual(

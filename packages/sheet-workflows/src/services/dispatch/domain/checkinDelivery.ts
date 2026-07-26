@@ -174,7 +174,7 @@ export const deliverCheckin = Effect.fn("DispatchService.deliverCheckin")(functi
       memberIds: generated.fillIds,
     },
     placeholderMessage: {
-      ...generatingCheckinMessage(),
+      ...generatingCheckinMessage(initialMessage),
       nonce: makeDeliveryNonce(payload.dispatchRequestId),
       enforceNonce: true,
     },

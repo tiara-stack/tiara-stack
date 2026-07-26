@@ -102,7 +102,7 @@ it.effect("persists a placeholder before publishing tentative room-order control
     });
     expect(events).toEqual(["send", "persist", "update"]);
     expect(messages[0]).toEqual({
-      content: "Generating room order message...",
+      content: "(tentative)\nroom order\nControls are being prepared...",
     });
     expect(messages[1]).toMatchObject({
       content: "(tentative)\nroom order",

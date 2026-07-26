@@ -99,7 +99,14 @@ it.effect("persists a placeholder before finalizing and compensates a failed fin
     expect(Option.getOrNull(error)).toMatchObject({ message: "finalize failed" });
     expect(events.slice(0, 2)).toEqual(["send", "persist"]);
     expect(sentPayloads[0]).toMatchObject({
-      content: [{ type: "text", text: "Generating check-in message..." }],
+      content: [
+        { type: "text", text: "check in" },
+        { type: "text", text: "\n" },
+        {
+          type: "subtle",
+          parts: [{ type: "text", text: "Controls are being prepared..." }],
+        },
+      ],
     });
     expect(sentPayloads[0]).not.toHaveProperty("components");
     expect(finalizationAttempts).toBe(3);
@@ -155,7 +162,7 @@ it.effect("retries placeholder deletion when check-in persistence fails", () =>
           },
           memberIds: [],
         },
-        placeholderMessage: generatingCheckinMessage(),
+        placeholderMessage: generatingCheckinMessage(text("check in")),
       }).pipe(Effect.exit),
     );
 
