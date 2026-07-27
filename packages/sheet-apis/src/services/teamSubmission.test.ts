@@ -82,6 +82,7 @@ const workspaceConfig = new WorkspaceConfig({
   workspaceId: "guild-1",
   sheetId: Option.some("sheet-1"),
   autoCheckin: Option.none(),
+  monitorConversationId: Option.none(),
   createdAt: Option.none(),
   updatedAt: Option.none(),
   deletedAt: Option.none(),

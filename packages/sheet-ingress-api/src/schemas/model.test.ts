@@ -83,6 +83,7 @@ describe("persisted wire schemas", () => {
       workspaceId: "workspace-1",
       sheetId: "sheet-1",
       autoCheckin: true,
+      monitorConversationId: "monitor-conversation-1",
       createdAt: 1_700_000_000_000,
       updatedAt: 1_700_000_000_100,
       deletedAt: null,

@@ -170,6 +170,7 @@ describe("RoomOrderService generate", () => {
       workspaceId: "workspace",
       sheetId: Option.some("sheet"),
       autoCheckin: Option.none(),
+      monitorConversationId: Option.none(),
       createdAt: Option.none(),
       updatedAt: Option.none(),
       deletedAt: Option.none(),

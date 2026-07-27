@@ -2,6 +2,7 @@ import type { ComponentProps } from "react";
 import { DateTime, Option } from "effect";
 import {
   autoCheckinSummaryMessage,
+  autoMonitorCheckinMessage,
   buildRoomOrderContent,
   checkinAnnouncementMessage,
   checkinButtonAcknowledgementMessage,
@@ -39,7 +40,11 @@ const labels = {
     [incomingFiller.key]: incomingFiller.name,
     "monitor-1": "Moni",
   },
-  conversations: { "running-1": "marathon-room", "checkin-1": "check-ins" },
+  conversations: {
+    "running-1": "marathon-room",
+    "checkin-1": "check-ins",
+    "monitor-1": "mana-moni",
+  },
 };
 const checkinTime = Date.UTC(2026, 6, 18, 12, 45);
 const referenceTime = Date.UTC(2026, 6, 18, 12);
@@ -122,6 +127,38 @@ const autoMonitorSummary = autoCheckinSummaryMessage({
   monitorFailureMessage: null,
 });
 
+const autoMonitorCheckin = autoMonitorCheckinMessage({
+  client,
+  workspaceId,
+  runningConversationId: "running-1",
+  hour: 4,
+  monitorUserId: "monitor-1",
+  monitorCheckinRequired: true,
+  monitorCheckinMessage: monitorCheckinContent,
+  monitorFailureMessage: null,
+});
+
+const checkedInAutoMonitorCheckin = {
+  ...autoMonitorCheckin,
+  content:
+    autoMonitorCheckin.content === null
+      ? null
+      : renderCheckedInContent(autoMonitorCheckin.content, [
+          { memberId: "monitor-1", checkinAt: Option.some(checkinTime) },
+        ]),
+};
+
+const continuingAutoMonitorSummary = autoMonitorCheckinMessage({
+  client,
+  workspaceId,
+  runningConversationId: "running-1",
+  hour: 5,
+  monitorUserId: "monitor-1",
+  monitorCheckinRequired: false,
+  monitorCheckinMessage: monitorCheckinContent,
+  monitorFailureMessage: null,
+});
+
 const dmContext = {
   client,
   workspaceId,
@@ -162,6 +199,23 @@ export const ManualCheckinResultExample = () => (
 export const AutoCheckinSummaryExample = () => (
   <ExampleDiscordMessage message={autoMonitorSummary} labels={labels} channel="marathon-room" />
 );
+export const AutoMonitorCheckinExample = () => (
+  <ExampleDiscordMessage message={autoMonitorCheckin} labels={labels} channel="mana-moni" />
+);
+export const CheckedInAutoMonitorExample = () => (
+  <ExampleDiscordMessage
+    message={checkedInAutoMonitorCheckin}
+    labels={labels}
+    channel="mana-moni"
+  />
+);
+export const ContinuingAutoMonitorExample = () => (
+  <ExampleDiscordMessage
+    message={continuingAutoMonitorSummary}
+    labels={labels}
+    channel="mana-moni"
+  />
+);
 export const FillerReminderExample = () => (
   <ExampleDiscordMessage
     message={reminderMessage(dmContext)}
@@ -173,6 +227,14 @@ export const FillerReminderExample = () => (
 export const MonitorPingExample = () => (
   <ExampleDiscordMessage
     message={monitorPingMessage(dmContext)}
+    labels={labels}
+    delivery="direct"
+    channel="TiaraBot"
+  />
+);
+export const AutomaticMonitorPingExample = () => (
+  <ExampleDiscordMessage
+    message={monitorPingMessage({ ...dmContext, monitorConversationId: "monitor-1" })}
     labels={labels}
     delivery="direct"
     channel="TiaraBot"

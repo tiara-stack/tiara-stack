@@ -36,7 +36,9 @@ import {
   WorkspaceListConfigDispatchPayload,
   WorkspaceRemoveMonitorRoleDispatchPayload,
   WorkspaceSetAutoCheckinDispatchPayload,
+  WorkspaceSetMonitorChannelDispatchPayload,
   WorkspaceSetSheetDispatchPayload,
+  WorkspaceUnsetMonitorChannelDispatchPayload,
   ScreenshotDispatchPayload,
   SlotButtonDispatchPayload,
   SlotDispatchErrorSchemas,
@@ -246,6 +248,24 @@ export class DispatchApi extends HttpApiGroup.make("dispatch")
       success: DispatchAcceptedResult,
       error: BotCommandDispatchErrorSchemas,
     }),
+  )
+  .add(
+    HttpApiEndpoint.post("workspaceSetMonitorChannel", "/dispatch/workspace/set/monitor-channel", {
+      payload: WorkspaceSetMonitorChannelDispatchPayload,
+      success: DispatchAcceptedResult,
+      error: BotCommandDispatchErrorSchemas,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post(
+      "workspaceUnsetMonitorChannel",
+      "/dispatch/workspace/unset/monitor-channel",
+      {
+        payload: WorkspaceUnsetMonitorChannelDispatchPayload,
+        success: DispatchAcceptedResult,
+        error: BotCommandDispatchErrorSchemas,
+      },
+    ),
   )
   .add(
     HttpApiEndpoint.post("teamList", "/dispatch/team/list", {

@@ -47,6 +47,7 @@ export class WorkspaceConfigApi extends HttpApiGroup.make("workspaceConfig")
         config: Schema.Struct({
           sheetId: Schema.optional(Schema.NullOr(Schema.String)),
           autoCheckin: Schema.optional(Schema.NullOr(Schema.Boolean)),
+          monitorConversationId: Schema.optional(Schema.NullOr(Schema.String)),
         }),
       }),
       success: WorkspaceConfig,

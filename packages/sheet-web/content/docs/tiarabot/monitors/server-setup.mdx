@@ -13,9 +13,22 @@ Use `/server list_config` and `/channel list_config` before a shift or after a h
 
 - `/server set sheet`: Link the Google Sheet used for schedule-backed operations.
 - `/server set auto_checkin`: Enable or disable [TiaraBot’s minute-45 automatic check-in](/docs/tiarabot/monitors/auto-check-in).
+- `/server set monitor_channel`: Send automatic monitor summaries and handoff check-ins to one shared mana/moni channel.
+- `/server unset monitor_channel`: Restore the legacy running-room destination for automatic monitor summaries.
 - `/server add monitor_role` and `/server remove monitor_role`: Control recognized moni roles.
 
 It is not a general event-profile command.
+
+## Optional mana/moni channel
+
+Use `/server set monitor_channel channel:#mana-moni` to give automatic check-in a shared monitor
+destination. `/server list_config` shows the current value. The channel may be private, but TiaraBot
+must be able to view it, send messages, embed links, and use application-command components there.
+Use `/server unset monitor_channel` to remove it.
+
+The monitor channel cannot also be registered as a running room. TiaraBot rejects either
+configuration order: setting a running room as `monitor_channel`, or later setting the configured
+monitor channel to `running:true`. It may still be used as a filler-facing `checkin_channel`.
 
 ## Running-room settings
 

@@ -3,7 +3,6 @@ import type { DispatchRequester } from "sheet-ingress-api/internal";
 import { MessageRoomOrder } from "sheet-ingress-api/schemas/messageRoomOrder";
 import type { MessageSlot } from "sheet-ingress-api/schemas/messageSlot";
 import { DispatchService } from "@/services";
-import { DispatchClusterWorkflows } from "../dispatchWorkflows";
 import {
   requireAuthorizedWorkspace,
   requireCheckinButtonAccess,
@@ -12,8 +11,7 @@ import {
   requireSelfOrAuthorizedWorkspace,
   requireSlotOpenButtonAccess,
 } from "./authorization";
-
-const {
+import {
   DispatchAutoCheckinTestWorkflow,
   DispatchCheckinButtonWorkflow,
   DispatchCheckinWorkflow,
@@ -41,7 +39,9 @@ const {
   DispatchWorkspaceListConfigWorkflow,
   DispatchWorkspaceRemoveMonitorRoleWorkflow,
   DispatchWorkspaceSetAutoCheckinWorkflow,
+  DispatchWorkspaceSetMonitorChannelWorkflow,
   DispatchWorkspaceSetSheetWorkflow,
+  DispatchWorkspaceUnsetMonitorChannelWorkflow,
   DispatchScreenshotWorkflow,
   DispatchSlotButtonWorkflow,
   DispatchSlotListWorkflow,
@@ -51,7 +51,7 @@ const {
   DispatchTeamSubmissionRejectButtonWorkflow,
   DispatchTeamSubmissionWorkflow,
   DispatchUpdateAnnouncementWorkflow,
-} = DispatchClusterWorkflows;
+} from "./workflowDefinitions";
 
 type InteractionTokenRequest = {
   readonly payload: { readonly interactionResponseToken?: string | undefined };
@@ -391,6 +391,28 @@ export const dispatchWorkflowRegistry = {
       authorizeManageWorkspace<typeof DispatchWorkspaceSetAutoCheckinWorkflow.payloadSchema.Type>(),
     execute: (request: typeof DispatchWorkspaceSetAutoCheckinWorkflow.payloadSchema.Type) =>
       withDispatchService((service) => service.workspaceSetAutoCheckin(request.payload)),
+  },
+  workspaceSetMonitorChannel: {
+    operation: "workspaceSetMonitorChannel",
+    workflow: DispatchWorkspaceSetMonitorChannelWorkflow,
+    getInteractionToken,
+    authorize:
+      authorizeManageWorkspace<
+        typeof DispatchWorkspaceSetMonitorChannelWorkflow.payloadSchema.Type
+      >(),
+    execute: (request: typeof DispatchWorkspaceSetMonitorChannelWorkflow.payloadSchema.Type) =>
+      withDispatchService((service) => service.workspaceSetMonitorChannel(request.payload)),
+  },
+  workspaceUnsetMonitorChannel: {
+    operation: "workspaceUnsetMonitorChannel",
+    workflow: DispatchWorkspaceUnsetMonitorChannelWorkflow,
+    getInteractionToken,
+    authorize:
+      authorizeManageWorkspace<
+        typeof DispatchWorkspaceUnsetMonitorChannelWorkflow.payloadSchema.Type
+      >(),
+    execute: (request: typeof DispatchWorkspaceUnsetMonitorChannelWorkflow.payloadSchema.Type) =>
+      withDispatchService((service) => service.workspaceUnsetMonitorChannel(request.payload)),
   },
   teamList: {
     operation: "teamList",

@@ -233,6 +233,7 @@ export const makeSheetApisServices = (sheetApisClient: typeof SheetApisClient.Se
         config: {
           readonly sheetId?: string | null | undefined;
           readonly autoCheckin?: boolean | null | undefined;
+          readonly monitorConversationId?: string | null | undefined;
         },
       ) => sheetApis.workspaceConfig.upsertWorkspaceConfig({ payload: { workspaceId, config } }),
       getWorkspaceMonitorRoles: (workspaceId: string) =>

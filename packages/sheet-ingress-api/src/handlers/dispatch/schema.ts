@@ -617,6 +617,42 @@ export type WorkspaceSetAutoCheckinDispatchResult = Schema.Schema.Type<
   typeof WorkspaceSetAutoCheckinDispatchResult
 >;
 
+export const WorkspaceSetMonitorChannelDispatchPayload = Schema.Struct({
+  ...CommandDispatchPayloadBase,
+  workspaceId: Schema.String,
+  monitorConversationId: Schema.String,
+});
+
+export type WorkspaceSetMonitorChannelDispatchPayload = Schema.Schema.Type<
+  typeof WorkspaceSetMonitorChannelDispatchPayload
+>;
+
+export const WorkspaceSetMonitorChannelDispatchResult = Schema.Struct({
+  workspaceId: Schema.String,
+  monitorConversationId: Schema.String,
+});
+
+export type WorkspaceSetMonitorChannelDispatchResult = Schema.Schema.Type<
+  typeof WorkspaceSetMonitorChannelDispatchResult
+>;
+
+export const WorkspaceUnsetMonitorChannelDispatchPayload = Schema.Struct({
+  ...CommandDispatchPayloadBase,
+  workspaceId: Schema.String,
+});
+
+export type WorkspaceUnsetMonitorChannelDispatchPayload = Schema.Schema.Type<
+  typeof WorkspaceUnsetMonitorChannelDispatchPayload
+>;
+
+export const WorkspaceUnsetMonitorChannelDispatchResult = Schema.Struct({
+  workspaceId: Schema.String,
+});
+
+export type WorkspaceUnsetMonitorChannelDispatchResult = Schema.Schema.Type<
+  typeof WorkspaceUnsetMonitorChannelDispatchResult
+>;
+
 export const TeamListDispatchPayload = Schema.Struct({
   ...CommandDispatchPayloadBase,
   workspaceId: Schema.String,
@@ -803,6 +839,8 @@ export const DispatchAcceptedResult = Schema.Struct({
     "workspaceRemoveMonitorRole",
     "workspaceSetSheet",
     "workspaceSetAutoCheckin",
+    "workspaceSetMonitorChannel",
+    "workspaceUnsetMonitorChannel",
     "teamList",
     "teamSubmission",
     "teamSubmissionConfirmButton",

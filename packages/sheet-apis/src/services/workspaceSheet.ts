@@ -12,7 +12,7 @@ type ConversationPayload = {
 const nonEmptyString = (value: unknown): value is string =>
   Predicate.isString(value) && value.trim().length > 0;
 
-export const getSheetIdFromWorkspaceId = (
+export const getWorkspaceConfigWithSheetId = (
   workspaceId: string,
   workspaceConfigService: WorkspaceConfigServiceApi,
   action: string,
@@ -24,7 +24,7 @@ export const getSheetIdFromWorkspaceId = (
           pipe(
             workspaceConfig.sheetId,
             Option.match({
-              onSome: Effect.succeed,
+              onSome: (sheetId) => Effect.succeed({ sheetId, workspaceConfig }),
               onNone: () =>
                 Effect.fail(makeArgumentError(`Cannot ${action}, the workspace has no sheet id`)),
             }),
@@ -33,6 +33,15 @@ export const getSheetIdFromWorkspaceId = (
           Effect.fail(makeArgumentError(`Cannot ${action}, the workspace might not be registered`)),
       }),
     ),
+  );
+
+export const getSheetIdFromWorkspaceId = (
+  workspaceId: string,
+  workspaceConfigService: WorkspaceConfigServiceApi,
+  action: string,
+) =>
+  getWorkspaceConfigWithSheetId(workspaceId, workspaceConfigService, action).pipe(
+    Effect.map(({ sheetId }) => sheetId),
   );
 
 export const requireRunningConversation = Effect.fn("workspaceSheet.requireRunningConversation")(

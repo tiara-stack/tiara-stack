@@ -27,7 +27,9 @@ import {
   DispatchWorkspaceListConfigWorkflow as BaseDispatchWorkspaceListConfigWorkflow,
   DispatchWorkspaceRemoveMonitorRoleWorkflow as BaseDispatchWorkspaceRemoveMonitorRoleWorkflow,
   DispatchWorkspaceSetAutoCheckinWorkflow as BaseDispatchWorkspaceSetAutoCheckinWorkflow,
+  DispatchWorkspaceSetMonitorChannelWorkflow as BaseDispatchWorkspaceSetMonitorChannelWorkflow,
   DispatchWorkspaceSetSheetWorkflow as BaseDispatchWorkspaceSetSheetWorkflow,
+  DispatchWorkspaceUnsetMonitorChannelWorkflow as BaseDispatchWorkspaceUnsetMonitorChannelWorkflow,
   DispatchScreenshotWorkflow as BaseDispatchScreenshotWorkflow,
   DispatchSlotButtonWorkflow as BaseDispatchSlotButtonWorkflow,
   DispatchSlotListWorkflow as BaseDispatchSlotListWorkflow,
@@ -205,6 +207,18 @@ const DispatchWorkspaceSetAutoCheckinWorkflow =
     dispatchShardGroup,
   );
 
+const DispatchWorkspaceSetMonitorChannelWorkflow =
+  BaseDispatchWorkspaceSetMonitorChannelWorkflow.annotate(
+    ClusterSchema.ShardGroup,
+    dispatchShardGroup,
+  );
+
+const DispatchWorkspaceUnsetMonitorChannelWorkflow =
+  BaseDispatchWorkspaceUnsetMonitorChannelWorkflow.annotate(
+    ClusterSchema.ShardGroup,
+    dispatchShardGroup,
+  );
+
 const DispatchTeamListWorkflow = BaseDispatchTeamListWorkflow.annotate(
   ClusterSchema.ShardGroup,
   dispatchShardGroup,
@@ -269,6 +283,8 @@ const DispatchWorkflows = [
   DispatchWorkspaceRemoveMonitorRoleWorkflow,
   DispatchWorkspaceSetSheetWorkflow,
   DispatchWorkspaceSetAutoCheckinWorkflow,
+  DispatchWorkspaceSetMonitorChannelWorkflow,
+  DispatchWorkspaceUnsetMonitorChannelWorkflow,
   DispatchTeamListWorkflow,
   DispatchTeamSubmissionWorkflow,
   DispatchTeamSubmissionConfirmButtonWorkflow,
@@ -310,6 +326,8 @@ export const DispatchClusterWorkflows = {
   DispatchWorkspaceRemoveMonitorRoleWorkflow,
   DispatchWorkspaceSetSheetWorkflow,
   DispatchWorkspaceSetAutoCheckinWorkflow,
+  DispatchWorkspaceSetMonitorChannelWorkflow,
+  DispatchWorkspaceUnsetMonitorChannelWorkflow,
   DispatchTeamListWorkflow,
   DispatchTeamSubmissionWorkflow,
   DispatchTeamSubmissionConfirmButtonWorkflow,

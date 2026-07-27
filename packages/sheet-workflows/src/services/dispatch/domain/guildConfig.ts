@@ -1,4 +1,4 @@
-import { Effect, Option } from "effect";
+import { Array, Effect, Option, Predicate } from "effect";
 import { PermissionFlagsBits } from "discord-api-types/v10";
 import type {
   ConversationLockdownDispatchPayload,
@@ -17,8 +17,12 @@ import type {
   WorkspaceRemoveMonitorRoleDispatchResult,
   WorkspaceSetAutoCheckinDispatchPayload,
   WorkspaceSetAutoCheckinDispatchResult,
+  WorkspaceSetMonitorChannelDispatchPayload,
+  WorkspaceSetMonitorChannelDispatchResult,
   WorkspaceSetSheetDispatchPayload,
   WorkspaceSetSheetDispatchResult,
+  WorkspaceUnsetMonitorChannelDispatchPayload,
+  WorkspaceUnsetMonitorChannelDispatchResult,
 } from "sheet-ingress-api/sheet-apis-rpc";
 import { makeArgumentError } from "typhoon-core/error";
 import { ClientDeliveryClient } from "../../clientDeliveryClient";
@@ -33,7 +37,7 @@ import {
   makeEmbed,
   roleMentionValue,
 } from "sheet-message-content/rendering";
-import { isAutoCheckinEnabled } from "../pure/workflowPolicy";
+import { isAutoCheckinEnabled, isSendableWorkspaceConversation } from "../pure/workflowPolicy";
 
 type WorkspaceConfigService = ReturnType<typeof makeSheetApisServices>["workspaceConfigService"];
 
@@ -340,6 +344,14 @@ export const makeGuildConfigOperations = ({
                 ),
               ],
               [
+                MessageText.text("Monitor channel: "),
+                ...Option.match(workspaceConfig.monitorConversationId, {
+                  onSome: (conversationId) =>
+                    conversationMentionValue(payload.client, payload.workspaceId, conversationId),
+                  onNone: () => [MessageText.text("None")],
+                }),
+              ],
+              [
                 MessageText.clientTerm("monitorRole", {
                   form: "plural",
                   casing: "sentence",
@@ -460,5 +472,86 @@ export const makeGuildConfigOperations = ({
         autoCheckin,
       } satisfies WorkspaceSetAutoCheckinDispatchResult;
     }),
+    workspaceSetMonitorChannel: Effect.fn("DispatchService.workspaceSetMonitorChannel")(function* (
+      payload: WorkspaceSetMonitorChannelDispatchPayload,
+    ) {
+      yield* Effect.annotateCurrentSpan({
+        workspaceId: payload.workspaceId,
+        monitorConversationId: payload.monitorConversationId,
+      });
+      const conversations = yield* botClient.getConversationsForParent(payload.workspaceId);
+      const monitorConversation = yield* requireSome(
+        Array.findFirst(
+          conversations,
+          (conversation) => conversation.resourceId === payload.monitorConversationId,
+        ),
+        () =>
+          Effect.fail(
+            makeArgumentError(
+              `Cannot set monitor channel, conversation ${payload.monitorConversationId} was not found in workspace ${payload.workspaceId}`,
+            ),
+          ),
+      );
+      if (
+        Predicate.isString(monitorConversation.value.workspace_id) &&
+        monitorConversation.value.workspace_id !== payload.workspaceId
+      ) {
+        return yield* Effect.fail(
+          makeArgumentError("The monitor channel must belong to the configured workspace"),
+        );
+      }
+      if (!isSendableWorkspaceConversation(monitorConversation)) {
+        return yield* Effect.fail(
+          makeArgumentError("The monitor channel must be a text or announcement channel"),
+        );
+      }
+      const workspaceConfig = yield* workspaceConfigService.upsertWorkspaceConfig(
+        payload.workspaceId,
+        { monitorConversationId: payload.monitorConversationId },
+      );
+      const monitorConversationId = yield* requireSome(workspaceConfig.monitorConversationId, () =>
+        Effect.fail(makeArgumentError("Failed to set the monitor channel")),
+      );
+      yield* botClient.updateOriginalInteractionResponse(payload.interactionResponseToken, {
+        embeds: [
+          makeEmbed({
+            title: "Success!",
+            description: [
+              MessageText.text("Monitor check-ins and automatic summaries will be sent to "),
+              ...conversationMentionValue(
+                payload.client,
+                payload.workspaceId,
+                monitorConversationId,
+              ),
+              MessageText.text("."),
+            ],
+          }),
+        ],
+      });
+      return {
+        workspaceId: payload.workspaceId,
+        monitorConversationId,
+      } satisfies WorkspaceSetMonitorChannelDispatchResult;
+    }),
+    workspaceUnsetMonitorChannel: Effect.fn("DispatchService.workspaceUnsetMonitorChannel")(
+      function* (payload: WorkspaceUnsetMonitorChannelDispatchPayload) {
+        yield* Effect.annotateCurrentSpan({ workspaceId: payload.workspaceId });
+        yield* workspaceConfigService.upsertWorkspaceConfig(payload.workspaceId, {
+          monitorConversationId: null,
+        });
+        yield* botClient.updateOriginalInteractionResponse(payload.interactionResponseToken, {
+          embeds: [
+            makeEmbed({
+              title: "Success!",
+              description:
+                "Monitor channel unset. Automatic summaries will use their running channels.",
+            }),
+          ],
+        });
+        return {
+          workspaceId: payload.workspaceId,
+        } satisfies WorkspaceUnsetMonitorChannelDispatchResult;
+      },
+    ),
   };
 };

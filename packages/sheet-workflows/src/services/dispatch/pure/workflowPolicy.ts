@@ -5,7 +5,7 @@ export const isAutoCheckinEnabled = (autoCheckin: Option.Option<boolean>) =>
   Option.getOrElse(autoCheckin, () => false);
 
 const sendableWorkspaceConversationTypes = new Set([0, 5]);
-const isSendableWorkspaceConversation = (conversation: ClientConversationCacheEntry) =>
+export const isSendableWorkspaceConversation = (conversation: ClientConversationCacheEntry) =>
   sendableWorkspaceConversationTypes.has(conversation.value.type);
 const conversationPosition = (conversation: ClientConversationCacheEntry) =>
   Predicate.isNumber(conversation.value.position)

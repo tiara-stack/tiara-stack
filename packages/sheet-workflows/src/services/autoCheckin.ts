@@ -1,9 +1,10 @@
-import { Context, DateTime, Duration, Effect, Layer, Option, pipe } from "effect";
+import { Context, DateTime, Duration, Effect, Layer, Option, Predicate, pipe } from "effect";
 import { WorkflowEngine } from "effect/unstable/workflow";
 import { makeArgumentError } from "typhoon-core/error";
 import type { WorkspaceConversationConfig } from "sheet-ingress-api/schemas/workspaceConfig";
 import { generatingCheckinMessage } from "sheet-message-content/checkinPrompt";
 import {
+  autoMonitorCheckinDelivery,
   autoCheckinSummaryMessage,
   formatAutoCheckinContent,
 } from "sheet-message-content/checkinSummary";
@@ -32,11 +33,6 @@ import { deriveKickHour, makeKickRemover } from "./kick";
 type WorkspaceMembers = Effect.Success<
   ReturnType<(typeof ClientDeliveryClient.Service)["getMembersForParent"]>
 >;
-
-type DeliveredMessage = {
-  readonly id: string;
-  readonly conversation_id: string;
-};
 
 const deriveTargetHour = (eventStart: DateTime.DateTime, target: DateTime.DateTime): number => {
   const targetHourStart = pipe(target, DateTime.startOf("hour"));
@@ -78,6 +74,359 @@ const makeSheetApisServices = (sheetApisClient: typeof SheetApisClient.Service) 
     },
   };
 };
+
+type SheetApisServices = ReturnType<typeof makeSheetApisServices>;
+type GeneratedCheckin = Effect.Success<ReturnType<SheetApisServices["checkinService"]["generate"]>>;
+type MaterializedText = ReturnType<typeof MessageText.materializeGeneratedText>;
+type ResolvedWorkspaceName = Effect.Success<ReturnType<typeof resolveWorkspaceName>>;
+
+const materializeCheckinMessages = (
+  client: Parameters<typeof MessageText.materializeGeneratedText>[0],
+  workspaceId: string,
+  generated: GeneratedCheckin,
+) => ({
+  initialMessage:
+    generated.initialMessage === null
+      ? null
+      : MessageText.materializeGeneratedText(client, workspaceId, generated.initialMessage),
+  monitorCheckinMessage: MessageText.materializeGeneratedText(
+    client,
+    workspaceId,
+    generated.monitorCheckinMessage,
+  ),
+  monitorFailureMessage:
+    generated.monitorFailureMessage === null
+      ? null
+      : MessageText.materializeGeneratedText(client, workspaceId, generated.monitorFailureMessage),
+});
+
+const makeOpeningDmWorkspace = (workspaceName: ResolvedWorkspaceName) =>
+  Option.match(workspaceName, {
+    onNone: () => ({}),
+    onSome: (name) => ({ workspaceName: name }),
+  });
+
+const deriveMonitorDeliveryPolicy = ({
+  generated,
+  initialMessage,
+}: {
+  readonly generated: GeneratedCheckin;
+  readonly initialMessage: MaterializedText | null;
+}) => {
+  const hasMonitorConversation = Predicate.isNotNull(generated.monitorConversationId);
+  const hasMonitorUser = Predicate.isNotNull(generated.monitorUserId);
+  const sendConfiguredMonitorDm =
+    hasMonitorConversation && generated.monitorCheckinRequired && hasMonitorUser;
+  const sendLegacyMonitorDm =
+    !hasMonitorConversation && Predicate.isNotNull(initialMessage) && hasMonitorUser;
+
+  return {
+    needsWorkspaceName:
+      Predicate.isNotNull(initialMessage) || sendConfiguredMonitorDm || sendLegacyMonitorDm,
+    sendConfiguredMonitorDm,
+    sendLegacyMonitorDm,
+  };
+};
+
+const deliverParticipantCheckin = Effect.fn("AutoCheckinService.deliverParticipantCheckin")(
+  function* ({
+    autoCheckinConcurrency,
+    botClient,
+    client,
+    generated,
+    initialMessage,
+    messageCheckinService,
+    openingDmWorkspace,
+    payload,
+    userConfigService,
+  }: {
+    readonly autoCheckinConcurrency: number;
+    readonly botClient: typeof ClientDeliveryClient.Service;
+    readonly client: Parameters<typeof MessageText.materializeGeneratedText>[0];
+    readonly generated: GeneratedCheckin;
+    readonly initialMessage: MaterializedText | null;
+    readonly messageCheckinService: SheetApisServices["messageCheckinService"];
+    readonly openingDmWorkspace: ReturnType<typeof makeOpeningDmWorkspace>;
+    readonly payload: AutoCheckinConversationPayload;
+    readonly userConfigService: SheetApisServices["userConfigService"];
+  }) {
+    if (initialMessage === null) {
+      return null;
+    }
+
+    const formattedInitialMessage = formatAutoCheckinContent(initialMessage);
+    const checkinMessage = yield* deliverPersistedCheckinMessage({
+      botClient,
+      checkinConversationId: generated.checkinConversationId,
+      messageCheckinService,
+      persistence: {
+        data: {
+          initialMessage: formattedInitialMessage,
+          hour: generated.hour,
+          runningConversationId: generated.runningConversationId,
+          roleId: generated.roleId,
+          workspaceId: payload.workspaceId,
+          conversationId: generated.checkinConversationId,
+          createdByUserId: null,
+        },
+        memberIds: generated.fillIds,
+      },
+      placeholderMessage: {
+        ...generatingCheckinMessage(formattedInitialMessage),
+        nonce: makeDeliveryNonce(autoCheckinConversationIdempotencyKey(payload)),
+        enforceNonce: true,
+      },
+    });
+
+    yield* sendCheckinOpeningDmReminders({
+      ...openingDmWorkspace,
+      client,
+      platform: client.platform,
+      workspaceId: payload.workspaceId,
+      runningConversationId: generated.runningConversationId,
+      checkinConversationId: generated.checkinConversationId,
+      hour: generated.hour,
+      fillIds: generated.fillIds,
+      concurrency: autoCheckinConcurrency,
+      userConfigService,
+      botClient,
+    }).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logError("Failed to process auto check-in opening DM reminders").pipe(
+          Effect.annotateLogs({
+            workspaceId: payload.workspaceId,
+            conversationName: payload.conversationName,
+            checkinConversationId: generated.checkinConversationId,
+            hour: generated.hour,
+          }),
+          Effect.andThen(Effect.logError(cause)),
+        ),
+      ),
+    );
+
+    return checkinMessage;
+  },
+);
+
+const deliverConfiguredMonitorMessage = Effect.fn(
+  "AutoCheckinService.deliverConfiguredMonitorMessage",
+)(function* ({
+  botClient,
+  delivery,
+  hour,
+  messageCheckinService,
+  monitorConversationId,
+  monitorUserId,
+  payload,
+  runningConversationId,
+}: {
+  readonly botClient: typeof ClientDeliveryClient.Service;
+  readonly delivery: ReturnType<typeof autoMonitorCheckinDelivery>;
+  readonly hour: number;
+  readonly messageCheckinService: ReturnType<typeof makeSheetApisServices>["messageCheckinService"];
+  readonly monitorConversationId: string;
+  readonly monitorUserId: string | null;
+  readonly payload: AutoCheckinConversationPayload;
+  readonly runningConversationId: string;
+}) {
+  if (!delivery.checkinRequired || monitorUserId === null || delivery.message.content === null) {
+    return yield* botClient.sendMessage(monitorConversationId, delivery.message);
+  }
+
+  const preparingMessage = generatingCheckinMessage(delivery.message.content);
+  return yield* deliverPersistedCheckinMessage({
+    botClient,
+    checkinConversationId: monitorConversationId,
+    messageCheckinService,
+    persistence: {
+      data: {
+        initialMessage: delivery.message.content,
+        hour,
+        runningConversationId,
+        roleId: null,
+        workspaceId: payload.workspaceId,
+        conversationId: monitorConversationId,
+        createdByUserId: null,
+      },
+      memberIds: [monitorUserId],
+    },
+    placeholderMessage: {
+      ...preparingMessage,
+      embeds: delivery.message.embeds,
+      allowedMentions: delivery.message.allowedMentions,
+      nonce: makeDeliveryNonce(`${autoCheckinConversationIdempotencyKey(payload)}:monitor`),
+      enforceNonce: true,
+    },
+  });
+});
+
+const deliverAutomaticMonitorSummary = Effect.fn(
+  "AutoCheckinService.deliverAutomaticMonitorSummary",
+)(function* ({
+  botClient,
+  client,
+  generated,
+  messageCheckinService,
+  monitorCheckinMessage,
+  monitorConversationId,
+  monitorFailureMessage,
+  payload,
+}: {
+  readonly botClient: typeof ClientDeliveryClient.Service;
+  readonly client: Parameters<typeof MessageText.materializeGeneratedText>[0];
+  readonly generated: GeneratedCheckin;
+  readonly messageCheckinService: SheetApisServices["messageCheckinService"];
+  readonly monitorCheckinMessage: MaterializedText;
+  readonly monitorConversationId: string | null;
+  readonly monitorFailureMessage: MaterializedText | null;
+  readonly payload: AutoCheckinConversationPayload;
+}) {
+  if (monitorConversationId === null) {
+    return yield* botClient.sendMessage(
+      generated.runningConversationId,
+      autoCheckinSummaryMessage({
+        monitorUserId: generated.monitorUserId,
+        monitorCheckinMessage,
+        monitorFailureMessage,
+      }),
+    );
+  }
+
+  const delivery = autoMonitorCheckinDelivery({
+    client,
+    workspaceId: payload.workspaceId,
+    runningConversationId: generated.runningConversationId,
+    hour: generated.hour,
+    monitorUserId: generated.monitorUserId,
+    monitorCheckinRequired: generated.monitorCheckinRequired,
+    monitorCheckinMessage,
+    monitorFailureMessage,
+  });
+
+  return yield* deliverConfiguredMonitorMessage({
+    botClient,
+    delivery,
+    hour: generated.hour,
+    messageCheckinService,
+    monitorConversationId,
+    monitorUserId: generated.monitorUserId,
+    payload,
+    runningConversationId: generated.runningConversationId,
+  });
+});
+
+const sendAutomaticMonitorDm = Effect.fn("AutoCheckinService.sendAutomaticMonitorDm")(function* ({
+  autoCheckinConcurrency,
+  botClient,
+  client,
+  configured,
+  generated,
+  monitorConversationId,
+  openingDmWorkspace,
+  payload,
+  userConfigService,
+}: {
+  readonly autoCheckinConcurrency: number;
+  readonly botClient: typeof ClientDeliveryClient.Service;
+  readonly client: Parameters<typeof MessageText.materializeGeneratedText>[0];
+  readonly configured: boolean;
+  readonly generated: GeneratedCheckin;
+  readonly monitorConversationId: string | null;
+  readonly openingDmWorkspace: ReturnType<typeof makeOpeningDmWorkspace>;
+  readonly payload: AutoCheckinConversationPayload;
+  readonly userConfigService: SheetApisServices["userConfigService"];
+}) {
+  yield* sendMonitorCheckinOpeningDmPing({
+    ...openingDmWorkspace,
+    client,
+    platform: client.platform,
+    workspaceId: payload.workspaceId,
+    runningConversationId: generated.runningConversationId,
+    checkinConversationId: generated.checkinConversationId,
+    ...(configured && monitorConversationId !== null ? { monitorConversationId } : {}),
+    hour: generated.hour,
+    monitorUserId: generated.monitorUserId,
+    concurrency: autoCheckinConcurrency,
+    userConfigService,
+    botClient,
+  }).pipe(
+    Effect.catchCause((cause) =>
+      Effect.logError("Failed to process auto check-in monitor DM ping").pipe(
+        Effect.annotateLogs({
+          workspaceId: payload.workspaceId,
+          conversationName: payload.conversationName,
+          checkinConversationId: generated.checkinConversationId,
+          monitorConversationId,
+          hour: generated.hour,
+        }),
+        Effect.andThen(Effect.logError(cause)),
+      ),
+    ),
+  );
+});
+
+const sendAutomaticTentativeRoomOrder = Effect.fn(
+  "AutoCheckinService.sendAutomaticTentativeRoomOrder",
+)(function* ({
+  botClient,
+  client,
+  generated,
+  initialMessage,
+  messageRoomOrderService,
+  payload,
+  roomOrderService,
+}: {
+  readonly botClient: typeof ClientDeliveryClient.Service;
+  readonly client: Parameters<typeof MessageText.materializeGeneratedText>[0];
+  readonly generated: GeneratedCheckin;
+  readonly initialMessage: MaterializedText | null;
+  readonly messageRoomOrderService: SheetApisServices["messageRoomOrderService"];
+  readonly payload: AutoCheckinConversationPayload;
+  readonly roomOrderService: SheetApisServices["roomOrderService"];
+}) {
+  if (initialMessage === null) {
+    return null;
+  }
+
+  return yield* sendTentativeRoomOrder({
+    workspaceId: payload.workspaceId,
+    runningConversationId: generated.runningConversationId,
+    hour: generated.hour,
+    fillCount: generated.fillCount,
+    createdByUserId: null,
+    client,
+    botClient,
+    roomOrderService,
+    messageRoomOrderService,
+    logPrefix: "auto check-in",
+  });
+});
+
+const makeAutoCheckinConversationResult = ({
+  checkinMessageId,
+  conversationName,
+  hour,
+  initialMessage,
+  monitorMessageId,
+  tentativeRoomOrderMessageId,
+  workspaceId,
+}: {
+  readonly checkinMessageId: string | null;
+  readonly conversationName: string;
+  readonly hour: number;
+  readonly initialMessage: MaterializedText | null;
+  readonly monitorMessageId: string;
+  readonly tentativeRoomOrderMessageId: string | null;
+  readonly workspaceId: string;
+}): AutoCheckinConversationResult => ({
+  workspaceId,
+  conversationName,
+  hour,
+  status: Predicate.isNotNull(initialMessage) ? "sent" : "skipped",
+  checkinMessageId,
+  monitorMessageId,
+  tentativeRoomOrderMessageId,
+});
 
 export class AutoCheckinWorkflowClient extends Context.Service<AutoCheckinWorkflowClient>()(
   "AutoCheckinWorkflowClient",
@@ -346,145 +695,87 @@ export class AutoCheckinService extends Context.Service<AutoCheckinService>()(
             hour: payload.hour,
           });
           const client = yield* ClientDeliveryClientRef;
-          const initialMessage =
-            generated.initialMessage === null
-              ? null
-              : MessageText.materializeGeneratedText(
-                  client,
-                  payload.workspaceId,
-                  generated.initialMessage,
-                );
-          const monitorCheckinMessage = MessageText.materializeGeneratedText(
+          const { initialMessage, monitorCheckinMessage, monitorFailureMessage } =
+            materializeCheckinMessages(client, payload.workspaceId, generated);
+          const monitorConversationId = generated.monitorConversationId;
+          const monitorDeliveryPolicy = deriveMonitorDeliveryPolicy({
+            generated,
+            initialMessage,
+          });
+          const workspaceName = monitorDeliveryPolicy.needsWorkspaceName
+            ? yield* resolveWorkspaceName(botClient, payload.workspaceId)
+            : Option.none<string>();
+          const openingDmWorkspace = makeOpeningDmWorkspace(workspaceName);
+
+          const checkinMessage = yield* deliverParticipantCheckin({
+            autoCheckinConcurrency,
+            botClient,
             client,
-            payload.workspaceId,
-            generated.monitorCheckinMessage,
-          );
-          const monitorFailureMessage =
-            generated.monitorFailureMessage === null
-              ? null
-              : MessageText.materializeGeneratedText(
-                  client,
-                  payload.workspaceId,
-                  generated.monitorFailureMessage,
-                );
+            generated,
+            initialMessage,
+            messageCheckinService,
+            openingDmWorkspace,
+            payload,
+            userConfigService,
+          });
 
-          let checkinMessage: DeliveredMessage | null = null;
-          if (initialMessage !== null) {
-            const formattedInitialMessage = formatAutoCheckinContent(initialMessage);
-            checkinMessage = yield* deliverPersistedCheckinMessage({
+          if (monitorDeliveryPolicy.sendLegacyMonitorDm) {
+            yield* sendAutomaticMonitorDm({
+              autoCheckinConcurrency,
               botClient,
-              checkinConversationId: generated.checkinConversationId,
-              messageCheckinService,
-              persistence: {
-                data: {
-                  initialMessage: formattedInitialMessage,
-                  hour: generated.hour,
-                  runningConversationId: generated.runningConversationId,
-                  roleId: generated.roleId,
-                  workspaceId: payload.workspaceId,
-                  conversationId: generated.checkinConversationId,
-                  createdByUserId: null,
-                },
-                memberIds: generated.fillIds,
-              },
-              placeholderMessage: {
-                ...generatingCheckinMessage(formattedInitialMessage),
-                nonce: makeDeliveryNonce(autoCheckinConversationIdempotencyKey(payload)),
-                enforceNonce: true,
-              },
+              client,
+              configured: false,
+              generated,
+              monitorConversationId,
+              openingDmWorkspace,
+              payload,
+              userConfigService,
             });
-
-            const workspaceName = yield* resolveWorkspaceName(botClient, payload.workspaceId);
-            const openingDmWorkspace = Option.isSome(workspaceName)
-              ? { workspaceName: workspaceName.value }
-              : {};
-
-            yield* sendCheckinOpeningDmReminders({
-              ...openingDmWorkspace,
-              client,
-              platform: client.platform,
-              workspaceId: payload.workspaceId,
-              runningConversationId: generated.runningConversationId,
-              checkinConversationId: generated.checkinConversationId,
-              hour: generated.hour,
-              fillIds: generated.fillIds,
-              concurrency: autoCheckinConcurrency,
-              userConfigService,
-              botClient,
-            }).pipe(
-              Effect.catchCause((cause) =>
-                Effect.logError("Failed to process auto check-in opening DM reminders").pipe(
-                  Effect.annotateLogs({
-                    workspaceId: payload.workspaceId,
-                    conversationName: payload.conversationName,
-                    checkinConversationId: generated.checkinConversationId,
-                    hour: generated.hour,
-                  }),
-                  Effect.andThen(Effect.logError(cause)),
-                ),
-              ),
-            );
-
-            yield* sendMonitorCheckinOpeningDmPing({
-              ...openingDmWorkspace,
-              client,
-              platform: client.platform,
-              workspaceId: payload.workspaceId,
-              runningConversationId: generated.runningConversationId,
-              checkinConversationId: generated.checkinConversationId,
-              hour: generated.hour,
-              monitorUserId: generated.monitorUserId,
-              concurrency: autoCheckinConcurrency,
-              userConfigService,
-              botClient,
-            }).pipe(
-              Effect.catchCause((cause) =>
-                Effect.logError("Failed to process auto check-in monitor DM ping").pipe(
-                  Effect.annotateLogs({
-                    workspaceId: payload.workspaceId,
-                    conversationName: payload.conversationName,
-                    checkinConversationId: generated.checkinConversationId,
-                    hour: generated.hour,
-                  }),
-                  Effect.andThen(Effect.logError(cause)),
-                ),
-              ),
-            );
           }
 
-          const monitorMessage = yield* botClient.sendMessage(
-            generated.runningConversationId,
-            autoCheckinSummaryMessage({
-              monitorUserId: generated.monitorUserId,
-              monitorCheckinMessage,
-              monitorFailureMessage,
-            }),
-          );
-          const tentativeRoomOrderMessage =
-            initialMessage !== null
-              ? yield* sendTentativeRoomOrder({
-                  workspaceId: payload.workspaceId,
-                  runningConversationId: generated.runningConversationId,
-                  hour: generated.hour,
-                  fillCount: generated.fillCount,
-                  createdByUserId: null,
-                  client,
-                  botClient,
-                  roomOrderService,
-                  messageRoomOrderService,
-                  logPrefix: "auto check-in",
-                })
-              : null;
+          const monitorMessage = yield* deliverAutomaticMonitorSummary({
+            botClient,
+            client,
+            generated,
+            messageCheckinService,
+            monitorCheckinMessage,
+            monitorConversationId,
+            monitorFailureMessage,
+            payload,
+          });
 
-          return {
+          if (monitorDeliveryPolicy.sendConfiguredMonitorDm) {
+            yield* sendAutomaticMonitorDm({
+              autoCheckinConcurrency,
+              botClient,
+              client,
+              configured: true,
+              generated,
+              monitorConversationId,
+              openingDmWorkspace,
+              payload,
+              userConfigService,
+            });
+          }
+          const tentativeRoomOrderMessage = yield* sendAutomaticTentativeRoomOrder({
+            botClient,
+            client,
+            generated,
+            initialMessage,
+            messageRoomOrderService,
+            payload,
+            roomOrderService,
+          });
+
+          return makeAutoCheckinConversationResult({
             workspaceId: payload.workspaceId,
             conversationName: payload.conversationName,
             hour: generated.hour,
-            status: initialMessage !== null ? "sent" : "skipped",
             checkinMessageId: checkinMessage?.id ?? null,
             monitorMessageId: monitorMessage.id,
             tentativeRoomOrderMessageId: tentativeRoomOrderMessage?.messageId ?? null,
-          } satisfies AutoCheckinConversationResult;
+            initialMessage,
+          });
         }),
       };
     }),

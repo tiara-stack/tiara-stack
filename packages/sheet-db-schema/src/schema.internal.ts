@@ -25,6 +25,7 @@ class ConfigWorkspace extends pg.Class<ConfigWorkspace>("ConfigWorkspace")({
     workspaceId: pg.varchar("workspace_id").primaryKey(),
     sheetId: pg.varchar("sheet_id"),
     autoCheckin: pg.boolean("auto_checkin"),
+    monitorConversationId: pg.varchar("monitor_conversation_id"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
     deletedAt: deletedAt(),

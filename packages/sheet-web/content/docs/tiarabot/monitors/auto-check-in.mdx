@@ -1,11 +1,14 @@
 ---
 title: Use automatic check-in
-description: Let TiaraBot open check-in at minute 45, notify moni in the running channel, and prepare tentative room order.
+description: Let TiaraBot open check-in at minute 45, coordinate monitor handoffs, and prepare tentative room order.
 ---
 
 ## Enable automatic check-in
 
-Use `/server set auto_checkin` to enable automatic check-in for the event server. Confirm the schedule sheet and each running channel’s `name` and `checkin_channel` configuration before relying on it.
+Use `/server set auto_checkin` to enable automatic check-in for the event server. Confirm the schedule
+sheet and each running channel’s `name` and `checkin_channel` configuration before relying on it.
+Optionally configure `/server set monitor_channel channel:#mana-moni` for shared monitor summaries
+and handoff check-ins.
 
 ## What happens at minute 45
 
@@ -13,11 +16,11 @@ At minute 45 of each hour, TiaraBot processes the next due check-in for configur
 
 1. posts the filler-facing **Check in** prompt in the configured check-in channel.
 2. sends enabled filler check-in DMs.
-3. pings the scheduled moni when one is resolved and posts the moni summary directly in the running channel.
-4. sends the moni DM notification when that preference is enabled.
+3. posts the monitor summary in the configured mana/moni channel, or in the running channel when no monitor channel is configured.
+4. asks a newly assigned linked monitor to check in and sends their enabled monitor DM.
 5. automatically posts a tentative room order in the running channel when enough fills are available.
 
-The running-channel summary is an important difference from `/checkin manual`: automatic check-in has no mana/moni command response to update, so the moni-facing room changes are posted directly in the running channel instead.
+Manual check-in remains unchanged and returns its monitor summary through the command response.
 
 ### Check-in prompt
 
@@ -34,20 +37,42 @@ Fillers who enabled check-in reminders receive a separate direct message.
 
 <FillerReminderExample />
 
-### Automatic moni summary
+### Automatic monitor summary and handoff
 
-TiaraBot mentions the assigned moni and posts the generated empty-slot and Out/Stay/In result in an
-embed. Fillers with linked accounts are shown as mentions in the result, but the summary only pings
-the assigned moni. The final muted line identifies it as an automatic check-in.
+With `monitor_channel` configured, TiaraBot posts one combined message there for every running room
+and hour, even when there are no new fillers. The embed identifies the running room and hour and
+contains the empty-slot and Out/Stay/In result.
+
+When the linked monitor differs from the immediately previous hour's assignment in that same room,
+TiaraBot mentions them and adds **Check in**:
+
+<AutoMonitorCheckinExample />
+
+Their first click updates the combined message and announces the check-in in the relevant running
+room. Repeated clicks do not announce again.
+
+<CheckedInAutoMonitorExample />
+
+If the same monitor is assigned in the same room for the immediately previous hour, TiaraBot mentions
+them as continuing. There is no button, DM, or running-room announcement:
+
+<ContinuingAutoMonitorExample />
+
+Continuation is based on schedule assignments and is scoped to the running room. A room change or a
+break in the schedule requires another check-in. An unassigned or unresolved monitor still gets a
+summary and the existing warning, without a ping or button.
+
+Without `monitor_channel`, TiaraBot preserves the legacy behavior: the summary is posted in each
+running room, no monitor check-in button is created, and the existing monitor DM remains enabled.
 
 <AutoCheckinSummaryExample />
 
 ### Monitor direct message
 
-When the scheduled moni enabled monitor notifications, TiaraBot also sends this DM. It points back
-to the public summary rather than repeating it.
+When a newly assigned monitor has enabled monitor notifications, TiaraBot sends this DM after posting the
+combined message. It points to the mana/moni channel. Continuing monitors do not receive it.
 
-<MonitorPingExample />
+<AutomaticMonitorPingExample />
 
 ### Tentative room order
 
@@ -59,9 +84,11 @@ prepared...** before its controls appear.
 
 ## Operate the automatic result
 
-At minute 45, open the running channel from the moni ping. Review the empty-slot count and the
-Out/Stay/In movement, then use the tentative room-order controls and your server’s
-standby/emergency process as needed.
+At minute 45, review the configured mana/moni channel, or the running room when no monitor channel is
+configured. Newly assigned monitors can open the mana/moni channel from their DM when notifications are
+enabled. Review the empty-slot count and the Out/Stay/In movement, check in when prompted, then use the
+tentative room-order controls and your server’s standby/emergency process as needed. Continuing monitors
+do not receive a new DM or check-in prompt.
 
 Filler check-ins continue to update the prompt and announce in the running channel:
 

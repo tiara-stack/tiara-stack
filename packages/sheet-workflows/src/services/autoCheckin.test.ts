@@ -42,12 +42,16 @@ const payload: AutoCheckinConversationPayload = {
   eventStartEpochMs: Date.parse("2026-03-26T12:00:00.000Z"),
 };
 const expectedAutoCheckinNonce = makeDeliveryNonce(autoCheckinConversationIdempotencyKey(payload));
+const expectedMonitorCheckinNonce = makeDeliveryNonce(
+  `${autoCheckinConversationIdempotencyKey(payload)}:monitor`,
+);
 
 const makeWorkspaceConfig = (workspaceId: string) =>
   new WorkspaceConfig({
     workspaceId,
     sheetId: Option.some("sheet-1"),
     autoCheckin: Option.some(true),
+    monitorConversationId: Option.none(),
     createdAt: Option.none(),
     updatedAt: Option.none(),
     deletedAt: Option.none(),
@@ -93,28 +97,30 @@ const makeSchedule = (hour: number, fillIds: ReadonlyArray<string>) =>
     monitor: Option.none(),
   });
 
-const makeGeneratedCheckin = (overrides?: {
-  readonly initialMessage?: ReturnType<typeof text> | null;
-  readonly fillCount?: number;
-  readonly monitorUserId?: string | null;
-  readonly monitorFailureMessage?: ReturnType<typeof text> | null;
-}) =>
+const makeGeneratedCheckin = (
+  overrides: {
+    readonly initialMessage?: ReturnType<typeof text> | null;
+    readonly fillCount?: number;
+    readonly monitorUserId?: string | null;
+    readonly monitorFailureMessage?: ReturnType<typeof text> | null;
+    readonly monitorConversationId?: string | null;
+    readonly monitorCheckinRequired?: boolean;
+  } = {},
+) =>
   new CheckinGenerateResult({
     hour: payload.hour,
     runningConversationId: "running-conversation",
     checkinConversationId: "checkin-conversation",
-    fillCount: overrides?.fillCount ?? 5,
+    monitorConversationId: null,
+    fillCount: 5,
     roleId: "role-1",
-    initialMessage:
-      overrides && "initialMessage" in overrides ? overrides.initialMessage! : text("check in now"),
+    initialMessage: text("check in now"),
     monitorCheckinMessage: text("monitor summary"),
-    monitorUserId:
-      overrides && "monitorUserId" in overrides ? overrides.monitorUserId! : "monitor-1",
-    monitorFailureMessage:
-      overrides && "monitorFailureMessage" in overrides
-        ? overrides.monitorFailureMessage!
-        : text("monitor missing"),
+    monitorUserId: "monitor-1",
+    monitorCheckinRequired: true,
+    monitorFailureMessage: text("monitor missing"),
     fillIds: ["member-1", "member-2"],
+    ...overrides,
   });
 
 const makeRoomOrder = () =>
@@ -669,6 +675,89 @@ describe("AutoCheckinService", () => {
     }),
   );
 
+  it.effect("delivers separate participant and monitor check-ins when fillers change", () =>
+    Effect.gen(function* () {
+      const botCalls: Array<unknown> = [];
+      const persistCheckinCalls: Array<unknown> = [];
+      const sheetApisClient = makeSheetApisClient({
+        checkin: {
+          generate: () =>
+            Effect.succeed(
+              makeGeneratedCheckin({
+                fillCount: 0,
+                monitorConversationId: "monitor-conversation",
+                monitorFailureMessage: null,
+              }),
+            ),
+        },
+        messageCheckin: {
+          persistMessageCheckin: (args: unknown) => {
+            persistCheckinCalls.push(args);
+            return Effect.succeed({});
+          },
+        },
+        userConfig: {
+          getCheckinDmRecipients: () => Effect.succeed([]),
+          getMonitorDmRecipients: () => Effect.succeed([]),
+        },
+      });
+
+      const result = yield* runService((service) => service.processConversation(payload), {
+        sheetApisClient,
+        botClient: makeBotClient(botCalls),
+      });
+
+      expect(result).toMatchObject({
+        status: "sent",
+        checkinMessageId: "checkin-conversation-message-1",
+        monitorMessageId: "monitor-conversation-message-3",
+      });
+      expect(persistCheckinCalls).toHaveLength(2);
+      expect(persistCheckinCalls).toMatchObject([
+        {
+          payload: {
+            data: {
+              conversationId: "checkin-conversation",
+              runningConversationId: "running-conversation",
+              roleId: "role-1",
+            },
+            memberIds: ["member-1", "member-2"],
+          },
+        },
+        {
+          payload: {
+            data: {
+              conversationId: "monitor-conversation",
+              runningConversationId: "running-conversation",
+              roleId: null,
+            },
+            memberIds: ["monitor-1"],
+          },
+        },
+      ]);
+      expect(botCalls).toMatchObject([
+        {
+          method: "sendMessage",
+          conversationId: "checkin-conversation",
+          message: { nonce: expectedAutoCheckinNonce, enforceNonce: true },
+        },
+        {
+          method: "updateMessage",
+          conversationId: "checkin-conversation",
+        },
+        {
+          method: "sendMessage",
+          conversationId: "monitor-conversation",
+          message: { nonce: expectedMonitorCheckinNonce, enforceNonce: true },
+        },
+        {
+          method: "updateMessage",
+          conversationId: "monitor-conversation",
+        },
+      ]);
+    }),
+  );
+
   it.effect("deletes the auto check-in placeholder when persistence fails", () =>
     Effect.gen(function* () {
       const botCalls: Array<unknown> = [];
@@ -792,6 +881,243 @@ describe("AutoCheckinService", () => {
         conversationId: "checkin-conversation",
         messageId: "checkin-conversation-message-1",
       });
+    }),
+  );
+
+  it.effect("creates a persisted monitor handoff without a filler check-in", () =>
+    Effect.gen(function* () {
+      const botCalls: Array<unknown> = [];
+      const persistCheckinCalls: Array<unknown> = [];
+      const sheetApisClient = makeSheetApisClient({
+        checkin: {
+          generate: () =>
+            Effect.succeed(
+              makeGeneratedCheckin({
+                initialMessage: null,
+                fillCount: 0,
+                monitorConversationId: "monitor-conversation",
+                monitorCheckinRequired: true,
+                monitorFailureMessage: null,
+              }),
+            ),
+        },
+        messageCheckin: {
+          persistMessageCheckin: (args: unknown) => {
+            persistCheckinCalls.push(args);
+            return Effect.succeed({});
+          },
+        },
+        userConfig: {
+          getCheckinDmRecipients: () => Effect.die("filler DMs must not be loaded"),
+          getMonitorDmRecipients: () =>
+            Effect.succeed([
+              {
+                platform: "discord",
+                userId: "monitor-1",
+                defaultClientId: "discord-main",
+              },
+            ]),
+        },
+      });
+
+      const result = yield* runService((service) => service.processConversation(payload), {
+        sheetApisClient,
+        botClient: makeBotClient(botCalls),
+      });
+
+      expect(result).toEqual({
+        workspaceId: "workspace-1",
+        conversationName: "main",
+        hour: 3,
+        status: "skipped",
+        checkinMessageId: null,
+        monitorMessageId: "monitor-conversation-message-1",
+        tentativeRoomOrderMessageId: null,
+      });
+      expect(persistCheckinCalls).toHaveLength(1);
+      expect(persistCheckinCalls[0]).toMatchObject({
+        payload: {
+          messageId: "monitor-conversation-message-1",
+          data: {
+            hour: 3,
+            runningConversationId: "running-conversation",
+            roleId: null,
+            workspaceId: "workspace-1",
+            conversationId: "monitor-conversation",
+            createdByUserId: null,
+          },
+          memberIds: ["monitor-1"],
+        },
+      });
+      expect(botCalls).toMatchObject([
+        {
+          method: "sendMessage",
+          conversationId: "monitor-conversation",
+          message: {
+            content:
+              "@monitor-1 please check in for hour 3 in #running-conversation.\nControls are being prepared...",
+            allowedMentions: "default",
+            embeds: [
+              {
+                title: "Auto check-in summary for monitors",
+                description: "monitor summary\nSent automatically via auto check-in.",
+                fields: [
+                  {
+                    name: "Running channel",
+                    value: "#running-conversation",
+                    inline: true,
+                  },
+                  { name: "Hour", value: "3", inline: true },
+                ],
+              },
+            ],
+            nonce: expectedMonitorCheckinNonce,
+            enforceNonce: true,
+          },
+        },
+        {
+          method: "updateMessage",
+          conversationId: "monitor-conversation",
+          messageId: "monitor-conversation-message-1",
+          message: {
+            content: "@monitor-1 please check in for hour 3 in #running-conversation.",
+          },
+        },
+        {
+          method: "sendDirectMessage",
+          userId: "monitor-1",
+          message: {
+            embeds: [
+              {
+                description:
+                  "Server: Workspace One\nMonitor channel: #monitor-conversation\nYou are assigned as monitor for this hour.\nOpen the monitor channel to review the summary and check in.",
+              },
+            ],
+          },
+        },
+      ]);
+      expect(
+        (botCalls[1] as { readonly message: Record<string, unknown> }).message,
+      ).not.toHaveProperty("embeds");
+    }),
+  );
+
+  it.effect("posts a continuing monitor summary without persistence or a DM", () =>
+    Effect.gen(function* () {
+      const botCalls: Array<unknown> = [];
+      const sheetApisClient = makeSheetApisClient({
+        checkin: {
+          generate: () =>
+            Effect.succeed(
+              makeGeneratedCheckin({
+                initialMessage: null,
+                fillCount: 0,
+                monitorConversationId: "monitor-conversation",
+                monitorCheckinRequired: false,
+                monitorFailureMessage: null,
+              }),
+            ),
+        },
+        messageCheckin: {
+          persistMessageCheckin: () =>
+            Effect.die("continuing monitors must not create a check-in record"),
+        },
+        userConfig: {
+          getMonitorDmRecipients: () =>
+            Effect.die("continuing monitors must not receive a monitor DM"),
+        },
+      });
+
+      yield* runService((service) => service.processConversation(payload), {
+        sheetApisClient,
+        botClient: makeBotClient(botCalls),
+      });
+
+      expect(botCalls).toEqual([
+        {
+          method: "sendMessage",
+          conversationId: "monitor-conversation",
+          message: {
+            content:
+              "@monitor-1 is continuing from hour 2 in #running-conversation; no new monitor check-in is required.",
+            embeds: [
+              {
+                title: "Auto check-in summary for monitors",
+                description: "monitor summary\nSent automatically via auto check-in.",
+                fields: [
+                  {
+                    name: "Running channel",
+                    value: "#running-conversation",
+                    inline: true,
+                  },
+                  { name: "Hour", value: "3", inline: true },
+                ],
+              },
+            ],
+            allowedMentions: "default",
+          },
+        },
+      ]);
+    }),
+  );
+
+  it.effect("posts an unresolved configured monitor summary without persistence or a DM", () =>
+    Effect.gen(function* () {
+      const botCalls: Array<unknown> = [];
+      const sheetApisClient = makeSheetApisClient({
+        checkin: {
+          generate: () =>
+            Effect.succeed(
+              makeGeneratedCheckin({
+                initialMessage: null,
+                fillCount: 0,
+                monitorConversationId: "monitor-conversation",
+                monitorUserId: null,
+                monitorCheckinRequired: false,
+                monitorFailureMessage: text("Cannot resolve the scheduled monitor."),
+              }),
+            ),
+        },
+        messageCheckin: {
+          persistMessageCheckin: () =>
+            Effect.die("unresolved monitors must not create a check-in record"),
+        },
+        userConfig: {
+          getMonitorDmRecipients: () =>
+            Effect.die("unresolved monitors must not receive a monitor DM"),
+        },
+      });
+
+      yield* runService((service) => service.processConversation(payload), {
+        sheetApisClient,
+        botClient: makeBotClient(botCalls),
+      });
+
+      expect(botCalls).toEqual([
+        {
+          method: "sendMessage",
+          conversationId: "monitor-conversation",
+          message: {
+            content: null,
+            embeds: [
+              {
+                title: "Auto check-in summary for monitors",
+                description:
+                  "monitor summary\nCannot resolve the scheduled monitor.\nSent automatically via auto check-in.",
+                fields: [
+                  {
+                    name: "Running channel",
+                    value: "#running-conversation",
+                    inline: true,
+                  },
+                  { name: "Hour", value: "3", inline: true },
+                ],
+              },
+            ],
+            allowedMentions: "none",
+          },
+        },
+      ]);
     }),
   );
 

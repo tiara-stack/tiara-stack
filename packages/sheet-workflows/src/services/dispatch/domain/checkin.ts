@@ -180,11 +180,13 @@ export const makeCheckinOperations = ({
       conversationName,
       runningConversationId,
       checkinConversationId,
+      monitorConversationId,
       hour,
     }: {
       readonly conversationName: string;
       readonly runningConversationId: string;
       readonly checkinConversationId?: string;
+      readonly monitorConversationId?: string;
       readonly hour: number;
     }) => [
       {
@@ -210,8 +212,70 @@ export const makeCheckinOperations = ({
             },
           ]
         : []),
+      ...(Predicate.isString(monitorConversationId)
+        ? [
+            {
+              name: "Monitor destination",
+              value: conversationMentionValue(
+                payload.client,
+                payload.workspaceId,
+                monitorConversationId,
+              ),
+              inline: true,
+            },
+          ]
+        : []),
       { name: "Hour", value: globalThis.String(hour), inline: true },
     ];
+
+    type GeneratedPreview = Effect.Success<ReturnType<typeof checkinService.generate>>;
+    const makeGeneratedPreviewContext = (generated: GeneratedPreview) => {
+      const monitorCheckinMessage = MessageText.materializeGeneratedText(
+        payload.client,
+        payload.workspaceId,
+        generated.monitorCheckinMessage,
+      );
+      const monitorFailureMessage = Option.getOrNull(
+        Option.map(Option.fromNullishOr(generated.monitorFailureMessage), (failure) =>
+          MessageText.materializeGeneratedText(payload.client, payload.workspaceId, failure),
+        ),
+      );
+      const monitorStatusLines = Option.match(Option.fromNullishOr(generated.monitorUserId), {
+        onNone: () => [],
+        onSome: (monitorUserId) => [
+          [
+            MessageText.userMention(monitorUserId),
+            MessageText.text(
+              generated.monitorCheckinRequired
+                ? " would be asked to check in."
+                : " would continue from the previous hour without a new check-in.",
+            ),
+          ],
+        ],
+      });
+      const monitorFailureLines = Option.match(Option.fromNullishOr(monitorFailureMessage), {
+        onSome: (failure) => [[MessageText.subtle(failure)]],
+        onNone: () => [],
+      });
+
+      return {
+        initialMessage: Option.getOrNull(
+          Option.map(Option.fromNullishOr(generated.initialMessage), (message) =>
+            MessageText.materializeGeneratedText(payload.client, payload.workspaceId, message),
+          ),
+        ),
+        monitorFailureMessage,
+        monitorPreviewConversationId: Option.getOrElse(
+          Option.fromNullishOr(generated.monitorConversationId),
+          () => generated.runningConversationId,
+        ),
+        monitorSummary: MessageText.lines(
+          monitorCheckinMessage,
+          ...monitorStatusLines,
+          ...monitorFailureLines,
+        ),
+      };
+    };
 
     const runTestConversation = (
       conversationName: string,
@@ -230,48 +294,21 @@ export const makeCheckinOperations = ({
           conversationName,
           hour: autoCheckinTestHour,
         });
-        const generatedMonitorCheckinMessage = MessageText.materializeGeneratedText(
-          payload.client,
-          payload.workspaceId,
-          generated.monitorCheckinMessage,
-        );
-        const generatedMonitorFailureMessage =
-          generated.monitorFailureMessage === null
-            ? null
-            : MessageText.materializeGeneratedText(
-                payload.client,
-                payload.workspaceId,
-                generated.monitorFailureMessage,
-              );
-        const monitorSummaryLines = (failureMessage: typeof generatedMonitorFailureMessage) =>
-          MessageText.lines(
-            generatedMonitorCheckinMessage,
-            ...Option.match(Option.fromNullishOr(failureMessage), {
-              onSome: (failure) => [[MessageText.subtle(failure)]],
-              onNone: () => [],
-            }),
-          );
-        const generatedInitialMessage =
-          generated.initialMessage === null
-            ? null
-            : MessageText.materializeGeneratedText(
-                payload.client,
-                payload.workspaceId,
-                generated.initialMessage,
-              );
+        const preview = makeGeneratedPreviewContext(generated);
         runningConversationId = generated.runningConversationId;
         checkinConversationId = generated.checkinConversationId;
 
-        if (generatedInitialMessage === null) {
+        if (preview.initialMessage === null) {
           const monitorPreviewMessage = yield* sendTestPreview(
-            generated.runningConversationId,
+            preview.monitorPreviewConversationId,
             "monitor-skipped",
             {
               title: "TEST RUN: Check-in skipped",
-              description: monitorSummaryLines(generatedMonitorFailureMessage),
+              description: preview.monitorSummary,
               fields: autoCheckinTestFields({
                 conversationName,
                 runningConversationId: generated.runningConversationId,
+                monitorConversationId: preview.monitorPreviewConversationId,
                 hour: generated.hour,
               }),
             },
@@ -288,9 +325,9 @@ export const makeCheckinOperations = ({
             monitorPreviewMessageId: monitorPreviewMessage.id,
             tentativeRoomOrderPreviewMessageId: null,
             error:
-              generatedMonitorFailureMessage === null
+              preview.monitorFailureMessage === null
                 ? null
-                : MessageText.renderPlainText(generatedMonitorFailureMessage),
+                : MessageText.renderPlainText(preview.monitorFailureMessage),
           } satisfies AutoCheckinTestConversationResult;
         }
 
@@ -299,7 +336,7 @@ export const makeCheckinOperations = ({
           "checkin",
           {
             title: "TEST RUN: Check-in message",
-            description: generatedInitialMessage,
+            description: preview.initialMessage,
             fields: autoCheckinTestFields({
               conversationName,
               runningConversationId: generated.runningConversationId,
@@ -311,14 +348,15 @@ export const makeCheckinOperations = ({
         checkinPreviewMessageId = checkinPreviewMessage.id;
 
         const monitorPreviewMessage = yield* sendTestPreview(
-          generated.runningConversationId,
+          preview.monitorPreviewConversationId,
           "monitor",
           {
             title: "TEST RUN: Monitor auto check-in summary",
-            description: monitorSummaryLines(generatedMonitorFailureMessage),
+            description: preview.monitorSummary,
             fields: autoCheckinTestFields({
               conversationName,
               runningConversationId: generated.runningConversationId,
+              monitorConversationId: preview.monitorPreviewConversationId,
               hour: generated.hour,
             }),
           },

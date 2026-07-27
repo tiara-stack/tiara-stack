@@ -21,6 +21,9 @@ it("preserves concrete table columns and field schemas at the public boundary", 
   expectTypeOf(configWorkspace.fields.workspaceId).toEqualTypeOf<typeof Schema.String>();
   expectTypeOf(configWorkspace.fields.sheetId).toMatchTypeOf<Schema.Schema<string | null>>();
   expectTypeOf(configWorkspace.fields.autoCheckin).toMatchTypeOf<Schema.Schema<boolean | null>>();
+  expectTypeOf(configWorkspace.fields.monitorConversationId).toMatchTypeOf<
+    Schema.Schema<string | null>
+  >();
   expectTypeOf(configWorkspace.select.fields.createdAt).toEqualTypeOf<typeof Schema.Number>();
   expectTypeOf(messageRoomOrder.fields.fills).toEqualTypeOf<Schema.$Array<typeof Schema.String>>();
   expectTypeOf(messageRoomOrderEntry.fields.effectValue).toEqualTypeOf<typeof Schema.Number>();

@@ -1,14 +1,12 @@
 import { Layer } from "effect";
 import { makeDispatchButtonEntityLayer } from "@/entities/dispatchButton";
-import { DispatchClusterWorkflows } from "../dispatchWorkflows";
 import {
   makeButtonWorkflowHandler,
   makeWorkflowHandler,
   runDispatchWorkflowOperation,
 } from "./activityBoundary";
 import { dispatchWorkflowRegistry } from "./registry";
-
-const {
+import {
   DispatchAutoCheckinTestWorkflow,
   DispatchCheckinButtonWorkflow,
   DispatchCheckinWorkflow,
@@ -36,7 +34,9 @@ const {
   DispatchWorkspaceListConfigWorkflow,
   DispatchWorkspaceRemoveMonitorRoleWorkflow,
   DispatchWorkspaceSetAutoCheckinWorkflow,
+  DispatchWorkspaceSetMonitorChannelWorkflow,
   DispatchWorkspaceSetSheetWorkflow,
+  DispatchWorkspaceUnsetMonitorChannelWorkflow,
   DispatchScreenshotWorkflow,
   DispatchSlotButtonWorkflow,
   DispatchSlotListWorkflow,
@@ -46,8 +46,8 @@ const {
   DispatchTeamSubmissionRejectButtonWorkflow,
   DispatchTeamSubmissionWorkflow,
   DispatchUpdateAnnouncementWorkflow,
-  all: DispatchWorkflows,
-} = DispatchClusterWorkflows;
+  DispatchWorkflows,
+} from "./workflowDefinitions";
 
 export const dispatchButtonEntityLayer = makeDispatchButtonEntityLayer({
   slotOpenButton: ({ payload }) =>
@@ -183,6 +183,12 @@ const dispatchWorkflowLayers = [
   ),
   DispatchWorkspaceSetAutoCheckinWorkflow.toLayer(
     makeWorkflowHandler(dispatchWorkflowRegistry.workspaceSetAutoCheckin),
+  ),
+  DispatchWorkspaceSetMonitorChannelWorkflow.toLayer(
+    makeWorkflowHandler(dispatchWorkflowRegistry.workspaceSetMonitorChannel),
+  ),
+  DispatchWorkspaceUnsetMonitorChannelWorkflow.toLayer(
+    makeWorkflowHandler(dispatchWorkflowRegistry.workspaceUnsetMonitorChannel),
   ),
   DispatchTeamListWorkflow.toLayer(makeWorkflowHandler(dispatchWorkflowRegistry.teamList)),
   DispatchTeamSubmissionWorkflow.toLayer(

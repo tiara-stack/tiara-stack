@@ -1,4 +1,4 @@
-// @generated effect-zero signature:sha256:4245de94c750556b1dfb847af38275fbd5dee2177a7e1175de7ce9d0f27e3026
+// @generated effect-zero signature:sha256:110f9db376a6d40399e4edcaa8f6eb997b02fb29bce86a59a3f1ac27b1871693
 import { createBuilder } from "@rocicorp/zero";
 import type { ReadonlyJSONValue } from "@rocicorp/zero";
 
@@ -28,6 +28,12 @@ const configWorkspaceTable = {
       optional: true,
       customType: customType<boolean>(),
       serverName: "auto_checkin",
+    },
+    monitorConversationId: {
+      type: "string",
+      optional: true,
+      customType: customType<string>(),
+      serverName: "monitor_conversation_id",
     },
     createdAt: {
       type: "number",

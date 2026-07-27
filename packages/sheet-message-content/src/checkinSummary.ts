@@ -1,5 +1,10 @@
 import { Option, Predicate } from "effect";
-import type { SheetOutboundMessage, SheetTextPart } from "sheet-ingress-api/schemas/client";
+import type {
+  ClientRef,
+  SheetOutboundMessage,
+  SheetTextPart,
+} from "sheet-ingress-api/schemas/client";
+import { checkinActionRow } from "./components";
 import { makeEmbed } from "./rendering";
 import * as MessageText from "./text";
 
@@ -116,14 +121,90 @@ export const autoCheckinSummaryMessage = ({
   embeds: [
     makeEmbed({
       title: [MessageText.text("Auto check-in summary for monitors")],
-      description: MessageText.lines(
-        monitorCheckinMessage,
-        ...(Predicate.isNotNull(monitorFailureMessage)
-          ? [[MessageText.subtle(monitorFailureMessage)]]
-          : []),
-        [MessageText.subtle([MessageText.text(autoCheckinNotice)])],
-      ),
+      description: automaticSummaryDescription(monitorCheckinMessage, monitorFailureMessage),
     }),
   ],
   allowedMentions: Predicate.isString(monitorUserId) ? "default" : "none",
 });
+
+function automaticSummaryDescription(
+  monitorCheckinMessage: ReadonlyArray<SheetTextPart>,
+  monitorFailureMessage: ReadonlyArray<SheetTextPart> | null,
+): SheetTextPart[] {
+  return MessageText.lines(
+    monitorCheckinMessage,
+    ...(Predicate.isNotNull(monitorFailureMessage)
+      ? [[MessageText.subtle(monitorFailureMessage)]]
+      : []),
+    [MessageText.subtle([MessageText.text(autoCheckinNotice)])],
+  );
+}
+
+export type AutoMonitorCheckinMessageArgs = {
+  readonly client: ClientRef;
+  readonly workspaceId: string;
+  readonly runningConversationId: string;
+  readonly hour: number;
+  readonly monitorUserId: string | null;
+  readonly monitorCheckinRequired: boolean;
+  readonly monitorCheckinMessage: ReadonlyArray<SheetTextPart>;
+  readonly monitorFailureMessage: ReadonlyArray<SheetTextPart> | null;
+};
+
+export const autoMonitorCheckinDelivery = ({
+  client,
+  workspaceId,
+  runningConversationId,
+  hour,
+  monitorUserId,
+  monitorCheckinRequired,
+  monitorCheckinMessage,
+  monitorFailureMessage,
+}: AutoMonitorCheckinMessageArgs): {
+  readonly checkinRequired: boolean;
+  readonly message: SheetOutboundMessage & { readonly content: SheetTextPart[] | null };
+} => {
+  const checkinIsRequired = monitorCheckinRequired && Predicate.isString(monitorUserId);
+  const runningConversation = MessageText.conversationMention(
+    MessageText.conversationRef(client, workspaceId, runningConversationId),
+  );
+  const content = Predicate.isString(monitorUserId)
+    ? checkinIsRequired
+      ? MessageText.parts(
+          MessageText.userMention(monitorUserId),
+          MessageText.text(` please check in for hour ${hour} in `),
+          runningConversation,
+          MessageText.text("."),
+        )
+      : MessageText.parts(
+          MessageText.userMention(monitorUserId),
+          MessageText.text(` is continuing from hour ${hour - 1} in `),
+          runningConversation,
+          MessageText.text("; no new monitor check-in is required."),
+        )
+    : null;
+
+  return {
+    checkinRequired: checkinIsRequired,
+    message: {
+      content,
+      embeds: [
+        makeEmbed({
+          title: [MessageText.text("Auto check-in summary for monitors")],
+          description: automaticSummaryDescription(monitorCheckinMessage, monitorFailureMessage),
+          fields: [
+            { name: "Running channel", value: [runningConversation], inline: true },
+            { name: "Hour", value: globalThis.String(hour), inline: true },
+          ],
+        }),
+      ],
+      ...(checkinIsRequired ? { components: [checkinActionRow()] } : {}),
+      allowedMentions: Predicate.isString(monitorUserId) ? "default" : "none",
+    },
+  };
+};
+
+export const autoMonitorCheckinMessage = (
+  args: AutoMonitorCheckinMessageArgs,
+): SheetOutboundMessage & { readonly content: SheetTextPart[] | null } =>
+  autoMonitorCheckinDelivery(args).message;

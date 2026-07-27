@@ -212,6 +212,20 @@ export class SheetWorkflowsForwardingClient extends Context.Service<SheetWorkflo
                 DispatchWorkflowOperations.workspaceSetAutoCheckin.rpcTag
               ]({ payload: args }),
           ),
+          workspaceSetMonitorChannel: accept(
+            DispatchWorkflowOperations.workspaceSetMonitorChannel,
+            (args) =>
+              httpClient.dispatchWorkflows[
+                DispatchWorkflowOperations.workspaceSetMonitorChannel.rpcTag
+              ]({ payload: args }),
+          ),
+          workspaceUnsetMonitorChannel: accept(
+            DispatchWorkflowOperations.workspaceUnsetMonitorChannel,
+            (args) =>
+              httpClient.dispatchWorkflows[
+                DispatchWorkflowOperations.workspaceUnsetMonitorChannel.rpcTag
+              ]({ payload: args }),
+          ),
           teamList: accept(DispatchWorkflowOperations.teamList, (args) =>
             httpClient.dispatchWorkflows[DispatchWorkflowOperations.teamList.rpcTag]({
               payload: args,

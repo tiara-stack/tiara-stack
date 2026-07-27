@@ -71,6 +71,27 @@
       "when": 1783429701953,
       "tag": "0010_team_submission_confirmations",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": 1,
+      "when": 1784080466000,
+      "tag": "0011_user_platform_dm_invariant",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": 1,
+      "when": 1784080466000,
+      "tag": "0012_user_platform_dm_invariant_validation",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": 1,
+      "when": 1785076866213,
+      "tag": "0013_monitor_conversation",
+      "breakpoints": true
     }
   ]
 }

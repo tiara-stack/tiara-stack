@@ -1,4 +1,4 @@
-import { Array, DateTime, Effect, Layer, Option, Context, Predicate } from "effect";
+import { Array, Context, DateTime, Effect, Layer, Option, Predicate, Semaphore } from "effect";
 import { makeArgumentError, makeDBQueryError } from "typhoon-core/error";
 import { SheetZeroClient } from "./sheetZeroClient";
 
@@ -19,6 +19,18 @@ export class WorkspaceConfigService extends Context.Service<WorkspaceConfigServi
   {
     make: Effect.gen(function* () {
       const zero = yield* SheetZeroClient;
+      const workspaceMutationLocks = new Map<string, ReturnType<typeof Semaphore.makeUnsafe>>();
+      const withWorkspaceMutationLock = <A, E, R>(
+        workspaceId: string,
+        effect: Effect.Effect<A, E, R>,
+      ) => {
+        const existing = workspaceMutationLocks.get(workspaceId);
+        const lock = existing ?? Semaphore.makeUnsafe(1);
+        if (Predicate.isUndefined(existing)) {
+          workspaceMutationLocks.set(workspaceId, lock);
+        }
+        return lock.withPermits(1)(effect);
+      };
 
       return {
         getAutoCheckinWorkspaces: Effect.fn("WorkspaceConfigService.getAutoCheckinWorkspaces")(
@@ -31,24 +43,48 @@ export class WorkspaceConfigService extends Context.Service<WorkspaceConfigServi
         ) {
           return yield* zero.workspaceConfig.getWorkspaceConfigByWorkspaceId({ workspaceId });
         }),
-        upsertWorkspaceConfig: Effect.fn("WorkspaceConfigService.upsertWorkspaceConfig")(function* (
-          workspaceId: string,
-          config: {
-            sheetId?: string | null | undefined;
-            autoCheckin?: boolean | null | undefined;
-          },
-        ) {
-          yield* zero.workspaceConfig.upsertWorkspaceConfig({ workspaceId, ...config });
-          const workspaceConfig = yield* zero.workspaceConfig.getWorkspaceConfigByWorkspaceId({
-            workspaceId,
-          });
+        upsertWorkspaceConfig: Effect.fn("WorkspaceConfigService.upsertWorkspaceConfig")(
+          (
+            workspaceId: string,
+            config: {
+              sheetId?: string | null | undefined;
+              autoCheckin?: boolean | null | undefined;
+              monitorConversationId?: string | null | undefined;
+            },
+          ) =>
+            withWorkspaceMutationLock(
+              workspaceId,
+              Effect.gen(function* () {
+                if (Predicate.isString(config.monitorConversationId)) {
+                  const runningConversation =
+                    yield* zero.workspaceConfig.getWorkspaceConversationById({
+                      workspaceId,
+                      conversationId: config.monitorConversationId,
+                      running: true,
+                    });
+                  if (Option.isSome(runningConversation)) {
+                    return yield* Effect.fail(
+                      makeArgumentError(
+                        "The monitor channel cannot be a registered running channel",
+                      ),
+                    );
+                  }
+                }
+                yield* zero.workspaceConfig.upsertWorkspaceConfig({ workspaceId, ...config });
+                const workspaceConfig = yield* zero.workspaceConfig.getWorkspaceConfigByWorkspaceId(
+                  {
+                    workspaceId,
+                  },
+                );
 
-          if (Option.isNone(workspaceConfig)) {
-            return yield* Effect.die(makeDBQueryError("Failed to upsert workspace config"));
-          }
+                if (Option.isNone(workspaceConfig)) {
+                  return yield* Effect.die(makeDBQueryError("Failed to upsert workspace config"));
+                }
 
-          return workspaceConfig.value;
-        }),
+                return workspaceConfig.value;
+              }),
+            ),
+        ),
         getWorkspaceMonitorRoles: Effect.fn("WorkspaceConfigService.getWorkspaceMonitorRoles")(
           function* (workspaceId: string) {
             return yield* zero.workspaceConfig.getWorkspaceMonitorRoles({ workspaceId });
@@ -254,37 +290,60 @@ export class WorkspaceConfigService extends Context.Service<WorkspaceConfigServi
         }),
         upsertWorkspaceConversationConfig: Effect.fn(
           "WorkspaceConfigService.upsertWorkspaceConversationConfig",
-        )(function* (
-          workspaceId: string,
-          conversationId: string,
-          config: {
-            name?: string | null | undefined;
-            running?: boolean | null | undefined;
-            roleId?: string | null | undefined;
-            checkinConversationId?: string | null | undefined;
-          },
-        ) {
-          yield* zero.workspaceConfig.upsertWorkspaceConversationConfig({
-            workspaceId,
-            conversationId,
-            name: config.name,
-            running: config.running,
-            roleId: config.roleId,
-            checkinConversationId: config.checkinConversationId,
-          });
-          const conversation = yield* zero.workspaceConfig.getWorkspaceConversationById({
-            workspaceId,
-            conversationId,
-          });
+        )(
+          (
+            workspaceId: string,
+            conversationId: string,
+            config: {
+              name?: string | null | undefined;
+              running?: boolean | null | undefined;
+              roleId?: string | null | undefined;
+              checkinConversationId?: string | null | undefined;
+            },
+          ) =>
+            withWorkspaceMutationLock(
+              workspaceId,
+              Effect.gen(function* () {
+                if (config.running === true) {
+                  const workspaceConfig =
+                    yield* zero.workspaceConfig.getWorkspaceConfigByWorkspaceId({
+                      workspaceId,
+                    });
+                  if (
+                    Option.exists(workspaceConfig, (workspace) =>
+                      Option.contains(workspace.monitorConversationId, conversationId),
+                    )
+                  ) {
+                    return yield* Effect.fail(
+                      makeArgumentError(
+                        "The monitor channel cannot be a registered running channel",
+                      ),
+                    );
+                  }
+                }
+                yield* zero.workspaceConfig.upsertWorkspaceConversationConfig({
+                  workspaceId,
+                  conversationId,
+                  name: config.name,
+                  running: config.running,
+                  roleId: config.roleId,
+                  checkinConversationId: config.checkinConversationId,
+                });
+                const conversation = yield* zero.workspaceConfig.getWorkspaceConversationById({
+                  workspaceId,
+                  conversationId,
+                });
 
-          if (Option.isNone(conversation)) {
-            return yield* Effect.die(
-              makeDBQueryError("Failed to upsert workspace conversation config"),
-            );
-          }
+                if (Option.isNone(conversation)) {
+                  return yield* Effect.die(
+                    makeDBQueryError("Failed to upsert workspace conversation config"),
+                  );
+                }
 
-          return conversation.value;
-        }),
+                return conversation.value;
+              }),
+            ),
+        ),
         upsertTeamSubmissionChannel: Effect.fn(
           "WorkspaceConfigService.upsertTeamSubmissionChannel",
         )(function* (

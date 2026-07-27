@@ -1,4 +1,4 @@
-import { describe, expect, it } from "@effect/vitest";
+import { describe, expect, it } from "vitest";
 import { monitorPingMessage, reminderMessage } from "./checkinMessages";
 import { textValue } from "./rendering";
 import { renderPlainText } from "./text";
@@ -82,6 +82,17 @@ describe("check-in DM messages", () => {
 
     expect(renderPlainText(textValue(description))).toBe(
       "Check-in channel: #checkin-1\nOpen the check-in message and tap Check in.",
+    );
+  });
+
+  it("points automatic monitor handoffs to the configured monitor channel", () => {
+    const message = monitorPingMessage({
+      ...context,
+      monitorConversationId: "monitor-checkins",
+    });
+
+    expect(renderPlainText(textValue(message.embeds?.[0]?.description ?? []))).toBe(
+      "Server: Sekai \\*Tiering\\*\nMonitor channel: #monitor-checkins\nYou are assigned as monitor for this hour.\nOpen the monitor channel to review the summary and check in.",
     );
   });
 });

@@ -168,6 +168,7 @@ export interface SheetZeroClientApi {
       readonly workspaceId: string;
       readonly sheetId?: string | null | undefined;
       readonly autoCheckin?: boolean | null | undefined;
+      readonly monitorConversationId?: string | null | undefined;
     }>;
     readonly addWorkspaceMonitorRole: MutatorResult<{
       readonly workspaceId: string;

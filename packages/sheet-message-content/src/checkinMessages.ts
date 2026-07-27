@@ -9,6 +9,7 @@ export type CheckinDmMessageContext = {
   readonly workspaceName?: string | undefined;
   readonly runningConversationId: string;
   readonly checkinConversationId: string;
+  readonly monitorConversationId?: string | undefined;
   readonly hour: number;
 };
 
@@ -40,21 +41,34 @@ export const reminderMessage = (params: CheckinDmMessageContext): SheetOutboundM
   allowedMentions: "none",
 });
 
-export const monitorPingMessage = (params: CheckinDmMessageContext): SheetOutboundMessage => ({
-  content: null,
-  embeds: [
-    makeEmbed({
-      title: `Check-in is open for hour ${params.hour}`,
-      description: MessageText.lines(
-        ...workspaceNameLine(params.workspaceName),
-        [
-          MessageText.text("Running channel: "),
-          channelMention(params, params.runningConversationId),
-        ],
-        [MessageText.text("You are assigned as monitor for this hour.")],
-        [MessageText.text("Open the running channel for the monitor summary and next steps.")],
-      ),
-    }),
-  ],
-  allowedMentions: "none",
-});
+export const monitorPingMessage = (params: CheckinDmMessageContext): SheetOutboundMessage => {
+  const hasMonitorConversation = Predicate.isString(params.monitorConversationId);
+  const destinationConversationId = hasMonitorConversation
+    ? params.monitorConversationId
+    : params.runningConversationId;
+
+  return {
+    content: null,
+    embeds: [
+      makeEmbed({
+        title: `Check-in is open for hour ${params.hour}`,
+        description: MessageText.lines(
+          ...workspaceNameLine(params.workspaceName),
+          [
+            MessageText.text(`${hasMonitorConversation ? "Monitor" : "Running"} channel: `),
+            channelMention(params, destinationConversationId),
+          ],
+          [MessageText.text("You are assigned as monitor for this hour.")],
+          [
+            MessageText.text(
+              hasMonitorConversation
+                ? "Open the monitor channel to review the summary and check in."
+                : "Open the running channel for the monitor summary and next steps.",
+            ),
+          ],
+        ),
+      }),
+    ],
+    allowedMentions: "none",
+  };
+};

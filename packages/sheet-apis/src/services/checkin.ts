@@ -21,7 +21,7 @@ import type { ScheduleConfig } from "sheet-ingress-api/schemas/sheetConfig";
 import { WorkspaceConfigService } from "./workspaceConfig";
 import { ScheduleService } from "./schedule";
 import { SheetConfigService } from "./sheetConfig";
-import { getSheetIdFromWorkspaceId, requireRunningConversation } from "./workspaceSheet";
+import { getWorkspaceConfigWithSheetId, requireRunningConversation } from "./workspaceSheet";
 import { diffFillParticipants, getScheduleFills, toFillParticipant } from "./fillMovement";
 import type { FillParticipant } from "./fillMovement";
 import type { GeneratedSheetText } from "sheet-ingress-api/schemas/client";
@@ -285,6 +285,11 @@ const getMonitorInfo = (schedule: Option.Option<PopulatedScheduleResult>) => {
       };
 };
 
+export const requiresMonitorCheckin = (
+  monitorUserId: string | null,
+  previousMonitorUserId: string | null,
+) => Predicate.isString(monitorUserId) && monitorUserId !== previousMonitorUserId;
+
 const formatConversationString = (
   roleId: Option.Option<string>,
   conversationId: string,
@@ -342,7 +347,7 @@ export class CheckinService extends Context.Service<CheckinService>()("CheckinSe
           workspaceConfigService,
           "generate check-in",
         );
-        const sheetId = yield* getSheetIdFromWorkspaceId(
+        const { sheetId, workspaceConfig } = yield* getWorkspaceConfigWithSheetId(
           payload.workspaceId,
           workspaceConfigService,
           "generate check-in",
@@ -448,6 +453,11 @@ export class CheckinService extends Context.Service<CheckinService>()("CheckinSe
             : SLOTS_PER_ROW;
         const lookupFailedMessage = getLookupFailedMessage(schedule);
         const monitorInfo = getMonitorInfo(schedule);
+        const previousMonitorInfo = getMonitorInfo(prevSchedule);
+        const monitorCheckinRequired = requiresMonitorCheckin(
+          monitorInfo.monitorUserId,
+          previousMonitorInfo.monitorUserId,
+        );
 
         return new CheckinGenerateResult({
           hour,
@@ -456,6 +466,7 @@ export class CheckinService extends Context.Service<CheckinService>()("CheckinSe
             runningConversation.checkinConversationId,
             () => runningConversation.conversationId,
           ),
+          monitorConversationId: Option.getOrNull(workspaceConfig.monitorConversationId),
           fillCount,
           roleId: Option.getOrNull(runningConversation.roleId),
           initialMessage,
@@ -468,6 +479,7 @@ export class CheckinService extends Context.Service<CheckinService>()("CheckinSe
             lookupFailedMessage,
           }),
           monitorUserId: monitorInfo.monitorUserId,
+          monitorCheckinRequired,
           monitorFailureMessage: monitorInfo.monitorFailureMessage,
           fillIds,
         });

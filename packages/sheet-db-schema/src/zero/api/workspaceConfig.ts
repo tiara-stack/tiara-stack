@@ -1,5 +1,6 @@
 import { Option, Predicate, Schema } from "effect";
 import { ZeroApiEndpoint, ZeroApiGroup } from "typhoon-zero/zeroApi";
+import { makeArgumentError } from "typhoon-core/error";
 import {
   TeamSubmissionRemovedRowStrategy,
   TeamSubmissionWriteMode,
@@ -229,12 +230,30 @@ export const makeWorkspaceConfigGroup = <const SuccessSchemas extends SheetZeroA
         workspaceId: Schema.String,
         sheetId: Schema.optional(Schema.NullOr(Schema.String)),
         autoCheckin: Schema.optional(Schema.NullOr(Schema.Boolean)),
+        monitorConversationId: Schema.optional(Schema.NullOr(Schema.String)),
       }),
       mutator: async ({ tx, args }) => {
         const existingConfigWorkspace = await tx.run(
           zeroTableAccess.configWorkspace.table.where("workspaceId", "=", args.workspaceId).one(),
         );
         const activeExistingConfigWorkspace = activeRecord(existingConfigWorkspace);
+        const monitorConversationId = preserveOmitted(
+          args.monitorConversationId,
+          activeExistingConfigWorkspace?.monitorConversationId,
+        );
+        if (Predicate.isString(monitorConversationId)) {
+          const configuredConversation = activeRecord(
+            await tx.run(
+              zeroTableAccess.configWorkspaceConversation.table
+                .where("workspaceId", "=", args.workspaceId)
+                .where("conversationId", "=", monitorConversationId)
+                .one(),
+            ),
+          );
+          if (configuredConversation?.running === true) {
+            throw makeArgumentError("The monitor channel cannot be a registered running channel");
+          }
+        }
 
         await tx.mutate.configWorkspace.upsert(
           zeroTableAccess.configWorkspace.upsertWithTimestamps(
@@ -244,6 +263,10 @@ export const makeWorkspaceConfigGroup = <const SuccessSchemas extends SheetZeroA
               autoCheckin: preserveOmitted(
                 args.autoCheckin,
                 activeExistingConfigWorkspace?.autoCheckin,
+              ),
+              monitorConversationId: preserveOmitted(
+                args.monitorConversationId,
+                activeExistingConfigWorkspace?.monitorConversationId,
               ),
               deletedAt: null,
             },
@@ -468,6 +491,19 @@ export const makeWorkspaceConfigGroup = <const SuccessSchemas extends SheetZeroA
           roleId: undefined,
           checkinConversationId: undefined,
         };
+        const running = preserveOmitted(args.running, existingValues.running);
+        if (running === true) {
+          const workspaceConfig = activeRecord(
+            await tx.run(
+              zeroTableAccess.configWorkspace.table
+                .where("workspaceId", "=", args.workspaceId)
+                .one(),
+            ),
+          );
+          if (workspaceConfig?.monitorConversationId === args.conversationId) {
+            throw makeArgumentError("The monitor channel cannot be a registered running channel");
+          }
+        }
 
         await tx.mutate.configWorkspaceConversation.upsert(
           zeroTableAccess.configWorkspaceConversation.upsertWithTimestamps(

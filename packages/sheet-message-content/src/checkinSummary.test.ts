@@ -1,6 +1,7 @@
-import { describe, expect, it } from "@effect/vitest";
+import { describe, expect, it } from "vitest";
 import { Option } from "effect";
 import {
+  autoMonitorCheckinMessage,
   autoCheckinSummaryMessage,
   makeMonitorCheckinMessage,
   manualCheckinSummaryMessage,
@@ -87,6 +88,68 @@ describe("check-in summaries", () => {
     ]);
     expect(renderPlainText(textValue(message.embeds?.[0]?.description ?? []))).toBe(
       "Check-in message sent!\nNo empty slots\nOut: @filler-out\nStay: @filler-stay\nIn: None",
+    );
+  });
+
+  it("renders a required monitor handoff with room context and a check-in button", () => {
+    const message = autoMonitorCheckinMessage({
+      client: { platform: "discord", clientId: "tiarabot" },
+      workspaceId: "workspace-1",
+      runningConversationId: "running-1",
+      hour: 4,
+      monitorUserId: "monitor-1",
+      monitorCheckinRequired: true,
+      monitorCheckinMessage,
+      monitorFailureMessage: null,
+    });
+
+    expect(renderPlainText(message.content ?? [])).toBe(
+      "@monitor-1 please check in for hour 4 in #running-1.",
+    );
+    expect(message.components?.[0]?.components[0]).toMatchObject({
+      actionId: "interaction:checkin",
+      label: "Check in",
+      disabled: false,
+    });
+    expect(message.embeds?.[0]?.fields).toHaveLength(2);
+    expect(message.allowedMentions).toBe("default");
+  });
+
+  it("renders a continuing monitor without a button", () => {
+    const message = autoMonitorCheckinMessage({
+      client: { platform: "discord", clientId: "tiarabot" },
+      workspaceId: "workspace-1",
+      runningConversationId: "running-1",
+      hour: 4,
+      monitorUserId: "monitor-1",
+      monitorCheckinRequired: false,
+      monitorCheckinMessage,
+      monitorFailureMessage: null,
+    });
+
+    expect(renderPlainText(message.content ?? [])).toBe(
+      "@monitor-1 is continuing from hour 3 in #running-1; no new monitor check-in is required.",
+    );
+    expect(message.components).toBeUndefined();
+  });
+
+  it("renders unresolved monitor output without a mention or button", () => {
+    const message = autoMonitorCheckinMessage({
+      client: { platform: "discord", clientId: "tiarabot" },
+      workspaceId: "workspace-1",
+      runningConversationId: "running-1",
+      hour: 4,
+      monitorUserId: null,
+      monitorCheckinRequired: true,
+      monitorCheckinMessage,
+      monitorFailureMessage: [{ type: "text", text: "Monitor ID is missing." }],
+    });
+
+    expect(message.content).toBeNull();
+    expect(message.components).toBeUndefined();
+    expect(message.allowedMentions).toBe("none");
+    expect(renderPlainText(textValue(message.embeds?.[0]?.description ?? []))).toContain(
+      "Monitor ID is missing.",
     );
   });
 });

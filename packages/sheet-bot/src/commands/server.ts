@@ -1,6 +1,10 @@
 import { InteractionsRegistry } from "dfx/gateway";
 import { Ix } from "dfx/index";
-import { ApplicationIntegrationType, InteractionContextType } from "discord-api-types/v10";
+import {
+  ApplicationIntegrationType,
+  ChannelType,
+  InteractionContextType,
+} from "discord-api-types/v10";
 import { Effect, Layer } from "effect";
 import { CommandHelper, InteractionResponse } from "dfx-discord-utils/utils";
 import { discordGatewayLayer } from "../discord/gateway";
@@ -218,9 +222,50 @@ const makeSetAutoCheckinSubCommand = Effect.gen(function* () {
   );
 });
 
+const makeSetMonitorChannelSubCommand = Effect.gen(function* () {
+  const sheetWorkflowsClient = yield* SheetWorkflowsClient;
+
+  return yield* CommandHelper.makeSubCommand(
+    (builder) =>
+      builder
+        .setName("monitor_channel")
+        .setDescription("Set the channel for monitor check-ins and automatic summaries")
+        .addChannelOption((builder) =>
+          builder
+            .setName("channel")
+            .setDescription("The monitor channel")
+            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+            .setRequired(true),
+        )
+        .addStringOption((builder) =>
+          builder.setName("server_id").setDescription("The server id to configure"),
+        ),
+    Effect.fn("server.set.monitor_channel")(function* (command) {
+      const requestedServerId = command.optionValueOptional("server_id");
+      const monitorConversationId = yield* requireResolvedId(
+        command.optionChannelValue("channel"),
+        "monitor channel",
+      );
+      const base = yield* makeDispatchBase;
+      yield* dispatchServerCommand(
+        "the server monitor channel update",
+        SheetWorkflowsRequestContext.asInteractionUser(() =>
+          Effect.gen(function* () {
+            const workspaceId = yield* resolveGuildId(requestedServerId);
+            return yield* sheetWorkflowsClient.get().dispatch.workspaceSetMonitorChannel({
+              payload: { ...base, workspaceId, monitorConversationId },
+            });
+          }),
+        )(),
+      );
+    }),
+  );
+});
+
 const makeSetCommandGroup = Effect.gen(function* () {
   const setSheetSubCommand = yield* makeSetSheetSubCommand;
   const setAutoCheckinSubCommand = yield* makeSetAutoCheckinSubCommand;
+  const setMonitorChannelSubCommand = yield* makeSetMonitorChannelSubCommand;
 
   return yield* CommandHelper.makeSubCommandGroup(
     (builder) =>
@@ -228,11 +273,57 @@ const makeSetCommandGroup = Effect.gen(function* () {
         .setName("set")
         .setDescription("Set the config of the server")
         .addSubcommand(() => setSheetSubCommand.data)
-        .addSubcommand(() => setAutoCheckinSubCommand.data),
+        .addSubcommand(() => setAutoCheckinSubCommand.data)
+        .addSubcommand(() => setMonitorChannelSubCommand.data),
     (command) =>
       command.subCommands({
         sheet: setSheetSubCommand.handler,
         auto_checkin: setAutoCheckinSubCommand.handler,
+        monitor_channel: setMonitorChannelSubCommand.handler,
+      }),
+  );
+});
+
+const makeUnsetMonitorChannelSubCommand = Effect.gen(function* () {
+  const sheetWorkflowsClient = yield* SheetWorkflowsClient;
+
+  return yield* CommandHelper.makeSubCommand(
+    (builder) =>
+      builder
+        .setName("monitor_channel")
+        .setDescription("Unset the channel for monitor check-ins and automatic summaries")
+        .addStringOption((builder) =>
+          builder.setName("server_id").setDescription("The server id to configure"),
+        ),
+    Effect.fn("server.unset.monitor_channel")(function* (command) {
+      const base = yield* makeDispatchBase;
+      yield* dispatchServerCommand(
+        "the server monitor channel update",
+        SheetWorkflowsRequestContext.asInteractionUser(() =>
+          Effect.gen(function* () {
+            const workspaceId = yield* resolveGuildId(command.optionValueOptional("server_id"));
+            return yield* sheetWorkflowsClient.get().dispatch.workspaceUnsetMonitorChannel({
+              payload: { ...base, workspaceId },
+            });
+          }),
+        )(),
+      );
+    }),
+  );
+});
+
+const makeUnsetCommandGroup = Effect.gen(function* () {
+  const unsetMonitorChannelSubCommand = yield* makeUnsetMonitorChannelSubCommand;
+
+  return yield* CommandHelper.makeSubCommandGroup(
+    (builder) =>
+      builder
+        .setName("unset")
+        .setDescription("Unset server config")
+        .addSubcommand(() => unsetMonitorChannelSubCommand.data),
+    (command) =>
+      command.subCommands({
+        monitor_channel: unsetMonitorChannelSubCommand.handler,
       }),
   );
 });
@@ -242,6 +333,7 @@ const makeServerCommand = Effect.gen(function* () {
   const addCommandGroup = yield* makeAddCommandGroup;
   const removeCommandGroup = yield* makeRemoveCommandGroup;
   const setCommandGroup = yield* makeSetCommandGroup;
+  const unsetCommandGroup = yield* makeUnsetCommandGroup;
 
   return yield* CommandHelper.makeCommand(
     (builder) =>
@@ -252,6 +344,7 @@ const makeServerCommand = Effect.gen(function* () {
         .addSubcommandGroup(() => addCommandGroup.data)
         .addSubcommandGroup(() => removeCommandGroup.data)
         .addSubcommandGroup(() => setCommandGroup.data)
+        .addSubcommandGroup(() => unsetCommandGroup.data)
         .setIntegrationTypes(
           ApplicationIntegrationType.GuildInstall,
           ApplicationIntegrationType.UserInstall,
@@ -267,6 +360,7 @@ const makeServerCommand = Effect.gen(function* () {
         add: addCommandGroup.handler,
         remove: removeCommandGroup.handler,
         set: setCommandGroup.handler,
+        unset: unsetCommandGroup.handler,
       }),
   );
 });

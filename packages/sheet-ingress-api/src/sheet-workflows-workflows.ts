@@ -61,8 +61,12 @@ import {
   WorkspaceRemoveMonitorRoleDispatchResult,
   WorkspaceSetAutoCheckinDispatchPayload,
   WorkspaceSetAutoCheckinDispatchResult,
+  WorkspaceSetMonitorChannelDispatchPayload,
+  WorkspaceSetMonitorChannelDispatchResult,
   WorkspaceSetSheetDispatchPayload,
   WorkspaceSetSheetDispatchResult,
+  WorkspaceUnsetMonitorChannelDispatchPayload,
+  WorkspaceUnsetMonitorChannelDispatchResult,
   ScreenshotDispatchPayload,
   ScreenshotDispatchResult,
   SlotButtonDispatchPayload,
@@ -178,6 +182,8 @@ const workflowName = {
   workspaceRemoveMonitorRole: "dispatch.workspaceRemoveMonitorRole",
   workspaceSetSheet: "dispatch.workspaceSetSheet",
   workspaceSetAutoCheckin: "dispatch.workspaceSetAutoCheckin",
+  workspaceSetMonitorChannel: "dispatch.workspaceSetMonitorChannel",
+  workspaceUnsetMonitorChannel: "dispatch.workspaceUnsetMonitorChannel",
   teamList: "dispatch.teamList",
   teamSubmission: "dispatch.teamSubmission",
   teamSubmissionConfirmButton: "dispatch.teamSubmission.confirmButton",
@@ -452,6 +458,22 @@ export const DispatchWorkspaceSetAutoCheckinWorkflow = Workflow.make({
   idempotencyKey: ({ payload }) => dispatchRequestIdempotencyKey(payload),
 });
 
+export const DispatchWorkspaceSetMonitorChannelWorkflow = Workflow.make({
+  name: workflowName.workspaceSetMonitorChannel,
+  payload: dispatchPayload(WorkspaceSetMonitorChannelDispatchPayload),
+  success: WorkspaceSetMonitorChannelDispatchResult,
+  error: BotCommandDispatchError,
+  idempotencyKey: ({ payload }) => dispatchRequestIdempotencyKey(payload),
+});
+
+export const DispatchWorkspaceUnsetMonitorChannelWorkflow = Workflow.make({
+  name: workflowName.workspaceUnsetMonitorChannel,
+  payload: dispatchPayload(WorkspaceUnsetMonitorChannelDispatchPayload),
+  success: WorkspaceUnsetMonitorChannelDispatchResult,
+  error: BotCommandDispatchError,
+  idempotencyKey: ({ payload }) => dispatchRequestIdempotencyKey(payload),
+});
+
 export const DispatchTeamListWorkflow = Workflow.make({
   name: workflowName.teamList,
   payload: dispatchPayload(TeamListDispatchPayload),
@@ -533,6 +555,8 @@ export const DispatchWorkflows = [
   DispatchWorkspaceRemoveMonitorRoleWorkflow,
   DispatchWorkspaceSetSheetWorkflow,
   DispatchWorkspaceSetAutoCheckinWorkflow,
+  DispatchWorkspaceSetMonitorChannelWorkflow,
+  DispatchWorkspaceUnsetMonitorChannelWorkflow,
   DispatchTeamListWorkflow,
   DispatchTeamSubmissionWorkflow,
   DispatchTeamSubmissionConfirmButtonWorkflow,
@@ -801,6 +825,20 @@ export const DispatchWorkflowOperations = {
     workflow: DispatchWorkspaceSetAutoCheckinWorkflow,
     rpcTag: DispatchWorkspaceSetAutoCheckinWorkflow.name,
     discardRpcTag: `${DispatchWorkspaceSetAutoCheckinWorkflow.name}Discard`,
+  },
+  workspaceSetMonitorChannel: {
+    operation: "workspaceSetMonitorChannel",
+    endpointName: "workspaceSetMonitorChannel",
+    workflow: DispatchWorkspaceSetMonitorChannelWorkflow,
+    rpcTag: DispatchWorkspaceSetMonitorChannelWorkflow.name,
+    discardRpcTag: `${DispatchWorkspaceSetMonitorChannelWorkflow.name}Discard`,
+  },
+  workspaceUnsetMonitorChannel: {
+    operation: "workspaceUnsetMonitorChannel",
+    endpointName: "workspaceUnsetMonitorChannel",
+    workflow: DispatchWorkspaceUnsetMonitorChannelWorkflow,
+    rpcTag: DispatchWorkspaceUnsetMonitorChannelWorkflow.name,
+    discardRpcTag: `${DispatchWorkspaceUnsetMonitorChannelWorkflow.name}Discard`,
   },
   teamList: {
     operation: "teamList",

@@ -159,6 +159,20 @@ export const dispatchHandlers = {
         authorizedSheetWorkflowsDispatch("workspaceSetAutoCheckin", requireManageWorkspaceSnapshot),
       )
       .handle(
+        "workspaceSetMonitorChannel",
+        authorizedSheetWorkflowsDispatch(
+          "workspaceSetMonitorChannel",
+          requireManageWorkspaceSnapshot,
+        ),
+      )
+      .handle(
+        "workspaceUnsetMonitorChannel",
+        authorizedSheetWorkflowsDispatch(
+          "workspaceUnsetMonitorChannel",
+          requireManageWorkspaceSnapshot,
+        ),
+      )
+      .handle(
         "teamList",
         authorizedSheetWorkflowsDispatch("teamList", ({ payload }) =>
           requireSelfOrMonitorSnapshot(payload.workspaceId, payload.targetUserId),

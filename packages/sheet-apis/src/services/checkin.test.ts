@@ -1,7 +1,11 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Option } from "effect";
 import { ScheduleConfig } from "sheet-ingress-api/schemas/sheetConfig";
-import { getScheduleFillCount, hasCompleteScheduleConfigForChannel } from "./checkin";
+import {
+  getScheduleFillCount,
+  hasCompleteScheduleConfigForChannel,
+  requiresMonitorCheckin,
+} from "./checkin";
 import { makePartialFill, makeResolvedFill, makeSchedule } from "./testHelpers";
 
 const makeScheduleConfig = (
@@ -92,5 +96,20 @@ describe("hasCompleteScheduleConfigForChannel", () => {
 
   it("matches channel names with leading and trailing whitespace", () => {
     expect(hasCompleteScheduleConfigForChannel([makeScheduleConfig()], " main ")).toBe(true);
+  });
+});
+
+describe("requiresMonitorCheckin", () => {
+  it("requires a check-in for a newly assigned or changed monitor", () => {
+    expect(requiresMonitorCheckin("monitor-1", null)).toBe(true);
+    expect(requiresMonitorCheckin("monitor-2", "monitor-1")).toBe(true);
+  });
+
+  it("does not require another check-in for the previous hour's monitor", () => {
+    expect(requiresMonitorCheckin("monitor-1", "monitor-1")).toBe(false);
+  });
+
+  it("does not create a check-in for an unresolved monitor", () => {
+    expect(requiresMonitorCheckin(null, "monitor-1")).toBe(false);
   });
 });

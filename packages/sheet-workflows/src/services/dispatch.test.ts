@@ -30,7 +30,9 @@ import type {
   WorkspaceListConfigDispatchPayload,
   WorkspaceRemoveMonitorRoleDispatchPayload,
   WorkspaceSetAutoCheckinDispatchPayload,
+  WorkspaceSetMonitorChannelDispatchPayload,
   WorkspaceSetSheetDispatchPayload,
+  WorkspaceUnsetMonitorChannelDispatchPayload,
   ScreenshotDispatchPayload,
   ServiceStatusDispatchPayload,
   SlotButtonDispatchPayload,
@@ -656,6 +658,7 @@ const makeWorkspaceConfig = (
     workspaceId: "workspace-1",
     sheetId: Option.some("sheet-1"),
     autoCheckin: Option.some(true),
+    monitorConversationId: Option.none(),
     createdAt: Option.none(),
     updatedAt: Option.none(),
     deletedAt: Option.none(),
@@ -1101,11 +1104,13 @@ describe("DispatchService", () => {
               hour: 1,
               runningConversationId: "conversation-1",
               checkinConversationId: "checkin-conversation-1",
+              monitorConversationId: "monitor-conversation-1",
               fillCount: 5,
               roleId: "role-1",
               initialMessage: text("Check in user-1"),
               monitorCheckinMessage: text("Monitor summary monitor-1"),
               monitorUserId: "monitor-1",
+              monitorCheckinRequired: true,
               monitorFailureMessage: null,
               fillIds: ["user-1", "user-2", "user-3", "user-4", "user-5"],
             });
@@ -1214,9 +1219,12 @@ describe("DispatchService", () => {
       expect(firstEmbedDescription(updateCalls[0]?.payload)).not.toContain("@auth-user-1");
       expect(sendCalls.map((call) => call.conversationId)).toEqual([
         "checkin-conversation-1",
-        "conversation-1",
+        "monitor-conversation-1",
         "conversation-1",
       ]);
+      expect(firstEmbedDescription(sendCalls[1]?.payload)).toContain(
+        "@monitor-1 would be asked to check in.",
+      );
       for (const call of sendCalls) {
         expect(call.payload).toMatchObject({
           content: null,
@@ -1255,6 +1263,7 @@ describe("DispatchService", () => {
               hour: 1,
               runningConversationId: "running-conversation",
               checkinConversationId: "checkin-conversation",
+              monitorConversationId: null,
               fillCount: 0,
               roleId: null,
               initialMessage: null,
@@ -1263,6 +1272,7 @@ describe("DispatchService", () => {
                 { type: "userMention" as const, userId: "filler-1" },
               ],
               monitorUserId: "monitor-1",
+              monitorCheckinRequired: true,
               monitorFailureMessage: null,
               fillIds: [],
             }),
@@ -1318,11 +1328,13 @@ describe("DispatchService", () => {
               hour: 1,
               runningConversationId: "running-conversation",
               checkinConversationId: "checkin-conversation",
+              monitorConversationId: null,
               fillCount: 0,
               roleId: null,
               initialMessage: text("Check in"),
               monitorCheckinMessage: text("Check-in opened"),
               monitorUserId: null,
+              monitorCheckinRequired: false,
               monitorFailureMessage: null,
               fillIds: [],
             }),
@@ -1404,11 +1416,13 @@ describe("DispatchService", () => {
                 hour: 1,
                 runningConversationId: "anchor-conversation-1",
                 checkinConversationId: "anchor-conversation-1",
+                monitorConversationId: null,
                 fillCount: 0,
                 roleId: "role-1",
                 initialMessage: null,
                 monitorCheckinMessage: text("Monitor summary"),
                 monitorUserId: "monitor-1",
+                monitorCheckinRequired: true,
                 monitorFailureMessage: null,
                 fillIds: [],
               }),
@@ -2147,11 +2161,13 @@ describe("DispatchService", () => {
     }),
   );
 
-  it.effect("uses the requester Discord user id for check-in side effects and output", () =>
+  it.effect("uses the requester id and announces only the first button check-in", () =>
     Effect.gen(function* () {
       const memberMutationCalls: Array<unknown> = [];
+      const memberMutationClaimIds: Array<string> = [];
       const roleCalls: Array<ReadonlyArray<string>> = [];
       const sendCalls: Array<{ readonly conversationId: string; readonly payload: unknown }> = [];
+      let persistedClaimId: string | undefined;
       const botClient = makeClientDeliveryMock({
         updateOriginalInteractionResponse: () =>
           Effect.succeed({ id: "interaction-message-1", conversation_id: "conversation-1" }),
@@ -2180,10 +2196,12 @@ describe("DispatchService", () => {
             readonly payload: { readonly checkinClaimId: string };
           }) => {
             memberMutationCalls.push(args);
+            memberMutationClaimIds.push(args.payload.checkinClaimId);
+            persistedClaimId ??= args.payload.checkinClaimId;
             return Effect.succeed({
               memberId: "discord-user-1",
               checkinAt: Option.some({}),
-              checkinClaimId: Option.some(args.payload.checkinClaimId),
+              checkinClaimId: Option.some(persistedClaimId),
             });
           },
           getMessageCheckinMembers: () =>
@@ -2197,16 +2215,27 @@ describe("DispatchService", () => {
       });
 
       const result = yield* runWithDispatchService(botClient, sheetApisClient, (service) =>
-        service.checkinButton(checkinButtonPayload, requester),
+        Effect.andThen(
+          service.checkinButton(checkinButtonPayload, requester),
+          service.checkinButton(checkinButtonPayload, requester),
+        ),
       );
 
       expect(result.checkedInMemberId).toBe("discord-user-1");
-      expect(memberMutationCalls).toEqual([
-        {
-          payload: expect.objectContaining({ memberId: "discord-user-1" }),
-        },
+      expect(memberMutationCalls).toHaveLength(2);
+      expect(memberMutationClaimIds[0]).not.toBe(memberMutationClaimIds[1]);
+      expect(persistedClaimId).toBe(memberMutationClaimIds[0]);
+      expect(memberMutationCalls).toEqual(
+        expect.arrayContaining([
+          {
+            payload: expect.objectContaining({ memberId: "discord-user-1" }),
+          },
+        ]),
+      );
+      expect(roleCalls).toEqual([
+        ["workspace-1", "discord-user-1", "role-1"],
+        ["workspace-1", "discord-user-1", "role-1"],
       ]);
-      expect(roleCalls).toEqual([["workspace-1", "discord-user-1", "role-1"]]);
       expect(sendCalls).toEqual([
         {
           conversationId: "running-conversation-1",
@@ -3641,7 +3670,11 @@ describe("DispatchService", () => {
         workspaceConfig: {
           getWorkspaceConfig: (args: unknown) => {
             sheetApiCalls.push(["getWorkspaceConfig", args]);
-            return Effect.succeed(makeWorkspaceConfig());
+            return Effect.succeed(
+              makeWorkspaceConfig({
+                monitorConversationId: Option.some("monitor-channel"),
+              }),
+            );
           },
           getWorkspaceMonitorRoles: (args: unknown) => {
             sheetApiCalls.push(["getWorkspaceMonitorRoles", args]);
@@ -3678,7 +3711,8 @@ describe("DispatchService", () => {
         embeds: [
           {
             title: "Config for Workspace One",
-            description: "Sheet id: sheet\\-1\nAuto check-in: Enabled\nMonitor role: @role:role-1",
+            description:
+              "Sheet id: sheet\\-1\nAuto check-in: Enabled\nMonitor channel: #monitor-channel\nMonitor role: @role:role-1",
           },
         ],
       });
@@ -3833,6 +3867,156 @@ describe("DispatchService", () => {
       ]);
       expect(updateCalls[0]?.payload).toMatchObject({
         embeds: [{ description: "Auto check-in for Workspace One is now disabled." }],
+      });
+    }),
+  );
+
+  it.effect("sets the server monitor channel", () =>
+    Effect.gen(function* () {
+      const updateCalls: Array<{
+        readonly interactionResponseToken: string;
+        readonly payload: unknown;
+      }> = [];
+      const sheetApiCalls: Array<unknown> = [];
+      const sheetApisClient = makeSheetApisClient({
+        workspaceConfig: {
+          upsertWorkspaceConfig: (args: unknown) => {
+            sheetApiCalls.push(args);
+            return Effect.succeed(
+              makeWorkspaceConfig({
+                monitorConversationId: Option.some("monitor-channel"),
+              }),
+            );
+          },
+        },
+      });
+
+      const result = yield* runWithDispatchService(
+        makeInteractionUpdateBotClient(updateCalls, {
+          getConversationsForParent: () =>
+            Effect.succeed([makeConversationEntry({ id: "monitor-channel" })]),
+        }),
+        sheetApisClient,
+        (service) =>
+          service.workspaceSetMonitorChannel({
+            ...commandBase,
+            dispatchRequestId: "dispatch-server-set-monitor-channel",
+            workspaceId: "workspace-1",
+            monitorConversationId: "monitor-channel",
+          } satisfies WorkspaceSetMonitorChannelDispatchPayload),
+      );
+
+      expect(result).toEqual({
+        workspaceId: "workspace-1",
+        monitorConversationId: "monitor-channel",
+      });
+      expect(sheetApiCalls).toEqual([
+        {
+          payload: {
+            workspaceId: "workspace-1",
+            config: { monitorConversationId: "monitor-channel" },
+          },
+        },
+      ]);
+      expect(updateCalls[0]?.payload).toMatchObject({
+        embeds: [
+          {
+            description:
+              "Monitor check-ins and automatic summaries will be sent to #monitor-channel.",
+          },
+        ],
+      });
+    }),
+  );
+
+  it.effect("rejects foreign-workspace and non-message monitor channels before persistence", () =>
+    Effect.gen(function* () {
+      const baseConversation = makeConversationEntry({ id: "monitor-channel" });
+      const cases = [
+        {
+          conversation: {
+            ...baseConversation,
+            parentId: "workspace-2",
+            value: { ...baseConversation.value, workspace_id: "workspace-2" },
+          },
+          message: "The monitor channel must belong to the configured workspace",
+        },
+        {
+          conversation: makeConversationEntry({ id: "monitor-channel", type: 2 }),
+          message: "The monitor channel must be a text or announcement channel",
+        },
+      ] as const;
+
+      for (const testCase of cases) {
+        const sheetApisClient = makeSheetApisClient({
+          workspaceConfig: {
+            upsertWorkspaceConfig: () =>
+              Effect.die("invalid monitor channels must not be persisted"),
+          },
+        });
+        const exit = yield* runWithDispatchService(
+          makeInteractionUpdateBotClient([], {
+            getConversationsForParent: () => Effect.succeed([testCase.conversation]),
+          }),
+          sheetApisClient,
+          (service) =>
+            service.workspaceSetMonitorChannel({
+              ...commandBase,
+              dispatchRequestId: "dispatch-server-set-invalid-monitor-channel",
+              workspaceId: "workspace-1",
+              monitorConversationId: "monitor-channel",
+            } satisfies WorkspaceSetMonitorChannelDispatchPayload),
+        ).pipe(Effect.exit);
+
+        const error = Exit.isFailure(exit) ? Cause.findErrorOption(exit.cause) : Option.none();
+        expect(Option.getOrNull(error)).toMatchObject({ message: testCase.message });
+      }
+    }),
+  );
+
+  it.effect("unsets the server monitor channel", () =>
+    Effect.gen(function* () {
+      const updateCalls: Array<{
+        readonly interactionResponseToken: string;
+        readonly payload: unknown;
+      }> = [];
+      const sheetApiCalls: Array<unknown> = [];
+      const sheetApisClient = makeSheetApisClient({
+        workspaceConfig: {
+          upsertWorkspaceConfig: (args: unknown) => {
+            sheetApiCalls.push(args);
+            return Effect.succeed(makeWorkspaceConfig({ monitorConversationId: Option.none() }));
+          },
+        },
+      });
+
+      const result = yield* runWithDispatchService(
+        makeInteractionUpdateBotClient(updateCalls),
+        sheetApisClient,
+        (service) =>
+          service.workspaceUnsetMonitorChannel({
+            ...commandBase,
+            dispatchRequestId: "dispatch-server-unset-monitor-channel",
+            workspaceId: "workspace-1",
+          } satisfies WorkspaceUnsetMonitorChannelDispatchPayload),
+      );
+
+      expect(result).toEqual({ workspaceId: "workspace-1" });
+      expect(sheetApiCalls).toEqual([
+        {
+          payload: {
+            workspaceId: "workspace-1",
+            config: { monitorConversationId: null },
+          },
+        },
+      ]);
+      expect(updateCalls[0]?.payload).toMatchObject({
+        embeds: [
+          {
+            description:
+              "Monitor channel unset. Automatic summaries will use their running channels.",
+          },
+        ],
       });
     }),
   );
