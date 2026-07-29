@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { ChannelPermissionOverwrite } from "./channel";
 
 const LooseObject = Schema.Record(Schema.String, Schema.Unknown);
 const AllowedMentionType = Schema.Literals(["roles", "users", "everyone"]);
@@ -181,6 +182,15 @@ export const AddGuildMemberRolePayloadSchema = Schema.Struct({
 });
 
 export const RemoveGuildMemberRolePayloadSchema = AddGuildMemberRolePayloadSchema;
+
+export const ReplaceChannelPermissionOverwritesPayloadSchema = Schema.Struct({
+  params: Schema.Struct({
+    channelId: Schema.String,
+  }),
+  payload: Schema.Struct({
+    permissionOverwrites: Schema.Array(ChannelPermissionOverwrite),
+  }),
+});
 
 export const EmptyBotResponseSchema = Schema.Struct({});
 

@@ -7,11 +7,13 @@ import {
 } from "./enums";
 import { DiscordUser } from "./user";
 
+export const DiscordPermissionBitfield = Schema.String.check(Schema.isPattern(/^\d+$/));
+
 export const ChannelPermissionOverwrite = Schema.Struct({
   id: Schema.String,
   type: Schema.Literals([0, 1]),
-  allow: Schema.String,
-  deny: Schema.String,
+  allow: DiscordPermissionBitfield,
+  deny: DiscordPermissionBitfield,
 });
 
 export const ForumTag = Schema.Struct({

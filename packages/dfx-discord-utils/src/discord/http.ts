@@ -271,6 +271,16 @@ export const discordHttpApiHandlersLayer: Layer.Layer<
                 "Failed to update original interaction response with files",
               ),
           )
+          .handle("replaceChannelPermissionOverwrites", ({ params: { channelId }, payload }) =>
+            handleBotRestError(
+              rest
+                .updateChannel(channelId, {
+                  permission_overwrites: [...payload.permissionOverwrites],
+                })
+                .pipe(Effect.as({})),
+              `Failed to replace permission overwrites for channel ${channelId}`,
+            ),
+          )
           .handle("createPin", ({ params: { channelId, messageId } }) =>
             handleBotRestError(
               rest.createPin(channelId, messageId).pipe(Effect.as({})),

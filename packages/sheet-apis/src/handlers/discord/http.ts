@@ -3,8 +3,14 @@ import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 import { Effect, Layer, Match, Metric, Predicate, Redacted, Schema } from "effect";
 import { makeArgumentError } from "typhoon-core/error";
 import { type HandlerMap, sheetApisGroupLayer } from "@/handlers/shared/httpApiLayer";
+import { withCurrentWorkspaceAuthFromParams } from "@/handlers/shared/workspaceAuthorization";
 import { Discord } from "@/schema";
-import { discordLayer as discordServiceLayer, DiscordAccessTokenService } from "@/services";
+import {
+  AuthorizationService,
+  discordLayer as discordServiceLayer,
+  DiscordAccessTokenService,
+  IngressBotClient,
+} from "@/services";
 import { discordGuildCacheFailures } from "@/metrics/discord";
 
 const DiscordMyGuild = Schema.Struct({
@@ -112,6 +118,9 @@ export const discordLayer = sheetApisGroupLayer(
     const guildsCache = yield* GuildsApiCacheView;
     const httpClient = yield* HttpClient.HttpClient;
     const discordAccessTokenService = yield* DiscordAccessTokenService;
+    const authorizationService = yield* AuthorizationService;
+    const ingressBotClient = yield* IngressBotClient;
+    const withParamsWorkspaceAuth = withCurrentWorkspaceAuthFromParams(authorizationService);
 
     const getDiscordJson = Effect.fn("getDiscordJson")(function* (
       url: string,
@@ -180,6 +189,27 @@ export const discordLayer = sheetApisGroupLayer(
           ),
         );
       }),
+      "discord.getGuildChannels": withParamsWorkspaceAuth(
+        Effect.fnUntraced(function* ({ params }) {
+          yield* Effect.annotateCurrentSpan({ workspaceId: params.workspaceId });
+          yield* authorizationService.requireMonitorOrManageWorkspace(params.workspaceId);
+          return yield* ingressBotClient.getGuildChannels(params.workspaceId);
+        }),
+      ),
+      "discord.getGuildRoles": withParamsWorkspaceAuth(
+        Effect.fnUntraced(function* ({ params }) {
+          yield* Effect.annotateCurrentSpan({ workspaceId: params.workspaceId });
+          yield* authorizationService.requireManageWorkspace(params.workspaceId);
+          return yield* ingressBotClient.getGuildRoles(params.workspaceId);
+        }),
+      ),
     } satisfies HandlerMap<"discord">;
   }),
-).pipe(Layer.provide([discordServiceLayer, DiscordAccessTokenService.layer]));
+).pipe(
+  Layer.provide([
+    AuthorizationService.layer,
+    discordServiceLayer,
+    DiscordAccessTokenService.layer,
+    IngressBotClient.layer,
+  ]),
+);

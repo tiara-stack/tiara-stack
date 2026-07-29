@@ -63,13 +63,16 @@ export const requireNonService = () =>
     }
   });
 
-export const requireGuild = (scope: "member" | "monitor" | "manage", guildId: string) =>
+type GuildScope = "member" | "monitor" | "manage" | "monitorOrManage";
+
+export const requireGuild = (scope: GuildScope, guildId: string) =>
   Effect.gen(function* () {
     const authorization = yield* AuthorizationService;
     const requireScope = {
       member: authorization.requireWorkspaceMember,
       monitor: authorization.requireMonitorWorkspace,
       manage: authorization.requireManageWorkspace,
+      monitorOrManage: authorization.requireMonitorOrManageWorkspace,
     } as const;
     yield* requireScope[scope](guildId);
   });
@@ -112,7 +115,7 @@ const guildRequest = <
 >(
   group: GroupName,
   endpoint: EndpointName,
-  scope: "member" | "monitor" | "manage",
+  scope: GuildScope,
   extract: (args: SheetApisProxyRequest<GroupName, EndpointName>) => Value,
   selectGuildId: (value: Value) => string,
 ) =>
@@ -128,7 +131,7 @@ export const guildQuery = <
 >(
   group: GroupName,
   endpoint: EndpointName,
-  scope: "member" | "monitor" | "manage",
+  scope: GuildScope,
   selectGuildId: (query: QueryOf<SheetApisProxyRequest<GroupName, EndpointName>>) => string,
 ) => guildRequest(group, endpoint, scope, extractQuery, selectGuildId);
 
@@ -138,7 +141,7 @@ export const guildPayload = <
 >(
   group: GroupName,
   endpoint: EndpointName,
-  scope: "member" | "monitor" | "manage",
+  scope: GuildScope,
   selectGuildId: (payload: PayloadOf<SheetApisProxyRequest<GroupName, EndpointName>>) => string,
 ) => guildRequest(group, endpoint, scope, extractPayload, selectGuildId);
 

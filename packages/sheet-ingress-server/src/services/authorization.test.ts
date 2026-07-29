@@ -3,6 +3,7 @@ import { vi } from "vitest";
 import { Cause, Duration, Effect, Exit, Layer, Option, Redacted } from "effect";
 import { TestClock } from "effect/testing";
 import { SheetAuthUser } from "sheet-ingress-api/internal";
+import { Unauthorized } from "typhoon-core/error";
 import {
   AuthorizationService,
   hasDiscordAccountPermission,
@@ -190,6 +191,45 @@ describe("AuthorizationService", () => {
       expect(getWorkspaceMonitorRoles).toHaveBeenCalledTimes(1);
       expect(sheetBotCacheClient.getMember).toHaveBeenCalledTimes(1);
     }),
+  );
+
+  it.effect(
+    "allows monitor, manager, service, and app-owner lockdown access but rejects members",
+    () =>
+      Effect.gen(function* () {
+        const requireAccess = Effect.gen(function* () {
+          const authorization = yield* AuthorizationService;
+          yield* authorization.requireMonitorOrManageWorkspace("guild-1");
+        });
+
+        const monitorClient = makeSheetApisForwardingClient(["role-monitor"]);
+        yield* runAuthorization(requireAccess, {
+          sheetApisForwardingClient: monitorClient.client,
+          sheetBotCacheClient: makeSheetBotCacheClient({
+            member: Option.some({ roles: ["role-monitor"] }),
+          }),
+        });
+
+        yield* runAuthorization(requireAccess, {
+          sheetBotCacheClient: makeSheetBotCacheClient({
+            member: Option.some({ roles: ["role-manager"] }),
+            roles: new Map([["role-manager", { id: "role-manager", permissions: "32" }]]),
+          }),
+        });
+
+        yield* runAuthorization(requireAccess, {
+          user: makeUser(["service"]),
+        });
+        yield* runAuthorization(requireAccess, {
+          user: makeUser(["app_owner"]),
+        });
+
+        const denied = yield* Effect.exit(runAuthorization(requireAccess));
+        expect(Exit.isFailure(denied)).toBe(true);
+        if (Exit.isFailure(denied)) {
+          expect(Cause.squash(denied.cause)).toBeInstanceOf(Unauthorized);
+        }
+      }),
   );
 
   it.live("caches guild permission resolution for the same token and guild", () =>

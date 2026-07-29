@@ -1,10 +1,12 @@
 import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { Schema, SchemaGetter } from "effect";
-import { SchemaError, ArgumentError } from "typhoon-core/error";
+import { SchemaError, ArgumentError, Unauthorized } from "typhoon-core/error";
 import { QueryResultError, MutatorResultError } from "typhoon-zero/error";
+import { DiscordBotRestErrors } from "dfx-discord-utils/discord/schema";
 import {
   FeatureFlagName,
   WorkspaceConversationConfig,
+  WorkspaceConversationLockdownResult,
   WorkspaceConfig,
   WorkspaceFeatureFlag,
   WorkspaceMonitorRole,
@@ -37,7 +39,7 @@ export class WorkspaceConfigApi extends HttpApiGroup.make("workspaceConfig")
         workspaceId: Schema.String,
       }),
       success: WorkspaceConfig,
-      error: [SchemaError, QueryResultError, ArgumentError],
+      error: [SchemaError, QueryResultError, ArgumentError, Unauthorized],
     }),
   )
   .add(
@@ -51,7 +53,7 @@ export class WorkspaceConfigApi extends HttpApiGroup.make("workspaceConfig")
         }),
       }),
       success: WorkspaceConfig,
-      error: [SchemaError, QueryResultError, MutatorResultError],
+      error: [SchemaError, QueryResultError, MutatorResultError, Unauthorized],
     }),
   )
   .add(
@@ -60,7 +62,7 @@ export class WorkspaceConfigApi extends HttpApiGroup.make("workspaceConfig")
         workspaceId: Schema.String,
       }),
       success: Schema.Array(WorkspaceMonitorRole),
-      error: [SchemaError, QueryResultError],
+      error: [SchemaError, QueryResultError, Unauthorized],
     }),
   )
   .add(
@@ -92,7 +94,7 @@ export class WorkspaceConfigApi extends HttpApiGroup.make("workspaceConfig")
         running: Schema.optional(BooleanFromString),
       }),
       success: Schema.Array(WorkspaceConversationConfig),
-      error: [SchemaError, QueryResultError],
+      error: [SchemaError, QueryResultError, Unauthorized],
     }),
   )
   .add(
@@ -143,7 +145,7 @@ export class WorkspaceConfigApi extends HttpApiGroup.make("workspaceConfig")
         roleId: Schema.String,
       }),
       success: WorkspaceMonitorRole,
-      error: [SchemaError, QueryResultError, MutatorResultError],
+      error: [SchemaError, QueryResultError, MutatorResultError, Unauthorized],
     }),
   )
   .add(
@@ -156,7 +158,7 @@ export class WorkspaceConfigApi extends HttpApiGroup.make("workspaceConfig")
           roleId: Schema.String,
         }),
         success: WorkspaceMonitorRole,
-        error: [SchemaError, QueryResultError, MutatorResultError, ArgumentError],
+        error: [SchemaError, QueryResultError, MutatorResultError, ArgumentError, Unauthorized],
       },
     ),
   )
@@ -236,6 +238,46 @@ export class WorkspaceConfigApi extends HttpApiGroup.make("workspaceConfig")
   )
   .add(
     HttpApiEndpoint.post(
+      "setupWorkspaceConversationLockdown",
+      "/workspaceConfig/setupWorkspaceConversationLockdown",
+      {
+        payload: Schema.Struct({
+          workspaceId: Schema.String,
+          conversationId: Schema.String,
+        }),
+        success: WorkspaceConversationLockdownResult,
+        error: [
+          SchemaError,
+          QueryResultError,
+          ArgumentError,
+          Unauthorized,
+          ...DiscordBotRestErrors,
+        ],
+      },
+    ),
+  )
+  .add(
+    HttpApiEndpoint.post(
+      "undoWorkspaceConversationLockdown",
+      "/workspaceConfig/undoWorkspaceConversationLockdown",
+      {
+        payload: Schema.Struct({
+          workspaceId: Schema.String,
+          conversationId: Schema.String,
+        }),
+        success: WorkspaceConversationLockdownResult,
+        error: [
+          SchemaError,
+          QueryResultError,
+          ArgumentError,
+          Unauthorized,
+          ...DiscordBotRestErrors,
+        ],
+      },
+    ),
+  )
+  .add(
+    HttpApiEndpoint.post(
       "upsertWorkspaceConversationConfig",
       "/workspaceConfig/upsertWorkspaceConversationConfig",
       {
@@ -250,7 +292,7 @@ export class WorkspaceConfigApi extends HttpApiGroup.make("workspaceConfig")
           }),
         }),
         success: WorkspaceConversationConfig,
-        error: [SchemaError, QueryResultError, MutatorResultError],
+        error: [SchemaError, QueryResultError, MutatorResultError, Unauthorized],
       },
     ),
   )

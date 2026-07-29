@@ -3597,6 +3597,44 @@ describe("DispatchService", () => {
     }),
   );
 
+  it.effect("rejects lockdown setup when @everyone is configured as the lockdown role", () =>
+    Effect.gen(function* () {
+      let permissionOverwriteUpdates = 0;
+      const sheetApisClient = makeSheetApisClient({
+        workspaceConfig: {
+          getWorkspaceConversationById: () =>
+            Effect.succeed(makeWorkspaceConversationConfig({ roleId: Option.some("workspace-1") })),
+          getWorkspaceMonitorRoles: () =>
+            Effect.die("monitor roles must not load for an invalid lockdown role"),
+        },
+      });
+
+      const exit = yield* Effect.exit(
+        runWithDispatchService(
+          makeClientDeliveryMock({
+            updateConversationPermissionOverwrites: () =>
+              Effect.sync(() => {
+                permissionOverwriteUpdates += 1;
+              }),
+          }),
+          sheetApisClient,
+          (service) =>
+            service.conversationLockdownSetup({
+              ...conversationConfigPayload,
+              dispatchRequestId: "dispatch-conversation-lockdown-setup-everyone",
+            } satisfies ConversationLockdownDispatchPayload),
+        ),
+      );
+
+      expect(permissionOverwriteUpdates).toBe(0);
+      const error = Exit.isFailure(exit) ? Cause.findErrorOption(exit.cause) : Option.none();
+      expect(Option.getOrNull(error)).toMatchObject({
+        _tag: "ArgumentError",
+        message: "The @everyone role cannot be used as the lockdown role",
+      });
+    }),
+  );
+
   it.effect("does not create a conversation config while unsetting missing fields", () =>
     Effect.gen(function* () {
       const upsertWorkspaceConversationConfig = () =>

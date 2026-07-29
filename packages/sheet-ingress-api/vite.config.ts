@@ -43,6 +43,7 @@ export default library({
       "client-delivery": fileURLToPath(new URL("./src/client-delivery.ts", import.meta.url)),
       clientActions: fileURLToPath(new URL("./src/clientActions.ts", import.meta.url)),
       dispatch: fileURLToPath(new URL("./src/dispatch.ts", import.meta.url)),
+      "guild-config": fileURLToPath(new URL("./src/guild-config.ts", import.meta.url)),
       internal: fileURLToPath(new URL("./src/internal.ts", import.meta.url)),
       schemas: fileURLToPath(new URL("./src/schemas.ts", import.meta.url)),
       index: fileURLToPath(new URL("./src/index.ts", import.meta.url)),

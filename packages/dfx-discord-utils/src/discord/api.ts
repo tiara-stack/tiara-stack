@@ -28,6 +28,7 @@ import {
   DiscordMessageSchema,
   EmptyBotResponseSchema,
   RemoveGuildMemberRolePayloadSchema,
+  ReplaceChannelPermissionOverwritesPayloadSchema,
   SendMessagePayloadSchema,
   UpdateMessagePayloadSchema,
   UpdateOriginalInteractionResponsePayloadSchema,
@@ -248,6 +249,18 @@ export class BotApi extends HttpApiGroup.make("bot")
           files: Multipart.FilesSchema,
         }).pipe(HttpApiSchema.asMultipart({ maxParts: 12, maxFileSize: 10 * 1024 * 1024 })),
         success: DiscordMessageSchema,
+        error: [...DiscordBotRestErrors, Unauthorized],
+      },
+    ),
+  )
+  .add(
+    HttpApiEndpoint.patch(
+      "replaceChannelPermissionOverwrites",
+      "/bot/channels/:channelId/permission-overwrites",
+      {
+        params: ReplaceChannelPermissionOverwritesPayloadSchema.fields.params,
+        payload: ReplaceChannelPermissionOverwritesPayloadSchema.fields.payload,
+        success: EmptyBotResponseSchema,
         error: [...DiscordBotRestErrors, Unauthorized],
       },
     ),

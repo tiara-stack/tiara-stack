@@ -1,6 +1,12 @@
-import { describe, expect, it } from "@effect/vitest";
 import { Exit, Schema } from "effect";
-import { DiscordChannel, DiscordMember, DiscordRole } from "./schema";
+import { describe, expect, it } from "vitest";
+import {
+  ChannelPermissionOverwrite,
+  DiscordChannel,
+  DiscordMember,
+  DiscordRole,
+  ReplaceChannelPermissionOverwritesPayloadSchema,
+} from "./schema";
 
 describe("Discord schema", () => {
   it("accepts guild member users without optional account flag fields", async () => {
@@ -78,5 +84,55 @@ describe("Discord schema", () => {
       ...role,
       description: null,
     });
+  });
+
+  it("round trips complete permission-overwrite replacement payloads", () => {
+    const payload = {
+      params: { channelId: "channel-1" },
+      payload: {
+        permissionOverwrites: [
+          {
+            id: "role-1",
+            type: 0 as const,
+            allow: "3072",
+            deny: "0",
+          },
+        ],
+      },
+    };
+
+    const decoded = Schema.decodeUnknownSync(ReplaceChannelPermissionOverwritesPayloadSchema)(
+      payload,
+    );
+
+    expect(
+      Schema.encodeUnknownSync(ReplaceChannelPermissionOverwritesPayloadSchema)(decoded),
+    ).toEqual(payload);
+  });
+
+  it("rejects malformed permission overwrite bitfields", () => {
+    expect(() =>
+      Schema.decodeUnknownSync(ChannelPermissionOverwrite)({
+        id: "role-1",
+        type: 0,
+        allow: "not-a-bitfield",
+        deny: "0",
+      }),
+    ).toThrow();
+    expect(() =>
+      Schema.decodeUnknownSync(ReplaceChannelPermissionOverwritesPayloadSchema)({
+        params: { channelId: "channel-1" },
+        payload: {
+          permissionOverwrites: [
+            {
+              id: "role-1",
+              type: 0,
+              allow: "3072",
+              deny: "-1",
+            },
+          ],
+        },
+      }),
+    ).toThrow();
   });
 });

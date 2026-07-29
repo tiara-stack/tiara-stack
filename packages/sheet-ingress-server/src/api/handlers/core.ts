@@ -1,5 +1,11 @@
 import { Effect } from "effect";
-import { guildPayload, requireNonService, requireService, serviceOnly } from "../authorization";
+import {
+  guildPayload,
+  requireGuild,
+  requireNonService,
+  requireService,
+  serviceOnly,
+} from "../authorization";
 import { authorizedSheetApis, statusGetServices } from "../sheetApisProxy";
 import type { IngressHandlerTable } from "../types";
 
@@ -19,6 +25,18 @@ export const coreHandlers = {
       .handle(
         "getCurrentUserGuilds",
         authorizedSheetApis("discord", "getCurrentUserGuilds", requireNonService),
+      )
+      .handle(
+        "getGuildChannels",
+        authorizedSheetApis("discord", "getGuildChannels", ({ params }) =>
+          requireGuild("monitorOrManage", params.workspaceId),
+        ),
+      )
+      .handle(
+        "getGuildRoles",
+        authorizedSheetApis("discord", "getGuildRoles", ({ params }) =>
+          requireGuild("manage", params.workspaceId),
+        ),
       ),
   userConfig: (handlers) =>
     handlers

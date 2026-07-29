@@ -26,7 +26,7 @@ export const workspaceHandlers = {
         guildQuery(
           "workspaceConfig",
           "getWorkspaceMonitorRoles",
-          "member",
+          "manage",
           (query) => query.workspaceId,
         ),
       )
@@ -47,7 +47,7 @@ export const workspaceHandlers = {
         guildQuery(
           "workspaceConfig",
           "getWorkspaceConversations",
-          "member",
+          "manage",
           (query) => query.workspaceId,
         ),
       )
@@ -98,6 +98,24 @@ export const workspaceHandlers = {
       .handle(
         "releaseWorkspaceUpdateAnnouncementDeliveryClaim",
         serviceOnly("workspaceConfig", "releaseWorkspaceUpdateAnnouncementDeliveryClaim"),
+      )
+      .handle(
+        "setupWorkspaceConversationLockdown",
+        guildPayload(
+          "workspaceConfig",
+          "setupWorkspaceConversationLockdown",
+          "monitorOrManage",
+          (payload) => payload.workspaceId,
+        ),
+      )
+      .handle(
+        "undoWorkspaceConversationLockdown",
+        guildPayload(
+          "workspaceConfig",
+          "undoWorkspaceConversationLockdown",
+          "monitorOrManage",
+          (payload) => payload.workspaceId,
+        ),
       )
       .handle(
         "upsertWorkspaceConversationConfig",

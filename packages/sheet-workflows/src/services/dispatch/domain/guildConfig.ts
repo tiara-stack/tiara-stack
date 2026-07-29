@@ -1,5 +1,9 @@
 import { Array, Effect, Option, Predicate } from "effect";
-import { PermissionFlagsBits } from "discord-api-types/v10";
+import {
+  isLockdownRoleIdAllowed,
+  lockdownEveryoneRoleErrorMessage,
+  makeLockdownPermissionOverwrites,
+} from "sheet-ingress-api/guild-config";
 import type {
   ConversationLockdownDispatchPayload,
   ConversationLockdownDispatchResult,
@@ -62,6 +66,21 @@ export const makeGuildConfigOperations = ({
     workspaceId: payload.workspaceId,
     conversationId: payload.conversationId,
   });
+  const requireConversationConfig = Effect.fn("DispatchService.requireConversationConfig")(
+    function* (payload: ConversationPayload, operation: string) {
+      const maybeConfig = yield* workspaceConfigService.getWorkspaceConversationById({
+        workspaceId: payload.workspaceId,
+        conversationId: payload.conversationId,
+      });
+      return yield* requireSome(maybeConfig, () =>
+        Effect.fail(
+          makeArgumentError(
+            `Cannot ${operation}, conversation ${payload.conversationId} is not configured`,
+          ),
+        ),
+      );
+    },
+  );
   const respondConversationConfig = (
     payload: ConversationPayload,
     config: ConversationConfig,
@@ -125,17 +144,6 @@ export const makeGuildConfigOperations = ({
     ]);
     return conversationResult(payload);
   });
-  const lockdownRoleBits =
-    PermissionFlagsBits.ViewChannel |
-    PermissionFlagsBits.ReadMessageHistory |
-    PermissionFlagsBits.SendMessages |
-    PermissionFlagsBits.UseExternalEmojis;
-  const lockdownRolePermissions = lockdownRoleBits.toString();
-  const monitorRolePermissions = (
-    lockdownRoleBits |
-    PermissionFlagsBits.ManageChannels |
-    PermissionFlagsBits.PinMessages
-  ).toString();
   const respondLockdownChange = (
     payload: ConversationLockdownDispatchPayload,
     action: "set up" | "removed",
@@ -166,17 +174,7 @@ export const makeGuildConfigOperations = ({
         workspaceId: payload.workspaceId,
         conversationId: payload.conversationId,
       });
-      const maybeConfig = yield* workspaceConfigService.getWorkspaceConversationById({
-        workspaceId: payload.workspaceId,
-        conversationId: payload.conversationId,
-      });
-      const config = yield* requireSome(maybeConfig, () =>
-        Effect.fail(
-          makeArgumentError(
-            `Cannot list conversation config, conversation ${payload.conversationId} is not configured`,
-          ),
-        ),
-      );
+      const config = yield* requireConversationConfig(payload, "list conversation config");
 
       yield* respondConversationConfig(payload, config, [
         MessageText.text("Config for this "),
@@ -212,17 +210,7 @@ export const makeGuildConfigOperations = ({
         workspaceId: payload.workspaceId,
         conversationId: payload.conversationId,
       });
-      const existingConfig = yield* workspaceConfigService.getWorkspaceConversationById({
-        workspaceId: payload.workspaceId,
-        conversationId: payload.conversationId,
-      });
-      yield* requireSome(existingConfig, () =>
-        Effect.fail(
-          makeArgumentError(
-            `Cannot unset conversation config, conversation ${payload.conversationId} is not configured`,
-          ),
-        ),
-      );
+      yield* requireConversationConfig(payload, "unset conversation config");
       const mutation = yield* requireConversationMutation("unset", {
         ...(payload.running ? { running: null } : {}),
         ...(payload.name ? { name: null } : {}),
@@ -241,29 +229,19 @@ export const makeGuildConfigOperations = ({
         workspaceId: payload.workspaceId,
         conversationId: payload.conversationId,
       });
-      const [maybeConfig, monitorRoles] = yield* Effect.all(
-        [
-          workspaceConfigService.getWorkspaceConversationById({
-            workspaceId: payload.workspaceId,
-            conversationId: payload.conversationId,
-          }),
-          workspaceConfigService.getWorkspaceMonitorRoles(payload.workspaceId),
-        ],
-        { concurrency: 2 },
-      );
-      const config = yield* requireSome(maybeConfig, () =>
-        Effect.fail(
-          makeArgumentError(
-            `Cannot set up lockdown permissions, conversation ${payload.conversationId} is not configured`,
-          ),
-        ),
-      );
+      const config = yield* requireConversationConfig(payload, "set up lockdown permissions");
       const roleId = yield* requireSome(config.roleId, () =>
         Effect.fail(
           makeArgumentError(
             `Cannot set up lockdown permissions, conversation ${payload.conversationId} has no lockdown role`,
           ),
         ),
+      );
+      if (!isLockdownRoleIdAllowed(payload.workspaceId, roleId)) {
+        return yield* Effect.fail(makeArgumentError(lockdownEveryoneRoleErrorMessage));
+      }
+      const monitorRoles = yield* workspaceConfigService.getWorkspaceMonitorRoles(
+        payload.workspaceId,
       );
 
       // This command intentionally establishes the complete channel permission baseline. Discord
@@ -272,23 +250,11 @@ export const makeGuildConfigOperations = ({
       yield* botClient.updateConversationPermissionOverwrites(
         payload.workspaceId,
         payload.conversationId,
-        [
-          { id: roleId, type: 0, allow: lockdownRolePermissions, deny: "0" },
-          ...monitorRoles
-            .filter(({ roleId: monitorRoleId }) => monitorRoleId !== roleId)
-            .map(({ roleId: monitorRoleId }) => ({
-              id: monitorRoleId,
-              type: 0 as const,
-              allow: monitorRolePermissions,
-              deny: "0",
-            })),
-          {
-            id: payload.workspaceId,
-            type: 0,
-            allow: "0",
-            deny: PermissionFlagsBits.ViewChannel.toString(),
-          },
-        ],
+        makeLockdownPermissionOverwrites({
+          workspaceId: payload.workspaceId,
+          lockdownRoleId: roleId,
+          monitorRoleIds: monitorRoles.map(({ roleId: monitorRoleId }) => monitorRoleId),
+        }),
       );
       yield* respondLockdownChange(payload, "set up");
       return conversationResult(payload) satisfies ConversationLockdownDispatchResult;

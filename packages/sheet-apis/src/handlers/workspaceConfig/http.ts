@@ -5,8 +5,13 @@ import {
   withCurrentWorkspaceAuthFromQuery,
 } from "@/handlers/shared/workspaceAuthorization";
 import { makeArgumentError } from "typhoon-core/error";
-import { WorkspaceConfigService } from "@/services";
-import { AuthorizationService } from "@/services";
+import {
+  isLockdownRoleIdAllowed,
+  lockdownEveryoneRoleErrorMessage,
+  makeLockdownPermissionOverwrites,
+} from "sheet-ingress-api/guild-config";
+import type { WorkspaceConversationConfig } from "sheet-ingress-api/schemas/workspaceConfig";
+import { AuthorizationService, IngressBotClient, WorkspaceConfigService } from "@/services";
 
 const optionalRunningFilter = (running: boolean | undefined) =>
   Predicate.isUndefined(running) ? {} : { running };
@@ -17,10 +22,156 @@ const missingRunningFilterMessage = (
   messageWithRunning: string,
 ) => (Predicate.isUndefined(running) ? messageWithoutRunning : messageWithRunning);
 
+type WorkspaceConversationLockdownPayload = {
+  readonly workspaceId: string;
+  readonly conversationId: string;
+};
+
+type ReplaceChannelPermissionOverwrites<E, Requirements> = (
+  channelId: string,
+  permissionOverwrites: ReturnType<typeof makeLockdownPermissionOverwrites>,
+) => Effect.Effect<unknown, E, Requirements>;
+
+type GuildChannelsClient<E, Requirements> = {
+  readonly getGuildChannels: (
+    workspaceId: string,
+  ) => Effect.Effect<ReadonlyArray<{ readonly id: string }>, E, Requirements>;
+};
+
+type LockdownBotClient<ChannelsError, ChannelsRequirements, ReplaceError, ReplaceRequirements> =
+  GuildChannelsClient<ChannelsError, ChannelsRequirements> & {
+    readonly replaceChannelPermissionOverwrites: ReplaceChannelPermissionOverwrites<
+      ReplaceError,
+      ReplaceRequirements
+    >;
+  };
+
+const ensureChannelInWorkspace = Effect.fn("WorkspaceConfigHttp.ensureChannelInWorkspace")(
+  function* <E, Requirements>(
+    client: GuildChannelsClient<E, Requirements>,
+    operation: "set up" | "undo",
+    workspaceId: string,
+    conversationId: string,
+  ) {
+    const channels = yield* client.getGuildChannels(workspaceId);
+    if (!channels.some(({ id }) => id === conversationId)) {
+      return yield* Effect.fail(
+        makeArgumentError(
+          `Cannot ${operation} lockdown permissions, conversation ${conversationId} is not in workspace ${workspaceId}`,
+        ),
+      );
+    }
+  },
+);
+
+export const setupWorkspaceConversationLockdown = Effect.fn(
+  "WorkspaceConfigHttp.setupWorkspaceConversationLockdown",
+)(function* <
+  ConfigError,
+  ConfigRequirements,
+  MonitorRolesError,
+  MonitorRolesRequirements,
+  ChannelsError,
+  ChannelsRequirements,
+  ReplaceError,
+  ReplaceRequirements,
+>(
+  payload: WorkspaceConversationLockdownPayload,
+  workspaceConfigService: {
+    readonly getWorkspaceConversationById: (query: {
+      readonly workspaceId: string;
+      readonly conversationId: string;
+    }) => Effect.Effect<
+      Option.Option<WorkspaceConversationConfig>,
+      ConfigError,
+      ConfigRequirements
+    >;
+    readonly getWorkspaceMonitorRoles: (
+      workspaceId: string,
+    ) => Effect.Effect<
+      ReadonlyArray<{ readonly roleId: string }>,
+      MonitorRolesError,
+      MonitorRolesRequirements
+    >;
+  },
+  ingressBotClient: LockdownBotClient<
+    ChannelsError,
+    ChannelsRequirements,
+    ReplaceError,
+    ReplaceRequirements
+  >,
+) {
+  const maybeConfig = yield* workspaceConfigService.getWorkspaceConversationById({
+    workspaceId: payload.workspaceId,
+    conversationId: payload.conversationId,
+  });
+  if (Option.isNone(maybeConfig)) {
+    return yield* Effect.fail(
+      makeArgumentError(
+        `Cannot set up lockdown permissions, conversation ${payload.conversationId} is not configured`,
+      ),
+    );
+  }
+  if (Option.isNone(maybeConfig.value.roleId)) {
+    return yield* Effect.fail(
+      makeArgumentError(
+        `Cannot set up lockdown permissions, conversation ${payload.conversationId} has no lockdown role`,
+      ),
+    );
+  }
+  if (!isLockdownRoleIdAllowed(payload.workspaceId, maybeConfig.value.roleId.value)) {
+    return yield* Effect.fail(makeArgumentError(lockdownEveryoneRoleErrorMessage));
+  }
+  yield* ensureChannelInWorkspace(
+    ingressBotClient,
+    "set up",
+    payload.workspaceId,
+    payload.conversationId,
+  );
+  const monitorRoles = yield* workspaceConfigService.getWorkspaceMonitorRoles(payload.workspaceId);
+  yield* ingressBotClient.replaceChannelPermissionOverwrites(
+    payload.conversationId,
+    makeLockdownPermissionOverwrites({
+      workspaceId: payload.workspaceId,
+      lockdownRoleId: maybeConfig.value.roleId.value,
+      monitorRoleIds: monitorRoles.map(({ roleId }) => roleId),
+    }),
+  );
+  return {
+    workspaceId: payload.workspaceId,
+    conversationId: payload.conversationId,
+  };
+});
+
+export const undoWorkspaceConversationLockdown = Effect.fn(
+  "WorkspaceConfigHttp.undoWorkspaceConversationLockdown",
+)(function* <ChannelsError, ChannelsRequirements, ReplaceError, ReplaceRequirements>(
+  payload: WorkspaceConversationLockdownPayload,
+  ingressBotClient: LockdownBotClient<
+    ChannelsError,
+    ChannelsRequirements,
+    ReplaceError,
+    ReplaceRequirements
+  >,
+) {
+  yield* ensureChannelInWorkspace(
+    ingressBotClient,
+    "undo",
+    payload.workspaceId,
+    payload.conversationId,
+  );
+  yield* ingressBotClient.replaceChannelPermissionOverwrites(payload.conversationId, []);
+  return {
+    workspaceId: payload.workspaceId,
+    conversationId: payload.conversationId,
+  };
+});
+
 export const workspaceConfigLayer = sheetApisGroupLayer(
   "workspaceConfig",
   Effect.gen(function* () {
     const authorizationService = yield* AuthorizationService;
+    const ingressBotClient = yield* IngressBotClient;
     const workspaceConfigService = yield* WorkspaceConfigService;
     const withQueryWorkspaceAuth = withCurrentWorkspaceAuthFromQuery(authorizationService);
     const withPayloadWorkspaceAuth = withCurrentWorkspaceAuthFromPayload(authorizationService);
@@ -55,10 +206,12 @@ export const workspaceConfigLayer = sheetApisGroupLayer(
           );
         }),
       ),
-      "workspaceConfig.getWorkspaceMonitorRoles": Effect.fnUntraced(function* ({ query }) {
-        yield* authorizationService.requireService();
-        return yield* workspaceConfigService.getWorkspaceMonitorRoles(query.workspaceId);
-      }),
+      "workspaceConfig.getWorkspaceMonitorRoles": withQueryWorkspaceAuth(
+        Effect.fnUntraced(function* ({ query }) {
+          yield* authorizationService.requireManageWorkspace(query.workspaceId);
+          return yield* workspaceConfigService.getWorkspaceMonitorRoles(query.workspaceId);
+        }),
+      ),
       "workspaceConfig.getWorkspaceFeatureFlags": Effect.fnUntraced(function* ({ query }) {
         yield* authorizationService.requireService();
         return yield* workspaceConfigService.getWorkspaceFeatureFlags(query.workspaceId);
@@ -76,13 +229,15 @@ export const workspaceConfigLayer = sheetApisGroupLayer(
         yield* authorizationService.requireService();
         return yield* workspaceConfigService.getWorkspacesForFeatureFlag(query.flagName);
       }),
-      "workspaceConfig.getWorkspaceConversations": Effect.fnUntraced(function* ({ query }) {
-        yield* authorizationService.requireService();
-        return yield* workspaceConfigService.getWorkspaceConversations({
-          workspaceId: query.workspaceId,
-          ...optionalRunningFilter(query.running),
-        });
-      }),
+      "workspaceConfig.getWorkspaceConversations": withQueryWorkspaceAuth(
+        Effect.fnUntraced(function* ({ query }) {
+          yield* authorizationService.requireManageWorkspace(query.workspaceId);
+          return yield* workspaceConfigService.getWorkspaceConversations({
+            workspaceId: query.workspaceId,
+            ...optionalRunningFilter(query.running),
+          });
+        }),
+      ),
       "workspaceConfig.getTeamSubmissionChannelByConversationId": Effect.fnUntraced(function* ({
         query,
       }) {
@@ -162,6 +317,30 @@ export const workspaceConfigLayer = sheetApisGroupLayer(
           );
         },
       ),
+      "workspaceConfig.setupWorkspaceConversationLockdown": withPayloadWorkspaceAuth(
+        Effect.fnUntraced(function* ({ payload }) {
+          yield* Effect.annotateCurrentSpan({
+            workspaceId: payload.workspaceId,
+            conversationId: payload.conversationId,
+          });
+          yield* authorizationService.requireMonitorOrManageWorkspace(payload.workspaceId);
+          return yield* setupWorkspaceConversationLockdown(
+            payload,
+            workspaceConfigService,
+            ingressBotClient,
+          );
+        }),
+      ),
+      "workspaceConfig.undoWorkspaceConversationLockdown": withPayloadWorkspaceAuth(
+        Effect.fnUntraced(function* ({ payload }) {
+          yield* Effect.annotateCurrentSpan({
+            workspaceId: payload.workspaceId,
+            conversationId: payload.conversationId,
+          });
+          yield* authorizationService.requireMonitorOrManageWorkspace(payload.workspaceId);
+          return yield* undoWorkspaceConversationLockdown(payload, ingressBotClient);
+        }),
+      ),
       "workspaceConfig.upsertWorkspaceConversationConfig": withPayloadWorkspaceAuth(
         Effect.fnUntraced(function* ({ payload }) {
           yield* authorizationService.requireManageWorkspace(payload.workspaceId);
@@ -237,4 +416,6 @@ export const workspaceConfigLayer = sheetApisGroupLayer(
       }),
     } satisfies HandlerMap<"workspaceConfig">;
   }),
-).pipe(Layer.provide([AuthorizationService.layer, WorkspaceConfigService.layer]));
+).pipe(
+  Layer.provide([AuthorizationService.layer, IngressBotClient.layer, WorkspaceConfigService.layer]),
+);

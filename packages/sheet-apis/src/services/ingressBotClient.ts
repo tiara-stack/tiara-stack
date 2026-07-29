@@ -1,9 +1,12 @@
 import { HttpClient, HttpClientRequest } from "effect/unstable/http";
 import { HttpApiClient } from "effect/unstable/httpapi";
-import { Cache, Context, Duration, Effect, Exit, Layer, Redacted } from "effect";
+import { Cache, Context, Duration, Effect, Exit, Layer, Predicate, Redacted, Schema } from "effect";
+import type { ChannelPermissionOverwrite } from "dfx-discord-utils/discord/schema";
 import { createOAuthClientCredentialsToken } from "sheet-auth/client";
 import { DISCORD_SERVICE_USER_ID_SENTINEL } from "sheet-auth/oauth";
 import { SheetIngressDiscordApi } from "sheet-ingress-api/api";
+import { DiscordGuildChannel, DiscordGuildRole } from "sheet-ingress-api/schemas/discord";
+import { makeArgumentError } from "typhoon-core/error";
 import { config } from "@/config";
 import { SheetAuthClient } from "./sheetAuthClient";
 import * as Data from "effect/Data";
@@ -14,6 +17,110 @@ class SheetApisServicesIngressBotClientError extends Data.TaggedError(
   readonly message: string;
   readonly cause?: unknown;
 }> {}
+
+type CachedGuildResource = {
+  readonly resourceId: string;
+  readonly value: unknown;
+};
+
+const decodeResourceList = <A>(
+  label: string,
+  schema: Schema.Decoder<A>,
+  values: ReadonlyArray<unknown>,
+) =>
+  Effect.forEach(values, (value) =>
+    Schema.decodeUnknownEffect(schema)(value).pipe(
+      Effect.mapError((error) =>
+        makeArgumentError(`Invalid ${label} data returned by the Discord cache`, error),
+      ),
+    ),
+  );
+
+const resourceField = (value: unknown, field: PropertyKey) =>
+  Predicate.hasProperty(value, field) ? value[field] : undefined;
+
+const loadGuildResources = <A, E, R>(
+  workspaceId: string,
+  resourceName: string,
+  label: string,
+  schema: Schema.Decoder<A>,
+  load: Effect.Effect<ReadonlyArray<CachedGuildResource>, E, R>,
+  mapEntry: (entry: CachedGuildResource) => unknown,
+) =>
+  load.pipe(
+    Effect.mapError((error) =>
+      makeArgumentError(`Failed to load ${resourceName} for workspace ${workspaceId}`, error),
+    ),
+    Effect.flatMap((entries) => decodeResourceList(label, schema, entries.map(mapEntry))),
+  );
+
+export const makeGuildResourceOperations = <
+  ChannelsError,
+  RolesError,
+  ReplaceSuccess,
+  ReplaceError,
+>(client: {
+  readonly cache: {
+    readonly getChannelsForParent: (request: {
+      readonly params: { readonly parentId: string };
+    }) => Effect.Effect<ReadonlyArray<CachedGuildResource>, ChannelsError>;
+    readonly getRolesForParent: (request: {
+      readonly params: { readonly parentId: string };
+    }) => Effect.Effect<ReadonlyArray<CachedGuildResource>, RolesError>;
+  };
+  readonly bot: {
+    readonly replaceChannelPermissionOverwrites: (request: {
+      readonly params: { readonly channelId: string };
+      readonly payload: {
+        readonly permissionOverwrites: ReadonlyArray<typeof ChannelPermissionOverwrite.Type>;
+      };
+    }) => Effect.Effect<ReplaceSuccess, ReplaceError>;
+  };
+}) => ({
+  getGuildChannels: Effect.fn("IngressBotClient.getGuildChannels")(function* (workspaceId: string) {
+    return yield* loadGuildResources(
+      workspaceId,
+      "channels",
+      "guild channel",
+      DiscordGuildChannel,
+      client.cache.getChannelsForParent({ params: { parentId: workspaceId } }),
+      ({ resourceId, value }) => ({
+        id: resourceId,
+        name: resourceField(value, "name"),
+        type: resourceField(value, "type"),
+        parentId: resourceField(value, "parent_id") ?? null,
+        position: resourceField(value, "position"),
+      }),
+    );
+  }),
+  getGuildRoles: Effect.fn("IngressBotClient.getGuildRoles")(function* (workspaceId: string) {
+    return yield* loadGuildResources(
+      workspaceId,
+      "roles",
+      "guild role",
+      DiscordGuildRole,
+      client.cache.getRolesForParent({ params: { parentId: workspaceId } }),
+      ({ resourceId, value }) => ({
+        id: resourceId,
+        name: resourceField(value, "name"),
+        position: resourceField(value, "position"),
+        color: resourceField(value, "color"),
+        managed: resourceField(value, "managed"),
+      }),
+    );
+  }),
+  replaceChannelPermissionOverwrites: Effect.fn(
+    "IngressBotClient.replaceChannelPermissionOverwrites",
+  )(function* (
+    channelId: string,
+    permissionOverwrites: ReadonlyArray<typeof ChannelPermissionOverwrite.Type>,
+  ) {
+    return yield* client.bot.replaceChannelPermissionOverwrites({
+      params: { channelId },
+      payload: { permissionOverwrites },
+    });
+  }),
+});
 
 type TokenCacheEntry = {
   readonly token: Redacted.Redacted<string> | undefined;
@@ -91,6 +198,8 @@ export class IngressBotClient extends Context.Service<IngressBotClient>()("Ingre
       httpClient,
     });
 
+    const guildResourceOperations = makeGuildResourceOperations(client);
+
     return {
       listClients: Effect.fn("IngressBotClient.listClients")(function* () {
         return yield* client.clientDelivery.listClients({});
@@ -143,6 +252,7 @@ export class IngressBotClient extends Context.Service<IngressBotClient>()("Ingre
           params: { guildId, userId, roleId },
         });
       }),
+      ...guildResourceOperations,
     };
   }),
 }) {

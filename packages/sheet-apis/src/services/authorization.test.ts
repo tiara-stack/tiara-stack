@@ -12,6 +12,7 @@ import {
 } from "./authorization";
 import { SheetAuthWorkspaceUser } from "sheet-ingress-api/internal";
 import { SheetAuthUser } from "sheet-ingress-api/internal";
+import { Unauthorized } from "typhoon-core/error";
 import { WorkspaceConfigService } from "@/services";
 
 type MembersApiCacheViewService = Context.Service.Shape<typeof MembersApiCacheView>;
@@ -78,6 +79,19 @@ const requireManageWorkspace = (guildId: string) =>
 const requireMonitorWorkspace = (guildId: string) =>
   withAuthorization((authorizationService) =>
     authorizationService.requireMonitorWorkspace(guildId),
+  );
+
+const requireMonitorOrManageWorkspace = (guildId: string) =>
+  withAuthorization((authorizationService) =>
+    authorizationService.requireMonitorOrManageWorkspace(guildId),
+  );
+
+const requireCurrentMonitorOrManageWorkspace = (guildId: string) =>
+  withAuthorization((authorizationService) =>
+    authorizationService.provideCurrentWorkspaceUser(
+      guildId,
+      authorizationService.requireMonitorOrManageWorkspace(guildId),
+    ),
   );
 
 const requireService = () =>
@@ -361,6 +375,40 @@ describe("authorization service helpers", () => {
       "guild-1",
       requireMonitorWorkspace("guild-1"),
     ).pipe(liveGuildServices()),
+  );
+
+  it.effect(
+    "allows monitor, manager, service, and app-owner lockdown access but rejects members",
+    () =>
+      Effect.gen(function* () {
+        for (const permissions of [
+          ["monitor_workspace:guild-1"],
+          ["manage_workspace:guild-1"],
+        ] as const) {
+          yield* withGuildUser(
+            permissions,
+            "guild-1",
+            requireMonitorOrManageWorkspace("guild-1"),
+          ).pipe(liveGuildServices());
+        }
+        for (const permissions of [["service"], ["app_owner"]] as const) {
+          yield* withUser(permissions, requireCurrentMonitorOrManageWorkspace("guild-1")).pipe(
+            liveGuildServices(),
+          );
+        }
+
+        const denied = yield* Effect.exit(
+          withGuildUser(
+            ["member_workspace:guild-1"],
+            "guild-1",
+            requireMonitorOrManageWorkspace("guild-1"),
+          ).pipe(liveGuildServices()),
+        );
+        expect(Exit.isFailure(denied)).toBe(true);
+        if (Exit.isFailure(denied)) {
+          expect(Cause.squash(denied.cause)).toBeInstanceOf(Unauthorized);
+        }
+      }),
   );
 
   it.effect(

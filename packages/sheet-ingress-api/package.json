@@ -34,6 +34,10 @@
       "types": "./dist/dispatch.d.mts",
       "default": "./dist/dispatch.mjs"
     },
+    "./guild-config": {
+      "types": "./dist/guild-config.d.mts",
+      "default": "./dist/guild-config.mjs"
+    },
     "./internal": {
       "types": "./dist/internal.d.mts",
       "default": "./dist/internal.mjs"
@@ -126,6 +130,7 @@
   },
   "dependencies": {
     "dfx-discord-utils": "workspace:*",
+    "discord-api-types": "catalog:",
     "sheet-models": "workspace:*",
     "typhoon-core": "workspace:*",
     "typhoon-zero": "workspace:*"

@@ -346,6 +346,19 @@ export class AuthorizationService extends Context.Service<AuthorizationService>(
         }
       });
 
+      const requireResolvedMonitorOrManagePermission = Effect.fn(
+        "AuthorizationService.requireResolvedMonitorOrManagePermission",
+      )(function* (guildId: string, message: string) {
+        const user = yield* getRequiredCurrentWorkspaceUser(guildId);
+        const hasRequiredScope =
+          hasWorkspacePermission(user.permissions, "monitor_workspace", guildId) ||
+          hasWorkspacePermission(user.permissions, "manage_workspace", guildId);
+
+        if (!hasRequiredScope) {
+          return yield* Effect.fail(new Unauthorized({ message }));
+        }
+      });
+
       return {
         resolveSheetAuthWorkspaceUser,
         resolveCurrentWorkspaceUser,
@@ -380,6 +393,14 @@ export class AuthorizationService extends Context.Service<AuthorizationService>(
           provideCurrentWorkspaceUser(
             guildId,
             requireResolvedGuildPermission(guildId, "monitor", message),
+          ),
+        requireMonitorOrManageWorkspace: (
+          guildId: string,
+          message = "User does not have monitor or manage guild permission",
+        ) =>
+          provideCurrentWorkspaceUser(
+            guildId,
+            requireResolvedMonitorOrManagePermission(guildId, message),
           ),
         requireWorkspaceMember: (guildId: string, message = "User is not a member of this guild") =>
           provideCurrentWorkspaceUser(

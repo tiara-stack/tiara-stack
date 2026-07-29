@@ -56,6 +56,10 @@ export const botHandlers = {
       .handle("sendMessage", forwardSheetBot("bot", "sendMessage"))
       .handle("updateMessage", forwardSheetBot("bot", "updateMessage"))
       .handle(
+        "replaceChannelPermissionOverwrites",
+        forwardSheetBot("bot", "replaceChannelPermissionOverwrites"),
+      )
+      .handle(
         "updateOriginalInteractionResponse",
         forwardSheetBot("bot", "updateOriginalInteractionResponse"),
       )

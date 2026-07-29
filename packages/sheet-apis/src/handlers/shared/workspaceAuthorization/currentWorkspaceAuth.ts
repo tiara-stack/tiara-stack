@@ -32,6 +32,13 @@ export const withCurrentWorkspaceAuthFromPayload =
       ({ payload }) => payload.workspaceId,
     )(body);
 
+export const withCurrentWorkspaceAuthFromParams =
+  (authorizationService: typeof AuthorizationService.Service) =>
+  <Args extends { params: { workspaceId: string } }, A, E, R>(
+    body: (args: Args) => Effect.Effect<A, E, R>,
+  ) =>
+    withCurrentWorkspaceAuth<Args>(authorizationService, ({ params }) => params.workspaceId)(body);
+
 export const withCurrentGuildAuthFromQuery =
   (authorizationService: typeof AuthorizationService.Service) =>
   <Args extends { query: { guildId: string } }, A, E, R>(
