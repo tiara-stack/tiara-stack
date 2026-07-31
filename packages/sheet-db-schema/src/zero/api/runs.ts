@@ -148,8 +148,8 @@ const enqueueAuthoritative = async (
         JSON.stringify({ id: context.principalId }),
         JSON.stringify(input.payload),
         input.maxAttempts ?? 10,
-        runAfter,
-        now,
+        runAfter.toISOString(),
+        now.toISOString(),
       ],
     ),
   );
@@ -176,8 +176,8 @@ const enqueueAuthoritative = async (
       `start:${authoritativeRunId}`,
       authoritativeRunId,
       JSON.stringify(input.payload),
-      runAfter,
-      now,
+      runAfter.toISOString(),
+      now.toISOString(),
     ],
   );
 };
@@ -290,8 +290,8 @@ const enqueueCommandAuthoritative = async (
         input.commandId,
         input.kind,
         JSON.stringify(input.payload),
-        new Date(input.availableAt ?? now.getTime()),
-        now,
+        new Date(input.availableAt ?? now.getTime()).toISOString(),
+        now.toISOString(),
         input.runId,
         context.visibilityKey,
       ],
