@@ -138,7 +138,7 @@ describe("Api", () => {
     expect(Api.groups.roomOrder!.endpoints).not.toHaveProperty("handleButton");
   });
 
-  it("declares workflow discard RPCs as returning execution ids", () => {
+  it("declares workflow discard RPCs as returning invocation ids", () => {
     const discardRpc = SheetWorkflowsRpcs.requests.get("dispatch.serviceStatusDiscard");
 
     expect(discardRpc).toBeDefined();
@@ -148,26 +148,72 @@ describe("Api", () => {
     expect(() => Schema.decodeUnknownSync(discardRpc!.successSchema)(undefined)).toThrow();
   });
 
+  it("declares durable lifecycle and mailbox event commands", () => {
+    for (const suffix of ["Resume", "Cancel", "CreateEvent", "SendEvent"]) {
+      expect(SheetWorkflowsRpcs.requests.has(`dispatch.serviceStatus${suffix}`)).toBe(true);
+    }
+    const cancelRpc = SheetWorkflowsRpcs.requests.get("dispatch.serviceStatusCancel")!;
+    expect(
+      Schema.decodeUnknownSync(cancelRpc.payloadSchema!)({
+        runId: "run-1",
+        commandId: "cancel-1",
+      }),
+    ).toEqual({
+      runId: "run-1",
+      commandId: "cancel-1",
+    });
+    expect(
+      Schema.decodeUnknownSync(cancelRpc.errorSchema!)({
+        _tag: "DispatchWorkflowRunNotFoundError",
+        runId: "run-1",
+        message: "Workflow run not found",
+      }),
+    ).toMatchObject({
+      _tag: "DispatchWorkflowRunNotFoundError",
+      runId: "run-1",
+    });
+    expect(
+      Schema.decodeUnknownSync(
+        SheetWorkflowsRpcs.requests.get("dispatch.serviceStatusCreateEvent")!.successSchema,
+      )("event-id"),
+    ).toBe("event-id");
+    expect(
+      Schema.decodeUnknownSync(
+        SheetWorkflowsRpcs.requests.get("dispatch.serviceStatusSendEvent")!.payloadSchema!,
+      )({
+        runId: "run-1",
+        commandId: "event-1",
+        eventId: "event-id",
+        value: { approved: true },
+      }),
+    ).toEqual({
+      runId: "run-1",
+      commandId: "event-1",
+      eventId: "event-id",
+      value: { approved: true },
+    });
+  });
+
   it("accepts workflow dispatch results", () => {
     expect(
       Schema.decodeUnknownSync(DispatchAcceptedResult)({
-        executionId: "auto-checkin-test-execution",
+        runId: "auto-checkin-test-execution",
         operation: "autoCheckinTest",
         status: "accepted",
       }),
     ).toEqual({
-      executionId: "auto-checkin-test-execution",
+      runId: "auto-checkin-test-execution",
       operation: "autoCheckinTest",
       status: "accepted",
     });
     expect(
       Schema.decodeUnknownSync(DispatchAcceptedResult)({
-        executionId: "workspace-welcome-execution",
+        runId: "workspace-welcome-execution",
         operation: "workspaceWelcome",
         status: "accepted",
       }),
     ).toEqual({
-      executionId: "workspace-welcome-execution",
+      runId: "workspace-welcome-execution",
       operation: "workspaceWelcome",
       status: "accepted",
     });

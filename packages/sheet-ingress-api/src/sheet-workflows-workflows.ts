@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { Workflow } from "effect/unstable/workflow";
+import { ReadonlyJSONValue } from "typhoon-zero/schema";
 import type { ClientRef } from "./schemas/client";
 import { MessageRoomOrder } from "./schemas/messageRoomOrder";
 import {
@@ -109,10 +110,50 @@ export type DispatchAuthorizationSnapshot = Schema.Schema.Type<
   typeof DispatchAuthorizationSnapshotSchema
 >;
 
-/** Public execution-id schema returned by workflow discard dispatch RPCs. */
-export const DispatchWorkflowExecutionId = Schema.String;
+/** Public invocation/run ID returned by durable workflow dispatch RPCs. */
+export const DispatchWorkflowRunId = Schema.String;
+export const DispatchWorkflowInvocationQuery = Schema.Struct({
+  runId: Schema.optional(Schema.String),
+});
+export const DispatchWorkflowLifecyclePayload = Schema.Struct({
+  runId: Schema.String,
+  commandId: Schema.String,
+});
 /** Public resume payload schema shared by workflow RPC and HTTP dispatch contracts. */
-export const DispatchWorkflowResumePayload = Schema.Struct({ executionId: Schema.String });
+export const DispatchWorkflowResumePayload = DispatchWorkflowLifecyclePayload;
+export const DispatchWorkflowCancelPayload = DispatchWorkflowLifecyclePayload;
+export const DispatchWorkflowCreateEventPayload = Schema.Struct({
+  runId: Schema.String,
+  eventKey: Schema.String,
+});
+export const DispatchWorkflowSendEventPayload = Schema.Struct({
+  runId: Schema.String,
+  commandId: Schema.String,
+  eventId: Schema.String,
+  value: ReadonlyJSONValue,
+});
+
+const DispatchWorkflowCommandErrorFields = {
+  runId: Schema.String,
+  message: Schema.String,
+};
+
+export class DispatchWorkflowCommandBadRequestError extends Schema.TaggedErrorClass<DispatchWorkflowCommandBadRequestError>()(
+  "DispatchWorkflowCommandBadRequestError",
+  DispatchWorkflowCommandErrorFields,
+  { httpApiStatus: 400 },
+) {}
+
+export class DispatchWorkflowRunNotFoundError extends Schema.TaggedErrorClass<DispatchWorkflowRunNotFoundError>()(
+  "DispatchWorkflowRunNotFoundError",
+  DispatchWorkflowCommandErrorFields,
+  { httpApiStatus: 404 },
+) {}
+
+export const DispatchWorkflowCommandError = Schema.Union([
+  DispatchWorkflowCommandBadRequestError,
+  DispatchWorkflowRunNotFoundError,
+]);
 /** Public accepted-result alias for sheet-workflows workflow dispatch APIs. */
 export const DispatchWorkflowAcceptedResult = DispatchAcceptedResult;
 
@@ -589,7 +630,7 @@ export const DispatchWorkflowRequests = new Map<string, DispatchWorkflowRequestD
         {
           _tag: `${workflow.name}Discard`,
           payloadSchema: workflow.payloadSchema,
-          successSchema: DispatchWorkflowExecutionId,
+          successSchema: DispatchWorkflowRunId,
         },
       ] as const,
       [
@@ -598,6 +639,34 @@ export const DispatchWorkflowRequests = new Map<string, DispatchWorkflowRequestD
           _tag: `${workflow.name}Resume`,
           payloadSchema: DispatchWorkflowResumePayload,
           successSchema: Schema.Void,
+          errorSchema: DispatchWorkflowCommandError,
+        },
+      ] as const,
+      [
+        `${workflow.name}Cancel`,
+        {
+          _tag: `${workflow.name}Cancel`,
+          payloadSchema: DispatchWorkflowCancelPayload,
+          successSchema: Schema.Void,
+          errorSchema: DispatchWorkflowCommandError,
+        },
+      ] as const,
+      [
+        `${workflow.name}CreateEvent`,
+        {
+          _tag: `${workflow.name}CreateEvent`,
+          payloadSchema: DispatchWorkflowCreateEventPayload,
+          successSchema: Schema.String,
+          errorSchema: DispatchWorkflowCommandError,
+        },
+      ] as const,
+      [
+        `${workflow.name}SendEvent`,
+        {
+          _tag: `${workflow.name}SendEvent`,
+          payloadSchema: DispatchWorkflowSendEventPayload,
+          successSchema: Schema.Void,
+          errorSchema: DispatchWorkflowCommandError,
         },
       ] as const,
     ],

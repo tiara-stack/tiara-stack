@@ -806,7 +806,7 @@ export const DispatchTeamSubmissionButtonMethods = {
 } as const;
 
 export const DispatchAcceptedResult = Schema.Struct({
-  executionId: Schema.String,
+  runId: Schema.String,
   operation: Schema.Literals([
     "autoCheckinTest",
     "checkin",

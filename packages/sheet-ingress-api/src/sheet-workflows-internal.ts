@@ -3,8 +3,12 @@ import { Schema } from "effect";
 import { annotateSheetScopePolicy, SheetScopePolicies } from "./middlewares/rpcScopePolicy";
 import { SheetIngressServiceAuthorization } from "./middlewares/sheetIngressServiceAuthorization/tag";
 import {
-  DispatchWorkflowExecutionId,
+  DispatchWorkflowRunId,
+  DispatchWorkflowCancelPayload,
+  DispatchWorkflowCommandError,
+  DispatchWorkflowCreateEventPayload,
   DispatchWorkflowResumePayload,
+  DispatchWorkflowSendEventPayload,
   DispatchWorkflows,
 } from "./sheet-workflows-workflows";
 import { SheetAuthTokenAuthorization } from "./middlewares/sheetAuthTokenAuthorization/tag";
@@ -28,7 +32,31 @@ const dispatchWorkflowEndpoints = DispatchWorkflows.flatMap((workflow) => {
     annotateSheetScopePolicy(
       HttpApiEndpoint.post(`${workflow.name}Discard`, `${path}/discard` as `/${string}`, {
         payload: workflow.payloadSchema,
-        success: DispatchWorkflowExecutionId,
+        success: DispatchWorkflowRunId,
+      }).annotateMerge(workflow.annotations),
+      workflowDispatchScopePolicy,
+    ),
+    annotateSheetScopePolicy(
+      HttpApiEndpoint.post(`${workflow.name}Cancel`, `${path}/cancel` as `/${string}`, {
+        payload: DispatchWorkflowCancelPayload,
+        success: Schema.Void,
+        error: DispatchWorkflowCommandError,
+      }).annotateMerge(workflow.annotations),
+      workflowDispatchScopePolicy,
+    ),
+    annotateSheetScopePolicy(
+      HttpApiEndpoint.post(`${workflow.name}CreateEvent`, `${path}/events` as `/${string}`, {
+        payload: DispatchWorkflowCreateEventPayload,
+        success: Schema.String,
+        error: DispatchWorkflowCommandError,
+      }).annotateMerge(workflow.annotations),
+      workflowDispatchScopePolicy,
+    ),
+    annotateSheetScopePolicy(
+      HttpApiEndpoint.post(`${workflow.name}SendEvent`, `${path}/events/send` as `/${string}`, {
+        payload: DispatchWorkflowSendEventPayload,
+        success: Schema.Void,
+        error: DispatchWorkflowCommandError,
       }).annotateMerge(workflow.annotations),
       workflowDispatchScopePolicy,
     ),
@@ -36,6 +64,7 @@ const dispatchWorkflowEndpoints = DispatchWorkflows.flatMap((workflow) => {
       HttpApiEndpoint.post(`${workflow.name}Resume`, `${path}/resume` as `/${string}`, {
         payload: DispatchWorkflowResumePayload,
         success: Schema.Void,
+        error: DispatchWorkflowCommandError,
       }).annotateMerge(workflow.annotations),
       workflowDispatchScopePolicy,
     ),

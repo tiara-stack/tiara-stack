@@ -1,4 +1,4 @@
-import { describe, expect, it } from "@effect/vitest";
+import { describe, expect, expectTypeOf, it } from "@effect/vitest";
 import { vi } from "vitest";
 import { Context, Effect, HashSet, Option, Redacted } from "effect";
 import { Headers } from "effect/unstable/http";
@@ -89,50 +89,52 @@ describe("SheetWorkflowsForwardingClient", () => {
           operation.workflow.executionId(request.payload),
         );
       const dispatchWorkflows = {
-        [DispatchWorkflowOperations.autoCheckinTest.rpcTag]: makeDispatch(
+        [DispatchWorkflowOperations.autoCheckinTest.discardRpcTag]: makeDispatch(
           DispatchWorkflowOperations.autoCheckinTest,
         ),
-        [DispatchWorkflowOperations.checkin.rpcTag]: makeDispatch(
+        [DispatchWorkflowOperations.checkin.discardRpcTag]: makeDispatch(
           DispatchWorkflowOperations.checkin,
         ),
-        [DispatchWorkflowOperations.checkinButton.rpcTag]: makeDispatch(
+        [DispatchWorkflowOperations.checkinButton.discardRpcTag]: makeDispatch(
           DispatchWorkflowOperations.checkinButton,
         ),
-        [DispatchWorkflowOperations.roomOrder.rpcTag]: makeDispatch(
+        [DispatchWorkflowOperations.roomOrder.discardRpcTag]: makeDispatch(
           DispatchWorkflowOperations.roomOrder,
         ),
-        [DispatchWorkflowOperations.kick.rpcTag]: makeDispatch(DispatchWorkflowOperations.kick),
-        [DispatchWorkflowOperations.slotButton.rpcTag]: makeDispatch(
+        [DispatchWorkflowOperations.kick.discardRpcTag]: makeDispatch(
+          DispatchWorkflowOperations.kick,
+        ),
+        [DispatchWorkflowOperations.slotButton.discardRpcTag]: makeDispatch(
           DispatchWorkflowOperations.slotButton,
         ),
-        [DispatchWorkflowOperations.slotList.rpcTag]: makeDispatch(
+        [DispatchWorkflowOperations.slotList.discardRpcTag]: makeDispatch(
           DispatchWorkflowOperations.slotList,
         ),
-        [DispatchWorkflowOperations.serviceStatus.rpcTag]: makeDispatch(
+        [DispatchWorkflowOperations.serviceStatus.discardRpcTag]: makeDispatch(
           DispatchWorkflowOperations.serviceStatus,
         ),
-        [DispatchWorkflowOperations.workspaceWelcome.rpcTag]: makeDispatch(
+        [DispatchWorkflowOperations.workspaceWelcome.discardRpcTag]: makeDispatch(
           DispatchWorkflowOperations.workspaceWelcome,
         ),
-        [DispatchWorkflowOperations.serviceAddWorkspaceFeatureFlag.rpcTag]: makeDispatch(
+        [DispatchWorkflowOperations.serviceAddWorkspaceFeatureFlag.discardRpcTag]: makeDispatch(
           DispatchWorkflowOperations.serviceAddWorkspaceFeatureFlag,
         ),
-        [DispatchWorkflowOperations.serviceRemoveWorkspaceFeatureFlag.rpcTag]: makeDispatch(
+        [DispatchWorkflowOperations.serviceRemoveWorkspaceFeatureFlag.discardRpcTag]: makeDispatch(
           DispatchWorkflowOperations.serviceRemoveWorkspaceFeatureFlag,
         ),
-        [DispatchWorkflowOperations.slotOpenButton.rpcTag]: makeDispatch(
+        [DispatchWorkflowOperations.slotOpenButton.discardRpcTag]: makeDispatch(
           DispatchWorkflowOperations.slotOpenButton,
         ),
-        [DispatchWorkflowOperations.roomOrderPreviousButton.rpcTag]: makeDispatch(
+        [DispatchWorkflowOperations.roomOrderPreviousButton.discardRpcTag]: makeDispatch(
           DispatchWorkflowOperations.roomOrderPreviousButton,
         ),
-        [DispatchWorkflowOperations.roomOrderNextButton.rpcTag]: makeDispatch(
+        [DispatchWorkflowOperations.roomOrderNextButton.discardRpcTag]: makeDispatch(
           DispatchWorkflowOperations.roomOrderNextButton,
         ),
-        [DispatchWorkflowOperations.roomOrderSendButton.rpcTag]: makeDispatch(
+        [DispatchWorkflowOperations.roomOrderSendButton.discardRpcTag]: makeDispatch(
           DispatchWorkflowOperations.roomOrderSendButton,
         ),
-        [DispatchWorkflowOperations.roomOrderPinTentativeButton.rpcTag]: makeDispatch(
+        [DispatchWorkflowOperations.roomOrderPinTentativeButton.discardRpcTag]: makeDispatch(
           DispatchWorkflowOperations.roomOrderPinTentativeButton,
         ),
       };
@@ -141,6 +143,9 @@ describe("SheetWorkflowsForwardingClient", () => {
       const client = yield* SheetWorkflowsForwardingClient.make.pipe(
         Effect.provideService(SheetWorkflowsHttpClient, httpClient as never),
       );
+      expectTypeOf<ReturnType<typeof client.dispatch.checkin>>().toMatchTypeOf<
+        Effect.Effect<{ readonly operation: "checkin" }, unknown, unknown>
+      >();
       const expectDispatchResult = (
         effect: Effect.Effect<unknown, unknown, never>,
         expected: object,
@@ -149,11 +154,13 @@ describe("SheetWorkflowsForwardingClient", () => {
           const result = yield* effect;
           expect(result).toMatchObject(expected);
         });
-      const expectDispatched = <O extends { readonly rpcTag: keyof typeof dispatchWorkflows }>(
+      const expectDispatched = <
+        O extends { readonly discardRpcTag: keyof typeof dispatchWorkflows },
+      >(
         operation: O,
         payload: unknown,
       ) => {
-        expect(dispatchWorkflows[operation.rpcTag]).toHaveBeenCalledWith({ payload });
+        expect(dispatchWorkflows[operation.discardRpcTag]).toHaveBeenCalledWith({ payload });
       };
 
       const requester = { accountId: "account-1", userId: "user-1" };
@@ -210,7 +217,7 @@ describe("SheetWorkflowsForwardingClient", () => {
           never
         >,
         {
-          executionId: yield* DispatchWorkflowOperations.autoCheckinTest.workflow.executionId(
+          runId: yield* DispatchWorkflowOperations.autoCheckinTest.workflow.executionId(
             autoCheckinTestPayload as never,
           ),
           operation: "autoCheckinTest",
@@ -230,7 +237,7 @@ describe("SheetWorkflowsForwardingClient", () => {
       yield* expectDispatchResult(
         client.dispatch.checkin(checkinPayload as never) as Effect.Effect<unknown, unknown, never>,
         {
-          executionId: yield* DispatchWorkflowOperations.checkin.workflow.executionId(
+          runId: yield* DispatchWorkflowOperations.checkin.workflow.executionId(
             checkinPayload as never,
           ),
           operation: "checkin",
@@ -477,7 +484,7 @@ describe("SheetWorkflowsForwardingClient", () => {
             never
           >,
           {
-            executionId:
+            runId:
               operation === undefined
                 ? undefined
                 : yield* operation.workflow.executionId(payload as never),
