@@ -151,12 +151,16 @@ spec:
   policyTypes:
     - Ingress
   ingress:
-    # These peers are intentionally ORed: sheet-apis calls Zero internally,
-    # while the ingress controller serves the public Zero endpoint.
+    # These peers are intentionally ORed: application services call Zero
+    # internally, while the ingress controller serves the public Zero endpoint.
     - from:
         - podSelector:
             matchLabels:
               app: {{ include "tiara-stack.sheetApisName" . }}
+              app.kubernetes.io/instance: {{ .Release.Name }}
+        - podSelector:
+            matchLabels:
+              app: sheet-ingress-server
               app.kubernetes.io/instance: {{ .Release.Name }}
         - namespaceSelector:
             matchLabels:

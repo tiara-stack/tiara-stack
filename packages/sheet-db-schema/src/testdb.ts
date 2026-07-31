@@ -15,7 +15,7 @@ import type {
 } from "@rocicorp/zero";
 import { zeroDrizzle } from "@rocicorp/zero/server/adapters/drizzle";
 import { drizzle } from "drizzle-orm/pglite";
-import { Data, Effect, Option, Predicate, Schema, SchemaIssue, Scope } from "effect";
+import { Data, Effect, Option, Predicate, Schema, SchemaIssue, Scope, Stream } from "effect";
 import {
   snapshotSchema,
   type ColumnSnapshot,
@@ -335,19 +335,27 @@ export const makeTestSheetZeroDatabase = <Context = undefined>(
       rollbackRoundTripMs = (performance.now() - rollbackStartedAt) / resetSamples;
     }
 
+    const resolveQuery = <Return>(
+      request: QueryOrQueryRequest<any, any, any, SheetZeroSchema, Return, Context>,
+    ) =>
+      isQueryRequest(request) ? request.query.fn({ args: request.args, ctx: context }) : request;
+
+    const runQuery = <Return>(
+      request: QueryOrQueryRequest<any, any, any, SheetZeroSchema, Return, Context>,
+    ) =>
+      Effect.tryPromise({
+        try: async () => (await zqlDb.run(resolveQuery(request))) as HumanReadable<Return>,
+        catch: executorError("run query"),
+      });
+
     const executor: ZeroClient.ZeroClientExecutor<SheetZeroSchema, Context> = {
       run: <Return>(
         request: QueryOrQueryRequest<any, any, any, SheetZeroSchema, Return, Context>,
-      ) =>
-        Effect.tryPromise({
-          try: async () => {
-            const query = isQueryRequest(request)
-              ? request.query.fn({ args: request.args, ctx: context })
-              : request;
-            return (await zqlDb.run(query)) as HumanReadable<Return>;
-          },
-          catch: executorError("run query"),
-        }),
+      ) => runQuery(request),
+      /** This test executor emits one database snapshot; it does not model reactive view updates. */
+      stream: <Return>(
+        request: QueryOrQueryRequest<any, any, any, SheetZeroSchema, Return, Context>,
+      ) => Stream.fromEffect(runQuery(request)),
       mutate: (request: MutateRequest<any, SheetZeroSchema, Context, any>) =>
         Effect.succeed({
           /** PGlite models authoritative server execution, not optimistic cache writes. */

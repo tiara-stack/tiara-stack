@@ -18,10 +18,10 @@ const failure = <A, E>(exit: Exit.Exit<A, E>) =>
   Exit.isFailure(exit) ? exit.cause.reasons.find(Cause.isFailReason)?.error : undefined;
 
 describe("Zero OAuth context", () => {
-  it.effect("uses an account mailbox visibility key for workflow calls", () =>
+  it.effect("uses an account mailbox visibility key for run queries", () =>
     Effect.gen(function* () {
       const context = yield* zeroContextFromToken(
-        ["workflow.enqueue"],
+        ["runs.get"],
         token({
           accountId: "discord-account-1",
           scopes: new Set(["workflow.dispatch"]),
@@ -36,7 +36,7 @@ describe("Zero OAuth context", () => {
     }),
   );
 
-  it.effect("accepts existing service clients for non-workflow calls", () =>
+  it.effect("accepts existing service clients for calls outside the runs API", () =>
     Effect.gen(function* () {
       const context = yield* zeroContextFromToken(
         ["messageSlot.get"],
@@ -53,10 +53,10 @@ describe("Zero OAuth context", () => {
     }),
   );
 
-  it.effect("allows the service caller to batch workflow and domain procedures", () =>
+  it.effect("allows the service caller to batch run and domain procedures", () =>
     Effect.gen(function* () {
       const context = yield* zeroContextFromToken(
-        ["workflow.list", "messageSlot.get"],
+        ["runs.list", "messageSlot.get"],
         token({
           clientId: "sheet-apis",
           scopes: new Set(["service"]),
@@ -70,11 +70,11 @@ describe("Zero OAuth context", () => {
     }),
   );
 
-  it.effect("rejects domain procedures for account tokens", () =>
+  it.effect("rejects delegated workflow enqueue for account tokens", () =>
     Effect.gen(function* () {
       const exit = yield* Effect.exit(
         zeroContextFromToken(
-          ["workflow.list", "messageSlot.get"],
+          ["runs.enqueueAsCaller"],
           token({
             accountId: "discord-account-1",
             scopes: new Set(["workflow.dispatch"]),
@@ -84,7 +84,64 @@ describe("Zero OAuth context", () => {
 
       expect(failure(exit)).toMatchObject({
         _tag: "ZeroDispatchUnauthorizedError",
-        message: "Non-workflow Zero access requires service scope",
+        message: "Delegated workflow enqueue requires service and ingress.forward scopes",
+      });
+    }),
+  );
+
+  for (const scope of ["service", "ingress.forward"]) {
+    it.effect(`rejects delegated workflow enqueue with only the ${scope} scope`, () =>
+      Effect.gen(function* () {
+        const exit = yield* Effect.exit(
+          zeroContextFromToken(
+            ["runs.enqueueAsCaller"],
+            token({
+              clientId: "sheet-ingress",
+              scopes: new Set([scope]),
+            }),
+          ),
+        );
+
+        expect(failure(exit)).toMatchObject({
+          _tag: "ZeroDispatchUnauthorizedError",
+          message: "Delegated workflow enqueue requires service and ingress.forward scopes",
+        });
+      }),
+    );
+  }
+
+  it.effect("allows trusted ingress to enqueue a delegated workflow", () =>
+    Effect.gen(function* () {
+      const context = yield* zeroContextFromToken(
+        ["runs.enqueueAsCaller"],
+        token({
+          clientId: "sheet-ingress",
+          scopes: new Set(["service", "ingress.forward"]),
+        }),
+      );
+
+      expect(context).toEqual({
+        principalId: "sheet-ingress",
+        visibilityKey: "service:sheet-ingress",
+      });
+    }),
+  );
+
+  it.effect("rejects domain procedures for account tokens", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(
+        zeroContextFromToken(
+          ["runs.list", "messageSlot.get"],
+          token({
+            accountId: "discord-account-1",
+            scopes: new Set(["workflow.dispatch"]),
+          }),
+        ),
+      );
+
+      expect(failure(exit)).toMatchObject({
+        _tag: "ZeroDispatchUnauthorizedError",
+        message: "Access outside the runs API requires service scope",
       });
     }),
   );

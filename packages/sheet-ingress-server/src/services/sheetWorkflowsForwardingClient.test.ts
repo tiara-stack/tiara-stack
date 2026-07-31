@@ -1,17 +1,28 @@
 import { describe, expect, expectTypeOf, it } from "@effect/vitest";
 import { vi } from "vitest";
-import { Context, Effect, HashSet, Option, Redacted } from "effect";
+import {
+  Cause,
+  Context,
+  Deferred,
+  Duration,
+  Effect,
+  Exit,
+  Fiber,
+  HashSet,
+  Layer,
+  Option,
+  Redacted,
+  Schema,
+} from "effect";
+import { TestClock } from "effect/testing";
 import { Headers } from "effect/unstable/http";
-import { SheetAuthUser } from "sheet-ingress-api/internal";
-import { MessageRoomOrder } from "sheet-ingress-api/schemas/messageRoomOrder";
-import { DispatchRoomOrderButtonMethods } from "sheet-ingress-api/sheet-apis-rpc";
-import { DispatchWorkflowOperations } from "sheet-ingress-api/internal";
+import { DispatchWorkflowOperations, SheetAuthUser } from "sheet-ingress-api/internal";
+import { UnknownError } from "typhoon-core/error";
+import { ZeroApiError } from "typhoon-zero/zeroApi";
 import { getIngressRpcHeaders } from "./rpcAuthorizationClient";
-import { SheetWorkflowsForwardingClient } from "./sheetWorkflowsForwardingClient";
-import { SheetWorkflowsHttpClient } from "./sheetWorkflowsHttpClient";
 import { SheetApisRpcTokens } from "./sheetApisRpcTokens";
-
-const dispatchClient = { platform: "discord", clientId: "discord-main" } as const;
+import { SheetWorkflowsForwardingClient } from "./sheetWorkflowsForwardingClient";
+import { WorkflowZeroClient } from "./workflowZeroClient";
 
 const makeSheetApisRpcTokens = (): Context.Service.Shape<typeof SheetApisRpcTokens> => ({
   getServiceUser: Effect.fn("test.getServiceUser")(() =>
@@ -53,6 +64,23 @@ const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
 const runWithoutUser = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(Effect.provideService(SheetApisRpcTokens, makeSheetApisRpcTokens()));
 
+type WorkflowZeroEnqueue = Context.Service.Shape<typeof WorkflowZeroClient>["enqueueAsCaller"];
+
+const workflowZeroLayer = (enqueueAsCaller: WorkflowZeroEnqueue) =>
+  Layer.succeed(WorkflowZeroClient, { enqueueAsCaller });
+
+const failure = <A, E>(exit: Exit.Exit<A, E>) =>
+  Exit.isFailure(exit) ? exit.cause.reasons.find(Cause.isFailReason)?.error : undefined;
+
+const checkinPayload = {
+  requester: { accountId: "account-1", userId: "user-1" },
+  payload: {
+    client: { platform: "discord", clientId: "discord-main" },
+    dispatchRequestId: "dispatch-checkin",
+    workspaceId: "workspace-1",
+  },
+} satisfies typeof DispatchWorkflowOperations.checkin.workflow.payloadSchema.Type;
+
 describe("SheetWorkflowsForwardingClient", () => {
   it.effect("builds sheet-workflows ingress headers with a delegated bearer token", () =>
     Effect.gen(function* () {
@@ -80,422 +108,104 @@ describe("SheetWorkflowsForwardingClient", () => {
     }),
   );
 
-  it.effect("keeps split room-order forwarding methods aligned with shared button metadata", () =>
+  it.effect("generates every dispatch method and enqueues checkin through Zero", () =>
     Effect.gen(function* () {
-      const makeDispatch = (operation: {
-        readonly workflow: { executionId: (payload: never) => Effect.Effect<string> };
-      }) =>
-        vi.fn((request: { readonly payload: never }) =>
-          operation.workflow.executionId(request.payload),
-        );
-      const dispatchWorkflows = {
-        [DispatchWorkflowOperations.autoCheckinTest.discardRpcTag]: makeDispatch(
-          DispatchWorkflowOperations.autoCheckinTest,
-        ),
-        [DispatchWorkflowOperations.checkin.discardRpcTag]: makeDispatch(
-          DispatchWorkflowOperations.checkin,
-        ),
-        [DispatchWorkflowOperations.checkinButton.discardRpcTag]: makeDispatch(
-          DispatchWorkflowOperations.checkinButton,
-        ),
-        [DispatchWorkflowOperations.roomOrder.discardRpcTag]: makeDispatch(
-          DispatchWorkflowOperations.roomOrder,
-        ),
-        [DispatchWorkflowOperations.kick.discardRpcTag]: makeDispatch(
-          DispatchWorkflowOperations.kick,
-        ),
-        [DispatchWorkflowOperations.slotButton.discardRpcTag]: makeDispatch(
-          DispatchWorkflowOperations.slotButton,
-        ),
-        [DispatchWorkflowOperations.slotList.discardRpcTag]: makeDispatch(
-          DispatchWorkflowOperations.slotList,
-        ),
-        [DispatchWorkflowOperations.serviceStatus.discardRpcTag]: makeDispatch(
-          DispatchWorkflowOperations.serviceStatus,
-        ),
-        [DispatchWorkflowOperations.workspaceWelcome.discardRpcTag]: makeDispatch(
-          DispatchWorkflowOperations.workspaceWelcome,
-        ),
-        [DispatchWorkflowOperations.serviceAddWorkspaceFeatureFlag.discardRpcTag]: makeDispatch(
-          DispatchWorkflowOperations.serviceAddWorkspaceFeatureFlag,
-        ),
-        [DispatchWorkflowOperations.serviceRemoveWorkspaceFeatureFlag.discardRpcTag]: makeDispatch(
-          DispatchWorkflowOperations.serviceRemoveWorkspaceFeatureFlag,
-        ),
-        [DispatchWorkflowOperations.slotOpenButton.discardRpcTag]: makeDispatch(
-          DispatchWorkflowOperations.slotOpenButton,
-        ),
-        [DispatchWorkflowOperations.roomOrderPreviousButton.discardRpcTag]: makeDispatch(
-          DispatchWorkflowOperations.roomOrderPreviousButton,
-        ),
-        [DispatchWorkflowOperations.roomOrderNextButton.discardRpcTag]: makeDispatch(
-          DispatchWorkflowOperations.roomOrderNextButton,
-        ),
-        [DispatchWorkflowOperations.roomOrderSendButton.discardRpcTag]: makeDispatch(
-          DispatchWorkflowOperations.roomOrderSendButton,
-        ),
-        [DispatchWorkflowOperations.roomOrderPinTentativeButton.discardRpcTag]: makeDispatch(
-          DispatchWorkflowOperations.roomOrderPinTentativeButton,
-        ),
-      };
-      const httpClient = { dispatchWorkflows };
-
+      const enqueueAsCaller = vi.fn<WorkflowZeroEnqueue>(() => Effect.void);
       const client = yield* SheetWorkflowsForwardingClient.make.pipe(
-        Effect.provideService(SheetWorkflowsHttpClient, httpClient as never),
+        Effect.provide(workflowZeroLayer(enqueueAsCaller)),
+      );
+
+      expect(Object.keys(client.dispatch).sort()).toEqual(
+        Object.values(DispatchWorkflowOperations)
+          .map(({ endpointName }) => endpointName)
+          .sort(),
       );
       expectTypeOf<ReturnType<typeof client.dispatch.checkin>>().toMatchTypeOf<
-        Effect.Effect<{ readonly operation: "checkin" }, unknown, unknown>
+        Effect.Effect<{ readonly operation: "checkin" }, UnknownError, never>
       >();
-      const expectDispatchResult = (
-        effect: Effect.Effect<unknown, unknown, never>,
-        expected: object,
-      ) =>
-        Effect.gen(function* () {
-          const result = yield* effect;
-          expect(result).toMatchObject(expected);
-        });
-      const expectDispatched = <
-        O extends { readonly discardRpcTag: keyof typeof dispatchWorkflows },
-      >(
-        operation: O,
-        payload: unknown,
-      ) => {
-        expect(dispatchWorkflows[operation.discardRpcTag]).toHaveBeenCalledWith({ payload });
-      };
 
-      const requester = { accountId: "account-1", userId: "user-1" };
-      const authorizedRoomOrder = new MessageRoomOrder({
-        clientPlatform: "discord",
-        clientId: "discord-main",
-        messageId: "message-1",
-        hour: 1,
-        previousFills: [],
-        fills: [],
-        rank: 1,
-        tentative: false,
-        monitor: Option.none(),
-        workspaceId: Option.some("workspace-1"),
-        conversationId: Option.some("conversation-1"),
-        createdByUserId: Option.none(),
-        sendClaimId: Option.none(),
-        sendClaimedAt: Option.none(),
-        sentMessageId: Option.none(),
-        sentConversationId: Option.none(),
-        sentAt: Option.none(),
-        tentativeUpdateClaimId: Option.none(),
-        tentativeUpdateClaimedAt: Option.none(),
-        tentativePinClaimId: Option.none(),
-        tentativePinClaimedAt: Option.none(),
-        tentativePinnedAt: Option.none(),
-        createdAt: Option.none(),
-        updatedAt: Option.none(),
-        deletedAt: Option.none(),
-      });
-      const checkinPayload = {
-        requester,
-        payload: {
-          client: dispatchClient,
-          dispatchRequestId: "dispatch-checkin",
-          workspaceId: "workspace-1",
-        },
-      };
-      const autoCheckinTestPayload = {
-        requester,
-        payload: {
-          client: dispatchClient,
-          dispatchRequestId: "dispatch-auto-checkin-test",
-          workspaceId: "workspace-1",
-          anchorConversationId: "conversation-1",
-          interactionResponseToken: "token-1",
-          interactionResponseDeadlineEpochMs: Date.now() + 60_000,
-        },
-      };
-      yield* expectDispatchResult(
-        client.dispatch.autoCheckinTest(autoCheckinTestPayload as never) as Effect.Effect<
-          unknown,
-          unknown,
-          never
-        >,
-        {
-          runId: yield* DispatchWorkflowOperations.autoCheckinTest.workflow.executionId(
-            autoCheckinTestPayload as never,
-          ),
-          operation: "autoCheckinTest",
-        },
-      );
-      expectDispatched(DispatchWorkflowOperations.autoCheckinTest, {
-        requester,
-        payload: {
-          client: dispatchClient,
-          dispatchRequestId: "dispatch-auto-checkin-test",
-          workspaceId: "workspace-1",
-          anchorConversationId: "conversation-1",
-          interactionResponseToken: "token-1",
-          interactionResponseDeadlineEpochMs: expect.any(Number),
-        },
-      });
-      yield* expectDispatchResult(
-        client.dispatch.checkin(checkinPayload as never) as Effect.Effect<unknown, unknown, never>,
-        {
-          runId: yield* DispatchWorkflowOperations.checkin.workflow.executionId(
-            checkinPayload as never,
-          ),
-          operation: "checkin",
-        },
-      );
-      expectDispatched(DispatchWorkflowOperations.checkin, checkinPayload);
-      yield* expectDispatchResult(
-        client.dispatch.checkinButton({
-          requester,
-          payload: {
-            client: dispatchClient,
-            messageId: "message-1",
-            interactionResponseToken: "token-1",
-            interactionResponseDeadlineEpochMs: Date.now() + 60_000,
-          },
-        } as never) as Effect.Effect<unknown, unknown, never>,
-        { operation: "checkinButton" },
-      );
-      expectDispatched(DispatchWorkflowOperations.checkinButton, {
-        requester,
-        payload: {
-          client: dispatchClient,
-          messageId: "message-1",
-          interactionResponseToken: "token-1",
-          interactionResponseDeadlineEpochMs: expect.any(Number),
-        },
-      });
-      yield* expectDispatchResult(
-        client.dispatch.roomOrder({
-          requester,
-          payload: {
-            client: dispatchClient,
-            dispatchRequestId: "dispatch-room-order",
-            workspaceId: "workspace-1",
-          },
-        } as never) as Effect.Effect<unknown, unknown, never>,
-        { operation: "roomOrder" },
-      );
-      expectDispatched(DispatchWorkflowOperations.roomOrder, {
-        requester,
-        payload: {
-          client: dispatchClient,
-          dispatchRequestId: "dispatch-room-order",
-          workspaceId: "workspace-1",
-        },
-      });
-      yield* expectDispatchResult(
-        client.dispatch.kick({
-          requester,
-          payload: {
-            client: dispatchClient,
-            dispatchRequestId: "dispatch-kick",
-            workspaceId: "workspace-1",
-          },
-        } as never) as Effect.Effect<unknown, unknown, never>,
-        { operation: "kick" },
-      );
-      expectDispatched(DispatchWorkflowOperations.kick, {
-        requester,
-        payload: {
-          client: dispatchClient,
-          dispatchRequestId: "dispatch-kick",
-          workspaceId: "workspace-1",
-        },
-      });
-      yield* expectDispatchResult(
-        client.dispatch.slotButton({
-          requester,
-          payload: {
-            client: dispatchClient,
-            dispatchRequestId: "dispatch-slot-button",
-            workspaceId: "workspace-1",
-            conversationId: "conversation-1",
-            day: 1,
-            interactionResponseToken: "token-1",
-            interactionResponseDeadlineEpochMs: Date.now() + 60_000,
-          },
-        } as never) as Effect.Effect<unknown, unknown, never>,
-        { operation: "slotButton" },
-      );
-      expectDispatched(DispatchWorkflowOperations.slotButton, {
-        requester,
-        payload: {
-          client: dispatchClient,
-          dispatchRequestId: "dispatch-slot-button",
-          workspaceId: "workspace-1",
-          conversationId: "conversation-1",
-          day: 1,
-          interactionResponseToken: "token-1",
-          interactionResponseDeadlineEpochMs: expect.any(Number),
-        },
-      });
-      yield* expectDispatchResult(
-        client.dispatch.slotList({
-          requester,
-          payload: {
-            client: dispatchClient,
-            dispatchRequestId: "dispatch-slot-list",
-            workspaceId: "workspace-1",
-            day: 1,
-            messageType: "ephemeral",
-            interactionResponseToken: "token-1",
-            interactionResponseDeadlineEpochMs: Date.now() + 60_000,
-          },
-        } as never) as Effect.Effect<unknown, unknown, never>,
-        { operation: "slotList" },
-      );
-      expectDispatched(DispatchWorkflowOperations.slotList, {
-        requester,
-        payload: {
-          client: dispatchClient,
-          dispatchRequestId: "dispatch-slot-list",
-          workspaceId: "workspace-1",
-          day: 1,
-          messageType: "ephemeral",
-          interactionResponseToken: "token-1",
-          interactionResponseDeadlineEpochMs: expect.any(Number),
-        },
-      });
-      yield* expectDispatchResult(
-        client.dispatch.slotOpenButton({
-          requester,
-          payload: {
-            client: dispatchClient,
-            messageId: "message-1",
-            interactionResponseToken: "token-1",
-            interactionResponseDeadlineEpochMs: Date.now() + 60_000,
-          },
-        } as never) as Effect.Effect<unknown, unknown, never>,
-        { operation: "slotOpenButton" },
-      );
-      expectDispatched(DispatchWorkflowOperations.slotOpenButton, {
-        requester,
-        payload: {
-          client: dispatchClient,
-          messageId: "message-1",
-          interactionResponseToken: "token-1",
-          interactionResponseDeadlineEpochMs: expect.any(Number),
-        },
-      });
-      yield* expectDispatchResult(
-        client.dispatch.serviceStatus({
-          requester,
-          payload: {
-            client: dispatchClient,
-            dispatchRequestId: "dispatch-service-status",
-            interactionResponseToken: "token-1",
-            interactionResponseDeadlineEpochMs: Date.now() + 60_000,
-          },
-        } as never) as Effect.Effect<unknown, unknown, never>,
-        { operation: "serviceStatus" },
-      );
-      expectDispatched(DispatchWorkflowOperations.serviceStatus, {
-        requester,
-        payload: {
-          client: dispatchClient,
-          dispatchRequestId: "dispatch-service-status",
-          interactionResponseToken: "token-1",
-          interactionResponseDeadlineEpochMs: expect.any(Number),
-        },
-      });
-      yield* expectDispatchResult(
-        client.dispatch.workspaceWelcome({
-          requester,
-          payload: {
-            client: dispatchClient,
-            dispatchRequestId: "dispatch-workspace-welcome",
-            workspaceId: "workspace-1",
-            workspaceName: "Workspace One",
-            joinedAt: "2026-05-31T00:00:00.000Z",
-            systemConversationId: "conversation-1",
-          },
-        } as never) as Effect.Effect<unknown, unknown, never>,
-        { operation: "workspaceWelcome" },
-      );
-      expectDispatched(DispatchWorkflowOperations.workspaceWelcome, {
-        requester,
-        payload: {
-          client: dispatchClient,
-          dispatchRequestId: "dispatch-workspace-welcome",
-          workspaceId: "workspace-1",
-          workspaceName: "Workspace One",
-          joinedAt: "2026-05-31T00:00:00.000Z",
-          systemConversationId: "conversation-1",
-        },
-      });
+      const result = yield* client.dispatch.checkin(checkinPayload);
+      const executionId =
+        yield* DispatchWorkflowOperations.checkin.workflow.executionId(checkinPayload);
+      const encodedPayload = yield* Schema.encodeUnknownEffect(
+        DispatchWorkflowOperations.checkin.workflow.payloadSchema,
+      )(checkinPayload).pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Json)));
 
-      const serviceFeatureFlagPayload = {
-        requester,
-        payload: {
-          client: dispatchClient,
-          dispatchRequestId: "dispatch-service-workspace-feature-flag",
-          workspaceId: "workspace-1",
-          flagName: "beta-feature",
-          systemConversationId: "conversation-1",
+      expect(result).toEqual({
+        runId: executionId,
+        operation: "checkin",
+        status: "accepted",
+      });
+      expect(enqueueAsCaller).toHaveBeenCalledWith({
+        caller: {
+          principalId: "account-1",
         },
-      };
-      yield* expectDispatchResult(
-        client.dispatch.serviceAddWorkspaceFeatureFlag(
-          serviceFeatureFlagPayload as never,
-        ) as Effect.Effect<unknown, unknown, never>,
-        { operation: "serviceAddWorkspaceFeatureFlag" },
+        workflow: {
+          runId: result.runId,
+          workflowName: DispatchWorkflowOperations.checkin.workflow.name,
+          definitionVersion: "1",
+          executionId,
+          payload: encodedPayload,
+        },
+      });
+      expect(enqueueAsCaller).toHaveBeenCalledOnce();
+    }),
+  );
+
+  it.effect("preserves Zero enqueue failures in the typed error channel", () =>
+    Effect.gen(function* () {
+      let attempts = 0;
+      const enqueueAsCaller = vi.fn<WorkflowZeroEnqueue>(() =>
+        Effect.suspend(() => {
+          attempts += 1;
+          return Effect.fail(
+            new ZeroApiError.MutatorResultZeroError({
+              type: "zero",
+              message: "offline",
+            }),
+          );
+        }),
       );
-      yield* expectDispatchResult(
-        client.dispatch.serviceRemoveWorkspaceFeatureFlag(
-          serviceFeatureFlagPayload as never,
-        ) as Effect.Effect<unknown, unknown, never>,
-        { operation: "serviceRemoveWorkspaceFeatureFlag" },
-      );
-      expectDispatched(
-        DispatchWorkflowOperations.serviceAddWorkspaceFeatureFlag,
-        serviceFeatureFlagPayload,
-      );
-      expectDispatched(
-        DispatchWorkflowOperations.serviceRemoveWorkspaceFeatureFlag,
-        serviceFeatureFlagPayload,
+      const client = yield* SheetWorkflowsForwardingClient.make.pipe(
+        Effect.provide(workflowZeroLayer(enqueueAsCaller)),
       );
 
-      for (const method of Object.values(DispatchRoomOrderButtonMethods)) {
-        const operation = [
-          DispatchWorkflowOperations.roomOrderPreviousButton,
-          DispatchWorkflowOperations.roomOrderNextButton,
-          DispatchWorkflowOperations.roomOrderSendButton,
-          DispatchWorkflowOperations.roomOrderPinTentativeButton,
-        ].find((candidate) => candidate.endpointName === method.endpointName);
-        expect(operation).toBeDefined();
-        expect(client.dispatch).toHaveProperty(method.endpointName);
-        const payload = {
-          requester,
-          payload: {
-            client: dispatchClient,
-            workspaceId: "workspace-1",
-            messageId: "message-1",
-            messageConversationId: "conversation-1",
-            interactionResponseToken: "token-1",
-            interactionResponseDeadlineEpochMs: Date.now() + 60_000,
-          },
-          authorizedRoomOrder,
-        };
-        yield* expectDispatchResult(
-          client.dispatch[method.endpointName](payload as never) as Effect.Effect<
-            unknown,
-            unknown,
-            never
-          >,
-          {
-            runId:
-              operation === undefined
-                ? undefined
-                : yield* operation.workflow.executionId(payload as never),
-            operation: operation?.operation,
-            status: "accepted",
-          },
-        );
-        if (operation !== undefined) {
-          expectDispatched(operation, payload);
-        }
-      }
+      const fiber = yield* client.dispatch
+        .checkin(checkinPayload)
+        .pipe(Effect.forkChild({ startImmediately: true }));
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust(Duration.seconds(2));
+      const exit = yield* Fiber.await(fiber);
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(failure(exit)).toMatchObject({
+        _tag: "UnknownError",
+        message: "Failed to persist workflow dispatch",
+      });
+      expect(attempts).toBe(5);
+    }),
+  );
+
+  it.effect("maps workflow enqueue timeouts to the typed error channel", () =>
+    Effect.gen(function* () {
+      const enqueueStarted = yield* Deferred.make<void>();
+      const enqueueAsCaller = vi.fn<WorkflowZeroEnqueue>(() =>
+        Deferred.succeed(enqueueStarted, undefined).pipe(Effect.andThen(Effect.never)),
+      );
+      const client = yield* SheetWorkflowsForwardingClient.make.pipe(
+        Effect.provide(workflowZeroLayer(enqueueAsCaller)),
+      );
+
+      const fiber = yield* client.dispatch.checkin(checkinPayload).pipe(Effect.forkChild);
+      yield* Deferred.await(enqueueStarted);
+      yield* TestClock.adjust(Duration.seconds(31));
+      const exit = yield* Fiber.await(fiber);
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(failure(exit)).toMatchObject({
+        _tag: "UnknownError",
+        message: "Failed to persist workflow dispatch",
+      });
     }),
   );
 });

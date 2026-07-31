@@ -9,6 +9,7 @@ export default library({
       models: fileURLToPath(new URL("src/models.ts", import.meta.url)),
       testdb: fileURLToPath(new URL("src/testdb.ts", import.meta.url)),
       zero: fileURLToPath(new URL("src/zero/index.ts", import.meta.url)),
+      "zero-internal": fileURLToPath(new URL("src/zero/internal.ts", import.meta.url)),
     },
     deps: {
       neverBundle: ["@electric-sql/pglite", "drizzle-orm"],

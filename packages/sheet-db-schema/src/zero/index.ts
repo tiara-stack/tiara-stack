@@ -6,7 +6,10 @@ export {
   isWorkflowZeroContext,
   makeSheetZeroApi,
   mutateWithWorkflow,
+  api,
+  serviceApi,
   SheetZeroApi,
+  DelegatedWorkflowEnqueueRequest,
   WorkflowCommandRequest,
   WorkflowEnqueueRequest,
   WorkflowEventRequest,
@@ -15,6 +18,12 @@ export {
 } from "./api";
 export { queries, type Queries } from "./queries";
 export { mutators, type Mutators } from "./mutators";
+export {
+  makeSheetClient,
+  makeSheetServiceClient,
+  type SheetClient,
+  type SheetServiceClient,
+} from "./client";
 export {
   defineZeroTableAccess,
   zeroComparisonOperatorList,

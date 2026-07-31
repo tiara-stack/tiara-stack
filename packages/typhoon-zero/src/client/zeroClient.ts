@@ -1,4 +1,4 @@
-import { Effect, Match, pipe, Schema, Context, Types } from "effect";
+import { Cause, Context, Effect, Exit, Match, pipe, Queue, Schema, Stream, Types } from "effect";
 import type {
   Zero,
   Schema as ZeroSchema,
@@ -44,6 +44,7 @@ export interface ZeroClientTag<
 export interface ZeroClient<S extends ZeroSchema, MD extends CustomMutatorDefs | undefined, C> {
   zero: Zero<S, MD, C>;
   run: ZeroClientExecutor<S, C>["run"];
+  stream: ZeroClientExecutor<S, C>["stream"];
   mutate: ZeroClientExecutor<S, C>["mutate"];
 }
 
@@ -61,6 +62,13 @@ export interface ZeroClientExecutor<S extends ZeroSchema, C> {
     HumanReadable<TReturn>,
     QueryResultAppError | QueryResultParseError | Schema.SchemaError,
     never
+  >;
+  stream: <TReturn>(
+    query: QueryOrQueryRequest<any, any, any, S, TReturn, C>,
+    runOptions?: RunOptions,
+  ) => Stream.Stream<
+    HumanReadable<TReturn>,
+    QueryResultAppError | QueryResultParseError | Schema.SchemaError
   >;
   mutate: (request: MutateRequest<any, S, C, any>) => Effect.Effect<
     {
@@ -80,16 +88,15 @@ export interface ZeroClientExecutor<S extends ZeroSchema, C> {
   >;
 }
 
+const QueryErrorSchema = Schema.Union([
+  DefaultTaggedClass(QueryResultAppError),
+  DefaultTaggedClass(QueryResultParseError),
+]);
+
+const decodeQueryError = Schema.decodeUnknownExit(QueryErrorSchema);
+
 const parseQueryErrorResultDetails = (error: ErroredQuery) =>
-  pipe(
-    error,
-    Schema.decodeEffect(
-      Schema.Union([
-        DefaultTaggedClass(QueryResultAppError),
-        DefaultTaggedClass(QueryResultParseError),
-      ]),
-    ),
-  );
+  Schema.decodeUnknownEffect(QueryErrorSchema)(error);
 
 const makeUnknownQueryError = (): ErroredQuery => ({
   error: "app",
@@ -97,6 +104,14 @@ const makeUnknownQueryError = (): ErroredQuery => ({
   name: "unknown",
   message: "Zero query failed without error details",
 });
+
+type ParsedQueryError = QueryResultAppError | QueryResultParseError | Schema.SchemaError;
+
+const parsedQueryErrorCause = (error: ErroredQuery): Cause.Cause<ParsedQueryError> =>
+  Exit.match(decodeQueryError(error), {
+    onFailure: (cause) => cause,
+    onSuccess: Cause.fail,
+  });
 
 const runQuery = <S extends ZeroSchema, MD extends CustomMutatorDefs | undefined, C, TReturn>(
   zero: Zero<S, MD, C>,
@@ -185,6 +200,49 @@ export const ZeroClient = <S extends ZeroSchema, MD extends CustomMutatorDefs | 
             ),
           );
         }),
+        stream: <TReturn>(
+          query: QueryOrQueryRequest<any, any, any, S, TReturn, C>,
+          runOptions?: RunOptions,
+        ) =>
+          Stream.callback<
+            HumanReadable<TReturn>,
+            QueryResultAppError | QueryResultParseError | Schema.SchemaError
+          >((queue) =>
+            Effect.acquireRelease(
+              Effect.sync(() => {
+                const requireComplete = runOptions?.type === "complete";
+                const view = zero.materialize(query, { ttl: runOptions?.ttl });
+                let emitted = false;
+                const offer = (data: unknown) => {
+                  emitted = true;
+                  Queue.offerUnsafe(queue, data as HumanReadable<TReturn>);
+                };
+                const removeListener = view.addListener((data, resultType, error) => {
+                  if (resultType === "error") {
+                    emitted = true;
+                    Queue.failCauseUnsafe(
+                      queue,
+                      parsedQueryErrorCause(error ?? makeUnknownQueryError()),
+                    );
+                    return;
+                  }
+                  if (requireComplete && resultType !== "complete") {
+                    return;
+                  }
+                  offer(data);
+                });
+                if (!requireComplete && !emitted) {
+                  offer(view.data);
+                }
+                return { removeListener, view };
+              }),
+              ({ removeListener, view }) =>
+                Effect.sync(() => {
+                  removeListener();
+                  view.destroy();
+                }),
+            ),
+          ),
         mutate: Effect.fn("ZeroClient.mutate")(function* (request: MutateRequest<any, S, C, any>) {
           const { client, server } = yield* Effect.sync(() => zero.mutate(request));
 

@@ -152,6 +152,9 @@ imagePullSecrets:
 {{- define "tiara-stack.serviceSpecs" -}}
 {{- $sheetAuthValues := .Values.services.sheetAuth | default dict -}}
 {{- $sheetAuthServiceName := default "sheet-auth-service" $sheetAuthValues.serviceNameOverride -}}
+{{- $sheetApisValues := .Values.services.sheetApis | default dict -}}
+{{- $sheetApisSecretRef := $sheetApisValues.secretRef | default dict -}}
+{{- $sheetApisSecretName := default (include "tiara-stack.defaultSecretName" "sheetApis") $sheetApisSecretRef.name -}}
 {{- $sheetIngressValues := .Values.services.sheetIngressServer | default dict -}}
 {{- $sheetIngressSecretRef := $sheetIngressValues.secretRef | default dict -}}
 {{- $sheetIngressSecretName := default (include "tiara-stack.defaultSecretName" "sheetIngressServer") $sheetIngressSecretRef.name -}}
@@ -504,12 +507,19 @@ imagePullSecrets:
     - name: ingress-met
       containerPort: 9464
   env:
+    - name: POD_NAMESPACE
+      fieldPath: metadata.namespace
     - name: OTEL_EXPORTER_OTLP_ENDPOINT
       secretKey: otelExporterOtlpEndpoint
     - name: SHEET_APIS_BASE_URL
       secretKey: sheetApisBaseUrl
-    - name: SHEET_WORKFLOWS_BASE_URL
-      secretKey: sheetWorkflowsBaseUrl
+    - name: ZERO_CACHE_SERVER
+      secretName: {{ $sheetApisSecretName }}
+      secretKey: zeroCacheServer
+    - name: ZERO_CACHE_USER_ID
+      value: "system:serviceaccount:$(POD_NAMESPACE):sheet-ingress-server"
+    - name: ZERO_OAUTH_AUDIENCE
+      value: sheet-db-server
     - name: SHEET_BOT_BASE_URL
       secretKey: sheetBotBaseUrl
     - name: SHEET_CLIENTS

@@ -103,7 +103,6 @@ scrape policies default to the `monitoring` namespace; override
 
 - `otelExporterOtlpEndpoint`
 - `sheetApisBaseUrl`
-- `sheetWorkflowsBaseUrl`
 - `sheetBotBaseUrl`
 - `sheetAuthIssuer`
 - `trustedOrigins`

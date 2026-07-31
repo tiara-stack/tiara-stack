@@ -6,6 +6,7 @@ import { dotEnvConfigProviderLayer } from "typhoon-core/config";
 import { makeApiLayer } from "./api/layer";
 import { config } from "./config";
 import { TelemetryLive } from "./telemetry";
+import { WorkflowZeroClient } from "./services/workflowZeroClient";
 
 const configProviderLayer = dotEnvConfigProviderLayer().pipe(Layer.provide(NodeFileSystem.layer));
 
@@ -22,6 +23,7 @@ const HttpLive = Layer.unwrap(
 );
 
 const MainLive = HttpLive.pipe(
+  Layer.provide(WorkflowZeroClient.layer),
   Layer.provide(TelemetryLive),
   Layer.provide(Logger.layer([Logger.consoleLogFmt])),
   Layer.provide(NodeHttpClient.layerFetch),

@@ -16,7 +16,6 @@ const makeConfigLayer = (
         SHEET_CLIENTS: JSON.stringify(entries),
         PORT: "3000",
         SHEET_APIS_BASE_URL: "http://sheet-apis",
-        SHEET_WORKFLOWS_BASE_URL: "http://sheet-workflows",
         SHEET_BOT_BASE_URL: "http://sheet-bot",
         SHEET_AUTH_ISSUER: "http://auth",
         SHEET_AUTH_OAUTH_CLIENT_ID: "client-id",

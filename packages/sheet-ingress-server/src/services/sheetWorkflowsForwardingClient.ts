@@ -1,66 +1,135 @@
-import { Context, Effect, Layer } from "effect";
+import { Context, Duration, Effect, Layer, Predicate, Schedule, Schema } from "effect";
 import { DispatchWorkflowOperations } from "sheet-ingress-api/internal";
-import { SheetWorkflowsHttpClient } from "./sheetWorkflowsHttpClient";
+import { makeUnknownError, type UnknownError } from "typhoon-core/error";
+import { WorkflowZeroClient } from "./workflowZeroClient";
 
 type DispatchWorkflowOperation =
   (typeof DispatchWorkflowOperations)[keyof typeof DispatchWorkflowOperations];
-type SheetWorkflowsHttpClientService = Context.Service.Shape<typeof SheetWorkflowsHttpClient>;
-type DispatchWorkflowClient =
-  SheetWorkflowsHttpClientService["dispatchWorkflows"][DispatchWorkflowOperation["discardRpcTag"]];
-type DispatchWorkflowEffect = ReturnType<DispatchWorkflowClient>;
-type DispatchWorkflowError =
-  DispatchWorkflowEffect extends Effect.Effect<unknown, infer Error, unknown> ? Error : never;
-type DispatchWorkflowRequirements =
-  DispatchWorkflowEffect extends Effect.Effect<unknown, unknown, infer Requirements>
-    ? Requirements
-    : never;
+type DispatchWorkflowArguments<Operation extends DispatchWorkflowOperation> =
+  Operation["workflow"]["payloadSchema"]["~type.make.in"];
+type DispatchWorkflowExecutionId<Operation extends DispatchWorkflowOperation> = (
+  payload: DispatchWorkflowArguments<Operation>,
+) => Effect.Effect<string>;
 type DispatchWorkflowForwarders = {
   readonly [Operation in DispatchWorkflowOperation as Operation["endpointName"]]: (
-    args: Operation["workflow"]["payloadSchema"]["~type.make.in"],
+    args: DispatchWorkflowArguments<Operation>,
   ) => Effect.Effect<
     {
       readonly runId: string;
       readonly operation: Operation["operation"];
       readonly status: "accepted";
     },
-    DispatchWorkflowError,
-    DispatchWorkflowRequirements
+    UnknownError
   >;
 };
+
+const DispatchPrincipal = Schema.Struct({
+  requester: Schema.Struct({
+    accountId: Schema.String,
+  }),
+});
+
+const workflowEnqueueTimeout = Duration.seconds(30);
+const workflowEnqueueRetrySchedule = Schedule.exponential(Duration.millis(100));
+const workflowDefinitionVersion = "1";
+
+const prepareWorkflowPayload = <Operation extends DispatchWorkflowOperation>(
+  operation: Operation,
+  payload: unknown,
+) => {
+  const schema: Operation["workflow"]["payloadSchema"] = operation.workflow.payloadSchema;
+  return Schema.decodeUnknownEffect(schema)(payload).pipe(
+    Effect.flatMap((value) =>
+      Schema.encodeUnknownEffect(schema)(value).pipe(
+        Effect.flatMap(Schema.decodeUnknownEffect(Schema.Json)),
+        Effect.map((payload) => ({ payload, value })),
+      ),
+    ),
+  );
+};
+
+const workflowExecutionId = <Operation extends DispatchWorkflowOperation>(
+  operation: Operation,
+  payload: DispatchWorkflowArguments<Operation>,
+): Effect.Effect<string> =>
+  // TypeScript loses the payload/executionId correlation when indexing the
+  // generated union, so restore that operation-local relationship here.
+  (operation.workflow.executionId as DispatchWorkflowExecutionId<Operation>)(payload);
 
 export class SheetWorkflowsForwardingClient extends Context.Service<SheetWorkflowsForwardingClient>()(
   "SheetWorkflowsForwardingClient",
   {
     make: Effect.gen(function* () {
-      const httpClient = yield* SheetWorkflowsHttpClient;
+      const client = yield* WorkflowZeroClient;
 
-      const accept =
-        <const Operation extends DispatchWorkflowOperation, Error, Requirements>(
-          operation: Operation,
-          fn: (
-            args: Operation["workflow"]["payloadSchema"]["~type.make.in"],
-          ) => Effect.Effect<string, Error, Requirements>,
-        ) =>
-        (args: Operation["workflow"]["payloadSchema"]["~type.make.in"]) =>
-          Effect.gen(function* () {
-            const runId = yield* fn(args);
-            return {
-              runId,
-              operation: operation.operation,
-              status: "accepted" as const,
-            };
-          });
-
-      const forward = <const Operation extends DispatchWorkflowOperation>(operation: Operation) =>
-        accept(operation, (args) =>
-          httpClient.dispatchWorkflows[operation.discardRpcTag]({
-            payload: args,
-          } as never),
-        );
+      const enqueue = <const Operation extends DispatchWorkflowOperation>(
+        operation: Operation,
+        args: DispatchWorkflowArguments<Operation>,
+      ) =>
+        Effect.gen(function* () {
+          const { payload, value } = yield* prepareWorkflowPayload(operation, args).pipe(
+            Effect.mapError((error) =>
+              makeUnknownError("Invalid workflow dispatch payload", error),
+            ),
+          );
+          const { requester } = yield* Schema.decodeUnknownEffect(DispatchPrincipal)(value).pipe(
+            Effect.mapError((error) =>
+              makeUnknownError("Invalid workflow dispatch principal", error),
+            ),
+          );
+          const executionId = yield* workflowExecutionId(operation, value);
+          // Zero mutations do not return an authoritative server value. Use the
+          // workflow's globally stable execution identity as the public run ID,
+          // so an idempotent retry observes the same optimistic identity.
+          const runId = executionId;
+          yield* client
+            .enqueueAsCaller({
+              caller: {
+                principalId: requester.accountId,
+              },
+              workflow: {
+                runId,
+                workflowName: operation.workflow.name,
+                definitionVersion: workflowDefinitionVersion,
+                executionId,
+                payload,
+              },
+            })
+            .pipe(
+              Effect.retry({
+                schedule: workflowEnqueueRetrySchedule,
+                times: 4,
+                while: Predicate.isTagged("MutatorResultZeroError"),
+              }),
+              Effect.timeout(workflowEnqueueTimeout),
+              Effect.tapError((error) =>
+                Effect.logError("Failed to enqueue workflow dispatch through Zero").pipe(
+                  Effect.annotateLogs({
+                    error,
+                    operation: operation.operation,
+                    runId,
+                    workflowName: operation.workflow.name,
+                  }),
+                ),
+              ),
+              Effect.mapError((error) =>
+                makeUnknownError("Failed to persist workflow dispatch", error),
+              ),
+            );
+          return {
+            runId,
+            operation: operation.operation,
+            status: "accepted" as const,
+          };
+        });
 
       const dispatch = Object.fromEntries(
         Object.values(DispatchWorkflowOperations).map(
-          (operation) => [operation.endpointName, forward(operation)] as const,
+          (operation) =>
+            [
+              operation.endpointName,
+              (args: DispatchWorkflowArguments<typeof operation>) => enqueue(operation, args),
+            ] as const,
         ),
       ) as DispatchWorkflowForwarders;
 
@@ -68,7 +137,5 @@ export class SheetWorkflowsForwardingClient extends Context.Service<SheetWorkflo
     }),
   },
 ) {
-  static layer = Layer.effect(SheetWorkflowsForwardingClient, this.make).pipe(
-    Layer.provide(SheetWorkflowsHttpClient.layer),
-  );
+  static layer = Layer.effect(SheetWorkflowsForwardingClient, this.make);
 }

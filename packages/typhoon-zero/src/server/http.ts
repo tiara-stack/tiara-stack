@@ -1,8 +1,6 @@
 import {
-  type MutatorDefinitions,
   type MutatorRegistry,
   type Query,
-  type QueryDefinitions,
   type QueryRegistry,
   type ReadonlyJSONValue,
   type Schema as ZeroSchema,
@@ -36,14 +34,14 @@ export const removeUndefinedFields = (obj: ReadonlyJSONValue | undefined): Reado
 
 export interface ZeroHttpLiveOptions<
   S extends ZeroSchema,
-  QD extends QueryDefinitions,
-  MD extends MutatorDefinitions,
+  Queries extends QueryRegistry<any, S>,
+  Mutators extends MutatorRegistry<any, S>,
   ZqlEffect extends Effect.Effect<Database<unknown>, any, any>,
   ContextFactory extends ZeroContextFactory = EmptyZeroContextFactory,
 > {
   readonly schema: S;
-  readonly queries: QueryRegistry<QD, S>;
-  readonly mutators: MutatorRegistry<MD, S>;
+  readonly queries: Queries;
+  readonly mutators: Mutators;
   readonly zql: ZqlEffect;
   readonly context?: ContextFactory;
 }
@@ -285,13 +283,13 @@ const makeValidatedHandlerResolver = <Handler extends ZeroHandlerWithFn>(
 export const makeZeroHttpLive = <
   ApiId extends string,
   S extends ZeroSchema,
-  QD extends QueryDefinitions,
-  MD extends MutatorDefinitions,
+  Queries extends QueryRegistry<any, S>,
+  Mutators extends MutatorRegistry<any, S>,
   ZqlEffect extends Effect.Effect<Database<unknown>, any, any>,
   ContextFactory extends ZeroContextFactory = EmptyZeroContextFactory,
 >(
   api: HttpApi.HttpApi<ApiId, typeof ZeroHttpApi>,
-  options: ZeroHttpLiveOptions<S, QD, MD, ZqlEffect, ContextFactory>,
+  options: ZeroHttpLiveOptions<S, Queries, Mutators, ZqlEffect, ContextFactory>,
 ): Layer.Layer<
   HttpApiGroup.ApiGroup<ApiId, "zero">,
   Effect.Error<ZqlEffect>,

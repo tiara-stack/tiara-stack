@@ -25,9 +25,15 @@ export const zeroContextFromToken = (
   procedureNames: readonly string[],
   token: VerifiedOAuthResourceToken,
 ): Effect.Effect<WorkflowZeroContext, ZeroDispatchUnauthorizedError> => {
-  const workflowProcedures = procedureNames.filter((procedure) =>
-    procedure.startsWith("workflow."),
-  );
+  const runsProcedures = procedureNames.filter((procedure) => procedure.startsWith("runs."));
+  if (
+    runsProcedures.includes("runs.enqueueAsCaller") &&
+    (!token.scopes.has("service") || !token.scopes.has("ingress.forward"))
+  ) {
+    return Effect.fail(
+      unauthorized("Delegated workflow enqueue requires service and ingress.forward scopes"),
+    );
+  }
   if (token.scopes.has("service")) {
     return Predicate.isString(token.clientId)
       ? Effect.succeed({
@@ -37,19 +43,19 @@ export const zeroContextFromToken = (
       : Effect.fail(unauthorized("Service access token is missing a client identity"));
   }
 
-  if (workflowProcedures.length === procedureNames.length && workflowProcedures.length > 0) {
+  if (runsProcedures.length === procedureNames.length && runsProcedures.length > 0) {
     if (!token.scopes.has("workflow.dispatch")) {
-      return Effect.fail(unauthorized("Workflow access token is missing workflow.dispatch"));
+      return Effect.fail(unauthorized("Runs access token is missing workflow.dispatch"));
     }
     return Predicate.isString(token.accountId)
       ? Effect.succeed({
           principalId: token.accountId,
           visibilityKey: `account:${token.accountId}`,
         })
-      : Effect.fail(unauthorized("Workflow access token is missing an account identity"));
+      : Effect.fail(unauthorized("Runs access token is missing an account identity"));
   }
 
-  return Effect.fail(unauthorized("Non-workflow Zero access requires service scope"));
+  return Effect.fail(unauthorized("Access outside the runs API requires service scope"));
 };
 
 export class WorkflowZeroAuthorization extends Context.Service<
@@ -68,7 +74,7 @@ export class WorkflowZeroAuthorization extends Context.Service<
         requiredScopes: [],
         makeUnauthorized: ({ message }) =>
           new ZeroDispatchUnauthorizedError({
-            procedure: "workflow",
+            procedure: "runs",
             message,
           }),
       });

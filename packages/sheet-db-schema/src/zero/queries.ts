@@ -1,7 +1,14 @@
+import type { QueryRegistry } from "@rocicorp/zero";
 import { ZeroApiRegistry } from "typhoon-zero/zeroApi";
 import { SheetZeroApi } from "./api";
 import type { Schema } from "./schema";
+import { exposedVisibilities } from "./visibilities";
 
-export type Queries = ReturnType<typeof ZeroApiRegistry.toQueries<typeof SheetZeroApi, Schema>>;
+export type Queries = QueryRegistry<
+  ZeroApiRegistry.QueryDefinitionsForApi<typeof SheetZeroApi, (typeof exposedVisibilities)[number]>,
+  Schema
+>;
 
-export const queries: Queries = ZeroApiRegistry.toQueries(SheetZeroApi) as Queries;
+export const queries: Queries = ZeroApiRegistry.toQueries(SheetZeroApi, {
+  visibilities: exposedVisibilities,
+});

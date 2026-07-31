@@ -49,7 +49,9 @@ export const config = {
   ).pipe(Config.withDefault("production")),
   port: Config.port("PORT").pipe(Config.withDefault(3000)),
   sheetApisBaseUrl: Config.string("SHEET_APIS_BASE_URL"),
-  sheetWorkflowsBaseUrl: Config.string("SHEET_WORKFLOWS_BASE_URL"),
+  zeroCacheServer: Config.string("ZERO_CACHE_SERVER"),
+  zeroCacheUserId: Config.string("ZERO_CACHE_USER_ID"),
+  zeroOAuthAudience: Config.string("ZERO_OAUTH_AUDIENCE"),
   sheetBotBaseUrl: Config.string("SHEET_BOT_BASE_URL"),
   sheetClients: Config.schema(sheetClients, "SHEET_CLIENTS").pipe(
     Config.withDefault([

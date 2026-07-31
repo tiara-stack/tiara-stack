@@ -30,12 +30,14 @@
     "@opentelemetry/exporter-prometheus": "^0.207.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.207.0",
     "@opentelemetry/sdk-trace-base": "^2.2.0",
+    "@rocicorp/zero": "^0.25.9",
     "dfx-discord-utils": "workspace:*",
     "effect": "catalog:",
     "sheet-auth": "workspace:*",
     "sheet-db-schema": "workspace:*",
     "sheet-ingress-api": "workspace:*",
-    "typhoon-core": "workspace:*"
+    "typhoon-core": "workspace:*",
+    "typhoon-zero": "workspace:*"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",

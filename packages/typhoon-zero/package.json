@@ -34,6 +34,10 @@
       "types": "./dist/zeroApi/index.d.mts",
       "default": "./dist/zeroApi/index.mjs"
     },
+    "./zeroApiAtom": {
+      "types": "./dist/zeroApiAtom/index.d.mts",
+      "default": "./dist/zeroApiAtom/index.mjs"
+    },
     "./*": {
       "types": "./dist/*/index.d.mts",
       "default": "./dist/*/index.mjs"

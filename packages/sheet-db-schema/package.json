@@ -29,6 +29,10 @@
       "types": "./dist/zero.d.mts",
       "default": "./dist/zero.mjs"
     },
+    "./zero/internal": {
+      "types": "./dist/zero-internal.d.mts",
+      "default": "./dist/zero-internal.mjs"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
