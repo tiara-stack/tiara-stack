@@ -34,9 +34,6 @@ local database credentials, remove the Compose volumes and run
 `pnpm tsx deploy/compose/scripts/generate-secrets.ts` directly. `tsx` is
 provided by this repo's devDependencies.
 
-Local service-account JWTs expire after 30 days. Re-run
-`pnpm compose:generate-secrets` periodically to refresh the mounted token files.
-
 `deploy/compose/scripts/generate-secrets.ts` creates a placeholder
 `deploy/compose/secrets/google-service-account.json` so Docker Compose has a file
 to bind-mount. Replace that file with a real Google service account JSON before
@@ -79,6 +76,6 @@ Do not commit generated or real secret files. The repository ignores:
 - `deploy/compose/.env`
 - `deploy/compose/secrets/*`
 
-The generated local service-account JWTs emulate Kubernetes projected service
-account tokens. They are signed by `deploy/compose/secrets/jwt-private.pem`, and
-`local-jwks` serves the corresponding public key to the app services and Zero.
+`local-jwks` serves the generated public key to app services that exercise the
+local service-account authorization path. Zero delegates bearer-token
+verification to `sheet-db-server`, matching the production deployment.

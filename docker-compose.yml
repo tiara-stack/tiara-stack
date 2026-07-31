@@ -170,6 +170,8 @@ services:
       local-otel-sink:
         condition: service_healthy
     environment:
+      SHEET_AUTH_ISSUER: "http://sheet-auth:3000"
+      SHEET_AUTH_OAUTH_AUDIENCE: "sheet-db-server"
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://local-otel-sink:4318}
     secrets:
       - postgres_password
@@ -190,8 +192,6 @@ services:
         condition: service_healthy
       sheet-db-server:
         condition: service_healthy
-      local-jwks:
-        condition: service_healthy
       local-otel-sink:
         condition: service_healthy
     environment:
@@ -205,7 +205,6 @@ services:
       ZERO_QUERY_URL: "http://sheet-db-server:3000/zero/query"
       ZERO_MUTATE_FORWARD_COOKIES: "true"
       ZERO_MUTATE_URL: "http://sheet-db-server:3000/zero/mutate"
-      ZERO_AUTH_JWKS_URL: "http://local-jwks/.well-known/jwks.json"
       ZERO_ADMIN_PASSWORD: ${ZERO_ADMIN_PASSWORD:-}
     volumes:
       - tiara-zero-cache-data:/data
@@ -242,6 +241,7 @@ services:
       SHEET_INGRESS_NAMESPACE: tiara-local
       ZERO_CACHE_SERVER: "http://zero-cache:4848"
       ZERO_CACHE_USER_ID: "system:serviceaccount:tiara-local:sheet-apis"
+      ZERO_OAUTH_AUDIENCE: "sheet-db-server"
       SHEET_AUTH_ISSUER: "http://sheet-auth:3000"
       SHEET_AUTH_OAUTH_CLIENT_ID: ${SHEET_APIS_OAUTH_CLIENT_ID:-}
       SHEET_AUTH_OAUTH_CLIENT_SECRET: ${SHEET_APIS_OAUTH_CLIENT_SECRET:-}
@@ -252,7 +252,6 @@ services:
       - redis_password
     volumes:
       - ./deploy/compose/secrets/google-service-account.json:/.secret/google-service-account.json:ro
-      - ./deploy/compose/secrets/sheet-apis-zero-cache-token:/var/run/secrets/tokens/zero-cache-token:ro
     command:
       - sh
       - -ec

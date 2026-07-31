@@ -13,6 +13,8 @@
       "@@/*": ["./*"],
       "~/*": ["./src/*"],
       "@/*": ["./src/*"],
+      "effect-zero": ["../effect-zero/src/index.ts"],
+      "effect-zero/*": ["../effect-zero/src/*"],
       "sheet-auth": ["../sheet-auth/src/index.ts"],
       "sheet-auth/*": ["../sheet-auth/src/*"],
       "sheet-db-schema": ["../sheet-db-schema/src/schema.ts"],
@@ -28,6 +30,9 @@
     }
   },
   "references": [
+    {
+      "path": "../effect-zero"
+    },
     {
       "path": "../sheet-auth"
     },

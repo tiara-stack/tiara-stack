@@ -30,6 +30,7 @@
     "@opentelemetry/exporter-trace-otlp-http": "^0.207.0",
     "@opentelemetry/sdk-trace-base": "^2.2.0",
     "effect": "catalog:",
+    "effect-zero": "workspace:*",
     "sheet-auth": "workspace:*",
     "sheet-db-schema": "workspace:*",
     "sheet-ingress-api": "workspace:*",

@@ -6,7 +6,6 @@ import {
   createHash,
   createPrivateKey,
   createPublicKey,
-  createSign,
   generateKeyPairSync,
   randomBytes,
 } from "node:crypto";
@@ -16,13 +15,6 @@ import { fileURLToPath } from "node:url";
 
 type WriteGeneratedFileOptions = {
   readonly mode?: number;
-};
-
-type SignJwtOptions = {
-  readonly privateKeyPem: string;
-  readonly kid: string;
-  readonly subject: string;
-  readonly audience: string;
 };
 
 const JwksSchema = Schema.Struct({
@@ -61,29 +53,7 @@ const applyMode = (path: string, mode: number | undefined) => {
   }
 };
 
-const base64url = (input: string) => Buffer.from(input).toString("base64url");
-
 const makePassword = () => randomBytes(24).toString("base64url");
-
-const signJwt = ({ privateKeyPem, kid, subject, audience }: SignJwtOptions) => {
-  const now = Math.floor(Date.now() / 1000);
-  const header = {
-    alg: "RS256",
-    kid,
-    typ: "JWT",
-  };
-  const payload = {
-    iss: "tiara-compose",
-    sub: subject,
-    aud: audience,
-    iat: now,
-    nbf: now - 5,
-    exp: now + 30 * 24 * 60 * 60,
-  };
-  const signingInput = `${base64url(JSON.stringify(header))}.${base64url(JSON.stringify(payload))}`;
-  const signature = createSign("RSA-SHA256").update(signingInput).sign(privateKeyPem);
-  return `${signingInput}.${signature.toString("base64url")}`;
-};
 
 mkdirSync(secretsDir, { recursive: true });
 
@@ -201,32 +171,6 @@ if (!existsSync(googleServiceAccountPath)) {
     mode: 0o600,
   });
   chmodSync(googleServiceAccountPath, 0o600);
-}
-
-const tokenSpecs = [
-  {
-    file: "sheet-apis-zero-cache-token",
-    serviceAccount: "sheet-apis",
-    audience: "zero-cache",
-  },
-];
-
-// Service-account JWTs are intentionally re-minted on every run. They must
-// match the active private key and have a fresh 30-day expiry, so this bypasses
-// writeGeneratedFile's --no-overwrite behavior.
-for (const spec of tokenSpecs) {
-  const tokenPath = join(secretsDir, spec.file);
-  writeFileSync(
-    tokenPath,
-    `${signJwt({
-      privateKeyPem,
-      kid,
-      subject: `system:serviceaccount:tiara-local:${spec.serviceAccount}`,
-      audience: spec.audience,
-    })}\n`,
-    { mode: 0o600 },
-  );
-  chmodSync(tokenPath, 0o600);
 }
 
 const unquoteEnvValue = (value: string) =>

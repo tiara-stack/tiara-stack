@@ -233,20 +233,6 @@ zeroCache:
       memory: 1Gi
   nodeSelector: {}
   tolerations: []
-  envoy:
-    configMapNameOverride: ""
-    tokenRefreshIntervalSeconds: 300
-    image:
-      repository: envoyproxy/envoy
-      tag: "v1.38.0"
-      pullPolicy: IfNotPresent
-    resources:
-      requests:
-        cpu: 50m
-        memory: 64Mi
-      limits:
-        cpu: 500m
-        memory: 256Mi
   secretRef:
     name: zero-secret
   persistence:

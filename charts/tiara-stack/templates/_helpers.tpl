@@ -84,10 +84,6 @@ app.kubernetes.io/instance: {{ .root.Release.Name }}
 {{- printf "%s-headless" (include "tiara-stack.zeroCacheName" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
-{{- define "tiara-stack.zeroCacheEnvoyConfigName" -}}
-{{- default "zero-cache-envoy-config" .Values.zeroCache.envoy.configMapNameOverride -}}
-{{- end -}}
-
 {{- define "tiara-stack.sheetDbServerServiceName" -}}
 {{- default "sheet-db-server-service" .Values.services.sheetDbServer.serviceNameOverride -}}
 {{- end -}}
@@ -154,6 +150,8 @@ imagePullSecrets:
 {{- end -}}
 
 {{- define "tiara-stack.serviceSpecs" -}}
+{{- $sheetAuthValues := .Values.services.sheetAuth | default dict -}}
+{{- $sheetAuthServiceName := default "sheet-auth-service" $sheetAuthValues.serviceNameOverride -}}
 {{- $sheetIngressValues := .Values.services.sheetIngressServer | default dict -}}
 {{- $sheetIngressSecretRef := $sheetIngressValues.secretRef | default dict -}}
 {{- $sheetIngressSecretName := default (include "tiara-stack.defaultSecretName" "sheetIngressServer") $sheetIngressSecretRef.name -}}
@@ -253,6 +251,8 @@ imagePullSecrets:
       secretKey: zeroCacheServer
     - name: ZERO_CACHE_USER_ID
       value: "system:serviceaccount:$(POD_NAMESPACE):sheet-apis"
+    - name: ZERO_OAUTH_AUDIENCE
+      value: sheet-db-server
     - name: REDIS_URL
       secretKey: redisUrl
     - name: SHEET_AUTH_ISSUER
@@ -270,8 +270,6 @@ imagePullSecrets:
       value: /var/run/secrets/tokens/kubernetes-jwks-token
   projectedTokens:
     - path: kubernetes-jwks-token
-    - path: zero-cache-token
-      audience: zero-cache
   googleServiceAccount: true
   networkPolicyFrom:
     - app: sheet-ingress-server
@@ -474,6 +472,10 @@ imagePullSecrets:
   env:
     - name: POSTGRES_URL
       secretKey: postgresUrl
+    - name: SHEET_AUTH_ISSUER
+      value: "http://{{ $sheetAuthServiceName }}"
+    - name: SHEET_AUTH_OAUTH_AUDIENCE
+      value: sheet-db-server
     - name: OTEL_EXPORTER_OTLP_ENDPOINT
       secretKey: otelExporterOtlpEndpoint
   networkPolicyFrom:

@@ -14,6 +14,7 @@
       "effect-sql-schema": ["../effect-sql-schema/src/index.mts"],
       "effect-sql-schema/*": ["../effect-sql-schema/src/*"],
       "effect-zero": ["../effect-zero/src/index.ts"],
+      "effect-zero/*": ["../effect-zero/src/*"],
       "sheet-models": ["../sheet-models/src/index.ts"],
       "typhoon-core": ["../typhoon-core/src/index.ts"],
       "typhoon-core/*": ["../typhoon-core/src/*"],

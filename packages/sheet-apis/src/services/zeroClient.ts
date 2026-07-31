@@ -1,15 +1,50 @@
 import { Zero } from "@rocicorp/zero";
-import { readFile } from "node:fs/promises";
-import { Effect, Layer, Match, pipe } from "effect";
+import { Cache, Duration, Effect, Exit, Layer, Match, pipe, Redacted } from "effect";
+import { createOAuthClientCredentialsToken } from "sheet-auth/client";
 import { type Schema, schema, mutators } from "sheet-db-schema/zero";
 import { ZeroClient as BaseZeroClient } from "typhoon-zero/client";
 import { config } from "@/config";
+import { SheetAuthClient } from "./sheetAuthClient";
 
-const getAuth = Effect.fn("zero.getAuth")(function* () {
-  return yield* Effect.promise(() => readFile("/var/run/secrets/tokens/zero-cache-token", "utf-8"));
+const makeGetAuth = Effect.fn("zero.makeGetAuth")(function* () {
+  const sheetAuthClient = yield* SheetAuthClient;
+  const clientId = yield* config.sheetAuthOAuthClientId;
+  const clientSecret = yield* config.sheetAuthOAuthClientSecret;
+  const resource = yield* config.zeroOAuthAudience;
+  const cache = yield* Cache.makeWith(
+    Effect.fn("zero.getOAuthToken")(() =>
+      createOAuthClientCredentialsToken(sheetAuthClient, {
+        clientId,
+        clientSecret,
+        resource,
+        scope: ["service"],
+      }).pipe(
+        Effect.map((token) => ({
+          accessToken: token.accessToken,
+          timeToLive: Duration.max(
+            Duration.seconds(token.expiresAt - Math.floor(Date.now() / 1000) - 60),
+            Duration.zero,
+          ),
+        })),
+      ),
+    ),
+    {
+      capacity: 1,
+      timeToLive: Exit.match({
+        onFailure: () => Duration.seconds(1),
+        onSuccess: ({ timeToLive }) => timeToLive,
+      }),
+    },
+  );
+
+  return Effect.fn("zero.getAuth")(function* () {
+    const token = yield* Cache.get(cache, resource);
+    return Redacted.value(token.accessToken);
+  });
 });
 
 const makeZero = Effect.fn("zero.makeZero")(function* () {
+  const getAuth = yield* makeGetAuth();
   const auth = yield* getAuth();
   const zeroCacheServer = yield* config.zeroCacheServer;
   const zeroCacheUserId = yield* config.zeroCacheUserId;
@@ -52,5 +87,5 @@ export class ZeroClient extends BaseZeroClient.ZeroClient<Schema, undefined, unk
       const zero = yield* makeZero();
       return yield* this.make(zero);
     }),
-  );
+  ).pipe(Layer.provide(SheetAuthClient.layer));
 }

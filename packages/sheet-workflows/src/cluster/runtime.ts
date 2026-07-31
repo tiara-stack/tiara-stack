@@ -1,18 +1,19 @@
 import { NodeHttpServer } from "@effect/platform-node";
 import { Duration, Effect, Layer, Option } from "effect";
 import {
-  ClusterWorkflowEngine,
-  HttpRunner,
   K8sHttpClient,
   RunnerAddress,
   RunnerHealth,
   Sharding,
   ShardingConfig,
-  SqlMessageStorage,
-  SqlRunnerStorage,
 } from "effect/unstable/cluster";
 import { HttpRouter } from "effect/unstable/http";
-import { RpcSerialization } from "effect/unstable/rpc";
+import {
+  clientOnlyShardingConfig,
+  clusterWorkflowEngineClientLayer as makeClusterWorkflowEngineClientLayer,
+  clusterWorkflowEngineRunnerLayer,
+  clusterWorkflowStorageLayer,
+} from "effect-zero/workflow";
 import { createServer } from "node:http";
 import { config } from "@/config";
 import {
@@ -57,10 +58,9 @@ export const shardingConfigLayer = Layer.unwrap(
   }),
 ).pipe(Layer.withSpan("sheet-workflows.shardingConfig"));
 
-export const clusterStorageLayer = Layer.mergeAll(
-  SqlMessageStorage.layerWith({ prefix: "sheet_workflows" }),
-  SqlRunnerStorage.layerWith({ prefix: "sheet_workflows" }),
-).pipe(Layer.withSpan("sheet-workflows.clusterStorage"));
+export const clusterStorageLayer = clusterWorkflowStorageLayer({
+  prefix: "sheet_workflows",
+}).pipe(Layer.withSpan("sheet-workflows.clusterStorage"));
 
 const runnerHealthLayer = Layer.unwrap(
   Effect.gen(function* () {
@@ -72,35 +72,20 @@ const runnerHealthLayer = Layer.unwrap(
 
 export const clientOnlyWorkflowShardingConfig = (
   current: ShardingConfig.ShardingConfig["Service"],
-): ShardingConfig.ShardingConfig["Service"] => ({
-  ...current,
-  runnerAddress: Option.none(),
-});
+): ShardingConfig.ShardingConfig["Service"] => clientOnlyShardingConfig(current);
 
-const clusterClientLayer = HttpRunner.layerClient.pipe(
-  Layer.provide(clusterStorageLayer),
-  Layer.provide(RunnerHealth.layerNoop),
-  Layer.provide(HttpRunner.layerClientProtocolHttp({ path: "/cluster/rpc" })),
-  Layer.updateService(ShardingConfig.ShardingConfig, clientOnlyWorkflowShardingConfig),
-  Layer.provide(shardingConfigLayer),
-  Layer.provide(RpcSerialization.layerJson),
-  Layer.withSpan("sheet-workflows.clusterClient"),
-);
+export const clusterWorkflowEngineClientLayer = makeClusterWorkflowEngineClientLayer({
+  storage: clusterStorageLayer,
+  shardingConfig: shardingConfigLayer,
+  path: "/cluster/rpc",
+}).pipe(Layer.withSpan("sheet-workflows.workflowEngineClient"));
 
-export const clusterWorkflowEngineClientLayer = ClusterWorkflowEngine.layer.pipe(
-  Layer.provide(clusterStorageLayer),
-  Layer.provide(clusterClientLayer),
-  Layer.withSpan("sheet-workflows.workflowEngineClient"),
-);
-
-const workflowsRunnerLayer = HttpRunner.layerHttpOptions({ path: "/cluster/rpc" }).pipe(
-  Layer.provide(clusterStorageLayer),
-  Layer.provide(runnerHealthLayer),
-  Layer.provide(K8sHttpClient.layer),
-  Layer.provide(HttpRunner.layerClientProtocolHttp({ path: "/cluster/rpc" })),
-  Layer.provide(shardingConfigLayer),
-  Layer.provide(RpcSerialization.layerJson),
-);
+const workflowsRunnerLayer = clusterWorkflowEngineRunnerLayer({
+  storage: clusterStorageLayer,
+  shardingConfig: shardingConfigLayer,
+  runnerHealth: runnerHealthLayer,
+  path: "/cluster/rpc",
+}).pipe(Layer.provide(K8sHttpClient.layer));
 
 const runnerReadinessProbeTimeout = Duration.seconds(15);
 
@@ -145,7 +130,6 @@ const clusterLayer = Layer.mergeAll(
 ).pipe(
   Layer.provide(AutoCheckinService.layer),
   Layer.provide(dispatchServicesLayer),
-  Layer.provide(ClusterWorkflowEngine.layer),
   Layer.provideMerge(workflowsRunnerLayer),
   Layer.provide(postgresSqlLayer),
 );

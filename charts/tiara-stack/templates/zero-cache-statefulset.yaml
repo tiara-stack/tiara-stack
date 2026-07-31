@@ -24,7 +24,7 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
       serviceAccountName: {{ include "tiara-stack.zeroCacheName" . }}
-      automountServiceAccountToken: true
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -120,68 +120,13 @@ spec:
                   name: {{ .Values.zeroCache.secretRef.name }}
                   key: zeroAdminPassword
                   optional: true
-            - name: ZERO_AUTH_JWKS_URL
-              value: http://localhost:15010/openid/v1/jwks
-            - name: NODE_EXTRA_CA_CERTS
-              value: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
           volumeMounts:
             - name: zero-cache-pvc
               mountPath: /data
             - name: zero-cache-tmp
               mountPath: /tmp
-        - name: envoy
-          image: {{ printf "%s:%s" .Values.zeroCache.envoy.image.repository .Values.zeroCache.envoy.image.tag | quote }}
-          imagePullPolicy: {{ default "IfNotPresent" .Values.zeroCache.envoy.image.pullPolicy }}
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            seccompProfile:
-              type: RuntimeDefault
-            capabilities:
-              drop:
-                - ALL
-          resources:
-            {{- toYaml .Values.zeroCache.envoy.resources | nindent 12 }}
-          command: ["envoy"]
-          args: ["-c", "/etc/envoy/envoy.yaml"]
-          env:
-            - name: TOKEN_REFRESH_INTERVAL_SECONDS
-              value: {{ .Values.zeroCache.envoy.tokenRefreshIntervalSeconds | quote }}
-          ports:
-            - containerPort: 15010
-              name: jwks-proxy
-            - containerPort: 9901
-              name: envoy-admin
-            - containerPort: 9902
-              name: envoy-health
-          livenessProbe:
-            httpGet:
-              path: /ready
-              port: envoy-health
-              scheme: HTTP
-            initialDelaySeconds: 5
-            periodSeconds: 10
-            failureThreshold: 3
-          readinessProbe:
-            httpGet:
-              path: /ready
-              port: envoy-health
-              scheme: HTTP
-            initialDelaySeconds: 2
-            periodSeconds: 5
-            failureThreshold: 3
-          volumeMounts:
-            - name: zero-cache-envoy-config-volume
-              mountPath: /etc/envoy
-            - name: envoy-tmp
-              mountPath: /tmp
       volumes:
-        - name: zero-cache-envoy-config-volume
-          configMap:
-            name: {{ include "tiara-stack.zeroCacheEnvoyConfigName" . }}
         - name: zero-cache-tmp
-          emptyDir: {}
-        - name: envoy-tmp
           emptyDir: {}
         {{- if not .Values.zeroCache.persistence.enabled }}
         - name: zero-cache-pvc

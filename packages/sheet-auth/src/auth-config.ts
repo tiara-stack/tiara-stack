@@ -71,6 +71,7 @@ const InternalOAuthResourceAudiences = [
   "sheet-apis",
   "sheet-workflows",
   "sheet-bot",
+  "sheet-db-server",
 ] as const;
 const TokenExchangeAccessTokenMaxExpiresIn = 300;
 

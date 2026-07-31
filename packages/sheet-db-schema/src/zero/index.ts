@@ -1,5 +1,18 @@
 import { schema, type Schema } from "./schema";
-export { SheetZeroApi, makeSheetZeroApi, type SheetZeroApiSuccessSchemas } from "./api";
+export {
+  enqueueWorkflowCommandInZeroTransaction,
+  enqueueWorkflowEventInZeroTransaction,
+  enqueueWorkflowInZeroTransaction,
+  isWorkflowZeroContext,
+  makeSheetZeroApi,
+  mutateWithWorkflow,
+  SheetZeroApi,
+  WorkflowCommandRequest,
+  WorkflowEnqueueRequest,
+  WorkflowEventRequest,
+  type SheetZeroApiSuccessSchemas,
+  type WorkflowZeroContext,
+} from "./api";
 export { queries, type Queries } from "./queries";
 export { mutators, type Mutators } from "./mutators";
 export {

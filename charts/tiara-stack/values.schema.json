@@ -438,25 +438,6 @@
         "tolerations": {
           "$ref": "#/definitions/tolerations"
         },
-        "envoy": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "configMapNameOverride": {
-              "type": "string"
-            },
-            "tokenRefreshIntervalSeconds": {
-              "type": "integer",
-              "minimum": 1
-            },
-            "image": {
-              "$ref": "#/definitions/image"
-            },
-            "resources": {
-              "$ref": "#/definitions/resources"
-            }
-          }
-        },
         "secretRef": {
           "$ref": "#/definitions/secretRef"
         },

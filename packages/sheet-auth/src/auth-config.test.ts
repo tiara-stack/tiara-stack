@@ -9,6 +9,7 @@ describe("oauthAudiences", () => {
       "sheet-apis",
       "sheet-workflows",
       "sheet-bot",
+      "sheet-db-server",
     ]);
   });
 
@@ -19,6 +20,7 @@ describe("oauthAudiences", () => {
       "sheet-apis",
       "sheet-workflows",
       "sheet-bot",
+      "sheet-db-server",
     ]);
   });
 

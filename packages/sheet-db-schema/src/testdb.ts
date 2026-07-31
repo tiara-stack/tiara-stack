@@ -37,6 +37,7 @@ import {
   messageSlot,
   messageTeamSubmission,
   sheetApisDispatchJobs,
+  workflowRun,
 } from "./models";
 import { schema as canonicalSchema } from "./schema";
 import { builder, schema as zeroSchema, type Schema as SheetZeroSchema } from "./zero/schema";
@@ -63,6 +64,7 @@ export interface SheetSeeds {
   readonly messageSlot?: ReadonlyArray<Insert<typeof messageSlot>>;
   readonly messageTeamSubmission?: ReadonlyArray<Insert<typeof messageTeamSubmission>>;
   readonly sheetApisDispatchJobs?: ReadonlyArray<Insert<typeof sheetApisDispatchJobs>>;
+  readonly workflowRun?: ReadonlyArray<Insert<typeof workflowRun>>;
 }
 
 export interface SheetRows {
@@ -82,6 +84,7 @@ export interface SheetRows {
   readonly messageSlot: Row<typeof messageSlot>;
   readonly messageTeamSubmission: Row<typeof messageTeamSubmission>;
   readonly sheetApisDispatchJobs: Row<typeof sheetApisDispatchJobs>;
+  readonly workflowRun: Row<typeof workflowRun>;
 }
 
 export type SheetTableName = keyof SheetSeeds;
@@ -238,10 +241,10 @@ export const canonicalTableNames = Object.values(canonicalSnapshot().tables).map
 );
 type HasSameKeys<Left, Right> =
   Exclude<Left, Right> extends never ? (Exclude<Right, Left> extends never ? true : false) : false;
-const canonicalSeedTableParity: HasSameKeys<keyof typeof canonicalSchema.tables, keyof SheetSeeds> =
+const canonicalSeedTableParity: HasSameKeys<keyof typeof zeroSchema.tables, keyof SheetSeeds> =
   true;
 const canonicalSeedTableNames = Object.keys(
-  canonicalSnapshot().tables,
+  zeroSchema.tables,
 ) as typeof canonicalSeedTableParity extends true ? ReadonlyArray<SheetTableName> : never;
 
 export const truncateCanonicalTablesSql = `truncate table ${canonicalTableNames

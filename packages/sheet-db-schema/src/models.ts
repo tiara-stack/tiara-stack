@@ -13,4 +13,6 @@ export {
   messageSlot,
   messageTeamSubmission,
   sheetApisDispatchJobs,
+  workflowCommand,
+  workflowRun,
 } from "./schema.internal";

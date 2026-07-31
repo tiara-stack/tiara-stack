@@ -1,5 +1,9 @@
 import { pg } from "effect-sql-schema";
 import type { EffectSqlTable } from "effect-sql-schema";
+import {
+  workflowCommand as effectZeroWorkflowCommand,
+  workflowRun as effectZeroWorkflowRun,
+} from "effect-zero/workflow";
 import type { Model } from "effect/unstable/schema";
 import { ReadonlyJSONValue } from "typhoon-zero/schema";
 import {
@@ -316,3 +320,5 @@ export const messageRoomOrder = asPgModel(MessageRoomOrder);
 export const messageRoomOrderEntry = asPgModel(MessageRoomOrderEntry);
 export const messageTeamSubmission = asPgModel(MessageTeamSubmission);
 export const sheetApisDispatchJobs = asPgModel(SheetApisDispatchJobs);
+export const workflowRun = asPgModel(effectZeroWorkflowRun);
+export const workflowCommand = asPgModel(effectZeroWorkflowCommand);

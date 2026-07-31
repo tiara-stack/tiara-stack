@@ -1,4 +1,4 @@
-// @generated effect-zero signature:sha256:110f9db376a6d40399e4edcaa8f6eb997b02fb29bce86a59a3f1ac27b1871693
+// @generated effect-zero signature:sha256:d31f26fe0265c6bd165fd3eb0af4deea5621bd78600da38381134288b12652fa
 import { createBuilder } from "@rocicorp/zero";
 import type { ReadonlyJSONValue } from "@rocicorp/zero";
 
@@ -990,6 +990,82 @@ const sheetApisDispatchJobsTable = {
   primaryKey: ["dispatchRequestId"],
   serverName: "sheet_db_sheet_apis_dispatch_jobs",
 } as const;
+const workflowRunTable = {
+  name: "workflowRun",
+  columns: {
+    runId: {
+      type: "string",
+      optional: false,
+      customType: customType<string>(),
+      serverName: "run_id",
+    },
+    workflowName: {
+      type: "string",
+      optional: false,
+      customType: customType<string>(),
+      serverName: "workflow_name",
+    },
+    definitionVersion: {
+      type: "string",
+      optional: false,
+      customType: customType<string>(),
+      serverName: "definition_version",
+    },
+    visibilityKey: {
+      type: "string",
+      optional: false,
+      customType: customType<string>(),
+      serverName: "visibility_key",
+    },
+    status: {
+      type: "string",
+      optional: false,
+      customType: customType<string>(),
+    },
+    result: {
+      type: "json",
+      optional: true,
+      customType: customType<ReadonlyJSONValue>(),
+    },
+    error: {
+      type: "json",
+      optional: true,
+      customType: customType<ReadonlyJSONValue>(),
+    },
+    runAfter: {
+      type: "number",
+      optional: false,
+      customType: customType<number>(),
+      serverName: "run_after",
+    },
+    startedAt: {
+      type: "number",
+      optional: true,
+      customType: customType<number>(),
+      serverName: "started_at",
+    },
+    completedAt: {
+      type: "number",
+      optional: true,
+      customType: customType<number>(),
+      serverName: "completed_at",
+    },
+    createdAt: {
+      type: "number",
+      optional: false,
+      customType: customType<number>(),
+      serverName: "created_at",
+    },
+    updatedAt: {
+      type: "number",
+      optional: false,
+      customType: customType<number>(),
+      serverName: "updated_at",
+    },
+  },
+  primaryKey: ["runId"],
+  serverName: "sheet_db_workflow_run",
+} as const;
 export const schema = {
   tables: {
     configWorkspace: configWorkspaceTable,
@@ -1006,6 +1082,7 @@ export const schema = {
     messageRoomOrderEntry: messageRoomOrderEntryTable,
     messageTeamSubmission: messageTeamSubmissionTable,
     sheetApisDispatchJobs: sheetApisDispatchJobsTable,
+    workflowRun: workflowRunTable,
   },
   relationships: {},
   enableLegacyQueries: false,

@@ -8,6 +8,9 @@ export const config = {
   sheetIngressNamespace: Config.option(Config.string("SHEET_INGRESS_NAMESPACE")),
   zeroCacheServer: Config.schema(Schema.String, "ZERO_CACHE_SERVER"),
   zeroCacheUserId: Config.schema(Schema.String, "ZERO_CACHE_USER_ID"),
+  zeroOAuthAudience: Config.string("ZERO_OAUTH_AUDIENCE").pipe(
+    Config.withDefault("sheet-db-server"),
+  ),
   sheetAuthIssuer: Config.schema(Schema.String, "SHEET_AUTH_ISSUER"),
   sheetAuthOAuthClientId: Config.schema(nonEmptyString, "SHEET_AUTH_OAUTH_CLIENT_ID"),
   sheetAuthOAuthClientSecret: Config.schema(nonEmptySecret, "SHEET_AUTH_OAUTH_CLIENT_SECRET"),

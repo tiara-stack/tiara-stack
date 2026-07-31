@@ -10,6 +10,20 @@ import {
 import { defaultSuccessSchemas, type SheetZeroApiSuccessSchemas } from "./api/successSchemas";
 import { makeUserConfigGroup, type UserConfigGroup } from "./api/userConfig";
 import { makeWorkspaceConfigGroup, type WorkspaceConfigGroup } from "./api/workspaceConfig";
+import { makeWorkflowGroup, type WorkflowGroup } from "./api/workflow";
+
+export {
+  enqueueWorkflowCommandInZeroTransaction,
+  enqueueWorkflowEventInZeroTransaction,
+  enqueueWorkflowInZeroTransaction,
+  isWorkflowZeroContext,
+  mutateWithWorkflow,
+  WorkflowCommandRequest,
+  WorkflowEnqueueRequest,
+  WorkflowEventRequest,
+  WorkflowRunNotAccessibleError,
+  type WorkflowZeroContext,
+} from "./api/workflow";
 
 export type { SheetZeroApiSuccessSchemas } from "./api/successSchemas";
 
@@ -27,6 +41,7 @@ type SheetZeroApi<SuccessSchemas extends SheetZeroApiSuccessSchemas> = ZeroApi<
   | MessageRoomOrderGroup<SuccessSchemas>
   | MessageSlotGroup<SuccessSchemas>
   | MessageTeamSubmissionGroup<SuccessSchemas>
+  | WorkflowGroup
 >;
 
 const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSuccessSchemas>(
@@ -38,7 +53,8 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
     .add(makeMessageCheckinGroup(success))
     .add(makeMessageRoomOrderGroup(success))
     .add(makeMessageSlotGroup(success))
-    .add(makeMessageTeamSubmissionGroup(success));
+    .add(makeMessageTeamSubmissionGroup(success))
+    .add(makeWorkflowGroup());
 
 export function makeSheetZeroApi(): ReturnType<
   typeof makeSheetZeroApiWithSuccess<typeof defaultSuccessSchemas>

@@ -85,7 +85,9 @@ describe("canonical schema artifact parity", () => {
   it("generates Zero tables and relationships from the canonical AST", () => {
     expect(generatedZeroSchema).toEqual(projectZeroSchema());
     expect(effectZeroConfig.relationships).toBe(canonicalSchema.relationships);
-    expect(Object.keys(effectZeroConfig.tables)).toEqual(Object.keys(canonicalSchema.tables));
+    expect(Object.keys(effectZeroConfig.tables)).toEqual(
+      Object.keys(canonicalSchema.tables).filter((name) => name !== "workflowCommand"),
+    );
   });
 
   it("keeps public models as aliases of canonical tables", () => {
