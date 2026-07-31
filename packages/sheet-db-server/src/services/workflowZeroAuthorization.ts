@@ -1,7 +1,6 @@
-import { Context, Effect, Layer, Option, Predicate } from "effect";
-import { Headers } from "effect/unstable/http";
+import { Context, Effect, Layer, Predicate } from "effect";
+import type { Headers } from "effect/unstable/http";
 import {
-  getBearerToken,
   makeOAuthResourceTokenAuthorizer,
   type VerifiedOAuthResourceToken,
 } from "sheet-auth/oauth-resource-authorization";
@@ -79,17 +78,6 @@ export const zeroContextFromToken = (
   return Effect.fail(unauthorized("Access outside the runs API requires service scope"));
 };
 
-const ANONYMOUS_CONTEXT: WorkflowZeroContext = {
-  principalId: "anonymous",
-  visibilityKey: "public",
-};
-
-// Public visibility procedures — no auth required when no token is present.
-const PUBLIC_ONLY_PROCEDURE_PREFIXES = ["runs.list", "runs.get"] as const;
-const isPublicOnlyProcedureSet = (procedureNames: readonly string[]): boolean =>
-  procedureNames.length > 0 &&
-  procedureNames.every((p) => (PUBLIC_ONLY_PROCEDURE_PREFIXES as readonly string[]).includes(p));
-
 export class WorkflowZeroAuthorization extends Context.Service<
   WorkflowZeroAuthorization,
   WorkflowZeroAuthorizationService
@@ -111,22 +99,10 @@ export class WorkflowZeroAuthorization extends Context.Service<
           }),
       });
       return {
-        authorize: (procedureNames, headers) => {
-          // For public-only procedure sets, allow anonymous access when no token is present.
-          // Browser Zero clients send BetterAuth session tokens (not OAuth resource tokens),
-          // so we skip OAuth validation and fall back to anonymous context for public reads.
-          if (isPublicOnlyProcedureSet(procedureNames)) {
-            const bearerToken = getBearerToken(
-              Option.getOrUndefined(Headers.get(headers, "authorization")),
-            );
-            if (bearerToken === undefined) {
-              return Effect.succeed(ANONYMOUS_CONTEXT);
-            }
-          }
-          return authorizer
+        authorize: (procedureNames, headers) =>
+          authorizer
             .requireAuthorizedHeaders(headers)
-            .pipe(Effect.flatMap((token) => zeroContextFromToken(procedureNames, token)));
-        },
+            .pipe(Effect.flatMap((token) => zeroContextFromToken(procedureNames, token))),
       };
     }),
   );
