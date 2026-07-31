@@ -45,6 +45,17 @@ export const zeroAuthRefreshDelay = (expiresAt: number, nowEpochSeconds: number)
 export const shouldRefreshZeroAuth = (state: ZeroConnectionState) =>
   Match.value(state).pipe(
     Match.when({ name: "needs-auth" }, () => true),
+    // zero-cache revalidates each connection's auth token on its revalidate
+    // interval (default 300s). A service token that expires between proactive
+    // refreshes makes revalidation fail with TransformFailed, which zero-cache
+    // surfaces to the client as a fatal "error" connection state (not
+    // "needs-auth") and closes the websocket. Its reason is the string
+    // "Fetch from API server returned non-OK status 500". Recover by re-authing
+    // and reconnecting with a fresh token instead of leaving the connection
+    // dead until the next proactive refresh.
+    Match.when({ name: "error" }, (s) =>
+      s.reason.includes("Fetch from API server returned non-OK status"),
+    ),
     Match.orElse(() => false),
   );
 

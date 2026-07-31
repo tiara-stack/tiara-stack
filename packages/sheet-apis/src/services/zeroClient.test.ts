@@ -28,12 +28,14 @@ describe("sheet Zero OAuth refresh", () => {
         reason: { type: "query", status: 401 },
       }),
     ).toBe(true);
+    // zero-cache revalidation of an expired service token surfaces as an
+    // "error" state with the TransformFailed message — must recover.
     expect(
       shouldRefreshZeroAuth({
         name: "error",
         reason: "Fetch from API server returned non-OK status 500",
       }),
-    ).toBe(false);
+    ).toBe(true);
     expect(shouldRefreshZeroAuth({ name: "error", reason: "Zero cache crashed" })).toBe(false);
     expect(shouldRefreshZeroAuth({ name: "connected" })).toBe(false);
   });
