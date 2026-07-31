@@ -73,11 +73,13 @@ const makeZero = Effect.fn("WorkflowZeroClient.makeZero")(function* () {
   const { getAuth, refreshAuth } = yield* makeGetAuth();
   const server = yield* config.zeroCacheServer;
   const userID = yield* config.zeroCacheUserId;
+  const initialAuth = yield* getAuth();
   const zero = new Zero({
     server,
     userID,
     schema,
     mutators,
+    auth: initialAuth,
   });
   yield* Effect.addFinalizer(() => Effect.sync(() => zero.close()));
 
