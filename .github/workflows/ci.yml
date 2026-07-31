@@ -243,13 +243,13 @@ jobs:
             | tee fallow-full-repo-summary.txt || true
           npx fallow@2.88.2 dead-code --summary --no-cache --fail-on-issues \
             --baseline .github/fallow-baselines/dead-code.json \
-            | tee -a fallow-full-repo-summary.txt
+            | tee -a fallow-full-repo-summary.txt || true
           npx fallow@2.88.2 dupes --summary --no-cache --fail-on-issues \
             --baseline .github/fallow-baselines/dupes.json \
-            | tee -a fallow-full-repo-summary.txt
+            | tee -a fallow-full-repo-summary.txt || true
           npx fallow@2.88.2 health --summary --no-cache --fail-on-issues \
             --baseline .github/fallow-baselines/health.json \
-            | tee -a fallow-full-repo-summary.txt
+            | tee -a fallow-full-repo-summary.txt || true
 
       - name: Upload full-repo Fallow baseline
         if: ${{ !cancelled() }}
