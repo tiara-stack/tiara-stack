@@ -114,6 +114,8 @@ spec:
               value: http://{{ include "tiara-stack.sheetDbServerServiceName" . }}:80/zero/query
             - name: ZERO_MUTATE_FORWARD_COOKIES
               value: "true"
+            - name: ZERO_MUTATE_ALLOWED_CLIENT_HEADERS
+              value: "authorization"
             - name: ZERO_MUTATE_URL
               value: http://{{ include "tiara-stack.sheetDbServerServiceName" . }}:80/zero/mutate
             - name: ZERO_ADMIN_PASSWORD
