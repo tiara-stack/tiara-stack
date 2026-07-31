@@ -174,6 +174,7 @@ This report was verified through the GitHub API against the replacement Graphite
 1. **AI provider adapters accept SDK data by assertion rather than validation.** `effect-ai-codex` and `effect-ai-kimi` still use `as any` metadata/event assertions and unsafe tool-argument parsing.
 
     **Original finding text.** **AI provider adapters accept SDK data by assertion rather than validation.** `packages/effect-ai-codex/src/CodexLanguageModel.ts:58-77,250-314,398-422` uses `as any` for response metadata and casts assembled response parts. `packages/effect-ai-kimi/src/KimiLanguageModel.ts:150-220` asserts SDK event payload variants and uses `Tool.unsafeSecureJsonParse` for tool arguments at `:191`. An upstream SDK event or Effect AI metadata shape change can silently produce invalid stream parts or defects. Suggested direction: declare provider metadata augmentation/types, validate SDK event payloads with Schema at the adapter edge, and map malformed tool arguments to a typed stream error.
+
 ### Code Organization — 2 remaining
 
 2. **Workspace documentation and package inventory are stale.** `AGENTS.md`/`README.md` still cite Effect beta.56 and Vite+ 0.1.15 and omit newer packages/scripts.

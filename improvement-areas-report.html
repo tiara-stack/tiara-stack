@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
-  <title>TiaraStack Improvement Report — 17 Resolved, 20 Remaining</title>
+  <title>TiaraStack Improvement Report — 28 Resolved, 1 No Longer Applicable, and 9 Remaining</title>
   <style>
     :root {
       --paper:#141510; --panel:#1d1f18; --panel-2:#24271e; --ink:#f1f3e7;
@@ -50,14 +50,14 @@
     .toc .sub { padding-left:16px; font-size:.73rem; }
     .toc .sub span { color:var(--cyan); }
     main { min-width:0; }
-    .section { margin:0 0 31px; padding:30px 31px 33px; border:1px solid var(--line); border-top:3px solid var(--cyan); background:linear-gradient(145deg,rgba(36,39,30,.96),rgba(25,27,21,.97)); box-shadow:0 22px 60px var(--shadow); scroll-margin-top:20px; }
+    .section { margin:0 0 31px; padding:30px 31px 33px; border:1px solid var(--line); border-top:3px solid var(--cyan); background:linear-gradient(145deg,rgba(36,39,30,.96),rgba(25,27,21,.97)); box-shadow:0 22px 60px var(--shadow); scroll-margin-top:20px; counter-reset:finding; }
     .section.resolved { border-top-color:var(--acid); }
     .section.remaining { border-top-color:var(--coral); }
     h2 { margin:0 0 22px; font:400 clamp(1.85rem,3vw,2.7rem)/1.08 var(--serif); letter-spacing:-.03em; }
     .resolved > h2 { color:var(--acid); } .remaining > h2 { color:var(--coral); }
     h3 { margin:31px 0 15px; padding:12px 14px; border:1px solid var(--line); color:var(--paper); background:var(--cyan); font:700 .76rem/1.3 var(--mono); letter-spacing:.1em; text-transform:uppercase; scroll-margin-top:20px; }
     .resolved h3 { background:var(--acid); }
-    .finding-grid { display:grid; grid-template-columns:1fr; gap:14px; counter-reset:finding; }
+    .finding-grid { display:grid; grid-template-columns:1fr; gap:14px; }
     .finding { position:relative; margin:0; padding:22px 22px 18px; border:1px solid var(--line); background:rgba(12,13,10,.34); break-inside:avoid; }
     .finding::before { counter-increment:finding; content:counter(finding,decimal-leading-zero); display:block; margin-bottom:12px; color:var(--cyan); font:700 .7rem/1 var(--mono); letter-spacing:.1em; }
     .resolved-item { border-left:3px solid var(--acid); }

@@ -45,7 +45,6 @@ export const zeroContextFromToken = (
 
   // Filter out pure-query runs procedures; they don't require workflow.dispatch scope.
   const pureQueryProcedures = runsProcedures.filter((p) => p === "runs.list" || p === "runs.get");
-  const nonQueryProcedures = runsProcedures.filter((p) => p !== "runs.list" && p !== "runs.get");
 
   if (
     pureQueryProcedures.length === runsProcedures.length &&
@@ -62,15 +61,6 @@ export const zeroContextFromToken = (
           principalId: "anonymous",
           visibilityKey: "public",
         });
-  }
-
-  if (
-    nonQueryProcedures.length > 0 &&
-    nonQueryProcedures.every((p) => p === "runs.enqueueAsCaller") &&
-    runsProcedures.length === procedureNames.length
-  ) {
-    // Mixed query+enqueueAsCaller: enqueueAsCaller lacked scopes (rejected above).
-    return Effect.fail(unauthorized("Access outside the runs API requires service scope"));
   }
 
   if (runsProcedures.length === procedureNames.length && runsProcedures.length > 0) {
