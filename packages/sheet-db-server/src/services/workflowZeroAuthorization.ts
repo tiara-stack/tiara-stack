@@ -87,6 +87,7 @@ const ANONYMOUS_CONTEXT: WorkflowZeroContext = {
 // Public visibility procedures — no auth required when no token is present.
 const PUBLIC_ONLY_PROCEDURE_PREFIXES = ["runs.list", "runs.get"] as const;
 const isPublicOnlyProcedureSet = (procedureNames: readonly string[]): boolean =>
+  procedureNames.length > 0 &&
   procedureNames.every((p) => (PUBLIC_ONLY_PROCEDURE_PREFIXES as readonly string[]).includes(p));
 
 export class WorkflowZeroAuthorization extends Context.Service<
