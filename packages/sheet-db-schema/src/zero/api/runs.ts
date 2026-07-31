@@ -145,8 +145,8 @@ const enqueueAuthoritative = async (
         input.definitionVersion,
         input.executionId,
         context.visibilityKey,
-        { id: context.principalId },
-        input.payload,
+        JSON.stringify({ id: context.principalId }),
+        JSON.stringify(input.payload),
         input.maxAttempts ?? 10,
         runAfter,
         now,
@@ -172,7 +172,13 @@ const enqueueAuthoritative = async (
       NULL, 0, NULL, NULL, NULL, $5, $5
     )
     ON CONFLICT (command_id) DO NOTHING`,
-    [`start:${authoritativeRunId}`, authoritativeRunId, input.payload, runAfter, now],
+    [
+      `start:${authoritativeRunId}`,
+      authoritativeRunId,
+      JSON.stringify(input.payload),
+      runAfter,
+      now,
+    ],
   );
 };
 
@@ -283,7 +289,7 @@ const enqueueCommandAuthoritative = async (
       [
         input.commandId,
         input.kind,
-        input.payload,
+        JSON.stringify(input.payload),
         new Date(input.availableAt ?? now.getTime()),
         now,
         input.runId,
@@ -307,7 +313,7 @@ const enqueueCommandAuthoritative = async (
       `SELECT run_id, kind, payload = $2 AS payload_matches
       FROM sheet_db_workflow_command
       WHERE command_id = $1`,
-      [input.commandId, input.payload],
+      [input.commandId, JSON.stringify(input.payload)],
     ),
   );
   const existingCommand = existingRows[0];
