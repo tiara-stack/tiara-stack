@@ -153,7 +153,7 @@ describe("runs Zero transaction adapter", () => {
       );
 
       expect(statements[0]?.args[4]).toBe("account:account-2");
-      expect(statements[0]?.args[5]).toEqual({ id: "account-2" });
+      expect(statements[0]?.args[5]).toBe(JSON.stringify({ id: "account-2" }));
     }),
   );
 
@@ -174,7 +174,7 @@ describe("runs Zero transaction adapter", () => {
       expect(statements[1]?.args).toEqual([
         "start:persisted-run",
         "persisted-run",
-        input.payload,
+        JSON.stringify(input.payload),
         expect.any(Date),
         expect.any(Date),
       ]);
@@ -257,10 +257,12 @@ describe("runs Zero transaction adapter", () => {
 
       expect(statements).toHaveLength(1);
       expect(statements[0]?.args).toContain("event");
-      expect(statements[0]?.args).toContainEqual({
-        eventId,
-        value: { approved: true },
-      });
+      expect(statements[0]?.args).toContain(
+        JSON.stringify({
+          eventId,
+          value: { approved: true },
+        }),
+      );
     }),
   );
 
