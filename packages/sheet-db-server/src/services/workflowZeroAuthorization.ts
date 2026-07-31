@@ -28,18 +28,10 @@ export const zeroContextFromToken = (
   const runsProcedures = procedureNames.filter((procedure) => procedure.startsWith("runs."));
   const isEnqueueAsCaller = runsProcedures.includes("runs.enqueueAsCaller");
 
-  if (isEnqueueAsCaller) {
-    if (!token.scopes.has("service") || !token.scopes.has("ingress.forward")) {
-      return Effect.fail(
-        unauthorized("Delegated workflow enqueue requires service and ingress.forward scopes"),
-      );
-    }
-    return Predicate.isString(token.clientId)
-      ? Effect.succeed({
-          principalId: token.clientId,
-          visibilityKey: `service:${token.clientId}`,
-        })
-      : Effect.fail(unauthorized("Service access token is missing a client identity"));
+  if (isEnqueueAsCaller && (!token.scopes.has("service") || !token.scopes.has("ingress.forward"))) {
+    return Effect.fail(
+      unauthorized("Delegated workflow enqueue requires service and ingress.forward scopes"),
+    );
   }
 
   if (token.scopes.has("service")) {
@@ -53,10 +45,14 @@ export const zeroContextFromToken = (
 
   // Filter out pure-query runs procedures; they don't require workflow.dispatch scope.
   const pureQueryProcedures = runsProcedures.filter((p) => p === "runs.list" || p === "runs.get");
-  const mutatorProcedures = runsProcedures.filter((p) => p !== "runs.list" && p !== "runs.get");
+  const nonQueryProcedures = runsProcedures.filter((p) => p !== "runs.list" && p !== "runs.get");
 
-  if (pureQueryProcedures.length === runsProcedures.length) {
-    // All procedures are pure queries — no scope check needed.
+  if (
+    pureQueryProcedures.length === runsProcedures.length &&
+    runsProcedures.length === procedureNames.length &&
+    runsProcedures.length > 0
+  ) {
+    // All procedures are runs procedures, and all runs procedures are pure queries — no workflow.dispatch scope needed.
     return Predicate.isString(token.accountId)
       ? Effect.succeed({
           principalId: token.accountId,
@@ -68,8 +64,12 @@ export const zeroContextFromToken = (
         });
   }
 
-  if (mutatorProcedures.length === 0) {
-    // Mixed query+mutator but all mutators are enqueueAsCaller (handled above).
+  if (
+    nonQueryProcedures.length > 0 &&
+    nonQueryProcedures.every((p) => p === "runs.enqueueAsCaller") &&
+    runsProcedures.length === procedureNames.length
+  ) {
+    // Mixed query+enqueueAsCaller: enqueueAsCaller lacked scopes (rejected above).
     return Effect.fail(unauthorized("Access outside the runs API requires service scope"));
   }
 
