@@ -108,6 +108,8 @@ spec:
                   key: zeroAppPublications
             - name: ZERO_QUERY_FORWARD_COOKIES
               value: "true"
+            - name: ZERO_QUERY_ALLOWED_CLIENT_HEADERS
+              value: "authorization"
             - name: ZERO_QUERY_URL
               value: http://{{ include "tiara-stack.sheetDbServerServiceName" . }}:80/zero/query
             - name: ZERO_MUTATE_FORWARD_COOKIES
