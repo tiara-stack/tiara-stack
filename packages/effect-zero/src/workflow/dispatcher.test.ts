@@ -1,0 +1,107 @@
+import { Cause, Duration, Effect, Layer, Ref } from "effect";
+import { describe, expect, layer } from "@effect/vitest";
+import {
+  dispatchWorkflowCommandBatch,
+  WorkflowCommandExecutor,
+  type WorkflowCommandExecutorService,
+} from "./dispatcher";
+import { WorkflowStore, type WorkflowCommand, type WorkflowStoreService } from "./store";
+
+const command = (attempts = 1): WorkflowCommand => ({
+  commandId: "start:run-1",
+  runId: "run-1",
+  workflowName: "example.v1",
+  executionId: "execution-1",
+  definitionVersion: "1",
+  kind: "start",
+  payload: { input: "value" },
+  status: "delivering",
+  attempts,
+  maxAttempts: 10,
+  leaseOwner: "worker-1",
+  leaseToken: 1,
+});
+
+type Events = ReadonlyArray<string>;
+
+const makeTestLayer = (
+  execute: WorkflowCommandExecutorService["execute"],
+  attempts = 1,
+  failCommandSettles = true,
+) =>
+  Layer.effect(
+    WorkflowStore,
+    Effect.gen(function* () {
+      const events = yield* Ref.make<Events>([]);
+      const append = (event: string) => Ref.update(events, (current) => [...current, event]);
+      const service: WorkflowStoreService & { readonly events: Ref.Ref<Events> } = {
+        events,
+        enqueue: () => Effect.die("unused"),
+        enqueueCommand: () => Effect.die("unused"),
+        claim: () => append("claim").pipe(Effect.as([command(attempts)])),
+        getRun: () => Effect.die("unused"),
+        listRuns: () => Effect.die("unused"),
+        markCommandDelivered: () => append("delivered").pipe(Effect.as(true)),
+        retryCommand: () => append("retry").pipe(Effect.as(true)),
+        failCommand: () => append("failed").pipe(Effect.as(failCommandSettles)),
+        markRun: (_, status) => append(`run:${status}`),
+      };
+      return service;
+    }),
+  ).pipe(Layer.merge(Layer.succeed(WorkflowCommandExecutor, { execute })));
+
+const events = Effect.gen(function* () {
+  const store = yield* WorkflowStore;
+  return yield* Ref.get(
+    (store as WorkflowStoreService & { readonly events: Ref.Ref<Events> }).events,
+  );
+});
+
+describe("workflow command dispatcher", () => {
+  layer(makeTestLayer(() => Effect.void))("successful delivery", (it) => {
+    it.effect("marks commands delivered", () =>
+      Effect.gen(function* () {
+        expect(yield* dispatchWorkflowCommandBatch()).toBe(1);
+        expect(yield* events).toEqual(["claim", "delivered"]);
+      }),
+    );
+  });
+
+  layer(makeTestLayer(() => Effect.fail("temporary")))("retryable delivery", (it) => {
+    it.effect("reschedules commands below the attempt limit", () =>
+      Effect.gen(function* () {
+        expect(
+          yield* dispatchWorkflowCommandBatch({
+            maxAttempts: 3,
+            retryDelay: () => Duration.zero,
+          }),
+        ).toBe(1);
+        expect(yield* events).toEqual(["claim", "retry"]);
+      }),
+    );
+  });
+
+  layer(makeTestLayer(() => Effect.failCause(Cause.fail("permanent")), 3))(
+    "exhausted delivery",
+    (it) => {
+      it.effect("marks commands failed at the attempt limit", () =>
+        Effect.gen(function* () {
+          expect(yield* dispatchWorkflowCommandBatch({ maxAttempts: 3 })).toBe(1);
+          expect(yield* events).toEqual(["claim", "failed", "run:failed"]);
+        }),
+      );
+    },
+  );
+
+  layer(makeTestLayer(() => Effect.failCause(Cause.fail("stale")), 3, false))(
+    "stale exhausted delivery",
+    (it) => {
+      it.effect("does not fail the run after lease settlement is rejected", () =>
+        Effect.gen(function* () {
+          expect(yield* dispatchWorkflowCommandBatch({ maxAttempts: 3 })).toBe(1);
+          expect(yield* events).toEqual(["claim", "failed"]);
+        }),
+      );
+    },
+  );
+});

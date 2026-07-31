@@ -9,12 +9,14 @@ import {
 } from "@rocicorp/zero";
 import { handleMutateRequest, handleQueryRequest, type Database } from "@rocicorp/zero/server";
 import { Effect, Layer, Predicate, Schema } from "effect";
+import { HttpServerRequest } from "effect/unstable/http";
 import { HttpApiBuilder, type HttpApi, type HttpApiGroup } from "effect/unstable/httpapi";
 import { ReadonlyJSONValue as ReadonlyJSONValueSchema } from "../schema";
 import {
   ZeroDispatchBadRequestError,
-  type ZeroDispatchError,
+  ZeroDispatchError,
   ZeroDispatchNotFoundError,
+  ZeroDispatchUnauthorizedError,
   ZeroHttpApi,
 } from "./api";
 
@@ -37,14 +39,13 @@ export interface ZeroHttpLiveOptions<
   QD extends QueryDefinitions,
   MD extends MutatorDefinitions,
   ZqlEffect extends Effect.Effect<Database<unknown>, any, any>,
-  Context,
-  ContextEffect extends Effect.Effect<Context, any, any> | undefined,
+  ContextFactory extends ZeroContextFactory = EmptyZeroContextFactory,
 > {
   readonly schema: S;
   readonly queries: QueryRegistry<QD, S>;
   readonly mutators: MutatorRegistry<MD, S>;
   readonly zql: ZqlEffect;
-  readonly context?: ContextEffect;
+  readonly context?: ContextFactory;
 }
 
 interface ZeroQueryHandler<Context> {
@@ -61,6 +62,22 @@ interface ZeroMutatorHandler<Context, Tx> {
     readonly tx: Tx;
   }) => Promise<void>;
 }
+
+type ZeroContextFactory = (
+  procedureNames: readonly string[],
+) => Effect.Effect<unknown, unknown, unknown>;
+
+type EmptyZeroContextFactory = (
+  procedureNames: readonly string[],
+) => Effect.Effect<Record<string, never>>;
+
+const emptyZeroContextFactory: EmptyZeroContextFactory = () => Effect.succeed({});
+
+type ZeroContextEffectFromFactory<ContextFactory extends ZeroContextFactory> =
+  ReturnType<ContextFactory>;
+
+type ZeroContextFromEffect<ContextEffect> =
+  ContextEffect extends Effect.Effect<infer Context, any, any> ? Context : Record<string, never>;
 
 type ZeroHandlerWithFn = {
   readonly fn: unknown;
@@ -271,15 +288,18 @@ export const makeZeroHttpLive = <
   QD extends QueryDefinitions,
   MD extends MutatorDefinitions,
   ZqlEffect extends Effect.Effect<Database<unknown>, any, any>,
-  Context = Record<string, never>,
-  ContextEffect extends Effect.Effect<Context, any, any> | undefined = undefined,
+  ContextFactory extends ZeroContextFactory = EmptyZeroContextFactory,
 >(
   api: HttpApi.HttpApi<ApiId, typeof ZeroHttpApi>,
-  options: ZeroHttpLiveOptions<S, QD, MD, ZqlEffect, Context, ContextEffect>,
+  options: ZeroHttpLiveOptions<S, QD, MD, ZqlEffect, ContextFactory>,
 ): Layer.Layer<
   HttpApiGroup.ApiGroup<ApiId, "zero">,
-  Effect.Error<ZqlEffect> | Effect.Error<NonNullable<ContextEffect>>,
-  Effect.Services<ZqlEffect> | Effect.Services<NonNullable<ContextEffect>>
+  Effect.Error<ZqlEffect>,
+  | Effect.Services<ZqlEffect>
+  | Exclude<
+      Effect.Services<ZeroContextEffectFromFactory<ContextFactory>>,
+      HttpServerRequest.HttpServerRequest
+    >
 > =>
   HttpApiBuilder.group(
     api,
@@ -287,69 +307,85 @@ export const makeZeroHttpLive = <
     Effect.fnUntraced(function* (handlers) {
       const queryRegistry = yield* makeZeroHandlerRegistry(options.queries);
       const mutatorRegistry = yield* makeZeroHandlerRegistry(options.mutators);
+      const contextFactory = options.context ?? emptyZeroContextFactory;
+      type ContextEffect = ZeroContextEffectFromFactory<ContextFactory>;
+      type Context = ZeroContextFromEffect<ContextEffect>;
       const queryHandlers = queryRegistry as Readonly<Record<string, ZeroQueryHandler<Context>>>;
       const mutatorHandlers = mutatorRegistry as Readonly<
         Record<string, ZeroMutatorHandler<Context, unknown>>
       >;
       const zql = yield* options.zql;
-      const context: Context = options.context ? yield* options.context : ({} as Context);
+      const resolveContext = (procedureNames: readonly string[]) =>
+        Effect.gen(function* () {
+          const request = yield* HttpServerRequest.HttpServerRequest;
+          const context = yield* Effect.provideService(
+            contextFactory(procedureNames),
+            HttpServerRequest.HttpServerRequest,
+            request,
+          ).pipe(
+            Effect.mapError((error) =>
+              Schema.is(ZeroDispatchError)(error)
+                ? error
+                : new ZeroDispatchUnauthorizedError({
+                    procedure: procedureNames.join(", ") || "unknown",
+                    message: "Failed to resolve the Zero request context",
+                  }),
+            ),
+          );
+          return context as Context;
+        });
 
       return handlers
         .handle("query", ({ payload }) =>
-          getQueryProcedureNames(payload).pipe(
-            Effect.flatMap((procedureNames) =>
-              validateProcedureNames(queryHandlers, procedureNames).pipe(
-                Effect.map((validatedHandlers) => ({ procedureNames, validatedHandlers })),
-              ),
-            ),
-            Effect.flatMap(({ procedureNames, validatedHandlers }) =>
-              Effect.promise(() => {
-                const resolveHandler = makeValidatedHandlerResolver(
-                  procedureNames,
-                  validatedHandlers,
-                );
-                return handleQueryRequest(
-                  (name, args) => Effect.runSync(resolveHandler(name)).fn({ args, ctx: context }),
-                  options.schema,
-                  payload,
-                );
-              }),
-            ),
-            Effect.map(removeUndefinedFields),
-          ),
+          Effect.gen(function* () {
+            const procedureNames = yield* getQueryProcedureNames(payload);
+            const context = yield* resolveContext(procedureNames);
+            const validatedHandlers = yield* validateProcedureNames(queryHandlers, procedureNames);
+            const result = yield* Effect.promise(() => {
+              const resolveHandler = makeValidatedHandlerResolver(
+                procedureNames,
+                validatedHandlers,
+              );
+              return handleQueryRequest(
+                (name, args) => Effect.runSync(resolveHandler(name)).fn({ args, ctx: context }),
+                options.schema,
+                payload,
+              );
+            });
+            return removeUndefinedFields(result);
+          }),
         )
         .handle("mutate", ({ query, payload }) =>
-          getMutatorProcedureNames(payload).pipe(
-            Effect.flatMap((procedureNames) =>
-              validateProcedureNames(mutatorHandlers, procedureNames).pipe(
-                Effect.map((validatedHandlers) => ({ procedureNames, validatedHandlers })),
-              ),
-            ),
-            Effect.flatMap(({ procedureNames, validatedHandlers }) =>
-              Effect.promise(() => {
-                const resolveHandler = makeValidatedHandlerResolver(
-                  procedureNames,
-                  validatedHandlers,
-                );
-                return handleMutateRequest(
-                  zql,
-                  (transact, mutation) => {
-                    const mutator = Effect.runSync(resolveHandler(mutation.name));
-                    return transact((tx, _name, args) =>
-                      mutator.fn({
-                        args,
-                        tx,
-                        ctx: context,
-                      }),
-                    );
-                  },
-                  query,
-                  payload,
-                );
-              }),
-            ),
-            Effect.map(removeUndefinedFields),
-          ),
+          Effect.gen(function* () {
+            const procedureNames = yield* getMutatorProcedureNames(payload);
+            const context = yield* resolveContext(procedureNames);
+            const validatedHandlers = yield* validateProcedureNames(
+              mutatorHandlers,
+              procedureNames,
+            );
+            const result = yield* Effect.promise(() => {
+              const resolveHandler = makeValidatedHandlerResolver(
+                procedureNames,
+                validatedHandlers,
+              );
+              return handleMutateRequest(
+                zql,
+                (transact, mutation) => {
+                  const mutator = Effect.runSync(resolveHandler(mutation.name));
+                  return transact((tx, _name, args) =>
+                    mutator.fn({
+                      args,
+                      tx,
+                      ctx: context,
+                    }),
+                  );
+                },
+                query,
+                payload,
+              );
+            });
+            return removeUndefinedFields(result);
+          }),
         );
     }),
   );

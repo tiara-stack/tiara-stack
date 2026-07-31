@@ -19,9 +19,16 @@ export class ZeroDispatchNotFoundError extends Schema.TaggedErrorClass<ZeroDispa
   { httpApiStatus: 404 },
 ) {}
 
+export class ZeroDispatchUnauthorizedError extends Schema.TaggedErrorClass<ZeroDispatchUnauthorizedError>()(
+  "ZeroDispatchUnauthorizedError",
+  ZeroDispatchErrorFields,
+  { httpApiStatus: 401 },
+) {}
+
 export const ZeroDispatchError = Schema.Union([
   ZeroDispatchBadRequestError,
   ZeroDispatchNotFoundError,
+  ZeroDispatchUnauthorizedError,
 ]);
 
 export type ZeroDispatchError = typeof ZeroDispatchError.Type;
