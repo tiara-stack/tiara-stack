@@ -175,8 +175,8 @@ describe("runs Zero transaction adapter", () => {
         "start:persisted-run",
         "persisted-run",
         JSON.stringify(input.payload),
-        expect.any(Date),
-        expect.any(Date),
+        expect.any(String),
+        expect.any(String),
       ]);
     }),
   );
