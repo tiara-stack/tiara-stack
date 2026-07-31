@@ -26,14 +26,22 @@ export const zeroContextFromToken = (
   token: VerifiedOAuthResourceToken,
 ): Effect.Effect<WorkflowZeroContext, ZeroDispatchUnauthorizedError> => {
   const runsProcedures = procedureNames.filter((procedure) => procedure.startsWith("runs."));
-  if (
-    runsProcedures.includes("runs.enqueueAsCaller") &&
-    (!token.scopes.has("service") || !token.scopes.has("ingress.forward"))
-  ) {
-    return Effect.fail(
-      unauthorized("Delegated workflow enqueue requires service and ingress.forward scopes"),
-    );
+  const isEnqueueAsCaller = runsProcedures.includes("runs.enqueueAsCaller");
+
+  if (isEnqueueAsCaller) {
+    if (!token.scopes.has("service") || !token.scopes.has("ingress.forward")) {
+      return Effect.fail(
+        unauthorized("Delegated workflow enqueue requires service and ingress.forward scopes"),
+      );
+    }
+    return Predicate.isString(token.clientId)
+      ? Effect.succeed({
+          principalId: token.clientId,
+          visibilityKey: `service:${token.clientId}`,
+        })
+      : Effect.fail(unauthorized("Service access token is missing a client identity"));
   }
+
   if (token.scopes.has("service")) {
     return Predicate.isString(token.clientId)
       ? Effect.succeed({
@@ -41,6 +49,28 @@ export const zeroContextFromToken = (
           visibilityKey: `service:${token.clientId}`,
         })
       : Effect.fail(unauthorized("Service access token is missing a client identity"));
+  }
+
+  // Filter out pure-query runs procedures; they don't require workflow.dispatch scope.
+  const pureQueryProcedures = runsProcedures.filter((p) => p === "runs.list" || p === "runs.get");
+  const mutatorProcedures = runsProcedures.filter((p) => p !== "runs.list" && p !== "runs.get");
+
+  if (pureQueryProcedures.length === runsProcedures.length) {
+    // All procedures are pure queries — no scope check needed.
+    return Predicate.isString(token.accountId)
+      ? Effect.succeed({
+          principalId: token.accountId,
+          visibilityKey: `account:${token.accountId}`,
+        })
+      : Effect.succeed({
+          principalId: "anonymous",
+          visibilityKey: "public",
+        });
+  }
+
+  if (mutatorProcedures.length === 0) {
+    // Mixed query+mutator but all mutators are enqueueAsCaller (handled above).
+    return Effect.fail(unauthorized("Access outside the runs API requires service scope"));
   }
 
   if (runsProcedures.length === procedureNames.length && runsProcedures.length > 0) {
