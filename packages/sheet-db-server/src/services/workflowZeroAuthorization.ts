@@ -1,7 +1,6 @@
-import { Context, Effect, Layer, Option, Predicate } from "effect";
-import { Headers } from "effect/unstable/http";
+import { Context, Effect, Layer, Predicate } from "effect";
+import type { Headers } from "effect/unstable/http";
 import {
-  getBearerToken,
   makeOAuthResourceTokenAuthorizer,
   type VerifiedOAuthResourceToken,
 } from "sheet-auth/oauth-resource-authorization";
@@ -112,20 +111,18 @@ export class WorkflowZeroAuthorization extends Context.Service<
       });
       return {
         authorize: (procedureNames, headers) => {
-          // For public-only procedure sets, allow anonymous access when no token is present.
-          // Browser Zero clients send BetterAuth session tokens (not OAuth resource tokens),
-          // so we skip OAuth validation and fall back to anonymous context for public reads.
-          if (isPublicOnlyProcedureSet(procedureNames)) {
-            const bearerToken = getBearerToken(
-              Option.getOrUndefined(Headers.get(headers, "authorization")),
-            );
-            if (bearerToken === undefined) {
-              return Effect.succeed(ANONYMOUS_CONTEXT);
-            }
-          }
-          return authorizer
+          const oauthResult = authorizer
             .requireAuthorizedHeaders(headers)
             .pipe(Effect.flatMap((token) => zeroContextFromToken(procedureNames, token)));
+          // Browser Zero clients send BetterAuth session tokens (not OAuth resource tokens),
+          // so OAuth validation always fails for them. For public-only procedure sets,
+          // fall back to anonymous context instead of erroring.
+          if (isPublicOnlyProcedureSet(procedureNames)) {
+            return Effect.catchTag(oauthResult, "ZeroDispatchUnauthorizedError", () =>
+              Effect.succeed(ANONYMOUS_CONTEXT),
+            );
+          }
+          return oauthResult;
         },
       };
     }),
