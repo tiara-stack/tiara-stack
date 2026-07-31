@@ -220,6 +220,8 @@ imagePullSecrets:
       port: sheet-auth-svc
     - app: sheet-ingress-server
       port: sheet-auth-svc
+    - app: sheet-db-server
+      port: sheet-auth-svc
     {{- if .Values.ingress.enabled }}
     - namespace: {{ .Values.ingress.controllerNamespace }}
       port: sheet-auth-svc
