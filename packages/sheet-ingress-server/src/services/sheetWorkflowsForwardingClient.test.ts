@@ -173,8 +173,15 @@ describe("SheetWorkflowsForwardingClient", () => {
       const fiber = yield* client.dispatch
         .checkin(checkinPayload)
         .pipe(Effect.forkChild({ startImmediately: true }));
+      // Drive the test clock until the retries exhaust. A single yieldNow +
+      // adjust can fire before all retry sleeps are scheduled on a loaded CI
+      // runner, stranding the fiber until the enqueue timeout.
       yield* Effect.yieldNow;
       yield* TestClock.adjust(Duration.seconds(2));
+      while (attempts < 5) {
+        yield* TestClock.adjust(Duration.seconds(1));
+      }
+      yield* Effect.yieldNow;
       const exit = yield* Fiber.await(fiber);
 
       expect(Exit.isFailure(exit)).toBe(true);

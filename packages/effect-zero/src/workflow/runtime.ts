@@ -1,4 +1,5 @@
 import { Cause, Context, Effect, Layer, Match, Option, Schema } from "effect";
+import { ClusterError } from "effect/unstable/cluster";
 import { Workflow, WorkflowEngine } from "effect/unstable/workflow";
 import { WorkflowCommandExecutor } from "./dispatcher";
 import {
@@ -255,15 +256,56 @@ const reconcileRun = (
         }),
     });
   }).pipe(
-    Effect.catchCause((cause) =>
-      Effect.logWarning("Failed to reconcile workflow run", cause).pipe(
+    Effect.catchCause((cause) => {
+      // A `MalformedMessage` failure means the engine could not decode the
+      // persisted execution state (for example replies written by an older
+      // serialization format). It surfaces as a typed error on the remote
+      // runner path and as a defect on the local storage path. Either way
+      // the execution itself is already terminal in storage, so reconcile
+      // it once by recording the failure instead of warning on every poll
+      // forever.
+      const hasMalformedMessage = (cause as Cause.Cause<unknown>).reasons.some((reason) => {
+        if (Cause.isFailReason(reason)) {
+          return ClusterError.MalformedMessage.is(reason.error);
+        }
+        if (Cause.isDieReason(reason)) {
+          return ClusterError.MalformedMessage.is(reason.defect);
+        }
+        return false;
+      });
+      if (hasMalformedMessage) {
+        return store
+          .markRun(run.runId, "failed", {
+            error: {
+              message: `Workflow execution state could not be decoded: ${Cause.pretty(cause)}`,
+            },
+          })
+          .pipe(
+            Effect.tap(() =>
+              Effect.logWarning("Marked workflow run as failed after undecodable execution state", {
+                executionId: run.executionId,
+                runId: run.runId,
+                workflowName: run.workflowName,
+              }),
+            ),
+            Effect.catchCause((markCause) =>
+              Effect.logError("Failed to mark workflow run after undecodable execution state", {
+                markCause: Cause.pretty(markCause),
+                executionId: run.executionId,
+                runId: run.runId,
+                workflowName: run.workflowName,
+              }),
+            ),
+          );
+      }
+      return Effect.logWarning("Failed to reconcile workflow run", cause).pipe(
         Effect.annotateLogs({
           executionId: run.executionId,
           runId: run.runId,
           workflowName: run.workflowName,
         }),
-      ),
-    ),
+      );
+    }),
   );
 
 export const reconcileWorkflowRuns = (
