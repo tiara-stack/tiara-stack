@@ -7,7 +7,6 @@ import {
   Exit,
   Layer,
   Match,
-  pipe,
   Queue,
   Redacted,
   Schedule,
@@ -24,6 +23,25 @@ import {
 import { ZeroClient as BaseZeroClient } from "typhoon-zero/client";
 import { config } from "@/config";
 import { SheetAuthClient } from "./sheetAuthClient";
+
+type WorkflowZeroConnectionState = Zero<
+  SheetZeroSchema,
+  undefined,
+  unknown
+>["connection"]["state"]["current"];
+
+/** @internal */
+export const shouldRefreshWorkflowZeroAuth = (state: WorkflowZeroConnectionState) =>
+  Match.value(state).pipe(
+    Match.when({ name: "needs-auth" }, () => true),
+    // zero-cache reports an expired-token revalidation as a fatal error state
+    // instead of needs-auth. Reconnect with a fresh token so workflow dispatches
+    // do not remain broken after the service credential expires.
+    Match.when({ name: "error" }, (current) =>
+      current.reason.includes("Fetch from API server returned non-OK status"),
+    ),
+    Match.orElse(() => false),
+  );
 
 const makeGetAuth = Effect.fn("WorkflowZeroClient.makeGetAuth")(function* () {
   const sheetAuthClient = yield* SheetAuthClient;
@@ -84,9 +102,10 @@ const makeZero = Effect.fn("WorkflowZeroClient.makeZero")(function* () {
   yield* Effect.addFinalizer(() => Effect.sync(() => zero.close()));
 
   const reconnectRequests = yield* Queue.sliding<"get-auth" | "refresh-auth">(1);
+  const maxReconnectDelay = Duration.seconds(30);
   const reconnectSchedule = Schedule.exponential(Duration.millis(250)).pipe(
     Schedule.modifyDelay((_output, delay) =>
-      Effect.succeed(Duration.min(delay, Duration.seconds(30))),
+      Effect.succeed(Duration.min(delay, maxReconnectDelay)),
     ),
   );
   yield* Effect.forkScoped(
@@ -121,13 +140,9 @@ const makeZero = Effect.fn("WorkflowZeroClient.makeZero")(function* () {
   yield* Effect.acquireRelease(
     Effect.sync(() =>
       zero.connection.state.subscribe((state) =>
-        pipe(
-          Match.value(state),
-          Match.when({ name: "needs-auth" }, () =>
-            Queue.offerUnsafe(reconnectRequests, "refresh-auth"),
-          ),
-          Match.orElse(() => false),
-        ),
+        shouldRefreshWorkflowZeroAuth(state)
+          ? Queue.offerUnsafe(reconnectRequests, "refresh-auth")
+          : false,
       ),
     ),
     (unsubscribe) => Effect.sync(unsubscribe),
