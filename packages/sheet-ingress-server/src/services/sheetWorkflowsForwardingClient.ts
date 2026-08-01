@@ -35,16 +35,12 @@ const workflowDefinitionVersion = "1";
 
 const prepareWorkflowPayload = <Operation extends DispatchWorkflowOperation>(
   operation: Operation,
-  payload: unknown,
+  value: DispatchWorkflowArguments<Operation>,
 ) => {
   const schema: Operation["workflow"]["payloadSchema"] = operation.workflow.payloadSchema;
-  return Schema.decodeUnknownEffect(schema)(payload).pipe(
-    Effect.flatMap((value) =>
-      Schema.encodeUnknownEffect(schema)(value).pipe(
-        Effect.flatMap(Schema.decodeUnknownEffect(Schema.Json)),
-        Effect.map((payload) => ({ payload, value })),
-      ),
-    ),
+  return Schema.encodeUnknownEffect(schema)(value).pipe(
+    Effect.flatMap(Schema.decodeUnknownEffect(Schema.Json)),
+    Effect.map((payload) => ({ payload, value })),
   );
 };
 

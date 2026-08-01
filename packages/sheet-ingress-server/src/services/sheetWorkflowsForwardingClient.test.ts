@@ -17,6 +17,7 @@ import {
 import { TestClock } from "effect/testing";
 import { Headers } from "effect/unstable/http";
 import { DispatchWorkflowOperations, SheetAuthUser } from "sheet-ingress-api/internal";
+import { MessageRoomOrder } from "sheet-ingress-api/schemas/messageRoomOrder";
 import { UnknownError } from "typhoon-core/error";
 import { ZeroApiError } from "typhoon-zero/zeroApi";
 import { getIngressRpcHeaders } from "./rpcAuthorizationClient";
@@ -80,6 +81,45 @@ const checkinPayload = {
     workspaceId: "workspace-1",
   },
 } satisfies typeof DispatchWorkflowOperations.checkin.workflow.payloadSchema.Type;
+
+const pinTentativePayload = {
+  requester: { accountId: "account-1", userId: "user-1" },
+  payload: {
+    client: { platform: "discord", clientId: "discord-main" },
+    workspaceId: "workspace-1",
+    messageId: "message-1",
+    messageConversationId: "conversation-1",
+    interactionResponseToken: "interaction-token",
+    interactionResponseDeadlineEpochMs: 4_102_444_800_000,
+  },
+  authorizedRoomOrder: new MessageRoomOrder({
+    clientPlatform: "discord",
+    clientId: "discord-main",
+    messageId: "message-1",
+    previousFills: [],
+    fills: ["member-1"],
+    hour: 1,
+    rank: 1,
+    tentative: true,
+    monitor: Option.none(),
+    workspaceId: Option.some("workspace-1"),
+    conversationId: Option.some("conversation-1"),
+    createdByUserId: Option.some("user-1"),
+    sendClaimId: Option.none(),
+    sendClaimedAt: Option.none(),
+    sentMessageId: Option.none(),
+    sentConversationId: Option.none(),
+    sentAt: Option.none(),
+    tentativeUpdateClaimId: Option.none(),
+    tentativeUpdateClaimedAt: Option.none(),
+    tentativePinClaimId: Option.none(),
+    tentativePinClaimedAt: Option.none(),
+    tentativePinnedAt: Option.none(),
+    createdAt: Option.none(),
+    updatedAt: Option.none(),
+    deletedAt: Option.none(),
+  }),
+} satisfies typeof DispatchWorkflowOperations.roomOrderPinTentativeButton.workflow.payloadSchema.Type;
 
 describe("SheetWorkflowsForwardingClient", () => {
   it.effect("builds sheet-workflows ingress headers with a delegated bearer token", () =>
@@ -147,6 +187,33 @@ describe("SheetWorkflowsForwardingClient", () => {
           executionId,
           payload: encodedPayload,
         },
+      });
+      expect(enqueueAsCaller).toHaveBeenCalledOnce();
+    }),
+  );
+
+  it.effect("encodes an already-decoded room-order pin payload", () =>
+    Effect.gen(function* () {
+      const enqueueAsCaller = vi.fn<WorkflowZeroEnqueue>(() => Effect.void);
+      const client = yield* SheetWorkflowsForwardingClient.make.pipe(
+        Effect.provide(workflowZeroLayer(enqueueAsCaller)),
+      );
+
+      const result = yield* client.dispatch.roomOrderPinTentativeButton(pinTentativePayload);
+      const encodedPayload = yield* Schema.encodeUnknownEffect(
+        DispatchWorkflowOperations.roomOrderPinTentativeButton.workflow.payloadSchema,
+      )(pinTentativePayload).pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Json)));
+
+      expect(result).toMatchObject({
+        operation: "roomOrderPinTentativeButton",
+        status: "accepted",
+      });
+      expect(enqueueAsCaller).toHaveBeenCalledWith({
+        caller: { principalId: "account-1" },
+        workflow: expect.objectContaining({
+          workflowName: DispatchWorkflowOperations.roomOrderPinTentativeButton.workflow.name,
+          payload: encodedPayload,
+        }),
       });
       expect(enqueueAsCaller).toHaveBeenCalledOnce();
     }),
