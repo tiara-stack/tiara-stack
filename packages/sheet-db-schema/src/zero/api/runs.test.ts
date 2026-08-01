@@ -26,7 +26,12 @@ const input: WorkflowEnqueueRequest = {
   definitionVersion: "v1",
   executionId: "execution-1",
   payload: { value: 1 },
+  runAfter: Date.UTC(2026, 0, 2, 3, 4, 5),
 };
+
+const runAfterIso = "2026-01-02T03:04:05.000Z";
+const availableAt = Date.UTC(2026, 1, 3, 4, 5, 6);
+const availableAtIso = "2026-02-03T04:05:06.000Z";
 
 const makeServerTx = (
   query: (sql: string, args: readonly unknown[]) => Promise<readonly unknown[]>,
@@ -60,7 +65,12 @@ const expectFailureMessage = (exit: Exit.Exit<unknown, unknown>, expected: strin
   expect(Exit.isFailure(exit)).toBe(true);
   if (Exit.isFailure(exit)) {
     const failure: unknown = exit.cause.reasons.find(Cause.isFailReason)?.error;
-    expect(Predicate.isError(failure) ? failure.message : failure).toContain(expected);
+    const message = Schema.isSchemaError(failure)
+      ? failure.message
+      : Predicate.isError(failure)
+        ? failure.message
+        : failure;
+    expect(message).toContain(expected);
   }
 };
 
@@ -118,6 +128,11 @@ describe("runs Zero transaction adapter", () => {
         "INSERT INTO sheet_db_workflow_command",
       ]);
       expect(statements[1]?.args).toContain(context.visibilityKey);
+      expect(statements[1]?.args[5]).toBe('{"id":"account-1"}');
+      expect(statements[1]?.args[6]).toBe('{"value":1}');
+      expect(statements[1]?.args[8]).toBe(runAfterIso);
+      expect(statements[2]?.args[2]).toBe('{"value":1}');
+      expect(statements[2]?.args[3]).toBe(runAfterIso);
     }),
   );
 
@@ -153,7 +168,7 @@ describe("runs Zero transaction adapter", () => {
       );
 
       expect(statements[0]?.args[4]).toBe("account:account-2");
-      expect(statements[0]?.args[5]).toBe(JSON.stringify({ id: "account-2" }));
+      expect(statements[0]?.args[5]).toBe('{"id":"account-2"}');
     }),
   );
 
@@ -174,8 +189,8 @@ describe("runs Zero transaction adapter", () => {
       expect(statements[1]?.args).toEqual([
         "start:persisted-run",
         "persisted-run",
-        JSON.stringify(input.payload),
-        expect.any(String),
+        '{"value":1}',
+        runAfterIso,
         expect.any(String),
       ]);
     }),
@@ -208,6 +223,40 @@ describe("runs Zero transaction adapter", () => {
       );
 
       expectFailureMessage(exit, "is not accessible to this caller");
+    }),
+  );
+
+  it.effect("rejects malformed authoritative run rows at the schema boundary", () =>
+    Effect.gen(function* () {
+      const tx = makeServerTx((sql) =>
+        Promise.resolve(
+          sql.includes("RETURNING run_id")
+            ? [{ ...authoritativeRunRow(), definition_matches: "yes" }]
+            : [],
+        ),
+      );
+
+      const exit = yield* Effect.exit(
+        promiseEffect(() => mutateWithWorkflow(tx, context, input, () => Promise.resolve())),
+      );
+
+      expectFailureMessage(exit, "definition_matches");
+    }),
+  );
+
+  it.effect("rejects invalid run timestamps at the schema boundary", () =>
+    Effect.gen(function* () {
+      const tx = makeServerTx(() => Promise.resolve([authoritativeRunRow()]));
+
+      const exit = yield* Effect.exit(
+        promiseEffect(() =>
+          mutateWithWorkflow(tx, context, { ...input, runAfter: Number.NaN }, () =>
+            Promise.resolve(),
+          ),
+        ),
+      );
+
+      expectFailureMessage(exit, "Invalid Date");
     }),
   );
 
@@ -252,17 +301,37 @@ describe("runs Zero transaction adapter", () => {
           runId: "invocation-1",
           eventId,
           value: { approved: true },
+          availableAt,
         }),
       );
 
       expect(statements).toHaveLength(1);
       expect(statements[0]?.args).toContain("event");
-      expect(statements[0]?.args).toContain(
-        JSON.stringify({
-          eventId,
-          value: { approved: true },
+      expect(statements[0]?.args[2]).toBe(`{"eventId":"${eventId}","value":{"approved":true}}`);
+      expect(statements[0]?.args[3]).toBe(availableAtIso);
+    }),
+  );
+
+  it.effect("serializes command payloads and availability timestamps", () =>
+    Effect.gen(function* () {
+      const statements: Array<{ readonly sql: string; readonly args: readonly unknown[] }> = [];
+      const tx = makeServerTx((sql, args) => {
+        statements.push({ sql, args });
+        return Promise.resolve([{ run_exists: true, inserted: true }]);
+      });
+
+      yield* Effect.promise(() =>
+        enqueueWorkflowCommandInZeroTransaction(tx, context, {
+          commandId: "cancel:invocation-1",
+          runId: "invocation-1",
+          kind: "cancel",
+          payload: { reason: "operator request" },
+          availableAt,
         }),
       );
+
+      expect(statements[0]?.args[2]).toBe('{"reason":"operator request"}');
+      expect(statements[0]?.args[3]).toBe(availableAtIso);
     }),
   );
 
@@ -320,7 +389,7 @@ describe("runs Zero transaction adapter", () => {
       const tx = makeServerTx((sql) =>
         Promise.resolve(
           sql.trim().startsWith("SELECT run_id")
-            ? [{ run_id: "other-run" }]
+            ? [{ run_id: "other-run", kind: "cancel", payload_matches: true }]
             : [{ run_exists: true, inserted: false }],
         ),
       );
@@ -348,7 +417,7 @@ describe("runs Zero transaction adapter", () => {
       const tx = makeServerTx((sql) =>
         Promise.resolve(
           sql.trim().startsWith("SELECT run_id")
-            ? [{ run_id: "invocation-1", kind: "resume" }]
+            ? [{ run_id: "invocation-1", kind: "resume", payload_matches: true }]
             : [{ run_exists: true, inserted: false }],
         ),
       );
@@ -396,6 +465,60 @@ describe("runs Zero transaction adapter", () => {
         exit,
         'Workflow command "cancel:invocation-1" already exists with a different payload',
       );
+    }),
+  );
+
+  it.effect("rejects missing existing command rows with a domain error", () =>
+    Effect.gen(function* () {
+      const tx = makeServerTx((sql) =>
+        Promise.resolve(
+          sql.trim().startsWith("SELECT run_id") ? [] : [{ run_exists: true, inserted: false }],
+        ),
+      );
+
+      const exit = yield* Effect.exit(
+        promiseEffect(() =>
+          enqueueWorkflowCommandInZeroTransaction(tx, context, {
+            commandId: "cancel:missing-conflict",
+            runId: "invocation-1",
+            kind: "cancel",
+            payload: null,
+          }),
+        ),
+      );
+
+      expectFailureMessage(
+        exit,
+        'Workflow command "cancel:missing-conflict" is no longer accessible to this caller',
+      );
+      if (Exit.isFailure(exit)) {
+        const failure: unknown = exit.cause.reasons.find(Cause.isFailReason)?.error;
+        expect(failure).toBeInstanceOf(WorkflowRunNotAccessibleError);
+        expect(failure).toMatchObject({
+          _tag: "WorkflowRunNotAccessibleError",
+          runId: "invocation-1",
+          visibilityKey: context.visibilityKey,
+        });
+      }
+    }),
+  );
+
+  it.effect("rejects malformed command insert rows at the schema boundary", () =>
+    Effect.gen(function* () {
+      const tx = makeServerTx(() => Promise.resolve([{ run_exists: true, inserted: "yes" }]));
+
+      const exit = yield* Effect.exit(
+        promiseEffect(() =>
+          enqueueWorkflowCommandInZeroTransaction(tx, context, {
+            commandId: "cancel:malformed",
+            runId: "invocation-1",
+            kind: "cancel",
+            payload: null,
+          }),
+        ),
+      );
+
+      expectFailureMessage(exit, "inserted");
     }),
   );
 });

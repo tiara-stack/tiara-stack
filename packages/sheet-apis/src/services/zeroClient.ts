@@ -1,6 +1,8 @@
 import { Zero } from "@rocicorp/zero";
 import {
   Cause,
+  Clock,
+  Data,
   Duration,
   Effect,
   Layer,
@@ -22,13 +24,17 @@ interface ZeroAuthToken {
   readonly refreshAfter: Duration.Duration;
 }
 
+type AuthenticationReason = "initial" | "proactive" | "connection-state";
 type ZeroConnectionState = Zero<Schema, undefined, unknown>["connection"]["state"]["current"];
+
+class ZeroConnectionError extends Data.TaggedError("ZeroConnectionError")<{
+  readonly state: ZeroConnectionState;
+}> {}
 
 const authRefreshLeadTime = Duration.seconds(60);
 const minimumAuthRefreshDelay = Duration.seconds(1);
-const authRefreshTimeout = Duration.seconds(30);
-const authRefreshMaxRetries = 5;
-const authRefreshRetrySchedule = Schedule.exponential(Duration.millis(250)).pipe(
+const authenticationTimeout = Duration.seconds(30);
+const authenticationSchedule = Schedule.exponential(Duration.millis(250)).pipe(
   Schedule.modifyDelay((_output, delay) =>
     Effect.succeed(Duration.min(delay, Duration.seconds(30))),
   ),
@@ -59,6 +65,12 @@ export const shouldRefreshZeroAuth = (state: ZeroConnectionState) =>
     Match.orElse(() => false),
   );
 
+const isZeroConnectionError = (error: unknown): error is ZeroConnectionError =>
+  Predicate.isTagged("ZeroConnectionError")(error);
+
+const requiresFreshAuthentication = (error: unknown) =>
+  isZeroConnectionError(error) && shouldRefreshZeroAuth(error.state);
+
 /** @internal */
 export const runProactiveZeroAuthRefresh = (
   initialRefreshAfter: Duration.Duration,
@@ -73,11 +85,15 @@ export const runProactiveZeroAuthRefresh = (
     }
   });
 
+const hasNonInterruptReason = (cause: Cause.Cause<unknown>) =>
+  cause.reasons.some((reason) => !Cause.isInterruptReason(reason));
+
 const makeGetAuth = Effect.fn("zero.makeGetAuth")(function* () {
   const sheetAuthClient = yield* SheetAuthClient;
   const clientId = yield* config.sheetAuthOAuthClientId;
   const clientSecret = yield* config.sheetAuthOAuthClientSecret;
   const resource = yield* config.zeroOAuthAudience;
+
   return Effect.fn("zero.getAuth")(function* () {
     const token = yield* createOAuthClientCredentialsToken(sheetAuthClient, {
       clientId,
@@ -85,18 +101,36 @@ const makeGetAuth = Effect.fn("zero.makeGetAuth")(function* () {
       resource,
       scope: ["service"],
     });
+    const now = yield* Clock.currentTimeMillis;
     return {
       auth: Redacted.value(token.accessToken),
-      refreshAfter: zeroAuthRefreshDelay(token.expiresAt, Math.floor(Date.now() / 1000)),
+      refreshAfter: zeroAuthRefreshDelay(token.expiresAt, Math.floor(now / 1000)),
     };
   });
 });
 
-const makeZero = Effect.fn("zero.makeZero")(function* () {
+/** @internal */
+export const makeZero = Effect.fn("zero.makeZero")(function* () {
   const getAuth = yield* makeGetAuth();
-  const initialToken = yield* getAuth();
   const zeroCacheServer = yield* config.zeroCacheServer;
   const zeroCacheUserId = yield* config.zeroCacheUserId;
+
+  const authenticate = Effect.fn("zero.authenticate")((reason: AuthenticationReason) =>
+    getAuth().pipe(
+      Effect.timeout(authenticationTimeout),
+      Effect.tapError((error) =>
+        Effect.logWarning("Failed to authenticate the sheet Zero client; retrying").pipe(
+          Effect.annotateLogs({ error, reason }),
+        ),
+      ),
+      Effect.retry({ schedule: authenticationSchedule }),
+    ),
+  );
+
+  // Zero authentication is a mandatory dependency for both startup and the
+  // long-lived client. Retry without a total limit so a transient auth outage
+  // delays readiness or reconnection instead of permanently stopping refresh.
+  const initialToken = yield* authenticate("initial");
   const zero = new Zero({
     server: zeroCacheServer,
     userID: zeroCacheUserId,
@@ -107,50 +141,61 @@ const makeZero = Effect.fn("zero.makeZero")(function* () {
   yield* Effect.addFinalizer(() => Effect.sync(() => zero.close()));
 
   const authRefreshSemaphore = yield* Semaphore.make(1);
-  const refreshAuth = Effect.fn("zero.refreshAuth")((reason: "proactive" | "connection-state") =>
-    authRefreshSemaphore.withPermit(
-      getAuth().pipe(
-        Effect.timeout(authRefreshTimeout),
-        Effect.flatMap((token) =>
-          Effect.tryPromise(() => zero.connection.connect({ auth: token.auth })).pipe(
-            Effect.timeout(authRefreshTimeout),
-            Effect.as(token),
-          ),
-        ),
-        Effect.tap((token) =>
-          Effect.logInfo("Refreshed sheet Zero OAuth credentials").pipe(
-            Effect.annotateLogs({ reason, refreshAfter: Duration.format(token.refreshAfter) }),
+  const reconnect = Effect.fn("zero.reconnect")(
+    (token: ZeroAuthToken, reason: Exclude<AuthenticationReason, "initial">) =>
+      Effect.tryPromise(() => zero.connection.connect({ auth: token.auth })).pipe(
+        Effect.timeout(authenticationTimeout),
+        Effect.flatMap(() =>
+          Match.value(zero.connection.state.current).pipe(
+            Match.when({ name: "connected" }, () => Effect.succeed(token)),
+            Match.orElse((state) => Effect.fail(new ZeroConnectionError({ state }))),
           ),
         ),
         Effect.tapError((error) =>
-          Effect.logWarning("Failed to refresh sheet Zero OAuth credentials; retrying").pipe(
-            Effect.annotateLogs({
-              errorMessage: Predicate.isError(error) ? error.message : "OAuth refresh failed",
-              reason,
-            }),
+          Effect.logWarning("Failed to reconnect the sheet Zero client; retrying").pipe(
+            Effect.annotateLogs({ error, reason }),
           ),
         ),
-        Effect.retry({ schedule: authRefreshRetrySchedule, times: authRefreshMaxRetries }),
+        Effect.retry({
+          schedule: authenticationSchedule,
+          while: (error) => !requiresFreshAuthentication(error),
+        }),
       ),
-    ),
   );
+  const refreshAuth = Effect.fn("zero.refreshAuth")(
+    (reason: Exclude<AuthenticationReason, "initial">) =>
+      authRefreshSemaphore.withPermit(
+        authenticate(reason).pipe(
+          Effect.flatMap((token) => reconnect(token, reason)),
+          Effect.retry({
+            schedule: authenticationSchedule,
+            while: requiresFreshAuthentication,
+          }),
+          Effect.tap((token) =>
+            Effect.logInfo("Refreshed sheet Zero OAuth credentials").pipe(
+              Effect.annotateLogs({ reason, refreshAfter: Duration.format(token.refreshAfter) }),
+            ),
+          ),
+        ),
+      ),
+  );
+
+  const logUnexpectedWorkerFailure = (worker: "proactive" | "connection-state") =>
+    Effect.tapCauseIf(hasNonInterruptReason, (cause) =>
+      Effect.logFatal("Sheet Zero OAuth refresh worker stopped unexpectedly").pipe(
+        Effect.annotateLogs({ cause: Cause.pretty(cause), worker }),
+      ),
+    );
 
   yield* runProactiveZeroAuthRefresh(initialToken.refreshAfter, () =>
     refreshAuth("proactive"),
-  ).pipe(
-    Effect.tapCause((cause) =>
-      Effect.logFatal("Proactive sheet Zero OAuth refresh stopped", Cause.pretty(cause)),
-    ),
-    Effect.forkScoped,
-  );
+  ).pipe(logUnexpectedWorkerFailure("proactive"), Effect.forkScoped);
 
-  const connectionStateRefreshRequests = yield* Queue.sliding<"refresh-auth">(1);
+  const connectionStateRefreshRequests = yield* Queue.sliding<void>(1);
   yield* Queue.take(connectionStateRefreshRequests).pipe(
     Effect.flatMap(() => refreshAuth("connection-state")),
     Effect.forever,
-    Effect.tapCause((cause) =>
-      Effect.logFatal("Sheet Zero connection-state OAuth refresh stopped", Cause.pretty(cause)),
-    ),
+    logUnexpectedWorkerFailure("connection-state"),
     Effect.forkScoped,
   );
 
@@ -158,7 +203,7 @@ const makeZero = Effect.fn("zero.makeZero")(function* () {
     Effect.sync(() =>
       zero.connection.state.subscribe((state) =>
         shouldRefreshZeroAuth(state)
-          ? Queue.offerUnsafe(connectionStateRefreshRequests, "refresh-auth")
+          ? Queue.offerUnsafe(connectionStateRefreshRequests, undefined)
           : false,
       ),
     ),

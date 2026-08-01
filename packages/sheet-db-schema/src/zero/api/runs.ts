@@ -1,5 +1,5 @@
 import type { Transaction } from "@rocicorp/zero";
-import { Data, Match, Predicate, Schema } from "effect";
+import { Data, Effect, Match, Predicate, Schema } from "effect";
 import { ZeroApiEndpoint, ZeroApiGroup } from "typhoon-zero/zeroApi";
 import { ReadonlyJSONValue } from "typhoon-zero/schema";
 import { WorkflowEventId } from "effect-zero/workflow";
@@ -75,55 +75,85 @@ const publicWorkflowRun = Schema.Struct({
   updatedAt: Schema.Number,
 });
 
-const hasTrueProperty = (input: unknown, key: string) =>
-  Predicate.hasProperty(key)(input) && input[key] === true;
+const WorkflowPrincipal = Schema.Struct({ id: Schema.String });
 
-const requireStringProperty = (input: unknown, key: string, message: string) => {
-  if (!Predicate.hasProperty(key)(input) || !Predicate.isString(input[key])) {
-    throw new Error(message);
-  }
-  return input[key];
-};
+const AuthoritativeRunResult = Schema.Struct({
+  run_id: Schema.String,
+  visibility_key: Schema.String,
+  definition_matches: Schema.Boolean,
+  payload_matches: Schema.Boolean,
+  max_attempts_matches: Schema.Boolean,
+});
+
+const CommandInsertResult = Schema.Struct({
+  run_exists: Schema.Boolean,
+  inserted: Schema.Boolean,
+});
+
+const ExistingCommandResult = Schema.Struct({
+  run_id: Schema.String,
+  kind: Schema.String,
+  payload_matches: Schema.Boolean,
+});
+
+const encodeJson = Schema.encodeEffect(Schema.fromJsonString(ReadonlyJSONValue));
+const encodePrincipal = Schema.encodeEffect(Schema.fromJsonString(WorkflowPrincipal));
+const encodeTimestamp = Schema.encodeEffect(Schema.toCodecJson(Schema.DateValid));
+const decodeAuthoritativeRunResult = Schema.decodeUnknownEffect(AuthoritativeRunResult);
+const decodeCommandInsertResult = Schema.decodeUnknownEffect(CommandInsertResult);
+const decodeExistingCommandResult = Schema.decodeUnknownEffect(ExistingCommandResult);
 
 const validateExistingRun = (
-  existingRun: unknown,
+  existingRun: typeof AuthoritativeRunResult.Type,
   context: WorkflowZeroContext,
   input: WorkflowEnqueueRequest,
-) => {
+): Effect.Effect<string, WorkflowRunNotAccessibleError> => {
   const conflict = `${input.workflowName}:${input.executionId}`;
-  const visibilityKey = requireStringProperty(
-    existingRun,
-    "visibility_key",
-    `Workflow run conflict for "${conflict}" could not be resolved`,
-  );
-  if (visibilityKey !== context.visibilityKey) {
-    throw new Error(`Workflow run "${conflict}" belongs to another visibility scope`);
+  if (existingRun.visibility_key !== context.visibilityKey) {
+    return Effect.fail(
+      new WorkflowRunNotAccessibleError({
+        runId: existingRun.run_id,
+        visibilityKey: context.visibilityKey,
+        message: `Workflow run "${conflict}" belongs to another visibility scope`,
+      }),
+    );
   }
-  const runId = requireStringProperty(
-    existingRun,
-    "run_id",
-    `Workflow run conflict for "${conflict}" could not be resolved`,
-  );
   if (
-    !["definition_matches", "payload_matches", "max_attempts_matches"].every((key) =>
-      hasTrueProperty(existingRun, key),
-    )
+    !existingRun.definition_matches ||
+    !existingRun.payload_matches ||
+    !existingRun.max_attempts_matches
   ) {
-    throw new Error(`Workflow run "${conflict}" was already enqueued with different parameters`);
+    return Effect.fail(
+      new WorkflowRunNotAccessibleError({
+        runId: existingRun.run_id,
+        visibilityKey: context.visibilityKey,
+        message: `Workflow run "${conflict}" was already enqueued with different parameters`,
+      }),
+    );
   }
-  return runId;
+  return Effect.succeed(existingRun.run_id);
 };
 
-const enqueueAuthoritative = async (
+const enqueueAuthoritative = (
   tx: Extract<Transaction<SheetZeroSchema>, { readonly location: "server" }>,
   context: WorkflowZeroContext,
   input: WorkflowEnqueueRequest,
-) => {
-  const now = new Date();
-  const runAfter = new Date(input.runAfter ?? now.getTime());
-  const rows = Array.from(
-    await tx.dbTransaction.query(
-      `INSERT INTO sheet_db_workflow_run (
+) =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const now = new Date();
+      const runAfter = new Date(input.runAfter ?? now.getTime());
+      const encoded = yield* Effect.all({
+        input: encodeJson(input.payload),
+        now: encodeTimestamp(now),
+        principal: encodePrincipal({ id: context.principalId }),
+        runAfter: encodeTimestamp(runAfter),
+      });
+      const rows = Array.from(
+        yield* Effect.tryPromise({
+          try: () =>
+            tx.dbTransaction.query(
+              `INSERT INTO sheet_db_workflow_run (
         run_id, workflow_name, definition_version, execution_id, idempotency_key,
         visibility_key, principal, input, status, result, error, max_attempts,
         run_after, started_at, completed_at, created_at, updated_at
@@ -139,31 +169,38 @@ const enqueueAuthoritative = async (
         definition_version = $3 AS definition_matches,
         input = $7 AS payload_matches,
         max_attempts = $8 AS max_attempts_matches`,
-      [
-        input.runId,
-        input.workflowName,
-        input.definitionVersion,
-        input.executionId,
-        context.visibilityKey,
-        JSON.stringify({ id: context.principalId }),
-        JSON.stringify(input.payload),
-        input.maxAttempts ?? 10,
-        runAfter.toISOString(),
-        now.toISOString(),
-      ],
-    ),
-  );
-  const row = rows[0];
-  if (!Predicate.hasProperty("run_id")(row)) {
-    throw new WorkflowRunNotAccessibleError({
-      runId: input.runId,
-      visibilityKey: context.visibilityKey,
-      message: `Workflow run "${input.runId}" is not accessible to this caller`,
-    });
-  }
-  const authoritativeRunId = validateExistingRun(row, context, input);
-  await tx.dbTransaction.query(
-    `INSERT INTO sheet_db_workflow_command (
+              [
+                input.runId,
+                input.workflowName,
+                input.definitionVersion,
+                input.executionId,
+                context.visibilityKey,
+                encoded.principal,
+                encoded.input,
+                input.maxAttempts ?? 10,
+                encoded.runAfter,
+                encoded.now,
+              ],
+            ),
+          catch: (error) => error,
+        }),
+      );
+      const row = rows[0];
+      if (Predicate.isUndefined(row)) {
+        return yield* Effect.fail(
+          new WorkflowRunNotAccessibleError({
+            runId: input.runId,
+            visibilityKey: context.visibilityKey,
+            message: `Workflow run "${input.runId}" is not accessible to this caller`,
+          }),
+        );
+      }
+      const authoritativeRun = yield* decodeAuthoritativeRunResult(row);
+      const authoritativeRunId = yield* validateExistingRun(authoritativeRun, context, input);
+      yield* Effect.tryPromise({
+        try: () =>
+          tx.dbTransaction.query(
+            `INSERT INTO sheet_db_workflow_command (
       command_id, run_id, kind, payload, status, attempts, available_at,
       lease_owner, lease_token, lease_until, delivered_at, last_error,
       created_at, updated_at
@@ -172,15 +209,18 @@ const enqueueAuthoritative = async (
       NULL, 0, NULL, NULL, NULL, $5, $5
     )
     ON CONFLICT (command_id) DO NOTHING`,
-    [
-      `start:${authoritativeRunId}`,
-      authoritativeRunId,
-      JSON.stringify(input.payload),
-      runAfter.toISOString(),
-      now.toISOString(),
-    ],
+            [
+              `start:${authoritativeRunId}`,
+              authoritativeRunId,
+              encoded.input,
+              encoded.runAfter,
+              encoded.now,
+            ],
+          ),
+        catch: (error) => error,
+      });
+    }),
   );
-};
 
 /**
  * Enqueues from the transaction already owned by a Zero mutator. A domain
@@ -233,41 +273,59 @@ type WorkflowCommandInput = {
   readonly availableAt?: number | undefined;
 };
 
-const validateExistingCommand = (existingCommand: unknown, input: WorkflowCommandInput) => {
-  const runId = requireStringProperty(
-    existingCommand,
-    "run_id",
-    `Workflow command "${input.commandId}" already belongs to another workflow run`,
-  );
-  if (runId !== input.runId) {
-    throw new Error(
-      `Workflow command "${input.commandId}" already belongs to another workflow run`,
+const validateExistingCommand = (
+  existingCommand: typeof ExistingCommandResult.Type,
+  context: WorkflowZeroContext,
+  input: WorkflowCommandInput,
+): Effect.Effect<void, WorkflowRunNotAccessibleError> => {
+  if (existingCommand.run_id !== input.runId) {
+    return Effect.fail(
+      new WorkflowRunNotAccessibleError({
+        runId: input.runId,
+        visibilityKey: context.visibilityKey,
+        message: `Workflow command "${input.commandId}" already belongs to another workflow run`,
+      }),
     );
   }
-  const kind = requireStringProperty(
-    existingCommand,
-    "kind",
-    `Workflow command "${input.commandId}" already exists with a different kind`,
-  );
-  if (kind !== input.kind) {
-    throw new Error(`Workflow command "${input.commandId}" already exists with a different kind`);
-  }
-  if (!hasTrueProperty(existingCommand, "payload_matches")) {
-    throw new Error(
-      `Workflow command "${input.commandId}" already exists with a different payload`,
+  if (existingCommand.kind !== input.kind) {
+    return Effect.fail(
+      new WorkflowRunNotAccessibleError({
+        runId: input.runId,
+        visibilityKey: context.visibilityKey,
+        message: `Workflow command "${input.commandId}" already exists with a different kind`,
+      }),
     );
   }
+  if (!existingCommand.payload_matches) {
+    return Effect.fail(
+      new WorkflowRunNotAccessibleError({
+        runId: input.runId,
+        visibilityKey: context.visibilityKey,
+        message: `Workflow command "${input.commandId}" already exists with a different payload`,
+      }),
+    );
+  }
+  return Effect.void;
 };
 
-const enqueueCommandAuthoritative = async (
+const enqueueCommandAuthoritative = (
   tx: Extract<Transaction<SheetZeroSchema>, { readonly location: "server" }>,
   context: WorkflowZeroContext,
   input: WorkflowCommandInput,
-) => {
-  const now = new Date();
-  const rows = Array.from(
-    await tx.dbTransaction.query(
-      `WITH target_run AS (
+) =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const now = new Date();
+      const encoded = yield* Effect.all({
+        availableAt: encodeTimestamp(new Date(input.availableAt ?? now.getTime())),
+        now: encodeTimestamp(now),
+        payload: encodeJson(input.payload),
+      });
+      const rows = Array.from(
+        yield* Effect.tryPromise({
+          try: () =>
+            tx.dbTransaction.query(
+              `WITH target_run AS (
         SELECT run_id
         FROM sheet_db_workflow_run
         WHERE run_id = $6 AND visibility_key = $7
@@ -286,39 +344,58 @@ const enqueueCommandAuthoritative = async (
       SELECT
         EXISTS (SELECT 1 FROM target_run) AS run_exists,
         EXISTS (SELECT 1 FROM inserted) AS inserted`,
-      [
-        input.commandId,
-        input.kind,
-        JSON.stringify(input.payload),
-        new Date(input.availableAt ?? now.getTime()).toISOString(),
-        now.toISOString(),
-        input.runId,
-        context.visibilityKey,
-      ],
-    ),
-  );
-  const row = rows[0];
-  if (!hasTrueProperty(row, "run_exists")) {
-    throw new WorkflowRunNotAccessibleError({
-      runId: input.runId,
-      visibilityKey: context.visibilityKey,
-      message: `Workflow run "${input.runId}" was not found for this caller`,
-    });
-  }
-  if (hasTrueProperty(row, "inserted")) {
-    return;
-  }
-  const existingRows = Array.from(
-    await tx.dbTransaction.query(
-      `SELECT run_id, kind, payload = $2 AS payload_matches
+              [
+                input.commandId,
+                input.kind,
+                encoded.payload,
+                encoded.availableAt,
+                encoded.now,
+                input.runId,
+                context.visibilityKey,
+              ],
+            ),
+          catch: (error) => error,
+        }),
+      );
+      const row = yield* decodeCommandInsertResult(rows[0]);
+      if (!row.run_exists) {
+        return yield* Effect.fail(
+          new WorkflowRunNotAccessibleError({
+            runId: input.runId,
+            visibilityKey: context.visibilityKey,
+            message: `Workflow run "${input.runId}" was not found for this caller`,
+          }),
+        );
+      }
+      if (row.inserted) {
+        return;
+      }
+      const existingRows = Array.from(
+        yield* Effect.tryPromise({
+          try: () =>
+            tx.dbTransaction.query(
+              `SELECT run_id, kind, payload = $2 AS payload_matches
       FROM sheet_db_workflow_command
       WHERE command_id = $1`,
-      [input.commandId, JSON.stringify(input.payload)],
-    ),
+              [input.commandId, encoded.payload],
+            ),
+          catch: (error) => error,
+        }),
+      );
+      const existingRow = existingRows[0];
+      if (Predicate.isUndefined(existingRow)) {
+        return yield* Effect.fail(
+          new WorkflowRunNotAccessibleError({
+            runId: input.runId,
+            visibilityKey: context.visibilityKey,
+            message: `Workflow command "${input.commandId}" is no longer accessible to this caller`,
+          }),
+        );
+      }
+      const existingCommand = yield* decodeExistingCommandResult(existingRow);
+      yield* validateExistingCommand(existingCommand, context, input);
+    }),
   );
-  const existingCommand = existingRows[0];
-  validateExistingCommand(existingCommand, input);
-};
 
 const enqueueCommandInZeroTransaction = (
   tx: Transaction<SheetZeroSchema>,

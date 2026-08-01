@@ -178,10 +178,18 @@ describe("SheetWorkflowsForwardingClient", () => {
       // runner, stranding the fiber until the enqueue timeout.
       yield* Effect.yieldNow;
       yield* TestClock.adjust(Duration.seconds(2));
-      while (attempts < 5) {
+      let iterations = 0;
+      for (; attempts < 5 && iterations < 10; iterations += 1) {
         yield* TestClock.adjust(Duration.seconds(1));
+        yield* Effect.yieldNow;
       }
-      yield* Effect.yieldNow;
+      if (attempts < 5) {
+        return yield* Effect.die(
+          new Error(
+            `Retry loop did not complete: observed ${attempts} attempts after ${iterations} iterations`,
+          ),
+        );
+      }
       const exit = yield* Fiber.await(fiber);
 
       expect(Exit.isFailure(exit)).toBe(true);

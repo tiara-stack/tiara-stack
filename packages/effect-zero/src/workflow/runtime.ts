@@ -226,6 +226,13 @@ const jsonOrDescription = (value: unknown): WorkflowJson =>
     onSome: (json) => json,
   });
 
+const hasMalformedMessageDefect = (cause: Cause.Cause<unknown>) =>
+  cause.reasons.some(
+    (reason) =>
+      (Cause.isFailReason(reason) && ClusterError.MalformedMessage.is(reason.error)) ||
+      (Cause.isDieReason(reason) && ClusterError.MalformedMessage.is(reason.defect)),
+  );
+
 const reconcileRun = (
   run: WorkflowRun,
   runtime: WorkflowRuntimeService,
@@ -257,49 +264,48 @@ const reconcileRun = (
     });
   }).pipe(
     Effect.catchCause((cause) => {
-      // A `MalformedMessage` failure means the engine could not decode the
-      // persisted execution state (for example replies written by an older
-      // serialization format). It surfaces as a typed error on the remote
-      // runner path and as a defect on the local storage path. Either way
-      // the execution itself is already terminal in storage, so reconcile
-      // it once by recording the failure instead of warning on every poll
-      // forever.
-      const hasMalformedMessage = (cause as Cause.Cause<unknown>).reasons.some((reason) => {
-        if (Cause.isFailReason(reason)) {
-          return ClusterError.MalformedMessage.is(reason.error);
-        }
-        if (Cause.isDieReason(reason)) {
-          return ClusterError.MalformedMessage.is(reason.defect);
-        }
-        return false;
-      });
-      if (hasMalformedMessage) {
+      // Workflow.poll converts remote result-decoding failures to defects with
+      // Effect.orDie. The execution is already terminal in storage, so record
+      // that defect once instead of warning on every reconciliation forever.
+      if (hasMalformedMessageDefect(cause)) {
+        const reconciliationCause = Cause.pretty(cause);
+        const runAnnotations = {
+          executionId: run.executionId,
+          runId: run.runId,
+          workflowName: run.workflowName,
+        };
         return store
           .markRun(run.runId, "failed", {
             error: {
-              message: `Workflow execution state could not be decoded: ${Cause.pretty(cause)}`,
+              message: `Workflow execution state could not be decoded: ${reconciliationCause}`,
             },
           })
           .pipe(
             Effect.tap(() =>
-              Effect.logWarning("Marked workflow run as failed after undecodable execution state", {
-                executionId: run.executionId,
-                runId: run.runId,
-                workflowName: run.workflowName,
-              }),
+              Effect.logWarning(
+                "Marked workflow run as failed after undecodable execution state",
+              ).pipe(
+                Effect.annotateLogs({
+                  ...runAnnotations,
+                  cause: reconciliationCause,
+                }),
+              ),
             ),
-            Effect.catchCause((markCause) =>
-              Effect.logError("Failed to mark workflow run after undecodable execution state", {
-                markCause: Cause.pretty(markCause),
-                executionId: run.executionId,
-                runId: run.runId,
-                workflowName: run.workflowName,
-              }),
+            Effect.tapCause((markingCause) =>
+              Effect.logError("Failed to mark workflow run after undecodable execution state").pipe(
+                Effect.annotateLogs({
+                  ...runAnnotations,
+                  markingCause: Cause.pretty(markingCause),
+                  reconciliationCause,
+                }),
+              ),
             ),
+            Effect.ignore,
           );
       }
-      return Effect.logWarning("Failed to reconcile workflow run", cause).pipe(
+      return Effect.logWarning("Failed to reconcile workflow run").pipe(
         Effect.annotateLogs({
+          cause: Cause.pretty(cause),
           executionId: run.executionId,
           runId: run.runId,
           workflowName: run.workflowName,
@@ -318,14 +324,18 @@ export const reconcileWorkflowRuns = (
     const runtime = yield* WorkflowRuntime;
     const engine = yield* WorkflowEngine.WorkflowEngine;
     const store = yield* WorkflowStore;
-    const runs = yield* store.listRuns("running", options.batchSize ?? 100);
+    const runs = yield* store
+      .listRuns("running", options.batchSize ?? 100)
+      .pipe(
+        Effect.catchCause((cause) =>
+          Effect.logError("Failed to list workflow runs for reconciliation", cause).pipe(
+            Effect.as<ReadonlyArray<WorkflowRun>>([]),
+          ),
+        ),
+      );
     yield* Effect.forEach(runs, (run) => reconcileRun(run, runtime, engine, store), {
       concurrency: options.concurrency ?? 10,
       discard: true,
     });
     return runs.length;
-  }).pipe(
-    Effect.catchCause((cause) =>
-      Effect.logError("Failed to list workflow runs for reconciliation", cause).pipe(Effect.as(0)),
-    ),
-  );
+  });

@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Predicate } from "effect";
+import { Context, Effect, Layer, Match, Predicate } from "effect";
 import type { Headers } from "effect/unstable/http";
 import {
   makeOAuthResourceTokenAuthorizer,
@@ -21,61 +21,82 @@ const unauthorized = (message: string) =>
     message,
   });
 
+type ProcedureBatch = "publicRuns" | "runs" | "delegated" | "outsideRuns";
+
+const publicRunProcedures = new Set<string>(["runs.get", "runs.list"]);
+const delegatedRunProcedures = new Set<string>(["runs.enqueueAsCaller"]);
+const isRunsProcedure = (procedure: string) => procedure.startsWith("runs.");
+
+const classifyProcedureBatch = (procedureNames: readonly string[]): ProcedureBatch => {
+  // Any delegated procedure takes precedence for the whole batch, including
+  // mixed batches that also contain procedures outside the runs API.
+  if (procedureNames.some((procedure) => delegatedRunProcedures.has(procedure))) {
+    return "delegated";
+  }
+  if (
+    procedureNames.length > 0 &&
+    procedureNames.every((procedure) => publicRunProcedures.has(procedure))
+  ) {
+    return "publicRuns";
+  }
+  if (procedureNames.length > 0 && procedureNames.every(isRunsProcedure)) {
+    return "runs";
+  }
+  return "outsideRuns";
+};
+
+const serviceContext = (token: VerifiedOAuthResourceToken) =>
+  Predicate.isString(token.clientId)
+    ? Effect.succeed({
+        principalId: token.clientId,
+        visibilityKey: `service:${token.clientId}`,
+      })
+    : Effect.fail(unauthorized("Service access token is missing a client identity"));
+
+const accountContext = (token: VerifiedOAuthResourceToken) =>
+  Predicate.isString(token.accountId)
+    ? Effect.succeed({
+        principalId: token.accountId,
+        visibilityKey: `account:${token.accountId}`,
+      })
+    : Effect.fail(unauthorized("Runs access token is missing an account identity"));
+
+const publicRunsContext = (token: VerifiedOAuthResourceToken) =>
+  Predicate.isString(token.accountId)
+    ? accountContext(token)
+    : Effect.succeed({
+        principalId: "anonymous",
+        visibilityKey: "public",
+      });
+
 export const zeroContextFromToken = (
   procedureNames: readonly string[],
   token: VerifiedOAuthResourceToken,
 ): Effect.Effect<WorkflowZeroContext, ZeroDispatchUnauthorizedError> => {
-  const runsProcedures = procedureNames.filter((procedure) => procedure.startsWith("runs."));
-  const isEnqueueAsCaller = runsProcedures.includes("runs.enqueueAsCaller");
-
-  if (isEnqueueAsCaller && (!token.scopes.has("service") || !token.scopes.has("ingress.forward"))) {
-    return Effect.fail(
-      unauthorized("Delegated workflow enqueue requires service and ingress.forward scopes"),
-    );
-  }
-
-  if (token.scopes.has("service")) {
-    return Predicate.isString(token.clientId)
-      ? Effect.succeed({
-          principalId: token.clientId,
-          visibilityKey: `service:${token.clientId}`,
-        })
-      : Effect.fail(unauthorized("Service access token is missing a client identity"));
-  }
-
-  // Filter out pure-query runs procedures; they don't require workflow.dispatch scope.
-  const pureQueryProcedures = runsProcedures.filter((p) => p === "runs.list" || p === "runs.get");
-
-  if (
-    pureQueryProcedures.length === runsProcedures.length &&
-    runsProcedures.length === procedureNames.length &&
-    runsProcedures.length > 0
-  ) {
-    // All procedures are runs procedures, and all runs procedures are pure queries — no workflow.dispatch scope needed.
-    return Predicate.isString(token.accountId)
-      ? Effect.succeed({
-          principalId: token.accountId,
-          visibilityKey: `account:${token.accountId}`,
-        })
-      : Effect.succeed({
-          principalId: "anonymous",
-          visibilityKey: "public",
-        });
-  }
-
-  if (runsProcedures.length === procedureNames.length && runsProcedures.length > 0) {
-    if (!token.scopes.has("workflow.dispatch")) {
-      return Effect.fail(unauthorized("Runs access token is missing workflow.dispatch"));
-    }
-    return Predicate.isString(token.accountId)
-      ? Effect.succeed({
-          principalId: token.accountId,
-          visibilityKey: `account:${token.accountId}`,
-        })
-      : Effect.fail(unauthorized("Runs access token is missing an account identity"));
-  }
-
-  return Effect.fail(unauthorized("Access outside the runs API requires service scope"));
+  const isService = token.scopes.has("service");
+  return Match.value(classifyProcedureBatch(procedureNames)).pipe(
+    Match.when("delegated", () =>
+      isService && token.scopes.has("ingress.forward")
+        ? serviceContext(token)
+        : Effect.fail(
+            unauthorized("Delegated workflow enqueue requires service and ingress.forward scopes"),
+          ),
+    ),
+    Match.when("publicRuns", () => (isService ? serviceContext(token) : publicRunsContext(token))),
+    Match.when("runs", () =>
+      isService
+        ? serviceContext(token)
+        : token.scopes.has("workflow.dispatch")
+          ? accountContext(token)
+          : Effect.fail(unauthorized("Runs access token is missing workflow.dispatch")),
+    ),
+    Match.when("outsideRuns", () =>
+      isService
+        ? serviceContext(token)
+        : Effect.fail(unauthorized("Access outside the runs API requires service scope")),
+    ),
+    Match.exhaustive,
+  );
 };
 
 export class WorkflowZeroAuthorization extends Context.Service<

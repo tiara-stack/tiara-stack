@@ -201,9 +201,11 @@ services:
       ZERO_CVR_DB: "postgres://tiara:${POSTGRES_PASSWORD:?Run pnpm compose:generate-secrets or set POSTGRES_PASSWORD}@postgres:5432/tiara"
       ZERO_CHANGE_DB: "postgres://tiara:${POSTGRES_PASSWORD:?Run pnpm compose:generate-secrets or set POSTGRES_PASSWORD}@postgres:5432/tiara"
       ZERO_APP_PUBLICATIONS: "zero_data"
-      ZERO_QUERY_FORWARD_COOKIES: "true"
+      ZERO_QUERY_FORWARD_COOKIES: "false"
+      ZERO_QUERY_ALLOWED_CLIENT_HEADERS: "authorization"
       ZERO_QUERY_URL: "http://sheet-db-server:3000/zero/query"
-      ZERO_MUTATE_FORWARD_COOKIES: "true"
+      ZERO_MUTATE_FORWARD_COOKIES: "false"
+      ZERO_MUTATE_ALLOWED_CLIENT_HEADERS: "authorization"
       ZERO_MUTATE_URL: "http://sheet-db-server:3000/zero/mutate"
       ZERO_ADMIN_PASSWORD: ${ZERO_ADMIN_PASSWORD:-}
     volumes:

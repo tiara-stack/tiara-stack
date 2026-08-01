@@ -2,11 +2,13 @@ import { Zero } from "@rocicorp/zero";
 import {
   Cache,
   Context,
+  Data,
   Duration,
   Effect,
   Exit,
   Layer,
   Match,
+  Predicate,
   Queue,
   Redacted,
   Schedule,
@@ -30,6 +32,10 @@ type WorkflowZeroConnectionState = Zero<
   unknown
 >["connection"]["state"]["current"];
 
+class WorkflowZeroConnectionError extends Data.TaggedError("WorkflowZeroConnectionError")<{
+  readonly state: WorkflowZeroConnectionState;
+}> {}
+
 /** @internal */
 export const shouldRefreshWorkflowZeroAuth = (state: WorkflowZeroConnectionState) =>
   Match.value(state).pipe(
@@ -42,6 +48,12 @@ export const shouldRefreshWorkflowZeroAuth = (state: WorkflowZeroConnectionState
     ),
     Match.orElse(() => false),
   );
+
+const isWorkflowZeroConnectionError = (error: unknown): error is WorkflowZeroConnectionError =>
+  Predicate.isTagged("WorkflowZeroConnectionError")(error);
+
+const requiresFreshAuthentication = (error: unknown) =>
+  isWorkflowZeroConnectionError(error) && shouldRefreshWorkflowZeroAuth(error.state);
 
 const makeGetAuth = Effect.fn("WorkflowZeroClient.makeGetAuth")(function* () {
   const sheetAuthClient = yield* SheetAuthClient;
@@ -87,11 +99,37 @@ const makeGetAuth = Effect.fn("WorkflowZeroClient.makeGetAuth")(function* () {
   };
 });
 
-const makeZero = Effect.fn("WorkflowZeroClient.makeZero")(function* () {
+type AuthenticationRequest = "get-auth" | "refresh-auth";
+
+const authenticationSchedule = Schedule.exponential(Duration.millis(250)).pipe(
+  Schedule.modifyDelay((_output, delay) =>
+    Effect.succeed(Duration.min(delay, Duration.seconds(30))),
+  ),
+);
+
+export const makeZero = Effect.fn("WorkflowZeroClient.makeZero")(function* () {
   const { getAuth, refreshAuth } = yield* makeGetAuth();
   const server = yield* config.zeroCacheServer;
   const userID = yield* config.zeroCacheUserId;
-  const initialAuth = yield* getAuth();
+
+  const authenticate = (request: AuthenticationRequest) =>
+    Match.value(request).pipe(
+      Match.when("get-auth", () => getAuth()),
+      Match.when("refresh-auth", () => refreshAuth()),
+      Match.exhaustive,
+      Effect.timeout(Duration.seconds(30)),
+      Effect.tapError((error) =>
+        Effect.logWarning("Failed to authenticate the workflow Zero client; retrying").pipe(
+          Effect.annotateLogs({ error, request }),
+        ),
+      ),
+      Effect.retry({ schedule: authenticationSchedule }),
+    );
+
+  // Authentication is a mandatory startup dependency. Retry without a total
+  // limit so transient auth outages delay readiness instead of crashing and
+  // relying on an external process restart loop.
+  const initialAuth = yield* authenticate("get-auth");
   const zero = new Zero({
     server,
     userID,
@@ -101,32 +139,35 @@ const makeZero = Effect.fn("WorkflowZeroClient.makeZero")(function* () {
   });
   yield* Effect.addFinalizer(() => Effect.sync(() => zero.close()));
 
-  const reconnectRequests = yield* Queue.sliding<"get-auth" | "refresh-auth">(1);
-  const maxReconnectDelay = Duration.seconds(30);
-  const reconnectSchedule = Schedule.exponential(Duration.millis(250)).pipe(
-    Schedule.modifyDelay((_output, delay) =>
-      Effect.succeed(Duration.min(delay, maxReconnectDelay)),
-    ),
-  );
+  const reconnectRequests = yield* Queue.sliding<void>(1);
+  const reconnect = (auth: string) =>
+    Effect.tryPromise(() => zero.connection.connect({ auth })).pipe(
+      Effect.timeout(Duration.seconds(30)),
+      Effect.flatMap(() =>
+        Match.value(zero.connection.state.current).pipe(
+          Match.when({ name: "connected" }, () => Effect.void),
+          Match.orElse((state) => Effect.fail(new WorkflowZeroConnectionError({ state }))),
+        ),
+      ),
+      Effect.tapError((error) =>
+        Effect.logWarning("Failed to reauthenticate the workflow Zero client; retrying").pipe(
+          Effect.annotateLogs({ error }),
+        ),
+      ),
+      Effect.retry({
+        schedule: authenticationSchedule,
+        while: (error) => !requiresFreshAuthentication(error),
+      }),
+    );
   yield* Effect.forkScoped(
     Queue.take(reconnectRequests).pipe(
-      Effect.flatMap((request) =>
-        Match.value(request).pipe(
-          Match.when("get-auth", () => getAuth()),
-          Match.when("refresh-auth", () => refreshAuth()),
-          Match.exhaustive,
-          Effect.timeout(Duration.seconds(30)),
-          Effect.flatMap((nextAuth) =>
-            Effect.tryPromise(() => zero.connection.connect({ auth: nextAuth })).pipe(
-              Effect.timeout(Duration.seconds(30)),
-            ),
-          ),
-          Effect.tapError((error) =>
-            Effect.logWarning("Failed to reauthenticate the workflow Zero client; retrying").pipe(
-              Effect.annotateLogs({ error }),
-            ),
-          ),
-          Effect.retry({ schedule: reconnectSchedule }),
+      Effect.flatMap(() =>
+        authenticate("refresh-auth").pipe(
+          Effect.flatMap(reconnect),
+          Effect.retry({
+            schedule: authenticationSchedule,
+            while: requiresFreshAuthentication,
+          }),
         ),
       ),
       Effect.ignore({
@@ -141,13 +182,12 @@ const makeZero = Effect.fn("WorkflowZeroClient.makeZero")(function* () {
     Effect.sync(() =>
       zero.connection.state.subscribe((state) =>
         shouldRefreshWorkflowZeroAuth(state)
-          ? Queue.offerUnsafe(reconnectRequests, "refresh-auth")
+          ? Queue.offerUnsafe(reconnectRequests, undefined)
           : false,
       ),
     ),
     (unsubscribe) => Effect.sync(unsubscribe),
   );
-  yield* Queue.offer(reconnectRequests, "get-auth");
 
   return zero;
 });

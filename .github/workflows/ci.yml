@@ -239,17 +239,35 @@ jobs:
       - name: Check full-repo Fallow baseline
         shell: bash
         run: |
+          set +e
+          set -o pipefail
+
           npx fallow@2.88.2 --summary --no-cache \
-            | tee fallow-full-repo-summary.txt || true
+            | tee fallow-full-repo-summary.txt
+          summary_status=$?
+
           npx fallow@2.88.2 dead-code --summary --no-cache --fail-on-issues \
             --baseline .github/fallow-baselines/dead-code.json \
-            | tee -a fallow-full-repo-summary.txt || true
+            | tee -a fallow-full-repo-summary.txt
+          dead_code_status=$?
+
           npx fallow@2.88.2 dupes --summary --no-cache --fail-on-issues \
             --baseline .github/fallow-baselines/dupes.json \
-            | tee -a fallow-full-repo-summary.txt || true
+            | tee -a fallow-full-repo-summary.txt
+          dupes_status=$?
+
           npx fallow@2.88.2 health --summary --no-cache --fail-on-issues \
             --baseline .github/fallow-baselines/health.json \
-            | tee -a fallow-full-repo-summary.txt || true
+            | tee -a fallow-full-repo-summary.txt
+          health_status=$?
+
+          if (( summary_status != 0 )); then
+            echo "Full-repo summary reported existing issues; baseline commands determine gating."
+          fi
+
+          if (( dead_code_status != 0 || dupes_status != 0 || health_status != 0 )); then
+            exit 1
+          fi
 
       - name: Upload full-repo Fallow baseline
         if: ${{ !cancelled() }}
