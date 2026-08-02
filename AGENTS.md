@@ -344,3 +344,17 @@ typhoon-zero
 vibecord
   └─ dfx-discord-utils
 ```
+
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked in Linear under the `tiara-stack` team, using the Backlog → Todo → In Progress → Done workflow. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The tracker uses the five default triage labels. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This is a multi-context repository, with a root `CONTEXT-MAP.md` pointing to relevant context documentation. See `docs/agents/domain.md`.
