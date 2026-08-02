@@ -5,6 +5,7 @@ import { Api, SheetApisApi, SheetWorkflowsApi } from "./api";
 import {
   BotCommandDispatchError,
   DispatchAcceptedResult,
+  RoomOrderPinTentativeButtonPayload,
   ServiceStatusDispatchError,
 } from "./handlers/dispatch/schema";
 import { SheetWorkflowsRpcs } from "./sheet-workflows-rpc";
@@ -136,6 +137,24 @@ describe("Api", () => {
     expect(Api.groups.checkin!.endpoints).not.toHaveProperty("handleButton");
     expect(Api.groups.roomOrder!.endpoints).not.toHaveProperty("dispatch");
     expect(Api.groups.roomOrder!.endpoints).not.toHaveProperty("handleButton");
+  });
+
+  it("omits undefined room-order response types from JSON payloads", () => {
+    const codec = Schema.toCodecJson(RoomOrderPinTentativeButtonPayload);
+    const payload = {
+      client: { platform: "discord" as const, clientId: "discord-main" },
+      workspaceId: "workspace-1",
+      messageId: "message-1",
+      messageConversationId: "conversation-1",
+      interactionResponseToken: "interaction-token",
+      interactionResponseDeadlineEpochMs: 4_102_444_800_000,
+    };
+
+    const encoded = Schema.encodeSync(codec)({
+      ...payload,
+      interactionResponseType: undefined,
+    });
+    expect(encoded).not.toHaveProperty("interactionResponseType");
   });
 
   it("declares workflow discard RPCs as returning invocation ids", () => {

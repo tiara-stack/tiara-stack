@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Option, Predicate, Schema, SchemaGetter } from "effect";
 import { ArgumentError, SchemaError, Unauthorized, UnknownError } from "typhoon-core/error";
 import { MutatorResultError, QueryResultError } from "typhoon-zero/error";
 import { FeatureFlagName } from "../../schemas/workspaceConfig";
@@ -859,6 +859,15 @@ export type RoomOrderButtonInteractionResponseType = Schema.Schema.Type<
   typeof RoomOrderButtonInteractionResponseType
 >;
 
+const OptionalRoomOrderButtonInteractionResponseType = Schema.optionalKey(
+  RoomOrderButtonInteractionResponseType,
+).pipe(
+  Schema.decodeTo(Schema.optional(RoomOrderButtonInteractionResponseType), {
+    decode: SchemaGetter.passthrough(),
+    encode: SchemaGetter.transformOptional(Option.filter(Predicate.isNotUndefined)),
+  }),
+);
+
 export const RoomOrderButtonBasePayload = Schema.Struct({
   ...ClientDispatchPayloadBase,
   workspaceId: Schema.String,
@@ -867,7 +876,7 @@ export const RoomOrderButtonBasePayload = Schema.Struct({
   messageContent: Schema.optional(Schema.NullOr(Schema.String)),
   interactionResponseToken: Schema.String,
   interactionResponseDeadlineEpochMs: Schema.Number,
-  interactionResponseType: Schema.optional(RoomOrderButtonInteractionResponseType),
+  interactionResponseType: OptionalRoomOrderButtonInteractionResponseType,
 });
 
 export type RoomOrderButtonBasePayload = Schema.Schema.Type<typeof RoomOrderButtonBasePayload>;

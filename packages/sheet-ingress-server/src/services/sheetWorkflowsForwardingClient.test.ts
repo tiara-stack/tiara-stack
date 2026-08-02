@@ -91,6 +91,7 @@ const pinTentativePayload = {
     messageConversationId: "conversation-1",
     interactionResponseToken: "interaction-token",
     interactionResponseDeadlineEpochMs: 4_102_444_800_000,
+    interactionResponseType: undefined,
   },
   authorizedRoomOrder: new MessageRoomOrder({
     clientPlatform: "discord",
@@ -200,21 +201,26 @@ describe("SheetWorkflowsForwardingClient", () => {
       );
 
       const result = yield* client.dispatch.roomOrderPinTentativeButton(pinTentativePayload);
-      const encodedPayload = yield* Schema.encodeUnknownEffect(
-        DispatchWorkflowOperations.roomOrderPinTentativeButton.workflow.payloadSchema,
-      )(pinTentativePayload).pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Json)));
+      const encodedPayload = enqueueAsCaller.mock.calls[0]?.[0].workflow.payload;
 
+      yield* Schema.decodeUnknownEffect(Schema.Json)(encodedPayload);
+
+      expect(encodedPayload).toMatchObject({
+        payload: {
+          client: { clientId: "discord-main" },
+          workspaceId: "workspace-1",
+          messageId: "message-1",
+        },
+      });
       expect(result).toMatchObject({
         operation: "roomOrderPinTentativeButton",
         status: "accepted",
       });
-      expect(enqueueAsCaller).toHaveBeenCalledWith({
-        caller: { principalId: "account-1" },
-        workflow: expect.objectContaining({
-          workflowName: DispatchWorkflowOperations.roomOrderPinTentativeButton.workflow.name,
-          payload: encodedPayload,
-        }),
-      });
+      expect(encodedPayload).not.toHaveProperty("payload.interactionResponseType");
+      expect(enqueueAsCaller.mock.calls[0]?.[0].caller).toEqual({ principalId: "account-1" });
+      expect(enqueueAsCaller.mock.calls[0]?.[0].workflow.workflowName).toBe(
+        DispatchWorkflowOperations.roomOrderPinTentativeButton.workflow.name,
+      );
       expect(enqueueAsCaller).toHaveBeenCalledOnce();
     }),
   );
