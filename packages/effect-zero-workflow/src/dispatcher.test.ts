@@ -1,4 +1,4 @@
-import { Cause, Duration, Effect, Layer, Ref } from "effect";
+import { Cause, Duration, Effect, Exit, Layer, Ref, Schema } from "effect";
 import { describe, expect, layer } from "@effect/vitest";
 import {
   dispatchWorkflowCommandBatch,
@@ -24,6 +24,8 @@ const command = (attempts = 1): WorkflowCommand => ({
 
 type Events = ReadonlyArray<string>;
 
+const WorkflowFailure = Schema.Struct({ message: Schema.String });
+
 const makeTestLayer = (
   execute: WorkflowCommandExecutorService["execute"],
   attempts = 1,
@@ -42,8 +44,12 @@ const makeTestLayer = (
         getRun: () => Effect.die("unused"),
         listRuns: () => Effect.die("unused"),
         markCommandDelivered: () => append("delivered").pipe(Effect.as(true)),
-        retryCommand: () => append("retry").pipe(Effect.as(true)),
-        failCommand: () => append("failed").pipe(Effect.as(failCommandSettles)),
+        retryCommand: (_, __, error) =>
+          append(`retry:${Schema.decodeUnknownSync(WorkflowFailure)(error).message}`).pipe(
+            Effect.as(true),
+          ),
+        failCommand: () =>
+          append(`failed:${failCommandSettles}`).pipe(Effect.as(failCommandSettles)),
         markRun: (_, status) => append(`run:${status}`),
       };
       return service;
@@ -76,7 +82,49 @@ describe("workflow command dispatcher", () => {
             retryDelay: () => Duration.zero,
           }),
         ).toBe(1);
-        expect(yield* events).toEqual(["claim", "retry"]);
+        expect(yield* events).toEqual(["claim", "retry:temporary"]);
+      }),
+    );
+  });
+
+  layer(makeTestLayer(() => Effect.fail({ code: "temporary" })))(
+    "structured delivery failure",
+    (it) => {
+      it.effect("preserves structured errors in the stored message", () =>
+        Effect.gen(function* () {
+          expect(
+            yield* dispatchWorkflowCommandBatch({
+              maxAttempts: 3,
+              retryDelay: () => Duration.zero,
+            }),
+          ).toBe(1);
+          expect(yield* events).toEqual(["claim", 'retry:{"code":"temporary"}']);
+        }),
+      );
+    },
+  );
+
+  layer(makeTestLayer(() => Effect.fail(new Error("boom"))))("native delivery failure", (it) => {
+    it.effect("stores the native error message", () =>
+      Effect.gen(function* () {
+        expect(
+          yield* dispatchWorkflowCommandBatch({
+            maxAttempts: 3,
+            retryDelay: () => Duration.zero,
+          }),
+        ).toBe(1);
+        expect(yield* events).toEqual(["claim", "retry:boom"]);
+      }),
+    );
+  });
+
+  layer(makeTestLayer(() => Effect.interrupt))("interrupted delivery", (it) => {
+    it.effect("propagates interruption without settling the command", () =>
+      Effect.gen(function* () {
+        const exit = yield* Effect.exit(dispatchWorkflowCommandBatch());
+
+        expect(Exit.isFailure(exit) && Cause.hasInterrupts(exit.cause)).toBe(true);
+        expect(yield* events).toEqual(["claim"]);
       }),
     );
   });
@@ -87,7 +135,7 @@ describe("workflow command dispatcher", () => {
       it.effect("marks commands failed at the attempt limit", () =>
         Effect.gen(function* () {
           expect(yield* dispatchWorkflowCommandBatch({ maxAttempts: 3 })).toBe(1);
-          expect(yield* events).toEqual(["claim", "failed", "run:failed"]);
+          expect(yield* events).toEqual(["claim", "failed:true"]);
         }),
       );
     },
@@ -99,7 +147,7 @@ describe("workflow command dispatcher", () => {
       it.effect("does not fail the run after lease settlement is rejected", () =>
         Effect.gen(function* () {
           expect(yield* dispatchWorkflowCommandBatch({ maxAttempts: 3 })).toBe(1);
-          expect(yield* events).toEqual(["claim", "failed"]);
+          expect(yield* events).toEqual(["claim", "failed:false"]);
         }),
       );
     },

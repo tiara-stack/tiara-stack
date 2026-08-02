@@ -13,7 +13,7 @@ import {
   clusterWorkflowEngineClientLayer as makeClusterWorkflowEngineClientLayer,
   clusterWorkflowEngineRunnerLayer,
   clusterWorkflowStorageLayer,
-} from "effect-zero/workflow";
+} from "effect-zero-workflow";
 import { createServer } from "node:http";
 import { config } from "@/config";
 import {

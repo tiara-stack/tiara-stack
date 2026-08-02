@@ -14,6 +14,18 @@ const action = makeAction({
   execute: ({ value }) => Effect.succeed(value + 1),
 });
 
+const nextVersion = makeAction({
+  name: "example.action",
+  version: "v3",
+  input: Schema.Struct({
+    requestId: Schema.String,
+    value: Schema.Number,
+  }),
+  success: Schema.Number,
+  idempotencyKey: ({ requestId }) => requestId,
+  execute: ({ value }) => Effect.succeed(value + 1),
+});
+
 describe("durable action definition", () => {
   it.effect("uses stable name, version, and input idempotency", () =>
     Effect.gen(function* () {
@@ -27,7 +39,12 @@ describe("durable action definition", () => {
         requestId: "request-1",
         value: 999,
       });
+      const upgraded = yield* nextVersion.workflow.executionId({
+        requestId: "request-1",
+        value: 1,
+      });
       expect(retried).toBe(first);
+      expect(upgraded).not.toBe(first);
     }),
   );
 });

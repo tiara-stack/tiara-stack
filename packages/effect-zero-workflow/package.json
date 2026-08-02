@@ -1,5 +1,5 @@
 {
-  "name": "sheet-workflows",
+  "name": "effect-zero-workflow",
   "version": "0.0.0",
   "private": true,
   "keywords": [],
@@ -22,20 +22,12 @@
     "lint": "vp lint src",
     "test": "vp test run",
     "test:watch": "vp test",
-    "build": "vp pack && tar -acf dist.tar.zst ./dist"
+    "build": "vp pack && tsgo -b tsconfig.json --emitDeclarationOnly --force"
   },
   "dependencies": {
-    "@effect/sql-pg": "catalog:",
-    "@opentelemetry/exporter-prometheus": "^0.207.0",
-    "@opentelemetry/exporter-trace-otlp-http": "^0.207.0",
-    "@opentelemetry/sdk-trace-base": "^2.2.0",
-    "effect": "catalog:",
-    "effect-zero-workflow": "workspace:*",
-    "sheet-auth": "workspace:*",
-    "sheet-db-schema": "workspace:*",
-    "sheet-ingress-api": "workspace:*",
-    "sheet-message-content": "workspace:*",
-    "typhoon-core": "workspace:*",
+    "@rocicorp/zero": "^0.25.9",
+    "effect-sql-schema": "workspace:*",
+    "effect-zero": "workspace:*",
     "typhoon-zero": "workspace:*"
   },
   "devDependencies": {
@@ -47,7 +39,6 @@
     "vitest": "catalog:"
   },
   "peerDependencies": {
-    "@effect/opentelemetry": "catalog:",
-    "@effect/platform-node": "catalog:"
+    "effect": "catalog:"
   }
 }

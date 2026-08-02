@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { Deferred, Effect, Predicate, Schema } from "effect";
 import { describe, expect, it } from "@effect/vitest";
 import { Workflow, WorkflowEngine } from "effect/unstable/workflow";
 import { defineEvent, parseWorkflowEventId } from "./event";
@@ -19,12 +19,16 @@ const ApprovalWorkflow = Workflow.make({
   idempotencyKey: ({ requestId }) => requestId,
 });
 
-const ApprovalWorkflowLayer = ApprovalWorkflow.toLayer(
-  Effect.fnUntraced(function* () {
-    const eventId = yield* ApprovalEvent.createCurrent("review");
-    return yield* ApprovalEvent.await(eventId).pipe(Effect.orDie);
-  }),
-);
+const approvalWorkflowLayer = (awaiting?: Deferred.Deferred<void>) =>
+  ApprovalWorkflow.toLayer(
+    Effect.fnUntraced(function* () {
+      const eventId = yield* ApprovalEvent.createCurrent("review");
+      if (Predicate.isNotUndefined(awaiting)) {
+        yield* Deferred.succeed(awaiting, undefined);
+      }
+      return yield* ApprovalEvent.await(eventId).pipe(Effect.orDie);
+    }),
+  );
 
 const eventIdFor = (requestId: string) =>
   Effect.map(ApprovalWorkflow.executionId({ requestId }), (executionId) =>
@@ -57,22 +61,28 @@ describe("workflow events", () => {
         const result = yield* ApprovalWorkflow.execute({ requestId: "approval-2" });
 
         expect(result).toEqual({ approved: true });
-      }).pipe(Effect.provide(ApprovalWorkflowLayer), Effect.provide(WorkflowEngine.layerMemory)),
+      }).pipe(Effect.provide(approvalWorkflowLayer()), Effect.provide(WorkflowEngine.layerMemory)),
     ),
   );
 
   it.effect("suspends until the matching mailbox receives a value", () =>
     Effect.scoped(
       Effect.gen(function* () {
+        const awaiting = yield* Deferred.make<void>();
         const eventId = yield* eventIdFor("approval-3");
-        yield* ApprovalWorkflow.execute({ requestId: "approval-3" }, { discard: true });
-        yield* Effect.yieldNow;
+        yield* Effect.gen(function* () {
+          yield* ApprovalWorkflow.execute({ requestId: "approval-3" }, { discard: true });
+          yield* Deferred.await(awaiting);
 
-        yield* ApprovalEvent.send(eventId, { approved: false }).pipe(Effect.orDie);
-        const completed = yield* ApprovalWorkflow.execute({ requestId: "approval-3" });
+          yield* ApprovalEvent.send(eventId, { approved: false }).pipe(Effect.orDie);
+          const completed = yield* ApprovalWorkflow.execute({ requestId: "approval-3" });
 
-        expect(completed).toEqual({ approved: false });
-      }).pipe(Effect.provide(ApprovalWorkflowLayer), Effect.provide(WorkflowEngine.layerMemory)),
+          expect(completed).toEqual({ approved: false });
+        }).pipe(
+          Effect.provide(approvalWorkflowLayer(awaiting)),
+          Effect.provide(WorkflowEngine.layerMemory),
+        );
+      }),
     ),
   );
 });

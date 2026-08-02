@@ -1,5 +1,4 @@
-import { Effect, Layer, Random, Schema } from "effect";
-import { type Workflow } from "effect/unstable/workflow";
+import { Effect, Layer, Random, Ref, Schema } from "effect";
 import {
   defineEvent,
   enqueueWorkflowDefinition,
@@ -8,9 +7,11 @@ import {
   workflowRuntimeCommandExecutorLayer,
   workflowRuntimeLayer,
   type WorkflowCommandKindType,
+  type WorkflowDefinition,
   type WorkflowJson,
+  type WorkflowRunCursor,
   type WorkflowStoreService,
-} from "effect-zero/workflow";
+} from "effect-zero-workflow";
 import {
   DispatchWorkflowCommandBadRequestError,
   DispatchWorkflowRunNotFoundError,
@@ -44,7 +45,11 @@ const invocationContext = (payload: unknown) =>
     })),
   );
 
-const requireWorkflowRun = (store: WorkflowStoreService, workflow: Workflow.Any, runId: string) =>
+const requireWorkflowRun = (
+  store: WorkflowStoreService,
+  workflow: WorkflowDefinition,
+  runId: string,
+) =>
   Effect.gen(function* () {
     const run = yield* store.getRun(runId).pipe(Effect.orDie);
     if (!run || run.runId !== runId || run.workflowName !== workflow.name) {
@@ -59,7 +64,7 @@ const requireWorkflowRun = (store: WorkflowStoreService, workflow: Workflow.Any,
   });
 
 export const enqueueDispatchWorkflow = (
-  workflow: Workflow.Any,
+  workflow: WorkflowDefinition,
   payload: unknown,
   requestedRunId?: string,
 ) =>
@@ -74,7 +79,7 @@ export const enqueueDispatchWorkflow = (
   }).pipe(Effect.provide(dispatchRuntimeLayer));
 
 export const enqueueDispatchWorkflowCommand = (
-  workflow: Workflow.Any,
+  workflow: WorkflowDefinition,
   runId: string,
   commandId: string,
   kind: WorkflowCommandKindType,
@@ -103,7 +108,7 @@ export const enqueueDispatchWorkflowCommand = (
   });
 
 export const createDispatchWorkflowEvent = (
-  workflow: Workflow.Any,
+  workflow: WorkflowDefinition,
   runId: string,
   eventKey: string,
 ) =>
@@ -121,6 +126,5 @@ export const workflowCommandExecutorLayer = workflowRuntimeCommandExecutorLayer.
   Layer.provide(dispatchRuntimeLayer),
 );
 
-export const reconcileDispatchWorkflowRuns = reconcileWorkflowRuns().pipe(
-  Effect.provide(dispatchRuntimeLayer),
-);
+export const reconcileDispatchWorkflowRuns = (cursor: Ref.Ref<WorkflowRunCursor | undefined>) =>
+  reconcileWorkflowRuns({ cursor }).pipe(Effect.provide(dispatchRuntimeLayer));

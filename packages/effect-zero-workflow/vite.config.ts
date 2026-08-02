@@ -4,7 +4,6 @@ import { library } from "tooling-config/vite";
 export default library({
   pack: {
     entry: {
-      "cli/index": fileURLToPath(new URL("src/cli/index.ts", import.meta.url)),
       index: fileURLToPath(new URL("src/index.ts", import.meta.url)),
     },
   },

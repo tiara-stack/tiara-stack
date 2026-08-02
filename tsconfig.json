@@ -26,6 +26,9 @@
       "path": "packages/effect-zero"
     },
     {
+      "path": "packages/effect-zero-workflow"
+    },
+    {
       "path": "packages/sheet-apis"
     },
     {

@@ -10,7 +10,7 @@ import {
 import { defaultSuccessSchemas, type SheetZeroApiSuccessSchemas } from "./api/successSchemas";
 import { makeUserConfigGroup, type UserConfigGroup } from "./api/userConfig";
 import { makeWorkspaceConfigGroup, type WorkspaceConfigGroup } from "./api/workspaceConfig";
-import { makeRunsGroup, type RunsGroup } from "./api/runs";
+import { runsGroup, type RunsGroup } from "./api/runs";
 
 export {
   DelegatedWorkflowEnqueueRequest,
@@ -55,7 +55,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
     .add(makeMessageRoomOrderGroup(success))
     .add(makeMessageSlotGroup(success))
     .add(makeMessageTeamSubmissionGroup(success))
-    .add(makeRunsGroup());
+    .add(runsGroup);
 
 export function makeSheetZeroApi(): ReturnType<
   typeof makeSheetZeroApiWithSuccess<typeof defaultSuccessSchemas>

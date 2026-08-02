@@ -1,6 +1,9 @@
 import { Effect, Predicate, Schema } from "effect";
 import { DurableDeferred, Workflow, WorkflowEngine } from "effect/unstable/workflow";
+import { ReadonlyJSONValue } from "typhoon-zero/schema";
 
+// This prefix is persisted inside durable event tokens. Keep it stable across
+// the package extraction so active workflows can still decode existing IDs.
 const eventDeferredPrefix = "effect-zero/workflow/event";
 
 export const WorkflowEventId = DurableDeferred.Token;
@@ -9,7 +12,7 @@ export type WorkflowEventId = DurableDeferred.Token;
 
 export const WorkflowEventCommandPayload = Schema.Struct({
   eventId: WorkflowEventId,
-  value: Schema.Json,
+  value: ReadonlyJSONValue,
 });
 
 export type WorkflowEventCommandPayload = typeof WorkflowEventCommandPayload.Type;
@@ -71,10 +74,11 @@ export interface AnyWorkflowEvent {
 }
 
 /**
- * Defines a shared, typed workflow event. Each call to `create` allocates a
- * one-shot mailbox address. Sending may happen before or after `await`; the
- * Effect workflow engine durably stores the first completion and resumes the
- * matching execution.
+ * Defines a shared, typed workflow event. The event name is embedded in
+ * persisted identifiers and must remain stable. The event key must be unique
+ * within a workflow execution because repeated keys address the same one-shot
+ * mailbox. Sending may happen before or after `await`; the Effect workflow
+ * engine durably stores the first completion and resumes the matching execution.
  */
 export const defineEvent = <
   const Name extends string,
@@ -106,19 +110,22 @@ export const defineEvent = <
       ),
     );
 
+  const deferredNameFor = (eventKey: string) =>
+    `${eventPrefix(options.name)}${encodeURIComponent(eventKey)}`;
+
   const create = (input: {
     readonly workflow: Workflow.Any;
     readonly executionId: string;
     readonly eventKey: string;
   }): WorkflowEventId => {
-    const event = deferred(`${eventPrefix(options.name)}${encodeURIComponent(input.eventKey)}`);
+    const event = deferred(deferredNameFor(input.eventKey));
     return DurableDeferred.tokenFromExecutionId(event, input);
   };
 
   const createCurrent = (
     eventKey: string,
   ): Effect.Effect<WorkflowEventId, never, WorkflowEngine.WorkflowInstance> => {
-    const event = deferred(`${eventPrefix(options.name)}${encodeURIComponent(eventKey)}`);
+    const event = deferred(deferredNameFor(eventKey));
     return DurableDeferred.token(event);
   };
 

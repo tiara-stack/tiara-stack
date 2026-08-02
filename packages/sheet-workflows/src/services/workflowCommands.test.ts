@@ -7,7 +7,7 @@ import {
   type EnqueueWorkflowCommand,
   type WorkflowRun,
   type WorkflowStoreService,
-} from "effect-zero/workflow";
+} from "effect-zero-workflow";
 import {
   DispatchWorkflowCommandBadRequestError,
   DispatchWorkflowRunNotFoundError,
@@ -55,6 +55,7 @@ const TestWorkflowStoreLayer = Layer.sync(WorkflowStore, (): TestWorkflowStore =
       status: "running",
       result: null,
       error: null,
+      updatedAt: new Date("2026-01-01T00:00:00.000Z"),
     }),
   );
 

@@ -10,23 +10,15 @@
       "*": ["./*"],
       "~~/*": ["./*"],
       "@@/*": ["./*"],
-      "effect-sql-kit": ["../effect-sql-kit/src/index.ts"],
       "effect-sql-schema": ["../effect-sql-schema/src/index.mts"],
       "effect-sql-schema/*": ["../effect-sql-schema/src/*"],
       "effect-zero": ["../effect-zero/src/index.ts"],
       "effect-zero/*": ["../effect-zero/src/*"],
-      "effect-zero-workflow": ["../effect-zero-workflow/src/index.ts"],
-      "sheet-models": ["../sheet-models/src/index.ts"],
-      "typhoon-core": ["../typhoon-core/src/index.ts"],
-      "typhoon-core/*": ["../typhoon-core/src/*"],
       "typhoon-zero": ["../typhoon-zero/src/index.ts"],
       "typhoon-zero/*": ["../typhoon-zero/src/*"]
     }
   },
   "references": [
-    {
-      "path": "../effect-sql-kit"
-    },
     {
       "path": "../effect-sql-schema"
     },
@@ -34,19 +26,10 @@
       "path": "../effect-zero"
     },
     {
-      "path": "../effect-zero-workflow"
-    },
-    {
-      "path": "../sheet-models"
-    },
-    {
-      "path": "../typhoon-core"
+      "path": "../tooling-config"
     },
     {
       "path": "../typhoon-zero"
-    },
-    {
-      "path": "../tooling-config"
     }
   ]
 }

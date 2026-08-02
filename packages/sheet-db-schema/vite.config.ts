@@ -12,7 +12,7 @@ export default library({
       "zero-internal": fileURLToPath(new URL("src/zero/internal.ts", import.meta.url)),
     },
     deps: {
-      neverBundle: ["@electric-sql/pglite", "drizzle-orm"],
+      neverBundle: ["@electric-sql/pglite", "drizzle-orm", "effect-zero", "effect-zero-workflow"],
     },
   },
 });

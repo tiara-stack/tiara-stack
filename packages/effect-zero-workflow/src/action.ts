@@ -1,37 +1,40 @@
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, Effect, Layer, Predicate, Schema } from "effect";
 import { SqlClient, type SqlError } from "effect/unstable/sql";
 import { Activity, Workflow } from "effect/unstable/workflow";
 
-interface ActionContextService {
+export interface ActionContextService {
   /**
-   * Runs one database read in a fresh, short transaction. The transaction is
-   * never retained across an external effect or durable suspension.
+   * Runs one database operation intended for reads in a fresh, short
+   * transaction. The distinction from `mutate` is advisory; database
+   * permissions remain authoritative. The transaction is never retained across
+   * an external effect or durable suspension.
    */
-  readonly query: <A, E>(
-    operation: (sql: SqlClient.SqlClient) => Effect.Effect<A, E>,
-  ) => Effect.Effect<A, E | SqlError.SqlError>;
+  readonly query: <A, E, R = never>(
+    operation: (sql: SqlClient.SqlClient) => Effect.Effect<A, E, R>,
+  ) => Effect.Effect<A, E | SqlError.SqlError, R>;
   /**
    * Runs one database mutation in a fresh, short transaction. This is the
    * action equivalent of a Convex query/mutation boundary.
    */
-  readonly mutate: <A, E>(
-    operation: (sql: SqlClient.SqlClient) => Effect.Effect<A, E>,
-  ) => Effect.Effect<A, E | SqlError.SqlError>;
+  readonly mutate: <A, E, R = never>(
+    operation: (sql: SqlClient.SqlClient) => Effect.Effect<A, E, R>,
+  ) => Effect.Effect<A, E | SqlError.SqlError, R>;
 }
 
 export class ActionContext extends Context.Service<ActionContext, ActionContextService>()(
-  "effect-zero/workflow/ActionContext",
+  "effect-zero-workflow/ActionContext",
 ) {}
 
 export const actionContextSqlLayer = Layer.effect(
   ActionContext,
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
+    const runInTransaction = <A, E, R>(
+      operation: (sql: SqlClient.SqlClient) => Effect.Effect<A, E, R>,
+    ) => sql.withTransaction(Effect.suspend(() => operation(sql)));
     return {
-      query: <A, E>(operation: (client: SqlClient.SqlClient) => Effect.Effect<A, E>) =>
-        sql.withTransaction(operation(sql)),
-      mutate: <A, E>(operation: (client: SqlClient.SqlClient) => Effect.Effect<A, E>) =>
-        sql.withTransaction(operation(sql)),
+      query: runInTransaction,
+      mutate: runInTransaction,
     };
   }),
 );
@@ -62,22 +65,26 @@ export const makeAction = <
     },
   ) => Effect.Effect<Success["Type"], Error["Type"], Requirements | ActionContext>;
 }) => {
+  const idempotencyKeyFor = (input: Input["Type"]) =>
+    `${options.version}:${options.idempotencyKey(input)}`;
+  const successSchema = Predicate.isUndefined(options.success) ? {} : { success: options.success };
+  const errorSchema = Predicate.isUndefined(options.error) ? {} : { error: options.error };
   const workflow = Workflow.make({
     name: options.name,
     payload: options.input,
-    ...(options.success === undefined ? {} : { success: options.success }),
-    ...(options.error === undefined ? {} : { error: options.error }),
-    idempotencyKey: (input) => `${options.version}:${options.idempotencyKey(input)}`,
+    ...successSchema,
+    ...errorSchema,
+    idempotencyKey: idempotencyKeyFor,
   });
   const toLayer = () =>
     workflow.toLayer((input, executionId) =>
       Activity.make({
         name: `${options.name}@${options.version}`,
-        ...(options.success === undefined ? {} : { success: options.success }),
-        ...(options.error === undefined ? {} : { error: options.error }),
+        ...successSchema,
+        ...errorSchema,
         execute: options.execute(input, {
           executionId,
-          idempotencyKey: executionId,
+          idempotencyKey: idempotencyKeyFor(input),
         }),
       }),
     );
@@ -87,6 +94,7 @@ export const makeAction = <
     workflow,
     toLayer,
     execute: workflow.execute,
+    /** Alias that deduplicates by execution ID and waits for the existing execution's result. */
     await: workflow.execute,
   };
 };

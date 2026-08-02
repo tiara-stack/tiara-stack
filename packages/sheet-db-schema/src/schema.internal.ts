@@ -3,7 +3,7 @@ import type { EffectSqlTable } from "effect-sql-schema";
 import {
   workflowCommand as effectZeroWorkflowCommand,
   workflowRun as effectZeroWorkflowRun,
-} from "effect-zero/workflow";
+} from "effect-zero-workflow";
 import type { Model } from "effect/unstable/schema";
 import { ReadonlyJSONValue } from "typhoon-zero/schema";
 import {

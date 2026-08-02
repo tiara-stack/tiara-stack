@@ -1,6 +1,6 @@
 import { NodeFileSystem, NodeHttpClient, NodeRuntime } from "@effect/platform-node";
 import { Effect, Layer, Logger } from "effect";
-import { workflowStoreLayer } from "effect-zero/workflow";
+import { workflowStoreLayer } from "effect-zero-workflow";
 import { dotEnvConfigProviderLayer } from "typhoon-core/config";
 import {
   clusterHttpLayer,

@@ -85,6 +85,8 @@ export const tables: SheetTables = {
   workflowCommand,
 };
 
+export const sheetDbTablePrefix = "sheet_db";
+
 export const schema: EffectSqlSchema<typeof tables> = effectSqlSchema(tables, {
-  prefix: "sheet_db",
+  prefix: sheetDbTablePrefix,
 });

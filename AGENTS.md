@@ -18,6 +18,12 @@ Shared Rocicorp Zero integration library providing typed Zero API definitions, E
 
 **Dependencies**: `@rocicorp/zero`, `typhoon-core` (peer: `effect`)
 
+### `effect-zero-workflow` (packages/effect-zero-workflow)
+
+Zero-native durable workflow component built on stock Effect Workflow. It provides the reusable PostgreSQL store, dispatcher, runtime, cluster layers, and Zero control-plane APIs while leaving application workflow definitions and authorization in consuming services.
+
+**Dependencies**: `@rocicorp/zero`, `effect-zero`, `effect-sql-schema`, `typhoon-zero` (peer: `effect`)
+
 ## Application Packages
 
 ### `sheet-apis` (packages/sheet-apis)
@@ -30,7 +36,7 @@ Backend API server for Google Sheets integration using Effect's HttpApiBuilder, 
 
 Workflow runtime service for sheet dispatch and auto-checkin workflows using Effect Workflow/Cluster. It accepts workflow dispatch RPCs, executes durable command/button workflows, coordinates auto-checkin enqueueing, calls `sheet-apis` through ingress contracts, and stores workflow runner/message state in PostgreSQL.
 
-**Dependencies**: Effect platform/node/opentelemetry/sql stack, `sheet-auth`, `sheet-ingress-api`, `dfx-discord-utils`, `typhoon-core`, `typhoon-zero`
+**Dependencies**: Effect platform/node/opentelemetry/sql stack, `effect-zero-workflow`, `sheet-auth`, `sheet-ingress-api`, `dfx-discord-utils`, `typhoon-core`, `typhoon-zero`
 
 ### `sheet-ingress-api` (packages/sheet-ingress-api)
 
@@ -56,7 +62,7 @@ Database server providing Zero (real-time sync) HTTP API for the sheet database 
 
 Database schema definitions using Drizzle ORM for PostgreSQL with Zero integration.
 
-**Dependencies**: `@rocicorp/zero`, `drizzle-orm`, `drizzle-zero`, `postgres`, `typhoon-core`, `typhoon-zero` (peer: `effect`)
+**Dependencies**: `@rocicorp/zero`, `drizzle-orm`, `drizzle-zero`, `effect-zero`, `effect-zero-workflow`, `postgres`, `typhoon-core`, `typhoon-zero` (peer: `effect`)
 
 ### `sheet-auth` (packages/sheet-auth)
 
@@ -262,6 +268,7 @@ sheet-apis
   └─ typhoon-zero
 
 sheet-workflows
+  ├─ effect-zero-workflow
   ├─ sheet-auth
   ├─ sheet-ingress-api
   ├─ dfx-discord-utils
@@ -298,6 +305,8 @@ sheet-db-server
   └─ typhoon-zero
 
 sheet-db-schema
+  ├─ effect-zero
+  ├─ effect-zero-workflow
   ├─ typhoon-core
   └─ typhoon-zero
   (peer dependency: effect)
@@ -314,6 +323,12 @@ start-atom
   (peer dependencies: @effect/atom-react, effect, react, @tanstack/react-router, @tanstack/react-start, @tanstack/router-core)
 
 effect-platform-apps-script
+  (peer dependency: effect)
+
+effect-zero-workflow
+  ├─ effect-zero
+  ├─ effect-sql-schema
+  └─ typhoon-zero
   (peer dependency: effect)
 
 bob

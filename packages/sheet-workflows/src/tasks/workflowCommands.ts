@@ -1,5 +1,9 @@
-import { Config, Duration, Effect, Layer, Schedule } from "effect";
-import { runWorkflowCommandDispatcher, type WorkflowDispatcherOptions } from "effect-zero/workflow";
+import { Config, Duration, Effect, Layer, Ref, Schedule } from "effect";
+import {
+  runWorkflowCommandDispatcher,
+  type WorkflowDispatcherOptions,
+  type WorkflowRunCursor,
+} from "effect-zero-workflow";
 import {
   reconcileDispatchWorkflowRuns,
   workflowCommandExecutorLayer,
@@ -21,7 +25,8 @@ export const workflowCommandTaskLayer = Layer.effectDiscard(
       Effect.withSpan("sheet-workflows.task.workflowCommandDispatcher"),
       Effect.forkScoped,
     );
-    yield* reconcileDispatchWorkflowRuns.pipe(
+    const reconciliationCursor = yield* Ref.make<WorkflowRunCursor | undefined>(undefined);
+    yield* reconcileDispatchWorkflowRuns(reconciliationCursor).pipe(
       Effect.repeat({ schedule: reconciliationSchedule }),
       Effect.withSpan("sheet-workflows.task.workflowRunReconciler"),
       Effect.forkScoped,

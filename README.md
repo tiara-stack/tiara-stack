@@ -96,6 +96,7 @@ flowchart TB
 | ----------------------------- | ---------------------------------------- | --------------- |
 | `typhoon-core`                | Shared utilities, schema helpers, errors | Effect.ts       |
 | `typhoon-zero`                | Shared Rocicorp Zero integration helpers | Rocicorp Zero   |
+| `effect-zero-workflow`        | Zero-native durable workflow component   | Effect Workflow, Rocicorp Zero |
 | `bob`                         | Type-safe configuration builder          | Standard Schema |
 | `dfx-discord-utils`           | Discord Effect utilities                 | dfx, unstorage  |
 | `effect-platform-apps-script` | Effect HTTP client for Apps Script       | Effect Platform |
@@ -334,6 +335,9 @@ Pull request CI also runs `fallow-rs/fallow` with `command: audit`, which scopes
 │   │   ├── src/error/                # Error handling
 │   │   └── src/services/             # Core services
 │   ├── typhoon-zero/                 # Shared Zero integration helpers
+│   ├── effect-zero-workflow/         # Zero-native Effect Workflow component
+│   │   ├── src/zero/                 # Zero component, publication, and transactions
+│   │   └── src/                      # Runtime, store, dispatcher, events, and actions
 │   ├── bob/                          # Config builder utility
 │   ├── dfx-discord-utils/            # Discord utilities
 │   │   ├── src/discord/              # Discord-specific utils
@@ -434,6 +438,7 @@ graph TD
     Workflows -->|uses| DFX
     Workflows -->|uses| Core
     Workflows -->|uses| Zero
+    Workflows -->|uses| ZeroWorkflow[effect-zero-workflow]
 
     Bot[sheet-bot] -->|uses| Auth
     Bot -->|uses| Schema
@@ -462,6 +467,12 @@ graph TD
 
     Schema -->|uses| Core
     Schema -->|uses| Zero
+    Schema -->|uses| ZeroWorkflow
+    Schema -->|uses| EffectZero
+
+    ZeroWorkflow -->|uses| EffectZero[effect-zero]
+    ZeroWorkflow -->|uses| EffectSqlSchema[effect-sql-schema]
+    ZeroWorkflow -->|uses| Zero
 
     VibeCord[vibecord] -->|uses| DFX
 

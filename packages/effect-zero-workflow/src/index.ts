@@ -45,11 +45,14 @@ export {
   workflowRuntimeLayer,
   type EnqueueWorkflowDefinitionOptions,
   type RunnableWorkflow,
+  type WorkflowDefinition,
   type WorkflowRuntimeOptions,
+  type WorkflowReconciliationOptions,
   type WorkflowRuntimeService,
 } from "./runtime";
 export {
   allWorkflowRunStatuses,
+  defaultWorkflowMaxAttempts,
   isTerminalWorkflowRunStatus,
   makeWorkflowStore,
   enqueueWorkflowInTransaction,
@@ -63,7 +66,30 @@ export {
   type WorkflowJson,
   type WorkflowEnqueueTransaction,
   type WorkflowRun,
+  type WorkflowRunCursor,
   type WorkflowStoreOptions,
   type WorkflowStoreService,
 } from "./store";
-export { ActionContext, actionContextSqlLayer, makeAction } from "./action";
+export {
+  ActionContext,
+  actionContextSqlLayer,
+  makeAction,
+  type ActionContextService,
+} from "./action";
+export {
+  makeZeroWorkflowComponent,
+  type ZeroWorkflowComponent,
+  type ZeroWorkflowComponentOptions,
+} from "./zero/component";
+export { configureWorkflowZeroSchema } from "./zero/publication";
+export {
+  DelegatedWorkflowEnqueueRequest,
+  isWorkflowZeroContext,
+  PublicWorkflowRun,
+  WorkflowCommandRequest,
+  WorkflowEnqueueRequest,
+  WorkflowEventRequest,
+  WorkflowRunNotAccessibleError,
+  WorkflowZeroContext,
+} from "./zero/schemas";
+export { makeWorkflowZeroTransaction, type WorkflowZeroSchema } from "./zero/transaction";
