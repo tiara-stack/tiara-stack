@@ -36,6 +36,24 @@ _Avoid_: Permission snapshot, scope check
 The record of both the effective principal whose authority was used and any service actor that performed the operation for that principal.
 _Avoid_: Caller ID, impersonation record
 
+## Migration and rollout
+
+**Production Cell**:
+The single shared-state production environment containing one authoritative Postgres/Zero state plane, one Discord gateway owner, and one autonomous-trigger ownership set while legacy and replacement paths may coexist.
+_Avoid_: Parallel production stack, blue/green environment
+
+**Rollout Gate**:
+An audited deployment control that selects exactly one execution path for a future invocation at caller-and-intent granularity, optionally limited to a principal or installation cohort. It never reroutes work that has already been accepted.
+_Avoid_: Product feature flag, percentage traffic split
+
+**Deletion Gate**:
+An evidence-backed checkpoint that permits irreversible legacy cleanup only after the replacement scenarios pass, the required soak completes, legacy traffic reaches zero, and legacy durable work is fully drained.
+_Avoid_: Deployment completion, unused-code assumption
+
+**Legacy Quarantine**:
+The reversible interval after the deletion gate when legacy workloads are scaled to zero and disconnected but their manifests, images, and credentials remain recoverable for a bounded rollback window.
+_Avoid_: Hard deletion, ordinary rollout soak
+
 ## Durable execution
 
 **Autonomous Trigger**:
