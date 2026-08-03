@@ -13,6 +13,7 @@ import { Route as ReadyRouteImport } from './routes/ready'
 import { Route as LiveRouteImport } from './routes/live'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as PrototypeCommandObserveRouteImport } from './routes/prototype.command-observe'
 import { Route as DocsSplatRouteImport } from './routes/docs/$'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedDashboardIndexRouteImport } from './routes/_authenticated/dashboard/index'
@@ -50,6 +51,11 @@ const AuthenticatedRoute = AuthenticatedRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PrototypeCommandObserveRoute = PrototypeCommandObserveRouteImport.update({
+  id: '/prototype/command-observe',
+  path: '/prototype/command-observe',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DocsSplatRoute = DocsSplatRouteImport.update({
@@ -176,6 +182,7 @@ export interface FileRoutesByFullPath {
   '/ready': typeof ReadyRoute
   '/dashboard': typeof AuthenticatedDashboardRouteWithChildren
   '/docs/$': typeof DocsSplatRoute
+  '/prototype/command-observe': typeof PrototypeCommandObserveRoute
   '/dashboard/guilds': typeof AuthenticatedDashboardGuildsRouteRouteWithChildren
   '/dashboard/preferences': typeof AuthenticatedDashboardPreferencesRoute
   '/dashboard/shifts': typeof AuthenticatedDashboardShiftsRoute
@@ -199,6 +206,7 @@ export interface FileRoutesByTo {
   '/live': typeof LiveRoute
   '/ready': typeof ReadyRoute
   '/docs/$': typeof DocsSplatRoute
+  '/prototype/command-observe': typeof PrototypeCommandObserveRoute
   '/dashboard/preferences': typeof AuthenticatedDashboardPreferencesRoute
   '/dashboard/shifts': typeof AuthenticatedDashboardShiftsRoute
   '/developer/oauth-clients': typeof AuthenticatedDeveloperOauthClientsRoute
@@ -222,6 +230,7 @@ export interface FileRoutesById {
   '/ready': typeof ReadyRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRouteWithChildren
   '/docs/$': typeof DocsSplatRoute
+  '/prototype/command-observe': typeof PrototypeCommandObserveRoute
   '/_authenticated/dashboard/guilds': typeof AuthenticatedDashboardGuildsRouteRouteWithChildren
   '/_authenticated/dashboard/preferences': typeof AuthenticatedDashboardPreferencesRoute
   '/_authenticated/dashboard/shifts': typeof AuthenticatedDashboardShiftsRoute
@@ -248,6 +257,7 @@ export interface FileRouteTypes {
     | '/ready'
     | '/dashboard'
     | '/docs/$'
+    | '/prototype/command-observe'
     | '/dashboard/guilds'
     | '/dashboard/preferences'
     | '/dashboard/shifts'
@@ -271,6 +281,7 @@ export interface FileRouteTypes {
     | '/live'
     | '/ready'
     | '/docs/$'
+    | '/prototype/command-observe'
     | '/dashboard/preferences'
     | '/dashboard/shifts'
     | '/developer/oauth-clients'
@@ -293,6 +304,7 @@ export interface FileRouteTypes {
     | '/ready'
     | '/_authenticated/dashboard'
     | '/docs/$'
+    | '/prototype/command-observe'
     | '/_authenticated/dashboard/guilds'
     | '/_authenticated/dashboard/preferences'
     | '/_authenticated/dashboard/shifts'
@@ -318,6 +330,7 @@ export interface RootRouteChildren {
   LiveRoute: typeof LiveRoute
   ReadyRoute: typeof ReadyRoute
   DocsSplatRoute: typeof DocsSplatRoute
+  PrototypeCommandObserveRoute: typeof PrototypeCommandObserveRoute
   ApiDocsSearchRoute: typeof ApiDocsSearchRoute
   AuthOauthCallbackRoute: typeof AuthOauthCallbackRoute
   AuthOauthStartRoute: typeof AuthOauthStartRoute
@@ -351,6 +364,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/prototype/command-observe': {
+      id: '/prototype/command-observe'
+      path: '/prototype/command-observe'
+      fullPath: '/prototype/command-observe'
+      preLoaderRoute: typeof PrototypeCommandObserveRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/docs/$': {
@@ -607,6 +627,7 @@ const rootRouteChildren: RootRouteChildren = {
   LiveRoute: LiveRoute,
   ReadyRoute: ReadyRoute,
   DocsSplatRoute: DocsSplatRoute,
+  PrototypeCommandObserveRoute: PrototypeCommandObserveRoute,
   ApiDocsSearchRoute: ApiDocsSearchRoute,
   AuthOauthCallbackRoute: AuthOauthCallbackRoute,
   AuthOauthStartRoute: AuthOauthStartRoute,

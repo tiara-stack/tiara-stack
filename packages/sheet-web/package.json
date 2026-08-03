@@ -12,6 +12,7 @@
     "test": "vp test run",
     "test:watch": "vp test",
     "dev": "vp dev --port 3001",
+    "prototype:command-observe": "VITE_ENABLE_COMMAND_OBSERVE_PROTOTYPE=true vp build && vp preview --port 3001",
     "docs:generate": "fumadocs-mdx",
     "docs:search:export": "tsx scripts/index-docs-search.ts --output=.output/server/docs-search-manifest.json",
     "docs:search:bundle": "esbuild scripts/run-docs-search-index.ts --bundle --platform=node --format=esm --target=node22 --outfile=.output/server/docs-search-index.mjs",

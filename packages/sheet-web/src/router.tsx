@@ -16,10 +16,12 @@ export function getRouter() {
     },
   });
 
-  setupStartAtomIntegration({
-    router,
-    registry: atomRegistry,
-  });
+  if (import.meta.env.VITE_ENABLE_COMMAND_OBSERVE_PROTOTYPE !== "true") {
+    setupStartAtomIntegration({
+      router,
+      registry: atomRegistry,
+    });
+  }
 
   return router;
 }

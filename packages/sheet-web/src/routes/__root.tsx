@@ -68,7 +68,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
     ],
   }),
   loader: async ({ context, location }) => {
-    if (location.pathname === "/docs" || location.pathname.startsWith("/docs/")) return;
+    if (/^\/(?:docs(?:\/|$)|prototype\/command-observe$)/.test(location.pathname)) return;
 
     console.log("loading session");
     await Effect.runPromise(ensureResultAtomData(context.atomRegistry, sessionAtom));
