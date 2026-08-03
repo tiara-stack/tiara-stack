@@ -38,6 +38,14 @@ _Avoid_: Caller ID, impersonation record
 
 ## Durable execution
 
+**Autonomous Trigger**:
+A timer or external event that starts service-owned durable work under a stable invocation identity without performing business side effects itself.
+_Avoid_: Background job, cron worker
+
+**Sweep Workflow**:
+A service-owned workflow that discovers currently eligible domain targets and starts independently durable work for each stable target.
+_Avoid_: Cron task, polling loop
+
 **Workflow Definition**:
 A published business intent whose durable control flow coordinates actions and produces a typed outcome.
 _Avoid_: Generic workflow name, background endpoint
@@ -105,6 +113,10 @@ _Avoid_: Rolled back, generic workflow failure
 **Terminal Outcome**:
 The immutable typed success or failure recorded when a workflow invocation can no longer return to pending execution.
 _Avoid_: Latest status, mutable result
+
+**Acknowledgement**:
+An owner-scoped record that a user has removed a workflow's terminal outcome from active attention while retaining that outcome in recent history.
+_Avoid_: Deletion, read receipt
 
 **Completion Policy**:
 A workflow definition's rule for combining independently durable target outcomes, either requiring every target or explicitly collecting partial results.
