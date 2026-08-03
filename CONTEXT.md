@@ -46,9 +46,13 @@ _Avoid_: Background job, cron worker
 A service-owned workflow that discovers currently eligible domain targets and starts independently durable work for each stable target.
 _Avoid_: Cron task, polling loop
 
+**Workflow Contract**:
+A published, transport-neutral declaration of a business intent, including its identity, version, input, success, Declared Failure, and authorization-policy metadata.
+_Avoid_: Workflow API, workflow DTO
+
 **Workflow Definition**:
-A published business intent whose durable control flow coordinates actions and produces a typed outcome.
-_Avoid_: Generic workflow name, background endpoint
+The server-only durable control flow that implements one Workflow Contract through pinned Durable Actions and produces its typed outcome.
+_Avoid_: Workflow Contract, workflow handler
 
 **Durable Action**:
 The smallest independently retryable side-effect boundary that is idempotent or can reconcile an ambiguous outcome. Pure calculation and orchestration are not durable actions.
