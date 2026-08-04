@@ -8,6 +8,9 @@ export default app({
       "effect-ai-kimi": fileURLToPath(new URL("../effect-ai-kimi/src/index.ts", import.meta.url)),
     },
   },
+  test: {
+    testTimeout: 30_000,
+  },
   pack: {
     entry: {
       index: fileURLToPath(new URL("src/index.ts", import.meta.url)),

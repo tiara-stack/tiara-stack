@@ -1,33 +1,35 @@
-import { execFile } from "node:child_process";
-import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
+import { NodeServices } from "@effect/platform-node";
 import { describe, expect, it } from "@effect/vitest";
+import { Effect } from "effect";
+import { TestConsole } from "effect/testing";
+import { Command } from "effect/unstable/cli";
+import { command } from "./index";
 
-const execFileAsync = promisify(execFile);
-const packageRoot = fileURLToPath(new URL("../../", import.meta.url));
-
-const runCli = async (...args: readonly string[]) => {
-  const result = await execFileAsync("node", ["--import", "tsx", "src/cli/index.ts", ...args], {
-    cwd: packageRoot,
-  });
-  return `${result.stdout}${result.stderr}`;
-};
+const runCli = (...args: readonly string[]) =>
+  Effect.gen(function* () {
+    yield* Command.runWith(command, { version: "0.0.0" })(args);
+    return (yield* TestConsole.logLines).join("\n");
+  }).pipe(Effect.provide(TestConsole.layer), Effect.provide(NodeServices.layer));
 
 describe("effect-zero Effect CLI", () => {
-  it("prints root help", async () => {
-    const output = await runCli("--help");
+  it.live("prints root help", () =>
+    Effect.gen(function* () {
+      const output = yield* runCli("--help");
 
-    expect(output).toContain("effect-zero");
-    expect(output).toContain("generate");
-  }, 15_000);
+      expect(output).toContain("effect-zero");
+      expect(output).toContain("generate");
+    }),
+  );
 
-  it("prints generate help", async () => {
-    const output = await runCli("generate", "--help");
+  it.live("prints generate help", () =>
+    Effect.gen(function* () {
+      const output = yield* runCli("generate", "--help");
 
-    expect(output).toContain("--config");
-    expect(output).toContain("--output");
-    expect(output).toContain("--tsconfig");
-    expect(output).toContain("--format");
-    expect(output).toContain("--force");
-  }, 15_000);
+      expect(output).toContain("--config");
+      expect(output).toContain("--output");
+      expect(output).toContain("--tsconfig");
+      expect(output).toContain("--format");
+      expect(output).toContain("--force");
+    }),
+  );
 });

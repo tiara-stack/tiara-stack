@@ -11,6 +11,7 @@ import {
   HashSet,
   Layer,
   Option,
+  Queue,
   Redacted,
   Schema,
 } from "effect";
@@ -228,10 +229,12 @@ describe("SheetWorkflowsForwardingClient", () => {
   it.effect("preserves Zero enqueue failures in the typed error channel", () =>
     Effect.gen(function* () {
       let attempts = 0;
+      const enqueueAttempts = yield* Queue.unbounded<number>();
       const enqueueAsCaller = vi.fn<WorkflowZeroEnqueue>(() =>
-        Effect.suspend(() => {
+        Effect.gen(function* () {
           attempts += 1;
-          return Effect.fail(
+          yield* Queue.offer(enqueueAttempts, attempts);
+          return yield* Effect.fail(
             new ZeroApiError.MutatorResultZeroError({
               type: "zero",
               message: "offline",
@@ -246,28 +249,12 @@ describe("SheetWorkflowsForwardingClient", () => {
       const fiber = yield* client.dispatch
         .checkin(checkinPayload)
         .pipe(Effect.forkChild({ startImmediately: true }));
-      let startupIterations = 0;
-      for (; attempts === 0 && startupIterations < 10; startupIterations += 1) {
-        yield* Effect.yieldNow;
-      }
-      if (attempts === 0) {
-        return yield* Effect.die(
-          new Error(
-            `Retry loop did not start: observed ${attempts} attempts after ${startupIterations} startup iterations`,
-          ),
-        );
-      }
-      let iterations = 0;
-      for (; attempts < 5 && iterations < 10; iterations += 1) {
-        yield* TestClock.adjust(Duration.seconds(1));
-        yield* Effect.yieldNow;
-      }
-      if (attempts < 5) {
-        return yield* Effect.die(
-          new Error(
-            `Retry loop did not complete: observed ${attempts} attempts after ${iterations} iterations`,
-          ),
-        );
+
+      for (let expectedAttempt = 1; expectedAttempt <= 5; expectedAttempt += 1) {
+        expect(yield* Queue.take(enqueueAttempts)).toBe(expectedAttempt);
+        if (expectedAttempt < 5) {
+          yield* TestClock.adjust(Duration.seconds(1));
+        }
       }
       const exit = yield* Fiber.await(fiber);
 
