@@ -37,6 +37,10 @@ const defaultTrustedClients = [
       "sheet.manage",
       "workflow.dispatch",
       "bot.impersonate",
+      "zero.read",
+      "zero.mutate",
+      "workflow.observe",
+      "workflow.enqueue",
     ],
   },
   {

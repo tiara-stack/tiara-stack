@@ -1,3 +1,10 @@
+const TargetPublicOAuthScopes = [
+  "zero.read",
+  "zero.mutate",
+  "workflow.observe",
+  "workflow.enqueue",
+] as const;
+
 export const PublicOAuthScopes = [
   "openid",
   "profile",
@@ -7,6 +14,7 @@ export const PublicOAuthScopes = [
   "sheet.write",
   "sheet.manage",
   "workflow.dispatch",
+  ...TargetPublicOAuthScopes,
 ] as const;
 
 export const InternalOAuthScopes = [
@@ -14,6 +22,8 @@ export const InternalOAuthScopes = [
   "ingress.forward",
   "bot.impersonate",
   "token.exchange",
+  "bot.cache.read",
+  "bot.delivery.write",
 ] as const;
 
 export const OAuthScopes = [...PublicOAuthScopes, ...InternalOAuthScopes] as const;
@@ -25,6 +35,7 @@ export const UserTokenDefaultScopes = [
   "sheet.write",
   "sheet.manage",
   "workflow.dispatch",
+  ...TargetPublicOAuthScopes,
 ] as const;
 
 export type SheetAuthOAuthScope = (typeof OAuthScopes)[number];

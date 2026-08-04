@@ -9,7 +9,7 @@ const packages = {
   "sheet-auth": {
     role: "foundation",
     allowedSheetDependencies: [],
-    browserEntrypoints: ["./client"],
+    browserEntrypoints: ["./client", "./identity"],
   },
   "sheet-bot-api": {
     role: "contract",

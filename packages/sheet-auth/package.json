@@ -15,6 +15,17 @@
       "development": "./src/client.ts",
       "default": "./dist/client.mjs"
     },
+    "./identity": {
+      "types": "./dist/identity.d.mts",
+      "development": "./src/identity.ts",
+      "default": "./dist/identity.mjs"
+    },
+    "./identity/server": {
+      "types": "./dist/identity/server.d.mts",
+      "browser": null,
+      "development": "./src/identity-server.ts",
+      "default": "./dist/identity/server.mjs"
+    },
     "./model": {
       "types": "./dist/model.d.mts",
       "default": "./dist/model.mjs"

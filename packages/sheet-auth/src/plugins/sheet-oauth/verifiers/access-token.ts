@@ -141,6 +141,8 @@ const InternalOnlyScopes = new Set([
   "ingress.forward",
   "bot.impersonate",
   "token.exchange",
+  "bot.cache.read",
+  "bot.delivery.write",
 ]);
 
 const tokenHasInternalScope = (scopes: readonly string[]) =>

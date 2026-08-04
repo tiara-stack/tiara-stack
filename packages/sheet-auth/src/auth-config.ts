@@ -7,6 +7,7 @@ import postgres from "postgres";
 import { createSecondaryStorage } from "./storage";
 import type { Driver } from "unstorage";
 import * as schema from "./schema";
+import { SheetAuthAudiences } from "./identity";
 import { sessionToken } from "./plugins/session-token";
 import {
   DefaultRegisteredClientScopes,
@@ -66,13 +67,16 @@ type CleanupMethods = {
   closeStorage: () => Promise<void>;
 };
 
-const InternalOAuthResourceAudiences = [
+const LegacyOAuthResourceAudiences = [
   "sheet-ingress",
   "sheet-apis",
   "sheet-workflows",
   "sheet-bot",
   "sheet-db-server",
 ] as const;
+const InternalOAuthResourceAudiences = [
+  ...new Set([...LegacyOAuthResourceAudiences, ...SheetAuthAudiences]),
+];
 const TokenExchangeAccessTokenMaxExpiresIn = 300;
 
 const tokenExchangeAccessTokenExpiresInOrThrow = (value: number | undefined) => {

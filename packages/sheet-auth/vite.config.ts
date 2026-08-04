@@ -7,6 +7,8 @@ export default app({
       entry: {
         index: fileURLToPath(new URL("./src/index.ts", import.meta.url)),
         client: fileURLToPath(new URL("./src/client.ts", import.meta.url)),
+        identity: fileURLToPath(new URL("./src/identity.ts", import.meta.url)),
+        "identity/server": fileURLToPath(new URL("./src/identity-server.ts", import.meta.url)),
         model: fileURLToPath(new URL("./src/model/index.ts", import.meta.url)),
         schema: fileURLToPath(new URL("./src/schema.ts", import.meta.url)),
         oauth: fileURLToPath(new URL("./src/oauth.ts", import.meta.url)),
