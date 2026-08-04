@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "include": ["**/*.ts", "**/*.tsx", "**/*.mts"],
+  "exclude": ["node_modules", "dist", ".output", ".ts-out"],
+  "compilerOptions": {
+    "outDir": "./.ts-out",
+    "rootDir": ".",
+    "tsBuildInfoFile": "./.ts-out/.tsbuildinfo"
+  }
+}
