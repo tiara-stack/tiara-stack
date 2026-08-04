@@ -15,7 +15,6 @@
       "@/*": ["./src/*"],
       "sheet-db-schema": ["../sheet-db-schema/src/schema.ts"],
       "sheet-db-schema/*": ["../sheet-db-schema/src/*"],
-      "sheet-models": ["../sheet-models/src/index.ts"],
       "typhoon-core": ["../typhoon-core/src/index.ts"],
       "typhoon-core/*": ["../typhoon-core/src/*"],
       "typhoon-zero": ["../typhoon-zero/src/index.ts"],
@@ -25,9 +24,6 @@
   "references": [
     {
       "path": "../sheet-db-schema"
-    },
-    {
-      "path": "../sheet-models"
     },
     {
       "path": "../typhoon-core"

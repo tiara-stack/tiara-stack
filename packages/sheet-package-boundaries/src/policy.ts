@@ -110,7 +110,7 @@ export const sheetPackageBoundaryPolicy = {
     "sheet-workflow-http-client",
     "sheet-zero-api",
   ],
-  legacyPackages: ["sheet-apis", "sheet-ingress-api", "sheet-ingress-server", "sheet-models"],
+  legacyPackages: ["sheet-apis", "sheet-ingress-api", "sheet-ingress-server"],
   exceptions: [
     {
       code: "legacy-package-present",
@@ -131,12 +131,6 @@ export const sheetPackageBoundaryPolicy = {
       reason:
         "The production ingress remains the legacy Rollout Gate until target paths prove parity.",
       removeWhen: "Delete the ingress runtime after the Deletion Gate and Legacy Quarantine.",
-    },
-    {
-      code: "legacy-package-present",
-      package: "sheet-models",
-      reason: "The package is renamed only after its consumers can move without behavior changes.",
-      removeWhen: "Remove the old package after Rename sheet-models to sheet-domain is merged.",
     },
     {
       code: "forbidden-sheet-dependency",
@@ -183,21 +177,6 @@ export const sheetPackageBoundaryPolicy = {
       removeWhen: "Replace forwarded identity with Effective Principal authentication adapters.",
     },
     {
-      code: "forbidden-sheet-dependency",
-      package: "sheet-db-schema",
-      target: "sheet-models",
-      reason: "Persistence schemas still reference the package awaiting its sheet-domain rename.",
-      removeWhen: "Adopt sheet-domain after the behavior-preserving package rename.",
-    },
-    {
-      code: "cross-package-reexport",
-      package: "sheet-db-schema",
-      target: "sheet-models",
-      path: "packages/sheet-db-schema/src/teamSubmissionStatus.ts",
-      reason: "TeamSubmissionStatus is temporarily re-exported from the legacy model package.",
-      removeWhen: "Import the value from sheet-domain at consumers after the rename.",
-    },
-    {
       code: "cross-package-reexport",
       package: "sheet-db-schema",
       target: "effect-zero-workflow",
@@ -212,13 +191,6 @@ export const sheetPackageBoundaryPolicy = {
       target: "./*",
       reason: "The deployable runtime retains legacy deep configuration exports.",
       removeWhen: "Replace the wildcard with explicit server-only entrypoints.",
-    },
-    {
-      code: "forbidden-sheet-dependency",
-      package: "sheet-db-server",
-      target: "sheet-models",
-      reason: "The Zero runtime still consumes schemas from the package awaiting rename.",
-      removeWhen: "Adopt sheet-domain after the behavior-preserving package rename.",
     },
     {
       code: "forbidden-sheet-dependency",

@@ -44,8 +44,6 @@ export type {
   TeamSubmissionRemovedRowStrategy as TeamSubmissionRemovedRowStrategyType,
   TeamSubmissionWriteMode as TeamSubmissionWriteModeType,
 } from "./teamSubmissionChannelConfig";
-export { TeamSubmissionStatus } from "./teamSubmissionStatus";
-export type { TeamSubmissionStatus as TeamSubmissionStatusType } from "./teamSubmissionStatus";
 
 export type SheetTables = {
   readonly configWorkspace: typeof configWorkspace;

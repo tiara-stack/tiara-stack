@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { TeamSubmissionStatus } from "sheet-domain";
 import { ReadonlyJSONValue } from "typhoon-zero/schema";
 import { expectTypeOf, it } from "vitest";
 import {
@@ -8,7 +9,6 @@ import {
   messageRoomOrderEntry,
   messageTeamSubmission,
   schema,
-  TeamSubmissionStatus,
 } from "./schema";
 
 it("preserves concrete table columns and field schemas at the public boundary", () => {

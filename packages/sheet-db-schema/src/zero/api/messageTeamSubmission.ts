@@ -1,7 +1,7 @@
 import { Predicate, Schema } from "effect";
+import { TeamSubmissionStatus } from "sheet-domain";
 import { ReadonlyJSONValue } from "typhoon-zero/schema";
 import { ZeroApiEndpoint, ZeroApiGroup } from "typhoon-zero/zeroApi";
-import { TeamSubmissionStatus } from "../../teamSubmissionStatus";
 import { zeroTableAccess } from "../accessors";
 import { activeRecord, preserveOmitted } from "../timestamps";
 import type { SheetZeroApiSuccessSchemas } from "./successSchemas";

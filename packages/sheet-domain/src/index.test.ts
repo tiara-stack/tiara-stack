@@ -3,7 +3,7 @@ import { describe, expect, expectTypeOf, it } from "@effect/vitest";
 import { TeamSubmissionStatus } from "./index";
 import type { TeamSubmissionStatus as TeamSubmissionStatusType } from "./index";
 
-describe("sheet-models", () => {
+describe("sheet-domain", () => {
   it("defines the canonical team submission statuses", () => {
     expect(Schema.decodeUnknownSync(TeamSubmissionStatus)("registered")).toBe("registered");
     expect(Schema.decodeUnknownSync(TeamSubmissionStatus)("applying")).toBe("applying");

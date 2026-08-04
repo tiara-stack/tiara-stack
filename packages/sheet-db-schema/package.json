@@ -58,6 +58,7 @@
     "effect-sql-schema": "workspace:*",
     "effect-zero": "workspace:*",
     "effect-zero-workflow": "workspace:*",
+    "sheet-domain": "workspace:*",
     "typhoon-core": "workspace:*",
     "typhoon-zero": "workspace:*"
   },
@@ -68,15 +69,13 @@
     "@types/node": "catalog:",
     "dotenv": "^17.2.3",
     "drizzle-orm": "0.45.1",
-    "sheet-models": "workspace:*",
     "tooling-config": "workspace:*",
     "vite": "catalog:",
     "vite-plus": "catalog:",
     "vitest": "catalog:"
   },
   "peerDependencies": {
-    "effect": "catalog:",
-    "sheet-models": "workspace:*"
+    "effect": "catalog:"
   },
   "drizzleVersionPolicy": "Pin drizzle-orm to 0.45.1: 0.45.2 is incompatible with Zero 0.25.9 under exactOptionalPropertyTypes."
 }

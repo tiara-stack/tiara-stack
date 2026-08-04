@@ -119,6 +119,7 @@ flowchart TB
 
 | Package             | Description                                        | Tech Stack                    |
 | ------------------- | -------------------------------------------------- | ----------------------------- |
+| `sheet-domain`      | Transport-neutral business values and stable rules | Effect Schema                 |
 | `sheet-db-schema`   | PostgreSQL schema with Zero integration            | Drizzle ORM, drizzle-zero     |
 | `sheet-ingress-api` | Shared HttpApi contracts, schemas, middleware tags | Effect HttpApi, Effect Schema |
 | `sheet-formulas`    | Google Apps Script formulas library                | Effect.ts, Google Apps Script |
@@ -376,6 +377,7 @@ Pull request CI also runs `fallow-rs/fallow` with `command: audit`, which scopes
 │   │   ├── src/handlers/zero/        # Zero handlers
 │   │   ├── src/services/             # DB service
 │   │   └── src/config/               # Configuration
+│   ├── sheet-domain/                 # Transport-neutral business values and stable rules
 │   ├── sheet-db-schema/              # Database schemas
 │   │   ├── src/schema.ts             # Drizzle tables
 │   │   └── src/zero/                 # Zero schema & mutators
@@ -458,6 +460,7 @@ graph TD
     IngressServer -->|uses| Core
 
     IngressAPI -->|uses| DFX
+    IngressAPI -->|uses| Domain[sheet-domain]
     IngressAPI -->|uses| Core
     IngressAPI -->|uses| Zero
 
@@ -465,6 +468,7 @@ graph TD
     DB -->|uses| Core
     DB -->|uses| Zero
 
+    Schema -->|uses| Domain
     Schema -->|uses| Core
     Schema -->|uses| Zero
     Schema -->|uses| ZeroWorkflow

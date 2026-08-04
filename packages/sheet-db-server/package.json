@@ -41,7 +41,6 @@
     "postgres": "^3.4.7",
     "sheet-auth": "workspace:*",
     "sheet-db-schema": "workspace:*",
-    "sheet-models": "workspace:*",
     "typhoon-core": "workspace:*",
     "typhoon-zero": "workspace:*"
   },

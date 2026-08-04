@@ -10,7 +10,7 @@ import {
   TeamSubmissionRemovedRowStrategy,
   TeamSubmissionWriteMode,
 } from "./teamSubmissionChannelConfig";
-import { TeamSubmissionStatus } from "./teamSubmissionStatus";
+import { TeamSubmissionStatus } from "sheet-domain";
 
 type PgModel = Model.Any & Omit<EffectSqlTable<"postgresql">, "name">;
 const asPgModel = <const T extends PgModel>(model: T) => model;

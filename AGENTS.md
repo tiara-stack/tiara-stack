@@ -26,6 +26,12 @@ Zero-native durable workflow component built on stock Effect Workflow. It provid
 
 ## Application Packages
 
+### `sheet-domain` (packages/sheet-domain)
+
+Transport-neutral sheet business values and stable rules shared across package boundaries. It currently owns the canonical `TeamSubmissionStatus` schema and remains browser-safe.
+
+**Dependencies**: None (peer: `effect`)
+
 ### `sheet-apis` (packages/sheet-apis)
 
 Backend API server for Google Sheets integration using Effect's HttpApiBuilder, providing HTTP API handlers for sheet operations, calculations, guild configuration, and message management.
@@ -42,7 +48,7 @@ Workflow runtime service for sheet dispatch and auto-checkin workflows using Eff
 
 Shared Effect HttpApi contract and schema package for sheet ingress routes. It exposes sheet API groups, workflow dispatch API groups, Discord application/cache API groups, middleware tags, request/response schemas, `SheetApisApi`, `SheetApisRpcs`, `SheetWorkflowsApi`, and `SheetWorkflowsRpcs`.
 
-**Dependencies**: `dfx-discord-utils`, `typhoon-core`, `typhoon-zero` (peer: `effect`)
+**Dependencies**: `dfx-discord-utils`, `sheet-domain`, `typhoon-core`, `typhoon-zero` (peer: `effect`)
 
 **Exports**: `.`, `./api`, `./api-groups`, middleware tag exports, `./sheet-apis`, `./sheet-apis-rpc`, `./sheet-workflows`, `./sheet-workflows-rpc`, `./schemas/*`
 
@@ -62,7 +68,7 @@ Database server providing Zero (real-time sync) HTTP API for the sheet database 
 
 Database schema definitions using Drizzle ORM for PostgreSQL with Zero integration.
 
-**Dependencies**: `@rocicorp/zero`, `drizzle-orm`, `drizzle-zero`, `effect-zero`, `effect-zero-workflow`, `postgres`, `typhoon-core`, `typhoon-zero` (peer: `effect`)
+**Dependencies**: `@rocicorp/zero`, `drizzle-orm`, `drizzle-zero`, `effect-zero`, `effect-zero-workflow`, `postgres`, `sheet-domain`, `typhoon-core`, `typhoon-zero` (peer: `effect`)
 
 ### `sheet-auth` (packages/sheet-auth)
 
@@ -295,6 +301,7 @@ sheet-ingress-server
 
 sheet-ingress-api
   ├─ dfx-discord-utils
+  ├─ sheet-domain
   ├─ typhoon-core
   └─ typhoon-zero
   (peer dependency: effect)
@@ -307,12 +314,16 @@ sheet-db-server
 sheet-db-schema
   ├─ effect-zero
   ├─ effect-zero-workflow
+  ├─ sheet-domain
   ├─ typhoon-core
   └─ typhoon-zero
   (peer dependency: effect)
 
 sheet-auth
   └─ typhoon-core
+
+sheet-domain
+  (peer dependency: effect)
 
 dfx-discord-utils
   └─ typhoon-core

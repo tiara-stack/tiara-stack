@@ -1,5 +1,5 @@
 import { Predicate, Schema } from "effect";
-import { TeamSubmissionStatus as TeamSubmissionStatusSchema } from "sheet-models";
+import { TeamSubmissionStatus as TeamSubmissionStatusSchema } from "sheet-domain";
 import { ClientPlatform, ClientRef, MessageRef } from "../client";
 
 export const TEAM_SUBMISSION_FEATURE_FLAG = "team-submission-confirmations";

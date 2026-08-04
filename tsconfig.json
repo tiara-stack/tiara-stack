@@ -53,7 +53,7 @@
       "path": "packages/sheet-ingress-server"
     },
     {
-      "path": "packages/sheet-models"
+      "path": "packages/sheet-domain"
     },
     {
       "path": "packages/sheet-web"

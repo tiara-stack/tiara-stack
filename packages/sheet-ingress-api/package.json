@@ -131,7 +131,7 @@
   "dependencies": {
     "dfx-discord-utils": "workspace:*",
     "discord-api-types": "catalog:",
-    "sheet-models": "workspace:*",
+    "sheet-domain": "workspace:*",
     "typhoon-core": "workspace:*",
     "typhoon-zero": "workspace:*"
   },
