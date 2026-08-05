@@ -1,4 +1,4 @@
-import type { SheetOutboundMessage, SheetTextPart } from "sheet-ingress-api/schemas/client";
+import type { SheetOutboundMessage, SheetTextPart } from "sheet-bot-api/message";
 import { checkinActionRow } from "./components";
 import { lines, subtle, text } from "./text";
 

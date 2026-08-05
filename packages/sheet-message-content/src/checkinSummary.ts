@@ -1,9 +1,5 @@
 import { Option, Predicate } from "effect";
-import type {
-  ClientRef,
-  SheetOutboundMessage,
-  SheetTextPart,
-} from "sheet-ingress-api/schemas/client";
+import type { ClientRef, SheetOutboundMessage, SheetTextPart } from "sheet-bot-api";
 import { checkinActionRow } from "./components";
 import { makeEmbed } from "./rendering";
 import * as MessageText from "./text";

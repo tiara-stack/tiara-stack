@@ -9,6 +9,7 @@ import {
   HttpClientResponse,
 } from "effect/unstable/http";
 import { Context, Effect, Layer, Predicate, Schema } from "effect";
+import { SheetOutboundMessage } from "sheet-bot-api/message";
 import {
   ClientConversation,
   DeliveryEmoji,
@@ -21,7 +22,6 @@ import {
   ConversationRef,
   InteractionRef,
   MessageRef,
-  SheetOutboundMessage,
   WorkspaceRef,
 } from "sheet-ingress-api/schemas/client";
 import { makeUnknownError, Unauthorized, UnknownError } from "typhoon-core/error";

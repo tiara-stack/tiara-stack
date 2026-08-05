@@ -1,9 +1,6 @@
 import { DateTime, Duration, Match, Option, Predicate, pipe } from "effect";
-import type {
-  ClientRef,
-  SheetOutboundMessage,
-  SheetTextPart,
-} from "sheet-ingress-api/schemas/client";
+import type { SheetOutboundMessage, SheetTextPart } from "sheet-bot-api/message";
+import type { ClientRef } from "sheet-bot-api/references";
 import * as Sheet from "sheet-ingress-api/schemas/sheet";
 import type { ServiceStatus } from "sheet-ingress-api/sheet-apis-rpc";
 import * as MessageText from "./text";

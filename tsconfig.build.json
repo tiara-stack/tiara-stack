@@ -12,6 +12,7 @@
     { "path": "packages/sheet-apis" },
     { "path": "packages/sheet-auth" },
     { "path": "packages/sheet-bot" },
+    { "path": "packages/sheet-bot-api" },
     { "path": "packages/sheet-db-schema" },
     { "path": "packages/sheet-db-server" },
     { "path": "packages/sheet-formulas" },

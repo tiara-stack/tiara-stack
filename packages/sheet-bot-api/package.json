@@ -1,0 +1,74 @@
+{
+  "name": "sheet-bot-api",
+  "version": "0.0.0",
+  "private": true,
+  "files": [
+    "./dist/**"
+  ],
+  "type": "module",
+  "sideEffects": [],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "development": "./src/index.ts",
+      "default": "./dist/index.mjs"
+    },
+    "./admission": {
+      "types": "./dist/admission.d.mts",
+      "development": "./src/admission.ts",
+      "default": "./dist/admission.mjs"
+    },
+    "./cache": {
+      "types": "./dist/cache.d.mts",
+      "development": "./src/cache.ts",
+      "default": "./dist/cache.mjs"
+    },
+    "./delivery": {
+      "types": "./dist/delivery.d.mts",
+      "development": "./src/delivery.ts",
+      "default": "./dist/delivery.mjs"
+    },
+    "./errors": {
+      "types": "./dist/errors.d.mts",
+      "development": "./src/errors.ts",
+      "default": "./dist/errors.mjs"
+    },
+    "./http": {
+      "types": "./dist/http.d.mts",
+      "development": "./src/http.ts",
+      "default": "./dist/http.mjs"
+    },
+    "./message": {
+      "types": "./dist/message.d.mts",
+      "development": "./src/message.ts",
+      "default": "./dist/message.mjs"
+    },
+    "./references": {
+      "types": "./dist/references.d.mts",
+      "development": "./src/references.ts",
+      "default": "./dist/references.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "format": "vp fmt --check",
+    "format:apply": "vp fmt",
+    "lint": "vp lint src",
+    "test": "vp test run",
+    "test:watch": "vp test",
+    "build": "vp pack && tsgo -b tsconfig.json --emitDeclarationOnly --force"
+  },
+  "dependencies": {
+    "sheet-auth": "workspace:*"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "tooling-config": "workspace:*",
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
+    "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "effect": "catalog:"
+  }
+}

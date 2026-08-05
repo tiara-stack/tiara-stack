@@ -136,8 +136,8 @@ export const sheetPackageBoundaryPolicy = {
       code: "forbidden-sheet-dependency",
       package: "sheet-message-content",
       target: "sheet-ingress-api",
-      reason: "Rendering values have not yet moved to sheet-domain and sheet-bot-api.",
-      removeWhen: "Remove after the capability-owned rendering schemas exist.",
+      reason: "Rendering still consumes legacy sheet and workflow result contracts.",
+      removeWhen: "Remove after those remaining contracts move to their capability owners.",
     },
     {
       code: "wildcard-export",
@@ -149,10 +149,10 @@ export const sheetPackageBoundaryPolicy = {
     {
       code: "cross-package-reexport",
       package: "sheet-message-content",
-      target: "sheet-ingress-api/schemas/client",
+      target: "sheet-bot-api",
       path: "packages/sheet-message-content/src/text.ts",
-      reason: "SheetTextPart is still owned by the legacy ingress schema tree.",
-      removeWhen: "Move SheetTextPart to its selected capability owner and import it directly.",
+      reason: "Legacy rendering callers consume bot-owned text values through this helper module.",
+      removeWhen: "Import bot text value types directly after rendering callers migrate.",
     },
     {
       code: "forbidden-sheet-dependency",

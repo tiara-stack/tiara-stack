@@ -1,4 +1,4 @@
-import type { SheetOutboundMessage } from "sheet-ingress-api/schemas/client";
+import type { SheetOutboundMessage } from "sheet-bot-api/message";
 import { parts, text, userMention } from "./text";
 
 export const checkinAnnouncementMessage = (accountId: string): SheetOutboundMessage => ({

@@ -9,9 +9,15 @@
     "verbatimModuleSyntax": true,
     "paths": {
       "*": ["./*"],
+      "sheet-bot-api": ["../sheet-bot-api/src/index.ts"],
+      "sheet-bot-api/*": ["../sheet-bot-api/src/*"],
       "sheet-ingress-api": ["../sheet-ingress-api/src/index.ts"],
       "sheet-ingress-api/*": ["../sheet-ingress-api/src/*"]
     }
   },
-  "references": [{ "path": "../sheet-ingress-api" }, { "path": "../tooling-config" }]
+  "references": [
+    { "path": "../sheet-bot-api" },
+    { "path": "../sheet-ingress-api" },
+    { "path": "../tooling-config" }
+  ]
 }

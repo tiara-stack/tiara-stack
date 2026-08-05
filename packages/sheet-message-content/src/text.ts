@@ -4,8 +4,6 @@ import {
   workspaceRefFrom,
   type ClientRef,
   type ConversationRef,
-  type GeneratedSheetText,
-  type GeneratedSheetTextPart,
   type MessageRef,
   type SheetClientTerm,
   type SheetClientTermCasing,
@@ -13,9 +11,8 @@ import {
   type SheetTextPart,
   type SheetTimestampStyle,
   type WorkspaceRef,
-} from "sheet-ingress-api/schemas/client";
-
-export type { SheetTextPart } from "sheet-ingress-api/schemas/client";
+} from "sheet-bot-api";
+import type { GeneratedSheetText, GeneratedSheetTextPart } from "sheet-ingress-api/schemas/client";
 
 type MaybePart = SheetTextPart | null | undefined | false;
 

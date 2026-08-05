@@ -8,7 +8,7 @@ import {
   TEAM_SUBMISSION_CONFIRM_ACTION_ID,
   TEAM_SUBMISSION_REJECT_ACTION_ID,
 } from "sheet-ingress-api/clientActions";
-import type { SheetActionButton, SheetMessageActionRow } from "sheet-ingress-api/schemas/client";
+import type { SheetActionButton, SheetMessageActionRow } from "sheet-bot-api/message";
 
 const actionRow = (...components: ReadonlyArray<SheetActionButton>): SheetMessageActionRow => ({
   type: "actionRow",

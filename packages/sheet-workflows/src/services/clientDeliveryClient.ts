@@ -3,16 +3,15 @@ import { HttpApiClient } from "effect/unstable/httpapi";
 import { Cache, Context, Duration, Effect, Exit, Layer, Redacted } from "effect";
 import { createOAuthClientCredentialsToken } from "sheet-auth/client";
 import { DISCORD_SERVICE_USER_ID_SENTINEL } from "sheet-auth/oauth";
-import { SheetIngressClientDeliveryApi } from "sheet-ingress-api/api";
+import type { SheetOutboundFile, SheetOutboundMessage } from "sheet-bot-api/message";
 import type {
   ClientRef,
   ConversationRef,
-  InteractionRef,
   MessageRef,
-  SheetOutboundFile,
-  SheetOutboundMessage,
   WorkspaceRef,
-} from "sheet-ingress-api/schemas/client";
+} from "sheet-bot-api/references";
+import { SheetIngressClientDeliveryApi } from "sheet-ingress-api/api";
+import type { InteractionRef } from "sheet-ingress-api/schemas/client";
 import { config } from "@/config";
 import { SheetAuthClient } from "./sheetAuthClient";
 import * as Data from "effect/Data";

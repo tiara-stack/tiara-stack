@@ -1,5 +1,5 @@
 import { DateTime } from "effect";
-import type { SheetTextPart } from "sheet-ingress-api/schemas/client";
+import type { SheetTextPart } from "sheet-bot-api/message";
 import { inlineCode, joinText, parts, strong, text, timestamp } from "./text";
 
 type FillParticipant = {

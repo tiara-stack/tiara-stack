@@ -32,6 +32,7 @@
     "effect": "catalog:",
     "effect-zero-workflow": "workspace:*",
     "sheet-auth": "workspace:*",
+    "sheet-bot-api": "workspace:*",
     "sheet-db-schema": "workspace:*",
     "sheet-ingress-api": "workspace:*",
     "sheet-message-content": "workspace:*",

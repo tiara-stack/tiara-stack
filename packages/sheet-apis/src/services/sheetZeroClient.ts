@@ -1,4 +1,5 @@
 import { Context, Effect, Layer, Option, Schema } from "effect";
+import type { SheetTextPart } from "sheet-bot-api/message";
 import { makeSheetZeroApi, mutators } from "sheet-db-schema/zero";
 import { ZeroApiClient } from "typhoon-zero/zeroApi";
 import { DefaultTaggedClass } from "typhoon-core/schema";
@@ -29,8 +30,6 @@ import {
 } from "sheet-ingress-api/schemas/teamSubmission";
 import { ZeroClient } from "./zeroClient";
 import type { MessageKey } from "./messageKey";
-import type { SheetTextPart } from "sheet-ingress-api/schemas/client";
-
 const successSchemas = {
   userConfig: {
     getUserPlatformConfig: Schema.OptionFromNullishOr(DefaultTaggedClass(UserPlatformConfig)),

@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.browser.json",
+  "include": ["**/*.ts", "**/*.tsx", "**/*.mts"],
+  "exclude": ["node_modules", "dist", ".output", ".ts-out"],
+  "compilerOptions": {
+    "outDir": "./.ts-out",
+    "rootDir": ".",
+    "tsBuildInfoFile": "./.ts-out/.tsbuildinfo",
+    "verbatimModuleSyntax": true,
+    "paths": {
+      "*": ["./*"],
+      "sheet-auth": ["../sheet-auth/src/index.ts"],
+      "sheet-auth/*": ["../sheet-auth/src/*"]
+    }
+  },
+  "references": [{ "path": "../sheet-auth" }, { "path": "../tooling-config" }]
+}

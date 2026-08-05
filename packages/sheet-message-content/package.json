@@ -28,6 +28,7 @@
   },
   "dependencies": {
     "effect": "catalog:",
+    "sheet-bot-api": "workspace:*",
     "sheet-ingress-api": "workspace:*"
   },
   "devDependencies": {

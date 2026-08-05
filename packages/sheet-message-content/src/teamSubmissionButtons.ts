@@ -1,4 +1,4 @@
-import type { SheetOutboundMessage } from "sheet-ingress-api/schemas/client";
+import type { SheetOutboundMessage } from "sheet-bot-api/message";
 import { teamSubmissionConfirmationActionRow } from "./components";
 import { makeEmbed } from "./rendering";
 

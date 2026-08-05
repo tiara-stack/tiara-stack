@@ -16,6 +16,8 @@
       "effect-zero-workflow": ["../effect-zero-workflow/src/index.ts"],
       "sheet-auth": ["../sheet-auth/src/index.ts"],
       "sheet-auth/*": ["../sheet-auth/src/*"],
+      "sheet-bot-api": ["../sheet-bot-api/src/index.ts"],
+      "sheet-bot-api/*": ["../sheet-bot-api/src/*"],
       "sheet-db-schema": ["../sheet-db-schema/src/schema.ts"],
       "sheet-db-schema/*": ["../sheet-db-schema/src/*"],
       "sheet-ingress-api": ["../sheet-ingress-api/src/index.ts"],
@@ -34,6 +36,9 @@
     },
     {
       "path": "../sheet-auth"
+    },
+    {
+      "path": "../sheet-bot-api"
     },
     {
       "path": "../sheet-db-schema"

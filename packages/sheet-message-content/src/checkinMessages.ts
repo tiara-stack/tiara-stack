@@ -1,5 +1,6 @@
 import { Predicate } from "effect";
-import type { ClientRef, SheetOutboundMessage } from "sheet-ingress-api/schemas/client";
+import type { SheetOutboundMessage } from "sheet-bot-api/message";
+import type { ClientRef } from "sheet-bot-api/references";
 import { escapeMarkdown, makeEmbed } from "./rendering";
 import * as MessageText from "./text";
 

@@ -16,6 +16,8 @@
       "dfx-discord-utils": ["../dfx-discord-utils/src/index.ts"],
       "dfx-discord-utils/*": ["../dfx-discord-utils/src/*"],
       "sheet-domain": ["../sheet-domain/src/index.ts"],
+      "sheet-bot-api": ["../sheet-bot-api/src/index.ts"],
+      "sheet-bot-api/*": ["../sheet-bot-api/src/*"],
       "typhoon-core": ["../typhoon-core/src/index.ts"],
       "typhoon-core/*": ["../typhoon-core/src/*"],
       "typhoon-zero": ["../typhoon-zero/src/index.ts"],
@@ -25,6 +27,9 @@
   "references": [
     {
       "path": "../dfx-discord-utils"
+    },
+    {
+      "path": "../sheet-bot-api"
     },
     {
       "path": "../sheet-domain"

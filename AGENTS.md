@@ -32,31 +32,45 @@ Transport-neutral sheet business values and stable rules shared across package b
 
 **Dependencies**: None (peer: `effect`)
 
+### `sheet-bot-api` (packages/sheet-bot-api)
+
+Contract-only typed bot capability package. It owns cache-read and idempotent delivery HTTP contracts, admission metadata, provider-neutral message values, and the canonical Response Reference, Delivery Key, and Delivery Receipt schemas.
+
+**Dependencies**: `sheet-auth` (peer: `effect`)
+
+**Exports**: `.`, `./admission`, `./cache`, `./delivery`, `./errors`, `./http`, `./message`, `./references`
+
 ### `sheet-apis` (packages/sheet-apis)
 
 Backend API server for Google Sheets integration using Effect's HttpApiBuilder, providing HTTP API handlers for sheet operations, calculations, guild configuration, and message management.
 
-**Dependencies**: Effect ecosystem, `@googleapis/sheets`, `@rocicorp/zero`, Playwright, `sheet-auth`, `sheet-db-schema`, `sheet-ingress-api`, `dfx-discord-utils`, `typhoon-core`, `typhoon-zero`
+**Dependencies**: Effect ecosystem, `@googleapis/sheets`, `@rocicorp/zero`, Playwright, `sheet-auth`, `sheet-bot-api`, `sheet-db-schema`, `sheet-ingress-api`, `dfx-discord-utils`, `typhoon-core`, `typhoon-zero`
 
 ### `sheet-workflows` (packages/sheet-workflows)
 
 Workflow runtime service for sheet dispatch and auto-checkin workflows using Effect Workflow/Cluster. It accepts workflow dispatch RPCs, executes durable command/button workflows, coordinates auto-checkin enqueueing, calls `sheet-apis` through ingress contracts, and stores workflow runner/message state in PostgreSQL.
 
-**Dependencies**: Effect platform/node/opentelemetry/sql stack, `effect-zero-workflow`, `sheet-auth`, `sheet-ingress-api`, `dfx-discord-utils`, `typhoon-core`, `typhoon-zero`
+**Dependencies**: Effect platform/node/opentelemetry/sql stack, `effect-zero-workflow`, `sheet-auth`, `sheet-bot-api`, `sheet-ingress-api`, `dfx-discord-utils`, `typhoon-core`, `typhoon-zero`
 
 ### `sheet-ingress-api` (packages/sheet-ingress-api)
 
 Shared Effect HttpApi contract and schema package for sheet ingress routes. It exposes sheet API groups, workflow dispatch API groups, Discord application/cache API groups, middleware tags, request/response schemas, `SheetApisApi`, `SheetApisRpcs`, `SheetWorkflowsApi`, and `SheetWorkflowsRpcs`.
 
-**Dependencies**: `dfx-discord-utils`, `sheet-domain`, `typhoon-core`, `typhoon-zero` (peer: `effect`)
+**Dependencies**: `dfx-discord-utils`, `sheet-bot-api`, `sheet-domain`, `typhoon-core`, `typhoon-zero` (peer: `effect`)
 
 **Exports**: `.`, `./api`, `./api-groups`, middleware tag exports, `./sheet-apis`, `./sheet-apis-rpc`, `./sheet-workflows`, `./sheet-workflows-rpc`, `./schemas/*`
+
+### `sheet-message-content` (packages/sheet-message-content)
+
+Shared deterministic messaging-platform content and rendering helpers used by sheet runtimes during migration.
+
+**Dependencies**: Effect, `sheet-bot-api`, `sheet-ingress-api`
 
 ### `sheet-ingress-server` (packages/sheet-ingress-server)
 
 Ingress/proxy server that fronts sheet API, workflow dispatch, and sheet bot/Discord routes. It handles authorization, CORS, telemetry, auth resolution, message lookup, and forwarding to `sheet-apis`, `sheet-workflows`, and sheet bot services.
 
-**Dependencies**: Effect platform/node/opentelemetry stack, `sheet-auth`, `sheet-ingress-api`, `dfx-discord-utils`, `typhoon-core`
+**Dependencies**: Effect platform/node/opentelemetry stack, `sheet-auth`, `sheet-bot-api`, `sheet-ingress-api`, `dfx-discord-utils`, `typhoon-core`
 
 ### `sheet-db-server` (packages/sheet-db-server)
 
@@ -267,6 +281,7 @@ sheet-web
 
 sheet-apis
   ├─ sheet-auth
+  ├─ sheet-bot-api
   ├─ sheet-db-schema
   ├─ sheet-ingress-api
   ├─ dfx-discord-utils
@@ -276,6 +291,7 @@ sheet-apis
 sheet-workflows
   ├─ effect-zero-workflow
   ├─ sheet-auth
+  ├─ sheet-bot-api
   ├─ sheet-ingress-api
   ├─ dfx-discord-utils
   ├─ typhoon-core
@@ -295,16 +311,26 @@ sheet-formulas
 
 sheet-ingress-server
   ├─ sheet-auth
+  ├─ sheet-bot-api
   ├─ sheet-ingress-api
   ├─ dfx-discord-utils
   └─ typhoon-core
 
 sheet-ingress-api
   ├─ dfx-discord-utils
+  ├─ sheet-bot-api
   ├─ sheet-domain
   ├─ typhoon-core
   └─ typhoon-zero
   (peer dependency: effect)
+
+sheet-bot-api
+  └─ sheet-auth
+  (peer dependency: effect)
+
+sheet-message-content
+  ├─ sheet-bot-api
+  └─ sheet-ingress-api
 
 sheet-db-server
   ├─ sheet-db-schema

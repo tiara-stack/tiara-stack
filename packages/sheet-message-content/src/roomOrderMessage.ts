@@ -1,5 +1,5 @@
 import { TENTATIVE_ROOM_ORDER_PREFIX } from "sheet-ingress-api/clientActions";
-import type { SheetOutboundMessage, SheetTextPart } from "sheet-ingress-api/schemas/client";
+import type { SheetOutboundMessage, SheetTextPart } from "sheet-bot-api/message";
 import { roomOrderActionRow, tentativeRoomOrderActionRow } from "./components";
 import { lines, subtle, text } from "./text";
 

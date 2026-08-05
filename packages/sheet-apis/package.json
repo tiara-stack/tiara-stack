@@ -48,6 +48,7 @@
     "playwright": "^1.58.2",
     "scule": "^1.3.0",
     "sheet-auth": "workspace:*",
+    "sheet-bot-api": "workspace:*",
     "sheet-db-schema": "workspace:*",
     "sheet-ingress-api": "workspace:*",
     "sheet-message-content": "workspace:*",

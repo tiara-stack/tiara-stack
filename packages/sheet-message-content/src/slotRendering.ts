@@ -1,4 +1,4 @@
-import type { SheetTextPart } from "sheet-ingress-api/schemas/client";
+import type { SheetTextPart } from "sheet-bot-api/message";
 import type { PopulatedScheduleResult } from "sheet-ingress-api/schemas/sheet";
 import * as MessageText from "./text";
 import { formatFilledSlot, formatOpenSlot, joinDedupeAdjacent, makeEmbed } from "./rendering";

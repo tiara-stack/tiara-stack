@@ -120,8 +120,10 @@ flowchart TB
 | Package             | Description                                        | Tech Stack                    |
 | ------------------- | -------------------------------------------------- | ----------------------------- |
 | `sheet-domain`      | Transport-neutral business values and stable rules | Effect Schema                 |
+| `sheet-bot-api`     | Typed internal bot cache and delivery contracts     | Effect HttpApi, Effect Schema |
 | `sheet-db-schema`   | PostgreSQL schema with Zero integration            | Drizzle ORM, drizzle-zero     |
 | `sheet-ingress-api` | Shared HttpApi contracts, schemas, middleware tags | Effect HttpApi, Effect Schema |
+| `sheet-message-content` | Shared messaging content and rendering helpers | Effect Schema |
 | `sheet-formulas`    | Google Apps Script formulas library                | Effect.ts, Google Apps Script |
 
 ## Service Interactions
@@ -378,6 +380,7 @@ Pull request CI also runs `fallow-rs/fallow` with `command: audit`, which scopes
 │   │   ├── src/services/             # DB service
 │   │   └── src/config/               # Configuration
 │   ├── sheet-domain/                 # Transport-neutral business values and stable rules
+│   ├── sheet-bot-api/                # Typed bot cache and delivery contracts
 │   ├── sheet-db-schema/              # Database schemas
 │   │   ├── src/schema.ts             # Drizzle tables
 │   │   └── src/zero/                 # Zero schema & mutators
@@ -429,13 +432,19 @@ graph TD
     Web -->|uses| Zero[typhoon-zero]
 
     APIs -->|uses| Auth
+    APIs -->|uses| BotAPI[sheet-bot-api]
     APIs -->|uses| Schema[sheet-db-schema]
     APIs -->|uses| IngressAPI
     APIs -->|uses| DFX[dfx-discord-utils]
     APIs -->|uses| Core
     APIs -->|uses| Zero
 
+    IngressAPI -->|uses| BotAPI
+    MessageContent[sheet-message-content] -->|uses| BotAPI
+    MessageContent -->|uses| IngressAPI
+
     Workflows[sheet-workflows] -->|uses| Auth
+    Workflows -->|uses| BotAPI
     Workflows -->|uses| IngressAPI
     Workflows -->|uses| DFX
     Workflows -->|uses| Core
@@ -455,6 +464,7 @@ graph TD
     Formulas -->|uses| Core
 
     IngressServer[sheet-ingress-server] -->|uses| Auth
+    IngressServer -->|uses| BotAPI
     IngressServer -->|uses| IngressAPI
     IngressServer -->|uses| DFX
     IngressServer -->|uses| Core
