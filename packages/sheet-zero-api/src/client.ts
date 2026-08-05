@@ -12,7 +12,6 @@ import type { Schema } from "./schema";
  * durable execution remains an implementation detail of selected operations.
  */
 export type SheetClient = ZeroApiClient.FunctionClient<typeof SheetZeroApi, "public">;
-export type SheetServiceClient = ZeroApiClient.FunctionClient<typeof SheetZeroApi, "service">;
 
 export const makeSheetClient = (
   zeroClient: ZeroClient.ZeroClientExecutor<Schema, unknown>,
@@ -20,13 +19,4 @@ export const makeSheetClient = (
   ZeroApiClient.makeFunctionsWithService(SheetZeroApi, zeroClient, {
     queries,
     mutators,
-  });
-
-export const makeSheetServiceClient = (
-  zeroClient: ZeroClient.ZeroClientExecutor<Schema, unknown>,
-): Effect.Effect<SheetServiceClient> =>
-  ZeroApiClient.makeFunctionsWithVisibilities(SheetZeroApi, zeroClient, {
-    queries,
-    mutators,
-    visibilities: ["service"],
   });

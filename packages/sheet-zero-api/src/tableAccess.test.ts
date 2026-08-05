@@ -1,7 +1,6 @@
 import { Schema } from "effect";
-import { afterEach, describe, expect, it } from "@effect/vitest";
-import { vi } from "vitest";
-import { defineZeroTableAccess } from "./tableAccess";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { defineZeroTableAccess, ZeroComparisonOperator } from "./tableAccess";
 
 const model = {
   insert: Schema.Struct({ id: Schema.String }),
@@ -176,6 +175,23 @@ describe("defineZeroTableAccess", () => {
     ]);
   });
 
+  it("validates comparison operators with the shared schema", () => {
+    const access = defineZeroTableAccess(model, {}, { primaryKey: ["id"] });
+    const query = {
+      filters: [] as Array<readonly [string, string, unknown]>,
+      where(field: string, operator: string, value: unknown) {
+        this.filters.push([field, operator, value]);
+        return this;
+      },
+    };
+
+    expect(Schema.decodeUnknownSync(ZeroComparisonOperator)("ILIKE")).toBe("ILIKE");
+    expect(access.listWhere(query, "id", "ILIKE", "%1%").filters).toEqual([["id", "ILIKE", "%1%"]]);
+    expect(() =>
+      Reflect.apply(access.listWhere, undefined, [query, "id", "CONTAINS", "1"]),
+    ).toThrow();
+  });
+
   it("builds soft-delete updates with update timestamps", () => {
     const now = vi.spyOn(Date, "now").mockReturnValue(300);
 
@@ -196,6 +212,27 @@ describe("defineZeroTableAccess", () => {
       id: "1",
       deletedAt: 300,
       updatedAt: 300,
+    });
+    expect(now).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes updatedAt when timestamps exist without soft deletion", () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(350);
+    const access = defineZeroTableAccess(
+      model,
+      {},
+      {
+        primaryKey: ["id"],
+        timestamps: {
+          createdAt: "createdAt",
+          updatedAt: "updatedAt",
+        },
+      },
+    );
+
+    expect(access.softDeleteByPrimaryKey({ id: "1" })).toEqual({
+      id: "1",
+      updatedAt: 350,
     });
     expect(now).toHaveBeenCalledTimes(1);
   });

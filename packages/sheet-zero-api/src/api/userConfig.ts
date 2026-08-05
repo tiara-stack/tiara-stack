@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Predicate, Schema } from "effect";
 import { makeArgumentError } from "typhoon-core/error";
 import { ZeroApiEndpoint, ZeroApiGroup } from "typhoon-zero/zeroApi";
 import { zeroTableAccess } from "../accessors";
@@ -13,7 +13,7 @@ const validateDmPreferences = (
   monitorDmEnabled: boolean,
   defaultClientId: string | null | undefined,
 ) => {
-  if ((checkinDmEnabled || monitorDmEnabled) && !defaultClientId) {
+  if ((checkinDmEnabled || monitorDmEnabled) && Predicate.isNullish(defaultClientId)) {
     throw makeArgumentError("A default notification client is required to enable DMs");
   }
 };

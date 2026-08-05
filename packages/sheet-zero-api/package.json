@@ -1,0 +1,65 @@
+{
+  "name": "sheet-zero-api",
+  "version": "0.0.0",
+  "private": true,
+  "files": [
+    "./dist/**"
+  ],
+  "type": "module",
+  "sideEffects": [],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "development": "./src/index.ts",
+      "default": "./dist/index.mjs"
+    },
+    "./client": {
+      "types": "./dist/client.d.mts",
+      "development": "./src/client.ts",
+      "default": "./dist/client.mjs"
+    },
+    "./rows": {
+      "types": "./dist/rows.d.mts",
+      "development": "./src/rows.ts",
+      "default": "./dist/rows.mjs"
+    },
+    "./schema": {
+      "types": "./dist/schema.d.mts",
+      "development": "./src/schema.ts",
+      "default": "./dist/schema.mjs"
+    },
+    "./server": {
+      "types": "./dist/server.d.mts",
+      "browser": null,
+      "development": "./src/server.ts",
+      "default": "./dist/server.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "format": "vp fmt --check",
+    "format:apply": "vp fmt",
+    "lint": "vp lint src",
+    "test": "vp test run",
+    "test:watch": "vp test",
+    "build": "pnpm --filter sheet-db-schema zero:generate && vp pack && tsgo -b tsconfig.json --emitDeclarationOnly --force"
+  },
+  "dependencies": {
+    "@rocicorp/zero": "^0.25.9",
+    "effect-zero-workflow": "workspace:*",
+    "sheet-domain": "workspace:*",
+    "typhoon-core": "workspace:*",
+    "typhoon-zero": "workspace:*"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "@types/node": "catalog:",
+    "tooling-config": "workspace:*",
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
+    "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "effect": "catalog:"
+  }
+}

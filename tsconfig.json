@@ -38,6 +38,9 @@
       "path": "packages/sheet-bot"
     },
     {
+      "path": "packages/sheet-zero-api"
+    },
+    {
       "path": "packages/sheet-db-schema"
     },
     {

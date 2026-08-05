@@ -1,11 +1,12 @@
 import type { Transaction } from "@rocicorp/zero";
 import { Effect } from "effect";
 import { describe, expect, it } from "@effect/vitest";
+import type { WorkflowEnqueueRequest, WorkflowZeroContext } from "effect-zero-workflow";
 import { api } from "../api";
 import { internal, service } from "../internal";
-import { mutators } from "../mutators";
 import type { Schema as SheetZeroSchema } from "../schema";
-import { mutateWithWorkflow, type WorkflowEnqueueRequest, type WorkflowZeroContext } from "./runs";
+import { serverMutators } from "../serverRegistries";
+import { mutateWithWorkflow } from "./runs";
 
 const context: WorkflowZeroContext = {
   principalId: "account-1",
@@ -37,7 +38,7 @@ describe("Sheet workflow Zero component installation", () => {
     expect(Object.keys(api.runs)).toEqual(["get", "list"]);
     expect(Object.keys(service.runs)).toEqual(["enqueueAsCaller"]);
     expect(Object.keys(internal.runs)).toEqual(["enqueue", "command", "sendEvent"]);
-    expect(mutators.runs).toHaveProperty("enqueueAsCaller");
+    expect(serverMutators.runs).toHaveProperty("enqueueAsCaller");
   });
 
   it.effect("binds authoritative workflow writes to the sheet_db tables", () =>

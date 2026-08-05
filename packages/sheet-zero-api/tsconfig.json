@@ -1,0 +1,28 @@
+{
+  "extends": "../../tsconfig.browser.json",
+  "include": ["**/*.ts", "**/*.tsx", "**/*.mts"],
+  "exclude": ["node_modules", "dist", ".output", ".ts-out"],
+  "compilerOptions": {
+    "outDir": "./.ts-out",
+    "rootDir": ".",
+    "tsBuildInfoFile": "./.ts-out/.tsbuildinfo",
+    "verbatimModuleSyntax": true,
+    "paths": {
+      "*": ["./*"],
+      "effect-zero-workflow": ["../effect-zero-workflow/src/index.ts"],
+      "effect-zero-workflow/*": ["../effect-zero-workflow/src/*"],
+      "sheet-domain": ["../sheet-domain/src/index.ts"],
+      "typhoon-core": ["../typhoon-core/src/index.ts"],
+      "typhoon-core/*": ["../typhoon-core/src/*"],
+      "typhoon-zero": ["../typhoon-zero/src/index.ts"],
+      "typhoon-zero/*": ["../typhoon-zero/src/*"]
+    }
+  },
+  "references": [
+    { "path": "../effect-zero-workflow" },
+    { "path": "../sheet-domain" },
+    { "path": "../typhoon-core" },
+    { "path": "../typhoon-zero" },
+    { "path": "../tooling-config" }
+  ]
+}

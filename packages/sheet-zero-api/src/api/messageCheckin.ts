@@ -3,7 +3,7 @@ import { Option, Predicate, Schema } from "effect";
 import { ReadonlyJSONValue } from "typhoon-zero/schema";
 import { ZeroApiEndpoint, ZeroApiGroup } from "typhoon-zero/zeroApi";
 import { zeroTableAccess } from "../accessors";
-import { preserveOmitted } from "../timestamps";
+import { activeRecord, preserveOmitted } from "../timestamps";
 import { MessageKeyRequest } from "./requests";
 import type { SheetZeroApiSuccessSchemas } from "./successSchemas";
 
@@ -46,6 +46,7 @@ const upsertCheckinRow = async (tx: CheckinTransaction, key: CheckinKey, data: C
       .where("messageId", "=", key.messageId)
       .one(),
   );
+  const activeExistingCheckin = activeRecord(existingCheckin);
   await tx.mutate.messageCheckin.upsert(
     zeroTableAccess.messageCheckin.upsertWithTimestamps(
       {
@@ -55,13 +56,13 @@ const upsertCheckinRow = async (tx: CheckinTransaction, key: CheckinKey, data: C
         initialMessage: data.initialMessage,
         hour: data.hour,
         runningConversationId: data.runningConversationId,
-        roleId: preserveOmitted(data.roleId, existingCheckin?.roleId),
+        roleId: preserveOmitted(data.roleId, activeExistingCheckin?.roleId) ?? null,
         workspaceId: data.workspaceId,
         conversationId: data.conversationId,
         createdByUserId: data.createdByUserId,
         deletedAt: null,
       },
-      existingCheckin,
+      activeExistingCheckin,
     ),
   );
 };
@@ -81,6 +82,7 @@ const upsertCheckinMembers = async (
           .where("memberId", "=", memberId)
           .one(),
       );
+      const activeExistingMember = activeRecord(existingMember);
       return tx.mutate.messageCheckinMember.upsert(
         zeroTableAccess.messageCheckinMember.upsertWithTimestamps(
           {
@@ -88,10 +90,10 @@ const upsertCheckinMembers = async (
             clientId: key.clientId,
             messageId: key.messageId,
             memberId,
-            ...checkinProgress(existingMember),
+            ...checkinProgress(activeExistingMember),
             deletedAt: null,
           },
-          existingMember,
+          activeExistingMember,
         ),
       );
     }),

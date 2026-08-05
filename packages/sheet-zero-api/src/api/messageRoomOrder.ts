@@ -71,15 +71,8 @@ const findActiveMessageRoomOrder = (tx: RoomOrderTransaction, key: RoomOrderKey)
 
 const findMessageRoomOrder = (tx: RoomOrderTransaction, key: RoomOrderKey) =>
   tx.run(
-    zeroTableAccess.messageRoomOrder.table
-      .where("clientPlatform", "=", key.clientPlatform)
-      .where("clientId", "=", key.clientId)
-      .where("messageId", "=", key.messageId)
-      .one(),
+    zeroTableAccess.messageRoomOrder.getByPrimaryKey(zeroTableAccess.messageRoomOrder.table, key),
   );
-
-const optionalField = <Value, Key extends keyof Value>(value: Value | null | undefined, key: Key) =>
-  Option.map(Option.fromNullishOr(value), (record) => record[key]);
 
 const upsertRoomOrderRecord = async (
   tx: RoomOrderTransaction,
@@ -89,19 +82,11 @@ const upsertRoomOrderRecord = async (
   const existing = await findMessageRoomOrder(tx, key);
   const activeExisting = activeRecord(existing);
   const tentative = Option.getOrElse(
-    Option.fromNullishOr(
-      preserveOmitted(
-        data.tentative,
-        Option.getOrUndefined(optionalField(activeExisting, "tentative")),
-      ),
-    ),
+    Option.fromNullishOr(preserveOmitted(data.tentative, activeExisting?.tentative)),
     () => false,
   );
-  const monitor = preserveOmitted(
-    data.monitor,
-    Option.getOrUndefined(optionalField(activeExisting, "monitor")),
-  );
-  const rank = Option.getOrElse(optionalField(activeExisting, "rank"), () => data.rank);
+  const monitor = preserveOmitted(data.monitor, activeExisting?.monitor) ?? null;
+  const rank = preserveOmitted(data.rank, activeExisting?.rank) ?? data.rank;
   await tx.mutate.messageRoomOrder.upsert(
     zeroTableAccess.messageRoomOrder.upsertWithTimestamps(
       {
@@ -124,41 +109,47 @@ const upsertRoomOrderRecord = async (
   );
 };
 
+const findMessageRoomOrderEntries = (tx: RoomOrderTransaction, key: RoomOrderKey) =>
+  tx.run(
+    zeroTableAccess.messageRoomOrderEntry.table
+      .where("clientPlatform", "=", key.clientPlatform)
+      .where("clientId", "=", key.clientId)
+      .where("messageId", "=", key.messageId),
+  );
+
+const roomOrderEntryKey = (entry: { readonly rank: number; readonly position: number }) =>
+  `${entry.rank}:${entry.position}`;
+
 const upsertRoomOrderEntries = async (
   tx: RoomOrderTransaction,
   key: RoomOrderKey,
   entries: typeof MessageRoomOrderEntries.Type,
+  existingEntries: Awaited<ReturnType<typeof findMessageRoomOrderEntries>>,
 ) => {
-  await Promise.all(
-    entries.map(async (entry) => {
-      const existing = await tx.run(
-        zeroTableAccess.messageRoomOrderEntry.table
-          .where("clientPlatform", "=", key.clientPlatform)
-          .where("clientId", "=", key.clientId)
-          .where("messageId", "=", key.messageId)
-          .where("rank", "=", entry.rank)
-          .where("position", "=", entry.position)
-          .one(),
-      );
-      return tx.mutate.messageRoomOrderEntry.upsert(
-        zeroTableAccess.messageRoomOrderEntry.upsertWithTimestamps(
-          {
-            clientPlatform: key.clientPlatform,
-            clientId: key.clientId,
-            messageId: key.messageId,
-            rank: entry.rank,
-            position: entry.position,
-            hour: entry.hour,
-            team: entry.team,
-            tags: entry.tags.slice(),
-            effectValue: entry.effectValue,
-            deletedAt: null,
-          },
-          existing,
-        ),
-      );
-    }),
+  const existingByKey = new Map(
+    existingEntries
+      .filter((entry) => Predicate.isNullish(entry.deletedAt))
+      .map((entry) => [roomOrderEntryKey(entry), entry] as const),
   );
+  for (const entry of entries) {
+    await tx.mutate.messageRoomOrderEntry.upsert(
+      zeroTableAccess.messageRoomOrderEntry.upsertWithTimestamps(
+        {
+          clientPlatform: key.clientPlatform,
+          clientId: key.clientId,
+          messageId: key.messageId,
+          rank: entry.rank,
+          position: entry.position,
+          hour: entry.hour,
+          team: entry.team,
+          tags: entry.tags.slice(),
+          effectValue: entry.effectValue,
+          deletedAt: null,
+        },
+        existingByKey.get(roomOrderEntryKey(entry)),
+      ),
+    );
+  }
 };
 
 const hasExpectedRankMismatch = (
@@ -510,7 +501,17 @@ export const makeMessageRoomOrderGroup = <const SuccessSchemas extends SheetZero
         workspaceId: Schema.String,
         conversationId: Schema.String,
       }),
-      mutator: async ({ tx, args }) =>
+      mutator: async ({ tx, args }) => {
+        const now = Date.now();
+        const messageRoomOrder = await findActiveMessageRoomOrder(tx, args);
+        if (
+          Predicate.isNullish(messageRoomOrder) ||
+          blocksTentativeClaim(messageRoomOrder, now) ||
+          blocksSendClaim(messageRoomOrder, now)
+        ) {
+          return;
+        }
+
         await tx.mutate.messageRoomOrder.update(
           zeroTableAccess.messageRoomOrder.updateWithTimestamp({
             clientPlatform: args.clientPlatform,
@@ -520,7 +521,8 @@ export const makeMessageRoomOrderGroup = <const SuccessSchemas extends SheetZero
             workspaceId: args.workspaceId,
             conversationId: args.conversationId,
           }),
-        ),
+        );
+      },
     }),
     ZeroApiEndpoint.mutator("upsertMessageRoomOrder", {
       request: Schema.Struct({
@@ -536,35 +538,28 @@ export const makeMessageRoomOrderGroup = <const SuccessSchemas extends SheetZero
         entries: MessageRoomOrderEntries,
       }),
       mutator: async ({ tx, args }) => {
-        const existingEntries = await tx.run(
-          zeroTableAccess.messageRoomOrderEntry.table
-            .where("clientPlatform", "=", args.clientPlatform)
-            .where("clientId", "=", args.clientId)
-            .where("messageId", "=", args.messageId)
-            .where("deletedAt", "IS", null),
-        );
+        const existingEntries = await findMessageRoomOrderEntries(tx, args);
         await upsertRoomOrderRecord(tx, args, args.data);
 
-        const suppliedEntryKeys = new Set(
-          args.entries.map((entry) => `${entry.rank}:${entry.position}`),
-        );
-        await Promise.all(
-          existingEntries
-            .filter((entry) => !suppliedEntryKeys.has(`${entry.rank}:${entry.position}`))
-            .map((entry) =>
-              tx.mutate.messageRoomOrderEntry.update(
-                zeroTableAccess.messageRoomOrderEntry.softDeleteByPrimaryKey({
-                  clientPlatform: args.clientPlatform,
-                  clientId: args.clientId,
-                  messageId: args.messageId,
-                  rank: entry.rank,
-                  position: entry.position,
-                }),
-              ),
-            ),
-        );
+        const suppliedEntryKeys = new Set(args.entries.map(roomOrderEntryKey));
+        for (const entry of existingEntries) {
+          if (
+            Predicate.isNullish(entry.deletedAt) &&
+            !suppliedEntryKeys.has(roomOrderEntryKey(entry))
+          ) {
+            await tx.mutate.messageRoomOrderEntry.update(
+              zeroTableAccess.messageRoomOrderEntry.softDeleteByPrimaryKey({
+                clientPlatform: args.clientPlatform,
+                clientId: args.clientId,
+                messageId: args.messageId,
+                rank: entry.rank,
+                position: entry.position,
+              }),
+            );
+          }
+        }
 
-        await upsertRoomOrderEntries(tx, args, args.entries);
+        await upsertRoomOrderEntries(tx, args, args.entries, existingEntries);
       },
     }),
     ZeroApiEndpoint.mutator("upsertMessageRoomOrderEntry", {
@@ -572,7 +567,10 @@ export const makeMessageRoomOrderGroup = <const SuccessSchemas extends SheetZero
         ...MessageKeyRequest,
         entries: MessageRoomOrderEntries,
       }),
-      mutator: async ({ tx, args }) => await upsertRoomOrderEntries(tx, args, args.entries),
+      mutator: async ({ tx, args }) => {
+        const existingEntries = await findMessageRoomOrderEntries(tx, args);
+        await upsertRoomOrderEntries(tx, args, args.entries, existingEntries);
+      },
     }),
     ZeroApiEndpoint.mutator("removeMessageRoomOrderEntry", {
       request: Schema.Struct({

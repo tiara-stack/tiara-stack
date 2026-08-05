@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 import { ZeroApiEndpoint, ZeroApiGroup } from "typhoon-zero/zeroApi";
 import { zeroTableAccess } from "../accessors";
+import { activeRecord } from "../timestamps";
 import { MessageKeyRequest } from "./requests";
 import type { SheetZeroApiSuccessSchemas } from "./successSchemas";
 
@@ -34,6 +35,7 @@ export const makeMessageSlotGroup = <const SuccessSchemas extends SheetZeroApiSu
             messageId: args.messageId,
           }),
         );
+        const activeExistingSlot = activeRecord(existingSlot);
 
         await tx.mutate.messageSlot.upsert(
           zeroTableAccess.messageSlot.upsertWithTimestamps(
@@ -47,7 +49,7 @@ export const makeMessageSlotGroup = <const SuccessSchemas extends SheetZeroApiSu
               createdByUserId: args.createdByUserId,
               deletedAt: null,
             },
-            existingSlot,
+            activeExistingSlot,
           ),
         );
       },

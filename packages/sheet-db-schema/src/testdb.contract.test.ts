@@ -4,6 +4,8 @@ import type { MutateRequest, Transaction } from "@rocicorp/zero";
 import { describe, expect, it, layer } from "@effect/vitest";
 import { Cause, Context, Duration, Effect, Exit, Layer, Option, Schema } from "effect";
 import { snapshotVersion } from "effect-sql-schema/snapshot";
+import { builder, type Schema as SheetZeroSchema } from "sheet-zero-api";
+import { SheetZeroApi, serverMutators } from "sheet-zero-api/server";
 import { ZeroApiClient } from "typhoon-zero/zeroApi";
 import { configUserPlatform, messageCheckin, messageRoomOrder } from "./models";
 import {
@@ -13,9 +15,6 @@ import {
   makeTestSheetZeroDatabase,
   testDdlIntentionalDifferences,
 } from "./testdb";
-import { SheetZeroApi } from "./zero/api";
-import { mutators } from "./zero/mutators";
-import { builder, type Schema as SheetZeroSchema } from "./zero/schema";
 
 const userOptionSchema = Schema.toType(Schema.OptionFromNullishOr(configUserPlatform.json));
 const usersSchema = Schema.Array(configUserPlatform.json);
@@ -87,7 +86,7 @@ class ContractFixture extends Context.Service<ContractFixture>()("ContractFixtur
   make: Effect.gen(function* () {
     const database = yield* makeTestSheetZeroDatabase({ measureTimings: true });
     const client = yield* ZeroApiClient.makeWithService(SheetZeroApi, database.executor, {
-      mutators,
+      mutators: serverMutators,
     });
     return { database, client };
   }),
@@ -303,6 +302,21 @@ describe("PGlite Sheet Zero contract", () => {
           ),
         );
         expect(upserted.checkinDmEnabled).toBe(true);
+        yield* client.userConfig.upsertUserPlatformConfig({
+          platform: "discord",
+          userId: "user-2",
+          monitorDmEnabled: true,
+          defaultClientId: "",
+        });
+        const emptyDefaultClient = Option.getOrThrow(
+          yield* Schema.decodeUnknownEffect(userOptionSchema)(
+            yield* client.userConfig.getUserPlatformConfig({
+              platform: "discord",
+              userId: "user-2",
+            }),
+          ),
+        );
+        expect(emptyDefaultClient.defaultClientId).toBe("");
         expect(yield* database.rows("configUserPlatform")).toHaveLength(3);
       }),
     );
@@ -335,6 +349,113 @@ describe("PGlite Sheet Zero contract", () => {
         });
         expect(yield* database.rows("configWorkspaceFeatureFlag")).toHaveLength(1);
         expect((yield* database.rows("configWorkspaceFeatureFlag"))[0]!.deletedAt).toBeNull();
+      }),
+    );
+
+    it.effect("restores soft-deleted message rows without preserving stale state", () =>
+      Effect.gen(function* () {
+        const { client, database } = yield* resetContractFixture;
+        yield* database.seed({
+          messageSlot: [
+            {
+              ...messageKey,
+              day: 1,
+              workspaceId: null,
+              conversationId: null,
+              createdByUserId: null,
+              createdAt: 100,
+              updatedAt: 200,
+              deletedAt: 300,
+            },
+          ],
+          messageCheckin: [
+            {
+              ...messageKey,
+              initialMessage: [],
+              hour: 1,
+              runningConversationId: "running-old",
+              roleId: "role-old",
+              workspaceId: null,
+              conversationId: null,
+              createdByUserId: null,
+              createdAt: 100,
+              updatedAt: 200,
+              deletedAt: 300,
+            },
+          ],
+          messageCheckinMember: [
+            {
+              ...messageKey,
+              memberId: "member-1",
+              checkinAt: 150,
+              checkinClaimId: "claim-old",
+              createdAt: 100,
+              updatedAt: 200,
+              deletedAt: 300,
+            },
+          ],
+          messageRoomOrderEntry: [
+            {
+              ...messageKey,
+              rank: 1,
+              position: 0,
+              hour: 1,
+              team: "old-team",
+              tags: ["old"],
+              effectValue: 1,
+              createdAt: 100,
+              updatedAt: 200,
+              deletedAt: 300,
+            },
+          ],
+        });
+
+        yield* client.messageSlot.upsertMessageSlotData({
+          ...messageKey,
+          day: 2,
+          workspaceId: null,
+          conversationId: null,
+          createdByUserId: null,
+        });
+        yield* client.messageCheckin.upsertMessageCheckinData({
+          ...messageKey,
+          initialMessage: [],
+          hour: 2,
+          runningConversationId: "running-new",
+          workspaceId: null,
+          conversationId: null,
+          createdByUserId: null,
+        });
+        yield* client.messageCheckin.addMessageCheckinMembers({
+          ...messageKey,
+          memberIds: ["member-1"],
+        });
+        yield* client.messageRoomOrder.upsertMessageRoomOrderEntry({
+          ...messageKey,
+          entries: [
+            {
+              rank: 1,
+              position: 0,
+              hour: 2,
+              team: "new-team",
+              tags: ["new"],
+              effectValue: 2,
+            },
+          ],
+        });
+
+        const restoredSlot = (yield* database.rows("messageSlot"))[0]!;
+        const restoredCheckin = (yield* database.rows("messageCheckin"))[0]!;
+        const restoredMember = (yield* database.rows("messageCheckinMember"))[0]!;
+        const restoredRoomOrderEntry = (yield* database.rows("messageRoomOrderEntry"))[0]!;
+        expect(restoredSlot.createdAt).not.toBe(100);
+        expect(restoredCheckin.createdAt).not.toBe(100);
+        expect(restoredCheckin.roleId).toBeNull();
+        expect(restoredMember.createdAt).not.toBe(100);
+        expect(restoredMember.checkinAt).toBeNull();
+        expect(restoredMember.checkinClaimId).toBeNull();
+        expect(restoredRoomOrderEntry.createdAt).not.toBe(100);
+        expect(restoredRoomOrderEntry.deletedAt).toBeNull();
       }),
     );
 
@@ -408,6 +529,36 @@ describe("PGlite Sheet Zero contract", () => {
         expect(roomOrder.previousFills).toEqual(["old-a", "old-b"]);
         expect(roomOrder.fills).toEqual(["new-a", "new-b"]);
         expect(yield* database.rows("messageRoomOrderEntry")).toHaveLength(2);
+
+        yield* client.messageRoomOrder.upsertMessageRoomOrder({
+          ...messageKey,
+          previousFills: roomOrder.previousFills,
+          fills: roomOrder.fills,
+          hour: roomOrder.hour,
+          rank: 4,
+          tentative: false,
+          monitor: roomOrder.monitor,
+          workspaceId: roomOrder.workspaceId,
+          conversationId: roomOrder.conversationId,
+          createdByUserId: roomOrder.createdByUserId,
+        });
+        yield* client.messageRoomOrder.claimMessageRoomOrderSend({
+          ...messageKey,
+          claimId: "send-claim-1",
+        });
+        yield* client.messageRoomOrder.markMessageRoomOrderTentative({
+          ...messageKey,
+          workspaceId: "workspace-2",
+          conversationId: "conversation-2",
+        });
+        const guardedRoomOrder = Option.getOrThrow(
+          yield* Schema.decodeUnknownEffect(roomOrderOptionSchema)(
+            yield* client.messageRoomOrder.getMessageRoomOrder(messageKey),
+          ),
+        );
+        expect(guardedRoomOrder.rank).toBe(4);
+        expect(guardedRoomOrder.tentative).toBe(false);
+        expect(guardedRoomOrder.workspaceId).toBe("workspace-1");
       }),
     );
 

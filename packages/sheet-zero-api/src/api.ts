@@ -1,5 +1,5 @@
 import { make, type ZeroApi, ZeroFunctionReference } from "typhoon-zero/zeroApi";
-import type { Schema as ZeroSchema } from "./index";
+import type { Schema as ZeroSchema } from "./schema";
 import { makeMessageCheckinGroup, type MessageCheckinGroup } from "./api/messageCheckin";
 import { makeMessageRoomOrderGroup, type MessageRoomOrderGroup } from "./api/messageRoomOrder";
 import { makeMessageSlotGroup, type MessageSlotGroup } from "./api/messageSlot";
@@ -11,20 +11,6 @@ import { defaultSuccessSchemas, type SheetZeroApiSuccessSchemas } from "./api/su
 import { makeUserConfigGroup, type UserConfigGroup } from "./api/userConfig";
 import { makeWorkspaceConfigGroup, type WorkspaceConfigGroup } from "./api/workspaceConfig";
 import { runsGroup, type RunsGroup } from "./api/runs";
-
-export {
-  DelegatedWorkflowEnqueueRequest,
-  enqueueWorkflowCommandInZeroTransaction,
-  enqueueWorkflowEventInZeroTransaction,
-  enqueueWorkflowInZeroTransaction,
-  isWorkflowZeroContext,
-  mutateWithWorkflow,
-  WorkflowCommandRequest,
-  WorkflowEnqueueRequest,
-  WorkflowEventRequest,
-  WorkflowRunNotAccessibleError,
-  type WorkflowZeroContext,
-} from "./api/runs";
 
 export type { SheetZeroApiSuccessSchemas } from "./api/successSchemas";
 

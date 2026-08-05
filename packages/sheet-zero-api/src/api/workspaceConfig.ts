@@ -1,10 +1,7 @@
 import { Option, Predicate, Schema } from "effect";
 import { ZeroApiEndpoint, ZeroApiGroup } from "typhoon-zero/zeroApi";
 import { makeArgumentError } from "typhoon-core/error";
-import {
-  TeamSubmissionRemovedRowStrategy,
-  TeamSubmissionWriteMode,
-} from "../../teamSubmissionChannelConfig";
+import { TeamSubmissionRemovedRowStrategy, TeamSubmissionWriteMode } from "../rows";
 import { zeroTableAccess } from "../accessors";
 import { activeRecord, preserveOmitted } from "../timestamps";
 import type { SheetZeroApiSuccessSchemas } from "./successSchemas";
@@ -264,10 +261,7 @@ export const makeWorkspaceConfigGroup = <const SuccessSchemas extends SheetZeroA
                 args.autoCheckin,
                 activeExistingConfigWorkspace?.autoCheckin,
               ),
-              monitorConversationId: preserveOmitted(
-                args.monitorConversationId,
-                activeExistingConfigWorkspace?.monitorConversationId,
-              ),
+              monitorConversationId,
               deletedAt: null,
             },
             activeExistingConfigWorkspace,
@@ -341,8 +335,8 @@ export const makeWorkspaceConfigGroup = <const SuccessSchemas extends SheetZeroA
               workspaceId: args.workspaceId,
               flagName: args.flagName,
             }),
-          insert: tx.mutate.configWorkspaceFeatureFlag.insert,
-          upsert: tx.mutate.configWorkspaceFeatureFlag.upsert,
+          insert: (insertValue) => tx.mutate.configWorkspaceFeatureFlag.insert(insertValue),
+          upsert: (upsertValue) => tx.mutate.configWorkspaceFeatureFlag.upsert(upsertValue),
           value,
         });
       },
@@ -438,8 +432,10 @@ export const makeWorkspaceConfigGroup = <const SuccessSchemas extends SheetZeroA
               workspaceId: args.workspaceId,
               announcementId: args.announcementId,
             }),
-          insert: tx.mutate.configWorkspaceUpdateAnnouncementDelivery.insert,
-          upsert: tx.mutate.configWorkspaceUpdateAnnouncementDelivery.upsert,
+          insert: (insertValue) =>
+            tx.mutate.configWorkspaceUpdateAnnouncementDelivery.insert(insertValue),
+          upsert: (upsertValue) =>
+            tx.mutate.configWorkspaceUpdateAnnouncementDelivery.upsert(upsertValue),
           value,
         });
       },
@@ -511,7 +507,7 @@ export const makeWorkspaceConfigGroup = <const SuccessSchemas extends SheetZeroA
               workspaceId: args.workspaceId,
               conversationId: args.conversationId,
               name: preserveOmitted(args.name, existingValues.name),
-              running: preserveOmitted(args.running, existingValues.running),
+              running,
               roleId: preserveOmitted(args.roleId, existingValues.roleId),
               checkinConversationId: preserveOmitted(
                 args.checkinConversationId,

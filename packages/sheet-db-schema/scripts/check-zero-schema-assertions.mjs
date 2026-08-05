@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const packageRoot = fileURLToPath(new URL("../", import.meta.url));
-const schemaPath = new URL("../src/zero/schema.ts", import.meta.url);
+const schemaPath = new URL("../../sheet-zero-api/src/schema.ts", import.meta.url);
 const baselinePath = new URL("./zero-schema-assertions.baseline.json", import.meta.url);
 
 const [schema, baselineSource] = await Promise.all([

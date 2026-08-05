@@ -21,6 +21,7 @@
   "unlisted_dependencies": [],
   "duplicate_exports": [
     "Any|packages/typhoon-zero/src/zeroApi/zeroApi.ts|packages/typhoon-zero/src/zeroApi/zeroApiEndpoint.ts|packages/typhoon-zero/src/zeroApi/zeroApiGroup.ts",
+    "SheetZeroApi|packages/sheet-apis/src/services/sheetZeroClient.ts|packages/sheet-db-schema/src/zero/index.ts",
     "make|packages/typhoon-zero/src/zeroApi/zeroApi.ts|packages/typhoon-zero/src/zeroApi/zeroApiClient.ts|packages/typhoon-zero/src/zeroApi/zeroApiGroup.ts"
   ],
   "type_only_dependencies": [],

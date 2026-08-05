@@ -3,9 +3,9 @@ import { vi } from "vitest";
 import { Effect, Stream } from "effect";
 import type { ZeroClient } from "typhoon-zero/client";
 import { serviceApi } from "./api";
-import { makeSheetServiceClient } from "./client";
-import { mutators } from "./mutators";
 import type { Schema } from "./schema";
+import { makeSheetServiceClient } from "./serverClient";
+import { serverMutators } from "./serverRegistries";
 
 describe("Sheet service client", () => {
   it.effect("registers service-only workflow functions", () =>
@@ -37,7 +37,7 @@ describe("Sheet service client", () => {
 
       expect(mutate).toHaveBeenCalledOnce();
       const mutation = mutate.mock.calls[0]![0];
-      expect(mutation.mutator).toBe(mutators.runs.enqueueAsCaller);
+      expect(mutation.mutator).toBe(serverMutators.runs.enqueueAsCaller);
       expect(mutation.mutator.mutatorName).toBe(
         `${serviceApi.runs.enqueueAsCaller.group}.${serviceApi.runs.enqueueAsCaller.name}`,
       );

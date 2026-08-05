@@ -42,10 +42,11 @@
     "pretest": "pnpm build",
     "test": "vp test run",
     "deps:build": "pnpm --filter effect-zero... build && pnpm --filter typhoon-zero... build && pnpm --filter effect-zero-workflow build",
-    "build": "pnpm deps:build && pnpm exec effect-zero generate --config ./effect-zero.config.ts --output ./src/zero/schema.ts --skip-declare --format --force && vp pack",
-    "schema:generate": "pnpm build && pnpm --filter effect-sql-kit build && pnpm exec effect-sql-kit generate",
+    "build": "pnpm deps:build && vp pack",
+    "zero:generate": "pnpm deps:build && cd ../.. && node packages/effect-zero/dist/cli/index.mjs generate --config packages/sheet-db-schema/effect-zero.config.ts --tsconfig packages/sheet-db-schema/tsconfig.json --output packages/sheet-zero-api/src/schema.ts --skip-declare --format --force",
+    "schema:generate": "pnpm --filter sheet-zero-api build && pnpm build && pnpm --filter effect-sql-kit build && pnpm exec effect-sql-kit generate",
     "schema:check:assertions": "node ./scripts/check-zero-schema-assertions.mjs",
-    "schema:check:diff": "schema_changes=$(git status --short --untracked-files=all -- src/zero/schema.ts effect-sql-migrations) && test -z \"$schema_changes\" && pnpm schema:check:assertions",
+    "schema:check:diff": "schema_changes=$(git status --short --untracked-files=all -- ../sheet-zero-api/src/schema.ts effect-sql-migrations) && test -z \"$schema_changes\" && pnpm schema:check:assertions",
     "schema:check:built": "pnpm exec effect-sql-kit generate && pnpm schema:check:diff",
     "schema:check": "pnpm schema:generate && pnpm schema:check:diff",
     "db:generate": "pnpm deps:build && pnpm --filter effect-sql-kit build && pnpm exec effect-sql-kit generate",
@@ -59,7 +60,7 @@
     "effect-zero": "workspace:*",
     "effect-zero-workflow": "workspace:*",
     "sheet-domain": "workspace:*",
-    "typhoon-core": "workspace:*",
+    "sheet-zero-api": "workspace:*",
     "typhoon-zero": "workspace:*"
   },
   "devDependencies": {

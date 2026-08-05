@@ -17,8 +17,8 @@
       "effect-zero/*": ["../effect-zero/src/*"],
       "effect-zero-workflow": ["../effect-zero-workflow/src/index.ts"],
       "sheet-domain": ["../sheet-domain/src/index.ts"],
-      "typhoon-core": ["../typhoon-core/src/index.ts"],
-      "typhoon-core/*": ["../typhoon-core/src/*"],
+      "sheet-zero-api": ["../sheet-zero-api/src/index.ts"],
+      "sheet-zero-api/*": ["../sheet-zero-api/src/*"],
       "typhoon-zero": ["../typhoon-zero/src/index.ts"],
       "typhoon-zero/*": ["../typhoon-zero/src/*"]
     }
@@ -40,7 +40,7 @@
       "path": "../sheet-domain"
     },
     {
-      "path": "../typhoon-core"
+      "path": "../sheet-zero-api"
     },
     {
       "path": "../typhoon-zero"

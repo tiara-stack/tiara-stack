@@ -1,33 +1,30 @@
-import { schema, type Schema } from "./schema";
+export { api, schema, type Schema, type SheetClient } from "sheet-zero-api";
 export {
+  defineZeroTableAccess,
   enqueueWorkflowCommandInZeroTransaction,
   enqueueWorkflowEventInZeroTransaction,
   enqueueWorkflowInZeroTransaction,
-  isWorkflowZeroContext,
+  makeLegacySheetClient as makeSheetClient,
+  makeSheetServiceClient,
   makeSheetZeroApi,
   mutateWithWorkflow,
-  api,
+  serverMutators as mutators,
+  serverQueries as queries,
   serviceApi,
   SheetZeroApi,
+  zeroComparisonOperatorList,
+  type ServerMutators as Mutators,
+  type ServerQueries as Queries,
+  type SheetServiceClient,
+  type SheetZeroApiSuccessSchemas,
+  type ZeroComparisonOperator,
+} from "sheet-zero-api/server";
+export {
   DelegatedWorkflowEnqueueRequest,
+  isWorkflowZeroContext,
   WorkflowCommandRequest,
   WorkflowEnqueueRequest,
   WorkflowEventRequest,
-  type SheetZeroApiSuccessSchemas,
+  WorkflowRunNotAccessibleError,
   type WorkflowZeroContext,
-} from "./api";
-export { queries, type Queries } from "./queries";
-export { mutators, type Mutators } from "./mutators";
-export {
-  makeSheetClient,
-  makeSheetServiceClient,
-  type SheetClient,
-  type SheetServiceClient,
-} from "./client";
-export {
-  defineZeroTableAccess,
-  zeroComparisonOperatorList,
-  type ZeroComparisonOperator,
-} from "./tableAccess";
-
-export { schema, type Schema };
+} from "effect-zero-workflow";

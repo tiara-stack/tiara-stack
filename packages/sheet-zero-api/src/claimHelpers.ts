@@ -5,7 +5,7 @@ const CLAIM_STALE_MS = 10 * 60 * 1000;
 type ClaimTimestamp = Date | number | null | undefined;
 
 const toEpochMillis = (claimedAt: ClaimTimestamp) =>
-  claimedAt instanceof Date ? claimedAt.getTime() : claimedAt;
+  Predicate.isDate(claimedAt) ? claimedAt.getTime() : claimedAt;
 
 export const isActiveSendClaim = (
   claimId: string | null | undefined,
@@ -18,7 +18,7 @@ const isActiveTimestampClaim = (claimedAt: ClaimTimestamp, now: number) => {
   return (
     Predicate.isNotNullish(claimedAtMillis) &&
     Number.isFinite(claimedAtMillis) &&
-    now - claimedAtMillis <= CLAIM_STALE_MS
+    Math.abs(now - claimedAtMillis) <= CLAIM_STALE_MS
   );
 };
 
@@ -59,5 +59,5 @@ export const hasStaleUntrackedSendClaim = (
   now: number,
 ) =>
   Predicate.isNotNullish(messageRoomOrder.sendClaimId) &&
-  messageRoomOrder.sentMessageId === null &&
+  Predicate.isNullish(messageRoomOrder.sentMessageId) &&
   !isActiveSendClaim(messageRoomOrder.sendClaimId, messageRoomOrder.sendClaimedAt, now);

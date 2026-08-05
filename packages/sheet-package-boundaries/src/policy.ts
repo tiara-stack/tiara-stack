@@ -28,8 +28,8 @@ const packages = {
   },
   "sheet-zero-api": {
     role: "client",
-    allowedSheetDependencies: ["sheet-auth", "sheet-domain", "sheet-workflow-contracts"],
-    browserEntrypoints: ["."],
+    allowedSheetDependencies: ["sheet-domain"],
+    browserEntrypoints: [".", "./client", "./rows", "./schema"],
   },
   "sheet-db-schema": {
     role: "implementation",
@@ -185,13 +185,52 @@ export const sheetPackageBoundaryPolicy = {
       removeWhen: "Replace forwarded identity with Effective Principal authentication adapters.",
     },
     {
+      code: "forbidden-sheet-dependency",
+      package: "sheet-db-schema",
+      target: "sheet-zero-api",
+      reason:
+        "The persistence package temporarily depends on the extracted API for legacy compatibility shims and contract tests.",
+      removeWhen:
+        "Remove when all consumers import sheet-zero-api directly and the legacy /zero exports are deleted.",
+    },
+    {
+      code: "cross-package-reexport",
+      package: "sheet-db-schema",
+      target: "sheet-zero-api",
+      path: "packages/sheet-db-schema/src/zero/index.ts",
+      reason: "The legacy /zero entrypoint preserves browser API imports during caller migration.",
+      removeWhen:
+        "Remove when all consumers import sheet-zero-api directly and the legacy /zero exports are deleted.",
+    },
+    {
+      code: "cross-package-reexport",
+      package: "sheet-db-schema",
+      target: "sheet-zero-api/server",
+      path: "packages/sheet-db-schema/src/zero/index.ts",
+      reason:
+        "The legacy /zero entrypoint preserves trusted registry and service-client imports during caller migration.",
+      removeWhen:
+        "Remove when all consumers import sheet-zero-api directly and the legacy /zero exports are deleted.",
+    },
+    {
       code: "cross-package-reexport",
       package: "sheet-db-schema",
       target: "effect-zero-workflow",
-      path: "packages/sheet-db-schema/src/zero/api/runs.ts",
-      reason: "The persistence package currently republishes generic workflow run concepts.",
+      path: "packages/sheet-db-schema/src/zero/index.ts",
+      reason:
+        "The legacy /zero entrypoint preserves generic workflow request and error type exports during caller migration.",
       removeWhen:
-        "Move declared workflow run values to sheet-workflow-contracts and import them directly.",
+        "Remove when all consumers import sheet-zero-api directly and the legacy /zero exports are deleted.",
+    },
+    {
+      code: "cross-package-reexport",
+      package: "sheet-db-schema",
+      target: "sheet-zero-api/server",
+      path: "packages/sheet-db-schema/src/zero/internal.ts",
+      reason:
+        "The legacy /zero/internal entrypoint preserves service and internal reference imports during caller migration.",
+      removeWhen:
+        "Remove when all consumers import sheet-zero-api directly and the legacy /zero exports are deleted.",
     },
     {
       code: "wildcard-export",

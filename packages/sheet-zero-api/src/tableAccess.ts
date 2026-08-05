@@ -1,3 +1,5 @@
+import { Schema } from "effect";
+
 type ModelWithVariants = {
   readonly insert?: unknown;
   readonly update?: unknown;
@@ -23,9 +25,8 @@ export const zeroComparisonOperatorList = [
   "IS NOT",
 ] as const;
 
-export type ZeroComparisonOperator = (typeof zeroComparisonOperatorList)[number];
-
-const zeroComparisonOperators = new Set<string>(zeroComparisonOperatorList);
+export const ZeroComparisonOperator = Schema.Literals(zeroComparisonOperatorList);
+export type ZeroComparisonOperator = typeof ZeroComparisonOperator.Type;
 
 type Whereable<Self> = {
   readonly where: (field: string, operator: ZeroComparisonOperator, value: unknown) => Self;
@@ -118,12 +119,7 @@ export const defineZeroTableAccess = <
     field: string,
     operator: ZeroComparisonOperator,
     value: unknown,
-  ): Query => {
-    if (!zeroComparisonOperators.has(operator)) {
-      throw new TypeError(`Unsupported Zero comparison operator: ${operator}`);
-    }
-    return query.where(field, operator, value);
-  };
+  ): Query => query.where(field, Schema.decodeUnknownSync(ZeroComparisonOperator)(operator), value);
 
   const upsertWithTimestamps = <
     const Value extends Record<string, unknown>,
@@ -167,14 +163,14 @@ export const defineZeroTableAccess = <
   const softDeleteByPrimaryKey = <const Value extends PrimaryKeyValue<Options>>(
     primaryKey: Value,
   ): WithUpdatedAt<WithSoftDelete<Value, Options>, Options> => {
-    if (!options.softDelete) {
+    if (!options.softDelete && !options.timestamps) {
       return primaryKey as WithUpdatedAt<WithSoftDelete<Value, Options>, Options>;
     }
 
     const now = Date.now();
     return {
       ...primaryKey,
-      [options.softDelete]: now,
+      ...(options.softDelete ? { [options.softDelete]: now } : {}),
       ...(options.timestamps ? { [options.timestamps.updatedAt]: now } : {}),
     } as WithUpdatedAt<WithSoftDelete<Value, Options>, Options>;
   };
@@ -201,4 +197,8 @@ export const defineZeroTableAccess = <
   };
 };
 
-export type ZeroTableAccess = ReturnType<typeof defineZeroTableAccess>;
+export type ZeroTableAccess<
+  Model extends ModelWithVariants,
+  Table,
+  Options extends DefineZeroTableAccessOptions,
+> = ReturnType<typeof defineZeroTableAccess<Model, Table, Options>>;

@@ -5,10 +5,11 @@ import { readJournalEffect, readLatestSnapshotEffect } from "effect-sql-kit";
 import { snapshotSchema, type SchemaSnapshot } from "effect-sql-schema/snapshot";
 import { inferTable } from "effect-zero";
 import { fileURLToPath } from "node:url";
-import effectZeroConfig from "../../effect-zero.config";
-import * as publicModels from "../models";
-import { schema as canonicalSchema } from "../schema";
-import { schema as generatedZeroSchema } from "./schema";
+import { schema as generatedZeroSchema } from "sheet-zero-api/schema";
+import { sheetZeroTablePrefix } from "sheet-zero-api/server";
+import effectZeroConfig from "../effect-zero.config";
+import * as publicModels from "./models";
+import { schema as canonicalSchema, sheetDbTablePrefix } from "./schema";
 
 type ZeroTable = (typeof effectZeroConfig.tables)[keyof typeof effectZeroConfig.tables];
 
@@ -44,9 +45,7 @@ const projectZeroSchema = () => ({
 });
 
 const readLatestMigrationSchema = Effect.gen(function* () {
-  const migrationsDirectory = fileURLToPath(
-    new URL("../../effect-sql-migrations/", import.meta.url),
-  );
+  const migrationsDirectory = fileURLToPath(new URL("../effect-sql-migrations/", import.meta.url));
   const journal = yield* readJournalEffect(migrationsDirectory, "postgresql");
   const latestMigration = yield* readLatestSnapshotEffect(migrationsDirectory, journal);
   if (latestMigration === undefined) {
@@ -82,6 +81,10 @@ const columnFacts = (input: SchemaSnapshot) =>
     );
 
 describe("canonical schema artifact parity", () => {
+  it("keeps the extracted workflow table prefix aligned with persistence", () => {
+    expect(sheetZeroTablePrefix).toBe(sheetDbTablePrefix);
+  });
+
   it("generates Zero tables and relationships from the canonical AST", () => {
     expect(generatedZeroSchema).toEqual(projectZeroSchema());
     expect(effectZeroConfig.relationships).toBe(canonicalSchema.relationships);

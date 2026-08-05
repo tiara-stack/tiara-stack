@@ -113,7 +113,19 @@ export const makeMessageTeamSubmissionGroup = <
         messageId: Schema.String,
         confirmationMessageId: Schema.String,
       }),
-      mutator: async ({ tx, args }) =>
+      mutator: async ({ tx, args }) => {
+        const activeSubmission = await tx.run(
+          zeroTableAccess.messageTeamSubmission.getActiveByPrimaryKey(
+            zeroTableAccess.messageTeamSubmission.table,
+            {
+              workspaceId: args.workspaceId,
+              conversationId: args.conversationId,
+              messageId: args.messageId,
+            },
+          ),
+        );
+        if (Predicate.isNullish(activeSubmission)) return;
+
         await tx.mutate.messageTeamSubmission.update(
           zeroTableAccess.messageTeamSubmission.updateWithTimestamp({
             workspaceId: args.workspaceId,
@@ -121,7 +133,8 @@ export const makeMessageTeamSubmissionGroup = <
             messageId: args.messageId,
             confirmationMessageId: args.confirmationMessageId,
           }),
-        ),
+        );
+      },
     }),
   );
 

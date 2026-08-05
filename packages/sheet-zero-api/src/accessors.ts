@@ -1,20 +1,20 @@
 import {
-  configUserPlatform as configUserPlatformModel,
-  configWorkspace as configWorkspaceModel,
-  configWorkspaceConversation as configWorkspaceConversationModel,
-  configWorkspaceFeatureFlag as configWorkspaceFeatureFlagModel,
-  configWorkspaceMonitorRole as configWorkspaceMonitorRoleModel,
-  configWorkspaceTeamSubmissionChannel as configWorkspaceTeamSubmissionChannelModel,
-  configWorkspaceUpdateAnnouncementDelivery as configWorkspaceUpdateAnnouncementDeliveryModel,
-  messageCheckin as messageCheckinModel,
-  messageCheckinMember as messageCheckinMemberModel,
-  messageRoomOrder as messageRoomOrderModel,
-  messageRoomOrderEntry as messageRoomOrderEntryModel,
-  messageTeamSubmission as messageTeamSubmissionModel,
-  messageSlot as messageSlotModel,
-} from "../models";
+  ConfigUserPlatformRow,
+  ConfigWorkspaceConversationRow,
+  ConfigWorkspaceFeatureFlagRow,
+  ConfigWorkspaceMonitorRoleRow,
+  ConfigWorkspaceRow,
+  ConfigWorkspaceTeamSubmissionChannelRow,
+  ConfigWorkspaceUpdateAnnouncementDeliveryRow,
+  MessageCheckinMemberRow,
+  MessageCheckinRow,
+  MessageRoomOrderEntryRow,
+  MessageRoomOrderRow,
+  MessageSlotRow,
+  MessageTeamSubmissionRow,
+} from "./rows";
 import { builder } from "./schema";
-import { defineZeroTableAccess, type ZeroTableAccess } from "./tableAccess";
+import { defineZeroTableAccess } from "./tableAccess";
 
 const timestampOptions = {
   createdAt: "createdAt",
@@ -36,32 +36,23 @@ type ZeroTableName =
   | "messageSlot"
   | "messageTeamSubmission";
 
-type ZeroTableAccessRegistry = Readonly<{
-  [Name in ZeroTableName]: Omit<ZeroTableAccess, "upsertWithTimestamps" | "updateWithTimestamp"> & {
-    readonly table: (typeof builder)[Name];
-    readonly upsertWithTimestamps: <const Value extends Record<string, unknown>>(
-      value: Value,
-      existing?: Partial<Record<"createdAt", number | undefined>>,
-    ) => Value & Record<"createdAt" | "updatedAt", number>;
-    readonly updateWithTimestamp: <const Value extends Record<string, unknown>>(
-      value: Value,
-    ) => Value & Record<"updatedAt", number>;
-  };
-}>;
-
-export const zeroTableAccess: ZeroTableAccessRegistry = {
-  configWorkspace: defineZeroTableAccess(configWorkspaceModel, builder.configWorkspace, {
+export const zeroTableAccess = {
+  configWorkspace: defineZeroTableAccess({ json: ConfigWorkspaceRow }, builder.configWorkspace, {
     primaryKey: ["workspaceId"],
     softDelete: "deletedAt",
     timestamps: timestampOptions,
   }),
-  configUserPlatform: defineZeroTableAccess(configUserPlatformModel, builder.configUserPlatform, {
-    primaryKey: ["platform", "userId"],
-    softDelete: "deletedAt",
-    timestamps: timestampOptions,
-  }),
+  configUserPlatform: defineZeroTableAccess(
+    { json: ConfigUserPlatformRow },
+    builder.configUserPlatform,
+    {
+      primaryKey: ["platform", "userId"],
+      softDelete: "deletedAt",
+      timestamps: timestampOptions,
+    },
+  ),
   configWorkspaceMonitorRole: defineZeroTableAccess(
-    configWorkspaceMonitorRoleModel,
+    { json: ConfigWorkspaceMonitorRoleRow },
     builder.configWorkspaceMonitorRole,
     {
       primaryKey: ["workspaceId", "roleId"],
@@ -70,7 +61,7 @@ export const zeroTableAccess: ZeroTableAccessRegistry = {
     },
   ),
   configWorkspaceFeatureFlag: defineZeroTableAccess(
-    configWorkspaceFeatureFlagModel,
+    { json: ConfigWorkspaceFeatureFlagRow },
     builder.configWorkspaceFeatureFlag,
     {
       primaryKey: ["workspaceId", "flagName"],
@@ -79,7 +70,7 @@ export const zeroTableAccess: ZeroTableAccessRegistry = {
     },
   ),
   configWorkspaceUpdateAnnouncementDelivery: defineZeroTableAccess(
-    configWorkspaceUpdateAnnouncementDeliveryModel,
+    { json: ConfigWorkspaceUpdateAnnouncementDeliveryRow },
     builder.configWorkspaceUpdateAnnouncementDelivery,
     {
       primaryKey: ["workspaceId", "announcementId"],
@@ -88,7 +79,7 @@ export const zeroTableAccess: ZeroTableAccessRegistry = {
     },
   ),
   configWorkspaceConversation: defineZeroTableAccess(
-    configWorkspaceConversationModel,
+    { json: ConfigWorkspaceConversationRow },
     builder.configWorkspaceConversation,
     {
       primaryKey: ["workspaceId", "conversationId"],
@@ -97,7 +88,7 @@ export const zeroTableAccess: ZeroTableAccessRegistry = {
     },
   ),
   configWorkspaceTeamSubmissionChannel: defineZeroTableAccess(
-    configWorkspaceTeamSubmissionChannelModel,
+    { json: ConfigWorkspaceTeamSubmissionChannelRow },
     builder.configWorkspaceTeamSubmissionChannel,
     {
       primaryKey: ["workspaceId", "conversationId"],
@@ -105,13 +96,13 @@ export const zeroTableAccess: ZeroTableAccessRegistry = {
       timestamps: timestampOptions,
     },
   ),
-  messageCheckin: defineZeroTableAccess(messageCheckinModel, builder.messageCheckin, {
+  messageCheckin: defineZeroTableAccess({ json: MessageCheckinRow }, builder.messageCheckin, {
     primaryKey: ["clientPlatform", "clientId", "messageId"],
     softDelete: "deletedAt",
     timestamps: timestampOptions,
   }),
   messageCheckinMember: defineZeroTableAccess(
-    messageCheckinMemberModel,
+    { json: MessageCheckinMemberRow },
     builder.messageCheckinMember,
     {
       primaryKey: ["clientPlatform", "clientId", "messageId", "memberId"],
@@ -119,13 +110,13 @@ export const zeroTableAccess: ZeroTableAccessRegistry = {
       timestamps: timestampOptions,
     },
   ),
-  messageRoomOrder: defineZeroTableAccess(messageRoomOrderModel, builder.messageRoomOrder, {
+  messageRoomOrder: defineZeroTableAccess({ json: MessageRoomOrderRow }, builder.messageRoomOrder, {
     primaryKey: ["clientPlatform", "clientId", "messageId"],
     softDelete: "deletedAt",
     timestamps: timestampOptions,
   }),
   messageRoomOrderEntry: defineZeroTableAccess(
-    messageRoomOrderEntryModel,
+    { json: MessageRoomOrderEntryRow },
     builder.messageRoomOrderEntry,
     {
       primaryKey: ["clientPlatform", "clientId", "messageId", "rank", "position"],
@@ -133,13 +124,13 @@ export const zeroTableAccess: ZeroTableAccessRegistry = {
       timestamps: timestampOptions,
     },
   ),
-  messageSlot: defineZeroTableAccess(messageSlotModel, builder.messageSlot, {
+  messageSlot: defineZeroTableAccess({ json: MessageSlotRow }, builder.messageSlot, {
     primaryKey: ["clientPlatform", "clientId", "messageId"],
     softDelete: "deletedAt",
     timestamps: timestampOptions,
   }),
   messageTeamSubmission: defineZeroTableAccess(
-    messageTeamSubmissionModel,
+    { json: MessageTeamSubmissionRow },
     builder.messageTeamSubmission,
     {
       primaryKey: ["workspaceId", "conversationId", "messageId"],
@@ -147,4 +138,4 @@ export const zeroTableAccess: ZeroTableAccessRegistry = {
       timestamps: timestampOptions,
     },
   ),
-};
+} satisfies Record<ZeroTableName, unknown>;

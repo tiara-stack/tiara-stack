@@ -22,6 +22,7 @@ import {
   type SchemaSnapshot,
 } from "effect-sql-schema/snapshot";
 import type { ZeroClient } from "typhoon-zero/client";
+import { builder, schema as zeroSchema, type Schema as SheetZeroSchema } from "sheet-zero-api";
 import {
   configUserPlatform,
   configWorkspace,
@@ -40,7 +41,6 @@ import {
   workflowRun,
 } from "./models";
 import { schema as canonicalSchema } from "./schema";
-import { builder, schema as zeroSchema, type Schema as SheetZeroSchema } from "./zero/schema";
 
 type Insert<Model extends { readonly insert: Schema.Top }> = Schema.Schema.Type<Model["insert"]>;
 type Row<Model extends { readonly json: Schema.Top }> = Schema.Schema.Type<Model["json"]>;

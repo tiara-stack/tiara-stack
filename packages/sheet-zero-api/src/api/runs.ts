@@ -1,23 +1,14 @@
-import {
-  DelegatedWorkflowEnqueueRequest,
-  isWorkflowZeroContext,
-  makeZeroWorkflowComponent,
-  WorkflowCommandRequest,
-  WorkflowEnqueueRequest,
-  WorkflowEventRequest,
-  WorkflowRunNotAccessibleError,
-  type ZeroWorkflowComponent,
-  type WorkflowZeroContext,
-} from "effect-zero-workflow";
-import { sheetDbTablePrefix } from "../../schema";
+import { makeZeroWorkflowComponent, type ZeroWorkflowComponent } from "effect-zero-workflow";
 import { schema, zql } from "../schema";
+
+export const sheetZeroTablePrefix = "sheet_db";
 
 type SheetWorkflowComponent = ZeroWorkflowComponent<typeof schema>;
 
 const workflowComponent: SheetWorkflowComponent = makeZeroWorkflowComponent({
   schema,
   workflowRun: zql.workflowRun,
-  tablePrefix: sheetDbTablePrefix,
+  tablePrefix: sheetZeroTablePrefix,
   delegatedContext: (principalId) => ({
     principalId,
     visibilityKey: `account:${principalId}`,
@@ -36,13 +27,3 @@ export const mutateWithWorkflow: SheetWorkflowComponent["mutateWithWorkflow"] =
 export type RunsGroup = SheetWorkflowComponent["runsGroup"];
 
 export const runsGroup: RunsGroup = workflowComponent.runsGroup;
-
-export {
-  DelegatedWorkflowEnqueueRequest,
-  isWorkflowZeroContext,
-  WorkflowCommandRequest,
-  WorkflowEnqueueRequest,
-  WorkflowEventRequest,
-  WorkflowRunNotAccessibleError,
-  type WorkflowZeroContext,
-};
