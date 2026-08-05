@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { NotificationClient as WorkflowNotificationClient } from "sheet-workflow-contracts/values";
 import { AuditTimestampFields } from "../auditTimestamps";
 import { ClientPlatform } from "../client/clientRefs";
 
@@ -14,10 +15,8 @@ export class UserPlatformConfig extends Schema.TaggedClass<UserPlatformConfig>()
   },
 ) {}
 
-export const SupportedNotificationClient = Schema.Struct({
-  platform: ClientPlatform,
-  clientId: Schema.String,
-});
+// Temporary gateway-era compatibility name. New consumers import NotificationClient directly.
+export const SupportedNotificationClient = WorkflowNotificationClient;
 
 export type SupportedNotificationClient = typeof SupportedNotificationClient.Type;
 

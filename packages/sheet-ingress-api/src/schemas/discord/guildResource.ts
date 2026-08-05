@@ -1,21 +1,13 @@
-import { Schema } from "effect";
+import {
+  DiscordChannel as WorkflowDiscordChannel,
+  DiscordRole as WorkflowDiscordRole,
+} from "sheet-workflow-contracts/values";
 
-export const DiscordGuildChannel = Schema.Struct({
-  id: Schema.String,
-  name: Schema.String,
-  type: Schema.Int,
-  parentId: Schema.NullOr(Schema.String),
-  position: Schema.Int,
-});
+// Temporary gateway-era compatibility names. New consumers import the workflow-owned schemas.
+export const DiscordGuildChannel = WorkflowDiscordChannel;
 
 export type DiscordGuildChannel = typeof DiscordGuildChannel.Type;
 
-export const DiscordGuildRole = Schema.Struct({
-  id: Schema.String,
-  name: Schema.String,
-  position: Schema.Int,
-  color: Schema.Int,
-  managed: Schema.Boolean,
-});
+export const DiscordGuildRole = WorkflowDiscordRole;
 
 export type DiscordGuildRole = typeof DiscordGuildRole.Type;

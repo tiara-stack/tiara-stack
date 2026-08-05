@@ -18,6 +18,8 @@
       "sheet-domain": ["../sheet-domain/src/index.ts"],
       "sheet-bot-api": ["../sheet-bot-api/src/index.ts"],
       "sheet-bot-api/*": ["../sheet-bot-api/src/*"],
+      "sheet-workflow-contracts": ["../sheet-workflow-contracts/src/index.ts"],
+      "sheet-workflow-contracts/*": ["../sheet-workflow-contracts/src/*"],
       "typhoon-core": ["../typhoon-core/src/index.ts"],
       "typhoon-core/*": ["../typhoon-core/src/*"],
       "typhoon-zero": ["../typhoon-zero/src/index.ts"],
@@ -33,6 +35,9 @@
     },
     {
       "path": "../sheet-domain"
+    },
+    {
+      "path": "../sheet-workflow-contracts"
     },
     {
       "path": "../typhoon-core"

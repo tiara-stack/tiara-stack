@@ -133,6 +133,14 @@ export const sheetPackageBoundaryPolicy = {
       removeWhen: "Delete the ingress runtime after the Deletion Gate and Legacy Quarantine.",
     },
     {
+      code: "gateway-capability-combination",
+      package: "sheet-ingress-api",
+      target: "sheet-bot-api,sheet-workflow-contracts",
+      reason:
+        "The legacy combined contract package temporarily re-exports moved workflow values while callers migrate.",
+      removeWhen: "Delete sheet-ingress-api after every caller uses capability-owned contracts.",
+    },
+    {
       code: "forbidden-sheet-dependency",
       package: "sheet-message-content",
       target: "sheet-ingress-api",

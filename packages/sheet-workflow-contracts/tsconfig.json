@@ -1,0 +1,24 @@
+{
+  "extends": "../../tsconfig.browser.json",
+  "include": ["**/*.ts", "**/*.tsx", "**/*.mts"],
+  "exclude": ["node_modules", "dist", ".output", ".ts-out"],
+  "compilerOptions": {
+    "outDir": "./.ts-out",
+    "rootDir": ".",
+    "tsBuildInfoFile": "./.ts-out/.tsbuildinfo",
+    "verbatimModuleSyntax": true,
+    "paths": {
+      "*": ["./*"],
+      "effect-zero-workflow/*": ["../effect-zero-workflow/src/*"],
+      "sheet-bot-api": ["../sheet-bot-api/src/index.ts"],
+      "sheet-bot-api/*": ["../sheet-bot-api/src/*"],
+      "sheet-domain": ["../sheet-domain/src/index.ts"]
+    }
+  },
+  "references": [
+    { "path": "../effect-zero-workflow" },
+    { "path": "../sheet-bot-api" },
+    { "path": "../sheet-domain" },
+    { "path": "../tooling-config" }
+  ]
+}

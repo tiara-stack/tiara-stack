@@ -133,6 +133,7 @@
     "discord-api-types": "catalog:",
     "sheet-bot-api": "workspace:*",
     "sheet-domain": "workspace:*",
+    "sheet-workflow-contracts": "workspace:*",
     "typhoon-core": "workspace:*",
     "typhoon-zero": "workspace:*"
   },
