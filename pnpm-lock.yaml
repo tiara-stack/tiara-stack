@@ -724,12 +724,15 @@ importers:
       postgres:
         specifier: ^3.4.7
         version: 3.4.7
-      sheet-auth:
-        specifier: workspace:*
-        version: link:../sheet-auth
       sheet-db-schema:
         specifier: workspace:*
         version: link:../sheet-db-schema
+      sheet-zero-api:
+        specifier: workspace:*
+        version: link:../sheet-zero-api
+      sheet-zero-server:
+        specifier: workspace:*
+        version: link:../sheet-zero-server
       typhoon-core:
         specifier: workspace:*
         version: link:../typhoon-core
@@ -1213,6 +1216,9 @@ importers:
       sheet-message-content:
         specifier: workspace:*
         version: link:../sheet-message-content
+      sheet-zero-server:
+        specifier: workspace:*
+        version: link:../sheet-zero-server
       typhoon-core:
         specifier: workspace:*
         version: link:../typhoon-core
@@ -1266,6 +1272,46 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 24.10.9
+      tooling-config:
+        specifier: workspace:*
+        version: link:../tooling-config
+      vite:
+        specifier: npm:@voidzero-dev/vite-plus-core@0.2.2
+        version: '@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0)'
+      vite-plus:
+        specifier: 'catalog:'
+        version: '@tiara-stack/vite-plus@0.2.4(@opentelemetry/api@1.9.0)(@tiara-stack/vite-plus@0.2.4)(@types/node@24.10.9)(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(esbuild@0.28.1)(jiti@2.6.1)(jsdom@27.4.0(@noble/hashes@2.0.1))(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0)'
+      vitest:
+        specifier: 4.1.9
+        version: 4.1.9(@opentelemetry/api@1.9.0)(@types/node@24.10.9)(@vitest/browser-preview@4.1.9)(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(jsdom@27.4.0(@noble/hashes@2.0.1))
+
+  packages/sheet-zero-server:
+    dependencies:
+      '@rocicorp/zero':
+        specifier: ^0.25.9
+        version: 0.25.9(@opentelemetry/core@2.2.0(@opentelemetry/api@1.9.0))
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.67
+      sheet-auth:
+        specifier: workspace:*
+        version: link:../sheet-auth
+      sheet-zero-api:
+        specifier: workspace:*
+        version: link:../sheet-zero-api
+      typhoon-zero:
+        specifier: workspace:*
+        version: link:../typhoon-zero
+    devDependencies:
+      '@effect/vitest':
+        specifier: 'catalog:'
+        version: '@tiara-stack/effect-vitest@4.0.0-beta.93.tiara.2(@tiara-stack/vite-plus@0.2.4(@opentelemetry/api@1.9.0)(@tiara-stack/vite-plus@0.2.4)(@types/node@24.10.9)(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(esbuild@0.28.1)(jiti@2.6.1)(jsdom@27.4.0(@noble/hashes@2.0.1))(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(effect@4.0.0-beta.67)'
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.10.9
+      sheet-db-schema:
+        specifier: workspace:*
+        version: link:../sheet-db-schema
       tooling-config:
         specifier: workspace:*
         version: link:../tooling-config

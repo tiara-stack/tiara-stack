@@ -39,8 +39,9 @@
     "drizzle-orm": "^0.45.1",
     "effect": "catalog:",
     "postgres": "^3.4.7",
-    "sheet-auth": "workspace:*",
     "sheet-db-schema": "workspace:*",
+    "sheet-zero-api": "workspace:*",
+    "sheet-zero-server": "workspace:*",
     "typhoon-core": "workspace:*",
     "typhoon-zero": "workspace:*"
   },

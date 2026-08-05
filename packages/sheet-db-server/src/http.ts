@@ -1,34 +1,27 @@
 import { HttpApiBuilder, HttpApiSwagger } from "effect/unstable/httpapi";
-import {
-  HttpRouter,
-  HttpServer,
-  HttpServerRequest,
-  HttpServerResponse,
-} from "effect/unstable/http";
+import { HttpRouter, HttpServer, HttpServerResponse } from "effect/unstable/http";
 import { NodeHttpServer } from "@effect/platform-node";
 import { Effect, Layer } from "effect";
 import { createServer } from "http";
-import { makeZeroHttpLive } from "typhoon-zero/server";
-import { mutators, queries, schema } from "sheet-db-schema/zero";
+import { makeSheetZeroAuthorizationLayer, makeSheetZeroHttpLayer } from "sheet-zero-server";
 import { Api } from "./api";
+import { config } from "./config";
 import { DBService } from "./services/db";
-import { WorkflowZeroAuthorization } from "./services/workflowZeroAuthorization";
 
-const ZeroHttpLive = makeZeroHttpLive(Api, {
-  schema,
-  queries,
-  mutators,
-  context: (procedureNames) =>
-    Effect.gen(function* () {
-      const request = yield* HttpServerRequest.HttpServerRequest;
-      const authorization = yield* WorkflowZeroAuthorization;
-      return yield* authorization.authorize(procedureNames, request.headers);
-    }),
+const SheetZeroAuthorizationLive = Layer.unwrap(
+  Effect.gen(function* () {
+    const issuer = yield* config.sheetAuthIssuer;
+    const audience = yield* config.sheetAuthOAuthAudience;
+    return makeSheetZeroAuthorizationLayer({ issuer, audience });
+  }),
+);
+
+const ZeroHttpLive = makeSheetZeroHttpLayer(Api, {
   zql: Effect.gen(function* () {
     const dbService = yield* DBService;
     return dbService.zql;
   }),
-}).pipe(Layer.provide(DBService.layer), Layer.provide(WorkflowZeroAuthorization.layer));
+}).pipe(Layer.provide(DBService.layer), Layer.provide(SheetZeroAuthorizationLive));
 
 const ApiLayer = Layer.provide(HttpApiBuilder.layer(Api), [ZeroHttpLive]).pipe(
   Layer.merge(HttpApiSwagger.layer(Api)),

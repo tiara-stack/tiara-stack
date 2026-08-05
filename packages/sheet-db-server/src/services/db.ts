@@ -5,7 +5,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { Cause, Effect, Layer, pipe, Context, Redacted } from "effect";
 import postgres from "postgres";
 import { sheetDbMigrations, sheetDbMigrationTable } from "sheet-db-schema/migrations";
-import { schema as zeroSchema } from "sheet-db-schema/zero";
+import { schema as zeroSchema } from "sheet-zero-api";
 import { config } from "@/config";
 
 const migrationPgClientLayer = Layer.unwrap(

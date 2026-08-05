@@ -40,6 +40,23 @@ Contract-only typed bot capability package. It owns cache-read and idempotent de
 
 **Exports**: `.`, `./admission`, `./cache`, `./delivery`, `./errors`, `./http`, `./message`, `./references`
 
+### `sheet-zero-api` (packages/sheet-zero-api)
+
+Browser-safe replicated Sheet Zero schema, public and trusted procedure declarations, generated
+registries, and typed application/service clients.
+
+**Dependencies**: `@rocicorp/zero`, `effect-zero-workflow`, `sheet-domain`, `typhoon-core`, `typhoon-zero` (peer: `effect`)
+
+### `sheet-zero-server` (packages/sheet-zero-server)
+
+Server-only Sheet Zero implementation shared by runtime compositions. It binds authorization and
+database execution to the canonical procedure registries and exposes the policy-filtered trusted
+persistence interface. It does not own an HTTP listener or raw/generic database access.
+
+**Dependencies**: `@rocicorp/zero`, `effect`, `sheet-auth`, `sheet-zero-api`, `typhoon-zero`
+
+**Exports**: `.`, `./authorization`, `./http`, `./persistence` (all browser-blocked)
+
 ### `sheet-apis` (packages/sheet-apis)
 
 Backend API server for Google Sheets integration using Effect's HttpApiBuilder, providing HTTP API handlers for sheet operations, calculations, guild configuration, and message management.
@@ -50,7 +67,7 @@ Backend API server for Google Sheets integration using Effect's HttpApiBuilder, 
 
 Workflow runtime service for sheet dispatch and auto-checkin workflows using Effect Workflow/Cluster. It accepts workflow dispatch RPCs, executes durable command/button workflows, coordinates auto-checkin enqueueing, calls `sheet-apis` through ingress contracts, and stores workflow runner/message state in PostgreSQL.
 
-**Dependencies**: Effect platform/node/opentelemetry/sql stack, `effect-zero-workflow`, `sheet-auth`, `sheet-bot-api`, `sheet-ingress-api`, `dfx-discord-utils`, `typhoon-core`, `typhoon-zero`
+**Dependencies**: Effect platform/node/opentelemetry/sql stack, `effect-zero-workflow`, `sheet-auth`, `sheet-bot-api`, `sheet-ingress-api`, `sheet-zero-server`, `dfx-discord-utils`, `typhoon-core`, `typhoon-zero`
 
 ### `sheet-ingress-api` (packages/sheet-ingress-api)
 
@@ -76,7 +93,7 @@ Ingress/proxy server that fronts sheet API, workflow dispatch, and sheet bot/Dis
 
 Database server providing Zero (real-time sync) HTTP API for the sheet database schema using Rocicorp Zero.
 
-**Dependencies**: Effect ecosystem, `@rocicorp/zero`, `drizzle-orm`, `postgres`, `sheet-db-schema`, `typhoon-core`, `typhoon-zero`
+**Dependencies**: Effect ecosystem, `@rocicorp/zero`, `drizzle-orm`, `postgres`, `sheet-db-schema`, `sheet-zero-api`, `sheet-zero-server`, `typhoon-core`, `typhoon-zero`
 
 ### `sheet-db-schema` (packages/sheet-db-schema)
 

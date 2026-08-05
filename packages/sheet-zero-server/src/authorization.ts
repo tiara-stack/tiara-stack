@@ -4,15 +4,23 @@ import {
   makeOAuthResourceTokenAuthorizer,
   type VerifiedOAuthResourceToken,
 } from "sheet-auth/oauth-resource-authorization";
-import type { WorkflowZeroContext } from "sheet-db-schema/zero";
 import { ZeroDispatchUnauthorizedError } from "typhoon-zero/server";
-import { config } from "../config";
 
-interface WorkflowZeroAuthorizationService {
+export interface WorkflowZeroContext {
+  readonly principalId: string;
+  readonly visibilityKey: string;
+}
+
+interface SheetZeroAuthorizationShape {
   readonly authorize: (
     procedureNames: readonly string[],
     headers: Headers.Headers,
   ) => Effect.Effect<WorkflowZeroContext, ZeroDispatchUnauthorizedError>;
+}
+
+export interface SheetZeroAuthorizationOptions {
+  readonly issuer: string;
+  readonly audience: string;
 }
 
 const unauthorized = (message: string) =>
@@ -28,8 +36,6 @@ const delegatedRunProcedures = new Set<string>(["runs.enqueueAsCaller"]);
 const isRunsProcedure = (procedure: string) => procedure.startsWith("runs.");
 
 const classifyProcedureBatch = (procedureNames: readonly string[]): ProcedureBatch => {
-  // Any delegated procedure takes precedence for the whole batch, including
-  // mixed batches that also contain procedures outside the runs API.
   if (procedureNames.some((procedure) => delegatedRunProcedures.has(procedure))) {
     return "delegated";
   }
@@ -99,18 +105,18 @@ export const zeroContextFromToken = (
   );
 };
 
-export class WorkflowZeroAuthorization extends Context.Service<
-  WorkflowZeroAuthorization,
-  WorkflowZeroAuthorizationService
->()("sheet-db-server/WorkflowZeroAuthorization") {
-  static readonly layer = Layer.effect(
-    WorkflowZeroAuthorization,
+export class SheetZeroAuthorization extends Context.Service<
+  SheetZeroAuthorization,
+  SheetZeroAuthorizationShape
+>()("sheet-zero-server/SheetZeroAuthorization") {}
+
+export const makeSheetZeroAuthorizationLayer = (options: SheetZeroAuthorizationOptions) =>
+  Layer.effect(
+    SheetZeroAuthorization,
     Effect.gen(function* () {
-      const issuer = yield* config.sheetAuthIssuer;
-      const audience = yield* config.sheetAuthOAuthAudience;
       const authorizer = yield* makeOAuthResourceTokenAuthorizer({
-        issuer,
-        audience,
+        issuer: options.issuer,
+        audience: options.audience,
         headerName: "authorization",
         requiredScopes: [],
         makeUnauthorized: ({ message }) =>
@@ -127,4 +133,3 @@ export class WorkflowZeroAuthorization extends Context.Service<
       };
     }),
   );
-}

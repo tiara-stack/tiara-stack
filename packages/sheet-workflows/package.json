@@ -36,6 +36,7 @@
     "sheet-db-schema": "workspace:*",
     "sheet-ingress-api": "workspace:*",
     "sheet-message-content": "workspace:*",
+    "sheet-zero-server": "workspace:*",
     "typhoon-core": "workspace:*",
     "typhoon-zero": "workspace:*"
   },

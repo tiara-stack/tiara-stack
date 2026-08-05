@@ -41,6 +41,9 @@
       "path": "packages/sheet-zero-api"
     },
     {
+      "path": "packages/sheet-zero-server"
+    },
+    {
       "path": "packages/sheet-db-schema"
     },
     {

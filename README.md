@@ -29,6 +29,8 @@ flowchart TB
 
     subgraph Data_Layer["Data & Sync Layer"]
         DBServer["sheet-db-server<br/>Zero Sync Server"]
+        ZeroServer["sheet-zero-server<br/>Shared Server Implementation"]
+        ZeroAPI["sheet-zero-api<br/>Replicated Application API"]
         Schema["sheet-db-schema<br/>Drizzle ORM Schema"]
     end
 
@@ -77,6 +79,8 @@ flowchart TB
 
     DBServer -->|"Queries"| Postgres
     DBServer -->|"Schema"| Schema
+    DBServer -->|"Composes"| ZeroServer
+    ZeroServer -->|"Implements"| ZeroAPI
     DBServer -.->|"Uses"| Core
     DBServer -.->|"Uses"| Zero
 
@@ -110,6 +114,7 @@ flowchart TB
 | `sheet-workflows`      | Workflow runtime for dispatch and auto-checkin | Effect Cluster, Effect Workflow, PostgreSQL      |
 | `sheet-ingress-server` | HTTP ingress/proxy for sheet and Discord APIs  | Effect.ts, HttpApiBuilder                        |
 | `sheet-db-server`      | Real-time sync database server                 | Rocicorp Zero, Drizzle ORM                       |
+| `sheet-zero-server`    | Shared server-only Zero implementation         | Effect.ts, Rocicorp Zero                         |
 | `sheet-auth`           | Authentication service with Discord OAuth      | Better Auth, Hono, Drizzle ORM                   |
 | `sheet-web`            | Web dashboard for guild management             | TanStack Start, React, shadcn/ui                 |
 | `sheet-bot`            | Discord bot for sheet workflows                | dfx, Effect.ts, Handlebars                       |
@@ -122,6 +127,7 @@ flowchart TB
 | `sheet-domain`      | Transport-neutral business values and stable rules | Effect Schema                 |
 | `sheet-bot-api`     | Typed internal bot cache and delivery contracts     | Effect HttpApi, Effect Schema |
 | `sheet-db-schema`   | PostgreSQL schema with Zero integration            | Drizzle ORM, drizzle-zero     |
+| `sheet-zero-api`    | Replicated schema, procedures, and typed clients    | Rocicorp Zero, Effect Schema  |
 | `sheet-ingress-api` | Shared HttpApi contracts, schemas, middleware tags | Effect HttpApi, Effect Schema |
 | `sheet-message-content` | Shared messaging content and rendering helpers | Effect Schema |
 | `sheet-formulas`    | Google Apps Script formulas library                | Effect.ts, Google Apps Script |
@@ -225,7 +231,14 @@ sequenceDiagram
 
 - Provides real-time sync using Rocicorp Zero
 - Manages PostgreSQL schema via Drizzle ORM
-- Handles query and mutation requests
+- Hosts routing, database lifecycle, and operational endpoints
+- Composes `sheet-zero-server` for shared query, mutation, and authorization handling
+
+1. **Shared Zero Server** (`sheet-zero-server`)
+
+- Binds `sheet-zero-api` procedures to server-side authorization and database execution
+- Exposes the policy-filtered in-process persistence interface intended for workflow definitions
+- Owns no HTTP listener, raw SQL interface, provider action, or deployable runtime
 
 1. **Apps Script** (`sheet-formulas`)
 
@@ -376,9 +389,10 @@ Pull request CI also runs `fallow-rs/fallow` with `command: audit`, which scopes
 │   │   ├── src/telemetry.ts          # Telemetry layer
 │   │   └── src/index.ts              # Server entrypoint
 │   ├── sheet-db-server/              # Zero sync server
-│   │   ├── src/handlers/zero/        # Zero handlers
 │   │   ├── src/services/             # DB service
 │   │   └── src/config/               # Configuration
+│   ├── sheet-zero-api/               # Replicated schema, procedure declarations, and clients
+│   ├── sheet-zero-server/            # Shared authorization, handlers, and trusted persistence
 │   ├── sheet-domain/                 # Transport-neutral business values and stable rules
 │   ├── sheet-bot-api/                # Typed bot cache and delivery contracts
 │   ├── sheet-db-schema/              # Database schemas
@@ -450,6 +464,7 @@ graph TD
     Workflows -->|uses| Core
     Workflows -->|uses| Zero
     Workflows -->|uses| ZeroWorkflow[effect-zero-workflow]
+    Workflows -->|composition contract| ZeroServer[sheet-zero-server]
 
     Bot[sheet-bot] -->|uses| Auth
     Bot -->|uses| Schema
@@ -475,8 +490,14 @@ graph TD
     IngressAPI -->|uses| Zero
 
     DB[sheet-db-server] -->|uses| Schema
+    DB -->|uses| ZeroAPI[sheet-zero-api]
+    DB -->|uses| ZeroServer
     DB -->|uses| Core
     DB -->|uses| Zero
+
+    ZeroServer -->|uses| Auth
+    ZeroServer -->|uses| ZeroAPI
+    ZeroServer -->|uses| Zero
 
     Schema -->|uses| Domain
     Schema -->|uses| Core

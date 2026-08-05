@@ -1,0 +1,61 @@
+{
+  "name": "sheet-zero-server",
+  "version": "0.0.0",
+  "private": true,
+  "files": [
+    "./dist/**"
+  ],
+  "type": "module",
+  "sideEffects": [],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "browser": null,
+      "development": "./src/index.ts",
+      "default": "./dist/index.mjs"
+    },
+    "./authorization": {
+      "types": "./dist/authorization.d.mts",
+      "browser": null,
+      "development": "./src/authorization.ts",
+      "default": "./dist/authorization.mjs"
+    },
+    "./http": {
+      "types": "./dist/http.d.mts",
+      "browser": null,
+      "development": "./src/http.ts",
+      "default": "./dist/http.mjs"
+    },
+    "./persistence": {
+      "types": "./dist/persistence.d.mts",
+      "browser": null,
+      "development": "./src/persistence.ts",
+      "default": "./dist/persistence.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "format": "vp fmt --check",
+    "format:apply": "vp fmt",
+    "lint": "vp lint src",
+    "test": "vp test run",
+    "test:watch": "vp test",
+    "build": "vp pack && tsgo -b tsconfig.json --emitDeclarationOnly --force"
+  },
+  "dependencies": {
+    "@rocicorp/zero": "^0.25.9",
+    "effect": "catalog:",
+    "sheet-auth": "workspace:*",
+    "sheet-zero-api": "workspace:*",
+    "typhoon-zero": "workspace:*"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "@types/node": "catalog:",
+    "sheet-db-schema": "workspace:*",
+    "tooling-config": "workspace:*",
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
+    "vitest": "catalog:"
+  }
+}

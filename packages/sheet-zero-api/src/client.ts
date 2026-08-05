@@ -13,8 +13,8 @@ import type { Schema } from "./schema";
  */
 export type SheetClient = ZeroApiClient.FunctionClient<typeof SheetZeroApi, "public">;
 
-export const makeSheetClient = (
-  zeroClient: ZeroClient.ZeroClientExecutor<Schema, unknown>,
+export const makeSheetClient = <Context>(
+  zeroClient: ZeroClient.ZeroClientExecutor<Schema, Context>,
 ): Effect.Effect<SheetClient> =>
   ZeroApiClient.makeFunctionsWithService(SheetZeroApi, zeroClient, {
     queries,

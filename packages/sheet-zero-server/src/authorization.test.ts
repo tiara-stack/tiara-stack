@@ -1,7 +1,7 @@
 import { Cause, Effect, Exit } from "effect";
 import { describe, expect, it } from "@effect/vitest";
 import type { VerifiedOAuthResourceToken } from "sheet-auth/oauth-resource-authorization";
-import { zeroContextFromToken } from "./workflowZeroAuthorization";
+import { zeroContextFromToken } from "./authorization";
 
 const token = (input: Partial<VerifiedOAuthResourceToken> = {}): VerifiedOAuthResourceToken => ({
   accountId: undefined,
@@ -18,6 +18,32 @@ const failure = <A, E>(exit: Exit.Exit<A, E>) =>
   Exit.isFailure(exit) ? exit.cause.reasons.find(Cause.isFailReason)?.error : undefined;
 
 describe("Zero OAuth context", () => {
+  it.effect("rejects an empty procedure batch without service scope", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(zeroContextFromToken([], token()));
+
+      expect(failure(exit)).toMatchObject({
+        _tag: "ZeroDispatchUnauthorizedError",
+        procedure: "zero",
+        message: "Access outside the runs API requires service scope",
+      });
+    }),
+  );
+
+  it.effect("allows an empty procedure batch for a service caller", () =>
+    Effect.gen(function* () {
+      const context = yield* zeroContextFromToken(
+        [],
+        token({ clientId: "sheet-db-server", scopes: new Set(["service"]) }),
+      );
+
+      expect(context).toEqual({
+        principalId: "sheet-db-server",
+        visibilityKey: "service:sheet-db-server",
+      });
+    }),
+  );
+
   it.effect("allows runs.get without workflow.dispatch", () =>
     Effect.gen(function* () {
       const context = yield* zeroContextFromToken(
