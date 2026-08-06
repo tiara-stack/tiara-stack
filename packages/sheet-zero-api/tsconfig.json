@@ -10,8 +10,14 @@
     "paths": {
       "*": ["./*"],
       "effect-zero-workflow": ["../effect-zero-workflow/src/index.ts"],
+      "effect-zero-workflow/contract/transport": [
+        "../effect-zero-workflow/src/contract-transport.ts"
+      ],
+      "effect-zero-workflow/contract/zero": ["../effect-zero-workflow/src/contract-zero.ts"],
       "effect-zero-workflow/*": ["../effect-zero-workflow/src/*"],
       "sheet-domain": ["../sheet-domain/src/index.ts"],
+      "sheet-workflow-contracts": ["../sheet-workflow-contracts/src/index.ts"],
+      "sheet-workflow-contracts/*": ["../sheet-workflow-contracts/src/*"],
       "typhoon-core": ["../typhoon-core/src/index.ts"],
       "typhoon-core/*": ["../typhoon-core/src/*"],
       "typhoon-zero": ["../typhoon-zero/src/index.ts"],
@@ -21,6 +27,7 @@
   "references": [
     { "path": "../effect-zero-workflow" },
     { "path": "../sheet-domain" },
+    { "path": "../sheet-workflow-contracts" },
     { "path": "../typhoon-core" },
     { "path": "../typhoon-zero" },
     { "path": "../tooling-config" }

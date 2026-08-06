@@ -71,6 +71,9 @@
       "path": "packages/sheet-workflow-contracts"
     },
     {
+      "path": "packages/sheet-workflow-http-client"
+    },
+    {
       "path": "packages/start-atom"
     },
     {

@@ -9,10 +9,18 @@ import {
 import {
   CanonicalInputHash,
   WorkflowContractRegistrationError,
+  makeWorkflowTransportHandler,
+  materializeWorkflowRun,
   validateInvocationReuse,
   validateWorkflowContractRegistrations,
+  type WorkflowInvocationStore,
   type WorkflowInvocationFingerprint,
 } from "./contract-server";
+import {
+  WorkflowInvocationUnauthorized,
+  WorkflowObservationInvalidData,
+  WorkflowObservationUnauthorized,
+} from "./contract-transport";
 
 const First = defineWorkflowContract({
   identity: "example.first",
@@ -149,6 +157,111 @@ describe("Workflow Contract server validation", () => {
       );
       const inputConflict = failureOf(inputConflictExit);
       expect(inputConflict.reason).toBe("CanonicalInputMismatch");
+    }),
+  );
+
+  it.effect("maps invalid stored identifiers and timestamps to typed observation failures", () =>
+    Effect.gen(function* () {
+      const baseRow = {
+        runId: invocationId,
+        status: "pending" as const,
+        result: null,
+        error: null,
+        completedAt: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:01.000Z",
+      };
+      const invalidDate = failureOf(
+        yield* Effect.exit(materializeWorkflowRun(First, { ...baseRow, createdAt: "invalid" })),
+      );
+      const invalidId = failureOf(
+        yield* Effect.exit(materializeWorkflowRun(First, { ...baseRow, runId: "invalid" })),
+      );
+
+      expect(invalidDate).toBeInstanceOf(WorkflowObservationInvalidData);
+      expect(invalidId).toBeInstanceOf(WorkflowObservationInvalidData);
+    }),
+  );
+
+  it.effect("authorizes before persistence and scopes observation by owner", () =>
+    Effect.gen(function* () {
+      let enqueueCount = 0;
+      const observedOwners: Array<string> = [];
+      const listedOwners: Array<string> = [];
+      const store: WorkflowInvocationStore<string> = {
+        enqueue: (invocation) =>
+          Effect.sync(() => {
+            enqueueCount += 1;
+            return invocation.fingerprint;
+          }),
+        get: (ownerKey) =>
+          Effect.sync(() => {
+            observedOwners.push(ownerKey);
+            return undefined;
+          }),
+        list: (ownerKey) =>
+          Effect.sync(() => {
+            listedOwners.push(ownerKey);
+            return [];
+          }),
+      };
+      const handler = yield* makeWorkflowTransportHandler({
+        contracts: [First],
+        registrations: [
+          {
+            contract: First,
+            definitionVersion: "definition-1",
+            authorize: (context: { readonly ownerKey: string; readonly principal: string }) =>
+              context.principal === "allowed"
+                ? Effect.void
+                : Effect.fail(new WorkflowInvocationUnauthorized({ message: "Invocation denied" })),
+            authorizeObservation: (context: {
+              readonly ownerKey: string;
+              readonly principal: string;
+            }) =>
+              context.principal === "allowed"
+                ? Effect.void
+                : Effect.fail(
+                    new WorkflowInvocationUnauthorized({ message: "Observation denied" }),
+                  ),
+          },
+        ],
+        store,
+      });
+
+      const denied = yield* Effect.exit(
+        handler.enqueue(
+          First,
+          { ownerKey: "owner-a", principal: "denied" },
+          { invocationId, input: { value: "hello" } },
+        ),
+      );
+      expect(Exit.isFailure(denied)).toBe(true);
+      expect(failureOf(denied)).toBeInstanceOf(WorkflowInvocationUnauthorized);
+      expect(enqueueCount).toBe(0);
+
+      const deniedGet = yield* Effect.exit(
+        handler.get(First, { ownerKey: "owner-a", principal: "denied" }, invocationId),
+      );
+      const deniedList = yield* Effect.exit(
+        handler.list(First, { ownerKey: "owner-a", principal: "denied" }),
+      );
+      expect(failureOf(deniedGet)).toBeInstanceOf(WorkflowObservationUnauthorized);
+      expect(failureOf(deniedList)).toBeInstanceOf(WorkflowObservationUnauthorized);
+      expect(observedOwners).toEqual([]);
+      expect(listedOwners).toEqual([]);
+
+      yield* handler.enqueue(
+        First,
+        { ownerKey: "owner-a", principal: "allowed" },
+        { invocationId, input: { value: "hello" } },
+      );
+      yield* handler.get(First, { ownerKey: "owner-b", principal: "allowed" }, invocationId);
+      yield* handler.list(First, { ownerKey: "owner-c", principal: "allowed" });
+
+      expect(enqueueCount).toBe(1);
+      expect(observedOwners).toEqual(["owner-b"]);
+      expect(listedOwners).toEqual(["owner-c"]);
     }),
   );
 });

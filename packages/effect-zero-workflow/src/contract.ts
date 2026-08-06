@@ -70,6 +70,28 @@ export type AnyWorkflowContract = WorkflowContract<
   WorkflowAuthorizationPolicyMetadata
 >;
 
+export const isWorkflowContract = (value: unknown): value is AnyWorkflowContract =>
+  Predicate.hasProperty(value, "identity") &&
+  Predicate.hasProperty(value, "wireVersion") &&
+  Predicate.hasProperty(value, "input");
+
+export const mapWorkflowContractTree = (
+  node: Readonly<Record<string, unknown>> | AnyWorkflowContract,
+  map: (contract: AnyWorkflowContract) => unknown,
+): unknown => {
+  if (isWorkflowContract(node)) {
+    return map(node);
+  }
+  return Object.freeze(
+    Object.fromEntries(
+      Object.entries(node).map(([key, value]) => [
+        key,
+        mapWorkflowContractTree(value as Readonly<Record<string, unknown>>, map),
+      ]),
+    ),
+  );
+};
+
 export type WorkflowContractInput<Contract extends AnyWorkflowContract> = Schema.Schema.Type<
   Contract["input"]
 >;

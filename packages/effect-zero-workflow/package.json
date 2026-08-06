@@ -25,6 +25,27 @@
       "development": "./src/contract-server.ts",
       "default": "./dist/contract/server.mjs"
     },
+    "./contract/transport": {
+      "types": "./dist/contract/transport.d.mts",
+      "development": "./src/contract-transport.ts",
+      "default": "./dist/contract/transport.mjs"
+    },
+    "./contract/http": {
+      "types": "./dist/contract/http.d.mts",
+      "development": "./src/contract-http.ts",
+      "default": "./dist/contract/http.mjs"
+    },
+    "./contract/http/server": {
+      "types": "./dist/contract/http/server.d.mts",
+      "browser": null,
+      "development": "./src/contract-http-server.ts",
+      "default": "./dist/contract/http/server.mjs"
+    },
+    "./contract/zero": {
+      "types": "./dist/contract/zero.d.mts",
+      "development": "./src/contract-zero.ts",
+      "default": "./dist/contract/zero.mjs"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {

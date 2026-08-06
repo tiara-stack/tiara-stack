@@ -9,20 +9,24 @@
     "verbatimModuleSyntax": true,
     "paths": {
       "*": ["./*"],
+      "effect-zero-workflow/contract/zero": ["../effect-zero-workflow/src/contract-zero.ts"],
       "sheet-auth": ["../sheet-auth/src/index.ts"],
       "sheet-auth/*": ["../sheet-auth/src/*"],
       "sheet-db-schema": ["../sheet-db-schema/src/schema.ts"],
       "sheet-db-schema/*": ["../sheet-db-schema/src/*"],
       "sheet-zero-api": ["../sheet-zero-api/src/index.ts"],
       "sheet-zero-api/*": ["../sheet-zero-api/src/*"],
+      "sheet-workflow-contracts": ["../sheet-workflow-contracts/src/index.ts"],
       "typhoon-zero": ["../typhoon-zero/src/index.ts"],
       "typhoon-zero/*": ["../typhoon-zero/src/*"]
     }
   },
   "references": [
+    { "path": "../effect-zero-workflow" },
     { "path": "../sheet-auth" },
     { "path": "../sheet-db-schema" },
     { "path": "../sheet-zero-api" },
+    { "path": "../sheet-workflow-contracts" },
     { "path": "../typhoon-zero" },
     { "path": "../tooling-config" }
   ]

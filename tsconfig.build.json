@@ -21,6 +21,7 @@
     { "path": "packages/sheet-message-content" },
     { "path": "packages/sheet-domain" },
     { "path": "packages/sheet-workflows" },
+    { "path": "packages/sheet-workflow-http-client" },
     { "path": "packages/start-atom" },
     { "path": "packages/tiara-review" },
     { "path": "packages/tooling-config" },

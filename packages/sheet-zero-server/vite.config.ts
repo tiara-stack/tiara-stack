@@ -10,9 +10,18 @@ export default library({
       http: entry("http"),
       index: entry("index"),
       persistence: entry("persistence"),
+      workflows: entry("workflows"),
     },
     deps: {
-      neverBundle: ["@rocicorp/zero", "effect", "sheet-auth", "sheet-zero-api", "typhoon-zero"],
+      neverBundle: [
+        "@rocicorp/zero",
+        "effect",
+        "effect-zero-workflow",
+        "sheet-auth",
+        "sheet-workflow-contracts",
+        "sheet-zero-api",
+        "typhoon-zero",
+      ],
     },
   },
 });

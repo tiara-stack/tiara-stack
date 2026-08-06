@@ -1,0 +1,25 @@
+{
+  "extends": "../../tsconfig.browser.json",
+  "include": ["**/*.ts", "**/*.tsx", "**/*.mts"],
+  "exclude": ["node_modules", "dist", ".output", ".ts-out"],
+  "compilerOptions": {
+    "outDir": "./.ts-out",
+    "rootDir": ".",
+    "tsBuildInfoFile": "./.ts-out/.tsbuildinfo",
+    "verbatimModuleSyntax": true,
+    "paths": {
+      "*": ["./*"],
+      "effect-zero-workflow/contract": ["../effect-zero-workflow/src/contract.ts"],
+      "effect-zero-workflow/contract/http": ["../effect-zero-workflow/src/contract-http.ts"],
+      "effect-zero-workflow/contract/transport": [
+        "../effect-zero-workflow/src/contract-transport.ts"
+      ],
+      "sheet-workflow-contracts": ["../sheet-workflow-contracts/src/index.ts"]
+    }
+  },
+  "references": [
+    { "path": "../effect-zero-workflow" },
+    { "path": "../sheet-workflow-contracts" },
+    { "path": "../tooling-config" }
+  ]
+}

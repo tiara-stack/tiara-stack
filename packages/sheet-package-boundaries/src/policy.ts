@@ -24,12 +24,12 @@ const packages = {
   "sheet-workflow-http-client": {
     role: "client",
     allowedSheetDependencies: ["sheet-auth", "sheet-workflow-contracts"],
-    browserEntrypoints: ["."],
+    browserEntrypoints: [".", "./apps-script", "./routes"],
   },
   "sheet-zero-api": {
     role: "client",
-    allowedSheetDependencies: ["sheet-domain"],
-    browserEntrypoints: [".", "./client", "./rows", "./schema"],
+    allowedSheetDependencies: ["sheet-domain", "sheet-workflow-contracts"],
+    browserEntrypoints: [".", "./client", "./rows", "./schema", "./workflows"],
   },
   "sheet-db-schema": {
     role: "implementation",
@@ -37,7 +37,13 @@ const packages = {
   },
   "sheet-zero-server": {
     role: "implementation",
-    allowedSheetDependencies: ["sheet-auth", "sheet-db-schema", "sheet-domain", "sheet-zero-api"],
+    allowedSheetDependencies: [
+      "sheet-auth",
+      "sheet-db-schema",
+      "sheet-domain",
+      "sheet-workflow-contracts",
+      "sheet-zero-api",
+    ],
   },
   "sheet-message-content": {
     role: "foundation",

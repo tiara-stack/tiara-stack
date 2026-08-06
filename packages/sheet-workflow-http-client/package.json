@@ -1,0 +1,51 @@
+{
+  "name": "sheet-workflow-http-client",
+  "version": "0.0.0",
+  "private": true,
+  "files": [
+    "./dist/**"
+  ],
+  "type": "module",
+  "sideEffects": [],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "development": "./src/index.ts",
+      "default": "./dist/index.mjs"
+    },
+    "./apps-script": {
+      "types": "./dist/apps-script.d.mts",
+      "development": "./src/apps-script.ts",
+      "default": "./dist/apps-script.mjs"
+    },
+    "./routes": {
+      "types": "./dist/routes.d.mts",
+      "development": "./src/routes.ts",
+      "default": "./dist/routes.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "format": "vp fmt --check",
+    "format:apply": "vp fmt",
+    "lint": "vp lint src",
+    "test": "vp test run",
+    "test:watch": "vp test",
+    "build": "vp pack && tsgo -b tsconfig.json --emitDeclarationOnly --force"
+  },
+  "dependencies": {
+    "effect-zero-workflow": "workspace:*",
+    "sheet-workflow-contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "@types/node": "catalog:",
+    "tooling-config": "workspace:*",
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
+    "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "effect": "catalog:"
+  }
+}

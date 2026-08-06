@@ -5,11 +5,14 @@ const entry = (name: string) => fileURLToPath(new URL(`src/${name}.ts`, import.m
 
 export default library({
   resolve: {
-    alias: {
-      "effect-zero-workflow": fileURLToPath(
-        new URL("../effect-zero-workflow/src/index.ts", import.meta.url),
-      ),
-    },
+    alias: [
+      {
+        find: /^effect-zero-workflow$/,
+        replacement: fileURLToPath(
+          new URL("../effect-zero-workflow/src/index.ts", import.meta.url),
+        ),
+      },
+    ],
   },
   pack: {
     entry: {
@@ -18,9 +21,10 @@ export default library({
       rows: entry("rows"),
       schema: entry("schema"),
       server: entry("server"),
+      workflows: entry("workflows"),
     },
     deps: {
-      neverBundle: ["@rocicorp/zero", "effect", "effect-zero-workflow"],
+      neverBundle: ["@rocicorp/zero", "effect", "effect-zero-workflow", "sheet-workflow-contracts"],
     },
   },
 });
