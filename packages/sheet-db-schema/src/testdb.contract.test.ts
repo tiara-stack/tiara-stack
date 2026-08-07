@@ -559,6 +559,38 @@ describe("PGlite Sheet Zero contract", () => {
         expect(guardedRoomOrder.rank).toBe(4);
         expect(guardedRoomOrder.tentative).toBe(false);
         expect(guardedRoomOrder.workspaceId).toBe("workspace-1");
+
+        yield* client.messageRoomOrder.releaseMessageRoomOrderSendClaim({
+          ...messageKey,
+          claimId: "send-claim-1",
+        });
+        yield* client.messageRoomOrder.markMessageRoomOrderTentative({
+          ...messageKey,
+          workspaceId: "workspace-2",
+          conversationId: "conversation-1",
+        });
+        const staleWorkspaceGuardedRoomOrder = Option.getOrThrow(
+          yield* Schema.decodeUnknownEffect(roomOrderOptionSchema)(
+            yield* client.messageRoomOrder.getMessageRoomOrder(messageKey),
+          ),
+        );
+        expect(staleWorkspaceGuardedRoomOrder.workspaceId).toBe(roomOrder.workspaceId);
+        expect(staleWorkspaceGuardedRoomOrder.conversationId).toBe(roomOrder.conversationId);
+        expect(staleWorkspaceGuardedRoomOrder.tentative).toBe(false);
+
+        yield* client.messageRoomOrder.markMessageRoomOrderTentative({
+          ...messageKey,
+          workspaceId: "workspace-1",
+          conversationId: "conversation-2",
+        });
+        const staleConversationGuardedRoomOrder = Option.getOrThrow(
+          yield* Schema.decodeUnknownEffect(roomOrderOptionSchema)(
+            yield* client.messageRoomOrder.getMessageRoomOrder(messageKey),
+          ),
+        );
+        expect(staleConversationGuardedRoomOrder.workspaceId).toBe(roomOrder.workspaceId);
+        expect(staleConversationGuardedRoomOrder.conversationId).toBe(roomOrder.conversationId);
+        expect(staleConversationGuardedRoomOrder.tentative).toBe(false);
       }),
     );
 

@@ -7,6 +7,7 @@ import {
   Effect,
   Exit,
   Fiber,
+  Layer,
   Option,
   Predicate,
   Schema,
@@ -65,6 +66,7 @@ import {
 import { EventConfig } from "sheet-ingress-api/schemas/sheetConfig";
 import { TEAM_SUBMISSION_FEATURE_FLAG } from "sheet-ingress-api/schemas/teamSubmission";
 import { makeArgumentError } from "typhoon-core/error";
+import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import { DispatchService, ClientDeliveryClient, SheetApisClient } from "@/services";
 import { isInteractionFailureHandled } from "@/handlers/shared/interactionFailure";
 import * as Data from "effect/Data";
@@ -81,6 +83,7 @@ class SheetWorkflowsServicesDispatchTestError extends Data.TaggedError(
 import {
   makeClientDeliveryMock,
   makeSheetApisClient as makeBaseSheetApisClient,
+  makeTrustedSheetPersistenceMock,
   normalizePayloadText,
   renderTextForTest,
   text,
@@ -321,6 +324,18 @@ const makeMessageSlotSheetApisClient = (
     "Unexpected Sheet API call",
   );
 
+const provideDispatchServices = (
+  botClient: typeof ClientDeliveryClient.Service,
+  sheetApisClient: typeof SheetApisClient.Service,
+) =>
+  Effect.provide(
+    Layer.mergeAll(
+      Layer.succeed(ClientDeliveryClient, botClient),
+      Layer.sync(TrustedSheetPersistence, () => makeTrustedSheetPersistenceMock(sheetApisClient)),
+      Layer.succeed(SheetApisClient, sheetApisClient),
+    ),
+  );
+
 const runSlotButton = (
   botClient: typeof ClientDeliveryClient.Service,
   sheetApisClient: typeof SheetApisClient.Service,
@@ -328,10 +343,7 @@ const runSlotButton = (
   Effect.gen(function* () {
     const service = yield* DispatchService.make;
     return yield* service.slotButton(slotButtonPayload, requester);
-  }).pipe(
-    Effect.provideService(ClientDeliveryClient, botClient),
-    Effect.provideService(SheetApisClient, sheetApisClient),
-  );
+  }).pipe(provideDispatchServices(botClient, sheetApisClient));
 
 const runRoomOrder = (
   botClient: typeof ClientDeliveryClient.Service,
@@ -340,10 +352,7 @@ const runRoomOrder = (
   Effect.gen(function* () {
     const service = yield* DispatchService.make;
     return yield* service.roomOrder(roomOrderPayload, requester);
-  }).pipe(
-    Effect.provideService(ClientDeliveryClient, botClient),
-    Effect.provideService(SheetApisClient, sheetApisClient),
-  );
+  }).pipe(provideDispatchServices(botClient, sheetApisClient));
 
 const runSlotOpenButton = (
   botClient: typeof ClientDeliveryClient.Service,
@@ -352,10 +361,7 @@ const runSlotOpenButton = (
   Effect.gen(function* () {
     const service = yield* DispatchService.make;
     return yield* service.slotOpenButton(slotOpenButtonPayload, messageSlot);
-  }).pipe(
-    Effect.provideService(ClientDeliveryClient, botClient),
-    Effect.provideService(SheetApisClient, sheetApisClient),
-  );
+  }).pipe(provideDispatchServices(botClient, sheetApisClient));
 
 const runServiceStatus = (
   botClient: typeof ClientDeliveryClient.Service,
@@ -364,10 +370,7 @@ const runServiceStatus = (
   Effect.gen(function* () {
     const service = yield* DispatchService.make;
     return yield* service.serviceStatus(serviceStatusPayload);
-  }).pipe(
-    Effect.provideService(ClientDeliveryClient, botClient),
-    Effect.provideService(SheetApisClient, sheetApisClient),
-  );
+  }).pipe(provideDispatchServices(botClient, sheetApisClient));
 
 const runWorkspaceWelcome = (
   botClient: typeof ClientDeliveryClient.Service,
@@ -376,10 +379,7 @@ const runWorkspaceWelcome = (
   Effect.gen(function* () {
     const service = yield* DispatchService.make;
     return yield* service.workspaceWelcome(workspaceWelcomePayload);
-  }).pipe(
-    Effect.provideService(ClientDeliveryClient, botClient),
-    Effect.provideService(SheetApisClient, sheetApisClient),
-  );
+  }).pipe(provideDispatchServices(botClient, sheetApisClient));
 
 const runServiceAddWorkspaceFeatureFlag = (
   botClient: typeof ClientDeliveryClient.Service,
@@ -389,10 +389,7 @@ const runServiceAddWorkspaceFeatureFlag = (
   Effect.gen(function* () {
     const service = yield* DispatchService.make;
     return yield* service.serviceAddWorkspaceFeatureFlag(payload);
-  }).pipe(
-    Effect.provideService(ClientDeliveryClient, botClient),
-    Effect.provideService(SheetApisClient, sheetApisClient),
-  );
+  }).pipe(provideDispatchServices(botClient, sheetApisClient));
 
 const runServiceRemoveWorkspaceFeatureFlag = (
   botClient: typeof ClientDeliveryClient.Service,
@@ -405,10 +402,7 @@ const runServiceRemoveWorkspaceFeatureFlag = (
   Effect.gen(function* () {
     const service = yield* DispatchService.make;
     return yield* service.serviceRemoveWorkspaceFeatureFlag(payload);
-  }).pipe(
-    Effect.provideService(ClientDeliveryClient, botClient),
-    Effect.provideService(SheetApisClient, sheetApisClient),
-  );
+  }).pipe(provideDispatchServices(botClient, sheetApisClient));
 
 const runUpdateAnnouncement = (
   botClient: typeof ClientDeliveryClient.Service,
@@ -418,10 +412,7 @@ const runUpdateAnnouncement = (
   Effect.gen(function* () {
     const service = yield* DispatchService.make;
     return yield* service.updateAnnouncement(payload);
-  }).pipe(
-    Effect.provideService(ClientDeliveryClient, botClient),
-    Effect.provideService(SheetApisClient, sheetApisClient),
-  );
+  }).pipe(provideDispatchServices(botClient, sheetApisClient));
 
 const runScreenshot = (
   botClient: typeof ClientDeliveryClient.Service,
@@ -430,10 +421,7 @@ const runScreenshot = (
   Effect.gen(function* () {
     const service = yield* DispatchService.make;
     return yield* service.screenshot(screenshotPayload);
-  }).pipe(
-    Effect.provideService(ClientDeliveryClient, botClient),
-    Effect.provideService(SheetApisClient, sheetApisClient),
-  );
+  }).pipe(provideDispatchServices(botClient, sheetApisClient));
 
 const runWithDispatchService = <A>(
   botClient: typeof ClientDeliveryClient.Service,
@@ -443,10 +431,7 @@ const runWithDispatchService = <A>(
   Effect.gen(function* () {
     const service = yield* DispatchService.make;
     return yield* f(service);
-  }).pipe(
-    Effect.provideService(ClientDeliveryClient, botClient),
-    Effect.provideService(SheetApisClient, sheetApisClient),
-  );
+  }).pipe(provideDispatchServices(botClient, sheetApisClient));
 
 const makeInteractionUpdateBotClient = (
   updateCalls: Array<unknown>,
@@ -4939,11 +4924,7 @@ const runKick = (
       yield* TestClock.setTime(clockTime);
       const service = yield* DispatchService.make;
       return yield* service.kick(payload, requester);
-    }).pipe(
-      Effect.provideService(ClientDeliveryClient, botClient),
-      Effect.provideService(SheetApisClient, sheetApisClient),
-      Effect.provide(TestClock.layer()),
-    ),
+    }).pipe(provideDispatchServices(botClient, sheetApisClient), Effect.provide(TestClock.layer())),
   );
 
 const runKickWithLiveSleep = (
@@ -4966,7 +4947,4 @@ const runKickWithLiveSleep = (
     return yield* service
       .kick(payload, requester)
       .pipe(Effect.provideService(Clock.Clock, fixedClock));
-  }).pipe(
-    Effect.provideService(ClientDeliveryClient, botClient),
-    Effect.provideService(SheetApisClient, sheetApisClient),
-  );
+  }).pipe(provideDispatchServices(botClient, sheetApisClient));

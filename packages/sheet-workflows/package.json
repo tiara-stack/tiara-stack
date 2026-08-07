@@ -33,7 +33,6 @@
     "effect-zero-workflow": "workspace:*",
     "sheet-auth": "workspace:*",
     "sheet-bot-api": "workspace:*",
-    "sheet-db-schema": "workspace:*",
     "sheet-ingress-api": "workspace:*",
     "sheet-message-content": "workspace:*",
     "sheet-zero-server": "workspace:*",
@@ -43,6 +42,7 @@
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
+    "sheet-db-schema": "workspace:*",
     "tooling-config": "workspace:*",
     "vite": "catalog:",
     "vite-plus": "catalog:",

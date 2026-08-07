@@ -15,13 +15,13 @@ import type {
 } from "@rocicorp/zero";
 import { zeroDrizzle } from "@rocicorp/zero/server/adapters/drizzle";
 import { drizzle } from "drizzle-orm/pglite";
-import { Data, Effect, Option, Predicate, Schema, SchemaIssue, Scope, Stream } from "effect";
+import { Data, Effect, Predicate, Schema, Scope, Stream } from "effect";
 import {
   snapshotSchema,
   type ColumnSnapshot,
   type SchemaSnapshot,
 } from "effect-sql-schema/snapshot";
-import type { ZeroClient } from "typhoon-zero/client";
+import { ZeroClient } from "typhoon-zero/client";
 import { builder, schema as zeroSchema, type Schema as SheetZeroSchema } from "sheet-zero-api";
 import {
   configUserPlatform,
@@ -269,11 +269,7 @@ const databaseError = (operation: string) => (cause: unknown) =>
   new TestDatabaseError({ operation, cause });
 
 const executorError = (operation: string) => (cause: unknown) =>
-  new Schema.SchemaError(
-    new SchemaIssue.InvalidValue(Option.some(cause), {
-      message: `Test database failed to ${operation}: ${String(cause)}`,
-    }),
-  );
+  ZeroClient.makeExecutorError(operation, `Test database failed to ${operation}`, cause);
 
 const closePGlite = (database: PGlite) =>
   Effect.tryPromise(() => database.close()).pipe(Effect.ignore);

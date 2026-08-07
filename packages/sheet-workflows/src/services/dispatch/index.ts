@@ -1,4 +1,5 @@
 import { Context, Effect } from "effect";
+import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import { config } from "@/config";
 import { ClientDeliveryClient } from "../clientDeliveryClient";
 import { SheetApisClient } from "../sheetApisClient";
@@ -25,6 +26,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
   make: Effect.gen(function* () {
     const botClient = yield* ClientDeliveryClient;
     const sheetApisClient = yield* SheetApisClient;
+    const trustedPersistence = yield* TrustedSheetPersistence;
     const {
       checkinService,
       userConfigService,
@@ -38,7 +40,8 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       statusService,
       playerService,
       screenshotService,
-    } = makeSheetApisServices(sheetApisClient);
+      teamSubmissionStateService,
+    } = makeSheetApisServices(sheetApisClient, trustedPersistence, botClient);
     const autoCheckinConcurrency = yield* config.autoCheckinConcurrency;
     const kickRemovalConcurrency = yield* config.autoKickConcurrency;
 
@@ -97,6 +100,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
       botClient,
       playerService,
       sheetApisClient,
+      teamSubmissionStateService,
       workspaceConfigService,
     });
     const statusOperations = makeStatusOperations({
@@ -132,6 +136,7 @@ export class DispatchService extends Context.Service<DispatchService>()("Dispatc
     const teamSubmissionButtonOperations = makeTeamSubmissionButtonOperations({
       botClient,
       sheetApisClient,
+      teamSubmissionStateService,
     });
 
     return mergeUniqueOperations([

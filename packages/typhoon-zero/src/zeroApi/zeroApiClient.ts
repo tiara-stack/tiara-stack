@@ -117,7 +117,7 @@ const defaultRunOptions: RunOptions = { type: "complete" };
 const flattenMutationPhase = (
   phase: () => Effect.Effect<
     void | MutatorResultAppError | MutatorResultZeroError,
-    Schema.SchemaError,
+    MutatorError,
     never
   >,
 ): RunMutationPhase =>

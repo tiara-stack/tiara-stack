@@ -9,7 +9,9 @@ export { makeSheetZeroHttpLayer, type SheetZeroHttpLayerOptions } from "./http";
 export {
   makeTrustedSheetPersistence,
   makeTrustedSheetPersistenceLayer,
+  makePostgresTrustedSheetPersistenceLayer,
   TrustedSheetPersistence,
+  type PostgresTrustedSheetPersistenceOptions,
   trustedSheetPersistenceCatalog,
   type TrustedSheetPersistenceShape,
 } from "./persistence";

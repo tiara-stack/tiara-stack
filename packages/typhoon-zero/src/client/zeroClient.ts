@@ -1,4 +1,16 @@
-import { Cause, Context, Effect, Exit, Match, pipe, Queue, Schema, Stream, Types } from "effect";
+import {
+  Cause,
+  Context,
+  Effect,
+  Exit,
+  Match,
+  pipe,
+  Predicate,
+  Queue,
+  Schema,
+  Stream,
+  Types,
+} from "effect";
 import type {
   Zero,
   Schema as ZeroSchema,
@@ -15,8 +27,51 @@ import {
   MutatorResultZeroError,
   QueryResultAppError,
   QueryResultParseError,
+  ZeroClientExecutorError,
 } from "../error/zeroQueryError";
 import { DefaultTaggedClass } from "typhoon-core/schema";
+export { ZeroClientExecutorError } from "../error/zeroQueryError";
+
+const argumentErrorDetails = (
+  cause: unknown,
+): { readonly code?: string | undefined; readonly message?: string | undefined } => {
+  if (!Predicate.isTagged("ArgumentError")(cause)) return {};
+  const code =
+    Predicate.hasProperty(cause, "cause") &&
+    Predicate.hasProperty(cause.cause, "code") &&
+    Predicate.isString(cause.cause.code)
+      ? cause.cause.code
+      : undefined;
+  const message =
+    Predicate.hasProperty(cause, "message") && Predicate.isString(cause.message)
+      ? cause.message
+      : undefined;
+  return { code, message };
+};
+
+const executorErrorDetails = (
+  cause: unknown,
+  depth = 0,
+): { readonly code?: string | undefined; readonly message?: string | undefined } => {
+  if (depth >= 5) return {};
+  const nested = Predicate.hasProperty(cause, "cause")
+    ? executorErrorDetails(cause.cause, depth + 1)
+    : {};
+  const application = argumentErrorDetails(cause);
+  return {
+    code: application.code ?? nested.code,
+    message: application.message ?? nested.message,
+  };
+};
+
+export const makeExecutorError = (operation: string, message: string, cause: unknown) => {
+  const details = executorErrorDetails(cause);
+  return new ZeroClientExecutorError({
+    operation,
+    message: details.message ?? message,
+    code: details.code,
+  });
+};
 
 const ZeroClientTypeId = Symbol("ZeroClientTypeId");
 export type ZeroClientTypeId = typeof ZeroClientTypeId;
@@ -60,7 +115,7 @@ export interface ZeroClientExecutor<S extends ZeroSchema, C> {
     runOptions?: RunOptions,
   ) => Effect.Effect<
     HumanReadable<TReturn>,
-    QueryResultAppError | QueryResultParseError | Schema.SchemaError,
+    QueryResultAppError | QueryResultParseError | Schema.SchemaError | ZeroClientExecutorError,
     never
   >;
   stream: <TReturn>(
@@ -68,18 +123,18 @@ export interface ZeroClientExecutor<S extends ZeroSchema, C> {
     runOptions?: RunOptions,
   ) => Stream.Stream<
     HumanReadable<TReturn>,
-    QueryResultAppError | QueryResultParseError | Schema.SchemaError
+    QueryResultAppError | QueryResultParseError | Schema.SchemaError | ZeroClientExecutorError
   >;
   mutate: (request: MutateRequest<any, S, C, any>) => Effect.Effect<
     {
       client: () => Effect.Effect<
         void | MutatorResultAppError | MutatorResultZeroError,
-        Schema.SchemaError,
+        Schema.SchemaError | ZeroClientExecutorError,
         never
       >;
       server: () => Effect.Effect<
         void | MutatorResultAppError | MutatorResultZeroError,
-        Schema.SchemaError,
+        Schema.SchemaError | ZeroClientExecutorError,
         never
       >;
     },
@@ -182,6 +237,13 @@ const parseMutatorResultDetails = (result: MutatorResultDetails) =>
     }),
   );
 
+const parseMutatorPromise = (origin: "client" | "server", result: Promise<MutatorResultDetails>) =>
+  Effect.tryPromise({
+    try: () => result,
+    catch: (cause) =>
+      makeExecutorError(`run ${origin} mutation`, `Zero ${origin} mutation failed`, cause),
+  }).pipe(Effect.flatMap(parseMutatorResultDetails));
+
 /**
  * ZeroClient provides access to a Zero instance.
  */
@@ -248,13 +310,10 @@ export const ZeroClient = <S extends ZeroSchema, MD extends CustomMutatorDefs | 
 
           return {
             client: Effect.fn("ZeroClient.mutate.client")(() =>
-              Effect.promise(() => client).pipe(Effect.flatMap(parseMutatorResultDetails)),
+              parseMutatorPromise("client", client),
             ),
             server: Effect.fn("ZeroClient.mutate.server")(() =>
-              pipe(
-                Effect.promise(() => server),
-                Effect.flatMap(parseMutatorResultDetails),
-              ),
+              parseMutatorPromise("server", server),
             ),
           };
         }),

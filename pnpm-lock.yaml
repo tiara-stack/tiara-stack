@@ -1238,9 +1238,6 @@ importers:
       sheet-bot-api:
         specifier: workspace:*
         version: link:../sheet-bot-api
-      sheet-db-schema:
-        specifier: workspace:*
-        version: link:../sheet-db-schema
       sheet-ingress-api:
         specifier: workspace:*
         version: link:../sheet-ingress-api
@@ -1263,6 +1260,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 24.10.9
+      sheet-db-schema:
+        specifier: workspace:*
+        version: link:../sheet-db-schema
       tooling-config:
         specifier: workspace:*
         version: link:../tooling-config
@@ -1324,12 +1324,18 @@ importers:
       '@rocicorp/zero':
         specifier: ^0.25.9
         version: 0.25.9(@opentelemetry/core@2.2.0(@opentelemetry/api@1.9.0))
+      drizzle-orm:
+        specifier: 0.45.2
+        version: 0.45.2(@electric-sql/pglite@0.5.4)(@opentelemetry/api@1.9.0)(@types/better-sqlite3@7.6.13)(@types/pg@8.16.0)(better-sqlite3@12.9.0)(gel@2.2.0)(kysely@0.29.2)(pg@8.20.0)(postgres@3.4.7)
       effect:
         specifier: 'catalog:'
         version: 4.0.0-beta.67
       effect-zero-workflow:
         specifier: workspace:*
         version: link:../effect-zero-workflow
+      postgres:
+        specifier: ^3.4.7
+        version: 3.4.7
       sheet-auth:
         specifier: workspace:*
         version: link:../sheet-auth

@@ -4,6 +4,7 @@ import {
   MutatorResultZeroError,
   QueryResultAppError,
   QueryResultParseError,
+  ZeroClientExecutorError,
 } from "../error/zeroQueryError";
 
 export {
@@ -11,8 +12,17 @@ export {
   MutatorResultZeroError,
   QueryResultAppError,
   QueryResultParseError,
+  ZeroClientExecutorError,
 } from "../error/zeroQueryError";
 
-export type QueryError = QueryResultAppError | QueryResultParseError | Schema.SchemaError;
+export type QueryError =
+  | QueryResultAppError
+  | QueryResultParseError
+  | Schema.SchemaError
+  | ZeroClientExecutorError;
 
-export type MutatorError = MutatorResultAppError | MutatorResultZeroError | Schema.SchemaError;
+export type MutatorError =
+  | MutatorResultAppError
+  | MutatorResultZeroError
+  | Schema.SchemaError
+  | ZeroClientExecutorError;

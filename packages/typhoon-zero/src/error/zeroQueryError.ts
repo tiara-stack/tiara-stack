@@ -106,6 +106,15 @@ export class MutatorResultZeroError extends Schema.TaggedErrorClass<MutatorResul
   }),
 ) {}
 
+export class ZeroClientExecutorError extends Schema.TaggedErrorClass<ZeroClientExecutorError>()(
+  "ZeroClientExecutorError",
+  Schema.Struct({
+    operation: Schema.String,
+    message: Schema.String,
+    code: Schema.optional(Schema.String),
+  }),
+) {}
+
 export const MutatorResultError = Schema.Union([MutatorResultAppError, MutatorResultZeroError]);
 
 export type MutatorResultError = Schema.Schema.Type<typeof MutatorResultError>;

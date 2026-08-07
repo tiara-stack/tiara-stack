@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { DateTime, Duration, Effect, Exit, Fiber, Option } from "effect";
+import { DateTime, Duration, Effect, Exit, Fiber, Layer, Option } from "effect";
 import { TestClock } from "effect/testing";
 import { CheckinGenerateResult } from "sheet-ingress-api/schemas/checkin";
 import {
@@ -9,6 +9,7 @@ import {
 import { MessageRoomOrderRange } from "sheet-ingress-api/schemas/messageRoomOrder";
 import { RoomOrderGenerateResult } from "sheet-ingress-api/schemas/roomOrder";
 import { EventConfig } from "sheet-ingress-api/schemas/sheetConfig";
+import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import {
   Player,
   PopulatedSchedule,
@@ -24,7 +25,12 @@ import {
   autoCheckinConversationIdempotencyKey,
   type AutoCheckinConversationPayload,
 } from "@/workflows/autoCheckinContract";
-import { makeSheetApisClient, normalizePayloadText, text } from "./testHelpers";
+import {
+  makeSheetApisClient,
+  makeTrustedSheetPersistenceMock,
+  normalizePayloadText,
+  text,
+} from "./testHelpers";
 import { makeDeliveryNonce } from "./dispatch/pure/deliveryNonce";
 import * as Data from "effect/Data";
 
@@ -197,6 +203,11 @@ const runService = <A, E, R>(
       return yield* effect(service);
     }).pipe(
       Effect.provideService(SheetApisClient, options.sheetApisClient),
+      Effect.provide(
+        Layer.sync(TrustedSheetPersistence, () =>
+          makeTrustedSheetPersistenceMock(options.sheetApisClient),
+        ),
+      ),
       Effect.provideService(ClientDeliveryClient, options.botClient ?? ({} as never)),
       Effect.provideService(
         AutoCheckinWorkflowClient,

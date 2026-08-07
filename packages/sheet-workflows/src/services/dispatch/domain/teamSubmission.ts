@@ -1,4 +1,4 @@
-import { Duration, Effect, Option, Schedule } from "effect";
+import { Duration, Effect, Option, Predicate, Schedule } from "effect";
 import * as Sheet from "sheet-ingress-api/schemas/sheet";
 import { isTeamSubmissionEnabled } from "sheet-ingress-api/schemas/teamSubmission";
 import type {
@@ -29,6 +29,7 @@ const discordEmbedFieldValueLimit = 1_024;
 const teamSubmissionSheetApiRetryPolicy = {
   schedule: Schedule.spaced(Duration.seconds(1)),
   times: 2,
+  while: (error: unknown) => !Predicate.isTagged("ArgumentError")(error),
 } as const;
 const teamSubmissionFeatureLookupRetryPolicy = {
   schedule: Schedule.spaced(Duration.millis(50)),
@@ -150,27 +151,22 @@ export const makeTeamSubmissionOperations = ({
   botClient,
   playerService,
   sheetApisClient,
+  teamSubmissionStateService,
   workspaceConfigService,
 }: {
   readonly botClient: typeof ClientDeliveryClient.Service;
   readonly playerService: SheetApisServices["playerService"];
   readonly sheetApisClient: typeof SheetApisClient.Service;
+  readonly teamSubmissionStateService: SheetApisServices["teamSubmissionStateService"];
   readonly workspaceConfigService: SheetApisServices["workspaceConfigService"];
 }) => {
   const setConfirmationMessage = (
     payload: TeamSubmissionDispatchPayload,
     confirmationMessageId: string,
+    previousResult: TeamSubmissionDispatchResult,
   ) =>
-    sheetApisClient
-      .get()
-      .teamSubmission.setConfirmationMessage({
-        payload: {
-          workspaceId: payload.workspaceId,
-          conversationId: payload.conversationId,
-          messageId: payload.messageId,
-          confirmationMessageId,
-        },
-      })
+    teamSubmissionStateService
+      .setConfirmationMessage(payload, confirmationMessageId, previousResult)
       .pipe(Effect.retry(teamSubmissionSheetApiRetryPolicy));
 
   return {
@@ -336,7 +332,7 @@ export const makeTeamSubmissionOperations = ({
           },
         );
 
-        return yield* setConfirmationMessage(payload, confirmation.id);
+        return yield* setConfirmationMessage(payload, confirmation.id, result);
       }).pipe(
         Effect.catch((error) =>
           recoverTeamSubmissionFailure({

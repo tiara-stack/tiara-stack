@@ -50,8 +50,10 @@
   },
   "dependencies": {
     "@rocicorp/zero": "^0.25.9",
+    "drizzle-orm": "0.45.2",
     "effect": "catalog:",
     "effect-zero-workflow": "workspace:*",
+    "postgres": "^3.4.7",
     "sheet-auth": "workspace:*",
     "sheet-workflow-contracts": "workspace:*",
     "sheet-zero-api": "workspace:*",

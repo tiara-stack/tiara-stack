@@ -44,6 +44,14 @@ export const config = {
     ),
   ),
   postgresUrl: Config.schema(Schema.Redacted(Schema.String), "POSTGRES_URL"),
+  trustedSheetPersistenceMaxConnections: Config.schema(
+    positiveInt,
+    "TRUSTED_SHEET_PERSISTENCE_MAX_CONNECTIONS",
+  ).pipe(Config.withDefault(10)),
+  trustedSheetPersistenceStatementTimeoutMillis: Config.schema(
+    positiveInt,
+    "TRUSTED_SHEET_PERSISTENCE_STATEMENT_TIMEOUT_MILLIS",
+  ).pipe(Config.withDefault(30_000)),
   workflowsRunnerHost: Config.string("WORKFLOWS_RUNNER_HOST"),
   workflowsRunnerPort: Config.port("WORKFLOWS_RUNNER_PORT").pipe(Config.withDefault(34431)),
   workflowsRunnerListenHost: Config.string("WORKFLOWS_RUNNER_LISTEN_HOST").pipe(

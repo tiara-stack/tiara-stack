@@ -21,6 +21,7 @@ import {
   DispatchService,
   ClientDeliveryClient,
   SheetApisClient,
+  trustedSheetPersistenceLayer,
 } from "@/services";
 import { autoCheckinWorkflowLayer } from "@/workflows/autoCheckin";
 import { getClusterRunnerReadinessSnapshot, postgresSqlLayer } from "@/services";
@@ -119,6 +120,7 @@ const dispatchClientsLayer = Layer.mergeAll(ClientDeliveryClient.layer, SheetApi
 
 const dispatchServicesLayer = Layer.effect(DispatchService, DispatchService.make).pipe(
   Layer.provideMerge(dispatchClientsLayer),
+  Layer.provideMerge(trustedSheetPersistenceLayer),
 );
 
 const clusterLayer = Layer.mergeAll(

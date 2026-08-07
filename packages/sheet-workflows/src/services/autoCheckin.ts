@@ -1,4 +1,5 @@
 import { Context, DateTime, Duration, Effect, Layer, Option, Predicate, pipe } from "effect";
+import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import { WorkflowEngine } from "effect/unstable/workflow";
 import { makeArgumentError } from "typhoon-core/error";
 import type { WorkspaceConversationConfig } from "sheet-ingress-api/schemas/workspaceConfig";
@@ -29,6 +30,7 @@ import {
 import type { AutoCheckinConversationPayload } from "@/workflows/autoCheckinContract";
 import { config } from "@/config";
 import { deriveKickHour, makeKickRemover } from "./kick";
+import { trustedSheetPersistenceLayer } from "./trustedSheetPersistence";
 
 type WorkspaceMembers = Effect.Success<
   ReturnType<(typeof ClientDeliveryClient.Service)["getMembersForParent"]>
@@ -39,7 +41,11 @@ const deriveTargetHour = (eventStart: DateTime.DateTime, target: DateTime.DateTi
   return Math.floor(Duration.toHours(DateTime.distance(eventStart, targetHourStart))) + 1;
 };
 
-const makeSheetApisServices = (sheetApisClient: typeof SheetApisClient.Service) => {
+const makeSheetApisServices = (
+  sheetApisClient: typeof SheetApisClient.Service,
+  trustedPersistence: typeof TrustedSheetPersistence.Service,
+  botClient: typeof ClientDeliveryClient.Service,
+) => {
   const sheetApis = sheetApisClient.get();
   const {
     checkinService,
@@ -48,15 +54,12 @@ const makeSheetApisServices = (sheetApisClient: typeof SheetApisClient.Service) 
     roomOrderService,
     userConfigService,
     workspaceConfigService,
-  } = makeDispatchSheetApisServices(sheetApisClient);
+  } = makeDispatchSheetApisServices(sheetApisClient, trustedPersistence, botClient);
 
   return {
     checkinService,
     userConfigService,
-    workspaceConfigService: {
-      ...workspaceConfigService,
-      getAutoCheckinWorkspaces: () => sheetApis.workspaceConfig.getAutoCheckinWorkspaces(),
-    },
+    workspaceConfigService,
     scheduleService: {
       conversationPopulatedMonitorSchedules: (workspaceId: string, conversationName: string) =>
         sheetApis.schedule
@@ -468,6 +471,7 @@ export class AutoCheckinService extends Context.Service<AutoCheckinService>()(
     make: Effect.gen(function* () {
       const botClient = yield* ClientDeliveryClient;
       const sheetApisClient = yield* SheetApisClient;
+      const trustedPersistence = yield* TrustedSheetPersistence;
       const workflowClient = yield* AutoCheckinWorkflowClient;
       const autoCheckinConcurrency = yield* config.autoCheckinConcurrency;
       const autoKickConcurrency = yield* config.autoKickConcurrency;
@@ -480,7 +484,7 @@ export class AutoCheckinService extends Context.Service<AutoCheckinService>()(
         roomOrderService,
         scheduleService,
         sheetService,
-      } = makeSheetApisServices(sheetApisClient);
+      } = makeSheetApisServices(sheetApisClient, trustedPersistence, botClient);
       const removeKickMembers = makeKickRemover({
         botClient,
         removalConcurrency: autoKickConcurrency,
@@ -786,6 +790,7 @@ export class AutoCheckinService extends Context.Service<AutoCheckinService>()(
       AutoCheckinWorkflowClient.layer,
       ClientDeliveryClient.layer,
       SheetApisClient.layer,
+      trustedSheetPersistenceLayer,
     ]),
   );
 }

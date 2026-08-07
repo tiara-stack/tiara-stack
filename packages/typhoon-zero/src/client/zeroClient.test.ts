@@ -1,11 +1,60 @@
 import type { ErroredQuery, RunOptions } from "@rocicorp/zero";
 import { describe, expect, it } from "@effect/vitest";
-import { Cause, Effect, Exit, Stream } from "effect";
+import { Cause, Effect, Exit, Option, Stream } from "effect";
+import { makeArgumentError } from "typhoon-core/error";
 import * as ZeroClient from "./zeroClient";
 
 const makeClient = (zero: unknown) => ZeroClient.ZeroClient<any, any, any>().make(zero as never);
 
 describe("ZeroClient", () => {
+  it("only exposes error codes from tagged application errors", () => {
+    const driverError = ZeroClient.makeExecutorError("run query", "query failed", {
+      code: "40001",
+    });
+    const applicationError = ZeroClient.makeExecutorError("run mutation", "mutation failed", {
+      cause: makeArgumentError("version conflict", { code: "VERSION_CONFLICT" }),
+    });
+
+    expect(driverError).toMatchObject({ message: "query failed" });
+    expect(driverError.code).toBeUndefined();
+    expect(applicationError).toMatchObject({
+      message: "version conflict",
+      code: "VERSION_CONFLICT",
+    });
+  });
+
+  it.effect("maps rejected mutation promises to executor failures", () =>
+    Effect.gen(function* () {
+      const zero = {
+        mutate: () => ({
+          client: Promise.reject(new Error("client disconnected")),
+          server: Promise.reject(new Error("server disconnected")),
+        }),
+      };
+      const client = yield* makeClient(zero);
+      const mutation = yield* client.mutate({} as never);
+
+      const [clientExit, serverExit] = yield* Effect.all([
+        Effect.exit(mutation.client()),
+        Effect.exit(mutation.server()),
+      ]);
+      if (Exit.isSuccess(clientExit) || Exit.isSuccess(serverExit)) {
+        throw new Error("Expected rejected mutation promises to fail");
+      }
+
+      expect(Option.getOrThrow(Cause.findErrorOption(clientExit.cause))).toMatchObject({
+        _tag: "ZeroClientExecutorError",
+        operation: "run client mutation",
+        message: "Zero client mutation failed",
+      });
+      expect(Option.getOrThrow(Cause.findErrorOption(serverExit.cause))).toMatchObject({
+        _tag: "ZeroClientExecutorError",
+        operation: "run server mutation",
+        message: "Zero server mutation failed",
+      });
+    }),
+  );
+
   it.effect(
     "resolves unknown query data from the materialized snapshot",
     Effect.fnUntraced(function* () {

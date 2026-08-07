@@ -1,6 +1,41 @@
-import { Context, Effect, Layer } from "effect";
-import { makeSheetClient, type Schema, type SheetClient } from "sheet-zero-api";
-import type { ZeroClient } from "typhoon-zero/client";
+import type { HumanReadable, MutateRequest, QueryOrQueryRequest } from "@rocicorp/zero";
+import { addContextToQuery } from "@rocicorp/zero/bindings";
+import { zeroDrizzle, type DrizzleDatabase } from "@rocicorp/zero/server/adapters/drizzle";
+import { drizzle } from "drizzle-orm/postgres-js";
+import {
+  Context,
+  Effect,
+  Layer,
+  Option,
+  Predicate,
+  Redacted,
+  Schedule,
+  Scope,
+  Stream,
+} from "effect";
+import postgres from "postgres";
+import {
+  makeSheetClient,
+  schema,
+  type Schema as SheetZeroSchema,
+  type SheetClient,
+} from "sheet-zero-api";
+import type {
+  ConfigUserPlatformRow,
+  ConfigWorkspaceConversationRow,
+  ConfigWorkspaceFeatureFlagRow,
+  ConfigWorkspaceMonitorRoleRow,
+  ConfigWorkspaceRow,
+  ConfigWorkspaceTeamSubmissionChannelRow,
+  ConfigWorkspaceUpdateAnnouncementDeliveryRow,
+  MessageCheckinMemberRow,
+  MessageCheckinRow,
+  MessageRoomOrderEntryRow,
+  MessageRoomOrderRow,
+  MessageSlotRow,
+  MessageTeamSubmissionRow,
+} from "sheet-zero-api/rows";
+import { ZeroClient } from "typhoon-zero/client";
 
 type GroupedSheetClient = SheetClient["grouped"];
 
@@ -9,170 +44,242 @@ type ClientMethod<
   Method extends keyof GroupedSheetClient[Group],
 > = GroupedSheetClient[Group][Method];
 
+type ClientMethodWithSuccess<
+  Group extends keyof GroupedSheetClient,
+  Method extends keyof GroupedSheetClient[Group],
+  Success,
+> =
+  ClientMethod<Group, Method> extends (
+    ...args: infer Args
+  ) => Effect.Effect<any, infer Error, infer Requirements>
+    ? (...args: Args) => Effect.Effect<Success, Error, Requirements>
+    : never;
+
+type ClientMutation<
+  Group extends keyof GroupedSheetClient,
+  Method extends keyof GroupedSheetClient[Group],
+> = ClientMethodWithSuccess<Group, Method, void>;
+
 export interface TrustedSheetPersistenceShape {
   readonly workspaces: {
-    readonly getAutoCheckinWorkspaces: ClientMethod<"workspaceConfig", "getAutoCheckinWorkspaces">;
-    readonly getWorkspaceConfigByWorkspaceId: ClientMethod<
+    readonly getAutoCheckinWorkspaces: ClientMethodWithSuccess<
       "workspaceConfig",
-      "getWorkspaceConfigByWorkspaceId"
+      "getAutoCheckinWorkspaces",
+      ReadonlyArray<ConfigWorkspaceRow>
     >;
-    readonly getWorkspaceMonitorRoles: ClientMethod<"workspaceConfig", "getWorkspaceMonitorRoles">;
-    readonly getWorkspaceFeatureFlags: ClientMethod<"workspaceConfig", "getWorkspaceFeatureFlags">;
-    readonly getWorkspacesForFeatureFlag: ClientMethod<
+    readonly getWorkspaceConfigByWorkspaceId: ClientMethodWithSuccess<
       "workspaceConfig",
-      "getWorkspacesForFeatureFlag"
+      "getWorkspaceConfigByWorkspaceId",
+      Option.Option<ConfigWorkspaceRow>
     >;
-    readonly getWorkspaceFeatureFlag: ClientMethod<"workspaceConfig", "getWorkspaceFeatureFlag">;
-    readonly getWorkspaceUpdateAnnouncementDelivery: ClientMethod<
+    readonly getWorkspaceMonitorRoles: ClientMethodWithSuccess<
       "workspaceConfig",
-      "getWorkspaceUpdateAnnouncementDelivery"
+      "getWorkspaceMonitorRoles",
+      ReadonlyArray<ConfigWorkspaceMonitorRoleRow>
     >;
-    readonly getWorkspaceConversations: ClientMethod<
+    readonly getWorkspaceFeatureFlags: ClientMethodWithSuccess<
       "workspaceConfig",
-      "getWorkspaceConversations"
+      "getWorkspaceFeatureFlags",
+      ReadonlyArray<ConfigWorkspaceFeatureFlagRow>
     >;
-    readonly getWorkspaceConversationById: ClientMethod<
+    readonly getWorkspacesForFeatureFlag: ClientMethodWithSuccess<
       "workspaceConfig",
-      "getWorkspaceConversationById"
+      "getWorkspacesForFeatureFlag",
+      ReadonlyArray<ConfigWorkspaceFeatureFlagRow>
     >;
-    readonly getWorkspaceConversationByName: ClientMethod<
+    readonly getWorkspaceFeatureFlag: ClientMethodWithSuccess<
       "workspaceConfig",
-      "getWorkspaceConversationByName"
+      "getWorkspaceFeatureFlag",
+      Option.Option<ConfigWorkspaceFeatureFlagRow>
     >;
-    readonly getTeamSubmissionChannelByConversationId: ClientMethod<
+    readonly getWorkspaceUpdateAnnouncementDelivery: ClientMethodWithSuccess<
       "workspaceConfig",
-      "getTeamSubmissionChannelByConversationId"
+      "getWorkspaceUpdateAnnouncementDelivery",
+      Option.Option<ConfigWorkspaceUpdateAnnouncementDeliveryRow>
     >;
-    readonly getTeamSubmissionChannelsForWorkspace: ClientMethod<
+    readonly getWorkspaceConversations: ClientMethodWithSuccess<
       "workspaceConfig",
-      "getTeamSubmissionChannelsForWorkspace"
+      "getWorkspaceConversations",
+      ReadonlyArray<ConfigWorkspaceConversationRow>
     >;
-    readonly upsertWorkspaceConfig: ClientMethod<"workspaceConfig", "upsertWorkspaceConfig">;
-    readonly addWorkspaceMonitorRole: ClientMethod<"workspaceConfig", "addWorkspaceMonitorRole">;
-    readonly removeWorkspaceMonitorRole: ClientMethod<
+    readonly getWorkspaceConversationById: ClientMethodWithSuccess<
+      "workspaceConfig",
+      "getWorkspaceConversationById",
+      Option.Option<ConfigWorkspaceConversationRow>
+    >;
+    readonly getWorkspaceConversationByName: ClientMethodWithSuccess<
+      "workspaceConfig",
+      "getWorkspaceConversationByName",
+      Option.Option<ConfigWorkspaceConversationRow>
+    >;
+    readonly getTeamSubmissionChannelByConversationId: ClientMethodWithSuccess<
+      "workspaceConfig",
+      "getTeamSubmissionChannelByConversationId",
+      Option.Option<ConfigWorkspaceTeamSubmissionChannelRow>
+    >;
+    readonly getTeamSubmissionChannelsForWorkspace: ClientMethodWithSuccess<
+      "workspaceConfig",
+      "getTeamSubmissionChannelsForWorkspace",
+      ReadonlyArray<ConfigWorkspaceTeamSubmissionChannelRow>
+    >;
+    readonly upsertWorkspaceConfig: ClientMutation<"workspaceConfig", "upsertWorkspaceConfig">;
+    readonly addWorkspaceMonitorRole: ClientMutation<"workspaceConfig", "addWorkspaceMonitorRole">;
+    readonly removeWorkspaceMonitorRole: ClientMutation<
       "workspaceConfig",
       "removeWorkspaceMonitorRole"
     >;
-    readonly addWorkspaceFeatureFlag: ClientMethod<"workspaceConfig", "addWorkspaceFeatureFlag">;
-    readonly removeWorkspaceFeatureFlag: ClientMethod<
+    readonly addWorkspaceFeatureFlag: ClientMutation<"workspaceConfig", "addWorkspaceFeatureFlag">;
+    readonly removeWorkspaceFeatureFlag: ClientMutation<
       "workspaceConfig",
       "removeWorkspaceFeatureFlag"
     >;
-    readonly recordWorkspaceUpdateAnnouncementDelivery: ClientMethod<
+    readonly recordWorkspaceUpdateAnnouncementDelivery: ClientMutation<
       "workspaceConfig",
       "recordWorkspaceUpdateAnnouncementDelivery"
     >;
-    readonly claimWorkspaceUpdateAnnouncementDelivery: ClientMethod<
+    readonly claimWorkspaceUpdateAnnouncementDelivery: ClientMutation<
       "workspaceConfig",
       "claimWorkspaceUpdateAnnouncementDelivery"
     >;
-    readonly releaseWorkspaceUpdateAnnouncementDeliveryClaim: ClientMethod<
+    readonly releaseWorkspaceUpdateAnnouncementDeliveryClaim: ClientMutation<
       "workspaceConfig",
       "releaseWorkspaceUpdateAnnouncementDeliveryClaim"
     >;
-    readonly upsertWorkspaceConversationConfig: ClientMethod<
+    readonly upsertWorkspaceConversationConfig: ClientMutation<
       "workspaceConfig",
       "upsertWorkspaceConversationConfig"
     >;
-    readonly upsertTeamSubmissionChannel: ClientMethod<
+    readonly upsertTeamSubmissionChannel: ClientMutation<
       "workspaceConfig",
       "upsertTeamSubmissionChannel"
     >;
-    readonly removeTeamSubmissionChannel: ClientMethod<
+    readonly removeTeamSubmissionChannel: ClientMutation<
       "workspaceConfig",
       "removeTeamSubmissionChannel"
     >;
   };
   readonly preferences: {
-    readonly getUserPlatformConfig: ClientMethod<"userConfig", "getUserPlatformConfig">;
-    readonly getCheckinDmEnabledUserConfigs: ClientMethod<
+    readonly getUserPlatformConfig: ClientMethodWithSuccess<
       "userConfig",
-      "getCheckinDmEnabledUserConfigs"
+      "getUserPlatformConfig",
+      Option.Option<ConfigUserPlatformRow>
     >;
-    readonly getMonitorDmEnabledUserConfigs: ClientMethod<
+    readonly getCheckinDmEnabledUserConfigs: ClientMethodWithSuccess<
       "userConfig",
-      "getMonitorDmEnabledUserConfigs"
+      "getCheckinDmEnabledUserConfigs",
+      ReadonlyArray<ConfigUserPlatformRow>
     >;
-    readonly upsertUserPlatformConfig: ClientMethod<"userConfig", "upsertUserPlatformConfig">;
+    readonly getMonitorDmEnabledUserConfigs: ClientMethodWithSuccess<
+      "userConfig",
+      "getMonitorDmEnabledUserConfigs",
+      ReadonlyArray<ConfigUserPlatformRow>
+    >;
+    readonly upsertUserPlatformConfig: ClientMutation<"userConfig", "upsertUserPlatformConfig">;
   };
   readonly checkinState: {
-    readonly getMessageCheckinData: ClientMethod<"messageCheckin", "getMessageCheckinData">;
-    readonly getMessageCheckinMembers: ClientMethod<"messageCheckin", "getMessageCheckinMembers">;
-    readonly persistMessageCheckin: ClientMethod<"messageCheckin", "persistMessageCheckin">;
-    readonly setMessageCheckinMemberCheckinAtIfUnset: ClientMethod<
+    readonly getMessageCheckinData: ClientMethodWithSuccess<
+      "messageCheckin",
+      "getMessageCheckinData",
+      Option.Option<MessageCheckinRow>
+    >;
+    readonly getMessageCheckinMembers: ClientMethodWithSuccess<
+      "messageCheckin",
+      "getMessageCheckinMembers",
+      ReadonlyArray<MessageCheckinMemberRow>
+    >;
+    readonly persistMessageCheckin: ClientMutation<"messageCheckin", "persistMessageCheckin">;
+    readonly setMessageCheckinMemberCheckinAtIfUnset: ClientMutation<
       "messageCheckin",
       "setMessageCheckinMemberCheckinAtIfUnset"
     >;
-    readonly removeMessageCheckin: ClientMethod<"messageCheckin", "removeMessageCheckin">;
+    readonly removeMessageCheckin: ClientMutation<"messageCheckin", "removeMessageCheckin">;
   };
   readonly roomOrderState: {
-    readonly getMessageRoomOrder: ClientMethod<"messageRoomOrder", "getMessageRoomOrder">;
-    readonly getMessageRoomOrderEntry: ClientMethod<"messageRoomOrder", "getMessageRoomOrderEntry">;
-    readonly getMessageRoomOrderRange: ClientMethod<"messageRoomOrder", "getMessageRoomOrderRange">;
-    readonly decrementMessageRoomOrderRank: ClientMethod<
+    readonly getMessageRoomOrder: ClientMethodWithSuccess<
+      "messageRoomOrder",
+      "getMessageRoomOrder",
+      Option.Option<MessageRoomOrderRow>
+    >;
+    readonly getMessageRoomOrderEntry: ClientMethodWithSuccess<
+      "messageRoomOrder",
+      "getMessageRoomOrderEntry",
+      ReadonlyArray<MessageRoomOrderEntryRow>
+    >;
+    readonly getMessageRoomOrderRange: ClientMethodWithSuccess<
+      "messageRoomOrder",
+      "getMessageRoomOrderRange",
+      ReadonlyArray<MessageRoomOrderEntryRow>
+    >;
+    readonly decrementMessageRoomOrderRank: ClientMutation<
       "messageRoomOrder",
       "decrementMessageRoomOrderRank"
     >;
-    readonly incrementMessageRoomOrderRank: ClientMethod<
+    readonly incrementMessageRoomOrderRank: ClientMutation<
       "messageRoomOrder",
       "incrementMessageRoomOrderRank"
     >;
-    readonly claimMessageRoomOrderSend: ClientMethod<
+    readonly claimMessageRoomOrderSend: ClientMutation<
       "messageRoomOrder",
       "claimMessageRoomOrderSend"
     >;
-    readonly completeMessageRoomOrderSend: ClientMethod<
+    readonly completeMessageRoomOrderSend: ClientMutation<
       "messageRoomOrder",
       "completeMessageRoomOrderSend"
     >;
-    readonly releaseMessageRoomOrderSendClaim: ClientMethod<
+    readonly releaseMessageRoomOrderSendClaim: ClientMutation<
       "messageRoomOrder",
       "releaseMessageRoomOrderSendClaim"
     >;
-    readonly claimMessageRoomOrderTentativeUpdate: ClientMethod<
+    readonly claimMessageRoomOrderTentativeUpdate: ClientMutation<
       "messageRoomOrder",
       "claimMessageRoomOrderTentativeUpdate"
     >;
-    readonly releaseMessageRoomOrderTentativeUpdateClaim: ClientMethod<
+    readonly releaseMessageRoomOrderTentativeUpdateClaim: ClientMutation<
       "messageRoomOrder",
       "releaseMessageRoomOrderTentativeUpdateClaim"
     >;
-    readonly claimMessageRoomOrderTentativePin: ClientMethod<
+    readonly claimMessageRoomOrderTentativePin: ClientMutation<
       "messageRoomOrder",
       "claimMessageRoomOrderTentativePin"
     >;
-    readonly completeMessageRoomOrderTentativePin: ClientMethod<
+    readonly completeMessageRoomOrderTentativePin: ClientMutation<
       "messageRoomOrder",
       "completeMessageRoomOrderTentativePin"
     >;
-    readonly releaseMessageRoomOrderTentativePinClaim: ClientMethod<
+    readonly releaseMessageRoomOrderTentativePinClaim: ClientMutation<
       "messageRoomOrder",
       "releaseMessageRoomOrderTentativePinClaim"
     >;
-    readonly markMessageRoomOrderTentative: ClientMethod<
+    readonly markMessageRoomOrderTentative: ClientMutation<
       "messageRoomOrder",
       "markMessageRoomOrderTentative"
     >;
-    readonly persistMessageRoomOrder: ClientMethod<"messageRoomOrder", "persistMessageRoomOrder">;
+    readonly persistMessageRoomOrder: ClientMutation<"messageRoomOrder", "persistMessageRoomOrder">;
   };
   readonly slotState: {
-    readonly getMessageSlotData: ClientMethod<"messageSlot", "getMessageSlotData">;
-    readonly upsertMessageSlotData: ClientMethod<"messageSlot", "upsertMessageSlotData">;
+    readonly getMessageSlotData: ClientMethodWithSuccess<
+      "messageSlot",
+      "getMessageSlotData",
+      Option.Option<MessageSlotRow>
+    >;
+    readonly upsertMessageSlotData: ClientMutation<"messageSlot", "upsertMessageSlotData">;
   };
   readonly teamSubmissionState: {
-    readonly getMessageTeamSubmission: ClientMethod<
+    readonly getMessageTeamSubmission: ClientMethodWithSuccess<
       "messageTeamSubmission",
-      "getMessageTeamSubmission"
+      "getMessageTeamSubmission",
+      Option.Option<MessageTeamSubmissionRow>
     >;
-    readonly getMessageTeamSubmissionByDiscordMessage: ClientMethod<
+    readonly getMessageTeamSubmissionByDiscordMessage: ClientMethodWithSuccess<
       "messageTeamSubmission",
-      "getMessageTeamSubmissionByDiscordMessage"
+      "getMessageTeamSubmissionByDiscordMessage",
+      Option.Option<MessageTeamSubmissionRow>
     >;
-    readonly upsertMessageTeamSubmission: ClientMethod<
+    readonly upsertMessageTeamSubmission: ClientMutation<
       "messageTeamSubmission",
       "upsertMessageTeamSubmission"
     >;
-    readonly setMessageTeamSubmissionConfirmation: ClientMethod<
+    readonly setMessageTeamSubmissionConfirmation: ClientMutation<
       "messageTeamSubmission",
       "setMessageTeamSubmissionConfirmation"
     >;
@@ -259,6 +366,16 @@ type AssertCatalogIsExhaustive<
 > = true;
 type _CatalogIsExhaustive = AssertCatalogIsExhaustive<MissingCatalogEntries>;
 
+type TrustedClientGroup<Group extends keyof TrustedSheetPersistenceShape> = {
+  readonly [Method in (typeof trustedSheetPersistenceCatalog)[Group][number]]: unknown;
+};
+
+type ClientGroupByPersistenceGroup = {
+  readonly [Group in keyof TrustedSheetPersistenceShape]: (
+    client: GroupedSheetClient,
+  ) => TrustedClientGroup<Group>;
+};
+
 const clientGroupByPersistenceGroup = {
   workspaces: (client: GroupedSheetClient) => client.workspaceConfig,
   preferences: (client: GroupedSheetClient) => client.userConfig,
@@ -266,11 +383,7 @@ const clientGroupByPersistenceGroup = {
   roomOrderState: (client: GroupedSheetClient) => client.messageRoomOrder,
   slotState: (client: GroupedSheetClient) => client.messageSlot,
   teamSubmissionState: (client: GroupedSheetClient) => client.messageTeamSubmission,
-} as const satisfies {
-  readonly [Group in keyof TrustedSheetPersistenceShape]: (client: GroupedSheetClient) => {
-    readonly [Method in keyof TrustedSheetPersistenceShape[Group]]: TrustedSheetPersistenceShape[Group][Method];
-  };
-};
+} as const satisfies ClientGroupByPersistenceGroup;
 
 const persistenceGroups = Object.keys(clientGroupByPersistenceGroup) as ReadonlyArray<
   keyof TrustedSheetPersistenceShape
@@ -280,11 +393,15 @@ const makeTrustedGroup = <Group extends keyof TrustedSheetPersistenceShape>(
   group: Group,
   client: GroupedSheetClient,
 ): TrustedSheetPersistenceShape[Group] => {
-  const source = clientGroupByPersistenceGroup[group](client) as Readonly<
-    Record<PropertyKey, unknown>
+  const selectClientGroup = clientGroupByPersistenceGroup[
+    group
+  ] as ClientGroupByPersistenceGroup[Group];
+  const source = selectClientGroup(client);
+  const methods = trustedSheetPersistenceCatalog[group] as unknown as ReadonlyArray<
+    keyof TrustedClientGroup<Group>
   >;
   return Object.fromEntries(
-    trustedSheetPersistenceCatalog[group].map((method) => [method, source[method]]),
+    methods.map((method) => [method, source[method]]),
   ) as TrustedSheetPersistenceShape[Group];
 };
 
@@ -299,10 +416,122 @@ export class TrustedSheetPersistence extends Context.Service<
 >()("sheet-zero-server/TrustedSheetPersistence") {}
 
 export const makeTrustedSheetPersistence = <ClientContext>(
-  executor: ZeroClient.ZeroClientExecutor<Schema, ClientContext>,
+  executor: ZeroClient.ZeroClientExecutor<SheetZeroSchema, ClientContext>,
 ): Effect.Effect<TrustedSheetPersistenceShape> =>
   makeSheetClient(executor).pipe(Effect.map((client) => makeTrustedView(client.grouped)));
 
 export const makeTrustedSheetPersistenceLayer = <ClientContext>(
-  executor: ZeroClient.ZeroClientExecutor<Schema, ClientContext>,
+  executor: ZeroClient.ZeroClientExecutor<SheetZeroSchema, ClientContext>,
 ) => Layer.effect(TrustedSheetPersistence, makeTrustedSheetPersistence(executor));
+
+export interface PostgresTrustedSheetPersistenceOptions<ClientContext> {
+  readonly url: Redacted.Redacted<string>;
+  readonly context: ClientContext;
+  readonly applicationName?: string | undefined;
+  readonly maxConnections?: number | undefined;
+  readonly statementTimeoutMillis?: number | undefined;
+}
+
+const executorError = (operation: string) => (cause: unknown) =>
+  ZeroClient.makeExecutorError(
+    operation,
+    `Sheet PostgreSQL executor failed to ${operation}`,
+    cause,
+  );
+
+const retryableTransactionFailureCodes = new Set(["40001", "40P01"]);
+const isRetryableTransactionFailure = (cause: unknown) =>
+  Predicate.hasProperty(cause, "code") &&
+  Predicate.isString(cause.code) &&
+  retryableTransactionFailureCodes.has(cause.code);
+
+const makePostgresExecutor = <ClientContext>({
+  applicationName = "sheet-zero-server",
+  context,
+  maxConnections = 10,
+  statementTimeoutMillis = 30_000,
+  url,
+}: PostgresTrustedSheetPersistenceOptions<ClientContext>): Effect.Effect<
+  ZeroClient.ZeroClientExecutor<SheetZeroSchema, ClientContext>,
+  never,
+  Scope.Scope
+> =>
+  Effect.gen(function* () {
+    const sql = yield* Effect.acquireRelease(
+      Effect.sync(() =>
+        postgres(Redacted.value(url), {
+          connection: {
+            application_name: applicationName,
+            default_transaction_isolation: "serializable",
+            statement_timeout: statementTimeoutMillis,
+          },
+          max: maxConnections,
+        }),
+      ),
+      (client) =>
+        Effect.tryPromise({
+          try: () => client.end({ timeout: 5 }),
+          catch: executorError("close PostgreSQL client"),
+        }).pipe(
+          Effect.catch((error) =>
+            Effect.logWarning("Failed to close trusted sheet persistence PostgreSQL client", error),
+          ),
+        ),
+    );
+    const database = zeroDrizzle(schema, drizzle(sql) as unknown as DrizzleDatabase);
+    const resolveQuery = <Return>(
+      request: QueryOrQueryRequest<any, any, any, SheetZeroSchema, Return, ClientContext>,
+    ) => addContextToQuery(request, context);
+    const runQuery = <Return>(
+      request: QueryOrQueryRequest<any, any, any, SheetZeroSchema, Return, ClientContext>,
+    ) =>
+      Effect.tryPromise({
+        try: async () => (await database.run(resolveQuery(request))) as HumanReadable<Return>,
+        catch: (cause) => cause,
+      }).pipe(
+        Effect.retry({
+          times: 2,
+          while: isRetryableTransactionFailure,
+          schedule: Schedule.exponential("10 millis").pipe(Schedule.jittered),
+        }),
+        Effect.mapError(executorError("run query")),
+      );
+
+    return {
+      run: runQuery,
+      stream: <Return>(
+        request: QueryOrQueryRequest<any, any, any, SheetZeroSchema, Return, ClientContext>,
+      ) => Stream.fromEffect(runQuery(request)),
+      mutate: (request: MutateRequest<any, SheetZeroSchema, ClientContext, any>) =>
+        Effect.succeed({
+          client: () => Effect.void,
+          server: () =>
+            Effect.tryPromise({
+              try: () =>
+                database.transaction((transaction) =>
+                  request.mutator.fn({ args: request.args, ctx: context, tx: transaction }),
+                ),
+              catch: (cause) => cause,
+            }).pipe(
+              Effect.retry({
+                times: 2,
+                while: isRetryableTransactionFailure,
+                schedule: Schedule.exponential("10 millis").pipe(Schedule.jittered),
+              }),
+              Effect.mapError(executorError("run mutation")),
+              Effect.asVoid,
+            ),
+        }),
+    } satisfies ZeroClient.ZeroClientExecutor<SheetZeroSchema, ClientContext>;
+  });
+
+/**
+ * Production PostgreSQL composition for the policy-filtered trusted view.
+ * The underlying executor remains private so runtimes cannot bypass the reviewed catalog.
+ */
+export const makePostgresTrustedSheetPersistenceLayer = <ClientContext>(
+  options: PostgresTrustedSheetPersistenceOptions<ClientContext>,
+) =>
+  Layer.effect(TrustedSheetPersistence)(
+    makePostgresExecutor(options).pipe(Effect.flatMap(makeTrustedSheetPersistence)),
+  );

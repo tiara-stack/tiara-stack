@@ -6,7 +6,9 @@ import { WorkflowEngine } from "effect/unstable/workflow";
 import { markInteractionFailureHandled } from "@/handlers/shared/interactionFailure";
 import { DispatchService, ClientDeliveryClient, SheetApisClient } from "@/services";
 import { MessageRoomOrder } from "sheet-ingress-api/schemas/messageRoomOrder";
+import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import { dispatchButtonEntityLayer } from "@/workflows/dispatchRegistry";
+import { makeTrustedSheetPersistenceMock } from "@/services/testHelpers";
 import * as Data from "effect/Data";
 
 class SheetWorkflowsEntitiesDispatchButtonTestError extends Data.TaggedError(
@@ -389,6 +391,9 @@ describe("dispatch button entity", () => {
             updateOriginalInteractionResponse,
           } as never),
           Layer.succeed(SheetApisClient, sheetApisClientWithCheckinMember),
+          Layer.sync(TrustedSheetPersistence, () =>
+            makeTrustedSheetPersistenceMock(sheetApisClientWithCheckinMember),
+          ),
           WorkflowEngine.layerMemory,
           TestShardingConfig,
         ),
@@ -423,6 +428,9 @@ describe("dispatch button entity", () => {
           ),
           Layer.succeed(ClientDeliveryClient, { updateOriginalInteractionResponse } as never),
           Layer.succeed(SheetApisClient, sheetApisClientWithCheckinMember),
+          Layer.sync(TrustedSheetPersistence, () =>
+            makeTrustedSheetPersistenceMock(sheetApisClientWithCheckinMember),
+          ),
           WorkflowEngine.layerMemory,
           TestShardingConfig,
         ),

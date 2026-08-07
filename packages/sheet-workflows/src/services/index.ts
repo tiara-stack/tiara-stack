@@ -5,3 +5,4 @@ export * from "./dispatch";
 export * from "./postgres";
 export * from "./sheetApisClient";
 export * from "./sheetAuthClient";
+export * from "./trustedSheetPersistence";

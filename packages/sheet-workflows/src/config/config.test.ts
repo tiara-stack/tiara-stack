@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { ConfigProvider, Effect } from "effect";
+import { ConfigProvider, Effect, Exit } from "effect";
 import { config } from "./config";
 
 const readWorkflowRole = (env: Record<string, unknown>) =>
@@ -14,6 +14,16 @@ const readRunnerHealthLabelSelector = (env: Record<string, unknown>) =>
 
 const readAutoKickConcurrency = (env: Record<string, unknown>) =>
   config.autoKickConcurrency.pipe(
+    Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(env))),
+  );
+
+const readTrustedSheetPersistenceMaxConnections = (env: Record<string, unknown>) =>
+  config.trustedSheetPersistenceMaxConnections.pipe(
+    Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(env))),
+  );
+
+const readTrustedSheetPersistenceStatementTimeoutMillis = (env: Record<string, unknown>) =>
+  config.trustedSheetPersistenceStatementTimeoutMillis.pipe(
     Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(env))),
   );
 
@@ -84,6 +94,46 @@ describe("sheet-workflows config", () => {
     Effect.gen(function* () {
       const exit = yield* Effect.exit(readAutoKickConcurrency({ AUTO_KICK_CONCURRENCY: 0 }));
       expect(exit._tag).toBe("Failure");
+    }),
+  );
+
+  it.effect("configures the trusted sheet persistence pool size", () =>
+    Effect.gen(function* () {
+      expect(yield* readTrustedSheetPersistenceMaxConnections({})).toBe(10);
+      expect(
+        yield* readTrustedSheetPersistenceMaxConnections({
+          TRUSTED_SHEET_PERSISTENCE_MAX_CONNECTIONS: 4,
+        }),
+      ).toBe(4);
+      expect(
+        Exit.isFailure(
+          yield* Effect.exit(
+            readTrustedSheetPersistenceMaxConnections({
+              TRUSTED_SHEET_PERSISTENCE_MAX_CONNECTIONS: 0,
+            }),
+          ),
+        ),
+      ).toBe(true);
+    }),
+  );
+
+  it.effect("configures the trusted sheet persistence statement timeout", () =>
+    Effect.gen(function* () {
+      expect(yield* readTrustedSheetPersistenceStatementTimeoutMillis({})).toBe(30_000);
+      expect(
+        yield* readTrustedSheetPersistenceStatementTimeoutMillis({
+          TRUSTED_SHEET_PERSISTENCE_STATEMENT_TIMEOUT_MILLIS: 5_000,
+        }),
+      ).toBe(5_000);
+      expect(
+        Exit.isFailure(
+          yield* Effect.exit(
+            readTrustedSheetPersistenceStatementTimeoutMillis({
+              TRUSTED_SHEET_PERSISTENCE_STATEMENT_TIMEOUT_MILLIS: 0,
+            }),
+          ),
+        ),
+      ).toBe(true);
     }),
   );
 });

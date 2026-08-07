@@ -42,6 +42,7 @@ import type {
 } from "sheet-ingress-api/sheet-apis-rpc";
 import { Unauthorized } from "typhoon-core/error";
 import { MutatorResultAppError } from "typhoon-zero/error";
+import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import { markInteractionFailureHandled } from "@/handlers/shared/interactionFailure";
 import { DispatchService, ClientDeliveryClient, SheetApisClient } from "@/services";
 import {
@@ -57,7 +58,7 @@ import {
 } from "./dispatchRegistry";
 import { DispatchClusterWorkflows } from "./dispatchWorkflows";
 import { runDispatchWorkflowOperation } from "./dispatch/activityBoundary";
-import { makeClientDeliveryMock } from "@/services/testHelpers";
+import { makeClientDeliveryMock, makeTrustedSheetPersistenceMock } from "@/services/testHelpers";
 
 const {
   DispatchCheckinButtonWorkflow,
@@ -442,6 +443,14 @@ const makeSheetApisClientMock = (overrides: {
   return {
     get: () => client,
   };
+};
+
+const makeAuthorizationLayer = (overrides: Parameters<typeof makeSheetApisClientMock>[0]) => {
+  const sheetApisClient = makeSheetApisClientMock(overrides);
+  return Layer.mergeAll(
+    Layer.succeed(SheetApisClient, sheetApisClient),
+    Layer.sync(TrustedSheetPersistence, () => makeTrustedSheetPersistenceMock(sheetApisClient)),
+  );
 };
 
 describe("dispatch workflow registry", () => {
@@ -1556,12 +1565,10 @@ describe("dispatch workflow registry", () => {
         ),
         Effect.provideService(DispatchService, makeDispatchServiceMock({})),
         Effect.provide(
-          Layer.succeed(SheetApisClient)(
-            makeSheetApisClientMock({
-              getMessageCheckinMembers: () =>
-                Effect.succeed([makeMessageCheckinMember(requester.accountId)]),
-            }),
-          ),
+          makeAuthorizationLayer({
+            getMessageCheckinMembers: () =>
+              Effect.succeed([makeMessageCheckinMember(requester.accountId)]),
+          }),
         ),
         Effect.provideService(ClientDeliveryClient, {
           updateOriginalInteractionResponse: () => Effect.void,
@@ -1661,20 +1668,25 @@ describe("dispatch workflow registry", () => {
           payload: slotOpenButtonPayload,
         });
 
-        expect(authorized).toBe(messageSlot);
+        expect(authorized).toMatchObject({
+          clientPlatform: messageSlot.clientPlatform,
+          clientId: messageSlot.clientId,
+          messageId: messageSlot.messageId,
+          day: messageSlot.day,
+        });
+        expect(authorized.workspaceId).toEqual(messageSlot.workspaceId);
+        expect(authorized.conversationId).toEqual(messageSlot.conversationId);
       }).pipe(
         Effect.provide(
-          Layer.succeed(SheetApisClient)(
-            makeSheetApisClientMock({
-              getMessageSlotData: ({ query }) =>
-                Effect.sync(() => {
-                  expect(query.messageId).toBe(slotOpenButtonPayload.messageId);
-                  expect(query.clientPlatform).toBe("discord");
-                  expect(query.clientId).toBe("discord-main");
-                  return messageSlot;
-                }),
-            }),
-          ),
+          makeAuthorizationLayer({
+            getMessageSlotData: ({ query }) =>
+              Effect.sync(() => {
+                expect(query.messageId).toBe(slotOpenButtonPayload.messageId);
+                expect(query.clientPlatform).toBe("discord");
+                expect(query.clientId).toBe("discord-main");
+                return messageSlot;
+              }),
+          }),
         ),
       );
     }),
@@ -1695,17 +1707,15 @@ describe("dispatch workflow registry", () => {
       });
     }).pipe(
       Effect.provide(
-        Layer.succeed(SheetApisClient)(
-          makeSheetApisClientMock({
-            getMessageSlotData: () =>
-              Effect.succeed(
-                makeMessageSlot({
-                  workspaceId: Option.none(),
-                  conversationId: Option.some("conversation-1"),
-                }),
-              ),
-          }),
-        ),
+        makeAuthorizationLayer({
+          getMessageSlotData: () =>
+            Effect.succeed(
+              makeMessageSlot({
+                workspaceId: Option.none(),
+                conversationId: Option.some("conversation-1"),
+              }),
+            ),
+        }),
       ),
     ),
   );
@@ -1721,16 +1731,17 @@ describe("dispatch workflow registry", () => {
 
       expect(denied).toMatchObject({
         _tag: "ArgumentError",
-        message: "message slot not found",
+        message: "Message slot is not registered",
       });
     }).pipe(
       Effect.provide(
-        Layer.succeed(SheetApisClient)(
-          makeSheetApisClientMock({
-            getMessageSlotData: () =>
-              Effect.fail({ _tag: "ArgumentError", message: "message slot not found" }),
-          }),
-        ),
+        makeAuthorizationLayer({
+          getMessageSlotData: () =>
+            Effect.fail({
+              _tag: "ArgumentError",
+              message: "Cannot get message slot data, the message might not be registered",
+            }),
+        }),
       ),
     ),
   );
@@ -1747,12 +1758,10 @@ describe("dispatch workflow registry", () => {
       expect(denied).toBeInstanceOf(Unauthorized);
     }).pipe(
       Effect.provide(
-        Layer.succeed(SheetApisClient)(
-          makeSheetApisClientMock({
-            getMessageCheckinMembers: () =>
-              Effect.succeed([makeMessageCheckinMember("different-account")]),
-          }),
-        ),
+        makeAuthorizationLayer({
+          getMessageCheckinMembers: () =>
+            Effect.succeed([makeMessageCheckinMember("different-account")]),
+        }),
       ),
     ),
   );

@@ -507,7 +507,9 @@ export const makeMessageRoomOrderGroup = <const SuccessSchemas extends SheetZero
         if (
           Predicate.isNullish(messageRoomOrder) ||
           blocksTentativeClaim(messageRoomOrder, now) ||
-          blocksSendClaim(messageRoomOrder, now)
+          blocksSendClaim(messageRoomOrder, now) ||
+          messageRoomOrder.workspaceId !== args.workspaceId ||
+          messageRoomOrder.conversationId !== args.conversationId
         ) {
           return;
         }

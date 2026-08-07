@@ -1,10 +1,13 @@
 import { Predicate, Schema } from "effect";
 import { TeamSubmissionStatus } from "sheet-domain";
+import { makeArgumentError } from "typhoon-core/error";
 import { ReadonlyJSONValue } from "typhoon-zero/schema";
 import { ZeroApiEndpoint, ZeroApiGroup } from "typhoon-zero/zeroApi";
 import { zeroTableAccess } from "../accessors";
 import { activeRecord, preserveOmitted } from "../timestamps";
 import type { SheetZeroApiSuccessSchemas } from "./successSchemas";
+
+const teamSubmissionVersionConflictCode = "TEAM_SUBMISSION_VERSION_CONFLICT";
 
 export const makeMessageTeamSubmissionGroup = <
   const SuccessSchemas extends SheetZeroApiSuccessSchemas,
@@ -61,6 +64,7 @@ export const makeMessageTeamSubmissionGroup = <
         parsedSubmission: ReadonlyJSONValue,
         rowMappings: ReadonlyJSONValue,
         rollbackSnapshot: Schema.optional(Schema.NullOr(ReadonlyJSONValue)),
+        expectedVersion: Schema.optional(Schema.Int),
         status: TeamSubmissionStatus,
       }),
       mutator: async ({ tx, args }) => {
@@ -72,6 +76,15 @@ export const makeMessageTeamSubmissionGroup = <
             .one(),
         );
         const activeExistingSubmission = activeRecord(existingSubmission);
+        if (
+          Predicate.isNotUndefined(args.expectedVersion) &&
+          activeExistingSubmission?.version !== args.expectedVersion
+        ) {
+          throw makeArgumentError(
+            `Team submission version conflict: expected ${args.expectedVersion}, found ${activeExistingSubmission?.version ?? "missing"}`,
+            { code: teamSubmissionVersionConflictCode },
+          );
+        }
 
         await tx.mutate.messageTeamSubmission.upsert(
           zeroTableAccess.messageTeamSubmission.upsertWithTimestamps(

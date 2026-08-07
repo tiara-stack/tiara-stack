@@ -171,13 +171,6 @@ export const sheetPackageBoundaryPolicy = {
     {
       code: "forbidden-sheet-dependency",
       package: "sheet-workflows",
-      target: "sheet-db-schema",
-      reason: "The trusted persistence implementation has not yet moved behind sheet-zero-server.",
-      removeWhen: "Switch the workflow runtime to the in-process sheet-zero-server boundary.",
-    },
-    {
-      code: "forbidden-sheet-dependency",
-      package: "sheet-workflows",
       target: "sheet-ingress-api",
       reason: "Workflow dispatch still uses gateway-era contracts during expansion.",
       removeWhen: "Publish and adopt the transport-neutral Workflow Contract catalog.",

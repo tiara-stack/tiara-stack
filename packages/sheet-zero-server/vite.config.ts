@@ -15,11 +15,13 @@ export default library({
     deps: {
       neverBundle: [
         "@rocicorp/zero",
+        "drizzle-orm",
         "effect",
         "effect-zero-workflow",
         "sheet-auth",
         "sheet-workflow-contracts",
         "sheet-zero-api",
+        "postgres",
         "typhoon-zero",
       ],
     },

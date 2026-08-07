@@ -9,6 +9,7 @@ import type { DispatchRequester } from "sheet-ingress-api/internal";
 import { ClientDeliveryClient } from "../../clientDeliveryClient";
 import { teamSubmissionRollbackFailedMessage } from "sheet-message-content/teamSubmissionButtons";
 import { SheetApisClient } from "../../sheetApisClient";
+import type { makeSheetApisServices } from "../clients/sheetApis";
 import { logNonInterruptFailure } from "../clients/messageDelivery";
 import {
   ignoreDiscordCleanupFailure,
@@ -21,9 +22,13 @@ import {
 export const makeTeamSubmissionButtonOperations = ({
   botClient,
   sheetApisClient,
+  teamSubmissionStateService,
 }: {
   readonly botClient: typeof ClientDeliveryClient.Service;
   readonly sheetApisClient: typeof SheetApisClient.Service;
+  readonly teamSubmissionStateService: ReturnType<
+    typeof makeSheetApisServices
+  >["teamSubmissionStateService"];
 }) => ({
   teamSubmissionConfirmButton: Effect.fn("DispatchService.teamSubmissionConfirmButton")(function* (
     payload: TeamSubmissionConfirmButtonDispatchPayload,
@@ -37,16 +42,7 @@ export const makeTeamSubmissionButtonOperations = ({
     );
 
     yield* runTeamSubmissionButtonAction(
-      sheetApisClient.get().teamSubmission.confirmFromDiscord({
-        payload: {
-          client: payload.client,
-          workspaceId: payload.workspaceId,
-          conversationId: payload.conversationId,
-          messageId: payload.messageId,
-          confirmationMessageId: payload.confirmationMessageId,
-          requesterUserId: requester.accountId,
-        },
-      }),
+      teamSubmissionStateService.confirmFromDiscord(payload, requester.accountId),
       "Could not confirm this team submission. Please try again.",
       finishInteractionBestEffort,
     );

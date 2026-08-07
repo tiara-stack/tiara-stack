@@ -2,7 +2,6 @@ import { fileURLToPath } from "url";
 import { app } from "tooling-config/vite";
 
 const alwaysBundleDependencies = () => true;
-const sheetDbSchemaModels = fileURLToPath(import.meta.resolve("sheet-db-schema/models"));
 
 export default app({
   resolve: {
@@ -18,9 +17,6 @@ export default app({
     {
       entry: {
         index: fileURLToPath(new URL("./src/index.ts", import.meta.url)),
-      },
-      alias: {
-        "sheet-db-schema/models": sheetDbSchemaModels,
       },
       tsconfig: "tsconfig.build.json",
       deps: {

@@ -1,17 +1,18 @@
-import { Effect, Option, Predicate } from "effect";
+import { Effect, Option } from "effect";
+import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import type { ClientRef } from "sheet-ingress-api/schemas/client";
 import { MessageRoomOrder } from "sheet-ingress-api/schemas/messageRoomOrder";
-import type { MessageSlot } from "sheet-ingress-api/schemas/messageSlot";
+import { MessageSlot } from "sheet-ingress-api/schemas/messageSlot";
 import {
   MESSAGE_ROOM_ORDER_NOT_REGISTERED_ERROR_MESSAGE,
   type RoomOrderPinTentativeButtonPayload,
   type RoomOrderPreviousButtonPayload,
 } from "sheet-ingress-api/sheet-apis-rpc";
 import type { DispatchAuthorizationSnapshot, DispatchRequester } from "sheet-ingress-api/internal";
-import { Unauthorized } from "typhoon-core/error";
+import { makeArgumentError, Unauthorized } from "typhoon-core/error";
 import { normalizeDispatchError } from "@/handlers/shared/dispatchError";
-import { SheetApisClient } from "@/services";
 import type { RoomOrderButtonPayloadBase } from "@/services/dispatch/domain/roomOrderCommon";
+import { decodeTagged } from "@/services/dispatch/persistenceDecoding";
 
 const messageKeyForPayload = (payload: {
   readonly client: ClientRef;
@@ -22,21 +23,14 @@ const messageKeyForPayload = (payload: {
   messageId: payload.messageId,
 });
 
-const isMissingMessageRoomOrderError = (error: unknown) =>
-  Predicate.isTagged("ArgumentError")(error) &&
-  Predicate.hasProperty(error, "message") &&
-  error.message === MESSAGE_ROOM_ORDER_NOT_REGISTERED_ERROR_MESSAGE;
-
 export const requireCheckinButtonAccess = (
   payload: { readonly client: ClientRef; readonly messageId: string },
   requester: DispatchRequester,
 ) =>
   Effect.gen(function* () {
-    const sheetApis = (yield* SheetApisClient).get();
-    const members = yield* sheetApis.messageCheckin
-      .getMessageCheckinMembers({
-        query: messageKeyForPayload(payload),
-      })
+    const persistence = yield* TrustedSheetPersistence;
+    const members = yield* persistence.checkinState
+      .getMessageCheckinMembers(messageKeyForPayload(payload))
       .pipe(Effect.mapError(normalizeDispatchError("Failed to verify check-in button access")));
 
     if (members.some((member) => member.memberId === requester.accountId)) {
@@ -71,30 +65,41 @@ const requirePayloadRoomOrderMatch = (
 
 export const requireRegisteredRoomOrderButtonAccess = (payload: RoomOrderPreviousButtonPayload) =>
   Effect.gen(function* () {
-    const sheetApis = (yield* SheetApisClient).get();
-    const roomOrder = yield* sheetApis.messageRoomOrder
-      .getMessageRoomOrder({
-        query: messageKeyForPayload(payload),
-      })
-      .pipe(Effect.mapError(normalizeDispatchError("Failed to verify room-order button access")));
-    yield* requirePayloadRoomOrderMatch(roomOrder, payload);
-    return roomOrder;
+    const persistence = yield* TrustedSheetPersistence;
+    return yield* Effect.gen(function* () {
+      const roomOrder = yield* persistence.roomOrderState.getMessageRoomOrder(
+        messageKeyForPayload(payload),
+      );
+      const requiredRoomOrder = yield* Option.match(roomOrder, {
+        onNone: () =>
+          Effect.fail(makeArgumentError(MESSAGE_ROOM_ORDER_NOT_REGISTERED_ERROR_MESSAGE)),
+        onSome: Effect.succeed,
+      });
+      const decoded = yield* decodeTagged(MessageRoomOrder, "MessageRoomOrder", requiredRoomOrder);
+      yield* requirePayloadRoomOrderMatch(decoded, payload);
+      return decoded;
+    }).pipe(Effect.mapError(normalizeDispatchError("Failed to verify room-order button access")));
   });
 
 export const requireRoomOrderPinTentativeButtonAccess = (
   payload: RoomOrderPinTentativeButtonPayload,
 ) =>
   Effect.gen(function* () {
-    const sheetApis = (yield* SheetApisClient).get();
-    return yield* sheetApis.messageRoomOrder
-      .getMessageRoomOrder({
-        query: messageKeyForPayload(payload),
-      })
+    const persistence = yield* TrustedSheetPersistence;
+    return yield* persistence.roomOrderState
+      .getMessageRoomOrder(messageKeyForPayload(payload))
       .pipe(
-        Effect.flatMap((roomOrder) =>
-          requirePayloadRoomOrderMatch(roomOrder, payload).pipe(Effect.as(roomOrder)),
+        Effect.flatMap(
+          Option.match({
+            onNone: () => Effect.succeed(null),
+            onSome: (roomOrder) =>
+              decodeTagged(MessageRoomOrder, "MessageRoomOrder", roomOrder).pipe(
+                Effect.flatMap((decoded) =>
+                  requirePayloadRoomOrderMatch(decoded, payload).pipe(Effect.as(decoded)),
+                ),
+              ),
+          }),
         ),
-        Effect.catchIf(isMissingMessageRoomOrderError, () => Effect.succeed(null)),
         Effect.mapError(
           normalizeDispatchError("Failed to verify tentative room-order button access"),
         ),
@@ -106,20 +111,25 @@ export const requireSlotOpenButtonAccess = (payload: {
   readonly messageId: string;
 }) =>
   Effect.gen(function* () {
-    const sheetApis = (yield* SheetApisClient).get();
-    const messageSlot = yield* sheetApis.messageSlot
-      .getMessageSlotData({
-        query: messageKeyForPayload(payload),
-      })
-      .pipe(Effect.mapError(normalizeDispatchError("Failed to verify slot button access")));
-
-    if (Option.isNone(messageSlot.workspaceId) || Option.isNone(messageSlot.conversationId)) {
-      return yield* Effect.fail(
-        new Unauthorized({ message: "Legacy message slot records are no longer accessible" }),
+    const persistence = yield* TrustedSheetPersistence;
+    return yield* Effect.gen(function* () {
+      const messageSlot = yield* persistence.slotState.getMessageSlotData(
+        messageKeyForPayload(payload),
       );
-    }
+      const requiredMessageSlot = yield* Option.match(messageSlot, {
+        onNone: () => Effect.fail(makeArgumentError("Message slot is not registered")),
+        onSome: Effect.succeed,
+      });
+      const decoded = yield* decodeTagged(MessageSlot, "MessageSlot", requiredMessageSlot);
 
-    return messageSlot satisfies MessageSlot;
+      if (Option.isNone(decoded.workspaceId) || Option.isNone(decoded.conversationId)) {
+        return yield* Effect.fail(
+          new Unauthorized({ message: "Legacy message slot records are no longer accessible" }),
+        );
+      }
+
+      return decoded satisfies MessageSlot;
+    }).pipe(Effect.mapError(normalizeDispatchError("Failed to verify slot button access")));
   });
 
 export const requireAuthorizedWorkspace = (
