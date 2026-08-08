@@ -2,6 +2,7 @@ import { Config, Schema } from "effect";
 
 const nonEmptyString = Schema.NonEmptyString;
 const nonEmptySecret = Schema.Redacted(nonEmptyString);
+const capabilityEncryptionSecret = Schema.Redacted(Schema.String.check(Schema.isMinLength(32)));
 
 export const config = {
   sheetBotClientId: Config.schema(nonEmptyString, "SHEET_BOT_CLIENT_ID").pipe(
@@ -18,6 +19,10 @@ export const config = {
   sheetAuthIssuer: Config.schema(Schema.String, "SHEET_AUTH_ISSUER"),
   sheetAuthOAuthClientId: Config.schema(nonEmptyString, "SHEET_AUTH_OAUTH_CLIENT_ID"),
   sheetAuthOAuthClientSecret: Config.schema(nonEmptySecret, "SHEET_AUTH_OAUTH_CLIENT_SECRET"),
+  sheetBotCapabilityEncryptionSecret: Config.schema(
+    capabilityEncryptionSecret,
+    "SHEET_BOT_CAPABILITY_ENCRYPTION_SECRET",
+  ),
   sheetAuthSubjectTokenKubernetesTokenPath: Config.schema(
     nonEmptyString,
     "SHEET_AUTH_SUBJECT_TOKEN_KUBERNETES_TOKEN_PATH",

@@ -18,7 +18,7 @@ export const makePrefixedUnstorageLayer = <E>(storageLayer: Layer.Layer<Unstorag
     }),
   );
 
-const prefixedUnstorageLayer = makePrefixedUnstorageLayer(redisLayer);
+export const prefixedUnstorageLayer = makePrefixedUnstorageLayer(redisLayer);
 
 export const cachesLayer = discordCachesLayer.pipe(
   Layer.provide([prefixedUnstorageLayer, discordConfigLayer]),

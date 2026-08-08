@@ -63,13 +63,11 @@ const MemberParams = Schema.Struct({
   userId: Schema.String,
 });
 
-const cacheRead = <Endpoint extends Parameters<typeof annotateBotAdmissionPolicy>[0]>(
-  endpoint: Endpoint,
-) => annotateBotAdmissionPolicy(endpoint, BotAdmissionPolicies.cacheRead);
+const cacheRead = <Endpoint extends HttpApiEndpoint.AnyWithProps>(endpoint: Endpoint) =>
+  annotateBotAdmissionPolicy(endpoint, BotAdmissionPolicies.cacheRead);
 
-const deliveryWrite = <Endpoint extends Parameters<typeof annotateBotAdmissionPolicy>[0]>(
-  endpoint: Endpoint,
-) => annotateBotAdmissionPolicy(endpoint, BotAdmissionPolicies.deliveryWrite);
+const deliveryWrite = <Endpoint extends HttpApiEndpoint.AnyWithProps>(endpoint: Endpoint) =>
+  annotateBotAdmissionPolicy(endpoint, BotAdmissionPolicies.deliveryWrite);
 
 export const BotCacheEndpoints = Object.freeze({
   getApplication: cacheRead(

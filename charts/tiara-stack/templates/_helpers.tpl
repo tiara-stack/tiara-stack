@@ -318,6 +318,8 @@ imagePullSecrets:
       secretKey: sheetBotServiceClientId
     - name: SHEET_AUTH_OAUTH_CLIENT_SECRET
       secretKey: sheetBotServiceClientSecret
+    - name: SHEET_BOT_CAPABILITY_ENCRYPTION_SECRET
+      secretKey: sheetBotCapabilityEncryptionSecret
     - name: SHEET_AUTH_OAUTH_AUDIENCE
       value: sheet-bot
     - name: SHEET_AUTH_SUBJECT_TOKEN_KUBERNETES_TOKEN_PATH

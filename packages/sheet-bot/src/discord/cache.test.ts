@@ -21,6 +21,30 @@ const makeConfigLayer = (env: Record<string, string>) =>
   );
 
 describe("discord cache prefix", () => {
+  it.effect("prefixes atomic conditional writes", () =>
+    Effect.gen(function* () {
+      const memoryLayer = Unstorage.memoryLayer;
+      const rawStorage = yield* Effect.provide(Unstorage, memoryLayer);
+      const prefixedStorage = yield* Effect.provide(
+        Unstorage,
+        Layer.provide(
+          makePrefixedUnstorageLayer(memoryLayer),
+          makeConfigLayer({ SHEET_BOT_CLIENT_ID: "discord-atomic" }),
+        ),
+      );
+
+      expect(yield* Effect.promise(() => prefixedStorage.setItemIfAbsent("delivery:key", 1))).toBe(
+        true,
+      );
+      expect(yield* Effect.promise(() => prefixedStorage.setItemIfAbsent("delivery:key", 2))).toBe(
+        false,
+      );
+      expect(
+        yield* Effect.promise(() => rawStorage.getItem("discord:discord-atomic:delivery:key")),
+      ).toBe(1);
+    }),
+  );
+
   it.effect("uses explicit clientId in the Redis key prefix", () =>
     Effect.gen(function* () {
       const configLayer = makeConfigLayer({ SHEET_BOT_CLIENT_ID: "discord-alt" });

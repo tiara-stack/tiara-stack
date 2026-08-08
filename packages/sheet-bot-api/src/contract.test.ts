@@ -19,6 +19,7 @@ import {
   getBotAdmissionPolicy,
   messageRefFrom,
   type RespondInput,
+  type SendMessageInput,
   type SheetBotHttpClient,
 } from "./index";
 
@@ -185,7 +186,15 @@ describe("sheet-bot operation contracts", () => {
 
     expectTypeOf<SheetBotHttpClient["cache"]["getWorkspace"]>().toBeFunction();
     expectTypeOf<SheetBotHttpClient["delivery"]["respond"]>().toBeFunction();
-    expectTypeOf<RespondInput>().toMatchTypeOf<{
+    expectTypeOf<Parameters<SheetBotHttpClient["cache"]["getWorkspace"]>[0]["params"]>().toExtend<{
+      readonly platform: string;
+      readonly clientId: string;
+      readonly workspaceId: string;
+    }>();
+    expectTypeOf<
+      Parameters<SheetBotHttpClient["delivery"]["sendMessage"]>[0]["payload"]
+    >().toEqualTypeOf<SendMessageInput>();
+    expectTypeOf<RespondInput>().toExtend<{
       readonly responseReference: ResponseReference;
       readonly deliveryKey: DeliveryKey;
     }>();

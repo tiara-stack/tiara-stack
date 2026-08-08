@@ -11,7 +11,12 @@ import { DiscordREST } from "dfx";
 import type * as Discord from "dfx/types";
 import { DiscordApplication, DiscordLayer } from "dfx-discord-utils/discord";
 import { DiscordApi } from "dfx-discord-utils/discord/api";
-import { ChannelsCache, GuildsCache, MembersCache } from "dfx-discord-utils/discord/cache";
+import {
+  ChannelsCache,
+  GuildsCache,
+  MembersCache,
+  RolesCache,
+} from "dfx-discord-utils/discord/cache";
 import {
   ChannelPermissionOverwrite,
   DiscordMessageRequestSchema,
@@ -19,9 +24,19 @@ import {
   type DiscordBotRestError,
 } from "dfx-discord-utils/discord/schema";
 import { discordHttpApiHandlersLayer, handleBotRestError } from "dfx-discord-utils/discord/http";
-import { Effect, Equal, FileSystem, Layer, Predicate, Schema } from "effect";
+import { Effect, Equal, FileSystem, Layer, Match, Predicate, Schema } from "effect";
 import { createServer } from "http";
 import { ClientDeliveryApi, DeliveryEmoji } from "sheet-ingress-api/client-delivery";
+import {
+  BotDependencyUnavailable,
+  BotRateLimited,
+  BotRequestRejected,
+  BotResourceNotFound,
+  SheetBotApi,
+  type BotDeliveryOperation,
+  type DeliveryKey,
+  type DeliveryReceipt,
+} from "sheet-bot-api";
 import type {
   ClientRef,
   ConversationRef,
@@ -29,11 +44,12 @@ import type {
   SheetOutboundMessage,
 } from "sheet-ingress-api/schemas/client";
 import { makeArgumentError, makeUnknownError } from "typhoon-core/error";
-import { cachesLayer } from "./discord/cache";
+import { cachesLayer, prefixedUnstorageLayer } from "./discord/cache";
 import { discordConfigLayer } from "./discord/config";
 import { config } from "./config";
 import { toDiscordMessagePayload } from "./discord/renderSheetMessage";
 import { sheetBotHttpAuthorizationLayer } from "./middlewares/discordHttpAuthorization/live";
+import { BotCapabilityStore } from "./services/botCapabilityStore";
 import * as Data from "effect/Data";
 
 class SheetBotHttpError extends Data.TaggedError("SheetBotHttpError")<{
@@ -175,6 +191,61 @@ const botRestErrorResponse = (error: unknown) =>
     ? HttpServerResponse.json(error, { status: statusFromBotRestError(error) })
     : Effect.fail(error);
 
+const capabilityProviderError = (resource: string, error: unknown) => {
+  if (!isDiscordBotRestError(error)) {
+    return new BotDependencyUnavailable({ message: `Discord ${resource} request failed` });
+  }
+
+  return Match.value(error).pipe(
+    Match.tagsExhaustive({
+      DiscordBotBadRequestError: () =>
+        new BotRequestRejected({ message: `Discord rejected the ${resource} request` }),
+      DiscordBotUnauthorizedError: () =>
+        new BotDependencyUnavailable({ message: `Discord ${resource} is unavailable` }),
+      DiscordBotForbiddenError: () =>
+        new BotRequestRejected({ message: `Discord forbids the ${resource} request` }),
+      DiscordBotNotFoundError: () =>
+        new BotResourceNotFound({ resource, message: `${resource} was not found` }),
+      DiscordBotUnprocessableError: () =>
+        new BotRequestRejected({ message: `Discord rejected the ${resource} request` }),
+      DiscordBotRateLimitedError: () =>
+        new BotRateLimited({ message: `Discord rate limited the ${resource} request` }),
+      DiscordBotUpstreamError: () =>
+        new BotDependencyUnavailable({ message: `Discord ${resource} is unavailable` }),
+    }),
+  );
+};
+
+const mapCapabilityProviderError =
+  (resource: string) =>
+  <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    effect.pipe(Effect.mapError((error) => capabilityProviderError(resource, error)));
+
+const mapCapabilityCacheError =
+  (resource: string) =>
+  <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    effect.pipe(
+      Effect.mapError((error) => {
+        const mapped = capabilityProviderError(resource, error);
+        return Predicate.isTagged("BotResourceNotFound")(mapped)
+          ? mapped
+          : new BotDependencyUnavailable({ message: `Discord ${resource} cache is unavailable` });
+      }),
+    );
+
+const canReleaseDeliveryReservation = (error: unknown) =>
+  Predicate.isTagged("BotResourceNotFound")(error) ||
+  Predicate.isTagged("BotRequestRejected")(error) ||
+  // A provider 429 rejects the mutation; releasing the reservation lets the same key retry safely.
+  Predicate.isTagged("BotRateLimited")(error) ||
+  Predicate.isTagged("BotResponseExpired")(error);
+
+const ignoreMissingRemoval = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  effect.pipe(
+    Effect.catchIf(Predicate.isTagged("DiscordBotNotFoundError"), () => Effect.void),
+    Effect.asVoid,
+  );
+
 const mapClientDeliveryAdapterError =
   (message: string) =>
   <A, E, R>(
@@ -208,6 +279,19 @@ const requireThisPlatformAndClient = (configuredClientId: string, client: Client
   Effect.succeed(client).pipe(
     Effect.filterOrFail(isThisDiscordClient(configuredClientId), ({ platform, clientId }) =>
       makeArgumentError(`Unknown Discord client ${platform}:${clientId}`),
+    ),
+    Effect.asVoid,
+  );
+
+const requireCapabilityClient = (configuredClientId: string, client: ClientRef) =>
+  Effect.succeed(client).pipe(
+    Effect.filterOrFail(
+      isThisDiscordClient(configuredClientId),
+      ({ platform, clientId }) =>
+        new BotResourceNotFound({
+          resource: "client",
+          message: `Unknown Discord client ${platform}:${clientId}`,
+        }),
     ),
     Effect.asVoid,
   );
@@ -447,6 +531,439 @@ const clientDeliveryHandlersLayer = HttpApiBuilder.group(
   Layer.provide([discordConfigLayer, cachesLayer]),
 );
 
+const permissionOverwriteType = {
+  role: 0,
+  member: 1,
+} as const;
+
+const botConversationView = (id: string, conversation: { readonly type: number }) => {
+  const workspaceId = getStringField(conversation, "guild_id");
+  const name = getStringField(conversation, "name");
+  const position = getNumberField(conversation, "position");
+  return {
+    id,
+    type: conversation.type,
+    ...(workspaceId === undefined ? {} : { workspaceId }),
+    ...(name === undefined ? {} : { name }),
+    ...(position === undefined ? {} : { position }),
+  };
+};
+
+const botCapabilityCacheHandlersLayer = HttpApiBuilder.group(SheetBotApi, "cache", (handlers) =>
+  Effect.gen(function* () {
+    const application = yield* DiscordApplication;
+    const guildsCache = yield* GuildsCache;
+    const channelsCache = yield* ChannelsCache;
+    const rolesCache = yield* RolesCache;
+    const membersCache = yield* MembersCache;
+    const configuredClientId = yield* config.sheetBotClientId;
+
+    const requireClientParams = (params: {
+      readonly platform: string;
+      readonly clientId: string;
+    }) => requireCapabilityClient(configuredClientId, params);
+
+    const displayName = (member: unknown) => {
+      const nickname = getStringField(member, "nick");
+      if (nickname !== undefined) return nickname;
+      const user = getObjectField(member, "user");
+      return getStringField(user, "global_name") ?? getStringField(user, "username");
+    };
+
+    return handlers
+      .handle("getApplication", ({ params }) =>
+        Effect.gen(function* () {
+          yield* requireClientParams(params);
+          const ownerId =
+            getStringField(getObjectField(application, "owner"), "id") ??
+            getStringField(getObjectField(application, "team"), "owner_user_id");
+          if (ownerId === undefined) {
+            return yield* new BotDependencyUnavailable({
+              message: "Discord application owner is unavailable",
+            });
+          }
+          return { ownerId };
+        }),
+      )
+      .handle("getWorkspace", ({ params }) =>
+        Effect.gen(function* () {
+          yield* requireClientParams(params);
+          const workspace = yield* guildsCache
+            .get(params.workspaceId)
+            .pipe(mapCapabilityCacheError("workspace"));
+          return { id: workspace.id, name: workspace.name, ownerId: workspace.owner_id };
+        }),
+      )
+      .handle("getConversation", ({ params }) =>
+        Effect.gen(function* () {
+          yield* requireClientParams(params);
+          const conversation = yield* channelsCache
+            .get(params.workspaceId, params.conversationId)
+            .pipe(mapCapabilityCacheError("conversation"));
+          return botConversationView(conversation.id, conversation);
+        }),
+      )
+      .handle("listConversations", ({ params }) =>
+        Effect.gen(function* () {
+          yield* requireClientParams(params);
+          const conversations = yield* channelsCache
+            .getForParent(params.workspaceId)
+            .pipe(mapCapabilityCacheError("conversations"));
+          return Array.from(conversations.entries()).map(([id, conversation]) =>
+            botConversationView(id, conversation),
+          );
+        }),
+      )
+      .handle("getRole", ({ params }) =>
+        Effect.gen(function* () {
+          yield* requireClientParams(params);
+          const role = yield* rolesCache
+            .get(params.workspaceId, params.roleId)
+            .pipe(mapCapabilityCacheError("role"));
+          return {
+            id: role.id,
+            name: role.name,
+            permissions: role.permissions,
+            position: role.position,
+            managed: role.managed,
+          };
+        }),
+      )
+      .handle("listRoles", ({ params }) =>
+        Effect.gen(function* () {
+          yield* requireClientParams(params);
+          const roles = yield* rolesCache
+            .getForParent(params.workspaceId)
+            .pipe(mapCapabilityCacheError("roles"));
+          return Array.from(roles.values()).map((role) => ({
+            id: role.id,
+            name: role.name,
+            permissions: role.permissions,
+            position: role.position,
+            managed: role.managed,
+          }));
+        }),
+      )
+      .handle("getMember", ({ params }) =>
+        Effect.gen(function* () {
+          yield* requireClientParams(params);
+          const member = yield* membersCache
+            .get(params.workspaceId, params.userId)
+            .pipe(mapCapabilityCacheError("member"));
+          const memberDisplayName = displayName(member);
+          return {
+            userId: params.userId,
+            roleIds: [...member.roles],
+            ...(memberDisplayName === undefined ? {} : { displayName: memberDisplayName }),
+          };
+        }),
+      )
+      .handle("listMembers", ({ params }) =>
+        Effect.gen(function* () {
+          yield* requireClientParams(params);
+          const members = yield* membersCache
+            .getForParent(params.workspaceId)
+            .pipe(mapCapabilityCacheError("members"));
+          return Array.from(members.entries()).map(([userId, member]) => {
+            const memberDisplayName = displayName(member);
+            return {
+              userId,
+              roleIds: [...member.roles],
+              ...(memberDisplayName === undefined ? {} : { displayName: memberDisplayName }),
+            };
+          });
+        }),
+      );
+  }),
+);
+
+const botCapabilityDeliveryHandlersLayer = HttpApiBuilder.group(
+  SheetBotApi,
+  "delivery",
+  (handlers) =>
+    Effect.gen(function* () {
+      const rest = yield* DiscordREST;
+      const store = yield* BotCapabilityStore;
+      const configuredClientId = yield* config.sheetBotClientId;
+      const configuredClient = clientRef(configuredClientId);
+
+      const execute = <A extends DeliveryReceipt, E, R>(
+        operation: BotDeliveryOperation,
+        deliveryKey: DeliveryKey,
+        encodedInput: unknown,
+        effect: Effect.Effect<A, E, R>,
+      ) =>
+        store.executeDelivery({
+          operation,
+          deliveryKey,
+          encodedInput,
+          effect,
+          isDefinitiveFailure: canReleaseDeliveryReservation,
+        });
+
+      const requireClient = (client: ClientRef) =>
+        requireCapabilityClient(configuredClientId, client);
+
+      const reactionRouteEmoji = (emoji: {
+        readonly id?: string | undefined;
+        readonly name: string;
+      }) => encodeURIComponent(emoji.id ? `${emoji.name}:${emoji.id}` : emoji.name);
+
+      return handlers
+        .handle("respond", ({ payload }) =>
+          execute(
+            "respond",
+            payload.deliveryKey,
+            payload,
+            Effect.gen(function* () {
+              const response = yield* store.resolveResponseReference(payload.responseReference);
+              if (!response.permittedOperations.includes("respond")) {
+                return yield* new BotRequestRejected({
+                  message: "Response Reference does not permit respond operations",
+                });
+              }
+              yield* requireClient(response.client);
+              const files = renderFiles(payload.message);
+              const update = rest.updateOriginalWebhookMessage(
+                response.applicationId,
+                response.interactionToken,
+                { payload: toDiscordMessagePayload(payload.message) },
+              );
+              const message = yield* handleBotRestError(
+                files.length > 0 ? rest.withFiles(files)(update) : update,
+                "Failed to respond to interaction",
+              ).pipe(mapCapabilityProviderError("response"));
+              return {
+                deliveryKey: payload.deliveryKey,
+                operation: "respond",
+                target: {
+                  _tag: "Response",
+                  responseReference: payload.responseReference,
+                  message: discordInteractionMessageToRef(configuredClient, message),
+                },
+              };
+            }),
+          ),
+        )
+        .handle("sendMessage", ({ payload }) =>
+          execute(
+            "sendMessage",
+            payload.deliveryKey,
+            payload,
+            Effect.gen(function* () {
+              yield* requireClient(payload.conversation.workspace.client);
+              const message = yield* handleBotRestError(
+                rest.createMessage(
+                  payload.conversation.conversationId,
+                  toDiscordMessagePayload(payload.message),
+                ),
+                `Failed to send message to conversation ${payload.conversation.conversationId}`,
+              ).pipe(mapCapabilityProviderError("message delivery"));
+              return {
+                deliveryKey: payload.deliveryKey,
+                operation: "sendMessage",
+                target: {
+                  _tag: "Message",
+                  message: conversationToMessageRef(
+                    configuredClient,
+                    payload.conversation,
+                    message,
+                  ),
+                },
+              };
+            }),
+          ),
+        )
+        .handle("editMessage", ({ payload }) =>
+          execute(
+            "editMessage",
+            payload.deliveryKey,
+            payload,
+            Effect.gen(function* () {
+              yield* requireClient(payload.message.conversation.workspace.client);
+              yield* handleBotRestError(
+                rest.updateMessage(
+                  payload.message.conversation.conversationId,
+                  payload.message.messageId,
+                  toDiscordMessagePayload(payload.content),
+                ),
+                `Failed to edit message ${payload.message.messageId}`,
+              ).pipe(mapCapabilityProviderError("message edit"));
+              return {
+                deliveryKey: payload.deliveryKey,
+                operation: "editMessage",
+                target: { _tag: "Message", message: payload.message },
+              };
+            }),
+          ),
+        )
+        .handle("deleteMessage", ({ payload }) =>
+          execute(
+            "deleteMessage",
+            payload.deliveryKey,
+            payload,
+            Effect.gen(function* () {
+              yield* requireClient(payload.message.conversation.workspace.client);
+              yield* ignoreMissingRemoval(
+                handleBotRestError(
+                  rest.deleteMessage(
+                    payload.message.conversation.conversationId,
+                    payload.message.messageId,
+                  ),
+                  `Failed to delete message ${payload.message.messageId}`,
+                ),
+              ).pipe(mapCapabilityProviderError("message deletion"));
+              return {
+                deliveryKey: payload.deliveryKey,
+                operation: "deleteMessage",
+                target: { _tag: "Message", message: payload.message },
+              };
+            }),
+          ),
+        )
+        .handle("setMessagePinned", ({ payload }) =>
+          execute(
+            "setMessagePinned",
+            payload.deliveryKey,
+            payload,
+            Effect.gen(function* () {
+              yield* requireClient(payload.message.conversation.workspace.client);
+              const updatePinned = payload.present
+                ? rest.createPin(
+                    payload.message.conversation.conversationId,
+                    payload.message.messageId,
+                  )
+                : rest.deletePin(
+                    payload.message.conversation.conversationId,
+                    payload.message.messageId,
+                  );
+              const handledUpdate = handleBotRestError(
+                updatePinned,
+                `Failed to update pinned state for message ${payload.message.messageId}`,
+              );
+              yield* (payload.present ? handledUpdate : ignoreMissingRemoval(handledUpdate)).pipe(
+                mapCapabilityProviderError("message pin"),
+              );
+              return {
+                deliveryKey: payload.deliveryKey,
+                operation: "setMessagePinned",
+                target: { _tag: "Message", message: payload.message },
+              };
+            }),
+          ),
+        )
+        .handle("setMessageReaction", ({ payload }) =>
+          execute(
+            "setMessageReaction",
+            payload.deliveryKey,
+            payload,
+            Effect.gen(function* () {
+              yield* requireClient(payload.message.conversation.workspace.client);
+              const emoji = reactionRouteEmoji(payload.emoji);
+              const updateReaction = payload.present
+                ? rest.addMyMessageReaction(
+                    payload.message.conversation.conversationId,
+                    payload.message.messageId,
+                    emoji,
+                  )
+                : rest.deleteMyMessageReaction(
+                    payload.message.conversation.conversationId,
+                    payload.message.messageId,
+                    emoji,
+                  );
+              const handledUpdate = handleBotRestError(
+                updateReaction,
+                `Failed to update reaction for message ${payload.message.messageId}`,
+              );
+              yield* (payload.present ? handledUpdate : ignoreMissingRemoval(handledUpdate)).pipe(
+                mapCapabilityProviderError("message reaction"),
+              );
+              return {
+                deliveryKey: payload.deliveryKey,
+                operation: "setMessageReaction",
+                target: { _tag: "Message", message: payload.message },
+              };
+            }),
+          ),
+        )
+        .handle("setMemberRole", ({ payload }) =>
+          execute(
+            "setMemberRole",
+            payload.deliveryKey,
+            payload,
+            Effect.gen(function* () {
+              yield* requireClient(payload.workspace.client);
+              const updateRole = payload.present
+                ? rest.addGuildMemberRole(
+                    payload.workspace.workspaceId,
+                    payload.userId,
+                    payload.roleId,
+                  )
+                : rest.deleteGuildMemberRole(
+                    payload.workspace.workspaceId,
+                    payload.userId,
+                    payload.roleId,
+                  );
+              const handledUpdate = handleBotRestError(
+                updateRole,
+                `Failed to update member role ${payload.roleId}`,
+              );
+              yield* (payload.present ? handledUpdate : ignoreMissingRemoval(handledUpdate)).pipe(
+                mapCapabilityProviderError("member role"),
+              );
+              return {
+                deliveryKey: payload.deliveryKey,
+                operation: "setMemberRole",
+                target: {
+                  _tag: "MemberRole",
+                  workspace: payload.workspace,
+                  userId: payload.userId,
+                  roleId: payload.roleId,
+                },
+              };
+            }),
+          ),
+        )
+        .handle("replaceConversationPermissionOverwrites", ({ payload }) =>
+          execute(
+            "replaceConversationPermissionOverwrites",
+            payload.deliveryKey,
+            payload,
+            Effect.gen(function* () {
+              yield* requireClient(payload.conversation.workspace.client);
+              yield* handleBotRestError(
+                rest.updateChannel(payload.conversation.conversationId, {
+                  permission_overwrites: payload.permissionOverwrites.map((overwrite) => ({
+                    id: overwrite.targetId,
+                    type: permissionOverwriteType[overwrite.targetKind],
+                    allow: overwrite.allow,
+                    deny: overwrite.deny,
+                  })),
+                }),
+                `Failed to update conversation ${payload.conversation.conversationId}`,
+              ).pipe(mapCapabilityProviderError("conversation permission overwrites"));
+              return {
+                deliveryKey: payload.deliveryKey,
+                operation: "replaceConversationPermissionOverwrites",
+                target: { _tag: "Conversation", conversation: payload.conversation },
+              };
+            }),
+          ),
+        );
+    }),
+);
+
+const botCapabilityHandlersLayer = Layer.merge(
+  botCapabilityCacheHandlersLayer,
+  botCapabilityDeliveryHandlersLayer,
+).pipe(
+  Layer.provide(BotCapabilityStore.layer),
+  Layer.provide(prefixedUnstorageLayer),
+  Layer.provide(DiscordApplication.restLayer),
+  Layer.provide(DiscordLayer),
+  Layer.provide([discordConfigLayer, cachesLayer]),
+);
+
 const updateOriginalInteractionResponseFallbackLayer = HttpRouter.add(
   "PATCH",
   "/bot/interactions/original-response",
@@ -530,6 +1047,7 @@ const apiRoutesLayer = Layer.provide(HttpApiBuilder.layer(DiscordApi), [discordH
   Layer.merge(
     Layer.provide(HttpApiBuilder.layer(SheetBotClientDeliveryApi), [clientDeliveryHandlersLayer]),
   ),
+  Layer.merge(Layer.provide(HttpApiBuilder.layer(SheetBotApi), [botCapabilityHandlersLayer])),
   Layer.merge(updateOriginalInteractionResponseFallbackLayer),
   Layer.merge(updateOriginalInteractionResponseWithFilesFallbackLayer),
   Layer.provide(sheetBotHttpAuthorizationLayer),

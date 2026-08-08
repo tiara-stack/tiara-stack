@@ -571,6 +571,9 @@ importers:
       sheet-auth:
         specifier: workspace:*
         version: link:../sheet-auth
+      sheet-bot-api:
+        specifier: workspace:*
+        version: link:../sheet-bot-api
       sheet-db-schema:
         specifier: workspace:*
         version: link:../sheet-db-schema

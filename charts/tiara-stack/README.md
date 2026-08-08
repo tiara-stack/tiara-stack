@@ -83,6 +83,7 @@ scrape policies default to the `monitoring` namespace; override
 - `sheetAuthIssuer`
 - `sheetBotServiceClientId`
 - `sheetBotServiceClientSecret`
+- `sheetBotCapabilityEncryptionSecret` (minimum 32 characters; rotating it invalidates stored Response References, so in-flight interactions fail with `BotResponseExpired`)
 
 `sheet-workflows-secret`
 

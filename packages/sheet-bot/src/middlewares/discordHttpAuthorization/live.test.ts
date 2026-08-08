@@ -1,6 +1,22 @@
 import { describe, expect, it } from "@effect/vitest";
+import { Cause, Effect, Exit } from "effect";
 import { HttpServerRequest } from "effect/unstable/http";
-import { isHealthProbeRequest } from "./live";
+import type { VerifiedOAuthResourceToken } from "sheet-auth/oauth-resource-authorization";
+import { authorizeSheetBotAdmission, isHealthProbeRequest, sheetBotAdmissionForPath } from "./live";
+
+const token = (
+  scopes: ReadonlySet<string>,
+  input: Partial<VerifiedOAuthResourceToken> = {},
+): VerifiedOAuthResourceToken => ({
+  accountId: undefined,
+  actorClientId: undefined,
+  actorSub: undefined,
+  clientId: "sheet-workflows",
+  exp: undefined,
+  scopes,
+  sub: undefined,
+  ...input,
+});
 
 describe("sheet bot HTTP authorization", () => {
   it("allows Kubernetes health probes without ingress authorization", () => {
@@ -22,4 +38,67 @@ describe("sheet bot HTTP authorization", () => {
       ),
     ).toBe(false);
   });
+
+  it("classifies typed capability paths without changing legacy admission", () => {
+    expect(
+      sheetBotAdmissionForPath("/internal/bot/clients/discord/discord-main/workspaces/workspace-1"),
+    ).toBe("cache");
+    expect(sheetBotAdmissionForPath("/internal/bot/delivery/messages/send")).toBe("delivery");
+    expect(sheetBotAdmissionForPath("/internal/bot/%64elivery/messages/send")).toBe("delivery");
+    expect(sheetBotAdmissionForPath("/internal/bot/unknown")).toBe("denied");
+    expect(sheetBotAdmissionForPath("/internal/bot/%ZZ")).toBe("denied");
+    expect(sheetBotAdmissionForPath("/bot/interactions/original-response")).toBe("legacy");
+  });
+
+  it.effect("admits scoped service principals to typed routes", () =>
+    authorizeSheetBotAdmission("cache", token(new Set(["bot.cache.read"]))),
+  );
+
+  it.effect("rejects users and missing capability scopes", () =>
+    Effect.gen(function* () {
+      const userDenied = yield* Effect.exit(
+        authorizeSheetBotAdmission(
+          "delivery",
+          token(new Set(["bot.delivery.write"]), { sub: "user-1" }),
+        ),
+      );
+      expect(Exit.isFailure(userDenied)).toBe(true);
+      if (Exit.isSuccess(userDenied)) return;
+      expect(Cause.squash(userDenied.cause)).toMatchObject({
+        _tag: "BotAdmissionDenied",
+        message: "Sheet-bot capability routes require a Service Principal",
+      });
+
+      const scopeDenied = yield* Effect.exit(
+        authorizeSheetBotAdmission("delivery", token(new Set(["bot.cache.read"]))),
+      );
+      expect(Exit.isFailure(scopeDenied)).toBe(true);
+      if (Exit.isSuccess(scopeDenied)) return;
+      expect(Cause.squash(scopeDenied.cause)).toMatchObject({
+        _tag: "BotAdmissionDenied",
+        message: "Missing sheet-bot capability scope: bot.delivery.write",
+      });
+    }),
+  );
+
+  it.effect("denies unmatched internal bot routes", () =>
+    Effect.gen(function* () {
+      const denied = yield* Effect.exit(
+        authorizeSheetBotAdmission("denied", token(new Set(["ingress.forward"]))),
+      );
+      expect(Exit.isFailure(denied)).toBe(true);
+      if (Exit.isSuccess(denied)) return;
+      expect(Cause.squash(denied.cause)).toMatchObject({
+        _tag: "BotAdmissionDenied",
+        message: "Unsupported internal sheet-bot route",
+      });
+    }),
+  );
+
+  it.effect("preserves the legacy ingress scope", () =>
+    authorizeSheetBotAdmission(
+      "legacy",
+      token(new Set(["ingress.forward"]), { sub: "legacy-user" }),
+    ),
+  );
 });

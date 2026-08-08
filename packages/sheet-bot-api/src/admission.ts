@@ -34,7 +34,7 @@ export const annotateBotAdmissionPolicy = <
   policy: Policy,
 ) => {
   Schema.decodeUnknownSync(BotAdmissionPolicyMetadata)(policy);
-  return endpoint.annotate(BotAdmissionPolicyAnnotation, policy);
+  return endpoint.annotate(BotAdmissionPolicyAnnotation, policy) as Endpoint;
 };
 
 const hasAnnotations = (
