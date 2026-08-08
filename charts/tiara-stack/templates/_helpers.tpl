@@ -27,6 +27,10 @@ app: {{ .name }}
 app.kubernetes.io/instance: {{ .root.Release.Name }}
 {{- end -}}
 
+{{- define "tiara-stack.serviceName" -}}
+{{- default (printf "%s-service" .name) .serviceValues.serviceNameOverride -}}
+{{- end -}}
+
 {{- define "tiara-stack.image" -}}
 {{- $registry := trimSuffix "/" (default "" .root.Values.global.appImage.registry) -}}
 {{- $image := .image | default dict -}}

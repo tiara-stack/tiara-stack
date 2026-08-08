@@ -44,6 +44,7 @@ export default app({
     entry: {
       index: "src/index.ts",
       main: "src/main.ts",
+      "reconcile-delivery": "src/reconcileDeliveryMain.ts",
     },
     env: {
       BUILD_DATE: date,

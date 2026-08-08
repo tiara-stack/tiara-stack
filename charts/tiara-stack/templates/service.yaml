@@ -6,7 +6,7 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ default (printf "%s-service" $svc.name) $serviceValues.serviceNameOverride }}
+  name: {{ include "tiara-stack.serviceName" (dict "name" $svc.name "serviceValues" $serviceValues) }}
   labels:
     {{- include "tiara-stack.labels" $root | nindent 4 }}
     app: {{ $svc.name }}

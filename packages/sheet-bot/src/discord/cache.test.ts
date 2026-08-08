@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { ConfigProvider, Effect, Layer } from "effect";
+import { Cause, ConfigProvider, Effect, Exit, Layer } from "effect";
 import { Unstorage } from "dfx-discord-utils/discord/cache";
 import { makePrefixedUnstorageLayer } from "./cache";
 
@@ -42,6 +42,100 @@ describe("discord cache prefix", () => {
       expect(
         yield* Effect.promise(() => rawStorage.getItem("discord:discord-atomic:delivery:key")),
       ).toBe(1);
+      expect(
+        yield* Effect.promise(() => prefixedStorage.compareAndSetItem("delivery:missing", 1, 2)),
+      ).toBe(false);
+      expect(
+        yield* Effect.promise(() => prefixedStorage.compareAndRemoveItem("delivery:missing", 1)),
+      ).toBe(false);
+
+      expect(
+        yield* Effect.promise(() =>
+          prefixedStorage.compareAndSetItem("delivery:key", 2, { state: "completed" }),
+        ),
+      ).toBe(false);
+      expect(yield* Effect.promise(() => prefixedStorage.getItem("delivery:key"))).toBe(1);
+      expect(
+        yield* Effect.promise(() =>
+          prefixedStorage.compareAndSetItem("delivery:key", 1, { state: "completed" }),
+        ),
+      ).toBe(true);
+      expect(
+        yield* Effect.promise(() =>
+          prefixedStorage.compareAndRemoveItem("delivery:key", { state: "pending" }),
+        ),
+      ).toBe(false);
+      expect(
+        yield* Effect.promise(() =>
+          prefixedStorage.compareAndRemoveItem("delivery:key", { state: "completed" }),
+        ),
+      ).toBe(true);
+      expect(
+        yield* Effect.promise(() => rawStorage.getItem("discord:discord-atomic:delivery:key")),
+      ).toBeNull();
+
+      yield* Effect.promise(() =>
+        prefixedStorage.setItemIfAbsent("delivery:ordered", { z: 1, a: 2 }),
+      );
+      expect(
+        yield* Effect.promise(() =>
+          prefixedStorage.compareAndSetItem(
+            "delivery:ordered",
+            { a: 2, z: 1 },
+            { state: "completed" },
+          ),
+        ),
+      ).toBe(true);
+
+      const storedDate = new Date("2026-08-08T00:00:00.000Z");
+      yield* Effect.promise(() =>
+        prefixedStorage.setItemIfAbsent("delivery:date", { recordedAt: storedDate }),
+      );
+      expect(
+        yield* Effect.promise(() =>
+          prefixedStorage.compareAndRemoveItem("delivery:date", {
+            recordedAt: new Date("2026-08-08T00:00:00.000Z"),
+          }),
+        ),
+      ).toBe(true);
+
+      yield* Effect.promise(() => prefixedStorage.setItem("scan:first", 1));
+      yield* Effect.promise(() => prefixedStorage.setItem("scan:second", 2));
+      const firstPage = yield* Effect.promise(() => prefixedStorage.scanKeys("scan:", "0", 1));
+      const secondPage = yield* Effect.promise(() =>
+        prefixedStorage.scanKeys("scan:", firstPage.cursor, 1),
+      );
+      expect(firstPage.keys).toHaveLength(1);
+      expect(firstPage.cursor).not.toBe("0");
+      expect(secondPage.cursor).toBe("0");
+      expect([...firstPage.keys, ...secondPage.keys].sort()).toEqual(["scan:first", "scan:second"]);
+
+      const alreadyTrimmedStorage = yield* Effect.provide(
+        Unstorage.prefixed("discord:discord-atomic"),
+        Unstorage.layer({
+          ...rawStorage,
+          scanKeys: () => Promise.resolve({ cursor: "0", keys: ["scan:already-trimmed"] }),
+        }),
+      );
+      expect(yield* Effect.promise(() => alreadyTrimmedStorage.scanKeys("scan:", "0", 1))).toEqual({
+        cursor: "0",
+        keys: ["scan:already-trimmed"],
+      });
+
+      yield* Effect.promise(() => prefixedStorage.setItem("delivery:cyclic", 1));
+      const cyclic: Record<string, unknown> = {};
+      cyclic.self = cyclic;
+      const cyclicExit = yield* Effect.exit(
+        Effect.tryPromise({
+          try: () => prefixedStorage.compareAndSetItem("delivery:cyclic", cyclic, 2),
+          catch: (error) => error,
+        }),
+      );
+      expect(Exit.isFailure(cyclicExit)).toBe(true);
+      if (Exit.isSuccess(cyclicExit)) return;
+      expect(Cause.squash(cyclicExit.cause)).toMatchObject({
+        message: "Cannot serialize a cyclic storage value",
+      });
     }),
   );
 

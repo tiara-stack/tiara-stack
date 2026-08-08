@@ -283,6 +283,14 @@ monitoring:
   serviceMonitor:
     enabled: true
     releaseLabel: kube-prometheus-stack
+  deliveryReconciliationAlerts:
+    # Enable after reconciling the legacy pending/ambiguous backlog created by
+    # the first reservation-index backfill, or silence these alerts during that upgrade.
+    enabled: false
+    releaseLabel: kube-prometheus-stack
+    unresolvedAgeSeconds: 900
+    for: 5m
+    severity: warning
 
 networkPolicies:
   enabled: true

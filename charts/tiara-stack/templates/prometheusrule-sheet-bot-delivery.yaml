@@ -1,0 +1,31 @@
+{{- if and .Values.monitoring.deliveryReconciliationAlerts.enabled .Values.services.sheetBot.enabled }}
+{{- $sheetBotServiceName := include "tiara-stack.serviceName" (dict "name" "sheet-bot" "serviceValues" .Values.services.sheetBot) -}}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: sheet-bot-delivery-reconciliation
+  labels:
+    {{- include "tiara-stack.labels" . | nindent 4 }}
+    app: sheet-bot
+    release: {{ required "monitoring.deliveryReconciliationAlerts.releaseLabel is required" .Values.monitoring.deliveryReconciliationAlerts.releaseLabel | quote }}
+spec:
+  groups:
+    - name: sheet-bot-delivery-reconciliation
+      rules:
+        - alert: SheetBotDeliveryReconciliationRequired
+          expr: max by (namespace, service) (sheet_bot_delivery_oldest_unresolved_age_seconds{namespace={{ .Release.Namespace | quote }},service={{ $sheetBotServiceName | quote }}}) > {{ .Values.monitoring.deliveryReconciliationAlerts.unresolvedAgeSeconds }}
+          for: {{ .Values.monitoring.deliveryReconciliationAlerts.for | quote }}
+          labels:
+            severity: {{ .Values.monitoring.deliveryReconciliationAlerts.severity | quote }}
+          annotations:
+            summary: Sheet bot has an unresolved delivery reservation
+            description: Inspect the Delivery Key and record confirmed, safe-retry, or unresolved evidence before another delivery attempt.
+        - alert: SheetBotDeliveryObservabilitySaturated
+          expr: max by (namespace, service) (sheet_bot_delivery_observability_saturated{namespace={{ .Release.Namespace | quote }},service={{ $sheetBotServiceName | quote }}}) > 0
+          for: {{ .Values.monitoring.deliveryReconciliationAlerts.for | quote }}
+          labels:
+            severity: {{ .Values.monitoring.deliveryReconciliationAlerts.severity | quote }}
+          annotations:
+            summary: Sheet bot unresolved-delivery observability reached its bound
+            description: The unresolved Delivery Key scan reached its configured bound; inspect structured logs and reconcile the oldest incidents first.
+{{- end }}
