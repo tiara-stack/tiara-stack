@@ -36,11 +36,15 @@ class WorkflowRun extends pg.Class<WorkflowRun>("WorkflowRun")({
   fields: {
     runId: pg.text("run_id").primaryKey(),
     workflowName: pg.text("workflow_name").notNull(),
+    contractIdentity: pg.text("contract_identity"),
+    contractWireVersion: pg.text("contract_wire_version"),
+    canonicalInputHash: pg.text("canonical_input_hash"),
     definitionVersion: pg.text("definition_version").notNull(),
     executionId: pg.text("execution_id").notNull(),
     idempotencyKey: pg.text("idempotency_key").notNull(),
     visibilityKey: pg.text("visibility_key").notNull(),
     principal: pg.jsonb("principal"),
+    actorProvenance: pg.jsonb("actor_provenance"),
     input: pg.jsonb("input").notNull(),
     status: pg.text("status").notNull().decodeTo(WorkflowRunStatus),
     result: pg.jsonb("result"),
@@ -54,6 +58,9 @@ class WorkflowRun extends pg.Class<WorkflowRun>("WorkflowRun")({
   },
   indexes: [
     pg.uniqueIndex("workflow_run_workflow_idempotency_idx").on("workflowName", "idempotencyKey"),
+    pg
+      .index("workflow_run_workflow_owner_submitted_idx")
+      .on("workflowName", "visibilityKey", "createdAt", "runId"),
     pg.index("workflow_run_visibility_updated_idx").on("visibilityKey", "updatedAt"),
     pg.index("workflow_run_status_updated_idx").on("status", "updatedAt"),
   ],

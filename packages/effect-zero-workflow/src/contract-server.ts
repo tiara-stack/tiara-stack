@@ -125,17 +125,19 @@ export interface ExecutableWorkflowContractRegistration<
   ) => Effect.Effect<void, WorkflowInvocationUnauthorized, Requirements>;
 }
 
-export interface WorkflowInvocationContext<Principal = unknown> {
+export interface WorkflowInvocationContext<Principal = unknown, Provenance = unknown> {
   readonly ownerKey: string;
   readonly principal: Principal;
+  readonly actorProvenance?: Provenance | undefined;
 }
 
-export interface AcceptedWorkflowInvocation<Principal = unknown> {
+export interface AcceptedWorkflowInvocation<Principal = unknown, Provenance = unknown> {
   readonly fingerprint: WorkflowInvocationFingerprint;
   readonly workflowName: string;
   readonly definitionVersion: string;
   readonly ownerKey: string;
   readonly principal: Principal;
+  readonly actorProvenance?: Provenance | undefined;
   readonly input: typeof ReadonlyJSONValue.Type;
 }
 
@@ -149,9 +151,13 @@ export interface MaterializedWorkflowRunRow {
   readonly updatedAt: Date | number | string;
 }
 
-export interface WorkflowInvocationStore<Principal = unknown, Requirements = never> {
+export interface WorkflowInvocationStore<
+  Principal = unknown,
+  Requirements = never,
+  Provenance = unknown,
+> {
   readonly enqueue: (
-    invocation: AcceptedWorkflowInvocation<Principal>,
+    invocation: AcceptedWorkflowInvocation<Principal, Provenance>,
   ) => Effect.Effect<WorkflowInvocationFingerprint, WorkflowEnqueueError, Requirements>;
   readonly get: (
     ownerKey: string,
@@ -379,14 +385,15 @@ export const materializeWorkflowRun = <Contract extends AnyWorkflowContract>(
 
 export const makeWorkflowTransportHandler = <
   Principal,
-  Context extends WorkflowInvocationContext<Principal>,
+  Provenance,
+  Context extends WorkflowInvocationContext<Principal, Provenance>,
   Requirements,
 >(options: {
   readonly contracts: ReadonlyArray<AnyWorkflowContract>;
   readonly registrations: ReadonlyArray<
     ExecutableWorkflowContractRegistration<AnyWorkflowContract, Context, Requirements>
   >;
-  readonly store: WorkflowInvocationStore<Principal, Requirements>;
+  readonly store: WorkflowInvocationStore<Principal, Requirements, Provenance>;
 }): Effect.Effect<
   WorkflowTransportHandler<Context, Requirements>,
   WorkflowContractRegistrationError
@@ -452,6 +459,7 @@ export const makeWorkflowTransportHandler = <
             definitionVersion: registration.definitionVersion,
             ownerKey: context.ownerKey,
             principal: context.principal,
+            actorProvenance: context.actorProvenance,
             input: canonical.encoded,
           });
           yield* validateInvocationReuse(accepted, requested);

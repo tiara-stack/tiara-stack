@@ -12,6 +12,12 @@ import {
   workflowTablePrefixSchema,
 } from "../store";
 import {
+  WorkflowInvocationFingerprint,
+  type AcceptedWorkflowInvocation,
+  validateInvocationReuse,
+} from "../contract-server";
+import { WorkflowInvocationUnauthorized } from "../contract-transport";
+import {
   WorkflowRunNotAccessibleError,
   type WorkflowCommandRequest,
   type WorkflowEnqueueRequest,
@@ -80,12 +86,22 @@ const ExistingCommandResult = Schema.Struct({
   payload_matches: Schema.Boolean,
 });
 
+const ContractInvocationResult = Schema.Struct({
+  run_id: Schema.String,
+  contract_identity: Schema.String,
+  contract_wire_version: Schema.String,
+  canonical_input_hash: Schema.String,
+  inserted: Schema.Boolean,
+});
+
 const encodeJson = Schema.encodeEffect(Schema.fromJsonString(ReadonlyJSONValue));
+const decodeReadonlyJson = Schema.decodeUnknownEffect(ReadonlyJSONValue);
 const encodePrincipal = Schema.encodeEffect(Schema.fromJsonString(WorkflowPrincipal));
 const encodeTimestamp = Schema.encodeEffect(Schema.toCodecJson(Schema.DateValid));
 const decodeAuthoritativeRunResult = Schema.decodeUnknownEffect(AuthoritativeRunResult);
 const decodeCommandInsertResult = Schema.decodeUnknownEffect(CommandInsertResult);
 const decodeExistingCommandResult = Schema.decodeUnknownEffect(ExistingCommandResult);
+const decodeContractInvocationResult = Schema.decodeUnknownEffect(ContractInvocationResult);
 
 const isPostgresUniqueViolation = (error: unknown): boolean =>
   Predicate.hasProperty("code")(error) && error.code === "23505";
@@ -303,6 +319,138 @@ export const makeWorkflowZeroTransaction = (options: { readonly tablePrefix: str
       }),
     );
 
+  const enqueueContractInvocationInZeroTransaction = <Principal, Provenance>(
+    tx: Transaction<WorkflowZeroSchema>,
+    invocation: AcceptedWorkflowInvocation<Principal, Provenance>,
+  ): Promise<WorkflowInvocationFingerprint> =>
+    Match.value(tx).pipe(
+      Match.discriminatorsExhaustive("location")({
+        client: async (clientTx) => {
+          const now = Date.now();
+          await clientTx.mutate.workflowRun.insert({
+            runId: invocation.fingerprint.invocationId,
+            workflowName: invocation.workflowName,
+            definitionVersion: invocation.definitionVersion,
+            visibilityKey: invocation.ownerKey,
+            status: "pending",
+            result: null,
+            error: null,
+            runAfter: now,
+            startedAt: null,
+            completedAt: null,
+            createdAt: now,
+            updatedAt: now,
+          });
+          return invocation.fingerprint;
+        },
+        server: (serverTx) =>
+          runAsPromise(
+            Effect.gen(function* () {
+              const now = new Date();
+              const actorProvenance = Predicate.isUndefined(invocation.actorProvenance)
+                ? null
+                : yield* decodeReadonlyJson(invocation.actorProvenance);
+              const principal = yield* decodeReadonlyJson(invocation.principal);
+              const encoded = yield* Effect.all({
+                actorProvenance: Predicate.isNull(actorProvenance)
+                  ? Effect.succeed<null>(null)
+                  : encodeJson(actorProvenance),
+                input: encodeJson(invocation.input),
+                now: encodeTimestamp(now),
+                principal: encodeJson(principal),
+              });
+              const rows = Array.from(
+                yield* Effect.tryPromise({
+                  try: () =>
+                    serverTx.dbTransaction.query(
+                      `INSERT INTO ${runTable} (
+          run_id, workflow_name, contract_identity, contract_wire_version,
+          canonical_input_hash, definition_version, execution_id, idempotency_key,
+          visibility_key, principal, actor_provenance, input, status, result, error,
+          max_attempts, run_after, started_at, completed_at, created_at, updated_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $1, $1,
+          $7, $8::jsonb, $9::jsonb, $10::jsonb, 'pending', NULL, NULL,
+          $11, $12, NULL, NULL, $12, $12
+        )
+        ON CONFLICT (run_id)
+        DO UPDATE SET updated_at = ${runTable}.updated_at
+        WHERE ${runTable}.visibility_key = EXCLUDED.visibility_key
+        RETURNING run_id,
+          COALESCE(contract_identity, workflow_name) AS contract_identity,
+          COALESCE(contract_wire_version, 'legacy') AS contract_wire_version,
+          COALESCE(canonical_input_hash, 'legacy') AS canonical_input_hash,
+          (xmax = 0) AS inserted`,
+                      [
+                        invocation.fingerprint.invocationId,
+                        invocation.workflowName,
+                        invocation.fingerprint.contractIdentity,
+                        invocation.fingerprint.wireVersion,
+                        invocation.fingerprint.canonicalInputHash,
+                        invocation.definitionVersion,
+                        invocation.ownerKey,
+                        encoded.principal,
+                        encoded.actorProvenance,
+                        encoded.input,
+                        defaultWorkflowMaxAttempts,
+                        encoded.now,
+                      ],
+                    ),
+                  catch: (error) =>
+                    isPostgresUniqueViolation(error)
+                      ? new WorkflowInvocationUnauthorized({
+                          message: "Workflow invocation is not accessible to this principal",
+                        })
+                      : error,
+                }),
+              );
+              const row = rows[0];
+              if (Predicate.isUndefined(row)) {
+                return yield* Effect.fail(
+                  new WorkflowInvocationUnauthorized({
+                    message: "Workflow invocation is not accessible to this principal",
+                  }),
+                );
+              }
+              const authoritative = yield* decodeContractInvocationResult(row);
+              const authoritativeFingerprint = yield* Schema.decodeUnknownEffect(
+                WorkflowInvocationFingerprint,
+              )({
+                invocationId: authoritative.run_id,
+                contractIdentity: authoritative.contract_identity,
+                wireVersion: authoritative.contract_wire_version,
+                canonicalInputHash: authoritative.canonical_input_hash,
+              });
+              yield* validateInvocationReuse(authoritativeFingerprint, invocation.fingerprint);
+              if (authoritative.inserted) {
+                yield* Effect.tryPromise({
+                  try: () =>
+                    serverTx.dbTransaction.query(
+                      `INSERT INTO ${commandTable} (
+          command_id, run_id, kind, payload, status, attempts, available_at,
+          lease_owner, lease_token, lease_until, delivered_at, last_error,
+          created_at, updated_at
+        ) VALUES (
+          $1, $2, 'start', $3::jsonb, 'pending', 0, $4,
+          NULL, 0, NULL, NULL, NULL, $4, $4
+        )
+        ON CONFLICT (command_id) DO NOTHING`,
+                      [
+                        `start:${authoritative.run_id}`,
+                        authoritative.run_id,
+                        encoded.input,
+                        encoded.now,
+                      ],
+                    ),
+                  catch: (error) => error,
+                });
+              }
+              return authoritativeFingerprint;
+            }),
+          ),
+      }),
+    );
+
   const mutateWithWorkflow = async (
     tx: Transaction<WorkflowZeroSchema>,
     context: WorkflowZeroContext,
@@ -455,6 +603,7 @@ export const makeWorkflowZeroTransaction = (options: { readonly tablePrefix: str
     });
 
   return {
+    enqueueContractInvocationInZeroTransaction,
     enqueueWorkflowCommandInZeroTransaction,
     enqueueWorkflowEventInZeroTransaction,
     enqueueWorkflowInZeroTransaction,

@@ -160,6 +160,7 @@ describe("Sheet Zero API entrypoint boundary", () => {
     "makeSheetServiceClient",
     "makeLegacySheetClient",
     "enqueueWorkflowCommandInZeroTransaction",
+    "enqueueWorkflowContractInvocationInZeroTransaction",
     "enqueueWorkflowEventInZeroTransaction",
     "mutateWithWorkflow",
     "enqueueWorkflowInZeroTransaction",

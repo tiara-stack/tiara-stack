@@ -12,6 +12,14 @@ import { Cause, Effect, Exit, Predicate, Schema } from "effect";
 import { describe, expect, it } from "@effect/vitest";
 import { ZeroApiEndpoint } from "typhoon-zero/zeroApi";
 import { WorkflowEventId } from "../event";
+import {
+  InvocationConflict,
+  InvocationId,
+  WorkflowContractIdentity,
+  WorkflowContractWireVersion,
+} from "../contract";
+import { CanonicalInputHash, type AcceptedWorkflowInvocation } from "../contract-server";
+import { WorkflowInvocationUnauthorized } from "../contract-transport";
 import { makeZeroWorkflowComponent } from "./component";
 import {
   PublicWorkflowRun,
@@ -25,6 +33,9 @@ const workflowRun = table("workflowRun")
   .columns({
     runId: string().from("run_id"),
     workflowName: string().from("workflow_name"),
+    contractIdentity: string().from("contract_identity").optional(),
+    contractWireVersion: string().from("contract_wire_version").optional(),
+    canonicalInputHash: string().from("canonical_input_hash").optional(),
     definitionVersion: string().from("definition_version"),
     visibilityKey: string().from("visibility_key"),
     status: string(),
@@ -68,6 +79,24 @@ const input: WorkflowEnqueueRequest = {
   executionId: "execution-1",
   payload: { value: 1 },
   runAfter: Date.UTC(2026, 0, 2, 3, 4, 5),
+};
+
+const contractInvocation: AcceptedWorkflowInvocation<
+  { readonly kind: string; readonly userId: string },
+  { readonly actorServiceId: string }
+> = {
+  fingerprint: {
+    invocationId: Schema.decodeUnknownSync(InvocationId)("123e4567-e89b-42d3-a456-426614174000"),
+    contractIdentity: Schema.decodeUnknownSync(WorkflowContractIdentity)("example.echo"),
+    wireVersion: Schema.decodeUnknownSync(WorkflowContractWireVersion)("1"),
+    canonicalInputHash: Schema.decodeUnknownSync(CanonicalInputHash)("sha256:abc"),
+  },
+  workflowName: '["example.echo","1"]',
+  definitionVersion: "definition-v1",
+  ownerKey: "user:user-1",
+  principal: { kind: "user", userId: "user-1" },
+  actorProvenance: { actorServiceId: "sheet-web" },
+  input: { value: "hello" },
 };
 
 const runAfterIso = "2026-01-02T03:04:05.000Z";
@@ -327,6 +356,157 @@ describe("Zero workflow component", () => {
       expect(statements[2]?.args[2]).toBe('{"value":1}');
       expect(statements[2]?.args[3]).toBe(runAfterIso);
       expect(statements[2]?.sql).toContain("$3::jsonb");
+    }),
+  );
+
+  it.effect("persists declared invocation identity and attribution atomically", () =>
+    Effect.gen(function* () {
+      const statements: Array<{ readonly sql: string; readonly args: readonly unknown[] }> = [];
+      const tx = makeServerTx((sql, args) => {
+        statements.push({ sql, args });
+        return Promise.resolve(
+          sql.includes("actor_provenance")
+            ? [
+                {
+                  run_id: contractInvocation.fingerprint.invocationId,
+                  contract_identity: contractInvocation.fingerprint.contractIdentity,
+                  contract_wire_version: contractInvocation.fingerprint.wireVersion,
+                  canonical_input_hash: contractInvocation.fingerprint.canonicalInputHash,
+                  inserted: true,
+                },
+              ]
+            : [],
+        );
+      });
+
+      const fingerprint = yield* promiseEffect(() =>
+        component.enqueueContractInvocationInZeroTransaction(tx, contractInvocation),
+      );
+
+      expect(fingerprint).toEqual(contractInvocation.fingerprint);
+      expect(statements).toHaveLength(2);
+      expect(statements[0]?.sql).toContain("contract_identity");
+      expect(statements[0]?.sql).toContain("canonical_input_hash");
+      expect(statements[0]?.args.slice(0, 7)).toEqual([
+        contractInvocation.fingerprint.invocationId,
+        contractInvocation.workflowName,
+        contractInvocation.fingerprint.contractIdentity,
+        contractInvocation.fingerprint.wireVersion,
+        contractInvocation.fingerprint.canonicalInputHash,
+        contractInvocation.definitionVersion,
+        contractInvocation.ownerKey,
+      ]);
+      expect(statements[0]?.args[7]).toBe('{"kind":"user","userId":"user-1"}');
+      expect(statements[0]?.args[8]).toBe('{"actorServiceId":"sheet-web"}');
+      expect(statements[0]?.args[9]).toBe('{"value":"hello"}');
+      expect(statements[1]?.args[0]).toBe(`start:${contractInvocation.fingerprint.invocationId}`);
+    }),
+  );
+
+  it.effect(
+    "reuses an identical authoritative fingerprint without duplicating its start command",
+    () =>
+      Effect.gen(function* () {
+        const statements: Array<string> = [];
+        const tx = makeServerTx((sql) => {
+          statements.push(sql);
+          return Promise.resolve([
+            {
+              run_id: contractInvocation.fingerprint.invocationId,
+              contract_identity: contractInvocation.fingerprint.contractIdentity,
+              contract_wire_version: contractInvocation.fingerprint.wireVersion,
+              canonical_input_hash: contractInvocation.fingerprint.canonicalInputHash,
+              inserted: false,
+            },
+          ]);
+        });
+
+        const fingerprint = yield* promiseEffect(() =>
+          component.enqueueContractInvocationInZeroTransaction(tx, contractInvocation),
+        );
+
+        expect(fingerprint).toEqual(contractInvocation.fingerprint);
+        expect(statements).toHaveLength(1);
+      }),
+  );
+
+  it.effect("rejects invocation reuse with a different authoritative fingerprint", () =>
+    Effect.gen(function* () {
+      const statements: Array<string> = [];
+      const tx = makeServerTx((sql) => {
+        statements.push(sql);
+        return Promise.resolve([
+          {
+            run_id: contractInvocation.fingerprint.invocationId,
+            contract_identity: "example.other",
+            contract_wire_version: "2",
+            canonical_input_hash: "sha256:other",
+            inserted: false,
+          },
+        ]);
+      });
+
+      const exit = yield* Effect.exit(
+        promiseEffect(() =>
+          component.enqueueContractInvocationInZeroTransaction(tx, contractInvocation),
+        ),
+      );
+
+      expectFailureMessage(exit, "conflicts with an existing invocation");
+      if (Exit.isFailure(exit)) {
+        expect(exit.cause.reasons.find(Cause.isFailReason)?.error).toBeInstanceOf(
+          InvocationConflict,
+        );
+      }
+      expect(statements).toHaveLength(1);
+    }),
+  );
+
+  it.effect("does not disclose contract metadata outside the invocation owner scope", () =>
+    Effect.gen(function* () {
+      const statements: Array<string> = [];
+      const tx = makeServerTx((sql) => {
+        statements.push(sql);
+        return Promise.resolve([]);
+      });
+
+      const exit = yield* Effect.exit(
+        promiseEffect(() =>
+          component.enqueueContractInvocationInZeroTransaction(tx, contractInvocation),
+        ),
+      );
+
+      expectFailureMessage(exit, "not accessible to this principal");
+      if (Exit.isFailure(exit)) {
+        expect(exit.cause.reasons.find(Cause.isFailReason)?.error).toBeInstanceOf(
+          WorkflowInvocationUnauthorized,
+        );
+      }
+      expect(statements[0]).toContain(
+        "WHERE sheet_db_workflow_run.visibility_key = EXCLUDED.visibility_key",
+      );
+      expect(statements).toHaveLength(1);
+    }),
+  );
+
+  it.effect("maps invocation identity collisions to a non-disclosing error", () =>
+    Effect.gen(function* () {
+      const tx = makeServerTx(() =>
+        Promise.reject(Object.assign(new Error("duplicate key"), { code: "23505" })),
+      );
+
+      const exit = yield* Effect.exit(
+        promiseEffect(() =>
+          component.enqueueContractInvocationInZeroTransaction(tx, contractInvocation),
+        ),
+      );
+
+      expectFailureMessage(exit, "not accessible to this principal");
+      if (Exit.isFailure(exit)) {
+        expect(exit.cause.reasons.find(Cause.isFailReason)?.error).toBeInstanceOf(
+          WorkflowInvocationUnauthorized,
+        );
+      }
     }),
   );
 

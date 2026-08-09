@@ -29,6 +29,7 @@ export {
 export { SheetZeroApi, makeSheetZeroApi, serviceApi } from "./api";
 export type { SheetZeroApiSuccessSchemas } from "./api/successSchemas";
 export {
+  enqueueWorkflowContractInvocationInZeroTransaction,
   enqueueWorkflowCommandInZeroTransaction,
   enqueueWorkflowEventInZeroTransaction,
   enqueueWorkflowInZeroTransaction,

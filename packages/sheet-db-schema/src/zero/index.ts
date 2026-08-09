@@ -1,6 +1,7 @@
 export { api, schema, type Schema, type SheetClient } from "sheet-zero-api";
 export {
   defineZeroTableAccess,
+  enqueueWorkflowContractInvocationInZeroTransaction,
   enqueueWorkflowCommandInZeroTransaction,
   enqueueWorkflowEventInZeroTransaction,
   enqueueWorkflowInZeroTransaction,

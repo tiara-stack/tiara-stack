@@ -13,6 +13,7 @@ import {
   materializeWorkflowRun,
   validateInvocationReuse,
   validateWorkflowContractRegistrations,
+  type WorkflowInvocationContext,
   type WorkflowInvocationStore,
   type WorkflowInvocationFingerprint,
 } from "./contract-server";
@@ -185,13 +186,16 @@ describe("Workflow Contract server validation", () => {
 
   it.effect("authorizes before persistence and scopes observation by owner", () =>
     Effect.gen(function* () {
+      type TestContext = WorkflowInvocationContext<string, { readonly source: string }>;
       let enqueueCount = 0;
+      let actorProvenance: { readonly source: string } | undefined;
       const observedOwners: Array<string> = [];
       const listedOwners: Array<string> = [];
-      const store: WorkflowInvocationStore<string> = {
+      const store: WorkflowInvocationStore<string, never, { readonly source: string }> = {
         enqueue: (invocation) =>
           Effect.sync(() => {
             enqueueCount += 1;
+            actorProvenance = invocation.actorProvenance;
             return invocation.fingerprint;
           }),
         get: (ownerKey) =>
@@ -211,14 +215,11 @@ describe("Workflow Contract server validation", () => {
           {
             contract: First,
             definitionVersion: "definition-1",
-            authorize: (context: { readonly ownerKey: string; readonly principal: string }) =>
+            authorize: (context: TestContext) =>
               context.principal === "allowed"
                 ? Effect.void
                 : Effect.fail(new WorkflowInvocationUnauthorized({ message: "Invocation denied" })),
-            authorizeObservation: (context: {
-              readonly ownerKey: string;
-              readonly principal: string;
-            }) =>
+            authorizeObservation: (context: TestContext) =>
               context.principal === "allowed"
                 ? Effect.void
                 : Effect.fail(
@@ -253,13 +254,18 @@ describe("Workflow Contract server validation", () => {
 
       yield* handler.enqueue(
         First,
-        { ownerKey: "owner-a", principal: "allowed" },
+        {
+          ownerKey: "owner-a",
+          principal: "allowed",
+          actorProvenance: { source: "contract-server-test" },
+        },
         { invocationId, input: { value: "hello" } },
       );
       yield* handler.get(First, { ownerKey: "owner-b", principal: "allowed" }, invocationId);
       yield* handler.list(First, { ownerKey: "owner-c", principal: "allowed" });
 
       expect(enqueueCount).toBe(1);
+      expect(actorProvenance).toEqual({ source: "contract-server-test" });
       expect(observedOwners).toEqual(["owner-b"]);
       expect(listedOwners).toEqual(["owner-c"]);
     }),

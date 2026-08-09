@@ -17,6 +17,8 @@ const workflowComponent: SheetWorkflowComponent = makeZeroWorkflowComponent({
 
 export const enqueueWorkflowCommandInZeroTransaction: SheetWorkflowComponent["enqueueWorkflowCommandInZeroTransaction"] =
   workflowComponent.enqueueWorkflowCommandInZeroTransaction;
+export const enqueueWorkflowContractInvocationInZeroTransaction: SheetWorkflowComponent["enqueueContractInvocationInZeroTransaction"] =
+  workflowComponent.enqueueContractInvocationInZeroTransaction;
 export const enqueueWorkflowEventInZeroTransaction: SheetWorkflowComponent["enqueueWorkflowEventInZeroTransaction"] =
   workflowComponent.enqueueWorkflowEventInZeroTransaction;
 export const enqueueWorkflowInZeroTransaction: SheetWorkflowComponent["enqueueWorkflowInZeroTransaction"] =

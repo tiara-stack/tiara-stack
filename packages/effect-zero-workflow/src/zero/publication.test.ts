@@ -22,7 +22,11 @@ describe("workflow Zero publication", () => {
     expect(configured.tables).not.toHaveProperty("workflowCommand");
     expect(configured.tables.workflowRun.serverName).toBe("sheet_db_workflow_run");
     expect(configured.tables.workflowRun.columns).toEqual({
+      actorProvenance: false,
+      canonicalInputHash: false,
       completedAt: expect.any(Object),
+      contractIdentity: false,
+      contractWireVersion: false,
       createdAt: expect.any(Object),
       definitionVersion: expect.any(Object),
       error: expect.any(Object),

@@ -10,6 +10,7 @@ import {
   type WorkflowZeroContext,
 } from "./schemas";
 import { makeWorkflowZeroTransaction, type WorkflowZeroSchema } from "./transaction";
+import type { AcceptedWorkflowInvocation } from "../contract-server";
 
 export type ZeroWorkflowComponentOptions<TSchema extends WorkflowZeroSchema> = {
   readonly schema: TSchema;
@@ -35,6 +36,10 @@ export const makeZeroWorkflowComponent = <TSchema extends WorkflowZeroSchema>(
     context: WorkflowZeroContext,
     input: typeof WorkflowEnqueueRequest.Type,
   ) => transaction.enqueueWorkflowInZeroTransaction(componentTransaction(tx), context, input);
+  const enqueueContractInvocationInZeroTransaction = <Principal, Provenance>(
+    tx: Transaction<TSchema>,
+    invocation: AcceptedWorkflowInvocation<Principal, Provenance>,
+  ) => transaction.enqueueContractInvocationInZeroTransaction(componentTransaction(tx), invocation);
   const mutateWithWorkflow = async (
     tx: Transaction<TSchema>,
     context: WorkflowZeroContext,
@@ -167,6 +172,7 @@ export const makeZeroWorkflowComponent = <TSchema extends WorkflowZeroSchema>(
   );
 
   return {
+    enqueueContractInvocationInZeroTransaction,
     enqueueWorkflowCommandInZeroTransaction,
     enqueueWorkflowEventInZeroTransaction,
     enqueueWorkflowInZeroTransaction,
