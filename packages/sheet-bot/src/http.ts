@@ -10,6 +10,7 @@ import { HttpApi, HttpApiBuilder } from "effect/unstable/httpapi";
 import { DiscordREST } from "dfx";
 import type * as Discord from "dfx/types";
 import { DiscordApplication, DiscordLayer } from "dfx-discord-utils/discord";
+import { ParentCachePageSize } from "dfx-discord-utils/cache";
 import { DiscordApi } from "dfx-discord-utils/discord/api";
 import {
   ChannelsCache,
@@ -33,6 +34,7 @@ import {
   BotRequestRejected,
   BotResourceNotFound,
   SheetBotApi,
+  maximumBotCollectionPageSize,
   type BotDeliveryOperation,
   type DeliveryKey,
   type DeliveryReceipt,
@@ -50,6 +52,15 @@ import { config } from "./config";
 import { toDiscordMessagePayload } from "./discord/renderSheetMessage";
 import { sheetBotHttpAuthorizationLayer } from "./middlewares/discordHttpAuthorization/live";
 import { BotCapabilityStore } from "./services/botCapabilityStore";
+import {
+  botConversationPage,
+  botConversationView,
+  botMemberPage,
+  botMemberView,
+  decodeBotCollectionCursor,
+  type BotCollectionCursorContext,
+} from "./services/botCachePagination";
+import { getNumberField, getObjectField, getStringField } from "./services/unknownObjectFields";
 import * as Data from "effect/Data";
 
 class SheetBotHttpError extends Data.TaggedError("SheetBotHttpError")<{
@@ -135,19 +146,6 @@ const renderFiles = (message: SheetOutboundMessage) =>
       }),
   ) ?? [];
 
-const getObjectField = (value: unknown, field: string): unknown =>
-  Predicate.isObject(value) ? value[field] : undefined;
-
-const getStringField = (value: unknown, field: string): string | undefined => {
-  const fieldValue = getObjectField(value, field);
-  return Predicate.isString(fieldValue) ? fieldValue : undefined;
-};
-
-const getNumberField = (value: unknown, field: string): number | undefined => {
-  const fieldValue = getObjectField(value, field);
-  return Predicate.isNumber(fieldValue) ? fieldValue : undefined;
-};
-
 const messageFromError = (message: string, error: unknown): string => {
   const detail = getObjectField(error, "message");
   return Predicate.isString(detail) ? `${message}: ${detail}` : message;
@@ -232,6 +230,16 @@ const mapCapabilityCacheError =
           : new BotDependencyUnavailable({ message: `Discord ${resource} cache is unavailable` });
       }),
     );
+
+const decodeCachePageSize = (limit: number) =>
+  Schema.decodeUnknownEffect(ParentCachePageSize)(limit).pipe(
+    Effect.mapError(
+      () =>
+        new BotRequestRejected({
+          message: `Collection page limit must be between 1 and ${maximumBotCollectionPageSize}`,
+        }),
+    ),
+  );
 
 const canReleaseDeliveryReservation = (error: unknown) =>
   Predicate.isTagged("BotResourceNotFound")(error) ||
@@ -536,19 +544,6 @@ const permissionOverwriteType = {
   member: 1,
 } as const;
 
-const botConversationView = (id: string, conversation: { readonly type: number }) => {
-  const workspaceId = getStringField(conversation, "guild_id");
-  const name = getStringField(conversation, "name");
-  const position = getNumberField(conversation, "position");
-  return {
-    id,
-    type: conversation.type,
-    ...(workspaceId === undefined ? {} : { workspaceId }),
-    ...(name === undefined ? {} : { name }),
-    ...(position === undefined ? {} : { position }),
-  };
-};
-
 const botCapabilityCacheHandlersLayer = HttpApiBuilder.group(SheetBotApi, "cache", (handlers) =>
   Effect.gen(function* () {
     const application = yield* DiscordApplication;
@@ -563,12 +558,14 @@ const botCapabilityCacheHandlersLayer = HttpApiBuilder.group(SheetBotApi, "cache
       readonly clientId: string;
     }) => requireCapabilityClient(configuredClientId, params);
 
-    const displayName = (member: unknown) => {
-      const nickname = getStringField(member, "nick");
-      if (nickname !== undefined) return nickname;
-      const user = getObjectField(member, "user");
-      return getStringField(user, "global_name") ?? getStringField(user, "username");
-    };
+    const collectionContext = (
+      collection: BotCollectionCursorContext["collection"],
+      params: {
+        readonly platform: string;
+        readonly clientId: string;
+        readonly workspaceId: string;
+      },
+    ): BotCollectionCursorContext => ({ collection, ...params });
 
     return handlers
       .handle("getApplication", ({ params }) =>
@@ -603,15 +600,16 @@ const botCapabilityCacheHandlersLayer = HttpApiBuilder.group(SheetBotApi, "cache
           return botConversationView(conversation.id, conversation);
         }),
       )
-      .handle("listConversations", ({ params }) =>
+      .handle("listConversations", ({ params, query }) =>
         Effect.gen(function* () {
           yield* requireClientParams(params);
+          const context = collectionContext("conversations", params);
+          const cursor = yield* decodeBotCollectionCursor(query.cursor, context);
+          const limit = yield* decodeCachePageSize(query.limit);
           const conversations = yield* channelsCache
-            .getForParent(params.workspaceId)
+            .getPageForParent(params.workspaceId, cursor, limit)
             .pipe(mapCapabilityCacheError("conversations"));
-          return Array.from(conversations.entries()).map(([id, conversation]) =>
-            botConversationView(id, conversation),
-          );
+          return botConversationPage(context, conversations);
         }),
       )
       .handle("getRole", ({ params }) =>
@@ -650,28 +648,19 @@ const botCapabilityCacheHandlersLayer = HttpApiBuilder.group(SheetBotApi, "cache
           const member = yield* membersCache
             .get(params.workspaceId, params.userId)
             .pipe(mapCapabilityCacheError("member"));
-          const memberDisplayName = displayName(member);
-          return {
-            userId: params.userId,
-            roleIds: [...member.roles],
-            ...(memberDisplayName === undefined ? {} : { displayName: memberDisplayName }),
-          };
+          return botMemberView(params.userId, member);
         }),
       )
-      .handle("listMembers", ({ params }) =>
+      .handle("listMembers", ({ params, query }) =>
         Effect.gen(function* () {
           yield* requireClientParams(params);
+          const context = collectionContext("members", params);
+          const cursor = yield* decodeBotCollectionCursor(query.cursor, context);
+          const limit = yield* decodeCachePageSize(query.limit);
           const members = yield* membersCache
-            .getForParent(params.workspaceId)
+            .getPageForParent(params.workspaceId, cursor, limit)
             .pipe(mapCapabilityCacheError("members"));
-          return Array.from(members.entries()).map(([userId, member]) => {
-            const memberDisplayName = displayName(member);
-            return {
-              userId,
-              roleIds: [...member.roles],
-              ...(memberDisplayName === undefined ? {} : { displayName: memberDisplayName }),
-            };
-          });
+          return botMemberPage(context, members);
         }),
       );
   }),

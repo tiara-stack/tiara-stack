@@ -8,10 +8,11 @@ import {
 import { BotAdmissionPolicies, annotateBotAdmissionPolicy } from "./admission";
 import {
   BotApplication,
+  BotCollectionPageRequest,
   BotConversation,
-  BotConversations,
+  BotConversationPage,
   BotMember,
-  BotMembers,
+  BotMemberPage,
   BotRole,
   BotRoles,
   BotWorkspace,
@@ -105,7 +106,8 @@ export const BotCacheEndpoints = Object.freeze({
       "/internal/bot/clients/:platform/:clientId/workspaces/:workspaceId/conversations",
       {
         params: WorkspaceParams,
-        success: BotConversations,
+        query: BotCollectionPageRequest,
+        success: BotConversationPage,
         error: BotCacheReadErrors,
       },
     ),
@@ -149,7 +151,8 @@ export const BotCacheEndpoints = Object.freeze({
       "/internal/bot/clients/:platform/:clientId/workspaces/:workspaceId/members",
       {
         params: WorkspaceParams,
-        success: BotMembers,
+        query: BotCollectionPageRequest,
+        success: BotMemberPage,
         error: BotCacheReadErrors,
       },
     ),

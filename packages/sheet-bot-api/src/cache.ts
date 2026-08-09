@@ -35,9 +35,41 @@ export const BotMember = Schema.Struct({
 });
 export type BotMember = Schema.Schema.Type<typeof BotMember>;
 
+export const maximumBotCollectionPageSize = 100;
+
+export const BotCollectionPageSize = Schema.Int.check(
+  Schema.isBetween({ minimum: 1, maximum: maximumBotCollectionPageSize }),
+);
+export type BotCollectionPageSize = Schema.Schema.Type<typeof BotCollectionPageSize>;
+
+export const BotCollectionCursor = Schema.Trimmed.check(Schema.isNonEmpty()).pipe(
+  Schema.brand("sheet-bot-api/BotCollectionCursor"),
+);
+export type BotCollectionCursor = Schema.Schema.Type<typeof BotCollectionCursor>;
+
+export const BotCollectionPageRequest = Schema.Struct({
+  limit: BotCollectionPageSize,
+  cursor: Schema.optional(BotCollectionCursor),
+});
+export type BotCollectionPageRequest = Schema.Schema.Type<typeof BotCollectionPageRequest>;
+
+export const BotConversationPage = Schema.Struct({
+  items: Schema.Array(BotConversation),
+  nextCursor: Schema.optional(BotCollectionCursor),
+});
+export type BotConversationPage = Schema.Schema.Type<typeof BotConversationPage>;
+
+export const BotMemberPage = Schema.Struct({
+  items: Schema.Array(BotMember),
+  nextCursor: Schema.optional(BotCollectionCursor),
+});
+export type BotMemberPage = Schema.Schema.Type<typeof BotMemberPage>;
+
+/** @deprecated Use BotConversationPage for bounded collection reads. */
 export const BotConversations = Schema.Array(BotConversation);
 export type BotConversations = Schema.Schema.Type<typeof BotConversations>;
 export const BotRoles = Schema.Array(BotRole);
 export type BotRoles = Schema.Schema.Type<typeof BotRoles>;
+/** @deprecated Use BotMemberPage for bounded collection reads. */
 export const BotMembers = Schema.Array(BotMember);
 export type BotMembers = Schema.Schema.Type<typeof BotMembers>;

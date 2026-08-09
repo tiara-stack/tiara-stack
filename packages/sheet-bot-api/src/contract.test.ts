@@ -4,6 +4,9 @@ import { expectTypeOf } from "vitest";
 import {
   BotAdmissionPolicies,
   BotCacheEndpoints,
+  BotCollectionCursor,
+  BotCollectionPageRequest,
+  BotConversationPage,
   BotDeliveryEndpoints,
   BotOutboundMessage,
   BotPermissionOverwrite,
@@ -21,6 +24,7 @@ import {
   type RespondInput,
   type SendMessageInput,
   type SheetBotHttpClient,
+  maximumBotCollectionPageSize,
 } from "./index";
 
 const client = { platform: "discord", clientId: "bot-1" } as const;
@@ -157,6 +161,32 @@ describe("sheet-bot operation contracts", () => {
     ).toThrow(/Expected a string matching the RegExp/);
   });
 
+  it("bounds collection page requests and exposes explicit continuation", () => {
+    const cursor = Schema.decodeUnknownSync(BotCollectionCursor)("opaque-page-cursor");
+
+    expect(Schema.decodeUnknownSync(BotCollectionPageRequest)({ limit: 1 })).toEqual({ limit: 1 });
+    expect(
+      Schema.decodeUnknownSync(BotCollectionPageRequest)({
+        limit: maximumBotCollectionPageSize,
+        cursor,
+      }),
+    ).toEqual({ limit: maximumBotCollectionPageSize, cursor });
+    expect(() => Schema.decodeUnknownSync(BotCollectionPageRequest)({ limit: 0 })).toThrow();
+    expect(() =>
+      Schema.decodeUnknownSync(BotCollectionPageRequest)({
+        limit: maximumBotCollectionPageSize + 1,
+      }),
+    ).toThrow();
+    expect(() => Schema.decodeUnknownSync(BotCollectionCursor)(" ")).toThrow();
+
+    expect(
+      Schema.decodeUnknownSync(BotConversationPage)({
+        items: [{ id: "conversation-1", type: 0 }],
+        nextCursor: cursor,
+      }),
+    ).toEqual({ items: [{ id: "conversation-1", type: 0 }], nextCursor: cursor });
+  });
+
   it("annotates every endpoint with its service admission policy", () => {
     for (const endpoint of Object.values(BotCacheEndpoints)) {
       expect(getBotAdmissionPolicy(endpoint)).toEqual(BotAdmissionPolicies.cacheRead);
@@ -185,11 +215,24 @@ describe("sheet-bot operation contracts", () => {
     expect(Object.isFrozen(SheetBotHttpClientMetadata.groups.cache.operations)).toBe(true);
 
     expectTypeOf<SheetBotHttpClient["cache"]["getWorkspace"]>().toBeFunction();
+    expectTypeOf<SheetBotHttpClient["cache"]["listConversations"]>().toBeFunction();
     expectTypeOf<SheetBotHttpClient["delivery"]["respond"]>().toBeFunction();
     expectTypeOf<Parameters<SheetBotHttpClient["cache"]["getWorkspace"]>[0]["params"]>().toExtend<{
       readonly platform: string;
       readonly clientId: string;
       readonly workspaceId: string;
+    }>();
+    expectTypeOf<
+      Parameters<SheetBotHttpClient["cache"]["listConversations"]>[0]["query"]
+    >().toEqualTypeOf<{
+      readonly limit: number;
+      readonly cursor?: BotCollectionCursor | undefined;
+    }>();
+    expectTypeOf<
+      Parameters<SheetBotHttpClient["cache"]["listMembers"]>[0]["query"]
+    >().toEqualTypeOf<{
+      readonly limit: number;
+      readonly cursor?: BotCollectionCursor | undefined;
     }>();
     expectTypeOf<
       Parameters<SheetBotHttpClient["delivery"]["sendMessage"]>[0]["payload"]

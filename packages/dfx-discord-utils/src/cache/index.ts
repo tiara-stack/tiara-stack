@@ -27,3 +27,4 @@ export {
 } from "./prelude";
 export type { Cache } from "dfx/Cache";
 export { make, makeWithReverseLookup, type ReverseLookupCache, type SimpleCache } from "./cache";
+export { type ParentCachePage, ParentCachePageSize } from "./driver";

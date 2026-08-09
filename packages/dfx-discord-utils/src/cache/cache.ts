@@ -1,15 +1,39 @@
 import type { CacheDriver } from "dfx/Cache/driver";
 import * as Effect from "effect/Effect";
+import * as Match from "effect/Match";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import * as Schedule from "effect/Schedule";
 import * as Stream from "effect/Stream";
 import { CacheReadonlyError } from "../discord/schema";
-import type { ReverseLookupCacheDriver } from "./driver";
+import type { ParentCachePage, ParentCachePageSize, ReverseLookupCacheDriver } from "./driver";
 import type { ReverseLookupCacheOp } from "./prelude";
 
 const retryPolicy = Schedule.exponential("500 millis").pipe(
   Schedule.andThen(Schedule.spaced("10 seconds")),
 );
+
+const launchRestarting = <A, E, R>(message: string, effect: Effect.Effect<A, E, R>) =>
+  effect.pipe(
+    Effect.tapCause((cause) => Effect.logError(message, cause)),
+    Effect.retry(retryPolicy),
+    Effect.forkScoped,
+    Effect.interruptible,
+  );
+
+const applyReverseLookupCacheOp = <E, A>(
+  driver: ReverseLookupCacheDriver<E, A>,
+  op: ReverseLookupCacheOp<A>,
+): Effect.Effect<void, E> =>
+  Match.type<ReverseLookupCacheOp<A>>().pipe(
+    Match.discriminatorsExhaustive("op")({
+      create: (op) => driver.set(op.parentId, op.resourceId, op.resource),
+      update: (op) => driver.set(op.parentId, op.resourceId, op.resource),
+      delete: (op) => driver.delete(op.parentId, op.resourceId),
+      parentDelete: (op) => driver.parentDelete(op.parentId),
+      resourceDelete: (op) => driver.resourceDelete(op.resourceId),
+    }),
+  )(op);
 
 // Conditional type for put operation based on readonly flag
 type PutEffect<ReadonlyValue extends boolean, EDriver, EMiss, EId> = ReadonlyValue extends true
@@ -51,6 +75,11 @@ export interface ReverseLookupCache<
   readonly getForParent: (
     parentId: string,
   ) => Effect.Effect<ReadonlyMap<string, A>, EDriver | EPMiss>;
+  readonly getPageForParent: (
+    parentId: string,
+    cursor: string | undefined,
+    limit: ParentCachePageSize,
+  ) => Effect.Effect<ParentCachePage<A>, EDriver | EPMiss>;
   readonly getForResource: (
     resourceId: string,
   ) => Effect.Effect<ReadonlyMap<string, A>, EMiss | EDriver | ERMiss>;
@@ -103,40 +132,20 @@ export const makeWithReverseLookup = Effect.fn("cache.makeWithReverseLookup")(
     } = args;
 
     // In readonly mode, we still consume the ops stream but don't apply writes
-    yield* Stream.runDrain(
-      Stream.tap(ops, (op): Effect.Effect<void, EDriver> => {
-        if (readonly) {
-          // Skip all write operations in readonly mode
-          return Effect.void;
-        }
-        switch (op.op) {
-          case "create":
-          case "update":
-            return driver.set(op.parentId, op.resourceId, op.resource);
-
-          case "delete":
-            return driver.delete(op.parentId, op.resourceId);
-
-          case "parentDelete":
-            return driver.parentDelete(op.parentId);
-
-          case "resourceDelete":
-            return driver.resourceDelete(op.resourceId);
-        }
-      }),
-    ).pipe(
-      Effect.tapCause((_) => Effect.logError("ops error, restarting", _)),
-      Effect.retry(retryPolicy),
-      Effect.forkScoped,
-      Effect.interruptible,
+    yield* launchRestarting(
+      "ops error, restarting",
+      Stream.runDrain(
+        Stream.tap(ops, (op): Effect.Effect<void, EDriver> => {
+          if (readonly) {
+            // Skip all write operations in readonly mode
+            return Effect.void;
+          }
+          return applyReverseLookupCacheOp(driver, op);
+        }),
+      ),
     );
 
-    yield* driver.run.pipe(
-      Effect.tapCause((_) => Effect.logError("cache driver error, restarting", _)),
-      Effect.retry(retryPolicy),
-      Effect.forkScoped,
-      Effect.interruptible,
-    );
+    yield* launchRestarting("cache driver error, restarting", driver.run);
 
     const get = (parentId: string, resourceId: string) =>
       Effect.flatMap(
@@ -151,6 +160,22 @@ export const makeWithReverseLookup = Effect.fn("cache.makeWithReverseLookup")(
           onSome: Effect.succeed,
         }),
       );
+
+    const pageEntries = (
+      entries: ReadonlyArray<readonly [string, A]>,
+      cursor: string | undefined,
+      limit: ParentCachePageSize,
+    ): ParentCachePage<A> => {
+      const ordered = [...entries].sort(([left], [right]) =>
+        left < right ? -1 : left > right ? 1 : 0,
+      );
+      const start = Predicate.isUndefined(cursor) ? 0 : ordered.findIndex(([id]) => id > cursor);
+      const available = start < 0 ? [] : ordered.slice(start, start + limit + 1);
+      const visible = available.slice(0, limit);
+      const page = new Map(visible);
+      if (available.length <= limit) return { entries: page };
+      return { entries: page, nextCursor: visible[visible.length - 1]![0] };
+    };
 
     const put = ((_: A) =>
       readonly
@@ -198,11 +223,28 @@ export const makeWithReverseLookup = Effect.fn("cache.makeWithReverseLookup")(
                     Effect.map((entries) => new Map(entries) as ReadonlyMap<string, A>),
                   )
                 : onParentMiss(parentId).pipe(
-                    Effect.tap((entries) =>
-                      Effect.all(entries.map(([id, a]) => driver.set(parentId, id, a))),
-                    ),
+                    Effect.tap((entries) => driver.setForParent(parentId, entries)),
                     Effect.map((entries) => new Map(entries) as ReadonlyMap<string, A>),
                   ),
+            onSome: Effect.succeed,
+          }),
+        ),
+
+      getPageForParent: (
+        parentId: string,
+        cursor: string | undefined,
+        limit: ParentCachePageSize,
+      ) =>
+        Effect.flatMap(
+          driver.getPageForParent(parentId, cursor, limit),
+          Option.match({
+            onNone: () =>
+              onParentMiss(parentId).pipe(
+                Effect.tap((entries) =>
+                  readonly ? Effect.void : driver.setForParent(parentId, entries),
+                ),
+                Effect.map((entries) => pageEntries(entries, cursor, limit)),
+              ),
             onSome: Effect.succeed,
           }),
         ),
@@ -290,6 +332,18 @@ type SimpleCacheOp<T> =
   | { op: "update"; resourceId: string; resource: T }
   | { op: "delete"; resourceId: string };
 
+const applySimpleCacheOp = <E, A>(
+  driver: CacheDriver<E, A>,
+  op: SimpleCacheOp<A>,
+): Effect.Effect<void, E> =>
+  Match.type<SimpleCacheOp<A>>().pipe(
+    Match.discriminatorsExhaustive("op")({
+      create: (op) => driver.set(op.resourceId, op.resource),
+      update: (op) => driver.set(op.resourceId, op.resource),
+      delete: (op) => driver.delete(op.resourceId),
+    }),
+  )(op);
+
 // Conditional type for put operation based on readonly flag
 type SimplePutEffect<ReadonlyValue extends boolean, EDriver> = ReadonlyValue extends true
   ? Effect.Effect<never, CacheReadonlyError, never>
@@ -336,34 +390,20 @@ export const make = Effect.fn("cache.make")(
     const { driver, id, onMiss, ops = Stream.empty, readonly = false as ReadonlyValue } = args;
 
     // In readonly mode, we still consume the ops stream but don't apply writes
-    yield* Stream.runDrain(
-      Stream.tap(ops, (op): Effect.Effect<void, EDriver> => {
-        if (readonly) {
-          // Skip all write operations in readonly mode
-          return Effect.void;
-        }
-        switch (op.op) {
-          case "create":
-          case "update":
-            return driver.set(op.resourceId, op.resource);
-
-          case "delete":
-            return driver.delete(op.resourceId);
-        }
-      }),
-    ).pipe(
-      Effect.tapCause((_) => Effect.logError("ops error, restarting", _)),
-      Effect.retry(retryPolicy),
-      Effect.forkScoped,
-      Effect.interruptible,
+    yield* launchRestarting(
+      "ops error, restarting",
+      Stream.runDrain(
+        Stream.tap(ops, (op): Effect.Effect<void, EDriver> => {
+          if (readonly) {
+            // Skip all write operations in readonly mode
+            return Effect.void;
+          }
+          return applySimpleCacheOp(driver, op);
+        }),
+      ),
     );
 
-    yield* driver.run.pipe(
-      Effect.tapCause((_) => Effect.logError("cache driver error, restarting", _)),
-      Effect.retry(retryPolicy),
-      Effect.forkScoped,
-      Effect.interruptible,
-    );
+    yield* launchRestarting("cache driver error, restarting", driver.run);
 
     const get = (id: string) =>
       Effect.flatMap(

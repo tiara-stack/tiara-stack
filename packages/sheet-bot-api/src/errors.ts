@@ -56,6 +56,7 @@ export const BotCacheReadErrors = [
   BotUnauthenticated,
   BotAdmissionDenied,
   BotResourceNotFound,
+  BotRequestRejected,
   BotDependencyUnavailable,
 ] as const;
 
