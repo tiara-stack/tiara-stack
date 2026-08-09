@@ -15,6 +15,8 @@ import {
   pipe,
 } from "effect";
 
+const ENC_FACTOR = 2;
+
 export class CalcConfig extends Data.TaggedClass("CalcConfig")<{
   healNeeded: number;
   considerEnc: boolean;
@@ -118,7 +120,7 @@ const applyRoomEncAndDoormat = (roomTeam: Room) => {
     tiererEnced: tiererOverride,
     healed: roomTeam.healed,
     talent: roomTeam.talent,
-    effectValue: roomTeam.effectValue + PlayerTeam.getEffectValue(encTeam),
+    effectValue: roomTeam.effectValue + ENC_FACTOR * PlayerTeam.getEffectValue(encTeam),
     teams: Chunk.fromIterable(updatedTeams),
   });
 };

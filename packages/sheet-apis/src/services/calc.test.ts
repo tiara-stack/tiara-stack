@@ -201,6 +201,7 @@ describe("CalcService", () => {
       expect(HashSet.size(encTeam!.tags)).toBe(2);
       expect(HashSet.size(sameTalentTeam!.tags)).toBe(1);
       expect(HashSet.size(higherTalentTeam!.tags)).toBe(1);
+      expect(room?.effectValue).toBe(78);
     }, Effect.provide(CalcService.layer)),
   );
 
