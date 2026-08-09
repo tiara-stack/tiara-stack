@@ -1,4 +1,4 @@
-import { Effect, Layer, Random, Ref, Schema } from "effect";
+import { Cause, Effect, Layer, Random, Ref, Schema } from "effect";
 import {
   defineEvent,
   enqueueWorkflowDefinition,
@@ -17,6 +17,11 @@ import {
   DispatchWorkflowRunNotFoundError,
 } from "sheet-ingress-api/internal";
 import { DispatchClusterWorkflows } from "@/workflows/dispatchWorkflows";
+import {
+  isReadOnlySheetWorkflowName,
+  materializeReadOnlyWorkflowFailure,
+  ReadOnlySheetWorkflows,
+} from "@/workflows/readOnly";
 
 const DispatchWorkflowPrincipal = Schema.Struct({
   requester: Schema.Struct({
@@ -30,9 +35,13 @@ const DispatchMailboxEvent = defineEvent({
 });
 
 const dispatchRuntimeLayer = workflowRuntimeLayer({
-  workflows: DispatchClusterWorkflows.all,
+  workflows: [...DispatchClusterWorkflows.all, ...ReadOnlySheetWorkflows],
   events: [DispatchMailboxEvent],
   definitionVersion: () => "1",
+  materializeFailure: (workflow, cause) =>
+    isReadOnlySheetWorkflowName(workflow.name)
+      ? materializeReadOnlyWorkflowFailure(workflow, cause)
+      : { message: Cause.pretty(cause) },
 });
 
 const invocationContext = (payload: unknown) =>

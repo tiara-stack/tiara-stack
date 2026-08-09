@@ -209,6 +209,7 @@ export const isRunReferenceFor = <Contract extends AnyWorkflowContract>(
 
 export const WorkflowSystemFailureCode = Schema.Literals([
   "RetriesExhausted",
+  "UnexpectedFailure",
   "Cancelled",
   "DefinitionUnavailable",
 ]);

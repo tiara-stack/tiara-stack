@@ -1,5 +1,6 @@
 import { Context, Effect, Layer, Predicate, Schema } from "effect";
 import { SqlClient, type SqlError } from "effect/unstable/sql";
+import { ClusterSchema } from "effect/unstable/cluster";
 import { Activity, Workflow } from "effect/unstable/workflow";
 
 export interface ActionContextService {
@@ -53,6 +54,7 @@ export const makeAction = <
 >(options: {
   readonly name: Name;
   readonly version: string;
+  readonly shardGroup?: string | undefined;
   readonly input: Input;
   readonly success?: Success | undefined;
   readonly error?: Error | undefined;
@@ -69,13 +71,17 @@ export const makeAction = <
     `${options.version}:${options.idempotencyKey(input)}`;
   const successSchema = Predicate.isUndefined(options.success) ? {} : { success: options.success };
   const errorSchema = Predicate.isUndefined(options.error) ? {} : { error: options.error };
-  const workflow = Workflow.make({
+  const baseWorkflow = Workflow.make({
     name: options.name,
     payload: options.input,
     ...successSchema,
     ...errorSchema,
     idempotencyKey: idempotencyKeyFor,
   });
+  const shardGroup = options.shardGroup;
+  const workflow = Predicate.isUndefined(shardGroup)
+    ? baseWorkflow
+    : baseWorkflow.annotate(ClusterSchema.ShardGroup, () => shardGroup);
   const toLayer = () =>
     workflow.toLayer((input, executionId) =>
       Activity.make({

@@ -43,6 +43,7 @@ const runReconcile = (
   marked: Ref.Ref<ReadonlyArray<MarkedRun>>,
   overrides: StoreOverrides = {},
   cursor?: Ref.Ref<WorkflowRunCursor | undefined>,
+  materializeFailure?: () => never,
 ) => {
   const engineLayer = Layer.mock(WorkflowEngine.WorkflowEngine)({ poll });
   const storeLayer = Layer.mock(WorkflowStore)({
@@ -54,7 +55,7 @@ const runReconcile = (
   });
 
   return reconcileWorkflowRuns({ cursor }).pipe(
-    Effect.provide(workflowRuntimeLayer({ workflows: [TestWorkflow] })),
+    Effect.provide(workflowRuntimeLayer({ workflows: [TestWorkflow], materializeFailure })),
     Effect.provide(engineLayer),
     Effect.provide(storeLayer),
   );
@@ -103,6 +104,21 @@ layer(Layer.empty)("reconcileWorkflowRuns", (it) => {
       yield* runReconcile(poll, marked);
 
       expect(yield* Ref.get(marked)).toHaveLength(0);
+    }),
+  );
+
+  it.effect("falls back when terminal failure materialization throws", () =>
+    Effect.gen(function* () {
+      const marked = yield* Ref.make<ReadonlyArray<MarkedRun>>([]);
+      const workflowCause = Cause.fail("workflow failed");
+      const poll: PollMethod = () =>
+        Effect.succeedSome(new Workflow.Complete({ exit: Exit.failCause(workflowCause) }));
+
+      yield* runReconcile(poll, marked, {}, undefined, () => {
+        throw new Error("materializer failed");
+      });
+
+      expectMarkedFailed(yield* Ref.get(marked), Cause.pretty(workflowCause));
     }),
   );
 

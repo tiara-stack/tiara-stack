@@ -22,6 +22,9 @@ export type WorkflowDispatcherOptions = {
   readonly maxAttempts?: number | undefined;
   readonly retryDelay?: ((attempt: number) => Duration.Input) | undefined;
   readonly pollInterval?: Duration.Input | undefined;
+  readonly materializePermanentFailure?:
+    | ((command: WorkflowCommand, cause: Cause.Cause<unknown>) => WorkflowJson)
+    | undefined;
 };
 
 const errorJson = (cause: Cause.Cause<unknown>): WorkflowJson => {
@@ -55,6 +58,29 @@ const defaultRetryDelay = (attempt: number): Duration.Duration => {
   const cappedExponentialSeconds = Math.min(2 ** attempt, 300);
   const jitterFactor = 0.5 + Math.random() * 0.5;
   return Duration.seconds(cappedExponentialSeconds * jitterFactor);
+};
+
+const materializePermanentFailure = (
+  options: WorkflowDispatcherOptions,
+  command: WorkflowCommand,
+  cause: Cause.Cause<unknown>,
+  fallback: WorkflowJson,
+) => {
+  const materializer = options.materializePermanentFailure;
+  return Predicate.isUndefined(materializer)
+    ? Effect.succeed(fallback)
+    : Effect.sync(() => materializer(command, cause)).pipe(
+        Effect.catchCause((materializationCause) =>
+          Effect.logError("Failed to materialize permanent workflow command failure").pipe(
+            Effect.annotateLogs({
+              cause: Cause.pretty(materializationCause),
+              commandId: command.commandId,
+              runId: command.runId,
+            }),
+            Effect.as(fallback),
+          ),
+        ),
+      );
 };
 
 export const dispatchWorkflowCommandBatch = (
@@ -100,13 +126,12 @@ export const dispatchWorkflowCommandBatch = (
                   : Math.max(1, Math.trunc(options.maxAttempts)),
               );
               return command.attempts >= maxAttempts
-                ? store
-                    .failCommand(command, error)
-                    .pipe(
-                      Effect.flatMap((settled) =>
-                        logIfStale(settled, "Ignored stale workflow failure", command),
-                      ),
-                    )
+                ? materializePermanentFailure(options, command, cause, error).pipe(
+                    Effect.flatMap((materialized) => store.failCommand(command, materialized)),
+                    Effect.flatMap((settled) =>
+                      logIfStale(settled, "Ignored stale workflow failure", command),
+                    ),
+                  )
                 : store
                     .retryCommand(
                       command,

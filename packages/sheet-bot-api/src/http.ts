@@ -15,6 +15,7 @@ import {
   BotMemberPage,
   BotRole,
   BotRoles,
+  BotUserProfile,
   BotWorkspace,
 } from "./cache";
 import {
@@ -64,6 +65,11 @@ const MemberParams = Schema.Struct({
   userId: Schema.String,
 });
 
+const UserParams = Schema.Struct({
+  ...ClientParams.fields,
+  userId: Schema.String,
+});
+
 const cacheRead = <Endpoint extends HttpApiEndpoint.AnyWithProps>(endpoint: Endpoint) =>
   annotateBotAdmissionPolicy(endpoint, BotAdmissionPolicies.cacheRead);
 
@@ -77,6 +83,17 @@ export const BotCacheEndpoints = Object.freeze({
       success: BotApplication,
       error: BotCacheReadErrors,
     }),
+  ),
+  getUserProfile: cacheRead(
+    HttpApiEndpoint.get(
+      "getUserProfile",
+      "/internal/bot/clients/:platform/:clientId/users/:userId/profile",
+      {
+        params: UserParams,
+        success: BotUserProfile,
+        error: BotCacheReadErrors,
+      },
+    ),
   ),
   getWorkspace: cacheRead(
     HttpApiEndpoint.get(
@@ -224,6 +241,7 @@ export const BotDeliveryEndpoints = Object.freeze({
 
 export class BotCacheApi extends HttpApiGroup.make("cache")
   .add(BotCacheEndpoints.getApplication)
+  .add(BotCacheEndpoints.getUserProfile)
   .add(BotCacheEndpoints.getWorkspace)
   .add(BotCacheEndpoints.getConversation)
   .add(BotCacheEndpoints.listConversations)

@@ -1,4 +1,4 @@
-import { Config, Duration, Effect, Layer, Ref, Schedule } from "effect";
+import { Cause, Config, Duration, Effect, Layer, Ref, Schedule } from "effect";
 import {
   runWorkflowCommandDispatcher,
   type WorkflowDispatcherOptions,
@@ -8,12 +8,17 @@ import {
   reconcileDispatchWorkflowRuns,
   workflowCommandExecutorLayer,
 } from "@/services/workflowCommands";
+import { isReadOnlySheetWorkflowName } from "@/workflows/readOnly";
 
 const dispatcherOptions = {
   batchSize: 25,
   maxAttempts: 10,
   pollInterval: Duration.seconds(1),
   retryDelay: (attempt) => Duration.seconds(Math.min(2 ** attempt, 300)),
+  materializePermanentFailure: (command, cause) =>
+    isReadOnlySheetWorkflowName(command.workflowName)
+      ? { _tag: "System", code: "RetriesExhausted", retryable: true }
+      : { message: Cause.pretty(cause) },
 } satisfies WorkflowDispatcherOptions;
 
 const reconciliationSchedule = Schedule.spaced(Duration.seconds(2));

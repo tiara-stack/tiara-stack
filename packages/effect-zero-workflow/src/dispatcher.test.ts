@@ -35,9 +35,14 @@ const makeTestLayer = (
     WorkflowStore,
     Effect.gen(function* () {
       const events = yield* Ref.make<Events>([]);
+      const failure = yield* Ref.make<unknown>(undefined);
       const append = (event: string) => Ref.update(events, (current) => [...current, event]);
-      const service: WorkflowStoreService & { readonly events: Ref.Ref<Events> } = {
+      const service: WorkflowStoreService & {
+        readonly events: Ref.Ref<Events>;
+        readonly failure: Ref.Ref<unknown>;
+      } = {
         events,
+        failure,
         enqueue: () => Effect.die("unused"),
         enqueueCommand: () => Effect.die("unused"),
         claim: () => append("claim").pipe(Effect.as([command(attempts)])),
@@ -48,8 +53,11 @@ const makeTestLayer = (
           append(`retry:${Schema.decodeUnknownSync(WorkflowFailure)(error).message}`).pipe(
             Effect.as(true),
           ),
-        failCommand: () =>
-          append(`failed:${failCommandSettles}`).pipe(Effect.as(failCommandSettles)),
+        failCommand: (_, error) =>
+          Ref.set(failure, error).pipe(
+            Effect.andThen(append(`failed:${failCommandSettles}`)),
+            Effect.as(failCommandSettles),
+          ),
         markRun: (_, status) => append(`run:${status}`),
       };
       return service;
@@ -60,6 +68,13 @@ const events = Effect.gen(function* () {
   const store = yield* WorkflowStore;
   return yield* Ref.get(
     (store as WorkflowStoreService & { readonly events: Ref.Ref<Events> }).events,
+  );
+});
+
+const failure = Effect.gen(function* () {
+  const store = yield* WorkflowStore;
+  return yield* Ref.get(
+    (store as WorkflowStoreService & { readonly failure: Ref.Ref<unknown> }).failure,
   );
 });
 
@@ -136,6 +151,26 @@ describe("workflow command dispatcher", () => {
         Effect.gen(function* () {
           expect(yield* dispatchWorkflowCommandBatch({ maxAttempts: 3 })).toBe(1);
           expect(yield* events).toEqual(["claim", "failed:true"]);
+        }),
+      );
+    },
+  );
+
+  layer(makeTestLayer(() => Effect.failCause(Cause.fail("permanent")), 3))(
+    "throwing permanent failure materializer",
+    (it) => {
+      it.effect("falls back to the original failure and settles the command", () =>
+        Effect.gen(function* () {
+          expect(
+            yield* dispatchWorkflowCommandBatch({
+              maxAttempts: 3,
+              materializePermanentFailure: () => {
+                throw new Error("materializer failed");
+              },
+            }),
+          ).toBe(1);
+          expect(yield* events).toEqual(["claim", "failed:true"]);
+          expect(yield* failure).toEqual({ message: "permanent" });
         }),
       );
     },

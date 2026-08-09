@@ -59,12 +59,19 @@ export type WorkflowRuntimeOptions = {
   readonly workflows: ReadonlyArray<WorkflowDefinition>;
   readonly events?: ReadonlyArray<AnyWorkflowEvent> | undefined;
   readonly definitionVersion?: ((workflow: WorkflowDefinition) => string) | undefined;
+  readonly materializeFailure?:
+    | ((workflow: WorkflowDefinition, cause: Cause.Cause<unknown>) => WorkflowJson)
+    | undefined;
 };
 
 export interface WorkflowRuntimeService {
   readonly workflow: (name: string) => Effect.Effect<RunnableWorkflow, Error>;
   readonly event: (eventId: WorkflowEventId) => Effect.Effect<AnyWorkflowEvent, Error>;
   readonly version: (workflow: WorkflowDefinition) => string;
+  readonly materializeFailure: (
+    workflow: WorkflowDefinition,
+    cause: Cause.Cause<unknown>,
+  ) => WorkflowJson;
 }
 
 export class WorkflowRuntime extends Context.Service<WorkflowRuntime, WorkflowRuntimeService>()(
@@ -120,6 +127,8 @@ export const makeWorkflowRuntime = (options: WorkflowRuntimeOptions): WorkflowRu
         ),
       ),
     version: options.definitionVersion ?? (() => "1"),
+    materializeFailure:
+      options.materializeFailure ?? ((_, cause) => ({ message: Cause.pretty(cause) })),
   };
 };
 
@@ -339,11 +348,20 @@ const reconcileRun = (
                   result: jsonOrDescription(value),
                 }),
               Failure: ({ cause }) =>
-                store.markRun(run.runId, "failed", {
-                  error: {
-                    message: Cause.pretty(cause),
-                  },
-                }),
+                Effect.sync(() => runtime.materializeFailure(workflow, cause)).pipe(
+                  Effect.catchCause((materializationCause) =>
+                    Effect.logError("Failed to materialize workflow run failure").pipe(
+                      Effect.annotateLogs({
+                        cause: Cause.pretty(materializationCause),
+                        executionId: run.executionId,
+                        runId: run.runId,
+                        workflowName: run.workflowName,
+                      }),
+                      Effect.as({ message: Cause.pretty(cause) }),
+                    ),
+                  ),
+                  Effect.flatMap((error) => store.markRun(run.runId, "failed", { error })),
+                ),
             }),
         }),
     });

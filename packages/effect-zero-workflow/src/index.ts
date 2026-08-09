@@ -17,6 +17,15 @@ export {
   type WorkflowDispatcherOptions,
 } from "./dispatcher";
 export {
+  makeWorkflowTransportHandler,
+  validateWorkflowContractRegistrations,
+  workflowContractExecutionPayload,
+  type AcceptedWorkflowInvocation,
+  type ExecutableWorkflowContractRegistration,
+  type WorkflowContractExecutionPayload,
+  type WorkflowInvocationStore,
+} from "./contract-server";
+export {
   defineEvent,
   parseWorkflowEventId,
   WorkflowEventCommandPayload,

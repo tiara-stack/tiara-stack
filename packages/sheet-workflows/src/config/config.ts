@@ -21,6 +21,10 @@ export const config = {
   sheetAuthOAuthClientId: Config.schema(nonEmptyString, "SHEET_AUTH_OAUTH_CLIENT_ID"),
   sheetAuthOAuthClientSecret: Config.schema(nonEmptySecret, "SHEET_AUTH_OAUTH_CLIENT_SECRET"),
   sheetIngressBaseUrl: Config.schema(Schema.String, "SHEET_INGRESS_BASE_URL"),
+  sheetBotBaseUrl: Config.string("SHEET_BOT_BASE_URL").pipe(
+    Config.withDefault("http://sheet-bot:3000"),
+  ),
+  sheetBotClientId: Config.string("SHEET_BOT_CLIENT_ID").pipe(Config.withDefault("discord-main")),
   sheetAuthOAuthAudience: Config.string("SHEET_AUTH_OAUTH_AUDIENCE").pipe(
     Config.withDefault("sheet-workflows"),
   ),

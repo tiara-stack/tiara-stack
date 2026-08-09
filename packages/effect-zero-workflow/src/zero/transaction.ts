@@ -15,6 +15,7 @@ import {
   WorkflowInvocationFingerprint,
   type AcceptedWorkflowInvocation,
   validateInvocationReuse,
+  workflowContractExecutionPayload,
 } from "../contract-server";
 import { WorkflowInvocationUnauthorized } from "../contract-transport";
 import {
@@ -348,17 +349,25 @@ export const makeWorkflowZeroTransaction = (options: { readonly tablePrefix: str
             Effect.gen(function* () {
               const now = new Date();
               const actorProvenance = Predicate.isUndefined(invocation.actorProvenance)
-                ? null
+                ? undefined
                 : yield* decodeReadonlyJson(invocation.actorProvenance);
               const principal = yield* decodeReadonlyJson(invocation.principal);
               const encoded = yield* Effect.all({
-                actorProvenance: Predicate.isNull(actorProvenance)
+                actorProvenance: Predicate.isUndefined(actorProvenance)
                   ? Effect.succeed<null>(null)
                   : encodeJson(actorProvenance),
                 input: encodeJson(invocation.input),
                 now: encodeTimestamp(now),
                 principal: encodeJson(principal),
               });
+              const executionPayload = yield* decodeReadonlyJson(
+                workflowContractExecutionPayload({
+                  ...invocation,
+                  principal,
+                  ...(Predicate.isUndefined(actorProvenance) ? {} : { actorProvenance }),
+                }),
+              );
+              const commandPayload = yield* encodeJson(executionPayload);
               const rows = Array.from(
                 yield* Effect.tryPromise({
                   try: () =>
@@ -438,7 +447,7 @@ export const makeWorkflowZeroTransaction = (options: { readonly tablePrefix: str
                       [
                         `start:${authoritative.run_id}`,
                         authoritative.run_id,
-                        encoded.input,
+                        commandPayload,
                         encoded.now,
                       ],
                     ),

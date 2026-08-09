@@ -582,13 +582,58 @@ const botCapabilityCacheHandlersLayer = HttpApiBuilder.group(SheetBotApi, "cache
           return { ownerId };
         }),
       )
+      .handle("getUserProfile", ({ params }) =>
+        Effect.gen(function* () {
+          yield* requireClientParams(params);
+          const memberships = yield* membersCache
+            .getForResource(params.userId)
+            .pipe(mapCapabilityCacheError("user profile"));
+          const firstMember = memberships.values().next().value;
+          if (Predicate.isUndefined(firstMember)) {
+            return yield* new BotResourceNotFound({
+              resource: "user profile",
+              message: "Discord user is not present in the bot cache",
+            });
+          }
+          const user = getObjectField(firstMember, "user");
+          const username = getStringField(user, "username");
+          if (Predicate.isUndefined(username)) {
+            return yield* new BotDependencyUnavailable({
+              message: "Discord user profile is incomplete",
+            });
+          }
+          const displayName =
+            getStringField(user, "global_name") ?? getStringField(firstMember, "nick") ?? null;
+          const avatar = getStringField(user, "avatar") ?? null;
+          const workspaces = yield* Effect.forEach(memberships.keys(), (workspaceId) =>
+            guildsCache.get(workspaceId).pipe(
+              mapCapabilityCacheError("workspace"),
+              Effect.map((workspace) => ({
+                id: workspace.id,
+                name: workspace.name,
+                icon: workspace.icon ?? null,
+                ownerId: workspace.owner_id,
+              })),
+            ),
+          );
+          return {
+            user: { id: params.userId, username, displayName, avatar },
+            workspaces,
+          };
+        }),
+      )
       .handle("getWorkspace", ({ params }) =>
         Effect.gen(function* () {
           yield* requireClientParams(params);
           const workspace = yield* guildsCache
             .get(params.workspaceId)
             .pipe(mapCapabilityCacheError("workspace"));
-          return { id: workspace.id, name: workspace.name, ownerId: workspace.owner_id };
+          return {
+            id: workspace.id,
+            name: workspace.name,
+            icon: workspace.icon ?? null,
+            ownerId: workspace.owner_id,
+          };
         }),
       )
       .handle("getConversation", ({ params }) =>
@@ -621,6 +666,7 @@ const botCapabilityCacheHandlersLayer = HttpApiBuilder.group(SheetBotApi, "cache
           return {
             id: role.id,
             name: role.name,
+            color: role.color,
             permissions: role.permissions,
             position: role.position,
             managed: role.managed,
@@ -636,6 +682,7 @@ const botCapabilityCacheHandlersLayer = HttpApiBuilder.group(SheetBotApi, "cache
           return Array.from(roles.values()).map((role) => ({
             id: role.id,
             name: role.name,
+            color: role.color,
             permissions: role.permissions,
             position: role.position,
             managed: role.managed,

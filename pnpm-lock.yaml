@@ -1247,6 +1247,9 @@ importers:
       sheet-message-content:
         specifier: workspace:*
         version: link:../sheet-message-content
+      sheet-workflow-contracts:
+        specifier: workspace:*
+        version: link:../sheet-workflow-contracts
       sheet-zero-server:
         specifier: workspace:*
         version: link:../sheet-zero-server

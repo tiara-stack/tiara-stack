@@ -19,6 +19,7 @@ import {
   WorkflowInvocationUnauthorized,
   WorkflowObservationInvalidData,
   WorkflowObservationUnauthorized,
+  type WorkflowTransportUnavailable,
   type WorkflowEnqueueError,
   type WorkflowEnqueueRequest,
   type WorkflowObservationError,
@@ -119,7 +120,11 @@ export interface ExecutableWorkflowContractRegistration<
   readonly authorize: (
     context: Context,
     input: WorkflowContractInput<Contract>,
-  ) => Effect.Effect<void, WorkflowInvocationUnauthorized, Requirements>;
+  ) => Effect.Effect<
+    void,
+    WorkflowInvocationUnauthorized | WorkflowTransportUnavailable,
+    Requirements
+  >;
   readonly authorizeObservation: (
     context: Context,
   ) => Effect.Effect<void, WorkflowInvocationUnauthorized, Requirements>;
@@ -140,6 +145,31 @@ export interface AcceptedWorkflowInvocation<Principal = unknown, Provenance = un
   readonly actorProvenance?: Provenance | undefined;
   readonly input: typeof ReadonlyJSONValue.Type;
 }
+
+/**
+ * Private payload delivered to a declared Workflow Definition. Public run rows
+ * continue to retain only the canonical contract input; identity and
+ * attribution travel with the start command so resumed definitions can derive
+ * their execution identity and reauthorize effects without caller-supplied
+ * fields.
+ */
+export interface WorkflowContractExecutionPayload<Principal = unknown, Provenance = unknown> {
+  readonly invocationId: InvocationId;
+  readonly input: typeof ReadonlyJSONValue.Type;
+  readonly principal: Principal;
+  readonly actorProvenance?: Provenance | undefined;
+}
+
+export const workflowContractExecutionPayload = <Principal, Provenance>(
+  invocation: AcceptedWorkflowInvocation<Principal, Provenance>,
+): WorkflowContractExecutionPayload<Principal, Provenance> => ({
+  invocationId: invocation.fingerprint.invocationId,
+  input: invocation.input,
+  principal: invocation.principal,
+  ...(Predicate.isUndefined(invocation.actorProvenance)
+    ? {}
+    : { actorProvenance: invocation.actorProvenance }),
+});
 
 export interface MaterializedWorkflowRunRow {
   readonly runId: string;

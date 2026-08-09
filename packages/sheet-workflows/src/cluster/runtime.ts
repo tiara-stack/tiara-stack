@@ -21,12 +21,19 @@ import {
   DispatchService,
   ClientDeliveryClient,
   SheetApisClient,
+  sheetBotCacheClientLayer,
   trustedSheetPersistenceLayer,
 } from "@/services";
 import { autoCheckinWorkflowLayer } from "@/workflows/autoCheckin";
 import { getClusterRunnerReadinessSnapshot, postgresSqlLayer } from "@/services";
 import { dispatchButtonEntityLayer, dispatchWorkflowLayer } from "@/workflows/dispatch";
 import { smokeWorkflowLayer } from "@/workflows/smoke";
+import {
+  readOnlyWorkflowAuthorizationLayer,
+  readOnlyWorkflowDataSourceLayer,
+  readOnlySheetWorkflowLayers,
+  readOnlySheetWorkflowRegistrationValidationLayer,
+} from "@/workflows/readOnly";
 
 const shardGroups = ["dispatch", "autoCheckin"] as const;
 
@@ -116,7 +123,17 @@ const clusterStartupLayer = Layer.effectDiscard(
   }),
 );
 
-const dispatchClientsLayer = Layer.mergeAll(ClientDeliveryClient.layer, SheetApisClient.layer);
+const dispatchClientsLayer = Layer.mergeAll(
+  ClientDeliveryClient.layer,
+  SheetApisClient.layer,
+  sheetBotCacheClientLayer,
+);
+
+const readOnlyServicesLayer = readOnlyWorkflowDataSourceLayer.pipe(
+  Layer.provideMerge(readOnlyWorkflowAuthorizationLayer),
+  Layer.provideMerge(dispatchClientsLayer),
+  Layer.provideMerge(trustedSheetPersistenceLayer),
+);
 
 const dispatchServicesLayer = Layer.effect(DispatchService, DispatchService.make).pipe(
   Layer.provideMerge(dispatchClientsLayer),
@@ -128,10 +145,13 @@ const clusterLayer = Layer.mergeAll(
   dispatchWorkflowLayer,
   autoCheckinWorkflowLayer,
   smokeWorkflowLayer,
+  readOnlySheetWorkflowLayers,
+  readOnlySheetWorkflowRegistrationValidationLayer,
   clusterStartupLayer,
 ).pipe(
   Layer.provide(AutoCheckinService.layer),
   Layer.provide(dispatchServicesLayer),
+  Layer.provide(readOnlyServicesLayer),
   Layer.provideMerge(workflowsRunnerLayer),
   Layer.provide(postgresSqlLayer),
 );

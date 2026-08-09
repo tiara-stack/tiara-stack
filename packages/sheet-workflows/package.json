@@ -35,6 +35,7 @@
     "sheet-bot-api": "workspace:*",
     "sheet-ingress-api": "workspace:*",
     "sheet-message-content": "workspace:*",
+    "sheet-workflow-contracts": "workspace:*",
     "sheet-zero-server": "workspace:*",
     "typhoon-core": "workspace:*",
     "typhoon-zero": "workspace:*"

@@ -6,6 +6,7 @@ export type BotApplication = Schema.Schema.Type<typeof BotApplication>;
 export const BotWorkspace = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
+  icon: Schema.NullOr(Schema.String),
   ownerId: Schema.String,
 });
 export type BotWorkspace = Schema.Schema.Type<typeof BotWorkspace>;
@@ -22,6 +23,7 @@ export type BotConversation = Schema.Schema.Type<typeof BotConversation>;
 export const BotRole = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
+  color: Schema.Int,
   permissions: Schema.String.check(Schema.isPattern(/^\d+$/)),
   position: Schema.Number,
   managed: Schema.Boolean,
@@ -34,6 +36,17 @@ export const BotMember = Schema.Struct({
   displayName: Schema.optional(Schema.String),
 });
 export type BotMember = Schema.Schema.Type<typeof BotMember>;
+
+export const BotUserProfile = Schema.Struct({
+  user: Schema.Struct({
+    id: Schema.String,
+    username: Schema.String,
+    displayName: Schema.NullOr(Schema.String),
+    avatar: Schema.NullOr(Schema.String),
+  }),
+  workspaces: Schema.Array(BotWorkspace),
+});
+export type BotUserProfile = Schema.Schema.Type<typeof BotUserProfile>;
 
 export const maximumBotCollectionPageSize = 100;
 

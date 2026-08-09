@@ -400,6 +400,53 @@ describe("Zero workflow component", () => {
       expect(statements[0]?.args[8]).toBe('{"actorServiceId":"sheet-web"}');
       expect(statements[0]?.args[9]).toBe('{"value":"hello"}');
       expect(statements[1]?.args[0]).toBe(`start:${contractInvocation.fingerprint.invocationId}`);
+      expect(statements[1]?.args[2]).toBe(
+        JSON.stringify({
+          invocationId: contractInvocation.fingerprint.invocationId,
+          input: { value: "hello" },
+          principal: { kind: "user", userId: "user-1" },
+          actorProvenance: { actorServiceId: "sheet-web" },
+        }),
+      );
+    }),
+  );
+
+  it.effect("preserves explicit null actor provenance in the private command payload", () =>
+    Effect.gen(function* () {
+      const statements: Array<{ readonly sql: string; readonly args: readonly unknown[] }> = [];
+      const tx = makeServerTx((sql, args) => {
+        statements.push({ sql, args });
+        return Promise.resolve(
+          sql.includes("actor_provenance")
+            ? [
+                {
+                  run_id: contractInvocation.fingerprint.invocationId,
+                  contract_identity: contractInvocation.fingerprint.contractIdentity,
+                  contract_wire_version: contractInvocation.fingerprint.wireVersion,
+                  canonical_input_hash: contractInvocation.fingerprint.canonicalInputHash,
+                  inserted: true,
+                },
+              ]
+            : [],
+        );
+      });
+
+      yield* promiseEffect(() =>
+        component.enqueueContractInvocationInZeroTransaction(tx, {
+          ...contractInvocation,
+          actorProvenance: null,
+        }),
+      );
+
+      expect(statements[0]?.args[8]).toBe("null");
+      expect(statements[1]?.args[2]).toBe(
+        JSON.stringify({
+          invocationId: contractInvocation.fingerprint.invocationId,
+          input: { value: "hello" },
+          principal: { kind: "user", userId: "user-1" },
+          actorProvenance: null,
+        }),
+      );
     }),
   );
 

@@ -16,6 +16,7 @@ export {
   type TrustedSheetPersistenceShape,
 } from "./persistence";
 export {
+  enqueueSheetWorkflowContractInvocationInZeroTransaction,
   makeSheetWorkflowZeroGroups,
   type EnqueueSheetWorkflowContract,
   type SheetWorkflowZeroContext,

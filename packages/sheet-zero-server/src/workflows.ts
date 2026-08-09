@@ -7,7 +7,9 @@ import {
 import { defaultWorkflowRunListLimit, workflowContractKey } from "effect-zero-workflow/contract";
 import type { ActorProvenance, EffectivePrincipal } from "sheet-auth/identity";
 import { SheetWorkflowContractCatalog } from "sheet-workflow-contracts";
+import type { AnyWorkflowContract } from "effect-zero-workflow/contract";
 import { zql, type Schema as SheetZeroSchema } from "sheet-zero-api";
+import { enqueueWorkflowContractInvocationInZeroTransaction } from "sheet-zero-api/server";
 import type { ZeroApiGroup } from "typhoon-zero/zeroApi";
 
 export interface SheetWorkflowZeroContext {
@@ -30,6 +32,10 @@ export type EnqueueSheetWorkflowContract = (options: {
   readonly context: SheetWorkflowZeroContext;
   readonly transaction: Transaction<SheetZeroSchema>;
 }) => Promise<void>;
+
+export const enqueueSheetWorkflowContractInvocationInZeroTransaction: typeof enqueueWorkflowContractInvocationInZeroTransaction =
+  (transaction, invocation) =>
+    enqueueWorkflowContractInvocationInZeroTransaction(transaction, invocation);
 
 const statusesByState = {
   Pending: ["pending", "running"],
@@ -82,7 +88,8 @@ const makeOptions = (
 export const makeSheetWorkflowZeroGroups = (
   enqueue: EnqueueSheetWorkflowContract,
   workflowRun: typeof zql.workflowRun = zql.workflowRun,
+  contracts: ReadonlyArray<AnyWorkflowContract> = SheetWorkflowContractCatalog,
 ): ReadonlyArray<ZeroApiGroup.Any> => {
   const options = makeOptions(enqueue, workflowRun);
-  return SheetWorkflowContractCatalog.map((contract) => makeWorkflowZeroGroup(contract, options));
+  return contracts.map((contract) => makeWorkflowZeroGroup(contract, options));
 };
