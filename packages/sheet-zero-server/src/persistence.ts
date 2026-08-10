@@ -1,6 +1,7 @@
 import type { HumanReadable, MutateRequest, QueryOrQueryRequest } from "@rocicorp/zero";
 import { addContextToQuery } from "@rocicorp/zero/bindings";
 import { zeroDrizzle, type DrizzleDatabase } from "@rocicorp/zero/server/adapters/drizzle";
+import { sql as drizzleSql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import {
   Context,
@@ -457,13 +458,11 @@ const makePostgresExecutor = <ClientContext>({
   Scope.Scope
 > =>
   Effect.gen(function* () {
-    const sql = yield* Effect.acquireRelease(
+    const postgresClient = yield* Effect.acquireRelease(
       Effect.sync(() =>
         postgres(Redacted.value(url), {
           connection: {
             application_name: applicationName,
-            default_transaction_isolation: "serializable",
-            statement_timeout: statementTimeoutMillis,
           },
           max: maxConnections,
         }),
@@ -478,7 +477,19 @@ const makePostgresExecutor = <ClientContext>({
           ),
         ),
     );
-    const database = zeroDrizzle(schema, drizzle(sql) as unknown as DrizzleDatabase);
+    const drizzleDatabase = drizzle(postgresClient);
+    const database = zeroDrizzle(schema, {
+      transaction: (transaction) =>
+        drizzleDatabase.transaction(
+          async (drizzleTransaction) => {
+            await drizzleTransaction.execute(
+              drizzleSql`select set_config('statement_timeout', ${`${statementTimeoutMillis}ms`}, true)`,
+            );
+            return transaction(drizzleTransaction as unknown as Parameters<typeof transaction>[0]);
+          },
+          { isolationLevel: "serializable" },
+        ),
+    } as DrizzleDatabase);
     const resolveQuery = <Return>(
       request: QueryOrQueryRequest<any, any, any, SheetZeroSchema, Return, ClientContext>,
     ) => addContextToQuery(request, context);
