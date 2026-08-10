@@ -1,4 +1,4 @@
-import { Cause, Effect, Layer, Predicate, Schema } from "effect";
+import { Cause, Effect, Layer, Schema } from "effect";
 import { ClusterSchema } from "effect/unstable/cluster";
 import { Workflow } from "effect/unstable/workflow";
 import {
@@ -26,16 +26,8 @@ import {
 import { ReadOnlyWorkflowAuthorization } from "./authorization";
 import { readOnlySheetWorkflowDefinitionVersion } from "./catalog";
 import { ReadOnlyWorkflowDataSource } from "./dataSource";
-
-const workflowContractExecutionSchema = <Contract extends AnyWorkflowContract>(
-  contract: Contract,
-) =>
-  Schema.Struct({
-    invocationId: InvocationId,
-    input: contract.input,
-    principal: EffectivePrincipal,
-    actorProvenance: Schema.optional(ActorProvenance),
-  });
+import { workflowContractExecutionSchema } from "../shared/execution";
+import { materializeWorkflowFailure } from "../shared/failure";
 
 type ReadOnlyExecution<Contract extends AnyWorkflowContract> = {
   readonly invocationId: typeof InvocationId.Type;
@@ -169,23 +161,7 @@ export const readOnlySheetWorkflowLayers = Layer.mergeAll(
   NotificationsLoadSupportedClientsDefinition.workflowLayer,
 ).pipe(Layer.provide(actionContextSqlLayer));
 
-const declaredFailureFromCause = (
-  cause: Cause.Cause<unknown>,
-): DataAcquisitionDeclaredFailure | undefined => {
-  const reason = cause.reasons.find(Cause.isFailReason);
-  return Predicate.isNotUndefined(reason) && Schema.is(DataAcquisitionDeclaredFailure)(reason.error)
-    ? reason.error
-    : undefined;
-};
-
 export const materializeReadOnlyWorkflowFailure = (
   _workflow: WorkflowDefinition,
   cause: Cause.Cause<unknown>,
-): WorkflowJson => {
-  const declared = declaredFailureFromCause(cause);
-  return Schema.decodeUnknownSync(Schema.Json)(
-    Predicate.isNotUndefined(declared)
-      ? { _tag: "Declared", error: declared }
-      : { _tag: "System", code: "UnexpectedFailure", retryable: false },
-  );
-};
+): WorkflowJson => materializeWorkflowFailure(Schema.is(DataAcquisitionDeclaredFailure), cause);

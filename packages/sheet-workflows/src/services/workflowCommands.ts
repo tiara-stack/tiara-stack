@@ -1,4 +1,4 @@
-import { Cause, Effect, Layer, Random, Ref, Schema } from "effect";
+import { Cause, Effect, Layer, Match, Random, Ref, Schema } from "effect";
 import {
   defineEvent,
   enqueueWorkflowDefinition,
@@ -22,6 +22,11 @@ import {
   materializeReadOnlyWorkflowFailure,
   ReadOnlySheetWorkflows,
 } from "@/workflows/readOnly";
+import {
+  isPreferencesSheetWorkflowName,
+  materializePreferencesWorkflowFailure,
+  PreferencesSheetWorkflows,
+} from "@/workflows/preferences";
 
 const DispatchWorkflowPrincipal = Schema.Struct({
   requester: Schema.Struct({
@@ -35,13 +40,23 @@ const DispatchMailboxEvent = defineEvent({
 });
 
 const dispatchRuntimeLayer = workflowRuntimeLayer({
-  workflows: [...DispatchClusterWorkflows.all, ...ReadOnlySheetWorkflows],
+  workflows: [
+    ...DispatchClusterWorkflows.all,
+    ...ReadOnlySheetWorkflows,
+    ...PreferencesSheetWorkflows,
+  ],
   events: [DispatchMailboxEvent],
   definitionVersion: () => "1",
   materializeFailure: (workflow, cause) =>
-    isReadOnlySheetWorkflowName(workflow.name)
-      ? materializeReadOnlyWorkflowFailure(workflow, cause)
-      : { message: Cause.pretty(cause) },
+    Match.value(workflow.name).pipe(
+      Match.when(isReadOnlySheetWorkflowName, () =>
+        materializeReadOnlyWorkflowFailure(workflow, cause),
+      ),
+      Match.when(isPreferencesSheetWorkflowName, () =>
+        materializePreferencesWorkflowFailure(workflow, cause),
+      ),
+      Match.orElse(() => ({ message: Cause.pretty(cause) })),
+    ),
 });
 
 const invocationContext = (payload: unknown) =>

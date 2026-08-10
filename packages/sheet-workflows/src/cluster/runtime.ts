@@ -22,6 +22,7 @@ import {
   ClientDeliveryClient,
   SheetApisClient,
   sheetBotCacheClientLayer,
+  sheetBotDeliveryClientLayer,
   trustedSheetPersistenceLayer,
 } from "@/services";
 import { autoCheckinWorkflowLayer } from "@/workflows/autoCheckin";
@@ -32,8 +33,12 @@ import {
   readOnlyWorkflowAuthorizationLayer,
   readOnlyWorkflowDataSourceLayer,
   readOnlySheetWorkflowLayers,
-  readOnlySheetWorkflowRegistrationValidationLayer,
 } from "@/workflows/readOnly";
+import {
+  preferencesSheetWorkflowLayers,
+  selectedSheetWorkflowRegistrationValidationLayer,
+  preferencesWorkflowOperationsLayer,
+} from "@/workflows/preferences";
 
 const shardGroups = ["dispatch", "autoCheckin"] as const;
 
@@ -127,13 +132,13 @@ const dispatchClientsLayer = Layer.mergeAll(
   ClientDeliveryClient.layer,
   SheetApisClient.layer,
   sheetBotCacheClientLayer,
+  sheetBotDeliveryClientLayer,
 );
 
-const readOnlyServicesLayer = readOnlyWorkflowDataSourceLayer.pipe(
-  Layer.provideMerge(readOnlyWorkflowAuthorizationLayer),
-  Layer.provideMerge(dispatchClientsLayer),
-  Layer.provideMerge(trustedSheetPersistenceLayer),
-);
+const workflowDefinitionServicesLayer = Layer.mergeAll(
+  readOnlyWorkflowDataSourceLayer.pipe(Layer.provideMerge(readOnlyWorkflowAuthorizationLayer)),
+  preferencesWorkflowOperationsLayer,
+).pipe(Layer.provideMerge(dispatchClientsLayer), Layer.provideMerge(trustedSheetPersistenceLayer));
 
 const dispatchServicesLayer = Layer.effect(DispatchService, DispatchService.make).pipe(
   Layer.provideMerge(dispatchClientsLayer),
@@ -146,12 +151,13 @@ const clusterLayer = Layer.mergeAll(
   autoCheckinWorkflowLayer,
   smokeWorkflowLayer,
   readOnlySheetWorkflowLayers,
-  readOnlySheetWorkflowRegistrationValidationLayer,
+  preferencesSheetWorkflowLayers,
+  selectedSheetWorkflowRegistrationValidationLayer,
   clusterStartupLayer,
 ).pipe(
   Layer.provide(AutoCheckinService.layer),
   Layer.provide(dispatchServicesLayer),
-  Layer.provide(readOnlyServicesLayer),
+  Layer.provide(workflowDefinitionServicesLayer),
   Layer.provideMerge(workflowsRunnerLayer),
   Layer.provide(postgresSqlLayer),
 );

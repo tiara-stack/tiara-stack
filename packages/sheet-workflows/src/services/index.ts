@@ -5,5 +5,6 @@ export * from "./dispatch";
 export * from "./postgres";
 export * from "./sheetApisClient";
 export * from "./sheetBotCacheClient";
+export * from "./sheetBotDeliveryClient";
 export * from "./sheetAuthClient";
 export * from "./trustedSheetPersistence";

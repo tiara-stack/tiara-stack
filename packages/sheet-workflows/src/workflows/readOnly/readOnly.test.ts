@@ -1,12 +1,10 @@
 import { Cause, ConfigProvider, Effect, Exit, Layer, Schema } from "effect";
 import { describe, expect, it } from "@effect/vitest";
-import { InvocationId, workflowContractKey } from "effect-zero-workflow/contract";
+import { workflowContractKey } from "effect-zero-workflow/contract";
 import {
-  validateWorkflowContractRegistrations,
   type AcceptedWorkflowInvocation,
   type WorkflowInvocationStore,
 } from "effect-zero-workflow";
-import { UserId, DiscordAccountId } from "sheet-auth/identity";
 import {
   BotCollectionCursor,
   BotDependencyUnavailable,
@@ -43,12 +41,14 @@ import { ReadOnlyWorkflowDataSource, readOnlyWorkflowDataSourceLayer } from "./d
 import { SheetBotCacheClient } from "@/services/sheetBotCacheClient";
 import { SheetApisClient } from "@/services/sheetApisClient";
 import { makeSheetApisClient, makeTrustedSheetPersistenceMock } from "@/services/testHelpers";
-
-const userId = Schema.decodeUnknownSync(UserId)("user-1");
-const accountId = Schema.decodeUnknownSync(DiscordAccountId)("discord-1");
-const principal = { kind: "user" as const, userId, discordAccount: { accountId } };
-const context = { ownerKey: "user:user-1", principal };
-const invocationId = Schema.decodeUnknownSync(InvocationId)("123e4567-e89b-42d3-a456-426614174000");
+import {
+  assertRegistrationValidationFails,
+  makeRecordingWorkflowAuthorization,
+  workflowTestAccountId as accountId,
+  workflowTestContext as context,
+  workflowTestInvocationId as invocationId,
+  workflowTestPrincipal as principal,
+} from "../shared/testHelpers";
 
 const allowAuthorizationLayer = Layer.succeed(ReadOnlyWorkflowAuthorization, {
   authorize: () => Effect.void,
@@ -144,22 +144,10 @@ describe("read-only Sheet Workflow Definition slice", () => {
   });
 
   it.effect("fails closed for missing and duplicate registrations", () =>
-    Effect.gen(function* () {
-      const missing = yield* Effect.exit(
-        validateWorkflowContractRegistrations(
-          ReadOnlySheetWorkflowContracts,
-          ReadOnlySheetWorkflowRegistrations.slice(1),
-        ),
-      );
-      const duplicate = yield* Effect.exit(
-        validateWorkflowContractRegistrations(ReadOnlySheetWorkflowContracts, [
-          ...ReadOnlySheetWorkflowRegistrations,
-          ReadOnlySheetWorkflowRegistrations[0]!,
-        ]),
-      );
-      expect(Exit.isFailure(missing)).toBe(true);
-      expect(Exit.isFailure(duplicate)).toBe(true);
-    }),
+    assertRegistrationValidationFails(
+      ReadOnlySheetWorkflowContracts,
+      ReadOnlySheetWorkflowRegistrations,
+    ),
   );
 
   it("mounts only selected generated enqueue/get/list procedures", () => {
@@ -226,13 +214,7 @@ describe("read-only Sheet Workflow Definition slice", () => {
   it.effect("composes published policy authorization with the Effective Principal", () =>
     Effect.gen(function* () {
       const calls: Array<unknown> = [];
-      const authorization = {
-        authorize: (contract: unknown, seenPrincipal: unknown, input: unknown) => {
-          calls.push({ contract, principal: seenPrincipal, input });
-          return Effect.void;
-        },
-        workspaceCapabilities: () => Effect.die("unused"),
-      };
+      const authorization = makeRecordingWorkflowAuthorization(calls);
       yield* ReadOnlySheetWorkflowRegistrations[1]!
         .authorize(context, { workspaceId: "workspace-1" })
         .pipe(Effect.provideService(ReadOnlyWorkflowAuthorization, authorization));
