@@ -1,4 +1,4 @@
-import { Cause, Effect, Layer, Match, Random, Ref, Schema } from "effect";
+import { Array as EffectArray, Cause, Effect, Layer, Option, Random, Ref, Schema } from "effect";
 import {
   defineEvent,
   enqueueWorkflowDefinition,
@@ -20,13 +20,21 @@ import { DispatchClusterWorkflows } from "@/workflows/dispatchWorkflows";
 import {
   isReadOnlySheetWorkflowName,
   materializeReadOnlyWorkflowFailure,
+  readOnlySheetWorkflowDefinitionVersion,
   ReadOnlySheetWorkflows,
 } from "@/workflows/readOnly";
 import {
   isPreferencesSheetWorkflowName,
   materializePreferencesWorkflowFailure,
+  preferencesSheetWorkflowDefinitionVersion,
   PreferencesSheetWorkflows,
 } from "@/workflows/preferences";
+import {
+  configurationSheetWorkflowDefinitionVersion,
+  ConfigurationSheetWorkflows,
+  isConfigurationSheetWorkflowName,
+  materializeConfigurationWorkflowFailure,
+} from "@/workflows/configuration";
 
 const DispatchWorkflowPrincipal = Schema.Struct({
   requester: Schema.Struct({
@@ -39,24 +47,69 @@ const DispatchMailboxEvent = defineEvent({
   value: Schema.Json,
 });
 
+const legacyDispatchWorkflowDefinitionVersion = "1";
+
+type DispatchWorkflowSlice = {
+  readonly isWorkflowName: (name: string) => boolean;
+  readonly definitionVersion: string;
+  readonly materializeFailure: (
+    workflow: WorkflowDefinition,
+    cause: Cause.Cause<unknown>,
+  ) => WorkflowJson;
+};
+
+const dispatchWorkflowSlices: ReadonlyArray<DispatchWorkflowSlice> = [
+  {
+    isWorkflowName: isReadOnlySheetWorkflowName,
+    definitionVersion: readOnlySheetWorkflowDefinitionVersion,
+    materializeFailure: materializeReadOnlyWorkflowFailure,
+  },
+  {
+    isWorkflowName: isPreferencesSheetWorkflowName,
+    definitionVersion: preferencesSheetWorkflowDefinitionVersion,
+    materializeFailure: materializePreferencesWorkflowFailure,
+  },
+  {
+    isWorkflowName: isConfigurationSheetWorkflowName,
+    definitionVersion: configurationSheetWorkflowDefinitionVersion,
+    materializeFailure: materializeConfigurationWorkflowFailure,
+  },
+];
+
+const findDispatchWorkflowSlice = (workflow: WorkflowDefinition) =>
+  EffectArray.findFirst(dispatchWorkflowSlices, ({ isWorkflowName }) =>
+    isWorkflowName(workflow.name),
+  );
+
+export const dispatchWorkflowSliceMatchCount = (workflow: WorkflowDefinition): number =>
+  EffectArray.filter(dispatchWorkflowSlices, ({ isWorkflowName }) => isWorkflowName(workflow.name))
+    .length;
+
+const dispatchWorkflowDefinitionVersion = (workflow: WorkflowDefinition): string =>
+  Option.match(findDispatchWorkflowSlice(workflow), {
+    onNone: () => legacyDispatchWorkflowDefinitionVersion,
+    onSome: ({ definitionVersion }) => definitionVersion,
+  });
+
+const materializeDispatchWorkflowFailure = (
+  workflow: WorkflowDefinition,
+  cause: Cause.Cause<unknown>,
+): WorkflowJson =>
+  Option.match(findDispatchWorkflowSlice(workflow), {
+    onNone: () => ({ message: Cause.pretty(cause) }),
+    onSome: ({ materializeFailure }) => materializeFailure(workflow, cause),
+  });
+
 const dispatchRuntimeLayer = workflowRuntimeLayer({
   workflows: [
     ...DispatchClusterWorkflows.all,
     ...ReadOnlySheetWorkflows,
     ...PreferencesSheetWorkflows,
+    ...ConfigurationSheetWorkflows,
   ],
   events: [DispatchMailboxEvent],
-  definitionVersion: () => "1",
-  materializeFailure: (workflow, cause) =>
-    Match.value(workflow.name).pipe(
-      Match.when(isReadOnlySheetWorkflowName, () =>
-        materializeReadOnlyWorkflowFailure(workflow, cause),
-      ),
-      Match.when(isPreferencesSheetWorkflowName, () =>
-        materializePreferencesWorkflowFailure(workflow, cause),
-      ),
-      Match.orElse(() => ({ message: Cause.pretty(cause) })),
-    ),
+  definitionVersion: dispatchWorkflowDefinitionVersion,
+  materializeFailure: materializeDispatchWorkflowFailure,
 });
 
 const invocationContext = (payload: unknown) =>

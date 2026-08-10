@@ -5,7 +5,6 @@ import {
   type WorkflowInvocationStore,
 } from "effect-zero-workflow";
 import { workflowContractKey } from "effect-zero-workflow/contract";
-import { workflowContractZeroGroupIdentifier } from "effect-zero-workflow/contract/transport";
 import {
   BotDependencyUnavailable,
   BotResponseExpired,
@@ -23,7 +22,6 @@ import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
 import { makeSheetApisClient, makeTrustedSheetPersistenceMock } from "@/services/testHelpers";
 import { ReadOnlyWorkflowAuthorization } from "../readOnly/authorization";
 import {
-  assertRegistrationValidationFails,
   makeRecordingWorkflowAuthorization,
   workflowTestAccountId as accountId,
   workflowTestContext as context,
@@ -43,13 +41,8 @@ import {
   preferenceStatusHeadline,
   preferencesWorkflowOperationsLayer,
 } from "./operations";
-import {
-  makeSelectedSheetWorkflowZeroGroups,
-  makeSelectedWorkflowTransportHandler,
-  PreferencesSheetWorkflowRegistrations,
-  SelectedSheetWorkflowContracts,
-  SelectedSheetWorkflowRegistrations,
-} from "./registry";
+import { PreferencesSheetWorkflowRegistrations } from "./registry";
+import { makeSelectedWorkflowTransportHandler } from "../selected";
 
 const responseReference = Schema.decodeUnknownSync(ResponseReference)("response-1");
 
@@ -94,7 +87,7 @@ const makeBot = (
   }) as unknown as SheetBotHttpClient;
 
 describe("preferences write-and-delivery Workflow Definition slice", () => {
-  it("registers exactly the two pinned definitions and extends only the selected registry", () => {
+  it("registers exactly the two pinned definitions", () => {
     expect(PreferencesSheetWorkflowContracts).toEqual([
       PreferencesDeliverStatus,
       PreferencesUpdateAndDeliver,
@@ -125,23 +118,7 @@ describe("preferences write-and-delivery Workflow Definition slice", () => {
     ).toBe(true);
     expect(isPreferencesSheetWorkflowName(PreferencesSheetWorkflows[0]!.name)).toBe(true);
     expect(isPreferencesSheetWorkflowName("legacy.workflow")).toBe(false);
-
-    const groups = makeSelectedSheetWorkflowZeroGroups(() => Promise.resolve());
-    expect(SelectedSheetWorkflowContracts).toHaveLength(8);
-    expect(groups).toHaveLength(8);
-    expect(groups.flatMap(({ endpoints }) => Object.keys(endpoints))).toHaveLength(24);
-    expect(groups.map(({ identifier }) => identifier)).toEqual(
-      SelectedSheetWorkflowContracts.map(workflowContractZeroGroupIdentifier),
-    );
-    expect(groups.some(({ identifier }) => identifier === "workflows")).toBe(false);
   });
-
-  it.effect("fails closed for missing and duplicate selected registrations", () =>
-    assertRegistrationValidationFails(
-      SelectedSheetWorkflowContracts,
-      SelectedSheetWorkflowRegistrations,
-    ),
-  );
 
   it.effect("uses stable action identities and deterministic Delivery Keys across replay", () =>
     Effect.gen(function* () {
@@ -369,6 +346,7 @@ describe("preferences write-and-delivery Workflow Definition slice", () => {
           deliveryKey,
           preferenceStatusHeadline("checkin", state),
           "policy",
+          { recoveryRequired: false },
         ),
       );
       expect(Exit.isFailure(first)).toBe(true);
@@ -379,6 +357,7 @@ describe("preferences write-and-delivery Workflow Definition slice", () => {
           deliveryKey,
           preferenceStatusHeadline("checkin", state),
           "policy",
+          { recoveryRequired: false },
         ),
       ).toEqual({
         deliveryKey,
@@ -408,13 +387,14 @@ describe("preferences write-and-delivery Workflow Definition slice", () => {
           Schema.decodeUnknownSync(DeliveryKey)("delivery-1"),
           "Preferences loaded.",
           "policy",
+          { recoveryRequired: true },
         ),
       );
       expect(error).toEqual({
         _tag: "DeliveryRejected",
         operation: "preferences.respond",
         message: "The response is no longer available",
-        recoveryRequired: false,
+        recoveryRequired: true,
       });
 
       const declared = {

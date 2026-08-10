@@ -9,55 +9,27 @@ import {
 } from "effect-zero-workflow";
 import { InvocationId, workflowContractKey } from "effect-zero-workflow/contract";
 import type { AnyWorkflowContract } from "effect-zero-workflow/contract";
-import { WorkflowInvocationUnauthorized } from "effect-zero-workflow/contract/transport";
-import { EffectivePrincipal } from "sheet-auth/identity";
 import { DeliveryKey, DeliveryReceipt } from "sheet-bot-api";
 import {
   InteractiveDeclaredFailure,
   PreferencesDeliverStatus,
   PreferencesUpdateAndDeliver,
 } from "sheet-workflow-contracts";
-import { ReadOnlyWorkflowAuthorization } from "../readOnly/authorization";
 import {
   decodeWorkflowContractInputOrDie,
   workflowContractExecutionSchema,
 } from "../shared/execution";
 import { materializeWorkflowFailure } from "../shared/failure";
+import {
+  authorizeInteractiveWorkflow as authorize,
+  preserveInteractiveDeclaredFailure as preserveDeclaredFailure,
+} from "../shared/interactive";
 import { preferencesSheetWorkflowDefinitionVersion } from "./catalog";
 import {
   PreferenceState,
   PreferencesWorkflowOperations,
   preferenceStatusHeadline,
 } from "./operations";
-
-const preserveDeclaredFailure = <A, R>(
-  effect: Effect.Effect<A, unknown, R>,
-): Effect.Effect<A, InteractiveDeclaredFailure, R> =>
-  effect.pipe(
-    Effect.catch((error) =>
-      Schema.is(InteractiveDeclaredFailure)(error) ? Effect.fail(error) : Effect.die(error),
-    ),
-  );
-
-const authorizationFailure = (contract: AnyWorkflowContract): InteractiveDeclaredFailure => ({
-  _tag: "AuthorizationRevoked",
-  policy: contract.authorizationPolicy.policy,
-});
-
-const authorize = (
-  contract: AnyWorkflowContract,
-  execution: {
-    readonly principal: typeof EffectivePrincipal.Type;
-    readonly input: unknown;
-  },
-) =>
-  Effect.flatMap(ReadOnlyWorkflowAuthorization, (authorization) =>
-    authorization.authorize(contract, execution.principal, execution.input),
-  ).pipe(
-    Effect.mapError((error) =>
-      Schema.is(WorkflowInvocationUnauthorized)(error) ? authorizationFailure(contract) : error,
-    ),
-  );
 
 export const makePreferencesDeliveryKey = (
   contract: AnyWorkflowContract,
@@ -123,6 +95,7 @@ const PreferencesDeliverStatusDeliveryAction = makeAction({
           makePreferencesDeliveryKey(PreferencesDeliverStatus, execution.invocationId),
           preferenceStatusHeadline(input.kind, execution.state),
           PreferencesDeliverStatus.authorizationPolicy.policy,
+          { recoveryRequired: false },
         ),
       );
     }),
@@ -236,6 +209,7 @@ const PreferencesUpdateAndDeliverDeliveryAction = makeAction({
           makePreferencesDeliveryKey(PreferencesUpdateAndDeliver, execution.invocationId),
           "Notification preferences updated.",
           PreferencesUpdateAndDeliver.authorizationPolicy.policy,
+          { recoveryRequired: true },
         ),
       );
     }),
@@ -287,14 +261,16 @@ const preferencesSheetWorkflowNames = new Set(PreferencesSheetWorkflows.map(({ n
 export const isPreferencesSheetWorkflowName = (name: string): boolean =>
   preferencesSheetWorkflowNames.has(name);
 
+const preferencesSheetWorkflowLayerList = [
+  Layer.empty,
+  ...PreferencesSheetWorkflowDefinitions.flatMap(({ actions, workflowLayer }) => [
+    ...actions.map((action) => action.toLayer()),
+    workflowLayer,
+  ]),
+] as const;
+
 export const preferencesSheetWorkflowLayers = Layer.mergeAll(
-  PreferencesDeliverStatusReadAction.toLayer(),
-  PreferencesDeliverStatusDeliveryAction.toLayer(),
-  PreferencesDeliverStatusDefinition.workflowLayer,
-  PreferencesUpdateAndDeliverReadAction.toLayer(),
-  PreferencesUpdateAndDeliverMutationAction.toLayer(),
-  PreferencesUpdateAndDeliverDeliveryAction.toLayer(),
-  PreferencesUpdateAndDeliverDefinition.workflowLayer,
+  ...preferencesSheetWorkflowLayerList,
 ).pipe(Layer.provide(actionContextSqlLayer));
 
 export const materializePreferencesWorkflowFailure = (

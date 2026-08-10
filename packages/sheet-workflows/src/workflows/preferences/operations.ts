@@ -9,6 +9,11 @@ import {
 import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import { config } from "@/config";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
+import {
+  interactiveAuthorizationRevoked as authorizationRevoked,
+  interactiveInvalidRequest as invalidRequest,
+  mapDeliveryFailure,
+} from "../shared/interactive";
 
 export const PreferenceState = Schema.Struct({
   platform: Schema.String,
@@ -52,6 +57,7 @@ interface PreferencesWorkflowOperationsShape {
     deliveryKey: typeof DeliveryKey.Type,
     headline: string,
     policy: string,
+    options: { readonly recoveryRequired: boolean },
   ) => PreferencesResult<DeliveryReceipt>;
 }
 
@@ -59,17 +65,6 @@ export class PreferencesWorkflowOperations extends Context.Service<
   PreferencesWorkflowOperations,
   PreferencesWorkflowOperationsShape
 >()("sheet-workflows/PreferencesWorkflowOperations") {}
-
-const authorizationRevoked = (policy: string): InteractiveDeclaredFailure => ({
-  _tag: "AuthorizationRevoked",
-  policy,
-});
-
-const invalidRequest = (code: string, message: string): InteractiveDeclaredFailure => ({
-  _tag: "InvalidRequest",
-  code,
-  message,
-});
 
 const userAccountId = (principal: EffectivePrincipal, policy: string) =>
   Match.type<EffectivePrincipal>().pipe(
@@ -118,39 +113,8 @@ const preferenceMessage = (headline: string, state: PreferenceState) => ({
   allowedMentions: "none" as const,
 });
 
-const mapDeliveryFailure = (policy: string) => (error: unknown) =>
-  Match.value(error).pipe(
-    Match.when(
-      Predicate.or(
-        Predicate.isTagged("BotUnauthenticated"),
-        Predicate.isTagged("BotAdmissionDenied"),
-      ),
-      () => authorizationRevoked(policy),
-    ),
-    Match.when(Predicate.isTagged("BotResourceNotFound"), () => ({
-      _tag: "ResourceNotFound" as const,
-      resource: "response",
-    })),
-    Match.when(Predicate.isTagged("BotResponseExpired"), () => ({
-      _tag: "DeliveryRejected" as const,
-      operation: "preferences.respond",
-      message: "The response is no longer available",
-      recoveryRequired: false,
-    })),
-    Match.when(Predicate.isTagged("BotRequestRejected"), () => ({
-      _tag: "DeliveryRejected" as const,
-      operation: "preferences.respond",
-      message: "The preference response was rejected",
-      recoveryRequired: false,
-    })),
-    Match.orElse(
-      () =>
-        new PreferencesWorkflowOperationsError({
-          operation: "preferences.respond",
-          cause: error,
-        }),
-    ),
-  );
+const operationError = (operation: string, cause: unknown) =>
+  new PreferencesWorkflowOperationsError({ operation, cause });
 
 export const preferenceStatusHeadline = (kind: PreferenceKind, state: PreferenceState): string => {
   const settings = {
@@ -271,6 +235,7 @@ export const preferencesWorkflowOperationsLayer = Layer.effect(
       deliveryKey,
       headline,
       policy,
+      { recoveryRequired },
     ) =>
       delivery
         .get()
@@ -281,7 +246,18 @@ export const preferencesWorkflowOperationsLayer = Layer.effect(
             message: preferenceMessage(headline, state),
           },
         })
-        .pipe(Effect.mapError(mapDeliveryFailure(policy)));
+        .pipe(
+          Effect.mapError(
+            mapDeliveryFailure(
+              policy,
+              "preferences.respond",
+              "response",
+              recoveryRequired,
+              "The preference response was rejected",
+              operationError,
+            ),
+          ),
+        );
 
     return { deliver, load, update };
   }),

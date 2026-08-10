@@ -1,5 +1,5 @@
 import { Cause, Effect, Exit, Layer, Option, Ref, Schema } from "effect";
-import { expect, layer } from "@effect/vitest";
+import { describe, expect, it, layer } from "@effect/vitest";
 import { Workflow } from "effect/unstable/workflow";
 import {
   WorkflowStore,
@@ -14,9 +14,14 @@ import {
 } from "sheet-ingress-api/internal";
 import {
   createDispatchWorkflowEvent,
+  dispatchWorkflowSliceMatchCount,
   enqueueDispatchWorkflow,
   enqueueDispatchWorkflowCommand,
 } from "./workflowCommands";
+import { ConfigurationSheetWorkflows } from "@/workflows/configuration";
+import { DispatchClusterWorkflows } from "@/workflows/dispatchWorkflows";
+import { PreferencesSheetWorkflows } from "@/workflows/preferences";
+import { ReadOnlySheetWorkflows } from "@/workflows/readOnly";
 
 const TestWorkflow = Workflow.make({
   name: "test.workflow.v1",
@@ -79,6 +84,24 @@ const TestWorkflowStoreLayer = Layer.sync(WorkflowStore, (): TestWorkflowStore =
 });
 
 const testWorkflowStore = WorkflowStore.pipe(Effect.map((store) => store as TestWorkflowStore));
+
+describe("dispatch workflow cohort coverage", () => {
+  it("matches every non-legacy workflow exactly once", () => {
+    for (const workflow of [
+      ...ReadOnlySheetWorkflows,
+      ...PreferencesSheetWorkflows,
+      ...ConfigurationSheetWorkflows,
+    ]) {
+      expect(dispatchWorkflowSliceMatchCount(workflow), workflow.name).toBe(1);
+    }
+  });
+
+  it("leaves legacy workflows on the fallback path", () => {
+    for (const workflow of DispatchClusterWorkflows.all) {
+      expect(dispatchWorkflowSliceMatchCount(workflow), workflow.name).toBe(0);
+    }
+  });
+});
 
 layer(TestWorkflowStoreLayer)("workflow command acceptance", (it) => {
   it.effect("preserves the caller-generated invocation id", () =>

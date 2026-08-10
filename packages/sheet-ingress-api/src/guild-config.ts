@@ -23,6 +23,11 @@ const lockdownRoleBits =
 const monitorRoleBits =
   lockdownRoleBits | PermissionFlagsBits.ManageChannels | PermissionFlagsBits.PinMessages;
 
+export const emptyPermissionBits = "0";
+export const lockdownRolePermissionAllow = lockdownRoleBits.toString();
+export const monitorRolePermissionAllow = monitorRoleBits.toString();
+export const lockdownWorkspacePermissionDeny = PermissionFlagsBits.ViewChannel.toString();
+
 export const isLockdownRoleIdAllowed = (workspaceId: string, roleId: string) =>
   Predicate.not(Equal.equals(workspaceId))(roleId);
 
@@ -46,22 +51,22 @@ export const makeLockdownPermissionOverwrites = ({
     {
       id: lockdownRoleId,
       type: 0,
-      allow: lockdownRoleBits.toString(),
-      deny: "0",
+      allow: lockdownRolePermissionAllow,
+      deny: emptyPermissionBits,
     },
     ...Array.from(new Set(monitorRoleIds))
       .filter((monitorRoleId) => monitorRoleId !== lockdownRoleId && monitorRoleId !== workspaceId)
       .map((monitorRoleId) => ({
         id: monitorRoleId,
         type: 0 as const,
-        allow: monitorRoleBits.toString(),
-        deny: "0",
+        allow: monitorRolePermissionAllow,
+        deny: emptyPermissionBits,
       })),
     {
       id: workspaceId,
       type: 0,
-      allow: "0",
-      deny: PermissionFlagsBits.ViewChannel.toString(),
+      allow: emptyPermissionBits,
+      deny: lockdownWorkspacePermissionDeny,
     },
   ];
 };
