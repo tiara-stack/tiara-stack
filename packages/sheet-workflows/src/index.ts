@@ -55,4 +55,4 @@ const mainLayer = appLayer.pipe(
   Layer.provide(NodeFileSystem.layer),
 );
 
-NodeRuntime.runMain(Effect.orDie(Layer.launch(mainLayer)));
+NodeRuntime.runMain(Layer.launch(mainLayer));

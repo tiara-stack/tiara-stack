@@ -1220,6 +1220,9 @@ importers:
       '@effect/sql-pg':
         specifier: 'catalog:'
         version: 4.0.0-beta.67(effect@4.0.0-beta.67)
+      '@googleapis/sheets':
+        specifier: ^10.0.1
+        version: 10.0.1
       '@opentelemetry/exporter-prometheus':
         specifier: ^0.207.0
         version: 0.207.0(@opentelemetry/api@1.9.0)
@@ -1235,6 +1238,9 @@ importers:
       effect-zero-workflow:
         specifier: workspace:*
         version: link:../effect-zero-workflow
+      google-auth-library:
+        specifier: ^10.5.0
+        version: 10.5.0
       sheet-auth:
         specifier: workspace:*
         version: link:../sheet-auth

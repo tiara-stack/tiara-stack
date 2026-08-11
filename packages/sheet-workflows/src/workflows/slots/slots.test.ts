@@ -3,7 +3,11 @@ import { Cause, ConfigProvider, Effect, Exit, Layer, Option, Schema } from "effe
 import { InvocationId, workflowContractKey } from "effect-zero-workflow/contract";
 import { BotResponseExpired, ResponseReference, type SheetBotHttpClient } from "sheet-bot-api";
 import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
-import { InteractiveDeclaredFailure, SlotsPublishButton } from "sheet-workflow-contracts";
+import {
+  InteractiveDeclaredFailure,
+  SlotsDeliverList,
+  SlotsPublishButton,
+} from "sheet-workflow-contracts";
 import { ZeroClient } from "typhoon-zero/client";
 import { SheetBotCacheClient } from "@/services/sheetBotCacheClient";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
@@ -107,30 +111,42 @@ const makeOperations = (
 
 const baseSlotState = () => makeTrustedSheetPersistenceMock(makeSheetApisClient({})).slotState;
 
-describe("slot-button publishing Workflow Definition slice", () => {
-  it("registers the single pinned definition with the four approved Durable Actions", () => {
-    expect(SlotSheetWorkflowContracts).toEqual([SlotsPublishButton]);
+describe("slot Workflow Definition slices", () => {
+  it("keeps the slot-button definition and appends the pinned slot-list definition", () => {
+    expect(SlotSheetWorkflowContracts).toEqual([SlotsPublishButton, SlotsDeliverList]);
     expect(
       SlotSheetWorkflowDefinitions.map(({ contract, workflow }) => ({
         contract: workflowContractKey(contract),
         workflow: workflow.name,
       })),
-    ).toEqual([
-      {
-        contract: workflowContractKey(SlotsPublishButton),
-        workflow: workflowContractKey(SlotsPublishButton),
-      },
-    ]);
+    ).toEqual(
+      [SlotsPublishButton, SlotsDeliverList].map((contract) => ({
+        contract: workflowContractKey(contract),
+        workflow: workflowContractKey(contract),
+      })),
+    );
     expect(SlotSheetWorkflowDefinitions[0]!.actions.map(({ workflow }) => workflow.name)).toEqual([
       "slots.publishButton.publish-button",
       "slots.publishButton.bind-slot-state",
       "slots.publishButton.delete-provisional-button",
       "slots.publishButton.respond",
     ]);
-    expect(SlotSheetWorkflowRegistrations[0]?.definitionVersion).toBe("1");
-    expect(SlotSheetWorkflowDefinitions[0]?.contract.declaredFailure).toBe(
-      InteractiveDeclaredFailure,
-    );
+    expect(SlotSheetWorkflowDefinitions[1]!.actions.map(({ workflow }) => workflow.name)).toEqual([
+      "slots.deliverList.load-slot-view",
+      "slots.deliverList.respond",
+    ]);
+    expect(
+      SlotSheetWorkflowRegistrations.map(({ contract, definitionVersion }) => ({
+        contract,
+        definitionVersion,
+      })),
+    ).toEqual([
+      { contract: SlotsPublishButton, definitionVersion: "1" },
+      { contract: SlotsDeliverList, definitionVersion: "1" },
+    ]);
+    for (const { contract } of SlotSheetWorkflowDefinitions) {
+      expect(contract.declaredFailure).toBe(InteractiveDeclaredFailure);
+    }
     expect(isSlotSheetWorkflowName(SlotSheetWorkflows[0]!.name)).toBe(true);
     expect(isSlotSheetWorkflowName("slots.open")).toBe(false);
   });

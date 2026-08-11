@@ -43,7 +43,12 @@ import {
   configurationSheetWorkflowLayers,
   configurationWorkflowOperationsLayer,
 } from "@/workflows/configuration";
-import { slotSheetWorkflowLayers, slotWorkflowOperationsLayer } from "@/workflows/slots";
+import {
+  slotListWorkflowOperationsLayer,
+  slotSheetWorkflowLayers,
+  slotWorkflowOperationsLayer,
+} from "@/workflows/slots";
+import { slotListProviderLayer } from "@/workflows/slots/slotListProvider";
 
 const shardGroups = ["dispatch", "autoCheckin"] as const;
 
@@ -145,6 +150,7 @@ const workflowDefinitionServicesLayer = Layer.mergeAll(
   preferencesWorkflowOperationsLayer,
   configurationWorkflowOperationsLayer,
   slotWorkflowOperationsLayer,
+  slotListWorkflowOperationsLayer.pipe(Layer.provide(slotListProviderLayer)),
 ).pipe(Layer.provideMerge(dispatchClientsLayer), Layer.provideMerge(trustedSheetPersistenceLayer));
 
 const dispatchServicesLayer = Layer.effect(DispatchService, DispatchService.make).pipe(

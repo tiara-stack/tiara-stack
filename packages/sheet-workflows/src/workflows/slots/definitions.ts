@@ -7,14 +7,8 @@ import {
   type WorkflowDefinition,
   type WorkflowJson,
 } from "effect-zero-workflow";
-import { InvocationId, workflowContractKey } from "effect-zero-workflow/contract";
-import type { AnyWorkflowContract } from "effect-zero-workflow/contract";
-import {
-  DeleteMessageReceipt,
-  DeliveryKey,
-  RespondReceipt,
-  SendMessageReceipt,
-} from "sheet-bot-api";
+import { workflowContractKey } from "effect-zero-workflow/contract";
+import { DeleteMessageReceipt, RespondReceipt, SendMessageReceipt } from "sheet-bot-api";
 import { InteractiveDeclaredFailure, SlotsPublishButton } from "sheet-workflow-contracts";
 import {
   decodeWorkflowContractInputOrDie,
@@ -26,18 +20,11 @@ import {
   preserveInteractiveDeclaredFailure as preserveDeclaredFailure,
 } from "../shared/interactive";
 import { slotSheetWorkflowDefinitionVersion } from "./catalog";
+import { makeSlotsDeliverListDefinition } from "./slotListDefinition";
+import { makeSlotDeliveryKey } from "./keys";
 import { SlotBindingOutcome, SlotWorkflowOperations } from "./operations";
 
-type SlotDeliveryKind = "publish-button" | "delete-provisional-button" | "respond";
-
-export const makeSlotDeliveryKey = (
-  contract: AnyWorkflowContract,
-  invocationId: typeof InvocationId.Type,
-  kind: SlotDeliveryKind,
-): typeof DeliveryKey.Type =>
-  Schema.decodeUnknownSync(DeliveryKey)(
-    `${contract.identity}:${slotSheetWorkflowDefinitionVersion}:${invocationId}:${kind}`,
-  );
+export { makeSlotDeliveryKey } from "./keys";
 
 class SlotBindingFailed extends Data.TaggedError("SlotBindingFailed")<{
   readonly cause: string;
@@ -231,7 +218,12 @@ const SlotsPublishButtonDefinition = {
   ),
 };
 
-export const SlotSheetWorkflowDefinitions = Object.freeze([SlotsPublishButtonDefinition]);
+const SlotsDeliverListDefinition = makeSlotsDeliverListDefinition();
+
+export const SlotSheetWorkflowDefinitions = Object.freeze([
+  SlotsPublishButtonDefinition,
+  SlotsDeliverListDefinition,
+] as const);
 
 export const SlotSheetWorkflows = Object.freeze(
   SlotSheetWorkflowDefinitions.map(({ workflow }) => workflow as WorkflowDefinition),

@@ -22,9 +22,31 @@ export const interactiveInvalidRequest = (
   message,
 });
 
-export const interactiveResourceNotFound = (resource: string): InteractiveDeclaredFailure => ({
+export const interactiveResourceNotFound = (
+  resource: string,
+  resourceId?: string,
+): InteractiveDeclaredFailure => ({
   _tag: "ResourceNotFound",
   resource,
+  ...(Predicate.isUndefined(resourceId) ? {} : { resourceId }),
+});
+
+export const interactiveConfigurationMissing = (
+  configuration: string,
+): InteractiveDeclaredFailure => ({
+  _tag: "ConfigurationMissing",
+  configuration,
+});
+
+export const interactiveExternalOperationRejected = (
+  operation: string,
+  code: string,
+  message: string,
+): InteractiveDeclaredFailure => ({
+  _tag: "ExternalOperationRejected",
+  operation,
+  code,
+  message,
 });
 
 const interactiveDeliveryRejected = (
@@ -59,6 +81,19 @@ const mapBotAdmissionOrResourceFailure = (policy: string, resource: string, erro
       : Option.none<InteractiveDeclaredFailure>();
 };
 
+const mapBotKnownRequestFailure = (
+  policy: string,
+  resource: string,
+  error: unknown,
+  onRequestRejected: () => InteractiveDeclaredFailure,
+): Option.Option<InteractiveDeclaredFailure> => {
+  const admissionFailure = mapBotAdmissionOrResourceFailure(policy, resource, error);
+  if (Option.isSome(admissionFailure)) return admissionFailure;
+  return Predicate.isTagged("BotRequestRejected")(error)
+    ? Option.some(onRequestRejected())
+    : Option.none();
+};
+
 export const mapBotCacheFailure =
   <E>(
     policy: string,
@@ -67,17 +102,10 @@ export const mapBotCacheFailure =
     operationError: (operation: string, cause: unknown) => E,
   ) =>
   (error: unknown): InteractiveDeclaredFailure | E => {
-    const knownFailure = mapBotAdmissionOrResourceFailure(policy, resource, error);
-    if (Option.isSome(knownFailure)) {
-      return knownFailure.value;
-    }
-    if (Predicate.isTagged("BotRequestRejected")(error)) {
-      return interactiveInvalidRequest(
-        "ProviderRequestRejected",
-        `The ${resource} request was rejected`,
-      );
-    }
-    return operationError(operation, error);
+    const knownFailure = mapBotKnownRequestFailure(policy, resource, error, () =>
+      interactiveInvalidRequest("ProviderRequestRejected", `The ${resource} request was rejected`),
+    );
+    return Option.getOrElse(knownFailure, () => operationError(operation, error));
   };
 
 export const requireInteractiveDiscordAccountId = (
@@ -104,10 +132,6 @@ export const mapDeliveryFailure =
     operationError: (operation: string, cause: unknown) => E,
   ) =>
   (error: unknown): InteractiveDeclaredFailure | E => {
-    const knownFailure = mapBotAdmissionOrResourceFailure(policy, resource, error);
-    if (Option.isSome(knownFailure)) {
-      return knownFailure.value;
-    }
     if (Predicate.isTagged("BotResponseExpired")(error)) {
       return interactiveDeliveryRejected(
         operation,
@@ -115,10 +139,10 @@ export const mapDeliveryFailure =
         recoveryRequired,
       );
     }
-    if (Predicate.isTagged("BotRequestRejected")(error)) {
-      return interactiveDeliveryRejected(operation, rejectedMessage, recoveryRequired);
-    }
-    return operationError(operation, error);
+    const knownFailure = mapBotKnownRequestFailure(policy, resource, error, () =>
+      interactiveDeliveryRejected(operation, rejectedMessage, recoveryRequired),
+    );
+    return Option.getOrElse(knownFailure, () => operationError(operation, error));
   };
 
 export const preserveInteractiveDeclaredFailure = <A, R>(
