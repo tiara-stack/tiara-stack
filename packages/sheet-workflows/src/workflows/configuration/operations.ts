@@ -1,4 +1,4 @@
-import { Context, Data, Effect, Layer, Match, Option, Predicate, Schema } from "effect";
+import { Context, Data, Effect, Layer, Option, Predicate, Schema } from "effect";
 import {
   type BotOutboundMessage,
   type BotPermissionOverwrite,
@@ -37,7 +37,7 @@ import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
 import {
   interactiveInvalidRequest as invalidRequest,
   interactiveResourceNotFound as resourceNotFound,
-  mapBotAuthorizationFailure,
+  mapBotCacheFailure,
   mapDeliveryFailure,
 } from "../shared/interactive";
 
@@ -157,16 +157,8 @@ export class ConfigurationWorkflowOperations extends Context.Service<
 const operationError = (operation: string, cause: unknown) =>
   new ConfigurationWorkflowOperationsError({ operation, cause });
 
-const mapCacheFailure = (policy: string, resource: string, operation: string) => (error: unknown) =>
-  Option.getOrElse(mapBotAuthorizationFailure(policy, error), () =>
-    Match.value(error).pipe(
-      Match.when(Predicate.isTagged("BotResourceNotFound"), () => resourceNotFound(resource)),
-      Match.when(Predicate.isTagged("BotRequestRejected"), () =>
-        invalidRequest("ProviderRequestRejected", `The ${resource} request was rejected`),
-      ),
-      Match.orElse((cause) => operationError(operation, cause)),
-    ),
-  );
+const mapCacheFailure = (policy: string, resource: string, operation: string) =>
+  mapBotCacheFailure(policy, resource, operation, operationError);
 
 const mapPersistenceFailure = (operation: string, rejectionMessage?: string) => (error: unknown) =>
   Predicate.isString(rejectionMessage) && Predicate.isTagged("ArgumentError")(error)

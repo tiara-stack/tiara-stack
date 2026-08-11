@@ -8,6 +8,8 @@ import { PreferencesSheetWorkflowRegistrations } from "../preferences/registry";
 import { ReadOnlyWorkflowAuthorization } from "../readOnly/authorization";
 import { ReadOnlySheetWorkflowContracts } from "../readOnly/catalog";
 import { ReadOnlySheetWorkflowRegistrations } from "../readOnly/registry";
+import { SlotSheetWorkflowContracts } from "../slots/catalog";
+import { SlotSheetWorkflowRegistrations } from "../slots/registry";
 import {
   makeSheetWorkflowRegistrationValidationLayer,
   makeSheetWorkflowTransportHandler,
@@ -19,6 +21,7 @@ export const SelectedSheetWorkflowContracts = Object.freeze([
   ...ReadOnlySheetWorkflowContracts,
   ...PreferencesSheetWorkflowContracts,
   ...ConfigurationSheetWorkflowContracts,
+  ...SlotSheetWorkflowContracts,
 ] as const);
 
 export const SelectedSheetWorkflowRegistrations: ReadonlyArray<SheetWorkflowRegistration> =
@@ -26,6 +29,7 @@ export const SelectedSheetWorkflowRegistrations: ReadonlyArray<SheetWorkflowRegi
     ...ReadOnlySheetWorkflowRegistrations,
     ...PreferencesSheetWorkflowRegistrations,
     ...ConfigurationSheetWorkflowRegistrations,
+    ...SlotSheetWorkflowRegistrations,
   ]);
 
 export const selectedSheetWorkflowRegistrationValidationLayer =

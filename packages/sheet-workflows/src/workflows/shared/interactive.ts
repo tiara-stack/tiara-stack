@@ -8,7 +8,7 @@ import { ReadOnlyWorkflowAuthorization } from "../readOnly/authorization";
 const isInteractiveDeclaredFailure = Schema.is(InteractiveDeclaredFailure);
 const isWorkflowInvocationUnauthorized = Schema.is(WorkflowInvocationUnauthorized);
 
-export const interactiveAuthorizationRevoked = (policy: string): InteractiveDeclaredFailure => ({
+const interactiveAuthorizationRevoked = (policy: string): InteractiveDeclaredFailure => ({
   _tag: "AuthorizationRevoked",
   policy,
 });
@@ -38,7 +38,7 @@ const interactiveDeliveryRejected = (
   recoveryRequired,
 });
 
-export const mapBotAuthorizationFailure = (policy: string, error: unknown) =>
+const mapBotAuthorizationFailure = (policy: string, error: unknown) =>
   Match.value(error).pipe(
     Match.when(
       Predicate.or(
@@ -50,6 +50,50 @@ export const mapBotAuthorizationFailure = (policy: string, error: unknown) =>
     Match.orElse(() => Option.none<InteractiveDeclaredFailure>()),
   );
 
+const mapBotAdmissionOrResourceFailure = (policy: string, resource: string, error: unknown) => {
+  const authorizationFailure = mapBotAuthorizationFailure(policy, error);
+  return Option.isSome(authorizationFailure)
+    ? authorizationFailure
+    : Predicate.isTagged("BotResourceNotFound")(error)
+      ? Option.some(interactiveResourceNotFound(resource))
+      : Option.none<InteractiveDeclaredFailure>();
+};
+
+export const mapBotCacheFailure =
+  <E>(
+    policy: string,
+    resource: string,
+    operation: string,
+    operationError: (operation: string, cause: unknown) => E,
+  ) =>
+  (error: unknown): InteractiveDeclaredFailure | E => {
+    const knownFailure = mapBotAdmissionOrResourceFailure(policy, resource, error);
+    if (Option.isSome(knownFailure)) {
+      return knownFailure.value;
+    }
+    if (Predicate.isTagged("BotRequestRejected")(error)) {
+      return interactiveInvalidRequest(
+        "ProviderRequestRejected",
+        `The ${resource} request was rejected`,
+      );
+    }
+    return operationError(operation, error);
+  };
+
+export const requireInteractiveDiscordAccountId = (
+  principal: typeof EffectivePrincipal.Type,
+  policy: string,
+) =>
+  Match.type<typeof EffectivePrincipal.Type>().pipe(
+    Match.discriminatorsExhaustive("kind")({
+      service: () => Effect.fail(interactiveAuthorizationRevoked(policy)),
+      user: ({ discordAccount }) =>
+        Predicate.isNotUndefined(discordAccount)
+          ? Effect.succeed(discordAccount.accountId)
+          : Effect.fail(interactiveAuthorizationRevoked(policy)),
+    }),
+  )(principal);
+
 export const mapDeliveryFailure =
   <E>(
     policy: string,
@@ -60,12 +104,9 @@ export const mapDeliveryFailure =
     operationError: (operation: string, cause: unknown) => E,
   ) =>
   (error: unknown): InteractiveDeclaredFailure | E => {
-    const authorizationFailure = mapBotAuthorizationFailure(policy, error);
-    if (Option.isSome(authorizationFailure)) {
-      return authorizationFailure.value;
-    }
-    if (Predicate.isTagged("BotResourceNotFound")(error)) {
-      return interactiveResourceNotFound(resource);
+    const knownFailure = mapBotAdmissionOrResourceFailure(policy, resource, error);
+    if (Option.isSome(knownFailure)) {
+      return knownFailure.value;
     }
     if (Predicate.isTagged("BotResponseExpired")(error)) {
       return interactiveDeliveryRejected(

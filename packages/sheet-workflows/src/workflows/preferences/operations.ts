@@ -1,4 +1,4 @@
-import { Context, Data, Effect, Layer, Match, Option, Predicate, Schema } from "effect";
+import { Context, Data, Effect, Layer, Option, Predicate, Schema } from "effect";
 import type { EffectivePrincipal } from "sheet-auth/identity";
 import { DeliveryKey, type DeliveryReceipt, type SheetBotHttpClient } from "sheet-bot-api";
 import {
@@ -10,9 +10,9 @@ import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import { config } from "@/config";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
 import {
-  interactiveAuthorizationRevoked as authorizationRevoked,
   interactiveInvalidRequest as invalidRequest,
   mapDeliveryFailure,
+  requireInteractiveDiscordAccountId,
 } from "../shared/interactive";
 
 export const PreferenceState = Schema.Struct({
@@ -65,17 +65,6 @@ export class PreferencesWorkflowOperations extends Context.Service<
   PreferencesWorkflowOperations,
   PreferencesWorkflowOperationsShape
 >()("sheet-workflows/PreferencesWorkflowOperations") {}
-
-const userAccountId = (principal: EffectivePrincipal, policy: string) =>
-  Match.type<EffectivePrincipal>().pipe(
-    Match.discriminatorsExhaustive("kind")({
-      service: () => Effect.fail(authorizationRevoked(policy)),
-      user: ({ discordAccount }) =>
-        Predicate.isNotUndefined(discordAccount)
-          ? Effect.succeed(discordAccount.accountId)
-          : Effect.fail(authorizationRevoked(policy)),
-    }),
-  )(principal);
 
 const disabledState = (platform: string): PreferenceState => ({
   platform,
@@ -152,7 +141,7 @@ export const preferencesWorkflowOperationsLayer = Layer.effect(
     const load: PreferencesWorkflowOperationsShape["load"] = (principal, platform, policy) =>
       Effect.gen(function* () {
         yield* requireSupportedPlatform(platform);
-        const userId = yield* userAccountId(principal, policy);
+        const userId = yield* requireInteractiveDiscordAccountId(principal, policy);
         const row = yield* persistence.preferences.getUserPlatformConfig({ platform, userId }).pipe(
           Effect.mapError(
             (cause) =>
@@ -173,7 +162,7 @@ export const preferencesWorkflowOperationsLayer = Layer.effect(
     ) =>
       Effect.gen(function* () {
         yield* requireSupportedPlatform(input.platform);
-        const userId = yield* userAccountId(principal, policy);
+        const userId = yield* requireInteractiveDiscordAccountId(principal, policy);
         const next: PreferenceState = {
           ...current,
           platform: input.platform,
