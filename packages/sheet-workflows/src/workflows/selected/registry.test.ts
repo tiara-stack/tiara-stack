@@ -5,6 +5,7 @@ import { PreferencesSheetWorkflowContracts } from "../preferences/catalog";
 import { ReadOnlySheetWorkflowContracts } from "../readOnly/catalog";
 import { ScheduleSheetWorkflowContracts } from "../schedules/catalog";
 import { SlotSheetWorkflowContracts } from "../slots/catalog";
+import { TeamSheetWorkflowContracts } from "../teams/catalog";
 import { assertRegistrationValidationFails } from "../shared/testHelpers";
 import {
   makeSelectedSheetWorkflowZeroGroups,
@@ -20,11 +21,12 @@ describe("selected Sheet Workflow registry", () => {
       ...ConfigurationSheetWorkflowContracts,
       ...SlotSheetWorkflowContracts,
       ...ScheduleSheetWorkflowContracts,
+      ...TeamSheetWorkflowContracts,
     ]);
-    expect(SelectedSheetWorkflowContracts).toHaveLength(17);
+    expect(SelectedSheetWorkflowContracts).toHaveLength(18);
     const groups = makeSelectedSheetWorkflowZeroGroups(() => Promise.resolve());
     expect(groups).toHaveLength(SelectedSheetWorkflowContracts.length);
-    expect(groups.flatMap(({ endpoints }) => Object.keys(endpoints))).toHaveLength(51);
+    expect(groups.flatMap(({ endpoints }) => Object.keys(endpoints))).toHaveLength(54);
     expect(groups.map(({ identifier }) => identifier)).toEqual(
       SelectedSheetWorkflowContracts.map(workflowContractZeroGroupIdentifier),
     );

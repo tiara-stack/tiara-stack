@@ -19,13 +19,14 @@ import {
   teamSubmissionErrorColor,
   teamSubmissionReaction,
 } from "./teamSubmissionCommon";
+import {
+  boundTeamListFields,
+  discordEmbedFieldNameLimit,
+  truncateWithEllipsis,
+} from "@/workflows/shared/teamListRendering";
 
 const teamSubmissionProgressColor = 0xfee75c;
 const teamSubmissionSuccessColor = 0x57f287;
-const discordEmbedCharacterLimit = 6_000;
-const discordEmbedFieldCountLimit = 25;
-const discordEmbedFieldNameLimit = 256;
-const discordEmbedFieldValueLimit = 1_024;
 const teamSubmissionSheetApiRetryPolicy = {
   schedule: Schedule.spaced(Duration.seconds(1)),
   times: 2,
@@ -36,11 +37,6 @@ const teamSubmissionFeatureLookupRetryPolicy = {
   times: 1,
 } as const;
 const teamSubmissionFeatureLookupTimeout = Duration.millis(500);
-
-type TeamListField = {
-  readonly name: string;
-  readonly value: string;
-};
 
 const sourceMessageFor = (
   payload: TeamSubmissionDispatchPayload,
@@ -64,51 +60,6 @@ const disabledTeamSubmissionResult = (
   confirmationText: "",
   status: "empty",
 });
-
-const truncateWithEllipsis = (value: string, limit: number): string =>
-  value.length <= limit ? value : `${value.slice(0, limit - 1)}…`;
-
-/** @internal */
-export const boundTeamListFields = (
-  fields: ReadonlyArray<TeamListField>,
-  title: string,
-): ReadonlyArray<TeamListField> => {
-  const boundedFields = fields.map(({ name, value }) => ({
-    name: truncateWithEllipsis(name, discordEmbedFieldNameLimit),
-    value: truncateWithEllipsis(value, discordEmbedFieldValueLimit),
-  }));
-  const totalLength = boundedFields.reduce(
-    (length, field) => length + field.name.length + field.value.length,
-    title.length,
-  );
-  if (
-    boundedFields.length <= discordEmbedFieldCountLimit &&
-    totalLength <= discordEmbedCharacterLimit
-  ) {
-    return boundedFields;
-  }
-
-  const visibleFields: Array<TeamListField> = [];
-  let visibleLength = title.length;
-  for (const field of boundedFields) {
-    const remainingCount = boundedFields.length - visibleFields.length;
-    const overflowField = {
-      name: "More teams",
-      value: `${remainingCount} additional ${remainingCount === 1 ? "team was" : "teams were"} omitted.`,
-    };
-    const nextLength = field.name.length + field.value.length;
-    const overflowLength = overflowField.name.length + overflowField.value.length;
-    if (
-      visibleFields.length >= discordEmbedFieldCountLimit - 1 ||
-      visibleLength + nextLength + overflowLength > discordEmbedCharacterLimit
-    ) {
-      return [...visibleFields, overflowField];
-    }
-    visibleFields.push(field);
-    visibleLength += nextLength;
-  }
-  return visibleFields;
-};
 
 const boundConfirmationDescription = (description: string): string => {
   const overflowSummary = "\n\n… Additional team details omitted to fit Discord limits.";

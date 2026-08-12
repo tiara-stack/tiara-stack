@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { boundTeamListFields } from "./teamSubmission";
+import { boundTeamListFields, truncateWithEllipsis } from "@/workflows/shared/teamListRendering";
 
 const field = (name: string, value: string) => ({ name, value });
+
+describe("truncateWithEllipsis", () => {
+  it("returns an empty value for non-positive truncation limits", () => {
+    expect(truncateWithEllipsis("team", 0)).toBe("");
+    expect(truncateWithEllipsis("team", -1)).toBe("");
+  });
+});
 
 describe("boundTeamListFields", () => {
   it("preserves the exact field limit and summarizes one-over-limit fields", () => {

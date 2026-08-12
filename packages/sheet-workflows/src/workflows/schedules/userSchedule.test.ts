@@ -195,12 +195,15 @@ describe("user-schedule delivery Workflow Definition slice", () => {
       "schedules.deliverUserSchedule.respond",
     ]);
     expect(UserScheduleDefinition.contract.declaredFailure).toBe(InteractiveDeclaredFailure);
-    expect(registration.definitionVersion).toBe("1");
+    expect(registration.definitionVersion).toBe("2");
     expect(SchedulesDeliverUserSchedule.authorizationPolicy).toMatchObject({
+      version: "2",
       principalKinds: ["user"],
-      requiredCapabilities: ["workspace.member"],
+      requiredCapabilities: [],
       resource: "workspace",
       resourceField: "workspaceId",
+      targetUserField: "targetUserId",
+      userRule: "target-user-or-workspace-monitor-or-application-owner",
     });
   });
 
@@ -324,7 +327,7 @@ describe("user-schedule delivery Workflow Definition slice", () => {
       );
       expect(replayIds).toEqual(actionIds);
       expect(new Set(actionIds).size).toBe(2);
-      expect(responseKey).toBe(`schedules.deliverUserSchedule:1:${invocationId}:respond`);
+      expect(responseKey).toBe(`schedules.deliverUserSchedule:2:${invocationId}:respond`);
     }),
   );
 

@@ -1,4 +1,4 @@
-import { Cause, ConfigProvider, Effect, Exit, Layer, Schema } from "effect";
+import { Cause, ConfigProvider, Effect, Exit, Layer, Option, Schema } from "effect";
 import { describe, expect, it } from "@effect/vitest";
 import { workflowContractKey } from "effect-zero-workflow/contract";
 import {
@@ -11,11 +11,17 @@ import {
   BotResourceNotFound,
   type SheetBotHttpClient,
 } from "sheet-bot-api";
-import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
+import {
+  TrustedSheetPersistence,
+  type TrustedSheetPersistenceShape,
+} from "sheet-zero-server/persistence";
+import { EffectivePrincipal } from "sheet-auth/identity";
 import {
   DataAcquisitionDeclaredFailure,
   DiscordLoadProfile,
   DiscordLoadWorkspaceChannels,
+  SchedulesDeliverUserSchedule,
+  TeamsDeliverList,
   WorkspaceId,
 } from "sheet-workflow-contracts";
 import { workflowContractZeroGroupIdentifier } from "effect-zero-workflow/contract/transport";
@@ -93,7 +99,14 @@ const makeAuthorizationBotClient = (
     },
   }) as unknown as SheetBotHttpClient;
 
-const authorizationWithBot = (botClient: SheetBotHttpClient) => {
+type WorkspaceMonitorRole = Effect.Success<
+  ReturnType<TrustedSheetPersistenceShape["workspaces"]["getWorkspaceMonitorRoles"]>
+>[number];
+
+const authorizationWithBot = (
+  botClient: SheetBotHttpClient,
+  monitorRoles: ReadonlyArray<WorkspaceMonitorRole> = [],
+) => {
   const sheetApisClient = makeSheetApisClient({});
   const persistence = makeTrustedSheetPersistenceMock(sheetApisClient);
   return Effect.gen(function* () {
@@ -106,7 +119,7 @@ const authorizationWithBot = (botClient: SheetBotHttpClient) => {
         ...persistence,
         workspaces: {
           ...persistence.workspaces,
-          getWorkspaceMonitorRoles: () => Effect.succeed([]),
+          getWorkspaceMonitorRoles: () => Effect.succeed(monitorRoles),
         },
       }),
     ),
@@ -297,6 +310,132 @@ describe("read-only Sheet Workflow Definition slice", () => {
         expect(
           yield* invalidPermissionsAuthorization.workspaceCapabilities(principal, "workspace-1"),
         ).toMatchObject({ member: true, manage: false, participant: false });
+      }
+    }),
+  );
+
+  it.effect("evaluates target-user policy v2 for self, monitor, and application owner", () =>
+    Effect.gen(function* () {
+      const selfAuthorization = yield* authorizationWithBot(
+        makeAuthorizationBotClient(() => Effect.die("self authorization must not read membership")),
+      );
+      const monitorAuthorization = yield* authorizationWithBot(
+        makeAuthorizationBotClient(() =>
+          Effect.succeed({ userId: accountId, roleIds: ["member-role"] }),
+        ),
+        [
+          {
+            workspaceId: "workspace-1",
+            roleId: "member-role",
+            createdAt: 1,
+            updatedAt: 1,
+            deletedAt: null,
+          },
+        ],
+      );
+      const ownerAuthorization = yield* authorizationWithBot(
+        makeAuthorizationBotClient(
+          () =>
+            Effect.fail(new BotResourceNotFound({ resource: "member", message: "not a member" })),
+          "0",
+          () => Effect.succeed({ ownerId: accountId }),
+        ),
+      );
+
+      for (const contract of [TeamsDeliverList, SchedulesDeliverUserSchedule]) {
+        yield* selfAuthorization.authorize(contract, principal, {
+          workspaceId: "workspace-1",
+          targetUserId: accountId,
+        });
+        yield* monitorAuthorization.authorize(contract, principal, {
+          workspaceId: "workspace-1",
+          targetUserId: "account-other",
+        });
+        yield* ownerAuthorization.authorize(contract, principal, {
+          workspaceId: "workspace-1",
+          targetUserId: "account-other",
+        });
+      }
+      expect(yield* ownerAuthorization.workspaceCapabilities(principal, "workspace-1")).toEqual({
+        member: false,
+        monitor: false,
+        manage: false,
+        participant: false,
+        appOwner: true,
+      });
+    }),
+  );
+
+  it.effect("fails target-user policy v2 closed for unlinked users and service sentinels", () =>
+    Effect.gen(function* () {
+      const authorization = yield* authorizationWithBot(
+        makeAuthorizationBotClient(() =>
+          Effect.die("unlinked principals must not read membership"),
+        ),
+      );
+      for (const { authorizationInput, candidate } of [
+        {
+          candidate: Schema.decodeUnknownSync(EffectivePrincipal)({
+            kind: "user",
+            userId: "unlinked-user",
+          }),
+          authorizationInput: {
+            workspaceId: "workspace-1",
+            targetUserId: "legacy-service-sentinel",
+          },
+        },
+        {
+          candidate: Schema.decodeUnknownSync(EffectivePrincipal)({
+            kind: "service",
+            serviceId: "legacy-service-sentinel",
+            oauthClientId: "legacy-service-sentinel",
+          }),
+          authorizationInput: {
+            workspaceId: "workspace-1",
+            targetUserId: "legacy-service-sentinel",
+          },
+        },
+        {
+          candidate: principal,
+          authorizationInput: { workspaceId: "workspace-1" },
+        },
+      ]) {
+        const exit = yield* Effect.exit(
+          authorization.authorize(TeamsDeliverList, candidate, authorizationInput),
+        );
+        expect(Exit.isFailure(exit)).toBe(true);
+        if (Exit.isFailure(exit)) {
+          expect(Cause.hasDies(exit.cause)).toBe(false);
+          expect(Option.getOrThrow(Cause.findErrorOption(exit.cause))).toMatchObject({
+            _tag: "WorkflowInvocationUnauthorized",
+            message: "Workflow invocation is unauthorized",
+          });
+        }
+      }
+    }),
+  );
+
+  it.effect("denies target-user policy v2 to ordinary workspace members", () =>
+    Effect.gen(function* () {
+      const authorization = yield* authorizationWithBot(
+        makeAuthorizationBotClient(() =>
+          Effect.succeed({ userId: accountId, roleIds: ["member-role"] }),
+        ),
+      );
+      for (const contract of [TeamsDeliverList, SchedulesDeliverUserSchedule]) {
+        const exit = yield* Effect.exit(
+          authorization.authorize(contract, principal, {
+            workspaceId: "workspace-1",
+            targetUserId: "account-other",
+          }),
+        );
+        expect(Exit.isFailure(exit)).toBe(true);
+        if (Exit.isFailure(exit)) {
+          expect(Cause.hasDies(exit.cause)).toBe(false);
+          expect(Option.getOrThrow(Cause.findErrorOption(exit.cause))).toMatchObject({
+            _tag: "WorkflowInvocationUnauthorized",
+          });
+        }
       }
     }),
   );

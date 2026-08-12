@@ -1,6 +1,11 @@
 import { Predicate, Schema } from "effect";
 import { describe, expect, it } from "@effect/vitest";
-import { SheetWorkflowContractCatalog, SheetWorkflowContracts } from "./catalog";
+import {
+  SchedulesDeliverUserSchedule,
+  SheetWorkflowContractCatalog,
+  SheetWorkflowContracts,
+  TeamsDeliverList,
+} from "./catalog";
 import { SheetWorkflowAuthorizationPolicyMetadata } from "./policy";
 
 const approvedIntentInventory = [
@@ -41,6 +46,11 @@ const approvedIntentInventory = [
   "calculations.recalculateSheet",
 ] as const;
 
+const expectedAuthorizationPolicyVersions: Readonly<Record<string, string>> = {
+  "schedules.deliverUserSchedule": "2",
+  "teams.deliverList": "2",
+};
+
 describe("sheet Workflow Contract catalog", () => {
   it("is complete against the approved intent inventory", () => {
     expect(SheetWorkflowContractCatalog.map(({ identity }) => identity)).toEqual(
@@ -63,7 +73,9 @@ describe("sheet Workflow Contract catalog", () => {
           contract.authorizationPolicy,
         ),
       ).toEqual(contract.authorizationPolicy);
-      expect(contract.authorizationPolicy.version).toBe("1");
+      expect(contract.authorizationPolicy.version).toBe(
+        expectedAuthorizationPolicyVersions[contract.identity] ?? "1",
+      );
       expect(contract.authorizationPolicy.policy).toBe(
         `sheet.workflow.${contract.identity}.invoke`,
       );
@@ -76,6 +88,33 @@ describe("sheet Workflow Contract catalog", () => {
     }
 
     expect(new Set(policyIdentities).size).toBe(approvedIntentInventory.length);
+  });
+
+  it("reserves empty unruled workspace policies for capability discovery", () => {
+    expect(
+      SheetWorkflowContractCatalog.filter(
+        ({ authorizationPolicy }) =>
+          authorizationPolicy.resource === "workspace" &&
+          authorizationPolicy.requiredCapabilities.length === 0 &&
+          Predicate.isUndefined(authorizationPolicy.userRule),
+      ).map(({ identity }) => identity),
+    ).toEqual(["authorization.loadWorkspaceCapabilities"]);
+  });
+
+  it("publishes the same named target-user rule for team-list and user-schedule delivery", () => {
+    for (const contract of [TeamsDeliverList, SchedulesDeliverUserSchedule]) {
+      expect(contract.wireVersion).toBe("1");
+      expect(contract.authorizationPolicy).toMatchObject({
+        version: "2",
+        principalKinds: ["user"],
+        requiredCapabilities: [],
+        resource: "workspace",
+        resourceField: "workspaceId",
+        targetUserField: "targetUserId",
+        userRule: "target-user-or-workspace-monitor-or-application-owner",
+        revalidateBeforeEffects: true,
+      });
+    }
   });
 
   it("exposes explicit grouped declarations without a generic name dispatcher", () => {

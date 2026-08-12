@@ -4,4 +4,4 @@ export const ScheduleSheetWorkflowContracts = Object.freeze([
   SchedulesDeliverUserSchedule,
 ] as const);
 
-export const scheduleSheetWorkflowDefinitionVersion = "1";
+export const scheduleSheetWorkflowDefinitionVersion = "2";

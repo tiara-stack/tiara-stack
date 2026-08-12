@@ -32,6 +32,11 @@ export type SheetWorkflowAuthorizationResource = Schema.Schema.Type<
   typeof SheetWorkflowAuthorizationResource
 >;
 
+export const SheetWorkflowUserRule = Schema.Literal(
+  "target-user-or-workspace-monitor-or-application-owner",
+);
+export type SheetWorkflowUserRule = Schema.Schema.Type<typeof SheetWorkflowUserRule>;
+
 export const SheetWorkflowAuthorizationPolicyMetadata = Schema.Struct({
   policy: Schema.Trimmed.check(Schema.isNonEmpty()),
   version: Schema.Trimmed.check(Schema.isNonEmpty()),
@@ -40,6 +45,8 @@ export const SheetWorkflowAuthorizationPolicyMetadata = Schema.Struct({
   resource: SheetWorkflowAuthorizationResource,
   resourceField: Schema.optionalKey(Schema.Trimmed.check(Schema.isNonEmpty())),
   serviceRule: Schema.optionalKey(Schema.Trimmed.check(Schema.isNonEmpty())),
+  targetUserField: Schema.optionalKey(Schema.Trimmed.check(Schema.isNonEmpty())),
+  userRule: Schema.optionalKey(SheetWorkflowUserRule),
   revalidateBeforeEffects: Schema.Boolean,
 });
 export interface SheetWorkflowAuthorizationPolicyMetadata extends WorkflowAuthorizationPolicyMetadata {
@@ -50,6 +57,8 @@ export interface SheetWorkflowAuthorizationPolicyMetadata extends WorkflowAuthor
   readonly resource: SheetWorkflowAuthorizationResource;
   readonly resourceField?: string;
   readonly serviceRule?: string;
+  readonly targetUserField?: string;
+  readonly userRule?: SheetWorkflowUserRule;
   readonly revalidateBeforeEffects: boolean;
 }
 
@@ -62,6 +71,8 @@ type SheetWorkflowAuthorizationPolicyMetadataFields = Pick<
   | "resource"
   | "resourceField"
   | "serviceRule"
+  | "targetUserField"
+  | "userRule"
   | "revalidateBeforeEffects"
 >;
 type SheetWorkflowAuthorizationPolicyMetadataSchema = Schema.Schema.Type<
@@ -112,6 +123,30 @@ export type _SheetWorkflowAuthorizationPolicyMetadataDriftGuardNegativeTests = [
     IsExact<
       SheetWorkflowAuthorizationPolicyMetadataFields,
       Omit<SheetWorkflowAuthorizationPolicyMetadataSchema, "serviceRule">
+    >
+  >,
+  AssertFalse<
+    IsExact<
+      Omit<SheetWorkflowAuthorizationPolicyMetadataFields, "userRule">,
+      SheetWorkflowAuthorizationPolicyMetadataSchema
+    >
+  >,
+  AssertFalse<
+    IsExact<
+      SheetWorkflowAuthorizationPolicyMetadataFields,
+      Omit<SheetWorkflowAuthorizationPolicyMetadataSchema, "userRule">
+    >
+  >,
+  AssertFalse<
+    IsExact<
+      Omit<SheetWorkflowAuthorizationPolicyMetadataFields, "targetUserField">,
+      SheetWorkflowAuthorizationPolicyMetadataSchema
+    >
+  >,
+  AssertFalse<
+    IsExact<
+      SheetWorkflowAuthorizationPolicyMetadataFields,
+      Omit<SheetWorkflowAuthorizationPolicyMetadataSchema, "targetUserField">
     >
   >,
 ];

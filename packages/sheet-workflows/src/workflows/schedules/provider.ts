@@ -11,6 +11,7 @@ import {
   parseEventStart,
   parseKeyValueRows,
   parseLegacyNumber,
+  parseSheetIdentities,
   parseRunnerConfigurations,
   parseScheduleConfigurations,
   parseSheetBoolean,
@@ -131,16 +132,6 @@ const makeUserScheduleRangePlan = (
   return { ranges, scheduleIndexes, playerIds, playerNames, ...monitorRanges };
 };
 
-const parseIdentities = (idRows: ValueRows, nameRows: ValueRows): UserScheduleView["players"] =>
-  Array.from({ length: Math.max(idRows.length, nameRows.length) }, (_, index) => ({
-    accountId: firstCell(idRows, index),
-    name: firstCell(nameRows, index),
-  })).flatMap(({ accountId, name }) =>
-    Predicate.isUndefined(accountId) || Predicate.isUndefined(name)
-      ? []
-      : [{ accountId, name: upperFirst(name) }],
-  );
-
 const parseScheduleRows = (
   configuration: SheetScheduleConfiguration,
   indexes: ScheduleRangeIndexes,
@@ -230,11 +221,11 @@ export const makeUserScheduleProvider = (client: sheets_v4.Sheets): UserSchedule
       });
       return {
         eventStartEpochMs: parsed.eventStartEpochMs,
-        players: parseIdentities(
+        players: parseSheetIdentities(
           valueRowsAt(userScheduleRanges, plan.playerIds),
           valueRowsAt(userScheduleRanges, plan.playerNames),
         ),
-        monitors: parseIdentities(
+        monitors: parseSheetIdentities(
           valueRowsAt(userScheduleRanges, plan.monitorIds),
           valueRowsAt(userScheduleRanges, plan.monitorNames),
         ),

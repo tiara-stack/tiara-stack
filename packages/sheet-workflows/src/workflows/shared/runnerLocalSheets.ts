@@ -350,6 +350,19 @@ export const readBatchedSheetsValueRanges = <E extends { readonly cause: unknown
     Effect.map((batches) => batches.flat()),
   );
 
+export const parseSheetIdentities = (
+  idRows: ValueRows,
+  nameRows: ValueRows,
+): ReadonlyArray<{ readonly accountId: string; readonly name: string }> =>
+  Array.from({ length: Math.max(idRows.length, nameRows.length) }, (_, index) => ({
+    accountId: firstCell(idRows, index),
+    name: firstCell(nameRows, index),
+  })).flatMap(({ accountId, name }) =>
+    Predicate.isUndefined(accountId) || Predicate.isUndefined(name)
+      ? []
+      : [{ accountId, name: upperFirst(name) }],
+  );
+
 export const makeRunnerLocalSheetsClient = <E>(makeError: (cause: unknown) => E) =>
   Effect.gen(function* () {
     const auth = yield* Effect.try({

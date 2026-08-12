@@ -12,6 +12,8 @@ import { ScheduleSheetWorkflowContracts } from "../schedules/catalog";
 import { ScheduleSheetWorkflowRegistrations } from "../schedules/registry";
 import { SlotSheetWorkflowContracts } from "../slots/catalog";
 import { SlotSheetWorkflowRegistrations } from "../slots/registry";
+import { TeamSheetWorkflowContracts } from "../teams/catalog";
+import { TeamSheetWorkflowRegistrations } from "../teams/registry";
 import {
   makeSheetWorkflowRegistrationValidationLayer,
   makeSheetWorkflowTransportHandler,
@@ -25,6 +27,7 @@ export const SelectedSheetWorkflowContracts = Object.freeze([
   ...ConfigurationSheetWorkflowContracts,
   ...SlotSheetWorkflowContracts,
   ...ScheduleSheetWorkflowContracts,
+  ...TeamSheetWorkflowContracts,
 ] as const);
 
 export const SelectedSheetWorkflowRegistrations: ReadonlyArray<SheetWorkflowRegistration> =
@@ -34,6 +37,7 @@ export const SelectedSheetWorkflowRegistrations: ReadonlyArray<SheetWorkflowRegi
     ...ConfigurationSheetWorkflowRegistrations,
     ...SlotSheetWorkflowRegistrations,
     ...ScheduleSheetWorkflowRegistrations,
+    ...TeamSheetWorkflowRegistrations,
   ]);
 
 export const selectedSheetWorkflowRegistrationValidationLayer =

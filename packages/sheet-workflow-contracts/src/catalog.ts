@@ -6,16 +6,29 @@ import type {
   SheetWorkflowAuthorizationResource,
   SheetWorkflowCapability,
   SheetWorkflowPrincipalKind,
+  SheetWorkflowUserRule,
 } from "./policy";
 import * as Values from "./values";
 
-interface AuthorizationPolicyInput {
+type AuthorizationPolicyUserRuleInput =
+  | {
+      readonly targetUserField: string;
+      readonly userRule: SheetWorkflowUserRule;
+    }
+  | {
+      readonly targetUserField?: never;
+      readonly userRule?: never;
+    };
+
+type AuthorizationPolicyInput = {
   readonly principalKinds: ReadonlyArray<SheetWorkflowPrincipalKind>;
   readonly requiredCapabilities: ReadonlyArray<SheetWorkflowCapability>;
   readonly resource: SheetWorkflowAuthorizationResource;
   readonly resourceField?: string;
   readonly serviceRule?: string;
-}
+} & AuthorizationPolicyUserRuleInput;
+
+type AuthorizationPolicyVersion = "1" | "2";
 
 const policy = (
   principalKinds: ReadonlyArray<SheetWorkflowPrincipalKind>,
@@ -24,7 +37,7 @@ const policy = (
   options?: {
     readonly resourceField?: string;
     readonly serviceRule?: string;
-  },
+  } & AuthorizationPolicyUserRuleInput,
 ) => ({
   principalKinds: [...principalKinds],
   requiredCapabilities: [...requiredCapabilities],
@@ -32,9 +45,13 @@ const policy = (
   ...options,
 });
 
-const authorizationPolicy = (contractIdentity: string, input: AuthorizationPolicyInput) => ({
+const authorizationPolicy = (
+  contractIdentity: string,
+  input: AuthorizationPolicyInput,
+  version: AuthorizationPolicyVersion = "1",
+) => ({
   policy: `sheet.workflow.${contractIdentity}.invoke`,
-  version: "1",
+  version,
   ...input,
   revalidateBeforeEffects: true,
 });
@@ -50,6 +67,7 @@ const contractKind =
     input: Input,
     success: Success,
     policyInput: AuthorizationPolicyInput,
+    authorizationPolicyVersion: AuthorizationPolicyVersion = "1",
   ) =>
     defineSheetWorkflowContract({
       identity,
@@ -57,7 +75,7 @@ const contractKind =
       input,
       success,
       declaredFailure,
-      authorizationPolicy: authorizationPolicy(identity, policyInput),
+      authorizationPolicy: authorizationPolicy(identity, policyInput, authorizationPolicyVersion),
     });
 
 const dataAcquisition = contractKind(Failures.DataAcquisitionDeclaredFailure);
@@ -301,16 +319,24 @@ export const TeamsDeliverList = interactive(
   "teams.deliverList",
   Values.TeamsDeliverListInput,
   Values.TeamsDeliverListSuccess,
-  policy(["user"], ["workspace.member"], "workspace", {
+  policy(["user"], [], "workspace", {
     resourceField: "workspaceId",
+    targetUserField: "targetUserId",
+    userRule: "target-user-or-workspace-monitor-or-application-owner",
   }),
+  "2",
 );
 
 export const SchedulesDeliverUserSchedule = interactive(
   "schedules.deliverUserSchedule",
   Values.SchedulesDeliverUserScheduleInput,
   Values.SchedulesDeliverUserScheduleSuccess,
-  policy(["user"], ["workspace.member"], "workspace", { resourceField: "workspaceId" }),
+  policy(["user"], [], "workspace", {
+    resourceField: "workspaceId",
+    targetUserField: "targetUserId",
+    userRule: "target-user-or-workspace-monitor-or-application-owner",
+  }),
+  "2",
 );
 
 export const ScreenshotsCaptureAndDeliver = interactive(
