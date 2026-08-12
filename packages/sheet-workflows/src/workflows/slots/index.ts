@@ -3,4 +3,4 @@ export * from "./definitions";
 export * from "./operations";
 export * from "./registry";
 export * from "./slotListDefinition";
-export * from "./slotListOperations";
+export * from "./slotListSchema";

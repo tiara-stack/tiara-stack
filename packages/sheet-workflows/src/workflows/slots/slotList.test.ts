@@ -36,14 +36,15 @@ import {
   makeSlotsDeliverListMessage,
   makeSlotsDeliverListWorkflowBody,
 } from "./slotListDefinition";
-import { SlotListWorkflowOperations, slotListWorkflowOperationsLayer } from "./slotListOperations";
+import { slotListWorkflowOperationsLayer } from "./slotListOperations";
 import {
   isRetryableSheetsReadFailure,
   makeSlotListProvider,
   SlotListProvider,
   SlotListProviderError,
-  type SlotView,
 } from "./slotListProvider";
+import { SlotView } from "./slotListSchema";
+import { SlotListWorkflowOperations } from "./slotListService";
 import {
   isSlotSheetWorkflowName,
   materializeSlotWorkflowFailure,
@@ -141,6 +142,19 @@ const makeOperations = (provider: SlotListProvider["Service"], bot: SheetBotHttp
   });
 
 describe("slot-list delivery Workflow Definition slice", () => {
+  it("rejects non-finite event timestamps and schedule hours", () => {
+    const nonFiniteValues = [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY];
+    for (const value of nonFiniteValues) {
+      expect(Schema.is(SlotView)({ ...view, eventStartEpochMs: value })).toBe(false);
+      expect(
+        Schema.is(SlotView)({
+          ...view,
+          schedules: [{ ...view.schedules[0]!, hour: value }],
+        }),
+      ).toBe(false);
+    }
+  });
+
   it("registers the pinned definition with exactly the approved Durable Actions", () => {
     expect(slotListDefinition.contract).toBe(SlotsDeliverList);
     expect(slotListDefinition.workflow.name).toBe(workflowContractKey(SlotsDeliverList));

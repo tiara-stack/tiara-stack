@@ -3,6 +3,7 @@ import { workflowContractZeroGroupIdentifier } from "effect-zero-workflow/contra
 import { ConfigurationSheetWorkflowContracts } from "../configuration/catalog";
 import { PreferencesSheetWorkflowContracts } from "../preferences/catalog";
 import { ReadOnlySheetWorkflowContracts } from "../readOnly/catalog";
+import { ScheduleSheetWorkflowContracts } from "../schedules/catalog";
 import { SlotSheetWorkflowContracts } from "../slots/catalog";
 import { assertRegistrationValidationFails } from "../shared/testHelpers";
 import {
@@ -18,11 +19,12 @@ describe("selected Sheet Workflow registry", () => {
       ...PreferencesSheetWorkflowContracts,
       ...ConfigurationSheetWorkflowContracts,
       ...SlotSheetWorkflowContracts,
+      ...ScheduleSheetWorkflowContracts,
     ]);
-    expect(SelectedSheetWorkflowContracts).toHaveLength(16);
+    expect(SelectedSheetWorkflowContracts).toHaveLength(17);
     const groups = makeSelectedSheetWorkflowZeroGroups(() => Promise.resolve());
     expect(groups).toHaveLength(SelectedSheetWorkflowContracts.length);
-    expect(groups.flatMap(({ endpoints }) => Object.keys(endpoints))).toHaveLength(48);
+    expect(groups.flatMap(({ endpoints }) => Object.keys(endpoints))).toHaveLength(51);
     expect(groups.map(({ identifier }) => identifier)).toEqual(
       SelectedSheetWorkflowContracts.map(workflowContractZeroGroupIdentifier),
     );

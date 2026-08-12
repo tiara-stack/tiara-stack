@@ -23,10 +23,11 @@ import {
   interactiveExternalOperationRejected,
   preserveInteractiveDeclaredFailure as preserveDeclaredFailure,
 } from "../shared/interactive";
+import { slotCapacity } from "../shared/slotCapacity";
 import { slotSheetWorkflowDefinitionVersion } from "./catalog";
 import { makeSlotDeliveryKey } from "./keys";
-import { SlotListWorkflowOperations } from "./slotListOperations";
-import { slotCapacity, SlotView } from "./slotListProvider";
+import { SlotView } from "./slotListSchema";
+import { SlotListWorkflowOperations } from "./slotListService";
 
 type SlotViewSchedule = SlotView["schedules"][number];
 

@@ -8,14 +8,14 @@ import {
   mapDeliveryFailure,
 } from "../shared/interactive";
 import { providerCauseKind } from "../shared/providerFailure";
-import { SlotListProvider, SlotListProviderError } from "./slotListProvider";
-import { SlotListWorkflowOperations, SlotListWorkflowOperationsError } from "./slotListService";
+import { UserScheduleProvider, UserScheduleProviderError } from "./provider";
+import { ScheduleWorkflowOperations, ScheduleWorkflowOperationsError } from "./service";
 
 const operationError = (operation: string, cause: unknown) =>
-  new SlotListWorkflowOperationsError({ operation, cause });
+  new ScheduleWorkflowOperationsError({ operation, cause });
 
-const providerRejected = (error: SlotListProviderError) =>
-  Effect.logWarning("The schedule provider rejected the slot view read").pipe(
+const providerRejected = (error: UserScheduleProviderError) =>
+  Effect.logWarning("The schedule provider rejected the user schedule read").pipe(
     Effect.annotateLogs({
       providerOperation: error.operation,
       providerCauseKind: providerCauseKind(error.cause),
@@ -23,27 +23,29 @@ const providerRejected = (error: SlotListProviderError) =>
     Effect.andThen(
       Effect.fail(
         interactiveExternalOperationRejected(
-          "slots.deliverList.loadSlotView",
+          "schedules.deliverUserSchedule.loadUserSchedule",
           "ProviderRejected",
-          "The schedule provider rejected the slot view read",
+          "The schedule provider rejected the user schedule read",
         ),
       ),
     ),
   );
 
-export const slotListWorkflowOperationsLayer = Layer.effect(
-  SlotListWorkflowOperations,
+export const scheduleWorkflowOperationsLayer = Layer.effect(
+  ScheduleWorkflowOperations,
   Effect.gen(function* () {
     const persistence = yield* TrustedSheetPersistence;
-    const provider = yield* SlotListProvider;
+    const provider = yield* UserScheduleProvider;
     const delivery = yield* SheetBotDeliveryClient;
 
-    const loadSlotView: SlotListWorkflowOperations["Service"]["loadSlotView"] = (input) =>
+    const loadUserSchedule: ScheduleWorkflowOperations["Service"]["loadUserSchedule"] = (input) =>
       persistence.workspaces
         .getWorkspaceConfigByWorkspaceId({ workspaceId: input.workspaceId })
         .pipe(
           Effect.timeout("30 seconds"),
-          Effect.mapError((cause) => operationError("slots.deliverList.resolveWorkspace", cause)),
+          Effect.mapError((cause) =>
+            operationError("schedules.deliverUserSchedule.resolveWorkspace", cause),
+          ),
           Effect.flatMap(
             Option.match({
               onNone: () =>
@@ -56,7 +58,7 @@ export const slotListWorkflowOperationsLayer = Layer.effect(
           ),
         );
 
-    const respond: SlotListWorkflowOperations["Service"]["respond"] = (
+    const respond: ScheduleWorkflowOperations["Service"]["respond"] = (
       input,
       message,
       deliveryKey,
@@ -76,15 +78,15 @@ export const slotListWorkflowOperationsLayer = Layer.effect(
           Effect.mapError(
             mapDeliveryFailure(
               policy,
-              "slots.deliverList.respond",
+              "schedules.deliverUserSchedule.respond",
               "response",
               false,
-              "The slot list response was rejected",
+              "The user schedule response was rejected",
               operationError,
             ),
           ),
         );
 
-    return { loadSlotView, respond };
+    return { loadUserSchedule, respond };
   }),
 );
