@@ -185,6 +185,7 @@ export const RoomOrdersSend = interactive(
   policy(["user"], ["workspace.monitor"], "message", {
     resourceField: "messageId",
   }),
+  "2",
 );
 
 export const RoomOrdersPinTentative = interactive(

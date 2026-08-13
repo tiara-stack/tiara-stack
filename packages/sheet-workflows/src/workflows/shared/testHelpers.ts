@@ -84,5 +84,6 @@ export const makeRecordingWorkflowAuthorization = (calls: Array<unknown>) => ({
   authorizeSlotOpen: () => Effect.die("unused"),
   authorizeCheckinRespond: () => Effect.die("unused"),
   authorizeRoomOrdersNavigate: () => Effect.die("unused"),
+  authorizeRoomOrdersSend: () => Effect.die("unused"),
   workspaceCapabilities: () => Effect.die("unused"),
 });

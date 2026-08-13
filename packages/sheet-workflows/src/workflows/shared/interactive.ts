@@ -6,6 +6,7 @@ import {
   CheckinsRespond,
   InteractiveDeclaredFailure,
   RoomOrdersNavigate,
+  RoomOrdersSend,
   SlotsOpen,
 } from "sheet-workflow-contracts";
 import { ReadOnlyWorkflowAuthorization } from "../readOnly/authorization";
@@ -187,6 +188,20 @@ export const authorizeRoomOrdersNavigateWorkflow = (execution: {
     Effect.mapError((error) =>
       isWorkflowInvocationUnauthorized(error)
         ? interactiveAuthorizationRevoked(RoomOrdersNavigate.authorizationPolicy.policy)
+        : error,
+    ),
+  );
+
+export const authorizeRoomOrdersSendWorkflow = (execution: {
+  readonly principal: typeof EffectivePrincipal.Type;
+  readonly input: unknown;
+}) =>
+  Effect.flatMap(ReadOnlyWorkflowAuthorization, (authorization) =>
+    authorization.authorizeRoomOrdersSend(execution.principal, execution.input),
+  ).pipe(
+    Effect.mapError((error) =>
+      isWorkflowInvocationUnauthorized(error)
+        ? interactiveAuthorizationRevoked(RoomOrdersSend.authorizationPolicy.policy)
         : error,
     ),
   );

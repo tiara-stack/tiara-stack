@@ -314,6 +314,7 @@ describe("slot-list delivery Workflow Definition slice", () => {
         authorizeSlotOpen: () => Effect.die("unused"),
         authorizeCheckinRespond: () => Effect.die("unused"),
         authorizeRoomOrdersNavigate: () => Effect.die("unused"),
+        authorizeRoomOrdersSend: () => Effect.die("unused"),
         workspaceCapabilities: () => Effect.die("unused"),
       };
       const operations: SlotListWorkflowOperations["Service"] = {
@@ -367,6 +368,7 @@ describe("slot-list delivery Workflow Definition slice", () => {
         authorizeSlotOpen: () => Effect.die("unused"),
         authorizeCheckinRespond: () => Effect.die("unused"),
         authorizeRoomOrdersNavigate: () => Effect.die("unused"),
+        authorizeRoomOrdersSend: () => Effect.die("unused"),
         workspaceCapabilities: () => Effect.die("unused"),
       };
       yield* slotListRegistration

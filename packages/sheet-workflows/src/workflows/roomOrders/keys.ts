@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 import { InvocationId } from "effect-zero-workflow/contract";
 import { DeliveryKey } from "sheet-bot-api";
-import { RoomOrdersNavigate } from "sheet-workflow-contracts";
+import { RoomOrdersNavigate, RoomOrdersSend } from "sheet-workflow-contracts";
 import { roomOrderSheetWorkflowDefinitionVersion } from "./catalog";
 
 export type RoomOrderNavigationDeliveryKind = "respond" | "edit-room-order-message";
@@ -15,4 +15,20 @@ export const makeRoomOrderNavigationDeliveryKey = (
 ): typeof DeliveryKey.Type =>
   Schema.decodeUnknownSync(DeliveryKey)(
     `${RoomOrdersNavigate.identity}:${roomOrderSheetWorkflowDefinitionVersion}:${invocationId}:${kind}`,
+  );
+
+export type RoomOrderSendDeliveryKind =
+  | "send-room-order-message"
+  | "pin-sent-room-order"
+  | "respond";
+
+export const makeRoomOrderSendClaimId = (invocationId: typeof InvocationId.Type): string =>
+  `${RoomOrdersSend.identity}:${roomOrderSheetWorkflowDefinitionVersion}:${invocationId}:claim-send`;
+
+export const makeRoomOrderSendDeliveryKey = (
+  invocationId: typeof InvocationId.Type,
+  kind: RoomOrderSendDeliveryKind,
+): typeof DeliveryKey.Type =>
+  Schema.decodeUnknownSync(DeliveryKey)(
+    `${RoomOrdersSend.identity}:${roomOrderSheetWorkflowDefinitionVersion}:${invocationId}:${kind}`,
   );

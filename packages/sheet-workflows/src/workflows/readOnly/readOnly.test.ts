@@ -21,6 +21,7 @@ import {
   DiscordLoadProfile,
   DiscordLoadWorkspaceChannels,
   RoomOrdersNavigate,
+  RoomOrdersSend,
   SchedulesDeliverUserSchedule,
   TeamsDeliverList,
   WorkspaceId,
@@ -64,6 +65,7 @@ const allowAuthorizationLayer = Layer.succeed(ReadOnlyWorkflowAuthorization, {
   authorizeSlotOpen: () => Effect.die("unused"),
   authorizeCheckinRespond: () => Effect.die("unused"),
   authorizeRoomOrdersNavigate: () => Effect.die("unused"),
+  authorizeRoomOrdersSend: () => Effect.die("unused"),
   workspaceCapabilities: () =>
     Effect.succeed({
       member: true,
@@ -277,6 +279,7 @@ describe("read-only Sheet Workflow Definition slice", () => {
             authorizeSlotOpen: () => Effect.die("unused"),
             authorizeCheckinRespond: () => Effect.die("unused"),
             authorizeRoomOrdersNavigate: () => Effect.die("unused"),
+            authorizeRoomOrdersSend: () => Effect.die("unused"),
             workspaceCapabilities: () => Effect.die("unused"),
           }),
           Effect.exit,
@@ -502,6 +505,73 @@ describe("read-only Sheet Workflow Definition slice", () => {
           monitor: "Luka",
         });
         yield* authorization.authorize(RoomOrdersNavigate, principal, { messageId: "message-1" });
+      }),
+  );
+
+  it.effect(
+    "authorizes room-order send from canonical state and rejects incomplete sent bindings",
+    () =>
+      Effect.gen(function* () {
+        const monitor = makeAuthorizationBotClient(() =>
+          Effect.succeed({ userId: accountId, roleIds: ["monitor-role"] }),
+        );
+        const monitorRoles = [
+          {
+            workspaceId: "workspace-1",
+            roleId: "monitor-role",
+            createdAt: 1,
+            updatedAt: 1,
+            deletedAt: null,
+          },
+        ];
+        const authorization = yield* authorizationWithBot(monitor, monitorRoles, () =>
+          Effect.succeed(
+            Option.some(
+              roomOrderRow({
+                sendClaimId: "claim-1",
+                tentativePinClaimId: "pin-claim-1",
+              }),
+            ),
+          ),
+        );
+        const authorized = yield* authorization.authorizeRoomOrdersSend(principal, {
+          messageId: "message-1",
+          workspaceId: "forged-workspace",
+          messageConversationId: "forged-conversation",
+          messageContent: "forged content",
+        });
+        expect(authorized).toMatchObject({
+          clientPlatform: "discord",
+          clientId: "discord-main",
+          messageId: "message-1",
+          workspaceId: Schema.decodeUnknownSync(WorkspaceId)("workspace-1"),
+          conversationId: "conversation-1",
+          rank: 3,
+          sendClaimId: "claim-1",
+          tentativePinClaimId: "pin-claim-1",
+        });
+        yield* authorization.authorize(RoomOrdersSend, principal, { messageId: "message-1" });
+
+        for (const incomplete of [
+          roomOrderRow({ sentMessageId: "sent-1", sentConversationId: null }),
+          roomOrderRow({ sentMessageId: null, sentConversationId: "conversation-2" }),
+        ]) {
+          const incompleteAuthorization = yield* authorizationWithBot(monitor, monitorRoles, () =>
+            Effect.succeed(Option.some(incomplete)),
+          );
+          const exit = yield* Effect.exit(
+            incompleteAuthorization.authorizeRoomOrdersSend(principal, {
+              messageId: "message-1",
+            }),
+          );
+          expect(Exit.isFailure(exit)).toBe(true);
+          if (Exit.isFailure(exit)) {
+            expect(Cause.hasDies(exit.cause)).toBe(false);
+            expect(Option.getOrThrow(Cause.findErrorOption(exit.cause))).toMatchObject({
+              _tag: "WorkflowInvocationUnauthorized",
+            });
+          }
+        }
       }),
   );
 

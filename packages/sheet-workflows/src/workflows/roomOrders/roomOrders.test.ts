@@ -11,7 +11,7 @@ import {
   TrustedSheetPersistence,
   type TrustedSheetPersistenceShape,
 } from "sheet-zero-server/persistence";
-import { RoomOrdersNavigate, WorkspaceId } from "sheet-workflow-contracts";
+import { RoomOrdersNavigate, RoomOrdersSend, WorkspaceId } from "sheet-workflow-contracts";
 import {
   ReadOnlyWorkflowAuthorization,
   readOnlyWorkflowAuthorizationLayer,
@@ -143,7 +143,7 @@ const makeOperations = (
   );
 
 describe("room-order navigation Workflow Definition slice", () => {
-  it("registers one policy-v2 contract with six pinned actions", () => {
+  it("registers the navigation and send policy-v2 contracts with pinned actions", () => {
     const definition = makeRoomOrdersNavigateDefinition();
     expect(RoomOrdersNavigate.authorizationPolicy).toMatchObject({
       version: "2",
@@ -151,7 +151,7 @@ describe("room-order navigation Workflow Definition slice", () => {
       resource: "message",
       resourceField: "messageId",
     });
-    expect(RoomOrderSheetWorkflowContracts).toEqual([RoomOrdersNavigate]);
+    expect(RoomOrderSheetWorkflowContracts).toEqual([RoomOrdersNavigate, RoomOrdersSend]);
     expect(definition.workflow.name).toBe(workflowContractKey(RoomOrdersNavigate));
     expect(definition.actions.map(({ workflow }) => workflow.name)).toEqual([
       "roomOrders.navigate.claim-navigation",
@@ -164,6 +164,7 @@ describe("room-order navigation Workflow Definition slice", () => {
     expect(definition.actions.every(({ version }) => version === "1")).toBe(true);
     expect(RoomOrderSheetWorkflowRegistrations).toEqual([
       expect.objectContaining({ contract: RoomOrdersNavigate, definitionVersion: "1" }),
+      expect.objectContaining({ contract: RoomOrdersSend, definitionVersion: "1" }),
     ]);
   });
 
@@ -711,6 +712,7 @@ describe("room-order navigation Workflow Definition slice", () => {
           authorizeSlotOpen: () => Effect.die("unused"),
           authorizeCheckinRespond: () => Effect.die("unused"),
           authorizeRoomOrdersNavigate: () => Effect.fail(dependencyFailure),
+          authorizeRoomOrdersSend: () => Effect.die("unused"),
           workspaceCapabilities: () => Effect.die("unused"),
         }),
         Effect.exit,

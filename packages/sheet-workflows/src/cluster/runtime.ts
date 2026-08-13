@@ -57,6 +57,7 @@ import { checkinSheetWorkflowLayers, checkinWorkflowOperationsLayer } from "@/wo
 import {
   roomOrderNavigationOperationsLayer,
   roomOrderNavigationProviderLayer,
+  roomOrderSendOperationsLayer,
   roomOrderSheetWorkflowLayers,
 } from "@/workflows/roomOrders";
 
@@ -166,6 +167,7 @@ const workflowDefinitionServicesLayer = Layer.mergeAll(
   teamWorkflowOperationsLayer.pipe(Layer.provide(userTeamsProviderLayer)),
   checkinWorkflowOperationsLayer,
   roomOrderNavigationOperationsLayer.pipe(Layer.provide(roomOrderNavigationProviderLayer)),
+  roomOrderSendOperationsLayer.pipe(Layer.provide(roomOrderNavigationProviderLayer)),
 ).pipe(Layer.provideMerge(dispatchClientsLayer), Layer.provideMerge(trustedSheetPersistenceLayer));
 
 const dispatchServicesLayer = Layer.effect(DispatchService, DispatchService.make).pipe(

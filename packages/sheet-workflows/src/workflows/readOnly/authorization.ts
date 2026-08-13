@@ -7,6 +7,7 @@ import {
   AuthorizationLoadWorkspaceCapabilities,
   CheckinsRespond,
   RoomOrdersNavigate,
+  RoomOrdersSend,
   SlotsOpen,
   type SheetWorkflowAuthorizationPolicyMetadata,
   WorkspaceId,
@@ -71,6 +72,17 @@ export const AuthorizedRoomOrderNavigateContext = Schema.Struct({
   monitor: Schema.NullOr(Schema.String),
 });
 export type AuthorizedRoomOrderNavigateContext = typeof AuthorizedRoomOrderNavigateContext.Type;
+
+export const AuthorizedRoomOrderSendContext = Schema.Struct({
+  ...AuthorizedRoomOrderNavigateContext.fields,
+  sendClaimId: Schema.NullOr(Schema.String),
+  sentMessageId: Schema.NullOr(Schema.String),
+  sentConversationId: Schema.NullOr(Schema.String),
+  tentativeUpdateClaimId: Schema.NullOr(Schema.String),
+  tentativePinClaimId: Schema.NullOr(Schema.String),
+  tentativePinnedAt: Schema.NullOr(Schema.Number),
+});
+export type AuthorizedRoomOrderSendContext = typeof AuthorizedRoomOrderSendContext.Type;
 
 type CanonicalCheckinKey = Pick<
   AuthorizedCheckinRespondContext,
@@ -185,6 +197,13 @@ interface ReadOnlyWorkflowAuthorizationShape {
     input: unknown,
   ) => Effect.Effect<
     AuthorizedRoomOrderNavigateContext,
+    WorkflowInvocationUnauthorized | RoomOrderAuthorizationLookupError
+  >;
+  readonly authorizeRoomOrdersSend: (
+    principal: EffectivePrincipal,
+    input: unknown,
+  ) => Effect.Effect<
+    AuthorizedRoomOrderSendContext,
     WorkflowInvocationUnauthorized | RoomOrderAuthorizationLookupError
   >;
 }
@@ -439,66 +458,109 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
       );
     };
 
+    const authorizeRoomOrder = (
+      principal: EffectivePrincipal,
+      input: unknown,
+      policy: SheetWorkflowAuthorizationPolicyMetadata,
+    ) => {
+      const messageId = stringFieldFromInput(input, policy.resourceField ?? "messageId");
+      if (
+        !policy.principalKinds.includes(principal.kind) ||
+        principal.kind !== "user" ||
+        Predicate.isUndefined(principal.discordAccount) ||
+        Predicate.isUndefined(messageId)
+      ) {
+        return Effect.fail(unauthorized());
+      }
+      const key = {
+        clientPlatform: client.platform,
+        clientId: client.clientId,
+        messageId,
+      } as const;
+      return persistence.roomOrderState.getMessageRoomOrder(key).pipe(
+        Effect.flatMap(
+          Option.match({
+            onNone: () => Effect.fail(unauthorized()),
+            onSome: (roomOrder) => {
+              if (
+                roomOrder.clientPlatform !== key.clientPlatform ||
+                roomOrder.clientId !== key.clientId ||
+                roomOrder.messageId !== key.messageId ||
+                Predicate.isNotNull(roomOrder.deletedAt) ||
+                Predicate.isNull(roomOrder.workspaceId) ||
+                Predicate.isNull(roomOrder.conversationId)
+              ) {
+                return Effect.fail(unauthorized());
+              }
+              const workspaceId = Option.getOrUndefined(
+                Schema.decodeUnknownOption(WorkspaceId)(roomOrder.workspaceId),
+              );
+              if (Predicate.isUndefined(workspaceId)) return Effect.fail(unauthorized());
+              const authorized = {
+                ...key,
+                workspaceId,
+                conversationId: roomOrder.conversationId,
+                roomOrder,
+              };
+              return workspaceCapabilities(principal, workspaceId).pipe(
+                Effect.filterOrFail(
+                  (capabilities) =>
+                    hasRequiredCapabilities(policy.requiredCapabilities, capabilities),
+                  unauthorized,
+                ),
+                Effect.as(authorized),
+              );
+            },
+          }),
+        ),
+      );
+    };
+
+    const roomOrderNavigateFields = (
+      roomOrder: Pick<
+        AuthorizedRoomOrderNavigateContext,
+        "previousFills" | "fills" | "hour" | "rank" | "tentative" | "monitor"
+      >,
+    ) => ({
+      previousFills: roomOrder.previousFills,
+      fills: roomOrder.fills,
+      hour: roomOrder.hour,
+      rank: roomOrder.rank,
+      tentative: roomOrder.tentative,
+      monitor: roomOrder.monitor,
+    });
+
     const authorizeRoomOrdersNavigate: ReadOnlyWorkflowAuthorizationShape["authorizeRoomOrdersNavigate"] =
-      (principal, input) => {
-        const policy = RoomOrdersNavigate.authorizationPolicy;
-        const messageId = stringFieldFromInput(input, policy.resourceField ?? "messageId");
-        if (
-          !policy.principalKinds.includes(principal.kind) ||
-          principal.kind !== "user" ||
-          Predicate.isUndefined(principal.discordAccount) ||
-          Predicate.isUndefined(messageId)
-        ) {
-          return Effect.fail(unauthorized());
-        }
-        const key = {
-          clientPlatform: client.platform,
-          clientId: client.clientId,
-          messageId,
-        } as const;
-        return persistence.roomOrderState.getMessageRoomOrder(key).pipe(
-          Effect.flatMap(
-            Option.match({
-              onNone: () => Effect.fail(unauthorized()),
-              onSome: (roomOrder) => {
-                if (
-                  roomOrder.clientPlatform !== key.clientPlatform ||
-                  roomOrder.clientId !== key.clientId ||
-                  roomOrder.messageId !== key.messageId ||
-                  Predicate.isNotNull(roomOrder.deletedAt) ||
-                  Predicate.isNull(roomOrder.workspaceId) ||
-                  Predicate.isNull(roomOrder.conversationId)
-                ) {
-                  return Effect.fail(unauthorized());
-                }
-                const workspaceId = Option.getOrUndefined(
-                  Schema.decodeUnknownOption(WorkspaceId)(roomOrder.workspaceId),
-                );
-                if (Predicate.isUndefined(workspaceId)) return Effect.fail(unauthorized());
-                const authorized = {
-                  ...key,
-                  workspaceId,
-                  conversationId: roomOrder.conversationId,
-                  previousFills: roomOrder.previousFills,
-                  fills: roomOrder.fills,
-                  hour: roomOrder.hour,
-                  rank: roomOrder.rank,
-                  tentative: roomOrder.tentative,
-                  monitor: roomOrder.monitor,
-                };
-                return workspaceCapabilities(principal, workspaceId).pipe(
-                  Effect.filterOrFail(
-                    (capabilities) =>
-                      hasRequiredCapabilities(policy.requiredCapabilities, capabilities),
-                    unauthorized,
-                  ),
-                  Effect.as(authorized),
-                );
-              },
-            }),
-          ),
+      (principal, input) =>
+        authorizeRoomOrder(principal, input, RoomOrdersNavigate.authorizationPolicy).pipe(
+          Effect.map(({ roomOrder, ...authorized }) => ({
+            ...authorized,
+            ...roomOrderNavigateFields(roomOrder),
+          })),
         );
-      };
+
+    const authorizeRoomOrdersSend: ReadOnlyWorkflowAuthorizationShape["authorizeRoomOrdersSend"] = (
+      principal,
+      input,
+    ) =>
+      authorizeRoomOrder(principal, input, RoomOrdersSend.authorizationPolicy).pipe(
+        Effect.filterOrFail(
+          ({ roomOrder }) =>
+            Predicate.isNull(roomOrder.sentMessageId) ===
+            Predicate.isNull(roomOrder.sentConversationId),
+          unauthorized,
+        ),
+        Effect.map(({ roomOrder, ...authorized }) => ({
+          ...authorized,
+          ...roomOrderNavigateFields(roomOrder),
+          sendClaimId: roomOrder.sendClaimId,
+          sentMessageId: roomOrder.sentMessageId,
+          sentConversationId: roomOrder.sentConversationId,
+          tentativeUpdateClaimId: roomOrder.tentativeUpdateClaimId,
+          tentativePinClaimId: roomOrder.tentativePinClaimId,
+          tentativePinnedAt: roomOrder.tentativePinnedAt,
+        })),
+      );
 
     // fallow-ignore-next-line complexity
     const authorize: ReadOnlyWorkflowAuthorizationShape["authorize"] = (
@@ -517,6 +579,9 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
       }
       if (contract.identity === RoomOrdersNavigate.identity) {
         return authorizeRoomOrdersNavigate(principal, input).pipe(Effect.asVoid);
+      }
+      if (contract.identity === RoomOrdersSend.identity) {
+        return authorizeRoomOrdersSend(principal, input).pipe(Effect.asVoid);
       }
       if (isForbiddenEmptyWorkspacePolicy(contract.identity, policy)) {
         return Effect.fail(unauthorized());
@@ -553,6 +618,7 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
       authorize,
       authorizeCheckinRespond,
       authorizeRoomOrdersNavigate,
+      authorizeRoomOrdersSend,
       authorizeSlotOpen,
       workspaceCapabilities,
     };
