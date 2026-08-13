@@ -4,6 +4,7 @@ import {
   SchedulesDeliverUserSchedule,
   SheetWorkflowContractCatalog,
   SheetWorkflowContracts,
+  SlotsOpen,
   TeamsDeliverList,
 } from "./catalog";
 import { SheetWorkflowAuthorizationPolicyMetadata } from "./policy";
@@ -48,6 +49,7 @@ const approvedIntentInventory = [
 
 const expectedAuthorizationPolicyVersions: Readonly<Record<string, string>> = {
   "schedules.deliverUserSchedule": "2",
+  "slots.open": "2",
   "teams.deliverList": "2",
 };
 
@@ -115,6 +117,18 @@ describe("sheet Workflow Contract catalog", () => {
         revalidateBeforeEffects: true,
       });
     }
+  });
+
+  it("publishes registered-message workspace membership for slot-open authorization", () => {
+    expect(SlotsOpen.wireVersion).toBe("1");
+    expect(SlotsOpen.authorizationPolicy).toMatchObject({
+      version: "2",
+      principalKinds: ["user"],
+      requiredCapabilities: ["workspace.member"],
+      resource: "message",
+      resourceField: "messageId",
+      revalidateBeforeEffects: true,
+    });
   });
 
   it("exposes explicit grouped declarations without a generic name dispatcher", () => {

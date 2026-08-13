@@ -2,13 +2,13 @@ import { Effect, Match, Option, Predicate, Schema } from "effect";
 import type { AnyWorkflowContract } from "effect-zero-workflow/contract";
 import { WorkflowInvocationUnauthorized } from "effect-zero-workflow/contract/transport";
 import { EffectivePrincipal } from "sheet-auth/identity";
-import { InteractiveDeclaredFailure } from "sheet-workflow-contracts";
+import { InteractiveDeclaredFailure, SlotsOpen } from "sheet-workflow-contracts";
 import { ReadOnlyWorkflowAuthorization } from "../readOnly/authorization";
 
 const isInteractiveDeclaredFailure = Schema.is(InteractiveDeclaredFailure);
 const isWorkflowInvocationUnauthorized = Schema.is(WorkflowInvocationUnauthorized);
 
-const interactiveAuthorizationRevoked = (policy: string): InteractiveDeclaredFailure => ({
+export const interactiveAuthorizationRevoked = (policy: string): InteractiveDeclaredFailure => ({
   _tag: "AuthorizationRevoked",
   policy,
 });
@@ -167,6 +167,20 @@ export const authorizeInteractiveWorkflow = (
     Effect.mapError((error) =>
       isWorkflowInvocationUnauthorized(error)
         ? interactiveAuthorizationRevoked(contract.authorizationPolicy.policy)
+        : error,
+    ),
+  );
+
+export const authorizeSlotOpenWorkflow = (execution: {
+  readonly principal: typeof EffectivePrincipal.Type;
+  readonly input: unknown;
+}) =>
+  Effect.flatMap(ReadOnlyWorkflowAuthorization, (authorization) =>
+    authorization.authorizeSlotOpen(execution.principal, execution.input),
+  ).pipe(
+    Effect.mapError((error) =>
+      isWorkflowInvocationUnauthorized(error)
+        ? interactiveAuthorizationRevoked(SlotsOpen.authorizationPolicy.policy)
         : error,
     ),
   );

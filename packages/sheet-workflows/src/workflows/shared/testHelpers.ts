@@ -45,5 +45,6 @@ export const makeRecordingWorkflowAuthorization = (calls: Array<unknown>) => ({
     calls.push({ contract, principal, input });
     return Effect.void;
   },
+  authorizeSlotOpen: () => Effect.die("unused"),
   workspaceCapabilities: () => Effect.die("unused"),
 });

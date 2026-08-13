@@ -106,16 +106,20 @@ const sortedSchedulesWithHours = (view: SlotView) => {
   };
 };
 
-export const makeSlotsDeliverListMessage = (
+export const makeSlotViewEmbeds = (
   day: number,
   view: SlotView,
-): Effect.Effect<typeof BotOutboundMessage.Type, InteractiveDeclaredFailure> =>
+  operation: string,
+): Effect.Effect<
+  NonNullable<(typeof BotOutboundMessage.Type)["embeds"]>,
+  InteractiveDeclaredFailure
+> =>
   Effect.gen(function* () {
     const startTime = yield* Option.match(DateTime.make(view.eventStartEpochMs), {
       onNone: () =>
         Effect.fail(
           interactiveExternalOperationRejected(
-            "slots.deliverList.loadSlotView",
+            operation,
             "InvalidProviderResponse",
             "The schedule provider returned an invalid event start time",
           ),
@@ -131,10 +135,16 @@ export const makeSlotsDeliverListMessage = (
     const schedules = yield* Effect.forEach(sorted.schedules, (schedule) =>
       toLegacySchedule(day, schedule),
     );
-    return {
-      embeds: [...renderSlotEmbeds(day, schedules, { startTime }), makeWebScheduleEmbed()],
-    };
+    return renderSlotEmbeds(day, schedules, { startTime });
   });
+
+export const makeSlotsDeliverListMessage = (
+  day: number,
+  view: SlotView,
+): Effect.Effect<typeof BotOutboundMessage.Type, InteractiveDeclaredFailure> =>
+  makeSlotViewEmbeds(day, view, "slots.deliverList.loadSlotView").pipe(
+    Effect.map((embeds) => ({ embeds: [...embeds, makeWebScheduleEmbed()] })),
+  );
 
 export const executeSlotsDeliverListLoadAction = (execution: typeof executionSchema.Type) =>
   Effect.gen(function* () {

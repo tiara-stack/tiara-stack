@@ -46,6 +46,7 @@ import {
 import { slotSheetWorkflowLayers, slotWorkflowOperationsLayer } from "@/workflows/slots";
 import { slotListWorkflowOperationsLayer } from "@/workflows/slots/slotListOperations";
 import { slotListProviderLayer } from "@/workflows/slots/slotListProvider";
+import { slotOpenWorkflowOperationsLayer } from "@/workflows/slots/slotOpenOperations";
 import { scheduleSheetWorkflowLayers } from "@/workflows/schedules";
 import { scheduleWorkflowOperationsLayer } from "@/workflows/schedules/operations";
 import { userScheduleProviderLayer } from "@/workflows/schedules/provider";
@@ -154,6 +155,7 @@ const workflowDefinitionServicesLayer = Layer.mergeAll(
   configurationWorkflowOperationsLayer,
   slotWorkflowOperationsLayer,
   slotListWorkflowOperationsLayer.pipe(Layer.provide(slotListProviderLayer)),
+  slotOpenWorkflowOperationsLayer.pipe(Layer.provide(slotListProviderLayer)),
   scheduleWorkflowOperationsLayer.pipe(Layer.provide(userScheduleProviderLayer)),
   teamWorkflowOperationsLayer.pipe(Layer.provide(userTeamsProviderLayer)),
 ).pipe(Layer.provideMerge(dispatchClientsLayer), Layer.provideMerge(trustedSheetPersistenceLayer));

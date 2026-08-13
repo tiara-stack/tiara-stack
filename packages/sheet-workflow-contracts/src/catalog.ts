@@ -218,9 +218,10 @@ export const SlotsOpen = interactive(
   "slots.open",
   Values.SlotsOpenInput,
   Values.SlotsOpenSuccess,
-  policy(["user"], ["workspace.participant"], "message", {
+  policy(["user"], ["workspace.member"], "message", {
     resourceField: "messageId",
   }),
+  "2",
 );
 
 export const MembersKick = interactive(

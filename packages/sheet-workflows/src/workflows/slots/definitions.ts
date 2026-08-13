@@ -21,6 +21,7 @@ import {
 } from "../shared/interactive";
 import { slotSheetWorkflowDefinitionVersion } from "./catalog";
 import { makeSlotsDeliverListDefinition } from "./slotListDefinition";
+import { makeSlotsOpenDefinition } from "./slotOpenDefinition";
 import { makeSlotDeliveryKey } from "./keys";
 import { SlotBindingOutcome, SlotWorkflowOperations } from "./operations";
 
@@ -219,10 +220,12 @@ const SlotsPublishButtonDefinition = {
 };
 
 const SlotsDeliverListDefinition = makeSlotsDeliverListDefinition();
+const SlotsOpenDefinition = makeSlotsOpenDefinition();
 
 export const SlotSheetWorkflowDefinitions = Object.freeze([
   SlotsPublishButtonDefinition,
   SlotsDeliverListDefinition,
+  SlotsOpenDefinition,
 ] as const);
 
 export const SlotSheetWorkflows = Object.freeze(

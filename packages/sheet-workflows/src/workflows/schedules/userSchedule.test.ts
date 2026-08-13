@@ -342,6 +342,7 @@ describe("user-schedule delivery Workflow Definition slice", () => {
             ? Effect.void
             : Effect.fail(new WorkflowInvocationUnauthorized({ message: "membership revoked" }));
         },
+        authorizeSlotOpen: () => Effect.die("unused"),
         workspaceCapabilities: () => Effect.die("unused"),
       };
       const operations: ScheduleWorkflowOperations["Service"] = {
@@ -392,6 +393,7 @@ describe("user-schedule delivery Workflow Definition slice", () => {
     Effect.gen(function* () {
       const authorization: ReadOnlyWorkflowAuthorization["Service"] = {
         authorize: () => Effect.void,
+        authorizeSlotOpen: () => Effect.die("unused"),
         workspaceCapabilities: () => Effect.die("unused"),
       };
       yield* registration

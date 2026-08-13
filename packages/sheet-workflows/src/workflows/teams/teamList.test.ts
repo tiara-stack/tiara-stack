@@ -313,6 +313,7 @@ describe("team-list delivery Workflow Definition slice", () => {
                 ? Effect.void
                 : Effect.fail(new WorkflowInvocationUnauthorized({ message: "revoked" }));
             },
+            authorizeSlotOpen: () => Effect.die("unused"),
             workspaceCapabilities: () => Effect.die("unused"),
           }),
           Layer.succeed(TeamWorkflowOperations, {
@@ -375,6 +376,7 @@ describe("team-list delivery Workflow Definition slice", () => {
     Effect.gen(function* () {
       const authorization = {
         authorize: () => Effect.void,
+        authorizeSlotOpen: () => Effect.die("unused"),
         workspaceCapabilities: () => Effect.die("unused"),
       };
       yield* registration

@@ -4,32 +4,32 @@ import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
 import { mapDeliveryFailure } from "../shared/interactive";
 import { SlotListProvider } from "./slotListProvider";
 import { loadSlotViewForWorkspace } from "./slotViewLoading";
-import { SlotListWorkflowOperations, SlotListWorkflowOperationsError } from "./slotListService";
+import { SlotOpenWorkflowOperations, SlotOpenWorkflowOperationsError } from "./slotOpenService";
 
 const operationError = (operation: string, cause: unknown) =>
-  new SlotListWorkflowOperationsError({ operation, cause });
+  new SlotOpenWorkflowOperationsError({ operation, cause });
 
-export const slotListWorkflowOperationsLayer = Layer.effect(
-  SlotListWorkflowOperations,
+export const slotOpenWorkflowOperationsLayer = Layer.effect(
+  SlotOpenWorkflowOperations,
   Effect.gen(function* () {
     const persistence = yield* TrustedSheetPersistence;
     const provider = yield* SlotListProvider;
     const delivery = yield* SheetBotDeliveryClient;
 
-    const loadSlotView: SlotListWorkflowOperations["Service"]["loadSlotView"] = (input) =>
+    const loadSlotView: SlotOpenWorkflowOperations["Service"]["loadSlotView"] = (context) =>
       loadSlotViewForWorkspace({
-        workspaceId: input.workspaceId,
-        day: input.day,
+        workspaceId: context.workspaceId,
+        day: context.day,
         resolveWorkspace: persistence.workspaces.getWorkspaceConfigByWorkspaceId({
-          workspaceId: input.workspaceId,
+          workspaceId: context.workspaceId,
         }),
         provider,
-        resolveOperation: "slots.deliverList.resolveWorkspace",
-        loadOperation: "slots.deliverList.loadSlotView",
+        resolveOperation: "slots.open.resolveWorkspace",
+        loadOperation: "slots.open.loadSlotView",
         operationError,
       });
 
-    const respond: SlotListWorkflowOperations["Service"]["respond"] = (
+    const respond: SlotOpenWorkflowOperations["Service"]["respond"] = (
       input,
       message,
       deliveryKey,
@@ -49,10 +49,10 @@ export const slotListWorkflowOperationsLayer = Layer.effect(
           Effect.mapError(
             mapDeliveryFailure(
               policy,
-              "slots.deliverList.respond",
+              "slots.open.respond",
               "response",
               false,
-              "The slot list response was rejected",
+              "The slot-open response was rejected",
               operationError,
             ),
           ),

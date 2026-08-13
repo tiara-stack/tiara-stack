@@ -4,3 +4,5 @@ export * from "./operations";
 export * from "./registry";
 export * from "./slotListDefinition";
 export * from "./slotListSchema";
+export * from "./slotOpenDefinition";
+export * from "./slotOpenService";

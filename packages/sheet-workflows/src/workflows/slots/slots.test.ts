@@ -6,6 +6,7 @@ import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import {
   InteractiveDeclaredFailure,
   SlotsDeliverList,
+  SlotsOpen,
   SlotsPublishButton,
 } from "sheet-workflow-contracts";
 import { ZeroClient } from "typhoon-zero/client";
@@ -112,15 +113,15 @@ const makeOperations = (
 const baseSlotState = () => makeTrustedSheetPersistenceMock(makeSheetApisClient({})).slotState;
 
 describe("slot Workflow Definition slices", () => {
-  it("keeps the slot-button definition and appends the pinned slot-list definition", () => {
-    expect(SlotSheetWorkflowContracts).toEqual([SlotsPublishButton, SlotsDeliverList]);
+  it("keeps the existing slot definitions and appends the pinned slot-open definition", () => {
+    expect(SlotSheetWorkflowContracts).toEqual([SlotsPublishButton, SlotsDeliverList, SlotsOpen]);
     expect(
       SlotSheetWorkflowDefinitions.map(({ contract, workflow }) => ({
         contract: workflowContractKey(contract),
         workflow: workflow.name,
       })),
     ).toEqual(
-      [SlotsPublishButton, SlotsDeliverList].map((contract) => ({
+      [SlotsPublishButton, SlotsDeliverList, SlotsOpen].map((contract) => ({
         contract: workflowContractKey(contract),
         workflow: workflowContractKey(contract),
       })),
@@ -135,6 +136,10 @@ describe("slot Workflow Definition slices", () => {
       "slots.deliverList.load-slot-view",
       "slots.deliverList.respond",
     ]);
+    expect(SlotSheetWorkflowDefinitions[2]!.actions.map(({ workflow }) => workflow.name)).toEqual([
+      "slots.open.load-slot-view",
+      "slots.open.respond",
+    ]);
     expect(
       SlotSheetWorkflowRegistrations.map(({ contract, definitionVersion }) => ({
         contract,
@@ -143,12 +148,15 @@ describe("slot Workflow Definition slices", () => {
     ).toEqual([
       { contract: SlotsPublishButton, definitionVersion: "1" },
       { contract: SlotsDeliverList, definitionVersion: "1" },
+      { contract: SlotsOpen, definitionVersion: "1" },
     ]);
     for (const { contract } of SlotSheetWorkflowDefinitions) {
       expect(contract.declaredFailure).toBe(InteractiveDeclaredFailure);
     }
     expect(isSlotSheetWorkflowName(SlotSheetWorkflows[0]!.name)).toBe(true);
-    expect(isSlotSheetWorkflowName("slots.open")).toBe(false);
+    expect(isSlotSheetWorkflowName(workflowContractKey(SlotsOpen))).toBe(true);
+    expect(isSlotSheetWorkflowName("slots.unregistered:1")).toBe(false);
+    expect(isSlotSheetWorkflowName(SlotsOpen.identity)).toBe(false);
   });
 
   it.effect("uses deterministic Action Keys and operation-specific Delivery Keys", () =>

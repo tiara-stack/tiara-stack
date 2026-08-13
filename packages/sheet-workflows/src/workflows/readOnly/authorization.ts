@@ -1,11 +1,13 @@
-import { Context, Effect, Layer, Match, Option, Predicate } from "effect";
+import { Context, Effect, Layer, Match, Option, Predicate, Schema } from "effect";
 import { WorkflowInvocationUnauthorized } from "effect-zero-workflow/contract/transport";
 import type { AnyWorkflowContract } from "effect-zero-workflow/contract";
 import type { EffectivePrincipal } from "sheet-auth/identity";
 import type { SheetBotHttpClient } from "sheet-bot-api";
 import {
   AuthorizationLoadWorkspaceCapabilities,
+  SlotsOpen,
   type SheetWorkflowAuthorizationPolicyMetadata,
+  WorkspaceId,
 } from "sheet-workflow-contracts";
 import {
   TrustedSheetPersistence,
@@ -30,6 +32,16 @@ interface WorkspaceCapabilitySnapshot {
   readonly appOwner: boolean;
 }
 
+export const AuthorizedSlotOpenContext = Schema.Struct({
+  clientPlatform: Schema.Literal("discord"),
+  clientId: Schema.String,
+  messageId: Schema.String,
+  workspaceId: WorkspaceId,
+  conversationId: Schema.String,
+  day: Schema.Number,
+});
+export type AuthorizedSlotOpenContext = typeof AuthorizedSlotOpenContext.Type;
+
 type MethodError<Method> = Method extends (
   ...args: infer _Args
 ) => Effect.Effect<infer _Success, infer Error, infer _Requirements>
@@ -50,6 +62,13 @@ interface ReadOnlyWorkflowAuthorizationShape {
     principal: EffectivePrincipal,
     input: unknown,
   ) => Effect.Effect<void, WorkflowInvocationUnauthorized | WorkspaceCapabilityLookupError>;
+  readonly authorizeSlotOpen: (
+    principal: EffectivePrincipal,
+    input: unknown,
+  ) => Effect.Effect<
+    AuthorizedSlotOpenContext,
+    WorkflowInvocationUnauthorized | WorkspaceCapabilityLookupError
+  >;
 }
 
 export class ReadOnlyWorkflowAuthorization extends Context.Service<
@@ -201,6 +220,61 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
         }),
       )(principal);
 
+    const authorizeSlotOpen: ReadOnlyWorkflowAuthorizationShape["authorizeSlotOpen"] = (
+      principal,
+      input,
+    ) => {
+      const policy = SlotsOpen.authorizationPolicy;
+      const messageId = stringFieldFromInput(input, policy.resourceField ?? "messageId");
+      if (
+        !policy.principalKinds.includes(principal.kind) ||
+        principal.kind !== "user" ||
+        Predicate.isUndefined(principal.discordAccount) ||
+        Predicate.isUndefined(messageId)
+      ) {
+        return Effect.fail(unauthorized());
+      }
+      return persistence.slotState
+        .getMessageSlotData({
+          clientPlatform: client.platform,
+          clientId: client.clientId,
+          messageId,
+        })
+        .pipe(
+          Effect.flatMap(
+            Option.match({
+              onNone: () => Effect.fail(unauthorized()),
+              onSome: (messageSlot) => {
+                if (
+                  messageSlot.clientPlatform !== client.platform ||
+                  messageSlot.clientId !== client.clientId ||
+                  messageSlot.messageId !== messageId ||
+                  Predicate.isNull(messageSlot.workspaceId) ||
+                  Predicate.isNull(messageSlot.conversationId)
+                ) {
+                  return Effect.fail(unauthorized());
+                }
+                const workspaceId = Option.getOrUndefined(
+                  Schema.decodeUnknownOption(WorkspaceId)(messageSlot.workspaceId),
+                );
+                if (Predicate.isUndefined(workspaceId)) return Effect.fail(unauthorized());
+                return workspaceCapabilities(principal, workspaceId).pipe(
+                  Effect.filterOrFail(({ member }) => member, unauthorized),
+                  Effect.as({
+                    clientPlatform: client.platform,
+                    clientId: client.clientId,
+                    messageId,
+                    workspaceId,
+                    conversationId: messageSlot.conversationId,
+                    day: messageSlot.day,
+                  }),
+                );
+              },
+            }),
+          ),
+        );
+    };
+
     const authorize: ReadOnlyWorkflowAuthorizationShape["authorize"] = (
       contract,
       principal,
@@ -209,6 +283,9 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
       const policy = contract.authorizationPolicy as SheetWorkflowAuthorizationPolicyMetadata;
       const principalAllowed = policy.principalKinds.includes(principal.kind);
       if (!principalAllowed) return Effect.fail(unauthorized());
+      if (contract.identity === SlotsOpen.identity) {
+        return authorizeSlotOpen(principal, input).pipe(Effect.asVoid);
+      }
       if (isForbiddenEmptyWorkspacePolicy(contract.identity, policy)) {
         return Effect.fail(unauthorized());
       }
@@ -221,6 +298,7 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
           }),
         )(principal);
       }
+      if (policy.resource !== "workspace") return Effect.fail(unauthorized());
       const workspaceId = stringFieldFromInput(input, policy.resourceField ?? "workspaceId");
       if (Predicate.isUndefined(workspaceId)) return Effect.fail(unauthorized());
       return Match.value(policy.userRule).pipe(
@@ -239,6 +317,6 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
         Match.exhaustive,
       );
     };
-    return { authorize, workspaceCapabilities };
+    return { authorize, authorizeSlotOpen, workspaceCapabilities };
   }),
 );

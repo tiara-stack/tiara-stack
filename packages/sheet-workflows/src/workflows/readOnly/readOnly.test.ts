@@ -58,6 +58,7 @@ import {
 
 const allowAuthorizationLayer = Layer.succeed(ReadOnlyWorkflowAuthorization, {
   authorize: () => Effect.void,
+  authorizeSlotOpen: () => Effect.die("unused"),
   workspaceCapabilities: () =>
     Effect.succeed({
       member: true,
@@ -263,6 +264,7 @@ describe("read-only Sheet Workflow Definition slice", () => {
                   message: "postgres://secret@internal/authorization",
                 }),
               ),
+            authorizeSlotOpen: () => Effect.die("unused"),
             workspaceCapabilities: () => Effect.die("unused"),
           }),
           Effect.exit,
