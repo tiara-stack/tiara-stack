@@ -2,7 +2,7 @@ import { Effect, Match, Option, Predicate, Schema } from "effect";
 import type { AnyWorkflowContract } from "effect-zero-workflow/contract";
 import { WorkflowInvocationUnauthorized } from "effect-zero-workflow/contract/transport";
 import { EffectivePrincipal } from "sheet-auth/identity";
-import { InteractiveDeclaredFailure, SlotsOpen } from "sheet-workflow-contracts";
+import { CheckinsRespond, InteractiveDeclaredFailure, SlotsOpen } from "sheet-workflow-contracts";
 import { ReadOnlyWorkflowAuthorization } from "../readOnly/authorization";
 
 const isInteractiveDeclaredFailure = Schema.is(InteractiveDeclaredFailure);
@@ -49,14 +49,16 @@ export const interactiveExternalOperationRejected = (
   message,
 });
 
-const interactiveDeliveryRejected = (
+export const interactiveDeliveryRejected = (
   operation: string,
   message: string,
   recoveryRequired: boolean,
+  committedReference?: string,
 ): InteractiveDeclaredFailure => ({
   _tag: "DeliveryRejected",
   operation,
   message,
+  ...(Predicate.isUndefined(committedReference) ? {} : { committedReference }),
   recoveryRequired,
 });
 
@@ -130,6 +132,7 @@ export const mapDeliveryFailure =
     recoveryRequired: boolean,
     rejectedMessage: string,
     operationError: (operation: string, cause: unknown) => E,
+    committedReference?: string,
   ) =>
   (error: unknown): InteractiveDeclaredFailure | E => {
     if (Predicate.isTagged("BotResponseExpired")(error)) {
@@ -137,10 +140,11 @@ export const mapDeliveryFailure =
         operation,
         "The response is no longer available",
         recoveryRequired,
+        committedReference,
       );
     }
     const knownFailure = mapBotKnownRequestFailure(policy, resource, error, () =>
-      interactiveDeliveryRejected(operation, rejectedMessage, recoveryRequired),
+      interactiveDeliveryRejected(operation, rejectedMessage, recoveryRequired, committedReference),
     );
     return Option.getOrElse(knownFailure, () => operationError(operation, error));
   };
@@ -151,6 +155,20 @@ export const preserveInteractiveDeclaredFailure = <A, R>(
   effect.pipe(
     Effect.catch((error) =>
       isInteractiveDeclaredFailure(error) ? Effect.fail(error) : Effect.die(error),
+    ),
+  );
+
+export const authorizeCheckinRespondWorkflow = (execution: {
+  readonly principal: typeof EffectivePrincipal.Type;
+  readonly input: unknown;
+}) =>
+  Effect.flatMap(ReadOnlyWorkflowAuthorization, (authorization) =>
+    authorization.authorizeCheckinRespond(execution.principal, execution.input),
+  ).pipe(
+    Effect.mapError((error) =>
+      isWorkflowInvocationUnauthorized(error)
+        ? interactiveAuthorizationRevoked(CheckinsRespond.authorizationPolicy.policy)
+        : error,
     ),
   );
 

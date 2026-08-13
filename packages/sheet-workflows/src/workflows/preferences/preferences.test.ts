@@ -49,6 +49,7 @@ const responseReference = Schema.decodeUnknownSync(ResponseReference)("response-
 const allowAuthorizationLayer = Layer.succeed(ReadOnlyWorkflowAuthorization, {
   authorize: () => Effect.void,
   authorizeSlotOpen: () => Effect.die("unused"),
+  authorizeCheckinRespond: () => Effect.die("unused"),
   workspaceCapabilities: () => Effect.die("unused"),
 });
 

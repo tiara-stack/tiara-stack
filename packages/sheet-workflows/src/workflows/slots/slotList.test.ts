@@ -312,6 +312,7 @@ describe("slot-list delivery Workflow Definition slice", () => {
             : Effect.fail(new WorkflowInvocationUnauthorized({ message: "membership revoked" }));
         },
         authorizeSlotOpen: () => Effect.die("unused"),
+        authorizeCheckinRespond: () => Effect.die("unused"),
         workspaceCapabilities: () => Effect.die("unused"),
       };
       const operations: SlotListWorkflowOperations["Service"] = {
@@ -363,6 +364,7 @@ describe("slot-list delivery Workflow Definition slice", () => {
           return Effect.void;
         },
         authorizeSlotOpen: () => Effect.die("unused"),
+        authorizeCheckinRespond: () => Effect.die("unused"),
         workspaceCapabilities: () => Effect.die("unused"),
       };
       yield* slotListRegistration

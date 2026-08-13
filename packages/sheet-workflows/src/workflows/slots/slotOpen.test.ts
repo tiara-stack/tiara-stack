@@ -395,6 +395,7 @@ describe("slot-open button Workflow Definition slice", () => {
           calls.push("authorize");
           return Effect.succeed(currentContext);
         },
+        authorizeCheckinRespond: () => Effect.die("unused"),
         workspaceCapabilities: () => Effect.die("unused"),
       };
       const operations: SlotOpenWorkflowOperations["Service"] = {

@@ -2,9 +2,10 @@ import { Context, Effect, Layer, Match, Option, Predicate, Schema } from "effect
 import { WorkflowInvocationUnauthorized } from "effect-zero-workflow/contract/transport";
 import type { AnyWorkflowContract } from "effect-zero-workflow/contract";
 import type { EffectivePrincipal } from "sheet-auth/identity";
-import type { SheetBotHttpClient } from "sheet-bot-api";
+import { BotTextPart, type SheetBotHttpClient } from "sheet-bot-api";
 import {
   AuthorizationLoadWorkspaceCapabilities,
+  CheckinsRespond,
   SlotsOpen,
   type SheetWorkflowAuthorizationPolicyMetadata,
   WorkspaceId,
@@ -42,6 +43,85 @@ export const AuthorizedSlotOpenContext = Schema.Struct({
 });
 export type AuthorizedSlotOpenContext = typeof AuthorizedSlotOpenContext.Type;
 
+export const AuthorizedCheckinRespondContext = Schema.Struct({
+  clientPlatform: Schema.Literal("discord"),
+  clientId: Schema.String,
+  messageId: Schema.String,
+  workspaceId: WorkspaceId,
+  conversationId: Schema.String,
+  memberId: Schema.String,
+  runningConversationId: Schema.String,
+  roleId: Schema.NullOr(Schema.String),
+  initialMessage: Schema.Array(BotTextPart),
+});
+export type AuthorizedCheckinRespondContext = typeof AuthorizedCheckinRespondContext.Type;
+
+type CanonicalCheckinKey = Pick<
+  AuthorizedCheckinRespondContext,
+  "clientPlatform" | "clientId" | "messageId" | "memberId"
+>;
+
+export const isCanonicalCheckinParticipant = (
+  key: CanonicalCheckinKey,
+  participant: {
+    readonly clientPlatform: string;
+    readonly clientId: string;
+    readonly messageId: string;
+    readonly memberId: string;
+    readonly deletedAt: number | null;
+  },
+): boolean =>
+  participant.clientPlatform === key.clientPlatform &&
+  participant.clientId === key.clientId &&
+  participant.messageId === key.messageId &&
+  participant.memberId === key.memberId &&
+  Predicate.isNull(participant.deletedAt);
+
+const decodeCheckinInitialMessage = Schema.decodeUnknownOption(Schema.Array(BotTextPart));
+const decodeWorkspaceId = Schema.decodeUnknownOption(WorkspaceId);
+
+type MessageCheckinRow = Option.Option.Value<
+  Effect.Success<ReturnType<TrustedSheetPersistenceShape["checkinState"]["getMessageCheckinData"]>>
+>;
+type MessageCheckinMemberRow = Effect.Success<
+  ReturnType<TrustedSheetPersistenceShape["checkinState"]["getMessageCheckinMembers"]>
+>[number];
+
+const authorizedCheckinContext = (
+  key: Pick<AuthorizedCheckinRespondContext, "clientPlatform" | "clientId" | "messageId">,
+  memberId: string,
+  messageCheckin: MessageCheckinRow,
+  members: ReadonlyArray<MessageCheckinMemberRow>,
+): Option.Option<AuthorizedCheckinRespondContext> => {
+  const participant = members.find((member) => member.memberId === memberId);
+  return Option.all({
+    workspaceId: decodeWorkspaceId(messageCheckin.workspaceId),
+    conversationId: Option.fromNullishOr(messageCheckin.conversationId),
+    createdByUserId: Option.fromNullishOr(messageCheckin.createdByUserId),
+    initialMessage: decodeCheckinInitialMessage(messageCheckin.initialMessage),
+    participant: Option.fromNullishOr(participant),
+  }).pipe(
+    Option.filter(({ participant: canonicalParticipant }) =>
+      [
+        messageCheckin.clientPlatform === key.clientPlatform,
+        messageCheckin.clientId === key.clientId,
+        messageCheckin.messageId === key.messageId,
+        messageCheckin.runningConversationId.length > 0,
+        isCanonicalCheckinParticipant({ ...key, memberId }, canonicalParticipant),
+      ].every(Predicate.isTruthy),
+    ),
+    Option.map(({ conversationId, initialMessage, workspaceId }) => ({
+      ...key,
+      workspaceId,
+      conversationId,
+      memberId,
+      runningConversationId: messageCheckin.runningConversationId,
+      roleId: messageCheckin.roleId,
+      initialMessage,
+    })),
+  );
+};
+
 type MethodError<Method> = Method extends (
   ...args: infer _Args
 ) => Effect.Effect<infer _Success, infer Error, infer _Requirements>
@@ -52,6 +132,10 @@ type WorkspaceCapabilityLookupError =
   | MethodError<SheetBotHttpClient["cache"]["getApplication"]>
   | MethodError<TrustedSheetPersistenceShape["workspaces"]["getWorkspaceMonitorRoles"]>;
 
+type CheckinAuthorizationLookupError =
+  | WorkspaceCapabilityLookupError
+  | MethodError<TrustedSheetPersistenceShape["checkinState"]["getMessageCheckinData"]>;
+
 interface ReadOnlyWorkflowAuthorizationShape {
   readonly workspaceCapabilities: (
     principal: EffectivePrincipal,
@@ -61,13 +145,20 @@ interface ReadOnlyWorkflowAuthorizationShape {
     contract: Contract,
     principal: EffectivePrincipal,
     input: unknown,
-  ) => Effect.Effect<void, WorkflowInvocationUnauthorized | WorkspaceCapabilityLookupError>;
+  ) => Effect.Effect<void, WorkflowInvocationUnauthorized | CheckinAuthorizationLookupError>;
   readonly authorizeSlotOpen: (
     principal: EffectivePrincipal,
     input: unknown,
   ) => Effect.Effect<
     AuthorizedSlotOpenContext,
     WorkflowInvocationUnauthorized | WorkspaceCapabilityLookupError
+  >;
+  readonly authorizeCheckinRespond: (
+    principal: EffectivePrincipal,
+    input: unknown,
+  ) => Effect.Effect<
+    AuthorizedCheckinRespondContext,
+    WorkflowInvocationUnauthorized | CheckinAuthorizationLookupError
   >;
 }
 
@@ -275,6 +366,52 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
         );
     };
 
+    const authorizeCheckinRespond: ReadOnlyWorkflowAuthorizationShape["authorizeCheckinRespond"] = (
+      principal,
+      input,
+    ) => {
+      const policy = CheckinsRespond.authorizationPolicy;
+      const messageId = stringFieldFromInput(input, policy.resourceField ?? "messageId");
+      if (
+        !policy.principalKinds.includes(principal.kind) ||
+        principal.kind !== "user" ||
+        Predicate.isUndefined(principal.discordAccount) ||
+        Predicate.isUndefined(messageId)
+      ) {
+        return Effect.fail(unauthorized());
+      }
+      const memberId = principal.discordAccount.accountId;
+      const key = {
+        clientPlatform: client.platform,
+        clientId: client.clientId,
+        messageId,
+      } as const;
+      return Effect.all(
+        {
+          checkin: persistence.checkinState.getMessageCheckinData(key),
+          members: persistence.checkinState.getMessageCheckinMembers(key),
+        },
+        { concurrency: "unbounded" },
+      ).pipe(
+        Effect.flatMap(({ checkin, members }) =>
+          Option.match(checkin, {
+            onNone: () => Effect.fail(unauthorized()),
+            onSome: (messageCheckin) =>
+              authorizedCheckinContext(key, memberId, messageCheckin, members).pipe(
+                Option.match({
+                  onNone: () => Effect.fail(unauthorized()),
+                  onSome: (authorized) =>
+                    workspaceCapabilities(principal, authorized.workspaceId).pipe(
+                      Effect.filterOrFail(({ member }) => member, unauthorized),
+                      Effect.as(authorized),
+                    ),
+                }),
+              ),
+          }),
+        ),
+      );
+    };
+
     const authorize: ReadOnlyWorkflowAuthorizationShape["authorize"] = (
       contract,
       principal,
@@ -285,6 +422,9 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
       if (!principalAllowed) return Effect.fail(unauthorized());
       if (contract.identity === SlotsOpen.identity) {
         return authorizeSlotOpen(principal, input).pipe(Effect.asVoid);
+      }
+      if (contract.identity === CheckinsRespond.identity) {
+        return authorizeCheckinRespond(principal, input).pipe(Effect.asVoid);
       }
       if (isForbiddenEmptyWorkspacePolicy(contract.identity, policy)) {
         return Effect.fail(unauthorized());
@@ -317,6 +457,6 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
         Match.exhaustive,
       );
     };
-    return { authorize, authorizeSlotOpen, workspaceCapabilities };
+    return { authorize, authorizeCheckinRespond, authorizeSlotOpen, workspaceCapabilities };
   }),
 );

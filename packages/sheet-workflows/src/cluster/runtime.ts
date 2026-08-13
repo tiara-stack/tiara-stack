@@ -53,6 +53,7 @@ import { userScheduleProviderLayer } from "@/workflows/schedules/provider";
 import { teamSheetWorkflowLayers } from "@/workflows/teams";
 import { teamWorkflowOperationsLayer } from "@/workflows/teams/operations";
 import { userTeamsProviderLayer } from "@/workflows/teams/provider";
+import { checkinSheetWorkflowLayers, checkinWorkflowOperationsLayer } from "@/workflows/checkins";
 
 const shardGroups = ["dispatch", "autoCheckin"] as const;
 
@@ -158,6 +159,7 @@ const workflowDefinitionServicesLayer = Layer.mergeAll(
   slotOpenWorkflowOperationsLayer.pipe(Layer.provide(slotListProviderLayer)),
   scheduleWorkflowOperationsLayer.pipe(Layer.provide(userScheduleProviderLayer)),
   teamWorkflowOperationsLayer.pipe(Layer.provide(userTeamsProviderLayer)),
+  checkinWorkflowOperationsLayer,
 ).pipe(Layer.provideMerge(dispatchClientsLayer), Layer.provideMerge(trustedSheetPersistenceLayer));
 
 const dispatchServicesLayer = Layer.effect(DispatchService, DispatchService.make).pipe(
@@ -176,6 +178,7 @@ const clusterLayer = Layer.mergeAll(
   slotSheetWorkflowLayers,
   scheduleSheetWorkflowLayers,
   teamSheetWorkflowLayers,
+  checkinSheetWorkflowLayers,
   selectedSheetWorkflowRegistrationValidationLayer,
   clusterStartupLayer,
 ).pipe(
