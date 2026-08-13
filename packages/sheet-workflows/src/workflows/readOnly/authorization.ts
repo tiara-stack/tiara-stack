@@ -6,6 +6,7 @@ import { BotTextPart, type SheetBotHttpClient } from "sheet-bot-api";
 import {
   AuthorizationLoadWorkspaceCapabilities,
   CheckinsRespond,
+  RoomOrdersNavigate,
   SlotsOpen,
   type SheetWorkflowAuthorizationPolicyMetadata,
   WorkspaceId,
@@ -55,6 +56,21 @@ export const AuthorizedCheckinRespondContext = Schema.Struct({
   initialMessage: Schema.Array(BotTextPart),
 });
 export type AuthorizedCheckinRespondContext = typeof AuthorizedCheckinRespondContext.Type;
+
+export const AuthorizedRoomOrderNavigateContext = Schema.Struct({
+  clientPlatform: Schema.Literal("discord"),
+  clientId: Schema.String,
+  messageId: Schema.String,
+  workspaceId: WorkspaceId,
+  conversationId: Schema.String,
+  previousFills: Schema.Array(Schema.String),
+  fills: Schema.Array(Schema.String),
+  hour: Schema.Number,
+  rank: Schema.Int,
+  tentative: Schema.Boolean,
+  monitor: Schema.NullOr(Schema.String),
+});
+export type AuthorizedRoomOrderNavigateContext = typeof AuthorizedRoomOrderNavigateContext.Type;
 
 type CanonicalCheckinKey = Pick<
   AuthorizedCheckinRespondContext,
@@ -136,6 +152,10 @@ type CheckinAuthorizationLookupError =
   | WorkspaceCapabilityLookupError
   | MethodError<TrustedSheetPersistenceShape["checkinState"]["getMessageCheckinData"]>;
 
+type RoomOrderAuthorizationLookupError =
+  | WorkspaceCapabilityLookupError
+  | MethodError<TrustedSheetPersistenceShape["roomOrderState"]["getMessageRoomOrder"]>;
+
 interface ReadOnlyWorkflowAuthorizationShape {
   readonly workspaceCapabilities: (
     principal: EffectivePrincipal,
@@ -159,6 +179,13 @@ interface ReadOnlyWorkflowAuthorizationShape {
   ) => Effect.Effect<
     AuthorizedCheckinRespondContext,
     WorkflowInvocationUnauthorized | CheckinAuthorizationLookupError
+  >;
+  readonly authorizeRoomOrdersNavigate: (
+    principal: EffectivePrincipal,
+    input: unknown,
+  ) => Effect.Effect<
+    AuthorizedRoomOrderNavigateContext,
+    WorkflowInvocationUnauthorized | RoomOrderAuthorizationLookupError
   >;
 }
 
@@ -412,6 +439,68 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
       );
     };
 
+    const authorizeRoomOrdersNavigate: ReadOnlyWorkflowAuthorizationShape["authorizeRoomOrdersNavigate"] =
+      (principal, input) => {
+        const policy = RoomOrdersNavigate.authorizationPolicy;
+        const messageId = stringFieldFromInput(input, policy.resourceField ?? "messageId");
+        if (
+          !policy.principalKinds.includes(principal.kind) ||
+          principal.kind !== "user" ||
+          Predicate.isUndefined(principal.discordAccount) ||
+          Predicate.isUndefined(messageId)
+        ) {
+          return Effect.fail(unauthorized());
+        }
+        const key = {
+          clientPlatform: client.platform,
+          clientId: client.clientId,
+          messageId,
+        } as const;
+        return persistence.roomOrderState.getMessageRoomOrder(key).pipe(
+          Effect.flatMap(
+            Option.match({
+              onNone: () => Effect.fail(unauthorized()),
+              onSome: (roomOrder) => {
+                if (
+                  roomOrder.clientPlatform !== key.clientPlatform ||
+                  roomOrder.clientId !== key.clientId ||
+                  roomOrder.messageId !== key.messageId ||
+                  Predicate.isNotNull(roomOrder.deletedAt) ||
+                  Predicate.isNull(roomOrder.workspaceId) ||
+                  Predicate.isNull(roomOrder.conversationId)
+                ) {
+                  return Effect.fail(unauthorized());
+                }
+                const workspaceId = Option.getOrUndefined(
+                  Schema.decodeUnknownOption(WorkspaceId)(roomOrder.workspaceId),
+                );
+                if (Predicate.isUndefined(workspaceId)) return Effect.fail(unauthorized());
+                const authorized = {
+                  ...key,
+                  workspaceId,
+                  conversationId: roomOrder.conversationId,
+                  previousFills: roomOrder.previousFills,
+                  fills: roomOrder.fills,
+                  hour: roomOrder.hour,
+                  rank: roomOrder.rank,
+                  tentative: roomOrder.tentative,
+                  monitor: roomOrder.monitor,
+                };
+                return workspaceCapabilities(principal, workspaceId).pipe(
+                  Effect.filterOrFail(
+                    (capabilities) =>
+                      hasRequiredCapabilities(policy.requiredCapabilities, capabilities),
+                    unauthorized,
+                  ),
+                  Effect.as(authorized),
+                );
+              },
+            }),
+          ),
+        );
+      };
+
+    // fallow-ignore-next-line complexity
     const authorize: ReadOnlyWorkflowAuthorizationShape["authorize"] = (
       contract,
       principal,
@@ -425,6 +514,9 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
       }
       if (contract.identity === CheckinsRespond.identity) {
         return authorizeCheckinRespond(principal, input).pipe(Effect.asVoid);
+      }
+      if (contract.identity === RoomOrdersNavigate.identity) {
+        return authorizeRoomOrdersNavigate(principal, input).pipe(Effect.asVoid);
       }
       if (isForbiddenEmptyWorkspacePolicy(contract.identity, policy)) {
         return Effect.fail(unauthorized());
@@ -457,6 +549,12 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
         Match.exhaustive,
       );
     };
-    return { authorize, authorizeCheckinRespond, authorizeSlotOpen, workspaceCapabilities };
+    return {
+      authorize,
+      authorizeCheckinRespond,
+      authorizeRoomOrdersNavigate,
+      authorizeSlotOpen,
+      workspaceCapabilities,
+    };
   }),
 );

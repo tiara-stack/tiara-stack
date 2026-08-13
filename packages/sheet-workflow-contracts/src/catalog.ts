@@ -172,9 +172,10 @@ export const RoomOrdersNavigate = interactive(
   "roomOrders.navigate",
   Values.RoomOrdersNavigateInput,
   Values.RoomOrderOperationSuccess,
-  policy(["user"], ["workspace.participant"], "message", {
+  policy(["user"], ["workspace.monitor"], "message", {
     resourceField: "messageId",
   }),
+  "2",
 );
 
 export const RoomOrdersSend = interactive(

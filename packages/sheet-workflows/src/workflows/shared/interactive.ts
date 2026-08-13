@@ -2,7 +2,12 @@ import { Effect, Match, Option, Predicate, Schema } from "effect";
 import type { AnyWorkflowContract } from "effect-zero-workflow/contract";
 import { WorkflowInvocationUnauthorized } from "effect-zero-workflow/contract/transport";
 import { EffectivePrincipal } from "sheet-auth/identity";
-import { CheckinsRespond, InteractiveDeclaredFailure, SlotsOpen } from "sheet-workflow-contracts";
+import {
+  CheckinsRespond,
+  InteractiveDeclaredFailure,
+  RoomOrdersNavigate,
+  SlotsOpen,
+} from "sheet-workflow-contracts";
 import { ReadOnlyWorkflowAuthorization } from "../readOnly/authorization";
 
 const isInteractiveDeclaredFailure = Schema.is(InteractiveDeclaredFailure);
@@ -168,6 +173,20 @@ export const authorizeCheckinRespondWorkflow = (execution: {
     Effect.mapError((error) =>
       isWorkflowInvocationUnauthorized(error)
         ? interactiveAuthorizationRevoked(CheckinsRespond.authorizationPolicy.policy)
+        : error,
+    ),
+  );
+
+export const authorizeRoomOrdersNavigateWorkflow = (execution: {
+  readonly principal: typeof EffectivePrincipal.Type;
+  readonly input: unknown;
+}) =>
+  Effect.flatMap(ReadOnlyWorkflowAuthorization, (authorization) =>
+    authorization.authorizeRoomOrdersNavigate(execution.principal, execution.input),
+  ).pipe(
+    Effect.mapError((error) =>
+      isWorkflowInvocationUnauthorized(error)
+        ? interactiveAuthorizationRevoked(RoomOrdersNavigate.authorizationPolicy.policy)
         : error,
     ),
   );

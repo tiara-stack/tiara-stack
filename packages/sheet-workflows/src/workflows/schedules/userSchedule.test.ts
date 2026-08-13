@@ -344,6 +344,7 @@ describe("user-schedule delivery Workflow Definition slice", () => {
         },
         authorizeSlotOpen: () => Effect.die("unused"),
         authorizeCheckinRespond: () => Effect.die("unused"),
+        authorizeRoomOrdersNavigate: () => Effect.die("unused"),
         workspaceCapabilities: () => Effect.die("unused"),
       };
       const operations: ScheduleWorkflowOperations["Service"] = {
@@ -396,6 +397,7 @@ describe("user-schedule delivery Workflow Definition slice", () => {
         authorize: () => Effect.void,
         authorizeSlotOpen: () => Effect.die("unused"),
         authorizeCheckinRespond: () => Effect.die("unused"),
+        authorizeRoomOrdersNavigate: () => Effect.die("unused"),
         workspaceCapabilities: () => Effect.die("unused"),
       };
       yield* registration

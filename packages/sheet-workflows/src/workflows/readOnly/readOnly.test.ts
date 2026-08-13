@@ -20,6 +20,7 @@ import {
   DataAcquisitionDeclaredFailure,
   DiscordLoadProfile,
   DiscordLoadWorkspaceChannels,
+  RoomOrdersNavigate,
   SchedulesDeliverUserSchedule,
   TeamsDeliverList,
   WorkspaceId,
@@ -50,6 +51,8 @@ import { makeSheetApisClient, makeTrustedSheetPersistenceMock } from "@/services
 import {
   assertRegistrationValidationFails,
   makeRecordingWorkflowAuthorization,
+  type MessageRoomOrderRow,
+  roomOrderRow,
   workflowTestAccountId as accountId,
   workflowTestContext as context,
   workflowTestInvocationId as invocationId,
@@ -60,6 +63,7 @@ const allowAuthorizationLayer = Layer.succeed(ReadOnlyWorkflowAuthorization, {
   authorize: () => Effect.void,
   authorizeSlotOpen: () => Effect.die("unused"),
   authorizeCheckinRespond: () => Effect.die("unused"),
+  authorizeRoomOrdersNavigate: () => Effect.die("unused"),
   workspaceCapabilities: () =>
     Effect.succeed({
       member: true,
@@ -108,6 +112,7 @@ type WorkspaceMonitorRole = Effect.Success<
 const authorizationWithBot = (
   botClient: SheetBotHttpClient,
   monitorRoles: ReadonlyArray<WorkspaceMonitorRole> = [],
+  getMessageRoomOrder?: TrustedSheetPersistenceShape["roomOrderState"]["getMessageRoomOrder"],
 ) => {
   const sheetApisClient = makeSheetApisClient({});
   const persistence = makeTrustedSheetPersistenceMock(sheetApisClient);
@@ -122,6 +127,10 @@ const authorizationWithBot = (
         workspaces: {
           ...persistence.workspaces,
           getWorkspaceMonitorRoles: () => Effect.succeed(monitorRoles),
+        },
+        roomOrderState: {
+          ...persistence.roomOrderState,
+          ...(getMessageRoomOrder ? { getMessageRoomOrder } : {}),
         },
       }),
     ),
@@ -267,6 +276,7 @@ describe("read-only Sheet Workflow Definition slice", () => {
               ),
             authorizeSlotOpen: () => Effect.die("unused"),
             authorizeCheckinRespond: () => Effect.die("unused"),
+            authorizeRoomOrdersNavigate: () => Effect.die("unused"),
             workspaceCapabilities: () => Effect.die("unused"),
           }),
           Effect.exit,
@@ -440,6 +450,131 @@ describe("read-only Sheet Workflow Definition slice", () => {
             _tag: "WorkflowInvocationUnauthorized",
           });
         }
+      }
+    }),
+  );
+
+  it.effect(
+    "authorizes room-order navigation from the configured-client record and monitor role",
+    () =>
+      Effect.gen(function* () {
+        const row = roomOrderRow();
+        const authorization = yield* authorizationWithBot(
+          makeAuthorizationBotClient(() =>
+            Effect.succeed({ userId: accountId, roleIds: ["monitor-role"] }),
+          ),
+          [
+            {
+              workspaceId: "workspace-1",
+              roleId: "monitor-role",
+              createdAt: 1,
+              updatedAt: 1,
+              deletedAt: null,
+            },
+          ],
+          (key) => {
+            expect(key).toEqual({
+              clientPlatform: "discord",
+              clientId: "discord-main",
+              messageId: "message-1",
+            });
+            return Effect.succeed(Option.some(row));
+          },
+        );
+
+        const authorized = yield* authorization.authorizeRoomOrdersNavigate(principal, {
+          messageId: "message-1",
+          workspaceId: "forged-workspace",
+          messageConversationId: "forged-conversation",
+          messageContent: "forged content",
+        });
+        expect(authorized).toEqual({
+          clientPlatform: "discord",
+          clientId: "discord-main",
+          messageId: "message-1",
+          workspaceId: Schema.decodeUnknownSync(WorkspaceId)("workspace-1"),
+          conversationId: "conversation-1",
+          previousFills: ["Miku"],
+          fills: ["Rin"],
+          hour: 2,
+          rank: 3,
+          tentative: false,
+          monitor: "Luka",
+        });
+        yield* authorization.authorize(RoomOrdersNavigate, principal, { messageId: "message-1" });
+      }),
+  );
+
+  it.effect("fails room-order navigation closed for non-monitors and invalid canonical rows", () =>
+    Effect.gen(function* () {
+      const ordinaryMember = makeAuthorizationBotClient(() =>
+        Effect.succeed({ userId: accountId, roleIds: ["member-role"] }),
+      );
+      const monitor = makeAuthorizationBotClient(() =>
+        Effect.succeed({ userId: accountId, roleIds: ["monitor-role"] }),
+      );
+      const monitorRoles = [
+        {
+          workspaceId: "workspace-1",
+          roleId: "monitor-role",
+          createdAt: 1,
+          updatedAt: 1,
+          deletedAt: null,
+        },
+      ];
+      const invalidRows = [
+        Option.none<MessageRoomOrderRow>(),
+        Option.some(roomOrderRow({ workspaceId: null })),
+        Option.some(roomOrderRow({ conversationId: null })),
+        Option.some(roomOrderRow({ clientId: "discord-other" })),
+        Option.some(roomOrderRow({ deletedAt: 2 })),
+      ];
+      const nonMonitor = yield* authorizationWithBot(ordinaryMember, [], () =>
+        Effect.succeed(Option.some(roomOrderRow())),
+      );
+      const nonMonitorExit = yield* Effect.exit(
+        nonMonitor.authorizeRoomOrdersNavigate(principal, { messageId: "message-1" }),
+      );
+      expect(Exit.isFailure(nonMonitorExit)).toBe(true);
+
+      for (const canonical of invalidRows) {
+        const authorization = yield* authorizationWithBot(monitor, monitorRoles, () =>
+          Effect.succeed(canonical),
+        );
+        const exit = yield* Effect.exit(
+          authorization.authorizeRoomOrdersNavigate(principal, { messageId: "message-1" }),
+        );
+        expect(Exit.isFailure(exit)).toBe(true);
+        if (Exit.isFailure(exit)) {
+          expect(Option.getOrThrow(Cause.findErrorOption(exit.cause))).toMatchObject({
+            _tag: "WorkflowInvocationUnauthorized",
+          });
+        }
+      }
+    }),
+  );
+
+  it.effect("rejects unlinked and service principals before room-order persistence lookup", () =>
+    Effect.gen(function* () {
+      const authorization = yield* authorizationWithBot(
+        makeAuthorizationBotClient(() => Effect.die("unused")),
+        [],
+        () => Effect.die("invalid principal must not read room-order state"),
+      );
+      const candidates = [
+        Schema.decodeUnknownSync(EffectivePrincipal)({ kind: "user", userId: "unlinked" }),
+        Schema.decodeUnknownSync(EffectivePrincipal)({
+          kind: "service",
+          serviceId: "service-1",
+          oauthClientId: "client-1",
+        }),
+      ];
+      for (const candidate of candidates) {
+        const exit = yield* Effect.exit(
+          authorization.authorizeRoomOrdersNavigate(candidate, { messageId: "message-1" }),
+        );
+        expect(Exit.isFailure(exit)).toBe(true);
+        if (Exit.isFailure(exit)) expect(Cause.hasDies(exit.cause)).toBe(false);
       }
     }),
   );

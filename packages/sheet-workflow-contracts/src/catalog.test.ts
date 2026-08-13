@@ -4,6 +4,7 @@ import {
   SchedulesDeliverUserSchedule,
   SheetWorkflowContractCatalog,
   SheetWorkflowContracts,
+  RoomOrdersNavigate,
   SlotsOpen,
   TeamsDeliverList,
 } from "./catalog";
@@ -48,6 +49,7 @@ const approvedIntentInventory = [
 ] as const;
 
 const expectedAuthorizationPolicyVersions: Readonly<Record<string, string>> = {
+  "roomOrders.navigate": "2",
   "schedules.deliverUserSchedule": "2",
   "slots.open": "2",
   "teams.deliverList": "2",
@@ -125,6 +127,18 @@ describe("sheet Workflow Contract catalog", () => {
       version: "2",
       principalKinds: ["user"],
       requiredCapabilities: ["workspace.member"],
+      resource: "message",
+      resourceField: "messageId",
+      revalidateBeforeEffects: true,
+    });
+  });
+
+  it("publishes registered-message workspace monitor authorization for room-order navigation", () => {
+    expect(RoomOrdersNavigate.wireVersion).toBe("1");
+    expect(RoomOrdersNavigate.authorizationPolicy).toMatchObject({
+      version: "2",
+      principalKinds: ["user"],
+      requiredCapabilities: ["workspace.monitor"],
       resource: "message",
       resourceField: "messageId",
       revalidateBeforeEffects: true,

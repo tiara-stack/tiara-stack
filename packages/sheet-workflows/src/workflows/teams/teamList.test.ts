@@ -315,6 +315,7 @@ describe("team-list delivery Workflow Definition slice", () => {
             },
             authorizeSlotOpen: () => Effect.die("unused"),
             authorizeCheckinRespond: () => Effect.die("unused"),
+            authorizeRoomOrdersNavigate: () => Effect.die("unused"),
             workspaceCapabilities: () => Effect.die("unused"),
           }),
           Layer.succeed(TeamWorkflowOperations, {
@@ -379,6 +380,7 @@ describe("team-list delivery Workflow Definition slice", () => {
         authorize: () => Effect.void,
         authorizeSlotOpen: () => Effect.die("unused"),
         authorizeCheckinRespond: () => Effect.die("unused"),
+        authorizeRoomOrdersNavigate: () => Effect.die("unused"),
         workspaceCapabilities: () => Effect.die("unused"),
       };
       yield* registration
