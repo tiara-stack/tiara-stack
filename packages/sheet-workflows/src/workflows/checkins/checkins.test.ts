@@ -172,7 +172,12 @@ const makeAuthorization = (options: {
       }),
     ),
     Effect.provide(
-      ConfigProvider.layer(ConfigProvider.fromUnknown({ sheetBotClientId: context.clientId })),
+      ConfigProvider.layer(
+        ConfigProvider.fromUnknown({
+          sheetBotClientId: context.clientId,
+          SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID: "sheet-bot-client",
+        }),
+      ),
     ),
   );
 };

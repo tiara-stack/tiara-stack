@@ -704,7 +704,12 @@ describe("room-order navigation Workflow Definition slice", () => {
         Effect.provide(Layer.succeed(SheetBotCacheClient, { get: () => bot })),
         Effect.provide(Layer.succeed(TrustedSheetPersistence, persistence)),
         Effect.provide(
-          ConfigProvider.layer(ConfigProvider.fromUnknown({ sheetBotClientId: context.clientId })),
+          ConfigProvider.layer(
+            ConfigProvider.fromUnknown({
+              sheetBotClientId: context.clientId,
+              SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID: "sheet-bot-client",
+            }),
+          ),
         ),
       );
 

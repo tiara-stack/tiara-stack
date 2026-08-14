@@ -11,6 +11,7 @@ import {
   RoomOrdersSend,
   ServicesDeliverStatus,
   SlotsOpen,
+  WorkspacesDeliverWelcome,
   type SheetWorkflowAuthorizationPolicyMetadata,
   WorkspaceId,
 } from "sheet-workflow-contracts";
@@ -309,7 +310,11 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
   Effect.gen(function* () {
     const bot = yield* SheetBotCacheClient;
     const persistence = yield* TrustedSheetPersistence;
-    const clientId = yield* config.sheetBotClientId;
+    const { clientId, gatewayServiceId, gatewayOAuthClientId } = yield* Effect.all({
+      clientId: config.sheetBotClientId,
+      gatewayServiceId: config.sheetBotGatewayServiceId,
+      gatewayOAuthClientId: config.sheetBotGatewayOAuthClientId,
+    });
     const client = { platform: "discord", clientId } as const;
 
     const workspaceCapabilities: ReadOnlyWorkflowAuthorizationShape["workspaceCapabilities"] = (
@@ -622,6 +627,31 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
         }),
       )(principal);
 
+    const authorizeSheetBotGateway = (
+      principal: EffectivePrincipal,
+      input: unknown,
+      policy: SheetWorkflowAuthorizationPolicyMetadata,
+    ) => {
+      const workspaceId = stringFieldFromInput(input, policy.resourceField ?? "workspaceId");
+      if (
+        policy.serviceRule !== "sheet-bot.gateway" ||
+        !policy.requiredCapabilities.includes("service.allowed") ||
+        Predicate.isUndefined(workspaceId)
+      ) {
+        return Effect.fail(unauthorized());
+      }
+      return Match.type<EffectivePrincipal>().pipe(
+        Match.discriminatorsExhaustive("kind")({
+          user: () => Effect.fail(unauthorized()),
+          service: (servicePrincipal) =>
+            servicePrincipal.serviceId === gatewayServiceId &&
+            servicePrincipal.oauthClientId === gatewayOAuthClientId
+              ? Effect.void
+              : Effect.fail(unauthorized()),
+        }),
+      )(principal);
+    };
+
     // fallow-ignore-next-line complexity
     const authorize: ReadOnlyWorkflowAuthorizationShape["authorize"] = (
       contract,
@@ -648,6 +678,9 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
       }
       if (contract.identity === ServicesDeliverStatus.identity) {
         return authorizeApplicationOwner(principal);
+      }
+      if (contract.identity === WorkspacesDeliverWelcome.identity) {
+        return authorizeSheetBotGateway(principal, input, policy);
       }
       if (isForbiddenEmptyWorkspacePolicy(contract.identity, policy)) {
         return Effect.fail(unauthorized());

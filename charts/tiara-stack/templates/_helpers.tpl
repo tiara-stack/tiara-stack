@@ -159,6 +159,9 @@ imagePullSecrets:
 {{- $sheetApisValues := .Values.services.sheetApis | default dict -}}
 {{- $sheetApisSecretRef := $sheetApisValues.secretRef | default dict -}}
 {{- $sheetApisSecretName := default (include "tiara-stack.defaultSecretName" "sheetApis") $sheetApisSecretRef.name -}}
+{{- $sheetBotValues := .Values.services.sheetBot | default dict -}}
+{{- $sheetBotSecretRef := $sheetBotValues.secretRef | default dict -}}
+{{- $sheetBotSecretName := default (include "tiara-stack.defaultSecretName" "sheetBot") $sheetBotSecretRef.name -}}
 {{- $sheetIngressValues := .Values.services.sheetIngressServer | default dict -}}
 {{- $sheetIngressSecretRef := $sheetIngressValues.secretRef | default dict -}}
 {{- $sheetIngressSecretName := default (include "tiara-stack.defaultSecretName" "sheetIngressServer") $sheetIngressSecretRef.name -}}
@@ -383,6 +386,9 @@ imagePullSecrets:
       secretKey: sheetWorkflowsServiceClientSecret
     - name: SHEET_AUTH_OAUTH_AUDIENCE
       value: sheet-workflows
+    - name: SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID
+      secretName: {{ $sheetBotSecretName }}
+      secretKey: sheetBotServiceClientId
 {{ include "tiara-stack.trustedDelegationEnv" (dict "ingressSecretName" $sheetIngressSecretName) | nindent 4 }}
     - name: SHEET_INGRESS_BASE_URL
       secretKey: sheetIngressBaseUrl
@@ -451,6 +457,9 @@ imagePullSecrets:
       secretKey: sheetWorkflowsServiceClientSecret
     - name: SHEET_AUTH_OAUTH_AUDIENCE
       value: sheet-workflows
+    - name: SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID
+      secretName: {{ $sheetBotSecretName }}
+      secretKey: sheetBotServiceClientId
 {{ include "tiara-stack.trustedDelegationEnv" (dict "ingressSecretName" $sheetIngressSecretName) | nindent 4 }}
     - name: SHEET_INGRESS_BASE_URL
       secretKey: sheetIngressBaseUrl

@@ -25,6 +25,10 @@ export const config = {
     Config.withDefault("http://sheet-bot:3000"),
   ),
   sheetBotClientId: Config.string("SHEET_BOT_CLIENT_ID").pipe(Config.withDefault("discord-main")),
+  sheetBotGatewayServiceId: Config.schema(nonEmptyString, "SHEET_BOT_GATEWAY_SERVICE_ID").pipe(
+    Config.withDefault("sheet-bot.gateway"),
+  ),
+  sheetBotGatewayOAuthClientId: Config.schema(nonEmptyString, "SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID"),
   sheetAuthOAuthAudience: Config.string("SHEET_AUTH_OAUTH_AUDIENCE").pipe(
     Config.withDefault("sheet-workflows"),
   ),
