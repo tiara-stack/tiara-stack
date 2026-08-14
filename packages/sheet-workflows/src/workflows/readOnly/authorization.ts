@@ -58,6 +58,14 @@ export const AuthorizedCheckinRespondContext = Schema.Struct({
 });
 export type AuthorizedCheckinRespondContext = typeof AuthorizedCheckinRespondContext.Type;
 
+export const AuthorizedRoomOrderCreateContext = Schema.Struct({
+  clientPlatform: Schema.Literal("discord"),
+  clientId: Schema.String,
+  workspaceId: WorkspaceId,
+  creatorAccountId: Schema.String,
+});
+export type AuthorizedRoomOrderCreateContext = typeof AuthorizedRoomOrderCreateContext.Type;
+
 export const AuthorizedRoomOrderNavigateContext = Schema.Struct({
   clientPlatform: Schema.Literal("discord"),
   clientId: Schema.String,

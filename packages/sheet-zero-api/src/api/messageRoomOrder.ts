@@ -109,6 +109,29 @@ const upsertRoomOrderRecord = async (
   );
 };
 
+const insertRoomOrderRecord = (
+  tx: RoomOrderTransaction,
+  key: RoomOrderKey,
+  data: typeof MessageRoomOrderDataInput.Type,
+) =>
+  tx.mutate.messageRoomOrder.insert(
+    zeroTableAccess.messageRoomOrder.upsertWithTimestamps({
+      clientPlatform: key.clientPlatform,
+      clientId: key.clientId,
+      messageId: key.messageId,
+      previousFills: data.previousFills.slice(),
+      fills: data.fills.slice(),
+      hour: data.hour,
+      rank: data.rank,
+      tentative: data.tentative ?? false,
+      monitor: data.monitor ?? null,
+      workspaceId: data.workspaceId,
+      conversationId: data.conversationId,
+      createdByUserId: data.createdByUserId,
+      deletedAt: null,
+    }),
+  );
+
 const findMessageRoomOrderEntries = (tx: RoomOrderTransaction, key: RoomOrderKey) =>
   tx.run(
     zeroTableAccess.messageRoomOrderEntry.table
@@ -148,6 +171,29 @@ const upsertRoomOrderEntries = async (
         },
         existingByKey.get(roomOrderEntryKey(entry)),
       ),
+    );
+  }
+};
+
+const insertRoomOrderEntries = async (
+  tx: RoomOrderTransaction,
+  key: RoomOrderKey,
+  entries: typeof MessageRoomOrderEntries.Type,
+) => {
+  for (const entry of entries) {
+    await tx.mutate.messageRoomOrderEntry.insert(
+      zeroTableAccess.messageRoomOrderEntry.upsertWithTimestamps({
+        clientPlatform: key.clientPlatform,
+        clientId: key.clientId,
+        messageId: key.messageId,
+        rank: entry.rank,
+        position: entry.position,
+        hour: entry.hour,
+        team: entry.team,
+        tags: entry.tags.slice(),
+        effectValue: entry.effectValue,
+        deletedAt: null,
+      }),
     );
   }
 };
@@ -562,6 +608,23 @@ export const makeMessageRoomOrderGroup = <const SuccessSchemas extends SheetZero
         }
 
         await upsertRoomOrderEntries(tx, args, args.entries, existingEntries);
+      },
+    }),
+    ZeroApiEndpoint.mutator("bindMessageRoomOrderIfAbsent", {
+      request: Schema.Struct({
+        ...MessageKeyRequest,
+        data: MessageRoomOrderDataInput,
+        entries: MessageRoomOrderEntries,
+      }),
+      mutator: async ({ tx, args }) => {
+        const existing = await findMessageRoomOrder(tx, args);
+        if (Predicate.isNotNullish(existing)) {
+          // Exact replay is reconciled by the caller. A conflicting or deleted row is never
+          // overwritten because the configured-client Message Reference is canonical.
+          return;
+        }
+        await insertRoomOrderRecord(tx, args, args.data);
+        await insertRoomOrderEntries(tx, args, args.entries);
       },
     }),
     ZeroApiEndpoint.mutator("upsertMessageRoomOrderEntry", {

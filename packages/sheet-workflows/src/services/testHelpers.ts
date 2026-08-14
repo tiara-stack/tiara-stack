@@ -1,4 +1,12 @@
-import { Array as EffectArray, Clock, DateTime, Effect, Option, Predicate } from "effect";
+import {
+  Array as EffectArray,
+  Clock,
+  DateTime,
+  Effect,
+  Option,
+  Predicate,
+  Semaphore,
+} from "effect";
 import type { TrustedSheetPersistenceShape } from "sheet-zero-server/persistence";
 import { ZeroClient } from "typhoon-zero/client";
 import { ClientDeliveryClient } from "./clientDeliveryClient";
@@ -392,6 +400,10 @@ export const makeTrustedSheetPersistenceMock = (
   const messageCheckins = new Map<string, MessageCheckinRow>();
   const messageCheckinMembers = new Map<string, MessageCheckinMemberRow>();
   const messageRoomOrders = new Map<string, MessageRoomOrderRow>();
+  const messageRoomOrderBindLocks = new Map<
+    string,
+    { readonly semaphore: ReturnType<typeof Semaphore.makeUnsafe>; users: number }
+  >();
   const messageSlots = new Map<string, MessageSlotRow>();
   const defaultMessageTeamSubmission = {
     workspaceId: "workspace-1",
@@ -433,6 +445,25 @@ export const makeTrustedSheetPersistenceMock = (
   const userPlatformConfigKey = (platform: string, userId: string) => `${platform}\u0000${userId}`;
   const messageKey = (clientPlatform: string, clientId: string, messageId: string) =>
     `${clientPlatform}\u0000${clientId}\u0000${messageId}`;
+  const withMessageRoomOrderBindLock = <A, E, R>(key: string, effect: Effect.Effect<A, E, R>) =>
+    Effect.suspend(() => {
+      const existing = messageRoomOrderBindLocks.get(key);
+      const entry = existing ?? { semaphore: Semaphore.makeUnsafe(1), users: 0 };
+      entry.users += 1;
+      if (Predicate.isUndefined(existing)) {
+        messageRoomOrderBindLocks.set(key, entry);
+      }
+      return entry.semaphore.withPermit(effect).pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            entry.users -= 1;
+            if (entry.users === 0 && messageRoomOrderBindLocks.get(key) === entry) {
+              messageRoomOrderBindLocks.delete(key);
+            }
+          }),
+        ),
+      );
+    });
   const messageMemberKey = (
     clientPlatform: string,
     clientId: string,
@@ -1091,8 +1122,37 @@ export const makeTrustedSheetPersistenceMock = (
         }),
       persistMessageRoomOrder: (args) =>
         sheetApis.messageRoomOrder.persistMessageRoomOrder(payload(args)).pipe(Effect.asVoid),
+      bindMessageRoomOrderIfAbsent: (args) => {
+        const { clientPlatform, clientId, messageId } = args;
+        return withMessageRoomOrderBindLock(
+          messageKey(clientPlatform, clientId, messageId),
+          Effect.gen(function* () {
+            const current = yield* persistence.roomOrderState
+              .getMessageRoomOrder({ clientPlatform, clientId, messageId })
+              .pipe(
+                Effect.mapError(
+                  (error) =>
+                    new ZeroClient.ZeroClientExecutorError({
+                      operation: "get message room order before binding",
+                      message:
+                        Predicate.hasProperty(error, "message") && Predicate.isString(error.message)
+                          ? error.message
+                          : "Failed to load message room order before binding",
+                    }),
+                ),
+              );
+            if (Option.isSome(current)) return;
+            yield* retainRoomOrderMutationResult(
+              args,
+              sheetApis.messageRoomOrder.persistMessageRoomOrder(payload(args)),
+            );
+          }),
+        );
+      },
     },
     slotState: {
+      // The legacy-backed test adapter intentionally repeats optional-row normalization.
+      // fallow-ignore-next-line code-duplication
       getMessageSlotData: (args) => {
         const row = messageSlots.get(
           messageKey(args.clientPlatform, args.clientId, args.messageId),
@@ -1108,6 +1168,8 @@ export const makeTrustedSheetPersistenceMock = (
                         Option.some({
                           ...result.value,
                           ...args,
+                          // Legacy optional rows share the same audit-default normalization.
+                          // fallow-ignore-next-line code-duplication
                           workspaceId: presentOr(result.value.workspaceId, null),
                           conversationId: presentOr(result.value.conversationId, null),
                           createdByUserId: presentOr(result.value.createdByUserId, null),

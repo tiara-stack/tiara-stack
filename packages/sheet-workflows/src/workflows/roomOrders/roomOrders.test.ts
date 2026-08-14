@@ -11,7 +11,12 @@ import {
   TrustedSheetPersistence,
   type TrustedSheetPersistenceShape,
 } from "sheet-zero-server/persistence";
-import { RoomOrdersNavigate, RoomOrdersSend, WorkspaceId } from "sheet-workflow-contracts";
+import {
+  RoomOrdersCreate,
+  RoomOrdersNavigate,
+  RoomOrdersSend,
+  WorkspaceId,
+} from "sheet-workflow-contracts";
 import {
   ReadOnlyWorkflowAuthorization,
   readOnlyWorkflowAuthorizationLayer,
@@ -151,7 +156,11 @@ describe("room-order navigation Workflow Definition slice", () => {
       resource: "message",
       resourceField: "messageId",
     });
-    expect(RoomOrderSheetWorkflowContracts).toEqual([RoomOrdersNavigate, RoomOrdersSend]);
+    expect(RoomOrderSheetWorkflowContracts).toEqual([
+      RoomOrdersNavigate,
+      RoomOrdersSend,
+      RoomOrdersCreate,
+    ]);
     expect(definition.workflow.name).toBe(workflowContractKey(RoomOrdersNavigate));
     expect(definition.actions.map(({ workflow }) => workflow.name)).toEqual([
       "roomOrders.navigate.claim-navigation",
@@ -165,6 +174,7 @@ describe("room-order navigation Workflow Definition slice", () => {
     expect(RoomOrderSheetWorkflowRegistrations).toEqual([
       expect.objectContaining({ contract: RoomOrdersNavigate, definitionVersion: "1" }),
       expect.objectContaining({ contract: RoomOrdersSend, definitionVersion: "1" }),
+      expect.objectContaining({ contract: RoomOrdersCreate, definitionVersion: "1" }),
     ]);
   });
 

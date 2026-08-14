@@ -28,7 +28,7 @@ const resetFixture = Effect.gen(function* () {
 
 describe("trusted Sheet persistence policy", () => {
   it("pins the reviewed operation count", () => {
-    expect(Object.values(trustedSheetPersistenceCatalog).flat()).toHaveLength(53);
+    expect(Object.values(trustedSheetPersistenceCatalog).flat()).toHaveLength(54);
   });
 
   persistenceLayer("executes through the policy-filtered interface", (it) => {
@@ -211,6 +211,89 @@ describe("trusted Sheet persistence policy", () => {
           sentConversationId: "conversation-2",
           sentAt: 1_700_000_000_000,
         });
+      }),
+    );
+
+    it.effect("binds room-order state only when the canonical message is absent", () =>
+      Effect.gen(function* () {
+        const { database, persistence } = yield* resetFixture;
+        const initial = {
+          ...messageKey,
+          data: {
+            previousFills: ["old-a"],
+            fills: ["new-a"],
+            hour: 14,
+            rank: 0,
+            tentative: false,
+            monitor: "monitor-1",
+            workspaceId: "workspace-1",
+            conversationId: "conversation-1",
+            createdByUserId: "author-1",
+          },
+          entries: [{ rank: 0, position: 0, hour: 14, team: "A", tags: ["x"], effectValue: 1.5 }],
+        } as const;
+        yield* persistence.roomOrderState.bindMessageRoomOrderIfAbsent(initial);
+        yield* persistence.roomOrderState.bindMessageRoomOrderIfAbsent({
+          ...initial,
+          data: { ...initial.data, hour: 99 },
+          entries: [{ rank: 0, position: 0, hour: 99, team: "conflict", tags: [], effectValue: 9 }],
+        });
+
+        expect(yield* database.rows("messageRoomOrder")).toHaveLength(1);
+        expect((yield* database.rows("messageRoomOrder"))[0]).toMatchObject({
+          hour: 14,
+          tentative: false,
+        });
+        expect(yield* database.rows("messageRoomOrderEntry")).toEqual([
+          expect.objectContaining({ hour: 14, team: "A", effectValue: 1.5 }),
+        ]);
+
+        yield* database.reset;
+        yield* database.seed({
+          messageRoomOrder: [
+            {
+              ...messageKey,
+              ...initial.data,
+              sendClaimId: null,
+              sendClaimedAt: null,
+              sentMessageId: null,
+              sentConversationId: null,
+              sentAt: null,
+              tentativeUpdateClaimId: null,
+              tentativeUpdateClaimedAt: null,
+              tentativePinClaimId: null,
+              tentativePinClaimedAt: null,
+              tentativePinnedAt: null,
+              createdAt: 100,
+              updatedAt: 200,
+              deletedAt: 300,
+            },
+          ],
+          messageRoomOrderEntry: [
+            {
+              ...messageKey,
+              ...initial.entries[0],
+              createdAt: 100,
+              updatedAt: 200,
+              deletedAt: null,
+            },
+          ],
+        });
+
+        yield* persistence.roomOrderState.bindMessageRoomOrderIfAbsent({
+          ...initial,
+          data: { ...initial.data, hour: 99 },
+          entries: [{ rank: 0, position: 0, hour: 99, team: "conflict", tags: [], effectValue: 9 }],
+        });
+
+        expect(yield* database.rows("messageRoomOrder")).toHaveLength(1);
+        expect((yield* database.rows("messageRoomOrder"))[0]).toMatchObject({
+          hour: 14,
+          deletedAt: 300,
+        });
+        expect(yield* database.rows("messageRoomOrderEntry")).toEqual([
+          expect.objectContaining({ hour: 14, team: "A", effectValue: 1.5 }),
+        ]);
       }),
     );
 

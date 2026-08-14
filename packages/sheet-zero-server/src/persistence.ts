@@ -256,6 +256,10 @@ export interface TrustedSheetPersistenceShape {
       "markMessageRoomOrderTentative"
     >;
     readonly persistMessageRoomOrder: ClientMutation<"messageRoomOrder", "persistMessageRoomOrder">;
+    readonly bindMessageRoomOrderIfAbsent: ClientMutation<
+      "messageRoomOrder",
+      "bindMessageRoomOrderIfAbsent"
+    >;
   };
   readonly slotState: {
     readonly getMessageSlotData: ClientMethodWithSuccess<
@@ -342,6 +346,7 @@ export const trustedSheetPersistenceCatalog = {
     "releaseMessageRoomOrderTentativePinClaim",
     "markMessageRoomOrderTentative",
     "persistMessageRoomOrder",
+    "bindMessageRoomOrderIfAbsent",
   ],
   slotState: ["getMessageSlotData", "upsertMessageSlotData"],
   teamSubmissionState: [

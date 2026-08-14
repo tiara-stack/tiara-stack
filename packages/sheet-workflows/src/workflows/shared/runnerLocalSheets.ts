@@ -22,6 +22,15 @@ export const eventConfigRange = "'Thee''s Sheet Settings'!O8:P";
 export const scheduleConfigRange = "'Thee''s Sheet Settings'!R8:AE";
 export const runnerConfigRange = "'Thee''s Sheet Settings'!AG8:AH";
 
+const ScheduleEncodingTypeSchema = Schema.String.check(
+  Schema.makeFilter((value) =>
+    ["none", "regex", "bold", "underline"].includes(value)
+      ? undefined
+      : `Invalid schedule encoding type: ${value}`,
+  ),
+).pipe(Schema.decodeTo(Schema.Literals(["none", "regex", "bold", "underline"])));
+export type ScheduleEncodingType = typeof ScheduleEncodingTypeSchema.Type;
+
 export interface SheetScheduleConfiguration {
   readonly channel: string;
   readonly day: number;
@@ -29,6 +38,7 @@ export interface SheetScheduleConfiguration {
   readonly hourRange: string;
   readonly breakRange: string;
   readonly monitorRange: string | undefined;
+  readonly encType: ScheduleEncodingType;
   readonly fillRange: string;
   readonly overfillRange: string;
   readonly standbyRange: string;
@@ -54,13 +64,6 @@ const ScheduleConfigurationRow = Schema.Struct({
   standbyRange: optionalCellText,
   visibleCell: optionalCellText,
 });
-const ScheduleEncodingType = Schema.String.check(
-  Schema.makeFilter((value) =>
-    ["none", "regex", "bold", "underline"].includes(value)
-      ? undefined
-      : `Invalid schedule encoding type: ${value}`,
-  ),
-);
 const CompleteScheduleConfiguration = Schema.Struct({
   channel: Schema.String,
   day: Schema.Number,
@@ -68,7 +71,7 @@ const CompleteScheduleConfiguration = Schema.Struct({
   hourRange: Schema.String,
   breakRange: Schema.String,
   monitorRange: optionalCellText,
-  encType: ScheduleEncodingType,
+  encType: ScheduleEncodingTypeSchema,
   fillRange: Schema.String,
   overfillRange: Schema.String,
   standbyRange: Schema.String,
@@ -141,7 +144,7 @@ export const parseEventStart = (rows: ValueRows) =>
     return startSeconds * 1_000;
   });
 
-export const parseScheduleConfigurations = (rows: ValueRows, day: number) =>
+export const parseScheduleConfigurations = (rows: ValueRows, day?: number) =>
   Effect.gen(function* () {
     const normalizedRows = yield* Schema.decodeUnknownEffect(
       Schema.Array(ScheduleConfigurationRow),
@@ -188,7 +191,7 @@ export const parseScheduleConfigurations = (rows: ValueRows, day: number) =>
       return Schema.decodeUnknownEffect(CompleteScheduleConfiguration)(values).pipe(
         Effect.map(
           (configuration): ReadonlyArray<SheetScheduleConfiguration> =>
-            configuration.day === day ? [configuration] : [],
+            Predicate.isUndefined(day) || configuration.day === day ? [configuration] : [],
         ),
       );
     });

@@ -1,5 +1,5 @@
 import { expect, it } from "@effect/vitest";
-import { Effect, Option } from "effect";
+import { Deferred, Effect, Fiber, Option } from "effect";
 import { TestClock } from "effect/testing";
 import {
   makeClientDeliveryMock,
@@ -103,6 +103,94 @@ it.effect("checks tentative room-order ownership after a cold-cache load", () =>
         workspaceId: "workspace-1",
         conversationId: "conversation-1",
       },
+    });
+  }),
+);
+
+it.effect("serializes insert-only room-order binds by message key", () =>
+  Effect.gen(function* () {
+    const firstReadStarted = yield* Deferred.make<void>();
+    const releaseRead = yield* Deferred.make<void>();
+    const readRequests: Array<unknown> = [];
+    let persistCalls = 0;
+    const persistence = makeTrustedSheetPersistenceMock(
+      makeSheetApisClient({
+        messageRoomOrder: {
+          getMessageRoomOrder: ({ query }: { readonly query: unknown }) =>
+            Effect.gen(function* () {
+              readRequests.push(query);
+              if (readRequests.length === 1) {
+                yield* Deferred.succeed(firstReadStarted, void 0);
+              }
+              yield* Deferred.await(releaseRead);
+              return Option.none();
+            }),
+          persistMessageRoomOrder: ({ payload }: { readonly payload: any }) =>
+            Effect.sync(() => {
+              persistCalls += 1;
+              return {
+                _tag: "MessageRoomOrder",
+                clientPlatform: payload.clientPlatform,
+                clientId: payload.clientId,
+                messageId: payload.messageId,
+                ...payload.data,
+              };
+            }),
+        },
+      }),
+    );
+    const key = {
+      clientPlatform: "discord",
+      clientId: "client-1",
+      messageId: "message-1",
+    } as const;
+    const first = yield* persistence.roomOrderState
+      .bindMessageRoomOrderIfAbsent({
+        ...key,
+        data: {
+          previousFills: [],
+          fills: ["first"],
+          hour: 1,
+          rank: 0,
+          tentative: false,
+          monitor: null,
+          workspaceId: "workspace-1",
+          conversationId: "conversation-1",
+          createdByUserId: "user-1",
+        },
+        entries: [],
+      })
+      .pipe(Effect.forkScoped);
+    yield* Deferred.await(firstReadStarted);
+    const second = yield* persistence.roomOrderState
+      .bindMessageRoomOrderIfAbsent({
+        ...key,
+        data: {
+          previousFills: [],
+          fills: ["second"],
+          hour: 2,
+          rank: 0,
+          tentative: false,
+          monitor: null,
+          workspaceId: "workspace-1",
+          conversationId: "conversation-1",
+          createdByUserId: "user-2",
+        },
+        entries: [],
+      })
+      .pipe(Effect.forkScoped);
+    yield* Effect.yieldNow;
+    yield* Deferred.succeed(releaseRead, void 0);
+    yield* Effect.all([Fiber.join(first), Fiber.join(second)]);
+
+    expect(persistCalls).toBe(1);
+    expect(readRequests).toEqual([key]);
+    expect(
+      Option.getOrThrow(yield* persistence.roomOrderState.getMessageRoomOrder(key)),
+    ).toMatchObject({
+      fills: ["first"],
+      hour: 1,
+      createdByUserId: "user-1",
     });
   }),
 );

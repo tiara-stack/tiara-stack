@@ -79,6 +79,7 @@ const expectedCatalog = {
     "mutator:public:markMessageRoomOrderTentative",
     "mutator:public:upsertMessageRoomOrder",
     "mutator:public:persistMessageRoomOrder",
+    "mutator:public:bindMessageRoomOrderIfAbsent",
     "mutator:public:upsertMessageRoomOrderEntry",
     "mutator:public:removeMessageRoomOrderEntry",
   ],
@@ -128,10 +129,10 @@ const catalogNames = (
     .sort();
 
 describe("Sheet Zero API visibility", () => {
-  it("preserves the exhaustive 66-procedure catalog and visibility split", () => {
+  it("preserves the exhaustive 67-procedure catalog and visibility split", () => {
     expect(projectCatalog()).toEqual(expectedCatalog);
-    expect(catalog).toHaveLength(66);
-    expect(catalog.filter(({ visibility }) => visibility === "public")).toHaveLength(62);
+    expect(catalog).toHaveLength(67);
+    expect(catalog.filter(({ visibility }) => visibility === "public")).toHaveLength(63);
     expect(catalog.filter(({ visibility }) => visibility === "service")).toHaveLength(1);
     expect(catalog.filter(({ visibility }) => visibility === "internal")).toHaveLength(3);
   });

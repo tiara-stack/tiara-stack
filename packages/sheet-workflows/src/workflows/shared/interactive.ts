@@ -5,10 +5,13 @@ import { EffectivePrincipal } from "sheet-auth/identity";
 import {
   CheckinsRespond,
   InteractiveDeclaredFailure,
+  RoomOrdersCreate,
   RoomOrdersNavigate,
   RoomOrdersSend,
   SlotsOpen,
+  WorkspaceId,
 } from "sheet-workflow-contracts";
+import { config } from "@/config";
 import { ReadOnlyWorkflowAuthorization } from "../readOnly/authorization";
 
 const isInteractiveDeclaredFailure = Schema.is(InteractiveDeclaredFailure);
@@ -42,6 +45,15 @@ export const interactiveConfigurationMissing = (
 ): InteractiveDeclaredFailure => ({
   _tag: "ConfigurationMissing",
   configuration,
+});
+
+export const interactiveBusinessRuleRejected = (
+  code: string,
+  message: string,
+): InteractiveDeclaredFailure => ({
+  _tag: "BusinessRuleRejected",
+  code,
+  message,
 });
 
 export const interactiveExternalOperationRejected = (
@@ -188,6 +200,38 @@ export const authorizeRoomOrdersNavigateWorkflow = (execution: {
     Effect.mapError((error) =>
       isWorkflowInvocationUnauthorized(error)
         ? interactiveAuthorizationRevoked(RoomOrdersNavigate.authorizationPolicy.policy)
+        : error,
+    ),
+  );
+
+export const authorizeRoomOrdersCreateWorkflow = (execution: {
+  readonly principal: typeof EffectivePrincipal.Type;
+  readonly input: unknown;
+}) =>
+  Effect.gen(function* () {
+    const authorization = yield* ReadOnlyWorkflowAuthorization;
+    yield* authorization.authorize(RoomOrdersCreate, execution.principal, execution.input);
+    const creatorAccountId = yield* requireInteractiveDiscordAccountId(
+      execution.principal,
+      RoomOrdersCreate.authorizationPolicy.policy,
+    );
+    const workspaceId = yield* Schema.decodeUnknownEffect(WorkspaceId)(
+      Predicate.hasProperty("workspaceId")(execution.input)
+        ? execution.input.workspaceId
+        : undefined,
+    ).pipe(
+      Effect.mapError(() =>
+        interactiveInvalidRequest("InvalidWorkspaceId", "workspaceId is missing or invalid"),
+      ),
+    );
+    const clientId = yield* config.sheetBotClientId.pipe(
+      Effect.mapError(() => interactiveConfigurationMissing("sheetBotClientId")),
+    );
+    return { clientPlatform: "discord" as const, clientId, workspaceId, creatorAccountId };
+  }).pipe(
+    Effect.mapError((error) =>
+      isWorkflowInvocationUnauthorized(error)
+        ? interactiveAuthorizationRevoked(RoomOrdersCreate.authorizationPolicy.policy)
         : error,
     ),
   );
