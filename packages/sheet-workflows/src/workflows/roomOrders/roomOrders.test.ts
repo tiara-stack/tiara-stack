@@ -14,6 +14,7 @@ import {
 import {
   RoomOrdersCreate,
   RoomOrdersNavigate,
+  RoomOrdersPinTentative,
   RoomOrdersSend,
   WorkspaceId,
 } from "sheet-workflow-contracts";
@@ -148,7 +149,7 @@ const makeOperations = (
   );
 
 describe("room-order navigation Workflow Definition slice", () => {
-  it("registers the navigation and send policy-v2 contracts with pinned actions", () => {
+  it("registers the room-order policy-v2 contracts with pinned actions", () => {
     const definition = makeRoomOrdersNavigateDefinition();
     expect(RoomOrdersNavigate.authorizationPolicy).toMatchObject({
       version: "2",
@@ -160,6 +161,7 @@ describe("room-order navigation Workflow Definition slice", () => {
       RoomOrdersNavigate,
       RoomOrdersSend,
       RoomOrdersCreate,
+      RoomOrdersPinTentative,
     ]);
     expect(definition.workflow.name).toBe(workflowContractKey(RoomOrdersNavigate));
     expect(definition.actions.map(({ workflow }) => workflow.name)).toEqual([
@@ -175,6 +177,7 @@ describe("room-order navigation Workflow Definition slice", () => {
       expect.objectContaining({ contract: RoomOrdersNavigate, definitionVersion: "1" }),
       expect.objectContaining({ contract: RoomOrdersSend, definitionVersion: "1" }),
       expect.objectContaining({ contract: RoomOrdersCreate, definitionVersion: "1" }),
+      expect.objectContaining({ contract: RoomOrdersPinTentative, definitionVersion: "1" }),
     ]);
   });
 
@@ -722,6 +725,7 @@ describe("room-order navigation Workflow Definition slice", () => {
           authorizeSlotOpen: () => Effect.die("unused"),
           authorizeCheckinRespond: () => Effect.die("unused"),
           authorizeRoomOrdersNavigate: () => Effect.fail(dependencyFailure),
+          authorizeRoomOrdersPinTentative: () => Effect.fail(dependencyFailure),
           authorizeRoomOrdersSend: () => Effect.die("unused"),
           workspaceCapabilities: () => Effect.die("unused"),
         }),

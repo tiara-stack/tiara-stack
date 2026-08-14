@@ -474,6 +474,7 @@ describe("room-order send Workflow Definition slice", () => {
           authorizeSlotOpen: () => Effect.die("unused"),
           authorizeCheckinRespond: () => Effect.die("unused"),
           authorizeRoomOrdersNavigate: () => Effect.die("unused"),
+          authorizeRoomOrdersPinTentative: () => Effect.die("unused"),
           authorizeRoomOrdersSend: () => Effect.fail(dependencyFailure),
           workspaceCapabilities: () => Effect.die("unused"),
         }),

@@ -5,6 +5,7 @@ import {
   SheetWorkflowContractCatalog,
   SheetWorkflowContracts,
   RoomOrdersNavigate,
+  RoomOrdersPinTentative,
   RoomOrdersSend,
   SlotsOpen,
   TeamsDeliverList,
@@ -51,6 +52,7 @@ const approvedIntentInventory = [
 
 const expectedAuthorizationPolicyVersions: Readonly<Record<string, string>> = {
   "roomOrders.navigate": "2",
+  "roomOrders.pinTentative": "2",
   "roomOrders.send": "2",
   "schedules.deliverUserSchedule": "2",
   "slots.open": "2",
@@ -157,6 +159,19 @@ describe("sheet Workflow Contract catalog", () => {
       resourceField: "messageId",
       revalidateBeforeEffects: true,
     });
+  });
+
+  it("publishes user-only registered-message monitor authorization for tentative pinning", () => {
+    expect(RoomOrdersPinTentative.wireVersion).toBe("1");
+    expect(RoomOrdersPinTentative.authorizationPolicy).toMatchObject({
+      version: "2",
+      principalKinds: ["user"],
+      requiredCapabilities: ["workspace.monitor"],
+      resource: "message",
+      resourceField: "messageId",
+      revalidateBeforeEffects: true,
+    });
+    expect(RoomOrdersPinTentative.authorizationPolicy).not.toHaveProperty("serviceRule");
   });
 
   it("exposes explicit grouped declarations without a generic name dispatcher", () => {

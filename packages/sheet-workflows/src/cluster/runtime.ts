@@ -59,6 +59,7 @@ import {
   roomOrderNavigationOperationsLayer,
   roomOrderNavigationProviderLayer,
   roomOrderCreateOperationsLayer,
+  roomOrderTentativePinOperationsLayer,
   roomOrderSendOperationsLayer,
   roomOrderSheetWorkflowLayers,
 } from "@/workflows/roomOrders";
@@ -171,6 +172,7 @@ const workflowDefinitionServicesLayer = Layer.mergeAll(
   roomOrderNavigationOperationsLayer.pipe(Layer.provide(roomOrderNavigationProviderLayer)),
   roomOrderSendOperationsLayer.pipe(Layer.provide(roomOrderNavigationProviderLayer)),
   roomOrderCreateOperationsLayer.pipe(Layer.provide(roomOrderCreateProviderLayer)),
+  roomOrderTentativePinOperationsLayer.pipe(Layer.provide(roomOrderNavigationProviderLayer)),
 ).pipe(Layer.provideMerge(dispatchClientsLayer), Layer.provideMerge(trustedSheetPersistenceLayer));
 
 const dispatchServicesLayer = Layer.effect(DispatchService, DispatchService.make).pipe(

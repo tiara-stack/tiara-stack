@@ -21,6 +21,7 @@ import {
   DiscordLoadProfile,
   DiscordLoadWorkspaceChannels,
   RoomOrdersNavigate,
+  RoomOrdersPinTentative,
   RoomOrdersSend,
   SchedulesDeliverUserSchedule,
   TeamsDeliverList,
@@ -65,6 +66,7 @@ const allowAuthorizationLayer = Layer.succeed(ReadOnlyWorkflowAuthorization, {
   authorizeSlotOpen: () => Effect.die("unused"),
   authorizeCheckinRespond: () => Effect.die("unused"),
   authorizeRoomOrdersNavigate: () => Effect.die("unused"),
+  authorizeRoomOrdersPinTentative: () => Effect.die("unused"),
   authorizeRoomOrdersSend: () => Effect.die("unused"),
   workspaceCapabilities: () =>
     Effect.succeed({
@@ -279,6 +281,7 @@ describe("read-only Sheet Workflow Definition slice", () => {
             authorizeSlotOpen: () => Effect.die("unused"),
             authorizeCheckinRespond: () => Effect.die("unused"),
             authorizeRoomOrdersNavigate: () => Effect.die("unused"),
+            authorizeRoomOrdersPinTentative: () => Effect.die("unused"),
             authorizeRoomOrdersSend: () => Effect.die("unused"),
             workspaceCapabilities: () => Effect.die("unused"),
           }),
@@ -509,7 +512,7 @@ describe("read-only Sheet Workflow Definition slice", () => {
   );
 
   it.effect(
-    "authorizes room-order send from canonical state and rejects incomplete sent bindings",
+    "authorizes room-order send and tentative pin from canonical state and rejects incomplete sent bindings",
     () =>
       Effect.gen(function* () {
         const monitor = makeAuthorizationBotClient(() =>
@@ -551,6 +554,16 @@ describe("read-only Sheet Workflow Definition slice", () => {
           tentativePinClaimId: "pin-claim-1",
         });
         yield* authorization.authorize(RoomOrdersSend, principal, { messageId: "message-1" });
+        expect(
+          yield* authorization.authorizeRoomOrdersPinTentative(principal, {
+            messageId: "message-1",
+            workspaceId: "forged-workspace",
+            messageConversationId: "forged-conversation",
+          }),
+        ).toEqual(authorized);
+        yield* authorization.authorize(RoomOrdersPinTentative, principal, {
+          messageId: "message-1",
+        });
 
         for (const incomplete of [
           roomOrderRow({ sentMessageId: "sent-1", sentConversationId: null }),
@@ -559,17 +572,18 @@ describe("read-only Sheet Workflow Definition slice", () => {
           const incompleteAuthorization = yield* authorizationWithBot(monitor, monitorRoles, () =>
             Effect.succeed(Option.some(incomplete)),
           );
-          const exit = yield* Effect.exit(
-            incompleteAuthorization.authorizeRoomOrdersSend(principal, {
-              messageId: "message-1",
-            }),
-          );
-          expect(Exit.isFailure(exit)).toBe(true);
-          if (Exit.isFailure(exit)) {
-            expect(Cause.hasDies(exit.cause)).toBe(false);
-            expect(Option.getOrThrow(Cause.findErrorOption(exit.cause))).toMatchObject({
-              _tag: "WorkflowInvocationUnauthorized",
-            });
+          for (const authorize of [
+            incompleteAuthorization.authorizeRoomOrdersSend,
+            incompleteAuthorization.authorizeRoomOrdersPinTentative,
+          ]) {
+            const exit = yield* Effect.exit(authorize(principal, { messageId: "message-1" }));
+            expect(Exit.isFailure(exit)).toBe(true);
+            if (Exit.isFailure(exit)) {
+              expect(Cause.hasDies(exit.cause)).toBe(false);
+              expect(Option.getOrThrow(Cause.findErrorOption(exit.cause))).toMatchObject({
+                _tag: "WorkflowInvocationUnauthorized",
+              });
+            }
           }
         }
       }),
@@ -640,11 +654,14 @@ describe("read-only Sheet Workflow Definition slice", () => {
         }),
       ];
       for (const candidate of candidates) {
-        const exit = yield* Effect.exit(
-          authorization.authorizeRoomOrdersNavigate(candidate, { messageId: "message-1" }),
-        );
-        expect(Exit.isFailure(exit)).toBe(true);
-        if (Exit.isFailure(exit)) expect(Cause.hasDies(exit.cause)).toBe(false);
+        for (const authorize of [
+          authorization.authorizeRoomOrdersNavigate,
+          authorization.authorizeRoomOrdersPinTentative,
+        ]) {
+          const exit = yield* Effect.exit(authorize(candidate, { messageId: "message-1" }));
+          expect(Exit.isFailure(exit)).toBe(true);
+          if (Exit.isFailure(exit)) expect(Cause.hasDies(exit.cause)).toBe(false);
+        }
       }
     }),
   );

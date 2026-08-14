@@ -397,6 +397,7 @@ describe("slot-open button Workflow Definition slice", () => {
         },
         authorizeCheckinRespond: () => Effect.die("unused"),
         authorizeRoomOrdersNavigate: () => Effect.die("unused"),
+        authorizeRoomOrdersPinTentative: () => Effect.die("unused"),
         authorizeRoomOrdersSend: () => Effect.die("unused"),
         workspaceCapabilities: () => Effect.die("unused"),
       };

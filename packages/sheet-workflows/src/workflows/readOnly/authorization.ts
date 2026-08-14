@@ -7,6 +7,7 @@ import {
   AuthorizationLoadWorkspaceCapabilities,
   CheckinsRespond,
   RoomOrdersNavigate,
+  RoomOrdersPinTentative,
   RoomOrdersSend,
   SlotsOpen,
   type SheetWorkflowAuthorizationPolicyMetadata,
@@ -91,6 +92,10 @@ export const AuthorizedRoomOrderSendContext = Schema.Struct({
   tentativePinnedAt: Schema.NullOr(Schema.Number),
 });
 export type AuthorizedRoomOrderSendContext = typeof AuthorizedRoomOrderSendContext.Type;
+
+export const AuthorizedRoomOrderPinTentativeContext = AuthorizedRoomOrderSendContext;
+export type AuthorizedRoomOrderPinTentativeContext =
+  typeof AuthorizedRoomOrderPinTentativeContext.Type;
 
 type CanonicalCheckinKey = Pick<
   AuthorizedCheckinRespondContext,
@@ -212,6 +217,13 @@ interface ReadOnlyWorkflowAuthorizationShape {
     input: unknown,
   ) => Effect.Effect<
     AuthorizedRoomOrderSendContext,
+    WorkflowInvocationUnauthorized | RoomOrderAuthorizationLookupError
+  >;
+  readonly authorizeRoomOrdersPinTentative: (
+    principal: EffectivePrincipal,
+    input: unknown,
+  ) => Effect.Effect<
+    AuthorizedRoomOrderPinTentativeContext,
     WorkflowInvocationUnauthorized | RoomOrderAuthorizationLookupError
   >;
 }
@@ -547,11 +559,12 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
           })),
         );
 
-    const authorizeRoomOrdersSend: ReadOnlyWorkflowAuthorizationShape["authorizeRoomOrdersSend"] = (
-      principal,
-      input,
+    const authorizeRoomOrderSendShape = (
+      principal: EffectivePrincipal,
+      input: unknown,
+      policy: SheetWorkflowAuthorizationPolicyMetadata,
     ) =>
-      authorizeRoomOrder(principal, input, RoomOrdersSend.authorizationPolicy).pipe(
+      authorizeRoomOrder(principal, input, policy).pipe(
         Effect.filterOrFail(
           ({ roomOrder }) =>
             Predicate.isNull(roomOrder.sentMessageId) ===
@@ -569,6 +582,15 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
           tentativePinnedAt: roomOrder.tentativePinnedAt,
         })),
       );
+
+    const authorizeRoomOrdersSend: ReadOnlyWorkflowAuthorizationShape["authorizeRoomOrdersSend"] = (
+      principal,
+      input,
+    ) => authorizeRoomOrderSendShape(principal, input, RoomOrdersSend.authorizationPolicy);
+
+    const authorizeRoomOrdersPinTentative: ReadOnlyWorkflowAuthorizationShape["authorizeRoomOrdersPinTentative"] =
+      (principal, input) =>
+        authorizeRoomOrderSendShape(principal, input, RoomOrdersPinTentative.authorizationPolicy);
 
     // fallow-ignore-next-line complexity
     const authorize: ReadOnlyWorkflowAuthorizationShape["authorize"] = (
@@ -590,6 +612,9 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
       }
       if (contract.identity === RoomOrdersSend.identity) {
         return authorizeRoomOrdersSend(principal, input).pipe(Effect.asVoid);
+      }
+      if (contract.identity === RoomOrdersPinTentative.identity) {
+        return authorizeRoomOrdersPinTentative(principal, input).pipe(Effect.asVoid);
       }
       if (isForbiddenEmptyWorkspacePolicy(contract.identity, policy)) {
         return Effect.fail(unauthorized());
@@ -626,6 +651,7 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
       authorize,
       authorizeCheckinRespond,
       authorizeRoomOrdersNavigate,
+      authorizeRoomOrdersPinTentative,
       authorizeRoomOrdersSend,
       authorizeSlotOpen,
       workspaceCapabilities,

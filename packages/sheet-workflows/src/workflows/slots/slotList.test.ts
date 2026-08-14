@@ -314,6 +314,7 @@ describe("slot-list delivery Workflow Definition slice", () => {
         authorizeSlotOpen: () => Effect.die("unused"),
         authorizeCheckinRespond: () => Effect.die("unused"),
         authorizeRoomOrdersNavigate: () => Effect.die("unused"),
+        authorizeRoomOrdersPinTentative: () => Effect.die("unused"),
         authorizeRoomOrdersSend: () => Effect.die("unused"),
         workspaceCapabilities: () => Effect.die("unused"),
       };
@@ -368,6 +369,7 @@ describe("slot-list delivery Workflow Definition slice", () => {
         authorizeSlotOpen: () => Effect.die("unused"),
         authorizeCheckinRespond: () => Effect.die("unused"),
         authorizeRoomOrdersNavigate: () => Effect.die("unused"),
+        authorizeRoomOrdersPinTentative: () => Effect.die("unused"),
         authorizeRoomOrdersSend: () => Effect.die("unused"),
         workspaceCapabilities: () => Effect.die("unused"),
       };

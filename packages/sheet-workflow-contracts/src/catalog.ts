@@ -192,10 +192,10 @@ export const RoomOrdersPinTentative = interactive(
   "roomOrders.pinTentative",
   Values.RoomOrdersPinTentativeInput,
   Values.RoomOrderOperationSuccess,
-  policy(["user", "service"], ["workspace.monitor"], "message", {
+  policy(["user"], ["workspace.monitor"], "message", {
     resourceField: "messageId",
-    serviceRule: "auto-checkin",
   }),
+  "2",
 );
 
 export const SlotsDeliverList = interactive(

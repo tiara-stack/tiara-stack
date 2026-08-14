@@ -7,6 +7,7 @@ import {
   InteractiveDeclaredFailure,
   RoomOrdersCreate,
   RoomOrdersNavigate,
+  RoomOrdersPinTentative,
   RoomOrdersSend,
   SlotsOpen,
   WorkspaceId,
@@ -246,6 +247,20 @@ export const authorizeRoomOrdersSendWorkflow = (execution: {
     Effect.mapError((error) =>
       isWorkflowInvocationUnauthorized(error)
         ? interactiveAuthorizationRevoked(RoomOrdersSend.authorizationPolicy.policy)
+        : error,
+    ),
+  );
+
+export const authorizeRoomOrdersPinTentativeWorkflow = (execution: {
+  readonly principal: typeof EffectivePrincipal.Type;
+  readonly input: unknown;
+}) =>
+  Effect.flatMap(ReadOnlyWorkflowAuthorization, (authorization) =>
+    authorization.authorizeRoomOrdersPinTentative(execution.principal, execution.input),
+  ).pipe(
+    Effect.mapError((error) =>
+      isWorkflowInvocationUnauthorized(error)
+        ? interactiveAuthorizationRevoked(RoomOrdersPinTentative.authorizationPolicy.policy)
         : error,
     ),
   );

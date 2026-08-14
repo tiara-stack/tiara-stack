@@ -3,3 +3,4 @@ export { roomOrderNavigationOperationsLayer } from "./operations";
 export { roomOrderNavigationProviderLayer } from "./provider";
 export { roomOrderSendOperationsLayer } from "./sendOperations";
 export { roomOrderCreateOperationsLayer } from "./createOperations";
+export { roomOrderTentativePinOperationsLayer } from "./pinTentativeOperations";

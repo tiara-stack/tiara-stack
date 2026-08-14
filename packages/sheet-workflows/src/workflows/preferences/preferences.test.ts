@@ -51,6 +51,7 @@ const allowAuthorizationLayer = Layer.succeed(ReadOnlyWorkflowAuthorization, {
   authorizeSlotOpen: () => Effect.die("unused"),
   authorizeCheckinRespond: () => Effect.die("unused"),
   authorizeRoomOrdersNavigate: () => Effect.die("unused"),
+  authorizeRoomOrdersPinTentative: () => Effect.die("unused"),
   authorizeRoomOrdersSend: () => Effect.die("unused"),
   workspaceCapabilities: () => Effect.die("unused"),
 });
