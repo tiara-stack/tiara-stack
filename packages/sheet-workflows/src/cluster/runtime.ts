@@ -53,6 +53,10 @@ import { userScheduleProviderLayer } from "@/workflows/schedules/provider";
 import { teamSheetWorkflowLayers } from "@/workflows/teams";
 import { teamWorkflowOperationsLayer } from "@/workflows/teams/operations";
 import { userTeamsProviderLayer } from "@/workflows/teams/provider";
+import {
+  serviceSheetWorkflowLayers,
+  serviceStatusWorkflowOperationsLayer,
+} from "@/workflows/services";
 import { checkinSheetWorkflowLayers, checkinWorkflowOperationsLayer } from "@/workflows/checkins";
 import { roomOrderCreateProviderLayer } from "@/workflows/roomOrders/createProvider";
 import {
@@ -173,6 +177,7 @@ const workflowDefinitionServicesLayer = Layer.mergeAll(
   roomOrderSendOperationsLayer.pipe(Layer.provide(roomOrderNavigationProviderLayer)),
   roomOrderCreateOperationsLayer.pipe(Layer.provide(roomOrderCreateProviderLayer)),
   roomOrderTentativePinOperationsLayer.pipe(Layer.provide(roomOrderNavigationProviderLayer)),
+  serviceStatusWorkflowOperationsLayer,
 ).pipe(Layer.provideMerge(dispatchClientsLayer), Layer.provideMerge(trustedSheetPersistenceLayer));
 
 const dispatchServicesLayer = Layer.effect(DispatchService, DispatchService.make).pipe(
@@ -193,6 +198,7 @@ const clusterLayer = Layer.mergeAll(
   teamSheetWorkflowLayers,
   checkinSheetWorkflowLayers,
   roomOrderSheetWorkflowLayers,
+  serviceSheetWorkflowLayers,
   selectedSheetWorkflowRegistrationValidationLayer,
   clusterStartupLayer,
 ).pipe(

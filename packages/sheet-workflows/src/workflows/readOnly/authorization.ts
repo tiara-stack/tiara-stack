@@ -2,13 +2,14 @@ import { Context, Effect, Layer, Match, Option, Predicate, Schema } from "effect
 import { WorkflowInvocationUnauthorized } from "effect-zero-workflow/contract/transport";
 import type { AnyWorkflowContract } from "effect-zero-workflow/contract";
 import type { EffectivePrincipal } from "sheet-auth/identity";
-import { BotTextPart, type SheetBotHttpClient } from "sheet-bot-api";
+import { BotDependencyUnavailable, BotTextPart, type SheetBotHttpClient } from "sheet-bot-api";
 import {
   AuthorizationLoadWorkspaceCapabilities,
   CheckinsRespond,
   RoomOrdersNavigate,
   RoomOrdersPinTentative,
   RoomOrdersSend,
+  ServicesDeliverStatus,
   SlotsOpen,
   type SheetWorkflowAuthorizationPolicyMetadata,
   WorkspaceId,
@@ -592,6 +593,35 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
       (principal, input) =>
         authorizeRoomOrderSendShape(principal, input, RoomOrdersPinTentative.authorizationPolicy);
 
+    const authorizeApplicationOwner = (principal: EffectivePrincipal) =>
+      Match.type<EffectivePrincipal>().pipe(
+        Match.discriminatorsExhaustive("kind")({
+          service: () => Effect.fail(unauthorized()),
+          user: ({ discordAccount }) =>
+            Predicate.isUndefined(discordAccount)
+              ? Effect.fail(unauthorized())
+              : bot
+                  .get()
+                  .cache.getApplication({ params: client })
+                  .pipe(
+                    Effect.timeout("30 seconds"),
+                    Effect.catchTag("BotResourceNotFound", () => Effect.fail(unauthorized())),
+                    Effect.catchTag("TimeoutError", () =>
+                      Effect.fail(
+                        new BotDependencyUnavailable({
+                          message: "Bot application cache lookup timed out",
+                        }),
+                      ),
+                    ),
+                    Effect.filterOrFail(
+                      ({ ownerId }) => ownerId === discordAccount.accountId,
+                      unauthorized,
+                    ),
+                    Effect.asVoid,
+                  ),
+        }),
+      )(principal);
+
     // fallow-ignore-next-line complexity
     const authorize: ReadOnlyWorkflowAuthorizationShape["authorize"] = (
       contract,
@@ -615,6 +645,9 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
       }
       if (contract.identity === RoomOrdersPinTentative.identity) {
         return authorizeRoomOrdersPinTentative(principal, input).pipe(Effect.asVoid);
+      }
+      if (contract.identity === ServicesDeliverStatus.identity) {
+        return authorizeApplicationOwner(principal);
       }
       if (isForbiddenEmptyWorkspacePolicy(contract.identity, policy)) {
         return Effect.fail(unauthorized());

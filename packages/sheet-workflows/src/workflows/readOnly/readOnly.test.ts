@@ -1,4 +1,15 @@
-import { Cause, ConfigProvider, Effect, Exit, Layer, Option, Schema } from "effect";
+import {
+  Cause,
+  ConfigProvider,
+  Deferred,
+  Effect,
+  Exit,
+  Fiber,
+  Layer,
+  Option,
+  Schema,
+} from "effect";
+import { TestClock } from "effect/testing";
 import { describe, expect, it } from "@effect/vitest";
 import { workflowContractKey } from "effect-zero-workflow/contract";
 import {
@@ -24,6 +35,7 @@ import {
   RoomOrdersPinTentative,
   RoomOrdersSend,
   SchedulesDeliverUserSchedule,
+  ServicesDeliverStatus,
   TeamsDeliverList,
   WorkspaceId,
 } from "sheet-workflow-contracts";
@@ -688,6 +700,116 @@ describe("read-only Sheet Workflow Definition slice", () => {
           value: { _tag: "BotDependencyUnavailable" },
         });
       }
+    }),
+  );
+
+  it.effect("authorizes service status only for the configured application owner", () =>
+    Effect.gen(function* () {
+      const applicationRequests: Array<unknown> = [];
+      const ownerAuthorization = yield* authorizationWithBot(
+        makeAuthorizationBotClient(
+          () => Effect.die("system authorization must not read workspace membership"),
+          "0",
+          (request) => {
+            applicationRequests.push(request);
+            return Effect.succeed({ ownerId: accountId });
+          },
+        ),
+      );
+      yield* ownerAuthorization.authorize(ServicesDeliverStatus, principal, {
+        responseReference: "forged-authority",
+      });
+      expect(applicationRequests).toEqual([
+        { params: { platform: "discord", clientId: "discord-main" } },
+      ]);
+
+      const candidates = [
+        {
+          authorization: yield* authorizationWithBot(
+            makeAuthorizationBotClient(
+              () => Effect.die("unused"),
+              "0",
+              () => Effect.succeed({ ownerId: "another-account" }),
+            ),
+          ),
+          principal,
+        },
+        {
+          authorization: ownerAuthorization,
+          principal: Schema.decodeUnknownSync(EffectivePrincipal)({
+            kind: "user",
+            userId: "unlinked-user",
+          }),
+        },
+        {
+          authorization: ownerAuthorization,
+          principal: Schema.decodeUnknownSync(EffectivePrincipal)({
+            kind: "service",
+            serviceId: "sheet-bot",
+            oauthClientId: "sheet-bot",
+          }),
+        },
+        {
+          authorization: yield* authorizationWithBot(
+            makeAuthorizationBotClient(
+              () => Effect.die("unused"),
+              "0",
+              () =>
+                Effect.fail(
+                  new BotResourceNotFound({
+                    resource: "application",
+                    message: "configured client is missing",
+                  }),
+                ),
+            ),
+          ),
+          principal,
+        },
+      ];
+      for (const candidate of candidates) {
+        const exit = yield* Effect.exit(
+          candidate.authorization.authorize(ServicesDeliverStatus, candidate.principal, {}),
+        );
+        expect(Exit.isFailure(exit)).toBe(true);
+        if (Exit.isFailure(exit)) {
+          expect(Option.getOrThrow(Cause.findErrorOption(exit.cause))).toMatchObject({
+            _tag: "WorkflowInvocationUnauthorized",
+          });
+        }
+      }
+
+      const dependencyFailure = new BotDependencyUnavailable({
+        message: "private cache dependency detail",
+      });
+      const unavailableAuthorization = yield* authorizationWithBot(
+        makeAuthorizationBotClient(
+          () => Effect.die("unused"),
+          "0",
+          () => Effect.fail(dependencyFailure),
+        ),
+      );
+      expect(
+        yield* Effect.flip(
+          unavailableAuthorization.authorize(ServicesDeliverStatus, principal, {}),
+        ),
+      ).toBe(dependencyFailure);
+
+      const lookupStarted = yield* Deferred.make<void>();
+      const timeoutAuthorization = yield* authorizationWithBot(
+        makeAuthorizationBotClient(
+          () => Effect.die("unused"),
+          "0",
+          () => Deferred.succeed(lookupStarted, undefined).pipe(Effect.andThen(Effect.never)),
+        ),
+      );
+      const timeoutFiber = yield* timeoutAuthorization
+        .authorize(ServicesDeliverStatus, principal, {})
+        .pipe(Effect.forkChild({ startImmediately: true }));
+      yield* Deferred.await(lookupStarted);
+      yield* TestClock.adjust("30 seconds");
+      expect(yield* Effect.flip(Fiber.join(timeoutFiber))).toEqual(
+        new BotDependencyUnavailable({ message: "Bot application cache lookup timed out" }),
+      );
     }),
   );
 
