@@ -29,6 +29,10 @@ export const config = {
     Config.withDefault("sheet-bot.gateway"),
   ),
   sheetBotGatewayOAuthClientId: Config.schema(nonEmptyString, "SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID"),
+  sheetAutoRoleCleanupServiceId: Config.schema(
+    nonEmptyString,
+    "SHEET_AUTO_ROLE_CLEANUP_SERVICE_ID",
+  ).pipe(Config.withDefault("auto-role-cleanup")),
   sheetAuthOAuthAudience: Config.string("SHEET_AUTH_OAUTH_AUDIENCE").pipe(
     Config.withDefault("sheet-workflows"),
   ),

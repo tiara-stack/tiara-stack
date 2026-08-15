@@ -189,6 +189,7 @@ describe("Workflow Contract server validation", () => {
       type TestContext = WorkflowInvocationContext<string, { readonly source: string }>;
       let enqueueCount = 0;
       let actorProvenance: { readonly source: string } | undefined;
+      let acceptedAt: number | undefined;
       const observedOwners: Array<string> = [];
       const listedOwners: Array<string> = [];
       const store: WorkflowInvocationStore<string, never, { readonly source: string }> = {
@@ -196,6 +197,7 @@ describe("Workflow Contract server validation", () => {
           Effect.sync(() => {
             enqueueCount += 1;
             actorProvenance = invocation.actorProvenance;
+            acceptedAt = invocation.acceptedAt;
             return invocation.fingerprint;
           }),
         get: (ownerKey) =>
@@ -266,6 +268,7 @@ describe("Workflow Contract server validation", () => {
 
       expect(enqueueCount).toBe(1);
       expect(actorProvenance).toEqual({ source: "contract-server-test" });
+      expect(acceptedAt).toEqual(expect.any(Number));
       expect(observedOwners).toEqual(["owner-b"]);
       expect(listedOwners).toEqual(["owner-c"]);
     }),

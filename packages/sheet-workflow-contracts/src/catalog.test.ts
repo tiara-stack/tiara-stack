@@ -4,6 +4,7 @@ import {
   SchedulesDeliverUserSchedule,
   SheetWorkflowContractCatalog,
   SheetWorkflowContracts,
+  MembersKick,
   RoomOrdersNavigate,
   RoomOrdersPinTentative,
   RoomOrdersSend,
@@ -172,6 +173,31 @@ describe("sheet Workflow Contract catalog", () => {
       revalidateBeforeEffects: true,
     });
     expect(RoomOrdersPinTentative.authorizationPolicy).not.toHaveProperty("serviceRule");
+  });
+
+  it("keeps member cleanup wire-v1 compatible with autonomous invocations", () => {
+    expect(
+      Schema.decodeUnknownSync(MembersKick.input)({
+        workspaceId: "workspace-1",
+        conversationId: "conversation-1",
+        hour: 4,
+      }),
+    ).toEqual({
+      workspaceId: "workspace-1",
+      conversationId: "conversation-1",
+      hour: 4,
+    });
+    expect(
+      Schema.decodeUnknownSync(MembersKick.input)({
+        workspaceId: "workspace-1",
+        responseReference: "response-1",
+        conversationName: "alpha",
+      }),
+    ).toEqual({
+      workspaceId: "workspace-1",
+      responseReference: "response-1",
+      conversationName: "alpha",
+    });
   });
 
   it("exposes explicit grouped declarations without a generic name dispatcher", () => {

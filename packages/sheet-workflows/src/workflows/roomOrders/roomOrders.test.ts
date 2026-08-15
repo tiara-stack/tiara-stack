@@ -708,6 +708,7 @@ describe("room-order navigation Workflow Definition slice", () => {
             ConfigProvider.fromUnknown({
               sheetBotClientId: context.clientId,
               SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID: "sheet-bot-client",
+              SHEET_AUTH_OAUTH_CLIENT_ID: "sheet-auto-role-cleanup",
             }),
           ),
         ),

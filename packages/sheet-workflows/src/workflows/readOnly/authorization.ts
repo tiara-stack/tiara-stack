@@ -7,6 +7,7 @@ import {
   AuthorizationLoadWorkspaceCapabilities,
   AnnouncementsDeliverUpdate,
   CheckinsRespond,
+  MembersKick,
   RoomOrdersNavigate,
   RoomOrdersPinTentative,
   RoomOrdersSend,
@@ -312,10 +313,18 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
   Effect.gen(function* () {
     const bot = yield* SheetBotCacheClient;
     const persistence = yield* TrustedSheetPersistence;
-    const { clientId, gatewayServiceId, gatewayOAuthClientId } = yield* Effect.all({
+    const {
+      clientId,
+      gatewayServiceId,
+      gatewayOAuthClientId,
+      autoRoleCleanupServiceId,
+      autoRoleCleanupOAuthClientId,
+    } = yield* Effect.all({
       clientId: config.sheetBotClientId,
       gatewayServiceId: config.sheetBotGatewayServiceId,
       gatewayOAuthClientId: config.sheetBotGatewayOAuthClientId,
+      autoRoleCleanupServiceId: config.sheetAutoRoleCleanupServiceId,
+      autoRoleCleanupOAuthClientId: config.sheetAuthOAuthClientId,
     });
     const client = { platform: "discord", clientId } as const;
 
@@ -682,6 +691,31 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
       )(principal);
     };
 
+    const authorizeMemberKick = (
+      principal: EffectivePrincipal,
+      input: unknown,
+      policy: SheetWorkflowAuthorizationPolicyMetadata,
+    ) => {
+      const workspaceId = stringFieldFromInput(input, policy.resourceField ?? "workspaceId");
+      if (policy.serviceRule !== "auto-role-cleanup" || Predicate.isUndefined(workspaceId)) {
+        return Effect.fail(unauthorized());
+      }
+      return Match.type<EffectivePrincipal>().pipe(
+        Match.discriminatorsExhaustive("kind")({
+          service: (servicePrincipal) =>
+            servicePrincipal.serviceId === autoRoleCleanupServiceId &&
+            servicePrincipal.oauthClientId === autoRoleCleanupOAuthClientId
+              ? Effect.void
+              : Effect.fail(unauthorized()),
+          user: () =>
+            workspaceCapabilities(principal, workspaceId).pipe(
+              Effect.filterOrFail(({ monitor }) => monitor, unauthorized),
+              Effect.asVoid,
+            ),
+        }),
+      )(principal);
+    };
+
     // fallow-ignore-next-line complexity
     const authorize: ReadOnlyWorkflowAuthorizationShape["authorize"] = (
       contract,
@@ -708,6 +742,9 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
       }
       if (contract.identity === ServicesDeliverStatus.identity) {
         return authorizeApplicationOwner(principal);
+      }
+      if (contract.identity === MembersKick.identity) {
+        return authorizeMemberKick(principal, input, policy);
       }
       if (contract.identity === WorkspacesDeliverWelcome.identity) {
         return authorizeSheetBotGateway(principal, input, policy);

@@ -31,6 +31,7 @@ import {
   DataAcquisitionDeclaredFailure,
   DiscordLoadProfile,
   DiscordLoadWorkspaceChannels,
+  MembersKick,
   RoomOrdersNavigate,
   RoomOrdersPinTentative,
   RoomOrdersSend,
@@ -154,6 +155,7 @@ const authorizationWithBot = (
       ConfigProvider.layer(
         ConfigProvider.fromUnknown({
           SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID: "sheet-bot-client",
+          SHEET_AUTH_OAUTH_CLIENT_ID: "sheet-auto-role-cleanup",
         }),
       ),
     ),
@@ -449,6 +451,48 @@ describe("read-only Sheet Workflow Definition slice", () => {
             message: "Workflow invocation is unauthorized",
           });
         }
+      }
+    }),
+  );
+
+  it.effect("authorizes member cleanup only for workspace monitors or the configured service", () =>
+    Effect.gen(function* () {
+      const authorization = yield* authorizationWithBot(
+        makeAuthorizationBotClient(() =>
+          Effect.succeed({ userId: accountId, roleIds: ["member-role"] }),
+        ),
+        [
+          {
+            workspaceId: "workspace-1",
+            roleId: "member-role",
+            createdAt: 1,
+            updatedAt: 1,
+            deletedAt: null,
+          },
+        ],
+      );
+      const service = Schema.decodeUnknownSync(EffectivePrincipal)({
+        kind: "service",
+        serviceId: "auto-role-cleanup",
+        oauthClientId: "sheet-auto-role-cleanup",
+      });
+      const wrongService = Schema.decodeUnknownSync(EffectivePrincipal)({
+        kind: "service",
+        serviceId: "auto-role-cleanup",
+        oauthClientId: "wrong-client",
+      });
+
+      yield* authorization.authorize(MembersKick, principal, { workspaceId: "workspace-1" });
+      yield* authorization.authorize(MembersKick, service, { workspaceId: "workspace-1" });
+      const denied = yield* Effect.exit(
+        authorization.authorize(MembersKick, wrongService, { workspaceId: "workspace-1" }),
+      );
+
+      expect(Exit.isFailure(denied)).toBe(true);
+      if (Exit.isFailure(denied)) {
+        expect(Option.getOrThrow(Cause.findErrorOption(denied.cause))).toMatchObject({
+          _tag: "WorkflowInvocationUnauthorized",
+        });
       }
     }),
   );

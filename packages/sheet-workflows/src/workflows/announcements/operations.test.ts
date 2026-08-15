@@ -248,6 +248,7 @@ const makeHarness = (options: HarnessOptions = {}) => {
 const gatewayEnvironment = {
   SHEET_BOT_GATEWAY_SERVICE_ID: principal.serviceId,
   SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID: principal.oauthClientId,
+  SHEET_AUTH_OAUTH_CLIENT_ID: "sheet-auto-role-cleanup",
 };
 
 const authorizeWithPolicy = (

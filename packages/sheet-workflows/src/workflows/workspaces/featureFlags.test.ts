@@ -724,6 +724,7 @@ describe("workspace feature-flag Workflow Definition slice", () => {
       const environment = {
         SHEET_BOT_GATEWAY_SERVICE_ID: "sheet-bot.gateway",
         SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID: "sheet-bot-client",
+        SHEET_AUTH_OAUTH_CLIENT_ID: "sheet-auto-role-cleanup",
       };
       const authorizeWith = (
         principal: typeof EffectivePrincipal.Type,

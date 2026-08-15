@@ -299,7 +299,7 @@ export type SlotsOpenSuccess = Schema.Schema.Type<typeof SlotsOpenSuccess>;
 
 export const MembersKickInput = Schema.Struct({
   ...WorkspaceFields,
-  ...ResponseFields,
+  responseReference: Schema.optional(ResponseReference),
   conversationId: Schema.optional(Schema.String),
   conversationName: Schema.optional(Schema.String),
   hour: Schema.optional(Schema.Number),

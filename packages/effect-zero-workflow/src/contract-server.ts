@@ -143,6 +143,12 @@ export interface AcceptedWorkflowInvocation<Principal = unknown, Provenance = un
   readonly ownerKey: string;
   readonly principal: Principal;
   readonly actorProvenance?: Provenance | undefined;
+  /**
+   * The transport acceptance time. It travels only in the private execution
+   * payload so definitions can freeze enqueue-time business decisions without
+   * exposing transport metadata in a public Workflow Contract.
+   */
+  readonly acceptedAt?: number | undefined;
   readonly input: typeof ReadonlyJSONValue.Type;
 }
 
@@ -158,6 +164,7 @@ export interface WorkflowContractExecutionPayload<Principal = unknown, Provenanc
   readonly input: typeof ReadonlyJSONValue.Type;
   readonly principal: Principal;
   readonly actorProvenance?: Provenance | undefined;
+  readonly acceptedAt?: number | undefined;
 }
 
 export const workflowContractExecutionPayload = <Principal, Provenance>(
@@ -166,6 +173,7 @@ export const workflowContractExecutionPayload = <Principal, Provenance>(
   invocationId: invocation.fingerprint.invocationId,
   input: invocation.input,
   principal: invocation.principal,
+  ...(Predicate.isUndefined(invocation.acceptedAt) ? {} : { acceptedAt: invocation.acceptedAt }),
   ...(Predicate.isUndefined(invocation.actorProvenance)
     ? {}
     : { actorProvenance: invocation.actorProvenance }),
@@ -477,6 +485,7 @@ export const makeWorkflowTransportHandler = <
           );
           yield* registration.authorize(context, input);
           const canonical = yield* canonicalWorkflowContractInput(contract, input);
+          const acceptedAt = yield* Effect.clockWith((clock) => clock.currentTimeMillis);
           const requested: WorkflowInvocationFingerprint = {
             invocationId: request.invocationId,
             contractIdentity: contract.identity,
@@ -490,6 +499,7 @@ export const makeWorkflowTransportHandler = <
             ownerKey: context.ownerKey,
             principal: context.principal,
             actorProvenance: context.actorProvenance,
+            acceptedAt,
             input: canonical.encoded,
           });
           yield* validateInvocationReuse(accepted, requested);

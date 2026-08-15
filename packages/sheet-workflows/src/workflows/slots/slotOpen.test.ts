@@ -172,6 +172,7 @@ const makeAuthorization = (options: {
         ConfigProvider.fromUnknown({
           sheetBotClientId: slotContext.clientId,
           SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID: "sheet-bot-client",
+          SHEET_AUTH_OAUTH_CLIENT_ID: "sheet-auto-role-cleanup",
         }),
       ),
     ),
