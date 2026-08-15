@@ -62,6 +62,10 @@ import {
   workspaceFeatureFlagWorkflowOperationsLayer,
   workspaceWelcomeWorkflowOperationsLayer,
 } from "@/workflows/workspaces";
+import {
+  announcementSheetWorkflowLayers,
+  updateAnnouncementWorkflowOperationsLayer,
+} from "@/workflows/announcements";
 import { checkinSheetWorkflowLayers, checkinWorkflowOperationsLayer } from "@/workflows/checkins";
 import { roomOrderCreateProviderLayer } from "@/workflows/roomOrders/createProvider";
 import {
@@ -185,6 +189,7 @@ const workflowDefinitionServicesLayer = Layer.mergeAll(
   serviceStatusWorkflowOperationsLayer,
   workspaceWelcomeWorkflowOperationsLayer,
   workspaceFeatureFlagWorkflowOperationsLayer,
+  updateAnnouncementWorkflowOperationsLayer.pipe(Layer.provide(readOnlyWorkflowAuthorizationLayer)),
 ).pipe(Layer.provideMerge(dispatchClientsLayer), Layer.provideMerge(trustedSheetPersistenceLayer));
 
 const dispatchServicesLayer = Layer.effect(DispatchService, DispatchService.make).pipe(
@@ -207,6 +212,7 @@ const clusterLayer = Layer.mergeAll(
   roomOrderSheetWorkflowLayers,
   serviceSheetWorkflowLayers,
   workspaceSheetWorkflowLayers,
+  announcementSheetWorkflowLayers,
   selectedSheetWorkflowRegistrationValidationLayer,
   clusterStartupLayer,
 ).pipe(

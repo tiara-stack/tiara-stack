@@ -118,13 +118,14 @@ const appendConversationPage = <E>(
         { concurrency: 1, discard: true },
       );
 
-export const loadWorkspaceConversations = <E>(options: {
+export const loadWorkspaceConversations = <E, EBefore = never, RBefore = never>(options: {
   readonly cache: SheetBotHttpClient["cache"];
   readonly client: DiscordClient;
   readonly workspaceId: string;
   readonly policy: string;
   readonly operation: string;
   readonly operationError: (operation: string, cause: unknown) => E;
+  readonly beforeRead?: () => Effect.Effect<void, EBefore, RBefore>;
 }) =>
   Effect.gen(function* () {
     const conversations: Array<BotConversation> = [];
@@ -142,6 +143,7 @@ export const loadWorkspaceConversations = <E>(options: {
         );
       }
       pageReadCount += 1;
+      if (Predicate.isNotUndefined(options.beforeRead)) yield* options.beforeRead();
       const page = yield* readConversationPage(
         options.cache,
         options.client,

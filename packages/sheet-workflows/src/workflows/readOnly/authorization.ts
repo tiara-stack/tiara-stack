@@ -5,6 +5,7 @@ import type { EffectivePrincipal } from "sheet-auth/identity";
 import { BotDependencyUnavailable, BotTextPart, type SheetBotHttpClient } from "sheet-bot-api";
 import {
   AuthorizationLoadWorkspaceCapabilities,
+  AnnouncementsDeliverUpdate,
   CheckinsRespond,
   RoomOrdersNavigate,
   RoomOrdersPinTentative,
@@ -709,6 +710,9 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
         return authorizeApplicationOwner(principal);
       }
       if (contract.identity === WorkspacesDeliverWelcome.identity) {
+        return authorizeSheetBotGateway(principal, input, policy);
+      }
+      if (contract.identity === AnnouncementsDeliverUpdate.identity) {
         return authorizeSheetBotGateway(principal, input, policy);
       }
       if (contract.identity === WorkspacesFeatureFlagsSetAndDeliver.identity) {
