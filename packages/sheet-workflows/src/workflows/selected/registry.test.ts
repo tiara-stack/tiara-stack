@@ -31,10 +31,10 @@ describe("selected Sheet Workflow registry", () => {
       ...ServiceSheetWorkflowContracts,
       ...WorkspaceSheetWorkflowContracts,
     ]);
-    expect(SelectedSheetWorkflowContracts).toHaveLength(26);
+    expect(SelectedSheetWorkflowContracts).toHaveLength(27);
     const groups = makeSelectedSheetWorkflowZeroGroups(() => Promise.resolve());
     expect(groups).toHaveLength(SelectedSheetWorkflowContracts.length);
-    expect(groups.flatMap(({ endpoints }) => Object.keys(endpoints))).toHaveLength(78);
+    expect(groups.flatMap(({ endpoints }) => Object.keys(endpoints))).toHaveLength(81);
     expect(groups.map(({ identifier }) => identifier)).toEqual(
       SelectedSheetWorkflowContracts.map(workflowContractZeroGroupIdentifier),
     );

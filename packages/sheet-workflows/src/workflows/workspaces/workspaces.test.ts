@@ -161,7 +161,7 @@ const definition = makeWorkspacesDeliverWelcomeDefinition();
 const registration = WorkspaceSheetWorkflowRegistrations[0]!;
 
 describe("workspace-welcome Workflow Definition slice", () => {
-  it("registers exactly one pinned autonomous v1 two-action graph", () => {
+  it("registers the pinned autonomous v1 two-action graph", () => {
     expect(definition.contract).toBe(WorkspacesDeliverWelcome);
     expect(definition.workflow.name).toBe(workflowContractKey(WorkspacesDeliverWelcome));
     expect(definition.actions.map(({ workflow, version }) => [workflow.name, version])).toEqual([
@@ -169,7 +169,7 @@ describe("workspace-welcome Workflow Definition slice", () => {
       ["workspaces.deliverWelcome.deliver-workspace-welcome", "1"],
     ]);
     expect(WorkspacesDeliverWelcome.declaredFailure).toBe(AutonomousDeclaredFailure);
-    expect(WorkspaceSheetWorkflowRegistrations).toHaveLength(1);
+    expect(WorkspaceSheetWorkflowRegistrations).toHaveLength(2);
     expect(registration.definitionVersion).toBe("1");
     expect(WorkspacesDeliverWelcome.authorizationPolicy).toMatchObject({
       version: "1",
@@ -343,6 +343,14 @@ describe("workspace-welcome Workflow Definition slice", () => {
   it.effect("fails closed for cursor cycles and inconsistent cache pages", () =>
     Effect.gen(function* () {
       for (const pages of [
+        [
+          {
+            items: Array.from({ length: 101 }, (_, index) => ({
+              id: `oversized-${index}`,
+              type: 0,
+            })),
+          },
+        ],
         [
           { items: [{ id: "one", type: 0 }], nextCursor },
           { items: [{ id: "two", type: 0 }], nextCursor },

@@ -1,12 +1,24 @@
 import { Layer } from "effect";
 import { actionContextSqlLayer } from "effect-zero-workflow";
+import { makeWorkspaceFeatureFlagEntityLayer } from "@/entities/workspaceFeatureFlag";
 import { makeWorkspacesDeliverWelcomeDefinition } from "./definition";
+import {
+  makeWorkspacesFeatureFlagsSetAndDeliverDefinition,
+  SetWorkspaceFeatureFlagAction,
+} from "./featureFlagDefinition";
 
 const WorkspacesDeliverWelcomeDefinition = makeWorkspacesDeliverWelcomeDefinition();
+const WorkspacesFeatureFlagsSetAndDeliverDefinition =
+  makeWorkspacesFeatureFlagsSetAndDeliverDefinition();
 
 const WorkspaceSheetWorkflowDefinitions = Object.freeze([
   WorkspacesDeliverWelcomeDefinition,
+  WorkspacesFeatureFlagsSetAndDeliverDefinition,
 ] as const);
+
+const workspaceFeatureFlagEntityLayer = makeWorkspaceFeatureFlagEntityLayer({
+  set: ({ payload }) => SetWorkspaceFeatureFlagAction.await(payload),
+});
 
 const layerList = [
   Layer.empty,
@@ -14,6 +26,7 @@ const layerList = [
     ...actions.map((action) => action.toLayer()),
     workflowLayer,
   ]),
+  workspaceFeatureFlagEntityLayer,
 ] as const;
 
 export const workspaceSheetWorkflowLayers = Layer.mergeAll(...layerList).pipe(

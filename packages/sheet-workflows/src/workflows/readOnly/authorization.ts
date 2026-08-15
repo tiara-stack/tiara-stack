@@ -12,6 +12,7 @@ import {
   ServicesDeliverStatus,
   SlotsOpen,
   WorkspacesDeliverWelcome,
+  WorkspacesFeatureFlagsSetAndDeliver,
   type SheetWorkflowAuthorizationPolicyMetadata,
   WorkspaceId,
 } from "sheet-workflow-contracts";
@@ -627,17 +628,13 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
         }),
       )(principal);
 
-    const authorizeSheetBotGateway = (
+    const authorizeConfiguredSheetBotGateway = (
       principal: EffectivePrincipal,
       input: unknown,
       policy: SheetWorkflowAuthorizationPolicyMetadata,
     ) => {
       const workspaceId = stringFieldFromInput(input, policy.resourceField ?? "workspaceId");
-      if (
-        policy.serviceRule !== "sheet-bot.gateway" ||
-        !policy.requiredCapabilities.includes("service.allowed") ||
-        Predicate.isUndefined(workspaceId)
-      ) {
+      if (policy.serviceRule !== "sheet-bot.gateway" || Predicate.isUndefined(workspaceId)) {
         return Effect.fail(unauthorized());
       }
       return Match.type<EffectivePrincipal>().pipe(
@@ -648,6 +645,38 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
             servicePrincipal.oauthClientId === gatewayOAuthClientId
               ? Effect.void
               : Effect.fail(unauthorized()),
+        }),
+      )(principal);
+    };
+
+    const authorizeSheetBotGateway = (
+      principal: EffectivePrincipal,
+      input: unknown,
+      policy: SheetWorkflowAuthorizationPolicyMetadata,
+    ) =>
+      policy.requiredCapabilities.includes("service.allowed")
+        ? authorizeConfiguredSheetBotGateway(principal, input, policy)
+        : Effect.fail(unauthorized());
+
+    const authorizeWorkspaceFeatureFlag = (
+      principal: EffectivePrincipal,
+      input: unknown,
+      policy: SheetWorkflowAuthorizationPolicyMetadata,
+    ) => {
+      const workspaceId = stringFieldFromInput(input, policy.resourceField ?? "workspaceId");
+      if (Predicate.isUndefined(workspaceId)) return Effect.fail(unauthorized());
+      return Match.type<EffectivePrincipal>().pipe(
+        Match.discriminatorsExhaustive("kind")({
+          service: () => authorizeConfiguredSheetBotGateway(principal, input, policy),
+          user: () =>
+            workspaceCapabilities(principal, workspaceId).pipe(
+              Effect.filterOrFail(
+                (capabilities) =>
+                  hasRequiredCapabilities(policy.requiredCapabilities, capabilities),
+                unauthorized,
+              ),
+              Effect.asVoid,
+            ),
         }),
       )(principal);
     };
@@ -681,6 +710,9 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
       }
       if (contract.identity === WorkspacesDeliverWelcome.identity) {
         return authorizeSheetBotGateway(principal, input, policy);
+      }
+      if (contract.identity === WorkspacesFeatureFlagsSetAndDeliver.identity) {
+        return authorizeWorkspaceFeatureFlag(principal, input, policy);
       }
       if (isForbiddenEmptyWorkspacePolicy(contract.identity, policy)) {
         return Effect.fail(unauthorized());

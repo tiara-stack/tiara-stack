@@ -59,6 +59,7 @@ import {
 } from "@/workflows/services";
 import {
   workspaceSheetWorkflowLayers,
+  workspaceFeatureFlagWorkflowOperationsLayer,
   workspaceWelcomeWorkflowOperationsLayer,
 } from "@/workflows/workspaces";
 import { checkinSheetWorkflowLayers, checkinWorkflowOperationsLayer } from "@/workflows/checkins";
@@ -183,6 +184,7 @@ const workflowDefinitionServicesLayer = Layer.mergeAll(
   roomOrderTentativePinOperationsLayer.pipe(Layer.provide(roomOrderNavigationProviderLayer)),
   serviceStatusWorkflowOperationsLayer,
   workspaceWelcomeWorkflowOperationsLayer,
+  workspaceFeatureFlagWorkflowOperationsLayer,
 ).pipe(Layer.provideMerge(dispatchClientsLayer), Layer.provideMerge(trustedSheetPersistenceLayer));
 
 const dispatchServicesLayer = Layer.effect(DispatchService, DispatchService.make).pipe(

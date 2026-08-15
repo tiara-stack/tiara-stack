@@ -2,7 +2,11 @@ import { createHash } from "node:crypto";
 import { Predicate, Schema } from "effect";
 import { InvocationId } from "effect-zero-workflow/contract";
 import { DeliveryKey } from "sheet-bot-api";
-import { WorkspacesDeliverWelcome } from "sheet-workflow-contracts";
+import {
+  FeatureFlagName,
+  WorkspacesDeliverWelcome,
+  WorkspacesFeatureFlagsSetAndDeliver,
+} from "sheet-workflow-contracts";
 import { workspaceSheetWorkflowDefinitionVersion } from "./catalog";
 
 const welcomeDeliveryActionIdentity = "deliver-workspace-welcome";
@@ -16,6 +20,37 @@ export const makeWorkspaceWelcomeDeliveryKey = (
 
 export const makeWorkspaceWelcomeSerializationKey = (clientId: string, workspaceId: string) =>
   JSON.stringify(["discord", clientId, workspaceId]);
+
+export const normalizeWorkspaceFeatureFlagName = (flagName: string): typeof FeatureFlagName.Type =>
+  Schema.decodeUnknownSync(FeatureFlagName)(flagName.trim());
+
+export const makeWorkspaceFeatureFlagSerializationKey = (
+  clientId: string,
+  workspaceId: string,
+  flagName: string,
+) =>
+  JSON.stringify(["discord", clientId, workspaceId, normalizeWorkspaceFeatureFlagName(flagName)]);
+
+export const makeWorkspaceFeatureFlagCommittedReference = (
+  clientId: string,
+  workspaceId: string,
+  flagName: string,
+) =>
+  JSON.stringify([
+    "workspace-feature-flag",
+    "discord",
+    clientId,
+    workspaceId,
+    normalizeWorkspaceFeatureFlagName(flagName),
+  ]);
+
+export const makeWorkspaceFeatureFlagDeliveryKey = (
+  invocationId: typeof InvocationId.Type,
+  actionIdentity: "deliver-feature-flag-response" | "deliver-feature-flag-announcement",
+): typeof DeliveryKey.Type =>
+  Schema.decodeUnknownSync(DeliveryKey)(
+    `${WorkspacesFeatureFlagsSetAndDeliver.identity}:${workspaceSheetWorkflowDefinitionVersion}:${invocationId}:${actionIdentity}`,
+  );
 
 const uuidFromStableIdentity = (identity: string): typeof InvocationId.Type => {
   const bytes = createHash("sha256").update(identity).digest().subarray(0, 16);
