@@ -398,6 +398,9 @@
         "sheetWorkflowsRunner": {
           "$ref": "#/definitions/appService"
         },
+        "sheetWorkflowsBrowserRunner": {
+          "$ref": "#/definitions/appService"
+        },
         "sheetDbServer": {
           "$ref": "#/definitions/appService"
         },

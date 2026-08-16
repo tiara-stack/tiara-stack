@@ -1,7 +1,12 @@
 import { fileURLToPath } from "url";
 import { app } from "tooling-config/vite";
 
-const alwaysBundleDependencies = () => true;
+const browserRuntimeDependencies = ["playwright", "playwright-core"] as const;
+const isBrowserRuntimeDependency = (id: string) =>
+  browserRuntimeDependencies.some(
+    (dependency) => id === dependency || id.startsWith(`${dependency}/`),
+  );
+const alwaysBundleDependencies = (id: string) => !isBrowserRuntimeDependency(id);
 
 export default app({
   resolve: {

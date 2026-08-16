@@ -81,8 +81,21 @@ import {
   roomOrderSendOperationsLayer,
   roomOrderSheetWorkflowLayers,
 } from "@/workflows/roomOrders";
+import {
+  screenshotBrowserLayer,
+  screenshotBrowserWorkflowLayers,
+  screenshotCaptureOperationsLayer,
+  screenshotOrdinaryWorkflowLayers,
+  screenshotSourceOperationsLayer,
+  screenshotSourceProviderLayer,
+} from "@/workflows/screenshots";
 
-const shardGroups = ["dispatch", "autoCheckin"] as const;
+const availableSheetWorkflowShardGroups = ["dispatch", "autoCheckin", "browser"] as const;
+
+export const assignedSheetWorkflowShardGroups = (
+  role: "combined" | "api" | "runner" | "browser-runner",
+): ReadonlyArray<(typeof availableSheetWorkflowShardGroups)[number]> =>
+  role === "browser-runner" ? ["browser"] : ["dispatch", "autoCheckin"];
 
 const configuredRunnerAddress = Effect.gen(function* () {
   const runnerHost = yield* config.workflowsRunnerHost;
@@ -95,12 +108,13 @@ export const shardingConfigLayer = Layer.unwrap(
     const runnerAddress = yield* configuredRunnerAddress;
     const runnerListenHost = yield* config.workflowsRunnerListenHost;
     const runnerListenPort = yield* config.workflowsRunnerListenPort;
+    const role = yield* config.sheetWorkflowsRole;
 
     return ShardingConfig.layer({
       runnerAddress: Option.some(runnerAddress),
       runnerListenAddress: Option.some(RunnerAddress.make(runnerListenHost, runnerListenPort)),
-      assignedShardGroups: shardGroups,
-      availableShardGroups: shardGroups,
+      assignedShardGroups: assignedSheetWorkflowShardGroups(role),
+      availableShardGroups: availableSheetWorkflowShardGroups,
       shardsPerGroup: 300,
       // Production PostgreSQL can sit behind a managed connection pool. Session-level
       // advisory locks can then outlive a runner connection and strand its shards.
@@ -199,7 +213,18 @@ const workflowDefinitionServicesLayer = Layer.mergeAll(
     Layer.provide(memberKickProviderLayer),
     Layer.provide(readOnlyWorkflowAuthorizationLayer),
   ),
+  screenshotSourceOperationsLayer.pipe(
+    Layer.provide(screenshotSourceProviderLayer),
+    Layer.provide(readOnlyWorkflowAuthorizationLayer),
+  ),
 ).pipe(Layer.provideMerge(dispatchClientsLayer), Layer.provideMerge(trustedSheetPersistenceLayer));
+
+const browserWorkflowDefinitionServicesLayer = screenshotCaptureOperationsLayer.pipe(
+  Layer.provide(screenshotBrowserLayer),
+  Layer.provide(readOnlyWorkflowAuthorizationLayer),
+  Layer.provideMerge(dispatchClientsLayer),
+  Layer.provideMerge(trustedSheetPersistenceLayer),
+);
 
 const dispatchServicesLayer = Layer.effect(DispatchService, DispatchService.make).pipe(
   Layer.provideMerge(dispatchClientsLayer),
@@ -223,12 +248,22 @@ const clusterLayer = Layer.mergeAll(
   workspaceSheetWorkflowLayers,
   announcementSheetWorkflowLayers,
   memberSheetWorkflowLayers,
+  screenshotOrdinaryWorkflowLayers,
   selectedSheetWorkflowRegistrationValidationLayer,
   clusterStartupLayer,
 ).pipe(
   Layer.provide(AutoCheckinService.layer),
   Layer.provide(dispatchServicesLayer),
   Layer.provide(workflowDefinitionServicesLayer),
+  Layer.provideMerge(workflowsRunnerLayer),
+  Layer.provide(postgresSqlLayer),
+);
+
+const browserClusterLayer = Layer.mergeAll(
+  screenshotBrowserWorkflowLayers,
+  clusterStartupLayer,
+).pipe(
+  Layer.provide(browserWorkflowDefinitionServicesLayer),
   Layer.provideMerge(workflowsRunnerLayer),
   Layer.provide(postgresSqlLayer),
 );
@@ -244,3 +279,7 @@ const clusterHttpServerLayer = Layer.unwrap(
 export const clusterHttpLayer = HttpRouter.serve(
   clusterLayer.pipe(Layer.provideMerge(HttpRouter.layer)),
 ).pipe(Layer.provide(clusterHttpServerLayer), Layer.withSpan("sheet-workflows.clusterHttp"));
+
+export const browserClusterHttpLayer = HttpRouter.serve(
+  browserClusterLayer.pipe(Layer.provideMerge(HttpRouter.layer)),
+).pipe(Layer.provide(clusterHttpServerLayer), Layer.withSpan("sheet-workflows.browserClusterHttp"));

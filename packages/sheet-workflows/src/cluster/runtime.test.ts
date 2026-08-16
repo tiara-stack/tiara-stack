@@ -1,7 +1,11 @@
 import { describe, expect, it } from "@effect/vitest";
 import { ConfigProvider, Effect, Option } from "effect";
 import { RunnerAddress, ShardingConfig } from "effect/unstable/cluster";
-import { clientOnlyWorkflowShardingConfig, shardingConfigLayer } from "./runtime";
+import {
+  assignedSheetWorkflowShardGroups,
+  clientOnlyWorkflowShardingConfig,
+  shardingConfigLayer,
+} from "./runtime";
 
 it.effect("uses expiry-aware database shard locks", () =>
   Effect.gen(function* () {
@@ -9,7 +13,8 @@ it.effect("uses expiry-aware database shard locks", () =>
 
     expect(shardingConfig.shardLockDisableAdvisory).toBe(true);
     expect(shardingConfig.shardsPerGroup).toBe(300);
-    expect(shardingConfig.availableShardGroups).toEqual(["dispatch", "autoCheckin"]);
+    expect(shardingConfig.assignedShardGroups).toEqual(["dispatch", "autoCheckin"]);
+    expect(shardingConfig.availableShardGroups).toEqual(["dispatch", "autoCheckin", "browser"]);
   }).pipe(
     Effect.provide(shardingConfigLayer),
     Effect.provide(
@@ -21,6 +26,13 @@ it.effect("uses expiry-aware database shard locks", () =>
     ),
   ),
 );
+
+it("isolates browser capability on the browser-runner shard group", () => {
+  expect(assignedSheetWorkflowShardGroups("runner")).toEqual(["dispatch", "autoCheckin"]);
+  expect(assignedSheetWorkflowShardGroups("api")).toEqual(["dispatch", "autoCheckin"]);
+  expect(assignedSheetWorkflowShardGroups("combined")).toEqual(["dispatch", "autoCheckin"]);
+  expect(assignedSheetWorkflowShardGroups("browser-runner")).toEqual(["browser"]);
+});
 
 describe("clientOnlyWorkflowShardingConfig", () => {
   it("prevents workflow API clients from registering as runners", () => {

@@ -8,6 +8,7 @@ import { PreferencesSheetWorkflowContracts } from "../preferences/catalog";
 import { ReadOnlySheetWorkflowContracts } from "../readOnly/catalog";
 import { RoomOrderSheetWorkflowContracts } from "../roomOrders/catalog";
 import { ScheduleSheetWorkflowContracts } from "../schedules/catalog";
+import { ScreenshotSheetWorkflowContracts } from "../screenshots/catalog";
 import { ServiceSheetWorkflowContracts } from "../services/catalog";
 import { SlotSheetWorkflowContracts } from "../slots/catalog";
 import { TeamSheetWorkflowContracts } from "../teams/catalog";
@@ -34,11 +35,12 @@ describe("selected Sheet Workflow registry", () => {
       ...WorkspaceSheetWorkflowContracts,
       ...AnnouncementSheetWorkflowContracts,
       ...MemberSheetWorkflowContracts,
+      ...ScreenshotSheetWorkflowContracts,
     ]);
-    expect(SelectedSheetWorkflowContracts).toHaveLength(29);
+    expect(SelectedSheetWorkflowContracts).toHaveLength(30);
     const groups = makeSelectedSheetWorkflowZeroGroups(() => Promise.resolve());
     expect(groups).toHaveLength(SelectedSheetWorkflowContracts.length);
-    expect(groups.flatMap(({ endpoints }) => Object.keys(endpoints))).toHaveLength(87);
+    expect(groups.flatMap(({ endpoints }) => Object.keys(endpoints))).toHaveLength(90);
     expect(groups.map(({ identifier }) => identifier)).toEqual(
       SelectedSheetWorkflowContracts.map(workflowContractZeroGroupIdentifier),
     );

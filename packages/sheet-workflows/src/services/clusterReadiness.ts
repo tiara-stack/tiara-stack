@@ -8,7 +8,20 @@ type ClusterReadinessRow = {
 
 const HEARTBEAT_WINDOW_SECONDS = 35;
 const SHARD_LOCK_WINDOW_SECONDS = 35;
-const EXPECTED_SHARD_LOCK_COUNT = 600;
+const SHARD_LOCK_COUNT_PER_WORKFLOW_GROUP = 300;
+const ORDINARY_SHARD_LOCK_COUNT = 2 * SHARD_LOCK_COUNT_PER_WORKFLOW_GROUP;
+const BROWSER_SHARD_LOCK_COUNT = SHARD_LOCK_COUNT_PER_WORKFLOW_GROUP;
+
+const shardLockCountByRole = {
+  api: ORDINARY_SHARD_LOCK_COUNT,
+  "browser-runner": BROWSER_SHARD_LOCK_COUNT,
+  combined: ORDINARY_SHARD_LOCK_COUNT,
+  runner: ORDINARY_SHARD_LOCK_COUNT,
+} satisfies Record<"api" | "browser-runner" | "combined" | "runner", number>;
+
+const expectedCurrentShardLockCount = config.sheetWorkflowsRole.pipe(
+  Effect.map((role) => shardLockCountByRole[role]),
+);
 
 const ClusterRunnerReadinessSnapshotRowSchema = Schema.Struct({
   address: Schema.String,
@@ -35,6 +48,7 @@ const configuredRunnerAddress = Effect.gen(function* () {
 export const isCurrentClusterRunnerReady = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const address = yield* configuredRunnerAddress;
+  const expectedShardLockCount = yield* expectedCurrentShardLockCount;
   const [row] = yield* sql<ClusterReadinessRow>`
     SELECT EXISTS (
       SELECT 1
@@ -53,7 +67,7 @@ export const isCurrentClusterRunnerReady = Effect.gen(function* () {
           FROM "sheet_workflows_locks"
           WHERE "sheet_workflows_locks".address = ${address}
             AND "sheet_workflows_locks".acquired_at > NOW() - (${SHARD_LOCK_WINDOW_SECONDS} * INTERVAL '1 second')
-        ) = ${EXPECTED_SHARD_LOCK_COUNT}
+        ) = ${expectedShardLockCount}
     ) AS ready
   `;
   return row?.ready === true;
@@ -83,8 +97,9 @@ export const isClusterRunnerFleetReady = Effect.gen(function* () {
         AND (
           SELECT COUNT(*)
           FROM "sheet_workflows_locks"
-          WHERE "sheet_workflows_locks".acquired_at > NOW() - (${SHARD_LOCK_WINDOW_SECONDS} * INTERVAL '1 second')
-        ) = ${EXPECTED_SHARD_LOCK_COUNT}
+          WHERE "sheet_workflows_locks".address = runner.address
+            AND "sheet_workflows_locks".acquired_at > NOW() - (${SHARD_LOCK_WINDOW_SECONDS} * INTERVAL '1 second')
+        ) = ${ORDINARY_SHARD_LOCK_COUNT}
     ) AS ready
   `;
   return row?.ready === true;

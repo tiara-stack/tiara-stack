@@ -33,6 +33,7 @@
     "effect": "catalog:",
     "effect-zero-workflow": "workspace:*",
     "google-auth-library": "^10.5.0",
+    "playwright": "1.58.2",
     "sheet-auth": "workspace:*",
     "sheet-bot-api": "workspace:*",
     "sheet-ingress-api": "workspace:*",

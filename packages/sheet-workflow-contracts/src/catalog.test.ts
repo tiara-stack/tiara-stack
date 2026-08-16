@@ -8,6 +8,7 @@ import {
   RoomOrdersNavigate,
   RoomOrdersPinTentative,
   RoomOrdersSend,
+  ScreenshotsCaptureAndDeliver,
   SlotsOpen,
   TeamsDeliverList,
 } from "./catalog";
@@ -57,6 +58,7 @@ const expectedAuthorizationPolicyVersions: Readonly<Record<string, string>> = {
   "roomOrders.send": "2",
   "schedules.deliverUserSchedule": "2",
   "slots.open": "2",
+  "screenshots.captureAndDeliver": "2",
   "teams.deliverList": "2",
 };
 
@@ -173,6 +175,18 @@ describe("sheet Workflow Contract catalog", () => {
       revalidateBeforeEffects: true,
     });
     expect(RoomOrdersPinTentative.authorizationPolicy).not.toHaveProperty("serviceRule");
+  });
+
+  it("publishes user-only workspace-monitor authorization for screenshot delivery", () => {
+    expect(ScreenshotsCaptureAndDeliver.wireVersion).toBe("1");
+    expect(ScreenshotsCaptureAndDeliver.authorizationPolicy).toMatchObject({
+      version: "2",
+      principalKinds: ["user"],
+      requiredCapabilities: ["workspace.monitor"],
+      resource: "workspace",
+      resourceField: "workspaceId",
+      revalidateBeforeEffects: true,
+    });
   });
 
   it("keeps member cleanup wire-v1 compatible with autonomous invocations", () => {

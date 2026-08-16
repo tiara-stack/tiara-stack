@@ -1,3 +1,4 @@
 *
 !Dockerfile
 !dist.tar.zst
+!package.json

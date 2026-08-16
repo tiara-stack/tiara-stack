@@ -8,6 +8,7 @@ import {
   BotCollectionPageRequest,
   BotConversationPage,
   BotDeliveryEndpoints,
+  BotOutboundFile,
   BotOutboundMessage,
   BotPermissionOverwrite,
   ClientRef,
@@ -16,6 +17,7 @@ import {
   ReplaceConversationPermissionOverwritesReceipt,
   ResponseReference,
   RespondReceipt,
+  SemanticFileIdentity,
   SendMessageReceipt,
   SetMemberRoleReceipt,
   SheetBotHttpClientMetadata,
@@ -25,6 +27,9 @@ import {
   type SendMessageInput,
   type SheetBotHttpClient,
   maximumBotCollectionPageSize,
+  maximumBotFileEvidenceByteLength,
+  maximumBotFileEvidenceTextLength,
+  maximumBotOutboundFileCount,
 } from "./index";
 
 const client = { platform: "discord", clientId: "bot-1" } as const;
@@ -140,6 +145,92 @@ describe("sheet-bot operation contracts", () => {
       files: [{ name: "evidence.bin", contentType: "application/octet-stream", content: "AQID" }],
     });
     expect(decoded).not.toHaveProperty("interactionToken");
+  });
+
+  it("rejects outbound files that cannot be represented in delivery evidence", () => {
+    const outboundFileType = Schema.toType(BotOutboundFile);
+    const outboundMessageType = Schema.toType(BotOutboundMessage);
+
+    expect(() =>
+      Schema.decodeUnknownSync(outboundFileType)({
+        name: "x".repeat(maximumBotFileEvidenceTextLength + 1),
+        contentType: "application/octet-stream",
+        content: new Uint8Array(),
+      }),
+    ).toThrow();
+    expect(() =>
+      Schema.decodeUnknownSync(outboundFileType)({
+        name: "evidence.bin",
+        contentType: "x".repeat(maximumBotFileEvidenceTextLength + 1),
+        content: new Uint8Array(),
+      }),
+    ).toThrow();
+    expect(() =>
+      Schema.decodeUnknownSync(outboundFileType)({
+        name: "evidence.bin",
+        contentType: "application/octet-stream",
+        content: new Uint8Array(maximumBotFileEvidenceByteLength + 1),
+      }),
+    ).toThrow();
+    expect(() =>
+      Schema.decodeUnknownSync(outboundMessageType)({
+        files: Array.from({ length: maximumBotOutboundFileCount + 1 }, () => ({
+          name: "evidence.bin",
+          contentType: "application/octet-stream",
+          content: new Uint8Array(),
+        })),
+      }),
+    ).toThrow();
+  }, 15_000);
+
+  it("publishes opt-in semantic file binding and bounded receipt evidence", () => {
+    const semanticIdentity = Schema.decodeUnknownSync(SemanticFileIdentity)(
+      "screenshots.captureAndDeliver:invocation-1:capture-and-deliver-screenshot",
+    );
+    const decoded = Schema.decodeUnknownSync(BotOutboundMessage)({
+      files: [
+        {
+          name: "screenshot.png",
+          contentType: "image/png",
+          content: "AQID",
+          deliveryBinding: {
+            semanticIdentity,
+            logicalRequest: '["workspace-1","alpha",2]',
+          },
+        },
+      ],
+    });
+    const receipt = Schema.decodeUnknownSync(RespondReceipt)({
+      deliveryKey,
+      operation: "respond",
+      target: { _tag: "Response", responseReference },
+      files: [
+        {
+          name: "screenshot.png",
+          contentType: "image/png",
+          byteLength: 3,
+          deliveryBinding: decoded.files?.[0]?.deliveryBinding,
+        },
+      ],
+    });
+
+    expect(receipt.files).toEqual([
+      {
+        name: "screenshot.png",
+        contentType: "image/png",
+        byteLength: 3,
+        deliveryBinding: {
+          semanticIdentity,
+          logicalRequest: '["workspace-1","alpha",2]',
+        },
+      },
+    ]);
+    expect(() =>
+      Schema.decodeUnknownSync(RespondReceipt)({
+        ...receipt,
+        files: [{ ...receipt.files?.[0], byteLength: 25 * 1024 * 1024 + 1 }],
+      }),
+    ).toThrow();
   });
 
   it("requires numeric permission bitfields", () => {

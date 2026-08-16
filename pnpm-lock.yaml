@@ -1241,6 +1241,9 @@ importers:
       google-auth-library:
         specifier: ^10.5.0
         version: 10.5.0
+      playwright:
+        specifier: 1.58.2
+        version: 1.58.2
       sheet-auth:
         specifier: workspace:*
         version: link:../sheet-auth

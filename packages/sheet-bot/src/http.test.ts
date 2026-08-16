@@ -1,6 +1,12 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Cause, Effect, Exit, Option } from "effect";
-import { discordInteractionMessageToRef, makeUpdateConversationHandler } from "./http";
+import { Cause, Effect, Exit, Option, Schema } from "effect";
+import { SemanticFileIdentity } from "sheet-bot-api";
+import {
+  discordInteractionMessageToRef,
+  makeUpdateConversationHandler,
+  validateResponseWorkspaceBinding,
+} from "./http";
+import { deliveryStoreInput } from "./services/botDeliveryBinding";
 
 const client = { platform: "discord", clientId: "discord-main" } as const;
 
@@ -41,6 +47,75 @@ describe("discordInteractionMessageToRef", () => {
       messageId: "message-1",
     });
   });
+});
+
+describe("deliveryStoreInput", () => {
+  const content = new Uint8Array([1, 2, 3]);
+
+  it("preserves strict raw-byte binding unless a file opts into semantic identity", () => {
+    const payload = {
+      message: {
+        files: [{ name: "strict.bin", contentType: "application/octet-stream", content }],
+      },
+    };
+
+    expect(deliveryStoreInput(payload)).toBe(payload);
+  });
+
+  it("removes only opted-in file bytes while retaining the strict logical binding", () => {
+    const semanticIdentity = Schema.decodeUnknownSync(SemanticFileIdentity)("semantic-file-1");
+    const strict = { name: "strict.bin", contentType: "application/octet-stream", content };
+    const semantic = {
+      name: "screenshot.png",
+      contentType: "image/png",
+      content: new Uint8Array([9, 8, 7]),
+      deliveryBinding: {
+        semanticIdentity,
+        logicalRequest: '["workspace-1","alpha",2]',
+      },
+    };
+
+    expect(deliveryStoreInput({ message: { files: [strict, semantic] } })).toEqual({
+      message: {
+        files: [
+          strict,
+          {
+            name: semantic.name,
+            contentType: semantic.contentType,
+            deliveryBinding: semantic.deliveryBinding,
+          },
+        ],
+      },
+    });
+  });
+});
+
+describe("validateResponseWorkspaceBinding", () => {
+  it.effect("accepts legacy unbound calls and exact workspace bindings", () =>
+    Effect.gen(function* () {
+      yield* validateResponseWorkspaceBinding({}, undefined);
+      yield* validateResponseWorkspaceBinding(
+        { workspaceId: "workspace-1" },
+        { workspaceId: "workspace-1" },
+      );
+    }),
+  );
+
+  it.effect("rejects missing and foreign response workspace bindings", () =>
+    Effect.gen(function* () {
+      for (const response of [{}, { workspaceId: "workspace-2" }]) {
+        const exit = yield* Effect.exit(
+          validateResponseWorkspaceBinding(response, { workspaceId: "workspace-1" }),
+        );
+        const error = Exit.isFailure(exit) ? Cause.findErrorOption(exit.cause) : Option.none();
+
+        expect(Option.getOrNull(error)).toMatchObject({
+          _tag: "BotRequestRejected",
+          message: "Response Reference does not match the requested workspace",
+        });
+      }
+    }),
+  );
 });
 
 describe("updateConversation handler", () => {

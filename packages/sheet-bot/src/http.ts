@@ -30,6 +30,7 @@ import { createServer } from "http";
 import { ClientDeliveryApi, DeliveryEmoji } from "sheet-ingress-api/client-delivery";
 import {
   BotDependencyUnavailable,
+  type BotOutboundFile,
   BotRateLimited,
   BotRequestRejected,
   BotResourceNotFound,
@@ -52,6 +53,7 @@ import { config } from "./config";
 import { toDiscordMessagePayload } from "./discord/renderSheetMessage";
 import { sheetBotHttpAuthorizationLayer } from "./middlewares/discordHttpAuthorization/live";
 import { BotCapabilityStore } from "./services/botCapabilityStore";
+import { deliveryStoreInput } from "./services/botDeliveryBinding";
 import {
   botConversationPage,
   botConversationView,
@@ -145,6 +147,26 @@ const renderFiles = (message: SheetOutboundMessage) =>
         type: file.contentType,
       }),
   ) ?? [];
+
+const deliveryFileEvidence = (files: ReadonlyArray<BotOutboundFile>) =>
+  files.map(({ content, contentType, deliveryBinding, name }) => ({
+    name,
+    contentType,
+    byteLength: content.byteLength,
+    ...(Predicate.isUndefined(deliveryBinding) ? {} : { deliveryBinding }),
+  }));
+
+export const validateResponseWorkspaceBinding = (
+  response: { readonly workspaceId?: string | undefined },
+  requested: { readonly workspaceId: string } | undefined,
+) =>
+  Predicate.isUndefined(requested) || response.workspaceId === requested.workspaceId
+    ? Effect.void
+    : Effect.fail(
+        new BotRequestRejected({
+          message: "Response Reference does not match the requested workspace",
+        }),
+      );
 
 const messageFromError = (message: string, error: unknown): string => {
   const detail = getObjectField(error, "message");
@@ -750,7 +772,7 @@ const botCapabilityDeliveryHandlersLayer = HttpApiBuilder.group(
           execute(
             "respond",
             payload.deliveryKey,
-            payload,
+            deliveryStoreInput(payload),
             Effect.gen(function* () {
               const response = yield* store.resolveResponseReference(payload.responseReference);
               if (!response.permittedOperations.includes("respond")) {
@@ -759,6 +781,10 @@ const botCapabilityDeliveryHandlersLayer = HttpApiBuilder.group(
                 });
               }
               yield* requireClient(response.client);
+              if (!Predicate.isUndefined(payload.workspace)) {
+                yield* requireClient(payload.workspace.client);
+                yield* validateResponseWorkspaceBinding(response, payload.workspace);
+              }
               const files = renderFiles(payload.message);
               const update = rest.updateOriginalWebhookMessage(
                 response.applicationId,
@@ -777,6 +803,9 @@ const botCapabilityDeliveryHandlersLayer = HttpApiBuilder.group(
                   responseReference: payload.responseReference,
                   message: discordInteractionMessageToRef(configuredClient, message),
                 },
+                ...(payload.message.files === undefined
+                  ? {}
+                  : { files: deliveryFileEvidence(payload.message.files) }),
               };
             }),
           ),

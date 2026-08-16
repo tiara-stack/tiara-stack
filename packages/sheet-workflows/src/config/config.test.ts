@@ -17,6 +17,11 @@ const readAutoKickConcurrency = (env: Record<string, unknown>) =>
     Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(env))),
   );
 
+const readScreenshotBrowserConcurrency = (env: Record<string, unknown>) =>
+  config.screenshotBrowserConcurrency.pipe(
+    Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(env))),
+  );
+
 const readTrustedSheetPersistenceMaxConnections = (env: Record<string, unknown>) =>
   config.trustedSheetPersistenceMaxConnections.pipe(
     Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(env))),
@@ -43,6 +48,14 @@ describe("sheet-workflows config", () => {
   it.effect("accepts SHEET_WORKFLOWS_ROLE=runner", () =>
     Effect.gen(function* () {
       expect(yield* readWorkflowRole({ SHEET_WORKFLOWS_ROLE: "runner" })).toBe("runner");
+    }),
+  );
+
+  it.effect("accepts SHEET_WORKFLOWS_ROLE=browser-runner", () =>
+    Effect.gen(function* () {
+      expect(yield* readWorkflowRole({ SHEET_WORKFLOWS_ROLE: "browser-runner" })).toBe(
+        "browser-runner",
+      );
     }),
   );
 
@@ -94,6 +107,29 @@ describe("sheet-workflows config", () => {
     Effect.gen(function* () {
       const exit = yield* Effect.exit(readAutoKickConcurrency({ AUTO_KICK_CONCURRENCY: 0 }));
       expect(exit._tag).toBe("Failure");
+    }),
+  );
+
+  it.effect("bounds screenshot browser concurrency", () =>
+    Effect.gen(function* () {
+      expect(yield* readScreenshotBrowserConcurrency({})).toBe(2);
+      expect(yield* readScreenshotBrowserConcurrency({ SCREENSHOT_BROWSER_CONCURRENCY: 1 })).toBe(
+        1,
+      );
+      expect(
+        Exit.isFailure(
+          yield* Effect.exit(
+            readScreenshotBrowserConcurrency({ SCREENSHOT_BROWSER_CONCURRENCY: 0 }),
+          ),
+        ),
+      ).toBe(true);
+      expect(
+        Exit.isFailure(
+          yield* Effect.exit(
+            readScreenshotBrowserConcurrency({ SCREENSHOT_BROWSER_CONCURRENCY: 17 }),
+          ),
+        ),
+      ).toBe(true);
     }),
   );
 

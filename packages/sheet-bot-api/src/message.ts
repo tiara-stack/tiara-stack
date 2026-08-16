@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { ConversationRef, MessageRef, WorkspaceRef } from "./references";
+import { ConversationRef, MessageRef, SemanticFileIdentity, WorkspaceRef } from "./references";
 
 export const BotTimestampStyle = Schema.Literals([
   "shortTime",
@@ -130,10 +130,32 @@ export const BotMessageEmbed = Schema.Struct({
 });
 export type BotMessageEmbed = Schema.Schema.Type<typeof BotMessageEmbed>;
 
+const BoundedFileBindingText = Schema.Trimmed.check(Schema.isNonEmpty()).check(
+  Schema.isMaxLength(512),
+);
+
+export const maximumBotFileEvidenceTextLength = 512;
+export const maximumBotFileEvidenceByteLength = 25 * 1024 * 1024;
+export const maximumBotOutboundFileCount = 10;
+
+const BoundedFileEvidenceText = Schema.String.check(
+  Schema.isMaxLength(maximumBotFileEvidenceTextLength),
+);
+const BoundedFileContent = Schema.Uint8ArrayFromBase64.check(
+  Schema.isMaxLength(maximumBotFileEvidenceByteLength),
+);
+
+export const BotSemanticFileBinding = Schema.Struct({
+  semanticIdentity: SemanticFileIdentity,
+  logicalRequest: BoundedFileBindingText,
+});
+export type BotSemanticFileBinding = Schema.Schema.Type<typeof BotSemanticFileBinding>;
+
 export const BotOutboundFile = Schema.Struct({
-  name: Schema.String,
-  contentType: Schema.String,
-  content: Schema.Uint8ArrayFromBase64,
+  name: BoundedFileEvidenceText,
+  contentType: BoundedFileEvidenceText,
+  content: BoundedFileContent,
+  deliveryBinding: Schema.optional(BotSemanticFileBinding),
 });
 export type BotOutboundFile = Schema.Schema.Type<typeof BotOutboundFile>;
 
@@ -141,7 +163,9 @@ export const BotOutboundMessage = Schema.Struct({
   content: Schema.optional(Schema.NullOr(BotText)),
   embeds: Schema.optional(Schema.Array(BotMessageEmbed)),
   components: Schema.optional(Schema.Array(BotMessageActionRow)),
-  files: Schema.optional(Schema.Array(BotOutboundFile)),
+  files: Schema.optional(
+    Schema.Array(BotOutboundFile).check(Schema.isMaxLength(maximumBotOutboundFileCount)),
+  ),
   messageReference: Schema.optional(
     Schema.Struct({
       message: MessageRef,

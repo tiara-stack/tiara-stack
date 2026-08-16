@@ -43,6 +43,11 @@ export type ResponseReference = Schema.Schema.Type<typeof ResponseReference>;
 export const DeliveryKey = OpaqueReference.pipe(Schema.brand("sheet-bot-api/DeliveryKey"));
 export type DeliveryKey = Schema.Schema.Type<typeof DeliveryKey>;
 
+export const SemanticFileIdentity = OpaqueReference.pipe(
+  Schema.brand("sheet-bot-api/SemanticFileIdentity"),
+);
+export type SemanticFileIdentity = Schema.Schema.Type<typeof SemanticFileIdentity>;
+
 export const workspaceRefFrom = (client: ClientRef, workspaceId: string): WorkspaceRef => ({
   client,
   workspaceId,

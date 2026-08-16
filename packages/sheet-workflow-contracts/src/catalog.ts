@@ -346,7 +346,8 @@ export const ScreenshotsCaptureAndDeliver = interactive(
   "screenshots.captureAndDeliver",
   Values.ScreenshotsCaptureAndDeliverInput,
   Values.ScreenshotsCaptureAndDeliverSuccess,
-  policy(["user"], ["workspace.member"], "workspace", { resourceField: "workspaceId" }),
+  policy(["user"], ["workspace.monitor"], "workspace", { resourceField: "workspaceId" }),
+  "2",
 );
 
 export const ServicesDeliverStatus = interactive(

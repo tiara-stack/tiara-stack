@@ -134,6 +134,7 @@ imagePullSecrets:
   "sheetBot" "sheet-bot-secret"
   "sheetWorkflows" "sheet-workflows-secret"
   "sheetWorkflowsRunner" "sheet-workflows-secret"
+  "sheetWorkflowsBrowserRunner" "sheet-workflows-secret"
   "sheetDbServer" "sdbs-secret"
   "sheetIngressServer" "sheet-ingress-server-secret"
   "sheetWeb" "sheet-web-secret"
@@ -162,6 +163,7 @@ imagePullSecrets:
 {{- $sheetBotValues := .Values.services.sheetBot | default dict -}}
 {{- $sheetBotSecretRef := $sheetBotValues.secretRef | default dict -}}
 {{- $sheetBotSecretName := default (include "tiara-stack.defaultSecretName" "sheetBot") $sheetBotSecretRef.name -}}
+{{- $sheetBotServiceName := include "tiara-stack.serviceName" (dict "name" "sheet-bot" "serviceValues" $sheetBotValues) -}}
 {{- $sheetIngressValues := .Values.services.sheetIngressServer | default dict -}}
 {{- $sheetIngressSecretRef := $sheetIngressValues.secretRef | default dict -}}
 {{- $sheetIngressSecretName := default (include "tiara-stack.defaultSecretName" "sheetIngressServer") $sheetIngressSecretRef.name -}}
@@ -224,6 +226,8 @@ imagePullSecrets:
     - app: sheet-workflows
       port: sheet-auth-svc
     - app: sheet-workflows-runner
+      port: sheet-auth-svc
+    - app: sheet-workflows-browser-runner
       port: sheet-auth-svc
     - app: sheet-ingress-server
       port: sheet-auth-svc
@@ -339,6 +343,8 @@ imagePullSecrets:
       audience: sheet-auth-subject-token
   networkPolicyFrom:
     - app: sheet-ingress-server
+      port: sheet-bot-svc
+    - app: sheet-workflows-browser-runner
       port: sheet-bot-svc
 - key: sheetWorkflows
   name: sheet-workflows
@@ -472,6 +478,76 @@ imagePullSecrets:
       port: workflows-rpc
   networkPolicySelf:
     - port: workflows-rpc
+- key: sheetWorkflowsBrowserRunner
+  name: sheet-workflows-browser-runner
+  imageName: sheet-workflows-browser-runner
+  deploymentStrategy: Recreate
+  portName: wf-br-health
+  metricPortName: wf-br-met
+  secretName: sheet-workflows-secret
+  terminationGracePeriodSeconds: 90
+  preStopSleepSeconds: 20
+  kubernetesServiceAccountToken: true
+  servicePorts:
+    - name: wf-br-health
+      port: 80
+      targetPort: wf-br-health
+    - name: wf-br-met
+      port: 9464
+      targetPort: wf-br-met
+  containerPorts:
+    - name: wf-br-health
+      containerPort: 3000
+    - name: wf-br-rpc
+      containerPort: 34431
+    - name: wf-br-met
+      containerPort: 9464
+  env:
+    - name: SHEET_WORKFLOWS_ROLE
+      value: browser-runner
+    - name: POD_NAMESPACE
+      fieldPath: metadata.namespace
+    - name: OTEL_EXPORTER_OTLP_ENDPOINT
+      secretKey: otelExporterOtlpEndpoint
+    - name: POSTGRES_URL
+      secretKey: postgresUrl
+    - name: WORKFLOWS_RUNNER_HOST
+      fieldPath: status.podIP
+    - name: WORKFLOWS_RUNNER_PORT
+      value: "34431"
+    - name: WORKFLOWS_RUNNER_LISTEN_HOST
+      value: "0.0.0.0"
+    - name: WORKFLOWS_RUNNER_LISTEN_PORT
+      value: "34431"
+    - name: WORKFLOWS_RUNNER_HEALTH_LABEL_SELECTOR
+      value: app=sheet-workflows-browser-runner
+    - name: SHEET_BOT_BASE_URL
+      value: "http://{{ $sheetBotServiceName }}"
+    - name: SHEET_AUTH_ISSUER
+      secretKey: sheetAuthIssuer
+    - name: SHEET_AUTH_OAUTH_CLIENT_ID
+      secretKey: sheetWorkflowsServiceClientId
+    - name: SHEET_AUTH_OAUTH_CLIENT_SECRET
+      secretKey: sheetWorkflowsServiceClientSecret
+    - name: SHEET_AUTH_OAUTH_AUDIENCE
+      value: sheet-workflows
+    - name: SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID
+      secretName: {{ $sheetBotSecretName }}
+      secretKey: sheetBotServiceClientId
+{{ include "tiara-stack.trustedDelegationEnv" (dict "ingressSecretName" $sheetIngressSecretName) | nindent 4 }}
+    - name: SHEET_INGRESS_BASE_URL
+      secretKey: sheetIngressBaseUrl
+    - name: SERVICE_ACCOUNT_JWKS_AUTH_TOKEN_PATH
+      value: /var/run/secrets/tokens/kubernetes-jwks-token
+  projectedTokens:
+    - path: kubernetes-jwks-token
+  networkPolicyFrom:
+    - app: sheet-workflows
+      port: wf-br-rpc
+    - app: sheet-workflows-runner
+      port: wf-br-rpc
+  networkPolicySelf:
+    - port: wf-br-rpc
 - key: sheetDbServer
   name: sheet-db-server
   portName: sdbs-svc

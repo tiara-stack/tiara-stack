@@ -3,6 +3,7 @@ import { Effect, Layer, Logger } from "effect";
 import { workflowStoreLayer } from "effect-zero-workflow";
 import { dotEnvConfigProviderLayer } from "typhoon-core/config";
 import {
+  browserClusterHttpLayer,
   clusterHttpLayer,
   clusterStorageLayer,
   clusterWorkflowEngineClientLayer,
@@ -26,12 +27,15 @@ const clientWorkflowLayers = Layer.mergeAll(
 ).pipe(Layer.provide(clusterWorkflowEngineClientLayer), Layer.provide(shardingConfigLayer));
 
 const clusterServerLayer = clusterHttpLayer.pipe(Layer.provide(shardingConfigLayer));
+const browserClusterServerLayer = browserClusterHttpLayer.pipe(Layer.provide(shardingConfigLayer));
 
 const runnerLayer = runnerHealthLayer.pipe(Layer.provideMerge(clusterServerLayer));
+const browserRunnerLayer = runnerHealthLayer.pipe(Layer.provideMerge(browserClusterServerLayer));
 
 const appLayersByRole = {
   api: clientWorkflowLayers,
   runner: runnerLayer,
+  "browser-runner": browserRunnerLayer,
   combined: clientWorkflowLayers.pipe(Layer.provideMerge(clusterServerLayer)),
 };
 

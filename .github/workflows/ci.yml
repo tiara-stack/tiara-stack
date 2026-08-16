@@ -281,6 +281,8 @@ jobs:
 
   docker_images:
     needs: workspace_ci
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -290,6 +292,12 @@ jobs:
           - package: sheet-apis
             cache_mode: min
           - package: sheet-workflows
+            image: sheet-workflows
+            target: runtime
+            cache_mode: min
+          - package: sheet-workflows
+            image: sheet-workflows-browser-runner
+            target: browser-runner
             cache_mode: min
           - package: sheet-bot
             cache_mode: max
@@ -336,9 +344,10 @@ jobs:
           context: ./packages/${{ matrix.package }}
           file: ./packages/${{ matrix.package }}/Dockerfile
           push: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/master' }}
-          tags: registry.digitalocean.com/${{ vars.REGISTRY_NAME }}/${{ matrix.package }}:${{ steps.vars.outputs.tag }}
-          cache-from: type=gha,scope=${{ matrix.package }}
-          cache-to: type=gha,mode=${{ matrix.cache_mode }},scope=${{ matrix.package }}
+          tags: registry.digitalocean.com/${{ vars.REGISTRY_NAME }}/${{ matrix.image || matrix.package }}:${{ steps.vars.outputs.tag }}
+          target: ${{ matrix.target }}
+          cache-from: type=gha,scope=${{ matrix.image || matrix.package }}
+          cache-to: type=gha,mode=${{ matrix.cache_mode }},scope=${{ matrix.image || matrix.package }}
 
   deploy:
     name: Deploy to Production

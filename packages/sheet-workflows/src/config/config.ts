@@ -1,10 +1,11 @@
 import { Config, Effect, Schema } from "effect";
 
 const positiveInt = Schema.Int.check(Schema.isGreaterThan(0));
+const boundedScreenshotBrowserConcurrency = positiveInt.check(Schema.isLessThanOrEqualTo(16));
 const nonEmptyString = Schema.NonEmptyString;
 const nonEmptySecret = Schema.Redacted(nonEmptyString);
 
-const WorkflowRole = Schema.Literals(["combined", "api", "runner"]);
+const WorkflowRole = Schema.Literals(["combined", "api", "runner", "browser-runner"]);
 
 export const config = {
   port: Config.port("PORT").pipe(Config.withDefault(3000)),
@@ -88,6 +89,10 @@ export const config = {
   autoKickConcurrency: Config.schema(positiveInt, "AUTO_KICK_CONCURRENCY").pipe(
     Config.withDefault(4),
   ),
+  screenshotBrowserConcurrency: Config.schema(
+    boundedScreenshotBrowserConcurrency,
+    "SCREENSHOT_BROWSER_CONCURRENCY",
+  ).pipe(Config.withDefault(2)),
   workflowsSmokeWorkflowEnabled: Config.boolean("WORKFLOWS_SMOKE_WORKFLOW_ENABLED").pipe(
     Config.withDefault(false),
   ),

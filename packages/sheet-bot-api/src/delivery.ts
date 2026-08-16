@@ -1,5 +1,11 @@
 import { Schema } from "effect";
-import { BotOutboundMessage } from "./message";
+import {
+  BotOutboundMessage,
+  BotSemanticFileBinding,
+  maximumBotFileEvidenceByteLength,
+  maximumBotFileEvidenceTextLength,
+  maximumBotOutboundFileCount,
+} from "./message";
 import {
   ConversationRef,
   DeliveryKey,
@@ -51,6 +57,21 @@ const MemberRoleTarget = Schema.TaggedStruct("MemberRole", {
   roleId: Schema.String,
 });
 
+const BoundedFileEvidenceText = Schema.String.check(
+  Schema.isMaxLength(maximumBotFileEvidenceTextLength),
+);
+const BoundedFileEvidenceByteLength = Schema.Int.check(
+  Schema.isBetween({ minimum: 0, maximum: maximumBotFileEvidenceByteLength }),
+);
+
+export const BotDeliveredFileEvidence = Schema.Struct({
+  name: BoundedFileEvidenceText,
+  contentType: BoundedFileEvidenceText,
+  byteLength: BoundedFileEvidenceByteLength,
+  deliveryBinding: Schema.optional(BotSemanticFileBinding),
+});
+export type BotDeliveredFileEvidence = Schema.Schema.Type<typeof BotDeliveredFileEvidence>;
+
 export const BotDeliveryTarget = Schema.Union([
   ResponseTarget,
   MessageTarget,
@@ -63,6 +84,9 @@ export const RespondReceipt = Schema.Struct({
   deliveryKey: DeliveryKey,
   operation: Schema.Literal("respond"),
   target: ResponseTarget,
+  files: Schema.optional(
+    Schema.Array(BotDeliveredFileEvidence).check(Schema.isMaxLength(maximumBotOutboundFileCount)),
+  ),
 });
 export type RespondReceipt = Schema.Schema.Type<typeof RespondReceipt>;
 
@@ -127,6 +151,7 @@ export const RespondInput = Schema.Struct({
   responseReference: ResponseReference,
   deliveryKey: DeliveryKey,
   message: BotOutboundMessage,
+  workspace: Schema.optional(WorkspaceRef),
 });
 export type RespondInput = Schema.Schema.Type<typeof RespondInput>;
 

@@ -41,6 +41,7 @@ const responseRecordSchema = Schema.Struct({
   interactionToken: Schema.String,
   permittedOperations: Schema.Array(Schema.Literal("respond")),
   expiresAt: Schema.Number,
+  workspaceId: Schema.optional(Schema.String),
 });
 
 const encryptedResponseRecordSchema = Schema.Struct({
@@ -300,6 +301,7 @@ interface IssueResponseReferenceInput {
   readonly interactionToken: string;
   readonly permittedOperations: ReadonlyArray<"respond">;
   readonly expiresAt: number;
+  readonly workspaceId?: string | undefined;
 }
 
 type DeliveryReconciliationInspection =
