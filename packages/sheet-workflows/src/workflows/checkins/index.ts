@@ -6,3 +6,5 @@ export {
   materializeCheckinWorkflowFailure,
 } from "./definitions";
 export { checkinWorkflowOperationsLayer } from "./operations";
+export { autoCheckinTestWorkflowOperationsLayer } from "./autoTestOperations";
+export { autoCheckinTestProviderLayer } from "./autoTestProvider";

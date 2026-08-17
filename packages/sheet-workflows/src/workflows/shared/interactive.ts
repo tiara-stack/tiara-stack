@@ -15,7 +15,7 @@ import {
 import { config } from "@/config";
 import { ReadOnlyWorkflowAuthorization } from "../readOnly/authorization";
 
-const isInteractiveDeclaredFailure = Schema.is(InteractiveDeclaredFailure);
+export const isInteractiveDeclaredFailure = Schema.is(InteractiveDeclaredFailure);
 const isWorkflowInvocationUnauthorized = Schema.is(WorkflowInvocationUnauthorized);
 
 export const interactiveAuthorizationRevoked = (policy: string): InteractiveDeclaredFailure => ({

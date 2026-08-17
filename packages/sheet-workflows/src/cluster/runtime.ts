@@ -66,7 +66,12 @@ import {
   announcementSheetWorkflowLayers,
   updateAnnouncementWorkflowOperationsLayer,
 } from "@/workflows/announcements";
-import { checkinSheetWorkflowLayers, checkinWorkflowOperationsLayer } from "@/workflows/checkins";
+import {
+  autoCheckinTestProviderLayer,
+  autoCheckinTestWorkflowOperationsLayer,
+  checkinSheetWorkflowLayers,
+  checkinWorkflowOperationsLayer,
+} from "@/workflows/checkins";
 import {
   memberKickProviderLayer,
   memberKickWorkflowOperationsLayer,
@@ -201,6 +206,10 @@ const workflowDefinitionServicesLayer = Layer.mergeAll(
   scheduleWorkflowOperationsLayer.pipe(Layer.provide(userScheduleProviderLayer)),
   teamWorkflowOperationsLayer.pipe(Layer.provide(userTeamsProviderLayer)),
   checkinWorkflowOperationsLayer,
+  autoCheckinTestWorkflowOperationsLayer.pipe(
+    Layer.provide(autoCheckinTestProviderLayer),
+    Layer.provide(readOnlyWorkflowAuthorizationLayer),
+  ),
   roomOrderNavigationOperationsLayer.pipe(Layer.provide(roomOrderNavigationProviderLayer)),
   roomOrderSendOperationsLayer.pipe(Layer.provide(roomOrderNavigationProviderLayer)),
   roomOrderCreateOperationsLayer.pipe(Layer.provide(roomOrderCreateProviderLayer)),

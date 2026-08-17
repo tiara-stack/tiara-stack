@@ -9,10 +9,15 @@ import {
   LoadCurrentCheckinViewAction,
   makeCheckinsRespondDefinition,
 } from "./definition";
+import { makeCheckinsTestAutoDefinition } from "./autoTestDefinition";
 
 const CheckinsRespondDefinition = makeCheckinsRespondDefinition();
+const CheckinsTestAutoDefinition = makeCheckinsTestAutoDefinition();
 
-export const CheckinSheetWorkflowDefinitions = Object.freeze([CheckinsRespondDefinition] as const);
+export const CheckinSheetWorkflowDefinitions = Object.freeze([
+  CheckinsRespondDefinition,
+  CheckinsTestAutoDefinition,
+] as const);
 
 export const CheckinSheetWorkflows = Object.freeze(
   CheckinSheetWorkflowDefinitions.map(({ workflow }) => workflow as WorkflowDefinition),

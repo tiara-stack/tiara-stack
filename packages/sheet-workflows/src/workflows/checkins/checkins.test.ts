@@ -25,7 +25,7 @@ import {
   TrustedSheetPersistence,
   type TrustedSheetPersistenceShape,
 } from "sheet-zero-server/persistence";
-import { CheckinsRespond, WorkspaceId } from "sheet-workflow-contracts";
+import { CheckinsRespond, CheckinsTestAuto, WorkspaceId } from "sheet-workflow-contracts";
 import {
   CheckinProjectionEntity,
   makeCheckinProjectionEntityLayer,
@@ -260,13 +260,14 @@ const announcementReceipt = {
   },
 };
 
-describe("check-in response Workflow Definition slice", () => {
-  it("registers only CheckinsRespond with the six pinned version-1 Durable Actions", () => {
-    expect(CheckinSheetWorkflowContracts).toEqual([CheckinsRespond]);
-    expect(CheckinSheetWorkflowDefinitions).toHaveLength(1);
-    const [definition] = CheckinSheetWorkflowDefinitions;
-    expect(definition?.workflow.name).toBe(workflowContractKey(CheckinsRespond));
-    expect(definition?.actions.map(({ workflow }) => workflow.name)).toEqual([
+// fallow-ignore-next-line complexity
+const checkinResponseWorkflowDefinitionTests = () => {
+  it("registers the CheckinsRespond and CheckinsTestAuto definitions", () => {
+    expect(CheckinSheetWorkflowContracts).toEqual([CheckinsRespond, CheckinsTestAuto]);
+    expect(CheckinSheetWorkflowDefinitions).toHaveLength(2);
+    const [respondDefinition, testAutoDefinition] = CheckinSheetWorkflowDefinitions;
+    expect(respondDefinition?.workflow.name).toBe(workflowContractKey(CheckinsRespond));
+    expect(respondDefinition?.actions.map(({ workflow }) => workflow.name)).toEqual([
       "checkins.respond.commit-check-in",
       "checkins.respond.respond",
       "checkins.respond.set-member-role",
@@ -274,11 +275,18 @@ describe("check-in response Workflow Definition slice", () => {
       "checkins.respond.edit-check-in-message",
       "checkins.respond.announce-first-check-in",
     ]);
-    expect(definition?.actions.every(({ version }) => version === "1")).toBe(true);
+    expect(testAutoDefinition?.workflow.name).toBe(workflowContractKey(CheckinsTestAuto));
+    expect(
+      CheckinSheetWorkflowDefinitions.every((definition) =>
+        definition.actions.every(({ version }) => version === "1"),
+      ),
+    ).toBe(true);
     expect(CheckinSheetWorkflowRegistrations).toEqual([
       expect.objectContaining({ contract: CheckinsRespond, definitionVersion: "1" }),
+      expect.objectContaining({ contract: CheckinsTestAuto, definitionVersion: "1" }),
     ]);
     expect(isCheckinSheetWorkflowName(workflowContractKey(CheckinsRespond))).toBe(true);
+    expect(isCheckinSheetWorkflowName(workflowContractKey(CheckinsTestAuto))).toBe(true);
     expect(isCheckinSheetWorkflowName(CheckinsRespond.identity)).toBe(false);
   });
 
@@ -708,4 +716,6 @@ describe("check-in response Workflow Definition slice", () => {
     expect(Schema.is(ResponseReference)(responseReference)).toBe(true);
     expect(Schema.is(DeliveryKey)(makeCheckinDeliveryKey(invocationId, "respond"))).toBe(true);
   });
-});
+};
+
+describe("check-in response Workflow Definition slice", checkinResponseWorkflowDefinitionTests);
