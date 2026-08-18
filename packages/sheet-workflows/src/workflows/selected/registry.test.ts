@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { workflowContractZeroGroupIdentifier } from "effect-zero-workflow/contract/transport";
 import { AnnouncementSheetWorkflowContracts } from "../announcements/catalog";
+import { CalculationSheetWorkflowContracts } from "../calculations/catalog";
 import { CheckinSheetWorkflowContracts } from "../checkins/catalog";
 import { ConfigurationSheetWorkflowContracts } from "../configuration/catalog";
 import { MemberSheetWorkflowContracts } from "../members/catalog";
@@ -36,11 +37,12 @@ describe("selected Sheet Workflow registry", () => {
       ...AnnouncementSheetWorkflowContracts,
       ...MemberSheetWorkflowContracts,
       ...ScreenshotSheetWorkflowContracts,
+      ...CalculationSheetWorkflowContracts,
     ]);
-    expect(SelectedSheetWorkflowContracts).toHaveLength(31);
+    expect(SelectedSheetWorkflowContracts).toHaveLength(32);
     const groups = makeSelectedSheetWorkflowZeroGroups(() => Promise.resolve());
     expect(groups).toHaveLength(SelectedSheetWorkflowContracts.length);
-    expect(groups.flatMap(({ endpoints }) => Object.keys(endpoints))).toHaveLength(93);
+    expect(groups.flatMap(({ endpoints }) => Object.keys(endpoints))).toHaveLength(96);
     expect(groups.map(({ identifier }) => identifier)).toEqual(
       SelectedSheetWorkflowContracts.map(workflowContractZeroGroupIdentifier),
     );

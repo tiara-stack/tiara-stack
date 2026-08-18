@@ -6,6 +6,7 @@ import { BotDependencyUnavailable, BotTextPart, type SheetBotHttpClient } from "
 import {
   AuthorizationLoadWorkspaceCapabilities,
   AnnouncementsDeliverUpdate,
+  CalculationsRecalculateSheet,
   CheckinsRespond,
   MembersKick,
   RoomOrdersNavigate,
@@ -24,6 +25,7 @@ import {
 } from "sheet-zero-server/persistence";
 import { config } from "@/config";
 import { SheetBotCacheClient } from "@/services/sheetBotCacheClient";
+import { canonicalCalculationSheetRef } from "../shared/calculationRange";
 
 export const ownerKeyForEffectivePrincipal = (principal: EffectivePrincipal): string =>
   Match.type<EffectivePrincipal>().pipe(
@@ -245,6 +247,70 @@ const stringFieldFromInput = (input: unknown, field: string): string | undefined
   Predicate.hasProperty(field)(input) && Predicate.isString(input[field])
     ? input[field]
     : undefined;
+
+const installationSpreadsheetIdFromClientId = (
+  clientId: string,
+  serviceRule: string,
+): string | undefined => {
+  const prefix = `${serviceRule}:`;
+  if (!clientId.startsWith(prefix)) return undefined;
+  const spreadsheetId = clientId.slice(prefix.length);
+  return spreadsheetId.length > 0 ? spreadsheetId : undefined;
+};
+
+export const authorizeAppsScriptInstallation = (
+  principal: EffectivePrincipal,
+  input: unknown,
+  policy: SheetWorkflowAuthorizationPolicyMetadata,
+): Effect.Effect<void, WorkflowInvocationUnauthorized> => {
+  const serviceRule = policy.serviceRule;
+  // Direct callers may bypass dispatcher-level policy validation, so keep these guards here too.
+  if (
+    !policy.requiredCapabilities.includes("service.allowed") ||
+    !policy.principalKinds.includes("service") ||
+    serviceRule !== "apps-script.installation"
+  ) {
+    return Effect.fail(unauthorized());
+  }
+  return Schema.decodeUnknownEffect(CalculationsRecalculateSheet.input)(input, {
+    onExcessProperty: "error",
+  }).pipe(
+    Effect.tapError(() =>
+      Effect.logWarning("Calculation workflow input failed authorization decoding").pipe(
+        Effect.annotateLogs({
+          contractIdentity: CalculationsRecalculateSheet.identity,
+          errorCategory: "InputDecodeFailure",
+        }),
+      ),
+    ),
+    Effect.mapError(() => unauthorized()),
+    Effect.flatMap(({ sheetRef, spreadsheetId }) => {
+      if (Predicate.isUndefined(canonicalCalculationSheetRef(sheetRef))) {
+        return Effect.fail(unauthorized());
+      }
+      const expectedInstallationIdentity = `${serviceRule}:${spreadsheetId}`;
+      return Match.type<EffectivePrincipal>().pipe(
+        Match.discriminatorsExhaustive("kind")({
+          user: () => Effect.fail(unauthorized()),
+          service: ({ oauthClientId, serviceId }) => {
+            // The identity resolver derives oauthClientId from the verified token client_id.
+            // Bind that installation claim to the request spreadsheet before checking the
+            // copied service identity fields.
+            const tokenSpreadsheetId = installationSpreadsheetIdFromClientId(
+              oauthClientId,
+              serviceRule,
+            );
+            return tokenSpreadsheetId === spreadsheetId &&
+              serviceId === expectedInstallationIdentity &&
+              oauthClientId === expectedInstallationIdentity
+              ? Effect.void
+              : Effect.fail(unauthorized());
+          },
+        }),
+      )(principal);
+    }),
+  );
+};
 
 const hasManageWorkspace = (permissions: string): boolean =>
   Option.liftThrowable((value: string) => BigInt(value))(permissions).pipe(
@@ -754,6 +820,9 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
       }
       if (contract.identity === WorkspacesFeatureFlagsSetAndDeliver.identity) {
         return authorizeWorkspaceFeatureFlag(principal, input, policy);
+      }
+      if (contract.identity === CalculationsRecalculateSheet.identity) {
+        return authorizeAppsScriptInstallation(principal, input, policy);
       }
       if (isForbiddenEmptyWorkspacePolicy(contract.identity, policy)) {
         return Effect.fail(unauthorized());

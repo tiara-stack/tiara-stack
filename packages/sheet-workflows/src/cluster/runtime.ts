@@ -94,6 +94,11 @@ import {
   screenshotSourceOperationsLayer,
   screenshotSourceProviderLayer,
 } from "@/workflows/screenshots";
+import {
+  calculationProviderLayer,
+  calculationSheetWorkflowLayers,
+  calculationWorkflowOperationsLayer,
+} from "@/workflows/calculations";
 
 const availableSheetWorkflowShardGroups = ["dispatch", "autoCheckin", "browser"] as const;
 
@@ -226,6 +231,10 @@ const workflowDefinitionServicesLayer = Layer.mergeAll(
     Layer.provide(screenshotSourceProviderLayer),
     Layer.provide(readOnlyWorkflowAuthorizationLayer),
   ),
+  calculationWorkflowOperationsLayer.pipe(
+    Layer.provide(calculationProviderLayer),
+    Layer.provide(readOnlyWorkflowAuthorizationLayer),
+  ),
 ).pipe(Layer.provideMerge(dispatchClientsLayer), Layer.provideMerge(trustedSheetPersistenceLayer));
 
 const browserWorkflowDefinitionServicesLayer = screenshotCaptureOperationsLayer.pipe(
@@ -258,6 +267,7 @@ const clusterLayer = Layer.mergeAll(
   announcementSheetWorkflowLayers,
   memberSheetWorkflowLayers,
   screenshotOrdinaryWorkflowLayers,
+  calculationSheetWorkflowLayers,
   selectedSheetWorkflowRegistrationValidationLayer,
   clusterStartupLayer,
 ).pipe(

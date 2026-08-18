@@ -25,6 +25,7 @@ import { ReadOnlySheetWorkflows } from "@/workflows/readOnly";
 import { SlotSheetWorkflows } from "@/workflows/slots";
 import { ScheduleSheetWorkflows } from "@/workflows/schedules";
 import { TeamSheetWorkflows } from "@/workflows/teams";
+import { CalculationSheetWorkflows } from "@/workflows/calculations";
 
 const TestWorkflow = Workflow.make({
   name: "test.workflow.v1",
@@ -97,6 +98,7 @@ describe("dispatch workflow cohort coverage", () => {
       ...SlotSheetWorkflows,
       ...ScheduleSheetWorkflows,
       ...TeamSheetWorkflows,
+      ...CalculationSheetWorkflows,
     ]) {
       expect(dispatchWorkflowSliceMatchCount(workflow), workflow.name).toBe(1);
     }

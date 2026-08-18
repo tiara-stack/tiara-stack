@@ -3,6 +3,8 @@ import type { EnqueueSheetWorkflowContract, SheetWorkflowZeroContext } from "she
 import type { ZeroApiGroup } from "typhoon-zero/zeroApi";
 import { AnnouncementSheetWorkflowContracts } from "../announcements/catalog";
 import { AnnouncementSheetWorkflowRegistrations } from "../announcements/registry";
+import { CalculationSheetWorkflowContracts } from "../calculations/catalog";
+import { CalculationSheetWorkflowRegistrations } from "../calculations/registry";
 import { CheckinSheetWorkflowContracts } from "../checkins/catalog";
 import { CheckinSheetWorkflowRegistrations } from "../checkins/registry";
 import { ConfigurationSheetWorkflowContracts } from "../configuration/catalog";
@@ -49,6 +51,7 @@ export const SelectedSheetWorkflowContracts = Object.freeze([
   ...AnnouncementSheetWorkflowContracts,
   ...MemberSheetWorkflowContracts,
   ...ScreenshotSheetWorkflowContracts,
+  ...CalculationSheetWorkflowContracts,
 ] as const);
 
 export const SelectedSheetWorkflowRegistrations: ReadonlyArray<SheetWorkflowRegistration> =
@@ -66,6 +69,7 @@ export const SelectedSheetWorkflowRegistrations: ReadonlyArray<SheetWorkflowRegi
     ...AnnouncementSheetWorkflowRegistrations,
     ...MemberSheetWorkflowRegistrations,
     ...ScreenshotSheetWorkflowRegistrations,
+    ...CalculationSheetWorkflowRegistrations,
   ]);
 
 export const selectedSheetWorkflowRegistrationValidationLayer =
