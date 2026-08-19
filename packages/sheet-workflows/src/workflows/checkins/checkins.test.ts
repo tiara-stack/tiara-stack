@@ -25,7 +25,12 @@ import {
   TrustedSheetPersistence,
   type TrustedSheetPersistenceShape,
 } from "sheet-zero-server/persistence";
-import { CheckinsRespond, CheckinsTestAuto, WorkspaceId } from "sheet-workflow-contracts";
+import {
+  CheckinsOpen,
+  CheckinsRespond,
+  CheckinsTestAuto,
+  WorkspaceId,
+} from "sheet-workflow-contracts";
 import {
   CheckinProjectionEntity,
   makeCheckinProjectionEntityLayer,
@@ -55,6 +60,21 @@ const workspaceId = Schema.decodeUnknownSync(WorkspaceId)("workspace-1");
 const input = Schema.decodeUnknownSync(CheckinsRespond.input)({
   messageId: "message-1",
   responseReference,
+});
+const checkinsOpenUserInput = Schema.decodeUnknownSync(CheckinsOpen.input)({
+  workspaceId,
+  conversationName: "main",
+  responseReference,
+});
+const checkinsOpenServiceInput = Schema.decodeUnknownSync(CheckinsOpen.input)({
+  workspaceId,
+  conversationName: "main",
+  hour: 3,
+});
+const checkinsOpenServicePrincipal = Schema.decodeUnknownSync(EffectivePrincipal)({
+  kind: "service",
+  serviceId: "auto-checkin",
+  oauthClientId: "auto-checkin-client",
 });
 const execution = Schema.decodeUnknownSync(CheckinRespondExecution)({
   invocationId,
@@ -177,6 +197,8 @@ const makeAuthorization = (options: {
           sheetBotClientId: context.clientId,
           SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID: "sheet-bot-client",
           SHEET_AUTH_OAUTH_CLIENT_ID: "sheet-auto-role-cleanup",
+          SHEET_AUTO_CHECKIN_SERVICE_ID: "auto-checkin",
+          SHEET_AUTO_CHECKIN_OAUTH_CLIENT_ID: "auto-checkin-client",
         }),
       ),
     ),
@@ -262,10 +284,19 @@ const announcementReceipt = {
 
 // fallow-ignore-next-line complexity
 const checkinResponseWorkflowDefinitionTests = () => {
-  it("registers the CheckinsRespond and CheckinsTestAuto definitions", () => {
-    expect(CheckinSheetWorkflowContracts).toEqual([CheckinsRespond, CheckinsTestAuto]);
-    expect(CheckinSheetWorkflowDefinitions).toHaveLength(2);
-    const [respondDefinition, testAutoDefinition] = CheckinSheetWorkflowDefinitions;
+  it("registers the CheckinsOpen, CheckinsRespond, and CheckinsTestAuto definitions", () => {
+    expect(CheckinSheetWorkflowContracts).toEqual([
+      CheckinsOpen,
+      CheckinsRespond,
+      CheckinsTestAuto,
+    ]);
+    expect(CheckinSheetWorkflowDefinitions).toHaveLength(3);
+    const respondDefinition = CheckinSheetWorkflowDefinitions.find(
+      ({ contract }) => contract === CheckinsRespond,
+    );
+    const testAutoDefinition = CheckinSheetWorkflowDefinitions.find(
+      ({ contract }) => contract === CheckinsTestAuto,
+    );
     expect(respondDefinition?.workflow.name).toBe(workflowContractKey(CheckinsRespond));
     expect(respondDefinition?.actions.map(({ workflow }) => workflow.name)).toEqual([
       "checkins.respond.commit-check-in",
@@ -282,9 +313,11 @@ const checkinResponseWorkflowDefinitionTests = () => {
       ),
     ).toBe(true);
     expect(CheckinSheetWorkflowRegistrations).toEqual([
+      expect.objectContaining({ contract: CheckinsOpen, definitionVersion: "1" }),
       expect.objectContaining({ contract: CheckinsRespond, definitionVersion: "1" }),
       expect.objectContaining({ contract: CheckinsTestAuto, definitionVersion: "1" }),
     ]);
+    expect(isCheckinSheetWorkflowName(workflowContractKey(CheckinsOpen))).toBe(true);
     expect(isCheckinSheetWorkflowName(workflowContractKey(CheckinsRespond))).toBe(true);
     expect(isCheckinSheetWorkflowName(workflowContractKey(CheckinsTestAuto))).toBe(true);
     expect(isCheckinSheetWorkflowName(CheckinsRespond.identity)).toBe(false);
@@ -294,7 +327,17 @@ const checkinResponseWorkflowDefinitionTests = () => {
     "uses stable invocation-derived Action, claim, and operation-specific Delivery Keys",
     () =>
       Effect.gen(function* () {
-        const definition = CheckinSheetWorkflowDefinitions[0]!;
+        const definition = CheckinSheetWorkflowDefinitions.find(
+          (
+            candidate,
+          ): candidate is Extract<
+            (typeof CheckinSheetWorkflowDefinitions)[number],
+            { readonly contract: typeof CheckinsRespond }
+          > => candidate.contract === CheckinsRespond,
+        );
+        if (definition === undefined) {
+          return yield* Effect.die("CheckinsRespond definition is not registered");
+        }
         const actionInput = { ...execution, committed, view: { context, members: [] } };
         const first = yield* Effect.forEach(definition.actions, ({ workflow }) =>
           workflow.executionId(actionInput),
@@ -330,6 +373,57 @@ const checkinResponseWorkflowDefinitionTests = () => {
       );
       expect(yield* authorizeCheckinRespond(principal, input)).toEqual(context);
       yield* authorization.authorize(CheckinsRespond, principal, input);
+    }),
+  );
+
+  it.effect("authorizes user and exact autonomous CheckinsOpen principals", () =>
+    Effect.gen(function* () {
+      const authorization = yield* makeAuthorization({});
+      yield* authorization.authorize(CheckinsOpen, principal, checkinsOpenUserInput);
+      yield* authorization.authorize(
+        CheckinsOpen,
+        checkinsOpenServicePrincipal,
+        checkinsOpenServiceInput,
+      );
+
+      const unauthorizedCases = [
+        {
+          principal: checkinsOpenServicePrincipal,
+          input: { ...checkinsOpenServiceInput, responseReference },
+        },
+        {
+          principal: checkinsOpenServicePrincipal,
+          input: { ...checkinsOpenServiceInput, template: "not allowed" },
+        },
+        {
+          principal: Schema.decodeUnknownSync(EffectivePrincipal)({
+            kind: "service",
+            serviceId: "sheet-bot.gateway",
+            oauthClientId: "auto-checkin-client",
+          }),
+          input: checkinsOpenServiceInput,
+        },
+        {
+          principal,
+          input: { ...checkinsOpenUserInput, conversationId: "also-main" },
+        },
+        {
+          principal,
+          input: { ...checkinsOpenUserInput, conversationId: "" },
+        },
+      ] as const;
+
+      for (const candidate of unauthorizedCases) {
+        const exit = yield* Effect.exit(
+          authorization.authorize(CheckinsOpen, candidate.principal, candidate.input),
+        );
+        expect(Exit.isFailure(exit)).toBe(true);
+        if (Exit.isFailure(exit)) {
+          expect(Option.getOrThrow(Cause.findErrorOption(exit.cause))).toMatchObject({
+            _tag: "WorkflowInvocationUnauthorized",
+          });
+        }
+      }
     }),
   );
 

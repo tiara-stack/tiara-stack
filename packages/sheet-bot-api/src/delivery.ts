@@ -8,6 +8,7 @@ import {
 } from "./message";
 import {
   ConversationRef,
+  ClientUserRef,
   DeliveryKey,
   MessageRef,
   ResponseReference,
@@ -17,6 +18,7 @@ import {
 export const BotDeliveryOperation = Schema.Literals([
   "respond",
   "sendMessage",
+  "sendDirectMessage",
   "editMessage",
   "deleteMessage",
   "setMessagePinned",
@@ -47,6 +49,11 @@ const ResponseTarget = Schema.TaggedStruct("Response", {
 
 const MessageTarget = Schema.TaggedStruct("Message", { message: MessageRef });
 
+const DirectMessageTarget = Schema.TaggedStruct("DirectMessage", {
+  recipient: ClientUserRef,
+  message: MessageRef,
+});
+
 const ConversationTarget = Schema.TaggedStruct("Conversation", {
   conversation: ConversationRef,
 });
@@ -75,6 +82,7 @@ export type BotDeliveredFileEvidence = Schema.Schema.Type<typeof BotDeliveredFil
 export const BotDeliveryTarget = Schema.Union([
   ResponseTarget,
   MessageTarget,
+  DirectMessageTarget,
   ConversationTarget,
   MemberRoleTarget,
 ]);
@@ -107,6 +115,13 @@ const makeMessageReceipt = <
 export const SendMessageReceipt = makeMessageReceipt("sendMessage");
 export type SendMessageReceipt = Schema.Schema.Type<typeof SendMessageReceipt>;
 
+export const SendDirectMessageReceipt = Schema.Struct({
+  deliveryKey: DeliveryKey,
+  operation: Schema.Literal("sendDirectMessage"),
+  target: DirectMessageTarget,
+});
+export type SendDirectMessageReceipt = Schema.Schema.Type<typeof SendDirectMessageReceipt>;
+
 export const EditMessageReceipt = makeMessageReceipt("editMessage");
 export type EditMessageReceipt = Schema.Schema.Type<typeof EditMessageReceipt>;
 
@@ -138,6 +153,7 @@ export type ReplaceConversationPermissionOverwritesReceipt = Schema.Schema.Type<
 export const DeliveryReceipt = Schema.Union([
   RespondReceipt,
   SendMessageReceipt,
+  SendDirectMessageReceipt,
   EditMessageReceipt,
   DeleteMessageReceipt,
   SetMessagePinnedReceipt,
@@ -161,6 +177,13 @@ export const SendMessageInput = Schema.Struct({
   message: BotOutboundMessage,
 });
 export type SendMessageInput = Schema.Schema.Type<typeof SendMessageInput>;
+
+export const SendDirectMessageInput = Schema.Struct({
+  recipient: ClientUserRef,
+  deliveryKey: DeliveryKey,
+  message: BotOutboundMessage,
+});
+export type SendDirectMessageInput = Schema.Schema.Type<typeof SendDirectMessageInput>;
 
 export const EditMessageInput = Schema.Struct({
   message: MessageRef,

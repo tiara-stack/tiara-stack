@@ -135,7 +135,7 @@ export type NotificationsLoadSupportedClientsSuccess = Schema.Schema.Type<
 
 export const CheckinsOpenInput = Schema.Struct({
   ...WorkspaceFields,
-  ...ResponseFields,
+  responseReference: Schema.optional(ResponseReference),
   conversationId: Schema.optional(Schema.String),
   conversationName: Schema.optional(Schema.String),
   hour: Schema.optional(Schema.Number),

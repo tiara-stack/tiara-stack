@@ -12,11 +12,12 @@ Owner: `@theerapakg`
   and remaining cross-package clones that do not yet have a stable shared ownership boundary.
   Shared middleware, auth-client construction, and command registration are excluded from this
   rationale because they use shared factories.
-- `dead-code.json`: seven narrow exceptions remain. The four dependency findings are configuration
+- `dead-code.json`: narrow exceptions remain. The four dependency findings are configuration
   imports that Fallow's source scan does not see (`sheet-db-schema` in three Vite configs and
   `start-atom` in the sheet-web router). `ProviderAiReviewClient.runStructured` implements its
   public client interface. The `Any` and `make` duplicate exports are intentionally namespaced
   Zero API constructors/types (`ZeroApi`, `ZeroApiGroup`, `ZeroApiEndpoint`, and `ZeroApiClient`).
+  The `text` duplicate is a test-only text factory kept local to the workflow test helpers.
 - `health.json`: existing complexity findings whose control flow is domain-specific and should be
   reduced in focused follow-up changes rather than hidden at file scope.
 

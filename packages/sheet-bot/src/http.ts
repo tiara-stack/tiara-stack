@@ -91,6 +91,7 @@ const withoutMessageMentions = <A extends object>(payload: A): A => ({
 const directMessagePayload = <A extends { readonly message_reference?: unknown }>(payload: A) => ({
   ...payload,
   message_reference: undefined,
+  flags: undefined,
   allowed_mentions: disabledMentions(),
 });
 
@@ -834,6 +835,40 @@ const botCapabilityDeliveryHandlersLayer = HttpApiBuilder.group(
                     payload.conversation,
                     message,
                   ),
+                },
+              };
+            }),
+          ),
+        )
+        .handle("sendDirectMessage", ({ payload }) =>
+          execute(
+            "sendDirectMessage",
+            payload.deliveryKey,
+            payload,
+            Effect.gen(function* () {
+              yield* requireClient(payload.recipient.client);
+              const dmChannel = yield* handleBotRestError(
+                rest.createDm({
+                  recipient_id: payload.recipient.userId,
+                } as Discord.CreatePrivateChannelRequest),
+                `Failed to open direct message channel for user ${payload.recipient.userId}`,
+              ).pipe(mapCapabilityProviderError("direct message channel"));
+              const message = yield* handleBotRestError(
+                rest.createMessage(
+                  dmChannel.id,
+                  directMessagePayload(
+                    toDiscordMessagePayload(payload.message),
+                  ) as Discord.MessageCreateRequest,
+                ),
+                `Failed to send direct message to user ${payload.recipient.userId}`,
+              ).pipe(mapCapabilityProviderError("direct message"));
+              return {
+                deliveryKey: payload.deliveryKey,
+                operation: "sendDirectMessage",
+                target: {
+                  _tag: "DirectMessage",
+                  recipient: payload.recipient,
+                  message: discordMessageToRef(configuredClient, "", message),
                 },
               };
             }),

@@ -10,11 +10,14 @@ import {
   makeCheckinsRespondDefinition,
 } from "./definition";
 import { makeCheckinsTestAutoDefinition } from "./autoTestDefinition";
+import { makeCheckinsOpenDefinition } from "./openDefinition";
 
+const CheckinsOpenDefinition = makeCheckinsOpenDefinition();
 const CheckinsRespondDefinition = makeCheckinsRespondDefinition();
 const CheckinsTestAutoDefinition = makeCheckinsTestAutoDefinition();
 
 export const CheckinSheetWorkflowDefinitions = Object.freeze([
+  CheckinsOpenDefinition,
   CheckinsRespondDefinition,
   CheckinsTestAutoDefinition,
 ] as const);
@@ -45,6 +48,7 @@ const checkinSheetWorkflowLayerList = [
     workflowLayer,
   ]),
   checkinProjectionEntityLayer,
+  CheckinsOpenDefinition.entityLayer,
 ] as const;
 
 export const checkinSheetWorkflowLayers = Layer.mergeAll(...checkinSheetWorkflowLayerList).pipe(

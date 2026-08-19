@@ -27,6 +27,8 @@ import {
   ReplaceConversationPermissionOverwritesReceipt,
   RespondInput,
   RespondReceipt,
+  SendDirectMessageInput,
+  SendDirectMessageReceipt,
   SendMessageInput,
   SendMessageReceipt,
   SetMemberRoleInput,
@@ -191,6 +193,13 @@ export const BotDeliveryEndpoints = Object.freeze({
       error: BotDeliveryErrors,
     }),
   ),
+  sendDirectMessage: deliveryWrite(
+    HttpApiEndpoint.post("sendDirectMessage", "/internal/bot/delivery/direct-messages/send", {
+      payload: SendDirectMessageInput,
+      success: SendDirectMessageReceipt,
+      error: BotDeliveryErrors,
+    }),
+  ),
   editMessage: deliveryWrite(
     HttpApiEndpoint.patch("editMessage", "/internal/bot/delivery/messages/edit", {
       payload: EditMessageInput,
@@ -255,6 +264,7 @@ export class BotCacheApi extends HttpApiGroup.make("cache")
 export class BotDeliveryApi extends HttpApiGroup.make("delivery")
   .add(BotDeliveryEndpoints.respond)
   .add(BotDeliveryEndpoints.sendMessage)
+  .add(BotDeliveryEndpoints.sendDirectMessage)
   .add(BotDeliveryEndpoints.editMessage)
   .add(BotDeliveryEndpoints.deleteMessage)
   .add(BotDeliveryEndpoints.setMessagePinned)

@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Match, Option, Predicate, Schema } from "effect";
+import { ConfigProvider, Context, Effect, Layer, Match, Option, Predicate, Schema } from "effect";
 import { WorkflowInvocationUnauthorized } from "effect-zero-workflow/contract/transport";
 import type { AnyWorkflowContract } from "effect-zero-workflow/contract";
 import type { EffectivePrincipal } from "sheet-auth/identity";
@@ -7,6 +7,7 @@ import {
   AuthorizationLoadWorkspaceCapabilities,
   AnnouncementsDeliverUpdate,
   CalculationsRecalculateSheet,
+  CheckinsOpen,
   CheckinsRespond,
   MembersKick,
   RoomOrdersNavigate,
@@ -377,6 +378,7 @@ const isForbiddenEmptyWorkspacePolicy = (
 export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
   ReadOnlyWorkflowAuthorization,
   Effect.gen(function* () {
+    const configProvider = yield* ConfigProvider.ConfigProvider;
     const bot = yield* SheetBotCacheClient;
     const persistence = yield* TrustedSheetPersistence;
     const {
@@ -392,6 +394,10 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
       autoRoleCleanupServiceId: config.sheetAutoRoleCleanupServiceId,
       autoRoleCleanupOAuthClientId: config.sheetAuthOAuthClientId,
     });
+    const autoCheckinIdentity = Effect.all({
+      serviceId: config.sheetAutoCheckinServiceId,
+      oauthClientId: config.sheetAutoCheckinOAuthClientId,
+    }).pipe(Effect.provideService(ConfigProvider.ConfigProvider, configProvider));
     const client = { platform: "discord", clientId } as const;
 
     const workspaceCapabilities: ReadOnlyWorkflowAuthorizationShape["workspaceCapabilities"] = (
@@ -557,6 +563,80 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
                 }),
               ),
           }),
+        ),
+      );
+    };
+
+    const nonEmptyInputString = (value: string | undefined): value is string =>
+      Predicate.isString(value) && value.trim().length > 0;
+
+    const authorizeCheckinsOpen = (principal: EffectivePrincipal, input: unknown) => {
+      const policy = CheckinsOpen.authorizationPolicy;
+      if (!policy.principalKinds.includes(principal.kind)) return Effect.fail(unauthorized());
+      return Schema.decodeUnknownEffect(CheckinsOpen.input)(input, {
+        onExcessProperty: "error",
+      }).pipe(
+        Effect.tapError(() =>
+          Effect.logWarning("Check-in open workflow input failed authorization decoding").pipe(
+            Effect.annotateLogs({
+              contractIdentity: CheckinsOpen.identity,
+              errorCategory: "InputDecodeFailure",
+            }),
+          ),
+        ),
+        Effect.mapError(() => unauthorized()),
+        Effect.flatMap((decoded) =>
+          Match.type<EffectivePrincipal>().pipe(
+            Match.discriminatorsExhaustive("kind")({
+              user: (userPrincipal) => {
+                const hasConversationId = Predicate.isNotUndefined(decoded.conversationId);
+                const hasConversationName = nonEmptyInputString(decoded.conversationName);
+                const hasResponseReference = Predicate.isNotUndefined(decoded.responseReference);
+                const hasDiscordAccount = Predicate.isNotUndefined(userPrincipal.discordAccount);
+                return hasResponseReference &&
+                  hasConversationId !== hasConversationName &&
+                  hasDiscordAccount
+                  ? workspaceCapabilities(principal, decoded.workspaceId).pipe(
+                      Effect.filterOrFail(
+                        (capabilities) =>
+                          hasRequiredCapabilities(policy.requiredCapabilities, capabilities),
+                        unauthorized,
+                      ),
+                      Effect.asVoid,
+                    )
+                  : Effect.fail(unauthorized());
+              },
+              service: (servicePrincipal) => {
+                const hasConversationName = nonEmptyInputString(decoded.conversationName);
+                const hasResponseReference = Predicate.isNotUndefined(decoded.responseReference);
+                const isServiceInput =
+                  hasConversationName &&
+                  Predicate.isUndefined(decoded.conversationId) &&
+                  !hasResponseReference &&
+                  Predicate.isUndefined(decoded.template);
+                return isServiceInput && policy.serviceRule === "auto-checkin"
+                  ? autoCheckinIdentity.pipe(
+                      Effect.tapError(() =>
+                        Effect.logWarning("Check-in auto-checkin identity lookup failed").pipe(
+                          Effect.annotateLogs({
+                            contractIdentity: CheckinsOpen.identity,
+                            errorCategory: "ConfigurationLookupFailure",
+                          }),
+                        ),
+                      ),
+                      Effect.filterOrFail(
+                        ({ oauthClientId, serviceId }) =>
+                          servicePrincipal.serviceId === serviceId &&
+                          servicePrincipal.oauthClientId === oauthClientId,
+                        unauthorized,
+                      ),
+                      Effect.asVoid,
+                      Effect.catch(() => Effect.fail(unauthorized())),
+                    )
+                  : Effect.fail(unauthorized());
+              },
+            }),
+          )(principal),
         ),
       );
     };
@@ -796,6 +876,9 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
       }
       if (contract.identity === CheckinsRespond.identity) {
         return authorizeCheckinRespond(principal, input).pipe(Effect.asVoid);
+      }
+      if (contract.identity === CheckinsOpen.identity) {
+        return authorizeCheckinsOpen(principal, input);
       }
       if (contract.identity === RoomOrdersNavigate.identity) {
         return authorizeRoomOrdersNavigate(principal, input).pipe(Effect.asVoid);

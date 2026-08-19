@@ -34,6 +34,11 @@ export const config = {
     nonEmptyString,
     "SHEET_AUTO_ROLE_CLEANUP_SERVICE_ID",
   ).pipe(Config.withDefault("auto-role-cleanup")),
+  sheetAutoCheckinServiceId: Config.schema(nonEmptyString, "SHEET_AUTO_CHECKIN_SERVICE_ID"),
+  sheetAutoCheckinOAuthClientId: Config.schema(
+    nonEmptyString,
+    "SHEET_AUTO_CHECKIN_OAUTH_CLIENT_ID",
+  ),
   sheetAuthOAuthAudience: Config.string("SHEET_AUTH_OAUTH_AUDIENCE").pipe(
     Config.withDefault("sheet-workflows"),
   ),

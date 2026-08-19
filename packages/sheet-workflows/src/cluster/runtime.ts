@@ -71,6 +71,7 @@ import {
   autoCheckinTestWorkflowOperationsLayer,
   checkinSheetWorkflowLayers,
   checkinWorkflowOperationsLayer,
+  checkinsOpenWorkflowOperationsLayer,
 } from "@/workflows/checkins";
 import {
   memberKickProviderLayer,
@@ -211,6 +212,7 @@ const workflowDefinitionServicesLayer = Layer.mergeAll(
   scheduleWorkflowOperationsLayer.pipe(Layer.provide(userScheduleProviderLayer)),
   teamWorkflowOperationsLayer.pipe(Layer.provide(userTeamsProviderLayer)),
   checkinWorkflowOperationsLayer,
+  checkinsOpenWorkflowOperationsLayer.pipe(Layer.provide(readOnlyWorkflowAuthorizationLayer)),
   autoCheckinTestWorkflowOperationsLayer.pipe(
     Layer.provide(autoCheckinTestProviderLayer),
     Layer.provide(readOnlyWorkflowAuthorizationLayer),
