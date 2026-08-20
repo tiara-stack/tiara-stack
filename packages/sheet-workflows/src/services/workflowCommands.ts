@@ -65,6 +65,12 @@ import {
   isCalculationSheetWorkflowName,
   materializeCalculationWorkflowFailure,
 } from "@/workflows/calculations";
+import {
+  isTeamSubmissionsSheetWorkflowName,
+  materializeTeamSubmissionsWorkflowFailure,
+  teamSubmissionsSheetWorkflowDefinitionVersion,
+  TeamSubmissionsSheetWorkflows,
+} from "@/workflows/teamSubmissions";
 
 const DispatchWorkflowPrincipal = Schema.Struct({
   requester: Schema.Struct({
@@ -129,6 +135,11 @@ const dispatchWorkflowSlices: ReadonlyArray<DispatchWorkflowSlice> = [
     definitionVersion: calculationSheetWorkflowDefinitionVersion,
     materializeFailure: materializeCalculationWorkflowFailure,
   },
+  {
+    isWorkflowName: isTeamSubmissionsSheetWorkflowName,
+    definitionVersion: teamSubmissionsSheetWorkflowDefinitionVersion,
+    materializeFailure: materializeTeamSubmissionsWorkflowFailure,
+  },
 ];
 
 const findDispatchWorkflowSlice = (workflow: WorkflowDefinition) =>
@@ -166,6 +177,7 @@ const dispatchRuntimeLayer = workflowRuntimeLayer({
     ...TeamSheetWorkflows,
     ...CheckinSheetWorkflows,
     ...CalculationSheetWorkflows,
+    ...TeamSubmissionsSheetWorkflows,
   ],
   events: [DispatchMailboxEvent],
   definitionVersion: dispatchWorkflowDefinitionVersion,

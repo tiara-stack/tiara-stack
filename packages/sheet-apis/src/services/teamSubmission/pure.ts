@@ -2,31 +2,40 @@ import { Effect, Option, Predicate, Semaphore, String, pipe } from "effect";
 import type { TeamConfig } from "sheet-ingress-api/schemas/sheetConfig";
 import {
   type MessageTeamSubmission,
-  type ParsedOshi,
   type ParsedTeamEntry,
   type TeamSubmissionRowMapping,
   TeamSubmissionSkippedEntry,
   type TeamSubmissionUpsertFromDiscordPayload,
 } from "sheet-ingress-api/schemas/teamSubmission";
+import {
+  appendRangeForCells,
+  appendRowValues,
+  a1RangeRegex,
+  appendedRowTarget,
+  cellForRow,
+  columnToNumber,
+  numberToColumn,
+  parseA1Start,
+  rollbackValuesForRange,
+  type A1Cell,
+  type AppendRangeForCells,
+  type SheetValueUpdate,
+  type TeamSubmissionRowTarget,
+} from "sheet-ingress-api/schemas/teamSubmission";
 import { makeArgumentError } from "typhoon-core/error";
 
-export type A1Cell = {
-  readonly sheet: string;
-  readonly column: string;
-  readonly row: number;
+export {
+  appendRangeForCells,
+  appendRowValues,
+  a1RangeRegex,
+  appendedRowTarget,
+  cellForRow,
+  columnToNumber,
+  numberToColumn,
+  parseA1Start,
+  rollbackValuesForRange,
 };
-
-export type SheetValueUpdate = {
-  readonly range: string;
-  readonly values: string[][];
-};
-
-export type TeamSubmissionRowTarget = {
-  readonly rowIndex: number;
-  readonly playerNameRange: string;
-  readonly teamNameRange: string;
-  readonly oshiRange: string | null;
-};
+export type { A1Cell, AppendRangeForCells, SheetValueUpdate, TeamSubmissionRowTarget };
 
 export type ProcessedTeamSubmissionEntry = {
   readonly appended: boolean;
@@ -87,156 +96,6 @@ export const requireActionableSubmission = (submission: MessageTeamSubmission) =
 
 export const requireEditableSubmission = (submission: MessageTeamSubmission) =>
   requireSubmissionStatus(submission, editableSubmissionStatuses);
-
-export const a1RangeRegex =
-  /^(?:'(?<quotedSheet>(?:[^']|'')*)'|(?<sheet>[^!]+))!\s*(?<column>[A-Z]+)(?<row>\d+)/i;
-
-export const parseA1Start = (range: string): A1Cell | null => {
-  const match = a1RangeRegex.exec(range.trim());
-  const groups = match?.groups;
-  const sheet = groups?.quotedSheet?.replaceAll("''", "'") ?? groups?.sheet?.trim();
-  if (!sheet || !groups?.column || !groups.row) {
-    return null;
-  }
-
-  return { sheet, column: groups.column.toUpperCase(), row: Number(groups.row) };
-};
-
-export const cellForRow = (range: string, row: number) => {
-  const start = parseA1Start(range);
-  return start === null ? null : `'${start.sheet.replaceAll("'", "''")}'!${start.column}${row}`;
-};
-
-export const columnToNumber = (column: string) =>
-  column
-    .toUpperCase()
-    .split("")
-    .reduce((value, char) => value * 26 + char.charCodeAt(0) - 64, 0);
-
-export const numberToColumn = (value: number) => {
-  let remaining = value;
-  let column = "";
-  while (remaining > 0) {
-    const mod = (remaining - 1) % 26;
-    column = globalThis.String.fromCharCode(65 + mod) + column;
-    remaining = Math.floor((remaining - mod) / 26);
-  }
-  return column;
-};
-
-export const rollbackValuesForRange = (
-  range: string,
-  values: ReadonlyArray<ReadonlyArray<string>>,
-) => {
-  const start = parseA1Start(range);
-  const endMatch = /:([A-Z]+)(\d+)$/i.exec(range.trim());
-  if (start === null) {
-    return values.length === 0 ? [[""]] : values.map((row) => [...row]);
-  }
-
-  const endColumn = endMatch?.[1] ?? start.column;
-  const endRow = endMatch?.[2] ? Number(endMatch[2]) : start.row;
-  const width = Math.max(1, columnToNumber(endColumn) - columnToNumber(start.column) + 1);
-  const height = Math.max(1, endRow - start.row + 1);
-  return globalThis.Array.from({ length: height }, (_, rowIndex) =>
-    globalThis.Array.from(
-      { length: width },
-      (_, columnIndex) => values[rowIndex]?.[columnIndex] ?? "",
-    ),
-  );
-};
-
-export const appendRangeForCells = (
-  playerNameRange: string,
-  teamNameRange: string,
-  oshiRange: string | null,
-) => {
-  const cells = [
-    ["playerColumn", parseA1Start(playerNameRange)],
-    ["teamColumn", parseA1Start(teamNameRange)],
-    ...(oshiRange === null ? [] : ([["oshiColumn", parseA1Start(oshiRange)]] as const)),
-  ] as const;
-  if (cells.some(([, cell]) => cell === null)) {
-    return null;
-  }
-  const parsedCells = cells as ReadonlyArray<
-    readonly ["playerColumn" | "teamColumn" | "oshiColumn", A1Cell]
-  >;
-  const sheet = parsedCells[0]?.[1].sheet;
-  if (!sheet || parsedCells.some(([, cell]) => cell.sheet !== sheet)) {
-    return null;
-  }
-
-  const columns = parsedCells.map(([key, cell]) => [key, columnToNumber(cell.column)] as const);
-  const uniqueColumns = new Set(columns.map(([, column]) => column));
-  if (uniqueColumns.size !== columns.length) {
-    return null;
-  }
-  const startColumn = Math.min(...columns.map(([, column]) => column));
-  const endColumn = Math.max(...columns.map(([, column]) => column));
-  const columnMap = Object.fromEntries(columns) as {
-    readonly playerColumn: number;
-    readonly teamColumn: number;
-    readonly oshiColumn?: number;
-  };
-
-  return {
-    range: `'${sheet.replaceAll("'", "''")}'!${numberToColumn(startColumn)}:${numberToColumn(endColumn)}`,
-    startColumn,
-    endColumn,
-    playerColumn: columnMap.playerColumn,
-    teamColumn: columnMap.teamColumn,
-    oshiColumn: columnMap.oshiColumn ?? null,
-  };
-};
-
-export type AppendRangeForCells = NonNullable<ReturnType<typeof appendRangeForCells>>;
-
-export const appendRowValues = (
-  appendRange: AppendRangeForCells,
-  entry: ParsedTeamEntry,
-  oshi: ParsedOshi,
-) => {
-  const row = new globalThis.Array<string>(
-    appendRange.endColumn - appendRange.startColumn + 1,
-  ).fill("");
-  row[appendRange.playerColumn - appendRange.startColumn] = entry.playerName;
-  row[appendRange.teamColumn - appendRange.startColumn] = entry.teamName;
-  if (appendRange.oshiColumn !== null) {
-    row[appendRange.oshiColumn - appendRange.startColumn] = oshi.value ?? "";
-  }
-  return row;
-};
-
-export const appendedRowTarget = ({
-  rowIndex,
-  playerNameRange,
-  teamNameRange,
-  oshiRange,
-}: {
-  readonly rowIndex: number;
-  readonly playerNameRange: string;
-  readonly teamNameRange: string;
-  readonly oshiRange: string | null;
-}): TeamSubmissionRowTarget | null => {
-  const appendedPlayerNameRange = cellForRow(playerNameRange, rowIndex);
-  const appendedTeamNameRange = cellForRow(teamNameRange, rowIndex);
-  const appendedOshiRange = oshiRange === null ? null : cellForRow(oshiRange, rowIndex);
-  if (
-    appendedPlayerNameRange === null ||
-    appendedTeamNameRange === null ||
-    (oshiRange !== null && appendedOshiRange === null)
-  ) {
-    return null;
-  }
-
-  return {
-    rowIndex,
-    playerNameRange: appendedPlayerNameRange,
-    teamNameRange: appendedTeamNameRange,
-    oshiRange: appendedOshiRange,
-  };
-};
 
 export const appendedRowIndex = (updatedRange: string | null | undefined) => {
   const start = updatedRange ? parseA1Start(updatedRange) : null;

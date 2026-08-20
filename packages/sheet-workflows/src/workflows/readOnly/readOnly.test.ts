@@ -21,6 +21,7 @@ import {
   BotDependencyUnavailable,
   BotResourceNotFound,
   type SheetBotHttpClient,
+  messageRefFrom,
 } from "sheet-bot-api";
 import {
   TrustedSheetPersistence,
@@ -37,6 +38,8 @@ import {
   RoomOrdersSend,
   SchedulesDeliverUserSchedule,
   ServicesDeliverStatus,
+  TeamSubmissionsDecide,
+  TeamSubmissionsProcess,
   TeamsDeliverList,
   WorkspaceId,
 } from "sheet-workflow-contracts";
@@ -126,11 +129,23 @@ type WorkspaceMonitorRole = Effect.Success<
   ReturnType<TrustedSheetPersistenceShape["workspaces"]["getWorkspaceMonitorRoles"]>
 >[number];
 
+type MessageTeamSubmissionRow = Option.Option.Value<
+  Effect.Success<
+    ReturnType<TrustedSheetPersistenceShape["teamSubmissionState"]["getMessageTeamSubmission"]>
+  >
+>;
+
+type AuthorizationPersistenceOverrides = {
+  readonly getMessageRoomOrder?: TrustedSheetPersistenceShape["roomOrderState"]["getMessageRoomOrder"];
+  readonly getMessageTeamSubmission?: TrustedSheetPersistenceShape["teamSubmissionState"]["getMessageTeamSubmission"];
+};
+
 const authorizationWithBot = (
   botClient: SheetBotHttpClient,
   monitorRoles: ReadonlyArray<WorkspaceMonitorRole> = [],
-  getMessageRoomOrder?: TrustedSheetPersistenceShape["roomOrderState"]["getMessageRoomOrder"],
+  overrides: AuthorizationPersistenceOverrides = {},
 ) => {
+  const { getMessageRoomOrder, getMessageTeamSubmission } = overrides;
   const sheetApisClient = makeSheetApisClient({});
   const persistence = makeTrustedSheetPersistenceMock(sheetApisClient);
   return Effect.gen(function* () {
@@ -149,17 +164,33 @@ const authorizationWithBot = (
           ...persistence.roomOrderState,
           ...(getMessageRoomOrder ? { getMessageRoomOrder } : {}),
         },
+        teamSubmissionState: {
+          ...persistence.teamSubmissionState,
+          ...(getMessageTeamSubmission ? { getMessageTeamSubmission } : {}),
+        },
       }),
     ),
     Effect.provide(
       ConfigProvider.layer(
         ConfigProvider.fromUnknown({
           SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID: "sheet-bot-client",
+          SHEET_BOT_GATEWAY_SERVICE_ID: "sheet-bot.gateway",
           SHEET_AUTH_OAUTH_CLIENT_ID: "sheet-auto-role-cleanup",
         }),
       ),
     ),
   );
+};
+
+const expectUnauthorized = <A, E>(
+  exit: Exit.Exit<A, E>,
+  expected: object = { _tag: "WorkflowInvocationUnauthorized" },
+) => {
+  expect(Exit.isFailure(exit)).toBe(true);
+  if (Exit.isFailure(exit)) {
+    expect(Cause.hasDies(exit.cause)).toBe(false);
+    expect(Option.getOrThrow(Cause.findErrorOption(exit.cause))).toMatchObject(expected);
+  }
 };
 
 describe("read-only Sheet Workflow Definition slice", () => {
@@ -443,14 +474,10 @@ describe("read-only Sheet Workflow Definition slice", () => {
         const exit = yield* Effect.exit(
           authorization.authorize(TeamsDeliverList, candidate, authorizationInput),
         );
-        expect(Exit.isFailure(exit)).toBe(true);
-        if (Exit.isFailure(exit)) {
-          expect(Cause.hasDies(exit.cause)).toBe(false);
-          expect(Option.getOrThrow(Cause.findErrorOption(exit.cause))).toMatchObject({
-            _tag: "WorkflowInvocationUnauthorized",
-            message: "Workflow invocation is unauthorized",
-          });
-        }
+        expectUnauthorized(exit, {
+          _tag: "WorkflowInvocationUnauthorized",
+          message: "Workflow invocation is unauthorized",
+        });
       }
     }),
   );
@@ -497,6 +524,220 @@ describe("read-only Sheet Workflow Definition slice", () => {
     }),
   );
 
+  it.effect("requires the persisted author and current workspace membership for decisions", () =>
+    Effect.gen(function* () {
+      const client = { platform: "discord" as const, clientId: "discord-main" };
+      const input = {
+        responseReference: "response-1",
+        sourceMessage: messageRefFrom(client, "workspace-1", "conversation-1", "source-message-1"),
+        confirmationMessage: messageRefFrom(
+          client,
+          "workspace-1",
+          "conversation-1",
+          "confirmation-message-1",
+        ),
+        decision: "reject" as const,
+      };
+      const author = Schema.decodeUnknownSync(EffectivePrincipal)({
+        kind: "user",
+        userId: "author",
+        discordAccount: { accountId: "discord-user-1" },
+      });
+      const nonAuthor = Schema.decodeUnknownSync(EffectivePrincipal)({
+        kind: "user",
+        userId: "other",
+        discordAccount: { accountId: "discord-user-2" },
+      });
+      const persistedSubmission: MessageTeamSubmissionRow = {
+        workspaceId: "workspace-1",
+        conversationId: "conversation-1",
+        messageId: "source-message-1",
+        clientPlatform: "discord",
+        clientId: "discord-main",
+        discordGuildId: "workspace-1",
+        discordChannelId: "conversation-1",
+        discordAuthorId: "discord-user-1",
+        sheetId: "sheet-1",
+        confirmationMessageId: "confirmation-message-1",
+        parsedSubmission: [],
+        rowMappings: [],
+        rollbackSnapshot: null,
+        version: 1,
+        status: "registered",
+        createdAt: 1,
+        updatedAt: 1,
+        deletedAt: null,
+      };
+      const getMessageTeamSubmissionFor =
+        (
+          submission: MessageTeamSubmissionRow,
+        ): TrustedSheetPersistenceShape["teamSubmissionState"]["getMessageTeamSubmission"] =>
+        (key) =>
+          key.workspaceId === submission.workspaceId &&
+          key.conversationId === submission.conversationId &&
+          key.messageId === submission.messageId
+            ? Effect.succeed(Option.some(submission))
+            : Effect.succeed(Option.none());
+      const getMessageTeamSubmission = getMessageTeamSubmissionFor(persistedSubmission);
+      const memberAuthorization = yield* authorizationWithBot(
+        makeAuthorizationBotClient(() => Effect.succeed({ userId: "discord-user-1", roleIds: [] })),
+        [],
+        { getMessageTeamSubmission },
+      );
+      yield* memberAuthorization.authorize(TeamSubmissionsDecide, author, input);
+      const mismatchedConfirmationExit = yield* Effect.exit(
+        memberAuthorization.authorize(TeamSubmissionsDecide, author, {
+          ...input,
+          confirmationMessage: messageRefFrom(
+            client,
+            "workspace-1",
+            "conversation-1",
+            "different-confirmation",
+          ),
+        }),
+      );
+      expectUnauthorized(mismatchedConfirmationExit);
+      const unknownSubmissionExit = yield* Effect.exit(
+        memberAuthorization.authorize(TeamSubmissionsDecide, author, {
+          ...input,
+          sourceMessage: messageRefFrom(
+            client,
+            "workspace-1",
+            "conversation-1",
+            "unknown-source-message",
+          ),
+        }),
+      );
+      expectUnauthorized(unknownSubmissionExit);
+      for (const confirmationMessage of [
+        messageRefFrom(client, "workspace-2", "conversation-1", "confirmation-message-1"),
+        messageRefFrom(client, "workspace-1", "conversation-2", "confirmation-message-1"),
+      ]) {
+        const exit = yield* Effect.exit(
+          memberAuthorization.authorize(TeamSubmissionsDecide, author, {
+            ...input,
+            confirmationMessage,
+          }),
+        );
+        expectUnauthorized(exit);
+      }
+      const deletedAuthorization = yield* authorizationWithBot(
+        makeAuthorizationBotClient(() => Effect.succeed({ userId: "discord-user-1", roleIds: [] })),
+        [],
+        {
+          getMessageTeamSubmission: getMessageTeamSubmissionFor({
+            ...persistedSubmission,
+            deletedAt: 2,
+          }),
+        },
+      );
+      const deletedExit = yield* Effect.exit(
+        deletedAuthorization.authorize(TeamSubmissionsDecide, author, input),
+      );
+      expectUnauthorized(deletedExit);
+      const foreignClientAuthorization = yield* authorizationWithBot(
+        makeAuthorizationBotClient(() => Effect.succeed({ userId: "discord-user-1", roleIds: [] })),
+        [],
+        {
+          getMessageTeamSubmission: getMessageTeamSubmissionFor({
+            ...persistedSubmission,
+            clientId: "discord-other",
+          }),
+        },
+      );
+      const foreignClientExit = yield* Effect.exit(
+        foreignClientAuthorization.authorize(TeamSubmissionsDecide, author, input),
+      );
+      expectUnauthorized(foreignClientExit);
+      const nonAuthorExit = yield* Effect.exit(
+        memberAuthorization.authorize(TeamSubmissionsDecide, nonAuthor, input),
+      );
+      expectUnauthorized(nonAuthorExit);
+
+      const service = Schema.decodeUnknownSync(EffectivePrincipal)({
+        kind: "service",
+        serviceId: "sheet-bot.gateway",
+        oauthClientId: "sheet-bot-client",
+      });
+      const serviceExit = yield* Effect.exit(
+        memberAuthorization.authorize(TeamSubmissionsDecide, service, input),
+      );
+      expectUnauthorized(serviceExit);
+
+      const leftAuthorization = yield* authorizationWithBot(
+        makeAuthorizationBotClient(() =>
+          Effect.fail(new BotResourceNotFound({ resource: "member", message: "not a member" })),
+        ),
+        [],
+        { getMessageTeamSubmission },
+      );
+      const leftExit = yield* Effect.exit(
+        leftAuthorization.authorize(TeamSubmissionsDecide, author, input),
+      );
+      expectUnauthorized(leftExit);
+    }),
+  );
+
+  it.effect("authorizes team-submission process only for the configured gateway service", () =>
+    Effect.gen(function* () {
+      const client = { platform: "discord" as const, clientId: "discord-main" };
+      const authorization = yield* authorizationWithBot(
+        makeAuthorizationBotClient(() =>
+          Effect.die("process authorization must not read membership"),
+        ),
+      );
+      const processInput = {
+        sourceMessage: messageRefFrom(client, "workspace-1", "conversation-1", "source-message-1"),
+        authorId: "discord-user-1",
+        authorDisplayName: "Author",
+        content: "full fill: 150/700",
+      };
+      const gatewayService = Schema.decodeUnknownSync(EffectivePrincipal)({
+        kind: "service",
+        serviceId: "sheet-bot.gateway",
+        oauthClientId: "sheet-bot-client",
+      });
+      yield* authorization.authorize(TeamSubmissionsProcess, gatewayService, processInput);
+
+      const foreignClientExit = yield* Effect.exit(
+        authorization.authorize(TeamSubmissionsProcess, gatewayService, {
+          ...processInput,
+          sourceMessage: messageRefFrom(
+            { platform: "discord", clientId: "foreign-client" },
+            "workspace-1",
+            "conversation-1",
+            "source-message-1",
+          ),
+        }),
+      );
+      expectUnauthorized(foreignClientExit);
+
+      for (const candidate of [
+        principal,
+        Schema.decodeUnknownSync(EffectivePrincipal)({
+          kind: "service",
+          serviceId: "other-service",
+          oauthClientId: "other-client",
+        }),
+        Schema.decodeUnknownSync(EffectivePrincipal)({
+          kind: "service",
+          serviceId: "sheet-bot.gateway",
+          oauthClientId: "other-client",
+        }),
+        Schema.decodeUnknownSync(EffectivePrincipal)({
+          kind: "service",
+          serviceId: "other-service",
+          oauthClientId: "sheet-bot-client",
+        }),
+      ]) {
+        const exit = yield* Effect.exit(
+          authorization.authorize(TeamSubmissionsProcess, candidate, processInput),
+        );
+        expectUnauthorized(exit);
+      }
+    }),
+  );
+
   it.effect("denies target-user policy v2 to ordinary workspace members", () =>
     Effect.gen(function* () {
       const authorization = yield* authorizationWithBot(
@@ -511,13 +752,7 @@ describe("read-only Sheet Workflow Definition slice", () => {
             targetUserId: "account-other",
           }),
         );
-        expect(Exit.isFailure(exit)).toBe(true);
-        if (Exit.isFailure(exit)) {
-          expect(Cause.hasDies(exit.cause)).toBe(false);
-          expect(Option.getOrThrow(Cause.findErrorOption(exit.cause))).toMatchObject({
-            _tag: "WorkflowInvocationUnauthorized",
-          });
-        }
+        expectUnauthorized(exit);
       }
     }),
   );
@@ -540,13 +775,15 @@ describe("read-only Sheet Workflow Definition slice", () => {
               deletedAt: null,
             },
           ],
-          (key) => {
-            expect(key).toEqual({
-              clientPlatform: "discord",
-              clientId: "discord-main",
-              messageId: "message-1",
-            });
-            return Effect.succeed(Option.some(row));
+          {
+            getMessageRoomOrder: (key) => {
+              expect(key).toEqual({
+                clientPlatform: "discord",
+                clientId: "discord-main",
+                messageId: "message-1",
+              });
+              return Effect.succeed(Option.some(row));
+            },
           },
         );
 
@@ -589,16 +826,17 @@ describe("read-only Sheet Workflow Definition slice", () => {
             deletedAt: null,
           },
         ];
-        const authorization = yield* authorizationWithBot(monitor, monitorRoles, () =>
-          Effect.succeed(
-            Option.some(
-              roomOrderRow({
-                sendClaimId: "claim-1",
-                tentativePinClaimId: "pin-claim-1",
-              }),
+        const authorization = yield* authorizationWithBot(monitor, monitorRoles, {
+          getMessageRoomOrder: () =>
+            Effect.succeed(
+              Option.some(
+                roomOrderRow({
+                  sendClaimId: "claim-1",
+                  tentativePinClaimId: "pin-claim-1",
+                }),
+              ),
             ),
-          ),
-        );
+        });
         const authorized = yield* authorization.authorizeRoomOrdersSend(principal, {
           messageId: "message-1",
           workspaceId: "forged-workspace",
@@ -631,21 +869,15 @@ describe("read-only Sheet Workflow Definition slice", () => {
           roomOrderRow({ sentMessageId: "sent-1", sentConversationId: null }),
           roomOrderRow({ sentMessageId: null, sentConversationId: "conversation-2" }),
         ]) {
-          const incompleteAuthorization = yield* authorizationWithBot(monitor, monitorRoles, () =>
-            Effect.succeed(Option.some(incomplete)),
-          );
+          const incompleteAuthorization = yield* authorizationWithBot(monitor, monitorRoles, {
+            getMessageRoomOrder: () => Effect.succeed(Option.some(incomplete)),
+          });
           for (const authorize of [
             incompleteAuthorization.authorizeRoomOrdersSend,
             incompleteAuthorization.authorizeRoomOrdersPinTentative,
           ]) {
             const exit = yield* Effect.exit(authorize(principal, { messageId: "message-1" }));
-            expect(Exit.isFailure(exit)).toBe(true);
-            if (Exit.isFailure(exit)) {
-              expect(Cause.hasDies(exit.cause)).toBe(false);
-              expect(Option.getOrThrow(Cause.findErrorOption(exit.cause))).toMatchObject({
-                _tag: "WorkflowInvocationUnauthorized",
-              });
-            }
+            expectUnauthorized(exit);
           }
         }
       }),
@@ -675,18 +907,18 @@ describe("read-only Sheet Workflow Definition slice", () => {
         Option.some(roomOrderRow({ clientId: "discord-other" })),
         Option.some(roomOrderRow({ deletedAt: 2 })),
       ];
-      const nonMonitor = yield* authorizationWithBot(ordinaryMember, [], () =>
-        Effect.succeed(Option.some(roomOrderRow())),
-      );
+      const nonMonitor = yield* authorizationWithBot(ordinaryMember, [], {
+        getMessageRoomOrder: () => Effect.succeed(Option.some(roomOrderRow())),
+      });
       const nonMonitorExit = yield* Effect.exit(
         nonMonitor.authorizeRoomOrdersNavigate(principal, { messageId: "message-1" }),
       );
       expect(Exit.isFailure(nonMonitorExit)).toBe(true);
 
       for (const canonical of invalidRows) {
-        const authorization = yield* authorizationWithBot(monitor, monitorRoles, () =>
-          Effect.succeed(canonical),
-        );
+        const authorization = yield* authorizationWithBot(monitor, monitorRoles, {
+          getMessageRoomOrder: () => Effect.succeed(canonical),
+        });
         const exit = yield* Effect.exit(
           authorization.authorizeRoomOrdersNavigate(principal, { messageId: "message-1" }),
         );
@@ -705,7 +937,9 @@ describe("read-only Sheet Workflow Definition slice", () => {
       const authorization = yield* authorizationWithBot(
         makeAuthorizationBotClient(() => Effect.die("unused")),
         [],
-        () => Effect.die("invalid principal must not read room-order state"),
+        {
+          getMessageRoomOrder: () => Effect.die("invalid principal must not read room-order state"),
+        },
       );
       const candidates = [
         Schema.decodeUnknownSync(EffectivePrincipal)({ kind: "user", userId: "unlinked" }),

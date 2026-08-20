@@ -2,7 +2,12 @@ import { ConfigProvider, Context, Effect, Layer, Match, Option, Predicate, Schem
 import { WorkflowInvocationUnauthorized } from "effect-zero-workflow/contract/transport";
 import type { AnyWorkflowContract } from "effect-zero-workflow/contract";
 import type { EffectivePrincipal } from "sheet-auth/identity";
-import { BotDependencyUnavailable, BotTextPart, type SheetBotHttpClient } from "sheet-bot-api";
+import {
+  BotDependencyUnavailable,
+  BotTextPart,
+  type MessageRef,
+  type SheetBotHttpClient,
+} from "sheet-bot-api";
 import {
   AuthorizationLoadWorkspaceCapabilities,
   AnnouncementsDeliverUpdate,
@@ -15,6 +20,8 @@ import {
   RoomOrdersSend,
   ServicesDeliverStatus,
   SlotsOpen,
+  TeamSubmissionsDecide,
+  TeamSubmissionsProcess,
   WorkspacesDeliverWelcome,
   WorkspacesFeatureFlagsSetAndDeliver,
   type SheetWorkflowAuthorizationPolicyMetadata,
@@ -27,6 +34,29 @@ import {
 import { config } from "@/config";
 import { SheetBotCacheClient } from "@/services/sheetBotCacheClient";
 import { canonicalCalculationSheetRef } from "../shared/calculationRange";
+import { optionValue } from "../shared/option";
+
+type MessageTeamSubmissionRow = Option.Option.Value<
+  Effect.Success<
+    ReturnType<TrustedSheetPersistenceShape["teamSubmissionState"]["getMessageTeamSubmission"]>
+  >
+>;
+
+const isDecidableSubmissionFor = (
+  submission: MessageTeamSubmissionRow,
+  client: MessageRef["conversation"]["workspace"]["client"],
+  accountId: string,
+  confirmationMessageId: string,
+): boolean => {
+  const persistedConfirmationMessageId = optionValue(submission.confirmationMessageId);
+  return (
+    submission.clientPlatform === client.platform &&
+    submission.clientId === client.clientId &&
+    Predicate.isNull(submission.deletedAt) &&
+    submission.discordAuthorId === accountId &&
+    persistedConfirmationMessageId === confirmationMessageId
+  );
+};
 
 export const ownerKeyForEffectivePrincipal = (principal: EffectivePrincipal): string =>
   Match.type<EffectivePrincipal>().pipe(
@@ -189,6 +219,10 @@ type RoomOrderAuthorizationLookupError =
   | WorkspaceCapabilityLookupError
   | MethodError<TrustedSheetPersistenceShape["roomOrderState"]["getMessageRoomOrder"]>;
 
+type TeamSubmissionAuthorizationLookupError =
+  | WorkspaceCapabilityLookupError
+  | MethodError<TrustedSheetPersistenceShape["teamSubmissionState"]["getMessageTeamSubmission"]>;
+
 interface ReadOnlyWorkflowAuthorizationShape {
   readonly workspaceCapabilities: (
     principal: EffectivePrincipal,
@@ -198,7 +232,12 @@ interface ReadOnlyWorkflowAuthorizationShape {
     contract: Contract,
     principal: EffectivePrincipal,
     input: unknown,
-  ) => Effect.Effect<void, WorkflowInvocationUnauthorized | CheckinAuthorizationLookupError>;
+  ) => Effect.Effect<
+    void,
+    | WorkflowInvocationUnauthorized
+    | CheckinAuthorizationLookupError
+    | TeamSubmissionAuthorizationLookupError
+  >;
   readonly authorizeSlotOpen: (
     principal: EffectivePrincipal,
     input: unknown,
@@ -343,6 +382,54 @@ const hasRequiredCapabilities = (
     ),
   );
 
+type AuthorizationPolicyExpectation = {
+  readonly principalKinds: ReadonlyArray<
+    SheetWorkflowAuthorizationPolicyMetadata["principalKinds"][number]
+  >;
+  readonly requiredCapabilities: ReadonlyArray<
+    SheetWorkflowAuthorizationPolicyMetadata["requiredCapabilities"][number]
+  >;
+  readonly resource: SheetWorkflowAuthorizationPolicyMetadata["resource"];
+  // Require the expected field so an omitted policy field fails closed.
+  readonly resourceField: string;
+  readonly serviceRule?: string;
+  readonly userRule?: SheetWorkflowAuthorizationPolicyMetadata["userRule"];
+};
+
+const hasSamePolicyValues = <Value>(
+  actual: ReadonlyArray<Value>,
+  expected: ReadonlyArray<Value>,
+): boolean => {
+  const actualSet = new Set(actual);
+  if (actualSet.size !== actual.length) return false;
+  const expectedSet = new Set(expected);
+  if (expectedSet.size !== expected.length) return false;
+  if (actualSet.size !== expectedSet.size) return false;
+  return [...expectedSet].every((value) => actualSet.has(value));
+};
+
+const hasSamePolicyFields = (
+  policy: SheetWorkflowAuthorizationPolicyMetadata,
+  expected: AuthorizationPolicyExpectation,
+): boolean =>
+  [
+    policy.resource === expected.resource,
+    policy.resourceField === expected.resourceField,
+    policy.serviceRule === expected.serviceRule,
+    policy.userRule === expected.userRule,
+  ].every(Predicate.isTruthy);
+
+const policyMatches = (
+  policy: SheetWorkflowAuthorizationPolicyMetadata,
+  expected: AuthorizationPolicyExpectation,
+): boolean => {
+  return [
+    hasSamePolicyValues(policy.principalKinds, expected.principalKinds),
+    hasSamePolicyValues(policy.requiredCapabilities, expected.requiredCapabilities),
+    hasSamePolicyFields(policy, expected),
+  ].every(Predicate.isTruthy);
+};
+
 const authorizeTargetUser = (
   principal: EffectivePrincipal,
   input: unknown,
@@ -399,6 +486,18 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
       oauthClientId: config.sheetAutoCheckinOAuthClientId,
     }).pipe(Effect.provideService(ConfigProvider.ConfigProvider, configProvider));
     const client = { platform: "discord", clientId } as const;
+    const isConfiguredMessageRef = (message: MessageRef): boolean =>
+      message.conversation.workspace.client.platform === client.platform &&
+      message.conversation.workspace.client.clientId === client.clientId &&
+      message.conversation.workspace.workspaceId.length > 0 &&
+      message.conversation.conversationId.length > 0 &&
+      message.messageId.length > 0;
+    const isConfiguredGatewayService = (servicePrincipal: {
+      readonly serviceId: string;
+      readonly oauthClientId: string;
+    }): boolean =>
+      servicePrincipal.serviceId === gatewayServiceId &&
+      servicePrincipal.oauthClientId === gatewayOAuthClientId;
 
     const workspaceCapabilities: ReadOnlyWorkflowAuthorizationShape["workspaceCapabilities"] = (
       principal,
@@ -797,13 +896,138 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
         Match.discriminatorsExhaustive("kind")({
           user: () => Effect.fail(unauthorized()),
           service: (servicePrincipal) =>
-            servicePrincipal.serviceId === gatewayServiceId &&
-            servicePrincipal.oauthClientId === gatewayOAuthClientId
+            isConfiguredGatewayService(servicePrincipal)
               ? Effect.void
               : Effect.fail(unauthorized()),
         }),
       )(principal);
     };
+
+    // fallow-ignore-next-line complexity
+    const authorizeTeamSubmissionsProcess = (principal: EffectivePrincipal, input: unknown) =>
+      // fallow-ignore-next-line complexity
+      Schema.decodeUnknownEffect(TeamSubmissionsProcess.input)(input, {
+        onExcessProperty: "error",
+      }).pipe(
+        Effect.tapError(() =>
+          Effect.logWarning("Team-submission process input failed authorization decoding").pipe(
+            Effect.annotateLogs({
+              contractIdentity: TeamSubmissionsProcess.identity,
+              errorCategory: "InputDecodeFailure",
+            }),
+          ),
+        ),
+        Effect.mapError(() => unauthorized()),
+        // fallow-ignore-next-line complexity
+        Effect.flatMap((decoded) => {
+          const source = decoded.sourceMessage;
+          if (!isConfiguredMessageRef(source)) return Effect.fail(unauthorized());
+          if (
+            !policyMatches(TeamSubmissionsProcess.authorizationPolicy, {
+              principalKinds: ["service"],
+              requiredCapabilities: ["service.allowed"],
+              resource: "submission",
+              resourceField: "sourceMessage",
+              serviceRule: "sheet-bot.gateway",
+            })
+          ) {
+            return Effect.fail(unauthorized());
+          }
+          return Match.type<EffectivePrincipal>().pipe(
+            Match.discriminatorsExhaustive("kind")({
+              user: () => Effect.fail(unauthorized()),
+              service: (servicePrincipal) =>
+                isConfiguredGatewayService(servicePrincipal)
+                  ? Effect.void
+                  : Effect.fail(unauthorized()),
+            }),
+          )(principal);
+        }),
+      );
+
+    // fallow-ignore-next-line complexity
+    const authorizeTeamSubmissionsDecide = (principal: EffectivePrincipal, input: unknown) =>
+      // fallow-ignore-next-line complexity
+      Schema.decodeUnknownEffect(TeamSubmissionsDecide.input)(input, {
+        onExcessProperty: "error",
+      }).pipe(
+        Effect.tapError(() =>
+          Effect.logWarning("Team-submission decision input failed authorization decoding").pipe(
+            Effect.annotateLogs({
+              contractIdentity: TeamSubmissionsDecide.identity,
+              errorCategory: "InputDecodeFailure",
+            }),
+          ),
+        ),
+        Effect.mapError(() => unauthorized()),
+        // fallow-ignore-next-line complexity
+        Effect.flatMap((decoded) => {
+          const source = decoded.sourceMessage;
+          const confirmation = decoded.confirmationMessage;
+          if (
+            !policyMatches(TeamSubmissionsDecide.authorizationPolicy, {
+              principalKinds: ["user"],
+              requiredCapabilities: ["workspace.participant"],
+              resource: "submission",
+              resourceField: "sourceMessage",
+            }) ||
+            !isConfiguredMessageRef(source) ||
+            !isConfiguredMessageRef(confirmation) ||
+            confirmation.conversation.workspace.workspaceId !==
+              source.conversation.workspace.workspaceId ||
+            confirmation.conversation.conversationId !== source.conversation.conversationId
+          ) {
+            return Effect.fail(unauthorized());
+          }
+          // The persisted submission author represents workspace.participant here; the owner
+          // match below is paired with current workspace membership for this workflow.
+          return Match.type<EffectivePrincipal>().pipe(
+            Match.discriminatorsExhaustive("kind")({
+              service: () => Effect.fail(unauthorized()),
+              user: (userPrincipal) => {
+                const accountId = userPrincipal.discordAccount?.accountId;
+                if (Predicate.isUndefined(accountId)) return Effect.fail(unauthorized());
+                return persistence.teamSubmissionState
+                  .getMessageTeamSubmission({
+                    workspaceId: source.conversation.workspace.workspaceId,
+                    conversationId: source.conversation.conversationId,
+                    messageId: source.messageId,
+                  })
+                  .pipe(
+                    Effect.flatMap(
+                      Option.match({
+                        onNone: () => Effect.fail(unauthorized()),
+                        onSome: (submission) => {
+                          if (
+                            !isDecidableSubmissionFor(
+                              submission,
+                              client,
+                              accountId,
+                              decoded.confirmationMessage.messageId,
+                            )
+                          ) {
+                            return Effect.fail(unauthorized());
+                          }
+                          return workspaceCapabilities(
+                            principal,
+                            source.conversation.workspace.workspaceId,
+                          ).pipe(
+                            // Membership is checked here because participation is established by
+                            // the persisted source-message ownership check above. hasRequiredCapabilities
+                            // cannot express this because workspaceCapabilities intentionally returns
+                            // participant: false.
+                            Effect.filterOrFail(({ member }) => member, unauthorized),
+                            Effect.asVoid,
+                          );
+                        },
+                      }),
+                    ),
+                  );
+              },
+            }),
+          )(principal);
+        }),
+      );
 
     const authorizeSheetBotGateway = (
       principal: EffectivePrincipal,
@@ -879,6 +1103,12 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
       }
       if (contract.identity === CheckinsOpen.identity) {
         return authorizeCheckinsOpen(principal, input);
+      }
+      if (contract.identity === TeamSubmissionsProcess.identity) {
+        return authorizeTeamSubmissionsProcess(principal, input);
+      }
+      if (contract.identity === TeamSubmissionsDecide.identity) {
+        return authorizeTeamSubmissionsDecide(principal, input);
       }
       if (contract.identity === RoomOrdersNavigate.identity) {
         return authorizeRoomOrdersNavigate(principal, input).pipe(Effect.asVoid);

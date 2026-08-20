@@ -1,19 +1,24 @@
 import { NodeHttpServer } from "@effect/platform-node";
-import { Duration, Effect, Layer, Option } from "effect";
+import { Duration, Effect, FileSystem, Layer, Option } from "effect";
+import type { ConfigError } from "effect/Config";
+import type { SqlError } from "effect/unstable/sql/SqlError";
 import {
   K8sHttpClient,
   RunnerAddress,
   RunnerHealth,
+  Runners,
   Sharding,
   ShardingConfig,
 } from "effect/unstable/cluster";
-import { HttpRouter } from "effect/unstable/http";
+import * as WorkflowEngine from "effect/unstable/workflow/WorkflowEngine";
+import { HttpClient, HttpRouter } from "effect/unstable/http";
 import {
   clientOnlyShardingConfig,
   clusterWorkflowEngineClientLayer as makeClusterWorkflowEngineClientLayer,
   clusterWorkflowEngineRunnerLayer,
   clusterWorkflowStorageLayer,
 } from "effect-zero-workflow";
+import type { WorkflowContractRegistrationError } from "effect-zero-workflow/contract-server";
 import { createServer } from "node:http";
 import { config } from "@/config";
 import {
@@ -26,6 +31,8 @@ import {
   trustedSheetPersistenceLayer,
 } from "@/services";
 import { autoCheckinWorkflowLayer } from "@/workflows/autoCheckin";
+import type { AutoCheckinTestProviderError } from "@/workflows/checkins/autoTestProvider";
+import type { CalculationProviderError } from "@/workflows/calculations/provider";
 import { getClusterRunnerReadinessSnapshot, postgresSqlLayer } from "@/services";
 import { dispatchButtonEntityLayer, dispatchWorkflowLayer } from "@/workflows/dispatch";
 import { smokeWorkflowLayer } from "@/workflows/smoke";
@@ -50,9 +57,17 @@ import { slotOpenWorkflowOperationsLayer } from "@/workflows/slots/slotOpenOpera
 import { scheduleSheetWorkflowLayers } from "@/workflows/schedules";
 import { scheduleWorkflowOperationsLayer } from "@/workflows/schedules/operations";
 import { userScheduleProviderLayer } from "@/workflows/schedules/provider";
+import type { UserScheduleProviderError } from "@/workflows/schedules/provider";
 import { teamSheetWorkflowLayers } from "@/workflows/teams";
 import { teamWorkflowOperationsLayer } from "@/workflows/teams/operations";
 import { userTeamsProviderLayer } from "@/workflows/teams/provider";
+import type { UserTeamsProviderError } from "@/workflows/teams/provider";
+import {
+  teamSubmissionProviderLayer,
+  teamSubmissionsSheetWorkflowLayers,
+  teamSubmissionsWorkflowOperationsLayer,
+} from "@/workflows/teamSubmissions";
+import type { TeamSubmissionProviderError } from "@/workflows/teamSubmissions/provider";
 import {
   serviceSheetWorkflowLayers,
   serviceStatusWorkflowOperationsLayer,
@@ -78,7 +93,9 @@ import {
   memberKickWorkflowOperationsLayer,
   memberSheetWorkflowLayers,
 } from "@/workflows/members";
+import type { MemberKickProviderError } from "@/workflows/members/provider";
 import { roomOrderCreateProviderLayer } from "@/workflows/roomOrders/createProvider";
+import type { RoomOrderCreateProviderError } from "@/workflows/roomOrders/createProvider";
 import {
   roomOrderNavigationOperationsLayer,
   roomOrderNavigationProviderLayer,
@@ -87,6 +104,7 @@ import {
   roomOrderSendOperationsLayer,
   roomOrderSheetWorkflowLayers,
 } from "@/workflows/roomOrders";
+import type { RoomOrderNavigationProviderError } from "@/workflows/roomOrders/provider";
 import {
   screenshotBrowserLayer,
   screenshotBrowserWorkflowLayers,
@@ -95,6 +113,8 @@ import {
   screenshotSourceOperationsLayer,
   screenshotSourceProviderLayer,
 } from "@/workflows/screenshots";
+import type { ScreenshotSourceProviderError } from "@/workflows/screenshots/sourceProvider";
+import type { SlotListProviderError } from "@/workflows/slots/slotListProvider";
 import {
   calculationProviderLayer,
   calculationSheetWorkflowLayers,
@@ -211,6 +231,10 @@ const workflowDefinitionServicesLayer = Layer.mergeAll(
   slotOpenWorkflowOperationsLayer.pipe(Layer.provide(slotListProviderLayer)),
   scheduleWorkflowOperationsLayer.pipe(Layer.provide(userScheduleProviderLayer)),
   teamWorkflowOperationsLayer.pipe(Layer.provide(userTeamsProviderLayer)),
+  teamSubmissionsWorkflowOperationsLayer.pipe(
+    Layer.provide(teamSubmissionProviderLayer),
+    Layer.provide(readOnlyWorkflowAuthorizationLayer),
+  ),
   checkinWorkflowOperationsLayer,
   checkinsOpenWorkflowOperationsLayer.pipe(Layer.provide(readOnlyWorkflowAuthorizationLayer)),
   autoCheckinTestWorkflowOperationsLayer.pipe(
@@ -251,7 +275,28 @@ const dispatchServicesLayer = Layer.effect(DispatchService, DispatchService.make
   Layer.provideMerge(trustedSheetPersistenceLayer),
 );
 
-const clusterLayer = Layer.mergeAll(
+type ClusterLayerOutput = WorkflowEngine.WorkflowEngine | Sharding.Sharding | Runners.Runners;
+
+type ClusterLayerError =
+  | AutoCheckinTestProviderError
+  | CalculationProviderError
+  | ConfigError
+  | MemberKickProviderError
+  | RoomOrderCreateProviderError
+  | RoomOrderNavigationProviderError
+  | ScreenshotSourceProviderError
+  | SlotListProviderError
+  | SqlError
+  | TeamSubmissionProviderError
+  | UserScheduleProviderError
+  | UserTeamsProviderError
+  | WorkflowContractRegistrationError;
+
+const clusterLayer: Layer.Layer<
+  ClusterLayerOutput,
+  ClusterLayerError,
+  HttpClient.HttpClient | HttpRouter.HttpRouter | FileSystem.FileSystem
+> = Layer.mergeAll(
   dispatchButtonEntityLayer,
   dispatchWorkflowLayer,
   autoCheckinWorkflowLayer,
@@ -262,6 +307,7 @@ const clusterLayer = Layer.mergeAll(
   slotSheetWorkflowLayers,
   scheduleSheetWorkflowLayers,
   teamSheetWorkflowLayers,
+  teamSubmissionsSheetWorkflowLayers,
   checkinSheetWorkflowLayers,
   roomOrderSheetWorkflowLayers,
   serviceSheetWorkflowLayers,
@@ -297,7 +343,13 @@ const clusterHttpServerLayer = Layer.unwrap(
   }),
 );
 
-export const clusterHttpLayer = HttpRouter.serve(
+type ClusterHttpLayer = Layer.Layer<
+  ClusterLayerOutput | HttpRouter.HttpRouter,
+  ClusterLayerError | Layer.Error<typeof clusterHttpServerLayer>,
+  HttpClient.HttpClient
+>;
+
+export const clusterHttpLayer: ClusterHttpLayer = HttpRouter.serve(
   clusterLayer.pipe(Layer.provideMerge(HttpRouter.layer)),
 ).pipe(Layer.provide(clusterHttpServerLayer), Layer.withSpan("sheet-workflows.clusterHttp"));
 
