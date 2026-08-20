@@ -344,7 +344,7 @@ interface ReconcileDeliveryInput {
   readonly resolution: DeliveryReconciliationResolution;
 }
 
-interface BotCapabilityStoreShape {
+export interface BotCapabilityStoreShape {
   readonly issueResponseReference: (
     input: IssueResponseReferenceInput,
   ) => Effect.Effect<ResponseReferenceType, BotDependencyUnavailable | BotResponseExpired>;

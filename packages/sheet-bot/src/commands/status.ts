@@ -17,6 +17,7 @@ import {
   enqueueStatusWorkflow,
   SheetWorkflowHttpClient,
   SheetWorkflowHttpRequestContext,
+  type BotCapabilityStoreShape,
   type ServicesDeliverStatusEnqueueError,
 } from "../services";
 import { interactionDeadlineEpochMs } from "../utils/interactionDeadline";
@@ -43,21 +44,23 @@ export const makeStatusResponseReferenceInput = ({
   expiresAt: interactionDeadlineEpochMs(interactionId),
 });
 
-const issueStatusResponseReference = Effect.gen(function* () {
-  const capabilityStore = yield* BotCapabilityStore;
-  const interactionToken = yield* InteractionToken;
-  const interaction = yield* Ix.Interaction;
-  const clientId = yield* config.sheetBotClientId;
+const issueStatusResponseReference = (
+  capabilityStore: Pick<BotCapabilityStoreShape, "issueResponseReference">,
+) =>
+  Effect.gen(function* () {
+    const interactionToken = yield* InteractionToken;
+    const interaction = yield* Ix.Interaction;
+    const clientId = yield* config.sheetBotClientId;
 
-  return yield* capabilityStore.issueResponseReference(
-    makeStatusResponseReferenceInput({
-      applicationId: interactionToken.applicationId,
-      clientId,
-      interactionId: interaction.id,
-      interactionToken: interactionToken.token,
-    }),
-  );
-});
+    return yield* capabilityStore.issueResponseReference(
+      makeStatusResponseReferenceInput({
+        applicationId: interactionToken.applicationId,
+        clientId,
+        interactionId: interaction.id,
+        interactionToken: interactionToken.token,
+      }),
+    );
+  });
 
 const reportDefinitiveEnqueueFailure = (
   response: Pick<CommandInteractionResponseContext, "editReply">,
@@ -78,11 +81,12 @@ const isTransportUnavailable = (
   { readonly _tag: "WorkflowTransportUnavailable" }
 > => Predicate.isTagged("WorkflowTransportUnavailable")(error);
 
-const enqueueStatus = Effect.fn("status.enqueueWorkflow")(function* (
+export const enqueueStatus = Effect.fn("status.enqueueWorkflow")(function* (
   response: Pick<CommandInteractionResponseContext, "editReply">,
   workflowClient: typeof SheetWorkflowHttpClient.Service,
+  capabilityStore: Pick<BotCapabilityStoreShape, "issueResponseReference">,
 ) {
-  const responseReference = yield* issueStatusResponseReference;
+  const responseReference = yield* issueStatusResponseReference(capabilityStore);
 
   yield* SheetWorkflowHttpRequestContext.asInteractionUser(() =>
     enqueueStatusWorkflow(workflowClient, { responseReference }),
@@ -101,6 +105,7 @@ const enqueueStatus = Effect.fn("status.enqueueWorkflow")(function* (
 });
 
 const makeStatusCommand = Effect.gen(function* () {
+  const capabilityStore = yield* BotCapabilityStore;
   const workflowClient = yield* SheetWorkflowHttpClient;
 
   return yield* CommandHelper.makeCommand(
@@ -121,7 +126,7 @@ const makeStatusCommand = Effect.gen(function* () {
       const response = yield* InteractionResponse;
       yield* response.deferReply();
 
-      yield* enqueueStatus(response, workflowClient);
+      yield* enqueueStatus(response, workflowClient, capabilityStore);
     }),
   );
 });
