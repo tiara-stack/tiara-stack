@@ -65,6 +65,16 @@ const assertScopesAllowedByActor = (
   }
 };
 
+export const tokenExchangeActorClaims = (
+  actor: Pick<SheetAuthResolvedIdentity, "clientId" | "userId">,
+) => {
+  const actorServiceId = actor.clientId ?? actor.userId;
+  return {
+    sub: actorServiceId,
+    client_id: actorServiceId,
+  };
+};
+
 export const requestedTokenExchangeScopes = (
   requestScope: string | undefined,
   subject: SheetOAuthTokenExchangeSubject,
@@ -175,10 +185,7 @@ const signTokenExchangeAccessToken = async (
   if (!input.subject.accountId) {
     throw oauthError("BAD_REQUEST", "invalid_request", "Token exchange subject is missing account");
   }
-  const actorClaims = {
-    sub: input.actor.userId,
-    client_id: input.actor.clientId,
-  };
+  const actorClaims = tokenExchangeActorClaims(input.actor);
 
   const accessToken = await signJWT(ctx, {
     payload: {

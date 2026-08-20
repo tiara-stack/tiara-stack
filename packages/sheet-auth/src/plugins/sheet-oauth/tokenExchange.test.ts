@@ -4,15 +4,38 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InternalAdapter } from "better-auth";
 import { Effect, Predicate } from "effect";
-import { SignJWT } from "jose";
+import { decodeJwt, SignJWT } from "jose";
 import { describe, expect, it } from "@effect/vitest";
+import { vi } from "vitest";
 import {
   createJwtSubjectTokenResolver,
   resolveUserByDiscordId,
   sheetOAuthJwksUrl,
   verifyKubernetesServiceAccountToken,
 } from ".";
-import { requestedTokenExchangeScopes } from "./tokens/token-exchange";
+import {
+  exchangeToken,
+  requestedTokenExchangeScopes,
+  tokenExchangeActorClaims,
+} from "./tokens/token-exchange";
+
+const resourceClientMock = vi.hoisted(() => ({
+  verifyAccessToken: vi.fn(),
+}));
+
+const signJwtMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@better-auth/oauth-provider/resource-client", () => ({
+  oauthProviderResourceClient: () => ({
+    getActions: () => ({
+      verifyAccessToken: resourceClientMock.verifyAccessToken,
+    }),
+  }),
+}));
+
+vi.mock("better-auth/plugins", () => ({
+  signJWT: signJwtMock,
+}));
 
 const grantType = "urn:ietf:params:oauth:grant-type:token-exchange";
 const accessTokenType = "urn:ietf:params:oauth:token-type:access_token";
@@ -383,6 +406,73 @@ describe("requestedTokenExchangeScopes", () => {
         actor,
       ),
     ).toThrow("No token exchange scopes are allowed");
+  });
+});
+
+describe("tokenExchangeActorClaims", () => {
+  it("uses the OAuth client identity for the token exchange actor", () => {
+    expect(tokenExchangeActorClaims(actor)).toEqual({
+      sub: actor.clientId,
+      client_id: actor.clientId,
+    });
+  });
+
+  it("uses the user identity for both actor claims when the client ID is absent", () => {
+    expect(tokenExchangeActorClaims({ ...actor, clientId: undefined })).toEqual({
+      sub: actor.userId,
+      client_id: actor.userId,
+    });
+  });
+});
+
+describe("exchangeToken", () => {
+  it("includes actor claims in the signed access token", async () => {
+    signJwtMock.mockImplementation(async (_ctx, { payload }) =>
+      new SignJWT(payload)
+        .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+        .sign(new TextEncoder().encode("token-exchange-test-secret")),
+    );
+    resourceClientMock.verifyAccessToken.mockResolvedValue({
+      client_id: actor.clientId,
+      scope: actor.scopes.join(" "),
+    });
+
+    const response = await exchangeToken(
+      {
+        body: {
+          grant_type: grantType,
+          subject_token: "subject-token",
+          subject_token_type: "custom-subject-token",
+          actor_token: "actor-token",
+          actor_token_type: accessTokenType,
+          audience: "sheet-workflows",
+          scope: "workflow.dispatch",
+        },
+        context: {
+          adapter: {},
+          internalAdapter: {},
+        },
+      },
+      {
+        issuer: "https://auth.example.com",
+        validAudiences: ["sheet-workflows"],
+        trustedClientIds: new Set([actor.clientId]),
+        tokenExchange: {
+          subjectResolvers: [
+            async () => ({
+              userId: "subject-user",
+              accountId: "subject-account",
+              scopes: ["workflow.dispatch"],
+            }),
+          ],
+        },
+      },
+    );
+
+    expect(decodeJwt(response.access_token).act).toEqual({
+      sub: actor.clientId,
+      client_id: actor.clientId,
+    });
   });
 });
 
