@@ -16,6 +16,9 @@ export const config = {
     Config.withDefault("sheet-bot"),
   ),
   sheetIngressBaseUrl: Config.schema(Schema.String, "SHEET_INGRESS_BASE_URL"),
+  sheetWorkflowsBaseUrl: Config.schema(nonEmptyString, "SHEET_WORKFLOWS_BASE_URL").pipe(
+    Config.withDefault("http://sheet-workflows:3000"),
+  ),
   sheetAuthIssuer: Config.schema(Schema.String, "SHEET_AUTH_ISSUER"),
   sheetAuthOAuthClientId: Config.schema(nonEmptyString, "SHEET_AUTH_OAUTH_CLIENT_ID"),
   sheetAuthOAuthClientSecret: Config.schema(nonEmptySecret, "SHEET_AUTH_OAUTH_CLIENT_SECRET"),

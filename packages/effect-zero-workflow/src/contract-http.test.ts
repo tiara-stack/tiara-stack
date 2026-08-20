@@ -1,6 +1,7 @@
 import { Cause, Effect, Exit, Schema, Stream } from "effect";
 import { describe, expect, it } from "@effect/vitest";
 import {
+  InvocationConflict,
   InvocationId,
   defineWorkflowContract,
   makeRunReference,
@@ -10,6 +11,7 @@ import {
 import { decodeWorkflowSse, encodeWorkflowSse, workflowHttpRouteManifest } from "./contract-http";
 import {
   makeWorkflowHttpRouteHandlers,
+  workflowEnqueueErrorStatus,
   workflowHttpServerExecutorFromHandler,
 } from "./contract-http-server";
 import {
@@ -104,6 +106,36 @@ describe("Workflow Contract HTTP/SSE transport", () => {
 
       expect(Array.from(events)).toHaveLength(1);
       expect(Array.from(events)[0]).toContain('"_tag":"Pending"');
+    }),
+  );
+
+  it.effect("preserves a conflicting replay as a definitive enqueue error", () =>
+    Effect.gen(function* () {
+      const conflict = new InvocationConflict({
+        invocationId,
+        reason: "CanonicalInputMismatch",
+        existing: { contractIdentity: Contract.identity, wireVersion: Contract.wireVersion },
+        requested: { contractIdentity: Contract.identity, wireVersion: Contract.wireVersion },
+        message: "Invocation conflicts with an existing request",
+      });
+      const handler: WorkflowTransportHandler<{}> = {
+        enqueue: () => Effect.fail(conflict),
+        get: () => Effect.succeed(undefined),
+        list: () => Effect.succeed([]),
+      };
+      const route = makeWorkflowHttpRouteHandlers(
+        Contract,
+        workflowHttpServerExecutorFromHandler(handler),
+      );
+      const exit = yield* Effect.exit(
+        route.enqueue({}, { invocationId, input: { value: "replayed with different input" } }),
+      );
+
+      expect(workflowEnqueueErrorStatus(conflict)).toBe(409);
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isSuccess(exit)) return;
+      const failure = exit.cause.reasons.find(Cause.isFailReason);
+      expect(failure?.error).toBe(conflict);
     }),
   );
 });

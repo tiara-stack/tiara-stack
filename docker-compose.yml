@@ -271,6 +271,8 @@ services:
         condition: service_healthy
       sheet-ingress-server:
         condition: service_healthy
+      sheet-workflows:
+        condition: service_healthy
       local-jwks:
         condition: service_healthy
       local-otel-sink:
@@ -282,6 +284,7 @@ services:
       DISCORD_TOKEN: ${DISCORD_TOKEN:-}
       DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:-}
       SHEET_INGRESS_BASE_URL: "http://sheet-ingress-server:3000"
+      SHEET_WORKFLOWS_BASE_URL: "http://sheet-workflows:3000"
       SHEET_AUTH_ISSUER: "http://sheet-auth:3000"
       SHEET_AUTH_OAUTH_CLIENT_ID: ${SHEET_BOT_OAUTH_CLIENT_ID:-}
       SHEET_AUTH_OAUTH_CLIENT_SECRET: ${SHEET_BOT_OAUTH_CLIENT_SECRET:-}

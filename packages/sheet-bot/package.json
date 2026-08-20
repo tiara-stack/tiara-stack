@@ -39,6 +39,7 @@
     "sheet-bot-api": "workspace:*",
     "sheet-db-schema": "workspace:*",
     "sheet-ingress-api": "workspace:*",
+    "sheet-workflow-http-client": "workspace:*",
     "typhoon-core": "workspace:*"
   },
   "devDependencies": {

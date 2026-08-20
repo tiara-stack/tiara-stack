@@ -47,7 +47,13 @@ const defaultTrustedClients = [
     envPrefix: "SHEET_BOT",
     name: "sheet-bot",
     kind: "sheet-bot",
-    scopes: ["service", "bot.impersonate", "token.exchange", "workflow.dispatch"],
+    scopes: [
+      "service",
+      "bot.impersonate",
+      "token.exchange",
+      "workflow.dispatch",
+      "workflow.enqueue",
+    ],
   },
   {
     envPrefix: "SHEET_APIS",

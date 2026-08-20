@@ -12,9 +12,13 @@ import {
   isWorkflowApiReady,
   postgresSqlLayer,
   SheetApisClient,
+  sheetBotCacheClientLayer,
+  trustedSheetPersistenceLayer,
 } from "./services";
 import { config } from "./config";
 import { SheetIngressServiceAuthorizationLive } from "./middlewares/sheetIngressServiceAuthorization/live";
+import { workflowHttpRoutesLayer } from "./handlers/workflowHttp";
+import { readOnlyWorkflowAuthorizationLayer } from "./workflows/readOnly";
 
 const apiHandlersLayer = Layer.mergeAll(dispatchLayer);
 
@@ -33,7 +37,13 @@ const apiRoutesLayer = HttpApiBuilder.layer(SheetWorkflowsInternalApi).pipe(
       ),
     ),
   ),
+  Layer.merge(workflowHttpRoutesLayer),
   Layer.provideMerge(HttpRouter.layer),
+);
+
+const workflowHttpAuthorizationLayer = readOnlyWorkflowAuthorizationLayer.pipe(
+  Layer.provide(sheetBotCacheClientLayer),
+  Layer.provide(trustedSheetPersistenceLayer),
 );
 
 const httpServerLayer = Layer.unwrap(
@@ -45,6 +55,7 @@ const httpServerLayer = Layer.unwrap(
 
 export const httpLayer = HttpRouter.serve(apiRoutesLayer).pipe(
   Layer.provide(SheetApisClient.layer),
+  Layer.provide(workflowHttpAuthorizationLayer),
   Layer.provide(postgresSqlLayer),
   Layer.provide(NodeFileSystem.layer),
   HttpServer.withLogAddress,

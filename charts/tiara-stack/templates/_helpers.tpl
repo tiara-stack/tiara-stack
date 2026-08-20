@@ -164,6 +164,8 @@ imagePullSecrets:
 {{- $sheetBotSecretRef := $sheetBotValues.secretRef | default dict -}}
 {{- $sheetBotSecretName := default (include "tiara-stack.defaultSecretName" "sheetBot") $sheetBotSecretRef.name -}}
 {{- $sheetBotServiceName := include "tiara-stack.serviceName" (dict "name" "sheet-bot" "serviceValues" $sheetBotValues) -}}
+{{- $sheetWorkflowsValues := .Values.services.sheetWorkflows | default dict -}}
+{{- $sheetWorkflowsServiceName := include "tiara-stack.serviceName" (dict "name" "sheet-workflows" "serviceValues" $sheetWorkflowsValues) -}}
 {{- $sheetIngressValues := .Values.services.sheetIngressServer | default dict -}}
 {{- $sheetIngressSecretRef := $sheetIngressValues.secretRef | default dict -}}
 {{- $sheetIngressSecretName := default (include "tiara-stack.defaultSecretName" "sheetIngressServer") $sheetIngressSecretRef.name -}}
@@ -323,6 +325,8 @@ imagePullSecrets:
       secretKey: redisUrl
     - name: SHEET_INGRESS_BASE_URL
       secretKey: sheetIngressBaseUrl
+    - name: SHEET_WORKFLOWS_BASE_URL
+      value: "http://{{ $sheetWorkflowsServiceName }}"
     - name: SHEET_AUTH_ISSUER
       secretKey: sheetAuthIssuer
     - name: SHEET_AUTH_OAUTH_CLIENT_ID
@@ -404,6 +408,8 @@ imagePullSecrets:
     - path: kubernetes-jwks-token
   networkPolicyFrom:
     - app: sheet-ingress-server
+      port: workflows-svc
+    - app: sheet-bot
       port: workflows-svc
 - key: sheetWorkflowsRunner
   name: sheet-workflows-runner

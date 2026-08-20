@@ -199,6 +199,9 @@ jobs:
       - name: Generate SheetWeb documentation collections
         run: vp run --filter sheet-web docs:generate
 
+      - name: Build workflow contract package for Fallow resolution
+        run: vp run --filter effect-zero-workflow build
+
       - name: Run Fallow audit
         uses: fallow-rs/fallow@9492a4d98b5c4ca95670716fced39029cc28f375 # v2
         with:

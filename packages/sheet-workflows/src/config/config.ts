@@ -42,6 +42,9 @@ export const config = {
   sheetAuthOAuthAudience: Config.string("SHEET_AUTH_OAUTH_AUDIENCE").pipe(
     Config.withDefault("sheet-workflows"),
   ),
+  sheetAuthWorkflowHttpAudience: Config.string("SHEET_AUTH_WORKFLOW_HTTP_AUDIENCE").pipe(
+    Config.withDefault("sheet-workflows-http"),
+  ),
   sheetAuthTrustedDelegationClientIds: Config.string(
     "SHEET_AUTH_TRUSTED_DELEGATION_CLIENT_IDS",
   ).pipe(

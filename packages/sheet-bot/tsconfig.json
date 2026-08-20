@@ -25,6 +25,8 @@
       "sheet-db-schema/*": ["../sheet-db-schema/src/*"],
       "sheet-ingress-api": ["../sheet-ingress-api/src/index.ts"],
       "sheet-ingress-api/*": ["../sheet-ingress-api/src/*"],
+      "sheet-workflow-http-client": ["../sheet-workflow-http-client/src/index.ts"],
+      "sheet-workflow-http-client/*": ["../sheet-workflow-http-client/src/*"],
       "typhoon-core": ["../typhoon-core/src/index.ts"],
       "typhoon-core/*": ["../typhoon-core/src/*"]
     }
@@ -44,6 +46,9 @@
     },
     {
       "path": "../sheet-ingress-api"
+    },
+    {
+      "path": "../sheet-workflow-http-client"
     },
     {
       "path": "../typhoon-core"

@@ -1,5 +1,7 @@
+import { Schema } from "effect";
 import type { HttpClient } from "effect/unstable/http";
 import {
+  InvocationId,
   mapWorkflowContractTree,
   type AnyWorkflowContract,
   type WorkflowClient,
@@ -17,6 +19,26 @@ type WorkflowHttpClientTree<Node> = Node extends AnyWorkflowContract
   : { readonly [Key in keyof Node]: WorkflowHttpClientTree<Node[Key]> };
 
 export type SheetWorkflowHttpClients = WorkflowHttpClientTree<typeof SheetWorkflowContracts>;
+
+const PublicMessage = Schema.Trimmed.check(Schema.isNonEmpty());
+const WorkflowTransportOperation = Schema.Literals(["Enqueue", "Observe"]);
+
+export class WorkflowInputRejected extends Schema.TaggedErrorClass<WorkflowInputRejected>()(
+  "WorkflowInputRejected",
+  { message: PublicMessage },
+) {}
+
+export class WorkflowTransportUnavailable extends Schema.TaggedErrorClass<WorkflowTransportUnavailable>()(
+  "WorkflowTransportUnavailable",
+  {
+    operation: WorkflowTransportOperation,
+    retryable: Schema.Boolean,
+    message: PublicMessage,
+  },
+) {}
+
+export const makeWorkflowInvocationId = () =>
+  Schema.decodeUnknownEffect(InvocationId)(globalThis.crypto.randomUUID());
 
 export const makeSheetWorkflowHttpClients = (
   httpClient: HttpClient.HttpClient,
