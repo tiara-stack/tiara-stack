@@ -87,7 +87,20 @@ export interface WorkflowTransportHandler<Context, Requirements = never> {
   ) => Effect.Effect<ReadonlyArray<WorkflowRun<Contract>>, WorkflowObservationError, Requirements>;
 }
 
-const encodePathPart = (value: string): string => encodeURIComponent(value).replaceAll(".", "%2E");
+const SafePathPart = Schema.String.check(
+  Schema.makeFilter((value) =>
+    value === "." || value === ".."
+      ? `Workflow contract route identifier cannot be "${value}"`
+      : undefined,
+  ),
+);
+
+const ensureSafePathPart = (value: string): string => Schema.decodeUnknownSync(SafePathPart)(value);
+
+const encodePathPart = (value: string): string => encodeURIComponent(ensureSafePathPart(value));
+
+const encodeWorkflowGroupPart = (value: string): string =>
+  encodePathPart(ensureSafePathPart(value)).replaceAll(".", "%2E");
 
 export const workflowContractRoutePrefix = (contract: AnyWorkflowContract): string =>
   `/workflows/${encodePathPart(contract.identity)}/v/${encodePathPart(contract.wireVersion)}`;
@@ -102,4 +115,4 @@ export const workflowContractRoutes = (contract: AnyWorkflowContract) => {
 };
 
 export const workflowContractZeroGroupIdentifier = (contract: AnyWorkflowContract): string =>
-  `workflow:${encodePathPart(contract.identity)}:v:${encodePathPart(contract.wireVersion)}`;
+  `workflow:${encodeWorkflowGroupPart(contract.identity)}:v:${encodeWorkflowGroupPart(contract.wireVersion)}`;

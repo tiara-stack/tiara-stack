@@ -67,7 +67,7 @@ describe("sheet Workflow Contract HTTP clients", () => {
 
       expect(reference.invocationId).toBe(invocationId);
       expect(requests).toEqual([
-        "https://example.test/workflows/calculations%2ErecalculateSheet/v/1/enqueue",
+        "https://example.test/workflows/calculations.recalculateSheet/v/1/enqueue",
       ]);
     }),
   );
