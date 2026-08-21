@@ -14,6 +14,7 @@ import {
 } from "effect-zero-workflow/contract/transport";
 import {
   WorkflowStore,
+  effectWorkflowExecutionId,
   type WorkflowInvocationStore,
   workflowContractExecutionPayload,
   type WorkflowJson,
@@ -56,45 +57,50 @@ const makeWorkflowInvocationStore = (
   ReadOnlyWorkflowAuthorization,
   NonNullable<SheetWorkflowZeroContext["actorProvenance"]>
 > => ({
-  enqueue: (invocation) => {
-    const executionPayload = workflowContractExecutionPayload(invocation);
-    // The generic PostgreSQL store compares its command payload during replay.
-    // Acceptance time is transport metadata and would make the same invocation
-    // look different on an ambiguous retry, while the service-status execution
-    // schema does not consume it.
-    const replayStablePayload = {
-      invocationId: executionPayload.invocationId,
-      input: executionPayload.input,
-      principal: executionPayload.principal,
-      ...(Predicate.isUndefined(executionPayload.actorProvenance)
-        ? {}
-        : { actorProvenance: executionPayload.actorProvenance }),
-    };
-
-    return store
-      .enqueue({
-        runId: invocation.fingerprint.invocationId,
-        workflowName: invocation.workflowName,
-        definitionVersion: invocation.definitionVersion,
-        executionId: invocation.fingerprint.invocationId,
-        idempotencyKey: invocation.fingerprint.invocationId,
-        visibilityKey: invocation.ownerKey,
-        principal: Schema.decodeUnknownSync(Schema.Json)(invocation.principal),
-        payload: replayStablePayload as unknown as WorkflowJson,
-      })
-      .pipe(
-        Effect.as(invocation.fingerprint),
-        Effect.mapError((error) =>
-          Schema.is(InvocationConflict)(error)
-            ? error
-            : new WorkflowTransportUnavailable({
-                operation: "Enqueue",
-                retryable: true,
-                message: "Workflow enqueue transport is unavailable",
-              }),
-        ),
+  enqueue: (invocation) =>
+    Effect.gen(function* () {
+      const executionPayload = workflowContractExecutionPayload(invocation);
+      // The generic PostgreSQL store compares its command payload during replay.
+      // Acceptance time is transport metadata and would make the same invocation
+      // look different on an ambiguous retry, while the service-status execution
+      // schema does not consume it.
+      const replayStablePayload = {
+        invocationId: executionPayload.invocationId,
+        input: executionPayload.input,
+        principal: executionPayload.principal,
+        ...(Predicate.isUndefined(executionPayload.actorProvenance)
+          ? {}
+          : { actorProvenance: executionPayload.actorProvenance }),
+      };
+      const executionId = yield* effectWorkflowExecutionId(
+        invocation.workflowName,
+        invocation.fingerprint.invocationId,
       );
-  },
+
+      return yield* store
+        .enqueue({
+          runId: invocation.fingerprint.invocationId,
+          workflowName: invocation.workflowName,
+          definitionVersion: invocation.definitionVersion,
+          executionId,
+          idempotencyKey: invocation.fingerprint.invocationId,
+          visibilityKey: invocation.ownerKey,
+          principal: Schema.decodeUnknownSync(Schema.Json)(invocation.principal),
+          payload: replayStablePayload as unknown as WorkflowJson,
+        })
+        .pipe(
+          Effect.as(invocation.fingerprint),
+          Effect.mapError((error) =>
+            Schema.is(InvocationConflict)(error)
+              ? error
+              : new WorkflowTransportUnavailable({
+                  operation: "Enqueue",
+                  retryable: true,
+                  message: "Workflow enqueue transport is unavailable",
+                }),
+          ),
+        );
+    }),
   get: () => observeUnavailable(),
   list: () => observeUnavailable(),
 });

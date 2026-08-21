@@ -317,6 +317,24 @@ const stableJson = (value: typeof ReadonlyJSONValue.Type): string => {
 const bytesToHex = (bytes: Uint8Array): string =>
   Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 
+/**
+ * Derives the execution ID used by Effect Workflow.make for contract workflows.
+ * Contract workflow definitions use the invocation ID as their idempotency key.
+ */
+export const effectWorkflowExecutionId = (
+  workflowName: string,
+  invocationId: string,
+): Effect.Effect<string> =>
+  Effect.map(
+    Effect.promise(() =>
+      globalThis.crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode(`${workflowName}-${invocationId}`),
+      ),
+    ).pipe(Effect.orDie),
+    (buffer) => bytesToHex(new Uint8Array(buffer)).slice(0, 32),
+  );
+
 export const canonicalWorkflowContractInput = <Contract extends AnyWorkflowContract>(
   contract: Contract,
   input: WorkflowContractInput<Contract>,

@@ -13,6 +13,7 @@ import {
 } from "../store";
 import {
   WorkflowInvocationFingerprint,
+  effectWorkflowExecutionId,
   type AcceptedWorkflowInvocation,
   validateInvocationReuse,
   workflowContractExecutionPayload,
@@ -368,6 +369,10 @@ export const makeWorkflowZeroTransaction = (options: { readonly tablePrefix: str
                 }),
               );
               const commandPayload = yield* encodeJson(executionPayload);
+              const executionId = yield* effectWorkflowExecutionId(
+                invocation.workflowName,
+                invocation.fingerprint.invocationId,
+              );
               const rows = Array.from(
                 yield* Effect.tryPromise({
                   try: () =>
@@ -378,9 +383,9 @@ export const makeWorkflowZeroTransaction = (options: { readonly tablePrefix: str
           visibility_key, principal, actor_provenance, input, status, result, error,
           max_attempts, run_after, started_at, completed_at, created_at, updated_at
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $1, $1,
-          $7, $8::jsonb, $9::jsonb, $10::jsonb, 'pending', NULL, NULL,
-          $11, $12, NULL, NULL, $12, $12
+          $1, $2, $3, $4, $5, $6, $7, $1,
+          $8, $9::jsonb, $10::jsonb, $11::jsonb, 'pending', NULL, NULL,
+          $12, $13, NULL, NULL, $13, $13
         )
         ON CONFLICT (run_id)
         DO UPDATE SET updated_at = ${runTable}.updated_at
@@ -397,6 +402,7 @@ export const makeWorkflowZeroTransaction = (options: { readonly tablePrefix: str
                         invocation.fingerprint.wireVersion,
                         invocation.fingerprint.canonicalInputHash,
                         invocation.definitionVersion,
+                        executionId,
                         invocation.ownerKey,
                         encoded.principal,
                         encoded.actorProvenance,

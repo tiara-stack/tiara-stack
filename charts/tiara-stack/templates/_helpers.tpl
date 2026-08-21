@@ -417,6 +417,8 @@ imagePullSecrets:
       port: workflows-svc
     - app: sheet-bot
       port: workflows-svc
+    - app: sheet-workflows-runner
+      port: workflows-svc
 - key: sheetWorkflowsRunner
   name: sheet-workflows-runner
   imageName: sheet-workflows
@@ -592,6 +594,8 @@ imagePullSecrets:
     - app: sheet-apis
       port: sdbs-svc
     - app: sheet-ingress-server
+      port: sdbs-svc
+    - app: sheet-workflows-runner
       port: sdbs-svc
 - key: sheetIngressServer
   name: sheet-ingress-server

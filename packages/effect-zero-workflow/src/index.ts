@@ -19,6 +19,7 @@ export {
 export {
   makeWorkflowTransportHandler,
   validateWorkflowContractRegistrations,
+  effectWorkflowExecutionId,
   workflowContractExecutionPayload,
   type AcceptedWorkflowInvocation,
   type ExecutableWorkflowContractRegistration,

@@ -1,4 +1,5 @@
 import { Cause, Effect, Exit, Predicate, Schema } from "effect";
+import { Workflow } from "effect/unstable/workflow";
 import { describe, expect, it } from "@effect/vitest";
 import {
   InvocationId,
@@ -8,6 +9,7 @@ import {
 } from "./contract";
 import {
   CanonicalInputHash,
+  effectWorkflowExecutionId,
   WorkflowContractRegistrationError,
   makeWorkflowTransportHandler,
   materializeWorkflowRun,
@@ -70,6 +72,25 @@ const failureOf = <A, E>(exit: Exit.Exit<A, E>): E => {
 };
 
 describe("Workflow Contract server validation", () => {
+  it.effect("matches Effect Workflow execution IDs for contract invocations", () =>
+    Effect.gen(function* () {
+      const workflow = Workflow.make({
+        name: workflowContractKey(First),
+        payload: Schema.Struct({
+          invocationId: InvocationId,
+          input: First.input,
+          principal: Schema.String,
+        }),
+        idempotencyKey: ({ invocationId }) => invocationId,
+      });
+      const payload = { invocationId, input: { value: "hello" }, principal: "principal" };
+
+      expect(yield* effectWorkflowExecutionId(workflow.name, invocationId)).toBe(
+        yield* workflow.executionId(payload),
+      );
+    }),
+  );
+
   it.effect("accepts complete registrations and preserves their handler types", () =>
     Effect.gen(function* () {
       const catalog = defineWorkflowContractCatalog(First, Second);

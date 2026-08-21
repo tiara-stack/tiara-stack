@@ -18,7 +18,11 @@ import {
   WorkflowContractIdentity,
   WorkflowContractWireVersion,
 } from "../contract";
-import { CanonicalInputHash, type AcceptedWorkflowInvocation } from "../contract-server";
+import {
+  CanonicalInputHash,
+  effectWorkflowExecutionId,
+  type AcceptedWorkflowInvocation,
+} from "../contract-server";
 import { WorkflowInvocationUnauthorized } from "../contract-transport";
 import { makeZeroWorkflowComponent } from "./component";
 import {
@@ -382,23 +386,28 @@ describe("Zero workflow component", () => {
       const fingerprint = yield* promiseEffect(() =>
         component.enqueueContractInvocationInZeroTransaction(tx, contractInvocation),
       );
+      const executionId = yield* effectWorkflowExecutionId(
+        contractInvocation.workflowName,
+        contractInvocation.fingerprint.invocationId,
+      );
 
       expect(fingerprint).toEqual(contractInvocation.fingerprint);
       expect(statements).toHaveLength(2);
       expect(statements[0]?.sql).toContain("contract_identity");
       expect(statements[0]?.sql).toContain("canonical_input_hash");
-      expect(statements[0]?.args.slice(0, 7)).toEqual([
+      expect(statements[0]?.args.slice(0, 6)).toEqual([
         contractInvocation.fingerprint.invocationId,
         contractInvocation.workflowName,
         contractInvocation.fingerprint.contractIdentity,
         contractInvocation.fingerprint.wireVersion,
         contractInvocation.fingerprint.canonicalInputHash,
         contractInvocation.definitionVersion,
-        contractInvocation.ownerKey,
       ]);
-      expect(statements[0]?.args[7]).toBe('{"kind":"user","userId":"user-1"}');
-      expect(statements[0]?.args[8]).toBe('{"actorServiceId":"sheet-web"}');
-      expect(statements[0]?.args[9]).toBe('{"value":"hello"}');
+      expect(statements[0]?.args[6]).toBe(executionId);
+      expect(statements[0]?.args[7]).toBe("user:user-1");
+      expect(statements[0]?.args[8]).toBe('{"kind":"user","userId":"user-1"}');
+      expect(statements[0]?.args[9]).toBe('{"actorServiceId":"sheet-web"}');
+      expect(statements[0]?.args[10]).toBe('{"value":"hello"}');
       expect(statements[1]?.args[0]).toBe(`start:${contractInvocation.fingerprint.invocationId}`);
       expect(statements[1]?.args[2]).toBe(
         JSON.stringify({
@@ -438,7 +447,7 @@ describe("Zero workflow component", () => {
         }),
       );
 
-      expect(statements[0]?.args[8]).toBe("null");
+      expect(statements[0]?.args[9]).toBe("null");
       expect(statements[1]?.args[2]).toBe(
         JSON.stringify({
           invocationId: contractInvocation.fingerprint.invocationId,
