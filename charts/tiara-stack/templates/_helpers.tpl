@@ -348,6 +348,10 @@ imagePullSecrets:
   networkPolicyFrom:
     - app: sheet-ingress-server
       port: sheet-bot-svc
+    - app: sheet-workflows
+      port: sheet-bot-svc
+    - app: sheet-workflows-runner
+      port: sheet-bot-svc
     - app: sheet-workflows-browser-runner
       port: sheet-bot-svc
 - key: sheetWorkflows
@@ -396,6 +400,8 @@ imagePullSecrets:
       secretKey: sheetWorkflowsServiceClientSecret
     - name: SHEET_AUTH_OAUTH_AUDIENCE
       value: sheet-workflows
+    - name: SHEET_BOT_BASE_URL
+      value: "http://{{ $sheetBotServiceName }}"
     - name: SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID
       secretName: {{ $sheetBotSecretName }}
       secretKey: sheetBotServiceClientId
@@ -461,6 +467,8 @@ imagePullSecrets:
       value: "34431"
     - name: WORKFLOWS_RUNNER_HEALTH_LABEL_SELECTOR
       value: app=sheet-workflows-runner
+    - name: SHEET_BOT_BASE_URL
+      value: "http://{{ $sheetBotServiceName }}"
     - name: SHEET_AUTH_ISSUER
       secretKey: sheetAuthIssuer
     - name: SHEET_AUTH_OAUTH_CLIENT_ID
