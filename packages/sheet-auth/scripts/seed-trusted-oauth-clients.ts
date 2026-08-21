@@ -65,7 +65,7 @@ const defaultTrustedClients = [
     envPrefix: "SHEET_WORKFLOWS",
     name: "sheet-workflows",
     kind: "sheet-workflows",
-    scopes: ["service"],
+    scopes: ["service", "bot.cache.read", "bot.delivery.write"],
   },
 ] as const;
 
