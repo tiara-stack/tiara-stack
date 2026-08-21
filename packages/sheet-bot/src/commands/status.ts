@@ -23,6 +23,8 @@ import {
 import { interactionDeadlineEpochMs } from "../utils/interactionDeadline";
 
 const statusEnqueueRejectedMessage = "I couldn't start the service status check. Please try again.";
+const statusEnqueueUnauthorizedMessage =
+  "Only the application owner can start the service status check.";
 const statusEnqueuePendingMessage =
   "The service status check is still processing. I'll update this message when it finishes.";
 
@@ -66,13 +68,21 @@ const reportDefinitiveEnqueueFailure = (
   response: Pick<CommandInteractionResponseContext, "editReply">,
   error: unknown,
 ) =>
-  response.editReply({ payload: { content: statusEnqueueRejectedMessage } }).pipe(
-    Effect.tap(() =>
-      Effect.logWarning("Sheet-bot status workflow enqueue was rejected", {
-        error,
-      }),
-    ),
-  );
+  response
+    .editReply({
+      payload: {
+        content: Predicate.isTagged("WorkflowInvocationUnauthorized")(error)
+          ? statusEnqueueUnauthorizedMessage
+          : statusEnqueueRejectedMessage,
+      },
+    })
+    .pipe(
+      Effect.tap(() =>
+        Effect.logWarning("Sheet-bot status workflow enqueue was rejected", {
+          error,
+        }),
+      ),
+    );
 
 const isTransportUnavailable = (
   error: unknown,

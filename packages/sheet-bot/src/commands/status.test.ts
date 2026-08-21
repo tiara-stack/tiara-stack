@@ -31,6 +31,49 @@ describe("status command workflow input", () => {
 });
 
 describe("status command workflow enqueue", () => {
+  it.effect("explains that the service status check is owner-only", () =>
+    Effect.gen(function* () {
+      const responseReference = Schema.decodeUnknownSync(ResponseReference)(
+        "opaque-response-reference",
+      );
+      const capabilityStore = {
+        issueResponseReference: () => Effect.succeed(responseReference),
+      } as Pick<typeof BotCapabilityStore.Service, "issueResponseReference">;
+      const workflowClient = {
+        enqueueServicesDeliverStatus: () =>
+          Effect.fail({
+            _tag: "WorkflowInvocationUnauthorized" as const,
+            message: "Workflow invocation is unauthorized",
+          }),
+      } as unknown as Pick<typeof SheetWorkflowHttpClient.Service, "enqueueServicesDeliverStatus">;
+      const messages: Array<string | undefined> = [];
+      const response = {
+        editReply: ({ payload }: { readonly payload: { readonly content?: string } }) => {
+          messages.push(payload.content);
+          return Effect.void;
+        },
+      } as Pick<CommandInteractionResponseContext, "editReply">;
+
+      yield* enqueueStatus(response, workflowClient, capabilityStore).pipe(
+        Effect.provideService(InteractionToken, {
+          applicationId: "application-1",
+          token: "interaction-token",
+        }),
+        Effect.provideService(Ix.Interaction, {
+          id: "123456789012345678",
+          application_id: "application-1",
+          token: "interaction-token",
+          user: { id: "discord-user-1" },
+        } as never),
+        Effect.provide(
+          ConfigProvider.layer(ConfigProvider.fromUnknown({ SHEET_BOT_CLIENT_ID: "discord-main" })),
+        ),
+      );
+
+      expect(messages).toEqual(["Only the application owner can start the service status check."]);
+    }),
+  );
+
   it.effect("uses the capability store captured by the command layer", () =>
     Effect.gen(function* () {
       const responseReference = Schema.decodeUnknownSync(ResponseReference)(
