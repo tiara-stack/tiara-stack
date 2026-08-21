@@ -71,6 +71,7 @@ import {
   teamSubmissionsSheetWorkflowDefinitionVersion,
   TeamSubmissionsSheetWorkflows,
 } from "@/workflows/teamSubmissions";
+import { ServiceSheetWorkflows } from "@/workflows/services";
 
 const DispatchWorkflowPrincipal = Schema.Struct({
   requester: Schema.Struct({
@@ -166,19 +167,22 @@ const materializeDispatchWorkflowFailure = (
     onSome: ({ materializeFailure }) => materializeFailure(workflow, cause),
   });
 
+export const DispatchRuntimeWorkflows: ReadonlyArray<WorkflowDefinition> = Object.freeze([
+  ...DispatchClusterWorkflows.all,
+  ...ReadOnlySheetWorkflows,
+  ...PreferencesSheetWorkflows,
+  ...ConfigurationSheetWorkflows,
+  ...SlotSheetWorkflows,
+  ...ScheduleSheetWorkflows,
+  ...TeamSheetWorkflows,
+  ...CheckinSheetWorkflows,
+  ...CalculationSheetWorkflows,
+  ...TeamSubmissionsSheetWorkflows,
+  ...ServiceSheetWorkflows,
+]);
+
 const dispatchRuntimeLayer = workflowRuntimeLayer({
-  workflows: [
-    ...DispatchClusterWorkflows.all,
-    ...ReadOnlySheetWorkflows,
-    ...PreferencesSheetWorkflows,
-    ...ConfigurationSheetWorkflows,
-    ...SlotSheetWorkflows,
-    ...ScheduleSheetWorkflows,
-    ...TeamSheetWorkflows,
-    ...CheckinSheetWorkflows,
-    ...CalculationSheetWorkflows,
-    ...TeamSubmissionsSheetWorkflows,
-  ],
+  workflows: DispatchRuntimeWorkflows,
   events: [DispatchMailboxEvent],
   definitionVersion: dispatchWorkflowDefinitionVersion,
   materializeFailure: materializeDispatchWorkflowFailure,

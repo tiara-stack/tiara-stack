@@ -14,6 +14,7 @@ import {
 } from "sheet-ingress-api/internal";
 import {
   createDispatchWorkflowEvent,
+  DispatchRuntimeWorkflows,
   dispatchWorkflowSliceMatchCount,
   enqueueDispatchWorkflow,
   enqueueDispatchWorkflowCommand,
@@ -26,6 +27,7 @@ import { SlotSheetWorkflows } from "@/workflows/slots";
 import { ScheduleSheetWorkflows } from "@/workflows/schedules";
 import { TeamSheetWorkflows } from "@/workflows/teams";
 import { CalculationSheetWorkflows } from "@/workflows/calculations";
+import { ServiceSheetWorkflows } from "@/workflows/services";
 
 const TestWorkflow = Workflow.make({
   name: "test.workflow.v1",
@@ -90,6 +92,14 @@ const TestWorkflowStoreLayer = Layer.sync(WorkflowStore, (): TestWorkflowStore =
 const testWorkflowStore = WorkflowStore.pipe(Effect.map((store) => store as TestWorkflowStore));
 
 describe("dispatch workflow cohort coverage", () => {
+  it("registers service workflows in the command runtime", () => {
+    const registeredNames = DispatchRuntimeWorkflows.map(({ name }) => name);
+
+    for (const workflow of ServiceSheetWorkflows) {
+      expect(registeredNames, workflow.name).toContain(workflow.name);
+    }
+  });
+
   it("matches every non-legacy workflow exactly once", () => {
     for (const workflow of [
       ...ReadOnlySheetWorkflows,

@@ -1,10 +1,14 @@
 import { Layer } from "effect";
-import { actionContextSqlLayer } from "effect-zero-workflow";
+import { actionContextSqlLayer, type WorkflowDefinition } from "effect-zero-workflow";
 import { makeServicesDeliverStatusDefinition } from "./definition";
 
 const ServicesDeliverStatusDefinition = makeServicesDeliverStatusDefinition();
 
 const ServiceSheetWorkflowDefinitions = Object.freeze([ServicesDeliverStatusDefinition] as const);
+
+export const ServiceSheetWorkflows = Object.freeze(
+  ServiceSheetWorkflowDefinitions.map(({ workflow }) => workflow as WorkflowDefinition),
+);
 
 const layerList = [
   Layer.empty,
