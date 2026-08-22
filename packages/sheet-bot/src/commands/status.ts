@@ -22,6 +22,7 @@ import {
   SheetWorkflowHttpRequestContext,
   type BotCapabilityStoreShape,
   type ServicesDeliverStatusEnqueueError,
+  type SheetWorkflowHttpClientShape,
   type SheetWorkflowsClientShape,
   type StatusRolloutGateEvaluation,
 } from "../services";
@@ -139,7 +140,10 @@ const dispatchLegacyStatus = (
 
 export const enqueueStatus = Effect.fn("status.enqueueWorkflow")(function* (
   response: Pick<CommandInteractionResponseContext, "editReply">,
-  workflowClient: typeof SheetWorkflowHttpClient.Service,
+  workflowClient: Pick<
+    SheetWorkflowHttpClientShape,
+    "enqueueServicesDeliverStatus" | "evaluateStatusRolloutGate"
+  >,
   sheetWorkflowsClient: SheetWorkflowsClientShape,
   capabilityStore: Pick<BotCapabilityStoreShape, "issueResponseReference">,
 ) {

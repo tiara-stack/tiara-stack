@@ -27,6 +27,7 @@ import {
   makeSheetWorkflowHttpClients,
   makeWorkflowInvocationId,
   WorkflowTransportUnavailable,
+  type WorkflowInvocationId,
   type SheetWorkflowHttpClients,
 } from "sheet-workflow-http-client";
 import { config } from "@/config";
@@ -55,6 +56,18 @@ export type ServicesDeliverStatusEnqueueError = Effect.Error<
   ReturnType<ServicesDeliverStatusEnqueue>
 >;
 export type StatusRolloutGateEvaluation = ReturnType<typeof makeRolloutGateHttpClient>["evaluate"];
+export type SchedulesDeliverUserScheduleEnqueue =
+  SheetWorkflowHttpClients["schedules"]["deliverUserSchedule"]["enqueue"];
+export type SchedulesDeliverUserScheduleInput = Parameters<SchedulesDeliverUserScheduleEnqueue>[0];
+export type SchedulesDeliverUserScheduleReference = Effect.Success<
+  ReturnType<SchedulesDeliverUserScheduleEnqueue>
+>;
+export type SchedulesDeliverUserScheduleEnqueueError = Effect.Error<
+  ReturnType<SchedulesDeliverUserScheduleEnqueue>
+>;
+export type ScheduleRolloutGateEvaluation = ReturnType<
+  typeof makeRolloutGateHttpClient
+>["evaluate"];
 
 type SheetWorkflowHttpRequestContextType = {
   readonly discordUserId: string;
@@ -185,6 +198,8 @@ const makeDiscordUserToken = Effect.fn("SheetWorkflowHttpClient.makeDiscordUserT
 export interface SheetWorkflowHttpClientShape {
   readonly enqueueServicesDeliverStatus: ServicesDeliverStatusEnqueue;
   readonly evaluateStatusRolloutGate: StatusRolloutGateEvaluation;
+  readonly enqueueSchedulesDeliverUserSchedule: SchedulesDeliverUserScheduleEnqueue;
+  readonly evaluateScheduleRolloutGate: ScheduleRolloutGateEvaluation;
 }
 
 export class SheetWorkflowHttpClient extends Context.Service<
@@ -271,6 +286,8 @@ export class SheetWorkflowHttpClient extends Context.Service<
     return {
       enqueueServicesDeliverStatus: clients.services.deliverStatus.enqueue,
       evaluateStatusRolloutGate: rolloutGateClient.evaluate,
+      enqueueSchedulesDeliverUserSchedule: clients.schedules.deliverUserSchedule.enqueue,
+      evaluateScheduleRolloutGate: rolloutGateClient.evaluate,
     } satisfies SheetWorkflowHttpClientShape;
   }),
 }) {
@@ -279,10 +296,13 @@ export class SheetWorkflowHttpClient extends Context.Service<
   );
 }
 
-export const enqueueStatusWorkflow = (
-  client: Pick<SheetWorkflowHttpClientShape, "enqueueServicesDeliverStatus">,
-  input: ServicesDeliverStatusInput,
-  options?: { readonly invocationId?: ServicesDeliverStatusReference["invocationId"] },
+const enqueueWorkflow = <Input, Success, EnqueueError>(
+  enqueue: (
+    input: Input,
+    options?: { readonly invocationId?: WorkflowInvocationId },
+  ) => Effect.Effect<Success, EnqueueError, never>,
+  input: Input,
+  options?: { readonly invocationId?: WorkflowInvocationId },
 ) => {
   return (
     options?.invocationId === undefined
@@ -290,7 +310,7 @@ export const enqueueStatusWorkflow = (
       : Effect.succeed(options.invocationId)
   ).pipe(
     Effect.flatMap((invocationId) =>
-      Effect.suspend(() => client.enqueueServicesDeliverStatus(input, { invocationId })).pipe(
+      Effect.suspend(() => enqueue(input, { invocationId })).pipe(
         Effect.timeout(workflowEnqueueTimeout),
         Effect.mapError((error) =>
           Cause.isTimeoutError(error)
@@ -310,3 +330,15 @@ export const enqueueStatusWorkflow = (
     ),
   );
 };
+
+export const enqueueStatusWorkflow = (
+  client: Pick<SheetWorkflowHttpClientShape, "enqueueServicesDeliverStatus">,
+  input: ServicesDeliverStatusInput,
+  options?: { readonly invocationId?: ServicesDeliverStatusReference["invocationId"] },
+) => enqueueWorkflow(client.enqueueServicesDeliverStatus, input, options);
+
+export const enqueueScheduleWorkflow = (
+  client: Pick<SheetWorkflowHttpClientShape, "enqueueSchedulesDeliverUserSchedule">,
+  input: SchedulesDeliverUserScheduleInput,
+  options?: { readonly invocationId?: SchedulesDeliverUserScheduleReference["invocationId"] },
+) => enqueueWorkflow(client.enqueueSchedulesDeliverUserSchedule, input, options);
