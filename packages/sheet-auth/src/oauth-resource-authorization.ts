@@ -19,6 +19,7 @@ export interface OAuthResourceTokenAuthorizerOptions<E = Unauthorized> {
   readonly issuer: string;
   readonly audience: string;
   readonly requiredScopes: readonly string[];
+  readonly trustedClientIds?: ReadonlySet<string> | undefined;
   readonly headerName?: string;
   readonly jwksUrl?: string;
   readonly makeUnauthorized?: (input: { readonly message: string; readonly cause?: unknown }) => E;
@@ -139,6 +140,7 @@ export const makeOAuthResourceTokenAuthorizer = <E = Unauthorized>(
       issuer,
       audience,
       requiredScopes,
+      trustedClientIds,
       headerName = defaultHeaderName,
       jwksUrl = `${issuer.replace(/\/$/, "")}/jwks`,
       cacheCapacity = 100,
@@ -166,6 +168,13 @@ export const makeOAuthResourceTokenAuthorizer = <E = Unauthorized>(
           );
         }
 
+        const clientId = payloadClientId(payload);
+        if (trustedClientIds && (clientId === undefined || !trustedClientIds.has(clientId))) {
+          return yield* Effect.fail(
+            makeUnauthorized({ message: "OAuth resource token client is not trusted" }),
+          );
+        }
+
         const now = yield* Clock.currentTimeMillis;
         const exp = payloadExpiration(payload);
         if (typeof exp === "number" && exp * 1000 <= now) {
@@ -178,7 +187,7 @@ export const makeOAuthResourceTokenAuthorizer = <E = Unauthorized>(
           accountId: payloadStringProperty(payload, "account_id"),
           actorClientId,
           actorSub,
-          clientId: payloadClientId(payload),
+          clientId,
           exp,
           scopes: scopeSet,
           sub: payloadStringProperty(payload, "sub"),

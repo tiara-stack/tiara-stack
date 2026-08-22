@@ -46,6 +46,22 @@ _Avoid_: Parallel production stack, blue/green environment
 An audited deployment control that selects exactly one execution path for a future invocation at caller-and-intent granularity, optionally limited to a principal or installation cohort. It never reroutes work that has already been accepted.
 _Avoid_: Product feature flag, percentage traffic split
 
+**Rollout Gate Control**:
+The authoritative decision record used by a Rollout Gate to select one Execution Path for future invocations within a defined caller-and-intent scope.
+_Avoid_: Feature flag, traffic split, deployment rollback
+
+**Execution Path**:
+The one legacy or replacement path selected for a future invocation by a Rollout Gate. The selected path stays with the invocation after acceptance.
+_Avoid_: Fallback retry, dual execution
+
+**Rollout Gate Decision**:
+The contract record returned for a Rollout Gate evaluation. It contains only the gate key, revision, match result, selected Execution Path, and reason: `gateKey`, `revision`, `matched`, `executionPath`, and `reason`.
+_Avoid_: Request log, permission decision
+
+**Rollout Gate Control Change Audit Record**:
+The persisted audit record for a Rollout Gate Control change. It records the evidence URL, the `changed_by` Effective Principal that changed the control, and Actor Provenance. Its `effective_principal_key` identifies the target scope.
+_Avoid_: Rollout Gate Decision, request log
+
 **Deletion Gate**:
 An evidence-backed checkpoint that permits irreversible legacy cleanup only after the replacement scenarios pass, the required soak completes, legacy traffic reaches zero, and legacy durable work is fully drained.
 _Avoid_: Deployment completion, unused-code assumption

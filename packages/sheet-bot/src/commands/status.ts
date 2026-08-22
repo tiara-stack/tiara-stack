@@ -1,7 +1,8 @@
 import { InteractionsRegistry } from "dfx/gateway";
 import { ApplicationIntegrationType, InteractionContextType } from "discord-api-types/v10";
 import { Ix } from "dfx/index";
-import { Effect, Layer, Predicate } from "effect";
+import { Duration, Effect, Layer, Match, Option, Predicate } from "effect";
+import { Interaction } from "dfx-discord-utils";
 import {
   CommandHelper,
   InteractionResponse,
@@ -15,18 +16,35 @@ import { discordGatewayLayer } from "../discord/gateway";
 import {
   BotCapabilityStore,
   enqueueStatusWorkflow,
+  SheetWorkflowsClient,
+  SheetWorkflowsRequestContext,
   SheetWorkflowHttpClient,
   SheetWorkflowHttpRequestContext,
   type BotCapabilityStoreShape,
   type ServicesDeliverStatusEnqueueError,
+  type SheetWorkflowsClientShape,
+  type StatusRolloutGateEvaluation,
 } from "../services";
+import { makeWorkflowInvocationId } from "sheet-workflow-http-client";
+import { makeDispatchBase } from "../utils/commandHelpers";
 import { interactionDeadlineEpochMs } from "../utils/interactionDeadline";
+import { runSheetWorkflowsDispatch } from "../utils/sheetWorkflowsDispatch";
 
 const statusEnqueueRejectedMessage = "I couldn't start the service status check. Please try again.";
 const statusEnqueueUnauthorizedMessage =
   "Only the application owner can start the service status check.";
 const statusEnqueuePendingMessage =
   "The service status check is still processing. I'll update this message when it finishes.";
+type StatusRolloutGateDecision = Effect.Success<ReturnType<StatusRolloutGateEvaluation>>;
+const statusRolloutGateEvaluationTimeout = Duration.seconds(5);
+
+const statusGateUnavailableDecision: StatusRolloutGateDecision = {
+  gateKey: "unavailable",
+  revision: 0,
+  matched: false,
+  executionPath: "legacy",
+  reason: "control-unavailable",
+};
 
 export const makeStatusResponseReferenceInput = ({
   applicationId,
@@ -91,32 +109,96 @@ const isTransportUnavailable = (
   { readonly _tag: "WorkflowTransportUnavailable" }
 > => Predicate.isTagged("WorkflowTransportUnavailable")(error);
 
+const interactionWorkspaceId = Effect.gen(function* () {
+  const guild = yield* Interaction.guild();
+  return Option.match(guild, {
+    onNone: () => undefined,
+    onSome: (value) =>
+      Predicate.hasProperty(value, "id") && Predicate.isString(value.id) && value.id.length > 0
+        ? value.id
+        : undefined,
+  });
+});
+
+const dispatchLegacyStatus = (
+  response: Pick<CommandInteractionResponseContext, "editReply">,
+  sheetWorkflowsClient: SheetWorkflowsClientShape,
+) =>
+  runSheetWorkflowsDispatch(
+    response,
+    "the service status check",
+    SheetWorkflowsRequestContext.asInteractionUser(
+      Effect.fn("status.dispatchLegacyPath")(function* () {
+        const base = yield* makeDispatchBase;
+        return yield* sheetWorkflowsClient.get().dispatch.serviceStatus({
+          payload: base,
+        });
+      }),
+    )(),
+  ).pipe(Effect.catch((error) => reportDefinitiveEnqueueFailure(response, error)));
+
 export const enqueueStatus = Effect.fn("status.enqueueWorkflow")(function* (
   response: Pick<CommandInteractionResponseContext, "editReply">,
   workflowClient: typeof SheetWorkflowHttpClient.Service,
+  sheetWorkflowsClient: SheetWorkflowsClientShape,
   capabilityStore: Pick<BotCapabilityStoreShape, "issueResponseReference">,
 ) {
-  const responseReference = yield* issueStatusResponseReference(capabilityStore);
-
-  yield* SheetWorkflowHttpRequestContext.asInteractionUser(() =>
-    enqueueStatusWorkflow(workflowClient, { responseReference }),
+  const invocationId = yield* makeWorkflowInvocationId();
+  const clientId = yield* config.sheetBotClientId;
+  const workspaceId = yield* interactionWorkspaceId;
+  const decision = yield* SheetWorkflowHttpRequestContext.asInteractionUser(() =>
+    workflowClient.evaluateStatusRolloutGate({
+      contractIdentity: "services.deliverStatus",
+      contractWireVersion: "1",
+      client: { platform: "discord", clientId },
+      invocationId,
+      ...(workspaceId === undefined ? {} : { workspaceId }),
+    }),
   )().pipe(
+    Effect.timeout(statusRolloutGateEvaluationTimeout),
     Effect.catch((error) =>
-      isTransportUnavailable(error)
-        ? Effect.gen(function* () {
-            yield* Effect.logWarning("Sheet-bot status workflow enqueue outcome is ambiguous", {
-              error,
-            });
-            yield* response.editReply({ payload: { content: statusEnqueuePendingMessage } });
-          })
-        : reportDefinitiveEnqueueFailure(response, error),
+      Effect.logWarning("Rollout Gate Control could not be evaluated; using legacy path", {
+        error,
+        invocationId,
+      }).pipe(Effect.as(statusGateUnavailableDecision)),
     ),
+  );
+
+  yield* Match.value(decision.executionPath).pipe(
+    Match.when("legacy", () => dispatchLegacyStatus(response, sheetWorkflowsClient)),
+    Match.when("replacement", () =>
+      Effect.gen(function* () {
+        const responseReference = yield* issueStatusResponseReference(capabilityStore);
+
+        yield* SheetWorkflowHttpRequestContext.asInteractionUser(() =>
+          enqueueStatusWorkflow(workflowClient, { responseReference }, { invocationId }),
+        )().pipe(
+          Effect.catch((error) =>
+            isTransportUnavailable(error)
+              ? Effect.gen(function* () {
+                  yield* Effect.logWarning(
+                    "Sheet-bot status workflow enqueue outcome is ambiguous",
+                    {
+                      error,
+                    },
+                  );
+                  yield* response.editReply({
+                    payload: { content: statusEnqueuePendingMessage },
+                  });
+                })
+              : reportDefinitiveEnqueueFailure(response, error),
+          ),
+        );
+      }),
+    ),
+    Match.exhaustive,
   );
 });
 
 const makeStatusCommand = Effect.gen(function* () {
   const capabilityStore = yield* BotCapabilityStore;
   const workflowClient = yield* SheetWorkflowHttpClient;
+  const sheetWorkflowsClient = yield* SheetWorkflowsClient;
 
   return yield* CommandHelper.makeCommand(
     (builder) =>
@@ -136,7 +218,7 @@ const makeStatusCommand = Effect.gen(function* () {
       const response = yield* InteractionResponse;
       yield* response.deferReply();
 
-      yield* enqueueStatus(response, workflowClient, capabilityStore);
+      yield* enqueueStatus(response, workflowClient, sheetWorkflowsClient, capabilityStore);
     }),
   );
 });
@@ -160,6 +242,7 @@ export const statusCommandLayer = Layer.effectDiscard(
       discordGatewayLayer,
       discordApplicationLayer,
       SheetWorkflowHttpClient.layer,
+      SheetWorkflowsClient.layer,
       BotCapabilityStore.layer.pipe(Layer.provide(prefixedUnstorageLayer)),
     ),
   ),

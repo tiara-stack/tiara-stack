@@ -15,6 +15,7 @@ import migration0012 from "../effect-sql-migrations/0012_user_platform_dm_invari
 import migration0013 from "../effect-sql-migrations/0013_monitor_conversation";
 import migration0014 from "../effect-sql-migrations/0014_migration";
 import migration0015 from "../effect-sql-migrations/0015_migration";
+import migration0016 from "../effect-sql-migrations/0016_rollout_gate";
 
 export const sheetDbMigrationTable = "sheet_db_effect_sql_migrations";
 
@@ -34,4 +35,5 @@ export const sheetDbMigrations: Loader = Effect.succeed([
   [13, "monitor_conversation", Effect.succeed(migration0013)],
   [14, "workflow_runtime", Effect.succeed(migration0014)],
   [15, "workflow_contract_invocation", Effect.succeed(migration0015)],
+  [16, "rollout_gate", Effect.succeed(migration0016)],
 ]);

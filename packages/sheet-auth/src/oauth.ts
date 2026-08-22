@@ -24,6 +24,8 @@ export const InternalOAuthScopes = [
   "token.exchange",
   "bot.cache.read",
   "bot.delivery.write",
+  "rollout.gate.write",
+  "rollout.gate.evaluate",
 ] as const;
 
 export const OAuthScopes = [...PublicOAuthScopes, ...InternalOAuthScopes] as const;

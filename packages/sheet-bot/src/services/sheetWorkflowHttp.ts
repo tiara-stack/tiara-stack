@@ -23,6 +23,7 @@ import {
   exchangeOAuthToken,
 } from "sheet-auth/client";
 import {
+  makeRolloutGateHttpClient,
   makeSheetWorkflowHttpClients,
   makeWorkflowInvocationId,
   WorkflowTransportUnavailable,
@@ -37,7 +38,12 @@ const workflowHttpAudience = "sheet-workflows-http";
 const workflowRequesterTokenCacheCapacity = 500;
 const workflowEnqueueTimeout = Duration.seconds(30);
 
-const workflowHttpRequesterActorScopes = ["service", "token.exchange", "workflow.enqueue"] as const;
+const workflowHttpRequesterActorScopes = [
+  "service",
+  "token.exchange",
+  "workflow.enqueue",
+  "rollout.gate.evaluate",
+] as const;
 
 export type ServicesDeliverStatusEnqueue =
   SheetWorkflowHttpClients["services"]["deliverStatus"]["enqueue"];
@@ -48,6 +54,7 @@ export type ServicesDeliverStatusReference = Effect.Success<
 export type ServicesDeliverStatusEnqueueError = Effect.Error<
   ReturnType<ServicesDeliverStatusEnqueue>
 >;
+export type StatusRolloutGateEvaluation = ReturnType<typeof makeRolloutGateHttpClient>["evaluate"];
 
 type SheetWorkflowHttpRequestContextType = {
   readonly discordUserId: string;
@@ -171,12 +178,13 @@ const makeDiscordUserToken = Effect.fn("SheetWorkflowHttpClient.makeDiscordUserT
     actorTokenType: accessTokenType,
     requestedTokenType: accessTokenType,
     audience: workflowHttpAudience,
-    scope: ["workflow.enqueue"],
+    scope: ["workflow.enqueue", "rollout.gate.evaluate"],
   });
 });
 
 export interface SheetWorkflowHttpClientShape {
   readonly enqueueServicesDeliverStatus: ServicesDeliverStatusEnqueue;
+  readonly evaluateStatusRolloutGate: StatusRolloutGateEvaluation;
 }
 
 export class SheetWorkflowHttpClient extends Context.Service<
@@ -258,9 +266,11 @@ export class SheetWorkflowHttpClient extends Context.Service<
     const clients = makeSheetWorkflowHttpClients(httpClientWithToken, {
       baseUrl,
     });
+    const rolloutGateClient = makeRolloutGateHttpClient(httpClientWithToken, { baseUrl });
 
     return {
       enqueueServicesDeliverStatus: clients.services.deliverStatus.enqueue,
+      evaluateStatusRolloutGate: rolloutGateClient.evaluate,
     } satisfies SheetWorkflowHttpClientShape;
   }),
 }) {
@@ -272,8 +282,13 @@ export class SheetWorkflowHttpClient extends Context.Service<
 export const enqueueStatusWorkflow = (
   client: Pick<SheetWorkflowHttpClientShape, "enqueueServicesDeliverStatus">,
   input: ServicesDeliverStatusInput,
+  options?: { readonly invocationId?: ServicesDeliverStatusReference["invocationId"] },
 ) => {
-  return makeWorkflowInvocationId().pipe(
+  return (
+    options?.invocationId === undefined
+      ? makeWorkflowInvocationId()
+      : Effect.succeed(options.invocationId)
+  ).pipe(
     Effect.flatMap((invocationId) =>
       Effect.suspend(() => client.enqueueServicesDeliverStatus(input, { invocationId })).pipe(
         Effect.timeout(workflowEnqueueTimeout),

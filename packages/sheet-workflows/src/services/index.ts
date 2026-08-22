@@ -3,6 +3,7 @@ export * from "./clusterReadiness";
 export * from "./clientDeliveryClient";
 export * from "./dispatch";
 export * from "./postgres";
+export * from "./rolloutGate";
 export * from "./sheetApisClient";
 export * from "./sheetBotCacheClient";
 export * from "./sheetBotDeliveryClient";

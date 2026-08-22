@@ -134,7 +134,7 @@ const createTokenExchangeSubjectResolvers = ({
       secret: tokenExchangeSubjectJwtSecret,
       issuer: tokenExchangeSubjectJwtIssuer ?? baseUrl,
       audience: baseUrl,
-      resolveSubject: async ({ ctx, subject, payload }) => {
+      resolveSubject: async ({ ctx, subject, payload, actor }) => {
         const discordSubjectMatch = /^discord:(\d+)$/.exec(subject);
         const discordUserId = discordSubjectMatch?.[1];
         if (!discordUserId) {
@@ -146,7 +146,10 @@ const createTokenExchangeSubjectResolvers = ({
         return {
           userId: user.id,
           accountId: discordUserId,
-          scopes: [...UserTokenDefaultScopes],
+          scopes: [
+            ...UserTokenDefaultScopes,
+            ...(actor.scopes.includes("rollout.gate.evaluate") ? ["rollout.gate.evaluate"] : []),
+          ],
           claims: {
             ext: {
               iss: payload.iss,

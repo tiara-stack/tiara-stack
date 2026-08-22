@@ -86,7 +86,12 @@ describe("identity schemas", () => {
     );
     expect(CapabilityScopesByAudience).toEqual({
       "sheet-zero": ["zero.read", "zero.mutate", "workflow.enqueue"],
-      "sheet-workflows-http": ["workflow.observe", "workflow.enqueue"],
+      "sheet-workflows-http": [
+        "workflow.observe",
+        "workflow.enqueue",
+        "rollout.gate.write",
+        "rollout.gate.evaluate",
+      ],
       "sheet-bot": ["bot.cache.read", "bot.delivery.write"],
       "sheet-auth": ["token.exchange"],
     });
@@ -102,6 +107,8 @@ describe("identity schemas", () => {
       | "workflow.enqueue"
       | "bot.cache.read"
       | "bot.delivery.write"
+      | "rollout.gate.write"
+      | "rollout.gate.evaluate"
       | "token.exchange"
     >();
     expectTypeOf<EffectivePrincipalType>().toMatchTypeOf<

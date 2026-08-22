@@ -1,12 +1,30 @@
-import { Effect, Schema } from "effect";
+import { Cause, Effect, Exit, Schema } from "effect";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 import { describe, expect, it } from "@effect/vitest";
 import { InvocationId } from "effect-zero-workflow/contract";
-import { SheetWorkflowContractCatalog, SheetWorkflowContracts } from "sheet-workflow-contracts";
+import {
+  RolloutGateEvaluationRequest,
+  SheetWorkflowContractCatalog,
+  SheetWorkflowContracts,
+} from "sheet-workflow-contracts";
 import { makeSheetWorkflowEnqueueClients } from "./apps-script";
+import { RolloutGateBaseUrlInvalid, makeRolloutGateHttpClient } from "./index";
 import { sheetWorkflowHttpRouteManifest } from "./routes";
 
 const unusedHttpClient = HttpClient.make(() => Effect.die("HTTP is not used by this test"));
+
+const makeRecordingHttpClient = (body: unknown, status: number) => {
+  const requests: Array<string> = [];
+  const httpClient = HttpClient.make((request) =>
+    Effect.sync(() => {
+      requests.push(request.url);
+      const responseBody = body === undefined ? undefined : JSON.stringify(body);
+      return HttpClientResponse.fromWeb(request, new Response(responseBody, { status }));
+    }),
+  );
+
+  return { httpClient, requests };
+};
 
 describe("sheet Workflow Contract HTTP clients", () => {
   it("publishes three explicit literal routes per contract", () => {
@@ -31,13 +49,7 @@ describe("sheet Workflow Contract HTTP clients", () => {
 
   it.effect("submits an Apps Script command with a caller-generated invocation ID", () =>
     Effect.gen(function* () {
-      const requests: Array<string> = [];
-      const httpClient = HttpClient.make((request) =>
-        Effect.sync(() => {
-          requests.push(request.url);
-          return HttpClientResponse.fromWeb(request, new Response(undefined, { status: 204 }));
-        }),
-      );
+      const { httpClient, requests } = makeRecordingHttpClient(undefined, 204);
       const clients = makeSheetWorkflowEnqueueClients(httpClient, {
         baseUrl: "https://example.test/",
       });
@@ -69,6 +81,56 @@ describe("sheet Workflow Contract HTTP clients", () => {
       expect(requests).toEqual([
         "https://example.test/workflows/calculations.recalculateSheet/v/1/enqueue",
       ]);
+    }),
+  );
+
+  it.effect("preserves a configured path prefix for Rollout Gate evaluation", () =>
+    Effect.gen(function* () {
+      const { httpClient, requests } = makeRecordingHttpClient(
+        {
+          gateKey: "gate-key",
+          revision: 0,
+          matched: false,
+          executionPath: "legacy",
+          reason: "unconfigured",
+        },
+        200,
+      );
+      const client = makeRolloutGateHttpClient(httpClient, {
+        baseUrl: "https://example.test/api",
+      });
+      const input = Schema.decodeUnknownSync(RolloutGateEvaluationRequest)({
+        contractIdentity: "services.deliverStatus",
+        contractWireVersion: "1",
+        client: { platform: "discord", clientId: "discord-main" },
+        invocationId: "123e4567-e89b-42d3-a456-426614174000",
+      });
+
+      yield* client.evaluate(input);
+
+      expect(requests).toEqual(["https://example.test/api/internal/rollout-gates/evaluate"]);
+    }),
+  );
+
+  it.effect("reports invalid Rollout Gate base URLs as effect failures", () =>
+    Effect.gen(function* () {
+      const client = makeRolloutGateHttpClient(unusedHttpClient, {
+        baseUrl: "not a URL",
+      });
+      const input = Schema.decodeUnknownSync(RolloutGateEvaluationRequest)({
+        contractIdentity: "services.deliverStatus",
+        contractWireVersion: "1",
+        client: { platform: "discord", clientId: "discord-main" },
+        invocationId: "123e4567-e89b-42d3-a456-426614174000",
+      });
+
+      const exit = yield* Effect.exit(client.evaluate(input));
+
+      if (Exit.isSuccess(exit)) {
+        throw new Error("Expected Rollout Gate evaluation to fail for an invalid base URL");
+      }
+      const failure = exit.cause.reasons.find(Cause.isFailReason);
+      expect(failure?.error).toBeInstanceOf(RolloutGateBaseUrlInvalid);
     }),
   );
 });

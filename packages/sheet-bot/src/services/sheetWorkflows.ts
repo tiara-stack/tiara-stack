@@ -60,7 +60,7 @@ export interface SheetWorkflowsServicesStatus {
 
 type SheetWorkflowsServicesStatusError = HttpClientError.HttpClientError | Schema.SchemaError;
 
-interface SheetWorkflowsClientShape {
+export interface SheetWorkflowsClientShape {
   readonly get: () => HttpApiClient.ForApi<typeof SheetWorkflowsApi>;
   readonly getServicesStatus: () => Effect.Effect<
     SheetWorkflowsServicesStatus,

@@ -67,6 +67,8 @@ export const SheetAuthCapabilityScopes = [
   "workflow.enqueue",
   "bot.cache.read",
   "bot.delivery.write",
+  "rollout.gate.write",
+  "rollout.gate.evaluate",
   "token.exchange",
 ] as const;
 
@@ -75,7 +77,12 @@ export type SheetAuthCapabilityScope = Schema.Schema.Type<typeof SheetAuthCapabi
 
 export const CapabilityScopesByAudience = {
   "sheet-zero": ["zero.read", "zero.mutate", "workflow.enqueue"],
-  "sheet-workflows-http": ["workflow.observe", "workflow.enqueue"],
+  "sheet-workflows-http": [
+    "workflow.observe",
+    "workflow.enqueue",
+    "rollout.gate.write",
+    "rollout.gate.evaluate",
+  ],
   "sheet-bot": ["bot.cache.read", "bot.delivery.write"],
   "sheet-auth": ["token.exchange"],
 } as const satisfies Readonly<Record<SheetAuthAudience, readonly SheetAuthCapabilityScope[]>>;

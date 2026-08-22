@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Exit } from "effect";
 import { describe, expect, it } from "@effect/vitest";
 import { afterEach, vi } from "vitest";
 import { makeOAuthResourceTokenAuthorizer } from "./oauth-resource-authorization";
@@ -102,6 +102,48 @@ describe("makeOAuthResourceTokenAuthorizer", () => {
           },
         }),
       );
+    }),
+  );
+
+  it.live("requires a configured trusted client when requested", () =>
+    Effect.gen(function* () {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          async () =>
+            new Response(JSON.stringify({ issuer: "https://auth.example.com" }), {
+              headers: { "Content-Type": "application/json" },
+            }),
+        ),
+      );
+      verifyAccessToken.mockResolvedValue({
+        aud: "sheet-workflows-http",
+        azp: "untrusted-client",
+        exp: Math.floor(Date.now() / 1000) + 60,
+        iss: "https://auth.example.com",
+        scope: "service rollout.gate.write",
+      });
+
+      const authorizer = yield* makeOAuthResourceTokenAuthorizer({
+        issuer: "http://sheet-auth-service",
+        audience: "sheet-workflows-http",
+        requiredScopes: ["service", "rollout.gate.write"],
+        trustedClientIds: new Set(["trusted-client"]),
+      });
+      const denied = yield* Effect.exit(authorizer.requireAuthorizedBearerToken("untrusted-token"));
+
+      expect(Exit.isFailure(denied)).toBe(true);
+
+      verifyAccessToken.mockResolvedValue({
+        aud: "sheet-workflows-http",
+        azp: "trusted-client",
+        exp: Math.floor(Date.now() / 1000) + 60,
+        iss: "https://auth.example.com",
+        scope: "service rollout.gate.write",
+      });
+      const authorized = yield* authorizer.requireAuthorizedBearerToken("trusted-token");
+
+      expect(authorized.clientId).toBe("trusted-client");
     }),
   );
 });

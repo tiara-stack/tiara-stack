@@ -53,6 +53,7 @@ const defaultTrustedClients = [
       "token.exchange",
       "workflow.dispatch",
       "workflow.enqueue",
+      "rollout.gate.evaluate",
     ],
   },
   {
@@ -65,7 +66,7 @@ const defaultTrustedClients = [
     envPrefix: "SHEET_WORKFLOWS",
     name: "sheet-workflows",
     kind: "sheet-workflows",
-    scopes: ["service", "bot.cache.read", "bot.delivery.write"],
+    scopes: ["service", "bot.cache.read", "bot.delivery.write", "rollout.gate.write"],
   },
 ] as const;
 

@@ -2,7 +2,11 @@ import { APIError } from "better-auth";
 import { getSessionFromCtx } from "better-auth/api";
 import { oauthProviderResourceClient } from "@better-auth/oauth-provider/resource-client";
 import { Effect, Predicate } from "effect";
-import { DISCORD_SERVICE_USER_ID_SENTINEL, UserTokenDefaultScopes } from "../../../oauth";
+import {
+  DISCORD_SERVICE_USER_ID_SENTINEL,
+  InternalOAuthScopes,
+  UserTokenDefaultScopes,
+} from "../../../oauth";
 import { oauthResourceMetadataMappings } from "../../../oauth-resource-metadata";
 import { getBearerToken } from "../../../utils/bearer-token";
 import { findSubjectAccountForUser } from "../accounts";
@@ -136,14 +140,7 @@ const getAccessTokenClientId = (payload: Record<string, unknown>) =>
       ? payload.azp
       : undefined;
 
-const InternalOnlyScopes = new Set([
-  "service",
-  "ingress.forward",
-  "bot.impersonate",
-  "token.exchange",
-  "bot.cache.read",
-  "bot.delivery.write",
-]);
+const InternalOnlyScopes: ReadonlySet<string> = new Set(InternalOAuthScopes);
 
 const tokenHasInternalScope = (scopes: readonly string[]) =>
   scopes.some((scope) => InternalOnlyScopes.has(scope));

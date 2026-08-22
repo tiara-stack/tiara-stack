@@ -11,6 +11,7 @@ import {
   isCurrentClusterRunnerReady,
   isWorkflowApiReady,
   postgresSqlLayer,
+  rolloutGateControlLayer,
   SheetApisClient,
   sheetBotCacheClientLayer,
   trustedSheetPersistenceLayer,
@@ -18,6 +19,7 @@ import {
 import { config } from "./config";
 import { SheetIngressServiceAuthorizationLive } from "./middlewares/sheetIngressServiceAuthorization/live";
 import { workflowHttpRoutesLayer } from "./handlers/workflowHttp";
+import { rolloutGateRoutesLayer } from "./handlers/rolloutGate";
 import { readOnlyWorkflowAuthorizationLayer } from "./workflows/readOnly";
 
 const apiHandlersLayer = Layer.mergeAll(dispatchLayer);
@@ -38,6 +40,7 @@ const apiRoutesLayer = HttpApiBuilder.layer(SheetWorkflowsInternalApi).pipe(
     ),
   ),
   Layer.merge(workflowHttpRoutesLayer),
+  Layer.merge(rolloutGateRoutesLayer),
   Layer.provideMerge(HttpRouter.layer),
 );
 
@@ -56,6 +59,7 @@ const httpServerLayer = Layer.unwrap(
 export const httpLayer = HttpRouter.serve(apiRoutesLayer).pipe(
   Layer.provide(SheetApisClient.layer),
   Layer.provide(workflowHttpAuthorizationLayer),
+  Layer.provide(rolloutGateControlLayer),
   Layer.provide(postgresSqlLayer),
   Layer.provide(NodeFileSystem.layer),
   HttpServer.withLogAddress,
