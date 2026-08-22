@@ -27,6 +27,7 @@ import {
   makeSheetWorkflowHttpClients,
   makeWorkflowInvocationId,
   WorkflowTransportUnavailable,
+  type WorkflowInvocationId,
   type SheetWorkflowHttpClients,
 } from "sheet-workflow-http-client";
 import { config } from "@/config";
@@ -61,7 +62,6 @@ export type SchedulesDeliverUserScheduleInput = Parameters<SchedulesDeliverUserS
 export type SchedulesDeliverUserScheduleReference = Effect.Success<
   ReturnType<SchedulesDeliverUserScheduleEnqueue>
 >;
-type WorkflowInvocationId = SchedulesDeliverUserScheduleReference["invocationId"];
 export type SchedulesDeliverUserScheduleEnqueueError = Effect.Error<
   ReturnType<SchedulesDeliverUserScheduleEnqueue>
 >;

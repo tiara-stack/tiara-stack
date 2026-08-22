@@ -50,6 +50,8 @@ export class RolloutGateBaseUrlInvalid extends Schema.TaggedErrorClass<RolloutGa
 export const makeWorkflowInvocationId = () =>
   Schema.decodeUnknownEffect(InvocationId)(globalThis.crypto.randomUUID());
 
+export type WorkflowInvocationId = Schema.Schema.Type<typeof InvocationId>;
+
 export const makeSheetWorkflowHttpClients = (
   httpClient: HttpClient.HttpClient,
   options: SheetWorkflowHttpClientOptions,

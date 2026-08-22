@@ -1,5 +1,5 @@
-import { describe, expect, it, layer } from "@effect/vitest";
-import { Cause, Effect, Exit, Layer, Schema } from "effect";
+import { describe, expect, it } from "@effect/vitest";
+import { Cause, Effect, Exit, Schema } from "effect";
 import { ResponseReference } from "sheet-bot-api/references";
 import { WorkflowInputRejected, WorkflowTransportUnavailable } from "sheet-workflow-http-client";
 import {
@@ -110,7 +110,7 @@ describe("SheetWorkflowHttpClient status enqueue", () => {
   );
 });
 
-layer(Layer.empty)("SheetWorkflowHttpClient schedule enqueue", (tests) => {
+describe("SheetWorkflowHttpClient schedule enqueue", () => {
   it.live("preserves the schedule payload and reuses invocation identity on retry", () =>
     Effect.gen(function* () {
       const calls: Array<{
@@ -144,7 +144,7 @@ layer(Layer.empty)("SheetWorkflowHttpClient schedule enqueue", (tests) => {
     }),
   );
 
-  tests.effect("does not retry a definitive workflow input rejection", () =>
+  it.effect("does not retry a definitive workflow input rejection", () =>
     Effect.gen(function* () {
       let attempts = 0;
       const client = makeScheduleClient(() => {

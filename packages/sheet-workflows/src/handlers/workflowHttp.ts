@@ -193,7 +193,7 @@ const addWorkflowEnqueueRoute = <E, R>(
         const body = yield* decodeRequestBody(request);
         const reference = yield* enqueue(context, body);
         return yield* HttpServerResponse.json(reference, { status: 202 });
-      }).pipe(Effect.catchIf(() => true, routeErrorResponse));
+      }).pipe(Effect.catch(routeErrorResponse));
     }),
   );
 
