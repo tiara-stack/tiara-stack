@@ -144,7 +144,7 @@ const DeliverMemberKickResultAction = makeAction({
   execute: executeRespondAction,
 });
 
-const MembersKickWorkflow = Workflow.make({
+export const MembersKickWorkflow = Workflow.make({
   name,
   payload: MemberKickExecution,
   success: MembersKick.success,

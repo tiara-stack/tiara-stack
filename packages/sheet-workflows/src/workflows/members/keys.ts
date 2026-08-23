@@ -3,6 +3,7 @@ import { Predicate, Schema } from "effect";
 import { InvocationId } from "effect-zero-workflow/contract";
 import { DeliveryKey } from "sheet-bot-api";
 import { MembersKick } from "sheet-workflow-contracts";
+import { canonicalScheduledHourBucket } from "../autoCheckinContract";
 import { memberSheetWorkflowDefinitionVersion } from "./catalog";
 
 const memberKickActionIdentities = [
@@ -90,14 +91,10 @@ export const makeMemberKickAutonomousInvocationId = (
   conversationId: string,
   eventHour: number,
 ): typeof InvocationId.Type => {
-  if (!Number.isFinite(scheduledHourBucketEpochMs)) {
-    throw new RangeError("scheduledHourBucketEpochMs must be finite");
-  }
-  const canonicalBucket = Math.floor(scheduledHourBucketEpochMs / 3_600_000) * 3_600_000;
   return uuidFromStableIdentity(
     JSON.stringify([
       "auto-role-cleanup",
-      canonicalBucket,
+      canonicalScheduledHourBucket(scheduledHourBucketEpochMs),
       clientId,
       workspaceId,
       conversationId,

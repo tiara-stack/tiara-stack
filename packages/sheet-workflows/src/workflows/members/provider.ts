@@ -2,11 +2,9 @@ import type { sheets_v4 } from "@googleapis/sheets";
 import { Context, Data, Effect, Layer, Predicate, Schema } from "effect";
 import {
   cellText,
-  eventConfigRange,
   firstCell,
   makeRunnerHours,
   makeRunnerLocalSheetsClient,
-  parseEventStart,
   parseKeyValueRows,
   parseLegacyNumber,
   parseRunnerConfigurations,
@@ -15,6 +13,7 @@ import {
   parseSheetIdentities,
   quotedRange,
   readBatchedSheetsValueRanges,
+  readEventStart,
   readSheetsValueRanges,
   runnerConfigRange,
   runnerPresent,
@@ -159,18 +158,11 @@ export const makeMemberKickProvider = (client: sheets_v4.Sheets): MemberKickProv
   // Event-start decoding deliberately stays aligned with the other runner-local providers.
   // fallow-ignore-next-line code-duplication
   loadEventStart: (spreadsheetId) =>
-    readSheetsValueRanges({
+    readEventStart({
       client,
       spreadsheetId,
-      ranges: [eventConfigRange],
       makeError: makeProviderError("read-event-configuration"),
-    }).pipe(
-      Effect.flatMap((ranges) =>
-        parseEventStart(valueRowsAt(ranges, 0)).pipe(
-          Effect.mapError(makeProviderError("read-event-configuration")),
-        ),
-      ),
-    ),
+    }),
   loadSchedule: (spreadsheetId, conversationName, hour) =>
     Effect.gen(function* () {
       const configurationRanges = yield* readSheetsValueRanges({

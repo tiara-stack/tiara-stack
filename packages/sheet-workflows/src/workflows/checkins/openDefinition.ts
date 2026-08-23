@@ -269,7 +269,7 @@ const DeliverCheckinsOpenTentativeRoomOrderAction = makeAction({
   execute: executeDeliverTentativeRoomOrder,
 });
 
-const CheckinsOpenWorkflow = Workflow.make({
+export const CheckinsOpenWorkflow = Workflow.make({
   name,
   payload: CheckinsOpenExecution,
   success: CheckinsOpen.success,

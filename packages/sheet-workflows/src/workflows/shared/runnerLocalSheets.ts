@@ -144,6 +144,22 @@ export const parseEventStart = (rows: ValueRows) =>
     return startSeconds * 1_000;
   });
 
+export const readEventStart = <E extends { readonly cause: unknown }>(options: {
+  readonly client: sheets_v4.Sheets;
+  readonly spreadsheetId: string;
+  readonly makeError: (cause: unknown) => E;
+}) =>
+  readSheetsValueRanges({
+    client: options.client,
+    spreadsheetId: options.spreadsheetId,
+    ranges: [eventConfigRange],
+    makeError: options.makeError,
+  }).pipe(
+    Effect.flatMap((ranges) =>
+      parseEventStart(valueRowsAt(ranges, 0)).pipe(Effect.mapError(options.makeError)),
+    ),
+  );
+
 export const parseScheduleConfigurations = (rows: ValueRows, day?: number) =>
   Effect.gen(function* () {
     const normalizedRows = yield* Schema.decodeUnknownEffect(
@@ -366,7 +382,9 @@ export const parseSheetIdentities = (
       : [{ accountId, name: upperFirst(name) }],
   );
 
-export const makeRunnerLocalSheetsClient = <E>(makeError: (cause: unknown) => E) =>
+export const makeRunnerLocalSheetsClient = <E extends { readonly cause: unknown }>(
+  makeError: (cause: unknown) => E,
+) =>
   Effect.gen(function* () {
     const auth = yield* Effect.try({
       try: () =>

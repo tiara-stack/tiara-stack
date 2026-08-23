@@ -1,796 +1,371 @@
-import { Context, DateTime, Duration, Effect, Layer, Option, Predicate, pipe } from "effect";
-import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
+import {
+  Cause,
+  Context,
+  Data,
+  Duration,
+  Effect,
+  Layer,
+  Predicate,
+  Schema,
+  Semaphore,
+} from "effect";
 import { WorkflowEngine } from "effect/unstable/workflow";
-import { makeArgumentError } from "typhoon-core/error";
-import type { WorkspaceConversationConfig } from "sheet-ingress-api/schemas/workspaceConfig";
-import { generatingCheckinMessage } from "sheet-message-content/checkinPrompt";
-import {
-  autoMonitorCheckinDelivery,
-  autoCheckinSummaryMessage,
-  formatAutoCheckinContent,
-} from "sheet-message-content/checkinSummary";
-import { ClientDeliveryClient, ClientDeliveryClientRef } from "./clientDeliveryClient";
-import {
-  sendCheckinOpeningDmReminders,
-  sendMonitorCheckinOpeningDmPing,
-} from "./checkinDmReminders";
-import { SheetApisClient } from "./sheetApisClient";
-import { uniqueConversationNames } from "./autoCheckinConversations";
-import { makeSheetApisServices as makeDispatchSheetApisServices } from "./dispatch/clients/sheetApis";
-import { resolveWorkspaceName } from "./dispatch/clients/workspace";
-import { deliverPersistedCheckinMessage } from "./dispatch/domain/checkinDelivery";
-import { makeDeliveryNonce } from "./dispatch/pure/deliveryNonce";
-import * as MessageText from "sheet-message-content/text";
-import { sendTentativeRoomOrder } from "./tentativeRoomOrder";
-import {
-  AutoCheckinConversationResult,
-  AutoCheckinConversationWorkflow,
-  autoCheckinConversationIdempotencyKey,
-} from "@/workflows/autoCheckinContract";
-import type { AutoCheckinConversationPayload } from "@/workflows/autoCheckinContract";
+import { ServicePrincipal, type ActorProvenance } from "sheet-auth/identity";
+import { CheckinsOpen, MembersKick, WorkspaceId } from "sheet-workflow-contracts";
+import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import { config } from "@/config";
-import { deriveKickHour, makeKickRemover } from "./kick";
-import { trustedSheetPersistenceLayer } from "./trustedSheetPersistence";
+import {
+  AutoCheckinSweepWorkflow,
+  AutoRoleCleanupSweepWorkflow,
+  canonicalScheduledHourBucket,
+  scheduledHourMillis,
+  type AutonomousSweepResult,
+} from "@/workflows/autoCheckinContract";
+import { makeCheckinsOpenAutonomousInvocationId } from "@/workflows/checkins/keys";
+import { makeMemberKickAutonomousInvocationId } from "@/workflows/members/keys";
+import {
+  autonomousTriggerProviderLayer,
+  AutonomousTriggerProvider,
+} from "@/workflows/autonomous/provider";
+import { AutonomousWorkflowEnqueuer } from "./autonomousWorkflowEnqueuer";
 
-type WorkspaceMembers = Effect.Success<
-  ReturnType<(typeof ClientDeliveryClient.Service)["getMembersForParent"]>
->;
+const hourMillis = scheduledHourMillis;
+const autonomousProviderTimeout = Duration.seconds(30);
 
-const deriveTargetHour = (eventStart: DateTime.DateTime, target: DateTime.DateTime): number => {
-  const targetHourStart = pipe(target, DateTime.startOf("hour"));
-  return Math.floor(Duration.toHours(DateTime.distance(eventStart, targetHourStart))) + 1;
-};
+class AutonomousTriggerError extends Data.TaggedError("AutonomousTriggerError")<{
+  readonly operation: string;
+  readonly message: string;
+}> {}
 
-const makeSheetApisServices = (
-  sheetApisClient: typeof SheetApisClient.Service,
-  trustedPersistence: typeof TrustedSheetPersistence.Service,
-  botClient: typeof ClientDeliveryClient.Service,
-) => {
-  const sheetApis = sheetApisClient.get();
-  const {
-    checkinService,
-    messageCheckinService,
-    messageRoomOrderService,
-    roomOrderService,
-    userConfigService,
-    workspaceConfigService,
-  } = makeDispatchSheetApisServices(sheetApisClient, trustedPersistence, botClient);
-
-  return {
-    checkinService,
-    userConfigService,
-    workspaceConfigService,
-    scheduleService: {
-      conversationPopulatedMonitorSchedules: (workspaceId: string, conversationName: string) =>
-        sheetApis.schedule
-          .getConversationPopulatedSchedules({
-            query: { workspaceId, conversationName, view: "monitor" },
-          })
-          .pipe(Effect.map(({ schedules }) => schedules)),
-    },
-    messageCheckinService,
-    messageRoomOrderService,
-    roomOrderService,
-    sheetService: {
-      getEventConfig: (workspaceId: string) =>
-        sheetApis.sheet.getEventConfig({ query: { workspaceId } }),
-    },
-  };
-};
-
-type SheetApisServices = ReturnType<typeof makeSheetApisServices>;
-type GeneratedCheckin = Effect.Success<ReturnType<SheetApisServices["checkinService"]["generate"]>>;
-type MaterializedText = ReturnType<typeof MessageText.materializeGeneratedText>;
-type ResolvedWorkspaceName = Effect.Success<ReturnType<typeof resolveWorkspaceName>>;
-
-const materializeCheckinMessages = (
-  client: Parameters<typeof MessageText.materializeGeneratedText>[0],
-  workspaceId: string,
-  generated: GeneratedCheckin,
-) => ({
-  initialMessage:
-    generated.initialMessage === null
-      ? null
-      : MessageText.materializeGeneratedText(client, workspaceId, generated.initialMessage),
-  monitorCheckinMessage: MessageText.materializeGeneratedText(
-    client,
-    workspaceId,
-    generated.monitorCheckinMessage,
-  ),
-  monitorFailureMessage:
-    generated.monitorFailureMessage === null
-      ? null
-      : MessageText.materializeGeneratedText(client, workspaceId, generated.monitorFailureMessage),
-});
-
-const makeOpeningDmWorkspace = (workspaceName: ResolvedWorkspaceName) =>
-  Option.match(workspaceName, {
-    onNone: () => ({}),
-    onSome: (name) => ({ workspaceName: name }),
-  });
-
-const deriveMonitorDeliveryPolicy = ({
-  generated,
-  initialMessage,
-}: {
-  readonly generated: GeneratedCheckin;
-  readonly initialMessage: MaterializedText | null;
-}) => {
-  const hasMonitorConversation = Predicate.isNotNull(generated.monitorConversationId);
-  const hasMonitorUser = Predicate.isNotNull(generated.monitorUserId);
-  const sendConfiguredMonitorDm =
-    hasMonitorConversation && generated.monitorCheckinRequired && hasMonitorUser;
-  const sendLegacyMonitorDm =
-    !hasMonitorConversation && Predicate.isNotNull(initialMessage) && hasMonitorUser;
-
-  return {
-    needsWorkspaceName:
-      Predicate.isNotNull(initialMessage) || sendConfiguredMonitorDm || sendLegacyMonitorDm,
-    sendConfiguredMonitorDm,
-    sendLegacyMonitorDm,
-  };
-};
-
-const deliverParticipantCheckin = Effect.fn("AutoCheckinService.deliverParticipantCheckin")(
-  function* ({
-    autoCheckinConcurrency,
-    botClient,
-    client,
-    generated,
-    initialMessage,
-    messageCheckinService,
-    openingDmWorkspace,
-    payload,
-    userConfigService,
-  }: {
-    readonly autoCheckinConcurrency: number;
-    readonly botClient: typeof ClientDeliveryClient.Service;
-    readonly client: Parameters<typeof MessageText.materializeGeneratedText>[0];
-    readonly generated: GeneratedCheckin;
-    readonly initialMessage: MaterializedText | null;
-    readonly messageCheckinService: SheetApisServices["messageCheckinService"];
-    readonly openingDmWorkspace: ReturnType<typeof makeOpeningDmWorkspace>;
-    readonly payload: AutoCheckinConversationPayload;
-    readonly userConfigService: SheetApisServices["userConfigService"];
-  }) {
-    if (initialMessage === null) {
-      return null;
-    }
-
-    const formattedInitialMessage = formatAutoCheckinContent(initialMessage);
-    const checkinMessage = yield* deliverPersistedCheckinMessage({
-      botClient,
-      checkinConversationId: generated.checkinConversationId,
-      messageCheckinService,
-      persistence: {
-        data: {
-          initialMessage: formattedInitialMessage,
-          hour: generated.hour,
-          runningConversationId: generated.runningConversationId,
-          roleId: generated.roleId,
-          workspaceId: payload.workspaceId,
-          conversationId: generated.checkinConversationId,
-          createdByUserId: null,
-        },
-        memberIds: generated.fillIds,
-      },
-      placeholderMessage: {
-        ...generatingCheckinMessage(formattedInitialMessage),
-        nonce: makeDeliveryNonce(autoCheckinConversationIdempotencyKey(payload)),
-        enforceNonce: true,
-      },
-    });
-
-    yield* sendCheckinOpeningDmReminders({
-      ...openingDmWorkspace,
-      client,
-      platform: client.platform,
-      workspaceId: payload.workspaceId,
-      runningConversationId: generated.runningConversationId,
-      checkinConversationId: generated.checkinConversationId,
-      hour: generated.hour,
-      fillIds: generated.fillIds,
-      concurrency: autoCheckinConcurrency,
-      userConfigService,
-      botClient,
-    }).pipe(
-      Effect.catchCause((cause) =>
-        Effect.logError("Failed to process auto check-in opening DM reminders").pipe(
-          Effect.annotateLogs({
-            workspaceId: payload.workspaceId,
-            conversationName: payload.conversationName,
-            checkinConversationId: generated.checkinConversationId,
-            hour: generated.hour,
-          }),
-          Effect.andThen(Effect.logError(cause)),
-        ),
-      ),
-    );
-
-    return checkinMessage;
-  },
-);
-
-const deliverConfiguredMonitorMessage = Effect.fn(
-  "AutoCheckinService.deliverConfiguredMonitorMessage",
-)(function* ({
-  botClient,
-  delivery,
-  hour,
-  messageCheckinService,
-  monitorConversationId,
-  monitorUserId,
-  payload,
-  runningConversationId,
-}: {
-  readonly botClient: typeof ClientDeliveryClient.Service;
-  readonly delivery: ReturnType<typeof autoMonitorCheckinDelivery>;
-  readonly hour: number;
-  readonly messageCheckinService: ReturnType<typeof makeSheetApisServices>["messageCheckinService"];
-  readonly monitorConversationId: string;
-  readonly monitorUserId: string | null;
-  readonly payload: AutoCheckinConversationPayload;
-  readonly runningConversationId: string;
-}) {
-  if (!delivery.checkinRequired || monitorUserId === null || delivery.message.content === null) {
-    return yield* botClient.sendMessage(monitorConversationId, delivery.message);
+export const deriveAutonomousEventHour = (
+  eventStartEpochMs: number,
+  targetHourBucketEpochMs: number,
+): number => {
+  if (!Number.isFinite(eventStartEpochMs) || !Number.isFinite(targetHourBucketEpochMs)) {
+    throw new RangeError("event start and target hour must be finite");
   }
+  return Math.floor((targetHourBucketEpochMs - eventStartEpochMs) / hourMillis) + 1;
+};
 
-  const preparingMessage = generatingCheckinMessage(delivery.message.content);
-  return yield* deliverPersistedCheckinMessage({
-    botClient,
-    checkinConversationId: monitorConversationId,
-    messageCheckinService,
-    persistence: {
-      data: {
-        initialMessage: delivery.message.content,
-        hour,
-        runningConversationId,
-        roleId: null,
-        workspaceId: payload.workspaceId,
-        conversationId: monitorConversationId,
-        createdByUserId: null,
-      },
-      memberIds: [monitorUserId],
-    },
-    placeholderMessage: {
-      ...preparingMessage,
-      embeds: delivery.message.embeds,
-      allowedMentions: delivery.message.allowedMentions,
-      nonce: makeDeliveryNonce(`${autoCheckinConversationIdempotencyKey(payload)}:monitor`),
-      enforceNonce: true,
-    },
+export const deriveAutomaticRoleCleanupHour = (
+  eventStartEpochMs: number,
+  targetHourBucketEpochMs: number,
+): number => Math.max(0, deriveAutonomousEventHour(eventStartEpochMs, targetHourBucketEpochMs));
+
+const isRunningConversation = (conversation: {
+  readonly running: boolean | null;
+}): conversation is { readonly running: true } => Predicate.isTruthy(conversation.running);
+
+const hasNonEmptyConversationName = (conversation: {
+  readonly name: string | null;
+}): conversation is { readonly name: string } =>
+  Predicate.isString(conversation.name) && conversation.name.length > 0;
+
+const uniqueRunningConversationNames = (
+  conversations: ReadonlyArray<{
+    readonly running: boolean | null;
+    readonly name: string | null;
+  }>,
+): ReadonlyArray<string> => {
+  const names: Array<string> = [];
+  const seen = new Set<string>();
+  for (const conversation of conversations) {
+    if (
+      !isRunningConversation(conversation) ||
+      !hasNonEmptyConversationName(conversation) ||
+      seen.has(conversation.name)
+    ) {
+      continue;
+    }
+    seen.add(conversation.name);
+    names.push(conversation.name);
+  }
+  return names;
+};
+
+type WorkspaceConfig = Effect.Success<
+  ReturnType<TrustedSheetPersistence["Service"]["workspaces"]["getAutoCheckinWorkspaces"]>
+>[number];
+
+type WorkspaceConversation = Effect.Success<
+  ReturnType<TrustedSheetPersistence["Service"]["workspaces"]["getWorkspaceConversations"]>
+>[number];
+
+interface AutonomousTriggerServiceShape {
+  readonly sweepAutoCheckin: (
+    scheduledHourBucketEpochMs: number,
+  ) => Effect.Effect<AutonomousSweepResult, unknown>;
+  readonly sweepAutoRoleCleanup: (
+    scheduledHourBucketEpochMs: number,
+  ) => Effect.Effect<AutonomousSweepResult, unknown>;
+}
+
+const servicePrincipal = (serviceId: string, oauthClientId: string) =>
+  Schema.decodeUnknownSync(ServicePrincipal)({
+    kind: "service",
+    serviceId,
+    oauthClientId,
   });
+
+const actorProvenance = (
+  principal: typeof ServicePrincipal.Type,
+  jobKind: string,
+): ActorProvenance => ({
+  actorServiceId: principal.serviceId,
+  jobKind,
 });
 
-const deliverAutomaticMonitorSummary = Effect.fn(
-  "AutoCheckinService.deliverAutomaticMonitorSummary",
-)(function* ({
-  botClient,
-  client,
-  generated,
-  messageCheckinService,
-  monitorCheckinMessage,
-  monitorConversationId,
-  monitorFailureMessage,
-  payload,
-}: {
-  readonly botClient: typeof ClientDeliveryClient.Service;
-  readonly client: Parameters<typeof MessageText.materializeGeneratedText>[0];
-  readonly generated: GeneratedCheckin;
-  readonly messageCheckinService: SheetApisServices["messageCheckinService"];
-  readonly monitorCheckinMessage: MaterializedText;
-  readonly monitorConversationId: string | null;
-  readonly monitorFailureMessage: MaterializedText | null;
-  readonly payload: AutoCheckinConversationPayload;
-}) {
-  if (monitorConversationId === null) {
-    return yield* botClient.sendMessage(
-      generated.runningConversationId,
-      autoCheckinSummaryMessage({
-        monitorUserId: generated.monitorUserId,
-        monitorCheckinMessage,
-        monitorFailureMessage,
+const requireSpreadsheetId = (workspace: WorkspaceConfig) => {
+  if (workspace.sheetId === null || workspace.sheetId.trim().length === 0) {
+    return Effect.fail(
+      new AutonomousTriggerError({
+        operation: "resolve-spreadsheet",
+        message: `Workspace ${workspace.workspaceId} has no configured spreadsheet`,
       }),
     );
   }
+  return Effect.succeed(workspace.sheetId);
+};
 
-  const delivery = autoMonitorCheckinDelivery({
-    client,
-    workspaceId: payload.workspaceId,
-    runningConversationId: generated.runningConversationId,
-    hour: generated.hour,
-    monitorUserId: generated.monitorUserId,
-    monitorCheckinRequired: generated.monitorCheckinRequired,
-    monitorCheckinMessage,
-    monitorFailureMessage,
-  });
-
-  return yield* deliverConfiguredMonitorMessage({
-    botClient,
-    delivery,
-    hour: generated.hour,
-    messageCheckinService,
-    monitorConversationId,
-    monitorUserId: generated.monitorUserId,
-    payload,
-    runningConversationId: generated.runningConversationId,
-  });
-});
-
-const sendAutomaticMonitorDm = Effect.fn("AutoCheckinService.sendAutomaticMonitorDm")(function* ({
-  autoCheckinConcurrency,
-  botClient,
-  client,
-  configured,
-  generated,
-  monitorConversationId,
-  openingDmWorkspace,
-  payload,
-  userConfigService,
-}: {
-  readonly autoCheckinConcurrency: number;
-  readonly botClient: typeof ClientDeliveryClient.Service;
-  readonly client: Parameters<typeof MessageText.materializeGeneratedText>[0];
-  readonly configured: boolean;
-  readonly generated: GeneratedCheckin;
-  readonly monitorConversationId: string | null;
-  readonly openingDmWorkspace: ReturnType<typeof makeOpeningDmWorkspace>;
-  readonly payload: AutoCheckinConversationPayload;
-  readonly userConfigService: SheetApisServices["userConfigService"];
-}) {
-  yield* sendMonitorCheckinOpeningDmPing({
-    ...openingDmWorkspace,
-    client,
-    platform: client.platform,
-    workspaceId: payload.workspaceId,
-    runningConversationId: generated.runningConversationId,
-    checkinConversationId: generated.checkinConversationId,
-    ...(configured && monitorConversationId !== null ? { monitorConversationId } : {}),
-    hour: generated.hour,
-    monitorUserId: generated.monitorUserId,
-    concurrency: autoCheckinConcurrency,
-    userConfigService,
-    botClient,
-  }).pipe(
-    Effect.catchCause((cause) =>
-      Effect.logError("Failed to process auto check-in monitor DM ping").pipe(
-        Effect.annotateLogs({
-          workspaceId: payload.workspaceId,
-          conversationName: payload.conversationName,
-          checkinConversationId: generated.checkinConversationId,
-          monitorConversationId,
-          hour: generated.hour,
-        }),
-        Effect.andThen(Effect.logError(cause)),
-      ),
-    ),
+const managedConversations = (
+  conversations: ReadonlyArray<WorkspaceConversation>,
+): ReadonlyArray<WorkspaceConversation> =>
+  conversations.filter(
+    (conversation) =>
+      isRunningConversation(conversation) &&
+      Predicate.isNotNull(conversation.roleId) &&
+      hasNonEmptyConversationName(conversation),
   );
-});
 
-const sendAutomaticTentativeRoomOrder = Effect.fn(
-  "AutoCheckinService.sendAutomaticTentativeRoomOrder",
-)(function* ({
-  botClient,
-  client,
-  generated,
-  initialMessage,
-  messageRoomOrderService,
-  payload,
-  roomOrderService,
-}: {
-  readonly botClient: typeof ClientDeliveryClient.Service;
-  readonly client: Parameters<typeof MessageText.materializeGeneratedText>[0];
-  readonly generated: GeneratedCheckin;
-  readonly initialMessage: MaterializedText | null;
-  readonly messageRoomOrderService: SheetApisServices["messageRoomOrderService"];
-  readonly payload: AutoCheckinConversationPayload;
-  readonly roomOrderService: SheetApisServices["roomOrderService"];
-}) {
-  if (initialMessage === null) {
-    return null;
-  }
+const recoverNonInterruptingSweepFailure = (
+  message: string,
+  attributes: Readonly<Record<string, unknown>>,
+  cause: Cause.Cause<unknown>,
+) =>
+  Cause.hasInterrupts(cause)
+    ? Effect.failCause(cause)
+    : Effect.logWarning(message).pipe(Effect.annotateLogs({ ...attributes, cause }), Effect.as(0));
 
-  return yield* sendTentativeRoomOrder({
-    workspaceId: payload.workspaceId,
-    runningConversationId: generated.runningConversationId,
-    hour: generated.hour,
-    fillCount: generated.fillCount,
-    createdByUserId: null,
-    client,
-    botClient,
-    roomOrderService,
-    messageRoomOrderService,
-    logPrefix: "auto check-in",
-  });
-});
-
-const makeAutoCheckinConversationResult = ({
-  checkinMessageId,
-  conversationName,
-  hour,
-  initialMessage,
-  monitorMessageId,
-  tentativeRoomOrderMessageId,
-  workspaceId,
-}: {
-  readonly checkinMessageId: string | null;
-  readonly conversationName: string;
-  readonly hour: number;
-  readonly initialMessage: MaterializedText | null;
-  readonly monitorMessageId: string;
-  readonly tentativeRoomOrderMessageId: string | null;
-  readonly workspaceId: string;
-}): AutoCheckinConversationResult => ({
-  workspaceId,
-  conversationName,
-  hour,
-  status: Predicate.isNotNull(initialMessage) ? "sent" : "skipped",
-  checkinMessageId,
-  monitorMessageId,
-  tentativeRoomOrderMessageId,
-});
-
-export class AutoCheckinWorkflowClient extends Context.Service<AutoCheckinWorkflowClient>()(
-  "AutoCheckinWorkflowClient",
-  {
-    make: Effect.succeed({
-      enqueueConversation: Effect.fn("AutoCheckinWorkflowClient.enqueueConversation")(
-        (payload: AutoCheckinConversationPayload) =>
-          AutoCheckinConversationWorkflow.execute(payload, { discard: true }).pipe(
-            Effect.withSpan("AutoCheckinWorkflowClient.enqueueConversation", {
-              attributes: {
-                workspaceId: payload.workspaceId,
-                conversationName: payload.conversationName,
-                hour: payload.hour,
-              },
-            }),
-          ),
-      ),
-    }).pipe(
-      Effect.andThen((service) =>
-        Effect.gen(function* () {
-          const workflowEngine = yield* WorkflowEngine.WorkflowEngine;
-          return {
-            enqueueConversation: (payload: AutoCheckinConversationPayload) =>
-              service
-                .enqueueConversation(payload)
-                .pipe(Effect.provideService(WorkflowEngine.WorkflowEngine, workflowEngine)),
-          };
-        }),
-      ),
-    ),
-  },
-) {
-  static layer = Layer.effect(AutoCheckinWorkflowClient, this.make);
+interface AutonomousTriggerWorkflowClientShape {
+  readonly enqueueAutoCheckinSweep: (scheduledHourBucketEpochMs: number) => Effect.Effect<string>;
+  readonly enqueueAutoRoleCleanupSweep: (
+    scheduledHourBucketEpochMs: number,
+  ) => Effect.Effect<string>;
 }
 
-export class AutoCheckinService extends Context.Service<AutoCheckinService>()(
-  "AutoCheckinService",
-  {
-    make: Effect.gen(function* () {
-      const botClient = yield* ClientDeliveryClient;
-      const sheetApisClient = yield* SheetApisClient;
-      const trustedPersistence = yield* TrustedSheetPersistence;
-      const workflowClient = yield* AutoCheckinWorkflowClient;
-      const autoCheckinConcurrency = yield* config.autoCheckinConcurrency;
-      const autoKickConcurrency = yield* config.autoKickConcurrency;
-      const {
-        checkinService,
-        userConfigService,
-        workspaceConfigService,
-        messageCheckinService,
-        messageRoomOrderService,
-        roomOrderService,
-        scheduleService,
-        sheetService,
-      } = makeSheetApisServices(sheetApisClient, trustedPersistence, botClient);
-      const removeKickMembers = makeKickRemover({
-        botClient,
-        removalConcurrency: autoKickConcurrency,
-        scheduleService,
-      });
+export class AutonomousTriggerWorkflowClient extends Context.Service<
+  AutonomousTriggerWorkflowClient,
+  AutonomousTriggerWorkflowClientShape
+>()("sheet-workflows/AutonomousTriggerWorkflowClient", {
+  make: Effect.gen(function* () {
+    const engine = yield* WorkflowEngine.WorkflowEngine;
+    return {
+      enqueueAutoCheckinSweep: (scheduledHourBucketEpochMs: number) =>
+        AutoCheckinSweepWorkflow.execute({ scheduledHourBucketEpochMs }, { discard: true }).pipe(
+          Effect.provideService(WorkflowEngine.WorkflowEngine, engine),
+          Effect.withSpan("AutonomousTriggerWorkflowClient.enqueueAutoCheckinSweep", {
+            attributes: { scheduledHourBucketEpochMs },
+          }),
+        ),
+      enqueueAutoRoleCleanupSweep: (scheduledHourBucketEpochMs: number) =>
+        AutoRoleCleanupSweepWorkflow.execute(
+          { scheduledHourBucketEpochMs },
+          { discard: true },
+        ).pipe(
+          Effect.provideService(WorkflowEngine.WorkflowEngine, engine),
+          Effect.withSpan("AutonomousTriggerWorkflowClient.enqueueAutoRoleCleanupSweep", {
+            attributes: { scheduledHourBucketEpochMs },
+          }),
+        ),
+    };
+  }),
+}) {
+  static layer = Layer.effect(AutonomousTriggerWorkflowClient, this.make);
+}
 
-      const enqueueWorkspace = Effect.fn("AutoCheckinService.enqueueWorkspace")(function* (
-        workspaceId: string,
-      ) {
-        yield* Effect.annotateCurrentSpan({ workspaceId, autoCheckinConcurrency });
-        const eventConfig = yield* sheetService.getEventConfig(workspaceId);
-        const targetDateTime = yield* DateTime.now.pipe(
-          Effect.map(DateTime.addDuration("20 minutes")),
-        );
-        const hour = deriveTargetHour(eventConfig.startTime, targetDateTime);
-        const eventStartEpochMs = DateTime.toEpochMillis(eventConfig.startTime);
-        const conversations = yield* workspaceConfigService.getWorkspaceConversations(
-          workspaceId,
-          true,
-        );
-        const conversationNames = uniqueConversationNames(conversations);
+export class AutonomousTriggerService extends Context.Service<
+  AutonomousTriggerService,
+  AutonomousTriggerServiceShape
+>()("sheet-workflows/AutonomousTriggerService", {
+  make: Effect.gen(function* () {
+    const persistence = yield* TrustedSheetPersistence;
+    const provider = yield* AutonomousTriggerProvider;
+    const enqueuer = yield* AutonomousWorkflowEnqueuer;
+    const autoCheckinConcurrency = yield* config.autoCheckinConcurrency;
+    const autoCheckinEnqueueSemaphore = yield* Semaphore.make(autoCheckinConcurrency);
+    const botClientId = yield* config.sheetBotClientId;
+    const autoCheckinServiceId = yield* config.sheetAutoCheckinServiceId;
+    const autoCheckinOAuthClientId = yield* config.sheetAutoCheckinOAuthClientId;
+    const autoRoleCleanupServiceId = yield* config.sheetAutoRoleCleanupServiceId;
+    const autoRoleCleanupOAuthClientId = yield* config.sheetAuthOAuthClientId;
 
-        const results = yield* Effect.forEach(
-          conversationNames,
-          (conversationName) =>
-            workflowClient
-              .enqueueConversation({
+    const checkinPrincipal = servicePrincipal(autoCheckinServiceId, autoCheckinOAuthClientId);
+    const checkinActor = actorProvenance(checkinPrincipal, "auto-checkin-sweep");
+    const roleCleanupPrincipal = servicePrincipal(
+      autoRoleCleanupServiceId,
+      autoRoleCleanupOAuthClientId,
+    );
+    const roleCleanupActor = actorProvenance(roleCleanupPrincipal, "auto-role-cleanup-sweep");
+
+    const sweepAutoCheckin = Effect.fn("AutonomousTriggerService.sweepAutoCheckin")(function* (
+      scheduledHourBucketEpochMs: number,
+    ) {
+      const bucket = canonicalScheduledHourBucket(scheduledHourBucketEpochMs);
+      const targetHourBucket = bucket + hourMillis;
+      const workspaces = yield* persistence.workspaces.getAutoCheckinWorkspaces({});
+      const counts = yield* Effect.forEach(
+        workspaces,
+        (workspace) =>
+          Effect.gen(function* () {
+            const workspaceId = yield* Schema.decodeUnknownEffect(WorkspaceId)(
+              workspace.workspaceId,
+            );
+            const spreadsheetId = yield* requireSpreadsheetId(workspace);
+            const eventStartEpochMs = yield* provider
+              .loadEventStart(spreadsheetId)
+              .pipe(Effect.timeout(autonomousProviderTimeout));
+            const hour = deriveAutonomousEventHour(eventStartEpochMs, targetHourBucket);
+            const conversations = yield* persistence.workspaces.getWorkspaceConversations({
+              workspaceId,
+              running: true,
+            });
+            const names = uniqueRunningConversationNames(conversations);
+            const accepted = yield* Effect.forEach(
+              names,
+              (conversationName) => {
+                const invocationId = makeCheckinsOpenAutonomousInvocationId({
+                  workspaceId,
+                  eventStartEpochMs,
+                  hour,
+                  conversationName,
+                });
+                return autoCheckinEnqueueSemaphore
+                  .withPermit(
+                    enqueuer.enqueueCheckinsOpen({
+                      invocationId,
+                      input: {
+                        workspaceId,
+                        conversationName,
+                        hour,
+                      } satisfies typeof CheckinsOpen.input.Type,
+                      principal: checkinPrincipal,
+                      actorProvenance: checkinActor,
+                    }),
+                  )
+                  .pipe(
+                    Effect.as(1),
+                    Effect.catchCause((cause) =>
+                      recoverNonInterruptingSweepFailure(
+                        "auto check-in enqueue failed",
+                        { conversationName },
+                        cause,
+                      ),
+                    ),
+                  );
+              },
+              { concurrency: "unbounded" },
+            );
+            return accepted.reduce((total, count) => total + count, 0);
+          }).pipe(
+            Effect.catchCause((cause) =>
+              recoverNonInterruptingSweepFailure(
+                "auto check-in workspace sweep failed",
+                { workspaceId: workspace.workspaceId },
+                cause,
+              ),
+            ),
+          ),
+        { concurrency: autoCheckinConcurrency },
+      );
+      return {
+        scheduledHourBucketEpochMs: bucket,
+        acceptedInvocationCount: counts.reduce((total, count) => total + count, 0),
+      } satisfies AutonomousSweepResult;
+    });
+
+    const sweepAutoRoleCleanup = Effect.fn("AutonomousTriggerService.sweepAutoRoleCleanup")(
+      function* (scheduledHourBucketEpochMs: number) {
+        const bucket = canonicalScheduledHourBucket(scheduledHourBucketEpochMs);
+        const workspaces = yield* persistence.workspaces.getAutoCheckinWorkspaces({});
+        const counts = yield* Effect.forEach(
+          workspaces,
+          (workspace) =>
+            Effect.gen(function* () {
+              const workspaceId = yield* Schema.decodeUnknownEffect(WorkspaceId)(
+                workspace.workspaceId,
+              );
+              const spreadsheetId = yield* requireSpreadsheetId(workspace);
+              const eventStartEpochMs = yield* provider
+                .loadEventStart(spreadsheetId)
+                .pipe(Effect.timeout(autonomousProviderTimeout));
+              const hour = deriveAutomaticRoleCleanupHour(eventStartEpochMs, bucket);
+              const conversations = yield* persistence.workspaces.getWorkspaceConversations({
                 workspaceId,
-                conversationName,
-                hour,
-                eventStartEpochMs,
-              })
-              .pipe(
-                Effect.as(1),
-                Effect.catchCause((cause) =>
-                  Effect.logError("Failed to enqueue auto check-in conversation workflow").pipe(
-                    Effect.annotateLogs({ workspaceId, conversationName, hour }),
-                    Effect.andThen(Effect.logError(cause)),
-                    Effect.as(0),
-                  ),
+                running: true,
+              });
+              const managed = managedConversations(conversations);
+              const accepted = yield* Effect.forEach(
+                managed,
+                (conversation) => {
+                  const invocationId = makeMemberKickAutonomousInvocationId(
+                    bucket,
+                    botClientId,
+                    workspaceId,
+                    conversation.conversationId,
+                    hour,
+                  );
+                  return enqueuer
+                    .enqueueMembersKick({
+                      invocationId,
+                      input: {
+                        workspaceId,
+                        conversationId: conversation.conversationId,
+                        hour,
+                      } satisfies typeof MembersKick.input.Type,
+                      principal: roleCleanupPrincipal,
+                      actorProvenance: roleCleanupActor,
+                      acceptedAt: bucket,
+                    })
+                    .pipe(
+                      Effect.as(1),
+                      Effect.catchCause((cause) =>
+                        recoverNonInterruptingSweepFailure(
+                          "auto role-cleanup enqueue failed",
+                          {
+                            conversationId: conversation.conversationId,
+                            workspaceId,
+                          },
+                          cause,
+                        ),
+                      ),
+                    );
+                },
+                { concurrency: 1 },
+              );
+              return accepted.reduce((total, count) => total + count, 0);
+            }).pipe(
+              Effect.catchCause((cause) =>
+                recoverNonInterruptingSweepFailure(
+                  "auto role-cleanup workspace sweep failed",
+                  { workspaceId: workspace.workspaceId },
+                  cause,
                 ),
               ),
-          { concurrency: autoCheckinConcurrency },
-        );
-
-        const enqueuedCount = results.reduce((sum, count) => sum + count, 0);
-        yield* Effect.annotateCurrentSpan({ enqueuedConversationCount: enqueuedCount, hour });
-        return enqueuedCount;
-      });
-
-      const kickConversation = Effect.fn("AutoCheckinService.kickConversation")(function* (
-        workspaceId: string,
-        hour: number,
-        conversation: WorkspaceConversationConfig,
-        members: WorkspaceMembers,
-      ) {
-        return yield* Option.match(conversation.roleId, {
-          onNone: () => Effect.succeed(0),
-          onSome: (roleId) =>
-            Option.match(conversation.name, {
-              onNone: () =>
-                Effect.logWarning("Skipping auto-kick for unnamed conversation").pipe(
-                  Effect.annotateLogs({
-                    workspaceId,
-                    runningConversationId: conversation.conversationId,
-                    hour,
-                    roleId,
-                  }),
-                  Effect.as(0),
-                ),
-              onSome: (conversationName) =>
-                removeKickMembers({
-                  workspaceId,
-                  runningConversationId: conversation.conversationId,
-                  conversationName,
-                  roleId,
-                  hour,
-                  members,
-                }).pipe(
-                  Effect.tap((result) =>
-                    Effect.logInfo("Completed automatic lockdown-role cleanup").pipe(
-                      Effect.annotateLogs({
-                        workspaceId,
-                        runningConversationId: conversation.conversationId,
-                        conversationName,
-                        roleId,
-                        hour,
-                        scheduleFound: result.scheduleFound,
-                        removedCount: result.removedMemberIds.length,
-                        failedCount: result.failedMemberIds.length,
-                      }),
-                    ),
-                  ),
-                  Effect.as(1),
-                  Effect.catchCause((cause) =>
-                    Effect.logError("Failed automatic lockdown-role cleanup").pipe(
-                      Effect.annotateLogs({
-                        workspaceId,
-                        runningConversationId: conversation.conversationId,
-                        conversationName,
-                        roleId,
-                        hour,
-                      }),
-                      Effect.andThen(Effect.logError(cause)),
-                      Effect.as(0),
-                    ),
-                  ),
-                ),
-            }),
-        });
-      });
-
-      const kickWorkspace = Effect.fn("AutoCheckinService.kickWorkspace")(function* (
-        workspaceId: string,
-      ) {
-        const date = yield* DateTime.now;
-        const eventConfig = yield* sheetService.getEventConfig(workspaceId);
-        const hour = deriveKickHour(eventConfig.startTime, date);
-        yield* Effect.annotateCurrentSpan({ workspaceId, hour, autoKickConcurrency });
-        const conversations = yield* workspaceConfigService.getWorkspaceConversations(
-          workspaceId,
-          true,
-        );
-        const managedConversations = conversations.filter((conversation) =>
-          Option.isSome(conversation.roleId),
-        );
-        if (managedConversations.length === 0) {
-          return 0;
-        }
-        const members = yield* botClient.getMembersForParent(workspaceId);
-        const counts = yield* Effect.forEach(
-          managedConversations,
-          (conversation) => kickConversation(workspaceId, hour, conversation, members),
+            ),
           { concurrency: 1 },
         );
-        const processedCount = counts.reduce((sum, count) => sum + count, 0);
-        yield* Effect.annotateCurrentSpan({ processedConversationCount: processedCount });
-        return processedCount;
-      });
+        return {
+          scheduledHourBucketEpochMs: bucket,
+          acceptedInvocationCount: counts.reduce((total, count) => total + count, 0),
+        } satisfies AutonomousSweepResult;
+      },
+    );
 
-      return {
-        enqueueWorkspace,
-        kickWorkspace,
-        enqueueDueConversations: Effect.fn("AutoCheckinService.enqueueDueConversations")(
-          function* () {
-            yield* Effect.annotateCurrentSpan({ autoCheckinConcurrency });
-            const workspaceConfigs = yield* workspaceConfigService.getAutoCheckinWorkspaces();
-            const counts = yield* Effect.forEach(
-              workspaceConfigs,
-              (workspaceConfig) =>
-                enqueueWorkspace(workspaceConfig.workspaceId).pipe(
-                  Effect.catchCause((cause) =>
-                    Effect.logError("Failed to enqueue auto check-in workspace").pipe(
-                      Effect.annotateLogs({ workspaceId: workspaceConfig.workspaceId }),
-                      Effect.andThen(Effect.logError(cause)),
-                      Effect.as(0),
-                    ),
-                  ),
-                ),
-              { concurrency: autoCheckinConcurrency },
-            );
-
-            const enqueuedCount = counts.reduce((sum, count) => sum + count, 0);
-            yield* Effect.annotateCurrentSpan({
-              workspaceCount: workspaceConfigs.length,
-              enqueuedConversationCount: enqueuedCount,
-            });
-            return enqueuedCount;
-          },
-        ),
-        runDueKicks: Effect.fn("AutoCheckinService.runDueKicks")(function* () {
-          yield* Effect.annotateCurrentSpan({ autoKickConcurrency });
-          const workspaceConfigs = yield* workspaceConfigService.getAutoCheckinWorkspaces();
-          const counts = yield* Effect.forEach(
-            workspaceConfigs,
-            (workspaceConfig) =>
-              kickWorkspace(workspaceConfig.workspaceId).pipe(
-                Effect.catchCause((cause) =>
-                  Effect.logError("Failed automatic lockdown-role cleanup for workspace").pipe(
-                    Effect.annotateLogs({ workspaceId: workspaceConfig.workspaceId }),
-                    Effect.andThen(Effect.logError(cause)),
-                    Effect.as(0),
-                  ),
-                ),
-              ),
-            { concurrency: 1 },
-          );
-          const processedCount = counts.reduce((sum, count) => sum + count, 0);
-          yield* Effect.annotateCurrentSpan({
-            workspaceCount: workspaceConfigs.length,
-            processedConversationCount: processedCount,
-          });
-          return processedCount;
-        }),
-        processConversation: Effect.fn("AutoCheckinService.processConversation")(function* (
-          payload: AutoCheckinConversationPayload,
-        ) {
-          yield* Effect.annotateCurrentSpan({
-            workspaceId: payload.workspaceId,
-            conversationName: payload.conversationName,
-            hour: payload.hour,
-          });
-          if (payload.conversationName.length === 0) {
-            return yield* Effect.fail(
-              makeArgumentError("Cannot auto check-in an unnamed conversation"),
-            );
-          }
-
-          const generated = yield* checkinService.generate({
-            workspaceId: payload.workspaceId,
-            conversationName: payload.conversationName,
-            hour: payload.hour,
-          });
-          const client = yield* ClientDeliveryClientRef;
-          const { initialMessage, monitorCheckinMessage, monitorFailureMessage } =
-            materializeCheckinMessages(client, payload.workspaceId, generated);
-          const monitorConversationId = generated.monitorConversationId;
-          const monitorDeliveryPolicy = deriveMonitorDeliveryPolicy({
-            generated,
-            initialMessage,
-          });
-          const workspaceName = monitorDeliveryPolicy.needsWorkspaceName
-            ? yield* resolveWorkspaceName(botClient, payload.workspaceId)
-            : Option.none<string>();
-          const openingDmWorkspace = makeOpeningDmWorkspace(workspaceName);
-
-          const checkinMessage = yield* deliverParticipantCheckin({
-            autoCheckinConcurrency,
-            botClient,
-            client,
-            generated,
-            initialMessage,
-            messageCheckinService,
-            openingDmWorkspace,
-            payload,
-            userConfigService,
-          });
-
-          if (monitorDeliveryPolicy.sendLegacyMonitorDm) {
-            yield* sendAutomaticMonitorDm({
-              autoCheckinConcurrency,
-              botClient,
-              client,
-              configured: false,
-              generated,
-              monitorConversationId,
-              openingDmWorkspace,
-              payload,
-              userConfigService,
-            });
-          }
-
-          const monitorMessage = yield* deliverAutomaticMonitorSummary({
-            botClient,
-            client,
-            generated,
-            messageCheckinService,
-            monitorCheckinMessage,
-            monitorConversationId,
-            monitorFailureMessage,
-            payload,
-          });
-
-          if (monitorDeliveryPolicy.sendConfiguredMonitorDm) {
-            yield* sendAutomaticMonitorDm({
-              autoCheckinConcurrency,
-              botClient,
-              client,
-              configured: true,
-              generated,
-              monitorConversationId,
-              openingDmWorkspace,
-              payload,
-              userConfigService,
-            });
-          }
-          const tentativeRoomOrderMessage = yield* sendAutomaticTentativeRoomOrder({
-            botClient,
-            client,
-            generated,
-            initialMessage,
-            messageRoomOrderService,
-            payload,
-            roomOrderService,
-          });
-
-          return makeAutoCheckinConversationResult({
-            workspaceId: payload.workspaceId,
-            conversationName: payload.conversationName,
-            hour: generated.hour,
-            checkinMessageId: checkinMessage?.id ?? null,
-            monitorMessageId: monitorMessage.id,
-            tentativeRoomOrderMessageId: tentativeRoomOrderMessage?.messageId ?? null,
-            initialMessage,
-          });
-        }),
-      };
-    }),
-  },
-) {
-  static layer = Layer.effect(AutoCheckinService, this.make).pipe(
-    Layer.provide([
-      AutoCheckinWorkflowClient.layer,
-      ClientDeliveryClient.layer,
-      SheetApisClient.layer,
-      trustedSheetPersistenceLayer,
-    ]),
+    return { sweepAutoCheckin, sweepAutoRoleCleanup };
+  }),
+}) {
+  static layer = Layer.effect(AutonomousTriggerService, this.make).pipe(
+    Layer.provide(autonomousTriggerProviderLayer),
+    Layer.provide(AutonomousWorkflowEnqueuer.layer),
   );
 }

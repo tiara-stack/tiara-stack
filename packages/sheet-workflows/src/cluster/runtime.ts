@@ -17,12 +17,13 @@ import {
   clusterWorkflowEngineClientLayer as makeClusterWorkflowEngineClientLayer,
   clusterWorkflowEngineRunnerLayer,
   clusterWorkflowStorageLayer,
+  WorkflowStore,
 } from "effect-zero-workflow";
 import type { WorkflowContractRegistrationError } from "effect-zero-workflow/contract-server";
 import { createServer } from "node:http";
 import { config } from "@/config";
 import {
-  AutoCheckinService,
+  AutonomousTriggerService,
   DispatchService,
   ClientDeliveryClient,
   SheetApisClient,
@@ -30,7 +31,8 @@ import {
   sheetBotDeliveryClientLayer,
   trustedSheetPersistenceLayer,
 } from "@/services";
-import { autoCheckinWorkflowLayer } from "@/workflows/autoCheckin";
+import { autonomousTriggerWorkflowLayer } from "@/workflows/autoCheckin";
+import type { AutonomousTriggerProviderError } from "@/workflows/autonomous/provider";
 import type { AutoCheckinTestProviderError } from "@/workflows/checkins/autoTestProvider";
 import type { CalculationProviderError } from "@/workflows/calculations/provider";
 import { getClusterRunnerReadinessSnapshot, postgresSqlLayer } from "@/services";
@@ -278,6 +280,7 @@ const dispatchServicesLayer = Layer.effect(DispatchService, DispatchService.make
 type ClusterLayerOutput = WorkflowEngine.WorkflowEngine | Sharding.Sharding | Runners.Runners;
 
 type ClusterLayerError =
+  | AutonomousTriggerProviderError
   | AutoCheckinTestProviderError
   | CalculationProviderError
   | ConfigError
@@ -295,11 +298,11 @@ type ClusterLayerError =
 const clusterLayer: Layer.Layer<
   ClusterLayerOutput,
   ClusterLayerError,
-  HttpClient.HttpClient | HttpRouter.HttpRouter | FileSystem.FileSystem
+  HttpClient.HttpClient | HttpRouter.HttpRouter | FileSystem.FileSystem | WorkflowStore
 > = Layer.mergeAll(
   dispatchButtonEntityLayer,
   dispatchWorkflowLayer,
-  autoCheckinWorkflowLayer,
+  autonomousTriggerWorkflowLayer,
   smokeWorkflowLayer,
   readOnlySheetWorkflowLayers,
   preferencesSheetWorkflowLayers,
@@ -319,7 +322,7 @@ const clusterLayer: Layer.Layer<
   selectedSheetWorkflowRegistrationValidationLayer,
   clusterStartupLayer,
 ).pipe(
-  Layer.provide(AutoCheckinService.layer),
+  Layer.provide(AutonomousTriggerService.layer),
   Layer.provide(dispatchServicesLayer),
   Layer.provide(workflowDefinitionServicesLayer),
   Layer.provideMerge(workflowsRunnerLayer),
@@ -346,7 +349,7 @@ const clusterHttpServerLayer = Layer.unwrap(
 type ClusterHttpLayer = Layer.Layer<
   ClusterLayerOutput | HttpRouter.HttpRouter,
   ClusterLayerError | Layer.Error<typeof clusterHttpServerLayer>,
-  HttpClient.HttpClient
+  HttpClient.HttpClient | WorkflowStore
 >;
 
 export const clusterHttpLayer: ClusterHttpLayer = HttpRouter.serve(

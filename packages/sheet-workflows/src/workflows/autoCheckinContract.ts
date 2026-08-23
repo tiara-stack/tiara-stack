@@ -2,43 +2,43 @@ import { Schema } from "effect";
 import { ClusterSchema } from "effect/unstable/cluster";
 import { Workflow } from "effect/unstable/workflow";
 
-const AutoCheckinConversationPayload = Schema.Struct({
-  workspaceId: Schema.String,
-  conversationName: Schema.String,
-  hour: Schema.Number,
-  eventStartEpochMs: Schema.Number,
+export const scheduledHourMillis = 3_600_000;
+
+export const canonicalScheduledHourBucket = (epochMs: number): number => {
+  if (!Number.isFinite(epochMs)) {
+    throw new RangeError("scheduled hour bucket must be finite");
+  }
+  return Math.floor(epochMs / scheduledHourMillis) * scheduledHourMillis;
+};
+
+const AutonomousSweepPayload = Schema.Struct({
+  scheduledHourBucketEpochMs: Schema.Int,
 });
 
-export type AutoCheckinConversationPayload = Schema.Schema.Type<
-  typeof AutoCheckinConversationPayload
->;
+type AutonomousSweepPayload = typeof AutonomousSweepPayload.Type;
 
-export const autoCheckinConversationIdempotencyKey = ({
-  workspaceId,
-  conversationName,
-  hour,
-  eventStartEpochMs,
-}: AutoCheckinConversationPayload) =>
-  `auto-checkin:${workspaceId}:${eventStartEpochMs}:${hour}:${conversationName}`;
-
-export const AutoCheckinConversationResult = Schema.Struct({
-  workspaceId: Schema.String,
-  conversationName: Schema.String,
-  hour: Schema.Number,
-  status: Schema.Literals(["sent", "skipped"]),
-  checkinMessageId: Schema.NullOr(Schema.String),
-  monitorMessageId: Schema.String,
-  tentativeRoomOrderMessageId: Schema.NullOr(Schema.String),
+const autonomousSweepResult = Schema.Struct({
+  scheduledHourBucketEpochMs: Schema.Int,
+  acceptedInvocationCount: Schema.Int,
 });
 
-export type AutoCheckinConversationResult = Schema.Schema.Type<
-  typeof AutoCheckinConversationResult
->;
+export type AutonomousSweepResult = typeof autonomousSweepResult.Type;
 
-export const AutoCheckinConversationWorkflow = Workflow.make({
-  name: "autoCheckin.conversation",
-  payload: AutoCheckinConversationPayload,
-  success: AutoCheckinConversationResult,
+const sweepIdempotencyKey = (kind: string, payload: AutonomousSweepPayload) =>
+  `${kind}:${canonicalScheduledHourBucket(payload.scheduledHourBucketEpochMs)}`;
+
+export const AutoCheckinSweepWorkflow = Workflow.make({
+  name: "autoCheckin.sweep",
+  payload: AutonomousSweepPayload,
+  success: autonomousSweepResult,
   error: Schema.Unknown,
-  idempotencyKey: autoCheckinConversationIdempotencyKey,
+  idempotencyKey: (payload) => sweepIdempotencyKey("auto-checkin-sweep", payload),
+}).annotate(ClusterSchema.ShardGroup, () => "autoCheckin");
+
+export const AutoRoleCleanupSweepWorkflow = Workflow.make({
+  name: "autoRoleCleanup.sweep",
+  payload: AutonomousSweepPayload,
+  success: autonomousSweepResult,
+  error: Schema.Unknown,
+  idempotencyKey: (payload) => sweepIdempotencyKey("auto-role-cleanup-sweep", payload),
 }).annotate(ClusterSchema.ShardGroup, () => "autoCheckin");
