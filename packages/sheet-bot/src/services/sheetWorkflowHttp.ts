@@ -55,7 +55,10 @@ export type ServicesDeliverStatusReference = Effect.Success<
 export type ServicesDeliverStatusEnqueueError = Effect.Error<
   ReturnType<ServicesDeliverStatusEnqueue>
 >;
-export type StatusRolloutGateEvaluation = ReturnType<typeof makeRolloutGateHttpClient>["evaluate"];
+export type WorkflowRolloutGateEvaluation = ReturnType<
+  typeof makeRolloutGateHttpClient
+>["evaluate"];
+export type StatusRolloutGateEvaluation = WorkflowRolloutGateEvaluation;
 export type SchedulesDeliverUserScheduleEnqueue =
   SheetWorkflowHttpClients["schedules"]["deliverUserSchedule"]["enqueue"];
 export type SchedulesDeliverUserScheduleInput = Parameters<SchedulesDeliverUserScheduleEnqueue>[0];
@@ -65,9 +68,200 @@ export type SchedulesDeliverUserScheduleReference = Effect.Success<
 export type SchedulesDeliverUserScheduleEnqueueError = Effect.Error<
   ReturnType<SchedulesDeliverUserScheduleEnqueue>
 >;
-export type ScheduleRolloutGateEvaluation = ReturnType<
-  typeof makeRolloutGateHttpClient
->["evaluate"];
+export type ScheduleRolloutGateEvaluation = WorkflowRolloutGateEvaluation;
+
+export type CheckinsOpenEnqueue = SheetWorkflowHttpClients["checkins"]["open"]["enqueue"];
+export type CheckinsOpenInput = Parameters<CheckinsOpenEnqueue>[0];
+export type CheckinsOpenReference = Effect.Success<ReturnType<CheckinsOpenEnqueue>>;
+// fallow-ignore-next-line unused-type
+export type CheckinsOpenEnqueueError = Effect.Error<ReturnType<CheckinsOpenEnqueue>>;
+
+export type CheckinsTestAutoEnqueue = SheetWorkflowHttpClients["checkins"]["testAuto"]["enqueue"];
+export type CheckinsTestAutoInput = Parameters<CheckinsTestAutoEnqueue>[0];
+export type CheckinsTestAutoReference = Effect.Success<ReturnType<CheckinsTestAutoEnqueue>>;
+// fallow-ignore-next-line unused-type
+export type CheckinsTestAutoEnqueueError = Effect.Error<ReturnType<CheckinsTestAutoEnqueue>>;
+
+export type CheckinsRespondEnqueue = SheetWorkflowHttpClients["checkins"]["respond"]["enqueue"];
+export type CheckinsRespondInput = Parameters<CheckinsRespondEnqueue>[0];
+export type CheckinsRespondReference = Effect.Success<ReturnType<CheckinsRespondEnqueue>>;
+// fallow-ignore-next-line unused-type
+export type CheckinsRespondEnqueueError = Effect.Error<ReturnType<CheckinsRespondEnqueue>>;
+
+export type RoomOrdersCreateEnqueue = SheetWorkflowHttpClients["roomOrders"]["create"]["enqueue"];
+export type RoomOrdersCreateInput = Parameters<RoomOrdersCreateEnqueue>[0];
+export type RoomOrdersCreateReference = Effect.Success<ReturnType<RoomOrdersCreateEnqueue>>;
+// fallow-ignore-next-line unused-type
+export type RoomOrdersCreateEnqueueError = Effect.Error<ReturnType<RoomOrdersCreateEnqueue>>;
+
+export type RoomOrdersNavigateEnqueue =
+  SheetWorkflowHttpClients["roomOrders"]["navigate"]["enqueue"];
+export type RoomOrdersNavigateInput = Parameters<RoomOrdersNavigateEnqueue>[0];
+export type RoomOrdersNavigateReference = Effect.Success<ReturnType<RoomOrdersNavigateEnqueue>>;
+// fallow-ignore-next-line unused-type
+export type RoomOrdersNavigateEnqueueError = Effect.Error<ReturnType<RoomOrdersNavigateEnqueue>>;
+
+export type RoomOrdersSendEnqueue = SheetWorkflowHttpClients["roomOrders"]["send"]["enqueue"];
+export type RoomOrdersSendInput = Parameters<RoomOrdersSendEnqueue>[0];
+export type RoomOrdersSendReference = Effect.Success<ReturnType<RoomOrdersSendEnqueue>>;
+// fallow-ignore-next-line unused-type
+export type RoomOrdersSendEnqueueError = Effect.Error<ReturnType<RoomOrdersSendEnqueue>>;
+
+export type RoomOrdersPinTentativeEnqueue =
+  SheetWorkflowHttpClients["roomOrders"]["pinTentative"]["enqueue"];
+export type RoomOrdersPinTentativeInput = Parameters<RoomOrdersPinTentativeEnqueue>[0];
+export type RoomOrdersPinTentativeReference = Effect.Success<
+  ReturnType<RoomOrdersPinTentativeEnqueue>
+>;
+// fallow-ignore-next-line unused-type
+export type RoomOrdersPinTentativeEnqueueError = Effect.Error<
+  ReturnType<RoomOrdersPinTentativeEnqueue>
+>;
+
+export type SlotsDeliverListEnqueue = SheetWorkflowHttpClients["slots"]["deliverList"]["enqueue"];
+export type SlotsDeliverListInput = Parameters<SlotsDeliverListEnqueue>[0];
+export type SlotsDeliverListReference = Effect.Success<ReturnType<SlotsDeliverListEnqueue>>;
+// fallow-ignore-next-line unused-type
+export type SlotsDeliverListEnqueueError = Effect.Error<ReturnType<SlotsDeliverListEnqueue>>;
+
+export type SlotsPublishButtonEnqueue =
+  SheetWorkflowHttpClients["slots"]["publishButton"]["enqueue"];
+export type SlotsPublishButtonInput = Parameters<SlotsPublishButtonEnqueue>[0];
+export type SlotsPublishButtonReference = Effect.Success<ReturnType<SlotsPublishButtonEnqueue>>;
+// fallow-ignore-next-line unused-type
+export type SlotsPublishButtonEnqueueError = Effect.Error<ReturnType<SlotsPublishButtonEnqueue>>;
+
+export type SlotsOpenEnqueue = SheetWorkflowHttpClients["slots"]["open"]["enqueue"];
+export type SlotsOpenInput = Parameters<SlotsOpenEnqueue>[0];
+export type SlotsOpenReference = Effect.Success<ReturnType<SlotsOpenEnqueue>>;
+// fallow-ignore-next-line unused-type
+export type SlotsOpenEnqueueError = Effect.Error<ReturnType<SlotsOpenEnqueue>>;
+
+export type MembersKickEnqueue = SheetWorkflowHttpClients["members"]["kick"]["enqueue"];
+export type MembersKickInput = Parameters<MembersKickEnqueue>[0];
+export type MembersKickReference = Effect.Success<ReturnType<MembersKickEnqueue>>;
+// fallow-ignore-next-line unused-type
+export type MembersKickEnqueueError = Effect.Error<ReturnType<MembersKickEnqueue>>;
+
+export type PreferencesDeliverStatusEnqueue =
+  SheetWorkflowHttpClients["preferences"]["deliverStatus"]["enqueue"];
+export type PreferencesDeliverStatusInput = Parameters<PreferencesDeliverStatusEnqueue>[0];
+export type PreferencesDeliverStatusReference = Effect.Success<
+  ReturnType<PreferencesDeliverStatusEnqueue>
+>;
+// fallow-ignore-next-line unused-type
+export type PreferencesDeliverStatusEnqueueError = Effect.Error<
+  ReturnType<PreferencesDeliverStatusEnqueue>
+>;
+
+export type PreferencesUpdateAndDeliverEnqueue =
+  SheetWorkflowHttpClients["preferences"]["updateAndDeliver"]["enqueue"];
+export type PreferencesUpdateAndDeliverInput = Parameters<PreferencesUpdateAndDeliverEnqueue>[0];
+export type PreferencesUpdateAndDeliverReference = Effect.Success<
+  ReturnType<PreferencesUpdateAndDeliverEnqueue>
+>;
+// fallow-ignore-next-line unused-type
+export type PreferencesUpdateAndDeliverEnqueueError = Effect.Error<
+  ReturnType<PreferencesUpdateAndDeliverEnqueue>
+>;
+
+export type WorkspacesDeliverConfigEnqueue =
+  SheetWorkflowHttpClients["workspaces"]["deliverConfig"]["enqueue"];
+export type WorkspacesDeliverConfigInput = Parameters<WorkspacesDeliverConfigEnqueue>[0];
+export type WorkspacesDeliverConfigReference = Effect.Success<
+  ReturnType<WorkspacesDeliverConfigEnqueue>
+>;
+// fallow-ignore-next-line unused-type
+export type WorkspacesDeliverConfigEnqueueError = Effect.Error<
+  ReturnType<WorkspacesDeliverConfigEnqueue>
+>;
+
+export type WorkspacesUpdateConfigAndDeliverEnqueue =
+  SheetWorkflowHttpClients["workspaces"]["updateConfigAndDeliver"]["enqueue"];
+export type WorkspacesUpdateConfigAndDeliverInput =
+  Parameters<WorkspacesUpdateConfigAndDeliverEnqueue>[0];
+export type WorkspacesUpdateConfigAndDeliverReference = Effect.Success<
+  ReturnType<WorkspacesUpdateConfigAndDeliverEnqueue>
+>;
+// fallow-ignore-next-line unused-type
+export type WorkspacesUpdateConfigAndDeliverEnqueueError = Effect.Error<
+  ReturnType<WorkspacesUpdateConfigAndDeliverEnqueue>
+>;
+
+export type WorkspacesSetMonitorRoleAndDeliverEnqueue =
+  SheetWorkflowHttpClients["workspaces"]["setMonitorRoleAndDeliver"]["enqueue"];
+export type WorkspacesSetMonitorRoleAndDeliverInput =
+  Parameters<WorkspacesSetMonitorRoleAndDeliverEnqueue>[0];
+export type WorkspacesSetMonitorRoleAndDeliverReference = Effect.Success<
+  ReturnType<WorkspacesSetMonitorRoleAndDeliverEnqueue>
+>;
+// fallow-ignore-next-line unused-type
+export type WorkspacesSetMonitorRoleAndDeliverEnqueueError = Effect.Error<
+  ReturnType<WorkspacesSetMonitorRoleAndDeliverEnqueue>
+>;
+
+export type WorkspacesFeatureFlagsSetAndDeliverEnqueue =
+  SheetWorkflowHttpClients["workspaces"]["featureFlags"]["setAndDeliver"]["enqueue"];
+export type WorkspacesFeatureFlagsSetAndDeliverInput =
+  Parameters<WorkspacesFeatureFlagsSetAndDeliverEnqueue>[0];
+export type WorkspacesFeatureFlagsSetAndDeliverReference = Effect.Success<
+  ReturnType<WorkspacesFeatureFlagsSetAndDeliverEnqueue>
+>;
+// fallow-ignore-next-line unused-type
+export type WorkspacesFeatureFlagsSetAndDeliverEnqueueError = Effect.Error<
+  ReturnType<WorkspacesFeatureFlagsSetAndDeliverEnqueue>
+>;
+
+export type ConversationsDeliverConfigEnqueue =
+  SheetWorkflowHttpClients["conversations"]["deliverConfig"]["enqueue"];
+export type ConversationsDeliverConfigInput = Parameters<ConversationsDeliverConfigEnqueue>[0];
+export type ConversationsDeliverConfigReference = Effect.Success<
+  ReturnType<ConversationsDeliverConfigEnqueue>
+>;
+// fallow-ignore-next-line unused-type
+export type ConversationsDeliverConfigEnqueueError = Effect.Error<
+  ReturnType<ConversationsDeliverConfigEnqueue>
+>;
+
+export type ConversationsUpdateConfigAndDeliverEnqueue =
+  SheetWorkflowHttpClients["conversations"]["updateConfigAndDeliver"]["enqueue"];
+export type ConversationsUpdateConfigAndDeliverInput =
+  Parameters<ConversationsUpdateConfigAndDeliverEnqueue>[0];
+export type ConversationsUpdateConfigAndDeliverReference = Effect.Success<
+  ReturnType<ConversationsUpdateConfigAndDeliverEnqueue>
+>;
+// fallow-ignore-next-line unused-type
+export type ConversationsUpdateConfigAndDeliverEnqueueError = Effect.Error<
+  ReturnType<ConversationsUpdateConfigAndDeliverEnqueue>
+>;
+
+export type ConversationsSetLockdownEnqueue =
+  SheetWorkflowHttpClients["conversations"]["setLockdown"]["enqueue"];
+export type ConversationsSetLockdownInput = Parameters<ConversationsSetLockdownEnqueue>[0];
+export type ConversationsSetLockdownReference = Effect.Success<
+  ReturnType<ConversationsSetLockdownEnqueue>
+>;
+// fallow-ignore-next-line unused-type
+export type ConversationsSetLockdownEnqueueError = Effect.Error<
+  ReturnType<ConversationsSetLockdownEnqueue>
+>;
+
+export type TeamsDeliverListEnqueue = SheetWorkflowHttpClients["teams"]["deliverList"]["enqueue"];
+export type TeamsDeliverListInput = Parameters<TeamsDeliverListEnqueue>[0];
+export type TeamsDeliverListReference = Effect.Success<ReturnType<TeamsDeliverListEnqueue>>;
+// fallow-ignore-next-line unused-type
+export type TeamsDeliverListEnqueueError = Effect.Error<ReturnType<TeamsDeliverListEnqueue>>;
+
+export type ScreenshotsCaptureAndDeliverEnqueue =
+  SheetWorkflowHttpClients["screenshots"]["captureAndDeliver"]["enqueue"];
+export type ScreenshotsCaptureAndDeliverInput = Parameters<ScreenshotsCaptureAndDeliverEnqueue>[0];
+export type ScreenshotsCaptureAndDeliverReference = Effect.Success<
+  ReturnType<ScreenshotsCaptureAndDeliverEnqueue>
+>;
+// fallow-ignore-next-line unused-type
+export type ScreenshotsCaptureAndDeliverEnqueueError = Effect.Error<
+  ReturnType<ScreenshotsCaptureAndDeliverEnqueue>
+>;
 
 type SheetWorkflowHttpRequestContextType = {
   readonly discordUserId: string;
@@ -200,6 +394,50 @@ export interface SheetWorkflowHttpClientShape {
   readonly evaluateStatusRolloutGate: StatusRolloutGateEvaluation;
   readonly enqueueSchedulesDeliverUserSchedule: SchedulesDeliverUserScheduleEnqueue;
   readonly evaluateScheduleRolloutGate: ScheduleRolloutGateEvaluation;
+  readonly enqueueCheckinsOpen: CheckinsOpenEnqueue;
+  readonly evaluateCheckinsOpenRolloutGate: WorkflowRolloutGateEvaluation;
+  readonly enqueueCheckinsTestAuto: CheckinsTestAutoEnqueue;
+  readonly evaluateCheckinsTestAutoRolloutGate: WorkflowRolloutGateEvaluation;
+  readonly enqueueCheckinsRespond: CheckinsRespondEnqueue;
+  readonly evaluateCheckinsRespondRolloutGate: WorkflowRolloutGateEvaluation;
+  readonly enqueueRoomOrdersCreate: RoomOrdersCreateEnqueue;
+  readonly evaluateRoomOrdersCreateRolloutGate: WorkflowRolloutGateEvaluation;
+  readonly enqueueRoomOrdersNavigate: RoomOrdersNavigateEnqueue;
+  readonly evaluateRoomOrdersNavigateRolloutGate: WorkflowRolloutGateEvaluation;
+  readonly enqueueRoomOrdersSend: RoomOrdersSendEnqueue;
+  readonly evaluateRoomOrdersSendRolloutGate: WorkflowRolloutGateEvaluation;
+  readonly enqueueRoomOrdersPinTentative: RoomOrdersPinTentativeEnqueue;
+  readonly evaluateRoomOrdersPinTentativeRolloutGate: WorkflowRolloutGateEvaluation;
+  readonly enqueueSlotsDeliverList: SlotsDeliverListEnqueue;
+  readonly evaluateSlotsDeliverListRolloutGate: WorkflowRolloutGateEvaluation;
+  readonly enqueueSlotsPublishButton: SlotsPublishButtonEnqueue;
+  readonly evaluateSlotsPublishButtonRolloutGate: WorkflowRolloutGateEvaluation;
+  readonly enqueueSlotsOpen: SlotsOpenEnqueue;
+  readonly evaluateSlotsOpenRolloutGate: WorkflowRolloutGateEvaluation;
+  readonly enqueueMembersKick: MembersKickEnqueue;
+  readonly evaluateMembersKickRolloutGate: WorkflowRolloutGateEvaluation;
+  readonly enqueuePreferencesDeliverStatus: PreferencesDeliverStatusEnqueue;
+  readonly evaluatePreferencesDeliverStatusRolloutGate: WorkflowRolloutGateEvaluation;
+  readonly enqueuePreferencesUpdateAndDeliver: PreferencesUpdateAndDeliverEnqueue;
+  readonly evaluatePreferencesUpdateAndDeliverRolloutGate: WorkflowRolloutGateEvaluation;
+  readonly enqueueWorkspacesDeliverConfig: WorkspacesDeliverConfigEnqueue;
+  readonly evaluateWorkspacesDeliverConfigRolloutGate: WorkflowRolloutGateEvaluation;
+  readonly enqueueWorkspacesUpdateConfigAndDeliver: WorkspacesUpdateConfigAndDeliverEnqueue;
+  readonly evaluateWorkspacesUpdateConfigAndDeliverRolloutGate: WorkflowRolloutGateEvaluation;
+  readonly enqueueWorkspacesSetMonitorRoleAndDeliver: WorkspacesSetMonitorRoleAndDeliverEnqueue;
+  readonly evaluateWorkspacesSetMonitorRoleAndDeliverRolloutGate: WorkflowRolloutGateEvaluation;
+  readonly enqueueWorkspacesFeatureFlagsSetAndDeliver: WorkspacesFeatureFlagsSetAndDeliverEnqueue;
+  readonly evaluateWorkspacesFeatureFlagsSetAndDeliverRolloutGate: WorkflowRolloutGateEvaluation;
+  readonly enqueueConversationsDeliverConfig: ConversationsDeliverConfigEnqueue;
+  readonly evaluateConversationsDeliverConfigRolloutGate: WorkflowRolloutGateEvaluation;
+  readonly enqueueConversationsUpdateConfigAndDeliver: ConversationsUpdateConfigAndDeliverEnqueue;
+  readonly evaluateConversationsUpdateConfigAndDeliverRolloutGate: WorkflowRolloutGateEvaluation;
+  readonly enqueueConversationsSetLockdown: ConversationsSetLockdownEnqueue;
+  readonly evaluateConversationsSetLockdownRolloutGate: WorkflowRolloutGateEvaluation;
+  readonly enqueueTeamsDeliverList: TeamsDeliverListEnqueue;
+  readonly evaluateTeamsDeliverListRolloutGate: WorkflowRolloutGateEvaluation;
+  readonly enqueueScreenshotsCaptureAndDeliver: ScreenshotsCaptureAndDeliverEnqueue;
+  readonly evaluateScreenshotsCaptureAndDeliverRolloutGate: WorkflowRolloutGateEvaluation;
 }
 
 export class SheetWorkflowHttpClient extends Context.Service<
@@ -288,6 +526,53 @@ export class SheetWorkflowHttpClient extends Context.Service<
       evaluateStatusRolloutGate: rolloutGateClient.evaluate,
       enqueueSchedulesDeliverUserSchedule: clients.schedules.deliverUserSchedule.enqueue,
       evaluateScheduleRolloutGate: rolloutGateClient.evaluate,
+      enqueueCheckinsOpen: clients.checkins.open.enqueue,
+      evaluateCheckinsOpenRolloutGate: rolloutGateClient.evaluate,
+      enqueueCheckinsTestAuto: clients.checkins.testAuto.enqueue,
+      evaluateCheckinsTestAutoRolloutGate: rolloutGateClient.evaluate,
+      enqueueCheckinsRespond: clients.checkins.respond.enqueue,
+      evaluateCheckinsRespondRolloutGate: rolloutGateClient.evaluate,
+      enqueueRoomOrdersCreate: clients.roomOrders.create.enqueue,
+      evaluateRoomOrdersCreateRolloutGate: rolloutGateClient.evaluate,
+      enqueueRoomOrdersNavigate: clients.roomOrders.navigate.enqueue,
+      evaluateRoomOrdersNavigateRolloutGate: rolloutGateClient.evaluate,
+      enqueueRoomOrdersSend: clients.roomOrders.send.enqueue,
+      evaluateRoomOrdersSendRolloutGate: rolloutGateClient.evaluate,
+      enqueueRoomOrdersPinTentative: clients.roomOrders.pinTentative.enqueue,
+      evaluateRoomOrdersPinTentativeRolloutGate: rolloutGateClient.evaluate,
+      enqueueSlotsDeliverList: clients.slots.deliverList.enqueue,
+      evaluateSlotsDeliverListRolloutGate: rolloutGateClient.evaluate,
+      enqueueSlotsPublishButton: clients.slots.publishButton.enqueue,
+      evaluateSlotsPublishButtonRolloutGate: rolloutGateClient.evaluate,
+      enqueueSlotsOpen: clients.slots.open.enqueue,
+      evaluateSlotsOpenRolloutGate: rolloutGateClient.evaluate,
+      enqueueMembersKick: clients.members.kick.enqueue,
+      evaluateMembersKickRolloutGate: rolloutGateClient.evaluate,
+      enqueuePreferencesDeliverStatus: clients.preferences.deliverStatus.enqueue,
+      evaluatePreferencesDeliverStatusRolloutGate: rolloutGateClient.evaluate,
+      enqueuePreferencesUpdateAndDeliver: clients.preferences.updateAndDeliver.enqueue,
+      evaluatePreferencesUpdateAndDeliverRolloutGate: rolloutGateClient.evaluate,
+      enqueueWorkspacesDeliverConfig: clients.workspaces.deliverConfig.enqueue,
+      evaluateWorkspacesDeliverConfigRolloutGate: rolloutGateClient.evaluate,
+      enqueueWorkspacesUpdateConfigAndDeliver: clients.workspaces.updateConfigAndDeliver.enqueue,
+      evaluateWorkspacesUpdateConfigAndDeliverRolloutGate: rolloutGateClient.evaluate,
+      enqueueWorkspacesSetMonitorRoleAndDeliver:
+        clients.workspaces.setMonitorRoleAndDeliver.enqueue,
+      evaluateWorkspacesSetMonitorRoleAndDeliverRolloutGate: rolloutGateClient.evaluate,
+      enqueueWorkspacesFeatureFlagsSetAndDeliver:
+        clients.workspaces.featureFlags.setAndDeliver.enqueue,
+      evaluateWorkspacesFeatureFlagsSetAndDeliverRolloutGate: rolloutGateClient.evaluate,
+      enqueueConversationsDeliverConfig: clients.conversations.deliverConfig.enqueue,
+      evaluateConversationsDeliverConfigRolloutGate: rolloutGateClient.evaluate,
+      enqueueConversationsUpdateConfigAndDeliver:
+        clients.conversations.updateConfigAndDeliver.enqueue,
+      evaluateConversationsUpdateConfigAndDeliverRolloutGate: rolloutGateClient.evaluate,
+      enqueueConversationsSetLockdown: clients.conversations.setLockdown.enqueue,
+      evaluateConversationsSetLockdownRolloutGate: rolloutGateClient.evaluate,
+      enqueueTeamsDeliverList: clients.teams.deliverList.enqueue,
+      evaluateTeamsDeliverListRolloutGate: rolloutGateClient.evaluate,
+      enqueueScreenshotsCaptureAndDeliver: clients.screenshots.captureAndDeliver.enqueue,
+      evaluateScreenshotsCaptureAndDeliverRolloutGate: rolloutGateClient.evaluate,
     } satisfies SheetWorkflowHttpClientShape;
   }),
 }) {
@@ -342,3 +627,165 @@ export const enqueueScheduleWorkflow = (
   input: SchedulesDeliverUserScheduleInput,
   options?: { readonly invocationId?: SchedulesDeliverUserScheduleReference["invocationId"] },
 ) => enqueueWorkflow(client.enqueueSchedulesDeliverUserSchedule, input, options);
+
+export const enqueueCheckinsOpenWorkflow = (
+  client: Pick<SheetWorkflowHttpClientShape, "enqueueCheckinsOpen">,
+  input: CheckinsOpenInput,
+  options?: { readonly invocationId?: CheckinsOpenReference["invocationId"] },
+) => enqueueWorkflow(client.enqueueCheckinsOpen, input, options);
+
+// fallow-ignore-next-line unused-export
+export const enqueueCheckinsTestAutoWorkflow = (
+  client: Pick<SheetWorkflowHttpClientShape, "enqueueCheckinsTestAuto">,
+  input: CheckinsTestAutoInput,
+  options?: { readonly invocationId?: CheckinsTestAutoReference["invocationId"] },
+) => enqueueWorkflow(client.enqueueCheckinsTestAuto, input, options);
+
+// fallow-ignore-next-line unused-export
+export const enqueueCheckinsRespondWorkflow = (
+  client: Pick<SheetWorkflowHttpClientShape, "enqueueCheckinsRespond">,
+  input: CheckinsRespondInput,
+  options?: { readonly invocationId?: CheckinsRespondReference["invocationId"] },
+) => enqueueWorkflow(client.enqueueCheckinsRespond, input, options);
+
+// fallow-ignore-next-line unused-export
+export const enqueueRoomOrdersCreateWorkflow = (
+  client: Pick<SheetWorkflowHttpClientShape, "enqueueRoomOrdersCreate">,
+  input: RoomOrdersCreateInput,
+  options?: { readonly invocationId?: RoomOrdersCreateReference["invocationId"] },
+) => enqueueWorkflow(client.enqueueRoomOrdersCreate, input, options);
+
+// fallow-ignore-next-line unused-export
+export const enqueueRoomOrdersNavigateWorkflow = (
+  client: Pick<SheetWorkflowHttpClientShape, "enqueueRoomOrdersNavigate">,
+  input: RoomOrdersNavigateInput,
+  options?: { readonly invocationId?: RoomOrdersNavigateReference["invocationId"] },
+) => enqueueWorkflow(client.enqueueRoomOrdersNavigate, input, options);
+
+// fallow-ignore-next-line unused-export
+export const enqueueRoomOrdersSendWorkflow = (
+  client: Pick<SheetWorkflowHttpClientShape, "enqueueRoomOrdersSend">,
+  input: RoomOrdersSendInput,
+  options?: { readonly invocationId?: RoomOrdersSendReference["invocationId"] },
+) => enqueueWorkflow(client.enqueueRoomOrdersSend, input, options);
+
+// fallow-ignore-next-line unused-export
+export const enqueueRoomOrdersPinTentativeWorkflow = (
+  client: Pick<SheetWorkflowHttpClientShape, "enqueueRoomOrdersPinTentative">,
+  input: RoomOrdersPinTentativeInput,
+  options?: { readonly invocationId?: RoomOrdersPinTentativeReference["invocationId"] },
+) => enqueueWorkflow(client.enqueueRoomOrdersPinTentative, input, options);
+
+// fallow-ignore-next-line unused-export
+export const enqueueSlotsDeliverListWorkflow = (
+  client: Pick<SheetWorkflowHttpClientShape, "enqueueSlotsDeliverList">,
+  input: SlotsDeliverListInput,
+  options?: { readonly invocationId?: SlotsDeliverListReference["invocationId"] },
+) => enqueueWorkflow(client.enqueueSlotsDeliverList, input, options);
+
+// fallow-ignore-next-line unused-export
+export const enqueueSlotsPublishButtonWorkflow = (
+  client: Pick<SheetWorkflowHttpClientShape, "enqueueSlotsPublishButton">,
+  input: SlotsPublishButtonInput,
+  options?: { readonly invocationId?: SlotsPublishButtonReference["invocationId"] },
+) => enqueueWorkflow(client.enqueueSlotsPublishButton, input, options);
+
+// fallow-ignore-next-line unused-export
+export const enqueueSlotsOpenWorkflow = (
+  client: Pick<SheetWorkflowHttpClientShape, "enqueueSlotsOpen">,
+  input: SlotsOpenInput,
+  options?: { readonly invocationId?: SlotsOpenReference["invocationId"] },
+) => enqueueWorkflow(client.enqueueSlotsOpen, input, options);
+
+// fallow-ignore-next-line unused-export
+export const enqueueMembersKickWorkflow = (
+  client: Pick<SheetWorkflowHttpClientShape, "enqueueMembersKick">,
+  input: MembersKickInput,
+  options?: { readonly invocationId?: MembersKickReference["invocationId"] },
+) => enqueueWorkflow(client.enqueueMembersKick, input, options);
+
+// fallow-ignore-next-line unused-export
+export const enqueuePreferencesDeliverStatusWorkflow = (
+  client: Pick<SheetWorkflowHttpClientShape, "enqueuePreferencesDeliverStatus">,
+  input: PreferencesDeliverStatusInput,
+  options?: { readonly invocationId?: PreferencesDeliverStatusReference["invocationId"] },
+) => enqueueWorkflow(client.enqueuePreferencesDeliverStatus, input, options);
+
+// fallow-ignore-next-line unused-export
+export const enqueuePreferencesUpdateAndDeliverWorkflow = (
+  client: Pick<SheetWorkflowHttpClientShape, "enqueuePreferencesUpdateAndDeliver">,
+  input: PreferencesUpdateAndDeliverInput,
+  options?: { readonly invocationId?: PreferencesUpdateAndDeliverReference["invocationId"] },
+) => enqueueWorkflow(client.enqueuePreferencesUpdateAndDeliver, input, options);
+
+// fallow-ignore-next-line unused-export
+export const enqueueWorkspacesDeliverConfigWorkflow = (
+  client: Pick<SheetWorkflowHttpClientShape, "enqueueWorkspacesDeliverConfig">,
+  input: WorkspacesDeliverConfigInput,
+  options?: { readonly invocationId?: WorkspacesDeliverConfigReference["invocationId"] },
+) => enqueueWorkflow(client.enqueueWorkspacesDeliverConfig, input, options);
+
+// fallow-ignore-next-line unused-export
+export const enqueueWorkspacesUpdateConfigAndDeliverWorkflow = (
+  client: Pick<SheetWorkflowHttpClientShape, "enqueueWorkspacesUpdateConfigAndDeliver">,
+  input: WorkspacesUpdateConfigAndDeliverInput,
+  options?: {
+    readonly invocationId?: WorkspacesUpdateConfigAndDeliverReference["invocationId"];
+  },
+) => enqueueWorkflow(client.enqueueWorkspacesUpdateConfigAndDeliver, input, options);
+
+// fallow-ignore-next-line unused-export
+export const enqueueWorkspacesSetMonitorRoleAndDeliverWorkflow = (
+  client: Pick<SheetWorkflowHttpClientShape, "enqueueWorkspacesSetMonitorRoleAndDeliver">,
+  input: WorkspacesSetMonitorRoleAndDeliverInput,
+  options?: {
+    readonly invocationId?: WorkspacesSetMonitorRoleAndDeliverReference["invocationId"];
+  },
+) => enqueueWorkflow(client.enqueueWorkspacesSetMonitorRoleAndDeliver, input, options);
+
+// fallow-ignore-next-line unused-export
+export const enqueueWorkspacesFeatureFlagsSetAndDeliverWorkflow = (
+  client: Pick<SheetWorkflowHttpClientShape, "enqueueWorkspacesFeatureFlagsSetAndDeliver">,
+  input: WorkspacesFeatureFlagsSetAndDeliverInput,
+  options?: {
+    readonly invocationId?: WorkspacesFeatureFlagsSetAndDeliverReference["invocationId"];
+  },
+) => enqueueWorkflow(client.enqueueWorkspacesFeatureFlagsSetAndDeliver, input, options);
+
+// fallow-ignore-next-line unused-export
+export const enqueueConversationsDeliverConfigWorkflow = (
+  client: Pick<SheetWorkflowHttpClientShape, "enqueueConversationsDeliverConfig">,
+  input: ConversationsDeliverConfigInput,
+  options?: { readonly invocationId?: ConversationsDeliverConfigReference["invocationId"] },
+) => enqueueWorkflow(client.enqueueConversationsDeliverConfig, input, options);
+
+// fallow-ignore-next-line unused-export
+export const enqueueConversationsUpdateConfigAndDeliverWorkflow = (
+  client: Pick<SheetWorkflowHttpClientShape, "enqueueConversationsUpdateConfigAndDeliver">,
+  input: ConversationsUpdateConfigAndDeliverInput,
+  options?: {
+    readonly invocationId?: ConversationsUpdateConfigAndDeliverReference["invocationId"];
+  },
+) => enqueueWorkflow(client.enqueueConversationsUpdateConfigAndDeliver, input, options);
+
+export const enqueueConversationsSetLockdownWorkflow = (
+  client: Pick<SheetWorkflowHttpClientShape, "enqueueConversationsSetLockdown">,
+  input: ConversationsSetLockdownInput,
+  options?: { readonly invocationId?: ConversationsSetLockdownReference["invocationId"] },
+) => enqueueWorkflow(client.enqueueConversationsSetLockdown, input, options);
+
+// fallow-ignore-next-line unused-export
+export const enqueueTeamsDeliverListWorkflow = (
+  client: Pick<SheetWorkflowHttpClientShape, "enqueueTeamsDeliverList">,
+  input: TeamsDeliverListInput,
+  options?: { readonly invocationId?: TeamsDeliverListReference["invocationId"] },
+) => enqueueWorkflow(client.enqueueTeamsDeliverList, input, options);
+
+// fallow-ignore-next-line unused-export
+export const enqueueScreenshotsCaptureAndDeliverWorkflow = (
+  client: Pick<SheetWorkflowHttpClientShape, "enqueueScreenshotsCaptureAndDeliver">,
+  input: ScreenshotsCaptureAndDeliverInput,
+  options?: {
+    readonly invocationId?: ScreenshotsCaptureAndDeliverReference["invocationId"];
+  },
+) => enqueueWorkflow(client.enqueueScreenshotsCaptureAndDeliver, input, options);
