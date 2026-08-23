@@ -16,19 +16,23 @@
     "format": "vp fmt --check",
     "format:apply": "vp fmt",
     "lint": "vp lint src",
+    "test": "vp test run",
     "build": "vp pack"
   },
   "dependencies": {
     "core-js": "^3.44.0",
     "effect": "catalog:",
     "effect-platform-apps-script": "workspace:*",
-    "sheet-ingress-api": "workspace:*"
+    "sheet-workflow-contracts": "workspace:*",
+    "sheet-workflow-http-client": "workspace:*"
   },
   "devDependencies": {
+    "@effect/vitest": "catalog:",
     "@types/google-apps-script": "^1.0.99",
     "@types/node": "catalog:",
     "tooling-config": "workspace:*",
     "vite": "catalog:",
-    "vite-plus": "catalog:"
+    "vite-plus": "catalog:",
+    "vitest": "catalog:"
   }
 }

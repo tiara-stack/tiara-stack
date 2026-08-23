@@ -28,7 +28,15 @@ import {
   type VerifiedOAuthResourceToken,
 } from "sheet-auth/oauth-resource-authorization";
 import { Unauthorized } from "typhoon-core/error";
-import { SchedulesDeliverUserSchedule, ServicesDeliverStatus } from "sheet-workflow-contracts";
+import {
+  CalculationsRecalculateSheet,
+  SchedulesDeliverUserSchedule,
+  ServicesDeliverStatus,
+} from "sheet-workflow-contracts";
+import {
+  CalculationSheetWorkflowContracts,
+  CalculationSheetWorkflowRegistrations,
+} from "@/workflows/calculations";
 import {
   ScheduleSheetWorkflowContracts,
   ScheduleSheetWorkflowRegistrations,
@@ -202,17 +210,31 @@ export const workflowHttpRoutesLayer = Layer.unwrap(
     const store = yield* WorkflowStore;
     const authorizer = yield* makeAuthorizer;
     const handler = yield* makeSheetWorkflowTransportHandler(
-      [...ServiceSheetWorkflowContracts, ...ScheduleSheetWorkflowContracts],
-      [...ServiceSheetWorkflowRegistrations, ...ScheduleSheetWorkflowRegistrations],
+      [
+        ...ServiceSheetWorkflowContracts,
+        ...ScheduleSheetWorkflowContracts,
+        ...CalculationSheetWorkflowContracts,
+      ],
+      [
+        ...ServiceSheetWorkflowRegistrations,
+        ...ScheduleSheetWorkflowRegistrations,
+        ...CalculationSheetWorkflowRegistrations,
+      ],
       makeWorkflowInvocationStore(store),
     );
     const executor = workflowHttpServerExecutorFromHandler(handler);
     const statusRoute = makeWorkflowHttpRouteHandlers(ServicesDeliverStatus, executor);
     const scheduleRoute = makeWorkflowHttpRouteHandlers(SchedulesDeliverUserSchedule, executor);
+    const calculationRoute = makeWorkflowHttpRouteHandlers(CalculationsRecalculateSheet, executor);
 
     return Layer.mergeAll(
       addWorkflowEnqueueRoute(statusRoute.routes.enqueue, authorizer, statusRoute.enqueue),
       addWorkflowEnqueueRoute(scheduleRoute.routes.enqueue, authorizer, scheduleRoute.enqueue),
+      addWorkflowEnqueueRoute(
+        calculationRoute.routes.enqueue,
+        authorizer,
+        calculationRoute.enqueue,
+      ),
     );
   }),
 );

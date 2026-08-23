@@ -5,6 +5,7 @@
   "private_type_leaks": [],
   "unused_dependencies": [
     "packages/sheet-bot/package.json:sheet-db-schema",
+    "packages/sheet-formulas/package.json:sheet-workflow-contracts",
     "packages/sheet-ingress-server/package.json:sheet-db-schema",
     "packages/sheet-web/package.json:start-atom",
     "packages/sheet-workflows/package.json:sheet-db-schema"

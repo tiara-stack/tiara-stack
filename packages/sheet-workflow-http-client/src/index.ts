@@ -47,8 +47,16 @@ export class RolloutGateBaseUrlInvalid extends Schema.TaggedErrorClass<RolloutGa
   { message: PublicMessage },
 ) {}
 
-export const makeWorkflowInvocationId = () =>
-  Schema.decodeUnknownEffect(InvocationId)(globalThis.crypto.randomUUID());
+export const decodeWorkflowInvocationId = (value: unknown) =>
+  Schema.decodeUnknownEffect(InvocationId)(value);
+
+export const makeWorkflowInvocationId = (
+  randomUUID: () => string = () => globalThis.crypto.randomUUID(),
+) =>
+  Effect.try({
+    try: randomUUID,
+    catch: (cause) => cause,
+  }).pipe(Effect.flatMap(decodeWorkflowInvocationId));
 
 export type WorkflowInvocationId = Schema.Schema.Type<typeof InvocationId>;
 

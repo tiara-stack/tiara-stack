@@ -275,12 +275,5 @@ export const sheetPackageBoundaryPolicy = {
         "The web helper currently republishes a schema owned by the combined ingress package.",
       removeWhen: "Import the capability-owned user configuration schema directly at callers.",
     },
-    {
-      code: "forbidden-sheet-dependency",
-      package: "sheet-formulas",
-      target: "sheet-ingress-api",
-      reason: "Apps Script still enqueues work through the legacy ingress contract.",
-      removeWhen: "Switch formulas to the enqueue surface of sheet-workflow-http-client.",
-    },
   ],
 } as const satisfies BoundaryPolicy;

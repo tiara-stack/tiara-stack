@@ -798,10 +798,16 @@ importers:
       effect-platform-apps-script:
         specifier: workspace:*
         version: link:../effect-platform-apps-script
-      sheet-ingress-api:
+      sheet-workflow-contracts:
         specifier: workspace:*
-        version: link:../sheet-ingress-api
+        version: link:../sheet-workflow-contracts
+      sheet-workflow-http-client:
+        specifier: workspace:*
+        version: link:../sheet-workflow-http-client
     devDependencies:
+      '@effect/vitest':
+        specifier: 'catalog:'
+        version: '@tiara-stack/effect-vitest@4.0.0-beta.93.tiara.2(@tiara-stack/vite-plus@0.2.4(@opentelemetry/api@1.9.0)(@tiara-stack/vite-plus@0.2.4)(@types/node@24.10.9)(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(esbuild@0.28.1)(jiti@2.6.1)(jsdom@27.4.0(@noble/hashes@2.0.1))(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(effect@4.0.0-beta.67)'
       '@types/google-apps-script':
         specifier: ^1.0.99
         version: 1.0.99
@@ -817,6 +823,9 @@ importers:
       vite-plus:
         specifier: 'catalog:'
         version: '@tiara-stack/vite-plus@0.2.4(@opentelemetry/api@1.9.0)(@tiara-stack/vite-plus@0.2.4)(@types/node@24.10.9)(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(esbuild@0.28.1)(jiti@2.6.1)(jsdom@27.4.0(@noble/hashes@2.0.1))(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0)'
+      vitest:
+        specifier: 4.1.9
+        version: 4.1.9(@opentelemetry/api@1.9.0)(@types/node@24.10.9)(@vitest/browser-preview@4.1.9)(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(jsdom@27.4.0(@noble/hashes@2.0.1))
 
   packages/sheet-ingress-api:
     dependencies:

@@ -1,6 +1,5 @@
 import {
   Array,
-  Chunk,
   Effect,
   HashMap,
   Option,
@@ -13,18 +12,22 @@ import {
   String,
   SchemaGetter,
 } from "effect";
-import { HttpApiClient } from "effect/unstable/httpapi";
-import { SheetApisApi as Api } from "sheet-ingress-api/sheet-apis";
-import * as Sheet from "sheet-ingress-api/schemas/sheet";
+import { HttpClient } from "effect/unstable/http";
 import { layer as AppsScriptHttpClientLayer } from "effect-platform-apps-script";
+import { makeWorkflowInvocationId } from "sheet-workflow-http-client";
+import { SpreadsheetId, SheetReference } from "sheet-workflow-contracts";
+import {
+  calculationStatus,
+  calculationStatusForError,
+  makeAppsScriptWorkflowEnqueueClients,
+  makeCalculationInvocationId,
+  makeCalculationSheetReference,
+  submitCalculation,
+  type CalculationStatus,
+  workflowHttpConfiguration,
+} from "./calculationWorkflow";
 
 const SETTING_SHEET_NAME = "Thee's Sheet Settings";
-
-function getClient(url: string) {
-  return HttpApiClient.make(Api, {
-    baseUrl: url,
-  });
-}
 
 const cellValueValidator = Schema.Union([
   Schema.String,
@@ -88,32 +91,36 @@ export function THEECALC(
 }
 
 export function theeCalc(calcSheet: GoogleAppsScript.Spreadsheet.Sheet) {
+  const writeCalculationStatus = (hour: number, status: CalculationStatus) =>
+    Effect.try({
+      try: () => calcSheet.getRange(`AX30:AY30`).setValues([[hour, status]]),
+      catch: (error) => error,
+    }).pipe(
+      Effect.catch((error) => Effect.logError(error)),
+      Effect.asVoid,
+    );
+  const writeCalculationStatusOnly = (status: CalculationStatus) =>
+    Effect.try({
+      try: () => calcSheet.getRange("AY30").setValue(status),
+      catch: (error) => error,
+    }).pipe(
+      Effect.catch((error) => Effect.logError(error)),
+      Effect.asVoid,
+    );
+  const readCalculationHour = () =>
+    Effect.try({
+      try: () => calcSheet.getRange("D23").getValue(),
+      catch: (error) => error,
+    }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Number)));
+
   return Effect.runSync(
     pipe(
-      Effect.all(
-        {
-          settingSheet: Option.fromNullishOr(
-            SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SETTING_SHEET_NAME),
-          ).pipe(Effect.fromOption),
-        },
-        { concurrency: "unbounded" },
-      ),
-      Effect.bind("hour", () =>
-        pipe(calcSheet.getRange("D23").getValue(), Schema.decodeUnknownEffect(Schema.Number)),
-      ),
-      Effect.tap(() => Effect.sync(() => calcSheet.getRange(`AX30:CC`).clearContent())),
-      Effect.tap(({ hour }) =>
-        Effect.sync(() => calcSheet.getRange(`AX30:AY30`).setValues([[hour, "calculating"]])),
-      ),
-      Effect.andThen(({ hour, settingSheet }) =>
+      Effect.Do,
+      Effect.bind("hour", readCalculationHour),
+      Effect.flatMap(({ hour }) =>
         pipe(
           Effect.Do,
-          Effect.bind("url", () =>
-            pipe(
-              settingSheet.getRange("AK8").getValue(),
-              Schema.decodeUnknownEffect(Schema.String),
-            ),
-          ),
+          Effect.let("hour", () => hour),
           Effect.bind("config", () =>
             pipe(
               calcSheet.getRange("U30:V32").getValues(),
@@ -150,81 +157,71 @@ export function theeCalc(calcSheet: GoogleAppsScript.Spreadsheet.Sheet) {
               parseFixedTeams,
             ),
           ),
-          Effect.tapError((e) =>
+          Effect.bind("properties", () =>
+            Effect.sync(() => PropertiesService.getDocumentProperties()),
+          ),
+          Effect.bind("spreadsheetId", () =>
+            pipe(calcSheet.getParent().getId(), Schema.decodeUnknownEffect(SpreadsheetId)),
+          ),
+          Effect.bind("sheetRef", () =>
             pipe(
-              Effect.logError(e),
+              makeCalculationSheetReference(calcSheet.getName()),
+              Schema.decodeUnknownEffect(SheetReference),
+            ),
+          ),
+          Effect.let("input", ({ config, fixedTeams, hour, players, sheetRef, spreadsheetId }) => ({
+            spreadsheetId,
+            sheetRef,
+            hour,
+            config,
+            players,
+            fixedTeams,
+          })),
+          Effect.bind("invocationId", ({ input, properties }) =>
+            makeCalculationInvocationId(properties, input, () =>
+              makeWorkflowInvocationId(() => Utilities.getUuid()),
+            ),
+          ),
+          Effect.bind("workflowConfiguration", ({ properties, spreadsheetId }) =>
+            workflowHttpConfiguration(properties, spreadsheetId),
+          ),
+          Effect.bind("httpClient", () => Effect.service(HttpClient.HttpClient)),
+          Effect.bind("clients", ({ httpClient, workflowConfiguration }) =>
+            Effect.succeed(makeAppsScriptWorkflowEnqueueClients(httpClient, workflowConfiguration)),
+          ),
+          Effect.flatMap(({ hour, invocationId, clients, input, properties }) =>
+            pipe(
+              submitCalculation({
+                properties,
+                client: clients.calculations.recalculateSheet,
+                input,
+                invocationId,
+                beforeRequest: writeCalculationStatus(hour, calculationStatus.submitting),
+              }),
+              Effect.tap(() => writeCalculationStatus(hour, calculationStatus.queued)),
+            ),
+          ),
+          Effect.tapError((error) =>
+            pipe(
+              Effect.logError(error),
               Effect.andThen(
-                Effect.sync(() =>
-                  calcSheet.getRange(`AX30:AY30`).setValues([[hour, "sheet value error"]]),
-                ),
+                calculationStatusForError(error) === calculationStatus.submitting
+                  ? Effect.void
+                  : writeCalculationStatus(hour, calculationStatus.didNotStart),
               ),
             ),
           ),
-          Effect.tap(({ url, config, players, fixedTeams }) =>
-            pipe(
-              Effect.Do,
-              Effect.bind("client", () => getClient(url)),
-              Effect.tap(() => Effect.log("calc.sheet")),
-              Effect.bind("result", ({ client }) =>
-                client.calc.calcSheet({
-                  payload: {
-                    sheetId: SpreadsheetApp.getActiveSpreadsheet().getId(),
-                    config,
-                    players,
-                    fixedTeams,
-                  },
-                }),
-              ),
-              Effect.map(({ result }) =>
-                result.map((r) => [
-                  Sheet.Room.avgTalent(r),
-                  Sheet.Room.avgEffectValue(r),
-                  ...pipe(
-                    r.teams,
-                    Chunk.toArray,
-                    Array.map((team) => [
-                      team.teamName,
-                      team.lead,
-                      team.backline,
-                      Sheet.PlayerTeam.getEffectValue(team),
-                      team.talent,
-                      pipe(team.tags, Array.join(", ")),
-                    ]),
-                  ).flat(),
-                ]),
-              ),
-              Effect.tapError((e) =>
-                pipe(
-                  Effect.logError(e),
-                  Effect.andThen(
-                    Effect.sync(() =>
-                      calcSheet.getRange(`AX30:AY30`).setValues([[hour, e.message]]),
-                    ),
-                  ),
-                ),
-              ),
-              Effect.tap((result) =>
-                pipe(
-                  Effect.log(result),
-                  Effect.andThen(
-                    Effect.sync(() => calcSheet.getRange(`AX30:AY30`).setValues([[hour, ""]])),
-                  ),
-                  Effect.andThen(
-                    Effect.sync(() =>
-                      result.length > 0
-                        ? calcSheet.getRange(`AX31:CC${result.length + 30}`).setValues(result)
-                        : undefined,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
+          Effect.catch(() => Effect.void),
         ),
       ),
       Effect.asVoid,
       Effect.provide(AppsScriptHttpClientLayer),
-      Effect.orDie,
+      Effect.catch((error) =>
+        pipe(
+          Effect.logError(error),
+          Effect.andThen(writeCalculationStatusOnly(calculationStatus.didNotStart)),
+        ),
+      ),
     ),
   );
 }

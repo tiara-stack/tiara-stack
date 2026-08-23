@@ -12,8 +12,10 @@
       "@@/*": ["./*"],
       "effect-platform-apps-script": ["../effect-platform-apps-script/src/index.ts"],
       "effect-platform-apps-script/*": ["../effect-platform-apps-script/src/*"],
-      "sheet-ingress-api": ["../sheet-ingress-api/src/index.ts"],
-      "sheet-ingress-api/*": ["../sheet-ingress-api/src/*"],
+      "sheet-workflow-contracts": ["../sheet-workflow-contracts/src/index.ts"],
+      "sheet-workflow-contracts/*": ["../sheet-workflow-contracts/src/*"],
+      "sheet-workflow-http-client": ["../sheet-workflow-http-client/src/index.ts"],
+      "sheet-workflow-http-client/*": ["../sheet-workflow-http-client/src/*"],
       "typhoon-core": ["../typhoon-core/src/index.ts"],
       "typhoon-core/*": ["../typhoon-core/src/*"]
     }
@@ -23,7 +25,10 @@
       "path": "../effect-platform-apps-script"
     },
     {
-      "path": "../sheet-ingress-api"
+      "path": "../sheet-workflow-contracts"
+    },
+    {
+      "path": "../sheet-workflow-http-client"
     },
     {
       "path": "../typhoon-core"

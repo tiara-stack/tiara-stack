@@ -8,7 +8,11 @@ import {
   SheetWorkflowContracts,
 } from "sheet-workflow-contracts";
 import { makeSheetWorkflowEnqueueClients } from "./apps-script";
-import { RolloutGateBaseUrlInvalid, makeRolloutGateHttpClient } from "./index";
+import {
+  RolloutGateBaseUrlInvalid,
+  makeRolloutGateHttpClient,
+  makeWorkflowInvocationId,
+} from "./index";
 import { sheetWorkflowHttpRouteManifest } from "./routes";
 
 const unusedHttpClient = HttpClient.make(() => Effect.die("HTTP is not used by this test"));
@@ -131,6 +135,30 @@ describe("sheet Workflow Contract HTTP clients", () => {
       }
       const failure = exit.cause.reasons.find(Cause.isFailReason);
       expect(failure?.error).toBeInstanceOf(RolloutGateBaseUrlInvalid);
+    }),
+  );
+
+  it.effect("reports invocation ID generator errors as effect failures", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(
+        makeWorkflowInvocationId(() => {
+          throw new Error("generator failed");
+        }),
+      );
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        const failure = exit.cause.reasons.find(Cause.isFailReason);
+        expect(failure?.error).toBeInstanceOf(Error);
+      }
+    }),
+  );
+
+  it.effect("reports invalid invocation ID values as effect failures", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(makeWorkflowInvocationId(() => "not-a-uuid"));
+
+      expect(Exit.isFailure(exit)).toBe(true);
     }),
   );
 });
