@@ -10,6 +10,10 @@ const atomRegistryScheduleTask = createIsomorphicFn()
   })
   .client(scheduleTask);
 
+export const isBrowserRuntime = createIsomorphicFn()
+  .server(() => false)
+  .client(() => true);
+
 export const makeAtomRegistry = () =>
   AtomRegistry.make({
     scheduleTask: atomRegistryScheduleTask,

@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import { DateTime, HashSet, Effect, Array } from "effect";
 import { AnimatePresence, motion, useIsPresent } from "motion/react";
 
-import { ensureResultAtomData } from "#/lib/atomRegistry";
+import { ensureResultAtomData, isBrowserRuntime } from "#/lib/atomRegistry";
 import { useScheduledDays, scheduledDaysAtom, formatDayKey } from "#/lib/schedule";
 import { useCalendarDays, calendarDaysAtom } from "#/lib/calendar";
 import { getServerTimeZone, useTimeZone } from "#/hooks/useTimeZone";
@@ -30,6 +30,7 @@ export const Route = createFileRoute(
   ssr: "data-only", // Prevent component SSR to avoid timezone-based content flash
   loaderDeps: ({ search }) => ({ timestamp: search.timestamp }),
   loader: async ({ context, params, deps }) => {
+    if (!isBrowserRuntime()) return;
     const timeZone = getServerTimeZone(); // Match useTimeZone behavior during SSR
     const currentDate = makeDateTime(deps.timestamp);
     const currentDateZoned = makeZoned(timeZone, currentDate);

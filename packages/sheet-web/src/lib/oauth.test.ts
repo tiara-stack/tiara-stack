@@ -37,7 +37,7 @@ const startOAuthServer = (handler: RequestListener) =>
   );
 
 describe("OAuth token request bodies", () => {
-  it("requests the sheet-ingress resource for authorization code tokens", () => {
+  it("requests the sheet-zero resource for authorization code tokens", () => {
     const body = authorizationCodeRequestBody(
       {
         appBaseUrl: new URL("https://app.example.com"),
@@ -53,10 +53,10 @@ describe("OAuth token request bodies", () => {
     );
 
     expect(body.get("grant_type")).toBe("authorization_code");
-    expect(body.get("resource")).toBe("sheet-ingress");
+    expect(body.get("resource")).toBe("sheet-zero");
   });
 
-  it("requests the sheet-ingress resource for refreshed tokens", () => {
+  it("requests the sheet-zero resource for refreshed tokens", () => {
     const body = refreshTokenRequestBody(
       {
         accessToken: "opaque-token",
@@ -69,7 +69,7 @@ describe("OAuth token request bodies", () => {
     );
 
     expect(body.get("grant_type")).toBe("refresh_token");
-    expect(body.get("resource")).toBe("sheet-ingress");
+    expect(body.get("resource")).toBe("sheet-zero");
   });
 });
 

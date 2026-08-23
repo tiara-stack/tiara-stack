@@ -5,7 +5,7 @@ import { motion } from "motion/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { DateTime, Option, Effect, pipe, HashMap, Array, Duration, Predicate } from "effect";
 
-import { ensureResultAtomData } from "#/lib/atomRegistry";
+import { ensureResultAtomData, isBrowserRuntime } from "#/lib/atomRegistry";
 import {
   type SchedulePlayer,
   guildScheduleAtom,
@@ -47,6 +47,7 @@ export const Route = createFileRoute(
   pendingComponent: DailyPendingPage,
   ssr: "data-only",
   loader: async ({ context, params }) => {
+    if (!isBrowserRuntime()) return;
     await Effect.runPromise(
       Effect.all(
         [

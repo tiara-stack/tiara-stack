@@ -1,14 +1,10 @@
 import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
 import { Suspense } from "react";
 import { Effect } from "effect";
-import { Discord } from "sheet-ingress-api/schemas";
 import { Avatar, AvatarImage, AvatarFallback } from "#/components/ui/avatar";
 import { Skeleton } from "#/components/ui/skeleton";
-import { currentUserGuildsAtom, useCurrentUserGuilds } from "#/lib/discord";
-import { ensureResultAtomData } from "#/lib/atomRegistry";
-
-// Infer the type from the Schema
-type DiscordGuildType = typeof Discord.DiscordGuild.Type;
+import { currentUserGuildsAtom, useCurrentUserGuilds, type DiscordGuild } from "#/lib/discord";
+import { ensureResultAtomData, isBrowserRuntime } from "#/lib/atomRegistry";
 
 // Loading fallback for guild sidebar
 function GuildSidebarFallback() {
@@ -21,7 +17,7 @@ function GuildSidebarFallback() {
   );
 }
 
-function GuildIcon({ guild }: { guild: DiscordGuildType }) {
+function GuildIcon({ guild }: { guild: DiscordGuild }) {
   const iconUrl = guild.icon
     ? `https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.png`
     : null;
@@ -69,6 +65,7 @@ function GuildSidebarContent() {
 export const Route = createFileRoute("/_authenticated/dashboard/guilds")({
   component: GuildsLayout,
   loader: async ({ context }) => {
+    if (!isBrowserRuntime()) return;
     await Effect.runPromise(
       ensureResultAtomData(context.atomRegistry, currentUserGuildsAtom).pipe(
         Effect.catch(() => Effect.succeed([])),

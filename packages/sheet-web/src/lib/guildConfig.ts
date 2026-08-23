@@ -1,18 +1,36 @@
 import { useAtomSet, useAtomSuspense } from "@effect/atom-react";
-import { Duration, HashSet, Option, Predicate, Schema } from "effect";
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { DateTime, Duration, Effect, HashSet, Option, Predicate, Schema } from "effect";
+import { AsyncResult, Atom, Reactivity } from "effect/unstable/reactivity";
 import { useCallback, useMemo } from "react";
 import { isDiscordCategoryChannelType } from "sheet-ingress-api/guild-config";
+import { api as sheetZeroApi } from "sheet-zero-api";
 import { DiscordGuildChannel, DiscordGuildRole } from "sheet-ingress-api/schemas/discord";
-import { CurrentUserPermissions, type PermissionSet } from "sheet-ingress-api/schemas/permissions";
+import {
+  CurrentUserPermissions,
+  Permission,
+  type PermissionSet,
+} from "sheet-ingress-api/schemas/permissions";
 import {
   WorkspaceConfig,
   WorkspaceConversationConfig,
   WorkspaceMonitorRole,
 } from "sheet-ingress-api/schemas/workspaceConfig";
-import { ArgumentError, SchemaError, Unauthorized } from "typhoon-core/error";
-import { QueryResultAppError, QueryResultParseError } from "typhoon-zero/error";
-import { SheetApisClient } from "#/lib/sheetApis";
+import {
+  ConfigWorkspaceConversationRow,
+  ConfigWorkspaceMonitorRoleRow,
+  ConfigWorkspaceRow,
+} from "sheet-zero-api/rows";
+import {
+  ConversationsSetLockdownInput,
+  ConversationsSetLockdownSuccess,
+  DiscordLoadWorkspaceChannelsSuccess,
+  DiscordLoadWorkspaceRolesSuccess,
+  WorkspaceCapabilities,
+  WorkspaceInput,
+} from "sheet-workflow-contracts";
+import { runSheetWorkflow, sheetZeroClientAtom } from "#/lib/sheetZero";
+import { runtimeAtom } from "#/lib/runtime";
+import { makeQuery } from "typhoon-zero/zeroApiAtom";
 
 export type ServerConfigForm = {
   readonly sheetId: string;
@@ -46,37 +64,95 @@ type ChannelConfigPatchValue = {
   checkinConversationId?: string | null;
 };
 
+class WorkspaceNotRegisteredError extends Schema.TaggedErrorClass<WorkspaceNotRegisteredError>()(
+  "WorkspaceNotRegisteredError",
+  { message: Schema.Literal("The workspace is not registered") },
+) {}
+
+class WorkspaceConfigurationNotReturnedError extends Schema.TaggedErrorClass<WorkspaceConfigurationNotReturnedError>()(
+  "WorkspaceConfigurationNotReturnedError",
+  { message: Schema.Literal("The workspace configuration was not returned") },
+) {}
+
+class ConversationConfigurationNotReturnedError extends Schema.TaggedErrorClass<ConversationConfigurationNotReturnedError>()(
+  "ConversationConfigurationNotReturnedError",
+  { message: Schema.Literal("The conversation configuration was not returned") },
+) {}
+
 const configKey = (workspaceId: string) => `guildConfig:${workspaceId}`;
 const permissionKey = (workspaceId: string) => `guildPermissions:${workspaceId}`;
 const discordResourceKey = (workspaceId: string) => `guildDiscordResources:${workspaceId}`;
 
-const QueryResultErrorSchema = Schema.Union([QueryResultAppError, QueryResultParseError]);
-const PermissionsErrorSchema = Schema.revealCodec(
-  Schema.Union([SchemaError, QueryResultErrorSchema, ArgumentError]),
-);
-const DiscordResourceErrorSchema = Schema.revealCodec(Schema.Union([SchemaError, ArgumentError]));
-const ServerConfigErrorSchema = Schema.revealCodec(
-  Schema.Union([SchemaError, QueryResultErrorSchema, ArgumentError, Unauthorized]),
-);
-const ConfigListErrorSchema = Schema.revealCodec(
-  Schema.Union([SchemaError, QueryResultErrorSchema, Unauthorized]),
-);
-
-const asyncResultSchema = <Success extends Schema.Top, Error extends Schema.Top>(
-  success: Success,
-  error: Error,
-) =>
+const asyncResultSchema = <Success extends Schema.Top>(success: Success) =>
   Schema.revealCodec(
     AsyncResult.Schema({
       success,
-      error,
+      error: Schema.Unknown,
     }),
   );
 
-const guildQueryFamily = <A, E>(
+const makeUuid = () => {
+  const browserCrypto = globalThis.crypto;
+  const randomUUID = browserCrypto?.randomUUID?.bind(browserCrypto);
+  if (Predicate.isFunction(randomUUID)) {
+    return randomUUID();
+  }
+
+  const bytes = new Uint8Array(16);
+  const getRandomValues = browserCrypto?.getRandomValues?.bind(browserCrypto);
+  if (Predicate.isFunction(getRandomValues)) {
+    getRandomValues(bytes);
+  } else {
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = Math.floor(Math.random() * 256);
+    }
+  }
+  bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x40;
+  bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
+  const hexadecimal = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0"));
+  return [
+    hexadecimal.slice(0, 4).join(""),
+    hexadecimal.slice(4, 6).join(""),
+    hexadecimal.slice(6, 8).join(""),
+    hexadecimal.slice(8, 10).join(""),
+    hexadecimal.slice(10).join(""),
+  ].join("-");
+};
+
+const auditTimestamps = (row: {
+  readonly createdAt: number;
+  readonly updatedAt: number;
+  readonly deletedAt: number | null;
+}) => ({
+  createdAt: Option.some(DateTime.makeUnsafe(row.createdAt)),
+  updatedAt: Option.some(DateTime.makeUnsafe(row.updatedAt)),
+  deletedAt: Option.map(Option.fromNullishOr(row.deletedAt), DateTime.makeUnsafe),
+});
+
+const workspaceConfigFromRow = (row: ConfigWorkspaceRow) =>
+  new WorkspaceConfig({
+    workspaceId: row.workspaceId,
+    sheetId: Option.fromNullishOr(row.sheetId),
+    autoCheckin: Option.fromNullishOr(row.autoCheckin),
+    monitorConversationId: Option.fromNullishOr(row.monitorConversationId),
+    ...auditTimestamps(row),
+  });
+
+const conversationConfigFromRow = (row: ConfigWorkspaceConversationRow) =>
+  new WorkspaceConversationConfig({
+    workspaceId: row.workspaceId,
+    conversationId: row.conversationId,
+    name: Option.fromNullishOr(row.name),
+    running: Option.fromNullishOr(row.running),
+    roleId: Option.fromNullishOr(row.roleId),
+    checkinConversationId: Option.fromNullishOr(row.checkinConversationId),
+    ...auditTimestamps(row),
+  });
+
+const guildQueryFamily = <A>(
   key: string,
-  schema: Schema.Codec<AsyncResult.AsyncResult<A, E>, unknown>,
-  query: (workspaceId: string) => Atom.Atom<AsyncResult.AsyncResult<A, E>>,
+  schema: Schema.Codec<AsyncResult.AsyncResult<A, unknown>, unknown>,
+  query: (workspaceId: string) => Atom.Atom<AsyncResult.AsyncResult<A, unknown>>,
 ) =>
   Atom.family((workspaceId: string) =>
     query(workspaceId).pipe(
@@ -90,87 +166,258 @@ const guildQueryFamily = <A, E>(
 
 export const guildPermissionsAtom = guildQueryFamily(
   "guildConfig.permissions",
-  asyncResultSchema(CurrentUserPermissions, PermissionsErrorSchema),
+  asyncResultSchema(CurrentUserPermissions),
   (workspaceId: string) =>
-    SheetApisClient.query("permissions", "getCurrentUserPermissions", {
-      query: { workspaceId },
-      reactivityKeys: [permissionKey(workspaceId)],
-    }),
+    Atom.make(
+      Effect.fnUntraced(function* (get) {
+        const runtime = yield* get.result(sheetZeroClientAtom);
+        const input = yield* Schema.decodeUnknownEffect(WorkspaceInput)({ workspaceId });
+        const capabilities = yield* runSheetWorkflow(
+          runtime.workflows.authorization.loadWorkspaceCapabilities,
+          input,
+          WorkspaceCapabilities,
+        );
+        const permissionForCapability: Record<
+          (typeof capabilities.capabilities)[number],
+          (workspace: string) => string
+        > = {
+          member: (workspace) => `member_workspace:${workspace}`,
+          monitor: (workspace) => `monitor_workspace:${workspace}`,
+          manage: (workspace) => `manage_workspace:${workspace}`,
+          participant: (workspace) => `member_workspace:${workspace}`,
+          app_owner: () => "app_owner",
+        };
+        const permissions = yield* Effect.forEach(capabilities.capabilities, (capability) =>
+          Schema.decodeUnknownEffect(Permission)(permissionForCapability[capability](workspaceId)),
+        );
+        return { permissions: HashSet.fromIterable(permissions) };
+      }),
+    ),
 );
 
 export const guildChannelsAtom = guildQueryFamily(
   "guildConfig.discordChannels",
-  asyncResultSchema(Schema.Array(DiscordGuildChannel), DiscordResourceErrorSchema),
+  asyncResultSchema(Schema.Array(DiscordGuildChannel)),
   (workspaceId: string) =>
-    SheetApisClient.query("discord", "getGuildChannels", {
-      params: { workspaceId },
-      reactivityKeys: [discordResourceKey(workspaceId)],
-    }),
+    Atom.make(
+      Effect.fnUntraced(function* (get) {
+        const runtime = yield* get.result(sheetZeroClientAtom);
+        const input = yield* Schema.decodeUnknownEffect(WorkspaceInput)({ workspaceId });
+        return yield* runSheetWorkflow(
+          runtime.workflows.discord.loadWorkspaceChannels,
+          input,
+          DiscordLoadWorkspaceChannelsSuccess,
+        );
+      }),
+    ),
 );
 
 export const guildRolesAtom = guildQueryFamily(
   "guildConfig.discordRoles",
-  asyncResultSchema(Schema.Array(DiscordGuildRole), DiscordResourceErrorSchema),
+  asyncResultSchema(Schema.Array(DiscordGuildRole)),
   (workspaceId: string) =>
-    SheetApisClient.query("discord", "getGuildRoles", {
-      params: { workspaceId },
-      reactivityKeys: [discordResourceKey(workspaceId)],
-    }),
+    Atom.make(
+      Effect.fnUntraced(function* (get) {
+        const runtime = yield* get.result(sheetZeroClientAtom);
+        const input = yield* Schema.decodeUnknownEffect(WorkspaceInput)({ workspaceId });
+        return yield* runSheetWorkflow(
+          runtime.workflows.discord.loadWorkspaceRoles,
+          input,
+          DiscordLoadWorkspaceRolesSuccess,
+        );
+      }),
+    ),
 );
 
 export const workspaceConfigAtom = guildQueryFamily(
   "guildConfig.server",
-  asyncResultSchema(WorkspaceConfig, ServerConfigErrorSchema),
+  asyncResultSchema(WorkspaceConfig),
   (workspaceId: string) =>
-    SheetApisClient.query("workspaceConfig", "getWorkspaceConfig", {
-      query: { workspaceId },
-      reactivityKeys: [configKey(workspaceId)],
-    }),
+    Atom.make(
+      Effect.fnUntraced(function* (get) {
+        const runtime = yield* get.result(sheetZeroClientAtom);
+        const rawRow = yield* get.result(
+          makeQuery(runtime.sheet, sheetZeroApi.workspaceConfig.getWorkspaceConfigByWorkspaceId, {
+            workspaceId,
+          }),
+        );
+        const row = yield* Schema.decodeUnknownEffect(
+          Schema.OptionFromNullishOr(ConfigWorkspaceRow),
+        )(rawRow);
+        if (Option.isNone(row)) {
+          return yield* Effect.fail(
+            new WorkspaceNotRegisteredError({ message: "The workspace is not registered" }),
+          );
+        }
+        return workspaceConfigFromRow(row.value);
+      }),
+    ),
 );
 
 export const workspaceMonitorRolesAtom = guildQueryFamily(
   "guildConfig.monitorRoles",
-  asyncResultSchema(Schema.Array(WorkspaceMonitorRole), ConfigListErrorSchema),
+  asyncResultSchema(Schema.Array(WorkspaceMonitorRole)),
   (workspaceId: string) =>
-    SheetApisClient.query("workspaceConfig", "getWorkspaceMonitorRoles", {
-      query: { workspaceId },
-      reactivityKeys: [configKey(workspaceId)],
-    }),
+    Atom.make(
+      Effect.fnUntraced(function* (get) {
+        const runtime = yield* get.result(sheetZeroClientAtom);
+        const rawRows = yield* get.result(
+          makeQuery(runtime.sheet, sheetZeroApi.workspaceConfig.getWorkspaceMonitorRoles, {
+            workspaceId,
+          }),
+        );
+        const rows = yield* Schema.decodeUnknownEffect(Schema.Array(ConfigWorkspaceMonitorRoleRow))(
+          rawRows,
+        );
+        return rows.map(
+          (row) =>
+            new WorkspaceMonitorRole({
+              workspaceId: row.workspaceId,
+              roleId: row.roleId,
+              ...auditTimestamps(row),
+            }),
+        );
+      }),
+    ),
 );
 
 export const workspaceConversationsAtom = guildQueryFamily(
   "guildConfig.conversations",
-  asyncResultSchema(Schema.Array(WorkspaceConversationConfig), ConfigListErrorSchema),
+  asyncResultSchema(Schema.Array(WorkspaceConversationConfig)),
   (workspaceId: string) =>
-    SheetApisClient.query("workspaceConfig", "getWorkspaceConversations", {
-      query: { workspaceId },
-      reactivityKeys: [configKey(workspaceId)],
-    }),
+    Atom.make(
+      Effect.fnUntraced(function* (get) {
+        const runtime = yield* get.result(sheetZeroClientAtom);
+        const rawRows = yield* get.result(
+          makeQuery(runtime.sheet, sheetZeroApi.workspaceConfig.getWorkspaceConversations, {
+            workspaceId,
+          }),
+        );
+        const rows = yield* Schema.decodeUnknownEffect(
+          Schema.Array(ConfigWorkspaceConversationRow),
+        )(rawRows);
+        return rows.map(conversationConfigFromRow);
+      }),
+    ),
 );
 
-const upsertWorkspaceConfigMutation = SheetApisClient.mutation(
-  "workspaceConfig",
-  "upsertWorkspaceConfig",
+const upsertWorkspaceConfigMutation = runtimeAtom.fn(
+  Effect.fnUntraced(function* (
+    payload: { readonly workspaceId: string; readonly config: ServerConfigPatch },
+    ctx: Atom.FnContext,
+  ) {
+    const runtime = yield* ctx.result(sheetZeroClientAtom);
+    yield* runtime.sheet.grouped.workspaceConfig.upsertWorkspaceConfig({
+      workspaceId: payload.workspaceId,
+      ...payload.config,
+    });
+    yield* Reactivity.invalidate([configKey(payload.workspaceId)]);
+    const rawRow = yield* runtime.sheet.grouped.workspaceConfig.getWorkspaceConfigByWorkspaceId({
+      workspaceId: payload.workspaceId,
+    });
+    const row = yield* Schema.decodeUnknownEffect(Schema.OptionFromNullishOr(ConfigWorkspaceRow))(
+      rawRow,
+    );
+    if (Option.isNone(row)) {
+      return yield* Effect.fail(
+        new WorkspaceConfigurationNotReturnedError({
+          message: "The workspace configuration was not returned",
+        }),
+      );
+    }
+    return workspaceConfigFromRow(row.value);
+  }),
 );
-const addMonitorRoleMutation = SheetApisClient.mutation(
-  "workspaceConfig",
-  "addWorkspaceMonitorRole",
+
+const addMonitorRoleMutation = runtimeAtom.fn(
+  Effect.fnUntraced(function* (
+    payload: { readonly workspaceId: string; readonly roleId: string },
+    ctx: Atom.FnContext,
+  ) {
+    const runtime = yield* ctx.result(sheetZeroClientAtom);
+    yield* runtime.sheet.grouped.workspaceConfig.addWorkspaceMonitorRole(payload);
+    yield* Reactivity.invalidate([
+      configKey(payload.workspaceId),
+      permissionKey(payload.workspaceId),
+    ]);
+  }),
 );
-const removeMonitorRoleMutation = SheetApisClient.mutation(
-  "workspaceConfig",
-  "removeWorkspaceMonitorRole",
+
+const removeMonitorRoleMutation = runtimeAtom.fn(
+  Effect.fnUntraced(function* (
+    payload: { readonly workspaceId: string; readonly roleId: string },
+    ctx: Atom.FnContext,
+  ) {
+    const runtime = yield* ctx.result(sheetZeroClientAtom);
+    yield* runtime.sheet.grouped.workspaceConfig.removeWorkspaceMonitorRole(payload);
+    yield* Reactivity.invalidate([
+      configKey(payload.workspaceId),
+      permissionKey(payload.workspaceId),
+    ]);
+  }),
 );
-const upsertConversationMutation = SheetApisClient.mutation(
-  "workspaceConfig",
-  "upsertWorkspaceConversationConfig",
+
+const upsertConversationMutation = runtimeAtom.fn(
+  Effect.fnUntraced(function* (
+    payload: {
+      readonly workspaceId: string;
+      readonly conversationId: string;
+      readonly config: ChannelConfigPatchValue;
+    },
+    ctx: Atom.FnContext,
+  ) {
+    const runtime = yield* ctx.result(sheetZeroClientAtom);
+    yield* runtime.sheet.grouped.workspaceConfig.upsertWorkspaceConversationConfig({
+      workspaceId: payload.workspaceId,
+      conversationId: payload.conversationId,
+      ...payload.config,
+    });
+    yield* Reactivity.invalidate([configKey(payload.workspaceId)]);
+    const rawRows = yield* runtime.sheet.grouped.workspaceConfig.getWorkspaceConversations({
+      workspaceId: payload.workspaceId,
+    });
+    const rows = yield* Schema.decodeUnknownEffect(Schema.Array(ConfigWorkspaceConversationRow))(
+      rawRows,
+    );
+    const row = rows.find((candidate) => candidate.conversationId === payload.conversationId);
+    if (Predicate.isUndefined(row)) {
+      return yield* Effect.fail(
+        new ConversationConfigurationNotReturnedError({
+          message: "The conversation configuration was not returned",
+        }),
+      );
+    }
+    return conversationConfigFromRow(row);
+  }),
 );
-const setupLockdownMutation = SheetApisClient.mutation(
-  "workspaceConfig",
-  "setupWorkspaceConversationLockdown",
-);
-const undoLockdownMutation = SheetApisClient.mutation(
-  "workspaceConfig",
-  "undoWorkspaceConversationLockdown",
+
+const lockdownMutation = runtimeAtom.fn(
+  Effect.fnUntraced(function* (
+    payload: {
+      readonly workspaceId: string;
+      readonly conversationId: string;
+      readonly enabled: boolean;
+    },
+    ctx: Atom.FnContext,
+  ) {
+    const runtime = yield* ctx.result(sheetZeroClientAtom);
+    const input = yield* Schema.decodeUnknownEffect(ConversationsSetLockdownInput)({
+      workspaceId: payload.workspaceId,
+      conversationId: payload.conversationId,
+      enabled: payload.enabled,
+      responseReference: `sheet-web:${makeUuid()}`,
+    });
+    const result = yield* runSheetWorkflow(
+      runtime.workflows.conversations.setLockdown,
+      input,
+      ConversationsSetLockdownSuccess,
+    );
+    yield* Reactivity.invalidate([
+      configKey(payload.workspaceId),
+      discordResourceKey(payload.workspaceId),
+    ]);
+    return result;
+  }),
 );
 
 const useGuildMutation = <Args extends ReadonlyArray<unknown>, Payload, Result, Err>(
@@ -182,13 +429,13 @@ const useGuildMutation = <Args extends ReadonlyArray<unknown>, Payload, Result, 
 };
 
 const workspaceConfigMutationRequest = (workspaceId: string, config: ServerConfigPatch) => ({
-  payload: { workspaceId, config },
-  reactivityKeys: [configKey(workspaceId)],
+  workspaceId,
+  config,
 });
 
 const monitorRoleMutationRequest = (workspaceId: string, roleId: string) => ({
-  payload: { workspaceId, roleId },
-  reactivityKeys: [configKey(workspaceId), permissionKey(workspaceId)],
+  workspaceId,
+  roleId,
 });
 
 const conversationMutationRequest = (
@@ -196,13 +443,19 @@ const conversationMutationRequest = (
   conversationId: string,
   config: ChannelConfigPatchValue,
 ) => ({
-  payload: { workspaceId, conversationId, config },
-  reactivityKeys: [configKey(workspaceId)],
+  workspaceId,
+  conversationId,
+  config,
 });
 
-const lockdownMutationRequest = (workspaceId: string, conversationId: string) => ({
-  payload: { workspaceId, conversationId },
-  reactivityKeys: [discordResourceKey(workspaceId)],
+const lockdownMutationRequest = (
+  workspaceId: string,
+  conversationId: string,
+  enabled: boolean,
+) => ({
+  workspaceId,
+  conversationId,
+  enabled,
 });
 
 const useGuildResourceSuspense = <A, E>(
@@ -257,11 +510,23 @@ export const useRemoveWorkspaceMonitorRole = () =>
 export const useUpsertWorkspaceConversation = () =>
   useGuildMutation(upsertConversationMutation, conversationMutationRequest);
 
-export const useSetupWorkspaceConversationLockdown = () =>
-  useGuildMutation(setupLockdownMutation, lockdownMutationRequest);
+export const useSetupWorkspaceConversationLockdown = () => {
+  const mutate = useAtomSet(lockdownMutation, { mode: "promise" });
+  return useCallback(
+    (workspaceId: string, conversationId: string) =>
+      mutate(lockdownMutationRequest(workspaceId, conversationId, true)),
+    [mutate],
+  );
+};
 
-export const useUndoWorkspaceConversationLockdown = () =>
-  useGuildMutation(undoLockdownMutation, lockdownMutationRequest);
+export const useUndoWorkspaceConversationLockdown = () => {
+  const mutate = useAtomSet(lockdownMutation, { mode: "promise" });
+  return useCallback(
+    (workspaceId: string, conversationId: string) =>
+      mutate(lockdownMutationRequest(workspaceId, conversationId, false)),
+    [mutate],
+  );
+};
 
 const hasWorkspacePermission = (
   permissions: PermissionSet,

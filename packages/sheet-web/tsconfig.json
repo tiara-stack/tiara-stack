@@ -22,6 +22,17 @@
       "sheet-ingress-api/*": ["../sheet-ingress-api/src/*"],
       "sheet-message-content": ["../sheet-message-content/src/index.ts"],
       "sheet-message-content/*": ["../sheet-message-content/src/*"],
+      "sheet-workflow-contracts": ["../sheet-workflow-contracts/src/index.ts"],
+      "sheet-workflow-contracts/*": ["../sheet-workflow-contracts/src/*"],
+      "sheet-zero-api": ["../sheet-zero-api/src/index.ts"],
+      "sheet-zero-api/*": ["../sheet-zero-api/src/*"],
+      "effect-zero-workflow": ["../effect-zero-workflow/src/index.ts"],
+      "effect-zero-workflow/contract": ["../effect-zero-workflow/src/contract.ts"],
+      "effect-zero-workflow/contract/zero": ["../effect-zero-workflow/src/contract-zero.ts"],
+      "effect-zero-workflow/contract/transport": [
+        "../effect-zero-workflow/src/contract-transport.ts"
+      ],
+      "effect-zero-workflow/*": ["../effect-zero-workflow/src/*"],
       "start-atom": ["../start-atom/src/index.ts"],
       "typhoon-core": ["../typhoon-core/src/index.ts"],
       "typhoon-core/*": ["../typhoon-core/src/*"],
@@ -40,6 +51,15 @@
     },
     {
       "path": "../sheet-message-content"
+    },
+    {
+      "path": "../sheet-workflow-contracts"
+    },
+    {
+      "path": "../sheet-zero-api"
+    },
+    {
+      "path": "../effect-zero-workflow"
     },
     {
       "path": "../start-atom"

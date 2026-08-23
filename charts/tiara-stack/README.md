@@ -117,7 +117,7 @@ scrape policies default to the `monitoring` namespace; override
 - `otelExporterOtlpEndpoint`
 - `authBaseUrl`
 - `appBaseUrl`
-- `sheetApisBaseUrl`
+- `sheetZeroBaseUrl`
 - `sheetWebOauthClientId` optional
 - `sheetWebOauthRedirectPath` optional
 - `sheetWebOauthScopes` optional

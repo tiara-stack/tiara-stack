@@ -208,6 +208,8 @@ services:
       ZERO_MUTATE_ALLOWED_CLIENT_HEADERS: "authorization"
       ZERO_MUTATE_URL: "http://sheet-db-server:3000/zero/mutate"
       ZERO_ADMIN_PASSWORD: ${ZERO_ADMIN_PASSWORD:-}
+    ports:
+      - "127.0.0.1:4848:4848"
     volumes:
       - tiara-zero-cache-data:/data
     healthcheck:
@@ -373,7 +375,7 @@ services:
     depends_on:
       sheet-auth:
         condition: service_healthy
-      sheet-ingress-server:
+      zero-cache:
         condition: service_healthy
       local-jwks:
         condition: service_healthy
@@ -384,7 +386,7 @@ services:
     environment:
       AUTH_BASE_URL: "${SHEET_AUTH_PUBLIC_BASE_URL:-http://localhost:3002}"
       APP_BASE_URL: "${SHEET_WEB_PUBLIC_BASE_URL:-http://localhost:3001}"
-      SHEET_APIS_BASE_URL: "${SHEET_INGRESS_PUBLIC_BASE_URL:-http://localhost:3000}"
+      SHEET_ZERO_BASE_URL: "${SHEET_ZERO_PUBLIC_BASE_URL:-http://localhost:4848}"
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://local-otel-sink:4318}
     command:
       - sh

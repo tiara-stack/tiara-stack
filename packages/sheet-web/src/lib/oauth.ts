@@ -38,7 +38,7 @@ import {
 
 const oauthCookieName = "sheet-web-oauth";
 const pkceCookieName = "sheet-web-oauth-pkce";
-const sheetWebOAuthResource = "sheet-ingress";
+const sheetWebOAuthResource = "sheet-zero";
 const refreshSkewSeconds = 60;
 const oauthTokenRequestTimeout = Duration.seconds(5);
 

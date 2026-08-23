@@ -1,50 +1,28 @@
 import { useAtomSuspense } from "@effect/atom-react";
+import { DateTime, Effect, Schema } from "effect";
 import { Atom, AsyncResult } from "effect/unstable/reactivity";
-import { Sheet, Google, SheetConfig } from "sheet-ingress-api/schemas";
-import { SheetApisClient } from "#/lib/sheetApis";
-import { Schema } from "effect";
-import { SchemaError } from "typhoon-core/error";
-import { QueryResultAppError, QueryResultParseError } from "typhoon-zero/error";
+import { SheetConfig } from "sheet-ingress-api/schemas";
 import { useMemo } from "react";
-
-// Private atom for fetching event config (includes startTime)
-const _eventConfigAtom = Atom.family((guildId: string) =>
-  SheetApisClient.query("sheet", "getEventConfig", { query: { workspaceId: guildId } }),
-);
+import { workspaceScheduleAtom } from "#/lib/schedule";
 
 type EventConfig = Schema.Schema.Type<typeof SheetConfig.EventConfig>;
-type EventConfigError =
-  | Schema.SchemaError
-  | QueryResultAppError
-  | QueryResultParseError
-  | Google.GoogleSheetsError
-  | Sheet.ParserFieldError
-  | SheetConfig.SheetConfigError;
 
-const EventConfigErrorSchema: Schema.Codec<EventConfigError, any> = Schema.revealCodec(
-  Schema.Union([
-    SchemaError,
-    QueryResultAppError,
-    QueryResultParseError,
-    Google.GoogleSheetsError,
-    Sheet.ParserFieldError,
-    SheetConfig.SheetConfigError,
-  ]),
-);
-
-const EventConfigAsyncResultSchema: Schema.Codec<
-  AsyncResult.AsyncResult<EventConfig, EventConfigError>,
-  any
-> = Schema.revealCodec(
+const EventConfigAsyncResultSchema = Schema.revealCodec(
   AsyncResult.Schema({
     success: SheetConfig.EventConfig,
-    error: EventConfigErrorSchema,
+    error: Schema.Unknown,
   }),
 );
 
-// Serializable atom for event config
 export const eventConfigAtom = Atom.family((guildId: string) =>
-  _eventConfigAtom(guildId).pipe(
+  Atom.make<EventConfig, unknown>(
+    Effect.fnUntraced(function* (get) {
+      const schedule = yield* get.result(workspaceScheduleAtom(guildId));
+      return new SheetConfig.EventConfig({
+        startTime: DateTime.makeUnsafe(schedule.eventConfig.startTimeEpochMs),
+      });
+    }),
+  ).pipe(
     Atom.serializable({
       key: `sheet.getEventConfig.${guildId}`,
       schema: EventConfigAsyncResultSchema,

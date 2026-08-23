@@ -992,6 +992,9 @@ importers:
       '@effect/platform-node':
         specifier: 'catalog:'
         version: 4.0.0-beta.67(effect@4.0.0-beta.67)(ioredis@5.9.3)
+      '@rocicorp/zero':
+        specifier: ^0.25.9
+        version: 0.25.9(@opentelemetry/core@2.2.0(@opentelemetry/api@1.9.0))
       '@tailwindcss/vite':
         specifier: ^4.1.18
         version: 4.2.0(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))
@@ -1031,6 +1034,9 @@ importers:
       effect:
         specifier: 'catalog:'
         version: 4.0.0-beta.67
+      effect-zero-workflow:
+        specifier: workspace:*
+        version: link:../effect-zero-workflow
       fumadocs-core:
         specifier: 16.11.5
         version: 16.11.5(@mdx-js/mdx@3.1.1)(@tanstack/react-router@1.162.4(react-dom@19.3.0-canary-98ce535f-20260226(react@19.3.0-canary-98ce535f-20260226))(react@19.3.0-canary-98ce535f-20260226))(@types/estree-jsx@1.0.5)(@types/hast@3.0.5)(@types/mdast@4.0.4)(@types/react@19.2.14)(lucide-react@0.561.0(react@19.3.0-canary-98ce535f-20260226))(react-dom@19.3.0-canary-98ce535f-20260226(react@19.3.0-canary-98ce535f-20260226))(react@19.3.0-canary-98ce535f-20260226)(zod@4.4.3)
@@ -1067,6 +1073,12 @@ importers:
       sheet-message-content:
         specifier: workspace:*
         version: link:../sheet-message-content
+      sheet-workflow-contracts:
+        specifier: workspace:*
+        version: link:../sheet-workflow-contracts
+      sheet-zero-api:
+        specifier: workspace:*
+        version: link:../sheet-zero-api
       start-atom:
         specifier: workspace:*
         version: link:../start-atom

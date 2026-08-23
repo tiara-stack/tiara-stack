@@ -688,8 +688,8 @@ imagePullSecrets:
       secretKey: authBaseUrl
     - name: APP_BASE_URL
       secretKey: appBaseUrl
-    - name: SHEET_APIS_BASE_URL
-      secretKey: sheetApisBaseUrl
+    - name: SHEET_ZERO_BASE_URL
+      secretKey: sheetZeroBaseUrl
     - name: SHEET_WEB_OAUTH_CLIENT_ID
       secretKey: sheetWebOauthClientId
       optional: true

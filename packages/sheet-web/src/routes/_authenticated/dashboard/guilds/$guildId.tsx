@@ -2,7 +2,7 @@ import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
 import { Effect, Predicate } from "effect";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
 import { CalendarDays, Settings2, ShieldCheck } from "lucide-react";
-import { ensureResultAtomData } from "#/lib/atomRegistry";
+import { ensureResultAtomData, isBrowserRuntime } from "#/lib/atomRegistry";
 import { currentUserGuildsAtom, useCurrentUserGuilds } from "#/lib/discord";
 import {
   guildCapabilities,
@@ -14,6 +14,7 @@ import {
 export const Route = createFileRoute("/_authenticated/dashboard/guilds/$guildId")({
   component: SelectedGuildLayout,
   loader: async ({ abortController, context, params }) => {
+    if (!isBrowserRuntime()) return;
     const preload = <A, E>(atom: Atom.Atom<AsyncResult.AsyncResult<A, E>>) =>
       ensureResultAtomData(context.atomRegistry, atom).pipe(Effect.catch(() => Effect.void));
 

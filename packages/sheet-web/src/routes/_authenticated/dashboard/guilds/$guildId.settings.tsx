@@ -33,7 +33,7 @@ import {
   isSendableDiscordChannelType,
 } from "sheet-ingress-api/guild-config";
 import type { DiscordGuildChannel, DiscordGuildRole } from "sheet-ingress-api/schemas/discord";
-import { ensureResultAtomData } from "#/lib/atomRegistry";
+import { ensureResultAtomData, isBrowserRuntime } from "#/lib/atomRegistry";
 import {
   type ChannelConfigDraft,
   type ServerConfigForm,
@@ -77,6 +77,7 @@ export const Route = createFileRoute("/_authenticated/dashboard/guilds/$guildId/
   component: GuildSettings,
   validateSearch: pipe(SettingsSearch, Schema.toStandardSchemaV1),
   loader: async ({ abortController, context, params }) => {
+    if (!isBrowserRuntime()) return;
     await Effect.runPromise(
       Effect.gen(function* () {
         const permissionResult = yield* ensureResultAtomData(

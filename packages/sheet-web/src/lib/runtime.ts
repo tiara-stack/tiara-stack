@@ -3,7 +3,7 @@ import { NodeFileSystem } from "@effect/platform-node";
 import { createServerFn, createIsomorphicFn } from "@tanstack/react-start";
 import { Layer, ConfigProvider, Effect } from "effect";
 import { dotEnvConfigProviderLayer } from "typhoon-core/config";
-import { authBaseUrlConfig, appBaseUrlConfig, sheetApisBaseUrlConfig } from "#/lib/config";
+import { authBaseUrlConfig, appBaseUrlConfig, sheetZeroBaseUrlConfig } from "#/lib/config";
 
 // Server-side: Load config directly from .env file
 const serverConfigLayer = dotEnvConfigProviderLayer().pipe(Layer.provide(NodeFileSystem.layer));
@@ -26,7 +26,7 @@ const getConfigServerFn = createServerFn({ method: "GET" }).handler(() =>
           onFailure: () => null,
         }),
       ),
-      SHEET_APIS_BASE_URL: sheetApisBaseUrlConfig.pipe(
+      SHEET_ZERO_BASE_URL: sheetZeroBaseUrlConfig.pipe(
         Effect.map((url) => url.href),
         Effect.match({
           onSuccess: (value) => value,

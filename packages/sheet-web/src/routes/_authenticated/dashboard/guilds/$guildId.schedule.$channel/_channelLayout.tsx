@@ -3,7 +3,7 @@ import { Schema, pipe, Effect } from "effect";
 import { AnimatePresence, LayoutGroup, motion, useIsPresent } from "motion/react";
 
 import { useAllChannels, getAllChannelsAtom } from "#/lib/schedule";
-import { ensureResultAtomData } from "#/lib/atomRegistry";
+import { ensureResultAtomData, isBrowserRuntime } from "#/lib/atomRegistry";
 import {
   morphLayoutTransition,
   useScheduleSelected,
@@ -31,6 +31,7 @@ export const Route = createFileRoute(
   validateSearch: pipe(ScheduleSearchSchema, Schema.toStandardSchemaV1),
   component: ScheduleLayout,
   loader: async ({ context, params }) => {
+    if (!isBrowserRuntime()) return;
     await Effect.runPromise(
       ensureResultAtomData(context.atomRegistry, getAllChannelsAtom(params.guildId)).pipe(
         Effect.catch(() => Effect.succeed([])),

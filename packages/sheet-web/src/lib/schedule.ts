@@ -1,7 +1,4 @@
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
 import { useAtomSuspense } from "@effect/atom-react";
-import { Sheet, Google, SheetConfig } from "sheet-ingress-api/schemas";
-import { SheetApisClient } from "#/lib/sheetApis";
 import {
   Array,
   DateTime,
@@ -14,77 +11,130 @@ import {
   Result,
   Schema,
 } from "effect";
-import { SchemaError } from "typhoon-core/error";
-import { QueryResultAppError, QueryResultParseError } from "typhoon-zero/error";
+import { Atom, AsyncResult } from "effect/unstable/reactivity";
+import { Sheet } from "sheet-ingress-api/schemas";
+import { SchedulesLoadWorkspaceSuccess, WorkspaceInput } from "sheet-workflow-contracts";
 import { useMemo } from "react";
 import { zoneId } from "#/hooks/useDateTimeZoned";
+import { runSheetWorkflow, sheetZeroClientAtom } from "#/lib/sheetZero";
 
 // Re-export the shared schedule type for route consumers.
 export type SchedulePlayer = Sheet.PopulatedSchedulePlayer;
 
-const GuildScheduleErrorSchema = Schema.revealCodec(
-  Schema.Union([
-    SchemaError,
-    QueryResultAppError,
-    QueryResultParseError,
-    Google.GoogleSheetsError,
-    Sheet.ParserFieldError,
-    SheetConfig.SheetConfigError,
-  ]),
-);
-
-const GuildScheduleResponseAsyncResultSchema = Schema.revealCodec(
+const WorkspaceScheduleAsyncResultSchema = Schema.revealCodec(
   AsyncResult.Schema({
-    success: Sheet.PopulatedScheduleResponse,
-    error: GuildScheduleErrorSchema,
+    success: SchedulesLoadWorkspaceSuccess,
+    error: Schema.Unknown,
   }),
 );
 
 const GuildSchedulesAsyncResultSchema = Schema.revealCodec(
   AsyncResult.Schema({
     success: Schema.Array(Sheet.PopulatedScheduleResult),
-    error: GuildScheduleErrorSchema,
+    error: Schema.Unknown,
   }),
 );
 
 const GuildChannelsAsyncResultSchema = Schema.revealCodec(
   AsyncResult.Schema({
     success: Schema.Array(Schema.String),
-    error: GuildScheduleErrorSchema,
+    error: Schema.Unknown,
   }),
 );
 
 const ScheduledDaysAsyncResultSchema = Schema.revealCodec(
   AsyncResult.Schema({
     success: Schema.HashSet(Schema.String),
-    error: GuildScheduleErrorSchema,
+    error: Schema.Unknown,
   }),
 );
 
-// Private atom for fetching all schedules for a guild
-const _guildScheduleResponseAtom = Atom.family((guildId: string) =>
-  SheetApisClient.query("schedule", "getAllPopulatedSchedules", {
-    query: { workspaceId: guildId },
-  }),
-);
+type ScheduleSummary = Schema.Schema.Type<
+  typeof SchedulesLoadWorkspaceSuccess
+>["populatedSchedules"][number];
 
-// Serializable atom for guild schedule response
-const guildScheduleResponseAtom = Atom.family((guildId: string) =>
-  _guildScheduleResponseAtom(guildId).pipe(
+export const workspaceScheduleAtom = Atom.family((guildId: string) =>
+  Atom.make<Schema.Schema.Type<typeof SchedulesLoadWorkspaceSuccess>, unknown>(
+    Effect.fnUntraced(function* (get) {
+      const runtime = yield* get.result(sheetZeroClientAtom);
+      const input = yield* Schema.decodeUnknownEffect(WorkspaceInput)({ workspaceId: guildId });
+      return yield* runSheetWorkflow(
+        runtime.workflows.schedules.loadWorkspace,
+        input,
+        SchedulesLoadWorkspaceSuccess,
+      );
+    }),
+  ).pipe(
     Atom.setIdleTTL(Duration.infinity),
     Atom.serializable({
-      key: `schedule.response.getAllPopulatedSchedules.${guildId}`,
-      schema: GuildScheduleResponseAsyncResultSchema,
+      key: `schedules.loadWorkspace.${guildId}`,
+      schema: WorkspaceScheduleAsyncResultSchema,
     }),
   ),
 );
 
-// Serializable atom for guild schedules only
+const scheduleStart = (eventStart: DateTime.Utc, day: number, hour: number) =>
+  pipe(
+    eventStart,
+    DateTime.addDuration(Duration.days(day - 1)),
+    DateTime.addDuration(Duration.hours(hour - 1)),
+  );
+
+const partialPlayer = (name: string) =>
+  new Sheet.PopulatedSchedulePlayer({
+    player: new Sheet.PartialNamePlayer({ name }),
+    enc: false,
+  });
+
+const partialMonitor = (name: string) =>
+  new Sheet.PopulatedScheduleMonitor({
+    monitor: new Sheet.PartialNameMonitor({ name }),
+  });
+
+const scheduleFromSummary = (
+  eventStart: DateTime.Utc,
+  summary: ScheduleSummary,
+): Sheet.PopulatedScheduleResult => {
+  if (Predicate.isNull(summary.hour)) {
+    return new Sheet.PopulatedBreakSchedule({
+      channel: summary.conversationName,
+      day: summary.day,
+      visible: summary.visible,
+      hour: Option.none(),
+      hourWindow: Option.none(),
+    });
+  }
+
+  const start = scheduleStart(eventStart, summary.day, summary.hour);
+  const fills = Array.makeBy(5, (index) =>
+    Option.fromNullishOr(summary.playerNames[index]).pipe(Option.map(partialPlayer)),
+  );
+
+  return new Sheet.PopulatedSchedule({
+    channel: summary.conversationName,
+    day: summary.day,
+    visible: summary.visible,
+    hour: Option.some(summary.hour),
+    hourWindow: Option.some(
+      new Sheet.ScheduleHourWindow({
+        start,
+        end: DateTime.addDuration(start, Duration.hours(1)),
+      }),
+    ),
+    fills,
+    overfills: [],
+    standbys: [],
+    runners: [],
+    monitor: Option.fromNullishOr(summary.monitorName).pipe(Option.map(partialMonitor)),
+  });
+};
+
 export const guildScheduleAtom = Atom.family((guildId: string) =>
-  Atom.make(
+  Atom.make<ReadonlyArray<Sheet.PopulatedScheduleResult>, unknown>(
     Effect.fnUntraced(function* (get) {
-      const response = yield* get.result(guildScheduleResponseAtom(guildId));
-      return response.schedules;
+      const response = yield* get.result(workspaceScheduleAtom(guildId));
+      const eventStart = DateTime.makeUnsafe(response.eventConfig.startTimeEpochMs);
+      return response.populatedSchedules.map((summary) => scheduleFromSummary(eventStart, summary));
     }),
   ).pipe(
     Atom.setIdleTTL(Duration.infinity),
@@ -158,8 +208,8 @@ const _scheduledDaysAtom = Atom.family((params: ScheduledDaysParams) =>
       const isInChannel = (s: Sheet.PopulatedScheduleResult) =>
         Predicate.isTagged("PopulatedSchedule")(s) && s.channel === channel && s.visible;
 
-      const isInRange = (s: Sheet.PopulatedScheduleResult) => {
-        return pipe(
+      const isInRange = (s: Sheet.PopulatedScheduleResult) =>
+        pipe(
           s.hourWindow,
           Option.exists((hourWindow) =>
             DateTime.between(DateTime.setZone(hourWindow.start, timeZone), {
@@ -168,25 +218,21 @@ const _scheduledDaysAtom = Atom.family((params: ScheduledDaysParams) =>
             }),
           ),
         );
-      };
 
-      const getDayKey = (s: Sheet.PopulatedScheduleResult) => {
-        return pipe(
+      const getDayKey = (s: Sheet.PopulatedScheduleResult) =>
+        pipe(
           s.hourWindow,
           Option.map((hourWindow) => formatDayKey(DateTime.setZone(hourWindow.start, timeZone))),
           Result.fromOption(() => undefined),
         );
-      };
 
-      const scheduledDays = pipe(
+      return pipe(
         schedules,
         Array.filter(isInChannel),
         Array.filter(isInRange),
         Array.filterMap(getDayKey),
         HashSet.fromIterable,
       );
-
-      return scheduledDays;
     }),
   ),
 );
