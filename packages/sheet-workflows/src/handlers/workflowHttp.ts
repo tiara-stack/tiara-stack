@@ -28,7 +28,11 @@ import {
   type VerifiedOAuthResourceToken,
 } from "sheet-auth/oauth-resource-authorization";
 import { Unauthorized } from "typhoon-core/error";
-import { ServicesDeliverStatus } from "sheet-workflow-contracts";
+import { SchedulesDeliverUserSchedule, ServicesDeliverStatus } from "sheet-workflow-contracts";
+import {
+  ScheduleSheetWorkflowContracts,
+  ScheduleSheetWorkflowRegistrations,
+} from "@/workflows/schedules";
 import {
   ServiceSheetWorkflowContracts,
   ServiceSheetWorkflowRegistrations,
@@ -62,8 +66,8 @@ const makeWorkflowInvocationStore = (
       const executionPayload = workflowContractExecutionPayload(invocation);
       // The generic PostgreSQL store compares its command payload during replay.
       // Acceptance time is transport metadata and would make the same invocation
-      // look different on an ambiguous retry, while the service-status execution
-      // schema does not consume it.
+      // look different on an ambiguous retry, while the workflow execution schemas
+      // do not consume it.
       const replayStablePayload = {
         invocationId: executionPayload.invocationId,
         input: executionPayload.input,
@@ -173,33 +177,42 @@ const routeErrorResponse = (error: unknown) => {
   return isEnqueueError(error) ? enqueueErrorResponse(error) : Effect.fail(error);
 };
 
+const addWorkflowEnqueueRoute = <E, R>(
+  path: string,
+  authorizer: Effect.Success<typeof makeAuthorizer>,
+  enqueue: (context: SheetWorkflowZeroContext, request: unknown) => Effect.Effect<unknown, E, R>,
+) =>
+  HttpRouter.add(
+    "POST",
+    path as HttpRouter.PathInput,
+    Effect.gen(function* () {
+      const request = yield* HttpServerRequest.HttpServerRequest;
+      return yield* Effect.gen(function* () {
+        const token = yield* authorizer.requireAuthorizedHeaders(request.headers);
+        const context = yield* contextFromToken(token);
+        const body = yield* decodeRequestBody(request);
+        const reference = yield* enqueue(context, body);
+        return yield* HttpServerResponse.json(reference, { status: 202 });
+      }).pipe(Effect.catch(routeErrorResponse));
+    }),
+  );
+
 export const workflowHttpRoutesLayer = Layer.unwrap(
   Effect.gen(function* () {
     const store = yield* WorkflowStore;
     const authorizer = yield* makeAuthorizer;
     const handler = yield* makeSheetWorkflowTransportHandler(
-      ServiceSheetWorkflowContracts,
-      ServiceSheetWorkflowRegistrations,
+      [...ServiceSheetWorkflowContracts, ...ScheduleSheetWorkflowContracts],
+      [...ServiceSheetWorkflowRegistrations, ...ScheduleSheetWorkflowRegistrations],
       makeWorkflowInvocationStore(store),
     );
-    const route = makeWorkflowHttpRouteHandlers(
-      ServicesDeliverStatus,
-      workflowHttpServerExecutorFromHandler(handler),
-    );
+    const executor = workflowHttpServerExecutorFromHandler(handler);
+    const statusRoute = makeWorkflowHttpRouteHandlers(ServicesDeliverStatus, executor);
+    const scheduleRoute = makeWorkflowHttpRouteHandlers(SchedulesDeliverUserSchedule, executor);
 
-    return HttpRouter.add(
-      "POST",
-      route.routes.enqueue as HttpRouter.PathInput,
-      Effect.gen(function* () {
-        const request = yield* HttpServerRequest.HttpServerRequest;
-        return yield* Effect.gen(function* () {
-          const token = yield* authorizer.requireAuthorizedHeaders(request.headers);
-          const context = yield* contextFromToken(token);
-          const body = yield* decodeRequestBody(request);
-          const reference = yield* route.enqueue(context, body);
-          return yield* HttpServerResponse.json(reference, { status: 202 });
-        }).pipe(Effect.catchIf(() => true, routeErrorResponse));
-      }),
+    return Layer.mergeAll(
+      addWorkflowEnqueueRoute(statusRoute.routes.enqueue, authorizer, statusRoute.enqueue),
+      addWorkflowEnqueueRoute(scheduleRoute.routes.enqueue, authorizer, scheduleRoute.enqueue),
     );
   }),
 );
