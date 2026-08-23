@@ -150,6 +150,9 @@ services:
     replicas: 1
     secretRef:
       name: sheet-workflows-secret
+    googleServiceAccountSecretRef:
+      name: sheet-apis-secret-path
+      key: google-service-account.json
     env: {}
     nodeSelector: {}
     tolerations: []

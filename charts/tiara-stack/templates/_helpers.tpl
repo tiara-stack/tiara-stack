@@ -489,6 +489,7 @@ imagePullSecrets:
       value: /var/run/secrets/tokens/kubernetes-jwks-token
   projectedTokens:
     - path: kubernetes-jwks-token
+  googleServiceAccount: true
   networkPolicyFrom:
     - app: sheet-workflows
       port: workflows-rpc

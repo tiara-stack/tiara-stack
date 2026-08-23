@@ -106,10 +106,11 @@ spec:
 {{- $svcValues := (index ($root.Values.services | default dict) $svc.key) | default dict -}}
 {{- $secretRef := $svcValues.secretRef | default dict -}}
 {{- if $svcValues.enabled }}{{- $secretNames = append $secretNames (default (include "tiara-stack.defaultSecretName" $svc.key) $secretRef.name) -}}{{- end -}}
+{{- if and $svcValues.enabled $svc.googleServiceAccount -}}
+{{- $googleSecretRef := $svcValues.googleServiceAccountSecretRef | default dict -}}
+{{- $secretNames = append $secretNames (default (include "tiara-stack.defaultSecretName" "sheetApisGoogleServiceAccount") $googleSecretRef.name) -}}
 {{- end -}}
-{{- $sheetApisValues := .Values.services.sheetApis | default dict -}}
-{{- $sheetApisGoogleSecretRef := $sheetApisValues.googleServiceAccountSecretRef | default dict -}}
-{{- if $sheetApisValues.enabled }}{{- $secretNames = append $secretNames (default (include "tiara-stack.defaultSecretName" "sheetApisGoogleServiceAccount") $sheetApisGoogleSecretRef.name) -}}{{- end -}}
+{{- end -}}
 {{- $zeroCacheSecretRef := .Values.zeroCache.secretRef | default dict -}}
 {{- if .Values.zeroCache.enabled }}{{- $secretNames = append $secretNames (default (include "tiara-stack.defaultSecretName" "zeroCache") $zeroCacheSecretRef.name) -}}{{- end -}}
 {{- $meilisearchSecretRef := .Values.meilisearch.secretRef | default dict -}}
