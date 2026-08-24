@@ -50,6 +50,10 @@ _Avoid_: Product feature flag, percentage traffic split
 The authoritative decision record used by a Rollout Gate to select one Execution Path for future invocations within a defined caller-and-intent scope.
 _Avoid_: Feature flag, traffic split, deployment rollback
 
+**Canary Hold**:
+An operator-owned observation window after functional canary evidence. The current Rollout Gate scope stays unchanged while the Production Cell and any accepted asynchronous work are monitored. It never blocks or reroutes accepted work. A window with no matching invocations is health evidence only, not functional canary evidence.
+_Avoid_: Request hold, workflow timeout, command soak
+
 **Execution Path**:
 The one legacy or replacement path selected for a future invocation by a Rollout Gate. The selected path stays with the invocation after acceptance.
 _Avoid_: Fallback retry, dual execution

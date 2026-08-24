@@ -9,6 +9,28 @@ For `services.deliverStatus`, the default is the legacy path. A missing control,
 an unavailable control, or an invalid control read also selects the legacy path.
 The replacement path is selected only by a matching, durable control record.
 
+## Canary evidence
+
+The canary has two separate checks. Do not treat a time window as proof that a
+fire-and-forget command worked.
+
+The functional check exercises the replacement path and follows the accepted
+invocation through its terminal Workflow Run outcome and required Delivery
+Receipt. It also covers an expected denial or Declared Failure and a rollback
+of the exact gate followed by a fresh invocation that selects legacy. An HTTP
+`202` enqueue response alone is not enough.
+
+The health hold starts after the functional check. Keep the exact gate scope
+unchanged for one clean hour before broader enablement and three consecutive
+clean hours after broader enablement. Watch Production Cell availability,
+restarts, queue and terminal latency, System Failures, ambiguous or unresolved
+deliveries, duplicate effects, and Rollout Gate telemetry.
+
+If no matching replacement invocations occur during the health hold, record it
+as a health-only hold. It does not count as functional soak evidence. Use an
+approved safe test or wait for the required production samples before advancing
+the rollout.
+
 ## Deploy the control
 
 Apply the database migration before enabling a replacement path:
@@ -78,7 +100,7 @@ curl --fail-with-body --silent --show-error \
   "workspaceId": "$WORKSPACE_ID",
   "effectivePrincipalKey": "$EFFECTIVE_PRINCIPAL_KEY",
   "executionPath": "replacement",
-  "reason": "TIA-130 canary approved after three consecutive clean hours",
+  "reason": "TIA-130 functional canary passed and Production Cell health hold completed",
   "evidenceUrl": "https://linear.app/tiara-stack/issue/TIA-130",
   "expectedRevision": 0
 }
