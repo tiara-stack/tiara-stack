@@ -2,7 +2,7 @@ import { Effect, Layer, Metric, Predicate, Schema } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { InvocationConflict } from "effect-zero-workflow/contract";
 import {
-  makeWorkflowHttpRouteHandlers,
+  makeWorkflowHttpRouteCatalog,
   workflowEnqueueErrorStatus,
   workflowHttpServerExecutorFromHandler,
 } from "effect-zero-workflow/contract/http/server";
@@ -30,12 +30,33 @@ import {
 import { Unauthorized } from "typhoon-core/error";
 import {
   AnnouncementsDeliverUpdate,
+  CheckinsOpen,
+  CheckinsRespond,
+  CheckinsTestAuto,
   CalculationsRecalculateSheet,
+  ConversationsDeliverConfig,
+  ConversationsSetLockdown,
+  ConversationsUpdateConfigAndDeliver,
+  MembersKick,
+  PreferencesDeliverStatus,
+  PreferencesUpdateAndDeliver,
+  RoomOrdersCreate,
+  RoomOrdersNavigate,
+  RoomOrdersPinTentative,
+  RoomOrdersSend,
   SchedulesDeliverUserSchedule,
+  ScreenshotsCaptureAndDeliver,
   ServicesDeliverStatus,
+  SlotsDeliverList,
+  SlotsOpen,
+  SlotsPublishButton,
+  TeamsDeliverList,
   TeamSubmissionsDecide,
   TeamSubmissionsProcess,
+  WorkspacesDeliverConfig,
   WorkspacesDeliverWelcome,
+  WorkspacesSetMonitorRoleAndDeliver,
+  WorkspacesUpdateConfigAndDeliver,
 } from "sheet-workflow-contracts";
 import type { SheetWorkflowZeroContext } from "sheet-zero-server";
 import { config } from "@/config";
@@ -54,6 +75,27 @@ export const sheetWorkflowHttpEnqueueContracts = Object.freeze([
   TeamSubmissionsProcess,
   TeamSubmissionsDecide,
   AnnouncementsDeliverUpdate,
+  CheckinsOpen,
+  CheckinsTestAuto,
+  CheckinsRespond,
+  RoomOrdersCreate,
+  RoomOrdersNavigate,
+  RoomOrdersSend,
+  RoomOrdersPinTentative,
+  SlotsDeliverList,
+  SlotsPublishButton,
+  SlotsOpen,
+  MembersKick,
+  PreferencesDeliverStatus,
+  PreferencesUpdateAndDeliver,
+  WorkspacesDeliverConfig,
+  WorkspacesUpdateConfigAndDeliver,
+  WorkspacesSetMonitorRoleAndDeliver,
+  ConversationsDeliverConfig,
+  ConversationsUpdateConfigAndDeliver,
+  ConversationsSetLockdown,
+  TeamsDeliverList,
+  ScreenshotsCaptureAndDeliver,
 ] as const);
 
 const observeUnavailable = (): Effect.Effect<never, WorkflowObservationError> =>
@@ -229,47 +271,14 @@ export const workflowHttpRoutesLayer = Layer.unwrap(
     const authorizer = yield* makeAuthorizer;
     const handler = yield* makeSelectedWorkflowTransportHandler(makeWorkflowInvocationStore(store));
     const executor = workflowHttpServerExecutorFromHandler(handler);
-    const statusRoute = makeWorkflowHttpRouteHandlers(ServicesDeliverStatus, executor);
-    const scheduleRoute = makeWorkflowHttpRouteHandlers(SchedulesDeliverUserSchedule, executor);
-    const calculationRoute = makeWorkflowHttpRouteHandlers(CalculationsRecalculateSheet, executor);
-    const welcomeRoute = makeWorkflowHttpRouteHandlers(WorkspacesDeliverWelcome, executor);
-    const processTeamSubmissionRoute = makeWorkflowHttpRouteHandlers(
-      TeamSubmissionsProcess,
+    const workflowRoutes = makeWorkflowHttpRouteCatalog(
+      sheetWorkflowHttpEnqueueContracts,
       executor,
     );
-    const decideTeamSubmissionRoute = makeWorkflowHttpRouteHandlers(
-      TeamSubmissionsDecide,
-      executor,
-    );
-    const updateAnnouncementRoute = makeWorkflowHttpRouteHandlers(
-      AnnouncementsDeliverUpdate,
-      executor,
+    const routeLayers = workflowRoutes.map(({ routes, enqueue }) =>
+      addWorkflowEnqueueRoute(routes.enqueue, authorizer, enqueue),
     );
 
-    return Layer.mergeAll(
-      addWorkflowEnqueueRoute(statusRoute.routes.enqueue, authorizer, statusRoute.enqueue),
-      addWorkflowEnqueueRoute(scheduleRoute.routes.enqueue, authorizer, scheduleRoute.enqueue),
-      addWorkflowEnqueueRoute(
-        calculationRoute.routes.enqueue,
-        authorizer,
-        calculationRoute.enqueue,
-      ),
-      addWorkflowEnqueueRoute(welcomeRoute.routes.enqueue, authorizer, welcomeRoute.enqueue),
-      addWorkflowEnqueueRoute(
-        processTeamSubmissionRoute.routes.enqueue,
-        authorizer,
-        processTeamSubmissionRoute.enqueue,
-      ),
-      addWorkflowEnqueueRoute(
-        decideTeamSubmissionRoute.routes.enqueue,
-        authorizer,
-        decideTeamSubmissionRoute.enqueue,
-      ),
-      addWorkflowEnqueueRoute(
-        updateAnnouncementRoute.routes.enqueue,
-        authorizer,
-        updateAnnouncementRoute.enqueue,
-      ),
-    );
+    return Layer.mergeAll(Layer.empty, ...routeLayers);
   }),
 );
