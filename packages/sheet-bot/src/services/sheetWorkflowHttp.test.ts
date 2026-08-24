@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Cause, Effect, Exit, Schema } from "effect";
 import { ResponseReference } from "sheet-bot-api/references";
+import { WorkspaceId } from "sheet-workflow-contracts/values";
 import { WorkflowInputRejected, WorkflowTransportUnavailable } from "sheet-workflow-http-client";
 import {
   enqueueCheckinsOpenWorkflow,
@@ -39,12 +40,8 @@ const makeClient = (
   enqueueServicesDeliverStatus: enqueue,
 });
 
-const scheduleWorkspaceId = Schema.String.pipe(
-  Schema.brand("sheet-workflow-contracts/WorkspaceId"),
-);
-
 const scheduleInput = {
-  workspaceId: Schema.decodeUnknownSync(scheduleWorkspaceId)("workspace-1"),
+  workspaceId: Schema.decodeUnknownSync(WorkspaceId)("workspace-1"),
   responseReference: Schema.decodeUnknownSync(ResponseReference)("opaque-response-reference"),
   day: 2,
   targetUserId: "target-user-1",
@@ -66,7 +63,7 @@ const makeScheduleClient = (
 });
 
 const checkinInput = {
-  workspaceId: Schema.decodeUnknownSync(scheduleWorkspaceId)("workspace-1"),
+  workspaceId: Schema.decodeUnknownSync(WorkspaceId)("workspace-1"),
   responseReference: Schema.decodeUnknownSync(ResponseReference)("opaque-response-reference"),
   conversationName: "running",
   hour: 12,
@@ -88,7 +85,7 @@ const makeCheckinClient = (
 });
 
 const lockdownInput = {
-  workspaceId: Schema.decodeUnknownSync(scheduleWorkspaceId)("workspace-1"),
+  workspaceId: Schema.decodeUnknownSync(WorkspaceId)("workspace-1"),
   responseReference: Schema.decodeUnknownSync(ResponseReference)("opaque-response-reference"),
   conversationId: "conversation-1",
   enabled: true,

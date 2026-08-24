@@ -580,6 +580,9 @@ importers:
       sheet-ingress-api:
         specifier: workspace:*
         version: link:../sheet-ingress-api
+      sheet-workflow-contracts:
+        specifier: workspace:*
+        version: link:../sheet-workflow-contracts
       sheet-workflow-http-client:
         specifier: workspace:*
         version: link:../sheet-workflow-http-client

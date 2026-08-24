@@ -755,14 +755,12 @@ export const enqueueCheckinsOpenWorkflow = (
   options?: { readonly invocationId?: CheckinsOpenReference["invocationId"] },
 ) => enqueueWorkflow(client.enqueueCheckinsOpen, input, options);
 
-// fallow-ignore-next-line unused-export
 export const enqueueCheckinsTestAutoWorkflow = (
   client: Pick<SheetWorkflowHttpClientShape, "enqueueCheckinsTestAuto">,
   input: CheckinsTestAutoInput,
   options?: { readonly invocationId?: CheckinsTestAutoReference["invocationId"] },
 ) => enqueueWorkflow(client.enqueueCheckinsTestAuto, input, options);
 
-// fallow-ignore-next-line unused-export
 export const enqueueCheckinsRespondWorkflow = (
   client: Pick<SheetWorkflowHttpClientShape, "enqueueCheckinsRespond">,
   input: CheckinsRespondInput,
@@ -797,21 +795,18 @@ export const enqueueRoomOrdersPinTentativeWorkflow = (
   options?: { readonly invocationId?: RoomOrdersPinTentativeReference["invocationId"] },
 ) => enqueueWorkflow(client.enqueueRoomOrdersPinTentative, input, options);
 
-// fallow-ignore-next-line unused-export
 export const enqueueSlotsDeliverListWorkflow = (
   client: Pick<SheetWorkflowHttpClientShape, "enqueueSlotsDeliverList">,
   input: SlotsDeliverListInput,
   options?: { readonly invocationId?: SlotsDeliverListReference["invocationId"] },
 ) => enqueueWorkflow(client.enqueueSlotsDeliverList, input, options);
 
-// fallow-ignore-next-line unused-export
 export const enqueueSlotsPublishButtonWorkflow = (
   client: Pick<SheetWorkflowHttpClientShape, "enqueueSlotsPublishButton">,
   input: SlotsPublishButtonInput,
   options?: { readonly invocationId?: SlotsPublishButtonReference["invocationId"] },
 ) => enqueueWorkflow(client.enqueueSlotsPublishButton, input, options);
 
-// fallow-ignore-next-line unused-export
 export const enqueueSlotsOpenWorkflow = (
   client: Pick<SheetWorkflowHttpClientShape, "enqueueSlotsOpen">,
   input: SlotsOpenInput,
