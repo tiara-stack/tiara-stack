@@ -98,12 +98,11 @@ different UID.
 - `sheetWorkflowsServiceClientSecret`
 - `sheetAuthTrustedDelegationClientIds`
 
-The production overlay binds the workflow API to `sheet-workflows-secret`, the
-ordinary runner to `sheet-workflows-runner-secret`, and the browser runner to
-`sheet-workflows-browser-runner-secret`. Each role Secret uses the same keys
-listed above, but can contain a separate Service Principal. The workflow API is
-exposed separately during coexistence at `workflows.theerapakg.moe`; the
-ordinary and browser runners remain cluster internal.
+The production overlay binds the workflow API and both runner roles to the
+provisioned `sheet-workflows-secret`. The workflow API is exposed separately
+during coexistence at `workflows.theerapakg.moe`; the ordinary and browser
+runners remain cluster internal. If separate role credentials are introduced,
+provision their Infisical paths before changing these Secret references.
 
 The chart supplies the non-secret autonomous check-in identities
 `auto-checkin` and `sheet-auto-checkin` to every workflow role.
@@ -298,8 +297,6 @@ The default Infisical paths are:
 - `/tiara-stack/sheet-apis-secret-path`
 - `/tiara-stack/sheet-bot-secret`
 - `/tiara-stack/sheet-workflows-secret`
-- `/tiara-stack/sheet-workflows-runner-secret` (production overlay)
-- `/tiara-stack/sheet-workflows-browser-runner-secret` (production overlay)
 - `/tiara-stack/sdbs-secret`
 - `/tiara-stack/sheet-ingress-server-secret`
 - `/tiara-stack/sheet-web-secret`

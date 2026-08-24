@@ -62,10 +62,10 @@ services:
       name: sheet-workflows-secret
   sheetWorkflowsRunner:
     secretRef:
-      name: sheet-workflows-runner-secret
+      name: sheet-workflows-secret
   sheetWorkflowsBrowserRunner:
     secretRef:
-      name: sheet-workflows-browser-runner-secret
+      name: sheet-workflows-secret
 
 zeroCache:
   persistence:
