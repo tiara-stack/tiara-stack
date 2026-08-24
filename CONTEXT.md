@@ -51,8 +51,12 @@ The authoritative decision record used by a Rollout Gate to select one Execution
 _Avoid_: Feature flag, traffic split, deployment rollback
 
 **Canary Hold**:
-An operator-owned observation window after functional canary evidence. The current Rollout Gate scope stays unchanged while the Production Cell and any accepted asynchronous work are monitored. It never blocks or reroutes accepted work. A window with no matching invocations is health evidence only, not functional canary evidence.
+The former fixed observation window after functional canary evidence. It is not a required step in the expedited rollout. Functional evidence comes from terminal Workflow Run outcomes and required Delivery Receipts; a no-match window is health evidence only, not functional evidence.
 _Avoid_: Request hold, workflow timeout, command soak
+
+**Settlement Barrier**:
+An event-based rollout checkpoint. It clears only when accepted replacement runs are terminal, Action Deadlines are respected, no ambiguous or unresolved delivery, duplicate effect, or System Failure remains, and the Production Cell is healthy. Autonomous triggers additionally need two successful scheduled cycles unless a safe synthetic cycle is approved.
+_Avoid_: Fixed canary hold, request hold, workflow timeout
 
 **Execution Path**:
 The one legacy or replacement path selected for a future invocation by a Rollout Gate. The selected path stays with the invocation after acceptance.

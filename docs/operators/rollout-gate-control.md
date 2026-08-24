@@ -9,27 +9,42 @@ For `services.deliverStatus`, the default is the legacy path. A missing control,
 an unavailable control, or an invalid control read also selects the legacy path.
 The replacement path is selected only by a matching, durable control record.
 
-## Canary evidence
+## Functional evidence and bulk settlement
 
-The canary has two separate checks. Do not treat a time window as proof that a
-fire-and-forget command worked.
+Do not treat a time window as proof that a fire-and-forget command worked. A
+functional sample follows the accepted invocation through its terminal Workflow
+Run outcome and required Delivery Receipt. It also covers a relevant denial or
+Declared Failure and one exact-gate rollback followed by a fresh invocation that
+selects legacy. An HTTP `202` enqueue response alone is not enough.
 
-The functional check exercises the replacement path and follows the accepted
-invocation through its terminal Workflow Run outcome and required Delivery
-Receipt. It also covers an expected denial or Declared Failure and a rollback
-of the exact gate followed by a fresh invocation that selects legacy. An HTTP
-`202` enqueue response alone is not enough.
+For the remaining production rollout, use the smallest representative sample
+set that covers each unproven execution or external-effect class. Do not run one
+production exercise per contract when existing evidence already covers the same
+path. Add samples for missing state mutation, multi-step or recovery,
+service-principal or autonomous, and provider or browser behavior as needed.
 
-The health hold starts after the functional check. Keep the exact gate scope
-unchanged for one clean hour before broader enablement and three consecutive
-clean hours after broader enablement. Watch Production Cell availability,
-restarts, queue and terminal latency, System Failures, ambiguous or unresolved
-deliveries, duplicate effects, and Rollout Gate telemetry.
+Before any business sample, run a non-enqueuing preflight across the full
+35-contract / 105-route catalog. Verify route registration and request
+validation, current Rollout Gate revisions, authorization configuration, legacy
+fallback, release health, and monitoring. The preflight must create no Workflow
+Run, Delivery Receipt, or external effect.
 
-If no matching replacement invocations occur during the health hold, record it
-as a health-only hold. It does not count as functional soak evidence. Use an
-approved safe test or wait for the required production samples before advancing
-the rollout.
+After the samples pass, promote the remaining controls from an operator-owned
+manifest using compare-and-set revisions. Record an audit result for every
+control. Roll back a shared failure as a group, an isolated failure by execution
+family, and never dual-execute an external effect.
+
+Use an event-based settlement barrier instead of fixed one-hour or three-hour
+holds. Advance only when every accepted replacement run is terminal, no run
+exceeds its declared Action Deadline, no ambiguous or unresolved delivery or
+duplicate effect remains, no System Failure occurred, and the Production Cell
+is healthy. Autonomous triggers still require two successful scheduled cycles
+unless a safe synthetic cycle is explicitly approved.
+
+After replacement acceptance is complete, verify legacy acceptance is zero and
+legacy durable work is drained before entering Legacy Quarantine. Keep legacy
+manifests, images, and credentials for the bounded rollback window. Perform
+irreversible deletion only through the Deletion Gate.
 
 ## Deploy the control
 
@@ -100,8 +115,8 @@ curl --fail-with-body --silent --show-error \
   "workspaceId": "$WORKSPACE_ID",
   "effectivePrincipalKey": "$EFFECTIVE_PRINCIPAL_KEY",
   "executionPath": "replacement",
-  "reason": "TIA-130 functional canary passed and Production Cell health hold completed",
-  "evidenceUrl": "https://linear.app/tiara-stack/issue/TIA-130",
+  "reason": "TIA-148 representative evidence passed and bulk manifest promotion approved",
+  "evidenceUrl": "https://linear.app/tiara-stack/issue/TIA-148",
   "expectedRevision": 0
 }
 JSON
@@ -125,7 +140,7 @@ by the previous change:
   "effectivePrincipalKey": "user:<Effective Principal userId>",
   "executionPath": "legacy",
   "reason": "Rollback after a warning or Declared Failure",
-  "evidenceUrl": "https://linear.app/tiara-stack/issue/TIA-130",
+  "evidenceUrl": "https://linear.app/tiara-stack/issue/TIA-148",
   "expectedRevision": 1
 }
 ```
