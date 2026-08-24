@@ -95,6 +95,9 @@ scrape policies default to the `monitoring` namespace; override
 - `sheetWorkflowsServiceClientSecret`
 - `sheetAuthTrustedDelegationClientIds`
 
+The chart supplies the non-secret autonomous check-in identities
+`auto-checkin` and `sheet-auto-checkin` to every workflow role.
+
 `sdbs-secret`
 
 - `postgresUrl`

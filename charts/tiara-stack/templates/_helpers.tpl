@@ -154,6 +154,13 @@ imagePullSecrets:
   value: "$(SHEET_AUTH_TRUSTED_INGRESS_CLIENT_ID),$(SHEET_AUTH_TRUSTED_TOKEN_EXCHANGE_CLIENT_IDS)"
 {{- end -}}
 
+{{- define "tiara-stack.autoCheckinIdentityEnv" -}}
+- name: SHEET_AUTO_CHECKIN_SERVICE_ID
+  value: auto-checkin
+- name: SHEET_AUTO_CHECKIN_OAUTH_CLIENT_ID
+  value: sheet-auto-checkin
+{{- end -}}
+
 {{- define "tiara-stack.serviceSpecs" -}}
 {{- $sheetAuthValues := .Values.services.sheetAuth | default dict -}}
 {{- $sheetAuthServiceName := default "sheet-auth-service" $sheetAuthValues.serviceNameOverride -}}
@@ -400,6 +407,7 @@ imagePullSecrets:
       secretKey: sheetWorkflowsServiceClientSecret
     - name: SHEET_AUTH_OAUTH_AUDIENCE
       value: sheet-workflows
+{{ include "tiara-stack.autoCheckinIdentityEnv" . | nindent 4 }}
     - name: SHEET_BOT_BASE_URL
       value: "http://{{ $sheetBotServiceName }}"
     - name: SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID
@@ -479,6 +487,7 @@ imagePullSecrets:
       secretKey: sheetWorkflowsServiceClientSecret
     - name: SHEET_AUTH_OAUTH_AUDIENCE
       value: sheet-workflows
+{{ include "tiara-stack.autoCheckinIdentityEnv" . | nindent 4 }}
     - name: SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID
       secretName: {{ $sheetBotSecretName }}
       secretKey: sheetBotServiceClientId
@@ -548,6 +557,7 @@ imagePullSecrets:
       secretKey: sheetWorkflowsServiceClientSecret
     - name: SHEET_AUTH_OAUTH_AUDIENCE
       value: sheet-workflows
+{{ include "tiara-stack.autoCheckinIdentityEnv" . | nindent 4 }}
     - name: SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID
       secretName: {{ $sheetBotSecretName }}
       secretKey: sheetBotServiceClientId
