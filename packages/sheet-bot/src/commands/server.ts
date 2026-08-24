@@ -5,29 +5,47 @@ import {
   ChannelType,
   InteractionContextType,
 } from "discord-api-types/v10";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Schema } from "effect";
 import { CommandHelper, InteractionResponse } from "dfx-discord-utils/utils";
 import { discordGatewayLayer } from "../discord/gateway";
 import { discordApplicationLayer } from "../discord/application";
-import { SheetWorkflowsClient, SheetWorkflowsRequestContext } from "../services";
+import { prefixedUnstorageLayer } from "../discord/cache";
 import {
+  BotCapabilityStore,
+  enqueueWorkspacesDeliverConfigWorkflow,
+  enqueueWorkspacesSetMonitorRoleAndDeliverWorkflow,
+  enqueueWorkspacesUpdateConfigAndDeliverWorkflow,
+  SheetWorkflowHttpClient,
+  SheetWorkflowsClient,
+  SheetWorkflowsRequestContext,
+  type WorkspacesDeliverConfigInput,
+  type WorkspacesSetMonitorRoleAndDeliverInput,
+  type WorkspacesUpdateConfigAndDeliverInput,
+} from "../services";
+import {
+  decodeWorkflowWorkspaceId,
   makeDispatchBase,
   requireBoolean,
   requireResolvedId,
   requireString,
   resolveGuildId,
 } from "../utils/commandHelpers";
+import { enqueueSheetWorkflow } from "../utils/sheetWorkflowMigration";
 import { runSheetWorkflowsDispatch } from "../utils/sheetWorkflowsDispatch";
 
-const dispatchServerCommand = <A, E, R>(operation: string, effect: Effect.Effect<A, E, R>) =>
-  Effect.gen(function* () {
-    const response = yield* InteractionResponse;
-    yield* response.deferReply();
-    yield* runSheetWorkflowsDispatch(response, operation, effect);
-  });
+const serverRejectedMessage = "I couldn't update the server configuration. Please try again.";
+const serverUnauthorizedMessage = "You aren't allowed to manage that server.";
+const serverPendingMessage =
+  "The server configuration request is still processing. I'll update this message when it finishes.";
+
+const workflowSpreadsheetId = Schema.Trimmed.check(Schema.isNonEmpty()).pipe(
+  Schema.brand("sheet-workflow-contracts/SpreadsheetId"),
+);
 
 const makeListConfigSubCommand = Effect.gen(function* () {
   const sheetWorkflowsClient = yield* SheetWorkflowsClient;
+  const workflowClient = yield* SheetWorkflowHttpClient;
+  const capabilityStore = yield* BotCapabilityStore;
 
   return yield* CommandHelper.makeSubCommand(
     (builder) =>
@@ -38,24 +56,47 @@ const makeListConfigSubCommand = Effect.gen(function* () {
           builder.setName("server_id").setDescription("The server id to list the config for"),
         ),
     Effect.fn("server.list_config")(function* (command) {
+      const response = yield* InteractionResponse;
+      yield* response.deferReply();
       const base = yield* makeDispatchBase;
-      yield* dispatchServerCommand(
-        "the server config list",
-        SheetWorkflowsRequestContext.asInteractionUser(() =>
-          Effect.gen(function* () {
-            const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
-            return yield* sheetWorkflowsClient.get().dispatch.workspaceListConfig({
-              payload: { ...base, workspaceId: guildId },
-            });
-          }),
-        )(),
-      );
+      const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
+      const workspaceId = yield* decodeWorkflowWorkspaceId(guildId);
+
+      yield* enqueueSheetWorkflow({
+        response,
+        operation: "the server config list",
+        contractIdentity: "workspaces.deliverConfig",
+        contractWireVersion: "1",
+        workspaceId,
+        capabilityStore,
+        evaluateGate: (input) => workflowClient.evaluateWorkspacesDeliverConfigRolloutGate(input),
+        makeInput: (responseReference): WorkspacesDeliverConfigInput => ({
+          workspaceId,
+          responseReference,
+        }),
+        enqueue: (input, options) =>
+          enqueueWorkspacesDeliverConfigWorkflow(workflowClient, input, options),
+        dispatchLegacy: runSheetWorkflowsDispatch(
+          response,
+          "the server config list",
+          SheetWorkflowsRequestContext.asInteractionUser(() =>
+            sheetWorkflowsClient.get().dispatch.workspaceListConfig({
+              payload: { ...base, workspaceId },
+            }),
+          )(),
+        ),
+        rejectedMessage: serverRejectedMessage,
+        unauthorizedMessage: serverUnauthorizedMessage,
+        pendingMessage: serverPendingMessage,
+      });
     }),
   );
 });
 
 const makeAddMonitorRoleSubCommand = Effect.gen(function* () {
   const sheetWorkflowsClient = yield* SheetWorkflowsClient;
+  const workflowClient = yield* SheetWorkflowHttpClient;
+  const capabilityStore = yield* BotCapabilityStore;
 
   return yield* CommandHelper.makeSubCommand(
     (builder) =>
@@ -69,19 +110,43 @@ const makeAddMonitorRoleSubCommand = Effect.gen(function* () {
           builder.setName("server_id").setDescription("The server id to add the monitor role to"),
         ),
     Effect.fn("server.add.monitor_role")(function* (command) {
+      const response = yield* InteractionResponse;
+      yield* response.deferReply();
       const roleId = yield* requireResolvedId(command.optionRoleValue("role"), "role");
       const base = yield* makeDispatchBase;
-      yield* dispatchServerCommand(
-        "the monitor role add",
-        SheetWorkflowsRequestContext.asInteractionUser(() =>
-          Effect.gen(function* () {
-            const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
-            return yield* sheetWorkflowsClient.get().dispatch.workspaceAddMonitorRole({
-              payload: { ...base, workspaceId: guildId, roleId },
-            });
-          }),
-        )(),
-      );
+      const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
+      const workspaceId = yield* decodeWorkflowWorkspaceId(guildId);
+
+      yield* enqueueSheetWorkflow({
+        response,
+        operation: "the monitor role add",
+        contractIdentity: "workspaces.setMonitorRoleAndDeliver",
+        contractWireVersion: "1",
+        workspaceId,
+        capabilityStore,
+        evaluateGate: (input) =>
+          workflowClient.evaluateWorkspacesSetMonitorRoleAndDeliverRolloutGate(input),
+        makeInput: (responseReference): WorkspacesSetMonitorRoleAndDeliverInput => ({
+          workspaceId,
+          roleId,
+          enabled: true,
+          responseReference,
+        }),
+        enqueue: (input, options) =>
+          enqueueWorkspacesSetMonitorRoleAndDeliverWorkflow(workflowClient, input, options),
+        dispatchLegacy: runSheetWorkflowsDispatch(
+          response,
+          "the monitor role add",
+          SheetWorkflowsRequestContext.asInteractionUser(() =>
+            sheetWorkflowsClient.get().dispatch.workspaceAddMonitorRole({
+              payload: { ...base, workspaceId, roleId },
+            }),
+          )(),
+        ),
+        rejectedMessage: serverRejectedMessage,
+        unauthorizedMessage: serverUnauthorizedMessage,
+        pendingMessage: serverPendingMessage,
+      });
     }),
   );
 });
@@ -104,6 +169,8 @@ const makeAddCommandGroup = Effect.gen(function* () {
 
 const makeRemoveMonitorRoleSubCommand = Effect.gen(function* () {
   const sheetWorkflowsClient = yield* SheetWorkflowsClient;
+  const workflowClient = yield* SheetWorkflowHttpClient;
+  const capabilityStore = yield* BotCapabilityStore;
 
   return yield* CommandHelper.makeSubCommand(
     (builder) =>
@@ -119,19 +186,43 @@ const makeRemoveMonitorRoleSubCommand = Effect.gen(function* () {
             .setDescription("The server id to remove the monitor role from"),
         ),
     Effect.fn("server.remove.monitor_role")(function* (command) {
+      const response = yield* InteractionResponse;
+      yield* response.deferReply();
       const roleId = yield* requireResolvedId(command.optionRoleValue("role"), "role");
       const base = yield* makeDispatchBase;
-      yield* dispatchServerCommand(
-        "the monitor role removal",
-        SheetWorkflowsRequestContext.asInteractionUser(() =>
-          Effect.gen(function* () {
-            const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
-            return yield* sheetWorkflowsClient.get().dispatch.workspaceRemoveMonitorRole({
-              payload: { ...base, workspaceId: guildId, roleId },
-            });
-          }),
-        )(),
-      );
+      const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
+      const workspaceId = yield* decodeWorkflowWorkspaceId(guildId);
+
+      yield* enqueueSheetWorkflow({
+        response,
+        operation: "the monitor role removal",
+        contractIdentity: "workspaces.setMonitorRoleAndDeliver",
+        contractWireVersion: "1",
+        workspaceId,
+        capabilityStore,
+        evaluateGate: (input) =>
+          workflowClient.evaluateWorkspacesSetMonitorRoleAndDeliverRolloutGate(input),
+        makeInput: (responseReference): WorkspacesSetMonitorRoleAndDeliverInput => ({
+          workspaceId,
+          roleId,
+          enabled: false,
+          responseReference,
+        }),
+        enqueue: (input, options) =>
+          enqueueWorkspacesSetMonitorRoleAndDeliverWorkflow(workflowClient, input, options),
+        dispatchLegacy: runSheetWorkflowsDispatch(
+          response,
+          "the monitor role removal",
+          SheetWorkflowsRequestContext.asInteractionUser(() =>
+            sheetWorkflowsClient.get().dispatch.workspaceRemoveMonitorRole({
+              payload: { ...base, workspaceId, roleId },
+            }),
+          )(),
+        ),
+        rejectedMessage: serverRejectedMessage,
+        unauthorizedMessage: serverUnauthorizedMessage,
+        pendingMessage: serverPendingMessage,
+      });
     }),
   );
 });
@@ -154,6 +245,8 @@ const makeRemoveCommandGroup = Effect.gen(function* () {
 
 const makeSetSheetSubCommand = Effect.gen(function* () {
   const sheetWorkflowsClient = yield* SheetWorkflowsClient;
+  const workflowClient = yield* SheetWorkflowHttpClient;
+  const capabilityStore = yield* BotCapabilityStore;
 
   return yield* CommandHelper.makeSubCommand(
     (builder) =>
@@ -167,25 +260,51 @@ const makeSetSheetSubCommand = Effect.gen(function* () {
           builder.setName("server_id").setDescription("The server id to set the sheet id for"),
         ),
     Effect.fn("server.set.sheet")(function* (command) {
+      const response = yield* InteractionResponse;
+      yield* response.deferReply();
       const sheetId = yield* requireString(command.optionValue("sheet_id"), "sheet ID");
+      const spreadsheetId = yield* Schema.decodeUnknownEffect(workflowSpreadsheetId)(sheetId);
       const base = yield* makeDispatchBase;
-      yield* dispatchServerCommand(
-        "the server sheet update",
-        SheetWorkflowsRequestContext.asInteractionUser(() =>
-          Effect.gen(function* () {
-            const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
-            return yield* sheetWorkflowsClient.get().dispatch.workspaceSetSheet({
-              payload: { ...base, workspaceId: guildId, sheetId },
-            });
-          }),
-        )(),
-      );
+      const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
+      const workspaceId = yield* decodeWorkflowWorkspaceId(guildId);
+
+      yield* enqueueSheetWorkflow({
+        response,
+        operation: "the server sheet update",
+        contractIdentity: "workspaces.updateConfigAndDeliver",
+        contractWireVersion: "1",
+        workspaceId,
+        capabilityStore,
+        evaluateGate: (input) =>
+          workflowClient.evaluateWorkspacesUpdateConfigAndDeliverRolloutGate(input),
+        makeInput: (responseReference): WorkspacesUpdateConfigAndDeliverInput => ({
+          workspaceId,
+          responseReference,
+          patch: { spreadsheetId },
+        }),
+        enqueue: (input, options) =>
+          enqueueWorkspacesUpdateConfigAndDeliverWorkflow(workflowClient, input, options),
+        dispatchLegacy: runSheetWorkflowsDispatch(
+          response,
+          "the server sheet update",
+          SheetWorkflowsRequestContext.asInteractionUser(() =>
+            sheetWorkflowsClient.get().dispatch.workspaceSetSheet({
+              payload: { ...base, workspaceId: workspaceId, sheetId },
+            }),
+          )(),
+        ),
+        rejectedMessage: serverRejectedMessage,
+        unauthorizedMessage: serverUnauthorizedMessage,
+        pendingMessage: serverPendingMessage,
+      });
     }),
   );
 });
 
 const makeSetAutoCheckinSubCommand = Effect.gen(function* () {
   const sheetWorkflowsClient = yield* SheetWorkflowsClient;
+  const workflowClient = yield* SheetWorkflowHttpClient;
+  const capabilityStore = yield* BotCapabilityStore;
 
   return yield* CommandHelper.makeSubCommand(
     (builder) =>
@@ -202,28 +321,53 @@ const makeSetAutoCheckinSubCommand = Effect.gen(function* () {
           builder.setName("server_id").setDescription("The server id to set auto check-in for"),
         ),
     Effect.fn("server.set.auto_checkin")(function* (command) {
+      const response = yield* InteractionResponse;
+      yield* response.deferReply();
       const autoCheckin = yield* requireBoolean(
         command.optionValue("auto_checkin"),
         "auto check-in",
       );
       const base = yield* makeDispatchBase;
-      yield* dispatchServerCommand(
-        "the server auto check-in update",
-        SheetWorkflowsRequestContext.asInteractionUser(() =>
-          Effect.gen(function* () {
-            const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
-            return yield* sheetWorkflowsClient.get().dispatch.workspaceSetAutoCheckin({
-              payload: { ...base, workspaceId: guildId, autoCheckin },
-            });
-          }),
-        )(),
-      );
+      const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
+      const workspaceId = yield* decodeWorkflowWorkspaceId(guildId);
+
+      yield* enqueueSheetWorkflow({
+        response,
+        operation: "the server auto check-in update",
+        contractIdentity: "workspaces.updateConfigAndDeliver",
+        contractWireVersion: "1",
+        workspaceId,
+        capabilityStore,
+        evaluateGate: (input) =>
+          workflowClient.evaluateWorkspacesUpdateConfigAndDeliverRolloutGate(input),
+        makeInput: (responseReference): WorkspacesUpdateConfigAndDeliverInput => ({
+          workspaceId,
+          responseReference,
+          patch: { autoCheckin },
+        }),
+        enqueue: (input, options) =>
+          enqueueWorkspacesUpdateConfigAndDeliverWorkflow(workflowClient, input, options),
+        dispatchLegacy: runSheetWorkflowsDispatch(
+          response,
+          "the server auto check-in update",
+          SheetWorkflowsRequestContext.asInteractionUser(() =>
+            sheetWorkflowsClient.get().dispatch.workspaceSetAutoCheckin({
+              payload: { ...base, workspaceId, autoCheckin },
+            }),
+          )(),
+        ),
+        rejectedMessage: serverRejectedMessage,
+        unauthorizedMessage: serverUnauthorizedMessage,
+        pendingMessage: serverPendingMessage,
+      });
     }),
   );
 });
 
 const makeSetMonitorChannelSubCommand = Effect.gen(function* () {
   const sheetWorkflowsClient = yield* SheetWorkflowsClient;
+  const workflowClient = yield* SheetWorkflowHttpClient;
+  const capabilityStore = yield* BotCapabilityStore;
 
   return yield* CommandHelper.makeSubCommand(
     (builder) =>
@@ -241,23 +385,46 @@ const makeSetMonitorChannelSubCommand = Effect.gen(function* () {
           builder.setName("server_id").setDescription("The server id to configure"),
         ),
     Effect.fn("server.set.monitor_channel")(function* (command) {
+      const response = yield* InteractionResponse;
+      yield* response.deferReply();
       const requestedServerId = command.optionValueOptional("server_id");
       const monitorConversationId = yield* requireResolvedId(
         command.optionChannelValue("channel"),
         "monitor channel",
       );
       const base = yield* makeDispatchBase;
-      yield* dispatchServerCommand(
-        "the server monitor channel update",
-        SheetWorkflowsRequestContext.asInteractionUser(() =>
-          Effect.gen(function* () {
-            const workspaceId = yield* resolveGuildId(requestedServerId);
-            return yield* sheetWorkflowsClient.get().dispatch.workspaceSetMonitorChannel({
+      const guildId = yield* resolveGuildId(requestedServerId);
+      const workspaceId = yield* decodeWorkflowWorkspaceId(guildId);
+
+      yield* enqueueSheetWorkflow({
+        response,
+        operation: "the server monitor channel update",
+        contractIdentity: "workspaces.updateConfigAndDeliver",
+        contractWireVersion: "1",
+        workspaceId,
+        capabilityStore,
+        evaluateGate: (input) =>
+          workflowClient.evaluateWorkspacesUpdateConfigAndDeliverRolloutGate(input),
+        makeInput: (responseReference): WorkspacesUpdateConfigAndDeliverInput => ({
+          workspaceId,
+          responseReference,
+          patch: { monitorConversationId },
+        }),
+        enqueue: (input, options) =>
+          enqueueWorkspacesUpdateConfigAndDeliverWorkflow(workflowClient, input, options),
+        dispatchLegacy: runSheetWorkflowsDispatch(
+          response,
+          "the server monitor channel update",
+          SheetWorkflowsRequestContext.asInteractionUser(() =>
+            sheetWorkflowsClient.get().dispatch.workspaceSetMonitorChannel({
               payload: { ...base, workspaceId, monitorConversationId },
-            });
-          }),
-        )(),
-      );
+            }),
+          )(),
+        ),
+        rejectedMessage: serverRejectedMessage,
+        unauthorizedMessage: serverUnauthorizedMessage,
+        pendingMessage: serverPendingMessage,
+      });
     }),
   );
 });
@@ -286,6 +453,8 @@ const makeSetCommandGroup = Effect.gen(function* () {
 
 const makeUnsetMonitorChannelSubCommand = Effect.gen(function* () {
   const sheetWorkflowsClient = yield* SheetWorkflowsClient;
+  const workflowClient = yield* SheetWorkflowHttpClient;
+  const capabilityStore = yield* BotCapabilityStore;
 
   return yield* CommandHelper.makeSubCommand(
     (builder) =>
@@ -296,18 +465,41 @@ const makeUnsetMonitorChannelSubCommand = Effect.gen(function* () {
           builder.setName("server_id").setDescription("The server id to configure"),
         ),
     Effect.fn("server.unset.monitor_channel")(function* (command) {
+      const response = yield* InteractionResponse;
+      yield* response.deferReply();
       const base = yield* makeDispatchBase;
-      yield* dispatchServerCommand(
-        "the server monitor channel update",
-        SheetWorkflowsRequestContext.asInteractionUser(() =>
-          Effect.gen(function* () {
-            const workspaceId = yield* resolveGuildId(command.optionValueOptional("server_id"));
-            return yield* sheetWorkflowsClient.get().dispatch.workspaceUnsetMonitorChannel({
+      const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
+      const workspaceId = yield* decodeWorkflowWorkspaceId(guildId);
+
+      yield* enqueueSheetWorkflow({
+        response,
+        operation: "the server monitor channel update",
+        contractIdentity: "workspaces.updateConfigAndDeliver",
+        contractWireVersion: "1",
+        workspaceId,
+        capabilityStore,
+        evaluateGate: (input) =>
+          workflowClient.evaluateWorkspacesUpdateConfigAndDeliverRolloutGate(input),
+        makeInput: (responseReference): WorkspacesUpdateConfigAndDeliverInput => ({
+          workspaceId,
+          responseReference,
+          patch: { monitorConversationId: null },
+        }),
+        enqueue: (input, options) =>
+          enqueueWorkspacesUpdateConfigAndDeliverWorkflow(workflowClient, input, options),
+        dispatchLegacy: runSheetWorkflowsDispatch(
+          response,
+          "the server monitor channel update",
+          SheetWorkflowsRequestContext.asInteractionUser(() =>
+            sheetWorkflowsClient.get().dispatch.workspaceUnsetMonitorChannel({
               payload: { ...base, workspaceId },
-            });
-          }),
-        )(),
-      );
+            }),
+          )(),
+        ),
+        rejectedMessage: serverRejectedMessage,
+        unauthorizedMessage: serverUnauthorizedMessage,
+        pendingMessage: serverPendingMessage,
+      });
     }),
   );
 });
@@ -380,6 +572,12 @@ export const serverCommandLayer = Layer.effectDiscard(
   }),
 ).pipe(
   Layer.provide(
-    Layer.mergeAll(discordGatewayLayer, discordApplicationLayer, SheetWorkflowsClient.layer),
+    Layer.mergeAll(
+      discordGatewayLayer,
+      discordApplicationLayer,
+      SheetWorkflowsClient.layer,
+      SheetWorkflowHttpClient.layer,
+      BotCapabilityStore.layer.pipe(Layer.provide(prefixedUnstorageLayer)),
+    ),
   ),
 );

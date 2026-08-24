@@ -4,6 +4,7 @@ import { DeliveryKey, ResponseReference } from "sheet-bot-api";
 import {
   CheckinsOpen,
   CalculationsRecalculateSheet,
+  ConversationsUpdateConfigAndDeliver,
   DiscordLoadWorkspaceChannels,
   RoomOrdersNavigate,
   TeamSubmissionsDecide,
@@ -95,6 +96,27 @@ describe("sheet Workflow Contract schema compatibility", () => {
         decision: "maybe",
       }),
     ).toThrow();
+  });
+
+  it("preserves explicit nulls for conversation configuration unsets", () => {
+    const input = Schema.decodeUnknownSync(ConversationsUpdateConfigAndDeliver.input)({
+      workspaceId: "workspace",
+      conversationId: "conversation",
+      responseReference,
+      patch: {
+        running: null,
+        name: null,
+        roleId: null,
+        checkinConversationId: null,
+      },
+    });
+
+    expect(input.patch).toEqual({
+      running: null,
+      name: null,
+      roleId: null,
+      checkinConversationId: null,
+    });
   });
 
   it("publishes the approved Apps Script calculation input and compact success", () => {

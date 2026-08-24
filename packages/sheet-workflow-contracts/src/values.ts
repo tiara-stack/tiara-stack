@@ -464,7 +464,7 @@ export const ConversationsUpdateConfigAndDeliverInput = Schema.Struct({
   ...ResponseFields,
   conversationId: Schema.String,
   patch: Schema.Struct({
-    running: Schema.optional(Schema.Boolean),
+    running: Schema.optional(Schema.NullOr(Schema.Boolean)),
     name: Schema.optional(Schema.NullOr(Schema.String)),
     roleId: Schema.optional(Schema.NullOr(Schema.String)),
     checkinConversationId: Schema.optional(Schema.NullOr(Schema.String)),

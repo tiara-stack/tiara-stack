@@ -1,8 +1,21 @@
 import { ApplicationIntegrationType, InteractionContextType } from "discord-api-types/v10";
-import { Effect, Option } from "effect";
+import { Effect, Layer, Option } from "effect";
 import { CommandHelper, InteractionResponse } from "dfx-discord-utils/utils";
-import { SheetWorkflowsClient, SheetWorkflowsRequestContext } from "../services";
+import { prefixedUnstorageLayer } from "../discord/cache";
 import {
+  BotCapabilityStore,
+  enqueueConversationsDeliverConfigWorkflow,
+  enqueueConversationsSetLockdownWorkflow,
+  enqueueConversationsUpdateConfigAndDeliverWorkflow,
+  SheetWorkflowHttpClient,
+  SheetWorkflowsClient,
+  SheetWorkflowsRequestContext,
+  type ConversationsDeliverConfigInput,
+  type ConversationsSetLockdownInput,
+  type ConversationsUpdateConfigAndDeliverInput,
+} from "../services";
+import {
+  decodeWorkflowWorkspaceId,
   makeDispatchBase,
   optionalPayloadField,
   requireBoolean,
@@ -13,6 +26,7 @@ import {
   serverIdOption,
 } from "../utils/commandHelpers";
 import { registerGlobalCommandLayer } from "../utils/registerGlobalCommandLayer";
+import { enqueueSheetWorkflow } from "../utils/sheetWorkflowMigration";
 import { runSheetWorkflowsDispatch } from "../utils/sheetWorkflowsDispatch";
 
 const optionalDecodedField = <const Key extends string, Value>(
@@ -34,20 +48,38 @@ const optionalBooleanUnsetField = <const Key extends string>(
     Option.map(value, () => true as const),
   );
 
+const optionalNullUnsetField = <const Key extends string>(
+  key: Key,
+  value: Option.Option<unknown>,
+) =>
+  optionalPayloadField(
+    key,
+    Option.map(value, () => null),
+  );
+
+const channelRejectedMessage =
+  "I couldn't complete the channel configuration request. Please try again.";
+const channelUnauthorizedMessage = "You aren't allowed to manage that channel.";
+const channelPendingMessage =
+  "The channel configuration request is still processing. I'll update this message when it finishes.";
+
 const resolveChannelCommandPayloadBase = (
   serverId: Option.Option<string>,
   channel: Option.Option<unknown>,
 ) =>
   Effect.gen(function* () {
     const workspaceId = yield* resolveGuildId(serverId);
+    const workflowWorkspace = yield* decodeWorkflowWorkspaceId(workspaceId);
     const conversationId = yield* resolveChannelId(channel);
     const base = yield* makeDispatchBase;
 
-    return { ...base, workspaceId, conversationId };
+    return { ...base, workspaceId: workflowWorkspace, conversationId };
   });
 
 const makeListConfigSubCommand = Effect.gen(function* () {
   const sheetWorkflowsClient = yield* SheetWorkflowsClient;
+  const workflowClient = yield* SheetWorkflowHttpClient;
+  const capabilityStore = yield* BotCapabilityStore;
 
   return yield* CommandHelper.makeSubCommand(
     (builder) =>
@@ -67,21 +99,43 @@ const makeListConfigSubCommand = Effect.gen(function* () {
         command.optionChannelValueOptional("channel"),
       );
 
-      yield* runSheetWorkflowsDispatch(
+      yield* enqueueSheetWorkflow({
         response,
-        "the channel config list",
-        SheetWorkflowsRequestContext.asInteractionUser(() =>
-          sheetWorkflowsClient.get().dispatch.conversationListConfig({
-            payload: payloadBase,
-          }),
-        )(),
-      );
+        operation: "the channel config list",
+        contractIdentity: "conversations.deliverConfig",
+        contractWireVersion: "1",
+        workspaceId: payloadBase.workspaceId,
+        capabilityStore,
+        evaluateGate: (input) =>
+          workflowClient.evaluateConversationsDeliverConfigRolloutGate(input),
+        makeInput: (responseReference): ConversationsDeliverConfigInput => ({
+          workspaceId: payloadBase.workspaceId,
+          conversationId: payloadBase.conversationId,
+          responseReference,
+        }),
+        enqueue: (input, options) =>
+          enqueueConversationsDeliverConfigWorkflow(workflowClient, input, options),
+        dispatchLegacy: runSheetWorkflowsDispatch(
+          response,
+          "the channel config list",
+          SheetWorkflowsRequestContext.asInteractionUser(() =>
+            sheetWorkflowsClient.get().dispatch.conversationListConfig({
+              payload: payloadBase,
+            }),
+          )(),
+        ),
+        rejectedMessage: channelRejectedMessage,
+        unauthorizedMessage: channelUnauthorizedMessage,
+        pendingMessage: channelPendingMessage,
+      });
     }),
   );
 });
 
 const makeSetSubCommand = Effect.gen(function* () {
   const sheetWorkflowsClient = yield* SheetWorkflowsClient;
+  const workflowClient = yield* SheetWorkflowHttpClient;
+  const capabilityStore = yield* BotCapabilityStore;
 
   return yield* CommandHelper.makeSubCommand(
     (builder) =>
@@ -130,31 +184,59 @@ const makeSetSubCommand = Effect.gen(function* () {
         (value) => requireResolvedId(value, "role"),
       );
       const checkinChannelPayload = yield* optionalDecodedField(
-        "checkinChannelId",
+        "checkinConversationId",
         command.optionChannelValueOptional("checkin_channel"),
         (value) => requireResolvedId(value, "check-in channel"),
       );
-      yield* runSheetWorkflowsDispatch(
+      yield* enqueueSheetWorkflow({
         response,
-        "the channel config update",
-        SheetWorkflowsRequestContext.asInteractionUser(() =>
-          sheetWorkflowsClient.get().dispatch.conversationSet({
-            payload: {
-              ...payloadBase,
-              ...runningPayload,
-              ...namePayload,
-              ...rolePayload,
-              ...checkinChannelPayload,
-            },
-          }),
-        )(),
-      );
+        operation: "the channel config update",
+        contractIdentity: "conversations.updateConfigAndDeliver",
+        contractWireVersion: "1",
+        workspaceId: payloadBase.workspaceId,
+        capabilityStore,
+        evaluateGate: (input) =>
+          workflowClient.evaluateConversationsUpdateConfigAndDeliverRolloutGate(input),
+        makeInput: (responseReference): ConversationsUpdateConfigAndDeliverInput => ({
+          workspaceId: payloadBase.workspaceId,
+          conversationId: payloadBase.conversationId,
+          responseReference,
+          patch: {
+            ...runningPayload,
+            ...namePayload,
+            ...rolePayload,
+            ...checkinChannelPayload,
+          },
+        }),
+        enqueue: (input, options) =>
+          enqueueConversationsUpdateConfigAndDeliverWorkflow(workflowClient, input, options),
+        dispatchLegacy: runSheetWorkflowsDispatch(
+          response,
+          "the channel config update",
+          SheetWorkflowsRequestContext.asInteractionUser(() =>
+            sheetWorkflowsClient.get().dispatch.conversationSet({
+              payload: {
+                ...payloadBase,
+                ...runningPayload,
+                ...namePayload,
+                ...rolePayload,
+                ...checkinChannelPayload,
+              },
+            }),
+          )(),
+        ),
+        rejectedMessage: channelRejectedMessage,
+        unauthorizedMessage: channelUnauthorizedMessage,
+        pendingMessage: channelPendingMessage,
+      });
     }),
   );
 });
 
 const makeUnsetSubCommand = Effect.gen(function* () {
   const sheetWorkflowsClient = yield* SheetWorkflowsClient;
+  const workflowClient = yield* SheetWorkflowHttpClient;
+  const capabilityStore = yield* BotCapabilityStore;
 
   return yield* CommandHelper.makeSubCommand(
     (builder) =>
@@ -188,24 +270,53 @@ const makeUnsetSubCommand = Effect.gen(function* () {
         command.optionChannelValueOptional("channel"),
       );
 
-      yield* runSheetWorkflowsDispatch(
+      yield* enqueueSheetWorkflow({
         response,
-        "the channel config update",
-        SheetWorkflowsRequestContext.asInteractionUser(() =>
-          sheetWorkflowsClient.get().dispatch.conversationUnset({
-            payload: {
-              ...payloadBase,
-              ...optionalBooleanUnsetField("running", command.optionValueOptional("running")),
-              ...optionalBooleanUnsetField("name", command.optionValueOptional("name")),
-              ...optionalBooleanUnsetField("role", command.optionValueOptional("role")),
-              ...optionalBooleanUnsetField(
-                "checkinConversation",
-                command.optionValueOptional("checkin_channel"),
-              ),
-            },
-          }),
-        )(),
-      );
+        operation: "the channel config update",
+        contractIdentity: "conversations.updateConfigAndDeliver",
+        contractWireVersion: "1",
+        workspaceId: payloadBase.workspaceId,
+        capabilityStore,
+        evaluateGate: (input) =>
+          workflowClient.evaluateConversationsUpdateConfigAndDeliverRolloutGate(input),
+        makeInput: (responseReference): ConversationsUpdateConfigAndDeliverInput => ({
+          workspaceId: payloadBase.workspaceId,
+          conversationId: payloadBase.conversationId,
+          responseReference,
+          patch: {
+            ...optionalNullUnsetField("running", command.optionValueOptional("running")),
+            ...optionalNullUnsetField("name", command.optionValueOptional("name")),
+            ...optionalNullUnsetField("roleId", command.optionValueOptional("role")),
+            ...optionalNullUnsetField(
+              "checkinConversationId",
+              command.optionValueOptional("checkin_channel"),
+            ),
+          },
+        }),
+        enqueue: (input, options) =>
+          enqueueConversationsUpdateConfigAndDeliverWorkflow(workflowClient, input, options),
+        dispatchLegacy: runSheetWorkflowsDispatch(
+          response,
+          "the channel config update",
+          SheetWorkflowsRequestContext.asInteractionUser(() =>
+            sheetWorkflowsClient.get().dispatch.conversationUnset({
+              payload: {
+                ...payloadBase,
+                ...optionalBooleanUnsetField("running", command.optionValueOptional("running")),
+                ...optionalBooleanUnsetField("name", command.optionValueOptional("name")),
+                ...optionalBooleanUnsetField("role", command.optionValueOptional("role")),
+                ...optionalBooleanUnsetField(
+                  "checkinConversation",
+                  command.optionValueOptional("checkin_channel"),
+                ),
+              },
+            }),
+          )(),
+        ),
+        rejectedMessage: channelRejectedMessage,
+        unauthorizedMessage: channelUnauthorizedMessage,
+        pendingMessage: channelPendingMessage,
+      });
     }),
   );
 });
@@ -219,6 +330,8 @@ const makeLockdownSubCommand = (
 ) =>
   Effect.gen(function* () {
     const sheetWorkflowsClient = yield* SheetWorkflowsClient;
+    const workflowClient = yield* SheetWorkflowHttpClient;
+    const capabilityStore = yield* BotCapabilityStore;
     const commandName = operation === "setup" ? "lockdown_setup" : "lockdown_undo";
 
     return yield* CommandHelper.makeSubCommand(
@@ -240,13 +353,34 @@ const makeLockdownSubCommand = (
           Option.none(),
           command.optionChannelValueOptional("channel"),
         );
-        yield* runSheetWorkflowsDispatch(
+        yield* enqueueSheetWorkflow({
           response,
-          `the channel lockdown ${operation}`,
-          SheetWorkflowsRequestContext.asInteractionUser(() =>
-            dispatch(sheetWorkflowsClient.get(), payload),
-          )(),
-        );
+          operation: `the channel lockdown ${operation}`,
+          contractIdentity: "conversations.setLockdown",
+          contractWireVersion: "1",
+          workspaceId: payload.workspaceId,
+          capabilityStore,
+          evaluateGate: (input) =>
+            workflowClient.evaluateConversationsSetLockdownRolloutGate(input),
+          makeInput: (responseReference): ConversationsSetLockdownInput => ({
+            workspaceId: payload.workspaceId,
+            conversationId: payload.conversationId,
+            enabled: operation === "setup",
+            responseReference,
+          }),
+          enqueue: (input, options) =>
+            enqueueConversationsSetLockdownWorkflow(workflowClient, input, options),
+          dispatchLegacy: runSheetWorkflowsDispatch(
+            response,
+            `the channel lockdown ${operation}`,
+            SheetWorkflowsRequestContext.asInteractionUser(() =>
+              dispatch(sheetWorkflowsClient.get(), payload),
+            )(),
+          ),
+          rejectedMessage: channelRejectedMessage,
+          unauthorizedMessage: channelUnauthorizedMessage,
+          pendingMessage: channelPendingMessage,
+        });
       }),
     );
   });
@@ -296,4 +430,11 @@ const makeChannelCommand = Effect.gen(function* () {
   );
 });
 
-export const channelCommandLayer = registerGlobalCommandLayer(makeChannelCommand);
+export const channelCommandLayer = registerGlobalCommandLayer(makeChannelCommand).pipe(
+  Layer.provide(
+    Layer.mergeAll(
+      SheetWorkflowHttpClient.layer,
+      BotCapabilityStore.layer.pipe(Layer.provide(prefixedUnstorageLayer)),
+    ),
+  ),
+);

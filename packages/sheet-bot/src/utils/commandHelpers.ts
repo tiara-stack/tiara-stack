@@ -1,5 +1,5 @@
 import { Ix } from "dfx/index";
-import { Effect, Option, Predicate, pipe } from "effect";
+import { Effect, Option, Predicate, Schema, pipe } from "effect";
 import { Interaction, InteractionToken } from "dfx-discord-utils/utils";
 import type { NumberOptionBuilder, StringOptionBuilder } from "dfx-discord-utils/utils";
 import { config } from "../config";
@@ -118,6 +118,13 @@ export const resolveGuildId = (serverId: Option.Option<string>) =>
     return yield* decodeDiscordSnowflakeId(selectedId, "guild ID");
   });
 
+const workflowWorkspaceId = Schema.Trimmed.check(Schema.isNonEmpty()).pipe(
+  Schema.brand("sheet-workflow-contracts/WorkspaceId"),
+);
+
+export const decodeWorkflowWorkspaceId = (value: string) =>
+  Schema.decodeUnknownEffect(workflowWorkspaceId)(value);
+
 const getInteractionChannelId = Effect.gen(function* () {
   const interactionChannel = yield* Interaction.channel();
   return pipe(interactionChannel, Option.flatMap(getIdFromUnknown));
@@ -209,4 +216,25 @@ export const makeDispatchBase = Effect.gen(function* () {
     interactionResponseToken: interactionToken.token,
     interactionResponseDeadlineEpochMs: interactionDeadlineEpochMs(interaction.id),
   };
+});
+
+export const makeResponseReferenceInput = ({
+  applicationId,
+  clientId,
+  interactionId,
+  interactionToken,
+  workspaceId,
+}: {
+  readonly applicationId: string;
+  readonly clientId: string;
+  readonly interactionId: string;
+  readonly interactionToken: string;
+  readonly workspaceId?: string;
+}) => ({
+  applicationId,
+  client: { platform: "discord" as const, clientId },
+  interactionToken,
+  permittedOperations: ["respond" as const],
+  expiresAt: interactionDeadlineEpochMs(interactionId),
+  ...(workspaceId === undefined ? {} : { workspaceId }),
 });
