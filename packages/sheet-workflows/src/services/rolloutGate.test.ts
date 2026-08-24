@@ -1,10 +1,21 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Schema } from "effect";
+import { Effect, Metric, Schema } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { InvocationId } from "effect-zero-workflow/contract";
 import { EffectivePrincipal } from "sheet-auth/identity";
 import { RolloutGateAllPrincipalsKey, RolloutGateChangeRequest } from "sheet-workflow-contracts";
-import { evaluationControlKeys, scopeKey } from "./rolloutGate";
+import { evaluationControlKeys, RolloutGateControl, scopeKey } from "./rolloutGate";
 import { selectRolloutGateDecision } from "./rolloutGateDecision";
+import { sheetWorkflowsRolloutGateEvaluations } from "../metrics";
+
+const failingSql = (): SqlClient.SqlClient =>
+  Object.assign(
+    ((..._args: unknown[]) =>
+      Effect.fail(new Error("evaluation storage failed"))) as unknown as SqlClient.SqlClient,
+    {
+      withTransaction: <R, E, A>(effect: Effect.Effect<A, E, R>) => effect,
+    },
+  );
 
 describe("selectRolloutGateDecision", () => {
   it("selects legacy when no control matches", () => {
@@ -185,4 +196,43 @@ describe("evaluationControlKeys", () => {
       scopeKey(baseScope, RolloutGateAllPrincipalsKey),
     ]);
   });
+});
+
+describe("RolloutGateControl", () => {
+  it.effect("records the legacy fallback when evaluation storage fails", () =>
+    Effect.gen(function* () {
+      const evaluationMetric = Metric.withAttributes(sheetWorkflowsRolloutGateEvaluations, {
+        executionPath: "legacy",
+        matched: "false",
+      });
+      const before = yield* Metric.value(evaluationMetric);
+      const input = {
+        contractIdentity: "services.deliverStatus",
+        contractWireVersion: "1",
+        client: { platform: "discord", clientId: "discord-main" },
+        invocationId: Schema.decodeUnknownSync(InvocationId)(
+          "00000000-0000-4000-8000-000000000000",
+        ),
+        effectivePrincipal: Schema.decodeUnknownSync(EffectivePrincipal)({
+          kind: "user",
+          userId: "user-1",
+        }),
+      };
+
+      const decision = yield* Effect.scoped(
+        Effect.gen(function* () {
+          const control = yield* RolloutGateControl.make;
+          return yield* control.evaluate(input);
+        }).pipe(Effect.provideService(SqlClient.SqlClient, failingSql())),
+      );
+
+      const after = yield* Metric.value(evaluationMetric);
+      expect(decision).toMatchObject({
+        matched: false,
+        executionPath: "legacy",
+        reason: "control-unavailable",
+      });
+      expect(after.count - before.count).toBe(1);
+    }),
+  );
 });

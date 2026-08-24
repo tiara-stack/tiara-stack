@@ -516,6 +516,10 @@
           "type": "string",
           "minLength": 1
         },
+        "prometheusDatasourceUid": {
+          "type": "string",
+          "minLength": 1
+        },
         "serviceMonitor": {
           "type": "object",
           "additionalProperties": false,
@@ -563,6 +567,38 @@
               },
               "then": {
                 "required": ["releaseLabel", "unresolvedAgeSeconds", "for", "severity"]
+              }
+            }
+          ]
+        },
+        "migrationDashboard": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled"],
+          "properties": {
+            "enabled": { "type": "boolean" }
+          }
+        },
+        "rolloutGateAlerts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "releaseLabel": { "type": "string", "minLength": 1 },
+            "controlUnavailableFor": { "type": "string", "pattern": "^([0-9]+(ms|s|m|h|d|w|y))+$" },
+            "enqueueFailureFor": { "type": "string", "pattern": "^([0-9]+(ms|s|m|h|d|w|y))+$" },
+            "readinessFor": { "type": "string", "pattern": "^([0-9]+(ms|s|m|h|d|w|y))+$" },
+            "severity": { "type": "string", "minLength": 1 }
+          },
+          "allOf": [
+            {
+              "if": {
+                "required": ["enabled"],
+                "properties": { "enabled": { "const": true } }
+              },
+              "then": {
+                "required": ["releaseLabel", "controlUnavailableFor", "enqueueFailureFor", "readinessFor", "severity"]
               }
             }
           ]

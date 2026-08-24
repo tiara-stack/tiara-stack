@@ -298,6 +298,7 @@ meilisearch:
 
 monitoring:
   prometheusNamespace: monitoring
+  prometheusDatasourceUid: prometheus
   serviceMonitor:
     enabled: true
     releaseLabel: kube-prometheus-stack
@@ -308,6 +309,15 @@ monitoring:
     releaseLabel: kube-prometheus-stack
     unresolvedAgeSeconds: 900
     for: 5m
+    severity: warning
+  migrationDashboard:
+    enabled: false
+  rolloutGateAlerts:
+    enabled: false
+    releaseLabel: kube-prometheus-stack
+    controlUnavailableFor: 5m
+    enqueueFailureFor: 5m
+    readinessFor: 5m
     severity: warning
 
 networkPolicies:

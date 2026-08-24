@@ -13,6 +13,7 @@ import {
   type RolloutGateScope,
 } from "sheet-workflow-contracts";
 import { selectRolloutGateDecision, type RolloutGateDecisionValue } from "./rolloutGateDecision";
+import { sheetWorkflowsRolloutGateChanges, sheetWorkflowsRolloutGateEvaluations } from "../metrics";
 
 const rolloutGateTable = "sheet_db_rollout_gate";
 const rolloutGateEvaluationTable = "sheet_db_rollout_gate_evaluation";
@@ -25,6 +26,15 @@ const rolloutGateFallbacks = Metric.counter("sheet_workflows_rollout_gate_fallba
   description: "Rollout Gate evaluations that selected the legacy path as a fallback",
   incremental: true,
 });
+
+const recordRolloutGateEvaluation = (decision: RolloutGateDecisionValue) =>
+  Metric.update(
+    Metric.withAttributes(sheetWorkflowsRolloutGateEvaluations, {
+      executionPath: decision.executionPath,
+      matched: String(decision.matched),
+    }),
+    1,
+  );
 
 export interface RolloutGateEvaluationInput extends RolloutGateEvaluationRequest {
   readonly effectivePrincipal: EffectivePrincipal;
@@ -498,6 +508,7 @@ export class RolloutGateControl extends Context.Service<
               Effect.as(fallbackDecision(input, "control-unavailable")),
             ),
           ),
+          Effect.tap(recordRolloutGateEvaluation),
           Effect.withSpan("sheet-workflows.rolloutGate.evaluate"),
         );
     };
@@ -549,6 +560,14 @@ export class RolloutGateControl extends Context.Service<
                   message: "Rollout Gate Control change failed",
                   cause: error,
                 }),
+          ),
+          Effect.tap((response) =>
+            Metric.update(
+              Metric.withAttributes(sheetWorkflowsRolloutGateChanges, {
+                executionPath: response.executionPath,
+              }),
+              1,
+            ),
           ),
           Effect.withSpan("sheet-workflows.rolloutGate.change"),
         );

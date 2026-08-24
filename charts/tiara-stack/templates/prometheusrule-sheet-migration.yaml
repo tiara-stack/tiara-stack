@@ -1,0 +1,68 @@
+{{- if .Values.monitoring.rolloutGateAlerts.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: sheet-migration-rollout-gates
+  labels:
+    {{- include "tiara-stack.labels" . | nindent 4 }}
+    app: sheet-workflows
+    release: {{ required "monitoring.rolloutGateAlerts.releaseLabel is required" .Values.monitoring.rolloutGateAlerts.releaseLabel | quote }}
+spec:
+  groups:
+    - name: sheet-migration-rollout-gates
+      rules:
+        - alert: SheetWorkflowsRolloutGateControlUnavailable
+          expr: sum(rate(sheet_workflows_rollout_gate_fallbacks_total{namespace={{ .Release.Namespace | quote }},reason="control-unavailable"}[5m])) > 0
+          for: {{ .Values.monitoring.rolloutGateAlerts.controlUnavailableFor | quote }}
+          labels:
+            severity: {{ .Values.monitoring.rolloutGateAlerts.severity | quote }}
+          annotations:
+            summary: Sheet workflow Rollout Gate control is unavailable
+            description: Rollout Gate evaluation is selecting the legacy Execution Path because the control plane could not be read. Investigate before promoting or measuring a target path.
+        - alert: SheetWorkflowsHttpEnqueueFailure
+          expr: sum(rate(sheet_workflows_http_enqueues_total{namespace={{ .Release.Namespace | quote }},outcome=~"conflict|unavailable"}[5m])) > 0
+          for: {{ .Values.monitoring.rolloutGateAlerts.enqueueFailureFor | quote }}
+          labels:
+            severity: {{ .Values.monitoring.rolloutGateAlerts.severity | quote }}
+          annotations:
+            summary: Sheet workflow HTTP enqueue failures detected
+            description: A generated workflow enqueue is conflicting or unavailable. Check invocation identity, transport health, and the legacy-default Rollout Gate before retrying.
+        - alert: SheetWorkflowTargetDeploymentUnavailable
+          expr: sum by (namespace, deployment) (kube_deployment_status_replicas_available{namespace={{ .Release.Namespace | quote }},deployment=~"sheet-workflows(-runner|-browser-runner)?"}) < sum by (namespace, deployment) (kube_deployment_spec_replicas{namespace={{ .Release.Namespace | quote }},deployment=~"sheet-workflows(-runner|-browser-runner)?"})
+          for: {{ .Values.monitoring.rolloutGateAlerts.readinessFor | quote }}
+          labels:
+            severity: {{ .Values.monitoring.rolloutGateAlerts.severity | quote }}
+          annotations:
+            summary: A target sheet workflow workload is not ready
+            description: One of the workflow API, ordinary runner, or browser-runner Deployments has fewer available replicas than requested. Keep Rollout Gates on legacy until readiness recovers.
+{{ if .Values.services.sheetWorkflows.enabled }}
+        - alert: SheetWorkflowApiDeploymentAbsent
+          expr: absent(kube_deployment_spec_replicas{namespace={{ .Release.Namespace | quote }},deployment="sheet-workflows"})
+          for: {{ .Values.monitoring.rolloutGateAlerts.readinessFor | quote }}
+          labels:
+            severity: {{ .Values.monitoring.rolloutGateAlerts.severity | quote }}
+          annotations:
+            summary: The sheet workflow API Deployment is absent
+            description: kube-state-metrics has no series for the workflow API Deployment. Treat the target Production Cell as unavailable and keep Rollout Gates on legacy.
+{{ end }}
+{{ if .Values.services.sheetWorkflowsRunner.enabled }}
+        - alert: SheetWorkflowRunnerDeploymentAbsent
+          expr: absent(kube_deployment_spec_replicas{namespace={{ .Release.Namespace | quote }},deployment="sheet-workflows-runner"})
+          for: {{ .Values.monitoring.rolloutGateAlerts.readinessFor | quote }}
+          labels:
+            severity: {{ .Values.monitoring.rolloutGateAlerts.severity | quote }}
+          annotations:
+            summary: The sheet workflow runner Deployment is absent
+            description: kube-state-metrics has no series for the ordinary workflow runner Deployment. Treat the target Production Cell as unavailable and keep Rollout Gates on legacy.
+{{ end }}
+{{ if .Values.services.sheetWorkflowsBrowserRunner.enabled }}
+        - alert: SheetWorkflowBrowserRunnerDeploymentAbsent
+          expr: absent(kube_deployment_spec_replicas{namespace={{ .Release.Namespace | quote }},deployment="sheet-workflows-browser-runner"})
+          for: {{ .Values.monitoring.rolloutGateAlerts.readinessFor | quote }}
+          labels:
+            severity: {{ .Values.monitoring.rolloutGateAlerts.severity | quote }}
+          annotations:
+            summary: The sheet workflow browser runner Deployment is absent
+            description: kube-state-metrics has no series for the browser workflow runner Deployment. Treat the target Production Cell as unavailable and keep Rollout Gates on legacy.
+{{ end }}
+{{- end }}

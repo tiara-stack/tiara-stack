@@ -16,6 +16,7 @@ ingress:
         - schedule.theerapakg.moe
         - sheet.theerapakg.moe
         - zero.theerapakg.moe
+        - workflows.theerapakg.moe
   hosts:
     - host: auth.theerapakg.moe
       path: /
@@ -37,6 +38,11 @@ ingress:
       pathType: Prefix
       serviceName: zero-cache-service
       servicePort: 4848
+    - host: workflows.theerapakg.moe
+      path: /
+      pathType: Prefix
+      serviceName: sheet-workflows-service
+      servicePort: 80
 
 global:
   nodeSelector:
@@ -50,6 +56,17 @@ global:
     enabled: true
     existingConfigMap: tiara-stack-ca-certificate
 
+services:
+  sheetWorkflows:
+    secretRef:
+      name: sheet-workflows-secret
+  sheetWorkflowsRunner:
+    secretRef:
+      name: sheet-workflows-runner-secret
+  sheetWorkflowsBrowserRunner:
+    secretRef:
+      name: sheet-workflows-browser-runner-secret
+
 zeroCache:
   persistence:
     # DigitalOcean-specific storage class. Replace for other providers, or
@@ -60,3 +77,9 @@ meilisearch:
   persistence:
     # Match zero-cache retention: bind a pre-created DigitalOcean volume in CI.
     storageClassName: do-block-storage
+
+monitoring:
+  migrationDashboard:
+    enabled: true
+  rolloutGateAlerts:
+    enabled: true

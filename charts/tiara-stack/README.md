@@ -41,7 +41,10 @@ NetworkPolicies default to allowing public Zero Cache traffic from an ingress
 controller in the `ingress-nginx` namespace. Override
 `ingress.controllerNamespace` if your controller runs elsewhere. Prometheus
 scrape policies default to the `monitoring` namespace; override
-`monitoring.prometheusNamespace` if needed.
+`monitoring.prometheusNamespace` if needed. The migration dashboard uses the
+Prometheus datasource UID from `monitoring.prometheusDatasourceUid`, which
+defaults to `prometheus`; override it when the Grafana datasource has a
+different UID.
 
 ## Secret Contract
 
@@ -95,6 +98,13 @@ scrape policies default to the `monitoring` namespace; override
 - `sheetWorkflowsServiceClientSecret`
 - `sheetAuthTrustedDelegationClientIds`
 
+The production overlay binds the workflow API to `sheet-workflows-secret`, the
+ordinary runner to `sheet-workflows-runner-secret`, and the browser runner to
+`sheet-workflows-browser-runner-secret`. Each role Secret uses the same keys
+listed above, but can contain a separate Service Principal. The workflow API is
+exposed separately during coexistence at `workflows.theerapakg.moe`; the
+ordinary and browser runners remain cluster internal.
+
 The chart supplies the non-secret autonomous check-in identities
 `auto-checkin` and `sheet-auto-checkin` to every workflow role.
 
@@ -144,7 +154,8 @@ The chart supplies the non-secret autonomous check-in identities
 Production TLS uses a Kubernetes TLS Secret named `theerapakg-moe-tls`. The
 Secret must be type `kubernetes.io/tls` with `tls.crt` and `tls.key`, and the
 certificate must cover `auth.theerapakg.moe`, `schedule.theerapakg.moe`,
-`sheet.theerapakg.moe`, and `zero.theerapakg.moe`.
+`sheet.theerapakg.moe`, `zero.theerapakg.moe`, and
+`workflows.theerapakg.moe`.
 
 The default and production values include the cert-manager ingress annotation
 `cert-manager.io/cluster-issuer: letsencrypt-prod`, so cert-manager ingress-shim
@@ -168,6 +179,26 @@ You can create it directly from certificate files with:
 kubectl -n tiara-stack-prod create secret tls theerapakg-moe-tls \
   --cert=fullchain.pem \
   --key=privkey.pem
+```
+
+## Migration observability
+
+The production values enable a Grafana sidecar-compatible ConfigMap named
+`sheet-migration-dashboard` and Prometheus rules for Rollout Gate control
+availability, generated workflow enqueue failures, and target workload
+readiness. The dashboard uses the Prometheus metrics emitted by
+`sheet-workflows` and `sheet-bot`; it does not include principal, invocation, or
+other high-cardinality values as metric labels.
+
+Disable either feature in an environment that does not install the matching
+Grafana or Prometheus Operator resources:
+
+```yaml
+monitoring:
+  migrationDashboard:
+    enabled: false
+  rolloutGateAlerts:
+    enabled: false
 ```
 
 ## Scheduling
@@ -267,6 +298,8 @@ The default Infisical paths are:
 - `/tiara-stack/sheet-apis-secret-path`
 - `/tiara-stack/sheet-bot-secret`
 - `/tiara-stack/sheet-workflows-secret`
+- `/tiara-stack/sheet-workflows-runner-secret` (production overlay)
+- `/tiara-stack/sheet-workflows-browser-runner-secret` (production overlay)
 - `/tiara-stack/sdbs-secret`
 - `/tiara-stack/sheet-ingress-server-secret`
 - `/tiara-stack/sheet-web-secret`

@@ -1,4 +1,4 @@
-import { Effect, Layer, Predicate, Schema } from "effect";
+import { Effect, Layer, Metric, Predicate, Schema } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { InvocationConflict } from "effect-zero-workflow/contract";
 import {
@@ -39,6 +39,7 @@ import {
 } from "sheet-workflow-contracts";
 import type { SheetWorkflowZeroContext } from "sheet-zero-server";
 import { config } from "@/config";
+import { sheetWorkflowsHttpEnqueues } from "@/metrics";
 import {
   ownerKeyForEffectivePrincipal,
   ReadOnlyWorkflowAuthorization,
@@ -91,6 +92,15 @@ const makeWorkflowInvocationStore = (
         invocation.fingerprint.invocationId,
       );
 
+      const recordEnqueue = (outcome: "accepted" | "conflict" | "unavailable") =>
+        Metric.update(
+          Metric.withAttributes(sheetWorkflowsHttpEnqueues, {
+            contract: invocation.fingerprint.contractIdentity,
+            outcome,
+          }),
+          1,
+        );
+
       return yield* store
         .enqueue({
           runId: invocation.fingerprint.invocationId,
@@ -103,6 +113,12 @@ const makeWorkflowInvocationStore = (
           payload: replayStablePayload as unknown as WorkflowJson,
         })
         .pipe(
+          Effect.tap(() => recordEnqueue("accepted")),
+          Effect.tapError((error) =>
+            recordEnqueue(
+              Predicate.isTagged("InvocationConflict")(error) ? "conflict" : "unavailable",
+            ),
+          ),
           Effect.as(invocation.fingerprint),
           Effect.mapError((error) =>
             Schema.is(InvocationConflict)(error)

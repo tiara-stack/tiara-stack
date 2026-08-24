@@ -434,6 +434,10 @@ imagePullSecrets:
       port: workflows-svc
     - app: sheet-workflows-runner
       port: workflows-svc
+    {{- if .Values.ingress.enabled }}
+    - namespace: {{ .Values.ingress.controllerNamespace }}
+      port: workflows-svc
+    {{- end }}
 - key: sheetWorkflowsRunner
   name: sheet-workflows-runner
   imageName: sheet-workflows
