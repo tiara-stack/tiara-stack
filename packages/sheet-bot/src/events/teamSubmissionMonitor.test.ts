@@ -2,8 +2,8 @@ import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 import {
   looksLikeTeamSubmissionContent,
-  makeTeamSubmissionDispatchPayload,
   makeTeamSubmissionMessageHandler,
+  makeTeamSubmissionWorkflowRequest,
 } from "./teamSubmissionMonitor";
 
 const message = {
@@ -56,36 +56,45 @@ describe("looksLikeTeamSubmissionContent", () => {
   });
 });
 
-describe("makeTeamSubmissionDispatchPayload", () => {
-  it("builds create and update payloads for unpinned team messages", () => {
-    expect(makeTeamSubmissionDispatchPayload(message)).toMatchObject({
-      dispatchRequestId: "discord-team-submission:guild-1:channel-1:message-1:create",
+describe("makeTeamSubmissionWorkflowRequest", () => {
+  it("builds stable create and update requests for unpinned team messages", () => {
+    const created = makeTeamSubmissionWorkflowRequest(message);
+    const edited = makeTeamSubmissionWorkflowRequest({
+      ...message,
+      edited_timestamp: "2026-07-21T08:00:00.000Z",
+    });
+
+    expect(created?.input).toMatchObject({
       authorDisplayName: "Sheet Alice",
       content: "ff: 150/700",
+      sourceMessage: {
+        conversation: {
+          workspace: {
+            client: { platform: "discord", clientId: "discord-main" },
+            workspaceId: "guild-1",
+          },
+          conversationId: "channel-1",
+        },
+        messageId: "message-1",
+      },
     });
-    expect(
-      makeTeamSubmissionDispatchPayload({
-        ...message,
-        edited_timestamp: "2026-07-21T08:00:00.000Z",
-      }),
-    ).toMatchObject({
-      dispatchRequestId:
-        "discord-team-submission:guild-1:channel-1:message-1:2026-07-21T08:00:00.000Z",
-    });
-    expect(makeTeamSubmissionDispatchPayload({ ...message, pinned: undefined })).not.toBeNull();
+    expect(created?.invocationId).toBe(makeTeamSubmissionWorkflowRequest(message)?.invocationId);
+    expect(edited?.input.editedAt).toEqual(new Date("2026-07-21T08:00:00.000Z"));
+    expect(edited?.invocationId).not.toBe(created?.invocationId);
+    expect(makeTeamSubmissionWorkflowRequest({ ...message, pinned: undefined })).not.toBeNull();
   });
 
   it("rejects pinned, bot-authored, direct, empty, and conversational messages", () => {
-    expect(makeTeamSubmissionDispatchPayload({ ...message, pinned: true })).toBeNull();
+    expect(makeTeamSubmissionWorkflowRequest({ ...message, pinned: true })).toBeNull();
     expect(
-      makeTeamSubmissionDispatchPayload({
+      makeTeamSubmissionWorkflowRequest({
         ...message,
         author: { ...message.author, bot: true },
       }),
     ).toBeNull();
-    expect(makeTeamSubmissionDispatchPayload({ ...message, guild_id: null })).toBeNull();
-    expect(makeTeamSubmissionDispatchPayload({ ...message, content: " " })).toBeNull();
-    expect(makeTeamSubmissionDispatchPayload({ ...message, content: "will do!" })).toBeNull();
+    expect(makeTeamSubmissionWorkflowRequest({ ...message, guild_id: null })).toBeNull();
+    expect(makeTeamSubmissionWorkflowRequest({ ...message, content: " " })).toBeNull();
+    expect(makeTeamSubmissionWorkflowRequest({ ...message, content: "will do!" })).toBeNull();
   });
 });
 
@@ -100,9 +109,9 @@ describe("makeTeamSubmissionMessageHandler", () => {
           availabilityLookups.push([workspaceId, conversationId]);
           return enabled;
         }),
-      dispatch: (payload) =>
+      enqueue: (input, invocationId) =>
         Effect.sync(() => {
-          dispatches.push(payload);
+          dispatches.push({ input, invocationId });
         }),
     });
     return { availabilityLookups, dispatches, handleMessage };
@@ -158,9 +167,9 @@ describe("makeTeamSubmissionMessageHandler", () => {
       const handleMessage = makeTeamSubmissionMessageHandler({
         clientId: "discord-main",
         isTeamSubmissionEnabled: () => Effect.fail("lookup failed"),
-        dispatch: (payload) =>
+        enqueue: (input, invocationId) =>
           Effect.sync(() => {
-            dispatches.push(payload);
+            dispatches.push({ input, invocationId });
           }),
       });
 
@@ -181,9 +190,9 @@ describe("makeTeamSubmissionMessageHandler", () => {
             attempts += 1;
             return attempts === 1 ? Effect.fail("lookup failed") : Effect.succeed(true);
           }),
-        dispatch: (payload) =>
+        enqueue: (input, invocationId) =>
           Effect.sync(() => {
-            dispatches.push(payload);
+            dispatches.push({ input, invocationId });
           }),
       });
 
@@ -199,7 +208,7 @@ describe("makeTeamSubmissionMessageHandler", () => {
       const handleMessage = makeTeamSubmissionMessageHandler({
         clientId: "discord-main",
         isTeamSubmissionEnabled: () => Effect.succeed(true),
-        dispatch: () => Effect.fail("dispatch failed"),
+        enqueue: () => Effect.fail("enqueue failed"),
       });
 
       yield* handleMessage(message);
@@ -209,19 +218,22 @@ describe("makeTeamSubmissionMessageHandler", () => {
   it.live("retries a transient workflow dispatch failure", () =>
     Effect.gen(function* () {
       let attempts = 0;
+      const invocationIds: string[] = [];
       const handleMessage = makeTeamSubmissionMessageHandler({
         clientId: "discord-main",
         isTeamSubmissionEnabled: () => Effect.succeed(true),
-        dispatch: () =>
+        enqueue: (_input, invocationId) =>
           Effect.suspend(() => {
+            invocationIds.push(invocationId);
             attempts += 1;
-            return attempts === 1 ? Effect.fail("dispatch failed") : Effect.void;
+            return attempts === 1 ? Effect.fail("enqueue failed") : Effect.void;
           }),
       });
 
       yield* handleMessage(message);
 
       expect(attempts).toBe(2);
+      expect(invocationIds[0]).toBe(invocationIds[1]);
     }),
   );
 });

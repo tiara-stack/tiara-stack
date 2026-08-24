@@ -1,51 +1,54 @@
 import { describe, expect, it } from "@effect/vitest";
-import { DateTime } from "effect";
-import type { ServicesStatusResponse } from "sheet-ingress-api/sheet-apis-rpc";
-import {
-  areUpdateAnnouncementServicesHealthy,
-  makeUpdateAnnouncementDispatchPayloads,
-  updateAnnouncements,
-} from "./updateAnnouncements";
+import { makeUpdateAnnouncementWorkflowRequests, updateAnnouncements } from "./updateAnnouncements";
 
-describe("makeUpdateAnnouncementDispatchPayloads", () => {
-  it("builds a payload for an announcement after the bot joined", () => {
-    expect(
-      makeUpdateAnnouncementDispatchPayloads({
-        id: "guild-1",
-        name: "Guild One",
-        joined_at: "2026-06-04T16:59:59.999Z",
-        system_channel_id: "system-channel",
-      }),
-    ).toEqual([
+describe("makeUpdateAnnouncementWorkflowRequests", () => {
+  it("builds stable workflow requests for announcements after the bot joined", () => {
+    const requests = makeUpdateAnnouncementWorkflowRequests({
+      id: "guild-1",
+      name: "Guild One",
+      joined_at: "2026-06-04T16:59:59.999Z",
+      system_channel_id: "system-channel",
+    });
+
+    expect(requests.map(({ input }) => input)).toEqual([
       {
-        client: { platform: "discord", clientId: "discord-main" },
-        dispatchRequestId: "discord-update-announcement:guild-1:update-announcements-2026-06-05",
         workspaceId: "guild-1",
         workspaceName: "Guild One",
-        joinedAt: "2026-06-04T16:59:59.999Z",
+        joinedAt: new Date("2026-06-04T16:59:59.999Z"),
         systemConversationId: "system-channel",
-        announcement: updateAnnouncements[0],
+        announcement: {
+          ...updateAnnouncements[0],
+          publishedAt: new Date(updateAnnouncements[0].publishedAt),
+        },
       },
       {
-        client: { platform: "discord", clientId: "discord-main" },
-        dispatchRequestId: "discord-update-announcement:guild-1:auth-update-2026-06-12",
         workspaceId: "guild-1",
         workspaceName: "Guild One",
-        joinedAt: "2026-06-04T16:59:59.999Z",
+        joinedAt: new Date("2026-06-04T16:59:59.999Z"),
         systemConversationId: "system-channel",
-        announcement: updateAnnouncements[1],
+        announcement: {
+          ...updateAnnouncements[1],
+          publishedAt: new Date(updateAnnouncements[1].publishedAt),
+        },
       },
       {
-        client: { platform: "discord", clientId: "discord-main" },
-        dispatchRequestId:
-          "discord-update-announcement:guild-1:team-submission-confirmations-2026-07-08",
         workspaceId: "guild-1",
         workspaceName: "Guild One",
-        joinedAt: "2026-06-04T16:59:59.999Z",
+        joinedAt: new Date("2026-06-04T16:59:59.999Z"),
         systemConversationId: "system-channel",
-        announcement: updateAnnouncements[2],
+        announcement: {
+          ...updateAnnouncements[2],
+          publishedAt: new Date(updateAnnouncements[2].publishedAt),
+        },
       },
     ]);
+    expect(requests[0]?.invocationId).toBe(
+      makeUpdateAnnouncementWorkflowRequests({
+        id: "guild-1",
+        name: "Renamed Guild",
+        joined_at: "2026-06-04T16:59:59.999Z",
+      })[0]?.invocationId,
+    );
   });
 
   it("keeps multiple payloads in announcement order", () => {
@@ -65,14 +68,14 @@ describe("makeUpdateAnnouncementDispatchPayloads", () => {
     ];
 
     expect(
-      makeUpdateAnnouncementDispatchPayloads(
+      makeUpdateAnnouncementWorkflowRequests(
         {
           id: "guild-1",
           name: "Guild One",
           joined_at: "2026-06-04T16:00:00.000Z",
         },
         announcements,
-      ).map((payload) => payload.announcement.id),
+      ).map((request) => request.input.announcement.id),
     ).toEqual(["first", "second"]);
   });
 
@@ -87,7 +90,7 @@ describe("makeUpdateAnnouncementDispatchPayloads", () => {
     ];
 
     expect(
-      makeUpdateAnnouncementDispatchPayloads(
+      makeUpdateAnnouncementWorkflowRequests(
         {
           id: "guild-1",
           name: "Guild One",
@@ -100,7 +103,7 @@ describe("makeUpdateAnnouncementDispatchPayloads", () => {
 
   it("ignores unavailable guilds and invalid join timestamps", () => {
     expect(
-      makeUpdateAnnouncementDispatchPayloads({
+      makeUpdateAnnouncementWorkflowRequests({
         id: "guild-1",
         name: "Guild One",
         joined_at: "2026-06-04T16:59:59.999Z",
@@ -108,40 +111,11 @@ describe("makeUpdateAnnouncementDispatchPayloads", () => {
       }),
     ).toEqual([]);
     expect(
-      makeUpdateAnnouncementDispatchPayloads({
+      makeUpdateAnnouncementWorkflowRequests({
         id: "guild-1",
         name: "Guild One",
         joined_at: "not-a-date",
       }),
     ).toEqual([]);
-  });
-});
-
-describe("areUpdateAnnouncementServicesHealthy", () => {
-  const makeStatus = (
-    overallStatus: ServicesStatusResponse["overallStatus"],
-    serviceStatuses: ReadonlyArray<ServicesStatusResponse["services"][number]["status"]>,
-  ) => {
-    const checkedAt = DateTime.makeUnsafe("2026-06-06T00:00:00.000Z");
-
-    return {
-      overallStatus,
-      checkedAt,
-      services: serviceStatuses.map((status, index) => ({
-        name: `service-${index}`,
-        url: `http://service-${index}/ready`,
-        status,
-        httpStatus: status === "ok" ? 200 : 503,
-        latencyMs: 1,
-        checkedAt,
-        error: status === "ok" ? null : "HTTP 503",
-      })),
-    } satisfies ServicesStatusResponse;
-  };
-
-  it("requires the overall status and every dependency to be healthy", () => {
-    expect(areUpdateAnnouncementServicesHealthy(makeStatus("ok", ["ok", "ok"]))).toBe(true);
-    expect(areUpdateAnnouncementServicesHealthy(makeStatus("degraded", ["ok", "ok"]))).toBe(false);
-    expect(areUpdateAnnouncementServicesHealthy(makeStatus("ok", ["ok", "down"]))).toBe(false);
   });
 });

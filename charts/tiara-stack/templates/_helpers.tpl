@@ -334,6 +334,13 @@ imagePullSecrets:
       secretKey: sheetIngressBaseUrl
     - name: SHEET_WORKFLOWS_BASE_URL
       value: "http://{{ $sheetWorkflowsServiceName }}"
+    - name: ZERO_CACHE_SERVER
+      secretName: {{ $sheetApisSecretName }}
+      secretKey: zeroCacheServer
+    - name: ZERO_CACHE_USER_ID
+      value: "system:serviceaccount:$(POD_NAMESPACE):sheet-bot"
+    - name: ZERO_OAUTH_AUDIENCE
+      value: sheet-db-server
     - name: SHEET_AUTH_ISSUER
       secretKey: sheetAuthIssuer
     - name: SHEET_AUTH_OAUTH_CLIENT_ID

@@ -1,9 +1,15 @@
 import { DiscordGateway } from "dfx/gateway";
 import { Cache, Duration, Effect, Exit, Layer, Predicate, Schedule, Schema } from "effect";
-import type { TeamSubmissionDispatchPayload } from "sheet-ingress-api/sheet-apis-rpc";
 import { config } from "../config";
 import { discordGatewayLayer } from "../discord/gateway";
-import { SheetApisClient, SheetWorkflowsClient, SheetWorkflowsRequestContext } from "../services";
+import {
+  enqueueTeamSubmissionsProcessWorkflow,
+  SheetWorkflowHttpClient,
+  SheetZeroClient,
+  type TeamSubmissionsProcessInput,
+  type TeamSubmissionsProcessReference,
+} from "../services";
+import { makeDeterministicWorkflowInvocationId } from "../utils/workflowInvocationId";
 
 const DiscordMessageAuthor = Schema.Struct({
   id: Schema.String,
@@ -98,39 +104,64 @@ const dispatchableMessageParts = (message: DiscordMessageEvent) => {
     : dispatchableGuildContent(messageGuildId(message), content);
 };
 
-export const makeTeamSubmissionDispatchPayload = (
+export const makeTeamSubmissionWorkflowRequest = (
   message: DiscordMessageEvent,
   clientId = "discord-main",
-): TeamSubmissionDispatchPayload | null => {
+) => {
   const parts = dispatchableMessageParts(message);
   if (parts === null) {
     return null;
   }
 
+  const editedAt = Predicate.isString(message.edited_timestamp)
+    ? new Date(message.edited_timestamp)
+    : null;
+  if (Predicate.isDate(editedAt) && !Number.isFinite(editedAt.getTime())) {
+    return null;
+  }
+  const eventIdentity = Predicate.isDate(editedAt) ? editedAt.toISOString() : "create";
   return {
-    client: { platform: "discord", clientId },
-    dispatchRequestId: `discord-team-submission:${parts.guildId}:${message.channel_id}:${message.id}:${message.edited_timestamp ?? "create"}`,
-    workspaceId: parts.guildId,
-    conversationId: message.channel_id,
-    messageId: message.id,
-    authorId: message.author.id,
-    authorDisplayName: authorDisplayName(message),
-    content: parts.content,
-    editedAt: message.edited_timestamp,
+    input: {
+      sourceMessage: {
+        conversation: {
+          workspace: {
+            client: { platform: "discord", clientId },
+            workspaceId: parts.guildId,
+          },
+          conversationId: message.channel_id,
+        },
+        messageId: message.id,
+      },
+      authorId: message.author.id,
+      authorDisplayName: authorDisplayName(message),
+      content: parts.content,
+      editedAt,
+    } satisfies TeamSubmissionsProcessInput,
+    invocationId: makeDeterministicWorkflowInvocationId([
+      "discord-team-submission",
+      clientId,
+      parts.guildId,
+      message.channel_id,
+      message.id,
+      eventIdentity,
+    ]),
   };
 };
 
 export const makeTeamSubmissionMessageHandler = ({
   clientId,
   isTeamSubmissionEnabled,
-  dispatch,
+  enqueue,
 }: {
   readonly clientId: string;
   readonly isTeamSubmissionEnabled: (
     workspaceId: string,
     conversationId: string,
   ) => Effect.Effect<boolean, unknown>;
-  readonly dispatch: (payload: TeamSubmissionDispatchPayload) => Effect.Effect<unknown, unknown>;
+  readonly enqueue: (
+    input: TeamSubmissionsProcessInput,
+    invocationId: TeamSubmissionsProcessReference["invocationId"],
+  ) => Effect.Effect<unknown, unknown>;
 }) =>
   Effect.fn("TeamSubmissionMonitor.handleMessage")(function* (event: unknown) {
     const message = yield* Schema.decodeUnknownEffect(DiscordMessageEvent)(event).pipe(
@@ -144,8 +175,8 @@ export const makeTeamSubmissionMessageHandler = ({
     if (message === null) {
       return;
     }
-    const payload = makeTeamSubmissionDispatchPayload(message, clientId);
-    if (payload === null) {
+    const request = makeTeamSubmissionWorkflowRequest(message, clientId);
+    if (request === null) {
       const guildId = messageGuildId(message);
       const content = messageContent(message);
       if (
@@ -164,17 +195,17 @@ export const makeTeamSubmissionMessageHandler = ({
       }
       return;
     }
-    const featureEnabled = yield* isTeamSubmissionEnabled(
-      payload.workspaceId,
-      payload.conversationId,
-    ).pipe(
+    const sourceMessage = request.input.sourceMessage;
+    const workspaceId = sourceMessage.conversation.workspace.workspaceId;
+    const conversationId = sourceMessage.conversation.conversationId;
+    const featureEnabled = yield* isTeamSubmissionEnabled(workspaceId, conversationId).pipe(
       Effect.retry(retryPolicy),
       Effect.catchCause((cause) =>
         Effect.logWarning("Failed to look up team submission availability").pipe(
           Effect.annotateLogs({
-            workspaceId: payload.workspaceId,
-            conversationId: payload.conversationId,
-            messageId: payload.messageId,
+            workspaceId,
+            conversationId,
+            messageId: sourceMessage.messageId,
           }),
           Effect.andThen(Effect.logDebug(cause)),
           Effect.as(false),
@@ -184,22 +215,23 @@ export const makeTeamSubmissionMessageHandler = ({
     if (!featureEnabled) {
       yield* Effect.logDebug("Ignored disabled team submission monitor event").pipe(
         Effect.annotateLogs({
-          workspaceId: payload.workspaceId,
-          conversationId: payload.conversationId,
+          workspaceId,
+          conversationId,
           disposition: "disabled",
         }),
       );
       return;
     }
 
-    yield* dispatch(payload).pipe(
+    yield* enqueue(request.input, request.invocationId).pipe(
       Effect.retry(retryPolicy),
       Effect.catchCause((cause) =>
         Effect.logWarning("Failed to dispatch team submission monitor event").pipe(
           Effect.annotateLogs({
-            workspaceId: payload.workspaceId,
-            conversationId: payload.conversationId,
-            messageId: payload.messageId,
+            workspaceId,
+            conversationId,
+            messageId: sourceMessage.messageId,
+            invocationId: request.invocationId,
           }),
           Effect.andThen(Effect.logDebug(cause)),
         ),
@@ -210,8 +242,8 @@ export const makeTeamSubmissionMessageHandler = ({
 export const teamSubmissionMonitorEventLayer = Layer.effectDiscard(
   Effect.gen(function* () {
     const gateway = yield* DiscordGateway;
-    const sheetApisClient = yield* SheetApisClient;
-    const sheetWorkflowsClient = yield* SheetWorkflowsClient;
+    const sheetZeroClient = yield* SheetZeroClient;
+    const workflowClient = yield* SheetWorkflowHttpClient;
     const clientId = yield* config.sheetBotClientId;
     const availabilityCache = yield* Cache.makeWith<string, boolean, unknown>(
       Effect.fn("TeamSubmissionMonitor.availabilityLookup")(function* (key) {
@@ -220,7 +252,7 @@ export const teamSubmissionMonitorEventLayer = Layer.effectDiscard(
           return false;
         }
 
-        return yield* sheetApisClient.isTeamSubmissionEnabled(workspaceId, conversationId);
+        return yield* sheetZeroClient.isTeamSubmissionEnabled(workspaceId, conversationId);
       }),
       {
         capacity: 10_000,
@@ -235,10 +267,8 @@ export const teamSubmissionMonitorEventLayer = Layer.effectDiscard(
       clientId,
       isTeamSubmissionEnabled: (workspaceId, conversationId) =>
         Cache.get(availabilityCache, `${workspaceId}:${conversationId}`),
-      dispatch: (payload) =>
-        SheetWorkflowsRequestContext.asService(() =>
-          sheetWorkflowsClient.get().dispatch.teamSubmission({ payload }),
-        )(),
+      enqueue: (input, invocationId) =>
+        enqueueTeamSubmissionsProcessWorkflow(workflowClient, input, { invocationId }),
     });
 
     yield* gateway.handleDispatch("MESSAGE_CREATE", handleMessage).pipe(Effect.forkScoped);
@@ -246,6 +276,6 @@ export const teamSubmissionMonitorEventLayer = Layer.effectDiscard(
   }),
 ).pipe(
   Layer.provide(
-    Layer.mergeAll(discordGatewayLayer, SheetApisClient.layer, SheetWorkflowsClient.layer),
+    Layer.mergeAll(discordGatewayLayer, SheetZeroClient.layer, SheetWorkflowHttpClient.layer),
   ),
 );

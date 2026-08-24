@@ -7,7 +7,6 @@ const git = simpleGit();
 const date = lightFormat(new Date(), "yyyyMMdd");
 const hash = (await git.revparse("HEAD").catch(() => "unknown")).substring(0, 7);
 const alwaysBundleDependencies = () => true;
-const sheetDbSchemaModels = fileURLToPath(import.meta.resolve("sheet-db-schema/models"));
 const declarationFilePattern = /\.d\.[cm]?ts$/;
 const effectDeclarationExternalPlugin = () => ({
   name: "sheet-bot:external-effect-dts",
@@ -50,9 +49,6 @@ export default app({
       BUILD_DATE: date,
       BUILD_HASH: hash,
       BUILD_VERSION: `${date}-${hash}`,
-    },
-    alias: {
-      "sheet-db-schema/models": sheetDbSchemaModels,
     },
     tsconfig: "tsconfig.build.json",
     plugins: [effectDeclarationExternalPlugin()],

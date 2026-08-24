@@ -29,29 +29,31 @@ import {
 } from "sheet-auth/oauth-resource-authorization";
 import { Unauthorized } from "typhoon-core/error";
 import {
+  AnnouncementsDeliverUpdate,
   CalculationsRecalculateSheet,
   SchedulesDeliverUserSchedule,
   ServicesDeliverStatus,
+  TeamSubmissionsDecide,
+  TeamSubmissionsProcess,
+  WorkspacesDeliverWelcome,
 } from "sheet-workflow-contracts";
-import {
-  CalculationSheetWorkflowContracts,
-  CalculationSheetWorkflowRegistrations,
-} from "@/workflows/calculations";
-import {
-  ScheduleSheetWorkflowContracts,
-  ScheduleSheetWorkflowRegistrations,
-} from "@/workflows/schedules";
-import {
-  ServiceSheetWorkflowContracts,
-  ServiceSheetWorkflowRegistrations,
-} from "@/workflows/services";
 import type { SheetWorkflowZeroContext } from "sheet-zero-server";
 import { config } from "@/config";
 import {
   ownerKeyForEffectivePrincipal,
   ReadOnlyWorkflowAuthorization,
 } from "@/workflows/readOnly/authorization";
-import { makeSheetWorkflowTransportHandler } from "@/workflows/shared/registration";
+import { makeSelectedWorkflowTransportHandler } from "@/workflows/selected/registry";
+
+export const sheetWorkflowHttpEnqueueContracts = Object.freeze([
+  ServicesDeliverStatus,
+  SchedulesDeliverUserSchedule,
+  CalculationsRecalculateSheet,
+  WorkspacesDeliverWelcome,
+  TeamSubmissionsProcess,
+  TeamSubmissionsDecide,
+  AnnouncementsDeliverUpdate,
+] as const);
 
 const observeUnavailable = (): Effect.Effect<never, WorkflowObservationError> =>
   Effect.fail(
@@ -209,23 +211,24 @@ export const workflowHttpRoutesLayer = Layer.unwrap(
   Effect.gen(function* () {
     const store = yield* WorkflowStore;
     const authorizer = yield* makeAuthorizer;
-    const handler = yield* makeSheetWorkflowTransportHandler(
-      [
-        ...ServiceSheetWorkflowContracts,
-        ...ScheduleSheetWorkflowContracts,
-        ...CalculationSheetWorkflowContracts,
-      ],
-      [
-        ...ServiceSheetWorkflowRegistrations,
-        ...ScheduleSheetWorkflowRegistrations,
-        ...CalculationSheetWorkflowRegistrations,
-      ],
-      makeWorkflowInvocationStore(store),
-    );
+    const handler = yield* makeSelectedWorkflowTransportHandler(makeWorkflowInvocationStore(store));
     const executor = workflowHttpServerExecutorFromHandler(handler);
     const statusRoute = makeWorkflowHttpRouteHandlers(ServicesDeliverStatus, executor);
     const scheduleRoute = makeWorkflowHttpRouteHandlers(SchedulesDeliverUserSchedule, executor);
     const calculationRoute = makeWorkflowHttpRouteHandlers(CalculationsRecalculateSheet, executor);
+    const welcomeRoute = makeWorkflowHttpRouteHandlers(WorkspacesDeliverWelcome, executor);
+    const processTeamSubmissionRoute = makeWorkflowHttpRouteHandlers(
+      TeamSubmissionsProcess,
+      executor,
+    );
+    const decideTeamSubmissionRoute = makeWorkflowHttpRouteHandlers(
+      TeamSubmissionsDecide,
+      executor,
+    );
+    const updateAnnouncementRoute = makeWorkflowHttpRouteHandlers(
+      AnnouncementsDeliverUpdate,
+      executor,
+    );
 
     return Layer.mergeAll(
       addWorkflowEnqueueRoute(statusRoute.routes.enqueue, authorizer, statusRoute.enqueue),
@@ -234,6 +237,22 @@ export const workflowHttpRoutesLayer = Layer.unwrap(
         calculationRoute.routes.enqueue,
         authorizer,
         calculationRoute.enqueue,
+      ),
+      addWorkflowEnqueueRoute(welcomeRoute.routes.enqueue, authorizer, welcomeRoute.enqueue),
+      addWorkflowEnqueueRoute(
+        processTeamSubmissionRoute.routes.enqueue,
+        authorizer,
+        processTeamSubmissionRoute.enqueue,
+      ),
+      addWorkflowEnqueueRoute(
+        decideTeamSubmissionRoute.routes.enqueue,
+        authorizer,
+        decideTeamSubmissionRoute.enqueue,
+      ),
+      addWorkflowEnqueueRoute(
+        updateAnnouncementRoute.routes.enqueue,
+        authorizer,
+        updateAnnouncementRoute.enqueue,
       ),
     );
   }),

@@ -263,6 +263,50 @@ export type ScreenshotsCaptureAndDeliverEnqueueError = Effect.Error<
   ReturnType<ScreenshotsCaptureAndDeliverEnqueue>
 >;
 
+export type WorkspacesDeliverWelcomeEnqueue =
+  SheetWorkflowHttpClients["workspaces"]["deliverWelcome"]["enqueue"];
+export type WorkspacesDeliverWelcomeInput = Parameters<WorkspacesDeliverWelcomeEnqueue>[0];
+export type WorkspacesDeliverWelcomeReference = Effect.Success<
+  ReturnType<WorkspacesDeliverWelcomeEnqueue>
+>;
+// fallow-ignore-next-line unused-type
+export type WorkspacesDeliverWelcomeEnqueueError = Effect.Error<
+  ReturnType<WorkspacesDeliverWelcomeEnqueue>
+>;
+
+export type TeamSubmissionsProcessEnqueue =
+  SheetWorkflowHttpClients["teamSubmissions"]["process"]["enqueue"];
+export type TeamSubmissionsProcessInput = Parameters<TeamSubmissionsProcessEnqueue>[0];
+export type TeamSubmissionsProcessReference = Effect.Success<
+  ReturnType<TeamSubmissionsProcessEnqueue>
+>;
+// fallow-ignore-next-line unused-type
+export type TeamSubmissionsProcessEnqueueError = Effect.Error<
+  ReturnType<TeamSubmissionsProcessEnqueue>
+>;
+
+export type TeamSubmissionsDecideEnqueue =
+  SheetWorkflowHttpClients["teamSubmissions"]["decide"]["enqueue"];
+export type TeamSubmissionsDecideInput = Parameters<TeamSubmissionsDecideEnqueue>[0];
+export type TeamSubmissionsDecideReference = Effect.Success<
+  ReturnType<TeamSubmissionsDecideEnqueue>
+>;
+// fallow-ignore-next-line unused-type
+export type TeamSubmissionsDecideEnqueueError = Effect.Error<
+  ReturnType<TeamSubmissionsDecideEnqueue>
+>;
+
+export type AnnouncementsDeliverUpdateEnqueue =
+  SheetWorkflowHttpClients["announcements"]["deliverUpdate"]["enqueue"];
+export type AnnouncementsDeliverUpdateInput = Parameters<AnnouncementsDeliverUpdateEnqueue>[0];
+export type AnnouncementsDeliverUpdateReference = Effect.Success<
+  ReturnType<AnnouncementsDeliverUpdateEnqueue>
+>;
+// fallow-ignore-next-line unused-type
+export type AnnouncementsDeliverUpdateEnqueueError = Effect.Error<
+  ReturnType<AnnouncementsDeliverUpdateEnqueue>
+>;
+
 type SheetWorkflowHttpRequestContextType = {
   readonly discordUserId: string;
 };
@@ -389,6 +433,66 @@ const makeDiscordUserToken = Effect.fn("SheetWorkflowHttpClient.makeDiscordUserT
   });
 });
 
+const makeWorkflowServiceHttpClient = Effect.fn("SheetWorkflowHttpClient.makeServiceHttpClient")(
+  function* ({
+    httpClient,
+    oauthClientId,
+    oauthClientSecret,
+    sheetAuthClient,
+  }: {
+    readonly httpClient: HttpClient.HttpClient;
+    readonly oauthClientId: string;
+    readonly oauthClientSecret: Redacted.Redacted<string>;
+    readonly sheetAuthClient: typeof SheetAuthClient.Service;
+  }) {
+    const serviceTokenKey = "sheet-bot.gateway";
+    return yield* makeCachedBearerTokenHttpClient({
+      httpClient,
+      cacheCapacity: 1,
+      lookupName: "SheetWorkflowHttpClient.serviceLookup",
+      lookup: () =>
+        createOAuthClientCredentialsToken(sheetAuthClient, {
+          clientId: oauthClientId,
+          clientSecret: oauthClientSecret,
+          scope: ["service", "workflow.enqueue"],
+          resource: workflowHttpAudience,
+        }).pipe(
+          Effect.flatMap((token) =>
+            Effect.gen(function* () {
+              const now = yield* Clock.currentTimeMillis;
+              const timeToLiveMs = token.expiresAt * 1000 - now - 60_000;
+              if (timeToLiveMs <= 0) {
+                return yield* Effect.fail(new Error("OAuth token has insufficient lifetime"));
+              }
+              return {
+                token: token.accessToken,
+                timeToLive: Duration.millis(timeToLiveMs),
+                failed: false,
+              };
+            }),
+          ),
+          Effect.matchEffect({
+            onSuccess: Effect.succeed,
+            onFailure: (error) =>
+              Effect.logError("Failed to create service OAuth token for sheet-workflows HTTP", {
+                ...errorLogDetails(error),
+              }).pipe(
+                Effect.as({
+                  token: undefined,
+                  timeToLive: Duration.minutes(1),
+                  failed: true,
+                }),
+              ),
+          }),
+        ),
+      missingToken: Effect.fail(
+        new Error("Failed to get service auth token for sheet-workflows HTTP request"),
+      ),
+      tokenEntry: (tokenCache) => Cache.get(tokenCache, serviceTokenKey),
+    });
+  },
+);
+
 export interface SheetWorkflowHttpClientShape {
   readonly enqueueServicesDeliverStatus: ServicesDeliverStatusEnqueue;
   readonly evaluateStatusRolloutGate: StatusRolloutGateEvaluation;
@@ -438,6 +542,10 @@ export interface SheetWorkflowHttpClientShape {
   readonly evaluateTeamsDeliverListRolloutGate: WorkflowRolloutGateEvaluation;
   readonly enqueueScreenshotsCaptureAndDeliver: ScreenshotsCaptureAndDeliverEnqueue;
   readonly evaluateScreenshotsCaptureAndDeliverRolloutGate: WorkflowRolloutGateEvaluation;
+  readonly enqueueWorkspacesDeliverWelcome: WorkspacesDeliverWelcomeEnqueue;
+  readonly enqueueTeamSubmissionsProcess: TeamSubmissionsProcessEnqueue;
+  readonly enqueueTeamSubmissionsDecide: TeamSubmissionsDecideEnqueue;
+  readonly enqueueAnnouncementsDeliverUpdate: AnnouncementsDeliverUpdateEnqueue;
 }
 
 export class SheetWorkflowHttpClient extends Context.Service<
@@ -515,8 +623,17 @@ export class SheetWorkflowHttpClient extends Context.Service<
           return yield* Cache.get(tokenCache, discordUserId);
         }),
     });
+    const serviceHttpClientWithToken = yield* makeWorkflowServiceHttpClient({
+      httpClient,
+      oauthClientId,
+      oauthClientSecret,
+      sheetAuthClient,
+    });
 
     const clients = makeSheetWorkflowHttpClients(httpClientWithToken, {
+      baseUrl,
+    });
+    const serviceClients = makeSheetWorkflowHttpClients(serviceHttpClientWithToken, {
       baseUrl,
     });
     const rolloutGateClient = makeRolloutGateHttpClient(httpClientWithToken, { baseUrl });
@@ -573,6 +690,10 @@ export class SheetWorkflowHttpClient extends Context.Service<
       evaluateTeamsDeliverListRolloutGate: rolloutGateClient.evaluate,
       enqueueScreenshotsCaptureAndDeliver: clients.screenshots.captureAndDeliver.enqueue,
       evaluateScreenshotsCaptureAndDeliverRolloutGate: rolloutGateClient.evaluate,
+      enqueueWorkspacesDeliverWelcome: serviceClients.workspaces.deliverWelcome.enqueue,
+      enqueueTeamSubmissionsProcess: serviceClients.teamSubmissions.process.enqueue,
+      enqueueTeamSubmissionsDecide: clients.teamSubmissions.decide.enqueue,
+      enqueueAnnouncementsDeliverUpdate: serviceClients.announcements.deliverUpdate.enqueue,
     } satisfies SheetWorkflowHttpClientShape;
   }),
 }) {
@@ -789,3 +910,27 @@ export const enqueueScreenshotsCaptureAndDeliverWorkflow = (
     readonly invocationId?: ScreenshotsCaptureAndDeliverReference["invocationId"];
   },
 ) => enqueueWorkflow(client.enqueueScreenshotsCaptureAndDeliver, input, options);
+
+export const enqueueWorkspacesDeliverWelcomeWorkflow = (
+  client: Pick<SheetWorkflowHttpClientShape, "enqueueWorkspacesDeliverWelcome">,
+  input: WorkspacesDeliverWelcomeInput,
+  options?: { readonly invocationId?: WorkspacesDeliverWelcomeReference["invocationId"] },
+) => enqueueWorkflow(client.enqueueWorkspacesDeliverWelcome, input, options);
+
+export const enqueueTeamSubmissionsProcessWorkflow = (
+  client: Pick<SheetWorkflowHttpClientShape, "enqueueTeamSubmissionsProcess">,
+  input: TeamSubmissionsProcessInput,
+  options?: { readonly invocationId?: TeamSubmissionsProcessReference["invocationId"] },
+) => enqueueWorkflow(client.enqueueTeamSubmissionsProcess, input, options);
+
+export const enqueueTeamSubmissionsDecideWorkflow = (
+  client: Pick<SheetWorkflowHttpClientShape, "enqueueTeamSubmissionsDecide">,
+  input: TeamSubmissionsDecideInput,
+  options?: { readonly invocationId?: TeamSubmissionsDecideReference["invocationId"] },
+) => enqueueWorkflow(client.enqueueTeamSubmissionsDecide, input, options);
+
+export const enqueueAnnouncementsDeliverUpdateWorkflow = (
+  client: Pick<SheetWorkflowHttpClientShape, "enqueueAnnouncementsDeliverUpdate">,
+  input: AnnouncementsDeliverUpdateInput,
+  options?: { readonly invocationId?: AnnouncementsDeliverUpdateReference["invocationId"] },
+) => enqueueWorkflow(client.enqueueAnnouncementsDeliverUpdate, input, options);

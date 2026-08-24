@@ -15,6 +15,7 @@ import {
   RolloutGateDecision,
   RolloutGateEvaluatePath,
   SheetWorkflowContracts,
+  WorkspaceId,
   type RolloutGateEvaluationRequest,
 } from "sheet-workflow-contracts";
 import type { SheetWorkflowHttpClientOptions } from "./options";
@@ -59,6 +60,12 @@ export const makeWorkflowInvocationId = (
   }).pipe(Effect.flatMap(decodeWorkflowInvocationId));
 
 export type WorkflowInvocationId = Schema.Schema.Type<typeof InvocationId>;
+
+export const workflowInvocationIdFromString = (value: string): WorkflowInvocationId =>
+  Schema.decodeUnknownSync(InvocationId)(value);
+
+export const workflowWorkspaceIdFromString = (value: string) =>
+  Schema.decodeUnknownSync(WorkspaceId)(value);
 
 export const makeSheetWorkflowHttpClients = (
   httpClient: HttpClient.HttpClient,

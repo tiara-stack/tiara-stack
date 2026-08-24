@@ -9,9 +9,11 @@ Owner: `@theerapakg`
 ## Accepted debt
 
 - `dupes.json`: immutable SQL migration snapshots, intentionally explicit API/command/test setup,
-  and remaining cross-package clones that do not yet have a stable shared ownership boundary.
-  Shared middleware, auth-client construction, and command registration are excluded from this
-  rationale because they use shared factories.
+  service Zero-client lifecycle code, deterministic workflow-key implementations, and remaining
+  cross-package clones that do not yet have a stable shared ownership boundary. Middleware and
+  auth-client production logic use shared factories where available; mirrored contract tests and
+  thin package-local service declarations remain baselined. Command registration uses shared
+  factories and is not accepted as duplicate debt.
 - `dead-code.json`: narrow exceptions remain. Four of the five dependency findings are configuration
   imports that Fallow's source scan does not see (`sheet-db-schema` in three Vite configs and
   `start-atom` in the sheet-web router). `sheet-workflow-contracts` is a runtime schema dependency

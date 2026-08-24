@@ -241,13 +241,6 @@ export const sheetPackageBoundaryPolicy = {
     {
       code: "forbidden-sheet-dependency",
       package: "sheet-bot",
-      target: "sheet-db-schema",
-      reason: "The bot currently obtains Zero contracts from the persistence package.",
-      removeWhen: "Switch the bot to the service client exposed by sheet-zero-api.",
-    },
-    {
-      code: "forbidden-sheet-dependency",
-      package: "sheet-bot",
       target: "sheet-ingress-api",
       reason: "The bot still uses combined ingress and workflow contracts.",
       removeWhen: "Adopt sheet-bot-api and sheet-workflow-http-client.",

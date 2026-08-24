@@ -1,24 +1,14 @@
 import { DiscordGateway } from "dfx/gateway";
 import { Duration, Effect, Layer, Predicate, Schedule, Schema } from "effect";
-import type {
-  UpdateAnnouncement,
-  UpdateAnnouncementDispatchPayload,
-} from "sheet-ingress-api/dispatch";
+import { workflowWorkspaceIdFromString } from "sheet-workflow-http-client";
 import { config } from "../config";
 import { discordGatewayLayer } from "../discord/gateway";
 import {
-  SheetWorkflowsClient,
-  SheetWorkflowsRequestContext,
-  type SheetWorkflowsServicesStatus,
+  enqueueAnnouncementsDeliverUpdateWorkflow,
+  SheetWorkflowHttpClient,
+  type AnnouncementsDeliverUpdateInput,
 } from "../services";
-import * as Data from "effect/Data";
-
-class SheetBotEventsUpdateAnnouncementsError extends Data.TaggedError(
-  "SheetBotEventsUpdateAnnouncementsError",
-)<{
-  readonly message: string;
-  readonly cause?: unknown;
-}> {}
+import { makeDeterministicWorkflowInvocationId } from "../utils/workflowInvocationId";
 
 const GuildCreateEvent = Schema.Struct({
   id: Schema.String,
@@ -29,6 +19,14 @@ const GuildCreateEvent = Schema.Struct({
 });
 
 type GuildCreateEvent = typeof GuildCreateEvent.Type;
+
+interface UpdateAnnouncementSource {
+  readonly id: string;
+  readonly publishedAt: string;
+  readonly title: string;
+  readonly description: string;
+  readonly color?: number;
+}
 
 export const updateAnnouncements = [
   {
@@ -55,13 +53,13 @@ export const updateAnnouncements = [
       "Team submission channels require the team-submission-confirmations workspace feature flag. When enabled, Tiara writes submissions with the reaction, progress embed, and submitter-owned confirm/reject flow; without it, messages are ignored.",
     color: 0x57f287,
   },
-] as const satisfies ReadonlyArray<UpdateAnnouncement>;
+] as const satisfies ReadonlyArray<UpdateAnnouncementSource>;
 
-export const makeUpdateAnnouncementDispatchPayloads = (
+export const makeUpdateAnnouncementWorkflowRequests = (
   guild: GuildCreateEvent,
-  announcements: ReadonlyArray<UpdateAnnouncement> = updateAnnouncements,
+  announcements: ReadonlyArray<UpdateAnnouncementSource> = updateAnnouncements,
   clientId = "discord-main",
-): ReadonlyArray<UpdateAnnouncementDispatchPayload> => {
+) => {
   if (guild.unavailable === true) {
     return [];
   }
@@ -77,39 +75,26 @@ export const makeUpdateAnnouncementDispatchPayloads = (
       return !Number.isNaN(publishedAtEpochMs) && publishedAtEpochMs > joinedAtEpochMs;
     })
     .map((announcement) => ({
-      client: { platform: "discord", clientId },
-      dispatchRequestId: `discord-update-announcement:${guild.id}:${announcement.id}`,
-      workspaceId: guild.id,
-      workspaceName: guild.name,
-      joinedAt: guild.joined_at,
-      ...(Predicate.isString(guild.system_channel_id)
-        ? { systemConversationId: guild.system_channel_id }
-        : {}),
-      announcement,
+      input: {
+        workspaceId: workflowWorkspaceIdFromString(guild.id),
+        workspaceName: guild.name,
+        joinedAt: new Date(joinedAtEpochMs),
+        ...(Predicate.isString(guild.system_channel_id)
+          ? { systemConversationId: guild.system_channel_id }
+          : {}),
+        announcement: {
+          ...announcement,
+          publishedAt: new Date(announcement.publishedAt),
+        },
+      } satisfies AnnouncementsDeliverUpdateInput,
+      invocationId: makeDeterministicWorkflowInvocationId([
+        "discord-update-announcement",
+        clientId,
+        guild.id,
+        announcement.id,
+      ]),
     }));
 };
-
-export const areUpdateAnnouncementServicesHealthy = (
-  status: SheetWorkflowsServicesStatus,
-): boolean =>
-  status.overallStatus === "ok" && status.services.every((service) => service.status === "ok");
-
-const waitForUpdateAnnouncementServices = Effect.fn("waitForUpdateAnnouncementServices")(function* (
-  sheetWorkflowsClient: typeof SheetWorkflowsClient.Service,
-) {
-  const status = yield* sheetWorkflowsClient.getServicesStatus();
-  if (areUpdateAnnouncementServicesHealthy(status)) {
-    return status;
-  }
-
-  const downServices = status.services
-    .filter((service) => service.status !== "ok")
-    .map((service) => service.name)
-    .join(", ");
-  return yield* new SheetBotEventsUpdateAnnouncementsError({
-    message: `Update announcement dependencies are not healthy: ${downServices}`,
-  });
-});
 
 const updateAnnouncementDispatchRetrySchedule = Schedule.spaced(Duration.seconds(5)).pipe(
   Schedule.take(12),
@@ -118,20 +103,8 @@ const updateAnnouncementDispatchRetrySchedule = Schedule.spaced(Duration.seconds
 export const updateAnnouncementsEventLayer = Layer.effectDiscard(
   Effect.gen(function* () {
     const gateway = yield* DiscordGateway;
-    const sheetWorkflowsClient = yield* SheetWorkflowsClient;
+    const workflowClient = yield* SheetWorkflowHttpClient;
     const clientId = yield* config.sheetBotClientId;
-    const waitForHealthyServices = yield* Effect.cached(
-      waitForUpdateAnnouncementServices(sheetWorkflowsClient).pipe(
-        Effect.tapError((error) =>
-          Effect.logWarning("Waiting to dispatch update announcements until services are healthy", {
-            error: String(error),
-          }),
-        ),
-        Effect.retry({
-          schedule: Schedule.spaced(Duration.seconds(5)),
-        }),
-      ),
-    );
 
     yield* gateway
       .handleDispatch("GUILD_CREATE", (guild) => {
@@ -148,30 +121,29 @@ export const updateAnnouncementsEventLayer = Layer.effectDiscard(
             return;
           }
 
-          const payloads = makeUpdateAnnouncementDispatchPayloads(
+          const requests = makeUpdateAnnouncementWorkflowRequests(
             decodedGuild,
             updateAnnouncements,
             clientId,
           );
-          if (payloads.length === 0) {
+          if (requests.length === 0) {
             return;
           }
 
-          yield* waitForHealthyServices;
-
           yield* Effect.forEach(
-            payloads,
-            (payload) =>
-              SheetWorkflowsRequestContext.asService(() =>
-                sheetWorkflowsClient.get().dispatch.updateAnnouncement({ payload }),
-              )().pipe(
+            requests,
+            (request) =>
+              enqueueAnnouncementsDeliverUpdateWorkflow(workflowClient, request.input, {
+                invocationId: request.invocationId,
+              }).pipe(
                 Effect.retry(updateAnnouncementDispatchRetrySchedule),
                 Effect.catchCause((cause) =>
-                  Effect.logWarning("Failed to dispatch update announcement").pipe(
+                  Effect.logWarning("Failed to enqueue update announcement workflow").pipe(
                     Effect.annotateLogs({
-                      workspaceId: payload.workspaceId,
-                      workspaceName: payload.workspaceName,
-                      announcementId: payload.announcement.id,
+                      workspaceId: request.input.workspaceId,
+                      workspaceName: request.input.workspaceName,
+                      announcementId: request.input.announcement.id,
+                      invocationId: request.invocationId,
                     }),
                     Effect.andThen(Effect.logDebug(cause)),
                   ),
@@ -183,4 +155,4 @@ export const updateAnnouncementsEventLayer = Layer.effectDiscard(
       })
       .pipe(Effect.forkScoped);
   }),
-).pipe(Layer.provide(Layer.mergeAll(discordGatewayLayer, SheetWorkflowsClient.layer)));
+).pipe(Layer.provide(Layer.mergeAll(discordGatewayLayer, SheetWorkflowHttpClient.layer)));

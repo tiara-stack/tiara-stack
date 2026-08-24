@@ -2,11 +2,6 @@ import { InteractionsRegistry } from "dfx/gateway";
 import { ButtonStyle, MessageFlags } from "discord-api-types/v10";
 import { Ix } from "dfx/index";
 import { Effect, Layer, Option, Schema } from "effect";
-import {
-  TEAM_SUBMISSION_CONFIRM_ACTION_ID,
-  TEAM_SUBMISSION_REJECT_ACTION_ID,
-} from "sheet-ingress-api/clientActions";
-import { DispatchTeamSubmissionButtonMethods } from "sheet-ingress-api/sheet-apis-rpc";
 import { discordGatewayLayer } from "../../discord/gateway";
 import {
   Interaction,
@@ -17,9 +12,21 @@ import {
   makeMessageComponent,
 } from "dfx-discord-utils/utils";
 import { discordApplicationLayer } from "../../discord/application";
-import { SheetWorkflowsClient, SheetWorkflowsRequestContext } from "@/services";
+import {
+  BotCapabilityStore,
+  enqueueTeamSubmissionsDecideWorkflow,
+  SheetWorkflowHttpClient,
+  SheetWorkflowHttpRequestContext,
+  type BotCapabilityStoreShape,
+  type TeamSubmissionsDecideInput,
+} from "@/services";
 import { interactionDeadlineEpochMs } from "@/utils/interactionDeadline";
 import { config } from "@/config";
+import { prefixedUnstorageLayer } from "@/discord/cache";
+import { makeDeterministicWorkflowInvocationId } from "@/utils/workflowInvocationId";
+
+const teamSubmissionConfirmActionId = "interaction:teamSubmission:confirm";
+const teamSubmissionRejectActionId = "interaction:teamSubmission:reject";
 
 const TeamSubmissionInteractionGuild = Schema.Struct({
   id: Schema.String,
@@ -41,16 +48,13 @@ type TeamSubmissionInteractionMessage = typeof TeamSubmissionInteractionMessage.
 
 const confirmButtonData = makeButtonData((button) =>
   button
-    .setCustomId(TEAM_SUBMISSION_CONFIRM_ACTION_ID)
+    .setCustomId(teamSubmissionConfirmActionId)
     .setLabel("Confirm")
     .setStyle(ButtonStyle.Success),
 );
 
 const rejectButtonData = makeButtonData((button) =>
-  button
-    .setCustomId(TEAM_SUBMISSION_REJECT_ACTION_ID)
-    .setLabel("Reject")
-    .setStyle(ButtonStyle.Danger),
+  button.setCustomId(teamSubmissionRejectActionId).setLabel("Reject").setStyle(ButtonStyle.Danger),
 );
 
 const optionOrDie = <A>(value: Option.Option<A>, message: string) =>
@@ -126,45 +130,133 @@ export const teamSubmissionButtonSourceDetails = (
     messageId: requireSourceMessageId(message),
   }).pipe(Effect.map(({ messageId }) => makeSourceDetails(message, guildId, messageId)));
 
-const makeTeamSubmissionButtonPayload = Effect.fn("teamSubmissionButton.makePayload")(function* () {
+// Interactive commands and buttons intentionally issue the same narrowly scoped capability shape.
+// fallow-ignore-next-line code-duplication
+export const makeTeamSubmissionResponseReferenceInput = ({
+  applicationId,
+  clientId,
+  interactionId,
+  interactionToken,
+  workspaceId,
+}: {
+  readonly applicationId: string;
+  readonly clientId: string;
+  readonly interactionId: string;
+  readonly interactionToken: string;
+  readonly workspaceId: string;
+}) => ({
+  applicationId,
+  client: { platform: "discord" as const, clientId },
+  interactionToken,
+  permittedOperations: ["respond" as const],
+  expiresAt: interactionDeadlineEpochMs(interactionId),
+  workspaceId,
+});
+
+export const makeTeamSubmissionDecideInput = ({
+  clientId,
+  confirmation,
+  decision,
+  responseReference,
+  source,
+}: {
+  readonly clientId: string;
+  readonly confirmation: {
+    readonly workspaceId: string;
+    readonly conversationId: string;
+    readonly messageId: string;
+  };
+  readonly decision: TeamSubmissionsDecideInput["decision"];
+  readonly responseReference: TeamSubmissionsDecideInput["responseReference"];
+  readonly source: {
+    readonly workspaceId: string;
+    readonly conversationId: string;
+    readonly messageId: string;
+  };
+}) =>
+  ({
+    responseReference,
+    sourceMessage: {
+      conversation: {
+        workspace: {
+          client: { platform: "discord", clientId },
+          workspaceId: source.workspaceId,
+        },
+        conversationId: source.conversationId,
+      },
+      messageId: source.messageId,
+    },
+    confirmationMessage: {
+      conversation: {
+        workspace: {
+          client: { platform: "discord", clientId },
+          workspaceId: confirmation.workspaceId,
+        },
+        conversationId: confirmation.conversationId,
+      },
+      messageId: confirmation.messageId,
+    },
+    decision,
+  }) satisfies TeamSubmissionsDecideInput;
+
+const makeTeamSubmissionButtonRequest = Effect.fn("teamSubmissionButton.makeRequest")(function* (
+  capabilityStore: Pick<BotCapabilityStoreShape, "issueResponseReference">,
+  decision: TeamSubmissionsDecideInput["decision"],
+) {
   const guildId = yield* interactionGuildId;
   const message = yield* interactionMessage;
   const source = yield* teamSubmissionButtonSourceDetails(message, guildId);
   const interactionToken = yield* InteractionToken;
   const interaction = yield* Ix.Interaction;
   const clientId = yield* config.sheetBotClientId;
+  const responseReference = yield* capabilityStore.issueResponseReference(
+    makeTeamSubmissionResponseReferenceInput({
+      applicationId: interactionToken.applicationId,
+      clientId,
+      interactionId: interaction.id,
+      interactionToken: interactionToken.token,
+      workspaceId: source.workspaceId,
+    }),
+  );
 
   return {
-    payload: {
-      client: { platform: "discord", clientId },
-      dispatchRequestId: interaction.id,
-      workspaceId: source.workspaceId,
-      conversationId: source.conversationId,
-      messageId: source.messageId,
-      confirmationMessageId: message.id,
-      interactionResponseToken: interactionToken.token,
-      interactionResponseDeadlineEpochMs: interactionDeadlineEpochMs(interaction.id),
-    },
+    input: makeTeamSubmissionDecideInput({
+      clientId,
+      source,
+      confirmation: {
+        workspaceId: guildId,
+        conversationId: message.channel_id,
+        messageId: message.id,
+      },
+      decision,
+      responseReference,
+    }),
+    invocationId: makeDeterministicWorkflowInvocationId([
+      "discord-team-submission-decision",
+      clientId,
+      interaction.id,
+    ]),
   };
 });
 
 const makeTeamSubmissionButtonHandler = (
   data: { readonly toJSON: () => { readonly custom_id: string } },
-  endpointName:
-    | typeof DispatchTeamSubmissionButtonMethods.confirm.endpointName
-    | typeof DispatchTeamSubmissionButtonMethods.reject.endpointName,
+  decision: TeamSubmissionsDecideInput["decision"],
 ) =>
   Effect.gen(function* () {
-    const sheetWorkflowsClient = yield* SheetWorkflowsClient;
+    const capabilityStore = yield* BotCapabilityStore;
+    const workflowClient = yield* SheetWorkflowHttpClient;
 
     return yield* makeButton(
       data.toJSON(),
-      SheetWorkflowsRequestContext.asInteractionUser(
-        Effect.fn(`teamSubmissionButton.${endpointName}`)(function* () {
+      SheetWorkflowHttpRequestContext.asInteractionUser(
+        Effect.fn(`teamSubmissionButton.${decision}`)(function* () {
           const response = yield* MessageComponentInteractionResponse;
           yield* response.deferReply({ flags: MessageFlags.Ephemeral });
-          const payload = yield* makeTeamSubmissionButtonPayload();
-          yield* sheetWorkflowsClient.get().dispatch[endpointName](payload);
+          const request = yield* makeTeamSubmissionButtonRequest(capabilityStore, decision);
+          yield* enqueueTeamSubmissionsDecideWorkflow(workflowClient, request.input, {
+            invocationId: request.invocationId,
+          });
         }),
       )(),
     );
@@ -173,14 +265,8 @@ const makeTeamSubmissionButtonHandler = (
 export const teamSubmissionButtonLayer = Layer.effectDiscard(
   Effect.gen(function* () {
     const registry = yield* InteractionsRegistry;
-    const confirm = yield* makeTeamSubmissionButtonHandler(
-      confirmButtonData,
-      DispatchTeamSubmissionButtonMethods.confirm.endpointName,
-    );
-    const reject = yield* makeTeamSubmissionButtonHandler(
-      rejectButtonData,
-      DispatchTeamSubmissionButtonMethods.reject.endpointName,
-    );
+    const confirm = yield* makeTeamSubmissionButtonHandler(confirmButtonData, "confirm");
+    const reject = yield* makeTeamSubmissionButtonHandler(rejectButtonData, "reject");
 
     yield* registry.register(
       Ix.builder
@@ -191,6 +277,11 @@ export const teamSubmissionButtonLayer = Layer.effectDiscard(
   }),
 ).pipe(
   Layer.provide(
-    Layer.mergeAll(discordGatewayLayer, discordApplicationLayer, SheetWorkflowsClient.layer),
+    Layer.mergeAll(
+      discordGatewayLayer,
+      discordApplicationLayer,
+      SheetWorkflowHttpClient.layer,
+      BotCapabilityStore.layer.pipe(Layer.provide(prefixedUnstorageLayer)),
+    ),
   ),
 );

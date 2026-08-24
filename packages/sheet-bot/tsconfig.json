@@ -21,14 +21,16 @@
       "sheet-auth/*": ["../sheet-auth/src/*"],
       "sheet-bot-api": ["../sheet-bot-api/src/index.ts"],
       "sheet-bot-api/*": ["../sheet-bot-api/src/*"],
-      "sheet-db-schema": ["../sheet-db-schema/src/schema.ts"],
-      "sheet-db-schema/*": ["../sheet-db-schema/src/*"],
       "sheet-ingress-api": ["../sheet-ingress-api/src/index.ts"],
       "sheet-ingress-api/*": ["../sheet-ingress-api/src/*"],
       "sheet-workflow-http-client": ["../sheet-workflow-http-client/src/index.ts"],
       "sheet-workflow-http-client/*": ["../sheet-workflow-http-client/src/*"],
+      "sheet-zero-api": ["../sheet-zero-api/src/index.ts"],
+      "sheet-zero-api/*": ["../sheet-zero-api/src/*"],
       "typhoon-core": ["../typhoon-core/src/index.ts"],
-      "typhoon-core/*": ["../typhoon-core/src/*"]
+      "typhoon-core/*": ["../typhoon-core/src/*"],
+      "typhoon-zero": ["../typhoon-zero/src/index.ts"],
+      "typhoon-zero/*": ["../typhoon-zero/src/*"]
     }
   },
   "references": [
@@ -42,16 +44,19 @@
       "path": "../sheet-bot-api"
     },
     {
-      "path": "../sheet-db-schema"
-    },
-    {
       "path": "../sheet-ingress-api"
     },
     {
       "path": "../sheet-workflow-http-client"
     },
     {
+      "path": "../sheet-zero-api"
+    },
+    {
       "path": "../typhoon-core"
+    },
+    {
+      "path": "../typhoon-zero"
     },
     {
       "path": "../tooling-config"

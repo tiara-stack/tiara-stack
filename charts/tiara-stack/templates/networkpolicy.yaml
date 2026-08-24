@@ -160,6 +160,10 @@ spec:
               app.kubernetes.io/instance: {{ .Release.Name }}
         - podSelector:
             matchLabels:
+              app: sheet-bot
+              app.kubernetes.io/instance: {{ .Release.Name }}
+        - podSelector:
+            matchLabels:
               app: sheet-ingress-server
               app.kubernetes.io/instance: {{ .Release.Name }}
         - namespaceSelector:
