@@ -1,5 +1,5 @@
 import { MessageFlags } from "discord-api-types/v10";
-import { Duration, Effect, Layer, Match, Predicate, Schema } from "effect";
+import { Duration, Effect, Layer, Match, Schema } from "effect";
 import {
   CommandHelper,
   InteractionResponse,
@@ -16,7 +16,6 @@ import {
   SheetWorkflowHttpRequestContext,
   SheetWorkflowsClient,
   SheetWorkflowsRequestContext,
-  type SchedulesDeliverUserScheduleEnqueueError,
   type SchedulesDeliverUserScheduleInput,
   type ScheduleRolloutGateEvaluation,
   type SheetWorkflowHttpClientShape,
@@ -33,6 +32,11 @@ import { registerSingleSubCommandLayer } from "../utils/registerGlobalCommandLay
 import { runSheetWorkflowsDispatch } from "../utils/sheetWorkflowsDispatch";
 import { interactionDeadlineEpochMs } from "../utils/interactionDeadline";
 import { makeWorkflowInvocationId } from "sheet-workflow-http-client";
+import {
+  isWorkflowTransportUnavailable,
+  reportAmbiguousWorkflowEnqueueOutcome,
+  reportDefinitiveWorkflowEnqueueFailure,
+} from "../utils/workflowEnqueueOutcome";
 
 const scheduleEnqueueRejectedMessage = "I couldn't start the schedule lookup. Please try again.";
 const scheduleEnqueueUnauthorizedMessage = "You aren't allowed to view that user's schedule.";
@@ -94,33 +98,6 @@ const issueScheduleResponseReference = (
     );
   });
 
-const reportDefinitiveEnqueueFailure = (
-  response: Pick<CommandInteractionResponseContext, "editReply">,
-  error: unknown,
-) =>
-  response
-    .editReply({
-      payload: {
-        content: Predicate.isTagged("WorkflowInvocationUnauthorized")(error)
-          ? scheduleEnqueueUnauthorizedMessage
-          : scheduleEnqueueRejectedMessage,
-      },
-    })
-    .pipe(
-      Effect.tap(() =>
-        Effect.logWarning("Sheet-bot schedule workflow enqueue was rejected", {
-          error,
-        }),
-      ),
-    );
-
-const isTransportUnavailable = (
-  error: unknown,
-): error is Extract<
-  SchedulesDeliverUserScheduleEnqueueError,
-  { readonly _tag: "WorkflowTransportUnavailable" }
-> => Predicate.isTagged("WorkflowTransportUnavailable")(error);
-
 const dispatchLegacySchedule = (
   response: Pick<CommandInteractionResponseContext, "editReply">,
   sheetWorkflowsClient: SheetWorkflowsClientShape,
@@ -137,7 +114,15 @@ const dispatchLegacySchedule = (
         });
       }),
     )(),
-  ).pipe(Effect.catch((error) => reportDefinitiveEnqueueFailure(response, error)));
+  ).pipe(
+    Effect.catch((error) =>
+      reportDefinitiveWorkflowEnqueueFailure(response, error, {
+        rejectedMessage: scheduleEnqueueRejectedMessage,
+        unauthorizedMessage: scheduleEnqueueUnauthorizedMessage,
+        operation: "schedule",
+      }),
+    ),
+  );
 
 export const enqueueSchedule = Effect.fn("schedule.enqueueWorkflow")(function* (
   response: Pick<CommandInteractionResponseContext, "editReply">,
@@ -186,19 +171,16 @@ export const enqueueSchedule = Effect.fn("schedule.enqueueWorkflow")(function* (
           ),
         )().pipe(
           Effect.catch((error) =>
-            isTransportUnavailable(error)
-              ? Effect.gen(function* () {
-                  yield* Effect.logWarning(
-                    "Sheet-bot schedule workflow enqueue outcome is ambiguous",
-                    {
-                      error,
-                    },
-                  );
-                  yield* response.editReply({
-                    payload: { content: scheduleEnqueuePendingMessage },
-                  });
+            isWorkflowTransportUnavailable(error)
+              ? reportAmbiguousWorkflowEnqueueOutcome(response, error, {
+                  pendingMessage: scheduleEnqueuePendingMessage,
+                  operation: "schedule",
                 })
-              : reportDefinitiveEnqueueFailure(response, error),
+              : reportDefinitiveWorkflowEnqueueFailure(response, error, {
+                  rejectedMessage: scheduleEnqueueRejectedMessage,
+                  unauthorizedMessage: scheduleEnqueueUnauthorizedMessage,
+                  operation: "schedule",
+                }),
           ),
         );
       }),

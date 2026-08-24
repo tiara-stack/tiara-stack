@@ -1,4 +1,4 @@
-import { Duration, Effect, Layer, Match, Option, Predicate, Schema, pipe } from "effect";
+import { Duration, Effect, Layer, Match, Option, Schema, pipe } from "effect";
 import { Ix } from "dfx/index";
 import { InteractionsRegistry } from "dfx/gateway";
 import {
@@ -35,6 +35,11 @@ import { makeDispatchBase, resolveChannelId, resolveGuildId } from "../utils/com
 import { runSheetWorkflowsDispatch } from "../utils/sheetWorkflowsDispatch";
 import { interactionDeadlineEpochMs } from "../utils/interactionDeadline";
 import { makeWorkflowInvocationId } from "sheet-workflow-http-client";
+import {
+  isWorkflowTransportUnavailable,
+  reportAmbiguousWorkflowEnqueueOutcome,
+  reportDefinitiveWorkflowEnqueueFailure,
+} from "../utils/workflowEnqueueOutcome";
 
 const checkinRolloutGateEvaluationTimeout = Duration.seconds(5);
 type CheckinWorkflowInput = Omit<CheckinsOpenInput, "responseReference">;
@@ -66,6 +71,8 @@ const checkinTestAutoEnqueueUnauthorizedMessage =
   "You aren't allowed to test auto check-in for that workspace.";
 const checkinEnqueuePendingMessage =
   "The check-in is still processing. I'll update this message when it finishes.";
+const checkinTestAutoEnqueuePendingMessage =
+  "The auto check-in test is still processing. I'll update this message when it finishes.";
 
 // The check-in and slot command adapters intentionally keep parallel response-reference shapes.
 // fallow-ignore-next-line code-duplication
@@ -112,30 +119,6 @@ const issueCheckinResponseReference = (
     );
   });
 
-const reportDefinitiveEnqueueFailure = (
-  response: Pick<CommandInteractionResponseContext, "editReply">,
-  error: unknown,
-  rejectedMessage: string,
-  unauthorizedMessage: string,
-  operation: string,
-) =>
-  response
-    .editReply({
-      payload: {
-        content: Predicate.isTagged("WorkflowInvocationUnauthorized")(error)
-          ? unauthorizedMessage
-          : rejectedMessage,
-      },
-    })
-    .pipe(
-      Effect.tap(() =>
-        Effect.logWarning(`Sheet-bot ${operation} workflow enqueue was rejected`, { error }),
-      ),
-    );
-
-const isTransportUnavailable = (error: unknown) =>
-  Predicate.isTagged("WorkflowTransportUnavailable")(error);
-
 const dispatchLegacyCheckin = (
   response: Pick<CommandInteractionResponseContext, "editReply">,
   sheetWorkflowsClient: SheetWorkflowsClientShape,
@@ -154,13 +137,11 @@ const dispatchLegacyCheckin = (
     )(),
   ).pipe(
     Effect.catch((error) =>
-      reportDefinitiveEnqueueFailure(
-        response,
-        error,
-        checkinEnqueueRejectedMessage,
-        checkinEnqueueUnauthorizedMessage,
-        "check-in",
-      ),
+      reportDefinitiveWorkflowEnqueueFailure(response, error, {
+        rejectedMessage: checkinEnqueueRejectedMessage,
+        unauthorizedMessage: checkinEnqueueUnauthorizedMessage,
+        operation: "check-in",
+      }),
     ),
   );
 
@@ -182,13 +163,11 @@ const dispatchLegacyCheckinTestAuto = (
     )(),
   ).pipe(
     Effect.catch((error) =>
-      reportDefinitiveEnqueueFailure(
-        response,
-        error,
-        checkinTestAutoEnqueueRejectedMessage,
-        checkinTestAutoEnqueueUnauthorizedMessage,
-        "auto check-in test",
-      ),
+      reportDefinitiveWorkflowEnqueueFailure(response, error, {
+        rejectedMessage: checkinTestAutoEnqueueRejectedMessage,
+        unauthorizedMessage: checkinTestAutoEnqueueUnauthorizedMessage,
+        operation: "auto check-in test",
+      }),
     ),
   );
 
@@ -240,23 +219,16 @@ export const enqueueCheckin = Effect.fn("checkin.enqueueWorkflow")(function* (
         )();
       }).pipe(
         Effect.catch((error) =>
-          isTransportUnavailable(error)
-            ? Effect.gen(function* () {
-                yield* Effect.logWarning(
-                  "Sheet-bot check-in workflow enqueue outcome is ambiguous",
-                  { error },
-                );
-                yield* response.editReply({
-                  payload: { content: checkinEnqueuePendingMessage },
-                });
+          isWorkflowTransportUnavailable(error)
+            ? reportAmbiguousWorkflowEnqueueOutcome(response, error, {
+                pendingMessage: checkinEnqueuePendingMessage,
+                operation: "check-in",
               })
-            : reportDefinitiveEnqueueFailure(
-                response,
-                error,
-                checkinEnqueueRejectedMessage,
-                checkinEnqueueUnauthorizedMessage,
-                "check-in",
-              ),
+            : reportDefinitiveWorkflowEnqueueFailure(response, error, {
+                rejectedMessage: checkinEnqueueRejectedMessage,
+                unauthorizedMessage: checkinEnqueueUnauthorizedMessage,
+                operation: "check-in",
+              }),
         ),
       ),
     ),
@@ -314,23 +286,16 @@ export const enqueueCheckinTestAuto = Effect.fn("checkin.testAutoEnqueueWorkflow
         )();
       }).pipe(
         Effect.catch((error) =>
-          isTransportUnavailable(error)
-            ? Effect.gen(function* () {
-                yield* Effect.logWarning(
-                  "Sheet-bot auto check-in test workflow enqueue outcome is ambiguous",
-                  { error },
-                );
-                yield* response.editReply({
-                  payload: { content: checkinEnqueuePendingMessage },
-                });
+          isWorkflowTransportUnavailable(error)
+            ? reportAmbiguousWorkflowEnqueueOutcome(response, error, {
+                pendingMessage: checkinTestAutoEnqueuePendingMessage,
+                operation: "auto check-in test",
               })
-            : reportDefinitiveEnqueueFailure(
-                response,
-                error,
-                checkinTestAutoEnqueueRejectedMessage,
-                checkinTestAutoEnqueueUnauthorizedMessage,
-                "auto check-in test",
-              ),
+            : reportDefinitiveWorkflowEnqueueFailure(response, error, {
+                rejectedMessage: checkinTestAutoEnqueueRejectedMessage,
+                unauthorizedMessage: checkinTestAutoEnqueueUnauthorizedMessage,
+                operation: "auto check-in test",
+              }),
         ),
       ),
     ),

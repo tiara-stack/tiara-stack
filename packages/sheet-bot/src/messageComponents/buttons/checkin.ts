@@ -1,7 +1,7 @@
 import { InteractionsRegistry } from "dfx/gateway";
 import { ButtonStyle, MessageFlags } from "discord-api-types/v10";
 import { Ix } from "dfx/index";
-import { Duration, Effect, Layer, Match, Option, pipe, Predicate } from "effect";
+import { Duration, Effect, Layer, Match, Option, pipe } from "effect";
 import { CHECKIN_ACTION_ID } from "sheet-ingress-api/clientActions";
 import { discordGatewayLayer } from "../../discord/gateway";
 import { resolveGuildId } from "@/utils/commandHelpers";
@@ -31,6 +31,11 @@ import { discordApplicationLayer } from "../../discord/application";
 import { interactionDeadlineEpochMs } from "@/utils/interactionDeadline";
 import { runSheetWorkflowsDispatch } from "@/utils/sheetWorkflowsDispatch";
 import { makeWorkflowInvocationId } from "sheet-workflow-http-client";
+import {
+  isWorkflowTransportUnavailable,
+  reportAmbiguousWorkflowEnqueueOutcome,
+  reportDefinitiveWorkflowEnqueueFailure,
+} from "@/utils/workflowEnqueueOutcome";
 
 const checkinButtonRolloutGateEvaluationTimeout = Duration.seconds(5);
 const checkinButtonEnqueueRejectedMessage = "I couldn't process your check-in. Please try again.";
@@ -109,24 +114,6 @@ const issueCheckinButtonResponseReference = (
     );
   });
 
-const reportDefinitiveEnqueueFailure = (
-  response: Pick<CommandInteractionResponseContext, "editReply">,
-  error: unknown,
-) =>
-  response
-    .editReply({
-      payload: {
-        content: Predicate.isTagged("WorkflowInvocationUnauthorized")(error)
-          ? checkinButtonEnqueueUnauthorizedMessage
-          : checkinButtonEnqueueRejectedMessage,
-      },
-    })
-    .pipe(
-      Effect.tap(() =>
-        Effect.logWarning("Sheet-bot check-in button workflow enqueue was rejected", { error }),
-      ),
-    );
-
 const dispatchLegacyCheckinButton = (
   response: Pick<CommandInteractionResponseContext, "editReply">,
   sheetWorkflowsClient: SheetWorkflowsClientShape,
@@ -153,7 +140,15 @@ const dispatchLegacyCheckinButton = (
         });
       }),
     )(),
-  ).pipe(Effect.catch((error) => reportDefinitiveEnqueueFailure(response, error)));
+  ).pipe(
+    Effect.catch((error) =>
+      reportDefinitiveWorkflowEnqueueFailure(response, error, {
+        rejectedMessage: checkinButtonEnqueueRejectedMessage,
+        unauthorizedMessage: checkinButtonEnqueueUnauthorizedMessage,
+        operation: "check-in button",
+      }),
+    ),
+  );
 
 export const enqueueCheckinButton = Effect.fn("checkinButton.enqueueWorkflow")(function* (
   response: Pick<CommandInteractionResponseContext, "editReply">,
@@ -203,17 +198,16 @@ export const enqueueCheckinButton = Effect.fn("checkinButton.enqueueWorkflow")(f
         )();
       }).pipe(
         Effect.catch((error) =>
-          Predicate.isTagged("WorkflowTransportUnavailable")(error)
-            ? Effect.gen(function* () {
-                yield* Effect.logWarning(
-                  "Sheet-bot check-in button workflow enqueue outcome is ambiguous",
-                  { error },
-                );
-                yield* response.editReply({
-                  payload: { content: checkinButtonEnqueuePendingMessage },
-                });
+          isWorkflowTransportUnavailable(error)
+            ? reportAmbiguousWorkflowEnqueueOutcome(response, error, {
+                pendingMessage: checkinButtonEnqueuePendingMessage,
+                operation: "check-in button",
               })
-            : reportDefinitiveEnqueueFailure(response, error),
+            : reportDefinitiveWorkflowEnqueueFailure(response, error, {
+                rejectedMessage: checkinButtonEnqueueRejectedMessage,
+                unauthorizedMessage: checkinButtonEnqueueUnauthorizedMessage,
+                operation: "check-in button",
+              }),
         ),
       ),
     ),

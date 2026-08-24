@@ -52,9 +52,6 @@ export type ServicesDeliverStatusInput = Parameters<ServicesDeliverStatusEnqueue
 export type ServicesDeliverStatusReference = Effect.Success<
   ReturnType<ServicesDeliverStatusEnqueue>
 >;
-export type ServicesDeliverStatusEnqueueError = Effect.Error<
-  ReturnType<ServicesDeliverStatusEnqueue>
->;
 export type WorkflowRolloutGateEvaluation = ReturnType<
   typeof makeRolloutGateHttpClient
 >["evaluate"];
@@ -63,9 +60,6 @@ export type SchedulesDeliverUserScheduleEnqueue =
   SheetWorkflowHttpClients["schedules"]["deliverUserSchedule"]["enqueue"];
 export type SchedulesDeliverUserScheduleInput = Parameters<SchedulesDeliverUserScheduleEnqueue>[0];
 export type SchedulesDeliverUserScheduleReference = Effect.Success<
-  ReturnType<SchedulesDeliverUserScheduleEnqueue>
->;
-export type SchedulesDeliverUserScheduleEnqueueError = Effect.Error<
   ReturnType<SchedulesDeliverUserScheduleEnqueue>
 >;
 export type ScheduleRolloutGateEvaluation = WorkflowRolloutGateEvaluation;

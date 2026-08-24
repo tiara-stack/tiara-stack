@@ -184,6 +184,7 @@ layer(enqueueLayer)("button workflow enqueue", (tests) => {
         makeSheetWorkflowsClient({ onCheckinButton: () => (legacyDispatches += 1) }),
       );
 
+      expect(evaluatedInvocationId).toBeDefined();
       expect(enqueuedInvocationId).toBe(evaluatedInvocationId);
       expect(evaluatedWorkspaceId).toBe("123456789012345678");
       expect(enqueuedInput).toEqual({
@@ -280,6 +281,36 @@ layer(enqueueLayer)("button workflow enqueue", (tests) => {
       expect(replacementEnqueues).toBe(0);
       expect(responseReferences).toBe(0);
       expect(evaluatedWorkspaceId).toBe("123456789012345678");
+    }),
+  );
+
+  tests.effect("sends only the generated slot-open response input", () =>
+    Effect.gen(function* () {
+      let enqueuedInput: unknown;
+      let legacyDispatches = 0;
+      let responseReferences = 0;
+
+      yield* runSlotOpenButton(
+        makeResponse([]),
+        makeWorkflowClient({
+          enqueueSlotsOpen: (input: unknown) => {
+            enqueuedInput = input;
+            return Effect.succeed({});
+          },
+        }),
+        makeCapabilityStore(() => {
+          responseReferences += 1;
+        }),
+        makeSheetWorkflowsClient({ onSlotOpenButton: () => (legacyDispatches += 1) }),
+      );
+
+      expect(enqueuedInput).toEqual({
+        messageId: "message-1",
+        responseReference: "opaque-response-reference",
+      });
+      expect(enqueuedInput).not.toHaveProperty("interactionToken");
+      expect(responseReferences).toBe(1);
+      expect(legacyDispatches).toBe(0);
     }),
   );
 

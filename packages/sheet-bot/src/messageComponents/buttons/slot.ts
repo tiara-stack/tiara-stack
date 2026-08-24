@@ -1,7 +1,7 @@
 import { InteractionsRegistry } from "dfx/gateway";
 import { Ix } from "dfx/index";
 import { ButtonStyle, MessageFlags } from "discord-api-types/v10";
-import { Duration, Effect, Layer, Match, Option, pipe, Predicate } from "effect";
+import { Duration, Effect, Layer, Match, Option, pipe } from "effect";
 import { SLOT_OPEN_ACTION_ID } from "sheet-ingress-api/clientActions";
 import { discordGatewayLayer } from "../../discord/gateway";
 import { resolveGuildId } from "@/utils/commandHelpers";
@@ -31,6 +31,11 @@ import { discordApplicationLayer } from "../../discord/application";
 import { interactionDeadlineEpochMs } from "@/utils/interactionDeadline";
 import { runSheetWorkflowsDispatch } from "@/utils/sheetWorkflowsDispatch";
 import { makeWorkflowInvocationId } from "sheet-workflow-http-client";
+import {
+  isWorkflowTransportUnavailable,
+  reportAmbiguousWorkflowEnqueueOutcome,
+  reportDefinitiveWorkflowEnqueueFailure,
+} from "@/utils/workflowEnqueueOutcome";
 
 const slotButtonRolloutGateEvaluationTimeout = Duration.seconds(5);
 const slotButtonEnqueueRejectedMessage = "I couldn't open those slots. Please try again.";
@@ -101,24 +106,6 @@ const issueSlotButtonResponseReference = (
     );
   });
 
-const reportDefinitiveEnqueueFailure = (
-  response: Pick<CommandInteractionResponseContext, "editReply">,
-  error: unknown,
-) =>
-  response
-    .editReply({
-      payload: {
-        content: Predicate.isTagged("WorkflowInvocationUnauthorized")(error)
-          ? slotButtonEnqueueUnauthorizedMessage
-          : slotButtonEnqueueRejectedMessage,
-      },
-    })
-    .pipe(
-      Effect.tap(() =>
-        Effect.logWarning("Sheet-bot slot-open button workflow enqueue was rejected", { error }),
-      ),
-    );
-
 const dispatchLegacySlotButton = (
   response: Pick<CommandInteractionResponseContext, "editReply">,
   sheetWorkflowsClient: SheetWorkflowsClientShape,
@@ -145,7 +132,15 @@ const dispatchLegacySlotButton = (
         });
       }),
     )(),
-  ).pipe(Effect.catch((error) => reportDefinitiveEnqueueFailure(response, error)));
+  ).pipe(
+    Effect.catch((error) =>
+      reportDefinitiveWorkflowEnqueueFailure(response, error, {
+        rejectedMessage: slotButtonEnqueueRejectedMessage,
+        unauthorizedMessage: slotButtonEnqueueUnauthorizedMessage,
+        operation: "slot-open button",
+      }),
+    ),
+  );
 
 export const enqueueSlotOpenButton = Effect.fn("slotButton.enqueueWorkflow")(function* (
   response: Pick<CommandInteractionResponseContext, "editReply">,
@@ -193,17 +188,16 @@ export const enqueueSlotOpenButton = Effect.fn("slotButton.enqueueWorkflow")(fun
         )();
       }).pipe(
         Effect.catch((error) =>
-          Predicate.isTagged("WorkflowTransportUnavailable")(error)
-            ? Effect.gen(function* () {
-                yield* Effect.logWarning(
-                  "Sheet-bot slot-open button workflow enqueue outcome is ambiguous",
-                  { error },
-                );
-                yield* response.editReply({
-                  payload: { content: slotButtonEnqueuePendingMessage },
-                });
+          isWorkflowTransportUnavailable(error)
+            ? reportAmbiguousWorkflowEnqueueOutcome(response, error, {
+                pendingMessage: slotButtonEnqueuePendingMessage,
+                operation: "slot-open button",
               })
-            : reportDefinitiveEnqueueFailure(response, error),
+            : reportDefinitiveWorkflowEnqueueFailure(response, error, {
+                rejectedMessage: slotButtonEnqueueRejectedMessage,
+                unauthorizedMessage: slotButtonEnqueueUnauthorizedMessage,
+                operation: "slot-open button",
+              }),
         ),
       ),
     ),

@@ -303,6 +303,27 @@ layer(enqueueLayer)("with command dependencies", (tests) => {
     }),
   );
 
+  tests.effect("uses legacy when the Rollout Gate evaluation fails", () =>
+    Effect.gen(function* () {
+      let legacyDispatches = 0;
+      let responseReferences = 0;
+
+      yield* runCheckin(
+        makeResponse([]),
+        makeWorkflowClient({
+          evaluateCheckinsOpenRolloutGate: () => Effect.fail(new Error("rollout gate unavailable")),
+        }),
+        makeCapabilityStore(() => {
+          responseReferences += 1;
+        }),
+        makeSheetWorkflowsClient({ onCheckin: () => (legacyDispatches += 1) }),
+      );
+
+      expect(legacyDispatches).toBe(1);
+      expect(responseReferences).toBe(0);
+    }),
+  );
+
   tests.effect("shows pending when the generated enqueue outcome is ambiguous", () =>
     Effect.gen(function* () {
       const messages: Array<string | undefined> = [];
@@ -377,6 +398,34 @@ layer(enqueueLayer)("with command dependencies", (tests) => {
       );
 
       expect(messages).toEqual(["I couldn't start the auto check-in test. Please try again."]);
+    }),
+  );
+
+  tests.effect("shows the auto check-in test pending message when enqueue is ambiguous", () =>
+    Effect.gen(function* () {
+      const messages: Array<string | undefined> = [];
+      let legacyDispatches = 0;
+
+      yield* runTestAuto(
+        makeResponse(messages),
+        makeWorkflowClient({
+          enqueueCheckinsTestAuto: () =>
+            Effect.fail(
+              new WorkflowTransportUnavailable({
+                operation: "Enqueue",
+                retryable: false,
+                message: "enqueue response was ambiguous",
+              }),
+            ),
+        }),
+        makeCapabilityStore(),
+        makeSheetWorkflowsClient({ onTestAuto: () => (legacyDispatches += 1) }),
+      );
+
+      expect(messages).toEqual([
+        "The auto check-in test is still processing. I'll update this message when it finishes.",
+      ]);
+      expect(legacyDispatches).toBe(0);
     }),
   );
 });

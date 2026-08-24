@@ -4,7 +4,7 @@ import {
   MessageFlags,
 } from "discord-api-types/v10";
 import { Ix } from "dfx/index";
-import { Duration, Effect, Layer, Match, Option, Predicate, Schema } from "effect";
+import { Duration, Effect, Layer, Match, Option, Schema } from "effect";
 import { WorkspaceId } from "sheet-workflow-contracts/values";
 import {
   CommandHelper,
@@ -39,6 +39,11 @@ import { interactionDeadlineEpochMs } from "../utils/interactionDeadline";
 import { registerGlobalCommandLayer } from "../utils/registerGlobalCommandLayer";
 import { runSheetWorkflowsDispatch } from "../utils/sheetWorkflowsDispatch";
 import { makeWorkflowInvocationId } from "sheet-workflow-http-client";
+import {
+  isWorkflowTransportUnavailable,
+  reportAmbiguousWorkflowEnqueueOutcome,
+  reportDefinitiveWorkflowEnqueueFailure,
+} from "../utils/workflowEnqueueOutcome";
 
 const slotRolloutGateEvaluationTimeout = Duration.seconds(5);
 type SlotListWorkflowInput = Omit<SlotsDeliverListInput, "responseReference">;
@@ -115,30 +120,6 @@ const issueSlotResponseReference = (
     );
   });
 
-const reportDefinitiveEnqueueFailure = (
-  response: Pick<CommandInteractionResponseContext, "editReply">,
-  error: unknown,
-  rejectedMessage: string,
-  unauthorizedMessage: string,
-  operation: string,
-) =>
-  response
-    .editReply({
-      payload: {
-        content: Predicate.isTagged("WorkflowInvocationUnauthorized")(error)
-          ? unauthorizedMessage
-          : rejectedMessage,
-      },
-    })
-    .pipe(
-      Effect.tap(() =>
-        Effect.logWarning(`Sheet-bot ${operation} workflow enqueue was rejected`, { error }),
-      ),
-    );
-
-const isTransportUnavailable = (error: unknown) =>
-  Predicate.isTagged("WorkflowTransportUnavailable")(error);
-
 const dispatchLegacySlotList = (
   response: Pick<CommandInteractionResponseContext, "editReply">,
   sheetWorkflowsClient: SheetWorkflowsClientShape,
@@ -157,13 +138,11 @@ const dispatchLegacySlotList = (
     )(),
   ).pipe(
     Effect.catch((error) =>
-      reportDefinitiveEnqueueFailure(
-        response,
-        error,
-        slotListEnqueueRejectedMessage,
-        slotListEnqueueUnauthorizedMessage,
-        "slot list",
-      ),
+      reportDefinitiveWorkflowEnqueueFailure(response, error, {
+        rejectedMessage: slotListEnqueueRejectedMessage,
+        unauthorizedMessage: slotListEnqueueUnauthorizedMessage,
+        operation: "slot list",
+      }),
     ),
   );
 
@@ -185,13 +164,11 @@ const dispatchLegacySlotButton = (
     )(),
   ).pipe(
     Effect.catch((error) =>
-      reportDefinitiveEnqueueFailure(
-        response,
-        error,
-        slotPublishButtonEnqueueRejectedMessage,
-        slotPublishButtonEnqueueUnauthorizedMessage,
-        "slot button",
-      ),
+      reportDefinitiveWorkflowEnqueueFailure(response, error, {
+        rejectedMessage: slotPublishButtonEnqueueRejectedMessage,
+        unauthorizedMessage: slotPublishButtonEnqueueUnauthorizedMessage,
+        operation: "slot button",
+      }),
     ),
   );
 
@@ -243,23 +220,16 @@ export const enqueueSlotList = Effect.fn("slot.enqueueListWorkflow")(function* (
         )();
       }).pipe(
         Effect.catch((error) =>
-          isTransportUnavailable(error)
-            ? Effect.gen(function* () {
-                yield* Effect.logWarning(
-                  "Sheet-bot slot-list workflow enqueue outcome is ambiguous",
-                  { error },
-                );
-                yield* response.editReply({
-                  payload: { content: slotEnqueuePendingMessage },
-                });
+          isWorkflowTransportUnavailable(error)
+            ? reportAmbiguousWorkflowEnqueueOutcome(response, error, {
+                pendingMessage: slotEnqueuePendingMessage,
+                operation: "slot-list",
               })
-            : reportDefinitiveEnqueueFailure(
-                response,
-                error,
-                slotListEnqueueRejectedMessage,
-                slotListEnqueueUnauthorizedMessage,
-                "slot list",
-              ),
+            : reportDefinitiveWorkflowEnqueueFailure(response, error, {
+                rejectedMessage: slotListEnqueueRejectedMessage,
+                unauthorizedMessage: slotListEnqueueUnauthorizedMessage,
+                operation: "slot list",
+              }),
         ),
       ),
     ),
@@ -315,25 +285,16 @@ export const enqueueSlotButton = Effect.fn("slot.enqueueButtonWorkflow")(functio
         )();
       }).pipe(
         Effect.catch((error) =>
-          isTransportUnavailable(error)
-            ? Effect.gen(function* () {
-                yield* Effect.logWarning(
-                  "Sheet-bot slot-button workflow enqueue outcome is ambiguous",
-                  { error },
-                );
-                yield* response.editReply({
-                  payload: { content: slotEnqueuePendingMessage },
-                });
+          isWorkflowTransportUnavailable(error)
+            ? reportAmbiguousWorkflowEnqueueOutcome(response, error, {
+                pendingMessage: slotEnqueuePendingMessage,
+                operation: "slot-button",
               })
-            : reportDefinitiveEnqueueFailure(
-                response,
-                error,
-                slotPublishButtonEnqueueRejectedMessage,
-                slotPublishButtonEnqueueUnauthorizedMessage,
-                // The slot publish and schedule enqueue branches intentionally share this fallback shell.
-                // fallow-ignore-next-line code-duplication
-                "slot button",
-              ),
+            : reportDefinitiveWorkflowEnqueueFailure(response, error, {
+                rejectedMessage: slotPublishButtonEnqueueRejectedMessage,
+                unauthorizedMessage: slotPublishButtonEnqueueUnauthorizedMessage,
+                operation: "slot button",
+              }),
         ),
       ),
     ),
@@ -364,17 +325,17 @@ const makeListSubCommand = Effect.gen(function* () {
         ),
     Effect.fn("slot.list")(function* (command) {
       const response = yield* InteractionResponse;
-      const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
-      const workspaceId = yield* Schema.decodeUnknownEffect(WorkspaceId)(guildId);
 
       const messageType = yield* Schema.decodeUnknownEffect(
         Schema.Literals(["persistent", "ephemeral"]),
       )(Option.getOrElse(command.optionValueOptional("message_type"), () => "ephemeral"));
 
       const isEphemeral = messageType === "ephemeral";
-      const day = command.optionValue("day");
-
       yield* response.deferReply({ flags: isEphemeral ? MessageFlags.Ephemeral : undefined });
+
+      const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
+      const workspaceId = yield* Schema.decodeUnknownEffect(WorkspaceId)(guildId);
+      const day = command.optionValue("day");
 
       yield* enqueueSlotList(response, workflowClient, sheetWorkflowsClient, capabilityStore, {
         workspaceId,
@@ -399,10 +360,10 @@ const makeButtonSubCommand = Effect.gen(function* () {
         .addStringOption(serverIdOption("The server to get the teams for")),
     Effect.fn("slot.button")(function* (command) {
       const response = yield* InteractionResponse;
+      yield* response.deferReply({ flags: MessageFlags.Ephemeral });
+
       const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
       const workspaceId = yield* Schema.decodeUnknownEffect(WorkspaceId)(guildId);
-
-      yield* response.deferReply({ flags: MessageFlags.Ephemeral });
 
       const day = command.optionValue("day");
       const channelId = yield* resolveChannelId(Option.none());

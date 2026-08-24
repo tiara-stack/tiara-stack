@@ -21,7 +21,6 @@ import {
   SheetWorkflowHttpClient,
   SheetWorkflowHttpRequestContext,
   type BotCapabilityStoreShape,
-  type ServicesDeliverStatusEnqueueError,
   type SheetWorkflowHttpClientShape,
   type SheetWorkflowsClientShape,
   type StatusRolloutGateEvaluation,
@@ -30,6 +29,11 @@ import { makeWorkflowInvocationId } from "sheet-workflow-http-client";
 import { makeDispatchBase } from "../utils/commandHelpers";
 import { interactionDeadlineEpochMs } from "../utils/interactionDeadline";
 import { runSheetWorkflowsDispatch } from "../utils/sheetWorkflowsDispatch";
+import {
+  isWorkflowTransportUnavailable,
+  reportAmbiguousWorkflowEnqueueOutcome,
+  reportDefinitiveWorkflowEnqueueFailure,
+} from "../utils/workflowEnqueueOutcome";
 
 const statusEnqueueRejectedMessage = "I couldn't start the service status check. Please try again.";
 const statusEnqueueUnauthorizedMessage =
@@ -83,33 +87,6 @@ const issueStatusResponseReference = (
     );
   });
 
-const reportDefinitiveEnqueueFailure = (
-  response: Pick<CommandInteractionResponseContext, "editReply">,
-  error: unknown,
-) =>
-  response
-    .editReply({
-      payload: {
-        content: Predicate.isTagged("WorkflowInvocationUnauthorized")(error)
-          ? statusEnqueueUnauthorizedMessage
-          : statusEnqueueRejectedMessage,
-      },
-    })
-    .pipe(
-      Effect.tap(() =>
-        Effect.logWarning("Sheet-bot status workflow enqueue was rejected", {
-          error,
-        }),
-      ),
-    );
-
-const isTransportUnavailable = (
-  error: unknown,
-): error is Extract<
-  ServicesDeliverStatusEnqueueError,
-  { readonly _tag: "WorkflowTransportUnavailable" }
-> => Predicate.isTagged("WorkflowTransportUnavailable")(error);
-
 const interactionWorkspaceId = Effect.gen(function* () {
   const guild = yield* Interaction.guild();
   return Option.match(guild, {
@@ -136,7 +113,15 @@ const dispatchLegacyStatus = (
         });
       }),
     )(),
-  ).pipe(Effect.catch((error) => reportDefinitiveEnqueueFailure(response, error)));
+  ).pipe(
+    Effect.catch((error) =>
+      reportDefinitiveWorkflowEnqueueFailure(response, error, {
+        rejectedMessage: statusEnqueueRejectedMessage,
+        unauthorizedMessage: statusEnqueueUnauthorizedMessage,
+        operation: "status",
+      }),
+    ),
+  );
 
 export const enqueueStatus = Effect.fn("status.enqueueWorkflow")(function* (
   response: Pick<CommandInteractionResponseContext, "editReply">,
@@ -178,19 +163,16 @@ export const enqueueStatus = Effect.fn("status.enqueueWorkflow")(function* (
           enqueueStatusWorkflow(workflowClient, { responseReference }, { invocationId }),
         )().pipe(
           Effect.catch((error) =>
-            isTransportUnavailable(error)
-              ? Effect.gen(function* () {
-                  yield* Effect.logWarning(
-                    "Sheet-bot status workflow enqueue outcome is ambiguous",
-                    {
-                      error,
-                    },
-                  );
-                  yield* response.editReply({
-                    payload: { content: statusEnqueuePendingMessage },
-                  });
+            isWorkflowTransportUnavailable(error)
+              ? reportAmbiguousWorkflowEnqueueOutcome(response, error, {
+                  pendingMessage: statusEnqueuePendingMessage,
+                  operation: "status",
                 })
-              : reportDefinitiveEnqueueFailure(response, error),
+              : reportDefinitiveWorkflowEnqueueFailure(response, error, {
+                  rejectedMessage: statusEnqueueRejectedMessage,
+                  unauthorizedMessage: statusEnqueueUnauthorizedMessage,
+                  operation: "status",
+                }),
           ),
         );
       }),
