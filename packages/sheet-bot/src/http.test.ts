@@ -1,12 +1,20 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Cause, Effect, Exit, Option, Schema } from "effect";
-import { SemanticFileIdentity } from "sheet-bot-api";
+import { NodeFileSystem, NodeHttpPlatform, NodePath } from "@effect/platform-node";
+import { DiscordREST } from "dfx";
+import type * as Discord from "dfx/types";
+import { Cause, ConfigProvider, Effect, Exit, Layer, Option, Schema } from "effect";
+import * as Etag from "effect/unstable/http/Etag";
+import { HttpApiTest } from "effect/unstable/httpapi";
+import { DeliveryKey, ResponseReference, SemanticFileIdentity } from "sheet-bot-api";
+import { SheetBotApi } from "sheet-bot-api/http";
 import {
+  botCapabilityDeliveryHandlersLayer,
   discordInteractionMessageToRef,
   makeUpdateConversationHandler,
   validateResponseWorkspaceBinding,
 } from "./http";
 import { deliveryStoreInput } from "./services/botDeliveryBinding";
+import { BotCapabilityStore } from "./services/botCapabilityStore";
 
 const client = { platform: "discord", clientId: "discord-main" } as const;
 
@@ -47,6 +55,76 @@ describe("discordInteractionMessageToRef", () => {
       messageId: "message-1",
     });
   });
+
+  it.effect("uses the authorized workspace for a valid interaction anchor receipt", () =>
+    Effect.gen(function* () {
+      const responseReference = Schema.decodeUnknownSync(ResponseReference)("response-1");
+      const deliveryKey = Schema.decodeUnknownSync(DeliveryKey)("delivery-1");
+      const rest = {
+        updateOriginalWebhookMessage: () =>
+          Effect.succeed({ id: "message-1", channel_id: "channel-1" } as Discord.MessageResponse),
+        withFiles:
+          () =>
+          <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+            effect,
+      } as unknown as typeof DiscordREST.Service;
+      const store = {
+        resolveResponseReference: () =>
+          Effect.succeed({
+            applicationId: "application-1",
+            client,
+            interactionToken: "interaction-token",
+            permittedOperations: ["respond"],
+            expiresAt: Number.MAX_SAFE_INTEGER,
+            workspaceId: "guild-1",
+          }),
+        executeDelivery: ({
+          effect,
+        }: {
+          readonly effect: Effect.Effect<unknown, unknown, never>;
+        }) => effect,
+      } as unknown as typeof BotCapabilityStore.Service;
+      const httpClient = yield* HttpApiTest.groups(SheetBotApi, ["delivery"]).pipe(
+        Effect.provide(botCapabilityDeliveryHandlersLayer),
+        Effect.provide(Layer.succeed(DiscordREST, rest)),
+        Effect.provide(Layer.succeed(BotCapabilityStore, store)),
+        Effect.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromUnknown({ SHEET_BOT_CLIENT_ID: client.clientId }),
+          ),
+        ),
+        Effect.provide(NodeFileSystem.layer),
+        Effect.provide(NodeHttpPlatform.layer),
+        Effect.provide(NodePath.layer),
+        Effect.provide(Etag.layer),
+        Effect.scoped,
+      );
+
+      const receipt = yield* httpClient.delivery.respond({
+        payload: {
+          responseReference,
+          deliveryKey,
+          message: { content: "hello" },
+        },
+      });
+
+      expect(receipt).toMatchObject({
+        deliveryKey,
+        operation: "respond",
+        target: {
+          _tag: "Response",
+          responseReference,
+          message: {
+            conversation: {
+              conversationId: "channel-1",
+              workspace: { client, workspaceId: "guild-1" },
+            },
+            messageId: "message-1",
+          },
+        },
+      });
+    }),
+  );
 });
 
 describe("deliveryStoreInput", () => {

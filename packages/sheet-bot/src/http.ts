@@ -134,12 +134,8 @@ const discordMessageToRef = (
 export const discordInteractionMessageToRef = (
   client: ClientRef,
   message: { readonly id: string; readonly channel_id: string; readonly guild_id?: string },
-) =>
-  discordMessageToRef(
-    client,
-    Predicate.isString(message.guild_id) ? message.guild_id : "",
-    message,
-  );
+  workspaceId = Predicate.isString(message.guild_id) ? message.guild_id : "",
+) => discordMessageToRef(client, workspaceId, message);
 
 const renderFiles = (message: SheetOutboundMessage) =>
   message.files?.map(
@@ -736,7 +732,7 @@ const botCapabilityCacheHandlersLayer = HttpApiBuilder.group(SheetBotApi, "cache
   }),
 );
 
-const botCapabilityDeliveryHandlersLayer = HttpApiBuilder.group(
+export const botCapabilityDeliveryHandlersLayer = HttpApiBuilder.group(
   SheetBotApi,
   "delivery",
   (handlers) =>
@@ -802,7 +798,11 @@ const botCapabilityDeliveryHandlersLayer = HttpApiBuilder.group(
                 target: {
                   _tag: "Response",
                   responseReference: payload.responseReference,
-                  message: discordInteractionMessageToRef(configuredClient, message),
+                  message: discordInteractionMessageToRef(
+                    configuredClient,
+                    message,
+                    response.workspaceId,
+                  ),
                 },
                 ...(payload.message.files === undefined
                   ? {}
