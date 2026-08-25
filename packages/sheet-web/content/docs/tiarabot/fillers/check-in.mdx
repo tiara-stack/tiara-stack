@@ -19,8 +19,16 @@ muted line **Controls are being prepared...** while TiaraBot adds the action row
 1. Verify the displayed hour and running-room context.
 2. Press **Check in** once.
 3. Wait for the private confirmation shown below. If you already responded, TiaraBot says so.
-4. Open the running channel. When the server uses a lockdown role, the check-in grants it.
+4. Open the running channel. When the server uses a lockdown role, the check-in grants the role
+   bound to that check-in message.
 5. Follow the host’s pinned room order and in-game room code.
+
+<Callout type="warn" title="Role changes require a fresh check-in message">
+  TiaraBot stores the running channel’s lockdown role when it creates a check-in message. Changing
+  or replacing that role does not update existing check-in messages or their buttons. If the role
+  changes while a check-in is still open, ask mana/moni to generate a fresh check-in message before
+  pressing **Check in**. An old message may still try to use the previous role.
+</Callout>
 
 ### Confirmation shown after pressing Check in
 
@@ -36,7 +44,9 @@ The original message is updated in the check-in channel so everyone can see who 
 
 ### Running-room announcement
 
-On success, TiaraBot records your response, reapplies the running channel's lockdown role when one is configured, updates the check-in list, and announces your check-in in the running room.
+On success, TiaraBot records your response, reapplies the lockdown role bound to that check-in
+message when one is configured, updates the check-in list, and announces your check-in in the
+running room.
 
 <CheckinAnnouncementExample />
 

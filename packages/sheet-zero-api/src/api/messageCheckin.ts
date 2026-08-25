@@ -17,6 +17,7 @@ type CheckinData = {
   readonly initialMessage: ReadonlyArray<typeof ReadonlyJSONValue.Type>;
   readonly hour: number;
   readonly runningConversationId: string;
+  /** The lockdown role captured when this check-in message was generated. */
   readonly roleId?: string | null | undefined;
   readonly workspaceId: string | null;
   readonly conversationId: string | null;

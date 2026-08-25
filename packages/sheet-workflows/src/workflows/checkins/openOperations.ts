@@ -131,6 +131,10 @@ const decodeMessage = (message: unknown, operation: string) =>
 
 type CheckinPersistenceDetails = {
   readonly conversationId: string;
+  /**
+   * The lockdown role captured when this check-in message was generated. Existing
+   * messages keep this binding when channel configuration changes.
+   */
   readonly roleId: string | null;
   readonly memberIds: ReadonlyArray<string>;
   readonly operation: string;

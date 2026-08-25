@@ -107,6 +107,9 @@ export const makeCheckinButtonOperations = ({
 
     if (Option.isSome(messageCheckinData.roleId)) {
       const roleId = messageCheckinData.roleId.value;
+      // The message stores the role that was configured when it was created. A
+      // configuration change applies to newly generated check-in messages, not to
+      // buttons that already exist.
       // Re-apply the role on repeat clicks to repair missed adapter side effects.
       yield* botClient.addWorkspaceMemberRole(workspaceId, accountId, roleId).pipe(
         Effect.retry(shortRoleRetrySchedule),

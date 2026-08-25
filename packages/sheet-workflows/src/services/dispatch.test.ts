@@ -2146,13 +2146,16 @@ describe("DispatchService", () => {
     }),
   );
 
-  it.effect("uses the requester id and announces only the first button check-in", () =>
+  it.effect("uses the stored role after the running channel role changes", () =>
     Effect.gen(function* () {
       const memberMutationCalls: Array<unknown> = [];
       const memberMutationClaimIds: Array<string> = [];
       const roleCalls: Array<ReadonlyArray<string>> = [];
       const sendCalls: Array<{ readonly conversationId: string; readonly payload: unknown }> = [];
       let persistedClaimId: string | undefined;
+      let currentRoleLookups = 0;
+      const messageRoleId = "role-1";
+      const currentChannelRoleId = "role-2";
       const botClient = makeClientDeliveryMock({
         updateOriginalInteractionResponse: () =>
           Effect.succeed({ id: "interaction-message-1", conversation_id: "conversation-1" }),
@@ -2173,7 +2176,7 @@ describe("DispatchService", () => {
             Effect.succeed({
               initialMessage: text("Check in"),
               runningConversationId: "running-conversation-1",
-              roleId: Option.some("role-1"),
+              roleId: Option.some(messageRoleId),
               workspaceId: Option.some("workspace-1"),
               conversationId: Option.some("checkin-conversation-1"),
             }),
@@ -2197,6 +2200,16 @@ describe("DispatchService", () => {
               },
             ]),
         },
+        workspaceConfig: {
+          getWorkspaceConversationById: () => {
+            currentRoleLookups += 1;
+            return Effect.succeed(
+              Option.some(
+                makeWorkspaceConversationConfig({ roleId: Option.some(currentChannelRoleId) }),
+              ),
+            );
+          },
+        },
       });
 
       const result = yield* runWithDispatchService(botClient, sheetApisClient, (service) =>
@@ -2218,9 +2231,10 @@ describe("DispatchService", () => {
         ]),
       );
       expect(roleCalls).toEqual([
-        ["workspace-1", "discord-user-1", "role-1"],
-        ["workspace-1", "discord-user-1", "role-1"],
+        ["workspace-1", "discord-user-1", messageRoleId],
+        ["workspace-1", "discord-user-1", messageRoleId],
       ]);
+      expect(currentRoleLookups).toBe(0);
       expect(sendCalls).toEqual([
         {
           conversationId: "running-conversation-1",
