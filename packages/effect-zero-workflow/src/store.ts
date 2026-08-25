@@ -624,7 +624,7 @@ export const makeWorkflowStore = (
           statuses.length === 0 ? sql`` : sql`AND status IN ${sql.in(statuses)}`;
         const cursorCondition = Predicate.isUndefined(cursor)
           ? sql``
-          : sql`AND (created_at, run_id) > (${cursor.createdAt}, ${cursor.runId})`;
+          : sql`AND (created_at, run_id) < (${cursor.createdAt}, ${cursor.runId})`;
         const rows = yield* sql`
           SELECT ${selectRunObservationFields}
           FROM ${runTable}
@@ -632,7 +632,7 @@ export const makeWorkflowStore = (
             AND visibility_key = ${ownerKey}
           ${statusCondition}
           ${cursorCondition}
-          ORDER BY created_at, run_id
+          ORDER BY created_at DESC, run_id DESC
           LIMIT ${normalizeSqlLimit(limit)}
         `;
         return yield* Effect.forEach(rows, (row) =>

@@ -1,9 +1,11 @@
-import { Effect, Exit, Ref } from "effect";
-import { describe, expect, it } from "@effect/vitest";
+import { Effect, Exit, Layer, Ref } from "effect";
+import { SqlClient } from "effect/unstable/sql";
+import { describe, expect, it, layer } from "@effect/vitest";
 import {
   enqueueWorkflowInTransaction,
   isTerminalWorkflowRunStatus,
   isWorkflowCommandLeaseCurrent,
+  makeWorkflowStore,
   workflowTableNames,
   type EnqueueWorkflowCommand,
   type EnqueuedWorkflow,
@@ -20,6 +22,30 @@ const input: EnqueueWorkflow = {
   idempotencyKey: "key-1",
   visibilityKey: "workspace-1",
   payload: { value: 1 },
+};
+
+const recordingSqlClient = () => {
+  const queries: Array<string> = [];
+  const sql = Object.assign(
+    ((strings: TemplateStringsArray | string, ...values: ReadonlyArray<unknown>) => {
+      if (typeof strings === "string") {
+        return strings;
+      }
+
+      const query = strings.reduce(
+        (current, chunk, index) =>
+          `${current}${chunk}${index < values.length ? String(values[index]) : ""}`,
+        "",
+      );
+      if (query.includes("SELECT")) {
+        queries.push(query);
+        return Effect.succeed([]);
+      }
+      return query;
+    }) as unknown as SqlClient.SqlClient,
+    { in: (values: ReadonlyArray<unknown>) => `(${values.join(",")})` },
+  );
+  return { queries, sql };
 };
 
 describe("workflow enqueue transaction", () => {
@@ -43,6 +69,26 @@ describe("workflow enqueue transaction", () => {
     expect(isTerminalWorkflowRunStatus("succeeded")).toBe(true);
     expect(isTerminalWorkflowRunStatus("failed")).toBe(true);
     expect(isTerminalWorkflowRunStatus("cancelled")).toBe(true);
+  });
+
+  layer(Layer.empty)("owner-scoped observation ordering", (layerIt) => {
+    layerIt.effect("uses a descending cursor", () =>
+      Effect.gen(function* () {
+        const recorder = recordingSqlClient();
+        const store = yield* makeWorkflowStore().pipe(
+          Effect.provideService(SqlClient.SqlClient, recorder.sql),
+        );
+
+        yield* store.listRunsForOwner("workspace-1", "example", ["pending"], 20, {
+          createdAt: new Date("2026-01-02T00:00:00.000Z"),
+          runId: "invocation-1",
+        });
+
+        const query = recorder.queries.at(-1);
+        expect(query).toContain("AND (created_at, run_id) <");
+        expect(query).toContain("ORDER BY created_at DESC, run_id DESC");
+      }),
+    );
   });
 
   it.effect("writes the invocation and start intent through the same adapter", () =>

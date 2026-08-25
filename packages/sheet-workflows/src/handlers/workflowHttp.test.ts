@@ -1,4 +1,4 @@
-import { ConfigProvider, Effect, Layer, Option, Schema, Stream } from "effect";
+import { ConfigProvider, Deferred, Effect, Layer, Option, Schema, Stream } from "effect";
 import { describe, expect, it } from "@effect/vitest";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import {
@@ -15,7 +15,10 @@ import {
   workflowHttpServerExecutorFromHandler,
   type WorkflowHttpServerExecutor,
 } from "effect-zero-workflow/contract/http/server";
-import { workflowContractRoutes } from "effect-zero-workflow/contract/transport";
+import {
+  WorkflowObservationInvalidData,
+  workflowContractRoutes,
+} from "effect-zero-workflow/contract/transport";
 import { SheetWorkflowContractCatalog } from "sheet-workflow-contracts";
 import type { SheetWorkflowZeroContext } from "sheet-zero-server";
 import { vi } from "vitest";
@@ -337,6 +340,134 @@ describe("sheet workflow HTTP contract boundary", () => {
             limit: 2,
           },
         ]);
+      }),
+    ),
+  );
+
+  it.effect("return 400 before opening an SSE response", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const contract = SheetWorkflowContractCatalog[0]!;
+        const invocationId = Schema.decodeUnknownSync(InvocationId)(
+          "123e4567-e89b-42d3-a456-426614174000",
+        );
+        const executor: WorkflowHttpServerExecutor<SheetWorkflowZeroContext, never> = {
+          enqueue: () => Effect.die("Observation error tests must not enqueue workflows"),
+          get: () =>
+            Stream.fail(
+              new WorkflowObservationInvalidData({
+                message: "Stored workflow outcome does not match its published contract",
+              }),
+            ),
+          list: () => Stream.fail(new WorkflowObservationInvalidData({ message: "invalid" })),
+        };
+        const httpHandler = yield* HttpRouter.toHttpEffect(
+          makeWorkflowHttpRoutesLayer(authorized, authorized, executor).pipe(
+            Layer.provide(HttpRouter.layer),
+          ),
+        );
+        const response = yield* httpHandler.pipe(
+          Effect.provideService(
+            HttpServerRequest.HttpServerRequest,
+            HttpServerRequest.fromWeb(
+              routeRequest(
+                "GET",
+                workflowContractRoutes(contract).get.replace(":invocationId", invocationId),
+              ),
+            ),
+          ),
+        );
+
+        expect(response.status).toBe(400);
+
+        const listResponse = yield* httpHandler.pipe(
+          Effect.provideService(
+            HttpServerRequest.HttpServerRequest,
+            HttpServerRequest.fromWeb(routeRequest("GET", workflowContractRoutes(contract).list)),
+          ),
+        );
+
+        expect(listResponse.status).toBe(400);
+      }),
+    ),
+  );
+
+  it.live("streams the first observation event before later events are ready", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const contract = SheetWorkflowContractCatalog[0]!;
+        const laterEvent = yield* Deferred.make<void>();
+        const emptyRuns = <Contract extends AnyWorkflowContract>(): ReadonlyArray<
+          WorkflowRun<Contract>
+        > => [];
+        const executor: WorkflowHttpServerExecutor<SheetWorkflowZeroContext, never> = {
+          enqueue: () => Effect.die("Streaming tests must not enqueue workflows"),
+          get: () => Stream.succeed(Option.none()),
+          list: <Contract extends AnyWorkflowContract>() =>
+            Stream.concat(
+              Stream.succeed(emptyRuns<Contract>()),
+              Stream.fromEffect(Deferred.await(laterEvent).pipe(Effect.as(emptyRuns<Contract>()))),
+            ).pipe(Stream.rechunk(1)),
+        };
+        const httpHandler = yield* HttpRouter.toHttpEffect(
+          makeWorkflowHttpRoutesLayer(authorized, authorized, executor).pipe(
+            Layer.provide(HttpRouter.layer),
+          ),
+        );
+        const response = yield* httpHandler.pipe(
+          Effect.provideService(
+            HttpServerRequest.HttpServerRequest,
+            HttpServerRequest.fromWeb(routeRequest("GET", workflowContractRoutes(contract).list)),
+          ),
+          Effect.timeout("1 second"),
+        );
+
+        if (response.body._tag !== "Stream") {
+          return yield* Effect.die("Expected an SSE stream response");
+        }
+        const firstChunk = yield* Stream.runHead(response.body.stream).pipe(
+          Effect.timeout("1 second"),
+        );
+        expect(Option.isSome(firstChunk)).toBe(true);
+        if (Option.isSome(firstChunk)) {
+          expect(new TextDecoder().decode(firstChunk.value)).toContain("data: []");
+        }
+      }),
+    ),
+  );
+
+  it.effect("decodes repeated list-state query parameters", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const contract = SheetWorkflowContractCatalog[0]!;
+        const observedFilters: Array<WorkflowRunListFilter> = [];
+        const executor: WorkflowHttpServerExecutor<SheetWorkflowZeroContext, never> = {
+          enqueue: () => Effect.die("Observation query tests must not enqueue workflows"),
+          get: () => Stream.succeed(Option.none()),
+          list: (_contract, _context, filter) => {
+            observedFilters.push(filter);
+            return Stream.succeed([]);
+          },
+        };
+        const httpHandler = yield* HttpRouter.toHttpEffect(
+          makeWorkflowHttpRoutesLayer(authorized, authorized, executor).pipe(
+            Layer.provide(HttpRouter.layer),
+          ),
+        );
+        const response = yield* httpHandler.pipe(
+          Effect.provideService(
+            HttpServerRequest.HttpServerRequest,
+            HttpServerRequest.fromWeb(
+              new Request(
+                `http://localhost${workflowContractRoutes(contract).list}?state=Pending&state=Failure`,
+                { method: "GET" },
+              ),
+            ),
+          ),
+        );
+
+        yield* readSseBody(response);
+        expect(observedFilters).toEqual([{ states: ["Pending", "Failure"] }]);
       }),
     ),
   );

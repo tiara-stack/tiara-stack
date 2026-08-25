@@ -1,4 +1,15 @@
-import { Effect, Layer, Metric, Predicate, Schema, Stream } from "effect";
+import {
+  Cause,
+  Effect,
+  Layer,
+  Metric,
+  Option,
+  Predicate,
+  Pull,
+  Schema,
+  Scope,
+  Stream,
+} from "effect";
 import { Headers, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import {
   defaultWorkflowRunListLimit,
@@ -337,13 +348,37 @@ const decodeWorkflowListFilter = HttpServerRequest.schemaSearchParams(WorkflowHt
 
 const observationResponse = <Requirements>(
   events: Stream.Stream<string, WorkflowObservationError, Requirements>,
-): Effect.Effect<HttpServerResponse.HttpServerResponse, never, Requirements> =>
-  Effect.map(Effect.context<Requirements>(), (context) =>
-    HttpServerResponse.stream(Stream.encodeText(events).pipe(Stream.provideContext(context)), {
+): Effect.Effect<
+  HttpServerResponse.HttpServerResponse,
+  WorkflowObservationError,
+  Requirements | Scope.Scope
+> =>
+  Effect.gen(function* () {
+    const context = yield* Effect.context<Requirements>();
+    const pull = yield* Stream.toPull(events.pipe(Stream.provideContext(context)));
+    const firstChunk = yield* Pull.catchDone(pull.pipe(Effect.map(Option.some)), () =>
+      Effect.succeed(Option.none()),
+    );
+    let firstChunkPending = true;
+    const body = Stream.fromPull(
+      Effect.succeed(
+        Effect.suspend(() => {
+          if (!firstChunkPending) {
+            return pull;
+          }
+          firstChunkPending = false;
+          return Option.match(firstChunk, {
+            onNone: () => Cause.done(),
+            onSome: Effect.succeed,
+          });
+        }),
+      ),
+    );
+    return HttpServerResponse.stream(Stream.encodeText(body), {
       contentType: "text/event-stream",
       headers: { "cache-control": "no-cache", "x-accel-buffering": "no" },
-    }),
-  );
+    });
+  });
 
 const observationContext = (authorizer: WorkflowHttpAuthorizer, headers: Headers.Headers) =>
   authorizer.requireAuthorizedHeaders(headers).pipe(Effect.flatMap(contextFromToken));
