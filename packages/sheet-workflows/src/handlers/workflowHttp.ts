@@ -2,6 +2,7 @@ import {
   Cause,
   Effect,
   Layer,
+  Match,
   Metric,
   Option,
   Predicate,
@@ -46,6 +47,7 @@ import {
   actorProvenanceFromVerifiedOAuthClaims,
   effectivePrincipalFromVerifiedOAuthClaims,
 } from "sheet-auth/identity/server";
+import { EffectivePrincipal } from "sheet-auth/identity";
 import {
   makeOAuthResourceTokenAuthorizer,
   type VerifiedOAuthResourceToken,
@@ -199,12 +201,39 @@ const makeAuthorizer = (requiredScopes: readonly string[]) =>
 
 export type WorkflowHttpAuthorizer = Effect.Success<ReturnType<typeof makeAuthorizer>>;
 
-const contextFromToken = (
+export interface WorkflowHttpGatewayIdentity {
+  readonly serviceId: string;
+  readonly oauthClientId: string;
+}
+
+const principalWithGatewayIdentity = (
+  principal: typeof EffectivePrincipal.Type,
+  gatewayIdentity: WorkflowHttpGatewayIdentity | undefined,
+): typeof EffectivePrincipal.Type =>
+  Match.type<typeof EffectivePrincipal.Type>().pipe(
+    Match.discriminatorsExhaustive("kind")({
+      user: () => principal,
+      service: (servicePrincipal) =>
+        Predicate.isUndefined(gatewayIdentity) ||
+        servicePrincipal.oauthClientId !== gatewayIdentity.oauthClientId
+          ? servicePrincipal
+          : Schema.decodeUnknownSync(EffectivePrincipal)({
+              ...servicePrincipal,
+              serviceId: gatewayIdentity.serviceId,
+            }),
+    }),
+  )(principal);
+
+export const contextFromToken = (
   token: VerifiedOAuthResourceToken,
+  gatewayIdentity?: WorkflowHttpGatewayIdentity,
 ): Effect.Effect<SheetWorkflowZeroContext, Unauthorized> =>
   Effect.try({
     try: () => {
-      const principal = effectivePrincipalFromVerifiedOAuthClaims(token);
+      const principal = principalWithGatewayIdentity(
+        effectivePrincipalFromVerifiedOAuthClaims(token),
+        gatewayIdentity,
+      );
       const actorProvenance = actorProvenanceFromVerifiedOAuthClaims(token);
       return {
         ownerKey: ownerKeyForEffectivePrincipal(principal),
@@ -268,6 +297,7 @@ const routeErrorResponse = (error: unknown) => {
 const addWorkflowEnqueueRoute = <E, R>(
   path: string,
   authorizer: WorkflowHttpAuthorizer,
+  gatewayIdentity: WorkflowHttpGatewayIdentity | undefined,
   enqueue: (context: SheetWorkflowZeroContext, request: unknown) => Effect.Effect<unknown, E, R>,
 ) =>
   HttpRouter.add(
@@ -277,7 +307,7 @@ const addWorkflowEnqueueRoute = <E, R>(
       const request = yield* HttpServerRequest.HttpServerRequest;
       return yield* Effect.gen(function* () {
         const token = yield* authorizer.requireAuthorizedHeaders(request.headers);
-        const context = yield* contextFromToken(token);
+        const context = yield* contextFromToken(token, gatewayIdentity);
         const body = yield* decodeRequestBody(request);
         const reference = yield* enqueue(context, body);
         return yield* HttpServerResponse.json(reference, { status: 202 });
@@ -380,8 +410,14 @@ const observationResponse = <Requirements>(
     });
   });
 
-const observationContext = (authorizer: WorkflowHttpAuthorizer, headers: Headers.Headers) =>
-  authorizer.requireAuthorizedHeaders(headers).pipe(Effect.flatMap(contextFromToken));
+const observationContext = (
+  authorizer: WorkflowHttpAuthorizer,
+  headers: Headers.Headers,
+  gatewayIdentity: WorkflowHttpGatewayIdentity | undefined,
+) =>
+  authorizer
+    .requireAuthorizedHeaders(headers)
+    .pipe(Effect.flatMap((token) => contextFromToken(token, gatewayIdentity)));
 
 const addWorkflowObservationRoute = <
   Input,
@@ -391,6 +427,7 @@ const addWorkflowObservationRoute = <
 >(
   path: string,
   authorizer: WorkflowHttpAuthorizer,
+  gatewayIdentity: WorkflowHttpGatewayIdentity | undefined,
   decode: Effect.Effect<Input, DecodeError, DecodeRequirements>,
   observe: (
     context: SheetWorkflowZeroContext,
@@ -403,7 +440,7 @@ const addWorkflowObservationRoute = <
     Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest;
       return yield* Effect.gen(function* () {
-        const context = yield* observationContext(authorizer, request.headers);
+        const context = yield* observationContext(authorizer, request.headers, gatewayIdentity);
         const input = yield* decode;
         return yield* observationResponse(observe(context, input));
       }).pipe(Effect.catch(routeErrorResponse));
@@ -421,12 +458,25 @@ export const makeWorkflowHttpRoutesLayer = <Requirements>(
   enqueueAuthorizer: WorkflowHttpAuthorizer,
   observationAuthorizer: WorkflowHttpAuthorizer,
   executor: WorkflowHttpServerExecutor<SheetWorkflowZeroContext, Requirements>,
+  gatewayIdentity?: WorkflowHttpGatewayIdentity,
 ) => {
   const workflowRoutes = makeWorkflowHttpRouteCatalog(sheetWorkflowHttpContracts, executor);
   const routeLayers = workflowRoutes.flatMap(({ routes, enqueue, get, list }) => [
-    addWorkflowEnqueueRoute(routes.enqueue, enqueueAuthorizer, enqueue),
-    addWorkflowObservationRoute(routes.get, observationAuthorizer, decodeWorkflowInvocationId, get),
-    addWorkflowObservationRoute(routes.list, observationAuthorizer, decodeWorkflowListFilter, list),
+    addWorkflowEnqueueRoute(routes.enqueue, enqueueAuthorizer, gatewayIdentity, enqueue),
+    addWorkflowObservationRoute(
+      routes.get,
+      observationAuthorizer,
+      gatewayIdentity,
+      decodeWorkflowInvocationId,
+      get,
+    ),
+    addWorkflowObservationRoute(
+      routes.list,
+      observationAuthorizer,
+      gatewayIdentity,
+      decodeWorkflowListFilter,
+      list,
+    ),
   ]);
 
   return Layer.mergeAll(Layer.empty, ...routeLayers);
@@ -435,10 +485,19 @@ export const makeWorkflowHttpRoutesLayer = <Requirements>(
 export const workflowHttpRoutesLayer = Layer.unwrap(
   Effect.gen(function* () {
     const store = yield* WorkflowStore;
+    const gatewayIdentity = yield* Effect.all({
+      serviceId: config.sheetBotGatewayServiceId,
+      oauthClientId: config.sheetBotGatewayOAuthClientId,
+    });
     const enqueueAuthorizer = yield* makeAuthorizer(["workflow.enqueue"]);
     const observationAuthorizer = yield* makeAuthorizer(["workflow.observe"]);
     const handler = yield* makeSelectedWorkflowTransportHandler(makeWorkflowInvocationStore(store));
     const executor = workflowHttpServerExecutorFromHandler(handler);
-    return makeWorkflowHttpRoutesLayer(enqueueAuthorizer, observationAuthorizer, executor);
+    return makeWorkflowHttpRoutesLayer(
+      enqueueAuthorizer,
+      observationAuthorizer,
+      executor,
+      gatewayIdentity,
+    );
   }),
 );

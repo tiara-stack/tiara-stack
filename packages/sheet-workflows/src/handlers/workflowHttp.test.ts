@@ -25,6 +25,7 @@ import { vi } from "vitest";
 import {
   makeWorkflowHttpRoutesLayer,
   makeWorkflowInvocationStore,
+  contextFromToken,
   workflowHttpRoutesLayer,
   type WorkflowHttpAuthorizer,
 } from "./workflowHttp";
@@ -50,6 +51,16 @@ const authorized = {
   requireAuthorizedBearerToken: () => Effect.succeed(authorizedToken),
 } satisfies WorkflowHttpAuthorizer;
 
+const gatewayServiceToken = {
+  accountId: undefined,
+  actorClientId: undefined,
+  actorSub: undefined,
+  clientId: "sheet-bot-client",
+  exp: undefined,
+  scopes: new Set(["service", "workflow.enqueue"]),
+  sub: undefined,
+} as const;
+
 const routeRequest = (method: string, path: string, body?: string) =>
   new Request(`http://localhost${requestPath(path)}`, {
     method,
@@ -70,6 +81,24 @@ const readSseBody = (response: HttpServerResponse.HttpServerResponse) =>
   });
 
 describe("sheet workflow HTTP contract boundary", () => {
+  it.effect("maps the gateway OAuth client to the configured service identity", () =>
+    Effect.gen(function* () {
+      const context = yield* contextFromToken(gatewayServiceToken, {
+        serviceId: "sheet-bot.gateway",
+        oauthClientId: "sheet-bot-client",
+      });
+
+      expect(context).toMatchObject({
+        ownerKey: "service:sheet-bot.gateway",
+        principal: {
+          kind: "service",
+          serviceId: "sheet-bot.gateway",
+          oauthClientId: "sheet-bot-client",
+        },
+      });
+    }),
+  );
+
   it.effect("mounts every generated enqueue and observation route exactly once", () =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -89,7 +118,10 @@ describe("sheet workflow HTTP contract boundary", () => {
               Layer.provide(Layer.mock(WorkflowStore)({})),
               Layer.provide(
                 ConfigProvider.layer(
-                  ConfigProvider.fromUnknown({ SHEET_AUTH_ISSUER: "https://issuer.example.com" }),
+                  ConfigProvider.fromUnknown({
+                    SHEET_AUTH_ISSUER: "https://issuer.example.com",
+                    SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID: "sheet-bot-client",
+                  }),
                 ),
               ),
               Layer.provide(HttpRouter.layer),
