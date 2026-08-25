@@ -29,6 +29,7 @@ import { TeamSheetWorkflows } from "@/workflows/teams";
 import { CalculationSheetWorkflows } from "@/workflows/calculations";
 import { ServiceSheetWorkflows } from "@/workflows/services";
 import { MemberSheetWorkflows } from "@/workflows/members";
+import { ScreenshotSheetWorkflows } from "@/workflows/screenshots";
 
 const TestWorkflow = Workflow.make({
   name: "test.workflow.v1",
@@ -103,6 +104,14 @@ describe("dispatch workflow cohort coverage", () => {
     }
   });
 
+  it("registers the screenshot replacement workflows in the command runtime", () => {
+    const registeredNames = DispatchRuntimeWorkflows.map(({ name }) => name);
+
+    expect(registeredNames).toEqual(
+      expect.arrayContaining(ScreenshotSheetWorkflows.map(({ name }) => name)),
+    );
+  });
+
   it("matches every non-legacy workflow exactly once", () => {
     for (const workflow of [
       ...ReadOnlySheetWorkflows,
@@ -113,6 +122,7 @@ describe("dispatch workflow cohort coverage", () => {
       ...TeamSheetWorkflows,
       ...CalculationSheetWorkflows,
       ...MemberSheetWorkflows,
+      ...ScreenshotSheetWorkflows,
     ]) {
       expect(dispatchWorkflowSliceMatchCount(workflow), workflow.name).toBe(1);
     }
