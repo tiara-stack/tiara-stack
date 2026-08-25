@@ -4,8 +4,12 @@ import {
   MessageFlags,
 } from "discord-api-types/v10";
 import { Effect, Layer, Option, Schema } from "effect";
-import { CommandHelper, InteractionResponse } from "dfx-discord-utils/utils";
-import type { StringOptionBuilder } from "dfx-discord-utils/utils";
+import {
+  CommandHelper,
+  InteractionResponse,
+  type CommandInteractionResponseContext,
+  type StringOptionBuilder,
+} from "dfx-discord-utils/utils";
 import { config } from "../config";
 import { prefixedUnstorageLayer } from "../discord/cache";
 import {
@@ -17,8 +21,11 @@ import {
   SheetWorkflowsRequestContext,
   type PreferencesDeliverStatusInput,
   type PreferencesUpdateAndDeliverInput,
+  type BotCapabilityStoreShape,
+  type SheetWorkflowHttpClientShape,
+  type SheetWorkflowsClientShape,
 } from "../services";
-import { makeDispatchBase } from "../utils/commandHelpers";
+import { makeDispatchBase, resolveInteractionWorkspaceId } from "../utils/commandHelpers";
 import { registerGlobalCommandLayer } from "../utils/registerGlobalCommandLayer";
 import { enqueueSheetWorkflow } from "../utils/sheetWorkflowMigration";
 import { runSheetWorkflowsDispatch } from "../utils/sheetWorkflowsDispatch";
@@ -68,6 +75,52 @@ const preferenceTogglePatch = (
         ...(defaultClientId === undefined ? {} : { defaultClientId }),
       };
 
+type PreferenceStatusWorkflowClient = Pick<
+  SheetWorkflowHttpClientShape,
+  "enqueuePreferencesDeliverStatus" | "evaluatePreferencesDeliverStatusRolloutGate"
+>;
+
+export const enqueuePreferenceStatus = Effect.fn("preference.enqueueStatus")(function* (
+  response: Pick<CommandInteractionResponseContext, "editReply">,
+  workflowClient: PreferenceStatusWorkflowClient,
+  sheetWorkflowsClient: SheetWorkflowsClientShape,
+  capabilityStore: Pick<BotCapabilityStoreShape, "issueResponseReference">,
+  kind: PreferenceDmKind,
+  platform: PreferencesDeliverStatusInput["platform"],
+) {
+  const base = yield* makeDispatchBase;
+  const workspaceId = yield* resolveInteractionWorkspaceId;
+
+  yield* enqueueSheetWorkflow({
+    response,
+    operation: `the ${dmKindLabel(kind)} preference status check`,
+    contractIdentity: "preferences.deliverStatus",
+    contractWireVersion: "1",
+    ...(workspaceId === undefined ? {} : { workspaceId }),
+    capabilityStore,
+    evaluateGate: (input) => workflowClient.evaluatePreferencesDeliverStatusRolloutGate(input),
+    makeInput: (responseReference): PreferencesDeliverStatusInput => ({
+      responseReference,
+      kind,
+      platform,
+    }),
+    enqueue: (input, options) =>
+      enqueuePreferencesDeliverStatusWorkflow(workflowClient, input, options),
+    dispatchLegacy: runSheetWorkflowsDispatch(
+      response,
+      `the ${dmKindLabel(kind)} preference status check`,
+      SheetWorkflowsRequestContext.asInteractionUser(() =>
+        sheetWorkflowsClient.get().dispatch.preferenceDmStatus({
+          payload: { ...base, kind, platform },
+        }),
+      )(),
+    ),
+    rejectedMessage: preferenceRejectedMessage,
+    unauthorizedMessage: preferenceUnauthorizedMessage,
+    pendingMessage: preferencePendingMessage,
+  });
+});
+
 const makeStatusSubCommand = (kind: PreferenceDmKind) =>
   Effect.gen(function* () {
     const sheetWorkflowsClient = yield* SheetWorkflowsClient;
@@ -83,39 +136,18 @@ const makeStatusSubCommand = (kind: PreferenceDmKind) =>
       Effect.fn(`preference.${kind}Dm.status`)(function* (command) {
         const response = yield* InteractionResponse;
         yield* response.deferReply({ flags: MessageFlags.Ephemeral });
-        const base = yield* makeDispatchBase;
         const platform = yield* decodeWorkflowPlatform(
           selectedPlatform(command.optionValueOptional("platform")),
         );
 
-        yield* enqueueSheetWorkflow({
+        yield* enqueuePreferenceStatus(
           response,
-          operation: `the ${dmKindLabel(kind)} preference status check`,
-          contractIdentity: "preferences.deliverStatus",
-          contractWireVersion: "1",
+          workflowClient,
+          sheetWorkflowsClient,
           capabilityStore,
-          evaluateGate: (input) =>
-            workflowClient.evaluatePreferencesDeliverStatusRolloutGate(input),
-          makeInput: (responseReference): PreferencesDeliverStatusInput => ({
-            responseReference,
-            kind,
-            platform,
-          }),
-          enqueue: (input, options) =>
-            enqueuePreferencesDeliverStatusWorkflow(workflowClient, input, options),
-          dispatchLegacy: runSheetWorkflowsDispatch(
-            response,
-            `the ${dmKindLabel(kind)} preference status check`,
-            SheetWorkflowsRequestContext.asInteractionUser(() =>
-              sheetWorkflowsClient.get().dispatch.preferenceDmStatus({
-                payload: { ...base, kind, platform },
-              }),
-            )(),
-          ),
-          rejectedMessage: preferenceRejectedMessage,
-          unauthorizedMessage: preferenceUnauthorizedMessage,
-          pendingMessage: preferencePendingMessage,
-        });
+          kind,
+          platform,
+        );
       }),
     );
   });
@@ -139,6 +171,7 @@ const makeEnableSubCommand = (kind: PreferenceDmKind) =>
         const response = yield* InteractionResponse;
         yield* response.deferReply({ flags: MessageFlags.Ephemeral });
         const base = yield* makeDispatchBase;
+        const workspaceId = yield* resolveInteractionWorkspaceId;
         const platform = yield* decodeWorkflowPlatform(
           selectedPlatform(command.optionValueOptional("platform")),
         );
@@ -152,6 +185,7 @@ const makeEnableSubCommand = (kind: PreferenceDmKind) =>
           operation: `the ${dmKindLabel(kind)} preference enable update`,
           contractIdentity: "preferences.updateAndDeliver",
           contractWireVersion: "1",
+          ...(workspaceId === undefined ? {} : { workspaceId }),
           capabilityStore,
           evaluateGate: (input) =>
             workflowClient.evaluatePreferencesUpdateAndDeliverRolloutGate(input),
@@ -195,6 +229,7 @@ const makeDisableSubCommand = (kind: PreferenceDmKind) =>
         const response = yield* InteractionResponse;
         yield* response.deferReply({ flags: MessageFlags.Ephemeral });
         const base = yield* makeDispatchBase;
+        const workspaceId = yield* resolveInteractionWorkspaceId;
         const platform = yield* decodeWorkflowPlatform(
           selectedPlatform(command.optionValueOptional("platform")),
         );
@@ -204,6 +239,7 @@ const makeDisableSubCommand = (kind: PreferenceDmKind) =>
           operation: `the ${dmKindLabel(kind)} preference disable update`,
           contractIdentity: "preferences.updateAndDeliver",
           contractWireVersion: "1",
+          ...(workspaceId === undefined ? {} : { workspaceId }),
           capabilityStore,
           evaluateGate: (input) =>
             workflowClient.evaluatePreferencesUpdateAndDeliverRolloutGate(input),
@@ -279,6 +315,7 @@ const makeClientSubCommand = Effect.gen(function* () {
       const response = yield* InteractionResponse;
       yield* response.deferReply({ flags: MessageFlags.Ephemeral });
       const base = yield* makeDispatchBase;
+      const workspaceId = yield* resolveInteractionWorkspaceId;
       const platform = yield* decodeWorkflowPlatform(
         selectedPlatform(command.optionValueOptional("platform")),
       );
@@ -289,6 +326,7 @@ const makeClientSubCommand = Effect.gen(function* () {
         operation: "the DM preference client update",
         contractIdentity: "preferences.updateAndDeliver",
         contractWireVersion: "1",
+        ...(workspaceId === undefined ? {} : { workspaceId }),
         capabilityStore,
         evaluateGate: (input) =>
           workflowClient.evaluatePreferencesUpdateAndDeliverRolloutGate(input),

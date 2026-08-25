@@ -4,7 +4,7 @@ import { Ix } from "dfx/index";
 import { Duration, Effect, Layer, Match, Option, pipe } from "effect";
 import { CHECKIN_ACTION_ID } from "sheet-ingress-api/clientActions";
 import { discordGatewayLayer } from "../../discord/gateway";
-import { resolveGuildId } from "@/utils/commandHelpers";
+import { issueInteractionResponseReference, resolveGuildId } from "@/utils/commandHelpers";
 import {
   Interaction,
   InteractionToken,
@@ -73,46 +73,6 @@ const makeCheckinButtonData = (disabled = false) =>
   );
 
 const checkinButtonData = makeCheckinButtonData();
-
-// Button response references intentionally mirror the command/status response-reference shape.
-// fallow-ignore-next-line code-duplication
-const makeCheckinButtonResponseReferenceInput = ({
-  applicationId,
-  clientId,
-  interactionId,
-  interactionToken,
-}: {
-  readonly applicationId: string;
-  readonly clientId: string;
-  readonly interactionId: string;
-  readonly interactionToken: string;
-}) => ({
-  applicationId,
-  client: { platform: "discord" as const, clientId },
-  interactionToken,
-  permittedOperations: ["respond" as const],
-  expiresAt: interactionDeadlineEpochMs(interactionId),
-});
-
-const issueCheckinButtonResponseReference = (
-  capabilityStore: Pick<BotCapabilityStoreShape, "issueResponseReference">,
-) =>
-  Effect.gen(function* () {
-    const interactionToken = yield* InteractionToken;
-    const interaction = yield* Ix.Interaction;
-    const clientId = yield* config.sheetBotClientId;
-
-    return yield* capabilityStore.issueResponseReference(
-      // The interaction-specific response-reference issuer mirrors the slot-open adapter by design.
-      // fallow-ignore-next-line code-duplication
-      makeCheckinButtonResponseReferenceInput({
-        applicationId: interactionToken.applicationId,
-        clientId,
-        interactionId: interaction.id,
-        interactionToken: interactionToken.token,
-      }),
-    );
-  });
 
 const dispatchLegacyCheckinButton = (
   response: Pick<CommandInteractionResponseContext, "editReply">,
@@ -187,7 +147,10 @@ export const enqueueCheckinButton = Effect.fn("checkinButton.enqueueWorkflow")(f
     ),
     Match.when("replacement", () =>
       Effect.gen(function* () {
-        const responseReference = yield* issueCheckinButtonResponseReference(capabilityStore);
+        const responseReference = yield* issueInteractionResponseReference(
+          capabilityStore,
+          workspaceId,
+        );
 
         yield* SheetWorkflowHttpRequestContext.asInteractionUser(() =>
           enqueueCheckinsRespondWorkflow(

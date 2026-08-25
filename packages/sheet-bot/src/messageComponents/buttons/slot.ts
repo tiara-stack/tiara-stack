@@ -4,7 +4,7 @@ import { ButtonStyle, MessageFlags } from "discord-api-types/v10";
 import { Duration, Effect, Layer, Match, Option, pipe } from "effect";
 import { SLOT_OPEN_ACTION_ID } from "sheet-ingress-api/clientActions";
 import { discordGatewayLayer } from "../../discord/gateway";
-import { resolveGuildId } from "@/utils/commandHelpers";
+import { issueInteractionResponseReference, resolveGuildId } from "@/utils/commandHelpers";
 import {
   Interaction,
   InteractionToken,
@@ -65,46 +65,6 @@ const getInteractionMessageId = Effect.gen(function* () {
 const slotButtonData = makeButtonData((b) =>
   b.setCustomId(SLOT_OPEN_ACTION_ID).setLabel("Open slots").setStyle(ButtonStyle.Primary),
 );
-
-// Button response references intentionally mirror the command/status response-reference shape.
-// fallow-ignore-next-line code-duplication
-const makeSlotButtonResponseReferenceInput = ({
-  applicationId,
-  clientId,
-  interactionId,
-  interactionToken,
-}: {
-  readonly applicationId: string;
-  readonly clientId: string;
-  readonly interactionId: string;
-  readonly interactionToken: string;
-}) => ({
-  applicationId,
-  client: { platform: "discord" as const, clientId },
-  interactionToken,
-  permittedOperations: ["respond" as const],
-  expiresAt: interactionDeadlineEpochMs(interactionId),
-});
-
-const issueSlotButtonResponseReference = (
-  capabilityStore: Pick<BotCapabilityStoreShape, "issueResponseReference">,
-) =>
-  Effect.gen(function* () {
-    const interactionToken = yield* InteractionToken;
-    const interaction = yield* Ix.Interaction;
-    const clientId = yield* config.sheetBotClientId;
-
-    return yield* capabilityStore.issueResponseReference(
-      // The interaction-specific response-reference issuer mirrors the check-in adapter by design.
-      // fallow-ignore-next-line code-duplication
-      makeSlotButtonResponseReferenceInput({
-        applicationId: interactionToken.applicationId,
-        clientId,
-        interactionId: interaction.id,
-        interactionToken: interactionToken.token,
-      }),
-    );
-  });
 
 const dispatchLegacySlotButton = (
   response: Pick<CommandInteractionResponseContext, "editReply">,
@@ -177,7 +137,10 @@ export const enqueueSlotOpenButton = Effect.fn("slotButton.enqueueWorkflow")(fun
     Match.when("legacy", () => dispatchLegacySlotButton(response, sheetWorkflowsClient, messageId)),
     Match.when("replacement", () =>
       Effect.gen(function* () {
-        const responseReference = yield* issueSlotButtonResponseReference(capabilityStore);
+        const responseReference = yield* issueInteractionResponseReference(
+          capabilityStore,
+          workspaceId,
+        );
 
         yield* SheetWorkflowHttpRequestContext.asInteractionUser(() =>
           enqueueSlotsOpenWorkflow(

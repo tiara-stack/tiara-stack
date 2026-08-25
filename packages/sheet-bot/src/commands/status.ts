@@ -1,12 +1,10 @@
 import { InteractionsRegistry } from "dfx/gateway";
 import { ApplicationIntegrationType, InteractionContextType } from "discord-api-types/v10";
 import { Ix } from "dfx/index";
-import { Duration, Effect, Layer, Match, Option, Predicate } from "effect";
-import { Interaction } from "dfx-discord-utils";
+import { Duration, Effect, Layer, Match } from "effect";
 import {
   CommandHelper,
   InteractionResponse,
-  InteractionToken,
   type CommandInteractionResponseContext,
 } from "dfx-discord-utils/utils";
 import { config } from "../config";
@@ -26,8 +24,12 @@ import {
   type StatusRolloutGateEvaluation,
 } from "../services";
 import { makeWorkflowInvocationId } from "sheet-workflow-http-client";
-import { makeDispatchBase } from "../utils/commandHelpers";
-import { interactionDeadlineEpochMs } from "../utils/interactionDeadline";
+import {
+  issueInteractionResponseReference,
+  makeDispatchBase,
+  makeResponseReferenceInput,
+  resolveInteractionWorkspaceId,
+} from "../utils/commandHelpers";
 import { runSheetWorkflowsDispatch } from "../utils/sheetWorkflowsDispatch";
 import {
   isWorkflowTransportUnavailable,
@@ -51,52 +53,9 @@ const statusGateUnavailableDecision: StatusRolloutGateDecision = {
   reason: "control-unavailable",
 };
 
-export const makeStatusResponseReferenceInput = ({
-  applicationId,
-  clientId,
-  interactionId,
-  interactionToken,
-}: {
-  readonly applicationId: string;
-  readonly clientId: string;
-  readonly interactionId: string;
-  readonly interactionToken: string;
-}) => ({
-  applicationId,
-  client: { platform: "discord" as const, clientId },
-  interactionToken,
-  permittedOperations: ["respond" as const],
-  expiresAt: interactionDeadlineEpochMs(interactionId),
-});
+export const makeStatusResponseReferenceInput = makeResponseReferenceInput;
 
-const issueStatusResponseReference = (
-  capabilityStore: Pick<BotCapabilityStoreShape, "issueResponseReference">,
-) =>
-  Effect.gen(function* () {
-    const interactionToken = yield* InteractionToken;
-    const interaction = yield* Ix.Interaction;
-    const clientId = yield* config.sheetBotClientId;
-
-    return yield* capabilityStore.issueResponseReference(
-      makeStatusResponseReferenceInput({
-        applicationId: interactionToken.applicationId,
-        clientId,
-        interactionId: interaction.id,
-        interactionToken: interactionToken.token,
-      }),
-    );
-  });
-
-const interactionWorkspaceId = Effect.gen(function* () {
-  const guild = yield* Interaction.guild();
-  return Option.match(guild, {
-    onNone: () => undefined,
-    onSome: (value) =>
-      Predicate.hasProperty(value, "id") && Predicate.isString(value.id) && value.id.length > 0
-        ? value.id
-        : undefined,
-  });
-});
+const issueStatusResponseReference = issueInteractionResponseReference;
 
 const dispatchLegacyStatus = (
   response: Pick<CommandInteractionResponseContext, "editReply">,
@@ -134,7 +93,7 @@ export const enqueueStatus = Effect.fn("status.enqueueWorkflow")(function* (
 ) {
   const invocationId = yield* makeWorkflowInvocationId();
   const clientId = yield* config.sheetBotClientId;
-  const workspaceId = yield* interactionWorkspaceId;
+  const workspaceId = yield* resolveInteractionWorkspaceId;
   const decision = yield* SheetWorkflowHttpRequestContext.asInteractionUser(() =>
     workflowClient.evaluateStatusRolloutGate({
       contractIdentity: "services.deliverStatus",
@@ -157,7 +116,7 @@ export const enqueueStatus = Effect.fn("status.enqueueWorkflow")(function* (
     Match.when("legacy", () => dispatchLegacyStatus(response, sheetWorkflowsClient)),
     Match.when("replacement", () =>
       Effect.gen(function* () {
-        const responseReference = yield* issueStatusResponseReference(capabilityStore);
+        const responseReference = yield* issueStatusResponseReference(capabilityStore, workspaceId);
 
         yield* SheetWorkflowHttpRequestContext.asInteractionUser(() =>
           enqueueStatusWorkflow(workflowClient, { responseReference }, { invocationId }),

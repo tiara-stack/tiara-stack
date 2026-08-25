@@ -32,13 +32,15 @@ const replacementRolloutGateDecision = {
   reason: "replacement-enabled",
 };
 
-const makeCapabilityStore = (onIssueResponseReference: () => void = () => {}) => {
+const makeCapabilityStore = (
+  onIssueResponseReference: (input: { readonly workspaceId?: string }) => void = () => {},
+) => {
   const responseReference = Schema.decodeUnknownSync(ResponseReference)(
     "opaque-response-reference",
   );
   return {
-    issueResponseReference: () => {
-      onIssueResponseReference();
+    issueResponseReference: (input: { readonly workspaceId?: string }) => {
+      onIssueResponseReference(input);
       return Effect.succeed(responseReference);
     },
   } as Pick<typeof BotCapabilityStore.Service, "issueResponseReference">;
@@ -157,6 +159,7 @@ layer(enqueueLayer)("button workflow enqueue", (tests) => {
       let enqueuedInput: unknown;
       let legacyDispatches = 0;
       let responseReferences = 0;
+      let issuedWorkspaceId: string | undefined;
 
       yield* runCheckinButton(
         makeResponse([]),
@@ -178,8 +181,9 @@ layer(enqueueLayer)("button workflow enqueue", (tests) => {
             return Effect.succeed({});
           },
         }),
-        makeCapabilityStore(() => {
+        makeCapabilityStore((input) => {
           responseReferences += 1;
+          issuedWorkspaceId = input.workspaceId;
         }),
         makeSheetWorkflowsClient({ onCheckinButton: () => (legacyDispatches += 1) }),
       );
@@ -193,6 +197,7 @@ layer(enqueueLayer)("button workflow enqueue", (tests) => {
       });
       expect(enqueuedInput).not.toHaveProperty("interactionToken");
       expect(responseReferences).toBe(1);
+      expect(issuedWorkspaceId).toBe("123456789012345678");
       expect(legacyDispatches).toBe(0);
     }),
   );
@@ -289,6 +294,7 @@ layer(enqueueLayer)("button workflow enqueue", (tests) => {
       let enqueuedInput: unknown;
       let legacyDispatches = 0;
       let responseReferences = 0;
+      let issuedWorkspaceId: string | undefined;
 
       yield* runSlotOpenButton(
         makeResponse([]),
@@ -298,8 +304,9 @@ layer(enqueueLayer)("button workflow enqueue", (tests) => {
             return Effect.succeed({});
           },
         }),
-        makeCapabilityStore(() => {
+        makeCapabilityStore((input) => {
           responseReferences += 1;
+          issuedWorkspaceId = input.workspaceId;
         }),
         makeSheetWorkflowsClient({ onSlotOpenButton: () => (legacyDispatches += 1) }),
       );
@@ -310,6 +317,7 @@ layer(enqueueLayer)("button workflow enqueue", (tests) => {
       });
       expect(enqueuedInput).not.toHaveProperty("interactionToken");
       expect(responseReferences).toBe(1);
+      expect(issuedWorkspaceId).toBe("123456789012345678");
       expect(legacyDispatches).toBe(0);
     }),
   );

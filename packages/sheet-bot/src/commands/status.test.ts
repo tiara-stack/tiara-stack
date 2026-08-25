@@ -33,13 +33,15 @@ const replacementStatusRolloutGateDecision = {
   reason: "replacement-enabled",
 };
 
-const makeStatusCapabilityStore = (onIssueResponseReference: () => void = () => {}) => {
+const makeStatusCapabilityStore = (
+  onIssueResponseReference: (input: { readonly workspaceId?: string }) => void = () => {},
+) => {
   const responseReference = Schema.decodeUnknownSync(ResponseReference)(
     "opaque-response-reference",
   );
   return {
-    issueResponseReference: () => {
-      onIssueResponseReference();
+    issueResponseReference: (input: { readonly workspaceId?: string }) => {
+      onIssueResponseReference(input);
       return Effect.succeed(responseReference);
     },
   } as Pick<typeof BotCapabilityStore.Service, "issueResponseReference">;
@@ -324,6 +326,7 @@ layer(statusEnqueueLayer)("status command workflow enqueue", (it) => {
   it.effect("passes a guild interaction as the Rollout Gate workspace scope", () =>
     Effect.gen(function* () {
       let evaluatedWorkspaceId: string | undefined;
+      let issuedWorkspaceId: string | undefined;
       const workflowClient = makeStatusWorkflowClient(
         () => Effect.succeed({}),
         (input: { readonly workspaceId?: string }) => {
@@ -338,12 +341,15 @@ layer(statusEnqueueLayer)("status command workflow enqueue", (it) => {
       yield* runStatusEnqueue(
         response,
         workflowClient,
-        makeStatusCapabilityStore(),
+        makeStatusCapabilityStore((input) => {
+          issuedWorkspaceId = input.workspaceId;
+        }),
         undefined,
-        "workspace-1",
+        "123456789012345678",
       );
 
-      expect(evaluatedWorkspaceId).toBe("workspace-1");
+      expect(evaluatedWorkspaceId).toBe("123456789012345678");
+      expect(issuedWorkspaceId).toBe("123456789012345678");
     }),
   );
 });

@@ -235,6 +235,14 @@ export const makeDispatchBase = Effect.gen(function* () {
   };
 });
 
+export const resolveInteractionWorkspaceId = Effect.gen(function* () {
+  const guildId = yield* getInteractionGuildId;
+  return Option.match(guildId, {
+    onNone: () => undefined,
+    onSome: (value) => value,
+  });
+});
+
 export const makeResponseReferenceInput = ({
   applicationId,
   clientId,
