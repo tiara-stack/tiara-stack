@@ -53,6 +53,18 @@ export type WorkflowRun = {
 
 export type WorkflowRunCursor = Pick<WorkflowRun, "runId" | "updatedAt">;
 
+/**
+ * The persisted fields needed by the contract observation transport. The
+ * owner and workflow filters are applied in SQL before these rows leave the
+ * store so callers cannot accidentally widen observation scope.
+ */
+export type WorkflowRunObservation = WorkflowRun & {
+  readonly completedAt: Date | null;
+  readonly createdAt: Date;
+};
+
+export type WorkflowRunObservationCursor = Pick<WorkflowRunObservation, "runId" | "createdAt">;
+
 export type EnqueueWorkflow = {
   readonly runId: string;
   readonly workflowName: string;
@@ -129,6 +141,23 @@ export interface WorkflowStoreService {
     limit: number,
     cursor?: WorkflowRunCursor,
   ) => Effect.Effect<ReadonlyArray<WorkflowRun>, SqlError.SqlError>;
+  /** Reads a run only when both its owner and contract workflow key match. */
+  readonly getRunForOwner: (
+    ownerKey: string,
+    workflowName: string,
+    runId: string,
+  ) => Effect.Effect<WorkflowRunObservation | undefined, SqlError.SqlError>;
+  /**
+   * Lists owner- and contract-scoped runs in the cursor order used by the
+   * generated observation transport. An empty status list means all states.
+   */
+  readonly listRunsForOwner: (
+    ownerKey: string,
+    workflowName: string,
+    statuses: ReadonlyArray<WorkflowRunStatusType>,
+    limit: number,
+    cursor?: WorkflowRunObservationCursor,
+  ) => Effect.Effect<ReadonlyArray<WorkflowRunObservation>, SqlError.SqlError>;
   readonly markCommandDelivered: (
     command: WorkflowCommand,
   ) => Effect.Effect<boolean, SqlError.SqlError>;
@@ -214,10 +243,24 @@ const WorkflowRunRow = Schema.Struct({
   updatedAt: Schema.DateValid,
 });
 
+const WorkflowRunObservationRow = Schema.Struct({
+  runId: Schema.String,
+  workflowName: Schema.String,
+  definitionVersion: Schema.String,
+  executionId: Schema.String,
+  status: WorkflowRunStatus,
+  result: Schema.NullOr(Schema.Json),
+  error: Schema.NullOr(Schema.Json),
+  completedAt: Schema.NullOr(Schema.DateValid),
+  createdAt: Schema.DateValid,
+  updatedAt: Schema.DateValid,
+});
+
 const decodeClaimedCommand = Schema.decodeUnknownEffect(ClaimedWorkflowCommand);
 const decodeEnqueuedWorkflow = Schema.decodeUnknownEffect(EnqueuedWorkflowRow);
 const decodeExistingWorkflowCommand = Schema.decodeUnknownEffect(ExistingWorkflowCommandRow);
 const decodeWorkflowRun = Schema.decodeUnknownEffect(WorkflowRunRow);
+const decodeWorkflowRunObservation = Schema.decodeUnknownEffect(WorkflowRunObservationRow);
 const encodeWorkflowJson = Schema.encodeSync(Schema.fromJsonString(Schema.Json));
 
 const workflowStoreError = (message: string, operation: string) =>
@@ -525,6 +568,34 @@ export const makeWorkflowStore = (
         return Predicate.isUndefined(rows[0]) ? undefined : yield* decodeRun(rows[0]);
       });
 
+    const selectRunObservationFields = sql`
+      run_id AS "runId",
+      workflow_name AS "workflowName",
+      definition_version AS "definitionVersion",
+      execution_id AS "executionId",
+      status,
+      result,
+      error,
+      completed_at AS "completedAt",
+      created_at AS "createdAt",
+      updated_at AS "updatedAt"
+    `;
+
+    const getRunForOwner = (ownerKey: string, workflowName: string, runId: string) =>
+      Effect.gen(function* () {
+        const rows = yield* sql`
+          SELECT ${selectRunObservationFields}
+          FROM ${runTable}
+          WHERE workflow_name = ${workflowName}
+            AND visibility_key = ${ownerKey}
+            AND run_id = ${runId}
+          LIMIT 1
+        `;
+        return Predicate.isUndefined(rows[0])
+          ? undefined
+          : yield* decodeWorkflowRunObservation(rows[0]).pipe(Effect.orDie);
+      });
+
     const listRuns = (status: WorkflowRunStatusType, limit: number, cursor?: WorkflowRunCursor) =>
       Effect.gen(function* () {
         const cursorCondition = Predicate.isUndefined(cursor)
@@ -539,6 +610,34 @@ export const makeWorkflowStore = (
           LIMIT ${normalizeSqlLimit(limit)}
         `;
         return yield* Effect.forEach(rows, decodeRun);
+      });
+
+    const listRunsForOwner = (
+      ownerKey: string,
+      workflowName: string,
+      statuses: ReadonlyArray<WorkflowRunStatusType>,
+      limit: number,
+      cursor?: WorkflowRunObservationCursor,
+    ) =>
+      Effect.gen(function* () {
+        const statusCondition =
+          statuses.length === 0 ? sql`` : sql`AND status IN ${sql.in(statuses)}`;
+        const cursorCondition = Predicate.isUndefined(cursor)
+          ? sql``
+          : sql`AND (created_at, run_id) > (${cursor.createdAt}, ${cursor.runId})`;
+        const rows = yield* sql`
+          SELECT ${selectRunObservationFields}
+          FROM ${runTable}
+          WHERE workflow_name = ${workflowName}
+            AND visibility_key = ${ownerKey}
+          ${statusCondition}
+          ${cursorCondition}
+          ORDER BY created_at, run_id
+          LIMIT ${normalizeSqlLimit(limit)}
+        `;
+        return yield* Effect.forEach(rows, (row) =>
+          decodeWorkflowRunObservation(row).pipe(Effect.orDie),
+        );
       });
 
     const markRun: WorkflowStoreService["markRun"] = (runId, status, details) => {
@@ -574,6 +673,8 @@ export const makeWorkflowStore = (
       claim,
       getRun,
       listRuns,
+      getRunForOwner,
+      listRunsForOwner,
       markCommandDelivered: (command) =>
         settleCommand(command, {
           status: "delivered",

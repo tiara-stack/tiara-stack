@@ -77,6 +77,8 @@ export {
   type WorkflowEnqueueTransaction,
   type WorkflowRun,
   type WorkflowRunCursor,
+  type WorkflowRunObservation,
+  type WorkflowRunObservationCursor,
   type WorkflowStoreOptions,
   type WorkflowStoreService,
 } from "./store";

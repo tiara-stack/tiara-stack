@@ -1,23 +1,35 @@
-import { Effect, Layer, Metric, Predicate, Schema } from "effect";
-import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
-import { InvocationConflict } from "effect-zero-workflow/contract";
+import { Effect, Layer, Metric, Predicate, Schema, Stream } from "effect";
+import { Headers, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import {
+  defaultWorkflowRunListLimit,
+  InvocationConflict,
+  InvocationId,
+  WorkflowRunListFilter,
+  WorkflowRunState,
+} from "effect-zero-workflow/contract";
 import {
   makeWorkflowHttpRouteCatalog,
   workflowEnqueueErrorStatus,
   workflowHttpServerExecutorFromHandler,
+  workflowObservationErrorStatus,
+  type WorkflowHttpServerExecutor,
 } from "effect-zero-workflow/contract/http/server";
 import {
   WorkflowInputRejected,
+  WorkflowObservationInvalidData,
+  WorkflowObservationError,
   WorkflowTransportUnavailable,
   WorkflowEnqueueError,
-  type WorkflowObservationError,
 } from "effect-zero-workflow/contract/transport";
 import {
   WorkflowStore,
+  allWorkflowRunStatuses,
   effectWorkflowExecutionId,
   type WorkflowInvocationStore,
   workflowContractExecutionPayload,
   type WorkflowJson,
+  type WorkflowRunObservation,
+  type WorkflowRunStatusType,
 } from "effect-zero-workflow";
 import {
   actorProvenanceFromVerifiedOAuthClaims,
@@ -28,36 +40,7 @@ import {
   type VerifiedOAuthResourceToken,
 } from "sheet-auth/oauth-resource-authorization";
 import { Unauthorized } from "typhoon-core/error";
-import {
-  AnnouncementsDeliverUpdate,
-  CheckinsOpen,
-  CheckinsRespond,
-  CheckinsTestAuto,
-  CalculationsRecalculateSheet,
-  ConversationsDeliverConfig,
-  ConversationsSetLockdown,
-  ConversationsUpdateConfigAndDeliver,
-  MembersKick,
-  PreferencesDeliverStatus,
-  PreferencesUpdateAndDeliver,
-  RoomOrdersCreate,
-  RoomOrdersNavigate,
-  RoomOrdersPinTentative,
-  RoomOrdersSend,
-  SchedulesDeliverUserSchedule,
-  ScreenshotsCaptureAndDeliver,
-  ServicesDeliverStatus,
-  SlotsDeliverList,
-  SlotsOpen,
-  SlotsPublishButton,
-  TeamsDeliverList,
-  TeamSubmissionsDecide,
-  TeamSubmissionsProcess,
-  WorkspacesDeliverConfig,
-  WorkspacesDeliverWelcome,
-  WorkspacesSetMonitorRoleAndDeliver,
-  WorkspacesUpdateConfigAndDeliver,
-} from "sheet-workflow-contracts";
+import { SheetWorkflowContractCatalog } from "sheet-workflow-contracts";
 import type { SheetWorkflowZeroContext } from "sheet-zero-server";
 import { config } from "@/config";
 import { sheetWorkflowsHttpEnqueues } from "@/metrics";
@@ -67,47 +50,37 @@ import {
 } from "@/workflows/readOnly/authorization";
 import { makeSelectedWorkflowTransportHandler } from "@/workflows/selected/registry";
 
-export const sheetWorkflowHttpEnqueueContracts = Object.freeze([
-  ServicesDeliverStatus,
-  SchedulesDeliverUserSchedule,
-  CalculationsRecalculateSheet,
-  WorkspacesDeliverWelcome,
-  TeamSubmissionsProcess,
-  TeamSubmissionsDecide,
-  AnnouncementsDeliverUpdate,
-  CheckinsOpen,
-  CheckinsTestAuto,
-  CheckinsRespond,
-  RoomOrdersCreate,
-  RoomOrdersNavigate,
-  RoomOrdersSend,
-  RoomOrdersPinTentative,
-  SlotsDeliverList,
-  SlotsPublishButton,
-  SlotsOpen,
-  MembersKick,
-  PreferencesDeliverStatus,
-  PreferencesUpdateAndDeliver,
-  WorkspacesDeliverConfig,
-  WorkspacesUpdateConfigAndDeliver,
-  WorkspacesSetMonitorRoleAndDeliver,
-  ConversationsDeliverConfig,
-  ConversationsUpdateConfigAndDeliver,
-  ConversationsSetLockdown,
-  TeamsDeliverList,
-  ScreenshotsCaptureAndDeliver,
-] as const);
+const sheetWorkflowHttpContracts = SheetWorkflowContractCatalog;
 
-const observeUnavailable = (): Effect.Effect<never, WorkflowObservationError> =>
-  Effect.fail(
-    new WorkflowTransportUnavailable({
-      operation: "Observe",
-      retryable: true,
-      message: "Workflow observation is unavailable on this enqueue boundary",
-    }),
-  );
+const workflowStatusesByState: Record<
+  typeof WorkflowRunState.Type,
+  ReadonlyArray<WorkflowRunStatusType>
+> = {
+  Pending: ["pending", "running"],
+  Success: ["succeeded"],
+  Failure: ["failed", "cancelled"],
+};
 
-const makeWorkflowInvocationStore = (
+const statusesForObservationFilter = (
+  filter: typeof WorkflowRunListFilter.Type,
+): ReadonlyArray<WorkflowRunStatusType> => {
+  if (Predicate.isUndefined(filter.states) || filter.states.length === 0) {
+    return allWorkflowRunStatuses;
+  }
+  return [...new Set(filter.states.flatMap((state) => workflowStatusesByState[state]))];
+};
+
+const materializedRun = (run: WorkflowRunObservation) => ({
+  runId: run.runId,
+  status: run.status,
+  result: run.result,
+  error: run.error,
+  completedAt: run.completedAt,
+  createdAt: run.createdAt,
+  updatedAt: run.updatedAt,
+});
+
+export const makeWorkflowInvocationStore = (
   store: typeof WorkflowStore.Service,
 ): WorkflowInvocationStore<
   SheetWorkflowZeroContext["principal"],
@@ -173,21 +146,47 @@ const makeWorkflowInvocationStore = (
           ),
         );
     }),
-  get: () => observeUnavailable(),
-  list: () => observeUnavailable(),
+  get: (ownerKey, workflowName, invocationId) =>
+    withObservationStoreErrorHandling(
+      "Get",
+      store
+        .getRunForOwner(ownerKey, workflowName, invocationId)
+        .pipe(Effect.map((run) => (Predicate.isUndefined(run) ? undefined : materializedRun(run)))),
+    ),
+  list: (ownerKey, workflowName, filter) =>
+    withObservationStoreErrorHandling(
+      "List",
+      store
+        .listRunsForOwner(
+          ownerKey,
+          workflowName,
+          statusesForObservationFilter(filter),
+          filter.limit ?? defaultWorkflowRunListLimit,
+          Predicate.isUndefined(filter.cursor)
+            ? undefined
+            : {
+                createdAt: filter.cursor.submittedAt,
+                runId: filter.cursor.invocationId,
+              },
+        )
+        .pipe(Effect.map((runs) => runs.map(materializedRun))),
+    ),
 });
 
-const makeAuthorizer = Effect.gen(function* () {
-  const issuer = yield* config.sheetAuthIssuer;
-  const audience = yield* config.sheetAuthWorkflowHttpAudience;
-  return yield* makeOAuthResourceTokenAuthorizer({
-    issuer,
-    audience,
-    requiredScopes: ["workflow.enqueue"],
-    headerName: "authorization",
-    makeUnauthorized: ({ message, cause }) => new Unauthorized({ message, cause }),
+const makeAuthorizer = (requiredScopes: readonly string[]) =>
+  Effect.gen(function* () {
+    const issuer = yield* config.sheetAuthIssuer;
+    const audience = yield* config.sheetAuthWorkflowHttpAudience;
+    return yield* makeOAuthResourceTokenAuthorizer({
+      issuer,
+      audience,
+      requiredScopes,
+      headerName: "authorization",
+      makeUnauthorized: ({ message, cause }) => new Unauthorized({ message, cause }),
+    });
   });
-});
+
+export type WorkflowHttpAuthorizer = Effect.Success<ReturnType<typeof makeAuthorizer>>;
 
 const contextFromToken = (
   token: VerifiedOAuthResourceToken,
@@ -234,6 +233,13 @@ const enqueueErrorResponse = (error: WorkflowEnqueueError) =>
       );
 
 const isEnqueueError = Schema.is(WorkflowEnqueueError);
+const isObservationError = Schema.is(WorkflowObservationError);
+
+const observationErrorResponse = (error: WorkflowObservationError) =>
+  HttpServerResponse.json(
+    { _tag: error._tag, message: error.message },
+    { status: workflowObservationErrorStatus(error) },
+  );
 
 const routeErrorResponse = (error: unknown) => {
   if (Predicate.isTagged("Unauthorized")(error)) {
@@ -242,12 +248,15 @@ const routeErrorResponse = (error: unknown) => {
       { status: 401 },
     );
   }
+  if (isObservationError(error)) {
+    return observationErrorResponse(error);
+  }
   return isEnqueueError(error) ? enqueueErrorResponse(error) : Effect.fail(error);
 };
 
 const addWorkflowEnqueueRoute = <E, R>(
   path: string,
-  authorizer: Effect.Success<typeof makeAuthorizer>,
+  authorizer: WorkflowHttpAuthorizer,
   enqueue: (context: SheetWorkflowZeroContext, request: unknown) => Effect.Effect<unknown, E, R>,
 ) =>
   HttpRouter.add(
@@ -265,20 +274,136 @@ const addWorkflowEnqueueRoute = <E, R>(
     }),
   );
 
+const WorkflowHttpListQuery = Schema.Struct({
+  state: Schema.optional(Schema.Union([Schema.String, Schema.Array(Schema.String)])),
+  cursorSubmittedAt: Schema.optional(Schema.String),
+  cursorInvocationId: Schema.optional(Schema.String),
+  limit: Schema.optional(Schema.NumberFromString),
+});
+
+const invalidObservationRequest = () =>
+  new WorkflowObservationInvalidData({ message: "Workflow observation request is invalid" });
+
+const observationStoreUnavailable = () =>
+  new WorkflowTransportUnavailable({
+    operation: "Observe",
+    retryable: true,
+    message: "Workflow observation transport is unavailable",
+  });
+
+const withObservationStoreErrorHandling = <A, E, R>(
+  operation: "Get" | "List",
+  effect: Effect.Effect<A, E, R>,
+): Effect.Effect<A, WorkflowTransportUnavailable, R> =>
+  effect.pipe(
+    Effect.tapError((error) =>
+      Effect.logError("Workflow observation store read failed", error).pipe(
+        Effect.annotateLogs({ operation }),
+      ),
+    ),
+    Effect.mapError(() => observationStoreUnavailable()),
+  );
+
+const decodeWorkflowListFilter = HttpServerRequest.schemaSearchParams(WorkflowHttpListQuery).pipe(
+  Effect.mapError(() => invalidObservationRequest()),
+  Effect.flatMap(({ state, cursorSubmittedAt, cursorInvocationId, limit }) => {
+    const hasSubmittedAt = Predicate.isNotUndefined(cursorSubmittedAt);
+    const hasInvocationId = Predicate.isNotUndefined(cursorInvocationId);
+    if (hasSubmittedAt !== hasInvocationId) {
+      return Effect.fail(invalidObservationRequest());
+    }
+
+    const states = Predicate.isUndefined(state)
+      ? undefined
+      : Array.isArray(state)
+        ? state
+        : [state];
+    const filter = {
+      ...(Predicate.isUndefined(states) ? {} : { states }),
+      ...(hasSubmittedAt && hasInvocationId
+        ? { cursor: { submittedAt: cursorSubmittedAt, invocationId: cursorInvocationId } }
+        : {}),
+      ...(Predicate.isUndefined(limit) ? {} : { limit }),
+    };
+    // The generated route handler decodes its input, so pass the validated
+    // representation back in its encoded form to avoid decoding transformed
+    // cursor dates a second time.
+    return Schema.decodeUnknownEffect(WorkflowRunListFilter)(filter).pipe(
+      Effect.flatMap((decoded) => Schema.encodeEffect(WorkflowRunListFilter)(decoded)),
+      Effect.mapError(() => invalidObservationRequest()),
+    );
+  }),
+);
+
+const observationResponse = <Requirements>(
+  events: Stream.Stream<string, WorkflowObservationError, Requirements>,
+): Effect.Effect<HttpServerResponse.HttpServerResponse, never, Requirements> =>
+  Effect.map(Effect.context<Requirements>(), (context) =>
+    HttpServerResponse.stream(Stream.encodeText(events).pipe(Stream.provideContext(context)), {
+      contentType: "text/event-stream",
+      headers: { "cache-control": "no-cache", "x-accel-buffering": "no" },
+    }),
+  );
+
+const observationContext = (authorizer: WorkflowHttpAuthorizer, headers: Headers.Headers) =>
+  authorizer.requireAuthorizedHeaders(headers).pipe(Effect.flatMap(contextFromToken));
+
+const addWorkflowObservationRoute = <
+  Input,
+  DecodeError extends WorkflowObservationError,
+  DecodeRequirements,
+  Requirements,
+>(
+  path: string,
+  authorizer: WorkflowHttpAuthorizer,
+  decode: Effect.Effect<Input, DecodeError, DecodeRequirements>,
+  observe: (
+    context: SheetWorkflowZeroContext,
+    input: Input,
+  ) => Stream.Stream<string, WorkflowObservationError, Requirements>,
+) =>
+  HttpRouter.add(
+    "GET",
+    path as HttpRouter.PathInput,
+    Effect.gen(function* () {
+      const request = yield* HttpServerRequest.HttpServerRequest;
+      return yield* Effect.gen(function* () {
+        const context = yield* observationContext(authorizer, request.headers);
+        const input = yield* decode;
+        return yield* observationResponse(observe(context, input));
+      }).pipe(Effect.catch(routeErrorResponse));
+    }),
+  );
+
+const decodeWorkflowInvocationId = HttpRouter.schemaPathParams(
+  Schema.Struct({ invocationId: InvocationId }),
+).pipe(
+  Effect.map(({ invocationId }) => invocationId),
+  Effect.mapError(() => invalidObservationRequest()),
+);
+
+export const makeWorkflowHttpRoutesLayer = <Requirements>(
+  enqueueAuthorizer: WorkflowHttpAuthorizer,
+  observationAuthorizer: WorkflowHttpAuthorizer,
+  executor: WorkflowHttpServerExecutor<SheetWorkflowZeroContext, Requirements>,
+) => {
+  const workflowRoutes = makeWorkflowHttpRouteCatalog(sheetWorkflowHttpContracts, executor);
+  const routeLayers = workflowRoutes.flatMap(({ routes, enqueue, get, list }) => [
+    addWorkflowEnqueueRoute(routes.enqueue, enqueueAuthorizer, enqueue),
+    addWorkflowObservationRoute(routes.get, observationAuthorizer, decodeWorkflowInvocationId, get),
+    addWorkflowObservationRoute(routes.list, observationAuthorizer, decodeWorkflowListFilter, list),
+  ]);
+
+  return Layer.mergeAll(Layer.empty, ...routeLayers);
+};
+
 export const workflowHttpRoutesLayer = Layer.unwrap(
   Effect.gen(function* () {
     const store = yield* WorkflowStore;
-    const authorizer = yield* makeAuthorizer;
+    const enqueueAuthorizer = yield* makeAuthorizer(["workflow.enqueue"]);
+    const observationAuthorizer = yield* makeAuthorizer(["workflow.observe"]);
     const handler = yield* makeSelectedWorkflowTransportHandler(makeWorkflowInvocationStore(store));
     const executor = workflowHttpServerExecutorFromHandler(handler);
-    const workflowRoutes = makeWorkflowHttpRouteCatalog(
-      sheetWorkflowHttpEnqueueContracts,
-      executor,
-    );
-    const routeLayers = workflowRoutes.map(({ routes, enqueue }) =>
-      addWorkflowEnqueueRoute(routes.enqueue, authorizer, enqueue),
-    );
-
-    return Layer.mergeAll(Layer.empty, ...routeLayers);
+    return makeWorkflowHttpRoutesLayer(enqueueAuthorizer, observationAuthorizer, executor);
   }),
 );

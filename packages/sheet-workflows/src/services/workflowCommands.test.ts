@@ -83,6 +83,8 @@ const TestWorkflowStoreLayer = Layer.sync(WorkflowStore, (): TestWorkflowStore =
     claim: () => Effect.die("unused"),
     getRun: () => Ref.get(run).pipe(Effect.map(Option.getOrUndefined)),
     listRuns: () => Effect.die("unused"),
+    getRunForOwner: () => Effect.die("unused"),
+    listRunsForOwner: () => Effect.die("unused"),
     markCommandDelivered: () => Effect.die("unused"),
     retryCommand: () => Effect.die("unused"),
     failCommand: () => Effect.die("unused"),

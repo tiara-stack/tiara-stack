@@ -48,6 +48,8 @@ const makeTestLayer = (
         claim: () => append("claim").pipe(Effect.as([command(attempts)])),
         getRun: () => Effect.die("unused"),
         listRuns: () => Effect.die("unused"),
+        getRunForOwner: () => Effect.die("unused"),
+        listRunsForOwner: () => Effect.die("unused"),
         markCommandDelivered: () => append("delivered").pipe(Effect.as(true)),
         retryCommand: (_, __, error) =>
           append(`retry:${Schema.decodeUnknownSync(WorkflowFailure)(error).message}`).pipe(
