@@ -32,11 +32,23 @@ export const materializeScreenshotWorkflowFailure = (
   cause: Cause.Cause<unknown>,
 ): WorkflowJson => materializeWorkflowFailure(Schema.is(InteractiveDeclaredFailure), cause);
 
-export const screenshotOrdinaryWorkflowLayers = Layer.mergeAll(
+export const screenshotOrdinaryWorkflowRegistrationLayers = Layer.mergeAll(
   ResolveScreenshotSourceAction.toLayer(),
   ScreenshotsCaptureAndDeliverDefinition.workflowLayer,
-).pipe(Layer.provide(actionContextSqlLayer));
+);
 
-export const screenshotBrowserWorkflowLayers = CaptureAndDeliverScreenshotAction.toLayer().pipe(
+export const screenshotOrdinaryWorkflowLayers = screenshotOrdinaryWorkflowRegistrationLayers.pipe(
+  Layer.provide(actionContextSqlLayer),
+);
+
+export const screenshotBrowserWorkflowRegistrationLayers = Layer.mergeAll(
+  // The browser runner does not own the dispatch shard, but it still needs the
+  // parent workflow definition to resolve the parent shard when a browser
+  // action completes and sends its resume signal.
+  ScreenshotsCaptureAndDeliverDefinition.workflowLayer,
+  CaptureAndDeliverScreenshotAction.toLayer(),
+);
+
+export const screenshotBrowserWorkflowLayers = screenshotBrowserWorkflowRegistrationLayers.pipe(
   Layer.provide(actionContextSqlLayer),
 );
