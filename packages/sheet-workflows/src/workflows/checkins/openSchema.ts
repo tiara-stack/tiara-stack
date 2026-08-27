@@ -10,8 +10,8 @@ import {
   SendMessageReceipt,
 } from "sheet-bot-api";
 import { ActorProvenance, EffectivePrincipal } from "sheet-auth/identity";
-import { CheckinGenerateResult } from "sheet-ingress-api/schemas/checkin";
 import { CheckinsOpenInput, WorkspaceId } from "sheet-workflow-contracts";
+import { CheckinGeneration } from "@/services/sheetDataProvider";
 
 export const CheckinsOpenExecution = Schema.Struct({
   invocationId: InvocationId,
@@ -27,7 +27,7 @@ export const CheckinsOpenContext = Schema.Struct({
   principalKind: Schema.Literals(["user", "service"]),
   createdByUserId: Schema.NullOr(Schema.String),
   responseReference: Schema.NullOr(ResponseReference),
-  generated: CheckinGenerateResult,
+  generated: CheckinGeneration,
   initialMessage: Schema.NullOr(Schema.Array(BotTextPart)),
   monitorCheckinMessage: Schema.Array(BotTextPart),
   monitorFailureMessage: Schema.NullOr(Schema.Array(BotTextPart)),

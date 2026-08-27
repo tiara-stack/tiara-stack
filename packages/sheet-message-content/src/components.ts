@@ -7,15 +7,15 @@ import {
   SLOT_OPEN_ACTION_ID,
   TEAM_SUBMISSION_CONFIRM_ACTION_ID,
   TEAM_SUBMISSION_REJECT_ACTION_ID,
-} from "sheet-ingress-api/clientActions";
-import type { SheetActionButton, SheetMessageActionRow } from "sheet-bot-api/message";
+} from "sheet-bot-api/actions";
+import type { BotActionButton, BotMessageActionRow } from "sheet-bot-api/message";
 
-const actionRow = (...components: ReadonlyArray<SheetActionButton>): SheetMessageActionRow => ({
+const actionRow = (...components: ReadonlyArray<BotActionButton>): BotMessageActionRow => ({
   type: "actionRow",
   components: [...components],
 });
 
-const button = (options: Omit<SheetActionButton, "type">): SheetActionButton => ({
+const button = (options: Omit<BotActionButton, "type">): BotActionButton => ({
   type: "button",
   ...options,
 });

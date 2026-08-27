@@ -16,7 +16,7 @@ import {
   workflowTestPrincipal as principal,
 } from "../shared/testHelpers";
 import { preserveInteractiveDeclaredFailure } from "../shared/interactive";
-import { makeSheetApisClient, makeTrustedSheetPersistenceMock } from "@/services/testHelpers";
+import { makeTrustedSheetPersistenceMock } from "@/services/testHelpers";
 import { SheetBotCacheClient } from "@/services/sheetBotCacheClient";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
 import { ReadOnlyWorkflowAuthorization } from "../readOnly/authorization";
@@ -167,8 +167,7 @@ const makeOperations = (
     readonly provider?: AutoCheckinTestProvider["Service"];
   } = {},
 ) => {
-  const persistence =
-    options.persistence ?? makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+  const persistence = options.persistence ?? makeTrustedSheetPersistenceMock();
   return AutoCheckinTestWorkflowOperations.pipe(
     Effect.provide(autoCheckinTestWorkflowOperationsLayer),
     Effect.provideService(SheetBotCacheClient, { get: () => bot }),
@@ -620,14 +619,7 @@ const autoCheckinTestWorkflowDefinitionTests = () => {
 
   it.effect("keeps check-in and monitor previews when optional room-order entries are empty", () =>
     Effect.gen(function* () {
-      const persistence = makeTrustedSheetPersistenceMock(
-        makeSheetApisClient({
-          workspaceConfig: {
-            upsertWorkspaceConfig: () => Effect.void,
-            upsertWorkspaceConversationConfig: () => Effect.void,
-          },
-        }),
-      );
+      const persistence = makeTrustedSheetPersistenceMock();
       yield* persistence.workspaces.upsertWorkspaceConfig({ workspaceId, sheetId: "sheet-1" });
       yield* persistence.workspaces.upsertWorkspaceConversationConfig({
         workspaceId,

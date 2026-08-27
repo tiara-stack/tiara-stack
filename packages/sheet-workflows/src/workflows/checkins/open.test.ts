@@ -2,10 +2,10 @@ import { describe, expect, it } from "@effect/vitest";
 import { Cause, ConfigProvider, Effect, Exit, Option, Schema } from "effect";
 import { workflowContractKey } from "effect-zero-workflow/contract";
 import { InvocationId } from "effect-zero-workflow/contract";
-import { CheckinGenerateResult } from "sheet-ingress-api/schemas/checkin";
 import { BotOutboundMessage, DeliveryKey, messageRefFrom, ResponseReference } from "sheet-bot-api";
 import { EffectivePrincipal } from "sheet-auth/identity";
 import { CheckinsOpen } from "sheet-workflow-contracts";
+import { CheckinGeneration } from "@/services/sheetDataProvider";
 import {
   makeCheckinsOpenAutonomousInvocationId,
   makeCheckinsOpenActionKey,
@@ -102,7 +102,7 @@ const makeExecution = (
     options.initialMessage === undefined
       ? [{ type: "text" as const, text: "opening check-in" }]
       : options.initialMessage;
-  const generated = new CheckinGenerateResult({
+  const generated = Schema.decodeUnknownSync(CheckinGeneration)({
     hour: 3,
     runningConversationId: "running-1",
     checkinConversationId: "checkin-1",

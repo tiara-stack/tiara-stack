@@ -64,8 +64,8 @@ import {
 } from "./authorization";
 import { ReadOnlyWorkflowDataSource, readOnlyWorkflowDataSourceLayer } from "./dataSource";
 import { SheetBotCacheClient } from "@/services/sheetBotCacheClient";
-import { SheetApisClient } from "@/services/sheetApisClient";
-import { makeSheetApisClient, makeTrustedSheetPersistenceMock } from "@/services/testHelpers";
+import { SheetDataProvider, SheetDataProviderError } from "@/services/sheetDataProvider";
+import { makeTrustedSheetPersistenceMock } from "@/services/testHelpers";
 import {
   assertRegistrationValidationFails,
   makeRecordingWorkflowAuthorization,
@@ -125,6 +125,15 @@ const makeAuthorizationBotClient = (
     },
   }) as unknown as SheetBotHttpClient;
 
+const makeDataProvider = (
+  loadWorkspaceSchedules: SheetDataProvider["Service"]["loadWorkspaceSchedules"] = () =>
+    Effect.die("unused"),
+): SheetDataProvider["Service"] => ({
+  generateCheckin: () => Effect.die("unused"),
+  generateRoomOrder: () => Effect.die("unused"),
+  loadWorkspaceSchedules,
+});
+
 type WorkspaceMonitorRole = Effect.Success<
   ReturnType<TrustedSheetPersistenceShape["workspaces"]["getWorkspaceMonitorRoles"]>
 >[number];
@@ -146,8 +155,7 @@ const authorizationWithBot = (
   overrides: AuthorizationPersistenceOverrides = {},
 ) => {
   const { getMessageRoomOrder, getMessageTeamSubmission } = overrides;
-  const sheetApisClient = makeSheetApisClient({});
-  const persistence = makeTrustedSheetPersistenceMock(sheetApisClient);
+  const persistence = makeTrustedSheetPersistenceMock();
   return Effect.gen(function* () {
     return yield* ReadOnlyWorkflowAuthorization;
   }).pipe(
@@ -1174,7 +1182,7 @@ describe("read-only Sheet Workflow Definition slice", () => {
       }).pipe(
         Effect.provide(readOnlyWorkflowDataSourceLayer),
         Effect.provide(Layer.succeed(SheetBotCacheClient, { get: () => botClient })),
-        Effect.provide(Layer.succeed(SheetApisClient, makeSheetApisClient({}))),
+        Effect.provide(Layer.succeed(SheetDataProvider, makeDataProvider())),
         Effect.provide(allowAuthorizationLayer),
         Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({}))),
       );
@@ -1190,12 +1198,6 @@ describe("read-only Sheet Workflow Definition slice", () => {
 
   it.effect("redacts upstream schedule failure details", () =>
     Effect.gen(function* () {
-      const sheetApisClient = makeSheetApisClient({
-        sheet: {
-          getAllSchedules: () => Effect.succeed({ schedules: [] }),
-          getEventConfig: () => Effect.fail(new Error("postgres://secret@internal/sheets")),
-        },
-      });
       const error = yield* Effect.gen(function* () {
         const dataSource = yield* ReadOnlyWorkflowDataSource;
         return yield* Effect.flip(
@@ -1208,7 +1210,19 @@ describe("read-only Sheet Workflow Definition slice", () => {
             get: () => makeAuthorizationBotClient(() => Effect.die("unused")),
           }),
         ),
-        Effect.provide(Layer.succeed(SheetApisClient, sheetApisClient)),
+        Effect.provide(
+          Layer.succeed(
+            SheetDataProvider,
+            makeDataProvider(() =>
+              Effect.fail(
+                new SheetDataProviderError({
+                  operation: "read-schedules",
+                  cause: new Error("postgres://secret@internal/sheets"),
+                }),
+              ),
+            ),
+          ),
+        ),
         Effect.provide(allowAuthorizationLayer),
         Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({}))),
       );

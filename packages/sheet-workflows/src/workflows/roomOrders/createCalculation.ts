@@ -1,5 +1,5 @@
 import { Array, Chunk, Effect, HashSet, Option, Predicate, String } from "effect";
-import { PlayerTeam, Room } from "sheet-ingress-api/schemas/sheet";
+import { PlayerTeam, Room } from "../calculations/calculationModel";
 
 // These primitives intentionally mirror the legacy calculator until its production caller moves.
 // fallow-ignore-next-line code-duplication

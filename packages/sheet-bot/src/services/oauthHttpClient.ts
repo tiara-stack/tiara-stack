@@ -1,6 +1,11 @@
 import { HttpClient, HttpClientError, HttpClientRequest } from "effect/unstable/http";
 import { Cache, Duration, Effect, Exit, Redacted } from "effect";
-import type { TokenCacheEntry } from "sheet-ingress-api/internal";
+
+type TokenCacheEntry = {
+  readonly failed: boolean;
+  readonly token: Redacted.Redacted<string> | undefined;
+  readonly timeToLive: Duration.Duration;
+};
 
 const makeOAuthTokenCache = ({
   capacity,

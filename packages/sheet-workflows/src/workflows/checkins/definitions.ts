@@ -1,9 +1,7 @@
-import { Cause, Effect, Layer, Schema } from "effect";
-import type { WorkflowDefinition, WorkflowJson } from "effect-zero-workflow";
+import { Effect, Layer } from "effect";
+import type { WorkflowDefinition } from "effect-zero-workflow";
 import { actionContextSqlLayer } from "effect-zero-workflow";
-import { InteractiveDeclaredFailure } from "sheet-workflow-contracts";
 import { makeCheckinProjectionEntityLayer } from "@/entities/checkinProjection";
-import { materializeWorkflowFailure } from "../shared/failure";
 import {
   EditCheckinMessageAction,
   LoadCurrentCheckinViewAction,
@@ -22,7 +20,7 @@ export const CheckinSheetWorkflowDefinitions = Object.freeze([
   CheckinsTestAutoDefinition,
 ] as const);
 
-export const CheckinSheetWorkflows = Object.freeze(
+const CheckinSheetWorkflows = Object.freeze(
   CheckinSheetWorkflowDefinitions.map(({ workflow }) => workflow as WorkflowDefinition),
 );
 
@@ -54,8 +52,3 @@ const checkinSheetWorkflowLayerList = [
 export const checkinSheetWorkflowLayers = Layer.mergeAll(...checkinSheetWorkflowLayerList).pipe(
   Layer.provide(actionContextSqlLayer),
 );
-
-export const materializeCheckinWorkflowFailure = (
-  _workflow: WorkflowDefinition,
-  cause: Cause.Cause<unknown>,
-): WorkflowJson => materializeWorkflowFailure(Schema.is(InteractiveDeclaredFailure), cause);

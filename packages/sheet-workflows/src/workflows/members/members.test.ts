@@ -16,7 +16,7 @@ import {
 } from "sheet-zero-server/persistence";
 import { SheetBotCacheClient } from "@/services/sheetBotCacheClient";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
-import { makeSheetApisClient, makeTrustedSheetPersistenceMock } from "@/services/testHelpers";
+import { makeTrustedSheetPersistenceMock } from "@/services/testHelpers";
 import { ReadOnlyWorkflowAuthorization } from "../readOnly/authorization";
 import { workflowTestInvocationId as invocationId } from "../shared/testHelpers";
 import { makeMembersKickSerializedWorkflowBody, makeMembersKickWorkflowBody } from "./definition";
@@ -92,7 +92,7 @@ const responseReceipt: RespondReceipt = {
 };
 
 const makeResolutionOperations = () => {
-  const basePersistence = makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+  const basePersistence = makeTrustedSheetPersistenceMock();
   const persistence: TrustedSheetPersistenceShape = {
     ...basePersistence,
     workspaces: {

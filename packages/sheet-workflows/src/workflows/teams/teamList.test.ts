@@ -12,11 +12,7 @@ import {
 import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import { InteractiveDeclaredFailure, TeamsDeliverList } from "sheet-workflow-contracts";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
-import {
-  makeSheetApisClient,
-  makeTrustedSheetPersistenceMock,
-  normalizePayloadText,
-} from "@/services/testHelpers";
+import { makeTrustedSheetPersistenceMock, normalizePayloadText } from "@/services/testHelpers";
 import { ReadOnlyWorkflowAuthorization } from "../readOnly/authorization";
 import {
   workflowTestContext as context,
@@ -154,7 +150,7 @@ const makeOperations = (
   ),
 ) =>
   Effect.gen(function* () {
-    const persistence = makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+    const persistence = makeTrustedSheetPersistenceMock();
     return yield* TeamWorkflowOperations.pipe(
       Effect.provide(teamWorkflowOperationsLayer),
       Effect.provide(

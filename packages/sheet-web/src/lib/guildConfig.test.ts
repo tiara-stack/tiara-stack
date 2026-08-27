@@ -1,6 +1,5 @@
 import { Cause, HashSet, Option } from "effect";
 import { AsyncResult } from "effect/unstable/reactivity";
-import type { Permission, PermissionSet } from "sheet-ingress-api/schemas/permissions";
 import { describe, expect, it } from "vitest";
 import {
   buildChannelLabels,
@@ -12,12 +11,14 @@ import {
   serverConfigPatch,
   sortGuildChannels,
   sortGuildRoles,
+  type Permission,
+  type PermissionSet,
 } from "./guildConfig";
 
 const timestamps = {
-  createdAt: Option.none(),
-  updatedAt: Option.none(),
-  deletedAt: Option.none(),
+  createdAt: 0,
+  updatedAt: 0,
+  deletedAt: null,
 };
 
 describe("guild configuration helpers", () => {
@@ -74,11 +75,10 @@ describe("guild configuration helpers", () => {
 
   it("omits unchanged server fields and encodes monitor-channel clearing as null", () => {
     const config = {
-      _tag: "WorkspaceConfig" as const,
       workspaceId: "guild-1",
-      sheetId: Option.some("sheet-1"),
-      autoCheckin: Option.some(true),
-      monitorConversationId: Option.some("channel-1"),
+      sheetId: "sheet-1",
+      autoCheckin: true,
+      monitorConversationId: "channel-1",
       ...timestamps,
     };
     expect(serverConfigPatch(config, serverConfigFormFrom(config))).toEqual({});
@@ -116,13 +116,12 @@ describe("guild configuration helpers", () => {
 
   it("preserves omitted channel fields and encodes explicit clears as null", () => {
     const config = {
-      _tag: "WorkspaceConversationConfig" as const,
       workspaceId: "guild-1",
       conversationId: "channel-1",
-      name: Option.some("room-one"),
-      running: Option.some(true),
-      roleId: Option.some("missing-role"),
-      checkinConversationId: Option.some("missing-channel"),
+      name: "room-one",
+      running: true,
+      roleId: "missing-role",
+      checkinConversationId: "missing-channel",
       ...timestamps,
     };
     expect(channelConfigPatch(config, channelDraftFrom(config))).toEqual({});
@@ -150,13 +149,12 @@ describe("guild configuration helpers", () => {
 
   it("treats blank configured logical names as unset", () => {
     const config = {
-      _tag: "WorkspaceConversationConfig" as const,
       workspaceId: "guild-1",
       conversationId: "channel-1",
-      name: Option.some("room-one"),
-      running: Option.none(),
-      roleId: Option.none(),
-      checkinConversationId: Option.none(),
+      name: "room-one",
+      running: null,
+      roleId: null,
+      checkinConversationId: null,
       ...timestamps,
     };
 

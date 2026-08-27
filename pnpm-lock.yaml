@@ -577,9 +577,6 @@ importers:
       sheet-bot-api:
         specifier: workspace:*
         version: link:../sheet-bot-api
-      sheet-ingress-api:
-        specifier: workspace:*
-        version: link:../sheet-ingress-api
       sheet-workflow-contracts:
         specifier: workspace:*
         version: link:../sheet-workflow-contracts
@@ -951,9 +948,6 @@ importers:
       sheet-bot-api:
         specifier: workspace:*
         version: link:../sheet-bot-api
-      sheet-ingress-api:
-        specifier: workspace:*
-        version: link:../sheet-ingress-api
     devDependencies:
       '@effect/vitest':
         specifier: 'catalog:'
@@ -1085,12 +1079,9 @@ importers:
       sheet-auth:
         specifier: workspace:*
         version: link:../sheet-auth
-      sheet-ingress-api:
+      sheet-bot-api:
         specifier: workspace:*
-        version: link:../sheet-ingress-api
-      sheet-message-content:
-        specifier: workspace:*
-        version: link:../sheet-message-content
+        version: link:../sheet-bot-api
       sheet-workflow-contracts:
         specifier: workspace:*
         version: link:../sheet-workflow-contracts
@@ -1283,9 +1274,6 @@ importers:
       sheet-bot-api:
         specifier: workspace:*
         version: link:../sheet-bot-api
-      sheet-ingress-api:
-        specifier: workspace:*
-        version: link:../sheet-ingress-api
       sheet-message-content:
         specifier: workspace:*
         version: link:../sheet-message-content
@@ -1308,9 +1296,6 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 24.10.9
-      sheet-db-schema:
-        specifier: workspace:*
-        version: link:../sheet-db-schema
       tooling-config:
         specifier: workspace:*
         version: link:../tooling-config

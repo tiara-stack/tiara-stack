@@ -10,7 +10,7 @@ import {
   PopulatedSchedule,
   PopulatedSchedulePlayer,
   type PopulatedScheduleResult,
-} from "sheet-ingress-api/schemas/sheet";
+} from "sheet-message-content/schedule";
 import { makeWebScheduleEmbed } from "sheet-message-content/rendering";
 import { renderSlotEmbeds } from "sheet-message-content/slotRendering";
 import { InteractiveDeclaredFailure, SlotsDeliverList } from "sheet-workflow-contracts";

@@ -37,8 +37,9 @@ const updateOriginalInteractionResponseWithFiles = (
   Effect.gen(function* () {
     const client = yield* SheetBotForwardingClient;
     const fs = yield* FileSystem.FileSystem;
-    const formData = yield* buildFileUploadFormData(payload, fs, interactionToken);
-    return yield* client.bot.updateOriginalInteractionResponseWithFilesByPayload({
+    const formData = yield* buildFileUploadFormData(payload, fs);
+    return yield* client.bot.updateOriginalInteractionResponseWithFiles({
+      params: { interactionToken },
       payload: formData,
     });
   }).pipe(

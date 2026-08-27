@@ -36,7 +36,6 @@
     "playwright": "1.58.2",
     "sheet-auth": "workspace:*",
     "sheet-bot-api": "workspace:*",
-    "sheet-ingress-api": "workspace:*",
     "sheet-message-content": "workspace:*",
     "sheet-workflow-contracts": "workspace:*",
     "sheet-zero-server": "workspace:*",
@@ -46,7 +45,6 @@
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
-    "sheet-db-schema": "workspace:*",
     "tooling-config": "workspace:*",
     "vite": "catalog:",
     "vite-plus": "catalog:",

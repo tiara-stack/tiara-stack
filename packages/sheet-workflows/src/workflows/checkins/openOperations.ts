@@ -9,11 +9,7 @@ import {
   SendMessageReceipt,
   workspaceRefFrom,
 } from "sheet-bot-api";
-import { shouldSendTentativeRoomOrder } from "sheet-ingress-api/clientActions";
-import type {
-  GeneratedRoomOrderEntry,
-  RoomOrderGenerateResult,
-} from "sheet-ingress-api/schemas/roomOrder";
+import { shouldSendTentativeRoomOrder } from "sheet-bot-api/actions";
 import {
   autoCheckinSummaryMessage,
   autoMonitorCheckinDelivery,
@@ -29,11 +25,10 @@ import {
   tentativeRoomOrderContent,
   tentativeRoomOrderMessage,
 } from "sheet-message-content/roomOrderMessage";
-import * as MessageText from "sheet-message-content/text";
 import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import { CheckinsOpen, InteractiveDeclaredFailure } from "sheet-workflow-contracts";
 import { ReadonlyJSONValue } from "typhoon-zero/schema";
-import { SheetApisClient } from "@/services/sheetApisClient";
+import { SheetDataProvider, RoomOrderGeneration } from "@/services/sheetDataProvider";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
 import { config } from "@/config";
 import { ReadOnlyWorkflowAuthorization } from "../readOnly/authorization";
@@ -180,13 +175,14 @@ type RoomOrderRow = Option.Option.Value<
 type RoomOrderEntryRow = Effect.Success<
   ReturnType<TrustedSheetPersistence["Service"]["roomOrderState"]["getMessageRoomOrderRange"]>
 >[number];
+type RoomOrderGenerationEntry = RoomOrderGeneration["entries"][number];
 
 // Canonical reconciliation intentionally checks every persisted field.
 // fallow-ignore-next-line complexity
 const roomOrderRowMatches = (
   row: RoomOrderRow,
   context: CheckinsOpenContext,
-  generated: RoomOrderGenerateResult,
+  generated: RoomOrderGeneration,
   messageId: string,
   conversationId: string,
 ) =>
@@ -206,7 +202,7 @@ const roomOrderRowMatches = (
 
 const roomOrderEntriesMatch = (
   rows: ReadonlyArray<RoomOrderEntryRow>,
-  expected: ReadonlyArray<GeneratedRoomOrderEntry>,
+  expected: ReadonlyArray<RoomOrderGenerationEntry>,
   context: CheckinsOpenContext,
   messageId: string,
 ) => {
@@ -234,7 +230,7 @@ export const checkinsOpenWorkflowOperationsLayer = Layer.effect(
   CheckinsOpenWorkflowOperations,
   Effect.gen(function* () {
     const persistence = yield* TrustedSheetPersistence;
-    const sheetApis = yield* SheetApisClient;
+    const dataProvider = yield* SheetDataProvider;
     const delivery = yield* SheetBotDeliveryClient;
     const authorization = yield* ReadOnlyWorkflowAuthorization;
     const clientId = yield* config.sheetBotClientId;
@@ -265,20 +261,17 @@ export const checkinsOpenWorkflowOperationsLayer = Layer.effect(
             ),
           );
 
-        const generated = yield* sheetApis
-          .get()
-          .checkin.generate({
-            payload: {
-              workspaceId: input.workspaceId,
-              ...(Predicate.isUndefined(input.conversationId)
-                ? {}
-                : { conversationId: input.conversationId }),
-              ...(Predicate.isUndefined(input.conversationName)
-                ? {}
-                : { conversationName: input.conversationName }),
-              ...(Predicate.isUndefined(input.hour) ? {} : { hour: input.hour }),
-              ...(Predicate.isUndefined(input.template) ? {} : { template: input.template }),
-            },
+        const generated = yield* dataProvider
+          .generateCheckin({
+            workspaceId: input.workspaceId,
+            ...(Predicate.isUndefined(input.conversationId)
+              ? {}
+              : { conversationId: input.conversationId }),
+            ...(Predicate.isUndefined(input.conversationName)
+              ? {}
+              : { conversationName: input.conversationName }),
+            ...(Predicate.isUndefined(input.hour) ? {} : { hour: input.hour }),
+            ...(Predicate.isUndefined(input.template) ? {} : { template: input.template }),
           })
           .pipe(
             Effect.timeout("30 seconds"),
@@ -291,27 +284,9 @@ export const checkinsOpenWorkflowOperationsLayer = Layer.effect(
             ),
           );
 
-        const initialMessage =
-          generated.initialMessage === null
-            ? null
-            : MessageText.materializeGeneratedText(
-                client,
-                input.workspaceId,
-                generated.initialMessage,
-              );
-        const monitorCheckinMessage = MessageText.materializeGeneratedText(
-          client,
-          input.workspaceId,
-          generated.monitorCheckinMessage,
-        );
-        const monitorFailureMessage =
-          generated.monitorFailureMessage === null
-            ? null
-            : MessageText.materializeGeneratedText(
-                client,
-                input.workspaceId,
-                generated.monitorFailureMessage,
-              );
+        const initialMessage = generated.initialMessage;
+        const monitorCheckinMessage = generated.monitorCheckinMessage;
+        const monitorFailureMessage = generated.monitorFailureMessage;
 
         const summary =
           execution.principal.kind === "user"
@@ -476,7 +451,7 @@ export const checkinsOpenWorkflowOperationsLayer = Layer.effect(
 
     const persistTentativeRoomOrderAndReconcile = (
       context: CheckinsOpenContext,
-      generated: RoomOrderGenerateResult,
+      generated: RoomOrderGeneration,
       sentMessage: MessageRef,
       receipt: SendMessageReceipt,
       cleanupKey: DeliveryKey,
@@ -1039,14 +1014,11 @@ export const checkinsOpenWorkflowOperationsLayer = Layer.effect(
               ),
             );
           }
-          const generated = yield* sheetApis
-            .get()
-            .roomOrder.generate({
-              payload: {
-                workspaceId: execution.context.workspaceId,
-                conversationId: execution.context.generated.runningConversationId,
-                hour: execution.context.generated.hour,
-              },
+          const generated = yield* dataProvider
+            .generateRoomOrder({
+              workspaceId: execution.context.workspaceId,
+              conversationId: execution.context.generated.runningConversationId,
+              hour: execution.context.generated.hour,
             })
             .pipe(
               Effect.timeout("30 seconds"),
@@ -1058,11 +1030,7 @@ export const checkinsOpenWorkflowOperationsLayer = Layer.effect(
                 ),
               ),
             );
-          const content = MessageText.materializeGeneratedText(
-            client,
-            execution.context.workspaceId,
-            generated.content,
-          );
+          const content = generated.content;
           const placeholder = yield* decodeMessage(
             generatingRoomOrderMessage(tentativeRoomOrderContent(content)),
             `${operationPrefix}.deliver-tentative-room-order`,

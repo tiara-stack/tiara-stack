@@ -4,6 +4,7 @@ import {
   MessageFlags,
 } from "discord-api-types/v10";
 import { Effect, Layer, Option, Schema } from "effect";
+import { NotificationPlatform } from "sheet-workflow-contracts/values";
 import {
   CommandHelper,
   InteractionResponse,
@@ -17,27 +18,19 @@ import {
   enqueuePreferencesDeliverStatusWorkflow,
   enqueuePreferencesUpdateAndDeliverWorkflow,
   SheetWorkflowHttpClient,
-  SheetWorkflowsClient,
-  SheetWorkflowsRequestContext,
   type PreferencesDeliverStatusInput,
   type PreferencesUpdateAndDeliverInput,
   type BotCapabilityStoreShape,
   type SheetWorkflowHttpClientShape,
-  type SheetWorkflowsClientShape,
 } from "../services";
-import { makeDispatchBase, resolveInteractionWorkspaceId } from "../utils/commandHelpers";
+import { resolveInteractionWorkspaceId } from "../utils/commandHelpers";
 import { registerGlobalCommandLayer } from "../utils/registerGlobalCommandLayer";
 import { enqueueSheetWorkflow } from "../utils/sheetWorkflowMigration";
-import { runSheetWorkflowsDispatch } from "../utils/sheetWorkflowsDispatch";
 
 type PreferenceDmKind = "checkin" | "monitor";
 
-const workflowPlatform = Schema.Trimmed.check(Schema.isNonEmpty()).pipe(
-  Schema.brand("sheet-workflow-contracts/NotificationPlatform"),
-);
-
 const decodeWorkflowPlatform = (value: string) =>
-  Schema.decodeUnknownEffect(workflowPlatform)(value);
+  Schema.decodeUnknownEffect(NotificationPlatform)(value);
 
 const preferenceRejectedMessage = "I couldn't update your preferences. Please try again.";
 const preferenceUnauthorizedMessage = "You aren't allowed to manage these preferences.";
@@ -77,28 +70,23 @@ const preferenceTogglePatch = (
 
 type PreferenceStatusWorkflowClient = Pick<
   SheetWorkflowHttpClientShape,
-  "enqueuePreferencesDeliverStatus" | "evaluatePreferencesDeliverStatusRolloutGate"
+  "enqueuePreferencesDeliverStatus"
 >;
 
 export const enqueuePreferenceStatus = Effect.fn("preference.enqueueStatus")(function* (
   response: Pick<CommandInteractionResponseContext, "editReply">,
   workflowClient: PreferenceStatusWorkflowClient,
-  sheetWorkflowsClient: SheetWorkflowsClientShape,
   capabilityStore: Pick<BotCapabilityStoreShape, "issueResponseReference">,
   kind: PreferenceDmKind,
   platform: PreferencesDeliverStatusInput["platform"],
 ) {
-  const base = yield* makeDispatchBase;
   const workspaceId = yield* resolveInteractionWorkspaceId;
 
   yield* enqueueSheetWorkflow({
     response,
     operation: `the ${dmKindLabel(kind)} preference status check`,
-    contractIdentity: "preferences.deliverStatus",
-    contractWireVersion: "1",
     ...(workspaceId === undefined ? {} : { workspaceId }),
     capabilityStore,
-    evaluateGate: (input) => workflowClient.evaluatePreferencesDeliverStatusRolloutGate(input),
     makeInput: (responseReference): PreferencesDeliverStatusInput => ({
       responseReference,
       kind,
@@ -106,15 +94,6 @@ export const enqueuePreferenceStatus = Effect.fn("preference.enqueueStatus")(fun
     }),
     enqueue: (input, options) =>
       enqueuePreferencesDeliverStatusWorkflow(workflowClient, input, options),
-    dispatchLegacy: runSheetWorkflowsDispatch(
-      response,
-      `the ${dmKindLabel(kind)} preference status check`,
-      SheetWorkflowsRequestContext.asInteractionUser(() =>
-        sheetWorkflowsClient.get().dispatch.preferenceDmStatus({
-          payload: { ...base, kind, platform },
-        }),
-      )(),
-    ),
     rejectedMessage: preferenceRejectedMessage,
     unauthorizedMessage: preferenceUnauthorizedMessage,
     pendingMessage: preferencePendingMessage,
@@ -123,7 +102,6 @@ export const enqueuePreferenceStatus = Effect.fn("preference.enqueueStatus")(fun
 
 const makeStatusSubCommand = (kind: PreferenceDmKind) =>
   Effect.gen(function* () {
-    const sheetWorkflowsClient = yield* SheetWorkflowsClient;
     const workflowClient = yield* SheetWorkflowHttpClient;
     const capabilityStore = yield* BotCapabilityStore;
 
@@ -140,21 +118,13 @@ const makeStatusSubCommand = (kind: PreferenceDmKind) =>
           selectedPlatform(command.optionValueOptional("platform")),
         );
 
-        yield* enqueuePreferenceStatus(
-          response,
-          workflowClient,
-          sheetWorkflowsClient,
-          capabilityStore,
-          kind,
-          platform,
-        );
+        yield* enqueuePreferenceStatus(response, workflowClient, capabilityStore, kind, platform);
       }),
     );
   });
 
 const makeEnableSubCommand = (kind: PreferenceDmKind) =>
   Effect.gen(function* () {
-    const sheetWorkflowsClient = yield* SheetWorkflowsClient;
     const workflowClient = yield* SheetWorkflowHttpClient;
     const capabilityStore = yield* BotCapabilityStore;
 
@@ -170,7 +140,6 @@ const makeEnableSubCommand = (kind: PreferenceDmKind) =>
       Effect.fn(`preference.${kind}Dm.enable`)(function* (command) {
         const response = yield* InteractionResponse;
         yield* response.deferReply({ flags: MessageFlags.Ephemeral });
-        const base = yield* makeDispatchBase;
         const workspaceId = yield* resolveInteractionWorkspaceId;
         const platform = yield* decodeWorkflowPlatform(
           selectedPlatform(command.optionValueOptional("platform")),
@@ -183,12 +152,8 @@ const makeEnableSubCommand = (kind: PreferenceDmKind) =>
         yield* enqueueSheetWorkflow({
           response,
           operation: `the ${dmKindLabel(kind)} preference enable update`,
-          contractIdentity: "preferences.updateAndDeliver",
-          contractWireVersion: "1",
           ...(workspaceId === undefined ? {} : { workspaceId }),
           capabilityStore,
-          evaluateGate: (input) =>
-            workflowClient.evaluatePreferencesUpdateAndDeliverRolloutGate(input),
           makeInput: (responseReference): PreferencesUpdateAndDeliverInput => ({
             responseReference,
             platform,
@@ -196,15 +161,6 @@ const makeEnableSubCommand = (kind: PreferenceDmKind) =>
           }),
           enqueue: (input, options) =>
             enqueuePreferencesUpdateAndDeliverWorkflow(workflowClient, input, options),
-          dispatchLegacy: runSheetWorkflowsDispatch(
-            response,
-            `the ${dmKindLabel(kind)} preference enable update`,
-            SheetWorkflowsRequestContext.asInteractionUser(() =>
-              sheetWorkflowsClient.get().dispatch.preferenceDmEnable({
-                payload: { ...base, kind, platform, defaultClientId },
-              }),
-            )(),
-          ),
           rejectedMessage: preferenceRejectedMessage,
           unauthorizedMessage: preferenceUnauthorizedMessage,
           pendingMessage: preferencePendingMessage,
@@ -215,7 +171,6 @@ const makeEnableSubCommand = (kind: PreferenceDmKind) =>
 
 const makeDisableSubCommand = (kind: PreferenceDmKind) =>
   Effect.gen(function* () {
-    const sheetWorkflowsClient = yield* SheetWorkflowsClient;
     const workflowClient = yield* SheetWorkflowHttpClient;
     const capabilityStore = yield* BotCapabilityStore;
 
@@ -228,7 +183,6 @@ const makeDisableSubCommand = (kind: PreferenceDmKind) =>
       Effect.fn(`preference.${kind}Dm.disable`)(function* (command) {
         const response = yield* InteractionResponse;
         yield* response.deferReply({ flags: MessageFlags.Ephemeral });
-        const base = yield* makeDispatchBase;
         const workspaceId = yield* resolveInteractionWorkspaceId;
         const platform = yield* decodeWorkflowPlatform(
           selectedPlatform(command.optionValueOptional("platform")),
@@ -237,12 +191,8 @@ const makeDisableSubCommand = (kind: PreferenceDmKind) =>
         yield* enqueueSheetWorkflow({
           response,
           operation: `the ${dmKindLabel(kind)} preference disable update`,
-          contractIdentity: "preferences.updateAndDeliver",
-          contractWireVersion: "1",
           ...(workspaceId === undefined ? {} : { workspaceId }),
           capabilityStore,
-          evaluateGate: (input) =>
-            workflowClient.evaluatePreferencesUpdateAndDeliverRolloutGate(input),
           makeInput: (responseReference): PreferencesUpdateAndDeliverInput => ({
             responseReference,
             platform,
@@ -250,15 +200,6 @@ const makeDisableSubCommand = (kind: PreferenceDmKind) =>
           }),
           enqueue: (input, options) =>
             enqueuePreferencesUpdateAndDeliverWorkflow(workflowClient, input, options),
-          dispatchLegacy: runSheetWorkflowsDispatch(
-            response,
-            `the ${dmKindLabel(kind)} preference disable update`,
-            SheetWorkflowsRequestContext.asInteractionUser(() =>
-              sheetWorkflowsClient.get().dispatch.preferenceDmDisable({
-                payload: { ...base, kind, platform },
-              }),
-            )(),
-          ),
           rejectedMessage: preferenceRejectedMessage,
           unauthorizedMessage: preferenceUnauthorizedMessage,
           pendingMessage: preferencePendingMessage,
@@ -295,7 +236,6 @@ const makeDmKindCommandGroup = (params: {
   });
 
 const makeClientSubCommand = Effect.gen(function* () {
-  const sheetWorkflowsClient = yield* SheetWorkflowsClient;
   const workflowClient = yield* SheetWorkflowHttpClient;
   const capabilityStore = yield* BotCapabilityStore;
 
@@ -314,7 +254,6 @@ const makeClientSubCommand = Effect.gen(function* () {
     Effect.fn("preference.dm.client")(function* (command) {
       const response = yield* InteractionResponse;
       yield* response.deferReply({ flags: MessageFlags.Ephemeral });
-      const base = yield* makeDispatchBase;
       const workspaceId = yield* resolveInteractionWorkspaceId;
       const platform = yield* decodeWorkflowPlatform(
         selectedPlatform(command.optionValueOptional("platform")),
@@ -324,12 +263,8 @@ const makeClientSubCommand = Effect.gen(function* () {
       yield* enqueueSheetWorkflow({
         response,
         operation: "the DM preference client update",
-        contractIdentity: "preferences.updateAndDeliver",
-        contractWireVersion: "1",
         ...(workspaceId === undefined ? {} : { workspaceId }),
         capabilityStore,
-        evaluateGate: (input) =>
-          workflowClient.evaluatePreferencesUpdateAndDeliverRolloutGate(input),
         makeInput: (responseReference): PreferencesUpdateAndDeliverInput => ({
           responseReference,
           platform,
@@ -337,15 +272,6 @@ const makeClientSubCommand = Effect.gen(function* () {
         }),
         enqueue: (input, options) =>
           enqueuePreferencesUpdateAndDeliverWorkflow(workflowClient, input, options),
-        dispatchLegacy: runSheetWorkflowsDispatch(
-          response,
-          "the DM preference client update",
-          SheetWorkflowsRequestContext.asInteractionUser(() =>
-            sheetWorkflowsClient.get().dispatch.preferenceDmSetClient({
-              payload: { ...base, platform, defaultClientId },
-            }),
-          )(),
-        ),
         rejectedMessage: preferenceRejectedMessage,
         unauthorizedMessage: preferenceUnauthorizedMessage,
         pendingMessage: preferencePendingMessage,

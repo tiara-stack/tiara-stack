@@ -2,6 +2,10 @@ import { Schema } from "effect";
 import { DeliveryReceipt, MessageRef, ResponseReference } from "sheet-bot-api";
 import { TeamSubmissionStatus } from "sheet-domain";
 
+export const WorkflowTeamSubmissionStatus = TeamSubmissionStatus.pipe(
+  Schema.annotate({ identifier: "sheet-workflow-contracts/WorkflowTeamSubmissionStatus" }),
+);
+
 const Identifier = Schema.Trimmed.check(Schema.isNonEmpty());
 
 export const WorkspaceId = Identifier.pipe(Schema.brand("sheet-workflow-contracts/WorkspaceId"));

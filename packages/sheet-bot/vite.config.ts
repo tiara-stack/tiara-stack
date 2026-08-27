@@ -36,7 +36,6 @@ export default app({
       ),
       "sheet-auth": fileURLToPath(new URL("../sheet-auth/src", import.meta.url)),
       "sheet-bot-api": fileURLToPath(new URL("../sheet-bot-api/src", import.meta.url)),
-      "sheet-ingress-api": fileURLToPath(new URL("../sheet-ingress-api/src", import.meta.url)),
     },
   },
   pack: {

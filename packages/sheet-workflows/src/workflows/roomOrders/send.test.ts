@@ -13,7 +13,7 @@ import {
 } from "sheet-zero-server/persistence";
 import { RoomOrdersSend, WorkspaceId } from "sheet-workflow-contracts";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
-import { makeSheetApisClient, makeTrustedSheetPersistenceMock } from "@/services/testHelpers";
+import { makeTrustedSheetPersistenceMock } from "@/services/testHelpers";
 import { ReadOnlyWorkflowAuthorization } from "../readOnly/authorization";
 import { authorizeRoomOrdersSendWorkflow } from "../shared/interactive";
 import {
@@ -309,7 +309,7 @@ describe("room-order send Workflow Definition slice", () => {
     Effect.gen(function* () {
       let current = roomOrderRow({ sendClaimId: `${claimId}:replacement` });
       let pinCalls = 0;
-      const base = makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+      const base = makeTrustedSheetPersistenceMock();
       const persistence: TrustedSheetPersistenceShape = {
         ...base,
         roomOrderState: {
@@ -407,7 +407,7 @@ describe("room-order send Workflow Definition slice", () => {
     Effect.gen(function* () {
       let current = roomOrderRow();
       let sentPayload: unknown;
-      const base = makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+      const base = makeTrustedSheetPersistenceMock();
       const persistence: TrustedSheetPersistenceShape = {
         ...base,
         roomOrderState: {

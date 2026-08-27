@@ -1,4 +1,4 @@
-import { describe, expect, layer } from "@effect/vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { Ix } from "dfx";
 import type { APIChatInputApplicationCommandInteraction } from "dfx/types";
 import { InteractionToken } from "dfx-discord-utils/utils";
@@ -8,24 +8,14 @@ import {
   InteractionType,
   Locale,
 } from "discord-api-types/v10";
-import { ConfigProvider, Effect, Exit, Layer, Schema } from "effect";
+import { ConfigProvider, Effect, Layer, Schema } from "effect";
 import type { CommandInteractionResponseContext } from "dfx-discord-utils/utils";
-import { BotDependencyUnavailable, BotResponseExpired } from "sheet-bot-api/errors";
-import { ResponseReference } from "sheet-bot-api/references";
+import { BotDependencyUnavailable, ResponseReference } from "sheet-bot-api";
 import { WorkflowTransportUnavailable } from "sheet-workflow-http-client";
 import type { BotCapabilityStoreShape } from "../services";
-import { enqueueSheetWorkflow, type EnqueueSheetWorkflowOptions } from "./sheetWorkflowMigration";
+import { enqueueSheetWorkflow } from "./sheetWorkflowMigration";
 
-const replacementDecision = { executionPath: "replacement" as const };
 const responseReference = Schema.decodeUnknownSync(ResponseReference)("opaque-response-reference");
-
-const migrationTestLayer = Layer.mergeAll(
-  Layer.succeed(InteractionToken, {
-    applicationId: "application-1",
-    token: "interaction-token",
-  }),
-  ConfigProvider.layer(ConfigProvider.fromUnknown({ SHEET_BOT_CLIENT_ID: "discord-main" })),
-);
 
 const interaction: APIChatInputApplicationCommandInteraction = {
   id: "123456789012345678",
@@ -33,14 +23,14 @@ const interaction: APIChatInputApplicationCommandInteraction = {
   type: InteractionType.ApplicationCommand,
   data: {
     id: "command-1",
-    name: "migration-test",
+    name: "workflow-test",
     type: ApplicationCommandType.ChatInput,
   },
   user: {
     id: "discord-user-1",
-    username: "migration-user",
+    username: "workflow-user",
     discriminator: "0001",
-    global_name: "migration-user",
+    global_name: "workflow-user",
     avatar: null,
   },
   channel_id: "channel-1",
@@ -55,18 +45,13 @@ const interaction: APIChatInputApplicationCommandInteraction = {
   guild: { id: "workspace-1", features: [], locale: Locale.EnglishUS },
 };
 
-const makeCapabilityStore = (onIssue: () => void = () => {}) =>
-  ({
-    issueResponseReference: () => {
-      onIssue();
-      return Effect.succeed(responseReference);
-    },
-  }) as Pick<BotCapabilityStoreShape, "issueResponseReference">;
-
-const makeFailingCapabilityStore = (error: BotDependencyUnavailable | BotResponseExpired) =>
-  ({
-    issueResponseReference: () => Effect.fail(error),
-  }) as Pick<BotCapabilityStoreShape, "issueResponseReference">;
+const testLayer = Layer.mergeAll(
+  Layer.succeed(InteractionToken, {
+    applicationId: "application-1",
+    token: "interaction-token",
+  }),
+  ConfigProvider.layer(ConfigProvider.fromUnknown({ SHEET_BOT_CLIENT_ID: "discord-main" })),
+);
 
 const makeResponse = (messages: Array<string | undefined>) =>
   ({
@@ -76,212 +61,109 @@ const makeResponse = (messages: Array<string | undefined>) =>
     },
   }) as Pick<CommandInteractionResponseContext, "editReply">;
 
-type TestInput = { readonly responseReference: typeof responseReference };
-type TestOptions = EnqueueSheetWorkflowOptions<TestInput, Error, unknown, never>;
+const makeCapabilityStore = (
+  issueResponseReference: BotCapabilityStoreShape["issueResponseReference"] = () =>
+    Effect.succeed(responseReference),
+) => ({
+  issueResponseReference,
+});
 
-const runMigration = (
-  options: Omit<TestOptions, "response">,
+const runEnqueue = (
+  options: Omit<Parameters<typeof enqueueSheetWorkflow>[0], "response" | "capabilityStore"> & {
+    readonly capabilityStore: Pick<BotCapabilityStoreShape, "issueResponseReference">;
+  },
   messages: Array<string | undefined> = [],
-  response: Pick<CommandInteractionResponseContext, "editReply"> = makeResponse(messages),
 ) =>
-  enqueueSheetWorkflow({ ...options, response }).pipe(
-    Effect.provideService(Ix.Interaction, interaction),
+  enqueueSheetWorkflow({
+    ...options,
+    response: makeResponse(messages),
+  }).pipe(Effect.provide(testLayer), Effect.provideService(Ix.Interaction, interaction));
+
+describe("direct workflow enqueue boundary", () => {
+  it.effect("issues one opaque response reference and enqueues the declared input", () =>
+    Effect.gen(function* () {
+      let enqueuedInput: unknown;
+      let enqueuedInvocationId: unknown;
+
+      yield* runEnqueue({
+        operation: "workflow test",
+        workspaceId: "workspace-1",
+        capabilityStore: makeCapabilityStore(),
+        makeInput: (reference) => ({ responseReference: reference }),
+        enqueue: (input, options) => {
+          enqueuedInput = input;
+          enqueuedInvocationId = options.invocationId;
+          return Effect.succeed({});
+        },
+        rejectedMessage: "rejected",
+        unauthorizedMessage: "unauthorized",
+        pendingMessage: "pending",
+      });
+
+      expect(enqueuedInput).toEqual({ responseReference });
+      expect(enqueuedInvocationId).toBeDefined();
+    }),
   );
 
-describe("sheet workflow migration runner", () => {
-  layer(migrationTestLayer)("with Discord command dependencies", (it) => {
-    it.effect("uses one invocation for the gate and replacement enqueue", () =>
-      Effect.gen(function* () {
-        let legacyDispatches = 0;
-        let referencesIssued = 0;
-        let gateInvocationId: unknown;
-        let enqueueInvocationId: unknown;
-        let enqueuedInput: TestInput | undefined;
+  it.effect("reports reference issuance failure without enqueueing", () =>
+    Effect.gen(function* () {
+      const messages: Array<string | undefined> = [];
+      let enqueues = 0;
 
-        yield* runMigration({
-          operation: "the migration test",
-          contractIdentity: "test.operation",
-          contractWireVersion: "1",
+      yield* runEnqueue(
+        {
+          operation: "workflow test",
           workspaceId: "workspace-1",
-          capabilityStore: makeCapabilityStore(() => {
-            referencesIssued += 1;
-          }),
-          evaluateGate: (input) => {
-            gateInvocationId = input.invocationId;
-            return Effect.succeed(replacementDecision);
-          },
-          makeInput: (reference) => ({ responseReference: reference }),
-          enqueue: (input, options) => {
-            enqueuedInput = input;
-            enqueueInvocationId = options.invocationId;
-            return Effect.succeed({});
-          },
-          dispatchLegacy: Effect.sync(() => {
-            legacyDispatches += 1;
-          }),
-          rejectedMessage: "rejected",
-          unauthorizedMessage: "unauthorized",
-          pendingMessage: "pending",
-        });
-
-        expect(enqueuedInput).toEqual({ responseReference });
-        expect(enqueueInvocationId).toBeDefined();
-        expect(enqueueInvocationId).toBe(gateInvocationId);
-        expect(referencesIssued).toBe(1);
-        expect(legacyDispatches).toBe(0);
-      }),
-    );
-
-    it.effect("uses legacy once when gate evaluation is unavailable", () =>
-      Effect.gen(function* () {
-        let legacyDispatches = 0;
-        let replacementEnqueues = 0;
-        let referencesIssued = 0;
-
-        yield* runMigration({
-          operation: "the migration test",
-          contractIdentity: "test.operation",
-          contractWireVersion: "1",
-          capabilityStore: makeCapabilityStore(() => {
-            referencesIssued += 1;
-          }),
-          evaluateGate: () => Effect.fail(new Error("gate unavailable")),
+          capabilityStore: makeCapabilityStore(() =>
+            Effect.fail(new BotDependencyUnavailable({ message: "capability store unavailable" })),
+          ),
           makeInput: (reference) => ({ responseReference: reference }),
           enqueue: () => {
-            replacementEnqueues += 1;
+            enqueues += 1;
             return Effect.succeed({});
           },
-          dispatchLegacy: Effect.sync(() => {
-            legacyDispatches += 1;
-          }),
           rejectedMessage: "rejected",
           unauthorizedMessage: "unauthorized",
           pendingMessage: "pending",
-        });
+        },
+        messages,
+      );
 
-        expect(legacyDispatches).toBe(1);
-        expect(replacementEnqueues).toBe(0);
-        expect(referencesIssued).toBe(0);
-      }),
-    );
+      expect(messages).toEqual(["rejected"]);
+      expect(enqueues).toBe(0);
+    }),
+  );
 
-    it.effect("reports response-reference issuance failures without falling back", () =>
-      Effect.gen(function* () {
-        for (const error of [
-          new BotDependencyUnavailable({ message: "capability store unavailable" }),
-          new BotResponseExpired({ message: "response reference expired" }),
-        ]) {
-          let legacyDispatches = 0;
-          let replacementEnqueues = 0;
-          const messages: Array<string | undefined> = [];
+  it.effect("reports an ambiguous enqueue without a legacy fallback", () =>
+    Effect.gen(function* () {
+      const messages: Array<string | undefined> = [];
+      let enqueues = 0;
 
-          const exit = yield* Effect.exit(
-            runMigration(
-              {
-                operation: "the migration test",
-                contractIdentity: "test.operation",
-                contractWireVersion: "1",
-                capabilityStore: makeFailingCapabilityStore(error),
-                evaluateGate: () => Effect.succeed(replacementDecision),
-                makeInput: (reference) => ({ responseReference: reference }),
-                enqueue: () => {
-                  replacementEnqueues += 1;
-                  return Effect.succeed({});
-                },
-                dispatchLegacy: Effect.sync(() => {
-                  legacyDispatches += 1;
-                }),
-                rejectedMessage: "rejected",
-                unauthorizedMessage: "unauthorized",
-                pendingMessage: "pending",
-              },
-              messages,
-            ),
-          );
-
-          expect(Exit.isSuccess(exit)).toBe(true);
-          expect(messages).toEqual(["rejected"]);
-          expect(replacementEnqueues).toBe(0);
-          expect(legacyDispatches).toBe(0);
-        }
-      }),
-    );
-
-    it.effect(
-      "does not surface a response-reference failure when the terminal response cannot be delivered",
-      () =>
-        Effect.gen(function* () {
-          let legacyDispatches = 0;
-          const response = {
-            editReply: () => Effect.fail(new Error("interaction token expired")),
-          } as Pick<CommandInteractionResponseContext, "editReply">;
-
-          const exit = yield* Effect.exit(
-            runMigration(
-              {
-                operation: "the migration test",
-                contractIdentity: "test.operation",
-                contractWireVersion: "1",
-                capabilityStore: makeFailingCapabilityStore(
-                  new BotDependencyUnavailable({ message: "capability store unavailable" }),
-                ),
-                evaluateGate: () => Effect.succeed(replacementDecision),
-                makeInput: (reference) => ({ responseReference: reference }),
-                enqueue: () => Effect.succeed({}),
-                dispatchLegacy: Effect.sync(() => {
-                  legacyDispatches += 1;
-                }),
-                rejectedMessage: "rejected",
-                unauthorizedMessage: "unauthorized",
-                pendingMessage: "pending",
-              },
-              [],
-              response,
-            ),
-          );
-
-          expect(Exit.isSuccess(exit)).toBe(true);
-          expect(legacyDispatches).toBe(0);
-        }),
-    );
-
-    it.effect("does not fall back after replacement enqueue is rejected", () =>
-      Effect.gen(function* () {
-        let legacyDispatches = 0;
-        const messages: Array<string | undefined> = [];
-
-        const exit = yield* Effect.exit(
-          runMigration(
-            {
-              operation: "the migration test",
-              contractIdentity: "test.operation",
-              contractWireVersion: "1",
-              capabilityStore: makeCapabilityStore(),
-              evaluateGate: () => Effect.succeed(replacementDecision),
-              makeInput: (reference) => ({ responseReference: reference }),
-              enqueue: () =>
-                Effect.fail(
-                  new WorkflowTransportUnavailable({
-                    operation: "Enqueue",
-                    retryable: false,
-                    message: "enqueue outcome was ambiguous",
-                  }),
-                ),
-              dispatchLegacy: Effect.sync(() => {
-                legacyDispatches += 1;
+      yield* runEnqueue(
+        {
+          operation: "workflow test",
+          workspaceId: "workspace-1",
+          capabilityStore: makeCapabilityStore(),
+          makeInput: (reference) => ({ responseReference: reference }),
+          enqueue: () => {
+            enqueues += 1;
+            return Effect.fail(
+              new WorkflowTransportUnavailable({
+                operation: "Enqueue",
+                retryable: false,
+                message: "enqueue outcome is ambiguous",
               }),
-              rejectedMessage: "rejected",
-              unauthorizedMessage: "unauthorized",
-              pendingMessage: "pending",
-            },
-            messages,
-          ),
-        );
+            );
+          },
+          rejectedMessage: "rejected",
+          unauthorizedMessage: "unauthorized",
+          pendingMessage: "pending",
+        },
+        messages,
+      );
 
-        expect(Exit.isSuccess(exit)).toBe(true);
-        expect(messages).toEqual(["pending"]);
-        expect(legacyDispatches).toBe(0);
-      }),
-    );
-  });
+      expect(messages).toEqual(["pending"]);
+      expect(enqueues).toBe(1);
+    }),
+  );
 });

@@ -11,7 +11,6 @@ export default defineConfig({
       "sheet-auth/oauth-resource-authorization": fileURLToPath(
         new URL("../sheet-auth/src/oauth-resource-authorization.ts", import.meta.url),
       ),
-      "sheet-ingress-api": fileURLToPath(new URL("../sheet-ingress-api/src", import.meta.url)),
     },
   },
   test: {

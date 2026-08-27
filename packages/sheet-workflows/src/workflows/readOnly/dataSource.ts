@@ -1,4 +1,4 @@
-import { Context, DateTime, Effect, Layer, Match, Option, Predicate } from "effect";
+import { Context, Effect, Layer, Match, Predicate } from "effect";
 import { Data } from "effect";
 import type { EffectivePrincipal } from "sheet-auth/identity";
 import type { BotCollectionCursor } from "sheet-bot-api";
@@ -13,7 +13,7 @@ import {
   type WorkspaceId,
 } from "sheet-workflow-contracts";
 import { config } from "@/config";
-import { SheetApisClient } from "@/services/sheetApisClient";
+import { SheetDataProvider } from "@/services/sheetDataProvider";
 import { SheetBotCacheClient } from "@/services/sheetBotCacheClient";
 import { ReadOnlyWorkflowAuthorization } from "./authorization";
 
@@ -85,7 +85,7 @@ export const readOnlyWorkflowDataSourceLayer = Layer.effect(
   ReadOnlyWorkflowDataSource,
   Effect.gen(function* () {
     const bot = yield* SheetBotCacheClient;
-    const sheetApis = yield* SheetApisClient;
+    const dataProvider = yield* SheetDataProvider;
     const authorization = yield* ReadOnlyWorkflowAuthorization;
     const clientId = yield* config.sheetBotClientId;
     const client = { platform: "discord", clientId } as const;
@@ -175,45 +175,7 @@ export const readOnlyWorkflowDataSourceLayer = Layer.effect(
     const loadWorkspaceSchedules: ReadOnlyWorkflowDataSourceShape["loadWorkspaceSchedules"] = (
       workspaceId,
     ) =>
-      Effect.all(
-        {
-          eventConfig: sheetApis.get().sheet.getEventConfig({ query: { workspaceId } }),
-          scheduleResponse: sheetApis
-            .get()
-            .sheet.getAllSchedules({ query: { workspaceId, view: "monitor" } }),
-        },
-        { concurrency: "unbounded" },
-      ).pipe(
-        Effect.map(({ eventConfig, scheduleResponse }) => ({
-          eventConfig: { startTimeEpochMs: DateTime.toEpochMillis(eventConfig.startTime) },
-          populatedSchedules: scheduleResponse.schedules.map((schedule) =>
-            Match.valueTags(schedule, {
-              BreakSchedule: (value) => ({
-                conversationName: value.channel,
-                day: value.day,
-                visible: value.visible,
-                hour: Option.getOrNull(value.hour),
-                playerNames: [],
-                monitorName: null,
-              }),
-              Schedule: (value) => ({
-                conversationName: value.channel,
-                day: value.day,
-                visible: value.visible,
-                hour: Option.getOrNull(value.hour),
-                playerNames: [
-                  ...value.fills.flatMap(
-                    Option.match({ onNone: () => [], onSome: (fill) => [fill.player] }),
-                  ),
-                  ...value.overfills.map(({ player }) => player),
-                  ...value.standbys.map(({ player }) => player),
-                  ...value.runners.map(({ player }) => player),
-                ],
-                monitorName: Option.getOrNull(value.monitor),
-              }),
-            }),
-          ),
-        })),
+      dataProvider.loadWorkspaceSchedules(workspaceId).pipe(
         Effect.tapError((error) =>
           Effect.logWarning("schedules.loadWorkspace rejected").pipe(
             Effect.annotateLogs({ error, workspaceId }),

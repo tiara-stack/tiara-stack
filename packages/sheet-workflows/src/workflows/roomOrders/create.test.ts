@@ -17,7 +17,7 @@ import {
 import { ZeroClient } from "typhoon-zero/client";
 import { MutatorResultAppError } from "typhoon-zero/error";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
-import { makeSheetApisClient, makeTrustedSheetPersistenceMock } from "@/services/testHelpers";
+import { makeTrustedSheetPersistenceMock } from "@/services/testHelpers";
 import {
   workflowTestInvocationId as invocationId,
   workflowTestPrincipal as principal,
@@ -316,7 +316,7 @@ describe("room-order creation Workflow Definition slice", () => {
   );
 
   it.effect("uses ID precedence and derives explicit and legacy-default hours", () => {
-    const base = makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+    const base = makeTrustedSheetPersistenceMock();
     const calls: Array<unknown> = [];
     const persistence = {
       ...base,
@@ -416,7 +416,7 @@ describe("room-order creation Workflow Definition slice", () => {
   });
 
   it.effect("rejects an ambiguous name selector before provider reads", () => {
-    const base = makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+    const base = makeTrustedSheetPersistenceMock();
     const conversation = (conversationId: string) => ({
       workspaceId,
       conversationId,
@@ -467,7 +467,7 @@ describe("room-order creation Workflow Definition slice", () => {
   });
 
   it.effect("binds absent canonical state and exactly reconciles replay", () => {
-    const base = makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+    const base = makeTrustedSheetPersistenceMock();
     let row = Option.none<any>();
     let entries: ReadonlyArray<any> = [];
     let binds = 0;
@@ -566,7 +566,7 @@ describe("room-order creation Workflow Definition slice", () => {
   });
 
   it.effect("treats only explicit absent-state mutation rejections as safe to clean up", () => {
-    const base = makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+    const base = makeTrustedSheetPersistenceMock();
     const persistenceWithBind = (
       bindMessageRoomOrderIfAbsent: TrustedSheetPersistence["Service"]["roomOrderState"]["bindMessageRoomOrderIfAbsent"],
     ): TrustedSheetPersistence["Service"] => ({
@@ -612,7 +612,7 @@ describe("room-order creation Workflow Definition slice", () => {
   it.effect("bounds stalled state binding and reports its outcome as ambiguous", () =>
     Effect.gen(function* () {
       const stalled = yield* Deferred.make<void>();
-      const base = makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+      const base = makeTrustedSheetPersistenceMock();
       const persistence: TrustedSheetPersistence["Service"] = {
         ...base,
         roomOrderState: {
@@ -664,7 +664,7 @@ describe("room-order creation Workflow Definition slice", () => {
             }),
         },
       } as unknown as SheetBotHttpClient;
-      const base = makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+      const base = makeTrustedSheetPersistenceMock();
       return Effect.gen(function* () {
         const operations = yield* makeOperations(base, { load: () => Effect.die("unused") }, bot);
         const exit = yield* Effect.exit(
@@ -716,7 +716,7 @@ describe("room-order creation Workflow Definition slice", () => {
             Effect.fail(new BotDependencyUnavailable({ message: "cleanup unavailable" })),
         },
       } as unknown as SheetBotHttpClient;
-      const base = makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+      const base = makeTrustedSheetPersistenceMock();
       return Effect.gen(function* () {
         const operations = yield* makeOperations(base, { load: () => Effect.die("unused") }, bot);
         const exit = yield* Effect.exit(

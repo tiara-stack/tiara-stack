@@ -19,7 +19,7 @@ import {
   PreferencesUpdateAndDeliver,
 } from "sheet-workflow-contracts";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
-import { makeSheetApisClient, makeTrustedSheetPersistenceMock } from "@/services/testHelpers";
+import { makeTrustedSheetPersistenceMock } from "@/services/testHelpers";
 import { ReadOnlyWorkflowAuthorization } from "../readOnly/authorization";
 import {
   makeRecordingWorkflowAuthorization,
@@ -60,7 +60,7 @@ const makeOperations = (
   preferences: TrustedSheetPersistence["Service"]["preferences"],
   bot: SheetBotHttpClient,
 ) => {
-  const base = makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+  const base = makeTrustedSheetPersistenceMock();
   return Effect.gen(function* () {
     return yield* PreferencesWorkflowOperations;
   }).pipe(
@@ -246,7 +246,7 @@ describe("preferences write-and-delivery Workflow Definition slice", () => {
         readonly updatedAt: number;
         readonly deletedAt: number | null;
       }>();
-      const base = makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+      const base = makeTrustedSheetPersistenceMock();
       const preferences: TrustedSheetPersistence["Service"]["preferences"] = {
         ...base.preferences,
         getUserPlatformConfig: (args) => {
@@ -335,7 +335,7 @@ describe("preferences write-and-delivery Workflow Definition slice", () => {
               },
             });
       });
-      const base = makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+      const base = makeTrustedSheetPersistenceMock();
       const operations = yield* makeOperations(base.preferences, bot);
       const state = {
         platform: "discord",
@@ -378,7 +378,7 @@ describe("preferences write-and-delivery Workflow Definition slice", () => {
       const bot = makeBot(() =>
         Effect.fail(new BotResponseExpired({ message: "provider token secret" })),
       );
-      const base = makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+      const base = makeTrustedSheetPersistenceMock();
       const operations = yield* makeOperations(base.preferences, bot);
       const error = yield* Effect.flip(
         operations.deliver(

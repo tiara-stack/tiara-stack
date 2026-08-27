@@ -1,7 +1,5 @@
-import {
-  interactionResponseTokenExpirySafetyMarginMs,
-  interactionResponseTokenLifetimeMs,
-} from "sheet-ingress-api/sheet-apis-rpc";
+const interactionResponseTokenLifetimeMs = 15 * 60 * 1_000;
+const interactionResponseTokenExpirySafetyMarginMs = 30 * 1_000;
 
 const discordEpochMs = 1_420_070_400_000n;
 

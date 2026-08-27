@@ -24,11 +24,9 @@ import { createServer } from "node:http";
 import { config } from "@/config";
 import {
   AutonomousTriggerService,
-  DispatchService,
-  ClientDeliveryClient,
-  SheetApisClient,
   sheetBotCacheClientLayer,
   sheetBotDeliveryClientLayer,
+  sheetDataProviderLayer,
   trustedSheetPersistenceLayer,
 } from "@/services";
 import { autonomousTriggerWorkflowLayer } from "@/workflows/autoCheckin";
@@ -36,7 +34,6 @@ import type { AutonomousTriggerProviderError } from "@/workflows/autonomous/prov
 import type { AutoCheckinTestProviderError } from "@/workflows/checkins/autoTestProvider";
 import type { CalculationProviderError } from "@/workflows/calculations/provider";
 import { getClusterRunnerReadinessSnapshot, postgresSqlLayer } from "@/services";
-import { dispatchButtonEntityLayer, dispatchWorkflowLayer } from "@/workflows/dispatch";
 import { smokeWorkflowLayer } from "@/workflows/smoke";
 import {
   readOnlyWorkflowAuthorizationLayer,
@@ -217,11 +214,10 @@ const clusterStartupLayer = Layer.effectDiscard(
   }),
 );
 
-const dispatchClientsLayer = Layer.mergeAll(
-  ClientDeliveryClient.layer,
-  SheetApisClient.layer,
+const workflowCapabilityClientsLayer = Layer.mergeAll(
   sheetBotCacheClientLayer,
   sheetBotDeliveryClientLayer,
+  sheetDataProviderLayer,
 );
 
 const workflowDefinitionServicesLayer = Layer.mergeAll(
@@ -263,17 +259,15 @@ const workflowDefinitionServicesLayer = Layer.mergeAll(
     Layer.provide(calculationProviderLayer),
     Layer.provide(readOnlyWorkflowAuthorizationLayer),
   ),
-).pipe(Layer.provideMerge(dispatchClientsLayer), Layer.provideMerge(trustedSheetPersistenceLayer));
+).pipe(
+  Layer.provideMerge(workflowCapabilityClientsLayer),
+  Layer.provideMerge(trustedSheetPersistenceLayer),
+);
 
 const browserWorkflowDefinitionServicesLayer = screenshotCaptureOperationsLayer.pipe(
   Layer.provide(screenshotBrowserLayer),
   Layer.provide(readOnlyWorkflowAuthorizationLayer),
-  Layer.provideMerge(dispatchClientsLayer),
-  Layer.provideMerge(trustedSheetPersistenceLayer),
-);
-
-const dispatchServicesLayer = Layer.effect(DispatchService, DispatchService.make).pipe(
-  Layer.provideMerge(dispatchClientsLayer),
+  Layer.provideMerge(workflowCapabilityClientsLayer),
   Layer.provideMerge(trustedSheetPersistenceLayer),
 );
 
@@ -300,8 +294,6 @@ const clusterLayer: Layer.Layer<
   ClusterLayerError,
   HttpClient.HttpClient | HttpRouter.HttpRouter | FileSystem.FileSystem | WorkflowStore
 > = Layer.mergeAll(
-  dispatchButtonEntityLayer,
-  dispatchWorkflowLayer,
   autonomousTriggerWorkflowLayer,
   smokeWorkflowLayer,
   readOnlySheetWorkflowLayers,
@@ -323,7 +315,6 @@ const clusterLayer: Layer.Layer<
   clusterStartupLayer,
 ).pipe(
   Layer.provide(AutonomousTriggerService.layer),
-  Layer.provide(dispatchServicesLayer),
   Layer.provide(workflowDefinitionServicesLayer),
   Layer.provideMerge(workflowsRunnerLayer),
   Layer.provide(postgresSqlLayer),

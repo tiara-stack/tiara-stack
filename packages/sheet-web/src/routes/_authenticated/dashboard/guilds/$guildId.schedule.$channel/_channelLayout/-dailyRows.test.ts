@@ -1,10 +1,10 @@
 import { Option } from "effect";
 import { describe, expect, it } from "@effect/vitest";
-import { Sheet } from "sheet-ingress-api/schemas";
+import * as Schedule from "#/lib/scheduleValues";
 import { classifyDailyHourSchedules, getDailyHourSchedules } from "./-dailyRows";
 
 const makeBreakSchedule = () =>
-  new Sheet.PopulatedBreakSchedule({
+  new Schedule.PopulatedBreakSchedule({
     channel: "raid",
     day: 1,
     visible: true,
@@ -12,8 +12,8 @@ const makeBreakSchedule = () =>
     hourWindow: Option.none(),
   });
 
-const makeSchedule = (fills: readonly Option.Option<Sheet.PopulatedSchedulePlayer>[]) =>
-  new Sheet.PopulatedSchedule({
+const makeSchedule = (fills: readonly Option.Option<Schedule.PopulatedSchedulePlayer>[]) =>
+  new Schedule.PopulatedSchedule({
     channel: "raid",
     day: 1,
     visible: true,
@@ -27,8 +27,8 @@ const makeSchedule = (fills: readonly Option.Option<Sheet.PopulatedSchedulePlaye
   });
 
 const makePlayer = (name: string) =>
-  new Sheet.PopulatedSchedulePlayer({
-    player: new Sheet.PartialNamePlayer({ name }),
+  new Schedule.PopulatedSchedulePlayer({
+    player: new Schedule.PartialNamePlayer({ name }),
     enc: false,
   });
 

@@ -1,15 +1,8 @@
-import { Ix } from "dfx/index";
 import { Effect, Option, Predicate, Schema, pipe } from "effect";
-import { Interaction, InteractionToken } from "dfx-discord-utils/utils";
-import type {
-  CommandInteractionResponseContext,
-  NumberOptionBuilder,
-  StringOptionBuilder,
-} from "dfx-discord-utils/utils";
-import { config } from "../config";
+import { Interaction } from "dfx-discord-utils/utils";
+import type { NumberOptionBuilder, StringOptionBuilder } from "dfx-discord-utils/utils";
 import { interactionDeadlineEpochMs } from "./interactionDeadline";
 import * as Data from "effect/Data";
-import type { BotCapabilityStoreShape } from "../services/botCapabilityStore";
 
 class SheetBotUtilsCommandHelpersError extends Data.TaggedError(
   "SheetBotUtilsCommandHelpersError",
@@ -223,18 +216,6 @@ export const resolveTargetUserIdentity = (
     );
   });
 
-export const makeDispatchBase = Effect.gen(function* () {
-  const interactionToken = yield* InteractionToken;
-  const interaction = yield* Ix.Interaction;
-  const clientId = yield* config.sheetBotClientId;
-  return {
-    client: { platform: "discord", clientId },
-    dispatchRequestId: `discord-interaction:${interaction.id}`,
-    interactionResponseToken: interactionToken.token,
-    interactionResponseDeadlineEpochMs: interactionDeadlineEpochMs(interaction.id),
-  };
-});
-
 export const resolveInteractionWorkspaceId = Effect.gen(function* () {
   const guildId = yield* getInteractionGuildId;
   return Option.match(guildId, {
@@ -265,63 +246,3 @@ export const makeResponseReferenceInput = ({
 });
 
 export const makeInteractionResponseReferenceInput = makeResponseReferenceInput;
-
-export const issueInteractionResponseReference = (
-  capabilityStore: Pick<BotCapabilityStoreShape, "issueResponseReference">,
-  workspaceId?: string,
-) =>
-  Effect.gen(function* () {
-    const interactionToken = yield* InteractionToken;
-    const interaction = yield* Ix.Interaction;
-    const clientId = yield* config.sheetBotClientId;
-
-    return yield* capabilityStore.issueResponseReference(
-      makeInteractionResponseReferenceInput({
-        applicationId: interactionToken.applicationId,
-        clientId,
-        interactionId: interaction.id,
-        interactionToken: interactionToken.token,
-        ...(workspaceId === undefined ? {} : { workspaceId }),
-      }),
-    );
-  });
-
-const reportWorkflowEnqueueFailure = (
-  response: Pick<CommandInteractionResponseContext, "editReply">,
-  error: unknown,
-  {
-    logMessage,
-    rejectedMessage,
-    unauthorizedMessage,
-  }: {
-    readonly logMessage: string;
-    readonly rejectedMessage: string;
-    readonly unauthorizedMessage: string;
-  },
-) =>
-  response
-    .editReply({
-      payload: {
-        content: Predicate.isTagged("WorkflowInvocationUnauthorized")(error)
-          ? unauthorizedMessage
-          : rejectedMessage,
-      },
-    })
-    .pipe(Effect.tap(() => Effect.logWarning(logMessage, { error })));
-
-export const makeWorkflowEnqueueFailureReporter =
-  ({
-    logMessage,
-    rejectedMessage,
-    unauthorizedMessage,
-  }: {
-    readonly logMessage: string;
-    readonly rejectedMessage: string;
-    readonly unauthorizedMessage: string;
-  }) =>
-  (response: Pick<CommandInteractionResponseContext, "editReply">, error: unknown) =>
-    reportWorkflowEnqueueFailure(response, error, {
-      logMessage,
-      rejectedMessage,
-      unauthorizedMessage,
-    });

@@ -8,15 +8,12 @@ import {
   enqueueConversationsSetLockdownWorkflow,
   enqueueConversationsUpdateConfigAndDeliverWorkflow,
   SheetWorkflowHttpClient,
-  SheetWorkflowsClient,
-  SheetWorkflowsRequestContext,
   type ConversationsDeliverConfigInput,
   type ConversationsSetLockdownInput,
   type ConversationsUpdateConfigAndDeliverInput,
 } from "../services";
 import {
   decodeWorkflowWorkspaceId,
-  makeDispatchBase,
   optionalPayloadField,
   requireBoolean,
   requireResolvedId,
@@ -27,7 +24,6 @@ import {
 } from "../utils/commandHelpers";
 import { registerGlobalCommandLayer } from "../utils/registerGlobalCommandLayer";
 import { enqueueSheetWorkflow } from "../utils/sheetWorkflowMigration";
-import { runSheetWorkflowsDispatch } from "../utils/sheetWorkflowsDispatch";
 
 const optionalDecodedField = <const Key extends string, Value>(
   key: Key,
@@ -38,15 +34,6 @@ const optionalDecodedField = <const Key extends string, Value>(
     onSome: (optionValue) => Effect.map(decode(optionValue), (decoded) => ({ [key]: decoded })),
     onNone: () => Effect.succeed({}),
   }) as Effect.Effect<Partial<Record<Key, Value>>, Error>;
-
-const optionalBooleanUnsetField = <const Key extends string>(
-  key: Key,
-  value: Option.Option<unknown>,
-) =>
-  optionalPayloadField(
-    key,
-    Option.map(value, () => true as const),
-  );
 
 const optionalNullUnsetField = <const Key extends string>(
   key: Key,
@@ -71,13 +58,11 @@ const resolveChannelCommandPayloadBase = (
     const workspaceId = yield* resolveGuildId(serverId);
     const workflowWorkspace = yield* decodeWorkflowWorkspaceId(workspaceId);
     const conversationId = yield* resolveChannelId(channel);
-    const base = yield* makeDispatchBase;
 
-    return { ...base, workspaceId: workflowWorkspace, conversationId };
+    return { workspaceId: workflowWorkspace, conversationId };
   });
 
 const makeListConfigSubCommand = Effect.gen(function* () {
-  const sheetWorkflowsClient = yield* SheetWorkflowsClient;
   const workflowClient = yield* SheetWorkflowHttpClient;
   const capabilityStore = yield* BotCapabilityStore;
 
@@ -102,12 +87,8 @@ const makeListConfigSubCommand = Effect.gen(function* () {
       yield* enqueueSheetWorkflow({
         response,
         operation: "the channel config list",
-        contractIdentity: "conversations.deliverConfig",
-        contractWireVersion: "1",
         workspaceId: payloadBase.workspaceId,
         capabilityStore,
-        evaluateGate: (input) =>
-          workflowClient.evaluateConversationsDeliverConfigRolloutGate(input),
         makeInput: (responseReference): ConversationsDeliverConfigInput => ({
           workspaceId: payloadBase.workspaceId,
           conversationId: payloadBase.conversationId,
@@ -115,15 +96,6 @@ const makeListConfigSubCommand = Effect.gen(function* () {
         }),
         enqueue: (input, options) =>
           enqueueConversationsDeliverConfigWorkflow(workflowClient, input, options),
-        dispatchLegacy: runSheetWorkflowsDispatch(
-          response,
-          "the channel config list",
-          SheetWorkflowsRequestContext.asInteractionUser(() =>
-            sheetWorkflowsClient.get().dispatch.conversationListConfig({
-              payload: payloadBase,
-            }),
-          )(),
-        ),
         rejectedMessage: channelRejectedMessage,
         unauthorizedMessage: channelUnauthorizedMessage,
         pendingMessage: channelPendingMessage,
@@ -133,7 +105,6 @@ const makeListConfigSubCommand = Effect.gen(function* () {
 });
 
 const makeSetSubCommand = Effect.gen(function* () {
-  const sheetWorkflowsClient = yield* SheetWorkflowsClient;
   const workflowClient = yield* SheetWorkflowHttpClient;
   const capabilityStore = yield* BotCapabilityStore;
 
@@ -191,12 +162,8 @@ const makeSetSubCommand = Effect.gen(function* () {
       yield* enqueueSheetWorkflow({
         response,
         operation: "the channel config update",
-        contractIdentity: "conversations.updateConfigAndDeliver",
-        contractWireVersion: "1",
         workspaceId: payloadBase.workspaceId,
         capabilityStore,
-        evaluateGate: (input) =>
-          workflowClient.evaluateConversationsUpdateConfigAndDeliverRolloutGate(input),
         makeInput: (responseReference): ConversationsUpdateConfigAndDeliverInput => ({
           workspaceId: payloadBase.workspaceId,
           conversationId: payloadBase.conversationId,
@@ -210,21 +177,6 @@ const makeSetSubCommand = Effect.gen(function* () {
         }),
         enqueue: (input, options) =>
           enqueueConversationsUpdateConfigAndDeliverWorkflow(workflowClient, input, options),
-        dispatchLegacy: runSheetWorkflowsDispatch(
-          response,
-          "the channel config update",
-          SheetWorkflowsRequestContext.asInteractionUser(() =>
-            sheetWorkflowsClient.get().dispatch.conversationSet({
-              payload: {
-                ...payloadBase,
-                ...runningPayload,
-                ...namePayload,
-                ...rolePayload,
-                ...checkinChannelPayload,
-              },
-            }),
-          )(),
-        ),
         rejectedMessage: channelRejectedMessage,
         unauthorizedMessage: channelUnauthorizedMessage,
         pendingMessage: channelPendingMessage,
@@ -234,7 +186,6 @@ const makeSetSubCommand = Effect.gen(function* () {
 });
 
 const makeUnsetSubCommand = Effect.gen(function* () {
-  const sheetWorkflowsClient = yield* SheetWorkflowsClient;
   const workflowClient = yield* SheetWorkflowHttpClient;
   const capabilityStore = yield* BotCapabilityStore;
 
@@ -273,12 +224,8 @@ const makeUnsetSubCommand = Effect.gen(function* () {
       yield* enqueueSheetWorkflow({
         response,
         operation: "the channel config update",
-        contractIdentity: "conversations.updateConfigAndDeliver",
-        contractWireVersion: "1",
         workspaceId: payloadBase.workspaceId,
         capabilityStore,
-        evaluateGate: (input) =>
-          workflowClient.evaluateConversationsUpdateConfigAndDeliverRolloutGate(input),
         makeInput: (responseReference): ConversationsUpdateConfigAndDeliverInput => ({
           workspaceId: payloadBase.workspaceId,
           conversationId: payloadBase.conversationId,
@@ -295,24 +242,6 @@ const makeUnsetSubCommand = Effect.gen(function* () {
         }),
         enqueue: (input, options) =>
           enqueueConversationsUpdateConfigAndDeliverWorkflow(workflowClient, input, options),
-        dispatchLegacy: runSheetWorkflowsDispatch(
-          response,
-          "the channel config update",
-          SheetWorkflowsRequestContext.asInteractionUser(() =>
-            sheetWorkflowsClient.get().dispatch.conversationUnset({
-              payload: {
-                ...payloadBase,
-                ...optionalBooleanUnsetField("running", command.optionValueOptional("running")),
-                ...optionalBooleanUnsetField("name", command.optionValueOptional("name")),
-                ...optionalBooleanUnsetField("role", command.optionValueOptional("role")),
-                ...optionalBooleanUnsetField(
-                  "checkinConversation",
-                  command.optionValueOptional("checkin_channel"),
-                ),
-              },
-            }),
-          )(),
-        ),
         rejectedMessage: channelRejectedMessage,
         unauthorizedMessage: channelUnauthorizedMessage,
         pendingMessage: channelPendingMessage,
@@ -321,15 +250,8 @@ const makeUnsetSubCommand = Effect.gen(function* () {
   );
 });
 
-const makeLockdownSubCommand = (
-  operation: "setup" | "undo",
-  dispatch: (
-    client: ReturnType<(typeof SheetWorkflowsClient.Service)["get"]>,
-    payload: Effect.Success<ReturnType<typeof resolveChannelCommandPayloadBase>>,
-  ) => Effect.Effect<unknown, unknown>,
-) =>
+const makeLockdownSubCommand = (operation: "setup" | "undo") =>
   Effect.gen(function* () {
-    const sheetWorkflowsClient = yield* SheetWorkflowsClient;
     const workflowClient = yield* SheetWorkflowHttpClient;
     const capabilityStore = yield* BotCapabilityStore;
     const commandName = operation === "setup" ? "lockdown_setup" : "lockdown_undo";
@@ -356,12 +278,8 @@ const makeLockdownSubCommand = (
         yield* enqueueSheetWorkflow({
           response,
           operation: `the channel lockdown ${operation}`,
-          contractIdentity: "conversations.setLockdown",
-          contractWireVersion: "1",
           workspaceId: payload.workspaceId,
           capabilityStore,
-          evaluateGate: (input) =>
-            workflowClient.evaluateConversationsSetLockdownRolloutGate(input),
           makeInput: (responseReference): ConversationsSetLockdownInput => ({
             workspaceId: payload.workspaceId,
             conversationId: payload.conversationId,
@@ -370,13 +288,6 @@ const makeLockdownSubCommand = (
           }),
           enqueue: (input, options) =>
             enqueueConversationsSetLockdownWorkflow(workflowClient, input, options),
-          dispatchLegacy: runSheetWorkflowsDispatch(
-            response,
-            `the channel lockdown ${operation}`,
-            SheetWorkflowsRequestContext.asInteractionUser(() =>
-              dispatch(sheetWorkflowsClient.get(), payload),
-            )(),
-          ),
           rejectedMessage: channelRejectedMessage,
           unauthorizedMessage: channelUnauthorizedMessage,
           pendingMessage: channelPendingMessage,
@@ -385,13 +296,9 @@ const makeLockdownSubCommand = (
     );
   });
 
-const makeLockdownSetupSubCommand = makeLockdownSubCommand("setup", (client, payload) =>
-  client.dispatch.conversationLockdownSetup({ payload }),
-);
+const makeLockdownSetupSubCommand = makeLockdownSubCommand("setup");
 
-const makeLockdownUndoSubCommand = makeLockdownSubCommand("undo", (client, payload) =>
-  client.dispatch.conversationLockdownUndo({ payload }),
-);
+const makeLockdownUndoSubCommand = makeLockdownSubCommand("undo");
 
 const makeChannelCommand = Effect.gen(function* () {
   const listConfigSubCommand = yield* makeListConfigSubCommand;

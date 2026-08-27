@@ -17,8 +17,8 @@ import {
   roomOrderSendAcknowledgementMessage,
   tentativeRoomOrderPinAcknowledgementMessage,
   tentativeRoomOrderMessage,
-} from "sheet-message-content";
-import * as MessageText from "sheet-message-content";
+} from "./exampleMessages";
+import * as MessageText from "./exampleMessages";
 import { DiscordMessage } from "./discord-message";
 
 const client = { platform: "discord", clientId: "tiarabot" };

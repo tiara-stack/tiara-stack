@@ -14,16 +14,14 @@ import {
 import type * as Discord from "dfx/types";
 import { Predicate } from "effect";
 import type {
-  SheetClientTerm,
-  SheetClientTermCasing,
-  SheetClientTermForm,
-  GeneratedSheetText,
-  GeneratedSheetTextPart,
-  SheetMessageComponent,
-  SheetOutboundMessage,
-  SheetText,
-  SheetTextPart,
-} from "sheet-ingress-api/schemas/client";
+  BotClientTerm,
+  BotClientTermCasing,
+  BotClientTermForm,
+  BotMessageActionRow,
+  BotOutboundMessage,
+  BotText,
+  BotTextPart,
+} from "sheet-bot-api/message";
 
 const snowflake = (value: string) => value as Parameters<typeof userMention>[0];
 
@@ -34,11 +32,11 @@ const timestampStyles = {
   longDate: TimestampStyles.LongDate,
   relative: TimestampStyles.RelativeTime,
 } satisfies Record<
-  NonNullable<Extract<SheetTextPart, { type: "timestamp" }>["style"]>,
+  NonNullable<Extract<BotTextPart, { type: "timestamp" }>["style"]>,
   (typeof TimestampStyles)[keyof typeof TimestampStyles]
 >;
 
-const timestampStyle = (style: Extract<SheetTextPart, { type: "timestamp" }>["style"]) =>
+const timestampStyle = (style: Extract<BotTextPart, { type: "timestamp" }>["style"]) =>
   Predicate.isUndefined(style) ? TimestampStyles.LongDateShortTime : timestampStyles[style];
 
 const discordTerms = {
@@ -50,15 +48,15 @@ const discordTerms = {
   lockdownRole: { singular: "lockdown role", plural: "lockdown roles" },
   message: { singular: "message", plural: "messages" },
   testRun: { singular: "test run", plural: "test runs" },
-} satisfies Record<SheetClientTerm, Record<SheetClientTermForm, string>>;
+} satisfies Record<BotClientTerm, Record<BotClientTermForm, string>>;
 
 const sentenceCase = (value: string) =>
   value.length === 0 ? value : `${value[0]?.toUpperCase() ?? ""}${value.slice(1)}`;
 
 const renderClientTerm = (
-  term: SheetClientTerm,
-  form: SheetClientTermForm = "singular",
-  casing: SheetClientTermCasing = "lower",
+  term: BotClientTerm,
+  form: BotClientTermForm = "singular",
+  casing: BotClientTermCasing = "lower",
 ) => {
   const rendered = discordTerms[term][form];
   return casing === "sentence" ? sentenceCase(rendered) : rendered;
@@ -67,7 +65,7 @@ const renderClientTerm = (
 const renderOptionalLink = (label: string | undefined, url: string) =>
   Predicate.isUndefined(label) ? url : hyperlink(label, url);
 
-type SheetTextPartOf<Type extends SheetTextPart["type"]> = Extract<SheetTextPart, { type: Type }>;
+type BotTextPartOf<Type extends BotTextPart["type"]> = Extract<BotTextPart, { type: Type }>;
 
 const sheetTextPartRenderers = {
   text: (part) => part.text,
@@ -91,42 +89,14 @@ const sheetTextPartRenderers = {
   externalLink: (part) => renderOptionalLink(part.label, part.url),
   clientTerm: (part) => renderClientTerm(part.term, part.form, part.casing),
 } satisfies {
-  readonly [Type in SheetTextPart["type"]]: (part: SheetTextPartOf<Type>) => string;
+  readonly [Type in BotTextPart["type"]]: (part: BotTextPartOf<Type>) => string;
 };
 
-const renderSheetTextPart = (part: SheetTextPart): string =>
+const renderSheetTextPart = (part: BotTextPart): string =>
   sheetTextPartRenderers[part.type](part as never);
 
-const renderSheetText = (text: SheetText): string =>
+const renderSheetText = (text: BotText): string =>
   Predicate.isString(text) ? text : text.map(renderSheetTextPart).join("");
-
-type GeneratedSheetTextPartOf<Type extends GeneratedSheetTextPart["type"]> = Extract<
-  GeneratedSheetTextPart,
-  { type: Type }
->;
-
-const generatedSheetTextPartRenderers = {
-  text: (part) => part.text,
-  userMention: (part) => userMention(snowflake(part.userId)),
-  conversationMention: (part) => channelMention(snowflake(part.conversationId)),
-  timestamp: (part) => time(Math.floor(part.epochMs / 1000), timestampStyle(part.style)),
-  strong: (part) => bold(renderGeneratedSheetText(part.parts)),
-  inlineCode: (part) => inlineCode(part.text),
-  strikethrough: (part) => strikethrough(renderGeneratedSheetText(part.parts)),
-  subtle: (part) => subtext(renderGeneratedSheetText(part.parts)),
-  externalLink: (part) => renderOptionalLink(part.label, part.url),
-  clientTerm: (part) => renderClientTerm(part.term, part.form, part.casing),
-} satisfies {
-  readonly [Type in GeneratedSheetTextPart["type"]]: (
-    part: GeneratedSheetTextPartOf<Type>,
-  ) => string;
-};
-
-const renderGeneratedSheetTextPart = (part: GeneratedSheetTextPart): string =>
-  generatedSheetTextPartRenderers[part.type](part as never);
-
-export const renderGeneratedSheetText = (text: GeneratedSheetText): string =>
-  text.map(renderGeneratedSheetTextPart).join("");
 
 const buttonStyles = {
   primary: 1,
@@ -135,11 +105,10 @@ const buttonStyles = {
   danger: 4,
 } as const;
 
-const buttonStyle = (
-  style: Extract<SheetMessageComponent, { type: "actionRow" }>["components"][number]["style"],
-) => (Predicate.isUndefined(style) ? buttonStyles.secondary : buttonStyles[style]);
+const buttonStyle = (style: BotMessageActionRow["components"][number]["style"]) =>
+  Predicate.isUndefined(style) ? buttonStyles.secondary : buttonStyles[style];
 
-const renderComponent = (component: SheetMessageComponent) => ({
+const renderComponent = (component: BotMessageActionRow) => ({
   type: 1,
   components: component.components.map((button) => ({
     type: 2,
@@ -151,7 +120,7 @@ const renderComponent = (component: SheetMessageComponent) => ({
   })),
 });
 
-const renderSheetEmbeds = (message: SheetOutboundMessage) =>
+const renderSheetEmbeds = (message: BotOutboundMessage) =>
   message.embeds?.map((embed) => ({
     title: Predicate.isUndefined(embed.title) ? undefined : renderSheetText(embed.title),
     description: Predicate.isNullish(embed.description)
@@ -166,7 +135,7 @@ const renderSheetEmbeds = (message: SheetOutboundMessage) =>
     color: embed.color,
   }));
 
-export const toDiscordMessagePayload = (message: SheetOutboundMessage) =>
+export const toDiscordMessagePayload = (message: BotOutboundMessage) =>
   ({
     content: Predicate.isNullish(message.content) ? undefined : renderSheetText(message.content),
     embeds: renderSheetEmbeds(message),
@@ -181,8 +150,6 @@ export const toDiscordMessagePayload = (message: SheetOutboundMessage) =>
           fail_if_not_exists: message.messageReference.failIfNotExists,
         }
       : undefined,
-    nonce: message.nonce ?? undefined,
-    enforce_nonce: message.enforceNonce ?? undefined,
   }) as Discord.MessageCreateRequest &
     Discord.MessageEditRequestPartial &
     Discord.IncomingWebhookUpdateRequestPartial;

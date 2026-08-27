@@ -1,5 +1,6 @@
 import { Option, Predicate } from "effect";
-import type { ClientRef, SheetOutboundMessage, SheetTextPart } from "sheet-bot-api";
+import type { BotTextPart, BotOutboundMessage } from "sheet-bot-api/message";
+import type { ClientRef } from "sheet-bot-api/references";
 import { checkinActionRow } from "./components";
 import { makeEmbed } from "./rendering";
 import * as MessageText from "./text";
@@ -86,14 +87,14 @@ export const makeMonitorCheckinMessage = ({
 
 export const autoCheckinNotice = "Sent automatically via auto check-in.";
 
-export const formatAutoCheckinContent = (content: ReadonlyArray<SheetTextPart>): SheetTextPart[] =>
+export const formatAutoCheckinContent = (content: ReadonlyArray<BotTextPart>): BotTextPart[] =>
   MessageText.lines(content, [MessageText.subtle([MessageText.text(autoCheckinNotice)])]);
 
 export const manualCheckinSummaryMessage = ({
   monitorCheckinMessage,
 }: {
-  readonly monitorCheckinMessage: ReadonlyArray<SheetTextPart>;
-}): SheetOutboundMessage => ({
+  readonly monitorCheckinMessage: ReadonlyArray<BotTextPart>;
+}): BotOutboundMessage => ({
   content: null,
   embeds: [
     makeEmbed({
@@ -110,9 +111,9 @@ export const autoCheckinSummaryMessage = ({
   monitorFailureMessage,
 }: {
   readonly monitorUserId: string | null;
-  readonly monitorCheckinMessage: ReadonlyArray<SheetTextPart>;
-  readonly monitorFailureMessage: ReadonlyArray<SheetTextPart> | null;
-}): SheetOutboundMessage => ({
+  readonly monitorCheckinMessage: ReadonlyArray<BotTextPart>;
+  readonly monitorFailureMessage: ReadonlyArray<BotTextPart> | null;
+}): BotOutboundMessage => ({
   content: Predicate.isString(monitorUserId) ? [MessageText.userMention(monitorUserId)] : undefined,
   embeds: [
     makeEmbed({
@@ -124,9 +125,9 @@ export const autoCheckinSummaryMessage = ({
 });
 
 function automaticSummaryDescription(
-  monitorCheckinMessage: ReadonlyArray<SheetTextPart>,
-  monitorFailureMessage: ReadonlyArray<SheetTextPart> | null,
-): SheetTextPart[] {
+  monitorCheckinMessage: ReadonlyArray<BotTextPart>,
+  monitorFailureMessage: ReadonlyArray<BotTextPart> | null,
+): BotTextPart[] {
   return MessageText.lines(
     monitorCheckinMessage,
     ...(Predicate.isNotNull(monitorFailureMessage)
@@ -143,8 +144,8 @@ export type AutoMonitorCheckinMessageArgs = {
   readonly hour: number;
   readonly monitorUserId: string | null;
   readonly monitorCheckinRequired: boolean;
-  readonly monitorCheckinMessage: ReadonlyArray<SheetTextPart>;
-  readonly monitorFailureMessage: ReadonlyArray<SheetTextPart> | null;
+  readonly monitorCheckinMessage: ReadonlyArray<BotTextPart>;
+  readonly monitorFailureMessage: ReadonlyArray<BotTextPart> | null;
 };
 
 export const autoMonitorCheckinDelivery = ({
@@ -158,7 +159,7 @@ export const autoMonitorCheckinDelivery = ({
   monitorFailureMessage,
 }: AutoMonitorCheckinMessageArgs): {
   readonly checkinRequired: boolean;
-  readonly message: SheetOutboundMessage & { readonly content: SheetTextPart[] | null };
+  readonly message: BotOutboundMessage & { readonly content: BotTextPart[] | null };
 } => {
   const checkinIsRequired = monitorCheckinRequired && Predicate.isString(monitorUserId);
   const runningConversation = MessageText.conversationMention(
@@ -202,5 +203,5 @@ export const autoMonitorCheckinDelivery = ({
 
 export const autoMonitorCheckinMessage = (
   args: AutoMonitorCheckinMessageArgs,
-): SheetOutboundMessage & { readonly content: SheetTextPart[] | null } =>
+): BotOutboundMessage & { readonly content: BotTextPart[] | null } =>
   autoMonitorCheckinDelivery(args).message;

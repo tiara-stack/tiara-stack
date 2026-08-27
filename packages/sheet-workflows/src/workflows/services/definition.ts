@@ -49,7 +49,6 @@ export const makeServicesDeliverStatusMessage = (
         name: service.service,
         value: formatServiceStatusFieldValue({
           ...service,
-          name: service.service,
           error: Predicate.isNotNull(service.httpStatus)
             ? null
             : Match.value(service.error).pipe(

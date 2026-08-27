@@ -1,9 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Cause, ConfigProvider, Effect, Exit, Layer, Option, Schema } from "effect";
 import { InvocationId } from "effect-zero-workflow/contract";
-import { CheckinGenerateResult } from "sheet-ingress-api/schemas/checkin";
-import { MessageRoomOrderRange } from "sheet-ingress-api/schemas/messageRoomOrder";
-import { RoomOrderGenerateResult } from "sheet-ingress-api/schemas/roomOrder";
 import { messageRefFrom, type SheetBotHttpClient } from "sheet-bot-api";
 import { EffectivePrincipal } from "sheet-auth/identity";
 import { CheckinsOpen } from "sheet-workflow-contracts";
@@ -15,9 +12,13 @@ import { formatAutoCheckinContent } from "sheet-message-content/checkinSummary";
 import { text } from "sheet-message-content/text";
 import { makeRecordingWorkflowAuthorization } from "../shared/testHelpers";
 import { ReadOnlyWorkflowAuthorization } from "../readOnly/authorization";
-import { SheetApisClient } from "@/services/sheetApisClient";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
-import { makeSheetApisClient, makeTrustedSheetPersistenceMock } from "@/services/testHelpers";
+import {
+  CheckinGeneration,
+  RoomOrderGeneration,
+  SheetDataProvider,
+} from "@/services/sheetDataProvider";
+import { makeTrustedSheetPersistenceMock } from "@/services/testHelpers";
 import { checkinsOpenWorkflowOperationsLayer } from "./openOperations";
 import { CheckinsOpenWorkflowOperations } from "./openService";
 import { CheckinsOpenResolvedExecution } from "./openSchema";
@@ -39,7 +40,7 @@ const makeExecution = (
   } = {},
 ) => {
   const initialMessage = [{ type: "text" as const, text: "opening check-in" }];
-  const generated = new CheckinGenerateResult({
+  const generated = Schema.decodeUnknownSync(CheckinGeneration)({
     hour: 3,
     runningConversationId: "running-1",
     checkinConversationId: "checkin-1",
@@ -128,14 +129,14 @@ const makeDeliveryBot = (handlers: Record<string, unknown>): SheetBotHttpClient 
 const makeOperations = (
   persistence: TrustedSheetPersistenceShape,
   handlers: Record<string, unknown>,
-  services: Record<string, unknown> = {},
+  dataProvider: SheetDataProvider["Service"] = makeDataProvider(),
 ) =>
   Effect.gen(function* () {
     return yield* CheckinsOpenWorkflowOperations;
   }).pipe(
     Effect.provide(checkinsOpenWorkflowOperationsLayer),
     Effect.provide(Layer.succeed(TrustedSheetPersistence, persistence)),
-    Effect.provide(Layer.succeed(SheetApisClient, makeSheetApisClient(services))),
+    Effect.provide(Layer.succeed(SheetDataProvider, dataProvider)),
     Effect.provide(
       Layer.succeed(SheetBotDeliveryClient, {
         get: () => makeDeliveryBot(handlers),
@@ -232,10 +233,10 @@ const canonicalRoomOrderRow = (
 });
 
 const roomOrder = () =>
-  new RoomOrderGenerateResult({
+  Schema.decodeUnknownSync(RoomOrderGeneration)({
     content: [text("room order")],
     runningConversationId: "running-1",
-    range: new MessageRoomOrderRange({ minRank: 1, maxRank: 1 }),
+    range: { minRank: 1, maxRank: 1 },
     rank: 1,
     hour: 3,
     monitor: null,
@@ -244,9 +245,17 @@ const roomOrder = () =>
     entries: [],
   });
 
+const makeDataProvider = (
+  overrides: Partial<SheetDataProvider["Service"]> = {},
+): SheetDataProvider["Service"] => ({
+  generateCheckin: () => Effect.succeed(makeExecution().context.generated),
+  generateRoomOrder: () => Effect.succeed(roomOrder()),
+  loadWorkspaceSchedules: () => Effect.die("unused"),
+  ...overrides,
+});
+
 const basePersistence = () => {
-  const sheetApis = makeSheetApisClient({});
-  return makeTrustedSheetPersistenceMock(sheetApis);
+  return makeTrustedSheetPersistenceMock();
 };
 
 const preferenceRow = (userId: string) => ({
@@ -268,12 +277,10 @@ describe("CheckinsOpen workflow operations", () => {
       const operations = yield* makeOperations(
         basePersistence(),
         {},
-        {
-          checkin: {
-            generate: (request: unknown) =>
-              Effect.sync(() => (calls.push(request), execution.context.generated)),
-          },
-        },
+        makeDataProvider({
+          generateCheckin: (request) =>
+            Effect.sync(() => (calls.push(request), execution.context.generated)),
+        }),
       );
 
       const result = yield* operations.resolve({
@@ -619,7 +626,7 @@ describe("CheckinsOpen workflow operations", () => {
           editMessage: () => Effect.succeed(finalized),
           deleteMessage: () => Effect.sync(() => (deleted = true)),
         },
-        { roomOrder: { generate: () => Effect.succeed(generated) } },
+        makeDataProvider({ generateRoomOrder: () => Effect.succeed(generated) }),
       );
 
       const result = yield* operations.deliverTentativeRoomOrder(
@@ -655,7 +662,7 @@ describe("CheckinsOpen workflow operations", () => {
           sendMessage: () => Effect.succeed(sent),
           deleteMessage: () => Effect.sync(() => (cleanupCalls += 1)),
         },
-        { roomOrder: { generate: () => Effect.succeed(roomOrder()) } },
+        makeDataProvider(),
       );
 
       const result = yield* Effect.exit(

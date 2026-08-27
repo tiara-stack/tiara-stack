@@ -18,6 +18,7 @@ export default browserLibrary({
       checkinSummary: fileURLToPath(new URL("./src/checkinSummary.ts", import.meta.url)),
       checkinAnnouncement: fileURLToPath(new URL("./src/checkinAnnouncement.ts", import.meta.url)),
       roomOrderMessage: fileURLToPath(new URL("./src/roomOrderMessage.ts", import.meta.url)),
+      schedule: fileURLToPath(new URL("./src/schedule.ts", import.meta.url)),
     },
     deps: { neverBundle: ["effect"] },
   },

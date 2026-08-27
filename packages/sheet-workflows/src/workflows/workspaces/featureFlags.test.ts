@@ -48,11 +48,7 @@ import {
   WorkspaceFeatureFlagEntity,
 } from "@/entities/workspaceFeatureFlag";
 import { ZeroApiError } from "typhoon-zero/zeroApi";
-import {
-  makeSheetApisClient,
-  makeTrustedSheetPersistenceMock,
-  normalizePayloadText,
-} from "@/services/testHelpers";
+import { makeTrustedSheetPersistenceMock, normalizePayloadText } from "@/services/testHelpers";
 import {
   ReadOnlyWorkflowAuthorization,
   readOnlyWorkflowAuthorizationLayer,
@@ -217,8 +213,7 @@ const makeBot = (overrides: BotOverrides = {}): SheetBotHttpClient =>
     },
   }) as unknown as SheetBotHttpClient;
 
-const basePersistence = () =>
-  makeTrustedSheetPersistenceMock(makeSheetApisClient({})) as TrustedSheetPersistenceShape;
+const basePersistence = () => makeTrustedSheetPersistenceMock() as TrustedSheetPersistenceShape;
 
 const makeOperations = (
   workspaces: TrustedSheetPersistenceShape["workspaces"],

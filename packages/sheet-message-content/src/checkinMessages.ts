@@ -1,5 +1,5 @@
 import { Predicate } from "effect";
-import type { SheetOutboundMessage } from "sheet-bot-api/message";
+import type { BotOutboundMessage } from "sheet-bot-api/message";
 import type { ClientRef } from "sheet-bot-api/references";
 import { escapeMarkdown, makeEmbed } from "./rendering";
 import * as MessageText from "./text";
@@ -24,7 +24,7 @@ const workspaceNameLine = (workspaceName: string | undefined) =>
     ? [[MessageText.text(`Server: ${escapeMarkdown(workspaceName)}`)]]
     : [];
 
-export const reminderMessage = (params: CheckinDmMessageContext): SheetOutboundMessage => ({
+export const reminderMessage = (params: CheckinDmMessageContext): BotOutboundMessage => ({
   content: null,
   embeds: [
     makeEmbed({
@@ -42,7 +42,7 @@ export const reminderMessage = (params: CheckinDmMessageContext): SheetOutboundM
   allowedMentions: "none",
 });
 
-export const monitorPingMessage = (params: CheckinDmMessageContext): SheetOutboundMessage => {
+export const monitorPingMessage = (params: CheckinDmMessageContext): BotOutboundMessage => {
   const hasMonitorConversation = Predicate.isString(params.monitorConversationId);
   const destinationConversationId = hasMonitorConversation
     ? params.monitorConversationId

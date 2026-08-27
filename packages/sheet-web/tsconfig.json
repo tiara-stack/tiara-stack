@@ -18,10 +18,8 @@
     "paths": {
       "sheet-auth": ["../sheet-auth/src/index.ts"],
       "sheet-auth/*": ["../sheet-auth/src/*"],
-      "sheet-ingress-api": ["../sheet-ingress-api/src/index.ts"],
-      "sheet-ingress-api/*": ["../sheet-ingress-api/src/*"],
-      "sheet-message-content": ["../sheet-message-content/src/index.ts"],
-      "sheet-message-content/*": ["../sheet-message-content/src/*"],
+      "sheet-bot-api": ["../sheet-bot-api/src/index.ts"],
+      "sheet-bot-api/*": ["../sheet-bot-api/src/*"],
       "sheet-workflow-contracts": ["../sheet-workflow-contracts/src/index.ts"],
       "sheet-workflow-contracts/*": ["../sheet-workflow-contracts/src/*"],
       "sheet-zero-api": ["../sheet-zero-api/src/index.ts"],
@@ -47,10 +45,7 @@
       "path": "../sheet-auth"
     },
     {
-      "path": "../sheet-ingress-api"
-    },
-    {
-      "path": "../sheet-message-content"
+      "path": "../sheet-bot-api"
     },
     {
       "path": "../sheet-workflow-contracts"

@@ -1,7 +1,7 @@
-import type { SheetOutboundMessage } from "sheet-bot-api/message";
+import type { BotOutboundMessage } from "sheet-bot-api/message";
 import { parts, text, userMention } from "./text";
 
-export const checkinAnnouncementMessage = (accountId: string): SheetOutboundMessage => ({
+export const checkinAnnouncementMessage = (accountId: string): BotOutboundMessage => ({
   content: parts(userMention(accountId), text(" has checked in!")),
 });
 

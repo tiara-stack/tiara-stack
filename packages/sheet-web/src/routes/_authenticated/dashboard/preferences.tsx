@@ -73,7 +73,7 @@ const defaultClientIdFor = (
   Option.match(config, {
     onNone: () => onlyDiscordClientId(discordClients),
     onSome: (value) => {
-      const defaultClientId = Option.getOrNull(value.defaultClientId);
+      const defaultClientId = value.defaultClientId;
       return defaultClientId !== null && hasDiscordClientId(discordClients, defaultClientId)
         ? defaultClientId
         : onlyDiscordClientId(discordClients);

@@ -2,7 +2,6 @@ import { describe, expect, it } from "@effect/vitest";
 import { Cause, Effect, Exit, Option, Schema } from "effect";
 import type { sheets_v4 } from "@googleapis/sheets";
 import { messageRefFrom } from "sheet-bot-api";
-import { MessageTeamSubmission } from "sheet-ingress-api/schemas/teamSubmission";
 import { TeamSubmissionsDecide, TeamSubmissionsProcess } from "sheet-workflow-contracts";
 import {
   appendRangeForCells,
@@ -19,6 +18,7 @@ import {
 } from "./definitions";
 import { makeTeamSubmissionsSerializationKey } from "./keys";
 import { makeTeamSubmissionProvider, type TeamSubmissionProviderShape } from "./provider";
+import { MessageTeamSubmission } from "./values";
 
 const makeMessageTeamSubmission = ({
   parsedSubmission = [],
@@ -411,6 +411,96 @@ describe("team-submission pure rules", () => {
 });
 
 describe("team-submission sheet provider", () => {
+  it.effect("qualifies relative team ranges with their configured sheet", () =>
+    Effect.gen(function* () {
+      const { calls, client } = makeSheetsClient({
+        batchGet: () =>
+          Promise.resolve({
+            data: {
+              valueRanges: [
+                {
+                  values: [
+                    ["User IDs", "'Users'!A:A"],
+                    ["User Sheet Names", "'Users'!B:B"],
+                  ],
+                },
+                {
+                  values: [
+                    [
+                      "Relative",
+                      "Manager's Teams",
+                      "A:A",
+                      "auto",
+                      "split",
+                      "E:E, F:F, G:G",
+                      "ranges",
+                      "C:C",
+                      "D:D",
+                    ],
+                    [
+                      "Qualified",
+                      "Existing",
+                      "'Other'!A:A",
+                      "'Other'!B:B",
+                      "combined",
+                      "'Other'!E:E",
+                      "ranges",
+                      "'Other'!C:C",
+                      "'Other'!D:D",
+                    ],
+                    [
+                      "Extra",
+                      "Manager's Teams",
+                      "A:A",
+                      "B:B",
+                      "split",
+                      "E:E, F:F, G:G, H:H",
+                      "constants",
+                      "tag",
+                      "D:D",
+                    ],
+                  ],
+                },
+              ],
+            },
+          }),
+      });
+
+      const configuration = yield* makeTeamSubmissionProvider(client).loadConfiguration("sheet-1");
+      const relative = configuration.teamConfigs[0]!;
+      const qualified = configuration.teamConfigs[1]!;
+      const extra = configuration.teamConfigs[2]!;
+
+      expect(calls.batchGet).toBe(1);
+      expect(Option.getOrNull(relative.sheet)).toBe("Manager's Teams");
+      expect(Option.getOrNull(relative.playerNameRange)).toBe("'Manager''s Teams'!A:A");
+      expect(Option.getOrNull(relative.teamNameRange)).toBe("auto");
+      expect(Option.getOrNull(relative.oshiRange)).toBe("'Manager''s Teams'!D:D");
+      expect(Option.getOrNull(relative.isvConfig)).toMatchObject({
+        _tag: "TeamIsvSplitConfig",
+        leadRange: "'Manager''s Teams'!E:E",
+        backlineRange: "'Manager''s Teams'!F:F",
+        talentRange: "'Manager''s Teams'!G:G",
+      });
+      expect(Option.getOrNull(relative.tagsConfig)).toMatchObject({
+        _tag: "TeamTagsRangesConfig",
+        tagsRange: "'Manager''s Teams'!C:C",
+      });
+      expect(Option.getOrNull(qualified.playerNameRange)).toBe("'Other'!A:A");
+      expect(Option.getOrNull(qualified.teamNameRange)).toBe("'Other'!B:B");
+      expect(Option.getOrNull(qualified.isvConfig)).toMatchObject({
+        _tag: "TeamIsvCombinedConfig",
+        isvRange: "'Other'!E:E",
+      });
+      expect(Option.getOrNull(qualified.tagsConfig)).toMatchObject({
+        _tag: "TeamTagsRangesConfig",
+        tagsRange: "'Other'!C:C",
+      });
+      expect(Option.getOrNull(qualified.oshiRange)).toBe("'Other'!D:D");
+      expect(Option.getOrNull(extra.isvConfig)).toBe(null);
+    }),
+  );
+
   it.effect("does not read back a deterministic transport rejection", () =>
     runProviderWriteCase({
       batchUpdate: () => Promise.reject({ code: "ECONNREFUSED" }),

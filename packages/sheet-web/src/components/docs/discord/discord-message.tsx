@@ -1,11 +1,11 @@
 import type {
-  SheetActionButton,
-  SheetMessageActionRow,
-  SheetMessageEmbed,
-  SheetOutboundMessage,
-  SheetText,
-  SheetTextPart,
-} from "sheet-ingress-api/schemas/client";
+  BotActionButton,
+  BotMessageActionRow,
+  BotMessageEmbed,
+  BotOutboundMessage,
+  BotText,
+  BotTextPart,
+} from "sheet-bot-api";
 
 type Labels = {
   readonly users?: Readonly<Record<string, string>>;
@@ -31,7 +31,7 @@ const terms = {
 
 const sentenceCase = (value: string) => `${value.slice(0, 1).toUpperCase()}${value.slice(1)}`;
 
-type TextPartOf<Type extends SheetTextPart["type"]> = Extract<SheetTextPart, { type: Type }>;
+type TextPartOf<Type extends BotTextPart["type"]> = Extract<BotTextPart, { type: Type }>;
 
 type TimestampStyle = TextPartOf<"timestamp">["style"];
 type AbsoluteTimestampStyle = Exclude<NonNullable<TimestampStyle>, "relative">;
@@ -80,7 +80,7 @@ const SheetTextPartView = ({
   labels,
   referenceEpochMs,
 }: {
-  part: SheetTextPart;
+  part: BotTextPart;
   labels: Labels;
   referenceEpochMs: number;
 }) => {
@@ -137,7 +137,7 @@ const SheetTextPartView = ({
       return casing === "sentence" ? sentenceCase(value) : value;
     },
   } satisfies {
-    readonly [Type in SheetTextPart["type"]]: (part: TextPartOf<Type>) => React.ReactNode;
+    readonly [Type in BotTextPart["type"]]: (part: TextPartOf<Type>) => React.ReactNode;
   };
   return views[part.type](part as never);
 };
@@ -147,7 +147,7 @@ const SheetTextView = ({
   labels = {},
   referenceEpochMs,
 }: {
-  value: SheetText;
+  value: BotText;
   labels?: Labels;
   referenceEpochMs: number;
 }) =>
@@ -163,7 +163,7 @@ const SheetTextView = ({
       ));
 
 type SheetEmbedPartProps = {
-  readonly embed: SheetMessageEmbed;
+  readonly embed: BotMessageEmbed;
   readonly labels: Labels;
   readonly referenceEpochMs: number;
 };
@@ -243,7 +243,7 @@ const buttonStyles = {
   danger: "bg-[#da373c] text-white",
 } as const;
 
-type RenderedButton = SheetActionButton & { readonly url?: string };
+type RenderedButton = BotActionButton & { readonly url?: string };
 
 const SheetButtonContent = ({ button }: { button: RenderedButton }) => (
   <>
@@ -256,7 +256,7 @@ const SheetButtonContent = ({ button }: { button: RenderedButton }) => (
 );
 
 const SheetButton = ({ button }: { button: RenderedButton }) => {
-  const className = `inline-flex min-h-8 items-center gap-1.5 rounded-[3px] px-3.5 py-1.5 text-sm font-medium ${buttonStyles[button.style ?? "primary"]} ${button.disabled ? "cursor-not-allowed opacity-50" : ""}`;
+  const className = `inline-flex min-h-8 items-center gap-1.5 rounded-[3px] px-3.5 py-1.5 text-sm font-medium ${buttonStyles[button.style ?? "secondary"]} ${button.disabled ? "cursor-not-allowed opacity-50" : ""}`;
   return button.url !== undefined && !button.disabled ? (
     <a href={button.url} className={className} rel="noreferrer">
       <SheetButtonContent button={button} />
@@ -268,7 +268,7 @@ const SheetButton = ({ button }: { button: RenderedButton }) => {
   );
 };
 
-const SheetActionRowView = ({ row }: { row: SheetMessageActionRow }) => (
+const SheetActionRowView = ({ row }: { row: BotMessageActionRow }) => (
   <div className="mt-2 flex flex-wrap gap-2">
     {row.components.map((button, index) => (
       <SheetButton key={index} button={button} />
@@ -360,7 +360,7 @@ const MessageContent = ({
   referenceEpochMs,
 }: {
   readonly labels: Labels;
-  readonly message: SheetOutboundMessage;
+  readonly message: BotOutboundMessage;
   readonly referenceEpochMs: number;
 }) =>
   message.content == null ? null : (
@@ -375,17 +375,17 @@ const MessageEmbeds = ({
   referenceEpochMs,
 }: {
   readonly labels: Labels;
-  readonly message: SheetOutboundMessage;
+  readonly message: BotOutboundMessage;
   readonly referenceEpochMs: number;
 }) =>
   message.embeds?.map((embed, index) => (
     <SheetEmbed key={index} embed={embed} labels={labels} referenceEpochMs={referenceEpochMs} />
   ));
 
-const MessageComponents = ({ message }: { readonly message: SheetOutboundMessage }) =>
+const MessageComponents = ({ message }: { readonly message: BotOutboundMessage }) =>
   message.components?.map((row, index) => <SheetActionRowView key={index} row={row} />);
 
-const OptionalEphemeralNotice = ({ message }: { readonly message: SheetOutboundMessage }) =>
+const OptionalEphemeralNotice = ({ message }: { readonly message: BotOutboundMessage }) =>
   message.visibility === "ephemeral" ? <EphemeralNotice /> : null;
 
 const messagePadding = (command: DiscordCommandInvocation | undefined) =>
@@ -400,7 +400,7 @@ export const DiscordMessage = ({
   command,
   referenceEpochMs,
 }: {
-  message: SheetOutboundMessage;
+  message: BotOutboundMessage;
   labels?: Labels;
   delivery?: "channel" | "direct";
   channel?: string;

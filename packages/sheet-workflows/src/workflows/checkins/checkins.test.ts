@@ -37,7 +37,7 @@ import {
 } from "@/entities/checkinProjection";
 import { SheetBotCacheClient } from "@/services/sheetBotCacheClient";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
-import { makeSheetApisClient, makeTrustedSheetPersistenceMock } from "@/services/testHelpers";
+import { makeTrustedSheetPersistenceMock } from "@/services/testHelpers";
 import {
   ReadOnlyWorkflowAuthorization,
   readOnlyWorkflowAuthorizationLayer,
@@ -167,7 +167,7 @@ const makeAuthorization = (options: {
   readonly members?: ReadonlyArray<CheckinMemberRow>;
   readonly getMember?: (request: unknown) => Effect.Effect<unknown, unknown>;
 }) => {
-  const persistence = makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+  const persistence = makeTrustedSheetPersistenceMock();
   return Effect.gen(function* () {
     return yield* ReadOnlyWorkflowAuthorization;
   }).pipe(
@@ -500,7 +500,7 @@ const checkinResponseWorkflowDefinitionTests = () => {
     Effect.gen(function* () {
       let current = memberRow();
       let mutations = 0;
-      const base = makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+      const base = makeTrustedSheetPersistenceMock();
       const persistence: TrustedSheetPersistenceShape = {
         ...base,
         checkinState: {
@@ -543,7 +543,7 @@ const checkinResponseWorkflowDefinitionTests = () => {
   it.effect("reconciles an ambiguous CAS failure from canonical persisted state", () =>
     Effect.gen(function* () {
       let current = memberRow();
-      const base = makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+      const base = makeTrustedSheetPersistenceMock();
       const persistence: TrustedSheetPersistenceShape = {
         ...base,
         checkinState: {
@@ -575,7 +575,7 @@ const checkinResponseWorkflowDefinitionTests = () => {
   it.effect("delivers every bot effect and maps missing post-commit resources to recovery", () =>
     Effect.gen(function* () {
       const calls: Array<string> = [];
-      const base = makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+      const base = makeTrustedSheetPersistenceMock();
       const operations = yield* makeOperations(base, {
         respond: () => Effect.sync(() => (calls.push("respond"), responseReceipt)),
         setMemberRole: () => Effect.sync(() => (calls.push("setMemberRole"), roleReceipt)),

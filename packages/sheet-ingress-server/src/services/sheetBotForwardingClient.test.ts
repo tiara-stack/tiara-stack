@@ -101,13 +101,11 @@ const expectJsonRequestBody = (request: HttpClientRequest.HttpClientRequest, bod
 const expectFormDataRequestBody = (
   request: HttpClientRequest.HttpClientRequest,
   body: {
-    readonly interactionToken: string;
     readonly payload: object;
   },
 ) => {
   expect(request.body._tag).toBe("FormData");
   if (request.body._tag === "FormData") {
-    expect(request.body.formData.get("interactionToken")).toBe(body.interactionToken);
     expect(request.body.formData.get("payload")).toBe(JSON.stringify(body.payload));
   }
 };
@@ -142,6 +140,8 @@ describe("SheetBotForwardingClient", () => {
 
   it.live.each([
     {
+      bodyKind: "json",
+      expectedPayload: donePayload,
       expectedUrl: `http://sheet-bot/bot/interactions/${interactionToken}/original-response`,
       name: "includes the interaction token when updating the original interaction response",
       runRequest: (client: ForwardingClient) =>
@@ -152,12 +152,9 @@ describe("SheetBotForwardingClient", () => {
     },
     {
       bodyKind: "json",
-      expectedBody: {
-        interactionToken,
-        payload: donePayload,
-      },
-      expectedUrl: "http://sheet-bot/bot/interactions/original-response",
-      name: "can update the original interaction response with the token in the body",
+      expectedPayload: donePayload,
+      expectedUrl: `http://sheet-bot/bot/interactions/${interactionToken}/original-response`,
+      name: "maps the body-token compatibility wrapper to the tokenized endpoint",
       runRequest: (client: ForwardingClient) =>
         client.bot.updateOriginalInteractionResponseByPayload({
           interactionToken,
@@ -166,24 +163,21 @@ describe("SheetBotForwardingClient", () => {
     },
     {
       bodyKind: "formData",
-      expectedBody: {
-        interactionToken,
-        payload: donePayload,
-      },
-      expectedUrl: "http://sheet-bot/bot/interactions/original-response/files",
-      name: "can update the original interaction response with files and the token in the body",
+      expectedPayload: donePayload,
+      expectedUrl: `http://sheet-bot/bot/interactions/${interactionToken}/original-response/files`,
+      name: "updates the original interaction response with files through the tokenized endpoint",
       runRequest: (client: ForwardingClient) => {
         const formData = new FormData();
-        formData.append("interactionToken", interactionToken);
         formData.append("payload", JSON.stringify(donePayload));
         formData.append("files", new File(["content"], "screenshot.png", { type: "image/png" }));
 
-        return client.bot.updateOriginalInteractionResponseWithFilesByPayload({
+        return client.bot.updateOriginalInteractionResponseWithFiles({
+          params: { interactionToken },
           payload: formData,
         });
       },
     },
-  ])("$name", ({ bodyKind, expectedBody, expectedUrl, runRequest }) =>
+  ])("$name", ({ bodyKind, expectedPayload, expectedUrl, runRequest }) =>
     Effect.gen(function* () {
       const request = yield* captureForwardedRequest(
         (client) => runRequest(client) as Effect.Effect<unknown, unknown, never>,
@@ -191,10 +185,10 @@ describe("SheetBotForwardingClient", () => {
 
       expectForwardedSheetBotRequest(request, expectedUrl);
       if (bodyKind === "json") {
-        expectJsonRequestBody(request, expectedBody);
+        expectJsonRequestBody(request, expectedPayload);
       }
       if (bodyKind === "formData") {
-        expectFormDataRequestBody(request, expectedBody);
+        expectFormDataRequestBody(request, { payload: expectedPayload });
       }
     }),
   );

@@ -1,11 +1,11 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import type { SheetOutboundMessage } from "sheet-ingress-api/schemas/client";
+import type { BotOutboundMessage } from "sheet-bot-api";
 import { describe, expect, it } from "vitest";
 import { DiscordMessage } from "./discord-message";
 
 const referenceEpochMs = Date.UTC(2026, 6, 18, 12);
 
-const renderMessage = (message: SheetOutboundMessage) =>
+const renderMessage = (message: BotOutboundMessage) =>
   renderToStaticMarkup(<DiscordMessage message={message} referenceEpochMs={referenceEpochMs} />);
 
 describe("DiscordMessage", () => {
@@ -61,6 +61,7 @@ describe("DiscordMessage", () => {
           type: "actionRow",
           components: [
             { type: "button", actionId: "preview", label: "Preview action" },
+            { type: "button", actionId: "primary", label: "Primary", style: "primary" },
             disabledLink,
             enabledLink,
           ],
@@ -72,6 +73,8 @@ describe("DiscordMessage", () => {
     expect(markup).toContain('href="https://example.com/enabled"');
     expect(markup).not.toContain('href="https://example.com/disabled"');
     expect(markup).not.toContain("<button");
+    expect(markup).toContain("bg-[#4e5058]");
+    expect(markup).toContain("bg-[#5865f2]");
     expect(markup).toMatch(/<span[^>]*>Preview action<\/span>/);
     expect(markup).toMatch(/<span[^>]*aria-disabled="true"[^>]*>Disabled link/);
   });

@@ -1,59 +1,32 @@
 import { InteractionsRegistry } from "dfx/gateway";
 import { Ix } from "dfx/index";
 import { ButtonStyle, MessageFlags } from "discord-api-types/v10";
-import { Duration, Effect, Layer, Match, Option, pipe } from "effect";
-import { SLOT_OPEN_ACTION_ID } from "sheet-ingress-api/clientActions";
+import { Effect, Layer, Option, pipe } from "effect";
+import { SLOT_OPEN_ACTION_ID } from "sheet-bot-api/actions";
 import { discordGatewayLayer } from "../../discord/gateway";
-import { issueInteractionResponseReference, resolveGuildId } from "@/utils/commandHelpers";
+import { resolveGuildId } from "@/utils/commandHelpers";
 import {
   Interaction,
-  InteractionToken,
   MessageComponentInteractionResponse,
   makeButton,
   makeButtonData,
   makeMessageComponent,
   type CommandInteractionResponseContext,
 } from "dfx-discord-utils/utils";
-import { config } from "../../config";
 import { prefixedUnstorageLayer } from "../../discord/cache";
 import {
   BotCapabilityStore,
   enqueueSlotsOpenWorkflow,
   SheetWorkflowHttpClient,
-  SheetWorkflowHttpRequestContext,
-  SheetWorkflowsClient,
-  SheetWorkflowsRequestContext,
   type BotCapabilityStoreShape,
   type SheetWorkflowHttpClientShape,
-  type SheetWorkflowsClientShape,
 } from "@/services";
 import { discordApplicationLayer } from "../../discord/application";
-import { interactionDeadlineEpochMs } from "@/utils/interactionDeadline";
-import { runSheetWorkflowsDispatch } from "@/utils/sheetWorkflowsDispatch";
-import { makeWorkflowInvocationId } from "sheet-workflow-http-client";
-import {
-  isWorkflowTransportUnavailable,
-  reportAmbiguousWorkflowEnqueueOutcome,
-  reportDefinitiveWorkflowEnqueueFailure,
-} from "@/utils/workflowEnqueueOutcome";
-
-const slotButtonRolloutGateEvaluationTimeout = Duration.seconds(5);
+import { enqueueSheetWorkflow } from "@/utils/sheetWorkflowMigration";
 const slotButtonEnqueueRejectedMessage = "I couldn't open those slots. Please try again.";
 const slotButtonEnqueueUnauthorizedMessage = "You aren't allowed to open slots from this message.";
 const slotButtonEnqueuePendingMessage =
   "The slot list is still processing. I'll update this message when it finishes.";
-type SlotButtonRolloutGateDecision = Effect.Success<
-  ReturnType<SheetWorkflowHttpClientShape["evaluateSlotsOpenRolloutGate"]>
->;
-
-const slotButtonGateUnavailableDecision: SlotButtonRolloutGateDecision = {
-  gateKey: "unavailable",
-  revision: 0,
-  matched: false,
-  executionPath: "legacy",
-  reason: "control-unavailable",
-};
-
 const getInteractionMessageId = Effect.gen(function* () {
   const interactionMessage = yield* Interaction.message();
   return pipe(
@@ -66,130 +39,39 @@ const slotButtonData = makeButtonData((b) =>
   b.setCustomId(SLOT_OPEN_ACTION_ID).setLabel("Open slots").setStyle(ButtonStyle.Primary),
 );
 
-const dispatchLegacySlotButton = (
+const enqueueSlotOpenButton = Effect.fn("slotButton.enqueueWorkflow")(function* (
   response: Pick<CommandInteractionResponseContext, "editReply">,
-  sheetWorkflowsClient: SheetWorkflowsClientShape,
-  messageId: string,
-) =>
-  runSheetWorkflowsDispatch(
-    response,
-    "the slot button",
-    SheetWorkflowsRequestContext.asInteractionUser(
-      Effect.fn("slotButton.dispatchLegacyPath")(function* () {
-        const interactionToken = yield* InteractionToken;
-        const interaction = yield* Ix.Interaction;
-        const clientId = yield* config.sheetBotClientId;
-
-        // The legacy button payload remains parallel while this caller is migrated.
-        // fallow-ignore-next-line code-duplication
-        return yield* sheetWorkflowsClient.get().dispatch.slotOpenButton({
-          payload: {
-            client: { platform: "discord", clientId },
-            messageId,
-            interactionResponseToken: interactionToken.token,
-            interactionResponseDeadlineEpochMs: interactionDeadlineEpochMs(interaction.id),
-          },
-        });
-      }),
-    )(),
-  ).pipe(
-    Effect.catch((error) =>
-      reportDefinitiveWorkflowEnqueueFailure(response, error, {
-        rejectedMessage: slotButtonEnqueueRejectedMessage,
-        unauthorizedMessage: slotButtonEnqueueUnauthorizedMessage,
-        operation: "slot-open button",
-      }),
-    ),
-  );
-
-export const enqueueSlotOpenButton = Effect.fn("slotButton.enqueueWorkflow")(function* (
-  response: Pick<CommandInteractionResponseContext, "editReply">,
-  workflowClient: Pick<
-    SheetWorkflowHttpClientShape,
-    "enqueueSlotsOpen" | "evaluateSlotsOpenRolloutGate"
-  >,
-  sheetWorkflowsClient: SheetWorkflowsClientShape,
+  workflowClient: Pick<SheetWorkflowHttpClientShape, "enqueueSlotsOpen">,
   capabilityStore: Pick<BotCapabilityStoreShape, "issueResponseReference">,
   messageId: string,
 ) {
-  const invocationId = yield* makeWorkflowInvocationId();
-  const clientId = yield* config.sheetBotClientId;
   const workspaceId = yield* resolveGuildId(Option.none());
-  const decision = yield* SheetWorkflowHttpRequestContext.asInteractionUser(() =>
-    workflowClient.evaluateSlotsOpenRolloutGate({
-      contractIdentity: "slots.open",
-      contractWireVersion: "1",
-      client: { platform: "discord", clientId },
-      invocationId,
-      workspaceId,
-    }),
-  )().pipe(
-    Effect.timeout(slotButtonRolloutGateEvaluationTimeout),
-    Effect.catch((error) =>
-      Effect.logWarning("Rollout Gate Control could not be evaluated; using legacy path", {
-        error,
-        invocationId,
-      }).pipe(Effect.as(slotButtonGateUnavailableDecision)),
-    ),
-  );
-
-  yield* Match.value(decision.executionPath).pipe(
-    Match.when("legacy", () => dispatchLegacySlotButton(response, sheetWorkflowsClient, messageId)),
-    Match.when("replacement", () =>
-      Effect.gen(function* () {
-        const responseReference = yield* issueInteractionResponseReference(
-          capabilityStore,
-          workspaceId,
-        );
-
-        yield* SheetWorkflowHttpRequestContext.asInteractionUser(() =>
-          enqueueSlotsOpenWorkflow(
-            workflowClient,
-            { messageId, responseReference },
-            { invocationId },
-          ),
-        )();
-      }).pipe(
-        Effect.catch((error) =>
-          isWorkflowTransportUnavailable(error)
-            ? reportAmbiguousWorkflowEnqueueOutcome(response, error, {
-                pendingMessage: slotButtonEnqueuePendingMessage,
-                operation: "slot-open button",
-              })
-            : reportDefinitiveWorkflowEnqueueFailure(response, error, {
-                rejectedMessage: slotButtonEnqueueRejectedMessage,
-                unauthorizedMessage: slotButtonEnqueueUnauthorizedMessage,
-                operation: "slot-open button",
-              }),
-        ),
-      ),
-    ),
-    Match.exhaustive,
-  );
+  yield* enqueueSheetWorkflow({
+    response,
+    operation: "slot-open button",
+    workspaceId,
+    capabilityStore,
+    makeInput: (responseReference) => ({ messageId, responseReference }),
+    enqueue: (input, options) => enqueueSlotsOpenWorkflow(workflowClient, input, options),
+    rejectedMessage: slotButtonEnqueueRejectedMessage,
+    unauthorizedMessage: slotButtonEnqueueUnauthorizedMessage,
+    pendingMessage: slotButtonEnqueuePendingMessage,
+  });
 });
 
 const makeSlotButtonHandler = Effect.gen(function* () {
   const workflowClient = yield* SheetWorkflowHttpClient;
-  const sheetWorkflowsClient = yield* SheetWorkflowsClient;
   const capabilityStore = yield* BotCapabilityStore;
 
   return yield* makeButton(
     slotButtonData.toJSON(),
-    SheetWorkflowsRequestContext.asInteractionUser(
-      Effect.fn("slotButton")(function* () {
-        const response = yield* MessageComponentInteractionResponse;
-        yield* response.deferReply({ flags: MessageFlags.Ephemeral });
+    Effect.fn("slotButton")(function* () {
+      const response = yield* MessageComponentInteractionResponse;
+      yield* response.deferReply({ flags: MessageFlags.Ephemeral });
 
-        const messageId = Option.getOrThrow(yield* getInteractionMessageId);
-        yield* enqueueSlotOpenButton(
-          response,
-          workflowClient,
-          sheetWorkflowsClient,
-          capabilityStore,
-          messageId,
-        );
-      }),
-    )(),
+      const messageId = Option.getOrThrow(yield* getInteractionMessageId);
+      yield* enqueueSlotOpenButton(response, workflowClient, capabilityStore, messageId);
+    })(),
   );
 });
 
@@ -212,7 +94,6 @@ export const slotButtonLayer = Layer.effectDiscard(
       discordGatewayLayer,
       discordApplicationLayer,
       SheetWorkflowHttpClient.layer,
-      SheetWorkflowsClient.layer,
       BotCapabilityStore.layer.pipe(Layer.provide(prefixedUnstorageLayer)),
     ),
   ),

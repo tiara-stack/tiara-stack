@@ -6,6 +6,8 @@ const ScheduleIdentity = Schema.Struct({
 });
 
 const UserSchedule = Schema.Struct({
+  channel: Schema.optional(Schema.String),
+  day: Schema.optional(Schema.Number),
   visible: Schema.Boolean,
   hour: Schema.NullOr(Schema.Number),
   break: Schema.Boolean,

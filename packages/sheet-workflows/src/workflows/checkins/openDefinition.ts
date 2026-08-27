@@ -9,7 +9,7 @@ import {
   SendDirectMessageReceipt,
   SendMessageReceipt,
 } from "sheet-bot-api";
-import { shouldSendTentativeRoomOrder } from "sheet-ingress-api/clientActions";
+import { shouldSendTentativeRoomOrder } from "sheet-bot-api/actions";
 import { monitorPingMessage, reminderMessage } from "sheet-message-content/checkinMessages";
 import { CheckinsOpen, InteractiveDeclaredFailure } from "sheet-workflow-contracts";
 import { config } from "@/config";

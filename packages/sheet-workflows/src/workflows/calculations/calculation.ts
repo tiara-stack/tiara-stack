@@ -10,7 +10,7 @@ import {
   String,
   pipe,
 } from "effect";
-import { PlayerTeam, Room, Team } from "sheet-ingress-api/schemas/sheet";
+import { PlayerTeam, Room, Team } from "./calculationModel";
 import {
   type CalculationDeclaredFailure,
   type CalculationsRecalculateSheetInput,

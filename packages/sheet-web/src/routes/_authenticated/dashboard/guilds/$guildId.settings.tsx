@@ -27,12 +27,6 @@ import {
   useRef,
   useState,
 } from "react";
-import {
-  isDiscordAnnouncementChannelType,
-  isDiscordCategoryChannelType,
-  isSendableDiscordChannelType,
-} from "sheet-ingress-api/guild-config";
-import type { DiscordGuildChannel, DiscordGuildRole } from "sheet-ingress-api/schemas/discord";
 import { ensureResultAtomData, isBrowserRuntime } from "#/lib/atomRegistry";
 import {
   type ChannelConfigDraft,
@@ -68,6 +62,12 @@ import {
   workspaceConversationsAtom,
   workspaceMonitorRolesAtom,
 } from "#/lib/guildConfig";
+import type { DiscordChannel, DiscordRole } from "sheet-workflow-contracts";
+import {
+  isDiscordAnnouncementChannelType,
+  isDiscordCategoryChannelType,
+  isSendableDiscordChannelType,
+} from "sheet-bot-api";
 
 const SettingsSearch = Schema.Struct({
   section: Schema.optional(Schema.Literals(["server", "channels"])),
@@ -280,8 +280,8 @@ function ServerEditor({
 }: {
   readonly guildId: string;
   readonly config: WorkspaceConfigValue;
-  readonly channels: ReadonlyArray<DiscordGuildChannel> | undefined;
-  readonly roles: ReadonlyArray<DiscordGuildRole> | undefined;
+  readonly channels: ReadonlyArray<DiscordChannel> | undefined;
+  readonly roles: ReadonlyArray<DiscordRole> | undefined;
   readonly monitorRoles: ReadonlyArray<{ readonly roleId: string }> | undefined;
   readonly conversations: ReadonlyArray<WorkspaceConversationConfigValue> | undefined;
   readonly resourceTags: {
@@ -313,14 +313,14 @@ function ServerEditor({
     shouldBlockFn: () => dirty && !saving,
     withResolver: true,
   });
-  const sheetValid = Option.isNone(baseline.sheetId) || form.sheetId.trim().length > 0;
+  const sheetValid = baseline.sheetId === null || form.sheetId.trim().length > 0;
   const sortedChannels = useMemo(() => sortGuildChannels(channels ?? []), [channels]);
   const channelLabels = useMemo(() => buildChannelLabels(sortedChannels), [sortedChannels]);
   const runningIds = useMemo(
     () =>
       new Set(
         (conversations ?? [])
-          .filter((conversation) => Option.getOrElse(conversation.running, () => false))
+          .filter((conversation) => conversation.running === true)
           .map((conversation) => conversation.conversationId),
       ),
     [conversations],
@@ -586,7 +586,7 @@ function MonitorRoleRow({
   onRemove,
 }: {
   readonly roleId: string;
-  readonly role: DiscordGuildRole | undefined;
+  readonly role: DiscordRole | undefined;
   readonly busyRoleId: string | undefined;
   readonly onRemove: (roleId: string) => void;
 }) {
@@ -617,7 +617,7 @@ function ChannelListButton({
   selected,
   onSelect,
 }: {
-  readonly channel: DiscordGuildChannel;
+  readonly channel: DiscordChannel;
   readonly label: string;
   readonly selected: boolean;
   readonly onSelect: (channelId: string) => void;
@@ -752,8 +752,8 @@ function ManagerChannelEditor({
   channels,
 }: {
   readonly guildId: string;
-  readonly channel: DiscordGuildChannel;
-  readonly channels: ReadonlyArray<DiscordGuildChannel>;
+  readonly channel: DiscordChannel;
+  readonly channels: ReadonlyArray<DiscordChannel>;
 }) {
   const conversationsResult = useWorkspaceConversationsResult(guildId);
   const rolesResult = useGuildRolesResult(guildId);
@@ -818,7 +818,7 @@ function ManagerChannelEditor({
   const saving = savingIds.has(channel.id);
   const nameValid = !draft.nameConfigured || draft.name.trim().length > 0;
   const canSave = dirty && nameValid && !saving;
-  const running = Option.getOrElse(config?.running ?? Option.none(), () => false);
+  const running = config?.running === true;
   const dirtyIds = new Set(
     Object.entries(drafts)
       .filter(([conversationId, candidate]) => {
@@ -1087,7 +1087,9 @@ function ManagerChannelEditor({
           draftPending={dirtyIds.has(channel.id)}
           configured={conversations === undefined ? undefined : config !== undefined}
           hasLockdownRole={
-            conversations === undefined ? undefined : Option.isSome(config?.roleId ?? Option.none())
+            conversations === undefined
+              ? undefined
+              : Predicate.isString(config?.roleId) && config.roleId.length > 0
           }
         />
       </div>
@@ -1102,7 +1104,7 @@ function MonitorChannelActions({
   channel,
 }: {
   readonly guildId: string;
-  readonly channel: DiscordGuildChannel;
+  readonly channel: DiscordChannel;
 }) {
   return (
     <div>
@@ -1133,7 +1135,7 @@ function LockdownPanel({
   hasLockdownRole,
 }: {
   readonly guildId: string;
-  readonly channel: DiscordGuildChannel;
+  readonly channel: DiscordChannel;
   readonly requireConfiguration?: boolean;
   readonly draftPending?: boolean;
   readonly configured?: boolean | undefined;

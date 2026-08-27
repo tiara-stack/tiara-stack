@@ -17,7 +17,6 @@ import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import { InteractiveDeclaredFailure, SlotsDeliverList } from "sheet-workflow-contracts";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
 import {
-  makeSheetApisClient,
   makeTrustedSheetPersistenceMock,
   normalizePayloadText,
   renderTextForTest,
@@ -107,7 +106,7 @@ const makeBot = (
   }) => Effect.Effect<unknown, unknown>,
 ): SheetBotHttpClient => ({ delivery: { respond } }) as unknown as SheetBotHttpClient;
 
-const basePersistence = () => makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+const basePersistence = () => makeTrustedSheetPersistenceMock();
 
 const configuredWorkspaces = (
   workspaces: TrustedSheetPersistence["Service"]["workspaces"],

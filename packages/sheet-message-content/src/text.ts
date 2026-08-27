@@ -3,150 +3,101 @@ import {
   conversationRefFrom,
   workspaceRefFrom,
   type ClientRef,
+  type BotClientTerm,
+  type BotClientTermCasing,
+  type BotClientTermForm,
+  type BotTextPart,
+  type BotTimestampStyle,
   type ConversationRef,
   type MessageRef,
-  type SheetClientTerm,
-  type SheetClientTermCasing,
-  type SheetClientTermForm,
-  type SheetTextPart,
-  type SheetTimestampStyle,
   type WorkspaceRef,
 } from "sheet-bot-api";
-import type { GeneratedSheetText, GeneratedSheetTextPart } from "sheet-ingress-api/schemas/client";
 
-type MaybePart = SheetTextPart | null | undefined | false;
+type MaybePart = BotTextPart | null | undefined | false;
 
-export const text = (value: string): SheetTextPart => ({ type: "text", text: value });
+export const text = (value: string): BotTextPart => ({ type: "text", text: value });
 
-export const parts = (...items: ReadonlyArray<MaybePart>): SheetTextPart[] =>
-  items.filter((item): item is SheetTextPart => Boolean(item));
+export const parts = (...items: ReadonlyArray<MaybePart>): BotTextPart[] =>
+  items.filter((item): item is BotTextPart => Boolean(item));
 
-export const lines = (...rows: ReadonlyArray<ReadonlyArray<SheetTextPart>>): SheetTextPart[] =>
+export const lines = (...rows: ReadonlyArray<ReadonlyArray<BotTextPart>>): BotTextPart[] =>
   rows.flatMap((row, index) => (index === 0 ? row : [text("\n"), ...row]));
 
-export const strong = (value: ReadonlyArray<SheetTextPart>): SheetTextPart => ({
+export const strong = (value: ReadonlyArray<BotTextPart>): BotTextPart => ({
   type: "strong",
   parts: [...value],
 });
 
-export const inlineCode = (value: string): SheetTextPart => ({
+export const inlineCode = (value: string): BotTextPart => ({
   type: "inlineCode",
   text: value,
 });
 
-const strikethrough = (value: ReadonlyArray<SheetTextPart>): SheetTextPart => ({
-  type: "strikethrough",
-  parts: [...value],
-});
-
-export const subtle = (value: ReadonlyArray<SheetTextPart>): SheetTextPart => ({
+export const subtle = (value: ReadonlyArray<BotTextPart>): BotTextPart => ({
   type: "subtle",
   parts: [...value],
 });
 
-export const externalLink = (url: string, label?: string): SheetTextPart => ({
+export const externalLink = (url: string, label?: string): BotTextPart => ({
   type: "externalLink",
   url,
   ...(label === undefined ? {} : { label }),
 });
 
 export const clientTerm = (
-  term: SheetClientTerm,
+  term: BotClientTerm,
   options: {
-    readonly form?: SheetClientTermForm;
-    readonly casing?: SheetClientTermCasing;
+    readonly form?: BotClientTermForm;
+    readonly casing?: BotClientTermCasing;
   } = {},
-): SheetTextPart => ({
+): BotTextPart => ({
   type: "clientTerm",
   term,
   ...options,
 });
 
-export const userMention = (userId: string): SheetTextPart => ({
+export const userMention = (userId: string): BotTextPart => ({
   type: "userMention",
   userId,
 });
 
-export const conversationMention = (conversation: ConversationRef): SheetTextPart => ({
+export const conversationMention = (conversation: ConversationRef): BotTextPart => ({
   type: "conversationMention",
   conversation,
 });
 
-export const messageLink = (message: MessageRef, label?: string): SheetTextPart => ({
+export const messageLink = (message: MessageRef, label?: string): BotTextPart => ({
   type: "messageLink",
   message,
   ...(Predicate.isUndefined(label) ? {} : { label }),
 });
 
-export const roleMention = (workspace: WorkspaceRef, roleId: string): SheetTextPart => ({
+export const roleMention = (workspace: WorkspaceRef, roleId: string): BotTextPart => ({
   type: "roleMention",
   workspace,
   roleId,
 });
 
-export const timestamp = (epochMs: number, style?: SheetTimestampStyle): SheetTextPart => ({
+export const timestamp = (epochMs: number, style?: BotTimestampStyle): BotTextPart => ({
   type: "timestamp",
   epochMs,
   ...(style === undefined ? {} : { style }),
 });
 
-export const workspaceRef = workspaceRefFrom;
-export const conversationRef = conversationRefFrom;
+export const workspaceRef = (client: ClientRef, workspaceId: string): WorkspaceRef =>
+  workspaceRefFrom(client, workspaceId);
+
+export const conversationRef = (
+  client: ClientRef,
+  workspaceId: string,
+  conversationId: string,
+): ConversationRef => conversationRefFrom(client, workspaceId, conversationId);
 
 export const joinText = (
-  values: ReadonlyArray<ReadonlyArray<SheetTextPart>>,
+  values: ReadonlyArray<ReadonlyArray<BotTextPart>>,
   separator: string,
-): SheetTextPart[] =>
+): BotTextPart[] =>
   values.flatMap((value, index) => (index === 0 ? value : [text(separator), ...value]));
-
-const materializeGeneratedTextPart = (
-  client: ClientRef,
-  workspaceId: string,
-  part: GeneratedSheetTextPart,
-): SheetTextPart => materializeGeneratedTextPartWith(client, workspaceId, part);
-
-type GeneratedSheetTextPartOf<Type extends GeneratedSheetTextPart["type"]> = Extract<
-  GeneratedSheetTextPart,
-  { type: Type }
->;
-
-const materializeGeneratedTextPartWith = (
-  client: ClientRef,
-  workspaceId: string,
-  part: GeneratedSheetTextPart,
-): SheetTextPart => {
-  const materializers = {
-    text: (part) => text(part.text),
-    userMention: (part) => userMention(part.userId),
-    conversationMention: (part) =>
-      conversationMention(conversationRefFrom(client, workspaceId, part.conversationId)),
-    timestamp: (part) => timestamp(part.epochMs, part.style),
-    strong: (part) => strong(materializeGeneratedText(client, workspaceId, part.parts)),
-    inlineCode: (part) => inlineCode(part.text),
-    strikethrough: (part) =>
-      strikethrough(materializeGeneratedText(client, workspaceId, part.parts)),
-    subtle: (part) => subtle(materializeGeneratedText(client, workspaceId, part.parts)),
-    externalLink: (part) => externalLink(part.url, part.label),
-    clientTerm: (part) =>
-      clientTerm(part.term, {
-        ...(part.form === undefined ? {} : { form: part.form }),
-        ...(part.casing === undefined ? {} : { casing: part.casing }),
-      }),
-  } satisfies {
-    readonly [Type in GeneratedSheetTextPart["type"]]: (
-      part: GeneratedSheetTextPartOf<Type>,
-    ) => SheetTextPart;
-  };
-
-  return materializers[part.type](part as never);
-};
-
-export const materializeGeneratedText = (
-  client: ClientRef,
-  workspaceId: string,
-  generated: GeneratedSheetText,
-): SheetTextPart[] =>
-  generated.map((part) => materializeGeneratedTextPart(client, workspaceId, part));
 
 const terms = {
   workspace: { singular: "workspace", plural: "workspaces" },
@@ -157,17 +108,16 @@ const terms = {
   lockdownRole: { singular: "lockdown role", plural: "lockdown roles" },
   message: { singular: "message", plural: "messages" },
   testRun: { singular: "test run", plural: "test runs" },
-} satisfies Record<SheetClientTerm, Record<SheetClientTermForm, string>>;
+} satisfies Record<BotClientTerm, Record<BotClientTermForm, string>>;
 
-const termText = (term: SheetClientTerm, form: SheetClientTermForm = "singular") =>
-  terms[term][form];
+const termText = (term: BotClientTerm, form: BotClientTermForm = "singular") => terms[term][form];
 
 const sentenceCase = (value: string) =>
   value.length === 0 ? value : `${value[0]?.toUpperCase() ?? ""}${value.slice(1)}`;
 
-type SheetTextPartOf<Type extends SheetTextPart["type"]> = Extract<SheetTextPart, { type: Type }>;
+type BotTextPartOf<Type extends BotTextPart["type"]> = Extract<BotTextPart, { type: Type }>;
 
-const renderClientTermPlain = (part: SheetTextPartOf<"clientTerm">) => {
+const renderClientTermPlain = (part: BotTextPartOf<"clientTerm">) => {
   const rendered = termText(part.term, part.form);
   return part.casing === "sentence" ? sentenceCase(rendered) : rendered;
 };
@@ -186,11 +136,10 @@ const plainPartRenderers = {
   externalLink: (part) => part.label ?? part.url,
   clientTerm: renderClientTermPlain,
 } satisfies {
-  readonly [Type in SheetTextPart["type"]]: (part: SheetTextPartOf<Type>) => string;
+  readonly [Type in BotTextPart["type"]]: (part: BotTextPartOf<Type>) => string;
 };
 
-const renderPlainPart = (part: SheetTextPart): string =>
-  plainPartRenderers[part.type](part as never);
+const renderPlainPart = (part: BotTextPart): string => plainPartRenderers[part.type](part as never);
 
-export const renderPlainText = (value: ReadonlyArray<SheetTextPart>): string =>
+export const renderPlainText = (value: ReadonlyArray<BotTextPart>): string =>
   value.map(renderPlainPart).join("");

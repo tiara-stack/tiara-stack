@@ -85,6 +85,7 @@ const packages = {
     role: "runtime",
     allowedSheetDependencies: [
       "sheet-auth",
+      "sheet-bot-api",
       "sheet-domain",
       "sheet-workflow-contracts",
       "sheet-zero-api",
@@ -149,43 +150,6 @@ export const sheetPackageBoundaryPolicy = {
     },
     {
       code: "forbidden-sheet-dependency",
-      package: "sheet-message-content",
-      target: "sheet-ingress-api",
-      reason: "Rendering still consumes legacy sheet and workflow result contracts.",
-      removeWhen: "Remove after those remaining contracts move to their capability owners.",
-    },
-    {
-      code: "wildcard-export",
-      package: "sheet-message-content",
-      target: "./*",
-      reason: "Consumers still use legacy deep rendering imports during expansion.",
-      removeWhen: "Replace with the explicit rendering subpaths used by migrated callers.",
-    },
-    {
-      code: "cross-package-reexport",
-      package: "sheet-message-content",
-      target: "sheet-bot-api",
-      path: "packages/sheet-message-content/src/text.ts",
-      reason: "Legacy rendering callers consume bot-owned text values through this helper module.",
-      removeWhen: "Import bot text value types directly after rendering callers migrate.",
-    },
-    {
-      code: "forbidden-sheet-dependency",
-      package: "sheet-workflows",
-      target: "sheet-ingress-api",
-      reason: "Workflow dispatch still uses gateway-era contracts during expansion.",
-      removeWhen: "Publish and adopt the transport-neutral Workflow Contract catalog.",
-    },
-    {
-      code: "cross-package-reexport",
-      package: "sheet-workflows",
-      target: "sheet-ingress-api/internal",
-      path: "packages/sheet-workflows/src/middlewares/sheetAuthTokenAuthorization/live.ts",
-      reason: "The runtime still exposes legacy forwarded-auth middleware.",
-      removeWhen: "Replace forwarded identity with Effective Principal authentication adapters.",
-    },
-    {
-      code: "forbidden-sheet-dependency",
       package: "sheet-db-schema",
       target: "sheet-zero-api",
       reason:
@@ -238,36 +202,6 @@ export const sheetPackageBoundaryPolicy = {
       target: "./*",
       reason: "The deployable runtime retains legacy deep configuration exports.",
       removeWhen: "Replace the wildcard with explicit server-only entrypoints.",
-    },
-    {
-      code: "forbidden-sheet-dependency",
-      package: "sheet-bot",
-      target: "sheet-ingress-api",
-      reason: "The bot still uses combined ingress and workflow contracts.",
-      removeWhen: "Adopt sheet-bot-api and sheet-workflow-http-client.",
-    },
-    {
-      code: "forbidden-sheet-dependency",
-      package: "sheet-web",
-      target: "sheet-ingress-api",
-      reason: "The web application still uses the legacy combined client contracts.",
-      removeWhen: "Move browser callers to sheet-zero-api and Workflow Contract types.",
-    },
-    {
-      code: "forbidden-sheet-dependency",
-      package: "sheet-web",
-      target: "sheet-message-content",
-      reason: "The current web application still imports legacy shared rendering helpers.",
-      removeWhen: "Move the caller to capability-owned domain and bot response values.",
-    },
-    {
-      code: "cross-package-reexport",
-      package: "sheet-web",
-      target: "sheet-ingress-api/schemas/userConfig",
-      path: "packages/sheet-web/src/lib/userConfig.ts",
-      reason:
-        "The web helper currently republishes a schema owned by the combined ingress package.",
-      removeWhen: "Import the capability-owned user configuration schema directly at callers.",
     },
   ],
 } as const satisfies BoundaryPolicy;

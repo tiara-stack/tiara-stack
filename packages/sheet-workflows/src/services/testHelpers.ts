@@ -1,19 +1,6 @@
-import {
-  Array as EffectArray,
-  Clock,
-  DateTime,
-  Effect,
-  Option,
-  Predicate,
-  Semaphore,
-} from "effect";
+import { Array as EffectArray, Clock, Effect, Option, Predicate, Semaphore } from "effect";
 import type { TrustedSheetPersistenceShape } from "sheet-zero-server/persistence";
 import { ZeroClient } from "typhoon-zero/client";
-import { ClientDeliveryClient } from "./clientDeliveryClient";
-import { updateAnnouncementDeliveryPendingConversationId } from "./dispatch/clients/trustedPersistence";
-import type { SheetApisClient } from "./sheetApisClient";
-
-export const text = (value: string) => [{ type: "text" as const, text: value }];
 
 type TestTextPart = {
   readonly type: string;
@@ -116,10 +103,6 @@ export const normalizePayloadText = (value: unknown): unknown => {
   );
 };
 
-const unexpected = (prefix: string, name: string) => () => Effect.die(`${prefix}: ${name}`);
-
-type ClientDeliveryService = typeof ClientDeliveryClient.Service;
-type BoundClientDeliveryService = ReturnType<ClientDeliveryService["forClient"]>;
 type TrustedSheetPersistenceMockShape = TrustedSheetPersistenceShape;
 type MethodSuccess<Method> = Method extends (
   ...args: infer _Args
@@ -170,173 +153,6 @@ type MessageTeamSubmissionRow = OptionValue<
   MethodSuccess<TrustedSheetPersistenceShape["teamSubmissionState"]["getMessageTeamSubmission"]>
 >;
 
-type WithoutEffectErrors<Value> = Value extends (
-  ...args: infer Args
-) => Effect.Effect<infer Success, infer _Error, infer Requirements>
-  ? (...args: Args) => Effect.Effect<Success, never, Requirements>
-  : Value extends object
-    ? { readonly [Key in keyof Value]: WithoutEffectErrors<Value[Key]> }
-    : Value;
-
-const makeBoundClientDeliveryMock = (
-  overrides: Partial<BoundClientDeliveryService> = {},
-): BoundClientDeliveryService => {
-  const unexpectedCall = (operation: string) => Effect.die(`Unexpected ${operation} call`);
-  return {
-    sendMessage: () => unexpectedCall("sendMessage"),
-    sendDirectMessage: () => unexpectedCall("sendDirectMessage"),
-    listClients: () => unexpectedCall("listClients"),
-    updateMessage: () => unexpectedCall("updateMessage"),
-    updateConversationPermissionOverwrites: () =>
-      unexpectedCall("updateConversationPermissionOverwrites"),
-    updateOriginalInteractionResponse: () => unexpectedCall("updateOriginalInteractionResponse"),
-    updateOriginalInteractionResponseWithFiles: () =>
-      unexpectedCall("updateOriginalInteractionResponseWithFiles"),
-    createPin: () => unexpectedCall("createPin"),
-    deleteMessage: () => unexpectedCall("deleteMessage"),
-    addMessageReaction: () => unexpectedCall("addMessageReaction"),
-    removeMessageReaction: () => unexpectedCall("removeMessageReaction"),
-    addWorkspaceMemberRole: () => unexpectedCall("addWorkspaceMemberRole"),
-    removeWorkspaceMemberRole: () => unexpectedCall("removeWorkspaceMemberRole"),
-    getWorkspace: () => unexpectedCall("getWorkspace"),
-    getMembersForParent: () => unexpectedCall("getMembersForParent"),
-    getConversationsForParent: () => unexpectedCall("getConversationsForParent"),
-    ...overrides,
-  };
-};
-
-export const makeClientDeliveryMock = (
-  overrides: Partial<ClientDeliveryService> = {},
-): ClientDeliveryService => {
-  const { forClient, ...boundOverrides } = overrides;
-  const bound = makeBoundClientDeliveryMock(boundOverrides);
-  return {
-    ...bound,
-    forClient:
-      forClient ??
-      function (this: ClientDeliveryService) {
-        return this;
-      },
-  };
-};
-
-export const makeSheetApisClient = (
-  services: Record<string, unknown>,
-  prefix = "Unexpected call",
-) =>
-  ({
-    get: () =>
-      new Proxy(services, {
-        get(target, group: string) {
-          if (group in target) {
-            return target[group];
-          }
-
-          return new Proxy(
-            {},
-            {
-              get: (_service, method: string) => unexpected(prefix, `${group}.${method}`),
-            },
-          );
-        },
-      }),
-  }) as never;
-
-const legacyNotFoundMessages = new Set([
-  "Cannot get message checkin data, the message might not be registered",
-  "Cannot get message room order, the message might not be registered",
-  "Cannot get message room order range, the message might not be registered",
-  "Cannot get message slot data, the message might not be registered",
-  "Cannot get workspace config, the workspace might not be registered",
-  "Cannot get team submission channel, the workspace or conversation might not be registered",
-  "Cannot get conversation by id, the workspace or the conversation id might not be registered",
-  "Cannot get conversation by id, the workspace or the conversation id might not be registered or does not match the specified running status",
-  "Cannot get conversation by name, the workspace or the conversation name might not be registered",
-  "Cannot get conversation by name, the workspace or the conversation name might not be registered or does not match the specified running status",
-]);
-
-const isLegacyNotFoundError = (error: unknown) =>
-  Predicate.isTagged("ArgumentError")(error) &&
-  Predicate.hasProperty(error, "message") &&
-  Predicate.isString(error.message) &&
-  legacyNotFoundMessages.has(error.message);
-
-const isSome = Predicate.isTagged("Some");
-const isNone = Predicate.isTagged("None");
-const legacyPersistenceModelTags = new Set([
-  "MessageCheckin",
-  "MessageCheckinMember",
-  "MessageRoomOrder",
-  "MessageRoomOrderEntry",
-  "MessageSlot",
-  "MessageTeamSubmission",
-  "UserPlatformConfig",
-  "WorkspaceConfig",
-  "WorkspaceConversationConfig",
-  "WorkspaceFeatureFlag",
-  "WorkspaceMonitorRole",
-  "WorkspaceTeamSubmissionChannel",
-  "WorkspaceUpdateAnnouncementDelivery",
-]);
-const isLegacyPersistenceModel = (value: object) =>
-  Predicate.hasProperty(value, "_tag") &&
-  Predicate.isString(value._tag) &&
-  legacyPersistenceModelTags.has(value._tag);
-
-const toOptional = (value: unknown): Option.Option<unknown> => {
-  if (Option.isOption(value)) {
-    return isSome(value) && Predicate.hasProperty(value, "value")
-      ? Option.some(value.value)
-      : Option.none();
-  }
-  if (isSome(value) && Predicate.hasProperty(value, "value")) {
-    return Option.some(value.value);
-  }
-  return isNone(value) || Predicate.isNullish(value) ? Option.none() : Option.some(value);
-};
-
-const optionalLegacyResult = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-  effect.pipe(
-    Effect.map(toOptional),
-    Effect.catchIf(isLegacyNotFoundError, () => Effect.succeed(Option.none<unknown>())),
-  );
-
-const toRawPersistenceValue = <Row>(value: unknown): Row => {
-  if (isSome(value) && Predicate.hasProperty(value, "value")) {
-    return toRawPersistenceValue<Row>(value.value);
-  }
-  if (isNone(value) || Option.isOption(value)) {
-    return null as Row;
-  }
-  if (DateTime.isDateTime(value)) {
-    return DateTime.toEpochMillis(value) as Row;
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => toRawPersistenceValue(item)) as Row;
-  }
-  if (Predicate.isObject(value)) {
-    const unwrapTaggedModel = isLegacyPersistenceModel(value);
-    return Object.fromEntries(
-      Object.entries(value)
-        .filter(([key]) => key !== "_tag" || !unwrapTaggedModel)
-        .map(([key, item]) => [key, toRawPersistenceValue(item)]),
-    ) as Row;
-  }
-  return value as Row;
-};
-
-const rawOptionalLegacyResult = <Row, A, E, R>(effect: Effect.Effect<A, E, R>) =>
-  optionalLegacyResult(effect).pipe(
-    Effect.map((value) =>
-      Option.isSome(value)
-        ? Option.some(toRawPersistenceValue<Row>(value.value))
-        : Option.none<Row>(),
-    ),
-  );
-
-const rawRows = <Row>(rows: ReadonlyArray<unknown>): ReadonlyArray<Row> =>
-  rows.map((row) => toRawPersistenceValue<Row>(row));
-
 const auditFields = () =>
   Clock.currentTimeMillis.pipe(
     Effect.map((timestamp) => ({ createdAt: timestamp, updatedAt: timestamp, deletedAt: null })),
@@ -348,18 +164,70 @@ const presentOr = <Value, Fallback>(
 ): NonNullable<Value> | Fallback =>
   Option.fromNullishOr(value).pipe(Option.getOrElse(() => fallback));
 
-const auditFieldDefaults = (value: {
-  readonly createdAt?: number | null | undefined;
-  readonly updatedAt?: number | null | undefined;
-  readonly deletedAt?: number | null | undefined;
-}) =>
-  Clock.currentTimeMillis.pipe(
-    Effect.map((timestamp) => ({
-      createdAt: presentOr(value.createdAt, timestamp),
-      updatedAt: presentOr(value.updatedAt, timestamp),
-      deletedAt: presentOr(value.deletedAt, null),
-    })),
+const claimStaleMs = 10 * 60 * 1000;
+
+type ClaimTimestamp = Date | number | null | undefined;
+
+type MessageRoomOrderClaimState = Pick<
+  MessageRoomOrderRow,
+  | "sentMessageId"
+  | "sendClaimId"
+  | "sendClaimedAt"
+  | "tentativePinnedAt"
+  | "tentativePinClaimId"
+  | "tentativePinClaimedAt"
+  | "tentativeUpdateClaimId"
+  | "tentativeUpdateClaimedAt"
+>;
+
+const claimTimestampEpochMillis = (claimedAt: ClaimTimestamp) =>
+  Predicate.isDate(claimedAt) ? claimedAt.getTime() : claimedAt;
+
+const isActiveTimestampClaim = (claimedAt: ClaimTimestamp, now: number) => {
+  const claimedAtMillis = claimTimestampEpochMillis(claimedAt);
+  return (
+    Predicate.isNotNullish(claimedAtMillis) &&
+    Number.isFinite(claimedAtMillis) &&
+    Math.abs(now - claimedAtMillis) <= claimStaleMs
   );
+};
+
+const isActiveSendClaim = (
+  claimId: string | null | undefined,
+  claimedAt: ClaimTimestamp,
+  now: number,
+) => Predicate.isNotNullish(claimId) && isActiveTimestampClaim(claimedAt, now);
+
+const hasActiveTentativePinClaim = (row: MessageRoomOrderClaimState, now: number) =>
+  Predicate.isNotNullish(row.tentativePinClaimId) &&
+  isActiveTimestampClaim(row.tentativePinClaimedAt, now);
+
+const hasActiveTentativeUpdateClaim = (row: MessageRoomOrderClaimState, now: number) =>
+  Predicate.isNotNullish(row.tentativeUpdateClaimId) &&
+  isActiveTimestampClaim(row.tentativeUpdateClaimedAt, now);
+
+const hasStaleUntrackedSendClaim = (row: MessageRoomOrderClaimState, now: number) =>
+  Predicate.isNotNullish(row.sendClaimId) &&
+  Predicate.isNullish(row.sentMessageId) &&
+  !isActiveSendClaim(row.sendClaimId, row.sendClaimedAt, now);
+
+const blocksSendClaim = (row: MessageRoomOrderClaimState, now: number) =>
+  [
+    Predicate.isNotNullish(row.sentMessageId),
+    Predicate.isNotNullish(row.tentativePinnedAt),
+    isActiveSendClaim(row.sendClaimId, row.sendClaimedAt, now),
+    hasActiveTentativeUpdateClaim(row, now),
+    hasActiveTentativePinClaim(row, now),
+  ].some(Predicate.isTruthy);
+
+const blocksTentativeClaim = (row: MessageRoomOrderClaimState, now: number) =>
+  [
+    Predicate.isNotNullish(row.tentativePinnedAt),
+    hasStaleUntrackedSendClaim(row, now),
+    isActiveSendClaim(row.sendClaimId, row.sendClaimedAt, now),
+    hasActiveTentativePinClaim(row, now),
+    hasActiveTentativeUpdateClaim(row, now),
+  ].some(Predicate.isTruthy);
 
 const hasMessageTeamSubmissionKey = (
   submission: MessageTeamSubmissionRow,
@@ -373,23 +241,17 @@ const hasMessageTeamSubmissionKey = (
   submission.conversationId === key.conversationId &&
   submission.messageId === key.messageId;
 
-/**
- * Adapts the pre-migration HTTP mocks to the trusted persistence port. This is
- * deliberately test-only: production composition always uses the PostgreSQL
- * Zero executor.
- */
-export const makeTrustedSheetPersistenceMock = (
-  sheetApisClient: typeof SheetApisClient.Service,
-): TrustedSheetPersistenceShape => {
-  const sheetApis = sheetApisClient.get() as unknown as WithoutEffectErrors<
-    ReturnType<typeof sheetApisClient.get>
-  >;
-  const payload = <Args extends Readonly<Record<string, unknown>>>(args: Args) => ({
-    payload: args,
-  });
-  const query = <Args extends Readonly<Record<string, unknown>>>(args: Args) => ({ query: args });
+const pendingUpdateAnnouncementConversationId = "__pending_update_announcement_delivery__";
+
+/** A test-only in-memory implementation of the trusted persistence port. */
+export const makeTrustedSheetPersistenceMock = (): TrustedSheetPersistenceShape => {
   const workspaceConfigs = new Map<string, ConfigWorkspaceRow>();
   const workspaceConversations = new Map<string, ConfigWorkspaceConversationRow>();
+  const workspaceMonitorRoles = new Map<string, ConfigWorkspaceMonitorRoleRow>();
+  const workspaceTeamSubmissionChannels = new Map<
+    string,
+    ConfigWorkspaceTeamSubmissionChannelRow
+  >();
   const workspaceUpdateAnnouncementDeliveries = new Map<
     string,
     ConfigWorkspaceUpdateAnnouncementDeliveryRow
@@ -400,6 +262,7 @@ export const makeTrustedSheetPersistenceMock = (
   const messageCheckins = new Map<string, MessageCheckinRow>();
   const messageCheckinMembers = new Map<string, MessageCheckinMemberRow>();
   const messageRoomOrders = new Map<string, MessageRoomOrderRow>();
+  const messageRoomOrderEntries = new Map<string, MessageRoomOrderEntryRow>();
   const messageRoomOrderBindLocks = new Map<
     string,
     { readonly semaphore: ReturnType<typeof Semaphore.makeUnsafe>; users: number }
@@ -470,75 +333,52 @@ export const makeTrustedSheetPersistenceMock = (
     messageId: string,
     memberId: string,
   ) => `${messageKey(clientPlatform, clientId, messageId)}\u0000${memberId}`;
-  const retainRoomOrderMutationResult = <A, E, R>(
+  const updateMessageRoomOrder = (
     args: {
       readonly clientPlatform: string;
       readonly clientId: string;
       readonly messageId: string;
     },
-    effect: Effect.Effect<A, E, R>,
-  ) =>
-    effect.pipe(
-      Effect.tap((result) =>
-        Effect.sync(() => {
-          const row = toRawPersistenceValue<MessageRoomOrderRow>(result);
-          if (
-            Predicate.isObject(row) &&
-            Predicate.hasProperty(row, "clientPlatform") &&
-            Predicate.hasProperty(row, "clientId") &&
-            Predicate.hasProperty(row, "messageId")
-          ) {
-            messageRoomOrders.set(
-              messageKey(args.clientPlatform, args.clientId, args.messageId),
-              row,
-            );
-          }
-        }),
-      ),
-      Effect.asVoid,
-    );
+    update: Partial<MessageRoomOrderRow>,
+  ) => {
+    const key = messageKey(args.clientPlatform, args.clientId, args.messageId);
+    const current = messageRoomOrders.get(key);
+    if (Predicate.isUndefined(current)) return;
+    messageRoomOrders.set(key, { ...current, ...update });
+  };
 
   const persistence: TrustedSheetPersistenceMockShape = {
     workspaces: {
       getAutoCheckinWorkspaces: () =>
-        sheetApis.workspaceConfig
-          .getAutoCheckinWorkspaces()
-          .pipe(Effect.map((rows) => rawRows<ConfigWorkspaceRow>(rows))),
+        Effect.succeed([...workspaceConfigs.values()].filter((row) => row.autoCheckin === true)),
       getWorkspaceConfigByWorkspaceId: ({ workspaceId }) =>
-        Option.fromNullishOr(workspaceConfigs.get(workspaceId)).pipe(
-          Option.match({
-            onNone: () =>
-              rawOptionalLegacyResult<ConfigWorkspaceRow, unknown, never, never>(
-                sheetApis.workspaceConfig.getWorkspaceConfig(query({ workspaceId })),
-              ),
-            onSome: (row) => Effect.succeed(Option.some(row)),
-          }),
-        ),
+        Effect.succeed(Option.fromNullishOr(workspaceConfigs.get(workspaceId))),
       getWorkspaceMonitorRoles: ({ workspaceId }) =>
-        sheetApis.workspaceConfig
-          .getWorkspaceMonitorRoles(query({ workspaceId }))
-          .pipe(Effect.map((rows) => rawRows<ConfigWorkspaceMonitorRoleRow>(rows))),
+        Effect.succeed(
+          [...workspaceMonitorRoles.values()].filter(
+            (row) => row.workspaceId === workspaceId && Predicate.isNull(row.deletedAt),
+          ),
+        ),
       getWorkspaceFeatureFlags: ({ workspaceId }) =>
-        sheetApis.workspaceConfig.getWorkspaceFeatureFlags(query({ workspaceId })).pipe(
-          Effect.map((rows) => {
-            const persisted = rawRows<ConfigWorkspaceFeatureFlagRow>(rows).filter(
-              (row) =>
-                !removedWorkspaceFeatureFlags.has(
-                  workspaceFeatureFlagKey(row.workspaceId, row.flagName),
-                ),
-            );
-            const added = [...addedWorkspaceFeatureFlags.values()].filter(
-              (row) =>
-                row.workspaceId === workspaceId &&
-                !persisted.some((existing) => existing.flagName === row.flagName),
-            );
-            return [...persisted, ...added];
-          }),
+        Effect.succeed(
+          [...addedWorkspaceFeatureFlags.values()].filter(
+            (row) =>
+              row.workspaceId === workspaceId &&
+              !removedWorkspaceFeatureFlags.has(
+                workspaceFeatureFlagKey(row.workspaceId, row.flagName),
+              ),
+          ),
         ),
       getWorkspacesForFeatureFlag: ({ flagName }) =>
-        sheetApis.workspaceConfig
-          .getWorkspacesForFeatureFlag(query({ flagName }))
-          .pipe(Effect.map((rows) => rawRows<ConfigWorkspaceFeatureFlagRow>(rows))),
+        Effect.succeed(
+          [...addedWorkspaceFeatureFlags.values()].filter(
+            (row) =>
+              row.flagName === flagName &&
+              !removedWorkspaceFeatureFlags.has(
+                workspaceFeatureFlagKey(row.workspaceId, row.flagName),
+              ),
+          ),
+        ),
       getWorkspaceFeatureFlag: ({ workspaceId, flagName }) =>
         persistence.workspaces
           .getWorkspaceFeatureFlags({ workspaceId })
@@ -553,59 +393,24 @@ export const makeTrustedSheetPersistenceMock = (
         const row = workspaceUpdateAnnouncementDeliveries.get(
           workspaceUpdateAnnouncementDeliveryKey(workspaceId, announcementId),
         );
-        return Predicate.isUndefined(row)
-          ? rawOptionalLegacyResult<
-              ConfigWorkspaceUpdateAnnouncementDeliveryRow,
-              unknown,
-              never,
-              never
-            >(
-              sheetApis.workspaceConfig.getWorkspaceUpdateAnnouncementDelivery(
-                query({ workspaceId, announcementId }),
-              ),
-            )
-          : Effect.succeed(Option.some(row));
+        return Effect.succeed(Option.fromNullishOr(row));
       },
       getWorkspaceConversations: (args) =>
-        sheetApis.workspaceConfig
-          .getWorkspaceConversations(query(args))
-          .pipe(Effect.map((rows) => rawRows<ConfigWorkspaceConversationRow>(rows))),
+        Effect.succeed(
+          [...workspaceConversations.values()].filter(
+            (row) =>
+              row.workspaceId === args.workspaceId && matchesRunningFilter(row, args.running),
+          ),
+        ),
       getWorkspaceConversationById: (args) => {
         const row = workspaceConversations.get(
           workspaceConversationKey(args.workspaceId, args.conversationId),
         );
-        return Predicate.isUndefined(row)
-          ? rawOptionalLegacyResult<ConfigWorkspaceConversationRow, unknown, never, never>(
-              sheetApis.workspaceConfig.getWorkspaceConversationById(query(args)),
-            ).pipe(
-              Effect.flatMap((result) =>
-                Option.isSome(result)
-                  ? auditFieldDefaults(result.value).pipe(
-                      Effect.map((fields) =>
-                        Option.some({
-                          ...result.value,
-                          workspaceId: presentOr(result.value.workspaceId, args.workspaceId),
-                          conversationId: presentOr(
-                            result.value.conversationId,
-                            args.conversationId,
-                          ),
-                          name: presentOr(result.value.name, null),
-                          running: presentOr(result.value.running, null),
-                          roleId: presentOr(result.value.roleId, null),
-                          checkinConversationId: presentOr(
-                            result.value.checkinConversationId,
-                            null,
-                          ),
-                          ...fields,
-                        }),
-                      ),
-                    )
-                  : Effect.succeed(Option.none()),
-              ),
-            )
-          : Effect.succeed(
-              matchesRunningFilter(row, args.running) ? Option.some(row) : Option.none(),
-            );
+        return Effect.succeed(
+          Predicate.isUndefined(row) || !matchesRunningFilter(row, args.running)
+            ? Option.none()
+            : Option.some(row),
+        );
       },
       getWorkspaceConversationByName: (args) =>
         Option.fromNullishOr(
@@ -617,481 +422,465 @@ export const makeTrustedSheetPersistenceMock = (
           ),
         ).pipe(
           Option.match({
-            onNone: () =>
-              rawOptionalLegacyResult<ConfigWorkspaceConversationRow, unknown, never, never>(
-                sheetApis.workspaceConfig.getWorkspaceConversationByName(query(args)),
-              ).pipe(
-                Effect.flatMap((result) =>
-                  Option.isSome(result)
-                    ? auditFieldDefaults(result.value).pipe(
-                        Effect.map((fields) =>
-                          Option.some({
-                            ...result.value,
-                            workspaceId: presentOr(result.value.workspaceId, args.workspaceId),
-                            name: presentOr(result.value.name, null),
-                            running: presentOr(result.value.running, null),
-                            roleId: presentOr(result.value.roleId, null),
-                            checkinConversationId: presentOr(
-                              result.value.checkinConversationId,
-                              null,
-                            ),
-                            ...fields,
-                          }),
-                        ),
-                      )
-                    : Effect.succeed(Option.none()),
-                ),
-              ),
+            onNone: () => Effect.succeed(Option.none()),
             onSome: (row) => Effect.succeed(Option.some(row)),
           }),
         ),
       getTeamSubmissionChannelByConversationId: (args) =>
-        rawOptionalLegacyResult<ConfigWorkspaceTeamSubmissionChannelRow, unknown, never, never>(
-          sheetApis.workspaceConfig.getTeamSubmissionChannelByConversationId(query(args)),
+        Effect.succeed(
+          Option.fromNullishOr(
+            workspaceTeamSubmissionChannels.get(
+              workspaceConversationKey(args.workspaceId, args.conversationId),
+            ),
+          ),
         ),
       getTeamSubmissionChannelsForWorkspace: (args) =>
-        sheetApis.workspaceConfig
-          .getTeamSubmissionChannelsForWorkspace(query(args))
-          .pipe(Effect.map((rows) => rawRows<ConfigWorkspaceTeamSubmissionChannelRow>(rows))),
+        Effect.succeed(
+          [...workspaceTeamSubmissionChannels.values()].filter(
+            (row) => row.workspaceId === args.workspaceId && Predicate.isNull(row.deletedAt),
+          ),
+        ),
       upsertWorkspaceConfig: ({ workspaceId, ...config }) =>
-        sheetApis.workspaceConfig.upsertWorkspaceConfig(payload({ workspaceId, config })).pipe(
-          Effect.tap(() =>
-            Effect.gen(function* () {
-              const existing = workspaceConfigs.get(workspaceId);
-              workspaceConfigs.set(workspaceId, {
-                workspaceId,
-                sheetId: presentOr(config.sheetId, presentOr(existing?.sheetId, null)),
-                autoCheckin: presentOr(config.autoCheckin, presentOr(existing?.autoCheckin, null)),
-                monitorConversationId: presentOr(
-                  config.monitorConversationId,
-                  presentOr(existing?.monitorConversationId, null),
-                ),
-                ...(yield* auditFields()),
-              });
-            }),
-          ),
-          Effect.asVoid,
-        ),
+        Effect.gen(function* () {
+          const existing = workspaceConfigs.get(workspaceId);
+          const fields = yield* auditFields();
+          workspaceConfigs.set(workspaceId, {
+            workspaceId,
+            sheetId: presentOr(config.sheetId, presentOr(existing?.sheetId, null)),
+            autoCheckin: presentOr(config.autoCheckin, presentOr(existing?.autoCheckin, null)),
+            monitorConversationId: presentOr(
+              config.monitorConversationId,
+              presentOr(existing?.monitorConversationId, null),
+            ),
+            ...fields,
+            createdAt: presentOr(existing?.createdAt, fields.createdAt),
+          });
+        }),
       addWorkspaceMonitorRole: (args) =>
-        sheetApis.workspaceConfig.addWorkspaceMonitorRole(payload(args)).pipe(Effect.asVoid),
+        Effect.gen(function* () {
+          workspaceMonitorRoles.set(`${args.workspaceId}\u0000${args.roleId}`, {
+            ...args,
+            ...(yield* auditFields()),
+          });
+        }),
       removeWorkspaceMonitorRole: (args) =>
-        sheetApis.workspaceConfig.removeWorkspaceMonitorRole(payload(args)).pipe(Effect.asVoid),
+        Effect.sync(() => {
+          workspaceMonitorRoles.delete(`${args.workspaceId}\u0000${args.roleId}`);
+        }),
       addWorkspaceFeatureFlag: (args) =>
-        sheetApis.workspaceConfig.addWorkspaceFeatureFlag(payload(args)).pipe(
-          Effect.tap(() =>
-            Effect.gen(function* () {
-              const key = workspaceFeatureFlagKey(args.workspaceId, args.flagName);
-              removedWorkspaceFeatureFlags.delete(key);
-              addedWorkspaceFeatureFlags.set(key, {
-                ...args,
-                ...(yield* auditFields()),
-              });
-            }),
-          ),
-          Effect.asVoid,
-        ),
+        Effect.gen(function* () {
+          const key = workspaceFeatureFlagKey(args.workspaceId, args.flagName);
+          removedWorkspaceFeatureFlags.delete(key);
+          addedWorkspaceFeatureFlags.set(key, {
+            ...args,
+            ...(yield* auditFields()),
+          });
+        }),
       removeWorkspaceFeatureFlag: (args) =>
-        sheetApis.workspaceConfig.removeWorkspaceFeatureFlag(payload(args)).pipe(
-          Effect.tap(() =>
-            Effect.sync(() => {
-              const key = workspaceFeatureFlagKey(args.workspaceId, args.flagName);
-              addedWorkspaceFeatureFlags.delete(key);
-              removedWorkspaceFeatureFlags.add(key);
-            }),
-          ),
-          Effect.asVoid,
-        ),
-      recordWorkspaceUpdateAnnouncementDelivery: ({ publishedAt, deliveredAt, ...args }) =>
-        sheetApis.workspaceConfig
-          .recordWorkspaceUpdateAnnouncementDelivery(
-            payload({
+        Effect.sync(() => {
+          const key = workspaceFeatureFlagKey(args.workspaceId, args.flagName);
+          addedWorkspaceFeatureFlags.delete(key);
+          removedWorkspaceFeatureFlags.add(key);
+        }),
+      recordWorkspaceUpdateAnnouncementDelivery: ({
+        publishedAt,
+        deliveredAt,
+        claimToken,
+        ...args
+      }) =>
+        Effect.gen(function* () {
+          const key = workspaceUpdateAnnouncementDeliveryKey(args.workspaceId, args.announcementId);
+          const existing = workspaceUpdateAnnouncementDeliveries.get(key);
+          if (
+            existing?.conversationId === pendingUpdateAnnouncementConversationId &&
+            existing.messageId === claimToken
+          ) {
+            workspaceUpdateAnnouncementDeliveries.set(key, {
               ...args,
-              publishedAt: DateTime.makeUnsafe(publishedAt),
-              deliveredAt: DateTime.makeUnsafe(deliveredAt),
-            }),
-          )
-          .pipe(
-            Effect.tap((result) =>
-              Effect.sync(() => {
-                const row =
-                  toRawPersistenceValue<ConfigWorkspaceUpdateAnnouncementDeliveryRow>(result);
-                workspaceUpdateAnnouncementDeliveries.set(
-                  workspaceUpdateAnnouncementDeliveryKey(args.workspaceId, args.announcementId),
-                  row,
-                );
-              }),
-            ),
-            Effect.asVoid,
-          ),
+              publishedAt,
+              deliveredAt,
+              ...(yield* auditFields()),
+            });
+          }
+        }),
       claimWorkspaceUpdateAnnouncementDelivery: ({ publishedAt, ...args }) =>
-        sheetApis.workspaceConfig
-          .claimWorkspaceUpdateAnnouncementDelivery(
-            payload({ ...args, publishedAt: DateTime.makeUnsafe(publishedAt) }),
-          )
-          .pipe(
-            Effect.tap((result) =>
-              Effect.gen(function* () {
-                if (
-                  Predicate.hasProperty(result, "status") &&
-                  result.status !== "already_delivered"
-                ) {
-                  const fields = yield* auditFields();
-                  workspaceUpdateAnnouncementDeliveries.set(
-                    workspaceUpdateAnnouncementDeliveryKey(args.workspaceId, args.announcementId),
-                    {
-                      workspaceId: args.workspaceId,
-                      announcementId: args.announcementId,
-                      publishedAt,
-                      deliveredAt: fields.createdAt,
-                      conversationId: updateAnnouncementDeliveryPendingConversationId,
-                      messageId:
-                        result.status === "claimed" ? args.claimToken : `${args.claimToken}-other`,
-                      ...fields,
-                    },
-                  );
-                } else if (Predicate.hasProperty(result, "delivery")) {
-                  const row =
-                    toRawPersistenceValue<ConfigWorkspaceUpdateAnnouncementDeliveryRow | null>(
-                      result.delivery,
-                    );
-                  if (Predicate.isNotNull(row)) {
-                    workspaceUpdateAnnouncementDeliveries.set(
-                      workspaceUpdateAnnouncementDeliveryKey(args.workspaceId, args.announcementId),
-                      row,
-                    );
-                  }
-                }
-              }),
-            ),
-            Effect.asVoid,
-          ),
-      releaseWorkspaceUpdateAnnouncementDeliveryClaim: (args) =>
-        sheetApis.workspaceConfig
-          .releaseWorkspaceUpdateAnnouncementDeliveryClaim(payload(args))
-          .pipe(Effect.asVoid),
-      upsertWorkspaceConversationConfig: ({ workspaceId, conversationId, ...config }) =>
-        sheetApis.workspaceConfig
-          .upsertWorkspaceConversationConfig(payload({ workspaceId, conversationId, config }))
-          .pipe(
-            Effect.tap(() =>
-              Effect.gen(function* () {
-                const key = workspaceConversationKey(workspaceId, conversationId);
-                const existing = workspaceConversations.get(key);
-                workspaceConversations.set(key, {
-                  workspaceId,
-                  conversationId,
-                  name: presentOr(config.name, presentOr(existing?.name, null)),
-                  running: presentOr(config.running, presentOr(existing?.running, null)),
-                  roleId: presentOr(config.roleId, presentOr(existing?.roleId, null)),
-                  checkinConversationId: presentOr(
-                    config.checkinConversationId,
-                    presentOr(existing?.checkinConversationId, null),
-                  ),
-                  ...(yield* auditFields()),
-                });
-              }),
-            ),
-            Effect.asVoid,
-          ),
-      upsertTeamSubmissionChannel: (args) =>
-        sheetApis.workspaceConfig
-          .upsertTeamSubmissionChannel(
-            payload({
+        Effect.gen(function* () {
+          const key = workspaceUpdateAnnouncementDeliveryKey(args.workspaceId, args.announcementId);
+          const existing = workspaceUpdateAnnouncementDeliveries.get(key);
+          if (
+            Predicate.isUndefined(existing) ||
+            (existing.conversationId === pendingUpdateAnnouncementConversationId &&
+              existing.messageId === args.claimToken)
+          ) {
+            workspaceUpdateAnnouncementDeliveries.set(key, {
               workspaceId: args.workspaceId,
-              conversationId: args.conversationId,
-              config: {
-                destinationTeamConfigName: args.destinationTeamConfigName,
-                writeMode: args.writeMode,
-                removedRowStrategy: args.removedRowStrategy,
-                requireValidOshi: args.requireValidOshi,
-              },
-            }),
-          )
-          .pipe(Effect.asVoid),
+              announcementId: args.announcementId,
+              publishedAt,
+              deliveredAt: yield* Clock.currentTimeMillis,
+              conversationId: pendingUpdateAnnouncementConversationId,
+              messageId: args.claimToken,
+              ...(yield* auditFields()),
+            });
+          }
+        }),
+      releaseWorkspaceUpdateAnnouncementDeliveryClaim: (args) =>
+        Effect.sync(() => {
+          const key = workspaceUpdateAnnouncementDeliveryKey(args.workspaceId, args.announcementId);
+          const existing = workspaceUpdateAnnouncementDeliveries.get(key);
+          if (
+            Predicate.isNotUndefined(existing) &&
+            existing.conversationId === pendingUpdateAnnouncementConversationId &&
+            existing.messageId === args.claimToken
+          ) {
+            workspaceUpdateAnnouncementDeliveries.delete(key);
+          }
+        }),
+      upsertWorkspaceConversationConfig: ({ workspaceId, conversationId, ...config }) =>
+        Effect.gen(function* () {
+          const key = workspaceConversationKey(workspaceId, conversationId);
+          const existing = workspaceConversations.get(key);
+          const fields = yield* auditFields();
+          workspaceConversations.set(key, {
+            workspaceId,
+            conversationId,
+            name: presentOr(config.name, presentOr(existing?.name, null)),
+            running: presentOr(config.running, presentOr(existing?.running, null)),
+            roleId: presentOr(config.roleId, presentOr(existing?.roleId, null)),
+            checkinConversationId: presentOr(
+              config.checkinConversationId,
+              presentOr(existing?.checkinConversationId, null),
+            ),
+            ...fields,
+            createdAt: presentOr(existing?.createdAt, fields.createdAt),
+          });
+        }),
+      upsertTeamSubmissionChannel: (args) =>
+        Effect.gen(function* () {
+          const key = workspaceConversationKey(args.workspaceId, args.conversationId);
+          const existing = workspaceTeamSubmissionChannels.get(key);
+          const fields = yield* auditFields();
+          workspaceTeamSubmissionChannels.set(key, {
+            workspaceId: args.workspaceId,
+            conversationId: args.conversationId,
+            destinationTeamConfigName: presentOr(args.destinationTeamConfigName, null),
+            writeMode: args.writeMode,
+            removedRowStrategy: args.removedRowStrategy,
+            requireValidOshi: presentOr(args.requireValidOshi, false),
+            ...fields,
+            createdAt: presentOr(existing?.createdAt, fields.createdAt),
+          });
+        }),
       removeTeamSubmissionChannel: (args) =>
-        sheetApis.workspaceConfig.removeTeamSubmissionChannel(payload(args)).pipe(Effect.asVoid),
+        Effect.sync(() => {
+          workspaceTeamSubmissionChannels.delete(
+            workspaceConversationKey(args.workspaceId, args.conversationId),
+          );
+        }),
     },
     preferences: {
       getUserPlatformConfig: (args) => {
         const row = userPlatformConfigs.get(userPlatformConfigKey(args.platform, args.userId));
-        return Predicate.isUndefined(row)
-          ? rawOptionalLegacyResult<ConfigUserPlatformRow, unknown, never, never>(
-              sheetApis.userConfig.getUserPlatformConfig(payload(args)),
-            )
-          : Effect.succeed(Option.some(row));
+        return Effect.succeed(Option.fromNullishOr(row));
       },
-      getCheckinDmEnabledUserConfigs: (args) =>
-        sheetApis.userConfig
-          .getCheckinDmRecipients(payload(args))
-          .pipe(Effect.map((rows) => rawRows<ConfigUserPlatformRow>(rows))),
-      getMonitorDmEnabledUserConfigs: (args) =>
-        sheetApis.userConfig
-          .getMonitorDmRecipients(payload(args))
-          .pipe(Effect.map((rows) => rawRows<ConfigUserPlatformRow>(rows))),
-      upsertUserPlatformConfig: (args) =>
-        sheetApis.userConfig.upsertUserPlatformConfig(payload(args)).pipe(
-          Effect.tap(() =>
-            Effect.gen(function* () {
-              const key = userPlatformConfigKey(args.platform, args.userId);
-              const existing = userPlatformConfigs.get(key);
-              userPlatformConfigs.set(key, {
-                platform: args.platform,
-                userId: args.userId,
-                checkinDmEnabled: presentOr(
-                  args.checkinDmEnabled,
-                  presentOr(existing?.checkinDmEnabled, false),
-                ),
-                monitorDmEnabled: presentOr(
-                  args.monitorDmEnabled,
-                  presentOr(existing?.monitorDmEnabled, false),
-                ),
-                defaultClientId: presentOr(
-                  args.defaultClientId,
-                  presentOr(existing?.defaultClientId, null),
-                ),
-                ...(yield* auditFields()),
-              });
-            }),
+      getCheckinDmEnabledUserConfigs: ({ platform, userIds }) =>
+        Effect.succeed(
+          [...userPlatformConfigs.values()].filter(
+            (row) =>
+              row.platform === platform &&
+              userIds.includes(row.userId) &&
+              row.checkinDmEnabled &&
+              Predicate.isNotNull(row.defaultClientId),
           ),
-          Effect.asVoid,
         ),
+      getMonitorDmEnabledUserConfigs: ({ platform, userIds }) =>
+        Effect.succeed(
+          [...userPlatformConfigs.values()].filter(
+            (row) =>
+              row.platform === platform &&
+              userIds.includes(row.userId) &&
+              row.monitorDmEnabled &&
+              Predicate.isNotNull(row.defaultClientId),
+          ),
+        ),
+      upsertUserPlatformConfig: (args) =>
+        Effect.gen(function* () {
+          const key = userPlatformConfigKey(args.platform, args.userId);
+          const existing = userPlatformConfigs.get(key);
+          const fields = yield* auditFields();
+          userPlatformConfigs.set(key, {
+            platform: args.platform,
+            userId: args.userId,
+            checkinDmEnabled: presentOr(
+              args.checkinDmEnabled,
+              presentOr(existing?.checkinDmEnabled, false),
+            ),
+            monitorDmEnabled: presentOr(
+              args.monitorDmEnabled,
+              presentOr(existing?.monitorDmEnabled, false),
+            ),
+            defaultClientId: presentOr(
+              args.defaultClientId,
+              presentOr(existing?.defaultClientId, null),
+            ),
+            ...fields,
+            createdAt: presentOr(existing?.createdAt, fields.createdAt),
+          });
+        }),
     },
     checkinState: {
       getMessageCheckinData: (args) => {
         const row = messageCheckins.get(
           messageKey(args.clientPlatform, args.clientId, args.messageId),
         );
-        return Predicate.isUndefined(row)
-          ? rawOptionalLegacyResult<MessageCheckinRow, unknown, never, never>(
-              sheetApis.messageCheckin.getMessageCheckinData(query(args)),
-            ).pipe(
-              Effect.flatMap((result) =>
-                Option.isSome(result)
-                  ? auditFieldDefaults(result.value).pipe(
-                      Effect.map((fields) =>
-                        Option.some({
-                          ...result.value,
-                          ...args,
-                          hour: presentOr(result.value.hour, 0),
-                          roleId: presentOr(result.value.roleId, null),
-                          workspaceId: presentOr(result.value.workspaceId, null),
-                          conversationId: presentOr(result.value.conversationId, null),
-                          createdByUserId: presentOr(result.value.createdByUserId, null),
-                          ...fields,
-                        }),
-                      ),
-                    )
-                  : Effect.succeed(Option.none()),
-              ),
-            )
-          : Effect.succeed(Option.some(row));
+        return Effect.succeed(Option.fromNullishOr(row));
       },
       getMessageCheckinMembers: (args) =>
-        sheetApis.messageCheckin.getMessageCheckinMembers(query(args)).pipe(
-          Effect.flatMap((rows) =>
-            Effect.forEach(rawRows<Partial<MessageCheckinMemberRow>>(rows), (row) =>
-              auditFieldDefaults(row).pipe(
-                Effect.map((fields) => ({
-                  ...row,
-                  ...args,
-                  memberId: row.memberId ?? "",
-                  checkinAt:
-                    Predicate.isNull(row.checkinAt) || Predicate.isNumber(row.checkinAt)
-                      ? row.checkinAt
-                      : null,
-                  ...fields,
-                  checkinClaimId: row.checkinClaimId ?? null,
-                })),
-              ),
-            ),
+        Effect.succeed(
+          [...messageCheckinMembers.values()].filter(
+            (row) =>
+              row.clientPlatform === args.clientPlatform &&
+              row.clientId === args.clientId &&
+              row.messageId === args.messageId,
           ),
-          Effect.map((persisted) => {
-            return persisted.map((row) => {
-              const key = messageMemberKey(
-                row.clientPlatform,
-                row.clientId,
-                row.messageId,
-                row.memberId,
-              );
-              const current = messageCheckinMembers.get(key) ?? row;
-              messageCheckinMembers.set(key, current);
-              return current;
-            });
-          }),
         ),
       persistMessageCheckin: (args) =>
-        sheetApis.messageCheckin.persistMessageCheckin({ payload: args as never }).pipe(
-          Effect.tap(() =>
-            Effect.gen(function* () {
-              messageCheckins.set(
-                messageKey(args.clientPlatform, args.clientId, args.messageId),
-                toRawPersistenceValue<MessageCheckinRow>({
-                  clientPlatform: args.clientPlatform,
-                  clientId: args.clientId,
-                  messageId: args.messageId,
-                  ...args.data,
-                  ...(yield* auditFields()),
-                }),
-              );
-              for (const memberId of args.memberIds) {
-                const fields = yield* auditFields();
-                messageCheckinMembers.set(
-                  messageMemberKey(args.clientPlatform, args.clientId, args.messageId, memberId),
-                  {
-                    clientPlatform: args.clientPlatform,
-                    clientId: args.clientId,
-                    messageId: args.messageId,
-                    memberId,
-                    checkinAt: null,
-                    checkinClaimId: null,
-                    ...fields,
-                  },
-                );
-              }
-            }),
-          ),
-          Effect.asVoid,
-        ),
+        Effect.gen(function* () {
+          messageCheckins.set(messageKey(args.clientPlatform, args.clientId, args.messageId), {
+            clientPlatform: args.clientPlatform,
+            clientId: args.clientId,
+            messageId: args.messageId,
+            ...args.data,
+            roleId: presentOr(args.data.roleId, null),
+            workspaceId: args.data.workspaceId,
+            conversationId: args.data.conversationId,
+            createdByUserId: args.data.createdByUserId,
+            ...(yield* auditFields()),
+          });
+          for (const memberId of args.memberIds) {
+            const fields = yield* auditFields();
+            messageCheckinMembers.set(
+              messageMemberKey(args.clientPlatform, args.clientId, args.messageId, memberId),
+              {
+                clientPlatform: args.clientPlatform,
+                clientId: args.clientId,
+                messageId: args.messageId,
+                memberId,
+                checkinAt: null,
+                checkinClaimId: null,
+                ...fields,
+              },
+            );
+          }
+        }),
       setMessageCheckinMemberCheckinAtIfUnset: (args) =>
-        sheetApis.messageCheckin.setMessageCheckinMemberCheckinAtIfUnset(payload(args)).pipe(
-          Effect.tap(() =>
-            Effect.gen(function* () {
-              const key = messageMemberKey(
-                args.clientPlatform,
-                args.clientId,
-                args.messageId,
-                args.memberId,
-              );
-              const existing = messageCheckinMembers.get(key);
-              if (Predicate.isUndefined(existing)) {
-                const fields = yield* auditFields();
-                messageCheckinMembers.set(key, {
-                  clientPlatform: args.clientPlatform,
-                  clientId: args.clientId,
-                  messageId: args.messageId,
-                  memberId: args.memberId,
-                  checkinAt: args.checkinAt,
-                  checkinClaimId: args.checkinClaimId,
-                  ...fields,
-                });
-              } else if (Predicate.isNull(existing.checkinAt)) {
-                const timestamp = yield* Clock.currentTimeMillis;
-                messageCheckinMembers.set(key, {
-                  ...existing,
-                  checkinAt: args.checkinAt,
-                  checkinClaimId: args.checkinClaimId,
-                  updatedAt: timestamp,
-                });
-              }
-            }),
-          ),
-          Effect.asVoid,
-        ),
+        Effect.gen(function* () {
+          const key = messageMemberKey(
+            args.clientPlatform,
+            args.clientId,
+            args.messageId,
+            args.memberId,
+          );
+          const existing = messageCheckinMembers.get(key);
+          if (Predicate.isUndefined(existing)) {
+            const fields = yield* auditFields();
+            messageCheckinMembers.set(key, {
+              clientPlatform: args.clientPlatform,
+              clientId: args.clientId,
+              messageId: args.messageId,
+              memberId: args.memberId,
+              checkinAt: args.checkinAt,
+              checkinClaimId: args.checkinClaimId,
+              ...fields,
+            });
+          } else if (Predicate.isNull(existing.checkinAt)) {
+            messageCheckinMembers.set(key, {
+              ...existing,
+              checkinAt: args.checkinAt,
+              checkinClaimId: args.checkinClaimId,
+              updatedAt: yield* Clock.currentTimeMillis,
+            });
+          }
+        }),
       removeMessageCheckin: (args) =>
-        sheetApis.messageCheckin.removeMessageCheckin(payload(args)).pipe(Effect.asVoid),
+        Effect.sync(() => {
+          const key = messageKey(args.clientPlatform, args.clientId, args.messageId);
+          messageCheckins.delete(key);
+          for (const memberKey of messageCheckinMembers.keys()) {
+            if (memberKey.startsWith(`${key}\u0000`)) {
+              messageCheckinMembers.delete(memberKey);
+            }
+          }
+        }),
     },
     roomOrderState: {
       getMessageRoomOrder: (args) => {
         const key = messageKey(args.clientPlatform, args.clientId, args.messageId);
         const row = messageRoomOrders.get(key);
-        return Predicate.isUndefined(row)
-          ? rawOptionalLegacyResult<MessageRoomOrderRow, unknown, never, never>(
-              sheetApis.messageRoomOrder.getMessageRoomOrder(query(args)),
-            ).pipe(
-              Effect.tap(
-                Option.match({
-                  onNone: () => Effect.void,
-                  onSome: (fetched) =>
-                    Effect.sync(() => {
-                      messageRoomOrders.set(key, fetched);
-                    }),
-                }),
-              ),
-            )
-          : Effect.succeed(Option.some(row));
+        return Effect.succeed(Option.fromNullishOr(row));
       },
       getMessageRoomOrderEntry: (args) =>
-        sheetApis.messageRoomOrder
-          .getMessageRoomOrderEntry(query(args))
-          .pipe(Effect.map((rows) => rawRows<MessageRoomOrderEntryRow>(rows))),
+        Effect.succeed(
+          [...messageRoomOrderEntries.values()].filter(
+            (row) =>
+              row.clientPlatform === args.clientPlatform &&
+              row.clientId === args.clientId &&
+              row.messageId === args.messageId &&
+              row.rank === args.rank &&
+              Predicate.isNull(row.deletedAt),
+          ),
+        ),
       getMessageRoomOrderRange: (args) =>
-        sheetApis.messageRoomOrder.getMessageRoomOrderRange(query(args)).pipe(
-          Effect.flatMap((range) =>
-            Effect.gen(function* () {
-              const value = (Option.isOption(range) ? Option.getOrUndefined(range) : range) as
-                | { readonly minRank: number; readonly maxRank: number }
-                | null
-                | undefined;
-              if (Predicate.isNullish(value)) return [];
-              return yield* Effect.forEach([value.minRank, value.maxRank], (rank) =>
-                auditFields().pipe(
-                  Effect.map((fields) => ({
-                    ...args,
-                    rank,
-                    position: 0,
-                    hour: 0,
-                    team: "",
-                    tags: [],
-                    effectValue: 0,
-                    ...fields,
-                  })),
-                ),
-              );
-            }),
+        Effect.succeed(
+          [...messageRoomOrderEntries.values()].filter(
+            (row) =>
+              row.clientPlatform === args.clientPlatform &&
+              row.clientId === args.clientId &&
+              row.messageId === args.messageId &&
+              Predicate.isNull(row.deletedAt),
           ),
         ),
       decrementMessageRoomOrderRank: (args) =>
-        retainRoomOrderMutationResult(
-          args,
-          sheetApis.messageRoomOrder.decrementMessageRoomOrderRank(payload(args)),
-        ),
+        Effect.sync(() => {
+          const current = messageRoomOrders.get(
+            messageKey(args.clientPlatform, args.clientId, args.messageId),
+          );
+          if (
+            Predicate.isUndefined(current) ||
+            (Predicate.isNotUndefined(args.expectedRank) && current.rank !== args.expectedRank)
+          ) {
+            return;
+          }
+          updateMessageRoomOrder(args, { rank: current.rank - 1 });
+        }),
       incrementMessageRoomOrderRank: (args) =>
-        retainRoomOrderMutationResult(
-          args,
-          sheetApis.messageRoomOrder.incrementMessageRoomOrderRank(payload(args)),
-        ),
+        Effect.sync(() => {
+          const current = messageRoomOrders.get(
+            messageKey(args.clientPlatform, args.clientId, args.messageId),
+          );
+          if (
+            Predicate.isUndefined(current) ||
+            (Predicate.isNotUndefined(args.expectedRank) && current.rank !== args.expectedRank)
+          ) {
+            return;
+          }
+          updateMessageRoomOrder(args, { rank: current.rank + 1 });
+        }),
       claimMessageRoomOrderSend: (args) =>
-        retainRoomOrderMutationResult(
-          args,
-          sheetApis.messageRoomOrder.claimMessageRoomOrderSend(payload(args)),
-        ),
-      completeMessageRoomOrderSend: ({ sentMessageId, sentConversationId, sentAt: _, ...args }) =>
-        retainRoomOrderMutationResult(
-          args,
-          sheetApis.messageRoomOrder.completeMessageRoomOrderSend(
-            payload({
-              ...args,
-              sentMessage: { id: sentMessageId, conversationId: sentConversationId },
-            }),
-          ),
-        ),
+        Effect.gen(function* () {
+          const claimedAt = yield* Clock.currentTimeMillis;
+          const current = messageRoomOrders.get(
+            messageKey(args.clientPlatform, args.clientId, args.messageId),
+          );
+          if (Predicate.isUndefined(current) || blocksSendClaim(current, claimedAt)) return;
+          updateMessageRoomOrder(args, {
+            sendClaimId: args.claimId,
+            sendClaimedAt: claimedAt,
+            tentativeUpdateClaimId: null,
+            tentativeUpdateClaimedAt: null,
+            tentativePinClaimId: null,
+            tentativePinClaimedAt: null,
+          });
+        }),
+      completeMessageRoomOrderSend: (args) =>
+        Effect.sync(() => {
+          const current = messageRoomOrders.get(
+            messageKey(args.clientPlatform, args.clientId, args.messageId),
+          );
+          if (Predicate.isUndefined(current) || current.sendClaimId !== args.claimId) return;
+          updateMessageRoomOrder(args, {
+            sendClaimId: null,
+            sendClaimedAt: null,
+            sentMessageId: args.sentMessageId,
+            sentConversationId: args.sentConversationId,
+            sentAt: args.sentAt,
+          });
+        }),
       releaseMessageRoomOrderSendClaim: (args) =>
-        sheetApis.messageRoomOrder
-          .releaseMessageRoomOrderSendClaim(payload(args))
-          .pipe(Effect.asVoid),
+        Effect.sync(() => {
+          const current = messageRoomOrders.get(
+            messageKey(args.clientPlatform, args.clientId, args.messageId),
+          );
+          if (current?.sendClaimId === args.claimId) {
+            updateMessageRoomOrder(args, { sendClaimId: null, sendClaimedAt: null });
+          }
+        }),
       claimMessageRoomOrderTentativeUpdate: (args) =>
-        retainRoomOrderMutationResult(
-          args,
-          sheetApis.messageRoomOrder.claimMessageRoomOrderTentativeUpdate(payload(args)),
-        ),
+        Effect.gen(function* () {
+          const claimedAt = yield* Clock.currentTimeMillis;
+          const current = messageRoomOrders.get(
+            messageKey(args.clientPlatform, args.clientId, args.messageId),
+          );
+          if (Predicate.isUndefined(current) || blocksTentativeClaim(current, claimedAt)) return;
+          updateMessageRoomOrder(args, {
+            sendClaimId: null,
+            sendClaimedAt: null,
+            tentativeUpdateClaimId: args.claimId,
+            tentativeUpdateClaimedAt: claimedAt,
+            tentativePinClaimId: null,
+            tentativePinClaimedAt: null,
+          });
+        }),
       releaseMessageRoomOrderTentativeUpdateClaim: (args) =>
-        sheetApis.messageRoomOrder
-          .releaseMessageRoomOrderTentativeUpdateClaim(payload(args))
-          .pipe(Effect.asVoid),
+        Effect.sync(() => {
+          const current = messageRoomOrders.get(
+            messageKey(args.clientPlatform, args.clientId, args.messageId),
+          );
+          if (current?.tentativeUpdateClaimId === args.claimId) {
+            updateMessageRoomOrder(args, {
+              tentativeUpdateClaimId: null,
+              tentativeUpdateClaimedAt: null,
+            });
+          }
+        }),
       claimMessageRoomOrderTentativePin: (args) =>
-        retainRoomOrderMutationResult(
-          args,
-          sheetApis.messageRoomOrder.claimMessageRoomOrderTentativePin(payload(args)),
-        ),
-      completeMessageRoomOrderTentativePin: ({ pinnedAt: _, ...args }) =>
-        retainRoomOrderMutationResult(
-          args,
-          sheetApis.messageRoomOrder.completeMessageRoomOrderTentativePin(payload(args)),
-        ),
+        Effect.gen(function* () {
+          const claimedAt = yield* Clock.currentTimeMillis;
+          const current = messageRoomOrders.get(
+            messageKey(args.clientPlatform, args.clientId, args.messageId),
+          );
+          if (Predicate.isUndefined(current) || blocksTentativeClaim(current, claimedAt)) return;
+          updateMessageRoomOrder(args, {
+            sendClaimId: null,
+            sendClaimedAt: null,
+            tentativePinClaimId: args.claimId,
+            tentativePinClaimedAt: claimedAt,
+            tentativeUpdateClaimId: null,
+            tentativeUpdateClaimedAt: null,
+          });
+        }),
+      completeMessageRoomOrderTentativePin: (args) =>
+        Effect.sync(() => {
+          const current = messageRoomOrders.get(
+            messageKey(args.clientPlatform, args.clientId, args.messageId),
+          );
+          if (
+            Predicate.isUndefined(current) ||
+            Predicate.isNotNull(current.tentativePinnedAt) ||
+            current.tentativePinClaimId !== args.claimId
+          ) {
+            return;
+          }
+          updateMessageRoomOrder(args, {
+            tentativePinClaimId: null,
+            tentativePinClaimedAt: null,
+            tentativePinnedAt: args.pinnedAt,
+          });
+        }),
       releaseMessageRoomOrderTentativePinClaim: (args) =>
-        sheetApis.messageRoomOrder
-          .releaseMessageRoomOrderTentativePinClaim(payload(args))
-          .pipe(Effect.asVoid),
+        Effect.sync(() => {
+          const current = messageRoomOrders.get(
+            messageKey(args.clientPlatform, args.clientId, args.messageId),
+          );
+          if (
+            current?.tentativePinClaimId === args.claimId &&
+            Predicate.isNull(current.tentativePinnedAt)
+          ) {
+            updateMessageRoomOrder(args, {
+              tentativePinClaimId: null,
+              tentativePinClaimedAt: null,
+            });
+          }
+        }),
       markMessageRoomOrderTentative: ({ workspaceId, conversationId, ...args }) =>
         Effect.gen(function* () {
           const current = yield* persistence.roomOrderState.getMessageRoomOrder(args).pipe(
@@ -1113,15 +902,56 @@ export const makeTrustedSheetPersistenceMock = (
           ) {
             return;
           }
-          yield* retainRoomOrderMutationResult(
-            args,
-            sheetApis.messageRoomOrder.markMessageRoomOrderTentative(
-              payload({ ...args, workspaceId, conversationId }),
-            ),
-          );
+          updateMessageRoomOrder(args, { tentative: true, workspaceId, conversationId });
         }),
       persistMessageRoomOrder: (args) =>
-        sheetApis.messageRoomOrder.persistMessageRoomOrder(payload(args)).pipe(Effect.asVoid),
+        // This mock mirrors the full persistence transition used by the workflow tests.
+        // fallow-ignore-next-line complexity
+        Effect.gen(function* () {
+          const key = messageKey(args.clientPlatform, args.clientId, args.messageId);
+          const current = messageRoomOrders.get(key);
+          const fields = yield* auditFields();
+          messageRoomOrders.set(key, {
+            clientPlatform: args.clientPlatform,
+            clientId: args.clientId,
+            messageId: args.messageId,
+            ...args.data,
+            tentative: presentOr(args.data.tentative, presentOr(current?.tentative, false)),
+            monitor: presentOr(args.data.monitor, presentOr(current?.monitor, null)),
+            sendClaimId: presentOr(current?.sendClaimId, null),
+            sendClaimedAt: presentOr(current?.sendClaimedAt, null),
+            sentMessageId: presentOr(current?.sentMessageId, null),
+            sentConversationId: presentOr(current?.sentConversationId, null),
+            sentAt: presentOr(current?.sentAt, null),
+            tentativeUpdateClaimId: presentOr(current?.tentativeUpdateClaimId, null),
+            tentativeUpdateClaimedAt: presentOr(current?.tentativeUpdateClaimedAt, null),
+            tentativePinClaimId: presentOr(current?.tentativePinClaimId, null),
+            tentativePinClaimedAt: presentOr(current?.tentativePinClaimedAt, null),
+            tentativePinnedAt: presentOr(current?.tentativePinnedAt, null),
+            ...fields,
+            createdAt: presentOr(current?.createdAt, fields.createdAt),
+          });
+          const supplied = new Set(args.entries.map((entry) => `${entry.rank}:${entry.position}`));
+          for (const [entryKey, entry] of messageRoomOrderEntries) {
+            if (
+              entry.clientPlatform === args.clientPlatform &&
+              entry.clientId === args.clientId &&
+              entry.messageId === args.messageId &&
+              !supplied.has(`${entry.rank}:${entry.position}`)
+            ) {
+              messageRoomOrderEntries.delete(entryKey);
+            }
+          }
+          for (const entry of args.entries) {
+            messageRoomOrderEntries.set(`${key}\u0000${entry.rank}:${entry.position}`, {
+              clientPlatform: args.clientPlatform,
+              clientId: args.clientId,
+              messageId: args.messageId,
+              ...entry,
+              ...fields,
+            });
+          }
+        }),
       bindMessageRoomOrderIfAbsent: (args) => {
         const { clientPlatform, clientId, messageId } = args;
         return withMessageRoomOrderBindLock(
@@ -1142,63 +972,61 @@ export const makeTrustedSheetPersistenceMock = (
                 ),
               );
             if (Option.isSome(current)) return;
-            yield* retainRoomOrderMutationResult(
-              args,
-              sheetApis.messageRoomOrder.persistMessageRoomOrder(payload(args)),
-            );
+            const fields = yield* auditFields();
+            const key = messageKey(clientPlatform, clientId, messageId);
+            messageRoomOrders.set(key, {
+              clientPlatform,
+              clientId,
+              messageId,
+              ...args.data,
+              tentative: args.data.tentative ?? false,
+              monitor: args.data.monitor ?? null,
+              sendClaimId: null,
+              sendClaimedAt: null,
+              sentMessageId: null,
+              sentConversationId: null,
+              sentAt: null,
+              tentativeUpdateClaimId: null,
+              tentativeUpdateClaimedAt: null,
+              tentativePinClaimId: null,
+              tentativePinClaimedAt: null,
+              tentativePinnedAt: null,
+              ...fields,
+            });
+            for (const entry of args.entries) {
+              messageRoomOrderEntries.set(`${key}\u0000${entry.rank}:${entry.position}`, {
+                clientPlatform,
+                clientId,
+                messageId,
+                ...entry,
+                ...fields,
+              });
+            }
           }),
         );
       },
     },
     slotState: {
-      // The legacy-backed test adapter intentionally repeats optional-row normalization.
-      // fallow-ignore-next-line code-duplication
       getMessageSlotData: (args) => {
         const row = messageSlots.get(
           messageKey(args.clientPlatform, args.clientId, args.messageId),
         );
-        return Predicate.isUndefined(row)
-          ? rawOptionalLegacyResult<MessageSlotRow, unknown, never, never>(
-              sheetApis.messageSlot.getMessageSlotData(query(args)),
-            ).pipe(
-              Effect.flatMap((result) =>
-                Option.isSome(result)
-                  ? auditFieldDefaults(result.value).pipe(
-                      Effect.map((fields) =>
-                        Option.some({
-                          ...result.value,
-                          ...args,
-                          // Legacy optional rows share the same audit-default normalization.
-                          // fallow-ignore-next-line code-duplication
-                          workspaceId: presentOr(result.value.workspaceId, null),
-                          conversationId: presentOr(result.value.conversationId, null),
-                          createdByUserId: presentOr(result.value.createdByUserId, null),
-                          ...fields,
-                        }),
-                      ),
-                    )
-                  : Effect.succeed(Option.none()),
-              ),
-            )
-          : Effect.succeed(Option.some(row));
+        return Effect.succeed(Option.fromNullishOr(row));
       },
       upsertMessageSlotData: ({ clientPlatform, clientId, messageId, ...data }) =>
-        sheetApis.messageSlot
-          .upsertMessageSlotData(payload({ clientPlatform, clientId, messageId, data }))
-          .pipe(
-            Effect.tap(() =>
-              Effect.gen(function* () {
-                messageSlots.set(messageKey(clientPlatform, clientId, messageId), {
-                  clientPlatform,
-                  clientId,
-                  messageId,
-                  ...data,
-                  ...(yield* auditFields()),
-                });
-              }),
-            ),
-            Effect.asVoid,
-          ),
+        Effect.gen(function* () {
+          const key = messageKey(clientPlatform, clientId, messageId);
+          const existing = messageSlots.get(key);
+          const fields = yield* auditFields();
+          messageSlots.set(key, {
+            clientPlatform,
+            clientId,
+            messageId,
+            ...data,
+            ...fields,
+            createdAt: presentOr(existing?.createdAt, fields.createdAt),
+          });
+        }),
     },
     teamSubmissionState: {
       getMessageTeamSubmission: (args) =>
@@ -1236,7 +1064,6 @@ export const makeTrustedSheetPersistenceMock = (
             );
           }
           const { expectedVersion: _, ...submission } = args;
-          const previousSubmission = currentSubmission;
           const timestamp = yield* Clock.currentTimeMillis;
           const nextSubmission: MessageTeamSubmissionRow = {
             ...submission,
@@ -1248,35 +1075,11 @@ export const makeTrustedSheetPersistenceMock = (
             deletedAt: null,
           };
           messageTeamSubmission = nextSubmission;
-          if (args.status === "confirmed") {
-            yield* sheetApis.teamSubmission
-              .confirmFromDiscord({
-                payload: {
-                  client: { platform: args.clientPlatform, clientId: args.clientId },
-                  workspaceId: args.workspaceId,
-                  conversationId: args.conversationId,
-                  messageId: args.messageId,
-                  confirmationMessageId: presentOr(
-                    args.confirmationMessageId,
-                    "confirmation-message-1",
-                  ),
-                  requesterUserId: args.discordAuthorId,
-                },
-              })
-              .pipe(
-                Effect.onError(() =>
-                  Effect.sync(() => {
-                    messageTeamSubmission = previousSubmission;
-                  }),
-                ),
-              );
-          }
         }),
       setMessageTeamSubmissionConfirmation: (args) =>
         Effect.gen(function* () {
           const submission = yield* getMessageTeamSubmissionState;
           if (!hasMessageTeamSubmissionKey(submission, args)) return;
-          yield* sheetApis.teamSubmission.setConfirmationMessage({ payload: args });
           messageTeamSubmission = {
             ...submission,
             confirmationMessageId: args.confirmationMessageId,

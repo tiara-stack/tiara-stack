@@ -1,4 +1,4 @@
-import { Cause, Effect, Exit, Layer, Match, Option, Predicate } from "effect";
+import { Cause, Effect, Exit, Layer, Match, Option, Predicate, Schema } from "effect";
 import {
   BotOutboundMessage,
   DeliveryReceipt,
@@ -11,10 +11,11 @@ import {
   ParsedTeamEntry,
   TeamSubmissionRollbackSnapshot,
   TeamSubmissionRowMapping,
-  TeamSubmissionSkippedEntry,
-} from "sheet-ingress-api/schemas/teamSubmission";
-import type { RangesConfig, TeamConfig } from "sheet-ingress-api/schemas/sheetConfig";
-import { WorkspaceTeamSubmissionChannel } from "sheet-ingress-api/schemas/workspaceConfig";
+  type TeamSubmissionSkippedEntry,
+  RangesConfig,
+  TeamConfig,
+  WorkspaceTeamSubmissionChannel,
+} from "./values";
 import {
   AutonomousDeclaredFailure,
   InteractiveDeclaredFailure,
@@ -23,11 +24,9 @@ import {
 } from "sheet-workflow-contracts";
 import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import type { EffectivePrincipal } from "sheet-auth/identity";
-import { teamSubmissionReaction } from "@/services/dispatch/domain/teamSubmissionCommon";
-import { SheetApisClient } from "@/services/sheetApisClient";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
 import { config } from "@/config";
-import { decodeTagged } from "@/services/dispatch/persistenceDecoding";
+import { teamSubmissionReaction } from "./reaction";
 import {
   teamSubmissionConfirmationActionRow,
   teamSubmissionRollbackFailedMessage,
@@ -120,8 +119,19 @@ const externalFailureEffect = (operation: string, error: unknown) =>
         Effect.andThen(Effect.fail(externalFailure(operation, error))),
       );
 
+const decodePersistedTagged = <SchemaValue extends Schema.Top>(
+  schema: SchemaValue,
+  tag: string,
+  value: unknown,
+) =>
+  Schema.decodeUnknownEffect(schema)(
+    Predicate.isObject(value) && !Predicate.hasProperty(value, "_tag")
+      ? { _tag: tag, ...value }
+      : value,
+  );
+
 const decodeSubmission = (value: unknown) =>
-  decodeTagged(MessageTeamSubmission, "MessageTeamSubmission", value);
+  decodePersistedTagged(MessageTeamSubmission, "MessageTeamSubmission", value);
 
 const submissionKey = (sourceMessage: MessageRef) => ({
   workspaceId: sourceMessage.conversation.workspace.workspaceId,
@@ -205,7 +215,7 @@ const valuesByRequestedRange = (
 ) => new Map(requested.map((range, index) => [range, ranges[index]?.values ?? []] as const));
 
 const channelFrom = (value: unknown) =>
-  decodeTagged(WorkspaceTeamSubmissionChannel, "WorkspaceTeamSubmissionChannel", value);
+  decodePersistedTagged(WorkspaceTeamSubmissionChannel, "WorkspaceTeamSubmissionChannel", value);
 
 const teamConfigTags = (config: TeamConfig) =>
   Option.match(config.tagsConfig, {
@@ -319,7 +329,6 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
   Effect.gen(function* () {
     const persistence = yield* TrustedSheetPersistence;
     const provider = yield* TeamSubmissionProvider;
-    const sheetApis = yield* SheetApisClient;
     const delivery = yield* SheetBotDeliveryClient;
     const authorization = yield* ReadOnlyWorkflowAuthorization;
     const configuredClientId = yield* config.sheetBotClientId;
@@ -393,33 +402,6 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
       persistence.workspaces
         .getWorkspaceFeatureFlags({ workspaceId })
         .pipe(Effect.map(isTeamSubmissionEnabled));
-
-    const loadTeamConfig = (workspaceId: string, sheetId: string) =>
-      Effect.all(
-        {
-          rangesConfig: sheetApis.get().sheet.getRangesConfig({ query: { workspaceId } }),
-          teamConfigs: sheetApis.get().sheet.getTeamConfig({ query: { workspaceId } }),
-        },
-        { concurrency: "unbounded" },
-      ).pipe(
-        Effect.flatMap(({ rangesConfig, teamConfigs }) => {
-          const oshiRange = optionString(rangesConfig.oshis);
-          const tagRanges = teamConfigs.flatMap((config) => {
-            const tags = teamConfigTags(config);
-            return tags.range === null ? [] : [tags.range];
-          });
-          const requested = [
-            ...new Set([...(oshiRange === undefined ? [] : [oshiRange]), ...tagRanges]),
-          ];
-          return provider.read(sheetId, requested).pipe(
-            Effect.map((values) => ({
-              rangesConfig,
-              teamConfigs,
-              valuesByRange: valuesByRequestedRange(values, requested),
-            })),
-          );
-        }),
-      );
 
     const makeTeamConfigLookups = ({
       rangesConfig,
@@ -791,11 +773,20 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
           );
         }
 
-        const teamConfigData = yield* loadTeamConfig(
-          sourceMessage.conversation.workspace.workspaceId,
-          sheetId,
-        );
-        const teamConfigs = makeTeamConfigLookups(teamConfigData);
+        const teamConfigData = yield* provider.loadConfiguration(sheetId);
+        const oshiRange = optionString(teamConfigData.rangesConfig.oshis);
+        const tagRanges = teamConfigData.teamConfigs.flatMap((config) => {
+          const tags = teamConfigTags(config);
+          return tags.range === null ? [] : [tags.range];
+        });
+        const requested = [
+          ...new Set([...(oshiRange === undefined ? [] : [oshiRange]), ...tagRanges]),
+        ];
+        const values = yield* provider.read(sheetId, requested);
+        const teamConfigs = makeTeamConfigLookups({
+          ...teamConfigData,
+          valuesByRange: valuesByRequestedRange(values, requested),
+        });
         const parsedEntries =
           existing === null ? parsed.entries : preserveExistingStableKeys(existing, parsed.entries);
         const previousMappings = existingMappingByKey(existing);

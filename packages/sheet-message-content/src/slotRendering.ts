@@ -1,5 +1,5 @@
-import type { SheetTextPart } from "sheet-bot-api/message";
-import type { PopulatedScheduleResult } from "sheet-ingress-api/schemas/sheet";
+import type { BotTextPart } from "sheet-bot-api/message";
+import type { PopulatedScheduleResult } from "./schedule";
 import * as MessageText from "./text";
 import { formatFilledSlot, formatOpenSlot, makeEmbed } from "./rendering";
 
@@ -10,9 +10,9 @@ const overflowSummary = MessageText.parts(MessageText.text("\n… additional slo
 const overflowSummaryLength = MessageText.renderPlainText(overflowSummary).length;
 
 const boundSlotRows = (
-  rows: ReadonlyArray<ReadonlyArray<SheetTextPart>>,
-): ReadonlyArray<SheetTextPart> => {
-  const boundedRows: Array<ReadonlyArray<SheetTextPart>> = [];
+  rows: ReadonlyArray<ReadonlyArray<BotTextPart>>,
+): ReadonlyArray<BotTextPart> => {
+  const boundedRows: Array<ReadonlyArray<BotTextPart>> = [];
   let previousText: string | undefined;
   let renderedLength = 0;
   let truncated = false;
@@ -40,7 +40,7 @@ const boundSlotRows = (
 
 const renderSlotSection = (
   schedules: ReadonlyArray<PopulatedScheduleResult>,
-  formatter: (schedule: PopulatedScheduleResult) => ReadonlyArray<SheetTextPart>,
+  formatter: (schedule: PopulatedScheduleResult) => ReadonlyArray<BotTextPart>,
   fallback: string,
 ) => {
   const description = boundSlotRows(schedules.map(formatter));

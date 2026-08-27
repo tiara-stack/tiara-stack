@@ -16,11 +16,7 @@ import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import { InteractiveDeclaredFailure, SlotsOpen, WorkspaceId } from "sheet-workflow-contracts";
 import { SheetBotCacheClient } from "@/services/sheetBotCacheClient";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
-import {
-  makeSheetApisClient,
-  makeTrustedSheetPersistenceMock,
-  normalizePayloadText,
-} from "@/services/testHelpers";
+import { makeTrustedSheetPersistenceMock, normalizePayloadText } from "@/services/testHelpers";
 import {
   ReadOnlyWorkflowAuthorization,
   readOnlyWorkflowAuthorizationLayer,
@@ -140,7 +136,7 @@ const makeAuthorization = (options: {
     readonly messageId: string;
   }) => void;
 }) => {
-  const persistence = makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+  const persistence = makeTrustedSheetPersistenceMock();
   const row = options.row ?? Option.some(slotRow);
   return Effect.gen(function* () {
     return yield* ReadOnlyWorkflowAuthorization;
@@ -190,7 +186,7 @@ const makeDeliveryBot = (
 ): SheetBotHttpClient => ({ delivery: { respond } }) as unknown as SheetBotHttpClient;
 
 const makeOperations = (provider: SlotListProvider["Service"], bot: SheetBotHttpClient) => {
-  const persistence = makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+  const persistence = makeTrustedSheetPersistenceMock();
   return Effect.gen(function* () {
     return yield* SlotOpenWorkflowOperations;
   }).pipe(

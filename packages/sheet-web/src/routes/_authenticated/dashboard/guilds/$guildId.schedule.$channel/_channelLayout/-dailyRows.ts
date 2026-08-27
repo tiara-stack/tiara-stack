@@ -1,14 +1,14 @@
 import { Predicate } from "effect";
-import { Sheet } from "sheet-ingress-api/schemas";
+import * as Schedule from "#/lib/scheduleValues";
 
 const isPopulatedSchedule = (
-  schedule: Sheet.PopulatedScheduleResult,
-): schedule is Sheet.PopulatedSchedule => Predicate.isTagged("PopulatedSchedule")(schedule);
+  schedule: Schedule.PopulatedScheduleResult,
+): schedule is Schedule.PopulatedSchedule => Predicate.isTagged("PopulatedSchedule")(schedule);
 
 export const classifyDailyHourSchedules = (
-  schedules: readonly Sheet.PopulatedScheduleResult[],
+  schedules: readonly Schedule.PopulatedScheduleResult[],
 ): "break" | "schedule" => (schedules.some(isPopulatedSchedule) ? "schedule" : "break");
 
 export const getDailyHourSchedules = (
-  schedules: readonly Sheet.PopulatedScheduleResult[],
-): readonly Sheet.PopulatedSchedule[] => schedules.filter(isPopulatedSchedule);
+  schedules: readonly Schedule.PopulatedScheduleResult[],
+): readonly Schedule.PopulatedSchedule[] => schedules.filter(isPopulatedSchedule);

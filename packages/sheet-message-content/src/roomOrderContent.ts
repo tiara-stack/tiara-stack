@@ -1,5 +1,5 @@
 import { DateTime } from "effect";
-import type { SheetTextPart } from "sheet-bot-api/message";
+import type { BotTextPart } from "sheet-bot-api/message";
 import { inlineCode, joinText, parts, strong, text, timestamp } from "./text";
 
 type FillParticipant = {
@@ -31,7 +31,7 @@ const roomOrderHeaderLine = (
   hour: number,
   start: DateTime.DateTime,
   end: DateTime.DateTime,
-): SheetTextPart[] =>
+): BotTextPart[] =>
   parts(
     strong([text(`Hour ${hour}`)]),
     text(" "),
@@ -40,7 +40,7 @@ const roomOrderHeaderLine = (
     timestamp(DateTime.toEpochMillis(end)),
   );
 
-const monitorLine = (monitor: string | null): SheetTextPart[] | null =>
+const monitorLine = (monitor: string | null): BotTextPart[] | null =>
   monitor === null ? null : parts(inlineCode("Monitor:"), text(` ${monitor}`));
 
 const formatEffectValue = (effectValue: number): string => {
@@ -66,7 +66,7 @@ const roomOrderEntryLine = ({
   team,
   tags,
   effectValue,
-}: RoomOrderContentEntry): SheetTextPart[] => {
+}: RoomOrderContentEntry): BotTextPart[] => {
   const effectLabels = formatEffectLabels(effectValue, tags);
   const effectText = effectLabels.length === 0 ? "" : ` (${effectLabels.join(", ")})`;
   return parts(inlineCode(`P${position + 1}:`), text(`  ${team}${effectText}`));
@@ -88,7 +88,7 @@ export const buildRoomOrderContent = (
   previousParticipants: ReadonlyArray<FillParticipant>,
   participants: ReadonlyArray<FillParticipant>,
   entries: ReadonlyArray<RoomOrderContentEntry>,
-): SheetTextPart[] => {
+): BotTextPart[] => {
   const fillMovement = diffFillParticipants(previousParticipants, participants);
   const maybeMonitorLine = monitorLine(monitor);
 

@@ -12,14 +12,14 @@ import {
   Schema,
 } from "effect";
 import { Atom, AsyncResult } from "effect/unstable/reactivity";
-import { Sheet } from "sheet-ingress-api/schemas";
 import { SchedulesLoadWorkspaceSuccess, WorkspaceInput } from "sheet-workflow-contracts";
 import { useMemo } from "react";
 import { zoneId } from "#/hooks/useDateTimeZoned";
 import { runSheetWorkflow, sheetZeroClientAtom } from "#/lib/sheetZero";
+import * as Schedule from "#/lib/scheduleValues";
 
 // Re-export the shared schedule type for route consumers.
-export type SchedulePlayer = Sheet.PopulatedSchedulePlayer;
+export type SchedulePlayer = Schedule.PopulatedSchedulePlayer;
 
 const WorkspaceScheduleAsyncResultSchema = Schema.revealCodec(
   AsyncResult.Schema({
@@ -30,7 +30,7 @@ const WorkspaceScheduleAsyncResultSchema = Schema.revealCodec(
 
 const GuildSchedulesAsyncResultSchema = Schema.revealCodec(
   AsyncResult.Schema({
-    success: Schema.Array(Sheet.PopulatedScheduleResult),
+    success: Schema.Array(Schedule.PopulatedScheduleResult),
     error: Schema.Unknown,
   }),
 );
@@ -81,22 +81,22 @@ const scheduleStart = (eventStart: DateTime.Utc, day: number, hour: number) =>
   );
 
 const partialPlayer = (name: string) =>
-  new Sheet.PopulatedSchedulePlayer({
-    player: new Sheet.PartialNamePlayer({ name }),
+  new Schedule.PopulatedSchedulePlayer({
+    player: new Schedule.PartialNamePlayer({ name }),
     enc: false,
   });
 
 const partialMonitor = (name: string) =>
-  new Sheet.PopulatedScheduleMonitor({
-    monitor: new Sheet.PartialNameMonitor({ name }),
+  new Schedule.PopulatedScheduleMonitor({
+    monitor: new Schedule.PartialNameMonitor({ name }),
   });
 
 const scheduleFromSummary = (
   eventStart: DateTime.Utc,
   summary: ScheduleSummary,
-): Sheet.PopulatedScheduleResult => {
+): Schedule.PopulatedScheduleResult => {
   if (Predicate.isNull(summary.hour)) {
-    return new Sheet.PopulatedBreakSchedule({
+    return new Schedule.PopulatedBreakSchedule({
       channel: summary.conversationName,
       day: summary.day,
       visible: summary.visible,
@@ -110,13 +110,13 @@ const scheduleFromSummary = (
     Option.fromNullishOr(summary.playerNames[index]).pipe(Option.map(partialPlayer)),
   );
 
-  return new Sheet.PopulatedSchedule({
+  return new Schedule.PopulatedSchedule({
     channel: summary.conversationName,
     day: summary.day,
     visible: summary.visible,
     hour: Option.some(summary.hour),
     hourWindow: Option.some(
-      new Sheet.ScheduleHourWindow({
+      new Schedule.ScheduleHourWindow({
         start,
         end: DateTime.addDuration(start, Duration.hours(1)),
       }),
@@ -130,7 +130,7 @@ const scheduleFromSummary = (
 };
 
 export const guildScheduleAtom = Atom.family((guildId: string) =>
-  Atom.make<ReadonlyArray<Sheet.PopulatedScheduleResult>, unknown>(
+  Atom.make<ReadonlyArray<Schedule.PopulatedScheduleResult>, unknown>(
     Effect.fnUntraced(function* (get) {
       const response = yield* get.result(workspaceScheduleAtom(guildId));
       const eventStart = DateTime.makeUnsafe(response.eventConfig.startTimeEpochMs);
@@ -205,10 +205,10 @@ const _scheduledDaysAtom = Atom.family((params: ScheduledDaysParams) =>
       const { guildId, channel, timeZone, rangeStart, rangeEnd } = params;
       const schedules = yield* get.result(guildScheduleAtom(guildId));
 
-      const isInChannel = (s: Sheet.PopulatedScheduleResult) =>
+      const isInChannel = (s: Schedule.PopulatedScheduleResult) =>
         Predicate.isTagged("PopulatedSchedule")(s) && s.channel === channel && s.visible;
 
-      const isInRange = (s: Sheet.PopulatedScheduleResult) =>
+      const isInRange = (s: Schedule.PopulatedScheduleResult) =>
         pipe(
           s.hourWindow,
           Option.exists((hourWindow) =>
@@ -219,7 +219,7 @@ const _scheduledDaysAtom = Atom.family((params: ScheduledDaysParams) =>
           ),
         );
 
-      const getDayKey = (s: Sheet.PopulatedScheduleResult) =>
+      const getDayKey = (s: Schedule.PopulatedScheduleResult) =>
         pipe(
           s.hourWindow,
           Option.map((hourWindow) => formatDayKey(DateTime.setZone(hourWindow.start, timeZone))),

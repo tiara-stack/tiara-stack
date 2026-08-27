@@ -1,9 +1,15 @@
 import { DateTime, Duration, Match, Option, Predicate, pipe } from "effect";
-import type { SheetOutboundMessage, SheetTextPart } from "sheet-bot-api/message";
+import type { BotOutboundMessage, BotTextPart } from "sheet-bot-api/message";
 import type { ClientRef } from "sheet-bot-api/references";
-import * as Sheet from "sheet-ingress-api/schemas/sheet";
-import type { ServiceStatus } from "sheet-ingress-api/sheet-apis-rpc";
 import * as MessageText from "./text";
+import * as Sheet from "./schedule";
+
+export type ServiceStatus = {
+  readonly status: "ok" | "down";
+  readonly httpStatus: number | null;
+  readonly latencyMs: number | null;
+  readonly error: string | null;
+};
 
 export type ClientConversationCacheEntry = {
   readonly parentId: string;
@@ -17,9 +23,9 @@ export type ClientConversationCacheEntry = {
   };
 };
 
-type MessagePayload = SheetOutboundMessage;
+type MessagePayload = BotOutboundMessage;
 type MessageEmbed = NonNullable<NonNullable<MessagePayload["embeds"]>[number]>;
-type MessageTextValue = ReadonlyArray<SheetTextPart>;
+type MessageTextValue = ReadonlyArray<BotTextPart>;
 type MessageTextInput = string | MessageTextValue;
 
 export const textValue = (value: MessageTextInput): MessageTextValue =>
@@ -348,7 +354,7 @@ export const joinDedupeAdjacent = (items: ReadonlyArray<MessageTextValue>): Mess
 };
 
 export const renderCheckedInContent = (
-  initialMessage: ReadonlyArray<SheetTextPart>,
+  initialMessage: ReadonlyArray<BotTextPart>,
   members: ReadonlyArray<{ readonly memberId: string; readonly checkinAt: Option.Option<unknown> }>,
 ) => {
   const checkedInMentions = members.filter((member) => Option.isSome(member.checkinAt));

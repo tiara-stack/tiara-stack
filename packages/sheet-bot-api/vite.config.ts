@@ -7,7 +7,9 @@ export default library({
   pack: {
     entry: {
       admission: entry("admission"),
+      actions: entry("actions"),
       cache: entry("cache"),
+      discord: entry("discord"),
       delivery: entry("delivery"),
       errors: entry("errors"),
       http: entry("http"),

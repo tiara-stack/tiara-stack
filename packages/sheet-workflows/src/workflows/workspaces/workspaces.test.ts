@@ -23,11 +23,7 @@ import { AutonomousDeclaredFailure, WorkspacesDeliverWelcome } from "sheet-workf
 import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import { SheetBotCacheClient } from "@/services/sheetBotCacheClient";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
-import {
-  makeSheetApisClient,
-  makeTrustedSheetPersistenceMock,
-  normalizePayloadText,
-} from "@/services/testHelpers";
+import { makeTrustedSheetPersistenceMock, normalizePayloadText } from "@/services/testHelpers";
 import {
   ReadOnlyWorkflowAuthorization,
   readOnlyWorkflowAuthorizationLayer,
@@ -142,7 +138,7 @@ const authorizationProgram = <A, E>(
   environment: Record<string, unknown>,
 ) => {
   const bot = makeBot({});
-  const persistence = makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+  const persistence = makeTrustedSheetPersistenceMock();
   return Effect.gen(function* () {
     return yield* use(yield* ReadOnlyWorkflowAuthorization);
   }).pipe(

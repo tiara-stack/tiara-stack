@@ -10,13 +10,30 @@ import { SheetBotApi } from "sheet-bot-api/http";
 import {
   botCapabilityDeliveryHandlersLayer,
   discordInteractionMessageToRef,
-  makeUpdateConversationHandler,
   validateResponseWorkspaceBinding,
 } from "./http";
 import { deliveryStoreInput } from "./services/botDeliveryBinding";
 import { BotCapabilityStore } from "./services/botCapabilityStore";
 
 const client = { platform: "discord", clientId: "discord-main" } as const;
+
+const makeDeliveryHttpClient = (
+  rest: Layer.Layer<DiscordREST>,
+  store: typeof BotCapabilityStore.Service,
+) =>
+  HttpApiTest.groups(SheetBotApi, ["delivery"]).pipe(
+    Effect.provide(botCapabilityDeliveryHandlersLayer),
+    Effect.provide(rest),
+    Effect.provide(Layer.succeed(BotCapabilityStore, store)),
+    Effect.provide(
+      ConfigProvider.layer(ConfigProvider.fromUnknown({ SHEET_BOT_CLIENT_ID: client.clientId })),
+    ),
+    Effect.provide(NodeFileSystem.layer),
+    Effect.provide(NodeHttpPlatform.layer),
+    Effect.provide(NodePath.layer),
+    Effect.provide(Etag.layer),
+    Effect.scoped,
+  );
 
 describe("discordInteractionMessageToRef", () => {
   it("uses guild_id when Discord includes it", () => {
@@ -60,14 +77,14 @@ describe("discordInteractionMessageToRef", () => {
     Effect.gen(function* () {
       const responseReference = Schema.decodeUnknownSync(ResponseReference)("response-1");
       const deliveryKey = Schema.decodeUnknownSync(DeliveryKey)("delivery-1");
-      const rest = {
+      const rest = Layer.succeed(DiscordREST, {
         updateOriginalWebhookMessage: () =>
           Effect.succeed({ id: "message-1", channel_id: "channel-1" } as Discord.MessageResponse),
         withFiles:
           () =>
           <A, E, R>(effect: Effect.Effect<A, E, R>) =>
             effect,
-      } as unknown as typeof DiscordREST.Service;
+      } as unknown as typeof DiscordREST.Service);
       const store = {
         resolveResponseReference: () =>
           Effect.succeed({
@@ -84,21 +101,7 @@ describe("discordInteractionMessageToRef", () => {
           readonly effect: Effect.Effect<unknown, unknown, never>;
         }) => effect,
       } as unknown as typeof BotCapabilityStore.Service;
-      const httpClient = yield* HttpApiTest.groups(SheetBotApi, ["delivery"]).pipe(
-        Effect.provide(botCapabilityDeliveryHandlersLayer),
-        Effect.provide(Layer.succeed(DiscordREST, rest)),
-        Effect.provide(Layer.succeed(BotCapabilityStore, store)),
-        Effect.provide(
-          ConfigProvider.layer(
-            ConfigProvider.fromUnknown({ SHEET_BOT_CLIENT_ID: client.clientId }),
-          ),
-        ),
-        Effect.provide(NodeFileSystem.layer),
-        Effect.provide(NodeHttpPlatform.layer),
-        Effect.provide(NodePath.layer),
-        Effect.provide(Etag.layer),
-        Effect.scoped,
-      );
+      const httpClient = yield* makeDeliveryHttpClient(rest, store);
 
       const receipt = yield* httpClient.delivery.respond({
         payload: {
@@ -123,6 +126,108 @@ describe("discordInteractionMessageToRef", () => {
           },
         },
       });
+    }),
+  );
+});
+
+describe("SheetBotApi permission-overwrite delivery", () => {
+  const conversation = {
+    conversationId: "channel-1",
+    workspace: { client, workspaceId: "guild-1" },
+  } as const;
+
+  const permissionOverwrites = [
+    { targetId: "role-1", targetKind: "role", allow: "1024", deny: "2048" },
+    { targetId: "member-1", targetKind: "member", allow: "4096", deny: "8192" },
+  ] as const;
+
+  const makeStore = () =>
+    ({
+      executeDelivery: ({ effect }: { readonly effect: Effect.Effect<unknown, unknown, never> }) =>
+        effect,
+    }) as unknown as typeof BotCapabilityStore.Service;
+
+  it.effect("forwards permission overwrites with Discord target types", () =>
+    Effect.gen(function* () {
+      const updates: Array<unknown> = [];
+      const rest = Layer.sync(DiscordREST)(
+        () =>
+          ({
+            updateChannel: (channelId: string, payload: unknown) =>
+              Effect.sync(() => {
+                updates.push({ channelId, payload });
+                return {};
+              }),
+          }) as unknown as typeof DiscordREST.Service,
+      );
+      const httpClient = yield* makeDeliveryHttpClient(rest, makeStore());
+
+      const receipt = yield* httpClient.delivery.replaceConversationPermissionOverwrites({
+        payload: {
+          conversation,
+          deliveryKey: Schema.decodeUnknownSync(DeliveryKey)("delivery-1"),
+          permissionOverwrites,
+        },
+      });
+
+      expect(updates).toEqual([
+        {
+          channelId: "channel-1",
+          payload: {
+            permission_overwrites: [
+              { id: "role-1", type: 0, allow: "1024", deny: "2048" },
+              { id: "member-1", type: 1, allow: "4096", deny: "8192" },
+            ],
+          },
+        },
+      ]);
+      expect(receipt).toMatchObject({
+        deliveryKey: "delivery-1",
+        operation: "replaceConversationPermissionOverwrites",
+        target: { _tag: "Conversation", conversation },
+      });
+    }),
+  );
+
+  it.effect("rejects an unconfigured Discord client before calling REST", () =>
+    Effect.gen(function* () {
+      const updates: Array<unknown> = [];
+      const rest = Layer.sync(DiscordREST)(
+        () =>
+          ({
+            updateChannel: () =>
+              Effect.sync(() => {
+                updates.push("unexpected update");
+                return {};
+              }),
+          }) as unknown as typeof DiscordREST.Service,
+      );
+      const httpClient = yield* makeDeliveryHttpClient(rest, makeStore());
+      const exit = yield* Effect.exit(
+        httpClient.delivery.replaceConversationPermissionOverwrites({
+          payload: {
+            conversation: {
+              ...conversation,
+              workspace: {
+                ...conversation.workspace,
+                client: {
+                  ...conversation.workspace.client,
+                  clientId: "discord-unconfigured",
+                },
+              },
+            },
+            deliveryKey: Schema.decodeUnknownSync(DeliveryKey)("delivery-2"),
+            permissionOverwrites,
+          },
+        }),
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isSuccess(exit)) return;
+      expect(Cause.squash(exit.cause)).toMatchObject({
+        _tag: "BotResourceNotFound",
+        resource: "client",
+      });
+      expect(updates).toEqual([]);
     }),
   );
 });
@@ -169,7 +274,7 @@ describe("deliveryStoreInput", () => {
 });
 
 describe("validateResponseWorkspaceBinding", () => {
-  it.effect("accepts legacy unbound calls and exact workspace bindings", () =>
+  it.effect("accepts unbound responses and exact workspace bindings", () =>
     Effect.gen(function* () {
       yield* validateResponseWorkspaceBinding({}, undefined);
       yield* validateResponseWorkspaceBinding(
@@ -192,67 +297,6 @@ describe("validateResponseWorkspaceBinding", () => {
           message: "Response Reference does not match the requested workspace",
         });
       }
-    }),
-  );
-});
-
-describe("updateConversation handler", () => {
-  const conversation = {
-    workspace: { client, workspaceId: "guild-1" },
-    conversationId: "channel-1",
-  } as const;
-  const permissionOverwrites = [
-    { id: "role-1", type: 0, allow: "330752", deny: "0" },
-    { id: "guild-1", type: 0, allow: "0", deny: "1024" },
-  ] as const;
-
-  it.effect("forwards the exact permission overwrite array to Discord", () =>
-    Effect.gen(function* () {
-      const calls: Array<unknown> = [];
-      const handler = makeUpdateConversationHandler(client.clientId, {
-        updateChannel: (channelId, payload) => {
-          calls.push({ channelId, payload });
-          return Effect.succeed({});
-        },
-      });
-
-      yield* handler({ payload: { conversation, permissionOverwrites } });
-
-      expect(calls).toEqual([
-        {
-          channelId: "channel-1",
-          payload: { permission_overwrites: permissionOverwrites },
-        },
-      ]);
-    }),
-  );
-
-  it.effect("rejects updates for a different configured client", () =>
-    Effect.gen(function* () {
-      const handler = makeUpdateConversationHandler(client.clientId, {
-        updateChannel: () => Effect.die("foreign clients must not reach Discord REST"),
-      });
-
-      const exit = yield* Effect.exit(
-        handler({
-          payload: {
-            conversation: {
-              ...conversation,
-              workspace: {
-                ...conversation.workspace,
-                client: { platform: "discord", clientId: "discord-alt" },
-              },
-            },
-            permissionOverwrites,
-          },
-        }),
-      );
-      const error = Exit.isFailure(exit) ? Cause.findErrorOption(exit.cause) : Option.none();
-
-      expect(Option.getOrNull(error)).toMatchObject({
-        _tag: "ArgumentError",
-        message: "Unknown Discord client discord:discord-alt",
-      });
     }),
   );
 });

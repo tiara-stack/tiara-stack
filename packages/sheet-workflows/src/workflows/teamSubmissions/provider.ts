@@ -1,8 +1,34 @@
 import { sheets, type sheets_v4 } from "@googleapis/sheets";
-import { Cause, Context, Data, Effect, Exit, Layer, Option, Predicate } from "effect";
+import {
+  Cause,
+  Context,
+  Data,
+  Effect,
+  Exit,
+  Layer,
+  Match,
+  Option,
+  Predicate,
+  Schema,
+} from "effect";
 import { GoogleAuth } from "google-auth-library";
-import { readSheetsValueRanges } from "../shared/runnerLocalSheets";
+import {
+  cellText,
+  parseKeyValueRows,
+  readSheetsValueRanges,
+  type ValueRows,
+  valueRowsAt,
+} from "../shared/runnerLocalSheets";
 import { actualMatchesExpectedCells, parseA1Start, type SheetValueUpdate } from "./pure";
+import {
+  RangesConfig,
+  TeamConfig,
+  TeamIsvCombinedConfig,
+  TeamIsvSplitConfig,
+  TeamTagsConstantsConfig,
+  TeamTagsRangesConfig,
+  type TeamSubmissionSheetConfiguration,
+} from "./values";
 
 export type TeamSubmissionValueRange = {
   readonly range: string;
@@ -21,6 +47,9 @@ export class TeamSubmissionWriteError extends Data.TaggedError("TeamSubmissionWr
 }> {}
 
 export interface TeamSubmissionProviderShape {
+  readonly loadConfiguration: (
+    spreadsheetId: string,
+  ) => Effect.Effect<TeamSubmissionSheetConfiguration, TeamSubmissionProviderError>;
   readonly read: (
     spreadsheetId: string,
     ranges: ReadonlyArray<string>,
@@ -117,6 +146,128 @@ const boundedAppendReadRange = (range: string): string => {
 export const makeTeamSubmissionProvider = (
   client: sheets_v4.Sheets,
 ): TeamSubmissionProviderShape => {
+  const configurationRanges = [
+    "'Thee''s Sheet Settings'!B8:C",
+    "'Thee''s Sheet Settings'!E8:M",
+  ] as const;
+
+  const decodeOptionalString = (value: string | undefined) => value ?? null;
+
+  const qualifyRange = <Range extends string | null>(
+    sheet: string | null,
+    range: Range,
+  ): Range | string =>
+    range === null || sheet === null || range === "auto" || range.includes("!")
+      ? range
+      : `'${sheet.replaceAll("'", "''")}'!${range}`;
+
+  const parseRangesConfiguration = (rows: ValueRows) => {
+    const entries = parseKeyValueRows(rows);
+    return Schema.decodeUnknownEffect(RangesConfig)({
+      _tag: "RangesConfig",
+      userIds: entries.get("User IDs"),
+      userSheetNames: entries.get("User Sheet Names"),
+      userNotes: decodeOptionalString(entries.get("User Notes")),
+      monitorIds: decodeOptionalString(entries.get("Moni IDs")),
+      monitorNames: decodeOptionalString(entries.get("Moni Names")),
+      oshis: decodeOptionalString(entries.get("Oshis")),
+    });
+  };
+
+  const parseIsvConfig = (
+    type: string | undefined,
+    ranges: string | undefined,
+    sheet: string | null,
+  ) =>
+    Match.value(type).pipe(
+      Match.when("split", () => {
+        const splitRanges = (ranges ?? "").split(",").map((value) => value.trim());
+        const [leadRange, backlineRange, talentRange] = splitRanges;
+        return splitRanges.length === 3 && leadRange && backlineRange && talentRange
+          ? new TeamIsvSplitConfig({
+              leadRange: qualifyRange(sheet, leadRange),
+              backlineRange: qualifyRange(sheet, backlineRange),
+              talentRange: qualifyRange(sheet, talentRange),
+            })
+          : null;
+      }),
+      Match.when("combined", () =>
+        ranges ? new TeamIsvCombinedConfig({ isvRange: qualifyRange(sheet, ranges) }) : null,
+      ),
+      Match.orElse(() => null),
+    );
+
+  const parseTagsConfig = (
+    type: string | undefined,
+    tags: string | undefined,
+    sheet: string | null,
+  ) =>
+    Match.value(type).pipe(
+      Match.when(
+        "constants",
+        () =>
+          new TeamTagsConstantsConfig({
+            tags: (tags ?? "")
+              .split(",")
+              .map((value) => value.trim())
+              .filter((value) => value.length > 0),
+          }),
+      ),
+      Match.when("ranges", () =>
+        tags !== undefined
+          ? new TeamTagsRangesConfig({ tagsRange: qualifyRange(sheet, tags) })
+          : null,
+      ),
+      Match.orElse(() => null),
+    );
+
+  const parseTeamConfiguration = (row: ReadonlyArray<unknown>) => {
+    if (row.every((value) => Predicate.isUndefined(cellText(value)))) {
+      return Effect.succeed(Option.none<TeamConfig>());
+    }
+    const sheet = decodeOptionalString(cellText(row[1]));
+    return Schema.decodeUnknownEffect(TeamConfig)({
+      _tag: "TeamConfig",
+      name: decodeOptionalString(cellText(row[0])),
+      sheet,
+      playerNameRange: qualifyRange(sheet, decodeOptionalString(cellText(row[2]))),
+      teamNameRange: qualifyRange(sheet, decodeOptionalString(cellText(row[3]))),
+      isvConfig: parseIsvConfig(cellText(row[4]), cellText(row[5]), sheet),
+      tagsConfig: parseTagsConfig(cellText(row[6]), cellText(row[7]), sheet),
+      oshiRange: qualifyRange(sheet, decodeOptionalString(cellText(row[8]))),
+    }).pipe(Effect.map(Option.some));
+  };
+
+  const parseTeamConfigurations = (rows: ValueRows) =>
+    Effect.gen(function* () {
+      const configs: Array<TeamConfig> = [];
+      for (const row of rows) {
+        const config = yield* parseTeamConfiguration(row);
+        if (Option.isSome(config)) configs.push(config.value);
+      }
+      return configs;
+    });
+
+  const loadConfiguration: TeamSubmissionProviderShape["loadConfiguration"] = (spreadsheetId) =>
+    readSheetsValueRanges({
+      client,
+      spreadsheetId,
+      ranges: configurationRanges,
+      makeError: (cause) => new TeamSubmissionProviderError({ operation: "read", cause }),
+    }).pipe(
+      Effect.flatMap((ranges) =>
+        Effect.all({
+          rangesConfig: parseRangesConfiguration(valueRowsAt(ranges, 0)),
+          teamConfigs: parseTeamConfigurations(valueRowsAt(ranges, 1)),
+        }),
+      ),
+      Effect.mapError((cause) =>
+        Predicate.isTagged("TeamSubmissionProviderError")(cause)
+          ? cause
+          : new TeamSubmissionProviderError({ operation: "read", cause }),
+      ),
+    );
+
   const read: TeamSubmissionProviderShape["read"] = (spreadsheetId, ranges) =>
     ranges.length === 0
       ? Effect.succeed([])
@@ -258,7 +409,7 @@ export const makeTeamSubmissionProvider = (
       return yield* Effect.failCause(failure);
     });
 
-  return { read, write, append };
+  return { loadConfiguration, read, write, append };
 };
 
 export const teamSubmissionProviderLayer = Layer.effect(

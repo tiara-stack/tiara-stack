@@ -8,17 +8,17 @@ import {
   ParsedTeamEntry,
   TeamSubmissionRowMapping,
   TeamSubmissionRollbackSnapshot,
+  RangesConfig,
+  TeamConfig,
   TEAM_SUBMISSION_FEATURE_FLAG,
-} from "sheet-ingress-api/schemas/teamSubmission";
-import { RangesConfig, TeamConfig } from "sheet-ingress-api/schemas/sheetConfig";
+} from "./values";
 import { TeamSubmissionsDecide, TeamSubmissionsProcess } from "sheet-workflow-contracts";
 import {
   TrustedSheetPersistence,
   type TrustedSheetPersistenceShape,
 } from "sheet-zero-server/persistence";
-import { SheetApisClient } from "@/services/sheetApisClient";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
-import { makeSheetApisClient, makeTrustedSheetPersistenceMock } from "@/services/testHelpers";
+import { makeTrustedSheetPersistenceMock } from "@/services/testHelpers";
 import { ReadOnlyWorkflowAuthorization } from "../readOnly/authorization";
 import { makeRecordingWorkflowAuthorization } from "../shared/testHelpers";
 import { pendingAppendRollbackRange } from "./pure";
@@ -125,7 +125,7 @@ const makeHarness = (options: HarnessOptions = {}) => {
   const persistedStatuses: Array<MessageTeamSubmissionRow["status"]> = [];
   const deliveryOperations: Array<string> = [];
   const sheetWrites: Array<ReadonlyArray<{ readonly range: string }>> = [];
-  const basePersistence = makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+  const basePersistence = makeTrustedSheetPersistenceMock();
   const now = 0;
   const workspaceConfig = {
     workspaceId: "workspace-1",
@@ -173,12 +173,6 @@ const makeHarness = (options: HarnessOptions = {}) => {
     tagsConfig: { _tag: "TeamTagsConstantsConfig", tags: ["full fill"] },
     oshiRange: null,
   });
-  const api = makeSheetApisClient({
-    sheet: {
-      getRangesConfig: () => Effect.succeed(rangesConfig),
-      getTeamConfig: () => Effect.succeed([teamConfig]),
-    },
-  });
   const upsertMessageTeamSubmission: TrustedSheetPersistenceShape["teamSubmissionState"]["upsertMessageTeamSubmission"] =
     (args) =>
       Effect.sync(() => {
@@ -222,6 +216,7 @@ const makeHarness = (options: HarnessOptions = {}) => {
     },
   };
   const provider: TeamSubmissionProviderShape = {
+    loadConfiguration: () => Effect.succeed({ rangesConfig, teamConfigs: [teamConfig] }),
     read: (_spreadsheetId, ranges) =>
       Effect.succeed(
         ranges.map((range) => ({
@@ -294,7 +289,6 @@ const makeHarness = (options: HarnessOptions = {}) => {
     Effect.provide(teamSubmissionsWorkflowOperationsLayer),
     Effect.provideService(TrustedSheetPersistence, persistence),
     Effect.provideService(TeamSubmissionProvider, provider),
-    Effect.provideService(SheetApisClient, api),
     Effect.provideService(SheetBotDeliveryClient, { get: () => bot }),
     Effect.provideService(ReadOnlyWorkflowAuthorization, authorization),
     Effect.provide(sheetBotClientConfigLayer(client.clientId)),

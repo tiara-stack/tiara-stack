@@ -1,20 +1,9 @@
 import { useAtomSet, useAtomSuspense } from "@effect/atom-react";
-import { DateTime, Duration, Effect, HashSet, Option, Predicate, Schema } from "effect";
+import { Duration, Effect, HashSet, Option, Predicate, Schema } from "effect";
 import { AsyncResult, Atom, Reactivity } from "effect/unstable/reactivity";
 import { useCallback, useMemo } from "react";
-import { isDiscordCategoryChannelType } from "sheet-ingress-api/guild-config";
+import { isDiscordCategoryChannelType } from "sheet-bot-api";
 import { api as sheetZeroApi } from "sheet-zero-api";
-import { DiscordGuildChannel, DiscordGuildRole } from "sheet-ingress-api/schemas/discord";
-import {
-  CurrentUserPermissions,
-  Permission,
-  type PermissionSet,
-} from "sheet-ingress-api/schemas/permissions";
-import {
-  WorkspaceConfig,
-  WorkspaceConversationConfig,
-  WorkspaceMonitorRole,
-} from "sheet-ingress-api/schemas/workspaceConfig";
 import {
   ConfigWorkspaceConversationRow,
   ConfigWorkspaceMonitorRoleRow,
@@ -23,7 +12,9 @@ import {
 import {
   ConversationsSetLockdownInput,
   ConversationsSetLockdownSuccess,
+  DiscordChannel,
   DiscordLoadWorkspaceChannelsSuccess,
+  DiscordRole,
   DiscordLoadWorkspaceRolesSuccess,
   WorkspaceCapabilities,
   WorkspaceInput,
@@ -48,8 +39,14 @@ export type ChannelConfigDraft = {
   readonly checkinConversationId: string;
 };
 
-export type WorkspaceConfigValue = typeof WorkspaceConfig.Type;
-export type WorkspaceConversationConfigValue = typeof WorkspaceConversationConfig.Type;
+export type Permission = string;
+export type PermissionSet = Schema.Schema.Type<typeof PermissionSetSchema>;
+export type WorkspaceConfigValue = ConfigWorkspaceRow;
+export type WorkspaceConversationConfigValue = ConfigWorkspaceConversationRow;
+
+const PermissionSchema = Schema.String;
+const PermissionSetSchema = Schema.HashSet(PermissionSchema);
+const CurrentUserPermissions = Schema.Struct({ permissions: PermissionSetSchema });
 
 type ServerConfigPatch = {
   sheetId?: string;
@@ -119,36 +116,6 @@ const makeUuid = () => {
   ].join("-");
 };
 
-const auditTimestamps = (row: {
-  readonly createdAt: number;
-  readonly updatedAt: number;
-  readonly deletedAt: number | null;
-}) => ({
-  createdAt: Option.some(DateTime.makeUnsafe(row.createdAt)),
-  updatedAt: Option.some(DateTime.makeUnsafe(row.updatedAt)),
-  deletedAt: Option.map(Option.fromNullishOr(row.deletedAt), DateTime.makeUnsafe),
-});
-
-const workspaceConfigFromRow = (row: ConfigWorkspaceRow) =>
-  new WorkspaceConfig({
-    workspaceId: row.workspaceId,
-    sheetId: Option.fromNullishOr(row.sheetId),
-    autoCheckin: Option.fromNullishOr(row.autoCheckin),
-    monitorConversationId: Option.fromNullishOr(row.monitorConversationId),
-    ...auditTimestamps(row),
-  });
-
-const conversationConfigFromRow = (row: ConfigWorkspaceConversationRow) =>
-  new WorkspaceConversationConfig({
-    workspaceId: row.workspaceId,
-    conversationId: row.conversationId,
-    name: Option.fromNullishOr(row.name),
-    running: Option.fromNullishOr(row.running),
-    roleId: Option.fromNullishOr(row.roleId),
-    checkinConversationId: Option.fromNullishOr(row.checkinConversationId),
-    ...auditTimestamps(row),
-  });
-
 const guildQueryFamily = <A>(
   key: string,
   schema: Schema.Codec<AsyncResult.AsyncResult<A, unknown>, unknown>,
@@ -188,7 +155,9 @@ export const guildPermissionsAtom = guildQueryFamily(
           app_owner: () => "app_owner",
         };
         const permissions = yield* Effect.forEach(capabilities.capabilities, (capability) =>
-          Schema.decodeUnknownEffect(Permission)(permissionForCapability[capability](workspaceId)),
+          Schema.decodeUnknownEffect(PermissionSchema)(
+            permissionForCapability[capability](workspaceId),
+          ),
         );
         return { permissions: HashSet.fromIterable(permissions) };
       }),
@@ -197,7 +166,7 @@ export const guildPermissionsAtom = guildQueryFamily(
 
 export const guildChannelsAtom = guildQueryFamily(
   "guildConfig.discordChannels",
-  asyncResultSchema(Schema.Array(DiscordGuildChannel)),
+  asyncResultSchema(DiscordLoadWorkspaceChannelsSuccess),
   (workspaceId: string) =>
     Atom.make(
       Effect.fnUntraced(function* (get) {
@@ -214,7 +183,7 @@ export const guildChannelsAtom = guildQueryFamily(
 
 export const guildRolesAtom = guildQueryFamily(
   "guildConfig.discordRoles",
-  asyncResultSchema(Schema.Array(DiscordGuildRole)),
+  asyncResultSchema(DiscordLoadWorkspaceRolesSuccess),
   (workspaceId: string) =>
     Atom.make(
       Effect.fnUntraced(function* (get) {
@@ -231,7 +200,7 @@ export const guildRolesAtom = guildQueryFamily(
 
 export const workspaceConfigAtom = guildQueryFamily(
   "guildConfig.server",
-  asyncResultSchema(WorkspaceConfig),
+  asyncResultSchema(ConfigWorkspaceRow),
   (workspaceId: string) =>
     Atom.make(
       Effect.fnUntraced(function* (get) {
@@ -249,14 +218,14 @@ export const workspaceConfigAtom = guildQueryFamily(
             new WorkspaceNotRegisteredError({ message: "The workspace is not registered" }),
           );
         }
-        return workspaceConfigFromRow(row.value);
+        return row.value;
       }),
     ),
 );
 
 export const workspaceMonitorRolesAtom = guildQueryFamily(
   "guildConfig.monitorRoles",
-  asyncResultSchema(Schema.Array(WorkspaceMonitorRole)),
+  asyncResultSchema(Schema.Array(ConfigWorkspaceMonitorRoleRow)),
   (workspaceId: string) =>
     Atom.make(
       Effect.fnUntraced(function* (get) {
@@ -269,21 +238,14 @@ export const workspaceMonitorRolesAtom = guildQueryFamily(
         const rows = yield* Schema.decodeUnknownEffect(Schema.Array(ConfigWorkspaceMonitorRoleRow))(
           rawRows,
         );
-        return rows.map(
-          (row) =>
-            new WorkspaceMonitorRole({
-              workspaceId: row.workspaceId,
-              roleId: row.roleId,
-              ...auditTimestamps(row),
-            }),
-        );
+        return rows;
       }),
     ),
 );
 
 export const workspaceConversationsAtom = guildQueryFamily(
   "guildConfig.conversations",
-  asyncResultSchema(Schema.Array(WorkspaceConversationConfig)),
+  asyncResultSchema(Schema.Array(ConfigWorkspaceConversationRow)),
   (workspaceId: string) =>
     Atom.make(
       Effect.fnUntraced(function* (get) {
@@ -296,7 +258,7 @@ export const workspaceConversationsAtom = guildQueryFamily(
         const rows = yield* Schema.decodeUnknownEffect(
           Schema.Array(ConfigWorkspaceConversationRow),
         )(rawRows);
-        return rows.map(conversationConfigFromRow);
+        return rows;
       }),
     ),
 );
@@ -325,7 +287,7 @@ const upsertWorkspaceConfigMutation = runtimeAtom.fn(
         }),
       );
     }
-    return workspaceConfigFromRow(row.value);
+    return row.value;
   }),
 );
 
@@ -387,7 +349,7 @@ const upsertConversationMutation = runtimeAtom.fn(
         }),
       );
     }
-    return conversationConfigFromRow(row);
+    return row;
   }),
 );
 
@@ -544,9 +506,9 @@ export const guildCapabilities = (permissions: PermissionSet, workspaceId: strin
 };
 
 export const serverConfigFormFrom = (config: WorkspaceConfigValue): ServerConfigForm => ({
-  sheetId: Option.getOrElse(config.sheetId, () => ""),
-  autoCheckin: Option.getOrElse(config.autoCheckin, () => false),
-  monitorConversationId: Option.getOrElse(config.monitorConversationId, () => ""),
+  sheetId: config.sheetId ?? "",
+  autoCheckin: config.autoCheckin ?? false,
+  monitorConversationId: config.monitorConversationId ?? "",
 });
 
 export const serverConfigPatch = (
@@ -554,16 +516,16 @@ export const serverConfigPatch = (
   form: ServerConfigForm,
 ): ServerConfigPatch => {
   const patch: ServerConfigPatch = {};
-  const currentSheetId = Option.getOrElse(config.sheetId, () => "");
+  const currentSheetId = config.sheetId ?? "";
   const sheetId = form.sheetId.trim();
   if (sheetId !== currentSheetId && sheetId.length > 0) {
     patch.sheetId = sheetId;
   }
-  const currentAutoCheckin = Option.getOrElse(config.autoCheckin, () => false);
+  const currentAutoCheckin = config.autoCheckin ?? false;
   if (form.autoCheckin !== currentAutoCheckin) {
     patch.autoCheckin = form.autoCheckin;
   }
-  const currentMonitorConversationId = Option.getOrElse(config.monitorConversationId, () => "");
+  const currentMonitorConversationId = config.monitorConversationId ?? "";
   const monitorConversationId = form.monitorConversationId.trim();
   if (monitorConversationId !== currentMonitorConversationId) {
     patch.monitorConversationId = monitorConversationId.length > 0 ? monitorConversationId : null;
@@ -571,11 +533,8 @@ export const serverConfigPatch = (
   return patch;
 };
 
-const runningFormValue = (value: Option.Option<boolean>): OptionalBooleanFormValue =>
-  Option.match(value, {
-    onNone: () => "unset",
-    onSome: (running) => (running ? "enabled" : "disabled"),
-  });
+const runningFormValue = (value: boolean | null): OptionalBooleanFormValue =>
+  value === null ? "unset" : value ? "enabled" : "disabled";
 
 const emptyChannelDraft = (): ChannelConfigDraft => ({
   running: "unset",
@@ -592,10 +551,10 @@ export const channelDraftFrom = (
     ? emptyChannelDraft()
     : {
         running: runningFormValue(config.running),
-        nameConfigured: Option.isSome(config.name),
-        name: Option.getOrElse(config.name, () => ""),
-        roleId: Option.getOrElse(config.roleId, () => ""),
-        checkinConversationId: Option.getOrElse(config.checkinConversationId, () => ""),
+        nameConfigured: config.name !== null,
+        name: config.name ?? "",
+        roleId: config.roleId ?? "",
+        checkinConversationId: config.checkinConversationId ?? "",
       };
 
 const booleanFormValues: Record<OptionalBooleanFormValue, boolean | null> = {
@@ -606,15 +565,11 @@ const booleanFormValues: Record<OptionalBooleanFormValue, boolean | null> = {
 
 const booleanFromDraft = (value: OptionalBooleanFormValue) => booleanFormValues[value];
 
-const nullableOptionChanged = <A>(
-  current: Option.Option<A>,
+const nullableValueChanged = <A>(
+  current: A | null,
   desired: A | null,
   equals: (left: A, right: A) => boolean,
-) =>
-  Option.match(current, {
-    onNone: () => desired !== null,
-    onSome: (value) => desired === null || !equals(value, desired),
-  });
+) => (current === null ? desired !== null : desired === null || !equals(current, desired));
 
 export const channelConfigPatch = (
   config: WorkspaceConversationConfigValue | undefined,
@@ -626,23 +581,21 @@ export const channelConfigPatch = (
   const desiredRoleId = draft.roleId.length > 0 ? draft.roleId : null;
   const desiredCheckinConversationId =
     draft.checkinConversationId.length > 0 ? draft.checkinConversationId : null;
-  const shouldPatchNullableField = <Value>(current: Option.Option<Value>, desired: Value | null) =>
+  const shouldPatchNullableField = <Value>(current: Value | null, desired: Value | null) =>
     Predicate.isUndefined(config)
       ? desired !== null
-      : nullableOptionChanged(current, desired, Object.is);
+      : nullableValueChanged(current, desired, Object.is);
 
   return {
-    ...(shouldPatchNullableField(config?.running ?? Option.none(), desiredRunning)
+    ...(shouldPatchNullableField(config?.running ?? null, desiredRunning)
       ? { running: desiredRunning }
       : {}),
-    ...(shouldPatchNullableField(config?.name ?? Option.none(), desiredName)
-      ? { name: desiredName }
-      : {}),
-    ...(shouldPatchNullableField(config?.roleId ?? Option.none(), desiredRoleId)
+    ...(shouldPatchNullableField(config?.name ?? null, desiredName) ? { name: desiredName } : {}),
+    ...(shouldPatchNullableField(config?.roleId ?? null, desiredRoleId)
       ? { roleId: desiredRoleId }
       : {}),
     ...(shouldPatchNullableField(
-      config?.checkinConversationId ?? Option.none(),
+      config?.checkinConversationId ?? null,
       desiredCheckinConversationId,
     )
       ? { checkinConversationId: desiredCheckinConversationId }
@@ -653,7 +606,7 @@ export const channelConfigPatch = (
 export const isEmptyPatch = (patch: Readonly<Record<string, unknown>>) =>
   Object.keys(patch).length === 0;
 
-export const sortGuildChannels = (channels: ReadonlyArray<DiscordGuildChannel>) =>
+export const sortGuildChannels = (channels: ReadonlyArray<typeof DiscordChannel.Type>) =>
   [...channels].sort(
     (left, right) =>
       left.position - right.position ||
@@ -661,7 +614,7 @@ export const sortGuildChannels = (channels: ReadonlyArray<DiscordGuildChannel>) 
       left.id.localeCompare(right.id),
   );
 
-export const sortGuildRoles = (roles: ReadonlyArray<DiscordGuildRole>) =>
+export const sortGuildRoles = (roles: ReadonlyArray<typeof DiscordRole.Type>) =>
   [...roles].sort(
     (left, right) =>
       right.position - left.position ||
@@ -669,11 +622,11 @@ export const sortGuildRoles = (roles: ReadonlyArray<DiscordGuildRole>) =>
       left.id.localeCompare(right.id),
   );
 
-const channelLabelKey = (channel: DiscordGuildChannel, label: string) =>
+const channelLabelKey = (channel: typeof DiscordChannel.Type, label: string) =>
   `${isDiscordCategoryChannelType(channel.type) ? "category" : "channel"}:${label}`;
 
 const countChannelLabels = (
-  channels: ReadonlyArray<DiscordGuildChannel>,
+  channels: ReadonlyArray<typeof DiscordChannel.Type>,
   labelById: ReadonlyMap<string, string>,
 ) => {
   const counts = new Map<string, number>();
@@ -686,9 +639,9 @@ const countChannelLabels = (
 };
 
 const makeChannelBaseLabels = (
-  channels: ReadonlyArray<DiscordGuildChannel>,
+  channels: ReadonlyArray<typeof DiscordChannel.Type>,
   nameCounts: ReadonlyMap<string, number>,
-  categoriesById: ReadonlyMap<string, DiscordGuildChannel>,
+  categoriesById: ReadonlyMap<string, typeof DiscordChannel.Type>,
 ) => {
   const labels = new Map<string, string>();
   for (const channel of channels) {
@@ -703,9 +656,9 @@ const makeChannelBaseLabels = (
 };
 
 export const buildChannelLabels = (
-  channels: ReadonlyArray<DiscordGuildChannel>,
+  channels: ReadonlyArray<typeof DiscordChannel.Type>,
 ): ReadonlyMap<string, string> => {
-  const categoriesById = new Map<string, DiscordGuildChannel>();
+  const categoriesById = new Map<string, typeof DiscordChannel.Type>();
   const channelNames = new Map<string, string>();
   for (const channel of channels) {
     channelNames.set(channel.id, channel.name);

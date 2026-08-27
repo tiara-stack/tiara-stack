@@ -8,7 +8,7 @@ import {
 } from "sheet-zero-server/persistence";
 import { RoomOrdersPinTentative, WorkspaceId } from "sheet-workflow-contracts";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
-import { makeSheetApisClient, makeTrustedSheetPersistenceMock } from "@/services/testHelpers";
+import { makeTrustedSheetPersistenceMock } from "@/services/testHelpers";
 import {
   roomOrderRow,
   workflowTestInvocationId as invocationId,
@@ -367,7 +367,7 @@ describe("tentative room-order pin Workflow Definition slice", () => {
     () =>
       Effect.gen(function* () {
         let current = roomOrderRow({ tentative: true });
-        const base = makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+        const base = makeTrustedSheetPersistenceMock();
         const payloads: Array<{ readonly operation: string; readonly payload: unknown }> = [];
         const persistence: TrustedSheetPersistenceShape = {
           ...base,
@@ -486,7 +486,7 @@ describe("tentative room-order pin Workflow Definition slice", () => {
   it.effect("rejects missing canonical registration before any delivery", () =>
     Effect.gen(function* () {
       let deliveries = 0;
-      const base = makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+      const base = makeTrustedSheetPersistenceMock();
       const persistence: TrustedSheetPersistenceShape = {
         ...base,
         roomOrderState: {

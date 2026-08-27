@@ -13,7 +13,6 @@ export const buildFileUploadFormData = (
     }>;
   },
   fs: FileSystem.FileSystem,
-  interactionToken?: string,
 ) =>
   Effect.gen(function* () {
     const fileInfo = yield* Effect.forEach(payload.files, (file) => fs.stat(file.path));
@@ -23,9 +22,6 @@ export const buildFileUploadFormData = (
     }
 
     const formData = new FormData();
-    if (interactionToken !== undefined) {
-      formData.append("interactionToken", interactionToken);
-    }
     formData.append("payload", JSON.stringify(payload.payload));
 
     yield* Effect.forEach(

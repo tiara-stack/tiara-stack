@@ -12,11 +12,7 @@ import {
 import { ZeroClient } from "typhoon-zero/client";
 import { SheetBotCacheClient } from "@/services/sheetBotCacheClient";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
-import {
-  makeSheetApisClient,
-  makeTrustedSheetPersistenceMock,
-  normalizePayloadText,
-} from "@/services/testHelpers";
+import { makeTrustedSheetPersistenceMock, normalizePayloadText } from "@/services/testHelpers";
 import { ReadOnlyWorkflowAuthorization } from "../readOnly/authorization";
 import {
   makeRecordingWorkflowAuthorization,
@@ -96,7 +92,7 @@ const makeOperations = (
   slotState: TrustedSheetPersistence["Service"]["slotState"],
   bot: SheetBotHttpClient,
 ) => {
-  const base = makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+  const base = makeTrustedSheetPersistenceMock();
   return Effect.gen(function* () {
     return yield* SlotWorkflowOperations;
   }).pipe(
@@ -110,7 +106,7 @@ const makeOperations = (
   );
 };
 
-const baseSlotState = () => makeTrustedSheetPersistenceMock(makeSheetApisClient({})).slotState;
+const baseSlotState = () => makeTrustedSheetPersistenceMock().slotState;
 
 describe("slot Workflow Definition slices", () => {
   it("keeps the existing slot definitions and appends the pinned slot-open definition", () => {

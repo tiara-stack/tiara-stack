@@ -21,8 +21,6 @@
       "sheet-auth/*": ["../sheet-auth/src/*"],
       "sheet-bot-api": ["../sheet-bot-api/src/index.ts"],
       "sheet-bot-api/*": ["../sheet-bot-api/src/*"],
-      "sheet-ingress-api": ["../sheet-ingress-api/src/index.ts"],
-      "sheet-ingress-api/*": ["../sheet-ingress-api/src/*"],
       "sheet-workflow-contracts": ["../sheet-workflow-contracts/src/index.ts"],
       "sheet-workflow-contracts/*": ["../sheet-workflow-contracts/src/*"],
       "sheet-workflow-http-client": ["../sheet-workflow-http-client/src/index.ts"],
@@ -44,9 +42,6 @@
     },
     {
       "path": "../sheet-bot-api"
-    },
-    {
-      "path": "../sheet-ingress-api"
     },
     {
       "path": "../sheet-workflow-contracts"

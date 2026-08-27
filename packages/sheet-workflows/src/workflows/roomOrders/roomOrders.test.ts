@@ -25,7 +25,7 @@ import {
 import { authorizeRoomOrdersNavigateWorkflow } from "../shared/interactive";
 import { SheetBotCacheClient } from "@/services/sheetBotCacheClient";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
-import { makeSheetApisClient, makeTrustedSheetPersistenceMock } from "@/services/testHelpers";
+import { makeTrustedSheetPersistenceMock } from "@/services/testHelpers";
 import {
   type MessageRoomOrderRow,
   roomOrderRow,
@@ -209,7 +209,7 @@ describe("room-order navigation Workflow Definition slice", () => {
   it.effect("serializes claims by configured-client message and reconciles stable replay", () =>
     Effect.gen(function* () {
       let current = roomOrderRow({ rank: context.rank });
-      const base = makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+      const base = makeTrustedSheetPersistenceMock();
       const persistence: TrustedSheetPersistenceShape = {
         ...base,
         roomOrderState: {
@@ -256,7 +256,7 @@ describe("room-order navigation Workflow Definition slice", () => {
         tentativeUpdateClaimId: claim.claimId,
       });
       let mutationCalls = 0;
-      const base = makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+      const base = makeTrustedSheetPersistenceMock();
       const persistence: TrustedSheetPersistenceShape = {
         ...base,
         roomOrderState: {
@@ -290,7 +290,7 @@ describe("room-order navigation Workflow Definition slice", () => {
         rank: context.rank,
         tentativeUpdateClaimId: claim.claimId,
       });
-      const base = makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+      const base = makeTrustedSheetPersistenceMock();
       const persistence: TrustedSheetPersistenceShape = {
         ...base,
         roomOrderState: {
@@ -323,7 +323,7 @@ describe("room-order navigation Workflow Definition slice", () => {
       ];
 
       for (const verificationResult of verificationResults) {
-        const base = makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+        const base = makeTrustedSheetPersistenceMock();
         const persistence: TrustedSheetPersistenceShape = {
           ...base,
           roomOrderState: {
@@ -359,7 +359,7 @@ describe("room-order navigation Workflow Definition slice", () => {
         updatedAt: 1,
         deletedAt: null,
       });
-      const base = makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+      const base = makeTrustedSheetPersistenceMock();
       const persistence: TrustedSheetPersistenceShape = {
         ...base,
         roomOrderState: {
@@ -390,7 +390,7 @@ describe("room-order navigation Workflow Definition slice", () => {
 
   it.effect("maps missing canonical bot projections to committed delivery rejection", () =>
     Effect.gen(function* () {
-      const base = makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+      const base = makeTrustedSheetPersistenceMock();
       const missingMessage = () =>
         Effect.fail(
           new BotResourceNotFound({
@@ -650,7 +650,7 @@ describe("room-order navigation Workflow Definition slice", () => {
     Effect.gen(function* () {
       const canonicalWorkspaceId = Schema.decodeUnknownSync(WorkspaceId)("canonical-workspace");
       const canonicalConversationId = "canonical-conversation";
-      const base = makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+      const base = makeTrustedSheetPersistenceMock();
       const persistence: TrustedSheetPersistenceShape = {
         ...base,
         workspaces: {

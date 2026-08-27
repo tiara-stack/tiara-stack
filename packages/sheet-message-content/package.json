@@ -12,9 +12,53 @@
       "types": "./dist/index.d.mts",
       "default": "./dist/index.mjs"
     },
-    "./*": {
-      "types": "./dist/*.d.mts",
-      "default": "./dist/*.mjs"
+    "./checkinAnnouncement": {
+      "types": "./dist/checkinAnnouncement.d.mts",
+      "default": "./dist/checkinAnnouncement.mjs"
+    },
+    "./checkinMessages": {
+      "types": "./dist/checkinMessages.d.mts",
+      "default": "./dist/checkinMessages.mjs"
+    },
+    "./checkinPrompt": {
+      "types": "./dist/checkinPrompt.d.mts",
+      "default": "./dist/checkinPrompt.mjs"
+    },
+    "./checkinSummary": {
+      "types": "./dist/checkinSummary.d.mts",
+      "default": "./dist/checkinSummary.mjs"
+    },
+    "./components": {
+      "types": "./dist/components.d.mts",
+      "default": "./dist/components.mjs"
+    },
+    "./rendering": {
+      "types": "./dist/rendering.d.mts",
+      "default": "./dist/rendering.mjs"
+    },
+    "./roomOrderContent": {
+      "types": "./dist/roomOrderContent.d.mts",
+      "default": "./dist/roomOrderContent.mjs"
+    },
+    "./roomOrderMessage": {
+      "types": "./dist/roomOrderMessage.d.mts",
+      "default": "./dist/roomOrderMessage.mjs"
+    },
+    "./schedule": {
+      "types": "./dist/schedule.d.mts",
+      "default": "./dist/schedule.mjs"
+    },
+    "./slotRendering": {
+      "types": "./dist/slotRendering.d.mts",
+      "default": "./dist/slotRendering.mjs"
+    },
+    "./teamSubmissionButtons": {
+      "types": "./dist/teamSubmissionButtons.d.mts",
+      "default": "./dist/teamSubmissionButtons.mjs"
+    },
+    "./text": {
+      "types": "./dist/text.d.mts",
+      "default": "./dist/text.mjs"
     },
     "./package.json": "./package.json"
   },
@@ -28,8 +72,7 @@
   },
   "dependencies": {
     "effect": "catalog:",
-    "sheet-bot-api": "workspace:*",
-    "sheet-ingress-api": "workspace:*"
+    "sheet-bot-api": "workspace:*"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",

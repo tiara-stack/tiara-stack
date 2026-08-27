@@ -13,7 +13,7 @@ import {
   computeScheduleHour,
   formatDayKey,
 } from "#/lib/schedule";
-import { Sheet } from "sheet-ingress-api/schemas";
+import * as Schedule from "#/lib/scheduleValues";
 import { eventConfigAtom, useEventConfig } from "#/lib/sheet";
 import { useNowByHour } from "#/lib/dateTime";
 import { useDateTime } from "#/hooks/useDateTime";
@@ -273,7 +273,7 @@ function DailyScheduleContent() {
       Array.reduce(
         HashMap.empty<
           DateTime.Zoned,
-          HashMap.HashMap<DateTime.Zoned, Sheet.PopulatedScheduleResult[]>
+          HashMap.HashMap<DateTime.Zoned, Schedule.PopulatedScheduleResult[]>
         >(),
         (acc, schedule) => {
           if (Option.isNone(schedule.hourWindow)) {
@@ -340,7 +340,7 @@ function DailyScheduleContent() {
       );
       const data = HashMap.get(schedulesByDate, dateKey);
       const schedulesByDateTime = Option.getOrElse(data, () =>
-        HashMap.empty<DateTime.Zoned, Sheet.PopulatedScheduleResult[]>(),
+        HashMap.empty<DateTime.Zoned, Schedule.PopulatedScheduleResult[]>(),
       );
 
       return { dateKey, schedulesByDateTime };
@@ -615,7 +615,7 @@ function BreakRow({
 
 // Schedule Row Component - Full row for schedule hours
 interface ScheduleHourRowProps extends BreakRowProps {
-  schedules: Array.NonEmptyReadonlyArray<Sheet.PopulatedSchedule>;
+  schedules: Array.NonEmptyReadonlyArray<Schedule.PopulatedSchedule>;
   currentUserId: string | undefined;
 }
 
@@ -666,7 +666,7 @@ type RowData =
   | {
       type: "schedule";
       key: number;
-      schedules: Array.NonEmptyReadonlyArray<Sheet.PopulatedSchedule>;
+      schedules: Array.NonEmptyReadonlyArray<Schedule.PopulatedSchedule>;
       scheduleHour: Option.Option<number>;
       scheduleDay: Option.Option<number>;
       isScheduleDayBoundary: boolean;
@@ -677,7 +677,7 @@ type RowData =
 
 interface DateBlockProps {
   date: DateTime.Zoned;
-  schedulesByDateTime: HashMap.HashMap<DateTime.Zoned, Sheet.PopulatedScheduleResult[]>;
+  schedulesByDateTime: HashMap.HashMap<DateTime.Zoned, Schedule.PopulatedScheduleResult[]>;
   isActive: boolean;
   startTimeZoned: DateTime.Zoned;
   maxHour: number;
@@ -747,7 +747,7 @@ function DateBlock({
 
           const schedules = getDailyHourSchedules(
             hourSchedules,
-          ) as Array.NonEmptyReadonlyArray<Sheet.PopulatedSchedule>;
+          ) as Array.NonEmptyReadonlyArray<Schedule.PopulatedSchedule>;
 
           return {
             type: "schedule",
@@ -805,7 +805,7 @@ function ScheduleRow({
   currentUserId,
   isCurrentHour,
 }: {
-  schedule: Sheet.PopulatedSchedule;
+  schedule: Schedule.PopulatedSchedule;
   currentUserId: string | undefined;
   isCurrentHour: boolean;
 }) {

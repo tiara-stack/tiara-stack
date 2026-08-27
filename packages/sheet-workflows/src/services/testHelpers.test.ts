@@ -1,196 +1,211 @@
 import { expect, it } from "@effect/vitest";
-import { Deferred, Effect, Fiber, Option } from "effect";
+import { Duration, Effect, Option } from "effect";
 import { TestClock } from "effect/testing";
-import {
-  makeClientDeliveryMock,
-  makeSheetApisClient,
-  makeTrustedSheetPersistenceMock,
-} from "./testHelpers";
+import { makeTrustedSheetPersistenceMock } from "./testHelpers";
 
-it.effect("resolves spread delivery overrides through the bound client", () =>
+const messageKey = {
+  clientPlatform: "discord",
+  clientId: "discord-main",
+  messageId: "message-1",
+} as const;
+
+const roomOrderData = {
+  previousFills: [],
+  fills: ["fill-1"],
+  hour: 12,
+  rank: 0,
+  tentative: false,
+  monitor: null,
+  workspaceId: "workspace-1",
+  conversationId: "conversation-1",
+  createdByUserId: "user-1",
+} as const;
+
+const bindRoomOrder = (persistence: ReturnType<typeof makeTrustedSheetPersistenceMock>) =>
+  persistence.roomOrderState.bindMessageRoomOrderIfAbsent({
+    ...messageKey,
+    data: roomOrderData,
+    entries: [],
+  });
+
+const getRoomOrder = (persistence: ReturnType<typeof makeTrustedSheetPersistenceMock>) =>
+  persistence.roomOrderState.getMessageRoomOrder(messageKey).pipe(Effect.map(Option.getOrThrow));
+
+it.effect("preserves createdAt while refreshing audit fields for named upserts", () =>
   Effect.gen(function* () {
-    const expected = { id: "message-1", conversation_id: "conversation-1" };
-    const client = {
-      ...makeClientDeliveryMock(),
-      sendMessage: () => Effect.succeed(expected),
-    };
+    const persistence = makeTrustedSheetPersistenceMock();
+    yield* TestClock.setTime(1_000);
 
-    const delivered = yield* client.forClient(undefined).sendMessage("conversation-1", {});
-
-    expect(delivered).toEqual(expected);
-  }),
-);
-
-it.effect("preserves tagged keys nested inside persistence JSON", () =>
-  Effect.gen(function* () {
-    yield* TestClock.setTime(1_234);
-    const nestedValue = { _tag: "custom-payload", value: "kept" };
-    const persistence = makeTrustedSheetPersistenceMock(
-      makeSheetApisClient({
-        messageCheckin: {
-          getMessageCheckinData: () =>
-            Effect.succeed(
-              Option.some({
-                _tag: "MessageCheckin",
-                initialMessage: [nestedValue],
-                runningConversationId: "running-1",
-              }),
-            ),
-        },
-      }),
-    );
-
-    const row = Option.getOrThrow(
-      yield* persistence.checkinState.getMessageCheckinData({
-        clientPlatform: "discord",
-        clientId: "client-1",
-        messageId: "message-1",
-      }),
-    );
-
-    expect(row).not.toHaveProperty("_tag");
-    expect(row.initialMessage).toEqual([nestedValue]);
-    expect(row.createdAt).toBe(1_234);
-    expect(row.updatedAt).toBe(1_234);
-  }),
-);
-
-it.effect("checks tentative room-order ownership after a cold-cache load", () =>
-  Effect.gen(function* () {
-    let markCalls = 0;
-    let markRequest: unknown;
-    const persistence = makeTrustedSheetPersistenceMock(
-      makeSheetApisClient({
-        messageRoomOrder: {
-          getMessageRoomOrder: () =>
-            Effect.succeed(
-              Option.some({
-                _tag: "MessageRoomOrder",
-                workspaceId: "workspace-1",
-                conversationId: "conversation-1",
-              }),
-            ),
-          markMessageRoomOrderTentative: (request: unknown) =>
-            Effect.sync(() => {
-              markCalls += 1;
-              markRequest = request;
-            }),
-        },
-      }),
-    );
-
-    yield* persistence.roomOrderState.markMessageRoomOrderTentative({
-      clientPlatform: "discord",
-      clientId: "client-1",
-      messageId: "message-1",
-      workspaceId: "workspace-2",
-      conversationId: "conversation-1",
+    yield* persistence.workspaces.upsertWorkspaceConfig({
+      workspaceId: "workspace-1",
+      sheetId: "sheet-1",
     });
-
-    expect(markCalls).toBe(0);
-
-    yield* persistence.roomOrderState.markMessageRoomOrderTentative({
-      clientPlatform: "discord",
-      clientId: "client-1",
-      messageId: "message-1",
+    yield* persistence.workspaces.upsertWorkspaceConversationConfig({
       workspaceId: "workspace-1",
       conversationId: "conversation-1",
+      name: "Running",
+      running: true,
+    });
+    yield* persistence.workspaces.upsertTeamSubmissionChannel({
+      workspaceId: "workspace-1",
+      conversationId: "conversation-1",
+      destinationTeamConfigName: "default",
+      writeMode: "upsert",
+      removedRowStrategy: "blank",
+      requireValidOshi: false,
+    });
+    yield* persistence.preferences.upsertUserPlatformConfig({
+      platform: "discord",
+      userId: "user-1",
+      checkinDmEnabled: false,
+      monitorDmEnabled: false,
+      defaultClientId: "discord-main",
+    });
+    yield* persistence.slotState.upsertMessageSlotData({
+      ...messageKey,
+      day: 1,
+      workspaceId: "workspace-1",
+      conversationId: "conversation-1",
+      createdByUserId: "user-1",
     });
 
-    expect(markCalls).toBe(1);
-    expect(markRequest).toMatchObject({
-      payload: {
+    yield* TestClock.adjust(Duration.seconds(1));
+    yield* persistence.workspaces.upsertWorkspaceConfig({
+      workspaceId: "workspace-1",
+      sheetId: "sheet-2",
+    });
+    yield* persistence.workspaces.upsertWorkspaceConversationConfig({
+      workspaceId: "workspace-1",
+      conversationId: "conversation-1",
+      name: "Updated",
+    });
+    yield* persistence.workspaces.upsertTeamSubmissionChannel({
+      workspaceId: "workspace-1",
+      conversationId: "conversation-1",
+      destinationTeamConfigName: "updated",
+      writeMode: "upsert",
+      removedRowStrategy: "blank",
+      requireValidOshi: true,
+    });
+    yield* persistence.preferences.upsertUserPlatformConfig({
+      platform: "discord",
+      userId: "user-1",
+      checkinDmEnabled: true,
+    });
+    yield* persistence.slotState.upsertMessageSlotData({
+      ...messageKey,
+      day: 2,
+      workspaceId: "workspace-1",
+      conversationId: "conversation-1",
+      createdByUserId: "user-1",
+    });
+
+    const workspace = Option.getOrThrow(
+      yield* persistence.workspaces.getWorkspaceConfigByWorkspaceId({
+        workspaceId: "workspace-1",
+      }),
+    );
+    const conversation = Option.getOrThrow(
+      yield* persistence.workspaces.getWorkspaceConversationById({
         workspaceId: "workspace-1",
         conversationId: "conversation-1",
-      },
-    });
+      }),
+    );
+    const channel = Option.getOrThrow(
+      yield* persistence.workspaces.getTeamSubmissionChannelByConversationId({
+        workspaceId: "workspace-1",
+        conversationId: "conversation-1",
+      }),
+    );
+    const user = Option.getOrThrow(
+      yield* persistence.preferences.getUserPlatformConfig({
+        platform: "discord",
+        userId: "user-1",
+      }),
+    );
+    const slot = Option.getOrThrow(yield* persistence.slotState.getMessageSlotData(messageKey));
+
+    for (const row of [workspace, conversation, channel, user, slot]) {
+      expect(row.createdAt).toBe(1_000);
+      expect(row.updatedAt).toBe(2_000);
+    }
+    expect(workspace.sheetId).toBe("sheet-2");
+    expect(conversation.name).toBe("Updated");
+    expect(channel.destinationTeamConfigName).toBe("updated");
+    expect(user.checkinDmEnabled).toBe(true);
+    expect(slot.day).toBe(2);
   }),
 );
 
-it.effect("serializes insert-only room-order binds by message key", () =>
+it.effect("keeps blocked room-order claims intact during rereads", () =>
   Effect.gen(function* () {
-    const firstReadStarted = yield* Deferred.make<void>();
-    const releaseRead = yield* Deferred.make<void>();
-    const readRequests: Array<unknown> = [];
-    let persistCalls = 0;
-    const persistence = makeTrustedSheetPersistenceMock(
-      makeSheetApisClient({
-        messageRoomOrder: {
-          getMessageRoomOrder: ({ query }: { readonly query: unknown }) =>
-            Effect.gen(function* () {
-              readRequests.push(query);
-              if (readRequests.length === 1) {
-                yield* Deferred.succeed(firstReadStarted, void 0);
-              }
-              yield* Deferred.await(releaseRead);
-              return Option.none();
-            }),
-          persistMessageRoomOrder: ({ payload }: { readonly payload: any }) =>
-            Effect.sync(() => {
-              persistCalls += 1;
-              return {
-                _tag: "MessageRoomOrder",
-                clientPlatform: payload.clientPlatform,
-                clientId: payload.clientId,
-                messageId: payload.messageId,
-                ...payload.data,
-              };
-            }),
-        },
-      }),
-    );
-    const key = {
-      clientPlatform: "discord",
-      clientId: "client-1",
-      messageId: "message-1",
-    } as const;
-    const first = yield* persistence.roomOrderState
-      .bindMessageRoomOrderIfAbsent({
-        ...key,
-        data: {
-          previousFills: [],
-          fills: ["first"],
-          hour: 1,
-          rank: 0,
-          tentative: false,
-          monitor: null,
-          workspaceId: "workspace-1",
-          conversationId: "conversation-1",
-          createdByUserId: "user-1",
-        },
-        entries: [],
-      })
-      .pipe(Effect.forkScoped);
-    yield* Deferred.await(firstReadStarted);
-    const second = yield* persistence.roomOrderState
-      .bindMessageRoomOrderIfAbsent({
-        ...key,
-        data: {
-          previousFills: [],
-          fills: ["second"],
-          hour: 2,
-          rank: 0,
-          tentative: false,
-          monitor: null,
-          workspaceId: "workspace-1",
-          conversationId: "conversation-1",
-          createdByUserId: "user-2",
-        },
-        entries: [],
-      })
-      .pipe(Effect.forkScoped);
-    yield* Effect.yieldNow;
-    yield* Deferred.succeed(releaseRead, void 0);
-    yield* Effect.all([Fiber.join(first), Fiber.join(second)]);
+    const completedSend = makeTrustedSheetPersistenceMock();
+    yield* TestClock.setTime(1_000);
+    yield* bindRoomOrder(completedSend);
+    yield* completedSend.roomOrderState.claimMessageRoomOrderSend({
+      ...messageKey,
+      claimId: "send-1",
+    });
+    yield* completedSend.roomOrderState.completeMessageRoomOrderSend({
+      ...messageKey,
+      claimId: "send-1",
+      sentMessageId: "sent-1",
+      sentConversationId: "conversation-1",
+      sentAt: 1_000,
+    });
+    yield* completedSend.roomOrderState.claimMessageRoomOrderSend({
+      ...messageKey,
+      claimId: "send-2",
+    });
+    expect(yield* getRoomOrder(completedSend)).toMatchObject({
+      sendClaimId: null,
+      sentMessageId: "sent-1",
+    });
 
-    expect(persistCalls).toBe(1);
-    expect(readRequests).toEqual([key]);
-    expect(
-      Option.getOrThrow(yield* persistence.roomOrderState.getMessageRoomOrder(key)),
-    ).toMatchObject({
-      fills: ["first"],
-      hour: 1,
-      createdByUserId: "user-1",
+    const activeSend = makeTrustedSheetPersistenceMock();
+    yield* bindRoomOrder(activeSend);
+    yield* activeSend.roomOrderState.claimMessageRoomOrderSend({
+      ...messageKey,
+      claimId: "send-active",
+    });
+    yield* activeSend.roomOrderState.claimMessageRoomOrderTentativeUpdate({
+      ...messageKey,
+      claimId: "update-blocked-by-send",
+    });
+    expect(yield* getRoomOrder(activeSend)).toMatchObject({
+      sendClaimId: "send-active",
+      tentativeUpdateClaimId: null,
+    });
+
+    const activeTentativeUpdate = makeTrustedSheetPersistenceMock();
+    yield* bindRoomOrder(activeTentativeUpdate);
+    yield* activeTentativeUpdate.roomOrderState.claimMessageRoomOrderTentativeUpdate({
+      ...messageKey,
+      claimId: "update-1",
+    });
+    yield* activeTentativeUpdate.roomOrderState.claimMessageRoomOrderTentativePin({
+      ...messageKey,
+      claimId: "pin-blocked-by-update",
+    });
+    expect(yield* getRoomOrder(activeTentativeUpdate)).toMatchObject({
+      tentativeUpdateClaimId: "update-1",
+      tentativePinClaimId: null,
+    });
+
+    const staleSend = makeTrustedSheetPersistenceMock();
+    yield* bindRoomOrder(staleSend);
+    yield* staleSend.roomOrderState.claimMessageRoomOrderSend({
+      ...messageKey,
+      claimId: "send-stale",
+    });
+    yield* TestClock.adjust(Duration.minutes(11));
+    yield* staleSend.roomOrderState.claimMessageRoomOrderTentativePin({
+      ...messageKey,
+      claimId: "pin-blocked-by-stale-send",
+    });
+    expect(yield* getRoomOrder(staleSend)).toMatchObject({
+      sendClaimId: "send-stale",
+      tentativePinClaimId: null,
     });
   }),
 );

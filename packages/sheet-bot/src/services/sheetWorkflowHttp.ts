@@ -23,7 +23,6 @@ import {
   exchangeOAuthToken,
 } from "sheet-auth/client";
 import {
-  makeRolloutGateHttpClient,
   makeSheetWorkflowHttpClients,
   makeWorkflowInvocationId,
   WorkflowTransportUnavailable,
@@ -39,12 +38,7 @@ const workflowHttpAudience = "sheet-workflows-http";
 const workflowRequesterTokenCacheCapacity = 500;
 const workflowEnqueueTimeout = Duration.seconds(30);
 
-const workflowHttpRequesterActorScopes = [
-  "service",
-  "token.exchange",
-  "workflow.enqueue",
-  "rollout.gate.evaluate",
-] as const;
+const workflowHttpRequesterActorScopes = ["service", "token.exchange", "workflow.enqueue"] as const;
 
 export type ServicesDeliverStatusEnqueue =
   SheetWorkflowHttpClients["services"]["deliverStatus"]["enqueue"];
@@ -52,18 +46,12 @@ export type ServicesDeliverStatusInput = Parameters<ServicesDeliverStatusEnqueue
 export type ServicesDeliverStatusReference = Effect.Success<
   ReturnType<ServicesDeliverStatusEnqueue>
 >;
-export type WorkflowRolloutGateEvaluation = ReturnType<
-  typeof makeRolloutGateHttpClient
->["evaluate"];
-export type StatusRolloutGateEvaluation = WorkflowRolloutGateEvaluation;
 export type SchedulesDeliverUserScheduleEnqueue =
   SheetWorkflowHttpClients["schedules"]["deliverUserSchedule"]["enqueue"];
 export type SchedulesDeliverUserScheduleInput = Parameters<SchedulesDeliverUserScheduleEnqueue>[0];
 export type SchedulesDeliverUserScheduleReference = Effect.Success<
   ReturnType<SchedulesDeliverUserScheduleEnqueue>
 >;
-export type ScheduleRolloutGateEvaluation = WorkflowRolloutGateEvaluation;
-
 export type CheckinsOpenEnqueue = SheetWorkflowHttpClients["checkins"]["open"]["enqueue"];
 export type CheckinsOpenInput = Parameters<CheckinsOpenEnqueue>[0];
 export type CheckinsOpenReference = Effect.Success<ReturnType<CheckinsOpenEnqueue>>;
@@ -423,7 +411,7 @@ const makeDiscordUserToken = Effect.fn("SheetWorkflowHttpClient.makeDiscordUserT
     actorTokenType: accessTokenType,
     requestedTokenType: accessTokenType,
     audience: workflowHttpAudience,
-    scope: ["workflow.enqueue", "rollout.gate.evaluate"],
+    scope: ["workflow.enqueue"],
   });
 });
 
@@ -489,53 +477,29 @@ const makeWorkflowServiceHttpClient = Effect.fn("SheetWorkflowHttpClient.makeSer
 
 export interface SheetWorkflowHttpClientShape {
   readonly enqueueServicesDeliverStatus: ServicesDeliverStatusEnqueue;
-  readonly evaluateStatusRolloutGate: StatusRolloutGateEvaluation;
   readonly enqueueSchedulesDeliverUserSchedule: SchedulesDeliverUserScheduleEnqueue;
-  readonly evaluateScheduleRolloutGate: ScheduleRolloutGateEvaluation;
   readonly enqueueCheckinsOpen: CheckinsOpenEnqueue;
-  readonly evaluateCheckinsOpenRolloutGate: WorkflowRolloutGateEvaluation;
   readonly enqueueCheckinsTestAuto: CheckinsTestAutoEnqueue;
-  readonly evaluateCheckinsTestAutoRolloutGate: WorkflowRolloutGateEvaluation;
   readonly enqueueCheckinsRespond: CheckinsRespondEnqueue;
-  readonly evaluateCheckinsRespondRolloutGate: WorkflowRolloutGateEvaluation;
   readonly enqueueRoomOrdersCreate: RoomOrdersCreateEnqueue;
-  readonly evaluateRoomOrdersCreateRolloutGate: WorkflowRolloutGateEvaluation;
   readonly enqueueRoomOrdersNavigate: RoomOrdersNavigateEnqueue;
-  readonly evaluateRoomOrdersNavigateRolloutGate: WorkflowRolloutGateEvaluation;
   readonly enqueueRoomOrdersSend: RoomOrdersSendEnqueue;
-  readonly evaluateRoomOrdersSendRolloutGate: WorkflowRolloutGateEvaluation;
   readonly enqueueRoomOrdersPinTentative: RoomOrdersPinTentativeEnqueue;
-  readonly evaluateRoomOrdersPinTentativeRolloutGate: WorkflowRolloutGateEvaluation;
   readonly enqueueSlotsDeliverList: SlotsDeliverListEnqueue;
-  readonly evaluateSlotsDeliverListRolloutGate: WorkflowRolloutGateEvaluation;
   readonly enqueueSlotsPublishButton: SlotsPublishButtonEnqueue;
-  readonly evaluateSlotsPublishButtonRolloutGate: WorkflowRolloutGateEvaluation;
   readonly enqueueSlotsOpen: SlotsOpenEnqueue;
-  readonly evaluateSlotsOpenRolloutGate: WorkflowRolloutGateEvaluation;
   readonly enqueueMembersKick: MembersKickEnqueue;
-  readonly evaluateMembersKickRolloutGate: WorkflowRolloutGateEvaluation;
   readonly enqueuePreferencesDeliverStatus: PreferencesDeliverStatusEnqueue;
-  readonly evaluatePreferencesDeliverStatusRolloutGate: WorkflowRolloutGateEvaluation;
   readonly enqueuePreferencesUpdateAndDeliver: PreferencesUpdateAndDeliverEnqueue;
-  readonly evaluatePreferencesUpdateAndDeliverRolloutGate: WorkflowRolloutGateEvaluation;
   readonly enqueueWorkspacesDeliverConfig: WorkspacesDeliverConfigEnqueue;
-  readonly evaluateWorkspacesDeliverConfigRolloutGate: WorkflowRolloutGateEvaluation;
   readonly enqueueWorkspacesUpdateConfigAndDeliver: WorkspacesUpdateConfigAndDeliverEnqueue;
-  readonly evaluateWorkspacesUpdateConfigAndDeliverRolloutGate: WorkflowRolloutGateEvaluation;
   readonly enqueueWorkspacesSetMonitorRoleAndDeliver: WorkspacesSetMonitorRoleAndDeliverEnqueue;
-  readonly evaluateWorkspacesSetMonitorRoleAndDeliverRolloutGate: WorkflowRolloutGateEvaluation;
   readonly enqueueWorkspacesFeatureFlagsSetAndDeliver: WorkspacesFeatureFlagsSetAndDeliverEnqueue;
-  readonly evaluateWorkspacesFeatureFlagsSetAndDeliverRolloutGate: WorkflowRolloutGateEvaluation;
   readonly enqueueConversationsDeliverConfig: ConversationsDeliverConfigEnqueue;
-  readonly evaluateConversationsDeliverConfigRolloutGate: WorkflowRolloutGateEvaluation;
   readonly enqueueConversationsUpdateConfigAndDeliver: ConversationsUpdateConfigAndDeliverEnqueue;
-  readonly evaluateConversationsUpdateConfigAndDeliverRolloutGate: WorkflowRolloutGateEvaluation;
   readonly enqueueConversationsSetLockdown: ConversationsSetLockdownEnqueue;
-  readonly evaluateConversationsSetLockdownRolloutGate: WorkflowRolloutGateEvaluation;
   readonly enqueueTeamsDeliverList: TeamsDeliverListEnqueue;
-  readonly evaluateTeamsDeliverListRolloutGate: WorkflowRolloutGateEvaluation;
   readonly enqueueScreenshotsCaptureAndDeliver: ScreenshotsCaptureAndDeliverEnqueue;
-  readonly evaluateScreenshotsCaptureAndDeliverRolloutGate: WorkflowRolloutGateEvaluation;
   readonly enqueueWorkspacesDeliverWelcome: WorkspacesDeliverWelcomeEnqueue;
   readonly enqueueTeamSubmissionsProcess: TeamSubmissionsProcessEnqueue;
   readonly enqueueTeamSubmissionsDecide: TeamSubmissionsDecideEnqueue;
@@ -630,60 +594,35 @@ export class SheetWorkflowHttpClient extends Context.Service<
     const serviceClients = makeSheetWorkflowHttpClients(serviceHttpClientWithToken, {
       baseUrl,
     });
-    const rolloutGateClient = makeRolloutGateHttpClient(httpClientWithToken, { baseUrl });
 
     return {
       enqueueServicesDeliverStatus: clients.services.deliverStatus.enqueue,
-      evaluateStatusRolloutGate: rolloutGateClient.evaluate,
       enqueueSchedulesDeliverUserSchedule: clients.schedules.deliverUserSchedule.enqueue,
-      evaluateScheduleRolloutGate: rolloutGateClient.evaluate,
       enqueueCheckinsOpen: clients.checkins.open.enqueue,
-      evaluateCheckinsOpenRolloutGate: rolloutGateClient.evaluate,
       enqueueCheckinsTestAuto: clients.checkins.testAuto.enqueue,
-      evaluateCheckinsTestAutoRolloutGate: rolloutGateClient.evaluate,
       enqueueCheckinsRespond: clients.checkins.respond.enqueue,
-      evaluateCheckinsRespondRolloutGate: rolloutGateClient.evaluate,
       enqueueRoomOrdersCreate: clients.roomOrders.create.enqueue,
-      evaluateRoomOrdersCreateRolloutGate: rolloutGateClient.evaluate,
       enqueueRoomOrdersNavigate: clients.roomOrders.navigate.enqueue,
-      evaluateRoomOrdersNavigateRolloutGate: rolloutGateClient.evaluate,
       enqueueRoomOrdersSend: clients.roomOrders.send.enqueue,
-      evaluateRoomOrdersSendRolloutGate: rolloutGateClient.evaluate,
       enqueueRoomOrdersPinTentative: clients.roomOrders.pinTentative.enqueue,
-      evaluateRoomOrdersPinTentativeRolloutGate: rolloutGateClient.evaluate,
       enqueueSlotsDeliverList: clients.slots.deliverList.enqueue,
-      evaluateSlotsDeliverListRolloutGate: rolloutGateClient.evaluate,
       enqueueSlotsPublishButton: clients.slots.publishButton.enqueue,
-      evaluateSlotsPublishButtonRolloutGate: rolloutGateClient.evaluate,
       enqueueSlotsOpen: clients.slots.open.enqueue,
-      evaluateSlotsOpenRolloutGate: rolloutGateClient.evaluate,
       enqueueMembersKick: clients.members.kick.enqueue,
-      evaluateMembersKickRolloutGate: rolloutGateClient.evaluate,
       enqueuePreferencesDeliverStatus: clients.preferences.deliverStatus.enqueue,
-      evaluatePreferencesDeliverStatusRolloutGate: rolloutGateClient.evaluate,
       enqueuePreferencesUpdateAndDeliver: clients.preferences.updateAndDeliver.enqueue,
-      evaluatePreferencesUpdateAndDeliverRolloutGate: rolloutGateClient.evaluate,
       enqueueWorkspacesDeliverConfig: clients.workspaces.deliverConfig.enqueue,
-      evaluateWorkspacesDeliverConfigRolloutGate: rolloutGateClient.evaluate,
       enqueueWorkspacesUpdateConfigAndDeliver: clients.workspaces.updateConfigAndDeliver.enqueue,
-      evaluateWorkspacesUpdateConfigAndDeliverRolloutGate: rolloutGateClient.evaluate,
       enqueueWorkspacesSetMonitorRoleAndDeliver:
         clients.workspaces.setMonitorRoleAndDeliver.enqueue,
-      evaluateWorkspacesSetMonitorRoleAndDeliverRolloutGate: rolloutGateClient.evaluate,
       enqueueWorkspacesFeatureFlagsSetAndDeliver:
         clients.workspaces.featureFlags.setAndDeliver.enqueue,
-      evaluateWorkspacesFeatureFlagsSetAndDeliverRolloutGate: rolloutGateClient.evaluate,
       enqueueConversationsDeliverConfig: clients.conversations.deliverConfig.enqueue,
-      evaluateConversationsDeliverConfigRolloutGate: rolloutGateClient.evaluate,
       enqueueConversationsUpdateConfigAndDeliver:
         clients.conversations.updateConfigAndDeliver.enqueue,
-      evaluateConversationsUpdateConfigAndDeliverRolloutGate: rolloutGateClient.evaluate,
       enqueueConversationsSetLockdown: clients.conversations.setLockdown.enqueue,
-      evaluateConversationsSetLockdownRolloutGate: rolloutGateClient.evaluate,
       enqueueTeamsDeliverList: clients.teams.deliverList.enqueue,
-      evaluateTeamsDeliverListRolloutGate: rolloutGateClient.evaluate,
       enqueueScreenshotsCaptureAndDeliver: clients.screenshots.captureAndDeliver.enqueue,
-      evaluateScreenshotsCaptureAndDeliverRolloutGate: rolloutGateClient.evaluate,
       enqueueWorkspacesDeliverWelcome: serviceClients.workspaces.deliverWelcome.enqueue,
       enqueueTeamSubmissionsProcess: serviceClients.teamSubmissions.process.enqueue,
       enqueueTeamSubmissionsDecide: clients.teamSubmissions.decide.enqueue,

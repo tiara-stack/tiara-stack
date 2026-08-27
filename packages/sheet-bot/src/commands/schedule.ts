@@ -1,138 +1,58 @@
 import { MessageFlags } from "discord-api-types/v10";
-import { Duration, Effect, Layer, Match, Schema } from "effect";
+import { Effect, Layer, Schema } from "effect";
+import { WorkspaceId } from "sheet-workflow-contracts/values";
 import {
   CommandHelper,
   InteractionResponse,
   type CommandInteractionResponseContext,
 } from "dfx-discord-utils/utils";
-import { config } from "../config";
 import { prefixedUnstorageLayer } from "../discord/cache";
 import {
   BotCapabilityStore,
   enqueueScheduleWorkflow,
   SheetWorkflowHttpClient,
-  SheetWorkflowHttpRequestContext,
-  SheetWorkflowsClient,
-  SheetWorkflowsRequestContext,
   type SchedulesDeliverUserScheduleInput,
-  type ScheduleRolloutGateEvaluation,
   type SheetWorkflowHttpClientShape,
-  type SheetWorkflowsClientShape,
 } from "../services";
 import {
-  makeDispatchBase,
   makeInteractionResponseReferenceInput,
-  makeWorkflowEnqueueFailureReporter,
   requireNumber,
   resolveGuildId,
   resolveTargetUserIdentity,
   serverIdOption,
 } from "../utils/commandHelpers";
 import { registerSingleSubCommandLayer } from "../utils/registerGlobalCommandLayer";
-import { runSheetWorkflowsDispatch } from "../utils/sheetWorkflowsDispatch";
-import {
-  enqueueReplacementWorkflow,
-  evaluateRolloutGateWithLegacyFallback,
-} from "../utils/workflowEnqueue";
-import { makeWorkflowInvocationId } from "sheet-workflow-http-client";
+import { enqueueSheetWorkflow } from "../utils/sheetWorkflowMigration";
 
 const scheduleEnqueueRejectedMessage = "I couldn't start the schedule lookup. Please try again.";
 const scheduleEnqueueUnauthorizedMessage = "You aren't allowed to view that user's schedule.";
 const scheduleEnqueuePendingMessage =
   "The schedule lookup is still processing. I'll update this message when it finishes.";
 type ScheduleWorkflowInput = Omit<SchedulesDeliverUserScheduleInput, "responseReference">;
-type ScheduleRolloutGateDecision = Effect.Success<ReturnType<ScheduleRolloutGateEvaluation>>;
-const scheduleRolloutGateEvaluationTimeout = Duration.seconds(5);
-const scheduleWorkspaceId = Schema.Trimmed.check(Schema.isNonEmpty()).pipe(
-  Schema.brand("sheet-workflow-contracts/WorkspaceId"),
-);
-
-const scheduleGateUnavailableDecision: ScheduleRolloutGateDecision = {
-  gateKey: "unavailable",
-  revision: 0,
-  matched: false,
-  executionPath: "legacy",
-  reason: "control-unavailable",
-};
 
 export const makeScheduleResponseReferenceInput = makeInteractionResponseReferenceInput;
 
-const reportDefinitiveEnqueueFailure = makeWorkflowEnqueueFailureReporter({
-  logMessage: "Sheet-bot schedule workflow enqueue was rejected",
-  rejectedMessage: scheduleEnqueueRejectedMessage,
-  unauthorizedMessage: scheduleEnqueueUnauthorizedMessage,
-});
-
-const dispatchLegacySchedule = (
-  response: Pick<CommandInteractionResponseContext, "editReply">,
-  sheetWorkflowsClient: SheetWorkflowsClientShape,
-  input: ScheduleWorkflowInput,
-) =>
-  runSheetWorkflowsDispatch(
-    response,
-    "the schedule lookup",
-    SheetWorkflowsRequestContext.asInteractionUser(
-      Effect.fn("schedule.dispatchLegacyPath")(function* () {
-        const base = yield* makeDispatchBase;
-        return yield* sheetWorkflowsClient.get().dispatch.scheduleList({
-          payload: { ...base, ...input },
-        });
-      }),
-    )(),
-  ).pipe(Effect.catch((error) => reportDefinitiveEnqueueFailure(response, error)));
-
 export const enqueueSchedule = Effect.fn("schedule.enqueueWorkflow")(function* (
   response: Pick<CommandInteractionResponseContext, "editReply">,
-  workflowClient: Pick<
-    SheetWorkflowHttpClientShape,
-    "enqueueSchedulesDeliverUserSchedule" | "evaluateScheduleRolloutGate"
-  >,
-  sheetWorkflowsClient: SheetWorkflowsClientShape,
+  workflowClient: Pick<SheetWorkflowHttpClientShape, "enqueueSchedulesDeliverUserSchedule">,
   capabilityStore: Pick<typeof BotCapabilityStore.Service, "issueResponseReference">,
   input: ScheduleWorkflowInput,
 ) {
-  const invocationId = yield* makeWorkflowInvocationId();
-  const clientId = yield* config.sheetBotClientId;
-  const decision = yield* evaluateRolloutGateWithLegacyFallback(
-    SheetWorkflowHttpRequestContext.asInteractionUser(() =>
-      workflowClient.evaluateScheduleRolloutGate({
-        contractIdentity: "schedules.deliverUserSchedule",
-        contractWireVersion: "1",
-        client: { platform: "discord", clientId },
-        invocationId,
-        workspaceId: input.workspaceId,
-      }),
-    )(),
-    scheduleRolloutGateEvaluationTimeout,
-    scheduleGateUnavailableDecision,
-    invocationId,
-  );
-
-  yield* Match.value(decision.executionPath).pipe(
-    Match.when("legacy", () => dispatchLegacySchedule(response, sheetWorkflowsClient, input)),
-    Match.when("replacement", () =>
-      enqueueReplacementWorkflow(
-        response,
-        capabilityStore,
-        input.workspaceId,
-        invocationId,
-        (responseReference, invocationId) =>
-          enqueueScheduleWorkflow(
-            workflowClient,
-            { ...input, responseReference },
-            { invocationId },
-          ),
-        "Sheet-bot schedule workflow enqueue outcome is ambiguous",
-        scheduleEnqueuePendingMessage,
-        (error) => reportDefinitiveEnqueueFailure(response, error),
-      ),
-    ),
-    Match.exhaustive,
-  );
+  yield* enqueueSheetWorkflow({
+    response,
+    operation: "schedule lookup",
+    workspaceId: input.workspaceId,
+    capabilityStore,
+    makeInput: (responseReference) => ({ ...input, responseReference }),
+    enqueue: (workflowInput, options) =>
+      enqueueScheduleWorkflow(workflowClient, workflowInput, options),
+    rejectedMessage: scheduleEnqueueRejectedMessage,
+    unauthorizedMessage: scheduleEnqueueUnauthorizedMessage,
+    pendingMessage: scheduleEnqueuePendingMessage,
+  });
 });
 
 const makeListSubCommand = Effect.gen(function* () {
-  const sheetWorkflowsClient = yield* SheetWorkflowsClient;
   const workflowClient = yield* SheetWorkflowHttpClient;
   const capabilityStore = yield* BotCapabilityStore;
 
@@ -153,11 +73,11 @@ const makeListSubCommand = Effect.gen(function* () {
       yield* response.deferReply({ flags: MessageFlags.Ephemeral });
 
       const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
-      const workspaceId = yield* Schema.decodeUnknownEffect(scheduleWorkspaceId)(guildId);
+      const workspaceId = yield* Schema.decodeUnknownEffect(WorkspaceId)(guildId);
       const day = yield* requireNumber(command.optionValue("day"), "day");
       const targetUser = yield* resolveTargetUserIdentity(command.optionUserValueOptional("user"));
 
-      yield* enqueueSchedule(response, workflowClient, sheetWorkflowsClient, capabilityStore, {
+      yield* enqueueSchedule(response, workflowClient, capabilityStore, {
         workspaceId,
         day,
         targetUserId: targetUser.id,

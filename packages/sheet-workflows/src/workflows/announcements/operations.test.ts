@@ -21,7 +21,7 @@ import {
 } from "sheet-zero-server/persistence";
 import { SheetBotCacheClient } from "@/services/sheetBotCacheClient";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
-import { makeSheetApisClient, makeTrustedSheetPersistenceMock } from "@/services/testHelpers";
+import { makeTrustedSheetPersistenceMock } from "@/services/testHelpers";
 import {
   ReadOnlyWorkflowAuthorization,
   readOnlyWorkflowAuthorizationLayer,
@@ -122,7 +122,7 @@ const makeHarness = (options: HarnessOptions = {}) => {
     authorizeRoomOrdersSend: () => Effect.die("unused"),
     workspaceCapabilities: () => Effect.die("unused"),
   };
-  const basePersistence = makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+  const basePersistence = makeTrustedSheetPersistenceMock();
   const persistence: TrustedSheetPersistenceShape = {
     ...basePersistence,
     workspaces: {
@@ -256,7 +256,7 @@ const authorizeWithPolicy = (
   candidateInput: unknown,
 ) => {
   const bot = {} as SheetBotHttpClient;
-  const persistence = makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+  const persistence = makeTrustedSheetPersistenceMock();
   return ReadOnlyWorkflowAuthorization.pipe(
     Effect.flatMap((authorization) =>
       authorization.authorize(AnnouncementsDeliverUpdate, candidate, candidateInput),

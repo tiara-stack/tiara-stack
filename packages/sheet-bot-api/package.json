@@ -18,10 +18,20 @@
       "development": "./src/admission.ts",
       "default": "./dist/admission.mjs"
     },
+    "./actions": {
+      "types": "./dist/actions.d.mts",
+      "development": "./src/actions.ts",
+      "default": "./dist/actions.mjs"
+    },
     "./cache": {
       "types": "./dist/cache.d.mts",
       "development": "./src/cache.ts",
       "default": "./dist/cache.mjs"
+    },
+    "./discord": {
+      "types": "./dist/discord.d.mts",
+      "development": "./src/discord.ts",
+      "default": "./dist/discord.mjs"
     },
     "./delivery": {
       "types": "./dist/delivery.d.mts",

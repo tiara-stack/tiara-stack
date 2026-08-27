@@ -5,7 +5,6 @@ import { CommandHelper } from "dfx-discord-utils/utils";
 import { Effect, Layer } from "effect";
 import { discordApplicationLayer } from "../discord/application";
 import { discordGatewayLayer } from "../discord/gateway";
-import { SheetWorkflowsClient } from "../services";
 
 type BuiltCommand = {
   readonly data: Parameters<typeof CommandHelper.makeGlobalCommand>[0];
@@ -68,11 +67,7 @@ export const registerGlobalCommandLayer = <E, R>(makeCommand: Effect.Effect<Buil
 
       yield* registry.register(Ix.builder.add(command).catchAllCause(Effect.log));
     }),
-  ).pipe(
-    Layer.provide(
-      Layer.mergeAll(discordGatewayLayer, discordApplicationLayer, SheetWorkflowsClient.layer),
-    ),
-  );
+  ).pipe(Layer.provide(Layer.mergeAll(discordGatewayLayer, discordApplicationLayer)));
 
 export const registerSingleSubCommandLayer = <
   const CommandName extends string,

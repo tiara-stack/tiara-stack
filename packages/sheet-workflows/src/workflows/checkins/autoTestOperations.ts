@@ -10,7 +10,7 @@ import {
   conversationRefFrom,
   workspaceRefFrom,
 } from "sheet-bot-api";
-import { shouldSendTentativeRoomOrder } from "sheet-ingress-api/clientActions";
+import { shouldSendTentativeRoomOrder } from "sheet-bot-api/actions";
 import { makeMonitorCheckinMessage } from "sheet-message-content/checkinSummary";
 import { buildRoomOrderContent } from "sheet-message-content/roomOrderContent";
 import { tentativeRoomOrderContent } from "sheet-message-content/roomOrderMessage";

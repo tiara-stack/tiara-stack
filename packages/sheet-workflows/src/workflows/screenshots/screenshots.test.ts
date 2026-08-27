@@ -1,16 +1,9 @@
 import type { sheets_v4 } from "@googleapis/sheets";
 import { describe, expect, it } from "@effect/vitest";
-import { Cause, ConfigProvider, Duration, Effect, Exit, Layer, Option, Ref, Schema } from "effect";
+import { Cause, ConfigProvider, Effect, Exit, Layer, Option, Schema } from "effect";
 import { WorkflowEngine } from "effect/unstable/workflow";
 import { WorkflowInvocationUnauthorized } from "effect-zero-workflow/contract/transport";
-import {
-  ActionContext,
-  dispatchWorkflowCommandBatch,
-  WorkflowStore,
-  type WorkflowCommand,
-  type WorkflowRun,
-  type WorkflowRunCursor,
-} from "effect-zero-workflow";
+import { ActionContext } from "effect-zero-workflow";
 import { ResponseReference, type SheetBotHttpClient } from "sheet-bot-api";
 import { EffectivePrincipal } from "sheet-auth/identity";
 import { ScreenshotsCaptureAndDeliver } from "sheet-workflow-contracts";
@@ -24,7 +17,6 @@ import {
   screenshotBrowserBounds,
 } from "./browser";
 import { makeScreenshotsCaptureAndDeliverWorkflowBody, screenshotShardGroups } from "./definition";
-import { screenshotWorkflowDefinitionVersion } from "./catalog";
 import { ScreenshotsCaptureAndDeliverDefinition } from "./definitions";
 import {
   makeScreenshotActionKey,
@@ -44,12 +36,7 @@ import {
   selectLegacyScreenshotSchedule,
 } from "./sourceProvider";
 import { screenshotCaptureOperationsLayer } from "./operations";
-import { ScreenshotCaptureOperations } from "./service";
-import { ScreenshotSourceOperations } from "./service";
-import {
-  reconcileDispatchWorkflowRuns,
-  workflowCommandExecutorLayer,
-} from "@/services/workflowCommands";
+import { ScreenshotCaptureOperations, ScreenshotSourceOperations } from "./service";
 
 const responseReference = Schema.decodeUnknownSync(ResponseReference)("response-1");
 const principal = Schema.decodeUnknownSync(EffectivePrincipal)({
@@ -459,138 +446,84 @@ describe("screenshot capture workflow", () => {
     }),
   );
 
-  it.effect("reaches a terminal delivery result through the replacement command runtime", () =>
-    Effect.gen(function* () {
-      const effects: Array<string> = [];
-      const delivery = makeScreenshotDeliveryClient({ effects, byteLength: 4 });
-      const workflow = ScreenshotsCaptureAndDeliverDefinition.workflow;
-      const executionId = yield* workflow.executionId(execution);
-      const runId = "screenshot-replacement-run";
-      const command: WorkflowCommand = {
-        commandId: `start:${runId}`,
-        runId,
-        workflowName: workflow.name,
-        definitionVersion: screenshotWorkflowDefinitionVersion,
-        executionId,
-        kind: "start",
-        payload: Schema.decodeUnknownSync(Schema.Json)(execution),
-        status: "delivering",
-        attempts: 1,
-        maxAttempts: 3,
-        leaseOwner: "screenshot-test",
-        leaseToken: 1,
-      };
-      const run: WorkflowRun = {
-        runId,
-        workflowName: workflow.name,
-        definitionVersion: screenshotWorkflowDefinitionVersion,
-        executionId,
-        status: "running",
-        result: null,
-        error: null,
-        updatedAt: new Date("2026-01-01T00:00:00.000Z"),
-      };
-      const claimed = yield* Ref.make(true);
-      const delivered = yield* Ref.make(false);
-      const runStatuses = yield* Ref.make<ReadonlyArray<string>>([]);
-      const runResults = yield* Ref.make<ReadonlyArray<unknown>>([]);
-      const storeLayer = Layer.mock(WorkflowStore)({
-        claim: () =>
-          Ref.modify(claimed, (isClaimed) => [isClaimed ? [command] : [], false] as const),
-        markCommandDelivered: () => Ref.set(delivered, true).pipe(Effect.as(true)),
-        listRuns: () => Effect.succeed([run]),
-        markRun: (_runId, status, details) =>
-          Effect.all(
-            [
-              Ref.update(runStatuses, (statuses) => [...statuses, status]),
-              Ref.update(runResults, (results) => [...results, details?.result]),
-            ],
-            { discard: true },
+  it.effect("settles a directly enqueued workflow with its delivery result", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const effects: Array<string> = [];
+        const delivery = makeScreenshotDeliveryClient({ effects, byteLength: 4 });
+        const sourceLayer = Layer.sync(ScreenshotSourceOperations)(() => ({
+          resolve: () =>
+            Effect.sync(() => {
+              effects.push("resolve");
+              return { url: "https://docs.google.com/render" };
+            }),
+        }));
+        const captureLayer = screenshotCaptureOperationsLayer.pipe(
+          Layer.provide(
+            Layer.sync(ScreenshotBrowser)(() => ({
+              capture: () =>
+                Effect.sync(() => {
+                  effects.push("capture");
+                  return new Uint8Array([1, 2, 3, 4]);
+                }),
+            })),
           ),
-      });
-      const sourceLayer = Layer.succeed(ScreenshotSourceOperations, {
-        resolve: () =>
-          Effect.sync(() => {
-            effects.push("resolve");
-            return { url: "https://docs.google.com/render" };
-          }),
-      });
-      const captureLayer = screenshotCaptureOperationsLayer.pipe(
-        Layer.provide(
-          Layer.mock(ScreenshotBrowser)({
-            capture: () =>
-              Effect.sync(() => {
-                effects.push("capture");
-                return new Uint8Array([1, 2, 3, 4]);
+          Layer.provide(Layer.sync(SheetBotDeliveryClient)(() => ({ get: () => delivery }))),
+          Layer.provide(
+            Layer.sync(ReadOnlyWorkflowAuthorization)(() => makeAuthorization(() => Effect.void)),
+          ),
+          Layer.provide(
+            ConfigProvider.layer(
+              ConfigProvider.fromUnknown({
+                SHEET_BOT_CLIENT_ID: "discord-main",
+                SCREENSHOT_BROWSER_CONCURRENCY: 1,
               }),
-          }),
-        ),
-        Layer.provide(Layer.succeed(SheetBotDeliveryClient, { get: () => delivery })),
-        Layer.provide(
-          Layer.succeed(
-            ReadOnlyWorkflowAuthorization,
-            makeAuthorization(() => Effect.void),
+            ),
           ),
-        ),
-        Layer.provide(
-          ConfigProvider.layer(
-            ConfigProvider.fromUnknown({
-              SHEET_BOT_CLIENT_ID: "discord-main",
-              SCREENSHOT_BROWSER_CONCURRENCY: 1,
-            }),
-          ),
-        ),
-      );
-      const engineLayer = WorkflowEngine.layerMemory;
-      const workflowHandlersLayer = Layer.mergeAll(
-        ScreenshotsCaptureAndDeliverDefinition.workflowLayer,
-        ...ScreenshotsCaptureAndDeliverDefinition.actions.map((action) => action.toLayer()),
-      ).pipe(
-        Layer.provide(sourceLayer),
-        Layer.provide(captureLayer),
-        Layer.provide(
-          Layer.succeed(ActionContext, {
-            query: () => Effect.die("unused"),
-            mutate: () => Effect.die("unused"),
-          }),
-        ),
-      );
-      const runtimeLayer = Layer.mergeAll(workflowCommandExecutorLayer, workflowHandlersLayer).pipe(
-        Layer.provideMerge(Layer.mergeAll(engineLayer, storeLayer)),
-      );
-
-      yield* Effect.gen(function* () {
-        const dispatched = yield* dispatchWorkflowCommandBatch({
-          batchSize: 1,
-          maxAttempts: 3,
-          retryDelay: () => Duration.zero,
-        });
-        expect(dispatched).toBe(1);
-        const cursor = yield* Ref.make<WorkflowRunCursor | undefined>(undefined);
-        yield* reconcileDispatchWorkflowRuns(cursor).pipe(
-          Effect.tap(() => Effect.yieldNow),
-          Effect.repeat({
-            times: 19,
-            until: () =>
-              Ref.get(runStatuses).pipe(Effect.map((statuses) => statuses.includes("succeeded"))),
-          }),
         );
-      }).pipe(Effect.provide(runtimeLayer));
-
-      expect(yield* Ref.get(delivered)).toBe(true);
-      expect(effects).toEqual(["resolve", "capture", "deliver"]);
-      expect(yield* Ref.get(runStatuses)).toContain("succeeded");
-      expect(yield* Ref.get(runResults)).toContainEqual(
-        expect.objectContaining({
-          deliveryReceipts: [
-            expect.objectContaining({
-              deliveryKey: makeScreenshotDeliveryKey(invocationId),
-              operation: "respond",
-              target: { _tag: "Response", responseReference },
+        const workflowHandlersLayer = Layer.mergeAll(
+          ScreenshotsCaptureAndDeliverDefinition.workflowLayer,
+          ...ScreenshotsCaptureAndDeliverDefinition.actions.map((action) => action.toLayer()),
+        ).pipe(
+          Layer.provide(sourceLayer),
+          Layer.provide(captureLayer),
+          Layer.provide(
+            Layer.succeed(ActionContext, {
+              query: () => Effect.die("unused"),
+              mutate: () => Effect.die("unused"),
             }),
-          ],
-        }),
-      );
-    }),
+          ),
+        );
+
+        yield* Effect.gen(function* () {
+          const workflow = ScreenshotsCaptureAndDeliverDefinition.workflow;
+          const result = yield* workflow.execute(execution, { discard: false });
+          const executionId = yield* workflow.executionId(execution);
+          const polled = yield* workflow.poll(executionId);
+
+          expect(result).toMatchObject({
+            workspaceId: "workspace-1",
+            conversationName: "alpha",
+            day: 2,
+            byteLength: 4,
+            deliveryReceipts: [
+              {
+                deliveryKey: makeScreenshotDeliveryKey(invocationId),
+                operation: "respond",
+                target: { _tag: "Response", responseReference },
+              },
+            ],
+          });
+          expect(Option.isSome(polled)).toBe(true);
+          expect(Option.getOrNull(polled)).toMatchObject({ _tag: "Complete" });
+        }).pipe(
+          Effect.provide(
+            workflowHandlersLayer.pipe(Layer.provideMerge(WorkflowEngine.layerMemory)),
+          ),
+        );
+
+        expect(effects).toEqual(["resolve", "capture", "deliver"]);
+      }),
+    ),
   );
 });

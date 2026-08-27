@@ -8,13 +8,11 @@ import {
   type DeliveryReceipt,
   type ResponseReference,
   conversationRefFrom,
-} from "sheet-bot-api";
-import {
   isLockdownRoleIdAllowed,
   isSendableDiscordChannelType,
   lockdownEveryoneRoleErrorMessage,
   makeLockdownPermissionOverwrites,
-} from "sheet-ingress-api/guild-config";
+} from "sheet-bot-api";
 import {
   conversationMentionValue,
   escapeMarkdown,
@@ -300,11 +298,6 @@ const requireChanges = (operation: string, patch: Readonly<Record<string, unknow
         invalidRequest("ConfigurationPatchRequired", `Cannot ${operation} without changes`),
       );
 
-const permissionOverwriteKind = {
-  0: "role",
-  1: "member",
-} as const satisfies Record<0 | 1, BotPermissionOverwrite["targetKind"]>;
-
 // TIA-87 defines lockdown as a complete overwrite replacement. Disabling it sends an empty
 // replacement so the conversation returns entirely to its inherited permission defaults.
 const botPermissionOverwrites = (
@@ -315,12 +308,7 @@ const botPermissionOverwrites = (
         workspaceId: state.workspaceId,
         lockdownRoleId: state.roleId,
         monitorRoleIds: state.monitorRoleIds,
-      }).map(({ id, type, allow, deny }) => ({
-        targetId: id,
-        targetKind: permissionOverwriteKind[type],
-        allow,
-        deny,
-      }))
+      })
     : [];
 
 export const configurationWorkflowOperationsLayer = Layer.effect(

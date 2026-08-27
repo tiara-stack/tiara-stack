@@ -6,14 +6,12 @@ import {
   BotResponseExpired,
   DeliveryKey,
   ResponseReference,
-  type SheetBotHttpClient,
-} from "sheet-bot-api";
-import {
   emptyPermissionBits,
   lockdownRolePermissionAllow,
   lockdownWorkspacePermissionDeny,
   monitorRolePermissionAllow,
-} from "sheet-ingress-api/guild-config";
+  type SheetBotHttpClient,
+} from "sheet-bot-api";
 import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import {
   ConversationsDeliverConfig,
@@ -26,11 +24,7 @@ import {
 } from "sheet-workflow-contracts";
 import { SheetBotCacheClient } from "@/services/sheetBotCacheClient";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
-import {
-  makeSheetApisClient,
-  makeTrustedSheetPersistenceMock,
-  normalizePayloadText,
-} from "@/services/testHelpers";
+import { makeTrustedSheetPersistenceMock, normalizePayloadText } from "@/services/testHelpers";
 import { ReadOnlyWorkflowAuthorization } from "../readOnly/authorization";
 import {
   makeRecordingWorkflowAuthorization,
@@ -151,7 +145,7 @@ const makeOperations = (
   workspaces: TrustedSheetPersistence["Service"]["workspaces"],
   bot: SheetBotHttpClient,
 ) => {
-  const base = makeTrustedSheetPersistenceMock(makeSheetApisClient({}));
+  const base = makeTrustedSheetPersistenceMock();
   return Effect.gen(function* () {
     return yield* ConfigurationWorkflowOperations;
   }).pipe(
@@ -165,7 +159,7 @@ const makeOperations = (
   );
 };
 
-const baseWorkspaces = () => makeTrustedSheetPersistenceMock(makeSheetApisClient({})).workspaces;
+const baseWorkspaces = () => makeTrustedSheetPersistenceMock().workspaces;
 
 describe("workspace and conversation configuration Workflow Definition slice", () => {
   it("registers exactly the six pinned definitions", () => {

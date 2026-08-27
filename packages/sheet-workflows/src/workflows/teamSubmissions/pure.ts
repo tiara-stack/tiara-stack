@@ -1,24 +1,23 @@
 import { Option, Predicate, String } from "effect";
-import type { TeamConfig } from "sheet-ingress-api/schemas/sheetConfig";
-import {
-  type MessageTeamSubmission,
-  type ParsedOshi,
-  type ParsedTeamEntry,
-  type TeamSubmissionRollbackSnapshot,
-  type TeamSubmissionRowMapping,
-  type TeamSubmissionSkippedEntry,
-} from "sheet-ingress-api/schemas/teamSubmission";
 import type { MessageRef } from "sheet-bot-api";
 import {
-  appendRangeForCells as appendSharedRangeForCells,
-  appendRowValues as appendSharedRowValues,
-  appendedRowTarget as appendedSharedRowTarget,
-  parseA1Start as parseSharedA1Start,
-  rollbackValuesForRange as rollbackSharedValuesForRange,
+  appendRangeForCellsForWorkflow as appendSharedRangeForCells,
+  appendRowValuesForWorkflow as appendSharedRowValues,
+  appendedRowTargetForWorkflow as appendedSharedRowTarget,
+  parseA1StartForWorkflow as parseSharedA1Start,
+  rollbackValuesForRangeForWorkflow as rollbackSharedValuesForRange,
   type A1RangeOptions,
-  type SheetValueUpdate as SharedSheetValueUpdate,
-  type TeamSubmissionRowTarget as SharedTeamSubmissionRowTarget,
-} from "sheet-ingress-api/schemas/teamSubmission";
+  type WorkflowSheetValueUpdate as SharedSheetValueUpdate,
+  type WorkflowTeamSubmissionRowTarget as SharedTeamSubmissionRowTarget,
+} from "./ranges";
+import type {
+  MessageTeamSubmission,
+  ParsedTeamEntry,
+  TeamConfig,
+  TeamSubmissionRollbackSnapshot,
+  TeamSubmissionRowMapping,
+  TeamSubmissionSkippedEntry,
+} from "./values";
 
 // The workflow package keeps a source-compatible copy while the legacy dispatch path remains active.
 export type SheetValueUpdate = SharedSheetValueUpdate;
@@ -76,7 +75,7 @@ type WorkflowAppendRangeForCells = NonNullable<ReturnType<typeof appendRangeForC
 export const appendRowValues = (
   appendRange: WorkflowAppendRangeForCells,
   entry: ParsedTeamEntry,
-  oshi: ParsedOshi,
+  oshi: ParsedTeamEntry["oshi"],
 ) => appendSharedRowValues(appendRange, entry, oshi);
 
 export const appendedRowTarget = (
@@ -178,7 +177,7 @@ const matchingOshis = (candidate: string, validOshis: ReadonlyArray<string>) => 
 export const matchOshi = (
   candidate: string | null,
   validOshis: ReadonlyArray<string>,
-): ParsedOshi => {
+): ParsedTeamEntry["oshi"] => {
   if (candidate === null) return { candidate: null, value: null, status: "none" };
   if (validOshis.length === 0) return { candidate, value: null, status: "notConfigured" };
   const matches = matchingOshis(candidate, validOshis);
