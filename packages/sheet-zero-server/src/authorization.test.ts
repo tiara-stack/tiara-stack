@@ -91,14 +91,14 @@ describe("Zero OAuth context", () => {
       const context = yield* zeroContextFromToken(
         ["messageSlot.get"],
         token({
-          clientId: "sheet-apis",
+          clientId: "sheet-db-server",
           scopes: new Set(["service"]),
         }),
       );
 
       expect(context).toEqual({
-        principalId: "sheet-apis",
-        visibilityKey: "service:sheet-apis",
+        principalId: "sheet-db-server",
+        visibilityKey: "service:sheet-db-server",
       });
     }),
   );
@@ -108,19 +108,19 @@ describe("Zero OAuth context", () => {
       const context = yield* zeroContextFromToken(
         ["runs.list", "messageSlot.get"],
         token({
-          clientId: "sheet-apis",
+          clientId: "sheet-db-server",
           scopes: new Set(["service"]),
         }),
       );
 
       expect(context).toEqual({
-        principalId: "sheet-apis",
-        visibilityKey: "service:sheet-apis",
+        principalId: "sheet-db-server",
+        visibilityKey: "service:sheet-db-server",
       });
     }),
   );
 
-  for (const scopes of [[], ["service"], ["ingress.forward"]] as const) {
+  for (const scopes of [[], ["service"], ["workflow.enqueue"]] as const) {
     it.effect(
       `rejects delegated workflow enqueue with scopes: ${scopes.join(", ") || "none"}`,
       () =>
@@ -129,7 +129,7 @@ describe("Zero OAuth context", () => {
             zeroContextFromToken(
               ["runs.enqueueAsCaller"],
               token({
-                clientId: "sheet-ingress",
+                clientId: "sheet-workflows",
                 scopes: new Set(scopes),
               }),
             ),
@@ -137,25 +137,25 @@ describe("Zero OAuth context", () => {
 
           expect(failure(exit)).toMatchObject({
             _tag: "ZeroDispatchUnauthorizedError",
-            message: "Delegated workflow enqueue requires service and ingress.forward scopes",
+            message: "Delegated workflow enqueue requires service and workflow.enqueue scopes",
           });
         }),
     );
   }
 
-  it.effect("allows trusted ingress to enqueue a delegated workflow", () =>
+  it.effect("allows a trusted service to enqueue a delegated workflow", () =>
     Effect.gen(function* () {
       const context = yield* zeroContextFromToken(
         ["runs.enqueueAsCaller"],
         token({
-          clientId: "sheet-ingress",
-          scopes: new Set(["service", "ingress.forward"]),
+          clientId: "sheet-workflows",
+          scopes: new Set(["service", "workflow.enqueue"]),
         }),
       );
 
       expect(context).toEqual({
-        principalId: "sheet-ingress",
-        visibilityKey: "service:sheet-ingress",
+        principalId: "sheet-workflows",
+        visibilityKey: "service:sheet-workflows",
       });
     }),
   );
@@ -165,27 +165,27 @@ describe("Zero OAuth context", () => {
       const context = yield* zeroContextFromToken(
         ["runs.enqueueAsCaller", "messageSlot.mutate"],
         token({
-          clientId: "sheet-ingress",
-          scopes: new Set(["service", "ingress.forward"]),
+          clientId: "sheet-workflows",
+          scopes: new Set(["service", "workflow.enqueue"]),
         }),
       );
 
       expect(context).toEqual({
-        principalId: "sheet-ingress",
-        visibilityKey: "service:sheet-ingress",
+        principalId: "sheet-workflows",
+        visibilityKey: "service:sheet-workflows",
       });
 
       const exit = yield* Effect.exit(
         zeroContextFromToken(
           ["runs.enqueueAsCaller", "messageSlot.mutate"],
           token({
-            clientId: "sheet-ingress",
+            clientId: "sheet-workflows",
             scopes: new Set(["service"]),
           }),
         ),
       );
       expect(failure(exit)).toMatchObject({
-        message: "Delegated workflow enqueue requires service and ingress.forward scopes",
+        message: "Delegated workflow enqueue requires service and workflow.enqueue scopes",
       });
     }),
   );

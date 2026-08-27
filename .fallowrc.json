@@ -2,7 +2,6 @@
   "entry": [
     "packages/sheet-db-schema/effect-sql.config.ts",
     "packages/sheet-db-schema/effect-zero.config.ts",
-    "packages/sheet-db-schema/src/zero/internal.ts",
     "packages/sheet-db-schema/effect-sql-migrations/0001_migration.ts",
     "packages/sheet-db-schema/effect-sql-migrations/0002_migration.ts",
     "packages/sheet-db-schema/effect-sql-migrations/0003_migration.ts",
@@ -15,9 +14,7 @@
   "publicPackages": [
     "dfx-discord-utils",
     "effect-platform-apps-script",
-    "sheet-apis",
     "sheet-db-schema",
-    "sheet-ingress-api",
     "typhoon-core"
   ],
   "audit": {

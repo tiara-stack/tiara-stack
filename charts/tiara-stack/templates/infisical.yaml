@@ -108,7 +108,7 @@ spec:
 {{- if $svcValues.enabled }}{{- $secretNames = append $secretNames (default (include "tiara-stack.defaultSecretName" $svc.key) $secretRef.name) -}}{{- end -}}
 {{- if and $svcValues.enabled $svc.googleServiceAccount -}}
 {{- $googleSecretRef := $svcValues.googleServiceAccountSecretRef | default dict -}}
-{{- $secretNames = append $secretNames (default (include "tiara-stack.defaultSecretName" "sheetApisGoogleServiceAccount") $googleSecretRef.name) -}}
+{{- $secretNames = append $secretNames (default (include "tiara-stack.defaultSecretName" "sheetWorkflowsGoogleServiceAccount") $googleSecretRef.name) -}}
 {{- end -}}
 {{- end -}}
 {{- $zeroCacheSecretRef := .Values.zeroCache.secretRef | default dict -}}

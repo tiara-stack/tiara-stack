@@ -1,1 +1,0 @@
-export { discordLayer } from "./http";

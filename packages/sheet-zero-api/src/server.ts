@@ -37,11 +37,7 @@ export {
   sheetZeroTablePrefix,
 } from "./api/runs";
 export { internal, service } from "./internal";
-export {
-  makeLegacySheetClient,
-  makeSheetServiceClient,
-  type SheetServiceClient,
-} from "./serverClient";
+export { makeSheetServiceClient, type SheetServiceClient } from "./serverClient";
 export {
   serverMutators,
   serverQueries,

@@ -19,7 +19,6 @@ export const PublicOAuthScopes = [
 
 export const InternalOAuthScopes = [
   "service",
-  "ingress.forward",
   "bot.impersonate",
   "token.exchange",
   "bot.cache.read",

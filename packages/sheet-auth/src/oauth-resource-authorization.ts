@@ -13,7 +13,7 @@ class OAuthResourceAuthorizationError extends Data.TaggedError("OAuthResourceAut
   readonly cause?: unknown;
 }> {}
 
-const defaultHeaderName = "x-sheet-ingress-auth";
+const defaultHeaderName = "authorization";
 
 export interface OAuthResourceTokenAuthorizerOptions<E = Unauthorized> {
   readonly issuer: string;
@@ -237,7 +237,7 @@ export const makeOAuthResourceTokenAuthorizer = <E = Unauthorized>(
       "OAuthResourceTokenAuthorizer.requireAuthorizedBearerToken",
     )(function* (token: string | undefined) {
       if (!token) {
-        return yield* Effect.fail(makeUnauthorized({ message: "Missing ingress authorization" }));
+        return yield* Effect.fail(makeUnauthorized({ message: "Missing OAuth authorization" }));
       }
 
       const { ttl: _ttl, ...verifiedToken } = yield* Cache.get(tokenCache, token);

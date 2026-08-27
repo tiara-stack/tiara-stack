@@ -93,24 +93,6 @@ services:
     serviceMonitor:
       enabled: true
 
-  sheetApis:
-    enabled: true
-    image:
-      repository: ""
-      tag: ""
-      pullPolicy: ""
-    replicas: 1
-    secretRef:
-      name: sheet-apis-secret
-    googleServiceAccountSecretRef:
-      name: sheet-apis-secret-path
-      key: google-service-account.json
-    env: {}
-    nodeSelector: {}
-    tolerations: []
-    serviceMonitor:
-      enabled: true
-
   sheetBot:
     enabled: true
     image:
@@ -151,7 +133,7 @@ services:
     secretRef:
       name: sheet-workflows-secret
     googleServiceAccountSecretRef:
-      name: sheet-apis-secret-path
+      name: sheet-workflows-secret-path
       key: google-service-account.json
     env: {}
     nodeSelector: {}
@@ -183,28 +165,6 @@ services:
     replicas: 1
     secretRef:
       name: sdbs-secret
-    env: {}
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: "1"
-        memory: 1Gi
-    nodeSelector: {}
-    tolerations: []
-    serviceMonitor:
-      enabled: true
-
-  sheetIngressServer:
-    enabled: true
-    image:
-      repository: ""
-      tag: ""
-      pullPolicy: ""
-    replicas: 1
-    secretRef:
-      name: sheet-ingress-server-secret
     env: {}
     resources:
       requests:

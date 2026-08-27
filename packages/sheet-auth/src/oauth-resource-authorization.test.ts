@@ -39,16 +39,16 @@ describe("makeOAuthResourceTokenAuthorizer", () => {
       vi.stubGlobal("fetch", fetch);
       verifyAccessToken.mockResolvedValue({
         aud: "sheet-workflows",
-        azp: "sheet-ingress-server",
+        azp: "sheet-workflows",
         exp: Math.floor(Date.now() / 1000) + 60,
         iss: "https://auth.example.com",
-        scope: "ingress.forward",
+        scope: "workflow.enqueue",
       });
 
       const authorizer = yield* makeOAuthResourceTokenAuthorizer({
         issuer: "http://sheet-auth-service",
         audience: "sheet-workflows",
-        requiredScopes: ["ingress.forward"],
+        requiredScopes: ["workflow.enqueue"],
       });
       yield* authorizer.requireAuthorizedBearerToken("access-token-1");
 
@@ -80,16 +80,16 @@ describe("makeOAuthResourceTokenAuthorizer", () => {
       vi.stubGlobal("fetch", fetch);
       verifyAccessToken.mockResolvedValue({
         aud: "sheet-workflows",
-        azp: "sheet-ingress-server",
+        azp: "sheet-workflows",
         exp: Math.floor(Date.now() / 1000) + 60,
         iss: "http://sheet-auth-service",
-        scope: "ingress.forward",
+        scope: "workflow.enqueue",
       });
 
       const authorizer = yield* makeOAuthResourceTokenAuthorizer({
         issuer: "http://sheet-auth-service",
         audience: "sheet-workflows",
-        requiredScopes: ["ingress.forward"],
+        requiredScopes: ["workflow.enqueue"],
       });
       yield* authorizer.requireAuthorizedBearerToken("access-token-1");
 

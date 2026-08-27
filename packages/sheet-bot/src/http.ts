@@ -5,7 +5,6 @@ import { DiscordREST } from "dfx";
 import type * as Discord from "dfx/types";
 import { DiscordApplication, DiscordLayer } from "dfx-discord-utils/discord";
 import { ParentCachePageSize } from "dfx-discord-utils/cache";
-import { DiscordApi } from "dfx-discord-utils/discord/api";
 import {
   ChannelsCache,
   GuildsCache,
@@ -13,7 +12,7 @@ import {
   RolesCache,
 } from "dfx-discord-utils/discord/cache";
 import type { DiscordBotRestError } from "dfx-discord-utils/discord/schema";
-import { discordHttpApiHandlersLayer, handleBotRestError } from "dfx-discord-utils/discord/http";
+import { handleBotRestError } from "dfx-discord-utils/discord/http";
 import { Effect, Equal, Layer, Match, Predicate, Schema } from "effect";
 import { createServer } from "http";
 import {
@@ -220,13 +219,6 @@ const requireCapabilityClient = (configuredClientId: string, client: ClientRef) 
     ),
     Effect.asVoid,
   );
-
-const discordHandlersLayer = discordHttpApiHandlersLayer.pipe(
-  Layer.provide(DiscordApplication.restLayer),
-  Layer.provide(DiscordLayer),
-  Layer.provide(NodeFileSystem.layer),
-  Layer.provide([discordConfigLayer, cachesLayer]),
-);
 
 const permissionOverwriteType = {
   role: 0,
@@ -734,8 +726,9 @@ const botCapabilityHandlersLayer = Layer.merge(
   Layer.provide([discordConfigLayer, cachesLayer]),
 );
 
-const apiRoutesLayer = Layer.provide(HttpApiBuilder.layer(DiscordApi), [discordHandlersLayer]).pipe(
-  Layer.merge(Layer.provide(HttpApiBuilder.layer(SheetBotApi), [botCapabilityHandlersLayer])),
+const apiRoutesLayer = Layer.provide(HttpApiBuilder.layer(SheetBotApi), [
+  botCapabilityHandlersLayer,
+]).pipe(
   Layer.provide(sheetBotHttpAuthorizationLayer),
   Layer.merge(HttpRouter.add("GET", "/live", HttpServerResponse.empty({ status: 200 }))),
   Layer.merge(HttpRouter.add("GET", "/ready", HttpServerResponse.empty({ status: 200 }))),

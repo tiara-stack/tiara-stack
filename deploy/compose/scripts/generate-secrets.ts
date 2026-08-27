@@ -191,13 +191,6 @@ const readExistingEnvValue = (key: string) => {
   return undefined;
 };
 const preserveEnvValue = (key: string, fallback = "") => readExistingEnvValue(key) ?? fallback;
-const requireEnvValue = (key: string) => {
-  const value = preserveEnvValue(key).trim();
-  if (!value) {
-    throw new Error(`${key} is required and must be non-empty`);
-  }
-  return value;
-};
 const zeroAdminPassword = readExistingEnvValue("ZERO_ADMIN_PASSWORD") ?? makePassword();
 
 const envContents = `POSTGRES_PASSWORD=${postgresPassword}
@@ -209,19 +202,14 @@ DISCORD_CLIENT_ID=${preserveEnvValue("DISCORD_CLIENT_ID")}
 DISCORD_CLIENT_SECRET=${preserveEnvValue("DISCORD_CLIENT_SECRET")}
 DISCORD_TOKEN=${preserveEnvValue("DISCORD_TOKEN")}
 
-SHEET_APIS_OAUTH_CLIENT_ID=${requireEnvValue("SHEET_APIS_OAUTH_CLIENT_ID")}
-SHEET_APIS_OAUTH_CLIENT_SECRET=${requireEnvValue("SHEET_APIS_OAUTH_CLIENT_SECRET")}
-SHEET_BOT_OAUTH_CLIENT_ID=${requireEnvValue("SHEET_BOT_OAUTH_CLIENT_ID")}
-SHEET_BOT_OAUTH_CLIENT_SECRET=${requireEnvValue("SHEET_BOT_OAUTH_CLIENT_SECRET")}
-SHEET_WORKFLOWS_OAUTH_CLIENT_ID=${requireEnvValue("SHEET_WORKFLOWS_OAUTH_CLIENT_ID")}
-SHEET_WORKFLOWS_OAUTH_CLIENT_SECRET=${requireEnvValue("SHEET_WORKFLOWS_OAUTH_CLIENT_SECRET")}
-SHEET_INGRESS_OAUTH_CLIENT_ID=${requireEnvValue("SHEET_INGRESS_OAUTH_CLIENT_ID")}
-SHEET_INGRESS_OAUTH_CLIENT_SECRET=${requireEnvValue("SHEET_INGRESS_OAUTH_CLIENT_SECRET")}
+SHEET_BOT_OAUTH_CLIENT_ID=${preserveEnvValue("SHEET_BOT_OAUTH_CLIENT_ID")}
+SHEET_BOT_OAUTH_CLIENT_SECRET=${preserveEnvValue("SHEET_BOT_OAUTH_CLIENT_SECRET")}
+SHEET_WORKFLOWS_OAUTH_CLIENT_ID=${preserveEnvValue("SHEET_WORKFLOWS_OAUTH_CLIENT_ID")}
+SHEET_WORKFLOWS_OAUTH_CLIENT_SECRET=${preserveEnvValue("SHEET_WORKFLOWS_OAUTH_CLIENT_SECRET")}
 
 SHEET_AUTH_PUBLIC_BASE_URL=${preserveEnvValue("SHEET_AUTH_PUBLIC_BASE_URL", "http://localhost:3002")}
 SHEET_WEB_PUBLIC_BASE_URL=${preserveEnvValue("SHEET_WEB_PUBLIC_BASE_URL", "http://localhost:3001")}
-SHEET_INGRESS_PUBLIC_BASE_URL=${preserveEnvValue("SHEET_INGRESS_PUBLIC_BASE_URL", "http://localhost:3000")}
-TRUSTED_ORIGINS=${preserveEnvValue("TRUSTED_ORIGINS", "http://localhost:3001,http://localhost:3000,http://localhost:3002")}
+TRUSTED_ORIGINS=${preserveEnvValue("TRUSTED_ORIGINS", "http://localhost:3001,http://localhost:3002")}
 COOKIE_DOMAIN=${preserveEnvValue("COOKIE_DOMAIN")}
 OTEL_EXPORTER_OTLP_ENDPOINT=${preserveEnvValue("OTEL_EXPORTER_OTLP_ENDPOINT")}
 `;

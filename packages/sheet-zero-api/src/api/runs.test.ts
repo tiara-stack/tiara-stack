@@ -102,8 +102,8 @@ describe("Sheet workflow Zero component installation", () => {
             workflow: input,
           },
           ctx: {
-            principalId: "sheet-ingress",
-            visibilityKey: "service:sheet-ingress",
+            principalId: "sheet-workflows",
+            visibilityKey: "service:sheet-workflows",
           },
           tx,
         }),

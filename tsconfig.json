@@ -29,9 +29,6 @@
       "path": "packages/effect-zero-workflow"
     },
     {
-      "path": "packages/sheet-apis"
-    },
-    {
       "path": "packages/sheet-auth"
     },
     {
@@ -51,12 +48,6 @@
     },
     {
       "path": "packages/sheet-formulas"
-    },
-    {
-      "path": "packages/sheet-ingress-api"
-    },
-    {
-      "path": "packages/sheet-ingress-server"
     },
     {
       "path": "packages/sheet-domain"

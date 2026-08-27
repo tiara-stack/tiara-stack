@@ -61,28 +61,12 @@ different UID.
 - `trustedOAuthClientIds`
 - `tokenExchangeSubjectJwtSecret`
 
-`sheet-apis-secret`
-
-- `otelExporterOtlpEndpoint`
-- `zeroCacheServer`
-- `redisUrl`
-- `sheetAuthIssuer`
-- `sheetIngressBaseUrl`
-- `sheetApisServiceClientId`
-- `sheetApisServiceClientSecret`
-- `sheetAuthTrustedDelegationClientIds`
-
-`sheet-apis-secret-path`
-
-- `google-service-account.json`
-
 `sheet-bot-secret`
 
 - `otelExporterOtlpEndpoint`
 - `discordToken`
 - `discordClientId`
 - `redisUrl`
-- `sheetIngressBaseUrl`
 - `sheetAuthIssuer`
 - `sheetBotServiceClientId`
 - `sheetBotServiceClientSecret`
@@ -93,16 +77,19 @@ different UID.
 - `otelExporterOtlpEndpoint`
 - `postgresUrl`
 - `sheetAuthIssuer`
-- `sheetIngressBaseUrl`
 - `sheetWorkflowsServiceClientId`
 - `sheetWorkflowsServiceClientSecret`
 - `sheetAuthTrustedDelegationClientIds`
 
+`sheet-workflows-secret-path`
+
+- `google-service-account.json`
+
 The production overlay binds the workflow API and both runner roles to the
-provisioned `sheet-workflows-secret`. The workflow API is exposed separately
-during coexistence at `workflows.theerapakg.moe`; the ordinary and browser
-runners remain cluster internal. If separate role credentials are introduced,
-provision their Infisical paths before changing these Secret references.
+provisioned `sheet-workflows-secret`. The workflow API is exposed at
+`workflows.theerapakg.moe`; the ordinary and browser runners remain cluster
+internal. If separate role credentials are introduced, provision their
+Infisical paths before changing these Secret references.
 
 The chart supplies the non-secret autonomous check-in identities
 `auto-checkin` and `sheet-auto-checkin` to every workflow role.
@@ -111,18 +98,6 @@ The chart supplies the non-secret autonomous check-in identities
 
 - `postgresUrl`
 - `otelExporterOtlpEndpoint`
-
-`sheet-ingress-server-secret`
-
-- `otelExporterOtlpEndpoint`
-- `sheetApisBaseUrl`
-- `sheetBotBaseUrl`
-- `sheetAuthIssuer`
-- `trustedOrigins`
-- `sheetIngressServiceClientId`
-- `sheetIngressServiceClientSecret`
-- `sheetAuthOAuthTokenExchangeClientId` optional
-- `sheetAuthOAuthTokenExchangeClientSecret` optional
 
 `sheet-web-secret`
 
@@ -143,6 +118,7 @@ The chart supplies the non-secret autonomous check-in identities
 `zero-secret`
 
 - `nodeEnv`
+- `zeroCacheServer`
 - `zeroReplicaFile`
 - `zeroUpstreamDb`
 - `zeroCvrDb`
@@ -153,7 +129,7 @@ The chart supplies the non-secret autonomous check-in identities
 Production TLS uses a Kubernetes TLS Secret named `theerapakg-moe-tls`. The
 Secret must be type `kubernetes.io/tls` with `tls.crt` and `tls.key`, and the
 certificate must cover `auth.theerapakg.moe`, `schedule.theerapakg.moe`,
-`sheet.theerapakg.moe`, `zero.theerapakg.moe`, and
+`zero.theerapakg.moe`, and
 `workflows.theerapakg.moe`.
 
 The default and production values include the cert-manager ingress annotation
@@ -293,12 +269,10 @@ references that same `infisical.auth.name`. If you pre-create your own
 The default Infisical paths are:
 
 - `/tiara-stack/sheet-auth-secret`
-- `/tiara-stack/sheet-apis-secret`
-- `/tiara-stack/sheet-apis-secret-path`
 - `/tiara-stack/sheet-bot-secret`
 - `/tiara-stack/sheet-workflows-secret`
+- `/tiara-stack/sheet-workflows-secret-path`
 - `/tiara-stack/sdbs-secret`
-- `/tiara-stack/sheet-ingress-server-secret`
 - `/tiara-stack/sheet-web-secret`
 - `/tiara-stack/zero-secret`
 - `/tiara-stack/meilisearch-secret`

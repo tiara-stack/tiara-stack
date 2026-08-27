@@ -386,9 +386,6 @@
         "sheetAuth": {
           "$ref": "#/definitions/appService"
         },
-        "sheetApis": {
-          "$ref": "#/definitions/appService"
-        },
         "sheetBot": {
           "$ref": "#/definitions/appService"
         },
@@ -402,9 +399,6 @@
           "$ref": "#/definitions/appService"
         },
         "sheetDbServer": {
-          "$ref": "#/definitions/appService"
-        },
-        "sheetIngressServer": {
           "$ref": "#/definitions/appService"
         },
         "sheetWeb": {

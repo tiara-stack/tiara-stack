@@ -82,10 +82,10 @@ export const zeroContextFromToken = (
   const isService = token.scopes.has("service");
   return Match.value(classifyProcedureBatch(procedureNames)).pipe(
     Match.when("delegated", () =>
-      isService && token.scopes.has("ingress.forward")
+      isService && token.scopes.has("workflow.enqueue")
         ? serviceContext(token)
         : Effect.fail(
-            unauthorized("Delegated workflow enqueue requires service and ingress.forward scopes"),
+            unauthorized("Delegated workflow enqueue requires service and workflow.enqueue scopes"),
           ),
     ),
     Match.when("publicRuns", () => (isService ? serviceContext(token) : publicRunsContext(token))),

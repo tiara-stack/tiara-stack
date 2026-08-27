@@ -10,7 +10,6 @@ const makeConfigLayer = (env: Record<string, string>) =>
         DISCORD_TOKEN: "test-token",
         POD_NAMESPACE: "test",
         REDIS_URL: "redis://localhost:6379",
-        SHEET_INGRESS_BASE_URL: "http://ingress",
         SHEET_AUTH_ISSUER: "http://auth",
         SHEET_AUTH_OAUTH_CLIENT_ID: "client-id",
         SHEET_AUTH_OAUTH_CLIENT_SECRET: "secret",

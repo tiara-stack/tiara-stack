@@ -6,8 +6,8 @@ pending migrations.
 
 The replicated Zero schema is generated from this canonical schema into
 `../sheet-zero-api/src/schema.ts`. The `sheet-db-schema` package owns the `zero:generate` script
-that writes that file, and the `sheet-zero-api` build invokes it before packing. This package keeps
-temporary `sheet-db-schema/zero` compatibility exports while callers migrate.
+that writes that file, and the `sheet-zero-api` build invokes it before packing. The generated
+schema and API clients are consumed from `sheet-zero-api`.
 
 Generated Effect SQL migrations live in `effect-sql-migrations/`. Schema changes should be
 captured with `pnpm db:generate` and applied with `pnpm db:migrate`.
@@ -20,8 +20,7 @@ migrations.
 
 The `sheet-db-schema/testdb` subpath is a test-only, server-authoritative executor. It creates one
 in-memory PGlite database per Effect scope, applies DDL derived from the canonical snapshot, and
-executes generated Zero queries and mutators through Zero's public Drizzle server adapter. The
-`sheet-apis/testdb` subpath binds that executor to the real `SheetZeroClient` service.
+executes generated Zero queries and mutators through Zero's public Drizzle server adapter.
 
 Reuse one scoped instance for a suite and call `reset` between cases. Reset uses `TRUNCATE` for all
 14 tables. An outer transaction rollback is faster, but it cannot safely wrap the nested

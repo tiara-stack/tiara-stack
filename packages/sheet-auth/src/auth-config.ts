@@ -67,16 +67,11 @@ type CleanupMethods = {
   closeStorage: () => Promise<void>;
 };
 
-const LegacyOAuthResourceAudiences = [
-  "sheet-ingress",
-  "sheet-apis",
-  "sheet-workflows",
-  "sheet-bot",
-  "sheet-db-server",
-] as const;
 const InternalOAuthResourceAudiences = [
-  ...new Set([...LegacyOAuthResourceAudiences, ...SheetAuthAudiences]),
-];
+  "sheet-workflows",
+  "sheet-db-server",
+  ...SheetAuthAudiences,
+] as const;
 const TokenExchangeAccessTokenMaxExpiresIn = 300;
 
 const tokenExchangeAccessTokenExpiresInOrThrow = (value: number | undefined) => {

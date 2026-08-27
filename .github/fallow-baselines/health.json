@@ -86,31 +86,6 @@
         "count": 1
       }
     },
-    "packages/sheet-apis/src/handlers/schedule/http.ts": {
-      "crap_moderate": {
-        "count": 1
-      }
-    },
-    "packages/sheet-apis/src/services/authorization.ts": {
-      "crap_moderate": {
-        "count": 1
-      }
-    },
-    "packages/sheet-apis/src/services/calc.ts": {
-      "crap_moderate": {
-        "count": 1
-      }
-    },
-    "packages/sheet-apis/src/services/roomOrder.ts": {
-      "crap_moderate": {
-        "count": 1
-      }
-    },
-    "packages/sheet-apis/src/services/sheet.ts": {
-      "crap_moderate": {
-        "count": 1
-      }
-    },
     "packages/sheet-web/scripts/index-docs-search.ts": {
       "crap_critical": {
         "count": 1
@@ -169,11 +144,6 @@
       },
       "crap_moderate": {
         "count": 2
-      }
-    },
-    "packages/sheet-workflows/src/services/autoCheckin.ts": {
-      "crap_moderate": {
-        "count": 1
       }
     },
     "packages/tiara-review/src/ai/client.ts": {
@@ -299,7 +269,13 @@
   },
   "runtime_coverage_findings": [],
   "target_keys": [
-    "packages/sheet-workflows/src/services/testHelpers.ts:high impact",
-    "packages/sheet-workflows/src/services/dispatch/pure/failure.ts:high impact"
+    "packages/dfx-discord-utils/src/discord/cache/shared.ts:high impact",
+    "packages/sheet-workflows/src/workflows/teamSubmissions/provider.ts:high impact",
+    "packages/sheet-workflows/src/workflows/shared/providerFailure.ts:high impact",
+    "packages/sheet-message-content/src/text.ts:high impact",
+    "packages/sheet-workflows/src/workflows/checkins/autoTestOperations.ts:complexity",
+    "packages/sheet-workflows/src/workflows/teamSubmissions/operations.ts:complexity",
+    "packages/sheet-bot/src/services/botCapabilityStore.ts:complexity",
+    "packages/sheet-web/src/routes/_authenticated/dashboard/guilds/$guildId.settings.tsx:complexity"
   ]
 }

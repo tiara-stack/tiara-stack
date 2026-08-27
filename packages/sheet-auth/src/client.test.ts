@@ -35,8 +35,8 @@ describe("createOAuthClientCredentialsToken", () => {
         {
           clientId: "sheet-bot",
           clientSecret: Redacted.make("client-secret"),
-          resource: "sheet-ingress",
-          scope: ["service", "workflow.dispatch"],
+          resource: "sheet-workflows-http",
+          scope: ["service", "workflow.enqueue"],
         },
       );
 
@@ -54,7 +54,7 @@ describe("createOAuthClientCredentialsToken", () => {
         "application/x-www-form-urlencoded",
       );
       expect(init.body).toBe(
-        "grant_type=client_credentials&client_id=sheet-bot&client_secret=client-secret&scope=service+workflow.dispatch&resource=sheet-ingress",
+        "grant_type=client_credentials&client_id=sheet-bot&client_secret=client-secret&scope=service+workflow.enqueue&resource=sheet-workflows-http",
       );
     }),
   );

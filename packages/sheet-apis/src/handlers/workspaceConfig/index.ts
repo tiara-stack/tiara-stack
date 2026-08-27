@@ -1,1 +1,0 @@
-export { workspaceConfigLayer } from "./http";

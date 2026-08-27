@@ -5,13 +5,11 @@ describe("oauthAudiences", () => {
   it("defaults to the issuer and internal resource audiences", () => {
     expect(oauthAudiences("https://auth.example.com", undefined)).toEqual([
       "https://auth.example.com",
-      "sheet-ingress",
-      "sheet-apis",
       "sheet-workflows",
-      "sheet-bot",
       "sheet-db-server",
       "sheet-zero",
       "sheet-workflows-http",
+      "sheet-bot",
       "sheet-auth",
     ]);
   });
@@ -19,13 +17,11 @@ describe("oauthAudiences", () => {
   it("oauthAudiences defaults when configured audiences are empty", () => {
     expect(oauthAudiences("https://auth.example.com", [])).toEqual([
       "https://auth.example.com",
-      "sheet-ingress",
-      "sheet-apis",
       "sheet-workflows",
-      "sheet-bot",
       "sheet-db-server",
       "sheet-zero",
       "sheet-workflows-http",
+      "sheet-bot",
       "sheet-auth",
     ]);
   });

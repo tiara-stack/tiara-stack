@@ -95,7 +95,7 @@ describe("identity schemas", () => {
       "sheet-bot": ["bot.cache.read", "bot.delivery.write"],
       "sheet-auth": ["token.exchange"],
     });
-    expect(() => Schema.decodeUnknownSync(SheetAuthAudience)("sheet-ingress")).toThrow();
+    expect(() => Schema.decodeUnknownSync(SheetAuthAudience)("unknown-audience")).toThrow();
     expect(() => Schema.decodeUnknownSync(SheetAuthCapabilityScope)("service")).toThrow();
     expectTypeOf<SheetAuthAudienceType>().toEqualTypeOf<
       "sheet-zero" | "sheet-workflows-http" | "sheet-bot" | "sheet-auth"

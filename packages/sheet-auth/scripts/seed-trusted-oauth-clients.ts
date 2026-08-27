@@ -20,30 +20,6 @@ type TrustedClientSpec = {
 
 const defaultTrustedClients = [
   {
-    envPrefix: "SHEET_INGRESS",
-    name: "sheet-ingress-server",
-    kind: "sheet-ingress-server",
-    scopes: ["service", "ingress.forward"],
-  },
-  {
-    envPrefix: "SHEET_INGRESS_EXCHANGE",
-    name: "sheet-ingress-token-exchange",
-    kind: "sheet-ingress-token-exchange",
-    scopes: [
-      "token.exchange",
-      "ingress.forward",
-      "sheet.read",
-      "sheet.write",
-      "sheet.manage",
-      "workflow.dispatch",
-      "bot.impersonate",
-      "zero.read",
-      "zero.mutate",
-      "workflow.observe",
-      "workflow.enqueue",
-    ],
-  },
-  {
     envPrefix: "SHEET_BOT",
     name: "sheet-bot",
     kind: "sheet-bot",
@@ -55,12 +31,6 @@ const defaultTrustedClients = [
       "workflow.enqueue",
       "rollout.gate.evaluate",
     ],
-  },
-  {
-    envPrefix: "SHEET_APIS",
-    name: "sheet-apis",
-    kind: "sheet-apis",
-    scopes: ["service"],
   },
   {
     envPrefix: "SHEET_WORKFLOWS",

@@ -1,1 +1,0 @@
-export { CheckinGenerateResult } from "./checkinGenerateResult";

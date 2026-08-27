@@ -64,10 +64,6 @@ app.kubernetes.io/instance: {{ .root.Release.Name }}
 {{- default "sheet-workflows" .Values.services.sheetWorkflows.nameOverride -}}
 {{- end -}}
 
-{{- define "tiara-stack.sheetApisName" -}}
-{{- default "sheet-apis" .Values.services.sheetApis.nameOverride -}}
-{{- end -}}
-
 {{- define "tiara-stack.sheetDbServerName" -}}
 {{- default "sheet-db-server" .Values.services.sheetDbServer.nameOverride -}}
 {{- end -}}
@@ -129,14 +125,12 @@ imagePullSecrets:
 {{- define "tiara-stack.defaultSecretName" -}}
 {{- $names := dict
   "sheetAuth" "sheet-auth-secret"
-  "sheetApis" "sheet-apis-secret"
-  "sheetApisGoogleServiceAccount" "sheet-apis-secret-path"
   "sheetBot" "sheet-bot-secret"
   "sheetWorkflows" "sheet-workflows-secret"
   "sheetWorkflowsRunner" "sheet-workflows-secret"
   "sheetWorkflowsBrowserRunner" "sheet-workflows-secret"
   "sheetDbServer" "sdbs-secret"
-  "sheetIngressServer" "sheet-ingress-server-secret"
+  "sheetWorkflowsGoogleServiceAccount" "sheet-workflows-secret-path"
   "sheetWeb" "sheet-web-secret"
   "zeroCache" "zero-secret"
   "meilisearch" "meilisearch-secret"
@@ -145,13 +139,8 @@ imagePullSecrets:
 {{- end -}}
 
 {{- define "tiara-stack.trustedDelegationEnv" -}}
-- name: SHEET_AUTH_TRUSTED_INGRESS_CLIENT_ID
-  secretName: {{ .ingressSecretName }}
-  secretKey: sheetIngressServiceClientId
-- name: SHEET_AUTH_TRUSTED_TOKEN_EXCHANGE_CLIENT_IDS
-  secretKey: sheetAuthTrustedDelegationClientIds
 - name: SHEET_AUTH_TRUSTED_DELEGATION_CLIENT_IDS
-  value: "$(SHEET_AUTH_TRUSTED_INGRESS_CLIENT_ID),$(SHEET_AUTH_TRUSTED_TOKEN_EXCHANGE_CLIENT_IDS)"
+  secretKey: sheetAuthTrustedDelegationClientIds
 {{- end -}}
 
 {{- define "tiara-stack.autoCheckinIdentityEnv" -}}
@@ -164,18 +153,15 @@ imagePullSecrets:
 {{- define "tiara-stack.serviceSpecs" -}}
 {{- $sheetAuthValues := .Values.services.sheetAuth | default dict -}}
 {{- $sheetAuthServiceName := default "sheet-auth-service" $sheetAuthValues.serviceNameOverride -}}
-{{- $sheetApisValues := .Values.services.sheetApis | default dict -}}
-{{- $sheetApisSecretRef := $sheetApisValues.secretRef | default dict -}}
-{{- $sheetApisSecretName := default (include "tiara-stack.defaultSecretName" "sheetApis") $sheetApisSecretRef.name -}}
 {{- $sheetBotValues := .Values.services.sheetBot | default dict -}}
 {{- $sheetBotSecretRef := $sheetBotValues.secretRef | default dict -}}
 {{- $sheetBotSecretName := default (include "tiara-stack.defaultSecretName" "sheetBot") $sheetBotSecretRef.name -}}
 {{- $sheetBotServiceName := include "tiara-stack.serviceName" (dict "name" "sheet-bot" "serviceValues" $sheetBotValues) -}}
 {{- $sheetWorkflowsValues := .Values.services.sheetWorkflows | default dict -}}
 {{- $sheetWorkflowsServiceName := include "tiara-stack.serviceName" (dict "name" "sheet-workflows" "serviceValues" $sheetWorkflowsValues) -}}
-{{- $sheetIngressValues := .Values.services.sheetIngressServer | default dict -}}
-{{- $sheetIngressSecretRef := $sheetIngressValues.secretRef | default dict -}}
-{{- $sheetIngressSecretName := default (include "tiara-stack.defaultSecretName" "sheetIngressServer") $sheetIngressSecretRef.name -}}
+{{- $zeroCacheValues := .Values.zeroCache | default dict -}}
+{{- $zeroCacheSecretRef := $zeroCacheValues.secretRef | default dict -}}
+{{- $zeroCacheSecretName := default (include "tiara-stack.defaultSecretName" "zeroCache") $zeroCacheSecretRef.name -}}
 - key: sheetAuth
   name: sheet-auth
   portName: sheet-auth-svc
@@ -228,8 +214,6 @@ imagePullSecrets:
   projectedTokens:
     - path: kubernetes-jwks-token
   networkPolicyFrom:
-    - app: sheet-apis
-      port: sheet-auth-svc
     - app: sheet-bot
       port: sheet-auth-svc
     - app: sheet-workflows
@@ -238,67 +222,12 @@ imagePullSecrets:
       port: sheet-auth-svc
     - app: sheet-workflows-browser-runner
       port: sheet-auth-svc
-    - app: sheet-ingress-server
-      port: sheet-auth-svc
     - app: sheet-db-server
       port: sheet-auth-svc
     {{- if .Values.ingress.enabled }}
     - namespace: {{ .Values.ingress.controllerNamespace }}
       port: sheet-auth-svc
     {{- end }}
-- key: sheetApis
-  name: sheet-apis
-  portName: sheet-apis-svc
-  metricPortName: sheet-apis-met
-  secretName: sheet-apis-secret
-  servicePorts:
-    - name: sheet-apis-svc
-      port: 80
-      targetPort: sheet-apis-svc
-    - name: sheet-apis-met
-      port: 9464
-      targetPort: sheet-apis-met
-  containerPorts:
-    - name: sheet-apis-svc
-      containerPort: 3000
-    - name: sheet-apis-met
-      containerPort: 9464
-  env:
-    - name: POD_NAME
-      fieldPath: metadata.name
-    - name: POD_NAMESPACE
-      fieldPath: metadata.namespace
-    - name: SHEET_INGRESS_NAMESPACE
-      fieldPath: metadata.namespace
-    - name: OTEL_EXPORTER_OTLP_ENDPOINT
-      secretKey: otelExporterOtlpEndpoint
-    - name: ZERO_CACHE_SERVER
-      secretKey: zeroCacheServer
-    - name: ZERO_CACHE_USER_ID
-      value: "system:serviceaccount:$(POD_NAMESPACE):sheet-apis"
-    - name: ZERO_OAUTH_AUDIENCE
-      value: sheet-db-server
-    - name: REDIS_URL
-      secretKey: redisUrl
-    - name: SHEET_AUTH_ISSUER
-      secretKey: sheetAuthIssuer
-    - name: SHEET_AUTH_OAUTH_CLIENT_ID
-      secretKey: sheetApisServiceClientId
-    - name: SHEET_AUTH_OAUTH_CLIENT_SECRET
-      secretKey: sheetApisServiceClientSecret
-    - name: SHEET_AUTH_OAUTH_AUDIENCE
-      value: sheet-apis
-{{ include "tiara-stack.trustedDelegationEnv" (dict "ingressSecretName" $sheetIngressSecretName) | nindent 4 }}
-    - name: SHEET_INGRESS_BASE_URL
-      secretKey: sheetIngressBaseUrl
-    - name: SERVICE_ACCOUNT_JWKS_AUTH_TOKEN_PATH
-      value: /var/run/secrets/tokens/kubernetes-jwks-token
-  projectedTokens:
-    - path: kubernetes-jwks-token
-  googleServiceAccount: true
-  networkPolicyFrom:
-    - app: sheet-ingress-server
-      port: sheet-apis-svc
 - key: sheetBot
   name: sheet-bot
   portName: sheet-bot-svc
@@ -330,12 +259,10 @@ imagePullSecrets:
       secretKey: discordClientId
     - name: REDIS_URL
       secretKey: redisUrl
-    - name: SHEET_INGRESS_BASE_URL
-      secretKey: sheetIngressBaseUrl
     - name: SHEET_WORKFLOWS_BASE_URL
       value: "http://{{ $sheetWorkflowsServiceName }}"
     - name: ZERO_CACHE_SERVER
-      secretName: {{ $sheetApisSecretName }}
+      secretName: {{ $zeroCacheSecretName }}
       secretKey: zeroCacheServer
     - name: ZERO_CACHE_USER_ID
       value: "system:serviceaccount:$(POD_NAMESPACE):sheet-bot"
@@ -360,8 +287,6 @@ imagePullSecrets:
     - path: sheet-auth-subject-token
       audience: sheet-auth-subject-token
   networkPolicyFrom:
-    - app: sheet-ingress-server
-      port: sheet-bot-svc
     - app: sheet-workflows
       port: sheet-bot-svc
     - app: sheet-workflows-runner
@@ -420,16 +345,12 @@ imagePullSecrets:
     - name: SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID
       secretName: {{ $sheetBotSecretName }}
       secretKey: sheetBotServiceClientId
-{{ include "tiara-stack.trustedDelegationEnv" (dict "ingressSecretName" $sheetIngressSecretName) | nindent 4 }}
-    - name: SHEET_INGRESS_BASE_URL
-      secretKey: sheetIngressBaseUrl
+{{ include "tiara-stack.trustedDelegationEnv" . | nindent 4 }}
     - name: SERVICE_ACCOUNT_JWKS_AUTH_TOKEN_PATH
       value: /var/run/secrets/tokens/kubernetes-jwks-token
   projectedTokens:
     - path: kubernetes-jwks-token
   networkPolicyFrom:
-    - app: sheet-ingress-server
-      port: workflows-svc
     - app: sheet-bot
       port: workflows-svc
     - app: sheet-workflows-runner
@@ -502,9 +423,7 @@ imagePullSecrets:
     - name: SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID
       secretName: {{ $sheetBotSecretName }}
       secretKey: sheetBotServiceClientId
-{{ include "tiara-stack.trustedDelegationEnv" (dict "ingressSecretName" $sheetIngressSecretName) | nindent 4 }}
-    - name: SHEET_INGRESS_BASE_URL
-      secretKey: sheetIngressBaseUrl
+{{ include "tiara-stack.trustedDelegationEnv" . | nindent 4 }}
     - name: SERVICE_ACCOUNT_JWKS_AUTH_TOKEN_PATH
       value: /var/run/secrets/tokens/kubernetes-jwks-token
   projectedTokens:
@@ -572,9 +491,7 @@ imagePullSecrets:
     - name: SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID
       secretName: {{ $sheetBotSecretName }}
       secretKey: sheetBotServiceClientId
-{{ include "tiara-stack.trustedDelegationEnv" (dict "ingressSecretName" $sheetIngressSecretName) | nindent 4 }}
-    - name: SHEET_INGRESS_BASE_URL
-      secretKey: sheetIngressBaseUrl
+{{ include "tiara-stack.trustedDelegationEnv" . | nindent 4 }}
     - name: SERVICE_ACCOUNT_JWKS_AUTH_TOKEN_PATH
       value: /var/run/secrets/tokens/kubernetes-jwks-token
   projectedTokens:
@@ -613,78 +530,8 @@ imagePullSecrets:
     - name: OTEL_EXPORTER_OTLP_ENDPOINT
       secretKey: otelExporterOtlpEndpoint
   networkPolicyFrom:
-    - app: sheet-apis
-      port: sdbs-svc
-    - app: sheet-ingress-server
-      port: sdbs-svc
     - app: sheet-workflows-runner
       port: sdbs-svc
-- key: sheetIngressServer
-  name: sheet-ingress-server
-  portName: ingress-svc
-  metricPortName: ingress-met
-  secretName: sheet-ingress-server-secret
-  maxUnavailable: 0
-  terminationGracePeriodSeconds: 30
-  preStopSleepSeconds: 10
-  servicePorts:
-    - name: ingress-svc
-      port: 80
-      targetPort: ingress-svc
-    - name: ingress-met
-      port: 9464
-      targetPort: ingress-met
-  containerPorts:
-    - name: ingress-svc
-      containerPort: 3000
-    - name: ingress-met
-      containerPort: 9464
-  env:
-    - name: POD_NAMESPACE
-      fieldPath: metadata.namespace
-    - name: OTEL_EXPORTER_OTLP_ENDPOINT
-      secretKey: otelExporterOtlpEndpoint
-    - name: SHEET_APIS_BASE_URL
-      secretKey: sheetApisBaseUrl
-    - name: ZERO_CACHE_SERVER
-      secretName: {{ $sheetApisSecretName }}
-      secretKey: zeroCacheServer
-    - name: ZERO_CACHE_USER_ID
-      value: "system:serviceaccount:$(POD_NAMESPACE):sheet-ingress-server"
-    - name: ZERO_OAUTH_AUDIENCE
-      value: sheet-db-server
-    - name: SHEET_BOT_BASE_URL
-      secretKey: sheetBotBaseUrl
-    - name: SHEET_CLIENTS
-      secretKey: sheetClients
-      optional: true
-    - name: SHEET_AUTH_ISSUER
-      secretKey: sheetAuthIssuer
-    - name: SHEET_AUTH_OAUTH_CLIENT_ID
-      secretKey: sheetIngressServiceClientId
-    - name: SHEET_AUTH_OAUTH_CLIENT_SECRET
-      secretKey: sheetIngressServiceClientSecret
-    - name: SHEET_AUTH_OAUTH_TOKEN_EXCHANGE_CLIENT_ID
-      secretKey: sheetAuthOAuthTokenExchangeClientId
-      optional: true
-    - name: SHEET_AUTH_OAUTH_TOKEN_EXCHANGE_CLIENT_SECRET
-      secretKey: sheetAuthOAuthTokenExchangeClientSecret
-      optional: true
-    - name: TRUSTED_ORIGINS
-      secretKey: trustedOrigins
-  networkPolicyFrom:
-    - app: sheet-apis
-      port: ingress-svc
-    - app: sheet-bot
-      port: ingress-svc
-    - app: sheet-workflows
-      port: ingress-svc
-    - app: sheet-workflows-runner
-      port: ingress-svc
-    {{- if .Values.ingress.enabled }}
-    - namespace: {{ .Values.ingress.controllerNamespace }}
-      port: ingress-svc
-    {{- end }}
 - key: sheetWeb
   name: sheet-web
   portName: sheet-web-svc

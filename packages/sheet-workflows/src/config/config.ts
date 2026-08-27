@@ -21,7 +21,6 @@ export const config = {
   sheetAuthIssuer: Config.schema(Schema.String, "SHEET_AUTH_ISSUER"),
   sheetAuthOAuthClientId: Config.schema(nonEmptyString, "SHEET_AUTH_OAUTH_CLIENT_ID"),
   sheetAuthOAuthClientSecret: Config.schema(nonEmptySecret, "SHEET_AUTH_OAUTH_CLIENT_SECRET"),
-  sheetIngressBaseUrl: Config.schema(Schema.String, "SHEET_INGRESS_BASE_URL"),
   sheetBotBaseUrl: Config.string("SHEET_BOT_BASE_URL").pipe(
     Config.withDefault("http://sheet-bot:3000"),
   ),

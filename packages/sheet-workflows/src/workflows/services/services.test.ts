@@ -115,11 +115,6 @@ describe("service-status delivery Workflow Definition slice", () => {
     expect(serviceReadinessTargets.map(({ url }) => url)).toEqual(
       serviceStatusTargetNames.map((service) => `http://${service}-service/ready`),
     );
-    const targetNames: ReadonlyArray<string> = serviceReadinessTargets.map(
-      ({ service }) => service,
-    );
-    expect(targetNames).not.toContain("sheet-apis");
-    expect(targetNames).not.toContain("sheet-ingress-server");
     expect(Duration.toMillis(serviceReadinessAttemptTimeout)).toBe(2_000);
     expect(serviceReadinessConcurrency).toBe(4);
   });

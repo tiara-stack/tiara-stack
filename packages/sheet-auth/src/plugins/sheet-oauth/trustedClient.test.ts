@@ -3,7 +3,7 @@ import { isTrustedClient } from "./clients/trusted-client";
 
 const options = {
   issuer: "https://auth.example.com",
-  validAudiences: ["sheet-apis"],
+  validAudiences: ["sheet-workflows"],
 };
 
 describe("isTrustedClient", () => {

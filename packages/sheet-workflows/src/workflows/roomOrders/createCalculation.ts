@@ -5,7 +5,7 @@ import { PlayerTeam, Room } from "../calculations/calculationModel";
 // fallow-ignore-next-line code-duplication
 const encFactor = 2;
 
-// The independent workflow runtime cannot import the legacy sheet-apis service.
+// The independent workflow runtime cannot import the removed sheet API runtime.
 // fallow-ignore-next-line code-duplication
 const samePlayerReference = (left: PlayerTeam, right: PlayerTeam) =>
   Option.makeEquivalence(String.Equivalence)(left.playerId, right.playerId) &&

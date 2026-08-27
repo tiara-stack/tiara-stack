@@ -124,7 +124,7 @@ export const makeZeroWorkflowComponent = <TSchema extends WorkflowZeroSchema>(
       }) => enqueueWorkflowInZeroTransaction(tx, ctx, args),
     }),
     // `service` controls catalog exposure only. Host authorization must require
-    // both `service` and `ingress.forward`; this mutator trusts the delegated
+    // both `service` and `workflow.enqueue`; this mutator trusts the delegated
     // caller principal in its arguments rather than the request context.
     ZeroApiEndpoint.mutator("enqueueAsCaller", {
       visibility: "service",

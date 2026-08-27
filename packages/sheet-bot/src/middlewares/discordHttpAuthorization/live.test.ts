@@ -19,7 +19,7 @@ const token = (
 });
 
 describe("sheet bot HTTP authorization", () => {
-  it("allows Kubernetes health probes without ingress authorization", () => {
+  it("allows Kubernetes health probes without authorization", () => {
     expect(
       isHealthProbeRequest(HttpServerRequest.fromWeb(new Request("http://localhost/live"))),
     ).toBe(true);
@@ -39,7 +39,7 @@ describe("sheet bot HTTP authorization", () => {
     ).toBe(false);
   });
 
-  it("classifies typed capability paths without changing legacy admission", () => {
+  it("classifies typed capability paths and denies other routes", () => {
     expect(
       sheetBotAdmissionForPath("/internal/bot/clients/discord/discord-main/workspaces/workspace-1"),
     ).toBe("cache");
@@ -47,7 +47,7 @@ describe("sheet bot HTTP authorization", () => {
     expect(sheetBotAdmissionForPath("/internal/bot/%64elivery/messages/send")).toBe("delivery");
     expect(sheetBotAdmissionForPath("/internal/bot/unknown")).toBe("denied");
     expect(sheetBotAdmissionForPath("/internal/bot/%ZZ")).toBe("denied");
-    expect(sheetBotAdmissionForPath("/bot/interactions/original-response")).toBe("legacy");
+    expect(sheetBotAdmissionForPath("/bot/interactions/original-response")).toBe("denied");
   });
 
   it.effect("admits scoped service principals to typed routes", () =>
@@ -83,9 +83,7 @@ describe("sheet bot HTTP authorization", () => {
 
   it.effect("denies unmatched internal bot routes", () =>
     Effect.gen(function* () {
-      const denied = yield* Effect.exit(
-        authorizeSheetBotAdmission("denied", token(new Set(["ingress.forward"]))),
-      );
+      const denied = yield* Effect.exit(authorizeSheetBotAdmission("denied", token(new Set())));
       expect(Exit.isFailure(denied)).toBe(true);
       if (Exit.isSuccess(denied)) return;
       expect(Cause.squash(denied.cause)).toMatchObject({
@@ -93,12 +91,5 @@ describe("sheet bot HTTP authorization", () => {
         message: "Unsupported internal sheet-bot route",
       });
     }),
-  );
-
-  it.effect("preserves the legacy ingress scope", () =>
-    authorizeSheetBotAdmission(
-      "legacy",
-      token(new Set(["ingress.forward"]), { sub: "legacy-user" }),
-    ),
   );
 });

@@ -194,7 +194,7 @@ describe("CodexLanguageModel", () => {
                   server: "tiara_review_graph",
                   tool: "resolve_symbol",
                   arguments: {
-                    file: "packages/sheet-ingress-server/src/index.ts",
+                    file: "packages/sheet-workflows/src/index.ts",
                     name: "forwardSheetWorkflowsDispatch",
                   },
                   error: { message: "symbol not found" },

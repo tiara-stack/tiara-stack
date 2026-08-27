@@ -104,11 +104,9 @@ const packages = {
 export const sheetPackageBoundaryPolicy = {
   packages,
   deployableRuntimes: [
-    "sheet-apis",
     "sheet-bot",
     "sheet-db-server",
     "sheet-formulas",
-    "sheet-ingress-server",
     "sheet-web",
     "sheet-workflows",
   ],
@@ -118,83 +116,16 @@ export const sheetPackageBoundaryPolicy = {
     "sheet-workflow-http-client",
     "sheet-zero-api",
   ],
-  legacyPackages: ["sheet-apis", "sheet-ingress-api", "sheet-ingress-server"],
+  legacyPackages: [],
   exceptions: [
-    {
-      code: "legacy-package-present",
-      package: "sheet-apis",
-      reason: "The sheet API runtime remains live during expansion and caller migration.",
-      removeWhen: "Delete the legacy sheet API runtime at the Deletion Gate.",
-    },
-    {
-      code: "legacy-package-present",
-      package: "sheet-ingress-api",
-      reason: "Existing callers still compile against the combined ingress contract package.",
-      removeWhen:
-        "Delete the decomposed ingress contracts after every caller uses capability APIs.",
-    },
-    {
-      code: "legacy-package-present",
-      package: "sheet-ingress-server",
-      reason:
-        "The production ingress remains the legacy Rollout Gate until target paths prove parity.",
-      removeWhen: "Delete the ingress runtime after the Deletion Gate and Legacy Quarantine.",
-    },
-    {
-      code: "gateway-capability-combination",
-      package: "sheet-ingress-api",
-      target: "sheet-bot-api,sheet-workflow-contracts",
-      reason:
-        "The legacy combined contract package temporarily re-exports moved workflow values while callers migrate.",
-      removeWhen: "Delete sheet-ingress-api after every caller uses capability-owned contracts.",
-    },
     {
       code: "forbidden-sheet-dependency",
       package: "sheet-db-schema",
       target: "sheet-zero-api",
       reason:
-        "The persistence package temporarily depends on the extracted API for legacy compatibility shims and contract tests.",
+        "The persistence package depends on the extracted API for generated schema parity and test database contracts.",
       removeWhen:
-        "Remove when all consumers import sheet-zero-api directly and the legacy /zero exports are deleted.",
-    },
-    {
-      code: "cross-package-reexport",
-      package: "sheet-db-schema",
-      target: "sheet-zero-api",
-      path: "packages/sheet-db-schema/src/zero/index.ts",
-      reason: "The legacy /zero entrypoint preserves browser API imports during caller migration.",
-      removeWhen:
-        "Remove when all consumers import sheet-zero-api directly and the legacy /zero exports are deleted.",
-    },
-    {
-      code: "cross-package-reexport",
-      package: "sheet-db-schema",
-      target: "sheet-zero-api/server",
-      path: "packages/sheet-db-schema/src/zero/index.ts",
-      reason:
-        "The legacy /zero entrypoint preserves trusted registry and service-client imports during caller migration.",
-      removeWhen:
-        "Remove when all consumers import sheet-zero-api directly and the legacy /zero exports are deleted.",
-    },
-    {
-      code: "cross-package-reexport",
-      package: "sheet-db-schema",
-      target: "effect-zero-workflow",
-      path: "packages/sheet-db-schema/src/zero/index.ts",
-      reason:
-        "The legacy /zero entrypoint preserves generic workflow request and error type exports during caller migration.",
-      removeWhen:
-        "Remove when all consumers import sheet-zero-api directly and the legacy /zero exports are deleted.",
-    },
-    {
-      code: "cross-package-reexport",
-      package: "sheet-db-schema",
-      target: "sheet-zero-api/server",
-      path: "packages/sheet-db-schema/src/zero/internal.ts",
-      reason:
-        "The legacy /zero/internal entrypoint preserves service and internal reference imports during caller migration.",
-      removeWhen:
-        "Remove when all consumers import sheet-zero-api directly and the legacy /zero exports are deleted.",
+        "Remove when schema generation and parity checks no longer require the generated API package.",
     },
     {
       code: "wildcard-export",

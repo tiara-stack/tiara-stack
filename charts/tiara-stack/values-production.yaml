@@ -14,7 +14,6 @@ ingress:
       hosts:
         - auth.theerapakg.moe
         - schedule.theerapakg.moe
-        - sheet.theerapakg.moe
         - zero.theerapakg.moe
         - workflows.theerapakg.moe
   hosts:
@@ -22,11 +21,6 @@ ingress:
       path: /
       pathType: Prefix
       serviceName: sheet-auth-service
-      servicePort: 80
-    - host: sheet.theerapakg.moe
-      path: /
-      pathType: Prefix
-      serviceName: sheet-ingress-server-service
       servicePort: 80
     - host: schedule.theerapakg.moe
       path: /

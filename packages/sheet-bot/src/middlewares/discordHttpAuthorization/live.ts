@@ -23,24 +23,22 @@ const makeSheetBotAuthorizer = Effect.gen(function* () {
   });
 });
 
-export type SheetBotAdmission = "legacy" | "cache" | "delivery" | "denied";
+export type SheetBotAdmission = "cache" | "delivery" | "denied";
 
 export const sheetBotAdmissionForPath = (pathname: string): SheetBotAdmission => {
   let decodedPath: string;
   try {
     decodedPath = decodeURI(pathname);
   } catch {
-    return pathname.startsWith("/internal/bot/") ? "denied" : "legacy";
+    return "denied";
   }
 
   if (decodedPath.startsWith("/internal/bot/clients/")) return "cache";
   if (decodedPath.startsWith("/internal/bot/delivery/")) return "delivery";
-  if (decodedPath.startsWith("/internal/bot/")) return "denied";
-  return "legacy";
+  return "denied";
 };
 
 const requiredScope = {
-  legacy: "ingress.forward",
   cache: "bot.cache.read",
   delivery: "bot.delivery.write",
 } as const satisfies Readonly<Record<Exclude<SheetBotAdmission, "denied">, string>>;
@@ -69,7 +67,7 @@ export const authorizeSheetBotAdmission = (
       });
     }
 
-    if (admission !== "legacy" && !isServicePrincipal(token)) {
+    if (!isServicePrincipal(token)) {
       return yield* new BotAdmissionDenied({
         message: "Sheet-bot capability routes require a Service Principal",
       });

@@ -142,7 +142,7 @@ services:
     environment:
       <<: *local-service-account-env
       BASE_URL: "${SHEET_AUTH_PUBLIC_BASE_URL:-http://localhost:3002}"
-      TRUSTED_ORIGINS: "${TRUSTED_ORIGINS:-http://localhost:3001,http://localhost:3000,http://localhost:3002}"
+      TRUSTED_ORIGINS: "${TRUSTED_ORIGINS:-http://localhost:3001,http://localhost:3002}"
       TRUSTED_OAUTH_CLIENT_IDS: "${TRUSTED_OAUTH_CLIENT_IDS:-}"
       COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
       DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:-}
@@ -222,45 +222,6 @@ services:
       timeout: 5s
       retries: 20
 
-  sheet-apis:
-    <<: *app-common
-    build:
-      context: ./packages/sheet-apis
-    image: tiara-stack/sheet-apis:local
-    depends_on:
-      redis:
-        condition: service_healthy
-      zero-cache:
-        condition: service_healthy
-      sheet-auth:
-        condition: service_healthy
-      local-jwks:
-        condition: service_healthy
-      local-otel-sink:
-        condition: service_healthy
-    environment:
-      <<: *local-service-account-env
-      POD_NAME: sheet-apis-local
-      POD_NAMESPACE: tiara-local
-      SHEET_INGRESS_NAMESPACE: tiara-local
-      ZERO_CACHE_SERVER: "http://zero-cache:4848"
-      ZERO_CACHE_USER_ID: "system:serviceaccount:tiara-local:sheet-apis"
-      ZERO_OAUTH_AUDIENCE: "sheet-db-server"
-      SHEET_AUTH_ISSUER: "http://sheet-auth:3000"
-      SHEET_AUTH_OAUTH_CLIENT_ID: ${SHEET_APIS_OAUTH_CLIENT_ID:-}
-      SHEET_AUTH_OAUTH_CLIENT_SECRET: ${SHEET_APIS_OAUTH_CLIENT_SECRET:-}
-      SHEET_AUTH_OAUTH_AUDIENCE: "sheet-apis"
-      SHEET_INGRESS_BASE_URL: "http://sheet-ingress-server:3000"
-      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://local-otel-sink:4318}
-    secrets:
-      - redis_password
-    volumes:
-      - ./deploy/compose/secrets/google-service-account.json:/.secret/google-service-account.json:ro
-    command:
-      - sh
-      - -ec
-      - export REDIS_URL="redis://default:$$(cat /run/secrets/redis_password)@redis:6379"; exec node --use-openssl-ca --enable-source-maps ./dist/index.mjs
-
   sheet-bot:
     <<: *app-common
     build:
@@ -271,9 +232,9 @@ services:
         condition: service_healthy
       sheet-auth:
         condition: service_healthy
-      sheet-ingress-server:
-        condition: service_healthy
       sheet-workflows:
+        condition: service_healthy
+      zero-cache:
         condition: service_healthy
       local-jwks:
         condition: service_healthy
@@ -282,14 +243,15 @@ services:
     environment:
       <<: *local-service-account-env
       POD_NAMESPACE: tiara-local
-      SHEET_INGRESS_NAMESPACE: tiara-local
       DISCORD_TOKEN: ${DISCORD_TOKEN:-}
       DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:-}
-      SHEET_INGRESS_BASE_URL: "http://sheet-ingress-server:3000"
       SHEET_WORKFLOWS_BASE_URL: "http://sheet-workflows:3000"
+      ZERO_CACHE_SERVER: "http://zero-cache:4848"
+      ZERO_CACHE_USER_ID: "system:serviceaccount:tiara-local:sheet-bot"
+      ZERO_OAUTH_AUDIENCE: "sheet-db-server"
       SHEET_AUTH_ISSUER: "http://sheet-auth:3000"
-      SHEET_AUTH_OAUTH_CLIENT_ID: ${SHEET_BOT_OAUTH_CLIENT_ID:-}
-      SHEET_AUTH_OAUTH_CLIENT_SECRET: ${SHEET_BOT_OAUTH_CLIENT_SECRET:-}
+      SHEET_AUTH_OAUTH_CLIENT_ID: ${SHEET_BOT_OAUTH_CLIENT_ID:?SHEET_BOT_OAUTH_CLIENT_ID is required}
+      SHEET_AUTH_OAUTH_CLIENT_SECRET: ${SHEET_BOT_OAUTH_CLIENT_SECRET:?SHEET_BOT_OAUTH_CLIENT_SECRET is required}
       SHEET_BOT_CAPABILITY_ENCRYPTION_SECRET: ${SHEET_BOT_CAPABILITY_ENCRYPTION_SECRET:-}
       SHEET_AUTH_OAUTH_AUDIENCE: "sheet-bot"
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://local-otel-sink:4318}
@@ -310,8 +272,6 @@ services:
         condition: service_healthy
       sheet-auth:
         condition: service_healthy
-      sheet-ingress-server:
-        condition: service_healthy
       local-jwks:
         condition: service_healthy
       local-otel-sink:
@@ -324,48 +284,20 @@ services:
       WORKFLOWS_RUNNER_LISTEN_HOST: 0.0.0.0
       WORKFLOWS_RUNNER_LISTEN_PORT: "34431"
       SHEET_AUTH_ISSUER: "http://sheet-auth:3000"
-      SHEET_AUTH_OAUTH_CLIENT_ID: ${SHEET_WORKFLOWS_OAUTH_CLIENT_ID:-}
-      SHEET_AUTH_OAUTH_CLIENT_SECRET: ${SHEET_WORKFLOWS_OAUTH_CLIENT_SECRET:-}
+      SHEET_AUTH_OAUTH_CLIENT_ID: ${SHEET_WORKFLOWS_OAUTH_CLIENT_ID:?SHEET_WORKFLOWS_OAUTH_CLIENT_ID is required}
+      SHEET_AUTH_OAUTH_CLIENT_SECRET: ${SHEET_WORKFLOWS_OAUTH_CLIENT_SECRET:?SHEET_WORKFLOWS_OAUTH_CLIENT_SECRET is required}
       SHEET_AUTH_OAUTH_AUDIENCE: "sheet-workflows"
       SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID: ${SHEET_BOT_OAUTH_CLIENT_ID:?SHEET_BOT_OAUTH_CLIENT_ID is required}
-      SHEET_INGRESS_BASE_URL: "http://sheet-ingress-server:3000"
+      GOOGLE_APPLICATION_CREDENTIALS: "/.secret/google-service-account.json"
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://local-otel-sink:4318}
     secrets:
       - postgres_password
+    volumes:
+      - ./deploy/compose/secrets/google-service-account.json:/.secret/google-service-account.json:ro
     command:
       - sh
       - -ec
       - export POSTGRES_URL="postgres://tiara:$$(cat /run/secrets/postgres_password)@postgres:5432/tiara"; exec node --use-openssl-ca --enable-source-maps ./dist/index.mjs
-
-  sheet-ingress-server:
-    <<: *app-common
-    build:
-      context: ./packages/sheet-ingress-server
-    image: tiara-stack/sheet-ingress-server:local
-    depends_on:
-      sheet-auth:
-        condition: service_healthy
-      sheet-apis:
-        condition: service_healthy
-      local-jwks:
-        condition: service_healthy
-      local-otel-sink:
-        condition: service_healthy
-    ports:
-      - "3000:3000"
-    environment:
-      SHEET_APIS_BASE_URL: "http://sheet-apis:3000"
-      SHEET_WORKFLOWS_BASE_URL: "http://sheet-workflows:3000"
-      SHEET_BOT_BASE_URL: "http://sheet-bot:3000"
-      SHEET_AUTH_ISSUER: "http://sheet-auth:3000"
-      SHEET_AUTH_OAUTH_CLIENT_ID: ${SHEET_INGRESS_OAUTH_CLIENT_ID:-}
-      SHEET_AUTH_OAUTH_CLIENT_SECRET: ${SHEET_INGRESS_OAUTH_CLIENT_SECRET:-}
-      TRUSTED_ORIGINS: "${TRUSTED_ORIGINS:-http://localhost:3001,http://localhost:3000,http://localhost:3002}"
-      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://local-otel-sink:4318}
-    command:
-      - sh
-      - -ec
-      - exec node --use-openssl-ca --enable-source-maps ./dist/index.mjs
 
   sheet-web:
     <<: *app-common
