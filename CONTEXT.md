@@ -2,6 +2,24 @@
 
 The sheet system coordinates user- and service-initiated operations across shared workspace state, spreadsheets, and messaging platforms.
 
+## Workspace configuration
+
+**Workspace Configuration**:
+The settings that control sheet-backed behavior for one workspace, independently of the web or bot surface used to read and change them.
+_Avoid_: Bot configuration, web configuration page
+
+**Configuration Source**:
+The one authoritative source selected for the settings historically owned by the Legacy Settings Tab: either the Legacy Settings Tab or Web Configuration. The inactive source may be retained for rollback, but the sources are never merged or dual-written.
+_Avoid_: Rollout Gate, feature flag, fallback chain
+
+**Legacy Settings Tab**:
+The Google Sheets tab named `Thee's Sheet Settings` when it acts as a Configuration Source.
+_Avoid_: Config sheet, settings sheet
+
+**Web Configuration**:
+The system-owned representation of the settings historically owned by the Legacy Settings Tab, shared by authorized web and bot configuration surfaces.
+_Avoid_: Mirrored sheet configuration, web-only configuration
+
 ## Identity and authorization
 
 **Effective Principal**:
