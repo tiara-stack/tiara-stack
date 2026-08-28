@@ -96,6 +96,10 @@ _Avoid_: Sheet ID, tab reference
 The association between a Web Configuration Version and the workspace's Spreadsheet Reference against which its tab identities and coordinates were authored.
 _Avoid_: Implicit spreadsheet, retargeted range
 
+**Sheet Snapshot**:
+A bounded read-only observation of a Spreadsheet Reference's current tab metadata and one selected rectangular portion of a Sheet Reference at one observation time. The selected rectangle is defined separately from sparse cell presence by zero-based half-open bounds: `startRow` and `startColumn` are inclusive, while `endRow` and `endColumn` are exclusive, covering `[startRow, endRow) × [startColumn, endColumn)`. Its cells are represented sparsely at absolute zero-based coordinates. Formula-derived and user-entered cells retain their visible `formattedValue`; raw formulas and raw user-entered values are omitted. Included effective formatting is limited to text color, background color, and the `bold`, `italic`, `underline`, and `strikethrough` text flags.
+_Avoid_: Whole-sheet export, live spreadsheet view
+
 **Unresolved Sheet Range**:
 A Contiguous Sheet Range whose stable sheet identity is missing or whose coordinates are outside the fresh sheet extent, so it remains visible for repair but cannot satisfy configuration validation.
 _Avoid_: Deleted A1 string, stale display text
