@@ -1,0 +1,88 @@
+# Development/preview overlay for the shared cluster.
+#
+# Apply this after values.yaml. The image registry and tag are supplied by the
+# deploy command so a developer can point the preview at any pushed image.
+
+global:
+  imagePullSecrets:
+    - name: theerapakg-registry
+  # Keep the preview co-located with production's current node.
+  nodeSelector:
+    deployment: tiara-stack
+    kubernetes.io/hostname: pool-tiara-stack-37ndzl
+  tolerations:
+    - key: deployment
+      operator: Equal
+      value: tiara-stack
+      effect: NoSchedule
+  caCertificate:
+    enabled: true
+    existingConfigMap: tiara-stack-ca-certificate
+
+infisical:
+  enabled: true
+  projectId: 55408658-aa53-475f-9ac6-e1bfa9e207fe
+  environmentSlug: dev
+  secretPathPrefix: /tiara-stack
+  connection:
+    address: https://infisical.theerapakg.moe
+
+ingress:
+  enabled: true
+  name: tiara-stack-dev-ingress
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  tls:
+    - secretName: tiara-stack-dev-tls
+      hosts:
+        - auth.dev.theerapakg.moe
+        - schedule.dev.theerapakg.moe
+        - zero.dev.theerapakg.moe
+        - workflows.dev.theerapakg.moe
+  hosts:
+    - host: auth.dev.theerapakg.moe
+      path: /
+      pathType: Prefix
+      serviceName: sheet-auth-service
+      servicePort: 80
+    - host: schedule.dev.theerapakg.moe
+      path: /
+      pathType: Prefix
+      serviceName: sheet-web-service
+      servicePort: 80
+    - host: zero.dev.theerapakg.moe
+      path: /
+      pathType: Prefix
+      serviceName: zero-cache-service
+      servicePort: 4848
+    - host: workflows.dev.theerapakg.moe
+      path: /
+      pathType: Prefix
+      serviceName: sheet-workflows-service
+      servicePort: 80
+# The bot and workflow roles use separate development credentials. Keep the
+# development Google service account in Infisical; never reuse production's.
+services:
+  sheetBot:
+    enabled: true
+  sheetWorkflows:
+    enabled: true
+  sheetWorkflowsRunner:
+    enabled: true
+  sheetWorkflowsBrowserRunner:
+    enabled: true
+
+zeroCache:
+  persistence:
+    storageClassName: do-block-storage
+
+meilisearch:
+  indexUid: tiarabot-docs-dev
+  persistence:
+    storageClassName: do-block-storage
+
+monitoring:
+  migrationDashboard:
+    enabled: false
+  rolloutGateAlerts:
+    enabled: false

@@ -46,6 +46,57 @@ Prometheus datasource UID from `monitoring.prometheusDatasourceUid`, which
 defaults to `prometheus`; override it when the Grafana datasource has a
 different UID.
 
+## Development preview
+
+The development overlay provisions an isolated preview in the shared cluster.
+It uses the Infisical `dev` environment, dedicated development databases, and
+the current production node (`pool-tiara-stack-37ndzl`). The release name must
+remain `tiara-stack-dev` because the chart includes cluster-scoped RBAC.
+
+Before installing, provision the namespace-local registry pull secret and CA
+ConfigMap expected by the development overlay:
+
+```sh
+kubectl create namespace tiara-stack-dev \
+  --dry-run=client \
+  -o yaml | kubectl apply -f -
+
+doctl registry kubernetes-manifest theerapakg-registry \
+  --namespace=tiara-stack-dev \
+  --name=theerapakg-registry | kubectl apply -f -
+
+kubectl -n tiara-stack-dev create configmap tiara-stack-ca-certificate \
+  --from-file=ca-certificate.crt=./ca-certificate.crt \
+  --dry-run=client \
+  -o yaml | kubectl apply -f -
+```
+
+After pushing an application image, deploy that tag with:
+
+```sh
+helm upgrade --install tiara-stack-dev charts/tiara-stack \
+  --namespace tiara-stack-dev \
+  --create-namespace \
+  --values charts/tiara-stack/values.yaml \
+  --values charts/tiara-stack/values-development.yaml \
+  --set-string global.appImage.registry=registry.digitalocean.com/theerapakg-registry \
+  --set-string global.appImage.tag=<image-tag> \
+  --wait \
+  --timeout 10m
+```
+
+The current preview endpoints are:
+
+- `https://schedule.dev.theerapakg.moe`
+- `https://auth.dev.theerapakg.moe`
+- `https://zero.dev.theerapakg.moe`
+- `https://workflows.dev.theerapakg.moe`
+
+The bot, workflow API, and both runner workloads use separate development
+Discord, OAuth, and Google Sheets credentials; do not reuse production
+credentials. The `*.dev.theerapakg.moe` DNS wildcard must point to the ingress
+load balancer and support TLS for the nested hostnames.
+
 ## Secret Contract
 
 `sheet-auth-secret`
