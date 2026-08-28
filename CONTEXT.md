@@ -9,8 +9,16 @@ The settings that control sheet-backed behavior for one workspace, independently
 _Avoid_: Bot configuration, web configuration page
 
 **Configuration Source**:
-The one authoritative source selected for the settings historically owned by the Legacy Settings Tab: either the Legacy Settings Tab or Web Configuration. The inactive source may be retained for rollback, but the sources are never merged or dual-written.
+The one authoritative source selected for the settings historically owned by the Legacy Settings Tab: the `legacy` Legacy Settings Tab or the `owned` Web Configuration. The inactive source may be retained for rollback, but the sources are never merged or dual-written.
 _Avoid_: Rollout Gate, feature flag, fallback chain
+
+**Owned Configuration Source**:
+The Configuration Source whose values come from the system-owned Web Configuration and whose authority is anchored to one active Web Configuration Version.
+_Avoid_: Web-only source, database source
+
+**Legacy Source Binding**:
+The association between the legacy Configuration Source and the stable spreadsheet-tab identity discovered for `Thee's Sheet Settings`, with an explicit unresolved bootstrap state before discovery and the historical title and verified header layout retained as compatibility metadata after binding.
+_Avoid_: Title-only lookup, guessed settings tab
 
 **Legacy Settings Tab**:
 The Google Sheets tab named `Thee's Sheet Settings` when it acts as a Configuration Source.
@@ -19,6 +27,102 @@ _Avoid_: Config sheet, settings sheet
 **Web Configuration**:
 The system-owned representation of the settings historically owned by the Legacy Settings Tab, shared by authorized web and bot configuration surfaces.
 _Avoid_: Mirrored sheet configuration, web-only configuration
+
+**Web Configuration Version**:
+A complete, self-contained snapshot of Web Configuration that can be selected as the active web source or retained for rollback; it is not a partial overlay on another source or version.
+_Avoid_: Config patch, field override
+
+**Configuration Revision**:
+An immutable workspace-specific Web Configuration Version identified for activation, comparison, or rollback; editing produces a new revision rather than mutating one.
+_Avoid_: Save attempt, schema version
+
+**Web Configuration Draft**:
+The mutable workspace-scoped working copy used to assemble and validate a future Configuration Revision; it is never an authoritative Configuration Source.
+_Avoid_: Active revision, per-surface config
+
+**Configuration Schema Version**:
+The version of the Web Configuration shape and validation contract, independent of any workspace's Configuration Revision.
+_Avoid_: Deployment version, active revision
+
+**Configuration Field**:
+A semantically stable named value in a Web Configuration Version whose identity is independent of Legacy Settings Tab labels, columns, and cell positions.
+_Avoid_: Settings cell, column mapping
+
+**Canonical Configuration Key**:
+The stable semantic key used to identify a Configuration Group or Configuration Field in Web Configuration, independent of its presentation label or legacy location.
+_Avoid_: Column key, display label
+
+**Configuration Entry**:
+An ordered repeated record in a Web Configuration Version, such as a team, schedule, or runner entry, identified by a stable identity that persists across revisions rather than its legacy row position.
+_Avoid_: Config row, settings row
+
+**Configuration Group**:
+One of the five semantic sections of Web Configuration: user ranges, team configurations, event information, schedule configurations, or runner configurations.
+_Avoid_: Settings block, tab section
+
+**Note Range**:
+A Sheet Column Range on a schedule Configuration Entry used by sheet formulas to locate notes associated with that schedule.
+_Avoid_: Note metadata, draft range
+
+**Contiguous Sheet Range**:
+A single rectangular spreadsheet selection identified by a stable sheet identity and numeric coordinates; its tab-qualified A1 notation is a derived presentation. Sheet cell, column-range, and rectangle-range values are its geometric refinements.
+_Avoid_: A1 string identity, named-range composition
+
+**Sheet Cell Reference**:
+A Contiguous Sheet Range refined to exactly one cell, identified by a stable sheet identity and one row and column coordinate.
+_Avoid_: One-cell A1 range
+
+**Sheet Column Range**:
+A Contiguous Sheet Range refined to exactly one column and one or more rows.
+_Avoid_: Column label, open-ended column range
+
+**Sheet Rectangle Range**:
+A non-empty rectangular Contiguous Sheet Range used where a field may span multiple columns and rows.
+_Avoid_: Whole-sheet range, open-ended grid
+
+**Sheet Reference**:
+A stable spreadsheet-tab identity represented by its `sheetId`, with the current tab title resolved from fresh metadata.
+_Avoid_: Tab title identity, sheet name key
+
+**Local Sheet Range**:
+A geometric range whose coordinates are interpreted against the parent Configuration Entry's Sheet Reference rather than carrying a second sheet identity.
+_Avoid_: Cross-tab local range, qualified A1 string
+
+**Spreadsheet Reference**:
+The workspace-level identity of the single Google spreadsheet to which its Sheet References and configuration ranges belong.
+_Avoid_: Sheet ID, tab reference
+
+**Spreadsheet Binding**:
+The association between a Web Configuration Version and the workspace's Spreadsheet Reference against which its tab identities and coordinates were authored.
+_Avoid_: Implicit spreadsheet, retargeted range
+
+**Unresolved Sheet Range**:
+A Contiguous Sheet Range whose stable sheet identity is missing or whose coordinates are outside the fresh sheet extent, so it remains visible for repair but cannot satisfy configuration validation.
+_Avoid_: Deleted A1 string, stale display text
+
+**Derived Range Notation**:
+The current tab-qualified A1 presentation generated from a Sheet Reference and range coordinates for display or a Google request; it is not persisted range identity.
+_Avoid_: Stored A1 identity, title-bound reference
+
+**Open-Ended Sheet Range**:
+A Contiguous Sheet Range with a finite starting row and finite column bounds whose row extent continues to the current sheet end; it preserves legacy growth semantics while reads remain application-bounded.
+_Avoid_: Whole-sheet read, unbounded API request
+
+**Typed Configuration Value**:
+A Configuration Field value validated according to its semantic type and field contract, including scalar, list, enum, sentinel, cell-reference, and Contiguous Sheet Range values.
+_Avoid_: Legacy cell text, untyped setting
+
+**Event Start Instant**:
+The canonical UTC moment at which the workspace event begins; Legacy Settings Tab epoch seconds and formula results are import encodings, not the Web Configuration value.
+_Avoid_: Start Time cell, event day zero
+
+**Configuration Validity**:
+Whether a Web Configuration Version satisfies its field schemas and cross-field invariants well enough to serve as the active web source; an incomplete editable version is not thereby an active source.
+_Avoid_: Parse success, best-effort configuration
+
+**Runner Availability**:
+The normalized, sorted, non-overlapping union of inclusive event-hour intervals associated with one runner identity.
+_Avoid_: Runner hour text, duplicate availability rows
 
 ## Identity and authorization
 
