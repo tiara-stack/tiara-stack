@@ -1,0 +1,484 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-29T16:05:20Z",
+  "title": "Design System: SheetWeb",
+  "extensions": {
+    "colorMeta": {
+      "deep-green-black": {
+        "role": "neutral",
+        "displayName": "Deep Green-Black",
+        "canonical": "#0a0f0e",
+        "tonalRamp": [
+          "#020504",
+          "#06100e",
+          "#0a1715",
+          "#102520",
+          "#183830",
+          "#28574c",
+          "#558b7f",
+          "#b0d5cc"
+        ]
+      },
+      "deep-teal-wash": {
+        "role": "neutral",
+        "displayName": "Deep Teal Wash",
+        "canonical": "#0f1615",
+        "tonalRamp": [
+          "#040807",
+          "#08110f",
+          "#0f1615",
+          "#172621",
+          "#214139",
+          "#386b5d",
+          "#6ca798",
+          "#c0e1da"
+        ]
+      },
+      "docs-deep-teal-wash": {
+        "role": "neutral",
+        "displayName": "Docs Deep Teal Wash",
+        "canonical": "#0f1816",
+        "tonalRamp": [
+          "#040807",
+          "#08120f",
+          "#0f1816",
+          "#172a24",
+          "#23453c",
+          "#3b7163",
+          "#70ad9e",
+          "#c4e5de"
+        ]
+      },
+      "muted-teal-surface": {
+        "role": "neutral",
+        "displayName": "Muted Teal Surface",
+        "canonical": "#111b19",
+        "tonalRamp": [
+          "#050907",
+          "#09130f",
+          "#111b19",
+          "#1a2d27",
+          "#285046",
+          "#427968",
+          "#78b8a6",
+          "#c8e8df"
+        ]
+      },
+      "secondary-teal-surface": {
+        "role": "neutral",
+        "displayName": "Secondary Teal Surface",
+        "canonical": "#14201e",
+        "tonalRamp": [
+          "#060a09",
+          "#0b1714",
+          "#14201e",
+          "#1d342e",
+          "#2c584c",
+          "#478371",
+          "#7fc0ad",
+          "#d0eee6"
+        ]
+      },
+      "field-green-black": {
+        "role": "neutral",
+        "displayName": "Field Green-Black",
+        "canonical": "#09110f",
+        "tonalRamp": [
+          "#020504",
+          "#050b09",
+          "#09110f",
+          "#10221d",
+          "#193a31",
+          "#2a5b4e",
+          "#5b9788",
+          "#b6dbd2"
+        ]
+      },
+      "electric-teal": {
+        "role": "primary",
+        "displayName": "Electric Teal",
+        "canonical": "#33ccbb",
+        "tonalRamp": [
+          "#05332f",
+          "#07544d",
+          "#087c70",
+          "#0aa996",
+          "#33ccbb",
+          "#65dfd0",
+          "#a4eee6",
+          "#d9faf6"
+        ]
+      },
+      "deep-electric-teal": {
+        "role": "primary",
+        "displayName": "Deep Electric Teal",
+        "canonical": "#2db8a8",
+        "tonalRamp": [
+          "#042b27",
+          "#064940",
+          "#076f64",
+          "#098f83",
+          "#2db8a8",
+          "#5ad2c3",
+          "#9ce6dd",
+          "#d1f5f0"
+        ]
+      },
+      "soft-electric-teal": {
+        "role": "primary",
+        "displayName": "Soft Electric Teal",
+        "canonical": "#5be0d1",
+        "tonalRamp": [
+          "#063b35",
+          "#086257",
+          "#0b8d7d",
+          "#32b9aa",
+          "#5be0d1",
+          "#87e9df",
+          "#b8f3ec",
+          "#e0fbf7"
+        ]
+      },
+      "white": {
+        "role": "neutral",
+        "displayName": "White",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "#0a0f0e",
+          "#1c2825",
+          "#344540",
+          "#536863",
+          "#748984",
+          "#9cafaa",
+          "#d1ded9",
+          "#ffffff"
+        ]
+      },
+      "soft-white": {
+        "role": "neutral",
+        "displayName": "Soft White",
+        "canonical": "#f5fffd",
+        "tonalRamp": [
+          "#0a0f0e",
+          "#1c2825",
+          "#344540",
+          "#536863",
+          "#748984",
+          "#9cafaa",
+          "#ceddd8",
+          "#f5fffd"
+        ]
+      },
+      "muted-aqua-gray": {
+        "role": "neutral",
+        "displayName": "Muted Aqua Gray",
+        "canonical": "#8ba8a3",
+        "tonalRamp": [
+          "#0a0f0e",
+          "#1a2724",
+          "#30413d",
+          "#4b625d",
+          "#667f79",
+          "#8ba8a3",
+          "#b5c9c4",
+          "#e1ece9"
+        ]
+      },
+      "teal-white": {
+        "role": "neutral",
+        "displayName": "Teal White",
+        "canonical": "#d8f7f2",
+        "tonalRamp": [
+          "#0a0f0e",
+          "#1c2a27",
+          "#354943",
+          "#526a63",
+          "#718d84",
+          "#94b6ad",
+          "#b9ded6",
+          "#d8f7f2"
+        ]
+      },
+      "teal-border": {
+        "role": "neutral",
+        "displayName": "Teal Border",
+        "canonical": "rgba(51, 204, 187, 0.2)",
+        "tonalRamp": [
+          "rgba(51, 204, 187, 0.04)",
+          "rgba(51, 204, 187, 0.08)",
+          "rgba(51, 204, 187, 0.12)",
+          "rgba(51, 204, 187, 0.16)",
+          "rgba(51, 204, 187, 0.2)",
+          "rgba(51, 204, 187, 0.3)",
+          "rgba(51, 204, 187, 0.45)",
+          "rgba(51, 204, 187, 0.65)"
+        ]
+      },
+      "teal-border-subtle": {
+        "role": "neutral",
+        "displayName": "Teal Border Subtle",
+        "canonical": "rgba(51, 204, 187, 0.1)",
+        "tonalRamp": [
+          "rgba(51, 204, 187, 0.02)",
+          "rgba(51, 204, 187, 0.04)",
+          "rgba(51, 204, 187, 0.06)",
+          "rgba(51, 204, 187, 0.08)",
+          "rgba(51, 204, 187, 0.1)",
+          "rgba(51, 204, 187, 0.16)",
+          "rgba(51, 204, 187, 0.25)",
+          "rgba(51, 204, 187, 0.4)"
+        ]
+      },
+      "teal-wash": {
+        "role": "neutral",
+        "displayName": "Teal Wash",
+        "canonical": "rgba(51, 204, 187, 0.12)",
+        "tonalRamp": [
+          "rgba(51, 204, 187, 0.03)",
+          "rgba(51, 204, 187, 0.06)",
+          "rgba(51, 204, 187, 0.09)",
+          "rgba(51, 204, 187, 0.12)",
+          "rgba(51, 204, 187, 0.16)",
+          "rgba(51, 204, 187, 0.22)",
+          "rgba(51, 204, 187, 0.32)",
+          "rgba(51, 204, 187, 0.48)"
+        ]
+      },
+      "control-overlay": {
+        "role": "neutral",
+        "displayName": "Control Overlay",
+        "canonical": "rgba(10, 15, 14, 0.6)",
+        "tonalRamp": [
+          "rgba(10, 15, 14, 0.9)",
+          "rgba(10, 15, 14, 0.8)",
+          "rgba(10, 15, 14, 0.7)",
+          "rgba(10, 15, 14, 0.6)",
+          "rgba(10, 15, 14, 0.5)",
+          "rgba(10, 15, 14, 0.4)",
+          "rgba(10, 15, 14, 0.25)",
+          "rgba(10, 15, 14, 0.1)"
+        ]
+      },
+      "scrollbar-green": {
+        "role": "neutral",
+        "displayName": "Scrollbar Green",
+        "canonical": "#1a2624",
+        "tonalRamp": [
+          "#050807",
+          "#0b100f",
+          "#111817",
+          "#1a2624",
+          "#273934",
+          "#3e5b52",
+          "#72968a",
+          "#c2ddd5"
+        ]
+      },
+      "danger-red": {
+        "role": "tertiary",
+        "displayName": "Danger Red",
+        "canonical": "#ff4444",
+        "tonalRamp": [
+          "#310707",
+          "#5a0d0d",
+          "#861717",
+          "#b52222",
+          "#ff4444",
+          "#ff7777",
+          "#ffaaaa",
+          "#ffd7d7"
+        ]
+      },
+      "warning-amber": {
+        "role": "tertiary",
+        "displayName": "Warning Amber",
+        "canonical": "#ffb86b",
+        "tonalRamp": [
+          "#3b1c04",
+          "#693708",
+          "#99540f",
+          "#cb741d",
+          "#ffb86b",
+          "#ffc990",
+          "#ffddb8",
+          "#fff0dd"
+        ]
+      },
+      "error-coral": {
+        "role": "tertiary",
+        "displayName": "Error Coral",
+        "canonical": "#ff6b6b",
+        "tonalRamp": [
+          "#350909",
+          "#631313",
+          "#941f1f",
+          "#c73a3a",
+          "#ff6b6b",
+          "#ff9292",
+          "#ffbaba",
+          "#ffe0e0"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Large landing-page headlines and the strongest page statements."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Section headings and major page statements."
+      },
+      "label": {
+        "displayName": "System Label",
+        "purpose": "Uppercase context labels, status, and compact metadata."
+      }
+    },
+    "shadows": [
+      {
+        "name": "surface-flat",
+        "value": "none",
+        "purpose": "Default treatment for headers, controls, panels, and dashboard surfaces."
+      },
+      {
+        "name": "landing-card-xl",
+        "value": "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)",
+        "purpose": "Selective lift for a secondary landing-page feature card."
+      },
+      {
+        "name": "landing-card-glow",
+        "value": "0 25px 50px -12px rgba(51, 204, 187, 0.3)",
+        "purpose": "Teal focal glow for the highlighted landing-page card."
+      }
+    ],
+    "motion": [
+      {
+        "name": "state-transition",
+        "value": "200ms ease",
+        "purpose": "Default hover, border, and tab state changes."
+      },
+      {
+        "name": "feature-emphasis",
+        "value": "500ms ease",
+        "purpose": "Landing-page card rotation, scale, and border emphasis."
+      },
+      {
+        "name": "active-press",
+        "value": "translateY(2px)",
+        "purpose": "Small tactile response when a button is pressed."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "lg",
+        "value": "1024px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Filled electric teal action for the main decision on a surface.",
+      "html": "<button class=\"ds-btn-primary\" type=\"button\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M5 12h13M13 6l6 6-6 6\" /></svg>CONNECT DISCORD</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 48px; padding: 0 24px; border: 0; border-radius: 0; background: var(--primary, #33ccbb); color: var(--primary-foreground, #0a0f0e); font: 700 14px/20px Inter, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; letter-spacing: 0.025em; text-transform: uppercase; transition: background-color 200ms ease, transform 200ms ease; cursor: pointer; } .ds-btn-primary svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; } .ds-btn-primary:hover { background: var(--accent, #2db8a8); } .ds-btn-primary:focus-visible { outline: 2px solid var(--ring, #33ccbb); outline-offset: 4px; } .ds-btn-primary:active { transform: translateY(2px); }"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "Quiet secondary action that keeps the primary signal dominant.",
+      "html": "<button class=\"ds-btn-outline\" type=\"button\">VIEW DEMO</button>",
+      "css": ".ds-btn-outline { display: inline-flex; align-items: center; justify-content: center; height: 48px; padding: 0 24px; border: 1px solid rgba(51, 204, 187, 0.3); border-radius: 0; background: transparent; color: #ffffff; font: 700 14px/20px Inter, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; letter-spacing: 0.025em; text-transform: uppercase; transition: background-color 200ms ease, border-color 200ms ease, color 200ms ease, transform 200ms ease; cursor: pointer; } .ds-btn-outline:hover { border-color: #33ccbb; background: rgba(51, 204, 187, 0.1); color: #ffffff; } .ds-btn-outline:focus-visible { outline: 2px solid #33ccbb; outline-offset: 4px; } .ds-btn-outline:active { transform: translateY(2px); }"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "field",
+      "description": "Sharp field treatment for configuration values and identifiers.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-field-label\">DEFAULT DISCORD CLIENT</span><select class=\"ds-field-control\"><option>client-primary</option></select></label>",
+      "css": ".ds-field { display: block; color: #ffffff; } .ds-field-label { display: block; margin-bottom: 8px; color: rgba(255, 255, 255, 0.55); font: 700 12px/16px Inter, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; letter-spacing: 0.025em; text-transform: uppercase; } .ds-field-control { display: block; width: 100%; height: 48px; padding: 8px 16px; border: 1px solid rgba(51, 204, 187, 0.2); border-radius: 0; background: #09110f; color: #ffffff; font: 14px/20px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; outline: none; transition: border-color 200ms ease; } .ds-field-control:focus-visible { border-color: #33ccbb; outline: 2px solid #33ccbb; outline-offset: 4px; }"
+    },
+    {
+      "name": "Fixed Navigation",
+      "kind": "nav",
+      "refersTo": "navigation",
+      "description": "Translucent fixed header with a teal mark and tracked navigation labels.",
+      "html": "<header class=\"ds-nav\"><a class=\"ds-nav-brand\" href=\"#\"><span class=\"ds-nav-mark\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M5 5h5v5H5zM14 5h5v5h-5zM5 14h5v5H5zM14 14h5v5h-5z\" /></svg></span><span>SHEET<span class=\"ds-nav-accent\">WEB</span></span></a><a class=\"ds-nav-link\" href=\"#\">DOCS</a></header>",
+      "css": ".ds-nav { position: fixed; top: 0; right: 0; left: 0; display: flex; align-items: center; justify-content: space-between; height: 97px; padding: 24px 32px; border-bottom: 1px solid rgba(51, 204, 187, 0.1); background: rgba(10, 15, 14, 0.6); color: #ffffff; backdrop-filter: blur(24px); } .ds-nav-brand { display: inline-flex; align-items: center; gap: 12px; color: #ffffff; font: 900 24px/28px Inter, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; letter-spacing: -0.025em; text-decoration: none; } .ds-nav-mark { display: grid; width: 48px; height: 48px; place-items: center; background: #33ccbb; color: #0a0f0e; } .ds-nav-mark svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; } .ds-nav-accent { color: #33ccbb; } .ds-nav-link { padding: 8px 4px; border-bottom: 2px solid transparent; color: #33ccbb; font: 700 14px/20px Inter, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; letter-spacing: 0.025em; text-decoration: none; transition: border-color 200ms ease, color 200ms ease; } .ds-nav-link:hover, .ds-nav-link:focus-visible { border-color: #33ccbb; color: #ffffff; } .ds-nav-link:focus-visible { outline: 2px solid #33ccbb; outline-offset: 4px; }"
+    },
+    {
+      "name": "Control Card",
+      "kind": "card",
+      "refersTo": "card-surface",
+      "description": "Banded, bordered surface for a schedule or operational summary.",
+      "html": "<article class=\"ds-card\"><svg class=\"ds-card-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><rect x=\"3\" y=\"4\" width=\"18\" height=\"17\" rx=\"1\" /><path d=\"M7 2v4M17 2v4M3 9h18\" /></svg><h3 class=\"ds-card-title\">UPCOMING</h3><p class=\"ds-card-copy\">12 slots this week</p></article>",
+      "css": ".ds-card { padding: 24px; border: 1px solid rgba(51, 204, 187, 0.2); border-radius: 0; background: #0f1615; color: #ffffff; } .ds-card-icon { display: block; width: 40px; height: 40px; margin-bottom: 16px; fill: none; stroke: #33ccbb; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; } .ds-card-title { margin: 0 0 8px; color: #ffffff; font: 900 30px/34px Inter, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; letter-spacing: -0.025em; } .ds-card-copy { margin: 0; color: rgba(255, 255, 255, 0.5); font: 500 14px/20px Inter, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; }"
+    },
+    {
+      "name": "Schedule Grid",
+      "kind": "custom",
+      "refersTo": "card-surface",
+      "description": "Seven-column schedule surface with fine rules and a selected day wash.",
+      "html": "<section class=\"ds-calendar\"><div class=\"ds-calendar-head\"><button class=\"ds-calendar-arrow\" type=\"button\" aria-label=\"Previous month\">‹</button><strong>OCTOBER 2026</strong><button class=\"ds-calendar-arrow\" type=\"button\" aria-label=\"Next month\">›</button></div><div class=\"ds-calendar-days\"><span>SUN</span><span>MON</span><span class=\"ds-calendar-selected\">TUE</span><span>WED</span><span>THU</span><span>FRI</span><span>SAT</span></div></section>",
+      "css": ".ds-calendar { overflow: hidden; border: 1px solid rgba(51, 204, 187, 0.2); border-radius: 0; background: #0f1615; color: #ffffff; } .ds-calendar-head { display: grid; grid-template-columns: 40px 1fr 40px; align-items: center; min-height: 56px; padding: 8px 16px; border-bottom: 1px solid rgba(51, 204, 187, 0.2); text-align: center; font: 900 14px/20px Inter, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; letter-spacing: 0.025em; } .ds-calendar-arrow { display: grid; width: 36px; height: 36px; place-items: center; border: 0; background: transparent; color: #33ccbb; font-size: 24px; cursor: pointer; } .ds-calendar-arrow:hover, .ds-calendar-arrow:focus-visible { background: rgba(51, 204, 187, 0.1); } .ds-calendar-arrow:focus-visible { outline: 2px solid #33ccbb; outline-offset: 2px; } .ds-calendar-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); } .ds-calendar-days span { display: grid; min-height: 56px; place-items: center; border-right: 1px solid rgba(51, 204, 187, 0.1); border-bottom: 1px solid rgba(51, 204, 187, 0.1); color: rgba(51, 204, 187, 0.6); font: 700 11px/16px Inter, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; letter-spacing: 0.12em; } .ds-calendar-days span:last-child { border-right: 0; } .ds-calendar-days .ds-calendar-selected { background: rgba(51, 204, 187, 0.12); color: #33ccbb; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Dark Futuristic Control Theme",
+    "overview": "SheetWeb treats the interface like a compact control room for a live Discord shift. A green-black canvas carries a bright electric teal signal. Large, heavy Inter headlines, square control surfaces, thin borders, and small uppercase labels make state and action easy to spot.\n\nThe system is high contrast and operational, with a little visual voltage. The landing page uses diagonal grid texture, floating hexagons, tilted cards, teal glow, and short hover transitions. Authenticated screens keep the same language in a denser layout, with split panels, schedule grids, and clear role-based navigation.",
+    "keyCharacteristics": [
+      "Dark green-black canvas with an electric teal signal.",
+      "Heavy Inter hierarchy with uppercase, letter-spaced labels.",
+      "Square surfaces and thin translucent teal rules.",
+      "Tonal layering first, selective glow and motion for emphasis.",
+      "Asymmetric landing compositions and dense operational dashboards."
+    ],
+    "rules": [
+      {
+        "name": "The Signal Rule",
+        "body": "Use electric teal for actions, active states, system labels, and key status. Let the green-black field carry most of the screen.",
+        "section": "colors"
+      },
+      {
+        "name": "The Wash Rule",
+        "body": "Treat deep teal wash as a background layer. It supports the signal instead of competing with it.",
+        "section": "colors"
+      },
+      {
+        "name": "The Weight Rule",
+        "body": "Reserve the heaviest weights for hierarchy and action. Use regular body text for explanation instead of making every line compete.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat Surface Rule",
+        "body": "Keep operational surfaces flat and legible. Use shadow, glow, rotation, or scale only when a featured element needs extra attention or when a state change needs a clear response.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do keep the main canvas deep green-black and use deep teal wash for the background of standard panels.",
+      "Do use electric teal as the primary signal for actions, active states, labels, and focus.",
+      "Do use square corners for controls and panels, reserving full rounding for avatars and small image treatments.",
+      "Do use heavy Inter for hierarchy and tracked uppercase labels for system context.",
+      "Do use thin rules, grid structure, and tonal contrast to make operational state scannable.",
+      "Do keep motion short and purposeful, especially on high-frequency dashboard controls."
+    ],
+    "donts": [
+      "Don't introduce rounded cards, pill-shaped controls, or soft SaaS styling as the default language.",
+      "Don't replace the deep green-black and electric teal world with a light canvas or a new primary accent without an explicit redesign decision.",
+      "Don't put heavy shadows on every surface. Reserve them for landing-page emphasis and clear elevation states.",
+      "Don't make every label, paragraph, and icon equally loud. Preserve the display, title, body, and metadata hierarchy.",
+      "Don't use rotation, glow, or scale on controls that people need to scan repeatedly during a live shift."
+    ]
+  }
+}
