@@ -20,6 +20,66 @@ _Avoid_: Web-only source, database source
 The association between the legacy Configuration Source and the stable spreadsheet-tab identity discovered for `Thee's Sheet Settings`, with an explicit unresolved bootstrap state before discovery and the historical title and verified header layout retained as compatibility metadata after binding.
 _Avoid_: Title-only lookup, guessed settings tab
 
+**Legacy Import Attempt**:
+A durable, explicit request to read one current Legacy Settings Tab state and assemble a Web Configuration Draft for review. Replaying the same attempt returns its original result; it does not change the active Configuration Source.
+_Avoid_: Migration flag, retry attempt
+
+**Legacy Re-import**:
+A new Legacy Import Attempt that replaces an existing Web Configuration Draft only after an explicit, audited draft discard. It never merges with or silently overwrites that draft.
+_Avoid_: Import overwrite, draft merge
+
+**Legacy Import Precondition Failure**:
+A Legacy Import Attempt outcome where the source binding, spreadsheet access, or current Legacy Settings Tab structure cannot be established. It leaves the active Configuration Source and any existing Web Configuration Draft unchanged.
+_Avoid_: Partial import, source fallback
+
+**Legacy Import Diagnostic Draft**:
+A Web Configuration Draft produced from a structurally valid legacy import that may contain unresolved fields or validation diagnostics. It remains non-authoritative. Unresolved diagnostics prevent saving it as a Configuration Revision, and a baseline mismatch prevents activation even when the draft is otherwise valid.
+_Avoid_: Active partial configuration, best-effort source
+
+**Legacy Import Baseline**:
+The specific fresh observation of the legacy Configuration Source used to assemble a Legacy Import Diagnostic Draft and compare later review or activation attempts. It records the observed source binding, structure, and canonical imported legacy values, or a digest of those values, without becoming an active source. Before review or activation, fresh values from the Legacy Configuration Source are compared with this state, and a value-only difference is a Legacy Source Conflict.
+_Avoid_: Live legacy mirror, configuration revision
+
+**Legacy Source Conflict**:
+A lifecycle precondition outcome where a fresh observation of the relevant legacy structure or canonical values, including value-only changes, differs from the Legacy Import Baseline. It leaves the legacy source and draft unchanged and requires a new import before activation.
+_Avoid_: Last-write-wins activation, source merge
+
+**Configuration Activation**:
+The explicit transition that selects one valid immutable Configuration Revision as the Owned Configuration Source. It is separate from draft saving and never activates a mutable or stale draft.
+_Avoid_: Implicit save, source fallback
+
+**Configuration Activation Preconditions**:
+The required checks before Configuration Activation: current authorization, a complete and valid workspace revision, a current spreadsheet binding, a verified legacy source when migrating from legacy, and no Legacy Source Conflict. Failure leaves the active Configuration Source unchanged.
+_Avoid_: Warning gate, partial activation
+
+**Legacy Active Bot Boundary**:
+When the legacy Configuration Source is active, the bot may read configuration status and activate only the current Activation Candidate after Configuration Activation Preconditions pass, but it cannot edit, import, review, or save configuration. Rollback is not applicable while legacy is active.
+_Avoid_: Bot-side migration, legacy write-through
+
+**Configuration Rollback**:
+An explicit transition of the active Configuration Source to a retained Web Configuration Version or a legacy binding that passes fresh current spreadsheet-access and current-tab-structure verification, without copying values, mutating the inactive source, or merging sources.
+_Avoid_: Sheet restore, value patch, fallback
+
+**Inactive Source Preservation**:
+The legacy tab, its verified binding, and immutable Web Configuration Versions remain available as inactive rollback state without being read by runtime behavior or combined with the active source.
+_Avoid_: Shadow reads, source merge
+
+**Web Configuration Draft Checkpoint**:
+The stable identifier or canonical digest of the exact Web Configuration Draft contents used to create an Activation Candidate. Any subsequent draft edit changes the checkpoint and makes that candidate stale.
+_Avoid_: Latest draft, revision ID alone
+
+**Activation Candidate**:
+An immutable Configuration Revision that matches the current Web Configuration Draft Checkpoint and may be selected by Configuration Activation only after Configuration Activation Preconditions pass. A later draft edit makes the candidate stale.
+_Avoid_: Pending draft, implicit latest revision
+
+**Unconfigured Owned Source**:
+The initial Web Configuration Source for a new workspace before its first valid Configuration Revision is activated. It has no legacy bootstrap path, and runtime reports missing configuration until setup completes.
+_Avoid_: Unresolved legacy source, default legacy mode
+
+**Legacy Source Failure**:
+A read or lifecycle outcome where the active legacy binding, spreadsheet access, or Legacy Settings Tab structure is no longer usable. The operation fails and the legacy source remains selected without fallback to pending or inactive web state.
+_Avoid_: Automatic failover, stale web source
+
 **Legacy Settings Tab**:
 The Google Sheets tab named `Thee's Sheet Settings` when it acts as a Configuration Source.
 _Avoid_: Config sheet, settings sheet
