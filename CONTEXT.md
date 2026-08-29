@@ -162,6 +162,10 @@ _Avoid_: Permission snapshot, scope check
 The record of both the effective principal whose authority was used and any service actor that performed the operation for that principal.
 _Avoid_: Caller ID, impersonation record
 
+**Sheet Configuration Audit Record**:
+An immutable Workspace-scoped record for a persisted Sheet Configuration mutation or lifecycle attempt. It retains attribution, outcome, configuration lineage, and transition evidence without retaining configuration values or sheet cell contents.
+_Avoid_: Configuration history, snapshot log
+
 ## Migration and rollout
 
 **Production Cell**:
