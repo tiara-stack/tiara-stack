@@ -41,6 +41,16 @@ describe("makeUpdateAnnouncementWorkflowRequests", () => {
           publishedAt: new Date(updateAnnouncements[2].publishedAt),
         },
       },
+      {
+        workspaceId: "guild-1",
+        workspaceName: "Guild One",
+        joinedAt: new Date("2026-06-04T16:59:59.999Z"),
+        systemConversationId: "system-channel",
+        announcement: {
+          ...updateAnnouncements[3],
+          publishedAt: new Date(updateAnnouncements[3].publishedAt),
+        },
+      },
     ]);
     expect(requests[0]?.invocationId).toBe(
       makeUpdateAnnouncementWorkflowRequests({

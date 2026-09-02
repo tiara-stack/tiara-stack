@@ -7,6 +7,7 @@ import { kickCommandLayer } from "./commands/kick";
 import { preferenceCommandLayer } from "./commands/preference";
 import { roomOrderCommandLayer } from "./commands/roomOrder";
 import { scheduleCommandLayer } from "./commands/schedule";
+import { sheetCommandLayer } from "./commands/sheet";
 import { screenshotCommandLayer } from "./commands/screenshot";
 import { serverCommandLayer } from "./commands/server";
 import { slotCommandLayer } from "./commands/slot";
@@ -31,6 +32,7 @@ const botLayer = Layer.mergeAll(
   roomOrderCommandLayer,
   screenshotCommandLayer,
   scheduleCommandLayer,
+  sheetCommandLayer,
   serverCommandLayer,
   slotCommandLayer,
   statusCommandLayer,

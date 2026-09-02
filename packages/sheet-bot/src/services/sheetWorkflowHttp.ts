@@ -289,6 +289,57 @@ export type AnnouncementsDeliverUpdateEnqueueError = Effect.Error<
   ReturnType<AnnouncementsDeliverUpdateEnqueue>
 >;
 
+export type SheetConfigurationSaveDraftEnqueue =
+  SheetWorkflowHttpClients["sheetConfiguration"]["saveDraft"]["enqueue"];
+export type SheetConfigurationSaveDraftEnqueueInput =
+  Parameters<SheetConfigurationSaveDraftEnqueue>[0];
+export type SheetConfigurationSaveDraftReference = Effect.Success<
+  ReturnType<SheetConfigurationSaveDraftEnqueue>
+>;
+
+export type SheetConfigurationEditDraftEnqueue =
+  SheetWorkflowHttpClients["sheetConfiguration"]["editDraft"]["enqueue"];
+export type SheetConfigurationEditDraftEnqueueInput =
+  Parameters<SheetConfigurationEditDraftEnqueue>[0];
+export type SheetConfigurationEditDraftReference = Effect.Success<
+  ReturnType<SheetConfigurationEditDraftEnqueue>
+>;
+
+export type SheetConfigurationSaveRevisionEnqueue =
+  SheetWorkflowHttpClients["sheetConfiguration"]["saveRevision"]["enqueue"];
+export type SheetConfigurationSaveRevisionEnqueueInput =
+  Parameters<SheetConfigurationSaveRevisionEnqueue>[0];
+export type SheetConfigurationSaveRevisionReference = Effect.Success<
+  ReturnType<SheetConfigurationSaveRevisionEnqueue>
+>;
+
+export type SheetConfigurationActivateEnqueue =
+  SheetWorkflowHttpClients["sheetConfiguration"]["activate"]["enqueue"];
+export type SheetConfigurationActivateEnqueueInput =
+  Parameters<SheetConfigurationActivateEnqueue>[0];
+export type SheetConfigurationActivateReference = Effect.Success<
+  ReturnType<SheetConfigurationActivateEnqueue>
+>;
+
+export type SheetConfigurationRollbackEnqueue =
+  SheetWorkflowHttpClients["sheetConfiguration"]["rollback"]["enqueue"];
+export type SheetConfigurationRollbackEnqueueInput =
+  Parameters<SheetConfigurationRollbackEnqueue>[0];
+export type SheetConfigurationRollbackReference = Effect.Success<
+  ReturnType<SheetConfigurationRollbackEnqueue>
+>;
+
+export type SheetConfigurationDiscardDraftEnqueue =
+  SheetWorkflowHttpClients["sheetConfiguration"]["discardDraft"]["enqueue"];
+export type SheetConfigurationDiscardDraftEnqueueInput =
+  Parameters<SheetConfigurationDiscardDraftEnqueue>[0];
+export type SheetConfigurationDiscardDraftReference = Effect.Success<
+  ReturnType<SheetConfigurationDiscardDraftEnqueue>
+>;
+
+export type AuthorizationLoadWorkspaceCapabilitiesWorkflow =
+  SheetWorkflowHttpClients["authorization"]["loadWorkspaceCapabilities"];
+
 type SheetWorkflowHttpRequestContextType = {
   readonly discordUserId: string;
 };
@@ -476,6 +527,7 @@ const makeWorkflowServiceHttpClient = Effect.fn("SheetWorkflowHttpClient.makeSer
 );
 
 export interface SheetWorkflowHttpClientShape {
+  readonly authorizationLoadWorkspaceCapabilities: AuthorizationLoadWorkspaceCapabilitiesWorkflow;
   readonly enqueueServicesDeliverStatus: ServicesDeliverStatusEnqueue;
   readonly enqueueSchedulesDeliverUserSchedule: SchedulesDeliverUserScheduleEnqueue;
   readonly enqueueCheckinsOpen: CheckinsOpenEnqueue;
@@ -504,6 +556,12 @@ export interface SheetWorkflowHttpClientShape {
   readonly enqueueTeamSubmissionsProcess: TeamSubmissionsProcessEnqueue;
   readonly enqueueTeamSubmissionsDecide: TeamSubmissionsDecideEnqueue;
   readonly enqueueAnnouncementsDeliverUpdate: AnnouncementsDeliverUpdateEnqueue;
+  readonly enqueueSheetConfigurationSaveDraft: SheetConfigurationSaveDraftEnqueue;
+  readonly enqueueSheetConfigurationEditDraft: SheetConfigurationEditDraftEnqueue;
+  readonly enqueueSheetConfigurationSaveRevision: SheetConfigurationSaveRevisionEnqueue;
+  readonly enqueueSheetConfigurationActivate: SheetConfigurationActivateEnqueue;
+  readonly enqueueSheetConfigurationRollback: SheetConfigurationRollbackEnqueue;
+  readonly enqueueSheetConfigurationDiscardDraft: SheetConfigurationDiscardDraftEnqueue;
 }
 
 export class SheetWorkflowHttpClient extends Context.Service<
@@ -596,6 +654,7 @@ export class SheetWorkflowHttpClient extends Context.Service<
     });
 
     return {
+      authorizationLoadWorkspaceCapabilities: clients.authorization.loadWorkspaceCapabilities,
       enqueueServicesDeliverStatus: clients.services.deliverStatus.enqueue,
       enqueueSchedulesDeliverUserSchedule: clients.schedules.deliverUserSchedule.enqueue,
       enqueueCheckinsOpen: clients.checkins.open.enqueue,
@@ -627,6 +686,12 @@ export class SheetWorkflowHttpClient extends Context.Service<
       enqueueTeamSubmissionsProcess: serviceClients.teamSubmissions.process.enqueue,
       enqueueTeamSubmissionsDecide: clients.teamSubmissions.decide.enqueue,
       enqueueAnnouncementsDeliverUpdate: serviceClients.announcements.deliverUpdate.enqueue,
+      enqueueSheetConfigurationSaveDraft: clients.sheetConfiguration.saveDraft.enqueue,
+      enqueueSheetConfigurationEditDraft: clients.sheetConfiguration.editDraft.enqueue,
+      enqueueSheetConfigurationSaveRevision: clients.sheetConfiguration.saveRevision.enqueue,
+      enqueueSheetConfigurationActivate: clients.sheetConfiguration.activate.enqueue,
+      enqueueSheetConfigurationRollback: clients.sheetConfiguration.rollback.enqueue,
+      enqueueSheetConfigurationDiscardDraft: clients.sheetConfiguration.discardDraft.enqueue,
     } satisfies SheetWorkflowHttpClientShape;
   }),
 }) {
@@ -675,6 +740,46 @@ export const enqueueStatusWorkflow = (
   input: ServicesDeliverStatusInput,
   options?: { readonly invocationId?: ServicesDeliverStatusReference["invocationId"] },
 ) => enqueueWorkflow(client.enqueueServicesDeliverStatus, input, options);
+
+export const enqueueSheetConfigurationSaveDraftWorkflow = (
+  client: Pick<SheetWorkflowHttpClientShape, "enqueueSheetConfigurationSaveDraft">,
+  input: SheetConfigurationSaveDraftEnqueueInput,
+  options?: { readonly invocationId?: SheetConfigurationSaveDraftReference["invocationId"] },
+) => enqueueWorkflow(client.enqueueSheetConfigurationSaveDraft, input, options);
+
+export const enqueueSheetConfigurationEditDraftWorkflow = (
+  client: Pick<SheetWorkflowHttpClientShape, "enqueueSheetConfigurationEditDraft">,
+  input: SheetConfigurationEditDraftEnqueueInput,
+  options?: { readonly invocationId?: SheetConfigurationEditDraftReference["invocationId"] },
+) => enqueueWorkflow(client.enqueueSheetConfigurationEditDraft, input, options);
+
+export const enqueueSheetConfigurationSaveRevisionWorkflow = (
+  client: Pick<SheetWorkflowHttpClientShape, "enqueueSheetConfigurationSaveRevision">,
+  input: SheetConfigurationSaveRevisionEnqueueInput,
+  options?: {
+    readonly invocationId?: SheetConfigurationSaveRevisionReference["invocationId"];
+  },
+) => enqueueWorkflow(client.enqueueSheetConfigurationSaveRevision, input, options);
+
+export const enqueueSheetConfigurationActivateWorkflow = (
+  client: Pick<SheetWorkflowHttpClientShape, "enqueueSheetConfigurationActivate">,
+  input: SheetConfigurationActivateEnqueueInput,
+  options?: { readonly invocationId?: SheetConfigurationActivateReference["invocationId"] },
+) => enqueueWorkflow(client.enqueueSheetConfigurationActivate, input, options);
+
+export const enqueueSheetConfigurationRollbackWorkflow = (
+  client: Pick<SheetWorkflowHttpClientShape, "enqueueSheetConfigurationRollback">,
+  input: SheetConfigurationRollbackEnqueueInput,
+  options?: { readonly invocationId?: SheetConfigurationRollbackReference["invocationId"] },
+) => enqueueWorkflow(client.enqueueSheetConfigurationRollback, input, options);
+
+export const enqueueSheetConfigurationDiscardDraftWorkflow = (
+  client: Pick<SheetWorkflowHttpClientShape, "enqueueSheetConfigurationDiscardDraft">,
+  input: SheetConfigurationDiscardDraftEnqueueInput,
+  options?: {
+    readonly invocationId?: SheetConfigurationDiscardDraftReference["invocationId"];
+  },
+) => enqueueWorkflow(client.enqueueSheetConfigurationDiscardDraft, input, options);
 
 export const enqueueScheduleWorkflow = (
   client: Pick<SheetWorkflowHttpClientShape, "enqueueSchedulesDeliverUserSchedule">,

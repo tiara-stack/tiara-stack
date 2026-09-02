@@ -114,15 +114,18 @@ export const resolveGuildId = (serverId: Option.Option<string>) =>
   Effect.gen(function* () {
     const interactionGuildId = yield* getInteractionGuildId;
 
-    const selectedId = pipe(
+    const selectedId = yield* pipe(
       serverId,
       Option.orElse(() => interactionGuildId),
-      Option.getOrThrowWith(
-        () =>
-          new SheetBotUtilsCommandHelpersError({
-            message: "Guild not found in interaction or command options",
-          }),
-      ),
+      Option.match({
+        onSome: Effect.succeed,
+        onNone: () =>
+          Effect.fail(
+            new SheetBotUtilsCommandHelpersError({
+              message: "Guild not found in interaction or command options",
+            }),
+          ),
+      }),
     );
 
     return yield* decodeDiscordSnowflakeId(selectedId, "guild ID");

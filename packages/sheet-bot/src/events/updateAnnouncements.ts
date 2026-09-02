@@ -32,9 +32,9 @@ export const updateAnnouncements = [
   {
     id: "update-announcements-2026-06-05",
     publishedAt: "2026-06-04T17:00:00.000Z",
-    title: "Update announcements",
+    title: "TiaraBot update announcements",
     description:
-      "This server can now receive occasional bot update announcements here. Announcements are sent once per server and only for updates published after the bot joined.",
+      "TiaraBot can now share occasional product updates in this server. Each update is sent once to the server's system channel when available, otherwise #general or the first sendable text channel. Updates are only sent for releases published after TiaraBot joined and never use mass mentions. Read the TiaraDocs guide for details: https://schedule.theerapakg.moe/docs/tiarabot/monitors/update-announcements",
     color: 0x5865f2,
   },
   {
@@ -52,6 +52,14 @@ export const updateAnnouncements = [
     description:
       "Team submission channels require the team-submission-confirmations workspace feature flag. When enabled, Tiara writes submissions with the reaction, progress embed, and submitter-owned confirm/reject flow; without it, messages are ignored.",
     color: 0x57f287,
+  },
+  {
+    id: "web-sheet-configuration-2026-09-01",
+    publishedAt: "2026-09-01T07:09:33.000Z",
+    title: "Web Sheet Configuration editor",
+    description:
+      "Server managers and monitors can now manage TiaraBot's sheet mappings from Dashboard → Settings → Sheet mappings. Import the legacy Settings tab into a draft, type or drag tab-qualified A1 ranges on the read-only grid, review changed fields and fresh samples, then activate a versioned revision when it is ready. The current source stays live until activation, and earlier web revisions or the retained legacy source can be restored. Read the TiaraDocs guide: https://schedule.theerapakg.moe/docs/tiarabot/monitors/sheet-configuration",
+    color: 0x33ccbb,
   },
 ] as const satisfies ReadonlyArray<UpdateAnnouncementSource>;
 

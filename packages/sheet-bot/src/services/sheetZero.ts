@@ -13,6 +13,7 @@ import {
   Queue,
   Redacted,
   Schedule,
+  Schema,
 } from "effect";
 import { createOAuthClientCredentialsToken } from "sheet-auth/client";
 import {
@@ -22,6 +23,11 @@ import {
   type Schema as SheetZeroSchema,
   type SheetClient,
 } from "sheet-zero-api";
+import {
+  ConfigWorkspaceRow,
+  ConfigWorkspaceSheetRevisionRow,
+  ConfigWorkspaceSheetRow,
+} from "sheet-zero-api/rows";
 import { ZeroClient as BaseZeroClient } from "typhoon-zero/client";
 import { config } from "@/config";
 import { SheetAuthClient } from "./sheetAuthClient";
@@ -253,11 +259,54 @@ const isTeamSubmissionEnabled = Effect.fn("SheetZeroClient.isTeamSubmissionEnabl
   return isTeamSubmissionAvailable(channel, featureFlag);
 });
 
+const decodeClientOption = <A>(schema: Schema.Decoder<A, never>, value: unknown) =>
+  Option.isOption(value)
+    ? Option.isNone(value)
+      ? Effect.succeed(Option.none<A>())
+      : Schema.decodeUnknownEffect(schema)(value.value).pipe(Effect.map(Option.some))
+    : Predicate.isNull(value) || Predicate.isUndefined(value)
+      ? Effect.succeed(Option.none<A>())
+      : Schema.decodeUnknownEffect(schema)(value).pipe(Effect.map(Option.some));
+
+const getSheetConfiguration = Effect.fn("SheetZeroClient.getSheetConfiguration")(function* (
+  client: SheetClient,
+  workspaceId: string,
+) {
+  const rawRow = yield* client.grouped.sheetConfiguration.getSheetConfiguration({ workspaceId });
+  return yield* decodeClientOption(ConfigWorkspaceSheetRow, rawRow);
+});
+
+const getSheetConfigurationRevisions = Effect.fn("SheetZeroClient.getSheetConfigurationRevisions")(
+  function* (client: SheetClient, workspaceId: string) {
+    const rawRows = yield* client.grouped.sheetConfiguration.getSheetConfigurationRevisions({
+      workspaceId,
+    });
+    return yield* Schema.decodeUnknownEffect(Schema.Array(ConfigWorkspaceSheetRevisionRow))(
+      rawRows,
+    );
+  },
+);
+
+const getWorkspaceConfig = Effect.fn("SheetZeroClient.getWorkspaceConfig")(function* (
+  client: SheetClient,
+  workspaceId: string,
+) {
+  const rawRow = yield* client.grouped.workspaceConfig.getWorkspaceConfigByWorkspaceId({
+    workspaceId,
+  });
+  return yield* decodeClientOption(ConfigWorkspaceRow, rawRow);
+});
+
 interface SheetZeroClientShape {
   readonly isTeamSubmissionEnabled: (
     workspaceId: string,
     conversationId: string,
   ) => ReturnType<typeof isTeamSubmissionEnabled>;
+  readonly getSheetConfiguration: (workspaceId: string) => ReturnType<typeof getSheetConfiguration>;
+  readonly getSheetConfigurationRevisions: (
+    workspaceId: string,
+  ) => ReturnType<typeof getSheetConfigurationRevisions>;
+  readonly getWorkspaceConfig: (workspaceId: string) => ReturnType<typeof getWorkspaceConfig>;
 }
 
 export class SheetZeroClient extends Context.Service<SheetZeroClient, SheetZeroClientShape>()(
@@ -269,6 +318,10 @@ export class SheetZeroClient extends Context.Service<SheetZeroClient, SheetZeroC
       return {
         isTeamSubmissionEnabled: (workspaceId, conversationId) =>
           isTeamSubmissionEnabled(client, workspaceId, conversationId),
+        getSheetConfiguration: (workspaceId) => getSheetConfiguration(client, workspaceId),
+        getSheetConfigurationRevisions: (workspaceId) =>
+          getSheetConfigurationRevisions(client, workspaceId),
+        getWorkspaceConfig: (workspaceId) => getWorkspaceConfig(client, workspaceId),
       };
     }),
   },
