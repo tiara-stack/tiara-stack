@@ -171,7 +171,7 @@ services:
         condition: service_healthy
     environment:
       SHEET_AUTH_ISSUER: "http://sheet-auth:3000"
-      SHEET_AUTH_OAUTH_AUDIENCE: "sheet-db-server"
+      SHEET_AUTH_OAUTH_AUDIENCE: "sheet-zero"
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://local-otel-sink:4318}
     secrets:
       - postgres_password
@@ -248,7 +248,7 @@ services:
       SHEET_WORKFLOWS_BASE_URL: "http://sheet-workflows:3000"
       ZERO_CACHE_SERVER: "http://zero-cache:4848"
       ZERO_CACHE_USER_ID: "system:serviceaccount:tiara-local:sheet-bot"
-      ZERO_OAUTH_AUDIENCE: "sheet-db-server"
+      ZERO_OAUTH_AUDIENCE: "sheet-zero"
       SHEET_AUTH_ISSUER: "http://sheet-auth:3000"
       SHEET_AUTH_OAUTH_CLIENT_ID: ${SHEET_BOT_OAUTH_CLIENT_ID:?SHEET_BOT_OAUTH_CLIENT_ID is required}
       SHEET_AUTH_OAUTH_CLIENT_SECRET: ${SHEET_BOT_OAUTH_CLIENT_SECRET:?SHEET_BOT_OAUTH_CLIENT_SECRET is required}
@@ -287,9 +287,13 @@ services:
       SHEET_AUTH_OAUTH_CLIENT_ID: ${SHEET_WORKFLOWS_OAUTH_CLIENT_ID:?SHEET_WORKFLOWS_OAUTH_CLIENT_ID is required}
       SHEET_AUTH_OAUTH_CLIENT_SECRET: ${SHEET_WORKFLOWS_OAUTH_CLIENT_SECRET:?SHEET_WORKFLOWS_OAUTH_CLIENT_SECRET is required}
       SHEET_AUTH_OAUTH_AUDIENCE: "sheet-workflows"
+      SHEET_AUTH_WORKFLOW_HTTP_BROWSER_AUDIENCE: "sheet-zero"
+      SHEET_WEB_BASE_URL: "${SHEET_WEB_PUBLIC_BASE_URL:-http://localhost:3001}"
       SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID: ${SHEET_BOT_OAUTH_CLIENT_ID:?SHEET_BOT_OAUTH_CLIENT_ID is required}
       GOOGLE_APPLICATION_CREDENTIALS: "/.secret/google-service-account.json"
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://local-otel-sink:4318}
+    ports:
+      - "3003:3000"
     secrets:
       - postgres_password
     volumes:
@@ -319,6 +323,7 @@ services:
       AUTH_BASE_URL: "${SHEET_AUTH_PUBLIC_BASE_URL:-http://localhost:3002}"
       APP_BASE_URL: "${SHEET_WEB_PUBLIC_BASE_URL:-http://localhost:3001}"
       SHEET_ZERO_BASE_URL: "${SHEET_ZERO_PUBLIC_BASE_URL:-http://localhost:4848}"
+      SHEET_WORKFLOWS_BASE_URL: "${SHEET_WORKFLOWS_PUBLIC_BASE_URL:-http://localhost:3003}"
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://local-otel-sink:4318}
     command:
       - sh

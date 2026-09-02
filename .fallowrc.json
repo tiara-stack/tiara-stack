@@ -10,7 +10,11 @@
     "packages/typhoon-core/src/error/index.ts",
     "packages/vibecord/src/bot/index.ts"
   ],
-  "ignorePatterns": ["native/**", "packages/*/effect-sql-migrations/**"],
+  "ignorePatterns": [
+    "native/**",
+    "packages/*/effect-sql-migrations/**",
+    "packages/sheet-zero-api/src/schema.ts"
+  ],
   "publicPackages": [
     "dfx-discord-utils",
     "effect-platform-apps-script",

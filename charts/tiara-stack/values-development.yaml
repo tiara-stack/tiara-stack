@@ -63,6 +63,9 @@ ingress:
 # The bot and workflow roles use separate development credentials. Keep the
 # development Google service account in Infisical; never reuse production's.
 services:
+  sheetWeb:
+    env:
+      SHEET_WORKFLOWS_BASE_URL: https://workflows.dev.theerapakg.moe
   sheetBot:
     enabled: true
   sheetWorkflows:

@@ -51,6 +51,9 @@ global:
     existingConfigMap: tiara-stack-ca-certificate
 
 services:
+  sheetWeb:
+    env:
+      SHEET_WORKFLOWS_BASE_URL: https://workflows.theerapakg.moe
   sheetWorkflows:
     secretRef:
       name: sheet-workflows-secret

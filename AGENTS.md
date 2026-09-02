@@ -106,9 +106,9 @@ Authentication service using BetterAuth for Discord OAuth, JWT tokens, and Kuber
 
 ### `sheet-web` (packages/sheet-web)
 
-Web application for the sheet system built with TanStack Start, providing a dashboard for guild management, scheduling, and calendar views.
+Web application for the sheet system built with TanStack Start, providing a dashboard for guild management, scheduling, calendar views, and typed Sheet Workflow HTTP clients.
 
-**Dependencies**: TanStack Start/React ecosystem, Effect, `better-auth`, `sheet-auth`, `sheet-bot-api`, `sheet-domain`, `sheet-workflow-contracts`, `sheet-zero-api`, `start-atom`, `typhoon-core`, `typhoon-zero`, shadcn/ui components, Recharts
+**Dependencies**: TanStack Start/React ecosystem, Effect, `better-auth`, `sheet-auth`, `sheet-bot-api`, `sheet-domain`, `sheet-workflow-contracts`, `sheet-workflow-http-client`, `sheet-zero-api`, `start-atom`, `typhoon-core`, `typhoon-zero`, shadcn/ui components, Recharts
 
 ### `sheet-bot` (packages/sheet-bot)
 
@@ -179,6 +179,8 @@ The following workspace-level scripts are defined in `package.json`:
 Fallow is not included in `pnpm checks`. Run `npx fallow audit` separately from the repo root to match the PR CI changed-code audit.
 
 Run these scripts from the repo root using `pnpm <script>`.
+
+Run `pnpm check:tsc-build` before `pnpm lint` or `pnpm checks` so referenced packages have generated `.ts-out` declaration files. Without this step, type-aware linting can report misleading `TS6305` missing-output errors (especially in the `effect-ai-*` packages).
 
 Run `pnpm format:apply` every time after you finish proposing a change to correctly format all the code.
 
@@ -287,6 +289,7 @@ sheet-web
   ├─ sheet-bot-api
   ├─ sheet-domain
   ├─ sheet-workflow-contracts
+  ├─ sheet-workflow-http-client
   ├─ sheet-zero-api
   ├─ start-atom
   ├─ typhoon-core

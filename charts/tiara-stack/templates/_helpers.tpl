@@ -159,6 +159,9 @@ imagePullSecrets:
 {{- $sheetBotServiceName := include "tiara-stack.serviceName" (dict "name" "sheet-bot" "serviceValues" $sheetBotValues) -}}
 {{- $sheetWorkflowsValues := .Values.services.sheetWorkflows | default dict -}}
 {{- $sheetWorkflowsServiceName := include "tiara-stack.serviceName" (dict "name" "sheet-workflows" "serviceValues" $sheetWorkflowsValues) -}}
+{{- $sheetWebValues := .Values.services.sheetWeb | default dict -}}
+{{- $sheetWebSecretRef := $sheetWebValues.secretRef | default dict -}}
+{{- $sheetWebSecretName := default (include "tiara-stack.defaultSecretName" "sheetWeb") $sheetWebSecretRef.name -}}
 {{- $zeroCacheValues := .Values.zeroCache | default dict -}}
 {{- $zeroCacheSecretRef := $zeroCacheValues.secretRef | default dict -}}
 {{- $zeroCacheSecretName := default (include "tiara-stack.defaultSecretName" "zeroCache") $zeroCacheSecretRef.name -}}
@@ -267,7 +270,7 @@ imagePullSecrets:
     - name: ZERO_CACHE_USER_ID
       value: "system:serviceaccount:$(POD_NAMESPACE):sheet-bot"
     - name: ZERO_OAUTH_AUDIENCE
-      value: sheet-db-server
+      value: sheet-zero
     - name: SHEET_AUTH_ISSUER
       secretKey: sheetAuthIssuer
     - name: SHEET_AUTH_OAUTH_CLIENT_ID
@@ -339,6 +342,11 @@ imagePullSecrets:
       secretKey: sheetWorkflowsServiceClientSecret
     - name: SHEET_AUTH_OAUTH_AUDIENCE
       value: sheet-workflows
+    - name: SHEET_AUTH_WORKFLOW_HTTP_BROWSER_AUDIENCE
+      value: sheet-zero
+    - name: SHEET_WEB_BASE_URL
+      secretName: {{ $sheetWebSecretName }}
+      secretKey: appBaseUrl
 {{ include "tiara-stack.autoCheckinIdentityEnv" . | nindent 4 }}
     - name: SHEET_BOT_BASE_URL
       value: "http://{{ $sheetBotServiceName }}"
@@ -526,7 +534,7 @@ imagePullSecrets:
     - name: SHEET_AUTH_ISSUER
       value: "http://{{ $sheetAuthServiceName }}"
     - name: SHEET_AUTH_OAUTH_AUDIENCE
-      value: sheet-db-server
+      value: sheet-zero
     - name: OTEL_EXPORTER_OTLP_ENDPOINT
       secretKey: otelExporterOtlpEndpoint
   networkPolicyFrom:
@@ -536,7 +544,7 @@ imagePullSecrets:
   name: sheet-web
   portName: sheet-web-svc
   metricPortName: sheet-web-met
-  secretName: sheet-web-secret
+  secretName: {{ $sheetWebSecretName }}
   servicePorts:
     - name: sheet-web-svc
       port: 80
@@ -558,6 +566,8 @@ imagePullSecrets:
       secretKey: appBaseUrl
     - name: SHEET_ZERO_BASE_URL
       secretKey: sheetZeroBaseUrl
+    - name: SHEET_WORKFLOWS_BASE_URL
+      value: "http://{{ $sheetWorkflowsServiceName }}"
     - name: SHEET_WEB_OAUTH_CLIENT_ID
       secretKey: sheetWebOauthClientId
       optional: true
