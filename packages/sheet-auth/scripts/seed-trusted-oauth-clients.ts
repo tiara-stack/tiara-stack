@@ -147,10 +147,10 @@ const defaultSheetWebOAuthScopes = [
   "openid",
   "profile",
   "email",
-  "sheet.read",
-  "sheet.write",
-  "sheet.manage",
-  "workflow.dispatch",
+  "zero.read",
+  "zero.mutate",
+  "workflow.observe",
+  "workflow.enqueue",
   "offline_access",
 ];
 

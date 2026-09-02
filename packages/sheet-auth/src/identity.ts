@@ -76,7 +76,7 @@ export const SheetAuthCapabilityScope = Schema.Literals(SheetAuthCapabilityScope
 export type SheetAuthCapabilityScope = Schema.Schema.Type<typeof SheetAuthCapabilityScope>;
 
 export const CapabilityScopesByAudience = {
-  "sheet-zero": ["zero.read", "zero.mutate", "workflow.enqueue"],
+  "sheet-zero": ["zero.read", "zero.mutate", "workflow.observe", "workflow.enqueue"],
   "sheet-workflows-http": [
     "workflow.observe",
     "workflow.enqueue",

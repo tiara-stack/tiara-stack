@@ -15,6 +15,13 @@
       "when": 1781246221821,
       "tag": "0001_account_provider_id_account_id_unique",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788345870217,
+      "tag": "0002_chief_brother_voodoo",
+      "breakpoints": true
     }
   ]
 }

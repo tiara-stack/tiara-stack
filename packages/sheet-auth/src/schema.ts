@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, boolean, json, uniqueIndex } from "drizzle-orm/pg-core";
+import { boolean, index, json, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 
 // Better Auth schema tables
 // These are managed by Better Auth's Drizzle adapter
@@ -66,6 +66,7 @@ export const account = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => [
+    index("account_user_id_index").on(table.userId),
     uniqueIndex("account_provider_id_account_id_unique").on(table.providerId, table.accountId),
   ],
 );

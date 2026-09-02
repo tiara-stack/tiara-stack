@@ -85,7 +85,7 @@ describe("identity schemas", () => {
       "workflow.enqueue",
     );
     expect(CapabilityScopesByAudience).toEqual({
-      "sheet-zero": ["zero.read", "zero.mutate", "workflow.enqueue"],
+      "sheet-zero": ["zero.read", "zero.mutate", "workflow.observe", "workflow.enqueue"],
       "sheet-workflows-http": [
         "workflow.observe",
         "workflow.enqueue",

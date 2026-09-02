@@ -3,6 +3,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { bearer, jwt } from "better-auth/plugins";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { drizzle } from "drizzle-orm/postgres-js";
+import { eq } from "drizzle-orm";
 import postgres from "postgres";
 import { createSecondaryStorage } from "./storage";
 import type { Driver } from "unstorage";
@@ -92,11 +93,36 @@ const tokenExchangeAccessTokenExpiresInOrThrow = (value: number | undefined) => 
 export const oauthAudiences = (baseUrl: string, audiences: readonly string[] | undefined) =>
   audiences?.length ? [...audiences] : [baseUrl, ...InternalOAuthResourceAudiences];
 
+const DiscordSubjectProviderIds = ["discord", "kubernetes:discord"] as const;
+
+export const selectDiscordAccountId = (
+  accounts: readonly { readonly accountId: string; readonly providerId: string }[],
+) => {
+  for (const providerId of DiscordSubjectProviderIds) {
+    const accountId = accounts
+      .filter((account) => account.providerId === providerId)
+      .map((account) => account.accountId)
+      .sort()[0];
+    if (accountId !== undefined) return accountId;
+  }
+  return undefined;
+};
+
+const findDiscordAccountId = async (db: ReturnType<typeof drizzle>, userId: string) => {
+  const accounts = await db
+    .select({ accountId: schema.account.accountId, providerId: schema.account.providerId })
+    .from(schema.account)
+    .where(eq(schema.account.userId, userId));
+
+  return selectDiscordAccountId(accounts);
+};
+
 const createOAuthProviderPlugin = ({
+  db,
   baseUrl,
   oauthValidAudiences,
   trustedOAuthClientIds,
-}: Pick<BaseAuthOptions, "baseUrl" | "oauthValidAudiences" | "trustedOAuthClientIds">) =>
+}: Pick<BaseAuthOptions, "db" | "baseUrl" | "oauthValidAudiences" | "trustedOAuthClientIds">) =>
   oauthProvider({
     allowDynamicClientRegistration: true,
     allowUnauthenticatedClientRegistration: false,
@@ -110,6 +136,14 @@ const createOAuthProviderPlugin = ({
     requirePKCE: true,
     loginPage: "/sign-in",
     consentPage: "/consent",
+    customAccessTokenClaims: async ({ user }) => {
+      if (!user) {
+        return {};
+      }
+
+      const accountId = await findDiscordAccountId(db, user.id);
+      return accountId === undefined ? {} : { account_id: accountId };
+    },
   });
 
 const createTokenExchangeSubjectResolvers = ({
@@ -287,7 +321,7 @@ function createBaseAuth({
       bearer(),
       sessionToken(),
       jwt(),
-      createOAuthProviderPlugin({ baseUrl, oauthValidAudiences, trustedOAuthClientIds }),
+      createOAuthProviderPlugin({ db, baseUrl, oauthValidAudiences, trustedOAuthClientIds }),
       createSheetOAuthPlugin({
         baseUrl,
         oauthJwksUrl,
