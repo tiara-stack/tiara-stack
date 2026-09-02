@@ -9,6 +9,8 @@ import { makeArgumentError } from "typhoon-core/error";
 import { ReadonlyJSONValue as ReadonlyJSONValueSchema } from "typhoon-zero/schema";
 import {
   LegacySourceBinding,
+  migrateLegacySource,
+  migrateLegacySourceBinding,
   SheetConfigurationAuditOutcome,
   SheetConfigurationImportAttemptStatus,
   SheetConfigurationSource,
@@ -17,6 +19,8 @@ import {
 import { zeroTableAccess } from "../accessors";
 import { activeRecord } from "../timestamps";
 import type { SheetZeroApiSuccessSchemas } from "./successSchemas";
+
+const sheetConfigurationVersionConflictCode = "SHEET_CONFIGURATION_VERSION_CONFLICT";
 
 type SheetConfigurationTransaction = Transaction<RocicorpSchema, unknown>;
 
@@ -244,14 +248,20 @@ export const makeSheetConfigurationGroup = <
         );
         const active = activeRecord(existing);
         const currentVersion = active?.draftVersion ?? 0;
-        if (args.expectedDraftVersion !== currentVersion) {
-          throw makeArgumentError("The Sheet Configuration draft changed in another session");
+        if (active === undefined && args.expectedDraftVersion !== 0) {
+          throw makeArgumentError("There is no Sheet Configuration draft");
+        }
+        if (active !== undefined && args.expectedDraftVersion !== currentVersion) {
+          throw makeArgumentError("The Sheet Configuration draft changed in another session", {
+            code: sheetConfigurationVersionConflictCode,
+          });
         }
         let requestedSource: typeof SheetConfigurationSource.Type;
         try {
-          requestedSource = Schema.decodeUnknownSync(SheetConfigurationSource)(args.source, {
-            onExcessProperty: "error",
-          });
+          requestedSource = Schema.decodeUnknownSync(SheetConfigurationSource)(
+            migrateLegacySource(args.source),
+            { onExcessProperty: "error" },
+          );
         } catch {
           throw makeArgumentError("The Sheet Configuration source is not valid");
         }
@@ -259,9 +269,10 @@ export const makeSheetConfigurationGroup = <
         if (active !== undefined) {
           let currentSource: typeof SheetConfigurationSource.Type;
           try {
-            currentSource = Schema.decodeUnknownSync(SheetConfigurationSource)(active.source, {
-              onExcessProperty: "error",
-            });
+            currentSource = Schema.decodeUnknownSync(SheetConfigurationSource)(
+              migrateLegacySource(active.source),
+              { onExcessProperty: "error" },
+            );
           } catch {
             throw makeArgumentError("The current Sheet Configuration source is not valid");
           }
@@ -323,8 +334,13 @@ export const makeSheetConfigurationGroup = <
               .one(),
           ),
         );
-        if (workspace === undefined || workspace.draftVersion !== args.expectedDraftVersion) {
-          throw makeArgumentError("The Sheet Configuration draft changed in another session");
+        if (workspace === undefined) {
+          throw makeArgumentError("There is no Sheet Configuration draft");
+        }
+        if (workspace.draftVersion !== args.expectedDraftVersion) {
+          throw makeArgumentError("The Sheet Configuration draft changed in another session", {
+            code: sheetConfigurationVersionConflictCode,
+          });
         }
         let configuration: typeof WebSheetConfiguration.Type;
         try {
@@ -401,8 +417,13 @@ export const makeSheetConfigurationGroup = <
             .one(),
         );
         const active = activeRecord(existing);
-        if (active === undefined || active.draftVersion !== args.expectedDraftVersion) {
-          throw makeArgumentError("The Sheet Configuration draft changed in another session");
+        if (active === undefined) {
+          throw makeArgumentError("There is no Sheet Configuration draft");
+        }
+        if (active.draftVersion !== args.expectedDraftVersion) {
+          throw makeArgumentError("The Sheet Configuration draft changed in another session", {
+            code: sheetConfigurationVersionConflictCode,
+          });
         }
         if (active.baselineDigest !== args.expectedBaselineDigest) {
           throw makeArgumentError("The legacy Sheet Configuration changed since it was imported");
@@ -443,9 +464,10 @@ export const makeSheetConfigurationGroup = <
         }
         let source: typeof SheetConfigurationSource.Type;
         try {
-          source = Schema.decodeUnknownSync(SheetConfigurationSource)(active.source, {
-            onExcessProperty: "error",
-          });
+          source = Schema.decodeUnknownSync(SheetConfigurationSource)(
+            migrateLegacySource(active.source),
+            { onExcessProperty: "error" },
+          );
         } catch {
           throw makeArgumentError("The current Sheet Configuration source is not valid");
         }
@@ -501,14 +523,20 @@ export const makeSheetConfigurationGroup = <
             .one(),
         );
         const active = activeRecord(existing);
-        if (active === undefined || active.draftVersion !== args.expectedDraftVersion) {
-          throw makeArgumentError("The Sheet Configuration draft changed in another session");
+        if (active === undefined) {
+          throw makeArgumentError("There is no Sheet Configuration draft");
+        }
+        if (active.draftVersion !== args.expectedDraftVersion) {
+          throw makeArgumentError("The Sheet Configuration draft changed in another session", {
+            code: sheetConfigurationVersionConflictCode,
+          });
         }
         let source: typeof SheetConfigurationSource.Type;
         try {
-          source = Schema.decodeUnknownSync(SheetConfigurationSource)(active.source, {
-            onExcessProperty: "error",
-          });
+          source = Schema.decodeUnknownSync(SheetConfigurationSource)(
+            migrateLegacySource(active.source),
+            { onExcessProperty: "error" },
+          );
         } catch {
           throw makeArgumentError("The current Sheet Configuration source is not valid");
         }
@@ -518,9 +546,10 @@ export const makeSheetConfigurationGroup = <
         if (args.revisionId === null) {
           let legacyBinding: typeof LegacySourceBinding.Type;
           try {
-            legacyBinding = Schema.decodeUnknownSync(LegacySourceBinding)(active.legacyBinding, {
-              onExcessProperty: "error",
-            });
+            legacyBinding = Schema.decodeUnknownSync(LegacySourceBinding)(
+              migrateLegacySourceBinding(active.legacyBinding),
+              { onExcessProperty: "error" },
+            );
           } catch {
             throw makeArgumentError(
               "The retained legacy Sheet Configuration binding was not found",
@@ -606,8 +635,13 @@ export const makeSheetConfigurationGroup = <
             .one(),
         );
         const active = activeRecord(existing);
-        if (active === undefined || active.draftVersion !== args.expectedDraftVersion) {
-          throw makeArgumentError("The Sheet Configuration draft changed in another session");
+        if (active === undefined) {
+          throw makeArgumentError("There is no Sheet Configuration draft");
+        }
+        if (active.draftVersion !== args.expectedDraftVersion) {
+          throw makeArgumentError("The Sheet Configuration draft changed in another session", {
+            code: sheetConfigurationVersionConflictCode,
+          });
         }
         await tx.mutate.configWorkspaceSheet.upsert(
           zeroTableAccess.configWorkspaceSheet.upsertWithTimestamps(

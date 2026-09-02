@@ -764,7 +764,7 @@ export const ConfigurationSheetWorkflowDefinitions = Object.freeze([
 ]);
 
 export const ConfigurationSheetWorkflows = Object.freeze(
-  ConfigurationSheetWorkflowDefinitions.map(({ workflow }) => workflow as WorkflowDefinition),
+  ConfigurationSheetWorkflowDefinitions.map(({ workflow }) => workflow),
 );
 
 const configurationSheetWorkflowNames = new Set(

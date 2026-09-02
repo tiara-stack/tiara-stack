@@ -8,6 +8,10 @@ import {
 
 export const ScreenshotsCaptureAndDeliverDefinition = makeScreenshotsCaptureAndDeliverDefinition();
 
+export const ScreenshotSheetWorkflows = Object.freeze([
+  ScreenshotsCaptureAndDeliverDefinition.workflow,
+]);
+
 export const screenshotOrdinaryWorkflowRegistrationLayers = Layer.mergeAll(
   ResolveScreenshotSourceAction.toLayer(),
   ScreenshotsCaptureAndDeliverDefinition.workflowLayer,

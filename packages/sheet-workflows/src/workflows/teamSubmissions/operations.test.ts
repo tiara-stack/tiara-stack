@@ -6,6 +6,7 @@ import { EffectivePrincipal } from "sheet-auth/identity";
 import {
   MessageTeamSubmission,
   ParsedTeamEntry,
+  type TeamSubmissionConfigurationBinding,
   TeamSubmissionRowMapping,
   TeamSubmissionRollbackSnapshot,
   RangesConfig,
@@ -93,6 +94,7 @@ const makeSubmission = (options: {
   readonly parsedSubmission?: ReadonlyArray<typeof ParsedTeamEntry.Type>;
   readonly rowMappings?: ReadonlyArray<typeof TeamSubmissionRowMapping.Type>;
   readonly rollbackSnapshot?: ReadonlyArray<(typeof TeamSubmissionRollbackSnapshot.Type)[number]>;
+  readonly sheetConfigurationBinding?: TeamSubmissionConfigurationBinding | null;
 }): MessageTeamSubmissionRow => ({
   workspaceId: "workspace-1",
   conversationId: "conversation-1",
@@ -103,7 +105,10 @@ const makeSubmission = (options: {
   discordChannelId: "conversation-1",
   discordAuthorId: "author-1",
   sheetId: "sheet-1",
-  sheetConfigurationBinding: null,
+  sheetConfigurationBinding:
+    options.sheetConfigurationBinding === undefined
+      ? { revisionId: null, configuration: null }
+      : options.sheetConfigurationBinding,
   confirmationMessageId: "confirmation-message-1",
   parsedSubmission: options.parsedSubmission ?? [],
   rowMappings: options.rowMappings ?? [],
@@ -499,6 +504,33 @@ describe("team-submission workflow operations", () => {
       });
       expect(rejected.status).toBe("rejected");
       expect(succeeding.persistedStatuses).toEqual(["reverting", "rejected"]);
+    }),
+  );
+
+  it.effect("retains rollback recovery for an old in-progress submission without a binding", () =>
+    Effect.gen(function* () {
+      const harness = makeHarness({
+        initialSubmission: makeSubmission({
+          status: "applying",
+          parsedSubmission: [durableEntry],
+          rowMappings: [durableMapping],
+          sheetConfigurationBinding: null,
+        }),
+      });
+      const operations = yield* harness.operations;
+      const exit = yield* Effect.exit(
+        operations.decide({
+          invocationId,
+          principal: userPrincipal,
+          input: decideInput,
+        }),
+      );
+
+      expect(Exit.isSuccess(exit)).toBe(true);
+      if (Exit.isSuccess(exit)) expect(exit.value.status).toBe("rollbackFailed");
+      expect(harness.persistedStatuses).toEqual(["rollbackFailed"]);
+      expect(harness.submission()?.sheetConfigurationBinding).toBeNull();
+      expect(harness.sheetWrites).toEqual([]);
     }),
   );
 });

@@ -1,5 +1,6 @@
 import type { sheets_v4 } from "@googleapis/sheets";
 import { Context, Data, Effect, Layer, Predicate } from "effect";
+import type { WebSheetConfiguration } from "sheet-domain";
 import {
   eventConfigRange,
   makeRunnerLocalSheetsClient,
@@ -7,6 +8,7 @@ import {
   readSheetsValueRanges,
   valueRowsAt,
 } from "../shared/runnerLocalSheets";
+import { loadWebConfigurationSheetAdapter } from "../shared/webConfigurationSheets";
 
 export class RoomOrderNavigationProviderError extends Data.TaggedError(
   "RoomOrderNavigationProviderError",
@@ -18,6 +20,7 @@ export class RoomOrderNavigationProviderError extends Data.TaggedError(
 interface RoomOrderNavigationProviderShape {
   readonly loadEventStart: (
     spreadsheetId: string,
+    configuration?: WebSheetConfiguration | null,
   ) => Effect.Effect<number, RoomOrderNavigationProviderError>;
 }
 
@@ -33,14 +36,21 @@ const makeProviderError =
 const makeRoomOrderNavigationProvider = (
   client: sheets_v4.Sheets,
 ): RoomOrderNavigationProviderShape => ({
-  loadEventStart: (spreadsheetId) =>
-    readSheetsValueRanges({
-      client,
-      spreadsheetId,
-      ranges: [eventConfigRange],
-      makeError: makeProviderError("read-event-configuration"),
-    }).pipe(
-      Effect.flatMap((ranges) => parseEventStart(valueRowsAt(ranges, 0))),
+  loadEventStart: (spreadsheetId, configuration) =>
+    (Predicate.isNullish(configuration)
+      ? readSheetsValueRanges({
+          client,
+          spreadsheetId,
+          ranges: [eventConfigRange],
+          makeError: makeProviderError("read-event-configuration"),
+        }).pipe(Effect.flatMap((ranges) => parseEventStart(valueRowsAt(ranges, 0))))
+      : loadWebConfigurationSheetAdapter({
+          client,
+          spreadsheetId,
+          configuration,
+          makeError: makeProviderError("read-event-configuration"),
+        }).pipe(Effect.flatMap(({ eventRows }) => parseEventStart(eventRows)))
+    ).pipe(
       Effect.mapError((error) =>
         Predicate.isTagged("RoomOrderNavigationProviderError")(error)
           ? error

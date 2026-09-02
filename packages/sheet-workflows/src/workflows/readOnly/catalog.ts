@@ -5,6 +5,8 @@ import {
   DiscordLoadWorkspaceRoles,
   NotificationsLoadSupportedClients,
   SchedulesLoadWorkspace,
+  SheetsDescribe,
+  SheetsReadSnapshot,
 } from "sheet-workflow-contracts";
 
 export const ReadOnlySheetWorkflowContracts = Object.freeze([
@@ -12,6 +14,8 @@ export const ReadOnlySheetWorkflowContracts = Object.freeze([
   DiscordLoadWorkspaceChannels,
   DiscordLoadWorkspaceRoles,
   AuthorizationLoadWorkspaceCapabilities,
+  SheetsDescribe,
+  SheetsReadSnapshot,
   SchedulesLoadWorkspace,
   NotificationsLoadSupportedClients,
 ] as const);

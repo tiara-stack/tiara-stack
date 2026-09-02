@@ -5,6 +5,7 @@ import {
   Duration,
   Effect,
   Layer,
+  Option,
   Predicate,
   Schema,
   Semaphore,
@@ -14,6 +15,10 @@ import { ServicePrincipal, type ActorProvenance } from "sheet-auth/identity";
 import { CheckinsOpen, MembersKick, WorkspaceId } from "sheet-workflow-contracts";
 import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import { config } from "@/config";
+import {
+  resolveAuthoritativeSheetConfigurationForWorkspace,
+  type AuthoritativeSheetConfiguration,
+} from "./authoritativeSheetConfiguration";
 import {
   AutoCheckinSweepWorkflow,
   AutoRoleCleanupSweepWorkflow,
@@ -35,6 +40,7 @@ const autonomousProviderTimeout = Duration.seconds(30);
 class AutonomousTriggerError extends Data.TaggedError("AutonomousTriggerError")<{
   readonly operation: string;
   readonly message: string;
+  readonly cause?: unknown;
 }> {}
 
 export const deriveAutonomousEventHour = (
@@ -83,12 +89,12 @@ const uniqueRunningConversationNames = (
   return names;
 };
 
-type WorkspaceConfig = Effect.Success<
-  ReturnType<TrustedSheetPersistence["Service"]["workspaces"]["getAutoCheckinWorkspaces"]>
->[number];
-
 type WorkspaceConversation = Effect.Success<
   ReturnType<TrustedSheetPersistence["Service"]["workspaces"]["getWorkspaceConversations"]>
+>[number];
+
+type AutoCheckinWorkspace = Effect.Success<
+  ReturnType<TrustedSheetPersistence["Service"]["workspaces"]["getAutoCheckinWorkspaces"]>
 >[number];
 
 interface AutonomousTriggerServiceShape {
@@ -115,17 +121,37 @@ const actorProvenance = (
   jobKind,
 });
 
-const requireSpreadsheetId = (workspace: WorkspaceConfig) => {
-  if (workspace.sheetId === null || workspace.sheetId.trim().length === 0) {
-    return Effect.fail(
-      new AutonomousTriggerError({
-        operation: "resolve-spreadsheet",
-        message: `Workspace ${workspace.workspaceId} has no configured spreadsheet`,
+const requireActiveConfiguration = (
+  persistence: TrustedSheetPersistence["Service"],
+  workspaceId: WorkspaceId,
+  workspace: AutoCheckinWorkspace,
+): Effect.Effect<AuthoritativeSheetConfiguration, AutonomousTriggerError> =>
+  resolveAuthoritativeSheetConfigurationForWorkspace(
+    persistence,
+    workspaceId,
+    Option.some(workspace),
+  ).pipe(
+    Effect.mapError(
+      (cause) =>
+        new AutonomousTriggerError({
+          operation: "resolve-spreadsheet",
+          message: `Workspace ${workspaceId} Sheet Configuration resolution failed during ${cause.operation}`,
+          cause: cause.cause,
+        }),
+    ),
+    Effect.flatMap(
+      Option.match({
+        onNone: () =>
+          Effect.fail(
+            new AutonomousTriggerError({
+              operation: "resolve-spreadsheet",
+              message: `Workspace ${workspaceId} has no configured spreadsheet`,
+            }),
+          ),
+        onSome: Effect.succeed,
       }),
-    );
-  }
-  return Effect.succeed(workspace.sheetId);
-};
+    ),
+  );
 
 const managedConversations = (
   conversations: ReadonlyArray<WorkspaceConversation>,
@@ -220,9 +246,9 @@ export class AutonomousTriggerService extends Context.Service<
             const workspaceId = yield* Schema.decodeUnknownEffect(WorkspaceId)(
               workspace.workspaceId,
             );
-            const spreadsheetId = yield* requireSpreadsheetId(workspace);
+            const active = yield* requireActiveConfiguration(persistence, workspaceId, workspace);
             const eventStartEpochMs = yield* provider
-              .loadEventStart(spreadsheetId)
+              .loadEventStart(active.spreadsheetId, active.configuration)
               .pipe(Effect.timeout(autonomousProviderTimeout));
             const hour = deriveAutonomousEventHour(eventStartEpochMs, targetHourBucket);
             const conversations = yield* persistence.workspaces.getWorkspaceConversations({
@@ -294,9 +320,9 @@ export class AutonomousTriggerService extends Context.Service<
               const workspaceId = yield* Schema.decodeUnknownEffect(WorkspaceId)(
                 workspace.workspaceId,
               );
-              const spreadsheetId = yield* requireSpreadsheetId(workspace);
+              const active = yield* requireActiveConfiguration(persistence, workspaceId, workspace);
               const eventStartEpochMs = yield* provider
-                .loadEventStart(spreadsheetId)
+                .loadEventStart(active.spreadsheetId, active.configuration)
                 .pipe(Effect.timeout(autonomousProviderTimeout));
               const hour = deriveAutomaticRoleCleanupHour(eventStartEpochMs, bucket);
               const conversations = yield* persistence.workspaces.getWorkspaceConversations({

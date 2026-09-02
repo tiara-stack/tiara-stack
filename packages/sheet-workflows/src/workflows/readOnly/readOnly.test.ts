@@ -23,6 +23,7 @@ import {
   type SheetBotHttpClient,
   messageRefFrom,
 } from "sheet-bot-api";
+import { WebSheetConfiguration } from "sheet-domain";
 import {
   TrustedSheetPersistence,
   type TrustedSheetPersistenceShape,
@@ -38,6 +39,11 @@ import {
   RoomOrdersSend,
   SchedulesDeliverUserSchedule,
   ServicesDeliverStatus,
+  SheetSnapshotDeclaredFailure,
+  SheetsDescribeInput,
+  SheetsReadSnapshotInput,
+  SheetSnapshotTab,
+  SpreadsheetId,
   TeamSubmissionsDecide,
   TeamSubmissionsProcess,
   TeamsDeliverList,
@@ -63,6 +69,7 @@ import {
   readOnlyWorkflowAuthorizationLayer,
 } from "./authorization";
 import { ReadOnlyWorkflowDataSource, readOnlyWorkflowDataSourceLayer } from "./dataSource";
+import { SheetSnapshotProvider } from "./sheetSnapshotProvider";
 import { SheetBotCacheClient } from "@/services/sheetBotCacheClient";
 import { SheetDataProvider, SheetDataProviderError } from "@/services/sheetDataProvider";
 import { makeTrustedSheetPersistenceMock } from "@/services/testHelpers";
@@ -128,10 +135,54 @@ const makeAuthorizationBotClient = (
 const makeDataProvider = (
   loadWorkspaceSchedules: SheetDataProvider["Service"]["loadWorkspaceSchedules"] = () =>
     Effect.die("unused"),
+  resolveSpreadsheetId: SheetDataProvider["Service"]["resolveSpreadsheetId"] = () =>
+    Effect.succeed(Option.none<typeof SpreadsheetId.Type>()),
 ): SheetDataProvider["Service"] => ({
   generateCheckin: () => Effect.die("unused"),
   generateRoomOrder: () => Effect.die("unused"),
   loadWorkspaceSchedules,
+  resolveSpreadsheetId,
+});
+
+const previewTab = {
+  sheetId: 0,
+  title: "Roster",
+  hidden: false,
+  sheetType: "GRID",
+  rowCount: 100,
+  columnCount: 40,
+} satisfies Schema.Schema.Type<typeof SheetSnapshotTab>;
+
+const makeSnapshotProvider = (
+  calls: Array<string>,
+  policies: Array<string> = [],
+): SheetSnapshotProvider["Service"] => ({
+  describe: (spreadsheetId, readPolicy) =>
+    Effect.sync(() => {
+      calls.push(`describe:${spreadsheetId}`);
+      policies.push(`describe:${readPolicy}`);
+      return {
+        spreadsheetId: Schema.decodeUnknownSync(SpreadsheetId)(spreadsheetId),
+        tabs: [previewTab],
+        metadataFetchedAtEpochMs: 1,
+      };
+    }),
+  readSnapshot: (spreadsheetId, sheetId, window, readPolicy) =>
+    Effect.sync(() => {
+      calls.push(`snapshot:${spreadsheetId}`);
+      policies.push(`snapshot:${readPolicy}`);
+      return {
+        spreadsheetId: Schema.decodeUnknownSync(SpreadsheetId)(spreadsheetId),
+        tab: { ...previewTab, sheetId },
+        window,
+        cells: [],
+        rowMetadata: [],
+        columnMetadata: [],
+        merges: [],
+        metadataFetchedAtEpochMs: 1,
+        windowFetchedAtEpochMs: 1,
+      };
+    }),
 });
 
 type WorkspaceMonitorRole = Effect.Success<
@@ -202,8 +253,8 @@ const expectUnauthorized = <A, E>(
 };
 
 describe("read-only Sheet Workflow Definition slice", () => {
-  it("registers exactly the six pinned published definitions", () => {
-    expect(ReadOnlySheetWorkflowContracts).toHaveLength(6);
+  it("registers exactly the eight pinned published definitions", () => {
+    expect(ReadOnlySheetWorkflowContracts).toHaveLength(8);
     expect(
       ReadOnlySheetWorkflowDefinitions.map(({ contract, workflow }) => ({
         contract: workflowContractKey(contract),
@@ -215,7 +266,7 @@ describe("read-only Sheet Workflow Definition slice", () => {
         workflow: workflowContractKey(contract),
       })),
     );
-    expect(ReadOnlySheetWorkflows).toHaveLength(6);
+    expect(ReadOnlySheetWorkflows).toHaveLength(8);
     expect(
       ReadOnlySheetWorkflowRegistrations.every(
         ({ definitionVersion }) => definitionVersion === "1",
@@ -223,7 +274,9 @@ describe("read-only Sheet Workflow Definition slice", () => {
     ).toBe(true);
     expect(
       ReadOnlySheetWorkflowDefinitions.every(
-        ({ contract }) => contract.declaredFailure === DataAcquisitionDeclaredFailure,
+        ({ contract }) =>
+          contract.declaredFailure === DataAcquisitionDeclaredFailure ||
+          contract.declaredFailure === SheetSnapshotDeclaredFailure,
       ),
     ).toBe(true);
     expect(isReadOnlySheetWorkflowName(ReadOnlySheetWorkflows[0]!.name)).toBe(true);
@@ -239,8 +292,8 @@ describe("read-only Sheet Workflow Definition slice", () => {
 
   it("mounts only selected generated enqueue/get/list procedures", () => {
     const groups = makeReadOnlySheetWorkflowZeroGroups(() => Promise.resolve());
-    expect(groups).toHaveLength(6);
-    expect(groups.flatMap(({ endpoints }) => Object.keys(endpoints))).toHaveLength(18);
+    expect(groups).toHaveLength(8);
+    expect(groups.flatMap(({ endpoints }) => Object.keys(endpoints))).toHaveLength(24);
     expect(groups.map(({ identifier }) => identifier)).toEqual(
       ReadOnlySheetWorkflowContracts.map(workflowContractZeroGroupIdentifier),
     );
@@ -315,6 +368,211 @@ describe("read-only Sheet Workflow Definition slice", () => {
       expect(ownerKeyForEffectivePrincipal(principal)).toBe(context.ownerKey);
     }),
   );
+
+  it.effect(
+    "uses the authoritative candidate spreadsheet for an unsaved pre-activation preview",
+    () => {
+      const calls: Array<string> = [];
+      const policies: Array<string> = [];
+      return Effect.gen(function* () {
+        const dataSource = yield* ReadOnlyWorkflowDataSource;
+        const workspaceId = Schema.decodeUnknownSync(WorkspaceId)("workspace-1");
+        const describeInput = Schema.decodeUnknownSync(SheetsDescribeInput)({
+          workspaceId,
+          spreadsheetId: "candidate-sheet",
+          readPolicy: "fresh",
+        });
+        const description = yield* dataSource.describeSheets(describeInput);
+        expect(description.spreadsheetId).toBe("candidate-sheet");
+        expect(description.tabs).toEqual([previewTab]);
+
+        const snapshotInput = Schema.decodeUnknownSync(SheetsReadSnapshotInput)({
+          workspaceId,
+          spreadsheetId: Schema.decodeUnknownSync(SpreadsheetId)("candidate-sheet"),
+          sheetId: 0,
+          window: { startRow: 0, startColumn: 0, rowCount: 4, columnCount: 4 },
+          readPolicy: "fresh",
+        });
+        const snapshot = yield* dataSource.readSheetSnapshot(snapshotInput);
+        expect(snapshot.spreadsheetId).toBe("candidate-sheet");
+        expect(calls).toEqual(["describe:candidate-sheet", "snapshot:candidate-sheet"]);
+        expect(policies).toEqual(["describe:fresh", "snapshot:fresh"]);
+      }).pipe(
+        Effect.provide(readOnlyWorkflowDataSourceLayer),
+        Effect.provide(Layer.succeed(SheetSnapshotProvider, makeSnapshotProvider(calls, policies))),
+        Effect.provide(
+          Layer.succeed(SheetBotCacheClient, {
+            get: () => makeAuthorizationBotClient(() => Effect.die("unused")),
+          }),
+        ),
+        Effect.provide(
+          Layer.succeed(
+            SheetDataProvider,
+            makeDataProvider(undefined, () =>
+              Effect.succeed(
+                Option.some(Schema.decodeUnknownSync(SpreadsheetId)("candidate-sheet")),
+              ),
+            ),
+          ),
+        ),
+        Effect.provide(Layer.sync(TrustedSheetPersistence, makeTrustedSheetPersistenceMock)),
+        Effect.provide(allowAuthorizationLayer),
+        Effect.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromUnknown({ SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID: "sheet-bot-client" }),
+          ),
+        ),
+      );
+    },
+  );
+
+  it.effect("uses a persisted draft spreadsheet for a pre-activation preview", () => {
+    const calls: Array<string> = [];
+    const policies: Array<string> = [];
+    const configuration = Schema.decodeUnknownSync(WebSheetConfiguration)({
+      schemaVersion: 1,
+      spreadsheetId: "candidate-sheet",
+      users: {
+        userIds: {
+          sheetId: 0,
+          startRow: 0,
+          endRow: "sheet-end",
+          startColumn: 0,
+          endColumn: 1,
+        },
+        userSheetNames: {
+          sheetId: 0,
+          startRow: 0,
+          endRow: "sheet-end",
+          startColumn: 1,
+          endColumn: 2,
+        },
+      },
+      teams: [],
+      event: { startTimeEpochMs: 0 },
+      schedules: [],
+      runners: [],
+    });
+    const persistedConfiguration = Schema.encodeSync(WebSheetConfiguration)(configuration);
+    const configurationRow = {
+      workspaceId: "workspace-1",
+      source: { kind: "owned", revisionId: null },
+      legacyBinding: null,
+      draftVersion: 1,
+      baseRevisionId: null,
+      baselineDigest: null,
+      draft: persistedConfiguration,
+      diagnostics: [],
+      activeRevisionId: null,
+      updatedBy: null,
+      createdAt: 0,
+      updatedAt: 0,
+      deletedAt: null,
+    };
+    const basePersistence = makeTrustedSheetPersistenceMock();
+    const configurationPersistence: NonNullable<
+      TrustedSheetPersistenceShape["sheetConfiguration"]
+    > = {
+      getSheetConfiguration: () => Effect.succeed(Option.some(configurationRow)),
+      getSheetConfigurationRevisions: () => Effect.die("unused"),
+      getSheetConfigurationRevisionById: () => Effect.die("unused"),
+      getSheetConfigurationRevisionsBySpreadsheetId: () => Effect.die("unused"),
+      getSheetConfigurationImportAttempt: () => Effect.die("unused"),
+      upsertSheetConfigurationDraft: () => Effect.die("unused"),
+      saveSheetConfigurationRevision: () => Effect.die("unused"),
+      activateSheetConfigurationRevision: () => Effect.die("unused"),
+      rollbackSheetConfiguration: () => Effect.die("unused"),
+      discardSheetConfigurationDraft: () => Effect.die("unused"),
+      upsertSheetConfigurationImportAttempt: () => Effect.die("unused"),
+      recordSheetConfigurationAudit: () => Effect.die("unused"),
+    };
+    return Effect.gen(function* () {
+      const dataSource = yield* ReadOnlyWorkflowDataSource;
+      const description = yield* dataSource.describeSheets(
+        Schema.decodeUnknownSync(SheetsDescribeInput)({
+          workspaceId: "workspace-1",
+          spreadsheetId: "candidate-sheet",
+          readPolicy: "fresh",
+        }),
+      );
+      expect(description.spreadsheetId).toBe("candidate-sheet");
+      expect(calls).toEqual(["describe:candidate-sheet"]);
+      expect(policies).toEqual(["describe:fresh"]);
+    }).pipe(
+      Effect.provide(readOnlyWorkflowDataSourceLayer),
+      Effect.provide(Layer.succeed(SheetSnapshotProvider, makeSnapshotProvider(calls, policies))),
+      Effect.provide(
+        Layer.succeed(SheetBotCacheClient, {
+          get: () => makeAuthorizationBotClient(() => Effect.die("unused")),
+        }),
+      ),
+      Effect.provide(
+        Layer.succeed(
+          SheetDataProvider,
+          makeDataProvider(undefined, () => Effect.die("authoritative fallback was used")),
+        ),
+      ),
+      Effect.provide(
+        Layer.succeed(TrustedSheetPersistence, {
+          ...basePersistence,
+          sheetConfiguration: configurationPersistence,
+        }),
+      ),
+      Effect.provide(allowAuthorizationLayer),
+      Effect.provide(
+        ConfigProvider.layer(
+          ConfigProvider.fromUnknown({ SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID: "sheet-bot-client" }),
+        ),
+      ),
+    );
+  });
+
+  it.effect("rejects a preview candidate that is not the bound spreadsheet", () => {
+    const calls: Array<string> = [];
+    return Effect.gen(function* () {
+      const dataSource = yield* ReadOnlyWorkflowDataSource;
+      const exit = yield* Effect.exit(
+        dataSource.describeSheets(
+          Schema.decodeUnknownSync(SheetsDescribeInput)({
+            workspaceId: Schema.decodeUnknownSync(WorkspaceId)("workspace-1"),
+            spreadsheetId: "unrelated-sheet",
+            readPolicy: "fresh",
+          }),
+        ),
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(Cause.findErrorOption(exit.cause)).toMatchObject({
+          _tag: "Some",
+          value: { _tag: "ConfigurationMissing", configuration: "spreadsheet" },
+        });
+      }
+      expect(calls).toEqual([]);
+    }).pipe(
+      Effect.provide(readOnlyWorkflowDataSourceLayer),
+      Effect.provide(Layer.succeed(SheetSnapshotProvider, makeSnapshotProvider(calls))),
+      Effect.provide(
+        Layer.succeed(SheetBotCacheClient, {
+          get: () => makeAuthorizationBotClient(() => Effect.die("unused")),
+        }),
+      ),
+      Effect.provide(
+        Layer.succeed(
+          SheetDataProvider,
+          makeDataProvider(undefined, () =>
+            Effect.succeed(Option.some(Schema.decodeUnknownSync(SpreadsheetId)("bound-sheet"))),
+          ),
+        ),
+      ),
+      Effect.provide(Layer.sync(TrustedSheetPersistence, makeTrustedSheetPersistenceMock)),
+      Effect.provide(allowAuthorizationLayer),
+      Effect.provide(
+        ConfigProvider.layer(
+          ConfigProvider.fromUnknown({ SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID: "sheet-bot-client" }),
+        ),
+      ),
+    );
+  });
 
   it.effect("redacts authorization lookup failures at the public transport boundary", () =>
     Effect.gen(function* () {
@@ -1182,8 +1440,10 @@ describe("read-only Sheet Workflow Definition slice", () => {
         ]);
       }).pipe(
         Effect.provide(readOnlyWorkflowDataSourceLayer),
+        Effect.provide(Layer.succeed(SheetSnapshotProvider, makeSnapshotProvider([]))),
         Effect.provide(Layer.succeed(SheetBotCacheClient, { get: () => botClient })),
         Effect.provide(Layer.succeed(SheetDataProvider, makeDataProvider())),
+        Effect.provide(Layer.sync(TrustedSheetPersistence, makeTrustedSheetPersistenceMock)),
         Effect.provide(allowAuthorizationLayer),
         Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({}))),
       );
@@ -1206,6 +1466,7 @@ describe("read-only Sheet Workflow Definition slice", () => {
         );
       }).pipe(
         Effect.provide(readOnlyWorkflowDataSourceLayer),
+        Effect.provide(Layer.succeed(SheetSnapshotProvider, makeSnapshotProvider([]))),
         Effect.provide(
           Layer.succeed(SheetBotCacheClient, {
             get: () => makeAuthorizationBotClient(() => Effect.die("unused")),
@@ -1224,6 +1485,7 @@ describe("read-only Sheet Workflow Definition slice", () => {
             ),
           ),
         ),
+        Effect.provide(Layer.sync(TrustedSheetPersistence, makeTrustedSheetPersistenceMock)),
         Effect.provide(allowAuthorizationLayer),
         Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({}))),
       );

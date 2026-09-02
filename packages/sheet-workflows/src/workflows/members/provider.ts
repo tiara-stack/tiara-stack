@@ -13,8 +13,6 @@ import {
   parseSheetIdentities,
   quotedRange,
   readBatchedSheetsValueRanges,
-  readEventStart,
-  readSheetsValueRanges,
   runnerConfigRange,
   runnerPresent,
   scheduleConfigRange,
@@ -23,6 +21,11 @@ import {
   valueRowsAt,
 } from "../shared/runnerLocalSheets";
 import { slotCapacity } from "../shared/slotCapacity";
+import type { WebSheetConfiguration } from "sheet-domain";
+import {
+  loadConfigurationValueRanges,
+  readConfiguredEventStart,
+} from "../shared/webConfigurationSheets";
 
 export class MemberKickProviderError extends Data.TaggedError("MemberKickProviderError")<{
   readonly operation:
@@ -41,11 +44,13 @@ interface MemberKickScheduleResult {
 interface MemberKickProviderShape {
   readonly loadEventStart: (
     spreadsheetId: string,
+    configuration?: WebSheetConfiguration | null,
   ) => Effect.Effect<number, MemberKickProviderError>;
   readonly loadSchedule: (
     spreadsheetId: string,
     conversationName: string,
     hour: number,
+    configuration?: WebSheetConfiguration | null,
   ) => Effect.Effect<MemberKickScheduleResult, MemberKickProviderError>;
 }
 
@@ -157,18 +162,25 @@ const scheduledIdsForConfiguration = (
 export const makeMemberKickProvider = (client: sheets_v4.Sheets): MemberKickProviderShape => ({
   // Event-start decoding deliberately stays aligned with the other runner-local providers.
   // fallow-ignore-next-line code-duplication
-  loadEventStart: (spreadsheetId) =>
-    readEventStart({
+  loadEventStart: (spreadsheetId, configuration) =>
+    readConfiguredEventStart({
       client,
       spreadsheetId,
+      configuration,
       makeError: makeProviderError("read-event-configuration"),
     }),
-  loadSchedule: (spreadsheetId, conversationName, hour) =>
+  loadSchedule: (spreadsheetId, conversationName, hour, configuration) =>
     Effect.gen(function* () {
-      const configurationRanges = yield* readSheetsValueRanges({
+      const configurationRanges = yield* loadConfigurationValueRanges({
         client,
         spreadsheetId,
-        ranges: [rangesConfigRange, scheduleConfigRange, runnerConfigRange],
+        configuration,
+        legacyRanges: [rangesConfigRange, scheduleConfigRange, runnerConfigRange],
+        selectConfiguredRows: ({ rangesRows, schedulesRows, runnersRows }) => [
+          rangesRows,
+          schedulesRows,
+          runnersRows,
+        ],
         makeError: makeProviderError("read-schedule-configuration"),
       });
       const parsed = yield* Effect.all({

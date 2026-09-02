@@ -12,6 +12,10 @@ const AnnouncementSheetWorkflowDefinitions = Object.freeze([
   AnnouncementsDeliverUpdateDefinition,
 ] as const);
 
+export const AnnouncementSheetWorkflows = Object.freeze(
+  AnnouncementSheetWorkflowDefinitions.map(({ workflow }) => workflow),
+);
+
 const updateAnnouncementDeliveryEntityLayer = makeUpdateAnnouncementDeliveryEntityLayer({
   claim: ({ payload }) => ClaimUpdateAnnouncementDeliveryAction.await(payload),
 });

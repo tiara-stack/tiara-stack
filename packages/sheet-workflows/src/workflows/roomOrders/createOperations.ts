@@ -9,6 +9,10 @@ import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import type { InteractiveDeclaredFailure } from "sheet-workflow-contracts";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
 import {
+  missingConfigurationKey,
+  resolveAuthoritativeSheetConfigurationForWorkspace,
+} from "@/services/authoritativeSheetConfiguration";
+import {
   interactiveBusinessRuleRejected,
   interactiveConfigurationMissing,
   interactiveDeliveryRejected,
@@ -158,8 +162,20 @@ export const roomOrderCreateOperationsLayer = Layer.effect(
               }),
             ),
           );
-        if (Predicate.isNull(workspace.sheetId)) {
-          return yield* Effect.fail(interactiveConfigurationMissing("workspace.sheetId"));
+        const active = yield* resolveAuthoritativeSheetConfigurationForWorkspace(
+          persistence,
+          context.workspaceId,
+          Option.some(workspace),
+        ).pipe(
+          Effect.timeout("30 seconds"),
+          Effect.mapError((cause) => operationError("roomOrders.create.resolveSource", cause)),
+        );
+        if (Option.isNone(active)) {
+          return yield* Effect.fail(
+            interactiveConfigurationMissing(
+              missingConfigurationKey(persistence, workspace.sheetId),
+            ),
+          );
         }
         const conversationId = nonEmptySelector(input.conversationId);
         const conversationName = nonEmptySelector(input.conversationName);
@@ -218,7 +234,7 @@ export const roomOrderCreateOperationsLayer = Layer.effect(
           );
         }
         const view = yield* provider
-          .load(workspace.sheetId, conversation.name.trim())
+          .load(active.value.spreadsheetId, conversation.name.trim(), active.value.configuration)
           .pipe(Effect.catch(providerRejected));
         const hour = Predicate.isNumber(input.hour)
           ? input.hour
@@ -276,7 +292,7 @@ export const roomOrderCreateOperationsLayer = Layer.effect(
         );
         return {
           context,
-          spreadsheetId: workspace.sheetId,
+          spreadsheetId: active.value.spreadsheetId,
           runningConversationId: conversation.conversationId,
           runningConversationName: conversation.name.trim(),
           hour,

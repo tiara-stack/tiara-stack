@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { ClientPlatform } from "sheet-bot-api/references";
+import { WebSheetConfiguration } from "sheet-domain";
 import { WorkflowTeamSubmissionStatus } from "sheet-workflow-contracts";
 
 export const TEAM_SUBMISSION_FEATURE_FLAG = "team-submission-confirmations";
@@ -61,6 +62,15 @@ export type TeamSubmissionRollbackSnapshot = Schema.Schema.Type<
   typeof TeamSubmissionRollbackSnapshot
 >;
 
+/** The sheet and configuration snapshot used by a submission while it is recoverable. */
+const TeamSubmissionConfigurationBindingSchema = Schema.Struct({
+  revisionId: Schema.NullOr(Schema.String),
+  configuration: Schema.NullOr(WebSheetConfiguration),
+});
+export type TeamSubmissionConfigurationBinding = Schema.Schema.Type<
+  typeof TeamSubmissionConfigurationBindingSchema
+>;
+
 const TeamSubmissionSkippedEntry = Schema.Struct({
   stableKey: Schema.String,
   playerName: Schema.String,
@@ -82,6 +92,7 @@ export class MessageTeamSubmission extends Schema.TaggedClass<MessageTeamSubmiss
     discordChannelId: Schema.String,
     discordAuthorId: Schema.String,
     sheetId: Schema.String,
+    sheetConfigurationBinding: Schema.OptionFromNullOr(TeamSubmissionConfigurationBindingSchema),
     confirmationMessageId: Schema.OptionFromNullOr(Schema.String),
     parsedSubmission: Schema.Array(ParsedTeamEntry),
     rowMappings: Schema.Array(TeamSubmissionRowMapping),

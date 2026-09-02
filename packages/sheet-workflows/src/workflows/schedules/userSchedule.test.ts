@@ -432,6 +432,7 @@ describe("user-schedule delivery Workflow Definition slice", () => {
               }),
             );
           },
+          loadAll: () => Effect.die("unused"),
         },
         makeBot(() => Effect.die("unused")),
       );
@@ -450,7 +451,7 @@ describe("user-schedule delivery Workflow Definition slice", () => {
       const keys: Array<typeof DeliveryKey.Type> = [];
       let attempt = 0;
       const operations = yield* makeOperations(
-        { load: () => Effect.succeed(view) },
+        { load: () => Effect.succeed(view), loadAll: () => Effect.succeed(view) },
         makeBot(({ payload }) => {
           keys.push(payload.deliveryKey);
           attempt += 1;
@@ -533,7 +534,7 @@ describe("user-schedule delivery Workflow Definition slice", () => {
       yield* Effect.forEach(failures, ({ error, expected }) =>
         Effect.gen(function* () {
           const operations = yield* makeOperations(
-            { load: () => Effect.succeed(view) },
+            { load: () => Effect.succeed(view), loadAll: () => Effect.succeed(view) },
             makeBot(() => Effect.fail(error)),
           );
           expect(
@@ -669,6 +670,86 @@ describe("user-schedule delivery Workflow Definition slice", () => {
           "'Monitors'!A1:A1",
           "'Monitors'!B1:B1",
         ],
+      ]);
+    }),
+  );
+
+  it.effect("returns every configured day from an all-day provider load", () =>
+    Effect.gen(function* () {
+      const responses = [
+        [
+          {
+            values: [
+              ["User IDs", "'Players'!A1:A1"],
+              ["User Sheet Names", "'Players'!B1:B1"],
+            ],
+          },
+          { values: [["Start Time", "1767225600"]] },
+          {
+            values: [
+              [
+                "main",
+                "1",
+                "Runner's Schedule",
+                "A1:A1",
+                "auto",
+                undefined,
+                "none",
+                "B1:B1",
+                "C1:C1",
+                "D1:D1",
+                undefined,
+                undefined,
+                "E1",
+              ],
+              [
+                "late",
+                "2",
+                "Runner's Schedule",
+                "A2:A2",
+                "auto",
+                undefined,
+                "none",
+                "B2:B2",
+                "C2:C2",
+                "D2:D2",
+                undefined,
+                undefined,
+                "E2",
+              ],
+            ],
+          },
+          { values: [["Target", "1-3"]] },
+        ],
+        [
+          { values: [["1"]] },
+          { values: [["Target"]] },
+          { values: [["Other"]] },
+          { values: [["Target"]] },
+          { values: [[true]] },
+          { values: [["2"]] },
+          { values: [["Other"]] },
+          { values: [["Target"]] },
+          { values: [["Other"]] },
+          { values: [[true]] },
+          { values: [["account-target"]] },
+          { values: [["Target"]] },
+        ],
+      ] as const;
+      let request = 0;
+      const client = {
+        spreadsheets: {
+          values: {
+            batchGet: () => Promise.resolve({ data: { valueRanges: responses[request++] ?? [] } }),
+          },
+        },
+      } as unknown as sheets_v4.Sheets;
+
+      const loaded = yield* makeUserScheduleProvider(client).loadAll("sheet-1");
+
+      expect(loaded.schedules).toEqual([
+        expect.objectContaining({ channel: "main", day: 1 }),
+        expect.objectContaining({ channel: "late", day: 2 }),
       ]);
     }),
   );

@@ -6,6 +6,8 @@ import { BotDependencyUnavailable } from "sheet-bot-api";
 import { CalculationsRecalculateSheet } from "sheet-workflow-contracts";
 import { ReadOnlyWorkflowAuthorization } from "../readOnly/authorization";
 import { workflowTestInvocationId as invocationId } from "../shared/testHelpers";
+import { makeTrustedSheetPersistenceMock } from "../../services/testHelpers";
+import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import { calculationWorkflowOperationsLayer } from "./operations";
 import {
   CalculationProviderError,
@@ -101,6 +103,7 @@ const makeOperations = (options: {
       authorize: () => options.authorize(),
     }),
     Effect.provideService(CalculationProvider, options.provider),
+    Effect.provideService(TrustedSheetPersistence, makeTrustedSheetPersistenceMock()),
   );
 
 const provider = (overrides: Partial<CalculationProviderShape> = {}): CalculationProviderShape => ({

@@ -1,39 +1,38 @@
-import { Cause, DateTime, Effect, Layer, Option, Predicate } from "effect";
+import { Cause, DateTime, Effect, Layer, Option } from "effect";
 import { messageRefFrom } from "sheet-bot-api";
 import { roomOrderActionRow, tentativeRoomOrderActionRow } from "sheet-message-content/components";
 import { buildRoomOrderContent } from "sheet-message-content/roomOrderContent";
 import { tentativeRoomOrderContent } from "sheet-message-content/roomOrderMessage";
 import { fillParticipantFromName, hourWindowFor } from "sheet-message-content/rendering";
 import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
+import {
+  missingConfigurationKey,
+  resolveAuthoritativeSheetConfigurationForWorkspace,
+} from "@/services/authoritativeSheetConfiguration";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
 import {
   interactiveAuthorizationRevoked,
-  interactiveDeliveryRejected,
+  interactiveConfigurationMissing,
   interactiveExternalOperationRejected,
-  mapDeliveryFailure,
 } from "../shared/interactive";
-import { providerCauseKind } from "../shared/providerFailure";
-import { RoomOrderNavigationProvider, RoomOrderNavigationProviderError } from "./provider";
+import { RoomOrderNavigationProvider } from "./provider";
+import type { RoomOrderNavigationProviderError } from "./provider";
+import {
+  makeRoomOrderDeliveryFailure,
+  rejectRoomOrderProvider,
+  roomOrderBusyDetail,
+  roomOrderMessageKey,
+} from "./helpers";
 import { RoomOrderNavigationOperations, RoomOrderNavigationOperationsError } from "./service";
 
 const operationError = (operation: string, cause: unknown) =>
   new RoomOrderNavigationOperationsError({ operation, cause });
 
-const messageKey = (context: {
-  readonly clientPlatform: "discord";
-  readonly clientId: string;
-  readonly messageId: string;
-}) => ({
-  clientPlatform: context.clientPlatform,
-  clientId: context.clientId,
-  messageId: context.messageId,
-});
-
 const claimOwnedBy = (row: { readonly tentativeUpdateClaimId: string | null }, claimId: string) =>
   row.tentativeUpdateClaimId === claimId;
 
 const contextMatchesRow = (
-  context: Parameters<typeof messageKey>[0] & {
+  context: Parameters<typeof roomOrderMessageKey>[0] & {
     readonly workspaceId: string;
     readonly conversationId: string;
   },
@@ -51,79 +50,10 @@ const contextMatchesRow = (
   row.workspaceId === context.workspaceId &&
   row.conversationId === context.conversationId;
 
-const busyDetail = (
-  row: {
-    readonly sendClaimId: string | null;
-    readonly tentativeUpdateClaimId: string | null;
-    readonly tentativePinClaimId: string | null;
-    readonly tentativePinnedAt: number | null;
-  },
-  callerClaimId?: string,
-) => {
-  if (Predicate.isNotNull(row.sendClaimId)) return "room order is already being sent.";
-  if (
-    Predicate.isNotNull(row.tentativeUpdateClaimId) &&
-    row.tentativeUpdateClaimId !== callerClaimId
-  ) {
-    return "tentative room order is already being updated.";
-  }
-  if (Predicate.isNotNull(row.tentativePinnedAt)) {
-    return "tentative room order is already pinned.";
-  }
-  if (Predicate.isNotNull(row.tentativePinClaimId)) {
-    return "tentative room order is already being pinned.";
-  }
-  return "room order is temporarily unavailable.";
-};
-
 const rejectProvider = (error: RoomOrderNavigationProviderError) =>
-  // The pinned operation shell intentionally matches the established interactive workflow shape.
-  // fallow-ignore-next-line code-duplication
-  Effect.logWarning("The room-order provider rejected the event configuration read").pipe(
-    Effect.annotateLogs({
-      providerOperation: error.operation,
-      providerCauseKind: providerCauseKind(error.cause),
-    }),
-    Effect.andThen(
-      Effect.fail(
-        interactiveExternalOperationRejected(
-          "roomOrders.navigate.loadNavigationView",
-          "ProviderRejected",
-          "The room-order provider rejected the event configuration read",
-        ),
-      ),
-    ),
-  );
+  rejectRoomOrderProvider(error, "roomOrders.navigate.loadNavigationView");
 
-const deliveryFailure = (
-  policy: string,
-  operation: string,
-  resource: string,
-  rejectedMessage: string,
-  recoveryRequired: boolean,
-  committedReference?: string,
-) => {
-  const mapFailure = mapDeliveryFailure(
-    policy,
-    operation,
-    resource,
-    recoveryRequired,
-    rejectedMessage,
-    operationError,
-    committedReference,
-  );
-  return (error: unknown) => {
-    const mapped = mapFailure(error);
-    return Predicate.isTagged("ResourceNotFound")(mapped)
-      ? interactiveDeliveryRejected(
-          operation,
-          rejectedMessage,
-          recoveryRequired,
-          committedReference,
-        )
-      : mapped;
-  };
-};
+const deliveryFailure = makeRoomOrderDeliveryFailure(operationError);
 
 export const roomOrderNavigationOperationsLayer = Layer.effect(
   RoomOrderNavigationOperations,
@@ -132,8 +62,8 @@ export const roomOrderNavigationOperationsLayer = Layer.effect(
     const provider = yield* RoomOrderNavigationProvider;
     const delivery = yield* SheetBotDeliveryClient;
 
-    const loadCurrent = (context: Parameters<typeof messageKey>[0], operation: string) =>
-      persistence.roomOrderState.getMessageRoomOrder(messageKey(context)).pipe(
+    const loadCurrent = (context: Parameters<typeof roomOrderMessageKey>[0], operation: string) =>
+      persistence.roomOrderState.getMessageRoomOrder(roomOrderMessageKey(context)).pipe(
         Effect.timeout("30 seconds"),
         Effect.mapError((cause) => operationError(operation, cause)),
         Effect.flatMap(
@@ -147,7 +77,7 @@ export const roomOrderNavigationOperationsLayer = Layer.effect(
     const claim: typeof RoomOrderNavigationOperations.Service.claim = (context, claimId, policy) =>
       Effect.gen(function* () {
         const mutation = persistence.roomOrderState
-          .claimMessageRoomOrderTentativeUpdate({ ...messageKey(context), claimId })
+          .claimMessageRoomOrderTentativeUpdate({ ...roomOrderMessageKey(context), claimId })
           .pipe(
             Effect.timeout("30 seconds"),
             Effect.mapError((cause) =>
@@ -182,7 +112,7 @@ export const roomOrderNavigationOperationsLayer = Layer.effect(
               context,
               claimId,
               status: "denied" as const,
-              detail: busyDetail(current),
+              detail: roomOrderBusyDetail(current),
             };
       });
 
@@ -218,7 +148,7 @@ export const roomOrderNavigationOperationsLayer = Layer.effect(
         }
         const targetRank = current.rank + (direction === "previous" ? -1 : 1);
         const rangeEntries = yield* persistence.roomOrderState
-          .getMessageRoomOrderRange(messageKey(claimed.context))
+          .getMessageRoomOrderRange(roomOrderMessageKey(claimed.context))
           .pipe(
             Effect.timeout("30 seconds"),
             Effect.mapError((cause) =>
@@ -249,15 +179,25 @@ export const roomOrderNavigationOperationsLayer = Layer.effect(
             message: { content: detail, visibility: "ephemeral" as const },
           };
         }
-        const { entries, workspace } = yield* Effect.all(
+        const workspace = yield* persistence.workspaces
+          .getWorkspaceConfigByWorkspaceId({ workspaceId: claimed.context.workspaceId })
+          .pipe(
+            Effect.timeout("30 seconds"),
+            Effect.mapError((cause) =>
+              operationError("roomOrders.navigate.loadNavigationView.workspace", cause),
+            ),
+          );
+        const { entries, active } = yield* Effect.all(
           {
             entries: persistence.roomOrderState.getMessageRoomOrderEntry({
-              ...messageKey(claimed.context),
+              ...roomOrderMessageKey(claimed.context),
               rank: targetRank,
             }),
-            workspace: persistence.workspaces.getWorkspaceConfigByWorkspaceId({
-              workspaceId: claimed.context.workspaceId,
-            }),
+            active: resolveAuthoritativeSheetConfigurationForWorkspace(
+              persistence,
+              claimed.context.workspaceId,
+              workspace,
+            ),
           },
           { concurrency: "unbounded" },
         ).pipe(
@@ -266,20 +206,15 @@ export const roomOrderNavigationOperationsLayer = Layer.effect(
             operationError("roomOrders.navigate.loadNavigationView.persistence", cause),
           ),
         );
-        const spreadsheetId = yield* Option.match(workspace, {
-          onNone: () =>
-            Effect.fail(
-              operationError("roomOrders.navigate.loadNavigationView", "Missing workspace"),
+        if (Option.isNone(active)) {
+          return yield* Effect.fail(
+            interactiveConfigurationMissing(
+              missingConfigurationKey(persistence, Option.getOrUndefined(workspace)?.sheetId),
             ),
-          onSome: ({ sheetId }) =>
-            Predicate.isNull(sheetId)
-              ? Effect.fail(
-                  operationError("roomOrders.navigate.loadNavigationView", "Missing spreadsheet"),
-                )
-              : Effect.succeed(sheetId),
-        });
+          );
+        }
         const eventStartEpochMs = yield* provider
-          .loadEventStart(spreadsheetId)
+          .loadEventStart(active.value.spreadsheetId, active.value.configuration)
           .pipe(Effect.catch(rejectProvider));
         const startTime = yield* Option.match(DateTime.make(eventStartEpochMs), {
           onNone: () =>
@@ -344,7 +279,7 @@ export const roomOrderNavigationOperationsLayer = Layer.effect(
             ? persistence.roomOrderState.decrementMessageRoomOrderRank
             : persistence.roomOrderState.incrementMessageRoomOrderRank;
         const update = mutation({
-          ...messageKey(view.context),
+          ...roomOrderMessageKey(view.context),
           expectedRank: view.context.rank,
           tentativeUpdateClaimId: view.claimId,
         }).pipe(
@@ -375,7 +310,7 @@ export const roomOrderNavigationOperationsLayer = Layer.effect(
         }
         if (!claimOwnedBy(current, view.claimId) || current.rank !== view.targetRank) {
           if (claimOwnedBy(current, view.claimId) && current.rank === view.context.rank) {
-            const detail = busyDetail(current, view.claimId);
+            const detail = roomOrderBusyDetail(current, view.claimId);
             return {
               context: view.context,
               claimId: view.claimId,
@@ -480,7 +415,7 @@ export const roomOrderNavigationOperationsLayer = Layer.effect(
       Effect.gen(function* () {
         yield* persistence.roomOrderState
           .releaseMessageRoomOrderTentativeUpdateClaim({
-            ...messageKey(committed.context),
+            ...roomOrderMessageKey(committed.context),
             claimId: committed.claimId,
           })
           .pipe(

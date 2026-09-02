@@ -15,9 +15,17 @@ import { makeMonitorCheckinMessage } from "sheet-message-content/checkinSummary"
 import { buildRoomOrderContent } from "sheet-message-content/roomOrderContent";
 import { fillParticipantFromName, hourWindowFor } from "sheet-message-content/rendering";
 import * as MessageText from "sheet-message-content/text";
-import { type SchedulesLoadWorkspaceSuccess, type WorkspaceId } from "sheet-workflow-contracts";
+import {
+  SpreadsheetId,
+  type SchedulesLoadWorkspaceSuccess,
+  type WorkspaceId,
+} from "sheet-workflow-contracts";
 import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import { config } from "@/config";
+import {
+  resolveAuthoritativeSheetConfigurationForWorkspace,
+  resolveAuthoritativeSpreadsheetId,
+} from "./authoritativeSheetConfiguration";
 import { calculateRoomOrderEntries } from "@/workflows/roomOrders/createCalculation";
 import {
   AutoCheckinTestProvider,
@@ -25,6 +33,13 @@ import {
   type AutoCheckinTestProviderParticipant,
 } from "@/workflows/checkins/autoTestProvider";
 import { UserScheduleProvider, userScheduleProviderLayer } from "@/workflows/schedules/provider";
+import {
+  missingParticipantIdMessage,
+  monitorFailureMessage as getMonitorFailureMessage,
+  renderParticipantMentions,
+  renderTemplate,
+} from "@/workflows/shared/checkinPresentation";
+import { indexSchedulesByHour } from "@/workflows/shared/runnerLocalSheets";
 
 export const CheckinGeneration = Schema.Struct({
   hour: Schema.Number,
@@ -67,6 +82,7 @@ export type RoomOrderGeneration = typeof RoomOrderGeneration.Type;
 export class SheetDataProviderError extends Data.TaggedError("SheetDataProviderError")<{
   readonly operation:
     | "resolve-workspace"
+    | "resolve-spreadsheet"
     | "resolve-conversation"
     | "read-checkin"
     | "read-room-order"
@@ -100,6 +116,10 @@ interface SheetDataProviderShape {
   readonly loadWorkspaceSchedules: (
     workspaceId: WorkspaceId,
   ) => Effect.Effect<SchedulesLoadWorkspaceSuccess, SheetDataProviderError>;
+  /** Resolves the currently authoritative spreadsheet without exposing source internals. */
+  readonly resolveSpreadsheetId: (
+    workspaceId: WorkspaceId,
+  ) => Effect.Effect<Option.Option<SpreadsheetId>, SheetDataProviderError>;
 }
 
 export class SheetDataProvider extends Context.Service<SheetDataProvider, SheetDataProviderShape>()(
@@ -116,6 +136,36 @@ type Conversation = {
 const providerError = (operation: SheetDataProviderError["operation"]) => (cause: unknown) =>
   new SheetDataProviderError({ operation, cause });
 
+const loadActiveWorkspace = (
+  persistence: TrustedSheetPersistence["Service"],
+  workspaceId: WorkspaceId,
+) =>
+  Effect.gen(function* () {
+    const workspace = yield* persistence.workspaces
+      .getWorkspaceConfigByWorkspaceId({ workspaceId })
+      .pipe(Effect.timeout("30 seconds"), Effect.mapError(providerError("resolve-workspace")));
+    const workspaceConfig = Option.getOrUndefined(workspace);
+    if (Predicate.isUndefined(workspaceConfig)) {
+      return yield* Effect.fail(
+        providerError("resolve-workspace")(new Error("Workspace was not found")),
+      );
+    }
+    const active = yield* resolveAuthoritativeSheetConfigurationForWorkspace(
+      persistence,
+      workspaceId,
+      Option.some(workspaceConfig),
+    ).pipe(
+      Effect.timeout("30 seconds"),
+      Effect.mapError((cause) => providerError("resolve-spreadsheet")(cause)),
+    );
+    if (Option.isNone(active)) {
+      return yield* Effect.fail(
+        providerError("resolve-spreadsheet")(new Error("Workspace sheet is not configured")),
+      );
+    }
+    return { workspaceConfig, active: active.value };
+  });
+
 const resolveConversation = (
   persistence: TrustedSheetPersistence["Service"],
   input: {
@@ -125,20 +175,7 @@ const resolveConversation = (
   },
 ) =>
   Effect.gen(function* () {
-    const workspace = yield* persistence.workspaces
-      .getWorkspaceConfigByWorkspaceId({ workspaceId: input.workspaceId })
-      .pipe(Effect.mapError(providerError("resolve-workspace")));
-    const workspaceConfig = Option.getOrUndefined(workspace);
-    if (Predicate.isUndefined(workspaceConfig)) {
-      return yield* Effect.fail(
-        providerError("resolve-workspace")(new Error("Workspace was not found")),
-      );
-    }
-    if (Predicate.isNull(workspaceConfig.sheetId)) {
-      return yield* Effect.fail(
-        providerError("resolve-workspace")(new Error("Workspace sheet is not configured")),
-      );
-    }
+    const { workspaceConfig, active } = yield* loadActiveWorkspace(persistence, input.workspaceId);
 
     const conversations = yield* persistence.workspaces
       .getWorkspaceConversations({ workspaceId: input.workspaceId, running: true })
@@ -167,7 +204,8 @@ const resolveConversation = (
       );
     }
     return {
-      spreadsheetId: workspaceConfig.sheetId,
+      spreadsheetId: active.spreadsheetId,
+      configuration: active.configuration,
       workspace: workspaceConfig,
       conversation: {
         id: selected.conversationId,
@@ -269,46 +307,6 @@ const pickCheckinTemplate = Effect.gen(function* () {
   return checkinMessageTemplates[checkinMessageTemplates.length - 1]!.value;
 });
 
-const renderStaticTemplateSegment = (value: string): ReadonlyArray<BotTextPart> =>
-  value
-    .split("~~")
-    .flatMap((segment, index) =>
-      segment.length === 0
-        ? []
-        : index % 2 === 0
-          ? [MessageText.text(segment)]
-          : [{ type: "strikethrough" as const, parts: [MessageText.text(segment)] }],
-    );
-
-const renderTemplate = (
-  template: string,
-  context: Readonly<Record<string, ReadonlyArray<BotTextPart>>>,
-) => {
-  const result: Array<BotTextPart> = [];
-  const pattern = /\{\{\{?(\w+)\}?\}\}/gu;
-  let lastIndex = 0;
-  for (const match of template.matchAll(pattern)) {
-    const index = match.index ?? 0;
-    if (index > lastIndex)
-      result.push(...renderStaticTemplateSegment(template.slice(lastIndex, index)));
-    result.push(...(context[match[1] ?? ""] ?? renderStaticTemplateSegment(match[0])));
-    lastIndex = index + match[0].length;
-  }
-  if (lastIndex < template.length)
-    result.push(...renderStaticTemplateSegment(template.slice(lastIndex)));
-  return result;
-};
-
-const renderParticipantMentions = (participants: ReadonlyArray<Participant>) =>
-  participants.flatMap((participant, index) =>
-    MessageText.parts(
-      index === 0 ? undefined : MessageText.text(" "),
-      Predicate.isString(participant.userId)
-        ? MessageText.userMention(participant.userId)
-        : MessageText.text(participant.name),
-    ),
-  );
-
 const eventHour = (eventStartEpochMs: number, hour: number) =>
   hourWindowFor({ startTime: DateTime.makeUnsafe(eventStartEpochMs) }, hour);
 
@@ -330,16 +328,13 @@ const makeSheetDataProvider = (
     // Check-in generation keeps the read, participant movement, and rendered response together.
     // fallow-ignore-next-line complexity
     Effect.gen(function* () {
-      const { spreadsheetId, workspace, conversation } = yield* resolve(input);
+      const { spreadsheetId, configuration, workspace, conversation } = yield* resolve(input);
       const view = yield* asProviderError(
         "read-checkin",
-        checkinProvider.loadCheckin(spreadsheetId, conversation.name),
+        checkinProvider.loadCheckin(spreadsheetId, conversation.name, configuration),
       );
-      const schedulesByHour = new Map(
-        view.schedules.flatMap((schedule) =>
-          Predicate.isNull(schedule.hour) ? [] : ([[schedule.hour, schedule]] as const),
-        ),
-      );
+      const schedulesByHour = indexSchedulesByHour(view.schedules);
+      // fallow-ignore-next-line code-duplication
       const hour =
         Predicate.isNumber(input.hour) && Number.isFinite(input.hour)
           ? input.hour
@@ -390,28 +385,10 @@ const makeSheetDataProvider = (
                 MessageText.timestamp(DateTime.toEpochMillis(window.start), "relative"),
               ),
             });
-      const lookupFailures = (current?.fills ?? []).flatMap(({ accountId, name }) =>
-        Predicate.isNull(accountId) ? [name] : [],
-      );
-      const lookupFailedMessage =
-        lookupFailures.length === 0
-          ? Option.none<string>()
-          : Option.some(
-              `Cannot look up ID for ${lookupFailures.join(", ")}. They would need to check in manually.`,
-            );
+      const lookupFailedMessage = missingParticipantIdMessage(current?.fills ?? []);
       const monitorUserId = current?.monitor?.accountId ?? null;
       const previousMonitorUserId = previous?.monitor?.accountId ?? null;
-      const monitorFailureMessage = Predicate.isUndefined(current)
-        ? null
-        : Predicate.isNull(current.monitor)
-          ? [MessageText.text("Cannot ping monitor: monitor not assigned for this hour.")]
-          : Predicate.isNull(current.monitor.accountId)
-            ? [
-                MessageText.text(
-                  `Cannot ping monitor: monitor "${current.monitor.name}" is missing an ID in the sheet.`,
-                ),
-              ]
-            : null;
+      const monitorFailureMessage = getMonitorFailureMessage(current);
       const monitorCheckinMessage = makeMonitorCheckinMessage({
         initialMessage,
         empty: Math.max(5 - (current?.fills.length ?? 0) - (current?.overfillCount ?? 0), 0),
@@ -447,10 +424,10 @@ const makeSheetDataProvider = (
     // Room-order generation keeps the read, calculation, and rendered response together.
     // fallow-ignore-next-line complexity
     Effect.gen(function* () {
-      const { spreadsheetId, conversation } = yield* resolve(input);
+      const { spreadsheetId, configuration, conversation } = yield* resolve(input);
       const view = yield* asProviderError(
         "read-room-order",
-        checkinProvider.loadRoomOrder(spreadsheetId, conversation.name),
+        checkinProvider.loadRoomOrder(spreadsheetId, conversation.name, configuration),
       );
       const hour =
         Predicate.isNumber(input.hour) && Number.isFinite(input.hour)
@@ -469,11 +446,7 @@ const makeSheetDataProvider = (
                 ) + 1
               );
             });
-      const schedulesByHour = new Map(
-        view.schedules.flatMap((schedule) =>
-          Predicate.isNull(schedule.hour) ? [] : ([[schedule.hour, schedule]] as const),
-        ),
-      );
+      const schedulesByHour = indexSchedulesByHour(view.schedules);
       const previous = schedulesByHour.get(hour - 1);
       const current = schedulesByHour.get(hour);
       const fills = current?.fills ?? [];
@@ -520,47 +493,38 @@ const makeSheetDataProvider = (
 
   const loadWorkspaceSchedules = (workspaceId: WorkspaceId) =>
     Effect.gen(function* () {
-      const workspace = yield* persistence.workspaces
-        .getWorkspaceConfigByWorkspaceId({ workspaceId })
-        .pipe(Effect.mapError(providerError("resolve-workspace")));
-      const workspaceConfig = Option.getOrUndefined(workspace);
-      if (Predicate.isUndefined(workspaceConfig) || Predicate.isNull(workspaceConfig.sheetId)) {
-        return yield* Effect.fail(
-          providerError("resolve-workspace")(new Error("Workspace sheet is not configured")),
-        );
-      }
-      const spreadsheetId = workspaceConfig.sheetId;
-      const views = yield* Effect.forEach(
-        [1, 2, 3, 4, 5, 6, 7],
-        (day) =>
-          scheduleProvider
-            .load(spreadsheetId, day)
-            .pipe(Effect.mapError(providerError("read-schedules"))),
-        { concurrency: "unbounded" },
-      );
-      const populatedSchedules = views.flatMap((view, viewIndex) =>
-        view.schedules.flatMap((schedule) => {
-          const conversationName = schedule.channel;
-          if (!Predicate.isString(conversationName)) return [];
-          return [
-            {
-              conversationName,
-              day: schedule.day ?? viewIndex + 1,
-              visible: schedule.visible,
-              hour: schedule.hour,
-              playerNames: [...schedule.fills, ...schedule.overfills, ...schedule.standbys],
-              monitorName: schedule.monitor,
-            },
-          ];
-        }),
-      );
+      const { active } = yield* loadActiveWorkspace(persistence, workspaceId);
+      // One provider read already batches every configured day and preserves day identity in the
+      // returned schedule rows. Avoid multiplying Sheets reads by the number of configured days.
+      const view = yield* scheduleProvider
+        .loadAll(active.spreadsheetId, active.configuration)
+        .pipe(Effect.mapError(providerError("read-schedules")));
+      const populatedSchedules = view.schedules.flatMap((schedule) => {
+        const conversationName = schedule.channel;
+        if (!Predicate.isString(conversationName) || !Predicate.isNumber(schedule.day)) return [];
+        return [
+          {
+            conversationName,
+            day: schedule.day,
+            visible: schedule.visible,
+            hour: schedule.hour,
+            playerNames: [...schedule.fills, ...schedule.overfills, ...schedule.standbys],
+            monitorName: schedule.monitor,
+          },
+        ];
+      });
       return {
-        eventConfig: { startTimeEpochMs: views[0]?.eventStartEpochMs ?? 0 },
+        eventConfig: { startTimeEpochMs: view.eventStartEpochMs },
         populatedSchedules,
       } satisfies SchedulesLoadWorkspaceSuccess;
     });
 
-  return { generateCheckin, generateRoomOrder, loadWorkspaceSchedules };
+  const resolveSpreadsheetId = (workspaceId: WorkspaceId) =>
+    resolveAuthoritativeSpreadsheetId(persistence, workspaceId).pipe(
+      Effect.mapError((cause) => providerError("resolve-spreadsheet")(cause)),
+    );
+
+  return { generateCheckin, generateRoomOrder, loadWorkspaceSchedules, resolveSpreadsheetId };
 };
 
 export const sheetDataProviderLayer = Layer.effect(

@@ -1,4 +1,4 @@
-import { Effect, Match, Schema } from "effect";
+import { Effect, Match, Predicate, Schema } from "effect";
 
 /** The first persisted representation of the web-native Sheet Configuration. */
 export const sheetConfigurationSchemaVersion = 1 as const;
@@ -81,10 +81,25 @@ export const LegacySourceBinding = Schema.Union([
     expectedTitle: NonEmptyText,
     spreadsheetId: Identifier,
     sheetId: NonNegativeInt,
-    layoutDigest: Schema.optional(Identifier),
+    layoutVersion: Schema.optional(Identifier),
   }),
 ]);
 export type LegacySourceBinding = Schema.Schema.Type<typeof LegacySourceBinding>;
+
+/** Migrates the pre-versioned legacy binding field before strict schema decoding. */
+export const migrateLegacySourceBinding = (value: unknown): unknown => {
+  if (!Predicate.isObject(value) || !Predicate.hasProperty(value, "layoutDigest")) return value;
+  const { layoutDigest, ...binding } = value;
+  return Predicate.hasProperty(value, "layoutVersion")
+    ? binding
+    : { ...binding, layoutVersion: layoutDigest };
+};
+
+/** Migrates a legacy source wrapper before strict schema decoding. */
+export const migrateLegacySource = (value: unknown): unknown =>
+  Predicate.isObject(value) && Predicate.hasProperty(value, "binding")
+    ? { ...value, binding: migrateLegacySourceBinding(value.binding) }
+    : value;
 
 export const SheetConfigurationSource = Schema.Union([
   Schema.Struct({

@@ -39,6 +39,7 @@ const makeMessageTeamSubmission = ({
     discordChannelId: "conversation-1",
     discordAuthorId: "author-1",
     sheetId: "sheet-1",
+    sheetConfigurationBinding: Option.none(),
     confirmationMessageId: Option.none(),
     parsedSubmission,
     rowMappings,

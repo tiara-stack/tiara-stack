@@ -3,7 +3,11 @@ import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
 import { mapDeliveryFailure } from "../shared/interactive";
 import { SlotListProvider } from "./slotListProvider";
-import { loadSlotViewForWorkspace } from "./slotViewLoading";
+import {
+  loadSlotViewForWorkspace,
+  missingConfigurationKey,
+  resolveSlotWorkspace,
+} from "./slotViewLoading";
 import { SlotListWorkflowOperations, SlotListWorkflowOperationsError } from "./slotListService";
 
 const operationError = (operation: string, cause: unknown) =>
@@ -15,14 +19,18 @@ export const slotListWorkflowOperationsLayer = Layer.effect(
     const persistence = yield* TrustedSheetPersistence;
     const provider = yield* SlotListProvider;
     const delivery = yield* SheetBotDeliveryClient;
+    const missingConfiguration = missingConfigurationKey(persistence);
 
     const loadSlotView: SlotListWorkflowOperations["Service"]["loadSlotView"] = (input) =>
       loadSlotViewForWorkspace({
         workspaceId: input.workspaceId,
         day: input.day,
-        resolveWorkspace: persistence.workspaces.getWorkspaceConfigByWorkspaceId({
-          workspaceId: input.workspaceId,
-        }),
+        resolveWorkspace: resolveSlotWorkspace(
+          persistence,
+          input.workspaceId,
+          missingConfiguration,
+        ),
+
         provider,
         resolveOperation: "slots.deliverList.resolveWorkspace",
         loadOperation: "slots.deliverList.loadSlotView",

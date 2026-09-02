@@ -6,6 +6,10 @@ const ServicesDeliverStatusDefinition = makeServicesDeliverStatusDefinition();
 
 const ServiceSheetWorkflowDefinitions = Object.freeze([ServicesDeliverStatusDefinition] as const);
 
+export const ServiceSheetWorkflows = Object.freeze(
+  ServiceSheetWorkflowDefinitions.map(({ workflow }) => workflow),
+);
+
 const layerList = [
   Layer.empty,
   ...ServiceSheetWorkflowDefinitions.flatMap(({ actions, workflowLayer }) => [

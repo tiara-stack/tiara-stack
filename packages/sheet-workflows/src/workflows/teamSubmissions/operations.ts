@@ -9,6 +9,7 @@ import {
   isTeamSubmissionEnabled,
   MessageTeamSubmission,
   ParsedTeamEntry,
+  type TeamSubmissionConfigurationBinding,
   TeamSubmissionRollbackSnapshot,
   TeamSubmissionRowMapping,
   type TeamSubmissionSkippedEntry,
@@ -21,10 +22,16 @@ import {
   InteractiveDeclaredFailure,
   TeamSubmissionsDecide,
   TeamSubmissionsProcess,
+  WorkspaceId,
 } from "sheet-workflow-contracts";
 import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import type { EffectivePrincipal } from "sheet-auth/identity";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
+import {
+  missingConfigurationKey,
+  resolveAuthoritativeSheetConfiguration,
+  type AuthoritativeSheetConfiguration,
+} from "@/services/authoritativeSheetConfiguration";
 import { config } from "@/config";
 import { teamSubmissionReaction } from "./reaction";
 import {
@@ -139,32 +146,47 @@ const submissionKey = (sourceMessage: MessageRef) => ({
   messageId: sourceMessage.messageId,
 });
 
-const sourceRecord = (
-  sourceMessage: MessageRef,
-  client: MessageRef["conversation"]["workspace"]["client"],
-  authorId: string,
-  sheetId: string,
-  confirmationMessageId: string | null,
-  parsedSubmission: ReadonlyArray<ParsedTeamEntry>,
-  rowMappings: ReadonlyArray<TeamSubmissionRowMapping>,
-  rollbackSnapshot: TeamSubmissionRollbackSnapshot | null,
-  status: (typeof MessageTeamSubmission.Type)["status"],
-  expectedVersion?: number,
-) => ({
-  ...submissionKey(sourceMessage),
-  clientPlatform: client.platform,
-  clientId: client.clientId,
-  discordGuildId: sourceMessage.conversation.workspace.workspaceId,
-  discordChannelId: sourceMessage.conversation.conversationId,
-  discordAuthorId: authorId,
-  sheetId,
-  confirmationMessageId,
-  parsedSubmission,
-  rowMappings,
-  rollbackSnapshot,
-  status,
-  ...(expectedVersion === undefined ? {} : { expectedVersion }),
+const sourceRecord = (options: {
+  readonly sourceMessage: MessageRef;
+  readonly client: MessageRef["conversation"]["workspace"]["client"];
+  readonly authorId: string;
+  readonly sheetId: string;
+  readonly sheetConfigurationBinding: TeamSubmissionConfigurationBinding | null;
+  readonly confirmationMessageId: string | null;
+  readonly parsedSubmission: ReadonlyArray<ParsedTeamEntry>;
+  readonly rowMappings: ReadonlyArray<TeamSubmissionRowMapping>;
+  readonly rollbackSnapshot: TeamSubmissionRollbackSnapshot | null;
+  readonly status: (typeof MessageTeamSubmission.Type)["status"];
+  readonly expectedVersion?: number;
+}) => ({
+  ...submissionKey(options.sourceMessage),
+  clientPlatform: options.client.platform,
+  clientId: options.client.clientId,
+  discordGuildId: options.sourceMessage.conversation.workspace.workspaceId,
+  discordChannelId: options.sourceMessage.conversation.conversationId,
+  discordAuthorId: options.authorId,
+  sheetId: options.sheetId,
+  sheetConfigurationBinding: options.sheetConfigurationBinding,
+  confirmationMessageId: options.confirmationMessageId,
+  parsedSubmission: options.parsedSubmission,
+  rowMappings: options.rowMappings,
+  rollbackSnapshot: options.rollbackSnapshot,
+  status: options.status,
+  ...(options.expectedVersion === undefined ? {} : { expectedVersion: options.expectedVersion }),
 });
+
+const configurationBindingFromActive = (
+  active: AuthoritativeSheetConfiguration,
+): TeamSubmissionConfigurationBinding => ({
+  revisionId: active.source.kind === "owned" ? active.source.revisionId : null,
+  configuration: active.configuration,
+});
+
+const missingConfigurationBinding = () =>
+  interactiveBusinessRuleRejected(
+    "SubmissionConfigurationBindingMissing",
+    "This team submission was created before stable Sheet Configuration bindings were recorded. Submit it again to continue safely.",
+  );
 
 const messageRefFor = (sourceMessage: MessageRef, messageId: string): MessageRef => ({
   conversation: sourceMessage.conversation,
@@ -348,6 +370,7 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
       readonly client: MessageRef["conversation"]["workspace"]["client"];
       readonly authorId: string;
       readonly sheetId: string;
+      readonly sheetConfigurationBinding: TeamSubmissionConfigurationBinding | null;
       readonly confirmationMessageId: string | null;
       readonly entries: ReadonlyArray<ParsedTeamEntry>;
       readonly rowMappings: ReadonlyArray<TeamSubmissionRowMapping>;
@@ -356,18 +379,21 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
       readonly expectedVersion?: number;
     }) =>
       persistence.teamSubmissionState.upsertMessageTeamSubmission(
-        sourceRecord(
-          options.sourceMessage,
-          options.client,
-          options.authorId,
-          options.sheetId,
-          options.confirmationMessageId,
-          options.entries,
-          options.rowMappings,
-          options.rollbackSnapshot,
-          options.status,
-          options.expectedVersion,
-        ),
+        sourceRecord({
+          sourceMessage: options.sourceMessage,
+          client: options.client,
+          authorId: options.authorId,
+          sheetId: options.sheetId,
+          sheetConfigurationBinding: options.sheetConfigurationBinding,
+          confirmationMessageId: options.confirmationMessageId,
+          parsedSubmission: options.entries,
+          rowMappings: options.rowMappings,
+          rollbackSnapshot: options.rollbackSnapshot,
+          status: options.status,
+          ...(options.expectedVersion === undefined
+            ? {}
+            : { expectedVersion: options.expectedVersion }),
+        }),
       );
 
     const readSnapshot = (
@@ -744,18 +770,18 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
           };
         }
 
-        const workspaceConfig = yield* persistence.workspaces.getWorkspaceConfigByWorkspaceId({
-          workspaceId: sourceMessage.conversation.workspace.workspaceId,
-        });
-        const sheetId = Option.match(workspaceConfig, {
-          onNone: () => undefined,
-          onSome: (value) => value.sheetId ?? undefined,
-        });
-        if (sheetId === undefined) {
-          return yield* Effect.fail(interactiveConfigurationMissing("workspace.sheetId"));
-        }
+        const workspaceId = yield* Schema.decodeUnknownEffect(WorkspaceId)(
+          sourceMessage.conversation.workspace.workspaceId,
+        ).pipe(
+          Effect.mapError(() =>
+            interactiveInvalidRequest(
+              "InvalidWorkspaceId",
+              "The workspace ID is missing or invalid",
+            ),
+          ),
+        );
         const channelRow = yield* persistence.workspaces.getTeamSubmissionChannelByConversationId({
-          workspaceId: sourceMessage.conversation.workspace.workspaceId,
+          workspaceId,
           conversationId: sourceMessage.conversation.conversationId,
         });
         if (Option.isNone(channelRow)) {
@@ -773,7 +799,30 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
           );
         }
 
-        const teamConfigData = yield* provider.loadConfiguration(sheetId);
+        let sheetId: string;
+        let sheetConfigurationBinding: TeamSubmissionConfigurationBinding;
+        let configuration: TeamSubmissionConfigurationBinding["configuration"];
+        if (existing === null) {
+          const active = yield* resolveAuthoritativeSheetConfiguration(persistence, workspaceId);
+          if (Option.isNone(active)) {
+            return yield* Effect.fail(
+              interactiveConfigurationMissing(missingConfigurationKey(persistence)),
+            );
+          }
+          sheetId = active.value.spreadsheetId;
+          sheetConfigurationBinding = configurationBindingFromActive(active.value);
+          configuration = active.value.configuration;
+        } else {
+          const persistedBinding = optionValue(existing.sheetConfigurationBinding);
+          if (persistedBinding === undefined) {
+            return yield* Effect.fail(missingConfigurationBinding());
+          }
+          sheetId = existing.sheetId;
+          sheetConfigurationBinding = persistedBinding;
+          configuration = persistedBinding.configuration;
+        }
+
+        const teamConfigData = yield* provider.loadConfiguration(sheetId, configuration);
         const oshiRange = optionString(teamConfigData.rangesConfig.oshis);
         const tagRanges = teamConfigData.teamConfigs.flatMap((config) => {
           const tags = teamConfigTags(config);
@@ -812,6 +861,7 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
             client,
             authorId: input.authorId,
             sheetId,
+            sheetConfigurationBinding,
             confirmationMessageId: optionValue(existing?.confirmationMessageId) ?? null,
             entries: options.entries,
             rowMappings: options.mappings,
@@ -1203,23 +1253,27 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
           );
         }
 
+        const persistedBinding = optionValue(submission.sheetConfigurationBinding);
+        const persistedSnapshot = optionValue(submission.rollbackSnapshot);
+
         let version = submission.version;
         let currentStatus = submission.status;
         const persistStatus = (status: (typeof MessageTeamSubmission.Type)["status"]) =>
           persistence.teamSubmissionState
             .upsertMessageTeamSubmission(
-              sourceRecord(
+              sourceRecord({
                 sourceMessage,
-                clientFor(sourceMessage),
-                submission.discordAuthorId,
-                submission.sheetId,
-                persistedConfirmationId,
-                submission.parsedSubmission,
-                submission.rowMappings,
-                optionValue(submission.rollbackSnapshot) ?? null,
+                client: clientFor(sourceMessage),
+                authorId: submission.discordAuthorId,
+                sheetId: submission.sheetId,
+                sheetConfigurationBinding: persistedBinding ?? null,
+                confirmationMessageId: persistedConfirmationId,
+                parsedSubmission: submission.parsedSubmission,
+                rowMappings: submission.rowMappings,
+                rollbackSnapshot: persistedSnapshot ?? null,
                 status,
-                version,
-              ),
+                expectedVersion: version,
+              }),
             )
             .pipe(
               Effect.tap(() =>
@@ -1270,7 +1324,7 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
           );
           return { sourceMessage, status: "rejected" as const, deliveryReceipts: receipts };
         }
-        const snapshot = optionValue(submission.rollbackSnapshot) ?? null;
+        const snapshot = persistedSnapshot ?? null;
         const canResumeRollback =
           (currentStatus === "empty" && snapshot !== null && snapshot.length > 0) ||
           currentStatus === "applying" ||

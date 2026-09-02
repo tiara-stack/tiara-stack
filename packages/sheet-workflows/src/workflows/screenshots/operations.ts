@@ -1,8 +1,9 @@
 import { Effect, Layer, Match, Option, Predicate, Schema, Semaphore } from "effect";
 import { workspaceRefFrom, type BotSemanticFileBinding, type RespondReceipt } from "sheet-bot-api";
-import { ScreenshotsCaptureAndDeliver, SpreadsheetId } from "sheet-workflow-contracts";
+import { ScreenshotsCaptureAndDeliver } from "sheet-workflow-contracts";
 import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import { config } from "@/config";
+import { resolveAuthoritativeConfigurationForOperation } from "../shared/authoritativeConfiguration";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
 import {
   interactiveAuthorizationRevoked,
@@ -72,7 +73,9 @@ const sourceResolutionFailure = (code: typeof ScreenshotSourceResolutionCode.Typ
     Match.when("MissingSheet", () => interactiveConfigurationMissing("screenshot.sheet")),
     Match.when("MissingScreenshotRange", () => interactiveConfigurationMissing("screenshot.range")),
     Match.when("MissingSheetGid", () => interactiveConfigurationMissing("screenshot.sheetGid")),
-    Match.when("InvalidSpreadsheetId", () => interactiveConfigurationMissing("workspace.sheetId")),
+    Match.when("InvalidSpreadsheetId", () =>
+      interactiveConfigurationMissing("workspace.sheetConfiguration"),
+    ),
     Match.when("InvalidSheet", () =>
       interactiveExternalOperationRejected(
         resolveOperation,
@@ -158,17 +161,21 @@ export const screenshotSourceOperationsLayer = Layer.effect(
             ),
           );
         }
-        const spreadsheetId = yield* Predicate.isNull(workspace.sheetId)
-          ? Effect.fail(interactiveConfigurationMissing("workspace.sheetId"))
-          : Schema.decodeUnknownEffect(SpreadsheetId)(workspace.sheetId).pipe(
-              Effect.mapError(() => interactiveConfigurationMissing("workspace.sheetId")),
-            );
-        return yield* provider.resolve(spreadsheetId, input.conversationName, input.day).pipe(
-          Effect.catchTag("ScreenshotSourceResolutionError", ({ code }) =>
-            Effect.fail(sourceResolutionFailure(code)),
-          ),
-          Effect.catchTag("ScreenshotSourceProviderError", providerFailure),
+        const active = yield* resolveAuthoritativeConfigurationForOperation(
+          persistence,
+          input.workspaceId,
+          Option.some(workspace),
+          `${resolveOperation}.source`,
+          operationError,
         );
+        return yield* provider
+          .resolve(active.spreadsheetId, input.conversationName, input.day, active.configuration)
+          .pipe(
+            Effect.catchTag("ScreenshotSourceResolutionError", ({ code }) =>
+              Effect.fail(sourceResolutionFailure(code)),
+            ),
+            Effect.catchTag("ScreenshotSourceProviderError", providerFailure),
+          );
       });
 
     return { resolve };

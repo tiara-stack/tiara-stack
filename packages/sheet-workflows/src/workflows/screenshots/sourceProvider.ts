@@ -10,6 +10,12 @@ import {
   valueRowsAt,
 } from "../shared/runnerLocalSheets";
 import { ScreenshotRenderTargetSchema, type ScreenshotRenderTarget } from "./schema";
+import type { WebSheetConfiguration } from "sheet-domain";
+import {
+  loadWebConfigurationSheetAdapter,
+  validateConfigurationSpreadsheet,
+  type WebConfigurationSheetTab,
+} from "../shared/webConfigurationSheets";
 
 const SpreadsheetId = Schema.Trimmed.check(Schema.isNonEmpty())
   .check(Schema.isMaxLength(256))
@@ -68,6 +74,7 @@ interface ScreenshotSourceProviderShape {
     spreadsheetId: string,
     conversationName: string,
     day: number,
+    configuration?: WebSheetConfiguration | null,
   ) => Effect.Effect<
     ScreenshotRenderTarget,
     ScreenshotSourceProviderError | ScreenshotSourceResolutionError
@@ -145,14 +152,21 @@ export const selectLegacyScreenshotSchedule = (
 };
 
 const gidForSheet = (
-  metadata: typeof SpreadsheetMetadata.Type,
+  tabs: ReadonlyArray<WebConfigurationSheetTab>,
   sheetTitle: string,
-): number | undefined => {
-  const properties = (metadata.sheets ?? []).flatMap(({ properties }) =>
-    Predicate.isNullish(properties) ? [] : [properties],
-  );
-  return properties.find(({ title }) => title === sheetTitle)?.sheetId ?? undefined;
+): number | "ambiguous" | undefined => {
+  const matches = tabs.filter(({ title }) => title === sheetTitle);
+  return matches.length > 1 ? "ambiguous" : (matches[0]?.sheetId ?? undefined);
 };
+
+const tabsFromMetadata = (
+  metadata: typeof SpreadsheetMetadata.Type,
+): ReadonlyArray<WebConfigurationSheetTab> =>
+  (metadata.sheets ?? []).flatMap(({ properties }) => {
+    const sheetId = properties?.sheetId;
+    const title = properties?.title;
+    return Predicate.isNumber(sheetId) && Predicate.isString(title) ? [{ sheetId, title }] : [];
+  });
 
 export const makeGoogleEmbeddedTableUrl = (
   spreadsheetId: string,
@@ -174,28 +188,41 @@ export const makeGoogleEmbeddedTableUrl = (
 export const makeScreenshotSourceProvider = (
   client: sheets_v4.Sheets,
 ): ScreenshotSourceProviderShape => ({
-  resolve: (rawSpreadsheetId, conversationName, day) =>
+  resolve: (rawSpreadsheetId, conversationName, day, configuration) =>
     Effect.gen(function* () {
       const spreadsheetId = yield* Schema.decodeUnknownEffect(SpreadsheetId)(rawSpreadsheetId).pipe(
         Effect.mapError(() => resolutionError("InvalidSpreadsheetId")),
       );
-      const [metadata, configurationRanges] = yield* Effect.all(
-        [
-          readMetadata(client, spreadsheetId),
-          readSheetsValueRanges({
+      const validatedConfiguration = yield* validateConfigurationSpreadsheet({
+        spreadsheetId,
+        configuration,
+        makeError: providerError("read-schedule"),
+      });
+      const { tabs, scheduleRows } = Predicate.isNullish(validatedConfiguration)
+        ? yield* Effect.all(
+            {
+              tabs: readMetadata(client, spreadsheetId).pipe(Effect.map(tabsFromMetadata)),
+              scheduleRows: readSheetsValueRanges({
+                client,
+                spreadsheetId,
+                ranges: [scheduleConfigRange],
+                makeError: providerError("read-schedule"),
+              }).pipe(Effect.map((ranges) => valueRowsAt(ranges, 0))),
+            },
+            { concurrency: "unbounded" },
+          )
+        : yield* loadWebConfigurationSheetAdapter({
             client,
             spreadsheetId,
-            ranges: [scheduleConfigRange],
+            configuration: validatedConfiguration,
             makeError: providerError("read-schedule"),
-          }),
-        ],
-        { concurrency: "unbounded" },
-      );
-      const selected = selectLegacyScreenshotSchedule(
-        valueRowsAt(configurationRanges, 0),
-        conversationName,
-        day,
-      );
+          }).pipe(
+            Effect.map(({ schedulesRows, tabs }) => ({
+              tabs,
+              scheduleRows: schedulesRows,
+            })),
+          );
+      const selected = selectLegacyScreenshotSchedule(scheduleRows, conversationName, day);
       if (Predicate.isUndefined(selected)) {
         return yield* resolutionError("MissingSchedule");
       }
@@ -215,7 +242,10 @@ export const makeScreenshotSourceProvider = (
             : resolutionError("InvalidScreenshotRange"),
         ),
       );
-      const rawGid = gidForSheet(metadata, sheet);
+      const rawGid = gidForSheet(tabs, sheet);
+      if (rawGid === "ambiguous") {
+        return yield* resolutionError("InvalidMetadata");
+      }
       const gid = yield* Schema.decodeUnknownEffect(SheetGid)(rawGid).pipe(
         Effect.mapError(() =>
           Predicate.isUndefined(rawGid)

@@ -14,10 +14,10 @@ import {
   parseSheetBoolean,
   quotedRange,
   readBatchedSheetsValueRanges,
-  readSheetsValueRanges,
   runnerConfigRange,
   runnerPresent,
   scheduleConfigRange,
+  scheduleConfigurationsForConversation,
   type ScheduleEncodingType,
   type SheetScheduleConfiguration,
   upperFirst,
@@ -26,6 +26,8 @@ import {
 } from "../shared/runnerLocalSheets";
 import { makeUserTeamsProvider } from "../teams/provider";
 import type { RoomOrderCalculationTeam } from "./createCalculation";
+import type { WebSheetConfiguration } from "sheet-domain";
+import { loadConfigurationValueRanges } from "../shared/webConfigurationSheets";
 
 export class RoomOrderCreateProviderError extends Data.TaggedError("RoomOrderCreateProviderError")<{
   readonly operation:
@@ -59,6 +61,7 @@ interface RoomOrderCreateProviderShape {
   readonly load: (
     spreadsheetId: string,
     conversationName: string,
+    configuration?: WebSheetConfiguration | null,
   ) => Effect.Effect<RoomOrderCreateProviderView, RoomOrderCreateProviderError>;
 }
 
@@ -355,18 +358,24 @@ export const makeRoomOrderCreateProvider = (
 ): RoomOrderCreateProviderShape => {
   const teamsProvider = makeUserTeamsProvider(client);
   return {
-    load: (spreadsheetId, conversationName) =>
+    load: (spreadsheetId, conversationName, configuration) =>
       Effect.gen(function* () {
         const [configurationRanges, userTeams] = yield* Effect.all(
           [
-            readSheetsValueRanges({
+            loadConfigurationValueRanges({
               client,
               spreadsheetId,
-              ranges: [eventConfigRange, scheduleConfigRange, runnerConfigRange],
+              configuration,
+              legacyRanges: [eventConfigRange, scheduleConfigRange, runnerConfigRange],
+              selectConfiguredRows: ({ eventRows, schedulesRows, runnersRows }) => [
+                eventRows,
+                schedulesRows,
+                runnersRows,
+              ],
               makeError: makeProviderError("read-configuration"),
             }),
             teamsProvider
-              .load(spreadsheetId)
+              .load(spreadsheetId, configuration)
               .pipe(Effect.mapError((error) => makeProviderError("read-teams")(error))),
           ],
           { concurrency: "unbounded" },
@@ -376,8 +385,9 @@ export const makeRoomOrderCreateProvider = (
           configurations: parseScheduleConfigurations(valueRowsAt(configurationRanges, 1)),
           runners: parseRunnerConfigurations(valueRowsAt(configurationRanges, 2)),
         }).pipe(Effect.mapError(makeProviderError("read-configuration")));
-        const configurations = parsed.configurations.filter(
-          (configuration) => configuration.channel === conversationName,
+        const configurations = scheduleConfigurationsForConversation(
+          parsed.configurations,
+          conversationName,
         );
         const plan = makeSchedulePlan(configurations);
         const [values, gridRows] = yield* Effect.all(

@@ -182,6 +182,77 @@ describe("sheet workflow HTTP contract boundary", () => {
     ),
   );
 
+  it.effect("keeps service-only workflow routes on the service authorizer", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const serviceContract = Option.getOrThrow(
+          Option.fromNullishOr(
+            SheetWorkflowContractCatalog.find(
+              ({ identity }) => identity === "announcements.deliverUpdate",
+            ),
+          ),
+        );
+        const userContract = Option.getOrThrow(
+          Option.fromNullishOr(
+            SheetWorkflowContractCatalog.find(
+              ({ identity }) => identity === "workspaces.deliverConfig",
+            ),
+          ),
+        );
+        const calls: Array<string> = [];
+        const authorizer = (name: string): WorkflowHttpAuthorizer => ({
+          requireAuthorizedHeaders: () =>
+            Effect.sync(() => {
+              calls.push(name);
+              return authorizedToken;
+            }),
+          requireAuthorizedBearerToken: () => Effect.succeed(authorizedToken),
+        });
+        const executor: WorkflowHttpServerExecutor<SheetWorkflowZeroContext, never> = {
+          enqueue: () => Effect.die("Invalid route bodies must not reach the executor"),
+          get: () => Stream.die("Invalid route requests must not reach the executor"),
+          list: () => Stream.die("Invalid route requests must not reach the executor"),
+        };
+        const handler = yield* HttpRouter.toHttpEffect(
+          makeWorkflowHttpRoutesLayer(
+            authorizer("browser"),
+            authorizer("browser-observation"),
+            executor,
+            undefined,
+            authorizer("service"),
+            authorizer("service-observation"),
+          ).pipe(Layer.provide(HttpRouter.layer)),
+        );
+        const requests = [serviceContract, userContract].flatMap((contract) => {
+          const routes = workflowContractRoutes(contract);
+          return [
+            routeRequest("POST", routes.enqueue, "{}"),
+            routeRequest("GET", routes.get),
+            routeRequest("GET", `${routes.list}?limit=0`),
+          ];
+        });
+        const responses = yield* Effect.forEach(requests, (request) =>
+          handler.pipe(
+            Effect.provideService(
+              HttpServerRequest.HttpServerRequest,
+              HttpServerRequest.fromWeb(request),
+            ),
+          ),
+        );
+
+        expect(responses.map(({ status }) => status)).toEqual([400, 400, 400, 400, 400, 400]);
+        expect(calls).toEqual([
+          "service",
+          "service-observation",
+          "service-observation",
+          "browser",
+          "browser-observation",
+          "browser-observation",
+        ]);
+      }),
+    ),
+  );
+
   it.effect("maps authorized observations to owner-scoped store reads", () =>
     Effect.gen(function* () {
       const contract = SheetWorkflowContractCatalog[0]!;

@@ -1,5 +1,4 @@
 import { Layer } from "effect";
-import type { WorkflowDefinition } from "effect-zero-workflow";
 import { actionContextSqlLayer } from "effect-zero-workflow";
 import { makeTeamSubmissionsEntityLayer } from "@/entities/teamSubmissions";
 import {
@@ -16,7 +15,7 @@ export const TeamSubmissionsSheetWorkflowDefinitions = Object.freeze([
 ] as const);
 
 export const TeamSubmissionsSheetWorkflows = Object.freeze(
-  TeamSubmissionsSheetWorkflowDefinitions.map(({ workflow }) => workflow as WorkflowDefinition),
+  TeamSubmissionsSheetWorkflowDefinitions.map(({ workflow }) => workflow),
 );
 
 export const teamSubmissionsSheetWorkflowLayers = Layer.mergeAll(

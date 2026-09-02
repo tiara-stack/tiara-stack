@@ -7,6 +7,10 @@ const MembersKickDefinition = makeMembersKickDefinition();
 
 const MemberSheetWorkflowDefinitions = Object.freeze([MembersKickDefinition] as const);
 
+export const MemberSheetWorkflows = Object.freeze(
+  MemberSheetWorkflowDefinitions.map(({ workflow }) => workflow),
+);
+
 const memberKickEntityLayer = makeMemberKickEntityLayer({
   run: ({ payload }) => runMembersKickSerialized(payload),
 });

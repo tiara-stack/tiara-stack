@@ -1,5 +1,4 @@
 import { Effect, Layer } from "effect";
-import type { WorkflowDefinition } from "effect-zero-workflow";
 import { actionContextSqlLayer } from "effect-zero-workflow";
 import { makeCheckinProjectionEntityLayer } from "@/entities/checkinProjection";
 import {
@@ -20,8 +19,8 @@ export const CheckinSheetWorkflowDefinitions = Object.freeze([
   CheckinsTestAutoDefinition,
 ] as const);
 
-const CheckinSheetWorkflows = Object.freeze(
-  CheckinSheetWorkflowDefinitions.map(({ workflow }) => workflow as WorkflowDefinition),
+export const CheckinSheetWorkflows = Object.freeze(
+  CheckinSheetWorkflowDefinitions.map(({ workflow }) => workflow),
 );
 
 const checkinSheetWorkflowNames = new Set(CheckinSheetWorkflows.map(({ name }) => name));

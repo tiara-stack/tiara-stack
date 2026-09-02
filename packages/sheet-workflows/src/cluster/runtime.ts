@@ -1,5 +1,5 @@
 import { NodeHttpServer } from "@effect/platform-node";
-import { Duration, Effect, FileSystem, Layer, Option } from "effect";
+import { Duration, Effect, FileSystem, Layer, Option, Ref } from "effect";
 import type { ConfigError } from "effect/Config";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 import {
@@ -17,9 +17,15 @@ import {
   clusterWorkflowEngineClientLayer as makeClusterWorkflowEngineClientLayer,
   clusterWorkflowEngineRunnerLayer,
   clusterWorkflowStorageLayer,
+  reconcileWorkflowRuns,
+  runWorkflowCommandDispatcher,
   WorkflowStore,
+  workflowRuntimeCommandExecutorLayer,
+  workflowRuntimeLayer,
 } from "effect-zero-workflow";
 import type { WorkflowContractRegistrationError } from "effect-zero-workflow/contract-server";
+import type { WorkflowRunCursor } from "effect-zero-workflow";
+import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { config } from "@/config";
 import {
@@ -39,6 +45,7 @@ import {
   readOnlyWorkflowAuthorizationLayer,
   readOnlyWorkflowDataSourceLayer,
   readOnlySheetWorkflowLayers,
+  sheetSnapshotProviderLayer,
 } from "@/workflows/readOnly";
 import {
   preferencesSheetWorkflowLayers,
@@ -49,6 +56,10 @@ import {
   configurationSheetWorkflowLayers,
   configurationWorkflowOperationsLayer,
 } from "@/workflows/configuration";
+import {
+  sheetConfigurationWorkflowLayers,
+  sheetConfigurationWorkflowOperationsLayer,
+} from "@/workflows/sheetConfiguration";
 import { slotSheetWorkflowLayers, slotWorkflowOperationsLayer } from "@/workflows/slots";
 import { slotListWorkflowOperationsLayer } from "@/workflows/slots/slotListOperations";
 import { slotListProviderLayer } from "@/workflows/slots/slotListProvider";
@@ -113,12 +124,17 @@ import {
   screenshotSourceProviderLayer,
 } from "@/workflows/screenshots";
 import type { ScreenshotSourceProviderError } from "@/workflows/screenshots/sourceProvider";
+import type { SheetSnapshotProviderError } from "@/workflows/readOnly/sheetSnapshotProvider";
 import type { SlotListProviderError } from "@/workflows/slots/slotListProvider";
 import {
   calculationProviderLayer,
   calculationSheetWorkflowLayers,
   calculationWorkflowOperationsLayer,
 } from "@/workflows/calculations";
+import {
+  sheetWorkflowRuntimeDefinitionVersion,
+  sheetWorkflowRuntimeDefinitions,
+} from "@/workflows/runtimeDefinitions";
 
 const availableSheetWorkflowShardGroups = ["dispatch", "autoCheckin", "browser"] as const;
 
@@ -186,6 +202,42 @@ const workflowsRunnerLayer = clusterWorkflowEngineRunnerLayer({
   path: "/cluster/rpc",
 }).pipe(Layer.provide(K8sHttpClient.layer));
 
+const sheetWorkflowRuntimeLayer = workflowRuntimeLayer({
+  workflows: sheetWorkflowRuntimeDefinitions,
+  definitionVersion: sheetWorkflowRuntimeDefinitionVersion,
+});
+
+const workflowReconciliationBatchSize = 100;
+
+const workflowCommandDispatcherLayer: Layer.Layer<
+  never,
+  never,
+  WorkflowEngine.WorkflowEngine | WorkflowStore
+> = Layer.effectDiscard(
+  Effect.gen(function* () {
+    const workflowReconciliationCursor = yield* Ref.make<WorkflowRunCursor | undefined>(undefined);
+    yield* runWorkflowCommandDispatcher({
+      workerId: `sheet-workflows:${randomUUID()}`,
+    }).pipe(Effect.forkScoped);
+    yield* reconcileWorkflowRuns({
+      batchSize: workflowReconciliationBatchSize,
+      concurrency: 10,
+      cursor: workflowReconciliationCursor,
+    }).pipe(
+      Effect.flatMap((batchSize) =>
+        batchSize < workflowReconciliationBatchSize
+          ? Effect.sleep(Duration.seconds(1))
+          : Effect.sleep(Duration.millis(50)),
+      ),
+      Effect.forever,
+      Effect.forkScoped,
+    );
+  }),
+).pipe(
+  Layer.provide(workflowRuntimeCommandExecutorLayer),
+  Layer.provide(sheetWorkflowRuntimeLayer),
+);
+
 const runnerReadinessProbeTimeout = Duration.seconds(15);
 
 const clusterStartupLayer = Layer.effectDiscard(
@@ -218,12 +270,14 @@ const workflowCapabilityClientsLayer = Layer.mergeAll(
   sheetBotCacheClientLayer,
   sheetBotDeliveryClientLayer,
   sheetDataProviderLayer,
+  sheetSnapshotProviderLayer,
 );
 
 const workflowDefinitionServicesLayer = Layer.mergeAll(
   readOnlyWorkflowDataSourceLayer.pipe(Layer.provideMerge(readOnlyWorkflowAuthorizationLayer)),
   preferencesWorkflowOperationsLayer,
   configurationWorkflowOperationsLayer,
+  sheetConfigurationWorkflowOperationsLayer,
   slotWorkflowOperationsLayer,
   slotListWorkflowOperationsLayer.pipe(Layer.provide(slotListProviderLayer)),
   slotOpenWorkflowOperationsLayer.pipe(Layer.provide(slotListProviderLayer)),
@@ -282,6 +336,7 @@ type ClusterLayerError =
   | RoomOrderCreateProviderError
   | RoomOrderNavigationProviderError
   | ScreenshotSourceProviderError
+  | SheetSnapshotProviderError
   | SlotListProviderError
   | SqlError
   | TeamSubmissionProviderError
@@ -299,6 +354,7 @@ const clusterLayer: Layer.Layer<
   readOnlySheetWorkflowLayers,
   preferencesSheetWorkflowLayers,
   configurationSheetWorkflowLayers,
+  sheetConfigurationWorkflowLayers,
   slotSheetWorkflowLayers,
   scheduleSheetWorkflowLayers,
   teamSheetWorkflowLayers,
@@ -313,6 +369,7 @@ const clusterLayer: Layer.Layer<
   calculationSheetWorkflowLayers,
   selectedSheetWorkflowRegistrationValidationLayer,
   clusterStartupLayer,
+  workflowCommandDispatcherLayer,
 ).pipe(
   Layer.provide(AutonomousTriggerService.layer),
   Layer.provide(workflowDefinitionServicesLayer),

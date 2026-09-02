@@ -1,7 +1,6 @@
 import type { sheets_v4 } from "@googleapis/sheets";
 import { Context, Data, Effect, Layer, Predicate, Schema } from "effect";
 import {
-  cellText,
   commaSeparated,
   eventConfigRange,
   firstCell,
@@ -9,17 +8,20 @@ import {
   makeRunnerLocalSheetsClient,
   parseEventStart,
   parseKeyValueRows,
-  parseLegacyNumber,
   parseRunnerConfigurations,
   parseScheduleConfigurations,
   parseSheetBoolean,
   parseSheetIdentities,
   quotedRange,
   readBatchedSheetsValueRanges,
-  readSheetsValueRanges,
   runnerConfigRange,
   runnerPresent,
   scheduleConfigRange,
+  scheduleConfigurationsForConversation,
+  scheduleFillValues,
+  scheduleHour,
+  mapScheduleRows,
+  scheduleRowCount,
   type SheetScheduleConfiguration,
   upperFirst,
   type ValueRows,
@@ -31,6 +33,8 @@ import {
   RoomOrderCreateProviderError,
 } from "../roomOrders/createProvider";
 import type { RoomOrderCalculationTeam } from "../roomOrders/createCalculation";
+import type { WebSheetConfiguration } from "sheet-domain";
+import { loadConfigurationValueRanges } from "../shared/webConfigurationSheets";
 
 export class AutoCheckinTestProviderError extends Data.TaggedError("AutoCheckinTestProviderError")<{
   readonly operation: "create-client" | "read-configuration" | "read-schedule" | "read-room-order";
@@ -72,10 +76,12 @@ interface AutoCheckinTestProviderShape {
   readonly loadCheckin: (
     spreadsheetId: string,
     conversationName: string,
+    configuration?: WebSheetConfiguration | null,
   ) => Effect.Effect<AutoCheckinTestProviderView, AutoCheckinTestProviderError>;
   readonly loadRoomOrder: (
     spreadsheetId: string,
     conversationName: string,
+    configuration?: WebSheetConfiguration | null,
   ) => Effect.Effect<AutoCheckinTestRoomOrderView, AutoCheckinTestProviderError>;
 }
 
@@ -203,21 +209,17 @@ const parseScheduleRows = (options: {
     ReadonlyArray<{ readonly accountId: string; readonly name: string }>
   >;
 }): ReadonlyArray<AutoCheckinTestProviderSchedule> => {
-  // These parallel range reads preserve legacy runner-local Sheets row alignment.
-  // fallow-ignore-next-line code-duplication
   const hourRows = valueRowsAt(options.values, options.indexes.hours);
   const fillRows = valueRowsAt(options.values, options.indexes.fills);
   const overfillRows = valueRowsAt(options.values, options.indexes.overfills);
   const breakRows = valueRowsAt(options.values, options.indexes.breaks);
   const monitorRows = valueRowsAt(options.values, options.indexes.monitor);
-  const alignedRows = [hourRows, fillRows, overfillRows, breakRows, monitorRows];
-  const rowCount = Math.max(...alignedRows.map(({ length }) => length));
-  return Array.from({ length: rowCount }, (_, rowIndex) => {
-    const hour = parseLegacyNumber(firstCell(hourRows, rowIndex)) ?? null;
-    const fills = (fillRows[rowIndex] ?? []).slice(0, 5).flatMap((value) => {
-      const name = cellText(value);
-      return Predicate.isUndefined(name) ? [] : [resolveParticipant(name, options.players)];
-    });
+  const rowCount = scheduleRowCount(hourRows, fillRows, overfillRows, breakRows, monitorRows);
+  return mapScheduleRows(rowCount, (rowIndex) => {
+    const hour = scheduleHour(hourRows, rowIndex);
+    const fills = scheduleFillValues(fillRows, rowIndex, 5, (name) =>
+      resolveParticipant(name, options.players),
+    );
     // Break-hour behavior must remain identical to the schedule provider during migration.
     // fallow-ignore-next-line code-duplication
     const breakHour =
@@ -245,12 +247,24 @@ const parseScheduleRows = (options: {
 const makeAutoCheckinTestProvider = (client: sheets_v4.Sheets): AutoCheckinTestProviderShape => {
   const roomOrderProvider = makeRoomOrderCreateProvider(client);
   return {
-    loadCheckin: (spreadsheetId, conversationName) =>
+    loadCheckin: (spreadsheetId, conversationName, configuration) =>
       Effect.gen(function* () {
-        const configurationRanges = yield* readSheetsValueRanges({
+        const configurationRanges = yield* loadConfigurationValueRanges({
           client,
           spreadsheetId,
-          ranges: [eventConfigRange, scheduleConfigRange, runnerConfigRange, rangesConfigRange],
+          configuration,
+          legacyRanges: [
+            eventConfigRange,
+            scheduleConfigRange,
+            runnerConfigRange,
+            rangesConfigRange,
+          ],
+          selectConfiguredRows: ({ eventRows, schedulesRows, runnersRows, rangesRows }) => [
+            eventRows,
+            schedulesRows,
+            runnersRows,
+            rangesRows,
+          ],
           makeError: makeProviderError("read-configuration"),
         });
         const parsed = yield* Effect.all({
@@ -259,8 +273,9 @@ const makeAutoCheckinTestProvider = (client: sheets_v4.Sheets): AutoCheckinTestP
           configurations: parseScheduleConfigurations(valueRowsAt(configurationRanges, 1)),
           eventStartEpochMs: parseEventStart(valueRowsAt(configurationRanges, 0)),
         }).pipe(Effect.mapError(makeProviderError("read-configuration")));
-        const configurations = parsed.configurations.filter(
-          (configuration) => configuration.channel === conversationName,
+        const configurations = scheduleConfigurationsForConversation(
+          parsed.configurations,
+          conversationName,
         );
         const plan = makeSchedulePlan(configurations, parsed.identities);
         const values = yield* readBatchedSheetsValueRanges({
@@ -296,8 +311,8 @@ const makeAutoCheckinTestProvider = (client: sheets_v4.Sheets): AutoCheckinTestP
           ),
         };
       }),
-    loadRoomOrder: (spreadsheetId, conversationName) =>
-      roomOrderProvider.load(spreadsheetId, conversationName).pipe(
+    loadRoomOrder: (spreadsheetId, conversationName, configuration) =>
+      roomOrderProvider.load(spreadsheetId, conversationName, configuration).pipe(
         Effect.mapError(
           (cause: RoomOrderCreateProviderError) =>
             new AutoCheckinTestProviderError({

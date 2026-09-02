@@ -17,6 +17,10 @@ const RoomOrderSheetWorkflowDefinitions = Object.freeze([
   RoomOrdersPinTentativeDefinition,
 ] as const);
 
+export const RoomOrderSheetWorkflows = Object.freeze(
+  RoomOrderSheetWorkflowDefinitions.map(({ workflow }) => workflow),
+);
+
 const layerList = [
   Layer.empty,
   ...RoomOrderSheetWorkflowDefinitions.flatMap(({ actions, workflowLayer }) => [

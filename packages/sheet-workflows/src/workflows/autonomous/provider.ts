@@ -1,5 +1,7 @@
 import { Context, Data, Effect, Layer } from "effect";
-import { makeRunnerLocalSheetsClient, readEventStart } from "../shared/runnerLocalSheets";
+import type { WebSheetConfiguration } from "sheet-domain";
+import { makeRunnerLocalSheetsClient } from "../shared/runnerLocalSheets";
+import { readConfiguredEventStart } from "../shared/webConfigurationSheets";
 
 export class AutonomousTriggerProviderError extends Data.TaggedError(
   "AutonomousTriggerProviderError",
@@ -11,6 +13,7 @@ export class AutonomousTriggerProviderError extends Data.TaggedError(
 interface AutonomousTriggerProviderShape {
   readonly loadEventStart: (
     spreadsheetId: string,
+    configuration?: WebSheetConfiguration | null,
   ) => Effect.Effect<number, AutonomousTriggerProviderError>;
 }
 
@@ -27,10 +30,11 @@ export const autonomousTriggerProviderLayer = Layer.effect(
   AutonomousTriggerProvider,
   makeRunnerLocalSheetsClient(makeProviderError("create-client")).pipe(
     Effect.map((client) => ({
-      loadEventStart: (spreadsheetId: string) =>
-        readEventStart({
+      loadEventStart: (spreadsheetId: string, configuration?: WebSheetConfiguration | null) =>
+        readConfiguredEventStart({
           client,
           spreadsheetId,
+          configuration,
           makeError: makeProviderError("read-event-configuration"),
         }),
     })),

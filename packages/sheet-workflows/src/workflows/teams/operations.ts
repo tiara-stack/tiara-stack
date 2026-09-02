@@ -1,6 +1,7 @@
-import { Effect, Layer, Match, Option, Predicate } from "effect";
+import { Effect, Layer, Match, Option } from "effect";
 import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
+import { resolveAuthoritativeConfigurationForOperation } from "../shared/authoritativeConfiguration";
 import {
   interactiveConfigurationMissing,
   interactiveExternalOperationRejected,
@@ -46,22 +47,31 @@ export const teamWorkflowOperationsLayer = Layer.effect(
     const delivery = yield* SheetBotDeliveryClient;
 
     const loadUserTeams: TeamWorkflowOperations["Service"]["loadUserTeams"] = (input) =>
-      persistence.workspaces
-        .getWorkspaceConfigByWorkspaceId({ workspaceId: input.workspaceId })
-        .pipe(
-          Effect.timeout("30 seconds"),
-          Effect.mapError((cause) => operationError("teams.deliverList.resolveWorkspace", cause)),
-          Effect.flatMap(
-            Option.match({
-              onNone: () =>
-                Effect.fail(interactiveResourceNotFound("workspace", input.workspaceId)),
-              onSome: ({ sheetId }) =>
-                Predicate.isNull(sheetId)
-                  ? Effect.fail(interactiveConfigurationMissing("workspace.sheetId"))
-                  : provider.load(sheetId).pipe(Effect.catch(providerRejected)),
-            }),
-          ),
+      Effect.gen(function* () {
+        const workspace = yield* persistence.workspaces
+          .getWorkspaceConfigByWorkspaceId({ workspaceId: input.workspaceId })
+          .pipe(
+            Effect.timeout("30 seconds"),
+            Effect.mapError((cause) => operationError("teams.deliverList.resolveWorkspace", cause)),
+            Effect.flatMap(
+              Option.match({
+                onNone: () =>
+                  Effect.fail(interactiveResourceNotFound("workspace", input.workspaceId)),
+                onSome: Effect.succeed,
+              }),
+            ),
+          );
+        const active = yield* resolveAuthoritativeConfigurationForOperation(
+          persistence,
+          input.workspaceId,
+          Option.some(workspace),
+          "teams.deliverList.resolveSource",
+          operationError,
         );
+        return yield* provider
+          .load(active.spreadsheetId, active.configuration)
+          .pipe(Effect.catch(providerRejected));
+      });
 
     const respond: TeamWorkflowOperations["Service"]["respond"] = (
       input,

@@ -29,6 +29,8 @@ import {
   TeamTagsRangesConfig,
   type TeamSubmissionSheetConfiguration,
 } from "./values";
+import type { WebSheetConfiguration } from "sheet-domain";
+import { loadConfigurationValueRanges } from "../shared/webConfigurationSheets";
 
 export type TeamSubmissionValueRange = {
   readonly range: string;
@@ -49,6 +51,7 @@ export class TeamSubmissionWriteError extends Data.TaggedError("TeamSubmissionWr
 export interface TeamSubmissionProviderShape {
   readonly loadConfiguration: (
     spreadsheetId: string,
+    configuration?: WebSheetConfiguration | null,
   ) => Effect.Effect<TeamSubmissionSheetConfiguration, TeamSubmissionProviderError>;
   readonly read: (
     spreadsheetId: string,
@@ -248,11 +251,16 @@ export const makeTeamSubmissionProvider = (
       return configs;
     });
 
-  const loadConfiguration: TeamSubmissionProviderShape["loadConfiguration"] = (spreadsheetId) =>
-    readSheetsValueRanges({
+  const loadConfiguration: TeamSubmissionProviderShape["loadConfiguration"] = (
+    spreadsheetId,
+    configuration,
+  ) =>
+    loadConfigurationValueRanges({
       client,
       spreadsheetId,
-      ranges: configurationRanges,
+      configuration,
+      legacyRanges: configurationRanges,
+      selectConfiguredRows: ({ rangesRows, teamsRows }) => [rangesRows, teamsRows],
       makeError: (cause) => new TeamSubmissionProviderError({ operation: "read", cause }),
     }).pipe(
       Effect.flatMap((ranges) =>

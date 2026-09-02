@@ -1,8 +1,11 @@
 import { createHash } from "node:crypto";
 import { Cause, Effect, Exit, Layer, Option, Predicate } from "effect";
 import { CalculationsRecalculateSheet } from "sheet-workflow-contracts";
+import type { WebSheetConfiguration } from "sheet-domain";
 import { ReadOnlyWorkflowAuthorization } from "../readOnly/authorization";
 import { providerCauseKind } from "../shared/providerFailure";
+import { resolveAuthoritativeSheetConfigurationBySpreadsheetId } from "../../services/authoritativeSheetConfiguration";
+import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import {
   calculationAuthorizationRevoked,
   calculationExternalOperationRejected,
@@ -120,6 +123,23 @@ export const calculationWorkflowOperationsLayer = Layer.effect(
   Effect.gen(function* () {
     const authorization = yield* ReadOnlyWorkflowAuthorization;
     const provider = yield* CalculationProvider;
+    const persistence = yield* TrustedSheetPersistence;
+
+    const resolveConfiguration = (
+      spreadsheetId: string,
+    ): Effect.Effect<WebSheetConfiguration | undefined, CalculationWorkflowOperationsError> =>
+      resolveAuthoritativeSheetConfigurationBySpreadsheetId(persistence, spreadsheetId).pipe(
+        Effect.timeout("30 seconds"),
+        Effect.mapError((error) =>
+          operationError(`${operationPrefix}.resolve-sheet-configuration`, error),
+        ),
+        Effect.map(
+          Option.match({
+            onNone: () => undefined,
+            onSome: ({ configuration }) => configuration ?? undefined,
+          }),
+        ),
+      );
 
     const reauthorize = (
       execution: {
@@ -142,11 +162,13 @@ export const calculationWorkflowOperationsLayer = Layer.effect(
       Effect.gen(function* () {
         const input = execution.input;
         yield* reauthorize(execution, `${operationPrefix}.load-calculation-source`);
+        const configuration = yield* resolveConfiguration(input.spreadsheetId);
         const snapshot = yield* provider
           .load({
             spreadsheetId: input.spreadsheetId,
             sheetTitle: execution.sheetTitle,
             canonicalSheetRef: execution.canonicalSheetRef,
+            ...(Predicate.isUndefined(configuration) ? {} : { configuration }),
           })
           .pipe(
             Effect.catchTag("CalculationTargetError", targetRejected),

@@ -257,6 +257,43 @@ export const valueRowsAt = (
 export const firstCell = (rows: ValueRows, rowIndex: number): string | undefined =>
   rowCell(rows[rowIndex], 0);
 
+export const scheduleHour = (rows: ValueRows, rowIndex: number): number | null =>
+  parseLegacyNumber(firstCell(rows, rowIndex)) ?? null;
+
+export const scheduleConfigurationsForConversation = (
+  configurations: ReadonlyArray<SheetScheduleConfiguration>,
+  conversationName: string,
+): ReadonlyArray<SheetScheduleConfiguration> =>
+  configurations.filter((configuration) => configuration.channel === conversationName);
+
+export const scheduleRowCount = (...rows: ReadonlyArray<ValueRows>): number =>
+  Math.max(0, ...rows.map(({ length }) => length));
+
+export const mapScheduleRows = <A>(
+  rowCount: number,
+  parseRow: (rowIndex: number) => A,
+): ReadonlyArray<A> => Array.from({ length: rowCount }, (_, rowIndex) => parseRow(rowIndex));
+
+export const scheduleFillValues = <A>(
+  rows: ValueRows,
+  rowIndex: number,
+  capacity: number,
+  resolve: (name: string) => A,
+): ReadonlyArray<A> =>
+  (rows[rowIndex] ?? []).slice(0, capacity).flatMap((value) => {
+    const name = cellText(value);
+    return Predicate.isUndefined(name) ? [] : [resolve(name)];
+  });
+
+export const indexSchedulesByHour = <A extends { readonly hour: number | null }>(
+  schedules: ReadonlyArray<A>,
+): ReadonlyMap<number, A> =>
+  new Map(
+    schedules.flatMap((schedule) =>
+      Predicate.isNull(schedule.hour) ? [] : ([[schedule.hour, schedule]] as const),
+    ),
+  );
+
 export const makeRunnerHours = (runners: ReadonlyArray<SheetRunnerConfiguration>) => {
   const runnerHours = new Map<string, SheetRunnerConfiguration["hours"]>();
   for (const { hours, name } of runners) {

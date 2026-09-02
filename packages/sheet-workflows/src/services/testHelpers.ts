@@ -613,6 +613,8 @@ export const makeTrustedSheetPersistenceMock = (): TrustedSheetPersistenceShape 
               Predicate.isNotNull(row.defaultClientId),
           ),
         ),
+      // The in-memory test adapter intentionally mirrors the adjacent preference query.
+      // fallow-ignore-next-line code-duplication
       getMonitorDmEnabledUserConfigs: ({ platform, userIds }) =>
         Effect.succeed(
           [...userPlatformConfigs.values()].filter(
@@ -750,6 +752,8 @@ export const makeTrustedSheetPersistenceMock = (): TrustedSheetPersistenceShape 
               Predicate.isNull(row.deletedAt),
           ),
         ),
+      // These range variants share the same key filtering by design.
+      // fallow-ignore-next-line code-duplication
       getMessageRoomOrderRange: (args) =>
         Effect.succeed(
           [...messageRoomOrderEntries.values()].filter(
@@ -773,6 +777,8 @@ export const makeTrustedSheetPersistenceMock = (): TrustedSheetPersistenceShape 
           }
           updateMessageRoomOrder(args, { rank: current.rank - 1 });
         }),
+      // Rank updates share the same optimistic-concurrency guard by design.
+      // fallow-ignore-next-line code-duplication
       incrementMessageRoomOrderRank: (args) =>
         Effect.sync(() => {
           const current = messageRoomOrders.get(
@@ -825,6 +831,8 @@ export const makeTrustedSheetPersistenceMock = (): TrustedSheetPersistenceShape 
             updateMessageRoomOrder(args, { sendClaimId: null, sendClaimedAt: null });
           }
         }),
+      // Claim variants share the same claim timestamp and stale-claim guard by design.
+      // fallow-ignore-next-line code-duplication
       claimMessageRoomOrderTentativeUpdate: (args) =>
         Effect.gen(function* () {
           const claimedAt = yield* Clock.currentTimeMillis;
@@ -853,6 +861,8 @@ export const makeTrustedSheetPersistenceMock = (): TrustedSheetPersistenceShape 
             });
           }
         }),
+      // Claim variants share the same claim timestamp and stale-claim guard by design.
+      // fallow-ignore-next-line code-duplication
       claimMessageRoomOrderTentativePin: (args) =>
         Effect.gen(function* () {
           const claimedAt = yield* Clock.currentTimeMillis;
@@ -869,6 +879,8 @@ export const makeTrustedSheetPersistenceMock = (): TrustedSheetPersistenceShape 
             tentativeUpdateClaimedAt: null,
           });
         }),
+      // Claim completion and rank updates intentionally use the same guarded lookup shape.
+      // fallow-ignore-next-line code-duplication
       completeMessageRoomOrderTentativePin: (args) =>
         Effect.sync(() => {
           const current = messageRoomOrders.get(

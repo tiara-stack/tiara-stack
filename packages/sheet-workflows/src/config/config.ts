@@ -44,6 +44,15 @@ export const config = {
   sheetAuthWorkflowHttpAudience: Config.string("SHEET_AUTH_WORKFLOW_HTTP_AUDIENCE").pipe(
     Config.withDefault("sheet-workflows-http"),
   ),
+  // Browser workflow requests use a separate resource audience. Keep this
+  // opt-in so an HTTP deployment does not silently trust an additional token
+  // audience for every workflow route.
+  sheetAuthWorkflowHttpBrowserAudience: Config.option(
+    Config.string("SHEET_AUTH_WORKFLOW_HTTP_BROWSER_AUDIENCE"),
+  ),
+  sheetWebBaseUrl: Config.schema(Schema.URL, "SHEET_WEB_BASE_URL").pipe(
+    Config.withDefault(new URL("http://localhost:3001")),
+  ),
   sheetAuthTrustedDelegationClientIds: Config.string(
     "SHEET_AUTH_TRUSTED_DELEGATION_CLIENT_IDS",
   ).pipe(

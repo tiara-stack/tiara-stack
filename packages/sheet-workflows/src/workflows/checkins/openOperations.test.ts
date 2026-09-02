@@ -251,6 +251,7 @@ const makeDataProvider = (
   generateCheckin: () => Effect.succeed(makeExecution().context.generated),
   generateRoomOrder: () => Effect.succeed(roomOrder()),
   loadWorkspaceSchedules: () => Effect.die("unused"),
+  resolveSpreadsheetId: () => Effect.succeed(Option.none()),
   ...overrides,
 });
 

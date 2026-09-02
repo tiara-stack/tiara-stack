@@ -1,8 +1,8 @@
-import { Effect, Layer, Option, Predicate } from "effect";
+import { Effect, Layer, Option } from "effect";
 import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
+import { resolveAuthoritativeConfigurationForOperation } from "../shared/authoritativeConfiguration";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
 import {
-  interactiveConfigurationMissing,
   interactiveExternalOperationRejected,
   interactiveResourceNotFound,
   mapDeliveryFailure,
@@ -39,24 +39,33 @@ export const scheduleWorkflowOperationsLayer = Layer.effect(
     const delivery = yield* SheetBotDeliveryClient;
 
     const loadUserSchedule: ScheduleWorkflowOperations["Service"]["loadUserSchedule"] = (input) =>
-      persistence.workspaces
-        .getWorkspaceConfigByWorkspaceId({ workspaceId: input.workspaceId })
-        .pipe(
-          Effect.timeout("30 seconds"),
-          Effect.mapError((cause) =>
-            operationError("schedules.deliverUserSchedule.resolveWorkspace", cause),
-          ),
-          Effect.flatMap(
-            Option.match({
-              onNone: () =>
-                Effect.fail(interactiveResourceNotFound("workspace", input.workspaceId)),
-              onSome: ({ sheetId }) =>
-                Predicate.isNull(sheetId)
-                  ? Effect.fail(interactiveConfigurationMissing("workspace.sheetId"))
-                  : provider.load(sheetId, input.day).pipe(Effect.catch(providerRejected)),
-            }),
-          ),
+      Effect.gen(function* () {
+        const workspace = yield* persistence.workspaces
+          .getWorkspaceConfigByWorkspaceId({ workspaceId: input.workspaceId })
+          .pipe(
+            Effect.timeout("30 seconds"),
+            Effect.mapError((cause) =>
+              operationError("schedules.deliverUserSchedule.resolveWorkspace", cause),
+            ),
+            Effect.flatMap(
+              Option.match({
+                onNone: () =>
+                  Effect.fail(interactiveResourceNotFound("workspace", input.workspaceId)),
+                onSome: Effect.succeed,
+              }),
+            ),
+          );
+        const active = yield* resolveAuthoritativeConfigurationForOperation(
+          persistence,
+          input.workspaceId,
+          Option.some(workspace),
+          "schedules.deliverUserSchedule.resolveSource",
+          operationError,
         );
+        return yield* provider
+          .load(active.spreadsheetId, input.day, active.configuration)
+          .pipe(Effect.catch(providerRejected));
+      });
 
     const respond: ScheduleWorkflowOperations["Service"]["respond"] = (
       input,

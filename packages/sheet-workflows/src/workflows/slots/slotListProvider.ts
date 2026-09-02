@@ -15,7 +15,6 @@ import {
   parseSheetBoolean,
   quotedRange,
   readBatchedSheetsValueRanges,
-  readSheetsValueRanges,
   runnerConfigRange,
   runnerPresent,
   scheduleConfigRange,
@@ -27,6 +26,8 @@ import {
 } from "../shared/runnerLocalSheets";
 import { slotCapacity } from "../shared/slotCapacity";
 import type { SlotView } from "./slotListSchema";
+import type { WebSheetConfiguration } from "sheet-domain";
+import { loadConfigurationValueRanges } from "../shared/webConfigurationSheets";
 
 type SlotViewSchedule = SlotView["schedules"][number];
 
@@ -39,6 +40,7 @@ interface SlotListProviderShape {
   readonly load: (
     spreadsheetId: string,
     day: number,
+    configuration?: WebSheetConfiguration | null,
   ) => Effect.Effect<SlotView, SlotListProviderError>;
 }
 
@@ -155,12 +157,18 @@ const makeProviderError = (operation: SlotListProviderError["operation"]) => (ca
   new SlotListProviderError({ operation, cause });
 
 export const makeSlotListProvider = (client: sheets_v4.Sheets): SlotListProviderShape => ({
-  load: (spreadsheetId, day) =>
+  load: (spreadsheetId, day, configuration) =>
     Effect.gen(function* () {
-      const configurationRanges = yield* readSheetsValueRanges({
+      const configurationRanges = yield* loadConfigurationValueRanges({
         client,
         spreadsheetId,
-        ranges: [eventConfigRange, scheduleConfigRange, runnerConfigRange],
+        configuration,
+        legacyRanges: [eventConfigRange, scheduleConfigRange, runnerConfigRange],
+        selectConfiguredRows: ({ eventRows, schedulesRows, runnersRows }) => [
+          eventRows,
+          schedulesRows,
+          runnersRows,
+        ],
         makeError: makeProviderError("read-configuration"),
       });
       const parsed = yield* Effect.all({

@@ -18,6 +18,7 @@ import {
   InvocationId,
   WorkflowRunListFilter,
   WorkflowRunState,
+  type AnyWorkflowContract,
 } from "effect-zero-workflow/contract";
 import {
   makeWorkflowHttpRouteCatalog,
@@ -53,7 +54,7 @@ import {
   type VerifiedOAuthResourceToken,
 } from "sheet-auth/oauth-resource-authorization";
 import { Unauthorized } from "typhoon-core/error";
-import { SheetWorkflowContractCatalog } from "sheet-workflow-contracts";
+import { SheetWorkflowContractCatalog, SheetWorkflowPrincipalKind } from "sheet-workflow-contracts";
 import type { SheetWorkflowZeroContext } from "sheet-zero-server";
 import { config } from "@/config";
 import { sheetWorkflowsHttpEnqueues } from "@/metrics";
@@ -186,20 +187,71 @@ export const makeWorkflowInvocationStore = (
     ),
 });
 
-const makeAuthorizer = (requiredScopes: readonly string[]) =>
+const makeAuthorizer = (requiredScopes: readonly string[], allowBrowserAudience = false) =>
   Effect.gen(function* () {
     const issuer = yield* config.sheetAuthIssuer;
     const audience = yield* config.sheetAuthWorkflowHttpAudience;
-    return yield* makeOAuthResourceTokenAuthorizer({
+    const authorizer = yield* makeOAuthResourceTokenAuthorizer({
       issuer,
       audience,
       requiredScopes,
       headerName: "authorization",
       makeUnauthorized: ({ message, cause }) => new Unauthorized({ message, cause }),
     });
+
+    if (!allowBrowserAudience) return authorizer;
+    const browserAudience = yield* config.sheetAuthWorkflowHttpBrowserAudience;
+    if (Option.isNone(browserAudience) || browserAudience.value === audience) {
+      return authorizer;
+    }
+
+    const browserAuthorizer = yield* makeOAuthResourceTokenAuthorizer({
+      issuer,
+      audience: browserAudience.value,
+      requiredScopes,
+      headerName: "authorization",
+      makeUnauthorized: ({ message, cause }) => new Unauthorized({ message, cause }),
+    });
+
+    const withBrowserFallback = <A>(
+      primary: Effect.Effect<A, Unauthorized>,
+      fallback: Effect.Effect<A, Unauthorized>,
+    ) =>
+      primary.pipe(
+        Effect.catch((primaryError) =>
+          fallback.pipe(Effect.catch(() => Effect.fail(primaryError))),
+        ),
+      );
+
+    return {
+      ...authorizer,
+      requireAuthorizedHeaders: (headers: Headers.Headers) =>
+        withBrowserFallback(
+          authorizer.requireAuthorizedHeaders(headers),
+          browserAuthorizer.requireAuthorizedHeaders(headers),
+        ),
+      requireAuthorizedBearerToken: (token: string | undefined) =>
+        withBrowserFallback(
+          authorizer.requireAuthorizedBearerToken(token),
+          browserAuthorizer.requireAuthorizedBearerToken(token),
+        ),
+    };
   });
 
 export type WorkflowHttpAuthorizer = Effect.Success<ReturnType<typeof makeAuthorizer>>;
+
+const workflowPrincipalKinds = Schema.Array(SheetWorkflowPrincipalKind);
+
+const authorizerForContract = (
+  contract: AnyWorkflowContract,
+  browserAuthorizer: WorkflowHttpAuthorizer,
+  serviceAuthorizer: WorkflowHttpAuthorizer,
+): WorkflowHttpAuthorizer => {
+  const principalKinds = Schema.decodeUnknownSync(workflowPrincipalKinds)(
+    contract.authorizationPolicy.principalKinds,
+  );
+  return principalKinds.includes("user") ? browserAuthorizer : serviceAuthorizer;
+};
 
 export interface WorkflowHttpGatewayIdentity {
   readonly serviceId: string;
@@ -459,20 +511,27 @@ export const makeWorkflowHttpRoutesLayer = <Requirements>(
   observationAuthorizer: WorkflowHttpAuthorizer,
   executor: WorkflowHttpServerExecutor<SheetWorkflowZeroContext, Requirements>,
   gatewayIdentity?: WorkflowHttpGatewayIdentity,
+  serviceEnqueueAuthorizer: WorkflowHttpAuthorizer = enqueueAuthorizer,
+  serviceObservationAuthorizer: WorkflowHttpAuthorizer = observationAuthorizer,
 ) => {
   const workflowRoutes = makeWorkflowHttpRouteCatalog(sheetWorkflowHttpContracts, executor);
-  const routeLayers = workflowRoutes.flatMap(({ routes, enqueue, get, list }) => [
-    addWorkflowEnqueueRoute(routes.enqueue, enqueueAuthorizer, gatewayIdentity, enqueue),
+  const routeLayers = workflowRoutes.flatMap(({ contract, routes, enqueue, get, list }) => [
+    addWorkflowEnqueueRoute(
+      routes.enqueue,
+      authorizerForContract(contract, enqueueAuthorizer, serviceEnqueueAuthorizer),
+      gatewayIdentity,
+      enqueue,
+    ),
     addWorkflowObservationRoute(
       routes.get,
-      observationAuthorizer,
+      authorizerForContract(contract, observationAuthorizer, serviceObservationAuthorizer),
       gatewayIdentity,
       decodeWorkflowInvocationId,
       get,
     ),
     addWorkflowObservationRoute(
       routes.list,
-      observationAuthorizer,
+      authorizerForContract(contract, observationAuthorizer, serviceObservationAuthorizer),
       gatewayIdentity,
       decodeWorkflowListFilter,
       list,
@@ -489,15 +548,21 @@ export const workflowHttpRoutesLayer = Layer.unwrap(
       serviceId: config.sheetBotGatewayServiceId,
       oauthClientId: config.sheetBotGatewayOAuthClientId,
     });
-    const enqueueAuthorizer = yield* makeAuthorizer(["workflow.enqueue"]);
-    const observationAuthorizer = yield* makeAuthorizer(["workflow.observe"]);
+    // Contracts that accept users use the browser audience fallback. Service-only contracts must
+    // stay on the service audience so a browser token cannot reach their HTTP route.
+    const browserEnqueueAuthorizer = yield* makeAuthorizer(["workflow.enqueue"], true);
+    const browserObservationAuthorizer = yield* makeAuthorizer(["workflow.observe"], true);
+    const serviceEnqueueAuthorizer = yield* makeAuthorizer(["workflow.enqueue"]);
+    const serviceObservationAuthorizer = yield* makeAuthorizer(["workflow.observe"]);
     const handler = yield* makeSelectedWorkflowTransportHandler(makeWorkflowInvocationStore(store));
     const executor = workflowHttpServerExecutorFromHandler(handler);
     return makeWorkflowHttpRoutesLayer(
-      enqueueAuthorizer,
-      observationAuthorizer,
+      browserEnqueueAuthorizer,
+      browserObservationAuthorizer,
       executor,
       gatewayIdentity,
+      serviceEnqueueAuthorizer,
+      serviceObservationAuthorizer,
     );
   }),
 );

@@ -15,19 +15,29 @@ import { workflowHttpRoutesLayer } from "./handlers/workflowHttp";
 import { rolloutGateRoutesLayer } from "./handlers/rolloutGate";
 import { readOnlyWorkflowAuthorizationLayer } from "./workflows/readOnly";
 
-const apiRoutesLayer = workflowHttpRoutesLayer.pipe(
-  Layer.merge(rolloutGateRoutesLayer),
-  Layer.merge(HttpRouter.add("GET", "/live", HttpServerResponse.empty({ status: 200 }))),
-  Layer.merge(
-    HttpRouter.add(
-      "GET",
-      "/ready",
-      isWorkflowApiReady.pipe(
-        Effect.map((ready) => HttpServerResponse.empty({ status: ready ? 200 : 503 })),
+const apiRoutesLayer = Layer.unwrap(
+  Effect.gen(function* () {
+    const sheetWebBaseUrl = yield* config.sheetWebBaseUrl;
+    return workflowHttpRoutesLayer.pipe(
+      Layer.merge(rolloutGateRoutesLayer),
+      Layer.merge(HttpRouter.add("GET", "/live", HttpServerResponse.empty({ status: 200 }))),
+      Layer.merge(
+        HttpRouter.add(
+          "GET",
+          "/ready",
+          isWorkflowApiReady.pipe(
+            Effect.map((ready) => HttpServerResponse.empty({ status: ready ? 200 : 503 })),
+          ),
+        ),
       ),
-    ),
-  ),
-  Layer.provideMerge(HttpRouter.layer),
+      Layer.provideMerge(HttpRouter.layer),
+      Layer.provide(
+        HttpRouter.cors({
+          allowedOrigins: [sheetWebBaseUrl.origin],
+        }),
+      ),
+    );
+  }),
 );
 
 const workflowHttpAuthorizationLayer = readOnlyWorkflowAuthorizationLayer.pipe(

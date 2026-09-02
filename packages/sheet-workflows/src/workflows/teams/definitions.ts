@@ -11,7 +11,7 @@ import { makeTeamsDeliverListDefinition } from "./definition";
 const TeamSheetWorkflowDefinitions = Object.freeze([makeTeamsDeliverListDefinition()] as const);
 
 export const TeamSheetWorkflows = Object.freeze(
-  TeamSheetWorkflowDefinitions.map(({ workflow }) => workflow as WorkflowDefinition),
+  TeamSheetWorkflowDefinitions.map(({ workflow }) => workflow),
 );
 
 const teamSheetWorkflowNames = new Set(TeamSheetWorkflows.map(({ name }) => name));

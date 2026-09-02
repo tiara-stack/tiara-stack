@@ -4,149 +4,37 @@ import { publishedRoomOrderMessage } from "sheet-message-content/roomOrderMessag
 import { buildRoomOrderContent } from "sheet-message-content/roomOrderContent";
 import { fillParticipantFromName, hourWindowFor } from "sheet-message-content/rendering";
 import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
+import {
+  missingConfigurationKey,
+  resolveAuthoritativeSheetConfigurationForWorkspace,
+} from "@/services/authoritativeSheetConfiguration";
 import type { InteractiveDeclaredFailure } from "sheet-workflow-contracts";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
 import type { AuthorizedRoomOrderSendContext } from "../readOnly/authorization";
 import {
   interactiveAuthorizationRevoked,
-  interactiveDeliveryRejected,
+  interactiveConfigurationMissing,
   interactiveExternalOperationRejected,
-  mapDeliveryFailure,
 } from "../shared/interactive";
-import { providerCauseKind } from "../shared/providerFailure";
 import { RoomOrderNavigationProvider, RoomOrderNavigationProviderError } from "./provider";
+import {
+  canonicalRoomOrderViewMatches,
+  makeRoomOrderDeliveryFailure,
+  rejectRoomOrderProvider,
+  roomOrderBusyDetail,
+  roomOrderContextFromRow,
+  roomOrderMessageKey,
+} from "./helpers";
 import type { RoomOrderSendCommit, RoomOrderSendRecordDisposition } from "./sendSchema";
 import { RoomOrderSendOperations, RoomOrderSendOperationsError } from "./sendService";
 
 const operationError = (operation: string, cause: unknown) =>
   new RoomOrderSendOperationsError({ operation, cause });
 
-const messageKey = (context: AuthorizedRoomOrderSendContext) => ({
-  clientPlatform: context.clientPlatform,
-  clientId: context.clientId,
-  messageId: context.messageId,
-});
-
-// fallow-ignore-next-line complexity
-const canonicalViewMatches = (
-  context: AuthorizedRoomOrderSendContext,
-  row: {
-    readonly clientPlatform: string;
-    readonly clientId: string;
-    readonly messageId: string;
-    readonly workspaceId: string | null;
-    readonly conversationId: string | null;
-    readonly previousFills: ReadonlyArray<string>;
-    readonly fills: ReadonlyArray<string>;
-    readonly hour: number;
-    readonly rank: number;
-    readonly tentative: boolean;
-    readonly monitor: string | null;
-    readonly deletedAt: number | null;
-  },
-) =>
-  row.clientPlatform === context.clientPlatform &&
-  row.clientId === context.clientId &&
-  row.messageId === context.messageId &&
-  row.workspaceId === context.workspaceId &&
-  row.conversationId === context.conversationId &&
-  row.hour === context.hour &&
-  row.rank === context.rank &&
-  row.tentative === context.tentative &&
-  row.monitor === context.monitor &&
-  row.previousFills.length === context.previousFills.length &&
-  row.previousFills.every((value, index) => value === context.previousFills[index]) &&
-  row.fills.length === context.fills.length &&
-  row.fills.every((value, index) => value === context.fills[index]) &&
-  Predicate.isNull(row.deletedAt);
-
-const contextFromRow = (
-  context: AuthorizedRoomOrderSendContext,
-  row: {
-    readonly sendClaimId: string | null;
-    readonly sentMessageId: string | null;
-    readonly sentConversationId: string | null;
-    readonly tentativeUpdateClaimId: string | null;
-    readonly tentativePinClaimId: string | null;
-    readonly tentativePinnedAt: number | null;
-  },
-): AuthorizedRoomOrderSendContext => ({
-  ...context,
-  sendClaimId: row.sendClaimId,
-  sentMessageId: row.sentMessageId,
-  sentConversationId: row.sentConversationId,
-  tentativeUpdateClaimId: row.tentativeUpdateClaimId,
-  tentativePinClaimId: row.tentativePinClaimId,
-  tentativePinnedAt: row.tentativePinnedAt,
-});
-
-const busyDetail = (row: {
-  readonly sendClaimId: string | null;
-  readonly tentativeUpdateClaimId: string | null;
-  readonly tentativePinClaimId: string | null;
-  readonly tentativePinnedAt: number | null;
-}) => {
-  if (Predicate.isNotNull(row.sendClaimId)) return "room order is already being sent.";
-  if (Predicate.isNotNull(row.tentativeUpdateClaimId)) {
-    return "tentative room order is already being updated.";
-  }
-  if (Predicate.isNotNull(row.tentativePinnedAt)) {
-    return "tentative room order is already pinned.";
-  }
-  if (Predicate.isNotNull(row.tentativePinClaimId)) {
-    return "tentative room order is already being pinned.";
-  }
-  return "room order is temporarily unavailable.";
-};
-
-// This log shape intentionally mirrors room-order navigation provider diagnostics.
-// fallow-ignore-next-line code-duplication
 const rejectProvider = (error: RoomOrderNavigationProviderError) =>
-  Effect.logWarning("The room-order provider rejected the event configuration read").pipe(
-    Effect.annotateLogs({
-      providerOperation: error.operation,
-      providerCauseKind: providerCauseKind(error.cause),
-    }),
-    Effect.andThen(
-      Effect.fail(
-        interactiveExternalOperationRejected(
-          "roomOrders.send.loadSendView",
-          "ProviderRejected",
-          "The room-order provider rejected the event configuration read",
-        ),
-      ),
-    ),
-  );
+  rejectRoomOrderProvider(error, "roomOrders.send.loadSendView");
 
-const deliveryFailure = (
-  policy: string,
-  operation: string,
-  resource: string,
-  rejectedMessage: string,
-  recoveryRequired: boolean,
-  committedReference?: string,
-) => {
-  const mapFailure = mapDeliveryFailure(
-    policy,
-    operation,
-    resource,
-    recoveryRequired,
-    rejectedMessage,
-    operationError,
-    committedReference,
-  );
-  return (error: unknown) => {
-    const mapped = mapFailure(error);
-    return Predicate.isTagged("ResourceNotFound")(mapped)
-      ? interactiveDeliveryRejected(
-          operation,
-          rejectedMessage,
-          recoveryRequired,
-          committedReference,
-        )
-      : mapped;
-  };
-};
+const deliveryFailure = makeRoomOrderDeliveryFailure(operationError);
 
 const sentBindingMatches = (
   row: { readonly sentMessageId: string | null; readonly sentConversationId: string | null },
@@ -184,7 +72,7 @@ export const roomOrderSendOperationsLayer = Layer.effect(
     const delivery = yield* SheetBotDeliveryClient;
 
     const loadCurrent = (context: AuthorizedRoomOrderSendContext, operation: string) =>
-      persistence.roomOrderState.getMessageRoomOrder(messageKey(context)).pipe(
+      persistence.roomOrderState.getMessageRoomOrder(roomOrderMessageKey(context)).pipe(
         Effect.timeout("30 seconds"),
         Effect.mapError((cause) => operationError(operation, cause)),
         Effect.flatMap(
@@ -202,7 +90,7 @@ export const roomOrderSendOperationsLayer = Layer.effect(
     ) =>
       loadCurrent(context, operation).pipe(
         Effect.filterOrFail(
-          (current) => canonicalViewMatches(context, current),
+          (current) => canonicalRoomOrderViewMatches(context, current),
           () => interactiveAuthorizationRevoked(policy),
         ),
       );
@@ -210,7 +98,7 @@ export const roomOrderSendOperationsLayer = Layer.effect(
     const claim: typeof RoomOrderSendOperations.Service.claim = (context, claimId, policy) =>
       Effect.gen(function* () {
         const initial = yield* requireCanonical(context, policy, "roomOrders.send.claimSend.load");
-        const initialContext = contextFromRow(context, initial);
+        const initialContext = roomOrderContextFromRow(context, initial);
         if (initial.tentative) {
           return {
             context: initialContext,
@@ -242,7 +130,7 @@ export const roomOrderSendOperationsLayer = Layer.effect(
           return { context: initialContext, claimId, status: "claimed" as const, detail: null };
         }
         const mutation = persistence.roomOrderState
-          .claimMessageRoomOrderSend({ ...messageKey(context), claimId })
+          .claimMessageRoomOrderSend({ ...roomOrderMessageKey(context), claimId })
           .pipe(
             Effect.timeout("30 seconds"),
             Effect.mapError((cause) => operationError("roomOrders.send.claimSend", cause)),
@@ -267,7 +155,7 @@ export const roomOrderSendOperationsLayer = Layer.effect(
           policy,
           "roomOrders.send.claimSend.loadResult",
         );
-        const currentContext = contextFromRow(context, current);
+        const currentContext = roomOrderContextFromRow(context, current);
         if (
           Predicate.isNotNull(current.sentMessageId) &&
           Predicate.isNotNull(current.sentConversationId)
@@ -285,7 +173,7 @@ export const roomOrderSendOperationsLayer = Layer.effect(
               context: currentContext,
               claimId,
               status: "denied" as const,
-              detail: busyDetail(current),
+              detail: roomOrderBusyDetail(current),
             };
       });
 
@@ -299,31 +187,42 @@ export const roomOrderSendOperationsLayer = Layer.effect(
         if (current.sendClaimId !== claimed.claimId) {
           return yield* Effect.fail(interactiveAuthorizationRevoked(policy));
         }
-        const { entries, workspace } = yield* Effect.all(
+        const workspace = yield* persistence.workspaces
+          .getWorkspaceConfigByWorkspaceId({ workspaceId: claimed.context.workspaceId })
+          .pipe(
+            Effect.timeout("30 seconds"),
+            Effect.mapError((cause) =>
+              operationError("roomOrders.send.loadSendView.workspace", cause),
+            ),
+          );
+        const { entries, active } = yield* Effect.all(
           {
             entries: persistence.roomOrderState.getMessageRoomOrderEntry({
-              ...messageKey(claimed.context),
+              ...roomOrderMessageKey(claimed.context),
               rank: current.rank,
             }),
-            workspace: persistence.workspaces.getWorkspaceConfigByWorkspaceId({
-              workspaceId: claimed.context.workspaceId,
-            }),
+            active: resolveAuthoritativeSheetConfigurationForWorkspace(
+              persistence,
+              claimed.context.workspaceId,
+              workspace,
+            ),
           },
           { concurrency: "unbounded" },
         ).pipe(
           Effect.timeout("30 seconds"),
-          Effect.mapError((cause) => operationError("roomOrders.send.loadSendView", cause)),
+          Effect.mapError((cause) =>
+            operationError("roomOrders.send.loadSendView.persistence", cause),
+          ),
         );
-        const spreadsheetId = yield* Option.match(workspace, {
-          onNone: () =>
-            Effect.fail(operationError("roomOrders.send.loadSendView", "Missing workspace")),
-          onSome: ({ sheetId }) =>
-            Predicate.isNull(sheetId)
-              ? Effect.fail(operationError("roomOrders.send.loadSendView", "Missing spreadsheet"))
-              : Effect.succeed(sheetId),
-        });
+        if (Option.isNone(active)) {
+          return yield* Effect.fail(
+            interactiveConfigurationMissing(
+              missingConfigurationKey(persistence, Option.getOrUndefined(workspace)?.sheetId),
+            ),
+          );
+        }
         const eventStartEpochMs = yield* provider
-          .loadEventStart(spreadsheetId)
+          .loadEventStart(active.value.spreadsheetId, active.value.configuration)
           .pipe(Effect.catch(rejectProvider));
         const startTime = yield* Option.match(DateTime.make(eventStartEpochMs), {
           onNone: () =>
@@ -338,7 +237,7 @@ export const roomOrderSendOperationsLayer = Layer.effect(
         });
         const { start, end } = hourWindowFor({ startTime }, current.hour);
         return {
-          context: contextFromRow(claimed.context, current),
+          context: roomOrderContextFromRow(claimed.context, current),
           claimId: claimed.claimId,
           message: publishedRoomOrderMessage(
             buildRoomOrderContent(
@@ -439,7 +338,7 @@ export const roomOrderSendOperationsLayer = Layer.effect(
         }
         const sentAt = yield* Clock.currentTimeMillis;
         const mutation = persistence.roomOrderState.completeMessageRoomOrderSend({
-          ...messageKey(commit.context),
+          ...roomOrderMessageKey(commit.context),
           claimId: commit.claimId,
           sentMessageId: commit.sentMessage.messageId,
           sentConversationId: commit.sentMessage.conversation.conversationId,
@@ -566,7 +465,7 @@ export const roomOrderSendOperationsLayer = Layer.effect(
           current.sendClaimId !== claim.claimId
             ? Effect.void
             : persistence.roomOrderState.releaseMessageRoomOrderSendClaim({
-                ...messageKey(claim.context),
+                ...roomOrderMessageKey(claim.context),
                 claimId: claim.claimId,
               }),
         ),

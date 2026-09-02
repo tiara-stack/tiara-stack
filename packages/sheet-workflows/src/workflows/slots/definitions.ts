@@ -229,7 +229,7 @@ export const SlotSheetWorkflowDefinitions = Object.freeze([
 ] as const);
 
 export const SlotSheetWorkflows = Object.freeze(
-  SlotSheetWorkflowDefinitions.map(({ workflow }) => workflow as WorkflowDefinition),
+  SlotSheetWorkflowDefinitions.map(({ workflow }) => workflow),
 );
 
 const slotSheetWorkflowNames = new Set(SlotSheetWorkflows.map(({ name }) => name));

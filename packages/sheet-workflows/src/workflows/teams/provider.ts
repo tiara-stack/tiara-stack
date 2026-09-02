@@ -10,13 +10,14 @@ import {
   parseLegacyNumber,
   parseSheetIdentities,
   readBatchedSheetsValueRanges,
-  readSheetsValueRanges,
   upperFirst,
   type ValueRows,
   ValueRange,
   valueRowsAt,
 } from "../shared/runnerLocalSheets";
 import type { UserTeamsView } from "./schema";
+import type { WebSheetConfiguration } from "sheet-domain";
+import { loadConfigurationValueRanges } from "../shared/webConfigurationSheets";
 
 export class UserTeamsProviderError extends Data.TaggedError("UserTeamsProviderError")<{
   readonly operation: "create-client" | "read-configuration" | "read-user-teams";
@@ -24,7 +25,10 @@ export class UserTeamsProviderError extends Data.TaggedError("UserTeamsProviderE
 }> {}
 
 interface UserTeamsProviderShape {
-  readonly load: (spreadsheetId: string) => Effect.Effect<UserTeamsView, UserTeamsProviderError>;
+  readonly load: (
+    spreadsheetId: string,
+    configuration?: WebSheetConfiguration | null,
+  ) => Effect.Effect<UserTeamsView, UserTeamsProviderError>;
 }
 
 export class UserTeamsProvider extends Context.Service<UserTeamsProvider, UserTeamsProviderShape>()(
@@ -360,12 +364,14 @@ const makeProviderError = (operation: UserTeamsProviderError["operation"]) => (c
   new UserTeamsProviderError({ operation, cause });
 
 export const makeUserTeamsProvider = (client: sheets_v4.Sheets): UserTeamsProviderShape => ({
-  load: (spreadsheetId) =>
+  load: (spreadsheetId, configuration) =>
     Effect.gen(function* () {
-      const configurationRanges = yield* readSheetsValueRanges({
+      const configurationRanges = yield* loadConfigurationValueRanges({
         client,
         spreadsheetId,
-        ranges: [teamConfigRange, rangesConfigRange],
+        configuration,
+        legacyRanges: [teamConfigRange, rangesConfigRange],
+        selectConfiguredRows: ({ teamsRows, rangesRows }) => [teamsRows, rangesRows],
         makeError: makeProviderError("read-configuration"),
       });
       const parsed = yield* Effect.all({

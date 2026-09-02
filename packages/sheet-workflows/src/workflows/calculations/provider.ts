@@ -6,7 +6,9 @@ import {
   calculationProjectionStartRowIndex,
   calculationProjectionWidth,
 } from "../shared/calculationRange";
+import type { WebSheetConfiguration } from "sheet-domain";
 import { isRetryableRunnerLocalSheetsReadFailure } from "../shared/runnerLocalSheets";
+import { loadWebConfigurationSheetAdapter } from "../shared/webConfigurationSheets";
 import {
   maximumPersistedCalculationCells,
   maximumPersistedCalculationRows,
@@ -43,6 +45,8 @@ export interface LoadCalculationSourceOptions {
   readonly spreadsheetId: string;
   readonly sheetTitle: string;
   readonly canonicalSheetRef: string;
+  /** Omit for the legacy Settings Tab; provide the active owned source for native reads. */
+  readonly configuration?: WebSheetConfiguration | null;
 }
 
 export interface WriteCalculationProjectionOptions {
@@ -84,6 +88,9 @@ const cell = (value: unknown): CalculationCell =>
 
 const rowsFrom = (range: sheets_v4.Schema$ValueRange | undefined): CalculationRows =>
   (range?.values ?? []).map((row) => row.map(cell));
+
+const rowsFromValues = (rows: ReadonlyArray<ReadonlyArray<unknown>>): CalculationRows =>
+  rows.map((row) => row.map(cell));
 
 const sourceRangeBatches = (ranges: ReadonlyArray<string>): ReadonlyArray<ReadonlyArray<string>> =>
   Array.from({ length: Math.ceil(ranges.length / maximumSourceRangesPerBatch) }, (_, index) =>
@@ -253,39 +260,70 @@ export const makeCalculationProvider = (client: sheets_v4.Sheets): CalculationPr
 
   return {
     // Source reads intentionally coordinate metadata, configuration, chunked ranges, and alignment.
-    load: ({ canonicalSheetRef, sheetTitle, spreadsheetId }) =>
+    load: ({ canonicalSheetRef, configuration, sheetTitle, spreadsheetId }) =>
       // fallow-ignore-next-line complexity
       Effect.gen(function* () {
-        const { metadata, values } = yield* Effect.all(
+        const usesWebConfiguration = Predicate.isNotNullish(configuration);
+        if (usesWebConfiguration && configuration.spreadsheetId !== spreadsheetId) {
+          return yield* new CalculationProviderError({
+            operation: "read-source",
+            cause: "The web Sheet Configuration is bound to a different spreadsheet",
+          });
+        }
+        const projectionValueRangeIndex = usesWebConfiguration ? 0 : 2;
+        const { metadata, values, configurationRows } = yield* Effect.all(
           {
-            metadata: readRequest("read-source", (signal) =>
-              client.spreadsheets.get(
-                {
-                  spreadsheetId,
-                  fields: "sheets.properties(sheetId,title)",
-                },
-                { signal },
-              ),
-            ),
+            metadata: usesWebConfiguration
+              ? Effect.succeed(undefined)
+              : readRequest("read-source", (signal) =>
+                  client.spreadsheets.get(
+                    {
+                      spreadsheetId,
+                      fields: "sheets.properties(sheetId,title)",
+                    },
+                    { signal },
+                  ),
+                ),
             values: readRequest("read-source", (signal) =>
               client.spreadsheets.values.batchGet(
                 {
                   spreadsheetId,
-                  ranges: [configurationRange, teamConfigurationRange, canonicalSheetRef],
+                  ranges: usesWebConfiguration
+                    ? [canonicalSheetRef]
+                    : [configurationRange, teamConfigurationRange, canonicalSheetRef],
                   valueRenderOption: "UNFORMATTED_VALUE",
                   dateTimeRenderOption: "SERIAL_NUMBER",
                 },
                 { signal },
               ),
             ),
+            configurationRows: usesWebConfiguration
+              ? loadWebConfigurationSheetAdapter({
+                  client,
+                  spreadsheetId,
+                  configuration,
+                  makeError: (cause) =>
+                    new CalculationProviderError({ operation: "read-source", cause }),
+                })
+              : Effect.succeed(undefined),
           },
           { concurrency: "unbounded" },
         );
-        const matchingSheets = (metadata.data.sheets ?? []).flatMap(({ properties }) =>
-          properties?.title === sheetTitle && Predicate.isNumber(properties.sheetId)
-            ? [{ sheetId: properties.sheetId, title: properties.title }]
-            : [],
-        );
+        if (usesWebConfiguration && Predicate.isUndefined(configurationRows)) {
+          return yield* new CalculationProviderError({
+            operation: "read-source",
+            cause: "The web Sheet Configuration adapter returned no rows",
+          });
+        }
+        const matchingSheets = usesWebConfiguration
+          ? (configurationRows?.tabs ?? []).flatMap(({ sheetId, title }) =>
+              title === sheetTitle ? [{ sheetId, title }] : [],
+            )
+          : (metadata?.data.sheets ?? []).flatMap(({ properties }) =>
+              properties?.title === sheetTitle && Predicate.isNumber(properties.sheetId)
+                ? [{ sheetId: properties.sheetId, title: properties.title }]
+                : [],
+            );
         const target = matchingSheets[0];
         if (Predicate.isUndefined(target)) {
           return yield* new CalculationTargetError({ code: "MissingSheet" });
@@ -294,8 +332,12 @@ export const makeCalculationProvider = (client: sheets_v4.Sheets): CalculationPr
           return yield* new CalculationTargetError({ code: "NonCanonicalSheet" });
         }
         const groupedRows = values.data.valueRanges ?? [];
-        const settingsRows = rowsFrom(groupedRows[0]);
-        const teamConfigurationRows = rowsFrom(groupedRows[1]);
+        const settingsRows = usesWebConfiguration
+          ? rowsFromValues(configurationRows?.rangesRows ?? [])
+          : rowsFrom(groupedRows[0]);
+        const teamConfigurationRows = usesWebConfiguration
+          ? rowsFromValues(configurationRows?.teamsRows ?? [])
+          : rowsFrom(groupedRows[1]);
         const plan = makeCalculationSourceReadPlan(settingsRows, teamConfigurationRows);
         const sourceBatches = Predicate.isUndefined(plan) ? [] : sourceRangeBatches(plan.ranges);
         const sourceValues = Predicate.isUndefined(plan)
@@ -331,7 +373,7 @@ export const makeCalculationProvider = (client: sheets_v4.Sheets): CalculationPr
           sheetId: target.sheetId,
           sheetTitle,
           canonicalSheetRef,
-          preWriteProjection: rowsFrom(groupedRows[2]),
+          preWriteProjection: rowsFrom(groupedRows[projectionValueRangeIndex]),
           settingsRows,
           teamConfigurationRows,
           sourceRanges: Predicate.isUndefined(plan)

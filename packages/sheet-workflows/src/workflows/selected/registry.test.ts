@@ -7,6 +7,7 @@ import { ConfigurationSheetWorkflowContracts } from "../configuration/catalog";
 import { MemberSheetWorkflowContracts } from "../members/catalog";
 import { PreferencesSheetWorkflowContracts } from "../preferences/catalog";
 import { ReadOnlySheetWorkflowContracts } from "../readOnly/catalog";
+import { SheetConfigurationWorkflowContracts } from "../sheetConfiguration/catalog";
 import { RoomOrderSheetWorkflowContracts } from "../roomOrders/catalog";
 import { ScheduleSheetWorkflowContracts } from "../schedules/catalog";
 import { ScreenshotSheetWorkflowContracts } from "../screenshots/catalog";
@@ -26,6 +27,7 @@ describe("selected Sheet Workflow registry", () => {
   it("exposes one isolated Zero group per selected contract", () => {
     expect(SelectedSheetWorkflowContracts).toEqual([
       ...ReadOnlySheetWorkflowContracts,
+      ...SheetConfigurationWorkflowContracts,
       ...PreferencesSheetWorkflowContracts,
       ...ConfigurationSheetWorkflowContracts,
       ...SlotSheetWorkflowContracts,
@@ -41,10 +43,10 @@ describe("selected Sheet Workflow registry", () => {
       ...ScreenshotSheetWorkflowContracts,
       ...CalculationSheetWorkflowContracts,
     ]);
-    expect(SelectedSheetWorkflowContracts).toHaveLength(35);
+    expect(SelectedSheetWorkflowContracts).toHaveLength(44);
     const groups = makeSelectedSheetWorkflowZeroGroups(() => Promise.resolve());
     expect(groups).toHaveLength(SelectedSheetWorkflowContracts.length);
-    expect(groups.flatMap(({ endpoints }) => Object.keys(endpoints))).toHaveLength(105);
+    expect(groups.flatMap(({ endpoints }) => Object.keys(endpoints))).toHaveLength(132);
     expect(groups.map(({ identifier }) => identifier)).toEqual(
       SelectedSheetWorkflowContracts.map(workflowContractZeroGroupIdentifier),
     );

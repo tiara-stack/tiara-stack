@@ -11,7 +11,7 @@ import { makeUserScheduleDefinition } from "./definition";
 const ScheduleSheetWorkflowDefinitions = Object.freeze([makeUserScheduleDefinition()] as const);
 
 export const ScheduleSheetWorkflows = Object.freeze(
-  ScheduleSheetWorkflowDefinitions.map(({ workflow }) => workflow as WorkflowDefinition),
+  ScheduleSheetWorkflowDefinitions.map(({ workflow }) => workflow),
 );
 
 const scheduleSheetWorkflowNames = new Set(ScheduleSheetWorkflows.map(({ name }) => name));

@@ -1,7 +1,6 @@
 import type { sheets_v4 } from "@googleapis/sheets";
 import { Context, Data, Effect, Layer, Predicate, Schema } from "effect";
 import {
-  cellText,
   commaSeparated,
   eventConfigRange,
   firstCell,
@@ -10,17 +9,19 @@ import {
   makeRunnerLocalSheetsClient,
   parseEventStart,
   parseKeyValueRows,
-  parseLegacyNumber,
   parseSheetIdentities,
   parseRunnerConfigurations,
   parseScheduleConfigurations,
   parseSheetBoolean,
   quotedRange,
   readBatchedSheetsValueRanges,
-  readSheetsValueRanges,
   runnerConfigRange,
   runnerPresent,
   scheduleConfigRange,
+  scheduleFillValues,
+  scheduleHour,
+  mapScheduleRows,
+  scheduleRowCount,
   type SheetRunnerConfiguration,
   type SheetScheduleConfiguration,
   upperFirst,
@@ -30,6 +31,8 @@ import {
 } from "../shared/runnerLocalSheets";
 import { slotCapacity } from "../shared/slotCapacity";
 import { UserScheduleView } from "./schema";
+import type { WebSheetConfiguration } from "sheet-domain";
+import { loadConfigurationValueRanges } from "../shared/webConfigurationSheets";
 
 export class UserScheduleProviderError extends Data.TaggedError("UserScheduleProviderError")<{
   readonly operation: "create-client" | "read-configuration" | "read-user-schedule";
@@ -40,6 +43,11 @@ interface UserScheduleProviderShape {
   readonly load: (
     spreadsheetId: string,
     day: number,
+    configuration?: WebSheetConfiguration | null,
+  ) => Effect.Effect<UserScheduleView, UserScheduleProviderError>;
+  readonly loadAll: (
+    spreadsheetId: string,
+    configuration?: WebSheetConfiguration | null,
   ) => Effect.Effect<UserScheduleView, UserScheduleProviderError>;
 }
 
@@ -146,20 +154,17 @@ const parseScheduleRows = (
   const monitorRows = valueRowsAt(valueRanges, indexes.monitor);
   const visible =
     parseSheetBoolean(firstCell(valueRowsAt(valueRanges, indexes.visible), 0)) ?? true;
-  const rowCount = Math.max(
-    hourRows.length,
-    fillRows.length,
-    overfillRows.length,
-    standbyRows.length,
-    breakRows.length,
-    monitorRows.length,
+  const rowCount = scheduleRowCount(
+    hourRows,
+    fillRows,
+    overfillRows,
+    standbyRows,
+    breakRows,
+    monitorRows,
   );
-  return Array.from({ length: rowCount }, (_, rowIndex) => {
-    const hour = parseLegacyNumber(firstCell(hourRows, rowIndex)) ?? null;
-    const fills = (fillRows[rowIndex] ?? []).slice(0, slotCapacity).flatMap((value) => {
-      const valueText = cellText(value);
-      return Predicate.isUndefined(valueText) ? [] : [upperFirst(valueText)];
-    });
+  return mapScheduleRows(rowCount, (rowIndex) => {
+    const hour = scheduleHour(hourRows, rowIndex);
+    const fills = scheduleFillValues(fillRows, rowIndex, slotCapacity, upperFirst);
     const overfills = commaSeparated(firstCell(overfillRows, rowIndex)).map(upperFirst);
     const standbys = commaSeparated(firstCell(standbyRows, rowIndex)).map(upperFirst);
     const isBreak =
@@ -184,11 +189,19 @@ const parseSchedules = (
   runners: ReadonlyArray<SheetRunnerConfiguration>,
   indexes: ReadonlyArray<ScheduleRangeIndexes>,
   valueRanges: ReadonlyArray<typeof ValueRange.Type>,
+  includeScheduleIdentity = false,
 ): UserScheduleView["schedules"] => {
   const runnerHours = makeRunnerHours(runners);
-  return configurations.flatMap((configuration, index) =>
-    parseScheduleRows(configuration, indexes[index]!, runnerHours, valueRanges),
-  );
+  return configurations.flatMap((configuration, index) => {
+    const schedules = parseScheduleRows(configuration, indexes[index]!, runnerHours, valueRanges);
+    return includeScheduleIdentity
+      ? schedules.map((schedule) => ({
+          ...schedule,
+          channel: configuration.channel,
+          day: configuration.day,
+        }))
+      : schedules;
+  });
 };
 
 export const isRetryableUserScheduleReadFailure = ({ cause }: UserScheduleProviderError): boolean =>
@@ -197,13 +210,25 @@ export const isRetryableUserScheduleReadFailure = ({ cause }: UserScheduleProvid
 const makeProviderError = (operation: UserScheduleProviderError["operation"]) => (cause: unknown) =>
   new UserScheduleProviderError({ operation, cause });
 
-export const makeUserScheduleProvider = (client: sheets_v4.Sheets): UserScheduleProviderShape => ({
-  load: (spreadsheetId, day) =>
+export const makeUserScheduleProvider = (client: sheets_v4.Sheets): UserScheduleProviderShape => {
+  const loadView = (
+    spreadsheetId: string,
+    day: number | undefined,
+    configuration: WebSheetConfiguration | null | undefined,
+    includeScheduleIdentity: boolean,
+  ) =>
     Effect.gen(function* () {
-      const configurationRanges = yield* readSheetsValueRanges({
+      const configurationRanges = yield* loadConfigurationValueRanges({
         client,
         spreadsheetId,
-        ranges: [rangesConfigRange, eventConfigRange, scheduleConfigRange, runnerConfigRange],
+        configuration,
+        legacyRanges: [rangesConfigRange, eventConfigRange, scheduleConfigRange, runnerConfigRange],
+        selectConfiguredRows: ({ rangesRows, eventRows, schedulesRows, runnersRows }) => [
+          rangesRows,
+          eventRows,
+          schedulesRows,
+          runnersRows,
+        ],
         makeError: makeProviderError("read-configuration"),
       });
       const parsed = yield* Effect.all({
@@ -234,10 +259,19 @@ export const makeUserScheduleProvider = (client: sheets_v4.Sheets): UserSchedule
           parsed.runners,
           plan.scheduleIndexes,
           userScheduleRanges,
+          includeScheduleIdentity,
         ),
       };
-    }),
-});
+    });
+
+  return {
+    load: (spreadsheetId, day, configuration) => loadView(spreadsheetId, day, configuration, false),
+    // Legacy workspaces need every day to build the read-only workspace view. Read the
+    // configuration ranges once and batch the resulting schedule ranges together.
+    loadAll: (spreadsheetId, configuration) =>
+      loadView(spreadsheetId, undefined, configuration, true),
+  };
+};
 
 export const userScheduleProviderLayer = Layer.effect(
   UserScheduleProvider,

@@ -6,6 +6,9 @@ import {
   WebSheetConfiguration,
   formatSheetRange,
   formatSheetRangeOption,
+  SheetConfigurationSource,
+  migrateLegacySource,
+  migrateLegacySourceBinding,
   normalizeRunnerIntervals,
   parseSheetRange,
   sheetTitleFromRange,
@@ -221,6 +224,23 @@ describe("web-native Sheet Configuration values", () => {
         unexpected: true,
       }),
     ).toThrow();
+  });
+
+  it("migrates legacy layout digests before strict binding decoding", () => {
+    const binding = migrateLegacySourceBinding({
+      status: "bound",
+      expectedTitle: "Thee's Sheet Settings",
+      spreadsheetId: "spreadsheet-1",
+      sheetId: 2,
+      layoutDigest: "legacy-settings-layout-v1",
+    });
+    const source = migrateLegacySource({ kind: "legacy", binding });
+
+    expect(
+      Schema.decodeUnknownSync(SheetConfigurationSource)(source, {
+        onExcessProperty: "error",
+      }),
+    ).toMatchObject({ binding: { layoutVersion: "legacy-settings-layout-v1" } });
   });
 
   it.effect("includes schema failure details in invalid configuration diagnostics", () =>

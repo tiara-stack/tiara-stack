@@ -13,6 +13,13 @@ export const MemberKickContext = Schema.Struct({
   clientId: Schema.String,
   workspaceId: WorkspaceId,
   spreadsheetId: Schema.NullOr(SpreadsheetId),
+  /** The source identity captured with the spreadsheet so later actions cannot cross revisions. */
+  source: Schema.NullOr(
+    Schema.Struct({
+      kind: Schema.Literals(["legacy", "owned"]),
+      revisionId: Schema.NullOr(Schema.String),
+    }),
+  ),
   runningConversationId: Schema.String,
   conversationName: Schema.NullOr(Schema.String),
   roleId: Schema.NullOr(Schema.String),

@@ -58,6 +58,7 @@ const execution = Schema.decodeUnknownSync(MemberKickResolvedExecution)({
     clientId: client.clientId,
     workspaceId: input.workspaceId,
     spreadsheetId: "sheet-1",
+    source: { kind: "legacy", revisionId: null },
     runningConversationId: "conversation-1",
     conversationName: "alpha",
     roleId: "cleanup-role",

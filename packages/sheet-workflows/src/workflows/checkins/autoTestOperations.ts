@@ -2,7 +2,6 @@ import { Cause, DateTime, Effect, Exit, Layer, Option, Predicate, Random } from 
 import {
   BotOutboundMessage,
   type BotText,
-  type BotTextPart,
   type ConversationRef,
   type DeliveryKey,
   type MessageRef,
@@ -33,6 +32,7 @@ import {
 import { config } from "@/config";
 import { SheetBotCacheClient } from "@/services/sheetBotCacheClient";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
+import { resolveAuthoritativeSheetConfiguration } from "@/services/authoritativeSheetConfiguration";
 import { ReadOnlyWorkflowAuthorization } from "../readOnly/authorization";
 import { calculateRoomOrderEntries } from "../roomOrders/createCalculation";
 import { decodeWorkflowContractInputOrDie } from "../shared/execution";
@@ -50,6 +50,13 @@ import {
   requireInteractiveDiscordAccountId,
 } from "../shared/interactive";
 import { providerCauseKind } from "../shared/providerFailure";
+import {
+  missingParticipantIdMessage,
+  monitorFailureMessage as getMonitorFailureMessage,
+  renderParticipantMentions,
+  renderTemplate,
+} from "../shared/checkinPresentation";
+import { indexSchedulesByHour } from "../shared/runnerLocalSheets";
 import { autoCheckinTestActionIdentities, makeAutoCheckinTestDeliveryKey } from "./autoTestKeys";
 import {
   AutoCheckinTestProvider,
@@ -195,46 +202,6 @@ const pickCheckinTemplate = Effect.gen(function* () {
   }
   return checkinMessageTemplates[checkinMessageTemplates.length - 1]!.value;
 });
-
-const renderStaticTemplateSegment = (value: string) =>
-  value
-    .split("~~")
-    .flatMap((segment, index) =>
-      segment.length === 0
-        ? []
-        : index % 2 === 0
-          ? [MessageText.text(segment)]
-          : [{ type: "strikethrough" as const, parts: [MessageText.text(segment)] }],
-    );
-
-const renderTemplate = (
-  template: string,
-  context: Readonly<Record<string, ReadonlyArray<BotTextPart>>>,
-) => {
-  const result: Array<BotTextPart> = [];
-  const pattern = /\{\{\{?(\w+)\}?\}\}/gu;
-  let lastIndex = 0;
-  for (const match of template.matchAll(pattern)) {
-    const index = match.index ?? 0;
-    if (index > lastIndex)
-      result.push(...renderStaticTemplateSegment(template.slice(lastIndex, index)));
-    result.push(...(context[match[1] ?? ""] ?? renderStaticTemplateSegment(match[0])));
-    lastIndex = index + match[0].length;
-  }
-  if (lastIndex < template.length)
-    result.push(...renderStaticTemplateSegment(template.slice(lastIndex)));
-  return result;
-};
-
-const renderParticipantMentions = (participants: ReadonlyArray<Participant>) =>
-  participants.flatMap((participant, index) =>
-    MessageText.parts(
-      index === 0 ? undefined : MessageText.text(" "),
-      Predicate.isString(participant.userId)
-        ? MessageText.userMention(participant.userId)
-        : MessageText.text(participant.name),
-    ),
-  );
 
 const makeAnchorPayload = (
   description: BotText,
@@ -659,23 +626,30 @@ export const autoCheckinTestWorkflowOperationsLayer = Layer.effect(
             ),
           );
         }
-        if (Predicate.isNull(workspace.sheetId)) {
-          return yield* Effect.fail(interactiveConfigurationMissing("workspace.sheetId"));
+        const active = yield* resolveAuthoritativeSheetConfiguration(
+          persistence,
+          input.workspaceId,
+        ).pipe(
+          Effect.timeout("30 seconds"),
+          Effect.mapError((cause) =>
+            operationError(`${operationPrefix}.prepare-target.source`, cause),
+          ),
+        );
+        if (Option.isNone(active)) {
+          return yield* Effect.fail(
+            interactiveConfigurationMissing("workspace.sheetConfiguration"),
+          );
         }
-        const spreadsheetId = workspace.sheetId;
+        const spreadsheetId = active.value.spreadsheetId;
         const view = yield* provider
-          .loadCheckin(spreadsheetId, execution.conversationName)
+          .loadCheckin(spreadsheetId, execution.conversationName, active.value.configuration)
           .pipe(Effect.catchTag("AutoCheckinTestProviderError", providerRejected));
         if (view.schedules.length === 0) {
           return yield* Effect.fail(
             interactiveConfigurationMissing("workspace.sheetScheduleConfiguration"),
           );
         }
-        const schedulesByHour = new Map(
-          view.schedules.flatMap((schedule) =>
-            Predicate.isNull(schedule.hour) ? [] : ([[schedule.hour, schedule]] as const),
-          ),
-        );
+        const schedulesByHour = indexSchedulesByHour(view.schedules);
         const previous = schedulesByHour.get(autoCheckinTestHour - 1);
         const current = schedulesByHour.get(autoCheckinTestHour);
         const previousParticipants = (previous?.fills ?? []).map(toParticipant);
@@ -709,15 +683,7 @@ export const autoCheckinTestWorkflowOperationsLayer = Layer.effect(
                   MessageText.timestamp(DateTime.toEpochMillis(hourWindow.start), "relative"),
                 ),
               });
-        const lookupFailures = (current?.fills ?? []).flatMap(({ accountId, name }) =>
-          Predicate.isNull(accountId) ? [name] : [],
-        );
-        const lookupFailureMessage =
-          lookupFailures.length === 0
-            ? Option.none<string>()
-            : Option.some(
-                `Cannot look up ID for ${lookupFailures.join(", ")}. They would need to check in manually.`,
-              );
+        const lookupFailureMessage = missingParticipantIdMessage(current?.fills ?? []);
         const monitorCheckinMessage = makeMonitorCheckinMessage({
           initialMessage,
           empty: Math.max(5 - (current?.fills.length ?? 0) - (current?.overfillCount ?? 0), 0),
@@ -728,17 +694,7 @@ export const autoCheckinTestWorkflowOperationsLayer = Layer.effect(
         });
         const monitorUserId = current?.monitor?.accountId ?? null;
         const previousMonitorUserId = previous?.monitor?.accountId ?? null;
-        const monitorFailureMessage = Predicate.isUndefined(current)
-          ? null
-          : Predicate.isNull(current.monitor)
-            ? [MessageText.text("Cannot ping monitor: monitor not assigned for this hour.")]
-            : Predicate.isNull(current.monitor.accountId)
-              ? [
-                  MessageText.text(
-                    `Cannot ping monitor: monitor "${current.monitor.name}" is missing an ID in the sheet.`,
-                  ),
-                ]
-              : null;
+        const monitorFailureMessage = getMonitorFailureMessage(current);
         const monitorSummary = MessageText.lines(
           monitorCheckinMessage,
           ...(Predicate.isString(monitorUserId)
@@ -792,7 +748,11 @@ export const autoCheckinTestWorkflowOperationsLayer = Layer.effect(
         const tentativeRoomOrderPreview = shouldSendTentativeRoomOrder(current?.fills.length ?? 0)
           ? yield* Effect.gen(function* () {
               const roomView = yield* provider
-                .loadRoomOrder(spreadsheetId, execution.conversationName)
+                .loadRoomOrder(
+                  spreadsheetId,
+                  execution.conversationName,
+                  active.value.configuration,
+                )
                 .pipe(Effect.catchTag("AutoCheckinTestProviderError", providerRejected));
               const roomSchedulesByHour = new Map(
                 roomView.schedules.flatMap((schedule) =>

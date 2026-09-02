@@ -12,6 +12,10 @@ const CalculationSheetWorkflowDefinitions = Object.freeze([
   CalculationsRecalculateSheetDefinition,
 ] as const);
 
+export const CalculationSheetWorkflows = Object.freeze(
+  CalculationSheetWorkflowDefinitions.map(({ workflow }) => workflow),
+);
+
 const calculationProjectionEntityLayer = makeCalculationProjectionEntityLayer({
   run: ({ payload }) => runCalculationsRecalculateSheetSerialized(payload),
 });

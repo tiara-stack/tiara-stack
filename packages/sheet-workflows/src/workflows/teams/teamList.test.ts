@@ -460,7 +460,10 @@ describe("team-list delivery Workflow Definition slice", () => {
           },
           {
             workspace: Option.some(workspaceConfiguration(null)),
-            expected: { _tag: "ConfigurationMissing", configuration: "workspace.sheetId" },
+            expected: {
+              _tag: "ConfigurationMissing",
+              configuration: "workspace.sheetConfiguration",
+            },
           },
         ] as const;
         for (const { expected, workspace } of cases) {

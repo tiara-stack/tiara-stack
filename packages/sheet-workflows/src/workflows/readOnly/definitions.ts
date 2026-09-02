@@ -21,7 +21,8 @@ import {
   DiscordLoadWorkspaceRoles,
   NotificationsLoadSupportedClients,
   SchedulesLoadWorkspace,
-  DataAcquisitionDeclaredFailure,
+  SheetsDescribe,
+  SheetsReadSnapshot,
 } from "sheet-workflow-contracts";
 import { ReadOnlyWorkflowAuthorization } from "./authorization";
 import { readOnlySheetWorkflowDefinitionVersion } from "./catalog";
@@ -36,16 +37,21 @@ type ReadOnlyExecution<Contract extends AnyWorkflowContract> = {
   readonly actorProvenance?: typeof ActorProvenance.Type | undefined;
 };
 
-const preserveDeclaredFailure = <A>(
+const preserveDeclaredFailure = <A, Failure extends Schema.Top>(
   effect: Effect.Effect<A, unknown>,
-): Effect.Effect<A, DataAcquisitionDeclaredFailure> =>
+  failure: Failure,
+): Effect.Effect<A, Schema.Schema.Type<Failure>> =>
   effect.pipe(
-    Effect.catch((error) =>
-      Schema.is(DataAcquisitionDeclaredFailure)(error) ? Effect.fail(error) : Effect.die(error),
+    Effect.catchIf(
+      (error): error is Schema.Schema.Type<Failure> => Schema.is(failure)(error),
+      (error) => Effect.fail<Schema.Schema.Type<Failure>>(error),
+      (error) => Effect.die(error),
     ),
   );
 
-const authorizationFailure = (contract: AnyWorkflowContract): DataAcquisitionDeclaredFailure => ({
+const authorizationFailure = (
+  contract: AnyWorkflowContract,
+): { readonly _tag: "AuthorizationRevoked"; readonly policy: string } => ({
   _tag: "AuthorizationRevoked",
   policy: contract.authorizationPolicy.policy,
 });
@@ -83,6 +89,7 @@ const makeDefinition = <Contract extends AnyWorkflowContract>(
           );
         return yield* preserveDeclaredFailure(
           read(dataSource, { ...execution, input } as ReadOnlyExecution<Contract>),
+          contract.declaredFailure,
         );
       }),
   });
@@ -128,17 +135,27 @@ const NotificationsLoadSupportedClientsDefinition = makeDefinition(
   (dataSource, { input }) => dataSource.loadSupportedClients(input.platform),
 );
 
+const SheetsDescribeDefinition = makeDefinition(SheetsDescribe, (dataSource, { input }) =>
+  dataSource.describeSheets(input),
+);
+
+const SheetsReadSnapshotDefinition = makeDefinition(SheetsReadSnapshot, (dataSource, { input }) =>
+  dataSource.readSheetSnapshot(input),
+);
+
 export const ReadOnlySheetWorkflowDefinitions = Object.freeze([
   DiscordLoadProfileDefinition,
   DiscordLoadWorkspaceChannelsDefinition,
   DiscordLoadWorkspaceRolesDefinition,
   AuthorizationLoadWorkspaceCapabilitiesDefinition,
+  SheetsDescribeDefinition,
+  SheetsReadSnapshotDefinition,
   SchedulesLoadWorkspaceDefinition,
   NotificationsLoadSupportedClientsDefinition,
 ]);
 
 export const ReadOnlySheetWorkflows = Object.freeze(
-  ReadOnlySheetWorkflowDefinitions.map(({ workflow }) => workflow as WorkflowDefinition),
+  ReadOnlySheetWorkflowDefinitions.map(({ workflow }) => workflow),
 );
 
 const readOnlySheetWorkflowNames = new Set(ReadOnlySheetWorkflows.map(({ name }) => name));
@@ -155,6 +172,10 @@ export const readOnlySheetWorkflowLayers = Layer.mergeAll(
   DiscordLoadWorkspaceRolesDefinition.workflowLayer,
   AuthorizationLoadWorkspaceCapabilitiesDefinition.action.toLayer(),
   AuthorizationLoadWorkspaceCapabilitiesDefinition.workflowLayer,
+  SheetsDescribeDefinition.action.toLayer(),
+  SheetsDescribeDefinition.workflowLayer,
+  SheetsReadSnapshotDefinition.action.toLayer(),
+  SheetsReadSnapshotDefinition.workflowLayer,
   SchedulesLoadWorkspaceDefinition.action.toLayer(),
   SchedulesLoadWorkspaceDefinition.workflowLayer,
   NotificationsLoadSupportedClientsDefinition.action.toLayer(),
@@ -162,6 +183,6 @@ export const readOnlySheetWorkflowLayers = Layer.mergeAll(
 ).pipe(Layer.provide(actionContextSqlLayer));
 
 export const materializeReadOnlyWorkflowFailure = (
-  _workflow: WorkflowDefinition,
+  workflow: WorkflowDefinition,
   cause: Cause.Cause<unknown>,
-): WorkflowJson => materializeWorkflowFailure(Schema.is(DataAcquisitionDeclaredFailure), cause);
+): WorkflowJson => materializeWorkflowFailure(Schema.is(workflow.errorSchema), cause);

@@ -253,7 +253,7 @@ export const PreferencesSheetWorkflowDefinitions = Object.freeze([
 ]);
 
 export const PreferencesSheetWorkflows = Object.freeze(
-  PreferencesSheetWorkflowDefinitions.map(({ workflow }) => workflow as WorkflowDefinition),
+  PreferencesSheetWorkflowDefinitions.map(({ workflow }) => workflow),
 );
 
 const preferencesSheetWorkflowNames = new Set(PreferencesSheetWorkflows.map(({ name }) => name));

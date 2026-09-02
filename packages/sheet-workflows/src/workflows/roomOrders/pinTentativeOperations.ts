@@ -4,12 +4,15 @@ import { publishedRoomOrderMessage } from "sheet-message-content/roomOrderMessag
 import { buildRoomOrderContent } from "sheet-message-content/roomOrderContent";
 import { fillParticipantFromName, hourWindowFor } from "sheet-message-content/rendering";
 import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
+import {
+  missingConfigurationKey,
+  resolveAuthoritativeSheetConfigurationForWorkspace,
+} from "@/services/authoritativeSheetConfiguration";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
 import {
   interactiveAuthorizationRevoked,
-  interactiveDeliveryRejected,
+  interactiveConfigurationMissing,
   interactiveExternalOperationRejected,
-  mapDeliveryFailure,
 } from "../shared/interactive";
 import { providerCauseKind } from "../shared/providerFailure";
 import type { AuthorizedRoomOrderPinTentativeContext } from "../readOnly/authorization";
@@ -22,6 +25,13 @@ import {
   RoomOrderTentativePinOperationsError,
 } from "./pinTentativeService";
 import { RoomOrderNavigationProvider, RoomOrderNavigationProviderError } from "./provider";
+import {
+  canonicalRoomOrderViewMatches,
+  makeRoomOrderDeliveryFailure,
+  rejectRoomOrderProvider,
+  roomOrderContextFromRow,
+  roomOrderMessageKey,
+} from "./helpers";
 
 const operationError = (operation: string, cause: unknown) =>
   new RoomOrderTentativePinOperationsError({ operation, cause });
@@ -31,72 +41,6 @@ const operationCauseKind = (cause: Cause.Cause<RoomOrderTentativePinOperationsEr
     onNone: () => providerCauseKind(cause),
     onSome: (error) => providerCauseKind(error.cause),
   });
-
-const messageKey = (context: {
-  readonly clientPlatform: "discord";
-  readonly clientId: string;
-  readonly messageId: string;
-}) => ({
-  clientPlatform: context.clientPlatform,
-  clientId: context.clientId,
-  messageId: context.messageId,
-});
-
-const canonicalScalarFields = [
-  "clientPlatform",
-  "clientId",
-  "messageId",
-  "workspaceId",
-  "conversationId",
-  "hour",
-  "rank",
-  "tentative",
-  "monitor",
-] as const;
-
-const canonicalViewMatches = (
-  context: AuthorizedRoomOrderPinTentativeContext,
-  row: {
-    readonly clientPlatform: string;
-    readonly clientId: string;
-    readonly messageId: string;
-    readonly workspaceId: string | null;
-    readonly conversationId: string | null;
-    readonly previousFills: ReadonlyArray<string>;
-    readonly fills: ReadonlyArray<string>;
-    readonly hour: number;
-    readonly rank: number;
-    readonly tentative: boolean;
-    readonly monitor: string | null;
-    readonly deletedAt: number | null;
-  },
-) =>
-  canonicalScalarFields.every((field) => row[field] === context[field]) &&
-  row.previousFills.length === context.previousFills.length &&
-  row.previousFills.every((value, index) => value === context.previousFills[index]) &&
-  row.fills.length === context.fills.length &&
-  row.fills.every((value, index) => value === context.fills[index]) &&
-  Predicate.isNull(row.deletedAt);
-
-const contextFromRow = (
-  context: AuthorizedRoomOrderPinTentativeContext,
-  row: {
-    readonly sendClaimId: string | null;
-    readonly sentMessageId: string | null;
-    readonly sentConversationId: string | null;
-    readonly tentativeUpdateClaimId: string | null;
-    readonly tentativePinClaimId: string | null;
-    readonly tentativePinnedAt: number | null;
-  },
-): AuthorizedRoomOrderPinTentativeContext => ({
-  ...context,
-  sendClaimId: row.sendClaimId,
-  sentMessageId: row.sentMessageId,
-  sentConversationId: row.sentConversationId,
-  tentativeUpdateClaimId: row.tentativeUpdateClaimId,
-  tentativePinClaimId: row.tentativePinClaimId,
-  tentativePinnedAt: row.tentativePinnedAt,
-});
 
 const busyDetail = (
   row: {
@@ -116,56 +60,10 @@ const busyDetail = (
   return "room order is temporarily unavailable.";
 };
 
-// Provider diagnostics intentionally use the established room-order audit shape.
-// fallow-ignore-next-line code-duplication
 const rejectProvider = (error: RoomOrderNavigationProviderError) =>
-  Effect.logWarning("The room-order provider rejected the event configuration read").pipe(
-    Effect.annotateLogs({
-      providerOperation: error.operation,
-      providerCauseKind: providerCauseKind(error.cause),
-    }),
-    Effect.andThen(
-      Effect.fail(
-        interactiveExternalOperationRejected(
-          "roomOrders.pinTentative.loadTentativePinView",
-          "ProviderRejected",
-          "The room-order provider rejected the event configuration read",
-        ),
-      ),
-    ),
-  );
+  rejectRoomOrderProvider(error, "roomOrders.pinTentative.loadTentativePinView");
 
-// The delivery failure boundary intentionally stays uniform across interactive room-order slices.
-// fallow-ignore-next-line code-duplication
-const deliveryFailure = (
-  policy: string,
-  operation: string,
-  resource: string,
-  rejectedMessage: string,
-  recoveryRequired: boolean,
-  committedReference?: string,
-) => {
-  const mapFailure = mapDeliveryFailure(
-    policy,
-    operation,
-    resource,
-    recoveryRequired,
-    rejectedMessage,
-    operationError,
-    committedReference,
-  );
-  return (error: unknown) => {
-    const mapped = mapFailure(error);
-    return Predicate.isTagged("ResourceNotFound")(mapped)
-      ? interactiveDeliveryRejected(
-          operation,
-          rejectedMessage,
-          recoveryRequired,
-          committedReference,
-        )
-      : mapped;
-  };
-};
+const deliveryFailure = makeRoomOrderDeliveryFailure(operationError);
 
 export const roomOrderTentativePinOperationsLayer = Layer.effect(
   RoomOrderTentativePinOperations,
@@ -175,7 +73,7 @@ export const roomOrderTentativePinOperationsLayer = Layer.effect(
     const delivery = yield* SheetBotDeliveryClient;
 
     const loadCurrent = (context: AuthorizedRoomOrderPinTentativeContext, operation: string) =>
-      persistence.roomOrderState.getMessageRoomOrder(messageKey(context)).pipe(
+      persistence.roomOrderState.getMessageRoomOrder(roomOrderMessageKey(context)).pipe(
         Effect.timeout("30 seconds"),
         Effect.mapError((cause) => operationError(operation, cause)),
       );
@@ -193,7 +91,7 @@ export const roomOrderTentativePinOperationsLayer = Layer.effect(
           }),
         ),
         Effect.filterOrFail(
-          (current) => canonicalViewMatches(context, current),
+          (current) => canonicalRoomOrderViewMatches(context, current),
           () => interactiveAuthorizationRevoked(policy),
         ),
       );
@@ -209,7 +107,7 @@ export const roomOrderTentativePinOperationsLayer = Layer.effect(
           policy,
           "roomOrders.pinTentative.claimTentativePin.load",
         );
-        const initialContext = contextFromRow(context, initial);
+        const initialContext = roomOrderContextFromRow(context, initial);
         if (!initial.tentative) {
           return {
             context: initialContext,
@@ -230,7 +128,7 @@ export const roomOrderTentativePinOperationsLayer = Layer.effect(
           return { context: initialContext, claimId, status: "claimed" as const, detail: null };
         }
         const mutation = persistence.roomOrderState
-          .claimMessageRoomOrderTentativePin({ ...messageKey(context), claimId })
+          .claimMessageRoomOrderTentativePin({ ...roomOrderMessageKey(context), claimId })
           .pipe(
             Effect.timeout("30 seconds"),
             Effect.mapError((cause) =>
@@ -261,7 +159,7 @@ export const roomOrderTentativePinOperationsLayer = Layer.effect(
           policy,
           "roomOrders.pinTentative.claimTentativePin.loadResult",
         );
-        const currentContext = contextFromRow(context, current);
+        const currentContext = roomOrderContextFromRow(context, current);
         if (Predicate.isNotNull(current.tentativePinnedAt)) {
           return {
             context: currentContext,
@@ -295,15 +193,25 @@ export const roomOrderTentativePinOperationsLayer = Layer.effect(
         ) {
           return yield* Effect.fail(interactiveAuthorizationRevoked(policy));
         }
-        const { entries, workspace } = yield* Effect.all(
+        const workspace = yield* persistence.workspaces
+          .getWorkspaceConfigByWorkspaceId({ workspaceId: claimed.context.workspaceId })
+          .pipe(
+            Effect.timeout("30 seconds"),
+            Effect.mapError((cause) =>
+              operationError("roomOrders.pinTentative.loadTentativePinView.workspace", cause),
+            ),
+          );
+        const { entries, active } = yield* Effect.all(
           {
             entries: persistence.roomOrderState.getMessageRoomOrderEntry({
-              ...messageKey(claimed.context),
+              ...roomOrderMessageKey(claimed.context),
               rank: current.rank,
             }),
-            workspace: persistence.workspaces.getWorkspaceConfigByWorkspaceId({
-              workspaceId: claimed.context.workspaceId,
-            }),
+            active: resolveAuthoritativeSheetConfigurationForWorkspace(
+              persistence,
+              claimed.context.workspaceId,
+              workspace,
+            ),
           },
           { concurrency: "unbounded" },
         ).pipe(
@@ -312,23 +220,15 @@ export const roomOrderTentativePinOperationsLayer = Layer.effect(
             operationError("roomOrders.pinTentative.loadTentativePinView.persistence", cause),
           ),
         );
-        const spreadsheetId = yield* Option.match(workspace, {
-          onNone: () =>
-            Effect.fail(
-              operationError("roomOrders.pinTentative.loadTentativePinView", "Missing workspace"),
+        if (Option.isNone(active)) {
+          return yield* Effect.fail(
+            interactiveConfigurationMissing(
+              missingConfigurationKey(persistence, Option.getOrUndefined(workspace)?.sheetId),
             ),
-          onSome: ({ sheetId }) =>
-            Predicate.isNull(sheetId)
-              ? Effect.fail(
-                  operationError(
-                    "roomOrders.pinTentative.loadTentativePinView",
-                    "Missing spreadsheet",
-                  ),
-                )
-              : Effect.succeed(sheetId),
-        });
+          );
+        }
         const eventStartEpochMs = yield* provider
-          .loadEventStart(spreadsheetId)
+          .loadEventStart(active.value.spreadsheetId, active.value.configuration)
           .pipe(Effect.catch(rejectProvider));
         const startTime = yield* Option.match(DateTime.make(eventStartEpochMs), {
           onNone: () =>
@@ -343,7 +243,7 @@ export const roomOrderTentativePinOperationsLayer = Layer.effect(
         });
         const { start, end } = hourWindowFor({ startTime }, current.hour);
         return {
-          context: contextFromRow(claimed.context, current),
+          context: roomOrderContextFromRow(claimed.context, current),
           claimId: claimed.claimId,
           message: publishedRoomOrderMessage(
             buildRoomOrderContent(
@@ -464,7 +364,7 @@ export const roomOrderTentativePinOperationsLayer = Layer.effect(
         const mutationExit = yield* Effect.exit(
           persistence.roomOrderState
             .completeMessageRoomOrderTentativePin({
-              ...messageKey(commit.view.context),
+              ...roomOrderMessageKey(commit.view.context),
               claimId: commit.view.claimId,
               pinnedAt: commit.pinnedAt,
             })
@@ -630,7 +530,7 @@ export const roomOrderTentativePinOperationsLayer = Layer.effect(
         if (before.tentativePinClaimId !== claim.claimId) return;
         yield* persistence.roomOrderState
           .releaseMessageRoomOrderTentativePinClaim({
-            ...messageKey(claim.context),
+            ...roomOrderMessageKey(claim.context),
             claimId: claim.claimId,
           })
           .pipe(

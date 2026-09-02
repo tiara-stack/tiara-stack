@@ -16,6 +16,10 @@ const WorkspaceSheetWorkflowDefinitions = Object.freeze([
   WorkspacesFeatureFlagsSetAndDeliverDefinition,
 ] as const);
 
+export const WorkspaceSheetWorkflows = Object.freeze(
+  WorkspaceSheetWorkflowDefinitions.map(({ workflow }) => workflow),
+);
+
 const workspaceFeatureFlagEntityLayer = makeWorkspaceFeatureFlagEntityLayer({
   set: ({ payload }) => SetWorkspaceFeatureFlagAction.await(payload),
 });

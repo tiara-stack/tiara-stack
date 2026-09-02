@@ -7,11 +7,16 @@ import {
   type SetMemberRoleReceipt,
   workspaceRefFrom,
 } from "sheet-bot-api";
-import { MembersKick, SpreadsheetId, type MembersKickInput } from "sheet-workflow-contracts";
+import type { SheetConfigurationSource } from "sheet-domain";
+import { MembersKick, type MembersKickInput } from "sheet-workflow-contracts";
 import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import { config } from "@/config";
 import { SheetBotCacheClient } from "@/services/sheetBotCacheClient";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
+import {
+  resolveAuthoritativeSheetConfiguration,
+  resolveAuthoritativeSheetConfigurationForWorkspace,
+} from "@/services/authoritativeSheetConfiguration";
 import {
   interactiveAuthorizationRevoked,
   interactiveConfigurationMissing,
@@ -35,6 +40,11 @@ const discoverOperation = "members.kick.discover-member-kick-targets";
 const removeOperation = "members.kick.remove-member-role";
 const responseOperation = "members.kick.deliver-member-kick-result";
 const maximumMemberPageCount = 10_000;
+
+const sourceIdentity = (source: SheetConfigurationSource) => ({
+  kind: source.kind,
+  revisionId: source.kind === "owned" ? source.revisionId : null,
+});
 
 const operationError = (operation: string, cause: unknown) =>
   new MemberKickWorkflowOperationsError({ operation, cause });
@@ -188,6 +198,7 @@ export const memberKickWorkflowOperationsLayer = Layer.effect(
               clientId: client.clientId,
               workspaceId: input.workspaceId,
               spreadsheetId: null,
+              source: null,
               runningConversationId: input.conversationId ?? "",
               conversationName: input.conversationName ?? null,
               roleId: null,
@@ -273,15 +284,24 @@ export const memberKickWorkflowOperationsLayer = Layer.effect(
             ),
           );
         }
-        const spreadsheetId = yield* Predicate.isNull(workspace.sheetId)
-          ? Effect.fail(interactiveConfigurationMissing("workspace.sheetId"))
-          : Schema.decodeUnknownEffect(SpreadsheetId)(workspace.sheetId).pipe(
-              Effect.mapError(() => interactiveConfigurationMissing("workspace.sheetId")),
-            );
+        const active = yield* resolveAuthoritativeSheetConfigurationForWorkspace(
+          persistence,
+          input.workspaceId,
+          Option.some(workspace),
+        ).pipe(
+          Effect.timeout("30 seconds"),
+          Effect.mapError((cause) => operationError(`${resolveOperation}.source`, cause)),
+        );
+        if (Option.isNone(active)) {
+          return yield* Effect.fail(
+            interactiveConfigurationMissing("workspace.sheetConfiguration"),
+          );
+        }
+        const spreadsheetId = active.value.spreadsheetId;
         const hour = Predicate.isNotUndefined(input.hour)
           ? input.hour
           : yield* reauthorize(execution, `${resolveOperation}.event`).pipe(
-              Effect.andThen(provider.loadEventStart(spreadsheetId)),
+              Effect.andThen(provider.loadEventStart(spreadsheetId, active.value.configuration)),
               Effect.catchTag("MemberKickProviderError", providerRejected),
               Effect.flatMap((eventStart) =>
                 deriveMemberKickHour(eventStart, execution.acceptedAt),
@@ -293,6 +313,7 @@ export const memberKickWorkflowOperationsLayer = Layer.effect(
             clientId: client.clientId,
             workspaceId: input.workspaceId,
             spreadsheetId,
+            source: sourceIdentity(active.value.source),
             runningConversationId: conversation.conversationId,
             conversationName: conversation.name,
             roleId: null,
@@ -307,6 +328,7 @@ export const memberKickWorkflowOperationsLayer = Layer.effect(
           clientId: client.clientId,
           workspaceId: input.workspaceId,
           spreadsheetId,
+          source: sourceIdentity(active.value.source),
           runningConversationId: conversation.conversationId,
           conversationName: conversation.name,
           roleId: conversation.roleId,
@@ -326,8 +348,39 @@ export const memberKickWorkflowOperationsLayer = Layer.effect(
             operationError(scheduleOperation, "Resolved member cleanup context is incomplete"),
           );
         }
+        const active = yield* resolveAuthoritativeSheetConfiguration(
+          persistence,
+          context.workspaceId,
+        ).pipe(
+          Effect.timeout("30 seconds"),
+          Effect.mapError((cause) => operationError(`${scheduleOperation}.source`, cause)),
+        );
+        if (Option.isNone(active)) {
+          return yield* Effect.fail(
+            interactiveConfigurationMissing("workspace.sheetConfiguration"),
+          );
+        }
+        const activeSource = sourceIdentity(active.value.source);
+        if (
+          active.value.spreadsheetId !== context.spreadsheetId ||
+          context.source === null ||
+          context.source.kind !== activeSource.kind ||
+          context.source.revisionId !== activeSource.revisionId
+        ) {
+          return yield* Effect.fail(
+            interactiveInvalidRequest(
+              "SheetConfigurationChanged",
+              "The authoritative spreadsheet changed before the member cleanup schedule was read",
+            ),
+          );
+        }
         return yield* provider
-          .loadSchedule(context.spreadsheetId, context.conversationName, context.hour)
+          .loadSchedule(
+            context.spreadsheetId,
+            context.conversationName,
+            context.hour,
+            active.value.configuration,
+          )
           .pipe(
             Effect.catchTag("MemberKickProviderError", providerRejected),
             Effect.map(({ scheduleFound, scheduledMemberIds }) => ({
