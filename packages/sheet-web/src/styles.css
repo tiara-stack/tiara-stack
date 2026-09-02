@@ -77,7 +77,6 @@ html {
 }
 
 /* Keep the modal lock from shifting the fixed editor chrome. */
-/* fallow-ignore-next-line css-selector-complexity */
 html > body[data-scroll-locked] {
   margin-right: 0 !important;
   --removed-body-scroll-bar-size: 0px !important;

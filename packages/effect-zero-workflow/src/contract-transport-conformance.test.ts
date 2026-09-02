@@ -3,6 +3,7 @@ import { describe, expect, it } from "@effect/vitest";
 import {
   InvocationId,
   defineWorkflowContract,
+  makeRunReference,
   makeWorkflowRunSchema,
   type WorkflowContractInput,
   workflowContractKey,
@@ -27,6 +28,18 @@ const Contract = defineWorkflowContract({
   success: Schema.String,
   declaredFailure: Schema.Never,
   authorizationPolicy: { policy: "example.echo.invoke" },
+});
+
+const TransformedContract = defineWorkflowContract({
+  identity: "example.transformed",
+  wireVersion: "1.0",
+  input: Schema.Struct({
+    value: Schema.String,
+    occurredAt: Schema.DateFromString,
+  }),
+  success: Schema.String,
+  declaredFailure: Schema.Never,
+  authorizationPolicy: { policy: "example.transformed.invoke" },
 });
 
 const invocationId = Schema.decodeUnknownSync(InvocationId)("123e4567-e89b-42d3-a456-426614174000");
@@ -110,6 +123,43 @@ describe("Workflow Contract transport conformance", () => {
 
       expect(httpReference).toEqual(zeroReference);
       expect(Array.from(httpEvents)).toEqual(Array.from(zeroEvents));
+    }),
+  );
+
+  it.effect("accepts transformed input after HTTP request decoding", () =>
+    Effect.gen(function* () {
+      const context = { ownerKey: "owner-a", principal: "principal-a" };
+      const store: WorkflowInvocationStore<string> = {
+        enqueue: (invocation) => Effect.succeed(invocation.fingerprint),
+        get: () => Effect.succeed(undefined),
+        list: () => Effect.succeed([]),
+      };
+      const handler = yield* makeWorkflowTransportHandler({
+        contracts: [TransformedContract],
+        registrations: [
+          {
+            contract: TransformedContract,
+            definitionVersion: "definition-1",
+            authorize: () => Effect.void,
+            authorizeObservation: () => Effect.void,
+          },
+        ],
+        store,
+      });
+      const http = makeWorkflowHttpRouteHandlers(
+        TransformedContract,
+        workflowHttpServerExecutorFromHandler(handler),
+      );
+
+      const reference = yield* http.enqueue(context, {
+        invocationId,
+        input: {
+          value: "hello",
+          occurredAt: "2026-01-01T00:00:00.000Z",
+        },
+      });
+
+      expect(reference).toEqual(makeRunReference(TransformedContract, invocationId));
     }),
   );
 });

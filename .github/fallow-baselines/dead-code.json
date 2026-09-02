@@ -4,6 +4,9 @@
   "unused_types": [],
   "private_type_leaks": [],
   "unused_dependencies": [
+    "packages/sheet-bot/package.json:sheet-domain",
+    "packages/sheet-web/package.json:sheet-domain",
+    "packages/sheet-web/package.json:sheet-workflow-http-client",
     "packages/sheet-web/package.json:start-atom",
     "packages/sheet-workflows/package.json:sheet-domain"
   ],

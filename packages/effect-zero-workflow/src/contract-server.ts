@@ -439,6 +439,17 @@ export const materializeWorkflowRun = <Contract extends AnyWorkflowContract>(
     );
   });
 
+const decodeWorkflowContractInput = <Contract extends AnyWorkflowContract>(
+  contract: Contract,
+  input: unknown,
+): Effect.Effect<WorkflowContractInput<Contract>, Schema.SchemaError> =>
+  Schema.is(contract.input)(input)
+    ? Effect.succeed(input as WorkflowContractInput<Contract>)
+    : (Schema.decodeUnknownEffect(contract.input)(input) as Effect.Effect<
+        WorkflowContractInput<Contract>,
+        Schema.SchemaError
+      >);
+
 export const makeWorkflowTransportHandler = <
   Principal,
   Provenance,
@@ -493,10 +504,10 @@ export const makeWorkflowTransportHandler = <
       ) =>
         Effect.gen(function* () {
           const registration = requireRegistration(contract);
-          const decodeInput = Schema.decodeUnknownEffect(contract.input)(
-            request.input,
-          ) as Effect.Effect<WorkflowContractInput<Contract>, Schema.SchemaError>;
-          const input = yield* decodeInput.pipe(
+          // HTTP and Zero boundaries already decode transformed schemas before calling the
+          // transport handler. Preserve those typed values while still accepting encoded input
+          // from direct transport callers.
+          const input = yield* decodeWorkflowContractInput(contract, request.input).pipe(
             Effect.mapError(
               () => new WorkflowInputRejected({ message: "Workflow input is invalid" }),
             ),
