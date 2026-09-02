@@ -63,6 +63,19 @@ const makeWorkflow = (
   get: () => streamOf(...runs),
 });
 
+const makeWorkflowSequence = (
+  ...observations: ReadonlyArray<ReadonlyArray<Option.Option<TestRun>>>
+): Pick<TestWorkflow, "enqueue" | "get"> => {
+  let nextObservation = 0;
+  return {
+    enqueue: () => Effect.succeed(workflowReference),
+    get: () => {
+      const observation = observations[Math.min(nextObservation++, observations.length - 1)] ?? [];
+      return streamOf(...observation);
+    },
+  };
+};
+
 const neverWorkflow: Pick<TestWorkflow, "enqueue" | "get"> = {
   enqueue: () => Effect.succeed(workflowReference),
   get: () => Stream.never,
@@ -134,27 +147,45 @@ describe("sheet Zero workflow observation", () => {
     }),
   );
 
-  it.effect("rejects an observation whose last run is still pending", () =>
+  it.effect("polls a pending snapshot observation until it reaches a terminal state", () =>
     Effect.gen(function* () {
-      const exit = yield* Effect.exit(
-        runSheetWorkflow(makeWorkflow(Option.none(), Option.some(pendingRun)), {}, successSchema),
-      );
+      const fiber = yield* runSheetWorkflow(
+        makeWorkflowSequence(
+          [Option.none(), Option.some(pendingRun)],
+          [
+            Option.some(
+              makeRun({ _tag: "Success", value: { value: "done" }, completedAt: new Date(0) }),
+            ),
+          ],
+        ),
+        {},
+        successSchema,
+      ).pipe(Effect.forkChild);
 
-      const failure = failureOf(exit);
-      expect(Predicate.isTagged("WorkflowObservationInvalidData")(failure)).toBe(true);
-      expect((failure as { message: string }).message).toContain("pending terminal workflow run");
+      yield* TestClock.adjust(Duration.millis(250));
+      const result = yield* Fiber.join(fiber);
+
+      expect(result).toEqual({ value: "done" });
     }),
   );
 
-  it.effect("rejects an observation that never yields a workflow run", () =>
+  it.effect("retries an empty observation until a workflow run is available", () =>
     Effect.gen(function* () {
-      const exit = yield* Effect.exit(
-        runSheetWorkflow(makeWorkflow(Option.none<TestRun>()), {}, successSchema),
-      );
+      const fiber = yield* runSheetWorkflow(
+        makeWorkflowSequence(
+          [Option.none()],
+          [
+            Option.some(
+              makeRun({ _tag: "Success", value: { value: "done" }, completedAt: new Date(0) }),
+            ),
+          ],
+        ),
+        {},
+        successSchema,
+      ).pipe(Effect.forkChild);
 
-      const failure = failureOf(exit);
-      expect(Predicate.isTagged("WorkflowObservationInvalidData")(failure)).toBe(true);
-      expect((failure as { message: string }).message).toContain("without a workflow run");
+      yield* TestClock.adjust(Duration.millis(250));
+      expect(yield* Fiber.join(fiber)).toEqual({ value: "done" });
     }),
   );
 
@@ -164,7 +195,7 @@ describe("sheet Zero workflow observation", () => {
         Effect.forkChild,
       );
 
-      yield* TestClock.adjust(Duration.seconds(30));
+      yield* TestClock.adjust(Duration.seconds(60));
       const exit = yield* Fiber.join(fiber);
       const failure = failureOf(exit);
       expect(Predicate.isTagged("WorkflowTransportUnavailable")(failure)).toBe(true);
@@ -211,6 +242,9 @@ describe("sheet Zero workflow observation", () => {
 
       expect(succeeded).toBe(false);
       expect(reconnect).toHaveBeenCalledTimes(3);
+      expect(reconnect).toHaveBeenNthCalledWith(1, true);
+      expect(reconnect).toHaveBeenNthCalledWith(2, false);
+      expect(reconnect).toHaveBeenNthCalledWith(3, false);
       expect(delays).toEqual([250, 500]);
       expect(log).toHaveBeenCalledTimes(3);
     }),

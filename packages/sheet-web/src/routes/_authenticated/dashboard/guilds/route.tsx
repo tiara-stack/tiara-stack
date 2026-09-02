@@ -1,18 +1,19 @@
-import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet, useLocation } from "@tanstack/react-router";
 import { Suspense } from "react";
 import { Effect } from "effect";
 import { Avatar, AvatarImage, AvatarFallback } from "#/components/ui/avatar";
 import { Skeleton } from "#/components/ui/skeleton";
 import { currentUserGuildsAtom, useCurrentUserGuilds, type DiscordGuild } from "#/lib/discord";
 import { ensureResultAtomData, isBrowserRuntime } from "#/lib/atomRegistry";
+import { isSheetEditorPath } from "#/routes";
 
 // Loading fallback for guild sidebar
 function GuildSidebarFallback() {
   return (
-    <div className="flex flex-col gap-3 items-center w-full">
-      <Skeleton className="w-12 h-12 rounded-lg bg-[#33ccbb]/20" />
-      <Skeleton className="w-12 h-12 rounded-lg bg-[#33ccbb]/20" />
-      <Skeleton className="w-12 h-12 rounded-lg bg-[#33ccbb]/20" />
+    <div className="flex min-w-0 flex-row items-center gap-3 overflow-x-auto pb-1 sm:w-full sm:flex-col sm:overflow-x-visible">
+      <Skeleton className="h-12 w-12 shrink-0 rounded-lg bg-[#33ccbb]/20" />
+      <Skeleton className="h-12 w-12 shrink-0 rounded-lg bg-[#33ccbb]/20" />
+      <Skeleton className="h-12 w-12 shrink-0 rounded-lg bg-[#33ccbb]/20" />
     </div>
   );
 }
@@ -26,10 +27,11 @@ function GuildIcon({ guild }: { guild: DiscordGuild }) {
     <Link
       to="/dashboard/guilds/$guildId/schedule"
       params={{ guildId: guild.id }}
-      className="block"
+      className="block shrink-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#73e9dc]"
+      aria-label={guild.name}
       title={guild.name}
     >
-      <Avatar className="w-12 h-12 rounded-lg border border-[#33ccbb]/30 hover:border-[#33ccbb] transition-colors after:rounded-lg">
+      <Avatar className="h-12 w-12 rounded-lg border border-[#33ccbb]/30 transition-colors after:rounded-lg hover:border-[#33ccbb]">
         {iconUrl ? (
           <AvatarImage src={iconUrl} alt={guild.name} className="rounded-lg object-cover" />
         ) : null}
@@ -37,7 +39,7 @@ function GuildIcon({ guild }: { guild: DiscordGuild }) {
           {iconUrl && (
             <Skeleton className="absolute inset-0 size-full rounded-lg bg-[#33ccbb]/20" />
           )}
-          <span className="relative z-10 font-black text-sm">
+          <span className="relative z-10 text-sm font-black">
             {guild.name.slice(0, 2).toUpperCase()}
           </span>
         </AvatarFallback>
@@ -50,11 +52,11 @@ function GuildSidebarContent() {
   const guilds = useCurrentUserGuilds();
 
   if (guilds.length === 0) {
-    return <div className="text-white/40 text-xs font-medium text-center">NO GUILDS</div>;
+    return <div className="text-center text-xs font-medium text-white/40">NO GUILDS</div>;
   }
 
   return (
-    <div className="flex flex-col gap-3 items-center w-full overflow-y-auto max-h-[calc(100vh-280px)] pr-1">
+    <div className="flex min-w-0 flex-1 flex-row items-center gap-3 overflow-x-auto pb-1 sm:w-full sm:flex-none sm:flex-col sm:overflow-x-hidden sm:overflow-y-auto sm:max-h-[calc(100vh-280px)] sm:pr-1">
       {guilds.map((guild) => (
         <GuildIcon key={guild.id} guild={guild} />
       ))}
@@ -75,12 +77,19 @@ export const Route = createFileRoute("/_authenticated/dashboard/guilds")({
 });
 
 function GuildsLayout() {
+  const { pathname } = useLocation();
+  const isSheetEditor = isSheetEditorPath(pathname);
+
   return (
-    <div className="flex gap-6">
+    <div
+      className={`flex min-w-0 flex-col sm:flex-row sm:gap-6 ${isSheetEditor ? "gap-2" : "gap-4"}`}
+    >
       {/* Guild Sidebar */}
-      <div className="w-16 flex-shrink-0">
-        <div className="sticky top-32 flex flex-col gap-3 items-center">
-          <div className="text-[10px] font-bold text-[#33ccbb] tracking-wider text-center mb-2">
+      <div className="w-full min-w-0 sm:w-16 sm:shrink-0">
+        <div className="flex items-center gap-3 sm:sticky sm:top-32 sm:flex-col sm:gap-3">
+          <div
+            className={`shrink-0 text-center text-[10px] font-bold tracking-wider text-[#33ccbb] sm:mb-2 ${isSheetEditor ? "hidden sm:block" : ""}`}
+          >
             GUILDS
           </div>
           <Suspense fallback={<GuildSidebarFallback />}>
@@ -90,7 +99,7 @@ function GuildsLayout() {
       </div>
 
       {/* Content Area - Renders child routes */}
-      <div className="flex-1 min-h-[400px]">
+      <div className="min-h-[400px] min-w-0 flex-1">
         <Outlet />
       </div>
     </div>

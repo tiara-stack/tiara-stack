@@ -1,6 +1,12 @@
 import { Dialog } from "@base-ui/react/dialog";
 import { useAtomRefresh } from "@effect/atom-react";
-import { createFileRoute, type RegisteredRouter, useBlocker } from "@tanstack/react-router";
+import {
+  createFileRoute,
+  Outlet,
+  type RegisteredRouter,
+  useBlocker,
+  useLocation,
+} from "@tanstack/react-router";
 import { Effect, Equal, Option, Predicate, Schema, pipe } from "effect";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
 import {
@@ -18,6 +24,7 @@ import {
   Shield,
   X,
 } from "lucide-react";
+import { isSheetEditorPath } from "#/routes";
 import {
   type Dispatch,
   type ReactNode,
@@ -62,6 +69,7 @@ import {
   workspaceConversationsAtom,
   workspaceMonitorRolesAtom,
 } from "#/lib/guildConfig";
+import { availableResultValue } from "#/lib/asyncResult";
 import type { DiscordChannel, DiscordRole } from "sheet-workflow-contracts";
 import {
   isDiscordAnnouncementChannelType,
@@ -113,9 +121,6 @@ export const Route = createFileRoute("/_authenticated/dashboard/guilds/$guildId/
   },
 });
 
-const resultValue = <A, E>(result: AsyncResult.AsyncResult<A, E>): A | undefined =>
-  Option.getOrUndefined(AsyncResult.value(result));
-
 const errorText = (error: unknown) =>
   Predicate.isError(error) ? error.message : "The request failed. Try again.";
 
@@ -135,12 +140,21 @@ const runningDraftValues: ReadonlyMap<string, ChannelConfigDraft["running"]> = n
 // fallow-ignore-next-line complexity
 function GuildSettings() {
   const { guildId } = Route.useParams();
+  const { pathname } = useLocation();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const permissionResult = useGuildPermissionsResult(guildId);
   const refreshPermissions = useAtomRefresh(guildPermissionsAtom(guildId));
   const capabilities = guildCapabilities(permissionsFromResult(permissionResult), guildId);
   const section = capabilities.canManage && search.section !== "channels" ? "server" : "channels";
+
+  if (
+    isSheetEditorPath(pathname) &&
+    AsyncResult.isSuccess(permissionResult) &&
+    capabilities.canManage
+  ) {
+    return <Outlet />;
+  }
 
   if (!capabilities.canLockdown && !AsyncResult.isSuccess(permissionResult)) {
     return (
@@ -234,11 +248,11 @@ function ServerSection({ guildId }: { readonly guildId: string }) {
   const rolesResult = useGuildRolesResult(guildId);
   const monitorRolesResult = useWorkspaceMonitorRolesResult(guildId);
   const conversationsResult = useWorkspaceConversationsResult(guildId);
-  const config = resultValue(configResult);
-  const channels = resultValue(channelsResult);
-  const roles = resultValue(rolesResult);
-  const monitorRoles = resultValue(monitorRolesResult);
-  const conversations = resultValue(conversationsResult);
+  const config = availableResultValue(configResult);
+  const channels = availableResultValue(channelsResult);
+  const roles = availableResultValue(rolesResult);
+  const monitorRoles = availableResultValue(monitorRolesResult);
+  const conversations = availableResultValue(conversationsResult);
 
   if (config === undefined) {
     return (
@@ -655,7 +669,7 @@ function ChannelsSection({
 }) {
   const channelsResult = useGuildChannelsResult(guildId);
   const refreshChannels = useAtomRefresh(guildChannelsAtom(guildId));
-  const channels = resultValue(channelsResult);
+  const channels = availableResultValue(channelsResult);
   const [search, setSearch] = useState("");
   const sendableChannels = useMemo(
     () =>
@@ -757,8 +771,8 @@ function ManagerChannelEditor({
 }) {
   const conversationsResult = useWorkspaceConversationsResult(guildId);
   const rolesResult = useGuildRolesResult(guildId);
-  const conversations = resultValue(conversationsResult);
-  const roles = resultValue(rolesResult);
+  const conversations = availableResultValue(conversationsResult);
+  const roles = availableResultValue(rolesResult);
   const [drafts, setDrafts] = useState<Record<string, ChannelConfigDraft>>({});
   const [savedConfigs, setSavedConfigs] = useState<
     Record<

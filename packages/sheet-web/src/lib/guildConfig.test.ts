@@ -1,6 +1,6 @@
-import { Cause, HashSet, Option } from "effect";
-import { AsyncResult } from "effect/unstable/reactivity";
-import { describe, expect, it } from "vitest";
+import { Cause, Effect, HashSet, Option, Stream } from "effect";
+import { Atom, AtomRegistry, AsyncResult } from "effect/unstable/reactivity";
+import { describe, expect, it } from "@effect/vitest";
 import {
   buildChannelLabels,
   channelConfigPatch,
@@ -11,9 +11,11 @@ import {
   serverConfigPatch,
   sortGuildChannels,
   sortGuildRoles,
+  workspaceConfigAtom,
   type Permission,
   type PermissionSet,
 } from "./guildConfig";
+import { sheetZeroClientAtom } from "./sheetZero";
 
 const timestamps = {
   createdAt: 0,
@@ -72,6 +74,35 @@ describe("guild configuration helpers", () => {
       ),
     ).toEqual(HashSet.empty());
   });
+
+  it.effect("accepts decoded optional Zero query results", () =>
+    Effect.gen(function* () {
+      const config = {
+        workspaceId: "guild-1",
+        sheetId: "sheet-1",
+        autoCheckin: null,
+        monitorConversationId: null,
+        ...timestamps,
+      };
+      const client = {
+        sheet: {
+          stream: () => Stream.succeed(Option.some(config)),
+        },
+      } as unknown as Atom.Success<typeof sheetZeroClientAtom>;
+      const registry = AtomRegistry.make({
+        initialValues: [[sheetZeroClientAtom, AsyncResult.success(client)]],
+      });
+
+      try {
+        const result = yield* Atom.getResult(workspaceConfigAtom("guild-1")).pipe(
+          Effect.provideService(AtomRegistry.AtomRegistry, registry),
+        );
+        expect(result).toEqual(config);
+      } finally {
+        registry.dispose();
+      }
+    }),
+  );
 
   it("omits unchanged server fields and encodes monitor-channel clearing as null", () => {
     const config = {

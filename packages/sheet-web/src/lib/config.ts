@@ -11,6 +11,10 @@ export const appBaseUrlConfig = Config.schema(Schema.URL, "APP_BASE_URL").pipe(
 export const sheetZeroBaseUrlConfig = Config.schema(Schema.URL, "SHEET_ZERO_BASE_URL").pipe(
   Effect.mapError((error) => makeArgumentError(error.message, error)),
 );
+export const sheetWorkflowsBaseUrlConfig = Config.schema(
+  Schema.URL,
+  "SHEET_WORKFLOWS_BASE_URL",
+).pipe(Effect.mapError((error) => makeArgumentError(error.message, error)));
 export const sheetWebOAuthClientIdConfig = Config.schema(
   Schema.NonEmptyString,
   "SHEET_WEB_OAUTH_CLIENT_ID",
@@ -23,5 +27,7 @@ export const sheetWebOAuthScopesConfig = Config.schema(
   Schema.NonEmptyString,
   "SHEET_WEB_OAUTH_SCOPES",
 ).pipe(
-  Config.withDefault("openid profile email zero.read zero.mutate workflow.enqueue offline_access"),
+  Config.withDefault(
+    "openid profile email zero.read zero.mutate workflow.observe workflow.enqueue offline_access",
+  ),
 );

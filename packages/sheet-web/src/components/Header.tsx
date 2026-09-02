@@ -1,6 +1,7 @@
 import { Suspense } from "react";
-import { Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { Link, useLocation } from "@tanstack/react-router";
+import { isSheetEditorPath } from "#/routes";
+import { useEffect, useRef, useState } from "react";
 import { Menu, X, LayoutDashboard, LogOut, User as UserIcon } from "lucide-react";
 import { Button } from "#/components/ui/button";
 import { Avatar, AvatarImage, AvatarFallback } from "#/components/ui/avatar";
@@ -14,6 +15,79 @@ const desktopNavigationLinkClass =
 const mobileNavigationLinkClass =
   "flex items-center gap-3 text-2xl font-black text-white transition-colors hover:text-[#33ccbb]";
 
+const mobileDialogFocusableSelector =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+const headerClassFor = (isSheetEditor: boolean) =>
+  isSheetEditor
+    ? "fixed top-0 left-0 right-0 z-50 border-b border-[#33ccbb]/10 bg-[#0a0f0e]/60 px-3 py-2 backdrop-blur-xl sm:px-8 sm:py-6"
+    : "fixed top-0 left-0 right-0 z-50 border-b border-[#33ccbb]/10 bg-[#0a0f0e]/60 px-8 py-6 backdrop-blur-xl";
+
+const logoBoxClassFor = (isSheetEditor: boolean) =>
+  isSheetEditor
+    ? "flex h-8 w-8 items-center justify-center bg-[#33ccbb] sm:h-12 sm:w-12"
+    : "flex h-12 w-12 items-center justify-center bg-[#33ccbb]";
+
+const logoIconClassFor = (isSheetEditor: boolean) =>
+  isSheetEditor ? "h-4 w-4 text-[#0a0f0e] sm:h-6 sm:w-6" : "h-6 w-6 text-[#0a0f0e]";
+
+const logoTitleClassFor = (isSheetEditor: boolean) =>
+  isSheetEditor
+    ? "text-lg font-black tracking-tighter sm:text-2xl"
+    : "text-2xl font-black tracking-tighter";
+
+const focusableElementsIn = (container: HTMLElement): Array<HTMLElement> =>
+  Array.from(container.querySelectorAll<HTMLElement>(mobileDialogFocusableSelector)).filter(
+    (element) => {
+      const style = getComputedStyle(element);
+      return (
+        element.getAttribute("aria-hidden") !== "true" &&
+        element.getClientRects().length > 0 &&
+        style.visibility !== "hidden" &&
+        style.display !== "none"
+      );
+    },
+  );
+
+const mobileDialogFocusEdgesFor = (
+  focusable: ReadonlyArray<HTMLElement>,
+  reverse: boolean,
+): {
+  readonly target: HTMLElement | undefined;
+  readonly boundary: HTMLElement | undefined;
+} => {
+  const first = focusable.at(0);
+  const last = focusable.at(-1);
+  return reverse ? { target: last, boundary: first } : { target: first, boundary: last };
+};
+
+const mobileDialogFocusAtBoundary = (drawer: HTMLElement, boundary: HTMLElement): boolean =>
+  !drawer.contains(document.activeElement) || document.activeElement === boundary;
+
+const mobileDialogFocusTargetFor = (
+  focusable: ReadonlyArray<HTMLElement>,
+  drawer: HTMLElement,
+  reverse: boolean,
+): HTMLElement | undefined => {
+  const { target: focusTarget, boundary } = mobileDialogFocusEdgesFor(focusable, reverse);
+  if (focusTarget === undefined) return undefined;
+  if (boundary === undefined) return undefined;
+  if (!mobileDialogFocusAtBoundary(drawer, boundary)) return undefined;
+  return focusTarget;
+};
+
+const wrapMobileDialogFocus = (event: KeyboardEvent, drawer: HTMLElement) => {
+  const focusable = focusableElementsIn(drawer);
+  if (focusable.length === 0) {
+    event.preventDefault();
+    return;
+  }
+  const focusTarget = mobileDialogFocusTargetFor(focusable, drawer, event.shiftKey);
+  if (focusTarget === undefined) return;
+  event.preventDefault();
+  focusTarget.focus();
+};
+
 function AuthSection() {
   const session = useSession();
 
@@ -21,6 +95,7 @@ function AuthSection() {
   const signInWithDiscord = useSignInWithSocialProvider("discord");
 
   return Option.match(session, {
+    // fallow-ignore-next-line complexity
     onSome: (session) => (
       <div className="flex items-center gap-4">
         <Link to="/dashboard/shifts" className={desktopNavigationLinkClass}>
@@ -50,6 +125,7 @@ function AuthSection() {
           size="icon"
           className="border-[#33ccbb]/30 text-[#33ccbb] hover:bg-[#33ccbb]/10 hover:text-white"
           onClick={signOut}
+          aria-label="Sign out"
         >
           <LogOut className="w-4 h-4" />
         </Button>
@@ -73,6 +149,7 @@ function MobileAuthSection({ onNavigate }: { onNavigate: () => void }) {
   const signInWithDiscord = useSignInWithSocialProvider("discord");
 
   return Option.match(session, {
+    // fallow-ignore-next-line complexity
     onSome: (session) => (
       <div className="pt-4 border-t border-[#33ccbb]/20 space-y-4">
         <div className="flex items-center gap-3 mb-4">
@@ -115,14 +192,16 @@ function MobileAuthSection({ onNavigate }: { onNavigate: () => void }) {
 
 // Simple fallback for Header suspense - keeps layout stable during auth check
 function HeaderFallback() {
+  const { pathname } = useLocation();
+  const isSheetEditor = isSheetEditorPath(pathname);
   return (
-    <header className="fixed top-0 left-0 right-0 z-50 px-8 py-6 bg-[#0a0f0e]/60 backdrop-blur-xl border-b border-[#33ccbb]/10">
+    <header className={headerClassFor(isSheetEditor)}>
       <div className="max-w-7xl mx-auto flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-12 h-12 bg-[#33ccbb] flex items-center justify-center">
+          <div className={logoBoxClassFor(isSheetEditor)}>
             <span className="text-[#0a0f0e] font-black text-xl">S</span>
           </div>
-          <span className="text-2xl font-black tracking-tighter">
+          <span className={logoTitleClassFor(isSheetEditor)}>
             SHEET<span className="text-[#33ccbb]">WEB</span>
           </span>
         </div>
@@ -138,19 +217,90 @@ function HeaderFallback() {
 }
 
 // Internal header component with auth-dependent content
+// fallow-ignore-next-line complexity
 function HeaderContent() {
+  const { pathname } = useLocation();
+  const isSheetEditor = isSheetEditorPath(pathname);
   const [isOpen, setIsOpen] = useState(false);
+  const menuTriggerRef = useRef<HTMLButtonElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const drawerRef = useRef<HTMLElement>(null);
+  const wasOpenRef = useRef(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      closeButtonRef.current?.focus();
+    } else if (wasOpenRef.current) {
+      menuTriggerRef.current?.focus();
+    }
+    wasOpenRef.current = isOpen;
+  }, [isOpen]);
+
+  useEffect(() => {
+    const breakpoint = window.matchMedia("(min-width: 768px)");
+    const closeOnDesktop = (event: MediaQueryListEvent) => {
+      if (event.matches) setIsOpen(false);
+    };
+    if (breakpoint.matches) setIsOpen(false);
+    breakpoint.addEventListener("change", closeOnDesktop);
+    return () => breakpoint.removeEventListener("change", closeOnDesktop);
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setIsOpen(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const drawer = drawerRef.current;
+      if (drawer === null) return;
+      wrapMobileDialogFocus(event, drawer);
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const drawer = drawerRef.current;
+    if (drawer === null) return;
+
+    const changed: Array<readonly [HTMLElement, boolean]> = [];
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const isolateOutsideDrawer = (element: Element) => {
+      if (element === drawer) return;
+      if (element.contains(drawer)) {
+        for (const child of Array.from(element.children)) isolateOutsideDrawer(child);
+        return;
+      }
+      if (!(element instanceof HTMLElement)) return;
+      changed.push([element, element.inert]);
+      element.inert = true;
+    };
+
+    for (const child of Array.from(document.body.children)) isolateOutsideDrawer(child);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      for (const [element, wasInert] of changed) element.inert = wasInert;
+    };
+  }, [isOpen]);
 
   return (
     <>
-      <header className="fixed top-0 left-0 right-0 z-50 px-8 py-6 bg-[#0a0f0e]/60 backdrop-blur-xl border-b border-[#33ccbb]/10">
+      <header className={headerClassFor(isSheetEditor)}>
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           {/* Logo */}
           <Link to="/" className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-[#33ccbb] flex items-center justify-center hover:rotate-[360deg] transition-transform duration-700">
-              <LayoutDashboard className="w-6 h-6 text-[#0a0f0e]" />
+            <div
+              className={`${logoBoxClassFor(isSheetEditor)} transition-transform duration-700 hover:rotate-[360deg]`}
+            >
+              <LayoutDashboard className={logoIconClassFor(isSheetEditor)} />
             </div>
-            <span className="text-2xl font-black tracking-tighter">
+            <span className={logoTitleClassFor(isSheetEditor)}>
               SHEET<span className="text-[#33ccbb]">WEB</span>
             </span>
           </Link>
@@ -165,9 +315,12 @@ function HeaderContent() {
 
           {/* Mobile Menu Button */}
           <button
+            ref={menuTriggerRef}
             onClick={() => setIsOpen(true)}
             className="md:hidden p-2 text-[#33ccbb] hover:text-white transition-colors"
             aria-label="Open menu"
+            aria-controls="mobile-navigation-drawer"
+            aria-expanded={isOpen}
           >
             <Menu size={24} />
           </button>
@@ -176,9 +329,16 @@ function HeaderContent() {
 
       {/* Mobile Sidebar */}
       <aside
-        className={`fixed inset-0 z-50 md:hidden transition-opacity duration-200 ${
+        ref={drawerRef}
+        id="mobile-navigation-drawer"
+        className={`fixed inset-0 z-50 overflow-x-clip md:hidden transition-opacity duration-200 ${
           isOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
         }`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="mobile-navigation-title"
+        aria-hidden={!isOpen}
+        inert={!isOpen}
       >
         {/* Backdrop */}
         <div className="absolute inset-0 bg-[#0a0f0e]/95" onClick={() => setIsOpen(false)} />
@@ -190,8 +350,14 @@ function HeaderContent() {
           }`}
         >
           <div className="flex items-center justify-between p-8 border-b border-[#33ccbb]/20">
-            <span className="font-black text-xl tracking-tight text-[#33ccbb]">MENU</span>
+            <span
+              id="mobile-navigation-title"
+              className="font-black text-xl tracking-tight text-[#33ccbb]"
+            >
+              MENU
+            </span>
             <button
+              ref={closeButtonRef}
               onClick={() => setIsOpen(false)}
               className="p-2 text-[#33ccbb] hover:text-white transition-colors"
               aria-label="Close menu"

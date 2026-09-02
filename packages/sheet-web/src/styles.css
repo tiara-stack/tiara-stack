@@ -14,11 +14,70 @@
   box-sizing: border-box;
 }
 
+.studioInput {
+  min-height: 2.5rem;
+  border: 1px solid rgb(51 204 187 / 20%);
+  background: #0a1512;
+  padding: 0.625rem 0.75rem;
+  color: var(--color-fd-card-foreground, #e7f5f1);
+  outline: none;
+  color-scheme: dark;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.studioInput::placeholder {
+  color: #8fbab4;
+  opacity: 1;
+}
+
+.studioInput:hover:not(:disabled) {
+  border-color: rgb(51 204 187 / 45%);
+}
+
+.studioInput:focus {
+  border-color: var(--color-fd-primary, #33ccbb);
+  background: #0e1a17;
+  box-shadow: 0 0 0 1px rgb(51 204 187 / 35%);
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
+
+@media (forced-colors: active) {
+  .studioInput:focus {
+    outline: 2px solid Highlight;
+  }
+}
+
+.studioInput:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.studioInput[aria-invalid="true"] {
+  border-color: #ff7b72;
+}
+
+.studioInput option {
+  background: #0a1512;
+  color: var(--color-fd-card-foreground, #e7f5f1);
+}
+
 html {
   scroll-behavior: smooth;
   scrollbar-gutter: stable;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+/* Keep the modal lock from shifting the fixed editor chrome. */
+/* fallow-ignore-next-line css-selector-complexity */
 html > body[data-scroll-locked] {
   margin-right: 0 !important;
   --removed-body-scroll-bar-size: 0px !important;
@@ -65,7 +124,7 @@ body {
 /* Selection color */
 ::selection {
   background: #33ccbb;
-  color: #0a0f0e;
+  color: var(--color-fd-primary-foreground, #0a0f0e);
 }
 
 :root {
@@ -118,7 +177,7 @@ body {
   background-size: 40px 40px;
 }
 
-.docs-shell #nd-sidebar,
+.docs-shell [id="nd-sidebar"],
 .docs-shell header {
   backdrop-filter: blur(18px);
 }

@@ -1,0 +1,50 @@
+---
+title: TiaraBot update announcements
+description: Receive occasional TiaraBot feature and service updates in an event server.
+---
+
+TiaraBot can post occasional product updates in a server that has opted into the
+`update-announcements` feature flag. The feed is intended for concise release notes: it tells the
+server what changed without interrupting tiering operations or requiring anyone to run a command.
+
+<Callout title="One announcement per update">
+  Each published update is delivered at most once per server. TiaraBot does not use `@everyone`,
+  `@here`, or role-wide mentions for this feed.
+</Callout>
+
+## What gets posted
+
+Announcements are short Discord embeds with a release title, a plain-language summary, and an
+optional link to the relevant TiaraDocs page. They may describe a new TiaraBot capability, a
+dashboard or access change, or a service behavior that mana/moni should know about.
+
+The feed is independent of schedule, check-in, room-order, and team-submission messages. Turning
+it on does not change any of those workflows.
+
+## Where announcements go
+
+TiaraBot chooses one sendable server conversation in this order:
+
+1. Discord’s system channel, when one is available.
+2. A channel named `#general`.
+3. The first available text or announcement channel that TiaraBot can send to.
+
+The `#general` name match is case-insensitive. An update is eligible only when its publication
+time is strictly after the server's `joined_at` timestamp.
+
+The server must allow TiaraBot to view and send messages in the selected channel. If no suitable
+conversation is available, the update is not delivered; it remains safe to retry after channel
+permissions or server configuration are corrected.
+
+## Delivery timing and history
+
+The service records a delivery for each server and update before considering that update complete.
+Retrying a gateway event or restarting TiaraBot therefore does not duplicate a message.
+
+TiaraBot only considers updates published after it joined the server. Enabling the feed later does
+not recreate updates from before the bot joined, and a server may receive several still-eligible
+updates the next time TiaraBot processes its guild membership event.
+
+The `update-announcements` flag is service-controlled. Mana/moni do not need to configure a
+channel or run a slash command; contact the TiaraBot maintainer when the server should be enabled
+or disabled.

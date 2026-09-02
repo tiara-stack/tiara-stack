@@ -1,0 +1,119 @@
+---
+title: Configure sheet mappings in the web editor
+description: Import, inspect, edit, and activate TiaraBot's Google Sheet mappings from the dashboard.
+---
+
+The Sheet mappings editor gives mana/moni one place to manage the ranges TiaraBot reads from a
+Google Sheet. It keeps the current source running while you prepare a replacement, so changing a
+mapping does not change a live tiering shift by accident.
+
+<Callout type="warn" title="Manage Server access required">
+  Open this editor from a server dashboard with Manage Server or Administrator access. The editor
+  reads the configured spreadsheet. It does not write values into the spreadsheet itself.
+</Callout>
+
+## Open the editor
+
+Go to **Dashboard → [your server] → Settings → Sheet mappings**. The editor is organized into
+Overview, Users, Teams, Schedules, and Runners.
+
+If the sheet cannot be read, check that TiaraBot's configured reader can access the spreadsheet and
+that the expected tabs still exist. Use **Retry** after correcting access.
+
+## Import an existing setup
+
+Servers that already use TiaraBot's legacy `Thee's Sheet Settings` tab should start from the
+Overview section.
+
+1. Select **Import to draft**.
+2. Inspect the imported fields and the source status.
+3. Fix any items under **Needs review**.
+4. Edit the mappings, save the draft, and review the activation diff.
+
+The import never writes to or modifies the spreadsheet. It copies the legacy settings into an
+editable draft and records the legacy layout and values as a baseline. The legacy source stays live
+and untouched until you activate a web revision.
+
+If the legacy tab has moved, been renamed ambiguously, or no longer matches its expected layout,
+the import can finish with diagnostics instead of a usable configuration. Resolve those
+diagnostics in the editor or restore the legacy layout before trying again.
+
+For a server without an existing legacy setup, enter a Google spreadsheet ID in Overview and
+choose **Create draft**. You can then map its tabs and ranges.
+
+## Work in a draft
+
+The editor follows this lifecycle:
+
+| Stage             | What it means                                                                                |
+| ----------------- | -------------------------------------------------------------------------------------------- |
+| Current source    | The legacy Settings tab or the currently active web revision is serving TiaraBot.            |
+| Draft in progress | Your browser has changes that have not been saved as a draft.                                |
+| Saved draft       | The server has the draft, but the current source is still live.                              |
+| Active            | Activation selected an existing immutable web revision and made it the source TiaraBot uses. |
+
+Use **Save draft** as you work. Saving does not activate anything. When the draft is ready, choose
+**Review activation** to see the field-by-field changes grouped by Users, Teams, Schedules, and
+Runners. Activation selects the existing immutable revision identified by
+`SheetConfigurationActivateInput.revisionId`, makes it active, and records who activated it.
+
+Errors stay attached to the draft and block revision creation or activation until you fix them.
+Warnings remain visible for review. If you leave with unsaved changes or an incomplete range edit,
+the editor asks before discarding them.
+
+## Map ranges like a sheet formula
+
+Open a mapping under Users, Teams, or Schedules to see its current A1 address, expected cell shape,
+and a read-only preview of the sheet.
+
+You can set a range in either of two ways:
+
+- Type a tab-qualified A1 address, such as `'Schedule Tab'!D3:F5`.
+- Click or drag across the preview grid, then choose **Apply to draft**.
+
+The grid selection is staged first. It does not change the draft until you apply it, and applying
+it does not save the draft until you choose **Save draft**. Use **View options** to inspect nearby
+rows and columns without changing the mapping. The preview is read-only and shows only the visible
+window.
+
+Runners use hour intervals instead of sheet ranges. Edit them in the Runners section with values
+such as `8-10, 12-14`.
+
+## Review before activation
+
+The activation review shows:
+
+- the source that is currently live and the web revision that will replace it;
+- every changed field, including its previous and new value;
+- a fresh read-only sample for each changed mapping when the sheet can be read; and
+- any diagnostics that must be fixed first.
+
+The samples are a quick check of the changed mappings, not a full validation of every cell in the
+spreadsheet. If a sample is unavailable, verify sharing and tab access, then retry before relying
+on the preview.
+
+After activation, the web revision becomes authoritative for sheet-backed operations. The
+imported legacy source is retained so you can choose **Restore legacy source** from the activation
+history if you need to return to it. Earlier web revisions remain available through **Roll back**.
+
+Discarding a draft also leaves the active source alone.
+
+## Manage a web configuration from Discord
+
+The `/sheet` command provides the same lifecycle for an owned web configuration. Legacy settings
+are read-only from Discord, so import them in the web editor first.
+
+| Command              | Use                                                                                                   |
+| -------------------- | ----------------------------------------------------------------------------------------------------- |
+| `/sheet list`        | Show the current source, draft version, and revision history.                                         |
+| `/sheet set`         | Start or update an owned draft for a spreadsheet ID.                                                  |
+| `/sheet edit_scalar` | Change a typed value such as the spreadsheet ID, event start, channel, day, encoding, or runner name. |
+| `/sheet edit_range`  | Change one tab-qualified A1 mapping.                                                                  |
+| `/sheet edit_entry`  | Add, remove, or reorder a team, schedule, or runner entry.                                            |
+| `/sheet save`        | Save an owned draft as an immutable revision.                                                         |
+| `/sheet activate`    | Activate a saved revision by ID.                                                                      |
+| `/sheet rollback`    | Roll back to a web revision or use `legacy` to restore the retained legacy source.                    |
+| `/sheet discard`     | Remove the current draft without changing the active source.                                          |
+
+These commands require Manage Server or Administrator access in the target server. In a DM, pass
+the optional `server_id` argument when the command exposes it.

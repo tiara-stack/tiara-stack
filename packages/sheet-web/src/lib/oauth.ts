@@ -122,6 +122,9 @@ const loadOAuthConfig = () =>
     }).pipe(Effect.provide(serverConfigLayer)),
   );
 
+const getAuthenticatedSession = (authBaseUrl: URL) =>
+  Effect.runPromise(getSession(createSheetAuthClient(authBaseUrl.href), getRequestHeaders()));
+
 const cookieOptions = (appBaseUrl: URL, maxAge: number) => ({
   httpOnly: true,
   sameSite: "lax" as const,
@@ -178,6 +181,11 @@ const clearPkceCookie = async () => {
   const { appBaseUrl } = await loadOAuthConfig();
   deleteCookie(pkceCookieName, cookieOptions(appBaseUrl, 0));
 };
+
+export const clearSheetWebOAuthToken = createServerFn({ method: "POST" }).handler(async () => {
+  await clearTokenCookie();
+  await clearPkceCookie();
+});
 
 const randomUrlSafe = (bytes = 32) => randomBytes(bytes).toString("base64url");
 
@@ -387,6 +395,25 @@ const refreshToken = async (tokenSet: SheetWebOAuthTokenSet) => {
   }
 };
 
+const refreshSheetWebOAuthAccessTokenServerFn = createServerFn({ method: "POST" }).handler(
+  async (_ctx) => {
+    const maybeToken = await getTokenCookie();
+    if (Option.isNone(maybeToken)) {
+      return null;
+    }
+
+    return Option.match(await refreshToken(maybeToken.value), {
+      onNone: () => null,
+      onSome: (refreshed) => refreshed.accessToken,
+    });
+  },
+);
+
+export const refreshSheetWebOAuthAccessToken = () =>
+  Effect.tryPromise(() => refreshSheetWebOAuthAccessTokenServerFn()).pipe(
+    Effect.map(Option.fromNullishOr),
+  );
+
 const ensureSheetWebOAuthAccessTokenServerFn = createServerFn({ method: "GET" }).handler(
   async (_ctx) => {
     const maybeToken = await getTokenCookie();
@@ -417,10 +444,7 @@ export const ensureSheetWebOAuthAccessToken = () =>
 export const createSheetWebOAuthAuthorizationUrl = createServerFn({ method: "POST" }).handler(
   async (_ctx) => {
     const config = await loadOAuthConfig();
-    const session = await Effect.runPromise(
-      getSession(createSheetAuthClient(config.authBaseUrl.href), getRequestHeaders()),
-    );
-
+    const session = await getAuthenticatedSession(config.authBaseUrl);
     if (Option.isNone(session)) {
       return { redirectTo: "/" };
     }
@@ -451,6 +475,11 @@ export const completeSheetWebOAuthAuthorization = createServerFn({ method: "POST
   .inputValidator((input: unknown) => Schema.decodeUnknownSync(SheetWebOAuthCompletionInput)(input))
   .handler(async ({ data }) => {
     const config = await loadOAuthConfig();
+    const session = await getAuthenticatedSession(config.authBaseUrl);
+    if (Option.isNone(session)) {
+      return { ok: false };
+    }
+
     const pkce = await getPkceCookie();
     await clearPkceCookie();
 

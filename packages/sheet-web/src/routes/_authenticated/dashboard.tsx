@@ -1,5 +1,6 @@
 import { createFileRoute, Link, Outlet, useLocation } from "@tanstack/react-router";
 import { Bell, Calendar, Users, ChevronRight, type LucideIcon } from "lucide-react";
+import { isSheetEditorPath } from "#/routes";
 
 // Route loader that fetches session on load using Atom Registry
 export const Route = createFileRoute("/_authenticated/dashboard")({
@@ -9,12 +10,17 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
 function DashboardLayout() {
   const { pathname } = useLocation();
   const activeTab = getActiveTab(pathname);
+  const isSheetEditor = isSheetEditorPath(pathname);
 
   return (
-    <div className="min-h-screen text-white pt-32 pb-12 px-8">
-      <div className="max-w-7xl mx-auto">
+    <div
+      className={`min-h-screen min-w-0 text-white ${isSheetEditor ? "px-2 pb-20 pt-16 sm:px-4 sm:pb-24 sm:pt-28 lg:px-6" : "px-4 pb-12 pt-32 sm:px-8"}`}
+    >
+      <div className="mx-auto min-w-0 max-w-7xl">
         {/* Compact Page Header */}
-        <div className="flex items-center justify-between mb-8 border-b border-[#33ccbb]/20 pb-4">
+        <div
+          className={`mb-8 items-center justify-between border-b border-[#33ccbb]/20 pb-4 ${isSheetEditor ? "hidden" : "flex"}`}
+        >
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-[#33ccbb] flex items-center justify-center">
               <Calendar className="w-5 h-5 text-[#0a0f0e]" />
@@ -30,7 +36,9 @@ function DashboardLayout() {
         </div>
 
         {/* Tab Navigation - Brutalist Style */}
-        <div className="flex flex-col sm:flex-row gap-px bg-[#33ccbb]/20 mb-8">
+        <div
+          className={`mb-8 flex-col gap-px bg-[#33ccbb]/20 sm:flex-row ${isSheetEditor ? "hidden" : "flex"}`}
+        >
           {tabs.map((tab) => (
             <DashboardTab key={tab.id} active={activeTab === tab.id} tab={tab} />
           ))}

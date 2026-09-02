@@ -16,6 +16,7 @@ import { runtimeAtom } from "#/lib/runtime";
 import { sheetZeroClientAtom } from "#/lib/sheetZero";
 import { runSheetWorkflow } from "#/lib/sheetZero";
 import { makeQuery } from "typhoon-zero/zeroApiAtom";
+import { decodeOptionalQueryResult } from "./zeroQuery";
 
 const userConfigReactivityKey = "userConfig";
 
@@ -34,10 +35,7 @@ const discordUserPlatformConfigAtom = Atom.make<Option.Option<ConfigUserPlatform
         userId: user.id,
       }),
     );
-    const decodedRow = yield* Schema.decodeUnknownEffect(
-      Schema.OptionFromNullishOr(ConfigUserPlatformRow),
-    )(row);
-    return decodedRow;
+    return yield* decodeOptionalQueryResult(ConfigUserPlatformRow, row);
   }),
 ).pipe(
   Atom.setIdleTTL(Duration.minutes(5)),

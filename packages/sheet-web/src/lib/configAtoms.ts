@@ -1,5 +1,10 @@
 import { runtimeAtom } from "#/lib/runtime";
-import { authBaseUrlConfig, appBaseUrlConfig, sheetZeroBaseUrlConfig } from "#/lib/config";
+import {
+  authBaseUrlConfig,
+  appBaseUrlConfig,
+  sheetWorkflowsBaseUrlConfig,
+  sheetZeroBaseUrlConfig,
+} from "#/lib/config";
 import { Atom, AsyncResult } from "effect/unstable/reactivity";
 import { Schema } from "effect";
 import { ArgumentError } from "typhoon-core/error";
@@ -20,6 +25,12 @@ export const appBaseUrlAtom = runtimeAtom.atom(appBaseUrlConfig).pipe(
 export const sheetZeroBaseUrlAtom = runtimeAtom.atom(sheetZeroBaseUrlConfig).pipe(
   Atom.serializable({
     key: "sheetZeroBaseUrl",
+    schema: AsyncResult.Schema({ success: Schema.URL, error: ArgumentError }),
+  }),
+);
+export const sheetWorkflowsBaseUrlAtom = runtimeAtom.atom(sheetWorkflowsBaseUrlConfig).pipe(
+  Atom.serializable({
+    key: "sheetWorkflowsBaseUrl",
     schema: AsyncResult.Schema({ success: Schema.URL, error: ArgumentError }),
   }),
 );

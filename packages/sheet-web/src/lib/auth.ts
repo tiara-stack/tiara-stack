@@ -2,9 +2,10 @@ import { useAtomSet, useAtomSuspense } from "@effect/atom-react";
 import { Atom, Reactivity } from "effect/unstable/reactivity";
 import { createIsomorphicFn, getRouterInstance } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
-import { Duration, Effect, Schema } from "effect";
+import { Duration, Effect, Exit, Predicate, Schema } from "effect";
 import { createSheetAuthClient, getSession } from "sheet-auth/client";
 import { appBaseUrlAtom, authBaseUrlAtom } from "#/lib/configAtoms";
+import { clearSheetWebOAuthToken } from "#/lib/oauth";
 import { runtimeAtom } from "#/lib/runtime";
 import { useCallback } from "react";
 import * as Data from "effect/Data";
@@ -52,15 +53,42 @@ const signOut = runtimeAtom.fn(
   Effect.fnUntraced(function* (_, ctx: Atom.FnContext) {
     const authClient = yield* ctx.result(authClientAtom);
 
-    yield* Effect.tryPromise({
+    const sessionLogout = Effect.tryPromise({
       try: () => authClient.signOut(),
       catch: () => new SheetWebLibAuthError({ message: "Failed to sign out" }),
     });
+    const oauthCleanup = Effect.tryPromise({
+      try: () => clearSheetWebOAuthToken(),
+      catch: () => new SheetWebLibAuthError({ message: "Failed to clear Sheet OAuth session" }),
+    }).pipe(
+      Effect.tapError((error) => Effect.logError("Failed to clear Sheet OAuth session", error)),
+    );
 
-    yield* Reactivity.invalidate(["session"]);
-
-    const router = yield* Effect.promise(() => Promise.resolve(getRouterInstance()));
-    void router.invalidate();
+    yield* Effect.gen(function* () {
+      // Both server-side logout operations must be attempted, but either failure should keep the
+      // mutation failed so the UI cannot report a partial logout as successful.
+      const sessionExit = yield* Effect.exit(sessionLogout);
+      const oauthExit = yield* Effect.exit(oauthCleanup);
+      if (Exit.isFailure(sessionExit)) return yield* Effect.failCause(sessionExit.cause);
+      if (Exit.isFailure(oauthExit)) return yield* Effect.failCause(oauthExit.cause);
+    }).pipe(
+      Effect.ensuring(
+        Effect.gen(function* () {
+          yield* Reactivity.invalidate(["session"]).pipe(Effect.ignore);
+          const router = yield* Effect.sync(() => getRouterInstance()).pipe(
+            Effect.flatMap((value) =>
+              Predicate.isPromise(value) ? Effect.promise(() => value) : Effect.succeed(value),
+            ),
+          );
+          yield* Effect.promise(() => router.invalidate());
+        }).pipe(
+          Effect.tapError((error) =>
+            Effect.logError("Failed to refresh the signed-out route", error),
+          ),
+          Effect.ignore,
+        ),
+      ),
+    );
   }),
 );
 
