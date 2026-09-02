@@ -88,6 +88,7 @@ const packages = {
       "sheet-bot-api",
       "sheet-domain",
       "sheet-workflow-contracts",
+      "sheet-workflow-http-client",
       "sheet-zero-api",
     ],
   },

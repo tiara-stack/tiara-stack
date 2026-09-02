@@ -83,3 +83,12 @@ export const CalculationDeclaredFailure = Schema.Union([
   ExternalOperationRejected,
 ]);
 export type CalculationDeclaredFailure = Schema.Schema.Type<typeof CalculationDeclaredFailure>;
+
+export const SheetSnapshotDeclaredFailure = Schema.Union([
+  AuthorizationRevoked,
+  ResourceNotFound,
+  ConfigurationMissing,
+  InvalidRequest,
+  ExternalOperationRejected,
+]);
+export type SheetSnapshotDeclaredFailure = Schema.Schema.Type<typeof SheetSnapshotDeclaredFailure>;

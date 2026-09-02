@@ -146,6 +146,11 @@
         "count": 2
       }
     },
+    "packages/sheet-workflows/src/workflows/teamSubmissions/operations.test.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
     "packages/tiara-review/src/ai/client.ts": {
       "crap_moderate": {
         "count": 1

@@ -1,6 +1,14 @@
 import { Schema } from "effect";
 import { DeliveryReceipt, MessageRef, ResponseReference } from "sheet-bot-api";
-import { TeamSubmissionStatus } from "sheet-domain";
+import {
+  SheetConfigurationDiagnostic,
+  SheetConfigurationRevision,
+  SheetConfigurationSource,
+  LegacySourceBinding,
+  ScheduleEncoding,
+  TeamSubmissionStatus,
+  WebSheetConfiguration,
+} from "sheet-domain";
 
 export const WorkflowTeamSubmissionStatus = TeamSubmissionStatus.pipe(
   Schema.annotate({ identifier: "sheet-workflow-contracts/WorkflowTeamSubmissionStatus" }),
@@ -29,6 +37,402 @@ const DeliveryEvidenceFields = {
 
 export const EmptyInput = Schema.Struct({});
 export type EmptyInput = Schema.Schema.Type<typeof EmptyInput>;
+
+export const SheetSnapshotReadPolicy = Schema.Literals(["cached", "fresh"]);
+export type SheetSnapshotReadPolicy = Schema.Schema.Type<typeof SheetSnapshotReadPolicy>;
+
+const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
+const SnapshotRowCount = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 100 }));
+const SnapshotColumnCount = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 40 }));
+
+export const SheetSnapshotWindow = Schema.Struct({
+  startRow: NonNegativeInt,
+  startColumn: NonNegativeInt,
+  rowCount: SnapshotRowCount,
+  columnCount: SnapshotColumnCount,
+});
+export type SheetSnapshotWindow = Schema.Schema.Type<typeof SheetSnapshotWindow>;
+
+export const SheetSnapshotTab = Schema.Struct({
+  sheetId: NonNegativeInt,
+  title: Schema.String,
+  hidden: Schema.Boolean,
+  sheetType: Schema.Literal("GRID"),
+  rowCount: NonNegativeInt,
+  columnCount: NonNegativeInt,
+});
+export type SheetSnapshotTab = Schema.Schema.Type<typeof SheetSnapshotTab>;
+
+export const SheetSnapshotDimension = Schema.Struct({
+  index: NonNegativeInt,
+  hidden: Schema.optional(Schema.Boolean),
+  pixelSize: Schema.optional(NonNegativeInt),
+});
+export type SheetSnapshotDimension = Schema.Schema.Type<typeof SheetSnapshotDimension>;
+
+const SnapshotColorComponent = Schema.Number.check(Schema.isBetween({ minimum: 0, maximum: 1 }));
+
+export const SheetSnapshotColor = Schema.Struct({
+  red: Schema.optional(SnapshotColorComponent),
+  green: Schema.optional(SnapshotColorComponent),
+  blue: Schema.optional(SnapshotColorComponent),
+  alpha: Schema.optional(SnapshotColorComponent),
+});
+export type SheetSnapshotColor = Schema.Schema.Type<typeof SheetSnapshotColor>;
+
+export const SheetSnapshotCell = Schema.Struct({
+  row: NonNegativeInt,
+  column: NonNegativeInt,
+  formattedValue: Schema.String,
+  textColor: Schema.optional(SheetSnapshotColor),
+  backgroundColor: Schema.optional(SheetSnapshotColor),
+  bold: Schema.optional(Schema.Boolean),
+  italic: Schema.optional(Schema.Boolean),
+  underline: Schema.optional(Schema.Boolean),
+  strikethrough: Schema.optional(Schema.Boolean),
+});
+export type SheetSnapshotCell = Schema.Schema.Type<typeof SheetSnapshotCell>;
+
+export const SheetSnapshotMerge = Schema.Struct({
+  startRow: NonNegativeInt,
+  endRow: NonNegativeInt,
+  startColumn: NonNegativeInt,
+  endColumn: NonNegativeInt,
+}).check(
+  Schema.makeFilter(({ endColumn, endRow, startColumn, startRow }) =>
+    // Merge ranges use zero-based, half-open coordinates.
+    endRow > startRow && endColumn > startColumn
+      ? undefined
+      : "Snapshot merge bounds must be ordered and non-empty",
+  ),
+);
+export type SheetSnapshotMerge = Schema.Schema.Type<typeof SheetSnapshotMerge>;
+
+export const SheetsDescribeInput = Schema.Struct({
+  ...WorkspaceFields,
+  // A local native draft may not be persisted yet. The web editor supplies this candidate
+  // identity so preview reads do not accidentally fall back to the legacy source.
+  spreadsheetId: Schema.optional(SpreadsheetId),
+  readPolicy: SheetSnapshotReadPolicy,
+});
+export type SheetsDescribeInput = Schema.Schema.Type<typeof SheetsDescribeInput>;
+
+export const SheetsDescribeSuccess = Schema.Struct({
+  ...WorkspaceFields,
+  spreadsheetId: SpreadsheetId,
+  tabs: Schema.Array(SheetSnapshotTab),
+  metadataFetchedAtEpochMs: Schema.Int,
+});
+export type SheetsDescribeSuccess = Schema.Schema.Type<typeof SheetsDescribeSuccess>;
+
+export const SheetsReadSnapshotInput = Schema.Struct({
+  ...WorkspaceFields,
+  // Keep snapshot reads aligned with the metadata read for an unsaved native draft.
+  spreadsheetId: Schema.optional(SpreadsheetId),
+  sheetId: NonNegativeInt,
+  window: SheetSnapshotWindow,
+  readPolicy: SheetSnapshotReadPolicy,
+});
+export type SheetsReadSnapshotInput = Schema.Schema.Type<typeof SheetsReadSnapshotInput>;
+
+export const SheetsReadSnapshotSuccess = Schema.Struct({
+  ...WorkspaceFields,
+  spreadsheetId: SpreadsheetId,
+  tab: SheetSnapshotTab,
+  window: SheetSnapshotWindow,
+  cells: Schema.Array(SheetSnapshotCell),
+  rowMetadata: Schema.Array(SheetSnapshotDimension),
+  columnMetadata: Schema.Array(SheetSnapshotDimension),
+  merges: Schema.Array(SheetSnapshotMerge),
+  metadataFetchedAtEpochMs: Schema.Int,
+  windowFetchedAtEpochMs: Schema.Int,
+});
+export type SheetsReadSnapshotSuccess = Schema.Schema.Type<typeof SheetsReadSnapshotSuccess>;
+
+export const SheetConfigurationImportLegacyInput = Schema.Struct({
+  ...WorkspaceFields,
+  attemptId: Identifier,
+});
+export type SheetConfigurationImportLegacyInput = Schema.Schema.Type<
+  typeof SheetConfigurationImportLegacyInput
+>;
+
+export const SheetConfigurationImportLegacySuccess = Schema.Struct({
+  ...WorkspaceFields,
+  attemptId: Identifier,
+  status: Schema.Literals(["succeeded", "needs-review"]),
+  draftVersion: Schema.Int,
+  source: SheetConfigurationSource,
+  configuration: Schema.NullOr(WebSheetConfiguration),
+  diagnostics: Schema.Array(SheetConfigurationDiagnostic),
+  baselineDigest: Identifier,
+});
+export type SheetConfigurationImportLegacySuccess = Schema.Schema.Type<
+  typeof SheetConfigurationImportLegacySuccess
+>;
+
+export const SheetConfigurationSaveDraftInput = Schema.Struct({
+  ...WorkspaceFields,
+  expectedDraftVersion: Schema.Int,
+  source: SheetConfigurationSource,
+  legacyBinding: Schema.NullOr(LegacySourceBinding),
+  baseRevisionId: Schema.NullOr(Identifier),
+  baselineDigest: Schema.NullOr(Identifier),
+  configuration: Schema.NullOr(WebSheetConfiguration),
+  diagnostics: Schema.Array(SheetConfigurationDiagnostic),
+});
+export type SheetConfigurationSaveDraftInput = Schema.Schema.Type<
+  typeof SheetConfigurationSaveDraftInput
+>;
+
+export const SheetConfigurationSaveDraftSuccess = Schema.Struct({
+  ...WorkspaceFields,
+  draftVersion: Schema.Int,
+  source: SheetConfigurationSource,
+  baseRevisionId: Schema.NullOr(Identifier),
+  baselineDigest: Schema.NullOr(Identifier),
+  configuration: Schema.NullOr(WebSheetConfiguration),
+  diagnostics: Schema.Array(SheetConfigurationDiagnostic),
+});
+export type SheetConfigurationSaveDraftSuccess = Schema.Schema.Type<
+  typeof SheetConfigurationSaveDraftSuccess
+>;
+
+export const SheetConfigurationScalarEdit = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("setSpreadsheetId"),
+    value: SpreadsheetId,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("setEventStartTime"),
+    value: Schema.Int,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("setTeamName"),
+    entryId: Identifier,
+    value: Schema.NullOr(Identifier),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("setScheduleChannel"),
+    entryId: Identifier,
+    value: Identifier,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("setScheduleDay"),
+    entryId: Identifier,
+    value: Schema.Int.check(Schema.isGreaterThan(0)),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("setScheduleEncoding"),
+    entryId: Identifier,
+    value: ScheduleEncoding,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("setRunnerName"),
+    entryId: Identifier,
+    value: Identifier,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("setTeamTags"),
+    entryId: Identifier,
+    values: Schema.Array(Identifier),
+  }),
+]);
+export type SheetConfigurationScalarEdit = Schema.Schema.Type<typeof SheetConfigurationScalarEdit>;
+
+export const SheetConfigurationRangePath = Schema.Literals([
+  "users.userIds",
+  "users.userSheetNames",
+  "users.userNotes",
+  "users.monitors.ids",
+  "users.monitors.names",
+  "users.oshis",
+  "teams.teamName",
+  "teams.userNames",
+  "teams.isv",
+  "teams.isv.lead",
+  "teams.isv.backline",
+  "teams.isv.talent",
+  "teams.tags",
+  "teams.oshiRange",
+  "schedules.hourRange",
+  "schedules.breakRange",
+  "schedules.monitorRange",
+  "schedules.fillRange",
+  "schedules.overfillRange",
+  "schedules.standbyRange",
+  "schedules.screenshotRange",
+  "schedules.noteRange",
+  "schedules.visibleCell",
+]);
+export type SheetConfigurationRangePath = Schema.Schema.Type<typeof SheetConfigurationRangePath>;
+
+export const SheetConfigurationRangeEdit = Schema.Struct({
+  kind: Schema.Literal("setRange"),
+  path: SheetConfigurationRangePath,
+  entryId: Schema.NullOr(Identifier),
+  a1: Identifier,
+});
+export type SheetConfigurationRangeEdit = Schema.Schema.Type<typeof SheetConfigurationRangeEdit>;
+
+export const SheetConfigurationEntryCollection = Schema.Literals(["teams", "schedules", "runners"]);
+export type SheetConfigurationEntryCollection = Schema.Schema.Type<
+  typeof SheetConfigurationEntryCollection
+>;
+
+export const SheetConfigurationEntryEdit = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("addEntry"),
+    collection: SheetConfigurationEntryCollection,
+    entryId: Identifier,
+    position: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("removeEntry"),
+    collection: SheetConfigurationEntryCollection,
+    entryId: Identifier,
+    confirm: Schema.Literal(true),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("reorderEntry"),
+    collection: SheetConfigurationEntryCollection,
+    entryId: Identifier,
+    position: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  }),
+]);
+export type SheetConfigurationEntryEdit = Schema.Schema.Type<typeof SheetConfigurationEntryEdit>;
+
+export const SheetConfigurationDraftEdit = Schema.Union([
+  SheetConfigurationScalarEdit,
+  SheetConfigurationRangeEdit,
+  SheetConfigurationEntryEdit,
+]);
+export type SheetConfigurationDraftEdit = Schema.Schema.Type<typeof SheetConfigurationDraftEdit>;
+
+export const SheetConfigurationEditDraftInput = Schema.Struct({
+  ...WorkspaceFields,
+  expectedDraftVersion: Schema.Int,
+  edit: SheetConfigurationDraftEdit,
+});
+export type SheetConfigurationEditDraftInput = Schema.Schema.Type<
+  typeof SheetConfigurationEditDraftInput
+>;
+
+export const SheetConfigurationEditDraftSuccess = Schema.Struct({
+  ...WorkspaceFields,
+  draftVersion: Schema.Int,
+  source: SheetConfigurationSource,
+  baseRevisionId: Schema.NullOr(Identifier),
+  baselineDigest: Schema.NullOr(Identifier),
+  configuration: WebSheetConfiguration,
+  diagnostics: Schema.Array(SheetConfigurationDiagnostic),
+});
+export type SheetConfigurationEditDraftSuccess = Schema.Schema.Type<
+  typeof SheetConfigurationEditDraftSuccess
+>;
+
+export const SheetConfigurationSaveRevisionInput = Schema.Struct({
+  ...WorkspaceFields,
+  expectedDraftVersion: Schema.Int,
+  revisionId: Identifier,
+  configuration: WebSheetConfiguration,
+});
+export type SheetConfigurationSaveRevisionInput = Schema.Schema.Type<
+  typeof SheetConfigurationSaveRevisionInput
+>;
+
+export const SheetConfigurationSaveRevisionSuccess = Schema.Struct({
+  ...WorkspaceFields,
+  draftVersion: Schema.Int,
+  revision: SheetConfigurationRevision,
+});
+export type SheetConfigurationSaveRevisionSuccess = Schema.Schema.Type<
+  typeof SheetConfigurationSaveRevisionSuccess
+>;
+
+export const SheetConfigurationActivateInput = Schema.Struct({
+  ...WorkspaceFields,
+  expectedDraftVersion: Schema.Int,
+  revisionId: Identifier,
+  expectedBaselineDigest: Schema.NullOr(Identifier),
+});
+export type SheetConfigurationActivateInput = Schema.Schema.Type<
+  typeof SheetConfigurationActivateInput
+>;
+
+export const SheetConfigurationActivateSuccess = Schema.Struct({
+  ...WorkspaceFields,
+  draftVersion: Schema.Int,
+  activeRevisionId: Identifier,
+  source: SheetConfigurationSource,
+});
+export type SheetConfigurationActivateSuccess = Schema.Schema.Type<
+  typeof SheetConfigurationActivateSuccess
+>;
+
+export const SheetConfigurationRollbackInput = Schema.Struct({
+  ...WorkspaceFields,
+  expectedDraftVersion: Schema.Int,
+  revisionId: Schema.NullOr(Identifier),
+});
+export type SheetConfigurationRollbackInput = Schema.Schema.Type<
+  typeof SheetConfigurationRollbackInput
+>;
+
+export const SheetConfigurationRollbackSuccess = Schema.Struct({
+  ...WorkspaceFields,
+  draftVersion: Schema.Int,
+  activeRevisionId: Schema.NullOr(Identifier),
+  source: SheetConfigurationSource,
+});
+export type SheetConfigurationRollbackSuccess = Schema.Schema.Type<
+  typeof SheetConfigurationRollbackSuccess
+>;
+
+export const SheetConfigurationDiscardDraftInput = Schema.Struct({
+  ...WorkspaceFields,
+  expectedDraftVersion: Schema.Int,
+});
+export type SheetConfigurationDiscardDraftInput = Schema.Schema.Type<
+  typeof SheetConfigurationDiscardDraftInput
+>;
+
+export const SheetConfigurationDiscardDraftSuccess = Schema.Struct({
+  ...WorkspaceFields,
+  draftVersion: Schema.Int,
+  source: SheetConfigurationSource,
+});
+export type SheetConfigurationDiscardDraftSuccess = Schema.Schema.Type<
+  typeof SheetConfigurationDiscardDraftSuccess
+>;
+
+export const SheetConfigurationDraftInput = Schema.Struct({
+  ...WorkspaceFields,
+  expectedDraftVersion: Schema.Int,
+  source: SheetConfigurationSource,
+  configuration: Schema.NullOr(WebSheetConfiguration),
+});
+export type SheetConfigurationDraftInput = Schema.Schema.Type<typeof SheetConfigurationDraftInput>;
+
+export const SheetConfigurationDraftSuccess = Schema.Struct({
+  ...WorkspaceFields,
+  draftVersion: Schema.Int,
+  source: SheetConfigurationSource,
+  configuration: Schema.NullOr(WebSheetConfiguration),
+  diagnostics: Schema.Array(SheetConfigurationDiagnostic),
+  updatedAtEpochMs: Schema.Int,
+});
+export type SheetConfigurationDraftSuccess = Schema.Schema.Type<
+  typeof SheetConfigurationDraftSuccess
+>;
+
+export const SheetConfigurationRevisionSuccess = Schema.Struct({
+  ...WorkspaceFields,
+  revision: SheetConfigurationRevision,
+});
+export type SheetConfigurationRevisionSuccess = Schema.Schema.Type<
+  typeof SheetConfigurationRevisionSuccess
+>;
 
 export const DiscordProfileUser = Schema.Struct({
   id: Schema.String,

@@ -1,4 +1,4 @@
-// @generated effect-zero signature:sha256:d31f26fe0265c6bd165fd3eb0af4deea5621bd78600da38381134288b12652fa
+// @generated effect-zero signature:sha256:e6625804a2d224a2f625d92dad6406fafdd44334c88a6b0fb168b4a8706dfb3f
 import { createBuilder } from "@rocicorp/zero";
 import type { ReadonlyJSONValue } from "@rocicorp/zero";
 
@@ -56,6 +56,282 @@ const configWorkspaceTable = {
   },
   primaryKey: ["workspaceId"],
   serverName: "sheet_db_config_workspace",
+} as const;
+const configWorkspaceSheetTable = {
+  name: "configWorkspaceSheet",
+  columns: {
+    workspaceId: {
+      type: "string",
+      optional: false,
+      customType: customType<string>(),
+      serverName: "workspace_id",
+    },
+    source: {
+      type: "json",
+      optional: false,
+      customType: customType<ReadonlyJSONValue>(),
+    },
+    legacyBinding: {
+      type: "json",
+      optional: true,
+      customType: customType<ReadonlyJSONValue>(),
+      serverName: "legacy_binding",
+    },
+    draftVersion: {
+      type: "number",
+      optional: false,
+      customType: customType<number>(),
+      serverName: "draft_version",
+    },
+    baseRevisionId: {
+      type: "string",
+      optional: true,
+      customType: customType<string>(),
+      serverName: "base_revision_id",
+    },
+    baselineDigest: {
+      type: "string",
+      optional: true,
+      customType: customType<string>(),
+      serverName: "baseline_digest",
+    },
+    draft: {
+      type: "json",
+      optional: true,
+      customType: customType<ReadonlyJSONValue>(),
+    },
+    diagnostics: {
+      type: "json",
+      optional: false,
+      customType: customType<ReadonlyJSONValue>(),
+    },
+    activeRevisionId: {
+      type: "string",
+      optional: true,
+      customType: customType<string>(),
+      serverName: "active_revision_id",
+    },
+    updatedBy: {
+      type: "string",
+      optional: true,
+      customType: customType<string>(),
+      serverName: "updated_by",
+    },
+    createdAt: {
+      type: "number",
+      optional: false,
+      customType: customType<number>(),
+      serverName: "created_at",
+    },
+    updatedAt: {
+      type: "number",
+      optional: false,
+      customType: customType<number>(),
+      serverName: "updated_at",
+    },
+    deletedAt: {
+      type: "number",
+      optional: true,
+      customType: customType<number>(),
+      serverName: "deleted_at",
+    },
+  },
+  primaryKey: ["workspaceId"],
+  serverName: "sheet_db_config_workspace_sheet",
+} as const;
+const configWorkspaceSheetRevisionTable = {
+  name: "configWorkspaceSheetRevision",
+  columns: {
+    workspaceId: {
+      type: "string",
+      optional: false,
+      customType: customType<string>(),
+      serverName: "workspace_id",
+    },
+    revisionId: {
+      type: "string",
+      optional: false,
+      customType: customType<string>(),
+      serverName: "revision_id",
+    },
+    spreadsheetId: {
+      type: "string",
+      optional: false,
+      customType: customType<string>(),
+      serverName: "spreadsheet_id",
+    },
+    configuration: {
+      type: "json",
+      optional: false,
+      customType: customType<ReadonlyJSONValue>(),
+    },
+    createdBy: {
+      type: "string",
+      optional: false,
+      customType: customType<string>(),
+      serverName: "created_by",
+    },
+    createdAt: {
+      type: "number",
+      optional: false,
+      customType: customType<number>(),
+      serverName: "created_at",
+    },
+    updatedAt: {
+      type: "number",
+      optional: false,
+      customType: customType<number>(),
+      serverName: "updated_at",
+    },
+    deletedAt: {
+      type: "number",
+      optional: true,
+      customType: customType<number>(),
+      serverName: "deleted_at",
+    },
+  },
+  primaryKey: ["workspaceId", "revisionId"],
+  serverName: "sheet_db_config_workspace_sheet_revision",
+} as const;
+const configWorkspaceSheetImportAttemptTable = {
+  name: "configWorkspaceSheetImportAttempt",
+  columns: {
+    attemptId: {
+      type: "string",
+      optional: false,
+      customType: customType<string>(),
+      serverName: "attempt_id",
+    },
+    workspaceId: {
+      type: "string",
+      optional: false,
+      customType: customType<string>(),
+      serverName: "workspace_id",
+    },
+    status: {
+      type: "string",
+      optional: false,
+      customType: customType<string>(),
+    },
+    sourceBinding: {
+      type: "json",
+      optional: false,
+      customType: customType<ReadonlyJSONValue>(),
+      serverName: "source_binding",
+    },
+    baselineDigest: {
+      type: "string",
+      optional: false,
+      customType: customType<string>(),
+      serverName: "baseline_digest",
+    },
+    result: {
+      type: "json",
+      optional: true,
+      customType: customType<ReadonlyJSONValue>(),
+    },
+    createdBy: {
+      type: "string",
+      optional: false,
+      customType: customType<string>(),
+      serverName: "created_by",
+    },
+    createdAt: {
+      type: "number",
+      optional: false,
+      customType: customType<number>(),
+      serverName: "created_at",
+    },
+    updatedAt: {
+      type: "number",
+      optional: false,
+      customType: customType<number>(),
+      serverName: "updated_at",
+    },
+    deletedAt: {
+      type: "number",
+      optional: true,
+      customType: customType<number>(),
+      serverName: "deleted_at",
+    },
+  },
+  primaryKey: ["attemptId"],
+  serverName: "sheet_db_config_workspace_sheet_import_attempt",
+} as const;
+const auditSheetConfigurationTable = {
+  name: "auditSheetConfiguration",
+  columns: {
+    eventId: {
+      type: "string",
+      optional: false,
+      customType: customType<string>(),
+      serverName: "event_id",
+    },
+    workspaceId: {
+      type: "string",
+      optional: false,
+      customType: customType<string>(),
+      serverName: "workspace_id",
+    },
+    operation: {
+      type: "string",
+      optional: false,
+      customType: customType<string>(),
+    },
+    outcome: {
+      type: "string",
+      optional: false,
+      customType: customType<string>(),
+    },
+    invocationId: {
+      type: "string",
+      optional: true,
+      customType: customType<string>(),
+      serverName: "invocation_id",
+    },
+    effectivePrincipal: {
+      type: "json",
+      optional: false,
+      customType: customType<ReadonlyJSONValue>(),
+      serverName: "effective_principal",
+    },
+    actorProvenance: {
+      type: "json",
+      optional: true,
+      customType: customType<ReadonlyJSONValue>(),
+      serverName: "actor_provenance",
+    },
+    metadata: {
+      type: "json",
+      optional: false,
+      customType: customType<ReadonlyJSONValue>(),
+    },
+    reason: {
+      type: "string",
+      optional: true,
+      customType: customType<string>(),
+    },
+    createdAt: {
+      type: "number",
+      optional: false,
+      customType: customType<number>(),
+      serverName: "created_at",
+    },
+    updatedAt: {
+      type: "number",
+      optional: false,
+      customType: customType<number>(),
+      serverName: "updated_at",
+    },
+    deletedAt: {
+      type: "number",
+      optional: true,
+      customType: customType<number>(),
+      serverName: "deleted_at",
+    },
+  },
+  primaryKey: ["eventId"],
+  serverName: "sheet_db_audit_sheet_configuration",
 } as const;
 const configWorkspaceMonitorRoleTable = {
   name: "configWorkspaceMonitorRole",
@@ -860,6 +1136,12 @@ const messageTeamSubmissionTable = {
       customType: customType<string>(),
       serverName: "sheet_id",
     },
+    sheetConfigurationBinding: {
+      type: "json",
+      optional: true,
+      customType: customType<ReadonlyJSONValue>(),
+      serverName: "sheet_configuration_binding",
+    },
     confirmationMessageId: {
       type: "string",
       optional: true,
@@ -1069,6 +1351,10 @@ const workflowRunTable = {
 export const schema = {
   tables: {
     configWorkspace: configWorkspaceTable,
+    configWorkspaceSheet: configWorkspaceSheetTable,
+    configWorkspaceSheetRevision: configWorkspaceSheetRevisionTable,
+    configWorkspaceSheetImportAttempt: configWorkspaceSheetImportAttemptTable,
+    auditSheetConfiguration: auditSheetConfigurationTable,
     configWorkspaceMonitorRole: configWorkspaceMonitorRoleTable,
     configWorkspaceFeatureFlag: configWorkspaceFeatureFlagTable,
     configWorkspaceUpdateAnnouncementDelivery: configWorkspaceUpdateAnnouncementDeliveryTable,

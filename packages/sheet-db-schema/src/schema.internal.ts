@@ -5,13 +5,16 @@ import {
   workflowRun as effectZeroWorkflowRun,
 } from "effect-zero-workflow";
 import type { Model } from "effect/unstable/schema";
+import {
+  SheetConfigurationAuditOutcome,
+  SheetConfigurationImportAttemptStatus,
+  TeamSubmissionStatus,
+} from "sheet-domain";
 import { ReadonlyJSONValue } from "typhoon-zero/schema";
 import {
   TeamSubmissionRemovedRowStrategy,
   TeamSubmissionWriteMode,
 } from "./teamSubmissionChannelConfig";
-import { TeamSubmissionStatus } from "sheet-domain";
-
 type PgModel = Model.Any & Omit<EffectSqlTable<"postgresql">, "name">;
 const asPgModel = <const T extends PgModel>(model: T) => model;
 
@@ -35,6 +38,87 @@ class ConfigWorkspace extends pg.Class<ConfigWorkspace>("ConfigWorkspace")({
     deletedAt: deletedAt(),
   },
   indexes: [pg.index("config_workspace_sheet_id_idx").on("sheetId")],
+}) {}
+
+class ConfigWorkspaceSheet extends pg.Class<ConfigWorkspaceSheet>("ConfigWorkspaceSheet")({
+  table: "config_workspace_sheet",
+  fields: {
+    workspaceId: pg.varchar("workspace_id").primaryKey(),
+    source: pg.jsonb("source").notNull().decodeTo(ReadonlyJSONValue),
+    legacyBinding: pg.jsonb("legacy_binding").decodeTo(ReadonlyJSONValue),
+    draftVersion: pg.integer("draft_version").notNull(),
+    baseRevisionId: pg.varchar("base_revision_id"),
+    baselineDigest: pg.varchar("baseline_digest"),
+    draft: pg.jsonb("draft").decodeTo(ReadonlyJSONValue),
+    diagnostics: pg.jsonb("diagnostics").notNull().decodeTo(ReadonlyJSONValue),
+    activeRevisionId: pg.varchar("active_revision_id"),
+    updatedBy: pg.varchar("updated_by"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+    deletedAt: deletedAt(),
+  },
+}) {}
+
+class ConfigWorkspaceSheetRevision extends pg.Class<ConfigWorkspaceSheetRevision>(
+  "ConfigWorkspaceSheetRevision",
+)({
+  table: "config_workspace_sheet_revision",
+  fields: {
+    workspaceId: pg.varchar("workspace_id").notNull(),
+    revisionId: pg.varchar("revision_id").notNull(),
+    spreadsheetId: pg.varchar("spreadsheet_id").notNull(),
+    configuration: pg.jsonb("configuration").notNull().decodeTo(ReadonlyJSONValue),
+    createdBy: pg.varchar("created_by").notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+    deletedAt: deletedAt(),
+  },
+  primaryKey: ["workspaceId", "revisionId"],
+  indexes: [pg.index("config_workspace_sheet_revision_spreadsheet_idx").on("spreadsheetId")],
+}) {}
+
+class ConfigWorkspaceSheetImportAttempt extends pg.Class<ConfigWorkspaceSheetImportAttempt>(
+  "ConfigWorkspaceSheetImportAttempt",
+)({
+  table: "config_workspace_sheet_import_attempt",
+  fields: {
+    attemptId: pg.varchar("attempt_id").primaryKey(),
+    workspaceId: pg.varchar("workspace_id").notNull(),
+    status: pg.varchar("status").notNull().decodeTo(SheetConfigurationImportAttemptStatus),
+    sourceBinding: pg.jsonb("source_binding").notNull().decodeTo(ReadonlyJSONValue),
+    baselineDigest: pg.varchar("baseline_digest").notNull(),
+    result: pg.jsonb("result").decodeTo(ReadonlyJSONValue),
+    createdBy: pg.varchar("created_by").notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+    deletedAt: deletedAt(),
+  },
+  indexes: [pg.index("config_workspace_sheet_import_attempt_workspace_idx").on("workspaceId")],
+}) {}
+
+/**
+ * Application-owned audit events are append-only and retained indefinitely. `deletedAt` remains
+ * solely as the Zero tombstone column; no Sheet Configuration operation purges or edits events.
+ */
+class AuditSheetConfiguration extends pg.Class<AuditSheetConfiguration>("AuditSheetConfiguration")({
+  table: "audit_sheet_configuration",
+  fields: {
+    eventId: pg.varchar("event_id").primaryKey(),
+    workspaceId: pg.varchar("workspace_id").notNull(),
+    operation: pg.varchar("operation").notNull(),
+    outcome: pg.varchar("outcome").notNull().decodeTo(SheetConfigurationAuditOutcome),
+    invocationId: pg.varchar("invocation_id"),
+    effectivePrincipal: pg.jsonb("effective_principal").notNull().decodeTo(ReadonlyJSONValue),
+    actorProvenance: pg.jsonb("actor_provenance").decodeTo(ReadonlyJSONValue),
+    metadata: pg.jsonb("metadata").notNull().decodeTo(ReadonlyJSONValue),
+    reason: pg.varchar("reason"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+    deletedAt: deletedAt(),
+  },
+  indexes: [
+    pg.index("audit_sheet_configuration_workspace_created_idx").on("workspaceId", "createdAt"),
+  ],
 }) {}
 
 class ConfigWorkspaceMonitorRole extends pg.Class<ConfigWorkspaceMonitorRole>(
@@ -264,6 +348,7 @@ class MessageTeamSubmission extends pg.Class<MessageTeamSubmission>("MessageTeam
     discordChannelId: pg.varchar("discord_channel_id").notNull(),
     discordAuthorId: pg.varchar("discord_author_id").notNull(),
     sheetId: pg.varchar("sheet_id").notNull(),
+    sheetConfigurationBinding: pg.jsonb("sheet_configuration_binding").decodeTo(ReadonlyJSONValue),
     confirmationMessageId: pg.varchar("confirmation_message_id"),
     parsedSubmission: pg.jsonb("parsed_submission").notNull().decodeTo(ReadonlyJSONValue),
     rowMappings: pg.jsonb("row_mappings").notNull().decodeTo(ReadonlyJSONValue),
@@ -305,6 +390,10 @@ class SheetApisDispatchJobs extends pg.Class<SheetApisDispatchJobs>("SheetApisDi
 }) {}
 
 export const configWorkspace = asPgModel(ConfigWorkspace);
+export const configWorkspaceSheet = asPgModel(ConfigWorkspaceSheet);
+export const configWorkspaceSheetRevision = asPgModel(ConfigWorkspaceSheetRevision);
+export const configWorkspaceSheetImportAttempt = asPgModel(ConfigWorkspaceSheetImportAttempt);
+export const auditSheetConfiguration = asPgModel(AuditSheetConfiguration);
 export const configWorkspaceMonitorRole = asPgModel(ConfigWorkspaceMonitorRole);
 export const configWorkspaceFeatureFlag = asPgModel(ConfigWorkspaceFeatureFlag);
 export const configWorkspaceUpdateAnnouncementDelivery = asPgModel(

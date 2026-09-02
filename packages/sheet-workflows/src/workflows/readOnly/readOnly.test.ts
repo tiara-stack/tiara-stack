@@ -566,6 +566,7 @@ describe("read-only Sheet Workflow Definition slice", () => {
         discordChannelId: "conversation-1",
         discordAuthorId: "discord-user-1",
         sheetId: "sheet-1",
+        sheetConfigurationBinding: null,
         confirmationMessageId: "confirmation-message-1",
         parsedSubmission: [],
         rowMappings: [],

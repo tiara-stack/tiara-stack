@@ -51,6 +51,20 @@ const expectedCatalog = {
     "mutator:public:upsertTeamSubmissionChannel",
     "mutator:public:removeTeamSubmissionChannel",
   ],
+  sheetConfiguration: [
+    "query:public:getSheetConfiguration",
+    "query:public:getSheetConfigurationRevisions",
+    "query:service:getSheetConfigurationRevisionById",
+    "query:service:getSheetConfigurationRevisionsBySpreadsheetId",
+    "query:public:getSheetConfigurationImportAttempt",
+    "mutator:service:recordSheetConfigurationAudit",
+    "mutator:service:upsertSheetConfigurationDraft",
+    "mutator:service:saveSheetConfigurationRevision",
+    "mutator:service:activateSheetConfigurationRevision",
+    "mutator:service:rollbackSheetConfiguration",
+    "mutator:service:discardSheetConfigurationDraft",
+    "mutator:service:upsertSheetConfigurationImportAttempt",
+  ],
   messageCheckin: [
     "query:public:getMessageCheckinData",
     "query:public:getMessageCheckinMembers",
@@ -129,11 +143,11 @@ const catalogNames = (
     .sort();
 
 describe("Sheet Zero API visibility", () => {
-  it("preserves the exhaustive 67-procedure catalog and visibility split", () => {
+  it("preserves the exhaustive 79-procedure catalog and visibility split", () => {
     expect(projectCatalog()).toEqual(expectedCatalog);
-    expect(catalog).toHaveLength(67);
-    expect(catalog.filter(({ visibility }) => visibility === "public")).toHaveLength(63);
-    expect(catalog.filter(({ visibility }) => visibility === "service")).toHaveLength(1);
+    expect(catalog).toHaveLength(79);
+    expect(catalog.filter(({ visibility }) => visibility === "public")).toHaveLength(66);
+    expect(catalog.filter(({ visibility }) => visibility === "service")).toHaveLength(10);
     expect(catalog.filter(({ visibility }) => visibility === "internal")).toHaveLength(3);
   });
 

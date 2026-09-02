@@ -3,7 +3,10 @@
   "unused_exports": [],
   "unused_types": [],
   "private_type_leaks": [],
-  "unused_dependencies": ["packages/sheet-web/package.json:start-atom"],
+  "unused_dependencies": [
+    "packages/sheet-web/package.json:start-atom",
+    "packages/sheet-workflows/package.json:sheet-domain"
+  ],
   "unused_dev_dependencies": [],
   "circular_dependencies": [],
   "re_export_cycles": [],

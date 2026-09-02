@@ -297,6 +297,7 @@
     "packages/sheet-workflows/src/workflows/workspaces/featureFlags.test.ts:825-842|packages/sheet-workflows/src/workflows/workspaces/workspaces.test.ts:539-559",
     "packages/sheet-workflows/src/workflows/workspaces/workspaces.test.ts:121-128|packages/sheet-workflows/src/workflows/workspaces/workspaces.test.ts:754-759",
     "packages/sheet-workflows/src/workflows/workspaces/workspaces.test.ts:326-334|packages/sheet-workflows/src/workflows/workspaces/workspaces.test.ts:749-759",
+    "packages/sheet-zero-api/src/schema.ts:166-193|packages/sheet-zero-api/src/schema.ts:231-258",
     "packages/sheet-zero-api/src/schema.ts:390-433|packages/sheet-zero-api/src/schema.ts:473-517",
     "packages/sheet-zero-api/src/tableAccess.test.ts:107-120|packages/sheet-zero-api/src/tableAccess.test.ts:152-165",
     "packages/sheet-zero-api/src/tableAccess.test.ts:111-124|packages/sheet-zero-api/src/tableAccess.test.ts:179-188",

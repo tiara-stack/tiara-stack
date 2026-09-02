@@ -164,6 +164,12 @@ const presentOr = <Value, Fallback>(
 ): NonNullable<Value> | Fallback =>
   Option.fromNullishOr(value).pipe(Option.getOrElse(() => fallback));
 
+const valueOr = <Value, Fallback>(
+  value: Value | undefined,
+  fallback: Fallback,
+): Exclude<Value, undefined> | Fallback =>
+  Option.fromUndefinedOr(value).pipe(Option.getOrElse(() => fallback));
+
 const claimStaleMs = 10 * 60 * 1000;
 
 type ClaimTimestamp = Date | number | null | undefined;
@@ -278,6 +284,7 @@ export const makeTrustedSheetPersistenceMock = (): TrustedSheetPersistenceShape 
     discordChannelId: "conversation-1",
     discordAuthorId: "discord-user-1",
     sheetId: "sheet-1",
+    sheetConfigurationBinding: null,
     confirmationMessageId: "confirmation-message-1",
     parsedSubmission: [],
     rowMappings: [],
@@ -287,13 +294,13 @@ export const makeTrustedSheetPersistenceMock = (): TrustedSheetPersistenceShape 
   } as const;
   let messageTeamSubmission: MessageTeamSubmissionRow | undefined;
   const getMessageTeamSubmissionState = Effect.gen(function* () {
-    if (Predicate.isUndefined(messageTeamSubmission)) {
-      messageTeamSubmission = {
-        ...defaultMessageTeamSubmission,
-        ...(yield* auditFields()),
-      };
-    }
-    return messageTeamSubmission;
+    if (Predicate.isNotUndefined(messageTeamSubmission)) return messageTeamSubmission;
+    const initialSubmission = {
+      ...defaultMessageTeamSubmission,
+      ...(yield* auditFields()),
+    };
+    messageTeamSubmission = initialSubmission;
+    return initialSubmission;
   });
   const workspaceFeatureFlagKey = (workspaceId: string, flagName: string) =>
     `${workspaceId}\u0000${flagName}`;
@@ -576,6 +583,20 @@ export const makeTrustedSheetPersistenceMock = (): TrustedSheetPersistenceShape 
             workspaceConversationKey(args.workspaceId, args.conversationId),
           );
         }),
+    },
+    sheetConfiguration: {
+      getSheetConfiguration: () => Effect.succeed(Option.none()),
+      getSheetConfigurationRevisions: () => Effect.succeed([]),
+      getSheetConfigurationRevisionById: () => Effect.succeed(Option.none()),
+      getSheetConfigurationRevisionsBySpreadsheetId: () => Effect.succeed([]),
+      getSheetConfigurationImportAttempt: () => Effect.succeed(Option.none()),
+      upsertSheetConfigurationDraft: () => Effect.void,
+      saveSheetConfigurationRevision: () => Effect.void,
+      activateSheetConfigurationRevision: () => Effect.void,
+      rollbackSheetConfiguration: () => Effect.void,
+      discardSheetConfigurationDraft: () => Effect.void,
+      upsertSheetConfigurationImportAttempt: () => Effect.void,
+      recordSheetConfigurationAudit: () => Effect.void,
     },
     preferences: {
       getUserPlatformConfig: (args) => {
@@ -1067,6 +1088,10 @@ export const makeTrustedSheetPersistenceMock = (): TrustedSheetPersistenceShape 
           const timestamp = yield* Clock.currentTimeMillis;
           const nextSubmission: MessageTeamSubmissionRow = {
             ...submission,
+            sheetConfigurationBinding: valueOr(
+              submission.sheetConfigurationBinding,
+              presentOr(existing?.sheetConfigurationBinding, null),
+            ),
             confirmationMessageId: presentOr(submission.confirmationMessageId, null),
             rollbackSnapshot: presentOr(submission.rollbackSnapshot, null),
             version: presentOr(existing?.version, 0) + 1,

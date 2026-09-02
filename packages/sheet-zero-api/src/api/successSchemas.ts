@@ -5,6 +5,9 @@ import {
   ConfigWorkspaceFeatureFlagRow,
   ConfigWorkspaceMonitorRoleRow,
   ConfigWorkspaceRow,
+  ConfigWorkspaceSheetRevisionRow,
+  ConfigWorkspaceSheetImportAttemptRow,
+  ConfigWorkspaceSheetRow,
   ConfigWorkspaceTeamSubmissionChannelRow,
   ConfigWorkspaceUpdateAnnouncementDeliveryRow,
   MessageCheckinMemberRow,
@@ -34,6 +37,13 @@ export interface SheetZeroApiSuccessSchemas {
     readonly getWorkspaceConversationByName: Schema.Top;
     readonly getTeamSubmissionChannelByConversationId: Schema.Top;
     readonly getTeamSubmissionChannelsForWorkspace: Schema.Top;
+  };
+  readonly sheetConfiguration: {
+    readonly getSheetConfiguration: Schema.Top;
+    readonly getSheetConfigurationRevisions: Schema.Top;
+    readonly getSheetConfigurationRevisionById: Schema.Top;
+    readonly getSheetConfigurationRevisionsBySpreadsheetId: Schema.Top;
+    readonly getSheetConfigurationImportAttempt: Schema.Top;
   };
   readonly messageCheckin: {
     readonly getMessageCheckinData: Schema.Top;
@@ -76,6 +86,15 @@ export const defaultSuccessSchemas = {
       ConfigWorkspaceTeamSubmissionChannelRow,
     ),
     getTeamSubmissionChannelsForWorkspace: Schema.Array(ConfigWorkspaceTeamSubmissionChannelRow),
+  },
+  sheetConfiguration: {
+    getSheetConfiguration: Schema.OptionFromNullishOr(ConfigWorkspaceSheetRow),
+    getSheetConfigurationRevisions: Schema.Array(ConfigWorkspaceSheetRevisionRow),
+    getSheetConfigurationRevisionById: Schema.OptionFromNullishOr(ConfigWorkspaceSheetRevisionRow),
+    getSheetConfigurationRevisionsBySpreadsheetId: Schema.Array(ConfigWorkspaceSheetRevisionRow),
+    getSheetConfigurationImportAttempt: Schema.OptionFromNullishOr(
+      ConfigWorkspaceSheetImportAttemptRow,
+    ),
   },
   messageCheckin: {
     getMessageCheckinData: Schema.OptionFromNullishOr(MessageCheckinRow),

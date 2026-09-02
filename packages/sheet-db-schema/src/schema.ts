@@ -3,6 +3,10 @@ import type { EffectSqlSchema } from "effect-sql-schema";
 import {
   configUserPlatform,
   configWorkspace,
+  configWorkspaceSheet,
+  configWorkspaceSheetRevision,
+  configWorkspaceSheetImportAttempt,
+  auditSheetConfiguration,
   configWorkspaceConversation,
   configWorkspaceFeatureFlag,
   configWorkspaceMonitorRole,
@@ -21,6 +25,10 @@ import {
 export {
   configUserPlatform,
   configWorkspace,
+  configWorkspaceSheet,
+  configWorkspaceSheetRevision,
+  configWorkspaceSheetImportAttempt,
+  auditSheetConfiguration,
   configWorkspaceConversation,
   configWorkspaceFeatureFlag,
   configWorkspaceMonitorRole,
@@ -47,6 +55,10 @@ export type {
 
 export type SheetTables = {
   readonly configWorkspace: typeof configWorkspace;
+  readonly configWorkspaceSheet: typeof configWorkspaceSheet;
+  readonly configWorkspaceSheetRevision: typeof configWorkspaceSheetRevision;
+  readonly configWorkspaceSheetImportAttempt: typeof configWorkspaceSheetImportAttempt;
+  readonly auditSheetConfiguration: typeof auditSheetConfiguration;
   readonly configWorkspaceMonitorRole: typeof configWorkspaceMonitorRole;
   readonly configWorkspaceFeatureFlag: typeof configWorkspaceFeatureFlag;
   readonly configWorkspaceUpdateAnnouncementDelivery: typeof configWorkspaceUpdateAnnouncementDelivery;
@@ -66,6 +78,10 @@ export type SheetTables = {
 
 export const tables: SheetTables = {
   configWorkspace,
+  configWorkspaceSheet,
+  configWorkspaceSheetRevision,
+  configWorkspaceSheetImportAttempt,
+  auditSheetConfiguration,
   configWorkspaceMonitorRole,
   configWorkspaceFeatureFlag,
   configWorkspaceUpdateAnnouncementDelivery,

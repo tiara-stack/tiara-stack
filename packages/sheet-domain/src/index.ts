@@ -1,5 +1,7 @@
 import { Schema } from "effect";
 
+export * from "./configuration";
+
 export const TeamSubmissionStatus = Schema.Literals([
   "registered",
   "updated",

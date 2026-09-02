@@ -1,4 +1,5 @@
 import { Predicate, Schema } from "effect";
+import { sheetColumnLabel } from "sheet-domain";
 
 export interface CanonicalCalculationRange {
   readonly sheetTitle: string;
@@ -11,19 +12,8 @@ export const calculationProjectionStartRowIndex = 29;
 export const calculationProjectionStartColumnIndex = 49;
 export const calculationProjectionWidth = 32;
 
-const columnLabel = (zeroBasedIndex: number): string => {
-  let value = zeroBasedIndex + 1;
-  let label = "";
-  while (value > 0) {
-    const remainder = (value - 1) % 26;
-    label = `${String.fromCharCode(65 + remainder)}${label}`;
-    value = Math.floor((value - 1) / 26);
-  }
-  return label;
-};
-
-const calculationProjectionStartColumn = columnLabel(calculationProjectionStartColumnIndex);
-const calculationProjectionEndColumn = columnLabel(
+const calculationProjectionStartColumn = sheetColumnLabel(calculationProjectionStartColumnIndex);
+const calculationProjectionEndColumn = sheetColumnLabel(
   calculationProjectionStartColumnIndex + calculationProjectionWidth - 1,
 );
 const calculationProjectionStartRow = calculationProjectionStartRowIndex + 1;

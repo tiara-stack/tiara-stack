@@ -15,18 +15,17 @@ import {
   Stream,
 } from "effect";
 import postgres from "postgres";
-import {
-  makeSheetClient,
-  schema,
-  type Schema as SheetZeroSchema,
-  type SheetClient,
-} from "sheet-zero-api";
+import { schema, type Schema as SheetZeroSchema } from "sheet-zero-api";
+import { makeSheetServiceClient, type SheetServiceClient } from "sheet-zero-api/server";
 import type {
   ConfigUserPlatformRow,
   ConfigWorkspaceConversationRow,
   ConfigWorkspaceFeatureFlagRow,
   ConfigWorkspaceMonitorRoleRow,
   ConfigWorkspaceRow,
+  ConfigWorkspaceSheetImportAttemptRow,
+  ConfigWorkspaceSheetRevisionRow,
+  ConfigWorkspaceSheetRow,
   ConfigWorkspaceTeamSubmissionChannelRow,
   ConfigWorkspaceUpdateAnnouncementDeliveryRow,
   MessageCheckinMemberRow,
@@ -38,7 +37,7 @@ import type {
 } from "sheet-zero-api/rows";
 import { ZeroClient } from "typhoon-zero/client";
 
-type GroupedSheetClient = SheetClient["grouped"];
+type GroupedSheetClient = SheetServiceClient["grouped"];
 
 type ClientMethod<
   Group extends keyof GroupedSheetClient,
@@ -60,6 +59,10 @@ type ClientMutation<
   Group extends keyof GroupedSheetClient,
   Method extends keyof GroupedSheetClient[Group],
 > = ClientMethodWithSuccess<Group, Method, void>;
+
+type PersistenceGroup<Group extends keyof TrustedSheetPersistenceShape> = NonNullable<
+  TrustedSheetPersistenceShape[Group]
+>;
 
 export interface TrustedSheetPersistenceShape {
   readonly workspaces: {
@@ -157,6 +160,62 @@ export interface TrustedSheetPersistenceShape {
     readonly removeTeamSubmissionChannel: ClientMutation<
       "workspaceConfig",
       "removeTeamSubmissionChannel"
+    >;
+  };
+  /** Configuration persistence resolves the authoritative sheet-backed source. */
+  readonly sheetConfiguration: {
+    readonly getSheetConfiguration: ClientMethodWithSuccess<
+      "sheetConfiguration",
+      "getSheetConfiguration",
+      Option.Option<ConfigWorkspaceSheetRow>
+    >;
+    readonly getSheetConfigurationRevisions: ClientMethodWithSuccess<
+      "sheetConfiguration",
+      "getSheetConfigurationRevisions",
+      ReadonlyArray<ConfigWorkspaceSheetRevisionRow>
+    >;
+    readonly getSheetConfigurationRevisionById: ClientMethodWithSuccess<
+      "sheetConfiguration",
+      "getSheetConfigurationRevisionById",
+      Option.Option<ConfigWorkspaceSheetRevisionRow>
+    >;
+    readonly getSheetConfigurationRevisionsBySpreadsheetId: ClientMethodWithSuccess<
+      "sheetConfiguration",
+      "getSheetConfigurationRevisionsBySpreadsheetId",
+      ReadonlyArray<ConfigWorkspaceSheetRevisionRow>
+    >;
+    readonly getSheetConfigurationImportAttempt: ClientMethodWithSuccess<
+      "sheetConfiguration",
+      "getSheetConfigurationImportAttempt",
+      Option.Option<ConfigWorkspaceSheetImportAttemptRow>
+    >;
+    readonly upsertSheetConfigurationDraft: ClientMutation<
+      "sheetConfiguration",
+      "upsertSheetConfigurationDraft"
+    >;
+    readonly saveSheetConfigurationRevision: ClientMutation<
+      "sheetConfiguration",
+      "saveSheetConfigurationRevision"
+    >;
+    readonly activateSheetConfigurationRevision: ClientMutation<
+      "sheetConfiguration",
+      "activateSheetConfigurationRevision"
+    >;
+    readonly rollbackSheetConfiguration: ClientMutation<
+      "sheetConfiguration",
+      "rollbackSheetConfiguration"
+    >;
+    readonly discardSheetConfigurationDraft: ClientMutation<
+      "sheetConfiguration",
+      "discardSheetConfigurationDraft"
+    >;
+    readonly upsertSheetConfigurationImportAttempt: ClientMutation<
+      "sheetConfiguration",
+      "upsertSheetConfigurationImportAttempt"
+    >;
+    readonly recordSheetConfigurationAudit: ClientMutation<
+      "sheetConfiguration",
+      "recordSheetConfigurationAudit"
     >;
   };
   readonly preferences: {
@@ -317,6 +376,20 @@ export const trustedSheetPersistenceCatalog = {
     "upsertTeamSubmissionChannel",
     "removeTeamSubmissionChannel",
   ],
+  sheetConfiguration: [
+    "getSheetConfiguration",
+    "getSheetConfigurationRevisions",
+    "getSheetConfigurationRevisionById",
+    "getSheetConfigurationRevisionsBySpreadsheetId",
+    "getSheetConfigurationImportAttempt",
+    "upsertSheetConfigurationDraft",
+    "saveSheetConfigurationRevision",
+    "activateSheetConfigurationRevision",
+    "rollbackSheetConfiguration",
+    "discardSheetConfigurationDraft",
+    "upsertSheetConfigurationImportAttempt",
+    "recordSheetConfigurationAudit",
+  ],
   preferences: [
     "getUserPlatformConfig",
     "getCheckinDmEnabledUserConfigs",
@@ -357,13 +430,13 @@ export const trustedSheetPersistenceCatalog = {
   ],
 } as const satisfies {
   readonly [Group in keyof TrustedSheetPersistenceShape]: ReadonlyArray<
-    keyof TrustedSheetPersistenceShape[Group]
+    keyof PersistenceGroup<Group>
   >;
 };
 
 type MissingCatalogEntries = {
   readonly [Group in keyof TrustedSheetPersistenceShape]: Exclude<
-    keyof TrustedSheetPersistenceShape[Group],
+    keyof PersistenceGroup<Group>,
     (typeof trustedSheetPersistenceCatalog)[Group][number]
   >;
 };
@@ -384,6 +457,7 @@ type ClientGroupByPersistenceGroup = {
 
 const clientGroupByPersistenceGroup = {
   workspaces: (client: GroupedSheetClient) => client.workspaceConfig,
+  sheetConfiguration: (client: GroupedSheetClient) => client.sheetConfiguration,
   preferences: (client: GroupedSheetClient) => client.userConfig,
   checkinState: (client: GroupedSheetClient) => client.messageCheckin,
   roomOrderState: (client: GroupedSheetClient) => client.messageRoomOrder,
@@ -402,6 +476,9 @@ const makeTrustedGroup = <Group extends keyof TrustedSheetPersistenceShape>(
   const selectClientGroup = clientGroupByPersistenceGroup[
     group
   ] as ClientGroupByPersistenceGroup[Group];
+  if (selectClientGroup === undefined) {
+    throw new Error(`No trusted persistence client group registered for ${String(group)}`);
+  }
   const source = selectClientGroup(client);
   const methods = trustedSheetPersistenceCatalog[group] as unknown as ReadonlyArray<
     keyof TrustedClientGroup<Group>
@@ -424,7 +501,7 @@ export class TrustedSheetPersistence extends Context.Service<
 export const makeTrustedSheetPersistence = <ClientContext>(
   executor: ZeroClient.ZeroClientExecutor<SheetZeroSchema, ClientContext>,
 ): Effect.Effect<TrustedSheetPersistenceShape> =>
-  makeSheetClient(executor).pipe(Effect.map((client) => makeTrustedView(client.grouped)));
+  makeSheetServiceClient(executor).pipe(Effect.map((client) => makeTrustedView(client.grouped)));
 
 export const makeTrustedSheetPersistenceLayer = <ClientContext>(
   executor: ZeroClient.ZeroClientExecutor<SheetZeroSchema, ClientContext>,

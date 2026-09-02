@@ -26,6 +26,10 @@ import { builder, schema as zeroSchema, type Schema as SheetZeroSchema } from "s
 import {
   configUserPlatform,
   configWorkspace,
+  configWorkspaceSheet,
+  configWorkspaceSheetRevision,
+  configWorkspaceSheetImportAttempt,
+  auditSheetConfiguration,
   configWorkspaceConversation,
   configWorkspaceFeatureFlag,
   configWorkspaceMonitorRole,
@@ -48,6 +52,14 @@ type Row<Model extends { readonly json: Schema.Top }> = Schema.Schema.Type<Model
 export interface SheetSeeds {
   readonly configUserPlatform?: ReadonlyArray<Insert<typeof configUserPlatform>>;
   readonly configWorkspace?: ReadonlyArray<Insert<typeof configWorkspace>>;
+  readonly configWorkspaceSheet?: ReadonlyArray<Insert<typeof configWorkspaceSheet>>;
+  readonly configWorkspaceSheetRevision?: ReadonlyArray<
+    Insert<typeof configWorkspaceSheetRevision>
+  >;
+  readonly configWorkspaceSheetImportAttempt?: ReadonlyArray<
+    Insert<typeof configWorkspaceSheetImportAttempt>
+  >;
+  readonly auditSheetConfiguration?: ReadonlyArray<Insert<typeof auditSheetConfiguration>>;
   readonly configWorkspaceConversation?: ReadonlyArray<Insert<typeof configWorkspaceConversation>>;
   readonly configWorkspaceFeatureFlag?: ReadonlyArray<Insert<typeof configWorkspaceFeatureFlag>>;
   readonly configWorkspaceMonitorRole?: ReadonlyArray<Insert<typeof configWorkspaceMonitorRole>>;
@@ -70,6 +82,10 @@ export interface SheetSeeds {
 export interface SheetRows {
   readonly configUserPlatform: Row<typeof configUserPlatform>;
   readonly configWorkspace: Row<typeof configWorkspace>;
+  readonly configWorkspaceSheet: Row<typeof configWorkspaceSheet>;
+  readonly configWorkspaceSheetRevision: Row<typeof configWorkspaceSheetRevision>;
+  readonly configWorkspaceSheetImportAttempt: Row<typeof configWorkspaceSheetImportAttempt>;
+  readonly auditSheetConfiguration: Row<typeof auditSheetConfiguration>;
   readonly configWorkspaceConversation: Row<typeof configWorkspaceConversation>;
   readonly configWorkspaceFeatureFlag: Row<typeof configWorkspaceFeatureFlag>;
   readonly configWorkspaceMonitorRole: Row<typeof configWorkspaceMonitorRole>;

@@ -172,6 +172,7 @@ The following workspace-level scripts are defined in `package.json`:
 - **`lint`**: `vp run -r lint` - Runs lint plus type-aware TypeScript checks across packages that define a lint script
 - **`test`**: `vp run -r test` - Runs tests across packages that define a test script
 - **`build`**: `vp run -r build` - Builds all packages
+- **`check:tsc-build`**: `tsgo -b tsconfig.build.json --pretty false` - Generates the ignored `.ts-out` project-reference outputs used by declaration-aware linting and type checks
 - **`checks`**: `pnpm format && pnpm lint && pnpm test` - Runs format checks, lint/type checks, and tests across packages that define those scripts
 - **`format:apply`**: `vp run -r format:apply` - Applies formatting across all packages that define a format script
 
@@ -181,7 +182,7 @@ Run these scripts from the repo root using `pnpm <script>`.
 
 Run `pnpm format:apply` every time after you finish proposing a change to correctly format all the code.
 
-After making code changes, run the local validation needed to catch CI failures before handing work back. The default is `pnpm format:apply`, `pnpm checks`, and `npx fallow audit` from the repo root; also run `pnpm build` when changes affect package exports, build configuration, generated artifacts, or code paths not covered by tests. If a full workspace command is not practical, run the affected package scripts with `pnpm --filter <package> <script>` and explicitly report which command was skipped and why.
+After making code changes, run the local validation needed to catch CI failures before handing work back. The default is `pnpm format:apply`, `pnpm check:tsc-build`, `pnpm checks`, and `npx fallow audit` from the repo root; run `check:tsc-build` to refresh the ignored `.ts-out` outputs before relying on declaration-aware lint or type diagnostics. Also run `pnpm build` when changes affect package exports, build configuration, generated artifacts, or code paths not covered by tests. If a full workspace command is not practical, run the affected package scripts with `pnpm --filter <package> <script>` and explicitly report which command was skipped and why.
 
 ## Package Scripts
 

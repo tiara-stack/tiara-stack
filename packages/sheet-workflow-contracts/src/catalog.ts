@@ -82,6 +82,7 @@ const dataAcquisition = contractKind(Failures.DataAcquisitionDeclaredFailure);
 const interactive = contractKind(Failures.InteractiveDeclaredFailure);
 const autonomous = contractKind(Failures.AutonomousDeclaredFailure);
 const calculation = contractKind(Failures.CalculationDeclaredFailure);
+const sheetSnapshot = contractKind(Failures.SheetSnapshotDeclaredFailure);
 
 export const DiscordLoadProfile = dataAcquisition(
   "discord.loadProfile",
@@ -113,6 +114,69 @@ export const AuthorizationLoadWorkspaceCapabilities = dataAcquisition(
   policy(["user"], [], "workspace", {
     resourceField: "workspaceId",
   }),
+);
+
+export const SheetsDescribe = sheetSnapshot(
+  "sheets.describe",
+  Values.SheetsDescribeInput,
+  Values.SheetsDescribeSuccess,
+  policy(["user"], ["workspace.manage"], "workspace", { resourceField: "workspaceId" }),
+);
+
+export const SheetsReadSnapshot = sheetSnapshot(
+  "sheets.readSnapshot",
+  Values.SheetsReadSnapshotInput,
+  Values.SheetsReadSnapshotSuccess,
+  policy(["user"], ["workspace.manage"], "workspace", { resourceField: "workspaceId" }),
+);
+
+export const SheetConfigurationImportLegacy = interactive(
+  "sheetConfiguration.importLegacy",
+  Values.SheetConfigurationImportLegacyInput,
+  Values.SheetConfigurationImportLegacySuccess,
+  policy(["user"], ["workspace.manage"], "workspace", { resourceField: "workspaceId" }),
+);
+
+export const SheetConfigurationSaveDraft = interactive(
+  "sheetConfiguration.saveDraft",
+  Values.SheetConfigurationSaveDraftInput,
+  Values.SheetConfigurationSaveDraftSuccess,
+  policy(["user"], ["workspace.manage"], "workspace", { resourceField: "workspaceId" }),
+);
+
+export const SheetConfigurationEditDraft = interactive(
+  "sheetConfiguration.editDraft",
+  Values.SheetConfigurationEditDraftInput,
+  Values.SheetConfigurationEditDraftSuccess,
+  policy(["user"], ["workspace.manage"], "workspace", { resourceField: "workspaceId" }),
+);
+
+export const SheetConfigurationSaveRevision = interactive(
+  "sheetConfiguration.saveRevision",
+  Values.SheetConfigurationSaveRevisionInput,
+  Values.SheetConfigurationSaveRevisionSuccess,
+  policy(["user"], ["workspace.manage"], "workspace", { resourceField: "workspaceId" }),
+);
+
+export const SheetConfigurationActivate = interactive(
+  "sheetConfiguration.activate",
+  Values.SheetConfigurationActivateInput,
+  Values.SheetConfigurationActivateSuccess,
+  policy(["user"], ["workspace.manage"], "workspace", { resourceField: "workspaceId" }),
+);
+
+export const SheetConfigurationRollback = interactive(
+  "sheetConfiguration.rollback",
+  Values.SheetConfigurationRollbackInput,
+  Values.SheetConfigurationRollbackSuccess,
+  policy(["user"], ["workspace.manage"], "workspace", { resourceField: "workspaceId" }),
+);
+
+export const SheetConfigurationDiscardDraft = interactive(
+  "sheetConfiguration.discardDraft",
+  Values.SheetConfigurationDiscardDraftInput,
+  Values.SheetConfigurationDiscardDraftSuccess,
+  policy(["user"], ["workspace.manage"], "workspace", { resourceField: "workspaceId" }),
 );
 
 export const SchedulesLoadWorkspace = dataAcquisition(
@@ -405,6 +469,19 @@ export const SheetWorkflowContracts = Object.freeze({
   authorization: Object.freeze({
     loadWorkspaceCapabilities: AuthorizationLoadWorkspaceCapabilities,
   }),
+  sheets: Object.freeze({
+    describe: SheetsDescribe,
+    readSnapshot: SheetsReadSnapshot,
+  }),
+  sheetConfiguration: Object.freeze({
+    importLegacy: SheetConfigurationImportLegacy,
+    saveDraft: SheetConfigurationSaveDraft,
+    editDraft: SheetConfigurationEditDraft,
+    saveRevision: SheetConfigurationSaveRevision,
+    activate: SheetConfigurationActivate,
+    rollback: SheetConfigurationRollback,
+    discardDraft: SheetConfigurationDiscardDraft,
+  }),
   schedules: Object.freeze({
     loadWorkspace: SchedulesLoadWorkspace,
     deliverUserSchedule: SchedulesDeliverUserSchedule,
@@ -461,6 +538,15 @@ export const SheetWorkflowContractCatalog = defineWorkflowContractCatalog(
   DiscordLoadWorkspaceChannels,
   DiscordLoadWorkspaceRoles,
   AuthorizationLoadWorkspaceCapabilities,
+  SheetsDescribe,
+  SheetsReadSnapshot,
+  SheetConfigurationImportLegacy,
+  SheetConfigurationSaveDraft,
+  SheetConfigurationEditDraft,
+  SheetConfigurationSaveRevision,
+  SheetConfigurationActivate,
+  SheetConfigurationRollback,
+  SheetConfigurationDiscardDraft,
   SchedulesLoadWorkspace,
   NotificationsLoadSupportedClients,
   CheckinsOpen,

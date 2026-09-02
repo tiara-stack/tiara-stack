@@ -18,14 +18,14 @@ const failure = <A, E>(exit: Exit.Exit<A, E>) =>
   Exit.isFailure(exit) ? exit.cause.reasons.find(Cause.isFailReason)?.error : undefined;
 
 describe("Zero OAuth context", () => {
-  it.effect("rejects an empty procedure batch without service scope", () =>
+  it.effect("rejects an empty procedure batch without a domain scope", () =>
     Effect.gen(function* () {
       const exit = yield* Effect.exit(zeroContextFromToken([], token()));
 
       expect(failure(exit)).toMatchObject({
         _tag: "ZeroDispatchUnauthorizedError",
         procedure: "zero",
-        message: "Access outside the runs API requires service scope",
+        message: "Domain access requires zero.read and, for mutations, zero.mutate scopes",
       });
     }),
   );
@@ -40,6 +40,20 @@ describe("Zero OAuth context", () => {
       expect(context).toEqual({
         principalId: "sheet-db-server",
         visibilityKey: "service:sheet-db-server",
+      });
+    }),
+  );
+
+  it.effect("allows an empty procedure batch for an account caller with zero.read", () =>
+    Effect.gen(function* () {
+      const context = yield* zeroContextFromToken(
+        [],
+        token({ accountId: "discord-account-1", scopes: new Set(["zero.read"]) }),
+      );
+
+      expect(context).toEqual({
+        principalId: "discord-account-1",
+        visibilityKey: "account:discord-account-1",
       });
     }),
   );
@@ -209,6 +223,78 @@ describe("Zero OAuth context", () => {
     }),
   );
 
+  it.effect("allows account tokens to read domain procedures with zero.read", () =>
+    Effect.gen(function* () {
+      const context = yield* zeroContextFromToken(
+        ["sheetConfiguration.getSheetConfiguration"],
+        token({ accountId: "discord-account-1", scopes: new Set(["zero.read"]) }),
+      );
+
+      expect(context).toEqual({
+        principalId: "discord-account-1",
+        visibilityKey: "account:discord-account-1",
+      });
+    }),
+  );
+
+  it.effect("rejects account tokens from service-only procedures", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(
+        zeroContextFromToken(
+          ["sheetConfiguration.getSheetConfigurationRevisionsBySpreadsheetId"],
+          token({ accountId: "discord-account-1", scopes: new Set(["zero.read"]) }),
+        ),
+      );
+
+      expect(failure(exit)).toMatchObject({
+        _tag: "ZeroDispatchUnauthorizedError",
+        message: "Service procedures require service scope",
+      });
+    }),
+  );
+
+  it.effect("classifies recordWorkspaceUpdateAnnouncementDelivery as a domain mutation", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(
+        zeroContextFromToken(
+          ["workspaceConfig.recordWorkspaceUpdateAnnouncementDelivery"],
+          token({ accountId: "discord-account-1", scopes: new Set(["zero.read"]) }),
+        ),
+      );
+
+      expect(failure(exit)).toMatchObject({
+        _tag: "ZeroDispatchUnauthorizedError",
+        message: "Domain access requires zero.read and, for mutations, zero.mutate scopes",
+      });
+    }),
+  );
+
+  it.effect("requires zero.mutate for account domain mutations", () =>
+    Effect.gen(function* () {
+      const readOnlyExit = yield* Effect.exit(
+        zeroContextFromToken(
+          ["messageSlot.upsertMessageSlotData"],
+          token({ accountId: "discord-account-1", scopes: new Set(["zero.read"]) }),
+        ),
+      );
+
+      expect(failure(readOnlyExit)).toMatchObject({
+        _tag: "ZeroDispatchUnauthorizedError",
+        message: "Domain access requires zero.read and, for mutations, zero.mutate scopes",
+      });
+
+      const context = yield* zeroContextFromToken(
+        ["messageSlot.upsertMessageSlotData"],
+        token({
+          accountId: "discord-account-1",
+          scopes: new Set(["zero.read", "zero.mutate"]),
+        }),
+      );
+
+      expect(context.visibilityKey).toBe("account:discord-account-1");
+    }),
+  );
+
   it.effect("requires workflow.dispatch for mixed run query and mutator batches", () =>
     Effect.gen(function* () {
       const exit = yield* Effect.exit(
@@ -275,7 +361,7 @@ describe("Zero OAuth context", () => {
       );
 
       expect(failure(exit)).toMatchObject({
-        message: "Runs access token is missing an account identity",
+        message: "Account access token is missing an account identity",
       });
     }),
   );

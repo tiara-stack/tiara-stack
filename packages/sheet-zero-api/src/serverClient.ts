@@ -11,8 +11,8 @@ export type SheetServiceClient = ZeroApiClient.FunctionClient<
   (typeof serviceVisibilities)[number]
 >;
 
-export const makeSheetServiceClient = (
-  zeroClient: ZeroClient.ZeroClientExecutor<Schema, unknown>,
+export const makeSheetServiceClient = <Context>(
+  zeroClient: ZeroClient.ZeroClientExecutor<Schema, Context>,
 ): Effect.Effect<SheetServiceClient> =>
   ZeroApiClient.makeFunctionsWithVisibilities(SheetZeroApi, zeroClient, {
     queries: serverQueries,

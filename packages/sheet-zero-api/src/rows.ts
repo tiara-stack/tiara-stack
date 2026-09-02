@@ -1,5 +1,9 @@
 import { Schema } from "effect";
-import { TeamSubmissionStatus } from "sheet-domain";
+import {
+  SheetConfigurationAuditOutcome,
+  SheetConfigurationImportAttemptStatus,
+  TeamSubmissionStatus,
+} from "sheet-domain";
 import { ReadonlyJSONValue } from "typhoon-zero/schema";
 
 const auditFields = {
@@ -30,6 +34,57 @@ export const ConfigWorkspaceRow = Schema.Struct({
   ...auditFields,
 });
 export type ConfigWorkspaceRow = typeof ConfigWorkspaceRow.Type;
+
+export const ConfigWorkspaceSheetRow = Schema.Struct({
+  workspaceId: Schema.String,
+  source: ReadonlyJSONValue,
+  legacyBinding: Schema.NullOr(ReadonlyJSONValue),
+  draftVersion: Schema.Number,
+  baseRevisionId: Schema.NullOr(Schema.String),
+  baselineDigest: Schema.NullOr(Schema.String),
+  draft: Schema.NullOr(ReadonlyJSONValue),
+  diagnostics: ReadonlyJSONValue,
+  activeRevisionId: Schema.NullOr(Schema.String),
+  updatedBy: Schema.NullOr(Schema.String),
+  ...auditFields,
+});
+export type ConfigWorkspaceSheetRow = typeof ConfigWorkspaceSheetRow.Type;
+
+export const ConfigWorkspaceSheetRevisionRow = Schema.Struct({
+  workspaceId: Schema.String,
+  revisionId: Schema.String,
+  spreadsheetId: Schema.String,
+  configuration: ReadonlyJSONValue,
+  createdBy: Schema.String,
+  ...auditFields,
+});
+export type ConfigWorkspaceSheetRevisionRow = typeof ConfigWorkspaceSheetRevisionRow.Type;
+
+export const ConfigWorkspaceSheetImportAttemptRow = Schema.Struct({
+  attemptId: Schema.String,
+  workspaceId: Schema.String,
+  status: SheetConfigurationImportAttemptStatus,
+  sourceBinding: ReadonlyJSONValue,
+  baselineDigest: Schema.String,
+  result: Schema.NullOr(ReadonlyJSONValue),
+  createdBy: Schema.String,
+  ...auditFields,
+});
+export type ConfigWorkspaceSheetImportAttemptRow = typeof ConfigWorkspaceSheetImportAttemptRow.Type;
+
+export const AuditSheetConfigurationRow = Schema.Struct({
+  eventId: Schema.String,
+  workspaceId: Schema.String,
+  operation: Schema.String,
+  outcome: SheetConfigurationAuditOutcome,
+  invocationId: Schema.NullOr(Schema.String),
+  effectivePrincipal: ReadonlyJSONValue,
+  actorProvenance: Schema.NullOr(ReadonlyJSONValue),
+  metadata: ReadonlyJSONValue,
+  reason: Schema.NullOr(Schema.String),
+  ...auditFields,
+});
+export type AuditSheetConfigurationRow = typeof AuditSheetConfigurationRow.Type;
 
 export const ConfigWorkspaceMonitorRoleRow = Schema.Struct({
   workspaceId: Schema.String,
@@ -169,6 +224,7 @@ export const MessageTeamSubmissionRow = Schema.Struct({
   discordChannelId: Schema.String,
   discordAuthorId: Schema.String,
   sheetId: Schema.String,
+  sheetConfigurationBinding: Schema.NullOr(ReadonlyJSONValue),
   confirmationMessageId: Schema.NullOr(Schema.String),
   parsedSubmission: ReadonlyJSONValue,
   rowMappings: ReadonlyJSONValue,

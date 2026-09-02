@@ -4,6 +4,10 @@ import {
   ConfigWorkspaceFeatureFlagRow,
   ConfigWorkspaceMonitorRoleRow,
   ConfigWorkspaceRow,
+  ConfigWorkspaceSheetRevisionRow,
+  ConfigWorkspaceSheetImportAttemptRow,
+  ConfigWorkspaceSheetRow,
+  AuditSheetConfigurationRow,
   ConfigWorkspaceTeamSubmissionChannelRow,
   ConfigWorkspaceUpdateAnnouncementDeliveryRow,
   MessageCheckinMemberRow,
@@ -24,6 +28,10 @@ const timestampOptions = {
 type ZeroTableName =
   | "configUserPlatform"
   | "configWorkspace"
+  | "configWorkspaceSheet"
+  | "configWorkspaceSheetRevision"
+  | "configWorkspaceSheetImportAttempt"
+  | "auditSheetConfiguration"
   | "configWorkspaceConversation"
   | "configWorkspaceFeatureFlag"
   | "configWorkspaceMonitorRole"
@@ -42,6 +50,42 @@ export const zeroTableAccess = {
     softDelete: "deletedAt",
     timestamps: timestampOptions,
   }),
+  configWorkspaceSheet: defineZeroTableAccess(
+    { json: ConfigWorkspaceSheetRow },
+    builder.configWorkspaceSheet,
+    {
+      primaryKey: ["workspaceId"],
+      softDelete: "deletedAt",
+      timestamps: timestampOptions,
+    },
+  ),
+  configWorkspaceSheetRevision: defineZeroTableAccess(
+    { json: ConfigWorkspaceSheetRevisionRow },
+    builder.configWorkspaceSheetRevision,
+    {
+      primaryKey: ["workspaceId", "revisionId"],
+      softDelete: "deletedAt",
+      timestamps: timestampOptions,
+    },
+  ),
+  configWorkspaceSheetImportAttempt: defineZeroTableAccess(
+    { json: ConfigWorkspaceSheetImportAttemptRow },
+    builder.configWorkspaceSheetImportAttempt,
+    {
+      primaryKey: ["attemptId"],
+      softDelete: "deletedAt",
+      timestamps: timestampOptions,
+    },
+  ),
+  auditSheetConfiguration: defineZeroTableAccess(
+    { json: AuditSheetConfigurationRow },
+    builder.auditSheetConfiguration,
+    {
+      primaryKey: ["eventId"],
+      softDelete: "deletedAt",
+      timestamps: timestampOptions,
+    },
+  ),
   configUserPlatform: defineZeroTableAccess(
     { json: ConfigUserPlatformRow },
     builder.configUserPlatform,

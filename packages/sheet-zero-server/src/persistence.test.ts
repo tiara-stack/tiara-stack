@@ -28,7 +28,7 @@ const resetFixture = Effect.gen(function* () {
 
 describe("trusted Sheet persistence policy", () => {
   it("pins the reviewed operation count", () => {
-    expect(Object.values(trustedSheetPersistenceCatalog).flat()).toHaveLength(54);
+    expect(Object.values(trustedSheetPersistenceCatalog).flat()).toHaveLength(66);
   });
 
   persistenceLayer("executes through the policy-filtered interface", (it) => {
@@ -40,7 +40,9 @@ describe("trusted Sheet persistence policy", () => {
         for (const group of Object.keys(trustedSheetPersistenceCatalog) as Array<
           keyof typeof trustedSheetPersistenceCatalog
         >) {
-          expect(Object.keys(persistence[group])).toEqual(trustedSheetPersistenceCatalog[group]);
+          const persistedGroup = persistence[group];
+          expect(persistedGroup).toBeDefined();
+          expect(Object.keys(persistedGroup)).toEqual(trustedSheetPersistenceCatalog[group]);
         }
         expect("runs" in persistence).toBe(false);
         expect("executor" in persistence).toBe(false);

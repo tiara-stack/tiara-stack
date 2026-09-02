@@ -1,6 +1,10 @@
 export {
   configUserPlatform,
   configWorkspace,
+  configWorkspaceSheet,
+  configWorkspaceSheetRevision,
+  configWorkspaceSheetImportAttempt,
+  auditSheetConfiguration,
   configWorkspaceConversation,
   configWorkspaceFeatureFlag,
   configWorkspaceMonitorRole,

@@ -103,6 +103,7 @@ const makeSubmission = (options: {
   discordChannelId: "conversation-1",
   discordAuthorId: "author-1",
   sheetId: "sheet-1",
+  sheetConfigurationBinding: null,
   confirmationMessageId: "confirmation-message-1",
   parsedSubmission: options.parsedSubmission ?? [],
   rowMappings: options.rowMappings ?? [],
@@ -184,6 +185,10 @@ const makeHarness = (options: HarnessOptions = {}) => {
             : Schema.decodeUnknownSync(TeamSubmissionRollbackSnapshot)(args.rollbackSnapshot);
         submission = {
           ...args,
+          sheetConfigurationBinding:
+            args.sheetConfigurationBinding === undefined
+              ? (submission?.sheetConfigurationBinding ?? null)
+              : args.sheetConfigurationBinding,
           confirmationMessageId: args.confirmationMessageId ?? null,
           rollbackSnapshot,
           version: nextVersion,

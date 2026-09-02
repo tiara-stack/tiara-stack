@@ -60,6 +60,7 @@ export const makeMessageTeamSubmissionGroup = <
         discordChannelId: Schema.String,
         discordAuthorId: Schema.String,
         sheetId: Schema.String,
+        sheetConfigurationBinding: Schema.optional(Schema.NullOr(ReadonlyJSONValue)),
         confirmationMessageId: Schema.optional(Schema.NullOr(Schema.String)),
         parsedSubmission: ReadonlyJSONValue,
         rowMappings: ReadonlyJSONValue,
@@ -67,6 +68,8 @@ export const makeMessageTeamSubmissionGroup = <
         expectedVersion: Schema.optional(Schema.Int),
         status: TeamSubmissionStatus,
       }),
+      // The mutation keeps its read, optimistic-concurrency check, and upsert atomic.
+      // fallow-ignore-next-line complexity
       mutator: async ({ tx, args }) => {
         const existingSubmission = await tx.run(
           zeroTableAccess.messageTeamSubmission.table
@@ -98,6 +101,10 @@ export const makeMessageTeamSubmissionGroup = <
               discordChannelId: args.discordChannelId,
               discordAuthorId: args.discordAuthorId,
               sheetId: args.sheetId,
+              sheetConfigurationBinding: preserveOmitted(
+                args.sheetConfigurationBinding,
+                activeExistingSubmission?.sheetConfigurationBinding,
+              ),
               confirmationMessageId: preserveOmitted(
                 args.confirmationMessageId,
                 activeExistingSubmission?.confirmationMessageId,

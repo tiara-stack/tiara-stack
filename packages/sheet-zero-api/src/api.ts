@@ -10,6 +10,10 @@ import {
 import { defaultSuccessSchemas, type SheetZeroApiSuccessSchemas } from "./api/successSchemas";
 import { makeUserConfigGroup, type UserConfigGroup } from "./api/userConfig";
 import { makeWorkspaceConfigGroup, type WorkspaceConfigGroup } from "./api/workspaceConfig";
+import {
+  makeSheetConfigurationGroup,
+  type SheetConfigurationGroup,
+} from "./api/sheetConfiguration";
 import { runsGroup, type RunsGroup } from "./api/runs";
 
 export type { SheetZeroApiSuccessSchemas } from "./api/successSchemas";
@@ -24,6 +28,7 @@ type SheetZeroApi<SuccessSchemas extends SheetZeroApiSuccessSchemas> = ZeroApi<
   "sheet",
   | UserConfigGroup<SuccessSchemas>
   | WorkspaceConfigGroup<SuccessSchemas>
+  | SheetConfigurationGroup<SuccessSchemas>
   | MessageCheckinGroup<SuccessSchemas>
   | MessageRoomOrderGroup<SuccessSchemas>
   | MessageSlotGroup<SuccessSchemas>
@@ -37,6 +42,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
   make("sheet")
     .add(makeUserConfigGroup(success))
     .add(makeWorkspaceConfigGroup(success))
+    .add(makeSheetConfigurationGroup(success))
     .add(makeMessageCheckinGroup(success))
     .add(makeMessageRoomOrderGroup(success))
     .add(makeMessageSlotGroup(success))
