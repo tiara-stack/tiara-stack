@@ -69,8 +69,12 @@ export const botConversationView = (
   id: string,
   conversation: { readonly type: number },
   canSendMessages: boolean,
+  parentWorkspaceId: string,
 ): BotConversation => {
-  const workspaceId = getStringField(conversation, "guild_id");
+  // Discord omits guild_id from channels embedded in GUILD_CREATE. The cache
+  // parent is authoritative in that case; preserve an explicit guild_id so
+  // callers can still reject a stale cross-workspace entry.
+  const workspaceId = getStringField(conversation, "guild_id") ?? parentWorkspaceId;
   const name = getStringField(conversation, "name");
   const position = getNumberField(conversation, "position");
   return {
@@ -104,7 +108,7 @@ export const botConversationPage = <Conversation extends { readonly type: number
   canSendMessages: (conversation: Conversation) => boolean,
 ): BotConversationPage => ({
   items: Array.from(page.entries, ([id, conversation]) =>
-    botConversationView(id, conversation, canSendMessages(conversation)),
+    botConversationView(id, conversation, canSendMessages(conversation), context.workspaceId),
   ),
   ...(Predicate.isUndefined(page.nextCursor)
     ? {}

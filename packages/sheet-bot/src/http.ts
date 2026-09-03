@@ -354,6 +354,7 @@ const botCapabilityCacheHandlersLayer = HttpApiBuilder.group(SheetBotApi, "cache
             conversation.id,
             conversation,
             conversationCanSendMessages(params.workspaceId, conversation, permissionContext),
+            params.workspaceId,
           );
         }),
       )

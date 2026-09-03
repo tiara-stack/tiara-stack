@@ -105,7 +105,12 @@ describe("bot cache collection pagination", () => {
           name: "general",
           position: 1,
         },
-        { id: "conversation-002", type: 2, canSendMessages: true },
+        {
+          id: "conversation-002",
+          type: 2,
+          canSendMessages: true,
+          workspaceId: "workspace-1",
+        },
       ]);
       expect(yield* decodeBotCollectionCursor(conversations.nextCursor, conversationContext)).toBe(
         "conversation-002",
@@ -145,7 +150,14 @@ describe("bot cache collection pagination", () => {
           { entries: new Map([["blocked", { type: 0 }]]) },
           () => false,
         ).items,
-      ).toEqual([{ id: "blocked", type: 0, canSendMessages: false }]);
+      ).toEqual([
+        {
+          id: "blocked",
+          type: 0,
+          canSendMessages: false,
+          workspaceId: "workspace-1",
+        },
+      ]);
     }),
   );
 });
