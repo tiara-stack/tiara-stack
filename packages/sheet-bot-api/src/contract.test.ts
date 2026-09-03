@@ -275,7 +275,10 @@ describe("sheet-bot operation contracts", () => {
         items: [{ id: "conversation-1", type: 0 }],
         nextCursor: cursor,
       }),
-    ).toEqual({ items: [{ id: "conversation-1", type: 0 }], nextCursor: cursor });
+    ).toEqual({
+      items: [{ id: "conversation-1", type: 0, canSendMessages: false }],
+      nextCursor: cursor,
+    });
   });
 
   it("annotates every endpoint with its service admission policy", () => {

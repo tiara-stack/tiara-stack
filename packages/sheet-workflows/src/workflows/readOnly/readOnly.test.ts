@@ -1392,7 +1392,15 @@ describe("read-only Sheet Workflow Definition slice", () => {
             return Effect.succeed(
               conversationsPage === 1
                 ? {
-                    items: [{ id: "conversation-1", name: "general", type: 0, position: 1 }],
+                    items: [
+                      {
+                        id: "conversation-1",
+                        name: "general",
+                        type: 0,
+                        position: 1,
+                        canSendMessages: true,
+                      },
+                    ],
                     nextCursor: Schema.decodeUnknownSync(BotCollectionCursor)("next"),
                   }
                 : {

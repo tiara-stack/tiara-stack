@@ -20,8 +20,9 @@ const discordGuildAnnouncementConversationType = 5;
 
 type DiscordClient = { readonly platform: "discord"; readonly clientId: string };
 
-const isSendableConversation = ({ type }: BotConversation): boolean =>
-  type === discordGuildTextConversationType || type === discordGuildAnnouncementConversationType;
+const isSendableConversation = ({ type, canSendMessages }: BotConversation): boolean =>
+  canSendMessages &&
+  (type === discordGuildTextConversationType || type === discordGuildAnnouncementConversationType);
 
 const conversationPosition = ({ position }: BotConversation): number =>
   Predicate.isNumber(position) ? position : Number.MAX_SAFE_INTEGER;

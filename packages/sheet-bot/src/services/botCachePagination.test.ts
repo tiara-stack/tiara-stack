@@ -81,23 +81,31 @@ describe("bot cache collection pagination", () => {
 
   it.effect("preserves stable page order and deterministic provider-neutral views", () =>
     Effect.gen(function* () {
-      const conversations = botConversationPage(conversationContext, {
-        entries: new Map([
-          ["conversation-001", { type: 0, guild_id: "workspace-1", name: "general", position: 1 }],
-          ["conversation-002", { type: 2 }],
-        ]),
-        nextCursor: "conversation-002",
-      });
+      const conversations = botConversationPage(
+        conversationContext,
+        {
+          entries: new Map([
+            [
+              "conversation-001",
+              { type: 0, guild_id: "workspace-1", name: "general", position: 1 },
+            ],
+            ["conversation-002", { type: 2 }],
+          ]),
+          nextCursor: "conversation-002",
+        },
+        () => true,
+      );
 
       expect(conversations.items).toEqual([
         {
           id: "conversation-001",
           type: 0,
+          canSendMessages: true,
           workspaceId: "workspace-1",
           name: "general",
           position: 1,
         },
-        { id: "conversation-002", type: 2 },
+        { id: "conversation-002", type: 2, canSendMessages: true },
       ]);
       expect(yield* decodeBotCollectionCursor(conversations.nextCursor, conversationContext)).toBe(
         "conversation-002",
@@ -130,6 +138,14 @@ describe("bot cache collection pagination", () => {
         { userId: "member-001", roleIds: ["role-2", "role-1"], displayName: "Global name" },
         { userId: "member-002", roleIds: [], displayName: "Nickname" },
       ]);
+
+      expect(
+        botConversationPage(
+          conversationContext,
+          { entries: new Map([["blocked", { type: 0 }]]) },
+          () => false,
+        ).items,
+      ).toEqual([{ id: "blocked", type: 0, canSendMessages: false }]);
     }),
   );
 });

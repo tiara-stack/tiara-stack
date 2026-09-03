@@ -410,6 +410,7 @@ describe("workspace and conversation configuration Workflow Definition slice", (
             workspaceId: params.workspaceId,
             name: "main",
             type: 0,
+            canSendMessages: true,
           });
         },
         getRole: ({ params }) => {
@@ -497,6 +498,7 @@ describe("workspace and conversation configuration Workflow Definition slice", (
                 Effect.succeed({
                   id: params.conversationId,
                   type: 0,
+                  canSendMessages: true,
                   ...(Predicate.isUndefined(providerWorkspaceId)
                     ? {}
                     : { workspaceId: providerWorkspaceId }),
@@ -577,6 +579,7 @@ describe("workspace and conversation configuration Workflow Definition slice", (
             id: params.conversationId,
             workspaceId: params.workspaceId,
             type: 0,
+            canSendMessages: true,
           }),
         replaceConversationPermissionOverwrites: ({ payload }) => {
           deliveries.push(payload);

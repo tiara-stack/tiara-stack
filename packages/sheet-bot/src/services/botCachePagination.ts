@@ -68,6 +68,7 @@ export const decodeBotCollectionCursor = (
 export const botConversationView = (
   id: string,
   conversation: { readonly type: number },
+  canSendMessages: boolean,
 ): BotConversation => {
   const workspaceId = getStringField(conversation, "guild_id");
   const name = getStringField(conversation, "name");
@@ -75,6 +76,7 @@ export const botConversationView = (
   return {
     id,
     type: conversation.type,
+    canSendMessages,
     ...(Predicate.isUndefined(workspaceId) ? {} : { workspaceId }),
     ...(Predicate.isUndefined(name) ? {} : { name }),
     ...(Predicate.isUndefined(position) ? {} : { position }),
@@ -96,11 +98,14 @@ export const botMemberView = (
   };
 };
 
-export const botConversationPage = (
+export const botConversationPage = <Conversation extends { readonly type: number }>(
   context: BotCollectionCursorContext,
-  page: ParentCachePage<{ readonly type: number }>,
+  page: ParentCachePage<Conversation>,
+  canSendMessages: (conversation: Conversation) => boolean,
 ): BotConversationPage => ({
-  items: Array.from(page.entries, ([id, conversation]) => botConversationView(id, conversation)),
+  items: Array.from(page.entries, ([id, conversation]) =>
+    botConversationView(id, conversation, canSendMessages(conversation)),
+  ),
   ...(Predicate.isUndefined(page.nextCursor)
     ? {}
     : { nextCursor: encodeBotCollectionCursor(context, page.nextCursor) }),

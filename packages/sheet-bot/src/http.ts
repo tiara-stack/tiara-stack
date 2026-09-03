@@ -33,6 +33,7 @@ import { cachesLayer, prefixedUnstorageLayer } from "./discord/cache";
 import { discordConfigLayer } from "./discord/config";
 import { config } from "./config";
 import { toDiscordMessagePayload } from "./discord/renderSheetMessage";
+import { canSendMessages, type DiscordChannelPermissionInput } from "./discord/channelPermissions";
 import { sheetBotHttpAuthorizationLayer } from "./middlewares/discordHttpAuthorization/live";
 import { BotCapabilityStore } from "./services/botCapabilityStore";
 import { deliveryStoreInput } from "./services/botDeliveryBinding";
@@ -234,6 +235,31 @@ const botCapabilityCacheHandlersLayer = HttpApiBuilder.group(SheetBotApi, "cache
     const membersCache = yield* MembersCache;
     const configuredClientId = yield* config.sheetBotClientId;
 
+    const loadConversationPermissionContext = (workspaceId: string) =>
+      Effect.all({
+        botMember: membersCache
+          .get(workspaceId, application.id)
+          .pipe(mapCapabilityCacheError("member")),
+        roles: rolesCache.getForParent(workspaceId).pipe(mapCapabilityCacheError("roles")),
+      });
+
+    const conversationCanSendMessages = (
+      workspaceId: string,
+      conversation: DiscordChannelPermissionInput & { readonly type: number },
+      permissionContext: {
+        readonly botMember: { readonly roles: ReadonlyArray<string> };
+        readonly roles: ReadonlyMap<string, { readonly permissions: string }>;
+      },
+    ) => {
+      return canSendMessages(
+        conversation,
+        workspaceId,
+        application.id,
+        permissionContext.botMember,
+        permissionContext.roles,
+      );
+    };
+
     const requireClientParams = (params: {
       readonly platform: string;
       readonly clientId: string;
@@ -320,10 +346,15 @@ const botCapabilityCacheHandlersLayer = HttpApiBuilder.group(SheetBotApi, "cache
       .handle("getConversation", ({ params }) =>
         Effect.gen(function* () {
           yield* requireClientParams(params);
+          const permissionContext = yield* loadConversationPermissionContext(params.workspaceId);
           const conversation = yield* channelsCache
             .get(params.workspaceId, params.conversationId)
             .pipe(mapCapabilityCacheError("conversation"));
-          return botConversationView(conversation.id, conversation);
+          return botConversationView(
+            conversation.id,
+            conversation,
+            conversationCanSendMessages(params.workspaceId, conversation, permissionContext),
+          );
         }),
       )
       .handle("listConversations", ({ params, query }) =>
@@ -332,10 +363,13 @@ const botCapabilityCacheHandlersLayer = HttpApiBuilder.group(SheetBotApi, "cache
           const context = collectionContext("conversations", params);
           const cursor = yield* decodeBotCollectionCursor(query.cursor, context);
           const limit = yield* decodeCachePageSize(query.limit);
+          const permissionContext = yield* loadConversationPermissionContext(params.workspaceId);
           const conversations = yield* channelsCache
             .getPageForParent(params.workspaceId, cursor, limit)
             .pipe(mapCapabilityCacheError("conversations"));
-          return botConversationPage(context, conversations);
+          return botConversationPage(context, conversations, (conversation) =>
+            conversationCanSendMessages(params.workspaceId, conversation, permissionContext),
+          );
         }),
       )
       .handle("getRole", ({ params }) =>

@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 
 export const BotApplication = Schema.Struct({ ownerId: Schema.String });
 export type BotApplication = Schema.Schema.Type<typeof BotApplication>;
@@ -14,6 +14,7 @@ export type BotWorkspace = Schema.Schema.Type<typeof BotWorkspace>;
 export const BotConversation = Schema.Struct({
   id: Schema.String,
   type: Schema.Number,
+  canSendMessages: Schema.Boolean.pipe(Schema.withDecodingDefaultKey(Effect.succeed(false))),
   workspaceId: Schema.optional(Schema.String),
   name: Schema.optional(Schema.String),
   position: Schema.optional(Schema.Number),

@@ -566,8 +566,20 @@ describe("workspace feature-flag Workflow Definition slice", () => {
             requests.push(request);
             return Effect.succeed(
               requests.length === 1
-                ? { items: [{ id: "general", type: 0, name: "general" }], nextCursor: cursor }
-                : { items: [{ id: "system-conversation", type: 5, position: 99 }] },
+                ? {
+                    items: [{ id: "general", type: 0, name: "general", canSendMessages: true }],
+                    nextCursor: cursor,
+                  }
+                : {
+                    items: [
+                      {
+                        id: "system-conversation",
+                        type: 5,
+                        position: 99,
+                        canSendMessages: true,
+                      },
+                    ],
+                  },
             );
           },
         }),
@@ -589,7 +601,10 @@ describe("workspace feature-flag Workflow Definition slice", () => {
 
       const absent = yield* makeOperations(
         basePersistence().workspaces,
-        makeBot({ listConversations: () => Effect.succeed({ items: [{ id: "voice", type: 2 }] }) }),
+        makeBot({
+          listConversations: () =>
+            Effect.succeed({ items: [{ id: "voice", type: 2, canSendMessages: true }] }),
+        }),
       );
       expect(
         yield* absent.selectAnnouncementConversation(

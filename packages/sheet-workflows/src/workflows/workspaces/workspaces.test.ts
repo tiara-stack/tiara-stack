@@ -236,15 +236,30 @@ describe("workspace-welcome Workflow Definition slice", () => {
 
   it("preserves every deterministic ranking and fallback case", () => {
     const candidates = [
-      { id: "voice", type: 2, name: "general", position: 0 },
-      { id: "late", type: 0, name: "late", position: 10 },
-      { id: "general-late", type: 0, name: "general", position: 40 },
-      { id: "general", type: 5, name: "GeNeRaL", position: 20 },
-      { id: "system", type: 0, name: "welcome", position: 30 },
-      { id: "a", type: 0, name: "a", position: 1 },
-      { id: "b", type: 0, name: "b", position: 1 },
+      { id: "voice", type: 2, name: "general", position: 0, canSendMessages: true },
+      { id: "late", type: 0, name: "late", position: 10, canSendMessages: true },
+      {
+        id: "general-late",
+        type: 0,
+        name: "general",
+        position: 40,
+        canSendMessages: true,
+      },
+      { id: "general", type: 5, name: "GeNeRaL", position: 20, canSendMessages: true },
+      { id: "system", type: 0, name: "welcome", position: 30, canSendMessages: true },
+      { id: "a", type: 0, name: "a", position: 1, canSendMessages: true },
+      { id: "b", type: 0, name: "b", position: 1, canSendMessages: true },
     ];
     expect(selectWorkspaceWelcomeConversation(candidates, "system")?.id).toBe("system");
+    expect(
+      selectWorkspaceWelcomeConversation(
+        [
+          { id: "blocked-system", type: 0, name: "welcome", position: 0, canSendMessages: false },
+          { id: "general", type: 0, name: "general", position: 1, canSendMessages: true },
+        ],
+        "blocked-system",
+      )?.id,
+    ).toBe("general");
     expect(selectWorkspaceWelcomeConversation(candidates, "missing")?.id).toBe("general");
     expect(
       selectWorkspaceWelcomeConversation(
@@ -261,14 +276,17 @@ describe("workspace-welcome Workflow Definition slice", () => {
     expect(
       selectWorkspaceWelcomeConversation(
         [
-          { id: "missing-position", type: 0 },
-          { id: "positioned", type: 5, position: 99 },
+          { id: "missing-position", type: 0, canSendMessages: true },
+          { id: "positioned", type: 5, position: 99, canSendMessages: true },
         ],
         undefined,
       )?.id,
     ).toBe("positioned");
     expect(
-      selectWorkspaceWelcomeConversation([{ id: "voice", type: 2 }], undefined),
+      selectWorkspaceWelcomeConversation(
+        [{ id: "voice", type: 2, canSendMessages: true }],
+        undefined,
+      ),
     ).toBeUndefined();
   });
 
@@ -282,7 +300,9 @@ describe("workspace-welcome Workflow Definition slice", () => {
             return Effect.succeed(
               requests.length === 1
                 ? {
-                    items: [{ id: "first", type: 0, name: "first", position: 1 }],
+                    items: [
+                      { id: "first", type: 0, name: "first", position: 1, canSendMessages: true },
+                    ],
                     nextCursor,
                   }
                 : {
@@ -293,6 +313,7 @@ describe("workspace-welcome Workflow Definition slice", () => {
                         workspaceId: input.workspaceId,
                         name: "welcome",
                         position: 50,
+                        canSendMessages: true,
                       },
                     ],
                   },
@@ -345,15 +366,23 @@ describe("workspace-welcome Workflow Definition slice", () => {
             items: Array.from({ length: 101 }, (_, index) => ({
               id: `oversized-${index}`,
               type: 0,
+              canSendMessages: true,
             })),
           },
         ],
         [
-          { items: [{ id: "one", type: 0 }], nextCursor },
-          { items: [{ id: "two", type: 0 }], nextCursor },
+          { items: [{ id: "one", type: 0, canSendMessages: true }], nextCursor },
+          { items: [{ id: "two", type: 0, canSendMessages: true }], nextCursor },
         ],
-        [{ items: [{ id: "same", type: 0 }], nextCursor }, { items: [{ id: "same", type: 0 }] }],
-        [{ items: [{ id: "foreign", type: 0, workspaceId: "workspace-2" }] }],
+        [
+          { items: [{ id: "same", type: 0, canSendMessages: true }], nextCursor },
+          { items: [{ id: "same", type: 0, canSendMessages: true }] },
+        ],
+        [
+          {
+            items: [{ id: "foreign", type: 0, workspaceId: "workspace-2", canSendMessages: true }],
+          },
+        ],
       ]) {
         let page = 0;
         const operations = yield* makeOperations(
@@ -412,7 +441,9 @@ describe("workspace-welcome Workflow Definition slice", () => {
       const operations = yield* makeOperations(
         makeBot({
           listConversations: () =>
-            Effect.succeed({ items: [{ id: "voice", type: 2, name: "general" }] }),
+            Effect.succeed({
+              items: [{ id: "voice", type: 2, name: "general", canSendMessages: true }],
+            }),
         }),
       );
       expect(

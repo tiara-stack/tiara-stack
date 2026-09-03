@@ -197,7 +197,9 @@ const makeHarness = (options: HarnessOptions = {}) => {
         Effect.sync(() => {
           effects.push("read-conversations");
           requests.push(request);
-          return { items: [{ id: "system", type: 0, name: "welcome", position: 2 }] };
+          return {
+            items: [{ id: "system", type: 0, name: "welcome", position: 2, canSendMessages: true }],
+          };
         }),
     },
     delivery: {
