@@ -1,12 +1,14 @@
 import { Ix } from "dfx/index";
 import { InteractionToken, type CommandInteractionResponseContext } from "dfx-discord-utils/utils";
-import { Effect, Predicate } from "effect";
-import type { ResponseReference } from "sheet-bot-api/references";
+import { Cause, Duration, Effect, Predicate } from "effect";
+import { BotDependencyUnavailable, type ResponseReference } from "sheet-bot-api";
 import { makeWorkflowInvocationId, type WorkflowInvocationId } from "sheet-workflow-http-client";
 import { config } from "../config";
 import type { BotCapabilityStoreShape } from "../services";
 import { SheetWorkflowHttpRequestContext } from "../services";
 import { makeResponseReferenceInput } from "./commandHelpers";
+
+const responseReferenceIssueTimeout = Duration.seconds(5);
 
 type WorkflowEnqueuer<Input, EnqueueError> = (
   input: Input,
@@ -92,6 +94,14 @@ export const enqueueSheetWorkflow = <Input, EnqueueError>(
         }),
       )
       .pipe(
+        Effect.timeout(responseReferenceIssueTimeout),
+        Effect.mapError((error) =>
+          Cause.isTimeoutError(error)
+            ? new BotDependencyUnavailable({
+                message: "Bot capability storage request timed out",
+              })
+            : error,
+        ),
         Effect.catch((error) =>
           Predicate.isTagged("BotDependencyUnavailable")(error) ||
           Predicate.isTagged("BotResponseExpired")(error)

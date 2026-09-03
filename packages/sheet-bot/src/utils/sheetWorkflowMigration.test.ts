@@ -8,7 +8,8 @@ import {
   InteractionType,
   Locale,
 } from "discord-api-types/v10";
-import { ConfigProvider, Effect, Layer, Schema } from "effect";
+import { ConfigProvider, Duration, Effect, Fiber, Layer, Schema } from "effect";
+import { TestClock } from "effect/testing";
 import type { CommandInteractionResponseContext } from "dfx-discord-utils/utils";
 import { BotDependencyUnavailable, ResponseReference } from "sheet-bot-api";
 import { WorkflowTransportUnavailable } from "sheet-workflow-http-client";
@@ -132,6 +133,41 @@ describe("direct workflow enqueue boundary", () => {
       expect(messages).toEqual(["rejected"]);
       expect(enqueues).toBe(0);
     }),
+  );
+
+  it.effect("reports a response-reference timeout without enqueueing", () =>
+    Effect.gen(function* () {
+      const messages: Array<string | undefined> = [];
+      let enqueues = 0;
+
+      const enqueueFiber = yield* runEnqueue(
+        {
+          operation: "workflow test",
+          workspaceId: "workspace-1",
+          capabilityStore: makeCapabilityStore(() => Effect.never),
+          makeInput: (reference) => ({ responseReference: reference }),
+          enqueue: () => {
+            enqueues += 1;
+            return Effect.succeed({});
+          },
+          rejectedMessage: "rejected",
+          unauthorizedMessage: "unauthorized",
+          pendingMessage: "pending",
+        },
+        messages,
+      ).pipe(Effect.forkScoped({ startImmediately: true }));
+
+      const resultFiber = yield* Effect.raceFirst(
+        Fiber.join(enqueueFiber).pipe(Effect.as("completed" as const)),
+        Effect.sleep(Duration.seconds(6)).pipe(Effect.as("test timed out" as const)),
+      ).pipe(Effect.forkScoped({ startImmediately: true }));
+      yield* TestClock.adjust(Duration.seconds(6));
+      const result = yield* Fiber.join(resultFiber);
+
+      expect(result).toBe("completed");
+      expect(messages).toEqual(["rejected"]);
+      expect(enqueues).toBe(0);
+    }).pipe(Effect.provide(TestClock.layer())),
   );
 
   it.effect("reports an ambiguous enqueue without a legacy fallback", () =>

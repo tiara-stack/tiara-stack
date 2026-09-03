@@ -3,10 +3,17 @@ import { Unstorage, cachesLayer as discordCachesLayer } from "dfx-discord-utils/
 import { config } from "@/config";
 import { discordConfigLayer } from "./config";
 
+const redisRequestTimeoutMs = 5_000;
+
 const redisLayer = Layer.unwrap(
   Effect.gen(function* () {
     const redisUrl = yield* config.redisUrl;
-    return Unstorage.redisLayer({ url: Redacted.value(redisUrl) });
+    return Unstorage.redisLayer({
+      url: Redacted.value(redisUrl),
+      connectTimeout: redisRequestTimeoutMs,
+      commandTimeout: redisRequestTimeoutMs,
+      maxRetriesPerRequest: 1,
+    });
   }),
 );
 
