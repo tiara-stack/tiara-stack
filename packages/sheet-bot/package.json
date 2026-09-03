@@ -38,6 +38,7 @@
     "effect": "catalog:",
     "sheet-auth": "workspace:*",
     "sheet-bot-api": "workspace:*",
+    "sheet-domain": "workspace:*",
     "sheet-workflow-contracts": "workspace:*",
     "sheet-workflow-http-client": "workspace:*",
     "sheet-zero-api": "workspace:*",

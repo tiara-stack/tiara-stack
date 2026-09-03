@@ -489,6 +489,9 @@ importers:
       sheet-bot-api:
         specifier: workspace:*
         version: link:../sheet-bot-api
+      sheet-domain:
+        specifier: workspace:*
+        version: link:../sheet-domain
       sheet-workflow-contracts:
         specifier: workspace:*
         version: link:../sheet-workflow-contracts
@@ -887,9 +890,15 @@ importers:
       sheet-bot-api:
         specifier: workspace:*
         version: link:../sheet-bot-api
+      sheet-domain:
+        specifier: workspace:*
+        version: link:../sheet-domain
       sheet-workflow-contracts:
         specifier: workspace:*
         version: link:../sheet-workflow-contracts
+      sheet-workflow-http-client:
+        specifier: workspace:*
+        version: link:../sheet-workflow-http-client
       sheet-zero-api:
         specifier: workspace:*
         version: link:../sheet-zero-api
