@@ -16,14 +16,16 @@ const summary = {
 } satisfies (typeof SchedulesLoadWorkspaceSuccess.Type)["populatedSchedules"][number];
 
 describe("schedule time projection", () => {
-  it("treats hour 49 as 48 hours after the event start regardless of sheet day", () => {
-    const start = scheduleStart(eventStart, 49);
+  it("treats the first populated sheet hour as the event start", () => {
+    const start = scheduleStart(eventStart, 49, 49);
+    const next = scheduleStart(eventStart, 50, 49);
 
-    expect(DateTime.toEpochMillis(start)).toBe(Date.UTC(2026, 0, 3));
+    expect(DateTime.toEpochMillis(start)).toBe(Date.UTC(2026, 0, 1));
+    expect(DateTime.toEpochMillis(next)).toBe(Date.UTC(2026, 0, 1, 1));
   });
 
   it("keeps schedule identity for current-player highlighting", () => {
-    const projected = scheduleFromSummary(eventStart, summary);
+    const projected = scheduleFromSummary(eventStart, 49, summary);
 
     expect(Predicate.isTagged("PopulatedSchedule")(projected)).toBe(true);
     if (!Predicate.isTagged("PopulatedSchedule")(projected)) return;
@@ -34,7 +36,7 @@ describe("schedule time projection", () => {
 
     expect(player.player.id).toBe("account-theerie");
     expect(DateTime.toEpochMillis(Option.getOrThrow(projected.hourWindow).start)).toBe(
-      Date.UTC(2026, 0, 3),
+      Date.UTC(2026, 0, 1),
     );
   });
 });

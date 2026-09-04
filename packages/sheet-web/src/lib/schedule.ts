@@ -12,6 +12,7 @@ import {
   Schema,
 } from "effect";
 import { Atom, AsyncResult } from "effect/unstable/reactivity";
+import { scheduleHourOrigin } from "sheet-domain";
 import { SchedulesLoadWorkspaceSuccess, WorkspaceInput } from "sheet-workflow-contracts";
 import { useMemo } from "react";
 import { zoneId } from "#/hooks/useDateTimeZoned";
@@ -72,18 +73,19 @@ export const workspaceScheduleAtom = Atom.family((guildId: string) =>
     Atom.withRefresh(scheduleRefreshInterval),
     Atom.setIdleTTL(Duration.minutes(5)),
     Atom.serializable({
-      key: `schedules.loadWorkspace.v2.${guildId}`,
+      key: `schedules.loadWorkspace.v3.${guildId}`,
       schema: WorkspaceScheduleAsyncResultSchema,
     }),
   ),
 );
 
 /**
- * Schedule hours are global across the event: hour 1 starts at eventStart, hour 25 is +24 hours,
- * and hour 49 is +48 hours. `day` is sheet metadata and must not be added to this timestamp.
+ * Schedule labels are global across the event, but legacy sheets can start at an offset label.
+ * The first populated label is the event start: with an origin of 49, hour 49 is at eventStart
+ * and hour 50 is one hour later. `day` is sheet metadata and must not be added to this timestamp.
  */
-export const scheduleStart = (eventStart: DateTime.Utc, hour: number) =>
-  DateTime.addDuration(eventStart, Duration.hours(hour - 1));
+export const scheduleStart = (eventStart: DateTime.Utc, hour: number, scheduleStartHour = 1) =>
+  DateTime.addDuration(eventStart, Duration.hours(hour - scheduleStartHour));
 
 const partialPlayer = (name: string, accountId: string | null | undefined) =>
   new Schedule.PopulatedSchedulePlayer({
@@ -101,6 +103,7 @@ const partialMonitor = (name: string) =>
 
 export const scheduleFromSummary = (
   eventStart: DateTime.Utc,
+  scheduleStartHour: number,
   summary: ScheduleSummary,
 ): Schedule.PopulatedScheduleResult => {
   if (Predicate.isNull(summary.hour)) {
@@ -113,7 +116,7 @@ export const scheduleFromSummary = (
     });
   }
 
-  const start = scheduleStart(eventStart, summary.hour);
+  const start = scheduleStart(eventStart, summary.hour, scheduleStartHour);
   const fills = Array.makeBy(5, (index) =>
     Option.fromNullishOr(summary.playerNames[index]).pipe(
       Option.map((name) => partialPlayer(name, summary.playerAccountIds?.[index])),
@@ -144,12 +147,17 @@ export const guildScheduleAtom = Atom.family((guildId: string) =>
     Effect.fnUntraced(function* (get) {
       const response = yield* get.result(workspaceScheduleAtom(guildId));
       const eventStart = DateTime.makeUnsafe(response.eventConfig.startTimeEpochMs);
-      return response.populatedSchedules.map((summary) => scheduleFromSummary(eventStart, summary));
+      const scheduleStartHour = scheduleHourOrigin(
+        response.populatedSchedules.map(({ hour }) => hour),
+      );
+      return response.populatedSchedules.map((summary) =>
+        scheduleFromSummary(eventStart, scheduleStartHour, summary),
+      );
     }),
   ).pipe(
     Atom.setIdleTTL(Duration.minutes(5)),
     Atom.serializable({
-      key: `schedule.getAllPopulatedSchedules.v2.${guildId}`,
+      key: `schedule.getAllPopulatedSchedules.v3.${guildId}`,
       schema: GuildSchedulesAsyncResultSchema,
     }),
   ),
@@ -180,7 +188,7 @@ export const getAllChannelsAtom = Atom.family((guildId: string) =>
   ).pipe(
     Atom.setIdleTTL(Duration.minutes(5)),
     Atom.serializable({
-      key: `schedule.derived.getAllChannels.v2.${guildId}`,
+      key: `schedule.derived.getAllChannels.v3.${guildId}`,
       schema: GuildChannelsAsyncResultSchema,
     }),
   ),
@@ -259,7 +267,7 @@ export const scheduledDaysAtom = Atom.family((params: ScheduledDaysParams) =>
   _scheduledDaysAtom(params).pipe(
     Atom.setIdleTTL(Duration.minutes(5)),
     Atom.serializable({
-      key: `schedule.derived.scheduledDays.v2.${params.guildId}.${params.channel}.${zoneId(params.timeZone)}.${DateTime.toEpochMillis(params.rangeStart)}-${DateTime.toEpochMillis(params.rangeEnd)}`,
+      key: `schedule.derived.scheduledDays.v3.${params.guildId}.${params.channel}.${zoneId(params.timeZone)}.${DateTime.toEpochMillis(params.rangeStart)}-${DateTime.toEpochMillis(params.rangeEnd)}`,
       schema: ScheduledDaysAsyncResultSchema,
     }),
   ),
@@ -288,11 +296,13 @@ export const computeScheduleHour = (
   startTime: DateTime.Zoned,
   dateTime: DateTime.Zoned,
   maxHour: number,
+  scheduleStartHour = 1,
 ): Option.Option<number> => {
   // Return none if dateTime is before startTime
   if (DateTime.isLessThan(dateTime, startTime)) return Option.none();
 
-  const hours = Math.floor(Duration.toHours(DateTime.distance(startTime, dateTime))) + 1;
+  const hours =
+    Math.floor(Duration.toHours(DateTime.distance(startTime, dateTime))) + scheduleStartHour;
   if (hours > maxHour) return Option.none();
 
   return Option.some(hours);

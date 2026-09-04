@@ -1,9 +1,14 @@
 import { Schema } from "effect";
 import { describe, expect, expectTypeOf, it } from "@effect/vitest";
-import { TeamSubmissionStatus } from "./index";
+import { scheduleHourOrigin, TeamSubmissionStatus } from "./index";
 import type { TeamSubmissionStatus as TeamSubmissionStatusType } from "./index";
 
 describe("sheet-domain", () => {
+  it("uses the earliest populated schedule hour as the event-time origin", () => {
+    expect(scheduleHourOrigin([null, 49, 50, 77])).toBe(49);
+    expect(scheduleHourOrigin([])).toBe(1);
+  });
+
   it("defines the canonical team submission statuses", () => {
     expect(Schema.decodeUnknownSync(TeamSubmissionStatus)("registered")).toBe("registered");
     expect(Schema.decodeUnknownSync(TeamSubmissionStatus)("applying")).toBe("applying");

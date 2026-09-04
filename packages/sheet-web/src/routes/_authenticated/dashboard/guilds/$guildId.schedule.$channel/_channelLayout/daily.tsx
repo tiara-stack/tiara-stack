@@ -609,6 +609,7 @@ function DailyScheduleContent() {
                 schedulesByDateTime={dayData.schedulesByDateTime}
                 isActive={isActive}
                 startTimeZoned={startTimeZoned}
+                scheduleStartHour={eventConfig.scheduleStartHour}
                 maxHour={maxScheduleHour}
                 dayByScheduleHour={dayByScheduleHour}
                 currentUserId={currentUser.id}
@@ -897,6 +898,7 @@ interface DateBlockProps {
   schedulesByDateTime: HashMap.HashMap<DateTime.Zoned, Schedule.PopulatedScheduleResult[]>;
   isActive: boolean;
   startTimeZoned: DateTime.Zoned;
+  scheduleStartHour: number;
   maxHour: number;
   dayByScheduleHour: HashMap.HashMap<number, number>;
   currentUserId: string | undefined;
@@ -908,6 +910,7 @@ function DateBlock({
   schedulesByDateTime,
   isActive,
   startTimeZoned,
+  scheduleStartHour,
   maxHour,
   dayByScheduleHour,
   currentUserId,
@@ -929,7 +932,12 @@ function DateBlock({
           const isCurrentHour = DateTime.Equivalence(dateTimeHour, currentHourKey);
 
           // Compute schedule hour from datetime using computeScheduleHour
-          const scheduleHour = computeScheduleHour(startTimeZoned, dateTimeHour, maxHour);
+          const scheduleHour = computeScheduleHour(
+            startTimeZoned,
+            dateTimeHour,
+            maxHour,
+            scheduleStartHour,
+          );
 
           // Look up schedule day from dayByScheduleHour using scheduleHour
           const scheduleDay = Option.flatMap(scheduleHour, (hour) =>
@@ -979,7 +987,15 @@ function DateBlock({
           };
         }),
       ),
-    [date, schedulesByDateTime, startTimeZoned, maxHour, dayByScheduleHour, currentHourKey],
+    [
+      date,
+      schedulesByDateTime,
+      startTimeZoned,
+      scheduleStartHour,
+      maxHour,
+      dayByScheduleHour,
+      currentHourKey,
+    ],
   );
 
   return (

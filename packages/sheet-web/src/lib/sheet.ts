@@ -1,10 +1,14 @@
 import { useAtomSuspense } from "@effect/atom-react";
 import { DateTime, Effect, Schema } from "effect";
 import { Atom, AsyncResult } from "effect/unstable/reactivity";
+import { scheduleHourOrigin } from "sheet-domain";
 import { useMemo } from "react";
 import { workspaceScheduleAtom } from "#/lib/schedule";
 
-const EventConfig = Schema.Struct({ startTime: Schema.DateTimeUtcFromMillis });
+const EventConfig = Schema.Struct({
+  startTime: Schema.DateTimeUtcFromMillis,
+  scheduleStartHour: Schema.Number,
+});
 type EventConfig = Schema.Schema.Type<typeof EventConfig>;
 
 const EventConfigAsyncResultSchema = Schema.revealCodec(
@@ -20,11 +24,12 @@ export const eventConfigAtom = Atom.family((guildId: string) =>
       const schedule = yield* get.result(workspaceScheduleAtom(guildId));
       return {
         startTime: DateTime.makeUnsafe(schedule.eventConfig.startTimeEpochMs),
+        scheduleStartHour: scheduleHourOrigin(schedule.populatedSchedules.map(({ hour }) => hour)),
       };
     }),
   ).pipe(
     Atom.serializable({
-      key: `sheet.getEventConfig.${guildId}`,
+      key: `sheet.getEventConfig.v3.${guildId}`,
       schema: EventConfigAsyncResultSchema,
     }),
   ),

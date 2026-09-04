@@ -32,9 +32,10 @@ calendar, and server settings pages are separate destinations and can be bookmar
 
 ## How schedule hours map to time
 
-Schedule hours are global across the event. Hour 1 starts at the event start time; each following
-hour adds one hour, so hour 25 is 24 hours after the start and hour 49 is 48 hours after the start.
-The **day** number in the sheet labels the schedule sheet and is not an additional time offset.
+Schedule hours are global across the event, but legacy sheets can use an offset label. The first
+populated schedule hour is the event-time origin for that workspace: if the first label is 49,
+hour 49 is at the event start, hour 50 is one hour later, and hour 77 is 28 hours later. The
+**day** number only identifies the schedule sheet; it is not an additional time offset.
 
 ## Manage a server
 
