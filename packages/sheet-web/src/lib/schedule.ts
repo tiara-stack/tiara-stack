@@ -53,6 +53,8 @@ type ScheduleSummary = Schema.Schema.Type<
   typeof SchedulesLoadWorkspaceSuccess
 >["populatedSchedules"][number];
 
+const scheduleRefreshInterval = Duration.minutes(2);
+
 export const workspaceScheduleAtom = Atom.family((guildId: string) =>
   Atom.make<Schema.Schema.Type<typeof SchedulesLoadWorkspaceSuccess>, unknown>(
     Effect.fnUntraced(function* (get) {
@@ -65,24 +67,30 @@ export const workspaceScheduleAtom = Atom.family((guildId: string) =>
       );
     }),
   ).pipe(
-    Atom.setIdleTTL(Duration.infinity),
+    // Schedules are read from Google Sheets through a one-shot workflow, so Zero cannot notify
+    // this atom when the source changes. Refresh while the schedule is in use to avoid stale tabs.
+    Atom.withRefresh(scheduleRefreshInterval),
+    Atom.setIdleTTL(Duration.minutes(5)),
     Atom.serializable({
-      key: `schedules.loadWorkspace.${guildId}`,
+      key: `schedules.loadWorkspace.v2.${guildId}`,
       schema: WorkspaceScheduleAsyncResultSchema,
     }),
   ),
 );
 
-const scheduleStart = (eventStart: DateTime.Utc, day: number, hour: number) =>
-  pipe(
-    eventStart,
-    DateTime.addDuration(Duration.days(day - 1)),
-    DateTime.addDuration(Duration.hours(hour - 1)),
-  );
+/**
+ * Schedule hours are global across the event: hour 1 starts at eventStart, hour 25 is +24 hours,
+ * and hour 49 is +48 hours. `day` is sheet metadata and must not be added to this timestamp.
+ */
+export const scheduleStart = (eventStart: DateTime.Utc, hour: number) =>
+  DateTime.addDuration(eventStart, Duration.hours(hour - 1));
 
-const partialPlayer = (name: string) =>
+const partialPlayer = (name: string, accountId: string | null | undefined) =>
   new Schedule.PopulatedSchedulePlayer({
-    player: new Schedule.PartialNamePlayer({ name }),
+    player:
+      Predicate.isString(accountId) && accountId.length > 0
+        ? new Schedule.Player({ index: 0, id: accountId, name })
+        : new Schedule.PartialNamePlayer({ name }),
     enc: false,
   });
 
@@ -91,7 +99,7 @@ const partialMonitor = (name: string) =>
     monitor: new Schedule.PartialNameMonitor({ name }),
   });
 
-const scheduleFromSummary = (
+export const scheduleFromSummary = (
   eventStart: DateTime.Utc,
   summary: ScheduleSummary,
 ): Schedule.PopulatedScheduleResult => {
@@ -105,9 +113,11 @@ const scheduleFromSummary = (
     });
   }
 
-  const start = scheduleStart(eventStart, summary.day, summary.hour);
+  const start = scheduleStart(eventStart, summary.hour);
   const fills = Array.makeBy(5, (index) =>
-    Option.fromNullishOr(summary.playerNames[index]).pipe(Option.map(partialPlayer)),
+    Option.fromNullishOr(summary.playerNames[index]).pipe(
+      Option.map((name) => partialPlayer(name, summary.playerAccountIds?.[index])),
+    ),
   );
 
   return new Schedule.PopulatedSchedule({
@@ -137,9 +147,9 @@ export const guildScheduleAtom = Atom.family((guildId: string) =>
       return response.populatedSchedules.map((summary) => scheduleFromSummary(eventStart, summary));
     }),
   ).pipe(
-    Atom.setIdleTTL(Duration.infinity),
+    Atom.setIdleTTL(Duration.minutes(5)),
     Atom.serializable({
-      key: `schedule.getAllPopulatedSchedules.${guildId}`,
+      key: `schedule.getAllPopulatedSchedules.v2.${guildId}`,
       schema: GuildSchedulesAsyncResultSchema,
     }),
   ),
@@ -168,9 +178,9 @@ export const getAllChannelsAtom = Atom.family((guildId: string) =>
       ) as readonly string[];
     }),
   ).pipe(
-    Atom.setIdleTTL(Duration.infinity),
+    Atom.setIdleTTL(Duration.minutes(5)),
     Atom.serializable({
-      key: `schedule.derived.getAllChannels.${guildId}`,
+      key: `schedule.derived.getAllChannels.v2.${guildId}`,
       schema: GuildChannelsAsyncResultSchema,
     }),
   ),
@@ -247,9 +257,9 @@ const _scheduledDaysAtom = Atom.family((params: ScheduledDaysParams) =>
 
 export const scheduledDaysAtom = Atom.family((params: ScheduledDaysParams) =>
   _scheduledDaysAtom(params).pipe(
-    Atom.setIdleTTL(Duration.infinity),
+    Atom.setIdleTTL(Duration.minutes(5)),
     Atom.serializable({
-      key: `schedule.derived.scheduledDays.${params.guildId}.${params.channel}.${zoneId(params.timeZone)}.${DateTime.toEpochMillis(params.rangeStart)}-${DateTime.toEpochMillis(params.rangeEnd)}`,
+      key: `schedule.derived.scheduledDays.v2.${params.guildId}.${params.channel}.${zoneId(params.timeZone)}.${DateTime.toEpochMillis(params.rangeStart)}-${DateTime.toEpochMillis(params.rangeEnd)}`,
       schema: ScheduledDaysAsyncResultSchema,
     }),
   ),

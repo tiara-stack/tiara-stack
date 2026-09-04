@@ -508,6 +508,9 @@ export const PopulatedScheduleSummary = Schema.Struct({
   visible: Schema.Boolean,
   hour: Schema.NullOr(Schema.Number),
   playerNames: Schema.Array(Schema.String),
+  // Optional while rolling out the identity-preserving schedule projection. Older workflow
+  // responses remain readable, but new responses include null for ambiguous or unknown names.
+  playerAccountIds: Schema.optional(Schema.Array(Schema.NullOr(Schema.String))),
   monitorName: Schema.NullOr(Schema.String),
 });
 export type PopulatedScheduleSummary = Schema.Schema.Type<typeof PopulatedScheduleSummary>;

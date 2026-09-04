@@ -30,6 +30,12 @@ more than one. The schedule surface provides:
 Date and view state may appear in the URL, but the main surface is represented by its path. Daily,
 calendar, and server settings pages are separate destinations and can be bookmarked independently.
 
+## How schedule hours map to time
+
+Schedule hours are global across the event. Hour 1 starts at the event start time; each following
+hour adds one hour, so hour 25 is 24 hours after the start and hour 49 is 48 hours after the start.
+The **day** number in the sheet labels the schedule sheet and is not an additional time offset.
+
 ## Manage a server
 
 Open **Server settings** from the active server header. This is where server-level administration

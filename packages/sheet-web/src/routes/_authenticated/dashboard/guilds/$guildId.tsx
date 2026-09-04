@@ -22,6 +22,9 @@ import {
 
 export const Route = createFileRoute("/_authenticated/dashboard/guilds/$guildId")({
   component: SelectedGuildLayout,
+  // The selected-server shell reads browser-only Zero data. Keep the entire subtree out of SSR
+  // and prevent its browser-only loader data from being reused during hydration.
+  ssr: false,
   loader: async ({ abortController, context, params }) => {
     if (!isBrowserRuntime()) return;
     const preload = <A, E>(atom: Atom.Atom<AsyncResult.AsyncResult<A, E>>) =>

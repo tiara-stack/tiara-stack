@@ -14,6 +14,7 @@ import {
 import { ensureResultAtomData, isBrowserRuntime } from "#/lib/atomRegistry";
 import { isSheetEditorPath } from "#/routes";
 import { cn } from "#/lib/utils";
+import { useHydrated } from "#/hooks/useHydrated";
 
 // Loading fallback for guild sidebar
 function GuildSidebarFallback() {
@@ -154,6 +155,7 @@ export const Route = createFileRoute("/_authenticated/dashboard/guilds")({
 });
 
 function GuildsLayout() {
+  const hydrated = useHydrated();
   const { pathname } = useLocation();
   const isSheetEditor = isSheetEditorPath(pathname);
 
@@ -168,7 +170,7 @@ function GuildsLayout() {
             SERVERS
           </div>
           <Suspense fallback={<GuildSidebarFallback />}>
-            <GuildSidebarContent />
+            {hydrated ? <GuildSidebarContent /> : <GuildSidebarFallback />}
           </Suspense>
         </div>
       </aside>

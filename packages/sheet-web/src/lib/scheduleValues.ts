@@ -8,7 +8,7 @@ export class ScheduleHourWindow extends Schema.TaggedClass<ScheduleHourWindow>()
   },
 ) {}
 
-class Player extends Schema.TaggedClass<Player>()("Player", {
+export class Player extends Schema.TaggedClass<Player>()("Player", {
   index: Schema.Number,
   id: Schema.String,
   name: Schema.String,

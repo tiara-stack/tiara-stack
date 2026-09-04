@@ -136,6 +136,29 @@ type Conversation = {
 const providerError = (operation: SheetDataProviderError["operation"]) => (cause: unknown) =>
   new SheetDataProviderError({ operation, cause });
 
+/**
+ * Resolves schedule names to account IDs without guessing when a sheet contains duplicate names.
+ * A null result means the name is not present in the identity range or is ambiguous.
+ */
+export const resolveSchedulePlayerAccountIds = (
+  players: ReadonlyArray<{ readonly accountId: string; readonly name: string }>,
+  names: ReadonlyArray<string>,
+): ReadonlyArray<string | null> => {
+  const accountIdsByName = new Map<string, string | null>();
+  for (const player of players) {
+    if (!accountIdsByName.has(player.name)) {
+      accountIdsByName.set(player.name, player.accountId);
+      continue;
+    }
+
+    if (accountIdsByName.get(player.name) !== player.accountId) {
+      accountIdsByName.set(player.name, null);
+    }
+  }
+
+  return names.map((name) => accountIdsByName.get(name) ?? null);
+};
+
 const loadActiveWorkspace = (
   persistence: TrustedSheetPersistence["Service"],
   workspaceId: WorkspaceId,
@@ -502,13 +525,15 @@ const makeSheetDataProvider = (
       const populatedSchedules = view.schedules.flatMap((schedule) => {
         const conversationName = schedule.channel;
         if (!Predicate.isString(conversationName) || !Predicate.isNumber(schedule.day)) return [];
+        const playerNames = [...schedule.fills, ...schedule.overfills, ...schedule.standbys];
         return [
           {
             conversationName,
             day: schedule.day,
             visible: schedule.visible,
             hour: schedule.hour,
-            playerNames: [...schedule.fills, ...schedule.overfills, ...schedule.standbys],
+            playerNames,
+            playerAccountIds: resolveSchedulePlayerAccountIds(view.players, playerNames),
             monitorName: schedule.monitor,
           },
         ];
