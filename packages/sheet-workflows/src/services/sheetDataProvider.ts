@@ -532,6 +532,7 @@ const makeSheetDataProvider = (
             day: schedule.day,
             visible: schedule.visible,
             hour: schedule.hour,
+            break: schedule.break,
             playerNames,
             playerAccountIds: resolveSchedulePlayerAccountIds(view.players, playerNames),
             monitorName: schedule.monitor,

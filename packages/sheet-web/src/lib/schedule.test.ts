@@ -10,6 +10,7 @@ const summary = {
   day: 3,
   visible: true,
   hour: 49,
+  break: false,
   playerNames: ["Theerie"],
   playerAccountIds: ["account-theerie"],
   monitorName: null,
@@ -35,6 +36,18 @@ describe("schedule time projection", () => {
     if (!Predicate.isTagged("Player")(player.player)) return;
 
     expect(player.player.id).toBe("account-theerie");
+    expect(DateTime.toEpochMillis(Option.getOrThrow(projected.hourWindow).start)).toBe(
+      Date.UTC(2026, 0, 1),
+    );
+  });
+
+  it("preserves numeric-hour break rows as breaks", () => {
+    const projected = scheduleFromSummary(eventStart, 49, { ...summary, break: true });
+
+    expect(Predicate.isTagged("PopulatedBreakSchedule")(projected)).toBe(true);
+    if (!Predicate.isTagged("PopulatedBreakSchedule")(projected)) return;
+
+    expect(Option.getOrThrow(projected.hour)).toBe(49);
     expect(DateTime.toEpochMillis(Option.getOrThrow(projected.hourWindow).start)).toBe(
       Date.UTC(2026, 0, 1),
     );

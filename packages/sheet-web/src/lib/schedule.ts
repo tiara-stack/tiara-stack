@@ -117,6 +117,23 @@ export const scheduleFromSummary = (
   }
 
   const start = scheduleStart(eventStart, summary.hour, scheduleStartHour);
+  const hourWindow = Option.some(
+    new Schedule.ScheduleHourWindow({
+      start,
+      end: DateTime.addDuration(start, Duration.hours(1)),
+    }),
+  );
+
+  if (summary.break === true) {
+    return new Schedule.PopulatedBreakSchedule({
+      channel: summary.conversationName,
+      day: summary.day,
+      visible: summary.visible,
+      hour: Option.some(summary.hour),
+      hourWindow,
+    });
+  }
+
   const fills = Array.makeBy(5, (index) =>
     Option.fromNullishOr(summary.playerNames[index]).pipe(
       Option.map((name) => partialPlayer(name, summary.playerAccountIds?.[index])),
@@ -128,12 +145,7 @@ export const scheduleFromSummary = (
     day: summary.day,
     visible: summary.visible,
     hour: Option.some(summary.hour),
-    hourWindow: Option.some(
-      new Schedule.ScheduleHourWindow({
-        start,
-        end: DateTime.addDuration(start, Duration.hours(1)),
-      }),
-    ),
+    hourWindow,
     fills,
     overfills: [],
     standbys: [],
@@ -177,8 +189,7 @@ export const getAllChannelsAtom = Atom.family((guildId: string) =>
   Atom.make(
     Effect.fnUntraced(function* (get) {
       const schedules = yield* get.result(guildScheduleAtom(guildId));
-      const populatedSchedules = schedules.filter(Predicate.isTagged("PopulatedSchedule"));
-      const channelArray = populatedSchedules.map((s) => s.channel);
+      const channelArray = schedules.map((s) => s.channel);
       const channelSet = HashSet.fromIterable(channelArray);
       const uniqueChannels = Array.fromIterable(channelSet);
       return [...uniqueChannels].sort((left, right) =>
@@ -232,7 +243,7 @@ const _scheduledDaysAtom = Atom.family((params: ScheduledDaysParams) =>
       const schedules = yield* get.result(guildScheduleAtom(guildId));
 
       const isInChannel = (s: Schedule.PopulatedScheduleResult) =>
-        Predicate.isTagged("PopulatedSchedule")(s) && s.channel === channel && s.visible;
+        s.channel === channel && s.visible;
 
       const isInRange = (s: Schedule.PopulatedScheduleResult) =>
         pipe(

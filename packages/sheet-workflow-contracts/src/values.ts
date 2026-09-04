@@ -507,6 +507,9 @@ export const PopulatedScheduleSummary = Schema.Struct({
   day: Schema.Number,
   visible: Schema.Boolean,
   hour: Schema.NullOr(Schema.Number),
+  // Optional while rolling out explicit break preservation. Older workflow
+  // responses remain readable while new responses carry the source row state.
+  break: Schema.optional(Schema.Boolean),
   playerNames: Schema.Array(Schema.String),
   // Optional while rolling out the identity-preserving schedule projection. Older workflow
   // responses remain readable, but new responses include null for ambiguous or unknown names.

@@ -22,7 +22,10 @@ export const monthSlideTransition = {
   ease: [0.4, 0, 0.2, 1],
 } as const;
 
-type TransitionPhase = "to-daily" | "to-calendar";
+export type TransitionPhase = "to-daily" | "to-calendar";
+
+export const isCalendarInteractionLocked = (phase: TransitionPhase | undefined): boolean =>
+  phase === "to-daily";
 
 export type ViewType = "calendar" | "daily" | "default";
 
@@ -157,7 +160,9 @@ export function useScheduleTransitionStates(search: ScheduleSearchParams, curren
   return useMemo(() => {
     const isTransitioningToDaily = phase === "to-daily";
     const isTransitioningToCalendar = phase === "to-calendar";
-    const isCalendarLocked = isTransitioningToDaily || isTransitioningToCalendar;
+    // Keep an incoming calendar interactive. The selected-day layout animation is best effort;
+    // locking here would make every day link unusable if that animation callback is skipped.
+    const isCalendarLocked = isCalendarInteractionLocked(phase);
 
     return {
       isTransitioningToDaily,
