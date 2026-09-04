@@ -17,6 +17,7 @@ export const config = {
   sheetWorkflowsBaseUrl: Config.schema(nonEmptyString, "SHEET_WORKFLOWS_BASE_URL").pipe(
     Config.withDefault("http://sheet-workflows:3000"),
   ),
+  sheetWebBaseUrl: Config.schema(Schema.URL, "SHEET_WEB_BASE_URL"),
   zeroCacheServer: Config.schema(nonEmptyString, "ZERO_CACHE_SERVER"),
   zeroCacheUserId: Config.schema(nonEmptyString, "ZERO_CACHE_USER_ID"),
   zeroOAuthAudience: Config.schema(nonEmptyString, "ZERO_OAUTH_AUDIENCE").pipe(

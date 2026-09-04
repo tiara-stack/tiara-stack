@@ -19,7 +19,11 @@ function LandingPage() {
   const signInWithDiscord = useSignInWithSocialProvider("discord");
 
   return (
-    <div className="min-h-screen text-white relative overflow-x-hidden">
+    <main
+      id="main-content"
+      tabIndex={-1}
+      className="min-h-screen text-white relative overflow-x-hidden"
+    >
       <div className="relative">
         {/* Hero - Asymmetric Layout */}
         <section className="min-h-screen flex items-center pt-24">
@@ -309,6 +313,6 @@ function LandingPage() {
           </div>
         </footer>
       </div>
-    </div>
+    </main>
   );
 }

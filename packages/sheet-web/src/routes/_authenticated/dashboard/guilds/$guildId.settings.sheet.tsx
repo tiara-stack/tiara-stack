@@ -1765,7 +1765,7 @@ function StudioLoaded({
             </div>
           </aside>
 
-          <main className="min-w-0 bg-[#0b1210]">
+          <div className="min-w-0 bg-[#0b1210]">
             {section === "overview" ? (
               <OverviewSection
                 state={displayState}
@@ -1814,7 +1814,7 @@ function StudioLoaded({
                 onConfigurationChange={handleConfigurationChange}
               />
             )}
-          </main>
+          </div>
         </div>
       )}
 

@@ -28,40 +28,60 @@ interface UpdateAnnouncementSource {
   readonly color?: number;
 }
 
-export const updateAnnouncements = [
-  {
-    id: "update-announcements-2026-06-05",
-    publishedAt: "2026-06-04T17:00:00.000Z",
-    title: "TiaraBot update announcements",
-    description:
-      "TiaraBot can now share occasional product updates in this server. Each update is sent once to the server's system channel when available, otherwise #general or the first sendable text channel. Updates are only sent for releases published after TiaraBot joined and never use mass mentions. Read the TiaraDocs guide for details: https://schedule.theerapakg.moe/docs/tiarabot/monitors/update-announcements",
-    color: 0x5865f2,
-  },
-  {
-    id: "auth-update-2026-06-12",
-    publishedAt: "2026-06-12T02:30:00.000Z",
-    title: "Sign-in and access update",
-    description:
-      "Hi! Tiara has an update to sign-in and service access. You can keep signing in with Discord like before, and developers can now create and manage OAuth clients from the dashboard for their own Sheet integrations. The dashboard and bot also use the same OAuth-based access behind the scenes now, which should make access more reliable and easier to build on. If anything feels off, signing out and back in should refresh your access.",
-    color: 0x57f287,
-  },
-  {
-    id: "team-submission-confirmations-2026-07-08",
-    publishedAt: "2026-07-08T00:00:00.000Z",
-    title: "Team submission confirmations",
-    description:
-      "Team submission channels require the team-submission-confirmations workspace feature flag. When enabled, Tiara writes submissions with the reaction, progress embed, and submitter-owned confirm/reject flow; without it, messages are ignored.",
-    color: 0x57f287,
-  },
-  {
-    id: "web-sheet-configuration-2026-09-01",
-    publishedAt: "2026-09-01T07:09:33.000Z",
-    title: "Web Sheet Configuration editor",
-    description:
-      "Server managers and monitors can now manage TiaraBot's sheet mappings from Dashboard → Settings → Sheet mappings. Import the legacy Settings tab into a draft, type or drag tab-qualified A1 ranges on the read-only grid, review changed fields and fresh samples, then activate a versioned revision when it is ready. The current source stays live until activation, and earlier web revisions or the retained legacy source can be restored. Read the TiaraDocs guide: https://schedule.theerapakg.moe/docs/tiarabot/monitors/sheet-configuration",
-    color: 0x33ccbb,
-  },
-] as const satisfies ReadonlyArray<UpdateAnnouncementSource>;
+const defaultSheetWebBaseUrl = new URL("https://schedule.theerapakg.moe");
+
+const makeSheetWebDocumentationUrl = (sheetWebBaseUrl: URL, path: string) => {
+  const baseUrl = new URL(sheetWebBaseUrl);
+  if (!baseUrl.pathname.endsWith("/")) {
+    baseUrl.pathname += "/";
+  }
+
+  return new URL(path, baseUrl).href;
+};
+
+export const makeUpdateAnnouncements = (sheetWebBaseUrl: URL = defaultSheetWebBaseUrl) =>
+  [
+    {
+      id: "update-announcements-2026-06-05",
+      publishedAt: "2026-06-04T17:00:00.000Z",
+      title: "TiaraBot update announcements",
+      description:
+        "TiaraBot can now share occasional product updates in this server. Each update is sent once to the server's system channel when available, otherwise #general or the first sendable text channel. Updates are only sent for releases published after TiaraBot joined and never use mass mentions. Read the TiaraDocs guide for details: https://schedule.theerapakg.moe/docs/tiarabot/monitors/update-announcements",
+      color: 0x5865f2,
+    },
+    {
+      id: "auth-update-2026-06-12",
+      publishedAt: "2026-06-12T02:30:00.000Z",
+      title: "Sign-in and access update",
+      description:
+        "Hi! Tiara has an update to sign-in and service access. You can keep signing in with Discord like before, and developers can now create and manage OAuth clients from the dashboard for their own Sheet integrations. The dashboard and bot also use the same OAuth-based access behind the scenes now, which should make access more reliable and easier to build on. If anything feels off, signing out and back in should refresh your access.",
+      color: 0x57f287,
+    },
+    {
+      id: "team-submission-confirmations-2026-07-08",
+      publishedAt: "2026-07-08T00:00:00.000Z",
+      title: "Team submission confirmations",
+      description:
+        "Team submission channels require the team-submission-confirmations workspace feature flag. When enabled, Tiara writes submissions with the reaction, progress embed, and submitter-owned confirm/reject flow; without it, messages are ignored.",
+      color: 0x57f287,
+    },
+    {
+      id: "web-sheet-configuration-2026-09-01",
+      publishedAt: "2026-09-01T07:09:33.000Z",
+      title: "Web Sheet Configuration editor",
+      description: `Server managers and monitors can now manage TiaraBot's sheet mappings from Dashboard → Server settings → Sheet mappings. Import the legacy Settings tab into a draft, type or drag tab-qualified A1 ranges on the read-only grid, review changed fields and fresh samples, then activate a versioned revision when it is ready. The current source stays live until activation, and earlier web revisions or the retained legacy source can be restored. Read the TiaraDocs guide: ${makeSheetWebDocumentationUrl(sheetWebBaseUrl, "docs/sheetweb/sheet-configuration")}`,
+      color: 0x33ccbb,
+    },
+    {
+      id: "sheetweb-dashboard-navigation-2026-09-04",
+      publishedAt: "2026-09-04T00:00:00.000Z",
+      title: "SheetWeb dashboard navigation",
+      description: `SheetWeb's dashboard navigation is now organized around your current server. Use the named server chooser or the server rail to switch servers, SCHEDULE for schedule navigation, and SERVER SETTINGS for server administration. Sheet mappings are grouped with server administration, while personal notification settings live under Settings. Read the TiaraDocs guide: ${makeSheetWebDocumentationUrl(sheetWebBaseUrl, "docs/sheetweb/navigation")}`,
+      color: 0x33ccbb,
+    },
+  ] as const satisfies ReadonlyArray<UpdateAnnouncementSource>;
+
+export const updateAnnouncements = makeUpdateAnnouncements();
 
 export const makeUpdateAnnouncementWorkflowRequests = (
   guild: GuildCreateEvent,
@@ -113,6 +133,8 @@ export const updateAnnouncementsEventLayer = Layer.effectDiscard(
     const gateway = yield* DiscordGateway;
     const workflowClient = yield* SheetWorkflowHttpClient;
     const clientId = yield* config.sheetBotClientId;
+    const sheetWebBaseUrl = yield* config.sheetWebBaseUrl;
+    const announcements = makeUpdateAnnouncements(sheetWebBaseUrl);
 
     yield* gateway
       .handleDispatch("GUILD_CREATE", (guild) => {
@@ -131,7 +153,7 @@ export const updateAnnouncementsEventLayer = Layer.effectDiscard(
 
           const requests = makeUpdateAnnouncementWorkflowRequests(
             decodedGuild,
-            updateAnnouncements,
+            announcements,
             clientId,
           );
           if (requests.length === 0) {

@@ -246,6 +246,7 @@ services:
       DISCORD_TOKEN: ${DISCORD_TOKEN:-}
       DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:-}
       SHEET_WORKFLOWS_BASE_URL: "http://sheet-workflows:3000"
+      SHEET_WEB_BASE_URL: "${SHEET_WEB_PUBLIC_BASE_URL:?SHEET_WEB_PUBLIC_BASE_URL is required for sheet-bot}"
       ZERO_CACHE_SERVER: "http://zero-cache:4848"
       ZERO_CACHE_USER_ID: "system:serviceaccount:tiara-local:sheet-bot"
       ZERO_OAUTH_AUDIENCE: "sheet-zero"
@@ -321,7 +322,7 @@ services:
       - "3001:3000"
     environment:
       AUTH_BASE_URL: "${SHEET_AUTH_PUBLIC_BASE_URL:-http://localhost:3002}"
-      APP_BASE_URL: "${SHEET_WEB_PUBLIC_BASE_URL:-http://localhost:3001}"
+      APP_BASE_URL: "${SHEET_WEB_PUBLIC_BASE_URL:?SHEET_WEB_PUBLIC_BASE_URL is required for sheet-web}"
       SHEET_ZERO_BASE_URL: "${SHEET_ZERO_PUBLIC_BASE_URL:-http://localhost:4848}"
       SHEET_WORKFLOWS_BASE_URL: "${SHEET_WORKFLOWS_PUBLIC_BASE_URL:-http://localhost:3003}"
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://local-otel-sink:4318}

@@ -1,6 +1,7 @@
-import { useAtomSuspense } from "@effect/atom-react";
-import { Duration, Effect, Schema } from "effect";
+import { useAtomRefresh, useAtomSuspense } from "@effect/atom-react";
+import { Duration, Effect, Predicate, Schema } from "effect";
 import { Atom, AsyncResult } from "effect/unstable/reactivity";
+import { useCallback } from "react";
 import { DiscordLoadProfileSuccess } from "sheet-workflow-contracts";
 import { runSheetWorkflow, sheetZeroClientAtom } from "#/lib/sheetZero";
 
@@ -21,6 +22,11 @@ const DiscordGuild = Schema.Struct({
 });
 
 export type DiscordGuild = Schema.Schema.Type<typeof DiscordGuild>;
+
+export const guildIconUrl = (guild: Pick<DiscordGuild, "id" | "icon">): string | null =>
+  Predicate.isNull(guild.icon)
+    ? null
+    : `https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.png`;
 
 const DiscordProfile = Schema.Struct({
   user: DiscordUser,
@@ -88,6 +94,22 @@ export const currentUserGuildsAtom = Atom.make(
     return profile.guilds;
   }),
 ).pipe(Atom.setIdleTTL(Duration.infinity));
+
+export const useCurrentUserGuildsResult = () =>
+  useAtomSuspense(currentUserGuildsAtom, {
+    suspendOnWaiting: false,
+    includeFailure: true,
+  });
+
+export const useRefreshCurrentUserGuilds = () => {
+  const refreshProfile = useAtomRefresh(_currentUserProfileAtom);
+  const refreshGuilds = useAtomRefresh(currentUserGuildsAtom);
+
+  return useCallback(() => {
+    refreshProfile();
+    refreshGuilds();
+  }, [refreshGuilds, refreshProfile]);
+};
 
 export const useCurrentUserGuilds = () => {
   const result = useAtomSuspense(currentUserGuildsAtom, {

@@ -22,4 +22,4 @@ COPY --from=extractor /app ./
 RUN chmod 1777 /tmp
 
 USER node
-CMD ["sh", "-ec", "{ cat /usr/local/share/ca-certificates/tiarastack/tiarastack.crt; printf '\\n'; cat /var/run/secrets/kubernetes.io/serviceaccount/ca.crt; } > /tmp/node-extra-ca.crt && NODE_EXTRA_CA_CERTS=/tmp/node-extra-ca.crt exec node --use-openssl-ca --enable-source-maps ./dist/main.mjs"]
+CMD ["sh", "-ec", "test -n \"${SHEET_WEB_BASE_URL:-}\" || { echo 'SHEET_WEB_BASE_URL is required for the gateway' >&2; exit 1; }; { cat /usr/local/share/ca-certificates/tiarastack/tiarastack.crt; printf '\\n'; cat /var/run/secrets/kubernetes.io/serviceaccount/ca.crt; } > /tmp/node-extra-ca.crt && NODE_EXTRA_CA_CERTS=/tmp/node-extra-ca.crt exec node --use-openssl-ca --enable-source-maps ./dist/main.mjs"]

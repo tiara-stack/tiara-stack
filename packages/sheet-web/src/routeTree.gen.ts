@@ -19,6 +19,7 @@ import { Route as AuthenticatedDashboardIndexRouteImport } from './routes/_authe
 import { Route as AuthOauthStartRouteImport } from './routes/auth/oauth/start'
 import { Route as AuthOauthCallbackRouteImport } from './routes/auth/oauth/callback'
 import { Route as ApiDocsSearchRouteImport } from './routes/api/docs/search'
+import { Route as AuthenticatedSettingsNotificationsRouteImport } from './routes/_authenticated/settings/notifications'
 import { Route as AuthenticatedDeveloperOauthClientsRouteImport } from './routes/_authenticated/developer/oauth-clients'
 import { Route as AuthenticatedDashboardShiftsRouteImport } from './routes/_authenticated/dashboard/shifts'
 import { Route as AuthenticatedDashboardPreferencesRouteImport } from './routes/_authenticated/dashboard/preferences'
@@ -29,6 +30,8 @@ import { Route as AuthenticatedDashboardGuildsGuildIdIndexRouteImport } from './
 import { Route as AuthenticatedDashboardGuildsGuildIdSettingsRouteImport } from './routes/_authenticated/dashboard/guilds/$guildId.settings'
 import { Route as AuthenticatedDashboardGuildsGuildIdScheduleRouteImport } from './routes/_authenticated/dashboard/guilds/$guildId.schedule'
 import { Route as AuthenticatedDashboardGuildsGuildIdSettingsSheetRouteImport } from './routes/_authenticated/dashboard/guilds/$guildId.settings.sheet'
+import { Route as AuthenticatedDashboardGuildsGuildIdSettingsServerRouteImport } from './routes/_authenticated/dashboard/guilds/$guildId.settings.server'
+import { Route as AuthenticatedDashboardGuildsGuildIdSettingsChannelsRouteImport } from './routes/_authenticated/dashboard/guilds/$guildId.settings.channels'
 import { Route as AuthenticatedDashboardGuildsGuildIdScheduleChannelIndexRouteImport } from './routes/_authenticated/dashboard/guilds/$guildId.schedule.$channel/index'
 import { Route as AuthenticatedDashboardGuildsGuildIdScheduleChannelChannelLayoutRouteImport } from './routes/_authenticated/dashboard/guilds/$guildId.schedule.$channel/_channelLayout'
 import { Route as AuthenticatedDashboardGuildsGuildIdScheduleChannelChannelLayoutDailyRouteImport } from './routes/_authenticated/dashboard/guilds/$guildId.schedule.$channel/_channelLayout/daily'
@@ -84,6 +87,12 @@ const ApiDocsSearchRoute = ApiDocsSearchRouteImport.update({
   path: '/api/docs/search',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedSettingsNotificationsRoute =
+  AuthenticatedSettingsNotificationsRouteImport.update({
+    id: '/settings/notifications',
+    path: '/settings/notifications',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const AuthenticatedDeveloperOauthClientsRoute =
   AuthenticatedDeveloperOauthClientsRouteImport.update({
     id: '/developer/oauth-clients',
@@ -144,6 +153,18 @@ const AuthenticatedDashboardGuildsGuildIdSettingsSheetRoute =
     path: '/sheet',
     getParentRoute: () => AuthenticatedDashboardGuildsGuildIdSettingsRoute,
   } as any)
+const AuthenticatedDashboardGuildsGuildIdSettingsServerRoute =
+  AuthenticatedDashboardGuildsGuildIdSettingsServerRouteImport.update({
+    id: '/server',
+    path: '/server',
+    getParentRoute: () => AuthenticatedDashboardGuildsGuildIdSettingsRoute,
+  } as any)
+const AuthenticatedDashboardGuildsGuildIdSettingsChannelsRoute =
+  AuthenticatedDashboardGuildsGuildIdSettingsChannelsRouteImport.update({
+    id: '/channels',
+    path: '/channels',
+    getParentRoute: () => AuthenticatedDashboardGuildsGuildIdSettingsRoute,
+  } as any)
 const AuthenticatedDashboardGuildsGuildIdScheduleChannelIndexRoute =
   AuthenticatedDashboardGuildsGuildIdScheduleChannelIndexRouteImport.update({
     id: '/$channel/',
@@ -187,6 +208,7 @@ export interface FileRoutesByFullPath {
   '/dashboard/preferences': typeof AuthenticatedDashboardPreferencesRoute
   '/dashboard/shifts': typeof AuthenticatedDashboardShiftsRoute
   '/developer/oauth-clients': typeof AuthenticatedDeveloperOauthClientsRoute
+  '/settings/notifications': typeof AuthenticatedSettingsNotificationsRoute
   '/api/docs/search': typeof ApiDocsSearchRoute
   '/auth/oauth/callback': typeof AuthOauthCallbackRoute
   '/auth/oauth/start': typeof AuthOauthStartRoute
@@ -196,6 +218,8 @@ export interface FileRoutesByFullPath {
   '/dashboard/guilds/$guildId/schedule': typeof AuthenticatedDashboardGuildsGuildIdScheduleRouteWithChildren
   '/dashboard/guilds/$guildId/settings': typeof AuthenticatedDashboardGuildsGuildIdSettingsRouteWithChildren
   '/dashboard/guilds/$guildId/': typeof AuthenticatedDashboardGuildsGuildIdIndexRoute
+  '/dashboard/guilds/$guildId/settings/channels': typeof AuthenticatedDashboardGuildsGuildIdSettingsChannelsRoute
+  '/dashboard/guilds/$guildId/settings/server': typeof AuthenticatedDashboardGuildsGuildIdSettingsServerRoute
   '/dashboard/guilds/$guildId/settings/sheet': typeof AuthenticatedDashboardGuildsGuildIdSettingsSheetRoute
   '/dashboard/guilds/$guildId/schedule/$channel': typeof AuthenticatedDashboardGuildsGuildIdScheduleChannelChannelLayoutRouteWithChildren
   '/dashboard/guilds/$guildId/schedule/$channel/': typeof AuthenticatedDashboardGuildsGuildIdScheduleChannelIndexRoute
@@ -210,6 +234,7 @@ export interface FileRoutesByTo {
   '/dashboard/preferences': typeof AuthenticatedDashboardPreferencesRoute
   '/dashboard/shifts': typeof AuthenticatedDashboardShiftsRoute
   '/developer/oauth-clients': typeof AuthenticatedDeveloperOauthClientsRoute
+  '/settings/notifications': typeof AuthenticatedSettingsNotificationsRoute
   '/api/docs/search': typeof ApiDocsSearchRoute
   '/auth/oauth/callback': typeof AuthOauthCallbackRoute
   '/auth/oauth/start': typeof AuthOauthStartRoute
@@ -218,6 +243,8 @@ export interface FileRoutesByTo {
   '/dashboard/guilds/$guildId/schedule': typeof AuthenticatedDashboardGuildsGuildIdScheduleRouteWithChildren
   '/dashboard/guilds/$guildId/settings': typeof AuthenticatedDashboardGuildsGuildIdSettingsRouteWithChildren
   '/dashboard/guilds/$guildId': typeof AuthenticatedDashboardGuildsGuildIdIndexRoute
+  '/dashboard/guilds/$guildId/settings/channels': typeof AuthenticatedDashboardGuildsGuildIdSettingsChannelsRoute
+  '/dashboard/guilds/$guildId/settings/server': typeof AuthenticatedDashboardGuildsGuildIdSettingsServerRoute
   '/dashboard/guilds/$guildId/settings/sheet': typeof AuthenticatedDashboardGuildsGuildIdSettingsSheetRoute
   '/dashboard/guilds/$guildId/schedule/$channel': typeof AuthenticatedDashboardGuildsGuildIdScheduleChannelIndexRoute
   '/dashboard/guilds/$guildId/schedule/$channel/calendar': typeof AuthenticatedDashboardGuildsGuildIdScheduleChannelChannelLayoutCalendarRoute
@@ -235,6 +262,7 @@ export interface FileRoutesById {
   '/_authenticated/dashboard/preferences': typeof AuthenticatedDashboardPreferencesRoute
   '/_authenticated/dashboard/shifts': typeof AuthenticatedDashboardShiftsRoute
   '/_authenticated/developer/oauth-clients': typeof AuthenticatedDeveloperOauthClientsRoute
+  '/_authenticated/settings/notifications': typeof AuthenticatedSettingsNotificationsRoute
   '/api/docs/search': typeof ApiDocsSearchRoute
   '/auth/oauth/callback': typeof AuthOauthCallbackRoute
   '/auth/oauth/start': typeof AuthOauthStartRoute
@@ -244,6 +272,8 @@ export interface FileRoutesById {
   '/_authenticated/dashboard/guilds/$guildId/schedule': typeof AuthenticatedDashboardGuildsGuildIdScheduleRouteWithChildren
   '/_authenticated/dashboard/guilds/$guildId/settings': typeof AuthenticatedDashboardGuildsGuildIdSettingsRouteWithChildren
   '/_authenticated/dashboard/guilds/$guildId/': typeof AuthenticatedDashboardGuildsGuildIdIndexRoute
+  '/_authenticated/dashboard/guilds/$guildId/settings/channels': typeof AuthenticatedDashboardGuildsGuildIdSettingsChannelsRoute
+  '/_authenticated/dashboard/guilds/$guildId/settings/server': typeof AuthenticatedDashboardGuildsGuildIdSettingsServerRoute
   '/_authenticated/dashboard/guilds/$guildId/settings/sheet': typeof AuthenticatedDashboardGuildsGuildIdSettingsSheetRoute
   '/_authenticated/dashboard/guilds/$guildId/schedule/$channel/_channelLayout': typeof AuthenticatedDashboardGuildsGuildIdScheduleChannelChannelLayoutRouteWithChildren
   '/_authenticated/dashboard/guilds/$guildId/schedule/$channel/': typeof AuthenticatedDashboardGuildsGuildIdScheduleChannelIndexRoute
@@ -262,6 +292,7 @@ export interface FileRouteTypes {
     | '/dashboard/preferences'
     | '/dashboard/shifts'
     | '/developer/oauth-clients'
+    | '/settings/notifications'
     | '/api/docs/search'
     | '/auth/oauth/callback'
     | '/auth/oauth/start'
@@ -271,6 +302,8 @@ export interface FileRouteTypes {
     | '/dashboard/guilds/$guildId/schedule'
     | '/dashboard/guilds/$guildId/settings'
     | '/dashboard/guilds/$guildId/'
+    | '/dashboard/guilds/$guildId/settings/channels'
+    | '/dashboard/guilds/$guildId/settings/server'
     | '/dashboard/guilds/$guildId/settings/sheet'
     | '/dashboard/guilds/$guildId/schedule/$channel'
     | '/dashboard/guilds/$guildId/schedule/$channel/'
@@ -285,6 +318,7 @@ export interface FileRouteTypes {
     | '/dashboard/preferences'
     | '/dashboard/shifts'
     | '/developer/oauth-clients'
+    | '/settings/notifications'
     | '/api/docs/search'
     | '/auth/oauth/callback'
     | '/auth/oauth/start'
@@ -293,6 +327,8 @@ export interface FileRouteTypes {
     | '/dashboard/guilds/$guildId/schedule'
     | '/dashboard/guilds/$guildId/settings'
     | '/dashboard/guilds/$guildId'
+    | '/dashboard/guilds/$guildId/settings/channels'
+    | '/dashboard/guilds/$guildId/settings/server'
     | '/dashboard/guilds/$guildId/settings/sheet'
     | '/dashboard/guilds/$guildId/schedule/$channel'
     | '/dashboard/guilds/$guildId/schedule/$channel/calendar'
@@ -309,6 +345,7 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard/preferences'
     | '/_authenticated/dashboard/shifts'
     | '/_authenticated/developer/oauth-clients'
+    | '/_authenticated/settings/notifications'
     | '/api/docs/search'
     | '/auth/oauth/callback'
     | '/auth/oauth/start'
@@ -318,6 +355,8 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard/guilds/$guildId/schedule'
     | '/_authenticated/dashboard/guilds/$guildId/settings'
     | '/_authenticated/dashboard/guilds/$guildId/'
+    | '/_authenticated/dashboard/guilds/$guildId/settings/channels'
+    | '/_authenticated/dashboard/guilds/$guildId/settings/server'
     | '/_authenticated/dashboard/guilds/$guildId/settings/sheet'
     | '/_authenticated/dashboard/guilds/$guildId/schedule/$channel/_channelLayout'
     | '/_authenticated/dashboard/guilds/$guildId/schedule/$channel/'
@@ -408,6 +447,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiDocsSearchRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/settings/notifications': {
+      id: '/_authenticated/settings/notifications'
+      path: '/settings/notifications'
+      fullPath: '/settings/notifications'
+      preLoaderRoute: typeof AuthenticatedSettingsNotificationsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/developer/oauth-clients': {
       id: '/_authenticated/developer/oauth-clients'
       path: '/developer/oauth-clients'
@@ -478,6 +524,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedDashboardGuildsGuildIdSettingsSheetRouteImport
       parentRoute: typeof AuthenticatedDashboardGuildsGuildIdSettingsRoute
     }
+    '/_authenticated/dashboard/guilds/$guildId/settings/server': {
+      id: '/_authenticated/dashboard/guilds/$guildId/settings/server'
+      path: '/server'
+      fullPath: '/dashboard/guilds/$guildId/settings/server'
+      preLoaderRoute: typeof AuthenticatedDashboardGuildsGuildIdSettingsServerRouteImport
+      parentRoute: typeof AuthenticatedDashboardGuildsGuildIdSettingsRoute
+    }
+    '/_authenticated/dashboard/guilds/$guildId/settings/channels': {
+      id: '/_authenticated/dashboard/guilds/$guildId/settings/channels'
+      path: '/channels'
+      fullPath: '/dashboard/guilds/$guildId/settings/channels'
+      preLoaderRoute: typeof AuthenticatedDashboardGuildsGuildIdSettingsChannelsRouteImport
+      parentRoute: typeof AuthenticatedDashboardGuildsGuildIdSettingsRoute
+    }
     '/_authenticated/dashboard/guilds/$guildId/schedule/$channel/': {
       id: '/_authenticated/dashboard/guilds/$guildId/schedule/$channel/'
       path: '/$channel'
@@ -546,11 +606,17 @@ const AuthenticatedDashboardGuildsGuildIdScheduleRouteWithChildren =
   )
 
 interface AuthenticatedDashboardGuildsGuildIdSettingsRouteChildren {
+  AuthenticatedDashboardGuildsGuildIdSettingsChannelsRoute: typeof AuthenticatedDashboardGuildsGuildIdSettingsChannelsRoute
+  AuthenticatedDashboardGuildsGuildIdSettingsServerRoute: typeof AuthenticatedDashboardGuildsGuildIdSettingsServerRoute
   AuthenticatedDashboardGuildsGuildIdSettingsSheetRoute: typeof AuthenticatedDashboardGuildsGuildIdSettingsSheetRoute
 }
 
 const AuthenticatedDashboardGuildsGuildIdSettingsRouteChildren: AuthenticatedDashboardGuildsGuildIdSettingsRouteChildren =
   {
+    AuthenticatedDashboardGuildsGuildIdSettingsChannelsRoute:
+      AuthenticatedDashboardGuildsGuildIdSettingsChannelsRoute,
+    AuthenticatedDashboardGuildsGuildIdSettingsServerRoute:
+      AuthenticatedDashboardGuildsGuildIdSettingsServerRoute,
     AuthenticatedDashboardGuildsGuildIdSettingsSheetRoute:
       AuthenticatedDashboardGuildsGuildIdSettingsSheetRoute,
   }
@@ -624,12 +690,15 @@ const AuthenticatedDashboardRouteWithChildren =
 interface AuthenticatedRouteChildren {
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRouteWithChildren
   AuthenticatedDeveloperOauthClientsRoute: typeof AuthenticatedDeveloperOauthClientsRoute
+  AuthenticatedSettingsNotificationsRoute: typeof AuthenticatedSettingsNotificationsRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedDashboardRoute: AuthenticatedDashboardRouteWithChildren,
   AuthenticatedDeveloperOauthClientsRoute:
     AuthenticatedDeveloperOauthClientsRoute,
+  AuthenticatedSettingsNotificationsRoute:
+    AuthenticatedSettingsNotificationsRoute,
 }
 
 const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(

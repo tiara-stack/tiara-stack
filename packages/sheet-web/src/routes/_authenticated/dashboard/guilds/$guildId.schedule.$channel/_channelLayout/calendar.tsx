@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { DateTime, HashSet, Effect, Array } from "effect";
 import { AnimatePresence, motion, useIsPresent } from "motion/react";
 
@@ -8,7 +8,7 @@ import { ensureResultAtomData, isBrowserRuntime } from "#/lib/atomRegistry";
 import { useScheduledDays, scheduledDaysAtom, formatDayKey } from "#/lib/schedule";
 import { useCalendarDays, calendarDaysAtom } from "#/lib/calendar";
 import { getServerTimeZone, useTimeZone } from "#/hooks/useTimeZone";
-import { makeZoned, useZoned } from "#/hooks/useDateTimeZoned";
+import { makeZoned, useZoned, zoneId } from "#/hooks/useDateTimeZoned";
 import {
   buildSharedDayLayoutId,
   calendarRestTransition,
@@ -57,6 +57,163 @@ export const Route = createFileRoute(
   },
 });
 
+interface CalendarMonthArrowProps {
+  guildId: string;
+  channel: string;
+  currentDateZoned: DateTime.Zoned;
+  timestamp: number;
+  direction: "previous" | "next";
+  compact: boolean;
+}
+
+const CALENDAR_DAY_LABEL_MONTHS = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+function formatCalendarDayLabel(dateTime: DateTime.Zoned): string {
+  const parts = DateTime.toParts(dateTime);
+  return `${CALENDAR_DAY_LABEL_MONTHS[parts.month - 1]!} ${parts.day}, ${parts.year}`;
+}
+
+function CalendarMonthArrow({
+  guildId,
+  channel,
+  currentDateZoned,
+  timestamp,
+  direction,
+  compact,
+}: CalendarMonthArrowProps) {
+  const currentMonthTimestamp = DateTime.toEpochMillis(DateTime.startOf(currentDateZoned, "month"));
+  const isPrevious = direction === "previous";
+
+  return (
+    <Link
+      to="."
+      params={{ guildId, channel }}
+      search={{
+        timestamp,
+        from: { view: "calendar", timestamp: currentMonthTimestamp },
+      }}
+      mask={{
+        to: "/dashboard/guilds/$guildId/schedule/$channel/calendar",
+        params: { guildId, channel },
+        search: { timestamp },
+        unmaskOnReload: true,
+      }}
+      className={cn(
+        "place-items-center text-[#33ccbb] transition-colors hover:bg-[#33ccbb]/10",
+        compact ? "grid h-9 w-9" : "p-2",
+        isPrevious ? "justify-self-start" : "justify-self-end",
+      )}
+      aria-label={`${isPrevious ? "Previous" : "Next"} month`}
+    >
+      {isPrevious ? <ChevronLeft className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
+    </Link>
+  );
+}
+
+function CalendarMonthNavigation({
+  guildId,
+  channel,
+  currentDateZoned,
+  prevMonthTimestamp,
+  nextMonthTimestamp,
+  children,
+  compact = false,
+}: {
+  guildId: string;
+  channel: string;
+  currentDateZoned: DateTime.Zoned;
+  prevMonthTimestamp: number;
+  nextMonthTimestamp: number;
+  children: ReactNode;
+  compact?: boolean;
+}) {
+  return (
+    <div className="grid grid-cols-[auto_1fr_auto] items-center border-b border-[#33ccbb]/20 p-4">
+      <CalendarMonthArrow
+        guildId={guildId}
+        channel={channel}
+        currentDateZoned={currentDateZoned}
+        timestamp={prevMonthTimestamp}
+        direction="previous"
+        compact={compact}
+      />
+      {children}
+      <CalendarMonthArrow
+        guildId={guildId}
+        channel={channel}
+        currentDateZoned={currentDateZoned}
+        timestamp={nextMonthTimestamp}
+        direction="next"
+        compact={compact}
+      />
+    </div>
+  );
+}
+
+function CalendarDayLink({
+  guildId,
+  channel,
+  day,
+  currentMonth,
+  className,
+  children,
+}: {
+  guildId: string;
+  channel: string;
+  day: DateTime.Zoned;
+  currentMonth: DateTime.Zoned;
+  className: string;
+  children: ReactNode;
+}) {
+  const dayTimestamp = DateTime.toEpochMillis(day);
+  const monthTimestamp = DateTime.toEpochMillis(currentMonth);
+
+  return (
+    <Link
+      to="/dashboard/guilds/$guildId/schedule/$channel/daily"
+      params={{ guildId, channel }}
+      search={{
+        timestamp: dayTimestamp,
+        from: { view: "calendar", timestamp: monthTimestamp },
+      }}
+      mask={{
+        to: "/dashboard/guilds/$guildId/schedule/$channel/daily",
+        params: { guildId, channel },
+        search: { timestamp: dayTimestamp },
+        unmaskOnReload: true,
+      }}
+      className={className}
+      aria-label={`View schedule for ${formatCalendarDayLabel(day)}`}
+    >
+      {children}
+    </Link>
+  );
+}
+
+function getMonthSlideMotionProps(direction: -1 | 0 | 1, exitDirection: -1 | 0 | 1) {
+  return {
+    initial: direction === 0 ? false : { y: direction > 0 ? "100%" : "-100%", opacity: 0 },
+    animate: { y: 0, opacity: 1 },
+    ...(exitDirection === 0
+      ? {}
+      : { exit: { y: exitDirection > 0 ? "-100%" : "100%", opacity: 0 } }),
+    transition: monthSlideTransition,
+  };
+}
+
 function CalendarPendingPage() {
   const { guildId, channel } = Route.useParams();
   const timeZone = useTimeZone();
@@ -82,49 +239,18 @@ function CalendarPendingPage() {
         animate={{ opacity: 1 }}
         transition={calendarRestTransition}
       >
-        <div className="grid grid-cols-[auto_1fr_auto] items-center border-b border-[#33ccbb]/20 p-4">
-          <Link
-            to="."
-            params={{ guildId, channel }}
-            search={{
-              timestamp: prevMonthTimestamp,
-              from: {
-                view: "calendar",
-                timestamp: DateTime.toEpochMillis(DateTime.startOf(currentDateZoned, "month")),
-              },
-            }}
-            mask={{
-              to: "/dashboard/guilds/$guildId/schedule/$channel/calendar",
-              params: { guildId, channel },
-              search: { timestamp: prevMonthTimestamp },
-              unmaskOnReload: true,
-            }}
-            className="grid h-9 w-9 place-items-center text-[#33ccbb] transition-colors hover:bg-[#33ccbb]/10"
-          >
-            <ChevronLeft className="h-5 w-5" />
-          </Link>
+        <CalendarMonthNavigation
+          guildId={guildId}
+          channel={channel}
+          currentDateZoned={currentDateZoned}
+          prevMonthTimestamp={prevMonthTimestamp}
+          nextMonthTimestamp={nextMonthTimestamp}
+          compact
+        >
           <div className="mx-auto h-6 w-36 rounded bg-[#33ccbb]/10" />
-          <Link
-            to="."
-            params={{ guildId, channel }}
-            search={{
-              timestamp: nextMonthTimestamp,
-              from: {
-                view: "calendar",
-                timestamp: DateTime.toEpochMillis(DateTime.startOf(currentDateZoned, "month")),
-              },
-            }}
-            mask={{
-              to: "/dashboard/guilds/$guildId/schedule/$channel/calendar",
-              params: { guildId, channel },
-              search: { timestamp: nextMonthTimestamp },
-              unmaskOnReload: true,
-            }}
-            className="justify-self-end grid h-9 w-9 place-items-center text-[#33ccbb] transition-colors hover:bg-[#33ccbb]/10"
-          >
-            <ChevronRight className="h-5 w-5" />
-          </Link>
-        </div>
+        </CalendarMonthNavigation>
+
+        <CalendarContext timeZone={timeZone} />
 
         <div className="grid grid-cols-7 border-b border-[#33ccbb]/20">
           {["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"].map((day) => (
@@ -158,19 +284,11 @@ function CalendarPendingPage() {
                 }}
                 className="h-14 border-r border-b border-[#33ccbb]/10 last:border-r-0"
               >
-                <Link
-                  to="/dashboard/guilds/$guildId/schedule/$channel/daily"
-                  params={{ guildId, channel }}
-                  search={{
-                    timestamp: DateTime.toEpochMillis(day),
-                    from: { view: "calendar", timestamp: DateTime.toEpochMillis(currentMonth) },
-                  }}
-                  mask={{
-                    to: "/dashboard/guilds/$guildId/schedule/$channel/daily",
-                    params: { guildId, channel },
-                    search: { timestamp: DateTime.toEpochMillis(day) },
-                    unmaskOnReload: true,
-                  }}
+                <CalendarDayLink
+                  guildId={guildId}
+                  channel={channel}
+                  day={day}
+                  currentMonth={currentMonth}
                   className={cn(
                     "flex h-full flex-col items-center justify-center gap-1 transition-colors",
                     layoutId !== undefined && selectedLayoutId === layoutId
@@ -185,7 +303,7 @@ function CalendarPendingPage() {
                       index % 5 === 0 ? "w-4" : "w-1.5",
                     )}
                   />
-                </Link>
+                </CalendarDayLink>
               </motion.div>
             );
           })}
@@ -215,6 +333,18 @@ function getMonthYearParts(dateTime: DateTime.Zoned): { month: string; year: str
   return { month: monthNames[parts.month - 1]!, year: String(parts.year) };
 }
 
+function CalendarContext({ timeZone }: { readonly timeZone: DateTime.TimeZone }) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#33ccbb]/20 bg-[#0f1615] px-4 py-2 text-[10px] font-bold tracking-wide text-white/50">
+      <span className="flex items-center gap-2">
+        <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-[#33ccbb]" />
+        SCHEDULED DAYS
+      </span>
+      <span>TIME ZONE: {zoneId(timeZone)}</span>
+    </div>
+  );
+}
+
 // Format day of month for display
 function formatDayOfMonth(dateTime: DateTime.Zoned): string {
   const parts = DateTime.toParts(dateTime);
@@ -236,12 +366,7 @@ function SlidingTextInner({
 
   return (
     <motion.span
-      initial={direction === 0 ? false : { y: direction > 0 ? "100%" : "-100%", opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-      {...(exitDirection === 0
-        ? {}
-        : { exit: { y: exitDirection > 0 ? "-100%" : "100%", opacity: 0 } })}
-      transition={monthSlideTransition}
+      {...getMonthSlideMotionProps(direction, exitDirection)}
       className={className}
       style={isPresent ? { display: "block" } : { position: "absolute", inset: 0 }}
     >
@@ -288,19 +413,7 @@ function DayGridPresenceShell({
 
   return (
     <motion.div
-      initial={
-        direction === 0
-          ? false
-          : {
-              y: direction > 0 ? "100%" : "-100%",
-              opacity: 0,
-            }
-      }
-      animate={{ y: 0, opacity: 1 }}
-      {...(exitDirection === 0
-        ? {}
-        : { exit: { y: exitDirection > 0 ? "-100%" : "100%", opacity: 0 } })}
-      transition={monthSlideTransition}
+      {...getMonthSlideMotionProps(direction, exitDirection)}
       className={isPresent ? "relative w-full" : "absolute inset-0 w-full"}
       style={{ pointerEvents: isPresent ? undefined : "none" }}
       onAnimationComplete={() => {
@@ -363,53 +476,21 @@ function CalendarPage() {
         style={{ pointerEvents: isCalendarLocked ? "none" : undefined }}
         className={`relative bg-[#0f1615] ${isTransitioningToDaily ? "z-0" : "z-10"}`}
       >
-        <div className="grid grid-cols-[auto_1fr_auto] items-center border-b border-[#33ccbb]/20 p-4">
-          <Link
-            to="."
-            params={{ guildId, channel }}
-            search={{
-              timestamp: prevMonthTimestamp,
-              from: {
-                view: "calendar",
-                timestamp: DateTime.toEpochMillis(DateTime.startOf(currentDateZoned, "month")),
-              },
-            }}
-            mask={{
-              to: "/dashboard/guilds/$guildId/schedule/$channel/calendar",
-              params: { guildId, channel },
-              search: { timestamp: prevMonthTimestamp },
-              unmaskOnReload: true,
-            }}
-            className="justify-self-start p-2 text-[#33ccbb] transition-colors hover:bg-[#33ccbb]/10"
-          >
-            <ChevronLeft className="h-5 w-5" />
-          </Link>
+        <CalendarMonthNavigation
+          guildId={guildId}
+          channel={channel}
+          currentDateZoned={currentDateZoned}
+          prevMonthTimestamp={prevMonthTimestamp}
+          nextMonthTimestamp={nextMonthTimestamp}
+        >
           <h3 className="flex items-center justify-center gap-2 text-center text-lg font-black tracking-tight">
             <SlidingText text={month} direction={monthDirection} />
             <SlidingText text={year} direction={monthDirection} />
           </h3>
-          <Link
-            to="."
-            params={{ guildId, channel }}
-            search={{
-              timestamp: nextMonthTimestamp,
-              from: {
-                view: "calendar",
-                timestamp: DateTime.toEpochMillis(DateTime.startOf(currentDateZoned, "month")),
-              },
-            }}
-            mask={{
-              to: "/dashboard/guilds/$guildId/schedule/$channel/calendar",
-              params: { guildId, channel },
-              search: { timestamp: nextMonthTimestamp },
-              unmaskOnReload: true,
-            }}
-            className="justify-self-end p-2 text-[#33ccbb] transition-colors hover:bg-[#33ccbb]/10"
-          >
-            <ChevronRight className="h-5 w-5" />
-          </Link>
-        </div>
+        </CalendarMonthNavigation>
       </motion.div>
+
+      <CalendarContext timeZone={timeZone} />
 
       {/* Weekday header: fade only during daily nav, static during month slide */}
       <motion.div
@@ -525,19 +606,11 @@ function CalendarGrid({ currentDateZoned, selected }: CalendarGridProps) {
               ${isSelectedDay ? "relative z-20" : ""}
             `}
           >
-            <Link
-              to="/dashboard/guilds/$guildId/schedule/$channel/daily"
-              params={{ guildId, channel }}
-              search={{
-                timestamp: DateTime.toEpochMillis(day),
-                from: { view: "calendar", timestamp: DateTime.toEpochMillis(currentMonth) },
-              }}
-              mask={{
-                to: "/dashboard/guilds/$guildId/schedule/$channel/daily",
-                params: { guildId, channel },
-                search: { timestamp: DateTime.toEpochMillis(day) },
-                unmaskOnReload: true,
-              }}
+            <CalendarDayLink
+              guildId={guildId}
+              channel={channel}
+              day={day}
+              currentMonth={currentMonth}
               className={`
                 h-14 p-1 flex flex-col items-center justify-center
                 transition-colors
@@ -546,7 +619,7 @@ function CalendarGrid({ currentDateZoned, selected }: CalendarGridProps) {
             >
               <span className="text-sm font-medium">{formatDayOfMonth(day)}</span>
               {hasSchedule && <div className="mt-1 h-1.5 w-1.5 rounded-full bg-[#33ccbb]" />}
-            </Link>
+            </CalendarDayLink>
           </motion.div>
         );
       })}

@@ -2,7 +2,9 @@ import { Dialog } from "@base-ui/react/dialog";
 import { useAtomRefresh } from "@effect/atom-react";
 import {
   createFileRoute,
+  Link,
   Outlet,
+  redirect,
   type RegisteredRouter,
   useBlocker,
   useLocation,
@@ -81,43 +83,96 @@ const SettingsSearch = Schema.Struct({
   section: Schema.optional(Schema.Literals(["server", "channels"])),
 });
 
+type ResultAtomRegistry = Parameters<typeof ensureResultAtomData>[0];
+
+const isPath = (pathname: string, path: string) => pathname === path || pathname === `${path}/`;
+
+const preloadSettingsAtom = <A, E>(
+  atomRegistry: ResultAtomRegistry,
+  atom: Atom.Atom<AsyncResult.AsyncResult<A, E>>,
+) => ensureResultAtomData(atomRegistry, atom).pipe(Effect.catch(() => Effect.void));
+
+const preloadSettings = (atomRegistry: ResultAtomRegistry, guildId: string, canManage: boolean) =>
+  canManage
+    ? Effect.all(
+        [
+          preloadSettingsAtom(atomRegistry, guildChannelsAtom(guildId)),
+          preloadSettingsAtom(atomRegistry, guildRolesAtom(guildId)),
+          preloadSettingsAtom(atomRegistry, workspaceConfigAtom(guildId)),
+          preloadSettingsAtom(atomRegistry, workspaceMonitorRolesAtom(guildId)),
+          preloadSettingsAtom(atomRegistry, workspaceConversationsAtom(guildId)),
+        ],
+        { concurrency: "unbounded", discard: true },
+      )
+    : preloadSettingsAtom(atomRegistry, guildChannelsAtom(guildId));
+
+const loadGuildCapabilities = (
+  atomRegistry: ResultAtomRegistry,
+  guildId: string,
+  signal: AbortSignal,
+) =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const permissionResult = yield* ensureResultAtomData(
+        atomRegistry,
+        guildPermissionsAtom(guildId),
+      ).pipe(Effect.option);
+      return Option.map(permissionResult, ({ permissions }) =>
+        guildCapabilities(permissions, guildId),
+      );
+    }),
+    { signal },
+  );
+
+const redirectNonManagerFromServerSettings = (
+  pathname: string,
+  guildId: string,
+  canManage: boolean,
+) => {
+  const serverSettingsPath = `/dashboard/guilds/${guildId}/settings/server`;
+  if (canManage || !isPath(pathname, serverSettingsPath)) return;
+
+  throw redirect({
+    to: "/dashboard/guilds/$guildId/settings/channels",
+    params: { guildId },
+    search: {},
+    replace: true,
+  });
+};
+
 export const Route = createFileRoute("/_authenticated/dashboard/guilds/$guildId/settings")({
   component: GuildSettings,
+  beforeLoad: ({ location, params, search }) => {
+    const settingsPath = `/dashboard/guilds/${params.guildId}/settings`;
+    if (isPath(location.pathname, settingsPath)) {
+      throw redirect({
+        to:
+          search.section === "channels"
+            ? "/dashboard/guilds/$guildId/settings/channels"
+            : "/dashboard/guilds/$guildId/settings/server",
+        params: { guildId: params.guildId },
+        search: {},
+      });
+    }
+  },
   validateSearch: pipe(SettingsSearch, Schema.toStandardSchemaV1),
-  loader: async ({ abortController, context, params }) => {
+  loader: async ({ abortController, context, location, params }) => {
     if (!isBrowserRuntime()) return;
-    await Effect.runPromise(
-      Effect.gen(function* () {
-        const permissionResult = yield* ensureResultAtomData(
-          context.atomRegistry,
-          guildPermissionsAtom(params.guildId),
-        ).pipe(Effect.option);
-        if (Option.isNone(permissionResult)) return;
-
-        const capabilities = guildCapabilities(permissionResult.value.permissions, params.guildId);
-        if (!capabilities.canLockdown) return;
-
-        const preload = <A, E>(atom: Atom.Atom<AsyncResult.AsyncResult<A, E>>) =>
-          ensureResultAtomData(context.atomRegistry, atom).pipe(Effect.catch(() => Effect.void));
-
-        if (!capabilities.canManage) {
-          yield* preload(guildChannelsAtom(params.guildId));
-          return;
-        }
-
-        yield* Effect.all(
-          [
-            preload(guildChannelsAtom(params.guildId)),
-            preload(guildRolesAtom(params.guildId)),
-            preload(workspaceConfigAtom(params.guildId)),
-            preload(workspaceMonitorRolesAtom(params.guildId)),
-            preload(workspaceConversationsAtom(params.guildId)),
-          ],
-          { concurrency: "unbounded", discard: true },
-        );
-      }),
-      { signal: abortController.signal },
+    const capabilities = await loadGuildCapabilities(
+      context.atomRegistry,
+      params.guildId,
+      abortController.signal,
     );
+
+    if (Option.isNone(capabilities)) return;
+    const { canLockdown, canManage } = capabilities.value;
+    if (!canLockdown) return;
+
+    redirectNonManagerFromServerSettings(location.pathname, params.guildId, canManage);
+
+    await Effect.runPromise(preloadSettings(context.atomRegistry, params.guildId, canManage), {
+      signal: abortController.signal,
+    });
   },
 });
 
@@ -137,16 +192,27 @@ const runningDraftValues: ReadonlyMap<string, ChannelConfigDraft["running"]> = n
   ["disabled", "disabled"],
 ]);
 
+export function SettingsRestrictedNotice() {
+  return (
+    <Notice icon={<Shield />} eyebrow="ACCESS DENIED" title="Settings are restricted">
+      Discord Manage Server is required for configuration. A configured TiaraBot monitor role can
+      access channel lockdown tools.
+    </Notice>
+  );
+}
+
 // fallow-ignore-next-line complexity
 function GuildSettings() {
   const { guildId } = Route.useParams();
   const { pathname } = useLocation();
-  const search = Route.useSearch();
-  const navigate = Route.useNavigate();
   const permissionResult = useGuildPermissionsResult(guildId);
   const refreshPermissions = useAtomRefresh(guildPermissionsAtom(guildId));
   const capabilities = guildCapabilities(permissionsFromResult(permissionResult), guildId);
-  const section = capabilities.canManage && search.section !== "channels" ? "server" : "channels";
+  const channelsSettingsPath = `/dashboard/guilds/${guildId}/settings/channels`;
+  const section =
+    isPath(pathname, channelsSettingsPath) || pathname.startsWith(`${channelsSettingsPath}/`)
+      ? "channels"
+      : "server";
 
   if (
     isSheetEditorPath(pathname) &&
@@ -167,12 +233,7 @@ function GuildSettings() {
   }
 
   if (!capabilities.canLockdown) {
-    return (
-      <Notice icon={<Shield />} eyebrow="ACCESS DENIED" title="Settings are restricted">
-        Discord Manage Server is required for configuration. A configured TiaraBot monitor role can
-        access channel lockdown tools.
-      </Notice>
-    );
+    return <SettingsRestrictedNotice />;
   }
 
   return (
@@ -189,59 +250,61 @@ function GuildSettings() {
         </div>
         <div className="flex gap-px bg-[#33ccbb]/20" role="group" aria-label="Settings section">
           {capabilities.canManage ? (
-            <SectionButton
+            <SettingsSectionLink
+              to="/dashboard/guilds/$guildId/settings/server"
+              guildId={guildId}
               active={section === "server"}
-              onClick={() => void navigate({ search: { section: "server" }, replace: true })}
             >
               <ServerCog className="h-4 w-4" />
               SERVER
-            </SectionButton>
+            </SettingsSectionLink>
           ) : null}
-          <SectionButton
+          <SettingsSectionLink
+            to="/dashboard/guilds/$guildId/settings/channels"
+            guildId={guildId}
             active={section === "channels"}
-            onClick={() => void navigate({ search: { section: "channels" }, replace: true })}
           >
             <Hash className="h-4 w-4" />
             CHANNELS
-          </SectionButton>
+          </SettingsSectionLink>
         </div>
       </header>
 
-      {section === "server" && capabilities.canManage ? (
-        <ServerSection key={guildId} guildId={guildId} />
-      ) : (
-        <ChannelsSection key={guildId} guildId={guildId} canManage={capabilities.canManage} />
-      )}
+      <Outlet />
     </div>
   );
 }
 
-function SectionButton({
+function SettingsSectionLink({
+  to,
+  guildId,
   active,
   children,
-  onClick,
 }: {
+  readonly to:
+    | "/dashboard/guilds/$guildId/settings/server"
+    | "/dashboard/guilds/$guildId/settings/channels";
+  readonly guildId: string;
   readonly active: boolean;
   readonly children: ReactNode;
-  readonly onClick: () => void;
 }) {
   return (
-    <button
-      type="button"
-      aria-pressed={active}
+    <Link
+      to={to}
+      params={{ guildId }}
+      aria-current={active ? "page" : undefined}
       className={`flex items-center gap-2 px-4 py-3 text-xs font-black tracking-wide transition ${
         active
           ? "bg-[#33ccbb] text-[#07100e]"
           : "bg-[#0b1210] text-white/55 hover:bg-[#33ccbb]/10 hover:text-white"
-      }`}
-      onClick={onClick}
+      } focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#73e9dc]`}
     >
       {children}
-    </button>
+    </Link>
   );
 }
 
-function ServerSection({ guildId }: { readonly guildId: string }) {
+export function ServerSection({ guildId }: { readonly guildId: string }) {
   const configResult = useWorkspaceConfigResult(guildId);
   const refreshConfig = useAtomRefresh(workspaceConfigAtom(guildId));
   const channelsResult = useGuildChannelsResult(guildId);
@@ -660,7 +723,7 @@ function ChannelListButton({
 }
 
 // fallow-ignore-next-line complexity
-function ChannelsSection({
+export function ChannelsSection({
   guildId,
   canManage,
 }: {
@@ -742,7 +805,7 @@ function ChannelsSection({
         </div>
       </aside>
 
-      <main className="bg-[#0a100f]">
+      <div className="bg-[#0a100f]">
         {selected ? (
           canManage ? (
             <ManagerChannelEditor guildId={guildId} channel={selected} channels={channels} />
@@ -754,7 +817,7 @@ function ChannelsSection({
             Text and announcement channels appear here.
           </Notice>
         )}
-      </main>
+      </div>
     </div>
   );
 }

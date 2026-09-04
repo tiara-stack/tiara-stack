@@ -264,6 +264,9 @@ imagePullSecrets:
       secretKey: redisUrl
     - name: SHEET_WORKFLOWS_BASE_URL
       value: "http://{{ $sheetWorkflowsServiceName }}"
+    - name: SHEET_WEB_BASE_URL
+      secretName: {{ $sheetWebSecretName }}
+      secretKey: appBaseUrl
     - name: ZERO_CACHE_SERVER
       secretName: {{ $zeroCacheSecretName }}
       secretKey: zeroCacheServer

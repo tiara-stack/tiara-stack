@@ -1,9 +1,7 @@
-import { createFileRoute, Navigate } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/_authenticated/dashboard/")({
-  component: DashboardIndex,
+  beforeLoad: () => {
+    throw redirect({ to: "/dashboard/guilds", replace: true });
+  },
 });
-
-function DashboardIndex() {
-  return <Navigate to="/dashboard/shifts" />;
-}

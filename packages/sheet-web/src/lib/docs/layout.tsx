@@ -19,7 +19,7 @@ export function docsLayoutOptions(): BaseLayoutProps {
       {
         type: "main",
         text: "Dashboard",
-        url: "/dashboard/shifts",
+        url: "/dashboard/guilds",
         icon: <LayoutDashboard className="size-4" />,
       },
     ],

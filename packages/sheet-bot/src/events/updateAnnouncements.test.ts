@@ -1,7 +1,28 @@
 import { describe, expect, it } from "@effect/vitest";
-import { makeUpdateAnnouncementWorkflowRequests, updateAnnouncements } from "./updateAnnouncements";
+import {
+  makeUpdateAnnouncementWorkflowRequests,
+  makeUpdateAnnouncements,
+  updateAnnouncements,
+} from "./updateAnnouncements";
 
 describe("makeUpdateAnnouncementWorkflowRequests", () => {
+  it("uses the configured SheetWeb host for dashboard announcement links", () => {
+    const pathPrefixedAnnouncements = makeUpdateAnnouncements(new URL("https://host/sheetweb"));
+
+    expect(
+      makeUpdateAnnouncements(new URL("https://schedule.dev.theerapakg.moe"))[4]?.description,
+    ).toContain("https://schedule.dev.theerapakg.moe/docs/sheetweb/navigation");
+    expect(
+      makeUpdateAnnouncements(new URL("https://schedule.theerapakg.moe"))[4]?.description,
+    ).toContain("https://schedule.theerapakg.moe/docs/sheetweb/navigation");
+    expect(pathPrefixedAnnouncements[3]?.description).toContain(
+      "https://host/sheetweb/docs/sheetweb/sheet-configuration",
+    );
+    expect(pathPrefixedAnnouncements[4]?.description).toContain(
+      "https://host/sheetweb/docs/sheetweb/navigation",
+    );
+  });
+
   it("builds stable workflow requests for announcements after the bot joined", () => {
     const requests = makeUpdateAnnouncementWorkflowRequests({
       id: "guild-1",
@@ -49,6 +70,16 @@ describe("makeUpdateAnnouncementWorkflowRequests", () => {
         announcement: {
           ...updateAnnouncements[3],
           publishedAt: new Date(updateAnnouncements[3].publishedAt),
+        },
+      },
+      {
+        workspaceId: "guild-1",
+        workspaceName: "Guild One",
+        joinedAt: new Date("2026-06-04T16:59:59.999Z"),
+        systemConversationId: "system-channel",
+        announcement: {
+          ...updateAnnouncements[4],
+          publishedAt: new Date(updateAnnouncements[4].publishedAt),
         },
       },
     ]);

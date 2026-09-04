@@ -1,16 +1,26 @@
 import { Suspense } from "react";
 import { Link, useLocation } from "@tanstack/react-router";
 import { isSheetEditorPath } from "#/routes";
-import { useEffect, useRef, useState } from "react";
-import { Menu, X, LayoutDashboard, LogOut, User as UserIcon } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  ChevronDown,
+  LayoutDashboard,
+  LogOut,
+  Menu,
+  Server,
+  Settings2,
+  User as UserIcon,
+  X,
+} from "lucide-react";
 import { Button } from "#/components/ui/button";
 import { Avatar, AvatarImage, AvatarFallback } from "#/components/ui/avatar";
 import { Skeleton } from "#/components/ui/skeleton";
 import { useSignOut, useSignInWithSocialProvider, useSession } from "#/lib/auth";
+import { useDismissOnOutsideOrEscape } from "#/lib/documentEvents";
 import { Option } from "effect";
 
 const desktopNavigationLinkClass =
-  "inline-flex h-10 items-center gap-2 border-b-2 border-transparent px-1 text-sm font-bold tracking-wide text-[#33ccbb] transition-colors hover:border-[#33ccbb] hover:text-white";
+  "inline-flex h-10 items-center gap-2 border-b-2 border-transparent px-1 text-sm font-bold tracking-wide text-[#33ccbb] transition-colors hover:border-[#33ccbb] hover:text-white [&.active]:border-[#33ccbb] [&.active]:text-white";
 
 const mobileNavigationLinkClass =
   "flex items-center gap-3 text-2xl font-black text-white transition-colors hover:text-[#33ccbb]";
@@ -98,37 +108,15 @@ function AuthSection() {
     // fallow-ignore-next-line complexity
     onSome: (session) => (
       <div className="flex items-center gap-4">
-        <Link to="/dashboard/shifts" className={desktopNavigationLinkClass}>
-          <LayoutDashboard className="w-4 h-4" />
-          DASHBOARD
+        <Link to="/dashboard/guilds" className={desktopNavigationLinkClass} aria-label="Servers">
+          <Server className="w-4 h-4" />
+          SERVERS
         </Link>
-        <div className="flex items-center gap-3">
-          <Avatar size="lg" className="border-2 border-[#33ccbb]">
-            {session.user.image ? (
-              <AvatarImage src={session.user.image} alt={session.user.name || "User"} />
-            ) : null}
-            <AvatarFallback delay={0} className="relative bg-[#33ccbb] text-[#0a0f0e]">
-              {session.user.image && (
-                <Skeleton className="absolute inset-0 size-full rounded-full bg-[#33ccbb]/50" />
-              )}
-              <span className="font-bold text-sm relative z-10">
-                {session.user.name?.charAt(0).toUpperCase() || "U"}
-              </span>
-            </AvatarFallback>
-          </Avatar>
-          <span className="text-sm font-medium text-white hidden md:inline">
-            {session.user.name || "User"}
-          </span>
-        </div>
-        <Button
-          variant="outline"
-          size="icon"
-          className="border-[#33ccbb]/30 text-[#33ccbb] hover:bg-[#33ccbb]/10 hover:text-white"
-          onClick={signOut}
-          aria-label="Sign out"
-        >
-          <LogOut className="w-4 h-4" />
-        </Button>
+        <AccountMenu
+          displayName={session.user.name || "User"}
+          image={session.user.image}
+          onSignOut={signOut}
+        />
       </div>
     ),
     onNone: () => (
@@ -140,6 +128,76 @@ function AuthSection() {
       </Button>
     ),
   });
+}
+
+function AccountMenu({
+  displayName,
+  image,
+  onSignOut,
+}: {
+  readonly displayName: string;
+  readonly image: string | null | undefined;
+  readonly onSignOut: () => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const closeMenu = useCallback(() => setIsOpen(false), []);
+
+  useDismissOnOutsideOrEscape(isOpen, menuRef, triggerRef, closeMenu);
+
+  return (
+    <div ref={menuRef} className="relative">
+      <button
+        ref={triggerRef}
+        type="button"
+        className="flex items-center gap-2 rounded-full text-white transition-colors hover:text-[#33ccbb] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#73e9dc]"
+        aria-controls="account-menu"
+        aria-expanded={isOpen}
+        onClick={() => setIsOpen((current) => !current)}
+      >
+        <Avatar size="lg" className="border-2 border-[#33ccbb]">
+          {image ? <AvatarImage src={image} alt={displayName} /> : null}
+          <AvatarFallback delay={0} className="relative bg-[#33ccbb] text-[#0a0f0e]">
+            {image && (
+              <Skeleton className="absolute inset-0 size-full rounded-full bg-[#33ccbb]/50" />
+            )}
+            <span className="relative z-10 text-sm font-bold">
+              {displayName.charAt(0).toUpperCase() || "U"}
+            </span>
+          </AvatarFallback>
+        </Avatar>
+        <span className="hidden max-w-40 truncate text-sm font-medium md:inline">
+          {displayName}
+        </span>
+        <ChevronDown className={`h-4 w-4 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+      </button>
+
+      {isOpen ? (
+        <div
+          id="account-menu"
+          className="absolute right-0 top-full z-50 mt-3 min-w-52 border border-[#33ccbb]/25 bg-[#0f1615] p-2 shadow-xl"
+        >
+          <Link
+            to="/settings/notifications"
+            className="flex items-center gap-3 px-3 py-3 text-sm font-bold tracking-wide text-white transition-colors hover:bg-[#33ccbb]/10 hover:text-[#33ccbb] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#73e9dc]"
+            onClick={() => setIsOpen(false)}
+          >
+            <Settings2 className="h-4 w-4 text-[#33ccbb]" />
+            MY PREFERENCES
+          </Link>
+          <button
+            type="button"
+            className="flex w-full items-center gap-3 px-3 py-3 text-left text-sm font-bold tracking-wide text-white transition-colors hover:bg-[#ff4444]/10 hover:text-[#ff8a80] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#73e9dc]"
+            onClick={onSignOut}
+          >
+            <LogOut className="h-4 w-4" />
+            SIGN OUT
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function MobileAuthSection({ onNavigate }: { onNavigate: () => void }) {
@@ -166,9 +224,17 @@ function MobileAuthSection({ onNavigate }: { onNavigate: () => void }) {
           </Avatar>
           <span className="text-lg font-bold text-white">{session.user.name || "User"}</span>
         </div>
-        <Link to="/dashboard/shifts" onClick={onNavigate} className={mobileNavigationLinkClass}>
-          <LayoutDashboard className="w-5 h-5" />
-          DASHBOARD
+        <Link to="/dashboard/guilds" onClick={onNavigate} className={mobileNavigationLinkClass}>
+          <Server className="w-5 h-5" />
+          SERVERS
+        </Link>
+        <Link
+          to="/settings/notifications"
+          onClick={onNavigate}
+          className={mobileNavigationLinkClass}
+        >
+          <Settings2 className="w-5 h-5" />
+          MY PREFERENCES
         </Link>
         <Button
           className="w-full bg-[#33ccbb]/10 border border-[#33ccbb]/30 text-[#33ccbb] hover:bg-[#33ccbb]/20 h-14 font-bold text-lg tracking-wide"
@@ -291,6 +357,12 @@ function HeaderContent() {
 
   return (
     <>
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:bg-[#33ccbb] focus:px-4 focus:py-3 focus:text-sm focus:font-black focus:text-[#0a0f0e] focus:outline-2 focus:outline-offset-2 focus:outline-[#73e9dc]"
+      >
+        SKIP TO MAIN CONTENT
+      </a>
       <header className={headerClassFor(isSheetEditor)}>
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           {/* Logo */}
@@ -306,7 +378,7 @@ function HeaderContent() {
           </Link>
 
           {/* Desktop Navigation */}
-          <nav className="hidden md:flex items-center gap-8">
+          <nav aria-label="Global navigation" className="hidden items-center gap-8 md:flex">
             <Link to="/docs/$" params={{ _splat: "" }} className={desktopNavigationLinkClass}>
               DOCS
             </Link>
@@ -366,7 +438,7 @@ function HeaderContent() {
             </button>
           </div>
 
-          <nav className="p-8 space-y-6">
+          <nav aria-label="Mobile navigation" className="space-y-6 p-8">
             <Link
               to="/"
               onClick={() => setIsOpen(false)}

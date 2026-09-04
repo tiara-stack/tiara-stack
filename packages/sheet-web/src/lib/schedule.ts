@@ -185,6 +185,14 @@ export const useAllChannels = (guildId: string) => {
   return result.value;
 };
 
+export const useAllChannelsResult = (guildId: string) => {
+  const atom = useMemo(() => getAllChannelsAtom(guildId), [guildId]);
+  return useAtomSuspense(atom, {
+    suspendOnWaiting: false,
+    includeFailure: true,
+  });
+};
+
 // Parameters for scheduledDaysAtom
 export interface ScheduledDaysParams {
   guildId: string;

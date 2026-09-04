@@ -3,7 +3,6 @@
   "pages": [
     "index",
     "server-setup",
-    "sheet-configuration",
     "update-announcements",
     "lockdown-channels",
     "post-schedule",

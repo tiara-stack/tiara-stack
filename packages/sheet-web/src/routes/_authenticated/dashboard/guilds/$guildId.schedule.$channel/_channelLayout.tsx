@@ -4,6 +4,8 @@ import { AnimatePresence, LayoutGroup, motion, useIsPresent } from "motion/react
 
 import { useAllChannels, getAllChannelsAtom } from "#/lib/schedule";
 import { ensureResultAtomData, isBrowserRuntime } from "#/lib/atomRegistry";
+import { SchedulePending } from "#/components/SchedulePending";
+import { useHydrated } from "#/hooks/useHydrated";
 import {
   morphLayoutTransition,
   useScheduleSelected,
@@ -64,6 +66,32 @@ function RoutePresenceShell({
 
 function ScheduleLayout() {
   const { guildId, channel } = Route.useParams();
+  const hydrated = useHydrated();
+
+  return (
+    <LayoutGroup id={`${guildId}-${channel}`}>
+      <div className="space-y-3 sm:space-y-6">
+        <div className="flex min-w-0 items-center gap-3">
+          <h1 className="text-base font-black tracking-[0.18em] text-[#33ccbb] sm:text-lg">
+            SCHEDULE
+          </h1>
+          <span aria-hidden="true" className="text-[#33ccbb]/40">
+            /
+          </span>
+          <span className="truncate text-sm font-bold text-white/70">#{channel}</span>
+        </div>
+
+        {hydrated ? <ScheduleLayoutContent guildId={guildId} /> : <ScheduleLayoutPending />}
+      </div>
+    </LayoutGroup>
+  );
+}
+
+function ScheduleLayoutPending() {
+  return <SchedulePending />;
+}
+
+function ScheduleLayoutContent({ guildId }: { guildId: string }) {
   const search = Route.useSearch();
   const selected = useScheduleSelected(search);
 
@@ -73,38 +101,37 @@ function ScheduleLayout() {
   const channels = useAllChannels(guildId);
 
   return (
-    <LayoutGroup id={`${guildId}-${channel}`}>
-      <div className="space-y-6">
-        {/* Channel Tabs */}
-        {channels.length > 0 && (
-          <div className="flex gap-2 overflow-x-auto pb-2">
-            {channels.map((ch) => (
-              <Link
-                key={ch}
-                to="/dashboard/guilds/$guildId/schedule/$channel"
-                params={{ guildId, channel: ch }}
-                search={{ timestamp: search.timestamp }}
-                activeOptions={{ includeSearch: false, exact: false }}
-                className={`
-                  px-3 py-1.5 text-xs font-bold tracking-wide whitespace-nowrap transition-colors
-                  [&.active]:bg-[#33ccbb] [&.active]:text-[#0a0f0e]
-                  bg-[#0f1615] text-white border border-[#33ccbb]/30 hover:bg-[#33ccbb]/10
-                `}
-              >
-                {ch.toUpperCase()}
-              </Link>
-            ))}
-          </div>
-        )}
+    <>
+      {/* Channel Tabs */}
+      {channels.length > 0 && (
+        <nav aria-label="Schedule channels" className="flex gap-2 overflow-x-auto pb-1 sm:pb-2">
+          {channels.map((ch) => (
+            <Link
+              key={ch}
+              to="/dashboard/guilds/$guildId/schedule/$channel"
+              params={{ guildId, channel: ch }}
+              search={{ timestamp: search.timestamp }}
+              activeOptions={{ includeSearch: false, exact: false }}
+              activeProps={{ "aria-current": "page" }}
+              className={`
+                inline-flex min-h-11 items-center px-3 py-1.5 text-xs font-bold tracking-wide whitespace-nowrap transition-colors sm:min-h-0
+                [&.active]:bg-[#33ccbb] [&.active]:text-[#0a0f0e]
+                bg-[#0f1615] text-white border border-[#33ccbb]/30 hover:bg-[#33ccbb]/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#73e9dc]
+              `}
+            >
+              {ch.toUpperCase()}
+            </Link>
+          ))}
+        </nav>
+      )}
 
-        <div className="relative">
-          <AnimatePresence initial={false} mode="sync">
-            <RoutePresenceShell key={routeKey} shouldFadeIn={selected === undefined}>
-              <Outlet />
-            </RoutePresenceShell>
-          </AnimatePresence>
-        </div>
+      <div className="relative">
+        <AnimatePresence initial={false} mode="sync">
+          <RoutePresenceShell key={routeKey} shouldFadeIn={selected === undefined}>
+            <Outlet />
+          </RoutePresenceShell>
+        </AnimatePresence>
       </div>
-    </LayoutGroup>
+    </>
   );
 }
