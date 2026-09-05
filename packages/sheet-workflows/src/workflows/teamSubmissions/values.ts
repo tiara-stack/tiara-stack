@@ -43,6 +43,8 @@ export const TeamSubmissionRowMapping = Schema.Struct({
   stableKey: Schema.String,
   playerNameRange: Schema.String,
   teamNameRange: Schema.NullOr(Schema.String),
+  // Optional so submissions created before roster writes were persisted remain readable.
+  isvRanges: Schema.optional(Schema.Array(Schema.String)),
   oshiRange: Schema.NullOr(Schema.String),
   rowIndex: Schema.Number,
 });

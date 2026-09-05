@@ -4,6 +4,9 @@ import {
   appendRangeForCellsForWorkflow as appendSharedRangeForCells,
   appendRowValuesForWorkflow as appendSharedRowValues,
   appendedRowTargetForWorkflow as appendedSharedRowTarget,
+  boundedAppendRangeForWorkflow as boundedSharedAppendRange,
+  canonicalCellRangeForWorkflow as canonicalSharedCellRange,
+  lastPopulatedRowForWorkflow as lastSharedPopulatedRow,
   parseA1StartForWorkflow as parseSharedA1Start,
   rollbackValuesForRangeForWorkflow as rollbackSharedValuesForRange,
   type A1RangeOptions,
@@ -91,6 +94,15 @@ export const appendedRowIndex = (updatedRange: string | null | undefined) => {
   const start = updatedRange ? parseA1Start(updatedRange) : null;
   return start?.row ?? null;
 };
+
+export const boundedAppendRange = (range: string, startRow: number, endRow: number) =>
+  boundedSharedAppendRange(range, startRow, endRow);
+
+export const lastPopulatedRow = (range: string, values: ReadonlyArray<ReadonlyArray<string>>) =>
+  lastSharedPopulatedRow(range, values);
+
+export const canonicalCellRange = (range: string, row: number) =>
+  canonicalSharedCellRange(range, row, workflowRangeOptions);
 
 /**
  * Actual values may omit trailing empty cells and rows; every expected cell must match the
@@ -668,6 +680,7 @@ export const blankRemovedRows = (
             ...(mapping.teamNameRange === null
               ? []
               : [{ range: mapping.teamNameRange, values: [[""]] }]),
+            ...(mapping.isvRanges ?? []).map((range) => ({ range, values: [[""]] })),
             ...(mapping.oshiRange === null ? [] : [{ range: mapping.oshiRange, values: [[""]] }]),
           ];
     });
@@ -690,6 +703,7 @@ export const blankRollbackSnapshotForAppendedRows = (
         ...(row.teamNameRange === null
           ? []
           : [{ stableKey, range: row.teamNameRange, values: [] }]),
+        ...(row.isvRanges ?? []).map((range) => ({ stableKey, range, values: [] })),
         ...(row.oshiRange === null ? [] : [{ stableKey, range: row.oshiRange, values: [] }]),
       ]),
     );

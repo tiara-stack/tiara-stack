@@ -19,7 +19,7 @@ export type A1RangeOptions = {
 };
 
 const a1RangeRegex =
-  /^(?:'(?<quotedSheet>(?:[^']|'')*)'|(?<sheet>[^!]+))!\s*(?<column>[A-Z]+)(?<row>\d+)?/i;
+  /^(?:'(?<quotedSheet>(?:[^']|'')*)'|(?<sheet>[^!]+))!\s*(?<column>[A-Z]+)(?<row>\d+)?(?::[A-Z]+\d*)?$/i;
 
 export const parseA1StartForWorkflow = (
   range: string,
@@ -41,6 +41,12 @@ const cellForRow = (range: string, row: number, options: A1RangeOptions = {}) =>
   const start = parseA1StartForWorkflow(range, options);
   return start === null ? null : `'${start.sheet.replaceAll("'", "''")}'!${start.column}${row}`;
 };
+
+export const canonicalCellRangeForWorkflow = (
+  range: string,
+  row: number,
+  options: A1RangeOptions = {},
+) => cellForRow(range, row, options);
 
 const columnToNumber = (column: string) =>
   column
@@ -136,12 +142,40 @@ export const appendRangeForCellsForWorkflow = (
   };
 };
 
+/**
+ * Limits an append's logical table to the rows that can contain player values. Google Sheets can
+ * otherwise append after formula-only columns elsewhere on the tab.
+ */
+export const boundedAppendRangeForWorkflow = (range: string, startRow: number, endRow: number) => {
+  const start = parseA1StartForWorkflow(range, { allowMissingRow: true });
+  if (start === null) return null;
+  const endMatch = /:([A-Z]+)(?:\d+)?$/i.exec(range.trim());
+  const endColumn = endMatch?.[1]?.toUpperCase() ?? start.column;
+  const boundedStartRow = Math.max(1, startRow);
+  const boundedEndRow = Math.max(boundedStartRow, endRow);
+  return `'${start.sheet.replaceAll("'", "''")}'!${start.column}${boundedStartRow}:${endColumn}${boundedEndRow}`;
+};
+
+export const lastPopulatedRowForWorkflow = (
+  range: string,
+  values: ReadonlyArray<ReadonlyArray<string>>,
+) => {
+  const start = parseA1StartForWorkflow(range, { allowMissingRow: true });
+  if (start === null) return null;
+  let lastRow = start.row - 1;
+  values.forEach((row, index) => {
+    if (row.some((value) => value.trim().length > 0)) lastRow = start.row + index;
+  });
+  return lastRow;
+};
+
 type AppendRangeForCells = NonNullable<ReturnType<typeof appendRangeForCellsForWorkflow>>;
 
 export type WorkflowTeamSubmissionRowTarget = {
   readonly rowIndex: number;
   readonly playerNameRange: string;
   readonly teamNameRange: string | null;
+  readonly isvRanges: ReadonlyArray<string>;
   readonly oshiRange: string | null;
 };
 
@@ -164,25 +198,45 @@ export const appendRowValuesForWorkflow = (
 };
 
 export const appendedRowTargetForWorkflow = (
-  { rowIndex, playerNameRange, teamNameRange, oshiRange }: WorkflowTeamSubmissionRowTarget,
+  {
+    rowIndex,
+    playerNameRange,
+    teamNameRange,
+    isvRanges,
+    oshiRange,
+  }: WorkflowTeamSubmissionRowTarget,
   options: A1RangeOptions = {},
 ): WorkflowTeamSubmissionRowTarget | null => {
   const appendedPlayerNameRange = cellForRow(playerNameRange, rowIndex, options);
   const appendedTeamNameRange =
     teamNameRange === null ? null : cellForRow(teamNameRange, rowIndex, options);
+  const appendedIsvRanges = isvRanges.flatMap((range) => {
+    const appendedRange = cellForRow(range, rowIndex, options);
+    return Predicate.isNull(appendedRange) ? [] : [appendedRange];
+  });
   const appendedOshiRange = oshiRange === null ? null : cellForRow(oshiRange, rowIndex, options);
   if (
     appendedPlayerNameRange === null ||
     (teamNameRange !== null && appendedTeamNameRange === null) ||
+    appendedIsvRanges.length !== isvRanges.length ||
     (oshiRange !== null && appendedOshiRange === null)
   ) {
     return null;
   }
 
+  const targetRanges = [
+    appendedPlayerNameRange,
+    ...(appendedTeamNameRange === null ? [] : [appendedTeamNameRange]),
+    ...appendedIsvRanges,
+    ...(appendedOshiRange === null ? [] : [appendedOshiRange]),
+  ];
+  if (new Set(targetRanges).size !== targetRanges.length) return null;
+
   return {
     rowIndex,
     playerNameRange: appendedPlayerNameRange,
     teamNameRange: appendedTeamNameRange,
+    isvRanges: appendedIsvRanges,
     oshiRange: appendedOshiRange,
   };
 };

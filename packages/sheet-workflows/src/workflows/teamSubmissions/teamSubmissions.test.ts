@@ -6,7 +6,10 @@ import { TeamSubmissionsDecide, TeamSubmissionsProcess } from "sheet-workflow-co
 import {
   appendRangeForCells,
   appendRowValues,
+  appendedRowTarget,
   matchOshi,
+  boundedAppendRange,
+  lastPopulatedRow,
   parseA1Start,
   parseTeamSubmissionMessage,
   preserveExistingStableKeys,
@@ -424,6 +427,7 @@ describe("team-submission pure rules", () => {
       column: "A",
       row: 1,
     });
+    expect(parseA1Start("'Manager''s Teams'!A:B trailing")).toBeNull();
     expect(matchOshi("Miku <:miku:123>", ["Miku", "Mik"])).toEqual({
       candidate: "Miku <:miku:123>",
       value: "Miku",
@@ -446,6 +450,25 @@ describe("team-submission pure rules", () => {
     expect(appendRange === null ? null : appendRowValues(appendRange, entry, entry.oshi)).toEqual([
       "Player",
     ]);
+  });
+
+  it("bounds appends to the populated player rows", () => {
+    expect(lastPopulatedRow("'Teams'!A:A", [["one"], ["two"], [""]])).toBe(2);
+    expect(lastPopulatedRow("'Teams'!A8:A", [[""], ["one"]])).toBe(9);
+    expect(boundedAppendRange("'Teams'!A:A", 1, 67)).toBe("'Teams'!A1:A67");
+    expect(boundedAppendRange("'Teams'!A8:A", 8, 9)).toBe("'Teams'!A8:A9");
+  });
+
+  it("rejects duplicate split roster targets", () => {
+    expect(
+      appendedRowTarget({
+        rowIndex: 68,
+        playerNameRange: "'Teams'!A:A",
+        teamNameRange: null,
+        isvRanges: ["Teams!D:D", "'Teams'!d:d", "'Teams'!E:E"],
+        oshiRange: null,
+      }),
+    ).toBeNull();
   });
 
   it("truncates long confirmation messages within the platform budget", () => {

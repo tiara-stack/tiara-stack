@@ -62,8 +62,10 @@ import {
   actionableSubmissionStatuses,
   appendedRowIndex,
   appendedRowTarget,
+  boundedAppendRange,
   blankRemovedRows,
   blankRollbackSnapshotForAppendedRows,
+  canonicalCellRange,
   chooseNamedTeamConfig,
   existingMappingByKey,
   existingTeamKeys,
@@ -78,6 +80,7 @@ import {
   pendingAppendRollbackRange,
   preserveExistingStableKeys,
   renderConfirmation,
+  lastPopulatedRow,
   rollbackValuesForRange,
   tagMatchesEntry,
   teamConfigNameMatchesEntry,
@@ -275,12 +278,122 @@ const teamConfigTags = (config: TeamConfig) =>
         : { range: null, constants: tagsConfig.tags },
   });
 
+const canonicalRangesForRow = (ranges: ReadonlyArray<string>, row: number) =>
+  ranges.flatMap((range) => {
+    const canonical = canonicalCellRange(range, row);
+    return Predicate.isNull(canonical) ? [] : [canonical];
+  });
+
+const optionalRange = (range: string | undefined) => (range === undefined ? [] : [range]);
+
+const optionalNonAutoRange = (range: string | undefined) =>
+  range === undefined || range === "auto" ? [] : [range];
+
+const rangesHaveUniqueCells = (ranges: ReadonlyArray<string>, row: number) => {
+  const canonicalRanges = canonicalRangesForRow(ranges, row);
+  return (
+    canonicalRanges.length === ranges.length &&
+    new Set(canonicalRanges).size === canonicalRanges.length
+  );
+};
+
+const isvRangesForConfig = (config: TeamConfig): ReadonlyArray<string> | null => {
+  const ranges = Option.match(config.isvConfig, {
+    onNone: () => [],
+    onSome: (isvConfig) =>
+      Predicate.isTagged("TeamIsvCombinedConfig")(isvConfig)
+        ? [isvConfig.isvRange]
+        : [isvConfig.leadRange, isvConfig.backlineRange, isvConfig.talentRange],
+  });
+  return rangesHaveUniqueCells(ranges, 1) ? ranges : null;
+};
+
 const writableRanges = (config: TeamConfig) => {
   const playerNameRange = optionString(config.playerNameRange);
   const teamNameRange = optionString(config.teamNameRange);
-  return playerNameRange && teamNameRange
-    ? { playerNameRange, teamNameRange: teamNameRange === "auto" ? null : teamNameRange }
-    : null;
+  const isvRanges = isvRangesForConfig(config);
+  const oshiRange = optionString(config.oshiRange);
+  if (playerNameRange === undefined || teamNameRange === undefined || isvRanges === null) {
+    return null;
+  }
+  const writableRangeInputs = [
+    ...optionalRange(playerNameRange),
+    ...optionalNonAutoRange(teamNameRange),
+    ...isvRanges,
+    ...optionalRange(oshiRange),
+  ];
+  if (!rangesHaveUniqueCells(writableRangeInputs, 1)) return null;
+  return {
+    playerNameRange,
+    teamNameRange: teamNameRange === "auto" ? null : teamNameRange,
+    isvRanges,
+  };
+};
+
+type WritableRanges = NonNullable<ReturnType<typeof writableRanges>>;
+
+const storedRangeMatchesConfiguredRange = (
+  mappedRange: string | null,
+  configuredRange: string | null,
+  row: number,
+) => {
+  if (mappedRange === null || configuredRange === null) return mappedRange === configuredRange;
+  const mappedCell = canonicalCellRange(mappedRange, row);
+  const configuredCell = canonicalCellRange(configuredRange, row);
+  return mappedCell !== null && configuredCell !== null && mappedCell === configuredCell;
+};
+
+const storedIsvRangesMatch = (
+  mapping: TeamSubmissionRowMapping,
+  configuredIsvRanges: ReadonlyArray<string>,
+) => {
+  if (mapping.isvRanges === undefined) return configuredIsvRanges.length === 0;
+  const comparisonRow = mapping.rowIndex > 0 ? mapping.rowIndex : 1;
+  const mappedSourceRanges = mapping.isvRanges;
+  const mappedIsvRanges = canonicalRangesForRow(mappedSourceRanges, comparisonRow);
+  const configuredRanges = canonicalRangesForRow(configuredIsvRanges, comparisonRow);
+  return (
+    rangesHaveUniqueCells(mappedSourceRanges, comparisonRow) &&
+    mappedIsvRanges.length === configuredRanges.length &&
+    mappedIsvRanges.every((value, index) => value === configuredRanges[index])
+  );
+};
+
+const storedMappingMatchesConfiguredRanges = (
+  mapping: TeamSubmissionRowMapping,
+  ranges: WritableRanges,
+  selected: TeamConfig,
+) => {
+  const comparisonRow = mapping.rowIndex > 0 ? mapping.rowIndex : 1;
+  const configuredOshiRange = optionString(selected.oshiRange) ?? null;
+  if (
+    !storedRangeMatchesConfiguredRange(
+      mapping.playerNameRange,
+      ranges.playerNameRange,
+      comparisonRow,
+    ) ||
+    !storedRangeMatchesConfiguredRange(
+      mapping.teamNameRange,
+      ranges.teamNameRange,
+      comparisonRow,
+    ) ||
+    !storedRangeMatchesConfiguredRange(mapping.oshiRange, configuredOshiRange, comparisonRow)
+  ) {
+    return false;
+  }
+  return storedIsvRangesMatch(mapping, ranges.isvRanges);
+};
+
+const isvRangesForMapping = (
+  existingMapping: TeamSubmissionRowMapping | undefined,
+  configuredIsvRanges: ReadonlyArray<string>,
+): ReadonlyArray<string> | null => {
+  if (existingMapping === undefined || existingMapping.isvRanges !== undefined) {
+    return existingMapping?.isvRanges ?? configuredIsvRanges;
+  }
+  if (existingMapping.rowIndex <= 0) return configuredIsvRanges;
+  const canonicalRanges = canonicalRangesForRow(configuredIsvRanges, existingMapping.rowIndex);
+  return canonicalRanges.length === configuredIsvRanges.length ? canonicalRanges : null;
 };
 
 // fallow-ignore-next-line code-duplication
@@ -312,15 +425,31 @@ const chooseTeamConfig = (
 const updateForMapping = (
   mapping: TeamSubmissionRowTarget,
   entry: ParsedTeamEntry,
-): ReadonlyArray<SheetValueUpdate> => [
-  { range: mapping.playerNameRange, values: [[entry.playerName]] },
-  ...(mapping.teamNameRange === null
-    ? []
-    : [{ range: mapping.teamNameRange, values: [[entry.teamName]] }]),
-  ...(mapping.oshiRange === null
-    ? []
-    : [{ range: mapping.oshiRange, values: [[entry.oshi.value ?? ""]] }]),
-];
+): ReadonlyArray<SheetValueUpdate> => {
+  const splitTeamName = entry.teamName.split(/\s+(?:or|\/or)\s+|;\s*/i)[0] ?? entry.teamName;
+  const isvValues =
+    mapping.isvRanges.length <= 1
+      ? mapping.isvRanges.length === 1
+        ? [entry.teamName]
+        : []
+      : splitTeamName
+          .split("/")
+          .map((value) => value.trim())
+          .filter((value) => value.length > 0);
+  return [
+    { range: mapping.playerNameRange, values: [[entry.playerName]] },
+    ...(mapping.teamNameRange === null
+      ? []
+      : [{ range: mapping.teamNameRange, values: [[entry.teamName]] }]),
+    ...mapping.isvRanges.map((range, index) => ({
+      range,
+      values: [[isvValues[index] ?? ""]],
+    })),
+    ...(mapping.oshiRange === null
+      ? []
+      : [{ range: mapping.oshiRange, values: [[entry.oshi.value ?? ""]] }]),
+  ];
+};
 
 type ResolvedAppendTarget = {
   readonly target: TeamSubmissionRowTarget;
@@ -328,9 +457,14 @@ type ResolvedAppendTarget = {
   readonly appended: boolean;
 };
 
-const rangesForTarget = (target: TeamSubmissionRowTarget): ReadonlyArray<string> => [
+const rangesForTarget = (
+  target: Pick<TeamSubmissionRowTarget, "playerNameRange" | "teamNameRange" | "oshiRange"> & {
+    readonly isvRanges?: ReadonlyArray<string> | undefined;
+  },
+): ReadonlyArray<string> => [
   target.playerNameRange,
   ...(target.teamNameRange === null ? [] : [target.teamNameRange]),
+  ...(target.isvRanges ?? []),
   ...(target.oshiRange === null ? [] : [target.oshiRange]),
 ];
 
@@ -341,6 +475,7 @@ const rowTargetFromMapping = (mapping: TeamSubmissionRowMapping): TeamSubmission
   rowIndex: mapping.rowIndex,
   playerNameRange: mapping.playerNameRange,
   teamNameRange: mapping.teamNameRange,
+  isvRanges: mapping.isvRanges ?? [],
   oshiRange: mapping.oshiRange,
 });
 
@@ -351,6 +486,7 @@ const mappingFromTarget = (
   stableKey: entry.stableKey,
   playerNameRange: target.playerNameRange,
   teamNameRange: target.teamNameRange,
+  isvRanges: target.isvRanges,
   oshiRange: target.oshiRange,
   rowIndex: target.rowIndex,
 });
@@ -521,6 +657,7 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
       readonly oshi: ParsedTeamEntry["oshi"];
       readonly playerNameRange: string;
       readonly teamNameRange: string | null;
+      readonly isvRanges: ReadonlyArray<string>;
       readonly oshiRange: string | null;
       readonly previousMapping: TeamSubmissionRowMapping | undefined;
       readonly beforeAppend: (
@@ -537,6 +674,7 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
         previousMapping,
         sheetId,
         teamNameRange,
+        isvRanges,
       } = options;
       const appendRange = appendRangeForCells(playerNameRange, teamNameRange, oshiRange);
       if (appendRange === null) {
@@ -573,6 +711,7 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
             rowIndex: baseRow + match,
             playerNameRange,
             teamNameRange,
+            isvRanges,
             oshiRange,
           });
           return target === null ? [] : [target];
@@ -585,6 +724,21 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
       const reconcile = provider
         .read(sheetId, [appendRange.range])
         .pipe(Effect.map(resolveReconciledTarget));
+
+      const appendRequestRangeForPlayerRows = () =>
+        provider.read(sheetId, [playerNameRange]).pipe(
+          Effect.map((playerValues) => {
+            const playerStartRow = parseA1Start(playerNameRange)?.row ?? 1;
+            const lastPlayerRow = lastPopulatedRow(playerNameRange, playerValues[0]?.values ?? []);
+            return (
+              boundedAppendRange(
+                appendRange.range,
+                playerStartRow,
+                Math.max(playerStartRow, lastPlayerRow ?? playerStartRow),
+              ) ?? appendRange.range
+            );
+          }),
+        );
 
       const resolveExistingMapping = (mapping: TeamSubmissionRowMapping) => {
         const baseRow = parseA1Start(appendRange.range)?.row ?? 1;
@@ -628,18 +782,26 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
       );
 
       const appendFreshRow = Effect.gen(function* () {
+        const appendRequestRange = yield* appendRequestRangeForPlayerRows();
         yield* options.beforeAppend({
           stableKey: entry.stableKey,
           playerNameRange,
           teamNameRange,
+          isvRanges,
           oshiRange,
           rowIndex: 0,
         });
         options.onMutationStarted();
-        const updatedRange = yield* provider.append(sheetId, appendRange.range, [expected]);
+        const updatedRange = yield* provider.append(sheetId, appendRequestRange, [expected]);
         const rowIndex = appendedRowIndex(updatedRange);
         if (rowIndex !== null) {
-          const target = appendedRowTarget({ rowIndex, playerNameRange, teamNameRange, oshiRange });
+          const target = appendedRowTarget({
+            rowIndex,
+            playerNameRange,
+            teamNameRange,
+            isvRanges,
+            oshiRange,
+          });
           if (target !== null) return { target, duplicateTargets: [], appended: true };
         }
         const reconciled = yield* reconcile;
@@ -738,17 +900,7 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
         const invalidPlan = planned.find((plannedEntry) => {
           if (!isValidPlannedTeamSubmission(plannedEntry)) return true;
           const { mapping, ranges, selected } = plannedEntry;
-          const mappedDestination = appendRangeForCells(
-            mapping.playerNameRange,
-            mapping.teamNameRange,
-            mapping.oshiRange,
-          );
-          const configuredDestination = appendRangeForCells(
-            ranges.playerNameRange,
-            ranges.teamNameRange,
-            optionString(selected.config.oshiRange) ?? null,
-          );
-          return mappedDestination?.range !== configuredDestination?.range;
+          return !storedMappingMatchesConfiguredRanges(mapping, ranges, selected.config);
         });
         if (invalidPlan !== undefined) {
           return yield* Effect.fail(
@@ -801,6 +953,7 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
             oshi: entry.oshi,
             playerNameRange: mapping.playerNameRange,
             teamNameRange: mapping.teamNameRange,
+            isvRanges: mapping.isvRanges ?? [],
             oshiRange: mapping.oshiRange,
             previousMapping,
             beforeAppend,
@@ -1145,19 +1298,36 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
             });
             continue;
           }
+          const existingMapping = existingMappings.get(entry.stableKey);
+          const mappedIsvRanges = isvRangesForMapping(existingMapping, ranges.isvRanges);
+          if (mappedIsvRanges === null) {
+            skipped.push({
+              stableKey: entry.stableKey,
+              playerName: entry.playerName,
+              teamName: entry.teamName,
+              teamType: entry.teamType,
+              reason: "The existing team row mapping cannot be upgraded safely; resubmit it",
+            });
+            continue;
+          }
           registered.push({
             ...entry,
             teamConfigName: optionString(selected.config.name) ?? null,
             oshi,
           });
           registeredMappings.push(
-            existingMappings.get(entry.stableKey) ?? {
-              stableKey: entry.stableKey,
-              playerNameRange: ranges.playerNameRange,
-              teamNameRange: ranges.teamNameRange,
-              oshiRange: optionString(selected.config.oshiRange) ?? null,
-              rowIndex: 0,
-            },
+            existingMapping === undefined
+              ? {
+                  stableKey: entry.stableKey,
+                  playerNameRange: ranges.playerNameRange,
+                  teamNameRange: ranges.teamNameRange,
+                  isvRanges: mappedIsvRanges,
+                  oshiRange: optionString(selected.config.oshiRange) ?? null,
+                  rowIndex: 0,
+                }
+              : existingMapping.isvRanges === undefined
+                ? { ...existingMapping, isvRanges: mappedIsvRanges }
+                : existingMapping,
           );
         }
 
@@ -1584,9 +1754,10 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
           ...new Set(
             submission.rowMappings
               .filter(({ rowIndex }) => rowIndex === 0)
-              .flatMap(({ playerNameRange, teamNameRange, oshiRange }) => [
+              .flatMap(({ playerNameRange, teamNameRange, isvRanges, oshiRange }) => [
                 playerNameRange,
                 ...(teamNameRange === null ? [] : [teamNameRange]),
+                ...(isvRanges ?? []),
                 ...(oshiRange === null ? [] : [oshiRange]),
               ]),
           ),

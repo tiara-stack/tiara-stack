@@ -119,6 +119,18 @@ const makeTeamConfig = (
     oshiRange: null,
   });
 
+const makeAutoTeamConfig = (oshiRange: string | null = null) =>
+  Schema.decodeUnknownSync(TeamConfig)({
+    _tag: "TeamConfig",
+    name: "Auto",
+    sheet: "Teams",
+    playerNameRange: "'Teams'!A:A",
+    teamNameRange: "auto",
+    isvConfig: { _tag: "TeamIsvCombinedConfig", isvRange: "'Teams'!D:D" },
+    tagsConfig: { _tag: "TeamTagsConstantsConfig", tags: ["full fill"] },
+    oshiRange,
+  });
+
 const processInput = Schema.decodeUnknownSync(TeamSubmissionsProcess.input)({
   sourceMessage,
   authorId: "author-1",
@@ -170,6 +182,7 @@ const makeSubmission = (options: {
 });
 
 type HarnessOptions = {
+  readonly appendResult?: string;
   readonly initialSubmission?: MessageTeamSubmissionRow;
   readonly provider?: Partial<TeamSubmissionProviderShape>;
   readonly readValues?: (range: string) => ReadonlyArray<ReadonlyArray<string>>;
@@ -288,7 +301,7 @@ const makeHarness = (options: HarnessOptions = {}) => {
     append: (_spreadsheetId, range) =>
       Effect.sync(() => {
         sheetAppends.push({ range });
-        return "'Teams'!A2:B2";
+        return options.appendResult ?? "'Teams'!A2:B2";
       }),
     ...options.provider,
   };
@@ -417,7 +430,7 @@ layer(sheetBotClientConfigLayer)("team-submission workflow operations", (it) => 
     }),
   );
 
-  it.effect("selects an auto config and omits team-name writes", () =>
+  it.effect("writes roster values for an auto config", () =>
     Effect.gen(function* () {
       const harness = makeHarness({
         provider: {
@@ -426,7 +439,7 @@ layer(sheetBotClientConfigLayer)("team-submission workflow operations", (it) => 
               rangesConfig,
               teamConfigs: [
                 makeTeamConfig("Missing", null, ["full fill", "150/700"]),
-                makeTeamConfig("Auto", "auto"),
+                makeAutoTeamConfig(),
                 makeTeamConfig("Explicit", "'Teams'!B:B"),
               ],
             }),
@@ -452,8 +465,385 @@ layer(sheetBotClientConfigLayer)("team-submission workflow operations", (it) => 
       });
 
       expect(confirmed.status).toBe("confirmed");
-      expect(harness.sheetAppends).toEqual([{ range: "'Teams'!A:A" }]);
-      expect(harness.sheetWrites).toEqual([[{ range: "'Teams'!A2", values: [["Player"]] }]]);
+      expect(harness.sheetWrites).toEqual([
+        [
+          { range: "'Teams'!A2", values: [["Player"]] },
+          { range: "'Teams'!D2", values: [["150/700"]] },
+        ],
+      ]);
+      expect(harness.submission()).toMatchObject({
+        rowMappings: [{ rowIndex: 2, isvRanges: ["'Teams'!D2"] }],
+      });
+    }),
+  );
+
+  it.effect("canonicalizes ISV ranges when upgrading an existing row mapping", () =>
+    Effect.gen(function* () {
+      const legacyRowMapping = Schema.decodeUnknownSync(TeamSubmissionRowMapping)({
+        stableKey: durableEntry.stableKey,
+        playerNameRange: "'Teams'!A68",
+        teamNameRange: null,
+        oshiRange: null,
+        rowIndex: 68,
+      });
+      const harness = makeHarness({
+        initialSubmission: makeSubmission({
+          status: "pending",
+          parsedSubmission: [durableEntry],
+          rowMappings: [legacyRowMapping],
+        }),
+        provider: {
+          loadConfiguration: () =>
+            Effect.succeed({ rangesConfig, teamConfigs: [makeAutoTeamConfig()] }),
+        },
+      });
+      const operations = yield* harness.operations;
+      const result = yield* operations.process({
+        invocationId,
+        principal: servicePrincipal,
+        input: processInput,
+      });
+
+      expect(result.parsedTeamCount).toBe(1);
+      expect(harness.submission()).toMatchObject({
+        status: "pending",
+        rowMappings: [{ rowIndex: 68, isvRanges: ["'Teams'!D68"] }],
+      });
+    }),
+  );
+
+  it.effect("clears an omitted talent value for split roster mappings", () =>
+    Effect.gen(function* () {
+      const splitTeamConfig = Schema.decodeUnknownSync(TeamConfig)({
+        _tag: "TeamConfig",
+        name: "Auto",
+        sheet: "Teams",
+        playerNameRange: "'Teams'!A:A",
+        teamNameRange: "auto",
+        isvConfig: {
+          _tag: "TeamIsvSplitConfig",
+          leadRange: "'Teams'!D:D",
+          backlineRange: "'Teams'!E:E",
+          talentRange: "'Teams'!F:F",
+        },
+        tagsConfig: { _tag: "TeamTagsConstantsConfig", tags: ["full fill"] },
+        oshiRange: null,
+      });
+      const harness = makeHarness({
+        provider: {
+          loadConfiguration: () => Effect.succeed({ rangesConfig, teamConfigs: [splitTeamConfig] }),
+        },
+      });
+      const operations = yield* harness.operations;
+      yield* operations.process({
+        invocationId,
+        principal: servicePrincipal,
+        input: processInput,
+      });
+
+      yield* operations.decide({
+        invocationId,
+        principal: userPrincipal,
+        input: { ...decideInput, decision: "confirm" as const },
+      });
+
+      expect(harness.sheetWrites).toEqual([
+        [
+          { range: "'Teams'!A2", values: [["Player"]] },
+          { range: "'Teams'!D2", values: [["150"]] },
+          { range: "'Teams'!E2", values: [["700"]] },
+          { range: "'Teams'!F2", values: [[""]] },
+        ],
+      ]);
+    }),
+  );
+
+  it.effect("writes configured split roster ranges when extra values are submitted", () =>
+    Effect.gen(function* () {
+      const splitTeamConfig = Schema.decodeUnknownSync(TeamConfig)({
+        _tag: "TeamConfig",
+        name: "Auto",
+        sheet: "Teams",
+        playerNameRange: "'Teams'!A:A",
+        teamNameRange: "auto",
+        isvConfig: {
+          _tag: "TeamIsvSplitConfig",
+          leadRange: "'Teams'!D:D",
+          backlineRange: "'Teams'!E:E",
+          talentRange: "'Teams'!F:F",
+        },
+        tagsConfig: { _tag: "TeamTagsConstantsConfig", tags: ["full fill"] },
+        oshiRange: null,
+      });
+      const harness = makeHarness({
+        provider: {
+          loadConfiguration: () => Effect.succeed({ rangesConfig, teamConfigs: [splitTeamConfig] }),
+        },
+      });
+      const operations = yield* harness.operations;
+      yield* operations.process({
+        invocationId,
+        principal: servicePrincipal,
+        input: { ...processInput, content: "full fill: 150/700/324/999" },
+      });
+
+      yield* operations.decide({
+        invocationId,
+        principal: userPrincipal,
+        input: { ...decideInput, decision: "confirm" as const },
+      });
+
+      expect(harness.sheetWrites).toEqual([
+        [
+          { range: "'Teams'!A2", values: [["Player"]] },
+          { range: "'Teams'!D2", values: [["150"]] },
+          { range: "'Teams'!E2", values: [["700"]] },
+          { range: "'Teams'!F2", values: [["324"]] },
+        ],
+      ]);
+    }),
+  );
+
+  it.effect("skips duplicate split roster ranges before planning a write", () =>
+    Effect.gen(function* () {
+      const duplicateSplitTeamConfig = Schema.decodeUnknownSync(TeamConfig)({
+        _tag: "TeamConfig",
+        name: "Auto",
+        sheet: "Teams",
+        playerNameRange: "'Teams'!A:A",
+        teamNameRange: "auto",
+        isvConfig: {
+          _tag: "TeamIsvSplitConfig",
+          leadRange: "'Teams'!D:D",
+          backlineRange: "'Teams'!D:D",
+          talentRange: "'Teams'!D:D",
+        },
+        tagsConfig: { _tag: "TeamTagsConstantsConfig", tags: ["full fill"] },
+        oshiRange: null,
+      });
+      const harness = makeHarness({
+        provider: {
+          loadConfiguration: () =>
+            Effect.succeed({ rangesConfig, teamConfigs: [duplicateSplitTeamConfig] }),
+        },
+      });
+      const operations = yield* harness.operations;
+      const result = yield* operations.process({
+        invocationId,
+        principal: servicePrincipal,
+        input: processInput,
+      });
+
+      expect(result.parsedTeamCount).toBe(0);
+      expect(result.skippedTeamCount).toBe(1);
+      expect(harness.sheetAppends).toEqual([]);
+      expect(harness.sheetWrites).toEqual([]);
+    }),
+  );
+
+  it.effect("skips cross-field roster range collisions before planning a write", () =>
+    Effect.gen(function* () {
+      const collidingTeamConfig = Schema.decodeUnknownSync(TeamConfig)({
+        _tag: "TeamConfig",
+        name: "Auto",
+        sheet: "Teams",
+        playerNameRange: "Teams!d:d",
+        teamNameRange: "auto",
+        isvConfig: {
+          _tag: "TeamIsvSplitConfig",
+          leadRange: "'Teams'!D:D",
+          backlineRange: "'Teams'!E:E",
+          talentRange: "'Teams'!F:F",
+        },
+        tagsConfig: { _tag: "TeamTagsConstantsConfig", tags: ["full fill"] },
+        oshiRange: null,
+      });
+      const harness = makeHarness({
+        provider: {
+          loadConfiguration: () =>
+            Effect.succeed({ rangesConfig, teamConfigs: [collidingTeamConfig] }),
+        },
+      });
+      const operations = yield* harness.operations;
+      const result = yield* operations.process({
+        invocationId,
+        principal: servicePrincipal,
+        input: processInput,
+      });
+
+      expect(result.parsedTeamCount).toBe(0);
+      expect(result.skippedTeamCount).toBe(1);
+      expect(harness.sheetAppends).toEqual([]);
+      expect(harness.sheetWrites).toEqual([]);
+    }),
+  );
+
+  it.effect("accepts equivalent formatted roster mappings in pending plans", () =>
+    Effect.gen(function* () {
+      const equivalentMapping = Schema.decodeUnknownSync(TeamSubmissionRowMapping)({
+        stableKey: durableEntry.stableKey,
+        playerNameRange: "'Teams'!A68",
+        teamNameRange: null,
+        isvRanges: ["Teams!d68"],
+        oshiRange: "'Teams'!B68",
+        rowIndex: 68,
+      });
+      const harness = makeHarness({
+        initialSubmission: makeSubmission({
+          status: "pending",
+          parsedSubmission: [durableEntry],
+          rowMappings: [equivalentMapping],
+        }),
+        provider: {
+          loadConfiguration: () =>
+            Effect.succeed({
+              rangesConfig,
+              teamConfigs: [makeAutoTeamConfig("'Teams'!B:B")],
+            }),
+        },
+      });
+      const operations = yield* harness.operations;
+      const confirmed = yield* operations.decide({
+        invocationId,
+        principal: userPrincipal,
+        input: { ...decideInput, decision: "confirm" as const },
+      });
+
+      expect(confirmed.status).toBe("confirmed");
+      expect(harness.sheetAppends).toEqual([]);
+      expect(harness.sheetWrites).toEqual([
+        [
+          { range: "'Teams'!A68", values: [["Player"]] },
+          { range: "Teams!d68", values: [["150/700"]] },
+          { range: "'Teams'!B68", values: [[""]] },
+        ],
+      ]);
+    }),
+  );
+
+  it.effect("rejects legacy pending mappings when ISV ranges are configured", () =>
+    Effect.gen(function* () {
+      const legacyMapping = Schema.decodeUnknownSync(TeamSubmissionRowMapping)({
+        stableKey: durableEntry.stableKey,
+        playerNameRange: "'Teams'!A:A",
+        teamNameRange: null,
+        oshiRange: null,
+        rowIndex: 0,
+      });
+      const harness = makeHarness({
+        initialSubmission: makeSubmission({
+          status: "pending",
+          parsedSubmission: [durableEntry],
+          rowMappings: [legacyMapping],
+        }),
+        provider: {
+          loadConfiguration: () =>
+            Effect.succeed({ rangesConfig, teamConfigs: [makeAutoTeamConfig()] }),
+        },
+      });
+      const operations = yield* harness.operations;
+      const failed = yield* Effect.exit(
+        operations.decide({
+          invocationId,
+          principal: userPrincipal,
+          input: { ...decideInput, decision: "confirm" as const },
+        }),
+      );
+
+      expect(Exit.isFailure(failed)).toBe(true);
+      if (Exit.isFailure(failed)) {
+        expect(Option.getOrThrow(Cause.findErrorOption(failed.cause))).toMatchObject({
+          _tag: "BusinessRuleRejected",
+          code: "PendingPlanInvalid",
+        });
+      }
+      expect(harness.submission()?.status).toBe("pending");
+      expect(harness.sheetAppends).toEqual([]);
+      expect(harness.sheetWrites).toEqual([]);
+    }),
+  );
+
+  it.effect("rejects role-swapped pending mappings", () =>
+    Effect.gen(function* () {
+      const swappedMapping = Schema.decodeUnknownSync(TeamSubmissionRowMapping)({
+        stableKey: durableEntry.stableKey,
+        playerNameRange: "'Teams'!B68",
+        teamNameRange: null,
+        isvRanges: ["'Teams'!D68"],
+        oshiRange: "'Teams'!A68",
+        rowIndex: 68,
+      });
+      const harness = makeHarness({
+        initialSubmission: makeSubmission({
+          status: "pending",
+          parsedSubmission: [durableEntry],
+          rowMappings: [swappedMapping],
+        }),
+        provider: {
+          loadConfiguration: () =>
+            Effect.succeed({
+              rangesConfig,
+              teamConfigs: [makeAutoTeamConfig("'Teams'!B:B")],
+            }),
+        },
+      });
+      const operations = yield* harness.operations;
+      const failed = yield* Effect.exit(
+        operations.decide({
+          invocationId,
+          principal: userPrincipal,
+          input: { ...decideInput, decision: "confirm" as const },
+        }),
+      );
+
+      expect(Exit.isFailure(failed)).toBe(true);
+      if (Exit.isFailure(failed)) {
+        expect(Option.getOrThrow(Cause.findErrorOption(failed.cause))).toMatchObject({
+          _tag: "BusinessRuleRejected",
+          code: "PendingPlanInvalid",
+        });
+      }
+      expect(harness.submission()?.status).toBe("pending");
+      expect(harness.sheetAppends).toEqual([]);
+      expect(harness.sheetWrites).toEqual([]);
+    }),
+  );
+
+  it.effect("bounds an auto append by populated player rows", () =>
+    Effect.gen(function* () {
+      const existingPlayerRows = Array.from({ length: 67 }, () => ["existing"]);
+      const harness = makeHarness({
+        readValues: (range) => (range === "'Teams'!A:A" ? existingPlayerRows : []),
+        appendResult: "'Teams'!A68",
+        provider: {
+          loadConfiguration: () =>
+            Effect.succeed({
+              rangesConfig,
+              teamConfigs: [makeAutoTeamConfig("'Teams'!B:B")],
+            }),
+        },
+      });
+      const operations = yield* harness.operations;
+      yield* operations.process({
+        invocationId,
+        principal: servicePrincipal,
+        input: processInput,
+      });
+
+      yield* operations.decide({
+        invocationId,
+        principal: userPrincipal,
+        input: { ...decideInput, decision: "confirm" as const },
+      });
+
+      expect(harness.sheetAppends).toEqual([{ range: "'Teams'!A1:A67" }]);
+      expect(harness.sheetWrites).toEqual([
+        [
+          { range: "'Teams'!A68", values: [["Player"]] },
+          { range: "'Teams'!D68", values: [["150/700"]] },
+          { range: "'Teams'!B68", values: [[""]] },
+        ],
+      ]);
     }),
   );
 
@@ -826,6 +1216,53 @@ layer(sheetBotClientConfigLayer)("team-submission workflow operations", (it) => 
         rowMappings: [{ rowIndex: 0 }],
         rollbackSnapshot: [{ range: pendingAppendRollbackRange, values: [] }],
       });
+      expect(harness.sheetWrites).toEqual([]);
+    }),
+  );
+
+  it.effect("keeps a pending submission when the player row read fails", () =>
+    Effect.gen(function* () {
+      const harness = makeHarness({
+        initialSubmission: makeSubmission({
+          status: "pending",
+          parsedSubmission: [durableEntry],
+          rowMappings: [pendingMapping],
+        }),
+        provider: {
+          read: (_spreadsheetId, ranges) =>
+            ranges.includes("'Teams'!A:A")
+              ? Effect.fail(
+                  new TeamSubmissionProviderError({
+                    operation: "read",
+                    cause: "player range unavailable",
+                  }),
+                )
+              : Effect.succeed(ranges.map((range) => ({ range, values: [] }))),
+        },
+      });
+      const operations = yield* harness.operations;
+      const failed = yield* Effect.exit(
+        operations.decide({
+          invocationId,
+          principal: userPrincipal,
+          input: { ...decideInput, decision: "confirm" as const },
+        }),
+      );
+
+      expect(Exit.isFailure(failed)).toBe(true);
+      expect(harness.submission()?.status).toBe("pending");
+      expect(harness.persistedStatuses).toEqual([]);
+      expect(harness.sheetAppends).toEqual([]);
+      expect(harness.sheetWrites).toEqual([]);
+
+      const rejected = yield* operations.decide({
+        invocationId,
+        principal: userPrincipal,
+        input: decideInput,
+      });
+      expect(rejected.status).toBe("rejected");
+      expect(harness.persistedStatuses).toEqual(["rejected"]);
+      expect(harness.sheetAppends).toEqual([]);
       expect(harness.sheetWrites).toEqual([]);
     }),
   );
