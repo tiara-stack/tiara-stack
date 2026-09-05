@@ -3,6 +3,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { DeliveryKey, ResponseReference } from "sheet-bot-api";
 import {
   CheckinsOpen,
+  CheckinsTestAuto,
   CalculationsRecalculateSheet,
   ConversationsUpdateConfigAndDeliver,
   DiscordLoadWorkspaceChannels,
@@ -59,6 +60,22 @@ describe("sheet Workflow Contract schema compatibility", () => {
     expect(decoded).not.toHaveProperty("interactionResponseToken");
     expect(decoded).not.toHaveProperty("callerUserId");
     expect(decoded).not.toHaveProperty("workflowName");
+  });
+
+  it("accepts optional integer hours for automatic check-in tests", () => {
+    const baseInput = {
+      workspaceId: "workspace",
+      responseReference,
+      anchorConversationId: "anchor",
+    };
+
+    expect(Schema.decodeUnknownSync(CheckinsTestAuto.input)(baseInput)).toEqual(baseInput);
+    expect(Schema.decodeUnknownSync(CheckinsTestAuto.input)({ ...baseInput, hour: 4 }).hour).toBe(
+      4,
+    );
+    expect(() =>
+      Schema.decodeUnknownSync(CheckinsTestAuto.input)({ ...baseInput, hour: 4.5 }),
+    ).toThrow();
   });
 
   it("consolidates symmetric legacy operations into desired-state discriminators", () => {

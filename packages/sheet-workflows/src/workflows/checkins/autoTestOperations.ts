@@ -296,6 +296,7 @@ const previewMessage = (
 
 export const makeAutoCheckinTestSummaryMessage = (
   conversations: ReadonlyArray<CheckinsTestAutoConversationResult>,
+  hour = autoCheckinTestHour,
 ) => {
   const sentCount = conversations.filter(({ status }) => status === "sent").length;
   const skippedCount = conversations.filter(({ status }) => status === "skipped").length;
@@ -303,7 +304,7 @@ export const makeAutoCheckinTestSummaryMessage = (
   const firstFailure = failures[0];
   const summary = boundEmbedDescription(
     [
-      `Tested hour ${autoCheckinTestHour} across ${conversations.length} configured running conversation(s).`,
+      `Tested hour ${hour} across ${conversations.length} configured running conversation(s).`,
       `Sent: ${sentCount}. Skipped: ${skippedCount}. Failed: ${failures.length}.`,
       failures.length > 0
         ? `Failed conversations: ${failures.map(({ conversationName }) => conversationName).join(", ")}`
@@ -321,7 +322,7 @@ export const makeAutoCheckinTestSummaryMessage = (
   );
   return {
     message: makeAnchorPayload(summary, [
-      { name: "Hour", value: globalThis.String(autoCheckinTestHour), inline: true },
+      { name: "Hour", value: globalThis.String(hour), inline: true },
       { name: "Conversations", value: globalThis.String(conversations.length), inline: true },
       { name: "Failed", value: globalThis.String(failures.length), inline: true },
     ]),
@@ -409,6 +410,7 @@ export const autoCheckinTestWorkflowOperationsLayer = Layer.effect(
       // fallow-ignore-next-line complexity
       Effect.gen(function* () {
         const input = yield* decodeWorkflowContractInputOrDie(CheckinsTestAuto, execution.input);
+        const hour = input.hour ?? autoCheckinTestHour;
         const requesterAccountId = yield* requireInteractiveDiscordAccountId(
           execution.principal,
           policy,
@@ -438,7 +440,7 @@ export const autoCheckinTestWorkflowOperationsLayer = Layer.effect(
         const message = makeAnchorPayload(
           MessageText.lines(
             [
-              MessageText.text("Testing first-hour auto check-in for "),
+              MessageText.text(`Testing hour ${hour} automatic check-in for `),
               MessageText.text(workspace.name),
               MessageText.text("."),
             ],
@@ -583,6 +585,7 @@ export const autoCheckinTestWorkflowOperationsLayer = Layer.effect(
       // fallow-ignore-next-line complexity
       Effect.gen(function* () {
         const input = yield* decodeWorkflowContractInputOrDie(CheckinsTestAuto, execution.input);
+        const hour = input.hour ?? autoCheckinTestHour;
         yield* reauthorize(execution, `${operationPrefix}.prepare-target`);
         const { conversation, workspace } = yield* Effect.all(
           {
@@ -650,8 +653,10 @@ export const autoCheckinTestWorkflowOperationsLayer = Layer.effect(
           );
         }
         const schedulesByHour = indexSchedulesByHour(view.schedules);
-        const previous = schedulesByHour.get(autoCheckinTestHour - 1);
-        const current = schedulesByHour.get(autoCheckinTestHour);
+        // The test must keep its schedule movement semantics aligned with production check-in generation.
+        // fallow-ignore-next-line code-duplication
+        const previous = schedulesByHour.get(hour - 1);
+        const current = schedulesByHour.get(hour);
         const previousParticipants = (previous?.fills ?? []).map(toParticipant);
         const participants = (current?.fills ?? []).map(toParticipant);
         const movement = diffParticipants(previousParticipants, participants);
@@ -667,7 +672,7 @@ export const autoCheckinTestWorkflowOperationsLayer = Layer.effect(
             );
         const hourWindow = hourWindowFor(
           { startTime: DateTime.makeUnsafe(view.eventStartEpochMs) },
-          autoCheckinTestHour,
+          hour,
         );
         const initialMessage =
           incoming.length === 0
@@ -677,7 +682,7 @@ export const autoCheckinTestWorkflowOperationsLayer = Layer.effect(
                 conversationString: conversationText,
                 hourString: MessageText.parts(
                   MessageText.text("for "),
-                  MessageText.strong([MessageText.text(`hour ${autoCheckinTestHour}`)]),
+                  MessageText.strong([MessageText.text(`hour ${hour}`)]),
                 ),
                 timeStampString: MessageText.parts(
                   MessageText.timestamp(DateTime.toEpochMillis(hourWindow.start), "relative"),
@@ -721,14 +726,14 @@ export const autoCheckinTestWorkflowOperationsLayer = Layer.effect(
           workspaceId: input.workspaceId,
           conversationName: execution.conversationName,
           runningConversationId,
-          hour: autoCheckinTestHour,
+          hour,
         };
         if (Predicate.isNull(initialMessage)) {
           return {
             conversationName: execution.conversationName,
             runningConversationId,
             checkinConversationId,
-            hour: autoCheckinTestHour,
+            hour,
             status: "skipped" as const,
             checkinPreview: null,
             monitorPreview: {
@@ -759,8 +764,8 @@ export const autoCheckinTestWorkflowOperationsLayer = Layer.effect(
                   Predicate.isNull(schedule.hour) ? [] : ([[schedule.hour, schedule]] as const),
                 ),
               );
-              const roomPrevious = roomSchedulesByHour.get(autoCheckinTestHour - 1);
-              const roomCurrent = roomSchedulesByHour.get(autoCheckinTestHour);
+              const roomPrevious = roomSchedulesByHour.get(hour - 1);
+              const roomCurrent = roomSchedulesByHour.get(hour);
               const fills = roomCurrent?.fills ?? [];
               const entries = yield* calculateRoomOrderEntries({
                 teamsByPlayer: fills.map((fill) =>
@@ -773,13 +778,13 @@ export const autoCheckinTestWorkflowOperationsLayer = Layer.effect(
                       })),
                 ),
                 healNeeded: 0,
-                hour: autoCheckinTestHour,
+                hour,
               });
               if (entries.length === 0) {
                 return null;
               }
               const content = buildRoomOrderContent(
-                autoCheckinTestHour,
+                hour,
                 hourWindow.start,
                 hourWindow.end,
                 roomCurrent?.monitor ?? null,
@@ -801,7 +806,7 @@ export const autoCheckinTestWorkflowOperationsLayer = Layer.effect(
           conversationName: execution.conversationName,
           runningConversationId,
           checkinConversationId,
-          hour: autoCheckinTestHour,
+          hour,
           status: "sent" as const,
           checkinPreview: {
             conversation: conversationRefFrom(client, input.workspaceId, checkinConversationId),
@@ -922,8 +927,12 @@ export const autoCheckinTestWorkflowOperationsLayer = Layer.effect(
 
     const updateAnchorSummary: AutoCheckinTestWorkflowOperations["Service"]["updateAnchorSummary"] =
       (execution, deliveryKey) =>
+        // Summary rendering and replay-compatible receipt validation stay in one operation boundary.
+        // fallow-ignore-next-line complexity
         Effect.gen(function* () {
-          const { message } = makeAutoCheckinTestSummaryMessage(execution.conversations);
+          const input = yield* decodeWorkflowContractInputOrDie(CheckinsTestAuto, execution.input);
+          const hour = input.hour ?? autoCheckinTestHour;
+          const { message } = makeAutoCheckinTestSummaryMessage(execution.conversations, hour);
           const previewMayHaveCommitted =
             Predicate.hasProperty("previewMayHaveCommitted")(execution) &&
             Predicate.isBoolean(execution.previewMayHaveCommitted)

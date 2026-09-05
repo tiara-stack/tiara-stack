@@ -88,6 +88,7 @@ const preparation = (
     readonly status?: "sent" | "skipped";
     readonly checkin?: boolean;
     readonly roomOrder?: boolean;
+    readonly hour?: number;
   } = {},
 ): AutoCheckinTestPreparation => {
   const target = conversationName.toLowerCase();
@@ -99,7 +100,7 @@ const preparation = (
     conversationName,
     runningConversationId: `${target}-running`,
     checkinConversationId: `${target}-checkin`,
-    hour: 1,
+    hour: options.hour ?? 1,
     status: options.status ?? "sent",
     checkinPreview: options.checkin === false ? null : preview("checkin"),
     monitorPreview: preview("monitor"),
@@ -619,6 +620,9 @@ const autoCheckinTestWorkflowDefinitionTests = () => {
 
   it.effect("keeps check-in and monitor previews when optional room-order entries are empty", () =>
     Effect.gen(function* () {
+      const hour = 2;
+      const testInput = Schema.decodeUnknownSync(CheckinsTestAuto.input)({ ...input, hour });
+      const testExecution = { ...execution, input: testInput };
       const persistence = makeTrustedSheetPersistenceMock();
       yield* persistence.workspaces.upsertWorkspaceConfig({ workspaceId, sheetId: "sheet-1" });
       yield* persistence.workspaces.upsertWorkspaceConversationConfig({
@@ -639,7 +643,7 @@ const autoCheckinTestWorkflowDefinitionTests = () => {
               eventStartEpochMs: 0,
               schedules: [
                 {
-                  hour: 1,
+                  hour,
                   fills,
                   overfillCount: 0,
                   monitor: { accountId: "monitor-1", name: "Monitor" },
@@ -651,7 +655,7 @@ const autoCheckinTestWorkflowDefinitionTests = () => {
               eventStartEpochMs: 0,
               schedules: [
                 {
-                  hour: 1,
+                  hour,
                   fills: [],
                   monitor: null,
                 },
@@ -662,11 +666,12 @@ const autoCheckinTestWorkflowDefinitionTests = () => {
       });
 
       const result = yield* operations.prepareTarget({
-        ...execution,
+        ...testExecution,
         anchor: anchorMessage,
         conversationName: "Alpha",
       });
       expect(result.status).toBe("sent");
+      expect(result.hour).toBe(hour);
       expect(result.checkinPreview).not.toBeNull();
       expect(result.monitorPreview).not.toBeNull();
       expect(result.tentativeRoomOrderPreview).toBeNull();

@@ -160,9 +160,12 @@ const makeTestAutoSubCommand = Effect.gen(function* () {
     (builder) =>
       builder
         .setName("test_auto")
-        .setDescription("Test first-hour automatic check-in configuration")
+        .setDescription("Test automatic check-in configuration")
         .addStringOption((option) =>
           option.setName("server_id").setDescription("The server to test auto check-in for"),
+        )
+        .addNumberOption((option) =>
+          option.setName("hour").setDescription("The hour to test automatic check-in for"),
         ),
     Effect.fn("checkin.test_auto")(function* (command) {
       const response = yield* InteractionResponse;
@@ -175,6 +178,13 @@ const makeTestAutoSubCommand = Effect.gen(function* () {
       yield* enqueueCheckinTestAuto(response, workflowClient, capabilityStore, {
         workspaceId,
         anchorConversationId: anchorChannelId,
+        ...pipe(
+          command.optionValueOptional("hour"),
+          Option.match({
+            onSome: (hour) => ({ hour }),
+            onNone: () => ({}),
+          }),
+        ),
       });
     }),
   );

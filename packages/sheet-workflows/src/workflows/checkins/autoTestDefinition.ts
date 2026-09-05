@@ -291,12 +291,12 @@ const declaredFailureFrom = (cause: Cause.Cause<unknown>): ActionFailure | undef
 const isAuthorizationCause = (cause: Cause.Cause<unknown>): boolean =>
   Predicate.isTagged("AuthorizationRevoked")(declaredFailureFrom(cause));
 
-const failedTarget = (conversationName: string): TargetOutcome => ({
+const failedTarget = (conversationName: string, hour: number): TargetOutcome => ({
   result: {
     conversationName,
     runningConversationId: null,
     checkinConversationId: null,
-    hour: autoCheckinTestHour,
+    hour,
     status: "failed",
     error: targetFailureMessage,
   },
@@ -445,6 +445,7 @@ export const makeCheckinsTestAutoWorkflowBody = <R>(actions: {
   // fallow-ignore-next-line complexity
   Effect.fnUntraced(function* (execution: typeof AutoCheckinTestExecution.Type) {
     const input = yield* decodeWorkflowContractInputOrDie(CheckinsTestAuto, execution.input);
+    const hour = input.hour ?? autoCheckinTestHour;
     const anchorReceipt = yield* actions.createAnchor(execution);
     const anchor = anchorReceipt.target.message;
     if (Predicate.isUndefined(anchor)) {
@@ -488,7 +489,7 @@ export const makeCheckinsTestAutoWorkflowBody = <R>(actions: {
                 "Auto-checkin test target preparation failed",
                 preparationExit.cause,
               ).pipe(Effect.annotateLogs({ conversationName }));
-              return failedTarget(conversationName);
+              return failedTarget(conversationName, hour);
             }
             return yield* runPreparedTarget(
               { ...targetExecution, preparation: preparationExit.value },
@@ -513,7 +514,7 @@ export const makeCheckinsTestAutoWorkflowBody = <R>(actions: {
         yield* Effect.logWarning("Auto-checkin test target failed unexpectedly", exit.cause).pipe(
           Effect.annotateLogs({ conversationName }),
         );
-        outcomes.push(failedTarget(conversationName));
+        outcomes.push(failedTarget(conversationName, hour));
       }
     }
     const previewReceipts = outcomes.flatMap(({ receipts }) => receipts);
@@ -552,7 +553,7 @@ export const makeCheckinsTestAutoWorkflowBody = <R>(actions: {
       );
       return yield* Effect.failCause(summaryExit.cause);
     }
-    const counts = makeAutoCheckinTestSummaryMessage(conversations);
+    const counts = makeAutoCheckinTestSummaryMessage(conversations, hour);
     const deliveryReceipts: ReadonlyArray<DeliveryReceipt> = [
       anchorReceipt,
       ...previewReceipts,
@@ -560,7 +561,7 @@ export const makeCheckinsTestAutoWorkflowBody = <R>(actions: {
     ];
     return {
       workspaceId: input.workspaceId,
-      hour: autoCheckinTestHour,
+      hour,
       conversationCount: conversations.length,
       sentCount: counts.sentCount,
       skippedCount: counts.skippedCount,

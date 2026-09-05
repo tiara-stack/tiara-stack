@@ -572,6 +572,7 @@ export const CheckinsTestAutoInput = Schema.Struct({
   ...WorkspaceFields,
   ...ResponseFields,
   anchorConversationId: Schema.String,
+  hour: Schema.optional(Schema.Int),
 });
 export type CheckinsTestAutoInput = Schema.Schema.Type<typeof CheckinsTestAutoInput>;
 
