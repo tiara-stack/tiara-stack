@@ -162,6 +162,13 @@
       "when": 1788551043789,
       "tag": "0023_sticky_slot_message_index",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": 1,
+      "when": 1788625644097,
+      "tag": "0024_migration",
+      "breakpoints": true
     }
   ]
 }

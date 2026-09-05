@@ -1,4 +1,4 @@
-// @generated effect-zero signature:sha256:75ded247b47b556d0a3e72f127f856543998aea02224f7dbeff5021856d76bc8
+// @generated effect-zero signature:sha256:c9fef25ed425e0029bcea194c890f5ea05616aa130b87b03ea16a9c0c0fbb1c7
 import { createBuilder } from "@rocicorp/zero";
 import type { ReadonlyJSONValue } from "@rocicorp/zero";
 
@@ -332,6 +332,185 @@ const auditSheetConfigurationTable = {
   },
   primaryKey: ["eventId"],
   serverName: "sheet_db_audit_sheet_configuration",
+} as const;
+const configWorkspaceCheckinMessageSetTable = {
+  name: "configWorkspaceCheckinMessageSet",
+  columns: {
+    workspaceId: {
+      type: "string",
+      optional: false,
+      customType: customType<string>(),
+      serverName: "workspace_id",
+    },
+    eventStartEpochMs: {
+      type: "number",
+      optional: false,
+      customType: customType<number>(),
+      serverName: "event_start",
+    },
+    messageSetGeneration: {
+      type: "number",
+      optional: false,
+      customType: customType<number>(),
+      serverName: "message_set_generation",
+    },
+    updatedBy: {
+      type: "string",
+      optional: false,
+      customType: customType<string>(),
+      serverName: "updated_by",
+    },
+    createdAt: {
+      type: "number",
+      optional: false,
+      customType: customType<number>(),
+      serverName: "created_at",
+    },
+    updatedAt: {
+      type: "number",
+      optional: false,
+      customType: customType<number>(),
+      serverName: "updated_at",
+    },
+    deletedAt: {
+      type: "number",
+      optional: true,
+      customType: customType<number>(),
+      serverName: "deleted_at",
+    },
+  },
+  primaryKey: ["workspaceId"],
+  serverName: "sheet_db_config_workspace_checkin_message_set",
+} as const;
+const configWorkspaceCheckinMessageTable = {
+  name: "configWorkspaceCheckinMessage",
+  columns: {
+    workspaceId: {
+      type: "string",
+      optional: false,
+      customType: customType<string>(),
+      serverName: "workspace_id",
+    },
+    messageSetGeneration: {
+      type: "number",
+      optional: false,
+      customType: customType<number>(),
+      serverName: "message_set_generation",
+    },
+    conversationId: {
+      type: "string",
+      optional: false,
+      customType: customType<string>(),
+      serverName: "conversation_id",
+    },
+    hour: {
+      type: "number",
+      optional: false,
+      customType: customType<number>(),
+    },
+    template: {
+      type: "string",
+      optional: true,
+      customType: customType<string>(),
+    },
+    version: {
+      type: "number",
+      optional: false,
+      customType: customType<number>(),
+    },
+    createdBy: {
+      type: "string",
+      optional: false,
+      customType: customType<string>(),
+      serverName: "created_by",
+    },
+    updatedBy: {
+      type: "string",
+      optional: false,
+      customType: customType<string>(),
+      serverName: "updated_by",
+    },
+    createdAt: {
+      type: "number",
+      optional: false,
+      customType: customType<number>(),
+      serverName: "created_at",
+    },
+    updatedAt: {
+      type: "number",
+      optional: false,
+      customType: customType<number>(),
+      serverName: "updated_at",
+    },
+    deletedAt: {
+      type: "number",
+      optional: true,
+      customType: customType<number>(),
+      serverName: "deleted_at",
+    },
+  },
+  primaryKey: ["workspaceId", "messageSetGeneration", "conversationId", "hour"],
+  serverName: "sheet_db_config_workspace_checkin_message",
+} as const;
+const configWorkspaceCheckinMessageMutationReceiptTable = {
+  name: "configWorkspaceCheckinMessageMutationReceipt",
+  columns: {
+    invocationId: {
+      type: "string",
+      optional: false,
+      customType: customType<string>(),
+      serverName: "invocation_id",
+    },
+    actionKey: {
+      type: "string",
+      optional: false,
+      customType: customType<string>(),
+      serverName: "action_key",
+    },
+    workspaceId: {
+      type: "string",
+      optional: false,
+      customType: customType<string>(),
+      serverName: "workspace_id",
+    },
+    inputDigest: {
+      type: "string",
+      optional: false,
+      customType: customType<string>(),
+      serverName: "input_digest",
+    },
+    result: {
+      type: "json",
+      optional: false,
+      customType: customType<ReadonlyJSONValue>(),
+    },
+    createdBy: {
+      type: "string",
+      optional: false,
+      customType: customType<string>(),
+      serverName: "created_by",
+    },
+    createdAt: {
+      type: "number",
+      optional: false,
+      customType: customType<number>(),
+      serverName: "created_at",
+    },
+    updatedAt: {
+      type: "number",
+      optional: false,
+      customType: customType<number>(),
+      serverName: "updated_at",
+    },
+    deletedAt: {
+      type: "number",
+      optional: true,
+      customType: customType<number>(),
+      serverName: "deleted_at",
+    },
+  },
+  primaryKey: ["invocationId", "actionKey"],
+  serverName: "sheet_db_config_workspace_checkin_message_mutation_receipt",
 } as const;
 const configWorkspaceMonitorRoleTable = {
   name: "configWorkspaceMonitorRole",
@@ -1355,6 +1534,9 @@ export const schema = {
     configWorkspaceSheetRevision: configWorkspaceSheetRevisionTable,
     configWorkspaceSheetImportAttempt: configWorkspaceSheetImportAttemptTable,
     auditSheetConfiguration: auditSheetConfigurationTable,
+    configWorkspaceCheckinMessageSet: configWorkspaceCheckinMessageSetTable,
+    configWorkspaceCheckinMessage: configWorkspaceCheckinMessageTable,
+    configWorkspaceCheckinMessageMutationReceipt: configWorkspaceCheckinMessageMutationReceiptTable,
     configWorkspaceMonitorRole: configWorkspaceMonitorRoleTable,
     configWorkspaceFeatureFlag: configWorkspaceFeatureFlagTable,
     configWorkspaceUpdateAnnouncementDelivery: configWorkspaceUpdateAnnouncementDeliveryTable,

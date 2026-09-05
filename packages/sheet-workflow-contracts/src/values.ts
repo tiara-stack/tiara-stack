@@ -42,6 +42,7 @@ export const SheetSnapshotReadPolicy = Schema.Literals(["cached", "fresh"]);
 export type SheetSnapshotReadPolicy = Schema.Schema.Type<typeof SheetSnapshotReadPolicy>;
 
 const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
+const PositiveInt = Schema.Int.check(Schema.isGreaterThan(0));
 const SnapshotRowCount = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 100 }));
 const SnapshotColumnCount = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 40 }));
 
@@ -515,6 +516,8 @@ export const PopulatedScheduleSummary = Schema.Struct({
   // responses remain readable, but new responses include null for ambiguous or unknown names.
   playerAccountIds: Schema.optional(Schema.Array(Schema.NullOr(Schema.String))),
   monitorName: Schema.NullOr(Schema.String),
+  // Optional for compatibility with schedule responses produced before stable monitor identity.
+  monitorAccountId: Schema.optional(Schema.String),
 });
 export type PopulatedScheduleSummary = Schema.Schema.Type<typeof PopulatedScheduleSummary>;
 
@@ -525,6 +528,84 @@ export const SchedulesLoadWorkspaceSuccess = Schema.Struct({
 export type SchedulesLoadWorkspaceSuccess = Schema.Schema.Type<
   typeof SchedulesLoadWorkspaceSuccess
 >;
+
+export const CheckinMessageSetGeneration = PositiveInt.pipe(
+  Schema.brand("sheet-workflow-contracts/CheckinMessageSetGeneration"),
+);
+export type CheckinMessageSetGeneration = Schema.Schema.Type<typeof CheckinMessageSetGeneration>;
+
+export const CheckinMessageRowVersion = PositiveInt.pipe(
+  Schema.brand("sheet-workflow-contracts/CheckinMessageRowVersion"),
+);
+export type CheckinMessageRowVersion = Schema.Schema.Type<typeof CheckinMessageRowVersion>;
+
+export const CheckinMessageExpectedVersion = NonNegativeInt.pipe(
+  Schema.brand("sheet-workflow-contracts/CheckinMessageExpectedVersion"),
+);
+export type CheckinMessageExpectedVersion = Schema.Schema.Type<
+  typeof CheckinMessageExpectedVersion
+>;
+
+export const CheckinMessageScheduleHour = NonNegativeInt.pipe(
+  Schema.brand("sheet-workflow-contracts/CheckinMessageScheduleHour"),
+);
+export type CheckinMessageScheduleHour = Schema.Schema.Type<typeof CheckinMessageScheduleHour>;
+
+export const CheckinMessageSetBinding = Schema.Struct({
+  eventStartEpochMs: Schema.Int,
+  messageSetGeneration: CheckinMessageSetGeneration,
+});
+export type CheckinMessageSetBinding = Schema.Schema.Type<typeof CheckinMessageSetBinding>;
+
+export const HourlyCheckinMessage = Schema.Struct({
+  hour: CheckinMessageScheduleHour,
+  template: Schema.NullOr(Schema.String),
+  version: CheckinMessageRowVersion,
+});
+export type HourlyCheckinMessage = Schema.Schema.Type<typeof HourlyCheckinMessage>;
+
+const CheckinMessagesLoadByIdInput = Schema.Struct({
+  ...WorkspaceFields,
+  conversationId: Identifier,
+});
+const CheckinMessagesLoadByNameInput = Schema.Struct({
+  ...WorkspaceFields,
+  conversationName: Identifier,
+});
+
+export const CheckinMessagesLoadInput = Schema.Union([
+  CheckinMessagesLoadByIdInput,
+  CheckinMessagesLoadByNameInput,
+]);
+export type CheckinMessagesLoadInput = Schema.Schema.Type<typeof CheckinMessagesLoadInput>;
+
+export const CheckinMessagesLoadSuccess = Schema.Struct({
+  ...WorkspaceFields,
+  conversationId: Identifier,
+  conversationName: Schema.NullOr(Schema.String),
+  binding: CheckinMessageSetBinding,
+  messages: Schema.Array(HourlyCheckinMessage),
+});
+export type CheckinMessagesLoadSuccess = Schema.Schema.Type<typeof CheckinMessagesLoadSuccess>;
+
+export const CheckinMessagesSaveInput = Schema.Struct({
+  ...WorkspaceFields,
+  conversationId: Identifier,
+  binding: CheckinMessageSetBinding,
+  hour: CheckinMessageScheduleHour,
+  template: Schema.NullOr(Schema.String),
+  expectedVersion: CheckinMessageExpectedVersion,
+  responseReference: Schema.optional(ResponseReference),
+});
+export type CheckinMessagesSaveInput = Schema.Schema.Type<typeof CheckinMessagesSaveInput>;
+
+export const CheckinMessagesSaveSuccess = Schema.Struct({
+  ...WorkspaceFields,
+  conversationId: Identifier,
+  binding: CheckinMessageSetBinding,
+  message: HourlyCheckinMessage,
+});
+export type CheckinMessagesSaveSuccess = Schema.Schema.Type<typeof CheckinMessagesSaveSuccess>;
 
 export const NotificationPlatform = Identifier;
 export type NotificationPlatform = Schema.Schema.Type<typeof NotificationPlatform>;

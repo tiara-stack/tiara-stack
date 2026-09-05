@@ -20,6 +20,9 @@ import { schema, type Schema as SheetZeroSchema } from "sheet-zero-api";
 import { makeSheetServiceClient, type SheetServiceClient } from "sheet-zero-api/server";
 import type {
   ConfigUserPlatformRow,
+  ConfigWorkspaceCheckinMessageMutationReceiptRow,
+  ConfigWorkspaceCheckinMessageRow,
+  ConfigWorkspaceCheckinMessageSetRow,
   ConfigWorkspaceConversationRow,
   ConfigWorkspaceFeatureFlagRow,
   ConfigWorkspaceMonitorRoleRow,
@@ -232,6 +235,31 @@ export interface TrustedSheetPersistenceShape {
       "recordSheetConfigurationAudit"
     >;
   };
+  /** Operational hourly check-in message configuration, isolated from Sheet Configuration. */
+  readonly checkinMessages: {
+    readonly getMessageSet: ClientMethodWithSuccess<
+      "checkinMessages",
+      "getMessageSet",
+      Option.Option<ConfigWorkspaceCheckinMessageSetRow>
+    >;
+    readonly getHourlyMessage: ClientMethodWithSuccess<
+      "checkinMessages",
+      "getHourlyMessage",
+      Option.Option<ConfigWorkspaceCheckinMessageRow>
+    >;
+    readonly listHourlyMessages: ClientMethodWithSuccess<
+      "checkinMessages",
+      "listHourlyMessages",
+      ReadonlyArray<ConfigWorkspaceCheckinMessageRow>
+    >;
+    readonly getSaveReceipt: ClientMethodWithSuccess<
+      "checkinMessages",
+      "getSaveReceipt",
+      Option.Option<ConfigWorkspaceCheckinMessageMutationReceiptRow>
+    >;
+    readonly reconcileMessageSet: ClientMutation<"checkinMessages", "reconcileMessageSet">;
+    readonly saveHourlyMessage: ClientMutation<"checkinMessages", "saveHourlyMessage">;
+  };
   readonly preferences: {
     readonly getUserPlatformConfig: ClientMethodWithSuccess<
       "userConfig",
@@ -409,6 +437,14 @@ export const trustedSheetPersistenceCatalog = {
     "upsertSheetConfigurationImportAttempt",
     "recordSheetConfigurationAudit",
   ],
+  checkinMessages: [
+    "getMessageSet",
+    "getHourlyMessage",
+    "listHourlyMessages",
+    "getSaveReceipt",
+    "reconcileMessageSet",
+    "saveHourlyMessage",
+  ],
   preferences: [
     "getUserPlatformConfig",
     "getCheckinDmEnabledUserConfigs",
@@ -477,6 +513,7 @@ type ClientGroupByPersistenceGroup = {
 const clientGroupByPersistenceGroup = {
   workspaces: (client: GroupedSheetClient) => client.workspaceConfig,
   sheetConfiguration: (client: GroupedSheetClient) => client.sheetConfiguration,
+  checkinMessages: (client: GroupedSheetClient) => client.checkinMessages,
   preferences: (client: GroupedSheetClient) => client.userConfig,
   checkinState: (client: GroupedSheetClient) => client.messageCheckin,
   roomOrderState: (client: GroupedSheetClient) => client.messageRoomOrder,

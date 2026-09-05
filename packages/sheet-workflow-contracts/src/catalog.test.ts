@@ -29,6 +29,8 @@ const approvedIntentInventory = [
   "sheetConfiguration.rollback",
   "sheetConfiguration.discardDraft",
   "schedules.loadWorkspace",
+  "checkinMessages.load",
+  "checkinMessages.save",
   "notifications.loadSupportedClients",
   "checkins.open",
   "checkins.testAuto",
@@ -117,6 +119,7 @@ describe("sheet Workflow Contract catalog", () => {
         ({ authorizationPolicy }) =>
           authorizationPolicy.resource === "workspace" &&
           authorizationPolicy.requiredCapabilities.length === 0 &&
+          Predicate.isUndefined(authorizationPolicy.requiredAnyCapabilities) &&
           Predicate.isUndefined(authorizationPolicy.userRule),
       ).map(({ identity }) => identity),
     ).toEqual(["authorization.loadWorkspaceCapabilities"]);

@@ -604,6 +604,14 @@ export const makeTrustedSheetPersistenceMock = (): TrustedSheetPersistenceShape 
       upsertSheetConfigurationImportAttempt: () => Effect.void,
       recordSheetConfigurationAudit: () => Effect.void,
     },
+    checkinMessages: {
+      getMessageSet: () => Effect.succeed(Option.none()),
+      getHourlyMessage: () => Effect.succeed(Option.none()),
+      listHourlyMessages: () => Effect.succeed([]),
+      getSaveReceipt: () => Effect.succeed(Option.none()),
+      reconcileMessageSet: () => Effect.void,
+      saveHourlyMessage: () => Effect.void,
+    },
     preferences: {
       getUserPlatformConfig: (args) => {
         const row = userPlatformConfigs.get(userPlatformConfigKey(args.platform, args.userId));

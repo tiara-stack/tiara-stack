@@ -4,6 +4,9 @@ export { mutators, type Mutators } from "./mutators";
 export { queries, type Queries } from "./queries";
 export {
   ConfigUserPlatformRow,
+  ConfigWorkspaceCheckinMessageMutationReceiptRow,
+  ConfigWorkspaceCheckinMessageRow,
+  ConfigWorkspaceCheckinMessageSetRow,
   ConfigWorkspaceConversationRow,
   ConfigWorkspaceFeatureFlagRow,
   ConfigWorkspaceMonitorRoleRow,

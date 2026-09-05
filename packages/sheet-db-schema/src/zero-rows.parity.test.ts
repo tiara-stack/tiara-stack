@@ -2,6 +2,9 @@ import { describe, expect, it } from "@effect/vitest";
 import { Schema } from "effect";
 import {
   AuditSheetConfigurationRow,
+  ConfigWorkspaceCheckinMessageMutationReceiptRow,
+  ConfigWorkspaceCheckinMessageRow,
+  ConfigWorkspaceCheckinMessageSetRow,
   ConfigUserPlatformRow,
   ConfigWorkspaceConversationRow,
   ConfigWorkspaceFeatureFlagRow,
@@ -21,6 +24,9 @@ import {
 } from "sheet-zero-api/rows";
 import {
   auditSheetConfiguration,
+  configWorkspaceCheckinMessage,
+  configWorkspaceCheckinMessageMutationReceipt,
+  configWorkspaceCheckinMessageSet,
   configUserPlatform,
   configWorkspace,
   configWorkspaceSheet,
@@ -135,6 +141,48 @@ const cases = [
       actorProvenance: null,
       metadata: { attemptId: "attempt-1" },
       reason: null,
+      ...audit,
+    },
+  },
+  {
+    name: "configWorkspaceCheckinMessageSet",
+    replicated: ConfigWorkspaceCheckinMessageSetRow,
+    persistence: configWorkspaceCheckinMessageSet.json,
+    value: {
+      workspaceId: "workspace-1",
+      eventStartEpochMs: Date.UTC(2026, 8, 5, 12),
+      messageSetGeneration: 3,
+      updatedBy: "user-1",
+      ...audit,
+    },
+  },
+  {
+    name: "configWorkspaceCheckinMessage",
+    replicated: ConfigWorkspaceCheckinMessageRow,
+    persistence: configWorkspaceCheckinMessage.json,
+    value: {
+      workspaceId: "workspace-1",
+      messageSetGeneration: 3,
+      conversationId: "running-1",
+      hour: 12,
+      template: null,
+      version: 2,
+      createdBy: "user-1",
+      updatedBy: "user-2",
+      ...audit,
+    },
+  },
+  {
+    name: "configWorkspaceCheckinMessageMutationReceipt",
+    replicated: ConfigWorkspaceCheckinMessageMutationReceiptRow,
+    persistence: configWorkspaceCheckinMessageMutationReceipt.json,
+    value: {
+      invocationId: "invocation-1",
+      actionKey: "save-hour-12",
+      workspaceId: "workspace-1",
+      inputDigest: "digest-1",
+      result: { version: 2 },
+      createdBy: "user-1",
       ...audit,
     },
   },

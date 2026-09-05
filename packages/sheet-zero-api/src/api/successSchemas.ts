@@ -2,6 +2,9 @@ import { Schema } from "effect";
 import {
   ConfigUserPlatformRow,
   ConfigWorkspaceConversationRow,
+  ConfigWorkspaceCheckinMessageMutationReceiptRow,
+  ConfigWorkspaceCheckinMessageRow,
+  ConfigWorkspaceCheckinMessageSetRow,
   ConfigWorkspaceFeatureFlagRow,
   ConfigWorkspaceMonitorRoleRow,
   ConfigWorkspaceRow,
@@ -44,6 +47,12 @@ export interface SheetZeroApiSuccessSchemas {
     readonly getSheetConfigurationRevisionById: Schema.Top;
     readonly getSheetConfigurationRevisionsBySpreadsheetId: Schema.Top;
     readonly getSheetConfigurationImportAttempt: Schema.Top;
+  };
+  readonly checkinMessages: {
+    readonly getMessageSet: Schema.Top;
+    readonly getHourlyMessage: Schema.Top;
+    readonly listHourlyMessages: Schema.Top;
+    readonly getSaveReceipt: Schema.Top;
   };
   readonly messageCheckin: {
     readonly getMessageCheckinData: Schema.Top;
@@ -96,6 +105,12 @@ export const defaultSuccessSchemas = {
     getSheetConfigurationImportAttempt: Schema.OptionFromNullishOr(
       ConfigWorkspaceSheetImportAttemptRow,
     ),
+  },
+  checkinMessages: {
+    getMessageSet: Schema.OptionFromNullishOr(ConfigWorkspaceCheckinMessageSetRow),
+    getHourlyMessage: Schema.OptionFromNullishOr(ConfigWorkspaceCheckinMessageRow),
+    listHourlyMessages: Schema.Array(ConfigWorkspaceCheckinMessageRow),
+    getSaveReceipt: Schema.OptionFromNullishOr(ConfigWorkspaceCheckinMessageMutationReceiptRow),
   },
   messageCheckin: {
     getMessageCheckinData: Schema.OptionFromNullishOr(MessageCheckinRow),

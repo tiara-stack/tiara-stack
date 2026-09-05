@@ -42,6 +42,9 @@ export const SheetWorkflowAuthorizationPolicyMetadata = Schema.Struct({
   version: Schema.Trimmed.check(Schema.isNonEmpty()),
   principalKinds: Schema.Array(SheetWorkflowPrincipalKind).check(Schema.isLengthBetween(1, 2)),
   requiredCapabilities: Schema.Array(SheetWorkflowCapability),
+  requiredAnyCapabilities: Schema.optionalKey(
+    Schema.Array(SheetWorkflowCapability).check(Schema.isLengthBetween(1, 7)),
+  ),
   resource: SheetWorkflowAuthorizationResource,
   resourceField: Schema.optionalKey(Schema.Trimmed.check(Schema.isNonEmpty())),
   serviceRule: Schema.optionalKey(Schema.Trimmed.check(Schema.isNonEmpty())),
@@ -54,6 +57,7 @@ export interface SheetWorkflowAuthorizationPolicyMetadata extends WorkflowAuthor
   readonly version: string;
   readonly principalKinds: ReadonlyArray<SheetWorkflowPrincipalKind>;
   readonly requiredCapabilities: ReadonlyArray<SheetWorkflowCapability>;
+  readonly requiredAnyCapabilities?: ReadonlyArray<SheetWorkflowCapability>;
   readonly resource: SheetWorkflowAuthorizationResource;
   readonly resourceField?: string;
   readonly serviceRule?: string;
@@ -68,6 +72,7 @@ type SheetWorkflowAuthorizationPolicyMetadataFields = Pick<
   | "version"
   | "principalKinds"
   | "requiredCapabilities"
+  | "requiredAnyCapabilities"
   | "resource"
   | "resourceField"
   | "serviceRule"
@@ -101,6 +106,18 @@ export type _SheetWorkflowAuthorizationPolicyMetadataDriftGuard = AssertTrue<
 >;
 
 export type _SheetWorkflowAuthorizationPolicyMetadataDriftGuardNegativeTests = [
+  AssertFalse<
+    IsExact<
+      Omit<SheetWorkflowAuthorizationPolicyMetadataFields, "requiredAnyCapabilities">,
+      SheetWorkflowAuthorizationPolicyMetadataSchema
+    >
+  >,
+  AssertFalse<
+    IsExact<
+      SheetWorkflowAuthorizationPolicyMetadataFields,
+      Omit<SheetWorkflowAuthorizationPolicyMetadataSchema, "requiredAnyCapabilities">
+    >
+  >,
   AssertFalse<
     IsExact<
       Omit<SheetWorkflowAuthorizationPolicyMetadataFields, "resourceField">,

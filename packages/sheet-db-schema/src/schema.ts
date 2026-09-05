@@ -7,6 +7,9 @@ import {
   configWorkspaceSheetRevision,
   configWorkspaceSheetImportAttempt,
   auditSheetConfiguration,
+  configWorkspaceCheckinMessage,
+  configWorkspaceCheckinMessageMutationReceipt,
+  configWorkspaceCheckinMessageSet,
   configWorkspaceConversation,
   configWorkspaceFeatureFlag,
   configWorkspaceMonitorRole,
@@ -29,6 +32,9 @@ export {
   configWorkspaceSheetRevision,
   configWorkspaceSheetImportAttempt,
   auditSheetConfiguration,
+  configWorkspaceCheckinMessage,
+  configWorkspaceCheckinMessageMutationReceipt,
+  configWorkspaceCheckinMessageSet,
   configWorkspaceConversation,
   configWorkspaceFeatureFlag,
   configWorkspaceMonitorRole,
@@ -59,6 +65,9 @@ export type SheetTables = {
   readonly configWorkspaceSheetRevision: typeof configWorkspaceSheetRevision;
   readonly configWorkspaceSheetImportAttempt: typeof configWorkspaceSheetImportAttempt;
   readonly auditSheetConfiguration: typeof auditSheetConfiguration;
+  readonly configWorkspaceCheckinMessageSet: typeof configWorkspaceCheckinMessageSet;
+  readonly configWorkspaceCheckinMessage: typeof configWorkspaceCheckinMessage;
+  readonly configWorkspaceCheckinMessageMutationReceipt: typeof configWorkspaceCheckinMessageMutationReceipt;
   readonly configWorkspaceMonitorRole: typeof configWorkspaceMonitorRole;
   readonly configWorkspaceFeatureFlag: typeof configWorkspaceFeatureFlag;
   readonly configWorkspaceUpdateAnnouncementDelivery: typeof configWorkspaceUpdateAnnouncementDelivery;
@@ -82,6 +91,9 @@ export const tables: SheetTables = {
   configWorkspaceSheetRevision,
   configWorkspaceSheetImportAttempt,
   auditSheetConfiguration,
+  configWorkspaceCheckinMessageSet,
+  configWorkspaceCheckinMessage,
+  configWorkspaceCheckinMessageMutationReceipt,
   configWorkspaceMonitorRole,
   configWorkspaceFeatureFlag,
   configWorkspaceUpdateAnnouncementDelivery,

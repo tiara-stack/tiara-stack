@@ -253,6 +253,30 @@ describe("Zero OAuth context", () => {
     }),
   );
 
+  it.effect("keeps hourly check-in message reads and writes service-only", () =>
+    Effect.gen(function* () {
+      for (const procedure of [
+        "checkinMessages.getMessageSet",
+        "checkinMessages.saveHourlyMessage",
+      ]) {
+        const exit = yield* Effect.exit(
+          zeroContextFromToken(
+            [procedure],
+            token({
+              accountId: "discord-account-1",
+              scopes: new Set(["zero.read", "zero.mutate"]),
+            }),
+          ),
+        );
+
+        expect(failure(exit)).toMatchObject({
+          _tag: "ZeroDispatchUnauthorizedError",
+          message: "Service procedures require service scope",
+        });
+      }
+    }),
+  );
+
   it.effect("classifies recordWorkspaceUpdateAnnouncementDelivery as a domain mutation", () =>
     Effect.gen(function* () {
       const exit = yield* Effect.exit(

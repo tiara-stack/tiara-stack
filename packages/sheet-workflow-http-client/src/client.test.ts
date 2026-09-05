@@ -10,6 +10,7 @@ import {
 import { makeSheetWorkflowEnqueueClients } from "./apps-script";
 import {
   RolloutGateBaseUrlInvalid,
+  makeSheetWorkflowHttpClients,
   makeRolloutGateHttpClient,
   makeWorkflowInvocationId,
 } from "./index";
@@ -49,6 +50,27 @@ describe("sheet Workflow Contract HTTP clients", () => {
     expect(Object.keys(clients.calculations.recalculateSheet)).toEqual(["enqueue"]);
     expect(clients.calculations.recalculateSheet).not.toHaveProperty("get");
     expect(clients.calculations.recalculateSheet).not.toHaveProperty("list");
+  });
+
+  it("generates load and save clients for hourly check-in messages", () => {
+    const clients = makeSheetWorkflowHttpClients(unusedHttpClient, {
+      baseUrl: "https://example.test",
+    });
+
+    expect(Object.keys(clients.checkinMessages.load)).toEqual(["enqueue", "get", "list"]);
+    expect(Object.keys(clients.checkinMessages.save)).toEqual(["enqueue", "get", "list"]);
+    expect(
+      sheetWorkflowHttpRouteManifest
+        .map(({ path }) => path)
+        .filter((path) => path.includes("checkinMessages")),
+    ).toEqual([
+      "/workflows/checkinMessages.load/v/1/enqueue",
+      "/workflows/checkinMessages.load/v/1/runs/:invocationId/events",
+      "/workflows/checkinMessages.load/v/1/runs/events",
+      "/workflows/checkinMessages.save/v/1/enqueue",
+      "/workflows/checkinMessages.save/v/1/runs/:invocationId/events",
+      "/workflows/checkinMessages.save/v/1/runs/events",
+    ]);
   });
 
   it.effect("submits an Apps Script command with a caller-generated invocation ID", () =>

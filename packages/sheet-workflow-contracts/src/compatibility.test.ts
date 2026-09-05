@@ -3,6 +3,8 @@ import { describe, expect, it } from "@effect/vitest";
 import { DeliveryKey, ResponseReference } from "sheet-bot-api";
 import {
   CheckinsOpen,
+  CheckinMessagesLoad,
+  CheckinMessagesSave,
   CheckinsTestAuto,
   CalculationsRecalculateSheet,
   ConversationsUpdateConfigAndDeliver,
@@ -26,6 +28,53 @@ const messageRef = (messageId: string) => ({
 });
 
 describe("sheet Workflow Contract schema compatibility", () => {
+  it("publishes config-only hourly check-in message load and save values", () => {
+    const binding = { eventStartEpochMs: 1_700_000_000_000, messageSetGeneration: 3 };
+
+    expect(
+      Schema.decodeUnknownSync(CheckinMessagesLoad.input)({
+        workspaceId: "workspace",
+        conversationName: "alpha",
+      }),
+    ).toEqual({ workspaceId: "workspace", conversationName: "alpha" });
+    expect(
+      Schema.decodeUnknownSync(CheckinMessagesLoad.success)({
+        workspaceId: "workspace",
+        conversationId: "channel-1",
+        conversationName: "alpha",
+        binding,
+        messages: [{ hour: 12, template: null, version: 2 }],
+      }),
+    ).toMatchObject({ binding, messages: [{ hour: 12, template: null, version: 2 }] });
+
+    const saveInput = Schema.decodeUnknownSync(CheckinMessagesSave.input)({
+      workspaceId: "workspace",
+      conversationId: "channel-1",
+      binding,
+      hour: 12,
+      template: "  preserve me  ",
+      expectedVersion: 2,
+      responseReference,
+    });
+    expect(saveInput.template).toBe("  preserve me  ");
+    expect(CheckinMessagesLoad.authorizationPolicy.requiredAnyCapabilities).toEqual([
+      "workspace.monitor",
+      "workspace.manage",
+    ]);
+    expect(CheckinMessagesSave.authorizationPolicy.requiredAnyCapabilities).toEqual([
+      "workspace.monitor",
+      "workspace.manage",
+    ]);
+    expect(
+      Schema.decodeUnknownSync(CheckinMessagesSave.declaredFailure)({
+        _tag: "CheckinMessageConflict",
+        kind: "row-version",
+        message: "Refresh before saving",
+        currentVersion: 3,
+      }),
+    ).toMatchObject({ _tag: "CheckinMessageConflict", kind: "row-version", currentVersion: 3 });
+  });
+
   it("preserves the legacy workspace-channel success wire shape", () => {
     const channels = [
       { id: "1", name: "general", type: 0, parentId: null, position: 1 },

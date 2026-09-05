@@ -86,6 +86,40 @@ export const AuditSheetConfigurationRow = Schema.Struct({
 });
 export type AuditSheetConfigurationRow = typeof AuditSheetConfigurationRow.Type;
 
+export const ConfigWorkspaceCheckinMessageSetRow = Schema.Struct({
+  workspaceId: Schema.String,
+  eventStartEpochMs: Schema.Number,
+  messageSetGeneration: Schema.Number,
+  updatedBy: Schema.String,
+  ...auditFields,
+});
+export type ConfigWorkspaceCheckinMessageSetRow = typeof ConfigWorkspaceCheckinMessageSetRow.Type;
+
+export const ConfigWorkspaceCheckinMessageRow = Schema.Struct({
+  workspaceId: Schema.String,
+  messageSetGeneration: Schema.Number,
+  conversationId: Schema.String,
+  hour: Schema.Number,
+  template: Schema.NullOr(Schema.String),
+  version: Schema.Number,
+  createdBy: Schema.String,
+  updatedBy: Schema.String,
+  ...auditFields,
+});
+export type ConfigWorkspaceCheckinMessageRow = typeof ConfigWorkspaceCheckinMessageRow.Type;
+
+export const ConfigWorkspaceCheckinMessageMutationReceiptRow = Schema.Struct({
+  invocationId: Schema.String,
+  actionKey: Schema.String,
+  workspaceId: Schema.String,
+  inputDigest: Schema.String,
+  result: ReadonlyJSONValue,
+  createdBy: Schema.String,
+  ...auditFields,
+});
+export type ConfigWorkspaceCheckinMessageMutationReceiptRow =
+  typeof ConfigWorkspaceCheckinMessageMutationReceiptRow.Type;
+
 export const ConfigWorkspaceMonitorRoleRow = Schema.Struct({
   workspaceId: Schema.String,
   roleId: Schema.String,

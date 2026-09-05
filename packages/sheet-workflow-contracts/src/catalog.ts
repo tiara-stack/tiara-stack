@@ -23,6 +23,7 @@ type AuthorizationPolicyUserRuleInput =
 type AuthorizationPolicyInput = {
   readonly principalKinds: ReadonlyArray<SheetWorkflowPrincipalKind>;
   readonly requiredCapabilities: ReadonlyArray<SheetWorkflowCapability>;
+  readonly requiredAnyCapabilities?: ReadonlyArray<SheetWorkflowCapability>;
   readonly resource: SheetWorkflowAuthorizationResource;
   readonly resourceField?: string;
   readonly serviceRule?: string;
@@ -36,6 +37,7 @@ const policy = (
   resource: SheetWorkflowAuthorizationResource,
   options?: {
     readonly resourceField?: string;
+    readonly requiredAnyCapabilities?: ReadonlyArray<SheetWorkflowCapability>;
     readonly serviceRule?: string;
   } & AuthorizationPolicyUserRuleInput,
 ) => ({
@@ -83,6 +85,7 @@ const interactive = contractKind(Failures.InteractiveDeclaredFailure);
 const autonomous = contractKind(Failures.AutonomousDeclaredFailure);
 const calculation = contractKind(Failures.CalculationDeclaredFailure);
 const sheetSnapshot = contractKind(Failures.SheetSnapshotDeclaredFailure);
+const checkinMessages = contractKind(Failures.CheckinMessagesDeclaredFailure);
 
 export const DiscordLoadProfile = dataAcquisition(
   "discord.loadProfile",
@@ -185,6 +188,26 @@ export const SchedulesLoadWorkspace = dataAcquisition(
   Values.SchedulesLoadWorkspaceSuccess,
   policy(["user"], ["workspace.member"], "workspace", {
     resourceField: "workspaceId",
+  }),
+);
+
+export const CheckinMessagesLoad = checkinMessages(
+  "checkinMessages.load",
+  Values.CheckinMessagesLoadInput,
+  Values.CheckinMessagesLoadSuccess,
+  policy(["user"], [], "workspace", {
+    resourceField: "workspaceId",
+    requiredAnyCapabilities: ["workspace.monitor", "workspace.manage"],
+  }),
+);
+
+export const CheckinMessagesSave = checkinMessages(
+  "checkinMessages.save",
+  Values.CheckinMessagesSaveInput,
+  Values.CheckinMessagesSaveSuccess,
+  policy(["user"], [], "workspace", {
+    resourceField: "workspaceId",
+    requiredAnyCapabilities: ["workspace.monitor", "workspace.manage"],
   }),
 );
 
@@ -496,6 +519,10 @@ export const SheetWorkflowContracts = Object.freeze({
     loadWorkspace: SchedulesLoadWorkspace,
     deliverUserSchedule: SchedulesDeliverUserSchedule,
   }),
+  checkinMessages: Object.freeze({
+    load: CheckinMessagesLoad,
+    save: CheckinMessagesSave,
+  }),
   notifications: Object.freeze({
     loadSupportedClients: NotificationsLoadSupportedClients,
   }),
@@ -559,6 +586,8 @@ export const SheetWorkflowContractCatalog = defineWorkflowContractCatalog(
   SheetConfigurationRollback,
   SheetConfigurationDiscardDraft,
   SchedulesLoadWorkspace,
+  CheckinMessagesLoad,
+  CheckinMessagesSave,
   NotificationsLoadSupportedClients,
   CheckinsOpen,
   CheckinsTestAuto,

@@ -64,6 +64,21 @@ export const InteractiveDeclaredFailure = Schema.Union([
 ]);
 export type InteractiveDeclaredFailure = Schema.Schema.Type<typeof InteractiveDeclaredFailure>;
 
+export const CheckinMessageConflict = Schema.TaggedStruct("CheckinMessageConflict", {
+  kind: Schema.Literals(["event-binding", "row-version", "replayed-input"]),
+  message: Schema.String,
+  currentVersion: Schema.optional(Schema.Int),
+});
+export type CheckinMessageConflict = Schema.Schema.Type<typeof CheckinMessageConflict>;
+
+export const CheckinMessagesDeclaredFailure = Schema.Union([
+  InteractiveDeclaredFailure,
+  CheckinMessageConflict,
+]);
+export type CheckinMessagesDeclaredFailure = Schema.Schema.Type<
+  typeof CheckinMessagesDeclaredFailure
+>;
+
 export const AutonomousDeclaredFailure = Schema.Union([
   AuthorizationRevoked,
   InvalidRequest,

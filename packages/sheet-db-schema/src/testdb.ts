@@ -30,6 +30,9 @@ import {
   configWorkspaceSheetRevision,
   configWorkspaceSheetImportAttempt,
   auditSheetConfiguration,
+  configWorkspaceCheckinMessage,
+  configWorkspaceCheckinMessageMutationReceipt,
+  configWorkspaceCheckinMessageSet,
   configWorkspaceConversation,
   configWorkspaceFeatureFlag,
   configWorkspaceMonitorRole,
@@ -60,6 +63,15 @@ export interface SheetSeeds {
     Insert<typeof configWorkspaceSheetImportAttempt>
   >;
   readonly auditSheetConfiguration?: ReadonlyArray<Insert<typeof auditSheetConfiguration>>;
+  readonly configWorkspaceCheckinMessageSet?: ReadonlyArray<
+    Insert<typeof configWorkspaceCheckinMessageSet>
+  >;
+  readonly configWorkspaceCheckinMessage?: ReadonlyArray<
+    Insert<typeof configWorkspaceCheckinMessage>
+  >;
+  readonly configWorkspaceCheckinMessageMutationReceipt?: ReadonlyArray<
+    Insert<typeof configWorkspaceCheckinMessageMutationReceipt>
+  >;
   readonly configWorkspaceConversation?: ReadonlyArray<Insert<typeof configWorkspaceConversation>>;
   readonly configWorkspaceFeatureFlag?: ReadonlyArray<Insert<typeof configWorkspaceFeatureFlag>>;
   readonly configWorkspaceMonitorRole?: ReadonlyArray<Insert<typeof configWorkspaceMonitorRole>>;
@@ -86,6 +98,11 @@ export interface SheetRows {
   readonly configWorkspaceSheetRevision: Row<typeof configWorkspaceSheetRevision>;
   readonly configWorkspaceSheetImportAttempt: Row<typeof configWorkspaceSheetImportAttempt>;
   readonly auditSheetConfiguration: Row<typeof auditSheetConfiguration>;
+  readonly configWorkspaceCheckinMessageSet: Row<typeof configWorkspaceCheckinMessageSet>;
+  readonly configWorkspaceCheckinMessage: Row<typeof configWorkspaceCheckinMessage>;
+  readonly configWorkspaceCheckinMessageMutationReceipt: Row<
+    typeof configWorkspaceCheckinMessageMutationReceipt
+  >;
   readonly configWorkspaceConversation: Row<typeof configWorkspaceConversation>;
   readonly configWorkspaceFeatureFlag: Row<typeof configWorkspaceFeatureFlag>;
   readonly configWorkspaceMonitorRole: Row<typeof configWorkspaceMonitorRole>;

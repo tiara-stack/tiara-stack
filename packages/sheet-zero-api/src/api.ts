@@ -1,5 +1,6 @@
 import { make, type ZeroApi, ZeroFunctionReference } from "typhoon-zero/zeroApi";
 import type { Schema as ZeroSchema } from "./schema";
+import { makeCheckinMessagesGroup, type CheckinMessagesGroup } from "./api/checkinMessages";
 import { makeMessageCheckinGroup, type MessageCheckinGroup } from "./api/messageCheckin";
 import { makeMessageRoomOrderGroup, type MessageRoomOrderGroup } from "./api/messageRoomOrder";
 import { makeMessageSlotGroup, type MessageSlotGroup } from "./api/messageSlot";
@@ -29,6 +30,7 @@ type SheetZeroApi<SuccessSchemas extends SheetZeroApiSuccessSchemas> = ZeroApi<
   | UserConfigGroup<SuccessSchemas>
   | WorkspaceConfigGroup<SuccessSchemas>
   | SheetConfigurationGroup<SuccessSchemas>
+  | CheckinMessagesGroup<SuccessSchemas>
   | MessageCheckinGroup<SuccessSchemas>
   | MessageRoomOrderGroup<SuccessSchemas>
   | MessageSlotGroup<SuccessSchemas>
@@ -43,6 +45,7 @@ const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSu
     .add(makeUserConfigGroup(success))
     .add(makeWorkspaceConfigGroup(success))
     .add(makeSheetConfigurationGroup(success))
+    .add(makeCheckinMessagesGroup(success))
     .add(makeMessageCheckinGroup(success))
     .add(makeMessageRoomOrderGroup(success))
     .add(makeMessageSlotGroup(success))

@@ -65,6 +65,14 @@ const expectedCatalog = {
     "mutator:service:discardSheetConfigurationDraft",
     "mutator:service:upsertSheetConfigurationImportAttempt",
   ],
+  checkinMessages: [
+    "query:service:getMessageSet",
+    "query:service:getHourlyMessage",
+    "query:service:listHourlyMessages",
+    "query:service:getSaveReceipt",
+    "mutator:service:reconcileMessageSet",
+    "mutator:service:saveHourlyMessage",
+  ],
   messageCheckin: [
     "query:public:getMessageCheckinData",
     "query:public:getMessageCheckinMembers",
@@ -147,11 +155,11 @@ const catalogNames = (
     .sort();
 
 describe("Sheet Zero API visibility", () => {
-  it("preserves the exhaustive 80-procedure catalog and visibility split", () => {
+  it("preserves the exhaustive 86-procedure catalog and visibility split", () => {
     expect(projectCatalog()).toEqual(expectedCatalog);
-    expect(catalog).toHaveLength(80);
+    expect(catalog).toHaveLength(86);
     expect(catalog.filter(({ visibility }) => visibility === "public")).toHaveLength(67);
-    expect(catalog.filter(({ visibility }) => visibility === "service")).toHaveLength(10);
+    expect(catalog.filter(({ visibility }) => visibility === "service")).toHaveLength(16);
     expect(catalog.filter(({ visibility }) => visibility === "internal")).toHaveLength(3);
   });
 

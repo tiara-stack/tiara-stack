@@ -8,6 +8,9 @@ import {
   ConfigWorkspaceSheetImportAttemptRow,
   ConfigWorkspaceSheetRow,
   AuditSheetConfigurationRow,
+  ConfigWorkspaceCheckinMessageMutationReceiptRow,
+  ConfigWorkspaceCheckinMessageRow,
+  ConfigWorkspaceCheckinMessageSetRow,
   ConfigWorkspaceTeamSubmissionChannelRow,
   ConfigWorkspaceUpdateAnnouncementDeliveryRow,
   MessageCheckinMemberRow,
@@ -32,6 +35,9 @@ type ZeroTableName =
   | "configWorkspaceSheetRevision"
   | "configWorkspaceSheetImportAttempt"
   | "auditSheetConfiguration"
+  | "configWorkspaceCheckinMessageSet"
+  | "configWorkspaceCheckinMessage"
+  | "configWorkspaceCheckinMessageMutationReceipt"
   | "configWorkspaceConversation"
   | "configWorkspaceFeatureFlag"
   | "configWorkspaceMonitorRole"
@@ -82,6 +88,33 @@ export const zeroTableAccess = {
     builder.auditSheetConfiguration,
     {
       primaryKey: ["eventId"],
+      softDelete: "deletedAt",
+      timestamps: timestampOptions,
+    },
+  ),
+  configWorkspaceCheckinMessageSet: defineZeroTableAccess(
+    { json: ConfigWorkspaceCheckinMessageSetRow },
+    builder.configWorkspaceCheckinMessageSet,
+    {
+      primaryKey: ["workspaceId"],
+      softDelete: "deletedAt",
+      timestamps: timestampOptions,
+    },
+  ),
+  configWorkspaceCheckinMessage: defineZeroTableAccess(
+    { json: ConfigWorkspaceCheckinMessageRow },
+    builder.configWorkspaceCheckinMessage,
+    {
+      primaryKey: ["workspaceId", "messageSetGeneration", "conversationId", "hour"],
+      softDelete: "deletedAt",
+      timestamps: timestampOptions,
+    },
+  ),
+  configWorkspaceCheckinMessageMutationReceipt: defineZeroTableAccess(
+    { json: ConfigWorkspaceCheckinMessageMutationReceiptRow },
+    builder.configWorkspaceCheckinMessageMutationReceipt,
+    {
+      primaryKey: ["invocationId", "actionKey"],
       softDelete: "deletedAt",
       timestamps: timestampOptions,
     },

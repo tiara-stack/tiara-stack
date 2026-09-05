@@ -18,6 +18,7 @@ import {
 type PgModel = Model.Any & Omit<EffectSqlTable<"postgresql">, "name">;
 const asPgModel = <const T extends PgModel>(model: T) => model;
 
+// fallow-ignore-next-line code-duplication
 const createdAt = () =>
   pg.timestamp("created_at", { withTimezone: true }).notNull().generatedByApp();
 
@@ -202,6 +203,69 @@ class ConfigWorkspaceConversation extends pg.Class<ConfigWorkspaceConversation>(
   primaryKey: ["workspaceId", "conversationId"],
   indexes: [
     pg.uniqueIndex("config_workspace_conversation_workspace_id_name_idx").on("workspaceId", "name"),
+  ],
+}) {}
+
+class ConfigWorkspaceCheckinMessageSet extends pg.Class<ConfigWorkspaceCheckinMessageSet>(
+  "ConfigWorkspaceCheckinMessageSet",
+)({
+  table: "config_workspace_checkin_message_set",
+  fields: {
+    workspaceId: pg.varchar("workspace_id").primaryKey(),
+    eventStartEpochMs: pg.timestamp("event_start", { withTimezone: true }).notNull(),
+    messageSetGeneration: pg.integer("message_set_generation").notNull(),
+    updatedBy: pg.varchar("updated_by").notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+    deletedAt: deletedAt(),
+  },
+}) {}
+
+class ConfigWorkspaceCheckinMessage extends pg.Class<ConfigWorkspaceCheckinMessage>(
+  "ConfigWorkspaceCheckinMessage",
+)({
+  table: "config_workspace_checkin_message",
+  fields: {
+    workspaceId: pg.varchar("workspace_id").notNull(),
+    messageSetGeneration: pg.integer("message_set_generation").notNull(),
+    conversationId: pg.varchar("conversation_id").notNull(),
+    hour: pg.integer("hour").notNull(),
+    template: pg.text("template"),
+    version: pg.integer("version").notNull(),
+    createdBy: pg.varchar("created_by").notNull(),
+    updatedBy: pg.varchar("updated_by").notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+    deletedAt: deletedAt(),
+  },
+  primaryKey: ["workspaceId", "messageSetGeneration", "conversationId", "hour"],
+  indexes: [
+    pg
+      .index("config_workspace_checkin_message_active_set_idx")
+      .on("workspaceId", "messageSetGeneration", "conversationId"),
+  ],
+}) {}
+
+class ConfigWorkspaceCheckinMessageMutationReceipt extends pg.Class<ConfigWorkspaceCheckinMessageMutationReceipt>(
+  "ConfigWorkspaceCheckinMessageMutationReceipt",
+)({
+  table: "config_workspace_checkin_message_mutation_receipt",
+  fields: {
+    invocationId: pg.varchar("invocation_id").notNull(),
+    actionKey: pg.varchar("action_key").notNull(),
+    workspaceId: pg.varchar("workspace_id").notNull(),
+    inputDigest: pg.varchar("input_digest").notNull(),
+    result: pg.jsonb("result").notNull().decodeTo(ReadonlyJSONValue),
+    createdBy: pg.varchar("created_by").notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+    deletedAt: deletedAt(),
+  },
+  primaryKey: ["invocationId", "actionKey"],
+  indexes: [
+    pg
+      .index("config_workspace_checkin_message_receipt_workspace_idx")
+      .on("workspaceId", "createdAt"),
   ],
 }) {}
 
@@ -404,6 +468,11 @@ export const configWorkspaceUpdateAnnouncementDelivery = asPgModel(
 );
 export const configUserPlatform = asPgModel(ConfigUserPlatform);
 export const configWorkspaceConversation = asPgModel(ConfigWorkspaceConversation);
+export const configWorkspaceCheckinMessageSet = asPgModel(ConfigWorkspaceCheckinMessageSet);
+export const configWorkspaceCheckinMessage = asPgModel(ConfigWorkspaceCheckinMessage);
+export const configWorkspaceCheckinMessageMutationReceipt = asPgModel(
+  ConfigWorkspaceCheckinMessageMutationReceipt,
+);
 export const configWorkspaceTeamSubmissionChannel = asPgModel(ConfigWorkspaceTeamSubmissionChannel);
 export const messageSlot = asPgModel(MessageSlot);
 export const messageCheckin = asPgModel(MessageCheckin);
