@@ -14,6 +14,7 @@ import { slotCommandLayer } from "./commands/slot";
 import { statusCommandLayer } from "./commands/status";
 import { teamCommandLayer } from "./commands/team";
 import { guildWelcomeEventLayer } from "./events/guildWelcome";
+import { slotStickyEventLayer } from "./events/slotSticky";
 import { teamSubmissionMonitorEventLayer } from "./events/teamSubmissionMonitor";
 import { updateAnnouncementsEventLayer } from "./events/updateAnnouncements";
 import { httpLayer } from "./http";
@@ -38,6 +39,7 @@ const botLayer = Layer.mergeAll(
   statusCommandLayer,
   teamCommandLayer,
   guildWelcomeEventLayer,
+  slotStickyEventLayer,
   teamSubmissionMonitorEventLayer,
   updateAnnouncementsEventLayer,
   checkinButtonLayer,

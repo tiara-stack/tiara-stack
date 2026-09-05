@@ -148,9 +148,9 @@ export type ConfigWorkspaceTeamSubmissionChannelRow =
 export const MessageSlotRow = Schema.Struct({
   ...messageKeyFields,
   day: Schema.Number,
-  workspaceId: Schema.NullOr(Schema.String),
-  conversationId: Schema.NullOr(Schema.String),
-  createdByUserId: Schema.NullOr(Schema.String),
+  workspaceId: Schema.String,
+  conversationId: Schema.String,
+  createdByUserId: Schema.String,
   ...auditFields,
 });
 export type MessageSlotRow = typeof MessageSlotRow.Type;

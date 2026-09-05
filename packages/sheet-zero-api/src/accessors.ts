@@ -169,7 +169,7 @@ export const zeroTableAccess = {
     },
   ),
   messageSlot: defineZeroTableAccess({ json: MessageSlotRow }, builder.messageSlot, {
-    primaryKey: ["clientPlatform", "clientId", "messageId"],
+    primaryKey: ["clientPlatform", "clientId", "workspaceId", "conversationId"],
     softDelete: "deletedAt",
     timestamps: timestampOptions,
   }),

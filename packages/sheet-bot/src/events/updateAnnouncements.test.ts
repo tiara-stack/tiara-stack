@@ -21,6 +21,9 @@ describe("makeUpdateAnnouncementWorkflowRequests", () => {
     expect(pathPrefixedAnnouncements[4]?.description).toContain(
       "https://host/sheetweb/docs/sheetweb/navigation",
     );
+    expect(pathPrefixedAnnouncements[5]?.description).toContain(
+      "https://host/sheetweb/docs/tiarabot/monitors/post-schedule",
+    );
   });
 
   it("builds stable workflow requests for announcements after the bot joined", () => {
@@ -80,6 +83,16 @@ describe("makeUpdateAnnouncementWorkflowRequests", () => {
         announcement: {
           ...updateAnnouncements[4],
           publishedAt: new Date(updateAnnouncements[4].publishedAt),
+        },
+      },
+      {
+        workspaceId: "guild-1",
+        workspaceName: "Guild One",
+        joinedAt: new Date("2026-06-04T16:59:59.999Z"),
+        systemConversationId: "system-channel",
+        announcement: {
+          ...updateAnnouncements[5],
+          publishedAt: new Date(updateAnnouncements[5].publishedAt),
         },
       },
     ]);

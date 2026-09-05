@@ -79,6 +79,13 @@ export const makeUpdateAnnouncements = (sheetWebBaseUrl: URL = defaultSheetWebBa
       description: `SheetWeb's dashboard navigation is now organized around your current server. Use the named server chooser or the server rail to switch servers, SCHEDULE for schedule navigation, and SERVER SETTINGS for server administration. Sheet mappings are grouped with server administration, while personal notification settings live under Settings. Read the TiaraDocs guide: ${makeSheetWebDocumentationUrl(sheetWebBaseUrl, "docs/sheetweb/navigation")}`,
       color: 0x33ccbb,
     },
+    {
+      id: "sticky-slot-buttons-2026-09-05",
+      publishedAt: "2026-09-05T00:00:00.000Z",
+      title: "Sticky slot buttons",
+      description: `The /slot button now stays easy to reach in its configured channel. TiaraBot reposts it after each new human message to keep it at or near the bottom, while each press still refreshes the current open slots. Read the TiaraDocs guide: ${makeSheetWebDocumentationUrl(sheetWebBaseUrl, "docs/tiarabot/monitors/post-schedule")}`,
+      color: 0x33ccbb,
+    },
   ] as const satisfies ReadonlyArray<UpdateAnnouncementSource>;
 
 export const updateAnnouncements = makeUpdateAnnouncements();

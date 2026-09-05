@@ -234,14 +234,17 @@ class MessageSlot extends pg.Class<MessageSlot>("MessageSlot")({
     clientId: pg.varchar("client_id").notNull(),
     messageId: pg.varchar("message_id").notNull(),
     day: pg.integer("day").notNull(),
-    workspaceId: pg.varchar("workspace_id"),
-    conversationId: pg.varchar("conversation_id"),
-    createdByUserId: pg.varchar("created_by_user_id"),
+    workspaceId: pg.varchar("workspace_id").notNull(),
+    conversationId: pg.varchar("conversation_id").notNull(),
+    createdByUserId: pg.varchar("created_by_user_id").notNull(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
     deletedAt: deletedAt(),
   },
-  primaryKey: ["clientPlatform", "clientId", "messageId"],
+  primaryKey: ["clientPlatform", "clientId", "workspaceId", "conversationId"],
+  indexes: [
+    pg.uniqueIndex("message_slot_client_message_idx").on("clientPlatform", "clientId", "messageId"),
+  ],
 }) {}
 
 class MessageCheckin extends pg.Class<MessageCheckin>("MessageCheckin")({

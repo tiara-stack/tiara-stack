@@ -21,6 +21,6 @@ Use `/schedule list day:<day> user:<person>` for an ephemeral Fill/Overfill/Stan
 ## Publish current openings
 
 - `/slot list day:<day>` returns Open Slots and Filled Slots.
-- `/slot button day:<day>` posts a persistent **Open slots** button. Each press refreshes the current open-slot response.
+- `/slot button day:<day>` posts a persistent **Open slots** button. It is reposted after each new human message to keep it at or near the bottom of the channel, so it remains easy to reach. Each press refreshes the current open-slot response.
 
 These are read-only views. Use the returned information with your server’s schedule-sign-up procedure. Some servers ping earlier or later. TiaraBot does not impose that timing.

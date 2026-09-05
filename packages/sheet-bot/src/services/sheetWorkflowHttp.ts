@@ -113,6 +113,13 @@ export type SlotsPublishButtonReference = Effect.Success<ReturnType<SlotsPublish
 // fallow-ignore-next-line unused-type
 export type SlotsPublishButtonEnqueueError = Effect.Error<ReturnType<SlotsPublishButtonEnqueue>>;
 
+export type SlotsRefreshButtonEnqueue =
+  SheetWorkflowHttpClients["slots"]["refreshButton"]["enqueue"];
+export type SlotsRefreshButtonInput = Parameters<SlotsRefreshButtonEnqueue>[0];
+export type SlotsRefreshButtonReference = Effect.Success<ReturnType<SlotsRefreshButtonEnqueue>>;
+// fallow-ignore-next-line unused-type
+export type SlotsRefreshButtonEnqueueError = Effect.Error<ReturnType<SlotsRefreshButtonEnqueue>>;
+
 export type SlotsOpenEnqueue = SheetWorkflowHttpClients["slots"]["open"]["enqueue"];
 export type SlotsOpenInput = Parameters<SlotsOpenEnqueue>[0];
 export type SlotsOpenReference = Effect.Success<ReturnType<SlotsOpenEnqueue>>;
@@ -539,6 +546,7 @@ export interface SheetWorkflowHttpClientShape {
   readonly enqueueRoomOrdersPinTentative: RoomOrdersPinTentativeEnqueue;
   readonly enqueueSlotsDeliverList: SlotsDeliverListEnqueue;
   readonly enqueueSlotsPublishButton: SlotsPublishButtonEnqueue;
+  readonly enqueueSlotsRefreshButton: SlotsRefreshButtonEnqueue;
   readonly enqueueSlotsOpen: SlotsOpenEnqueue;
   readonly enqueueMembersKick: MembersKickEnqueue;
   readonly enqueuePreferencesDeliverStatus: PreferencesDeliverStatusEnqueue;
@@ -666,6 +674,7 @@ export class SheetWorkflowHttpClient extends Context.Service<
       enqueueRoomOrdersPinTentative: clients.roomOrders.pinTentative.enqueue,
       enqueueSlotsDeliverList: clients.slots.deliverList.enqueue,
       enqueueSlotsPublishButton: clients.slots.publishButton.enqueue,
+      enqueueSlotsRefreshButton: serviceClients.slots.refreshButton.enqueue,
       enqueueSlotsOpen: clients.slots.open.enqueue,
       enqueueMembersKick: clients.members.kick.enqueue,
       enqueuePreferencesDeliverStatus: clients.preferences.deliverStatus.enqueue,
@@ -840,6 +849,12 @@ export const enqueueSlotsPublishButtonWorkflow = (
   input: SlotsPublishButtonInput,
   options?: { readonly invocationId?: SlotsPublishButtonReference["invocationId"] },
 ) => enqueueWorkflow(client.enqueueSlotsPublishButton, input, options);
+
+export const enqueueSlotsRefreshButtonWorkflow = (
+  client: Pick<SheetWorkflowHttpClientShape, "enqueueSlotsRefreshButton">,
+  input: SlotsRefreshButtonInput,
+  options?: { readonly invocationId?: SlotsRefreshButtonReference["invocationId"] },
+) => enqueueWorkflow(client.enqueueSlotsRefreshButton, input, options);
 
 export const enqueueSlotsOpenWorkflow = (
   client: Pick<SheetWorkflowHttpClientShape, "enqueueSlotsOpen">,

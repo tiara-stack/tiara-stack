@@ -360,9 +360,9 @@ describe("PGlite Sheet Zero contract", () => {
             {
               ...messageKey,
               day: 1,
-              workspaceId: null,
-              conversationId: null,
-              createdByUserId: null,
+              workspaceId: "workspace-1",
+              conversationId: "conversation-1",
+              createdByUserId: "user-1",
               createdAt: 100,
               updatedAt: 200,
               deletedAt: 300,
@@ -413,9 +413,9 @@ describe("PGlite Sheet Zero contract", () => {
         yield* client.messageSlot.upsertMessageSlotData({
           ...messageKey,
           day: 2,
-          workspaceId: null,
-          conversationId: null,
-          createdByUserId: null,
+          workspaceId: "workspace-1",
+          conversationId: "conversation-1",
+          createdByUserId: "user-1",
         });
         yield* client.messageCheckin.upsertMessageCheckinData({
           ...messageKey,

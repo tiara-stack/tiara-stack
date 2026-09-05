@@ -11,6 +11,7 @@ import {
   Predicate,
   Redacted,
   Schedule,
+  Schema,
   Scope,
   Stream,
 } from "effect";
@@ -32,10 +33,23 @@ import type {
   MessageCheckinRow,
   MessageRoomOrderEntryRow,
   MessageRoomOrderRow,
-  MessageSlotRow,
   MessageTeamSubmissionRow,
 } from "sheet-zero-api/rows";
 import { ZeroClient } from "typhoon-zero/client";
+
+export const MessageSlotRow = Schema.Struct({
+  clientPlatform: Schema.String,
+  clientId: Schema.String,
+  messageId: Schema.String,
+  day: Schema.Number,
+  workspaceId: Schema.String,
+  conversationId: Schema.String,
+  createdByUserId: Schema.String,
+  createdAt: Schema.Number,
+  updatedAt: Schema.Number,
+  deletedAt: Schema.NullOr(Schema.Number),
+});
+export type MessageSlotRow = typeof MessageSlotRow.Type;
 
 type GroupedSheetClient = SheetServiceClient["grouped"];
 
@@ -326,6 +340,11 @@ export interface TrustedSheetPersistenceShape {
       "getMessageSlotData",
       Option.Option<MessageSlotRow>
     >;
+    readonly getMessageSlotDataByConversation: ClientMethodWithSuccess<
+      "messageSlot",
+      "getMessageSlotDataByConversation",
+      Option.Option<MessageSlotRow>
+    >;
     readonly upsertMessageSlotData: ClientMutation<"messageSlot", "upsertMessageSlotData">;
   };
   readonly teamSubmissionState: {
@@ -421,7 +440,7 @@ export const trustedSheetPersistenceCatalog = {
     "persistMessageRoomOrder",
     "bindMessageRoomOrderIfAbsent",
   ],
-  slotState: ["getMessageSlotData", "upsertMessageSlotData"],
+  slotState: ["getMessageSlotData", "getMessageSlotDataByConversation", "upsertMessageSlotData"],
   teamSubmissionState: [
     "getMessageTeamSubmission",
     "getMessageTeamSubmissionByDiscordMessage",

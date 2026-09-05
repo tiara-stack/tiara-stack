@@ -3,6 +3,7 @@ import type { AnyWorkflowContract } from "effect-zero-workflow/contract";
 import { WorkflowInvocationUnauthorized } from "effect-zero-workflow/contract/transport";
 import { EffectivePrincipal } from "sheet-auth/identity";
 import {
+  AutonomousDeclaredFailure,
   CheckinsRespond,
   InteractiveDeclaredFailure,
   RoomOrdersCreate,
@@ -177,6 +178,15 @@ export const preserveInteractiveDeclaredFailure = <A, R>(
     ),
   );
 
+export const preserveAutonomousDeclaredFailure = <A, R>(
+  effect: Effect.Effect<A, unknown, R>,
+): Effect.Effect<A, AutonomousDeclaredFailure, R> =>
+  effect.pipe(
+    Effect.catch((error) =>
+      Schema.is(AutonomousDeclaredFailure)(error) ? Effect.fail(error) : Effect.die(error),
+    ),
+  );
+
 export const authorizeCheckinRespondWorkflow = (execution: {
   readonly principal: typeof EffectivePrincipal.Type;
   readonly input: unknown;
@@ -265,6 +275,22 @@ export const authorizeRoomOrdersPinTentativeWorkflow = (execution: {
     ),
   );
 
+const authorizeWorkflow = <Failure>(
+  contract: AnyWorkflowContract,
+  execution: {
+    readonly principal: typeof EffectivePrincipal.Type;
+    readonly input: unknown;
+  },
+  onUnauthorized: (contract: AnyWorkflowContract) => Failure,
+) =>
+  Effect.flatMap(ReadOnlyWorkflowAuthorization, (authorization) =>
+    authorization.authorize(contract, execution.principal, execution.input),
+  ).pipe(
+    Effect.mapError((error) =>
+      isWorkflowInvocationUnauthorized(error) ? onUnauthorized(contract) : error,
+    ),
+  );
+
 export const authorizeInteractiveWorkflow = (
   contract: AnyWorkflowContract,
   execution: {
@@ -272,15 +298,21 @@ export const authorizeInteractiveWorkflow = (
     readonly input: unknown;
   },
 ) =>
-  Effect.flatMap(ReadOnlyWorkflowAuthorization, (authorization) =>
-    authorization.authorize(contract, execution.principal, execution.input),
-  ).pipe(
-    Effect.mapError((error) =>
-      isWorkflowInvocationUnauthorized(error)
-        ? interactiveAuthorizationRevoked(contract.authorizationPolicy.policy)
-        : error,
-    ),
+  authorizeWorkflow(contract, execution, ({ authorizationPolicy }) =>
+    interactiveAuthorizationRevoked(authorizationPolicy.policy),
   );
+
+export const authorizeAutonomousWorkflow = (
+  contract: AnyWorkflowContract,
+  execution: {
+    readonly principal: typeof EffectivePrincipal.Type;
+    readonly input: unknown;
+  },
+) =>
+  authorizeWorkflow(contract, execution, ({ authorizationPolicy }) => ({
+    _tag: "AuthorizationRevoked" as const,
+    policy: authorizationPolicy.policy,
+  }));
 
 export const authorizeSlotOpenWorkflow = (execution: {
   readonly principal: typeof EffectivePrincipal.Type;

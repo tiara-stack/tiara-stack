@@ -280,6 +280,16 @@ export const SlotsPublishButton = interactive(
   }),
 );
 
+export const SlotsRefreshButton = autonomous(
+  "slots.refreshButton",
+  Values.SlotsRefreshButtonInput,
+  Values.SlotsRefreshButtonSuccess,
+  policy(["service"], ["service.allowed"], "workspace", {
+    resourceField: "workspaceId",
+    serviceRule: "sheet-bot.gateway",
+  }),
+);
+
 export const SlotsOpen = interactive(
   "slots.open",
   Values.SlotsOpenInput,
@@ -503,6 +513,7 @@ export const SheetWorkflowContracts = Object.freeze({
   slots: Object.freeze({
     deliverList: SlotsDeliverList,
     publishButton: SlotsPublishButton,
+    refreshButton: SlotsRefreshButton,
     open: SlotsOpen,
   }),
   members: Object.freeze({ kick: MembersKick }),
@@ -558,6 +569,7 @@ export const SheetWorkflowContractCatalog = defineWorkflowContractCatalog(
   RoomOrdersPinTentative,
   SlotsDeliverList,
   SlotsPublishButton,
+  SlotsRefreshButton,
   SlotsOpen,
   MembersKick,
   PreferencesDeliverStatus,

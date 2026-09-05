@@ -212,9 +212,9 @@ const cases = [
     value: {
       ...messageKey,
       day: 2,
-      workspaceId: null,
-      conversationId: null,
-      createdByUserId: null,
+      workspaceId: "workspace-1",
+      conversationId: "conversation-1",
+      createdByUserId: "user-1",
       ...audit,
     },
   },

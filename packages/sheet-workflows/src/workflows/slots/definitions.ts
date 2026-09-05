@@ -10,6 +10,7 @@ import {
 import { workflowContractKey } from "effect-zero-workflow/contract";
 import { DeleteMessageReceipt, RespondReceipt, SendMessageReceipt } from "sheet-bot-api";
 import { InteractiveDeclaredFailure, SlotsPublishButton } from "sheet-workflow-contracts";
+import { MessageSlotRow } from "sheet-zero-server/persistence";
 import {
   decodeWorkflowContractInputOrDie,
   workflowContractExecutionSchema,
@@ -22,8 +23,14 @@ import {
 import { slotSheetWorkflowDefinitionVersion } from "./catalog";
 import { makeSlotsDeliverListDefinition } from "./slotListDefinition";
 import { makeSlotsOpenDefinition } from "./slotOpenDefinition";
+import { loadCurrentSlotForWorkflow } from "./slotActionHelpers";
 import { makeSlotDeliveryKey } from "./keys";
-import { SlotBindingOutcome, SlotWorkflowOperations } from "./operations";
+import {
+  SlotBindingOutcome,
+  SlotReplacementCleanupOutcome,
+  SlotWorkflowOperations,
+} from "./operations";
+import { slotRefreshWorkflowDefinition } from "./slotRefreshDefinition";
 
 export { makeSlotDeliveryKey } from "./keys";
 
@@ -34,8 +41,12 @@ class SlotBindingFailed extends Data.TaggedError("SlotBindingFailed")<{
 const name = workflowContractKey(SlotsPublishButton);
 const actionName = SlotsPublishButton.identity;
 const executionSchema = workflowContractExecutionSchema(SlotsPublishButton);
-const publishedExecutionSchema = Schema.Struct({
+const loadedExecutionSchema = Schema.Struct({
   ...executionSchema.fields,
+  currentSlot: Schema.NullOr(MessageSlotRow),
+});
+const publishedExecutionSchema = Schema.Struct({
+  ...loadedExecutionSchema.fields,
   creatorAccountId: Schema.String,
   published: SendMessageReceipt,
 });
@@ -44,12 +55,32 @@ const cleanupExecutionSchema = Schema.Struct({
   binding: SlotBindingOutcome,
 });
 
+const SlotsPublishButtonLoadAction = makeAction({
+  name: `${actionName}.load-current-slot`,
+  version: slotSheetWorkflowDefinitionVersion,
+  shardGroup: "dispatch",
+  input: executionSchema,
+  success: Schema.NullOr(MessageSlotRow),
+  error: InteractiveDeclaredFailure,
+  idempotencyKey: ({ invocationId }) => invocationId,
+  execute: (execution) =>
+    loadCurrentSlotForWorkflow(
+      authorize(SlotsPublishButton, execution),
+      decodeWorkflowContractInputOrDie(SlotsPublishButton, execution.input),
+      preserveDeclaredFailure,
+    ),
+});
+
 const SlotsPublishButtonPublishAction = makeAction({
   name: `${actionName}.publish-button`,
   version: slotSheetWorkflowDefinitionVersion,
   shardGroup: "dispatch",
-  input: executionSchema,
-  success: Schema.Struct({ creatorAccountId: Schema.String, published: SendMessageReceipt }),
+  input: loadedExecutionSchema,
+  success: Schema.Struct({
+    currentSlot: Schema.NullOr(MessageSlotRow),
+    creatorAccountId: Schema.String,
+    published: SendMessageReceipt,
+  }),
   error: InteractiveDeclaredFailure,
   idempotencyKey: ({ invocationId }) => invocationId,
   execute: (execution) =>
@@ -70,7 +101,7 @@ const SlotsPublishButtonPublishAction = makeAction({
           SlotsPublishButton.authorizationPolicy.policy,
         ),
       );
-      return { creatorAccountId, published };
+      return { currentSlot: execution.currentSlot, creatorAccountId, published };
     }),
 });
 
@@ -119,6 +150,40 @@ const SlotsPublishButtonCleanupAction = makeAction({
     }),
 });
 
+const SlotsPublishButtonDeleteReplacedAction = makeAction({
+  name: `${actionName}.delete-replaced-button`,
+  version: slotSheetWorkflowDefinitionVersion,
+  shardGroup: "dispatch",
+  input: publishedExecutionSchema,
+  success: SlotReplacementCleanupOutcome,
+  error: InteractiveDeclaredFailure,
+  idempotencyKey: ({ invocationId }) => invocationId,
+  execute: (execution) =>
+    Effect.gen(function* () {
+      yield* preserveDeclaredFailure(authorize(SlotsPublishButton, execution));
+      const operations = yield* SlotWorkflowOperations;
+      return yield* preserveDeclaredFailure(
+        operations.deleteReplacedButton(
+          execution.currentSlot,
+          execution.published,
+          {
+            current: makeSlotDeliveryKey(
+              SlotsPublishButton,
+              execution.invocationId,
+              "delete-replaced-button-current",
+            ),
+            published: makeSlotDeliveryKey(
+              SlotsPublishButton,
+              execution.invocationId,
+              "delete-replaced-button-published",
+            ),
+          },
+          SlotsPublishButton.authorizationPolicy.policy,
+        ),
+      );
+    }),
+});
+
 const SlotsPublishButtonResponseAction = makeAction({
   name: `${actionName}.respond`,
   version: slotSheetWorkflowDefinitionVersion,
@@ -152,10 +217,15 @@ const SlotsPublishButtonWorkflow = Workflow.make({
 
 export const makeSlotsPublishButtonWorkflowBody =
   <E, R>(actions: {
-    readonly publish: (
+    readonly load: (
       execution: typeof executionSchema.Type,
-    ) => Effect.Effect<
-      { readonly creatorAccountId: string; readonly published: typeof SendMessageReceipt.Type },
+    ) => Effect.Effect<typeof MessageSlotRow.Type | null, E, R>;
+    readonly publish: (execution: typeof loadedExecutionSchema.Type) => Effect.Effect<
+      {
+        readonly currentSlot: typeof MessageSlotRow.Type | null;
+        readonly creatorAccountId: string;
+        readonly published: typeof SendMessageReceipt.Type;
+      },
       E,
       R
     >;
@@ -165,6 +235,9 @@ export const makeSlotsPublishButtonWorkflowBody =
     readonly cleanup: (
       execution: typeof cleanupExecutionSchema.Type,
     ) => Effect.Effect<typeof DeleteMessageReceipt.Type, E, R>;
+    readonly deleteReplaced: (
+      execution: typeof publishedExecutionSchema.Type,
+    ) => Effect.Effect<typeof SlotReplacementCleanupOutcome.Type, E, R>;
     readonly respond: (
       execution: typeof publishedExecutionSchema.Type,
     ) => Effect.Effect<typeof RespondReceipt.Type, E, R>;
@@ -172,31 +245,42 @@ export const makeSlotsPublishButtonWorkflowBody =
   (execution: typeof executionSchema.Type) =>
     Effect.gen(function* () {
       const input = yield* decodeWorkflowContractInputOrDie(SlotsPublishButton, execution.input);
-      const { creatorAccountId, published } = yield* actions.publish(execution);
-      const binding = yield* actions.bind({
+      const currentSlot = yield* actions.load(execution);
+      const published = yield* actions.publish({ ...execution, currentSlot });
+      const publishedExecution = {
         ...execution,
-        creatorAccountId,
-        published,
+        ...published,
+      };
+      const binding = yield* actions.bind({
+        ...publishedExecution,
       });
       if (Predicate.isTagged("CleanupRequired")(binding)) {
         yield* actions.cleanup({
-          ...execution,
-          creatorAccountId,
-          published,
+          ...publishedExecution,
           binding,
         });
         return yield* Effect.die(new SlotBindingFailed({ cause: binding.failure }));
       }
+      const replaced = yield* actions.deleteReplaced(publishedExecution);
+      if (replaced.authoritativeMessageId === null) {
+        return yield* Effect.die(
+          new SlotBindingFailed({
+            cause:
+              replaced.status === "missing"
+                ? "SlotStateMissingAfterBind"
+                : "SlotStateSupersededWithoutReplacement",
+          }),
+        );
+      }
       const response = yield* actions.respond({
-        ...execution,
-        creatorAccountId,
-        published,
+        ...publishedExecution,
       });
+      const publishedReceipt = published.published;
       return {
-        messageId: published.target.message.messageId,
-        messageConversationId: published.target.message.conversation.conversationId,
+        messageId: replaced.authoritativeMessageId,
+        messageConversationId: publishedReceipt.target.message.conversation.conversationId,
         day: input.day,
-        deliveryReceipts: [published, response],
+        deliveryReceipts: [publishedReceipt, ...replaced.deliveryReceipts, response],
       };
     });
 
@@ -204,16 +288,20 @@ const SlotsPublishButtonDefinition = {
   contract: SlotsPublishButton,
   workflow: SlotsPublishButtonWorkflow,
   actions: [
+    SlotsPublishButtonLoadAction,
     SlotsPublishButtonPublishAction,
     SlotsPublishButtonBindAction,
     SlotsPublishButtonCleanupAction,
+    SlotsPublishButtonDeleteReplacedAction,
     SlotsPublishButtonResponseAction,
   ],
   workflowLayer: SlotsPublishButtonWorkflow.toLayer(
     makeSlotsPublishButtonWorkflowBody({
+      load: (execution) => SlotsPublishButtonLoadAction.await(execution),
       publish: (execution) => SlotsPublishButtonPublishAction.await(execution),
       bind: (execution) => SlotsPublishButtonBindAction.await(execution),
       cleanup: (execution) => SlotsPublishButtonCleanupAction.await(execution),
+      deleteReplaced: (execution) => SlotsPublishButtonDeleteReplacedAction.await(execution),
       respond: (execution) => SlotsPublishButtonResponseAction.await(execution),
     }),
   ),
@@ -224,6 +312,7 @@ const SlotsOpenDefinition = makeSlotsOpenDefinition();
 
 export const SlotSheetWorkflowDefinitions = Object.freeze([
   SlotsPublishButtonDefinition,
+  slotRefreshWorkflowDefinition,
   SlotsDeliverListDefinition,
   SlotsOpenDefinition,
 ] as const);

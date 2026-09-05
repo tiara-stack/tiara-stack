@@ -39,6 +39,7 @@ const approvedIntentInventory = [
   "roomOrders.pinTentative",
   "slots.deliverList",
   "slots.publishButton",
+  "slots.refreshButton",
   "slots.open",
   "members.kick",
   "preferences.deliverStatus",

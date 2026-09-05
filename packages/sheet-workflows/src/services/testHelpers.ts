@@ -315,6 +315,12 @@ export const makeTrustedSheetPersistenceMock = (): TrustedSheetPersistenceShape 
   const userPlatformConfigKey = (platform: string, userId: string) => `${platform}\u0000${userId}`;
   const messageKey = (clientPlatform: string, clientId: string, messageId: string) =>
     `${clientPlatform}\u0000${clientId}\u0000${messageId}`;
+  const messageSlotKey = (
+    clientPlatform: string,
+    clientId: string,
+    workspaceId: string,
+    conversationId: string,
+  ) => `${clientPlatform}\u0000${clientId}\u0000${workspaceId}\u0000${conversationId}`;
   const withMessageRoomOrderBindLock = <A, E, R>(key: string, effect: Effect.Effect<A, E, R>) =>
     Effect.suspend(() => {
       const existing = messageRoomOrderBindLocks.get(key);
@@ -1041,20 +1047,64 @@ export const makeTrustedSheetPersistenceMock = (): TrustedSheetPersistenceShape 
     },
     slotState: {
       getMessageSlotData: (args) => {
-        const row = messageSlots.get(
-          messageKey(args.clientPlatform, args.clientId, args.messageId),
+        const row = Array.from(messageSlots.values()).find(
+          (candidate) =>
+            candidate.clientPlatform === args.clientPlatform &&
+            candidate.clientId === args.clientId &&
+            candidate.messageId === args.messageId &&
+            Predicate.isNull(candidate.deletedAt),
         );
         return Effect.succeed(Option.fromNullishOr(row));
       },
-      upsertMessageSlotData: ({ clientPlatform, clientId, messageId, ...data }) =>
+      getMessageSlotDataByConversation: (args) => {
+        const row = messageSlots.get(
+          messageSlotKey(args.clientPlatform, args.clientId, args.workspaceId, args.conversationId),
+        );
+        return Effect.succeed(
+          Option.fromNullishOr(row).pipe(
+            Option.filter((candidate) => Predicate.isNull(candidate.deletedAt)),
+          ),
+        );
+      },
+      upsertMessageSlotData: ({
+        clientPlatform,
+        clientId,
+        messageId,
+        workspaceId,
+        conversationId,
+        ...data
+      }) =>
         Effect.gen(function* () {
-          const key = messageKey(clientPlatform, clientId, messageId);
+          const key = messageSlotKey(clientPlatform, clientId, workspaceId, conversationId);
           const existing = messageSlots.get(key);
+          const conflictingMessage = Array.from(messageSlots.values()).find(
+            (candidate) =>
+              candidate.clientPlatform === clientPlatform &&
+              candidate.clientId === clientId &&
+              candidate.messageId === messageId &&
+              messageSlotKey(
+                candidate.clientPlatform,
+                candidate.clientId,
+                candidate.workspaceId,
+                candidate.conversationId,
+              ) !== key,
+          );
+          if (Predicate.isNotUndefined(conflictingMessage)) {
+            return yield* Effect.fail(
+              new ZeroClient.ZeroClientExecutorError({
+                operation: "upsert message slot",
+                code: "23505",
+                message: "duplicate message slot identity",
+              }),
+            );
+          }
           const fields = yield* auditFields();
           messageSlots.set(key, {
             clientPlatform,
             clientId,
             messageId,
+            workspaceId,
+            conversationId,
             ...data,
             ...fields,
             createdAt: presentOr(existing?.createdAt, fields.createdAt),

@@ -2,7 +2,7 @@ import { Schema } from "effect";
 import { ZeroApiEndpoint, ZeroApiGroup } from "typhoon-zero/zeroApi";
 import { zeroTableAccess } from "../accessors";
 import { activeRecord } from "../timestamps";
-import { MessageKeyRequest } from "./requests";
+import { MessageConversationKeyRequest, MessageKeyRequest } from "./requests";
 import type { SheetZeroApiSuccessSchemas } from "./successSchemas";
 
 export const makeMessageSlotGroup = <const SuccessSchemas extends SheetZeroApiSuccessSchemas>(
@@ -13,26 +13,41 @@ export const makeMessageSlotGroup = <const SuccessSchemas extends SheetZeroApiSu
       request: Schema.Struct(MessageKeyRequest),
       success: success.messageSlot.getMessageSlotData,
       query: ({ args: { clientPlatform, clientId, messageId } }) =>
+        zeroTableAccess.messageSlot
+          .listActiveWhere(
+            zeroTableAccess.messageSlot.table
+              .where("clientPlatform", "=", clientPlatform)
+              .where("clientId", "=", clientId)
+              .where("messageId", "=", messageId),
+          )
+          .one(),
+    }),
+    ZeroApiEndpoint.query("getMessageSlotDataByConversation", {
+      request: Schema.Struct(MessageConversationKeyRequest),
+      success: success.messageSlot.getMessageSlotDataByConversation,
+      query: ({ args: { clientPlatform, clientId, workspaceId, conversationId } }) =>
         zeroTableAccess.messageSlot.getActiveByPrimaryKey(zeroTableAccess.messageSlot.table, {
           clientPlatform,
           clientId,
-          messageId,
+          workspaceId,
+          conversationId,
         }),
     }),
     ZeroApiEndpoint.mutator("upsertMessageSlotData", {
       request: Schema.Struct({
         ...MessageKeyRequest,
         day: Schema.Number,
-        workspaceId: Schema.NullOr(Schema.String),
-        conversationId: Schema.NullOr(Schema.String),
-        createdByUserId: Schema.NullOr(Schema.String),
+        workspaceId: Schema.String,
+        conversationId: Schema.String,
+        createdByUserId: Schema.String,
       }),
       mutator: async ({ tx, args }) => {
         const existingSlot = await tx.run(
           zeroTableAccess.messageSlot.getByPrimaryKey(zeroTableAccess.messageSlot.table, {
             clientPlatform: args.clientPlatform,
             clientId: args.clientId,
-            messageId: args.messageId,
+            workspaceId: args.workspaceId,
+            conversationId: args.conversationId,
           }),
         );
         const activeExistingSlot = activeRecord(existingSlot);

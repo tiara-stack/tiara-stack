@@ -3,7 +3,12 @@ import { InvocationId, type AnyWorkflowContract } from "effect-zero-workflow/con
 import { DeliveryKey } from "sheet-bot-api";
 import { slotSheetWorkflowDefinitionVersion } from "./catalog";
 
-type SlotDeliveryKind = "publish-button" | "delete-provisional-button" | "respond";
+type SlotDeliveryKind =
+  | "publish-button"
+  | "delete-provisional-button"
+  | "delete-replaced-button-current"
+  | "delete-replaced-button-published"
+  | "respond";
 
 /**
  * Delivery keys are pinned to the slot Workflow Definition version. Drain in-flight slot

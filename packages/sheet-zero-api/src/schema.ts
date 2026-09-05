@@ -1,4 +1,4 @@
-// @generated effect-zero signature:sha256:e6625804a2d224a2f625d92dad6406fafdd44334c88a6b0fb168b4a8706dfb3f
+// @generated effect-zero signature:sha256:75ded247b47b556d0a3e72f127f856543998aea02224f7dbeff5021856d76bc8
 import { createBuilder } from "@rocicorp/zero";
 import type { ReadonlyJSONValue } from "@rocicorp/zero";
 
@@ -670,19 +670,19 @@ const messageSlotTable = {
     },
     workspaceId: {
       type: "string",
-      optional: true,
+      optional: false,
       customType: customType<string>(),
       serverName: "workspace_id",
     },
     conversationId: {
       type: "string",
-      optional: true,
+      optional: false,
       customType: customType<string>(),
       serverName: "conversation_id",
     },
     createdByUserId: {
       type: "string",
-      optional: true,
+      optional: false,
       customType: customType<string>(),
       serverName: "created_by_user_id",
     },
@@ -705,7 +705,7 @@ const messageSlotTable = {
       serverName: "deleted_at",
     },
   },
-  primaryKey: ["clientPlatform", "clientId", "messageId"],
+  primaryKey: ["clientPlatform", "clientId", "workspaceId", "conversationId"],
   serverName: "sheet_db_message_slot",
 } as const;
 const messageCheckinTable = {

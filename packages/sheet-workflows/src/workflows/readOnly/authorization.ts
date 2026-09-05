@@ -20,6 +20,7 @@ import {
   RoomOrdersSend,
   ServicesDeliverStatus,
   SlotsOpen,
+  SlotsRefreshButton,
   TeamSubmissionsDecide,
   TeamSubmissionsProcess,
   WorkspacesDeliverWelcome,
@@ -593,9 +594,7 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
                 if (
                   messageSlot.clientPlatform !== client.platform ||
                   messageSlot.clientId !== client.clientId ||
-                  messageSlot.messageId !== messageId ||
-                  Predicate.isNull(messageSlot.workspaceId) ||
-                  Predicate.isNull(messageSlot.conversationId)
+                  messageSlot.messageId !== messageId
                 ) {
                   return Effect.fail(unauthorized());
                 }
@@ -1097,6 +1096,9 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
       if (!principalAllowed) return Effect.fail(unauthorized());
       if (contract.identity === SlotsOpen.identity) {
         return authorizeSlotOpen(principal, input).pipe(Effect.asVoid);
+      }
+      if (contract.identity === SlotsRefreshButton.identity) {
+        return authorizeSheetBotGateway(principal, input, policy);
       }
       if (contract.identity === CheckinsRespond.identity) {
         return authorizeCheckinRespond(principal, input).pipe(Effect.asVoid);

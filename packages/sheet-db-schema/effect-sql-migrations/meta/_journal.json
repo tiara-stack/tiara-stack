@@ -148,6 +148,20 @@
       "when": 1788252703584,
       "tag": "0021_migration",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": 1,
+      "when": 1788549054354,
+      "tag": "0022_sticky_slot_channel",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": 1,
+      "when": 1788551043789,
+      "tag": "0023_sticky_slot_message_index",
+      "breakpoints": true
     }
   ]
 }

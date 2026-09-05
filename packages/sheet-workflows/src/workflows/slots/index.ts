@@ -6,3 +6,4 @@ export * from "./slotListDefinition";
 export * from "./slotListSchema";
 export * from "./slotOpenDefinition";
 export * from "./slotOpenService";
+export * from "./slotRefreshDefinition";

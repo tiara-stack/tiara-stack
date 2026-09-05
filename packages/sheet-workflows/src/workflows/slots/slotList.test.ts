@@ -162,7 +162,7 @@ describe("slot-list delivery Workflow Definition slice", () => {
       "slots.deliverList.respond",
     ]);
     expect(slotListDefinition.contract.declaredFailure).toBe(InteractiveDeclaredFailure);
-    expect(slotListRegistration.definitionVersion).toBe("1");
+    expect(slotListRegistration.definitionVersion).toBe("5");
     expect(SlotsDeliverList.authorizationPolicy).toMatchObject({
       principalKinds: ["user"],
       requiredCapabilities: ["workspace.member"],
@@ -295,7 +295,7 @@ describe("slot-list delivery Workflow Definition slice", () => {
       expect(replayIds).toEqual(actionIds);
       expect(new Set(actionIds).size).toBe(2);
       expect(changedMessageId).toBe(respondActionId);
-      expect(responseKey).toBe(`slots.deliverList:1:${invocationId}:respond`);
+      expect(responseKey).toBe(`slots.deliverList:5:${invocationId}:respond`);
     }),
   );
 

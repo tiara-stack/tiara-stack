@@ -4,10 +4,12 @@ import { InvocationId, workflowContractKey } from "effect-zero-workflow/contract
 import { BotResponseExpired, ResponseReference, type SheetBotHttpClient } from "sheet-bot-api";
 import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import {
+  AutonomousDeclaredFailure,
   InteractiveDeclaredFailure,
   SlotsDeliverList,
   SlotsOpen,
   SlotsPublishButton,
+  SlotsRefreshButton,
 } from "sheet-workflow-contracts";
 import { ZeroClient } from "typhoon-zero/client";
 import { SheetBotCacheClient } from "@/services/sheetBotCacheClient";
@@ -110,29 +112,43 @@ const baseSlotState = () => makeTrustedSheetPersistenceMock().slotState;
 
 describe("slot Workflow Definition slices", () => {
   it("keeps the existing slot definitions and appends the pinned slot-open definition", () => {
-    expect(SlotSheetWorkflowContracts).toEqual([SlotsPublishButton, SlotsDeliverList, SlotsOpen]);
+    expect(SlotSheetWorkflowContracts).toEqual([
+      SlotsPublishButton,
+      SlotsRefreshButton,
+      SlotsDeliverList,
+      SlotsOpen,
+    ]);
     expect(
       SlotSheetWorkflowDefinitions.map(({ contract, workflow }) => ({
         contract: workflowContractKey(contract),
         workflow: workflow.name,
       })),
     ).toEqual(
-      [SlotsPublishButton, SlotsDeliverList, SlotsOpen].map((contract) => ({
+      [SlotsPublishButton, SlotsRefreshButton, SlotsDeliverList, SlotsOpen].map((contract) => ({
         contract: workflowContractKey(contract),
         workflow: workflowContractKey(contract),
       })),
     );
     expect(SlotSheetWorkflowDefinitions[0]!.actions.map(({ workflow }) => workflow.name)).toEqual([
+      "slots.publishButton.load-current-slot",
       "slots.publishButton.publish-button",
       "slots.publishButton.bind-slot-state",
       "slots.publishButton.delete-provisional-button",
+      "slots.publishButton.delete-replaced-button",
       "slots.publishButton.respond",
     ]);
     expect(SlotSheetWorkflowDefinitions[1]!.actions.map(({ workflow }) => workflow.name)).toEqual([
+      "slots.refreshButton.load-current-slot",
+      "slots.refreshButton.publish-button",
+      "slots.refreshButton.bind-slot-state",
+      "slots.refreshButton.delete-provisional-button",
+      "slots.refreshButton.delete-replaced-button",
+    ]);
+    expect(SlotSheetWorkflowDefinitions[2]!.actions.map(({ workflow }) => workflow.name)).toEqual([
       "slots.deliverList.load-slot-view",
       "slots.deliverList.respond",
     ]);
-    expect(SlotSheetWorkflowDefinitions[2]!.actions.map(({ workflow }) => workflow.name)).toEqual([
+    expect(SlotSheetWorkflowDefinitions[3]!.actions.map(({ workflow }) => workflow.name)).toEqual([
       "slots.open.load-slot-view",
       "slots.open.respond",
     ]);
@@ -142,13 +158,17 @@ describe("slot Workflow Definition slices", () => {
         definitionVersion,
       })),
     ).toEqual([
-      { contract: SlotsPublishButton, definitionVersion: "1" },
-      { contract: SlotsDeliverList, definitionVersion: "1" },
-      { contract: SlotsOpen, definitionVersion: "1" },
+      { contract: SlotsPublishButton, definitionVersion: "5" },
+      { contract: SlotsRefreshButton, definitionVersion: "5" },
+      { contract: SlotsDeliverList, definitionVersion: "5" },
+      { contract: SlotsOpen, definitionVersion: "5" },
     ]);
-    for (const { contract } of SlotSheetWorkflowDefinitions) {
-      expect(contract.declaredFailure).toBe(InteractiveDeclaredFailure);
-    }
+    expect(SlotSheetWorkflowDefinitions[0]!.contract.declaredFailure).toBe(
+      InteractiveDeclaredFailure,
+    );
+    expect(SlotSheetWorkflowDefinitions[1]!.contract.declaredFailure).toBe(
+      AutonomousDeclaredFailure,
+    );
     expect(isSlotSheetWorkflowName(SlotSheetWorkflows[0]!.name)).toBe(true);
     expect(isSlotSheetWorkflowName(workflowContractKey(SlotsOpen))).toBe(true);
     expect(isSlotSheetWorkflowName("slots.unregistered:1")).toBe(false);
@@ -161,6 +181,7 @@ describe("slot Workflow Definition slices", () => {
         invocationId,
         principal,
         input,
+        currentSlot: null,
         creatorAccountId: accountId,
         published,
         binding: { _tag: "CleanupRequired" as const, failure: "SlotStateBindFailed" as const },
@@ -173,15 +194,17 @@ describe("slot Workflow Definition slices", () => {
         workflow.executionId(payload),
       );
       expect(replayIds).toEqual(actionIds);
-      expect(new Set(actionIds).size).toBe(4);
+      expect(new Set(actionIds).size).toBe(6);
       const keys = [
         makeSlotDeliveryKey(SlotsPublishButton, invocationId, "publish-button"),
         makeSlotDeliveryKey(SlotsPublishButton, invocationId, "delete-provisional-button"),
+        makeSlotDeliveryKey(SlotsPublishButton, invocationId, "delete-replaced-button-current"),
+        makeSlotDeliveryKey(SlotsPublishButton, invocationId, "delete-replaced-button-published"),
         makeSlotDeliveryKey(SlotsPublishButton, invocationId, "respond"),
       ];
-      expect(new Set(keys).size).toBe(3);
+      expect(new Set(keys).size).toBe(5);
       expect(makeSlotDeliveryKey(SlotsPublishButton, invocationId, "publish-button")).toBe(
-        `slots.publishButton:1:${invocationId}:publish-button`,
+        `slots.publishButton:5:${invocationId}:publish-button`,
       );
       expect(makeSlotDeliveryKey(SlotsPublishButton, otherInvocationId, "publish-button")).not.toBe(
         keys[0],
@@ -347,6 +370,7 @@ describe("slot Workflow Definition slices", () => {
           calls.push({ method: "get", args });
           return Effect.succeed(Option.some(row));
         },
+        getMessageSlotDataByConversation: () => Effect.succeed(Option.some(row)),
         upsertMessageSlotData: (args) => {
           calls.push({ method: "upsert", args });
           attempts += 1;
@@ -404,11 +428,267 @@ describe("slot Workflow Definition slices", () => {
     }),
   );
 
+  it.effect("removes both stale buttons during an A-to-B-to-C refresh interleaving", () =>
+    Effect.gen(function* () {
+      const calls: Array<unknown> = [];
+      const currentSlotA = {
+        clientPlatform: "discord",
+        clientId: "discord-main",
+        messageId: "slot-a",
+        day: 2,
+        workspaceId: "workspace-1",
+        conversationId: "conversation-1",
+        createdByUserId: accountId,
+        createdAt: 1,
+        updatedAt: 1,
+        deletedAt: null,
+      };
+      const currentSlotB = { ...currentSlotA, messageId: "slot-b" };
+      const authoritativeSlotC = { ...currentSlotA, messageId: "slot-c" };
+      const publishedB = {
+        ...published,
+        target: {
+          ...published.target,
+          message: { ...published.target.message, messageId: "slot-b" },
+        },
+      };
+      const publishedC = {
+        ...published,
+        target: {
+          ...published.target,
+          message: { ...published.target.message, messageId: "slot-c" },
+        },
+      };
+      const slotState: TrustedSheetPersistence["Service"]["slotState"] = {
+        getMessageSlotData: () => Effect.succeed(Option.none()),
+        getMessageSlotDataByConversation: () => Effect.succeed(Option.some(authoritativeSlotC)),
+        upsertMessageSlotData: () => Effect.void,
+      };
+      const operations = yield* makeOperations(
+        slotState,
+        makeBot({
+          deleteMessage: ({ payload }) => {
+            calls.push(payload);
+            return Effect.succeed({
+              deliveryKey: payload.deliveryKey,
+              operation: "deleteMessage" as const,
+              target: { _tag: "Message" as const, message: payload.message },
+            });
+          },
+        }),
+      );
+      const replacementKeys = {
+        current: makeSlotDeliveryKey(
+          SlotsPublishButton,
+          invocationId,
+          "delete-replaced-button-current",
+        ),
+        published: makeSlotDeliveryKey(
+          SlotsPublishButton,
+          invocationId,
+          "delete-replaced-button-published",
+        ),
+      };
+
+      const firstCleanup = yield* operations.deleteReplacedButton(
+        currentSlotA,
+        publishedB,
+        replacementKeys,
+        SlotsPublishButton.authorizationPolicy.policy,
+      );
+      const secondCleanup = yield* operations.deleteReplacedButton(
+        currentSlotA,
+        publishedC,
+        replacementKeys,
+        SlotsPublishButton.authorizationPolicy.policy,
+      );
+      const thirdCleanup = yield* operations.deleteReplacedButton(
+        currentSlotB,
+        publishedC,
+        replacementKeys,
+        SlotsPublishButton.authorizationPolicy.policy,
+      );
+
+      expect(firstCleanup.status).toBe("superseded");
+      expect(secondCleanup.status).toBe("authoritative");
+      expect(thirdCleanup.status).toBe("authoritative");
+      expect(calls).toHaveLength(4);
+      expect(calls[0]).toMatchObject({ message: { messageId: "slot-a" } });
+      expect(calls[1]).toMatchObject({ message: { messageId: "slot-b" } });
+      expect(calls[2]).toMatchObject({ message: { messageId: "slot-a" } });
+      expect(calls[3]).toMatchObject({ message: { messageId: "slot-b" } });
+    }),
+  );
+
+  it.effect("reports the surviving button when a concurrent publish supersedes this one", () =>
+    Effect.gen(function* () {
+      const currentSlot = {
+        clientPlatform: "discord",
+        clientId: "discord-main",
+        messageId: "old-button",
+        day: 2,
+        workspaceId: "workspace-1",
+        conversationId: "conversation-1",
+        createdByUserId: accountId,
+        createdAt: 1,
+        updatedAt: 1,
+        deletedAt: null,
+      } as const;
+      const responseKey = makeSlotDeliveryKey(SlotsPublishButton, invocationId, "respond");
+      const response = {
+        deliveryKey: responseKey,
+        operation: "respond" as const,
+        target: { _tag: "Response" as const, responseReference },
+      };
+      const replacedReceipt = {
+        deliveryKey: makeSlotDeliveryKey(
+          SlotsPublishButton,
+          invocationId,
+          "delete-replaced-button-published",
+        ),
+        operation: "deleteMessage" as const,
+        target: { _tag: "Message" as const, message: published.target.message },
+      };
+      const workflowBody = makeSlotsPublishButtonWorkflowBody({
+        load: () => Effect.succeed(currentSlot),
+        publish: () => Effect.succeed({ currentSlot, creatorAccountId: accountId, published }),
+        bind: () => Effect.succeed({ _tag: "Bound" as const }),
+        cleanup: () => Effect.die("cleanup should not run after a successful bind"),
+        deleteReplaced: () =>
+          Effect.succeed({
+            status: "superseded" as const,
+            authoritativeMessageId: "concurrent-button",
+            deliveryReceipts: [replacedReceipt],
+          }),
+        respond: () => Effect.succeed(response),
+      });
+
+      expect(yield* workflowBody({ invocationId, principal, input })).toEqual({
+        messageId: "concurrent-button",
+        messageConversationId: "conversation-1",
+        day: 2,
+        deliveryReceipts: [published, replacedReceipt, response],
+      });
+    }),
+  );
+
+  it.effect("attempts every stale deletion before surfacing a delivery failure", () =>
+    Effect.gen(function* () {
+      const deletedPayloads: unknown[] = [];
+      const currentSlot = {
+        clientPlatform: "discord",
+        clientId: "discord-main",
+        messageId: "old-button",
+        day: 2,
+        workspaceId: "workspace-1",
+        conversationId: "conversation-1",
+        createdByUserId: accountId,
+        createdAt: 1,
+        updatedAt: 1,
+        deletedAt: null,
+      } as const;
+      const authoritativeSlot = { ...currentSlot, messageId: "authoritative-button" };
+      const replacement = {
+        ...published,
+        target: {
+          ...published.target,
+          message: { ...published.target.message, messageId: "new-button" },
+        },
+      };
+      const slotState: TrustedSheetPersistence["Service"]["slotState"] = {
+        getMessageSlotData: () => Effect.succeed(Option.none()),
+        getMessageSlotDataByConversation: () => Effect.succeed(Option.some(authoritativeSlot)),
+        upsertMessageSlotData: () => Effect.void,
+      };
+      const operations = yield* makeOperations(
+        slotState,
+        makeBot({
+          deleteMessage: ({ payload }) => {
+            deletedPayloads.push(payload);
+            return Effect.fail("delete failed");
+          },
+        }),
+      );
+      const replacementKeys = {
+        current: makeSlotDeliveryKey(
+          SlotsPublishButton,
+          invocationId,
+          "delete-replaced-button-current",
+        ),
+        published: makeSlotDeliveryKey(
+          SlotsPublishButton,
+          invocationId,
+          "delete-replaced-button-published",
+        ),
+      };
+
+      const exit = yield* Effect.exit(
+        operations.deleteReplacedButton(
+          currentSlot,
+          replacement,
+          replacementKeys,
+          SlotsPublishButton.authorizationPolicy.policy,
+        ),
+      );
+
+      expect(deletedPayloads).toEqual([
+        expect.objectContaining({ message: expect.objectContaining({ messageId: "old-button" }) }),
+        expect.objectContaining({ message: expect.objectContaining({ messageId: "new-button" }) }),
+      ]);
+      expect(Exit.isFailure(exit)).toBe(true);
+    }),
+  );
+
+  it.effect("fails without responding when a published button loses its binding", () =>
+    Effect.gen(function* () {
+      const calls: string[] = [];
+      const workflowBody = makeSlotsPublishButtonWorkflowBody({
+        load: () => {
+          calls.push("load");
+          return Effect.succeed(null);
+        },
+        publish: () => {
+          calls.push("publish");
+          return Effect.succeed({ currentSlot: null, creatorAccountId: accountId, published });
+        },
+        bind: () => {
+          calls.push("bind");
+          return Effect.succeed({ _tag: "Bound" as const });
+        },
+        cleanup: () => Effect.die("cleanup should not run after a successful bind"),
+        deleteReplaced: () => {
+          calls.push("delete-replaced");
+          return Effect.succeed({
+            status: "missing" as const,
+            authoritativeMessageId: null,
+            deliveryReceipts: [],
+          });
+        },
+        respond: () => {
+          calls.push("respond");
+          return Effect.die("respond should not run without an authoritative button");
+        },
+      });
+
+      const exit = yield* Effect.exit(workflowBody({ invocationId, principal, input }));
+
+      expect(calls).toEqual(["load", "publish", "bind", "delete-replaced"]);
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(Cause.squash(exit.cause)).toMatchObject({
+          _tag: "SlotBindingFailed",
+          cause: "SlotStateMissingAfterBind",
+        });
+      }
+    }),
+  );
+
   it.effect("requests deterministic cleanup only after a definite pre-commit bind failure", () =>
     Effect.gen(function* () {
       const calls: Array<unknown> = [];
       const slotState: TrustedSheetPersistence["Service"]["slotState"] = {
         getMessageSlotData: () => Effect.succeed(Option.none()),
+        getMessageSlotDataByConversation: () => Effect.succeed(Option.none()),
         upsertMessageSlotData: () =>
           Effect.fail(
             new ZeroClient.ZeroClientExecutorError({
@@ -458,9 +738,13 @@ describe("slot Workflow Definition slices", () => {
         "delete-provisional-button",
       );
       const workflowBody = makeSlotsPublishButtonWorkflowBody({
+        load: () => {
+          calls.push("load-current-slot");
+          return Effect.succeed(null);
+        },
         publish: () => {
           calls.push("publish-button");
-          return Effect.succeed({ creatorAccountId: accountId, published });
+          return Effect.succeed({ currentSlot: null, creatorAccountId: accountId, published });
         },
         bind: () => {
           calls.push("bind-slot-state");
@@ -477,6 +761,14 @@ describe("slot Workflow Definition slices", () => {
             target: { _tag: "Message" as const, message: published.target.message },
           });
         },
+        deleteReplaced: () => {
+          calls.push("delete-replaced-button");
+          return Effect.succeed({
+            status: "authoritative" as const,
+            authoritativeMessageId: published.target.message.messageId,
+            deliveryReceipts: [],
+          });
+        },
         respond: () => {
           calls.push("respond");
           return Effect.die("response must not run after a pre-commit bind failure");
@@ -484,7 +776,12 @@ describe("slot Workflow Definition slices", () => {
       });
 
       const exit = yield* Effect.exit(workflowBody({ invocationId, principal, input }));
-      expect(calls).toEqual(["publish-button", "bind-slot-state", "delete-provisional-button"]);
+      expect(calls).toEqual([
+        "load-current-slot",
+        "publish-button",
+        "bind-slot-state",
+        "delete-provisional-button",
+      ]);
       expect(Exit.isFailure(exit)).toBe(true);
       if (Exit.isFailure(exit)) {
         expect(Cause.squash(exit.cause)).toMatchObject({

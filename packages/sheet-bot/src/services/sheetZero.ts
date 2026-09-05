@@ -27,6 +27,7 @@ import {
   ConfigWorkspaceRow,
   ConfigWorkspaceSheetRevisionRow,
   ConfigWorkspaceSheetRow,
+  MessageSlotRow,
 } from "sheet-zero-api/rows";
 import { ZeroClient as BaseZeroClient } from "typhoon-zero/client";
 import { config } from "@/config";
@@ -297,6 +298,18 @@ const getWorkspaceConfig = Effect.fn("SheetZeroClient.getWorkspaceConfig")(funct
   return yield* decodeClientOption(ConfigWorkspaceRow, rawRow);
 });
 
+const getSlotButtonByConversation = Effect.fn("SheetZeroClient.getSlotButtonByConversation")(
+  function* (client: SheetClient, clientId: string, workspaceId: string, conversationId: string) {
+    const rawRow = yield* client.grouped.messageSlot.getMessageSlotDataByConversation({
+      clientPlatform: "discord",
+      clientId,
+      workspaceId,
+      conversationId,
+    });
+    return yield* decodeClientOption(MessageSlotRow, rawRow);
+  },
+);
+
 interface SheetZeroClientShape {
   readonly isTeamSubmissionEnabled: (
     workspaceId: string,
@@ -307,6 +320,10 @@ interface SheetZeroClientShape {
     workspaceId: string,
   ) => ReturnType<typeof getSheetConfigurationRevisions>;
   readonly getWorkspaceConfig: (workspaceId: string) => ReturnType<typeof getWorkspaceConfig>;
+  readonly getSlotButtonByConversation: (
+    workspaceId: string,
+    conversationId: string,
+  ) => ReturnType<typeof getSlotButtonByConversation>;
 }
 
 export class SheetZeroClient extends Context.Service<SheetZeroClient, SheetZeroClientShape>()(
@@ -315,6 +332,7 @@ export class SheetZeroClient extends Context.Service<SheetZeroClient, SheetZeroC
     make: Effect.gen(function* () {
       const executor = yield* SheetZeroExecutor;
       const client = yield* makeSheetClient(executor);
+      const clientId = yield* config.sheetBotClientId;
       return {
         isTeamSubmissionEnabled: (workspaceId, conversationId) =>
           isTeamSubmissionEnabled(client, workspaceId, conversationId),
@@ -322,6 +340,8 @@ export class SheetZeroClient extends Context.Service<SheetZeroClient, SheetZeroC
         getSheetConfigurationRevisions: (workspaceId) =>
           getSheetConfigurationRevisions(client, workspaceId),
         getWorkspaceConfig: (workspaceId) => getWorkspaceConfig(client, workspaceId),
+        getSlotButtonByConversation: (workspaceId, conversationId) =>
+          getSlotButtonByConversation(client, clientId, workspaceId, conversationId),
       };
     }),
   },

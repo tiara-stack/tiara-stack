@@ -21,6 +21,8 @@ import migration0018 from "../effect-sql-migrations/0018_migration";
 import migration0019 from "../effect-sql-migrations/0019_migration";
 import migration0020 from "../effect-sql-migrations/0020_migration";
 import migration0021 from "../effect-sql-migrations/0021_migration";
+import migration0022 from "../effect-sql-migrations/0022_sticky_slot_channel";
+import migration0023 from "../effect-sql-migrations/0023_sticky_slot_message_index";
 
 export const sheetDbMigrationTable = "sheet_db_effect_sql_migrations";
 
@@ -46,4 +48,6 @@ export const sheetDbMigrations: Loader = Effect.succeed([
   [19, "migration", Effect.succeed(migration0019)],
   [20, "migration", Effect.succeed(migration0020)],
   [21, "migration", Effect.succeed(migration0021)],
+  [22, "sticky_slot_channel", Effect.succeed(migration0022)],
+  [23, "sticky_slot_message_index", Effect.succeed(migration0023)],
 ]);

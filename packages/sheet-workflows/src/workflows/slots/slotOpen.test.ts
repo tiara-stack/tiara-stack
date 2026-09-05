@@ -81,10 +81,10 @@ const slotRow: {
   readonly clientPlatform: string;
   readonly clientId: string;
   readonly messageId: string;
-  readonly workspaceId: string | null;
-  readonly conversationId: string | null;
+  readonly workspaceId: string;
+  readonly conversationId: string;
   readonly day: number;
-  readonly createdByUserId: string | null;
+  readonly createdByUserId: string;
   readonly createdAt: number;
   readonly updatedAt: number;
   readonly deletedAt: number | null;
@@ -235,7 +235,7 @@ describe("slot-open button Workflow Definition slice", () => {
       "slots.open.respond",
     ]);
     expect(definition.contract.declaredFailure).toBe(InteractiveDeclaredFailure);
-    expect(registration.definitionVersion).toBe("1");
+    expect(registration.definitionVersion).toBe("5");
     expect(SlotSheetWorkflowContracts.at(-1)).toBe(SlotsOpen);
     expect(isSlotSheetWorkflowName(workflowContractKey(SlotsOpen))).toBe(true);
     expect(SlotSheetWorkflows.some(({ name }) => name === workflowContractKey(SlotsOpen))).toBe(
@@ -268,64 +268,59 @@ describe("slot-open button Workflow Definition slice", () => {
     }),
   );
 
-  it.effect(
-    "fails closed for unlinked, service, non-member, missing, legacy, and cross-client state",
-    () =>
-      Effect.gen(function* () {
-        const servicePrincipal = Schema.decodeUnknownSync(EffectivePrincipal)({
-          kind: "service",
-          serviceId: "sheet-bot.gateway",
-          oauthClientId: "sheet-bot-client",
-        });
-        const cases = [
-          {
-            principal: { ...principal, discordAccount: undefined },
-            authorization: yield* makeAuthorization({}),
-          },
-          { principal: servicePrincipal, authorization: yield* makeAuthorization({}) },
-          {
-            principal,
-            authorization: yield* makeAuthorization({
-              getMember: () =>
-                Effect.fail(
-                  new BotResourceNotFound({ resource: "member", message: "not a member" }),
-                ),
-            }),
-          },
-          { principal, authorization: yield* makeAuthorization({ row: Option.none() }) },
-          {
-            principal,
-            authorization: yield* makeAuthorization({
-              row: Option.some({ ...slotRow, workspaceId: null }),
-            }),
-          },
-          {
-            principal,
-            authorization: yield* makeAuthorization({
-              row: Option.some({ ...slotRow, conversationId: null }),
-            }),
-          },
-          {
-            principal,
-            authorization: yield* makeAuthorization({
-              row: Option.some({ ...slotRow, clientId: "discord-other" }),
-            }),
-          },
-        ] as const;
+  it.effect("fails closed for unlinked, service, non-member, missing, and cross-client state", () =>
+    Effect.gen(function* () {
+      const servicePrincipal = Schema.decodeUnknownSync(EffectivePrincipal)({
+        kind: "service",
+        serviceId: "sheet-bot.gateway",
+        oauthClientId: "sheet-bot-client",
+      });
+      const cases = [
+        {
+          label: "unlinked user",
+          principal: { ...principal, discordAccount: undefined },
+          authorization: yield* makeAuthorization({}),
+        },
+        {
+          label: "service principal",
+          principal: servicePrincipal,
+          authorization: yield* makeAuthorization({}),
+        },
+        {
+          label: "non-member",
+          principal,
+          authorization: yield* makeAuthorization({
+            getMember: () =>
+              Effect.fail(new BotResourceNotFound({ resource: "member", message: "not a member" })),
+          }),
+        },
+        {
+          label: "missing slot",
+          principal,
+          authorization: yield* makeAuthorization({ row: Option.none() }),
+        },
+        {
+          label: "cross-client slot",
+          principal,
+          authorization: yield* makeAuthorization({
+            row: Option.some({ ...slotRow, clientId: "discord-other" }),
+          }),
+        },
+      ] as const;
 
-        for (const candidate of cases) {
-          const exit = yield* Effect.exit(
-            candidate.authorization.authorizeSlotOpen(candidate.principal, input),
-          );
-          expect(Exit.isFailure(exit)).toBe(true);
-          if (Exit.isFailure(exit)) {
-            expect(Option.getOrThrow(Cause.findErrorOption(exit.cause))).toMatchObject({
-              _tag: "WorkflowInvocationUnauthorized",
-              message: "Workflow invocation is unauthorized",
-            });
-          }
+      for (const candidate of cases) {
+        const exit = yield* Effect.exit(
+          candidate.authorization.authorizeSlotOpen(candidate.principal, input),
+        );
+        expect(Exit.isFailure(exit), `authorization case: ${candidate.label}`).toBe(true);
+        if (Exit.isFailure(exit)) {
+          expect(Option.getOrThrow(Cause.findErrorOption(exit.cause))).toMatchObject({
+            _tag: "WorkflowInvocationUnauthorized",
+            message: "Workflow invocation is unauthorized",
+          });
         }
-      }),
+      }
+    }),
   );
 
   it.effect("renders the exact ephemeral legacy slot-button response without the web promo", () =>
@@ -471,7 +466,7 @@ describe("slot-open button Workflow Definition slice", () => {
           message: { content: "Changed presentation" },
         }),
       ).toBe(yield* respondAction.workflow.executionId(payload));
-      expect(responseKey).toBe(`slots.open:1:${invocationId}:respond`);
+      expect(responseKey).toBe(`slots.open:5:${invocationId}:respond`);
     }),
   );
 

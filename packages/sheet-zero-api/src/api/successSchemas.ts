@@ -56,6 +56,7 @@ export interface SheetZeroApiSuccessSchemas {
   };
   readonly messageSlot: {
     readonly getMessageSlotData: Schema.Top;
+    readonly getMessageSlotDataByConversation: Schema.Top;
   };
   readonly messageTeamSubmission: {
     readonly getMessageTeamSubmission: Schema.Top;
@@ -107,6 +108,7 @@ export const defaultSuccessSchemas = {
   },
   messageSlot: {
     getMessageSlotData: Schema.OptionFromNullishOr(MessageSlotRow),
+    getMessageSlotDataByConversation: Schema.OptionFromNullishOr(MessageSlotRow),
   },
   messageTeamSubmission: {
     getMessageTeamSubmission: Schema.OptionFromNullishOr(MessageTeamSubmissionRow),

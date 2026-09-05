@@ -28,7 +28,7 @@ const resetFixture = Effect.gen(function* () {
 
 describe("trusted Sheet persistence policy", () => {
   it("pins the reviewed operation count", () => {
-    expect(Object.values(trustedSheetPersistenceCatalog).flat()).toHaveLength(66);
+    expect(Object.values(trustedSheetPersistenceCatalog).flat()).toHaveLength(67);
   });
 
   persistenceLayer("executes through the policy-filtered interface", (it) => {
@@ -139,9 +139,9 @@ describe("trusted Sheet persistence policy", () => {
             {
               ...messageKey,
               day: 1,
-              workspaceId: null,
-              conversationId: null,
-              createdByUserId: null,
+              workspaceId: "workspace-1",
+              conversationId: "conversation-1",
+              createdByUserId: "user-1",
               createdAt: 100,
               updatedAt: 200,
               deletedAt: 300,

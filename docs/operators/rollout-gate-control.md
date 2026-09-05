@@ -54,6 +54,100 @@ Apply the database migration before enabling a replacement path:
 pnpm --filter sheet-db-schema db:migrate
 ```
 
+Before applying the sticky-slot migration in production, audit the rows that it will remove. The
+migration drops slot records that cannot be associated with a workspace, conversation, or creator,
+and removes older duplicates for the same channel. Capture the count and a representative sample
+for the deployment record:
+
+```sql
+select count(*)
+from sheet_db_message_slot
+where workspace_id is null
+   or conversation_id is null
+   or created_by_user_id is null;
+
+select client_platform, client_id, message_id, workspace_id, conversation_id, created_by_user_id,
+       updated_at
+from sheet_db_message_slot
+where workspace_id is null
+   or conversation_id is null
+   or created_by_user_id is null
+order by updated_at, message_id
+limit 20;
+
+select count(*) as channel_duplicate_groups,
+       coalesce(sum(row_count - 1), 0) as channel_rows_removed
+from (
+  select client_platform, client_id, workspace_id, conversation_id, count(*) as row_count
+  from sheet_db_message_slot
+  where workspace_id is not null
+    and conversation_id is not null
+    and created_by_user_id is not null
+  group by client_platform, client_id, workspace_id, conversation_id
+  having count(*) > 1
+) duplicate_channels;
+
+select s.client_platform, s.client_id, s.message_id, s.workspace_id, s.conversation_id,
+       s.created_by_user_id, s.updated_at, duplicate_channels.row_count
+from sheet_db_message_slot s
+join (
+  select client_platform, client_id, workspace_id, conversation_id, count(*) as row_count
+  from sheet_db_message_slot
+  where workspace_id is not null
+    and conversation_id is not null
+    and created_by_user_id is not null
+  group by client_platform, client_id, workspace_id, conversation_id
+  having count(*) > 1
+) duplicate_channels
+  on duplicate_channels.client_platform = s.client_platform
+ and duplicate_channels.client_id = s.client_id
+ and duplicate_channels.workspace_id = s.workspace_id
+ and duplicate_channels.conversation_id = s.conversation_id
+order by s.client_platform, s.client_id, s.workspace_id, s.conversation_id, s.updated_at,
+         s.message_id
+limit 20;
+
+select count(*) as message_duplicate_groups,
+       coalesce(sum(row_count - 1), 0) as message_rows_blocking_unique_index
+from (
+  select client_platform, client_id, message_id, count(*) as row_count
+  from sheet_db_message_slot
+  where workspace_id is not null
+    and conversation_id is not null
+    and created_by_user_id is not null
+  group by client_platform, client_id, message_id
+  having count(*) > 1
+) duplicate_messages;
+
+select s.client_platform, s.client_id, s.message_id, s.workspace_id, s.conversation_id,
+       s.created_by_user_id, s.updated_at, duplicate_messages.row_count
+from sheet_db_message_slot s
+join (
+  select client_platform, client_id, message_id, count(*) as row_count
+  from sheet_db_message_slot
+  where workspace_id is not null
+    and conversation_id is not null
+    and created_by_user_id is not null
+  group by client_platform, client_id, message_id
+  having count(*) > 1
+) duplicate_messages
+  on duplicate_messages.client_platform = s.client_platform
+ and duplicate_messages.client_id = s.client_id
+ and duplicate_messages.message_id = s.message_id
+order by s.client_platform, s.client_id, s.message_id, s.updated_at, s.workspace_id,
+         s.conversation_id
+limit 20;
+```
+
+The channel duplicate count estimates rows removed by migration 0022; the message duplicate
+count must be zero after migration 0022 or migration 0023 cannot create its unique index. Resolve
+any remaining message duplicates before applying 0023 and retain both query results with the
+deployment record.
+
+If migration 0022 has committed but migration 0023 stops on a duplicate message identity, resolve
+the reported cross-conversation duplicates and rerun `pnpm --filter sheet-db-schema db:migrate`.
+Migrations are tracked individually; do not rerun migration 0022 manually.
+
 Deploy the `sheet-bot` and `sheet-workflows` changes after the migration. Then
 run the trusted OAuth client seed:
 

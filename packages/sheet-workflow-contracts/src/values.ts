@@ -698,6 +698,23 @@ export const SlotsPublishButtonSuccess = Schema.Struct({
 });
 export type SlotsPublishButtonSuccess = Schema.Schema.Type<typeof SlotsPublishButtonSuccess>;
 
+export const SlotsRefreshButtonInput = Schema.Struct({
+  ...WorkspaceFields,
+  conversationId: Schema.String,
+  triggerMessageId: Schema.String,
+});
+export type SlotsRefreshButtonInput = Schema.Schema.Type<typeof SlotsRefreshButtonInput>;
+
+export const SlotsRefreshButtonSuccess = Schema.Struct({
+  ...WorkspaceFields,
+  conversationId: Schema.String,
+  status: Schema.Literals(["refreshed", "skipped"]),
+  messageId: Schema.NullOr(Schema.String),
+  day: Schema.NullOr(Schema.Number),
+  ...DeliveryEvidenceFields,
+});
+export type SlotsRefreshButtonSuccess = Schema.Schema.Type<typeof SlotsRefreshButtonSuccess>;
+
 export const SlotsOpenInput = Schema.Struct({
   ...ResponseFields,
   messageId: Schema.String,
