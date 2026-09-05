@@ -42,6 +42,8 @@ Some server configurations require the submitted oshi to match exactly one confi
 
 TiaraBot reacts while processing, parses the message, and replies with the teams it plans to add or skip. It does not write to the sheet until the original submitter presses **Confirm**. Only the Discord account that posted the source message can use those controls.
 
+The active Team mapping may use an explicit team-name range or `Auto`. An `Auto` submission writes the player value and any configured Oshi value while leaving the team-name field untouched; reads synthesize the team name. Use an explicit range when a team-name update is needed.
+
 Edit the source message to correct a team before you press either button. After the submission is confirmed, rejected, or has a rollback failure, further edits cannot change it through this flow.
 
 - **Confirm** writes the displayed teams to the sheet and removes the confirmation reply.

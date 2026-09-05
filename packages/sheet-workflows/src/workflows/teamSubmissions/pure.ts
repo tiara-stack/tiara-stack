@@ -54,7 +54,7 @@ export const rollbackValuesForRange = (
 
 export const appendRangeForCells = (
   playerNameRange: string,
-  teamNameRange: string,
+  teamNameRange: string | null,
   oshiRange: string | null,
 ) => appendSharedRangeForCells(playerNameRange, teamNameRange, oshiRange, workflowRangeOptions);
 
@@ -651,7 +651,9 @@ export const blankRemovedRows = (
         : [
             // fallow-ignore-next-line code-duplication
             { range: mapping.playerNameRange, values: [[""]] },
-            { range: mapping.teamNameRange, values: [[""]] },
+            ...(mapping.teamNameRange === null
+              ? []
+              : [{ range: mapping.teamNameRange, values: [[""]] }]),
             ...(mapping.oshiRange === null ? [] : [{ range: mapping.oshiRange, values: [[""]] }]),
           ];
     });
@@ -671,7 +673,9 @@ export const blankRollbackSnapshotForAppendedRows = (
         ...entry.duplicateTargets.map((row) => ({ row, stableKey: entry.mapping.stableKey })),
       ].flatMap(({ row, stableKey }) => [
         { stableKey, range: row.playerNameRange, values: [] },
-        { stableKey, range: row.teamNameRange, values: [] },
+        ...(row.teamNameRange === null
+          ? []
+          : [{ stableKey, range: row.teamNameRange, values: [] }]),
         ...(row.oshiRange === null ? [] : [{ stableKey, range: row.oshiRange, values: [] }]),
       ]),
     );

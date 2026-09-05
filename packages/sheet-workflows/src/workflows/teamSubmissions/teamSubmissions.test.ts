@@ -5,6 +5,7 @@ import { messageRefFrom } from "sheet-bot-api";
 import { TeamSubmissionsDecide, TeamSubmissionsProcess } from "sheet-workflow-contracts";
 import {
   appendRangeForCells,
+  appendRowValues,
   matchOshi,
   parseA1Start,
   parseTeamSubmissionMessage,
@@ -416,6 +417,18 @@ describe("team-submission pure rules", () => {
       value: "Mik",
       status: "matched",
     });
+  });
+
+  it("does not span an auto team-name column when appending an oshi", () => {
+    const entry = parseTeamSubmissionMessage("150/700", "Player").entries[0];
+    expect(entry).toBeDefined();
+    if (entry === undefined) return;
+
+    const appendRange = appendRangeForCells("'Teams'!A:A", null, "'Teams'!C:C");
+    expect(appendRange?.range).toBe("'Teams'!A:A");
+    expect(appendRange === null ? null : appendRowValues(appendRange, entry, entry.oshi)).toEqual([
+      "Player",
+    ]);
   });
 
   it("truncates long confirmation messages within the platform budget", () => {

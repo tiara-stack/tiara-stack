@@ -89,13 +89,15 @@ export const rollbackValuesForRangeForWorkflow = (
 
 export const appendRangeForCellsForWorkflow = (
   playerNameRange: string,
-  teamNameRange: string,
+  teamNameRange: string | null,
   oshiRange: string | null,
   options: A1RangeOptions = {},
 ) => {
   const cells = [
     ["playerColumn", parseA1StartForWorkflow(playerNameRange, options)],
-    ["teamColumn", parseA1StartForWorkflow(teamNameRange, options)],
+    ...(teamNameRange === null
+      ? []
+      : ([["teamColumn", parseA1StartForWorkflow(teamNameRange, options)]] as const)),
     ...(oshiRange === null
       ? []
       : ([["oshiColumn", parseA1StartForWorkflow(oshiRange, options)]] as const)),
@@ -108,14 +110,19 @@ export const appendRangeForCellsForWorkflow = (
   const sheet = parsedCells[0]?.[1].sheet;
   if (!sheet || parsedCells.some(([, cell]) => cell.sheet !== sheet)) return null;
 
-  const columns = parsedCells.map(([key, cell]) => [key, columnToNumber(cell.column)] as const);
-  const uniqueColumns = new Set(columns.map(([, column]) => column));
-  if (uniqueColumns.size !== columns.length) return null;
+  const configuredColumns = parsedCells.map(
+    ([key, cell]) => [key, columnToNumber(cell.column)] as const,
+  );
+  const uniqueColumns = new Set(configuredColumns.map(([, column]) => column));
+  if (uniqueColumns.size !== configuredColumns.length) return null;
+  const columns = configuredColumns.filter(
+    ([key]) => teamNameRange !== null || key !== "oshiColumn",
+  );
   const startColumn = Math.min(...columns.map(([, column]) => column));
   const endColumn = Math.max(...columns.map(([, column]) => column));
   const columnMap = Object.fromEntries(columns) as {
     readonly playerColumn: number;
-    readonly teamColumn: number;
+    readonly teamColumn?: number;
     readonly oshiColumn?: number;
   };
 
@@ -125,7 +132,7 @@ export const appendRangeForCellsForWorkflow = (
     endColumn,
     playerColumn: columnMap.playerColumn,
     teamColumn: columnMap.teamColumn,
-    oshiColumn: columnMap.oshiColumn ?? null,
+    oshiColumn: teamNameRange === null ? null : (columnMap.oshiColumn ?? null),
   };
 };
 
@@ -134,7 +141,7 @@ type AppendRangeForCells = NonNullable<ReturnType<typeof appendRangeForCellsForW
 export type WorkflowTeamSubmissionRowTarget = {
   readonly rowIndex: number;
   readonly playerNameRange: string;
-  readonly teamNameRange: string;
+  readonly teamNameRange: string | null;
   readonly oshiRange: string | null;
 };
 
@@ -147,7 +154,9 @@ export const appendRowValuesForWorkflow = (
     appendRange.endColumn - appendRange.startColumn + 1,
   ).fill("");
   row[appendRange.playerColumn - appendRange.startColumn] = entry.playerName;
-  row[appendRange.teamColumn - appendRange.startColumn] = entry.teamName;
+  if (appendRange.teamColumn !== undefined) {
+    row[appendRange.teamColumn - appendRange.startColumn] = entry.teamName;
+  }
   if (appendRange.oshiColumn !== null) {
     row[appendRange.oshiColumn - appendRange.startColumn] = oshi.value ?? "";
   }
@@ -159,11 +168,12 @@ export const appendedRowTargetForWorkflow = (
   options: A1RangeOptions = {},
 ): WorkflowTeamSubmissionRowTarget | null => {
   const appendedPlayerNameRange = cellForRow(playerNameRange, rowIndex, options);
-  const appendedTeamNameRange = cellForRow(teamNameRange, rowIndex, options);
+  const appendedTeamNameRange =
+    teamNameRange === null ? null : cellForRow(teamNameRange, rowIndex, options);
   const appendedOshiRange = oshiRange === null ? null : cellForRow(oshiRange, rowIndex, options);
   if (
     appendedPlayerNameRange === null ||
-    appendedTeamNameRange === null ||
+    (teamNameRange !== null && appendedTeamNameRange === null) ||
     (oshiRange !== null && appendedOshiRange === null)
   ) {
     return null;

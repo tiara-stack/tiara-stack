@@ -1,4 +1,4 @@
-import { describe, expect, it } from "@effect/vitest";
+import { expect, layer } from "@effect/vitest";
 import { Cause, ConfigProvider, Effect, Exit, Option, Schema } from "effect";
 import { InvocationId } from "effect-zero-workflow/contract";
 import { type SheetBotHttpClient, messageRefFrom, type MessageRef } from "sheet-bot-api";
@@ -34,8 +34,9 @@ import { TeamSubmissionsWorkflowOperations } from "./service";
 
 const invocationId = Schema.decodeUnknownSync(InvocationId)("018f47f5-c16a-7c42-89f3-26a9088f0d31");
 const client = { platform: "discord" as const, clientId: "sheet-bot" };
-const sheetBotClientConfigLayer = (clientId: string) =>
-  ConfigProvider.layer(ConfigProvider.fromUnknown({ SHEET_BOT_CLIENT_ID: clientId }));
+const sheetBotClientConfigLayer = ConfigProvider.layer(
+  ConfigProvider.fromUnknown({ SHEET_BOT_CLIENT_ID: client.clientId }),
+);
 const sourceMessage = messageRefFrom(client, "workspace-1", "conversation-1", "source-message-1");
 const confirmationMessage = messageRefFrom(
   client,
@@ -102,6 +103,21 @@ const rangesConfig = Schema.decodeUnknownSync(RangesConfig)({
   monitorNames: null,
   oshis: null,
 });
+const makeTeamConfig = (
+  name: string,
+  teamNameRange: string | null,
+  tags: ReadonlyArray<string> = ["full fill"],
+) =>
+  Schema.decodeUnknownSync(TeamConfig)({
+    _tag: "TeamConfig",
+    name,
+    sheet: "Teams",
+    playerNameRange: "'Teams'!A:A",
+    teamNameRange,
+    isvConfig: null,
+    tagsConfig: { _tag: "TeamTagsConstantsConfig", tags },
+    oshiRange: null,
+  });
 
 const processInput = Schema.decodeUnknownSync(TeamSubmissionsProcess.input)({
   sourceMessage,
@@ -341,7 +357,6 @@ const makeHarness = (options: HarnessOptions = {}) => {
     Effect.provideService(TeamSubmissionProvider, provider),
     Effect.provideService(SheetBotDeliveryClient, { get: () => bot }),
     Effect.provideService(ReadOnlyWorkflowAuthorization, authorization),
-    Effect.provide(sheetBotClientConfigLayer(client.clientId)),
   );
   return {
     operations,
@@ -376,7 +391,7 @@ const rejectStagedSubmission = (initialSubmission?: MessageTeamSubmissionRow) =>
     return harness;
   });
 
-describe("team-submission workflow operations", () => {
+layer(sheetBotClientConfigLayer)("team-submission workflow operations", (it) => {
   it.effect("stages a submission without writing to the sheet", () =>
     Effect.gen(function* () {
       const harness = makeHarness();
@@ -399,6 +414,113 @@ describe("team-submission workflow operations", () => {
         "editMessage",
         "editMessage",
       ]);
+    }),
+  );
+
+  it.effect("selects an auto config and omits team-name writes", () =>
+    Effect.gen(function* () {
+      const harness = makeHarness({
+        provider: {
+          loadConfiguration: () =>
+            Effect.succeed({
+              rangesConfig,
+              teamConfigs: [
+                makeTeamConfig("Missing", null, ["full fill", "150/700"]),
+                makeTeamConfig("Auto", "auto"),
+                makeTeamConfig("Explicit", "'Teams'!B:B"),
+              ],
+            }),
+        },
+      });
+      const operations = yield* harness.operations;
+      const result = yield* operations.process({
+        invocationId,
+        principal: servicePrincipal,
+        input: processInput,
+      });
+
+      expect(result.parsedTeamCount).toBe(1);
+      expect(result.skippedTeamCount).toBe(0);
+      expect(harness.submission()).toMatchObject({
+        parsedSubmission: [{ teamConfigName: "Auto" }],
+      });
+
+      const confirmed = yield* operations.decide({
+        invocationId,
+        principal: userPrincipal,
+        input: { ...decideInput, decision: "confirm" as const },
+      });
+
+      expect(confirmed.status).toBe("confirmed");
+      expect(harness.sheetAppends).toEqual([{ range: "'Teams'!A:A" }]);
+      expect(harness.sheetWrites).toEqual([[{ range: "'Teams'!A2", values: [["Player"]] }]]);
+    }),
+  );
+
+  it.effect("skips when the only writable config does not match", () =>
+    Effect.gen(function* () {
+      const harness = makeHarness({
+        provider: {
+          loadConfiguration: () =>
+            Effect.succeed({
+              rangesConfig,
+              teamConfigs: [
+                makeTeamConfig("Missing", null),
+                makeTeamConfig("Unmatched", "auto", ["heal"]),
+              ],
+            }),
+        },
+      });
+      const operations = yield* harness.operations;
+      const result = yield* operations.process({
+        invocationId,
+        principal: servicePrincipal,
+        input: processInput,
+      });
+
+      expect(result.parsedTeamCount).toBe(0);
+      expect(result.skippedTeamCount).toBe(1);
+      expect(harness.submission()).toMatchObject({
+        parsedSubmission: [],
+        rowMappings: [],
+      });
+    }),
+  );
+
+  it.effect("does not require a team-name range for an auto config", () =>
+    Effect.gen(function* () {
+      const harness = makeHarness({
+        provider: {
+          loadConfiguration: () =>
+            Effect.succeed({
+              rangesConfig,
+              teamConfigs: [
+                Schema.decodeUnknownSync(TeamConfig)({
+                  _tag: "TeamConfig",
+                  name: "Auto",
+                  sheet: "Teams",
+                  playerNameRange: "'Teams'!A:A",
+                  teamNameRange: "auto",
+                  isvConfig: null,
+                  tagsConfig: { _tag: "TeamTagsConstantsConfig", tags: ["full fill"] },
+                  oshiRange: null,
+                }),
+              ],
+            }),
+        },
+      });
+      const operations = yield* harness.operations;
+      const result = yield* operations.process({
+        invocationId,
+        principal: servicePrincipal,
+        input: processInput,
+      });
+
+      expect(result.parsedTeamCount).toBe(1);
+      expect(result.skippedTeamCount).toBe(0);
+      expect(harness.submission()).toMatchObject({
+        rowMappings: [{ playerNameRange: "'Teams'!A:A", teamNameRange: null }],
+      });
     }),
   );
 

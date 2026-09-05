@@ -228,17 +228,25 @@ const processResultMessage = (
   entries: ReadonlyArray<ParsedTeamEntry>,
   skippedEntries: ReadonlyArray<TeamSubmissionSkippedEntry>,
   controlsDisabled = false,
-): BotOutboundMessage => ({
-  embeds: [
-    {
-      title: "Teams ready to add",
-      description: renderConfirmation(sourceMessage, entries, skippedEntries),
-      color: successColor,
-    },
-  ],
-  components: [teamSubmissionConfirmationActionRow(controlsDisabled)],
-  allowedMentions: "none",
-});
+): BotOutboundMessage => {
+  const hasReadyEntries = entries.length > 0;
+  const hasSkippedEntries = skippedEntries.length > 0;
+  return {
+    embeds: [
+      {
+        title: hasReadyEntries
+          ? "Teams ready to add"
+          : hasSkippedEntries
+            ? "Teams skipped"
+            : "No teams found",
+        description: renderConfirmation(sourceMessage, entries, skippedEntries),
+        color: hasReadyEntries ? successColor : errorColor,
+      },
+    ],
+    components: [teamSubmissionConfirmationActionRow(controlsDisabled || !hasReadyEntries)],
+    allowedMentions: "none",
+  };
+};
 
 const rollbackFailedMessage = (detail: string): BotOutboundMessage =>
   teamSubmissionRollbackFailedMessage(detail, errorColor);
@@ -266,6 +274,14 @@ const teamConfigTags = (config: TeamConfig) =>
         : { range: null, constants: tagsConfig.tags },
   });
 
+const writableRanges = (config: TeamConfig) => {
+  const playerNameRange = optionString(config.playerNameRange);
+  const teamNameRange = optionString(config.teamNameRange);
+  return playerNameRange && teamNameRange
+    ? { playerNameRange, teamNameRange: teamNameRange === "auto" ? null : teamNameRange }
+    : null;
+};
+
 // fallow-ignore-next-line code-duplication
 const chooseTeamConfig = (
   teamConfigs: ReadonlyArray<TeamConfigLookup>,
@@ -275,7 +291,9 @@ const chooseTeamConfig = (
   const named = chooseNamedTeamConfig(teamConfigs, destinationTeamConfigName);
   if (named !== null) return named;
   const configs = teamConfigs.filter(({ config }) => isUsableTeamConfig(config));
-  const matched = configs
+  const writableConfigs = configs.filter(({ config }) => writableRanges(config) !== null);
+  const candidates = writableConfigs.length > 0 ? writableConfigs : configs;
+  const matched = candidates
     .map((lookup) => ({
       lookup,
       score: lookup.tags.filter((tag) => tagMatchesEntry(tag, entry)).length,
@@ -285,20 +303,14 @@ const chooseTeamConfig = (
   return matched?.lookup ?? (configs.length === 1 ? (configs[0] ?? null) : null);
 };
 
-const writableRanges = (config: TeamConfig) => {
-  const playerNameRange = optionString(config.playerNameRange);
-  const teamNameRange = optionString(config.teamNameRange);
-  return playerNameRange && teamNameRange && teamNameRange !== "auto"
-    ? { playerNameRange, teamNameRange }
-    : null;
-};
-
 const updateForMapping = (
   mapping: TeamSubmissionRowTarget,
   entry: ParsedTeamEntry,
 ): ReadonlyArray<SheetValueUpdate> => [
   { range: mapping.playerNameRange, values: [[entry.playerName]] },
-  { range: mapping.teamNameRange, values: [[entry.teamName]] },
+  ...(mapping.teamNameRange === null
+    ? []
+    : [{ range: mapping.teamNameRange, values: [[entry.teamName]] }]),
   ...(mapping.oshiRange === null
     ? []
     : [{ range: mapping.oshiRange, values: [[entry.oshi.value ?? ""]] }]),
@@ -312,7 +324,7 @@ type ResolvedAppendTarget = {
 
 const rangesForTarget = (target: TeamSubmissionRowTarget): ReadonlyArray<string> => [
   target.playerNameRange,
-  target.teamNameRange,
+  ...(target.teamNameRange === null ? [] : [target.teamNameRange]),
   ...(target.oshiRange === null ? [] : [target.oshiRange]),
 ];
 
@@ -502,7 +514,7 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
       readonly entry: ParsedTeamEntry;
       readonly oshi: ParsedTeamEntry["oshi"];
       readonly playerNameRange: string;
-      readonly teamNameRange: string;
+      readonly teamNameRange: string | null;
       readonly oshiRange: string | null;
       readonly previousMapping: TeamSubmissionRowMapping | undefined;
       readonly beforeAppend: (
@@ -1092,6 +1104,10 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
 
         for (const entry of parsedEntries) {
           const selected = chooseTeamConfig(teamConfigs, entry, channel.destinationTeamConfigName);
+          const playerNameRange =
+            selected === null ? undefined : optionString(selected.config.playerNameRange);
+          const teamNameRange =
+            selected === null ? undefined : optionString(selected.config.teamNameRange);
           const ranges = selected === null ? null : writableRanges(selected.config);
           if (selected === null || ranges === null) {
             skipped.push({
@@ -1099,7 +1115,14 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
               playerName: entry.playerName,
               teamName: entry.teamName,
               teamType: entry.teamType,
-              reason: "No writable team config matched this team",
+              reason:
+                selected === null
+                  ? "No usable team config matched this team; check its tags and player-name range"
+                  : playerNameRange === undefined || playerNameRange.length === 0
+                    ? "The matched team config is missing a player-name range"
+                    : teamNameRange === undefined || teamNameRange.length === 0
+                      ? "The matched team config is missing a team-name mapping; use an explicit range or auto"
+                      : "The matched team config has invalid writable ranges",
             });
             continue;
           }
@@ -1557,7 +1580,7 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
               .filter(({ rowIndex }) => rowIndex === 0)
               .flatMap(({ playerNameRange, teamNameRange, oshiRange }) => [
                 playerNameRange,
-                teamNameRange,
+                ...(teamNameRange === null ? [] : [teamNameRange]),
                 ...(oshiRange === null ? [] : [oshiRange]),
               ]),
           ),

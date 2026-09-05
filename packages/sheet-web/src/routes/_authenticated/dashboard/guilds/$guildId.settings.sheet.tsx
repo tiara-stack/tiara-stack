@@ -4341,6 +4341,9 @@ function TeamFields({
           <option value="auto">Auto</option>
           <option value="range">Explicit range</option>
         </select>
+        <span className="mt-1 block text-[10px] font-normal leading-relaxed text-[#8fbab4]">
+          Auto team names are synthesized when read; submissions do not write a team-name cell.
+        </span>
       </label>
       <label className="block text-[11px] font-bold text-white/55" htmlFor={`team-isv-${index}`}>
         Roster columns

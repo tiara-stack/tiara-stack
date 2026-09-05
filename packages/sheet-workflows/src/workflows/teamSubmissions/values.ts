@@ -42,7 +42,7 @@ export type ParsedTeamEntry = Schema.Schema.Type<typeof ParsedTeamEntry>;
 export const TeamSubmissionRowMapping = Schema.Struct({
   stableKey: Schema.String,
   playerNameRange: Schema.String,
-  teamNameRange: Schema.String,
+  teamNameRange: Schema.NullOr(Schema.String),
   oshiRange: Schema.NullOr(Schema.String),
   rowIndex: Schema.Number,
 });
