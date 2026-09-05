@@ -288,6 +288,68 @@ describe("team-submission pure rules", () => {
     ]);
   });
 
+  it("routes tf-labeled teams to full fill", () => {
+    const result = parseTeamSubmissionMessage(
+      ["ff: 150/740", "heal: 100/700", "tf: 150/710 332k", "alt: 150/750"].join("\n"),
+      "Sad Hampster",
+    );
+
+    expect(result.entries.map(({ teamType, teamName }) => [teamType, teamName])).toEqual([
+      ["fullFill", "150/740"],
+      ["heal", "100/700"],
+      ["fullFill", "150/710 332k"],
+      ["alt", "150/750"],
+    ]);
+  });
+
+  it("routes event-marked teams to full fill even when notes mention encore", () => {
+    const result = parseTeamSubmissionMessage(
+      ["150/740", "150/635 event (~340k so it wont affect enc)"].join("\n"),
+      "chiyorin",
+    );
+
+    expect(result.entries.map(({ teamType, teamName }) => [teamType, teamName])).toEqual([
+      ["fullFill", "150/740"],
+      ["fullFill", "150/635 event (~340k so it wont affect enc)"],
+    ]);
+  });
+
+  it("keeps inline healing markers ahead of event full-fill markers", () => {
+    expect(
+      parseTeamSubmissionMessage("150/700 4* event", "Player").entries.map(
+        ({ teamType }) => teamType,
+      ),
+    ).toEqual(["heal"]);
+  });
+
+  it("routes tierfill-labeled teams to full fill", () => {
+    const result = parseTeamSubmissionMessage(
+      ["tierfill: 150/710 332k", "150/700 tierfill"].join("\n"),
+      "Player",
+    );
+
+    expect(result.entries.map(({ teamType, teamName }) => [teamType, teamName])).toEqual([
+      ["fullFill", "150/710 332k"],
+      ["fullFill", "150/700 tierfill"],
+    ]);
+  });
+
+  it("routes spaced TierFill labels to full fill", () => {
+    const result = parseTeamSubmissionMessage("TierFill: 150/700", "Player");
+
+    expect(result.entries.map(({ teamType, teamName }) => [teamType, teamName])).toEqual([
+      ["fullFill", "150/700"],
+    ]);
+  });
+
+  it("prioritizes explicit full-fill labels over healing notes", () => {
+    expect(
+      parseTeamSubmissionMessage("150/700 tier fill bday", "Player").entries.map(
+        ({ teamType }) => teamType,
+      ),
+    ).toEqual(["fullFill"]);
+  });
+
   it("preserves stable keys when same-type entries are reordered", () => {
     const first = parseTeamSubmissionMessage(
       ["full fill: 140/700/324k", "full fill: 150/690 325k"].join("\n"),

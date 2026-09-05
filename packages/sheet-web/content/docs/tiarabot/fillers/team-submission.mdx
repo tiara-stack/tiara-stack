@@ -15,7 +15,7 @@ Post in the configured team-submission channel. A candidate message needs either
 
 The usual unlabeled order is full fill, heal, then encore. Labels let you change the order, submit multiple heals, or add alternatives. TiaraBot accepts numbered lines, Markdown headings or bold labels, and these common labels:
 
-- Full fill: `FF`, `fill`, `main`, or `full fill`.
+- Full fill: `FF`, `TF`, `tierfill`, `tier fill`, `event`, `fill`, `main`, `full fill`, or `fullfill`.
 - Heal: `H`, `heal`, `4* heal`, or `birthday heal`.
 - Encore: `enc` or `encore`.
 - Alternative: `alt`, `alternative`, or `alt/enc`.
@@ -40,12 +40,12 @@ Some server configurations require the submitted oshi to match exactly one confi
 
 ## Review and correct
 
-TiaraBot reacts while processing, writes recognized teams to the sheet, and replies with the teams added or skipped. The write happens before **Confirm** and **Reject** appear. Only the Discord account that posted the source message can use those controls.
+TiaraBot reacts while processing, parses the message, and replies with the teams it plans to add or skip. It does not write to the sheet until the original submitter presses **Confirm**. Only the Discord account that posted the source message can use those controls.
 
 Edit the source message to correct a team before you press either button. After the submission is confirmed, rejected, or has a rollback failure, further edits cannot change it through this flow.
 
-- **Confirm** accepts the current write and removes the confirmation reply.
-- **Reject** restores TiaraBot's latest managed-cell snapshot. It is not a full sheet undo: newly appended rows are blanked rather than deleted, and unrelated cells are not restored.
+- **Confirm** writes the displayed teams to the sheet and removes the confirmation reply.
+- **Reject** discards the pending plan and removes the confirmation reply. If the submission is an older in-progress record that already wrote to the sheet, TiaraBot restores its latest managed-cell snapshot. That is not a full sheet undo: newly appended rows are blanked rather than deleted, and unrelated cells are not restored.
 
 ## Inspect the live sheet view
 

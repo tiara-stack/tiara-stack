@@ -5,6 +5,7 @@ import {
   type MessageRef,
   workspaceRefFrom,
 } from "sheet-bot-api";
+import { InvocationId } from "effect-zero-workflow/contract";
 import {
   isTeamSubmissionEnabled,
   MessageTeamSubmission,
@@ -196,8 +197,8 @@ const messageRefFor = (sourceMessage: MessageRef, messageId: string): MessageRef
 const processProgressMessage = (sourceMessage: MessageRef): BotOutboundMessage => ({
   embeds: [
     {
-      title: "Adding teams to the sheet",
-      description: "Tiara is parsing this submission and writing the teams now.",
+      title: "Preparing teams for the sheet",
+      description: "Tiara is parsing this submission. Nothing will be written until you confirm.",
       color: progressColor,
     },
   ],
@@ -213,7 +214,7 @@ const processResultMessage = (
 ): BotOutboundMessage => ({
   embeds: [
     {
-      title: "Teams added to the sheet",
+      title: "Teams ready to add",
       description: renderConfirmation(sourceMessage, entries, skippedEntries),
       color: successColor,
     },
@@ -456,6 +457,27 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
       });
     };
 
+    const loadTeamConfigLookups = (
+      sheetId: string,
+      configuration: TeamSubmissionConfigurationBinding["configuration"],
+    ) =>
+      Effect.gen(function* () {
+        const teamConfigData = yield* provider.loadConfiguration(sheetId, configuration);
+        const oshiRange = optionString(teamConfigData.rangesConfig.oshis);
+        const tagRanges = teamConfigData.teamConfigs.flatMap((teamConfig) => {
+          const tags = teamConfigTags(teamConfig);
+          return tags.range === null ? [] : [tags.range];
+        });
+        const requested = [
+          ...new Set([...(oshiRange === undefined ? [] : [oshiRange]), ...tagRanges]),
+        ];
+        const values = requested.length === 0 ? [] : yield* provider.read(sheetId, requested);
+        return makeTeamConfigLookups({
+          ...teamConfigData,
+          valuesByRange: valuesByRequestedRange(values, requested),
+        });
+      });
+
     // fallow-ignore-next-line complexity
     const resolveAppendTarget = (options: {
       readonly sheetId: string;
@@ -467,6 +489,7 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
       readonly oshiRange: string | null;
       readonly previousMapping: TeamSubmissionRowMapping | undefined;
       readonly beforeAppend: (mapping: TeamSubmissionRowMapping) => Effect.Effect<void, unknown>;
+      readonly onMutationStarted: () => void;
     }) => {
       const {
         appendIdentity,
@@ -575,6 +598,7 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
           oshiRange,
           rowIndex: 0,
         });
+        options.onMutationStarted();
         const updatedRange = yield* provider.append(sheetId, appendRange.range, [expected]);
         const rowIndex = appendedRowIndex(updatedRange);
         if (rowIndex !== null) {
@@ -605,6 +629,203 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
         return yield* appendFreshRow;
       });
     };
+
+    const chooseStoredTeamConfig = (
+      teamConfigs: ReadonlyArray<TeamConfigLookup>,
+      entry: ParsedTeamEntry,
+      channel: typeof WorkspaceTeamSubmissionChannel.Type,
+    ) =>
+      entry.teamConfigName === null
+        ? chooseTeamConfig(teamConfigs, entry, channel.destinationTeamConfigName)
+        : chooseNamedTeamConfig(teamConfigs, Option.some(entry.teamConfigName));
+
+    type AppliedTeamSubmission = {
+      readonly entries: ReadonlyArray<ParsedTeamEntry>;
+      readonly mappings: ReadonlyArray<TeamSubmissionRowMapping>;
+      readonly snapshot: TeamSubmissionRollbackSnapshot;
+      readonly version: number;
+    };
+
+    // fallow-ignore-next-line complexity
+    const applyPendingSubmission = (options: {
+      readonly sourceMessage: MessageRef;
+      readonly submission: typeof MessageTeamSubmission.Type;
+      readonly channel: typeof WorkspaceTeamSubmissionChannel.Type;
+      readonly sheetConfigurationBinding: TeamSubmissionConfigurationBinding;
+      readonly onMutationStarted: () => void;
+    }): Effect.Effect<AppliedTeamSubmission, unknown> =>
+      // fallow-ignore-next-line complexity
+      Effect.gen(function* () {
+        const { channel, sheetConfigurationBinding, sourceMessage, submission } = options;
+        const teamConfigs = yield* loadTeamConfigLookups(
+          submission.sheetId,
+          sheetConfigurationBinding.configuration,
+        );
+        const previousMappings = existingMappingByKey(submission);
+        const previousKeys = existingTeamKeys(submission);
+        const client = clientFor(sourceMessage);
+        let version = submission.version;
+        let recoverySnapshot: TeamSubmissionRollbackSnapshot =
+          submission.status === "applying"
+            ? [...(optionValue(submission.rollbackSnapshot) ?? [])]
+            : [];
+        const interimMappings = new Map(previousMappings);
+        const registered: ProcessedTeamSubmissionEntry[] = [];
+
+        const planned = submission.parsedSubmission.map((entry) => {
+          const selected = chooseStoredTeamConfig(teamConfigs, entry, channel);
+          const ranges = selected === null ? null : writableRanges(selected.config);
+          const mapping = previousMappings.get(entry.stableKey);
+          return { entry, mapping, ranges, selected };
+        });
+        const invalidPlan = planned.find(({ mapping, ranges, selected }) => {
+          if (selected === null || ranges === null || mapping === undefined) return true;
+          const mappedDestination = appendRangeForCells(
+            mapping.playerNameRange,
+            mapping.teamNameRange,
+            mapping.oshiRange,
+          );
+          const configuredDestination = appendRangeForCells(
+            ranges.playerNameRange,
+            ranges.teamNameRange,
+            optionString(selected.config.oshiRange) ?? null,
+          );
+          return mappedDestination?.range !== configuredDestination?.range;
+        });
+        if (invalidPlan !== undefined) {
+          return yield* Effect.fail(
+            interactiveBusinessRuleRejected(
+              "PendingPlanInvalid",
+              `The stored team submission plan no longer matches its original destination for ${invalidPlan.entry.teamName}`,
+            ),
+          );
+        }
+
+        const persistCurrent = (state: {
+          readonly entries: ReadonlyArray<ParsedTeamEntry>;
+          readonly mappings: ReadonlyArray<TeamSubmissionRowMapping>;
+          readonly snapshot: TeamSubmissionRollbackSnapshot;
+          readonly status: (typeof MessageTeamSubmission.Type)["status"];
+        }) =>
+          persistSubmission({
+            sourceMessage,
+            client,
+            authorId: submission.discordAuthorId,
+            sheetId: submission.sheetId,
+            sheetConfigurationBinding,
+            confirmationMessageId: optionValue(submission.confirmationMessageId) ?? null,
+            entries: state.entries,
+            rowMappings: state.mappings,
+            rollbackSnapshot: state.snapshot,
+            status: state.status,
+            expectedVersion: version,
+          }).pipe(Effect.tap(() => Effect.sync(() => (version += 1))));
+
+        const beforeAppend = (mapping: TeamSubmissionRowMapping) =>
+          persistCurrent({
+            entries: submission.parsedSubmission,
+            mappings: [...new Map(interimMappings).set(mapping.stableKey, mapping).values()],
+            snapshot: [
+              ...recoverySnapshot.filter(({ stableKey }) => stableKey !== mapping.stableKey),
+              { stableKey: mapping.stableKey, range: pendingAppendRollbackRange, values: [] },
+            ],
+            status: "applying",
+          });
+
+        for (const plannedEntry of planned) {
+          const mapping = plannedEntry.mapping;
+          const selected = plannedEntry.selected;
+          if (mapping === undefined || selected === null) continue;
+          const entry = plannedEntry.entry;
+          const previousMapping =
+            mapping.rowIndex === 0 && submission.status !== "applying" ? undefined : mapping;
+          const resolvedTarget = yield* resolveAppendTarget({
+            sheetId: submission.sheetId,
+            appendIdentity: `${sourceMessage.conversation.workspace.workspaceId}:${sourceMessage.conversation.conversationId}:${sourceMessage.messageId}:${entry.stableKey}`,
+            entry,
+            oshi: entry.oshi,
+            playerNameRange: mapping.playerNameRange,
+            teamNameRange: mapping.teamNameRange,
+            oshiRange: mapping.oshiRange,
+            previousMapping,
+            beforeAppend,
+            onMutationStarted: options.onMutationStarted,
+          });
+          const processedEntry: ProcessedTeamSubmissionEntry = {
+            appended: resolvedTarget.appended,
+            duplicateTargets: resolvedTarget.duplicateTargets,
+            entry: {
+              ...entry,
+              teamConfigName: optionString(selected.config.name) ?? entry.teamConfigName,
+            },
+            mapping: mappingFromTarget(entry, resolvedTarget.target),
+            updates: updateForMapping(resolvedTarget.target, entry),
+          };
+          registered.push(processedEntry);
+          interimMappings.set(processedEntry.mapping.stableKey, processedEntry.mapping);
+          if (processedEntry.appended) {
+            recoverySnapshot = [
+              ...recoverySnapshot.filter(
+                ({ stableKey }) => stableKey !== processedEntry.mapping.stableKey,
+              ),
+              ...blankRollbackSnapshotForAppendedRows([processedEntry]),
+            ];
+            yield* persistCurrent({
+              entries: submission.parsedSubmission,
+              mappings: [...interimMappings.values()],
+              snapshot: recoverySnapshot,
+              status: "applying",
+            });
+          }
+        }
+
+        const entries = registered.map(({ entry }) => entry);
+        const mappings = registered.map(({ mapping }) => mapping);
+        const nextKeys = new Set(mappings.map(({ stableKey }) => stableKey));
+        const data = [
+          ...registered.flatMap(({ updates }) => updates),
+          ...registered.flatMap(({ duplicateTargets }) => duplicateTargets.flatMap(blankForTarget)),
+          ...blankRemovedRows(previousKeys, nextKeys, previousMappings),
+        ];
+        const stableKeyByRange = new Map(
+          registered.flatMap(({ mapping, duplicateTargets }) => [
+            ...rangesForTarget(mapping).map((range) => [range, mapping.stableKey] as const),
+            ...duplicateTargets.flatMap((target) =>
+              rangesForTarget(target).map((range) => [range, mapping.stableKey] as const),
+            ),
+          ]),
+        );
+        const beforeWriteSnapshot = yield* readSnapshot(submission.sheetId, data, stableKeyByRange);
+        const appendedKeys = new Set(
+          registered.filter(({ appended }) => appended).map(({ mapping }) => mapping.stableKey),
+        );
+        const snapshot = (() => {
+          const merged: Array<TeamSubmissionRollbackSnapshot[number]> = [];
+          const seen = new Set<string>();
+          const appendUnique = (entry: TeamSubmissionRollbackSnapshot[number]) => {
+            const identity = `${entry.stableKey}\u0000${entry.range}`;
+            if (seen.has(identity)) return;
+            seen.add(identity);
+            merged.push(entry);
+          };
+          for (const entry of recoverySnapshot) {
+            if (!appendedKeys.has(entry.stableKey)) appendUnique(entry);
+          }
+          for (const entry of beforeWriteSnapshot) {
+            if (!appendedKeys.has(entry.stableKey)) appendUnique(entry);
+          }
+          for (const entry of blankRollbackSnapshotForAppendedRows(registered)) {
+            appendUnique(entry);
+          }
+          return merged;
+        })();
+        if (data.length > 0) {
+          yield* persistCurrent({ entries, mappings, snapshot, status: "applying" });
+          options.onMutationStarted();
+          yield* provider.write(submission.sheetId, data);
+        }
+        return { entries, mappings, snapshot, version };
+      });
 
     const deliverProgress = (
       execution: typeof TeamSubmissionsProcessExecution.Type,
@@ -699,30 +920,46 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
           ),
         );
 
-    const reportProcessWriteFailure = (
+    const preparationFailureMessage = {
+      embeds: [
+        {
+          title: "Could not prepare teams",
+          description: "Tiara could not prepare this submission for confirmation.",
+          color: errorColor,
+        },
+      ],
+      components: [],
+      allowedMentions: "none" as const,
+    };
+
+    const reportPreparationFailure = (
+      invocationId: typeof InvocationId.Type,
+      message: MessageRef,
+      error: unknown,
+    ) =>
+      delivery
+        .get()
+        .delivery.editMessage({
+          payload: {
+            message,
+            deliveryKey: makeTeamSubmissionsDeliveryKey(
+              invocationId,
+              teamSubmissionActionIdentities.writeFailure,
+            ),
+            content: preparationFailureMessage,
+          },
+        })
+        .pipe(
+          Effect.timeout("30 seconds"),
+          Effect.catch(() => Effect.void),
+          Effect.andThen(Effect.fail(error)),
+        );
+
+    const reportProcessPreparationFailure = (
       execution: typeof TeamSubmissionsProcessExecution.Type,
       progressMessage: MessageRef,
       error: unknown,
-    ) =>
-      editProgress(
-        execution,
-        progressMessage,
-        {
-          embeds: [
-            {
-              title: "Could not add teams",
-              description: "Tiara could not write this submission to the sheet.",
-              color: errorColor,
-            },
-          ],
-          components: [],
-          allowedMentions: "none",
-        },
-        teamSubmissionActionIdentities.writeFailure,
-      ).pipe(
-        Effect.catch(() => Effect.void),
-        Effect.andThen(Effect.fail(error)),
-      );
+    ) => reportPreparationFailure(execution.invocationId, progressMessage, error);
 
     // fallow-ignore-next-line complexity
     const process = (execution: typeof TeamSubmissionsProcessExecution.Type) =>
@@ -822,216 +1059,92 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
           configuration = persistedBinding.configuration;
         }
 
-        const teamConfigData = yield* provider.loadConfiguration(sheetId, configuration);
-        const oshiRange = optionString(teamConfigData.rangesConfig.oshis);
-        const tagRanges = teamConfigData.teamConfigs.flatMap((config) => {
-          const tags = teamConfigTags(config);
-          return tags.range === null ? [] : [tags.range];
-        });
-        const requested = [
-          ...new Set([...(oshiRange === undefined ? [] : [oshiRange]), ...tagRanges]),
-        ];
-        const values = yield* provider.read(sheetId, requested);
-        const teamConfigs = makeTeamConfigLookups({
-          ...teamConfigData,
-          valuesByRange: valuesByRequestedRange(values, requested),
-        });
+        const teamConfigs = yield* loadTeamConfigLookups(sheetId, configuration);
         const parsedEntries =
           existing === null ? parsed.entries : preserveExistingStableKeys(existing, parsed.entries);
-        const previousMappings = existingMappingByKey(existing);
-        const previousKeys = existingTeamKeys(existing);
         const client = clientFor(sourceMessage);
-        let version = existing?.version ?? 0;
-        let persisted = existing !== null;
-        const interimMappings = new Map(previousMappings);
-        let recoverySnapshot: TeamSubmissionRollbackSnapshot = [
-          ...(optionValue(existing?.rollbackSnapshot) ?? []),
-        ];
-        const registered: ProcessedTeamSubmissionEntry[] = [];
+        const registered: ParsedTeamEntry[] = [];
+        const registeredMappings: TeamSubmissionRowMapping[] = [];
         const skipped: TeamSubmissionSkippedEntry[] = [];
-
-        const persistCurrent = (options: {
-          readonly entries: ReadonlyArray<ParsedTeamEntry>;
-          readonly mappings: ReadonlyArray<TeamSubmissionRowMapping>;
-          readonly snapshot: TeamSubmissionRollbackSnapshot;
-          readonly status: (typeof MessageTeamSubmission.Type)["status"];
-        }) =>
-          persistSubmission({
-            sourceMessage,
-            client,
-            authorId: input.authorId,
-            sheetId,
-            sheetConfigurationBinding,
-            confirmationMessageId: optionValue(existing?.confirmationMessageId) ?? null,
-            entries: options.entries,
-            rowMappings: options.mappings,
-            rollbackSnapshot: options.snapshot,
-            status: options.status,
-            ...(persisted ? { expectedVersion: version } : {}),
-          }).pipe(
-            Effect.tap(() =>
-              Effect.sync(() => {
-                version = persisted ? version + 1 : 1;
-                persisted = true;
-              }),
-            ),
-          );
-
-        const beforeAppend = (mapping: TeamSubmissionRowMapping) =>
-          persistCurrent({
-            entries: [
-              ...registered.map(({ entry }) => entry),
-              ...parsedEntries.filter((entry) => entry.stableKey === mapping.stableKey),
-            ],
-            mappings: [...interimMappings.values(), mapping],
-            snapshot: [
-              ...recoverySnapshot.filter(({ stableKey }) => stableKey !== mapping.stableKey),
-              { stableKey: mapping.stableKey, range: pendingAppendRollbackRange, values: [] },
-            ],
-            status: "applying",
-          });
-
-        const processEntry = (entry: ParsedTeamEntry) =>
-          // fallow-ignore-next-line complexity
-          Effect.gen(function* () {
-            const selected = chooseTeamConfig(
-              teamConfigs,
-              entry,
-              channel.destinationTeamConfigName,
-            );
-            const ranges = selected === null ? null : writableRanges(selected.config);
-            if (selected === null || ranges === null) {
-              skipped.push({
-                stableKey: entry.stableKey,
-                playerName: entry.playerName,
-                teamName: entry.teamName,
-                teamType: entry.teamType,
-                reason: "No writable team config matched this team",
-              });
-              return;
-            }
-            const oshiCandidate = entry.oshi.candidate ?? parsed.oshiCandidate;
-            const oshi = matchOshi(oshiCandidate, selected.oshis);
-            if (channel.requireValidOshi && oshi.status !== "matched") {
-              skipped.push({
-                stableKey: entry.stableKey,
-                playerName: entry.playerName,
-                teamName: entry.teamName,
-                teamType: entry.teamType,
-                reason:
-                  oshiCandidate === null
-                    ? "Oshi is required"
-                    : `Oshi ${oshiCandidate} is not valid`,
-              });
-              return;
-            }
-            const previousMapping = previousMappings.get(entry.stableKey);
-            const resolvedTarget = yield* resolveAppendTarget({
-              sheetId,
-              appendIdentity: `${sourceMessage.conversation.workspace.workspaceId}:${sourceMessage.conversation.conversationId}:${sourceMessage.messageId}:${entry.stableKey}`,
-              entry,
-              oshi,
-              playerNameRange: ranges.playerNameRange,
-              teamNameRange: ranges.teamNameRange,
-              oshiRange: optionString(selected.config.oshiRange) ?? null,
-              previousMapping,
-              beforeAppend,
-            });
-            const parsedEntry = {
-              ...entry,
-              teamConfigName: optionString(selected.config.name) ?? null,
-              oshi,
-            } satisfies ParsedTeamEntry;
-            const processedEntry: ProcessedTeamSubmissionEntry = {
-              appended: resolvedTarget.appended,
-              duplicateTargets: resolvedTarget.duplicateTargets,
-              entry: parsedEntry,
-              mapping: mappingFromTarget(entry, resolvedTarget.target),
-              updates: updateForMapping(resolvedTarget.target, parsedEntry),
-            };
-            registered.push(processedEntry);
-            interimMappings.set(processedEntry.mapping.stableKey, processedEntry.mapping);
-            if (processedEntry.appended) {
-              recoverySnapshot = [
-                ...recoverySnapshot.filter(
-                  ({ stableKey }) => stableKey !== processedEntry.mapping.stableKey,
-                ),
-                ...blankRollbackSnapshotForAppendedRows([processedEntry]),
-              ];
-              yield* persistCurrent({
-                entries: registered.map(({ entry: value }) => value),
-                mappings: [...interimMappings.values()],
-                snapshot: recoverySnapshot,
-                status: "applying",
-              });
-            }
-          });
+        const existingMappings = existingMappingByKey(existing);
 
         const progress = yield* deliverProgress(execution, sourceMessage);
         const progressMessage = progress.progress.target.message;
         const reactionReceipt = progress.reaction;
-        // Each append persists a version that the next append must observe.
-        yield* Effect.forEach(parsedEntries, processEntry, {
-          discard: true,
-          concurrency: 1,
-        }).pipe(
-          Effect.catch((error) => reportProcessWriteFailure(execution, progressMessage, error)),
-        );
 
-        const entries = registered.map(({ entry }) => entry);
-        const mappings = registered.map(({ mapping }) => mapping);
-        const nextKeys = new Set(mappings.map(({ stableKey }) => stableKey));
-        const data = [
-          ...registered.flatMap(({ updates }) => updates),
-          ...registered.flatMap(({ duplicateTargets }) => duplicateTargets.flatMap(blankForTarget)),
-          ...blankRemovedRows(previousKeys, nextKeys, previousMappings),
-        ];
-        const stableKeyByRange = new Map(
-          registered.flatMap(({ mapping, duplicateTargets }) => [
-            ...rangesForTarget(mapping).map((range) => [range, mapping.stableKey] as const),
-            ...duplicateTargets.flatMap((target) =>
-              rangesForTarget(target).map((range) => [range, mapping.stableKey] as const),
-            ),
-          ]),
-        );
-        const beforeWriteSnapshot = yield* readSnapshot(sheetId, data, stableKeyByRange);
-        const appendedKeys = new Set(
-          registered.filter(({ appended }) => appended).map(({ mapping }) => mapping.stableKey),
-        );
-        const snapshot =
-          existing?.status === "applying"
-            ? recoverySnapshot
-            : [
-                ...beforeWriteSnapshot.filter(({ stableKey }) => !appendedKeys.has(stableKey)),
-                ...blankRollbackSnapshotForAppendedRows(registered),
-              ];
-        const status: (typeof MessageTeamSubmission.Type)["status"] =
-          entries.length === 0 ? "empty" : existing === null ? "registered" : "updated";
-        if (data.length > 0) {
-          yield* persistCurrent({ entries, mappings, snapshot, status: "applying" }).pipe(
-            Effect.catch((error) => externalFailureEffect(`${processOperation}.persist`, error)),
+        for (const entry of parsedEntries) {
+          const selected = chooseTeamConfig(teamConfigs, entry, channel.destinationTeamConfigName);
+          const ranges = selected === null ? null : writableRanges(selected.config);
+          if (selected === null || ranges === null) {
+            skipped.push({
+              stableKey: entry.stableKey,
+              playerName: entry.playerName,
+              teamName: entry.teamName,
+              teamType: entry.teamType,
+              reason: "No writable team config matched this team",
+            });
+            continue;
+          }
+          const oshiCandidate = entry.oshi.candidate ?? parsed.oshiCandidate;
+          const oshi = matchOshi(oshiCandidate, selected.oshis);
+          if (channel.requireValidOshi && oshi.status !== "matched") {
+            skipped.push({
+              stableKey: entry.stableKey,
+              playerName: entry.playerName,
+              teamName: entry.teamName,
+              teamType: entry.teamType,
+              reason:
+                oshiCandidate === null ? "Oshi is required" : `Oshi ${oshiCandidate} is not valid`,
+            });
+            continue;
+          }
+          registered.push({
+            ...entry,
+            teamConfigName: optionString(selected.config.name) ?? null,
+            oshi,
+          });
+          registeredMappings.push(
+            existingMappings.get(entry.stableKey) ?? {
+              stableKey: entry.stableKey,
+              playerNameRange: ranges.playerNameRange,
+              teamNameRange: ranges.teamNameRange,
+              oshiRange: optionString(selected.config.oshiRange) ?? null,
+              rowIndex: 0,
+            },
           );
-          yield* provider
-            .write(sheetId, data)
-            .pipe(
-              Effect.catch((error) =>
-                externalFailureEffect(`${processOperation}.sheet-write`, error).pipe(
-                  Effect.catch((failure) =>
-                    reportProcessWriteFailure(execution, progressMessage, failure),
-                  ),
-                ),
-              ),
-            );
         }
-        yield* persistCurrent({ entries, mappings, snapshot, status }).pipe(
+
+        const status: (typeof MessageTeamSubmission.Type)["status"] =
+          registered.length === 0
+            ? "empty"
+            : existing?.status === "applying"
+              ? "applying"
+              : "pending";
+        yield* persistSubmission({
+          sourceMessage,
+          client,
+          authorId: input.authorId,
+          sheetId,
+          sheetConfigurationBinding,
+          confirmationMessageId: optionValue(existing?.confirmationMessageId) ?? null,
+          entries: registered,
+          rowMappings: registered.length === 0 ? (existing?.rowMappings ?? []) : registeredMappings,
+          rollbackSnapshot: optionValue(existing?.rollbackSnapshot) ?? null,
+          status,
+          ...(existing === null ? {} : { expectedVersion: existing.version }),
+        }).pipe(
           Effect.catch((error) =>
-            externalFailureEffect(`${processOperation}.persist-terminal`, error),
+            externalFailureEffect(`${processOperation}.persist-pending`, error).pipe(
+              Effect.catch((failure) =>
+                reportProcessPreparationFailure(execution, progressMessage, failure),
+              ),
+            ),
           ),
         );
         const confirmationReceipt = yield* editProgress(
           execution,
           progressMessage,
-          processResultMessage(sourceMessage, entries, skipped, true),
+          processResultMessage(sourceMessage, registered, skipped, true),
         );
         yield* persistence.teamSubmissionState
           .setMessageTeamSubmissionConfirmation({
@@ -1040,27 +1153,25 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
           })
           .pipe(
             Effect.tapError((error) =>
-              data.length > 0
-                ? Effect.logError(
-                    "Team submission confirmation state persistence failed after sheet write commit",
-                  ).pipe(
-                    Effect.annotateLogs({
-                      operation: `${processOperation}.confirmation-persistence`,
-                      errorCategory: "ConfirmationPersistenceFailure",
-                      workspaceId: sourceMessage.conversation.workspace.workspaceId,
-                      conversationId: sourceMessage.conversation.conversationId,
-                      sourceMessageId: sourceMessage.messageId,
-                      confirmationMessageId: confirmationReceipt.target.message.messageId,
-                      sheetId,
-                    }),
-                    Effect.andThen(Effect.logError(error)),
-                  )
-                : Effect.void,
+              Effect.logError(
+                "Team submission confirmation state persistence failed after pending plan commit",
+              ).pipe(
+                Effect.annotateLogs({
+                  operation: `${processOperation}.confirmation-persistence`,
+                  errorCategory: "ConfirmationPersistenceFailure",
+                  workspaceId: sourceMessage.conversation.workspace.workspaceId,
+                  conversationId: sourceMessage.conversation.conversationId,
+                  sourceMessageId: sourceMessage.messageId,
+                  confirmationMessageId: confirmationReceipt.target.message.messageId,
+                  sheetId,
+                }),
+                Effect.andThen(Effect.logError(error)),
+              ),
             ),
             Effect.mapError(() =>
               interactiveDeliveryRejected(
                 `${processOperation}.confirmation-persistence`,
-                "The sheet write committed but confirmation state could not be persisted",
+                "The team-submission confirmation state could not be persisted",
                 true,
                 confirmationReceipt.target.message.messageId,
               ),
@@ -1069,7 +1180,7 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
         const controlsReceipt = yield* editProgress(
           execution,
           confirmationReceipt.target.message,
-          processResultMessage(sourceMessage, entries, skipped),
+          processResultMessage(sourceMessage, registered, skipped),
           teamSubmissionActionIdentities.confirmationControls,
         );
         const deliveryReceipts: Array<typeof DeliveryReceipt.Type> = [
@@ -1081,7 +1192,7 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
         return {
           sourceMessage,
           confirmationMessage: confirmationReceipt.target.message,
-          parsedTeamCount: entries.length,
+          parsedTeamCount: registered.length,
           skippedTeamCount: skipped.length,
           status,
           deliveryReceipts,
@@ -1109,6 +1220,40 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
                 ),
         ),
       );
+
+    const reportDecisionWriteFailure = (
+      execution: typeof TeamSubmissionsDecideExecution.Type,
+      confirmationMessage: MessageRef,
+      error: unknown,
+    ) =>
+      delivery
+        .get()
+        .delivery.editMessage({
+          payload: {
+            message: confirmationMessage,
+            deliveryKey: makeTeamSubmissionsDeliveryKey(
+              execution.invocationId,
+              teamSubmissionActionIdentities.writeFailure,
+            ),
+            content: {
+              embeds: [
+                {
+                  title: "Could not add teams",
+                  description:
+                    "Tiara could not finish the confirmed sheet write. The submission needs manual recovery.",
+                  color: errorColor,
+                },
+              ],
+              components: [],
+              allowedMentions: "none",
+            },
+          },
+        })
+        .pipe(
+          Effect.timeout("30 seconds"),
+          Effect.catch(() => Effect.void),
+          Effect.andThen(Effect.fail(error)),
+        );
 
     const cleanupConfirmation = (
       execution: typeof TeamSubmissionsDecideExecution.Type,
@@ -1258,7 +1403,14 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
 
         let version = submission.version;
         let currentStatus = submission.status;
-        const persistStatus = (status: (typeof MessageTeamSubmission.Type)["status"]) =>
+        const persistStatus = (
+          status: (typeof MessageTeamSubmission.Type)["status"],
+          state: {
+            readonly entries?: ReadonlyArray<ParsedTeamEntry>;
+            readonly mappings?: ReadonlyArray<TeamSubmissionRowMapping>;
+            readonly snapshot?: TeamSubmissionRollbackSnapshot | null;
+          } = {},
+        ) =>
           persistence.teamSubmissionState
             .upsertMessageTeamSubmission(
               sourceRecord({
@@ -1268,9 +1420,10 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
                 sheetId: submission.sheetId,
                 sheetConfigurationBinding: persistedBinding ?? null,
                 confirmationMessageId: persistedConfirmationId,
-                parsedSubmission: submission.parsedSubmission,
-                rowMappings: submission.rowMappings,
-                rollbackSnapshot: persistedSnapshot ?? null,
+                parsedSubmission: state.entries ?? submission.parsedSubmission,
+                rowMappings: state.mappings ?? submission.rowMappings,
+                rollbackSnapshot:
+                  state.snapshot === undefined ? (persistedSnapshot ?? null) : state.snapshot,
                 status,
                 expectedVersion: version,
               }),
@@ -1296,18 +1449,54 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
             );
             return { sourceMessage, status: "confirmed" as const, deliveryReceipts: receipts };
           }
-          yield* requireActionableForDecision(submission);
-          // This is the business commit point. Every acknowledgement and cleanup below is
-          // explicitly post-commit and therefore cannot revert the persisted decision.
-          yield* persistStatus("confirmed").pipe(
-            Effect.catch((error) => externalFailureEffect(`${decideOperation}.confirm`, error)),
-          );
+          if (currentStatus === "pending" || currentStatus === "applying") {
+            const binding = persistedBinding;
+            if (binding === undefined) return yield* Effect.fail(missingConfigurationBinding());
+            const channelRow = yield* persistence.workspaces
+              .getTeamSubmissionChannelByConversationId({
+                workspaceId: sourceMessage.conversation.workspace.workspaceId,
+                conversationId: sourceMessage.conversation.conversationId,
+              })
+              .pipe(
+                Effect.catch((error) => externalFailureEffect(`${decideOperation}.channel`, error)),
+              );
+            if (Option.isNone(channelRow)) {
+              return yield* Effect.fail(interactiveConfigurationMissing("teamSubmissionChannel"));
+            }
+            let sheetMutationStarted = false;
+            const applied = yield* applyPendingSubmission({
+              sourceMessage,
+              submission,
+              channel: yield* channelFrom(channelRow.value),
+              sheetConfigurationBinding: binding,
+              onMutationStarted: () => {
+                sheetMutationStarted = true;
+              },
+            }).pipe(
+              Effect.catch((error) =>
+                sheetMutationStarted
+                  ? reportDecisionWriteFailure(execution, confirmationMessage, error)
+                  : reportPreparationFailure(execution.invocationId, confirmationMessage, error),
+              ),
+            );
+            version = applied.version;
+            yield* persistStatus("confirmed", applied).pipe(
+              Effect.catch((error) => externalFailureEffect(`${decideOperation}.confirm`, error)),
+            );
+          } else {
+            yield* requireActionableForDecision(submission);
+            // This is the business commit point for legacy submissions that were written before
+            // the deferred-write flow. Delivery below is post-commit and cannot revert it.
+            yield* persistStatus("confirmed").pipe(
+              Effect.catch((error) => externalFailureEffect(`${decideOperation}.confirm`, error)),
+            );
+          }
           const receipts = yield* cleanupConfirmation(
             execution,
             input,
             sourceMessage,
             confirmationMessage,
-            "Team submission confirmed.",
+            "Team submission confirmed. Teams were added to the sheet.",
             true,
           );
           return { sourceMessage, status: "confirmed" as const, deliveryReceipts: receipts };
@@ -1320,6 +1509,20 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
             sourceMessage,
             confirmationMessage,
             "Team submission rejected and rolled back.",
+            true,
+          );
+          return { sourceMessage, status: "rejected" as const, deliveryReceipts: receipts };
+        }
+        if (currentStatus === "pending") {
+          yield* persistStatus("rejected").pipe(
+            Effect.catch((error) => externalFailureEffect(`${decideOperation}.rejected`, error)),
+          );
+          const receipts = yield* cleanupConfirmation(
+            execution,
+            input,
+            sourceMessage,
+            confirmationMessage,
+            "Team submission rejected.",
             true,
           );
           return { sourceMessage, status: "rejected" as const, deliveryReceipts: receipts };

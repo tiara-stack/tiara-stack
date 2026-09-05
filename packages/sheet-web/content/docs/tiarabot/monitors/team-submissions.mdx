@@ -11,16 +11,16 @@ description: Support TiaraBot's gated team-submission and submitter-confirmation
 
 Where fully enabled, TiaraBot watches new and edited messages in the configured channel. A candidate message needs either an ISV-style power pair such as `150/700` or a recognized colon label with a non-empty value, such as `full fill: Full Team`. Ordinary conversation is silently ignored. Put format examples in Discord quote lines or fenced code blocks so TiaraBot ignores them too.
 
-The parser accepts positional full-fill/heal/encore lines and explicit labels including `FF`, `main`, `fill`, `H`, `heal`, `4* heal`, `birthday heal`, `enc`, `alt`, and `alt/enc`. Numbered lines and Markdown heading or bold labels are normalized. It also recognizes inline and spoiler alts, `or` alternatives, and one shared oshi name or emoji for the message.
+The parser accepts positional full-fill/heal/encore lines and explicit labels including `FF`, `TF`, `tierfill`, `event`, `main`, `fill`, `H`, `heal`, `4* heal`, `birthday heal`, `enc`, `alt`, and `alt/enc`. Numbered lines and Markdown heading or bold labels are normalized. It also recognizes inline and spoiler alts, `or` alternatives, and one shared oshi name or emoji for the message. An `event` marker keeps a team in Full fill even when a note mentions Encore.
 
 See [Submit and verify a fill team](/docs/tiarabot/fillers/team-submission) for examples fillers can copy.
 
 ## Confirmation flow
 
-TiaraBot writes recognized teams before the controls appear. Only the original submitter can use **Confirm** or **Reject**; a mana/moni cannot act on another person's submission.
+TiaraBot shows the recognized teams before the controls appear, but does not write them to the sheet yet. **Confirm** performs the write. Only the original submitter can use **Confirm** or **Reject**; a mana/moni cannot act on another person's submission.
 
-- **Confirm** marks the submission terminal and removes the public confirmation reply.
-- **Reject** restores the latest snapshot of cells managed by the submission. It blanks newly appended team rows instead of deleting them and does not restore unrelated sheet cells.
+- **Confirm** writes the planned teams, marks the submission terminal, and removes the public confirmation reply.
+- **Reject** discards a pending plan and removes the public confirmation reply. For an older submission that already wrote to the sheet, it restores the latest snapshot of cells managed by that submission. It blanks newly appended team rows instead of deleting them and does not restore unrelated sheet cells.
 - A rollback failure leaves an updated reply for manual investigation.
 
 The submitter can edit the source message to correct the write while it remains pending. Confirmation, rejection, and rollback failure are terminal: later source edits do not reopen or update that submission. Deleting the source message does not trigger rollback.

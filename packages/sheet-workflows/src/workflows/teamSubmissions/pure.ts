@@ -59,11 +59,13 @@ export const appendRangeForCells = (
 ) => appendSharedRangeForCells(playerNameRange, teamNameRange, oshiRange, workflowRangeOptions);
 
 export const actionableSubmissionStatuses = new Set<MessageTeamSubmission["status"]>([
+  "pending",
   "registered",
   "updated",
 ]);
 
 export const editableSubmissionStatuses = new Set<MessageTeamSubmission["status"]>([
+  "pending",
   "registered",
   "updated",
   "empty",
@@ -210,7 +212,18 @@ const normalizeSectionAlias = (value: string) =>
     .toLowerCase();
 
 const teamTypeAliases = {
-  fullFill: ["fullFill", "full fill", "fullfill", "fill", "ff", "main"],
+  fullFill: [
+    "fullFill",
+    "full fill",
+    "fullfill",
+    "fill",
+    "ff",
+    "tf",
+    "tierfill",
+    "tier fill",
+    "event",
+    "main",
+  ],
   heal: [
     "heal",
     "healer",
@@ -297,7 +310,7 @@ const stripLineFormatting = (line: string) => {
 
 // This static grammar fragment feeds the explicit, inline, and heading label regexes below.
 const normalizedLabelPattern =
-  "alt\\s*\\/\\s*enc|enc\\s*\\/\\s*alt|4(?:\\*|☆|-star)\\s+heal|birthday\\s+heal|bday\\s+heal|bd\\s+heal|full\\s+fill|fullfill|alternative|healer|encore|alts|main|fill|heal|ff|enc|alt|h";
+  "alt\\s*\\/\\s*enc|enc\\s*\\/\\s*alt|4(?:\\*|☆|-star)\\s+heal|birthday\\s+heal|bday\\s+heal|bd\\s+heal|full\\s+fill|fullfill|tier\\s+fill|alternative|healer|encore|alts|main|fill|heal|ff|tf|tierfill|event|enc|alt|h";
 const explicitLabelPattern = new RegExp(`^(${normalizedLabelPattern})\\s*:\\s*(.*)$`, "i");
 const inlineLabelPattern = new RegExp(`^(${normalizedLabelPattern})\\s+(.+)$`, "i");
 const headingLabelPattern = new RegExp(`^(${normalizedLabelPattern})\\s*:?$`, "i");
@@ -352,6 +365,19 @@ const explicitOshiCandidate = (line: string) => {
   return suffix?.[1] ? normalizeLine(suffix[1]) : null;
 };
 
+const inlineTeamTypeMarkers = [
+  {
+    pattern: /\b(?:full\s*fill|fill|ff|tf|tier\s*fill|main)\b/i,
+    type: "fullFill",
+  },
+  {
+    pattern: /\b(?:heal|healer|birthday|bday|bd)\b|(?:^|[\s(])4\s*(?:\*|☆)(?=[\s)]|$)/i,
+    type: "heal",
+  },
+  { pattern: /\bevent\b/i, type: "fullFill" },
+  { pattern: /\b(?:enc|encore)\b/i, type: "encore" },
+] as const;
+
 const inlineTeamType = (line: string): ExplicitTeamLabel | null => {
   const suffixAlt = /^(.*?)\s+\b(?:alt|alts|alternative)\b(?:\s+(.*))?$/i.exec(line);
   if (suffixAlt?.[1] && powerPairPattern.test(suffixAlt[1])) {
@@ -364,18 +390,10 @@ const inlineTeamType = (line: string): ExplicitTeamLabel | null => {
   if (/\b(?:alt|alts|alternative)\b/i.test(line)) {
     return { type: "alt", value: line, notes: semanticNotes(line) };
   }
-  if (/\b(?:enc|encore)\b/i.test(line)) {
-    return { type: "encore", value: line, notes: semanticNotes(line) };
-  }
-  if (
-    /\b(?:heal|healer|birthday|bday|bd)\b/i.test(line) ||
-    // fallow-ignore-next-line code-duplication
-    /(?:^|[\s(])4\s*(?:\*|☆)(?=[\s)]|$)/i.test(line)
-  ) {
-    return { type: "heal", value: line, notes: semanticNotes(line) };
-  }
-  if (/\b(?:full\s*fill|fill|ff|main)\b/i.test(line)) {
-    return { type: "fullFill", value: line, notes: semanticNotes(line) };
+  for (const marker of inlineTeamTypeMarkers) {
+    if (marker.pattern.test(line)) {
+      return { type: marker.type, value: line, notes: semanticNotes(line) };
+    }
   }
   // fallow-ignore-next-line code-duplication
   return null;
@@ -684,9 +702,7 @@ export const renderConfirmation = (
   if (entries.length === 0 && skippedEntries.length === 0)
     return `No teams could be parsed from ${sourceUrl}.`;
   const header =
-    entries.length === 0
-      ? `Skipped teams from ${sourceUrl}:`
-      : `Registered teams from ${sourceUrl}:`;
+    entries.length === 0 ? `Skipped teams from ${sourceUrl}:` : `Teams ready from ${sourceUrl}:`;
   const lines = [
     ...entries.map(confirmationLineForEntry),
     ...skippedEntries.map(confirmationLineForSkippedEntry),

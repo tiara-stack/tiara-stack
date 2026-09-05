@@ -62,7 +62,7 @@ export const makeUpdateAnnouncements = (sheetWebBaseUrl: URL = defaultSheetWebBa
       publishedAt: "2026-07-08T00:00:00.000Z",
       title: "Team submission confirmations",
       description:
-        "Team submission channels require the team-submission-confirmations workspace feature flag. When enabled, Tiara writes submissions with the reaction, progress embed, and submitter-owned confirm/reject flow; without it, messages are ignored.",
+        "Team submission channels require the team-submission-confirmations workspace feature flag. When enabled, Tiara previews submissions with the reaction, progress embed, and submitter-owned confirm/reject flow, then writes only after Confirm; without it, messages are ignored.",
       color: 0x57f287,
     },
     {
@@ -85,6 +85,14 @@ export const makeUpdateAnnouncements = (sheetWebBaseUrl: URL = defaultSheetWebBa
       title: "Sticky slot buttons",
       description: `The /slot button now stays easy to reach in its configured channel. TiaraBot reposts it after each new human message to keep it at or near the bottom, while each press still refreshes the current open slots. Read the TiaraDocs guide: ${makeSheetWebDocumentationUrl(sheetWebBaseUrl, "docs/tiarabot/monitors/post-schedule")}`,
       color: 0x33ccbb,
+    },
+    {
+      id: "team-submission-deferred-writes-2026-09-05",
+      publishedAt: "2026-09-05T03:24:04.000Z",
+      title: "Team submission writes now wait for confirmation",
+      description:
+        "TiaraBot now previews team submissions and waits for the original submitter to press Confirm before writing to the sheet. Press Reject to discard a pending plan without changing the sheet.",
+      color: 0x57f287,
     },
   ] as const satisfies ReadonlyArray<UpdateAnnouncementSource>;
 

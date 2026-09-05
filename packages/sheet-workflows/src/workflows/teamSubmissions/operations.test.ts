@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { ConfigProvider, Effect, Exit, Option, Schema } from "effect";
+import { Cause, ConfigProvider, Effect, Exit, Option, Schema } from "effect";
 import { InvocationId } from "effect-zero-workflow/contract";
 import { type SheetBotHttpClient, messageRefFrom, type MessageRef } from "sheet-bot-api";
 import { EffectivePrincipal } from "sheet-auth/identity";
@@ -25,6 +25,7 @@ import { makeRecordingWorkflowAuthorization } from "../shared/testHelpers";
 import { pendingAppendRollbackRange } from "./pure";
 import {
   TeamSubmissionProvider,
+  TeamSubmissionProviderError,
   TeamSubmissionWriteError,
   type TeamSubmissionProviderShape,
 } from "./provider";
@@ -68,6 +69,38 @@ const durableMapping = Schema.decodeUnknownSync(TeamSubmissionRowMapping)({
   teamNameRange: "'Teams'!B2",
   oshiRange: null,
   rowIndex: 2,
+});
+const overwrittenEntry = Schema.decodeUnknownSync(ParsedTeamEntry)({
+  stableKey: "fullFill:150%2F701",
+  playerName: "Other",
+  teamName: "150/701",
+  teamType: "fullFill",
+  notes: [],
+  teamConfigName: null,
+  oshi: { candidate: null, value: null, status: "notConfigured" },
+});
+const overwrittenMapping = Schema.decodeUnknownSync(TeamSubmissionRowMapping)({
+  stableKey: overwrittenEntry.stableKey,
+  playerNameRange: "'Teams'!A3",
+  teamNameRange: "'Teams'!B3",
+  oshiRange: null,
+  rowIndex: 3,
+});
+const pendingMapping = Schema.decodeUnknownSync(TeamSubmissionRowMapping)({
+  stableKey: durableEntry.stableKey,
+  playerNameRange: "'Teams'!A:A",
+  teamNameRange: "'Teams'!B:B",
+  oshiRange: null,
+  rowIndex: 0,
+});
+const rangesConfig = Schema.decodeUnknownSync(RangesConfig)({
+  _tag: "RangesConfig",
+  userIds: "",
+  userSheetNames: "",
+  userNotes: null,
+  monitorIds: null,
+  monitorNames: null,
+  oshis: null,
 });
 
 const processInput = Schema.decodeUnknownSync(TeamSubmissionsProcess.input)({
@@ -130,7 +163,14 @@ const makeHarness = (options: HarnessOptions = {}) => {
   let submission = options.initialSubmission;
   const persistedStatuses: Array<MessageTeamSubmissionRow["status"]> = [];
   const deliveryOperations: Array<string> = [];
-  const sheetWrites: Array<ReadonlyArray<{ readonly range: string }>> = [];
+  const deliveryMessages: Array<unknown> = [];
+  const sheetWrites: Array<
+    ReadonlyArray<{
+      readonly range: string;
+      readonly values: ReadonlyArray<ReadonlyArray<string>>;
+    }>
+  > = [];
+  const sheetAppends: Array<{ readonly range: string }> = [];
   const basePersistence = makeTrustedSheetPersistenceMock();
   const now = 0;
   const workspaceConfig = {
@@ -160,15 +200,6 @@ const makeHarness = (options: HarnessOptions = {}) => {
     updatedAt: 0,
     deletedAt: null,
   };
-  const rangesConfig = Schema.decodeUnknownSync(RangesConfig)({
-    _tag: "RangesConfig",
-    userIds: "",
-    userSheetNames: "",
-    userNotes: null,
-    monitorIds: null,
-    monitorNames: null,
-    oshis: null,
-  });
   const teamConfig = Schema.decodeUnknownSync(TeamConfig)({
     _tag: "TeamConfig",
     name: "Teams",
@@ -236,9 +267,13 @@ const makeHarness = (options: HarnessOptions = {}) => {
       ),
     write: (_spreadsheetId, updates) =>
       Effect.sync(() => {
-        sheetWrites.push(updates.map(({ range }) => ({ range })));
+        sheetWrites.push(updates.map(({ range, values }) => ({ range, values })));
       }),
-    append: () => Effect.succeed("'Teams'!A2:B2"),
+    append: (_spreadsheetId, range) =>
+      Effect.sync(() => {
+        sheetAppends.push({ range });
+        return "'Teams'!A2:B2";
+      }),
     ...options.provider,
   };
   const progressMessage = messageRefFrom(client, "workspace-1", "conversation-1", "progress-1");
@@ -258,9 +293,14 @@ const makeHarness = (options: HarnessOptions = {}) => {
           deliveryOperations.push("sendMessage");
           return makeMessageReceipt(payload.deliveryKey, "sendMessage", progressMessage);
         }),
-      editMessage: ({ payload }: { readonly payload: { readonly deliveryKey: string } }) =>
+      editMessage: ({
+        payload,
+      }: {
+        readonly payload: { readonly deliveryKey: string; readonly content?: unknown };
+      }) =>
         Effect.sync(() => {
           deliveryOperations.push("editMessage");
+          deliveryMessages.push(payload.content);
           return makeMessageReceipt(payload.deliveryKey, "editMessage", confirmationMessage);
         }),
       deleteMessage: ({ payload }: { readonly payload: { readonly deliveryKey: string } }) =>
@@ -307,40 +347,59 @@ const makeHarness = (options: HarnessOptions = {}) => {
     operations,
     persistedStatuses,
     deliveryOperations,
+    deliveryMessages,
     sheetWrites,
+    sheetAppends,
     submission: () => submission,
   };
 };
 
-describe("team-submission workflow operations", () => {
-  it.effect(
-    "processes a submission with optimistic persistence before and after the sheet write",
-    () =>
-      Effect.gen(function* () {
-        const harness = makeHarness();
-        const operations = yield* harness.operations;
-        const result = yield* operations.process({
-          invocationId,
-          principal: servicePrincipal,
-          input: processInput,
-        });
+const rejectStagedSubmission = (initialSubmission?: MessageTeamSubmissionRow) =>
+  Effect.gen(function* () {
+    const harness = makeHarness(initialSubmission === undefined ? {} : { initialSubmission });
+    const operations = yield* harness.operations;
+    yield* operations.process({
+      invocationId,
+      principal: servicePrincipal,
+      input: processInput,
+    });
+    const rejected = yield* operations.decide({
+      invocationId,
+      principal: userPrincipal,
+      input: { ...decideInput, decision: "reject" as const },
+    });
 
-        expect(result.status).toBe("registered");
-        expect(result.parsedTeamCount).toBe(1);
-        expect(harness.persistedStatuses).toEqual([
-          "applying",
-          "applying",
-          "applying",
-          "registered",
-        ]);
-        expect(harness.submission()?.version).toBe(4);
-        expect(harness.deliveryOperations).toEqual([
-          "sendMessage",
-          "setMessageReaction",
-          "editMessage",
-          "editMessage",
-        ]);
-      }),
+    expect(rejected.status).toBe("rejected");
+    expect(harness.persistedStatuses).toEqual(["pending", "rejected"]);
+    expect(harness.sheetWrites).toEqual([]);
+    expect(harness.sheetAppends).toEqual([]);
+    return harness;
+  });
+
+describe("team-submission workflow operations", () => {
+  it.effect("stages a submission without writing to the sheet", () =>
+    Effect.gen(function* () {
+      const harness = makeHarness();
+      const operations = yield* harness.operations;
+      const result = yield* operations.process({
+        invocationId,
+        principal: servicePrincipal,
+        input: processInput,
+      });
+
+      expect(result.status).toBe("pending");
+      expect(result.parsedTeamCount).toBe(1);
+      expect(harness.persistedStatuses).toEqual(["pending"]);
+      expect(harness.submission()?.version).toBe(1);
+      expect(harness.sheetWrites).toEqual([]);
+      expect(harness.sheetAppends).toEqual([]);
+      expect(harness.deliveryOperations).toEqual([
+        "sendMessage",
+        "setMessageReaction",
+        "editMessage",
+        "editMessage",
+      ]);
+    }),
   );
 
   it.effect("reuses an existing durable mapping instead of appending a duplicate", () =>
@@ -365,11 +424,188 @@ describe("team-submission workflow operations", () => {
 
       expect(result.parsedTeamCount).toBe(1);
       expect(appends).toBe(0);
-      expect(harness.persistedStatuses).toEqual(["applying", "updated"]);
+      expect(harness.persistedStatuses).toEqual(["pending"]);
+      expect(harness.sheetWrites).toEqual([]);
     }),
   );
 
-  it.effect("retains an applying recovery record when an append fails", () =>
+  it.effect("writes only after confirming a staged submission", () =>
+    Effect.gen(function* () {
+      const harness = makeHarness();
+      const operations = yield* harness.operations;
+      const staged = yield* operations.process({
+        invocationId,
+        principal: servicePrincipal,
+        input: processInput,
+      });
+      expect(staged.status).toBe("pending");
+      expect(harness.sheetWrites).toEqual([]);
+      expect(harness.sheetAppends).toEqual([]);
+
+      const confirmed = yield* operations.decide({
+        invocationId,
+        principal: userPrincipal,
+        input: { ...decideInput, decision: "confirm" as const },
+      });
+      expect(confirmed.status).toBe("confirmed");
+      expect(harness.sheetAppends).toHaveLength(1);
+      expect(harness.sheetWrites.length).toBeGreaterThan(0);
+      expect(harness.persistedStatuses).toEqual([
+        "pending",
+        "applying",
+        "applying",
+        "applying",
+        "confirmed",
+      ]);
+    }),
+  );
+
+  it.effect("does not redirect a pending plan when its team mapping changes", () =>
+    Effect.gen(function* () {
+      const makeTeamConfig = (playerNameRange: string, teamNameRange: string) =>
+        Schema.decodeUnknownSync(TeamConfig)({
+          _tag: "TeamConfig",
+          name: "Teams",
+          sheet: "Teams",
+          playerNameRange,
+          teamNameRange,
+          isvConfig: null,
+          tagsConfig: { _tag: "TeamTagsConstantsConfig", tags: ["full fill"] },
+          oshiRange: null,
+        });
+      let loadCount = 0;
+      const harness = makeHarness({
+        provider: {
+          loadConfiguration: () =>
+            Effect.sync(() => ({
+              rangesConfig,
+              teamConfigs: [
+                loadCount++ === 0
+                  ? makeTeamConfig("'Teams'!A:A", "'Teams'!B:B")
+                  : makeTeamConfig("'Other'!A:A", "'Other'!B:B"),
+              ],
+            })),
+        },
+      });
+      const operations = yield* harness.operations;
+      yield* operations.process({
+        invocationId,
+        principal: servicePrincipal,
+        input: processInput,
+      });
+      const failed = yield* Effect.exit(
+        operations.decide({
+          invocationId,
+          principal: userPrincipal,
+          input: { ...decideInput, decision: "confirm" as const },
+        }),
+      );
+
+      expect(Exit.isFailure(failed)).toBe(true);
+      if (Exit.isFailure(failed)) {
+        expect(Option.getOrThrow(Cause.findErrorOption(failed.cause))).toMatchObject({
+          _tag: "BusinessRuleRejected",
+          code: "PendingPlanInvalid",
+        });
+      }
+      expect(harness.submission()).toMatchObject({
+        status: "pending",
+        rowMappings: [pendingMapping],
+      });
+      expect(harness.sheetWrites).toEqual([]);
+      expect(harness.sheetAppends).toEqual([]);
+      expect(harness.deliveryMessages[harness.deliveryMessages.length - 1]).toMatchObject({
+        embeds: [{ title: "Could not prepare teams" }],
+      });
+    }),
+  );
+
+  it.effect("keeps a pending submission when confirmation cannot load configuration", () =>
+    Effect.gen(function* () {
+      const harness = makeHarness({
+        initialSubmission: makeSubmission({
+          status: "pending",
+          parsedSubmission: [durableEntry],
+          rowMappings: [pendingMapping],
+        }),
+        provider: {
+          loadConfiguration: () =>
+            Effect.fail(
+              new TeamSubmissionProviderError({
+                operation: "read",
+                cause: "configuration unavailable",
+              }),
+            ),
+        },
+      });
+      const operations = yield* harness.operations;
+      const failed = yield* Effect.exit(
+        operations.decide({
+          invocationId,
+          principal: userPrincipal,
+          input: { ...decideInput, decision: "confirm" as const },
+        }),
+      );
+
+      expect(Exit.isFailure(failed)).toBe(true);
+      expect(harness.submission()?.status).toBe("pending");
+      expect(harness.sheetWrites).toEqual([]);
+      expect(harness.sheetAppends).toEqual([]);
+      expect(harness.deliveryMessages[harness.deliveryMessages.length - 1]).toMatchObject({
+        embeds: [{ title: "Could not prepare teams" }],
+      });
+    }),
+  );
+
+  it.effect("uses the pre-write failure path for invalid team ranges", () =>
+    Effect.gen(function* () {
+      const invalidTeamConfig = Schema.decodeUnknownSync(TeamConfig)({
+        _tag: "TeamConfig",
+        name: "Teams",
+        sheet: "Teams",
+        playerNameRange: "'Players'!A:A",
+        teamNameRange: "'Teams'!B:B",
+        isvConfig: null,
+        tagsConfig: { _tag: "TeamTagsConstantsConfig", tags: ["full fill"] },
+        oshiRange: null,
+      });
+      const harness = makeHarness({
+        provider: {
+          loadConfiguration: () =>
+            Effect.succeed({ rangesConfig, teamConfigs: [invalidTeamConfig] }),
+        },
+      });
+      const operations = yield* harness.operations;
+      yield* operations.process({
+        invocationId,
+        principal: servicePrincipal,
+        input: processInput,
+      });
+      const failed = yield* Effect.exit(
+        operations.decide({
+          invocationId,
+          principal: userPrincipal,
+          input: { ...decideInput, decision: "confirm" as const },
+        }),
+      );
+
+      expect(Exit.isFailure(failed)).toBe(true);
+      if (Exit.isFailure(failed)) {
+        expect(Option.getOrThrow(Cause.findErrorOption(failed.cause))).toMatchObject({
+          _tag: "InvalidRequest",
+          code: "InvalidTeamConfig",
+        });
+      }
+      expect(harness.submission()?.status).toBe("pending");
+      expect(harness.sheetWrites).toEqual([]);
+      expect(harness.sheetAppends).toEqual([]);
+      expect(harness.deliveryMessages[harness.deliveryMessages.length - 1]).toMatchObject({
+        embeds: [{ title: "Could not prepare teams" }],
+      });
+    }),
+  );
+
+  it.effect("keeps an applying recovery record when the confirmed append fails", () =>
     Effect.gen(function* () {
       const harness = makeHarness({
         provider: {
@@ -384,11 +620,16 @@ describe("team-submission workflow operations", () => {
         },
       });
       const operations = yield* harness.operations;
+      yield* operations.process({
+        invocationId,
+        principal: servicePrincipal,
+        input: processInput,
+      });
       const exit = yield* Effect.exit(
-        operations.process({
+        operations.decide({
           invocationId,
-          principal: servicePrincipal,
-          input: processInput,
+          principal: userPrincipal,
+          input: { ...decideInput, decision: "confirm" as const },
         }),
       );
 
@@ -398,7 +639,105 @@ describe("team-submission workflow operations", () => {
         rowMappings: [{ rowIndex: 0 }],
         rollbackSnapshot: [{ range: pendingAppendRollbackRange, values: [] }],
       });
+      expect(harness.sheetWrites).toEqual([]);
     }),
+  );
+
+  it.effect("merges missing recovery entries before resuming an applying submission", () =>
+    Effect.gen(function* () {
+      const writes: Array<
+        ReadonlyArray<{
+          readonly range: string;
+          readonly values: ReadonlyArray<ReadonlyArray<string>>;
+        }>
+      > = [];
+      const harness = makeHarness({
+        initialSubmission: makeSubmission({
+          status: "applying",
+          parsedSubmission: [durableEntry, overwrittenEntry],
+          rowMappings: [durableMapping, overwrittenMapping],
+          rollbackSnapshot: [
+            { stableKey: durableEntry.stableKey, range: "'Teams'!A2", values: [["old-player"]] },
+          ],
+        }),
+        readValues: (range) => {
+          if (range === "'Teams'!A:B") {
+            return [[], ["Player", "150/700"], ["Other", "150/701"]];
+          }
+          if (range === "'Teams'!A2") return [["old-player"]];
+          if (range === "'Teams'!B2") return [["old-team"]];
+          if (range === "'Teams'!A3") return [["older-player"]];
+          if (range === "'Teams'!B3") return [["older-team"]];
+          return [];
+        },
+        provider: {
+          write: (_sheetId, updates) =>
+            Effect.sync(() => writes.push(updates)).pipe(
+              Effect.flatMap(() =>
+                writes.length === 1
+                  ? Effect.fail(
+                      new TeamSubmissionWriteError({
+                        operation: "write",
+                        ambiguous: false,
+                        cause: "sheet unavailable",
+                      }),
+                    )
+                  : Effect.void,
+              ),
+            ),
+        },
+      });
+      const operations = yield* harness.operations;
+      const failed = yield* Effect.exit(
+        operations.decide({
+          invocationId,
+          principal: userPrincipal,
+          input: { ...decideInput, decision: "confirm" as const },
+        }),
+      );
+
+      expect(Exit.isFailure(failed)).toBe(true);
+      expect(harness.submission()?.status).toBe("applying");
+      expect(harness.submission()?.rollbackSnapshot).toEqual(
+        expect.arrayContaining([
+          {
+            stableKey: overwrittenEntry.stableKey,
+            range: "'Teams'!A3",
+            values: [["older-player"]],
+          },
+          { stableKey: overwrittenEntry.stableKey, range: "'Teams'!B3", values: [["older-team"]] },
+        ]),
+      );
+
+      const rejected = yield* operations.decide({
+        invocationId,
+        principal: userPrincipal,
+        input: decideInput,
+      });
+      expect(rejected.status).toBe("rejected");
+      expect(writes[1]).toEqual(
+        expect.arrayContaining([
+          { range: "'Teams'!A3", values: [["older-player"]] },
+          { range: "'Teams'!B3", values: [["older-team"]] },
+        ]),
+      );
+    }),
+  );
+
+  it.effect("rejects a staged submission without writing or rolling back", () =>
+    rejectStagedSubmission(),
+  );
+
+  it.effect("rejects a staged edit without rolling back an older applied submission", () =>
+    rejectStagedSubmission(
+      makeSubmission({
+        parsedSubmission: [durableEntry],
+        rowMappings: [durableMapping],
+        rollbackSnapshot: [
+          { stableKey: durableEntry.stableKey, range: "'Teams'!A2", values: [["old"]] },
+        ],
+      }),
+    ),
   );
 
   it.effect("confirms and replays a decision without persisting a second transition", () =>
