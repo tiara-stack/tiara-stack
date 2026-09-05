@@ -676,6 +676,34 @@ export const blankRollbackSnapshotForAppendedRows = (
       ]),
     );
 
+export const mergeRollbackSnapshots = (
+  recoverySnapshot: TeamSubmissionRollbackSnapshot,
+  beforeWriteSnapshot: TeamSubmissionRollbackSnapshot,
+  registered: ReadonlyArray<ProcessedTeamSubmissionEntry>,
+): TeamSubmissionRollbackSnapshot => {
+  const appendedKeys = new Set(
+    registered.filter(({ appended }) => appended).map(({ mapping }) => mapping.stableKey),
+  );
+  const merged: Array<TeamSubmissionRollbackSnapshot[number]> = [];
+  const seen = new Set<string>();
+  const appendUnique = (entry: TeamSubmissionRollbackSnapshot[number]) => {
+    const identity = `${entry.stableKey}\u0000${entry.range}`;
+    if (seen.has(identity)) return;
+    seen.add(identity);
+    merged.push(entry);
+  };
+  for (const entry of recoverySnapshot) {
+    if (!appendedKeys.has(entry.stableKey)) appendUnique(entry);
+  }
+  for (const entry of beforeWriteSnapshot) {
+    if (!appendedKeys.has(entry.stableKey)) appendUnique(entry);
+  }
+  for (const entry of blankRollbackSnapshotForAppendedRows(registered)) {
+    appendUnique(entry);
+  }
+  return merged;
+};
+
 const confirmationLineForEntry = (entry: ParsedTeamEntry) => {
   const oshi =
     entry.oshi.status === "matched"

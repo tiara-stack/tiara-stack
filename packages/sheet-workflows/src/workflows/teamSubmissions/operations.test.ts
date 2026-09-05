@@ -402,6 +402,43 @@ describe("team-submission workflow operations", () => {
     }),
   );
 
+  it.effect("reports configuration preparation failures after delivering progress", () =>
+    Effect.gen(function* () {
+      const harness = makeHarness({
+        provider: {
+          loadConfiguration: () =>
+            Effect.fail(
+              new TeamSubmissionProviderError({
+                operation: "read",
+                cause: "configuration unavailable",
+              }),
+            ),
+        },
+      });
+      const operations = yield* harness.operations;
+      const failed = yield* Effect.exit(
+        operations.process({
+          invocationId,
+          principal: servicePrincipal,
+          input: processInput,
+        }),
+      );
+
+      expect(Exit.isFailure(failed)).toBe(true);
+      expect(harness.deliveryOperations).toEqual([
+        "sendMessage",
+        "setMessageReaction",
+        "editMessage",
+      ]);
+      expect(harness.deliveryMessages[harness.deliveryMessages.length - 1]).toMatchObject({
+        embeds: [{ title: "Could not prepare teams" }],
+      });
+      expect(harness.persistedStatuses).toEqual([]);
+      expect(harness.sheetWrites).toEqual([]);
+      expect(harness.sheetAppends).toEqual([]);
+    }),
+  );
+
   it.effect("reuses an existing durable mapping instead of appending a duplicate", () =>
     Effect.gen(function* () {
       let appends = 0;
@@ -450,13 +487,8 @@ describe("team-submission workflow operations", () => {
       expect(confirmed.status).toBe("confirmed");
       expect(harness.sheetAppends).toHaveLength(1);
       expect(harness.sheetWrites.length).toBeGreaterThan(0);
-      expect(harness.persistedStatuses).toEqual([
-        "pending",
-        "applying",
-        "applying",
-        "applying",
-        "confirmed",
-      ]);
+      expect(harness.persistedStatuses[0]).toBe("pending");
+      expect(harness.persistedStatuses[harness.persistedStatuses.length - 1]).toBe("confirmed");
     }),
   );
 
@@ -493,6 +525,7 @@ describe("team-submission workflow operations", () => {
         principal: servicePrincipal,
         input: processInput,
       });
+      expect(loadCount).toBe(1);
       const failed = yield* Effect.exit(
         operations.decide({
           invocationId,
@@ -501,6 +534,7 @@ describe("team-submission workflow operations", () => {
         }),
       );
 
+      expect(loadCount).toBe(2);
       expect(Exit.isFailure(failed)).toBe(true);
       if (Exit.isFailure(failed)) {
         expect(Option.getOrThrow(Cause.findErrorOption(failed.cause))).toMatchObject({

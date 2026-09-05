@@ -13,6 +13,7 @@ export const teamSubmissionActionIdentities = Object.freeze({
   progress: "progress",
   reaction: "reaction",
   confirmation: "confirmation",
+  preparationFailure: "preparation-failure",
   writeFailure: "write-failure",
   confirmationControls: "confirmation-controls",
   cleanup: "cleanup",

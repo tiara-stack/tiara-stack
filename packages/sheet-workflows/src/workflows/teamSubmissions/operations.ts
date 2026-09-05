@@ -25,7 +25,10 @@ import {
   TeamSubmissionsProcess,
   WorkspaceId,
 } from "sheet-workflow-contracts";
-import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
+import {
+  TrustedSheetPersistence,
+  type TrustedSheetPersistenceShape,
+} from "sheet-zero-server/persistence";
 import type { EffectivePrincipal } from "sheet-auth/identity";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
 import {
@@ -68,6 +71,7 @@ import {
   flattenRangeValues,
   isUsableTeamConfig,
   matchOshi,
+  mergeRollbackSnapshots,
   optionString,
   parseA1Start,
   parseTeamSubmissionMessage,
@@ -81,7 +85,12 @@ import {
   type TeamSubmissionRowTarget,
   type TeamConfigLookup,
 } from "./pure";
-import { TeamSubmissionProvider, type TeamSubmissionValueRange } from "./provider";
+import {
+  TeamSubmissionProvider,
+  TeamSubmissionProviderError,
+  TeamSubmissionWriteError,
+  type TeamSubmissionValueRange,
+} from "./provider";
 import {
   makeTeamSubmissionsDeliveryKey,
   teamSubmissionActionIdentities,
@@ -98,6 +107,14 @@ const errorColor = 0xed4245;
 
 type ProcessFailure = typeof AutonomousDeclaredFailure.Type;
 type DecideFailure = typeof InteractiveDeclaredFailure.Type;
+type TeamSubmissionPersistenceFailure = Effect.Error<
+  ReturnType<TrustedSheetPersistenceShape["teamSubmissionState"]["upsertMessageTeamSubmission"]>
+>;
+type ApplyPendingSubmissionFailure =
+  | DecideFailure
+  | TeamSubmissionProviderError
+  | TeamSubmissionWriteError
+  | TeamSubmissionPersistenceFailure;
 
 const clientFor = (sourceMessage: MessageRef) => sourceMessage.conversation.workspace.client;
 
@@ -488,7 +505,9 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
       readonly teamNameRange: string;
       readonly oshiRange: string | null;
       readonly previousMapping: TeamSubmissionRowMapping | undefined;
-      readonly beforeAppend: (mapping: TeamSubmissionRowMapping) => Effect.Effect<void, unknown>;
+      readonly beforeAppend: (
+        mapping: TeamSubmissionRowMapping,
+      ) => Effect.Effect<void, TeamSubmissionPersistenceFailure>;
       readonly onMutationStarted: () => void;
     }) => {
       const {
@@ -653,7 +672,7 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
       readonly channel: typeof WorkspaceTeamSubmissionChannel.Type;
       readonly sheetConfigurationBinding: TeamSubmissionConfigurationBinding;
       readonly onMutationStarted: () => void;
-    }): Effect.Effect<AppliedTeamSubmission, unknown> =>
+    }): Effect.Effect<AppliedTeamSubmission, ApplyPendingSubmissionFailure> =>
       // fallow-ignore-next-line complexity
       Effect.gen(function* () {
         const { channel, sheetConfigurationBinding, sourceMessage, submission } = options;
@@ -672,14 +691,35 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
         const interimMappings = new Map(previousMappings);
         const registered: ProcessedTeamSubmissionEntry[] = [];
 
-        const planned = submission.parsedSubmission.map((entry) => {
-          const selected = chooseStoredTeamConfig(teamConfigs, entry, channel);
-          const ranges = selected === null ? null : writableRanges(selected.config);
-          const mapping = previousMappings.get(entry.stableKey);
-          return { entry, mapping, ranges, selected };
-        });
-        const invalidPlan = planned.find(({ mapping, ranges, selected }) => {
-          if (selected === null || ranges === null || mapping === undefined) return true;
+        type PlannedTeamSubmission = {
+          readonly entry: ParsedTeamEntry;
+          readonly mapping: TeamSubmissionRowMapping | undefined;
+          readonly ranges: ReturnType<typeof writableRanges>;
+          readonly selected: TeamConfigLookup | null;
+        };
+        type ValidPlannedTeamSubmission = PlannedTeamSubmission & {
+          readonly mapping: TeamSubmissionRowMapping;
+          readonly ranges: NonNullable<ReturnType<typeof writableRanges>>;
+          readonly selected: TeamConfigLookup;
+        };
+        const isValidPlannedTeamSubmission = (
+          plannedEntry: PlannedTeamSubmission,
+        ): plannedEntry is ValidPlannedTeamSubmission =>
+          plannedEntry.mapping !== undefined &&
+          plannedEntry.ranges !== null &&
+          plannedEntry.selected !== null;
+
+        const planned: ReadonlyArray<PlannedTeamSubmission> = submission.parsedSubmission.map(
+          (entry) => {
+            const selected = chooseStoredTeamConfig(teamConfigs, entry, channel);
+            const ranges = selected === null ? null : writableRanges(selected.config);
+            const mapping = previousMappings.get(entry.stableKey);
+            return { entry, mapping, ranges, selected };
+          },
+        );
+        const invalidPlan = planned.find((plannedEntry) => {
+          if (!isValidPlannedTeamSubmission(plannedEntry)) return true;
+          const { mapping, ranges, selected } = plannedEntry;
           const mappedDestination = appendRangeForCells(
             mapping.playerNameRange,
             mapping.teamNameRange,
@@ -732,11 +772,8 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
             status: "applying",
           });
 
-        for (const plannedEntry of planned) {
-          const mapping = plannedEntry.mapping;
-          const selected = plannedEntry.selected;
-          if (mapping === undefined || selected === null) continue;
-          const entry = plannedEntry.entry;
+        for (const plannedEntry of planned.filter(isValidPlannedTeamSubmission)) {
+          const { entry, mapping, selected } = plannedEntry;
           const previousMapping =
             mapping.rowIndex === 0 && submission.status !== "applying" ? undefined : mapping;
           const resolvedTarget = yield* resolveAppendTarget({
@@ -796,29 +833,7 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
           ]),
         );
         const beforeWriteSnapshot = yield* readSnapshot(submission.sheetId, data, stableKeyByRange);
-        const appendedKeys = new Set(
-          registered.filter(({ appended }) => appended).map(({ mapping }) => mapping.stableKey),
-        );
-        const snapshot = (() => {
-          const merged: Array<TeamSubmissionRollbackSnapshot[number]> = [];
-          const seen = new Set<string>();
-          const appendUnique = (entry: TeamSubmissionRollbackSnapshot[number]) => {
-            const identity = `${entry.stableKey}\u0000${entry.range}`;
-            if (seen.has(identity)) return;
-            seen.add(identity);
-            merged.push(entry);
-          };
-          for (const entry of recoverySnapshot) {
-            if (!appendedKeys.has(entry.stableKey)) appendUnique(entry);
-          }
-          for (const entry of beforeWriteSnapshot) {
-            if (!appendedKeys.has(entry.stableKey)) appendUnique(entry);
-          }
-          for (const entry of blankRollbackSnapshotForAppendedRows(registered)) {
-            appendUnique(entry);
-          }
-          return merged;
-        })();
+        const snapshot = mergeRollbackSnapshots(recoverySnapshot, beforeWriteSnapshot, registered);
         if (data.length > 0) {
           yield* persistCurrent({ entries, mappings, snapshot, status: "applying" });
           options.onMutationStarted();
@@ -944,7 +959,7 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
             message,
             deliveryKey: makeTeamSubmissionsDeliveryKey(
               invocationId,
-              teamSubmissionActionIdentities.writeFailure,
+              teamSubmissionActionIdentities.preparationFailure,
             ),
             content: preparationFailureMessage,
           },
@@ -1059,7 +1074,14 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
           configuration = persistedBinding.configuration;
         }
 
-        const teamConfigs = yield* loadTeamConfigLookups(sheetId, configuration);
+        const progress = yield* deliverProgress(execution, sourceMessage);
+        const progressMessage = progress.progress.target.message;
+        const reactionReceipt = progress.reaction;
+        const teamConfigs = yield* loadTeamConfigLookups(sheetId, configuration).pipe(
+          Effect.catch((error) =>
+            reportProcessPreparationFailure(execution, progressMessage, error),
+          ),
+        );
         const parsedEntries =
           existing === null ? parsed.entries : preserveExistingStableKeys(existing, parsed.entries);
         const client = clientFor(sourceMessage);
@@ -1067,10 +1089,6 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
         const registeredMappings: TeamSubmissionRowMapping[] = [];
         const skipped: TeamSubmissionSkippedEntry[] = [];
         const existingMappings = existingMappingByKey(existing);
-
-        const progress = yield* deliverProgress(execution, sourceMessage);
-        const progressMessage = progress.progress.target.message;
-        const reactionReceipt = progress.reaction;
 
         for (const entry of parsedEntries) {
           const selected = chooseTeamConfig(teamConfigs, entry, channel.destinationTeamConfigName);
