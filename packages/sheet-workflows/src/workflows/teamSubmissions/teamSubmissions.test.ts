@@ -289,6 +289,23 @@ describe("team-submission pure rules", () => {
     ]);
   });
 
+  it("infers an unlabeled second line above 100 as encore", () => {
+    const result = parseTeamSubmissionMessage(["150/645", "150/580"].join("\n"), "Player");
+
+    expect(result.entries.map(({ teamType, teamName }) => [teamType, teamName])).toEqual([
+      ["fullFill", "150/645"],
+      ["encore", "150/580"],
+    ]);
+  });
+
+  it("keeps an unlabeled second line at 100 as heal", () => {
+    expect(
+      parseTeamSubmissionMessage(["150/645", "100/580"].join("\n"), "Player").entries.map(
+        ({ teamType }) => teamType,
+      ),
+    ).toEqual(["fullFill", "heal"]);
+  });
+
   it("routes tf-labeled teams to full fill", () => {
     const result = parseTeamSubmissionMessage(
       ["ff: 150/740", "heal: 100/700", "tf: 150/710 332k", "alt: 150/750"].join("\n"),

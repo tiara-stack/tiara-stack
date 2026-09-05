@@ -142,6 +142,13 @@ export const tagMatchesEntry = (tag: string, entry: ParsedTeamEntry) => {
   );
 };
 
+export const teamConfigNameMatchesEntry = (name: string, entry: ParsedTeamEntry) => {
+  const normalizedName = normalizeSectionAlias(name);
+  return teamTypeAliases[entry.teamType].some(
+    (alias) => normalizeSectionAlias(alias) === normalizedName,
+  );
+};
+
 // fallow-ignore-next-line code-duplication
 const normalizedOshiText = (value: string) =>
   value
@@ -410,6 +417,14 @@ const isInstructionalValue = (value: string) =>
   /\b(?:then|followed\s+by|format|example|template|instructions?)\b/i.test(value);
 
 const inferredTypes = ["fullFill", "heal", "encore"] as const;
+const leadingPowerValue = (line: string) => {
+  const match = /^(\d{2,3})\s*\/\s*\d{3}\b/.exec(line);
+  return match?.[1] === undefined ? null : Number(match[1]);
+};
+const inferredTypeForLine = (line: string, inferredIndex: number) =>
+  inferredIndex === 1 && (leadingPowerValue(line) ?? 0) > 100
+    ? "encore"
+    : inferredTypes[Math.min(inferredIndex, inferredTypes.length - 1)]!;
 const cursorAfter = (cursor: number, type: ParsedTeamEntry["teamType"]) =>
   Math.max(
     cursor,
@@ -525,8 +540,7 @@ const scanSubmissionLine = (
     return;
   }
   const inline = inlineTeamType(line);
-  const type =
-    inline?.type ?? inferredTypes[Math.min(scanner.inferredIndex, inferredTypes.length - 1)]!;
+  const type = inline?.type ?? inferredTypeForLine(line, scanner.inferredIndex);
   const lines = parsedLinesForValue(type, inline?.value ?? line);
   scanner.parsedLines.push(
     ...lines.map((parsed) =>

@@ -457,6 +457,37 @@ layer(sheetBotClientConfigLayer)("team-submission workflow operations", (it) => 
     }),
   );
 
+  it.effect("matches untagged full-fill and encore configs by their semantic names", () =>
+    Effect.gen(function* () {
+      const harness = makeHarness({
+        provider: {
+          loadConfiguration: () =>
+            Effect.succeed({
+              rangesConfig,
+              teamConfigs: [
+                makeTeamConfig("Full Fill", "auto", []),
+                makeTeamConfig("Heal", "auto", ["heal"]),
+                makeTeamConfig("Encore", "auto", []),
+                makeTeamConfig("Runner", "auto", ["tierer_hint"]),
+              ],
+            }),
+        },
+      });
+      const operations = yield* harness.operations;
+      const result = yield* operations.process({
+        invocationId,
+        principal: servicePrincipal,
+        input: { ...processInput, content: ["150/645", "150/580"].join("\n") },
+      });
+
+      expect(result.parsedTeamCount).toBe(2);
+      expect(result.skippedTeamCount).toBe(0);
+      expect(harness.submission()).toMatchObject({
+        parsedSubmission: [{ teamConfigName: "Full Fill" }, { teamConfigName: "Encore" }],
+      });
+    }),
+  );
+
   it.effect("skips when the only writable config does not match", () =>
     Effect.gen(function* () {
       const harness = makeHarness({

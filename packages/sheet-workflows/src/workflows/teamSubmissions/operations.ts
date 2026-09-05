@@ -80,6 +80,7 @@ import {
   renderConfirmation,
   rollbackValuesForRange,
   tagMatchesEntry,
+  teamConfigNameMatchesEntry,
   type ProcessedTeamSubmissionEntry,
   type SheetValueUpdate,
   type TeamSubmissionRowTarget,
@@ -296,7 +297,12 @@ const chooseTeamConfig = (
   const matched = candidates
     .map((lookup) => ({
       lookup,
-      score: lookup.tags.filter((tag) => tagMatchesEntry(tag, entry)).length,
+      score:
+        lookup.tags.filter((tag) => tagMatchesEntry(tag, entry)).length +
+        Option.match(lookup.config.name, {
+          onNone: () => 0,
+          onSome: (name) => (teamConfigNameMatchesEntry(name, entry) ? 2 : 0),
+        }),
     }))
     .filter(({ score }) => score > 0)
     .sort((left, right) => right.score - left.score)[0];
