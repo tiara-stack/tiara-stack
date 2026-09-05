@@ -374,6 +374,8 @@ export interface TrustedSheetPersistenceShape {
       Option.Option<MessageSlotRow>
     >;
     readonly upsertMessageSlotData: ClientMutation<"messageSlot", "upsertMessageSlotData">;
+    readonly removeMessageSlotData: ClientMutation<"messageSlot", "removeMessageSlotData">;
+    readonly replaceMessageSlotData: ClientMutation<"messageSlot", "replaceMessageSlotData">;
   };
   readonly teamSubmissionState: {
     readonly getMessageTeamSubmission: ClientMethodWithSuccess<
@@ -476,7 +478,13 @@ export const trustedSheetPersistenceCatalog = {
     "persistMessageRoomOrder",
     "bindMessageRoomOrderIfAbsent",
   ],
-  slotState: ["getMessageSlotData", "getMessageSlotDataByConversation", "upsertMessageSlotData"],
+  slotState: [
+    "getMessageSlotData",
+    "getMessageSlotDataByConversation",
+    "upsertMessageSlotData",
+    "removeMessageSlotData",
+    "replaceMessageSlotData",
+  ],
   teamSubmissionState: [
     "getMessageTeamSubmission",
     "getMessageTeamSubmissionByDiscordMessage",

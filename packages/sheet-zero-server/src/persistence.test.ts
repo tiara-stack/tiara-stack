@@ -28,7 +28,7 @@ const resetFixture = Effect.gen(function* () {
 
 describe("trusted Sheet persistence policy", () => {
   it("pins the reviewed operation count", () => {
-    expect(Object.values(trustedSheetPersistenceCatalog).flat()).toHaveLength(73);
+    expect(Object.values(trustedSheetPersistenceCatalog).flat()).toHaveLength(75);
   });
 
   persistenceLayer("executes through the policy-filtered interface", (it) => {
@@ -163,6 +163,88 @@ describe("trusted Sheet persistence policy", () => {
           deletedAt: null,
         });
         expect((yield* database.rows("messageSlot"))[0]?.createdAt).not.toBe(100);
+      }),
+    );
+
+    it.effect("soft-deletes the active slot state through the trusted operation", () =>
+      Effect.gen(function* () {
+        const { database, persistence } = yield* resetFixture;
+        yield* persistence.slotState.upsertMessageSlotData({
+          ...messageKey,
+          day: 2,
+          workspaceId: "workspace-1",
+          conversationId: "conversation-1",
+          createdByUserId: "user-1",
+        });
+
+        yield* persistence.slotState.removeMessageSlotData({
+          clientPlatform: messageKey.clientPlatform,
+          clientId: messageKey.clientId,
+          workspaceId: "workspace-1",
+          conversationId: "conversation-1",
+          expectedMessageId: messageKey.messageId,
+        });
+
+        expect(
+          Option.isNone(
+            yield* persistence.slotState.getMessageSlotDataByConversation({
+              clientPlatform: messageKey.clientPlatform,
+              clientId: messageKey.clientId,
+              workspaceId: "workspace-1",
+              conversationId: "conversation-1",
+            }),
+          ),
+        ).toBe(true);
+        const rows = yield* database.rows("messageSlot");
+        expect(rows).toHaveLength(1);
+        expect(rows[0]?.deletedAt).toEqual(expect.any(Number));
+      }),
+    );
+
+    it.effect("rejects stale slot removal and replacement bindings", () =>
+      Effect.gen(function* () {
+        const { persistence } = yield* resetFixture;
+        yield* persistence.slotState.upsertMessageSlotData({
+          ...messageKey,
+          day: 2,
+          workspaceId: "workspace-1",
+          conversationId: "conversation-1",
+          createdByUserId: "user-1",
+        });
+
+        yield* persistence.slotState.replaceMessageSlotData({
+          clientPlatform: messageKey.clientPlatform,
+          clientId: messageKey.clientId,
+          messageId: "message-2",
+          day: 3,
+          workspaceId: "workspace-1",
+          conversationId: "conversation-1",
+          createdByUserId: "user-1",
+          expectedMessageId: messageKey.messageId,
+        });
+
+        const staleRemoval = yield* Effect.exit(
+          persistence.slotState.removeMessageSlotData({
+            clientPlatform: messageKey.clientPlatform,
+            clientId: messageKey.clientId,
+            workspaceId: "workspace-1",
+            conversationId: "conversation-1",
+            expectedMessageId: messageKey.messageId,
+          }),
+        );
+
+        expect(staleRemoval._tag).toBe("Failure");
+        expect(
+          yield* persistence.slotState.getMessageSlotDataByConversation({
+            clientPlatform: messageKey.clientPlatform,
+            clientId: messageKey.clientId,
+            workspaceId: "workspace-1",
+            conversationId: "conversation-1",
+          }),
+        ).toMatchObject({
+          _tag: "Some",
+          value: { messageId: "message-2", day: 3 },
+        });
       }),
     );
 

@@ -31,6 +31,7 @@ import {
   SlotWorkflowOperations,
 } from "./operations";
 import { slotRefreshWorkflowDefinition } from "./slotRefreshDefinition";
+import { makeSlotRemoveWorkflowDefinition } from "./slotRemoveDefinition";
 
 export { makeSlotDeliveryKey } from "./keys";
 
@@ -119,7 +120,12 @@ const SlotsPublishButtonBindAction = makeAction({
       const operations = yield* SlotWorkflowOperations;
       const input = yield* decodeWorkflowContractInputOrDie(SlotsPublishButton, execution.input);
       return yield* preserveDeclaredFailure(
-        operations.bindSlotState(input, execution.published, execution.creatorAccountId),
+        operations.bindSlotState(
+          input,
+          execution.published,
+          execution.creatorAccountId,
+          execution.currentSlot?.messageId,
+        ),
       );
     }),
 });
@@ -309,12 +315,14 @@ const SlotsPublishButtonDefinition = {
 
 const SlotsDeliverListDefinition = makeSlotsDeliverListDefinition();
 const SlotsOpenDefinition = makeSlotsOpenDefinition();
+const slotRemoveWorkflowDefinition = makeSlotRemoveWorkflowDefinition();
 
 export const SlotSheetWorkflowDefinitions = Object.freeze([
   SlotsPublishButtonDefinition,
   slotRefreshWorkflowDefinition,
   SlotsDeliverListDefinition,
   SlotsOpenDefinition,
+  slotRemoveWorkflowDefinition,
 ] as const);
 
 export const SlotSheetWorkflows = Object.freeze(

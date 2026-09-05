@@ -1,4 +1,4 @@
-import { Cause, Context, Data, Effect, Layer, Option, Schema } from "effect";
+import { Cause, Context, Data, Effect, Layer, Option, Predicate, Schema } from "effect";
 import type { EffectivePrincipal } from "sheet-auth/identity";
 import {
   DeleteMessageReceipt,
@@ -10,7 +10,11 @@ import {
 } from "sheet-bot-api";
 import { slotActionRow } from "sheet-message-content/components";
 import * as MessageText from "sheet-message-content/text";
-import { InteractiveDeclaredFailure, type SlotsPublishButtonInput } from "sheet-workflow-contracts";
+import {
+  InteractiveDeclaredFailure,
+  type SlotsPublishButtonInput,
+  type SlotsRemoveButtonInput,
+} from "sheet-workflow-contracts";
 import { TrustedSheetPersistence, type MessageSlotRow } from "sheet-zero-server/persistence";
 import { config } from "@/config";
 import { SheetBotCacheClient } from "@/services/sheetBotCacheClient";
@@ -67,9 +71,15 @@ interface SlotWorkflowOperationsShape {
     input: SlotButtonPublishInput,
     receipt: SendMessageReceipt,
     creatorAccountId: string,
+    expectedMessageId?: string,
   ) => SlotResult<SlotBindingOutcome>;
   readonly deleteProvisionalButton: (
     receipt: SendMessageReceipt,
+    deliveryKey: typeof DeliveryKey.Type,
+    policy: string,
+  ) => SlotResult<DeleteMessageReceipt>;
+  readonly removeButton: (
+    currentSlot: MessageSlotRow,
     deliveryKey: typeof DeliveryKey.Type,
     policy: string,
   ) => SlotResult<DeleteMessageReceipt>;
@@ -84,6 +94,12 @@ interface SlotWorkflowOperationsShape {
   ) => SlotResult<typeof SlotReplacementCleanupOutcome.Type>;
   readonly respond: (
     input: SlotsPublishButtonInput,
+    deliveryKey: typeof DeliveryKey.Type,
+    policy: string,
+  ) => SlotResult<RespondReceipt>;
+  readonly respondRemoval: (
+    input: SlotsRemoveButtonInput,
+    removed: boolean,
     deliveryKey: typeof DeliveryKey.Type,
     policy: string,
   ) => SlotResult<RespondReceipt>;
@@ -106,6 +122,17 @@ const publishButtonMessage = (day: number) => ({
 
 const slotButtonAcknowledgement = Object.freeze({
   content: [MessageText.text("Slot button sent!")],
+  visibility: "ephemeral" as const,
+});
+
+const slotButtonRemovalAcknowledgement = (removed: boolean) => ({
+  content: [
+    MessageText.text(
+      removed
+        ? "Slot button removed. It will no longer repost in this channel."
+        : "There is no active slot button in this channel.",
+    ),
+  ],
   visibility: "ephemeral" as const,
 });
 
@@ -253,6 +280,7 @@ export const slotWorkflowOperationsLayer = Layer.effect(
       input,
       receipt,
       creatorAccountId,
+      expectedMessageId,
     ) => {
       const message = receipt.target.message;
       const expected = {
@@ -264,7 +292,13 @@ export const slotWorkflowOperationsLayer = Layer.effect(
         conversationId: message.conversation.conversationId,
         createdByUserId: creatorAccountId,
       };
-      return persistence.slotState.upsertMessageSlotData(expected).pipe(
+      const bind = Predicate.isUndefined(expectedMessageId)
+        ? persistence.slotState.upsertMessageSlotData(expected)
+        : persistence.slotState.replaceMessageSlotData({
+            ...expected,
+            expectedMessageId,
+          });
+      return bind.pipe(
         Effect.as({ _tag: "Bound" } as const),
         Effect.catchCause((cause) =>
           Effect.uninterruptible(
@@ -334,6 +368,46 @@ export const slotWorkflowOperationsLayer = Layer.effect(
             ),
           ),
         );
+
+    const removeButton: SlotWorkflowOperationsShape["removeButton"] = (
+      currentSlot,
+      deliveryKey,
+      policy,
+    ) => {
+      const message = messageRefFrom(
+        { platform: currentSlot.clientPlatform, clientId: currentSlot.clientId },
+        currentSlot.workspaceId,
+        currentSlot.conversationId,
+        currentSlot.messageId,
+      );
+      return delivery
+        .get()
+        .delivery.deleteMessage({ payload: { message, deliveryKey } })
+        .pipe(
+          Effect.mapError(
+            mapDeliveryFailure(
+              policy,
+              "slots.removeButton",
+              "message",
+              true,
+              "The slot button could not be deleted",
+              operationError,
+              currentSlot.messageId,
+            ),
+          ),
+          Effect.tap(() =>
+            persistence.slotState
+              .removeMessageSlotData({
+                clientPlatform: currentSlot.clientPlatform,
+                clientId: currentSlot.clientId,
+                workspaceId: currentSlot.workspaceId,
+                conversationId: currentSlot.conversationId,
+                expectedMessageId: currentSlot.messageId,
+              })
+              .pipe(Effect.mapError((cause) => operationError("slots.removeButtonState", cause))),
+          ),
+        );
+    };
 
     const deleteReplacedButton: SlotWorkflowOperationsShape["deleteReplacedButton"] = (
       currentSlot,
@@ -438,14 +512,44 @@ export const slotWorkflowOperationsLayer = Layer.effect(
           ),
         );
 
+    const respondRemoval: SlotWorkflowOperationsShape["respondRemoval"] = (
+      input,
+      removed,
+      deliveryKey,
+      policy,
+    ) =>
+      delivery
+        .get()
+        .delivery.respond({
+          payload: {
+            responseReference: input.responseReference,
+            deliveryKey,
+            message: slotButtonRemovalAcknowledgement(removed),
+          },
+        })
+        .pipe(
+          Effect.mapError(
+            mapDeliveryFailure(
+              policy,
+              "slots.removeButton.respond",
+              "response",
+              true,
+              "The slot button removal acknowledgement was rejected",
+              operationError,
+            ),
+          ),
+        );
+
     return {
       loadCurrentSlot,
       requireCreatorAccountId,
       publishButton,
       bindSlotState,
       deleteProvisionalButton,
+      removeButton,
       deleteReplacedButton,
       respond,
+      respondRemoval,
     };
   }),
 );

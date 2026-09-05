@@ -236,7 +236,9 @@ describe("slot-open button Workflow Definition slice", () => {
     ]);
     expect(definition.contract.declaredFailure).toBe(InteractiveDeclaredFailure);
     expect(registration.definitionVersion).toBe("5");
-    expect(SlotSheetWorkflowContracts.at(-1)).toBe(SlotsOpen);
+    expect(SlotSheetWorkflowContracts.map(({ identity }) => identity)).toContain(
+      SlotsOpen.identity,
+    );
     expect(isSlotSheetWorkflowName(workflowContractKey(SlotsOpen))).toBe(true);
     expect(SlotSheetWorkflows.some(({ name }) => name === workflowContractKey(SlotsOpen))).toBe(
       true,

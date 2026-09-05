@@ -1118,6 +1118,75 @@ export const makeTrustedSheetPersistenceMock = (): TrustedSheetPersistenceShape 
             createdAt: presentOr(existing?.createdAt, fields.createdAt),
           });
         }),
+      removeMessageSlotData: ({
+        clientPlatform,
+        clientId,
+        workspaceId,
+        conversationId,
+        expectedMessageId,
+      }) =>
+        Effect.gen(function* () {
+          const key = messageSlotKey(clientPlatform, clientId, workspaceId, conversationId);
+          const existing = messageSlots.get(key);
+          if (
+            Predicate.isUndefined(existing) ||
+            Predicate.isNotNull(existing.deletedAt) ||
+            existing.messageId !== expectedMessageId
+          ) {
+            return yield* Effect.fail(
+              new ZeroClient.ZeroClientExecutorError({
+                operation: "remove message slot",
+                code: "MESSAGE_SLOT_BINDING_CONFLICT",
+                message: "The slot button changed before it could be removed",
+              }),
+            );
+          }
+          const timestamp = yield* Clock.currentTimeMillis;
+          messageSlots.set(key, {
+            ...existing,
+            updatedAt: timestamp,
+            deletedAt: timestamp,
+          });
+        }),
+      replaceMessageSlotData: ({
+        clientPlatform,
+        clientId,
+        messageId,
+        day,
+        workspaceId,
+        conversationId,
+        createdByUserId,
+        expectedMessageId,
+      }) =>
+        Effect.gen(function* () {
+          const key = messageSlotKey(clientPlatform, clientId, workspaceId, conversationId);
+          const existing = messageSlots.get(key);
+          if (
+            Predicate.isUndefined(existing) ||
+            Predicate.isNotNull(existing.deletedAt) ||
+            existing.messageId !== expectedMessageId
+          ) {
+            return yield* Effect.fail(
+              new ZeroClient.ZeroClientExecutorError({
+                operation: "replace message slot",
+                code: "MESSAGE_SLOT_BINDING_CONFLICT",
+                message: "The slot button changed before its replacement was bound",
+              }),
+            );
+          }
+          const fields = yield* auditFields();
+          messageSlots.set(key, {
+            clientPlatform,
+            clientId,
+            messageId,
+            day,
+            workspaceId,
+            conversationId,
+            createdByUserId,
+            ...fields,
+            createdAt: existing.createdAt,
+          });
+        }),
     },
     teamSubmissionState: {
       getMessageTeamSubmission: (args) =>

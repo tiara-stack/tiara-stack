@@ -117,6 +117,7 @@ const SlotsRefreshButtonBindAction = makeAction({
           },
           execution.published,
           execution.currentSlot.createdByUserId,
+          execution.currentSlot.messageId,
         ),
       );
     }),

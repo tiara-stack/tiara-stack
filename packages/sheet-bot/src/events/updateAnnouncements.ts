@@ -94,6 +94,14 @@ export const makeUpdateAnnouncements = (sheetWebBaseUrl: URL = defaultSheetWebBa
         "TiaraBot now previews team submissions and waits for the original submitter to press Confirm before writing to the sheet. Press Reject to discard a pending plan without changing the sheet.",
       color: 0x57f287,
     },
+    {
+      id: "remove-sticky-slot-buttons-2026-09-05",
+      publishedAt: "2026-09-05T04:00:00.000Z",
+      title: "Remove sticky slot buttons",
+      description:
+        "Monitors can now run /slot remove in a channel to delete its Open slots button and stop it from reposting. Run /slot button again when the channel needs the button back.",
+      color: 0x33ccbb,
+    },
   ] as const satisfies ReadonlyArray<UpdateAnnouncementSource>;
 
 export const updateAnnouncements = makeUpdateAnnouncements();

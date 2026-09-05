@@ -5,6 +5,7 @@ import { slotSheetWorkflowDefinitionVersion } from "./catalog";
 
 type SlotDeliveryKind =
   | "publish-button"
+  | "remove-button"
   | "delete-provisional-button"
   | "delete-replaced-button-current"
   | "delete-replaced-button-published"

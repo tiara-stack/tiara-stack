@@ -779,6 +779,22 @@ export const SlotsPublishButtonSuccess = Schema.Struct({
 });
 export type SlotsPublishButtonSuccess = Schema.Schema.Type<typeof SlotsPublishButtonSuccess>;
 
+export const SlotsRemoveButtonInput = Schema.Struct({
+  ...WorkspaceFields,
+  ...ResponseFields,
+  conversationId: Schema.String,
+});
+export type SlotsRemoveButtonInput = Schema.Schema.Type<typeof SlotsRemoveButtonInput>;
+
+export const SlotsRemoveButtonSuccess = Schema.Struct({
+  ...WorkspaceFields,
+  conversationId: Schema.String,
+  status: Schema.Literals(["removed", "skipped"]),
+  messageId: Schema.NullOr(Schema.String),
+  ...DeliveryEvidenceFields,
+});
+export type SlotsRemoveButtonSuccess = Schema.Schema.Type<typeof SlotsRemoveButtonSuccess>;
+
 export const SlotsRefreshButtonInput = Schema.Struct({
   ...WorkspaceFields,
   conversationId: Schema.String,

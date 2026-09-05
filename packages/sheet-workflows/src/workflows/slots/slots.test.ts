@@ -9,6 +9,7 @@ import {
   SlotsDeliverList,
   SlotsOpen,
   SlotsPublishButton,
+  SlotsRemoveButton,
   SlotsRefreshButton,
 } from "sheet-workflow-contracts";
 import { ZeroClient } from "typhoon-zero/client";
@@ -117,6 +118,7 @@ describe("slot Workflow Definition slices", () => {
       SlotsRefreshButton,
       SlotsDeliverList,
       SlotsOpen,
+      SlotsRemoveButton,
     ]);
     expect(
       SlotSheetWorkflowDefinitions.map(({ contract, workflow }) => ({
@@ -124,10 +126,12 @@ describe("slot Workflow Definition slices", () => {
         workflow: workflow.name,
       })),
     ).toEqual(
-      [SlotsPublishButton, SlotsRefreshButton, SlotsDeliverList, SlotsOpen].map((contract) => ({
-        contract: workflowContractKey(contract),
-        workflow: workflowContractKey(contract),
-      })),
+      [SlotsPublishButton, SlotsRefreshButton, SlotsDeliverList, SlotsOpen, SlotsRemoveButton].map(
+        (contract) => ({
+          contract: workflowContractKey(contract),
+          workflow: workflowContractKey(contract),
+        }),
+      ),
     );
     expect(SlotSheetWorkflowDefinitions[0]!.actions.map(({ workflow }) => workflow.name)).toEqual([
       "slots.publishButton.load-current-slot",
@@ -162,6 +166,7 @@ describe("slot Workflow Definition slices", () => {
       { contract: SlotsRefreshButton, definitionVersion: "5" },
       { contract: SlotsDeliverList, definitionVersion: "5" },
       { contract: SlotsOpen, definitionVersion: "5" },
+      { contract: SlotsRemoveButton, definitionVersion: "5" },
     ]);
     expect(SlotSheetWorkflowDefinitions[0]!.contract.declaredFailure).toBe(
       InteractiveDeclaredFailure,
@@ -383,6 +388,8 @@ describe("slot Workflow Definition slices", () => {
               )
             : Effect.void;
         },
+        removeMessageSlotData: () => Effect.void,
+        replaceMessageSlotData: () => Effect.void,
       };
       const operations = yield* makeOperations(slotState, makeBot({}));
       expect(yield* operations.bindSlotState(input, published, accountId)).toEqual({
@@ -428,6 +435,98 @@ describe("slot Workflow Definition slices", () => {
     }),
   );
 
+  it.effect("deletes the slot button before removing its state", () =>
+    Effect.gen(function* () {
+      const calls: string[] = [];
+      const currentSlot = {
+        clientPlatform: "discord",
+        clientId: "discord-main",
+        messageId: "button-1",
+        day: 2,
+        workspaceId: "workspace-1",
+        conversationId: "conversation-1",
+        createdByUserId: accountId,
+        createdAt: 1,
+        updatedAt: 1,
+        deletedAt: null,
+      } as const;
+      const slotState: TrustedSheetPersistence["Service"]["slotState"] = {
+        getMessageSlotData: () => Effect.succeed(Option.none()),
+        getMessageSlotDataByConversation: () => Effect.succeed(Option.some(currentSlot)),
+        upsertMessageSlotData: () => Effect.void,
+        removeMessageSlotData: ({ expectedMessageId }) => {
+          calls.push(`remove:${expectedMessageId}`);
+          return Effect.void;
+        },
+        replaceMessageSlotData: () => Effect.void,
+      };
+      const operations = yield* makeOperations(
+        slotState,
+        makeBot({
+          deleteMessage: ({ payload }) => {
+            calls.push(`delete:${(payload.message as { messageId: string }).messageId}`);
+            return Effect.succeed({
+              deliveryKey: payload.deliveryKey,
+              operation: "deleteMessage" as const,
+              target: { _tag: "Message" as const, message: payload.message },
+            });
+          },
+        }),
+      );
+
+      yield* operations.removeButton(
+        currentSlot,
+        makeSlotDeliveryKey(SlotsRemoveButton, invocationId, "remove-button"),
+        SlotsRemoveButton.authorizationPolicy.policy,
+      );
+
+      expect(calls).toEqual(["delete:button-1", "remove:button-1"]);
+    }),
+  );
+
+  it.effect("keeps slot state when button deletion fails", () =>
+    Effect.gen(function* () {
+      const removals: string[] = [];
+      const currentSlot = {
+        clientPlatform: "discord",
+        clientId: "discord-main",
+        messageId: "button-1",
+        day: 2,
+        workspaceId: "workspace-1",
+        conversationId: "conversation-1",
+        createdByUserId: accountId,
+        createdAt: 1,
+        updatedAt: 1,
+        deletedAt: null,
+      } as const;
+      const slotState: TrustedSheetPersistence["Service"]["slotState"] = {
+        getMessageSlotData: () => Effect.succeed(Option.none()),
+        getMessageSlotDataByConversation: () => Effect.succeed(Option.some(currentSlot)),
+        upsertMessageSlotData: () => Effect.void,
+        removeMessageSlotData: () => {
+          removals.push("removed");
+          return Effect.void;
+        },
+        replaceMessageSlotData: () => Effect.void,
+      };
+      const operations = yield* makeOperations(
+        slotState,
+        makeBot({ deleteMessage: () => Effect.fail("delete failed") }),
+      );
+
+      const exit = yield* Effect.exit(
+        operations.removeButton(
+          currentSlot,
+          makeSlotDeliveryKey(SlotsRemoveButton, invocationId, "remove-button"),
+          SlotsRemoveButton.authorizationPolicy.policy,
+        ),
+      );
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(removals).toEqual([]);
+    }),
+  );
+
   it.effect("removes both stale buttons during an A-to-B-to-C refresh interleaving", () =>
     Effect.gen(function* () {
       const calls: Array<unknown> = [];
@@ -463,6 +562,8 @@ describe("slot Workflow Definition slices", () => {
         getMessageSlotData: () => Effect.succeed(Option.none()),
         getMessageSlotDataByConversation: () => Effect.succeed(Option.some(authoritativeSlotC)),
         upsertMessageSlotData: () => Effect.void,
+        removeMessageSlotData: () => Effect.void,
+        replaceMessageSlotData: () => Effect.void,
       };
       const operations = yield* makeOperations(
         slotState,
@@ -599,6 +700,8 @@ describe("slot Workflow Definition slices", () => {
         getMessageSlotData: () => Effect.succeed(Option.none()),
         getMessageSlotDataByConversation: () => Effect.succeed(Option.some(authoritativeSlot)),
         upsertMessageSlotData: () => Effect.void,
+        removeMessageSlotData: () => Effect.void,
+        replaceMessageSlotData: () => Effect.void,
       };
       const operations = yield* makeOperations(
         slotState,
@@ -696,6 +799,8 @@ describe("slot Workflow Definition slices", () => {
               message: "definite bind failure",
             }),
           ),
+        removeMessageSlotData: () => Effect.void,
+        replaceMessageSlotData: () => Effect.void,
       };
       const cleanupKey = makeSlotDeliveryKey(
         SlotsPublishButton,

@@ -15,11 +15,13 @@ import {
   BotCapabilityStore,
   enqueueSlotsDeliverListWorkflow,
   enqueueSlotsPublishButtonWorkflow,
+  enqueueSlotsRemoveButtonWorkflow,
   SheetWorkflowHttpClient,
   type BotCapabilityStoreShape,
   type SheetWorkflowHttpClientShape,
   type SlotsDeliverListInput,
   type SlotsPublishButtonInput,
+  type SlotsRemoveButtonInput,
 } from "../services";
 import {
   makeResponseReferenceInput,
@@ -33,6 +35,7 @@ import { enqueueSheetWorkflow } from "../utils/sheetWorkflowMigration";
 
 type SlotListWorkflowInput = Omit<SlotsDeliverListInput, "responseReference">;
 type SlotPublishButtonWorkflowInput = Omit<SlotsPublishButtonInput, "responseReference">;
+type SlotRemoveButtonWorkflowInput = Omit<SlotsRemoveButtonInput, "responseReference">;
 
 const slotListEnqueueRejectedMessage = "I couldn't start the slot list. Please try again.";
 const slotListEnqueueUnauthorizedMessage = "You aren't allowed to view slots in that workspace.";
@@ -40,6 +43,10 @@ const slotPublishButtonEnqueueRejectedMessage =
   "I couldn't publish the slot button. Please try again.";
 const slotPublishButtonEnqueueUnauthorizedMessage =
   "You aren't allowed to publish a slot button in that workspace.";
+const slotRemoveButtonEnqueueRejectedMessage =
+  "I couldn't remove the slot button. Please try again.";
+const slotRemoveButtonEnqueueUnauthorizedMessage =
+  "You aren't allowed to remove the slot button in that workspace.";
 const slotEnqueuePendingMessage =
   "The slot request is still processing. I'll update this message when it finishes.";
 
@@ -81,6 +88,26 @@ export const enqueueSlotButton = Effect.fn("slot.enqueueButtonWorkflow")(functio
       enqueueSlotsPublishButtonWorkflow(workflowClient, workflowInput, options),
     rejectedMessage: slotPublishButtonEnqueueRejectedMessage,
     unauthorizedMessage: slotPublishButtonEnqueueUnauthorizedMessage,
+    pendingMessage: slotEnqueuePendingMessage,
+  });
+});
+
+export const enqueueSlotButtonRemoval = Effect.fn("slot.enqueueButtonRemovalWorkflow")(function* (
+  response: Pick<CommandInteractionResponseContext, "editReply">,
+  workflowClient: Pick<SheetWorkflowHttpClientShape, "enqueueSlotsRemoveButton">,
+  capabilityStore: Pick<BotCapabilityStoreShape, "issueResponseReference">,
+  input: SlotRemoveButtonWorkflowInput,
+) {
+  yield* enqueueSheetWorkflow({
+    response,
+    operation: "slot button removal",
+    workspaceId: input.workspaceId,
+    capabilityStore,
+    makeInput: (responseReference) => ({ ...input, responseReference }),
+    enqueue: (workflowInput, options) =>
+      enqueueSlotsRemoveButtonWorkflow(workflowClient, workflowInput, options),
+    rejectedMessage: slotRemoveButtonEnqueueRejectedMessage,
+    unauthorizedMessage: slotRemoveButtonEnqueueUnauthorizedMessage,
     pendingMessage: slotEnqueuePendingMessage,
   });
 });
@@ -157,9 +184,35 @@ const makeButtonSubCommand = Effect.gen(function* () {
   );
 });
 
+const makeRemoveSubCommand = Effect.gen(function* () {
+  const workflowClient = yield* SheetWorkflowHttpClient;
+  const capabilityStore = yield* BotCapabilityStore;
+
+  return yield* CommandHelper.makeSubCommand(
+    (builder) =>
+      builder
+        .setName("remove")
+        .setDescription("Remove the sticky slot button from this channel")
+        .addStringOption(serverIdOption("The server to remove the slot button from")),
+    Effect.fn("slot.remove")(function* (command) {
+      const response = yield* InteractionResponse;
+      yield* response.deferReply({ flags: MessageFlags.Ephemeral });
+
+      const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
+      const workspaceId = yield* Schema.decodeUnknownEffect(WorkspaceId)(guildId);
+      const channelId = yield* resolveChannelId(Option.none());
+      yield* enqueueSlotButtonRemoval(response, workflowClient, capabilityStore, {
+        workspaceId,
+        conversationId: channelId,
+      });
+    }),
+  );
+});
+
 const makeSlotCommand = Effect.gen(function* () {
   const listSubCommand = yield* makeListSubCommand;
   const buttonSubCommand = yield* makeButtonSubCommand;
+  const removeSubCommand = yield* makeRemoveSubCommand;
 
   return yield* CommandHelper.makeCommand(
     (builder) =>
@@ -176,11 +229,13 @@ const makeSlotCommand = Effect.gen(function* () {
           InteractionContextType.PrivateChannel,
         )
         .addSubcommand(() => listSubCommand.data)
-        .addSubcommand(() => buttonSubCommand.data),
+        .addSubcommand(() => buttonSubCommand.data)
+        .addSubcommand(() => removeSubCommand.data),
     (command) =>
       command.subCommands({
         list: listSubCommand.handler,
         button: buttonSubCommand.handler,
+        remove: removeSubCommand.handler,
       }),
   );
 });

@@ -109,6 +109,8 @@ const expectedCatalog = {
     "query:public:getMessageSlotData",
     "query:public:getMessageSlotDataByConversation",
     "mutator:public:upsertMessageSlotData",
+    "mutator:public:removeMessageSlotData",
+    "mutator:public:replaceMessageSlotData",
   ],
   messageTeamSubmission: [
     "query:public:getMessageTeamSubmission",
@@ -155,10 +157,10 @@ const catalogNames = (
     .sort();
 
 describe("Sheet Zero API visibility", () => {
-  it("preserves the exhaustive 86-procedure catalog and visibility split", () => {
+  it("preserves the exhaustive 88-procedure catalog and visibility split", () => {
     expect(projectCatalog()).toEqual(expectedCatalog);
-    expect(catalog).toHaveLength(86);
-    expect(catalog.filter(({ visibility }) => visibility === "public")).toHaveLength(67);
+    expect(catalog).toHaveLength(88);
+    expect(catalog.filter(({ visibility }) => visibility === "public")).toHaveLength(69);
     expect(catalog.filter(({ visibility }) => visibility === "service")).toHaveLength(16);
     expect(catalog.filter(({ visibility }) => visibility === "internal")).toHaveLength(3);
   });

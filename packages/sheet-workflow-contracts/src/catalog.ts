@@ -303,6 +303,15 @@ export const SlotsPublishButton = interactive(
   }),
 );
 
+export const SlotsRemoveButton = interactive(
+  "slots.removeButton",
+  Values.SlotsRemoveButtonInput,
+  Values.SlotsRemoveButtonSuccess,
+  policy(["user"], ["workspace.monitor"], "workspace", {
+    resourceField: "workspaceId",
+  }),
+);
+
 export const SlotsRefreshButton = autonomous(
   "slots.refreshButton",
   Values.SlotsRefreshButtonInput,
@@ -540,6 +549,7 @@ export const SheetWorkflowContracts = Object.freeze({
   slots: Object.freeze({
     deliverList: SlotsDeliverList,
     publishButton: SlotsPublishButton,
+    removeButton: SlotsRemoveButton,
     refreshButton: SlotsRefreshButton,
     open: SlotsOpen,
   }),
@@ -598,6 +608,7 @@ export const SheetWorkflowContractCatalog = defineWorkflowContractCatalog(
   RoomOrdersPinTentative,
   SlotsDeliverList,
   SlotsPublishButton,
+  SlotsRemoveButton,
   SlotsRefreshButton,
   SlotsOpen,
   MembersKick,
