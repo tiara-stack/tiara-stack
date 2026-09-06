@@ -249,6 +249,7 @@ const makeDataProvider = (
   overrides: Partial<SheetDataProvider["Service"]> = {},
 ): SheetDataProvider["Service"] => ({
   generateCheckin: () => Effect.succeed(makeExecution().context.generated),
+  resolveCheckinMessageTarget: () => Effect.die("unused"),
   generateRoomOrder: () => Effect.succeed(roomOrder()),
   loadWorkspaceSchedules: () => Effect.die("unused"),
   resolveSpreadsheetId: () => Effect.succeed(Option.none()),

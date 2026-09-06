@@ -8,12 +8,16 @@ import {
 } from "./definition";
 import { makeCheckinsTestAutoDefinition } from "./autoTestDefinition";
 import { makeCheckinsOpenDefinition } from "./openDefinition";
+import { makeCheckinMessagesDefinitions } from "./messageDefinition";
 
 const CheckinsOpenDefinition = makeCheckinsOpenDefinition();
+const CheckinMessagesDefinitions = makeCheckinMessagesDefinitions();
 const CheckinsRespondDefinition = makeCheckinsRespondDefinition();
 const CheckinsTestAutoDefinition = makeCheckinsTestAutoDefinition();
 
 export const CheckinSheetWorkflowDefinitions = Object.freeze([
+  CheckinMessagesDefinitions.load,
+  CheckinMessagesDefinitions.save,
   CheckinsOpenDefinition,
   CheckinsRespondDefinition,
   CheckinsTestAutoDefinition,

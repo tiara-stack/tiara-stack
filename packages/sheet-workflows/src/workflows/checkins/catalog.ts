@@ -1,6 +1,14 @@
-import { CheckinsOpen, CheckinsRespond, CheckinsTestAuto } from "sheet-workflow-contracts";
+import {
+  CheckinMessagesLoad,
+  CheckinMessagesSave,
+  CheckinsOpen,
+  CheckinsRespond,
+  CheckinsTestAuto,
+} from "sheet-workflow-contracts";
 
 export const CheckinSheetWorkflowContracts = Object.freeze([
+  CheckinMessagesLoad,
+  CheckinMessagesSave,
   CheckinsOpen,
   CheckinsRespond,
   CheckinsTestAuto,

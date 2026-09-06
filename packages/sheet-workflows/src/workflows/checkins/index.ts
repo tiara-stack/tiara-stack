@@ -4,6 +4,7 @@ export { checkinWorkflowOperationsLayer } from "./operations";
 export { autoCheckinTestWorkflowOperationsLayer } from "./autoTestOperations";
 export { autoCheckinTestProviderLayer } from "./autoTestProvider";
 export { checkinsOpenWorkflowOperationsLayer } from "./openOperations";
+export { checkinMessagesWorkflowOperationsLayer } from "./messageService";
 export * from "./openDefinition";
 export * from "./openSchema";
 export * from "./openService";

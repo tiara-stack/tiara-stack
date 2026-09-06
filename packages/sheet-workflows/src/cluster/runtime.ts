@@ -94,6 +94,7 @@ import {
 import {
   autoCheckinTestProviderLayer,
   autoCheckinTestWorkflowOperationsLayer,
+  checkinMessagesWorkflowOperationsLayer,
   checkinSheetWorkflowLayers,
   checkinWorkflowOperationsLayer,
   checkinsOpenWorkflowOperationsLayer,
@@ -288,6 +289,7 @@ const workflowDefinitionServicesLayer = Layer.mergeAll(
     Layer.provide(readOnlyWorkflowAuthorizationLayer),
   ),
   checkinWorkflowOperationsLayer,
+  checkinMessagesWorkflowOperationsLayer,
   checkinsOpenWorkflowOperationsLayer.pipe(Layer.provide(readOnlyWorkflowAuthorizationLayer)),
   autoCheckinTestWorkflowOperationsLayer.pipe(
     Layer.provide(autoCheckinTestProviderLayer),

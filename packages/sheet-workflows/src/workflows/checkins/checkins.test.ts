@@ -26,6 +26,8 @@ import {
   type TrustedSheetPersistenceShape,
 } from "sheet-zero-server/persistence";
 import {
+  CheckinMessagesLoad,
+  CheckinMessagesSave,
   CheckinsOpen,
   CheckinsRespond,
   CheckinsTestAuto,
@@ -286,11 +288,13 @@ const announcementReceipt = {
 const checkinResponseWorkflowDefinitionTests = () => {
   it("registers the CheckinsOpen, CheckinsRespond, and CheckinsTestAuto definitions", () => {
     expect(CheckinSheetWorkflowContracts).toEqual([
+      CheckinMessagesLoad,
+      CheckinMessagesSave,
       CheckinsOpen,
       CheckinsRespond,
       CheckinsTestAuto,
     ]);
-    expect(CheckinSheetWorkflowDefinitions).toHaveLength(3);
+    expect(CheckinSheetWorkflowDefinitions).toHaveLength(5);
     const respondDefinition = CheckinSheetWorkflowDefinitions.find(
       ({ contract }) => contract === CheckinsRespond,
     );
@@ -313,11 +317,15 @@ const checkinResponseWorkflowDefinitionTests = () => {
       ),
     ).toBe(true);
     expect(CheckinSheetWorkflowRegistrations).toEqual([
+      expect.objectContaining({ contract: CheckinMessagesLoad, definitionVersion: "1" }),
+      expect.objectContaining({ contract: CheckinMessagesSave, definitionVersion: "1" }),
       expect.objectContaining({ contract: CheckinsOpen, definitionVersion: "1" }),
       expect.objectContaining({ contract: CheckinsRespond, definitionVersion: "1" }),
       expect.objectContaining({ contract: CheckinsTestAuto, definitionVersion: "1" }),
     ]);
     expect(isCheckinSheetWorkflowName(workflowContractKey(CheckinsOpen))).toBe(true);
+    expect(isCheckinSheetWorkflowName(workflowContractKey(CheckinMessagesLoad))).toBe(true);
+    expect(isCheckinSheetWorkflowName(workflowContractKey(CheckinMessagesSave))).toBe(true);
     expect(isCheckinSheetWorkflowName(workflowContractKey(CheckinsRespond))).toBe(true);
     expect(isCheckinSheetWorkflowName(workflowContractKey(CheckinsTestAuto))).toBe(true);
     expect(isCheckinSheetWorkflowName(CheckinsRespond.identity)).toBe(false);

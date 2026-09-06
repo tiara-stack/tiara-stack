@@ -57,6 +57,14 @@ export const CheckinGeneration = Schema.Struct({
 });
 type CheckinGeneration = typeof CheckinGeneration.Type;
 
+const CheckinMessageTarget = Schema.Struct({
+  workspaceId: Schema.String,
+  conversationId: Schema.String,
+  conversationName: Schema.String,
+  eventStartEpochMs: Schema.Number,
+});
+type CheckinMessageTarget = typeof CheckinMessageTarget.Type;
+
 const RoomOrderGenerationEntry = Schema.Struct({
   rank: Schema.Int,
   position: Schema.Int,
@@ -90,12 +98,27 @@ export class SheetDataProviderError extends Data.TaggedError("SheetDataProviderE
   readonly cause: unknown;
 }> {}
 
+/**
+ * The authoritative Sheets observation raced the message-set binding. The caller should repeat
+ * the complete preparation read so an older observation cannot be applied to a newer generation.
+ */
+export class CheckinMessagePreparationRetry extends Data.TaggedError(
+  "CheckinMessagePreparationRetry",
+)<{}> {}
+
+type CheckinSavedMessageResolver = (observation: {
+  readonly eventStartEpochMs: number;
+  readonly conversationId: string;
+  readonly hour: number;
+}) => Effect.Effect<string | null | undefined, unknown>;
+
 type CheckinGenerationInput = {
   readonly workspaceId: WorkspaceId;
   readonly conversationId?: string | undefined;
   readonly conversationName?: string | undefined;
   readonly hour?: number | undefined;
   readonly template?: string | undefined;
+  readonly resolveSavedMessage?: CheckinSavedMessageResolver | undefined;
 };
 
 type RoomOrderGenerationInput = {
@@ -110,6 +133,11 @@ interface SheetDataProviderShape {
   readonly generateCheckin: (
     input: CheckinGenerationInput,
   ) => Effect.Effect<CheckinGeneration, SheetDataProviderError>;
+  readonly resolveCheckinMessageTarget: (input: {
+    readonly workspaceId: WorkspaceId;
+    readonly conversationId?: string | undefined;
+    readonly conversationName?: string | undefined;
+  }) => Effect.Effect<CheckinMessageTarget, SheetDataProviderError>;
   readonly generateRoomOrder: (
     input: RoomOrderGenerationInput,
   ) => Effect.Effect<RoomOrderGeneration, SheetDataProviderError>;
@@ -136,6 +164,9 @@ type Conversation = {
 const providerError = (operation: SheetDataProviderError["operation"]) => (cause: unknown) =>
   new SheetDataProviderError({ operation, cause });
 
+const isSheetDataProviderError = (error: unknown): error is SheetDataProviderError =>
+  Predicate.isTagged("SheetDataProviderError")(error);
+
 /**
  * Resolves schedule names to account IDs without guessing when a sheet contains duplicate names.
  * A null result means the name is not present in the identity range or is ambiguous.
@@ -158,6 +189,39 @@ export const resolveSchedulePlayerAccountIds = (
 
   return names.map((name) => accountIdsByName.get(name) ?? null);
 };
+
+/**
+ * Resolve a scheduled monitor only when the authoritative identity range gives one stable ID.
+ * Missing names and duplicate names with different IDs intentionally stay unresolved.
+ */
+export const resolveScheduleMonitorAccountId = (
+  monitors: ReadonlyArray<{ readonly accountId: string; readonly name: string }>,
+  monitorName: string | null,
+): string | undefined => {
+  if (Predicate.isNull(monitorName)) return undefined;
+  const accountIdsByName = new Map<string, string | null>();
+  for (const monitor of monitors) {
+    const existing = accountIdsByName.get(monitor.name);
+    if (Predicate.isUndefined(existing)) {
+      accountIdsByName.set(monitor.name, monitor.accountId);
+    } else if (existing !== monitor.accountId) {
+      accountIdsByName.set(monitor.name, null);
+    }
+  }
+  const accountId = accountIdsByName.get(monitorName);
+  return Predicate.isString(accountId) && accountId.length > 0 ? accountId : undefined;
+};
+
+export const selectCheckinTemplate = (options: {
+  readonly explicitTemplate: string | undefined;
+  readonly savedTemplate: string | null | undefined;
+  readonly fallbackTemplate: string;
+}): string =>
+  Predicate.isString(options.explicitTemplate)
+    ? options.explicitTemplate
+    : Predicate.isString(options.savedTemplate) && options.savedTemplate.trim().length > 0
+      ? options.savedTemplate
+      : options.fallbackTemplate;
 
 const loadActiveWorkspace = (
   persistence: TrustedSheetPersistence["Service"],
@@ -380,7 +444,22 @@ const makeSheetDataProvider = (
       const previousParticipants = (previous?.fills ?? []).map(toParticipant);
       const participants = (current?.fills ?? []).map(toParticipant);
       const movement = diffParticipants(previousParticipants, participants);
-      const template = input.template ?? (yield* pickCheckinTemplate);
+      const savedMessage = Predicate.isUndefined(input.resolveSavedMessage)
+        ? undefined
+        : yield* input.resolveSavedMessage({
+            eventStartEpochMs: view.eventStartEpochMs,
+            conversationId: conversation.id,
+            hour,
+          });
+      const template = Predicate.isString(input.template)
+        ? input.template
+        : Predicate.isString(savedMessage) && savedMessage.trim().length > 0
+          ? savedMessage
+          : selectCheckinTemplate({
+              explicitTemplate: undefined,
+              savedTemplate: undefined,
+              fallbackTemplate: yield* pickCheckinTemplate,
+            });
       const window = eventHour(view.eventStartEpochMs, hour);
       const conversationText = Predicate.isString(conversation.roleId)
         ? MessageText.parts(MessageText.text(`head to ${conversation.name}`))
@@ -441,7 +520,35 @@ const makeSheetDataProvider = (
           ),
         ],
       } satisfies CheckinGeneration;
-    });
+    }).pipe(
+      Effect.mapError(
+        (error): SheetDataProviderError =>
+          isSheetDataProviderError(error) ? error : providerError("read-checkin")(error),
+      ),
+    );
+
+  const resolveCheckinMessageTarget = (input: {
+    readonly workspaceId: WorkspaceId;
+    readonly conversationId?: string | undefined;
+    readonly conversationName?: string | undefined;
+  }) =>
+    Effect.gen(function* () {
+      const { spreadsheetId, configuration, conversation } = yield* resolve(input);
+      const view = yield* scheduleProvider
+        .loadAll(spreadsheetId, configuration)
+        .pipe(Effect.mapError(providerError("read-schedules")));
+      return {
+        workspaceId: input.workspaceId,
+        conversationId: conversation.id,
+        conversationName: conversation.name,
+        eventStartEpochMs: view.eventStartEpochMs,
+      } satisfies CheckinMessageTarget;
+    }).pipe(
+      Effect.mapError(
+        (error): SheetDataProviderError =>
+          isSheetDataProviderError(error) ? error : providerError("read-schedules")(error),
+      ),
+    );
 
   const generateRoomOrder = (input: RoomOrderGenerationInput) =>
     // Room-order generation keeps the read, calculation, and rendered response together.
@@ -526,6 +633,7 @@ const makeSheetDataProvider = (
         const conversationName = schedule.channel;
         if (!Predicate.isString(conversationName) || !Predicate.isNumber(schedule.day)) return [];
         const playerNames = [...schedule.fills, ...schedule.overfills, ...schedule.standbys];
+        const monitorAccountId = resolveScheduleMonitorAccountId(view.monitors, schedule.monitor);
         return [
           {
             conversationName,
@@ -536,6 +644,7 @@ const makeSheetDataProvider = (
             playerNames,
             playerAccountIds: resolveSchedulePlayerAccountIds(view.players, playerNames),
             monitorName: schedule.monitor,
+            ...(monitorAccountId === undefined ? {} : { monitorAccountId }),
           },
         ];
       });
@@ -550,7 +659,13 @@ const makeSheetDataProvider = (
       Effect.mapError((cause) => providerError("resolve-spreadsheet")(cause)),
     );
 
-  return { generateCheckin, generateRoomOrder, loadWorkspaceSchedules, resolveSpreadsheetId };
+  return {
+    generateCheckin,
+    resolveCheckinMessageTarget,
+    generateRoomOrder,
+    loadWorkspaceSchedules,
+    resolveSpreadsheetId,
+  };
 };
 
 export const sheetDataProviderLayer = Layer.effect(

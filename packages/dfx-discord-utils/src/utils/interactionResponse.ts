@@ -21,6 +21,9 @@ export interface InitialInteractionResponse {
 export interface CommandInteractionResponseContext {
   readonly getAcknowledgementState: Effect.Effect<AcknowledgementState>;
   readonly reply: (payload?: Discord.IncomingWebhookInteractionRequest) => Effect.Effect<boolean>;
+  readonly showModal: (
+    payload: Discord.ModalInteractionCallbackRequestData,
+  ) => Effect.Effect<boolean>;
   readonly replyWithFiles: (
     files: ReadonlyArray<File>,
     response?: Discord.IncomingWebhookInteractionRequest,
@@ -109,6 +112,18 @@ export const makeInteractionResponse = Effect.fnUntraced(function* (mode: Intera
       files,
       payload: {
         type: Discord.InteractionCallbackTypes.CHANNEL_MESSAGE_WITH_SOURCE,
+        data: payload,
+      },
+    });
+  });
+
+  const showModal = Effect.fn("InteractionResponse.showModal")(function* (
+    payload: Discord.ModalInteractionCallbackRequestData,
+  ) {
+    return yield* completeInitialResponse("replied", {
+      files: [],
+      payload: {
+        type: Discord.InteractionCallbackTypes.MODAL,
         data: payload,
       },
     });
@@ -241,6 +256,7 @@ export const makeInteractionResponse = Effect.fnUntraced(function* (mode: Intera
   const service = {
     getAcknowledgementState: Ref.get(acknowledgementState),
     reply,
+    showModal,
     replyWithFiles,
     deferReply,
     followUp,

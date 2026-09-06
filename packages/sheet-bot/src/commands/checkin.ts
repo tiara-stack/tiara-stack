@@ -31,6 +31,7 @@ import {
   resolveGuildId,
 } from "../utils/commandHelpers";
 import { enqueueSheetWorkflow } from "../utils/sheetWorkflowMigration";
+import { makeSavedMessageModalDefinition, makeSavedMessageSubCommand } from "./checkinSavedMessage";
 
 type CheckinWorkflowInput = Omit<CheckinsOpenInput, "responseReference">;
 type CheckinTestAutoWorkflowInput = Omit<CheckinsTestAutoInput, "responseReference">;
@@ -75,6 +76,7 @@ export const enqueueCheckinTestAuto = Effect.fn("checkin.testAutoEnqueueWorkflow
   capabilityStore: Pick<BotCapabilityStoreShape, "issueResponseReference">,
   input: CheckinTestAutoWorkflowInput,
 ) {
+  // fallow-ignore-next-line code-duplication
   yield* enqueueSheetWorkflow({
     response,
     operation: "auto check-in test",
@@ -192,6 +194,7 @@ const makeTestAutoSubCommand = Effect.gen(function* () {
 
 const makeCheckinCommand = Effect.gen(function* () {
   const manualSubCommand = yield* makeManualSubCommand;
+  const savedMessageSubCommand = yield* makeSavedMessageSubCommand;
   const testAutoSubCommand = yield* makeTestAutoSubCommand;
 
   return yield* CommandHelper.makeCommand(
@@ -209,10 +212,12 @@ const makeCheckinCommand = Effect.gen(function* () {
           InteractionContextType.PrivateChannel,
         )
         .addSubcommand(() => manualSubCommand.data)
+        .addSubcommand(() => savedMessageSubCommand.data)
         .addSubcommand(() => testAutoSubCommand.data),
     (command) =>
       command.subCommands({
         manual: manualSubCommand.handler,
+        saved: savedMessageSubCommand.handler,
         test_auto: testAutoSubCommand.handler,
       }),
   );
@@ -228,8 +233,13 @@ export const checkinCommandLayer = Layer.effectDiscard(
   Effect.gen(function* () {
     const registry = yield* InteractionsRegistry;
     const command = yield* makeGlobalCheckinCommand;
+    const savedMessageModal = yield* makeSavedMessageModalDefinition;
 
     yield* registry.register(Ix.builder.add(command).catchAllCause(Effect.log));
+    const savedMessageModalBuilder = Ix.builder
+      .add<never, never>(savedMessageModal as never)
+      .catchAllCause(Effect.log);
+    yield* registry.register(savedMessageModalBuilder);
   }),
 ).pipe(
   Layer.provide(

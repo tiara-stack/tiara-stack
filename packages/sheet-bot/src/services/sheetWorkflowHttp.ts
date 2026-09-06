@@ -38,7 +38,12 @@ const workflowHttpAudience = "sheet-workflows-http";
 const workflowRequesterTokenCacheCapacity = 500;
 const workflowEnqueueTimeout = Duration.seconds(30);
 
-const workflowHttpRequesterActorScopes = ["service", "token.exchange", "workflow.enqueue"] as const;
+const workflowHttpRequesterActorScopes = [
+  "service",
+  "token.exchange",
+  "workflow.enqueue",
+  "workflow.observe",
+] as const;
 
 export type ServicesDeliverStatusEnqueue =
   SheetWorkflowHttpClients["services"]["deliverStatus"]["enqueue"];
@@ -69,6 +74,9 @@ export type CheckinsRespondInput = Parameters<CheckinsRespondEnqueue>[0];
 export type CheckinsRespondReference = Effect.Success<ReturnType<CheckinsRespondEnqueue>>;
 // fallow-ignore-next-line unused-type
 export type CheckinsRespondEnqueueError = Effect.Error<ReturnType<CheckinsRespondEnqueue>>;
+
+export type CheckinMessagesLoadWorkflow = SheetWorkflowHttpClients["checkinMessages"]["load"];
+export type CheckinMessagesSaveWorkflow = SheetWorkflowHttpClients["checkinMessages"]["save"];
 
 export type RoomOrdersCreateEnqueue = SheetWorkflowHttpClients["roomOrders"]["create"]["enqueue"];
 export type RoomOrdersCreateInput = Parameters<RoomOrdersCreateEnqueue>[0];
@@ -475,7 +483,7 @@ const makeDiscordUserToken = Effect.fn("SheetWorkflowHttpClient.makeDiscordUserT
     actorTokenType: accessTokenType,
     requestedTokenType: accessTokenType,
     audience: workflowHttpAudience,
-    scope: ["workflow.enqueue"],
+    scope: ["workflow.enqueue", "workflow.observe"],
   });
 });
 
@@ -546,6 +554,8 @@ export interface SheetWorkflowHttpClientShape {
   readonly enqueueCheckinsOpen: CheckinsOpenEnqueue;
   readonly enqueueCheckinsTestAuto: CheckinsTestAutoEnqueue;
   readonly enqueueCheckinsRespond: CheckinsRespondEnqueue;
+  readonly checkinMessagesLoad: CheckinMessagesLoadWorkflow;
+  readonly checkinMessagesSave: CheckinMessagesSaveWorkflow;
   readonly enqueueRoomOrdersCreate: RoomOrdersCreateEnqueue;
   readonly enqueueRoomOrdersNavigate: RoomOrdersNavigateEnqueue;
   readonly enqueueRoomOrdersSend: RoomOrdersSendEnqueue;
@@ -675,6 +685,8 @@ export class SheetWorkflowHttpClient extends Context.Service<
       enqueueCheckinsOpen: clients.checkins.open.enqueue,
       enqueueCheckinsTestAuto: clients.checkins.testAuto.enqueue,
       enqueueCheckinsRespond: clients.checkins.respond.enqueue,
+      checkinMessagesLoad: clients.checkinMessages.load,
+      checkinMessagesSave: clients.checkinMessages.save,
       enqueueRoomOrdersCreate: clients.roomOrders.create.enqueue,
       enqueueRoomOrdersNavigate: clients.roomOrders.navigate.enqueue,
       enqueueRoomOrdersSend: clients.roomOrders.send.enqueue,

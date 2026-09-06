@@ -43,10 +43,10 @@ describe("selected Sheet Workflow registry", () => {
       ...ScreenshotSheetWorkflowContracts,
       ...CalculationSheetWorkflowContracts,
     ]);
-    expect(SelectedSheetWorkflowContracts).toHaveLength(46);
+    expect(SelectedSheetWorkflowContracts).toHaveLength(48);
     const groups = makeSelectedSheetWorkflowZeroGroups(() => Promise.resolve());
     expect(groups).toHaveLength(SelectedSheetWorkflowContracts.length);
-    expect(groups.flatMap(({ endpoints }) => Object.keys(endpoints))).toHaveLength(138);
+    expect(groups.flatMap(({ endpoints }) => Object.keys(endpoints))).toHaveLength(144);
     expect(groups.map(({ identifier }) => identifier)).toEqual(
       SelectedSheetWorkflowContracts.map(workflowContractZeroGroupIdentifier),
     );

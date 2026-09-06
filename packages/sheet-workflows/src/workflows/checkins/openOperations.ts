@@ -1,4 +1,4 @@
-import { Effect, Equal, Exit, Layer, Option, Predicate, Schema } from "effect";
+import { Effect, Equal, Exit, Layer, Option, Predicate, Schedule, Schema } from "effect";
 import {
   BotOutboundMessage,
   BotTextPart,
@@ -28,7 +28,11 @@ import {
 import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import { CheckinsOpen, InteractiveDeclaredFailure } from "sheet-workflow-contracts";
 import { ReadonlyJSONValue } from "typhoon-zero/schema";
-import { SheetDataProvider, RoomOrderGeneration } from "@/services/sheetDataProvider";
+import {
+  CheckinMessagePreparationRetry,
+  SheetDataProvider,
+  RoomOrderGeneration,
+} from "@/services/sheetDataProvider";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
 import { config } from "@/config";
 import { ReadOnlyWorkflowAuthorization } from "../readOnly/authorization";
@@ -42,6 +46,7 @@ import {
   mapDeliveryFailure,
 } from "../shared/interactive";
 import type { CheckinsOpenContext } from "./openSchema";
+import { CheckinsOpenExecution } from "./openSchema";
 import { CheckinsOpenWorkflowOperations } from "./openService";
 
 const policy = CheckinsOpen.authorizationPolicy.policy;
@@ -123,6 +128,22 @@ const decodeMessage = (message: unknown, operation: string) =>
       ),
     ),
   );
+
+const causeFrom = (error: unknown): unknown =>
+  Predicate.isObject(error) && Predicate.hasProperty(error, "cause") ? error.cause : undefined;
+
+const isMessageSetArgumentConflict = (error: unknown): boolean => {
+  const cause = causeFrom(error);
+  return (
+    Predicate.isObject(cause) &&
+    Predicate.hasProperty(cause, "code") &&
+    Predicate.isString(cause.code) &&
+    cause.code === "CHECKIN_MESSAGE_SET_CONFLICT"
+  );
+};
+
+const isPreparationRetry = (error: unknown): boolean =>
+  Predicate.isTagged("CheckinMessagePreparationRetry")(causeFrom(error));
 
 type CheckinPersistenceDetails = {
   readonly conversationId: string;
@@ -235,6 +256,64 @@ export const checkinsOpenWorkflowOperationsLayer = Layer.effect(
     const authorization = yield* ReadOnlyWorkflowAuthorization;
     const clientId = yield* config.sheetBotClientId;
     const client = { platform: "discord", clientId } as const;
+    const savedMessageUpdatedBy = (principal: (typeof CheckinsOpenExecution.Type)["principal"]) =>
+      principal.kind === "user"
+        ? (principal.discordAccount?.accountId ?? "unknown-user")
+        : `service:${principal.serviceId}`;
+    const loadSavedMessage = (
+      execution: typeof CheckinsOpenExecution.Type,
+      observation: {
+        readonly eventStartEpochMs: number;
+        readonly conversationId: string;
+        readonly hour: number;
+      },
+    ): Effect.Effect<string | null | undefined, unknown, never> =>
+      Effect.gen(function* () {
+        const current = yield* persistence.checkinMessages
+          .getMessageSet({ workspaceId: execution.input.workspaceId })
+          .pipe(Effect.timeout("30 seconds"));
+        const expectedBinding = Option.match(current, {
+          onNone: () => null,
+          onSome: (row) => ({
+            eventStartEpochMs: row.eventStartEpochMs,
+            messageSetGeneration: row.messageSetGeneration,
+          }),
+        });
+        yield* persistence.checkinMessages
+          .reconcileMessageSet({
+            workspaceId: execution.input.workspaceId,
+            observedEventStartEpochMs: observation.eventStartEpochMs,
+            expectedBinding,
+            updatedBy: savedMessageUpdatedBy(execution.principal),
+          })
+          .pipe(
+            Effect.timeout("30 seconds"),
+            Effect.mapError((error) =>
+              isMessageSetArgumentConflict(error) ? new CheckinMessagePreparationRetry() : error,
+            ),
+          );
+        const reconciled = yield* persistence.checkinMessages
+          .getMessageSet({ workspaceId: execution.input.workspaceId })
+          .pipe(Effect.timeout("30 seconds"));
+        if (
+          Option.isNone(reconciled) ||
+          reconciled.value.eventStartEpochMs !== observation.eventStartEpochMs
+        ) {
+          return yield* Effect.fail(new CheckinMessagePreparationRetry());
+        }
+        const row = yield* persistence.checkinMessages
+          .getHourlyMessage({
+            workspaceId: execution.input.workspaceId,
+            messageSetGeneration: reconciled.value.messageSetGeneration,
+            conversationId: observation.conversationId,
+            hour: observation.hour,
+          })
+          .pipe(Effect.timeout("30 seconds"));
+        return Option.match(row, {
+          onNone: () => null,
+          onSome: ({ template }) => template,
+        });
+      });
     const ensureConfiguredClient = (context: CheckinsOpenContext, operation: string) =>
       context.clientPlatform === client.platform && context.clientId === client.clientId
         ? Effect.void
@@ -272,7 +351,16 @@ export const checkinsOpenWorkflowOperationsLayer = Layer.effect(
               : { conversationName: input.conversationName }),
             ...(Predicate.isUndefined(input.hour) ? {} : { hour: input.hour }),
             ...(Predicate.isUndefined(input.template) ? {} : { template: input.template }),
+            ...(Predicate.isUndefined(input.template)
+              ? { resolveSavedMessage: (observation) => loadSavedMessage(execution, observation) }
+              : {}),
           })
+          .pipe(
+            Effect.retry({
+              schedule: Schedule.recurs(2),
+              while: isPreparationRetry,
+            }),
+          )
           .pipe(
             Effect.timeout("30 seconds"),
             Effect.mapError((error) =>

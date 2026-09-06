@@ -383,6 +383,31 @@ const hasRequiredCapabilities = (
     ),
   );
 
+const hasAnyRequiredCapability = (
+  requiredAnyCapabilities: SheetWorkflowAuthorizationPolicyMetadata["requiredAnyCapabilities"],
+  capabilities: WorkspaceCapabilitySnapshot,
+): boolean =>
+  Predicate.isUndefined(requiredAnyCapabilities) ||
+  requiredAnyCapabilities.some((required) =>
+    Match.value(required).pipe(
+      Match.when("workspace.member", () => capabilities.member),
+      Match.when("workspace.monitor", () => capabilities.monitor),
+      Match.when("workspace.manage", () => capabilities.manage),
+      Match.when("workspace.participant", () => capabilities.participant),
+      Match.when("application.owner", () => capabilities.appOwner),
+      Match.when("self", () => false),
+      Match.when("service.allowed", () => false),
+      Match.exhaustive,
+    ),
+  );
+
+const hasRequiredCapabilityPolicy = (
+  policy: SheetWorkflowAuthorizationPolicyMetadata,
+  capabilities: WorkspaceCapabilitySnapshot,
+): boolean =>
+  hasRequiredCapabilities(policy.requiredCapabilities, capabilities) &&
+  hasAnyRequiredCapability(policy.requiredAnyCapabilities, capabilities);
+
 type AuthorizationPolicyExpectation = {
   readonly principalKinds: ReadonlyArray<
     SheetWorkflowAuthorizationPolicyMetadata["principalKinds"][number]
@@ -460,6 +485,8 @@ const isForbiddenEmptyWorkspacePolicy = (
 ): boolean =>
   policy.resource === "workspace" &&
   policy.requiredCapabilities.length === 0 &&
+  (Predicate.isUndefined(policy.requiredAnyCapabilities) ||
+    policy.requiredAnyCapabilities.length === 0) &&
   Predicate.isUndefined(policy.userRule) &&
   contractIdentity !== AuthorizationLoadWorkspaceCapabilities.identity;
 
@@ -1050,8 +1077,7 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
           user: () =>
             workspaceCapabilities(principal, workspaceId).pipe(
               Effect.filterOrFail(
-                (capabilities) =>
-                  hasRequiredCapabilities(policy.requiredCapabilities, capabilities),
+                (capabilities) => hasRequiredCapabilityPolicy(policy, capabilities),
                 unauthorized,
               ),
               Effect.asVoid,
@@ -1161,7 +1187,7 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
         Match.when(Predicate.isUndefined, () =>
           workspaceCapabilities(principal, workspaceId).pipe(
             Effect.filterOrFail(
-              (capabilities) => hasRequiredCapabilities(policy.requiredCapabilities, capabilities),
+              (capabilities) => hasRequiredCapabilityPolicy(policy, capabilities),
               unauthorized,
             ),
             Effect.asVoid,

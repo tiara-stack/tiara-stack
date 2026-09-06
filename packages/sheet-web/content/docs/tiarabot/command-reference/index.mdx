@@ -35,14 +35,17 @@ Monitor roles are registered with `/server add monitor_role`. Manage Server is c
 
 ## Check-in and room operations
 
-| Command              | Caller access | Required parameters | Optional parameters                             |
-| -------------------- | ------------- | ------------------- | ----------------------------------------------- |
-| `/checkin manual`    | Monitor.      | None                | `channel_name`, `hour`, `server_id`, `template` |
-| `/checkin test_auto` | Monitor.      | None                | `server_id`, `hour`                             |
-| `/room_order manual` | Monitor.      | None                | `channel_name`, `hour`, `heal`, `server_id`     |
-| `/kick manual`       | Monitor.      | None                | `hour`, `channel_name`, `server_id`             |
+| Command              | Caller access             | Required parameters | Optional parameters                             |
+| -------------------- | ------------------------- | ------------------- | ----------------------------------------------- |
+| `/checkin manual`    | Monitor.                  | None                | `channel_name`, `hour`, `server_id`, `template` |
+| `/checkin saved`     | Monitor or Manage Server. | `hour`              | `channel_name`, `server_id`                     |
+| `/checkin test_auto` | Monitor.                  | None                | `server_id`, `hour`                             |
+| `/room_order manual` | Monitor.                  | None                | `channel_name`, `hour`, `heal`, `server_id`     |
+| `/kick manual`       | Monitor.                  | None                | `hour`, `channel_name`, `server_id`             |
 
 When `channel_name` is omitted, the manual check-in, room-order, and kick commands use the current Discord channel to resolve the running room. The optional `template` on `/checkin manual` is an advanced Handlebars message template. The optional `heal` value tells room order how many healer positions are needed.
+
+`/checkin saved` opens a native one-hour editor for the selected running channel and event-relative hour. The template supports `{{mentionsString}}`, `{{conversationString}}`, `{{hourString}}`, and `{{timeStampString}}`; all are optional. Submit a blank value to restore the Random default. TiaraBot rejects an outdated save without applying it, so the draft can be reviewed and submitted again.
 
 For automatic-check-in servers, TiaraBot cleans each configured running channel’s lockdown role at minute 15. `/kick manual` is the fallback for ad-hoc cleanup and is useful only when the running channel has a configured lockdown role. TiaraBot rejects the command from minute 40 through minute 59 so fillers scheduled through minute 00 of the next hour are not removed early.
 

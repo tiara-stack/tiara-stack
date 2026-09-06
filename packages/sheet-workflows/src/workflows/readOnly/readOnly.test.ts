@@ -31,6 +31,8 @@ import {
 import { EffectivePrincipal } from "sheet-auth/identity";
 import {
   DataAcquisitionDeclaredFailure,
+  CheckinMessagesLoad,
+  CheckinMessagesSave,
   DiscordLoadProfile,
   DiscordLoadWorkspaceChannels,
   MembersKick,
@@ -139,6 +141,7 @@ const makeDataProvider = (
     Effect.succeed(Option.none<typeof SpreadsheetId.Type>()),
 ): SheetDataProvider["Service"] => ({
   generateCheckin: () => Effect.die("unused"),
+  resolveCheckinMessageTarget: () => Effect.die("unused"),
   generateRoomOrder: () => Effect.die("unused"),
   loadWorkspaceSchedules,
   resolveSpreadsheetId,
@@ -647,6 +650,59 @@ describe("read-only Sheet Workflow Definition slice", () => {
         expect(
           yield* invalidPermissionsAuthorization.workspaceCapabilities(principal, "workspace-1"),
         ).toMatchObject({ member: true, manage: false, participant: false });
+      }
+    }),
+  );
+
+  it.effect("enforces monitor-or-manage access for hourly message workflows", () =>
+    Effect.gen(function* () {
+      const monitorAuthorization = yield* authorizationWithBot(
+        makeAuthorizationBotClient(() =>
+          Effect.succeed({ userId: accountId, roleIds: ["monitor-role"] }),
+        ),
+        [
+          {
+            workspaceId: "workspace-1",
+            roleId: "monitor-role",
+            createdAt: 1,
+            updatedAt: 1,
+            deletedAt: null,
+          },
+        ],
+      );
+      const manageAuthorization = yield* authorizationWithBot(
+        makeAuthorizationBotClient(
+          () => Effect.succeed({ userId: accountId, roleIds: ["member-role"] }),
+          "32",
+        ),
+      );
+      const ordinaryAuthorization = yield* authorizationWithBot(
+        makeAuthorizationBotClient(() => Effect.succeed({ userId: accountId, roleIds: [] })),
+      );
+      const loadInput = { workspaceId: "workspace-1", conversationName: "running" };
+      const saveInput = {
+        workspaceId: "workspace-1",
+        conversationId: "conversation-1",
+        binding: { eventStartEpochMs: 1, messageSetGeneration: 1 },
+        hour: 1,
+        template: null,
+        expectedVersion: 0,
+      };
+      for (const [authorization, contract, input] of [
+        [monitorAuthorization, CheckinMessagesLoad, loadInput],
+        [monitorAuthorization, CheckinMessagesSave, saveInput],
+        [manageAuthorization, CheckinMessagesLoad, loadInput],
+        [manageAuthorization, CheckinMessagesSave, saveInput],
+      ] as const) {
+        yield* authorization.authorize(contract, principal, input);
+      }
+      for (const [contract, input] of [
+        [CheckinMessagesLoad, loadInput],
+        [CheckinMessagesSave, saveInput],
+      ] as const) {
+        expectUnauthorized(
+          yield* Effect.exit(ordinaryAuthorization.authorize(contract, principal, input)),
+        );
       }
     }),
   );
