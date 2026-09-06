@@ -3,6 +3,7 @@ import { Layer, Logger } from "effect";
 import { dotEnvConfigProviderLayer } from "typhoon-core/config";
 import { channelCommandLayer } from "./commands/channel";
 import { checkinCommandLayer } from "./commands/checkin";
+import { featureFlagCommandLayer } from "./commands/featureFlags";
 import { kickCommandLayer } from "./commands/kick";
 import { preferenceCommandLayer } from "./commands/preference";
 import { roomOrderCommandLayer } from "./commands/roomOrder";
@@ -28,6 +29,7 @@ import { TracesLive } from "./traces";
 const botLayer = Layer.mergeAll(
   channelCommandLayer,
   checkinCommandLayer,
+  featureFlagCommandLayer,
   kickCommandLayer,
   preferenceCommandLayer,
   roomOrderCommandLayer,

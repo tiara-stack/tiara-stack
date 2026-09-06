@@ -393,7 +393,7 @@ export const WorkspacesFeatureFlagsSetAndDeliver = interactive(
   "workspaces.featureFlags.setAndDeliver",
   Values.WorkspacesFeatureFlagsSetAndDeliverInput,
   Values.WorkspacesFeatureFlagsSetAndDeliverSuccess,
-  policy(["user", "service"], ["workspace.manage"], "workspace", {
+  policy(["user", "service"], ["application.owner"], "workspace", {
     resourceField: "workspaceId",
     serviceRule: "sheet-bot.gateway",
   }),

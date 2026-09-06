@@ -81,6 +81,20 @@ The same fields are available from a server's **Dashboard → Settings → Serve
 It cannot be a running channel. TiaraBot must be able to view and send messages in it. Unsetting it
 restores the legacy automatic summary behavior; manual check-in is unaffected.
 
+## Feature-flag controls
+
+Only the TiaraBot application owner can change server feature flags. These commands require the
+target server's Discord ID because the owner may run them from a direct message or without being a
+member of the target server.
+
+| Command                 | Caller access       | Required parameters      | Optional parameters |
+| ----------------------- | ------------------- | ------------------------ | ------------------- |
+| `/feature_flag enable`  | TiaraBot owner only | `flag_name`, `server_id` | None                |
+| `/feature_flag disable` | TiaraBot owner only | `flag_name`, `server_id` | None                |
+
+After the workflow commits the change, TiaraBot posts an enabled or disabled announcement in the
+target server's first available sendable channel.
+
 ## Running-channel settings
 
 Channel configuration commands require Manage Server or Administrator in the target server. Lockdown setup and undo allow either a configured monitor role or Manage Server.
@@ -116,7 +130,7 @@ Team submission has one availability gate: the server feature flag must be enabl
 
 ## Parameter defaults and targeting another server
 
-- `server_id` defaults to the current Discord server. Supply the server's Discord ID when running the command in a DM or when intentionally targeting another server.
+- For commands where `server_id` is optional, it defaults to the current Discord server. Supply the server's Discord ID when running the command in a DM or when intentionally targeting another server. The `/feature_flag` commands always require it.
 - Permissions are always checked against the targeted server. Supplying `server_id` does not bypass its monitor-role or Manage Server requirement.
 - `day` is the schedule-sheet day number.
 - `hour` is the schedule hour TiaraBot should use. If it is omitted, TiaraBot resolves the applicable hour from the interaction time.

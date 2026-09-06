@@ -102,6 +102,13 @@ export const makeUpdateAnnouncements = (sheetWebBaseUrl: URL = defaultSheetWebBa
         "Monitors can now run /slot remove in a channel to delete its Open slots button and stop it from reposting. Run /slot button again when the channel needs the button back.",
       color: 0x33ccbb,
     },
+    {
+      id: "feature-flag-command-2026-09-06",
+      publishedAt: "2026-09-06T00:00:00.000Z",
+      title: "Bot owner feature-flag controls",
+      description: `The TiaraBot owner can now enable or disable a server feature flag with /feature_flag. After the workflow commits the change, TiaraBot posts the resulting announcement in the target server. Read the TiaraDocs command reference for details: ${makeSheetWebDocumentationUrl(sheetWebBaseUrl, "docs/tiarabot/command-reference")}`,
+      color: 0x33ccbb,
+    },
   ] as const satisfies ReadonlyArray<UpdateAnnouncementSource>;
 
 export const updateAnnouncements = makeUpdateAnnouncements();

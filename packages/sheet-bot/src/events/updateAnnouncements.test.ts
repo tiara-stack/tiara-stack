@@ -25,6 +25,10 @@ describe("makeUpdateAnnouncementWorkflowRequests", () => {
       "https://host/sheetweb/docs/tiarabot/monitors/post-schedule",
     );
     expect(pathPrefixedAnnouncements[7]?.description).toContain("/slot remove");
+    expect(pathPrefixedAnnouncements[8]?.description).toContain("/feature_flag");
+    expect(pathPrefixedAnnouncements[8]?.description).toContain(
+      "https://host/sheetweb/docs/tiarabot/command-reference",
+    );
   });
 
   it("builds stable workflow requests for announcements after the bot joined", () => {
@@ -114,6 +118,16 @@ describe("makeUpdateAnnouncementWorkflowRequests", () => {
         announcement: {
           ...updateAnnouncements[7],
           publishedAt: new Date(updateAnnouncements[7].publishedAt),
+        },
+      },
+      {
+        workspaceId: "guild-1",
+        workspaceName: "Guild One",
+        joinedAt: new Date("2026-06-04T16:59:59.999Z"),
+        systemConversationId: "system-channel",
+        announcement: {
+          ...updateAnnouncements[8],
+          publishedAt: new Date(updateAnnouncements[8].publishedAt),
         },
       },
     ]);

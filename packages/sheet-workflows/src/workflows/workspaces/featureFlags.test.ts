@@ -21,6 +21,7 @@ import {
   BotDependencyUnavailable,
   type BotMember,
   BotRequestRejected,
+  BotResourceNotFound,
   type BotRoles,
   type BotWorkspace,
   DeliveryKey,
@@ -270,7 +271,7 @@ describe("workspace feature-flag Workflow Definition slice", () => {
       expect(WorkspacesFeatureFlagsSetAndDeliver.authorizationPolicy).toMatchObject({
         version: "1",
         principalKinds: ["user", "service"],
-        requiredCapabilities: ["workspace.manage"],
+        requiredCapabilities: ["application.owner"],
         resource: "workspace",
         resourceField: "workspaceId",
         serviceRule: "sheet-bot.gateway",
@@ -729,7 +730,7 @@ describe("workspace feature-flag Workflow Definition slice", () => {
     }),
   );
 
-  it.effect("admits managing users and only the exact configured gateway service", () =>
+  it.effect("admits the application owner and only the exact configured gateway service", () =>
     Effect.gen(function* () {
       const environment = {
         SHEET_BOT_GATEWAY_SERVICE_ID: "sheet-bot.gateway",
@@ -763,7 +764,23 @@ describe("workspace feature-flag Workflow Definition slice", () => {
         );
       };
 
-      yield* authorizeWith(userPrincipal, makeBot());
+      const applicationOwner = Schema.decodeUnknownSync(EffectivePrincipal)({
+        kind: "user",
+        userId: "application-owner",
+        discordAccount: { accountId: "application-owner" },
+      });
+      yield* authorizeWith(
+        applicationOwner,
+        makeBot({
+          getMember: () =>
+            Effect.fail(
+              new BotResourceNotFound({
+                resource: "member",
+                message: "application owner is not a workspace member",
+              }),
+            ),
+        }),
+      );
       yield* authorizeWith(servicePrincipal, makeBot({ getMember: () => Effect.die("unused") }));
       const candidates = [
         {
