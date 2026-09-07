@@ -1,0 +1,78 @@
+---
+title: Configure hourly check-in messages
+description: Save the message TiaraBot uses for each running channel and event-relative schedule hour.
+---
+
+Mana/moni can save a check-in message for each running channel and event-relative Schedule Hour.
+The setting is shared between TiaraBot and SheetWeb, so an edit in either client is available to
+the other one.
+
+<Callout title="Who can edit">
+  A member with a registered TiaraBot monitor role or Discord's Manage Server permission can view
+  and edit hourly messages. The editor's `YOUR MONI HOUR` marker is a scheduling hint. It does not
+  limit which hours that person can edit.
+</Callout>
+
+## Open the editor in SheetWeb
+
+1. Open the server in SheetWeb and go to **Settings → Check-in messages**.
+2. Choose a running channel.
+3. Select an event-relative schedule hour. The editor shows the event window and the selected
+   channel so it is clear which message you are changing.
+4. Enter the message template and select **Save message**.
+
+The editor changes one channel and one hour at a time. It marks the current hour, your scheduled
+moni hours, and whether the selected hour has a **Custom message** or the **Random default**.
+
+## Write a message template
+
+Templates use the existing TiaraBot placeholders. Every placeholder is optional.
+
+| Placeholder              | Replaced with                                  |
+| ------------------------ | ---------------------------------------------- |
+| `{{mentionsString}}`     | Mentions for the fillers assigned to the hour. |
+| `{{conversationString}}` | The running channel name.                      |
+| `{{hourString}}`         | The selected event-relative schedule hour.     |
+| `{{timeStampString}}`    | The start and end time for the selected hour.  |
+
+You can use any combination of placeholders, or none of them. Unknown or malformed template text
+stays as written. SheetWeb highlights the supported placeholders and shows an example preview next
+to the editor. The preview uses example participants and times, not live check-in data.
+
+## Restore the random default
+
+Save an empty or whitespace-only message to clear the custom value for that hour. TiaraBot then
+chooses its existing randomized check-in message when the hour opens.
+
+Editing a saved message does not change a check-in that TiaraBot has already posted. A queued
+opening uses the latest value when TiaraBot prepares its message. Once preparation succeeds, retries
+reuse the prepared content.
+
+## Edit a message in Discord
+
+Run `/checkin saved` to open TiaraBot's native one-hour editor.
+
+| Option         | Required | Use                                                                                                             |
+| -------------- | -------- | --------------------------------------------------------------------------------------------------------------- |
+| `hour`         | Yes      | The event-relative schedule hour to edit.                                                                       |
+| `channel_name` | No       | The logical running-channel name. If omitted, TiaraBot uses the current Discord channel.                        |
+| `server_id`    | No       | The server to edit. If omitted, TiaraBot uses the current server. Supply it when running the command from a DM. |
+
+The modal loads the current saved value. Submit a blank value to restore the Random default. If
+another editor saves the same hour first, TiaraBot rejects the outdated save instead of replacing
+the newer value. Review the current value, then run the command again with the message you want.
+
+See [Command permissions and parameters](/docs/tiarabot/command-reference) for the full command
+permission table.
+
+## How check-in chooses the message
+
+For automatic check-in, TiaraBot uses the saved message for the current event, running channel, and
+Schedule Hour. An absent or cleared value uses the randomized default.
+
+For `/checkin manual`, an explicit one-time `template` still takes precedence. Without that option,
+TiaraBot uses the saved hourly message and then the randomized default.
+
+Saved messages belong to the current event and running channel. Two running channels can use
+different messages for the same Schedule Hour. When the authoritative event start changes, TiaraBot
+starts a fresh message set, so messages from the previous event do not carry over.

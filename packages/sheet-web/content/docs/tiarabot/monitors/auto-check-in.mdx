@@ -10,6 +10,11 @@ sheet and each running channel’s `name` and `checkin_channel` configuration be
 Optionally configure `/server set monitor_channel channel:#mana-moni` for shared monitor summaries
 and handoff check-ins.
 
+To customize the filler-facing message for a future hour, use [Configure hourly check-in
+messages](/docs/tiarabot/monitors/check-in-messages). Automatic check-in uses the saved value for
+the current running channel and event-relative hour, or the randomized default when no value is
+saved.
+
 ## What happens at minute 45
 
 At minute 45 of each hour, TiaraBot processes the next due check-in for configured running channels. For each check-in, it:

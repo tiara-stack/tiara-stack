@@ -6,6 +6,7 @@ import {
 } from "./updateAnnouncements";
 
 describe("makeUpdateAnnouncementWorkflowRequests", () => {
+  // fallow-ignore-next-line complexity
   it("uses the configured SheetWeb host for dashboard announcement links", () => {
     const pathPrefixedAnnouncements = makeUpdateAnnouncements(new URL("https://host/sheetweb"));
 
@@ -28,6 +29,10 @@ describe("makeUpdateAnnouncementWorkflowRequests", () => {
     expect(pathPrefixedAnnouncements[8]?.description).toContain("/feature_flag");
     expect(pathPrefixedAnnouncements[8]?.description).toContain(
       "https://host/sheetweb/docs/tiarabot/command-reference",
+    );
+    expect(pathPrefixedAnnouncements[9]?.description).toContain("/checkin saved");
+    expect(pathPrefixedAnnouncements[9]?.description).toContain(
+      "https://host/sheetweb/docs/tiarabot/monitors/check-in-messages",
     );
   });
 
@@ -128,6 +133,16 @@ describe("makeUpdateAnnouncementWorkflowRequests", () => {
         announcement: {
           ...updateAnnouncements[8],
           publishedAt: new Date(updateAnnouncements[8].publishedAt),
+        },
+      },
+      {
+        workspaceId: "guild-1",
+        workspaceName: "Guild One",
+        joinedAt: new Date("2026-06-04T16:59:59.999Z"),
+        systemConversationId: "system-channel",
+        announcement: {
+          ...updateAnnouncements[9],
+          publishedAt: new Date(updateAnnouncements[9].publishedAt),
         },
       },
     ]);

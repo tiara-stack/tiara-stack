@@ -109,6 +109,13 @@ export const makeUpdateAnnouncements = (sheetWebBaseUrl: URL = defaultSheetWebBa
       description: `The TiaraBot owner can now enable or disable a server feature flag with /feature_flag. After the workflow commits the change, TiaraBot posts the resulting announcement in the target server. Read the TiaraDocs command reference for details: ${makeSheetWebDocumentationUrl(sheetWebBaseUrl, "docs/tiarabot/command-reference")}`,
       color: 0x33ccbb,
     },
+    {
+      id: "hourly-checkin-messages-2026-09-07",
+      publishedAt: "2026-09-07T08:00:00.000Z",
+      title: "Hourly check-in messages",
+      description: `Mana/moni can now save a message for each running channel and event-relative schedule hour from SheetWeb or /checkin saved. Supported placeholders can mention fillers, name the running channel, show the hour, and show its time window. Leave a value blank to restore TiaraBot's randomized default. Read the TiaraDocs guide: ${makeSheetWebDocumentationUrl(sheetWebBaseUrl, "docs/tiarabot/monitors/check-in-messages")}`,
+      color: 0x33ccbb,
+    },
   ] as const satisfies ReadonlyArray<UpdateAnnouncementSource>;
 
 export const updateAnnouncements = makeUpdateAnnouncements();
