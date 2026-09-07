@@ -1,4 +1,4 @@
-import { Cause, DateTime, Effect, Exit, Layer, Option, Predicate, Random } from "effect";
+import { Cause, DateTime, Effect, Exit, Layer, Option, Predicate, Random, Schedule } from "effect";
 import {
   BotOutboundMessage,
   type BotText,
@@ -33,6 +33,12 @@ import { config } from "@/config";
 import { SheetBotCacheClient } from "@/services/sheetBotCacheClient";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
 import { resolveAuthoritativeSheetConfiguration } from "@/services/authoritativeSheetConfiguration";
+import {
+  checkinMessageUpdatedBy,
+  isCheckinMessagePreparationRetry,
+  resolveSavedCheckinMessage,
+  selectCheckinTemplate,
+} from "@/services/sheetDataProvider";
 import { ReadOnlyWorkflowAuthorization } from "../readOnly/authorization";
 import { calculateRoomOrderEntries } from "../roomOrders/createCalculation";
 import { decodeWorkflowContractInputOrDie } from "../shared/execution";
@@ -661,7 +667,6 @@ export const autoCheckinTestWorkflowOperationsLayer = Layer.effect(
         const participants = (current?.fills ?? []).map(toParticipant);
         const movement = diffParticipants(previousParticipants, participants);
         const incoming = movement.in;
-        const template = yield* pickCheckinTemplate;
         const conversationText = Predicate.isString(conversation.roleId)
           ? MessageText.parts(MessageText.text(`head to ${execution.conversationName}`))
           : MessageText.parts(
@@ -677,17 +682,38 @@ export const autoCheckinTestWorkflowOperationsLayer = Layer.effect(
         const initialMessage =
           incoming.length === 0
             ? null
-            : renderTemplate(template, {
-                mentionsString: renderParticipantMentions(incoming),
-                conversationString: conversationText,
-                hourString: MessageText.parts(
-                  MessageText.text("for "),
-                  MessageText.strong([MessageText.text(`hour ${hour}`)]),
-                ),
-                timeStampString: MessageText.parts(
-                  MessageText.timestamp(DateTime.toEpochMillis(hourWindow.start), "relative"),
-                ),
-              });
+            : renderTemplate(
+                selectCheckinTemplate({
+                  explicitTemplate: undefined,
+                  savedTemplate: yield* resolveSavedCheckinMessage(persistence, {
+                    workspaceId: input.workspaceId,
+                    eventStartEpochMs: view.eventStartEpochMs,
+                    conversationId: conversation.conversationId,
+                    hour,
+                    updatedBy: checkinMessageUpdatedBy(execution.principal),
+                  }).pipe(
+                    Effect.retry({
+                      schedule: Schedule.recurs(2),
+                      while: isCheckinMessagePreparationRetry,
+                    }),
+                    Effect.mapError((cause) =>
+                      operationError(`${operationPrefix}.prepare-target.message`, cause),
+                    ),
+                  ),
+                  fallbackTemplate: yield* pickCheckinTemplate,
+                }),
+                {
+                  mentionsString: renderParticipantMentions(incoming),
+                  conversationString: conversationText,
+                  hourString: MessageText.parts(
+                    MessageText.text("for "),
+                    MessageText.strong([MessageText.text(`hour ${hour}`)]),
+                  ),
+                  timeStampString: MessageText.parts(
+                    MessageText.timestamp(DateTime.toEpochMillis(hourWindow.start), "relative"),
+                  ),
+                },
+              );
         const lookupFailureMessage = missingParticipantIdMessage(current?.fills ?? []);
         const monitorCheckinMessage = makeMonitorCheckinMessage({
           initialMessage,

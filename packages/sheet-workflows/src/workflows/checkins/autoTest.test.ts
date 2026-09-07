@@ -16,7 +16,7 @@ import {
   workflowTestPrincipal as principal,
 } from "../shared/testHelpers";
 import { preserveInteractiveDeclaredFailure } from "../shared/interactive";
-import { makeTrustedSheetPersistenceMock } from "@/services/testHelpers";
+import { makeTrustedSheetPersistenceMock, normalizePayloadText } from "@/services/testHelpers";
 import { SheetBotCacheClient } from "@/services/sheetBotCacheClient";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
 import { ReadOnlyWorkflowAuthorization } from "../readOnly/authorization";
@@ -192,6 +192,96 @@ const makeOperations = (
     ),
   );
 };
+
+type CheckinMessageSetRow = Option.Option.Value<
+  Effect.Success<ReturnType<TrustedSheetPersistenceShape["checkinMessages"]["getMessageSet"]>>
+>;
+type CheckinMessageRow = Option.Option.Value<
+  Effect.Success<ReturnType<TrustedSheetPersistenceShape["checkinMessages"]["getHourlyMessage"]>>
+>;
+type CheckinMessageRequest = Parameters<
+  TrustedSheetPersistenceShape["checkinMessages"]["getHourlyMessage"]
+>[0];
+
+const checkinMessageSet = (): CheckinMessageSetRow => ({
+  workspaceId,
+  eventStartEpochMs: 0,
+  messageSetGeneration: 1,
+  updatedBy: "discord-1",
+  createdAt: 0,
+  updatedAt: 0,
+  deletedAt: null,
+});
+
+const hourlyCheckinMessage = (hour: number, template: string): CheckinMessageRow => ({
+  workspaceId,
+  messageSetGeneration: 1,
+  conversationId: "running-1",
+  hour,
+  template,
+  version: 1,
+  createdBy: "discord-1",
+  updatedBy: "discord-1",
+  createdAt: 0,
+  updatedAt: 0,
+  deletedAt: null,
+});
+
+const makePreparationFixture = (options: {
+  readonly hour: number;
+  readonly getHourlyMessage: TrustedSheetPersistenceShape["checkinMessages"]["getHourlyMessage"];
+}) =>
+  Effect.gen(function* () {
+    const testInput = Schema.decodeUnknownSync(CheckinsTestAuto.input)({
+      ...input,
+      hour: options.hour,
+    });
+    const testExecution = { ...execution, input: testInput };
+    const base = makeTrustedSheetPersistenceMock();
+    yield* base.workspaces.upsertWorkspaceConfig({ workspaceId, sheetId: "sheet-1" });
+    yield* base.workspaces.upsertWorkspaceConversationConfig({
+      workspaceId,
+      conversationId: "running-1",
+      name: "Alpha",
+      running: true,
+    });
+    const fills = globalThis.Array.from({ length: 5 }, (_, index) => ({
+      accountId: `member-${index}`,
+      name: `Member ${index}`,
+    }));
+    const persistence: TrustedSheetPersistenceShape = {
+      ...base,
+      checkinMessages: {
+        ...base.checkinMessages,
+        getMessageSet: () => Effect.succeed(Option.some(checkinMessageSet())),
+        getHourlyMessage: options.getHourlyMessage,
+      },
+    };
+    const operations = yield* makeOperations({} as SheetBotHttpClient, () => Effect.void, {
+      persistence,
+      provider: {
+        loadCheckin: () =>
+          Effect.succeed({
+            eventStartEpochMs: 0,
+            schedules: [
+              {
+                hour: options.hour,
+                fills,
+                overfillCount: 0,
+                monitor: { accountId: "monitor-1", name: "Monitor" },
+              },
+            ],
+          }),
+        loadRoomOrder: () =>
+          Effect.succeed({
+            eventStartEpochMs: 0,
+            schedules: [{ hour: options.hour, fills: [], monitor: null }],
+            teamsByPlayerName: new Map(),
+          }),
+      },
+    });
+    return { operations, testExecution };
+  });
 
 const invalidAnchorCleanupError = (cleanupResult: unknown) =>
   Effect.gen(function* () {
@@ -621,48 +711,9 @@ const autoCheckinTestWorkflowDefinitionTests = () => {
   it.effect("keeps check-in and monitor previews when optional room-order entries are empty", () =>
     Effect.gen(function* () {
       const hour = 2;
-      const testInput = Schema.decodeUnknownSync(CheckinsTestAuto.input)({ ...input, hour });
-      const testExecution = { ...execution, input: testInput };
-      const persistence = makeTrustedSheetPersistenceMock();
-      yield* persistence.workspaces.upsertWorkspaceConfig({ workspaceId, sheetId: "sheet-1" });
-      yield* persistence.workspaces.upsertWorkspaceConversationConfig({
-        workspaceId,
-        conversationId: "running-1",
-        name: "Alpha",
-        running: true,
-      });
-      const fills = globalThis.Array.from({ length: 5 }, (_, index) => ({
-        accountId: `member-${index}`,
-        name: `Member ${index}`,
-      }));
-      const operations = yield* makeOperations({} as SheetBotHttpClient, () => Effect.void, {
-        persistence,
-        provider: {
-          loadCheckin: () =>
-            Effect.succeed({
-              eventStartEpochMs: 0,
-              schedules: [
-                {
-                  hour,
-                  fills,
-                  overfillCount: 0,
-                  monitor: { accountId: "monitor-1", name: "Monitor" },
-                },
-              ],
-            }),
-          loadRoomOrder: () =>
-            Effect.succeed({
-              eventStartEpochMs: 0,
-              schedules: [
-                {
-                  hour,
-                  fills: [],
-                  monitor: null,
-                },
-              ],
-              teamsByPlayerName: new Map(),
-            }),
-        },
+      const { operations, testExecution } = yield* makePreparationFixture({
+        hour,
+        getHourlyMessage: () => Effect.succeed(Option.none()),
       });
 
       const result = yield* operations.prepareTarget({
@@ -675,6 +726,40 @@ const autoCheckinTestWorkflowDefinitionTests = () => {
       expect(result.checkinPreview).not.toBeNull();
       expect(result.monitorPreview).not.toBeNull();
       expect(result.tentativeRoomOrderPreview).toBeNull();
+    }),
+  );
+
+  it.effect("uses the saved hourly message in the check-in preview", () =>
+    Effect.gen(function* () {
+      const hour = 2;
+      const hourlyRequests: Array<CheckinMessageRequest> = [];
+      const { operations, testExecution } = yield* makePreparationFixture({
+        hour,
+        getHourlyMessage: (request) => {
+          hourlyRequests.push(request);
+          return Effect.succeed(
+            Option.some(hourlyCheckinMessage(hour, "CUSTOM CHECK-IN {{hourString}}")),
+          );
+        },
+      });
+
+      const result = yield* operations.prepareTarget({
+        ...testExecution,
+        anchor: anchorMessage,
+        conversationName: "Alpha",
+      });
+
+      expect(normalizePayloadText(result.checkinPreview?.message)).toMatchObject({
+        embeds: [{ description: "CUSTOM CHECK-IN for hour 2" }],
+      });
+      expect(hourlyRequests).toEqual([
+        {
+          workspaceId,
+          messageSetGeneration: 1,
+          conversationId: "running-1",
+          hour,
+        },
+      ]);
     }),
   );
 

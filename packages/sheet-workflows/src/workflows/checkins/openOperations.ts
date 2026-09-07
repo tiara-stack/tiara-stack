@@ -29,7 +29,9 @@ import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import { CheckinsOpen, InteractiveDeclaredFailure } from "sheet-workflow-contracts";
 import { ReadonlyJSONValue } from "typhoon-zero/schema";
 import {
-  CheckinMessagePreparationRetry,
+  checkinMessageUpdatedBy,
+  isCheckinMessagePreparationRetry,
+  resolveSavedCheckinMessage,
   SheetDataProvider,
   RoomOrderGeneration,
 } from "@/services/sheetDataProvider";
@@ -132,18 +134,8 @@ const decodeMessage = (message: unknown, operation: string) =>
 const causeFrom = (error: unknown): unknown =>
   Predicate.isObject(error) && Predicate.hasProperty(error, "cause") ? error.cause : undefined;
 
-const isMessageSetArgumentConflict = (error: unknown): boolean => {
-  const cause = causeFrom(error);
-  return (
-    Predicate.isObject(cause) &&
-    Predicate.hasProperty(cause, "code") &&
-    Predicate.isString(cause.code) &&
-    cause.code === "CHECKIN_MESSAGE_SET_CONFLICT"
-  );
-};
-
 const isPreparationRetry = (error: unknown): boolean =>
-  Predicate.isTagged("CheckinMessagePreparationRetry")(causeFrom(error));
+  isCheckinMessagePreparationRetry(causeFrom(error));
 
 type CheckinPersistenceDetails = {
   readonly conversationId: string;
@@ -256,10 +248,6 @@ export const checkinsOpenWorkflowOperationsLayer = Layer.effect(
     const authorization = yield* ReadOnlyWorkflowAuthorization;
     const clientId = yield* config.sheetBotClientId;
     const client = { platform: "discord", clientId } as const;
-    const savedMessageUpdatedBy = (principal: (typeof CheckinsOpenExecution.Type)["principal"]) =>
-      principal.kind === "user"
-        ? (principal.discordAccount?.accountId ?? "unknown-user")
-        : `service:${principal.serviceId}`;
     const loadSavedMessage = (
       execution: typeof CheckinsOpenExecution.Type,
       observation: {
@@ -268,51 +256,12 @@ export const checkinsOpenWorkflowOperationsLayer = Layer.effect(
         readonly hour: number;
       },
     ): Effect.Effect<string | null | undefined, unknown, never> =>
-      Effect.gen(function* () {
-        const current = yield* persistence.checkinMessages
-          .getMessageSet({ workspaceId: execution.input.workspaceId })
-          .pipe(Effect.timeout("30 seconds"));
-        const expectedBinding = Option.match(current, {
-          onNone: () => null,
-          onSome: (row) => ({
-            eventStartEpochMs: row.eventStartEpochMs,
-            messageSetGeneration: row.messageSetGeneration,
-          }),
-        });
-        yield* persistence.checkinMessages
-          .reconcileMessageSet({
-            workspaceId: execution.input.workspaceId,
-            observedEventStartEpochMs: observation.eventStartEpochMs,
-            expectedBinding,
-            updatedBy: savedMessageUpdatedBy(execution.principal),
-          })
-          .pipe(
-            Effect.timeout("30 seconds"),
-            Effect.mapError((error) =>
-              isMessageSetArgumentConflict(error) ? new CheckinMessagePreparationRetry() : error,
-            ),
-          );
-        const reconciled = yield* persistence.checkinMessages
-          .getMessageSet({ workspaceId: execution.input.workspaceId })
-          .pipe(Effect.timeout("30 seconds"));
-        if (
-          Option.isNone(reconciled) ||
-          reconciled.value.eventStartEpochMs !== observation.eventStartEpochMs
-        ) {
-          return yield* Effect.fail(new CheckinMessagePreparationRetry());
-        }
-        const row = yield* persistence.checkinMessages
-          .getHourlyMessage({
-            workspaceId: execution.input.workspaceId,
-            messageSetGeneration: reconciled.value.messageSetGeneration,
-            conversationId: observation.conversationId,
-            hour: observation.hour,
-          })
-          .pipe(Effect.timeout("30 seconds"));
-        return Option.match(row, {
-          onNone: () => null,
-          onSome: ({ template }) => template,
-        });
+      resolveSavedCheckinMessage(persistence, {
+        workspaceId: execution.input.workspaceId,
+        eventStartEpochMs: observation.eventStartEpochMs,
+        conversationId: observation.conversationId,
+        hour: observation.hour,
+        updatedBy: checkinMessageUpdatedBy(execution.principal),
       });
     const ensureConfiguredClient = (context: CheckinsOpenContext, operation: string) =>
       context.clientPlatform === client.platform && context.clientId === client.clientId

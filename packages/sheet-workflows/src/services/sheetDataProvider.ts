@@ -20,6 +20,7 @@ import {
   type SchedulesLoadWorkspaceSuccess,
   type WorkspaceId,
 } from "sheet-workflow-contracts";
+import type { EffectivePrincipal } from "sheet-auth/identity";
 import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import { config } from "@/config";
 import {
@@ -102,9 +103,87 @@ export class SheetDataProviderError extends Data.TaggedError("SheetDataProviderE
  * The authoritative Sheets observation raced the message-set binding. The caller should repeat
  * the complete preparation read so an older observation cannot be applied to a newer generation.
  */
-export class CheckinMessagePreparationRetry extends Data.TaggedError(
+class CheckinMessagePreparationRetry extends Data.TaggedError(
   "CheckinMessagePreparationRetry",
 )<{}> {}
+
+export const isCheckinMessagePreparationRetry = (
+  error: unknown,
+): error is CheckinMessagePreparationRetry =>
+  Predicate.isTagged("CheckinMessagePreparationRetry")(error);
+
+export const checkinMessageUpdatedBy = (principal: EffectivePrincipal): string =>
+  Predicate.hasProperty(principal, "serviceId")
+    ? `service:${principal.serviceId}`
+    : (principal.discordAccount?.accountId ?? "unknown-user");
+
+const isMessageSetArgumentConflict = (error: unknown): boolean => {
+  const cause =
+    Predicate.isObject(error) && Predicate.hasProperty(error, "cause") ? error.cause : undefined;
+  return (
+    Predicate.isObject(cause) &&
+    Predicate.hasProperty(cause, "code") &&
+    Predicate.isString(cause.code) &&
+    cause.code === "CHECKIN_MESSAGE_SET_CONFLICT"
+  );
+};
+
+export const resolveSavedCheckinMessage = (
+  persistence: TrustedSheetPersistence["Service"],
+  options: {
+    readonly workspaceId: WorkspaceId;
+    readonly eventStartEpochMs: number;
+    readonly conversationId: string;
+    readonly hour: number;
+    readonly updatedBy: string;
+  },
+): Effect.Effect<string | null | undefined, unknown, never> =>
+  Effect.gen(function* () {
+    const current = yield* persistence.checkinMessages
+      .getMessageSet({ workspaceId: options.workspaceId })
+      .pipe(Effect.timeout("30 seconds"));
+    const expectedBinding = Option.match(current, {
+      onNone: () => null,
+      onSome: (row) => ({
+        eventStartEpochMs: row.eventStartEpochMs,
+        messageSetGeneration: row.messageSetGeneration,
+      }),
+    });
+    yield* persistence.checkinMessages
+      .reconcileMessageSet({
+        workspaceId: options.workspaceId,
+        observedEventStartEpochMs: options.eventStartEpochMs,
+        expectedBinding,
+        updatedBy: options.updatedBy,
+      })
+      .pipe(
+        Effect.timeout("30 seconds"),
+        Effect.mapError((error) =>
+          isMessageSetArgumentConflict(error) ? new CheckinMessagePreparationRetry() : error,
+        ),
+      );
+    const reconciled = yield* persistence.checkinMessages
+      .getMessageSet({ workspaceId: options.workspaceId })
+      .pipe(Effect.timeout("30 seconds"));
+    if (
+      Option.isNone(reconciled) ||
+      reconciled.value.eventStartEpochMs !== options.eventStartEpochMs
+    ) {
+      return yield* Effect.fail(new CheckinMessagePreparationRetry());
+    }
+    const row = yield* persistence.checkinMessages
+      .getHourlyMessage({
+        workspaceId: options.workspaceId,
+        messageSetGeneration: reconciled.value.messageSetGeneration,
+        conversationId: options.conversationId,
+        hour: options.hour,
+      })
+      .pipe(Effect.timeout("30 seconds"));
+    return Option.match(row, {
+      onNone: () => null,
+      onSome: ({ template }) => template,
+    });
+  });
 
 type CheckinSavedMessageResolver = (observation: {
   readonly eventStartEpochMs: number;
