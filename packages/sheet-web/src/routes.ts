@@ -1,3 +1,3 @@
-/** Returns whether a pathname belongs to the sheet configuration editor subtree. */
+/** Returns whether a pathname belongs to a compact settings editor subtree. */
 export const isSheetEditorPath = (pathname: string): boolean =>
-  /\/settings\/sheet(?:\/|$)/.test(pathname.replace(/\/+$/u, ""));
+  /\/settings\/(?:sheet|checkin-messages)(?:\/|$)/.test(pathname.replace(/\/+$/u, ""));
