@@ -65,7 +65,7 @@ class CheckinSavedMessageCommandError extends Schema.TaggedErrorClass<CheckinSav
 ) {}
 
 const SavedMessageEditSessionId = Schema.String.check(
-  Schema.isPattern(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i),
+  Schema.isPattern(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i),
 );
 type SavedMessageEditSessionId = typeof SavedMessageEditSessionId.Type;
 
@@ -349,7 +349,9 @@ const makeSavedMessageModal = (
 const makeSavedMessageEditButtonId = (sessionId: SavedMessageEditSessionId) =>
   `${savedMessageEditButtonPrefix}${sessionId}`;
 
-const decodeSavedMessageEditButtonId = (value: string): Option.Option<SavedMessageEditSessionId> =>
+export const decodeSavedMessageEditButtonId = (
+  value: string,
+): Option.Option<SavedMessageEditSessionId> =>
   value.startsWith(savedMessageEditButtonPrefix)
     ? Schema.decodeUnknownOption(SavedMessageEditSessionId)(
         value.slice(savedMessageEditButtonPrefix.length),
