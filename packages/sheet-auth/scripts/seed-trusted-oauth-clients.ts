@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { oauthClient } from "../src/schema";
+import { DefaultTrustedOAuthClientScopes } from "../src/oauth";
 
 type TrustedClientSpec = {
   clientId: string;
@@ -23,20 +24,13 @@ const defaultTrustedClients = [
     envPrefix: "SHEET_BOT",
     name: "sheet-bot",
     kind: "sheet-bot",
-    scopes: [
-      "service",
-      "bot.impersonate",
-      "token.exchange",
-      "workflow.dispatch",
-      "workflow.enqueue",
-      "rollout.gate.evaluate",
-    ],
+    scopes: [...DefaultTrustedOAuthClientScopes.sheetBot],
   },
   {
     envPrefix: "SHEET_WORKFLOWS",
     name: "sheet-workflows",
     kind: "sheet-workflows",
-    scopes: ["service", "bot.cache.read", "bot.delivery.write", "rollout.gate.write"],
+    scopes: [...DefaultTrustedOAuthClientScopes.sheetWorkflows],
   },
 ] as const;
 

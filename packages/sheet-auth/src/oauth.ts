@@ -27,6 +27,19 @@ export const InternalOAuthScopes = [
   "rollout.gate.evaluate",
 ] as const;
 
+export const DefaultTrustedOAuthClientScopes = {
+  sheetBot: [
+    "service",
+    "bot.impersonate",
+    "token.exchange",
+    "workflow.dispatch",
+    "workflow.enqueue",
+    "workflow.observe",
+    "rollout.gate.evaluate",
+  ],
+  sheetWorkflows: ["service", "bot.cache.read", "bot.delivery.write", "rollout.gate.write"],
+} as const;
+
 export const OAuthScopes = [...PublicOAuthScopes, ...InternalOAuthScopes] as const;
 
 export const DefaultRegisteredClientScopes = ["openid", "profile", "email"] as const;
