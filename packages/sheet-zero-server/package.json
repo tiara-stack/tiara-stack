@@ -49,7 +49,7 @@
     "build": "vp pack && tsgo -b tsconfig.json --emitDeclarationOnly --force"
   },
   "dependencies": {
-    "@rocicorp/zero": "^0.25.9",
+    "@rocicorp/zero": "1.5.0",
     "drizzle-orm": "0.45.2",
     "effect": "catalog:",
     "effect-zero-workflow": "workspace:*",

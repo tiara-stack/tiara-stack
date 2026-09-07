@@ -13,7 +13,7 @@ import type {
   QueryOrQueryRequest,
   QueryRequest,
 } from "@rocicorp/zero";
-import { zeroDrizzle } from "@rocicorp/zero/server/adapters/drizzle";
+import { zeroDrizzle, type DrizzleDatabase } from "@rocicorp/zero/server/adapters/drizzle";
 import { drizzle } from "drizzle-orm/pglite";
 import { Data, Effect, Predicate, Schema, Scope, Stream } from "effect";
 import {
@@ -336,7 +336,7 @@ export const makeTestSheetZeroDatabase = <Context = undefined>(
     const bootstrapMs = performance.now() - bootstrapStartedAt;
 
     const db = drizzle({ client: pg });
-    const zqlDb = zeroDrizzle(zeroSchema, db);
+    const zqlDb = zeroDrizzle(zeroSchema, db as unknown as DrizzleDatabase);
     const context = options.context as Context;
 
     let truncateResetMs: number | undefined;

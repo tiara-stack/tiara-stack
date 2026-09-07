@@ -31,6 +31,10 @@ catalog:
 
 ignoredBuiltDependencies: []
 overrides:
+  "@opentelemetry/core": 2.2.0
+  "@opentelemetry/resources": 2.2.0
+  "@opentelemetry/sdk-metrics": 2.2.0
+  "@opentelemetry/sdk-trace-node": 2.0.1
   "@tiara-stack/tsgo-effect": 0.1.2
   "@tiara-stack/tsgolint-effect": 0.1.2
   better-auth: 1.6.16

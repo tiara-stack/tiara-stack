@@ -169,7 +169,6 @@ The chart supplies the non-secret autonomous check-in identities
 `zero-secret`
 
 - `nodeEnv`
-- `zeroCacheServer`
 - `zeroReplicaFile`
 - `zeroUpstreamDb`
 - `zeroCvrDb`

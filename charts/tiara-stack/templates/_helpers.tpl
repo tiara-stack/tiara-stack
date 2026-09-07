@@ -268,8 +268,7 @@ imagePullSecrets:
       secretName: {{ $sheetWebSecretName }}
       secretKey: appBaseUrl
     - name: ZERO_CACHE_SERVER
-      secretName: {{ $zeroCacheSecretName }}
-      secretKey: zeroCacheServer
+      value: "http://{{ include "tiara-stack.zeroCacheServiceName" . }}:4848"
     - name: ZERO_CACHE_USER_ID
       value: "system:serviceaccount:$(POD_NAMESPACE):sheet-bot"
     - name: ZERO_OAUTH_AUDIENCE

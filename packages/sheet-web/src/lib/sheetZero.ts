@@ -23,7 +23,7 @@ import {
   type Schema as SheetZeroSchema,
   type SheetClient,
 } from "sheet-zero-api";
-import { HttpClient, HttpClientRequest } from "effect/unstable/http";
+import { HttpClient, HttpClientError, HttpClientRequest } from "effect/unstable/http";
 import { makeSheetWorkflowHttpClients } from "sheet-workflow-http-client";
 import { authClientAtom, sessionAtom } from "#/lib/auth";
 import { sheetWorkflowsBaseUrlAtom, sheetZeroBaseUrlAtom } from "#/lib/configAtoms";
@@ -79,6 +79,69 @@ const invalidWorkflowData = (message: string) => new WorkflowObservationInvalidD
 const workflowObservationInitialPollInterval = Duration.millis(250);
 const workflowObservationMaxPollInterval = Duration.seconds(2);
 const workflowObservationTimeout = Duration.seconds(60);
+
+const isEmptyResponseBodyError = (error: unknown) =>
+  HttpClientError.isHttpClientError(error) && Predicate.isTagged("EmptyBodyError")(error.reason);
+
+export const makeSheetWebOAuthHttpClient = ({
+  httpClient,
+  getAccessToken,
+  refreshAccessToken,
+}: {
+  readonly httpClient: HttpClient.HttpClient;
+  readonly getAccessToken: () => string;
+  readonly refreshAccessToken: () => Promise<string>;
+}): HttpClient.HttpClient => {
+  let refreshInFlight: Promise<string> | undefined;
+
+  const refreshAccessTokenOnce = () => {
+    if (refreshInFlight !== undefined) return refreshInFlight;
+
+    const pending = Promise.resolve().then(refreshAccessToken);
+    refreshInFlight = pending;
+    void pending.then(
+      () => {
+        if (refreshInFlight === pending) refreshInFlight = undefined;
+      },
+      () => {
+        if (refreshInFlight === pending) refreshInFlight = undefined;
+      },
+    );
+    return pending;
+  };
+
+  const executeWithToken = (request: HttpClientRequest.HttpClientRequest, token: string) =>
+    httpClient.execute(HttpClientRequest.bearerToken(request, token));
+
+  return HttpClient.make((request) => {
+    const requestedToken = getAccessToken();
+    return executeWithToken(request, requestedToken).pipe(
+      Effect.flatMap((response) => {
+        if (response.status !== 401) return Effect.succeed(response);
+
+        return Effect.gen(function* () {
+          const token = yield* (
+            getAccessToken() === requestedToken
+              ? Effect.tryPromise(() => refreshAccessTokenOnce())
+              : Effect.succeed(getAccessToken())
+          ).pipe(
+            Effect.map(Option.some),
+            Effect.catch(() => Effect.succeed(Option.none<string>())),
+          );
+
+          return yield* Option.match(token, {
+            onNone: () => Effect.succeed(response),
+            onSome: (freshToken) =>
+              Stream.runDrain(response.stream).pipe(
+                Effect.catchIf(isEmptyResponseBodyError, () => Effect.void),
+                Effect.flatMap(() => executeWithToken(request, freshToken)),
+              ),
+          });
+        });
+      }),
+    );
+  });
+};
 
 const nextWorkflowObservationPollInterval = (current: Duration.Duration) =>
   Duration.min(Duration.times(current, 2), workflowObservationMaxPollInterval);
@@ -194,9 +257,20 @@ const makeSheetWebZeroClient = (options: {
     BaseZeroClient.ZeroClient<SheetZeroSchema, undefined, WorkflowZeroContext>().make(zero),
   );
   const sheet = Effect.runSync(makeSheetClient(zeroClient));
-  const allWorkflows = makeSheetWorkflowHttpClients(options.httpClient, {
+  const workflowHttpClient = makeSheetWebOAuthHttpClient({
+    httpClient: options.httpClient,
+    getAccessToken: () => currentAccessToken,
+    refreshAccessToken: async () => {
+      const accessToken = await Effect.runPromise(refreshSheetWebOAuthAccessToken());
+      if (Option.isNone(accessToken)) {
+        throw new Error("Sheet web OAuth refresh returned no access token");
+      }
+      currentAccessToken = accessToken.value;
+      return currentAccessToken;
+    },
+  });
+  const allWorkflows = makeSheetWorkflowHttpClients(workflowHttpClient, {
     baseUrl: options.workflowEndpoint.href,
-    transformRequest: (request) => HttpClientRequest.bearerToken(request, currentAccessToken),
   });
   let closed = false;
   let refreshing = false;

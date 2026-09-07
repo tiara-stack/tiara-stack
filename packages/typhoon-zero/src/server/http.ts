@@ -32,6 +32,20 @@ export const removeUndefinedFields = (obj: ReadonlyJSONValue | undefined): Reado
   return obj !== undefined ? obj : null;
 };
 
+type ZeroContextFactory = (
+  procedureNames: readonly string[],
+) => Effect.Effect<unknown, unknown, unknown>;
+
+type EmptyZeroContextFactory = (
+  procedureNames: readonly string[],
+) => Effect.Effect<Record<string, never>>;
+
+type ZeroContextEffectFromFactory<ContextFactory extends ZeroContextFactory> =
+  ReturnType<ContextFactory>;
+
+type ZeroContextFromEffect<ContextEffect> =
+  ContextEffect extends Effect.Effect<infer Context, any, any> ? Context : Record<string, never>;
+
 export interface ZeroHttpLiveOptions<
   S extends ZeroSchema,
   Queries extends QueryRegistry<any, S>,
@@ -44,6 +58,9 @@ export interface ZeroHttpLiveOptions<
   readonly mutators: Mutators;
   readonly zql: ZqlEffect;
   readonly context?: ContextFactory;
+  readonly userID?: (
+    context: ZeroContextFromEffect<ZeroContextEffectFromFactory<ContextFactory>>,
+  ) => string | null | undefined;
 }
 
 interface ZeroQueryHandler<Context> {
@@ -61,21 +78,7 @@ interface ZeroMutatorHandler<Context, Tx> {
   }) => Promise<void>;
 }
 
-type ZeroContextFactory = (
-  procedureNames: readonly string[],
-) => Effect.Effect<unknown, unknown, unknown>;
-
-type EmptyZeroContextFactory = (
-  procedureNames: readonly string[],
-) => Effect.Effect<Record<string, never>>;
-
 const emptyZeroContextFactory: EmptyZeroContextFactory = () => Effect.succeed({});
-
-type ZeroContextEffectFromFactory<ContextFactory extends ZeroContextFactory> =
-  ReturnType<ContextFactory>;
-
-type ZeroContextFromEffect<ContextEffect> =
-  ContextEffect extends Effect.Effect<infer Context, any, any> ? Context : Record<string, never>;
 
 type ZeroHandlerWithFn = {
   readonly fn: unknown;
@@ -229,8 +232,11 @@ const MutatorProcedurePayloadSchema = Schema.Struct({
 });
 
 const isMutatorProcedurePayload = Schema.is(MutatorProcedurePayloadSchema);
+// Zero Cache sends this housekeeping mutation to remove acknowledged results.
+// It is handled by @rocicorp/zero/server, not by application mutators.
+const zeroCleanupResultsProcedure = "_zero_cleanupResults";
 
-const getMutatorProcedureNames = (
+export const getMutatorProcedureNames = (
   payload: ReadonlyJSONValue,
 ): Effect.Effect<readonly string[], ZeroDispatchBadRequestError> => {
   if (!isMutatorProcedurePayload(payload)) {
@@ -242,7 +248,11 @@ const getMutatorProcedureNames = (
     );
   }
 
-  return Effect.succeed(payload.mutations.map((mutation) => mutation.name));
+  return Effect.succeed(
+    payload.mutations
+      .map((mutation) => mutation.name)
+      .filter((procedure) => procedure !== zeroCleanupResultsProcedure),
+  );
 };
 
 const validateProcedureNames = <Handler extends ZeroHandlerWithFn>(
@@ -339,16 +349,20 @@ export const makeZeroHttpLive = <
             const procedureNames = yield* getQueryProcedureNames(payload);
             const context = yield* resolveContext(procedureNames);
             const validatedHandlers = yield* validateProcedureNames(queryHandlers, procedureNames);
+            const userID = options.userID?.(context);
             const result = yield* Effect.promise(() => {
               const resolveHandler = makeValidatedHandlerResolver(
                 procedureNames,
                 validatedHandlers,
               );
-              return handleQueryRequest(
-                (name, args) => Effect.runSync(resolveHandler(name)).fn({ args, ctx: context }),
-                options.schema,
-                payload,
-              );
+              return handleQueryRequest({
+                handler: (name, args) =>
+                  Effect.runSync(resolveHandler(name)).fn({ args, ctx: context }),
+                schema: options.schema,
+                query: {},
+                body: payload,
+                userID,
+              });
             });
             return removeUndefinedFields(result);
           }),
@@ -361,14 +375,15 @@ export const makeZeroHttpLive = <
               mutatorHandlers,
               procedureNames,
             );
+            const userID = options.userID?.(context);
             const result = yield* Effect.promise(() => {
               const resolveHandler = makeValidatedHandlerResolver(
                 procedureNames,
                 validatedHandlers,
               );
-              return handleMutateRequest(
-                zql,
-                (transact, mutation) => {
+              return handleMutateRequest({
+                dbProvider: zql,
+                handler: (transact, mutation) => {
                   const mutator = Effect.runSync(resolveHandler(mutation.name));
                   return transact((tx, _name, args) =>
                     mutator.fn({
@@ -379,8 +394,9 @@ export const makeZeroHttpLive = <
                   );
                 },
                 query,
-                payload,
-              );
+                body: payload,
+                userID,
+              });
             });
             return removeUndefinedFields(result);
           }),

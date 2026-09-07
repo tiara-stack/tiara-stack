@@ -8,6 +8,7 @@ import {
   handleOAuthRefreshError,
   isExpectedOAuthFailure,
   isJwtAccessToken,
+  oauthTokenCookieMaxAge,
   oauthRefreshErrorMetric,
   oauthTokenRequestMetric,
   refreshTokenRequestBody,
@@ -37,6 +38,12 @@ const startOAuthServer = (handler: RequestListener) =>
   );
 
 describe("OAuth token request bodies", () => {
+  it("keeps a refreshable OAuth cookie beyond the access-token expiry", () => {
+    expect(oauthTokenCookieMaxAge({ expiresAt: 3_600, refreshToken: "refresh-token" }, 1_000)).toBe(
+      30 * 24 * 60 * 60,
+    );
+  });
+
   it("requests the sheet-zero resource for authorization code tokens", () => {
     const body = authorizationCodeRequestBody(
       {

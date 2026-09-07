@@ -30,5 +30,6 @@ export const makeSheetZeroHttpLayer = <
         const authorization = yield* SheetZeroAuthorization;
         return yield* authorization.authorize(procedureNames, request.headers);
       }),
+    userID: (context) => context.principalId,
     zql: options.zql,
   });

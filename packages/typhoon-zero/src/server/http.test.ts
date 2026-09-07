@@ -1,7 +1,9 @@
-import { describe, expect, it } from "@effect/vitest";
-import { Cause, Effect, Exit, Logger } from "effect";
+import { describe, expect, it, layer } from "@effect/vitest";
+import { Cause, Context, Effect, Exit, Layer, Logger } from "effect";
+import { handleMutateRequest, type Database } from "@rocicorp/zero/server";
 import {
   getZeroHandler,
+  getMutatorProcedureNames,
   hasZeroHandlerFn,
   makeZeroHandlerRegistry,
   removeUndefinedFields,
@@ -10,7 +12,95 @@ import {
 const extractFailure = <A, E>(exit: Exit.Exit<A, E>): E | undefined =>
   Exit.isFailure(exit) ? exit.cause.reasons.find(Cause.isFailReason)?.error : undefined;
 
+const cleanupMutationPayload = {
+  clientGroupID: "group-1",
+  pushVersion: 1,
+  timestamp: 1,
+  requestID: "request-1",
+  mutations: [
+    {
+      type: "custom" as const,
+      id: 1,
+      clientID: "client-1",
+      name: "_zero_cleanupResults",
+      args: [
+        {
+          type: "bulk" as const,
+          clientGroupID: "group-1",
+          clientIDs: ["client-1"],
+        },
+      ],
+      timestamp: 1,
+    },
+  ],
+} as const;
+
+type CleanupMutationFixtureValue = {
+  readonly database: Database<Record<string, never>>;
+  readonly deleted: Array<unknown>;
+};
+
+class CleanupMutationFixture extends Context.Service<
+  CleanupMutationFixture,
+  CleanupMutationFixtureValue
+>()("CleanupMutationFixture") {}
+
+const cleanupMutationFixtureLayer = layer(
+  Layer.sync(CleanupMutationFixture, () => {
+    const deleted: Array<unknown> = [];
+    const database: Database<Record<string, never>> = {
+      transaction: async (callback) =>
+        callback(
+          {},
+          {
+            updateClientMutationID: async () => ({ lastMutationID: 0 }),
+            writeMutationResult: async () => undefined,
+            deleteMutationResults: async (args) => {
+              deleted.push(args);
+            },
+          },
+        ),
+    };
+    return { database, deleted };
+  }),
+);
+
 describe("Zero server HTTP helpers", () => {
+  it.effect("keeps Zero internal cleanup mutations out of application dispatch", () =>
+    Effect.gen(function* () {
+      expect(yield* getMutatorProcedureNames(cleanupMutationPayload)).toEqual([]);
+    }),
+  );
+
+  cleanupMutationFixtureLayer("Zero internal cleanup handling", (layerIt) => {
+    layerIt.effect("lets Zero's server adapter delete internal cleanup results", () =>
+      Effect.gen(function* () {
+        const { database, deleted } = yield* CleanupMutationFixture;
+
+        const result = yield* Effect.promise(() =>
+          handleMutateRequest({
+            dbProvider: database,
+            handler: async () => {
+              throw new Error("internal cleanup must not reach application dispatch");
+            },
+            query: { schema: "tiara_stack_dev_0", appID: "tiara_stack_dev" },
+            body: cleanupMutationPayload,
+            userID: null,
+          }),
+        );
+
+        expect(result).toMatchObject({ kind: "MutateResponse", mutations: [] });
+        expect(deleted).toEqual([
+          {
+            type: "bulk",
+            clientGroupID: "group-1",
+            clientIDs: ["client-1"],
+          },
+        ]);
+      }),
+    );
+  });
+
   it("removes undefined object fields and normalizes undefined array entries to null", () => {
     expect(
       removeUndefinedFields({

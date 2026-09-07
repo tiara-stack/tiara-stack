@@ -41,6 +41,7 @@ const pkceCookieName = "sheet-web-oauth-pkce";
 const sheetWebOAuthResource = "sheet-zero";
 const refreshSkewSeconds = 60;
 const oauthTokenRequestTimeout = Duration.seconds(5);
+const oauthRefreshTokenCookieMaxAgeSeconds = 30 * 24 * 60 * 60;
 
 type SheetWebOAuthTokenSet = {
   readonly accessToken: string;
@@ -157,8 +158,16 @@ class OAuthTokenRequestError extends Data.TaggedError("OAuthTokenRequestError")<
 
 class OAuthMissingRefreshTokenError extends Data.TaggedError("OAuthMissingRefreshTokenError") {}
 
+export const oauthTokenCookieMaxAge = (
+  tokenSet: Pick<SheetWebOAuthTokenSet, "expiresAt" | "refreshToken">,
+  nowEpochSeconds = Math.floor(Date.now() / 1000),
+) =>
+  tokenSet.refreshToken
+    ? oauthRefreshTokenCookieMaxAgeSeconds
+    : Math.max(tokenSet.expiresAt - nowEpochSeconds, 60);
+
 const setTokenCookie = async (tokenSet: SheetWebOAuthTokenSet, appBaseUrl: URL) => {
-  const maxAge = Math.max(tokenSet.expiresAt - Math.floor(Date.now() / 1000), 60);
+  const maxAge = oauthTokenCookieMaxAge(tokenSet);
   setCookie(oauthCookieName, encodeCookieValue(tokenSet), cookieOptions(appBaseUrl, maxAge));
 };
 

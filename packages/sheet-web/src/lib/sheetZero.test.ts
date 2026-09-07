@@ -1,6 +1,8 @@
 import { Cause, Duration, Effect, Exit, Fiber, Option, Predicate, Schema, Stream } from "effect";
-import { describe, expect, it } from "@effect/vitest";
+import { Context, Layer } from "effect";
+import { describe, expect, it, layer } from "@effect/vitest";
 import { TestClock } from "effect/testing";
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 import {
   InvocationId,
   defineWorkflowContract,
@@ -15,6 +17,7 @@ import type {
 } from "effect-zero-workflow/contract/transport";
 import { vi } from "vitest";
 import {
+  makeSheetWebOAuthHttpClient,
   runSheetWorkflow,
   runSheetZeroAuthReconnect,
   shouldReconnectSheetZeroAuth,
@@ -84,7 +87,131 @@ const neverWorkflow: Pick<TestWorkflow, "enqueue" | "get"> = {
 const failureOf = (exit: Exit.Exit<unknown, unknown>) =>
   Exit.isFailure(exit) ? Option.getOrUndefined(Cause.findErrorOption(exit.cause)) : undefined;
 
+const makeOAuthRetryTestClient = (bodyKind: "stream" | "empty") => {
+  const statuses = [401, 202];
+  const requests: Array<HttpClientRequest.HttpClientRequest> = [];
+  let unauthorizedBodyWasDrained = false;
+  let unauthorizedBodyPullCount = 0;
+  const bodyDrainStateAtRequest: Array<boolean> = [];
+  const httpClient = HttpClient.make((request) =>
+    Effect.sync(() => {
+      requests.push(request);
+      bodyDrainStateAtRequest.push(unauthorizedBodyWasDrained);
+      return HttpClientResponse.fromWeb(
+        request,
+        new Response(
+          statuses[0] === 401 && bodyKind === "stream"
+            ? new ReadableStream({
+                pull(controller) {
+                  unauthorizedBodyPullCount += 1;
+                  controller.enqueue(new Uint8Array([1]));
+                  if (unauthorizedBodyPullCount > 1) {
+                    unauthorizedBodyWasDrained = true;
+                    controller.close();
+                  }
+                },
+              })
+            : null,
+          { status: statuses.shift() ?? 500 },
+        ),
+      );
+    }),
+  );
+  let accessToken = "expired-token";
+  const refreshAccessToken = vi.fn(async () => {
+    accessToken = "fresh-token";
+    return accessToken;
+  });
+
+  return {
+    bodyDrainStateAtRequest,
+    client: makeSheetWebOAuthHttpClient({
+      httpClient,
+      getAccessToken: () => accessToken,
+      refreshAccessToken,
+    }),
+    refreshAccessToken,
+    requests,
+  };
+};
+
+const expectOAuthRetrySucceeded = (
+  refreshAccessToken: unknown,
+  requests: ReadonlyArray<HttpClientRequest.HttpClientRequest>,
+) => {
+  expect(refreshAccessToken).toHaveBeenCalledOnce();
+  expect(requests.map((request) => request.headers.authorization)).toEqual([
+    "Bearer expired-token",
+    "Bearer fresh-token",
+  ]);
+};
+
+type OAuthRetryTestClient = ReturnType<typeof makeOAuthRetryTestClient>;
+
+class OAuthRetryFixture extends Context.Service<OAuthRetryFixture, OAuthRetryTestClient>()(
+  "SheetWebOAuthRetryFixture",
+) {}
+
+const streamOAuthRetryLayer = layer(
+  Layer.sync(OAuthRetryFixture, () => makeOAuthRetryTestClient("stream")),
+);
+const emptyOAuthRetryLayer = layer(
+  Layer.sync(OAuthRetryFixture, () => makeOAuthRetryTestClient("empty")),
+);
+
 describe("sheet Zero workflow observation", () => {
+  streamOAuthRetryLayer("OAuth retry with a response body", (layerIt) => {
+    layerIt.effect("refreshes an expired OAuth token and retries the workflow request once", () =>
+      Effect.gen(function* () {
+        const { bodyDrainStateAtRequest, client, refreshAccessToken, requests } =
+          yield* OAuthRetryFixture;
+
+        const response = yield* client.execute(HttpClientRequest.get("https://example.test"));
+
+        expect(response.status).toBe(202);
+        expectOAuthRetrySucceeded(refreshAccessToken, requests);
+        expect(bodyDrainStateAtRequest).toEqual([false, true]);
+      }),
+    );
+  });
+
+  it.effect("preserves an unauthorized response body when OAuth refresh fails", () =>
+    Effect.gen(function* () {
+      const httpClient = HttpClient.make((request) =>
+        Effect.succeed(
+          HttpClientResponse.fromWeb(request, new Response("unauthorized", { status: 401 })),
+        ),
+      );
+      const refreshAccessToken = vi.fn(async (): Promise<string> => {
+        throw new Error("refresh failed");
+      });
+      const client = makeSheetWebOAuthHttpClient({
+        httpClient,
+        getAccessToken: () => "expired-token",
+        refreshAccessToken,
+      });
+
+      const response = yield* client.execute(HttpClientRequest.get("https://example.test"));
+
+      expect(response.status).toBe(401);
+      expect(yield* response.text).toBe("unauthorized");
+      expect(refreshAccessToken).toHaveBeenCalledOnce();
+    }),
+  );
+
+  emptyOAuthRetryLayer("OAuth retry with an empty response body", (layerIt) => {
+    layerIt.effect("retries after refreshing from a bodyless unauthorized response", () =>
+      Effect.gen(function* () {
+        const { client, refreshAccessToken, requests } = yield* OAuthRetryFixture;
+
+        const response = yield* client.execute(HttpClientRequest.get("https://example.test"));
+
+        expect(response.status).toBe(202);
+        expectOAuthRetrySucceeded(refreshAccessToken, requests);
+      }),
+    );
+  });
+
   it.effect("enqueues once and returns the first terminal success", () =>
     Effect.gen(function* () {
       const workflow = makeWorkflow(

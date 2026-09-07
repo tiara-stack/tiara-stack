@@ -24,7 +24,7 @@
     "@base-ui/react": "^1.2.0",
     "@effect/atom-react": "catalog:",
     "@effect/platform-node": "catalog:",
-    "@rocicorp/zero": "^0.25.9",
+    "@rocicorp/zero": "1.5.0",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/react-devtools": "^0.7.0",
     "@tanstack/react-form": "^1.33.0",
