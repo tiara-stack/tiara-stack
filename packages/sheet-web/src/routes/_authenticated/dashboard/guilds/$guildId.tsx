@@ -2,7 +2,15 @@ import { createFileRoute, Link, Outlet, useLocation } from "@tanstack/react-rout
 import { Effect } from "effect";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
 import { useCallback, useRef, useState } from "react";
-import { ArrowLeft, CalendarDays, ChevronDown, Settings2, ShieldCheck, Table2 } from "lucide-react";
+import {
+  ArrowLeft,
+  CalendarDays,
+  ChevronDown,
+  MessageSquareText,
+  Settings2,
+  ShieldCheck,
+  Table2,
+} from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "#/components/ui/avatar";
 import { isSheetEditorPath } from "#/routes";
 import { ensureResultAtomData, isBrowserRuntime } from "#/lib/atomRegistry";
@@ -40,20 +48,34 @@ export const Route = createFileRoute("/_authenticated/dashboard/guilds/$guildId"
   },
 });
 
+// fallow-ignore-next-line complexity
 function ServerAdministrationLinks({
   canLockdown,
   canManage,
   guildId,
+  showCheckinMessages,
 }: {
   readonly canLockdown: boolean;
   readonly canManage: boolean;
   readonly guildId: string;
+  readonly showCheckinMessages: boolean;
 }) {
   return (
     <nav
       aria-label="Server administration"
       className="flex w-full min-w-0 flex-col gap-px bg-[#33ccbb]/20 sm:w-auto sm:flex-row"
     >
+      {canLockdown && showCheckinMessages ? (
+        <Link
+          to="/dashboard/guilds/$guildId/settings/checkin-messages"
+          params={{ guildId }}
+          activeOptions={{ includeSearch: false }}
+          className="group flex min-h-11 min-w-0 flex-1 items-center justify-start gap-2 whitespace-nowrap bg-[#0a0f0e] px-3 py-3 text-left text-xs font-black tracking-wide text-white transition hover:bg-[#33ccbb]/10 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#73e9dc] [&.active]:bg-[#33ccbb] [&.active]:text-[#07100e] sm:min-h-0 sm:justify-center sm:px-4 sm:text-xs"
+        >
+          <MessageSquareText className="h-4 w-4 shrink-0 text-[#33ccbb] group-[.active]:text-[#07100e]" />
+          CHECK-IN MESSAGES
+        </Link>
+      ) : null}
       {canLockdown ? (
         <Link
           to={
@@ -63,7 +85,7 @@ function ServerAdministrationLinks({
           }
           params={{ guildId }}
           activeOptions={{ exact: true, includeSearch: false }}
-          className="group flex min-h-11 min-w-0 flex-1 items-center justify-start gap-2 whitespace-nowrap bg-[#0a0f0e] px-3 py-3 text-left text-[11px] font-black tracking-wide text-white transition hover:bg-[#33ccbb]/10 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#73e9dc] [&.active]:bg-[#33ccbb] [&.active]:text-[#07100e] sm:min-h-0 sm:justify-center sm:px-4 sm:text-xs"
+          className="group flex min-h-11 min-w-0 flex-1 items-center justify-start gap-2 whitespace-nowrap bg-[#0a0f0e] px-3 py-3 text-left text-xs font-black tracking-wide text-white transition hover:bg-[#33ccbb]/10 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#73e9dc] [&.active]:bg-[#33ccbb] [&.active]:text-[#07100e] sm:min-h-0 sm:justify-center sm:px-4 sm:text-xs"
         >
           <Settings2 className="h-4 w-4 shrink-0 text-[#33ccbb] group-[.active]:text-[#07100e]" />
           SERVER SETTINGS
@@ -74,7 +96,7 @@ function ServerAdministrationLinks({
           to="/dashboard/guilds/$guildId/settings/sheet"
           params={{ guildId }}
           activeOptions={{ includeSearch: false }}
-          className="group flex min-h-11 min-w-0 flex-1 items-center justify-start gap-2 whitespace-nowrap bg-[#0a0f0e] px-3 py-3 text-left text-[11px] font-black tracking-wide text-white transition hover:bg-[#33ccbb]/10 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#73e9dc] [&.active]:bg-[#33ccbb] [&.active]:text-[#07100e] sm:min-h-0 sm:justify-center sm:px-4 sm:text-xs"
+          className="group flex min-h-11 min-w-0 flex-1 items-center justify-start gap-2 whitespace-nowrap bg-[#0a0f0e] px-3 py-3 text-left text-xs font-black tracking-wide text-white transition hover:bg-[#33ccbb]/10 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#73e9dc] [&.active]:bg-[#33ccbb] [&.active]:text-[#07100e] sm:min-h-0 sm:justify-center sm:px-4 sm:text-xs"
         >
           <Table2 className="h-4 w-4 shrink-0 text-[#33ccbb] group-[.active]:text-[#07100e]" />
           SHEET MAPPINGS
@@ -189,12 +211,14 @@ function SelectedGuildLayout() {
   const { guildId } = Route.useParams();
   const { pathname } = useLocation();
   const isSheetEditor = isSheetEditorPath(pathname);
-  const isServerAdministrationPath = pathname.includes("/settings");
+  const settingsPathPrefix = `/dashboard/guilds/${guildId}/settings`;
+  const isServerAdministrationPath =
+    pathname === settingsPathPrefix || pathname.startsWith(`${settingsPathPrefix}/`);
+  const showCheckinMessagesLink = !isServerAdministrationPath || isSheetEditor;
   const [adminNavOverride, setAdminNavOverride] = useState<
     { readonly pathname: string; readonly open: boolean } | undefined
   >();
-  const isAdminNavOpen =
-    adminNavOverride?.pathname === pathname ? adminNavOverride.open : isServerAdministrationPath;
+  const isAdminNavOpen = adminNavOverride?.pathname === pathname ? adminNavOverride.open : false;
   const guilds = useCurrentUserGuilds();
   const guild = guilds.find((candidate) => candidate.id === guildId);
   const permissionResult = useGuildPermissionsResult(guildId);
@@ -235,7 +259,7 @@ function SelectedGuildLayout() {
                   ACTIVE SERVER
                 </p>
                 <ServerChooser guildId={guildId} guilds={guilds} />
-                <p className="hidden truncate font-mono text-[11px] text-white/35 sm:block">
+                <p className="hidden truncate font-mono text-[10px] text-white/35 sm:block">
                   {guildId}
                 </p>
               </div>
@@ -291,6 +315,7 @@ function SelectedGuildLayout() {
                       canLockdown={capabilities.canLockdown}
                       canManage={capabilities.canManage}
                       guildId={guildId}
+                      showCheckinMessages={showCheckinMessagesLink}
                     />
                   </div>
                 </div>
@@ -302,6 +327,7 @@ function SelectedGuildLayout() {
                     canLockdown={capabilities.canLockdown}
                     canManage={capabilities.canManage}
                     guildId={guildId}
+                    showCheckinMessages={showCheckinMessagesLink}
                   />
                 </div>
               </div>

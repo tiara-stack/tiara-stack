@@ -31,6 +31,7 @@ import { Route as AuthenticatedDashboardGuildsGuildIdSettingsRouteImport } from 
 import { Route as AuthenticatedDashboardGuildsGuildIdScheduleRouteImport } from './routes/_authenticated/dashboard/guilds/$guildId.schedule'
 import { Route as AuthenticatedDashboardGuildsGuildIdSettingsSheetRouteImport } from './routes/_authenticated/dashboard/guilds/$guildId.settings.sheet'
 import { Route as AuthenticatedDashboardGuildsGuildIdSettingsServerRouteImport } from './routes/_authenticated/dashboard/guilds/$guildId.settings.server'
+import { Route as AuthenticatedDashboardGuildsGuildIdSettingsCheckinMessagesRouteImport } from './routes/_authenticated/dashboard/guilds/$guildId.settings.checkin-messages'
 import { Route as AuthenticatedDashboardGuildsGuildIdSettingsChannelsRouteImport } from './routes/_authenticated/dashboard/guilds/$guildId.settings.channels'
 import { Route as AuthenticatedDashboardGuildsGuildIdScheduleChannelIndexRouteImport } from './routes/_authenticated/dashboard/guilds/$guildId.schedule.$channel/index'
 import { Route as AuthenticatedDashboardGuildsGuildIdScheduleChannelChannelLayoutRouteImport } from './routes/_authenticated/dashboard/guilds/$guildId.schedule.$channel/_channelLayout'
@@ -159,6 +160,12 @@ const AuthenticatedDashboardGuildsGuildIdSettingsServerRoute =
     path: '/server',
     getParentRoute: () => AuthenticatedDashboardGuildsGuildIdSettingsRoute,
   } as any)
+const AuthenticatedDashboardGuildsGuildIdSettingsCheckinMessagesRoute =
+  AuthenticatedDashboardGuildsGuildIdSettingsCheckinMessagesRouteImport.update({
+    id: '/checkin-messages',
+    path: '/checkin-messages',
+    getParentRoute: () => AuthenticatedDashboardGuildsGuildIdSettingsRoute,
+  } as any)
 const AuthenticatedDashboardGuildsGuildIdSettingsChannelsRoute =
   AuthenticatedDashboardGuildsGuildIdSettingsChannelsRouteImport.update({
     id: '/channels',
@@ -219,6 +226,7 @@ export interface FileRoutesByFullPath {
   '/dashboard/guilds/$guildId/settings': typeof AuthenticatedDashboardGuildsGuildIdSettingsRouteWithChildren
   '/dashboard/guilds/$guildId/': typeof AuthenticatedDashboardGuildsGuildIdIndexRoute
   '/dashboard/guilds/$guildId/settings/channels': typeof AuthenticatedDashboardGuildsGuildIdSettingsChannelsRoute
+  '/dashboard/guilds/$guildId/settings/checkin-messages': typeof AuthenticatedDashboardGuildsGuildIdSettingsCheckinMessagesRoute
   '/dashboard/guilds/$guildId/settings/server': typeof AuthenticatedDashboardGuildsGuildIdSettingsServerRoute
   '/dashboard/guilds/$guildId/settings/sheet': typeof AuthenticatedDashboardGuildsGuildIdSettingsSheetRoute
   '/dashboard/guilds/$guildId/schedule/$channel': typeof AuthenticatedDashboardGuildsGuildIdScheduleChannelChannelLayoutRouteWithChildren
@@ -244,6 +252,7 @@ export interface FileRoutesByTo {
   '/dashboard/guilds/$guildId/settings': typeof AuthenticatedDashboardGuildsGuildIdSettingsRouteWithChildren
   '/dashboard/guilds/$guildId': typeof AuthenticatedDashboardGuildsGuildIdIndexRoute
   '/dashboard/guilds/$guildId/settings/channels': typeof AuthenticatedDashboardGuildsGuildIdSettingsChannelsRoute
+  '/dashboard/guilds/$guildId/settings/checkin-messages': typeof AuthenticatedDashboardGuildsGuildIdSettingsCheckinMessagesRoute
   '/dashboard/guilds/$guildId/settings/server': typeof AuthenticatedDashboardGuildsGuildIdSettingsServerRoute
   '/dashboard/guilds/$guildId/settings/sheet': typeof AuthenticatedDashboardGuildsGuildIdSettingsSheetRoute
   '/dashboard/guilds/$guildId/schedule/$channel': typeof AuthenticatedDashboardGuildsGuildIdScheduleChannelIndexRoute
@@ -273,6 +282,7 @@ export interface FileRoutesById {
   '/_authenticated/dashboard/guilds/$guildId/settings': typeof AuthenticatedDashboardGuildsGuildIdSettingsRouteWithChildren
   '/_authenticated/dashboard/guilds/$guildId/': typeof AuthenticatedDashboardGuildsGuildIdIndexRoute
   '/_authenticated/dashboard/guilds/$guildId/settings/channels': typeof AuthenticatedDashboardGuildsGuildIdSettingsChannelsRoute
+  '/_authenticated/dashboard/guilds/$guildId/settings/checkin-messages': typeof AuthenticatedDashboardGuildsGuildIdSettingsCheckinMessagesRoute
   '/_authenticated/dashboard/guilds/$guildId/settings/server': typeof AuthenticatedDashboardGuildsGuildIdSettingsServerRoute
   '/_authenticated/dashboard/guilds/$guildId/settings/sheet': typeof AuthenticatedDashboardGuildsGuildIdSettingsSheetRoute
   '/_authenticated/dashboard/guilds/$guildId/schedule/$channel/_channelLayout': typeof AuthenticatedDashboardGuildsGuildIdScheduleChannelChannelLayoutRouteWithChildren
@@ -303,6 +313,7 @@ export interface FileRouteTypes {
     | '/dashboard/guilds/$guildId/settings'
     | '/dashboard/guilds/$guildId/'
     | '/dashboard/guilds/$guildId/settings/channels'
+    | '/dashboard/guilds/$guildId/settings/checkin-messages'
     | '/dashboard/guilds/$guildId/settings/server'
     | '/dashboard/guilds/$guildId/settings/sheet'
     | '/dashboard/guilds/$guildId/schedule/$channel'
@@ -328,6 +339,7 @@ export interface FileRouteTypes {
     | '/dashboard/guilds/$guildId/settings'
     | '/dashboard/guilds/$guildId'
     | '/dashboard/guilds/$guildId/settings/channels'
+    | '/dashboard/guilds/$guildId/settings/checkin-messages'
     | '/dashboard/guilds/$guildId/settings/server'
     | '/dashboard/guilds/$guildId/settings/sheet'
     | '/dashboard/guilds/$guildId/schedule/$channel'
@@ -356,6 +368,7 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard/guilds/$guildId/settings'
     | '/_authenticated/dashboard/guilds/$guildId/'
     | '/_authenticated/dashboard/guilds/$guildId/settings/channels'
+    | '/_authenticated/dashboard/guilds/$guildId/settings/checkin-messages'
     | '/_authenticated/dashboard/guilds/$guildId/settings/server'
     | '/_authenticated/dashboard/guilds/$guildId/settings/sheet'
     | '/_authenticated/dashboard/guilds/$guildId/schedule/$channel/_channelLayout'
@@ -531,6 +544,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedDashboardGuildsGuildIdSettingsServerRouteImport
       parentRoute: typeof AuthenticatedDashboardGuildsGuildIdSettingsRoute
     }
+    '/_authenticated/dashboard/guilds/$guildId/settings/checkin-messages': {
+      id: '/_authenticated/dashboard/guilds/$guildId/settings/checkin-messages'
+      path: '/checkin-messages'
+      fullPath: '/dashboard/guilds/$guildId/settings/checkin-messages'
+      preLoaderRoute: typeof AuthenticatedDashboardGuildsGuildIdSettingsCheckinMessagesRouteImport
+      parentRoute: typeof AuthenticatedDashboardGuildsGuildIdSettingsRoute
+    }
     '/_authenticated/dashboard/guilds/$guildId/settings/channels': {
       id: '/_authenticated/dashboard/guilds/$guildId/settings/channels'
       path: '/channels'
@@ -607,6 +627,7 @@ const AuthenticatedDashboardGuildsGuildIdScheduleRouteWithChildren =
 
 interface AuthenticatedDashboardGuildsGuildIdSettingsRouteChildren {
   AuthenticatedDashboardGuildsGuildIdSettingsChannelsRoute: typeof AuthenticatedDashboardGuildsGuildIdSettingsChannelsRoute
+  AuthenticatedDashboardGuildsGuildIdSettingsCheckinMessagesRoute: typeof AuthenticatedDashboardGuildsGuildIdSettingsCheckinMessagesRoute
   AuthenticatedDashboardGuildsGuildIdSettingsServerRoute: typeof AuthenticatedDashboardGuildsGuildIdSettingsServerRoute
   AuthenticatedDashboardGuildsGuildIdSettingsSheetRoute: typeof AuthenticatedDashboardGuildsGuildIdSettingsSheetRoute
 }
@@ -615,6 +636,8 @@ const AuthenticatedDashboardGuildsGuildIdSettingsRouteChildren: AuthenticatedDas
   {
     AuthenticatedDashboardGuildsGuildIdSettingsChannelsRoute:
       AuthenticatedDashboardGuildsGuildIdSettingsChannelsRoute,
+    AuthenticatedDashboardGuildsGuildIdSettingsCheckinMessagesRoute:
+      AuthenticatedDashboardGuildsGuildIdSettingsCheckinMessagesRoute,
     AuthenticatedDashboardGuildsGuildIdSettingsServerRoute:
       AuthenticatedDashboardGuildsGuildIdSettingsServerRoute,
     AuthenticatedDashboardGuildsGuildIdSettingsSheetRoute:

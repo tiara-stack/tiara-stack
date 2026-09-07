@@ -17,6 +17,7 @@ import {
   ChevronRight,
   Hash,
   LoaderCircle,
+  MessageSquareText,
   LockKeyhole,
   Plus,
   RotateCcw,
@@ -80,8 +81,14 @@ import {
 } from "sheet-bot-api";
 
 const SettingsSearch = Schema.Struct({
-  section: Schema.optional(Schema.Literals(["server", "channels"])),
+  section: Schema.optional(Schema.Literals(["server", "channels", "checkin-messages"])),
 });
+
+const settingsSectionRoutes = {
+  server: "/dashboard/guilds/$guildId/settings/server",
+  channels: "/dashboard/guilds/$guildId/settings/channels",
+  "checkin-messages": "/dashboard/guilds/$guildId/settings/checkin-messages",
+} as const;
 
 type ResultAtomRegistry = Parameters<typeof ensureResultAtomData>[0];
 
@@ -146,10 +153,7 @@ export const Route = createFileRoute("/_authenticated/dashboard/guilds/$guildId/
     const settingsPath = `/dashboard/guilds/${params.guildId}/settings`;
     if (isPath(location.pathname, settingsPath)) {
       throw redirect({
-        to:
-          search.section === "channels"
-            ? "/dashboard/guilds/$guildId/settings/channels"
-            : "/dashboard/guilds/$guildId/settings/server",
+        to: settingsSectionRoutes[search.section ?? "server"],
         params: { guildId: params.guildId },
         search: {},
       });
@@ -209,10 +213,15 @@ function GuildSettings() {
   const refreshPermissions = useAtomRefresh(guildPermissionsAtom(guildId));
   const capabilities = guildCapabilities(permissionsFromResult(permissionResult), guildId);
   const channelsSettingsPath = `/dashboard/guilds/${guildId}/settings/channels`;
+  const checkinMessagesSettingsPath = `/dashboard/guilds/${guildId}/settings/checkin-messages`;
   const section =
-    isPath(pathname, channelsSettingsPath) || pathname.startsWith(`${channelsSettingsPath}/`)
-      ? "channels"
-      : "server";
+    isPath(pathname, checkinMessagesSettingsPath) ||
+    pathname.startsWith(`${checkinMessagesSettingsPath}/`)
+      ? "checkin-messages"
+      : isPath(pathname, channelsSettingsPath) || pathname.startsWith(`${channelsSettingsPath}/`)
+        ? "channels"
+        : "server";
+  const isCheckinMessagesSection = section === "checkin-messages";
 
   if (
     isSheetEditorPath(pathname) &&
@@ -238,22 +247,46 @@ function GuildSettings() {
 
   return (
     <div className="border border-[#33ccbb]/20 bg-[#080d0c]">
-      <header className="flex flex-col gap-4 border-b border-[#33ccbb]/20 px-5 py-5 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="font-mono text-[10px] font-black tracking-[0.24em] text-[#33ccbb]">
+      <header
+        className={`flex flex-col border-b border-[#33ccbb]/20 sm:flex-row sm:items-end sm:justify-between ${isCheckinMessagesSection ? "gap-2 px-3 py-2 sm:gap-4 sm:px-5 sm:py-5" : "gap-4 px-5 py-5"}`}
+      >
+        <div className={isCheckinMessagesSection ? "min-w-0 sm:block" : undefined}>
+          <p
+            className={`font-mono text-[10px] font-black tracking-[0.24em] text-[#33ccbb] ${isCheckinMessagesSection ? "hidden sm:block" : ""}`}
+          >
             CONFIGURATION CONSOLE
           </p>
-          <h1 className="mt-1 text-2xl font-black tracking-tight">Server settings</h1>
-          <p className="mt-1 max-w-xl text-sm text-white/55">
-            Web controls mirror TiaraBot’s Discord commands and permission checks.
+          <h1 className="mt-1 text-lg font-black tracking-tight sm:text-2xl">
+            {section === "checkin-messages" ? "Check-in messages" : "Server settings"}
+          </h1>
+          <p
+            className={`mt-1 max-w-xl text-sm text-white/55 ${isCheckinMessagesSection ? "hidden sm:block" : ""}`}
+          >
+            {section === "checkin-messages"
+              ? "Prepare one message for each running-channel hour. TiaraBot uses the saved text when that hour opens."
+              : "Web controls mirror TiaraBot’s Discord commands and permission checks."}
           </p>
         </div>
-        <div className="flex gap-px bg-[#33ccbb]/20" role="group" aria-label="Settings section">
+        <div
+          className={`flex max-w-full gap-px bg-[#33ccbb]/20 ${isCheckinMessagesSection ? "overflow-x-auto" : ""}`}
+          role="group"
+          aria-label="Settings section"
+        >
+          <SettingsSectionLink
+            to="/dashboard/guilds/$guildId/settings/checkin-messages"
+            guildId={guildId}
+            active={isCheckinMessagesSection}
+            compact={isCheckinMessagesSection}
+          >
+            <MessageSquareText className="h-4 w-4" />
+            CHECK-IN MESSAGES
+          </SettingsSectionLink>
           {capabilities.canManage ? (
             <SettingsSectionLink
               to="/dashboard/guilds/$guildId/settings/server"
               guildId={guildId}
               active={section === "server"}
+              compact={isCheckinMessagesSection}
             >
               <ServerCog className="h-4 w-4" />
               SERVER
@@ -263,6 +296,7 @@ function GuildSettings() {
             to="/dashboard/guilds/$guildId/settings/channels"
             guildId={guildId}
             active={section === "channels"}
+            compact={isCheckinMessagesSection}
           >
             <Hash className="h-4 w-4" />
             CHANNELS
@@ -279,13 +313,16 @@ function SettingsSectionLink({
   to,
   guildId,
   active,
+  compact = false,
   children,
 }: {
   readonly to:
     | "/dashboard/guilds/$guildId/settings/server"
-    | "/dashboard/guilds/$guildId/settings/channels";
+    | "/dashboard/guilds/$guildId/settings/channels"
+    | "/dashboard/guilds/$guildId/settings/checkin-messages";
   readonly guildId: string;
   readonly active: boolean;
+  readonly compact?: boolean;
   readonly children: ReactNode;
 }) {
   return (
@@ -293,7 +330,7 @@ function SettingsSectionLink({
       to={to}
       params={{ guildId }}
       aria-current={active ? "page" : undefined}
-      className={`flex items-center gap-2 px-4 py-3 text-xs font-black tracking-wide transition ${
+      className={`flex min-h-11 items-center gap-2 whitespace-nowrap text-xs font-black tracking-wide transition ${compact ? "px-3 py-3 sm:px-4" : "px-4 py-3"} ${
         active
           ? "bg-[#33ccbb] text-[#07100e]"
           : "bg-[#0b1210] text-white/55 hover:bg-[#33ccbb]/10 hover:text-white"
@@ -580,7 +617,7 @@ function ServerEditor({
             )}
             {saving ? "SAVING" : "SAVE SERVER"}
           </button>
-          <span className="font-mono text-[11px] text-white/55">
+          <span className="font-mono text-xs text-white/55">
             {dirty ? "UNSAVED CHANGES" : "NO CHANGES"}
           </span>
         </div>
@@ -713,7 +750,7 @@ function ChannelListButton({
       <Hash className="h-4 w-4 shrink-0 text-[#33ccbb]" />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-bold">{label}</span>
-        <span className="block truncate font-mono text-[9px] text-white/55">
+        <span className="block truncate font-mono text-[10px] text-white/55">
           {isDiscordAnnouncementChannelType(channel.type) ? "ANNOUNCEMENT" : "TEXT"} · {channel.id}
         </span>
       </span>
@@ -1148,7 +1185,7 @@ function ManagerChannelEditor({
                 )}
                 SAVE CHANNEL
               </button>
-              <span className="font-mono text-[11px] text-white/55">
+              <span className="font-mono text-xs text-white/55">
                 {dirty ? "UNSAVED DRAFT" : "NO CHANGES"}
               </span>
             </div>
@@ -1328,7 +1365,7 @@ function LockdownPanel({
   );
 }
 
-function NavigationConfirmation({
+export function NavigationConfirmation({
   blocker,
   subject,
 }: {
@@ -1502,7 +1539,7 @@ function Guidance({ children }: { readonly children: ReactNode }) {
 function Badge({ active, children }: { readonly active: boolean; readonly children: ReactNode }) {
   return (
     <span
-      className={`border px-2 py-1 font-mono text-[9px] font-bold ${
+      className={`border px-2 py-1 font-mono text-[10px] font-bold ${
         active
           ? "border-[#33ccbb]/35 bg-[#33ccbb]/10 text-[#79e6d9]"
           : "border-white/10 text-white/55"

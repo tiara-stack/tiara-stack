@@ -52,6 +52,15 @@ class SheetWebWorkflowFailure extends Schema.TaggedErrorClass<SheetWebWorkflowFa
   },
 ) {}
 
+/** Returns a contract-declared workflow failure without exposing transport details to callers. */
+export const declaredWorkflowFailure = (error: unknown): unknown => {
+  if (!Predicate.isTagged("SheetWebWorkflowFailure")(error)) return undefined;
+  if (!Predicate.hasProperty(error, "failure")) return undefined;
+  const failure = error.failure;
+  if (!Predicate.isTagged("Declared")(failure)) return undefined;
+  return Predicate.hasProperty(failure, "error") ? failure.error : undefined;
+};
+
 type WorkflowZeroContext = {
   readonly principalId: string;
   readonly visibilityKey: string;
@@ -152,7 +161,7 @@ export const runSheetZeroAuthReconnect = async ({
   return false;
 };
 
-interface SheetWebZeroClient {
+export interface SheetWebZeroClient {
   readonly principalId: string;
   readonly endpoint: URL;
   readonly zero: BrowserZero;

@@ -355,6 +355,7 @@ fixtureLayer("trusted hourly check-in messages record immutable save receipts", 
         ).result,
       ).toEqual({
         workspaceId: "workspace-1",
+        conversationId: "running-1",
         binding,
         message: {
           conversationId: "running-1",

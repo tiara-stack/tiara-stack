@@ -152,6 +152,7 @@ const saveResult = (
   row: ReturnType<typeof nextMessageRow>,
 ): ZeroReadonlyJSONValue => ({
   workspaceId: args.workspaceId,
+  conversationId: args.conversationId,
   binding: {
     eventStartEpochMs: currentBinding.eventStartEpochMs,
     messageSetGeneration: currentBinding.messageSetGeneration,
