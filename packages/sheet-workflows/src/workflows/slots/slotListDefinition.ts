@@ -4,6 +4,7 @@ import { Workflow } from "effect/unstable/workflow";
 import { makeAction } from "effect-zero-workflow";
 import { workflowContractKey } from "effect-zero-workflow/contract";
 import { BotOutboundMessage, RespondReceipt } from "sheet-bot-api";
+import { scheduleHourOrigin } from "sheet-domain";
 import {
   PartialNamePlayer,
   PopulatedBreakSchedule,
@@ -135,7 +136,10 @@ export const makeSlotViewEmbeds = (
     const schedules = yield* Effect.forEach(sorted.schedules, (schedule) =>
       toLegacySchedule(day, schedule),
     );
-    return renderSlotEmbeds(day, schedules, { startTime });
+    return renderSlotEmbeds(day, schedules, {
+      startTime,
+      scheduleStartHour: scheduleHourOrigin(view.schedules.map(({ hour }) => hour)),
+    });
   });
 
 export const makeSlotsDeliverListMessage = (

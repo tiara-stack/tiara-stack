@@ -15,6 +15,7 @@ import { makeMonitorCheckinMessage } from "sheet-message-content/checkinSummary"
 import { buildRoomOrderContent } from "sheet-message-content/roomOrderContent";
 import { fillParticipantFromName, hourWindowFor } from "sheet-message-content/rendering";
 import * as MessageText from "sheet-message-content/text";
+import { scheduleHourOrigin } from "sheet-domain";
 import {
   SpreadsheetId,
   type SchedulesLoadWorkspaceSuccess,
@@ -473,8 +474,16 @@ const pickCheckinTemplate = Effect.gen(function* () {
   return checkinMessageTemplates[checkinMessageTemplates.length - 1]!.value;
 });
 
-const eventHour = (eventStartEpochMs: number, hour: number) =>
-  hourWindowFor({ startTime: DateTime.makeUnsafe(eventStartEpochMs) }, hour);
+const eventHour = (
+  eventStartEpochMs: number,
+  hour: number,
+  scheduleHours: ReadonlyArray<number | null>,
+) =>
+  hourWindowFor(
+    { startTime: DateTime.makeUnsafe(eventStartEpochMs) },
+    hour,
+    scheduleHourOrigin(scheduleHours),
+  );
 
 const asProviderError = <A>(
   operation: SheetDataProviderError["operation"],
@@ -510,12 +519,15 @@ const makeSheetDataProvider = (
                 DateTime.addDuration(Duration.minutes(20)),
               );
               const currentHour = DateTime.startOf(now, "hour");
+              const scheduleStartHour = scheduleHourOrigin(
+                view.schedules.map(({ hour: scheduleHour }) => scheduleHour),
+              );
               return (
                 Math.floor(
                   Duration.toHours(
                     DateTime.distance(DateTime.makeUnsafe(view.eventStartEpochMs), currentHour),
                   ),
-                ) + 1
+                ) + scheduleStartHour
               );
             });
       const previous = schedulesByHour.get(hour - 1);
@@ -539,7 +551,11 @@ const makeSheetDataProvider = (
               savedTemplate: undefined,
               fallbackTemplate: yield* pickCheckinTemplate,
             });
-      const window = eventHour(view.eventStartEpochMs, hour);
+      const window = eventHour(
+        view.eventStartEpochMs,
+        hour,
+        view.schedules.map(({ hour: scheduleHour }) => scheduleHour),
+      );
       const conversationText = Predicate.isString(conversation.roleId)
         ? MessageText.parts(MessageText.text(`head to ${conversation.name}`))
         : MessageText.parts(
@@ -647,12 +663,15 @@ const makeSheetDataProvider = (
                 DateTime.addDuration(Duration.minutes(20)),
               );
               const currentHour = DateTime.startOf(now, "hour");
+              const scheduleStartHour = scheduleHourOrigin(
+                view.schedules.map(({ hour: scheduleHour }) => scheduleHour),
+              );
               return (
                 Math.floor(
                   Duration.toHours(
                     DateTime.distance(DateTime.makeUnsafe(view.eventStartEpochMs), currentHour),
                   ),
-                ) + 1
+                ) + scheduleStartHour
               );
             });
       const schedulesByHour = indexSchedulesByHour(view.schedules);
@@ -678,7 +697,11 @@ const makeSheetDataProvider = (
         );
       }
       const maxRank = Math.max(...entries.map(({ rank }) => rank));
-      const window = eventHour(view.eventStartEpochMs, hour);
+      const window = eventHour(
+        view.eventStartEpochMs,
+        hour,
+        view.schedules.map(({ hour: scheduleHour }) => scheduleHour),
+      );
       return {
         content: buildRoomOrderContent(
           hour,

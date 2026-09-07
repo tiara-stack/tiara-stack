@@ -763,6 +763,27 @@ const autoCheckinTestWorkflowDefinitionTests = () => {
     }),
   );
 
+  it.effect("anchors preview timestamps to the first populated schedule hour", () =>
+    Effect.gen(function* () {
+      const hour = 49;
+      const { operations, testExecution } = yield* makePreparationFixture({
+        hour,
+        getHourlyMessage: () =>
+          Effect.succeed(Option.some(hourlyCheckinMessage(hour, "CHECK-IN {{timeStampString}}"))),
+      });
+
+      const result = yield* operations.prepareTarget({
+        ...testExecution,
+        anchor: anchorMessage,
+        conversationName: "Alpha",
+      });
+
+      expect(normalizePayloadText(result.checkinPreview?.message)).toMatchObject({
+        embeds: [{ description: "CHECK-IN <t:0:R>" }],
+      });
+    }),
+  );
+
   it.effect("collects sent, skipped, and target failures and edits the aggregate anchor last", () =>
     Effect.gen(function* () {
       const calls: Array<string> = [];

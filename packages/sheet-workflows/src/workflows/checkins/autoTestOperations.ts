@@ -29,6 +29,7 @@ import {
   CheckinsTestAuto,
   type CheckinsTestAutoConversationResult,
 } from "sheet-workflow-contracts";
+import { scheduleHourOrigin } from "sheet-domain";
 import { config } from "@/config";
 import { SheetBotCacheClient } from "@/services/sheetBotCacheClient";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
@@ -678,6 +679,7 @@ export const autoCheckinTestWorkflowOperationsLayer = Layer.effect(
         const hourWindow = hourWindowFor(
           { startTime: DateTime.makeUnsafe(view.eventStartEpochMs) },
           hour,
+          scheduleHourOrigin(view.schedules.map(({ hour }) => hour)),
         );
         const initialMessage =
           incoming.length === 0
