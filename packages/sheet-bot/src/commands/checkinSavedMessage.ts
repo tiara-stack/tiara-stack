@@ -1,8 +1,8 @@
 import { Discord, Ix } from "dfx/index";
 import { ModalSubmitData } from "dfx/Interactions/context";
+import { ButtonStyle, MessageFlags } from "discord-api-types/v10";
 import { Cause, Exit } from "effect";
 import { Duration, Effect, Option, Predicate, Schema, Stream } from "effect";
-import { MessageFlags } from "discord-api-types/v10";
 import {
   CheckinMessageExpectedVersion,
   CheckinMessageScheduleHour,
@@ -14,25 +14,35 @@ import {
 import {
   CommandHelper,
   InteractionResponse,
+  MessageComponentInteractionResponse,
   makeForkedMessageComponentHandler,
+  makeButtonData,
+  makeMessageActionRowData,
   provideInteractionResponse,
   provideInteractionToken,
+  type CommandInteractionResponseContext,
   type SubCommandBuilder,
 } from "dfx-discord-utils/utils";
+import { Unstorage } from "dfx-discord-utils/discord/cache";
 import {
   CheckinMessagesLoadWorkflow,
   CheckinMessagesSaveWorkflow,
   SheetWorkflowHttpClient,
   SheetWorkflowHttpRequestContext,
+  type SheetWorkflowHttpClientShape,
 } from "../services";
 import { resolveChannelId, resolveGuildId } from "../utils/commandHelpers";
 
 const savedMessageModalPrefix = "checkin:saved:";
+const savedMessageEditButtonPrefix = "checkin:saved:edit:";
+const savedMessageEditSessionPrefix = "checkin:saved:edit-session:";
 const savedMessageFieldId = "template";
 const savedMessageLoadTimeout = Duration.seconds(20);
 const savedMessageSaveTimeout = Duration.seconds(45);
 const workflowObservationInitialPollInterval = Duration.millis(250);
 const workflowObservationMaxPollInterval = Duration.seconds(2);
+const savedMessageEditSessionTtlSeconds = 10 * 60;
+const savedMessageEditSessionReadTimeout = Duration.seconds(1);
 
 type CheckinMessagesLoadInput = Schema.Schema.Type<typeof CheckinMessagesLoad.input>;
 type CheckinMessagesSaveInput = Schema.Schema.Type<typeof CheckinMessagesSave.input>;
@@ -53,6 +63,17 @@ class CheckinSavedMessageCommandError extends Schema.TaggedErrorClass<CheckinSav
   "CheckinSavedMessageCommandError",
   { message: Schema.String },
 ) {}
+
+const SavedMessageEditSessionId = Schema.String.check(
+  Schema.isPattern(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i),
+);
+type SavedMessageEditSessionId = typeof SavedMessageEditSessionId.Type;
+
+const SavedMessageEditSession = Schema.Struct({
+  state: SavedMessageModalState,
+  template: Schema.NullOr(Schema.String),
+});
+type SavedMessageEditSession = typeof SavedMessageEditSession.Type;
 
 const makeSavedMessageModalId = (state: SavedMessageModalState): string =>
   [
@@ -87,6 +108,64 @@ const decodeSavedMessageModalId = (value: string): Option.Option<SavedMessageMod
     expectedVersion: Number(expectedVersion),
   });
 };
+
+const savedMessageEditSessionKey = (sessionId: SavedMessageEditSessionId) =>
+  `${savedMessageEditSessionPrefix}${sessionId}`;
+
+const saveSavedMessageEditSession = (
+  storage: typeof Unstorage.Service,
+  session: SavedMessageEditSession,
+): Effect.Effect<SavedMessageEditSessionId, CheckinSavedMessageCommandError> => {
+  const sessionId = Schema.decodeUnknownSync(SavedMessageEditSessionId)(crypto.randomUUID());
+  return Effect.tryPromise({
+    try: () =>
+      storage.setItem(savedMessageEditSessionKey(sessionId), session, {
+        ttl: savedMessageEditSessionTtlSeconds,
+      }),
+    catch: () =>
+      new CheckinSavedMessageCommandError({
+        message: "Could not prepare the check-in message editor. Try again.",
+      }),
+  }).pipe(Effect.as(sessionId));
+};
+
+const loadSavedMessageEditSession = (
+  storage: typeof Unstorage.Service,
+  sessionId: SavedMessageEditSessionId,
+): Effect.Effect<SavedMessageEditSession, CheckinSavedMessageCommandError> =>
+  Effect.tryPromise({
+    try: () => storage.getItem<unknown>(savedMessageEditSessionKey(sessionId)),
+    catch: () =>
+      new CheckinSavedMessageCommandError({
+        message: "Could not load the check-in message editor. Open it again.",
+      }),
+  }).pipe(
+    Effect.flatMap((stored) =>
+      Predicate.isNull(stored)
+        ? Effect.fail(
+            new CheckinSavedMessageCommandError({
+              message: "This check-in message editor has expired. Run the command again.",
+            }),
+          )
+        : Schema.decodeUnknownEffect(SavedMessageEditSession)(stored).pipe(
+            Effect.mapError(
+              () =>
+                new CheckinSavedMessageCommandError({
+                  message: "This check-in message editor is invalid. Run the command again.",
+                }),
+            ),
+          ),
+    ),
+  );
+
+const removeSavedMessageEditSession = (
+  storage: typeof Unstorage.Service,
+  sessionId: SavedMessageEditSessionId,
+) => Effect.tryPromise(() => storage.removeItem(savedMessageEditSessionKey(sessionId)));
+
+const deferSavedMessageCommand = (
+  response: Pick<CommandInteractionResponseContext, "deferReply">,
+) => response.deferReply({ flags: MessageFlags.Ephemeral });
 
 const nextWorkflowObservationPollInterval = (current: Duration.Duration) =>
   Duration.min(Duration.times(current, 2), workflowObservationMaxPollInterval);
@@ -267,6 +346,28 @@ const makeSavedMessageModal = (
   ],
 });
 
+const makeSavedMessageEditButtonId = (sessionId: SavedMessageEditSessionId) =>
+  `${savedMessageEditButtonPrefix}${sessionId}`;
+
+const decodeSavedMessageEditButtonId = (value: string): Option.Option<SavedMessageEditSessionId> =>
+  value.startsWith(savedMessageEditButtonPrefix)
+    ? Schema.decodeUnknownOption(SavedMessageEditSessionId)(
+        value.slice(savedMessageEditButtonPrefix.length),
+      )
+    : Option.none();
+
+const makeSavedMessageEditButtonData = (sessionId: SavedMessageEditSessionId) =>
+  makeMessageActionRowData((row) =>
+    row.addComponents(
+      makeButtonData((button) =>
+        button
+          .setCustomId(makeSavedMessageEditButtonId(sessionId))
+          .setLabel("Edit saved message")
+          .setStyle(ButtonStyle.Primary),
+      ),
+    ),
+  ).toJSON();
+
 export const makeSavedMessageSubCommandData = (builder: SubCommandBuilder) =>
   builder
     .setName("saved")
@@ -279,13 +380,18 @@ export const makeSavedMessageSubCommandData = (builder: SubCommandBuilder) =>
     )
     .addStringOption((option) => option.setName("server_id").setDescription("The server to edit"));
 
-export const makeSavedMessageSubCommand = Effect.gen(function* () {
-  const workflowClient = yield* SheetWorkflowHttpClient;
-  return yield* CommandHelper.makeSubCommand(
+type SavedMessageWorkflowClient = Pick<SheetWorkflowHttpClientShape, "checkinMessagesLoad">;
+
+export const makeSavedMessageSubCommandWithClient = (
+  workflowClient: SavedMessageWorkflowClient,
+  storage: typeof Unstorage.Service,
+) =>
+  CommandHelper.makeSubCommand(
     makeSavedMessageSubCommandData,
     // fallow-ignore-next-line complexity
     Effect.fn("checkin.saved.load")(function* (command) {
       const response = yield* InteractionResponse;
+      yield* deferSavedMessageCommand(response);
       const commandInput = yield* resolveSavedMessageLoadInput(command);
       const loaded = yield* loadSavedMessage(
         workflowClient.checkinMessagesLoad,
@@ -300,9 +406,23 @@ export const makeSavedMessageSubCommand = Effect.gen(function* () {
         messageSetGeneration: loaded.binding.messageSetGeneration,
         expectedVersion: current?.version ?? 0,
       });
-      yield* response.showModal(makeSavedMessageModal(state, current?.template ?? null));
+      const sessionId = yield* saveSavedMessageEditSession(storage, {
+        state,
+        template: current?.template ?? null,
+      });
+      yield* response.editReply({
+        payload: {
+          content: `The saved check-in message for hour ${state.hour} is ready. Click the button to edit it.`,
+          components: [makeSavedMessageEditButtonData(sessionId)],
+        },
+      });
     }),
   );
+
+export const makeSavedMessageSubCommand = Effect.gen(function* () {
+  const workflowClient = yield* SheetWorkflowHttpClient;
+  const storage = yield* Unstorage;
+  return yield* makeSavedMessageSubCommandWithClient(workflowClient, storage);
 });
 
 const makeSavedMessageModalHandler = Effect.gen(function* () {
@@ -383,4 +503,48 @@ const makeSavedMessageModalHandler = Effect.gen(function* () {
 export const makeSavedMessageModalDefinition = Effect.gen(function* () {
   const handler = yield* makeSavedMessageModalHandler;
   return Ix.modalSubmit(Ix.idStartsWith(savedMessageModalPrefix), handler);
+});
+
+export const makeSavedMessageEditButtonDefinition = Effect.gen(function* () {
+  const storage = yield* Unstorage;
+  const handler = Effect.gen(function* () {
+    const response = yield* MessageComponentInteractionResponse;
+    yield* Effect.gen(function* () {
+      const data = yield* Ix.MessageComponentData;
+      const sessionId = yield* decodeSavedMessageEditButtonId(data.custom_id).pipe(
+        Option.match({
+          onNone: () =>
+            Effect.fail(
+              new CheckinSavedMessageCommandError({
+                message: "This check-in message editor has expired. Run the command again.",
+              }),
+            ),
+          onSome: Effect.succeed,
+        }),
+      );
+      const session = yield* loadSavedMessageEditSession(storage, sessionId).pipe(
+        Effect.timeoutOrElse({
+          duration: savedMessageEditSessionReadTimeout,
+          orElse: () =>
+            Effect.fail(
+              new CheckinSavedMessageCommandError({
+                message:
+                  "The check-in message editor took too long to load. Run the command again.",
+              }),
+            ),
+        }),
+      );
+      const shown = yield* response.showModal(
+        makeSavedMessageModal(session.state, session.template),
+      );
+      if (shown) yield* removeSavedMessageEditSession(storage, sessionId).pipe(Effect.ignore);
+    }).pipe(Effect.catchCause((cause) => response.respondWithError(cause).pipe(Effect.asVoid)));
+    const initial = yield* response.awaitInitialResponse;
+    return { files: initial.files, ...initial.payload };
+  });
+
+  return Ix.messageComponent(
+    Ix.idStartsWith(savedMessageEditButtonPrefix),
+    provideInteractionToken(provideInteractionResponse("message-component", handler)),
+  );
 });

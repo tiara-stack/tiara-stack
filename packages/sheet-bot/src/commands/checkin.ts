@@ -31,7 +31,11 @@ import {
   resolveGuildId,
 } from "../utils/commandHelpers";
 import { enqueueSheetWorkflow } from "../utils/sheetWorkflowMigration";
-import { makeSavedMessageModalDefinition, makeSavedMessageSubCommand } from "./checkinSavedMessage";
+import {
+  makeSavedMessageEditButtonDefinition,
+  makeSavedMessageModalDefinition,
+  makeSavedMessageSubCommand,
+} from "./checkinSavedMessage";
 
 type CheckinWorkflowInput = Omit<CheckinsOpenInput, "responseReference">;
 type CheckinTestAutoWorkflowInput = Omit<CheckinsTestAutoInput, "responseReference">;
@@ -234,10 +238,12 @@ export const checkinCommandLayer = Layer.effectDiscard(
     const registry = yield* InteractionsRegistry;
     const command = yield* makeGlobalCheckinCommand;
     const savedMessageModal = yield* makeSavedMessageModalDefinition;
+    const savedMessageEditButton = yield* makeSavedMessageEditButtonDefinition;
 
     yield* registry.register(Ix.builder.add(command).catchAllCause(Effect.log));
     const savedMessageModalBuilder = Ix.builder
       .add<never, never>(savedMessageModal as never)
+      .add<never, never>(savedMessageEditButton as never)
       .catchAllCause(Effect.log);
     yield* registry.register(savedMessageModalBuilder);
   }),
@@ -247,6 +253,7 @@ export const checkinCommandLayer = Layer.effectDiscard(
       discordGatewayLayer,
       discordApplicationLayer,
       SheetWorkflowHttpClient.layer,
+      prefixedUnstorageLayer,
       BotCapabilityStore.layer.pipe(Layer.provide(prefixedUnstorageLayer)),
     ),
   ),
