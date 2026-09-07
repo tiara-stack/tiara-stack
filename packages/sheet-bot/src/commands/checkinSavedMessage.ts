@@ -31,6 +31,8 @@ const savedMessageModalPrefix = "checkin:saved:";
 const savedMessageFieldId = "template";
 const savedMessageLoadTimeout = Duration.seconds(20);
 const savedMessageSaveTimeout = Duration.seconds(45);
+const workflowObservationInitialPollInterval = Duration.millis(250);
+const workflowObservationMaxPollInterval = Duration.seconds(2);
 
 type CheckinMessagesLoadInput = Schema.Schema.Type<typeof CheckinMessagesLoad.input>;
 type CheckinMessagesSaveInput = Schema.Schema.Type<typeof CheckinMessagesSave.input>;
@@ -86,28 +88,40 @@ const decodeSavedMessageModalId = (value: string): Option.Option<SavedMessageMod
   });
 };
 
-const terminalRun = <Run extends TerminalWorkflowRun>(
-  stream: Stream.Stream<Option.Option<Run>, unknown, never>,
-  timeout: Duration.Duration,
+const nextWorkflowObservationPollInterval = (current: Duration.Duration) =>
+  Duration.min(Duration.times(current, 2), workflowObservationMaxPollInterval);
+
+const observeTerminalRun = <Run extends TerminalWorkflowRun>(
+  get: () => Stream.Stream<Option.Option<Run>, unknown, never>,
+  pollInterval: Duration.Duration,
 ): Effect.Effect<Run, unknown> =>
-  stream.pipe(
+  get().pipe(
     Stream.filter((run): run is Option.Some<Run> => Option.isSome(run)),
     Stream.map((run) => run.value),
-    Stream.takeUntil((run) => run.result._tag !== "Pending"),
+    Stream.takeUntil((run) => !Predicate.isTagged("Pending")(run.result)),
     Stream.runLast,
-    Effect.flatMap((run) =>
-      Option.match(run, {
-        onNone: () =>
-          Effect.fail(
-            new CheckinSavedMessageCommandError({
-              message: "The check-in message workflow returned no result.",
-            }),
+    Effect.flatMap((observed) => {
+      const pollAgain = Effect.sleep(pollInterval).pipe(
+        Effect.flatMap(() =>
+          Effect.suspend(() =>
+            observeTerminalRun(get, nextWorkflowObservationPollInterval(pollInterval)),
           ),
-        onSome: Effect.succeed,
-      }),
-    ),
-    Effect.timeout(timeout),
+        ),
+      );
+      return Option.match(observed, {
+        onNone: () => pollAgain,
+        onSome: (run) =>
+          Predicate.isTagged("Pending")(run.result) ? pollAgain : Effect.succeed(run),
+      });
+    }),
   );
+
+export const terminalRun = <Run extends TerminalWorkflowRun>(
+  get: () => Stream.Stream<Option.Option<Run>, unknown, never>,
+  timeout: Duration.Duration,
+  pollInterval = workflowObservationInitialPollInterval,
+): Effect.Effect<Run, unknown> =>
+  observeTerminalRun(get, pollInterval).pipe(Effect.timeout(timeout));
 
 const workflowFailureMessage = (failure: unknown): string =>
   Predicate.hasProperty(failure, "message") && Predicate.isString(failure.message)
@@ -175,7 +189,7 @@ const loadSavedMessage = (workflow: CheckinMessagesLoadWorkflow, input: CheckinM
   SheetWorkflowHttpRequestContext.asInteractionUser(() =>
     Effect.gen(function* () {
       const reference = yield* workflow.enqueue(input);
-      const run = yield* terminalRun(workflow.get(reference), savedMessageLoadTimeout);
+      const run = yield* terminalRun(() => workflow.get(reference), savedMessageLoadTimeout);
       return yield* runValue(run, "Could not load the saved check-in message").pipe(
         Effect.flatMap((value) =>
           decodeWorkflowValue(
@@ -192,7 +206,7 @@ const saveSavedMessage = (workflow: CheckinMessagesSaveWorkflow, input: CheckinM
   SheetWorkflowHttpRequestContext.asInteractionUser(() =>
     Effect.gen(function* () {
       const reference = yield* workflow.enqueue(input);
-      const run = yield* terminalRun(workflow.get(reference), savedMessageSaveTimeout);
+      const run = yield* terminalRun(() => workflow.get(reference), savedMessageSaveTimeout);
       return yield* runValue(run, "Could not save the check-in message").pipe(
         Effect.flatMap((value) =>
           decodeWorkflowValue(
