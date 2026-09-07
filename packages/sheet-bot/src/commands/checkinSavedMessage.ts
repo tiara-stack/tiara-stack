@@ -17,6 +17,7 @@ import {
   makeForkedMessageComponentHandler,
   provideInteractionResponse,
   provideInteractionToken,
+  type SubCommandBuilder,
 } from "dfx-discord-utils/utils";
 import {
   CheckinMessagesLoadWorkflow,
@@ -252,25 +253,22 @@ const makeSavedMessageModal = (
   ],
 });
 
+export const makeSavedMessageSubCommandData = (builder: SubCommandBuilder) =>
+  builder
+    .setName("saved")
+    .setDescription("Edit the saved check-in message for one hour")
+    .addIntegerOption((option) =>
+      option.setName("hour").setDescription("The event-relative hour to edit").setRequired(true),
+    )
+    .addStringOption((option) =>
+      option.setName("channel_name").setDescription("The name of the running channel"),
+    )
+    .addStringOption((option) => option.setName("server_id").setDescription("The server to edit"));
+
 export const makeSavedMessageSubCommand = Effect.gen(function* () {
   const workflowClient = yield* SheetWorkflowHttpClient;
   return yield* CommandHelper.makeSubCommand(
-    (builder) =>
-      builder
-        .setName("saved")
-        .setDescription("Edit the saved check-in message for one hour")
-        .addStringOption((option) =>
-          option.setName("channel_name").setDescription("The name of the running channel"),
-        )
-        .addIntegerOption((option) =>
-          option
-            .setName("hour")
-            .setDescription("The event-relative hour to edit")
-            .setRequired(true),
-        )
-        .addStringOption((option) =>
-          option.setName("server_id").setDescription("The server to edit"),
-        ),
+    makeSavedMessageSubCommandData,
     // fallow-ignore-next-line complexity
     Effect.fn("checkin.saved.load")(function* (command) {
       const response = yield* InteractionResponse;
