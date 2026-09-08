@@ -360,80 +360,85 @@ export const sheetConfigurationRanges = (configuration: WebSheetConfiguration) =
   return ranges;
 };
 
+/** Validates cross-field configuration rules after schema decoding has completed. */
+export const validateDecodedWebSheetConfiguration = (
+  configuration: WebSheetConfiguration,
+): ReadonlyArray<SheetConfigurationDiagnostic> => {
+  const diagnostics = sheetConfigurationRanges(configuration).flatMap(([path, range]) =>
+    rangeDiagnostics(path, range),
+  );
+  configuration.runners.forEach((runner, runnerIndex) => {
+    runner.hours.forEach((interval, intervalIndex) => {
+      if (interval.start > interval.end) {
+        diagnostics.push(
+          diagnostic(
+            "InvalidRunnerInterval",
+            `runners[${runnerIndex}].hours[${intervalIndex}]`,
+            "Runner hour intervals must end at or after their start.",
+          ),
+        );
+      }
+    });
+  });
+  if (configuration.teams.length > 32) {
+    diagnostics.push(
+      diagnostic("TooManyTeams", "teams", "A configuration can contain at most 32 teams."),
+    );
+  }
+  const entryIds = new Set<string>();
+  for (const [collection, entries] of [
+    ["teams", configuration.teams],
+    ["schedules", configuration.schedules],
+    ["runners", configuration.runners],
+  ] as const) {
+    entries.forEach(({ entryId }, index) => {
+      if (entryIds.has(entryId)) {
+        diagnostics.push(
+          diagnostic(
+            "InvalidSchema",
+            `${collection}[${index}].entryId`,
+            "Entry IDs must be unique across teams, schedules, and runners.",
+          ),
+        );
+      }
+      entryIds.add(entryId);
+    });
+  }
+  if (
+    (configuration.users.monitors?.ids === undefined) !==
+    (configuration.users.monitors?.names === undefined)
+  ) {
+    diagnostics.push(
+      diagnostic(
+        "MissingPairedRange",
+        "users.monitors",
+        "Monitor ID and monitor name ranges must be configured together.",
+      ),
+    );
+  }
+  const scheduleIdentities = new Set<string>();
+  configuration.schedules.forEach((schedule, index) => {
+    const identity = `${schedule.channel}\u0000${schedule.day}`;
+    if (scheduleIdentities.has(identity)) {
+      diagnostics.push(
+        diagnostic(
+          "DuplicateScheduleIdentity",
+          `schedules[${index}]`,
+          "Schedule channel and day must be unique.",
+        ),
+      );
+    }
+    scheduleIdentities.add(identity);
+  });
+  return diagnostics;
+};
+
 /** Returns structured diagnostics without throwing on untrusted draft or import data. */
 export const validateWebSheetConfiguration = (
   input: unknown,
 ): Effect.Effect<ReadonlyArray<SheetConfigurationDiagnostic>> =>
   Schema.decodeUnknownEffect(WebSheetConfiguration)(input, { onExcessProperty: "error" }).pipe(
-    Effect.map((configuration) => {
-      const diagnostics = sheetConfigurationRanges(configuration).flatMap(([path, range]) =>
-        rangeDiagnostics(path, range),
-      );
-      configuration.runners.forEach((runner, runnerIndex) => {
-        runner.hours.forEach((interval, intervalIndex) => {
-          if (interval.start > interval.end) {
-            diagnostics.push(
-              diagnostic(
-                "InvalidRunnerInterval",
-                `runners[${runnerIndex}].hours[${intervalIndex}]`,
-                "Runner hour intervals must end at or after their start.",
-              ),
-            );
-          }
-        });
-      });
-      if (configuration.teams.length > 32) {
-        diagnostics.push(
-          diagnostic("TooManyTeams", "teams", "A configuration can contain at most 32 teams."),
-        );
-      }
-      const entryIds = new Set<string>();
-      for (const [collection, entries] of [
-        ["teams", configuration.teams],
-        ["schedules", configuration.schedules],
-        ["runners", configuration.runners],
-      ] as const) {
-        entries.forEach(({ entryId }, index) => {
-          if (entryIds.has(entryId)) {
-            diagnostics.push(
-              diagnostic(
-                "InvalidSchema",
-                `${collection}[${index}].entryId`,
-                "Entry IDs must be unique across teams, schedules, and runners.",
-              ),
-            );
-          }
-          entryIds.add(entryId);
-        });
-      }
-      if (
-        (configuration.users.monitors?.ids === undefined) !==
-        (configuration.users.monitors?.names === undefined)
-      ) {
-        diagnostics.push(
-          diagnostic(
-            "MissingPairedRange",
-            "users.monitors",
-            "Monitor ID and monitor name ranges must be configured together.",
-          ),
-        );
-      }
-      const scheduleIdentities = new Set<string>();
-      configuration.schedules.forEach((schedule, index) => {
-        const identity = `${schedule.channel}\u0000${schedule.day}`;
-        if (scheduleIdentities.has(identity)) {
-          diagnostics.push(
-            diagnostic(
-              "DuplicateScheduleIdentity",
-              `schedules[${index}]`,
-              "Schedule channel and day must be unique.",
-            ),
-          );
-        }
-        scheduleIdentities.add(identity);
-      });
-      return diagnostics;
-    }),
+    Effect.map(validateDecodedWebSheetConfiguration),
     Effect.catch((error) =>
       Effect.succeed([
         diagnostic(

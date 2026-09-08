@@ -33,6 +33,36 @@ Monitor roles are registered with `/server add monitor_role`. Manage Server is c
 
 `/slot list` defaults to an ephemeral response. Set `message_type` to `persistent` only when the result should remain in the channel. `/screenshot` returns an image of the configured schedule-sheet range. Its `channel_name` is the logical running-channel name stored in TiaraBot, not a Discord channel mention.
 
+## Sheet configuration
+
+All `/sheet` commands require Manage server or Administrator access. The `export` and `import`
+commands work with the portable `tiarastack.sheet-configuration` JSON format used by SheetWeb.
+
+| Command              | Caller access | Required parameters    | Optional parameters                            |
+| -------------------- | ------------- | ---------------------- | ---------------------------------------------- |
+| `/sheet export`      | Manage server | None                   | `server_id`                                    |
+| `/sheet import`      | Manage server | `file`, `confirm`      | `server_id`                                    |
+| `/sheet list`        | Manage server | None                   | `server_id`                                    |
+| `/sheet set`         | Manage server | `spreadsheet_id`       | `server_id`                                    |
+| `/sheet edit_scalar` | Manage server | `field`                | `entry_id`, `text`, `number`, `server_id`      |
+| `/sheet edit_range`  | Manage server | `field`, `range`       | `entry_id`, `server_id`                        |
+| `/sheet edit_entry`  | Manage server | `collection`, `action` | `entry_id`, `position`, `confirm`, `server_id` |
+| `/sheet save`        | Manage server | None                   | `server_id`                                    |
+| `/sheet activate`    | Manage server | `revision_id`          | `server_id`                                    |
+| `/sheet rollback`    | Manage server | `revision_id`          | `server_id`                                    |
+| `/sheet discard`     | Manage server | None                   | `server_id`                                    |
+
+Run `/sheet import` with `confirm:false` first. TiaraBot checks the attachment and shows a preview
+without writing. Run it again with `confirm:true` to replace the saved draft. The active source
+remains unchanged until a separate save and activation step. TiaraBot accepts JSON files up to 1 MiB
+from Discord's attachment CDN. It rejects malformed files and configuration validation errors before
+the draft workflow starts.
+
+The bot cannot export or import while the legacy source is active. Use the SheetWeb editor to import
+the legacy Settings tab, then use an owned web configuration for bot-side file transfers. See the
+[SheetWeb configuration guide](/docs/sheetweb/sheet-configuration) for the full lifecycle and range
+preview.
+
 ## Check-in and room operations
 
 | Command              | Caller access             | Required parameters | Optional parameters                             |

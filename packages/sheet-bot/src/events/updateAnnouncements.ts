@@ -110,6 +110,13 @@ export const makeUpdateAnnouncements = (sheetWebBaseUrl: URL = defaultSheetWebBa
       color: 0x33ccbb,
     },
     {
+      id: "sheet-configuration-transfer-2026-09-07",
+      publishedAt: "2026-09-07T00:00:00.000Z",
+      title: "Sheet configuration file transfer",
+      description: `Server managers can now move an owned Sheet Configuration between SheetWeb and TiaraBot. Use Export JSON in SheetWeb or /sheet export to download a portable file. Review an upload with /sheet import confirm:false, then run it again with confirm:true to save the file as a draft. Imports never activate the file or change the live source. Read the TiaraDocs guide: ${makeSheetWebDocumentationUrl(sheetWebBaseUrl, "docs/sheetweb/sheet-configuration")}`,
+      color: 0x33ccbb,
+    },
+    {
       id: "hourly-checkin-messages-2026-09-07",
       publishedAt: "2026-09-07T08:00:00.000Z",
       title: "Hourly check-in messages",

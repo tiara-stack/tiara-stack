@@ -22,6 +22,18 @@ import {
   Stream,
 } from "effect";
 import {
+  FetchHttpClient,
+  Headers,
+  HttpClient,
+  HttpClientRequest,
+  HttpClientResponse,
+} from "effect/unstable/http";
+import {
+  inspectSheetConfigurationFileText,
+  isSheetConfigurationFileInspectionValid,
+  maximumSheetConfigurationFileBytes,
+  formatSheetConfigurationSummary,
+  serializeSheetConfigurationFile,
   SheetConfigurationDiagnostic,
   SheetConfigurationSource,
   WebSheetConfiguration,
@@ -29,6 +41,7 @@ import {
 } from "sheet-domain";
 import {
   SheetConfigurationEditDraftInput,
+  SheetConfigurationSaveDraftInput,
   SheetConfigurationScalarEdit,
   SpreadsheetId,
   WorkspaceCapabilities,
@@ -242,6 +255,219 @@ const sourceLabel = (source: typeof SheetConfigurationSource.Type) =>
       ? "owned (unconfigured)"
       : `owned (${source.revisionId})`;
 
+const configurationDiagnosticMessage = (
+  diagnostics: ReadonlyArray<typeof SheetConfigurationDiagnostic.Type>,
+): string => {
+  const displayed = diagnostics.slice(0, 5).map(({ path, message }) => `${path}: ${message}`);
+  const remaining = diagnostics.length - displayed.length;
+  return [
+    ...displayed,
+    ...(remaining > 0 ? [`${remaining} more issue${remaining === 1 ? "" : "s"}.`] : []),
+  ].join("\n");
+};
+
+const ConfigurationAttachment = Schema.Struct({
+  filename: Schema.String,
+  size: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  url: Schema.String,
+  content_type: Schema.optional(Schema.String),
+});
+type ConfigurationAttachment = Schema.Schema.Type<typeof ConfigurationAttachment>;
+
+const configurationAttachmentDownloadTimeout = Duration.seconds(30);
+
+// fallow-ignore-next-line complexity
+const isAllowedConfigurationAttachmentUrl = (value: string): boolean => {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      (url.hostname === "cdn.discordapp.com" ||
+        url.hostname.endsWith(".discordapp.com") ||
+        url.hostname === "media.discordapp.net" ||
+        url.hostname.endsWith(".media.discordapp.net"))
+    );
+  } catch {
+    return false;
+  }
+};
+
+const configurationDownloadError = (message: string, cause?: unknown) =>
+  new SheetCommandError({ message, ...(cause === undefined ? {} : { cause }) });
+
+const readConfigurationResponseBody = Effect.fn("sheet.readConfigurationResponseBody")(function* (
+  response: HttpClientResponse.HttpClientResponse,
+) {
+  const declaredLength = Option.getOrUndefined(
+    Headers.get(response.headers, "content-length").pipe(
+      Option.flatMap((value) => {
+        const length = Number(value);
+        return Number.isSafeInteger(length) && length >= 0 ? Option.some(length) : Option.none();
+      }),
+    ),
+  );
+  if (declaredLength !== undefined && declaredLength > maximumSheetConfigurationFileBytes) {
+    return yield* Effect.fail(
+      configurationDownloadError("Configuration files must be 1 MiB or smaller."),
+    );
+  }
+  const body = yield* response.stream.pipe(
+    Stream.runFoldEffect(
+      () => ({ chunks: [] as Array<Uint8Array>, size: 0 }),
+      (accumulator, chunk) => {
+        const size = accumulator.size + chunk.byteLength;
+        if (size > maximumSheetConfigurationFileBytes) {
+          return Effect.fail(
+            configurationDownloadError("Configuration files must be 1 MiB or smaller."),
+          );
+        }
+        accumulator.chunks.push(chunk);
+        return Effect.succeed({ chunks: accumulator.chunks, size });
+      },
+    ),
+    Effect.mapError((cause) =>
+      isSheetCommandError(cause)
+        ? cause
+        : configurationDownloadError("The attached configuration file could not be read.", cause),
+    ),
+  );
+  const bytes = new Uint8Array(body.size);
+  let offset = 0;
+  for (const chunk of body.chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+});
+
+const rejectConfigurationResponse = (
+  response: HttpClientResponse.HttpClientResponse,
+  cause: unknown,
+) =>
+  readConfigurationResponseBody(response).pipe(
+    Effect.timeoutOrElse({
+      duration: configurationAttachmentDownloadTimeout,
+      orElse: () => Effect.succeed(undefined),
+    }),
+    Effect.ignore,
+    Effect.andThen(
+      Effect.fail(
+        configurationDownloadError(
+          "The attached configuration file could not be downloaded.",
+          cause,
+        ),
+      ),
+    ),
+  );
+
+const downloadConfigurationAttachmentText = Effect.fn("sheet.downloadConfigurationAttachmentText")(
+  function* (httpClient: HttpClient.HttpClient, attachment: ConfigurationAttachment) {
+    const response = yield* httpClient.execute(HttpClientRequest.get(attachment.url)).pipe(
+      Effect.provideService(FetchHttpClient.RequestInit, { redirect: "manual" }),
+      Effect.mapError((cause) =>
+        configurationDownloadError(
+          "The attached configuration file could not be downloaded.",
+          cause,
+        ),
+      ),
+    );
+    const responseOk = yield* HttpClientResponse.filterStatusOk(response).pipe(
+      Effect.catch((cause) => rejectConfigurationResponse(response, cause)),
+    );
+    return yield* readConfigurationResponseBody(responseOk);
+  },
+);
+
+// fallow-ignore-next-line complexity
+/** @internal Kept exported so the bounded attachment transport can be tested independently. */
+export const readConfigurationAttachment = Effect.fn("sheet.readConfigurationAttachment")(
+  function* (httpClient: HttpClient.HttpClient, attachment: ConfigurationAttachment) {
+    if (attachment.size > maximumSheetConfigurationFileBytes) {
+      return yield* Effect.fail(
+        configurationDownloadError("Configuration files must be 1 MiB or smaller."),
+      );
+    }
+    if (
+      !attachment.filename.toLowerCase().endsWith(".json") &&
+      attachment.content_type !== "application/json"
+    ) {
+      return yield* Effect.fail(
+        new SheetCommandError({ message: "Attach a JSON Sheet Configuration file." }),
+      );
+    }
+    if (!isAllowedConfigurationAttachmentUrl(attachment.url)) {
+      return yield* Effect.fail(
+        new SheetCommandError({ message: "The attached file URL is not a Discord attachment." }),
+      );
+    }
+
+    const content = yield* downloadConfigurationAttachmentText(httpClient, attachment).pipe(
+      Effect.timeoutOrElse({
+        duration: configurationAttachmentDownloadTimeout,
+        orElse: () =>
+          Effect.fail(
+            configurationDownloadError(
+              "The attached configuration file took too long to download.",
+            ),
+          ),
+      }),
+    );
+    return yield* inspectSheetConfigurationFileText(content);
+  },
+);
+
+const respondToConfigurationImport = (options: {
+  readonly response: Pick<CommandInteractionResponseContext, "editReply">;
+  readonly workflowClient: Pick<SheetWorkflowHttpClientShape, "enqueueSheetConfigurationSaveDraft">;
+  readonly workspaceId: typeof WorkspaceId.Type;
+  readonly state: SheetConfigurationState;
+  readonly configuration: typeof WebSheetConfiguration.Type;
+  readonly diagnostics: ReadonlyArray<typeof SheetConfigurationDiagnostic.Type>;
+  readonly confirm: boolean;
+}) =>
+  // fallow-ignore-next-line complexity
+  Effect.gen(function* () {
+    const summary = formatSheetConfigurationSummary(options.configuration);
+    if (!options.confirm) {
+      return yield* options.response.editReply({
+        payload: {
+          content: [
+            "Sheet Configuration import preview",
+            `Contents: ${summary}.`,
+            ...(options.diagnostics.length > 0
+              ? [configurationDiagnosticMessage(options.diagnostics)]
+              : []),
+            options.state.configuration === null
+              ? "No saved draft exists yet."
+              : "The saved draft will be replaced.",
+            "The active source will remain unchanged.",
+            "Run this command again with confirm:true to save the file as the draft.",
+          ].join("\n"),
+        },
+      });
+    }
+    const input = yield* decodeCommandValue(
+      SheetConfigurationSaveDraftInput,
+      {
+        workspaceId: options.workspaceId,
+        expectedDraftVersion: options.state.draftVersion,
+        source: options.state.source,
+        legacyBinding: null,
+        baseRevisionId: options.state.baseRevisionId ?? options.state.activeRevisionId,
+        baselineDigest: options.state.baselineDigest,
+        configuration: options.configuration,
+        diagnostics: options.diagnostics,
+      },
+      "import",
+    );
+    return yield* enqueueAndReport(
+      options.response,
+      "Sheet Configuration import",
+      enqueueSheetConfigurationSaveDraftWorkflow(options.workflowClient, input),
+      `Saved ${summary} as the draft. The active source remains unchanged until activation.`,
+    );
+  });
+
 // The user-facing error map preserves actionable messages while hiding provider details.
 const workflowErrorMessages = {
   WorkflowInvocationUnauthorized:
@@ -285,7 +511,7 @@ const runDeferredCommand = <Command, A, E, R>(
   command: Command,
   action: (
     command: Command,
-    response: Pick<CommandInteractionResponseContext, "editReply">,
+    response: Pick<CommandInteractionResponseContext, "editReply" | "editReplyWithFiles">,
   ) => Effect.Effect<A, E, R>,
 ) =>
   Effect.gen(function* () {
@@ -533,6 +759,125 @@ const makeListSubCommand = Effect.gen(function* () {
                 `Active revision: ${state.activeRevisionId ?? "none"}.${legacyHint}`,
               ].join("\n"),
             },
+          });
+        }),
+      );
+    }),
+  );
+});
+
+const makeExportSubCommand = Effect.gen(function* () {
+  const zeroClient = yield* SheetZeroClient;
+  const workflowClient = yield* SheetWorkflowHttpClient;
+
+  return yield* CommandHelper.makeSubCommand(
+    (builder) =>
+      builder
+        .setName("export")
+        .setDescription("Download the current Sheet Configuration as JSON")
+        .addStringOption(serverIdOption("The server to export")),
+    // fallow-ignore-next-line code-duplication
+    Effect.fn("sheet.export")(function* (command) {
+      yield* runDeferredCommand(command, (command, response) =>
+        Effect.gen(function* () {
+          const { workspaceId, state } = yield* loadOwnedCommandState(
+            zeroClient,
+            workflowClient,
+            command.optionValueOptional("server_id"),
+          );
+          const configuration =
+            state.configuration ??
+            (yield* loadActiveConfiguration(
+              zeroClient,
+              workspaceId,
+              state.activeRevisionId ?? state.source.revisionId,
+            ));
+          if (configuration === null) {
+            return yield* Effect.fail(
+              new SheetCommandError({
+                message: "There is no owned Sheet Configuration to export yet.",
+              }),
+            );
+          }
+          const file = new File(
+            [serializeSheetConfigurationFile(configuration)],
+            "sheet-configuration.json",
+            { type: "application/json" },
+          );
+          return yield* response.editReplyWithFiles([file], {
+            payload: {
+              content: [
+                "Sheet Configuration export",
+                `Contents: ${formatSheetConfigurationSummary(configuration)}.`,
+                "This file contains configuration values only. The active source was not changed.",
+              ].join("\n"),
+            },
+          });
+        }),
+      );
+    }),
+  );
+});
+
+const makeImportSubCommand = Effect.gen(function* () {
+  const zeroClient = yield* SheetZeroClient;
+  const workflowClient = yield* SheetWorkflowHttpClient;
+  const httpClient = yield* HttpClient.HttpClient;
+
+  return yield* CommandHelper.makeSubCommand(
+    (builder) =>
+      builder
+        .setName("import")
+        .setDescription("Preview or save a Sheet Configuration JSON file")
+        .addAttachmentOption((option) =>
+          option
+            .setName("file")
+            .setDescription("A JSON file exported from SheetWeb or TiaraBot")
+            .setRequired(true),
+        )
+        .addBooleanOption((option) =>
+          option
+            .setName("confirm")
+            .setDescription("Save the file as the server's draft")
+            .setRequired(true),
+        )
+        .addStringOption(serverIdOption("The server to import into")),
+    // fallow-ignore-next-line code-duplication
+    Effect.fn("sheet.import")(function* (command) {
+      yield* runDeferredCommand(command, (command, response) =>
+        Effect.gen(function* () {
+          const { workspaceId, state } = yield* loadOwnedCommandState(
+            zeroClient,
+            workflowClient,
+            command.optionValueOptional("server_id"),
+          );
+          const attachment = yield* decodeCommandValue(
+            ConfigurationAttachment,
+            command.optionValue("file"),
+            "file",
+          );
+          const inspection = yield* readConfigurationAttachment(httpClient, attachment);
+          if (!isSheetConfigurationFileInspectionValid(inspection)) {
+            return yield* response.editReply({
+              payload: {
+                content: [
+                  "Sheet Configuration import rejected.",
+                  configurationDiagnosticMessage(inspection.diagnostics),
+                  "Nothing was written to this server.",
+                ].join("\n"),
+              },
+            });
+          }
+          const configuration = inspection.configuration;
+          const confirm = yield* requireBoolean(command.optionValue("confirm"), "confirm");
+          return yield* respondToConfigurationImport({
+            response,
+            workflowClient,
+            workspaceId,
+            state,
+            configuration,
+            diagnostics: inspection.diagnostics,
+            confirm,
           });
         }),
       );
@@ -1166,6 +1511,8 @@ const makeDiscardSubCommand = Effect.gen(function* () {
 
 const makeSheetCommand = Effect.gen(function* () {
   const listSubCommand = yield* makeListSubCommand;
+  const exportSubCommand = yield* makeExportSubCommand;
+  const importSubCommand = yield* makeImportSubCommand;
   const setSubCommand = yield* makeSetSubCommand;
   const scalarEditSubCommand = yield* makeScalarEditSubCommand;
   const rangeEditSubCommand = yield* makeRangeEditSubCommand;
@@ -1190,6 +1537,8 @@ const makeSheetCommand = Effect.gen(function* () {
           InteractionContextType.PrivateChannel,
         )
         .addSubcommand(() => listSubCommand.data)
+        .addSubcommand(() => exportSubCommand.data)
+        .addSubcommand(() => importSubCommand.data)
         .addSubcommand(() => setSubCommand.data)
         .addSubcommand(() => scalarEditSubCommand.data)
         .addSubcommand(() => rangeEditSubCommand.data)
@@ -1201,6 +1550,8 @@ const makeSheetCommand = Effect.gen(function* () {
     (command) =>
       command.subCommands({
         list: listSubCommand.handler,
+        export: exportSubCommand.handler,
+        import: importSubCommand.handler,
         set: setSubCommand.handler,
         edit_scalar: scalarEditSubCommand.handler,
         edit_range: rangeEditSubCommand.handler,

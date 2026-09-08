@@ -24,6 +24,7 @@ import {
   CircleAlert,
   CloudDownload,
   Database,
+  Download,
   Eye,
   FileClock,
   Layers3,
@@ -35,6 +36,7 @@ import {
   Table2,
   Trash2,
   Undo2,
+  Upload,
   Users,
 } from "lucide-react";
 import { ensureResultAtomData, isBrowserRuntime } from "#/lib/atomRegistry";
@@ -66,15 +68,20 @@ import {
   SheetRange,
   SheetRangeCoordinates,
   WebSheetConfiguration,
+  formatSheetConfigurationSummary,
   formatSheetRangeOption,
+  inspectSheetConfigurationFileText,
+  isSheetConfigurationFileInspectionValid,
+  maximumSheetConfigurationFileBytes,
   parseSheetRange,
+  serializeSheetConfigurationFile,
   sheetColumnLabel as columnLabel,
   sheetRangeCoordinatesFrom,
   sheetRangeFromCoordinates,
   sheetTitleFromRange,
   validateWebSheetConfiguration,
 } from "sheet-domain";
-import type { SheetConfigurationRevision } from "sheet-domain";
+import type { SheetConfigurationFileInspection, SheetConfigurationRevision } from "sheet-domain";
 import { WorkspaceId } from "sheet-workflow-contracts";
 import type {
   SheetSnapshotTab,
@@ -130,6 +137,11 @@ type ConfigurationChange = {
   readonly before: string;
   readonly after: string;
   readonly kind: "added" | "removed" | "changed";
+};
+
+type ConfigurationTransferPreview = {
+  readonly fileName: string;
+  readonly inspection: SheetConfigurationFileInspection;
 };
 
 type RangeUndoEntry = {
@@ -1110,6 +1122,7 @@ function StudioLoaded({
   const [pendingInputErrors, setPendingInputErrors] = useState<Record<string, string>>({});
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const [busy, setBusy] = useState<string>();
+  const [transferPreview, setTransferPreview] = useState<ConfigurationTransferPreview>();
   const [activationReviewOpen, setActivationReviewOpen] = useState(false);
   const [activationReceipt, setActivationReceipt] = useState<ActivationReceipt>();
   const [rangeUndoStack, setRangeUndoStack] = useState<ReadonlyArray<RangeUndoEntry>>([]);
@@ -1382,6 +1395,54 @@ function StudioLoaded({
     }
   };
 
+  const exportConfiguration = () => {
+    if (displayConfiguration === null) {
+      setStatus({ kind: "error", message: "Create or import a configuration before exporting." });
+      return;
+    }
+    try {
+      const content = serializeSheetConfigurationFile(displayConfiguration);
+      const objectUrl = URL.createObjectURL(
+        new Blob([content], { type: "application/json;charset=utf-8" }),
+      );
+      const anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.download = "sheet-configuration.json";
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+      setStatus({ kind: "success", message: "Configuration file downloaded." });
+    } catch (error) {
+      setStatus({ kind: "error", message: errorText(error) });
+    }
+  };
+
+  const inspectConfigurationFile = async (file: File) => {
+    setBusy("Read configuration file");
+    setStatus({ kind: "idle" });
+    setTransferPreview(undefined);
+    try {
+      if (file.size > maximumSheetConfigurationFileBytes) {
+        throw new Error(
+          `Configuration files must be ${String(maximumSheetConfigurationFileBytes / 1024 / 1024)} MiB or smaller.`,
+        );
+      }
+      const content = await file.text();
+      const inspection = await Effect.runPromise(inspectSheetConfigurationFileText(content));
+      setTransferPreview({ fileName: file.name, inspection });
+      setStatus(
+        isSheetConfigurationFileInspectionValid(inspection)
+          ? { kind: "success", message: "File ready. Review the replacement below." }
+          : { kind: "error", message: "This file needs attention before it can be imported." },
+      );
+    } catch (error) {
+      setStatus({ kind: "error", message: errorText(error) });
+    } finally {
+      setBusy(undefined);
+    }
+  };
+
   const handleConfigurationChange = (next: Configuration) => {
     setRangeUndoStack([]);
     setEditing(next);
@@ -1431,9 +1492,8 @@ function StudioLoaded({
       ? state.diagnostics
       : await Effect.runPromise(validateWebSheetConfiguration(configuration));
 
-  const persistDraft = async () => {
-    if (editing === null) throw new Error("Create or import a configuration before saving.");
-    const diagnostics = await validateDraft(editing);
+  const persistConfigurationDraft = async (configuration: Configuration) => {
+    const diagnostics = await validateDraft(configuration);
     const result = await saveDraft({
       workspaceId,
       expectedDraftVersion: state.draftVersion,
@@ -1441,7 +1501,7 @@ function StudioLoaded({
       legacyBinding: state.legacyBinding,
       baseRevisionId: state.baseRevisionId ?? state.activeRevisionId,
       baselineDigest: state.baselineDigest,
-      configuration: editing,
+      configuration,
       diagnostics,
     });
     const persistedConfiguration = result.configuration;
@@ -1454,6 +1514,11 @@ function StudioLoaded({
       configuration: persistedConfiguration,
       diagnostics: result.diagnostics,
     };
+  };
+
+  const persistDraft = async () => {
+    if (editing === null) throw new Error("Create or import a configuration before saving.");
+    return persistConfigurationDraft(editing);
   };
 
   const saveDraftAction = () =>
@@ -1475,6 +1540,30 @@ function StudioLoaded({
       setPendingInputErrors({});
       updateStudioLocation("overview");
     });
+
+  const confirmConfigurationImport = () => {
+    if (
+      transferPreview === undefined ||
+      !isSheetConfigurationFileInspectionValid(transferPreview.inspection)
+    ) {
+      setStatus({ kind: "error", message: "Review a valid configuration file before importing." });
+      return;
+    }
+    const configuration = transferPreview.inspection.configuration;
+    void runAction(
+      "Import configuration",
+      async () => {
+        const result = await persistConfigurationDraft(configuration);
+        setTransferPreview(undefined);
+        setPendingRangeState(cleanPendingRangeState);
+        setPendingInputErrors({});
+        setRangeUndoStack([]);
+        updateStudioLocation("overview");
+        return result.draftVersion;
+      },
+      (result) => `Configuration imported into draft v${String(result)}.`,
+    );
+  };
 
   // Activation validates, persists, versions, and activates one candidate configuration.
   // fallow-ignore-next-line complexity
@@ -1776,6 +1865,11 @@ function StudioLoaded({
                 setStarterSpreadsheetId={setStarterSpreadsheetId}
                 createStarter={createStarter}
                 importAction={importAction}
+                exportConfiguration={exportConfiguration}
+                importConfigurationFile={inspectConfigurationFile}
+                transferPreview={transferPreview}
+                confirmConfigurationImport={confirmConfigurationImport}
+                cancelConfigurationImport={() => setTransferPreview(undefined)}
                 busy={busy}
                 revisions={revisions}
                 rollbackAction={rollbackAction}
@@ -3236,6 +3330,11 @@ function OverviewSection({
   setStarterSpreadsheetId,
   createStarter,
   importAction,
+  exportConfiguration,
+  importConfigurationFile,
+  transferPreview,
+  confirmConfigurationImport,
+  cancelConfigurationImport,
   busy,
   revisions,
   rollbackAction,
@@ -3273,6 +3372,11 @@ function OverviewSection({
   readonly setStarterSpreadsheetId: (value: string) => void;
   readonly createStarter: () => void;
   readonly importAction: () => void;
+  readonly exportConfiguration: () => void;
+  readonly importConfigurationFile: (file: File) => void;
+  readonly transferPreview: ConfigurationTransferPreview | undefined;
+  readonly confirmConfigurationImport: () => void;
+  readonly cancelConfigurationImport: () => void;
   readonly busy: string | undefined;
   readonly revisions: ReadonlyArray<ConfigurationRevision>;
   readonly rollbackAction: (revision: ConfigurationRevision) => void;
@@ -3451,6 +3555,18 @@ function OverviewSection({
             </details>
           ) : null}
         </div>
+
+        <ConfigurationTransfer
+          configuration={configuration}
+          dirty={dirty}
+          busy={busy}
+          transferPreview={transferPreview}
+          onExport={exportConfiguration}
+          onImportFile={importConfigurationFile}
+          onConfirmImport={confirmConfigurationImport}
+          onCancelImport={cancelConfigurationImport}
+        />
+
         <details className="border border-white/10 bg-[#0a1210] p-5">
           <summary className="cursor-pointer list-none font-mono text-[10px] font-black tracking-[0.2em] text-[#8fbab4] marker:text-[#33ccbb]">
             SAFETY &amp; PERSISTENCE
@@ -3539,6 +3655,227 @@ function OverviewSection({
           <RotateCcw className="mr-1 inline h-3.5 w-3.5" />
           Discard this draft
         </button>
+      ) : null}
+    </section>
+  );
+}
+
+// fallow-ignore-next-line complexity
+function ConfigurationTransfer({
+  configuration,
+  dirty,
+  busy,
+  transferPreview,
+  onExport,
+  onImportFile,
+  onConfirmImport,
+  onCancelImport,
+}: {
+  readonly configuration: Configuration | null;
+  readonly dirty: boolean;
+  readonly busy: string | undefined;
+  readonly transferPreview: ConfigurationTransferPreview | undefined;
+  readonly onExport: () => void;
+  readonly onImportFile: (file: File) => void;
+  readonly onConfirmImport: () => void;
+  readonly onCancelImport: () => void;
+}) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const candidate = transferPreview?.inspection.configuration ?? null;
+  const inspectionValid =
+    transferPreview !== undefined &&
+    isSheetConfigurationFileInspectionValid(transferPreview.inspection);
+  const changes = useMemo(
+    () => (candidate === null ? [] : configurationDiffs(configuration, candidate)),
+    [candidate, configuration],
+  );
+  const changeGroups = useMemo(() => groupedConfigurationChanges(changes), [changes]);
+  const candidateSummary =
+    candidate === null ? undefined : formatSheetConfigurationSummary(candidate);
+
+  return (
+    <section
+      className="border border-[#33ccbb]/20 bg-[#0e1815] p-5"
+      aria-labelledby="configuration-transfer-title"
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <h2 id="configuration-transfer-title" className="text-xl font-black">
+            Move a configuration
+          </h2>
+          <p className="mt-1 max-w-2xl text-xs leading-relaxed text-[#8fbab4]">
+            Export the current editor state as a portable JSON file, or bring one in from another
+            server. Imports become drafts and never activate by themselves.
+          </p>
+        </div>
+        <Download className="h-5 w-5 shrink-0 text-[#33ccbb]" aria-hidden="true" />
+      </div>
+
+      <div className="mt-5 grid gap-px bg-white/10 md:grid-cols-2">
+        <div className="bg-[#0a1210] p-4">
+          <h3 className="font-black text-white/85">Export current configuration</h3>
+          <p className="mt-2 min-h-12 text-xs leading-relaxed text-white/50">
+            Download the configuration currently shown in the editor, including unsaved local
+            changes.
+          </p>
+          <button
+            type="button"
+            className={`${secondaryButton} mt-4`}
+            disabled={busy !== undefined || configuration === null}
+            onClick={onExport}
+            title={configuration === null ? "Create or import a configuration first" : undefined}
+          >
+            <Download className="h-4 w-4" aria-hidden="true" />
+            EXPORT JSON
+          </button>
+        </div>
+        <div className="bg-[#0a1210] p-4">
+          <h3 className="font-black text-white/85">Import a snapshot</h3>
+          <p className="mt-2 min-h-12 text-xs leading-relaxed text-white/50">
+            Choose a Sheet Configuration JSON file. Review the field changes before replacing the
+            saved draft.
+          </p>
+          <input
+            ref={fileInputRef}
+            id="sheet-configuration-file"
+            type="file"
+            accept=".json,application/json"
+            className="sr-only"
+            tabIndex={-1}
+            aria-label="Choose a Sheet Configuration JSON file"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = "";
+              if (file !== undefined) onImportFile(file);
+            }}
+          />
+          <button
+            type="button"
+            className={`${secondaryButton} mt-4`}
+            disabled={busy !== undefined}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {busy === "Read configuration file" ? (
+              <LoaderCircle className="h-4 w-4 animate-spin motion-reduce:animate-none" />
+            ) : (
+              <Upload className="h-4 w-4" aria-hidden="true" />
+            )}
+            {busy === "Read configuration file" ? "READING FILE" : "CHOOSE JSON FILE"}
+          </button>
+        </div>
+      </div>
+
+      {transferPreview !== undefined ? (
+        <div className="mt-5 border-t border-[#33ccbb]/20 pt-4" aria-live="polite">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <p className="font-mono text-[10px] font-black tracking-[0.16em] text-[#73e9dc]">
+                IMPORT REVIEW
+              </p>
+              <h3 className="mt-1 break-words text-lg font-black">
+                {transferPreview.fileName || "Selected configuration file"}
+              </h3>
+            </div>
+            <span
+              className={`shrink-0 border px-2 py-1 font-mono text-[10px] font-black tracking-[0.1em] ${inspectionValid ? "border-[#33ccbb]/30 bg-[#33ccbb]/10 text-[#73e9dc]" : "border-[#ff7b72]/30 bg-[#ff7b72]/10 text-[#ffaaa2]"}`}
+            >
+              {inspectionValid ? "READY TO IMPORT" : "FILE NEEDS ATTENTION"}
+            </span>
+          </div>
+
+          {inspectionValid && candidate !== null ? (
+            <>
+              <dl className="mt-4 grid gap-px bg-white/10 sm:grid-cols-3">
+                <div className="min-w-0 bg-[#0a1210] p-3">
+                  <dt className="font-mono text-[9px] font-black tracking-[0.12em] text-white/40">
+                    CONTENT
+                  </dt>
+                  <dd className="mt-1 break-words text-xs font-bold text-white/75">
+                    {candidateSummary}
+                  </dd>
+                </div>
+                <div className="min-w-0 bg-[#0a1210] p-3">
+                  <dt className="font-mono text-[9px] font-black tracking-[0.12em] text-white/40">
+                    FIELD CHANGES
+                  </dt>
+                  <dd className="mt-1 break-words text-xs font-bold text-white/75">
+                    {changes.length === 0 ? "No changes" : String(changes.length)}
+                  </dd>
+                </div>
+                <div className="min-w-0 bg-[#0a1210] p-3">
+                  <dt className="font-mono text-[9px] font-black tracking-[0.12em] text-white/40">
+                    LIVE SOURCE
+                  </dt>
+                  <dd className="mt-1 break-words text-xs font-bold text-white/75">Unchanged</dd>
+                </div>
+              </dl>
+              <p className="mt-4 text-sm leading-relaxed text-white/70">
+                {changes.length === 0
+                  ? "This file matches the configuration currently shown. Importing it will still create a new draft checkpoint."
+                  : `This will replace ${changes.length} ${changes.length === 1 ? "field" : "fields"}${changeGroups.length === 0 ? "" : ` across ${changeGroups.map(({ label }) => label).join(", ")}`}.`}
+              </p>
+              {dirty ? (
+                <p className="mt-2 text-xs font-bold leading-relaxed text-[#ffcf91]">
+                  Your unsaved editor changes will be replaced after you confirm this import.
+                </p>
+              ) : null}
+              {transferPreview.inspection.diagnostics.length > 0 ? (
+                <ul className="mt-3 space-y-2 text-xs leading-relaxed text-[#ffcf91]">
+                  {transferPreview.inspection.diagnostics.map((diagnostic, index) => (
+                    <li key={`${diagnostic.path}:${index}`}>
+                      {diagnostic.path}: {diagnostic.message}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              <div className="mt-4 flex flex-col-reverse gap-2 border-t border-white/10 pt-4 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  className={secondaryButton}
+                  disabled={busy !== undefined}
+                  onClick={onCancelImport}
+                >
+                  CANCEL
+                </button>
+                <button
+                  type="button"
+                  className={primaryButton}
+                  disabled={busy !== undefined}
+                  onClick={onConfirmImport}
+                >
+                  {busy === "Import configuration" ? (
+                    <LoaderCircle className="h-4 w-4 animate-spin motion-reduce:animate-none" />
+                  ) : (
+                    <Upload className="h-4 w-4" aria-hidden="true" />
+                  )}
+                  {busy === "Import configuration" ? "IMPORTING" : "IMPORT TO DRAFT"}
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="mt-4 border border-[#ff7b72]/25 bg-[#251412] p-4" role="alert">
+              <p className="text-xs font-bold leading-relaxed text-[#ffb5ae]">
+                Fix the file and choose it again. Nothing was written to this server.
+              </p>
+              <ul className="mt-3 space-y-2 text-xs leading-relaxed text-white/65">
+                {transferPreview.inspection.diagnostics.map((diagnostic, index) => (
+                  <li key={`${diagnostic.path}:${index}`}>
+                    <span className="font-mono text-[#ffaaa2]">{diagnostic.path}</span> ·{" "}
+                    {diagnostic.message}
+                  </li>
+                ))}
+              </ul>
+              <button
+                type="button"
+                className={`${secondaryButton} mt-4`}
+                disabled={busy !== undefined}
+                onClick={onCancelImport}
+              >
+                DISMISS
+              </button>
+            </div>
+          )}
+        </div>
       ) : null}
     </section>
   );

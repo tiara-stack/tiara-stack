@@ -41,6 +41,26 @@ diagnostics in the editor or restore the legacy layout before trying again.
 For a server without an existing legacy setup, enter a Google spreadsheet ID in Overview and
 choose **Create draft**. You can then map its tabs and ranges.
 
+## Export or import a configuration file
+
+Use **Move a configuration** on the Overview section to move a complete web configuration between
+servers or keep a backup of the current draft or active owned configuration.
+
+1. Choose **Export JSON** to download the configuration shown in the editor. Unsaved browser edits
+   are included in the file.
+2. Choose **Choose JSON file** and select a file exported by SheetWeb or TiaraBot.
+3. Review the file contents and field-change count.
+4. Choose **IMPORT TO DRAFT** only when the preview is correct.
+
+The file uses the `tiarastack.sheet-configuration` format at version `1`. It contains the
+spreadsheet ID, ranges, teams, schedules, runners, and event time. It does not contain a workspace
+ID, revision ID, or audit data, so the same file can be used in another server. Files larger than
+1 MiB and files with schema or validation errors are rejected before anything is saved.
+
+An import replaces the saved draft after confirmation. It does not activate the configuration, alter
+the Google Sheet, or change the source TiaraBot currently uses. Save and review the activation diff
+when the imported draft is ready to become live.
+
 ## Work in a draft
 
 The editor follows this lifecycle:
@@ -101,6 +121,12 @@ Discarding a draft also leaves the active source alone.
 ## Related TiaraBot controls
 
 TiaraBot's Discord `/sheet` commands provide an alternate way to manage an owned web configuration.
-The browser editor remains the place to import the legacy Settings tab and work with the visual
-range preview. The [TiaraBot update-announcement guide](/docs/tiarabot/monitors/update-announcements)
-explains how bot-delivered product updates are handled.
+Use `/sheet export` to receive the current draft or active owned configuration as a JSON attachment.
+Use `/sheet import` with the attachment and `confirm:false` to preview it. Run the command again
+with `confirm:true` to save it as the draft. The bot checks the same file format and keeps the active
+source unchanged. Legacy-active servers must use the browser editor to import the legacy Settings
+tab before using the bot transfer commands.
+
+The [TiaraBot command reference](/docs/tiarabot/command-reference) lists the parameters and the
+[update-announcement guide](/docs/tiarabot/monitors/update-announcements) explains how bot-delivered
+product updates are handled.

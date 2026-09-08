@@ -30,8 +30,12 @@ describe("makeUpdateAnnouncementWorkflowRequests", () => {
     expect(pathPrefixedAnnouncements[8]?.description).toContain(
       "https://host/sheetweb/docs/tiarabot/command-reference",
     );
-    expect(pathPrefixedAnnouncements[9]?.description).toContain("/checkin saved");
+    expect(pathPrefixedAnnouncements[9]?.description).toContain("/sheet import");
     expect(pathPrefixedAnnouncements[9]?.description).toContain(
+      "https://host/sheetweb/docs/sheetweb/sheet-configuration",
+    );
+    expect(pathPrefixedAnnouncements[10]?.description).toContain("/checkin saved");
+    expect(pathPrefixedAnnouncements[10]?.description).toContain(
       "https://host/sheetweb/docs/tiarabot/monitors/check-in-messages",
     );
   });
@@ -143,6 +147,16 @@ describe("makeUpdateAnnouncementWorkflowRequests", () => {
         announcement: {
           ...updateAnnouncements[9],
           publishedAt: new Date(updateAnnouncements[9].publishedAt),
+        },
+      },
+      {
+        workspaceId: "guild-1",
+        workspaceName: "Guild One",
+        joinedAt: new Date("2026-06-04T16:59:59.999Z"),
+        systemConversationId: "system-channel",
+        announcement: {
+          ...updateAnnouncements[10],
+          publishedAt: new Date(updateAnnouncements[10].publishedAt),
         },
       },
     ]);

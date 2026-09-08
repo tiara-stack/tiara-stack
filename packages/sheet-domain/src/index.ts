@@ -1,6 +1,7 @@
 import { Predicate, Schema } from "effect";
 
 export * from "./configuration";
+export * from "./configurationFile";
 
 export const TeamSubmissionStatus = Schema.Literals([
   "pending",

@@ -7,4 +7,8 @@ Sheet mapping configuration now has its own [SheetWeb guide](/docs/sheetweb/shee
 Use that guide for the browser editor, draft lifecycle, range mapping, review, and activation.
 
 TiaraBot still uses the active sheet configuration for schedule-backed operations. The bot's
-Discord commands and server operations remain documented in the [TiaraBot command reference](/docs/tiarabot/command-reference).
+Discord commands can now export an owned configuration or preview and import a JSON snapshot with
+`/sheet export` and `/sheet import`. The import command requires `confirm:false` for its preview and
+`confirm:true` to save the file as a draft. It does not activate the draft. These commands are
+documented in the [TiaraBot command reference](/docs/tiarabot/command-reference), and the complete
+file workflow is in the [SheetWeb configuration guide](/docs/sheetweb/sheet-configuration).
