@@ -84,7 +84,7 @@ describe("interactive message factories", () => {
   });
 
   it("keeps published room orders button-free and prefixes tentative ones", () => {
-    expect(publishedRoomOrderMessage(content)).toEqual({ content });
+    expect(publishedRoomOrderMessage(content)).toEqual({ content, components: [] });
     expect(tentativeRoomOrderMessage(content, range, 1)).toEqual({
       content: [text("(tentative)"), text("\n"), ...content],
       components: [tentativeRoomOrderActionRow(range, 1)],

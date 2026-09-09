@@ -442,7 +442,7 @@ describe("tentative room-order pin Workflow Definition slice", () => {
           first,
           RoomOrdersPinTentative.authorizationPolicy.policy,
         );
-        expect(loaded.message).not.toHaveProperty("components");
+        expect(loaded.message).toHaveProperty("components", []);
         const attempt = yield* operations.pin(
           loaded,
           pinReceipt.deliveryKey,

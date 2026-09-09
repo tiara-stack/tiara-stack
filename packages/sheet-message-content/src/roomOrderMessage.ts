@@ -21,7 +21,7 @@ export const roomOrderDraftMessage = (
 
 export const publishedRoomOrderMessage = (
   content: ReadonlyArray<BotTextPart>,
-): BotOutboundMessage => ({ content });
+): BotOutboundMessage => ({ content, components: [] });
 
 export const roomOrderSendAcknowledgementMessage = (
   pinned: boolean,
