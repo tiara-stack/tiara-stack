@@ -177,11 +177,10 @@ describe("AutonomousTriggerService", () => {
         },
       );
 
-      expect(result.acceptedInvocationCount).toBe(3);
+      expect(result.acceptedInvocationCount).toBe(2);
       expect(
         calls.map(({ input }) => input).sort((left, right) => (left.hour ?? 0) - (right.hour ?? 0)),
       ).toEqual([
-        { workspaceId: "workspace-1", conversationName: "fallback", hour: 1 },
         { workspaceId: "workspace-1", conversationName: "main", hour: 49 },
         { workspaceId: "workspace-1", conversationName: "side", hour: 193 },
       ]);
@@ -213,6 +212,10 @@ describe("AutonomousTriggerService", () => {
         {
           conversations,
           enqueuer,
+          scheduleHourOrigins: new Map([
+            ["main", 1],
+            ["side", 1],
+          ]),
         },
       );
       const firstIds = calls.map(({ invocationId }) => invocationId);
@@ -221,6 +224,10 @@ describe("AutonomousTriggerService", () => {
         {
           conversations,
           enqueuer,
+          scheduleHourOrigins: new Map([
+            ["main", 1],
+            ["side", 1],
+          ]),
         },
       );
       const secondIds = calls.slice(firstIds.length).map(({ invocationId }) => invocationId);
@@ -264,6 +271,7 @@ describe("AutonomousTriggerService", () => {
             conversation("conversation-not-running", "not-running", "role-3", false),
           ],
           enqueuer,
+          scheduleHourOrigins: new Map([["main", 1]]),
         },
       );
 
@@ -308,6 +316,10 @@ describe("AutonomousTriggerService", () => {
             conversation("conversation-invalid-workspace", "invalid-workspace", null, true, " "),
           ],
           enqueuer,
+          scheduleHourOrigins: new Map([
+            ["failed", 1],
+            ["ok", 1],
+          ]),
           workspaces: [
             workspace("workspace-no-sheet", null),
             workspace(" "),
@@ -335,6 +347,7 @@ describe("AutonomousTriggerService", () => {
           {
             conversations: [conversation("conversation-interrupted", "interrupted")],
             enqueuer,
+            scheduleHourOrigins: new Map([["interrupted", 1]]),
           },
         ),
       );
@@ -367,6 +380,10 @@ describe("AutonomousTriggerService", () => {
             conversation("conversation-ok", "ok", "role-2"),
           ],
           enqueuer,
+          scheduleHourOrigins: new Map([
+            ["failed", 1],
+            ["ok", 1],
+          ]),
           workspaces: [workspace(" "), workspace("workspace-1")],
         },
       );

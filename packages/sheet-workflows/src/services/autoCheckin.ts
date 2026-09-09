@@ -186,6 +186,12 @@ const recoverNonInterruptingSweepFailure = (
     ? Effect.failCause(cause)
     : Effect.logWarning(message).pipe(Effect.annotateLogs({ ...attributes, cause }), Effect.as(0));
 
+const skipMissingScheduleOrigin = (operation: string, conversationName: string) =>
+  Effect.logWarning("autonomous sweep skipped a conversation without a schedule origin").pipe(
+    Effect.annotateLogs({ operation, conversationName }),
+    Effect.as(0),
+  );
+
 interface AutonomousTriggerWorkflowClientShape {
   readonly enqueueAutoCheckinSweep: (scheduledHourBucketEpochMs: number) => Effect.Effect<string>;
   readonly enqueueAutoRoleCleanupSweep: (
@@ -276,10 +282,14 @@ export class AutonomousTriggerService extends Context.Service<
             const accepted = yield* Effect.forEach(
               names,
               (conversationName) => {
+                const scheduleStartHour = scheduleHourOrigins.get(conversationName);
+                if (Predicate.isUndefined(scheduleStartHour)) {
+                  return skipMissingScheduleOrigin("auto-checkin", conversationName);
+                }
                 const hour = deriveAutonomousEventHour(
                   eventStartEpochMs,
                   targetHourBucket,
-                  scheduleHourOrigins.get(conversationName) ?? 1,
+                  scheduleStartHour,
                 );
                 const invocationId = makeCheckinsOpenAutonomousInvocationId({
                   workspaceId,
@@ -359,10 +369,14 @@ export class AutonomousTriggerService extends Context.Service<
                 managed,
                 (conversation) => {
                   const conversationName = conversation.name;
+                  const scheduleStartHour = scheduleHourOrigins.get(conversationName);
+                  if (Predicate.isUndefined(scheduleStartHour)) {
+                    return skipMissingScheduleOrigin("auto-role-cleanup", conversationName);
+                  }
                   const hour = deriveAutomaticRoleCleanupHour(
                     eventStartEpochMs,
                     bucket,
-                    scheduleHourOrigins.get(conversationName) ?? 1,
+                    scheduleStartHour,
                   );
                   const invocationId = makeMemberKickAutonomousInvocationId(
                     bucket,

@@ -269,8 +269,10 @@ imagePullSecrets:
       secretKey: appBaseUrl
     - name: ZERO_CACHE_SERVER
       value: "http://{{ include "tiara-stack.zeroCacheServiceName" . }}:4848"
+    # Zero validates this user ID against the OAuth service token's client_id.
     - name: ZERO_CACHE_USER_ID
-      value: "system:serviceaccount:$(POD_NAMESPACE):sheet-bot"
+      secretName: {{ $sheetBotSecretName }}
+      secretKey: sheetBotServiceClientId
     - name: ZERO_OAUTH_AUDIENCE
       value: sheet-zero
     - name: SHEET_AUTH_ISSUER
