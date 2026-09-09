@@ -36,6 +36,7 @@ import { AutonomousWorkflowEnqueuer } from "./autonomousWorkflowEnqueuer";
 
 const hourMillis = scheduledHourMillis;
 const autonomousProviderTimeout = Duration.seconds(30);
+const autonomousScheduleOriginsTimeout = Duration.minutes(2);
 
 class AutonomousTriggerError extends Data.TaggedError("AutonomousTriggerError")<{
   readonly operation: string;
@@ -46,17 +47,23 @@ class AutonomousTriggerError extends Data.TaggedError("AutonomousTriggerError")<
 export const deriveAutonomousEventHour = (
   eventStartEpochMs: number,
   targetHourBucketEpochMs: number,
+  scheduleStartHour = 1,
 ): number => {
   if (!Number.isFinite(eventStartEpochMs) || !Number.isFinite(targetHourBucketEpochMs)) {
     throw new RangeError("event start and target hour must be finite");
   }
-  return Math.floor((targetHourBucketEpochMs - eventStartEpochMs) / hourMillis) + 1;
+  return Math.floor((targetHourBucketEpochMs - eventStartEpochMs) / hourMillis) + scheduleStartHour;
 };
 
 export const deriveAutomaticRoleCleanupHour = (
   eventStartEpochMs: number,
   targetHourBucketEpochMs: number,
-): number => Math.max(0, deriveAutonomousEventHour(eventStartEpochMs, targetHourBucketEpochMs));
+  scheduleStartHour = 1,
+): number =>
+  Math.max(
+    0,
+    deriveAutonomousEventHour(eventStartEpochMs, targetHourBucketEpochMs, scheduleStartHour),
+  );
 
 const isRunningConversation = (conversation: {
   readonly running: boolean | null;
@@ -92,6 +99,12 @@ const uniqueRunningConversationNames = (
 type WorkspaceConversation = Effect.Success<
   ReturnType<TrustedSheetPersistence["Service"]["workspaces"]["getWorkspaceConversations"]>
 >[number];
+
+type ManagedWorkspaceConversation = WorkspaceConversation & {
+  readonly name: string;
+  readonly roleId: string;
+  readonly running: true;
+};
 
 type AutoCheckinWorkspace = Effect.Success<
   ReturnType<TrustedSheetPersistence["Service"]["workspaces"]["getAutoCheckinWorkspaces"]>
@@ -153,15 +166,16 @@ const requireActiveConfiguration = (
     ),
   );
 
+const isManagedConversation = (
+  conversation: WorkspaceConversation,
+): conversation is ManagedWorkspaceConversation =>
+  isRunningConversation(conversation) &&
+  Predicate.isString(conversation.roleId) &&
+  hasNonEmptyConversationName(conversation);
+
 const managedConversations = (
   conversations: ReadonlyArray<WorkspaceConversation>,
-): ReadonlyArray<WorkspaceConversation> =>
-  conversations.filter(
-    (conversation) =>
-      isRunningConversation(conversation) &&
-      Predicate.isNotNull(conversation.roleId) &&
-      hasNonEmptyConversationName(conversation),
-  );
+): ReadonlyArray<ManagedWorkspaceConversation> => conversations.filter(isManagedConversation);
 
 const recoverNonInterruptingSweepFailure = (
   message: string,
@@ -250,15 +264,23 @@ export class AutonomousTriggerService extends Context.Service<
             const eventStartEpochMs = yield* provider
               .loadEventStart(active.spreadsheetId, active.configuration)
               .pipe(Effect.timeout(autonomousProviderTimeout));
-            const hour = deriveAutonomousEventHour(eventStartEpochMs, targetHourBucket);
             const conversations = yield* persistence.workspaces.getWorkspaceConversations({
               workspaceId,
               running: true,
             });
             const names = uniqueRunningConversationNames(conversations);
+            if (names.length === 0) return 0;
+            const scheduleHourOrigins = yield* provider
+              .loadScheduleHourOrigins(active.spreadsheetId, active.configuration)
+              .pipe(Effect.timeout(autonomousScheduleOriginsTimeout));
             const accepted = yield* Effect.forEach(
               names,
               (conversationName) => {
+                const hour = deriveAutonomousEventHour(
+                  eventStartEpochMs,
+                  targetHourBucket,
+                  scheduleHourOrigins.get(conversationName) ?? 1,
+                );
                 const invocationId = makeCheckinsOpenAutonomousInvocationId({
                   workspaceId,
                   eventStartEpochMs,
@@ -324,15 +346,24 @@ export class AutonomousTriggerService extends Context.Service<
               const eventStartEpochMs = yield* provider
                 .loadEventStart(active.spreadsheetId, active.configuration)
                 .pipe(Effect.timeout(autonomousProviderTimeout));
-              const hour = deriveAutomaticRoleCleanupHour(eventStartEpochMs, bucket);
               const conversations = yield* persistence.workspaces.getWorkspaceConversations({
                 workspaceId,
                 running: true,
               });
               const managed = managedConversations(conversations);
+              if (managed.length === 0) return 0;
+              const scheduleHourOrigins = yield* provider
+                .loadScheduleHourOrigins(active.spreadsheetId, active.configuration)
+                .pipe(Effect.timeout(autonomousScheduleOriginsTimeout));
               const accepted = yield* Effect.forEach(
                 managed,
                 (conversation) => {
+                  const conversationName = conversation.name;
+                  const hour = deriveAutomaticRoleCleanupHour(
+                    eventStartEpochMs,
+                    bucket,
+                    scheduleHourOrigins.get(conversationName) ?? 1,
+                  );
                   const invocationId = makeMemberKickAutonomousInvocationId(
                     bucket,
                     botClientId,

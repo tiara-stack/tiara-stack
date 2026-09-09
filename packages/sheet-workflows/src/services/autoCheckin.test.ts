@@ -13,7 +13,7 @@ import {
 import { makeCheckinsOpenAutonomousInvocationId } from "@/workflows/checkins/keys";
 import { checkinSheetWorkflowDefinitionVersion } from "@/workflows/checkins/catalog";
 import { CheckinsOpenWorkflow } from "@/workflows/checkins/openDefinition";
-import { AutonomousTriggerProvider } from "@/workflows/autonomous/provider";
+import { AutonomousTriggerProvider, scheduleHourOriginsFor } from "@/workflows/autonomous/provider";
 import { ReadOnlyWorkflowAuthorization } from "@/workflows/readOnly/authorization";
 import {
   AutonomousTriggerService,
@@ -78,9 +78,13 @@ const makePersistence = (
     },
   }) as unknown as TrustedSheetPersistence["Service"];
 
-const makeProvider = (eventStartEpochMs: number) =>
+const makeProvider = (
+  eventStartEpochMs: number,
+  scheduleHourOrigins: ReadonlyMap<string, number> = new Map(),
+) =>
   ({
     loadEventStart: () => Effect.succeed(eventStartEpochMs),
+    loadScheduleHourOrigins: () => Effect.succeed(scheduleHourOrigins),
   }) as typeof AutonomousTriggerProvider.Service;
 
 const runService = <A>(
@@ -89,6 +93,7 @@ const runService = <A>(
     readonly conversations: ReadonlyArray<ReturnType<typeof conversation>>;
     readonly enqueuer: typeof AutonomousWorkflowEnqueuer.Service;
     readonly eventStartEpochMs?: number;
+    readonly scheduleHourOrigins?: ReadonlyMap<string, number>;
     readonly workspaces?: ReadonlyArray<ReturnType<typeof workspace>>;
   },
 ): Effect.Effect<A, never, never> =>
@@ -100,7 +105,10 @@ const runService = <A>(
     ),
     Effect.provideService(
       AutonomousTriggerProvider,
-      makeProvider(options.eventStartEpochMs ?? Date.UTC(2026, 3, 1, 12)),
+      makeProvider(
+        options.eventStartEpochMs ?? Date.UTC(2026, 3, 1, 12),
+        options.scheduleHourOrigins,
+      ),
     ),
     Effect.provideService(AutonomousWorkflowEnqueuer, options.enqueuer),
     Effect.provide(configLayer),
@@ -114,8 +122,71 @@ describe("AutonomousTriggerService", () => {
 
     expect(canonicalScheduledHourBucket(bucket + 45 * 60_000)).toBe(bucket);
     expect(deriveAutonomousEventHour(eventStart, bucket + scheduledHourMillis)).toBe(3);
+    expect(deriveAutonomousEventHour(eventStart, eventStart, 49)).toBe(49);
     expect(deriveAutomaticRoleCleanupHour(eventStart, bucket)).toBe(2);
+    expect(deriveAutomaticRoleCleanupHour(eventStart, eventStart, 49)).toBe(49);
+    expect(
+      deriveAutomaticRoleCleanupHour(eventStart, eventStart - 50 * scheduledHourMillis, 49),
+    ).toBe(0);
   });
+
+  it("groups populated schedule-hour origins by conversation", () => {
+    expect(
+      scheduleHourOriginsFor([
+        { channel: "g1", hour: null },
+        { channel: "g1", hour: 50 },
+        { channel: "g1", hour: 49 },
+        { channel: "g2", hour: 193 },
+        { hour: 1 },
+      ]),
+    ).toEqual(
+      new Map([
+        ["g1", 49],
+        ["g2", 193],
+      ]),
+    );
+  });
+
+  it.effect("derives autonomous hours from each conversation schedule origin", () =>
+    Effect.gen(function* () {
+      const calls: Array<Parameters<AutonomousWorkflowEnqueuerShape["enqueueCheckinsOpen"]>[0]> =
+        [];
+      const enqueuer = {
+        enqueueCheckinsOpen: (request: (typeof calls)[number]) =>
+          Effect.sync(() => {
+            calls.push(request);
+          }),
+        enqueueMembersKick: () => Effect.void,
+      } as typeof AutonomousWorkflowEnqueuer.Service;
+      const eventStart = Date.UTC(2026, 3, 1, 12);
+
+      const result = yield* runService<AutonomousSweepResult>(
+        (service) => service.sweepAutoCheckin(eventStart - scheduledHourMillis),
+        {
+          conversations: [
+            conversation("conversation-main", "main"),
+            conversation("conversation-side", "side"),
+            conversation("conversation-fallback", "fallback"),
+          ],
+          enqueuer,
+          eventStartEpochMs: eventStart,
+          scheduleHourOrigins: new Map([
+            ["main", 49],
+            ["side", 193],
+          ]),
+        },
+      );
+
+      expect(result.acceptedInvocationCount).toBe(3);
+      expect(
+        calls.map(({ input }) => input).sort((left, right) => (left.hour ?? 0) - (right.hour ?? 0)),
+      ).toEqual([
+        { workspaceId: "workspace-1", conversationName: "fallback", hour: 1 },
+        { workspaceId: "workspace-1", conversationName: "main", hour: 49 },
+        { workspaceId: "workspace-1", conversationName: "side", hour: 193 },
+      ]);
+    }),
+  );
 
   it.effect("uses stable per-target identities when the same sweep fires twice", () =>
     Effect.gen(function* () {
