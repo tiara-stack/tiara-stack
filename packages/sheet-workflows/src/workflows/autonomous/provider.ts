@@ -23,25 +23,11 @@ export class AutonomousTriggerProviderError extends Data.TaggedError(
   readonly cause: unknown;
 }> {}
 
-export const scheduleHourOriginsFor = (
-  schedules: ReadonlyArray<{
-    readonly channel?: string | undefined;
-    readonly hour: number | null;
-  }>,
-): ReadonlyMap<string, number> => {
-  const hoursByChannel = new Map<string, Array<number | null>>();
-  for (const schedule of schedules) {
-    if (!Predicate.isString(schedule.channel)) continue;
-    const hours = hoursByChannel.get(schedule.channel);
-    if (Predicate.isUndefined(hours)) {
-      hoursByChannel.set(schedule.channel, [schedule.hour]);
-    } else {
-      hours.push(schedule.hour);
-    }
-  }
-  return new Map(
-    Array.from(hoursByChannel, ([channel, hours]) => [channel, scheduleHourOrigin(hours)] as const),
-  );
+export const scheduleHourOriginFor = (
+  schedules: ReadonlyArray<{ readonly hour: number | null }>,
+): number | undefined => {
+  const hours = schedules.flatMap(({ hour }) => (Predicate.isNull(hour) ? [] : [hour]));
+  return hours.length === 0 ? undefined : scheduleHourOrigin(hours);
 };
 
 interface AutonomousTriggerProviderShape {
@@ -49,10 +35,10 @@ interface AutonomousTriggerProviderShape {
     spreadsheetId: string,
     configuration?: WebSheetConfiguration | null,
   ) => Effect.Effect<number, AutonomousTriggerProviderError>;
-  readonly loadScheduleHourOrigins: (
+  readonly loadScheduleHourOrigin: (
     spreadsheetId: string,
     configuration?: WebSheetConfiguration | null,
-  ) => Effect.Effect<ReadonlyMap<string, number>, AutonomousTriggerProviderError>;
+  ) => Effect.Effect<number | undefined, AutonomousTriggerProviderError>;
 }
 
 export class AutonomousTriggerProvider extends Context.Service<
@@ -76,7 +62,7 @@ export const autonomousTriggerProviderLayer = Layer.effect(
             configuration,
             makeError: makeProviderError("read-event-configuration"),
           }),
-        loadScheduleHourOrigins: (
+        loadScheduleHourOrigin: (
           spreadsheetId: string,
           configuration?: WebSheetConfiguration | null,
         ) =>
@@ -92,7 +78,7 @@ export const autonomousTriggerProviderLayer = Layer.effect(
             const schedules = yield* parseScheduleConfigurations(
               valueRowsAt(configurationRanges, 0),
             ).pipe(Effect.mapError(makeProviderError("read-schedule-configuration")));
-            if (schedules.length === 0) return new Map<string, number>();
+            if (schedules.length === 0) return undefined;
             const values = yield* readBatchedSheetsValueRanges({
               client,
               spreadsheetId,
@@ -106,7 +92,7 @@ export const autonomousTriggerProviderLayer = Layer.effect(
                 hour: scheduleHour(rows, rowIndex),
               }));
             });
-            return scheduleHourOriginsFor(hourRows);
+            return scheduleHourOriginFor(hourRows);
           }),
       };
     }),

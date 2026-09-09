@@ -276,13 +276,12 @@ export class AutonomousTriggerService extends Context.Service<
             });
             const names = uniqueRunningConversationNames(conversations);
             if (names.length === 0) return 0;
-            const scheduleHourOrigins = yield* provider
-              .loadScheduleHourOrigins(active.spreadsheetId, active.configuration)
+            const scheduleStartHour = yield* provider
+              .loadScheduleHourOrigin(active.spreadsheetId, active.configuration)
               .pipe(Effect.timeout(autonomousScheduleOriginsTimeout));
             const accepted = yield* Effect.forEach(
               names,
               (conversationName) => {
-                const scheduleStartHour = scheduleHourOrigins.get(conversationName);
                 if (Predicate.isUndefined(scheduleStartHour)) {
                   return skipMissingScheduleOrigin("auto-checkin", conversationName);
                 }
@@ -362,14 +361,13 @@ export class AutonomousTriggerService extends Context.Service<
               });
               const managed = managedConversations(conversations);
               if (managed.length === 0) return 0;
-              const scheduleHourOrigins = yield* provider
-                .loadScheduleHourOrigins(active.spreadsheetId, active.configuration)
+              const scheduleStartHour = yield* provider
+                .loadScheduleHourOrigin(active.spreadsheetId, active.configuration)
                 .pipe(Effect.timeout(autonomousScheduleOriginsTimeout));
               const accepted = yield* Effect.forEach(
                 managed,
                 (conversation) => {
                   const conversationName = conversation.name;
-                  const scheduleStartHour = scheduleHourOrigins.get(conversationName);
                   if (Predicate.isUndefined(scheduleStartHour)) {
                     return skipMissingScheduleOrigin("auto-role-cleanup", conversationName);
                   }

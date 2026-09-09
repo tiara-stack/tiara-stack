@@ -13,7 +13,7 @@ import {
 import { makeCheckinsOpenAutonomousInvocationId } from "@/workflows/checkins/keys";
 import { checkinSheetWorkflowDefinitionVersion } from "@/workflows/checkins/catalog";
 import { CheckinsOpenWorkflow } from "@/workflows/checkins/openDefinition";
-import { AutonomousTriggerProvider, scheduleHourOriginsFor } from "@/workflows/autonomous/provider";
+import { AutonomousTriggerProvider, scheduleHourOriginFor } from "@/workflows/autonomous/provider";
 import { ReadOnlyWorkflowAuthorization } from "@/workflows/readOnly/authorization";
 import {
   AutonomousTriggerService,
@@ -78,13 +78,10 @@ const makePersistence = (
     },
   }) as unknown as TrustedSheetPersistence["Service"];
 
-const makeProvider = (
-  eventStartEpochMs: number,
-  scheduleHourOrigins: ReadonlyMap<string, number> = new Map(),
-) =>
+const makeProvider = (eventStartEpochMs: number, scheduleHourOrigin?: number) =>
   ({
     loadEventStart: () => Effect.succeed(eventStartEpochMs),
-    loadScheduleHourOrigins: () => Effect.succeed(scheduleHourOrigins),
+    loadScheduleHourOrigin: () => Effect.succeed(scheduleHourOrigin),
   }) as typeof AutonomousTriggerProvider.Service;
 
 const runService = <A>(
@@ -93,7 +90,7 @@ const runService = <A>(
     readonly conversations: ReadonlyArray<ReturnType<typeof conversation>>;
     readonly enqueuer: typeof AutonomousWorkflowEnqueuer.Service;
     readonly eventStartEpochMs?: number;
-    readonly scheduleHourOrigins?: ReadonlyMap<string, number>;
+    readonly scheduleHourOrigin?: number;
     readonly workspaces?: ReadonlyArray<ReturnType<typeof workspace>>;
   },
 ): Effect.Effect<A, never, never> =>
@@ -107,7 +104,7 @@ const runService = <A>(
       AutonomousTriggerProvider,
       makeProvider(
         options.eventStartEpochMs ?? Date.UTC(2026, 3, 1, 12),
-        options.scheduleHourOrigins,
+        options.scheduleHourOrigin,
       ),
     ),
     Effect.provideService(AutonomousWorkflowEnqueuer, options.enqueuer),
@@ -130,24 +127,13 @@ describe("AutonomousTriggerService", () => {
     ).toBe(0);
   });
 
-  it("groups populated schedule-hour origins by conversation", () => {
-    expect(
-      scheduleHourOriginsFor([
-        { channel: "g1", hour: null },
-        { channel: "g1", hour: 50 },
-        { channel: "g1", hour: 49 },
-        { channel: "g2", hour: 193 },
-        { hour: 1 },
-      ]),
-    ).toEqual(
-      new Map([
-        ["g1", 49],
-        ["g2", 193],
-      ]),
+  it("derives one schedule-hour origin across conversations", () => {
+    expect(scheduleHourOriginFor([{ hour: null }, { hour: 50 }, { hour: 49 }, { hour: 193 }])).toBe(
+      49,
     );
   });
 
-  it.effect("derives autonomous hours from each conversation schedule origin", () =>
+  it.effect("derives autonomous hours from the event-global schedule origin", () =>
     Effect.gen(function* () {
       const calls: Array<Parameters<AutonomousWorkflowEnqueuerShape["enqueueCheckinsOpen"]>[0]> =
         [];
@@ -161,28 +147,28 @@ describe("AutonomousTriggerService", () => {
       const eventStart = Date.UTC(2026, 3, 1, 12);
 
       const result = yield* runService<AutonomousSweepResult>(
-        (service) => service.sweepAutoCheckin(eventStart - scheduledHourMillis),
+        (service) => service.sweepAutoCheckin(eventStart + 9 * scheduledHourMillis),
         {
           conversations: [
             conversation("conversation-main", "main"),
             conversation("conversation-side", "side"),
-            conversation("conversation-fallback", "fallback"),
           ],
           enqueuer,
           eventStartEpochMs: eventStart,
-          scheduleHourOrigins: new Map([
-            ["main", 49],
-            ["side", 193],
-          ]),
+          scheduleHourOrigin: 49,
         },
       );
 
       expect(result.acceptedInvocationCount).toBe(2);
       expect(
-        calls.map(({ input }) => input).sort((left, right) => (left.hour ?? 0) - (right.hour ?? 0)),
+        calls
+          .map(({ input }) => input)
+          .sort((left, right) =>
+            (left.conversationName ?? "").localeCompare(right.conversationName ?? ""),
+          ),
       ).toEqual([
-        { workspaceId: "workspace-1", conversationName: "main", hour: 49 },
-        { workspaceId: "workspace-1", conversationName: "side", hour: 193 },
+        { workspaceId: "workspace-1", conversationName: "main", hour: 59 },
+        { workspaceId: "workspace-1", conversationName: "side", hour: 59 },
       ]);
     }),
   );
@@ -212,10 +198,7 @@ describe("AutonomousTriggerService", () => {
         {
           conversations,
           enqueuer,
-          scheduleHourOrigins: new Map([
-            ["main", 1],
-            ["side", 1],
-          ]),
+          scheduleHourOrigin: 1,
         },
       );
       const firstIds = calls.map(({ invocationId }) => invocationId);
@@ -224,10 +207,7 @@ describe("AutonomousTriggerService", () => {
         {
           conversations,
           enqueuer,
-          scheduleHourOrigins: new Map([
-            ["main", 1],
-            ["side", 1],
-          ]),
+          scheduleHourOrigin: 1,
         },
       );
       const secondIds = calls.slice(firstIds.length).map(({ invocationId }) => invocationId);
@@ -271,7 +251,7 @@ describe("AutonomousTriggerService", () => {
             conversation("conversation-not-running", "not-running", "role-3", false),
           ],
           enqueuer,
-          scheduleHourOrigins: new Map([["main", 1]]),
+          scheduleHourOrigin: 1,
         },
       );
 
@@ -316,10 +296,7 @@ describe("AutonomousTriggerService", () => {
             conversation("conversation-invalid-workspace", "invalid-workspace", null, true, " "),
           ],
           enqueuer,
-          scheduleHourOrigins: new Map([
-            ["failed", 1],
-            ["ok", 1],
-          ]),
+          scheduleHourOrigin: 1,
           workspaces: [
             workspace("workspace-no-sheet", null),
             workspace(" "),
@@ -347,7 +324,7 @@ describe("AutonomousTriggerService", () => {
           {
             conversations: [conversation("conversation-interrupted", "interrupted")],
             enqueuer,
-            scheduleHourOrigins: new Map([["interrupted", 1]]),
+            scheduleHourOrigin: 1,
           },
         ),
       );
@@ -380,10 +357,7 @@ describe("AutonomousTriggerService", () => {
             conversation("conversation-ok", "ok", "role-2"),
           ],
           enqueuer,
-          scheduleHourOrigins: new Map([
-            ["failed", 1],
-            ["ok", 1],
-          ]),
+          scheduleHourOrigin: 1,
           workspaces: [workspace(" "), workspace("workspace-1")],
         },
       );
