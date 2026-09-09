@@ -177,7 +177,6 @@ const authorizedCheckinContext = (
   return Option.all({
     workspaceId: decodeWorkspaceId(messageCheckin.workspaceId),
     conversationId: Option.fromNullishOr(messageCheckin.conversationId),
-    createdByUserId: Option.fromNullishOr(messageCheckin.createdByUserId),
     initialMessage: decodeCheckinInitialMessage(messageCheckin.initialMessage),
     participant: Option.fromNullishOr(participant),
   }).pipe(

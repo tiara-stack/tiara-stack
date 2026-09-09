@@ -384,6 +384,19 @@ const checkinResponseWorkflowDefinitionTests = () => {
     }),
   );
 
+  it.effect("authorizes an autonomous check-in without a creator user", () =>
+    Effect.gen(function* () {
+      const authorization = yield* makeAuthorization({
+        row: Option.some({ ...checkinRow, createdByUserId: null }),
+      });
+      const authorizeCheckinRespond = Option.getOrThrow(
+        Option.fromNullishOr(authorization.authorizeCheckinRespond),
+      );
+
+      expect(yield* authorizeCheckinRespond(principal, input)).toEqual(context);
+    }),
+  );
+
   it.effect("authorizes user and exact autonomous CheckinsOpen principals", () =>
     Effect.gen(function* () {
       const authorization = yield* makeAuthorization({});
