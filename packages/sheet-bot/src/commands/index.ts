@@ -1,6 +1,7 @@
 export * from "./checkin";
 export * from "./channel";
 export * from "./featureFlags";
+export * from "./fillers";
 export * from "./kick";
 export * from "./preference";
 export * from "./roomOrder";

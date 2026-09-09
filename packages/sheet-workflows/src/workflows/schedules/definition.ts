@@ -22,7 +22,7 @@ import {
 import { scheduleSheetWorkflowDefinitionVersion } from "./catalog";
 import { makeScheduleDeliveryKey } from "./keys";
 import { UserScheduleView } from "./schema";
-import { ScheduleWorkflowOperations } from "./service";
+import { ScheduleWorkflowOperations, type ScheduleWorkflowActions } from "./service";
 
 const UserScheduleSummary = Schema.Struct({
   fillHours: Schema.Array(Schema.Number),
@@ -165,12 +165,14 @@ const SchedulesDeliverUserScheduleWorkflow = Workflow.make({
   idempotencyKey: ({ invocationId }) => invocationId,
 }).annotate(ClusterSchema.ShardGroup, () => "dispatch");
 
-export const makeUserScheduleWorkflowBody = <E, R>(actions: {
-  readonly load: (execution: typeof executionSchema.Type) => Effect.Effect<UserScheduleView, E, R>;
-  readonly respond: (
-    execution: typeof responseExecutionSchema.Type,
-  ) => Effect.Effect<typeof RespondReceipt.Type, E, R>;
-}) =>
+export const makeUserScheduleWorkflowBody = <E, R>(
+  actions: ScheduleWorkflowActions<
+    typeof executionSchema.Type,
+    typeof responseExecutionSchema.Type,
+    E,
+    R
+  >,
+) =>
   Effect.fnUntraced(function* (execution: typeof executionSchema.Type) {
     const input = yield* decodeWorkflowContractInputOrDie(
       SchedulesDeliverUserSchedule,

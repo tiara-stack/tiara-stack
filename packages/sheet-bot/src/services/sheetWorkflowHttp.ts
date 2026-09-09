@@ -57,6 +57,13 @@ export type SchedulesDeliverUserScheduleInput = Parameters<SchedulesDeliverUserS
 export type SchedulesDeliverUserScheduleReference = Effect.Success<
   ReturnType<SchedulesDeliverUserScheduleEnqueue>
 >;
+export type SchedulesDeliverChannelFillersEnqueue =
+  SheetWorkflowHttpClients["schedules"]["deliverChannelFillers"]["enqueue"];
+export type SchedulesDeliverChannelFillersInput =
+  Parameters<SchedulesDeliverChannelFillersEnqueue>[0];
+export type SchedulesDeliverChannelFillersReference = Effect.Success<
+  ReturnType<SchedulesDeliverChannelFillersEnqueue>
+>;
 export type CheckinsOpenEnqueue = SheetWorkflowHttpClients["checkins"]["open"]["enqueue"];
 export type CheckinsOpenInput = Parameters<CheckinsOpenEnqueue>[0];
 export type CheckinsOpenReference = Effect.Success<ReturnType<CheckinsOpenEnqueue>>;
@@ -551,6 +558,7 @@ export interface SheetWorkflowHttpClientShape {
   readonly authorizationLoadWorkspaceCapabilities: AuthorizationLoadWorkspaceCapabilitiesWorkflow;
   readonly enqueueServicesDeliverStatus: ServicesDeliverStatusEnqueue;
   readonly enqueueSchedulesDeliverUserSchedule: SchedulesDeliverUserScheduleEnqueue;
+  readonly enqueueSchedulesDeliverChannelFillers: SchedulesDeliverChannelFillersEnqueue;
   readonly enqueueCheckinsOpen: CheckinsOpenEnqueue;
   readonly enqueueCheckinsTestAuto: CheckinsTestAutoEnqueue;
   readonly enqueueCheckinsRespond: CheckinsRespondEnqueue;
@@ -682,6 +690,7 @@ export class SheetWorkflowHttpClient extends Context.Service<
       authorizationLoadWorkspaceCapabilities: clients.authorization.loadWorkspaceCapabilities,
       enqueueServicesDeliverStatus: clients.services.deliverStatus.enqueue,
       enqueueSchedulesDeliverUserSchedule: clients.schedules.deliverUserSchedule.enqueue,
+      enqueueSchedulesDeliverChannelFillers: clients.schedules.deliverChannelFillers.enqueue,
       enqueueCheckinsOpen: clients.checkins.open.enqueue,
       enqueueCheckinsTestAuto: clients.checkins.testAuto.enqueue,
       enqueueCheckinsRespond: clients.checkins.respond.enqueue,
@@ -815,6 +824,14 @@ export const enqueueScheduleWorkflow = (
   input: SchedulesDeliverUserScheduleInput,
   options?: { readonly invocationId?: SchedulesDeliverUserScheduleReference["invocationId"] },
 ) => enqueueWorkflow(client.enqueueSchedulesDeliverUserSchedule, input, options);
+
+export const enqueueChannelFillersWorkflow = (
+  client: Pick<SheetWorkflowHttpClientShape, "enqueueSchedulesDeliverChannelFillers">,
+  input: SchedulesDeliverChannelFillersInput,
+  options?: {
+    readonly invocationId?: SchedulesDeliverChannelFillersReference["invocationId"];
+  },
+) => enqueueWorkflow(client.enqueueSchedulesDeliverChannelFillers, input, options);
 
 export const enqueueCheckinsOpenWorkflow = (
   client: Pick<SheetWorkflowHttpClientShape, "enqueueCheckinsOpen">,

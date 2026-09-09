@@ -57,6 +57,7 @@ const approvedIntentInventory = [
   "conversations.setLockdown",
   "teams.deliverList",
   "schedules.deliverUserSchedule",
+  "schedules.deliverChannelFillers",
   "screenshots.captureAndDeliver",
   "services.deliverStatus",
   "teamSubmissions.process",

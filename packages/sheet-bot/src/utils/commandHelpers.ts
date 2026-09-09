@@ -1,5 +1,6 @@
 import { Effect, Option, Predicate, Schema, pipe } from "effect";
-import { Interaction } from "dfx-discord-utils/utils";
+import { Interaction, InteractionResponse } from "dfx-discord-utils/utils";
+import { MessageFlags } from "discord-api-types/v10";
 import type { NumberOptionBuilder, StringOptionBuilder } from "dfx-discord-utils/utils";
 import { interactionDeadlineEpochMs } from "./interactionDeadline";
 import * as Data from "effect/Data";
@@ -137,6 +138,15 @@ const workflowWorkspaceId = Schema.Trimmed.check(Schema.isNonEmpty()).pipe(
 
 export const decodeWorkflowWorkspaceId = (value: string) =>
   Schema.decodeUnknownEffect(workflowWorkspaceId)(value);
+
+export const resolveWorkspaceId = (serverId: Option.Option<string>) =>
+  resolveGuildId(serverId).pipe(Effect.flatMap(decodeWorkflowWorkspaceId));
+
+export const deferEphemeralReply = Effect.gen(function* () {
+  const response = yield* InteractionResponse;
+  yield* response.deferReply({ flags: MessageFlags.Ephemeral });
+  return response;
+});
 
 const getInteractionChannelId = Effect.gen(function* () {
   const interactionChannel = yield* Interaction.channel();

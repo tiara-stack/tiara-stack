@@ -123,6 +123,13 @@ export const makeUpdateAnnouncements = (sheetWebBaseUrl: URL = defaultSheetWebBa
       description: `Mana/moni can now save a message for each running channel and event-relative schedule hour from SheetWeb or /checkin saved. Supported placeholders can mention fillers, name the running channel, show the hour, and show its time window. Leave a value blank to restore TiaraBot's randomized default. Read the TiaraDocs guide: ${makeSheetWebDocumentationUrl(sheetWebBaseUrl, "docs/tiarabot/monitors/check-in-messages")}`,
       color: 0x33ccbb,
     },
+    {
+      id: "unique-channel-fillers-2026-09-09",
+      publishedAt: "2026-09-09T00:00:00.000Z",
+      title: "Unique filler lookup",
+      description: `Mana/moni can now use /fillers list to see each unique filler scheduled in a running channel between two inclusive schedule hours. Choose the configured channel, then provide start_hour and finish_hour. TiaraBot skips blanks and break rows and collapses repeated assignments for the same filler. Read the TiaraDocs command reference: ${makeSheetWebDocumentationUrl(sheetWebBaseUrl, "docs/tiarabot/command-reference")}`,
+      color: 0x33ccbb,
+    },
   ] as const satisfies ReadonlyArray<UpdateAnnouncementSource>;
 
 export const updateAnnouncements = makeUpdateAnnouncements();

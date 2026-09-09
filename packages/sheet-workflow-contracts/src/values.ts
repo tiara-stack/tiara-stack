@@ -1061,6 +1061,37 @@ export type SchedulesDeliverUserScheduleSuccess = Schema.Schema.Type<
   typeof SchedulesDeliverUserScheduleSuccess
 >;
 
+const ScheduleHour = Schema.Int;
+
+export const SchedulesDeliverChannelFillersInput = Schema.Struct({
+  ...WorkspaceFields,
+  ...ResponseFields,
+  conversationName: Schema.Trimmed.check(Schema.isNonEmpty()),
+  startHour: ScheduleHour,
+  finishHour: ScheduleHour,
+}).check(
+  Schema.makeFilter(({ finishHour, startHour }) =>
+    startHour <= finishHour
+      ? undefined
+      : "The start hour must be less than or equal to the finish hour",
+  ),
+);
+export type SchedulesDeliverChannelFillersInput = Schema.Schema.Type<
+  typeof SchedulesDeliverChannelFillersInput
+>;
+
+export const SchedulesDeliverChannelFillersSuccess = Schema.Struct({
+  ...WorkspaceFields,
+  conversationName: Schema.String,
+  startHour: ScheduleHour,
+  finishHour: ScheduleHour,
+  fillerCount: Schema.Int,
+  ...DeliveryEvidenceFields,
+});
+export type SchedulesDeliverChannelFillersSuccess = Schema.Schema.Type<
+  typeof SchedulesDeliverChannelFillersSuccess
+>;
+
 export const ScreenshotsCaptureAndDeliverInput = Schema.Struct({
   ...WorkspaceFields,
   ...ResponseFields,

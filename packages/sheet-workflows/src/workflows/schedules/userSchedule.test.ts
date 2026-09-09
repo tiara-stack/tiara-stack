@@ -345,7 +345,10 @@ describe("user-schedule delivery Workflow Definition slice", () => {
         authorizeRoomOrdersSend: () => Effect.die("unused"),
         workspaceCapabilities: () => Effect.die("unused"),
       };
-      const operations: ScheduleWorkflowOperations["Service"] = {
+      const operations: Pick<
+        ScheduleWorkflowOperations["Service"],
+        "loadUserSchedule" | "respond"
+      > = {
         loadUserSchedule: () => {
           calls.push("load-user-schedule");
           return Effect.succeed(view);
@@ -357,7 +360,7 @@ describe("user-schedule delivery Workflow Definition slice", () => {
       };
       const services = Layer.mergeAll(
         Layer.succeed(ReadOnlyWorkflowAuthorization, authorization),
-        Layer.succeed(ScheduleWorkflowOperations, operations),
+        Layer.succeed(ScheduleWorkflowOperations, fillerOperations(operations)),
       );
       yield* executeUserScheduleLoadAction({ invocationId, principal, input }).pipe(
         Effect.provide(services),
@@ -843,4 +846,12 @@ describe("user-schedule delivery Workflow Definition slice", () => {
       materializeScheduleWorkflowFailure(workflow, Cause.die("google-service-account-secret")),
     ).toEqual({ _tag: "System", code: "UnexpectedFailure", retryable: false });
   });
+});
+
+const fillerOperations = (
+  operations: Pick<ScheduleWorkflowOperations["Service"], "loadUserSchedule" | "respond">,
+): ScheduleWorkflowOperations["Service"] => ({
+  ...operations,
+  loadChannelFillers: () => Effect.succeed(view),
+  respondChannelFillers: () => Effect.succeed(receipt),
 });

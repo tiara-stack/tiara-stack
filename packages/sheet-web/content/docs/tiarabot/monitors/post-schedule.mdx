@@ -18,6 +18,18 @@ Attach that image to your server’s schedule, booming, opening-hours, or update
 
 Use `/schedule list day:<day> user:<person>` for an ephemeral Fill/Overfill/Standby lookup. It is useful for a conflict or replacement check, not as the full public schedule.
 
+## List unique fillers across hours
+
+Use `/fillers list channel_name:<running-channel> start_hour:<start> finish_hour:<finish>` to
+list the unique fillers scheduled in one running channel. Both hour bounds are included. TiaraBot
+reads Fill cells, skips blanks and break rows, and shows a filler once even when that account is
+scheduled for several hours. If a filler has no linked Discord account, the result uses the name in
+the sheet.
+
+Choose the configured running channel from autocomplete, then enter the event-relative schedule
+hours. The command is read-only. It does not include Overfill or Standby entries, assign a slot, or
+change the schedule.
+
 ## Publish current openings
 
 - `/slot list day:<day>` returns Open Slots and Filled Slots.

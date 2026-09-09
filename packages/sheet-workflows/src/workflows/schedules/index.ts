@@ -1,4 +1,5 @@
 export * from "./catalog";
+export * from "./channelFillersDefinition";
 export * from "./definition";
 export * from "./definitions";
 export * from "./keys";

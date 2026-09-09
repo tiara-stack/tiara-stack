@@ -448,6 +448,13 @@ export const SchedulesDeliverUserSchedule = interactive(
   "2",
 );
 
+export const SchedulesDeliverChannelFillers = interactive(
+  "schedules.deliverChannelFillers",
+  Values.SchedulesDeliverChannelFillersInput,
+  Values.SchedulesDeliverChannelFillersSuccess,
+  policy(["user"], ["workspace.monitor"], "workspace", { resourceField: "workspaceId" }),
+);
+
 export const ScreenshotsCaptureAndDeliver = interactive(
   "screenshots.captureAndDeliver",
   Values.ScreenshotsCaptureAndDeliverInput,
@@ -527,6 +534,7 @@ export const SheetWorkflowContracts = Object.freeze({
   schedules: Object.freeze({
     loadWorkspace: SchedulesLoadWorkspace,
     deliverUserSchedule: SchedulesDeliverUserSchedule,
+    deliverChannelFillers: SchedulesDeliverChannelFillers,
   }),
   checkinMessages: Object.freeze({
     load: CheckinMessagesLoad,
@@ -624,6 +632,7 @@ export const SheetWorkflowContractCatalog = defineWorkflowContractCatalog(
   ConversationsSetLockdown,
   TeamsDeliverList,
   SchedulesDeliverUserSchedule,
+  SchedulesDeliverChannelFillers,
   ScreenshotsCaptureAndDeliver,
   ServicesDeliverStatus,
   TeamSubmissionsProcess,

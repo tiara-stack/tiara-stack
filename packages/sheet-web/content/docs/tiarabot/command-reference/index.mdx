@@ -21,19 +21,28 @@ Monitor roles are registered with `/server add monitor_role`. Manage Server is c
 
 ## Schedule, slots, teams, and status
 
-| Command          | Caller access                                               | Required parameters   | Optional parameters         |
-| ---------------- | ----------------------------------------------------------- | --------------------- | --------------------------- |
-| `/schedule list` | Self. Monitor when `user` is another person.                | `day`                 | `user`, `server_id`         |
-| `/slot list`     | Any Discord user for `ephemeral`. Monitor for `persistent`. | `day`                 | `server_id`, `message_type` |
-| `/slot button`   | Monitor.                                                    | `day`                 | `server_id`                 |
-| `/slot remove`   | Monitor.                                                    | None                  | `server_id`                 |
-| `/team list`     | Self. Monitor when `user` is another person.                | None                  | `user`, `server_id`         |
-| `/screenshot`    | Monitor.                                                    | `channel_name`, `day` | `server_id`                 |
-| `/status`        | Any Discord user.                                           | None                  | None                        |
+| Command          | Caller access                                               | Required parameters                         | Optional parameters         |
+| ---------------- | ----------------------------------------------------------- | ------------------------------------------- | --------------------------- |
+| `/schedule list` | Self. Monitor when `user` is another person.                | `day`                                       | `user`, `server_id`         |
+| `/fillers list`  | Monitor.                                                    | `channel_name`, `start_hour`, `finish_hour` | `server_id`                 |
+| `/slot list`     | Any Discord user for `ephemeral`. Monitor for `persistent`. | `day`                                       | `server_id`, `message_type` |
+| `/slot button`   | Monitor.                                                    | `day`                                       | `server_id`                 |
+| `/slot remove`   | Monitor.                                                    | None                                        | `server_id`                 |
+| `/team list`     | Self. Monitor when `user` is another person.                | None                                        | `user`, `server_id`         |
+| `/screenshot`    | Monitor.                                                    | `channel_name`, `day`                       | `server_id`                 |
+| `/status`        | Any Discord user.                                           | None                                        | None                        |
 
 `/slot list` defaults to an ephemeral response. Set `message_type` to `persistent` only when the result should remain in the channel. `/screenshot` returns an image of the configured schedule-sheet range. Its `channel_name` is the logical running-channel name stored in TiaraBot, not a Discord channel mention.
 
 For every `channel_name` option, start typing and choose the autocomplete result for the configured running channel. The suggestion inserts the logical name expected by TiaraBot.
+
+`/fillers list` returns each unique filler scheduled in the selected running channel from
+`start_hour` through `finish_hour`, inclusive. TiaraBot reads Fill cells, skips blanks and break
+rows, excludes hidden schedule rows, and collapses repeated assignments for the same linked
+account. When a sheet name maps to multiple accounts, TiaraBot leaves the account ID blank and
+shows the sheet name without a mention. If the result is too large for the embed, TiaraBot attaches
+the complete list as `fillers.csv`. The command does not include Overfill or Standby entries and
+does not change the schedule.
 
 ## Sheet configuration
 

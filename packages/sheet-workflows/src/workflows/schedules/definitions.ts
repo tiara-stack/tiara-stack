@@ -6,9 +6,13 @@ import {
 } from "effect-zero-workflow";
 import { InteractiveDeclaredFailure } from "sheet-workflow-contracts";
 import { materializeWorkflowFailure } from "../shared/failure";
+import { makeChannelFillersDefinition } from "./channelFillersDefinition";
 import { makeUserScheduleDefinition } from "./definition";
 
-const ScheduleSheetWorkflowDefinitions = Object.freeze([makeUserScheduleDefinition()] as const);
+const ScheduleSheetWorkflowDefinitions = Object.freeze([
+  makeUserScheduleDefinition(),
+  makeChannelFillersDefinition(),
+] as const);
 
 export const ScheduleSheetWorkflows = Object.freeze(
   ScheduleSheetWorkflowDefinitions.map(({ workflow }) => workflow),
