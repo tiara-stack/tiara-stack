@@ -1,4 +1,5 @@
 import { MessageFlags } from "discord-api-types/v10";
+import { MembersCache } from "dfx-discord-utils/discord/cache";
 import {
   CommandHelper,
   InteractionResponse,
@@ -12,8 +13,10 @@ import {
   SheetWorkflowHttpClient,
   type RoomOrdersCreateInput,
   type SheetWorkflowHttpClientShape,
+  SheetZeroClient,
 } from "../services";
 import { prefixedUnstorageLayer } from "../discord/cache";
+import { discordConfigLayer } from "../discord/config";
 import {
   optionalPayloadField,
   optionalNumberValue,
@@ -22,6 +25,8 @@ import {
 } from "../utils/commandHelpers";
 import { registerSingleSubCommandLayer } from "../utils/registerGlobalCommandLayer";
 import { enqueueSheetWorkflow } from "../utils/sheetWorkflowMigration";
+import { channelNameOption, makeChannelNameAutocomplete } from "../utils/channelNameAutocomplete";
+import { registerGlobalAutocompleteLayer } from "../utils/registerGlobalCommandLayer";
 
 const roomOrderEnqueueRejectedMessage = "I couldn't start the room order. Please try again.";
 const roomOrderEnqueueUnauthorizedMessage = "You aren't allowed to create a room order.";
@@ -56,9 +61,7 @@ const makeManualSubCommand = Effect.gen(function* () {
       builder
         .setName("manual")
         .setDescription("Manual room order commands")
-        .addStringOption((option) =>
-          option.setName("channel_name").setDescription("The name of the running channel"),
-        )
+        .addStringOption(channelNameOption("The name of the running channel"))
         .addNumberOption((option) =>
           option.setName("hour").setDescription("The hour to order rooms for"),
         )
@@ -89,15 +92,20 @@ const makeManualSubCommand = Effect.gen(function* () {
   );
 });
 
-export const roomOrderCommandLayer = registerSingleSubCommandLayer({
-  commandName: "room_order",
-  commandDescription: "Room order commands",
-  subCommandName: "manual",
-  makeSubCommand: makeManualSubCommand,
-}).pipe(
+export const roomOrderCommandLayer = Layer.merge(
+  registerSingleSubCommandLayer({
+    commandName: "room_order",
+    commandDescription: "Room order commands",
+    subCommandName: "manual",
+    makeSubCommand: makeManualSubCommand,
+  }),
+  registerGlobalAutocompleteLayer(makeChannelNameAutocomplete("room_order")),
+).pipe(
   Layer.provide(
     Layer.mergeAll(
       SheetWorkflowHttpClient.layer,
+      SheetZeroClient.layer,
+      MembersCache.layer.pipe(Layer.provide([prefixedUnstorageLayer, discordConfigLayer])),
       BotCapabilityStore.layer.pipe(Layer.provide(prefixedUnstorageLayer)),
     ),
   ),

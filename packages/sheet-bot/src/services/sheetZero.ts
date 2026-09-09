@@ -25,6 +25,7 @@ import {
 } from "sheet-zero-api";
 import {
   ConfigWorkspaceRow,
+  ConfigWorkspaceConversationRow,
   ConfigWorkspaceSheetRevisionRow,
   ConfigWorkspaceSheetRow,
   MessageSlotRow,
@@ -298,6 +299,14 @@ const getWorkspaceConfig = Effect.fn("SheetZeroClient.getWorkspaceConfig")(funct
   return yield* decodeClientOption(ConfigWorkspaceRow, rawRow);
 });
 
+const getWorkspaceConversations = Effect.fn("SheetZeroClient.getWorkspaceConversations")(function* (
+  client: SheetClient,
+  workspaceId: string,
+) {
+  const rawRows = yield* client.grouped.workspaceConfig.getWorkspaceConversations({ workspaceId });
+  return yield* Schema.decodeUnknownEffect(Schema.Array(ConfigWorkspaceConversationRow))(rawRows);
+});
+
 const getSlotButtonByConversation = Effect.fn("SheetZeroClient.getSlotButtonByConversation")(
   function* (client: SheetClient, clientId: string, workspaceId: string, conversationId: string) {
     const rawRow = yield* client.grouped.messageSlot.getMessageSlotDataByConversation({
@@ -320,6 +329,9 @@ interface SheetZeroClientShape {
     workspaceId: string,
   ) => ReturnType<typeof getSheetConfigurationRevisions>;
   readonly getWorkspaceConfig: (workspaceId: string) => ReturnType<typeof getWorkspaceConfig>;
+  readonly getWorkspaceConversations: (
+    workspaceId: string,
+  ) => ReturnType<typeof getWorkspaceConversations>;
   readonly getSlotButtonByConversation: (
     workspaceId: string,
     conversationId: string,
@@ -340,6 +352,7 @@ export class SheetZeroClient extends Context.Service<SheetZeroClient, SheetZeroC
         getSheetConfigurationRevisions: (workspaceId) =>
           getSheetConfigurationRevisions(client, workspaceId),
         getWorkspaceConfig: (workspaceId) => getWorkspaceConfig(client, workspaceId),
+        getWorkspaceConversations: (workspaceId) => getWorkspaceConversations(client, workspaceId),
         getSlotButtonByConversation: (workspaceId, conversationId) =>
           getSlotButtonByConversation(client, clientId, workspaceId, conversationId),
       };

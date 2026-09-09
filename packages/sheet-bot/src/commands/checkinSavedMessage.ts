@@ -32,6 +32,7 @@ import {
   type SheetWorkflowHttpClientShape,
 } from "../services";
 import { resolveChannelId, resolveGuildId } from "../utils/commandHelpers";
+import { channelNameOption } from "../utils/channelNameAutocomplete";
 
 const savedMessageModalPrefix = "checkin:saved:";
 const savedMessageEditButtonPrefix = "checkin:saved:edit:";
@@ -377,9 +378,7 @@ export const makeSavedMessageSubCommandData = (builder: SubCommandBuilder) =>
     .addIntegerOption((option) =>
       option.setName("hour").setDescription("The event-relative hour to edit").setRequired(true),
     )
-    .addStringOption((option) =>
-      option.setName("channel_name").setDescription("The name of the running channel"),
-    )
+    .addStringOption(channelNameOption("The name of the running channel"))
     .addStringOption((option) => option.setName("server_id").setDescription("The server to edit"));
 
 type SavedMessageWorkflowClient = Pick<SheetWorkflowHttpClientShape, "checkinMessagesLoad">;

@@ -1,6 +1,7 @@
 import { ApplicationIntegrationType, InteractionContextType } from "discord-api-types/v10";
 import { InteractionsRegistry } from "dfx/gateway";
 import { Ix } from "dfx/index";
+import type { InteractionDefinition } from "dfx/Interactions/definitions";
 import { CommandHelper } from "dfx-discord-utils/utils";
 import { Effect, Layer } from "effect";
 import { discordApplicationLayer } from "../discord/application";
@@ -66,6 +67,17 @@ export const registerGlobalCommandLayer = <E, R>(makeCommand: Effect.Effect<Buil
       );
 
       yield* registry.register(Ix.builder.add(command).catchAllCause(Effect.log));
+    }),
+  ).pipe(Layer.provide(Layer.mergeAll(discordGatewayLayer, discordApplicationLayer)));
+
+export const registerGlobalAutocompleteLayer = <E, R>(
+  makeAutocomplete: Effect.Effect<InteractionDefinition<never, never>, E, R>,
+) =>
+  Layer.effectDiscard(
+    Effect.gen(function* () {
+      const registry = yield* InteractionsRegistry;
+      const autocomplete = yield* makeAutocomplete;
+      yield* registry.register(Ix.builder.add(autocomplete).catchAllCause(Effect.log));
     }),
   ).pipe(Layer.provide(Layer.mergeAll(discordGatewayLayer, discordApplicationLayer)));
 

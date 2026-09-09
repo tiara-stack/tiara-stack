@@ -1,5 +1,6 @@
 import { Effect, Layer, Option, Schema, pipe } from "effect";
 import { Ix } from "dfx/index";
+import { MembersCache } from "dfx-discord-utils/discord/cache";
 import { InteractionsRegistry } from "dfx/gateway";
 import {
   ApplicationIntegrationType,
@@ -8,6 +9,7 @@ import {
 } from "discord-api-types/v10";
 import { WorkspaceId } from "sheet-workflow-contracts/values";
 import { discordGatewayLayer } from "../discord/gateway";
+import { discordConfigLayer } from "../discord/config";
 import {
   CommandHelper,
   InteractionResponse,
@@ -23,6 +25,7 @@ import {
   type CheckinsOpenInput,
   type CheckinsTestAutoInput,
   type SheetWorkflowHttpClientShape,
+  SheetZeroClient,
 } from "../services";
 import { discordApplicationLayer } from "../discord/application";
 import {
@@ -31,6 +34,8 @@ import {
   resolveGuildId,
 } from "../utils/commandHelpers";
 import { enqueueSheetWorkflow } from "../utils/sheetWorkflowMigration";
+import { channelNameOption, makeChannelNameAutocomplete } from "../utils/channelNameAutocomplete";
+import { registerGlobalAutocompleteLayer } from "../utils/registerGlobalCommandLayer";
 import {
   makeSavedMessageEditButtonDefinition,
   makeSavedMessageModalDefinition,
@@ -104,9 +109,7 @@ const makeManualSubCommand = Effect.gen(function* () {
       builder
         .setName("manual")
         .setDescription("Manually check in users")
-        .addStringOption((option) =>
-          option.setName("channel_name").setDescription("The name of the running channel"),
-        )
+        .addStringOption(channelNameOption("The name of the running channel"))
         .addNumberOption((option) =>
           option.setName("hour").setDescription("The hour to check in users for"),
         )
@@ -128,14 +131,14 @@ const makeManualSubCommand = Effect.gen(function* () {
       const workspaceId = yield* Schema.decodeUnknownEffect(WorkspaceId)(guildId);
       const templateOption = command.optionValueOptional("template");
 
-      const channelNameOption = command.optionValueOptional("channel_name");
-      const interactionChannelId = Option.isSome(channelNameOption)
+      const channelNameValueOption = command.optionValueOptional("channel_name");
+      const interactionChannelId = Option.isSome(channelNameValueOption)
         ? undefined
         : yield* resolveChannelId(Option.none());
       yield* enqueueCheckin(response, workflowClient, capabilityStore, {
         workspaceId,
-        ...(Option.isSome(channelNameOption)
-          ? { conversationName: channelNameOption.value }
+        ...(Option.isSome(channelNameValueOption)
+          ? { conversationName: channelNameValueOption.value }
           : {
               conversationId: interactionChannelId,
             }),
@@ -233,26 +236,31 @@ const makeGlobalCheckinCommand = Effect.gen(function* () {
   return CommandHelper.makeGlobalCommand(checkinCommand.data, checkinCommand.handler as never);
 });
 
-export const checkinCommandLayer = Layer.effectDiscard(
-  Effect.gen(function* () {
-    const registry = yield* InteractionsRegistry;
-    const command = yield* makeGlobalCheckinCommand;
-    const savedMessageModal = yield* makeSavedMessageModalDefinition;
-    const savedMessageEditButton = yield* makeSavedMessageEditButtonDefinition;
+export const checkinCommandLayer = Layer.merge(
+  Layer.effectDiscard(
+    Effect.gen(function* () {
+      const registry = yield* InteractionsRegistry;
+      const command = yield* makeGlobalCheckinCommand;
+      const savedMessageModal = yield* makeSavedMessageModalDefinition;
+      const savedMessageEditButton = yield* makeSavedMessageEditButtonDefinition;
 
-    yield* registry.register(Ix.builder.add(command).catchAllCause(Effect.log));
-    const savedMessageModalBuilder = Ix.builder
-      .add<never, never>(savedMessageModal as never)
-      .add<never, never>(savedMessageEditButton as never)
-      .catchAllCause(Effect.log);
-    yield* registry.register(savedMessageModalBuilder);
-  }),
+      yield* registry.register(Ix.builder.add(command).catchAllCause(Effect.log));
+      const savedMessageModalBuilder = Ix.builder
+        .add<never, never>(savedMessageModal as never)
+        .add<never, never>(savedMessageEditButton as never)
+        .catchAllCause(Effect.log);
+      yield* registry.register(savedMessageModalBuilder);
+    }),
+  ),
+  registerGlobalAutocompleteLayer(makeChannelNameAutocomplete("checkin")),
 ).pipe(
   Layer.provide(
     Layer.mergeAll(
       discordGatewayLayer,
       discordApplicationLayer,
       SheetWorkflowHttpClient.layer,
+      SheetZeroClient.layer,
+      MembersCache.layer.pipe(Layer.provide([prefixedUnstorageLayer, discordConfigLayer])),
       prefixedUnstorageLayer,
       BotCapabilityStore.layer.pipe(Layer.provide(prefixedUnstorageLayer)),
     ),

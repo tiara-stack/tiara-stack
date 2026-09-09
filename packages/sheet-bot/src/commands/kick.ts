@@ -3,6 +3,7 @@ import {
   InteractionResponse,
   type CommandInteractionResponseContext,
 } from "dfx-discord-utils/utils";
+import { MembersCache } from "dfx-discord-utils/discord/cache";
 import { Effect, Layer, Schema } from "effect";
 import { WorkspaceId } from "sheet-workflow-contracts/values";
 import {
@@ -11,8 +12,10 @@ import {
   SheetWorkflowHttpClient,
   type MembersKickInput,
   type SheetWorkflowHttpClientShape,
+  SheetZeroClient,
 } from "../services";
 import { prefixedUnstorageLayer } from "../discord/cache";
+import { discordConfigLayer } from "../discord/config";
 import {
   optionalPayloadField,
   optionalNumberValue,
@@ -21,6 +24,8 @@ import {
 } from "../utils/commandHelpers";
 import { registerSingleSubCommandLayer } from "../utils/registerGlobalCommandLayer";
 import { enqueueSheetWorkflow } from "../utils/sheetWorkflowMigration";
+import { channelNameOption, makeChannelNameAutocomplete } from "../utils/channelNameAutocomplete";
+import { registerGlobalAutocompleteLayer } from "../utils/registerGlobalCommandLayer";
 
 const kickEnqueueRejectedMessage = "I couldn't start member cleanup. Please try again.";
 const kickEnqueueUnauthorizedMessage = "You aren't allowed to run member cleanup.";
@@ -58,9 +63,7 @@ const makeManualSubCommand = Effect.gen(function* () {
         .addNumberOption((builder) =>
           builder.setName("hour").setDescription("The hour to kick out users for"),
         )
-        .addStringOption((builder) =>
-          builder.setName("channel_name").setDescription("The name of the running channel"),
-        )
+        .addStringOption(channelNameOption("The name of the running channel"))
         .addStringOption((builder) =>
           builder.setName("server_id").setDescription("The server to kick out users for"),
         ),
@@ -84,15 +87,20 @@ const makeManualSubCommand = Effect.gen(function* () {
   );
 });
 
-export const kickCommandLayer = registerSingleSubCommandLayer({
-  commandName: "kick",
-  commandDescription: "Kick commands",
-  subCommandName: "manual",
-  makeSubCommand: makeManualSubCommand,
-}).pipe(
+export const kickCommandLayer = Layer.merge(
+  registerSingleSubCommandLayer({
+    commandName: "kick",
+    commandDescription: "Kick commands",
+    subCommandName: "manual",
+    makeSubCommand: makeManualSubCommand,
+  }),
+  registerGlobalAutocompleteLayer(makeChannelNameAutocomplete("kick")),
+).pipe(
   Layer.provide(
     Layer.mergeAll(
       SheetWorkflowHttpClient.layer,
+      SheetZeroClient.layer,
+      MembersCache.layer.pipe(Layer.provide([prefixedUnstorageLayer, discordConfigLayer])),
       BotCapabilityStore.layer.pipe(Layer.provide(prefixedUnstorageLayer)),
     ),
   ),

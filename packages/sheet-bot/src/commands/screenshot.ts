@@ -1,4 +1,5 @@
 import { ApplicationIntegrationType, InteractionContextType } from "discord-api-types/v10";
+import { MembersCache } from "dfx-discord-utils/discord/cache";
 import {
   CommandHelper,
   InteractionResponse,
@@ -12,8 +13,10 @@ import {
   SheetWorkflowHttpClient,
   type ScreenshotsCaptureAndDeliverInput,
   type SheetWorkflowHttpClientShape,
+  SheetZeroClient,
 } from "../services";
 import { prefixedUnstorageLayer } from "../discord/cache";
+import { discordConfigLayer } from "../discord/config";
 import {
   optionalStringValue,
   requireNumber,
@@ -24,6 +27,8 @@ import {
 } from "../utils/commandHelpers";
 import { registerGlobalCommandLayer } from "../utils/registerGlobalCommandLayer";
 import { enqueueSheetWorkflow } from "../utils/sheetWorkflowMigration";
+import { channelNameOption, makeChannelNameAutocomplete } from "../utils/channelNameAutocomplete";
+import { registerGlobalAutocompleteLayer } from "../utils/registerGlobalCommandLayer";
 
 const screenshotEnqueueRejectedMessage = "I couldn't start the screenshot. Please try again.";
 const screenshotEnqueueUnauthorizedMessage = "You aren't allowed to capture screenshots.";
@@ -59,10 +64,7 @@ const makeScreenshotCommand = Effect.gen(function* () {
         .setName("screenshot")
         .setDescription("Day screenshot command")
         .addStringOption((option) =>
-          option
-            .setName("channel_name")
-            .setDescription("The channel to get the screenshot for")
-            .setRequired(true),
+          channelNameOption("The channel to get the screenshot for")(option).setRequired(true),
         )
         .addNumberOption(requiredDayOption("The day to get the slots for"))
         .addStringOption(serverIdOption("The server to get the teams for"))
@@ -95,10 +97,15 @@ const makeScreenshotCommand = Effect.gen(function* () {
   );
 });
 
-export const screenshotCommandLayer = registerGlobalCommandLayer(makeScreenshotCommand).pipe(
+export const screenshotCommandLayer = Layer.merge(
+  registerGlobalCommandLayer(makeScreenshotCommand),
+  registerGlobalAutocompleteLayer(makeChannelNameAutocomplete("screenshot")),
+).pipe(
   Layer.provide(
     Layer.mergeAll(
       SheetWorkflowHttpClient.layer,
+      SheetZeroClient.layer,
+      MembersCache.layer.pipe(Layer.provide([prefixedUnstorageLayer, discordConfigLayer])),
       BotCapabilityStore.layer.pipe(Layer.provide(prefixedUnstorageLayer)),
     ),
   ),

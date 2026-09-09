@@ -33,6 +33,8 @@ Monitor roles are registered with `/server add monitor_role`. Manage Server is c
 
 `/slot list` defaults to an ephemeral response. Set `message_type` to `persistent` only when the result should remain in the channel. `/screenshot` returns an image of the configured schedule-sheet range. Its `channel_name` is the logical running-channel name stored in TiaraBot, not a Discord channel mention.
 
+For every `channel_name` option, start typing and choose the autocomplete result for the configured running channel. The suggestion inserts the logical name expected by TiaraBot.
+
 ## Sheet configuration
 
 All `/sheet` commands require Manage server or Administrator access. The `export` and `import`
