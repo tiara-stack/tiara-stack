@@ -286,60 +286,94 @@ const makeSetAutoCheckinSubCommand = Effect.gen(function* () {
   );
 });
 
-const makeSetMonitorChannelSubCommand = Effect.gen(function* () {
-  const workflowClient = yield* SheetWorkflowHttpClient;
-  const capabilityStore = yield* BotCapabilityStore;
+type ServerChannelConfigKey = "monitorConversationId" | "announcementConversationId";
 
-  return yield* CommandHelper.makeSubCommand(
-    (builder) =>
-      builder
-        .setName("monitor_channel")
-        .setDescription("Set the channel for monitor check-ins and automatic summaries")
-        .addChannelOption((builder) =>
-          builder
-            .setName("channel")
-            .setDescription("The monitor channel")
-            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
-            .setRequired(true),
-        )
-        .addStringOption((builder) =>
-          builder.setName("server_id").setDescription("The server id to configure"),
-        ),
-    Effect.fn("server.set.monitor_channel")(function* (command) {
-      const response = yield* InteractionResponse;
-      yield* response.deferReply();
-      const requestedServerId = command.optionValueOptional("server_id");
-      const monitorConversationId = yield* requireResolvedId(
-        command.optionChannelValue("channel"),
-        "monitor channel",
-      );
-      const guildId = yield* resolveGuildId(requestedServerId);
-      const workspaceId = yield* decodeWorkflowWorkspaceId(guildId);
+const serverChannelPatch = {
+  monitorConversationId: (conversationId: string | null) => ({
+    monitorConversationId: conversationId,
+  }),
+  announcementConversationId: (conversationId: string | null) => ({
+    announcementConversationId: conversationId,
+  }),
+} satisfies Record<
+  ServerChannelConfigKey,
+  (conversationId: string | null) => WorkspacesUpdateConfigAndDeliverInput["patch"]
+>;
 
-      yield* enqueueSheetWorkflow({
-        response,
-        operation: "the server monitor channel update",
-        workspaceId,
-        capabilityStore,
-        makeInput: (responseReference): WorkspacesUpdateConfigAndDeliverInput => ({
+const makeSetChannelSubCommand = (params: {
+  readonly name: "monitor_channel" | "announcement_channel";
+  readonly description: string;
+  readonly channelDescription: string;
+  readonly conversationLabel: string;
+  readonly configKey: ServerChannelConfigKey;
+}) =>
+  Effect.gen(function* () {
+    const workflowClient = yield* SheetWorkflowHttpClient;
+    const capabilityStore = yield* BotCapabilityStore;
+
+    return yield* CommandHelper.makeSubCommand(
+      (builder) =>
+        builder
+          .setName(params.name)
+          .setDescription(params.description)
+          .addChannelOption((builder) =>
+            builder
+              .setName("channel")
+              .setDescription(params.channelDescription)
+              .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+              .setRequired(true),
+          )
+          .addStringOption((builder) =>
+            builder.setName("server_id").setDescription("The server id to configure"),
+          ),
+      Effect.fn(`server.set.${params.name}`)(function* (command) {
+        const response = yield* InteractionResponse;
+        yield* response.deferReply();
+        const requestedServerId = command.optionValueOptional("server_id");
+        const conversationId = yield* requireResolvedId(
+          command.optionChannelValue("channel"),
+          params.conversationLabel,
+        );
+        const guildId = yield* resolveGuildId(requestedServerId);
+        const workspaceId = yield* decodeWorkflowWorkspaceId(guildId);
+
+        yield* enqueueSheetWorkflow({
+          response,
+          operation: `the server ${params.conversationLabel} update`,
           workspaceId,
-          responseReference,
-          patch: { monitorConversationId },
-        }),
-        enqueue: (input, options) =>
-          enqueueWorkspacesUpdateConfigAndDeliverWorkflow(workflowClient, input, options),
-        rejectedMessage: serverRejectedMessage,
-        unauthorizedMessage: serverUnauthorizedMessage,
-        pendingMessage: serverPendingMessage,
-      });
-    }),
-  );
-});
+          capabilityStore,
+          makeInput: (responseReference): WorkspacesUpdateConfigAndDeliverInput => ({
+            workspaceId,
+            responseReference,
+            patch: serverChannelPatch[params.configKey](conversationId),
+          }),
+          enqueue: (input, options) =>
+            enqueueWorkspacesUpdateConfigAndDeliverWorkflow(workflowClient, input, options),
+          rejectedMessage: serverRejectedMessage,
+          unauthorizedMessage: serverUnauthorizedMessage,
+          pendingMessage: serverPendingMessage,
+        });
+      }),
+    );
+  });
 
 const makeSetCommandGroup = Effect.gen(function* () {
   const setSheetSubCommand = yield* makeSetSheetSubCommand;
   const setAutoCheckinSubCommand = yield* makeSetAutoCheckinSubCommand;
-  const setMonitorChannelSubCommand = yield* makeSetMonitorChannelSubCommand;
+  const setMonitorChannelSubCommand = yield* makeSetChannelSubCommand({
+    name: "monitor_channel",
+    description: "Set the channel for monitor check-ins and automatic summaries",
+    channelDescription: "The monitor channel",
+    conversationLabel: "monitor channel",
+    configKey: "monitorConversationId",
+  });
+  const setAnnouncementChannelSubCommand = yield* makeSetChannelSubCommand({
+    name: "announcement_channel",
+    description: "Set the channel for bot update announcements",
+    channelDescription: "The bot announcement channel",
+    conversationLabel: "announcement channel",
+    configKey: "announcementConversationId",
+  });
 
   return yield* CommandHelper.makeSubCommandGroup(
     (builder) =>
@@ -348,66 +382,87 @@ const makeSetCommandGroup = Effect.gen(function* () {
         .setDescription("Set the config of the server")
         .addSubcommand(() => setSheetSubCommand.data)
         .addSubcommand(() => setAutoCheckinSubCommand.data)
-        .addSubcommand(() => setMonitorChannelSubCommand.data),
+        .addSubcommand(() => setMonitorChannelSubCommand.data)
+        .addSubcommand(() => setAnnouncementChannelSubCommand.data),
     (command) =>
       command.subCommands({
         sheet: setSheetSubCommand.handler,
         auto_checkin: setAutoCheckinSubCommand.handler,
         monitor_channel: setMonitorChannelSubCommand.handler,
+        announcement_channel: setAnnouncementChannelSubCommand.handler,
       }),
   );
 });
 
-const makeUnsetMonitorChannelSubCommand = Effect.gen(function* () {
-  const workflowClient = yield* SheetWorkflowHttpClient;
-  const capabilityStore = yield* BotCapabilityStore;
+const makeUnsetChannelSubCommand = (params: {
+  readonly name: "monitor_channel" | "announcement_channel";
+  readonly description: string;
+  readonly conversationLabel: string;
+  readonly configKey: ServerChannelConfigKey;
+}) =>
+  Effect.gen(function* () {
+    const workflowClient = yield* SheetWorkflowHttpClient;
+    const capabilityStore = yield* BotCapabilityStore;
 
-  return yield* CommandHelper.makeSubCommand(
-    (builder) =>
-      builder
-        .setName("monitor_channel")
-        .setDescription("Unset the channel for monitor check-ins and automatic summaries")
-        .addStringOption((builder) =>
-          builder.setName("server_id").setDescription("The server id to configure"),
-        ),
-    Effect.fn("server.unset.monitor_channel")(function* (command) {
-      const response = yield* InteractionResponse;
-      yield* response.deferReply();
-      const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
-      const workspaceId = yield* decodeWorkflowWorkspaceId(guildId);
+    return yield* CommandHelper.makeSubCommand(
+      (builder) =>
+        builder
+          .setName(params.name)
+          .setDescription(params.description)
+          .addStringOption((builder) =>
+            builder.setName("server_id").setDescription("The server id to configure"),
+          ),
+      Effect.fn(`server.unset.${params.name}`)(function* (command) {
+        const response = yield* InteractionResponse;
+        yield* response.deferReply();
+        const guildId = yield* resolveGuildId(command.optionValueOptional("server_id"));
+        const workspaceId = yield* decodeWorkflowWorkspaceId(guildId);
 
-      yield* enqueueSheetWorkflow({
-        response,
-        operation: "the server monitor channel update",
-        workspaceId,
-        capabilityStore,
-        makeInput: (responseReference): WorkspacesUpdateConfigAndDeliverInput => ({
+        yield* enqueueSheetWorkflow({
+          response,
+          operation: `the server ${params.conversationLabel} update`,
           workspaceId,
-          responseReference,
-          patch: { monitorConversationId: null },
-        }),
-        enqueue: (input, options) =>
-          enqueueWorkspacesUpdateConfigAndDeliverWorkflow(workflowClient, input, options),
-        rejectedMessage: serverRejectedMessage,
-        unauthorizedMessage: serverUnauthorizedMessage,
-        pendingMessage: serverPendingMessage,
-      });
-    }),
-  );
-});
+          capabilityStore,
+          makeInput: (responseReference): WorkspacesUpdateConfigAndDeliverInput => ({
+            workspaceId,
+            responseReference,
+            patch: serverChannelPatch[params.configKey](null),
+          }),
+          enqueue: (input, options) =>
+            enqueueWorkspacesUpdateConfigAndDeliverWorkflow(workflowClient, input, options),
+          rejectedMessage: serverRejectedMessage,
+          unauthorizedMessage: serverUnauthorizedMessage,
+          pendingMessage: serverPendingMessage,
+        });
+      }),
+    );
+  });
 
 const makeUnsetCommandGroup = Effect.gen(function* () {
-  const unsetMonitorChannelSubCommand = yield* makeUnsetMonitorChannelSubCommand;
+  const unsetMonitorChannelSubCommand = yield* makeUnsetChannelSubCommand({
+    name: "monitor_channel",
+    description: "Unset the channel for monitor check-ins and automatic summaries",
+    conversationLabel: "monitor channel",
+    configKey: "monitorConversationId",
+  });
+  const unsetAnnouncementChannelSubCommand = yield* makeUnsetChannelSubCommand({
+    name: "announcement_channel",
+    description: "Unset the channel for bot update announcements",
+    conversationLabel: "announcement channel",
+    configKey: "announcementConversationId",
+  });
 
   return yield* CommandHelper.makeSubCommandGroup(
     (builder) =>
       builder
         .setName("unset")
         .setDescription("Unset server config")
-        .addSubcommand(() => unsetMonitorChannelSubCommand.data),
+        .addSubcommand(() => unsetMonitorChannelSubCommand.data)
+        .addSubcommand(() => unsetAnnouncementChannelSubCommand.data),
     (command) =>
       command.subCommands({
         monitor_channel: unsetMonitorChannelSubCommand.handler,
+        announcement_channel: unsetAnnouncementChannelSubCommand.handler,
       }),
   );
 });

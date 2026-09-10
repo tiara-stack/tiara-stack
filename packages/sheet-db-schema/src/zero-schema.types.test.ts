@@ -16,6 +16,9 @@ it("preserves canonical table keys and representative generated column types", (
   expectTypeOf(
     generatedSchema.tables.configWorkspace.columns.monitorConversationId.customType,
   ).toEqualTypeOf<string>();
+  expectTypeOf(
+    generatedSchema.tables.configWorkspace.columns.announcementConversationId.customType,
+  ).toEqualTypeOf<string>();
   expectTypeOf(generatedSchema.tables.messageRoomOrder.columns.fills.customType).toEqualTypeOf<
     ReadonlyArray<string>
   >();

@@ -14,7 +14,9 @@ Use `/server list_config` and `/channel list_config` before a shift or after a h
 - `/server set sheet`: Link the Google Sheet used for schedule-backed operations.
 - `/server set auto_checkin`: Enable or disable [TiaraBot’s minute-45 automatic check-in](/docs/tiarabot/monitors/auto-check-in).
 - `/server set monitor_channel`: Send automatic monitor summaries and handoff check-ins to one shared mana/moni channel.
+- `/server set announcement_channel`: Send TiaraBot update announcements to one chosen text or announcement channel.
 - `/server unset monitor_channel`: Restore the legacy running-room destination for automatic monitor summaries.
+- `/server unset announcement_channel`: Clear the chosen update-announcement destination and restore the default fallback order.
 - `/server add monitor_role` and `/server remove monitor_role`: Control recognized moni roles.
 
 It is not a general event-profile command.
@@ -29,6 +31,23 @@ Use `/server unset monitor_channel` to remove it.
 The monitor channel cannot also be registered as a running room. TiaraBot rejects either
 configuration order: setting a running room as `monitor_channel`, or later setting the configured
 monitor channel to `running:true`. It may still be used as a filler-facing `checkin_channel`.
+
+## Optional update-announcement channel
+
+Use **Dashboard → Settings → Server → Update announcement channel** or
+`/server set announcement_channel channel:#announcements` to choose where TiaraBot posts product
+and service updates. The channel must be a text or announcement channel where TiaraBot can view and
+send messages. Use `/server list_config` to inspect the saved destination.
+
+Choose **Automatic routing** in the dashboard or use `/server unset announcement_channel` to clear
+the destination. TiaraBot then uses the Discord system channel, `#general`, or the first sendable
+text or announcement channel, in that order. An unset destination preserves this existing routing
+behavior.
+
+The `update-announcements` flag is a separate opt-in gate controlled by the TiaraBot application
+owner. Delivery remains disabled while that flag is off, regardless of the configured channel.
+Setting a channel does not opt the server into announcements, and clearing it does not opt the
+server out.
 
 ## Running-room settings
 

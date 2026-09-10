@@ -228,6 +228,7 @@ export const makeWorkspaceConfigGroup = <const SuccessSchemas extends SheetZeroA
         sheetId: Schema.optional(Schema.NullOr(Schema.String)),
         autoCheckin: Schema.optional(Schema.NullOr(Schema.Boolean)),
         monitorConversationId: Schema.optional(Schema.NullOr(Schema.String)),
+        announcementConversationId: Schema.optional(Schema.NullOr(Schema.String)),
       }),
       mutator: async ({ tx, args }) => {
         const existingConfigWorkspace = await tx.run(
@@ -237,6 +238,10 @@ export const makeWorkspaceConfigGroup = <const SuccessSchemas extends SheetZeroA
         const monitorConversationId = preserveOmitted(
           args.monitorConversationId,
           activeExistingConfigWorkspace?.monitorConversationId,
+        );
+        const announcementConversationId = preserveOmitted(
+          args.announcementConversationId,
+          activeExistingConfigWorkspace?.announcementConversationId,
         );
         if (Predicate.isString(monitorConversationId)) {
           const configuredConversation = activeRecord(
@@ -262,6 +267,7 @@ export const makeWorkspaceConfigGroup = <const SuccessSchemas extends SheetZeroA
                 activeExistingConfigWorkspace?.autoCheckin,
               ),
               monitorConversationId,
+              announcementConversationId,
               deletedAt: null,
             },
             activeExistingConfigWorkspace,

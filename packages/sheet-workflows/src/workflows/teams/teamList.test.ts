@@ -137,6 +137,7 @@ const workspaceConfiguration = (sheetId: string | null) => ({
   sheetId,
   autoCheckin: null,
   monitorConversationId: null,
+  announcementConversationId: null,
   createdAt: 1,
   updatedAt: 1,
   deletedAt: null,

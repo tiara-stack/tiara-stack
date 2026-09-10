@@ -207,6 +207,7 @@ const makeHarness = (options: HarnessOptions = {}) => {
     sheetId: "sheet-1",
     autoCheckin: null,
     monitorConversationId: null,
+    announcementConversationId: null,
     createdAt: 0,
     updatedAt: 0,
     deletedAt: null,

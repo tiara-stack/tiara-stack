@@ -49,6 +49,15 @@ describe("makeUpdateAnnouncementWorkflowRequests", () => {
     expect(pathPrefixedAnnouncements[11]?.description).toContain(
       "https://host/sheetweb/docs/tiarabot/command-reference",
     );
+    expect(pathPrefixedAnnouncements[12]?.description).toContain(
+      "/server set announcement_channel",
+    );
+    expect(pathPrefixedAnnouncements[12]?.description).toContain(
+      "/server unset announcement_channel",
+    );
+    expect(pathPrefixedAnnouncements[12]?.description).toContain(
+      "https://host/sheetweb/docs/tiarabot/monitors/update-announcements",
+    );
   });
 
   it("builds stable workflow requests for announcements after the bot joined", () => {
@@ -178,6 +187,16 @@ describe("makeUpdateAnnouncementWorkflowRequests", () => {
         announcement: {
           ...updateAnnouncements[11],
           publishedAt: new Date(updateAnnouncements[11].publishedAt),
+        },
+      },
+      {
+        workspaceId: "guild-1",
+        workspaceName: "Guild One",
+        joinedAt: new Date("2026-06-04T16:59:59.999Z"),
+        systemConversationId: "system-channel",
+        announcement: {
+          ...updateAnnouncements[12],
+          publishedAt: new Date(updateAnnouncements[12].publishedAt),
         },
       },
     ]);

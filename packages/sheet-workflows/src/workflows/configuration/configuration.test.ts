@@ -42,6 +42,7 @@ import {
 } from "./definitions";
 import {
   ConfigurationWorkflowOperations,
+  WorkspaceConfigurationState,
   configurationWorkflowOperationsLayer,
 } from "./operations";
 import { ConfigurationSheetWorkflowRegistrations } from "./registry";
@@ -69,6 +70,7 @@ const workspaceState = {
   sheetId: "sheet-1",
   autoCheckin: true,
   monitorConversationId: "monitor-1",
+  announcementConversationId: "announcement-1",
   monitorRoleIds: ["monitor-role-1"],
 } as const;
 const conversationState = {
@@ -80,6 +82,19 @@ const conversationState = {
   roleId: "lockdown-role-1",
   checkinConversationId: "checkin-1",
 } as const;
+
+it("decodes older workspace workflow state without an announcement channel", () => {
+  expect(
+    Schema.decodeUnknownSync(WorkspaceConfigurationState)({
+      workspaceId: "workspace-1",
+      workspaceName: null,
+      sheetId: null,
+      autoCheckin: false,
+      monitorConversationId: null,
+      monitorRoleIds: [],
+    }).announcementConversationId,
+  ).toBeNull();
+});
 
 const makeBot = (overrides: {
   readonly getWorkspace?: (request: {
@@ -207,6 +222,7 @@ describe("workspace and conversation configuration Workflow Definition slice", (
         sheetId: "sheet-1",
         autoCheckin: false,
         monitorConversationId: "conversation-1",
+        announcementConversationId: null,
         monitorRoleIds: [],
         conversationId: "conversation-1",
         exists: true,
@@ -335,6 +351,7 @@ describe("workspace and conversation configuration Workflow Definition slice", (
         sheetId: string | null;
         autoCheckin: boolean | null;
         monitorConversationId: string | null;
+        announcementConversationId: string | null;
         readonly createdAt: number;
         readonly updatedAt: number;
         readonly deletedAt: number | null;
@@ -343,6 +360,7 @@ describe("workspace and conversation configuration Workflow Definition slice", (
         sheetId: "sheet-1",
         autoCheckin: true,
         monitorConversationId: "monitor-1",
+        announcementConversationId: "announcement-1",
         ...audit,
       };
       const conversationRow = {
@@ -377,6 +395,10 @@ describe("workspace and conversation configuration Workflow Definition slice", (
               args.monitorConversationId === undefined
                 ? workspaceRow.monitorConversationId
                 : args.monitorConversationId,
+            announcementConversationId:
+              args.announcementConversationId === undefined
+                ? workspaceRow.announcementConversationId
+                : args.announcementConversationId,
           };
           return Effect.void;
         },
@@ -746,6 +768,55 @@ describe("workspace and conversation configuration Workflow Definition slice", (
       }),
   );
 
+  it.effect("persists and then clears an explicit announcement channel", () =>
+    Effect.gen(function* () {
+      const persistence = makeTrustedSheetPersistenceMock();
+      const operations = yield* makeOperations(
+        persistence.workspaces,
+        makeBot({
+          getWorkspace: () =>
+            Effect.succeed({
+              id: "workspace-1",
+              name: "Workspace",
+              icon: null,
+              ownerId: "owner-1",
+            }),
+          getConversation: ({ params }) =>
+            Effect.succeed({
+              id: params.conversationId,
+              workspaceId: params.workspaceId,
+              name: "announcements",
+              type: 0,
+              canSendMessages: true,
+            }),
+        }),
+      );
+      const initial = yield* operations.loadWorkspace("workspace-1", "policy", {
+        requireConfig: false,
+      });
+      const setInput = Schema.decodeUnknownSync(WorkspacesUpdateConfigAndDeliver.input)({
+        workspaceId: "workspace-1",
+        responseReference,
+        patch: { announcementConversationId: "announcement-1" },
+      });
+      const configured = yield* operations.updateWorkspace(setInput, initial, "policy");
+      expect(configured.announcementConversationId).toBe("announcement-1");
+
+      const clearInput = Schema.decodeUnknownSync(WorkspacesUpdateConfigAndDeliver.input)({
+        workspaceId: "workspace-1",
+        responseReference,
+        patch: { announcementConversationId: null },
+      });
+      const cleared = yield* operations.updateWorkspace(clearInput, configured, "policy");
+      expect(cleared.announcementConversationId).toBeNull();
+      expect(
+        (yield* persistence.workspaces.getWorkspaceConfigByWorkspaceId({
+          workspaceId: "workspace-1",
+        })).pipe(Option.getOrThrow),
+      ).toMatchObject({ announcementConversationId: null });
+    }),
+  );
+
   it.effect("renders legacy configuration messages and materializes only typed failures", () =>
     Effect.gen(function* () {
       const messages: Array<unknown> = [];
@@ -783,7 +854,7 @@ describe("workspace and conversation configuration Workflow Definition slice", (
             {
               title: "Config for Test \\*Workspace\\*",
               description:
-                "Sheet id: sheet\\-1\nAuto check-in: Enabled\nMonitor channel: #monitor-1\nMonitor role: @role:monitor-role-1",
+                "Sheet id: sheet\\-1\nAuto check-in: Enabled\nMonitor channel: #monitor-1\nAnnouncement channel: #announcement-1\nMonitor role: @role:monitor-role-1",
             },
           ],
         },

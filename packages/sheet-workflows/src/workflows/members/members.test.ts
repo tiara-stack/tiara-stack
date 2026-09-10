@@ -119,6 +119,7 @@ const makeResolutionOperations = () => {
             sheetId: "sheet-1",
             autoCheckin: null,
             monitorConversationId: null,
+            announcementConversationId: null,
             createdAt: 1,
             updatedAt: 1,
             deletedAt: null,

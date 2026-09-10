@@ -78,6 +78,7 @@ const cases = [
       sheetId: null,
       autoCheckin: true,
       monitorConversationId: null,
+      announcementConversationId: null,
       ...audit,
     },
   },

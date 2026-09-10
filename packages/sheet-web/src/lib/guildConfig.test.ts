@@ -82,6 +82,7 @@ describe("guild configuration helpers", () => {
         sheetId: "sheet-1",
         autoCheckin: null,
         monitorConversationId: null,
+        announcementConversationId: null,
         ...timestamps,
       };
       const client = {
@@ -110,6 +111,7 @@ describe("guild configuration helpers", () => {
       sheetId: "sheet-1",
       autoCheckin: true,
       monitorConversationId: "channel-1",
+      announcementConversationId: null,
       ...timestamps,
     };
     expect(serverConfigPatch(config, serverConfigFormFrom(config))).toEqual({});
@@ -143,6 +145,21 @@ describe("guild configuration helpers", () => {
         autoCheckin: false,
       }),
     ).toEqual({ autoCheckin: false });
+    expect(
+      serverConfigPatch(config, {
+        ...serverConfigFormFrom(config),
+        announcementConversationId: "announcement-1",
+      }),
+    ).toEqual({ announcementConversationId: "announcement-1" });
+    expect(
+      serverConfigPatch(
+        { ...config, announcementConversationId: "announcement-1" },
+        {
+          ...serverConfigFormFrom({ ...config, announcementConversationId: "announcement-1" }),
+          announcementConversationId: "",
+        },
+      ),
+    ).toEqual({ announcementConversationId: null });
   });
 
   it("preserves omitted channel fields and encodes explicit clears as null", () => {

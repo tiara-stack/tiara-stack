@@ -23,18 +23,28 @@ it on does not change any of those workflows.
 
 ## Where announcements go
 
-TiaraBot chooses one sendable server conversation in this order:
+By default, TiaraBot chooses one sendable server conversation in this order:
 
 1. Discord’s system channel, when one is available.
 2. A channel named `#general`.
 3. The first available text or announcement channel that TiaraBot can send to.
 
-The `#general` name match is case-insensitive. An update is eligible only when its publication
-time is strictly after the server's `joined_at` timestamp.
+The `#general` name match is case-insensitive. A server manager can set an explicit destination
+with **Dashboard → Settings → Server → Update announcement channel** or
+`/server set announcement_channel channel:#announcements`. TiaraBot uses that channel for updates
+while it remains available and sendable. Choose **Automatic routing** in the dashboard or use
+`/server unset announcement_channel` to clear the setting. Clearing it restores the system-channel,
+`#general`, then first-sendable-channel order above. An unset channel does not disable the feed.
 
-The server must allow TiaraBot to view and send messages in the selected channel. If no suitable
-conversation is available, the update is not delivered; it remains safe to retry after channel
-permissions or server configuration are corrected.
+The server must allow TiaraBot to view and send messages in the selected channel. If the configured
+channel is unavailable or TiaraBot cannot send there, TiaraBot does not silently switch to a
+different channel. Clear the setting or fix the channel permissions before retrying.
+
+An update is eligible only when its publication time is strictly after the server's `joined_at`
+timestamp.
+
+If no suitable conversation is available under the active destination rule, the update is not
+delivered. It remains safe to retry after channel permissions or server configuration are corrected.
 
 ## Delivery timing and history
 
@@ -45,6 +55,7 @@ TiaraBot only considers updates published after it joined the server. Enabling t
 not recreate updates from before the bot joined, and a server may receive several still-eligible
 updates the next time TiaraBot processes its guild membership event.
 
-The `update-announcements` flag is service-controlled. Mana/moni do not need to configure a
-channel or run a slash command. The TiaraBot application owner can enable or disable it with
+The `update-announcements` flag always gates delivery. A server receives no update while the flag
+is disabled, even when an announcement channel is configured. Setting or clearing the channel does
+not enable the feed. The TiaraBot application owner can enable or disable the flag with
 `/feature_flag`; contact the TiaraBot maintainer when the server should be enabled or disabled.

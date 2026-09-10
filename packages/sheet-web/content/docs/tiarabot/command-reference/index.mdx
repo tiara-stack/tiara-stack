@@ -115,23 +115,37 @@ For automatic-check-in servers, TiaraBot cleans each configured running channel�
 ## Event server settings
 
 All `/server` commands require Manage Server or Administrator in the target server.
-The same fields are available from a server's **Dashboard → Settings → Server** page with the same permission requirement.
+The same fields are available from a server's **Dashboard → Settings → Server** page with the
+same permission requirement, including the optional **Update announcement channel** setting.
+Configure the field there or with the slash commands below.
 
-| Command                         | Required parameters | Optional parameters |
-| ------------------------------- | ------------------- | ------------------- |
-| `/server list_config`           | None                | `server_id`         |
-| `/server add monitor_role`      | `role`              | `server_id`         |
-| `/server remove monitor_role`   | `role`              | `server_id`         |
-| `/server set sheet`             | `sheet_id`          | `server_id`         |
-| `/server set auto_checkin`      | `auto_checkin`      | `server_id`         |
-| `/server set monitor_channel`   | `channel`           | `server_id`         |
-| `/server unset monitor_channel` | None                | `server_id`         |
+| Command                              | Required parameters | Optional parameters |
+| ------------------------------------ | ------------------- | ------------------- |
+| `/server list_config`                | None                | `server_id`         |
+| `/server add monitor_role`           | `role`              | `server_id`         |
+| `/server remove monitor_role`        | `role`              | `server_id`         |
+| `/server set sheet`                  | `sheet_id`          | `server_id`         |
+| `/server set auto_checkin`           | `auto_checkin`      | `server_id`         |
+| `/server set monitor_channel`        | `channel`           | `server_id`         |
+| `/server set announcement_channel`   | `channel`           | `server_id`         |
+| `/server unset monitor_channel`      | None                | `server_id`         |
+| `/server unset announcement_channel` | None                | `server_id`         |
 
 `auto_checkin` is a required true or false choice. Turning it off does not prevent manual check-ins. Mana/moni can continue to use `/checkin manual` with server-chosen timing.
 
 `monitor_channel` is the shared destination for automatic monitor summaries and handoff check-ins.
 It cannot be a running channel. TiaraBot must be able to view and send messages in it. Unsetting it
 restores the legacy automatic summary behavior; manual check-in is unaffected.
+
+`announcement_channel` is the optional destination for TiaraBot product and service updates. Set it
+to a text or announcement channel where TiaraBot can view and send messages. Unsetting it preserves
+the default update-announcement routing: the Discord system channel, then `#general`, then the
+first sendable text or announcement channel. If the configured channel is unavailable or cannot
+accept a message, TiaraBot does not silently use a different channel.
+
+The `update-announcements` flag remains the delivery gate. The flag must be enabled for updates to
+be sent, whether or not `announcement_channel` is configured. Channel configuration does not opt a
+server in or out of the feed.
 
 ## Feature-flag controls
 

@@ -36,8 +36,12 @@ const byPositionThenId = (left: BotConversation, right: BotConversation): number
 export const selectWorkspaceConversation = (
   conversations: ReadonlyArray<BotConversation>,
   systemConversationId: string | undefined,
+  configuredConversationId?: string | null,
 ): BotConversation | undefined => {
   const sendable = conversations.filter(isSendableConversation).sort(byPositionThenId);
+  if (Predicate.isString(configuredConversationId)) {
+    return sendable.find(({ id }) => id === configuredConversationId);
+  }
   if (Predicate.isNotUndefined(systemConversationId)) {
     const systemConversation = sendable.find(({ id }) => id === systemConversationId);
     if (Predicate.isNotUndefined(systemConversation)) return systemConversation;

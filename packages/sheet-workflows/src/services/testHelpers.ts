@@ -465,6 +465,10 @@ export const makeTrustedSheetPersistenceMock = (): TrustedSheetPersistenceShape 
               config.monitorConversationId,
               presentOr(existing?.monitorConversationId, null),
             ),
+            announcementConversationId: valueOr(
+              config.announcementConversationId,
+              presentOr(existing?.announcementConversationId, null),
+            ),
             ...fields,
             createdAt: presentOr(existing?.createdAt, fields.createdAt),
           });

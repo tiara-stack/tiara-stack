@@ -439,10 +439,11 @@ function ServerEditor({
       ),
     [conversations],
   );
-  const monitorChannelChoices = sortedChannels.filter(
-    (channel) =>
-      isSendableDiscordChannelType(channel.type) &&
-      (!runningIds.has(channel.id) || channel.id === form.monitorConversationId),
+  const sendableChannelChoices = sortedChannels.filter((channel) =>
+    isSendableDiscordChannelType(channel.type),
+  );
+  const monitorChannelChoices = sendableChannelChoices.filter(
+    (channel) => !runningIds.has(channel.id) || channel.id === form.monitorConversationId,
   );
   const configuredRoleIds = new Set((monitorRoles ?? []).map((monitorRole) => monitorRole.roleId));
   const availableRoles = sortGuildRoles(roles ?? []).filter(
@@ -565,6 +566,48 @@ function ServerEditor({
               tags={[resourceTags.channels, resourceTags.conversations]}
               failureMessage="Discord channels or configured channels could not be loaded. Retry by refreshing."
               loadingMessage="Loading Discord and configured channels."
+            />
+          ) : null}
+        </Field>
+
+        <Field
+          id="announcement-channel"
+          label="Update announcement channel"
+          hint="Text and announcement channels only. Clear to use the system channel, #general, then the first sendable channel. This setting does not enable announcements; the update-announcements flag still controls delivery."
+        >
+          <select
+            id="announcement-channel"
+            aria-describedby="announcement-channel-hint"
+            className={inputClass}
+            disabled={saving || channels === undefined}
+            value={form.announcementConversationId}
+            onChange={(event) =>
+              setForm((current) => ({
+                ...current,
+                announcementConversationId: event.target.value,
+              }))
+            }
+          >
+            <option value="">Automatic routing</option>
+            {form.announcementConversationId.length > 0 &&
+            !sendableChannelChoices.some(
+              (channel) => channel.id === form.announcementConversationId,
+            ) ? (
+              <option value={form.announcementConversationId}>
+                Unknown channel ({form.announcementConversationId})
+              </option>
+            ) : null}
+            {sendableChannelChoices.map((channel) => (
+              <option key={channel.id} value={channel.id}>
+                #{channelLabels.get(channel.id) ?? channel.name}
+              </option>
+            ))}
+          </select>
+          {channels === undefined ? (
+            <ResourceInline
+              tags={[resourceTags.channels]}
+              failureMessage="Discord channels could not be loaded. Retry by refreshing."
+              loadingMessage="Loading Discord channels."
             />
           ) : null}
         </Field>

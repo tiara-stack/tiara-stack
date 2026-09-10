@@ -1,4 +1,4 @@
-// @generated effect-zero signature:sha256:c9fef25ed425e0029bcea194c890f5ea05616aa130b87b03ea16a9c0c0fbb1c7
+// @generated effect-zero signature:sha256:05db2490f0f2ab69461f8f3b4e9e76e0bd26dc9456e5688033acb5614ba7d3ab
 import { createBuilder } from "@rocicorp/zero";
 import type { ReadonlyJSONValue } from "@rocicorp/zero";
 
@@ -34,6 +34,12 @@ const configWorkspaceTable = {
       optional: true,
       customType: customType<string>(),
       serverName: "monitor_conversation_id",
+    },
+    announcementConversationId: {
+      type: "string",
+      optional: true,
+      customType: customType<string>(),
+      serverName: "announcement_conversation_id",
     },
     createdAt: {
       type: "number",

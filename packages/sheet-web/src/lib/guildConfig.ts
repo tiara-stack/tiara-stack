@@ -28,6 +28,7 @@ export type ServerConfigForm = {
   readonly sheetId: string;
   readonly autoCheckin: boolean;
   readonly monitorConversationId: string;
+  readonly announcementConversationId: string;
 };
 
 export type OptionalBooleanFormValue = "unset" | "enabled" | "disabled";
@@ -53,6 +54,7 @@ type ServerConfigPatch = {
   sheetId?: string;
   autoCheckin?: boolean;
   monitorConversationId?: string | null;
+  announcementConversationId?: string | null;
 };
 
 type ChannelConfigPatchValue = {
@@ -514,6 +516,7 @@ export const serverConfigFormFrom = (config: WorkspaceConfigValue): ServerConfig
   sheetId: config.sheetId ?? "",
   autoCheckin: config.autoCheckin ?? false,
   monitorConversationId: config.monitorConversationId ?? "",
+  announcementConversationId: config.announcementConversationId ?? "",
 });
 
 export const serverConfigPatch = (
@@ -534,6 +537,12 @@ export const serverConfigPatch = (
   const monitorConversationId = form.monitorConversationId.trim();
   if (monitorConversationId !== currentMonitorConversationId) {
     patch.monitorConversationId = monitorConversationId.length > 0 ? monitorConversationId : null;
+  }
+  const currentAnnouncementConversationId = config.announcementConversationId ?? "";
+  const announcementConversationId = form.announcementConversationId.trim();
+  if (announcementConversationId !== currentAnnouncementConversationId) {
+    patch.announcementConversationId =
+      announcementConversationId.length > 0 ? announcementConversationId : null;
   }
   return patch;
 };

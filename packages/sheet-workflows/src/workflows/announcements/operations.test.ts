@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Cause, ConfigProvider, Effect, Exit, Layer, Option, Schema } from "effect";
+import { Cause, ConfigProvider, Effect, Exit, Layer, Option, Predicate, Schema } from "effect";
 import { InvocationId } from "effect-zero-workflow/contract";
 import {
   WorkflowInvocationUnauthorized,
@@ -89,6 +89,7 @@ type DeliveryRow = Option.Option.Value<
 
 type HarnessOptions = {
   readonly gated?: boolean;
+  readonly announcementConversationId?: string | null;
   readonly initialRow?: DeliveryRow;
   readonly ambiguousClaim?: boolean;
   readonly ambiguousRecord?: boolean;
@@ -145,6 +146,22 @@ const makeHarness = (options: HarnessOptions = {}) => {
           effects.push("read-delivery");
           return Option.fromNullishOr(row);
         }),
+      getWorkspaceConfigByWorkspaceId: () =>
+        Effect.sync(() => {
+          effects.push("read-config");
+          return Predicate.isUndefined(options.announcementConversationId)
+            ? Option.none()
+            : Option.some({
+                workspaceId: input.workspaceId,
+                sheetId: null,
+                autoCheckin: null,
+                monitorConversationId: null,
+                announcementConversationId: options.announcementConversationId,
+                createdAt: 1,
+                updatedAt: 1,
+                deletedAt: null,
+              });
+        }),
       claimWorkspaceUpdateAnnouncementDelivery: ({ claimToken, publishedAt }) =>
         Effect.sync(() => {
           effects.push("claim");
@@ -198,7 +215,20 @@ const makeHarness = (options: HarnessOptions = {}) => {
           effects.push("read-conversations");
           requests.push(request);
           return {
-            items: [{ id: "system", type: 0, name: "welcome", position: 2, canSendMessages: true }],
+            items: [
+              { id: "system", type: 0, name: "welcome", position: 2, canSendMessages: true },
+              ...(options.announcementConversationId === "announcement"
+                ? [
+                    {
+                      id: "announcement",
+                      type: 0,
+                      name: "updates",
+                      position: 1,
+                      canSendMessages: true,
+                    },
+                  ]
+                : []),
+            ],
           };
         }),
     },
@@ -217,7 +247,7 @@ const makeHarness = (options: HarnessOptions = {}) => {
                 message: messageRefFrom(
                   client,
                   input.workspaceId,
-                  conversation.conversationId,
+                  request.payload.conversation.conversationId,
                   "message-1",
                 ),
               },
@@ -365,6 +395,7 @@ describe("update-announcement workflow operations", () => {
         "read-delivery",
         "read-delivery",
         "read-delivery",
+        "read-config",
         "read-conversations",
         "read-delivery",
         "send",
@@ -403,7 +434,7 @@ describe("update-announcement workflow operations", () => {
 
   it.effect("honors the exact gate, timestamp invariant, and durable claim dispositions", () =>
     Effect.gen(function* () {
-      const ungated = makeHarness({ gated: false });
+      const ungated = makeHarness({ gated: false, announcementConversationId: "announcement" });
       expect((yield* (yield* ungated.operations).claim(execution, claimId, policy)).status).toBe(
         "skipped_not_gated",
       );
@@ -463,6 +494,43 @@ describe("update-announcement workflow operations", () => {
       expect(existing.delivery).toEqual(
         messageRefFrom(client, input.workspaceId, "existing-conversation", "existing-message"),
       );
+    }),
+  );
+
+  it.effect("uses the configured announcement channel exclusively", () =>
+    Effect.gen(function* () {
+      const configured = makeHarness({ announcementConversationId: "announcement" });
+      const operations = yield* configured.operations;
+      const owned = yield* operations.claim(execution, claimId, policy);
+      const selected = yield* operations.select(execution, owned, policy);
+
+      expect(selected.conversationId).toBe("announcement");
+      expect(configured.effects).toEqual([
+        "read-gate",
+        "claim",
+        "read-delivery",
+        "read-delivery",
+        "read-config",
+        "read-conversations",
+      ]);
+
+      const unavailable = makeHarness({ announcementConversationId: "missing" });
+      const unavailableOperations = yield* unavailable.operations;
+      const unavailableClaim = yield* unavailableOperations.claim(execution, claimId, policy);
+      expect(
+        yield* Effect.flip(unavailableOperations.select(execution, unavailableClaim, policy)),
+      ).toEqual({
+        _tag: "ResourceNotFound",
+        resource: "sendable workspace conversation",
+      });
+      expect(unavailable.effects).toEqual([
+        "read-gate",
+        "claim",
+        "read-delivery",
+        "read-delivery",
+        "read-config",
+        "read-conversations",
+      ]);
     }),
   );
 

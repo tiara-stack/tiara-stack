@@ -31,6 +31,7 @@ export const ConfigWorkspaceRow = Schema.Struct({
   sheetId: Schema.NullOr(Schema.String),
   autoCheckin: Schema.NullOr(Schema.Boolean),
   monitorConversationId: Schema.NullOr(Schema.String),
+  announcementConversationId: Schema.NullOr(Schema.String),
   ...auditFields,
 });
 export type ConfigWorkspaceRow = typeof ConfigWorkspaceRow.Type;

@@ -316,6 +316,22 @@ export const updateAnnouncementWorkflowOperationsLayer = Layer.effect(
         if (Option.isNone(current) || !isCanonicalOwnedRow(current.value, currentClaim)) {
           return yield* Effect.fail(interactiveAuthorizationRevoked(policy));
         }
+        const workspaceConfig = yield* reauthorize(
+          execution,
+          `${selectOperation}.load-config`,
+        ).pipe(
+          Effect.andThen(
+            persistence.workspaces.getWorkspaceConfigByWorkspaceId({
+              workspaceId: input.workspaceId,
+            }),
+          ),
+          Effect.timeout("30 seconds"),
+          Effect.mapError((cause) =>
+            isDeclaredFailure(cause)
+              ? cause
+              : operationError(`${selectOperation}.load-config`, cause),
+          ),
+        );
         const conversations = yield* loadWorkspaceConversations({
           cache: cache.get().cache,
           client,
@@ -325,7 +341,15 @@ export const updateAnnouncementWorkflowOperationsLayer = Layer.effect(
           operationError,
           beforeRead: () => reauthorize(execution, `${selectOperation}.read-page`),
         });
-        const selected = selectWorkspaceConversation(conversations, input.systemConversationId);
+        // An explicit destination is authoritative; an unavailable target must fail closed.
+        const selected = selectWorkspaceConversation(
+          conversations,
+          input.systemConversationId,
+          Option.match(workspaceConfig, {
+            onNone: () => undefined,
+            onSome: ({ announcementConversationId }) => announcementConversationId,
+          }),
+        );
         return Predicate.isUndefined(selected)
           ? yield* Effect.fail(interactiveResourceNotFound("sendable workspace conversation"))
           : conversationRefFrom(client, input.workspaceId, selected.id);

@@ -130,6 +130,13 @@ export const makeUpdateAnnouncements = (sheetWebBaseUrl: URL = defaultSheetWebBa
       description: `Mana/moni can now use /fillers list to get each unique filler scheduled in a running channel between two inclusive schedule hours. The response puts raw Discord mention tokens in a code block, so copy the lines and paste them into another message to mention the fillers. Choose the configured channel, then provide start_hour and finish_hour. TiaraBot skips blanks and break rows, collapses repeated assignments, and leaves unresolved names as plain text. Large results or unresolved names containing code fences use a fillers.txt attachment. Read the TiaraDocs command reference: ${makeSheetWebDocumentationUrl(sheetWebBaseUrl, "docs/tiarabot/command-reference")}`,
       color: 0x33ccbb,
     },
+    {
+      id: "announcement-channel-2026-09-10",
+      publishedAt: "2026-09-10T00:00:00.000Z",
+      title: "Choose an update-announcement channel",
+      description: `Server managers can now choose where TiaraBot posts product and service updates with /server set announcement_channel. Use /server unset announcement_channel to restore the existing system-channel, #general, then first-sendable-channel routing. The update-announcements flag still controls delivery, so setting a channel does not enable the feed. Read the TiaraDocs guide: ${makeSheetWebDocumentationUrl(sheetWebBaseUrl, "docs/tiarabot/monitors/update-announcements")}`,
+      color: 0x33ccbb,
+    },
   ] as const satisfies ReadonlyArray<UpdateAnnouncementSource>;
 
 export const updateAnnouncements = makeUpdateAnnouncements();

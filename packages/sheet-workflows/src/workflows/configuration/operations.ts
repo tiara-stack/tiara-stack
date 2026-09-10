@@ -45,6 +45,9 @@ export const WorkspaceConfigurationState = Schema.Struct({
   sheetId: Schema.NullOr(Schema.String),
   autoCheckin: Schema.Boolean,
   monitorConversationId: Schema.NullOr(Schema.String),
+  announcementConversationId: Schema.NullOr(Schema.String).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(null)),
+  ),
   monitorRoleIds: Schema.Array(Schema.String),
 });
 type WorkspaceConfigurationState = typeof WorkspaceConfigurationState.Type;
@@ -172,6 +175,9 @@ const definedWorkspacePatch = (patch: WorkspaceConfigurationPatch) => ({
   ...(Predicate.isUndefined(patch.monitorConversationId)
     ? {}
     : { monitorConversationId: patch.monitorConversationId }),
+  ...(Predicate.isUndefined(patch.announcementConversationId)
+    ? {}
+    : { announcementConversationId: patch.announcementConversationId }),
 });
 
 const definedConversationPatch = (patch: ConversationConfigurationPatch) => ({
@@ -207,6 +213,16 @@ const workspaceConfigMessage = (
           ...(state.monitorConversationId === null
             ? [MessageText.text("None")]
             : conversationMentionValue(client, state.workspaceId, state.monitorConversationId)),
+        ],
+        [
+          MessageText.text("Announcement channel: "),
+          ...(state.announcementConversationId === null
+            ? [MessageText.text("None")]
+            : conversationMentionValue(
+                client,
+                state.workspaceId,
+                state.announcementConversationId,
+              )),
         ],
         [
           MessageText.clientTerm("monitorRole", { form: "plural", casing: "sentence" }),
@@ -355,6 +371,7 @@ export const configurationWorkflowOperationsLayer = Layer.effect(
                     sheetId: null,
                     autoCheckin: false,
                     monitorConversationId: null,
+                    announcementConversationId: null,
                     monitorRoleIds,
                   }),
             onSome: (workspaceConfig) =>
@@ -364,6 +381,7 @@ export const configurationWorkflowOperationsLayer = Layer.effect(
                 sheetId: workspaceConfig.sheetId,
                 autoCheckin: workspaceConfig.autoCheckin ?? false,
                 monitorConversationId: workspaceConfig.monitorConversationId,
+                announcementConversationId: workspaceConfig.announcementConversationId,
                 monitorRoleIds,
               }),
           });
@@ -411,6 +429,22 @@ export const configurationWorkflowOperationsLayer = Layer.effect(
               invalidRequest(
                 "MonitorConversationNotSendable",
                 "The monitor channel must be a text or announcement channel",
+              ),
+            );
+          }
+        }
+        if (Predicate.isString(input.patch.announcementConversationId)) {
+          const conversation = yield* validateConversation(
+            input.workspaceId,
+            input.patch.announcementConversationId,
+            policy,
+            "workspaces.validateAnnouncementConversation",
+          );
+          if (!isSendableDiscordChannelType(conversation.type)) {
+            return yield* Effect.fail(
+              invalidRequest(
+                "AnnouncementNotSendable",
+                "The announcement channel must be a text or announcement channel",
               ),
             );
           }

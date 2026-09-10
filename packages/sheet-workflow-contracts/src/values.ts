@@ -900,6 +900,7 @@ export const WorkspacesUpdateConfigAndDeliverInput = Schema.Struct({
     spreadsheetId: Schema.optional(Schema.NullOr(SpreadsheetId)),
     autoCheckin: Schema.optional(Schema.Boolean),
     monitorConversationId: Schema.optional(Schema.NullOr(Schema.String)),
+    announcementConversationId: Schema.optional(Schema.NullOr(Schema.String)),
   }),
 });
 export type WorkspacesUpdateConfigAndDeliverInput = Schema.Schema.Type<
