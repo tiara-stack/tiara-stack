@@ -129,10 +129,10 @@ describe("channel filler selection", () => {
     ).toThrow();
   });
 
-  it("renders known fillers as mentions and unknown fillers as names", () => {
+  it("renders copyable raw mentions and unknown fillers in a non-pinging code block", () => {
     expect(makeChannelFillersMessage(input, selectUniqueChannelFillers(view, input))).toMatchObject(
       {
-        allowedMentions: "default",
+        allowedMentions: "none",
         embeds: [
           {
             fields: [
@@ -144,11 +144,10 @@ describe("channel filler selection", () => {
               {
                 name: [{ type: "text", text: "Fillers" }],
                 value: [
-                  { type: "userMention", userId: "account-alpha" },
-                  { type: "text", text: "\n" },
-                  { type: "userMention", userId: "account-beta" },
-                  { type: "text", text: "\n" },
-                  { type: "text", text: "Ghost" },
+                  {
+                    type: "text",
+                    text: "```\n<@account-alpha>\n<@account-beta>\nGhost\n```",
+                  },
                 ],
               },
             ],
@@ -158,7 +157,7 @@ describe("channel filler selection", () => {
     );
   });
 
-  it("uses the CSV fallback when filler chunks exceed Discord embed limits", () => {
+  it("uses a complete copyable text fallback when filler chunks exceed Discord embed limits", () => {
     const fillers = Array.from({ length: 600 }, (_, index) => ({
       accountId: null,
       name: `Filler ${index}`,
@@ -168,10 +167,13 @@ describe("channel filler selection", () => {
     expect(fields.length).toBeLessThanOrEqual(25);
     expect(fields).toHaveLength(1);
     expect(message.files).toHaveLength(1);
-    const csv = new TextDecoder().decode(message.files?.[0]?.content);
-    expect(csv.split("\n")).toHaveLength(601);
-    expect(csv).toContain('"Filler 0"');
-    expect(csv).toContain('"Filler 199"');
+    expect(message.files?.[0]?.name).toBe("fillers.txt");
+    expect(message.files?.[0]?.contentType).toBe("text/plain");
+    const text = new TextDecoder().decode(message.files?.[0]?.content);
+    expect(text.split("\n")).toHaveLength(600);
+    expect(text).toContain("Filler 0");
+    expect(text).toContain("Filler 199");
+    expect(message.allowedMentions).toBe("none");
   });
 
   it("preserves a multi-field list without an attachment when it fits Discord limits", () => {
@@ -211,48 +213,106 @@ describe("channel filler selection", () => {
     ]);
   });
 
-  it("uses the complete CSV fallback for one name too long for an embed field", () => {
+  it("uses the complete text fallback for one name too long for an embed field", () => {
     const longName = "Filler ".concat("x".repeat(2_000));
     const message = makeChannelFillersMessage(input, [{ accountId: null, name: longName }]);
 
     expect(message.embeds?.[0]?.fields).toHaveLength(1);
     expect(message.files).toHaveLength(1);
-    expect(new TextDecoder().decode(message.files?.[0]?.content)).toContain(longName);
+    expect(new TextDecoder().decode(message.files?.[0]?.content)).toBe(longName);
   });
 
-  it("neutralizes spreadsheet formula triggers while preserving CSV quoting", () => {
-    const triggerNames = [
-      "=formula",
-      "+formula",
-      "-formula",
-      "@formula",
-      "\tformula",
-      "\rformula",
-      " =formula",
-      "  +formula",
-      " \t-formula",
-      "\n@formula",
-    ];
-    const whitespaceNames = [" plain", "  safe", "\tsafe", "\rsafe"];
+  it("uses the complete text fallback when an unlinked name contains a code fence", () => {
     const fillers = [
-      ...triggerNames.map((name) => ({ accountId: null, name })),
-      ...whitespaceNames.map((name) => ({ accountId: null, name })),
-      { accountId: null, name: 'quoted "name"\ncontinued' },
+      { accountId: "account-alpha", name: "Alpha" },
+      { accountId: null, name: "Name with ``` inside" },
+      { accountId: null, name: "Name with ` inside" },
+    ];
+    const message = makeChannelFillersMessage(input, fillers);
+    const text = new TextDecoder().decode(message.files?.[0]?.content);
+
+    expect(message.embeds?.[0]?.fields).toHaveLength(1);
+    expect(message.files?.[0]?.name).toBe("fillers.txt");
+    expect(text).toBe("<@account-alpha>\nName with ``` inside\nName with ` inside");
+    expect(message.allowedMentions).toBe("none");
+  });
+
+  it("neutralizes mention syntax in unlinked names while preserving resolved mention tokens", () => {
+    const fillers = [
+      { accountId: "resolved-user", name: "Resolved" },
+      { accountId: null, name: "Unlinked <@123456789012345678>" },
+      { accountId: null, name: "Unlinked <@&987654321098765432>" },
+      { accountId: null, name: "Unlinked @everyone and @here" },
+    ];
+    const message = makeChannelFillersMessage(input, fillers);
+    const rendered = renderTextForTest(message.embeds?.[0]?.fields?.[1]?.value);
+
+    expect(rendered).toContain("<@resolved-user>");
+    expect(rendered).toContain("<@\u200b123456789012345678>");
+    expect(rendered).toContain("<@\u200b&987654321098765432>");
+    expect(rendered).toContain("@\u200beveryone");
+    expect(rendered).toContain("@\u200bhere");
+    expect(rendered).not.toContain("<@123456789012345678>");
+    expect(rendered).not.toContain("<@&987654321098765432>");
+    expect(rendered).not.toContain("@everyone");
+    expect(rendered).not.toContain("@here");
+    expect(message.allowedMentions).toBe("none");
+  });
+
+  it("normalizes unlinked line breaks in embeds and text fallbacks", () => {
+    const linked = { accountId: "resolved-user", name: "Resolved" };
+    const unlinked = {
+      accountId: null,
+      name: "Unlinked\r\nline\nbreak\u2028paragraph\u2029end",
+    };
+    const inlineMessage = makeChannelFillersMessage(input, [linked, unlinked]);
+    const inlineText = renderTextForTest(inlineMessage.embeds?.[0]?.fields?.[1]?.value);
+
+    expect(inlineText).toContain("<@resolved-user>");
+    expect(inlineText).toContain("Unlinked line break paragraph end");
+    expect(inlineText).not.toContain("\r");
+    expect(inlineText).not.toContain("\nline\n");
+    expect(inlineText).not.toContain("\u2028");
+    expect(inlineText).not.toContain("\u2029");
+
+    const fillers = [
+      linked,
+      unlinked,
       ...Array.from({ length: 600 }, (_, index) => ({
-        accountId: null,
+        accountId: `account-${index}`,
+        name: `Filler ${index}`,
+      })),
+    ];
+    const fallbackMessage = makeChannelFillersMessage(input, fillers);
+    const fallbackText = new TextDecoder().decode(fallbackMessage.files?.[0]?.content);
+
+    expect(fallbackText.split("\n")).toHaveLength(fillers.length);
+    expect(fallbackText).toContain("<@resolved-user>");
+    expect(fallbackText).toContain("Unlinked line break paragraph end");
+    expect(fallbackText).not.toContain("\r");
+    expect(fallbackText).not.toContain("\nline\n");
+    expect(fallbackText).not.toContain("\u2028");
+    expect(fallbackText).not.toContain("\u2029");
+  });
+
+  it("keeps every raw mention and unlinked name in the text fallback", () => {
+    const fillers = [
+      { accountId: "resolved-user", name: "Resolved" },
+      { accountId: null, name: "Unknown <@123456789012345678> @everyone ` filler" },
+      ...Array.from({ length: 600 }, (_, index) => ({
+        accountId: `account-${index}`,
         name: `Filler ${index}`,
       })),
     ];
     const message = makeChannelFillersMessage(input, fillers);
-    const csv = new TextDecoder().decode(message.files?.[0]?.content);
+    const text = new TextDecoder().decode(message.files?.[0]?.content);
 
-    for (const name of triggerNames) {
-      expect(csv).toContain(`"'${name.replaceAll('"', '""')}"`);
-    }
-    for (const name of whitespaceNames) {
-      const safeName = name[0] === "\t" || name[0] === "\r" ? `'${name}` : name;
-      expect(csv).toContain(`"${safeName.replaceAll('"', '""')}"`);
-    }
-    expect(csv).toContain('"quoted ""name""\ncontinued"');
+    expect(text.split("\n")).toHaveLength(fillers.length);
+    expect(text).toContain("<@resolved-user>");
+    expect(text).toContain("Unknown <@\u200b123456789012345678> @\u200beveryone ` filler");
+    expect(text).not.toContain("<@123456789012345678>");
+    expect(text).not.toContain("@everyone");
+    expect(text).toContain("<@account-599>");
+    expect(message.allowedMentions).toBe("none");
   });
 });

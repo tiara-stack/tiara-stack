@@ -40,6 +40,13 @@ describe("makeUpdateAnnouncementWorkflowRequests", () => {
     );
     expect(pathPrefixedAnnouncements[11]?.description).toContain("/fillers list");
     expect(pathPrefixedAnnouncements[11]?.description).toContain(
+      "raw Discord mention tokens in a code block",
+    );
+    expect(pathPrefixedAnnouncements[11]?.description).toContain(
+      "Large results or unresolved names containing code fences use a fillers.txt attachment",
+    );
+    expect(pathPrefixedAnnouncements[11]?.description).toContain("fillers.txt");
+    expect(pathPrefixedAnnouncements[11]?.description).toContain(
       "https://host/sheetweb/docs/tiarabot/command-reference",
     );
   });

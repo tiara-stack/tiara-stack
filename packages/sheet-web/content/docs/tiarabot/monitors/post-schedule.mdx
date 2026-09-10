@@ -23,8 +23,12 @@ Use `/schedule list day:<day> user:<person>` for an ephemeral Fill/Overfill/Stan
 Use `/fillers list channel_name:<running-channel> start_hour:<start> finish_hour:<finish>` to
 list the unique fillers scheduled in one running channel. Both hour bounds are included. TiaraBot
 reads Fill cells, skips blanks and break rows, and shows a filler once even when that account is
-scheduled for several hours. If a filler has no linked Discord account, the result uses the name in
-the sheet.
+scheduled for several hours. The response puts one raw Discord mention token per line inside a
+fenced code block, so you can copy the lines and paste them into another Discord message. TiaraBot
+does not ping anyone from the lookup response. If a filler has no unambiguous linked Discord
+account, the result uses the name in the sheet. Large results include a `fillers.txt` attachment
+with the same one-per-line format. TiaraBot also uses the attachment when an unresolved filler name
+contains a code fence, so the lookup remains safe to copy.
 
 Choose the configured running channel from autocomplete, then enter the event-relative schedule
 hours. The command is read-only. It does not include Overfill or Standby entries, assign a slot, or

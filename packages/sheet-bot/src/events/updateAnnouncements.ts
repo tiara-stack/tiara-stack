@@ -127,7 +127,7 @@ export const makeUpdateAnnouncements = (sheetWebBaseUrl: URL = defaultSheetWebBa
       id: "unique-channel-fillers-2026-09-09",
       publishedAt: "2026-09-09T00:00:00.000Z",
       title: "Unique filler lookup",
-      description: `Mana/moni can now use /fillers list to see each unique filler scheduled in a running channel between two inclusive schedule hours. Choose the configured channel, then provide start_hour and finish_hour. TiaraBot skips blanks and break rows and collapses repeated assignments for the same filler. Read the TiaraDocs command reference: ${makeSheetWebDocumentationUrl(sheetWebBaseUrl, "docs/tiarabot/command-reference")}`,
+      description: `Mana/moni can now use /fillers list to get each unique filler scheduled in a running channel between two inclusive schedule hours. The response puts raw Discord mention tokens in a code block, so copy the lines and paste them into another message to mention the fillers. Choose the configured channel, then provide start_hour and finish_hour. TiaraBot skips blanks and break rows, collapses repeated assignments, and leaves unresolved names as plain text. Large results or unresolved names containing code fences use a fillers.txt attachment. Read the TiaraDocs command reference: ${makeSheetWebDocumentationUrl(sheetWebBaseUrl, "docs/tiarabot/command-reference")}`,
       color: 0x33ccbb,
     },
   ] as const satisfies ReadonlyArray<UpdateAnnouncementSource>;

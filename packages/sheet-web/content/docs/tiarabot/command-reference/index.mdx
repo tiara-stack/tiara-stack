@@ -39,10 +39,15 @@ For every `channel_name` option, start typing and choose the autocomplete result
 `/fillers list` returns each unique filler scheduled in the selected running channel from
 `start_hour` through `finish_hour`, inclusive. TiaraBot reads Fill cells, skips blanks and break
 rows, excludes hidden schedule rows, and collapses repeated assignments for the same linked
-account. When a sheet name maps to multiple accounts, TiaraBot leaves the account ID blank and
-shows the sheet name without a mention. If the result is too large for the embed, TiaraBot attaches
-the complete list as `fillers.csv`. The command does not include Overfill or Standby entries and
-does not change the schedule.
+account. The result is a fenced code block. Linked accounts appear as raw Discord user mention
+tokens such as `<@123456789012345678>`. Copy the lines from the code block and paste them into a
+Discord message to mention those fillers. The command does not ping anyone in its own response.
+
+When a sheet name maps to multiple accounts, TiaraBot cannot identify the account safely and shows
+the sheet name instead. If the list is too large for the response or an unresolved name contains a
+code fence, TiaraBot attaches the complete list as `fillers.txt`, with one mention token or
+unresolved name per line. The command does not include Overfill or Standby entries and does not
+change the schedule.
 
 ## Sheet configuration
 

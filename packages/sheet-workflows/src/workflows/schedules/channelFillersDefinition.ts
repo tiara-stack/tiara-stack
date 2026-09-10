@@ -3,9 +3,8 @@ import { ClusterSchema } from "effect/unstable/cluster";
 import { Workflow } from "effect/unstable/workflow";
 import { makeAction } from "effect-zero-workflow";
 import { workflowContractKey } from "effect-zero-workflow/contract";
-import { BotOutboundMessage, RespondReceipt, type BotTextPart } from "sheet-bot-api";
+import { BotOutboundMessage, RespondReceipt } from "sheet-bot-api";
 import { escapeMarkdown, makeEmbed } from "sheet-message-content/rendering";
-import * as MessageText from "sheet-message-content/text";
 import {
   InteractiveDeclaredFailure,
   SchedulesDeliverChannelFillers,
@@ -86,65 +85,57 @@ export const selectUniqueChannelFillers = (
   );
 };
 
-const renderFiller = (filler: ChannelFiller): ReadonlyArray<BotTextPart> =>
-  Predicate.isNull(filler.accountId)
-    ? [MessageText.text(escapeMarkdown(filler.name))]
-    : [MessageText.userMention(filler.accountId)];
-
-const fillerLineLength = (filler: ChannelFiller): number => {
-  const renderedLength = MessageText.renderPlainText(renderFiller(filler)).length;
-  return renderedLength + (Predicate.isString(filler.accountId) ? 2 : 0);
-};
-
 const maximumFillerFieldCharacters = 900;
 const maximumFillerFields = 5;
+const codeFence = "```";
+const mentionNeutralizer = "\u200b";
+const lineBreaks = /[\r\n\u2028\u2029]+/gu;
+
+const fillerLine = (filler: ChannelFiller): string =>
+  Predicate.isNull(filler.accountId)
+    ? filler.name.replace(lineBreaks, " ").replaceAll("@", `@${mentionNeutralizer}`)
+    : `<@${filler.accountId}>`;
+
+const codeBlock = (lines: ReadonlyArray<string>): string =>
+  `${codeFence}\n${lines.join("\n")}\n${codeFence}`;
+
+const codeBlockLength = (lineLength: number, lineCount: number): number =>
+  codeFence.length * 2 + lineCount + 1 + lineLength;
+
 type FillerField = {
   readonly name: string;
-  readonly value: string | ReadonlyArray<BotTextPart>;
+  readonly value: string;
 };
 
-const fillerFieldValues = (fillers: ReadonlyArray<ChannelFiller>): ReadonlyArray<BotTextPart[]> => {
-  const chunks: Array<BotTextPart[]> = [];
-  let current: BotTextPart[] = [];
+const fillerFieldValues = (fillers: ReadonlyArray<ChannelFiller>): ReadonlyArray<string> => {
+  const chunks: Array<string> = [];
+  let current: string[] = [];
   let currentLength = 0;
   for (const filler of fillers) {
-    const line = renderFiller(filler);
-    const lineLength = fillerLineLength(filler);
-    const separatorLength = current.length === 0 ? 0 : 1;
+    const line = fillerLine(filler);
     if (
       current.length > 0 &&
-      currentLength + separatorLength + lineLength > maximumFillerFieldCharacters
+      codeBlockLength(currentLength + line.length, current.length + 1) >
+        maximumFillerFieldCharacters
     ) {
-      chunks.push(current);
+      chunks.push(codeBlock(current));
       current = [];
       currentLength = 0;
     }
-    const hadCurrent = current.length > 0;
-    current.push(...(hadCurrent ? [MessageText.text("\n")] : []), ...line);
-    currentLength += (hadCurrent ? separatorLength : 0) + lineLength;
+    current.push(line);
+    currentLength += line.length;
   }
-  if (current.length > 0) chunks.push(current);
+  if (current.length > 0) chunks.push(codeBlock(current));
   return chunks;
 };
 
-const csvFormulaTrigger = /^[=+\-@\t\r]/u;
-const csvFormulaAfterWhitespace = /^\s*[=+\-@]/u;
-
-const csvCell = (value: string): string => {
-  const safeValue =
-    csvFormulaTrigger.test(value) || csvFormulaAfterWhitespace.test(value) ? `'${value}` : value;
-  return `"${safeValue.replaceAll('"', '""')}"`;
-};
-
-const fillerCsv = (fillers: ReadonlyArray<ChannelFiller>): string =>
-  [["account_id", "name"], ...fillers.map(({ accountId, name }) => [accountId ?? "", name])]
-    .map((row) => row.map(csvCell).join(","))
-    .join("\n");
+const fillerText = (fillers: ReadonlyArray<ChannelFiller>): string =>
+  fillers.map(fillerLine).join("\n");
 
 const makeFillerAttachment = (fillers: ReadonlyArray<ChannelFiller>) => ({
-  name: "fillers.csv",
-  contentType: "text/csv",
-  content: new TextEncoder().encode(fillerCsv(fillers)),
+  name: "fillers.txt",
+  contentType: "text/plain",
+  content: new TextEncoder().encode(fillerText(fillers)),
 });
 
 export const makeChannelFillersMessage = (
@@ -157,7 +148,8 @@ export const makeChannelFillersMessage = (
   const fillerValues = fillerFieldValues(fillers);
   const needsAttachment =
     fillerValues.length > maximumFillerFields ||
-    fillers.some((filler) => fillerLineLength(filler) > maximumFillerFieldCharacters);
+    fillerValues.some((value) => value.length > maximumFillerFieldCharacters) ||
+    fillers.some((filler) => fillerLine(filler).includes(codeFence));
   const attachment = needsAttachment ? makeFillerAttachment(fillers) : undefined;
   const fillerFields: Array<FillerField> =
     fillers.length === 0
@@ -189,10 +181,7 @@ export const makeChannelFillersMessage = (
         fields,
       }),
     ],
-    allowedMentions:
-      attachment === undefined && fillers.some(({ accountId }) => Predicate.isString(accountId))
-        ? "default"
-        : "none",
+    allowedMentions: "none",
   };
 };
 
