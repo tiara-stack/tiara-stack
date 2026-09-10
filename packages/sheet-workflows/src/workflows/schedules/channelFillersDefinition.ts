@@ -45,6 +45,8 @@ const fillerKey = (filler: ChannelFiller): string =>
  * A player account ID is the stable identity when the sheet contains exactly one
  * account ID for that name. Ambiguous and missing names stay unlinked so the command
  * never mentions an account that cannot be identified safely.
+ * Schedule visibility only controls filler-facing schedule output; this authorized
+ * mana/moni lookup still includes populated rows before publication.
  */
 export const selectUniqueChannelFillers = (
   view: UserScheduleView,
@@ -58,7 +60,6 @@ export const selectUniqueChannelFillers = (
   for (const schedule of view.schedules) {
     if (
       schedule.channel !== input.conversationName ||
-      !schedule.visible ||
       Predicate.isNull(schedule.hour) ||
       schedule.hour < input.startHour ||
       schedule.hour > input.finishHour ||

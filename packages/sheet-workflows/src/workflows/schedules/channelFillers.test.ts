@@ -1,11 +1,13 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Schema } from "effect";
+import type { sheets_v4 } from "@googleapis/sheets";
+import { Effect, Schema } from "effect";
 import {
   SchedulesDeliverChannelFillers,
   type SchedulesDeliverChannelFillersInput,
 } from "sheet-workflow-contracts";
 import { renderTextForTest } from "../../services/testHelpers";
 import { makeChannelFillersMessage, selectUniqueChannelFillers } from "./channelFillersDefinition";
+import { makeUserScheduleProvider } from "./provider";
 import type { UserScheduleView } from "./schema";
 
 const input = Schema.decodeUnknownSync(SchedulesDeliverChannelFillers.input)({
@@ -84,6 +86,88 @@ const view: UserScheduleView = {
 };
 
 describe("channel filler selection", () => {
+  it.effect("includes populated Fill rows while the schedule is not yet visible", () =>
+    Effect.gen(function* () {
+      const responses = [
+        [
+          {
+            values: [
+              ["User IDs", "'Players'!A1:A2"],
+              ["User Sheet Names", "'Players'!B1:B2"],
+            ],
+          },
+          { values: [["Start Time", "1767225600"]] },
+          {
+            values: [
+              [
+                "running-alpha",
+                "1",
+                "Runner's Schedule",
+                "A1:A2",
+                "auto",
+                undefined,
+                "none",
+                "B1:B2",
+                "C1:C2",
+                "D1:D2",
+                undefined,
+                undefined,
+                "E1",
+              ],
+            ],
+          },
+          {
+            values: [
+              ["Target", "1-3"],
+              ["Other", "1-3"],
+            ],
+          },
+        ],
+        [
+          { values: [["2"], ["3"]] },
+          { values: [["Target"], ["Other"]] },
+          { values: [[], []] },
+          { values: [[], []] },
+          { values: [[false]] },
+          { values: [["account-target"], ["account-other"]] },
+          { values: [["Target"], ["Other"]] },
+        ],
+      ] as const;
+      let request = 0;
+      const client = {
+        spreadsheets: {
+          values: {
+            batchGet: () => Promise.resolve({ data: { valueRanges: responses[request++] ?? [] } }),
+          },
+        },
+      } as unknown as sheets_v4.Sheets;
+
+      const loaded = yield* makeUserScheduleProvider(client).loadAll("sheet-1");
+
+      expect(loaded.schedules).toEqual([
+        expect.objectContaining({
+          channel: "running-alpha",
+          visible: false,
+          hour: 2,
+          break: false,
+          fills: ["Target"],
+        }),
+        expect.objectContaining({
+          channel: "running-alpha",
+          visible: false,
+          hour: 3,
+          break: false,
+          fills: ["Other"],
+        }),
+      ]);
+
+      expect(selectUniqueChannelFillers(loaded, input)).toEqual([
+        { accountId: "account-other", name: "Other" },
+        { accountId: "account-target", name: "Target" },
+      ]);
+    }),
+  );
+
   it("filters the selected channel and inclusive hour boundaries, skips breaks, and deduplicates identities", () => {
     expect(selectUniqueChannelFillers(view, input)).toEqual([
       { accountId: "account-alpha", name: "Alpha" },
@@ -92,7 +176,7 @@ describe("channel filler selection", () => {
     ]);
   });
 
-  it("does not mention ambiguous identities and skips hidden schedule rows", () => {
+  it("does not mention ambiguous identities and includes hidden schedule rows", () => {
     const ambiguousView: UserScheduleView = {
       ...view,
       players: [...view.players, { accountId: "account-beta-other", name: "Beta" }],
@@ -116,6 +200,7 @@ describe("channel filler selection", () => {
       { accountId: "account-alpha", name: "Alpha" },
       { accountId: null, name: "Beta" },
       { accountId: null, name: "Ghost" },
+      { accountId: null, name: "Hidden" },
     ]);
   });
 
