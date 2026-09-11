@@ -188,6 +188,48 @@ _Avoid_: Parse success, best-effort configuration
 The normalized, sorted, non-overlapping union of inclusive event-hour intervals associated with one runner identity.
 _Avoid_: Runner hour text, duplicate availability rows
 
+## Development environments
+
+**Development Mode**:
+A supported way to run TiaraStack's runtime processes and dependencies for development: Fast, Compose, or Kubernetes.
+_Avoid_: Local mode, dev profile
+
+**Development Sandbox**:
+A non-production state and external-resource boundary used for interactive development. Fast and Kubernetes currently share one sandbox across all developers using the development namespace. Compose currently exposes one shared local sandbox because its project and volume identities are fixed; its intended contract is one Checkout State per source checkout once those identities are parameterized.
+_Avoid_: Staging environment, production preview
+
+**State Plane**:
+The complete set of authoritative, operational, and replicated state belonging to one Development Sandbox.
+_Avoid_: Environment database, shared cache
+
+**Authoritative Application State**:
+The persisted application and configuration records that are the source of truth for behavior; derived projections and operational stores do not replace it.
+_Avoid_: Database state, cache state
+
+**Operational State**:
+Recoverable service state such as sessions, caches, and capability references that can be discarded without rewriting Authoritative Application State.
+_Avoid_: Business state, durable records
+
+**Replicated State**:
+A derived synchronization projection that can be rebuilt from Authoritative Application State and is not an independent source of truth.
+_Avoid_: Authoritative cache, second database
+
+**Checkout State**:
+The intended local state and credential boundary assigned to one source checkout. Once implemented, its application, operational, and replicated state plus ignored local credential files are isolated from every other checkout, persist across ordinary restarts, and are removable only by a reset targeted to that checkout.
+_Avoid_: Developer state, shared local state
+
+**Development Seed**:
+A deterministic synthetic dataset applied after schema migration to make a Development Sandbox usable; it never comes from production.
+_Avoid_: Production snapshot, ad hoc fixture
+
+**Development Reset**:
+An explicitly authorized destructive operation with a named target. A local full reset removes the selected Checkout State's Authoritative Application State, Operational State, and Replicated State; until Compose checkout isolation exists, its only local target is the single shared Compose sandbox. A Zero rebuild removes only Replicated State. A developer reset cannot target the shared Fast/Kubernetes Development Sandbox; only an explicitly authorized operator may reset that sandbox after declaring its cross-developer impact. No reset rewinds external resources.
+_Avoid_: Clean build, refresh
+
+**Development Credential Set**:
+A non-production set of credentials allowlisted for one Development Sandbox or Checkout State and its dependencies; it cannot authorize production resources.
+_Avoid_: Shared production secret, ambient credentials
+
 ## Identity and authorization
 
 **Effective Principal**:

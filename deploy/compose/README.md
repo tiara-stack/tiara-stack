@@ -37,9 +37,20 @@ Optional local settings:
   files fill a random value.
 
 The npm script runs the generator with `--no-overwrite` so existing Postgres and
-Redis passwords keep matching existing local volumes. To intentionally rotate
-local database credentials, remove the Compose volumes and run
-`pnpm tsx deploy/compose/scripts/generate-secrets.ts` directly. `tsx` is
+Redis passwords keep matching existing local volumes. The current Compose file
+uses the fixed project name `tiara-stack` and fixed volume names, so those
+volumes are shared by checkouts that use the same Docker host and project. Do
+not run more than one checkout against that fixed project, and do not remove
+its volumes while another checkout may be using them. The development contract
+is one Checkout State per source checkout; checkout-specific project and volume
+identity must be in place before concurrent Compose checkouts are supported.
+
+To intentionally rotate local database credentials, treat the operation as a
+destructive reset of the selected Checkout State: stop every process using that
+state, remove only its state volumes, and run
+`pnpm tsx deploy/compose/scripts/generate-secrets.ts` directly. Until
+checkout-specific volume identities are implemented, perform this operation
+only when no other checkout uses the fixed `tiara-stack` project. `tsx` is
 provided by this repo's devDependencies.
 
 `deploy/compose/scripts/generate-secrets.ts` creates a placeholder
