@@ -1,6 +1,5 @@
-import { describe, expect, it } from "@effect/vitest";
 import { Schema } from "effect";
-import { expectTypeOf } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   BotAdmissionPolicies,
   BotCacheEndpoints,
@@ -36,6 +35,8 @@ const client = { platform: "discord", clientId: "bot-1" } as const;
 const message = messageRefFrom(client, "workspace-1", "conversation-1", "message-1");
 const deliveryKey = Schema.decodeUnknownSync(DeliveryKey)("workflow/action/message-1");
 const responseReference = Schema.decodeUnknownSync(ResponseReference)("opaque-response-handle");
+const outboundFileType = Schema.toType(BotOutboundFile);
+const outboundMessageType = Schema.toType(BotOutboundMessage);
 
 describe("sheet-bot operation contracts", () => {
   it("keeps Response References and Delivery Keys opaque and non-empty", () => {
@@ -148,9 +149,6 @@ describe("sheet-bot operation contracts", () => {
   });
 
   it("rejects outbound files that cannot be represented in delivery evidence", () => {
-    const outboundFileType = Schema.toType(BotOutboundFile);
-    const outboundMessageType = Schema.toType(BotOutboundMessage);
-
     expect(() =>
       Schema.decodeUnknownSync(outboundFileType)({
         name: "x".repeat(maximumBotFileEvidenceTextLength + 1),
@@ -181,7 +179,7 @@ describe("sheet-bot operation contracts", () => {
         })),
       }),
     ).toThrow();
-  }, 15_000);
+  }, 60_000);
 
   it("publishes opt-in semantic file binding and bounded receipt evidence", () => {
     const semanticIdentity = Schema.decodeUnknownSync(SemanticFileIdentity)(

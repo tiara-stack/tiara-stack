@@ -155,7 +155,7 @@ const makeOperations = (
     return yield* TeamWorkflowOperations.pipe(
       Effect.provide(teamWorkflowOperationsLayer),
       Effect.provide(
-        Layer.succeed(TrustedSheetPersistence, {
+        TrustedSheetPersistence.testLayer({
           ...persistence,
           workspaces: {
             ...persistence.workspaces,
@@ -163,8 +163,8 @@ const makeOperations = (
           },
         }),
       ),
-      Effect.provide(Layer.succeed(UserTeamsProvider, provider)),
-      Effect.provide(Layer.succeed(SheetBotDeliveryClient, { get: () => bot })),
+      Effect.provide(UserTeamsProvider.testLayer(provider)),
+      Effect.provide(SheetBotDeliveryClient.testLayer({ get: () => bot })),
     );
   });
 
@@ -303,7 +303,7 @@ describe("team-list delivery Workflow Definition slice", () => {
         const calls: Array<string> = [];
         let authorized = true;
         const services = Layer.mergeAll(
-          Layer.succeed(ReadOnlyWorkflowAuthorization, {
+          ReadOnlyWorkflowAuthorization.testLayer({
             authorize: () => {
               calls.push("authorize");
               return authorized
@@ -317,7 +317,7 @@ describe("team-list delivery Workflow Definition slice", () => {
             authorizeRoomOrdersSend: () => Effect.die("unused"),
             workspaceCapabilities: () => Effect.die("unused"),
           }),
-          Layer.succeed(TeamWorkflowOperations, {
+          TeamWorkflowOperations.testLayer({
             loadUserTeams: () => {
               calls.push("load-user-teams");
               return Effect.succeed(view);

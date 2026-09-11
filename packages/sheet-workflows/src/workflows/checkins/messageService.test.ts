@@ -1,4 +1,4 @@
-import { Cause, Effect, Exit, Layer, Option, Schema } from "effect";
+import { Cause, Effect, Exit, Option, Schema } from "effect";
 import { describe, expect, it } from "@effect/vitest";
 import { EffectivePrincipal } from "sheet-auth/identity";
 import { CheckinMessagesLoad, CheckinMessagesSave, WorkspaceId } from "sheet-workflow-contracts";
@@ -41,8 +41,8 @@ const makeOperations = (persistence: TrustedSheetPersistenceShape) =>
     return yield* CheckinMessagesWorkflowOperations;
   }).pipe(
     Effect.provide(checkinMessagesWorkflowOperationsLayer),
-    Effect.provide(Layer.succeed(TrustedSheetPersistence, persistence)),
-    Effect.provide(Layer.succeed(SheetDataProvider, makeProvider())),
+    Effect.provide(TrustedSheetPersistence.testLayer(persistence)),
+    Effect.provide(SheetDataProvider.testLayer(makeProvider())),
   );
 
 describe("check-in message workflow operations", () => {

@@ -1,5 +1,6 @@
 import type { ExternalTool, SessionOptions } from "@moonshot-ai/kimi-agent-sdk";
 import * as Context from "effect/Context";
+import * as Layer from "effect/Layer";
 
 export type ApprovalPolicy = "reject" | "allow-read-only-git";
 
@@ -19,4 +20,6 @@ export type ConfigShape = {
   readonly session?: Partial<Omit<SessionOptions, "externalTools" | "workDir">>;
 };
 
-export class Config extends Context.Service<Config, ConfigShape>()("effect-ai-kimi/KimiConfig") {}
+export class Config extends Context.Service<Config, ConfigShape>()("effect-ai-kimi/KimiConfig") {
+  static readonly testLayer = (service: Config["Service"]) => Layer.succeed(Config, service);
+}

@@ -873,8 +873,8 @@ describe("workspace feature-flag Workflow Definition slice", () => {
         announce: () => Effect.sync(() => (calls.push("announce"), announcementReceipt)),
       };
       const services = Layer.mergeAll(
-        Layer.succeed(ReadOnlyWorkflowAuthorization, authorization),
-        Layer.succeed(WorkspaceFeatureFlagWorkflowOperations, operations),
+        ReadOnlyWorkflowAuthorization.testLayer(authorization),
+        WorkspaceFeatureFlagWorkflowOperations.testLayer(operations),
       );
       const execution = {
         invocationId,

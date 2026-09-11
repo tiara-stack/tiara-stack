@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import type { sheets_v4 } from "@googleapis/sheets";
-import { Cause, Deferred, Duration, Effect, Exit, Fiber, Layer, Option, Schema } from "effect";
+import { Cause, Deferred, Duration, Effect, Exit, Fiber, Option, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import { workflowContractKey } from "effect-zero-workflow/contract";
 import {
@@ -111,9 +111,9 @@ const makeOperations = (
     return yield* RoomOrderCreateOperations;
   }).pipe(
     Effect.provide(roomOrderCreateOperationsLayer),
-    Effect.provide(Layer.succeed(TrustedSheetPersistence, persistence)),
-    Effect.provide(Layer.succeed(RoomOrderCreateProvider, provider)),
-    Effect.provide(Layer.succeed(SheetBotDeliveryClient, { get: () => bot })),
+    Effect.provide(TrustedSheetPersistence.testLayer(persistence)),
+    Effect.provide(RoomOrderCreateProvider.testLayer(provider)),
+    Effect.provide(SheetBotDeliveryClient.testLayer({ get: () => bot })),
   );
 
 describe("room-order creation Workflow Definition slice", () => {

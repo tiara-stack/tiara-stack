@@ -135,9 +135,9 @@ const makeOperations = (provider: SlotListProvider["Service"], bot: SheetBotHttp
     const workspaces = configuredWorkspaces(persistence.workspaces);
     return yield* SlotListWorkflowOperations.pipe(
       Effect.provide(slotListWorkflowOperationsLayer),
-      Effect.provide(Layer.succeed(TrustedSheetPersistence, { ...persistence, workspaces })),
-      Effect.provide(Layer.succeed(SlotListProvider, provider)),
-      Effect.provide(Layer.succeed(SheetBotDeliveryClient, { get: () => bot })),
+      Effect.provide(TrustedSheetPersistence.testLayer({ ...persistence, workspaces })),
+      Effect.provide(SlotListProvider.testLayer(provider)),
+      Effect.provide(SheetBotDeliveryClient.testLayer({ get: () => bot })),
     );
   });
 
@@ -329,8 +329,8 @@ describe("slot-list delivery Workflow Definition slice", () => {
         },
       };
       const services = Layer.mergeAll(
-        Layer.succeed(ReadOnlyWorkflowAuthorization, authorization),
-        Layer.succeed(SlotListWorkflowOperations, operations),
+        ReadOnlyWorkflowAuthorization.testLayer(authorization),
+        SlotListWorkflowOperations.testLayer(operations),
       );
       yield* executeSlotsDeliverListLoadAction({ invocationId, principal, input }).pipe(
         Effect.provide(services),

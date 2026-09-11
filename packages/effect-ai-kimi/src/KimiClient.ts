@@ -160,4 +160,6 @@ export class KimiClient extends Context.Service<KimiClient, Service>()(
   },
 ) {
   static layer = Layer.effect(KimiClient, this.make);
+  static readonly testLayer = (service: KimiClient["Service"]) =>
+    Layer.succeed(KimiClient, service);
 }

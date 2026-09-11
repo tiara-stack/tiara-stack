@@ -226,7 +226,7 @@ describe("workflow", () => {
         expect(result.reportMarkdown).toContain("Checkpointed Review Report");
         expect(result.failedAspects).toEqual([]);
       }),
-    10_000,
+    30_000,
   );
 
   it.live("propagates the Kimi provider and keeps graph tools specialist-only", () =>

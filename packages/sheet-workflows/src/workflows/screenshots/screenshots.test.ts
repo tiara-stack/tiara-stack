@@ -451,26 +451,26 @@ describe("screenshot capture workflow", () => {
       Effect.gen(function* () {
         const effects: Array<string> = [];
         const delivery = makeScreenshotDeliveryClient({ effects, byteLength: 4 });
-        const sourceLayer = Layer.sync(ScreenshotSourceOperations)(() => ({
+        const sourceLayer = ScreenshotSourceOperations.testLayer({
           resolve: () =>
             Effect.sync(() => {
               effects.push("resolve");
               return { url: "https://docs.google.com/render" };
             }),
-        }));
+        });
         const captureLayer = screenshotCaptureOperationsLayer.pipe(
           Layer.provide(
-            Layer.sync(ScreenshotBrowser)(() => ({
+            ScreenshotBrowser.testLayer({
               capture: () =>
                 Effect.sync(() => {
                   effects.push("capture");
                   return new Uint8Array([1, 2, 3, 4]);
                 }),
-            })),
+            }),
           ),
-          Layer.provide(Layer.sync(SheetBotDeliveryClient)(() => ({ get: () => delivery }))),
+          Layer.provide(SheetBotDeliveryClient.testLayer({ get: () => delivery })),
           Layer.provide(
-            Layer.sync(ReadOnlyWorkflowAuthorization)(() => makeAuthorization(() => Effect.void)),
+            ReadOnlyWorkflowAuthorization.testLayer(makeAuthorization(() => Effect.void)),
           ),
           Layer.provide(
             ConfigProvider.layer(
@@ -488,7 +488,7 @@ describe("screenshot capture workflow", () => {
           Layer.provide(sourceLayer),
           Layer.provide(captureLayer),
           Layer.provide(
-            Layer.succeed(ActionContext, {
+            ActionContext.testLayer({
               query: () => Effect.die("unused"),
               mutate: () => Effect.die("unused"),
             }),

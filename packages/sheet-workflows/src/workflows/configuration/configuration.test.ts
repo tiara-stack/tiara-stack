@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Cause, ConfigProvider, Effect, Exit, Layer, Option, Predicate, Schema } from "effect";
+import { Cause, ConfigProvider, Effect, Exit, Option, Predicate, Schema } from "effect";
 import { workflowContractKey } from "effect-zero-workflow/contract";
 import {
   BotDependencyUnavailable,
@@ -165,9 +165,9 @@ const makeOperations = (
     return yield* ConfigurationWorkflowOperations;
   }).pipe(
     Effect.provide(configurationWorkflowOperationsLayer),
-    Effect.provide(Layer.succeed(TrustedSheetPersistence, { ...base, workspaces })),
-    Effect.provide(Layer.succeed(SheetBotCacheClient, { get: () => bot })),
-    Effect.provide(Layer.succeed(SheetBotDeliveryClient, { get: () => bot })),
+    Effect.provide(TrustedSheetPersistence.testLayer({ ...base, workspaces })),
+    Effect.provide(SheetBotCacheClient.testLayer({ get: () => bot })),
+    Effect.provide(SheetBotDeliveryClient.testLayer({ get: () => bot })),
     Effect.provide(
       ConfigProvider.layer(ConfigProvider.fromUnknown({ sheetBotClientId: "discord-main" })),
     ),

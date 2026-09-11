@@ -259,8 +259,8 @@ describe("service-status delivery Workflow Definition slice", () => {
         },
       };
       const services = Layer.mergeAll(
-        Layer.succeed(ReadOnlyWorkflowAuthorization, authorization),
-        Layer.succeed(ServiceStatusWorkflowOperations, operations),
+        ReadOnlyWorkflowAuthorization.testLayer(authorization),
+        ServiceStatusWorkflowOperations.testLayer(operations),
       );
       yield* executeCollectServiceReadinessAction({ invocationId, principal, input }).pipe(
         Effect.provide(services),

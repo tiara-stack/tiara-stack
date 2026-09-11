@@ -184,7 +184,14 @@ export interface WorkflowStoreService {
 
 export class WorkflowStore extends Context.Service<WorkflowStore, WorkflowStoreService>()(
   "effect-zero-workflow/WorkflowStore",
-) {}
+) {
+  static readonly testLayer = (
+    service: WorkflowStore["Service"] | Effect.Effect<WorkflowStore["Service"]>,
+  ) =>
+    Effect.isEffect(service)
+      ? Layer.effect(WorkflowStore, service)
+      : Layer.succeed(WorkflowStore, service);
+}
 
 export const workflowTablePrefixSchema = Schema.String.check(
   Schema.isPattern(/^[A-Za-z_][A-Za-z0-9_]*$/),

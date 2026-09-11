@@ -1,4 +1,4 @@
-import { Context, Data, Effect } from "effect";
+import { Context, Data, Effect, Layer } from "effect";
 import type {
   BotOutboundMessage,
   ConversationRef,
@@ -51,4 +51,7 @@ interface WorkspaceFeatureFlagWorkflowOperationsShape {
 export class WorkspaceFeatureFlagWorkflowOperations extends Context.Service<
   WorkspaceFeatureFlagWorkflowOperations,
   WorkspaceFeatureFlagWorkflowOperationsShape
->()("sheet-workflows/WorkspaceFeatureFlagWorkflowOperations") {}
+>()("sheet-workflows/WorkspaceFeatureFlagWorkflowOperations") {
+  static readonly testLayer = (service: WorkspaceFeatureFlagWorkflowOperations["Service"]) =>
+    Layer.succeed(WorkspaceFeatureFlagWorkflowOperations, service);
+}

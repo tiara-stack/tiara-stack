@@ -101,7 +101,7 @@ layer(clusterServicesLayer, { excludeTestServices: true })(
 
           const dispatchLayer = screenshotOrdinaryWorkflowRegistrationLayers.pipe(
             Layer.provide(
-              Layer.succeed(ScreenshotSourceOperations, {
+              ScreenshotSourceOperations.testLayer({
                 resolve: () =>
                   Effect.sync(() => {
                     effects.push("resolve");
@@ -112,7 +112,7 @@ layer(clusterServicesLayer, { excludeTestServices: true })(
               }),
             ),
             Layer.provide(Layer.succeed(WorkflowEngine.WorkflowEngine, dispatchEngine)),
-            Layer.provide(Layer.succeed(ActionContext, actionContext)),
+            Layer.provide(ActionContext.testLayer(actionContext)),
           );
           // Each ClusterWorkflowEngine owns a separate workflow registry, as do
           // the dispatch and browser runner processes in production.
@@ -120,7 +120,7 @@ layer(clusterServicesLayer, { excludeTestServices: true })(
 
           const browserLayer = screenshotBrowserWorkflowRegistrationLayers.pipe(
             Layer.provide(
-              Layer.succeed(ScreenshotCaptureOperations, {
+              ScreenshotCaptureOperations.testLayer({
                 captureAndDeliver: (execution) =>
                   Effect.sync(() => {
                     effects.push("capture-and-deliver");
@@ -147,7 +147,7 @@ layer(clusterServicesLayer, { excludeTestServices: true })(
               }),
             ),
             Layer.provide(Layer.succeed(WorkflowEngine.WorkflowEngine, browserEngine)),
-            Layer.provide(Layer.succeed(ActionContext, actionContext)),
+            Layer.provide(ActionContext.testLayer(actionContext)),
           );
           yield* Layer.buildWithMemoMap(browserLayer, Layer.makeMemoMapUnsafe(), scope);
 

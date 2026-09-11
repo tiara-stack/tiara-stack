@@ -206,14 +206,14 @@ Database-related packages (`sheet-auth`, `vibecord`) have additional scripts:
 
 ## Test Guidelines
 
-Effect-based tests should use the Effect v4 beta `@effect/vitest` helpers. Import `describe`, `expect`, `it`, and `layer` from `@effect/vitest` when a test runs an `Effect`; keep plain Vitest imports such as `vi`, `beforeEach`, and `afterEach` from `vitest`.
+Effect-based tests should use the Effect v4 beta `@effect/vitest` helpers. Import only the helpers each test uses from `@effect/vitest`; use `layer` only for a shared layer fixture that reduces repeated setup. Do not add `layer` just because a test uses `it.effect` or inline `Effect.provide(...)`. Keep plain Vitest imports such as `vi`, `beforeEach`, and `afterEach` from `vitest`.
 
 - Prefer `it.effect("case", () => Effect.gen(function* () { ... }))` for deterministic Effect tests. Use `const value = yield* program` instead of `await Effect.runPromise(program)`.
 - Use `it.live` when the test depends on real timers, subprocesses, real filesystem behavior, process environment mutation, or runtime services whose behavior would change under the test runtime.
 - Do not introduce `Effect.runPromise` or `Effect.runPromiseExit` in `*.test.ts`, except when the test is explicitly validating those runtime APIs.
 - For failure assertions, use `const exit = yield* Effect.exit(program)` and inspect `Exit`, `Cause`, or tagged errors. Avoid Promise `.rejects` assertions for Effect programs.
 - Helpers named `run`, `provide`, or `runWith...` in Effect tests should return an `Effect`, not a `Promise`.
-- Prefer `Layer.succeed(Tag, mock)` and shared `Layer` values for reused dependency setup. Use `layer(TestLayer)("suite", (it) => { ... })` where it reduces repeated `Effect.provide` calls.
+- Prefer the owning `Context.Service`'s typed `testLayer` adapter when one exists, for example `SomeService.testLayer(mock)`. Otherwise use `Layer.succeed(Tag, mock)` and shared `Layer` values for reused dependency setup. Use `layer(TestLayer)("suite", (it) => { ... })` only when it reduces repeated `Effect.provide` calls.
 - Put stateful mocks inside `Layer.sync` so each test gets isolated state unless shared state is intentional.
 - Keep ordinary synchronous schema, parser, and data transformation tests as plain `it`.
 - Avoid explicit `TestClock.layer()` when `it.effect` already provides test services, unless the test needs a custom clock setup.

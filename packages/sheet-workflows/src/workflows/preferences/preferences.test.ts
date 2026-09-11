@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Cause, ConfigProvider, Effect, Exit, Layer, Option, Schema } from "effect";
+import { Cause, ConfigProvider, Effect, Exit, Option, Schema } from "effect";
 import {
   type AcceptedWorkflowInvocation,
   type WorkflowInvocationStore,
@@ -46,7 +46,7 @@ import { makeSelectedWorkflowTransportHandler } from "../selected";
 
 const responseReference = Schema.decodeUnknownSync(ResponseReference)("response-1");
 
-const allowAuthorizationLayer = Layer.succeed(ReadOnlyWorkflowAuthorization, {
+const allowAuthorizationLayer = ReadOnlyWorkflowAuthorization.testLayer({
   authorize: () => Effect.void,
   authorizeSlotOpen: () => Effect.die("unused"),
   authorizeCheckinRespond: () => Effect.die("unused"),
@@ -66,12 +66,12 @@ const makeOperations = (
   }).pipe(
     Effect.provide(preferencesWorkflowOperationsLayer),
     Effect.provide(
-      Layer.succeed(TrustedSheetPersistence, {
+      TrustedSheetPersistence.testLayer({
         ...base,
         preferences,
       }),
     ),
-    Effect.provide(Layer.succeed(SheetBotDeliveryClient, { get: () => bot })),
+    Effect.provide(SheetBotDeliveryClient.testLayer({ get: () => bot })),
     Effect.provide(
       ConfigProvider.layer(ConfigProvider.fromUnknown({ sheetBotClientId: "discord-main" })),
     ),

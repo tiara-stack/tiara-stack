@@ -560,7 +560,10 @@ const makeTrustedView = (client: GroupedSheetClient): TrustedSheetPersistenceSha
 export class TrustedSheetPersistence extends Context.Service<
   TrustedSheetPersistence,
   TrustedSheetPersistenceShape
->()("sheet-zero-server/TrustedSheetPersistence") {}
+>()("sheet-zero-server/TrustedSheetPersistence") {
+  static readonly testLayer = (service: TrustedSheetPersistence["Service"]) =>
+    Layer.succeed(TrustedSheetPersistence, service);
+}
 
 export const makeTrustedSheetPersistence = <ClientContext>(
   executor: ZeroClient.ZeroClientExecutor<SheetZeroSchema, ClientContext>,

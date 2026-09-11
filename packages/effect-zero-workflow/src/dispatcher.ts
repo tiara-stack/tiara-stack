@@ -9,11 +9,14 @@ export interface WorkflowCommandExecutorService {
 export class WorkflowCommandExecutor extends Context.Service<
   WorkflowCommandExecutor,
   WorkflowCommandExecutorService
->()("effect-zero-workflow/WorkflowCommandExecutor") {}
+>()("effect-zero-workflow/WorkflowCommandExecutor") {
+  static readonly testLayer = (service: WorkflowCommandExecutor["Service"]) =>
+    Layer.succeed(WorkflowCommandExecutor, service);
+}
 
 export const workflowCommandExecutorLayer = (
   execute: WorkflowCommandExecutorService["execute"],
-): Layer.Layer<WorkflowCommandExecutor> => Layer.succeed(WorkflowCommandExecutor, { execute });
+): Layer.Layer<WorkflowCommandExecutor> => WorkflowCommandExecutor.testLayer({ execute });
 
 export type WorkflowDispatcherOptions = {
   readonly workerId?: string | undefined;

@@ -143,12 +143,12 @@ const makeAuthorization = (options: {
   }).pipe(
     Effect.provide(readOnlyWorkflowAuthorizationLayer),
     Effect.provide(
-      Layer.succeed(SheetBotCacheClient, {
+      SheetBotCacheClient.testLayer({
         get: () => makeAuthorizationBot(options.getMember),
       }),
     ),
     Effect.provide(
-      Layer.succeed(TrustedSheetPersistence, {
+      TrustedSheetPersistence.testLayer({
         ...persistence,
         workspaces: {
           ...persistence.workspaces,
@@ -192,7 +192,7 @@ const makeOperations = (provider: SlotListProvider["Service"], bot: SheetBotHttp
   }).pipe(
     Effect.provide(slotOpenWorkflowOperationsLayer),
     Effect.provide(
-      Layer.succeed(TrustedSheetPersistence, {
+      TrustedSheetPersistence.testLayer({
         ...persistence,
         workspaces: {
           ...persistence.workspaces,
@@ -212,8 +212,8 @@ const makeOperations = (provider: SlotListProvider["Service"], bot: SheetBotHttp
         },
       }),
     ),
-    Effect.provide(Layer.succeed(SlotListProvider, provider)),
-    Effect.provide(Layer.succeed(SheetBotDeliveryClient, { get: () => bot })),
+    Effect.provide(SlotListProvider.testLayer(provider)),
+    Effect.provide(SheetBotDeliveryClient.testLayer({ get: () => bot })),
   );
 };
 
@@ -412,8 +412,8 @@ describe("slot-open button Workflow Definition slice", () => {
         },
       };
       const services = Layer.mergeAll(
-        Layer.succeed(ReadOnlyWorkflowAuthorization, authorization),
-        Layer.succeed(SlotOpenWorkflowOperations, operations),
+        ReadOnlyWorkflowAuthorization.testLayer(authorization),
+        SlotOpenWorkflowOperations.testLayer(operations),
       );
       const loaded = yield* executeSlotsOpenLoadAction({ invocationId, principal, input }).pipe(
         Effect.provide(services),

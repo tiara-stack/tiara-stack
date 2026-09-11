@@ -39,7 +39,7 @@ const withFakeClient = (
 ) =>
   Layer.provide(
     KimiLanguageModel.layer({ model: "kimi-k2", config: { workDir: "/tmp/repo" } }),
-    Layer.succeed(KimiClient, {
+    KimiClient.testLayer({
       run,
       runStreamed,
     }),
@@ -131,7 +131,7 @@ describe("KimiLanguageModel", () => {
               model: "kimi-k2",
               config: { workDir: "/tmp/repo", externalTools: [providerTool] },
             }),
-            Layer.succeed(KimiClient, {
+            KimiClient.testLayer({
               run: (options) => {
                 captured = options;
                 return Effect.succeed(runResult("ok"));
@@ -161,7 +161,7 @@ describe("KimiLanguageModel", () => {
                   env: { PROVIDER_ONLY: "provider", SHARED: "provider" },
                 },
               }),
-              Layer.succeed(KimiClient, {
+              KimiClient.testLayer({
                 run: (options) => {
                   captured = options;
                   return Effect.succeed(runResult("ok"));
@@ -169,7 +169,7 @@ describe("KimiLanguageModel", () => {
                 runStreamed: () => Stream.empty,
               }),
             ),
-            Layer.succeed(KimiConfig, {
+            KimiConfig.testLayer({
               env: { SERVICE_ONLY: "service", SHARED: "service" },
             }),
           ),
@@ -194,7 +194,7 @@ describe("KimiLanguageModel", () => {
               model: "kimi-k2",
               config: { workDir: "/tmp/repo", session: { yoloMode: true } },
             }),
-            Layer.succeed(KimiClient, {
+            KimiClient.testLayer({
               run: (options) => {
                 captured = options;
                 return Effect.succeed(runResult("ok"));
@@ -296,7 +296,7 @@ describe("KimiLanguageModel", () => {
           Effect.provide(
             Layer.provide(
               KimiLanguageModel.layer({ model: "kimi-k2" }),
-              Layer.succeed(KimiClient, {
+              KimiClient.testLayer({
                 run: () => Effect.succeed(runResult("ok")),
                 runStreamed: () => Stream.empty,
               }),

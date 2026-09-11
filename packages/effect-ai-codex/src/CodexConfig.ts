@@ -1,5 +1,6 @@
 import type { ThreadOptions } from "@openai/codex-sdk";
 import * as Context from "effect/Context";
+import * as Layer from "effect/Layer";
 
 export type CodexConfigValue =
   | string
@@ -25,7 +26,9 @@ export type ConfigShape = {
   readonly strictStructuredResponseItemTypes?: boolean;
 };
 
-export class Config extends Context.Service<Config, ConfigShape>()("effect-ai-codex/CodexConfig") {}
+export class Config extends Context.Service<Config, ConfigShape>()("effect-ai-codex/CodexConfig") {
+  static readonly testLayer = (service: Config["Service"]) => Layer.succeed(Config, service);
+}
 
 export type CodexMcpServerConfig = {
   readonly command: string;

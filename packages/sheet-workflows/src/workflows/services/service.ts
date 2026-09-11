@@ -1,4 +1,4 @@
-import { Context, Data, Effect } from "effect";
+import { Context, Data, Effect, Layer } from "effect";
 import type { BotOutboundMessage, DeliveryKey, RespondReceipt } from "sheet-bot-api";
 import type { InteractiveDeclaredFailure } from "sheet-workflow-contracts";
 import type { ServicesDeliverStatusInput } from "sheet-workflow-contracts/values";
@@ -30,4 +30,7 @@ interface ServiceStatusWorkflowOperationsShape {
 export class ServiceStatusWorkflowOperations extends Context.Service<
   ServiceStatusWorkflowOperations,
   ServiceStatusWorkflowOperationsShape
->()("sheet-workflows/ServiceStatusWorkflowOperations") {}
+>()("sheet-workflows/ServiceStatusWorkflowOperations") {
+  static readonly testLayer = (service: ServiceStatusWorkflowOperations["Service"]) =>
+    Layer.succeed(ServiceStatusWorkflowOperations, service);
+}

@@ -278,7 +278,10 @@ interface ReadOnlyWorkflowAuthorizationShape {
 export class ReadOnlyWorkflowAuthorization extends Context.Service<
   ReadOnlyWorkflowAuthorization,
   ReadOnlyWorkflowAuthorizationShape
->()("sheet-workflows/ReadOnlyWorkflowAuthorization") {}
+>()("sheet-workflows/ReadOnlyWorkflowAuthorization") {
+  static readonly testLayer = (service: ReadOnlyWorkflowAuthorization["Service"]) =>
+    Layer.succeed(ReadOnlyWorkflowAuthorization, service);
+}
 
 const unauthorized = () =>
   new WorkflowInvocationUnauthorized({ message: "Workflow invocation is unauthorized" });

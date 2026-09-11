@@ -72,7 +72,6 @@
     "sheet-auth": "workspace:*"
   },
   "devDependencies": {
-    "@effect/vitest": "catalog:",
     "tooling-config": "workspace:*",
     "vite": "catalog:",
     "vite-plus": "catalog:",

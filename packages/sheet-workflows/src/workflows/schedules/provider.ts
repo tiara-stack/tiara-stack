@@ -54,7 +54,10 @@ interface UserScheduleProviderShape {
 export class UserScheduleProvider extends Context.Service<
   UserScheduleProvider,
   UserScheduleProviderShape
->()("sheet-workflows/UserScheduleProvider") {}
+>()("sheet-workflows/UserScheduleProvider") {
+  static readonly testLayer = (service: UserScheduleProvider["Service"]) =>
+    Layer.succeed(UserScheduleProvider, service);
+}
 
 const rangesConfigRange = "'Thee''s Sheet Settings'!B8:C";
 

@@ -232,7 +232,10 @@ interface SheetDataProviderShape {
 
 export class SheetDataProvider extends Context.Service<SheetDataProvider, SheetDataProviderShape>()(
   "sheet-workflows/SheetDataProvider",
-) {}
+) {
+  static readonly testLayer = (service: SheetDataProvider["Service"]) =>
+    Layer.succeed(SheetDataProvider, service);
+}
 
 type Conversation = {
   readonly id: string;

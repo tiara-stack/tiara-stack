@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Cause, ConfigProvider, Effect, Exit, Layer, Option, Schema } from "effect";
+import { Cause, ConfigProvider, Effect, Exit, Option, Schema } from "effect";
 import { InvocationId, workflowContractKey } from "effect-zero-workflow/contract";
 import { BotResponseExpired, ResponseReference, type SheetBotHttpClient } from "sheet-bot-api";
 import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
@@ -100,9 +100,9 @@ const makeOperations = (
     return yield* SlotWorkflowOperations;
   }).pipe(
     Effect.provide(slotWorkflowOperationsLayer),
-    Effect.provide(Layer.succeed(TrustedSheetPersistence, { ...base, slotState })),
-    Effect.provide(Layer.succeed(SheetBotCacheClient, { get: () => bot })),
-    Effect.provide(Layer.succeed(SheetBotDeliveryClient, { get: () => bot })),
+    Effect.provide(TrustedSheetPersistence.testLayer({ ...base, slotState })),
+    Effect.provide(SheetBotCacheClient.testLayer({ get: () => bot })),
+    Effect.provide(SheetBotDeliveryClient.testLayer({ get: () => bot })),
     Effect.provide(
       ConfigProvider.layer(ConfigProvider.fromUnknown({ sheetBotClientId: "discord-main" })),
     ),

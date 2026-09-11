@@ -12,7 +12,10 @@ interface SheetBotDeliveryClientShape {
 export class SheetBotDeliveryClient extends Context.Service<
   SheetBotDeliveryClient,
   SheetBotDeliveryClientShape
->()("sheet-workflows/SheetBotDeliveryClient") {}
+>()("sheet-workflows/SheetBotDeliveryClient") {
+  static readonly testLayer = (service: SheetBotDeliveryClient["Service"]) =>
+    Layer.succeed(SheetBotDeliveryClient, service);
+}
 
 export const sheetBotDeliveryClientLayer = Layer.effect(
   SheetBotDeliveryClient,

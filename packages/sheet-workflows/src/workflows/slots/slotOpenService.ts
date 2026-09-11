@@ -1,4 +1,4 @@
-import { Context, Data, type Effect } from "effect";
+import { Context, Data, type Effect, Layer } from "effect";
 import { type BotOutboundMessage, DeliveryKey, type RespondReceipt } from "sheet-bot-api";
 import type { InteractiveDeclaredFailure, SlotsOpenInput } from "sheet-workflow-contracts";
 import type { AuthorizedSlotOpenContext } from "../readOnly/authorization";
@@ -29,4 +29,7 @@ interface SlotOpenWorkflowOperationsShape {
 export class SlotOpenWorkflowOperations extends Context.Service<
   SlotOpenWorkflowOperations,
   SlotOpenWorkflowOperationsShape
->()("sheet-workflows/SlotOpenWorkflowOperations") {}
+>()("sheet-workflows/SlotOpenWorkflowOperations") {
+  static readonly testLayer = (service: SlotOpenWorkflowOperations["Service"]) =>
+    Layer.succeed(SlotOpenWorkflowOperations, service);
+}

@@ -166,4 +166,6 @@ export class CodexClient extends Context.Service<CodexClient, Service>()(
   },
 ) {
   static layer = Layer.effect(CodexClient, this.make);
+  static readonly testLayer = (service: CodexClient["Service"]) =>
+    Layer.succeed(CodexClient, service);
 }

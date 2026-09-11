@@ -31,8 +31,7 @@ const makeTestLayer = (
   attempts = 1,
   failCommandSettles = true,
 ) =>
-  Layer.effect(
-    WorkflowStore,
+  WorkflowStore.testLayer(
     Effect.gen(function* () {
       const events = yield* Ref.make<Events>([]);
       const failure = yield* Ref.make<unknown>(undefined);
@@ -64,7 +63,7 @@ const makeTestLayer = (
       };
       return service;
     }),
-  ).pipe(Layer.merge(Layer.succeed(WorkflowCommandExecutor, { execute })));
+  ).pipe(Layer.merge(WorkflowCommandExecutor.testLayer({ execute })));
 
 const events = Effect.gen(function* () {
   const store = yield* WorkflowStore;

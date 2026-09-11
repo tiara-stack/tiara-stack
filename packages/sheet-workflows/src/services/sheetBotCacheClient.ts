@@ -12,7 +12,10 @@ interface SheetBotCacheClientShape {
 export class SheetBotCacheClient extends Context.Service<
   SheetBotCacheClient,
   SheetBotCacheClientShape
->()("sheet-workflows/SheetBotCacheClient") {}
+>()("sheet-workflows/SheetBotCacheClient") {
+  static readonly testLayer = (service: SheetBotCacheClient["Service"]) =>
+    Layer.succeed(SheetBotCacheClient, service);
+}
 
 export const sheetBotCacheClientLayer = Layer.effect(
   SheetBotCacheClient,

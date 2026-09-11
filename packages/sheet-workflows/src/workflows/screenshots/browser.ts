@@ -52,7 +52,10 @@ interface ScreenshotBrowserShape {
 
 export class ScreenshotBrowser extends Context.Service<ScreenshotBrowser, ScreenshotBrowserShape>()(
   "sheet-workflows/ScreenshotBrowser",
-) {}
+) {
+  static readonly testLayer = (service: ScreenshotBrowser["Service"]) =>
+    Layer.succeed(ScreenshotBrowser, service);
+}
 
 const browserError =
   (operation: ScreenshotBrowserError["operation"]) =>

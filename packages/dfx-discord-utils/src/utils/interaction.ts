@@ -1,6 +1,6 @@
 import { Ix } from "dfx";
 import type * as Discord from "dfx/types";
-import { Context, Effect, Option } from "effect";
+import { Context, Effect, Layer, Option } from "effect";
 
 export interface InteractionTokenContext {
   readonly applicationId: Discord.APIInteraction["application_id"];
@@ -9,7 +9,10 @@ export interface InteractionTokenContext {
 
 export class InteractionToken extends Context.Service<InteractionToken, InteractionTokenContext>()(
   "dfx-discord-utils/InteractionToken",
-) {}
+) {
+  static readonly testLayer = (service: InteractionToken["Service"]) =>
+    Layer.succeed(InteractionToken, service);
+}
 
 export type DiscordInteractionToken = InteractionToken;
 

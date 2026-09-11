@@ -33,7 +33,10 @@ interface UserTeamsProviderShape {
 
 export class UserTeamsProvider extends Context.Service<UserTeamsProvider, UserTeamsProviderShape>()(
   "sheet-workflows/UserTeamsProvider",
-) {}
+) {
+  static readonly testLayer = (service: UserTeamsProvider["Service"]) =>
+    Layer.succeed(UserTeamsProvider, service);
+}
 
 const teamConfigRange = "'Thee''s Sheet Settings'!E8:M";
 const rangesConfigRange = "'Thee''s Sheet Settings'!B8:C";

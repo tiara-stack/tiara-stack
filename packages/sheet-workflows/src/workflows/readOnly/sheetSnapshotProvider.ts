@@ -160,7 +160,10 @@ interface SheetSnapshotProviderShape {
 export class SheetSnapshotProvider extends Context.Service<
   SheetSnapshotProvider,
   SheetSnapshotProviderShape
->()("sheet-workflows/SheetSnapshotProvider") {}
+>()("sheet-workflows/SheetSnapshotProvider") {
+  static readonly testLayer = (service: SheetSnapshotProvider["Service"]) =>
+    Layer.succeed(SheetSnapshotProvider, service);
+}
 
 type InternalTab = Omit<SheetSnapshotTab, "sheetType"> & {
   readonly sourceSheetType: string;

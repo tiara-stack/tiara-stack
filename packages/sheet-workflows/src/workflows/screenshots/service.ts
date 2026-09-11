@@ -1,4 +1,4 @@
-import { Context, Data, type Effect } from "effect";
+import { Context, Data, Layer, type Effect } from "effect";
 import type { InteractiveDeclaredFailure } from "sheet-workflow-contracts";
 import type {
   ScreenshotCaptureExecution,
@@ -28,7 +28,10 @@ interface ScreenshotSourceOperationsShape {
 export class ScreenshotSourceOperations extends Context.Service<
   ScreenshotSourceOperations,
   ScreenshotSourceOperationsShape
->()("sheet-workflows/ScreenshotSourceOperations") {}
+>()("sheet-workflows/ScreenshotSourceOperations") {
+  static readonly testLayer = (service: ScreenshotSourceOperations["Service"]) =>
+    Layer.succeed(ScreenshotSourceOperations, service);
+}
 
 interface ScreenshotCaptureOperationsShape {
   readonly captureAndDeliver: (
@@ -39,4 +42,7 @@ interface ScreenshotCaptureOperationsShape {
 export class ScreenshotCaptureOperations extends Context.Service<
   ScreenshotCaptureOperations,
   ScreenshotCaptureOperationsShape
->()("sheet-workflows/ScreenshotCaptureOperations") {}
+>()("sheet-workflows/ScreenshotCaptureOperations") {
+  static readonly testLayer = (service: ScreenshotCaptureOperations["Service"]) =>
+    Layer.succeed(ScreenshotCaptureOperations, service);
+}

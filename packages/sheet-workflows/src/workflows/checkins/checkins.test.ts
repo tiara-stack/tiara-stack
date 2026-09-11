@@ -6,7 +6,6 @@ import {
   Effect,
   Exit,
   Fiber,
-  Layer,
   Option,
   Predicate,
   Ref,
@@ -175,12 +174,12 @@ const makeAuthorization = (options: {
   }).pipe(
     Effect.provide(readOnlyWorkflowAuthorizationLayer),
     Effect.provide(
-      Layer.succeed(SheetBotCacheClient, {
+      SheetBotCacheClient.testLayer({
         get: () => makeAuthorizationBot(options.getMember),
       }),
     ),
     Effect.provide(
-      Layer.succeed(TrustedSheetPersistence, {
+      TrustedSheetPersistence.testLayer({
         ...persistence,
         workspaces: {
           ...persistence.workspaces,
@@ -223,9 +222,9 @@ const makeOperations = (
     return yield* CheckinWorkflowOperations;
   }).pipe(
     Effect.provide(checkinWorkflowOperationsLayer),
-    Effect.provide(Layer.succeed(TrustedSheetPersistence, persistence)),
+    Effect.provide(TrustedSheetPersistence.testLayer(persistence)),
     Effect.provide(
-      Layer.succeed(SheetBotDeliveryClient, {
+      SheetBotDeliveryClient.testLayer({
         get: () => makeDeliveryBot(delivery),
       }),
     ),

@@ -46,7 +46,10 @@ interface SlotListProviderShape {
 
 export class SlotListProvider extends Context.Service<SlotListProvider, SlotListProviderShape>()(
   "sheet-workflows/SlotListProvider",
-) {}
+) {
+  static readonly testLayer = (service: SlotListProvider["Service"]) =>
+    Layer.succeed(SlotListProvider, service);
+}
 
 interface ScheduleRangeIndexes {
   readonly hours: number;

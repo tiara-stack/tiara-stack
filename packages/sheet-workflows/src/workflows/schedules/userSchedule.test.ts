@@ -171,13 +171,13 @@ const makeOperations = (provider: UserScheduleProvider["Service"], bot: SheetBot
     return yield* ScheduleWorkflowOperations.pipe(
       Effect.provide(scheduleWorkflowOperationsLayer),
       Effect.provide(
-        Layer.succeed(TrustedSheetPersistence, {
+        TrustedSheetPersistence.testLayer({
           ...persistence,
           workspaces: configuredWorkspaces(persistence.workspaces),
         }),
       ),
-      Effect.provide(Layer.succeed(UserScheduleProvider, provider)),
-      Effect.provide(Layer.succeed(SheetBotDeliveryClient, { get: () => bot })),
+      Effect.provide(UserScheduleProvider.testLayer(provider)),
+      Effect.provide(SheetBotDeliveryClient.testLayer({ get: () => bot })),
     );
   });
 
@@ -360,8 +360,8 @@ describe("user-schedule delivery Workflow Definition slice", () => {
         },
       };
       const services = Layer.mergeAll(
-        Layer.succeed(ReadOnlyWorkflowAuthorization, authorization),
-        Layer.succeed(ScheduleWorkflowOperations, fillerOperations(operations)),
+        ReadOnlyWorkflowAuthorization.testLayer(authorization),
+        ScheduleWorkflowOperations.testLayer(fillerOperations(operations)),
       );
       yield* executeUserScheduleLoadAction({ invocationId, principal, input }).pipe(
         Effect.provide(services),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Cause, Effect, Exit, Layer, Option, Schema } from "effect";
+import { Cause, Effect, Exit, Option, Schema } from "effect";
 import { workflowContractKey } from "effect-zero-workflow/contract";
 import { type SheetBotHttpClient, ResponseReference, messageRefFrom } from "sheet-bot-api";
 import {
@@ -106,11 +106,11 @@ const makeOperations = (
 ) =>
   RoomOrderTentativePinOperations.pipe(
     Effect.provide(roomOrderTentativePinOperationsLayer),
-    Effect.provide(Layer.succeed(TrustedSheetPersistence, persistence)),
+    Effect.provide(TrustedSheetPersistence.testLayer(persistence)),
     Effect.provide(
-      Layer.succeed(RoomOrderNavigationProvider, { loadEventStart: () => Effect.succeed(0) }),
+      RoomOrderNavigationProvider.testLayer({ loadEventStart: () => Effect.succeed(0) }),
     ),
-    Effect.provide(Layer.succeed(SheetBotDeliveryClient, { get: () => makeDeliveryBot(delivery) })),
+    Effect.provide(SheetBotDeliveryClient.testLayer({ get: () => makeDeliveryBot(delivery) })),
   );
 
 describe("tentative room-order pin Workflow Definition slice", () => {

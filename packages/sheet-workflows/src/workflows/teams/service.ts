@@ -1,4 +1,4 @@
-import { Context, Data, type Effect } from "effect";
+import { Context, Data, type Effect, Layer } from "effect";
 import { type BotOutboundMessage, DeliveryKey, type RespondReceipt } from "sheet-bot-api";
 import {
   TeamsDeliverList,
@@ -27,4 +27,7 @@ interface TeamWorkflowOperationsShape {
 export class TeamWorkflowOperations extends Context.Service<
   TeamWorkflowOperations,
   TeamWorkflowOperationsShape
->()("sheet-workflows/TeamWorkflowOperations") {}
+>()("sheet-workflows/TeamWorkflowOperations") {
+  static readonly testLayer = (service: TeamWorkflowOperations["Service"]) =>
+    Layer.succeed(TeamWorkflowOperations, service);
+}

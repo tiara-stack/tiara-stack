@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Cause, ConfigProvider, Effect, Exit, Layer, Option, Predicate, Schema } from "effect";
+import { Cause, ConfigProvider, Effect, Exit, Option, Predicate, Schema } from "effect";
 import { InvocationId } from "effect-zero-workflow/contract";
 import {
   WorkflowInvocationUnauthorized,
@@ -294,8 +294,8 @@ const authorizeWithPolicy = (
       authorization.authorize(AnnouncementsDeliverUpdate, candidate, candidateInput),
     ),
     Effect.provide(readOnlyWorkflowAuthorizationLayer),
-    Effect.provide(Layer.succeed(SheetBotCacheClient, { get: () => bot })),
-    Effect.provide(Layer.succeed(TrustedSheetPersistence, persistence)),
+    Effect.provide(SheetBotCacheClient.testLayer({ get: () => bot })),
+    Effect.provide(TrustedSheetPersistence.testLayer(persistence)),
     Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(gatewayEnvironment))),
   );
 };

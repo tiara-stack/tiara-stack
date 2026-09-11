@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Cause, ConfigProvider, Effect, Exit, Layer, Option, Schema } from "effect";
+import { Cause, ConfigProvider, Effect, Exit, Option, Schema } from "effect";
 import { InvocationId } from "effect-zero-workflow/contract";
 import { messageRefFrom, type SheetBotHttpClient } from "sheet-bot-api";
 import { EffectivePrincipal } from "sheet-auth/identity";
@@ -135,16 +135,14 @@ const makeOperations = (
     return yield* CheckinsOpenWorkflowOperations;
   }).pipe(
     Effect.provide(checkinsOpenWorkflowOperationsLayer),
-    Effect.provide(Layer.succeed(TrustedSheetPersistence, persistence)),
-    Effect.provide(Layer.succeed(SheetDataProvider, dataProvider)),
+    Effect.provide(TrustedSheetPersistence.testLayer(persistence)),
+    Effect.provide(SheetDataProvider.testLayer(dataProvider)),
     Effect.provide(
-      Layer.succeed(SheetBotDeliveryClient, {
+      SheetBotDeliveryClient.testLayer({
         get: () => makeDeliveryBot(handlers),
       }),
     ),
-    Effect.provide(
-      Layer.succeed(ReadOnlyWorkflowAuthorization, makeRecordingWorkflowAuthorization([])),
-    ),
+    Effect.provide(ReadOnlyWorkflowAuthorization.testLayer(makeRecordingWorkflowAuthorization([]))),
     Effect.provide(
       ConfigProvider.layer(ConfigProvider.fromUnknown({ SHEET_BOT_CLIENT_ID: client.clientId })),
     ),

@@ -27,7 +27,10 @@ interface RoomOrderNavigationProviderShape {
 export class RoomOrderNavigationProvider extends Context.Service<
   RoomOrderNavigationProvider,
   RoomOrderNavigationProviderShape
->()("sheet-workflows/RoomOrderNavigationProvider") {}
+>()("sheet-workflows/RoomOrderNavigationProvider") {
+  static readonly testLayer = (service: RoomOrderNavigationProvider["Service"]) =>
+    Layer.succeed(RoomOrderNavigationProvider, service);
+}
 
 const makeProviderError =
   (operation: RoomOrderNavigationProviderError["operation"]) => (cause: unknown) =>

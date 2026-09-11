@@ -39,7 +39,7 @@ const withFakeClient = (
 ) =>
   Layer.provide(
     CodexLanguageModel.layer({ model: "gpt-5-codex" }),
-    Layer.succeed(CodexClient, {
+    CodexClient.testLayer({
       run,
       runStreamed: () => Stream.empty,
     }),
@@ -107,7 +107,7 @@ describe("CodexLanguageModel", () => {
                 model: "gpt-5-codex",
                 config: { env: { PROVIDER_ONLY: "provider", SHARED: "provider" } },
               }),
-              Layer.succeed(CodexClient, {
+              CodexClient.testLayer({
                 run: (options) => {
                   captured = options;
                   return Effect.succeed(runResult("ok"));
@@ -115,7 +115,7 @@ describe("CodexLanguageModel", () => {
                 runStreamed: () => Stream.empty,
               }),
             ),
-            Layer.succeed(CodexConfig, {
+            CodexConfig.testLayer({
               env: { SERVICE_ONLY: "service", SHARED: "service" },
             }),
           ),
@@ -302,7 +302,7 @@ describe("CodexLanguageModel", () => {
                 model: "gpt-5-codex",
                 config: { structuredResponseMaxCharacters: 20 },
               }),
-              Layer.succeed(CodexClient, {
+              CodexClient.testLayer({
                 run: () =>
                   Effect.succeed(runResult(`${JSON.stringify({ ok: true })} trailing text`)),
                 runStreamed: () => Stream.empty,
@@ -335,7 +335,7 @@ describe("CodexLanguageModel", () => {
                 model: "gpt-5-codex",
                 config: { structuredResponseMaxCharacters: Number.NaN },
               }),
-              Layer.succeed(CodexClient, {
+              CodexClient.testLayer({
                 run: () => Effect.succeed(runResult(JSON.stringify({ ok: true }))),
                 runStreamed: () => Stream.empty,
               }),

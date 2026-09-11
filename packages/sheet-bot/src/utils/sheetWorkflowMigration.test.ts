@@ -47,7 +47,7 @@ const interaction: APIChatInputApplicationCommandInteraction = {
 };
 
 const testLayer = Layer.mergeAll(
-  Layer.succeed(InteractionToken, {
+  InteractionToken.testLayer({
     applicationId: "application-1",
     token: "interaction-token",
   }),

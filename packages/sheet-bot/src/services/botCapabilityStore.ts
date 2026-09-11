@@ -1044,6 +1044,9 @@ export class BotCapabilityStore extends Context.Service<
   BotCapabilityStore,
   BotCapabilityStoreShape
 >()("sheet-bot/BotCapabilityStore") {
+  static readonly testLayer = (service: BotCapabilityStore["Service"]) =>
+    Layer.succeed(BotCapabilityStore, service);
+
   static layer = Layer.effect(
     BotCapabilityStore,
     Effect.gen(function* () {

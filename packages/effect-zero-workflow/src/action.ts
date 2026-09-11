@@ -24,7 +24,10 @@ export interface ActionContextService {
 
 export class ActionContext extends Context.Service<ActionContext, ActionContextService>()(
   "effect-zero-workflow/ActionContext",
-) {}
+) {
+  static readonly testLayer = (service: ActionContext["Service"]) =>
+    Layer.succeed(ActionContext, service);
+}
 
 export const actionContextSqlLayer = Layer.effect(
   ActionContext,

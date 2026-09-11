@@ -24,7 +24,7 @@ const makeDeliveryHttpClient = (
   HttpApiTest.groups(SheetBotApi, ["delivery"]).pipe(
     Effect.provide(botCapabilityDeliveryHandlersLayer),
     Effect.provide(rest),
-    Effect.provide(Layer.succeed(BotCapabilityStore, store)),
+    Effect.provide(BotCapabilityStore.testLayer(store)),
     Effect.provide(
       ConfigProvider.layer(ConfigProvider.fromUnknown({ SHEET_BOT_CLIENT_ID: client.clientId })),
     ),

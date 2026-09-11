@@ -115,10 +115,7 @@ describe("KimiClient", () => {
           });
         }).pipe(
           Effect.provide(
-            Layer.provide(
-              KimiClient.layer,
-              Layer.succeed(Config, { timeoutMs: 1, cleanupGraceMs: 1 }),
-            ),
+            Layer.provide(KimiClient.layer, Config.testLayer({ timeoutMs: 1, cleanupGraceMs: 1 })),
           ),
         ),
       );
@@ -165,10 +162,7 @@ describe("KimiClient", () => {
         });
       }).pipe(
         Effect.provide(
-          Layer.provide(
-            KimiClient.layer,
-            Layer.succeed(Config, { externalTools: [configuredTool] }),
-          ),
+          Layer.provide(KimiClient.layer, Config.testLayer({ externalTools: [configuredTool] })),
         ),
       );
 
@@ -203,7 +197,7 @@ describe("KimiClient", () => {
         Effect.provide(
           Layer.provide(
             KimiClient.layer,
-            Layer.succeed(Config, {
+            Config.testLayer({
               env: {
                 CONFIG_ONLY: "config",
                 SHARED: "config",
@@ -255,10 +249,7 @@ describe("KimiClient", () => {
         });
       }).pipe(
         Effect.provide(
-          Layer.provide(
-            KimiClient.layer,
-            Layer.succeed(Config, { externalTools: [configuredTool] }),
-          ),
+          Layer.provide(KimiClient.layer, Config.testLayer({ externalTools: [configuredTool] })),
         ),
       );
 

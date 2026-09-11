@@ -143,8 +143,8 @@ const authorizationProgram = <A, E>(
     return yield* use(yield* ReadOnlyWorkflowAuthorization);
   }).pipe(
     Effect.provide(readOnlyWorkflowAuthorizationLayer),
-    Effect.provide(Layer.succeed(SheetBotCacheClient, { get: () => bot })),
-    Effect.provide(Layer.succeed(TrustedSheetPersistence, persistence)),
+    Effect.provide(SheetBotCacheClient.testLayer({ get: () => bot })),
+    Effect.provide(TrustedSheetPersistence.testLayer(persistence)),
     Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(environment))),
   );
 };
@@ -589,8 +589,8 @@ describe("workspace-welcome Workflow Definition slice", () => {
         },
       };
       const services = Layer.mergeAll(
-        Layer.succeed(ReadOnlyWorkflowAuthorization, authorization),
-        Layer.succeed(WorkspaceWelcomeWorkflowOperations, operations),
+        ReadOnlyWorkflowAuthorization.testLayer(authorization),
+        WorkspaceWelcomeWorkflowOperations.testLayer(operations),
       );
       yield* executeSelectWelcomeConversationAction({
         invocationId,

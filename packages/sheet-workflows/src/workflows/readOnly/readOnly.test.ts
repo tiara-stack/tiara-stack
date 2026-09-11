@@ -86,7 +86,7 @@ import {
   workflowTestPrincipal as principal,
 } from "../shared/testHelpers";
 
-const allowAuthorizationLayer = Layer.succeed(ReadOnlyWorkflowAuthorization, {
+const allowAuthorizationLayer = ReadOnlyWorkflowAuthorization.testLayer({
   authorize: () => Effect.void,
   authorizeSlotOpen: () => Effect.die("unused"),
   authorizeCheckinRespond: () => Effect.die("unused"),
@@ -214,9 +214,9 @@ const authorizationWithBot = (
     return yield* ReadOnlyWorkflowAuthorization;
   }).pipe(
     Effect.provide(readOnlyWorkflowAuthorizationLayer),
-    Effect.provide(Layer.succeed(SheetBotCacheClient, { get: () => botClient })),
+    Effect.provide(SheetBotCacheClient.testLayer({ get: () => botClient })),
     Effect.provide(
-      Layer.succeed(TrustedSheetPersistence, {
+      TrustedSheetPersistence.testLayer({
         ...persistence,
         workspaces: {
           ...persistence.workspaces,
@@ -402,9 +402,9 @@ describe("read-only Sheet Workflow Definition slice", () => {
         expect(policies).toEqual(["describe:fresh", "snapshot:fresh"]);
       }).pipe(
         Effect.provide(readOnlyWorkflowDataSourceLayer),
-        Effect.provide(Layer.succeed(SheetSnapshotProvider, makeSnapshotProvider(calls, policies))),
+        Effect.provide(SheetSnapshotProvider.testLayer(makeSnapshotProvider(calls, policies))),
         Effect.provide(
-          Layer.succeed(SheetBotCacheClient, {
+          SheetBotCacheClient.testLayer({
             get: () => makeAuthorizationBotClient(() => Effect.die("unused")),
           }),
         ),
@@ -418,7 +418,7 @@ describe("read-only Sheet Workflow Definition slice", () => {
             ),
           ),
         ),
-        Effect.provide(Layer.sync(TrustedSheetPersistence, makeTrustedSheetPersistenceMock)),
+        Effect.provide(TrustedSheetPersistence.testLayer(makeTrustedSheetPersistenceMock())),
         Effect.provide(allowAuthorizationLayer),
         Effect.provide(
           ConfigProvider.layer(
@@ -503,9 +503,9 @@ describe("read-only Sheet Workflow Definition slice", () => {
       expect(policies).toEqual(["describe:fresh"]);
     }).pipe(
       Effect.provide(readOnlyWorkflowDataSourceLayer),
-      Effect.provide(Layer.succeed(SheetSnapshotProvider, makeSnapshotProvider(calls, policies))),
+      Effect.provide(SheetSnapshotProvider.testLayer(makeSnapshotProvider(calls, policies))),
       Effect.provide(
-        Layer.succeed(SheetBotCacheClient, {
+        SheetBotCacheClient.testLayer({
           get: () => makeAuthorizationBotClient(() => Effect.die("unused")),
         }),
       ),
@@ -516,7 +516,7 @@ describe("read-only Sheet Workflow Definition slice", () => {
         ),
       ),
       Effect.provide(
-        Layer.succeed(TrustedSheetPersistence, {
+        TrustedSheetPersistence.testLayer({
           ...basePersistence,
           sheetConfiguration: configurationPersistence,
         }),
@@ -553,9 +553,9 @@ describe("read-only Sheet Workflow Definition slice", () => {
       expect(calls).toEqual([]);
     }).pipe(
       Effect.provide(readOnlyWorkflowDataSourceLayer),
-      Effect.provide(Layer.succeed(SheetSnapshotProvider, makeSnapshotProvider(calls))),
+      Effect.provide(SheetSnapshotProvider.testLayer(makeSnapshotProvider(calls))),
       Effect.provide(
-        Layer.succeed(SheetBotCacheClient, {
+        SheetBotCacheClient.testLayer({
           get: () => makeAuthorizationBotClient(() => Effect.die("unused")),
         }),
       ),
@@ -567,7 +567,7 @@ describe("read-only Sheet Workflow Definition slice", () => {
           ),
         ),
       ),
-      Effect.provide(Layer.sync(TrustedSheetPersistence, makeTrustedSheetPersistenceMock)),
+      Effect.provide(TrustedSheetPersistence.testLayer(makeTrustedSheetPersistenceMock())),
       Effect.provide(allowAuthorizationLayer),
       Effect.provide(
         ConfigProvider.layer(
@@ -1504,10 +1504,10 @@ describe("read-only Sheet Workflow Definition slice", () => {
         ]);
       }).pipe(
         Effect.provide(readOnlyWorkflowDataSourceLayer),
-        Effect.provide(Layer.succeed(SheetSnapshotProvider, makeSnapshotProvider([]))),
-        Effect.provide(Layer.succeed(SheetBotCacheClient, { get: () => botClient })),
-        Effect.provide(Layer.succeed(SheetDataProvider, makeDataProvider())),
-        Effect.provide(Layer.sync(TrustedSheetPersistence, makeTrustedSheetPersistenceMock)),
+        Effect.provide(SheetSnapshotProvider.testLayer(makeSnapshotProvider([]))),
+        Effect.provide(SheetBotCacheClient.testLayer({ get: () => botClient })),
+        Effect.provide(SheetDataProvider.testLayer(makeDataProvider())),
+        Effect.provide(TrustedSheetPersistence.testLayer(makeTrustedSheetPersistenceMock())),
         Effect.provide(allowAuthorizationLayer),
         Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({}))),
       );
@@ -1530,9 +1530,9 @@ describe("read-only Sheet Workflow Definition slice", () => {
         );
       }).pipe(
         Effect.provide(readOnlyWorkflowDataSourceLayer),
-        Effect.provide(Layer.succeed(SheetSnapshotProvider, makeSnapshotProvider([]))),
+        Effect.provide(SheetSnapshotProvider.testLayer(makeSnapshotProvider([]))),
         Effect.provide(
-          Layer.succeed(SheetBotCacheClient, {
+          SheetBotCacheClient.testLayer({
             get: () => makeAuthorizationBotClient(() => Effect.die("unused")),
           }),
         ),
@@ -1549,7 +1549,7 @@ describe("read-only Sheet Workflow Definition slice", () => {
             ),
           ),
         ),
-        Effect.provide(Layer.sync(TrustedSheetPersistence, makeTrustedSheetPersistenceMock)),
+        Effect.provide(TrustedSheetPersistence.testLayer(makeTrustedSheetPersistenceMock())),
         Effect.provide(allowAuthorizationLayer),
         Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({}))),
       );

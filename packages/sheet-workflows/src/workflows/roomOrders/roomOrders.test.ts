@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Cause, ConfigProvider, Effect, Exit, Layer, Option, Predicate, Schema } from "effect";
+import { Cause, ConfigProvider, Effect, Exit, Option, Predicate, Schema } from "effect";
 import { workflowContractKey } from "effect-zero-workflow/contract";
 import {
   BotDependencyUnavailable,
@@ -143,9 +143,9 @@ const makeOperations = (
     return yield* RoomOrderNavigationOperations;
   }).pipe(
     Effect.provide(roomOrderNavigationOperationsLayer),
-    Effect.provide(Layer.succeed(TrustedSheetPersistence, persistence)),
-    Effect.provide(Layer.succeed(RoomOrderNavigationProvider, provider)),
-    Effect.provide(Layer.succeed(SheetBotDeliveryClient, { get: () => makeDeliveryBot(delivery) })),
+    Effect.provide(TrustedSheetPersistence.testLayer(persistence)),
+    Effect.provide(RoomOrderNavigationProvider.testLayer(provider)),
+    Effect.provide(SheetBotDeliveryClient.testLayer({ get: () => makeDeliveryBot(delivery) })),
   );
 
 describe("room-order navigation Workflow Definition slice", () => {
@@ -701,8 +701,8 @@ describe("room-order navigation Workflow Definition slice", () => {
       } as unknown as SheetBotHttpClient;
       const authorization = yield* ReadOnlyWorkflowAuthorization.pipe(
         Effect.provide(readOnlyWorkflowAuthorizationLayer),
-        Effect.provide(Layer.succeed(SheetBotCacheClient, { get: () => bot })),
-        Effect.provide(Layer.succeed(TrustedSheetPersistence, persistence)),
+        Effect.provide(SheetBotCacheClient.testLayer({ get: () => bot })),
+        Effect.provide(TrustedSheetPersistence.testLayer(persistence)),
         Effect.provide(
           ConfigProvider.layer(
             ConfigProvider.fromUnknown({
