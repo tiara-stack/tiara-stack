@@ -419,3 +419,57 @@ _Avoid_: Arbitrary workflow event, public retry
 **Causation Link**:
 A reference from a new invocation to the earlier terminal invocation whose outcome caused the new business attempt.
 _Avoid_: Reopened run, reused invocation ID
+
+## Development workflow
+
+**Behavior-Contract Parity**:
+The guarantee that a change is exercised against the user-visible and runtime contracts that Kubernetes introduces or hosts, without requiring identical local topology or resource configuration.
+_Avoid_: Infrastructure parity, production parity
+
+**Shared Preview Promotion Gate**:
+The evidence checkpoint required before a change enters the shared Kubernetes development preview, combining a role-aware baseline with checks specific to the changed runtime surface.
+_Avoid_: Production gate, deployment approval
+
+**Role-Aware Baseline**:
+A shared-preview check set whose routine form covers API behavior, rendered manifests, and resource readiness, while adding specialized checks when a selected runtime role or external integration is affected.
+_Avoid_: Full-stack gate, readiness-only check
+
+**Contract-Crossing Change**:
+A change whose observable behavior or startup contract crosses a runtime-process, dependency, data, authentication, workflow, packaging, or external-integration boundary and therefore cannot be validated by the fast web mode alone.
+_Avoid_: Any server-file change, fast-mode failure
+
+**Fast-Mode Boundary**:
+The limit of work that can be trusted in the host-native web slice: web-only behavior against stable development service contracts, without backend, data, authentication, workflow-role, packaging, or external-integration changes.
+_Avoid_: Local parity, web-only branch
+
+**Layered Promotion Gate**:
+A promotion decision assembled from local integration evidence, Kubernetes manifest validation, deployment readiness, the shared-preview baseline, and checks for the changed behavior surface rather than one universal end-to-end run.
+_Avoid_: Deployment-only gate, all-or-nothing gate
+
+**Development-Only External Integration Check**:
+An explicit, opt-in check of a changed Discord or Google Sheets boundary against dedicated development resources, with no production credentials and no assumption that external writes can be reset.
+_Avoid_: Live integration gate, reversible external state
+
+**Routine Preview Gate**:
+The low-cost default promotion check consisting of API-level evidence, Helm manifest validation, and resource readiness before a shared preview deployment is accepted.
+_Avoid_: Full parity suite, readiness-only check
+
+**Changed-Surface Overlay**:
+The additional behavior-contract checks selected when a change crosses a runtime role, cluster-only boundary, data or authentication contract, packaging contract, or external integration.
+_Avoid_: Universal end-to-end suite, optional smoke test
+
+**Changed-Surface Matrix**:
+The mapping from a crossed behavior boundary to the minimum additional evidence needed to promote that change, including workflow-role, Kubernetes-invariant, packaging, and external-integration checks.
+_Avoid_: File-path test heuristic, full-stack gate
+
+**Workflow Contract Smoke**:
+A deterministic deployed check that sends a representative workflow request through the API and proves terminal success through the affected runner role without external side effects.
+_Avoid_: Endpoint health check, full end-to-end suite
+
+**Kubernetes Invariant Overlay**:
+A non-destructive set of checks for affected cluster boundaries, including ingress, authentication, Zero authorization, network-policy paths, persistence, and rollout readiness.
+_Avoid_: Manifest-only check, chaos exercise
+
+**Blocking Overlay Check**:
+An affected-surface check that must pass before promotion, or must produce an explicit not-affected result; it cannot be silently skipped.
+_Avoid_: Advisory smoke test, implicit waiver
