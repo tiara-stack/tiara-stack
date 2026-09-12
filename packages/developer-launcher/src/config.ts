@@ -117,6 +117,22 @@ const disallowedEnvironmentKeys = new Set([
   "SHEET_AUTH_OAUTH_CLIENT_SECRET",
 ]);
 
+const disallowedEnvironmentPatterns = [
+  /(?:^|_)(?:DATABASE|POSTGRES|REDIS)(?:_|$)/,
+  /(?:^|_)TOKEN(?:_|$)/,
+  /(?:^|_)CREDENTIALS?(?:_|$)/,
+  /(?:^|_)SECRET(?:_|$)/,
+];
+
+const isDisallowedEnvironmentKey = (mode: DevelopmentMode, key: string) => {
+  const normalizedKey = key.toUpperCase();
+  return (
+    disallowedEnvironmentKeys.has(normalizedKey) ||
+    (mode === "fast" &&
+      disallowedEnvironmentPatterns.some((pattern) => pattern.test(normalizedKey)))
+  );
+};
+
 export const sensitiveEnvironmentKeys = new Set([
   ...secretEnvironmentKeys,
   ...disallowedEnvironmentKeys,
@@ -334,6 +350,7 @@ const readEnvironmentFile = (filePath: string): EnvironmentFileResult => {
 const environmentFilePath = (input: ConfigInput) => {
   if (input.envFile !== null) return path.resolve(input.cwd, input.envFile);
   if (input.mode === "compose") return path.resolve(input.cwd, "deploy/compose/.env");
+  if (input.mode === "fast") return path.resolve(input.cwd, ".env.development.local");
   return null;
 };
 
@@ -391,7 +408,7 @@ const validateEnvironmentKeys = (
   );
 
   for (const key of Object.keys(values)) {
-    if (!disallowedEnvironmentKeys.has(key)) continue;
+    if (!isDisallowedEnvironmentKey(mode, key)) continue;
     errors.push(
       makeDiagnostic(
         "unsafe-credential",
@@ -403,7 +420,7 @@ const validateEnvironmentKeys = (
   }
 
   for (const key of sourceKeys) {
-    if (disallowedEnvironmentKeys.has(key)) continue;
+    if (isDisallowedEnvironmentKey(mode, key)) continue;
     if (!allModeEnvironmentKeys.has(key)) continue;
     if (allowedKeys.has(key)) continue;
     const code = secretEnvironmentKeys.has(key) ? "unsafe-credential" : "invalid-environment";
@@ -423,7 +440,7 @@ const validateEnvironmentKeys = (
 
   if (filePath !== null) {
     for (const key of fileKeys) {
-      if (disallowedEnvironmentKeys.has(key)) continue;
+      if (isDisallowedEnvironmentKey(mode, key)) continue;
       if (allowedKeys.has(key)) continue;
       if (allModeEnvironmentKeys.has(key)) continue;
       errors.push(

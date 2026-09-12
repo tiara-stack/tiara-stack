@@ -7,7 +7,12 @@ import { realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Argument, Command, Flag } from "effect/unstable/cli";
-import { runLauncherFromParsed } from "./index";
+import { checkHttpAccess, waitForHttp } from "./access";
+import { FAST_ENDPOINTS } from "./config";
+import { startLongLivedProcess } from "./executor";
+import { makeDiagnostic } from "./diagnostics";
+import { renderLauncherOutput, runLauncherFromParsed } from "./index";
+import type { LauncherOutput } from "./types";
 import type { CommandOptions } from "./commands";
 
 const commonFlags = {
@@ -40,10 +45,166 @@ const launcherOptions = (config: {
 // Effect CLI owns executable flag syntax. runLauncher keeps a second parser for
 // callers that provide raw argv directly, while this path passes typed values
 // through one CommandOptions contract.
+// fallow-ignore-next-line complexity
 const runParsedCommand = (config: Parameters<typeof launcherOptions>[0]) =>
+  // fallow-ignore-next-line complexity
   Effect.tryPromise({
+    // fallow-ignore-next-line complexity
     try: async () => {
       const result = await runLauncherFromParsed(config.operands, launcherOptions(config));
+      if (result.output.ok && result.output.mode === "fast" && result.output.action === "up") {
+        const repository = process.cwd();
+        const dependencies = await Promise.all(
+          (["auth", "zero", "workflows"] as const).map(async (dependency) => {
+            const origin = result.output.urls.find((url) => url.name === dependency)?.url;
+            if (origin === undefined) {
+              return makeDiagnostic(
+                "access-failed",
+                `${dependency} has no configured Fast endpoint`,
+                "Use the approved Fast development endpoint configuration and retry.",
+                { mode: "fast", dependency },
+              );
+            }
+            const access = await checkHttpAccess({
+              mode: "fast",
+              dependency,
+              origin,
+              timeoutMs: 2_000,
+              optional: false,
+            });
+            return access.reachable
+              ? undefined
+              : makeDiagnostic(
+                  access.timedOut ? "dependency-timeout" : "access-failed",
+                  `${dependency} at ${origin} is not reachable`,
+                  "Check the approved development endpoint and retry Fast mode.",
+                  { mode: "fast", dependency, origin },
+                );
+          }),
+        );
+        const dependencyErrors = dependencies.filter(
+          (diagnostic): diagnostic is NonNullable<typeof diagnostic> => diagnostic !== undefined,
+        );
+        if (dependencyErrors.length > 0) {
+          const blocked = {
+            ...result.output,
+            ok: false,
+            readiness: "blocked" as const,
+            errors: dependencyErrors,
+          } satisfies LauncherOutput;
+          process.exitCode = 2;
+          process.stdout.write(renderLauncherOutput(blocked, config.json));
+          return null;
+        }
+
+        const planned = result.output.plannedProcesses[0];
+        if (planned === undefined) throw new Error("Fast mode produced no sheet-web process");
+        const appUrl = result.output.urls[0]?.url ?? FAST_ENDPOINTS.app;
+        let running: Awaited<ReturnType<typeof startLongLivedProcess>> | undefined;
+        let terminationExitCode: number | undefined;
+        let shutdownPromise: Promise<void> | undefined;
+        const shutdown = async (signal: NodeJS.Signals) => {
+          terminationExitCode = 128 + (signal === "SIGINT" ? 2 : 15);
+          process.exitCode = terminationExitCode;
+          if (running !== undefined) await running.kill();
+        };
+        const onInterrupt = () => {
+          shutdownPromise ??= shutdown("SIGINT");
+        };
+        const onTerminate = () => {
+          shutdownPromise ??= shutdown("SIGTERM");
+        };
+        process.once("SIGINT", onInterrupt);
+        process.once("SIGTERM", onTerminate);
+        try {
+          running = await startLongLivedProcess({
+            command: planned.command,
+            args: planned.args,
+            cwd: path.join(repository, "packages/sheet-web"),
+            env: planned.environment,
+            timeoutMs: 30_000,
+            kind: "runtime",
+            readOnly: false,
+            output: config.json ? "stderr" : "inherit",
+          });
+        } catch (cause) {
+          if (terminationExitCode !== undefined) {
+            await shutdownPromise?.catch(() => undefined);
+            process.off("SIGINT", onInterrupt);
+            process.off("SIGTERM", onTerminate);
+            return null;
+          }
+          const detail = cause instanceof Error ? `: ${cause.message}` : "";
+          const blocked = {
+            ...result.output,
+            ok: false,
+            readiness: "blocked" as const,
+            errors: [
+              makeDiagnostic(
+                "dependency-unavailable",
+                `sheet-web could not be started${detail}`,
+                "Run pnpm install, verify vite-plus is available, and retry Fast mode.",
+                { mode: "fast", dependency: "sheet-web", origin: appUrl },
+              ),
+            ],
+          } satisfies LauncherOutput;
+          process.exitCode = 2;
+          process.stdout.write(renderLauncherOutput(blocked, config.json));
+          process.off("SIGINT", onInterrupt);
+          process.off("SIGTERM", onTerminate);
+          return null;
+        }
+        if (terminationExitCode !== undefined) {
+          try {
+            await (shutdownPromise ?? running.kill().catch(() => undefined)).catch(() => undefined);
+            await running.kill().catch(() => undefined);
+          } finally {
+            process.off("SIGINT", onInterrupt);
+            process.off("SIGTERM", onTerminate);
+          }
+          return null;
+        }
+        const readiness = await waitForHttp(appUrl, 30_000, running.exited);
+        if (!readiness.reachable) {
+          try {
+            await (shutdownPromise ?? running.kill().catch(() => undefined));
+          } finally {
+            process.off("SIGINT", onInterrupt);
+            process.off("SIGTERM", onTerminate);
+          }
+          if (terminationExitCode !== undefined) return null;
+          const blocked = {
+            ...result.output,
+            ok: false,
+            readiness: "blocked" as const,
+            errors: [
+              makeDiagnostic(
+                readiness.timedOut ? "dependency-timeout" : "access-failed",
+                `sheet-web did not become ready at ${appUrl}${
+                  readiness.reason === undefined ? "" : `: ${readiness.reason}`
+                }`,
+                "Fix the sheet-web startup error and retry pnpm dev fast up.",
+                { mode: "fast", dependency: "sheet-web", origin: appUrl },
+              ),
+            ],
+          } satisfies LauncherOutput;
+          process.exitCode = 2;
+          process.stdout.write(renderLauncherOutput(blocked, config.json));
+          return null;
+        }
+        try {
+          process.stdout.write(
+            renderLauncherOutput({ ...result.output, readiness: "ready" }, config.json),
+          );
+          const exit = await running.exited;
+          await shutdownPromise?.catch(() => undefined);
+          process.exitCode = terminationExitCode ?? exit.exitCode;
+        } finally {
+          process.off("SIGINT", onInterrupt);
+          process.off("SIGTERM", onTerminate);
+        }
+        return null;
+      }
       process.exitCode = result.exitCode;
       const output = result.stdout.trimEnd();
       return output.length === 0 ? null : output;

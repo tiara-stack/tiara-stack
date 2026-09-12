@@ -86,6 +86,7 @@ export interface ProcessRequest {
   readonly timeoutMs: number;
   readonly kind: "dependency-check" | "runtime";
   readonly readOnly: boolean;
+  readonly output?: "capture" | "inherit" | "stderr";
 }
 
 export interface ProcessResult {

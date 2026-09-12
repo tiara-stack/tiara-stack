@@ -1,9 +1,9 @@
 # Development launcher
 
 The root `pnpm dev` command is the single entrypoint for local development
-mode selection. The core launcher validates input, reads only mode-approved
-configuration, checks prerequisites, and prints a process plan. This slice does
-not start Fast, Compose, or Kubernetes workloads.
+mode selection. The launcher validates input, reads only mode-approved
+configuration, and prints a safe process plan. Fast mode then starts the
+planned `sheet-web` watch process and waits for its local URL to respond.
 
 ## Commands
 
@@ -26,6 +26,10 @@ Every command accepts `--json` for the stable machine-readable result. Commands
 that read a file accept `--env-file <path>`. A mode can restrict its process
 plan with `--service <package-name>` in Fast or Compose mode. Kubernetes
 preview always applies the complete development release.
+
+Fast reads `.env.development.local` from the repository root by default. Pass
+`--env-file <path>` to use an explicit file. The file and inherited environment
+may contain only the four Fast URLs and the optional `DEV_SHEET_WEB_PORT`.
 
 Use `pnpm dev <mode> help` for mode-specific help. `--help` is reserved for
 Effect CLI's generated root help.
@@ -78,6 +82,12 @@ port is an error. The launcher never selects a random replacement.
 
 Fast accepts `DEV_SHEET_WEB_PORT` as an explicit override. Its loopback
 `APP_BASE_URL` must use the same port.
+
+`pnpm dev fast up` checks the approved auth, Zero, and Workflow endpoints with
+bounded timeouts before starting `sheet-web`. It reports `readiness: ready`
+after the application responds at its loopback URL, and keeps the Vite Plus
+watch process attached to the terminal. An application startup failure or
+readiness timeout is blocking and includes remediation.
 
 Human and JSON output report the selected mode, action, services, planned
 processes, URLs, readiness, warnings, and errors. Error records include a

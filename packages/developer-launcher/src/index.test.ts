@@ -153,6 +153,58 @@ describe("developer launcher command boundary", () => {
     expect(output.plannedProcesses[0]?.args).toEqual(["dev", "--port", "3011"]);
   });
 
+  it("loads the default Fast environment file without accepting backend credentials", async () => {
+    const repository = mkdtempSync(path.join(tmpdir(), "developer-launcher-fast-"));
+    writeFileSync(
+      path.join(repository, ".env.development.local"),
+      [
+        "APP_BASE_URL=http://localhost:3001",
+        "AUTH_BASE_URL=https://auth.dev.theerapakg.moe",
+        "SHEET_ZERO_BASE_URL=https://zero.dev.theerapakg.moe",
+        "SHEET_WORKFLOWS_BASE_URL=https://workflows.dev.theerapakg.moe",
+        "DATABASE_READ_URL=super-secret-db",
+      ].join("\n"),
+    );
+
+    try {
+      const result = await runLauncher(["fast", "up", "--json"], {
+        cwd: repository,
+        env: {},
+        portChecker: async () => ({ available: true }),
+      });
+      const output = JSON.parse(result.stdout) as {
+        readonly errors: readonly unknown[];
+        readonly plannedProcesses: readonly {
+          readonly environment: Readonly<Record<string, string>>;
+        }[];
+      };
+
+      expect(result.exitCode).toBe(2);
+      expect(output.errors).toEqual([expect.objectContaining({ code: "unsafe-credential" })]);
+      expect(result.stdout).not.toContain("super-secret-db");
+    } finally {
+      rmSync(repository, { recursive: true, force: true });
+    }
+  });
+
+  it.each(["DATABASE_READ_URL", "REDIS_CONNECTION_URL", "DISCORD_BOT_TOKEN", "GOOGLE_CREDENTIALS"])(
+    "rejects %s in Fast mode before startup",
+    async (key) => {
+      // fallow-ignore-next-line code-duplication
+      const result = await runLauncher(["fast", "up", "--json"], {
+        env: { [key]: "must-not-be-used" },
+        portChecker: async () => ({ available: true }),
+      });
+      const output = JSON.parse(result.stdout) as {
+        readonly errors: readonly { readonly code: string }[];
+      };
+
+      expect(result.exitCode).toBe(2);
+      expect(output.errors.map(({ code }) => code)).toContain("unsafe-credential");
+      expect(result.stdout).not.toContain("must-not-be-used");
+    },
+  );
+
   it("rejects invalid port assignments before planning a process", async () => {
     const result = await runLauncher(["fast", "up", "--json"], {
       env: { DEV_SHEET_WEB_PORT: "0" },
@@ -363,6 +415,7 @@ describe("developer launcher command boundary", () => {
       return { exitCode: 0 };
     };
 
+    // fallow-ignore-next-line code-duplication
     const result = await runLauncher(args, { executor });
     const output = JSON.parse(result.stdout) as { errors: readonly { code: string }[] };
 

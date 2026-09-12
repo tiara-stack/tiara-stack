@@ -154,7 +154,7 @@ const renderHuman = (output: LauncherOutput, help?: string) => {
   return `${lines.join("\n")}\n`;
 };
 
-const render = (output: LauncherOutput, json: boolean, help?: string) =>
+export const renderLauncherOutput = (output: LauncherOutput, json: boolean, help?: string) =>
   json ? `${JSON.stringify(output)}\n` : renderHuman(output, help);
 
 const serviceError = (
@@ -418,7 +418,7 @@ const isCommandParseError = (error: unknown): error is CommandParseError =>
 
 const launcherResult = (output: LauncherOutput, json: boolean, help?: string): LauncherResult => ({
   exitCode: output.ok ? 0 : 2,
-  stdout: render(output, json, help),
+  stdout: renderLauncherOutput(output, json, help),
   stderr: "",
   output,
 });
