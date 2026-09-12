@@ -6,6 +6,7 @@ import {
   type ParsedCommand,
 } from "./commands";
 import {
+  composeProjectName,
   validateModeConfig,
   type ComposeModeConfig,
   type FastModeConfig,
@@ -36,6 +37,7 @@ export {
   FAST_ENVIRONMENT_KEYS,
   KUBERNETES_ENDPOINTS,
   KUBERNETES_ENVIRONMENT_KEYS,
+  composeProjectName,
   sensitiveEnvironmentKeys,
   validateAmbientEnvironment,
   validateModeConfig,
@@ -88,12 +90,13 @@ const modeHelpText = (mode: DevelopmentMode) => {
 };
 
 const emptyOutput = (command: string, mode: LauncherOutput["mode"] = null): LauncherOutput => ({
-  schemaVersion: 1,
+  schemaVersion: 2,
   ok: true,
   command,
   mode,
   action: null,
   selectedServices: [],
+  checkoutState: null,
   plannedProcesses: [],
   urls: [],
   readiness: "help",
@@ -128,6 +131,7 @@ const renderHuman = (output: LauncherOutput, help?: string) => {
   if (output.selectedServices.length > 0) {
     lines.push(`selected services: ${output.selectedServices.join(", ")}`);
   }
+  if (output.checkoutState !== null) lines.push(`checkout state: ${output.checkoutState}`);
   lines.push("planned processes:");
   if (output.plannedProcesses.length === 0) {
     lines.push("  none");
@@ -297,16 +301,25 @@ const modeOutput = async (
       ...emptyOutput(command.command, command.mode),
       ok: false,
       action: command.action,
+      checkoutState:
+        command.mode === "compose"
+          ? `Checkout State ${composeProjectName(options.cwd ?? process.cwd())}`
+          : null,
       readiness: "blocked",
       errors: [error],
     };
   }
   const optionFailure = optionError(command);
   if (optionFailure !== undefined) {
+    // fallow-ignore-next-line code-duplication
     return {
       ...emptyOutput(command.command, command.mode),
       ok: false,
       action: command.action,
+      checkoutState:
+        command.mode === "compose"
+          ? `Checkout State ${composeProjectName(options.cwd ?? process.cwd())}`
+          : null,
       readiness: "blocked",
       errors: [optionFailure],
     };
@@ -317,6 +330,7 @@ const modeOutput = async (
     env: options.env ?? process.env,
     cwd: options.cwd ?? process.cwd(),
     envFile: command.options.envFile ?? options.envFile ?? null,
+    selectedServices: services,
   });
   if (validation.config === null) {
     return {
@@ -371,6 +385,7 @@ const modeOutput = async (
     ok: true,
     action: command.action,
     selectedServices: plan.selectedServices,
+    checkoutState: validation.config.mode === "compose" ? validation.config.checkoutState : null,
     plannedProcesses: plan.plannedProcesses,
     urls: plan.urls,
     readiness: "planned",
@@ -378,20 +393,46 @@ const modeOutput = async (
   };
 };
 
-const setupOutput = (command: Extract<ParsedCommand, { kind: "setup" }>): LauncherOutput => ({
-  ...emptyOutput(`setup ${command.mode}`, command.mode),
-  ok: false,
-  action: "setup",
-  readiness: "blocked",
-  errors: [
-    makeDiagnostic(
-      "not-implemented",
-      `Setup for ${command.mode} mode is not implemented in the launcher core`,
-      `Run the documented ${command.mode} prerequisites manually, then use pnpm dev doctor.`,
-      { mode: command.mode, action: "setup" },
-    ),
-  ],
-});
+const setupOutput = (command: Extract<ParsedCommand, { kind: "setup" }>): LauncherOutput => {
+  if (command.mode === "compose") {
+    return {
+      ...emptyOutput("setup compose", "compose"),
+      ok: true,
+      action: "setup",
+      readiness: "planned",
+      plannedProcesses: [
+        {
+          id: "compose-credentials",
+          packageName: null,
+          command: "pnpm",
+          args: [
+            "compose:generate-secrets",
+            ...(command.options.envFile === null
+              ? []
+              : ["--", "--env-file", command.options.envFile]),
+          ],
+          environment: {},
+          longLived: false,
+          readOnly: false,
+        },
+      ],
+    };
+  }
+  return {
+    ...emptyOutput(`setup ${command.mode}`, command.mode),
+    ok: false,
+    action: "setup",
+    readiness: "blocked",
+    errors: [
+      makeDiagnostic(
+        "not-implemented",
+        `Setup for ${command.mode} mode is not implemented in the launcher core`,
+        `Run the documented ${command.mode} prerequisites manually, then use pnpm dev doctor.`,
+        { mode: command.mode, action: "setup" },
+      ),
+    ],
+  };
+};
 
 const doctorOutput = async (
   command: Extract<ParsedCommand, { kind: "doctor" }>,

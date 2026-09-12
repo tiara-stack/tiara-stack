@@ -68,6 +68,62 @@ const spawnCommand = (request: ProcessRequest) => {
   return { command, args: [...request.args], verbatim: false };
 };
 
+const terminateProcessTree = (
+  child: ReturnType<typeof spawn>,
+  signal: NodeJS.Signals,
+): Promise<boolean> => {
+  if (child.pid === undefined) return Promise.resolve(true);
+  if (process.platform === "win32") {
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (success: boolean) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(success);
+      };
+      const killer = spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
+        stdio: "ignore",
+        windowsHide: true,
+      });
+      const timer = setTimeout(() => {
+        killer.kill();
+        finish(false);
+      }, 500);
+      killer.once("error", () => finish(false));
+      killer.once("close", (code) => finish(code === 0));
+    });
+  }
+  try {
+    process.kill(-child.pid, signal);
+    return Promise.resolve(true);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") return Promise.resolve(false);
+    try {
+      child.kill(signal);
+      return Promise.resolve(true);
+    } catch {
+      return Promise.resolve(false);
+    }
+  }
+};
+
+const scheduleProcessTreeKill = (
+  child: ReturnType<typeof spawn>,
+  signal: NodeJS.Signals,
+  onComplete: () => void,
+) => void terminateProcessTree(child, signal).then(onComplete);
+
+const processGroupAlive = (child: ReturnType<typeof spawn>) => {
+  if (process.platform === "win32" || child.pid === undefined) return false;
+  try {
+    process.kill(-child.pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+};
+
 export const spawnProcess: ProcessExecutor = (request: ProcessRequest) =>
   new Promise((resolve) => {
     const invocation = spawnCommand(request);
@@ -75,38 +131,98 @@ export const spawnProcess: ProcessExecutor = (request: ProcessRequest) =>
       cwd: request.cwd,
       env: { ...inheritedEnvironment(), ...request.env },
       stdio: ["ignore", request.output === "inherit" ? "inherit" : "pipe", "pipe"],
+      detached: process.platform !== "win32",
       shell: false,
       windowsVerbatimArguments: invocation.verbatim,
     });
     const stdout: string[] = [];
     const stderr: string[] = [];
     let timedOut = false;
+    let receivedSignal: NodeJS.Signals | undefined;
+    let escalationDeadline: number | undefined;
     let settled = false;
     let killTimer: NodeJS.Timeout | undefined;
     let timer: NodeJS.Timeout;
+    // fallow-ignore-next-line complexity
     const finish = (result: ProcessResult) => {
       if (settled) return;
+      if (processGroupAlive(child)) {
+        escalationDeadline ??= Date.now() + 2_000;
+        if (Date.now() >= escalationDeadline) {
+          settled = true;
+          clearTimeout(timer);
+          if (killTimer !== undefined) clearTimeout(killTimer);
+          process.off("SIGINT", onInterrupt);
+          process.off("SIGTERM", onTerminate);
+          resolve({
+            ...result,
+            ...(receivedSignal === undefined
+              ? {}
+              : { exitCode: receivedSignal === "SIGINT" ? 130 : 143 }),
+          });
+          return;
+        }
+        if (killTimer === undefined) {
+          killTimer = setTimeout(() => {
+            killTimer = undefined;
+            scheduleProcessTreeKill(child, "SIGKILL", () => finish(result));
+          }, 50);
+        }
+        return;
+      }
       settled = true;
       clearTimeout(timer);
       if (killTimer !== undefined) clearTimeout(killTimer);
-      resolve(result);
+      process.off("SIGINT", onInterrupt);
+      process.off("SIGTERM", onTerminate);
+      resolve({
+        ...result,
+        ...(receivedSignal === undefined
+          ? {}
+          : { exitCode: receivedSignal === "SIGINT" ? 130 : 143 }),
+      });
     };
+    const onSignal = (signal: NodeJS.Signals) => {
+      receivedSignal = signal;
+      escalationDeadline ??= Date.now() + 2_000;
+      scheduleProcessTreeKill(child, signal, () => {
+        if (settled) return;
+        killTimer ??= setTimeout(() => {
+          if (settled) return;
+          scheduleProcessTreeKill(child, "SIGKILL", () => {
+            if (settled) return;
+            finish({ exitCode: signal === "SIGINT" ? 130 : 143 });
+          });
+        }, 1_000);
+      });
+    };
+    const onInterrupt = () => onSignal("SIGINT");
+    const onTerminate = () => onSignal("SIGTERM");
+    process.on("SIGINT", onInterrupt);
+    process.on("SIGTERM", onTerminate);
     timer = setTimeout(() => {
       timedOut = true;
-      child.kill("SIGTERM");
-      killTimer = setTimeout(() => {
-        child.kill("SIGKILL");
-        finish({
-          exitCode: 1,
-          stdout: stdout.join(""),
-          stderr: stderr.join(""),
-          timedOut: true,
-        });
-      }, 100);
+      escalationDeadline = Date.now() + 2_000;
+      scheduleProcessTreeKill(child, "SIGTERM", () => {
+        if (settled) return;
+        killTimer = setTimeout(() => {
+          if (settled) return;
+          scheduleProcessTreeKill(child, "SIGKILL", () => {
+            if (settled) return;
+            finish({
+              exitCode: 1,
+              stdout: stdout.join(""),
+              stderr: stderr.join(""),
+              timedOut: true,
+            });
+          });
+        }, 1_000);
+      });
     }, request.timeoutMs);
     child.stdout?.on("data", (chunk: Buffer | string) => collect(stdout, chunk));
     if (request.output === "stderr") child.stdout?.pipe(process.stderr);
     child.stderr?.on("data", (chunk: Buffer | string) => collect(stderr, chunk));
+    if (request.output !== "capture") child.stderr?.pipe(process.stderr);
     child.once("error", (error) => {
       finish({ exitCode: 127, stdout: stdout.join(""), stderr: error.message, timedOut });
     });

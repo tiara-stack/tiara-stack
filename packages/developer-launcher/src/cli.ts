@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 import { checkHttpAccess, waitForHttp } from "./access";
 import { FAST_ENDPOINTS } from "./config";
-import { startLongLivedProcess } from "./executor";
+import { spawnProcess, startLongLivedProcess } from "./executor";
 import { makeDiagnostic } from "./diagnostics";
 import { renderLauncherOutput, runLauncherFromParsed } from "./index";
 import type { LauncherOutput } from "./types";
@@ -42,6 +42,146 @@ const launcherOptions = (config: {
   tag: Option.getOrNull(config.tag),
 });
 
+// fallow-ignore-next-line complexity
+const executeComposePlan = async (
+  result: Awaited<ReturnType<typeof runLauncherFromParsed>>,
+  json: boolean,
+) => {
+  // startLongLivedProcess owns lifecycle timeout and ignores request.timeoutMs.
+  const longLivedTimeoutMs = 2_147_000_000;
+  if (!result.output.ok || result.output.plannedProcesses.length === 0) return result;
+  let longLivedStarted = false;
+  for (const planned of result.output.plannedProcesses) {
+    const request = {
+      command: planned.command,
+      args: planned.args,
+      cwd: process.cwd(),
+      env: planned.environment,
+      timeoutMs: planned.longLived ? longLivedTimeoutMs : 30 * 60_000,
+      kind: "runtime" as const,
+      readOnly: planned.readOnly,
+      output: json ? ("stderr" as const) : ("inherit" as const),
+    };
+    let processResult;
+    if (planned.longLived) {
+      let running: Awaited<ReturnType<typeof startLongLivedProcess>> | undefined;
+      let signal: NodeJS.Signals | undefined;
+      let stopPromise: Promise<void> | undefined;
+      let executionError: unknown;
+      let resolveSignal!: () => void;
+      const signalReceived = new Promise<void>((resolve) => {
+        resolveSignal = resolve;
+      });
+      const stop = (received: NodeJS.Signals) => {
+        signal = received;
+        resolveSignal();
+        if (running !== undefined) {
+          stopPromise ??= running.kill();
+          void stopPromise.catch(() => undefined);
+        }
+      };
+      const onInterrupt = () => stop("SIGINT");
+      const onTerminate = () => stop("SIGTERM");
+      process.once("SIGINT", onInterrupt);
+      process.once("SIGTERM", onTerminate);
+      try {
+        try {
+          running = await startLongLivedProcess(request);
+        } catch (error) {
+          executionError = error;
+        }
+        if (running === undefined) {
+          processResult = {
+            exitCode: 127,
+            timedOut: false,
+            stderr:
+              executionError instanceof Error ? executionError.message : String(executionError),
+          };
+        } else {
+          longLivedStarted = true;
+          if (!json) {
+            process.stdout.write(
+              renderLauncherOutput({ ...result.output, readiness: "ready" }, false),
+            );
+          }
+          if (signal !== undefined) stop(signal);
+          try {
+            processResult = await Promise.race([
+              running.exited,
+              signalReceived.then(() => ({
+                exitCode: signal === "SIGINT" ? 130 : 143,
+                timedOut: false,
+                stderr: undefined,
+              })),
+            ]);
+            await stopPromise;
+          } catch (error) {
+            executionError = error;
+            processResult = {
+              exitCode: 1,
+              timedOut: false,
+              stderr: error instanceof Error ? error.message : String(error),
+            };
+          }
+        }
+      } finally {
+        process.off("SIGINT", onInterrupt);
+        process.off("SIGTERM", onTerminate);
+      }
+      if (signal !== undefined && executionError === undefined) {
+        const stopped = { ...result.output, readiness: "stopped" as const };
+        return {
+          ...result,
+          exitCode: signal === "SIGINT" ? 130 : 143,
+          output: stopped,
+          stdout: renderLauncherOutput(stopped, json),
+        };
+      }
+    } else {
+      processResult = await spawnProcess(request);
+    }
+    if (processResult.exitCode === 0 && !processResult.timedOut) continue;
+    if (processResult.exitCode === 130 || processResult.exitCode === 143) {
+      const stopped = { ...result.output, readiness: "stopped" as const };
+      return {
+        ...result,
+        exitCode: processResult.exitCode,
+        output: stopped,
+        stdout: renderLauncherOutput(stopped, json),
+      };
+    }
+    const failure = makeDiagnostic(
+      processResult.timedOut ? "dependency-timeout" : "required-dependency-failed",
+      `${planned.id} failed with exit code ${processResult.exitCode}${
+        processResult.stderr === undefined ? "" : `: ${processResult.stderr}`
+      }`,
+      `Fix ${planned.id} and retry the same pnpm dev command. No later Compose process was started.`,
+      { mode: "compose", action: result.output.action ?? "setup" },
+    );
+    const blocked = {
+      ...result.output,
+      ok: false,
+      readiness: "blocked" as const,
+      errors: [failure],
+    };
+    return {
+      ...result,
+      exitCode: 2,
+      output: blocked,
+      stdout: renderLauncherOutput(blocked, json),
+    } satisfies Awaited<ReturnType<typeof runLauncherFromParsed>>;
+  }
+  const completedOutput = {
+    ...result.output,
+    readiness: longLivedStarted ? ("stopped" as const) : ("ready" as const),
+  };
+  return {
+    ...result,
+    output: completedOutput,
+    stdout: renderLauncherOutput(completedOutput, json),
+  };
+};
+
 // Effect CLI owns executable flag syntax. runLauncher keeps a second parser for
 // callers that provide raw argv directly, while this path passes typed values
 // through one CommandOptions contract.
@@ -51,7 +191,10 @@ const runParsedCommand = (config: Parameters<typeof launcherOptions>[0]) =>
   Effect.tryPromise({
     // fallow-ignore-next-line complexity
     try: async () => {
-      const result = await runLauncherFromParsed(config.operands, launcherOptions(config));
+      let result = await runLauncherFromParsed(config.operands, launcherOptions(config));
+      if (result.output.mode === "compose" && result.output.action !== null) {
+        result = await executeComposePlan(result, config.json);
+      }
       if (result.output.ok && result.output.mode === "fast" && result.output.action === "up") {
         const repository = process.cwd();
         const dependencies = await Promise.all(

@@ -1,5 +1,3 @@
-name: tiara-stack
-
 x-app-common: &app-common
   restart: unless-stopped
   healthcheck:

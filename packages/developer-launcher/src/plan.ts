@@ -37,7 +37,9 @@ const processPlan = (
 });
 
 const composePrefix = (config: ComposeModeConfig) =>
-  config.envFile === null ? ["compose"] : ["compose", "--env-file", config.envFile];
+  config.envFile === null
+    ? ["compose", "--project-name", config.projectName]
+    : ["compose", "--project-name", config.projectName, "--env-file", config.envFile];
 
 const fastPlan = (config: FastModeConfig, selectedServices: readonly string[]): ModePlan => ({
   selectedServices,
@@ -62,12 +64,12 @@ const composePlan = (
   serviceSelectionExplicit: boolean,
 ): ModePlan => {
   const envFile = config.envFile ?? "deploy/compose/.env";
-  const prefix =
-    envFile === "deploy/compose/.env" ? composePrefix(config) : ["compose", "--env-file", envFile];
+  const prefix = composePrefix(config);
   if (action === "up") {
     return {
       selectedServices,
       plannedProcesses: [
+        processPlan("compose-docker-check", null, "docker", ["version"], {}, false, true),
         processPlan("compose-dependencies", null, "docker", [
           ...prefix,
           "up",
@@ -87,7 +89,7 @@ const composePlan = (
           "compose-applications",
           null,
           "docker",
-          [...prefix, "up", ...selectedServices],
+          [...prefix, "up", "--no-build", ...selectedServices],
           {},
           true,
         ),
@@ -99,6 +101,13 @@ const composePlan = (
     return {
       selectedServices,
       plannedProcesses: [
+        ...selectedServices.map((service) =>
+          processPlan(`compose-build-artifact-${service}`, service, "pnpm", [
+            "--filter",
+            service,
+            "build",
+          ]),
+        ),
         processPlan("compose-build", null, "docker", [...prefix, "build", ...selectedServices]),
       ],
       urls: config.urls,

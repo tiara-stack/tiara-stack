@@ -1,4 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { Schema } from "effect";
 import { makeDiagnostic } from "./diagnostics";
@@ -60,12 +61,17 @@ const composeEnvironmentKeys = [
   "SHEET_BOT_CAPABILITY_ENCRYPTION_SECRET",
   "SHEET_BOT_OAUTH_CLIENT_ID",
   "SHEET_BOT_OAUTH_CLIENT_SECRET",
+  "SHEET_WEB_BASE_URL",
+  "SHEET_WEB_OAUTH_CLIENT_ID",
+  "SHEET_WEB_OAUTH_REDIRECT_PATH",
+  "SHEET_WEB_OAUTH_SCOPES",
   "SHEET_WEB_PUBLIC_BASE_URL",
   "SHEET_WORKFLOWS_OAUTH_CLIENT_ID",
   "SHEET_WORKFLOWS_OAUTH_CLIENT_SECRET",
   "SHEET_WORKFLOWS_PUBLIC_BASE_URL",
   "SHEET_ZERO_PUBLIC_BASE_URL",
   "TRUSTED_OAUTH_CLIENT_IDS",
+  "TRUSTED_OAUTH_CLIENTS_JSON",
   "TRUSTED_ORIGINS",
   "ZERO_ADMIN_PASSWORD",
 ] as const;
@@ -101,6 +107,7 @@ const secretEnvironmentKeys = new Set([
   "SHEET_BOT_CAPABILITY_ENCRYPTION_SECRET",
   "SHEET_BOT_OAUTH_CLIENT_SECRET",
   "SHEET_WORKFLOWS_OAUTH_CLIENT_SECRET",
+  "TRUSTED_OAUTH_CLIENTS_JSON",
   "ZERO_ADMIN_PASSWORD",
 ]);
 
@@ -170,12 +177,23 @@ const stripInlineComment = (value: string) => {
   return value.trim();
 };
 
+const decodeEnvironmentValue = (value: string) => {
+  if (value.length < 2) return value;
+  const quote = value[0];
+  if ((quote !== '"' && quote !== "'") || value.at(-1) !== quote) return value;
+  const inner = value.slice(1, -1);
+  return quote === '"'
+    ? inner.replaceAll('\\"', '"').replaceAll("\\\\", "\\")
+    : inner.replaceAll("\\'", "'");
+};
+
 export interface ConfigInput {
   readonly mode: DevelopmentMode;
   readonly action: ModeAction | null;
   readonly env: NodeJS.ProcessEnv;
   readonly cwd: string;
   readonly envFile: string | null;
+  readonly selectedServices?: readonly string[];
 }
 
 export interface FastModeConfig {
@@ -201,6 +219,8 @@ export interface ComposeModeConfig {
     readonly SHEET_WORKFLOWS_PUBLIC_BASE_URL: string;
     readonly TRUSTED_ORIGINS: string;
   };
+  readonly projectName: string;
+  readonly checkoutState: string;
   readonly urls: readonly PlannedUrl[];
   readonly ports: Readonly<Record<string, number>>;
 }
@@ -281,7 +301,7 @@ const safeOriginForDiagnostic = (value: string) => {
 };
 
 // fallow-ignore-next-line complexity
-const readEnvironmentFile = (filePath: string): EnvironmentFileResult => {
+export const readEnvironmentFile = (filePath: string): EnvironmentFileResult => {
   let contents: string;
   try {
     contents = readFileSync(filePath, "utf8");
@@ -337,18 +357,14 @@ const readEnvironmentFile = (filePath: string): EnvironmentFileResult => {
       );
       continue;
     }
-    values[key] =
-      rawValue.length >= 2 &&
-      ((rawValue.startsWith('"') && rawValue.endsWith('"')) ||
-        (rawValue.startsWith("'") && rawValue.endsWith("'")))
-        ? rawValue.slice(1, -1)
-        : rawValue;
+    values[key] = decodeEnvironmentValue(rawValue);
   }
   return { values, errors };
 };
 
 const environmentFilePath = (input: ConfigInput) => {
   if (input.envFile !== null) return path.resolve(input.cwd, input.envFile);
+  if (input.mode === "compose" && input.action === "reset") return null;
   if (input.mode === "compose") return path.resolve(input.cwd, "deploy/compose/.env");
   if (input.mode === "fast") return path.resolve(input.cwd, ".env.development.local");
   return null;
@@ -358,7 +374,7 @@ const loadEnvironment = (input: ConfigInput) => {
   const filePath = environmentFilePath(input);
   const fileIsRequired =
     input.envFile !== null ||
-    (input.mode === "compose" && input.action !== "build" && input.action !== "down");
+    (input.mode === "compose" && ["up", "build", "seed"].includes(input.action ?? ""));
   const inheritedValues: Record<string, string> = {};
   for (const [key, value] of Object.entries(input.env)) {
     if (value !== undefined) inheritedValues[key] = value;
@@ -562,6 +578,46 @@ const composeCredentials = [
   "SHEET_WORKFLOWS_OAUTH_CLIENT_SECRET",
 ] as const;
 
+const composePackages = [
+  "sheet-auth",
+  "sheet-db-server",
+  "sheet-workflows",
+  "sheet-web",
+  "sheet-bot",
+] as const;
+
+const checkoutSlug = (cwd: string) => {
+  const slug = path
+    .basename(path.resolve(cwd))
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-");
+  return slug.replace(/^-+|-+$/g, "").slice(0, 32) || "checkout";
+};
+
+export const composeProjectName = (cwd: string) => {
+  const resolvedPath = path.resolve(cwd);
+  const resolved = (() => {
+    try {
+      return realpathSync(resolvedPath);
+    } catch {
+      return resolvedPath;
+    }
+  })();
+  const digest = createHash("sha256").update(resolved).digest("hex").slice(0, 10);
+  return `tiara-${checkoutSlug(resolved)}-${digest}`.slice(0, 63);
+};
+
+const missingComposeArtifacts = (cwd: string, selectedServices: readonly string[]) => {
+  if (!existsSync(path.join(cwd, "docker-compose.yml"))) return [];
+  return composePackages
+    .filter(
+      (packageName) =>
+        selectedServices.includes(packageName) &&
+        existsSync(path.join(cwd, "packages", packageName)),
+    )
+    .filter((packageName) => !existsSync(path.join(cwd, "packages", packageName, "dist.tar.zst")));
+};
+
 // fallow-ignore-next-line complexity
 const validateCompose = (
   input: ConfigInput,
@@ -685,7 +741,7 @@ const validateCompose = (
       if (failure !== undefined) errors.push(failure);
     }
   }
-  if (["up", "seed", "reset"].includes(input.action ?? "")) {
+  if (["up", "seed"].includes(input.action ?? "")) {
     for (const key of composeCredentials) {
       if (values[key]?.trim()) continue;
       errors.push(
@@ -698,12 +754,28 @@ const validateCompose = (
       );
     }
   }
+  if (input.action === "up") {
+    const missing = missingComposeArtifacts(input.cwd, input.selectedServices ?? composePackages);
+    if (missing.length > 0) {
+      errors.push(
+        makeDiagnostic(
+          "required-dependency-failed",
+          `Compose package artifacts are missing: ${missing.join(", ")}`,
+          "Run pnpm dev compose build, then retry pnpm dev compose up. Compose never builds implicitly.",
+          { mode: input.mode, action: input.action, dependency: "package artifacts" },
+        ),
+      );
+    }
+  }
+  const projectName = composeProjectName(input.cwd);
   return {
     config:
       errors.length === 0
         ? {
             mode: "compose",
             envFile: filePath,
+            projectName,
+            checkoutState: `Checkout State ${projectName}`,
             environment,
             urls: [
               { name: "app", url: environment.SHEET_WEB_PUBLIC_BASE_URL },

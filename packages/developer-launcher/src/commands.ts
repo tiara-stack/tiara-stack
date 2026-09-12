@@ -194,7 +194,6 @@ export const parsePositionals = (
 
   if (first === undefined) {
     if (
-      options.envFile !== null ||
       options.service !== null ||
       options.confirm ||
       options.confirmDevelopment ||

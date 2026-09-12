@@ -14,7 +14,7 @@ export type FastAction = (typeof modeActions.fast)[number];
 export type ComposeAction = (typeof modeActions.compose)[number];
 export type KubernetesAction = (typeof modeActions.kubernetes)[number];
 export type ModeAction = FastAction | ComposeAction | KubernetesAction;
-export type ReadinessState = "help" | "planned" | "ready" | "blocked";
+export type ReadinessState = "help" | "planned" | "ready" | "stopped" | "blocked";
 export type DiagnosticKind = "error" | "warning";
 
 export type DiagnosticCode =
@@ -65,12 +65,13 @@ export interface PlannedUrl {
 }
 
 export interface LauncherOutput {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly ok: boolean;
   readonly command: string;
   readonly mode: DevelopmentMode | "all" | null;
   readonly action: string | null;
   readonly selectedServices: readonly string[];
+  readonly checkoutState: string | null;
   readonly plannedProcesses: readonly PlannedProcess[];
   readonly urls: readonly PlannedUrl[];
   readonly readiness: ReadinessState;

@@ -2,7 +2,13 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:f
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { runLauncher, type AccessChecker, type PortChecker, type ProcessExecutor } from "./index";
+import {
+  composeProjectName,
+  runLauncher,
+  type AccessChecker,
+  type PortChecker,
+  type ProcessExecutor,
+} from "./index";
 
 describe("developer launcher command boundary", () => {
   it("prints help for the bare command without executing a process", async () => {
@@ -285,13 +291,62 @@ describe("developer launcher command boundary", () => {
 
       expect(result.exitCode).toBe(0);
       expect(output.plannedProcesses.map(({ id }) => id)).toEqual([
+        "compose-docker-check",
         "compose-dependencies",
         "compose-migrations",
         "compose-applications",
       ]);
+      const planned = JSON.parse(result.stdout) as {
+        readonly checkoutState: string | null;
+        readonly plannedProcesses: readonly {
+          readonly args: readonly string[];
+        }[];
+      };
+      expect(planned.checkoutState).toMatch(/^Checkout State tiara-/);
+      expect(planned.plannedProcesses[1]?.args).toEqual(
+        expect.arrayContaining(["--project-name", composeProjectName(repository)]),
+      );
     } finally {
       rmSync(repository, { recursive: true, force: true });
     }
+  });
+
+  // fallow-ignore-next-line code-duplication
+  it("builds package artifacts explicitly before Compose images", async () => {
+    const repository = mkdtempSync(path.join(tmpdir(), "developer-launcher-compose-build-"));
+    const envFile = path.join(repository, "compose.env");
+    writeFileSync(envFile, "SHEET_WEB_PUBLIC_BASE_URL=http://localhost:3001\n");
+    try {
+      const result = await runLauncher(["compose", "build", "--env-file", envFile, "--json"], {
+        cwd: repository,
+        env: {},
+      });
+      const output = JSON.parse(result.stdout) as {
+        readonly plannedProcesses: readonly { readonly id: string }[];
+      };
+      expect(result.exitCode).toBe(0);
+      expect(output.plannedProcesses.map(({ id }) => id)).toEqual([
+        "compose-build-artifact-sheet-auth",
+        "compose-build-artifact-sheet-db-server",
+        "compose-build-artifact-sheet-workflows",
+        "compose-build-artifact-sheet-web",
+        "compose-build-artifact-sheet-bot",
+        "compose-build",
+      ]);
+    } finally {
+      rmSync(repository, { recursive: true, force: true });
+    }
+  });
+
+  it("plans Compose setup as local credential preparation", async () => {
+    const result = await runLauncher(["setup", "compose", "--json"], { env: {} });
+    const output = JSON.parse(result.stdout) as {
+      readonly readiness: string;
+      readonly plannedProcesses: readonly { readonly args: readonly string[] }[];
+    };
+    expect(result.exitCode).toBe(0);
+    expect(output.readiness).toBe("planned");
+    expect(output.plannedProcesses[0]?.args).toEqual(["compose:generate-secrets"]);
   });
 
   it("runs doctor checks through the read-only executor and keeps observability failures as warnings", async () => {

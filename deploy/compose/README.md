@@ -37,21 +37,17 @@ Optional local settings:
   files fill a random value.
 
 The npm script runs the generator with `--no-overwrite` so existing Postgres and
-Redis passwords keep matching existing local volumes. The current Compose file
-uses the fixed project name `tiara-stack` and fixed volume names, so those
-volumes are shared by checkouts that use the same Docker host and project. Do
-not run more than one checkout against that fixed project, and do not remove
-its volumes while another checkout may be using them. The development contract
-is one Checkout State per source checkout; checkout-specific project and volume
-identity must be in place before concurrent Compose checkouts are supported.
+Redis passwords keep matching existing local volumes. `pnpm dev compose` derives
+a Docker Compose project name from the absolute source-checkout path and passes
+it explicitly. Compose's project-prefixed volumes therefore form one isolated
+Checkout State per checkout.
 
-To intentionally rotate local database credentials, treat the operation as a
-destructive reset of the selected Checkout State: stop every process using that
-state, remove only its state volumes, and run
-`pnpm tsx deploy/compose/scripts/generate-secrets.ts` directly. Until
-checkout-specific volume identities are implemented, perform this operation
-only when no other checkout uses the fixed `tiara-stack` project. `tsx` is
-provided by this repo's devDependencies.
+To intentionally rotate local database credentials, stop every process using the
+selected Checkout State, run `pnpm dev compose reset --confirm`, then explicitly
+run `pnpm tsx deploy/compose/scripts/generate-secrets.ts` to overwrite the local
+credential files before setup. Reset itself preserves credentials, removes only
+the selected Compose project's local volumes, and never touches Discord,
+OAuth-provider registrations, Google Sheets, or service-account resources.
 
 `deploy/compose/scripts/generate-secrets.ts` creates a placeholder
 `deploy/compose/secrets/google-service-account.json` so Docker Compose has a file
@@ -66,12 +62,18 @@ shape.
 The app Dockerfiles expect each package's `dist.tar.zst` to already exist.
 
 ```sh
-pnpm build
-docker compose --env-file deploy/compose/.env up -d postgres redis local-jwks local-otel-sink
-pnpm compose:migrate-sheet-db
-docker compose --env-file deploy/compose/.env build
-docker compose --env-file deploy/compose/.env up
+pnpm dev setup compose
+pnpm dev compose build
+pnpm dev compose up
+pnpm dev compose seed
 ```
+
+`compose up` never builds implicitly. If a package archive is missing, it stops
+before Docker starts and tells you to run `pnpm dev compose build`.
+`compose down` preserves the selected Checkout State; `compose reset --confirm`
+is the destructive operation and reports its local scope.
+Run `compose seed` after `compose up` and migrations when deterministic
+Development Seed data is explicitly needed.
 
 The migration helper runs `sheet-db-schema`'s Effect SQL migrations through
 `effect-sql-kit` against the Compose Postgres instance exposed on

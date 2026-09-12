@@ -12,6 +12,7 @@ import {
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readEnvironmentFile } from "../../../packages/developer-launcher/src/config";
 
 type WriteGeneratedFileOptions = {
   readonly mode?: number;
@@ -30,7 +31,15 @@ const JwksSchema = Schema.Struct({
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const composeDir = resolve(scriptDir, "..");
 const secretsDir = join(composeDir, "secrets");
-const envPath = join(composeDir, ".env");
+const envFileIndex = process.argv.indexOf("--env-file");
+const envFileArgument = envFileIndex === -1 ? undefined : process.argv[envFileIndex + 1];
+if (envFileIndex !== -1 && (envFileArgument === undefined || envFileArgument.startsWith("-"))) {
+  throw new Error("--env-file requires a path");
+}
+const envPath =
+  envFileIndex === -1
+    ? join(composeDir, ".env")
+    : resolve(process.cwd(), envFileArgument);
 const noOverwrite = process.argv.includes("--no-overwrite");
 
 const writeGeneratedFile = (
@@ -173,30 +182,24 @@ if (!existsSync(googleServiceAccountPath)) {
   chmodSync(googleServiceAccountPath, 0o600);
 }
 
-const unquoteEnvValue = (value: string) =>
-  /^(['"]).*\1$/.test(value) ? value.replace(/^(['"])(.*)\1$/, "$2") : value;
-
-const readEnvLines = () =>
-  existsSync(envPath) ? readFileSync(envPath, "utf-8").split(/\r?\n/) : [];
-
-const readExistingEnvValue = (key: string) => {
-  const prefix = `${key}=`;
-  for (const line of readEnvLines()) {
-    if (line.startsWith(prefix)) {
-      const rawValue = line.slice(prefix.length).trim();
-      if (!rawValue) return undefined;
-      return unquoteEnvValue(rawValue);
-    }
-  }
-  return undefined;
+const existingEnvironment = existsSync(envPath)
+  ? readEnvironmentFile(envPath)
+  : { values: {}, errors: [] };
+if (existingEnvironment.errors.length > 0) {
+  throw new Error(existingEnvironment.errors.map(({ message }) => message).join("; "));
+}
+const serializeEnvironmentValue = (value: string) => {
+  if (/^[A-Za-z0-9_./:@+-]*$/.test(value)) return value;
+  return `'${value.replaceAll("'", "\\'")}'`;
 };
-const preserveEnvValue = (key: string, fallback = "") => readExistingEnvValue(key) ?? fallback;
-const zeroAdminPassword = readExistingEnvValue("ZERO_ADMIN_PASSWORD") ?? makePassword();
+const preserveEnvValue = (key: string, fallback = "") =>
+  serializeEnvironmentValue(existingEnvironment.values[key] ?? fallback);
+const zeroAdminPassword = existingEnvironment.values.ZERO_ADMIN_PASSWORD || makePassword();
 
 const envContents = `POSTGRES_PASSWORD=${postgresPassword}
 POSTGRES_PORT=5432
 REDIS_PASSWORD=${redisPassword}
-ZERO_ADMIN_PASSWORD=${zeroAdminPassword}
+ZERO_ADMIN_PASSWORD=${serializeEnvironmentValue(zeroAdminPassword)}
 
 DISCORD_CLIENT_ID=${preserveEnvValue("DISCORD_CLIENT_ID")}
 DISCORD_CLIENT_SECRET=${preserveEnvValue("DISCORD_CLIENT_SECRET")}
@@ -206,6 +209,11 @@ SHEET_BOT_OAUTH_CLIENT_ID=${preserveEnvValue("SHEET_BOT_OAUTH_CLIENT_ID")}
 SHEET_BOT_OAUTH_CLIENT_SECRET=${preserveEnvValue("SHEET_BOT_OAUTH_CLIENT_SECRET")}
 SHEET_WORKFLOWS_OAUTH_CLIENT_ID=${preserveEnvValue("SHEET_WORKFLOWS_OAUTH_CLIENT_ID")}
 SHEET_WORKFLOWS_OAUTH_CLIENT_SECRET=${preserveEnvValue("SHEET_WORKFLOWS_OAUTH_CLIENT_SECRET")}
+SHEET_WEB_BASE_URL=${preserveEnvValue("SHEET_WEB_BASE_URL")}
+SHEET_WEB_OAUTH_CLIENT_ID=${preserveEnvValue("SHEET_WEB_OAUTH_CLIENT_ID")}
+SHEET_WEB_OAUTH_REDIRECT_PATH=${preserveEnvValue("SHEET_WEB_OAUTH_REDIRECT_PATH")}
+SHEET_WEB_OAUTH_SCOPES=${preserveEnvValue("SHEET_WEB_OAUTH_SCOPES")}
+TRUSTED_OAUTH_CLIENTS_JSON=${preserveEnvValue("TRUSTED_OAUTH_CLIENTS_JSON")}
 
 SHEET_AUTH_PUBLIC_BASE_URL=${preserveEnvValue("SHEET_AUTH_PUBLIC_BASE_URL", "http://localhost:3002")}
 SHEET_WEB_PUBLIC_BASE_URL=${preserveEnvValue("SHEET_WEB_PUBLIC_BASE_URL", "http://localhost:3001")}
