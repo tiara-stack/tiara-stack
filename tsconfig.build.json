@@ -3,6 +3,7 @@
   "references": [
     { "path": "packages/bob" },
     { "path": "packages/dfx-discord-utils" },
+    { "path": "packages/developer-launcher" },
     { "path": "packages/effect-ai-codex" },
     { "path": "packages/effect-ai-kimi" },
     { "path": "packages/effect-platform-apps-script" },

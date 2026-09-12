@@ -8,6 +8,9 @@
       "path": "packages/dfx-discord-utils"
     },
     {
+      "path": "packages/developer-launcher"
+    },
+    {
       "path": "packages/effect-ai-codex"
     },
     {

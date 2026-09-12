@@ -123,6 +123,11 @@ For local single-machine development, see
 secret contract are documented in
 [`charts/tiara-stack/README.md`](charts/tiara-stack/README.md).
 
+The root development launcher command contract is documented in
+[`docs/development-launcher.md`](docs/development-launcher.md). Its core slice
+validates commands and prints safe process plans; workload execution remains in
+the follow-up mode implementations.
+
 ## Repository layout
 
 ```text

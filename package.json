@@ -10,6 +10,7 @@
     "format:apply": "vp run -r format:apply",
     "build": "vp run -r --concurrency-limit 1 build",
     "check:tsc-build": "tsgo -b tsconfig.build.json --pretty false",
+    "dev": "tsx packages/developer-launcher/src/cli.ts",
     "compose:generate-secrets": "tsx deploy/compose/scripts/generate-secrets.ts --no-overwrite",
     "compose:migrate-sheet-db": "tsx deploy/compose/scripts/migrate-sheet-db.ts",
     "prepare": "vp config"
