@@ -110,6 +110,18 @@ phase's linked instruction file through an `explorer`. Pass
 unavailable, read the linked file locally and continue the read-only task in
 the main agent.
 
+When a route requires polling, spawn a separate read-only polling explorer in
+addition to any diagnosis or review explorer. Attach the dedicated polling
+reference named by the phase's subtask reference and provide only its required
+PR or run identity, submitted head SHA, and terminal criterion. The polling
+reference defines the worker's scope and final-report contract. The main agent
+sends no steering or status prompts to a running subagent unless the user asks.
+The main agent handles every repair or mutation after the polling explorer
+reports.
+
+If a polling explorer cannot be started, the main agent may poll locally as the
+fallback.
+
 ## Implement the feature
 
 For `implement`, inspect relevant context pointers and package scripts before
@@ -144,19 +156,11 @@ submitted.
 
 Use [CI gates](references/ci-gates.md) for failure repair and conflict
 handling. The full gate repairs code or repository state, so keep it in the
-main agent. A separate read-only diagnosis task may attach this file to an
-explorer; otherwise read it locally. `pre-undraft` is the CI gate. From the
-repository root, watch the
-PR:
-
-```bash
-gh pr checks "$PR" --watch --interval 10
-```
-
-Monitor all required checks, especially `workspace_ci`, `fallow`, and
-`fallow_baseline`. For a repository-owned failure, repair it, run the local
-CodeRabbit loop, commit and submit the new head, then restart the watch. Do
-not ask whether to keep waiting.
+main agent. A separate read-only diagnosis task may attach that file to an
+explorer; otherwise read it locally. Follow its polling handoff, spawn the
+named polling explorer, and wait for its terminal report. For a
+repository-owned failure, repair it, run the local CodeRabbit loop, commit and
+submit the new head, then spawn a new polling explorer for the new head.
 
 `pre-undraft` completes only when the named checks and every required check are
 green for the current head. It stops before changing draft state. `undraft`
@@ -179,8 +183,8 @@ code, reply, submit, and label, so keep it in the main agent. A separate
 read-only review-analysis task may attach this file to an explorer; otherwise
 read it locally.
 
-Wait for CodeRabbit to finish reviewing the current head. A pending, missing,
-failed, or unauthenticated CodeRabbit review is not green. For every current
+Follow the polling handoff in the review reference, spawn the named polling
+explorer, and wait for its terminal report. For every current
 or unresolved CodeRabbit finding:
 
 1. Fix a valid finding, including a worthwhile in-scope preference, with the
@@ -189,8 +193,9 @@ or unresolved CodeRabbit finding:
    and the reason it does not apply. Reply in the existing thread when GitHub
    supports it; otherwise post a PR comment that identifies the finding.
 3. After any finding is handled, run the complete local CodeRabbit loop and
-   submit the resulting head. Wait for the new GitHub review before deciding
-   that the PR is green.
+   submit the resulting head. Repeat the review reference's polling handoff
+   for the new head and wait for its new GitHub review before deciding that the
+   PR is green.
 
 The GitHub review gate completes only when CI is green for the current head,
 CodeRabbit has completed its review of that head, no actionable valid finding

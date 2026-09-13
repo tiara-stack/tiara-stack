@@ -5,10 +5,19 @@ When the file is attached to a read-only explorer, inspect and classify
 findings only. The main agent performs fixes, replies, submissions, and label
 changes.
 
+## Polling handoff
+
+For CodeRabbit review-status polling, attach [GitHub review polling worker]
+(github-review-polling.md) to a separate read-only explorer. Pass the PR
+identity, current head SHA, and required terminal criterion. Give the explorer
+the polling reference only, not this review-handling reference. After it
+reports, the main agent analyzes findings and handles every action.
+
 ## Inspect the current head
 
 Set `PR` to the pull request number or URL. Resolve the repository and PR
-identity before querying comments:
+identity before querying comments after the polling worker reports a completed
+review:
 
 ```bash
 REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')

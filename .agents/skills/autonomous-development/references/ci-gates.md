@@ -7,18 +7,13 @@ When the file is attached to a read-only explorer, inspect and report the
 failure only. The main agent performs repairs, commits, submissions, and
 conflict resolution.
 
-## Inspect and wait
+## Polling handoff
 
-Set `PR` to the pull request number or URL before running these commands.
-Watch checks until they reach a terminal state:
-
-```bash
-gh pr checks "$PR" --watch --interval 10
-```
-
-Inspect failed workflow and step logs with `gh run view <run-id>
---log-failed` or the matching GitHub Actions detail. Monitor all required
-checks, especially `workspace_ci`, `fallow`, and `fallow_baseline`.
+For CI status polling, attach [CI polling worker](ci-polling.md) to a separate
+read-only explorer. Pass the PR identity, submitted head SHA, and required
+terminal criterion. Give the explorer the polling reference only, not this
+repair reference. After it reports, the main agent handles diagnosis and every
+repair.
 
 ## Repair a failure
 
@@ -36,15 +31,16 @@ checks, especially `workspace_ci`, `fallow`, and `fallow_baseline`.
    while preserving both sides when their intent is clear. Validate the result.
    Report a precise blocker when the intended resolution is ambiguous.
 5. Run the local CodeRabbit review command, repair any valid findings, commit
-   repairs with Graphite, and submit the new head. Restart the watch from that
-   head:
+   repairs with Graphite, and submit the new head. Return to the polling
+   handoff for that new head:
 
    ```bash
    coderabbit review --agent --base master --include-untracked
    gt submit --no-interactive
    ```
 
-Keep polling at a bounded cadence until checks are green, an external blocker
-appears, or a decision is needed. A different required check failing is also a
-release blocker; use the same repair loop when it is repository-owned and its
-intent is clear.
+Inspect failed workflow and step logs with `gh run view <run-id>
+--log-failed` or the matching GitHub Actions detail after the polling worker
+reports a failed check. A different required check failing is also a release
+blocker; use the same repair loop when it is repository-owned and its intent is
+clear.
