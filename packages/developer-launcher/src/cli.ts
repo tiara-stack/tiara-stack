@@ -305,12 +305,34 @@ const runParsedCommand = (config: Parameters<typeof launcherOptions>[0]) =>
       if (result.output.ok && result.output.mode === "fast" && result.output.action === "up") {
         const repository = process.cwd();
         const selectedService = result.output.selectedServices[0] ?? "sheet-web";
+        const workflowProcess = result.output.plannedProcesses.find(
+          ({ id }) => id === "sheet-workflows",
+        );
+        const workflowIssuer = workflowProcess?.environment.SHEET_AUTH_ISSUER;
+        const workflowRole = workflowProcess?.environment.SHEET_WORKFLOWS_ROLE;
+        const workflowRunner =
+          workflowProcess?.environment.WORKFLOWS_RUNNER_HOST !== undefined &&
+          workflowProcess.environment.WORKFLOWS_RUNNER_PORT !== undefined
+            ? `http://${workflowProcess.environment.WORKFLOWS_RUNNER_HOST}:${workflowProcess.environment.WORKFLOWS_RUNNER_PORT}/ready`
+            : undefined;
+        const dependencyTargets: readonly (readonly [string, string | undefined])[] =
+          selectedService === "sheet-web"
+            ? ([
+                ["auth", result.output.urls.find((url) => url.name === "auth")?.url],
+                ["zero", result.output.urls.find((url) => url.name === "zero")?.url],
+                ["workflows", result.output.urls.find((url) => url.name === "workflows")?.url],
+              ] as const)
+            : selectedService === "sheet-workflows" && workflowIssuer !== undefined
+              ? ([
+                  ["sheet-auth issuer", workflowIssuer],
+                  ["sheet-auth JWKS", `${workflowIssuer.replace(/\/$/, "")}/jwks`],
+                  ...(workflowRole === "api" && workflowRunner !== undefined
+                    ? ([["sheet-workflows runner", workflowRunner]] as const)
+                    : []),
+                ] as const)
+              : ([] as const);
         const dependencies = await Promise.all(
-          (selectedService === "sheet-web"
-            ? (["auth", "zero", "workflows"] as const)
-            : ([] as const)
-          ).map(async (dependency) => {
-            const origin = result.output.urls.find((url) => url.name === dependency)?.url;
+          dependencyTargets.map(async ([dependency, origin]) => {
             if (origin === undefined) {
               return makeDiagnostic(
                 "access-failed",

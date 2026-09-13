@@ -405,16 +405,43 @@ const modeOutput = (
                   ),
                   ...(command.mode === "fast" &&
                   services.some(
-                    (service) => service === "sheet-auth" || service === "sheet-db-server",
+                    (service) =>
+                      service === "sheet-auth" ||
+                      service === "sheet-db-server" ||
+                      service === "sheet-workflows",
                   )
                     ? [
-                        [
-                          "prometheus",
-                          Number(
-                            (validation.config as FastModeConfig).serviceEnvironments["sheet-auth"]
-                              .PROMETHEUS_PORT,
-                          ),
-                        ],
+                        ...(services.some(
+                          (service) =>
+                            service === "sheet-auth" ||
+                            service === "sheet-db-server" ||
+                            service === "sheet-workflows",
+                        )
+                          ? [
+                              [
+                                "prometheus",
+                                Number(
+                                  (validation.config as FastModeConfig).serviceEnvironments[
+                                    "sheet-auth"
+                                  ].PROMETHEUS_PORT,
+                                ),
+                              ] as const,
+                            ]
+                          : []),
+                        ...(services.includes("sheet-workflows") &&
+                        (validation.config as FastModeConfig).serviceEnvironments["sheet-workflows"]
+                          .SHEET_WORKFLOWS_ROLE === "combined"
+                          ? [
+                              [
+                                "sheet-workflows runner",
+                                Number(
+                                  (validation.config as FastModeConfig).serviceEnvironments[
+                                    "sheet-workflows"
+                                  ].WORKFLOWS_RUNNER_LISTEN_PORT,
+                                ),
+                              ] as const,
+                            ]
+                          : []),
                       ]
                     : []),
                 ])

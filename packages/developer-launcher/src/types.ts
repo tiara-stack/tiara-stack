@@ -4,7 +4,12 @@ export const developmentModes = ["fast", "compose", "kubernetes"] as const;
 export type DevelopmentMode = (typeof developmentModes)[number];
 export const DevelopmentModeSchema = Schema.Literals(developmentModes);
 
-export const fastServices = ["sheet-web", "sheet-auth", "sheet-db-server"] as const;
+export const fastServices = [
+  "sheet-web",
+  "sheet-auth",
+  "sheet-db-server",
+  "sheet-workflows",
+] as const;
 export type FastService = (typeof fastServices)[number];
 
 export const modeActions = {

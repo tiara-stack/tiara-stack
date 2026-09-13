@@ -136,6 +136,93 @@ describe("developer launcher command boundary", () => {
     expect(result.stdout).not.toContain("local-password");
   });
 
+  it("plans the host-native workflow API with the selected supported role", async () => {
+    const result = await runLauncher(["fast", "up", "--service", "sheet-workflows", "--json"], {
+      cwd: path.resolve(process.cwd(), "../.."),
+      env: {
+        POSTGRES_URL: "postgres://tiara:local-password@localhost:5432/tiara",
+        SHEET_AUTH_OAUTH_CLIENT_ID: "local-workflows",
+        SHEET_AUTH_OAUTH_CLIENT_SECRET: "local-workflows-secret",
+        SHEET_WORKFLOWS_ROLE: "api",
+      },
+      portChecker: async () => ({ available: true }),
+    });
+    const output = JSON.parse(result.stdout) as {
+      readonly selectedServices: readonly string[];
+      readonly plannedProcesses: readonly {
+        readonly id: string;
+        readonly command: string;
+        readonly args: readonly string[];
+        readonly environment: Readonly<Record<string, string>>;
+      }[];
+    };
+
+    expect(result.exitCode).toBe(0);
+    expect(output.selectedServices).toEqual(["sheet-workflows"]);
+    expect(output.plannedProcesses).toEqual([
+      expect.objectContaining({
+        id: "sheet-workflows",
+        command: "pnpm",
+        args: ["exec", "tsx", "watch", "--tsconfig", "tsconfig.json", "src/index.ts"],
+        environment: expect.objectContaining({
+          PORT: "3003",
+          SHEET_WORKFLOWS_ROLE: "api",
+          WORKFLOWS_RUNNER_HOST: "localhost",
+          POSTGRES_URL: "<redacted>",
+          SHEET_AUTH_OAUTH_CLIENT_SECRET: "<redacted>",
+        }),
+      }),
+    ]);
+    expect(result.stdout).not.toContain("local-password");
+  });
+
+  it("rejects runner roles instead of starting them as host processes", async () => {
+    const result = await runLauncher(["fast", "up", "--service", "sheet-workflows", "--json"], {
+      env: {
+        POSTGRES_URL: "postgres://tiara:local-password@localhost:5432/tiara",
+        SHEET_AUTH_OAUTH_CLIENT_ID: "local-workflows",
+        SHEET_AUTH_OAUTH_CLIENT_SECRET: "local-workflows-secret",
+        SHEET_WORKFLOWS_ROLE: "browser-runner",
+      },
+    });
+    const output = JSON.parse(result.stdout) as {
+      readonly errors: readonly { readonly code: string }[];
+      readonly plannedProcesses: readonly unknown[];
+    };
+
+    expect(result.exitCode).toBe(2);
+    expect(output.errors.map(({ code }) => code)).toContain("invalid-environment");
+    expect(output.plannedProcesses).toEqual([]);
+  });
+
+  it("preserves the combined workflow role and listener port in its host plan", async () => {
+    const result = await runLauncher(["fast", "up", "--service", "sheet-workflows", "--json"], {
+      cwd: path.resolve(process.cwd(), "../.."),
+      env: {
+        POSTGRES_URL: "postgres://tiara:local-password@localhost:5432/tiara",
+        SHEET_AUTH_OAUTH_CLIENT_ID: "local-workflows",
+        SHEET_AUTH_OAUTH_CLIENT_SECRET: "local-workflows-secret",
+        SHEET_WORKFLOWS_ROLE: "combined",
+        DEV_WORKFLOWS_RUNNER_PORT: "34432",
+        WORKFLOWS_RUNNER_LISTEN_PORT: "34432",
+      },
+      portChecker: async () => ({ available: true }),
+    });
+    const output = JSON.parse(result.stdout) as {
+      readonly plannedProcesses: readonly {
+        readonly environment: Readonly<Record<string, string>>;
+      }[];
+    };
+
+    expect(result.exitCode).toBe(0);
+    expect(output.plannedProcesses[0]?.environment).toEqual(
+      expect.objectContaining({
+        SHEET_WORKFLOWS_ROLE: "combined",
+        WORKFLOWS_RUNNER_LISTEN_PORT: "34432",
+      }),
+    );
+  });
+
   it("rejects a host-native service when a dependency uses Compose-only DNS", async () => {
     const result = await runLauncher(["fast", "up", "--service", "sheet-db-server", "--json"], {
       // fallow-ignore-next-line code-duplication

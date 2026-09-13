@@ -73,9 +73,65 @@ const fastHostEnvironmentKeys = [
   "DEV_SHEET_DB_SERVER_PORT",
   "DEV_PROMETHEUS_PORT",
   "DEV_LOCAL_JWKS_PORT",
+  "POD_NAMESPACE",
+  "DEV_SHEET_WORKFLOWS_PORT",
+  "DEV_WORKFLOWS_RUNNER_PORT",
+  "SHEET_WORKFLOWS_ROLE",
+  "SHEET_AUTH_OAUTH_CLIENT_ID",
+  "SHEET_AUTH_OAUTH_CLIENT_SECRET",
+  "SHEET_AUTH_WORKFLOW_HTTP_AUDIENCE",
+  "SHEET_AUTH_WORKFLOW_HTTP_BROWSER_AUDIENCE",
+  "SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID",
+  "SHEET_WEB_BASE_URL",
+  "SHEET_AUTH_TRUSTED_DELEGATION_CLIENT_IDS",
+  "SHEET_AUTO_CHECKIN_SERVICE_ID",
+  "SHEET_AUTO_CHECKIN_OAUTH_CLIENT_ID",
+  "WORKFLOWS_RUNNER_HOST",
+  "WORKFLOWS_RUNNER_PORT",
+  "WORKFLOWS_RUNNER_LISTEN_HOST",
+  "WORKFLOWS_RUNNER_LISTEN_PORT",
 ] as const;
 
 export const FAST_HOST_ENVIRONMENT_KEYS = fastHostEnvironmentKeys;
+
+const fastHostEnvironmentKeyOwners: Readonly<Record<string, readonly FastService[]>> = {
+  BASE_URL: ["sheet-auth"],
+  COOKIE_DOMAIN: ["sheet-auth"],
+  DISCORD_CLIENT_ID: ["sheet-auth"],
+  DISCORD_CLIENT_SECRET: ["sheet-auth"],
+  POSTGRES_URL: ["sheet-auth", "sheet-db-server", "sheet-workflows"],
+  REDIS_BASE: ["sheet-auth"],
+  REDIS_URL: ["sheet-auth"],
+  SHEET_AUTH_ISSUER: ["sheet-db-server", "sheet-workflows"],
+  SHEET_AUTH_OAUTH_AUDIENCE: ["sheet-db-server", "sheet-workflows"],
+  SHEET_AUTH_OAUTH_JWKS_URL: ["sheet-auth"],
+  TRUSTED_ORIGINS: ["sheet-auth"],
+  OTEL_EXPORTER_OTLP_ENDPOINT: ["sheet-auth", "sheet-db-server", "sheet-workflows"],
+  DEV_SHEET_AUTH_PORT: ["sheet-auth"],
+  DEV_SHEET_DB_SERVER_PORT: ["sheet-db-server"],
+  DEV_PROMETHEUS_PORT: ["sheet-auth", "sheet-db-server", "sheet-workflows"],
+  DEV_LOCAL_JWKS_PORT: ["sheet-auth"],
+  POD_NAMESPACE: ["sheet-workflows"],
+  DEV_SHEET_WORKFLOWS_PORT: ["sheet-workflows"],
+  DEV_WORKFLOWS_RUNNER_PORT: ["sheet-workflows"],
+  SHEET_WORKFLOWS_ROLE: ["sheet-workflows"],
+  SHEET_AUTH_OAUTH_CLIENT_ID: ["sheet-workflows"],
+  SHEET_AUTH_OAUTH_CLIENT_SECRET: ["sheet-workflows"],
+  SHEET_AUTH_WORKFLOW_HTTP_AUDIENCE: ["sheet-workflows"],
+  SHEET_AUTH_WORKFLOW_HTTP_BROWSER_AUDIENCE: ["sheet-workflows"],
+  SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID: ["sheet-workflows"],
+  SHEET_WEB_BASE_URL: ["sheet-workflows"],
+  SHEET_AUTH_TRUSTED_DELEGATION_CLIENT_IDS: ["sheet-workflows"],
+  SHEET_AUTO_CHECKIN_SERVICE_ID: ["sheet-workflows"],
+  SHEET_AUTO_CHECKIN_OAUTH_CLIENT_ID: ["sheet-workflows"],
+  WORKFLOWS_RUNNER_HOST: ["sheet-workflows"],
+  WORKFLOWS_RUNNER_PORT: ["sheet-workflows"],
+  WORKFLOWS_RUNNER_LISTEN_HOST: ["sheet-workflows"],
+  WORKFLOWS_RUNNER_LISTEN_PORT: ["sheet-workflows"],
+};
+
+const isFastHostKeyOwnedBySelection = (key: string, selectedServices: readonly string[]) =>
+  fastHostEnvironmentKeyOwners[key]?.some((service) => selectedServices.includes(service)) ?? false;
 
 const composeEnvironmentKeys = [
   "COOKIE_DOMAIN",
@@ -98,6 +154,7 @@ const composeEnvironmentKeys = [
   "SHEET_WORKFLOWS_OAUTH_CLIENT_ID",
   "SHEET_WORKFLOWS_OAUTH_CLIENT_SECRET",
   "SHEET_WORKFLOWS_PUBLIC_BASE_URL",
+  "SHEET_WORKFLOWS_ROLE",
   "SHEET_ZERO_PUBLIC_BASE_URL",
   "TRUSTED_OAUTH_CLIENT_IDS",
   "TRUSTED_OAUTH_CLIENTS_JSON",
@@ -169,8 +226,12 @@ const isDisallowedEnvironmentKey = (
   const normalizedKey = key.toUpperCase();
   if (
     mode === "fast" &&
-    selectedServices.some((service) => service === "sheet-auth" || service === "sheet-db-server") &&
-    fastHostEnvironmentKeys.includes(normalizedKey as (typeof fastHostEnvironmentKeys)[number])
+    selectedServices.some(
+      (service) =>
+        service === "sheet-auth" || service === "sheet-db-server" || service === "sheet-workflows",
+    ) &&
+    fastHostEnvironmentKeys.includes(normalizedKey as (typeof fastHostEnvironmentKeys)[number]) &&
+    isFastHostKeyOwnedBySelection(normalizedKey, selectedServices)
   ) {
     return false;
   }
@@ -464,7 +525,10 @@ const validateEnvironmentKeys = (
   const errors: Diagnostic[] = [];
   const allowedKeys =
     mode === "fast" &&
-    selectedServices.some((service) => service === "sheet-auth" || service === "sheet-db-server")
+    selectedServices.some(
+      (service) =>
+        service === "sheet-auth" || service === "sheet-db-server" || service === "sheet-workflows",
+    )
       ? new Set([...modeEnvironmentKeySets.fast, ...fastHostEnvironmentKeys])
       : modeEnvironmentKeySets[mode];
   const sourceKeys = new Set(
@@ -481,6 +545,24 @@ const validateEnvironmentKeys = (
         { mode, action },
       ),
     );
+  }
+
+  for (const key of Object.keys(values)) {
+    if (
+      mode === "fast" &&
+      fastHostEnvironmentKeys.includes(key as (typeof fastHostEnvironmentKeys)[number]) &&
+      !isDisallowedEnvironmentKey(mode, key, selectedServices) &&
+      !isFastHostKeyOwnedBySelection(key, selectedServices)
+    ) {
+      errors.push(
+        makeDiagnostic(
+          "invalid-environment",
+          `${key} is not owned by a selected Fast service`,
+          "Select the service that owns this variable or remove it from the Fast environment file.",
+          { mode, action },
+        ),
+      );
+    }
   }
 
   for (const key of sourceKeys) {
@@ -504,7 +586,7 @@ const validateEnvironmentKeys = (
 
   if (filePath !== null) {
     for (const key of fileKeys) {
-      if (isDisallowedEnvironmentKey(mode, key)) continue;
+      if (isDisallowedEnvironmentKey(mode, key, selectedServices)) continue;
       if (allowedKeys.has(key)) continue;
       if (allModeEnvironmentKeys.has(key)) continue;
       errors.push(
@@ -575,6 +657,7 @@ const validateFast = (
     "sheet-web": parsedPort.value,
     "sheet-auth": DETERMINISTIC_PORTS["sheet-auth"],
     "sheet-db-server": DETERMINISTIC_PORTS["sheet-db-server"],
+    "sheet-workflows": DETERMINISTIC_PORTS["sheet-workflows"],
   };
   const servicePortKeys = {
     "sheet-auth": "DEV_SHEET_AUTH_PORT",
@@ -590,6 +673,21 @@ const validateFast = (
     );
     servicePorts[service] = parsed.value;
     if (parsed.error !== undefined) errors.push(parsed.error);
+  }
+  const parsedWorkflowsPort = parsePort(
+    input.mode,
+    input.action,
+    "DEV_SHEET_WORKFLOWS_PORT",
+    valueOrDefault(
+      values,
+      "DEV_SHEET_WORKFLOWS_PORT",
+      String(DETERMINISTIC_PORTS["sheet-workflows"]),
+    ),
+    DETERMINISTIC_PORTS["sheet-workflows"],
+  );
+  servicePorts["sheet-workflows"] = parsedWorkflowsPort.value;
+  if (selectedServices.includes("sheet-workflows") && parsedWorkflowsPort.error !== undefined) {
+    errors.push(parsedWorkflowsPort.error);
   }
   const parsedPrometheusPort = parsePort(
     input.mode,
@@ -629,7 +727,85 @@ const validateFast = (
       portOwners.set(servicePorts[service], service);
     }
   }
-  if (selectedServices.includes("sheet-auth") || selectedServices.includes("sheet-db-server")) {
+  const workflowsRole = valueOrDefault(values, "SHEET_WORKFLOWS_ROLE", "api");
+  if (
+    selectedServices.includes("sheet-workflows") &&
+    !["api", "combined"].includes(workflowsRole)
+  ) {
+    errors.push(
+      makeDiagnostic(
+        "invalid-environment",
+        `SHEET_WORKFLOWS_ROLE=${workflowsRole} is not supported for host-native workflows`,
+        "Use SHEET_WORKFLOWS_ROLE=api or SHEET_WORKFLOWS_ROLE=combined. Runner roles stay in Compose or Kubernetes.",
+        { mode: input.mode, action: input.action, dependency: "sheet-workflows" },
+      ),
+    );
+  }
+  const workflowsRunnerPort = parsePort(
+    input.mode,
+    input.action,
+    "DEV_WORKFLOWS_RUNNER_PORT",
+    valueOrDefault(
+      values,
+      "DEV_WORKFLOWS_RUNNER_PORT",
+      valueOrDefault(values, "WORKFLOWS_RUNNER_PORT", "34431"),
+    ),
+    34431,
+  );
+  if (selectedServices.includes("sheet-workflows") && workflowsRunnerPort.error !== undefined) {
+    errors.push(workflowsRunnerPort.error);
+  }
+  const workflowsRunnerListenPort =
+    workflowsRole === "combined"
+      ? parsePort(
+          input.mode,
+          input.action,
+          "WORKFLOWS_RUNNER_LISTEN_PORT",
+          valueOrDefault(values, "WORKFLOWS_RUNNER_LISTEN_PORT", String(workflowsRunnerPort.value)),
+          34431,
+        )
+      : { value: 34431, error: undefined };
+  if (
+    selectedServices.includes("sheet-workflows") &&
+    workflowsRunnerListenPort.error !== undefined
+  ) {
+    errors.push(workflowsRunnerListenPort.error);
+  }
+  if (selectedServices.includes("sheet-workflows") && workflowsRole === "combined") {
+    if (workflowsRunnerPort.value !== workflowsRunnerListenPort.value) {
+      errors.push(
+        makeDiagnostic(
+          "invalid-environment",
+          "Combined workflows must use the same runner connection and listener port",
+          "Set DEV_WORKFLOWS_RUNNER_PORT and WORKFLOWS_RUNNER_LISTEN_PORT to the same port.",
+          { mode: input.mode, action: input.action, dependency: "sheet-workflows runner" },
+        ),
+      );
+    }
+    const previous = portOwners.get(workflowsRunnerListenPort.value);
+    if (previous !== undefined) {
+      errors.push(
+        makeDiagnostic(
+          "port-collision",
+          `Fast assigns port ${workflowsRunnerListenPort.value} to both ${previous} and sheet-workflows runner`,
+          "Choose explicit deterministic service and runner ports that do not collide.",
+          {
+            mode: input.mode,
+            action: input.action,
+            dependency: "sheet-workflows runner",
+            port: workflowsRunnerListenPort.value,
+          },
+        ),
+      );
+    } else {
+      portOwners.set(workflowsRunnerListenPort.value, "sheet-workflows runner");
+    }
+  }
+  if (
+    selectedServices.includes("sheet-auth") ||
+    selectedServices.includes("sheet-db-server") ||
+    selectedServices.includes("sheet-workflows")
+  ) {
     for (const [dependency, port] of [
       ["postgres", DETERMINISTIC_PORTS.postgres],
       ["redis", DETERMINISTIC_PORTS.redis],
@@ -725,6 +901,77 @@ const validateFast = (
       ),
       PROMETHEUS_PORT: String(parsedPrometheusPort.value),
     },
+    "sheet-workflows": {
+      PORT: String(servicePorts["sheet-workflows"]),
+      POD_NAMESPACE: valueOrDefault(values, "POD_NAMESPACE", "tiara-local"),
+      SHEET_WORKFLOWS_ROLE: workflowsRole,
+      SHEET_AUTH_ISSUER: valueOrDefault(
+        values,
+        "SHEET_AUTH_ISSUER",
+        localHost(servicePorts["sheet-auth"]),
+      ),
+      SHEET_AUTH_OAUTH_CLIENT_ID: valueOrDefault(
+        values,
+        "SHEET_AUTH_OAUTH_CLIENT_ID",
+        "local-workflows",
+      ),
+      SHEET_AUTH_OAUTH_CLIENT_SECRET: valueOrDefault(values, "SHEET_AUTH_OAUTH_CLIENT_SECRET", ""),
+      SHEET_AUTH_OAUTH_AUDIENCE: valueOrDefault(
+        values,
+        "SHEET_AUTH_OAUTH_AUDIENCE",
+        "sheet-workflows",
+      ),
+      SHEET_AUTH_WORKFLOW_HTTP_AUDIENCE: valueOrDefault(
+        values,
+        "SHEET_AUTH_WORKFLOW_HTTP_AUDIENCE",
+        "sheet-workflows-http",
+      ),
+      SHEET_AUTH_WORKFLOW_HTTP_BROWSER_AUDIENCE: valueOrDefault(
+        values,
+        "SHEET_AUTH_WORKFLOW_HTTP_BROWSER_AUDIENCE",
+        "sheet-zero",
+      ),
+      SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID: valueOrDefault(
+        values,
+        "SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID",
+        "local-bot",
+      ),
+      SHEET_AUTH_TRUSTED_DELEGATION_CLIENT_IDS: valueOrDefault(
+        values,
+        "SHEET_AUTH_TRUSTED_DELEGATION_CLIENT_IDS",
+        "sheet-auto-checkin",
+      ),
+      SHEET_AUTO_CHECKIN_SERVICE_ID: valueOrDefault(
+        values,
+        "SHEET_AUTO_CHECKIN_SERVICE_ID",
+        "auto-checkin",
+      ),
+      SHEET_AUTO_CHECKIN_OAUTH_CLIENT_ID: valueOrDefault(
+        values,
+        "SHEET_AUTO_CHECKIN_OAUTH_CLIENT_ID",
+        "sheet-auto-checkin",
+      ),
+      SHEET_WEB_BASE_URL: valueOrDefault(values, "SHEET_WEB_BASE_URL", environment.APP_BASE_URL),
+      POSTGRES_URL: valueOrDefault(
+        values,
+        "POSTGRES_URL",
+        `postgres://tiara@localhost:${DETERMINISTIC_PORTS.postgres}/tiara`,
+      ),
+      WORKFLOWS_RUNNER_HOST: valueOrDefault(values, "WORKFLOWS_RUNNER_HOST", "localhost"),
+      WORKFLOWS_RUNNER_PORT: String(workflowsRunnerPort.value),
+      WORKFLOWS_RUNNER_LISTEN_HOST: valueOrDefault(
+        values,
+        "WORKFLOWS_RUNNER_LISTEN_HOST",
+        "127.0.0.1",
+      ),
+      WORKFLOWS_RUNNER_LISTEN_PORT: String(workflowsRunnerListenPort.value),
+      OTEL_EXPORTER_OTLP_ENDPOINT: valueOrDefault(
+        values,
+        "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "http://localhost:4318",
+      ),
+      PROMETHEUS_PORT: String(parsedPrometheusPort.value),
+    },
   };
   const localOrigins: readonly [string, string, readonly string[], readonly FastService[]][] = [
     [
@@ -749,7 +996,19 @@ const validateFast = (
       "OTEL_EXPORTER_OTLP_ENDPOINT",
       serviceEnvironments["sheet-auth"].OTEL_EXPORTER_OTLP_ENDPOINT ?? "",
       ["http://localhost:4318"],
-      ["sheet-auth", "sheet-db-server"],
+      ["sheet-auth", "sheet-db-server", "sheet-workflows"],
+    ],
+    [
+      "SHEET_AUTH_ISSUER",
+      serviceEnvironments["sheet-workflows"].SHEET_AUTH_ISSUER ?? "",
+      [localHost(servicePorts["sheet-auth"])],
+      ["sheet-workflows"],
+    ],
+    [
+      "SHEET_WEB_BASE_URL",
+      serviceEnvironments["sheet-workflows"].SHEET_WEB_BASE_URL ?? "",
+      [localHost(servicePorts["sheet-web"]), `http://127.0.0.1:${servicePorts["sheet-web"]}`],
+      ["sheet-workflows"],
     ],
   ];
   for (const [key, value, allowed, services] of localOrigins) {
@@ -779,6 +1038,53 @@ const validateFast = (
         : validateOrigin(input.mode, input.action, key, value, allowed);
     if (failure !== undefined) errors.push(failure);
   }
+  if (selectedServices.includes("sheet-workflows")) {
+    const runnerHost = serviceEnvironments["sheet-workflows"].WORKFLOWS_RUNNER_HOST ?? "";
+    if (runnerHost !== "localhost" && runnerHost !== "127.0.0.1") {
+      errors.push(
+        makeDiagnostic(
+          "unsafe-origin",
+          "WORKFLOWS_RUNNER_HOST must be host-reachable",
+          "Use WORKFLOWS_RUNNER_HOST=localhost or 127.0.0.1 for the host-native workflow slice.",
+          { mode: input.mode, action: input.action, dependency: "sheet-workflows" },
+        ),
+      );
+    }
+    const runnerListenHost =
+      serviceEnvironments["sheet-workflows"].WORKFLOWS_RUNNER_LISTEN_HOST ?? "";
+    if (
+      workflowsRole === "combined" &&
+      runnerListenHost !== "localhost" &&
+      runnerListenHost !== "127.0.0.1"
+    ) {
+      errors.push(
+        makeDiagnostic(
+          "unsafe-origin",
+          "WORKFLOWS_RUNNER_LISTEN_HOST must be loopback for host-native workflows",
+          "Use WORKFLOWS_RUNNER_LISTEN_HOST=127.0.0.1 or localhost. Bind externally only through Compose or Kubernetes configuration.",
+          { mode: input.mode, action: input.action, dependency: "sheet-workflows" },
+        ),
+      );
+    }
+    const requiredArtifacts = [
+      "packages/sheet-zero-api/src/schema.ts",
+      "packages/sheet-db-schema/src/migrations.ts",
+      "packages/sheet-db-schema/effect-sql-migrations",
+    ];
+    const missingArtifacts = requiredArtifacts.filter(
+      (artifact) => !existsSync(path.join(input.cwd, artifact)),
+    );
+    if (missingArtifacts.length > 0) {
+      errors.push(
+        makeDiagnostic(
+          "required-dependency-failed",
+          `Host-native sheet-workflows requires checked-in Zero artifacts: ${missingArtifacts.join(", ")}`,
+          "Run pnpm --filter sheet-db-schema zero:generate and verify pnpm --filter sheet-db-schema schema:check:diff before starting the workflow API.",
+          { mode: input.mode, action: input.action, dependency: "Zero schema and migrations" },
+        ),
+      );
+    }
+  }
   if (selectedServices.includes("sheet-auth")) {
     for (const origin of (serviceEnvironments["sheet-auth"].TRUSTED_ORIGINS ?? "")
       .split(",")
@@ -797,13 +1103,16 @@ const validateFast = (
     if (
       key === "POSTGRES_URL" &&
       !selectedServices.includes("sheet-auth") &&
-      !selectedServices.includes("sheet-db-server")
+      !selectedServices.includes("sheet-db-server") &&
+      !selectedServices.includes("sheet-workflows")
     )
       continue;
     const value = values[key] ?? serviceEnvironments["sheet-auth"][key];
     if (
       value === undefined ||
-      (!selectedServices.includes("sheet-auth") && !selectedServices.includes("sheet-db-server"))
+      (!selectedServices.includes("sheet-auth") &&
+        !selectedServices.includes("sheet-db-server") &&
+        !selectedServices.includes("sheet-workflows"))
     )
       continue;
     try {
@@ -831,6 +1140,10 @@ const validateFast = (
   for (const [service, requiredKeys] of [
     ["sheet-auth", ["POSTGRES_URL", "REDIS_URL"]],
     ["sheet-db-server", ["POSTGRES_URL"]],
+    [
+      "sheet-workflows",
+      ["POSTGRES_URL", "SHEET_AUTH_OAUTH_CLIENT_ID", "SHEET_AUTH_OAUTH_CLIENT_SECRET"],
+    ],
   ] as const) {
     if (!selectedServices.includes(service as FastService)) continue;
     for (const key of requiredKeys) {
@@ -839,7 +1152,9 @@ const validateFast = (
         makeDiagnostic(
           "unsafe-credential",
           `${key} is required for host-native ${service}`,
-          `Set ${key} to a host-reachable local dependency URL before starting ${service}.`,
+          key === "POSTGRES_URL"
+            ? `Set ${key} to a host-reachable local dependency URL before starting ${service}.`
+            : `Set ${key} to the dedicated local OAuth credential before starting ${service}.`,
           { mode: input.mode, action: input.action, dependency: service },
         ),
       );
@@ -928,6 +1243,22 @@ const validateCompose = (
   filePath: string | null,
 ): ModeConfigValidation => {
   const errors: Diagnostic[] = [];
+  const workflowRole = valueOrDefault(values, "SHEET_WORKFLOWS_ROLE", "combined");
+  if (
+    (input.selectedServices ?? composePackages).some(
+      (service) => service === "sheet-workflows" || service === "sheet-bot",
+    ) &&
+    !["combined", "api", "runner", "browser-runner"].includes(workflowRole)
+  ) {
+    errors.push(
+      makeDiagnostic(
+        "invalid-environment",
+        `SHEET_WORKFLOWS_ROLE=${workflowRole} is not a supported workflow role`,
+        "Use combined, api, runner, or browser-runner for Compose workflow services.",
+        { mode: input.mode, action: input.action, dependency: "sheet-workflows" },
+      ),
+    );
+  }
   const parsedPostgresPort = parsePort(
     input.mode,
     input.action,
