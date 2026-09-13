@@ -76,6 +76,15 @@ export const shouldRefreshSheetZeroAuth = (
     Match.orElse(() => false),
   );
 
+const isRecoverableSheetZeroError = (reason: string) => reason.includes("CONNECTION_CLOSED");
+
+export const shouldReconnectSheetZero = (state: SheetZeroConnectionState) =>
+  Match.value(state).pipe(
+    Match.when({ name: "needs-auth" }, () => true),
+    Match.when({ name: "error" }, ({ reason }) => isRecoverableSheetZeroError(reason)),
+    Match.orElse(() => false),
+  );
+
 const isSheetZeroConnectionError = (error: unknown): error is SheetZeroConnectionError =>
   Predicate.isTagged("SheetZeroConnectionError")(error);
 
@@ -170,7 +179,21 @@ const makeSheetZero = Effect.fn("SheetZeroClient.makeZero")(function* () {
   const zero = new Zero({ server, userID, schema, mutators, auth: initialAuth });
   yield* Effect.addFinalizer(() => Effect.sync(() => zero.close()));
 
-  const reconnectRequests = yield* Queue.sliding<void>(1);
+  const reconnectRequests = yield* Queue.unbounded<{ readonly refreshAuth: boolean }>();
+  const coalesceReconnectRequests = (request: {
+    readonly refreshAuth: boolean;
+  }): Effect.Effect<{ readonly refreshAuth: boolean }> =>
+    Queue.poll(reconnectRequests).pipe(
+      Effect.flatMap(
+        Option.match({
+          onNone: () => Effect.succeed(request),
+          onSome: (next) =>
+            coalesceReconnectRequests({
+              refreshAuth: request.refreshAuth || next.refreshAuth,
+            }),
+        }),
+      ),
+    );
   const reconnect = (auth: string) =>
     Effect.tryPromise(() => zero.connection.connect({ auth })).pipe(
       Effect.timeout(Duration.seconds(30)),
@@ -193,8 +216,9 @@ const makeSheetZero = Effect.fn("SheetZeroClient.makeZero")(function* () {
 
   yield* Effect.forkScoped(
     Queue.take(reconnectRequests).pipe(
-      Effect.flatMap(() =>
-        authenticate("refresh-auth").pipe(
+      Effect.flatMap(coalesceReconnectRequests),
+      Effect.flatMap(({ refreshAuth }) =>
+        authenticate(refreshAuth ? "refresh-auth" : "get-auth").pipe(
           Effect.flatMap(reconnect),
           Effect.retry({
             schedule: authenticationSchedule,
@@ -213,8 +237,10 @@ const makeSheetZero = Effect.fn("SheetZeroClient.makeZero")(function* () {
   yield* Effect.acquireRelease(
     Effect.sync(() =>
       zero.connection.state.subscribe((state) =>
-        shouldRefreshSheetZeroAuth(state, currentAuthContext())
-          ? Queue.offerUnsafe(reconnectRequests, undefined)
+        shouldReconnectSheetZero(state)
+          ? Queue.offerUnsafe(reconnectRequests, {
+              refreshAuth: shouldRefreshSheetZeroAuth(state, currentAuthContext()),
+            })
           : false,
       ),
     ),
