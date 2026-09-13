@@ -436,7 +436,12 @@ describe("developer launcher command boundary", () => {
     const requests: Parameters<ProcessExecutor>[0][] = [];
     const executor: ProcessExecutor = async (request) => {
       requests.push(request);
-      return { exitCode: 0 };
+      return {
+        exitCode: 0,
+        ...(request.args.includes("infisicalstaticsecret")
+          ? { stdout: "infisicalstaticsecret/tiara-stack-dev" }
+          : {}),
+      };
     };
     const portChecker: PortChecker = async () => ({ available: true });
     const accessChecker: AccessChecker = async (request) => ({
@@ -463,7 +468,7 @@ describe("developer launcher command boundary", () => {
       expect(output.readiness).toBe("ready");
       expect(output.errors).toEqual([]);
       expect(output.warnings.map(({ code }) => code)).toEqual(["access-failed"]);
-      expect(requests.length).toBe(6);
+      expect(requests.length).toBe(11);
       expect(requests.every((request) => request.kind === "dependency-check")).toBe(true);
       expect(requests.every((request) => request.readOnly)).toBe(true);
       expect(requests.every((request) => request.timeoutMs <= 2_000)).toBe(true);
@@ -513,6 +518,25 @@ describe("developer launcher command boundary", () => {
       ]),
     );
     expect(output.errors.every(({ remediation }) => remediation.length > 0)).toBe(true);
+  });
+
+  it("reports a missing centrally managed Kubernetes credential set", async () => {
+    const result = await runLauncher(["doctor", "--json"], {
+      cwd: tmpdir(),
+      env: { KUBE_CONTEXT: "tiara-stack-dev" },
+      executor: async () => ({ exitCode: 0 }),
+      portChecker: async () => ({ available: true }),
+      accessChecker: async () => ({ reachable: true }),
+    });
+    const output = JSON.parse(result.stdout) as {
+      readonly errors: readonly { readonly dependency: string | null }[];
+    };
+
+    expect(output.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ dependency: "centrally managed Development Credential Set" }),
+      ]),
+    );
   });
 
   it.each([

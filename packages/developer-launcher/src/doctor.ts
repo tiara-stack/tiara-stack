@@ -91,6 +91,77 @@ const toolChecks: readonly ToolCheck[] = [
     dependency: "kubectl",
     remediation: "Install kubectl and select the development cluster context.",
   },
+  {
+    id: "kubernetes-development-context",
+    command: "kubectl",
+    args: ["config", "get-contexts", "tiara-stack-dev"],
+    mode: "kubernetes",
+    dependency: "tiara-stack-dev Kubernetes context",
+    remediation:
+      "Configure kubectl with the tiara-stack-dev context; production contexts are not supported.",
+  },
+  {
+    id: "kubernetes-development-namespace",
+    command: "kubectl",
+    args: ["--context", "tiara-stack-dev", "get", "namespace", "tiara-stack-dev"],
+    mode: "kubernetes",
+    dependency: "tiara-stack-dev namespace",
+    remediation: "Create or request access to the tiara-stack-dev namespace before previewing.",
+  },
+  {
+    id: "kubernetes-registry-access",
+    command: "kubectl",
+    args: [
+      "--context",
+      "tiara-stack-dev",
+      "--namespace",
+      "tiara-stack-dev",
+      "get",
+      "secret",
+      "theerapakg-registry",
+    ],
+    mode: "kubernetes",
+    dependency: "development image registry pull secret",
+    remediation:
+      "Provision the namespace-local theerapakg-registry pull secret from the development registry.",
+  },
+  {
+    id: "kubernetes-ca",
+    command: "kubectl",
+    args: [
+      "--context",
+      "tiara-stack-dev",
+      "--namespace",
+      "tiara-stack-dev",
+      "get",
+      "configmap",
+      "tiara-stack-ca-certificate",
+    ],
+    mode: "kubernetes",
+    dependency: "development CA ConfigMap",
+    remediation:
+      "Create tiara-stack-ca-certificate in tiara-stack-dev using the approved CA certificate.",
+  },
+  {
+    id: "kubernetes-credential-set",
+    command: "kubectl",
+    args: [
+      "--context",
+      "tiara-stack-dev",
+      "--namespace",
+      "tiara-stack-dev",
+      "get",
+      "infisicalstaticsecret",
+      "-l",
+      "app.kubernetes.io/instance=tiara-stack-dev",
+      "-o",
+      "name",
+    ],
+    mode: "kubernetes",
+    dependency: "centrally managed Development Credential Set",
+    remediation:
+      "Ensure the Infisical-managed Development Credential Set is synced in tiara-stack-dev; secret values are never printed.",
+  },
 ];
 
 const plannedToolProcess = (check: ToolCheck): PlannedProcess => ({
@@ -139,6 +210,14 @@ const runToolCheck = async (
     return makeDiagnostic(
       "required-dependency-failed",
       `${check.dependency} is unavailable for ${check.mode} mode`,
+      check.remediation,
+      { mode: check.mode, dependency: check.dependency },
+    );
+  }
+  if (check.id === "kubernetes-credential-set" && (result.stdout?.trim() ?? "") === "") {
+    return makeDiagnostic(
+      "required-dependency-failed",
+      `${check.dependency} was not found in ${check.args[check.args.indexOf("--namespace") + 1]}`,
       check.remediation,
       { mode: check.mode, dependency: check.dependency },
     );

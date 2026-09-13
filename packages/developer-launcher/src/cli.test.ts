@@ -3,7 +3,9 @@ import { NodeServices } from "@effect/platform-node";
 import { Effect } from "effect";
 import { TestConsole } from "effect/testing";
 import { Command } from "effect/unstable/cli";
-import { command } from "./cli";
+import { command, executeKubernetesPlan } from "./cli";
+import { runLauncherFromParsed } from "./index";
+import type { ProcessExecutor } from "./types";
 
 const runCliHelp = () =>
   Effect.gen(function* () {
@@ -12,6 +14,39 @@ const runCliHelp = () =>
   }).pipe(Effect.provide(TestConsole.layer), Effect.provide(NodeServices.layer));
 
 describe("developer launcher Effect CLI", () => {
+  it("reports failed Kubernetes workloads through the executor seam", async () => {
+    const result = await runLauncherFromParsed(
+      ["kubernetes", "preview"],
+      {
+        json: true,
+        help: false,
+        envFile: null,
+        service: null,
+        confirm: false,
+        confirmDevelopment: true,
+        tag: "test-tag",
+      },
+      { env: { KUBE_CONTEXT: "tiara-stack-dev" } },
+    );
+    const requests: Parameters<ProcessExecutor>[0][] = [];
+    const executor: ProcessExecutor = async (request) => {
+      requests.push(request);
+      return request.command === "helm"
+        ? { exitCode: 1, stderr: "rollout failed" }
+        : { exitCode: 0, stdout: "pod/sheet-web-abc 0/1 ImagePullBackOff" };
+    };
+
+    const executed = await executeKubernetesPlan(result, true, executor);
+
+    expect(executed.exitCode).toBe(2);
+    expect(executed.output.readiness).toBe("blocked");
+    expect(executed.output.errors[0]?.message).toContain("ImagePullBackOff");
+    expect(requests.map(({ command }) => command)).toEqual(["helm", "kubectl"]);
+    expect(requests[1]?.args).toEqual(
+      expect.arrayContaining(["--context", "tiara-stack-dev", "--namespace", "tiara-stack-dev"]),
+    );
+  });
+
   it.live("uses Effect CLI to render root help and typed flags", () =>
     Effect.gen(function* () {
       const output = yield* runCliHelp();
