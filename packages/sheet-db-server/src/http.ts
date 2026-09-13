@@ -32,5 +32,5 @@ const ApiLayer = Layer.provide(HttpApiBuilder.layer(Api), [ZeroHttpLive]).pipe(
 
 export const HttpLive = HttpRouter.serve(ApiLayer).pipe(
   HttpServer.withLogAddress,
-  Layer.provide(NodeHttpServer.layer(createServer, { port: 3000 })),
+  Layer.provide(NodeHttpServer.layer(createServer, { port: Number(process.env.PORT ?? 3000) })),
 );

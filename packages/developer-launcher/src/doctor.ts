@@ -6,6 +6,7 @@ import {
   DETERMINISTIC_PORTS,
   FAST_ENDPOINTS,
   FAST_ENVIRONMENT_KEYS,
+  FAST_HOST_ENVIRONMENT_KEYS,
   KUBERNETES_ENVIRONMENT_KEYS,
   validateAmbientEnvironment,
   validateModeConfig,
@@ -169,16 +170,25 @@ const configurationDiagnostics = (
   cwd: string,
   env: NodeJS.ProcessEnv,
   envFile: string | null,
+  selectedServices: readonly string[],
 ): DoctorConfiguration => {
   const diagnostics: Diagnostic[] = [];
   const warnings: Diagnostic[] = [];
-  diagnostics.push(...validateAmbientEnvironment("fast", "up", env));
+  diagnostics.push(...validateAmbientEnvironment("fast", "up", env, selectedServices));
   const fast = validateModeConfig({
     mode: "fast",
     action: "up",
-    env: pickEnvironment(env, FAST_ENVIRONMENT_KEYS),
+    env: pickEnvironment(env, [
+      ...FAST_ENVIRONMENT_KEYS,
+      ...(selectedServices.some(
+        (service) => service === "sheet-auth" || service === "sheet-db-server",
+      )
+        ? FAST_HOST_ENVIRONMENT_KEYS
+        : []),
+    ]),
     cwd,
     envFile: null,
+    selectedServices,
   });
   diagnostics.push(...fast.errors);
 
@@ -411,8 +421,14 @@ export const runDoctorEffect = (options: LauncherOptions): Effect.Effect<DoctorR
   const executor = options.executor ?? spawnProcess;
   const portChecker = options.portChecker ?? checkLoopbackPort;
   const accessChecker = options.accessChecker ?? checkHttpAccess;
+  // fallow-ignore-next-line complexity
   return Effect.gen(function* () {
-    const configuration = configurationDiagnostics(cwd, env, options.envFile ?? null);
+    const configuration = configurationDiagnostics(
+      cwd,
+      env,
+      options.envFile ?? null,
+      options.selectedServices ?? ["sheet-web"],
+    );
     const errors = [...configuration.errors];
     const warnings: Diagnostic[] = [...configuration.warnings];
     const plannedProcesses = toolChecks.map(plannedToolProcess);

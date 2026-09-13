@@ -4,6 +4,9 @@ export const developmentModes = ["fast", "compose", "kubernetes"] as const;
 export type DevelopmentMode = (typeof developmentModes)[number];
 export const DevelopmentModeSchema = Schema.Literals(developmentModes);
 
+export const fastServices = ["sheet-web", "sheet-auth", "sheet-db-server"] as const;
+export type FastService = (typeof fastServices)[number];
+
 export const modeActions = {
   fast: ["up"] as const,
   compose: ["up", "build", "down", "seed", "reset"] as const,
@@ -131,6 +134,7 @@ export interface LauncherOptions {
   readonly cwd?: string;
   readonly env?: NodeJS.ProcessEnv;
   readonly envFile?: string | null;
+  readonly selectedServices?: readonly string[];
 }
 
 export interface LauncherResult {

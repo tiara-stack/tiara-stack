@@ -10,6 +10,7 @@ import type {
   KubernetesAction,
   ModeAction,
   PlannedProcess,
+  FastService,
 } from "./types";
 
 export interface ModePlan {
@@ -43,17 +44,40 @@ const composePrefix = (config: ComposeModeConfig) =>
 
 const fastPlan = (config: FastModeConfig, selectedServices: readonly string[]): ModePlan => ({
   selectedServices,
-  plannedProcesses: [
-    processPlan(
-      "sheet-web",
-      "sheet-web",
-      "vp",
-      ["dev", "--port", String(config.ports["sheet-web"])],
-      config.environment,
+  plannedProcesses: selectedServices.map((service) => {
+    const fastService = service as FastService;
+    if (fastService === "sheet-web") {
+      return processPlan(
+        fastService,
+        fastService,
+        "vp",
+        ["dev", "--port", String(config.servicePorts[fastService])],
+        config.serviceEnvironments[fastService],
+        true,
+      );
+    }
+    const entrypoint = fastService === "sheet-auth" ? "src/server.ts" : "src/index.ts";
+    return processPlan(
+      fastService,
+      fastService,
+      "pnpm",
+      ["exec", "tsx", "watch", "--tsconfig", "tsconfig.json", entrypoint],
+      {
+        ...config.serviceEnvironments[fastService],
+        PORT: String(config.servicePorts[fastService]),
+      },
       true,
-    ),
+    );
+  }),
+  urls: [
+    ...config.urls,
+    ...selectedServices
+      .filter((service) => service !== "sheet-web")
+      .map((service) => ({
+        name: service,
+        url: `http://localhost:${config.servicePorts[service as FastService]}`,
+      })),
   ],
-  urls: config.urls,
 });
 
 // fallow-ignore-next-line complexity

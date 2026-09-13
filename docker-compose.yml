@@ -84,6 +84,8 @@ services:
         read_only: true
         bind:
           create_host_path: false
+    ports:
+      - "${LOCAL_JWKS_PORT:-8081}:80"
     healthcheck:
       test:
         [

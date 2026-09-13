@@ -197,8 +197,12 @@ const runParsedCommand = (config: Parameters<typeof launcherOptions>[0]) =>
       }
       if (result.output.ok && result.output.mode === "fast" && result.output.action === "up") {
         const repository = process.cwd();
+        const selectedService = result.output.selectedServices[0] ?? "sheet-web";
         const dependencies = await Promise.all(
-          (["auth", "zero", "workflows"] as const).map(async (dependency) => {
+          (selectedService === "sheet-web"
+            ? (["auth", "zero", "workflows"] as const)
+            : ([] as const)
+          ).map(async (dependency) => {
             const origin = result.output.urls.find((url) => url.name === dependency)?.url;
             if (origin === undefined) {
               return makeDiagnostic(
@@ -240,9 +244,14 @@ const runParsedCommand = (config: Parameters<typeof launcherOptions>[0]) =>
           return null;
         }
 
-        const planned = result.output.plannedProcesses[0];
-        if (planned === undefined) throw new Error("Fast mode produced no sheet-web process");
-        const appUrl = result.output.urls[0]?.url ?? FAST_ENDPOINTS.app;
+        const planned = result.output.plannedProcesses.find(({ id }) => id === selectedService);
+        if (planned === undefined)
+          throw new Error(`Fast mode produced no ${selectedService} process`);
+        const appUrl =
+          selectedService === "sheet-web"
+            ? (result.output.urls.find((url) => url.name === "app")?.url ?? FAST_ENDPOINTS.app)
+            : (result.output.urls.find((url) => url.name === selectedService)?.url ?? "");
+        const readinessUrl = selectedService === "sheet-web" ? appUrl : `${appUrl}/ready`;
         let running: Awaited<ReturnType<typeof startLongLivedProcess>> | undefined;
         let terminationExitCode: number | undefined;
         let shutdownPromise: Promise<void> | undefined;
@@ -263,7 +272,7 @@ const runParsedCommand = (config: Parameters<typeof launcherOptions>[0]) =>
           running = await startLongLivedProcess({
             command: planned.command,
             args: planned.args,
-            cwd: path.join(repository, "packages/sheet-web"),
+            cwd: path.join(repository, "packages", selectedService),
             env: planned.environment,
             timeoutMs: 30_000,
             kind: "runtime",
@@ -285,9 +294,9 @@ const runParsedCommand = (config: Parameters<typeof launcherOptions>[0]) =>
             errors: [
               makeDiagnostic(
                 "dependency-unavailable",
-                `sheet-web could not be started${detail}`,
-                "Run pnpm install, verify vite-plus is available, and retry Fast mode.",
-                { mode: "fast", dependency: "sheet-web", origin: appUrl },
+                `${selectedService} could not be started${detail}`,
+                "Run pnpm install, verify the package's tsx/vite-plus tooling is available, and retry Fast mode.",
+                { mode: "fast", dependency: selectedService, origin: appUrl },
               ),
             ],
           } satisfies LauncherOutput;
@@ -307,7 +316,7 @@ const runParsedCommand = (config: Parameters<typeof launcherOptions>[0]) =>
           }
           return null;
         }
-        const readiness = await waitForHttp(appUrl, 30_000, running.exited);
+        const readiness = await waitForHttp(readinessUrl, 30_000, running.exited);
         if (!readiness.reachable) {
           try {
             await (shutdownPromise ?? running.kill().catch(() => undefined));
@@ -323,11 +332,11 @@ const runParsedCommand = (config: Parameters<typeof launcherOptions>[0]) =>
             errors: [
               makeDiagnostic(
                 readiness.timedOut ? "dependency-timeout" : "access-failed",
-                `sheet-web did not become ready at ${appUrl}${
+                `${selectedService} did not become ready at ${readinessUrl}${
                   readiness.reason === undefined ? "" : `: ${readiness.reason}`
                 }`,
-                "Fix the sheet-web startup error and retry pnpm dev fast up.",
-                { mode: "fast", dependency: "sheet-web", origin: appUrl },
+                "Fix the host-native process startup error and retry pnpm dev fast up.",
+                { mode: "fast", dependency: selectedService, origin: readinessUrl },
               ),
             ],
           } satisfies LauncherOutput;

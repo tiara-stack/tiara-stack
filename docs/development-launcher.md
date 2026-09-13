@@ -11,6 +11,8 @@ planned `sheet-web` watch process and waits for its local URL to respond.
 pnpm dev
 pnpm dev fast
 pnpm dev fast up
+pnpm dev fast up --service sheet-auth
+pnpm dev fast up --service sheet-db-server
 pnpm dev compose <up|build|down|seed|reset>
 pnpm dev kubernetes <validate|preview>
 pnpm dev doctor
@@ -28,8 +30,10 @@ plan with `--service <package-name>` in Fast or Compose mode. Kubernetes
 preview always applies the complete development release.
 
 Fast reads `.env.development.local` from the repository root by default. Pass
-`--env-file <path>` to use an explicit file. The file and inherited environment
-may contain only the four Fast URLs and the optional `DEV_SHEET_WEB_PORT`.
+`--env-file <path>` to use an explicit file. The default web slice accepts only
+the four Fast URLs and `DEV_SHEET_WEB_PORT`. The explicitly selected auth and
+database-server slices additionally accept their package configuration, but
+only with host-reachable local Postgres, Redis, JWKS, and OTEL endpoints.
 
 Use `pnpm dev <mode> help` for mode-specific help. `--help` is reserved for
 Effect CLI's generated root help.
@@ -38,7 +42,7 @@ Effect CLI's generated root help.
 
 | Mode | Runtime processes | Allowed origins | State boundary |
 | --- | --- | --- | --- |
-| Fast | `sheet-web` on the host | local app plus the development auth, Zero, and workflow endpoints | shared Fast development sandbox |
+| Fast | `sheet-web` by default; explicitly selected `sheet-auth` or `sheet-db-server` on the host | web uses development HTTPS endpoints; backend slices use host-reachable local dependencies | shared Fast development sandbox |
 | Compose | packaged runtime containers and local dependencies | loopback URLs only | the selected local Checkout State |
 | Kubernetes | fixed development preview release | `*.dev.theerapakg.moe` endpoints | shared Kubernetes Development Sandbox |
 
@@ -51,10 +55,10 @@ SHEET_ZERO_BASE_URL
 SHEET_WORKFLOWS_BASE_URL
 ```
 
-Database URLs, Redis URLs, service tokens, Google credentials, Discord tokens,
-and Compose credentials are not valid Fast configuration. The launcher rejects
-production origins and mixed-mode environment keys before any process boundary
-can run.
+Database URLs, Redis URLs, service tokens, Google credentials, and Discord
+credentials remain invalid for the web slice. Backend slices receive only the
+package environment they need, and the launcher rejects production origins,
+Compose-only DNS names, and mixed-mode values before startup.
 
 Compose uses `deploy/compose/.env` by default. Generate it with
 `pnpm compose:generate-secrets`. The existing commands remain available:
@@ -80,8 +84,20 @@ port 3001 for `sheet-web`, 3002 for `sheet-auth`, 3003 for
 `sheet-workflows`, 4848 for Zero Cache, and 9464 for Prometheus. An occupied
 port is an error. The launcher never selects a random replacement.
 
-Fast accepts `DEV_SHEET_WEB_PORT` as an explicit override. Its loopback
-`APP_BASE_URL` must use the same port.
+Fast accepts deterministic overrides for `DEV_SHEET_WEB_PORT`,
+`DEV_SHEET_AUTH_PORT`, `DEV_SHEET_DB_SERVER_PORT`, `DEV_PROMETHEUS_PORT`, and
+`DEV_LOCAL_JWKS_PORT`. Local JWKS is exposed by Compose on port 8081 by
+default for host-native processes. Port collisions fail before startup.
+
+Host-native backend plans use package-local TypeScript paths and watch commands:
+
+```text
+pnpm exec tsx watch --tsconfig tsconfig.json src/server.ts
+pnpm exec tsx watch --tsconfig tsconfig.json src/index.ts
+```
+
+They use the checked-in source schema and migration artifacts and do not depend
+on packaged Docker archives.
 
 `pnpm dev fast up` checks the approved auth, Zero, and Workflow endpoints with
 bounded timeouts before starting `sheet-web`. It reports `readiness: ready`

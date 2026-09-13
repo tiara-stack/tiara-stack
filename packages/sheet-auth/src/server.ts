@@ -182,7 +182,7 @@ const apiLayer = Layer.merge(authLayer, wellKnownLayer).pipe(
 
 const HttpLive = HttpRouter.serve(apiLayer).pipe(
   HttpServer.withLogAddress,
-  Layer.provide(NodeHttpServer.layer(createServer, { port: 3000 })),
+  Layer.provide(NodeHttpServer.layer(createServer, { port: Number(process.env.PORT ?? 3000) })),
 );
 
 const configProviderLayer = dotEnvConfigProviderLayer().pipe(Layer.provide(NodeFileSystem.layer));

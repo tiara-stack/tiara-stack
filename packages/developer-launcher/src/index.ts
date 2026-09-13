@@ -7,6 +7,7 @@ import {
 } from "./commands";
 import {
   composeProjectName,
+  sensitiveEnvironmentKeys,
   validateModeConfig,
   type ComposeModeConfig,
   type FastModeConfig,
@@ -18,6 +19,7 @@ import { buildModePlan } from "./plan";
 import { checkLoopbackPort } from "./ports";
 import {
   modeActions,
+  fastServices,
   type DevelopmentMode,
   type Diagnostic,
   type LauncherOptions,
@@ -36,6 +38,7 @@ export {
   DEVELOPMENT_IMAGE_REGISTRY,
   FAST_ENDPOINTS,
   FAST_ENVIRONMENT_KEYS,
+  FAST_HOST_ENVIRONMENT_KEYS,
   KUBERNETES_ENDPOINTS,
   KUBERNETES_ENVIRONMENT_KEYS,
   composeProjectName,
@@ -159,8 +162,27 @@ const renderHuman = (output: LauncherOutput, help?: string) => {
   return `${lines.join("\n")}\n`;
 };
 
-export const renderLauncherOutput = (output: LauncherOutput, json: boolean, help?: string) =>
-  json ? `${JSON.stringify(output)}\n` : renderHuman(output, help);
+const redactedOutput = (output: LauncherOutput): LauncherOutput => ({
+  ...output,
+  plannedProcesses: output.plannedProcesses.map((process) => ({
+    ...process,
+    environment: Object.fromEntries(
+      Object.entries(process.environment).map(([key, value]) => [
+        key,
+        sensitiveEnvironmentKeys.has(key) ||
+        (/(?:PASSWORD|SECRET|TOKEN|KEY|URL)$/.test(key) &&
+          ["POSTGRES_URL", "REDIS_URL", "SHEET_AUTH_OAUTH_JWKS_URL"].includes(key))
+          ? "<redacted>"
+          : value,
+      ]),
+    ),
+  })),
+});
+
+export const renderLauncherOutput = (output: LauncherOutput, json: boolean, help?: string) => {
+  const safeOutput = redactedOutput(output);
+  return json ? `${JSON.stringify(safeOutput)}\n` : renderHuman(safeOutput, help);
+};
 
 const serviceError = (
   command: Extract<ParsedCommand, { kind: "mode" }>,
@@ -183,11 +205,12 @@ const serviceError = (
       { mode: command.mode, action: command.action },
     );
   }
-  if ((modeServices[command.mode] as readonly string[]).includes(service)) return undefined;
+  const availableServices = command.mode === "fast" ? fastServices : modeServices[command.mode];
+  if ((availableServices as readonly string[]).includes(service)) return undefined;
   return makeDiagnostic(
     "invalid-service",
     `${service} is not a selectable service for ${command.mode} mode`,
-    `Choose one of: ${modeServices[command.mode].join(", ")}.`,
+    `Choose one of: ${availableServices.join(", ")}.`,
     { mode: command.mode, action: command.action },
   );
 };
@@ -375,7 +398,27 @@ const modeOutput = (
         ? { errors: [], warnings: [] }
         : yield* planPortErrors(
             command,
-            "ports" in validation.config ? validation.config.ports : {},
+            "ports" in validation.config
+              ? Object.fromEntries([
+                  ...Object.entries(validation.config.ports).filter(([service]) =>
+                    services.includes(service),
+                  ),
+                  ...(command.mode === "fast" &&
+                  services.some(
+                    (service) => service === "sheet-auth" || service === "sheet-db-server",
+                  )
+                    ? [
+                        [
+                          "prometheus",
+                          Number(
+                            (validation.config as FastModeConfig).serviceEnvironments["sheet-auth"]
+                              .PROMETHEUS_PORT,
+                          ),
+                        ],
+                      ]
+                    : []),
+                ])
+              : {},
             options.portChecker ?? checkLoopbackPort,
           );
     if (portFailures.errors.length > 0) {
@@ -450,14 +493,18 @@ const doctorOutput = (
   options: LauncherOptions,
 ): Effect.Effect<LauncherOutput> =>
   Effect.gen(function* () {
+    const selectedServices =
+      command.options.service === null ? ["sheet-web"] : [command.options.service];
     const doctor = yield* runDoctorEffect({
       ...options,
       envFile: command.options.envFile ?? options.envFile ?? null,
+      selectedServices,
     });
     return {
       ...emptyOutput(command.command, "all"),
       ok: doctor.errors.length === 0,
       action: "doctor",
+      selectedServices,
       plannedProcesses: doctor.plannedProcesses,
       urls: doctor.urls,
       readiness: doctor.errors.length === 0 ? "ready" : "blocked",

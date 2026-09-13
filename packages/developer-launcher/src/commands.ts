@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 import {
   DevelopmentModeSchema,
+  fastServices,
   modeActions,
   type DevelopmentMode,
   type DiagnosticCode,
@@ -193,12 +194,7 @@ export const parsePositionals = (
   const [first, second, ...rest] = positionals;
 
   if (first === undefined) {
-    if (
-      options.service !== null ||
-      options.confirm ||
-      options.confirmDevelopment ||
-      options.tag !== null
-    ) {
+    if (options.confirm || options.confirmDevelopment || options.tag !== null) {
       throw new CommandParseError("options require a mode, setup command, or doctor command");
     }
     return { kind: "help", mode: null, options, command: "help" };
@@ -221,8 +217,15 @@ export const parsePositionals = (
       options.confirmDevelopment ||
       options.tag !== null
     ) {
+      throw new CommandParseError("doctor does not accept confirmation or image-tag options");
+    }
+    if (
+      options.service !== null &&
+      !(fastServices as readonly string[]).includes(options.service)
+    ) {
       throw new CommandParseError(
-        "doctor does not accept service, confirmation, or image-tag options",
+        `${options.service} is not a selectable service for doctor`,
+        "invalid-option",
       );
     }
     return { kind: "doctor", options, command: "doctor" };

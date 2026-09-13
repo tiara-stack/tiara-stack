@@ -3,7 +3,14 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { Schema } from "effect";
 import { makeDiagnostic } from "./diagnostics";
-import { type DevelopmentMode, type Diagnostic, type ModeAction, type PlannedUrl } from "./types";
+import {
+  fastServices,
+  type DevelopmentMode,
+  type Diagnostic,
+  type FastService,
+  type ModeAction,
+  type PlannedUrl,
+} from "./types";
 
 export const FAST_ENDPOINTS = {
   app: "http://localhost:3001",
@@ -34,6 +41,7 @@ export const DETERMINISTIC_PORTS = {
   "sheet-workflows": 3003,
   "sheet-db-server": 3004,
   "sheet-bot": 3005,
+  "local-jwks": 8081,
   "zero-cache": 4848,
   postgres: 5432,
   redis: 6379,
@@ -47,6 +55,27 @@ export const FAST_ENVIRONMENT_KEYS = [
   "SHEET_ZERO_BASE_URL",
   "SHEET_WORKFLOWS_BASE_URL",
 ] as const;
+
+const fastHostEnvironmentKeys = [
+  "BASE_URL",
+  "COOKIE_DOMAIN",
+  "DISCORD_CLIENT_ID",
+  "DISCORD_CLIENT_SECRET",
+  "POSTGRES_URL",
+  "REDIS_BASE",
+  "REDIS_URL",
+  "SHEET_AUTH_ISSUER",
+  "SHEET_AUTH_OAUTH_AUDIENCE",
+  "SHEET_AUTH_OAUTH_JWKS_URL",
+  "TRUSTED_ORIGINS",
+  "OTEL_EXPORTER_OTLP_ENDPOINT",
+  "DEV_SHEET_AUTH_PORT",
+  "DEV_SHEET_DB_SERVER_PORT",
+  "DEV_PROMETHEUS_PORT",
+  "DEV_LOCAL_JWKS_PORT",
+] as const;
+
+export const FAST_HOST_ENVIRONMENT_KEYS = fastHostEnvironmentKeys;
 
 const composeEnvironmentKeys = [
   "COOKIE_DOMAIN",
@@ -89,6 +118,7 @@ export const KUBERNETES_ENVIRONMENT_KEYS = kubernetesEnvironmentKeys;
 
 const allModeEnvironmentKeys = new Set<string>([
   ...FAST_ENVIRONMENT_KEYS,
+  ...fastHostEnvironmentKeys,
   ...composeEnvironmentKeys,
   ...kubernetesEnvironmentKeys,
 ]);
@@ -131,8 +161,19 @@ const disallowedEnvironmentPatterns = [
   /(?:^|_)SECRET(?:_|$)/,
 ];
 
-const isDisallowedEnvironmentKey = (mode: DevelopmentMode, key: string) => {
+const isDisallowedEnvironmentKey = (
+  mode: DevelopmentMode,
+  key: string,
+  selectedServices: readonly string[] = [],
+) => {
   const normalizedKey = key.toUpperCase();
+  if (
+    mode === "fast" &&
+    selectedServices.some((service) => service === "sheet-auth" || service === "sheet-db-server") &&
+    fastHostEnvironmentKeys.includes(normalizedKey as (typeof fastHostEnvironmentKeys)[number])
+  ) {
+    return false;
+  }
   return (
     disallowedEnvironmentKeys.has(normalizedKey) ||
     (mode === "fast" &&
@@ -206,7 +247,9 @@ export interface FastModeConfig {
     readonly SHEET_WORKFLOWS_BASE_URL: string;
   };
   readonly urls: readonly PlannedUrl[];
-  readonly ports: Readonly<Record<"sheet-web", number>>;
+  readonly ports: Readonly<Record<string, number>>;
+  readonly servicePorts: Readonly<Record<FastService, number>>;
+  readonly serviceEnvironments: Readonly<Record<FastService, Readonly<Record<string, string>>>>;
 }
 
 export interface ComposeModeConfig {
@@ -416,15 +459,20 @@ const validateEnvironmentKeys = (
   values: EnvironmentValues,
   filePath: string | null,
   fileKeys: ReadonlySet<string>,
+  selectedServices: readonly string[] = [],
 ) => {
   const errors: Diagnostic[] = [];
-  const allowedKeys = modeEnvironmentKeySets[mode];
+  const allowedKeys =
+    mode === "fast" &&
+    selectedServices.some((service) => service === "sheet-auth" || service === "sheet-db-server")
+      ? new Set([...modeEnvironmentKeySets.fast, ...fastHostEnvironmentKeys])
+      : modeEnvironmentKeySets[mode];
   const sourceKeys = new Set(
     Object.keys(values).filter((key) => fileKeys.has(key) || ambientModeMixingKeys.has(key)),
   );
 
   for (const key of Object.keys(values)) {
-    if (!isDisallowedEnvironmentKey(mode, key)) continue;
+    if (!isDisallowedEnvironmentKey(mode, key, selectedServices)) continue;
     errors.push(
       makeDiagnostic(
         "unsafe-credential",
@@ -436,7 +484,7 @@ const validateEnvironmentKeys = (
   }
 
   for (const key of sourceKeys) {
-    if (isDisallowedEnvironmentKey(mode, key)) continue;
+    if (isDisallowedEnvironmentKey(mode, key, selectedServices)) continue;
     if (!allModeEnvironmentKeys.has(key)) continue;
     if (allowedKeys.has(key)) continue;
     const code = secretEnvironmentKeys.has(key) ? "unsafe-credential" : "invalid-environment";
@@ -507,12 +555,14 @@ const validateOrigin = (
   return undefined;
 };
 
+// fallow-ignore-next-line complexity
 const validateFast = (
   input: ConfigInput,
   values: EnvironmentValues,
   filePath: string | null,
 ): ModeConfigValidation => {
   const errors: Diagnostic[] = [];
+  const selectedServices = input.selectedServices ?? ["sheet-web"];
   const parsedPort = parsePort(
     input.mode,
     input.action,
@@ -521,6 +571,86 @@ const validateFast = (
     DETERMINISTIC_PORTS["sheet-web"],
   );
   if (parsedPort.error !== undefined) errors.push(parsedPort.error);
+  const servicePorts: Record<FastService, number> = {
+    "sheet-web": parsedPort.value,
+    "sheet-auth": DETERMINISTIC_PORTS["sheet-auth"],
+    "sheet-db-server": DETERMINISTIC_PORTS["sheet-db-server"],
+  };
+  const servicePortKeys = {
+    "sheet-auth": "DEV_SHEET_AUTH_PORT",
+    "sheet-db-server": "DEV_SHEET_DB_SERVER_PORT",
+  } as const;
+  for (const service of ["sheet-auth", "sheet-db-server"] as const) {
+    const parsed = parsePort(
+      input.mode,
+      input.action,
+      servicePortKeys[service],
+      valueOrDefault(values, servicePortKeys[service], String(servicePorts[service])),
+      servicePorts[service],
+    );
+    servicePorts[service] = parsed.value;
+    if (parsed.error !== undefined) errors.push(parsed.error);
+  }
+  const parsedPrometheusPort = parsePort(
+    input.mode,
+    input.action,
+    "DEV_PROMETHEUS_PORT",
+    valueOrDefault(values, "DEV_PROMETHEUS_PORT", String(DETERMINISTIC_PORTS.prometheus)),
+    DETERMINISTIC_PORTS.prometheus,
+  );
+  if (parsedPrometheusPort.error !== undefined) errors.push(parsedPrometheusPort.error);
+  const parsedLocalJwksPort = parsePort(
+    input.mode,
+    input.action,
+    "DEV_LOCAL_JWKS_PORT",
+    valueOrDefault(values, "DEV_LOCAL_JWKS_PORT", String(DETERMINISTIC_PORTS["local-jwks"])),
+    DETERMINISTIC_PORTS["local-jwks"],
+  );
+  if (parsedLocalJwksPort.error !== undefined) errors.push(parsedLocalJwksPort.error);
+  const portOwners = new Map<number, string>();
+  for (const service of fastServices) {
+    if (!selectedServices.includes(service)) continue;
+    const previous = portOwners.get(servicePorts[service]);
+    if (previous !== undefined) {
+      errors.push(
+        makeDiagnostic(
+          "port-collision",
+          `Fast assigns port ${servicePorts[service]} to both ${previous} and ${service}`,
+          "Choose explicit deterministic service ports that do not collide.",
+          {
+            mode: input.mode,
+            action: input.action,
+            dependency: service,
+            port: servicePorts[service],
+          },
+        ),
+      );
+    } else {
+      portOwners.set(servicePorts[service], service);
+    }
+  }
+  if (selectedServices.includes("sheet-auth") || selectedServices.includes("sheet-db-server")) {
+    for (const [dependency, port] of [
+      ["postgres", DETERMINISTIC_PORTS.postgres],
+      ["redis", DETERMINISTIC_PORTS.redis],
+      ["local-jwks", parsedLocalJwksPort.value],
+      ["prometheus", parsedPrometheusPort.value],
+    ] as const) {
+      const previous = portOwners.get(port);
+      if (previous !== undefined) {
+        errors.push(
+          makeDiagnostic(
+            "port-collision",
+            `Fast assigns port ${port} to both ${previous} and ${dependency}`,
+            "Choose explicit deterministic service ports that do not collide with local dependencies.",
+            { mode: input.mode, action: input.action, dependency, port },
+          ),
+        );
+      } else {
+        portOwners.set(port, dependency);
+      }
+    }
+  }
   const environment = {
     APP_BASE_URL: valueOrDefault(values, "APP_BASE_URL", `http://localhost:${parsedPort.value}`),
     AUTH_BASE_URL: valueOrDefault(values, "AUTH_BASE_URL", FAST_ENDPOINTS.auth),
@@ -544,6 +674,177 @@ const validateFast = (
     const failure = validateOrigin(input.mode, input.action, key, environment[key], allowed);
     if (failure !== undefined) errors.push(failure);
   }
+  const localHost = (port: number) => `http://localhost:${port}`;
+  const localJwksUrl = `${localHost(parsedLocalJwksPort.value)}/.well-known/jwks.json`;
+  const serviceEnvironments: Record<FastService, Readonly<Record<string, string>>> = {
+    "sheet-web": environment,
+    "sheet-auth": {
+      BASE_URL: valueOrDefault(values, "BASE_URL", localHost(servicePorts["sheet-auth"])),
+      TRUSTED_ORIGINS: valueOrDefault(
+        values,
+        "TRUSTED_ORIGINS",
+        `${safeOriginForDiagnostic(environment.APP_BASE_URL) ?? environment.APP_BASE_URL},${localHost(servicePorts["sheet-auth"])}`,
+      ),
+      POSTGRES_URL: valueOrDefault(
+        values,
+        "POSTGRES_URL",
+        `postgres://tiara@localhost:${DETERMINISTIC_PORTS.postgres}/tiara`,
+      ),
+      REDIS_URL: valueOrDefault(
+        values,
+        "REDIS_URL",
+        `redis://localhost:${DETERMINISTIC_PORTS.redis}`,
+      ),
+      REDIS_BASE: valueOrDefault(values, "REDIS_BASE", "auth:"),
+      DISCORD_CLIENT_ID: valueOrDefault(values, "DISCORD_CLIENT_ID", ""),
+      DISCORD_CLIENT_SECRET: valueOrDefault(values, "DISCORD_CLIENT_SECRET", ""),
+      SHEET_AUTH_OAUTH_JWKS_URL: valueOrDefault(values, "SHEET_AUTH_OAUTH_JWKS_URL", localJwksUrl),
+      OTEL_EXPORTER_OTLP_ENDPOINT: valueOrDefault(
+        values,
+        "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "http://localhost:4318",
+      ),
+      PROMETHEUS_PORT: String(parsedPrometheusPort.value),
+    },
+    "sheet-db-server": {
+      POSTGRES_URL: valueOrDefault(
+        values,
+        "POSTGRES_URL",
+        `postgres://tiara@localhost:${DETERMINISTIC_PORTS.postgres}/tiara`,
+      ),
+      SHEET_AUTH_ISSUER: valueOrDefault(
+        values,
+        "SHEET_AUTH_ISSUER",
+        localHost(servicePorts["sheet-auth"]),
+      ),
+      SHEET_AUTH_OAUTH_AUDIENCE: valueOrDefault(values, "SHEET_AUTH_OAUTH_AUDIENCE", "sheet-zero"),
+      OTEL_EXPORTER_OTLP_ENDPOINT: valueOrDefault(
+        values,
+        "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "http://localhost:4318",
+      ),
+      PROMETHEUS_PORT: String(parsedPrometheusPort.value),
+    },
+  };
+  const localOrigins: readonly [string, string, readonly string[], readonly FastService[]][] = [
+    [
+      "BASE_URL",
+      serviceEnvironments["sheet-auth"].BASE_URL ?? "",
+      [localHost(servicePorts["sheet-auth"])],
+      ["sheet-auth"],
+    ],
+    [
+      "SHEET_AUTH_ISSUER",
+      serviceEnvironments["sheet-db-server"].SHEET_AUTH_ISSUER ?? "",
+      [localHost(servicePorts["sheet-auth"])],
+      ["sheet-db-server"],
+    ],
+    [
+      "SHEET_AUTH_OAUTH_JWKS_URL",
+      serviceEnvironments["sheet-auth"].SHEET_AUTH_OAUTH_JWKS_URL ?? "",
+      [localHost(parsedLocalJwksPort.value)],
+      ["sheet-auth"],
+    ],
+    [
+      "OTEL_EXPORTER_OTLP_ENDPOINT",
+      serviceEnvironments["sheet-auth"].OTEL_EXPORTER_OTLP_ENDPOINT ?? "",
+      ["http://localhost:4318"],
+      ["sheet-auth", "sheet-db-server"],
+    ],
+  ];
+  for (const [key, value, allowed, services] of localOrigins) {
+    if (!services.some((service) => selectedServices.includes(service))) continue;
+    const failure =
+      key === "SHEET_AUTH_OAUTH_JWKS_URL"
+        ? (() => {
+            try {
+              const parsed = new URL(value);
+              return parsed.origin === allowed[0] && parsed.pathname === "/.well-known/jwks.json"
+                ? undefined
+                : makeDiagnostic(
+                    "unsafe-origin",
+                    `${key} is not an allowed local JWKS URL`,
+                    "Use the host-reachable local Compose JWKS endpoint.",
+                    { mode: input.mode, action: input.action, origin: parsed.origin },
+                  );
+            } catch {
+              return makeDiagnostic(
+                "unsafe-origin",
+                `${key} is not an allowed local JWKS URL`,
+                "Use the host-reachable local Compose JWKS endpoint.",
+                { mode: input.mode, action: input.action, origin: safeOriginForDiagnostic(value) },
+              );
+            }
+          })()
+        : validateOrigin(input.mode, input.action, key, value, allowed);
+    if (failure !== undefined) errors.push(failure);
+  }
+  if (selectedServices.includes("sheet-auth")) {
+    for (const origin of (serviceEnvironments["sheet-auth"].TRUSTED_ORIGINS ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean)) {
+      const failure = validateOrigin(input.mode, input.action, "TRUSTED_ORIGINS", origin, [
+        safeOriginForDiagnostic(environment.APP_BASE_URL) ?? environment.APP_BASE_URL,
+        localHost(servicePorts["sheet-auth"]),
+      ]);
+      if (failure !== undefined) errors.push(failure);
+    }
+  }
+  const localConnectionKeys = ["POSTGRES_URL", "REDIS_URL"] as const;
+  for (const key of localConnectionKeys) {
+    if (key === "REDIS_URL" && !selectedServices.includes("sheet-auth")) continue;
+    if (
+      key === "POSTGRES_URL" &&
+      !selectedServices.includes("sheet-auth") &&
+      !selectedServices.includes("sheet-db-server")
+    )
+      continue;
+    const value = values[key] ?? serviceEnvironments["sheet-auth"][key];
+    if (
+      value === undefined ||
+      (!selectedServices.includes("sheet-auth") && !selectedServices.includes("sheet-db-server"))
+    )
+      continue;
+    try {
+      const parsed = new URL(value);
+      const expectedProtocol = key === "POSTGRES_URL" ? "postgres:" : "redis:";
+      if (
+        parsed.protocol !== expectedProtocol ||
+        !["localhost", "127.0.0.1"].includes(parsed.hostname) ||
+        (parsed.port !== "" &&
+          Number(parsed.port) !==
+            (key === "POSTGRES_URL" ? DETERMINISTIC_PORTS.postgres : DETERMINISTIC_PORTS.redis))
+      )
+        throw new Error("not local");
+    } catch {
+      errors.push(
+        makeDiagnostic(
+          "unsafe-origin",
+          `${key} must point to the local Compose dependency`,
+          `Use a host-reachable ${key === "POSTGRES_URL" ? "Postgres" : "Redis"} URL on localhost; Compose-only service DNS names and remote values are rejected.`,
+          { mode: input.mode, action: input.action, origin: safeOriginForDiagnostic(value) },
+        ),
+      );
+    }
+  }
+  for (const [service, requiredKeys] of [
+    ["sheet-auth", ["POSTGRES_URL", "REDIS_URL"]],
+    ["sheet-db-server", ["POSTGRES_URL"]],
+  ] as const) {
+    if (!selectedServices.includes(service as FastService)) continue;
+    for (const key of requiredKeys) {
+      if (values[key]?.trim()) continue;
+      errors.push(
+        makeDiagnostic(
+          "unsafe-credential",
+          `${key} is required for host-native ${service}`,
+          `Set ${key} to a host-reachable local dependency URL before starting ${service}.`,
+          { mode: input.mode, action: input.action, dependency: service },
+        ),
+      );
+    }
+  }
   return {
     config:
       errors.length === 0
@@ -557,7 +858,9 @@ const validateFast = (
               { name: "zero", url: environment.SHEET_ZERO_BASE_URL },
               { name: "workflows", url: environment.SHEET_WORKFLOWS_BASE_URL },
             ],
-            ports: { "sheet-web": parsedPort.value },
+            ports: servicePorts,
+            servicePorts,
+            serviceEnvironments,
           }
         : null,
     errors,
@@ -875,6 +1178,7 @@ export const validateModeConfig = (input: ConfigInput): ModeConfigValidation => 
     loaded.values,
     loaded.filePath,
     loaded.fileKeys,
+    input.selectedServices,
   );
   const validated =
     input.mode === "fast"
@@ -894,6 +1198,7 @@ export const validateAmbientEnvironment = (
   mode: DevelopmentMode,
   action: ModeAction | null,
   env: NodeJS.ProcessEnv,
+  selectedServices: readonly string[] = [],
 ): readonly Diagnostic[] => {
   // The mode-specific validators receive filtered values. This separate pass
   // keeps ambient disallowed credentials and cross-mode application settings
@@ -902,5 +1207,5 @@ export const validateAmbientEnvironment = (
   for (const [key, value] of Object.entries(env)) {
     if (value !== undefined) values[key] = value;
   }
-  return validateEnvironmentKeys(mode, action, values, null, new Set<string>());
+  return validateEnvironmentKeys(mode, action, values, null, new Set<string>(), selectedServices);
 };

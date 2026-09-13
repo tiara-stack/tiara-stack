@@ -94,6 +94,62 @@ describe("developer launcher command boundary", () => {
     expect(executions).toEqual([]);
   });
 
+  it("plans a host-native sheet-auth watch process against local dependencies", async () => {
+    const result = await runLauncher(["fast", "up", "--service", "sheet-auth", "--json"], {
+      env: {
+        POSTGRES_URL: "postgres://tiara:local-password@localhost:5432/tiara",
+        REDIS_URL: "redis://default:local-password@localhost:6379",
+        DISCORD_CLIENT_ID: "local-client",
+        DISCORD_CLIENT_SECRET: "local-secret",
+        DEV_LOCAL_JWKS_PORT: "8082",
+      },
+      portChecker: async () => ({ available: true }),
+    });
+    const output = JSON.parse(result.stdout) as {
+      readonly selectedServices: readonly string[];
+      readonly urls: readonly { readonly name: string; readonly url: string }[];
+      readonly plannedProcesses: readonly {
+        readonly command: string;
+        readonly args: readonly string[];
+        readonly environment: Readonly<Record<string, string>>;
+      }[];
+    };
+
+    expect(result.exitCode).toBe(0);
+    expect(output.selectedServices).toEqual(["sheet-auth"]);
+    expect(output.urls).toContainEqual({ name: "sheet-auth", url: "http://localhost:3002" });
+    expect(output.plannedProcesses).toEqual([
+      expect.objectContaining({
+        command: "pnpm",
+        args: ["exec", "tsx", "watch", "--tsconfig", "tsconfig.json", "src/server.ts"],
+        environment: expect.objectContaining({
+          BASE_URL: "http://localhost:3002",
+          POSTGRES_URL: "<redacted>",
+          REDIS_URL: "<redacted>",
+          PORT: "3002",
+        }),
+      }),
+    ]);
+    expect(result.output.plannedProcesses[0]?.environment.SHEET_AUTH_OAUTH_JWKS_URL).toBe(
+      "http://localhost:8082/.well-known/jwks.json",
+    );
+    expect(result.stdout).not.toContain("local-password");
+  });
+
+  it("rejects a host-native service when a dependency uses Compose-only DNS", async () => {
+    const result = await runLauncher(["fast", "up", "--service", "sheet-db-server", "--json"], {
+      // fallow-ignore-next-line code-duplication
+      env: { POSTGRES_URL: "postgres://tiara:password@postgres:5432/tiara" },
+    });
+    const output = JSON.parse(result.stdout) as {
+      readonly errors: readonly { readonly code: string }[];
+    };
+
+    expect(result.exitCode).toBe(2);
+    expect(output.errors.map(({ code }) => code)).toContain("unsafe-origin");
+    expect(result.stdout).not.toContain("password");
+  });
+
   it("rejects production origins and backend secrets without exposing their values", async () => {
     const secret = "production-token-that-must-not-be-printed";
     const result = await runLauncher(["fast", "up", "--json"], {
@@ -462,7 +518,7 @@ describe("developer launcher command boundary", () => {
   it.each([
     [["unknown", "--json"], "invalid-mode"],
     [["compose", "unknown", "--json"], "invalid-action"],
-    [["fast", "up", "--service", "sheet-auth", "--json"], "invalid-service"],
+    [["fast", "up", "--service", "sheet-bot", "--json"], "invalid-service"],
   ] as const)("rejects %j before executing a process", async (args, code) => {
     const executions: Parameters<ProcessExecutor>[0][] = [];
     const executor: ProcessExecutor = async (request) => {
