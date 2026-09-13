@@ -337,6 +337,7 @@ export interface KubernetesModeConfig {
     readonly KUBE_NAMESPACE: string;
     readonly KUBE_RELEASE: string;
     readonly DEV_IMAGE_REGISTRY: string;
+    readonly KUBECONFIG?: string;
   };
   readonly urls: readonly PlannedUrl[];
 }
@@ -1487,6 +1488,7 @@ const validateKubernetes = (
               KUBE_NAMESPACE: namespace,
               KUBE_RELEASE: release,
               DEV_IMAGE_REGISTRY: registry,
+              ...(values.KUBECONFIG === undefined ? {} : { KUBECONFIG: values.KUBECONFIG }),
             },
             urls: [
               { name: "app", url: KUBERNETES_ENDPOINTS.app },

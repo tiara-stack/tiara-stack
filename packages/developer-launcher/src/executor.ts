@@ -13,6 +13,7 @@ const executionEnvironmentKeys = new Set([
   "TEMP",
   "TMP",
   "TMPDIR",
+  "KUBECONFIG",
   "NODE_PATH",
   "NPM_CONFIG_REGISTRY",
   "NPM_CONFIG_USER_AGENT",

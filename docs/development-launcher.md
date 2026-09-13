@@ -14,7 +14,7 @@ pnpm dev fast up
 pnpm dev fast up --service sheet-auth
 pnpm dev fast up --service sheet-db-server
 pnpm dev compose <up|build|down|seed|reset>
-pnpm dev kubernetes <validate|preview>
+pnpm dev kubernetes <validate|preview> [--changed-surface <surface>]
 pnpm dev doctor
 pnpm dev setup <fast|compose|kubernetes>
 ```
@@ -27,7 +27,14 @@ process start, or destructive work. Compose reset requires
 Every command accepts `--json` for the stable machine-readable result. Commands
 that read a file accept `--env-file <path>`. A mode can restrict its process
 plan with `--service <package-name>` in Fast or Compose mode. Kubernetes
-preview always applies the complete development release.
+preview always applies the complete development release. Repeat
+`--changed-surface` for each affected surface: `http`, `backend-runtime`,
+`packaging`, `environment-contract`, `secret-contract`, `database-schema`,
+`zero-schema`, `authentication`, `workflow-api`, `workflow-storage`,
+`workflow-actions`, `workflow-runner`, `browser-runner`, `chromium`,
+`screenshot`, `browser-credentials`, `helm`, `ingress`, `network-policy`,
+`persistence`, `cross-service`, `discord`, or `google-sheets`. The Effect CLI
+also accepts a comma-separated value in one flag.
 
 Fast reads `.env.development.local` from the repository root by default. Pass
 `--env-file <path>` to use an explicit file. The default web slice accepts only
@@ -74,6 +81,22 @@ Preview is fixed to release `tiara-stack-dev` in namespace `tiara-stack-dev`
 and the development registry. Set `KUBE_CONTEXT=tiara-stack-dev` and pass
 `--confirm-development` before preview. It cannot target production values
 through the launcher configuration.
+
+Preview promotion reports routine `api-evidence`, `helm-lint`, `helm-render`,
+and `workload-readiness` gates. Changed surfaces add the applicable Compose,
+API and ordinary-runner, workflow-contract, browser-runner, Kubernetes
+invariant, Discord, or Google Sheets overlay. Every other overlay is reported
+as `not-affected`. Required gates run in order and any non-zero result blocks
+promotion. Discord and Google Sheets checks are explicit development-only
+operations against dedicated resources and credentials; they are never part
+of the default gate.
+
+The current development Discord check uses the sole development guild and
+channel `1466752705900056749`. It posts a uniquely marked probe message,
+verifies the message, and deletes it. The Google Sheets check uses the
+development service account mounted at `sheet-workflows-secret-path`, discovers
+the associated spreadsheet through Drive, and reads only the bounded `A1:C3`
+range. It does not write to the sheet.
 
 `setup <mode>` is reserved for the mode-specific setup implementations. The
 core command reports it as unavailable until those implementations land.

@@ -11,12 +11,16 @@ import type {
   ModeAction,
   PlannedProcess,
   FastService,
+  ChangedSurface,
+  ParityGate,
 } from "./types";
+import { selectParityGates } from "./parity";
 
 export interface ModePlan {
   readonly selectedServices: readonly string[];
   readonly plannedProcesses: readonly PlannedProcess[];
   readonly urls: ModeConfig["urls"];
+  readonly parityGates: readonly ParityGate[];
 }
 
 const processPlan = (
@@ -36,6 +40,61 @@ const processPlan = (
   longLived,
   readOnly,
 });
+
+const parityProcess = (id: string, config: KubernetesModeConfig) =>
+  processPlan(
+    `kubernetes-${id}`,
+    null,
+    "pnpm",
+    ["kubernetes:parity-gate", "--gate", id, "--development-only"],
+    {
+      KUBE_CONTEXT: config.environment.KUBE_CONTEXT,
+      KUBE_NAMESPACE: config.environment.KUBE_NAMESPACE,
+      ...(config.environment.KUBECONFIG === undefined
+        ? {}
+        : { KUBECONFIG: config.environment.KUBECONFIG }),
+    },
+    false,
+    true,
+  );
+
+const helmLintProcess = (values: readonly string[]) =>
+  processPlan(
+    "helm-lint",
+    null,
+    "helm",
+    [
+      "lint",
+      "--strict",
+      "charts/tiara-stack",
+      ...values,
+      "--values",
+      "charts/tiara-stack/values-development.yaml",
+    ],
+    {},
+    false,
+    true,
+  );
+
+const helmRenderProcess = (config: KubernetesModeConfig, values: readonly string[]) =>
+  processPlan(
+    "helm-render",
+    null,
+    "helm",
+    [
+      "template",
+      config.environment.KUBE_RELEASE,
+      "charts/tiara-stack",
+      "--namespace",
+      config.environment.KUBE_NAMESPACE,
+      ...values,
+      "--values",
+      "charts/tiara-stack/values-development.yaml",
+    ],
+    {},
+    false,
+    true,
+  );
 
 const composePrefix = (config: ComposeModeConfig) =>
   config.envFile === null
@@ -78,6 +137,7 @@ const fastPlan = (config: FastModeConfig, selectedServices: readonly string[]): 
         url: `http://localhost:${config.servicePorts[service as FastService]}`,
       })),
   ],
+  parityGates: [],
 });
 
 // fallow-ignore-next-line complexity
@@ -119,6 +179,7 @@ const composePlan = (
         ),
       ],
       urls: config.urls,
+      parityGates: [],
     };
   }
   if (action === "build") {
@@ -135,6 +196,7 @@ const composePlan = (
         processPlan("compose-build", null, "docker", [...prefix, "build", ...selectedServices]),
       ],
       urls: config.urls,
+      parityGates: [],
     };
   }
   if (action === "down") {
@@ -149,6 +211,7 @@ const composePlan = (
         ),
       ],
       urls: config.urls,
+      parityGates: [],
     };
   }
   if (action === "seed") {
@@ -163,6 +226,7 @@ const composePlan = (
         ]),
       ],
       urls: config.urls,
+      parityGates: [],
     };
   }
   if (action === "reset") {
@@ -172,6 +236,7 @@ const composePlan = (
         processPlan("compose-reset", null, "docker", [...prefix, "down", "--volumes"]),
       ],
       urls: config.urls,
+      parityGates: [],
     };
   }
   throw new Error("Unsupported Compose action");
@@ -183,54 +248,30 @@ const kubernetesPlan = (
   action: KubernetesAction,
   selectedServices: readonly string[],
   imageTag: string | null,
+  surfaces: readonly ChangedSurface[],
 ): ModePlan => {
+  const parityGates = selectParityGates(surfaces);
   const values = ["--values", "charts/tiara-stack/values.yaml"];
   if (action === "validate") {
     return {
       selectedServices,
-      plannedProcesses: [
-        processPlan(
-          "helm-lint",
-          null,
-          "helm",
-          [
-            "lint",
-            "--strict",
-            "charts/tiara-stack",
-            ...values,
-            "--values",
-            "charts/tiara-stack/values-development.yaml",
-          ],
-          {},
-          false,
-          true,
-        ),
-        processPlan(
-          "helm-render",
-          null,
-          "helm",
-          [
-            "template",
-            config.environment.KUBE_RELEASE,
-            "charts/tiara-stack",
-            "--namespace",
-            config.environment.KUBE_NAMESPACE,
-            ...values,
-            "--values",
-            "charts/tiara-stack/values-development.yaml",
-          ],
-          {},
-          false,
-          true,
-        ),
-      ],
+      plannedProcesses: [helmLintProcess(values), helmRenderProcess(config, values)],
       urls: config.urls,
+      parityGates: parityGates.filter(({ id }) => id === "helm-lint" || id === "helm-render"),
     };
   }
   if (action !== "preview") throw new Error("Unsupported Kubernetes action");
+  const requiredGates = parityGates.filter(({ status }) => status === "required");
+  const beforePreview = requiredGates.filter(({ id }) => id === "compose-evidence");
+  const afterPreview = requiredGates.filter(
+    ({ id }) => !["compose-evidence", "helm-lint", "helm-render"].includes(id),
+  );
   return {
     selectedServices,
     plannedProcesses: [
+      ...beforePreview.map(({ id }) => parityProcess(id, config)),
+      helmLintProcess(values),
+      helmRenderProcess(config, values),
       processPlan(
         "kubernetes-preview",
         null,
@@ -256,11 +297,13 @@ const kubernetesPlan = (
           "--timeout",
           "10m",
         ],
-        {},
+        config.environment,
         false,
       ),
+      ...afterPreview.map(({ id }) => parityProcess(id, config)),
     ],
     urls: config.urls,
+    parityGates,
   };
 };
 
@@ -284,6 +327,7 @@ export function buildModePlan(
   selectedServices: readonly string[],
   imageTag?: string | null,
   serviceSelectionExplicit?: boolean,
+  changedSurfaces?: readonly ChangedSurface[],
 ): ModePlan;
 export function buildModePlan(
   config: ModeConfig,
@@ -291,6 +335,7 @@ export function buildModePlan(
   selectedServices: readonly string[],
   imageTag: string | null = null,
   serviceSelectionExplicit = false,
+  changedSurfaces: readonly ChangedSurface[] = [],
 ): ModePlan {
   if (config.mode === "fast") {
     if (action !== "up") throw new Error(`Unsupported Fast action ${action}`);
@@ -302,5 +347,11 @@ export function buildModePlan(
   if (action === "preview" && (imageTag === null || imageTag.trim() === "")) {
     throw new Error("Kubernetes preview requires an image tag");
   }
-  return kubernetesPlan(config, action as KubernetesAction, selectedServices, imageTag);
+  return kubernetesPlan(
+    config,
+    action as KubernetesAction,
+    selectedServices,
+    imageTag,
+    changedSurfaces,
+  );
 }

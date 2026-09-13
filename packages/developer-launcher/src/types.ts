@@ -3,6 +3,50 @@ import { Schema } from "effect";
 export const developmentModes = ["fast", "compose", "kubernetes"] as const;
 export type DevelopmentMode = (typeof developmentModes)[number];
 export const DevelopmentModeSchema = Schema.Literals(developmentModes);
+export const changedSurfaces = [
+  "http",
+  "backend-runtime",
+  "packaging",
+  "environment-contract",
+  "secret-contract",
+  "database-schema",
+  "zero-schema",
+  "authentication",
+  "workflow-api",
+  "workflow-storage",
+  "workflow-actions",
+  "workflow-runner",
+  "browser-runner",
+  "chromium",
+  "screenshot",
+  "browser-credentials",
+  "helm",
+  "ingress",
+  "network-policy",
+  "persistence",
+  "cross-service",
+  "discord",
+  "google-sheets",
+] as const;
+export type ChangedSurface = (typeof changedSurfaces)[number];
+export type ParityGateId =
+  | "compose-evidence"
+  | "api-evidence"
+  | "helm-lint"
+  | "helm-render"
+  | "workload-readiness"
+  | "api-smoke"
+  | "ordinary-runner-smoke"
+  | "workflow-contract-smoke"
+  | "browser-runner-smoke"
+  | "kubernetes-invariants"
+  | "discord-development-check"
+  | "google-sheets-development-check";
+export interface ParityGate {
+  readonly id: ParityGateId;
+  readonly status: "required" | "not-affected";
+  readonly reason: string;
+}
 
 export const fastServices = [
   "sheet-web",
@@ -43,6 +87,7 @@ export type DiagnosticCode =
   | "access-failed"
   | "confirmation-required"
   | "invalid-image-tag"
+  | "invalid-changed-surface"
   | "not-implemented";
 
 export interface Diagnostic {
@@ -73,7 +118,7 @@ export interface PlannedUrl {
 }
 
 export interface LauncherOutput {
-  readonly schemaVersion: 2;
+  readonly schemaVersion: 3;
   readonly ok: boolean;
   readonly command: string;
   readonly mode: DevelopmentMode | "all" | null;
@@ -85,6 +130,8 @@ export interface LauncherOutput {
   readonly readiness: ReadinessState;
   readonly warnings: readonly Diagnostic[];
   readonly errors: readonly Diagnostic[];
+  readonly changedSurfaces: readonly ChangedSurface[];
+  readonly parityGates: readonly ParityGate[];
 }
 
 export interface ProcessRequest {

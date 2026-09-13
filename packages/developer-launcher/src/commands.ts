@@ -1,7 +1,6 @@
 import { Schema } from "effect";
 import {
   DevelopmentModeSchema,
-  fastServices,
   modeActions,
   type DevelopmentMode,
   type DiagnosticCode,
@@ -16,6 +15,7 @@ export interface CommandOptions {
   readonly confirm: boolean;
   readonly confirmDevelopment: boolean;
   readonly tag: string | null;
+  readonly changedSurfaces: readonly string[];
 }
 
 export type ParsedCommand =
@@ -67,6 +67,7 @@ const initialOptions = (): MutableCommandOptions => ({
   confirm: false,
   confirmDevelopment: false,
   tag: null,
+  changedSurfaces: [],
 });
 
 const valueAfterOption = (args: readonly string[], index: number, option: string) => {
@@ -82,6 +83,14 @@ const nonEmptyOptionValue = (value: string, option: string) => {
     throw new CommandParseError(`${option} requires a non-empty value`, "invalid-option");
   }
   return value;
+};
+
+export const normalizeChangedSurfaces = (value: string): readonly string[] => {
+  const surfaces = value.split(",").map((surface) => surface.trim());
+  if (surfaces.some((surface) => surface.length === 0)) {
+    throw new CommandParseError("--changed-surface values must be non-empty", "invalid-option");
+  }
+  return surfaces;
 };
 
 // fallow-ignore-next-line complexity
@@ -168,6 +177,15 @@ const parseOptions = (args: readonly string[]) => {
       options.tag = value;
       continue;
     }
+    if (option === "--changed-surface") {
+      const value = nonEmptyOptionValue(
+        inlineValue ?? valueAfterOption(args, index, option),
+        option,
+      );
+      if (inlineValue === null) index += 1;
+      options.changedSurfaces = [...options.changedSurfaces, ...normalizeChangedSurfaces(value)];
+      continue;
+    }
 
     throw new CommandParseError(`unknown option ${argument}`, "invalid-option");
   }
@@ -194,7 +212,12 @@ export const parsePositionals = (
   const [first, second, ...rest] = positionals;
 
   if (first === undefined) {
-    if (options.confirm || options.confirmDevelopment || options.tag !== null) {
+    if (
+      options.confirm ||
+      options.confirmDevelopment ||
+      options.tag !== null ||
+      options.changedSurfaces.length > 0
+    ) {
       throw new CommandParseError("options require a mode, setup command, or doctor command");
     }
     return { kind: "help", mode: null, options, command: "help" };
@@ -215,17 +238,11 @@ export const parsePositionals = (
       options.service !== null ||
       options.confirm ||
       options.confirmDevelopment ||
-      options.tag !== null
-    ) {
-      throw new CommandParseError("doctor does not accept confirmation or image-tag options");
-    }
-    if (
-      options.service !== null &&
-      !(fastServices as readonly string[]).includes(options.service)
+      options.tag !== null ||
+      options.changedSurfaces.length > 0
     ) {
       throw new CommandParseError(
-        `${options.service} is not a selectable service for doctor`,
-        "invalid-option",
+        "doctor does not accept service, confirmation, image-tag, or changed-surface options",
       );
     }
     return { kind: "doctor", options, command: "doctor" };
@@ -240,10 +257,11 @@ export const parsePositionals = (
       options.service !== null ||
       options.confirm ||
       options.confirmDevelopment ||
-      options.tag !== null
+      options.tag !== null ||
+      options.changedSurfaces.length > 0
     ) {
       throw new CommandParseError(
-        "setup does not accept service, confirmation, or image-tag options",
+        "setup does not accept service, confirmation, image-tag, or changed-surface options",
       );
     }
     return { kind: "setup", mode, options, command: "setup" };
@@ -254,7 +272,12 @@ export const parsePositionals = (
     return { kind: "help", mode, options, command: `${mode} help` };
   }
   if (second === undefined) {
-    if (options.confirm || options.confirmDevelopment || options.tag !== null) {
+    if (
+      options.confirm ||
+      options.confirmDevelopment ||
+      options.tag !== null ||
+      options.changedSurfaces.length > 0
+    ) {
       throw new CommandParseError(`${mode} requires an action before these options can be used`);
     }
     return { kind: "help", mode, options, command: `${mode} help` };

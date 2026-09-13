@@ -17,6 +17,7 @@ import { makeDiagnostic, makeWarning } from "./diagnostics";
 import { runDoctorEffect } from "./doctor";
 import { buildModePlan } from "./plan";
 import { checkLoopbackPort } from "./ports";
+import { isChangedSurface } from "./parity";
 import {
   modeActions,
   fastServices,
@@ -46,6 +47,12 @@ export {
   validateAmbientEnvironment,
   validateModeConfig,
 } from "./config";
+export {
+  ChangedSurfaceSchema,
+  changedSurfaces,
+  isChangedSurface,
+  selectParityGates,
+} from "./parity";
 
 const modeServices = {
   fast: ["sheet-web"],
@@ -90,11 +97,15 @@ const modeHelpText = (mode: DevelopmentMode) => {
       return `  pnpm dev ${mode} ${action}`;
     })
     .join("\n");
-  return `TiaraStack ${mode} mode\n\n${modeDescriptions[mode]}\n\nActions:\n${actions}\n\nA mode without an action only prints this help.\n`;
+  const surfaces =
+    mode === "kubernetes"
+      ? "\nChanged-surface gates: repeat --changed-surface <surface> on validate or preview. See docs/development-launcher.md for supported values.\n"
+      : "";
+  return `TiaraStack ${mode} mode\n\n${modeDescriptions[mode]}\n\nActions:\n${actions}\n${surfaces}\nA mode without an action only prints this help.\n`;
 };
 
 const emptyOutput = (command: string, mode: LauncherOutput["mode"] = null): LauncherOutput => ({
-  schemaVersion: 2,
+  schemaVersion: 3,
   ok: true,
   command,
   mode,
@@ -106,6 +117,8 @@ const emptyOutput = (command: string, mode: LauncherOutput["mode"] = null): Laun
   readiness: "help",
   warnings: [],
   errors: [],
+  changedSurfaces: [],
+  parityGates: [],
 });
 
 const outputForParseError = (error: CommandParseError): LauncherOutput => ({
@@ -134,6 +147,15 @@ const renderHuman = (output: LauncherOutput, help?: string) => {
   ];
   if (output.selectedServices.length > 0) {
     lines.push(`selected services: ${output.selectedServices.join(", ")}`);
+  }
+  if (output.changedSurfaces.length > 0) {
+    lines.push(`changed surfaces: ${output.changedSurfaces.join(", ")}`);
+  }
+  if (output.parityGates.length > 0) {
+    lines.push("parity gates:");
+    for (const parityGate of output.parityGates) {
+      lines.push(`  ${parityGate.id}: ${parityGate.status} (${parityGate.reason})`);
+    }
   }
   if (output.checkoutState !== null) lines.push(`checkout state: ${output.checkoutState}`);
   lines.push("planned processes:");
@@ -325,6 +347,42 @@ const modeOutput = (
 ): Effect.Effect<LauncherOutput> =>
   // fallow-ignore-next-line complexity
   Effect.gen(function* () {
+    const invalidSurface = command.options.changedSurfaces.find(
+      (surface) => !isChangedSurface(surface),
+    );
+    if (invalidSurface !== undefined) {
+      return {
+        ...emptyOutput(command.command, command.mode),
+        ok: false,
+        action: command.action,
+        readiness: "blocked",
+        errors: [
+          makeDiagnostic(
+            "invalid-changed-surface",
+            `${invalidSurface} is not a supported changed surface`,
+            "Use a supported value with --changed-surface; see pnpm dev kubernetes help.",
+            { mode: command.mode, action: command.action },
+          ),
+        ],
+      };
+    }
+    if (command.options.changedSurfaces.length > 0 && command.mode !== "kubernetes") {
+      return {
+        ...emptyOutput(command.command, command.mode),
+        ok: false,
+        action: command.action,
+        readiness: "blocked",
+        errors: [
+          makeDiagnostic(
+            "invalid-option",
+            "--changed-surface is only valid for Kubernetes commands",
+            "Use --changed-surface with pnpm dev kubernetes validate or preview.",
+            { mode: command.mode, action: command.action },
+          ),
+        ],
+      };
+    }
+    const changedSurfaces = command.options.changedSurfaces.filter(isChangedSurface);
     const services =
       command.options.service === null
         ? [...modeServices[command.mode]]
@@ -341,6 +399,7 @@ const modeOutput = (
             : null,
         readiness: "blocked",
         errors: [error],
+        changedSurfaces,
       };
     }
     const optionFailure = optionError(command);
@@ -356,6 +415,7 @@ const modeOutput = (
             : null,
         readiness: "blocked",
         errors: [optionFailure],
+        changedSurfaces,
       };
     }
     const validation = validateModeConfig({
@@ -374,6 +434,7 @@ const modeOutput = (
         readiness: "blocked",
         warnings: validation.warnings,
         errors: validation.errors,
+        changedSurfaces,
       };
     }
     const plan =
@@ -392,6 +453,8 @@ const modeOutput = (
               command.action as "validate" | "preview",
               services,
               command.options.tag,
+              false,
+              changedSurfaces,
             );
     const portFailures =
       command.mode === "compose"
@@ -459,6 +522,8 @@ const modeOutput = (
         readiness: "blocked",
         warnings: [...validation.warnings, ...portFailures.warnings],
         errors: portFailures.errors,
+        changedSurfaces,
+        parityGates: plan.parityGates,
       };
     }
     return {
@@ -471,6 +536,8 @@ const modeOutput = (
       urls: plan.urls,
       readiness: "planned",
       warnings: [...validation.warnings, ...portFailures.warnings],
+      changedSurfaces,
+      parityGates: plan.parityGates,
     };
   });
 

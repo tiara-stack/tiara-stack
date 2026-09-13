@@ -14,6 +14,7 @@ const runCliHelp = () =>
   }).pipe(Effect.provide(TestConsole.layer), Effect.provide(NodeServices.layer));
 
 describe("developer launcher Effect CLI", () => {
+  // fallow-ignore-next-line code-duplication
   it("reports failed Kubernetes workloads through the executor seam", async () => {
     const result = await runLauncherFromParsed(
       ["kubernetes", "preview"],
@@ -25,13 +26,14 @@ describe("developer launcher Effect CLI", () => {
         confirm: false,
         confirmDevelopment: true,
         tag: "test-tag",
+        changedSurfaces: [],
       },
       { env: { KUBE_CONTEXT: "tiara-stack-dev" } },
     );
     const requests: Parameters<ProcessExecutor>[0][] = [];
     const executor: ProcessExecutor = async (request) => {
       requests.push(request);
-      return request.command === "helm"
+      return request.args.includes("upgrade")
         ? { exitCode: 1, stderr: "rollout failed" }
         : { exitCode: 0, stdout: "pod/sheet-web-abc 0/1 ImagePullBackOff" };
     };
@@ -41,8 +43,8 @@ describe("developer launcher Effect CLI", () => {
     expect(executed.exitCode).toBe(2);
     expect(executed.output.readiness).toBe("blocked");
     expect(executed.output.errors[0]?.message).toContain("ImagePullBackOff");
-    expect(requests.map(({ command }) => command)).toEqual(["helm", "kubectl"]);
-    expect(requests[1]?.args).toEqual(
+    expect(requests.map(({ command }) => command)).toEqual(["helm", "helm", "helm", "kubectl"]);
+    expect(requests[3]?.args).toEqual(
       expect.arrayContaining(["--context", "tiara-stack-dev", "--namespace", "tiara-stack-dev"]),
     );
   });

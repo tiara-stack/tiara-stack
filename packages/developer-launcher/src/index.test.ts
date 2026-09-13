@@ -109,6 +109,7 @@ describe("developer launcher command boundary", () => {
       readonly selectedServices: readonly string[];
       readonly urls: readonly { readonly name: string; readonly url: string }[];
       readonly plannedProcesses: readonly {
+        readonly id: string;
         readonly command: string;
         readonly args: readonly string[];
         readonly environment: Readonly<Record<string, string>>;
@@ -367,6 +368,7 @@ describe("developer launcher command boundary", () => {
     expect(output.errors).toEqual([expect.objectContaining({ code: "invalid-port", port: 0 })]);
   });
 
+  // fallow-ignore-next-line code-duplication
   it("plans a development-only Kubernetes preview with the fixed release and tag", async () => {
     const executions: Parameters<ProcessExecutor>[0][] = [];
     const result = await runLauncher(
@@ -381,6 +383,7 @@ describe("developer launcher command boundary", () => {
     );
     const output = JSON.parse(result.stdout) as {
       readonly plannedProcesses: readonly {
+        readonly id: string;
         readonly command: string;
         readonly args: readonly string[];
         readonly environment: Readonly<Record<string, string>>;
@@ -388,7 +391,7 @@ describe("developer launcher command boundary", () => {
     };
 
     expect(result.exitCode).toBe(0);
-    expect(output.plannedProcesses[0]).toEqual(
+    expect(output.plannedProcesses.find(({ id }) => id === "kubernetes-preview")).toEqual(
       expect.objectContaining({
         command: "helm",
         args: expect.arrayContaining([
@@ -400,10 +403,84 @@ describe("developer launcher command boundary", () => {
           "--set-string",
           "global.appImage.tag=feature-183",
         ]),
-        environment: {},
+        environment: expect.objectContaining({
+          KUBE_CONTEXT: "tiara-stack-dev",
+          KUBE_NAMESPACE: "tiara-stack-dev",
+          KUBE_RELEASE: "tiara-stack-dev",
+          DEV_IMAGE_REGISTRY: expect.any(String),
+        }),
       }),
     );
     expect(executions).toEqual([]);
+  });
+
+  it("selects affected parity overlays and reports unaffected overlays", async () => {
+    const result = await runLauncher(
+      [
+        "kubernetes",
+        "preview",
+        "--tag",
+        "feature-190",
+        "--confirm-development",
+        "--changed-surface",
+        "authentication",
+        "--changed-surface",
+        "persistence",
+        "--json",
+      ],
+      { env: { KUBE_CONTEXT: "tiara-stack-dev" } },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.output.changedSurfaces).toEqual(["authentication", "persistence"]);
+    expect(result.output.parityGates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "compose-evidence", status: "required" }),
+        expect.objectContaining({ id: "api-smoke", status: "required" }),
+        expect.objectContaining({ id: "ordinary-runner-smoke", status: "required" }),
+        expect.objectContaining({ id: "kubernetes-invariants", status: "required" }),
+        expect.objectContaining({ id: "browser-runner-smoke", status: "not-affected" }),
+        expect.objectContaining({ id: "discord-development-check", status: "not-affected" }),
+      ]),
+    );
+    expect(result.output.plannedProcesses.map(({ id }) => id)).toEqual([
+      "kubernetes-compose-evidence",
+      "helm-lint",
+      "helm-render",
+      "kubernetes-preview",
+      "kubernetes-api-evidence",
+      "kubernetes-workload-readiness",
+      "kubernetes-api-smoke",
+      "kubernetes-ordinary-runner-smoke",
+      "kubernetes-kubernetes-invariants",
+    ]);
+  });
+
+  it("blocks preview when an affected parity gate fails", async () => {
+    const result = await runLauncher(
+      [
+        "kubernetes",
+        "preview",
+        "--tag",
+        "feature-190",
+        "--confirm-development",
+        "--changed-surface",
+        "workflow-runner",
+        "--json",
+      ],
+      { env: { KUBE_CONTEXT: "tiara-stack-dev" } },
+    );
+    const executed = await (
+      await import("./cli")
+    ).executeKubernetesPlan(result, true, async (request) =>
+      request.args.includes("--gate") && request.args.includes("workflow-contract-smoke")
+        ? { exitCode: 1, stderr: "terminal contract failed" }
+        : { exitCode: 0 },
+    );
+
+    expect(executed.exitCode).toBe(2);
+    expect(executed.output.readiness).toBe("blocked");
+    expect(executed.output.errors[0]?.message).toContain("kubernetes-workflow-contract-smoke");
   });
 
   it("keeps Compose dependency, migration, and application plans ordered", async () => {
