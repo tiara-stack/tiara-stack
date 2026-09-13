@@ -13,7 +13,7 @@ import {
   type KubernetesModeConfig,
 } from "./config";
 import { makeDiagnostic, makeWarning } from "./diagnostics";
-import { runDoctor } from "./doctor";
+import { runDoctorEffect } from "./doctor";
 import { buildModePlan } from "./plan";
 import { checkLoopbackPort } from "./ports";
 import {
@@ -25,6 +25,7 @@ import {
   type LauncherResult,
   type PortChecker,
 } from "./types";
+import { Cause, Effect, Exit } from "effect";
 
 export * from "./types";
 export { parseCommand, parsePositionals } from "./commands";
@@ -240,33 +241,40 @@ const optionError = (command: Extract<ParsedCommand, { kind: "mode" }>): Diagnos
 };
 
 // fallow-ignore-next-line complexity
-const planPortErrors = async (
+const planPortErrors = (
   command: Extract<ParsedCommand, { kind: "mode" }>,
   ports: Readonly<Record<string, number>>,
   checker: PortChecker,
-) => {
+): Effect.Effect<{ errors: Diagnostic[]; warnings: Diagnostic[] }> => {
   if (command.mode === "compose" || command.action !== "up") {
-    return { errors: [], warnings: [] };
+    return Effect.succeed({ errors: [], warnings: [] });
   }
-  const errors: Diagnostic[] = [];
-  const warnings: Diagnostic[] = [];
-  const relevant = new Set(Object.keys(ports));
-  for (const [dependency, port] of Object.entries(ports).filter(([name]) => relevant.has(name))) {
-    let result;
-    try {
-      result = await checker(port);
-    } catch {
-      errors.push(
-        makeDiagnostic(
-          "dependency-unavailable",
-          `Could not check deterministic port ${port} for ${dependency}`,
-          "Retry the command and inspect local processes if the check continues to fail.",
-          { mode: command.mode, action: command.action, dependency, port },
+  // fallow-ignore-next-line complexity
+  return Effect.gen(function* () {
+    const checks = yield* Effect.all(
+      Object.entries(ports).map(([dependency, port]) =>
+        Effect.tryPromise(() => checker(port)).pipe(
+          Effect.map((result) => ({ dependency, port, result })),
+          Effect.catch(() => Effect.succeed({ dependency, port, result: null })),
         ),
-      );
-      continue;
-    }
-    if (!result.available) {
+      ),
+      { concurrency: "unbounded" },
+    );
+    const errors: Diagnostic[] = [];
+    const warnings: Diagnostic[] = [];
+    for (const { dependency, port, result } of checks) {
+      if (result === null) {
+        errors.push(
+          makeDiagnostic(
+            "dependency-unavailable",
+            `Could not check deterministic port ${port} for ${dependency}`,
+            "Retry the command and inspect local processes if the check continues to fail.",
+            { mode: command.mode, action: command.action, dependency, port },
+          ),
+        );
+        continue;
+      }
+      if (result.available) continue;
       const status = result.status ?? "occupied";
       const diagnostic = makeDiagnostic(
         status === "occupied" ? "port-collision" : "dependency-unavailable",
@@ -284,114 +292,117 @@ const planPortErrors = async (
           : diagnostic,
       );
     }
-  }
-  return { errors, warnings };
+    return { errors, warnings };
+  });
 };
 
-// fallow-ignore-next-line complexity
-const modeOutput = async (
+const modeOutput = (
   command: Extract<ParsedCommand, { kind: "mode" }>,
   options: LauncherOptions,
-): Promise<LauncherOutput> => {
-  const services =
-    command.options.service === null ? [...modeServices[command.mode]] : [command.options.service];
-  const error = serviceError(command);
-  if (error !== undefined) {
-    return {
-      ...emptyOutput(command.command, command.mode),
-      ok: false,
+): Effect.Effect<LauncherOutput> =>
+  // fallow-ignore-next-line complexity
+  Effect.gen(function* () {
+    const services =
+      command.options.service === null
+        ? [...modeServices[command.mode]]
+        : [command.options.service];
+    const error = serviceError(command);
+    if (error !== undefined) {
+      return {
+        ...emptyOutput(command.command, command.mode),
+        ok: false,
+        action: command.action,
+        checkoutState:
+          command.mode === "compose"
+            ? `Checkout State ${composeProjectName(options.cwd ?? process.cwd())}`
+            : null,
+        readiness: "blocked",
+        errors: [error],
+      };
+    }
+    const optionFailure = optionError(command);
+    if (optionFailure !== undefined) {
+      // fallow-ignore-next-line code-duplication
+      return {
+        ...emptyOutput(command.command, command.mode),
+        ok: false,
+        action: command.action,
+        checkoutState:
+          command.mode === "compose"
+            ? `Checkout State ${composeProjectName(options.cwd ?? process.cwd())}`
+            : null,
+        readiness: "blocked",
+        errors: [optionFailure],
+      };
+    }
+    const validation = validateModeConfig({
+      mode: command.mode,
       action: command.action,
-      checkoutState:
-        command.mode === "compose"
-          ? `Checkout State ${composeProjectName(options.cwd ?? process.cwd())}`
-          : null,
-      readiness: "blocked",
-      errors: [error],
-    };
-  }
-  const optionFailure = optionError(command);
-  if (optionFailure !== undefined) {
-    // fallow-ignore-next-line code-duplication
-    return {
-      ...emptyOutput(command.command, command.mode),
-      ok: false,
-      action: command.action,
-      checkoutState:
-        command.mode === "compose"
-          ? `Checkout State ${composeProjectName(options.cwd ?? process.cwd())}`
-          : null,
-      readiness: "blocked",
-      errors: [optionFailure],
-    };
-  }
-  const validation = validateModeConfig({
-    mode: command.mode,
-    action: command.action,
-    env: options.env ?? process.env,
-    cwd: options.cwd ?? process.cwd(),
-    envFile: command.options.envFile ?? options.envFile ?? null,
-    selectedServices: services,
-  });
-  if (validation.config === null) {
-    return {
-      ...emptyOutput(command.command, command.mode),
-      ok: false,
-      action: command.action,
-      readiness: "blocked",
-      warnings: validation.warnings,
-      errors: validation.errors,
-    };
-  }
-  const plan =
-    validation.config.mode === "fast"
-      ? buildModePlan(validation.config as FastModeConfig, "up", services)
-      : validation.config.mode === "compose"
-        ? buildModePlan(
-            validation.config as ComposeModeConfig,
-            command.action as "up" | "build" | "down" | "seed" | "reset",
-            services,
-            null,
-            command.options.service !== null,
-          )
-        : buildModePlan(
-            validation.config as KubernetesModeConfig,
-            command.action as "validate" | "preview",
-            services,
-            command.options.tag,
+      env: options.env ?? process.env,
+      cwd: options.cwd ?? process.cwd(),
+      envFile: command.options.envFile ?? options.envFile ?? null,
+      selectedServices: services,
+    });
+    if (validation.config === null) {
+      return {
+        ...emptyOutput(command.command, command.mode),
+        ok: false,
+        action: command.action,
+        readiness: "blocked",
+        warnings: validation.warnings,
+        errors: validation.errors,
+      };
+    }
+    const plan =
+      validation.config.mode === "fast"
+        ? buildModePlan(validation.config as FastModeConfig, "up", services)
+        : validation.config.mode === "compose"
+          ? buildModePlan(
+              validation.config as ComposeModeConfig,
+              command.action as "up" | "build" | "down" | "seed" | "reset",
+              services,
+              null,
+              command.options.service !== null,
+            )
+          : buildModePlan(
+              validation.config as KubernetesModeConfig,
+              command.action as "validate" | "preview",
+              services,
+              command.options.tag,
+            );
+    const portFailures =
+      command.mode === "compose"
+        ? { errors: [], warnings: [] }
+        : yield* planPortErrors(
+            command,
+            "ports" in validation.config ? validation.config.ports : {},
+            options.portChecker ?? checkLoopbackPort,
           );
-  const portFailures =
-    command.mode === "compose"
-      ? { errors: [], warnings: [] }
-      : await planPortErrors(
-          command,
-          "ports" in validation.config ? validation.config.ports : {},
-          options.portChecker ?? checkLoopbackPort,
-        );
-  if (portFailures.errors.length > 0) {
+    if (portFailures.errors.length > 0) {
+      return {
+        ...emptyOutput(command.command, command.mode),
+        ok: false,
+        action: command.action,
+        selectedServices: plan.selectedServices,
+        plannedProcesses: plan.plannedProcesses,
+        urls: plan.urls,
+        readiness: "blocked",
+        warnings: [...validation.warnings, ...portFailures.warnings],
+        errors: portFailures.errors,
+      };
+    }
     return {
       ...emptyOutput(command.command, command.mode),
-      ok: false,
+      ok: true,
       action: command.action,
       selectedServices: plan.selectedServices,
+      checkoutState: validation.config.mode === "compose" ? validation.config.checkoutState : null,
       plannedProcesses: plan.plannedProcesses,
       urls: plan.urls,
-      readiness: "blocked",
+      readiness: "planned",
       warnings: [...validation.warnings, ...portFailures.warnings],
-      errors: portFailures.errors,
     };
-  }
-  return {
-    ...emptyOutput(command.command, command.mode),
-    ok: true,
-    action: command.action,
-    selectedServices: plan.selectedServices,
-    checkoutState: validation.config.mode === "compose" ? validation.config.checkoutState : null,
-    plannedProcesses: plan.plannedProcesses,
-    urls: plan.urls,
-    readiness: "planned",
-    warnings: [...validation.warnings, ...portFailures.warnings],
-  };
-};
+  });
 
 const setupOutput = (command: Extract<ParsedCommand, { kind: "setup" }>): LauncherOutput => {
   if (command.mode === "compose") {
@@ -434,28 +445,35 @@ const setupOutput = (command: Extract<ParsedCommand, { kind: "setup" }>): Launch
   };
 };
 
-const doctorOutput = async (
+const doctorOutput = (
   command: Extract<ParsedCommand, { kind: "doctor" }>,
   options: LauncherOptions,
-): Promise<LauncherOutput> => {
-  const doctor = await runDoctor({
-    ...options,
-    envFile: command.options.envFile ?? options.envFile ?? null,
+): Effect.Effect<LauncherOutput> =>
+  Effect.gen(function* () {
+    const doctor = yield* runDoctorEffect({
+      ...options,
+      envFile: command.options.envFile ?? options.envFile ?? null,
+    });
+    return {
+      ...emptyOutput(command.command, "all"),
+      ok: doctor.errors.length === 0,
+      action: "doctor",
+      plannedProcesses: doctor.plannedProcesses,
+      urls: doctor.urls,
+      readiness: doctor.errors.length === 0 ? "ready" : "blocked",
+      warnings: doctor.warnings,
+      errors: doctor.errors,
+    };
   });
-  return {
-    ...emptyOutput(command.command, "all"),
-    ok: doctor.errors.length === 0,
-    action: "doctor",
-    plannedProcesses: doctor.plannedProcesses,
-    urls: doctor.urls,
-    readiness: doctor.errors.length === 0 ? "ready" : "blocked",
-    warnings: doctor.warnings,
-    errors: doctor.errors,
-  };
-};
 
 const isCommandParseError = (error: unknown): error is CommandParseError =>
   error instanceof Error && error.name === "CommandParseError";
+
+const runLauncherEffect = async <A>(program: Effect.Effect<A>): Promise<A> => {
+  const exit = await Effect.runPromiseExit(program);
+  if (Exit.isSuccess(exit)) return exit.value;
+  throw Cause.squash(exit.cause);
+};
 
 const launcherResult = (output: LauncherOutput, json: boolean, help?: string): LauncherResult => ({
   exitCode: output.ok ? 0 : 2,
@@ -464,24 +482,25 @@ const launcherResult = (output: LauncherOutput, json: boolean, help?: string): L
   output,
 });
 
-const runParsedCommand = async (
+const runParsedCommand = (
   command: ParsedCommand,
   options: LauncherOptions,
-): Promise<LauncherResult> => {
-  let output: LauncherOutput;
-  let help: string | undefined;
-  if (command.kind === "help") {
-    output = emptyOutput(command.command, command.mode);
-    help = command.mode === null ? helpText : modeHelpText(command.mode);
-  } else if (command.kind === "mode") {
-    output = await modeOutput(command, options);
-  } else if (command.kind === "setup") {
-    output = setupOutput(command);
-  } else {
-    output = await doctorOutput(command, options);
-  }
-  return launcherResult(output, command.options.json, help);
-};
+): Effect.Effect<LauncherResult> =>
+  Effect.gen(function* () {
+    let output: LauncherOutput;
+    let help: string | undefined;
+    if (command.kind === "help") {
+      output = emptyOutput(command.command, command.mode);
+      help = command.mode === null ? helpText : modeHelpText(command.mode);
+    } else if (command.kind === "mode") {
+      output = yield* modeOutput(command, options);
+    } else if (command.kind === "setup") {
+      output = setupOutput(command);
+    } else {
+      output = yield* doctorOutput(command, options);
+    }
+    return launcherResult(output, command.options.json, help);
+  });
 
 export const runLauncherFromParsed = async (
   positionals: readonly string[],
@@ -489,7 +508,9 @@ export const runLauncherFromParsed = async (
   launcherOptions: LauncherOptions = {},
 ): Promise<LauncherResult> => {
   try {
-    return await runParsedCommand(parsePositionals(positionals, options), launcherOptions);
+    return await runLauncherEffect(
+      runParsedCommand(parsePositionals(positionals, options), launcherOptions),
+    );
   } catch (error) {
     if (!isCommandParseError(error)) throw error;
     return launcherResult(outputForParseError(error), options.json);
@@ -502,7 +523,7 @@ export const runLauncher = async (
 ): Promise<LauncherResult> => {
   const json = args.includes("--json");
   try {
-    return await runParsedCommand(parseCommand(args), options);
+    return await runLauncherEffect(runParsedCommand(parseCommand(args), options));
   } catch (error) {
     if (!isCommandParseError(error)) throw error;
     return launcherResult(outputForParseError(error), json);

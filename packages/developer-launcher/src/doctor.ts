@@ -1,5 +1,6 @@
 import { existsSync, statSync } from "node:fs";
 import path from "node:path";
+import { Effect } from "effect";
 import {
   COMPOSE_ENVIRONMENT_KEYS,
   DETERMINISTIC_PORTS,
@@ -404,53 +405,63 @@ export interface DoctorResult {
 }
 
 // fallow-ignore-next-line complexity
-export const runDoctor = async (options: LauncherOptions): Promise<DoctorResult> => {
+export const runDoctorEffect = (options: LauncherOptions): Effect.Effect<DoctorResult> => {
   const cwd = options.cwd ?? process.cwd();
   const env = options.env ?? process.env;
   const executor = options.executor ?? spawnProcess;
   const portChecker = options.portChecker ?? checkLoopbackPort;
   const accessChecker = options.accessChecker ?? checkHttpAccess;
-  const configuration = configurationDiagnostics(cwd, env, options.envFile ?? null);
-  const errors = [...configuration.errors];
-  const warnings: Diagnostic[] = [...configuration.warnings];
-  const plannedProcesses = toolChecks.map(plannedToolProcess);
-  const [toolFailures, portFailures, access] = await Promise.all([
-    Promise.all(toolChecks.map((check) => runToolCheck(check, executor, cwd))),
-    runPortChecks(
-      portChecker,
-      configuration.configuredModes.includes("compose")
-        ? configuration.ports
-        : configuration.ports.filter(
-            ([dependency]) => dependency === "sheet-web" || dependency === "prometheus",
+  return Effect.gen(function* () {
+    const configuration = configurationDiagnostics(cwd, env, options.envFile ?? null);
+    const errors = [...configuration.errors];
+    const warnings: Diagnostic[] = [...configuration.warnings];
+    const plannedProcesses = toolChecks.map(plannedToolProcess);
+    const [toolFailures, portFailures, access] = yield* Effect.all(
+      [
+        Effect.all(
+          toolChecks.map((check) => Effect.promise(() => runToolCheck(check, executor, cwd))),
+          { concurrency: "unbounded" },
+        ),
+        Effect.promise(() =>
+          runPortChecks(
+            portChecker,
+            configuration.configuredModes.includes("compose")
+              ? configuration.ports
+              : configuration.ports.filter(
+                  ([dependency]) => dependency === "sheet-web" || dependency === "prometheus",
+                ),
           ),
-    ),
-    configuration.configuredModes.includes("fast")
-      ? runAccessChecks(accessChecker)
-      : Promise.resolve({ errors: [], warnings: [] }),
-  ]);
-  for (const failure of toolFailures) {
-    if (failure === undefined) continue;
-    if (
-      (failure.mode === "compose" && !configuration.configuredModes.includes("compose")) ||
-      (failure.mode === "kubernetes" && !configuration.configuredModes.includes("kubernetes"))
-    ) {
-      warnings.push({ ...failure, kind: "warning" });
-    } else {
-      errors.push(failure);
+        ),
+        configuration.configuredModes.includes("fast")
+          ? Effect.promise(() => runAccessChecks(accessChecker))
+          : Effect.succeed({ errors: [], warnings: [] }),
+      ],
+      { concurrency: "unbounded" },
+    );
+    for (const failure of toolFailures) {
+      if (failure === undefined) continue;
+      if (
+        (failure.mode === "compose" && !configuration.configuredModes.includes("compose")) ||
+        (failure.mode === "kubernetes" && !configuration.configuredModes.includes("kubernetes"))
+      ) {
+        warnings.push({ ...failure, kind: "warning" });
+      } else {
+        errors.push(failure);
+      }
     }
-  }
-  errors.push(...portFailures);
-  errors.push(...access.errors);
-  warnings.push(...access.warnings);
-  return {
-    errors,
-    warnings,
-    plannedProcesses,
-    urls: [
-      { name: "app", url: FAST_ENDPOINTS.app },
-      { name: "auth", url: FAST_ENDPOINTS.auth },
-      { name: "zero", url: FAST_ENDPOINTS.zero },
-      { name: "workflows", url: FAST_ENDPOINTS.workflows },
-    ],
-  };
+    errors.push(...portFailures);
+    errors.push(...access.errors);
+    warnings.push(...access.warnings);
+    return {
+      errors,
+      warnings,
+      plannedProcesses,
+      urls: [
+        { name: "app", url: FAST_ENDPOINTS.app },
+        { name: "auth", url: FAST_ENDPOINTS.auth },
+        { name: "zero", url: FAST_ENDPOINTS.zero },
+        { name: "workflows", url: FAST_ENDPOINTS.workflows },
+      ],
+    };
+  });
 };

@@ -1,17 +1,18 @@
 import net from "node:net";
+import { Effect } from "effect";
 import type { PortChecker, PortCheckResult } from "./types";
 
 const portTimeoutMs = 500;
 
-const probeLoopbackPort = (host: "127.0.0.1" | "::1", port: number) =>
-  new Promise<PortCheckResult>((resolve) => {
+const probeLoopbackPortEffect = (host: "127.0.0.1" | "::1", port: number) =>
+  Effect.callback<PortCheckResult>((resume) => {
     const socket = net.createConnection({ host, port });
     let settled = false;
     const finish = (result: PortCheckResult) => {
       if (settled) return;
       settled = true;
       socket.destroy();
-      resolve(result);
+      resume(Effect.succeed(result));
     };
     const timer = setTimeout(
       () => finish({ available: false, status: "unavailable", reason: "port check timed out" }),
@@ -39,19 +40,29 @@ const probeLoopbackPort = (host: "127.0.0.1" | "::1", port: number) =>
         });
       }
     });
+    return Effect.sync(() => {
+      clearTimeout(timer);
+      socket.destroy();
+    });
   });
 
-export const checkLoopbackPort: PortChecker = async (port: number) => {
-  const results = await Promise.all([
-    probeLoopbackPort("127.0.0.1", port),
-    probeLoopbackPort("::1", port),
-  ]);
-  const occupied = results.find((result) => result.status === "occupied");
-  if (occupied !== undefined) return occupied;
-  if (results.some((result) => result.status === "available")) {
-    return { available: true, status: "available" };
-  }
-  const unavailable = results.find((result) => result.status === "unavailable");
-  if (unavailable !== undefined) return unavailable;
-  return results[0] ?? { available: false, status: "unsupported" };
-};
+const checkLoopbackPortEffect = (port: number) =>
+  Effect.all([probeLoopbackPortEffect("127.0.0.1", port), probeLoopbackPortEffect("::1", port)], {
+    concurrency: "unbounded",
+  });
+
+export const checkLoopbackPort: PortChecker = (port) =>
+  Effect.runPromise(
+    checkLoopbackPortEffect(port).pipe(
+      Effect.map((results) => {
+        const occupied = results.find((result) => result.status === "occupied");
+        if (occupied !== undefined) return occupied;
+        if (results.some((result) => result.status === "available")) {
+          return { available: true, status: "available" };
+        }
+        const unavailable = results.find((result) => result.status === "unavailable");
+        if (unavailable !== undefined) return unavailable;
+        return results[0] ?? { available: false, status: "unsupported" };
+      }),
+    ),
+  );
