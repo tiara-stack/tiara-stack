@@ -11,6 +11,7 @@ import {
   Option,
   Predicate,
   Queue,
+  Ref,
   Redacted,
   Schedule,
   Schema,
@@ -73,6 +74,15 @@ export const shouldRefreshSheetZeroAuth = (
   Match.value(state).pipe(
     Match.when({ name: "needs-auth" }, () => true),
     Match.when({ name: "error" }, (current) => isExpiredTokenRevalidation(current.reason, context)),
+    Match.orElse(() => false),
+  );
+
+const isRecoverableSheetZeroError = (reason: string) => reason.includes("CONNECTION_CLOSED");
+
+export const shouldReconnectSheetZero = (state: SheetZeroConnectionState) =>
+  Match.value(state).pipe(
+    Match.when({ name: "needs-auth" }, () => true),
+    Match.when({ name: "error" }, ({ reason }) => isRecoverableSheetZeroError(reason)),
     Match.orElse(() => false),
   );
 
@@ -171,6 +181,31 @@ const makeSheetZero = Effect.fn("SheetZeroClient.makeZero")(function* () {
   yield* Effect.addFinalizer(() => Effect.sync(() => zero.close()));
 
   const reconnectRequests = yield* Queue.sliding<void>(1);
+  const reconnectState = yield* Ref.make({
+    refreshAuth: false,
+    reconnectPending: false,
+    wakeUpPending: false,
+  });
+  const beginReconnect = Ref.modify(
+    reconnectState,
+    (current) =>
+      [
+        { refreshAuth: current.refreshAuth },
+        { refreshAuth: false, reconnectPending: false, wakeUpPending: true },
+      ] as const,
+  );
+  const finishReconnect = Ref.modify(reconnectState, (current) => [
+    current.reconnectPending,
+    {
+      refreshAuth: false,
+      reconnectPending: false,
+      wakeUpPending: current.reconnectPending,
+    },
+  ]);
+  const clearReconnectAttempt = Ref.update(reconnectState, (current) => ({
+    ...current,
+    reconnectPending: false,
+  }));
   const reconnect = (auth: string) =>
     Effect.tryPromise(() => zero.connection.connect({ auth })).pipe(
       Effect.timeout(Duration.seconds(30)),
@@ -190,16 +225,40 @@ const makeSheetZero = Effect.fn("SheetZeroClient.makeZero")(function* () {
         while: (error) => !requiresFreshAuthentication(error),
       }),
     );
+  const reconnectAfterRequest = (refreshAuth: boolean): Effect.Effect<void, unknown> => {
+    let shouldRefreshAuth = refreshAuth;
+
+    return Effect.suspend(() => authenticate(shouldRefreshAuth ? "refresh-auth" : "get-auth")).pipe(
+      Effect.flatMap(reconnect),
+      Effect.tapError((error) =>
+        requiresFreshAuthentication(error)
+          ? Effect.sync(() => {
+              shouldRefreshAuth = true;
+            })
+          : Effect.void,
+      ),
+      Effect.retry({
+        schedule: authenticationSchedule,
+        while: requiresFreshAuthentication,
+      }),
+    );
+  };
 
   yield* Effect.forkScoped(
     Queue.take(reconnectRequests).pipe(
-      Effect.flatMap(() =>
-        authenticate("refresh-auth").pipe(
-          Effect.flatMap(reconnect),
-          Effect.retry({
-            schedule: authenticationSchedule,
-            while: requiresFreshAuthentication,
-          }),
+      Effect.flatMap(() => beginReconnect),
+      Effect.flatMap(({ refreshAuth }) =>
+        reconnectAfterRequest(refreshAuth).pipe(
+          Effect.tap(() => clearReconnectAttempt),
+          Effect.ensuring(
+            finishReconnect.pipe(
+              Effect.tap((shouldWakeWorker) =>
+                shouldWakeWorker
+                  ? Effect.sync(() => Queue.offerUnsafe(reconnectRequests, undefined))
+                  : Effect.void,
+              ),
+            ),
+          ),
         ),
       ),
       Effect.ignore({
@@ -212,11 +271,22 @@ const makeSheetZero = Effect.fn("SheetZeroClient.makeZero")(function* () {
 
   yield* Effect.acquireRelease(
     Effect.sync(() =>
-      zero.connection.state.subscribe((state) =>
-        shouldRefreshSheetZeroAuth(state, currentAuthContext())
-          ? Queue.offerUnsafe(reconnectRequests, undefined)
-          : false,
-      ),
+      zero.connection.state.subscribe((state) => {
+        const refreshAuth = shouldRefreshSheetZeroAuth(state, currentAuthContext());
+        if (!refreshAuth && !shouldReconnectSheetZero(state)) return;
+
+        const shouldWakeWorker = Effect.runSync(
+          Ref.modify(reconnectState, (current) => [
+            !current.wakeUpPending,
+            {
+              refreshAuth: current.refreshAuth || refreshAuth,
+              reconnectPending: true,
+              wakeUpPending: current.wakeUpPending,
+            },
+          ]),
+        );
+        if (shouldWakeWorker) Queue.offerUnsafe(reconnectRequests, undefined);
+      }),
     ),
     (unsubscribe) => Effect.sync(unsubscribe),
   );

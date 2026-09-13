@@ -1,6 +1,10 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Option } from "effect";
-import { isTeamSubmissionAvailable, shouldRefreshSheetZeroAuth } from "./sheetZero";
+import {
+  isTeamSubmissionAvailable,
+  shouldReconnectSheetZero,
+  shouldRefreshSheetZeroAuth,
+} from "./sheetZero";
 
 describe("SheetZeroClient team submission availability", () => {
   it("requires both a configured conversation and the feature flag", () => {
@@ -56,5 +60,30 @@ describe("shouldRefreshSheetZeroAuth", () => {
     expect(
       shouldRefreshSheetZeroAuth({ name: "disconnected", reason: "offline" }, activeToken),
     ).toBe(false);
+  });
+});
+
+describe("shouldReconnectSheetZero", () => {
+  it("reconnects terminal Zero connection states", () => {
+    expect(
+      shouldReconnectSheetZero({ name: "needs-auth", reason: { type: "query", status: 401 } }),
+    ).toBe(true);
+    expect(
+      shouldReconnectSheetZero({
+        name: "error",
+        reason: "write CONNECTION_CLOSED zero-cache:4848",
+      }),
+    ).toBe(true);
+    expect(
+      shouldReconnectSheetZero({
+        name: "error",
+        reason: "Fetch from API server returned non-OK status 500",
+      }),
+    ).toBe(false);
+  });
+
+  it("does not reconnect non-terminal connection states", () => {
+    expect(shouldReconnectSheetZero({ name: "connected" })).toBe(false);
+    expect(shouldReconnectSheetZero({ name: "disconnected", reason: "offline" })).toBe(false);
   });
 });
