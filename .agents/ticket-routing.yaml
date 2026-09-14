@@ -1,0 +1,21 @@
+# Recommendations for the developer choosing a coding agent for a Linear issue.
+# These are defaults, not enforcement. The developer can override every choice.
+# Model-selection basis: https://chatgpt.com/share/6aa7cd5c-2138-83ea-bc97-c39032de0af3
+version: 1
+
+levels:
+  quick:
+    model: "gpt-5.6-luna"
+    reasoning_effort: "medium"
+  focused:
+    model: "gpt-5.6-luna"
+    reasoning_effort: "high"
+  standard:
+    model: "gpt-5.6-terra"
+    reasoning_effort: "high"
+  complex:
+    model: "gpt-6-astra"
+    reasoning_effort: "low"
+  architectural:
+    model: "gpt-6-astra"
+    reasoning_effort: "xhigh"
