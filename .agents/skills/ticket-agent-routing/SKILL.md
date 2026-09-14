@@ -22,10 +22,10 @@ of inventing a fallback.
 The configuration may be changed by maintainers as model availability and
 usage characteristics change. Treat model names as opaque identifiers and
 preserve the exact configured spelling. The repository defaults reflect the
-linked model-selection research: use Luna medium for quick work and Luna high
-for focused work; Terra high for broader everyday work; Astra low or medium
-for difficult repository work; and Astra xhigh only for frontier-level,
-system-shaping work. Benchmark and usage reports are signals, not guarantees.
+linked DeepSWE results and cost: use Luna medium for quick work, Luna high for
+focused work, and Luna max for normal work; use Astra medium for complex or
+cross-package work; and reserve Astra xhigh for system-shaping work. Benchmark
+and usage reports are signals, not guarantees.
 
 ## Route each ticket
 
