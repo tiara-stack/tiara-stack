@@ -1,8 +1,7 @@
 # GitHub review operations
 
 Use these operations to inspect CodeRabbit feedback on the current PR head.
-When the file is attached to a read-only explorer, inspect and classify
-findings only. The main agent performs fixes, replies, submissions, and label
+The main agent performs the analysis, fixes, replies, submissions, and label
 changes.
 
 ## Polling handoff

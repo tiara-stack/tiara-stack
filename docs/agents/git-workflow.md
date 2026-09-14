@@ -7,10 +7,13 @@ untracked and unrelated tracked edits outside the index.
 ## Branches
 
 - Never commit directly to `master`.
-- Use `<username>/<branch-name>` with the actual username.
+- Use `<username>/<branch-name>` with the actual username when the branch is
+  derived locally.
 - On `master`, create the branch with `gt create <username>/<branch-name>`.
 - In a worktree, rename a nonconforming branch with `git branch -m`, track it with `gt track --parent master`, and use `gt modify -c` for commits.
-- If a Linear issue provides a branch name, use the configured Linear integration and preserve that name.
+- If a Linear issue provides a branch name, resolve it before asking for
+  branch inputs and preserve that name verbatim; no username is needed for
+  branch setup in that case.
 
 ## Commits
 

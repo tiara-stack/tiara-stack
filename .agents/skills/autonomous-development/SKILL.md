@@ -6,9 +6,9 @@ description: Runs configurable autonomous feature implementation, CodeRabbit CLI
 # Autonomous Development
 
 Use this skill only after the user explicitly invokes it. Once invoked, own the
-selected route to its terminal criterion. Read the repository policy in
-`.agents/autonomous-development.yaml` before using a merge label or delegating
-work. Ask intake questions together before mutating the repository; make
+selected route to its terminal criterion. Read `.agents/autonomous-development.yaml`
+when configuration or a subagent handoff requires it. Ask intake questions
+together before mutating the repository; make
 routine implementation, review, and waiting decisions autonomously afterward.
 
 ## Route the invocation
@@ -43,31 +43,36 @@ current branch and PR; they do not implement a feature or create a new branch.
 Complete this gate before editing files, committing, submitting, undrafting,
 or applying a label.
 
-1. Parse the route, feature, username, Linear issue, and PR number or URL.
-   Ask all missing questions in one message. Always ask for the username when
-   it was not supplied, even if Git or GitHub might reveal a candidate.
-2. Read `.agents/autonomous-development.yaml`. Require a non-empty string
-   `merge_label` for any route that can apply a label. Read the `subagent`
-   defaults for qualifying read-only tasks. A missing or invalid merge-label
-   configuration is a blocker; do not fall back to a hard-coded label.
-3. If a Linear ticket is supplied, use the configured Linear integration to
-   obtain its provided branch name and use that name. If the integration is
-   unavailable, stop and ask the user to enable or provide access; do not
-   substitute a guessed GitHub branch name.
-4. For a route that needs a PR, use the supplied PR number or URL. If it is
+1. Parse the route, feature, Linear issue, and PR number or URL. Resolve a
+   supplied Linear issue before collecting branch-only inputs.
+2. If Linear provides the branch name, use it verbatim; that name supplies
+   the identity needed for branch setup, so do not ask for a username. Ask for
+   a username only when no Linear branch name is available and `implement`
+   must derive `<username>/<feature-slug>`. Ask all genuinely missing
+   questions in one message.
+3. Read `.agents/autonomous-development.yaml`. Require a non-empty string
+   `merge_label` for any route that can apply a label. Before any required
+   explorer handoff, validate that `subagent.model` and
+   `subagent.reasoning_effort` are non-empty strings. Missing or invalid
+   `merge_label` or subagent configuration is a blocker; do not use a guessed
+   label or fallback subagent configuration.
+4. If a Linear ticket was supplied but its branch name could not be obtained,
+   stop and ask the user to enable or provide access; do not substitute a
+   guessed GitHub branch name.
+5. For a route that needs a PR, use the supplied PR number or URL. If it is
    omitted, infer the PR from the current branch only when exactly one open PR
    matches it. Stop before mutation when no PR or multiple plausible PRs are
    found.
-5. For `implement`, derive a lowercase kebab-case feature slug when Linear
+6. For `implement`, derive a lowercase kebab-case feature slug when Linear
    did not provide the branch name. Use the form `<username>/<feature-slug>`.
    Preserve an exact Linear-provided branch name when one exists.
-6. Inspect `git status --short`, the current branch, the repository root, and
+7. Inspect `git status --short`, the current branch, the repository root, and
    the configured Graphite trunk. Mark the paths that belong to the requested
    work. Leave unrelated new files untracked and unrelated tracked edits
    untouched and unstaged. Never deliberately untrack an existing file. Ask
    before proceeding when a path mixes scopes or existing commits make intent
    unclear.
-7. Set the branch name before implementation edits. Define an empty branch as
+8. Set the branch name before implementation edits. Define an empty branch as
    a clean branch with no commits ahead of the trunk. Rename an empty branch
    and track the trunk:
 
@@ -92,7 +97,7 @@ or applying a label.
    Never discard commits or working-tree changes. If moving the work would omit
    a meaningful commit or the stash cannot be restored safely, report that at
    intake and stop.
-8. For routes that apply the configured merge label, verify that the exact
+9. For routes that apply the configured merge label, verify that the exact
    repository label already exists. If it does not, stop and report the
    missing-label blocker; do not create the label.
 
@@ -100,27 +105,18 @@ The gate is complete only when the route, identity, branch, worktree scope,
 PR target, configuration, and final-label availability (when applicable) are
 all resolved.
 
-## Delegate read-only subtasks
+## Delegation boundaries
 
-The full implementation, repair, commit, submission, and labeling phases stay
-with the main agent. A read-only diagnosis or review subtask may receive the
-phase's linked instruction file through an `explorer`. Pass
-`subagent.model` and `subagent.reasoning_effort` from
-`.agents/autonomous-development.yaml` with every such handoff. If spawning is
-unavailable, read the linked file locally and continue the read-only task in
-the main agent.
+Delegation is declared by the active phase reference. Follow its named
+explorer handoff and attach the reference file it specifies; the main agent
+then receives only the worker's report while retaining all mutation and repair
+decisions. The handoff keeps long command chains and polling output out of the
+main context.
 
-When a route requires polling, spawn a separate read-only polling explorer in
-addition to any diagnosis or review explorer. Attach the dedicated polling
-reference named by the phase's subtask reference and provide only its required
-PR or run identity, submitted head SHA, and terminal criterion. The polling
-reference defines the worker's scope and final-report contract. The main agent
-sends no steering or status prompts to a running subagent unless the user asks.
-The main agent handles every repair or mutation after the polling explorer
-reports.
-
-If a polling explorer cannot be started, the main agent may poll locally as the
-fallback.
+When a phase reference requires an explorer, pass `subagent.model` and
+`subagent.reasoning_effort` from `.agents/autonomous-development.yaml`. If
+spawning is unavailable, record that fallback and continue locally; do not
+replace an explicit handoff merely because local execution is easier.
 
 ## Implement the feature
 
@@ -135,9 +131,7 @@ are complete and locally validated, run the CodeRabbit loop below.
 ## Local CodeRabbit loop
 
 Read [Local CodeRabbit loop](references/coderabbit-loop.md) for this phase.
-The full loop fixes code and commits changes, so keep it in the main agent. A
-separate read-only review or triage subtask may attach this file to an
-explorer; if spawning is unavailable, read it locally.
+The full loop fixes code and commits changes, so keep it in the main agent.
 
 ## Commit and submit
 
@@ -179,9 +173,7 @@ the undraft operation is already satisfied.
 `pre-merge`, `babysit`, and `merge` continue after the undraft gate. Use
 [GitHub review operations](references/github-review.md) to inspect CodeRabbit
 reviews, issue comments, and inline review comments. The full phase can fix
-code, reply, submit, and label, so keep it in the main agent. A separate
-read-only review-analysis task may attach this file to an explorer; otherwise
-read it locally.
+code, reply, submit, and label, so keep it in the main agent.
 
 Follow the polling handoff in the review reference, spawn the named polling
 explorer, and wait for its terminal report. For every current
@@ -221,9 +213,10 @@ label is the terminal action; this skill does not merge the PR.
 ## Autonomy and blockers
 
 Resolve ordinary implementation, classification, repair, polling, and commit
-decisions without returning to the user. Ask only at intake for a missing
-username or Linear access, ambiguous feature or conflict intent, unclear change
-scope, or a missing PR. For a missing label, missing credentials or
-permissions, failed external service, or an unresolvable valid finding, stop
+decisions without returning to the user. Ask only at intake for a username when
+no Linear branch name exists, Linear access, ambiguous feature or conflict
+intent, unclear change scope, or a missing PR. If Linear access is missing,
+ask the user to enable or provide it. For any other missing credentials or
+permissions, a failed external service, or an unresolvable valid finding, stop
 and report instead of asking for a routine override. Report the exact state,
 head SHA, command, and next action when stopping.

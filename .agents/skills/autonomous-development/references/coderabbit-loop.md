@@ -3,14 +3,6 @@
 Use this procedure for the local CodeRabbit review mode and for any workflow
 that runs a local CodeRabbit review before submitting changes.
 
-## Delegation boundary
-
-The complete loop changes code, validates it, commits fixes, and may submit a
-PR. Keep that work with the main agent. A separate read-only task that only
-reviews or triages CodeRabbit output may use an `explorer`. Attach this file to
-that task. The explorer reports findings; the main agent performs fixes and
-commits.
-
 ## Review and repair
 
 Run from the repository root against the complete branch diff, including new
