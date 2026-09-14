@@ -16,6 +16,7 @@ dist-ssr
 .nitro
 .tiara
 .cache
+.artifacts
 .output
 .ts-out
 *.tsbuildinfo

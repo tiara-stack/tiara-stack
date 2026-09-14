@@ -3,6 +3,8 @@ name: CI
 env:
   HELM_VERSION: v3.18.6
 
+permissions: {}
+
 on:
   push:
     branches: ["master"]
@@ -16,6 +18,8 @@ jobs:
   optimize_ci:
     runs-on: ubuntu-latest
     continue-on-error: true
+    permissions:
+      contents: read
     outputs:
       skip: ${{ steps.check_skip.outputs.skip }}
     steps:
@@ -29,6 +33,8 @@ jobs:
     needs: optimize_ci
     if: needs.optimize_ci.outputs.skip != 'true' || needs.optimize_ci.result != 'success'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -82,6 +88,19 @@ jobs:
       - name: Check Workspace Results
         if: ${{ !cancelled() && (steps.run_format.outcome == 'failure' || steps.run_lint.outcome == 'failure' || steps.run_test.outcome == 'failure') }}
         run: exit 1
+
+      - name: Record development workflow evidence
+        if: ${{ !cancelled() }}
+        run: vp exec tsx scripts/development-evidence.ts
+
+      - name: Upload development workflow evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: development-evidence
+          path: .artifacts/development-evidence.json
+          include-hidden-files: true
+          if-no-files-found: error
 
       - name: Lint Helm chart
         run: |
@@ -342,6 +361,8 @@ jobs:
     needs: docker_images
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     concurrency:
       group: production-deploy
       cancel-in-progress: false

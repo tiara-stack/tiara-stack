@@ -128,6 +128,12 @@ The root development launcher command contract is documented in
 validates commands and prints safe process plans; workload execution remains in
 the follow-up mode implementations.
 
+The supported onboarding and acceptance journey is documented in
+[`docs/development-acceptance.md`](docs/development-acceptance.md). CI records
+local launcher checks and Fast startup-to-ready timings as the
+`development-evidence` artifact without contacting production or external
+development integrations.
+
 ## Repository layout
 
 ```text
