@@ -336,6 +336,14 @@ _Avoid_: Cron task, polling loop
 A published, transport-neutral declaration of a business intent, including its identity, version, input, success, Declared Failure, and authorization-policy metadata.
 _Avoid_: Workflow API, workflow DTO
 
+**Workflow Enqueue**:
+The authenticated HTTP submission of one Workflow Contract invocation with its canonical input, stable invocation identity, and Effective Principal. A successful enqueue acknowledges accepted durable work, not completion of its effects.
+_Avoid_: Workflow execution, background retry, HTTP request
+
+**Workflow Observation**:
+The authenticated stream or query that reads the typed Workflow Run identified by a successful Workflow Enqueue. Observation reports progress and terminal results independently of submission transport.
+_Avoid_: Workflow retry, enqueue response, polling implementation
+
 **Workflow Definition**:
 The server-only durable control flow that implements one Workflow Contract through pinned Durable Actions and produces its typed outcome.
 _Avoid_: Workflow Contract, workflow handler

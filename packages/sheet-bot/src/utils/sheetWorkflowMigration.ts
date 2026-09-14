@@ -12,7 +12,7 @@ const responseReferenceIssueTimeout = Duration.seconds(5);
 
 type WorkflowEnqueuer<Input, EnqueueError> = (
   input: Input,
-  options: { readonly invocationId: WorkflowInvocationId },
+  options: { readonly invocationId?: WorkflowInvocationId },
 ) => Effect.Effect<unknown, EnqueueError, never>;
 type WorkflowFailureReporter = (content: string) => Effect.Effect<unknown, unknown, never>;
 
@@ -23,6 +23,7 @@ export interface EnqueueSheetWorkflowOptions<Input, EnqueueError> {
   readonly capabilityStore: Pick<BotCapabilityStoreShape, "issueResponseReference">;
   readonly makeInput: (responseReference: ResponseReference) => Input;
   readonly enqueue: WorkflowEnqueuer<Input, EnqueueError>;
+  readonly clientOwnsInvocationId?: boolean;
   readonly rejectedMessage: string;
   readonly unauthorizedMessage: string;
   readonly pendingMessage: string;
@@ -76,7 +77,9 @@ export const enqueueSheetWorkflow = <Input, EnqueueError>(
   options: EnqueueSheetWorkflowOptions<Input, EnqueueError>,
 ) =>
   Effect.gen(function* () {
-    const invocationId = yield* makeWorkflowInvocationId();
+    const invocationId = options.clientOwnsInvocationId
+      ? undefined
+      : yield* makeWorkflowInvocationId();
     const report: WorkflowFailureReporter =
       options.report ?? ((content) => options.response.editReply({ payload: { content } }));
 
@@ -118,7 +121,10 @@ export const enqueueSheetWorkflow = <Input, EnqueueError>(
     if (responseReference === undefined) return;
 
     yield* SheetWorkflowHttpRequestContext.asInteractionUser(() =>
-      options.enqueue(options.makeInput(responseReference), { invocationId }),
+      options.enqueue(
+        options.makeInput(responseReference),
+        invocationId === undefined ? {} : { invocationId },
+      ),
     )().pipe(
       Effect.catch((error) =>
         Predicate.isTagged("WorkflowTransportUnavailable")(error)

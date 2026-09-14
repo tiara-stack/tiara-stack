@@ -12,7 +12,6 @@ import { discordApplicationLayer } from "../discord/application";
 import { discordGatewayLayer } from "../discord/gateway";
 import {
   BotCapabilityStore,
-  enqueueStatusWorkflow,
   SheetWorkflowHttpClient,
   type BotCapabilityStoreShape,
   type SheetWorkflowHttpClientShape,
@@ -37,7 +36,8 @@ export const enqueueStatus = Effect.fn("status.enqueueWorkflow")(function* (
     operation: "status",
     capabilityStore,
     makeInput: (responseReference) => ({ responseReference }),
-    enqueue: (input, options) => enqueueStatusWorkflow(workflowClient, input, options),
+    enqueue: workflowClient.enqueueServicesDeliverStatus,
+    clientOwnsInvocationId: true,
     rejectedMessage: statusEnqueueRejectedMessage,
     unauthorizedMessage: statusEnqueueUnauthorizedMessage,
     pendingMessage: statusEnqueuePendingMessage,

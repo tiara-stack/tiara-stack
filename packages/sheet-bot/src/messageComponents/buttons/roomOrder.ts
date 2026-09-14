@@ -135,7 +135,9 @@ const runRoomOrderButtonWorkflow = Effect.fn("roomOrderButton.enqueueWorkflow")(
     capabilityStore,
     makeInput: (responseReference) => responseReference,
     enqueue: (responseReference, options) =>
-      enqueueReplacement(responseReference, options.invocationId),
+      options.invocationId === undefined
+        ? Effect.die("Room-order enqueue requires a stable invocation ID")
+        : enqueueReplacement(responseReference, options.invocationId),
     rejectedMessage: roomOrderButtonRejectedMessage,
     unauthorizedMessage: roomOrderButtonUnauthorizedMessage,
     pendingMessage: roomOrderButtonPendingMessage,

@@ -368,6 +368,18 @@ export type SheetConfigurationDiscardDraftReference = Effect.Success<
 export type AuthorizationLoadWorkspaceCapabilitiesWorkflow =
   SheetWorkflowHttpClients["authorization"]["loadWorkspaceCapabilities"];
 
+type RawWorkflowEnqueue = (
+  input: never,
+  options?: { readonly invocationId?: WorkflowInvocationId },
+) => Effect.Effect<unknown, unknown, never>;
+
+type ProtectedWorkflowEnqueue<Enqueue extends RawWorkflowEnqueue> = (
+  input: Parameters<Enqueue>[0],
+  options?: { readonly invocationId?: WorkflowInvocationId },
+) => ReturnType<Enqueue>;
+
+const protectedEnqueues = new WeakSet<object>();
+
 type SheetWorkflowHttpRequestContextType = {
   readonly discordUserId: string;
 };
@@ -554,48 +566,168 @@ const makeWorkflowServiceHttpClient = Effect.fn("SheetWorkflowHttpClient.makeSer
   },
 );
 
+const makeProtectedEnqueue = <Enqueue extends RawWorkflowEnqueue>(
+  enqueue: Enqueue,
+): ProtectedWorkflowEnqueue<Enqueue> => {
+  const protectedEnqueue = ((input, options) => {
+    const invocationId =
+      options?.invocationId === undefined
+        ? makeWorkflowInvocationId()
+        : Effect.succeed(options.invocationId);
+
+    return invocationId.pipe(
+      Effect.flatMap((stableInvocationId) =>
+        Effect.suspend(() => enqueue(input, { invocationId: stableInvocationId })).pipe(
+          Effect.timeout(workflowEnqueueTimeout),
+          Effect.mapError((error) =>
+            Cause.isTimeoutError(error)
+              ? new WorkflowTransportUnavailable({
+                  operation: "Enqueue",
+                  retryable: true,
+                  message: "Workflow enqueue timed out",
+                })
+              : error,
+          ),
+          Effect.retry({
+            schedule: Schedule.spaced(Duration.millis(100)).pipe(Schedule.take(1)),
+            while: (error) =>
+              Predicate.isTagged("WorkflowTransportUnavailable")(error) &&
+              Predicate.hasProperty(error, "retryable") &&
+              Predicate.isBoolean(error.retryable) &&
+              error.retryable,
+          }),
+        ),
+      ),
+    ) as ReturnType<Enqueue>;
+  }) as ProtectedWorkflowEnqueue<Enqueue>;
+  protectedEnqueues.add(protectedEnqueue);
+  return protectedEnqueue;
+};
+
 export interface SheetWorkflowHttpClientShape {
   readonly authorizationLoadWorkspaceCapabilities: AuthorizationLoadWorkspaceCapabilitiesWorkflow;
-  readonly enqueueServicesDeliverStatus: ServicesDeliverStatusEnqueue;
-  readonly enqueueSchedulesDeliverUserSchedule: SchedulesDeliverUserScheduleEnqueue;
-  readonly enqueueSchedulesDeliverChannelFillers: SchedulesDeliverChannelFillersEnqueue;
-  readonly enqueueCheckinsOpen: CheckinsOpenEnqueue;
-  readonly enqueueCheckinsTestAuto: CheckinsTestAutoEnqueue;
-  readonly enqueueCheckinsRespond: CheckinsRespondEnqueue;
+  readonly enqueueServicesDeliverStatus: ProtectedWorkflowEnqueue<ServicesDeliverStatusEnqueue>;
+  readonly enqueueSchedulesDeliverUserSchedule: ProtectedWorkflowEnqueue<SchedulesDeliverUserScheduleEnqueue>;
+  readonly enqueueSchedulesDeliverChannelFillers: ProtectedWorkflowEnqueue<SchedulesDeliverChannelFillersEnqueue>;
+  readonly enqueueCheckinsOpen: ProtectedWorkflowEnqueue<CheckinsOpenEnqueue>;
+  readonly enqueueCheckinsTestAuto: ProtectedWorkflowEnqueue<CheckinsTestAutoEnqueue>;
+  readonly enqueueCheckinsRespond: ProtectedWorkflowEnqueue<CheckinsRespondEnqueue>;
   readonly checkinMessagesLoad: CheckinMessagesLoadWorkflow;
   readonly checkinMessagesSave: CheckinMessagesSaveWorkflow;
-  readonly enqueueRoomOrdersCreate: RoomOrdersCreateEnqueue;
-  readonly enqueueRoomOrdersNavigate: RoomOrdersNavigateEnqueue;
-  readonly enqueueRoomOrdersSend: RoomOrdersSendEnqueue;
-  readonly enqueueRoomOrdersPinTentative: RoomOrdersPinTentativeEnqueue;
-  readonly enqueueSlotsDeliverList: SlotsDeliverListEnqueue;
-  readonly enqueueSlotsPublishButton: SlotsPublishButtonEnqueue;
-  readonly enqueueSlotsRemoveButton: SlotsRemoveButtonEnqueue;
-  readonly enqueueSlotsRefreshButton: SlotsRefreshButtonEnqueue;
-  readonly enqueueSlotsOpen: SlotsOpenEnqueue;
-  readonly enqueueMembersKick: MembersKickEnqueue;
-  readonly enqueuePreferencesDeliverStatus: PreferencesDeliverStatusEnqueue;
-  readonly enqueuePreferencesUpdateAndDeliver: PreferencesUpdateAndDeliverEnqueue;
-  readonly enqueueWorkspacesDeliverConfig: WorkspacesDeliverConfigEnqueue;
-  readonly enqueueWorkspacesUpdateConfigAndDeliver: WorkspacesUpdateConfigAndDeliverEnqueue;
-  readonly enqueueWorkspacesSetMonitorRoleAndDeliver: WorkspacesSetMonitorRoleAndDeliverEnqueue;
-  readonly enqueueWorkspacesFeatureFlagsSetAndDeliver: WorkspacesFeatureFlagsSetAndDeliverEnqueue;
-  readonly enqueueConversationsDeliverConfig: ConversationsDeliverConfigEnqueue;
-  readonly enqueueConversationsUpdateConfigAndDeliver: ConversationsUpdateConfigAndDeliverEnqueue;
-  readonly enqueueConversationsSetLockdown: ConversationsSetLockdownEnqueue;
-  readonly enqueueTeamsDeliverList: TeamsDeliverListEnqueue;
-  readonly enqueueScreenshotsCaptureAndDeliver: ScreenshotsCaptureAndDeliverEnqueue;
-  readonly enqueueWorkspacesDeliverWelcome: WorkspacesDeliverWelcomeEnqueue;
-  readonly enqueueTeamSubmissionsProcess: TeamSubmissionsProcessEnqueue;
-  readonly enqueueTeamSubmissionsDecide: TeamSubmissionsDecideEnqueue;
-  readonly enqueueAnnouncementsDeliverUpdate: AnnouncementsDeliverUpdateEnqueue;
-  readonly enqueueSheetConfigurationSaveDraft: SheetConfigurationSaveDraftEnqueue;
-  readonly enqueueSheetConfigurationEditDraft: SheetConfigurationEditDraftEnqueue;
-  readonly enqueueSheetConfigurationSaveRevision: SheetConfigurationSaveRevisionEnqueue;
-  readonly enqueueSheetConfigurationActivate: SheetConfigurationActivateEnqueue;
-  readonly enqueueSheetConfigurationRollback: SheetConfigurationRollbackEnqueue;
-  readonly enqueueSheetConfigurationDiscardDraft: SheetConfigurationDiscardDraftEnqueue;
+  readonly enqueueRoomOrdersCreate: ProtectedWorkflowEnqueue<RoomOrdersCreateEnqueue>;
+  readonly enqueueRoomOrdersNavigate: ProtectedWorkflowEnqueue<RoomOrdersNavigateEnqueue>;
+  readonly enqueueRoomOrdersSend: ProtectedWorkflowEnqueue<RoomOrdersSendEnqueue>;
+  readonly enqueueRoomOrdersPinTentative: ProtectedWorkflowEnqueue<RoomOrdersPinTentativeEnqueue>;
+  readonly enqueueSlotsDeliverList: ProtectedWorkflowEnqueue<SlotsDeliverListEnqueue>;
+  readonly enqueueSlotsPublishButton: ProtectedWorkflowEnqueue<SlotsPublishButtonEnqueue>;
+  readonly enqueueSlotsRemoveButton: ProtectedWorkflowEnqueue<SlotsRemoveButtonEnqueue>;
+  readonly enqueueSlotsRefreshButton: ProtectedWorkflowEnqueue<SlotsRefreshButtonEnqueue>;
+  readonly enqueueSlotsOpen: ProtectedWorkflowEnqueue<SlotsOpenEnqueue>;
+  readonly enqueueMembersKick: ProtectedWorkflowEnqueue<MembersKickEnqueue>;
+  readonly enqueuePreferencesDeliverStatus: ProtectedWorkflowEnqueue<PreferencesDeliverStatusEnqueue>;
+  readonly enqueuePreferencesUpdateAndDeliver: ProtectedWorkflowEnqueue<PreferencesUpdateAndDeliverEnqueue>;
+  readonly enqueueWorkspacesDeliverConfig: ProtectedWorkflowEnqueue<WorkspacesDeliverConfigEnqueue>;
+  readonly enqueueWorkspacesUpdateConfigAndDeliver: ProtectedWorkflowEnqueue<WorkspacesUpdateConfigAndDeliverEnqueue>;
+  readonly enqueueWorkspacesSetMonitorRoleAndDeliver: ProtectedWorkflowEnqueue<WorkspacesSetMonitorRoleAndDeliverEnqueue>;
+  readonly enqueueWorkspacesFeatureFlagsSetAndDeliver: ProtectedWorkflowEnqueue<WorkspacesFeatureFlagsSetAndDeliverEnqueue>;
+  readonly enqueueConversationsDeliverConfig: ProtectedWorkflowEnqueue<ConversationsDeliverConfigEnqueue>;
+  readonly enqueueConversationsUpdateConfigAndDeliver: ProtectedWorkflowEnqueue<ConversationsUpdateConfigAndDeliverEnqueue>;
+  readonly enqueueConversationsSetLockdown: ProtectedWorkflowEnqueue<ConversationsSetLockdownEnqueue>;
+  readonly enqueueTeamsDeliverList: ProtectedWorkflowEnqueue<TeamsDeliverListEnqueue>;
+  readonly enqueueScreenshotsCaptureAndDeliver: ProtectedWorkflowEnqueue<ScreenshotsCaptureAndDeliverEnqueue>;
+  readonly enqueueWorkspacesDeliverWelcome: ProtectedWorkflowEnqueue<WorkspacesDeliverWelcomeEnqueue>;
+  readonly enqueueTeamSubmissionsProcess: ProtectedWorkflowEnqueue<TeamSubmissionsProcessEnqueue>;
+  readonly enqueueTeamSubmissionsDecide: ProtectedWorkflowEnqueue<TeamSubmissionsDecideEnqueue>;
+  readonly enqueueAnnouncementsDeliverUpdate: ProtectedWorkflowEnqueue<AnnouncementsDeliverUpdateEnqueue>;
+  readonly enqueueSheetConfigurationSaveDraft: ProtectedWorkflowEnqueue<SheetConfigurationSaveDraftEnqueue>;
+  readonly enqueueSheetConfigurationEditDraft: ProtectedWorkflowEnqueue<SheetConfigurationEditDraftEnqueue>;
+  readonly enqueueSheetConfigurationSaveRevision: ProtectedWorkflowEnqueue<SheetConfigurationSaveRevisionEnqueue>;
+  readonly enqueueSheetConfigurationActivate: ProtectedWorkflowEnqueue<SheetConfigurationActivateEnqueue>;
+  readonly enqueueSheetConfigurationRollback: ProtectedWorkflowEnqueue<SheetConfigurationRollbackEnqueue>;
+  readonly enqueueSheetConfigurationDiscardDraft: ProtectedWorkflowEnqueue<SheetConfigurationDiscardDraftEnqueue>;
 }
+
+export const makeSheetWorkflowHttpClientShape = (
+  clients: SheetWorkflowHttpClients,
+  serviceClients: SheetWorkflowHttpClients,
+): SheetWorkflowHttpClientShape => ({
+  authorizationLoadWorkspaceCapabilities: clients.authorization.loadWorkspaceCapabilities,
+  enqueueServicesDeliverStatus: makeProtectedEnqueue(clients.services.deliverStatus.enqueue),
+  enqueueSchedulesDeliverUserSchedule: makeProtectedEnqueue(
+    clients.schedules.deliverUserSchedule.enqueue,
+  ),
+  enqueueSchedulesDeliverChannelFillers: makeProtectedEnqueue(
+    clients.schedules.deliverChannelFillers.enqueue,
+  ),
+  enqueueCheckinsOpen: makeProtectedEnqueue(clients.checkins.open.enqueue),
+  enqueueCheckinsTestAuto: makeProtectedEnqueue(clients.checkins.testAuto.enqueue),
+  enqueueCheckinsRespond: makeProtectedEnqueue(clients.checkins.respond.enqueue),
+  checkinMessagesLoad: clients.checkinMessages.load,
+  checkinMessagesSave: clients.checkinMessages.save,
+  enqueueRoomOrdersCreate: makeProtectedEnqueue(clients.roomOrders.create.enqueue),
+  enqueueRoomOrdersNavigate: makeProtectedEnqueue(clients.roomOrders.navigate.enqueue),
+  enqueueRoomOrdersSend: makeProtectedEnqueue(clients.roomOrders.send.enqueue),
+  enqueueRoomOrdersPinTentative: makeProtectedEnqueue(clients.roomOrders.pinTentative.enqueue),
+  enqueueSlotsDeliverList: makeProtectedEnqueue(clients.slots.deliverList.enqueue),
+  enqueueSlotsPublishButton: makeProtectedEnqueue(clients.slots.publishButton.enqueue),
+  enqueueSlotsRemoveButton: makeProtectedEnqueue(clients.slots.removeButton.enqueue),
+  enqueueSlotsRefreshButton: makeProtectedEnqueue(serviceClients.slots.refreshButton.enqueue),
+  enqueueSlotsOpen: makeProtectedEnqueue(clients.slots.open.enqueue),
+  enqueueMembersKick: makeProtectedEnqueue(clients.members.kick.enqueue),
+  enqueuePreferencesDeliverStatus: makeProtectedEnqueue(clients.preferences.deliverStatus.enqueue),
+  enqueuePreferencesUpdateAndDeliver: makeProtectedEnqueue(
+    clients.preferences.updateAndDeliver.enqueue,
+  ),
+  enqueueWorkspacesDeliverConfig: makeProtectedEnqueue(clients.workspaces.deliverConfig.enqueue),
+  enqueueWorkspacesUpdateConfigAndDeliver: makeProtectedEnqueue(
+    clients.workspaces.updateConfigAndDeliver.enqueue,
+  ),
+  enqueueWorkspacesSetMonitorRoleAndDeliver: makeProtectedEnqueue(
+    clients.workspaces.setMonitorRoleAndDeliver.enqueue,
+  ),
+  enqueueWorkspacesFeatureFlagsSetAndDeliver: makeProtectedEnqueue(
+    clients.workspaces.featureFlags.setAndDeliver.enqueue,
+  ),
+  enqueueConversationsDeliverConfig: makeProtectedEnqueue(
+    clients.conversations.deliverConfig.enqueue,
+  ),
+  enqueueConversationsUpdateConfigAndDeliver: makeProtectedEnqueue(
+    clients.conversations.updateConfigAndDeliver.enqueue,
+  ),
+  enqueueConversationsSetLockdown: makeProtectedEnqueue(clients.conversations.setLockdown.enqueue),
+  enqueueTeamsDeliverList: makeProtectedEnqueue(clients.teams.deliverList.enqueue),
+  enqueueScreenshotsCaptureAndDeliver: makeProtectedEnqueue(
+    clients.screenshots.captureAndDeliver.enqueue,
+  ),
+  enqueueWorkspacesDeliverWelcome: makeProtectedEnqueue(
+    serviceClients.workspaces.deliverWelcome.enqueue,
+  ),
+  enqueueTeamSubmissionsProcess: makeProtectedEnqueue(
+    serviceClients.teamSubmissions.process.enqueue,
+  ),
+  enqueueTeamSubmissionsDecide: makeProtectedEnqueue(clients.teamSubmissions.decide.enqueue),
+  enqueueAnnouncementsDeliverUpdate: makeProtectedEnqueue(
+    serviceClients.announcements.deliverUpdate.enqueue,
+  ),
+  enqueueSheetConfigurationSaveDraft: makeProtectedEnqueue(
+    clients.sheetConfiguration.saveDraft.enqueue,
+  ),
+  enqueueSheetConfigurationEditDraft: makeProtectedEnqueue(
+    clients.sheetConfiguration.editDraft.enqueue,
+  ),
+  enqueueSheetConfigurationSaveRevision: makeProtectedEnqueue(
+    clients.sheetConfiguration.saveRevision.enqueue,
+  ),
+  enqueueSheetConfigurationActivate: makeProtectedEnqueue(
+    clients.sheetConfiguration.activate.enqueue,
+  ),
+  enqueueSheetConfigurationRollback: makeProtectedEnqueue(
+    clients.sheetConfiguration.rollback.enqueue,
+  ),
+  enqueueSheetConfigurationDiscardDraft: makeProtectedEnqueue(
+    clients.sheetConfiguration.discardDraft.enqueue,
+  ),
+});
 
 export class SheetWorkflowHttpClient extends Context.Service<
   SheetWorkflowHttpClient,
@@ -686,51 +818,7 @@ export class SheetWorkflowHttpClient extends Context.Service<
       baseUrl,
     });
 
-    return {
-      authorizationLoadWorkspaceCapabilities: clients.authorization.loadWorkspaceCapabilities,
-      enqueueServicesDeliverStatus: clients.services.deliverStatus.enqueue,
-      enqueueSchedulesDeliverUserSchedule: clients.schedules.deliverUserSchedule.enqueue,
-      enqueueSchedulesDeliverChannelFillers: clients.schedules.deliverChannelFillers.enqueue,
-      enqueueCheckinsOpen: clients.checkins.open.enqueue,
-      enqueueCheckinsTestAuto: clients.checkins.testAuto.enqueue,
-      enqueueCheckinsRespond: clients.checkins.respond.enqueue,
-      checkinMessagesLoad: clients.checkinMessages.load,
-      checkinMessagesSave: clients.checkinMessages.save,
-      enqueueRoomOrdersCreate: clients.roomOrders.create.enqueue,
-      enqueueRoomOrdersNavigate: clients.roomOrders.navigate.enqueue,
-      enqueueRoomOrdersSend: clients.roomOrders.send.enqueue,
-      enqueueRoomOrdersPinTentative: clients.roomOrders.pinTentative.enqueue,
-      enqueueSlotsDeliverList: clients.slots.deliverList.enqueue,
-      enqueueSlotsPublishButton: clients.slots.publishButton.enqueue,
-      enqueueSlotsRemoveButton: clients.slots.removeButton.enqueue,
-      enqueueSlotsRefreshButton: serviceClients.slots.refreshButton.enqueue,
-      enqueueSlotsOpen: clients.slots.open.enqueue,
-      enqueueMembersKick: clients.members.kick.enqueue,
-      enqueuePreferencesDeliverStatus: clients.preferences.deliverStatus.enqueue,
-      enqueuePreferencesUpdateAndDeliver: clients.preferences.updateAndDeliver.enqueue,
-      enqueueWorkspacesDeliverConfig: clients.workspaces.deliverConfig.enqueue,
-      enqueueWorkspacesUpdateConfigAndDeliver: clients.workspaces.updateConfigAndDeliver.enqueue,
-      enqueueWorkspacesSetMonitorRoleAndDeliver:
-        clients.workspaces.setMonitorRoleAndDeliver.enqueue,
-      enqueueWorkspacesFeatureFlagsSetAndDeliver:
-        clients.workspaces.featureFlags.setAndDeliver.enqueue,
-      enqueueConversationsDeliverConfig: clients.conversations.deliverConfig.enqueue,
-      enqueueConversationsUpdateConfigAndDeliver:
-        clients.conversations.updateConfigAndDeliver.enqueue,
-      enqueueConversationsSetLockdown: clients.conversations.setLockdown.enqueue,
-      enqueueTeamsDeliverList: clients.teams.deliverList.enqueue,
-      enqueueScreenshotsCaptureAndDeliver: clients.screenshots.captureAndDeliver.enqueue,
-      enqueueWorkspacesDeliverWelcome: serviceClients.workspaces.deliverWelcome.enqueue,
-      enqueueTeamSubmissionsProcess: serviceClients.teamSubmissions.process.enqueue,
-      enqueueTeamSubmissionsDecide: clients.teamSubmissions.decide.enqueue,
-      enqueueAnnouncementsDeliverUpdate: serviceClients.announcements.deliverUpdate.enqueue,
-      enqueueSheetConfigurationSaveDraft: clients.sheetConfiguration.saveDraft.enqueue,
-      enqueueSheetConfigurationEditDraft: clients.sheetConfiguration.editDraft.enqueue,
-      enqueueSheetConfigurationSaveRevision: clients.sheetConfiguration.saveRevision.enqueue,
-      enqueueSheetConfigurationActivate: clients.sheetConfiguration.activate.enqueue,
-      enqueueSheetConfigurationRollback: clients.sheetConfiguration.rollback.enqueue,
-      enqueueSheetConfigurationDiscardDraft: clients.sheetConfiguration.discardDraft.enqueue,
-    } satisfies SheetWorkflowHttpClientShape;
+    return makeSheetWorkflowHttpClientShape(clients, serviceClients);
   }),
 }) {
   static layer = Layer.effect(SheetWorkflowHttpClient, this.make).pipe(
@@ -745,33 +833,10 @@ const enqueueWorkflow = <Input, Success, EnqueueError>(
   ) => Effect.Effect<Success, EnqueueError, never>,
   input: Input,
   options?: { readonly invocationId?: WorkflowInvocationId },
-) => {
-  return (
-    options?.invocationId === undefined
-      ? makeWorkflowInvocationId()
-      : Effect.succeed(options.invocationId)
-  ).pipe(
-    Effect.flatMap((invocationId) =>
-      Effect.suspend(() => enqueue(input, { invocationId })).pipe(
-        Effect.timeout(workflowEnqueueTimeout),
-        Effect.mapError((error) =>
-          Cause.isTimeoutError(error)
-            ? new WorkflowTransportUnavailable({
-                operation: "Enqueue",
-                retryable: true,
-                message: "Workflow enqueue timed out",
-              })
-            : error,
-        ),
-        Effect.retry({
-          schedule: Schedule.spaced(Duration.millis(100)).pipe(Schedule.take(1)),
-          while: (error) =>
-            Predicate.isTagged("WorkflowTransportUnavailable")(error) && error.retryable,
-        }),
-      ),
-    ),
-  );
-};
+) =>
+  protectedEnqueues.has(enqueue)
+    ? enqueue(input, options)
+    : makeProtectedEnqueue(enqueue)(input, options);
 
 export const enqueueStatusWorkflow = (
   client: Pick<SheetWorkflowHttpClientShape, "enqueueServicesDeliverStatus">,
