@@ -53,6 +53,7 @@ export const fastServices = [
   "sheet-auth",
   "sheet-db-server",
   "sheet-workflows",
+  "sheet-bot",
 ] as const;
 export type FastService = (typeof fastServices)[number];
 

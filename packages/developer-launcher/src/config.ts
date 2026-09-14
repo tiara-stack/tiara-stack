@@ -71,6 +71,7 @@ const fastHostEnvironmentKeys = [
   "OTEL_EXPORTER_OTLP_ENDPOINT",
   "DEV_SHEET_AUTH_PORT",
   "DEV_SHEET_DB_SERVER_PORT",
+  "DEV_SHEET_BOT_PORT",
   "DEV_PROMETHEUS_PORT",
   "DEV_LOCAL_JWKS_PORT",
   "POD_NAMESPACE",
@@ -79,6 +80,10 @@ const fastHostEnvironmentKeys = [
   "SHEET_WORKFLOWS_ROLE",
   "SHEET_AUTH_OAUTH_CLIENT_ID",
   "SHEET_AUTH_OAUTH_CLIENT_SECRET",
+  "SHEET_WEB_BASE_URL",
+  "ZERO_CACHE_SERVER",
+  "ZERO_CACHE_USER_ID",
+  "ZERO_OAUTH_AUDIENCE",
   "SHEET_AUTH_WORKFLOW_HTTP_AUDIENCE",
   "SHEET_AUTH_WORKFLOW_HTTP_BROWSER_AUDIENCE",
   "SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID",
@@ -86,6 +91,10 @@ const fastHostEnvironmentKeys = [
   "SHEET_AUTH_TRUSTED_DELEGATION_CLIENT_IDS",
   "SHEET_AUTO_CHECKIN_SERVICE_ID",
   "SHEET_AUTO_CHECKIN_OAUTH_CLIENT_ID",
+  "SHEET_BOT_DEV_DISCORD_TOKEN",
+  "SHEET_BOT_OAUTH_CLIENT_ID",
+  "SHEET_BOT_OAUTH_CLIENT_SECRET",
+  "SHEET_BOT_CAPABILITY_ENCRYPTION_SECRET",
   "WORKFLOWS_RUNNER_HOST",
   "WORKFLOWS_RUNNER_PORT",
   "WORKFLOWS_RUNNER_LISTEN_HOST",
@@ -101,18 +110,19 @@ const fastHostEnvironmentKeyOwners: Readonly<Record<string, readonly FastService
   DISCORD_CLIENT_SECRET: ["sheet-auth"],
   POSTGRES_URL: ["sheet-auth", "sheet-db-server", "sheet-workflows"],
   REDIS_BASE: ["sheet-auth"],
-  REDIS_URL: ["sheet-auth"],
-  SHEET_AUTH_ISSUER: ["sheet-db-server", "sheet-workflows"],
-  SHEET_AUTH_OAUTH_AUDIENCE: ["sheet-db-server", "sheet-workflows"],
+  REDIS_URL: ["sheet-auth", "sheet-bot"],
+  SHEET_AUTH_ISSUER: ["sheet-db-server", "sheet-workflows", "sheet-bot"],
+  SHEET_AUTH_OAUTH_AUDIENCE: ["sheet-db-server", "sheet-workflows", "sheet-bot"],
   SHEET_AUTH_OAUTH_JWKS_URL: ["sheet-auth"],
   TRUSTED_ORIGINS: ["sheet-auth"],
-  OTEL_EXPORTER_OTLP_ENDPOINT: ["sheet-auth", "sheet-db-server", "sheet-workflows"],
-  DEV_SHEET_AUTH_PORT: ["sheet-auth"],
+  OTEL_EXPORTER_OTLP_ENDPOINT: ["sheet-auth", "sheet-db-server", "sheet-workflows", "sheet-bot"],
+  DEV_SHEET_AUTH_PORT: ["sheet-auth", "sheet-bot"],
   DEV_SHEET_DB_SERVER_PORT: ["sheet-db-server"],
+  DEV_SHEET_BOT_PORT: ["sheet-bot"],
   DEV_PROMETHEUS_PORT: ["sheet-auth", "sheet-db-server", "sheet-workflows"],
   DEV_LOCAL_JWKS_PORT: ["sheet-auth"],
-  POD_NAMESPACE: ["sheet-workflows"],
-  DEV_SHEET_WORKFLOWS_PORT: ["sheet-workflows"],
+  POD_NAMESPACE: ["sheet-workflows", "sheet-bot"],
+  DEV_SHEET_WORKFLOWS_PORT: ["sheet-workflows", "sheet-bot"],
   DEV_WORKFLOWS_RUNNER_PORT: ["sheet-workflows"],
   SHEET_WORKFLOWS_ROLE: ["sheet-workflows"],
   SHEET_AUTH_OAUTH_CLIENT_ID: ["sheet-workflows"],
@@ -120,10 +130,17 @@ const fastHostEnvironmentKeyOwners: Readonly<Record<string, readonly FastService
   SHEET_AUTH_WORKFLOW_HTTP_AUDIENCE: ["sheet-workflows"],
   SHEET_AUTH_WORKFLOW_HTTP_BROWSER_AUDIENCE: ["sheet-workflows"],
   SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID: ["sheet-workflows"],
-  SHEET_WEB_BASE_URL: ["sheet-workflows"],
+  SHEET_WEB_BASE_URL: ["sheet-workflows", "sheet-bot"],
+  ZERO_CACHE_SERVER: ["sheet-bot"],
+  ZERO_CACHE_USER_ID: ["sheet-bot"],
+  ZERO_OAUTH_AUDIENCE: ["sheet-bot"],
   SHEET_AUTH_TRUSTED_DELEGATION_CLIENT_IDS: ["sheet-workflows"],
   SHEET_AUTO_CHECKIN_SERVICE_ID: ["sheet-workflows"],
   SHEET_AUTO_CHECKIN_OAUTH_CLIENT_ID: ["sheet-workflows"],
+  SHEET_BOT_DEV_DISCORD_TOKEN: ["sheet-bot"],
+  SHEET_BOT_OAUTH_CLIENT_ID: ["sheet-bot"],
+  SHEET_BOT_OAUTH_CLIENT_SECRET: ["sheet-bot"],
+  SHEET_BOT_CAPABILITY_ENCRYPTION_SECRET: ["sheet-bot"],
   WORKFLOWS_RUNNER_HOST: ["sheet-workflows"],
   WORKFLOWS_RUNNER_PORT: ["sheet-workflows"],
   WORKFLOWS_RUNNER_LISTEN_HOST: ["sheet-workflows"],
@@ -196,6 +213,7 @@ const secretEnvironmentKeys = new Set([
   "SHEET_WORKFLOWS_OAUTH_CLIENT_SECRET",
   "TRUSTED_OAUTH_CLIENTS_JSON",
   "ZERO_ADMIN_PASSWORD",
+  "SHEET_BOT_DEV_DISCORD_TOKEN",
 ]);
 
 const disallowedEnvironmentKeys = new Set([
@@ -228,7 +246,10 @@ const isDisallowedEnvironmentKey = (
     mode === "fast" &&
     selectedServices.some(
       (service) =>
-        service === "sheet-auth" || service === "sheet-db-server" || service === "sheet-workflows",
+        service === "sheet-auth" ||
+        service === "sheet-db-server" ||
+        service === "sheet-workflows" ||
+        service === "sheet-bot",
     ) &&
     fastHostEnvironmentKeys.includes(normalizedKey as (typeof fastHostEnvironmentKeys)[number]) &&
     isFastHostKeyOwnedBySelection(normalizedKey, selectedServices)
@@ -528,7 +549,10 @@ const validateEnvironmentKeys = (
     mode === "fast" &&
     selectedServices.some(
       (service) =>
-        service === "sheet-auth" || service === "sheet-db-server" || service === "sheet-workflows",
+        service === "sheet-auth" ||
+        service === "sheet-db-server" ||
+        service === "sheet-workflows" ||
+        service === "sheet-bot",
     )
       ? new Set([...modeEnvironmentKeySets.fast, ...fastHostEnvironmentKeys])
       : modeEnvironmentKeySets[mode];
@@ -659,12 +683,14 @@ const validateFast = (
     "sheet-auth": DETERMINISTIC_PORTS["sheet-auth"],
     "sheet-db-server": DETERMINISTIC_PORTS["sheet-db-server"],
     "sheet-workflows": DETERMINISTIC_PORTS["sheet-workflows"],
+    "sheet-bot": DETERMINISTIC_PORTS["sheet-bot"],
   };
   const servicePortKeys = {
     "sheet-auth": "DEV_SHEET_AUTH_PORT",
     "sheet-db-server": "DEV_SHEET_DB_SERVER_PORT",
+    "sheet-bot": "DEV_SHEET_BOT_PORT",
   } as const;
-  for (const service of ["sheet-auth", "sheet-db-server"] as const) {
+  for (const service of ["sheet-auth", "sheet-db-server", "sheet-bot"] as const) {
     const parsed = parsePort(
       input.mode,
       input.action,
@@ -687,7 +713,10 @@ const validateFast = (
     DETERMINISTIC_PORTS["sheet-workflows"],
   );
   servicePorts["sheet-workflows"] = parsedWorkflowsPort.value;
-  if (selectedServices.includes("sheet-workflows") && parsedWorkflowsPort.error !== undefined) {
+  if (
+    (selectedServices.includes("sheet-workflows") || selectedServices.includes("sheet-bot")) &&
+    parsedWorkflowsPort.error !== undefined
+  ) {
     errors.push(parsedWorkflowsPort.error);
   }
   const parsedPrometheusPort = parsePort(
@@ -802,30 +831,47 @@ const validateFast = (
       portOwners.set(workflowsRunnerListenPort.value, "sheet-workflows runner");
     }
   }
-  if (
-    selectedServices.includes("sheet-auth") ||
-    selectedServices.includes("sheet-db-server") ||
-    selectedServices.includes("sheet-workflows")
-  ) {
-    for (const [dependency, port] of [
-      ["postgres", DETERMINISTIC_PORTS.postgres],
-      ["redis", DETERMINISTIC_PORTS.redis],
-      ["local-jwks", parsedLocalJwksPort.value],
-      ["prometheus", parsedPrometheusPort.value],
-    ] as const) {
-      const previous = portOwners.get(port);
-      if (previous !== undefined) {
-        errors.push(
-          makeDiagnostic(
-            "port-collision",
-            `Fast assigns port ${port} to both ${previous} and ${dependency}`,
-            "Choose explicit deterministic service ports that do not collide with local dependencies.",
-            { mode: input.mode, action: input.action, dependency, port },
-          ),
-        );
-      } else {
-        portOwners.set(port, dependency);
-      }
+  const dependencyPorts = [
+    ...(selectedServices.some((service) =>
+      ["sheet-auth", "sheet-db-server", "sheet-workflows"].includes(service),
+    )
+      ? ([["postgres", DETERMINISTIC_PORTS.postgres]] as const)
+      : []),
+    ...(selectedServices.includes("sheet-auth") || selectedServices.includes("sheet-bot")
+      ? ([["redis", DETERMINISTIC_PORTS.redis]] as const)
+      : []),
+    ...(selectedServices.includes("sheet-bot")
+      ? ([["zero-cache", DETERMINISTIC_PORTS["zero-cache"]]] as const)
+      : []),
+    ...(selectedServices.includes("sheet-bot")
+      ? ([
+          ["sheet-web", servicePorts["sheet-web"]],
+          ["sheet-auth", servicePorts["sheet-auth"]],
+          ["sheet-workflows", servicePorts["sheet-workflows"]],
+        ] as const)
+      : []),
+    ...(selectedServices.some((service) =>
+      ["sheet-auth", "sheet-db-server", "sheet-workflows"].includes(service),
+    )
+      ? ([
+          ["local-jwks", parsedLocalJwksPort.value],
+          ["prometheus", parsedPrometheusPort.value],
+        ] as const)
+      : []),
+  ];
+  for (const [dependency, port] of dependencyPorts) {
+    const previous = portOwners.get(port);
+    if (previous !== undefined) {
+      errors.push(
+        makeDiagnostic(
+          "port-collision",
+          `Fast assigns port ${port} to both ${previous} and ${dependency}`,
+          "Choose explicit deterministic service ports that do not collide with local dependencies.",
+          { mode: input.mode, action: input.action, dependency, port },
+        ),
+      );
+    } else {
+      portOwners.set(port, dependency);
     }
   }
   const environment = {
@@ -835,7 +881,9 @@ const validateFast = (
     SHEET_WORKFLOWS_BASE_URL: valueOrDefault(
       values,
       "SHEET_WORKFLOWS_BASE_URL",
-      FAST_ENDPOINTS.workflows,
+      selectedServices.includes("sheet-bot")
+        ? `http://localhost:${servicePorts["sheet-workflows"]}`
+        : FAST_ENDPOINTS.workflows,
     ),
   };
   const origins: readonly [readonly string[], keyof typeof environment][] = [
@@ -845,7 +893,15 @@ const validateFast = (
     ],
     [[FAST_ENDPOINTS.auth], "AUTH_BASE_URL"],
     [[FAST_ENDPOINTS.zero], "SHEET_ZERO_BASE_URL"],
-    [[FAST_ENDPOINTS.workflows], "SHEET_WORKFLOWS_BASE_URL"],
+    [
+      selectedServices.includes("sheet-bot")
+        ? [
+            `http://localhost:${servicePorts["sheet-workflows"]}`,
+            `http://127.0.0.1:${servicePorts["sheet-workflows"]}`,
+          ]
+        : [FAST_ENDPOINTS.workflows],
+      "SHEET_WORKFLOWS_BASE_URL",
+    ],
   ];
   for (const [allowed, key] of origins) {
     const failure = validateOrigin(input.mode, input.action, key, environment[key], allowed);
@@ -973,6 +1029,47 @@ const validateFast = (
       ),
       PROMETHEUS_PORT: String(parsedPrometheusPort.value),
     },
+    "sheet-bot": {
+      PORT: String(servicePorts["sheet-bot"]),
+      POD_NAMESPACE: valueOrDefault(values, "POD_NAMESPACE", "tiara-local"),
+      DISCORD_TOKEN: valueOrDefault(values, "SHEET_BOT_DEV_DISCORD_TOKEN", ""),
+      REDIS_URL: valueOrDefault(values, "REDIS_URL", "redis://localhost:6379"),
+      SHEET_WORKFLOWS_BASE_URL: valueOrDefault(
+        values,
+        "SHEET_WORKFLOWS_BASE_URL",
+        localHost(servicePorts["sheet-workflows"]),
+      ),
+      SHEET_WEB_BASE_URL: valueOrDefault(
+        values,
+        "SHEET_WEB_BASE_URL",
+        localHost(servicePorts["sheet-web"]),
+      ),
+      ZERO_CACHE_SERVER: valueOrDefault(values, "ZERO_CACHE_SERVER", "http://localhost:4848"),
+      ZERO_CACHE_USER_ID: valueOrDefault(
+        values,
+        "ZERO_CACHE_USER_ID",
+        "system:serviceaccount:tiara-local:sheet-bot",
+      ),
+      ZERO_OAUTH_AUDIENCE: valueOrDefault(values, "ZERO_OAUTH_AUDIENCE", "sheet-zero"),
+      SHEET_AUTH_ISSUER: valueOrDefault(
+        values,
+        "SHEET_AUTH_ISSUER",
+        localHost(servicePorts["sheet-auth"]),
+      ),
+      SHEET_AUTH_OAUTH_CLIENT_ID: valueOrDefault(values, "SHEET_BOT_OAUTH_CLIENT_ID", ""),
+      SHEET_AUTH_OAUTH_CLIENT_SECRET: valueOrDefault(values, "SHEET_BOT_OAUTH_CLIENT_SECRET", ""),
+      SHEET_BOT_CAPABILITY_ENCRYPTION_SECRET: valueOrDefault(
+        values,
+        "SHEET_BOT_CAPABILITY_ENCRYPTION_SECRET",
+        "",
+      ),
+      SHEET_AUTH_OAUTH_AUDIENCE: valueOrDefault(values, "SHEET_AUTH_OAUTH_AUDIENCE", "sheet-bot"),
+      OTEL_EXPORTER_OTLP_ENDPOINT: valueOrDefault(
+        values,
+        "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "http://localhost:4318",
+      ),
+    },
   };
   const localOrigins: readonly [string, string, readonly string[], readonly FastService[]][] = [
     [
@@ -997,7 +1094,7 @@ const validateFast = (
       "OTEL_EXPORTER_OTLP_ENDPOINT",
       serviceEnvironments["sheet-auth"].OTEL_EXPORTER_OTLP_ENDPOINT ?? "",
       ["http://localhost:4318"],
-      ["sheet-auth", "sheet-db-server", "sheet-workflows"],
+      ["sheet-auth", "sheet-db-server", "sheet-workflows", "sheet-bot"],
     ],
     [
       "SHEET_AUTH_ISSUER",
@@ -1010,6 +1107,33 @@ const validateFast = (
       serviceEnvironments["sheet-workflows"].SHEET_WEB_BASE_URL ?? "",
       [localHost(servicePorts["sheet-web"]), `http://127.0.0.1:${servicePorts["sheet-web"]}`],
       ["sheet-workflows"],
+    ],
+    [
+      "SHEET_WEB_BASE_URL",
+      serviceEnvironments["sheet-bot"].SHEET_WEB_BASE_URL ?? "",
+      [localHost(servicePorts["sheet-web"]), `http://127.0.0.1:${servicePorts["sheet-web"]}`],
+      ["sheet-bot"],
+    ],
+    [
+      "SHEET_AUTH_ISSUER",
+      serviceEnvironments["sheet-bot"].SHEET_AUTH_ISSUER ?? "",
+      [localHost(servicePorts["sheet-auth"]), `http://127.0.0.1:${servicePorts["sheet-auth"]}`],
+      ["sheet-bot"],
+    ],
+    [
+      "SHEET_WORKFLOWS_BASE_URL",
+      serviceEnvironments["sheet-bot"].SHEET_WORKFLOWS_BASE_URL ?? "",
+      [
+        localHost(servicePorts["sheet-workflows"]),
+        `http://127.0.0.1:${servicePorts["sheet-workflows"]}`,
+      ],
+      ["sheet-bot"],
+    ],
+    [
+      "ZERO_CACHE_SERVER",
+      serviceEnvironments["sheet-bot"].ZERO_CACHE_SERVER ?? "",
+      ["http://localhost:4848", "http://127.0.0.1:4848"],
+      ["sheet-bot"],
     ],
   ];
   for (const [key, value, allowed, services] of localOrigins) {
@@ -1100,7 +1224,12 @@ const validateFast = (
   }
   const localConnectionKeys = ["POSTGRES_URL", "REDIS_URL"] as const;
   for (const key of localConnectionKeys) {
-    if (key === "REDIS_URL" && !selectedServices.includes("sheet-auth")) continue;
+    if (
+      key === "REDIS_URL" &&
+      !selectedServices.includes("sheet-auth") &&
+      !selectedServices.includes("sheet-bot")
+    )
+      continue;
     if (
       key === "POSTGRES_URL" &&
       !selectedServices.includes("sheet-auth") &&
@@ -1113,7 +1242,8 @@ const validateFast = (
       value === undefined ||
       (!selectedServices.includes("sheet-auth") &&
         !selectedServices.includes("sheet-db-server") &&
-        !selectedServices.includes("sheet-workflows"))
+        !selectedServices.includes("sheet-workflows") &&
+        !selectedServices.includes("sheet-bot"))
     )
       continue;
     try {
@@ -1145,6 +1275,7 @@ const validateFast = (
       "sheet-workflows",
       ["POSTGRES_URL", "SHEET_AUTH_OAUTH_CLIENT_ID", "SHEET_AUTH_OAUTH_CLIENT_SECRET"],
     ],
+    ["sheet-bot", ["REDIS_URL"]],
   ] as const) {
     if (!selectedServices.includes(service as FastService)) continue;
     for (const key of requiredKeys) {
@@ -1153,10 +1284,39 @@ const validateFast = (
         makeDiagnostic(
           "unsafe-credential",
           `${key} is required for host-native ${service}`,
-          key === "POSTGRES_URL"
+          key === "POSTGRES_URL" || key === "REDIS_URL"
             ? `Set ${key} to a host-reachable local dependency URL before starting ${service}.`
             : `Set ${key} to the dedicated local OAuth credential before starting ${service}.`,
           { mode: input.mode, action: input.action, dependency: service },
+        ),
+      );
+    }
+  }
+  if (selectedServices.includes("sheet-bot")) {
+    for (const key of [
+      "SHEET_BOT_DEV_DISCORD_TOKEN",
+      "SHEET_BOT_OAUTH_CLIENT_ID",
+      "SHEET_BOT_OAUTH_CLIENT_SECRET",
+      "SHEET_BOT_CAPABILITY_ENCRYPTION_SECRET",
+    ] as const) {
+      if (values[key]?.trim()) continue;
+      errors.push(
+        makeDiagnostic(
+          "unsafe-credential",
+          `${key} is required for host-native sheet-bot`,
+          "Set the dedicated development-only sheet-bot credential before starting the bot; production Discord credentials are not accepted.",
+          { mode: input.mode, action: input.action, dependency: "sheet-bot" },
+        ),
+      );
+    }
+    const capabilitySecret = values.SHEET_BOT_CAPABILITY_ENCRYPTION_SECRET ?? "";
+    if (capabilitySecret.length > 0 && capabilitySecret.length < 32) {
+      errors.push(
+        makeDiagnostic(
+          "unsafe-credential",
+          "SHEET_BOT_CAPABILITY_ENCRYPTION_SECRET must be at least 32 characters",
+          "Use a dedicated local development secret with at least 32 characters.",
+          { mode: input.mode, action: input.action, dependency: "sheet-bot" },
         ),
       );
     }

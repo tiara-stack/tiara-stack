@@ -7,13 +7,22 @@ import { realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Argument, Command, Flag } from "effect/unstable/cli";
-import { checkHttpAccess, waitForHttp } from "./access";
+import { checkHttpAccess, checkTcpAccess, waitForHttp } from "./access";
 import { FAST_ENDPOINTS } from "./config";
 import { spawnProcess, startLongLivedProcess } from "./executor";
 import { makeDiagnostic } from "./diagnostics";
 import { renderLauncherOutput, runLauncherFromParsed } from "./index";
 import type { LauncherOutput, ProcessExecutor } from "./types";
 import { normalizeChangedSurfaces, type CommandOptions } from "./commands";
+
+const safeDependencyOrigin = (origin: string) => {
+  try {
+    const parsed = new URL(origin);
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return "<invalid endpoint>";
+  }
+};
 
 const commonFlags = {
   envFile: Flag.string("env-file").pipe(Flag.optional),
@@ -313,6 +322,8 @@ const runParsedCommand = (config: Parameters<typeof launcherOptions>[0]) =>
           workflowProcess.environment.WORKFLOWS_RUNNER_PORT !== undefined
             ? `http://${workflowProcess.environment.WORKFLOWS_RUNNER_HOST}:${workflowProcess.environment.WORKFLOWS_RUNNER_PORT}/ready`
             : undefined;
+        const botProcess = result.output.plannedProcesses.find(({ id }) => id === "sheet-bot");
+        const botEnvironment = botProcess?.environment ?? {};
         const dependencyTargets: readonly (readonly [string, string | undefined])[] =
           selectedService === "sheet-web"
             ? ([
@@ -328,7 +339,24 @@ const runParsedCommand = (config: Parameters<typeof launcherOptions>[0]) =>
                     ? ([["sheet-workflows runner", workflowRunner]] as const)
                     : []),
                 ] as const)
-              : ([] as const);
+              : selectedService === "sheet-bot"
+                ? ([
+                    [
+                      "sheet-auth",
+                      `${(botEnvironment.SHEET_AUTH_ISSUER ?? "http://localhost:3002").replace(/\/$/, "")}/ready`,
+                    ],
+                    [
+                      "sheet-zero-cache",
+                      botEnvironment.ZERO_CACHE_SERVER ?? "http://localhost:4848",
+                    ],
+                    ["sheet-redis", botEnvironment.REDIS_URL ?? "redis://localhost:6379"],
+                    [
+                      "sheet-workflows",
+                      `${(botEnvironment.SHEET_WORKFLOWS_BASE_URL ?? "http://localhost:3003").replace(/\/$/, "")}/ready`,
+                    ],
+                    ["sheet-web", botEnvironment.SHEET_WEB_BASE_URL ?? "http://localhost:3001"],
+                  ] as const)
+                : ([] as const);
         const dependencies = await Promise.all(
           dependencyTargets.map(async ([dependency, origin]) => {
             if (origin === undefined) {
@@ -339,20 +367,23 @@ const runParsedCommand = (config: Parameters<typeof launcherOptions>[0]) =>
                 { mode: "fast", dependency },
               );
             }
-            const access = await checkHttpAccess({
-              mode: "fast",
-              dependency,
-              origin,
-              timeoutMs: 2_000,
-              optional: false,
-            });
+            const access =
+              dependency === "sheet-redis"
+                ? await checkTcpAccess(origin, 2_000)
+                : await checkHttpAccess({
+                    mode: "fast",
+                    dependency,
+                    origin,
+                    timeoutMs: 2_000,
+                    optional: false,
+                  });
             return access.reachable
               ? undefined
               : makeDiagnostic(
                   access.timedOut ? "dependency-timeout" : "access-failed",
-                  `${dependency} at ${origin} is not reachable`,
+                  `${dependency} at ${safeDependencyOrigin(origin)} is not reachable`,
                   "Check the approved development endpoint and retry Fast mode.",
-                  { mode: "fast", dependency, origin },
+                  { mode: "fast", dependency, origin: safeDependencyOrigin(origin) },
                 );
           }),
         );

@@ -115,7 +115,12 @@ const fastPlan = (config: FastModeConfig, selectedServices: readonly string[]): 
         true,
       );
     }
-    const entrypoint = fastService === "sheet-auth" ? "src/server.ts" : "src/index.ts";
+    const entrypoint =
+      fastService === "sheet-auth"
+        ? "src/server.ts"
+        : fastService === "sheet-bot"
+          ? "src/main.ts"
+          : "src/index.ts";
     return processPlan(
       fastService,
       fastService,

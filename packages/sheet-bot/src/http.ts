@@ -47,6 +47,16 @@ import {
 } from "./services/botCachePagination";
 import { getObjectField, getStringField } from "./services/unknownObjectFields";
 
+const httpPort = (() => {
+  const rawPort = process.env.PORT?.trim();
+  if (rawPort === undefined || rawPort === "") return 3000;
+  const port = Number(rawPort);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error("PORT must be an integer between 1 and 65535");
+  }
+  return port;
+})();
+
 const disabledMentions = () => ({ parse: [] });
 
 const directMessagePayload = <A extends { readonly message_reference?: unknown }>(payload: A) => ({
@@ -776,5 +786,5 @@ export const httpLayer = HttpRouter.serve(apiRoutesLayer).pipe(
   Layer.provide(DiscordLayer),
   Layer.provide(NodeFileSystem.layer),
   Layer.provide(discordConfigLayer),
-  Layer.provide(NodeHttpServer.layer(createServer, { port: 3000 })),
+  Layer.provide(NodeHttpServer.layer(createServer, { port: httpPort })),
 );

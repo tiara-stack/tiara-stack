@@ -1,4 +1,5 @@
 import { Duration, Effect, Option } from "effect";
+import net from "node:net";
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http";
 import type { AccessChecker, AccessCheckRequest, AccessCheckResult } from "./types";
 
@@ -35,6 +36,44 @@ const checkHttpAccessEffect = (
 
 export const checkHttpAccess: AccessChecker = (request) =>
   Effect.runPromise(checkHttpAccessEffect(request).pipe(Effect.provide(FetchHttpClient.layer)));
+
+export const checkTcpAccess = (origin: string, timeoutMs: number): Promise<AccessCheckResult> => {
+  let url: URL;
+  try {
+    url = new URL(origin);
+  } catch {
+    return Promise.resolve({ reachable: false, reason: "invalid TCP endpoint" });
+  }
+  const port = Number(url.port || 6379);
+  return Effect.runPromise(
+    Effect.callback<AccessCheckResult>((resume) => {
+      const socket = net.createConnection({
+        host: url.hostname.replace(/^\[|\]$/g, ""),
+        port,
+      });
+      let settled = false;
+      const finish = (result: AccessCheckResult) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        socket.destroy();
+        resume(Effect.succeed(result));
+      };
+      const timer = setTimeout(
+        () => finish({ reachable: false, timedOut: true, reason: "TCP check timed out" }),
+        timeoutMs,
+      );
+      socket.once("connect", () => finish({ reachable: true }));
+      socket.once("error", (error: NodeJS.ErrnoException) =>
+        finish({ reachable: false, reason: error.code ?? "TCP check failed" }),
+      );
+      return Effect.sync(() => {
+        clearTimeout(timer);
+        socket.destroy();
+      });
+    }),
+  );
+};
 
 const waitForHttpEffect = (
   origin: string,

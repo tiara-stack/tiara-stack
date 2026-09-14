@@ -137,6 +137,91 @@ describe("developer launcher command boundary", () => {
     expect(result.stdout).not.toContain("local-password");
   });
 
+  it("plans the sheet-bot only when explicitly selected with local development credentials", async () => {
+    const result = await runLauncher(["fast", "up", "--service", "sheet-bot", "--json"], {
+      env: {
+        SHEET_BOT_DEV_DISCORD_TOKEN: "development-token",
+        REDIS_URL: "redis://localhost:6379",
+        SHEET_BOT_OAUTH_CLIENT_ID: "local-bot",
+        SHEET_BOT_OAUTH_CLIENT_SECRET: "local-bot-secret",
+        SHEET_BOT_CAPABILITY_ENCRYPTION_SECRET: "local-bot-capability-secret-32-characters",
+      },
+      portChecker: async () => ({ available: true }),
+    });
+    const output = JSON.parse(result.stdout) as {
+      readonly selectedServices: readonly string[];
+      readonly plannedProcesses: readonly {
+        readonly args: readonly string[];
+        readonly environment: Readonly<Record<string, string>>;
+      }[];
+    };
+
+    expect(result.exitCode).toBe(0);
+    expect(output.selectedServices).toEqual(["sheet-bot"]);
+    expect(output.plannedProcesses[0]).toEqual(
+      expect.objectContaining({
+        args: ["exec", "tsx", "watch", "--tsconfig", "tsconfig.json", "src/main.ts"],
+        environment: expect.objectContaining({
+          DISCORD_TOKEN: "<redacted>",
+          SHEET_WORKFLOWS_BASE_URL: "http://localhost:3003",
+          SHEET_WEB_BASE_URL: "http://localhost:3001",
+          SHEET_AUTH_ISSUER: "http://localhost:3002",
+          ZERO_CACHE_SERVER: "http://localhost:4848",
+        }),
+      }),
+    );
+    expect(result.stdout).not.toContain("development-token");
+  });
+
+  // fallow-ignore-next-line code-duplication
+  it("rejects a host-native bot without its development credential set", async () => {
+    const result = await runLauncher(["fast", "up", "--service", "sheet-bot", "--json"], {
+      env: {
+        REDIS_URL: "redis://localhost:6379",
+        SHEET_BOT_OAUTH_CLIENT_ID: "local-bot",
+        SHEET_BOT_OAUTH_CLIENT_SECRET: "local-bot-secret",
+        SHEET_BOT_CAPABILITY_ENCRYPTION_SECRET: "local-bot-capability-secret-32-characters",
+      },
+      portChecker: async () => ({ available: true }),
+    });
+    const output = JSON.parse(result.stdout) as {
+      readonly errors: readonly { readonly code: string }[];
+    };
+
+    expect(result.exitCode).toBe(2);
+    expect(output.errors.map(({ code }) => code)).toContain("unsafe-credential");
+    expect(output.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          message: expect.stringContaining("SHEET_BOT_DEV_DISCORD_TOKEN"),
+        }),
+      ]),
+    );
+    expect(result.stdout).not.toContain("development-token");
+  });
+
+  it("rejects production and legacy Discord credentials for host-native bot mode", async () => {
+    const result = await runLauncher(["fast", "up", "--service", "sheet-bot", "--json"], {
+      env: {
+        DISCORD_TOKEN: "production-token",
+        SHEET_BOT_DEV_DISCORD_TOKEN: "development-token",
+        REDIS_URL: "redis://localhost:6379",
+        SHEET_BOT_OAUTH_CLIENT_ID: "local-bot",
+        SHEET_BOT_OAUTH_CLIENT_SECRET: "local-bot-secret",
+        SHEET_BOT_CAPABILITY_ENCRYPTION_SECRET: "local-bot-capability-secret-32-characters",
+      },
+    });
+
+    expect(result.exitCode).toBe(2);
+    expect(result.output.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ message: expect.stringContaining("DISCORD_TOKEN") }),
+      ]),
+    );
+    expect(result.stdout).not.toContain("production-token");
+    expect(result.stdout).not.toContain("development-token");
+  });
+
   it("plans the host-native workflow API with the selected supported role", async () => {
     const result = await runLauncher(["fast", "up", "--service", "sheet-workflows", "--json"], {
       cwd: path.resolve(process.cwd(), "../.."),
@@ -483,6 +568,7 @@ describe("developer launcher command boundary", () => {
     expect(executed.output.errors[0]?.message).toContain("kubernetes-workflow-contract-smoke");
   });
 
+  // fallow-ignore-next-line code-duplication
   it("keeps Compose dependency, migration, and application plans ordered", async () => {
     const repository = mkdtempSync(path.join(tmpdir(), "developer-launcher-compose-"));
     const envFile = path.join(repository, "compose.env");
@@ -706,7 +792,6 @@ describe("developer launcher command boundary", () => {
   it.each([
     [["unknown", "--json"], "invalid-mode"],
     [["compose", "unknown", "--json"], "invalid-action"],
-    [["fast", "up", "--service", "sheet-bot", "--json"], "invalid-service"],
   ] as const)("rejects %j before executing a process", async (args, code) => {
     const executions: Parameters<ProcessExecutor>[0][] = [];
     const executor: ProcessExecutor = async (request) => {

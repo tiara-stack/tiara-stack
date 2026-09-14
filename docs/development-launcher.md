@@ -13,6 +13,7 @@ pnpm dev fast
 pnpm dev fast up
 pnpm dev fast up --service sheet-auth
 pnpm dev fast up --service sheet-db-server
+pnpm dev fast up --service sheet-bot
 pnpm dev compose <up|build|down|seed|reset>
 pnpm dev kubernetes <validate|preview> [--changed-surface <surface>]
 pnpm dev doctor
@@ -50,7 +51,7 @@ Effect CLI's generated root help.
 
 | Mode | Runtime processes | Allowed origins | State boundary |
 | --- | --- | --- | --- |
-| Fast | `sheet-web` by default; explicitly selected `sheet-auth`, `sheet-db-server`, or `sheet-workflows` on the host | web uses development HTTPS endpoints; backend slices use host-reachable local dependencies | shared Fast development sandbox |
+| Fast | `sheet-web` by default; explicitly selected `sheet-auth`, `sheet-db-server`, `sheet-workflows`, or `sheet-bot` on the host | web uses development HTTPS endpoints; backend slices use host-reachable local dependencies | shared Fast development sandbox |
 | Compose | packaged runtime containers and local dependencies | loopback URLs only | the selected local Checkout State |
 | Kubernetes | fixed development preview release | `*.dev.theerapakg.moe` endpoints | shared Kubernetes Development Sandbox |
 
@@ -105,13 +106,16 @@ core command reports it as unavailable until those implementations land.
 
 The launcher uses deterministic assignments. The initial assignments include
 port 3001 for `sheet-web`, 3002 for `sheet-auth`, 3003 for
-`sheet-workflows`, 4848 for Zero Cache, and 9464 for Prometheus. An occupied
+`sheet-workflows`, 3004 for `sheet-db-server`, 3005 for `sheet-bot`, 4848 for Zero Cache, and 9464 for
+Prometheus. An occupied
 port is an error. The launcher never selects a random replacement.
 
 Fast accepts deterministic overrides for `DEV_SHEET_WEB_PORT`,
-`DEV_SHEET_AUTH_PORT`, `DEV_SHEET_DB_SERVER_PORT`, `DEV_PROMETHEUS_PORT`, and
-`DEV_LOCAL_JWKS_PORT`. Explicitly selectable Fast services are `sheet-web`,
-`sheet-auth`, `sheet-db-server`, and `sheet-workflows`. Local JWKS is exposed by Compose on port 8081 by
+`DEV_SHEET_AUTH_PORT`, `DEV_SHEET_DB_SERVER_PORT`, `DEV_SHEET_BOT_PORT`,
+`DEV_SHEET_WORKFLOWS_PORT`, `DEV_PROMETHEUS_PORT`, and `DEV_LOCAL_JWKS_PORT`.
+Explicitly selectable Fast
+services are `sheet-web`, `sheet-auth`, `sheet-db-server`, `sheet-workflows`,
+and `sheet-bot`. Local JWKS is exposed by Compose on port 8081 by
 default for host-native processes. Port collisions fail before startup.
 
 Host-native backend plans use package-local TypeScript paths and watch commands. Select the
@@ -131,6 +135,18 @@ for the ordinary runner fleet through `/ready`, while
 `combined` runs the ordinary runner in the same source process. The launcher never starts
 a separate runner process. Use `DEV_SHEET_WORKFLOWS_PORT` and, for `combined`,
 `DEV_WORKFLOWS_RUNNER_PORT` for deterministic overrides.
+
+The host-native sheet-bot is opt-in: `pnpm dev fast up --service sheet-bot`.
+It requires `SHEET_BOT_DEV_DISCORD_TOKEN`, `SHEET_BOT_OAUTH_CLIENT_ID`,
+`SHEET_BOT_OAUTH_CLIENT_SECRET`, and a
+`SHEET_BOT_CAPABILITY_ENCRYPTION_SECRET` of at least 32 characters, plus
+`REDIS_URL` pointing to the host-reachable local Redis service, such as
+`redis://localhost:6379`. The launcher maps these dedicated
+development credentials to the bot process and rejects `DISCORD_TOKEN` and
+production origins. It wires the bot to host-reachable local auth, Zero cache,
+workflow API, and web URLs, and waits for each dependency before reporting bot
+readiness. Only one active gateway may use a given development Discord
+credential; stop another host-native or Compose bot before starting this one.
 
 `pnpm dev fast up` checks the approved auth, Zero, and Workflow endpoints with
 bounded timeouts before starting `sheet-web`. It reports `readiness: ready`
