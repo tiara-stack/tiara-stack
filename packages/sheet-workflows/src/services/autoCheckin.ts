@@ -2,6 +2,7 @@ import {
   Cause,
   Context,
   Data,
+  DateTime,
   Duration,
   Effect,
   Layer,
@@ -12,6 +13,7 @@ import {
 } from "effect";
 import { WorkflowEngine } from "effect/unstable/workflow";
 import { ServicePrincipal, type ActorProvenance } from "sheet-auth/identity";
+import { makeChapterStartReference, makeEventStartReference, scheduleHourAt } from "sheet-domain";
 import { CheckinsOpen, MembersKick, WorkspaceId } from "sheet-workflow-contracts";
 import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import { config } from "@/config";
@@ -44,25 +46,40 @@ class AutonomousTriggerError extends Data.TaggedError("AutonomousTriggerError")<
   readonly cause?: unknown;
 }> {}
 
+/**
+ * Adapts the legacy provider pair to the shared reference. The stored timestamp is a
+ * Chapter Start Instant when its event-wide origin is greater than one.
+ */
+const legacyScheduleTimeReference = (referenceInstantEpochMs: number, scheduleHourOrigin: number) =>
+  scheduleHourOrigin === 1
+    ? makeEventStartReference(DateTime.makeUnsafe(referenceInstantEpochMs))
+    : makeChapterStartReference(DateTime.makeUnsafe(referenceInstantEpochMs), scheduleHourOrigin);
+
 export const deriveAutonomousEventHour = (
-  eventStartEpochMs: number,
+  referenceInstantEpochMs: number,
   targetHourBucketEpochMs: number,
-  scheduleStartHour = 1,
+  scheduleHourOrigin = 1,
 ): number => {
-  if (!Number.isFinite(eventStartEpochMs) || !Number.isFinite(targetHourBucketEpochMs)) {
-    throw new RangeError("event start and target hour must be finite");
+  if (!Number.isFinite(referenceInstantEpochMs) || !Number.isFinite(targetHourBucketEpochMs)) {
+    throw new RangeError("reference instant and target hour must be finite");
   }
-  return Math.floor((targetHourBucketEpochMs - eventStartEpochMs) / hourMillis) + scheduleStartHour;
+  if (!Number.isInteger(scheduleHourOrigin) || scheduleHourOrigin < 1) {
+    throw new RangeError("schedule-hour origin must be a positive integer");
+  }
+  return scheduleHourAt(
+    legacyScheduleTimeReference(referenceInstantEpochMs, scheduleHourOrigin),
+    DateTime.makeUnsafe(targetHourBucketEpochMs),
+  );
 };
 
 export const deriveAutomaticRoleCleanupHour = (
-  eventStartEpochMs: number,
+  referenceInstantEpochMs: number,
   targetHourBucketEpochMs: number,
-  scheduleStartHour = 1,
+  scheduleHourOrigin = 1,
 ): number =>
   Math.max(
     0,
-    deriveAutonomousEventHour(eventStartEpochMs, targetHourBucketEpochMs, scheduleStartHour),
+    deriveAutonomousEventHour(referenceInstantEpochMs, targetHourBucketEpochMs, scheduleHourOrigin),
   );
 
 const isRunningConversation = (conversation: {

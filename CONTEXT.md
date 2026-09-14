@@ -177,8 +177,20 @@ A Configuration Field value validated according to its semantic type and field c
 _Avoid_: Legacy cell text, untyped setting
 
 **Event Start Instant**:
-The canonical UTC moment at which the workspace event begins; Legacy Settings Tab epoch seconds and formula results are import encodings, not the Web Configuration value.
-_Avoid_: Start Time cell, event day zero
+The canonical UTC moment at which the full workspace event begins; Schedule Hour 1 starts at this instant. Legacy Settings Tab epoch seconds and formula results are import encodings, not the Web Configuration value.
+_Avoid_: Start Time cell, chapter start, event day zero
+
+**Schedule Hour**:
+A one-based event-wide hour whose half-open interval starts after (hour minus one) elapsed hours from the Event Start Instant. Persisted schedule labels keep this event-wide meaning even when a configuration starts at a chapter.
+_Avoid_: Chapter hour, local hour, schedule origin
+
+**Chapter Start Instant**:
+The canonical UTC moment at which a configured event chapter begins; a Schedule Time Reference pairs it with the chapter's first event-wide Schedule Hour.
+_Avoid_: Event Start Instant, chapter day zero
+
+**Schedule Time Reference**:
+A validated pair of an instant and its event-wide Schedule Hour. An event-start reference pairs the Event Start Instant with hour 1; a chapter-start reference pairs the Chapter Start Instant with the chapter's first event-wide hour.
+_Avoid_: Schedule origin, first visible row
 
 **Configuration Validity**:
 Whether a Web Configuration Version satisfies its field schemas and cross-field invariants well enough to serve as the active web source; an incomplete editable version is not thereby an active source.

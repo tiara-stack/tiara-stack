@@ -127,6 +127,39 @@ describe("AutonomousTriggerService", () => {
     ).toBe(0);
   });
 
+  it("rejects invalid schedule-hour origins", () => {
+    const eventStart = Date.UTC(2026, 3, 1, 12);
+    const target = eventStart + scheduledHourMillis;
+
+    expect(() => deriveAutonomousEventHour(eventStart, target, 0)).toThrow(RangeError);
+    expect(() => deriveAutonomousEventHour(eventStart, target, 1.5)).toThrow(RangeError);
+    expect(() => deriveAutonomousEventHour(eventStart, target, Number.POSITIVE_INFINITY)).toThrow(
+      RangeError,
+    );
+  });
+
+  it("preserves the recorded event 179 chapter and full-event hour mappings", () => {
+    const eventStart = Date.UTC(2026, 8, 7, 3);
+    const chapterStart = Date.UTC(2026, 8, 9, 3);
+    const capturedTargets = [
+      [Date.UTC(2026, 8, 9, 16), 62],
+      [Date.UTC(2026, 8, 9, 17), 63],
+      [Date.UTC(2026, 8, 10, 5), 75],
+      [Date.UTC(2026, 8, 10, 7), 77],
+      [Date.UTC(2026, 8, 10, 9), 79],
+      [Date.UTC(2026, 8, 10, 10), 80],
+      [Date.UTC(2026, 8, 10, 11), 81],
+      [Date.UTC(2026, 8, 10, 12), 82],
+    ] as const;
+
+    for (const [target, expectedHour] of capturedTargets) {
+      expect(deriveAutonomousEventHour(eventStart, target)).toBe(expectedHour);
+      expect(deriveAutonomousEventHour(chapterStart, target, 49)).toBe(expectedHour);
+    }
+
+    expect(deriveAutonomousEventHour(chapterStart, Date.UTC(2026, 8, 10, 12), 1)).toBe(34);
+  });
+
   it("derives one schedule-hour origin across conversations", () => {
     expect(scheduleHourOriginFor([{ hour: null }, { hour: 50 }, { hour: 49 }, { hour: 193 }])).toBe(
       49,
@@ -170,6 +203,39 @@ describe("AutonomousTriggerService", () => {
         { workspaceId: "workspace-1", conversationName: "main", hour: 59 },
         { workspaceId: "workspace-1", conversationName: "side", hour: 59 },
       ]);
+    }),
+  );
+
+  it.effect("sweeps the recorded chapter configuration at event-wide hour 82", () =>
+    Effect.gen(function* () {
+      const calls: Array<Parameters<AutonomousWorkflowEnqueuerShape["enqueueCheckinsOpen"]>[0]> =
+        [];
+      const enqueuer = {
+        enqueueCheckinsOpen: (request: (typeof calls)[number]) =>
+          Effect.sync(() => {
+            calls.push(request);
+          }),
+        enqueueMembersKick: () => Effect.void,
+      } as typeof AutonomousWorkflowEnqueuer.Service;
+      const chapterStart = Date.UTC(2026, 8, 9, 3);
+      const target = Date.UTC(2026, 8, 10, 12);
+
+      yield* runService<AutonomousSweepResult>(
+        (service) => service.sweepAutoCheckin(target - scheduledHourMillis),
+        {
+          conversations: [conversation("conversation-main", "main")],
+          enqueuer,
+          eventStartEpochMs: chapterStart,
+          scheduleHourOrigin: 49,
+        },
+      );
+
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.input).toEqual({
+        workspaceId: "workspace-1",
+        conversationName: "main",
+        hour: 82,
+      });
     }),
   );
 
