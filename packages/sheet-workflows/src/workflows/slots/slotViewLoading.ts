@@ -1,5 +1,5 @@
 import { Data, Effect, Option, Predicate } from "effect";
-import type { WebSheetConfiguration } from "sheet-domain";
+import type { ScheduleTimeReferenceMetadata, WebSheetConfiguration } from "sheet-domain";
 import type { WorkspaceId } from "sheet-workflow-contracts";
 import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import {
@@ -55,8 +55,8 @@ export const resolveSlotWorkspace = (
             Effect.map(
               Option.match({
                 onNone: () => Option.some({ sheetId: null, missingConfiguration }),
-                onSome: ({ spreadsheetId, configuration }) =>
-                  Option.some({ sheetId: spreadsheetId, configuration }),
+                onSome: ({ spreadsheetId, configuration, scheduleTimeReference }) =>
+                  Option.some({ sheetId: spreadsheetId, configuration, scheduleTimeReference }),
               }),
             ),
           ),
@@ -73,6 +73,7 @@ export const loadSlotViewForWorkspace = <ResolveError, OperationsError>(options:
       readonly sheetId: string | null;
       readonly configuration?: WebSheetConfiguration | null;
       readonly missingConfiguration?: "workspace.sheetId" | "workspace.sheetConfiguration";
+      readonly scheduleTimeReference?: ScheduleTimeReferenceMetadata | null;
     }>,
     ResolveError
   >;
@@ -87,13 +88,20 @@ export const loadSlotViewForWorkspace = <ResolveError, OperationsError>(options:
     Effect.flatMap(
       Option.match({
         onNone: () => Effect.fail(interactiveResourceNotFound("workspace", options.workspaceId)),
-        onSome: ({ sheetId, configuration, missingConfiguration }) =>
+        onSome: ({ sheetId, configuration, missingConfiguration, scheduleTimeReference }) =>
           Predicate.isNull(sheetId)
             ? Effect.fail(
                 interactiveConfigurationMissing(missingConfiguration ?? "workspace.sheetId"),
               )
             : options.provider
                 .load(sheetId, options.day, configuration ?? undefined)
+                .pipe(
+                  Effect.map((view) =>
+                    scheduleTimeReference === null || scheduleTimeReference === undefined
+                      ? view
+                      : { ...view, scheduleTimeReference },
+                  ),
+                )
                 .pipe(Effect.catch(rejectSlotListProvider(options.loadOperation))),
       }),
     ),

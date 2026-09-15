@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { ScheduleTimeReferenceMetadata } from "sheet-domain";
 import { slotCapacity } from "../shared/slotCapacity";
 
 const nonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
@@ -20,6 +21,7 @@ const SlotViewSchedule = Schema.Union([
 
 export const SlotView = Schema.Struct({
   eventStartEpochMs: Schema.Finite,
+  scheduleTimeReference: Schema.optional(ScheduleTimeReferenceMetadata),
   schedules: Schema.Array(SlotViewSchedule),
 });
 export type SlotView = typeof SlotView.Type;

@@ -4,7 +4,6 @@ import { Workflow } from "effect/unstable/workflow";
 import { makeAction } from "effect-zero-workflow";
 import { workflowContractKey } from "effect-zero-workflow/contract";
 import { BotOutboundMessage, RespondReceipt } from "sheet-bot-api";
-import { scheduleHourOrigin } from "sheet-domain";
 import {
   PartialNamePlayer,
   PopulatedBreakSchedule,
@@ -127,6 +126,25 @@ export const makeSlotViewEmbeds = (
         ),
       onSome: Effect.succeed,
     });
+    const scheduleTimeReference = yield* Option.match(
+      Option.fromNullishOr(view.scheduleTimeReference),
+      {
+        onNone: () => Effect.succeed(undefined),
+        onSome: (metadata) =>
+          Option.match(DateTime.make(metadata.instantEpochMs), {
+            onNone: () =>
+              Effect.fail(
+                interactiveExternalOperationRejected(
+                  operation,
+                  "InvalidProviderResponse",
+                  "The schedule provider returned an invalid schedule time reference",
+                ),
+              ),
+            onSome: (referenceStartTime) =>
+              Effect.succeed({ startTime: referenceStartTime, hour: metadata.hour }),
+          }),
+      },
+    );
     const sorted = sortedSchedulesWithHours(view);
     if (sorted.droppedCount > 0) {
       yield* Effect.logWarning("Ignoring slot schedules without an hour").pipe(
@@ -137,8 +155,10 @@ export const makeSlotViewEmbeds = (
       toLegacySchedule(day, schedule),
     );
     return renderSlotEmbeds(day, schedules, {
-      startTime,
-      scheduleStartHour: scheduleHourOrigin(view.schedules.map(({ hour }) => hour)),
+      startTime: scheduleTimeReference?.startTime ?? startTime,
+      ...(scheduleTimeReference === undefined
+        ? {}
+        : { scheduleStartHour: scheduleTimeReference.hour }),
     });
   });
 

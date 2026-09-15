@@ -44,6 +44,7 @@ import {
 } from "./slotListProvider";
 import { SlotView } from "./slotListSchema";
 import { SlotListWorkflowOperations } from "./slotListService";
+import { loadSlotViewForWorkspace } from "./slotViewLoading";
 import {
   isSlotSheetWorkflowName,
   materializeSlotWorkflowFailure,
@@ -194,6 +195,124 @@ describe("slot-list delivery Workflow Definition slice", () => {
     }),
   );
 
+  it.effect("renders later-only slots from the resolved schedule time reference", () =>
+    Effect.gen(function* () {
+      const chapterStartEpochMs = Date.UTC(2026, 8, 9, 3);
+      const eventStartEpochMs = Date.UTC(2026, 8, 7, 3);
+      const views = [
+        {
+          eventStartEpochMs,
+          scheduleTimeReference: {
+            kind: "chapter-start" as const,
+            instantEpochMs: chapterStartEpochMs,
+            hour: 49 as const,
+          },
+        },
+        {
+          eventStartEpochMs,
+          scheduleTimeReference: {
+            kind: "event-start" as const,
+            instantEpochMs: eventStartEpochMs,
+            hour: 1 as const,
+          },
+        },
+      ];
+
+      for (const view of views) {
+        const message = yield* makeSlotsDeliverListMessage(2, {
+          ...view,
+          schedules: [
+            { _tag: "Schedule", visible: true, hour: 82, filledSlots: 2, overfillSlots: 0 },
+            { _tag: "Schedule", visible: true, hour: 83, filledSlots: 5, overfillSlots: 0 },
+          ],
+        });
+
+        expect(normalizePayloadText(message)).toMatchObject({
+          embeds: [
+            {
+              title: "Day 2 Open Slots",
+              description: "+3 | hour 82 <t:1789041600:t> - <t:1789045200:t>",
+            },
+            {
+              title: "Day 2 Filled Slots",
+              description: "hour 83 <t:1789045200:t> - <t:1789048800:t>",
+            },
+            {
+              description:
+                "📅 Preview: View your schedule online at https://schedule.theerapakg.moe/",
+              color: 0x5865f2,
+            },
+          ],
+        });
+      }
+    }),
+  );
+
+  it.effect("carries the resolved reference into the serialized slot view", () =>
+    Effect.gen(function* () {
+      const scheduleTimeReference = {
+        kind: "chapter-start" as const,
+        instantEpochMs: Date.UTC(2026, 8, 9, 3),
+        hour: 49 as const,
+      };
+      const resolvedView: SlotView = {
+        eventStartEpochMs: Date.UTC(2026, 8, 7, 3),
+        schedules: [
+          { _tag: "Schedule", visible: true, hour: 82, filledSlots: 2, overfillSlots: 0 },
+          { _tag: "Schedule", visible: true, hour: 83, filledSlots: 5, overfillSlots: 0 },
+        ],
+      };
+      const loaded = yield* loadSlotViewForWorkspace({
+        workspaceId: input.workspaceId,
+        day: 2,
+        resolveWorkspace: Effect.succeed(
+          Option.some({
+            sheetId: "sheet-1",
+            configuration: null,
+            scheduleTimeReference,
+          }),
+        ),
+        provider: {
+          load: () => Effect.succeed(resolvedView),
+        },
+        resolveOperation: "slots.deliverList.resolveWorkspace",
+        loadOperation: "slots.deliverList.loadSlotView",
+        operationError: (operation, cause) => new Error(`${operation}: ${String(cause)}`),
+      });
+
+      expect(loaded.scheduleTimeReference).toEqual(scheduleTimeReference);
+
+      const messages: Array<unknown> = [];
+      const workflow = makeSlotsDeliverListWorkflowBody({
+        load: () => Effect.succeed(loaded),
+        respond: ({ message }) => {
+          messages.push(message);
+          return Effect.succeed(receipt);
+        },
+      });
+      const result = yield* workflow({ invocationId, principal, input });
+
+      expect(result.deliveryReceipts).toEqual([receipt]);
+      expect(normalizePayloadText(messages[0])).toMatchObject({
+        embeds: [
+          {
+            title: "Day 2 Open Slots",
+            description: "+3 | hour 82 <t:1789041600:t> - <t:1789045200:t>",
+          },
+          {
+            title: "Day 2 Filled Slots",
+            description: "hour 83 <t:1789045200:t> - <t:1789048800:t>",
+          },
+          {
+            description:
+              "📅 Preview: View your schedule online at https://schedule.theerapakg.moe/",
+            color: 0x5865f2,
+          },
+        ],
+      });
+    }),
+  );
+
   it.effect("declares an invalid provider event timestamp instead of defecting", () =>
     Effect.gen(function* () {
       expect(
@@ -205,6 +324,28 @@ describe("slot-list delivery Workflow Definition slice", () => {
         operation: "slots.deliverList.loadSlotView",
         code: "InvalidProviderResponse",
         message: "The schedule provider returned an invalid event start time",
+      });
+    }),
+  );
+
+  it.effect("declares an invalid provider schedule time reference instead of defecting", () =>
+    Effect.gen(function* () {
+      expect(
+        yield* Effect.flip(
+          makeSlotsDeliverListMessage(2, {
+            ...view,
+            scheduleTimeReference: {
+              kind: "chapter-start",
+              instantEpochMs: Number.MAX_SAFE_INTEGER,
+              hour: 49,
+            },
+          }),
+        ),
+      ).toEqual({
+        _tag: "ExternalOperationRejected",
+        operation: "slots.deliverList.loadSlotView",
+        code: "InvalidProviderResponse",
+        message: "The schedule provider returned an invalid schedule time reference",
       });
     }),
   );
