@@ -15,8 +15,6 @@ import { config } from "../config";
 import { prefixedUnstorageLayer } from "../discord/cache";
 import {
   BotCapabilityStore,
-  enqueuePreferencesDeliverStatusWorkflow,
-  enqueuePreferencesUpdateAndDeliverWorkflow,
   SheetWorkflowHttpClient,
   type PreferencesDeliverStatusInput,
   type PreferencesUpdateAndDeliverInput,
@@ -92,8 +90,8 @@ export const enqueuePreferenceStatus = Effect.fn("preference.enqueueStatus")(fun
       kind,
       platform,
     }),
-    enqueue: (input, options) =>
-      enqueuePreferencesDeliverStatusWorkflow(workflowClient, input, options),
+    enqueue: workflowClient.enqueuePreferencesDeliverStatus,
+    clientOwnsInvocationId: true,
     rejectedMessage: preferenceRejectedMessage,
     unauthorizedMessage: preferenceUnauthorizedMessage,
     pendingMessage: preferencePendingMessage,
@@ -159,8 +157,8 @@ const makeEnableSubCommand = (kind: PreferenceDmKind) =>
             platform,
             ...preferenceTogglePatch(kind, true, defaultClientId),
           }),
-          enqueue: (input, options) =>
-            enqueuePreferencesUpdateAndDeliverWorkflow(workflowClient, input, options),
+          enqueue: workflowClient.enqueuePreferencesUpdateAndDeliver,
+          clientOwnsInvocationId: true,
           rejectedMessage: preferenceRejectedMessage,
           unauthorizedMessage: preferenceUnauthorizedMessage,
           pendingMessage: preferencePendingMessage,
@@ -198,8 +196,8 @@ const makeDisableSubCommand = (kind: PreferenceDmKind) =>
             platform,
             ...preferenceTogglePatch(kind, false),
           }),
-          enqueue: (input, options) =>
-            enqueuePreferencesUpdateAndDeliverWorkflow(workflowClient, input, options),
+          enqueue: workflowClient.enqueuePreferencesUpdateAndDeliver,
+          clientOwnsInvocationId: true,
           rejectedMessage: preferenceRejectedMessage,
           unauthorizedMessage: preferenceUnauthorizedMessage,
           pendingMessage: preferencePendingMessage,
@@ -270,8 +268,8 @@ const makeClientSubCommand = Effect.gen(function* () {
           platform,
           defaultClientId,
         }),
-        enqueue: (input, options) =>
-          enqueuePreferencesUpdateAndDeliverWorkflow(workflowClient, input, options),
+        enqueue: workflowClient.enqueuePreferencesUpdateAndDeliver,
+        clientOwnsInvocationId: true,
         rejectedMessage: preferenceRejectedMessage,
         unauthorizedMessage: preferenceUnauthorizedMessage,
         pendingMessage: preferencePendingMessage,

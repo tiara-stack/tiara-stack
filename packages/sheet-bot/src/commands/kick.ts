@@ -8,7 +8,6 @@ import { Effect, Layer, Schema } from "effect";
 import { WorkspaceId } from "sheet-workflow-contracts/values";
 import {
   BotCapabilityStore,
-  enqueueMembersKickWorkflow,
   SheetWorkflowHttpClient,
   type MembersKickInput,
   type SheetWorkflowHttpClientShape,
@@ -43,8 +42,8 @@ export const enqueueKick = Effect.fn("kick.enqueueWorkflow")(function* (
     workspaceId: input.workspaceId,
     capabilityStore,
     makeInput: (responseReference) => ({ ...input, responseReference }),
-    enqueue: (workflowInput, options) =>
-      enqueueMembersKickWorkflow(workflowClient, workflowInput, options),
+    enqueue: workflowClient.enqueueMembersKick,
+    clientOwnsInvocationId: true,
     rejectedMessage: kickEnqueueRejectedMessage,
     unauthorizedMessage: kickEnqueueUnauthorizedMessage,
     pendingMessage: kickEnqueuePendingMessage,

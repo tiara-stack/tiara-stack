@@ -9,7 +9,6 @@ import { Effect, Layer, Schema } from "effect";
 import { WorkspaceId } from "sheet-workflow-contracts/values";
 import {
   BotCapabilityStore,
-  enqueueRoomOrdersCreateWorkflow,
   SheetWorkflowHttpClient,
   type RoomOrdersCreateInput,
   type SheetWorkflowHttpClientShape,
@@ -44,8 +43,8 @@ export const enqueueRoomOrder = Effect.fn("roomOrder.enqueueWorkflow")(function*
     workspaceId: input.workspaceId,
     capabilityStore,
     makeInput: (responseReference) => ({ ...input, responseReference }),
-    enqueue: (workflowInput, options) =>
-      enqueueRoomOrdersCreateWorkflow(workflowClient, workflowInput, options),
+    enqueue: workflowClient.enqueueRoomOrdersCreate,
+    clientOwnsInvocationId: true,
     rejectedMessage: roomOrderEnqueueRejectedMessage,
     unauthorizedMessage: roomOrderEnqueueUnauthorizedMessage,
     pendingMessage: roomOrderEnqueuePendingMessage,

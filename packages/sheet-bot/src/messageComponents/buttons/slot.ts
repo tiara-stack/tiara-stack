@@ -16,7 +16,6 @@ import {
 import { prefixedUnstorageLayer } from "../../discord/cache";
 import {
   BotCapabilityStore,
-  enqueueSlotsOpenWorkflow,
   SheetWorkflowHttpClient,
   type BotCapabilityStoreShape,
   type SheetWorkflowHttpClientShape,
@@ -52,7 +51,8 @@ const enqueueSlotOpenButton = Effect.fn("slotButton.enqueueWorkflow")(function* 
     workspaceId,
     capabilityStore,
     makeInput: (responseReference) => ({ messageId, responseReference }),
-    enqueue: (input, options) => enqueueSlotsOpenWorkflow(workflowClient, input, options),
+    enqueue: workflowClient.enqueueSlotsOpen,
+    clientOwnsInvocationId: true,
     rejectedMessage: slotButtonEnqueueRejectedMessage,
     unauthorizedMessage: slotButtonEnqueueUnauthorizedMessage,
     pendingMessage: slotButtonEnqueuePendingMessage,

@@ -16,7 +16,6 @@ import {
 import { prefixedUnstorageLayer } from "../../discord/cache";
 import {
   BotCapabilityStore,
-  enqueueCheckinsRespondWorkflow,
   SheetWorkflowHttpClient,
   type BotCapabilityStoreShape,
   type SheetWorkflowHttpClientShape,
@@ -60,7 +59,8 @@ const enqueueCheckinButton = Effect.fn("checkinButton.enqueueWorkflow")(function
     workspaceId,
     capabilityStore,
     makeInput: (responseReference) => ({ messageId, responseReference }),
-    enqueue: (input, options) => enqueueCheckinsRespondWorkflow(workflowClient, input, options),
+    enqueue: workflowClient.enqueueCheckinsRespond,
+    clientOwnsInvocationId: true,
     rejectedMessage: checkinButtonEnqueueRejectedMessage,
     unauthorizedMessage: checkinButtonEnqueueUnauthorizedMessage,
     pendingMessage: checkinButtonEnqueuePendingMessage,

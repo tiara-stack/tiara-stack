@@ -18,8 +18,6 @@ import {
 import { prefixedUnstorageLayer } from "../discord/cache";
 import {
   BotCapabilityStore,
-  enqueueCheckinsOpenWorkflow,
-  enqueueCheckinsTestAutoWorkflow,
   SheetWorkflowHttpClient,
   type BotCapabilityStoreShape,
   type CheckinsOpenInput,
@@ -71,8 +69,8 @@ export const enqueueCheckin = Effect.fn("checkin.enqueueWorkflow")(function* (
     workspaceId: input.workspaceId,
     capabilityStore,
     makeInput: (responseReference) => ({ ...input, responseReference }),
-    enqueue: (workflowInput, options) =>
-      enqueueCheckinsOpenWorkflow(workflowClient, workflowInput, options),
+    enqueue: workflowClient.enqueueCheckinsOpen,
+    clientOwnsInvocationId: true,
     rejectedMessage: checkinEnqueueRejectedMessage,
     unauthorizedMessage: checkinEnqueueUnauthorizedMessage,
     pendingMessage: checkinEnqueuePendingMessage,
@@ -92,8 +90,8 @@ export const enqueueCheckinTestAuto = Effect.fn("checkin.testAutoEnqueueWorkflow
     workspaceId: input.workspaceId,
     capabilityStore,
     makeInput: (responseReference) => ({ ...input, responseReference }),
-    enqueue: (workflowInput, options) =>
-      enqueueCheckinsTestAutoWorkflow(workflowClient, workflowInput, options),
+    enqueue: workflowClient.enqueueCheckinsTestAuto,
+    clientOwnsInvocationId: true,
     rejectedMessage: checkinTestAutoEnqueueRejectedMessage,
     unauthorizedMessage: checkinTestAutoEnqueueUnauthorizedMessage,
     pendingMessage: checkinTestAutoEnqueuePendingMessage,

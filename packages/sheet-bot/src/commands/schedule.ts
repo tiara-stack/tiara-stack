@@ -9,7 +9,6 @@ import {
 import { prefixedUnstorageLayer } from "../discord/cache";
 import {
   BotCapabilityStore,
-  enqueueScheduleWorkflow,
   SheetWorkflowHttpClient,
   type SchedulesDeliverUserScheduleInput,
   type SheetWorkflowHttpClientShape,
@@ -44,8 +43,8 @@ export const enqueueSchedule = Effect.fn("schedule.enqueueWorkflow")(function* (
     workspaceId: input.workspaceId,
     capabilityStore,
     makeInput: (responseReference) => ({ ...input, responseReference }),
-    enqueue: (workflowInput, options) =>
-      enqueueScheduleWorkflow(workflowClient, workflowInput, options),
+    enqueue: workflowClient.enqueueSchedulesDeliverUserSchedule,
+    clientOwnsInvocationId: true,
     rejectedMessage: scheduleEnqueueRejectedMessage,
     unauthorizedMessage: scheduleEnqueueUnauthorizedMessage,
     pendingMessage: scheduleEnqueuePendingMessage,

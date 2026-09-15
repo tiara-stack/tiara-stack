@@ -51,12 +51,6 @@ import {
   SheetWorkflowHttpRequestContext,
   SheetWorkflowHttpClient,
   SheetZeroClient,
-  enqueueSheetConfigurationActivateWorkflow,
-  enqueueSheetConfigurationDiscardDraftWorkflow,
-  enqueueSheetConfigurationEditDraftWorkflow,
-  enqueueSheetConfigurationRollbackWorkflow,
-  enqueueSheetConfigurationSaveDraftWorkflow,
-  enqueueSheetConfigurationSaveRevisionWorkflow,
   type AuthorizationLoadWorkspaceCapabilitiesWorkflow,
   type SheetWorkflowHttpClientShape,
 } from "../services";
@@ -463,7 +457,7 @@ const respondToConfigurationImport = (options: {
     return yield* enqueueAndReport(
       options.response,
       "Sheet Configuration import",
-      enqueueSheetConfigurationSaveDraftWorkflow(options.workflowClient, input),
+      options.workflowClient.enqueueSheetConfigurationSaveDraft(input),
       `Saved ${summary} as the draft. The active source remains unchanged until activation.`,
     );
   });
@@ -937,7 +931,7 @@ const makeSetSubCommand = Effect.gen(function* () {
           const editReply = yield* enqueueAndReport(
             response,
             "Sheet Configuration draft update",
-            enqueueSheetConfigurationSaveDraftWorkflow(workflowClient, {
+            workflowClient.enqueueSheetConfigurationSaveDraft({
               workspaceId,
               expectedDraftVersion: state.draftVersion,
               source,
@@ -1097,7 +1091,7 @@ const makeScalarEditSubCommand = Effect.gen(function* () {
           return yield* enqueueAndReport(
             response,
             "Sheet Configuration scalar edit",
-            enqueueSheetConfigurationEditDraftWorkflow(workflowClient, input),
+            workflowClient.enqueueSheetConfigurationEditDraft(input),
           );
         }),
       );
@@ -1162,7 +1156,7 @@ const makeRangeEditSubCommand = Effect.gen(function* () {
           return yield* enqueueAndReport(
             response,
             "Sheet Configuration range edit",
-            enqueueSheetConfigurationEditDraftWorkflow(workflowClient, input),
+            workflowClient.enqueueSheetConfigurationEditDraft(input),
           );
         }),
       );
@@ -1326,7 +1320,7 @@ const makeEntryEditSubCommand = Effect.gen(function* () {
           return yield* enqueueAndReport(
             response,
             `Sheet Configuration ${action} entry`,
-            enqueueSheetConfigurationEditDraftWorkflow(workflowClient, input),
+            workflowClient.enqueueSheetConfigurationEditDraft(input),
             rawEntryId === undefined && action === "add"
               ? `Generated entry_id: ${entryId}.`
               : undefined,
@@ -1370,7 +1364,7 @@ const makeSaveSubCommand = Effect.gen(function* () {
           return yield* enqueueAndReport(
             response,
             "Sheet Configuration revision save",
-            enqueueSheetConfigurationSaveRevisionWorkflow(workflowClient, {
+            workflowClient.enqueueSheetConfigurationSaveRevision({
               workspaceId,
               expectedDraftVersion: state.draftVersion,
               revisionId,
@@ -1411,7 +1405,7 @@ const makeActivateSubCommand = Effect.gen(function* () {
           return yield* enqueueAndReport(
             response,
             "Sheet Configuration activation",
-            enqueueSheetConfigurationActivateWorkflow(workflowClient, {
+            workflowClient.enqueueSheetConfigurationActivate({
               workspaceId,
               expectedDraftVersion: state.draftVersion,
               revisionId,
@@ -1457,7 +1451,7 @@ const makeRollbackSubCommand = Effect.gen(function* () {
           return yield* enqueueAndReport(
             response,
             "Sheet Configuration rollback",
-            enqueueSheetConfigurationRollbackWorkflow(workflowClient, {
+            workflowClient.enqueueSheetConfigurationRollback({
               workspaceId,
               expectedDraftVersion: state.draftVersion,
               revisionId,
@@ -1498,7 +1492,7 @@ const makeDiscardSubCommand = Effect.gen(function* () {
           return yield* enqueueAndReport(
             response,
             "Sheet Configuration draft discard",
-            enqueueSheetConfigurationDiscardDraftWorkflow(workflowClient, {
+            workflowClient.enqueueSheetConfigurationDiscardDraft({
               workspaceId,
               expectedDraftVersion: state.draftVersion,
             }),

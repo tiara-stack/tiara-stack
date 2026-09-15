@@ -4,9 +4,6 @@ import { CommandHelper, InteractionResponse } from "dfx-discord-utils/utils";
 import { prefixedUnstorageLayer } from "../discord/cache";
 import {
   BotCapabilityStore,
-  enqueueConversationsDeliverConfigWorkflow,
-  enqueueConversationsSetLockdownWorkflow,
-  enqueueConversationsUpdateConfigAndDeliverWorkflow,
   SheetWorkflowHttpClient,
   type ConversationsDeliverConfigInput,
   type ConversationsSetLockdownInput,
@@ -94,8 +91,8 @@ const makeListConfigSubCommand = Effect.gen(function* () {
           conversationId: payloadBase.conversationId,
           responseReference,
         }),
-        enqueue: (input, options) =>
-          enqueueConversationsDeliverConfigWorkflow(workflowClient, input, options),
+        enqueue: workflowClient.enqueueConversationsDeliverConfig,
+        clientOwnsInvocationId: true,
         rejectedMessage: channelRejectedMessage,
         unauthorizedMessage: channelUnauthorizedMessage,
         pendingMessage: channelPendingMessage,
@@ -175,8 +172,8 @@ const makeSetSubCommand = Effect.gen(function* () {
             ...checkinChannelPayload,
           },
         }),
-        enqueue: (input, options) =>
-          enqueueConversationsUpdateConfigAndDeliverWorkflow(workflowClient, input, options),
+        enqueue: workflowClient.enqueueConversationsUpdateConfigAndDeliver,
+        clientOwnsInvocationId: true,
         rejectedMessage: channelRejectedMessage,
         unauthorizedMessage: channelUnauthorizedMessage,
         pendingMessage: channelPendingMessage,
@@ -240,8 +237,8 @@ const makeUnsetSubCommand = Effect.gen(function* () {
             ),
           },
         }),
-        enqueue: (input, options) =>
-          enqueueConversationsUpdateConfigAndDeliverWorkflow(workflowClient, input, options),
+        enqueue: workflowClient.enqueueConversationsUpdateConfigAndDeliver,
+        clientOwnsInvocationId: true,
         rejectedMessage: channelRejectedMessage,
         unauthorizedMessage: channelUnauthorizedMessage,
         pendingMessage: channelPendingMessage,
@@ -286,8 +283,8 @@ const makeLockdownSubCommand = (operation: "setup" | "undo") =>
             enabled: operation === "setup",
             responseReference,
           }),
-          enqueue: (input, options) =>
-            enqueueConversationsSetLockdownWorkflow(workflowClient, input, options),
+          enqueue: workflowClient.enqueueConversationsSetLockdown,
+          clientOwnsInvocationId: true,
           rejectedMessage: channelRejectedMessage,
           unauthorizedMessage: channelUnauthorizedMessage,
           pendingMessage: channelPendingMessage,

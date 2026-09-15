@@ -12,9 +12,6 @@ import { discordApplicationLayer } from "../discord/application";
 import { prefixedUnstorageLayer } from "../discord/cache";
 import {
   BotCapabilityStore,
-  enqueueWorkspacesDeliverConfigWorkflow,
-  enqueueWorkspacesSetMonitorRoleAndDeliverWorkflow,
-  enqueueWorkspacesUpdateConfigAndDeliverWorkflow,
   SheetWorkflowHttpClient,
   type WorkspacesDeliverConfigInput,
   type WorkspacesSetMonitorRoleAndDeliverInput,
@@ -65,8 +62,8 @@ const makeListConfigSubCommand = Effect.gen(function* () {
           workspaceId,
           responseReference,
         }),
-        enqueue: (input, options) =>
-          enqueueWorkspacesDeliverConfigWorkflow(workflowClient, input, options),
+        enqueue: workflowClient.enqueueWorkspacesDeliverConfig,
+        clientOwnsInvocationId: true,
         rejectedMessage: serverRejectedMessage,
         unauthorizedMessage: serverUnauthorizedMessage,
         pendingMessage: serverPendingMessage,
@@ -108,8 +105,8 @@ const makeAddMonitorRoleSubCommand = Effect.gen(function* () {
           enabled: true,
           responseReference,
         }),
-        enqueue: (input, options) =>
-          enqueueWorkspacesSetMonitorRoleAndDeliverWorkflow(workflowClient, input, options),
+        enqueue: workflowClient.enqueueWorkspacesSetMonitorRoleAndDeliver,
+        clientOwnsInvocationId: true,
         rejectedMessage: serverRejectedMessage,
         unauthorizedMessage: serverUnauthorizedMessage,
         pendingMessage: serverPendingMessage,
@@ -169,8 +166,8 @@ const makeRemoveMonitorRoleSubCommand = Effect.gen(function* () {
           enabled: false,
           responseReference,
         }),
-        enqueue: (input, options) =>
-          enqueueWorkspacesSetMonitorRoleAndDeliverWorkflow(workflowClient, input, options),
+        enqueue: workflowClient.enqueueWorkspacesSetMonitorRoleAndDeliver,
+        clientOwnsInvocationId: true,
         rejectedMessage: serverRejectedMessage,
         unauthorizedMessage: serverUnauthorizedMessage,
         pendingMessage: serverPendingMessage,
@@ -228,8 +225,8 @@ const makeSetSheetSubCommand = Effect.gen(function* () {
           responseReference,
           patch: { spreadsheetId },
         }),
-        enqueue: (input, options) =>
-          enqueueWorkspacesUpdateConfigAndDeliverWorkflow(workflowClient, input, options),
+        enqueue: workflowClient.enqueueWorkspacesUpdateConfigAndDeliver,
+        clientOwnsInvocationId: true,
         rejectedMessage: serverRejectedMessage,
         unauthorizedMessage: serverUnauthorizedMessage,
         pendingMessage: serverPendingMessage,
@@ -276,8 +273,8 @@ const makeSetAutoCheckinSubCommand = Effect.gen(function* () {
           responseReference,
           patch: { autoCheckin },
         }),
-        enqueue: (input, options) =>
-          enqueueWorkspacesUpdateConfigAndDeliverWorkflow(workflowClient, input, options),
+        enqueue: workflowClient.enqueueWorkspacesUpdateConfigAndDeliver,
+        clientOwnsInvocationId: true,
         rejectedMessage: serverRejectedMessage,
         unauthorizedMessage: serverUnauthorizedMessage,
         pendingMessage: serverPendingMessage,
@@ -347,8 +344,8 @@ const makeSetChannelSubCommand = (params: {
             responseReference,
             patch: serverChannelPatch[params.configKey](conversationId),
           }),
-          enqueue: (input, options) =>
-            enqueueWorkspacesUpdateConfigAndDeliverWorkflow(workflowClient, input, options),
+          enqueue: workflowClient.enqueueWorkspacesUpdateConfigAndDeliver,
+          clientOwnsInvocationId: true,
           rejectedMessage: serverRejectedMessage,
           unauthorizedMessage: serverUnauthorizedMessage,
           pendingMessage: serverPendingMessage,
@@ -428,8 +425,8 @@ const makeUnsetChannelSubCommand = (params: {
             responseReference,
             patch: serverChannelPatch[params.configKey](null),
           }),
-          enqueue: (input, options) =>
-            enqueueWorkspacesUpdateConfigAndDeliverWorkflow(workflowClient, input, options),
+          enqueue: workflowClient.enqueueWorkspacesUpdateConfigAndDeliver,
+          clientOwnsInvocationId: true,
           rejectedMessage: serverRejectedMessage,
           unauthorizedMessage: serverUnauthorizedMessage,
           pendingMessage: serverPendingMessage,

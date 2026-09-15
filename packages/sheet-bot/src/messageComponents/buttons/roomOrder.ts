@@ -11,13 +11,7 @@ import {
 } from "dfx-discord-utils/utils";
 import type { ResponseReference } from "sheet-bot-api/references";
 import { WorkspaceId } from "sheet-workflow-contracts/values";
-import {
-  enqueueRoomOrdersNavigateWorkflow,
-  enqueueRoomOrdersPinTentativeWorkflow,
-  enqueueRoomOrdersSendWorkflow,
-  BotCapabilityStore,
-  SheetWorkflowHttpClient,
-} from "@/services";
+import { BotCapabilityStore, SheetWorkflowHttpClient } from "@/services";
 import type { WorkflowInvocationId } from "sheet-workflow-http-client";
 import { hasTentativeRoomOrderPrefix } from "sheet-bot-api/actions";
 import { discordGatewayLayer } from "../../discord/gateway";
@@ -166,8 +160,7 @@ const makeRoomOrderNavigateButtonHandler = (
           capabilityStore,
           workspaceId: payload.workflow.workspaceId,
           enqueueReplacement: (responseReference, invocationId) =>
-            enqueueRoomOrdersNavigateWorkflow(
-              workflowClient,
+            workflowClient.enqueueRoomOrdersNavigate(
               { ...payload.workflow, responseReference, direction },
               { invocationId },
             ),
@@ -204,8 +197,7 @@ const makeRoomOrderSendButtonHandler = Effect.gen(function* () {
         capabilityStore,
         workspaceId: payload.workflow.workspaceId,
         enqueueReplacement: (responseReference, invocationId) =>
-          enqueueRoomOrdersSendWorkflow(
-            workflowClient,
+          workflowClient.enqueueRoomOrdersSend(
             { ...payload.workflow, responseReference },
             { invocationId },
           ),
@@ -230,8 +222,7 @@ const makeTentativeRoomOrderPinButtonHandler = Effect.gen(function* () {
         capabilityStore,
         workspaceId: payload.workflow.workspaceId,
         enqueueReplacement: (responseReference, invocationId) =>
-          enqueueRoomOrdersPinTentativeWorkflow(
-            workflowClient,
+          workflowClient.enqueueRoomOrdersPinTentative(
             { ...payload.workflow, responseReference },
             { invocationId },
           ),

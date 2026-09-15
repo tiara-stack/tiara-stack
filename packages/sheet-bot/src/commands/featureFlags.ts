@@ -9,12 +9,10 @@ import {
   type CommandInteractionResponseContext,
 } from "dfx-discord-utils/utils";
 import { Effect, Layer, Match, Option, Predicate, Schema } from "effect";
-import { makeWorkflowInvocationId } from "sheet-workflow-http-client";
 import { FeatureFlagName, WorkspaceId } from "sheet-workflow-contracts/values";
 import {
   SheetWorkflowHttpClient,
   SheetWorkflowHttpRequestContext,
-  enqueueWorkspacesFeatureFlagsSetAndDeliverWorkflow,
   type SheetWorkflowHttpClientShape,
   type WorkspacesFeatureFlagsSetAndDeliverInput,
 } from "../services";
@@ -34,10 +32,8 @@ export const enqueueFeatureFlag = Effect.fn("featureFlag.enqueueWorkflow")(funct
   workflowClient: Pick<SheetWorkflowHttpClientShape, "enqueueWorkspacesFeatureFlagsSetAndDeliver">,
   input: Omit<WorkspacesFeatureFlagsSetAndDeliverInput, "responseReference">,
 ) {
-  const invocationId = yield* makeWorkflowInvocationId();
-
   yield* SheetWorkflowHttpRequestContext.asInteractionUser(() =>
-    enqueueWorkspacesFeatureFlagsSetAndDeliverWorkflow(workflowClient, input, { invocationId }),
+    workflowClient.enqueueWorkspacesFeatureFlagsSetAndDeliver(input),
   )().pipe(
     Effect.matchEffect({
       onSuccess: () =>

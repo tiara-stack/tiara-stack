@@ -3,7 +3,6 @@ import { CommandHelper, type CommandInteractionResponseContext } from "dfx-disco
 import { Effect, Layer, Schema } from "effect";
 import {
   BotCapabilityStore,
-  enqueueChannelFillersWorkflow,
   SheetWorkflowHttpClient,
   type SchedulesDeliverChannelFillersInput,
   type SheetWorkflowHttpClientShape,
@@ -44,8 +43,8 @@ export const enqueueChannelFillers = Effect.fn("fillers.enqueueWorkflow")(functi
     workspaceId: input.workspaceId,
     capabilityStore,
     makeInput: (responseReference) => ({ ...input, responseReference }),
-    enqueue: (workflowInput, options) =>
-      enqueueChannelFillersWorkflow(workflowClient, workflowInput, options),
+    enqueue: workflowClient.enqueueSchedulesDeliverChannelFillers,
+    clientOwnsInvocationId: true,
     rejectedMessage: fillersEnqueueRejectedMessage,
     unauthorizedMessage: fillersEnqueueUnauthorizedMessage,
     pendingMessage: fillersEnqueuePendingMessage,

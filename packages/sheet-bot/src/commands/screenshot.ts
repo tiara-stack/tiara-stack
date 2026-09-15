@@ -9,7 +9,6 @@ import { Effect, Layer, Schema } from "effect";
 import { WorkspaceId } from "sheet-workflow-contracts/values";
 import {
   BotCapabilityStore,
-  enqueueScreenshotsCaptureAndDeliverWorkflow,
   SheetWorkflowHttpClient,
   type ScreenshotsCaptureAndDeliverInput,
   type SheetWorkflowHttpClientShape,
@@ -46,8 +45,8 @@ export const enqueueScreenshot = Effect.fn("screenshot.enqueueWorkflow")(functio
     workspaceId: input.workspaceId,
     capabilityStore,
     makeInput: (responseReference) => ({ ...input, responseReference }),
-    enqueue: (workflowInput, options) =>
-      enqueueScreenshotsCaptureAndDeliverWorkflow(workflowClient, workflowInput, options),
+    enqueue: workflowClient.enqueueScreenshotsCaptureAndDeliver,
+    clientOwnsInvocationId: true,
     rejectedMessage: screenshotEnqueueRejectedMessage,
     unauthorizedMessage: screenshotEnqueueUnauthorizedMessage,
     pendingMessage: screenshotEnqueuePendingMessage,

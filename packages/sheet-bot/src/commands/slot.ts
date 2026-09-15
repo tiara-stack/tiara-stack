@@ -13,9 +13,6 @@ import {
 import { prefixedUnstorageLayer } from "../discord/cache";
 import {
   BotCapabilityStore,
-  enqueueSlotsDeliverListWorkflow,
-  enqueueSlotsPublishButtonWorkflow,
-  enqueueSlotsRemoveButtonWorkflow,
   SheetWorkflowHttpClient,
   type BotCapabilityStoreShape,
   type SheetWorkflowHttpClientShape,
@@ -64,8 +61,8 @@ export const enqueueSlotList = Effect.fn("slot.enqueueListWorkflow")(function* (
     workspaceId: input.workspaceId,
     capabilityStore,
     makeInput: (responseReference) => ({ ...input, responseReference }),
-    enqueue: (workflowInput, options) =>
-      enqueueSlotsDeliverListWorkflow(workflowClient, workflowInput, options),
+    enqueue: workflowClient.enqueueSlotsDeliverList,
+    clientOwnsInvocationId: true,
     rejectedMessage: slotListEnqueueRejectedMessage,
     unauthorizedMessage: slotListEnqueueUnauthorizedMessage,
     pendingMessage: slotEnqueuePendingMessage,
@@ -84,8 +81,8 @@ export const enqueueSlotButton = Effect.fn("slot.enqueueButtonWorkflow")(functio
     workspaceId: input.workspaceId,
     capabilityStore,
     makeInput: (responseReference) => ({ ...input, responseReference }),
-    enqueue: (workflowInput, options) =>
-      enqueueSlotsPublishButtonWorkflow(workflowClient, workflowInput, options),
+    enqueue: workflowClient.enqueueSlotsPublishButton,
+    clientOwnsInvocationId: true,
     rejectedMessage: slotPublishButtonEnqueueRejectedMessage,
     unauthorizedMessage: slotPublishButtonEnqueueUnauthorizedMessage,
     pendingMessage: slotEnqueuePendingMessage,
@@ -104,8 +101,8 @@ export const enqueueSlotButtonRemoval = Effect.fn("slot.enqueueButtonRemovalWork
     workspaceId: input.workspaceId,
     capabilityStore,
     makeInput: (responseReference) => ({ ...input, responseReference }),
-    enqueue: (workflowInput, options) =>
-      enqueueSlotsRemoveButtonWorkflow(workflowClient, workflowInput, options),
+    enqueue: workflowClient.enqueueSlotsRemoveButton,
+    clientOwnsInvocationId: true,
     rejectedMessage: slotRemoveButtonEnqueueRejectedMessage,
     unauthorizedMessage: slotRemoveButtonEnqueueUnauthorizedMessage,
     pendingMessage: slotEnqueuePendingMessage,

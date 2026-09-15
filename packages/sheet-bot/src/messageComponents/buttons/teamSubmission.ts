@@ -14,7 +14,6 @@ import {
 import { discordApplicationLayer } from "../../discord/application";
 import {
   BotCapabilityStore,
-  enqueueTeamSubmissionsDecideWorkflow,
   SheetWorkflowHttpClient,
   SheetWorkflowHttpRequestContext,
   type BotCapabilityStoreShape,
@@ -254,7 +253,7 @@ const makeTeamSubmissionButtonHandler = (
           const response = yield* MessageComponentInteractionResponse;
           yield* response.deferReply({ flags: MessageFlags.Ephemeral });
           const request = yield* makeTeamSubmissionButtonRequest(capabilityStore, decision);
-          yield* enqueueTeamSubmissionsDecideWorkflow(workflowClient, request.input, {
+          yield* workflowClient.enqueueTeamSubmissionsDecide(request.input, {
             invocationId: request.invocationId,
           });
         }),

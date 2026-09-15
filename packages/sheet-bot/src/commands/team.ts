@@ -3,7 +3,6 @@ import { CommandHelper, InteractionResponse } from "dfx-discord-utils/utils";
 import { prefixedUnstorageLayer } from "../discord/cache";
 import {
   BotCapabilityStore,
-  enqueueTeamsDeliverListWorkflow,
   SheetWorkflowHttpClient,
   type TeamsDeliverListInput,
 } from "../services";
@@ -53,8 +52,8 @@ const makeListSubCommand = Effect.gen(function* () {
           targetUsername: targetUser.username,
           responseReference,
         }),
-        enqueue: (input, options) =>
-          enqueueTeamsDeliverListWorkflow(workflowClient, input, options),
+        enqueue: workflowClient.enqueueTeamsDeliverList,
+        clientOwnsInvocationId: true,
         rejectedMessage: teamRejectedMessage,
         unauthorizedMessage: teamUnauthorizedMessage,
         pendingMessage: teamPendingMessage,
