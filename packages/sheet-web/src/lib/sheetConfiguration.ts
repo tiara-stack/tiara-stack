@@ -26,6 +26,10 @@ import {
   SheetConfigurationImportLegacySuccess,
   SheetConfigurationRollbackInput,
   SheetConfigurationRollbackSuccess,
+  SheetConfigurationScheduleTimeReferenceApplyInput,
+  SheetConfigurationScheduleTimeReferenceApplySuccess,
+  SheetConfigurationScheduleTimeReferencePreviewInput,
+  SheetConfigurationScheduleTimeReferencePreviewSuccess,
   SheetConfigurationSaveDraftInput,
   SheetConfigurationSaveDraftSuccess,
   SheetConfigurationSaveRevisionInput,
@@ -256,13 +260,14 @@ const makeConfigurationMutation = <
     runtime: SheetZeroClient,
     input: InputSchema["Type"],
   ) => Effect.Effect<SuccessSchema["Type"], unknown>,
+  invalidate = true,
 ) =>
   runtimeAtom.fn(
     Effect.fnUntraced(function* (payload: Schema.Schema.Type<InputSchema>, ctx: Atom.FnContext) {
       const runtime = yield* ctx.result(sheetZeroClientAtom);
       const input = yield* Schema.decodeUnknownEffect(inputSchema)(payload);
       const result = yield* run(runtime, input);
-      yield* invalidateConfiguration(payload.workspaceId);
+      if (invalidate) yield* invalidateConfiguration(payload.workspaceId);
       return yield* Schema.decodeUnknownEffect(successSchema)(result);
     }),
   );
@@ -344,6 +349,29 @@ const discardDraftMutation = makeConfigurationMutation(
     ),
 );
 
+const previewScheduleTimeReferenceMutation = makeConfigurationMutation(
+  SheetConfigurationScheduleTimeReferencePreviewInput,
+  SheetConfigurationScheduleTimeReferencePreviewSuccess,
+  (runtime, input) =>
+    runSheetWorkflow(
+      runtime.workflows.sheetConfiguration.scheduleTimeReferencePreview,
+      input,
+      SheetConfigurationScheduleTimeReferencePreviewSuccess,
+    ),
+  false,
+);
+
+const applyScheduleTimeReferenceMutation = makeConfigurationMutation(
+  SheetConfigurationScheduleTimeReferenceApplyInput,
+  SheetConfigurationScheduleTimeReferenceApplySuccess,
+  (runtime, input) =>
+    runSheetWorkflow(
+      runtime.workflows.sheetConfiguration.scheduleTimeReferenceApply,
+      input,
+      SheetConfigurationScheduleTimeReferenceApplySuccess,
+    ),
+);
+
 export const useImportLegacyConfiguration = () => {
   const mutate = useAtomSet(importLegacyMutation, { mode: "promise" });
   return useCallback(
@@ -376,6 +404,22 @@ export const useRollbackSheetConfiguration = () => {
 export const useDiscardSheetConfigurationDraft = () => {
   const mutate = useAtomSet(discardDraftMutation, { mode: "promise" });
   return useCallback((input: SheetConfigurationDiscardDraftInput) => mutate(input), [mutate]);
+};
+
+export const usePreviewSheetConfigurationScheduleTimeReference = () => {
+  const mutate = useAtomSet(previewScheduleTimeReferenceMutation, { mode: "promise" });
+  return useCallback(
+    (input: SheetConfigurationScheduleTimeReferencePreviewInput) => mutate(input),
+    [mutate],
+  );
+};
+
+export const useApplySheetConfigurationScheduleTimeReference = () => {
+  const mutate = useAtomSet(applyScheduleTimeReferenceMutation, { mode: "promise" });
+  return useCallback(
+    (input: SheetConfigurationScheduleTimeReferenceApplyInput) => mutate(input),
+    [mutate],
+  );
 };
 
 export const newSheetConfigurationRevisionId = makeUuid;

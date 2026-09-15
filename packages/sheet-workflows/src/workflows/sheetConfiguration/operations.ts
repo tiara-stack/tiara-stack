@@ -1,4 +1,16 @@
-import { Clock, Context, Data, Effect, Layer, Option, Predicate, Schema } from "effect";
+import { createHash } from "node:crypto";
+import {
+  Clock,
+  Context,
+  Data,
+  DateTime,
+  Effect,
+  Layer,
+  Match,
+  Option,
+  Predicate,
+  Schema,
+} from "effect";
 import { ReadonlyJSONValue as ReadonlyJSONValueSchema } from "typhoon-zero/schema";
 import type { ActorProvenance, EffectivePrincipal } from "sheet-auth/identity";
 import {
@@ -13,10 +25,20 @@ import {
   WebSheetConfiguration,
   normalizeConfiguration,
   parseSheetRange,
+  scheduleTimeReferenceBaselineDigestForSource,
   sheetRangeCoordinatesFrom,
   sheetTitleFromRange,
   sourceForLegacySettings,
   sheetConfigurationRanges,
+  scheduleTimeReferenceFromLegacy,
+  scheduleTimeReferenceMetadataFrom,
+  scheduleTimeReferenceFromMetadata,
+  scheduleTimeReferenceMetadataForSource,
+  scheduleTimeReferenceMetadataForEvent,
+  scheduleTimeReferenceMetadataForEventFromSource,
+  scheduleTimeReferenceMetadataForConfiguration,
+  scheduleHourInterval,
+  ScheduleTimeReferenceMetadata,
   validateWebSheetConfiguration,
 } from "sheet-domain";
 import {
@@ -34,6 +56,11 @@ import {
   type SheetConfigurationSaveDraftSuccess,
   type SheetConfigurationSaveRevisionInput,
   type SheetConfigurationSaveRevisionSuccess,
+  type SheetConfigurationScheduleTimeReferenceApplyInput,
+  type SheetConfigurationScheduleTimeReferenceApplySuccess,
+  type SheetConfigurationScheduleTimeReferencePreviewInput,
+  type SheetConfigurationScheduleTimeReferencePreviewSuccess,
+  type SheetConfigurationScheduleTimeReferenceMapping,
   type SheetSnapshotTab,
   type WorkspaceId,
   type InteractiveDeclaredFailure,
@@ -57,6 +84,7 @@ import {
   legacySettingsSnapshotWindow,
   parseLegacyConfiguration,
 } from "../configuration/legacyConfiguration";
+import { parseLegacyNumber } from "../shared/runnerLocalSheets";
 
 class SheetConfigurationWorkflowOperationsError extends Data.TaggedError(
   "SheetConfigurationWorkflowOperationsError",
@@ -95,6 +123,55 @@ type ConfigurationEntry =
   | Configuration["teams"][number]
   | Configuration["schedules"][number]
   | Configuration["runners"][number];
+type AuditMetadata = Readonly<Record<string, string | number | boolean | null>>;
+
+const scheduleTimeReferenceEquivalence = Schema.toEquivalence(ScheduleTimeReferenceMetadata);
+
+const sourceWithScheduleTimeReference = (
+  source: typeof SheetConfigurationSource.Type,
+  reference: typeof ScheduleTimeReferenceMetadata.Type | undefined,
+  baselineDigest?: string,
+): typeof SheetConfigurationSource.Type => {
+  if (reference === undefined) return source;
+  return Match.value(source).pipe(
+    Match.when({ kind: "legacy" }, (legacy) =>
+      Match.value(legacy.binding).pipe(
+        Match.when({ status: "bound" }, (binding) => ({
+          ...legacy,
+          binding: {
+            ...binding,
+            scheduleTimeReference: reference,
+            ...(baselineDigest === undefined
+              ? {}
+              : { scheduleTimeReferenceBaselineDigest: baselineDigest }),
+          },
+        })),
+        Match.when({ status: "unresolved" }, () => legacy),
+        Match.exhaustive,
+      ),
+    ),
+    Match.when({ kind: "owned" }, (owned) => ({
+      ...owned,
+      scheduleTimeReference: reference,
+      ...(baselineDigest === undefined
+        ? {}
+        : { scheduleTimeReferenceBaselineDigest: baselineDigest }),
+    })),
+    Match.exhaustive,
+  );
+};
+
+const configurationWithScheduleTimeReference = (
+  configuration: typeof WebSheetConfiguration.Type,
+  scheduleTimeReference: typeof ScheduleTimeReferenceMetadata.Type,
+): typeof WebSheetConfiguration.Type => ({
+  ...configuration,
+  schemaVersion: 2,
+  event: {
+    ...configuration.event,
+    scheduleTimeReference,
+  },
+});
 
 const ImportAttemptResultSchema = Schema.Struct({
   draftVersion: Schema.Int,
@@ -388,6 +465,7 @@ const readLegacySnapshot = (options: {
   readonly configuration: typeof WebSheetConfiguration.Type | null;
   readonly diagnostics: ReadonlyArray<typeof SheetConfigurationDiagnostic.Type>;
   readonly baselineDigest: string;
+  readonly tabs: ReadonlyArray<SheetSnapshotTab>;
 }> =>
   // Legacy import is one transactional boundary so its read, parse, baseline, and audit result
   // cannot drift apart.
@@ -431,18 +509,400 @@ const readLegacySnapshot = (options: {
         ? []
         : configurationBindingDiagnostics(parsed.configuration, description.tabs);
     const diagnostics = [...parsedDiagnostics, ...validated, ...bindingDiagnostics];
+    const source = sourceWithScheduleTimeReference(
+      parsed.source,
+      scheduleTimeReferenceMetadataForSource(options.source),
+      scheduleTimeReferenceBaselineDigestForSource(options.source),
+    );
     return {
-      source: parsed.source,
+      source,
       configuration:
         parsed.configuration === null ? null : normalizeConfiguration(parsed.configuration),
       diagnostics,
       baselineDigest: parsed.baselineDigest,
+      tabs: description.tabs,
     };
   });
+
+const scheduleTimeReferenceBaselineDigest = (
+  legacyBaselineDigest: string,
+  scheduleHours: ReadonlyArray<number | null>,
+): string =>
+  `legacy-timing-${createHash("sha256")
+    .update(JSON.stringify([legacyBaselineDigest, scheduleHours]))
+    .digest("hex")}`;
+
+const scheduleHoursFromSnapshot = (
+  snapshot: {
+    readonly cells: ReadonlyArray<{
+      readonly row: number;
+      readonly column: number;
+      readonly formattedValue: string;
+    }>;
+  },
+  range: Pick<typeof SheetRangeCoordinates.Type, "startRow" | "startColumn">,
+  rowCount: number,
+): ReadonlyArray<number | null> => {
+  const valuesByRow = new Map(
+    snapshot.cells
+      .filter(({ column }) => column === range.startColumn)
+      .map(({ formattedValue, row }) => [row, formattedValue] as const),
+  );
+  return Array.from({ length: rowCount }, (_, rowIndex) => {
+    const parsed = parseLegacyNumber(valuesByRow.get(range.startRow + rowIndex));
+    return parsed !== undefined && Number.isSafeInteger(parsed) && parsed >= 1 ? parsed : null;
+  });
+};
 
 const hasBlockingDiagnostics = (
   diagnostics: ReadonlyArray<typeof SheetConfigurationDiagnostic.Type>,
 ): boolean => diagnostics.some(({ severity }) => severity === "error");
+
+type ScheduleTimeReferenceObservation = {
+  readonly source: typeof SheetConfigurationSource.Type;
+  readonly currentReference: typeof ScheduleTimeReferenceMetadata.Type | null;
+  readonly proposedReference: typeof ScheduleTimeReferenceMetadata.Type | null;
+  readonly baselineDigest: string;
+  readonly diagnostics: ReadonlyArray<typeof SheetConfigurationDiagnostic.Type>;
+  readonly mappings: ReadonlyArray<SheetConfigurationScheduleTimeReferenceMapping>;
+};
+
+const establishedScheduleTimeReferenceObservation = (options: {
+  readonly source: typeof SheetConfigurationSource.Type;
+  readonly currentReference: typeof ScheduleTimeReferenceMetadata.Type | null;
+  readonly baselineDigest: string;
+  readonly diagnostics: ReadonlyArray<typeof SheetConfigurationDiagnostic.Type>;
+}): ScheduleTimeReferenceObservation => ({
+  source: options.source,
+  currentReference: options.currentReference,
+  proposedReference: options.currentReference,
+  baselineDigest:
+    scheduleTimeReferenceBaselineDigestForSource(options.source) ??
+    scheduleTimeReferenceBaselineDigest(options.baselineDigest, []),
+  diagnostics: options.diagnostics,
+  mappings: [],
+});
+
+const timingMappings = (
+  hours: ReadonlyArray<number | null>,
+  legacyReference: typeof ScheduleTimeReferenceMetadata.Type | undefined,
+  proposedReference: typeof ScheduleTimeReferenceMetadata.Type | undefined,
+): ReadonlyArray<SheetConfigurationScheduleTimeReferenceMapping> => {
+  if (legacyReference === undefined || proposedReference === undefined) return [];
+  const oldValue = scheduleTimeReferenceFromMetadata(legacyReference);
+  const proposedValue = scheduleTimeReferenceFromMetadata(proposedReference);
+  const uniqueHours = [...new Set(hours.filter(Predicate.isNotNull))].sort(
+    (left, right) => left - right,
+  );
+  return uniqueHours.map((hour) => {
+    const oldInterval = scheduleHourInterval(oldValue, hour);
+    const proposedInterval = scheduleHourInterval(proposedValue, hour);
+    return {
+      hour,
+      legacyStartEpochMs: DateTime.toEpochMillis(oldInterval.start),
+      legacyEndEpochMs: DateTime.toEpochMillis(oldInterval.end),
+      proposedStartEpochMs: DateTime.toEpochMillis(proposedInterval.start),
+      proposedEndEpochMs: DateTime.toEpochMillis(proposedInterval.end),
+    };
+  });
+};
+
+const maximumScheduleTimeReferenceScanRows = 10_000;
+
+type ScheduleTimeReferenceHourScan = {
+  readonly hours: ReadonlyArray<number | null>;
+  readonly truncated: boolean;
+};
+
+const readLegacyScheduleHours = (options: {
+  readonly spreadsheetId: string;
+  readonly configuration: Configuration;
+  readonly tabs: ReadonlyArray<SheetSnapshotTab>;
+  readonly snapshotProvider: SheetSnapshotProvider["Service"];
+}): LifecycleResult<ScheduleTimeReferenceHourScan> =>
+  Effect.gen(function* () {
+    let remainingRows = maximumScheduleTimeReferenceScanRows;
+    const scheduleReads = options.configuration.schedules.map((schedule) => {
+      const tab = options.tabs.find(({ sheetId }) => sheetId === schedule.sheetId);
+      const requestedRowCount =
+        tab === undefined
+          ? 0
+          : schedule.hourRange.endRow === "sheet-end"
+            ? Math.max(0, tab.rowCount - schedule.hourRange.startRow)
+            : Math.max(0, schedule.hourRange.endRow - schedule.hourRange.startRow);
+      const scannedRowCount = Math.min(requestedRowCount, remainingRows);
+      remainingRows -= scannedRowCount;
+      return { schedule, tab, requestedRowCount, scannedRowCount };
+    });
+    const groups = yield* Effect.forEach(
+      scheduleReads,
+      ({ schedule, tab, requestedRowCount, scannedRowCount }) => {
+        if (tab === undefined || scannedRowCount === 0) {
+          return Effect.succeed<ScheduleTimeReferenceHourScan>({
+            hours: [],
+            truncated: requestedRowCount > scannedRowCount,
+          });
+        }
+        const pages = Array.from({ length: Math.ceil(scannedRowCount / 100) }, (_, page) => {
+          const startRow = schedule.hourRange.startRow + page * 100;
+          const rowCount = Math.min(scannedRowCount - page * 100, 100);
+          return { startRow, rowCount };
+        });
+        return Effect.forEach(
+          pages,
+          ({ rowCount, startRow }) => {
+            const pageRange = {
+              startRow,
+              startColumn: schedule.hourRange.startColumn,
+            };
+            return options.snapshotProvider
+              .readSnapshot(
+                options.spreadsheetId,
+                schedule.sheetId,
+                {
+                  startRow,
+                  startColumn: schedule.hourRange.startColumn,
+                  rowCount,
+                  columnCount: 1,
+                },
+                "fresh",
+              )
+              .pipe(
+                Effect.mapError(mapSnapshotError),
+                Effect.map((snapshot) => scheduleHoursFromSnapshot(snapshot, pageRange, rowCount)),
+              );
+          },
+          { concurrency: 2 },
+        ).pipe(
+          Effect.map((pageHours) => ({
+            hours: pageHours.flat(),
+            truncated: requestedRowCount > scannedRowCount,
+          })),
+        );
+      },
+      { concurrency: 1 },
+    );
+    return {
+      hours: groups.flatMap(({ hours }) => hours),
+      truncated: groups.some(({ truncated }) => truncated),
+    };
+  });
+
+const readLegacyScheduleTimeReference = (options: {
+  readonly spreadsheetId: string;
+  readonly source: typeof SheetConfigurationSource.Type;
+  readonly snapshotProvider: SheetSnapshotProvider["Service"];
+}): LifecycleResult<ScheduleTimeReferenceObservation> =>
+  // This read combines legacy structure, range evidence, and transition diagnostics in one
+  // operation so preview and apply share exactly the same observation boundary.
+  // fallow-ignore-next-line complexity
+  Effect.gen(function* () {
+    const observed = yield* readLegacySnapshot(options);
+    const currentReference = scheduleTimeReferenceMetadataForSource(observed.source) ?? null;
+    if (observed.configuration === null || hasBlockingDiagnostics(observed.diagnostics)) {
+      return establishedScheduleTimeReferenceObservation({
+        source: observed.source,
+        currentReference,
+        baselineDigest: observed.baselineDigest,
+        diagnostics: observed.diagnostics,
+      });
+    }
+    if (currentReference !== null) {
+      return establishedScheduleTimeReferenceObservation({
+        source: observed.source,
+        currentReference,
+        baselineDigest: observed.baselineDigest,
+        diagnostics: observed.diagnostics,
+      });
+    }
+
+    const scheduleHourScan = yield* readLegacyScheduleHours({
+      spreadsheetId: options.spreadsheetId,
+      configuration: observed.configuration,
+      tabs: observed.tabs,
+      snapshotProvider: options.snapshotProvider,
+    });
+    const scheduleHours = scheduleHourScan.hours;
+    const baselineDigest = scheduleTimeReferenceBaselineDigest(
+      observed.baselineDigest,
+      scheduleHours,
+    );
+    const inferredReference = scheduleHourScan.truncated
+      ? undefined
+      : scheduleTimeReferenceFromLegacy(
+          observed.configuration.event.startTimeEpochMs,
+          scheduleHours,
+        );
+    const legacyReference = {
+      kind: "event-start" as const,
+      instantEpochMs: observed.configuration.event.startTimeEpochMs,
+      hour: 1 as const,
+    };
+    const proposedReference =
+      inferredReference === undefined
+        ? undefined
+        : scheduleTimeReferenceMetadataFrom(inferredReference);
+    const diagnostics =
+      proposedReference === undefined
+        ? [
+            ...observed.diagnostics,
+            {
+              code: "ScheduleTimeReferenceUnresolved" as const,
+              path: "event.scheduleTimeReference",
+              message: scheduleHourScan.truncated
+                ? "The legacy schedule range is too large to verify safely. Narrow it before establishing a timing reference."
+                : "The legacy schedule has no populated event-wide hour from which to establish a timing reference.",
+              severity: "error" as const,
+            },
+          ]
+        : observed.diagnostics;
+    return {
+      source: observed.source,
+      currentReference,
+      proposedReference: proposedReference ?? null,
+      baselineDigest,
+      diagnostics,
+      mappings: timingMappings(scheduleHours, legacyReference, proposedReference),
+    };
+  });
+
+const ownedScheduleTimeReferenceBaselineDigest = (
+  revisionId: string,
+  configuration: typeof WebSheetConfiguration.Type,
+  scheduleHours: ReadonlyArray<number | null>,
+): string =>
+  `owned-timing-${createHash("sha256")
+    .update(
+      JSON.stringify([
+        revisionId,
+        configuration.spreadsheetId,
+        configuration.event.startTimeEpochMs,
+        configuration.schedules
+          .map(({ entryId, sheetId, hourRange }) => [
+            entryId,
+            sheetId,
+            hourRange.startRow,
+            hourRange.endRow,
+            hourRange.startColumn,
+            hourRange.endColumn,
+          ])
+          .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right))),
+        [...scheduleHours].sort((left, right) =>
+          left === null ? (right === null ? 0 : -1) : right === null ? 1 : left - right,
+        ),
+      ]),
+    )
+    .digest("hex")}`;
+
+const readOwnedScheduleTimeReference = (options: {
+  readonly persistence: SheetConfigurationPersistence;
+  readonly workspaceId: WorkspaceId;
+  readonly source: typeof SheetConfigurationSource.Type;
+  readonly snapshotProvider: SheetSnapshotProvider["Service"];
+}): LifecycleResult<ScheduleTimeReferenceObservation> =>
+  // This boundary validates the active revision, reads complete schedule evidence, and reports
+  // unresolved legacy values without mutating the source.
+  // fallow-ignore-next-line complexity
+  Effect.gen(function* () {
+    if (options.source.kind !== "owned" || options.source.revisionId === null) {
+      return yield* Effect.fail(
+        interactiveConfigurationMissing("active Sheet Configuration revision"),
+      );
+    }
+    const revision = yield* options.persistence
+      .getSheetConfigurationRevisionById({
+        workspaceId: options.workspaceId,
+        revisionId: options.source.revisionId,
+      })
+      .pipe(Effect.mapError(mapPersistenceError("sheetConfiguration.loadRevisions")));
+    if (Option.isNone(revision)) {
+      return yield* Effect.fail(
+        interactiveResourceNotFound(
+          "active Sheet Configuration revision",
+          options.source.revisionId,
+        ),
+      );
+    }
+    const configuration = yield* Schema.decodeUnknownEffect(WebSheetConfiguration)(
+      revision.value.configuration,
+    ).pipe(Effect.mapError((error) => operationError("sheetConfiguration.decodeRevision", error)));
+    const storedEventReference = scheduleTimeReferenceMetadataForConfiguration(configuration);
+    const currentReference = scheduleTimeReferenceMetadataForSource(options.source) ?? null;
+    const establishedReference = currentReference ?? storedEventReference;
+    if (establishedReference !== undefined) {
+      const sourceBaselineDigest = scheduleTimeReferenceBaselineDigestForSource(options.source);
+      return {
+        source: options.source,
+        currentReference,
+        proposedReference: establishedReference,
+        baselineDigest:
+          sourceBaselineDigest ??
+          ownedScheduleTimeReferenceBaselineDigest(options.source.revisionId, configuration, []),
+        diagnostics: [],
+        mappings: timingMappings([1], establishedReference, establishedReference),
+      };
+    }
+    const description = yield* options.snapshotProvider
+      .describe(configuration.spreadsheetId, "fresh")
+      .pipe(Effect.mapError(mapSnapshotError));
+    const bindingDiagnostics = configurationBindingDiagnostics(configuration, description.tabs);
+    if (hasBlockingDiagnostics(bindingDiagnostics)) {
+      return {
+        source: options.source,
+        currentReference,
+        proposedReference: null,
+        baselineDigest: ownedScheduleTimeReferenceBaselineDigest(
+          options.source.revisionId,
+          configuration,
+          [],
+        ),
+        diagnostics: bindingDiagnostics,
+        mappings: [],
+      };
+    }
+    const scheduleHourScan = yield* readLegacyScheduleHours({
+      spreadsheetId: configuration.spreadsheetId,
+      configuration,
+      tabs: description.tabs,
+      snapshotProvider: options.snapshotProvider,
+    });
+    const scheduleHours = scheduleHourScan.hours;
+    const inferredReference = scheduleHourScan.truncated
+      ? undefined
+      : scheduleTimeReferenceFromLegacy(configuration.event.startTimeEpochMs, scheduleHours);
+    const legacyReference = {
+      kind: "event-start" as const,
+      instantEpochMs: configuration.event.startTimeEpochMs,
+      hour: 1 as const,
+    };
+    const proposedReference =
+      inferredReference === undefined ? null : scheduleTimeReferenceMetadataFrom(inferredReference);
+    const diagnostics =
+      proposedReference === null
+        ? [
+            {
+              code: "ScheduleTimeReferenceUnresolved" as const,
+              path: "event.scheduleTimeReference",
+              message: scheduleHourScan.truncated
+                ? "The owned schedule range is too large to verify safely. Narrow it before establishing a timing reference."
+                : "The owned configuration has no populated event-wide hour from which to establish a timing reference.",
+              severity: "error" as const,
+            },
+          ]
+        : [];
+    return {
+      source: options.source,
+      currentReference,
+      proposedReference,
+      baselineDigest: ownedScheduleTimeReferenceBaselineDigest(
+        options.source.revisionId,
+        configuration,
+        scheduleHours,
+      ),
+      diagnostics,
+      mappings: timingMappings(scheduleHours, legacyReference, proposedReference ?? undefined),
+    };
+  });
 
 const configurationEntryNotFound = (collection: string, entryId: string) =>
   interactiveResourceNotFound(`${collection} configuration entry`, entryId);
@@ -528,7 +988,22 @@ const applyDraftEdit = (options: {
       return { ...configuration, spreadsheetId: edit.value };
     }
     if (edit.kind === "setEventStartTime") {
-      return { ...configuration, event: { startTimeEpochMs: edit.value } };
+      // This is a real event timestamp change, so it intentionally starts a new event reference.
+      const currentReference =
+        "scheduleTimeReference" in configuration.event
+          ? configuration.event.scheduleTimeReference
+          : undefined;
+      return {
+        ...configuration,
+        schemaVersion: 2,
+        event: {
+          startTimeEpochMs: edit.value,
+          scheduleTimeReference: scheduleTimeReferenceMetadataForEvent(
+            { startTimeEpochMs: edit.value },
+            currentReference,
+          ),
+        },
+      };
     }
     if (edit.kind === "setTeamName") {
       const { index, entry: team } = yield* requireConfigurationEntry(
@@ -866,6 +1341,14 @@ export interface SheetConfigurationWorkflowOperationsShape {
     input: SheetConfigurationDiscardDraftInput,
     attribution: Attribution,
   ) => LifecycleResult<SheetConfigurationDiscardDraftSuccess>;
+  readonly previewScheduleTimeReference: (
+    input: SheetConfigurationScheduleTimeReferencePreviewInput,
+    attribution: Attribution,
+  ) => LifecycleResult<SheetConfigurationScheduleTimeReferencePreviewSuccess>;
+  readonly applyScheduleTimeReference: (
+    input: SheetConfigurationScheduleTimeReferenceApplyInput,
+    attribution: Attribution,
+  ) => LifecycleResult<SheetConfigurationScheduleTimeReferenceApplySuccess>;
 }
 
 export class SheetConfigurationWorkflowOperations extends Context.Service<
@@ -880,31 +1363,32 @@ export const sheetConfigurationWorkflowOperationsLayer = Layer.effect(
     const dataProvider = yield* SheetDataProvider;
     const snapshotProvider = yield* SheetSnapshotProvider;
 
-    const recordFailureAudit: SheetConfigurationWorkflowOperationsShape["recordFailureAudit"] = ({
-      workspaceId,
-      operation,
-      attribution,
-      error,
-    }) => {
-      const details = failureAuditDetails(error);
-      return optionalPersistence(persistence).pipe(
+    const recordAudit = (options: {
+      readonly workspaceId: WorkspaceId;
+      readonly operation: string;
+      readonly attribution: Attribution;
+      readonly outcome: "succeeded" | FailureAuditOutcome;
+      readonly metadata: AuditMetadata;
+      readonly reason: string | null;
+    }): Effect.Effect<void, never> =>
+      optionalPersistence(persistence).pipe(
         Effect.flatMap((configurationPersistence) =>
           configurationPersistence
             .recordSheetConfigurationAudit({
-              workspaceId,
-              operation,
-              outcome: details.outcome,
-              metadata: details.metadata,
-              reason: details.reason,
-              ...attributionFields(attribution),
+              workspaceId: options.workspaceId,
+              operation: options.operation,
+              outcome: options.outcome,
+              metadata: options.metadata,
+              reason: options.reason,
+              ...attributionFields(options.attribution),
             })
             .pipe(
               Effect.catch((cause) =>
-                Effect.logWarning("Unable to record Sheet Configuration failure audit").pipe(
+                Effect.logWarning("Unable to record Sheet Configuration audit").pipe(
                   Effect.annotateLogs({
                     auditFailure: "persistence",
-                    workspaceId,
-                    operation,
+                    workspaceId: options.workspaceId,
+                    operation: options.operation,
                     cause,
                   }),
                   Effect.asVoid,
@@ -913,18 +1397,42 @@ export const sheetConfigurationWorkflowOperationsLayer = Layer.effect(
             ),
         ),
         Effect.catch((cause) =>
-          Effect.logWarning("Unable to resolve Sheet Configuration failure audit persistence").pipe(
+          Effect.logWarning("Unable to resolve Sheet Configuration audit persistence").pipe(
             Effect.annotateLogs({
               auditFailure: "optional-persistence",
-              workspaceId,
-              operation,
+              workspaceId: options.workspaceId,
+              operation: options.operation,
               cause,
             }),
             Effect.asVoid,
           ),
         ),
       );
+
+    const recordFailureAudit: SheetConfigurationWorkflowOperationsShape["recordFailureAudit"] = ({
+      workspaceId,
+      operation,
+      attribution,
+      error,
+    }) => {
+      const details = failureAuditDetails(error);
+      return recordAudit({
+        workspaceId,
+        operation,
+        attribution,
+        outcome: details.outcome,
+        metadata: details.metadata,
+        reason: details.reason,
+      });
     };
+
+    const recordSuccessAudit = (options: {
+      readonly workspaceId: WorkspaceId;
+      readonly operation: string;
+      readonly attribution: Attribution;
+      readonly metadata: AuditMetadata;
+    }): Effect.Effect<void, never> =>
+      recordAudit({ ...options, outcome: "succeeded", reason: null });
 
     const importLegacy: SheetConfigurationWorkflowOperationsShape["importLegacy"] = (
       input,
@@ -1327,6 +1835,7 @@ export const sheetConfigurationWorkflowOperationsLayer = Layer.effect(
           );
         }
         const source = yield* sourceForDraft(persistence, input.workspaceId);
+        const sourceReference = scheduleTimeReferenceMetadataForSource(source);
         const bindingDiagnostics = yield* validateConfigurationBindings({
           configuration: input.configuration,
           snapshotProvider,
@@ -1374,6 +1883,22 @@ export const sheetConfigurationWorkflowOperationsLayer = Layer.effect(
             );
           }
         }
+        const scheduleTimeReference = scheduleTimeReferenceMetadataForEventFromSource(
+          input.configuration.event,
+          sourceReference,
+        );
+        if (scheduleTimeReference === undefined) {
+          return yield* Effect.fail(
+            interactiveBusinessRuleRejected(
+              "ScheduleTimeReferenceRequired",
+              "Establish a Schedule Time Reference before saving this configuration revision.",
+            ),
+          );
+        }
+        const revisionConfiguration = configurationWithScheduleTimeReference(
+          input.configuration,
+          scheduleTimeReference,
+        );
         const createdBy =
           attribution.principal.kind === "user"
             ? attribution.principal.userId
@@ -1388,7 +1913,7 @@ export const sheetConfigurationWorkflowOperationsLayer = Layer.effect(
             revisionId: input.revisionId,
             createdAtEpochMs,
             createdBy,
-            configuration: input.configuration,
+            configuration: revisionConfiguration,
             ...attributionFields(attribution),
           })
           .pipe(Effect.mapError(mapPersistenceError("sheetConfiguration.saveRevision")));
@@ -1400,14 +1925,17 @@ export const sheetConfigurationWorkflowOperationsLayer = Layer.effect(
             workspaceId: input.workspaceId,
             createdAtEpochMs,
             createdBy,
-            configuration: input.configuration,
+            configuration: revisionConfiguration,
           },
         };
       });
 
     const activate: SheetConfigurationWorkflowOperationsShape["activate"] = (input, attribution) =>
+      // Activation combines source, baseline, binding, and reference preconditions.
+      // fallow-ignore-next-line complexity
       Effect.gen(function* () {
         const configurationPersistence = yield* optionalPersistence(persistence);
+        const activeSource = yield* currentSource(persistence, input.workspaceId);
         if (input.expectedBaselineDigest !== null) {
           const source = yield* sourceForWorkspace(persistence, input.workspaceId);
           const spreadsheetId = yield* spreadsheetForLegacySource(
@@ -1433,6 +1961,14 @@ export const sheetConfigurationWorkflowOperationsLayer = Layer.effect(
               interactiveBusinessRuleRejected(
                 "LegacySourceChanged",
                 "The legacy settings changed after import. Re-import it before activating this revision.",
+              ),
+            );
+          }
+          if (scheduleTimeReferenceMetadataForSource(source) === undefined) {
+            return yield* Effect.fail(
+              interactiveBusinessRuleRejected(
+                "ScheduleTimeReferenceRequired",
+                "Establish the active legacy Sheet Configuration timing reference before activating this revision.",
               ),
             );
           }
@@ -1465,6 +2001,19 @@ export const sheetConfigurationWorkflowOperationsLayer = Layer.effect(
             ),
           );
         }
+        const activeSourceReference = scheduleTimeReferenceMetadataForSource(activeSource);
+        const scheduleTimeReference = scheduleTimeReferenceMetadataForEventFromSource(
+          candidateConfiguration.event,
+          activeSourceReference,
+        );
+        if (scheduleTimeReference === undefined) {
+          return yield* Effect.fail(
+            interactiveBusinessRuleRejected(
+              "ScheduleTimeReferenceRequired",
+              "Establish a Schedule Time Reference before activating this configuration revision.",
+            ),
+          );
+        }
         yield* configurationPersistence
           .activateSheetConfigurationRevision({
             workspaceId: input.workspaceId,
@@ -1474,7 +2023,11 @@ export const sheetConfigurationWorkflowOperationsLayer = Layer.effect(
             ...attributionFields(attribution),
           })
           .pipe(Effect.mapError(mapPersistenceError("sheetConfiguration.activate")));
-        const source = { kind: "owned" as const, revisionId: input.revisionId };
+        const source = {
+          kind: "owned" as const,
+          revisionId: input.revisionId,
+          scheduleTimeReference,
+        };
         return {
           workspaceId: input.workspaceId,
           draftVersion: input.expectedDraftVersion + 1,
@@ -1600,15 +2153,38 @@ export const sheetConfigurationWorkflowOperationsLayer = Layer.effect(
             ),
           );
         }
+        const targetTimingObservation = yield* readOwnedScheduleTimeReference({
+          persistence: configurationPersistence,
+          workspaceId: input.workspaceId,
+          source: { kind: "owned", revisionId: input.revisionId },
+          snapshotProvider,
+        });
+        if (
+          targetTimingObservation.proposedReference === null ||
+          hasBlockingDiagnostics(targetTimingObservation.diagnostics)
+        ) {
+          return yield* Effect.fail(
+            interactiveBusinessRuleRejected(
+              "ScheduleTimeReferenceUnresolved",
+              "The rollback revision does not contain enough verified timing evidence to establish a Schedule Time Reference.",
+            ),
+          );
+        }
+        const scheduleTimeReference = targetTimingObservation.proposedReference;
         yield* configurationPersistence
           .rollbackSheetConfiguration({
             workspaceId: input.workspaceId,
             revisionId: input.revisionId,
             expectedDraftVersion: input.expectedDraftVersion,
+            scheduleTimeReference,
             ...attributionFields(attribution),
           })
           .pipe(Effect.mapError(mapPersistenceError("sheetConfiguration.rollback")));
-        const activatedSource = { kind: "owned" as const, revisionId: input.revisionId };
+        const activatedSource = {
+          kind: "owned" as const,
+          revisionId: input.revisionId,
+          scheduleTimeReference,
+        };
         return {
           workspaceId: input.workspaceId,
           draftVersion: input.expectedDraftVersion + 1,
@@ -1649,6 +2225,181 @@ export const sheetConfigurationWorkflowOperationsLayer = Layer.effect(
         };
       });
 
+    const scheduleTimeReferenceObservationFor = (
+      workspaceId: WorkspaceId,
+    ): LifecycleResult<ScheduleTimeReferenceObservation> =>
+      Effect.gen(function* () {
+        const source = yield* currentSource(persistence, workspaceId);
+        return yield* Match.value(source).pipe(
+          Match.when({ kind: "legacy" }, (legacySource) =>
+            Effect.gen(function* () {
+              const spreadsheetId = yield* spreadsheetForLegacySource(
+                dataProvider,
+                workspaceId,
+                legacySource,
+              );
+              return yield* readLegacyScheduleTimeReference({
+                spreadsheetId,
+                source: legacySource,
+                snapshotProvider,
+              });
+            }),
+          ),
+          Match.when({ kind: "owned" }, (ownedSource) =>
+            Effect.gen(function* () {
+              const configurationPersistence = yield* optionalPersistence(persistence);
+              return yield* readOwnedScheduleTimeReference({
+                persistence: configurationPersistence,
+                workspaceId,
+                source: ownedSource,
+                snapshotProvider,
+              });
+            }),
+          ),
+          Match.exhaustive,
+        );
+      });
+
+    const previewScheduleTimeReference: SheetConfigurationWorkflowOperationsShape["previewScheduleTimeReference"] =
+      (input, _attribution) =>
+        Effect.gen(function* () {
+          const configurationPersistence = yield* optionalPersistence(persistence);
+          const current = yield* configurationPersistence
+            .getSheetConfiguration({ workspaceId: input.workspaceId })
+            .pipe(Effect.mapError(mapPersistenceError("sheetConfiguration.load")));
+          const observation = yield* scheduleTimeReferenceObservationFor(input.workspaceId);
+          const currentReference = observation.currentReference;
+          return {
+            workspaceId: input.workspaceId,
+            draftVersion: Option.isSome(current) ? current.value.draftVersion : 0,
+            source: observation.source,
+            status:
+              observation.proposedReference === null
+                ? ("unresolved" as const)
+                : currentReference === null
+                  ? ("ready" as const)
+                  : ("already-established" as const),
+            currentReference,
+            proposedReference: observation.proposedReference,
+            baselineDigest: observation.baselineDigest,
+            diagnostics: observation.diagnostics,
+            mappings: observation.mappings,
+          };
+        });
+
+    const applyScheduleTimeReference: SheetConfigurationWorkflowOperationsShape["applyScheduleTimeReference"] =
+      (input, attribution) =>
+        // This is the CAS/idempotence state machine for the reference-only mutation.
+        // fallow-ignore-next-line complexity
+        Effect.gen(function* () {
+          const configurationPersistence = yield* optionalPersistence(persistence);
+          const observation = yield* scheduleTimeReferenceObservationFor(input.workspaceId);
+          const current = yield* configurationPersistence
+            .getSheetConfiguration({ workspaceId: input.workspaceId })
+            .pipe(Effect.mapError(mapPersistenceError("sheetConfiguration.load")));
+          if (observation.currentReference !== null) {
+            if (!scheduleTimeReferenceEquivalence(observation.currentReference, input.reference)) {
+              return yield* Effect.fail(
+                interactiveInvalidRequest(
+                  "ScheduleTimeReferencePreviewMismatch",
+                  "The requested Schedule Time Reference does not match the established reference.",
+                ),
+              );
+            }
+            const currentDraftVersion = Option.isSome(current) ? current.value.draftVersion : 0;
+            const sourceBaselineDigest = scheduleTimeReferenceBaselineDigestForSource(
+              observation.source,
+            );
+            if (
+              observation.baselineDigest !== input.expectedBaselineDigest ||
+              (currentDraftVersion !== input.expectedDraftVersion &&
+                (currentDraftVersion !== input.expectedDraftVersion + 1 ||
+                  sourceBaselineDigest !== input.expectedBaselineDigest))
+            ) {
+              return yield* Effect.fail(
+                interactiveBusinessRuleRejected(
+                  "ConfigurationConflict",
+                  "The timing reference apply request is stale. Preview the current configuration again.",
+                ),
+              );
+            }
+            yield* recordSuccessAudit({
+              workspaceId: input.workspaceId,
+              operation: "sheetConfiguration.scheduleTimeReferenceApply",
+              attribution,
+              metadata: {
+                status: "already-applied",
+                referenceKind: input.reference.kind,
+                referenceHour: input.reference.hour,
+                draftVersion: currentDraftVersion,
+              },
+            });
+            return {
+              workspaceId: input.workspaceId,
+              draftVersion: currentDraftVersion,
+              source: observation.source,
+              status: "already-applied" as const,
+              previousReference: observation.currentReference,
+              reference: input.reference,
+              baselineDigest: observation.baselineDigest,
+            };
+          }
+          if (
+            observation.proposedReference === null ||
+            hasBlockingDiagnostics(observation.diagnostics)
+          ) {
+            return yield* Effect.fail(
+              interactiveBusinessRuleRejected(
+                "ScheduleTimeReferenceUnresolved",
+                "The current configuration does not contain enough verified timing evidence to establish a reference.",
+              ),
+            );
+          }
+          if (observation.baselineDigest !== input.expectedBaselineDigest) {
+            return yield* Effect.fail(
+              interactiveBusinessRuleRejected(
+                "ConfigurationConflict",
+                "The timing reference evidence changed after preview. Preview the current configuration again.",
+              ),
+            );
+          }
+          if (!scheduleTimeReferenceEquivalence(observation.proposedReference, input.reference)) {
+            return yield* Effect.fail(
+              interactiveInvalidRequest(
+                "ScheduleTimeReferencePreviewMismatch",
+                "The requested timing reference does not match the current preview.",
+              ),
+            );
+          }
+          const source = sourceWithScheduleTimeReference(
+            observation.source,
+            input.reference,
+            observation.baselineDigest,
+          );
+          yield* configurationPersistence
+            .establishSheetConfigurationScheduleTimeReference({
+              workspaceId: input.workspaceId,
+              expectedDraftVersion: input.expectedDraftVersion,
+              expectedBaselineDigest: input.expectedBaselineDigest,
+              source,
+              ...attributionFields(attribution),
+            })
+            .pipe(
+              Effect.mapError(
+                mapPersistenceError("sheetConfiguration.establishScheduleTimeReference"),
+              ),
+            );
+          return {
+            workspaceId: input.workspaceId,
+            draftVersion: input.expectedDraftVersion + 1,
+            source,
+            status: "applied" as const,
+            previousReference: null,
+            reference: input.reference,
+            baselineDigest: observation.baselineDigest,
+          };
+        });
+
     return {
       recordFailureAudit,
       importLegacy,
@@ -1658,6 +2409,8 @@ export const sheetConfigurationWorkflowOperationsLayer = Layer.effect(
       activate,
       rollback,
       discardDraft,
+      previewScheduleTimeReference,
+      applyScheduleTimeReference,
     };
   }),
 );

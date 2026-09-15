@@ -28,6 +28,8 @@ const approvedIntentInventory = [
   "sheetConfiguration.activate",
   "sheetConfiguration.rollback",
   "sheetConfiguration.discardDraft",
+  "sheetConfiguration.scheduleTimeReferencePreview",
+  "sheetConfiguration.scheduleTimeReferenceApply",
   "schedules.loadWorkspace",
   "checkinMessages.load",
   "checkinMessages.save",

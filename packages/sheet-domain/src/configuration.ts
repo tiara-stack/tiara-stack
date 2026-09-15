@@ -1,7 +1,9 @@
 import { Effect, Match, Predicate, Schema } from "effect";
+import { ScheduleTimeReferenceMetadata } from "./scheduleTime";
 
-/** The first persisted representation of the web-native Sheet Configuration. */
-export const sheetConfigurationSchemaVersion = 1 as const;
+/** The current persisted representation of the web-native Sheet Configuration. */
+export const sheetConfigurationSchemaVersion = 2 as const;
+const legacySheetConfigurationSchemaVersion = 1 as const;
 
 export const SheetConfigurationImportAttemptStatus = Schema.Literals([
   "running",
@@ -82,6 +84,9 @@ export const LegacySourceBinding = Schema.Union([
     spreadsheetId: Identifier,
     sheetId: NonNegativeInt,
     layoutVersion: Schema.optional(Identifier),
+    /** Established separately so the legacy event timestamp remains an identity input. */
+    scheduleTimeReference: Schema.optional(ScheduleTimeReferenceMetadata),
+    scheduleTimeReferenceBaselineDigest: Schema.optional(Identifier),
   }),
 ]);
 export type LegacySourceBinding = Schema.Schema.Type<typeof LegacySourceBinding>;
@@ -109,9 +114,49 @@ export const SheetConfigurationSource = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("owned"),
     revisionId: Schema.NullOr(Identifier),
+    scheduleTimeReference: Schema.optional(ScheduleTimeReferenceMetadata),
+    scheduleTimeReferenceBaselineDigest: Schema.optional(Identifier),
   }),
 ]);
 export type SheetConfigurationSource = Schema.Schema.Type<typeof SheetConfigurationSource>;
+
+/** Returns the timing metadata owned by the selected Configuration Source. */
+export const scheduleTimeReferenceMetadataForSource = (
+  source: SheetConfigurationSource,
+): typeof ScheduleTimeReferenceMetadata.Type | undefined =>
+  Match.value(source).pipe(
+    Match.when({ kind: "legacy" }, ({ binding }) =>
+      Match.value(binding).pipe(
+        Match.when({ status: "bound" }, ({ scheduleTimeReference }) => scheduleTimeReference),
+        Match.when({ status: "unresolved" }, () => undefined),
+        Match.exhaustive,
+      ),
+    ),
+    Match.when({ kind: "owned" }, ({ scheduleTimeReference }) => scheduleTimeReference),
+    Match.exhaustive,
+  );
+
+/** Returns the fresh-observation digest captured with an established source reference. */
+export const scheduleTimeReferenceBaselineDigestForSource = (
+  source: SheetConfigurationSource,
+): string | undefined =>
+  Match.value(source).pipe(
+    Match.when({ kind: "legacy" }, ({ binding }) =>
+      Match.value(binding).pipe(
+        Match.when(
+          { status: "bound" },
+          ({ scheduleTimeReferenceBaselineDigest }) => scheduleTimeReferenceBaselineDigest,
+        ),
+        Match.when({ status: "unresolved" }, () => undefined),
+        Match.exhaustive,
+      ),
+    ),
+    Match.when(
+      { kind: "owned" },
+      ({ scheduleTimeReferenceBaselineDigest }) => scheduleTimeReferenceBaselineDigest,
+    ),
+    Match.exhaustive,
+  );
 
 const MonitorRange = Schema.Struct({
   ids: Schema.optional(SheetRange),
@@ -169,6 +214,8 @@ export type SheetTeamConfiguration = Schema.Schema.Type<typeof SheetTeamConfigur
 export const SheetEventConfiguration = Schema.Struct({
   /** UTC milliseconds since Unix epoch. This is the JSON-safe instant representation. */
   startTimeEpochMs: Schema.Int,
+  /** Optional explicit timing meaning. Older configurations omit this field. */
+  scheduleTimeReference: Schema.optional(ScheduleTimeReferenceMetadata),
 });
 export type SheetEventConfiguration = Schema.Schema.Type<typeof SheetEventConfiguration>;
 
@@ -206,16 +253,62 @@ export const SheetRunnerConfiguration = Schema.Struct({
 });
 export type SheetRunnerConfiguration = Schema.Schema.Type<typeof SheetRunnerConfiguration>;
 
-export const WebSheetConfiguration = Schema.Struct({
-  schemaVersion: Schema.Literal(sheetConfigurationSchemaVersion),
+const sheetConfigurationFields = {
   spreadsheetId: Identifier,
   users: SheetUsersConfiguration,
   teams: Schema.Array(SheetTeamConfiguration),
-  event: SheetEventConfiguration,
   schedules: Schema.Array(SheetScheduleConfiguration),
   runners: Schema.Array(SheetRunnerConfiguration),
+} as const;
+
+const LegacyWebSheetConfiguration = Schema.Struct({
+  schemaVersion: Schema.Literal(legacySheetConfigurationSchemaVersion),
+  ...sheetConfigurationFields,
+  event: Schema.Struct({
+    startTimeEpochMs: Schema.Int,
+  }),
 });
+
+export const CurrentWebSheetConfiguration = Schema.Struct({
+  schemaVersion: Schema.Literal(sheetConfigurationSchemaVersion),
+  ...sheetConfigurationFields,
+  event: SheetEventConfiguration,
+});
+export type CurrentWebSheetConfiguration = Schema.Schema.Type<typeof CurrentWebSheetConfiguration>;
+
+/** Accepts both persisted versions while new writers emit version 2. */
+export const WebSheetConfiguration = Schema.Union([
+  LegacyWebSheetConfiguration,
+  CurrentWebSheetConfiguration,
+]);
 export type WebSheetConfiguration = Schema.Schema.Type<typeof WebSheetConfiguration>;
+
+/** Returns explicit timing metadata carried by the current configuration representation. */
+export const scheduleTimeReferenceMetadataForConfiguration = (
+  configuration: WebSheetConfiguration,
+): typeof ScheduleTimeReferenceMetadata.Type | undefined =>
+  Match.value(configuration).pipe(
+    Match.when({ schemaVersion: legacySheetConfigurationSchemaVersion }, () => undefined),
+    Match.when(
+      { schemaVersion: sheetConfigurationSchemaVersion },
+      ({ event }) => event.scheduleTimeReference,
+    ),
+    Match.exhaustive,
+  );
+
+/** Adds the current schema marker to a version-1 configuration without changing its values. */
+export const migrateWebSheetConfiguration = (value: unknown): unknown =>
+  Predicate.isObject(value) &&
+  Predicate.hasProperty(value, "schemaVersion") &&
+  value.schemaVersion === legacySheetConfigurationSchemaVersion
+    ? { ...value, schemaVersion: sheetConfigurationSchemaVersion }
+    : value;
+
+/** Decodes a configuration for a write boundary after upgrading older persisted values. */
+export const decodeCurrentWebSheetConfiguration = (value: unknown): CurrentWebSheetConfiguration =>
+  Schema.decodeUnknownSync(CurrentWebSheetConfiguration)(migrateWebSheetConfiguration(value), {
+    onExcessProperty: "error",
+  });
 
 export const SheetConfigurationRevision = Schema.Struct({
   revisionId: Identifier,
@@ -241,6 +334,7 @@ export const SheetConfigurationDiagnosticCode = Schema.Literals([
   "UnsupportedSheetType",
   "Conflict",
   "ProviderRejected",
+  "ScheduleTimeReferenceUnresolved",
 ]);
 export type SheetConfigurationDiagnosticCode = Schema.Schema.Type<
   typeof SheetConfigurationDiagnosticCode
@@ -413,6 +507,19 @@ export const validateDecodedWebSheetConfiguration = (
         "MissingPairedRange",
         "users.monitors",
         "Monitor ID and monitor name ranges must be configured together.",
+      ),
+    );
+  }
+  const scheduleTimeReference = scheduleTimeReferenceMetadataForConfiguration(configuration);
+  if (
+    scheduleTimeReference !== undefined &&
+    scheduleTimeReference.instantEpochMs !== configuration.event.startTimeEpochMs
+  ) {
+    diagnostics.push(
+      diagnostic(
+        "InvalidSchema",
+        "event.scheduleTimeReference",
+        "The timing reference instant must match the event configuration timestamp.",
       ),
     );
   }

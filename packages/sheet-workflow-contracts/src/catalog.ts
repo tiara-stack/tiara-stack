@@ -182,6 +182,20 @@ export const SheetConfigurationDiscardDraft = interactive(
   policy(["user"], ["workspace.manage"], "workspace", { resourceField: "workspaceId" }),
 );
 
+export const SheetConfigurationScheduleTimeReferencePreview = interactive(
+  "sheetConfiguration.scheduleTimeReferencePreview",
+  Values.SheetConfigurationScheduleTimeReferencePreviewInput,
+  Values.SheetConfigurationScheduleTimeReferencePreviewSuccess,
+  policy(["user"], ["workspace.manage"], "workspace", { resourceField: "workspaceId" }),
+);
+
+export const SheetConfigurationScheduleTimeReferenceApply = interactive(
+  "sheetConfiguration.scheduleTimeReferenceApply",
+  Values.SheetConfigurationScheduleTimeReferenceApplyInput,
+  Values.SheetConfigurationScheduleTimeReferenceApplySuccess,
+  policy(["user"], ["workspace.manage"], "workspace", { resourceField: "workspaceId" }),
+);
+
 export const SchedulesLoadWorkspace = dataAcquisition(
   "schedules.loadWorkspace",
   Values.WorkspaceInput,
@@ -530,6 +544,8 @@ export const SheetWorkflowContracts = Object.freeze({
     activate: SheetConfigurationActivate,
     rollback: SheetConfigurationRollback,
     discardDraft: SheetConfigurationDiscardDraft,
+    scheduleTimeReferencePreview: SheetConfigurationScheduleTimeReferencePreview,
+    scheduleTimeReferenceApply: SheetConfigurationScheduleTimeReferenceApply,
   }),
   schedules: Object.freeze({
     loadWorkspace: SchedulesLoadWorkspace,
@@ -603,6 +619,8 @@ export const SheetWorkflowContractCatalog = defineWorkflowContractCatalog(
   SheetConfigurationActivate,
   SheetConfigurationRollback,
   SheetConfigurationDiscardDraft,
+  SheetConfigurationScheduleTimeReferencePreview,
+  SheetConfigurationScheduleTimeReferenceApply,
   SchedulesLoadWorkspace,
   CheckinMessagesLoad,
   CheckinMessagesSave,

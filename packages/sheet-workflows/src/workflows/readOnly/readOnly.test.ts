@@ -482,6 +482,7 @@ describe("read-only Sheet Workflow Definition slice", () => {
       getSheetConfigurationRevisionsBySpreadsheetId: () => Effect.die("unused"),
       getSheetConfigurationImportAttempt: () => Effect.die("unused"),
       upsertSheetConfigurationDraft: () => Effect.die("unused"),
+      establishSheetConfigurationScheduleTimeReference: () => Effect.die("unused"),
       saveSheetConfigurationRevision: () => Effect.die("unused"),
       activateSheetConfigurationRevision: () => Effect.die("unused"),
       rollbackSheetConfiguration: () => Effect.die("unused"),

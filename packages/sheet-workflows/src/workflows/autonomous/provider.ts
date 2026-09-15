@@ -1,5 +1,9 @@
-import { Context, Data, Effect, Layer, Predicate } from "effect";
-import { scheduleHourOrigin, type WebSheetConfiguration } from "sheet-domain";
+import { Context, Data, Effect, Layer } from "effect";
+import {
+  scheduleTimeReferenceFromLegacy,
+  type ScheduleTimeReference,
+  type WebSheetConfiguration,
+} from "sheet-domain";
 import {
   mapScheduleRows,
   makeRunnerLocalSheetsClient,
@@ -23,22 +27,17 @@ export class AutonomousTriggerProviderError extends Data.TaggedError(
   readonly cause: unknown;
 }> {}
 
-export const scheduleHourOriginFor = (
-  schedules: ReadonlyArray<{ readonly hour: number | null }>,
-): number | undefined => {
-  const hours = schedules.flatMap(({ hour }) => (Predicate.isNull(hour) ? [] : [hour]));
-  return hours.length === 0 ? undefined : scheduleHourOrigin(hours);
-};
-
 interface AutonomousTriggerProviderShape {
   readonly loadEventStart: (
     spreadsheetId: string,
     configuration?: WebSheetConfiguration | null,
   ) => Effect.Effect<number, AutonomousTriggerProviderError>;
-  readonly loadScheduleHourOrigin: (
-    spreadsheetId: string,
-    configuration?: WebSheetConfiguration | null,
-  ) => Effect.Effect<number | undefined, AutonomousTriggerProviderError>;
+  /** Collects all configured legacy rows before resolving one explicit timing reference. */
+  readonly loadLegacyScheduleTimeReference: (options: {
+    readonly spreadsheetId: string;
+    readonly referenceInstantEpochMs: number;
+    readonly configuration?: WebSheetConfiguration | null;
+  }) => Effect.Effect<ScheduleTimeReference | undefined, AutonomousTriggerProviderError>;
 }
 
 export class AutonomousTriggerProvider extends Context.Service<
@@ -62,10 +61,11 @@ export const autonomousTriggerProviderLayer = Layer.effect(
             configuration,
             makeError: makeProviderError("read-event-configuration"),
           }),
-        loadScheduleHourOrigin: (
-          spreadsheetId: string,
-          configuration?: WebSheetConfiguration | null,
-        ) =>
+        loadLegacyScheduleTimeReference: ({
+          spreadsheetId,
+          referenceInstantEpochMs,
+          configuration,
+        }) =>
           Effect.gen(function* () {
             const configurationRanges = yield* loadConfigurationValueRanges({
               client,
@@ -92,7 +92,10 @@ export const autonomousTriggerProviderLayer = Layer.effect(
                 hour: scheduleHour(rows, rowIndex),
               }));
             });
-            return scheduleHourOriginFor(hourRows);
+            return scheduleTimeReferenceFromLegacy(
+              referenceInstantEpochMs,
+              hourRows.map(({ hour }) => hour),
+            );
           }),
       };
     }),

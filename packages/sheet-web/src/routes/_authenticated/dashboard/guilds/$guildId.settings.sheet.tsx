@@ -50,6 +50,7 @@ import {
 import {
   newSheetConfigurationRevisionId,
   useActivateSheetConfiguration,
+  useApplySheetConfigurationScheduleTimeReference,
   useDiscardSheetConfigurationDraft,
   useImportLegacyConfiguration,
   useRollbackSheetConfiguration,
@@ -57,6 +58,7 @@ import {
   useSaveSheetConfigurationRevision,
   useRefreshSheetConfiguration,
   useRefreshSheetConfigurationRevisions,
+  usePreviewSheetConfigurationScheduleTimeReference,
   useSheetConfigurationRevisionsResult,
   useSheetConfigurationResult,
   type SheetConfigurationState,
@@ -65,6 +67,7 @@ import { useSheetDescriptionResult, useSheetSnapshotResult } from "#/lib/sheetSn
 import { formatRunnerHours, parseRunnerHoursInput } from "#/lib/sheetConfigurationInput";
 import {
   LegacySourceBinding,
+  ScheduleTimeReferenceMetadata,
   SheetRange,
   SheetRangeCoordinates,
   WebSheetConfiguration,
@@ -75,6 +78,9 @@ import {
   maximumSheetConfigurationFileBytes,
   parseSheetRange,
   serializeSheetConfigurationFile,
+  scheduleTimeReferenceMetadataForEvent,
+  scheduleTimeReferenceMetadataForConfiguration,
+  scheduleTimeReferenceMetadataForSource,
   sheetColumnLabel as columnLabel,
   sheetRangeCoordinatesFrom,
   sheetRangeFromCoordinates,
@@ -82,7 +88,10 @@ import {
   validateWebSheetConfiguration,
 } from "sheet-domain";
 import type { SheetConfigurationFileInspection, SheetConfigurationRevision } from "sheet-domain";
-import { WorkspaceId } from "sheet-workflow-contracts";
+import {
+  WorkspaceId,
+  type SheetConfigurationScheduleTimeReferencePreviewSuccess,
+} from "sheet-workflow-contracts";
 import type {
   SheetSnapshotTab,
   SheetSnapshotWindow,
@@ -219,18 +228,24 @@ const makeLocalRange = (
   endColumn = startColumn + 1,
 ): LocalRange => ({ startRow, endRow, startColumn, endColumn });
 
-const makeStarterConfiguration = (spreadsheetId: string): Configuration => ({
-  schemaVersion: 1,
-  spreadsheetId: spreadsheetId.trim(),
-  users: {
-    userIds: makeRange(0, 7, 1, "sheet-end", 2),
-    userSheetNames: makeRange(0, 7, 2, "sheet-end", 3),
-  },
-  teams: [],
-  event: { startTimeEpochMs: Date.now() },
-  schedules: [],
-  runners: [],
-});
+const makeStarterConfiguration = (spreadsheetId: string): Configuration => {
+  const startTimeEpochMs = Date.now();
+  return {
+    schemaVersion: 2,
+    spreadsheetId: spreadsheetId.trim(),
+    users: {
+      userIds: makeRange(0, 7, 1, "sheet-end", 2),
+      userSheetNames: makeRange(0, 7, 2, "sheet-end", 3),
+    },
+    teams: [],
+    event: {
+      startTimeEpochMs,
+      scheduleTimeReference: { kind: "event-start", instantEpochMs: startTimeEpochMs, hour: 1 },
+    },
+    schedules: [],
+    runners: [],
+  };
+};
 
 const makeTeamConfiguration = (sheetId: number, index: number): Team => {
   const range = () => makeLocalRange(0, 0, 1, 1);
@@ -1142,6 +1157,10 @@ function StudioLoaded({
   const activate = useActivateSheetConfiguration();
   const rollback = useRollbackSheetConfiguration();
   const discard = useDiscardSheetConfigurationDraft();
+  const previewScheduleTimeReferenceWorkflow = usePreviewSheetConfigurationScheduleTimeReference();
+  const applyScheduleTimeReferenceWorkflow = useApplySheetConfigurationScheduleTimeReference();
+  const [scheduleTimeReferencePreview, setScheduleTimeReferencePreview] =
+    useState<SheetConfigurationScheduleTimeReferencePreviewSuccess>();
   const dirty = !Equal.equals(editing, saved);
   const targets = useMemo(() => (editing === null ? [] : configurationRanges(editing)), [editing]);
   const sectionTargets = section === "overview" ? [] : rangeTargetsForSection(targets, section);
@@ -1155,6 +1174,7 @@ function StudioLoaded({
     return dirty ? Effect.runSync(validateWebSheetConfiguration(editing)) : state.diagnostics;
   }, [dirty, editing, state.diagnostics]);
   const hasErrors = diagnostics.some(({ severity }) => severity === "error");
+  const establishedScheduleTimeReference = scheduleTimeReferenceMetadataForSource(state.source);
   const displayConfiguration = editing ?? state.configuration ?? activeConfiguration ?? null;
   const displayState =
     displayConfiguration === state.configuration
@@ -1393,6 +1413,48 @@ function StudioLoaded({
     } finally {
       setBusy(undefined);
     }
+  };
+
+  const previewScheduleTimeReferenceAction = () =>
+    void runAction(
+      "Preview Schedule Time Reference",
+      async () => {
+        setScheduleTimeReferencePreview(undefined);
+        const preview = await previewScheduleTimeReferenceWorkflow({ workspaceId });
+        setScheduleTimeReferencePreview(preview);
+        return preview;
+      },
+      "Schedule Time Reference preview refreshed.",
+    );
+
+  // The action validates a preview receipt before submitting its CAS transition.
+  // fallow-ignore-next-line complexity
+  const applyScheduleTimeReferenceAction = () => {
+    const preview = scheduleTimeReferencePreview;
+    const reference = preview?.proposedReference;
+    if (
+      preview === undefined ||
+      preview.status !== "ready" ||
+      reference === null ||
+      reference === undefined
+    ) {
+      setStatus({ kind: "error", message: "Preview a ready Schedule Time Reference first." });
+      return;
+    }
+    void runAction(
+      "Establish Schedule Time Reference",
+      async () => {
+        const applied = await applyScheduleTimeReferenceWorkflow({
+          workspaceId,
+          expectedDraftVersion: preview.draftVersion,
+          expectedBaselineDigest: preview.baselineDigest,
+          reference,
+        });
+        setScheduleTimeReferencePreview(undefined);
+        return applied;
+      },
+      "Schedule Time Reference established.",
+    );
   };
 
   const exportConfiguration = () => {
@@ -1858,6 +1920,11 @@ function StudioLoaded({
             {section === "overview" ? (
               <OverviewSection
                 state={displayState}
+                establishedScheduleTimeReference={establishedScheduleTimeReference}
+                scheduleTimeReferencePreview={scheduleTimeReferencePreview}
+                onPreviewScheduleTimeReference={previewScheduleTimeReferenceAction}
+                onApplyScheduleTimeReference={applyScheduleTimeReferenceAction}
+                hasUnsavedEditorState={hasUnsavedEditorState}
                 hasDraft={hasDraft}
                 isLegacy={isLegacy}
                 legacySourceChanged={legacySourceChanged}
@@ -3323,6 +3390,11 @@ function OnboardingStepper({
 // fallow-ignore-next-line complexity
 function OverviewSection({
   state,
+  establishedScheduleTimeReference,
+  scheduleTimeReferencePreview,
+  onPreviewScheduleTimeReference,
+  onApplyScheduleTimeReference,
+  hasUnsavedEditorState,
   hasDraft,
   isLegacy,
   legacySourceChanged,
@@ -3365,6 +3437,13 @@ function OverviewSection({
     readonly baselineDigest: string | null;
     readonly legacyBinding: LegacyBinding | null;
   };
+  readonly establishedScheduleTimeReference: typeof ScheduleTimeReferenceMetadata.Type | undefined;
+  readonly scheduleTimeReferencePreview:
+    | SheetConfigurationScheduleTimeReferencePreviewSuccess
+    | undefined;
+  readonly onPreviewScheduleTimeReference: () => void;
+  readonly onApplyScheduleTimeReference: () => void;
+  readonly hasUnsavedEditorState: boolean;
   readonly hasDraft: boolean;
   readonly isLegacy: boolean;
   readonly legacySourceChanged: boolean;
@@ -3493,6 +3572,17 @@ function OverviewSection({
         </div>
       ) : null}
 
+      {isLegacy || state.activeRevisionId !== null ? (
+        <ScheduleTimeReferenceReview
+          currentReference={establishedScheduleTimeReference}
+          preview={scheduleTimeReferencePreview}
+          busy={busy}
+          hasUnsavedEditorState={hasUnsavedEditorState}
+          onPreview={onPreviewScheduleTimeReference}
+          onApply={onApplyScheduleTimeReference}
+        />
+      ) : null}
+
       <div className="space-y-4">
         <div className="border border-[#33ccbb]/20 bg-[#0e1815] p-5">
           <div className="flex items-start justify-between gap-4">
@@ -3529,6 +3619,7 @@ function OverviewSection({
           {configuration !== null ? (
             <ConfigurationOverviewFields
               configuration={configuration}
+              establishedScheduleTimeReference={establishedScheduleTimeReference}
               onChange={onConfigurationChange}
               onPendingInputStateChange={onPendingInputStateChange}
             />
@@ -3656,6 +3747,144 @@ function OverviewSection({
           Discard this draft
         </button>
       ) : null}
+    </section>
+  );
+}
+
+const scheduleTimeReferenceKindLabels = {
+  "event-start": "Full event",
+  "chapter-start": "Chapter",
+} as const;
+
+const scheduleTimeReferenceStatusLabels = {
+  ready: "Ready to establish",
+  "already-established": "Already established",
+  unresolved: "Needs more evidence",
+} as const;
+
+const scheduleTimeReferenceInstantLabel = (epochMs: number): string => {
+  const date = new Date(epochMs);
+  return Number.isNaN(date.getTime()) ? String(epochMs) : date.toISOString();
+};
+
+const scheduleTimeReferenceSampleHour = 49;
+
+const scheduleTimeReferenceLabel = (
+  reference: typeof ScheduleTimeReferenceMetadata.Type | null | undefined,
+): string =>
+  reference === null || reference === undefined
+    ? "Not established"
+    : `${scheduleTimeReferenceKindLabels[reference.kind]} · ${scheduleTimeReferenceInstantLabel(reference.instantEpochMs)} · hour ${String(reference.hour)}`;
+
+// This review surface keeps current, proposed, diagnostic, and mapping states together.
+// fallow-ignore-next-line complexity
+function ScheduleTimeReferenceReview({
+  currentReference,
+  preview,
+  busy,
+  hasUnsavedEditorState,
+  onPreview,
+  onApply,
+}: {
+  readonly currentReference: typeof ScheduleTimeReferenceMetadata.Type | undefined;
+  readonly preview: SheetConfigurationScheduleTimeReferencePreviewSuccess | undefined;
+  readonly busy: string | undefined;
+  readonly hasUnsavedEditorState: boolean;
+  readonly onPreview: () => void;
+  readonly onApply: () => void;
+}) {
+  const sampleMapping =
+    preview?.mappings.find(({ hour }) => hour === scheduleTimeReferenceSampleHour) ??
+    preview?.mappings[0];
+  const canApply =
+    !hasUnsavedEditorState && preview?.status === "ready" && preview.proposedReference !== null;
+  return (
+    <section className="border border-[#c792ea]/25 bg-[#15121a] p-5" aria-labelledby="timing-title">
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
+        <div>
+          <p className="font-mono text-[9px] font-black tracking-[0.18em] text-[#c792ea]">
+            TIMING ANCHOR
+          </p>
+          <h2 id="timing-title" className="mt-1 text-xl font-black text-[#dbc4f5]">
+            Schedule Time Reference
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-white/60">
+            Review the active source&apos;s current and proposed event-wide timing before anchoring
+            it. The transition changes timing metadata only; saved messages and event identity stay
+            intact.
+          </p>
+        </div>
+        <button
+          type="button"
+          className={secondaryButton}
+          disabled={busy !== undefined}
+          onClick={onPreview}
+        >
+          {busy === "Preview Schedule Time Reference" ? "READING SOURCE" : "PREVIEW TIMING"}
+        </button>
+      </div>
+
+      <dl className="mt-4 grid gap-px bg-white/10 sm:grid-cols-2">
+        <div className="bg-[#0d0b12] p-3">
+          <dt className="font-mono text-[9px] font-black tracking-[0.14em] text-white/35">
+            ESTABLISHED
+          </dt>
+          <dd className="mt-1 text-xs font-bold text-white/75">
+            {scheduleTimeReferenceLabel(currentReference)}
+          </dd>
+        </div>
+        <div className="bg-[#0d0b12] p-3">
+          <dt className="font-mono text-[9px] font-black tracking-[0.14em] text-white/35">
+            PROPOSED
+          </dt>
+          <dd className="mt-1 text-xs font-bold text-white/75">
+            {scheduleTimeReferenceLabel(preview?.proposedReference)}
+          </dd>
+        </div>
+      </dl>
+
+      {preview !== undefined ? (
+        <div className="mt-4 border-t border-white/10 pt-4" aria-live="polite">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-white/55">
+            <span className="font-bold text-[#dbc4f5]">
+              {scheduleTimeReferenceStatusLabels[preview.status]}
+            </span>
+            <span>{preview.mappings.length} hour mappings reviewed</span>
+            <span className="font-mono text-[10px] text-white/35">
+              baseline {preview.baselineDigest.slice(0, 12)}
+            </span>
+          </div>
+          {sampleMapping !== undefined ? (
+            <p className="mt-3 text-xs leading-relaxed text-white/65">
+              Hour {sampleMapping.hour}:{" "}
+              {scheduleTimeReferenceInstantLabel(sampleMapping.proposedStartEpochMs)}
+              {" → "}
+              {scheduleTimeReferenceInstantLabel(sampleMapping.proposedEndEpochMs)}
+            </p>
+          ) : null}
+          {preview.diagnostics.length > 0 ? (
+            <ul className="mt-3 space-y-1 text-xs leading-relaxed text-[#ffcf91]">
+              {preview.diagnostics.map((diagnostic, index) => (
+                <li key={`${diagnostic.path}:${index}`}>
+                  {diagnostic.path}: {diagnostic.message}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <button
+            type="button"
+            className={`${primaryButton} mt-4`}
+            disabled={!canApply || busy !== undefined}
+            onClick={onApply}
+          >
+            {busy === "Establish Schedule Time Reference" ? "ESTABLISHING" : "ESTABLISH REFERENCE"}
+          </button>
+        </div>
+      ) : (
+        <p className="mt-4 border-t border-white/10 pt-4 text-xs leading-relaxed text-white/45">
+          Run a preview to inspect the workspace-wide mapping and its fresh baseline.
+        </p>
+      )}
     </section>
   );
 }
@@ -4009,10 +4238,12 @@ const utcDateTimeInputEpochMs = (value: string): number | undefined => {
 
 function ConfigurationOverviewFields({
   configuration,
+  establishedScheduleTimeReference,
   onChange,
   onPendingInputStateChange,
 }: {
   readonly configuration: Configuration;
+  readonly establishedScheduleTimeReference: typeof ScheduleTimeReferenceMetadata.Type | undefined;
   readonly onChange: (configuration: Configuration) => void;
   readonly onPendingInputStateChange: (key: string, message: string | undefined) => void;
 }) {
@@ -4025,6 +4256,8 @@ function ConfigurationOverviewFields({
     onPendingInputStateChange("configuration:event-start", undefined);
   }, [formattedEventValue, onPendingInputStateChange]);
 
+  // This handler validates the browser input and preserves matching chapter references.
+  // fallow-ignore-next-line complexity
   const updateEventValue = (value: string) => {
     setEventValue(value);
     const epochMs = utcDateTimeInputEpochMs(value);
@@ -4037,7 +4270,20 @@ function ConfigurationOverviewFields({
     }
     setEventError(undefined);
     onPendingInputStateChange("configuration:event-start", undefined);
-    onChange({ ...configuration, event: { startTimeEpochMs: epochMs } });
+    onChange({
+      ...configuration,
+      schemaVersion: 2,
+      event: {
+        startTimeEpochMs: epochMs,
+        scheduleTimeReference: scheduleTimeReferenceMetadataForEvent(
+          {
+            startTimeEpochMs: epochMs,
+            scheduleTimeReference: scheduleTimeReferenceMetadataForConfiguration(configuration),
+          },
+          establishedScheduleTimeReference,
+        ),
+      },
+    });
   };
 
   return (

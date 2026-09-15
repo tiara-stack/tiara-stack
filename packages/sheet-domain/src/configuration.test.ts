@@ -9,6 +9,7 @@ import {
   SheetConfigurationSource,
   migrateLegacySource,
   migrateLegacySourceBinding,
+  migrateWebSheetConfiguration,
   normalizeRunnerIntervals,
   parseSheetRange,
   sheetTitleFromRange,
@@ -129,6 +130,30 @@ describe("web-native Sheet Configuration values", () => {
     ]);
   });
 
+  it.effect("validates explicit timing metadata against the retained event timestamp", () =>
+    Effect.gen(function* () {
+      const diagnostics = yield* validateWebSheetConfiguration({
+        ...configuration,
+        schemaVersion: 2,
+        event: {
+          startTimeEpochMs: configuration.event.startTimeEpochMs,
+          scheduleTimeReference: {
+            kind: "chapter-start",
+            instantEpochMs: configuration.event.startTimeEpochMs + 1,
+            hour: 49,
+          },
+        },
+      });
+
+      expect(diagnostics).toEqual([
+        expect.objectContaining({
+          code: "InvalidSchema",
+          path: "event.scheduleTimeReference",
+        }),
+      ]);
+    }),
+  );
+
   it.effect("reports cross-field validation diagnostics", () =>
     Effect.gen(function* () {
       const invalid = {
@@ -243,11 +268,24 @@ describe("web-native Sheet Configuration values", () => {
     ).toMatchObject({ binding: { layoutVersion: "legacy-settings-layout-v1" } });
   });
 
+  it("migrates version-one configurations without changing their values", () => {
+    const migrated = migrateWebSheetConfiguration(configuration);
+
+    expect(migrated).toMatchObject({
+      ...configuration,
+      schemaVersion: 2,
+    });
+    expect(Schema.decodeUnknownSync(WebSheetConfiguration)(migrated)).toMatchObject({
+      schemaVersion: 2,
+      event: configuration.event,
+    });
+  });
+
   it.effect("includes schema failure details in invalid configuration diagnostics", () =>
     Effect.gen(function* () {
       const diagnostics = yield* validateWebSheetConfiguration({
         ...configuration,
-        schemaVersion: 2,
+        schemaVersion: 3,
       });
 
       expect(diagnostics).toEqual([

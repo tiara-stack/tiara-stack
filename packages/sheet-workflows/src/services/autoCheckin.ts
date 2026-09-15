@@ -6,6 +6,7 @@ import {
   Duration,
   Effect,
   Layer,
+  Match,
   Option,
   Predicate,
   Schema,
@@ -13,11 +14,16 @@ import {
 } from "effect";
 import { WorkflowEngine } from "effect/unstable/workflow";
 import { ServicePrincipal, type ActorProvenance } from "sheet-auth/identity";
-import { makeChapterStartReference, makeEventStartReference, scheduleHourAt } from "sheet-domain";
+import {
+  scheduleHourAt,
+  scheduleTimeReferenceFromLegacyFirstHour,
+  type ScheduleTimeReference,
+} from "sheet-domain";
 import { CheckinsOpen, MembersKick, WorkspaceId } from "sheet-workflow-contracts";
 import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import { config } from "@/config";
 import {
+  establishedScheduleTimeReferenceFor,
   resolveAuthoritativeSheetConfigurationForWorkspace,
   type AuthoritativeSheetConfiguration,
 } from "./authoritativeSheetConfiguration";
@@ -38,7 +44,7 @@ import { AutonomousWorkflowEnqueuer } from "./autonomousWorkflowEnqueuer";
 
 const hourMillis = scheduledHourMillis;
 const autonomousProviderTimeout = Duration.seconds(30);
-const autonomousScheduleOriginsTimeout = Duration.minutes(2);
+const autonomousTimingEvidenceTimeout = Duration.minutes(2);
 
 class AutonomousTriggerError extends Data.TaggedError("AutonomousTriggerError")<{
   readonly operation: string;
@@ -48,38 +54,40 @@ class AutonomousTriggerError extends Data.TaggedError("AutonomousTriggerError")<
 
 /**
  * Adapts the legacy provider pair to the shared reference. The stored timestamp is a
- * Chapter Start Instant when its event-wide origin is greater than one.
+ * Chapter Start Instant when its first event-wide hour is greater than one.
  */
-const legacyScheduleTimeReference = (referenceInstantEpochMs: number, scheduleHourOrigin: number) =>
-  scheduleHourOrigin === 1
-    ? makeEventStartReference(DateTime.makeUnsafe(referenceInstantEpochMs))
-    : makeChapterStartReference(DateTime.makeUnsafe(referenceInstantEpochMs), scheduleHourOrigin);
-
 export const deriveAutonomousEventHour = (
   referenceInstantEpochMs: number,
   targetHourBucketEpochMs: number,
-  scheduleHourOrigin = 1,
+  firstEventHour = 1,
 ): number => {
-  if (!Number.isFinite(referenceInstantEpochMs) || !Number.isFinite(targetHourBucketEpochMs)) {
-    throw new RangeError("reference instant and target hour must be finite");
+  if (
+    !Number.isSafeInteger(referenceInstantEpochMs) ||
+    !Number.isSafeInteger(targetHourBucketEpochMs)
+  ) {
+    throw new RangeError("reference instant and target hour must be safe integers");
   }
-  if (!Number.isInteger(scheduleHourOrigin) || scheduleHourOrigin < 1) {
-    throw new RangeError("schedule-hour origin must be a positive integer");
+  if (!Number.isSafeInteger(firstEventHour) || firstEventHour < 1) {
+    throw new RangeError("the first event-wide hour must be a positive integer");
   }
-  return scheduleHourAt(
-    legacyScheduleTimeReference(referenceInstantEpochMs, scheduleHourOrigin),
-    DateTime.makeUnsafe(targetHourBucketEpochMs),
+  const reference = scheduleTimeReferenceFromLegacyFirstHour(
+    referenceInstantEpochMs,
+    firstEventHour,
   );
+  if (reference === undefined) {
+    throw new RangeError("the legacy timing inputs do not form a schedule time reference");
+  }
+  return scheduleHourAt(reference, DateTime.makeUnsafe(targetHourBucketEpochMs));
 };
 
 export const deriveAutomaticRoleCleanupHour = (
   referenceInstantEpochMs: number,
   targetHourBucketEpochMs: number,
-  scheduleHourOrigin = 1,
+  firstEventHour = 1,
 ): number =>
   Math.max(
     0,
-    deriveAutonomousEventHour(referenceInstantEpochMs, targetHourBucketEpochMs, scheduleHourOrigin),
+    deriveAutonomousEventHour(referenceInstantEpochMs, targetHourBucketEpochMs, firstEventHour),
   );
 
 const isRunningConversation = (conversation: {
@@ -203,11 +211,81 @@ const recoverNonInterruptingSweepFailure = (
     ? Effect.failCause(cause)
     : Effect.logWarning(message).pipe(Effect.annotateLogs({ ...attributes, cause }), Effect.as(0));
 
-const skipMissingScheduleOrigin = (operation: string, conversationName: string) =>
-  Effect.logWarning("autonomous sweep skipped a conversation without a schedule origin").pipe(
+const skipMissingTimingEvidence = (operation: string, conversationName: string) =>
+  Effect.logWarning("autonomous sweep skipped a conversation without timing evidence").pipe(
     Effect.annotateLogs({ operation, conversationName }),
     Effect.as(0),
   );
+
+const autonomousHourFor = (options: {
+  readonly establishedReference: Option.Option<ScheduleTimeReference>;
+  readonly targetHourBucketEpochMs: number;
+  readonly legacyReference: ScheduleTimeReference | undefined;
+}): number | undefined =>
+  Option.match(options.establishedReference, {
+    onNone: () =>
+      Predicate.isUndefined(options.legacyReference)
+        ? undefined
+        : scheduleHourAt(
+            options.legacyReference,
+            DateTime.makeUnsafe(options.targetHourBucketEpochMs),
+          ),
+    onSome: (reference) =>
+      scheduleHourAt(reference, DateTime.makeUnsafe(options.targetHourBucketEpochMs)),
+  });
+
+/** Resolve the persisted event identity without substituting normalized timing meaning. */
+const eventIdentityEpochMsFor = (
+  active: AuthoritativeSheetConfiguration,
+  provider: typeof AutonomousTriggerProvider.Service,
+): Effect.Effect<number, unknown> =>
+  Match.value(active.source).pipe(
+    Match.when({ kind: "owned" }, () =>
+      active.configuration === null
+        ? Effect.fail(
+            new AutonomousTriggerError({
+              operation: "resolve-spreadsheet",
+              message: `Workspace ${active.workspaceId} has an owned source without a configuration`,
+            }),
+          )
+        : Effect.succeed(active.configuration.event.startTimeEpochMs),
+    ),
+    Match.when({ kind: "legacy" }, () =>
+      // The legacy Start Time remains the invocation identity input. The established reference
+      // controls hour meaning, but must not hide a real legacy event change from reconciliation.
+      provider
+        .loadEventStart(active.spreadsheetId, active.configuration)
+        .pipe(Effect.timeout(autonomousProviderTimeout)),
+    ),
+    Match.exhaustive,
+  );
+
+type AutonomousTiming = {
+  readonly establishedReference: Option.Option<ScheduleTimeReference>;
+  readonly referenceInstantEpochMs: number;
+  readonly legacyReference: ScheduleTimeReference | undefined;
+};
+
+const autonomousTimingFor = (
+  active: AuthoritativeSheetConfiguration,
+  provider: typeof AutonomousTriggerProvider.Service,
+): Effect.Effect<AutonomousTiming, unknown> =>
+  Effect.gen(function* () {
+    const establishedReference = establishedScheduleTimeReferenceFor(active);
+    const referenceInstantEpochMs = yield* eventIdentityEpochMsFor(active, provider);
+    const legacyReference = yield* Option.match(establishedReference, {
+      onNone: () =>
+        provider
+          .loadLegacyScheduleTimeReference({
+            spreadsheetId: active.spreadsheetId,
+            referenceInstantEpochMs,
+            configuration: active.configuration,
+          })
+          .pipe(Effect.timeout(autonomousTimingEvidenceTimeout)),
+      onSome: () => Effect.succeed<ScheduleTimeReference | undefined>(undefined),
+    });
+    return { establishedReference, referenceInstantEpochMs, legacyReference };
+  });
 
 interface AutonomousTriggerWorkflowClientShape {
   readonly enqueueAutoCheckinSweep: (scheduledHourBucketEpochMs: number) => Effect.Effect<string>;
@@ -284,32 +362,32 @@ export class AutonomousTriggerService extends Context.Service<
               workspace.workspaceId,
             );
             const active = yield* requireActiveConfiguration(persistence, workspaceId, workspace);
-            const eventStartEpochMs = yield* provider
-              .loadEventStart(active.spreadsheetId, active.configuration)
-              .pipe(Effect.timeout(autonomousProviderTimeout));
             const conversations = yield* persistence.workspaces.getWorkspaceConversations({
               workspaceId,
               running: true,
             });
             const names = uniqueRunningConversationNames(conversations);
             if (names.length === 0) return 0;
-            const scheduleStartHour = yield* provider
-              .loadScheduleHourOrigin(active.spreadsheetId, active.configuration)
-              .pipe(Effect.timeout(autonomousScheduleOriginsTimeout));
+            const timing = yield* autonomousTimingFor(active, provider);
+            const hour = autonomousHourFor({
+              establishedReference: timing.establishedReference,
+              targetHourBucketEpochMs: targetHourBucket,
+              legacyReference: timing.legacyReference,
+            });
+            if (Predicate.isUndefined(hour)) {
+              yield* Effect.forEach(
+                names,
+                (conversationName) => skipMissingTimingEvidence("auto-checkin", conversationName),
+                { concurrency: "unbounded" },
+              );
+              return 0;
+            }
             const accepted = yield* Effect.forEach(
               names,
               (conversationName) => {
-                if (Predicate.isUndefined(scheduleStartHour)) {
-                  return skipMissingScheduleOrigin("auto-checkin", conversationName);
-                }
-                const hour = deriveAutonomousEventHour(
-                  eventStartEpochMs,
-                  targetHourBucket,
-                  scheduleStartHour,
-                );
                 const invocationId = makeCheckinsOpenAutonomousInvocationId({
                   workspaceId,
-                  eventStartEpochMs,
+                  eventStartEpochMs: timing.referenceInstantEpochMs,
                   hour,
                   conversationName,
                 });
@@ -369,36 +447,38 @@ export class AutonomousTriggerService extends Context.Service<
                 workspace.workspaceId,
               );
               const active = yield* requireActiveConfiguration(persistence, workspaceId, workspace);
-              const eventStartEpochMs = yield* provider
-                .loadEventStart(active.spreadsheetId, active.configuration)
-                .pipe(Effect.timeout(autonomousProviderTimeout));
               const conversations = yield* persistence.workspaces.getWorkspaceConversations({
                 workspaceId,
                 running: true,
               });
               const managed = managedConversations(conversations);
               if (managed.length === 0) return 0;
-              const scheduleStartHour = yield* provider
-                .loadScheduleHourOrigin(active.spreadsheetId, active.configuration)
-                .pipe(Effect.timeout(autonomousScheduleOriginsTimeout));
+              const timing = yield* autonomousTimingFor(active, provider);
+              const hour = autonomousHourFor({
+                establishedReference: timing.establishedReference,
+                targetHourBucketEpochMs: bucket,
+                legacyReference: timing.legacyReference,
+              });
+              if (Predicate.isUndefined(hour)) {
+                yield* Effect.forEach(
+                  managed,
+                  (conversation) =>
+                    skipMissingTimingEvidence("auto-role-cleanup", conversation.name),
+                  { concurrency: 1 },
+                );
+                return 0;
+              }
+              const cleanupHour = Math.max(0, hour);
               const accepted = yield* Effect.forEach(
                 managed,
                 (conversation) => {
                   const conversationName = conversation.name;
-                  if (Predicate.isUndefined(scheduleStartHour)) {
-                    return skipMissingScheduleOrigin("auto-role-cleanup", conversationName);
-                  }
-                  const hour = deriveAutomaticRoleCleanupHour(
-                    eventStartEpochMs,
-                    bucket,
-                    scheduleStartHour,
-                  );
                   const invocationId = makeMemberKickAutonomousInvocationId(
                     bucket,
                     botClientId,
                     workspaceId,
                     conversation.conversationId,
-                    hour,
+                    cleanupHour,
                   );
                   return enqueuer
                     .enqueueMembersKick({
@@ -406,7 +486,7 @@ export class AutonomousTriggerService extends Context.Service<
                       input: {
                         workspaceId,
                         conversationId: conversation.conversationId,
-                        hour,
+                        hour: cleanupHour,
                       } satisfies typeof MembersKick.input.Type,
                       principal: roleCleanupPrincipal,
                       actorProvenance: roleCleanupActor,

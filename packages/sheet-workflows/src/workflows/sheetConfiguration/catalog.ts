@@ -6,6 +6,8 @@ import {
   SheetConfigurationRollback,
   SheetConfigurationSaveDraft,
   SheetConfigurationSaveRevision,
+  SheetConfigurationScheduleTimeReferenceApply,
+  SheetConfigurationScheduleTimeReferencePreview,
 } from "sheet-workflow-contracts";
 
 export const SheetConfigurationWorkflowContracts = Object.freeze([
@@ -16,6 +18,8 @@ export const SheetConfigurationWorkflowContracts = Object.freeze([
   SheetConfigurationActivate,
   SheetConfigurationRollback,
   SheetConfigurationDiscardDraft,
+  SheetConfigurationScheduleTimeReferencePreview,
+  SheetConfigurationScheduleTimeReferenceApply,
 ] as const);
 
 export const sheetConfigurationWorkflowDefinitionVersion = "1";

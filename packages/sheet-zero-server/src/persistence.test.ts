@@ -1,5 +1,5 @@
 import { describe, expect, it, layer } from "@effect/vitest";
-import { Context, Duration, Effect, Layer, Option } from "effect";
+import { Context, Duration, Effect, Exit, Layer, Option } from "effect";
 import { makeTestSheetZeroDatabase } from "sheet-db-schema/testdb";
 import { makeTrustedSheetPersistence, trustedSheetPersistenceCatalog } from "./persistence";
 
@@ -28,7 +28,7 @@ const resetFixture = Effect.gen(function* () {
 
 describe("trusted Sheet persistence policy", () => {
   it("pins the reviewed operation count", () => {
-    expect(Object.values(trustedSheetPersistenceCatalog).flat()).toHaveLength(75);
+    expect(Object.values(trustedSheetPersistenceCatalog).flat()).toHaveLength(76);
   });
 
   persistenceLayer("executes through the policy-filtered interface", (it) => {
@@ -92,6 +92,159 @@ describe("trusted Sheet persistence policy", () => {
           ),
         ).toBe(true);
         expect(yield* persistence.checkinState.getMessageCheckinMembers(messageKey)).toEqual([]);
+      }),
+    );
+
+    it.effect("establishes timing metadata without changing the draft or event identity", () =>
+      Effect.gen(function* () {
+        const { database, persistence } = yield* resetFixture;
+        const initialSource = {
+          kind: "legacy",
+          binding: {
+            status: "bound",
+            expectedTitle: "Thee's Sheet Settings",
+            spreadsheetId: "spreadsheet-1",
+            sheetId: 1,
+            layoutVersion: "legacy-settings-layout-v1",
+          },
+        } as const;
+        const initialDraft = {
+          schemaVersion: 1,
+          spreadsheetId: "spreadsheet-1",
+          users: {
+            userIds: { sheetId: 2, startRow: 0, endRow: 1, startColumn: 0, endColumn: 1 },
+            userSheetNames: { sheetId: 2, startRow: 0, endRow: 1, startColumn: 1, endColumn: 2 },
+          },
+          teams: [],
+          event: { startTimeEpochMs: 1_000 },
+          schedules: [],
+          runners: [],
+        } as const;
+        yield* database.seed({
+          configWorkspaceSheet: [
+            {
+              workspaceId: "workspace-1",
+              source: initialSource,
+              legacyBinding: initialSource.binding,
+              draftVersion: 3,
+              baseRevisionId: "revision-1",
+              baselineDigest: "legacy-baseline",
+              draft: initialDraft,
+              diagnostics: [],
+              activeRevisionId: "revision-1",
+              updatedBy: "user-1",
+              createdAt: 10,
+              updatedAt: 20,
+              deletedAt: null,
+            },
+          ],
+        });
+        const initial = (yield* database.rows("configWorkspaceSheet"))[0];
+        const referenceSource = {
+          kind: "legacy",
+          binding: {
+            ...initialSource.binding,
+            scheduleTimeReference: {
+              kind: "chapter-start",
+              instantEpochMs: Date.UTC(2026, 8, 9, 3),
+              hour: 49,
+            },
+            scheduleTimeReferenceBaselineDigest: "timing-baseline",
+          },
+        } as const;
+        const request = {
+          workspaceId: "workspace-1",
+          expectedDraftVersion: 3,
+          expectedBaselineDigest: "timing-baseline",
+          source: referenceSource,
+          invocationId: "timing-reference-1",
+          effectivePrincipal: { kind: "user", userId: "user-1" },
+          actorProvenance: null,
+        } as const;
+
+        const staleBaseline = yield* Effect.exit(
+          persistence.sheetConfiguration.establishSheetConfigurationScheduleTimeReference({
+            ...request,
+            expectedBaselineDigest: "stale-baseline",
+          }),
+        );
+        expect(Exit.isFailure(staleBaseline)).toBe(true);
+        expect((yield* database.rows("configWorkspaceSheet"))[0]).toEqual(initial);
+        expect(yield* database.rows("auditSheetConfiguration")).toHaveLength(0);
+
+        yield* persistence.sheetConfiguration.establishSheetConfigurationScheduleTimeReference(
+          request,
+        );
+
+        const first = (yield* database.rows("configWorkspaceSheet"))[0];
+        expect(first).toMatchObject({
+          draftVersion: 4,
+          baseRevisionId: "revision-1",
+          baselineDigest: "legacy-baseline",
+          activeRevisionId: "revision-1",
+          draft: { schemaVersion: 2, event: { startTimeEpochMs: 1_000 } },
+          source: referenceSource,
+        });
+        expect(first?.draft).toMatchObject({
+          ...initialDraft,
+          schemaVersion: 2,
+        });
+        expect(yield* database.rows("auditSheetConfiguration")).toHaveLength(1);
+
+        const repeated = yield* Effect.exit(
+          persistence.sheetConfiguration.establishSheetConfigurationScheduleTimeReference(request),
+        );
+        expect(Exit.isSuccess(repeated)).toBe(true);
+        expect((yield* database.rows("configWorkspaceSheet"))[0]).toEqual(first);
+        expect(yield* database.rows("auditSheetConfiguration")).toHaveLength(2);
+
+        const afterIdempotent = (yield* database.rows("configWorkspaceSheet"))[0];
+        if (afterIdempotent === undefined)
+          throw new Error("Expected persisted Sheet Configuration");
+        yield* persistence.sheetConfiguration.upsertSheetConfigurationDraft({
+          workspaceId: "workspace-1",
+          expectedDraftVersion: afterIdempotent.draftVersion,
+          source: referenceSource,
+          legacyBinding: referenceSource.binding,
+          baseRevisionId: afterIdempotent.baseRevisionId,
+          baselineDigest: afterIdempotent.baselineDigest,
+          draft: afterIdempotent.draft,
+          diagnostics: [],
+          invocationId: "timing-reference-intervening-change",
+          effectivePrincipal: { kind: "user", userId: "user-1" },
+          actorProvenance: null,
+        });
+        const afterInterveningChange = (yield* database.rows("configWorkspaceSheet"))[0];
+        expect(afterInterveningChange?.draftVersion).toBe((first?.draftVersion ?? 0) + 1);
+
+        const changedReferenceSource = {
+          ...referenceSource,
+          binding: {
+            ...referenceSource.binding,
+            scheduleTimeReference: {
+              kind: "chapter-start" as const,
+              instantEpochMs: Date.UTC(2026, 8, 9, 3),
+              hour: 50,
+            },
+          },
+        } as const;
+        const changedReference = yield* Effect.exit(
+          persistence.sheetConfiguration.establishSheetConfigurationScheduleTimeReference({
+            ...request,
+            expectedDraftVersion: 4,
+            source: changedReferenceSource,
+          }),
+        );
+        expect(Exit.isFailure(changedReference)).toBe(true);
+        expect((yield* database.rows("configWorkspaceSheet"))[0]).toEqual(afterInterveningChange);
+        expect(yield* database.rows("auditSheetConfiguration")).toHaveLength(3);
+
+        const staleAfterInterveningChange = yield* Effect.exit(
+          persistence.sheetConfiguration.establishSheetConfigurationScheduleTimeReference(request),
+        );
+        expect(Exit.isFailure(staleAfterInterveningChange)).toBe(true);
+        expect((yield* database.rows("configWorkspaceSheet"))[0]).toEqual(afterInterveningChange);
+        expect(yield* database.rows("auditSheetConfiguration")).toHaveLength(3);
       }),
     );
 

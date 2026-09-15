@@ -59,6 +59,7 @@ const expectedCatalog = {
     "query:public:getSheetConfigurationImportAttempt",
     "mutator:service:recordSheetConfigurationAudit",
     "mutator:service:upsertSheetConfigurationDraft",
+    "mutator:service:establishSheetConfigurationScheduleTimeReference",
     "mutator:service:saveSheetConfigurationRevision",
     "mutator:service:activateSheetConfigurationRevision",
     "mutator:service:rollbackSheetConfiguration",
@@ -157,11 +158,11 @@ const catalogNames = (
     .sort();
 
 describe("Sheet Zero API visibility", () => {
-  it("preserves the exhaustive 88-procedure catalog and visibility split", () => {
+  it("preserves the exhaustive 89-procedure catalog and visibility split", () => {
     expect(projectCatalog()).toEqual(expectedCatalog);
-    expect(catalog).toHaveLength(88);
+    expect(catalog).toHaveLength(89);
     expect(catalog.filter(({ visibility }) => visibility === "public")).toHaveLength(69);
-    expect(catalog.filter(({ visibility }) => visibility === "service")).toHaveLength(16);
+    expect(catalog.filter(({ visibility }) => visibility === "service")).toHaveLength(17);
     expect(catalog.filter(({ visibility }) => visibility === "internal")).toHaveLength(3);
   });
 

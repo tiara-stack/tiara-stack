@@ -2,9 +2,17 @@ import { DateTime, Schema } from "effect";
 import { describe, expect, it } from "@effect/vitest";
 import {
   ScheduleTimeReference,
+  ScheduleTimeReferenceMetadata,
   makeChapterStartReference,
   makeEventStartReference,
   normalizeScheduleTimeReference,
+  scheduleTimeReferenceFromLegacy,
+  scheduleTimeReferenceFromLegacyFirstHour,
+  scheduleTimeReferenceFromMetadata,
+  scheduleTimeReferenceMetadataFrom,
+  scheduleTimeReferenceMetadataForEvent,
+  scheduleTimeReferenceMetadataForEventFromSource,
+  scheduleTimeReferenceMetadataForEventIfAnchored,
   scheduleHourAt,
   scheduleHourInterval,
 } from "./scheduleTime";
@@ -89,5 +97,104 @@ describe("schedule time", () => {
         hour: 0,
       }),
     ).toThrow();
+    expect(() =>
+      Schema.decodeUnknownSync(ScheduleTimeReference)({
+        kind: "chapter-start",
+        instant: chapterStart,
+        hour: 1,
+      }),
+    ).toThrow();
+  });
+
+  it("round-trips the JSON-safe reference metadata", () => {
+    const chapterReference = makeChapterStartReference(chapterStart, 49);
+    const metadata = scheduleTimeReferenceMetadataFrom(chapterReference);
+
+    expect(Schema.decodeUnknownSync(ScheduleTimeReferenceMetadata)(metadata)).toEqual(metadata);
+    expect(scheduleTimeReferenceFromMetadata(metadata)).toEqual(chapterReference);
+    expect(scheduleTimeReferenceMetadataFrom(makeEventStartReference(eventStart))).toEqual({
+      kind: "event-start",
+      instantEpochMs: DateTime.toEpochMillis(eventStart),
+      hour: 1,
+    });
+  });
+
+  it("keeps legacy inference workspace-wide and unresolved without hour evidence", () => {
+    const reference = scheduleTimeReferenceFromLegacy(DateTime.toEpochMillis(chapterStart), [
+      null,
+      82,
+      49,
+      193,
+      null,
+    ]);
+
+    expect(reference).toBeDefined();
+    expect(reference?.kind).toBe("chapter-start");
+    expect(reference?.hour).toBe(49);
+    expect(
+      scheduleTimeReferenceFromLegacy(DateTime.toEpochMillis(chapterStart), []),
+    ).toBeUndefined();
+    expect(
+      scheduleTimeReferenceFromLegacyFirstHour(DateTime.toEpochMillis(chapterStart), 49),
+    ).toEqual(reference);
+    expect(scheduleTimeReferenceFromLegacyFirstHour(DateTime.toEpochMillis(chapterStart), 0)).toBe(
+      undefined,
+    );
+  });
+
+  it("starts a new event reference when the event timestamp changes", () => {
+    const chapterReference = scheduleTimeReferenceMetadataFrom(
+      makeChapterStartReference(chapterStart, 49),
+    );
+
+    expect(
+      scheduleTimeReferenceMetadataForEvent(
+        { startTimeEpochMs: DateTime.toEpochMillis(chapterStart) },
+        chapterReference,
+      ),
+    ).toEqual(chapterReference);
+    expect(
+      scheduleTimeReferenceMetadataForEvent(
+        { startTimeEpochMs: DateTime.toEpochMillis(eventStart) },
+        chapterReference,
+      ),
+    ).toEqual({
+      kind: "event-start",
+      instantEpochMs: DateTime.toEpochMillis(eventStart),
+      hour: 1,
+    });
+    expect(
+      scheduleTimeReferenceMetadataForEvent(
+        {
+          startTimeEpochMs: DateTime.toEpochMillis(eventStart),
+          scheduleTimeReference: chapterReference,
+        },
+        chapterReference,
+      ),
+    ).toEqual({
+      kind: "event-start",
+      instantEpochMs: DateTime.toEpochMillis(eventStart),
+      hour: 1,
+    });
+    expect(
+      scheduleTimeReferenceMetadataForEventIfAnchored(
+        {
+          startTimeEpochMs: DateTime.toEpochMillis(eventStart),
+          scheduleTimeReference: chapterReference,
+        },
+        chapterReference,
+      ),
+    ).toBeUndefined();
+    expect(
+      scheduleTimeReferenceMetadataForEventFromSource(
+        { startTimeEpochMs: DateTime.toEpochMillis(chapterStart) },
+        chapterReference,
+      ),
+    ).toEqual(chapterReference);
+    expect(
+      scheduleTimeReferenceMetadataForEventFromSource({
+        startTimeEpochMs: DateTime.toEpochMillis(eventStart),
+      }),
+    ).toBeUndefined();
   });
 });

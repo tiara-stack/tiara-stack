@@ -601,6 +601,7 @@ export const makeTrustedSheetPersistenceMock = (): TrustedSheetPersistenceShape 
       getSheetConfigurationRevisionsBySpreadsheetId: () => Effect.succeed([]),
       getSheetConfigurationImportAttempt: () => Effect.succeed(Option.none()),
       upsertSheetConfigurationDraft: () => Effect.void,
+      establishSheetConfigurationScheduleTimeReference: () => Effect.void,
       saveSheetConfigurationRevision: () => Effect.void,
       activateSheetConfigurationRevision: () => Effect.void,
       rollbackSheetConfiguration: () => Effect.void,

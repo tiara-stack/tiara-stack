@@ -1,7 +1,12 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Cause, ConfigProvider, Effect, Exit, Schema } from "effect";
+import { Cause, ConfigProvider, Effect, Exit, Option, Schema } from "effect";
 import { SqlError } from "effect/unstable/sql";
 import { ServicePrincipal } from "sheet-auth/identity";
+import {
+  scheduleTimeReferenceFromLegacy,
+  scheduleTimeReferenceFromLegacyFirstHour,
+  scheduleTimeReferenceMetadataFrom,
+} from "sheet-domain";
 import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import { WorkflowStore } from "effect-zero-workflow";
 import { CheckinsOpen, WorkspaceId } from "sheet-workflow-contracts";
@@ -13,7 +18,7 @@ import {
 import { makeCheckinsOpenAutonomousInvocationId } from "@/workflows/checkins/keys";
 import { checkinSheetWorkflowDefinitionVersion } from "@/workflows/checkins/catalog";
 import { CheckinsOpenWorkflow } from "@/workflows/checkins/openDefinition";
-import { AutonomousTriggerProvider, scheduleHourOriginFor } from "@/workflows/autonomous/provider";
+import { AutonomousTriggerProvider } from "@/workflows/autonomous/provider";
 import { ReadOnlyWorkflowAuthorization } from "@/workflows/readOnly/authorization";
 import {
   AutonomousTriggerService,
@@ -69,6 +74,11 @@ const conversation = (
 const makePersistence = (
   conversations: ReadonlyArray<ReturnType<typeof conversation>>,
   workspaces: ReadonlyArray<ReturnType<typeof workspace>> = [workspace("workspace-1")],
+  scheduleTimeReference?: {
+    readonly kind: "event-start" | "chapter-start";
+    readonly instantEpochMs: number;
+    readonly hour: number;
+  },
 ) =>
   ({
     workspaces: {
@@ -76,12 +86,48 @@ const makePersistence = (
       getWorkspaceConversations: ({ workspaceId }: { readonly workspaceId: string }) =>
         Effect.succeed(conversations.filter((candidate) => candidate.workspaceId === workspaceId)),
     },
+    ...(scheduleTimeReference === undefined
+      ? {}
+      : {
+          sheetConfiguration: {
+            getSheetConfiguration: () =>
+              Effect.succeed(
+                Option.some({
+                  source: {
+                    kind: "legacy",
+                    binding: {
+                      status: "bound",
+                      expectedTitle: "Thee's Sheet Settings",
+                      spreadsheetId: "sheet-1",
+                      sheetId: 1,
+                      scheduleTimeReference,
+                    },
+                  },
+                }),
+              ),
+          },
+        }),
   }) as unknown as TrustedSheetPersistence["Service"];
 
-const makeProvider = (eventStartEpochMs: number, scheduleHourOrigin?: number) =>
+const makeProvider = (
+  eventStartEpochMs: number,
+  firstEventHour: number | undefined,
+  onLegacyTimingRowsRead?: () => void,
+  onEventStartRead?: () => void,
+) =>
   ({
-    loadEventStart: () => Effect.succeed(eventStartEpochMs),
-    loadScheduleHourOrigin: () => Effect.succeed(scheduleHourOrigin),
+    loadEventStart: () =>
+      Effect.sync(() => {
+        onEventStartRead?.();
+        return eventStartEpochMs;
+      }),
+    loadLegacyScheduleTimeReference: ({ referenceInstantEpochMs }) =>
+      Effect.sync(() => {
+        onLegacyTimingRowsRead?.();
+        return firstEventHour === undefined
+          ? undefined
+          : scheduleTimeReferenceFromLegacyFirstHour(referenceInstantEpochMs, firstEventHour);
+      }),
   }) as typeof AutonomousTriggerProvider.Service;
 
 const runService = <A>(
@@ -90,7 +136,14 @@ const runService = <A>(
     readonly conversations: ReadonlyArray<ReturnType<typeof conversation>>;
     readonly enqueuer: typeof AutonomousWorkflowEnqueuer.Service;
     readonly eventStartEpochMs?: number;
-    readonly scheduleHourOrigin?: number;
+    readonly firstEventHour?: number;
+    readonly scheduleTimeReference?: {
+      readonly kind: "event-start" | "chapter-start";
+      readonly instantEpochMs: number;
+      readonly hour: number;
+    };
+    readonly onLegacyTimingRowsRead?: () => void;
+    readonly onEventStartRead?: () => void;
     readonly workspaces?: ReadonlyArray<ReturnType<typeof workspace>>;
   },
 ): Effect.Effect<A, never, never> =>
@@ -98,13 +151,15 @@ const runService = <A>(
     Effect.flatMap(effect),
     Effect.provideService(
       TrustedSheetPersistence,
-      makePersistence(options.conversations, options.workspaces),
+      makePersistence(options.conversations, options.workspaces, options.scheduleTimeReference),
     ),
     Effect.provideService(
       AutonomousTriggerProvider,
       makeProvider(
         options.eventStartEpochMs ?? Date.UTC(2026, 3, 1, 12),
-        options.scheduleHourOrigin,
+        options.firstEventHour,
+        options.onLegacyTimingRowsRead,
+        options.onEventStartRead,
       ),
     ),
     Effect.provideService(AutonomousWorkflowEnqueuer, options.enqueuer),
@@ -127,7 +182,7 @@ describe("AutonomousTriggerService", () => {
     ).toBe(0);
   });
 
-  it("rejects invalid schedule-hour origins", () => {
+  it("rejects invalid first event-wide hours", () => {
     const eventStart = Date.UTC(2026, 3, 1, 12);
     const target = eventStart + scheduledHourMillis;
 
@@ -160,13 +215,19 @@ describe("AutonomousTriggerService", () => {
     expect(deriveAutonomousEventHour(chapterStart, Date.UTC(2026, 8, 10, 12), 1)).toBe(34);
   });
 
-  it("derives one schedule-hour origin across conversations", () => {
-    expect(scheduleHourOriginFor([{ hour: null }, { hour: 50 }, { hour: 49 }, { hour: 193 }])).toBe(
-      49,
-    );
+  it("resolves one explicit legacy reference across all schedule rows", () => {
+    const chapterStart = Date.UTC(2026, 8, 9, 3);
+    const reference = scheduleTimeReferenceFromLegacy(chapterStart, [null, 50, 49, 193]);
+
+    expect(reference).toBeDefined();
+    expect(scheduleTimeReferenceMetadataFrom(reference!)).toEqual({
+      kind: "chapter-start",
+      instantEpochMs: chapterStart,
+      hour: 49,
+    });
   });
 
-  it.effect("derives autonomous hours from the event-global schedule origin", () =>
+  it.effect("derives autonomous hours from the event-global first hour", () =>
     Effect.gen(function* () {
       const calls: Array<Parameters<AutonomousWorkflowEnqueuerShape["enqueueCheckinsOpen"]>[0]> =
         [];
@@ -188,7 +249,7 @@ describe("AutonomousTriggerService", () => {
           ],
           enqueuer,
           eventStartEpochMs: eventStart,
-          scheduleHourOrigin: 49,
+          firstEventHour: 49,
         },
       );
 
@@ -226,7 +287,7 @@ describe("AutonomousTriggerService", () => {
           conversations: [conversation("conversation-main", "main")],
           enqueuer,
           eventStartEpochMs: chapterStart,
-          scheduleHourOrigin: 49,
+          firstEventHour: 49,
         },
       );
 
@@ -236,6 +297,94 @@ describe("AutonomousTriggerService", () => {
         conversationName: "main",
         hour: 82,
       });
+    }),
+  );
+
+  it.effect("uses an established reference without rereading legacy timing rows", () =>
+    Effect.gen(function* () {
+      const calls: Array<Parameters<AutonomousWorkflowEnqueuerShape["enqueueCheckinsOpen"]>[0]> =
+        [];
+      let legacyTimingRowsReads = 0;
+      let eventStartReads = 0;
+      const enqueuer = {
+        enqueueCheckinsOpen: (request: (typeof calls)[number]) =>
+          Effect.sync(() => {
+            calls.push(request);
+          }),
+        enqueueMembersKick: () => Effect.void,
+      } as typeof AutonomousWorkflowEnqueuer.Service;
+      const chapterStart = Date.UTC(2026, 8, 9, 3);
+      const target = Date.UTC(2026, 8, 10, 12);
+
+      yield* runService<AutonomousSweepResult>(
+        (service) => service.sweepAutoCheckin(target - scheduledHourMillis),
+        {
+          conversations: [conversation("conversation-main", "main")],
+          enqueuer,
+          eventStartEpochMs: chapterStart,
+          scheduleTimeReference: {
+            kind: "chapter-start",
+            instantEpochMs: chapterStart,
+            hour: 49,
+          },
+          onLegacyTimingRowsRead: () => {
+            legacyTimingRowsReads += 1;
+          },
+          onEventStartRead: () => {
+            eventStartReads += 1;
+          },
+        },
+      );
+
+      expect(calls[0]?.input).toMatchObject({
+        workspaceId: "workspace-1",
+        conversationName: "main",
+        hour: 82,
+      });
+      expect(legacyTimingRowsReads).toBe(0);
+      expect(eventStartReads).toBe(1);
+    }),
+  );
+
+  it.effect("keeps legacy event identity separate from an established timing reference", () =>
+    Effect.gen(function* () {
+      const calls: Array<Parameters<AutonomousWorkflowEnqueuerShape["enqueueCheckinsOpen"]>[0]> =
+        [];
+      const enqueuer = {
+        enqueueCheckinsOpen: (request: (typeof calls)[number]) =>
+          Effect.sync(() => {
+            calls.push(request);
+          }),
+        enqueueMembersKick: () => Effect.void,
+      } as typeof AutonomousWorkflowEnqueuer.Service;
+      const chapterStart = Date.UTC(2026, 8, 9, 3);
+      const eventA = Date.UTC(2026, 8, 7, 3);
+      const eventB = Date.UTC(2026, 8, 8, 3);
+      const run = (eventStartEpochMs: number) =>
+        runService<AutonomousSweepResult>(
+          (service) => service.sweepAutoCheckin(chapterStart - scheduledHourMillis),
+          {
+            conversations: [conversation("conversation-main", "main")],
+            enqueuer,
+            eventStartEpochMs,
+            scheduleTimeReference: {
+              kind: "chapter-start",
+              instantEpochMs: chapterStart,
+              hour: 49,
+            },
+          },
+        );
+
+      yield* run(eventA);
+      yield* run(eventB);
+      yield* run(eventA);
+
+      expect(calls).toHaveLength(3);
+      expect(calls[0]?.input.hour).toBe(49);
+      expect(calls[1]?.input.hour).toBe(49);
+      expect(calls[2]?.input.hour).toBe(49);
+      expect(calls[0]?.invocationId).not.toBe(calls[1]?.invocationId);
+      expect(calls[0]?.invocationId).toBe(calls[2]?.invocationId);
     }),
   );
 
@@ -264,7 +413,7 @@ describe("AutonomousTriggerService", () => {
         {
           conversations,
           enqueuer,
-          scheduleHourOrigin: 1,
+          firstEventHour: 1,
         },
       );
       const firstIds = calls.map(({ invocationId }) => invocationId);
@@ -273,7 +422,7 @@ describe("AutonomousTriggerService", () => {
         {
           conversations,
           enqueuer,
-          scheduleHourOrigin: 1,
+          firstEventHour: 1,
         },
       );
       const secondIds = calls.slice(firstIds.length).map(({ invocationId }) => invocationId);
@@ -317,7 +466,7 @@ describe("AutonomousTriggerService", () => {
             conversation("conversation-not-running", "not-running", "role-3", false),
           ],
           enqueuer,
-          scheduleHourOrigin: 1,
+          firstEventHour: 1,
         },
       );
 
@@ -362,7 +511,7 @@ describe("AutonomousTriggerService", () => {
             conversation("conversation-invalid-workspace", "invalid-workspace", null, true, " "),
           ],
           enqueuer,
-          scheduleHourOrigin: 1,
+          firstEventHour: 1,
           workspaces: [
             workspace("workspace-no-sheet", null),
             workspace(" "),
@@ -390,7 +539,7 @@ describe("AutonomousTriggerService", () => {
           {
             conversations: [conversation("conversation-interrupted", "interrupted")],
             enqueuer,
-            scheduleHourOrigin: 1,
+            firstEventHour: 1,
           },
         ),
       );
@@ -423,7 +572,7 @@ describe("AutonomousTriggerService", () => {
             conversation("conversation-ok", "ok", "role-2"),
           ],
           enqueuer,
-          scheduleHourOrigin: 1,
+          firstEventHour: 1,
           workspaces: [workspace(" "), workspace("workspace-1")],
         },
       );

@@ -1,6 +1,11 @@
 import { Data, Effect, Option, Predicate, Schema } from "effect";
 import {
   SheetConfigurationSource,
+  migrateLegacySource,
+  ScheduleTimeReferenceMetadata,
+  scheduleTimeReferenceFromMetadata,
+  scheduleTimeReferenceMetadataForConfiguration,
+  scheduleTimeReferenceMetadataForSource,
   sourceForLegacySettings,
   WebSheetConfiguration,
 } from "sheet-domain";
@@ -18,6 +23,8 @@ export interface AuthoritativeSheetConfiguration {
   readonly source: typeof SheetConfigurationSource.Type;
   /** Legacy workspaces intentionally have no web configuration value here. */
   readonly configuration: typeof WebSheetConfiguration.Type | null;
+  /** The active source's established timing meaning, when one has been captured. */
+  readonly scheduleTimeReference: typeof ScheduleTimeReferenceMetadata.Type | null;
 }
 
 export const missingConfigurationKey = (
@@ -42,7 +49,7 @@ const resolverError = (
 ) => new AuthoritativeSheetConfigurationError({ operation, cause });
 
 const decodeSource = (value: unknown) =>
-  Schema.decodeUnknownEffect(SheetConfigurationSource)(value).pipe(
+  Schema.decodeUnknownEffect(SheetConfigurationSource)(migrateLegacySource(value)).pipe(
     Effect.mapError((cause) => resolverError("load-source", cause)),
   );
 
@@ -51,12 +58,21 @@ const decodeSpreadsheetId = (value: unknown) =>
     Effect.mapError((cause) => resolverError("load-source", cause)),
   );
 
+const scheduleTimeReferenceForConfiguration = (
+  source: typeof SheetConfigurationSource.Type,
+  configuration: typeof WebSheetConfiguration.Type,
+): typeof ScheduleTimeReferenceMetadata.Type | null =>
+  scheduleTimeReferenceMetadataForSource(source) ??
+  scheduleTimeReferenceMetadataForConfiguration(configuration) ??
+  null;
+
 const resolveLegacyConfiguration = (
   workspaceId: WorkspaceId,
   spreadsheetId: Option.Option<string>,
   source: typeof SheetConfigurationSource.Type,
-) =>
-  Option.match(spreadsheetId, {
+) => {
+  const scheduleTimeReference = scheduleTimeReferenceMetadataForSource(source);
+  return Option.match(spreadsheetId, {
     onNone: () => Effect.succeed(Option.none<AuthoritativeSheetConfiguration>()),
     onSome: (value) =>
       decodeSpreadsheetId(value).pipe(
@@ -66,10 +82,12 @@ const resolveLegacyConfiguration = (
             spreadsheetId: resolvedSpreadsheetId,
             source,
             configuration: null,
+            scheduleTimeReference: scheduleTimeReference ?? null,
           }),
         ),
       ),
   });
+};
 
 /**
  * Resolves the active source exactly once for a provider operation.
@@ -91,6 +109,9 @@ export const resolveAuthoritativeSheetConfigurationForWorkspace = (
   Option.Option<AuthoritativeSheetConfiguration>,
   AuthoritativeSheetConfigurationError
 > =>
+  // This resolver enforces source authority, spreadsheet binding, and revision ownership in one
+  // read boundary.
+  // fallow-ignore-next-line complexity
   Effect.gen(function* () {
     const legacySpreadsheetId = Option.flatMap(workspace, ({ sheetId }) =>
       Predicate.isString(sheetId) && sheetId.trim().length > 0
@@ -147,7 +168,13 @@ export const resolveAuthoritativeSheetConfigurationForWorkspace = (
       revision.value.configuration,
     ).pipe(Effect.mapError((cause) => resolverError("load-revision", cause)));
     const spreadsheetId = yield* decodeSpreadsheetId(configuration.spreadsheetId);
-    return Option.some({ workspaceId, spreadsheetId, source, configuration });
+    return Option.some({
+      workspaceId,
+      spreadsheetId,
+      source,
+      configuration,
+      scheduleTimeReference: scheduleTimeReferenceForConfiguration(source, configuration),
+    });
   });
 
 export const resolveAuthoritativeSheetConfiguration = (
@@ -172,6 +199,14 @@ export const resolveAuthoritativeSpreadsheetId = (
     Effect.map(Option.map(({ spreadsheetId }) => spreadsheetId)),
   );
 
+/** Returns the established active-source timing reference for downstream projections. */
+export const establishedScheduleTimeReferenceFor = (
+  configuration: AuthoritativeSheetConfiguration,
+) =>
+  Option.fromNullishOr(configuration.scheduleTimeReference).pipe(
+    Option.map(scheduleTimeReferenceFromMetadata),
+  );
+
 /**
  * Resolves an owned configuration when a caller only has the spreadsheet identity.
  *
@@ -186,6 +221,8 @@ export const resolveAuthoritativeSheetConfigurationBySpreadsheetId = (
   Option.Option<AuthoritativeSheetConfiguration>,
   AuthoritativeSheetConfigurationError
 > =>
+  // The reverse lookup checks several independent authority and binding invariants.
+  // fallow-ignore-next-line complexity
   Effect.gen(function* () {
     const configurationPersistence = persistence.sheetConfiguration;
     if (Predicate.isUndefined(configurationPersistence)) {
@@ -235,6 +272,7 @@ export const resolveAuthoritativeSheetConfigurationBySpreadsheetId = (
         spreadsheetId: resolvedSpreadsheetId,
         source,
         configuration,
+        scheduleTimeReference: scheduleTimeReferenceForConfiguration(source, configuration),
       });
     }
     if (candidates.length > 1) {

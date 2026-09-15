@@ -16,6 +16,8 @@ import {
   SheetConfigurationRollback,
   SheetConfigurationSaveDraft,
   SheetConfigurationSaveRevision,
+  SheetConfigurationScheduleTimeReferenceApply,
+  SheetConfigurationScheduleTimeReferencePreview,
   WorkspaceId,
 } from "sheet-workflow-contracts";
 import {
@@ -144,6 +146,16 @@ const DiscardDraftDefinition = makeDefinition(
   (operations, input, attribution) => operations.discardDraft(input, attribution),
 );
 
+const ScheduleTimeReferencePreviewDefinition = makeDefinition(
+  SheetConfigurationScheduleTimeReferencePreview,
+  (operations, input, attribution) => operations.previewScheduleTimeReference(input, attribution),
+);
+
+const ScheduleTimeReferenceApplyDefinition = makeDefinition(
+  SheetConfigurationScheduleTimeReferenceApply,
+  (operations, input, attribution) => operations.applyScheduleTimeReference(input, attribution),
+);
+
 const SheetConfigurationWorkflowDefinitions = Object.freeze([
   ImportLegacyDefinition,
   SaveDraftDefinition,
@@ -152,6 +164,8 @@ const SheetConfigurationWorkflowDefinitions = Object.freeze([
   ActivateDefinition,
   RollbackDefinition,
   DiscardDraftDefinition,
+  ScheduleTimeReferencePreviewDefinition,
+  ScheduleTimeReferenceApplyDefinition,
 ]);
 
 export const SheetConfigurationWorkflows = Object.freeze(

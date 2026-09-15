@@ -910,7 +910,7 @@ export const parseLegacyConfiguration = (
   const configurationCandidate =
     settingsTab !== undefined && users !== undefined && event !== undefined
       ? {
-          schemaVersion: 1 as const,
+          schemaVersion: 2 as const,
           spreadsheetId: input.spreadsheetId,
           users,
           teams,

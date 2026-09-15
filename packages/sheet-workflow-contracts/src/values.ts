@@ -6,6 +6,8 @@ import {
   SheetConfigurationSource,
   LegacySourceBinding,
   ScheduleEncoding,
+  ScheduleHour as DomainScheduleHour,
+  ScheduleTimeReferenceMetadata,
   TeamSubmissionStatus,
   WebSheetConfiguration,
 } from "sheet-domain";
@@ -405,6 +407,71 @@ export const SheetConfigurationDiscardDraftSuccess = Schema.Struct({
 });
 export type SheetConfigurationDiscardDraftSuccess = Schema.Schema.Type<
   typeof SheetConfigurationDiscardDraftSuccess
+>;
+
+export const SheetConfigurationScheduleTimeReferenceMapping = Schema.Struct({
+  hour: DomainScheduleHour,
+  legacyStartEpochMs: Schema.Int,
+  legacyEndEpochMs: Schema.Int,
+  proposedStartEpochMs: Schema.Int,
+  proposedEndEpochMs: Schema.Int,
+});
+export type SheetConfigurationScheduleTimeReferenceMapping = Schema.Schema.Type<
+  typeof SheetConfigurationScheduleTimeReferenceMapping
+>;
+
+export const SheetConfigurationScheduleTimeReferencePreviewStatus = Schema.Literals([
+  "ready",
+  "already-established",
+  "unresolved",
+]);
+export type SheetConfigurationScheduleTimeReferencePreviewStatus = Schema.Schema.Type<
+  typeof SheetConfigurationScheduleTimeReferencePreviewStatus
+>;
+
+export const SheetConfigurationScheduleTimeReferencePreviewInput = Schema.Struct({
+  ...WorkspaceFields,
+});
+export type SheetConfigurationScheduleTimeReferencePreviewInput = Schema.Schema.Type<
+  typeof SheetConfigurationScheduleTimeReferencePreviewInput
+>;
+
+export const SheetConfigurationScheduleTimeReferencePreviewSuccess = Schema.Struct({
+  ...WorkspaceFields,
+  draftVersion: Schema.Int,
+  source: SheetConfigurationSource,
+  status: SheetConfigurationScheduleTimeReferencePreviewStatus,
+  currentReference: Schema.NullOr(ScheduleTimeReferenceMetadata),
+  proposedReference: Schema.NullOr(ScheduleTimeReferenceMetadata),
+  baselineDigest: Identifier,
+  diagnostics: Schema.Array(SheetConfigurationDiagnostic),
+  mappings: Schema.Array(SheetConfigurationScheduleTimeReferenceMapping),
+});
+export type SheetConfigurationScheduleTimeReferencePreviewSuccess = Schema.Schema.Type<
+  typeof SheetConfigurationScheduleTimeReferencePreviewSuccess
+>;
+
+export const SheetConfigurationScheduleTimeReferenceApplyInput = Schema.Struct({
+  ...WorkspaceFields,
+  expectedDraftVersion: Schema.Int,
+  expectedBaselineDigest: Identifier,
+  reference: ScheduleTimeReferenceMetadata,
+});
+export type SheetConfigurationScheduleTimeReferenceApplyInput = Schema.Schema.Type<
+  typeof SheetConfigurationScheduleTimeReferenceApplyInput
+>;
+
+export const SheetConfigurationScheduleTimeReferenceApplySuccess = Schema.Struct({
+  ...WorkspaceFields,
+  draftVersion: Schema.Int,
+  source: SheetConfigurationSource,
+  status: Schema.Literals(["applied", "already-applied"]),
+  previousReference: Schema.NullOr(ScheduleTimeReferenceMetadata),
+  reference: ScheduleTimeReferenceMetadata,
+  baselineDigest: Identifier,
+});
+export type SheetConfigurationScheduleTimeReferenceApplySuccess = Schema.Schema.Type<
+  typeof SheetConfigurationScheduleTimeReferenceApplySuccess
 >;
 
 export const SheetConfigurationDraftInput = Schema.Struct({

@@ -1,4 +1,4 @@
-import { Predicate, Schema } from "effect";
+import { Match, Predicate, Schema } from "effect";
 import type {
   DefaultSchema as RocicorpSchema,
   ReadonlyJSONValue as ZeroReadonlyJSONValue,
@@ -8,13 +8,20 @@ import { ZeroApiEndpoint, ZeroApiGroup } from "typhoon-zero/zeroApi";
 import { makeArgumentError } from "typhoon-core/error";
 import { ReadonlyJSONValue as ReadonlyJSONValueSchema } from "typhoon-zero/schema";
 import {
+  CurrentWebSheetConfiguration,
+  decodeCurrentWebSheetConfiguration,
   LegacySourceBinding,
   migrateLegacySource,
   migrateLegacySourceBinding,
   SheetConfigurationAuditOutcome,
   SheetConfigurationImportAttemptStatus,
   SheetConfigurationSource,
-  WebSheetConfiguration,
+  ScheduleTimeReferenceMetadata,
+  scheduleTimeReferenceBaselineDigestForSource,
+  scheduleTimeReferenceMetadataForEventFromSource,
+  scheduleTimeReferenceMetadataForEventIfAnchored,
+  scheduleTimeReferenceMetadataForSource,
+  validateDecodedWebSheetConfiguration,
 } from "sheet-domain";
 import { zeroTableAccess } from "../accessors";
 import { activeRecord } from "../timestamps";
@@ -26,8 +33,9 @@ type SheetConfigurationTransaction = Transaction<RocicorpSchema, unknown>;
 
 const WorkspaceId = Schema.String;
 const RevisionId = Schema.String;
-const webSheetConfigurationEquivalence = Schema.toEquivalence(WebSheetConfiguration);
+const webSheetConfigurationEquivalence = Schema.toEquivalence(CurrentWebSheetConfiguration);
 const readonlyJsonValueEquivalence = Schema.toEquivalence(ReadonlyJSONValueSchema);
+const scheduleTimeReferenceEquivalence = Schema.toEquivalence(ScheduleTimeReferenceMetadata);
 
 // These attribution fields remain in the wire request for compatibility with older workflow
 // callers. The service derives audit attribution from the verified Zero context instead of
@@ -53,6 +61,14 @@ const auditRequestFields = {
   effectivePrincipal: ReadonlyJSONValueSchema,
   actorProvenance: Schema.NullOr(ReadonlyJSONValueSchema),
 } as const;
+
+const scheduleTimeReferenceRequest = Schema.Struct({
+  workspaceId: WorkspaceId,
+  expectedDraftVersion: Schema.Int,
+  expectedBaselineDigest: Schema.String,
+  source: ReadonlyJSONValueSchema,
+  ...auditRequestFields,
+});
 
 const auditMetadata = Schema.Record(
   Schema.String,
@@ -150,6 +166,32 @@ const writeAudit = async (options: {
 };
 
 const diagnosticsAreEmpty = (value: unknown): boolean => Array.isArray(value) && value.length === 0;
+
+type SheetConfigurationSourceValue = typeof SheetConfigurationSource.Type;
+
+const sameLegacyBindingIdentity = (
+  left: typeof LegacySourceBinding.Type,
+  right: typeof LegacySourceBinding.Type,
+): boolean => {
+  if (left.status !== right.status || left.expectedTitle !== right.expectedTitle) return false;
+  return Match.value(left).pipe(
+    Match.when({ status: "unresolved" }, () => true),
+    Match.when({ status: "bound" }, (leftBinding) =>
+      Match.value(right).pipe(
+        Match.when({ status: "unresolved" }, () => false),
+        Match.when(
+          { status: "bound" },
+          (rightBinding) =>
+            leftBinding.spreadsheetId === rightBinding.spreadsheetId &&
+            leftBinding.sheetId === rightBinding.sheetId &&
+            leftBinding.layoutVersion === rightBinding.layoutVersion,
+        ),
+        Match.exhaustive,
+      ),
+    ),
+    Match.exhaustive,
+  );
+};
 
 export const makeSheetConfigurationGroup = <
   const SuccessSchemas extends SheetZeroApiSuccessSchemas,
@@ -265,6 +307,15 @@ export const makeSheetConfigurationGroup = <
         } catch {
           throw makeArgumentError("The Sheet Configuration source is not valid");
         }
+        if (
+          active === undefined &&
+          requestedSource.kind === "owned" &&
+          requestedSource.revisionId !== null
+        ) {
+          throw makeArgumentError(
+            "A new Sheet Configuration draft must use an unresolved or bound legacy source, or an uninitialized owned source",
+          );
+        }
         let source = requestedSource;
         if (active !== undefined) {
           let currentSource: typeof SheetConfigurationSource.Type;
@@ -279,7 +330,63 @@ export const makeSheetConfigurationGroup = <
           if (currentSource.kind !== requestedSource.kind) {
             throw makeArgumentError("The active Sheet Configuration source cannot be changed here");
           }
-          source = currentSource.kind === "legacy" ? requestedSource : currentSource;
+          if (currentSource.kind === "legacy") {
+            if (requestedSource.kind !== "legacy") {
+              throw makeArgumentError(
+                "The active Sheet Configuration source cannot be changed here",
+              );
+            }
+            const currentReference = scheduleTimeReferenceMetadataForSource(currentSource);
+            const requestedReference = scheduleTimeReferenceMetadataForSource(requestedSource);
+            if (
+              currentReference !== undefined &&
+              requestedReference !== undefined &&
+              !scheduleTimeReferenceEquivalence(currentReference, requestedReference)
+            ) {
+              throw makeArgumentError(
+                "The established Sheet Configuration timing reference cannot be changed here",
+              );
+            }
+            if (currentReference === undefined && requestedReference !== undefined) {
+              throw makeArgumentError(
+                "Establish the Sheet Configuration timing reference through its own transition",
+              );
+            }
+            if (currentReference !== undefined && requestedSource.binding.status !== "bound") {
+              throw makeArgumentError(
+                "The established Sheet Configuration timing reference requires a bound legacy source",
+              );
+            }
+            source =
+              currentReference === undefined
+                ? requestedSource
+                : Match.value(requestedSource.binding).pipe(
+                    Match.when({ status: "bound" }, (requestedBinding) => ({
+                      ...requestedSource,
+                      binding: {
+                        ...requestedBinding,
+                        scheduleTimeReference: currentReference,
+                        ...(currentSource.binding.status === "bound" &&
+                        currentSource.binding.scheduleTimeReferenceBaselineDigest !== undefined
+                          ? {
+                              scheduleTimeReferenceBaselineDigest:
+                                currentSource.binding.scheduleTimeReferenceBaselineDigest,
+                            }
+                          : {}),
+                      },
+                    })),
+                    Match.when({ status: "unresolved" }, () => requestedSource),
+                    Match.exhaustive,
+                  );
+          } else {
+            source = currentSource;
+          }
+        }
+        let draft: typeof CurrentWebSheetConfiguration.Type | null;
+        try {
+          draft = args.draft === null ? null : decodeCurrentWebSheetConfiguration(args.draft);
+        } catch {
+          throw makeArgumentError("The Sheet Configuration draft is not valid");
         }
         await tx.mutate.configWorkspaceSheet.upsert(
           zeroTableAccess.configWorkspaceSheet.upsertWithTimestamps(
@@ -293,7 +400,7 @@ export const makeSheetConfigurationGroup = <
               draftVersion: currentVersion + 1,
               baseRevisionId: args.baseRevisionId,
               baselineDigest: args.baselineDigest,
-              draft: args.draft,
+              draft,
               diagnostics: args.diagnostics,
               activeRevisionId: active?.activeRevisionId ?? null,
               updatedBy: null,
@@ -315,6 +422,177 @@ export const makeSheetConfigurationGroup = <
         });
       },
     }),
+    ZeroApiEndpoint.mutator("establishSheetConfigurationScheduleTimeReference", {
+      visibility: "service",
+      request: scheduleTimeReferenceRequest,
+      // The transition changes only source metadata. Draft, revision, and active-source fields
+      // are preserved from the current row (with legacy draft decoding at this boundary), so
+      // representation changes cannot rotate event identity.
+      // fallow-ignore-next-line complexity
+      mutator: async ({ tx, args, ctx }) => {
+        let requestedSource: SheetConfigurationSourceValue;
+        try {
+          requestedSource = Schema.decodeUnknownSync(SheetConfigurationSource)(
+            migrateLegacySource(args.source),
+            { onExcessProperty: "error" },
+          );
+        } catch {
+          throw makeArgumentError("The Sheet Configuration source is not valid");
+        }
+        const requestedReference = scheduleTimeReferenceMetadataForSource(requestedSource);
+        if (requestedReference === undefined) {
+          throw makeArgumentError("The Sheet Configuration timing reference is not established");
+        }
+        if (
+          scheduleTimeReferenceBaselineDigestForSource(requestedSource) !==
+          args.expectedBaselineDigest
+        ) {
+          throw makeArgumentError(
+            "The Sheet Configuration timing reference evidence changed before persistence",
+          );
+        }
+        if (requestedSource.kind === "legacy" && requestedSource.binding.status !== "bound") {
+          throw makeArgumentError("The legacy Sheet Configuration source is unresolved");
+        }
+
+        const existing = await tx.run(
+          zeroTableAccess.configWorkspaceSheet.table
+            .where("workspaceId", "=", args.workspaceId)
+            .one(),
+        );
+        const active = activeRecord(existing);
+        const currentVersion = active?.draftVersion ?? 0;
+        let currentSource: SheetConfigurationSourceValue | undefined;
+        if (active !== undefined) {
+          try {
+            currentSource = Schema.decodeUnknownSync(SheetConfigurationSource)(
+              migrateLegacySource(active.source),
+              { onExcessProperty: "error" },
+            );
+          } catch {
+            throw makeArgumentError("The current Sheet Configuration source is not valid");
+          }
+          if (currentSource.kind !== requestedSource.kind) {
+            throw makeArgumentError("The active Sheet Configuration source cannot be changed here");
+          }
+          if (
+            currentSource.kind === "owned" &&
+            (currentSource.revisionId === null ||
+              requestedSource.kind !== "owned" ||
+              requestedSource.revisionId !== currentSource.revisionId)
+          ) {
+            throw makeArgumentError(
+              "The active Sheet Configuration revision cannot be changed here",
+            );
+          }
+          if (
+            currentSource.kind === "legacy" &&
+            requestedSource.kind === "legacy" &&
+            (currentSource.binding.status !== "bound" ||
+              !sameLegacyBindingIdentity(currentSource.binding, requestedSource.binding))
+          ) {
+            throw makeArgumentError(
+              "The active legacy Sheet Configuration binding cannot be changed here",
+            );
+          }
+          const currentReference = scheduleTimeReferenceMetadataForSource(currentSource);
+          if (currentReference !== undefined) {
+            if (scheduleTimeReferenceEquivalence(currentReference, requestedReference)) {
+              const currentSourceBaselineDigest =
+                scheduleTimeReferenceBaselineDigestForSource(currentSource);
+              if (
+                (args.expectedDraftVersion !== currentVersion &&
+                  (args.expectedDraftVersion + 1 !== currentVersion ||
+                    currentSourceBaselineDigest !== args.expectedBaselineDigest)) ||
+                (currentSourceBaselineDigest !== undefined &&
+                  currentSourceBaselineDigest !== args.expectedBaselineDigest)
+              ) {
+                throw makeArgumentError(
+                  "The Sheet Configuration timing reference apply request is stale",
+                  { code: sheetConfigurationVersionConflictCode },
+                );
+              }
+              await writeAudit({
+                tx,
+                ctx,
+                workspaceId: args.workspaceId,
+                operation: "establishScheduleTimeReference",
+                invocationId: args.invocationId,
+                metadata: {
+                  expectedBaselineDigest: args.expectedBaselineDigest,
+                  referenceKind: requestedReference.kind,
+                  referenceHour: requestedReference.hour,
+                  draftVersion: currentVersion,
+                  status: "already-applied",
+                },
+              });
+              return;
+            }
+            throw makeArgumentError(
+              "The established Sheet Configuration Schedule Time Reference cannot be changed here",
+            );
+          }
+          if (args.expectedDraftVersion !== currentVersion) {
+            throw makeArgumentError("The Sheet Configuration draft changed in another session", {
+              code: sheetConfigurationVersionConflictCode,
+            });
+          }
+        } else if (args.expectedDraftVersion !== 0) {
+          throw makeArgumentError("There is no Sheet Configuration draft");
+        } else if (
+          (requestedSource.kind === "legacy" && requestedSource.binding.status !== "bound") ||
+          (requestedSource.kind === "owned" && requestedSource.revisionId !== null)
+        ) {
+          throw makeArgumentError(
+            "A new Sheet Configuration row must use a bound legacy source or an uninitialized owned source",
+          );
+        }
+        let draft: typeof CurrentWebSheetConfiguration.Type | null;
+        try {
+          draft =
+            active?.draft === null || active?.draft === undefined
+              ? null
+              : decodeCurrentWebSheetConfiguration(active.draft);
+        } catch {
+          throw makeArgumentError("The current Sheet Configuration draft is not valid");
+        }
+
+        await tx.mutate.configWorkspaceSheet.upsert(
+          zeroTableAccess.configWorkspaceSheet.upsertWithTimestamps(
+            {
+              workspaceId: args.workspaceId,
+              source: requestedSource,
+              legacyBinding:
+                requestedSource.kind === "legacy"
+                  ? requestedSource.binding
+                  : (active?.legacyBinding ?? null),
+              draftVersion: currentVersion + 1,
+              baseRevisionId: active?.baseRevisionId ?? null,
+              baselineDigest: active?.baselineDigest ?? null,
+              draft,
+              diagnostics: active?.diagnostics ?? [],
+              activeRevisionId: active?.activeRevisionId ?? null,
+              updatedBy: null,
+              deletedAt: null,
+            },
+            active,
+          ),
+        );
+        await writeAudit({
+          tx,
+          ctx,
+          workspaceId: args.workspaceId,
+          operation: "establishScheduleTimeReference",
+          invocationId: args.invocationId,
+          metadata: {
+            expectedBaselineDigest: args.expectedBaselineDigest,
+            referenceKind: requestedReference.kind,
+            referenceHour: requestedReference.hour,
+            draftVersion: currentVersion + 1,
+          },
+        });
+      },
+    }),
     ZeroApiEndpoint.mutator("saveSheetConfigurationRevision", {
       visibility: "service",
       request: Schema.Struct({
@@ -326,6 +604,8 @@ export const makeSheetConfigurationGroup = <
         configuration: ReadonlyJSONValueSchema,
         ...auditRequestFields,
       }),
+      // Revision writes validate the current draft, source anchor, and schema migration together.
+      // fallow-ignore-next-line complexity
       mutator: async ({ tx, args, ctx }) => {
         const workspace = activeRecord(
           await tx.run(
@@ -342,11 +622,9 @@ export const makeSheetConfigurationGroup = <
             code: sheetConfigurationVersionConflictCode,
           });
         }
-        let configuration: typeof WebSheetConfiguration.Type;
+        let configuration: typeof CurrentWebSheetConfiguration.Type;
         try {
-          configuration = Schema.decodeUnknownSync(WebSheetConfiguration)(args.configuration, {
-            onExcessProperty: "error",
-          });
+          configuration = decodeCurrentWebSheetConfiguration(args.configuration);
         } catch {
           throw makeArgumentError("The Sheet Configuration is not valid");
         }
@@ -356,15 +634,55 @@ export const makeSheetConfigurationGroup = <
         if (workspace.draft === null) {
           throw makeArgumentError("There is no Sheet Configuration draft to save");
         }
-        let draft: typeof WebSheetConfiguration.Type;
+        let draft: typeof CurrentWebSheetConfiguration.Type;
         try {
-          draft = Schema.decodeUnknownSync(WebSheetConfiguration)(workspace.draft, {
-            onExcessProperty: "error",
-          });
+          draft = decodeCurrentWebSheetConfiguration(workspace.draft);
         } catch {
           throw makeArgumentError("The current Sheet Configuration draft is not valid");
         }
-        if (!webSheetConfigurationEquivalence(draft, configuration)) {
+        let source: typeof SheetConfigurationSource.Type;
+        try {
+          source = Schema.decodeUnknownSync(SheetConfigurationSource)(
+            migrateLegacySource(workspace.source),
+            { onExcessProperty: "error" },
+          );
+        } catch {
+          throw makeArgumentError("The current Sheet Configuration source is not valid");
+        }
+        const sourceScheduleTimeReference = scheduleTimeReferenceMetadataForSource(source);
+        const scheduleTimeReference = scheduleTimeReferenceMetadataForEventFromSource(
+          configuration.event,
+          sourceScheduleTimeReference,
+        );
+        if (scheduleTimeReference === undefined) {
+          throw makeArgumentError(
+            "Establish the Sheet Configuration Schedule Time Reference before saving",
+          );
+        }
+        configuration = {
+          ...configuration,
+          schemaVersion: 2,
+          event: {
+            ...configuration.event,
+            scheduleTimeReference,
+          },
+        };
+        const draftScheduleTimeReference = scheduleTimeReferenceMetadataForEventFromSource(
+          draft.event,
+          sourceScheduleTimeReference,
+        );
+        const draftForComparison =
+          draftScheduleTimeReference === undefined
+            ? draft
+            : {
+                ...draft,
+                schemaVersion: 2 as const,
+                event: {
+                  ...draft.event,
+                  scheduleTimeReference: draftScheduleTimeReference,
+                },
+              };
+        if (!webSheetConfigurationEquivalence(draftForComparison, configuration)) {
           throw makeArgumentError("Save the current Sheet Configuration draft before publishing");
         }
         const existingRevision = activeRecord(
@@ -383,7 +701,7 @@ export const makeSheetConfigurationGroup = <
             workspaceId: args.workspaceId,
             revisionId: args.revisionId,
             spreadsheetId: configuration.spreadsheetId,
-            configuration: args.configuration,
+            configuration,
             createdBy: args.createdBy,
             createdAt: args.createdAtEpochMs,
             deletedAt: null,
@@ -443,25 +761,6 @@ export const makeSheetConfigurationGroup = <
             "The revision is not the current Sheet Configuration activation candidate",
           );
         }
-        let draft: typeof WebSheetConfiguration.Type;
-        let candidate: typeof WebSheetConfiguration.Type;
-        try {
-          draft = Schema.decodeUnknownSync(WebSheetConfiguration)(active.draft, {
-            onExcessProperty: "error",
-          });
-          candidate = Schema.decodeUnknownSync(WebSheetConfiguration)(revision.configuration, {
-            onExcessProperty: "error",
-          });
-        } catch {
-          throw makeArgumentError(
-            "The current Sheet Configuration activation candidate is not valid",
-          );
-        }
-        if (!webSheetConfigurationEquivalence(draft, candidate)) {
-          throw makeArgumentError(
-            "The revision is not the current Sheet Configuration activation candidate",
-          );
-        }
         let source: typeof SheetConfigurationSource.Type;
         try {
           source = Schema.decodeUnknownSync(SheetConfigurationSource)(
@@ -471,11 +770,48 @@ export const makeSheetConfigurationGroup = <
         } catch {
           throw makeArgumentError("The current Sheet Configuration source is not valid");
         }
+        let draft: typeof CurrentWebSheetConfiguration.Type;
+        let candidate: typeof CurrentWebSheetConfiguration.Type;
+        try {
+          draft = decodeCurrentWebSheetConfiguration(active.draft);
+          candidate = decodeCurrentWebSheetConfiguration(revision.configuration);
+        } catch {
+          throw makeArgumentError(
+            "The current Sheet Configuration activation candidate is not valid",
+          );
+        }
+        const scheduleTimeReference = scheduleTimeReferenceMetadataForEventFromSource(
+          draft.event,
+          scheduleTimeReferenceMetadataForSource(source),
+        );
+        if (scheduleTimeReference === undefined) {
+          throw makeArgumentError(
+            "Establish the Sheet Configuration Schedule Time Reference before activating",
+          );
+        }
+        const draftForComparison = {
+          ...draft,
+          schemaVersion: 2 as const,
+          event: { ...draft.event, scheduleTimeReference },
+        };
+        if (!webSheetConfigurationEquivalence(draftForComparison, candidate)) {
+          throw makeArgumentError(
+            "The revision is not the current Sheet Configuration activation candidate",
+          );
+        }
         if (args.expectedBaselineDigest !== null && source.kind !== "legacy") {
           throw makeArgumentError("The legacy Sheet Configuration is no longer active");
         }
         if (args.expectedBaselineDigest === null && source.kind === "legacy") {
           throw makeArgumentError("Import the active legacy Sheet Configuration before activating");
+        }
+        if (
+          source.kind === "legacy" &&
+          scheduleTimeReferenceMetadataForSource(source) === undefined
+        ) {
+          throw makeArgumentError(
+            "Establish the active legacy Sheet Configuration timing reference before activating",
+          );
         }
         if (!diagnosticsAreEmpty(active.diagnostics)) {
           throw makeArgumentError("Resolve Sheet Configuration diagnostics before activating");
@@ -484,12 +820,16 @@ export const makeSheetConfigurationGroup = <
           zeroTableAccess.configWorkspaceSheet.upsertWithTimestamps(
             {
               workspaceId: args.workspaceId,
-              source: { kind: "owned", revisionId: args.revisionId },
+              source: {
+                kind: "owned",
+                revisionId: args.revisionId,
+                scheduleTimeReference,
+              },
               legacyBinding: active.legacyBinding,
               draftVersion: active.draftVersion + 1,
               baseRevisionId: args.revisionId,
               baselineDigest: null,
-              draft: active.draft,
+              draft,
               diagnostics: active.diagnostics,
               activeRevisionId: args.revisionId,
               updatedBy: null,
@@ -514,8 +854,11 @@ export const makeSheetConfigurationGroup = <
         workspaceId: WorkspaceId,
         revisionId: Schema.NullOr(RevisionId),
         expectedDraftVersion: Schema.Int,
+        scheduleTimeReference: Schema.optional(Schema.NullOr(ScheduleTimeReferenceMetadata)),
         ...auditRequestFields,
       }),
+      // Rollback validates stored schema, source authority, and target reference before mutation.
+      // fallow-ignore-next-line complexity
       mutator: async ({ tx, args, ctx }) => {
         const existing = await tx.run(
           zeroTableAccess.configWorkspaceSheet.table
@@ -593,16 +936,65 @@ export const makeSheetConfigurationGroup = <
         );
         if (revision === undefined)
           throw makeArgumentError("The Sheet Configuration revision was not found");
+        let revisionConfiguration: typeof CurrentWebSheetConfiguration.Type;
+        try {
+          revisionConfiguration = decodeCurrentWebSheetConfiguration(revision.configuration);
+        } catch {
+          throw makeArgumentError("The Sheet Configuration rollback revision is not valid");
+        }
+        if (
+          validateDecodedWebSheetConfiguration(revisionConfiguration).some(
+            ({ severity }) => severity === "error",
+          )
+        ) {
+          throw makeArgumentError(
+            "The Sheet Configuration rollback revision has invalid configuration diagnostics",
+          );
+        }
+        const sourceScheduleTimeReference = scheduleTimeReferenceMetadataForSource(source);
+        const requestedScheduleTimeReference = args.scheduleTimeReference ?? undefined;
+        const revisionScheduleTimeReference = revisionConfiguration.event.scheduleTimeReference;
+        const scheduleTimeReference = scheduleTimeReferenceMetadataForEventIfAnchored(
+          revisionConfiguration.event,
+          requestedScheduleTimeReference ??
+            revisionScheduleTimeReference ??
+            sourceScheduleTimeReference,
+        );
+        if (scheduleTimeReference === undefined) {
+          throw makeArgumentError(
+            "The rollback revision has no established Schedule Time Reference",
+          );
+        }
+        if (
+          revisionScheduleTimeReference !== undefined &&
+          !scheduleTimeReferenceEquivalence(scheduleTimeReference, revisionScheduleTimeReference)
+        ) {
+          throw makeArgumentError(
+            "The rollback Schedule Time Reference does not match the selected revision",
+          );
+        }
+        if (
+          requestedScheduleTimeReference !== undefined &&
+          !scheduleTimeReferenceEquivalence(scheduleTimeReference, requestedScheduleTimeReference)
+        ) {
+          throw makeArgumentError(
+            "The rollback Schedule Time Reference does not match the selected revision",
+          );
+        }
         await tx.mutate.configWorkspaceSheet.upsert(
           zeroTableAccess.configWorkspaceSheet.upsertWithTimestamps(
             {
               workspaceId: args.workspaceId,
-              source: { kind: "owned", revisionId: args.revisionId },
+              source: {
+                kind: "owned",
+                revisionId: args.revisionId,
+                scheduleTimeReference,
+              },
               legacyBinding: active.legacyBinding,
               draftVersion: active.draftVersion + 1,
               baseRevisionId: args.revisionId,
               baselineDigest: null,
-              draft: revision.configuration,
+              draft: revisionConfiguration,
               diagnostics: [],
               activeRevisionId: args.revisionId,
               updatedBy: null,

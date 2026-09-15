@@ -96,7 +96,7 @@ describe("legacy Sheet Configuration migration", () => {
       },
     });
     expect(result.configuration).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       spreadsheetId: "spreadsheet-1",
       users: {
         userIds: { sheetId: 2, startRow: 1, endRow: "sheet-end", startColumn: 0, endColumn: 1 },

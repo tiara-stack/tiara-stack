@@ -210,6 +210,10 @@ export interface TrustedSheetPersistenceShape {
       "sheetConfiguration",
       "upsertSheetConfigurationDraft"
     >;
+    readonly establishSheetConfigurationScheduleTimeReference: ClientMutation<
+      "sheetConfiguration",
+      "establishSheetConfigurationScheduleTimeReference"
+    >;
     readonly saveSheetConfigurationRevision: ClientMutation<
       "sheetConfiguration",
       "saveSheetConfigurationRevision"
@@ -432,6 +436,7 @@ export const trustedSheetPersistenceCatalog = {
     "getSheetConfigurationRevisionsBySpreadsheetId",
     "getSheetConfigurationImportAttempt",
     "upsertSheetConfigurationDraft",
+    "establishSheetConfigurationScheduleTimeReference",
     "saveSheetConfigurationRevision",
     "activateSheetConfigurationRevision",
     "rollbackSheetConfiguration",
