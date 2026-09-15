@@ -1,4 +1,4 @@
-import { make, type ZeroApi, ZeroFunctionReference } from "typhoon-zero/zeroApi";
+import { make, type ZeroApi, type ZeroApiGroup, ZeroFunctionReference } from "typhoon-zero/zeroApi";
 import type { Schema as ZeroSchema } from "./schema";
 import { makeCheckinMessagesGroup, type CheckinMessagesGroup } from "./api/checkinMessages";
 import { makeMessageCheckinGroup, type MessageCheckinGroup } from "./api/messageCheckin";
@@ -16,6 +16,10 @@ import {
   type SheetConfigurationGroup,
 } from "./api/sheetConfiguration";
 import { runsGroup, type RunsGroup } from "./api/runs";
+import {
+  sheetWorkflowZeroObservationGroups,
+  type SheetWorkflowZeroObservationGroup,
+} from "./workflows";
 
 export type { SheetZeroApiSuccessSchemas } from "./api/successSchemas";
 
@@ -35,22 +39,46 @@ type SheetZeroApi<SuccessSchemas extends SheetZeroApiSuccessSchemas> = ZeroApi<
   | MessageRoomOrderGroup<SuccessSchemas>
   | MessageSlotGroup<SuccessSchemas>
   | MessageTeamSubmissionGroup<SuccessSchemas>
+  | SheetWorkflowZeroObservationGroup
   | RunsGroup
 >;
+
+export type SheetWorkflowZeroObservationApi = ZeroApi<"sheet", SheetWorkflowZeroObservationGroup>;
+
+const checkinMessagesLoadObservationGroup = sheetWorkflowZeroObservationGroups[0];
+if (checkinMessagesLoadObservationGroup === undefined) {
+  throw new Error("Check-in message load observation query is not configured");
+}
+
+export const SheetWorkflowZeroObservationApi: SheetWorkflowZeroObservationApi = make("sheet").add(
+  checkinMessagesLoadObservationGroup,
+);
+
+const addWorkflowObservationGroups = <Groups extends ZeroApiGroup.Any>(
+  api: ZeroApi<"sheet", Groups>,
+): ZeroApi<"sheet", Groups | SheetWorkflowZeroObservationGroup> => {
+  let current = api as ZeroApi<"sheet", Groups | SheetWorkflowZeroObservationGroup>;
+  for (const group of sheetWorkflowZeroObservationGroups) {
+    current = current.add(group);
+  }
+  return current;
+};
 
 const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSuccessSchemas>(
   success: SuccessSchemas,
 ): SheetZeroApi<SuccessSchemas> =>
-  make("sheet")
-    .add(makeUserConfigGroup(success))
-    .add(makeWorkspaceConfigGroup(success))
-    .add(makeSheetConfigurationGroup(success))
-    .add(makeCheckinMessagesGroup(success))
-    .add(makeMessageCheckinGroup(success))
-    .add(makeMessageRoomOrderGroup(success))
-    .add(makeMessageSlotGroup(success))
-    .add(makeMessageTeamSubmissionGroup(success))
-    .add(runsGroup);
+  addWorkflowObservationGroups(
+    make("sheet")
+      .add(makeUserConfigGroup(success))
+      .add(makeWorkspaceConfigGroup(success))
+      .add(makeSheetConfigurationGroup(success))
+      .add(makeCheckinMessagesGroup(success))
+      .add(makeMessageCheckinGroup(success))
+      .add(makeMessageRoomOrderGroup(success))
+      .add(makeMessageSlotGroup(success))
+      .add(makeMessageTeamSubmissionGroup(success))
+      .add(runsGroup),
+  );
 
 export function makeSheetZeroApi(): ReturnType<
   typeof makeSheetZeroApiWithSuccess<typeof defaultSuccessSchemas>

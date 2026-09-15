@@ -16,11 +16,9 @@ import {
   type EnqueueSheetWorkflowContract,
   type SheetWorkflowZeroContext,
 } from "sheet-zero-server";
+import { ownerKeyForEffectivePrincipal } from "sheet-auth/identity/server";
 import type { ZeroApiGroup } from "typhoon-zero/zeroApi";
-import {
-  ownerKeyForEffectivePrincipal,
-  ReadOnlyWorkflowAuthorization,
-} from "../readOnly/authorization";
+import { ReadOnlyWorkflowAuthorization } from "../readOnly/authorization";
 
 export type SheetWorkflowRegistration = ExecutableWorkflowContractRegistration<
   AnyWorkflowContract,

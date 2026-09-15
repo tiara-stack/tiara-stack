@@ -15,14 +15,22 @@ import {
   Redacted,
   Schedule,
   Schema,
+  Stream,
 } from "effect";
-import { createOAuthClientCredentialsToken } from "sheet-auth/client";
+import { createOAuthClientCredentialsToken, getSheetAuthIdentity } from "sheet-auth/client";
 import {
+  effectivePrincipalFromLegacyIdentity,
+  ownerKeyForEffectivePrincipal,
+} from "sheet-auth/identity/server";
+import {
+  makeCheckinMessagesLoadZeroObserver,
   makeSheetClient,
   mutators,
   schema,
+  type CheckinMessagesLoadZeroObserver,
   type Schema as SheetZeroSchema,
   type SheetClient,
+  workflowObservationUnavailable,
 } from "sheet-zero-api";
 import {
   ConfigWorkspaceRow,
@@ -34,6 +42,7 @@ import {
 import { ZeroClient as BaseZeroClient } from "typhoon-zero/client";
 import { config } from "@/config";
 import { SheetAuthClient } from "./sheetAuthClient";
+import { makeDiscordUserToken, workflowHttpAudience } from "./sheetWorkflowHttp";
 
 const teamSubmissionFeatureFlag = "team-submission-confirmations";
 
@@ -306,6 +315,84 @@ const makeSheetZero = Effect.fn("SheetZeroClient.makeZero")(function* () {
   return zero;
 });
 
+type CheckinMessagesLoadReference = Parameters<CheckinMessagesLoadZeroObserver["get"]>[0];
+type CheckinMessagesLoadObservation = ReturnType<CheckinMessagesLoadZeroObserver["get"]>;
+
+const makeOwnerObservationZero = Effect.fn("SheetZeroClient.makeOwnerObservationZero")(function* (
+  sheetAuthClient: typeof SheetAuthClient.Service,
+  discordUserId: string,
+) {
+  const clientId = yield* config.sheetAuthOAuthClientId;
+  const clientSecret = yield* config.sheetAuthOAuthClientSecret;
+  const subjectTokenKubernetesTokenPath = yield* config.sheetAuthSubjectTokenKubernetesTokenPath;
+  const audience = yield* config.zeroOAuthAudience;
+  const actorToken = yield* createOAuthClientCredentialsToken(sheetAuthClient, {
+    clientId,
+    clientSecret,
+    resource: workflowHttpAudience,
+    scope: ["service", "token.exchange", "workflow.observe"],
+  });
+  const userToken = yield* makeDiscordUserToken({
+    accessToken: actorToken.accessToken,
+    audience,
+    discordUserId,
+    kubernetesServiceAccountTokenPath: subjectTokenKubernetesTokenPath,
+    sheetAuthClient,
+    scope: ["workflow.observe"],
+  });
+  const identity = yield* getSheetAuthIdentity(sheetAuthClient, {
+    Authorization: `Bearer ${Redacted.value(userToken.accessToken)}`,
+  });
+  if (identity.accountId !== discordUserId) {
+    return yield* Effect.fail(
+      new Error("Zero observation identity does not match the interaction"),
+    );
+  }
+
+  const server = yield* config.zeroCacheServer;
+  return new Zero<SheetZeroSchema, undefined, { readonly ownerKey: string }>({
+    cacheURL: server,
+    userID: identity.userId,
+    storageKey: `sheet-bot:workflow-observation:${audience}:${identity.userId}`,
+    schema,
+    auth: Redacted.value(userToken.accessToken),
+    context: {
+      ownerKey: ownerKeyForEffectivePrincipal(effectivePrincipalFromLegacyIdentity(identity)),
+    },
+  });
+});
+
+const makeOwnerObservationClient = (
+  sheetAuthClient: typeof SheetAuthClient.Service,
+  discordUserId: string,
+) =>
+  Effect.gen(function* () {
+    const zero = yield* Effect.acquireRelease(
+      makeOwnerObservationZero(sheetAuthClient, discordUserId),
+      (client) => Effect.promise(() => client.close()).pipe(Effect.ignore),
+    );
+    const executor = yield* BaseZeroClient.ZeroClient<
+      SheetZeroSchema,
+      undefined,
+      { readonly ownerKey: string }
+    >().make(zero);
+    return yield* makeCheckinMessagesLoadZeroObserver(executor);
+  });
+
+const observeCheckinMessagesLoad = (
+  sheetAuthClient: typeof SheetAuthClient.Service,
+  discordUserId: string,
+  reference: CheckinMessagesLoadReference,
+): CheckinMessagesLoadObservation =>
+  Stream.scoped(
+    Stream.unwrap(
+      makeOwnerObservationClient(sheetAuthClient, discordUserId).pipe(
+        Effect.map((observer) => observer.get(reference)),
+        Effect.mapError(workflowObservationUnavailable),
+      ),
+    ),
+  );
+
 class SheetZeroExecutor extends BaseZeroClient.ZeroClient<SheetZeroSchema, undefined, unknown>() {
   static readonly layer = Layer.effect(
     SheetZeroExecutor,
@@ -402,6 +489,10 @@ const getSlotButtonByConversation = Effect.fn("SheetZeroClient.getSlotButtonByCo
 );
 
 interface SheetZeroClientShape {
+  readonly observeCheckinMessagesLoad: (
+    discordUserId: string,
+    reference: CheckinMessagesLoadReference,
+  ) => CheckinMessagesLoadObservation;
   readonly isTeamSubmissionEnabled: (
     workspaceId: string,
     conversationId: string,
@@ -424,10 +515,13 @@ export class SheetZeroClient extends Context.Service<SheetZeroClient, SheetZeroC
   "sheet-bot/SheetZeroClient",
   {
     make: Effect.gen(function* () {
+      const sheetAuthClient = yield* SheetAuthClient;
       const executor = yield* SheetZeroExecutor;
       const client = yield* makeSheetClient(executor);
       const clientId = yield* config.sheetBotClientId;
       return {
+        observeCheckinMessagesLoad: (discordUserId, reference) =>
+          observeCheckinMessagesLoad(sheetAuthClient, discordUserId, reference),
         isTeamSubmissionEnabled: (workspaceId, conversationId) =>
           isTeamSubmissionEnabled(client, workspaceId, conversationId),
         getSheetConfiguration: (workspaceId) => getSheetConfiguration(client, workspaceId),
@@ -443,5 +537,6 @@ export class SheetZeroClient extends Context.Service<SheetZeroClient, SheetZeroC
 ) {
   static readonly layer = Layer.effect(SheetZeroClient, this.make).pipe(
     Layer.provide(SheetZeroExecutor.layer),
+    Layer.provide(SheetAuthClient.layer),
   );
 }

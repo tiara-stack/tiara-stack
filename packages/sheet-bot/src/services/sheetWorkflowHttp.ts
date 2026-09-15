@@ -34,7 +34,7 @@ import { makeCachedBearerTokenHttpClient } from "./oauthHttpClient";
 import { SheetAuthClient } from "./sheetAuthClient";
 
 const accessTokenType = "urn:ietf:params:oauth:token-type:access_token";
-const workflowHttpAudience = "sheet-workflows-http";
+export const workflowHttpAudience = "sheet-workflows-http";
 const workflowRequesterTokenCacheCapacity = 500;
 const workflowEnqueueTimeout = Duration.seconds(30);
 
@@ -501,35 +501,41 @@ const workflowSubjectTokenOptions = (
   kubernetesServiceAccountToken,
 });
 
-const makeDiscordUserToken = Effect.fn("SheetWorkflowHttpClient.makeDiscordUserToken")(function* ({
-  accessToken,
-  discordUserId,
-  kubernetesServiceAccountTokenPath,
-  sheetAuthClient,
-}: {
-  readonly accessToken: Redacted.Redacted<string>;
-  readonly discordUserId: string;
-  readonly kubernetesServiceAccountTokenPath: string;
-  readonly sheetAuthClient: typeof SheetAuthClient.Service;
-}) {
-  const kubernetesServiceAccountToken = yield* readKubernetesServiceAccountToken(
+export const makeDiscordUserToken = Effect.fn("SheetWorkflowHttpClient.makeDiscordUserToken")(
+  function* ({
+    accessToken,
+    audience,
+    discordUserId,
     kubernetesServiceAccountTokenPath,
-  );
-  const subjectToken = yield* createOAuthSubjectToken(
     sheetAuthClient,
-    workflowSubjectTokenOptions(discordUserId, kubernetesServiceAccountToken),
-  );
+    scope,
+  }: {
+    readonly accessToken: Redacted.Redacted<string>;
+    readonly audience: string;
+    readonly discordUserId: string;
+    readonly kubernetesServiceAccountTokenPath: string;
+    readonly sheetAuthClient: typeof SheetAuthClient.Service;
+    readonly scope: readonly string[];
+  }) {
+    const kubernetesServiceAccountToken = yield* readKubernetesServiceAccountToken(
+      kubernetesServiceAccountTokenPath,
+    );
+    const subjectToken = yield* createOAuthSubjectToken(
+      sheetAuthClient,
+      workflowSubjectTokenOptions(discordUserId, kubernetesServiceAccountToken),
+    );
 
-  return yield* exchangeOAuthToken(sheetAuthClient, {
-    subjectToken: subjectToken.subjectToken,
-    subjectTokenType: subjectToken.subjectTokenType,
-    actorToken: accessToken,
-    actorTokenType: accessTokenType,
-    requestedTokenType: accessTokenType,
-    audience: workflowHttpAudience,
-    scope: ["workflow.enqueue", "workflow.observe"],
-  });
-});
+    return yield* exchangeOAuthToken(sheetAuthClient, {
+      subjectToken: subjectToken.subjectToken,
+      subjectTokenType: subjectToken.subjectTokenType,
+      actorToken: accessToken,
+      actorTokenType: accessTokenType,
+      requestedTokenType: accessTokenType,
+      audience,
+      scope,
+    });
+  },
+);
 
 const makeWorkflowServiceHttpClient = Effect.fn("SheetWorkflowHttpClient.makeServiceHttpClient")(
   function* ({
@@ -804,9 +810,11 @@ export class SheetWorkflowHttpClient extends Context.Service<
             });
             const exchangedToken = yield* makeDiscordUserToken({
               accessToken: actorToken.accessToken,
+              audience: workflowHttpAudience,
               discordUserId,
               kubernetesServiceAccountTokenPath: subjectTokenKubernetesTokenPath,
               sheetAuthClient,
+              scope: ["workflow.enqueue", "workflow.observe"],
             });
             const now = yield* Clock.currentTimeMillis;
             const timeToLiveMs = exchangedToken.expiresAt * 1000 - now - 60_000;

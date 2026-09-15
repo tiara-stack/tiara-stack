@@ -6,11 +6,17 @@ import {
   makeOAuthResourceTokenAuthorizer,
   type VerifiedOAuthResourceToken,
 } from "sheet-auth/oauth-resource-authorization";
+import {
+  effectivePrincipalFromVerifiedOAuthClaims,
+  ownerKeyForEffectivePrincipal,
+} from "sheet-auth/identity/server";
+import type { EffectivePrincipal as EffectivePrincipalType } from "sheet-auth/identity";
 import { ZeroDispatchUnauthorizedError } from "typhoon-zero/server";
 
 export interface WorkflowZeroContext {
   readonly principalId: string;
   readonly visibilityKey: string;
+  readonly ownerKey: string;
 }
 
 interface SheetZeroAuthorizationShape {
@@ -23,6 +29,12 @@ interface SheetZeroAuthorizationShape {
 export interface SheetZeroAuthorizationOptions {
   readonly issuer: string;
   readonly audience: string;
+  readonly gatewayIdentity?: SheetZeroGatewayIdentity;
+}
+
+interface SheetZeroGatewayIdentity {
+  readonly serviceId: string;
+  readonly oauthClientId: string;
 }
 
 const unauthorized = (message: string) =>
@@ -31,11 +43,20 @@ const unauthorized = (message: string) =>
     message,
   });
 
-type ProcedureBatch = "publicRuns" | "runs" | "delegated" | "domain" | "outsideRuns";
+type ProcedureBatch =
+  | "publicRuns"
+  | "runs"
+  | "delegated"
+  | "workflowObservation"
+  | "mixedWorkflowObservation"
+  | "domain"
+  | "outsideRuns";
 
 const publicRunProcedures = new Set<string>(["runs.get", "runs.list"]);
 const delegatedRunProcedures = new Set<string>(["runs.enqueueAsCaller"]);
 const isRunsProcedure = (procedure: string) => procedure.startsWith("runs.");
+const isWorkflowObservationProcedure = (procedure: string) =>
+  procedure.startsWith("workflow:") && (procedure.endsWith(".get") || procedure.endsWith(".list"));
 
 type ProcedureReference = {
   readonly group: string;
@@ -62,6 +83,11 @@ const mutatorProcedures = new Set(
 const isMutatorProcedure = (procedure: string): boolean => mutatorProcedures.has(procedure);
 
 const classifyProcedureBatch = (procedureNames: readonly string[]): ProcedureBatch => {
+  if (procedureNames.some(isWorkflowObservationProcedure)) {
+    return procedureNames.every(isWorkflowObservationProcedure)
+      ? "workflowObservation"
+      : "mixedWorkflowObservation";
+  }
   if (procedureNames.some((procedure) => delegatedRunProcedures.has(procedure))) {
     return "delegated";
   }
@@ -85,6 +111,7 @@ const serviceContext = (token: VerifiedOAuthResourceToken) =>
     ? Effect.succeed({
         principalId: token.clientId,
         visibilityKey: `service:${token.clientId}`,
+        ownerKey: `service:${token.clientId}`,
       })
     : Effect.fail(unauthorized("Service access token is missing a client identity"));
 
@@ -93,6 +120,7 @@ const accountContext = (token: VerifiedOAuthResourceToken) =>
     ? Effect.succeed({
         principalId: token.accountId,
         visibilityKey: `account:${token.accountId}`,
+        ownerKey: `account:${token.accountId}`,
       })
     : Effect.fail(unauthorized("Account access token is missing an account identity"));
 
@@ -102,11 +130,47 @@ const publicRunsContext = (token: VerifiedOAuthResourceToken) =>
     : Effect.succeed({
         principalId: "anonymous",
         visibilityKey: "public",
+        ownerKey: "public",
       });
+
+const workflowObservationContext = (
+  token: VerifiedOAuthResourceToken,
+  gatewayIdentity: SheetZeroGatewayIdentity | undefined,
+) =>
+  Effect.try({
+    try: () =>
+      Match.type<EffectivePrincipalType>().pipe(
+        Match.discriminatorsExhaustive("kind")({
+          service: (principal) => {
+            if (!token.scopes.has("service")) {
+              throw new Error("Workflow observation service is missing the service scope");
+            }
+            return {
+              principalId: principal.serviceId,
+              visibilityKey: `service:${principal.serviceId}`,
+              ownerKey: ownerKeyForEffectivePrincipal(principal),
+            };
+          },
+          user: (principal) => {
+            if (!Predicate.isString(token.accountId)) {
+              throw new Error("Workflow observation user is missing a Discord account identity");
+            }
+
+            return {
+              principalId: token.accountId,
+              visibilityKey: `account:${token.accountId}`,
+              ownerKey: ownerKeyForEffectivePrincipal(principal),
+            };
+          },
+        }),
+      )(effectivePrincipalFromVerifiedOAuthClaims(token, gatewayIdentity)),
+    catch: () => unauthorized("Workflow observation identity is invalid"),
+  });
 
 export const zeroContextFromToken = (
   procedureNames: readonly string[],
   token: VerifiedOAuthResourceToken,
+  gatewayIdentity?: SheetZeroGatewayIdentity,
 ): Effect.Effect<WorkflowZeroContext, ZeroDispatchUnauthorizedError> => {
   const isService = token.scopes.has("service");
   const isDelegatedBatch = procedureNames.some((procedure) =>
@@ -132,6 +196,14 @@ export const zeroContextFromToken = (
         : token.scopes.has("workflow.dispatch")
           ? accountContext(token)
           : Effect.fail(unauthorized("Runs access token is missing workflow.dispatch")),
+    ),
+    Match.when("workflowObservation", () =>
+      token.scopes.has("workflow.observe")
+        ? workflowObservationContext(token, gatewayIdentity)
+        : Effect.fail(unauthorized("Workflow observation requires workflow.observe scope")),
+    ),
+    Match.when("mixedWorkflowObservation", () =>
+      Effect.fail(unauthorized("Workflow observations cannot be mixed with other procedures")),
     ),
     Match.when("domain", () =>
       isService
@@ -179,7 +251,11 @@ export const makeSheetZeroAuthorizationLayer = (options: SheetZeroAuthorizationO
         authorize: (procedureNames, headers) =>
           authorizer
             .requireAuthorizedHeaders(headers)
-            .pipe(Effect.flatMap((token) => zeroContextFromToken(procedureNames, token))),
+            .pipe(
+              Effect.flatMap((token) =>
+                zeroContextFromToken(procedureNames, token, options.gatewayIdentity),
+              ),
+            ),
       };
     }),
   );

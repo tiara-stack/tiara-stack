@@ -2,7 +2,6 @@ import {
   Cause,
   Effect,
   Layer,
-  Match,
   Metric,
   Option,
   Predicate,
@@ -47,8 +46,8 @@ import {
 import {
   actorProvenanceFromVerifiedOAuthClaims,
   effectivePrincipalFromVerifiedOAuthClaims,
+  ownerKeyForEffectivePrincipal,
 } from "sheet-auth/identity/server";
-import { EffectivePrincipal } from "sheet-auth/identity";
 import {
   makeOAuthResourceTokenAuthorizer,
   type VerifiedOAuthResourceToken,
@@ -58,10 +57,7 @@ import { SheetWorkflowContractCatalog, SheetWorkflowPrincipalKind } from "sheet-
 import type { SheetWorkflowZeroContext } from "sheet-zero-server";
 import { config } from "@/config";
 import { sheetWorkflowsHttpEnqueues } from "@/metrics";
-import {
-  ownerKeyForEffectivePrincipal,
-  ReadOnlyWorkflowAuthorization,
-} from "@/workflows/readOnly/authorization";
+import { ReadOnlyWorkflowAuthorization } from "@/workflows/readOnly/authorization";
 import { makeSelectedWorkflowTransportHandler } from "@/workflows/selected/registry";
 
 const sheetWorkflowHttpContracts = SheetWorkflowContractCatalog;
@@ -258,34 +254,13 @@ export interface WorkflowHttpGatewayIdentity {
   readonly oauthClientId: string;
 }
 
-const principalWithGatewayIdentity = (
-  principal: typeof EffectivePrincipal.Type,
-  gatewayIdentity: WorkflowHttpGatewayIdentity | undefined,
-): typeof EffectivePrincipal.Type =>
-  Match.type<typeof EffectivePrincipal.Type>().pipe(
-    Match.discriminatorsExhaustive("kind")({
-      user: () => principal,
-      service: (servicePrincipal) =>
-        Predicate.isUndefined(gatewayIdentity) ||
-        servicePrincipal.oauthClientId !== gatewayIdentity.oauthClientId
-          ? servicePrincipal
-          : Schema.decodeUnknownSync(EffectivePrincipal)({
-              ...servicePrincipal,
-              serviceId: gatewayIdentity.serviceId,
-            }),
-    }),
-  )(principal);
-
 export const contextFromToken = (
   token: VerifiedOAuthResourceToken,
   gatewayIdentity?: WorkflowHttpGatewayIdentity,
 ): Effect.Effect<SheetWorkflowZeroContext, Unauthorized> =>
   Effect.try({
     try: () => {
-      const principal = principalWithGatewayIdentity(
-        effectivePrincipalFromVerifiedOAuthClaims(token),
-        gatewayIdentity,
-      );
+      const principal = effectivePrincipalFromVerifiedOAuthClaims(token, gatewayIdentity);
       const actorProvenance = actorProvenanceFromVerifiedOAuthClaims(token);
       return {
         ownerKey: ownerKeyForEffectivePrincipal(principal),

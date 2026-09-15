@@ -11,6 +11,7 @@
       "*": ["./*"],
       "effect-zero-workflow/contract/zero": ["../effect-zero-workflow/src/contract-zero.ts"],
       "sheet-auth": ["../sheet-auth/src/index.ts"],
+      "sheet-auth/identity/server": ["../sheet-auth/src/identity-server.ts"],
       "sheet-auth/*": ["../sheet-auth/src/*"],
       "sheet-db-schema": ["../sheet-db-schema/src/schema.ts"],
       "sheet-db-schema/*": ["../sheet-db-schema/src/*"],

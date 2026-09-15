@@ -1,16 +1,19 @@
 import { describe, expect, it } from "@effect/vitest";
 import { vi } from "vitest";
-import { Effect, Stream } from "effect";
+import { Effect, Option, Schema, Stream } from "effect";
 import type { ZeroClient } from "typhoon-zero/client";
+import { CheckinMessagesLoad } from "sheet-workflow-contracts";
+import { InvocationId } from "effect-zero-workflow/contract";
 import { serviceApi } from "./api";
-import type { Schema } from "./schema";
+import { makeCheckinMessagesLoadZeroObserver } from "./client";
+import type { Schema as SheetZeroSchema } from "./schema";
 import { makeSheetServiceClient } from "./serverClient";
 import { serverMutators } from "./serverRegistries";
 
 describe("Sheet service client", () => {
   it.effect("registers service-only workflow functions", () =>
     Effect.gen(function* () {
-      const mutate = vi.fn<ZeroClient.ZeroClientExecutor<Schema, unknown>["mutate"]>(() =>
+      const mutate = vi.fn<ZeroClient.ZeroClientExecutor<SheetZeroSchema, unknown>["mutate"]>(() =>
         Effect.succeed({
           client: () => Effect.void,
           server: () => Effect.void,
@@ -42,6 +45,49 @@ describe("Sheet service client", () => {
         `${serviceApi.runs.enqueueAsCaller.group}.${serviceApi.runs.enqueueAsCaller.name}`,
       );
       expect(mutation.args).toEqual(request);
+    }),
+  );
+
+  it.effect("materializes the saved-message load from one reactive Zero query", () =>
+    Effect.gen(function* () {
+      const invocationId = Schema.decodeUnknownSync(InvocationId)(
+        "123e4567-e89b-42d3-a456-426614174000",
+      );
+      const reference = {
+        invocationId,
+        contractIdentity: CheckinMessagesLoad.identity,
+        wireVersion: CheckinMessagesLoad.wireVersion,
+      } as const;
+      const loaded = Schema.decodeUnknownSync(CheckinMessagesLoad.success)({
+        workspaceId: "workspace-1",
+        conversationId: "conversation-1",
+        conversationName: "running",
+        binding: { eventStartEpochMs: 1, messageSetGeneration: 1 },
+        messages: [],
+      });
+      const observer = yield* makeCheckinMessagesLoadZeroObserver({
+        run: () => Effect.die("query execution is not used"),
+        stream: (() =>
+          Stream.make(null, {
+            runId: invocationId,
+            status: "succeeded",
+            result: loaded,
+            error: null,
+            completedAt: 2,
+            createdAt: 1,
+            updatedAt: 2,
+          })) as ZeroClient.ZeroClientExecutor<SheetZeroSchema, unknown>["stream"],
+        mutate: () => Effect.die("observation must not mutate"),
+      });
+
+      const observed = yield* Stream.runCollect(observer.get(reference));
+
+      expect(observed).toHaveLength(2);
+      expect(Option.isNone(observed[0]!)).toBe(true);
+      expect(Option.getOrThrow(observed[1]!).result).toMatchObject({
+        _tag: "Success",
+        value: loaded,
+      });
     }),
   );
 });

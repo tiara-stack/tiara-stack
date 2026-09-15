@@ -1,5 +1,11 @@
 export { api } from "./api";
-export { makeSheetClient, type SheetClient } from "./client";
+export {
+  makeCheckinMessagesLoadZeroObserver,
+  makeSheetClient,
+  workflowObservationUnavailable,
+  type CheckinMessagesLoadZeroObserver,
+  type SheetClient,
+} from "./client";
 export { mutators, type Mutators } from "./mutators";
 export { queries, type Queries } from "./queries";
 export {

@@ -539,6 +539,9 @@ imagePullSecrets:
       value: "http://{{ $sheetAuthServiceName }}"
     - name: SHEET_AUTH_OAUTH_AUDIENCE
       value: sheet-zero
+    - name: SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID
+      secretName: {{ $sheetBotSecretName }}
+      secretKey: sheetBotServiceClientId
     - name: OTEL_EXPORTER_OTLP_ENDPOINT
       secretKey: otelExporterOtlpEndpoint
   networkPolicyFrom:

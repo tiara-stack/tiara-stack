@@ -1,4 +1,4 @@
-import { Data, Predicate, Schema } from "effect";
+import { Data, Match, Predicate, Schema } from "effect";
 import {
   ActorProvenance,
   AuditAttribution,
@@ -78,17 +78,40 @@ export const effectivePrincipalFromLegacyIdentity = (
 
 export const effectivePrincipalFromVerifiedOAuthClaims = (
   claims: VerifiedOAuthIdentityClaims,
+  gatewayIdentity?: {
+    readonly serviceId: string;
+    readonly oauthClientId: string;
+  },
 ): EffectivePrincipalType => {
-  if (claims.sub === undefined || claims.scopes.has("service")) {
-    return servicePrincipal(claims.clientId);
-  }
+  const principal =
+    claims.sub === undefined || claims.scopes.has("service")
+      ? servicePrincipal(claims.clientId)
+      : decodeEffectivePrincipal({
+          kind: "user",
+          userId: claims.sub,
+          ...(claims.accountId === undefined
+            ? {}
+            : { discordAccount: { accountId: claims.accountId } }),
+        });
 
-  return decodeEffectivePrincipal({
-    kind: "user",
-    userId: claims.sub,
-    ...(claims.accountId === undefined ? {} : { discordAccount: { accountId: claims.accountId } }),
-  });
+  return Match.type<EffectivePrincipalType>().pipe(
+    Match.discriminatorsExhaustive("kind")({
+      user: () => principal,
+      service: (service) =>
+        gatewayIdentity !== undefined && service.oauthClientId === gatewayIdentity.oauthClientId
+          ? decodeEffectivePrincipal({ ...service, serviceId: gatewayIdentity.serviceId })
+          : service,
+    }),
+  )(principal);
 };
+
+export const ownerKeyForEffectivePrincipal = (principal: EffectivePrincipalType): string =>
+  Match.type<EffectivePrincipalType>().pipe(
+    Match.discriminatorsExhaustive("kind")({
+      user: ({ userId }) => `user:${userId}`,
+      service: ({ serviceId }) => `service:${serviceId}`,
+    }),
+  )(principal);
 
 export const actorProvenanceFromVerifiedOAuthClaims = (claims: VerifiedOAuthIdentityClaims) => {
   if (

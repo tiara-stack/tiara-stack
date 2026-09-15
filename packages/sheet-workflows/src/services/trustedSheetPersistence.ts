@@ -6,6 +6,7 @@ import { config } from "@/config";
 const workflowPersistenceContext: WorkflowZeroContext = {
   principalId: "sheet-workflows",
   visibilityKey: "service:sheet-workflows",
+  ownerKey: "service:sheet-workflows",
 };
 
 export const trustedSheetPersistenceLayer = Layer.unwrap(

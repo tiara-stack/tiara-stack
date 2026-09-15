@@ -1,6 +1,6 @@
 import type { QueryRegistry } from "@rocicorp/zero";
 import { ZeroApiRegistry } from "typhoon-zero/zeroApi";
-import { SheetZeroApi } from "./api";
+import { SheetWorkflowZeroObservationApi, SheetZeroApi } from "./api";
 import type { Schema } from "./schema";
 import { publicVisibilities } from "./visibilities";
 
@@ -12,3 +12,11 @@ export type Queries = QueryRegistry<
 export const queries: Queries = ZeroApiRegistry.toQueries(SheetZeroApi, {
   visibilities: publicVisibilities,
 });
+
+export type WorkflowObservationQueries = QueryRegistry<
+  ZeroApiRegistry.QueryDefinitionsForApi<typeof SheetWorkflowZeroObservationApi, "public">,
+  Schema
+>;
+
+export const clientWorkflowObservationQueries: WorkflowObservationQueries =
+  ZeroApiRegistry.toQueries(SheetWorkflowZeroObservationApi, { visibilities: ["public"] });

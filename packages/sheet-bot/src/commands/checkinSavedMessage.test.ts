@@ -20,6 +20,7 @@ import {
   Deferred,
   Duration,
   Effect,
+  Exit,
   Fiber,
   Match,
   Option,
@@ -27,7 +28,8 @@ import {
   Schema,
   Stream,
 } from "effect";
-import type { CheckinMessagesLoadWorkflow, SheetWorkflowHttpClientShape } from "../services";
+import { TestClock } from "effect/testing";
+import type { CheckinMessagesLoadWorkflow } from "../services";
 import { CheckinMessagesLoad } from "sheet-workflow-contracts";
 import { workflowInvocationIdFromString } from "sheet-workflow-http-client";
 import {
@@ -35,6 +37,7 @@ import {
   makeSavedMessageSubCommandWithClient,
   decodeSavedMessageEditButtonId,
   terminalRun,
+  terminalRunFromSubscription,
 } from "./checkinSavedMessage";
 
 const interaction: APIChatInputApplicationCommandInteraction = {
@@ -148,7 +151,8 @@ describe("saved check-in message command", () => {
             get: () => Stream.never,
             list: () => Stream.never,
           },
-        } satisfies Pick<SheetWorkflowHttpClientShape, "checkinMessagesLoad">;
+          observeCheckinMessagesLoad: () => Stream.never,
+        };
         const response: CommandInteractionResponseContext = {
           getAcknowledgementState: Effect.succeed("none"),
           reply: () => Effect.die("reply should not be called"),
@@ -202,21 +206,25 @@ describe("saved check-in message command", () => {
           binding: { eventStartEpochMs: 1_750_000_000_000, messageSetGeneration: 1 },
           messages: [],
         });
+        let httpObservationUsed = false;
         const workflowClient = {
           checkinMessagesLoad: {
             enqueue: () => Effect.succeed(loadReference),
-            get: () =>
-              Stream.succeed(
-                Option.some({
-                  reference: loadReference,
-                  result: { _tag: "Success", value: loaded, completedAt: now },
-                  submittedAt: now,
-                  updatedAt: now,
-                }),
-              ),
-            list: () => Stream.never,
+            get: () => {
+              httpObservationUsed = true;
+              return Stream.die("HTTP workflow observation must not be used for load");
+            },
           },
-        } satisfies Pick<SheetWorkflowHttpClientShape, "checkinMessagesLoad">;
+          observeCheckinMessagesLoad: () =>
+            Stream.succeed(
+              Option.some({
+                reference: loadReference,
+                result: { _tag: "Success" as const, value: loaded, completedAt: now },
+                submittedAt: now,
+                updatedAt: now,
+              }),
+            ),
+        };
         const response: CommandInteractionResponseContext = {
           getAcknowledgementState: Effect.succeed("none"),
           reply: () => Effect.die("reply should not be called"),
@@ -241,6 +249,8 @@ describe("saved check-in message command", () => {
             Effect.forkScoped,
           );
         const result = yield* Deferred.await(completed).pipe(Effect.timeout(Duration.seconds(5)));
+
+        expect(httpObservationUsed).toBe(false);
 
         Match.value(result).pipe(
           Match.discriminatorsExhaustive("kind")({
@@ -282,6 +292,40 @@ describe("saved check-in message command", () => {
 
       expect(observed).toEqual(success);
       expect(observationCount).toBe(2);
+    }),
+  );
+
+  it.effect("waits on one subscription across replication delay and pending state", () =>
+    Effect.gen(function* () {
+      let subscriptionCount = 0;
+      const pending = { result: { _tag: "Pending", phase: "Queued" } } as const;
+      const success = { result: { _tag: "Success", value: "loaded" } } as const;
+      type Snapshot = typeof pending | typeof success;
+
+      const observed = yield* terminalRunFromSubscription(() => {
+        subscriptionCount += 1;
+        const snapshots: ReadonlyArray<Option.Option<Snapshot>> = [
+          Option.none(),
+          Option.some(pending),
+          Option.some(success),
+        ];
+        return Stream.fromIterable(snapshots);
+      }, Duration.seconds(1));
+
+      expect(observed).toEqual(success);
+      expect(subscriptionCount).toBe(1);
+
+      const incompleteFiber = yield* Effect.exit(
+        terminalRunFromSubscription(
+          () => Stream.succeed(Option.some(pending)).pipe(Stream.concat(Stream.never)),
+          Duration.seconds(1),
+        ),
+      ).pipe(Effect.forkChild);
+      yield* TestClock.adjust(Duration.millis(999));
+      expect(incompleteFiber.pollUnsafe()).toBeUndefined();
+      yield* TestClock.adjust(Duration.millis(1));
+      const incomplete = yield* Fiber.join(incompleteFiber);
+      expect(Exit.isFailure(incomplete)).toBe(true);
     }),
   );
 });

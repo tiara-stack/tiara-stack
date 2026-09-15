@@ -1,10 +1,15 @@
 import { describe, expect, it } from "@effect/vitest";
 import * as browser from "./index";
-import { SheetZeroApi } from "./api";
+import { SheetWorkflowZeroObservationApi, SheetZeroApi } from "./api";
 import { mutators } from "./mutators";
-import { queries } from "./queries";
+import { clientWorkflowObservationQueries, queries } from "./queries";
 import * as server from "./server";
-import { serverMutators, serverQueries } from "./serverRegistries";
+import {
+  serverMutators,
+  serverQueries,
+  workflowObservationMutators,
+  workflowObservationQueries as workflowObservationServerQueries,
+} from "./serverRegistries";
 
 type Descriptor = {
   readonly group: string;
@@ -127,6 +132,7 @@ const expectedCatalog = {
     "mutator:internal:command",
     "mutator:internal:sendEvent",
   ],
+  "workflow:checkinMessages%2Eload:v:1": ["query:public:get", "query:public:list"],
 } as const;
 
 const projectCatalog = () =>
@@ -158,10 +164,10 @@ const catalogNames = (
     .sort();
 
 describe("Sheet Zero API visibility", () => {
-  it("preserves the exhaustive 89-procedure catalog and visibility split", () => {
+  it("preserves the exhaustive procedure catalog and visibility split", () => {
     expect(projectCatalog()).toEqual(expectedCatalog);
-    expect(catalog).toHaveLength(89);
-    expect(catalog.filter(({ visibility }) => visibility === "public")).toHaveLength(69);
+    expect(catalog).toHaveLength(91);
+    expect(catalog.filter(({ visibility }) => visibility === "public")).toHaveLength(71);
     expect(catalog.filter(({ visibility }) => visibility === "service")).toHaveLength(17);
     expect(catalog.filter(({ visibility }) => visibility === "internal")).toHaveLength(3);
   });
@@ -176,6 +182,21 @@ describe("Sheet Zero API visibility", () => {
     const serverVisibility = new Set<Descriptor["visibility"]>(["public", "service"]);
     expect(registryNames(serverQueries).sort()).toEqual(catalogNames("query", serverVisibility));
     expect(registryNames(serverMutators).sort()).toEqual(catalogNames("mutator", serverVisibility));
+  });
+
+  it("keeps the saved-load observer on a query-only registry", () => {
+    const expected = [
+      "workflow:checkinMessages%2Eload:v:1.get",
+      "workflow:checkinMessages%2Eload:v:1.list",
+    ];
+    expect(registryNames(clientWorkflowObservationQueries).sort()).toEqual(expected);
+    expect(registryNames(workflowObservationServerQueries).sort()).toEqual(expected);
+    expect(registryNames(workflowObservationMutators)).toEqual([]);
+    expect(
+      Object.values(SheetWorkflowZeroObservationApi.groups).flatMap((group) =>
+        Object.values(group.endpoints).map(({ kind }) => kind),
+      ),
+    ).toEqual(["query", "query"]);
   });
 });
 

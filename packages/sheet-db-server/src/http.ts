@@ -1,7 +1,7 @@
 import { HttpApiBuilder, HttpApiSwagger } from "effect/unstable/httpapi";
 import { HttpRouter, HttpServer, HttpServerResponse } from "effect/unstable/http";
 import { NodeHttpServer } from "@effect/platform-node";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Option } from "effect";
 import { createServer } from "http";
 import { makeSheetZeroAuthorizationLayer, makeSheetZeroHttpLayer } from "sheet-zero-server";
 import { Api } from "./api";
@@ -12,7 +12,19 @@ const SheetZeroAuthorizationLive = Layer.unwrap(
   Effect.gen(function* () {
     const issuer = yield* config.sheetAuthIssuer;
     const audience = yield* config.sheetAuthOAuthAudience;
-    return makeSheetZeroAuthorizationLayer({ issuer, audience });
+    const gatewayOAuthClientId = yield* config.sheetBotGatewayOAuthClientId;
+    const gatewayIdentity = Option.match(gatewayOAuthClientId, {
+      onNone: () => undefined,
+      onSome: (oauthClientId) => ({
+        serviceId: "sheet-bot.gateway",
+        oauthClientId,
+      }),
+    });
+    return makeSheetZeroAuthorizationLayer({
+      issuer,
+      audience,
+      ...(gatewayIdentity === undefined ? {} : { gatewayIdentity }),
+    });
   }),
 );
 

@@ -33,11 +33,7 @@ export type ZeroMaterializedWorkflowRunRow = Schema.Schema.Type<
   typeof ZeroMaterializedWorkflowRunRow
 >;
 
-export interface WorkflowZeroGroupOptions<
-  TSchema extends ZeroSchema,
-  Context,
-  WrappedTransaction = unknown,
-> {
+export interface WorkflowZeroObservationGroupOptions<TSchema extends ZeroSchema, Context> {
   readonly get: (options: {
     readonly contract: AnyWorkflowContract;
     readonly invocationId: InvocationId;
@@ -48,6 +44,13 @@ export interface WorkflowZeroGroupOptions<
     readonly filter: typeof WorkflowRunListFilter.Type;
     readonly context: Context;
   }) => Query<keyof TSchema["tables"] & string, TSchema, unknown>;
+}
+
+export interface WorkflowZeroGroupOptions<
+  TSchema extends ZeroSchema,
+  Context,
+  WrappedTransaction = unknown,
+> extends WorkflowZeroObservationGroupOptions<TSchema, Context> {
   readonly enqueue: (options: {
     readonly contract: AnyWorkflowContract;
     readonly request: { readonly invocationId: InvocationId; readonly input: unknown };
@@ -56,34 +59,15 @@ export interface WorkflowZeroGroupOptions<
   }) => Promise<void>;
 }
 
-export const makeWorkflowZeroGroup = <
-  Contract extends AnyWorkflowContract,
-  TSchema extends ZeroSchema,
-  Context,
-  WrappedTransaction = unknown,
->(
-  contract: Contract,
-  options: WorkflowZeroGroupOptions<TSchema, Context, WrappedTransaction>,
+const makeWorkflowZeroObservationEndpoints = <TSchema extends ZeroSchema, Context>(
+  contract: AnyWorkflowContract,
+  options: WorkflowZeroObservationGroupOptions<TSchema, Context>,
 ) => {
-  const enqueueRequest = WorkflowEnqueueRequest(contract);
   const getRequest = makeRunReferenceSchema(contract);
   const getSuccess = Schema.OptionFromNullishOr(ZeroMaterializedWorkflowRunRow);
   const listSuccess = Schema.Array(ZeroMaterializedWorkflowRunRow);
 
-  return ZeroApiGroup.make(workflowContractZeroGroupIdentifier(contract)).add(
-    ZeroApiEndpoint.mutator<"enqueue", typeof enqueueRequest, TSchema, Context, WrappedTransaction>(
-      "enqueue",
-      {
-        request: enqueueRequest,
-        mutator: ({ args, ctx, tx }) =>
-          options.enqueue({
-            contract,
-            request: args,
-            context: ctx,
-            transaction: tx,
-          }),
-      },
-    ),
+  return [
     ZeroApiEndpoint.query<
       "get",
       typeof getRequest,
@@ -116,6 +100,48 @@ export const makeWorkflowZeroGroup = <
           context: ctx,
         }),
     }),
+  ] as const;
+};
+
+export const makeWorkflowZeroObservationGroup = <
+  Contract extends AnyWorkflowContract,
+  TSchema extends ZeroSchema,
+  Context,
+>(
+  contract: Contract,
+  options: WorkflowZeroObservationGroupOptions<TSchema, Context>,
+) =>
+  ZeroApiGroup.make(workflowContractZeroGroupIdentifier(contract)).add(
+    ...makeWorkflowZeroObservationEndpoints(contract, options),
+  );
+
+export const makeWorkflowZeroGroup = <
+  Contract extends AnyWorkflowContract,
+  TSchema extends ZeroSchema,
+  Context,
+  WrappedTransaction = unknown,
+>(
+  contract: Contract,
+  options: WorkflowZeroGroupOptions<TSchema, Context, WrappedTransaction>,
+) => {
+  const enqueueRequest = WorkflowEnqueueRequest(contract);
+  const observationEndpoints = makeWorkflowZeroObservationEndpoints(contract, options);
+
+  return ZeroApiGroup.make(workflowContractZeroGroupIdentifier(contract)).add(
+    ZeroApiEndpoint.mutator<"enqueue", typeof enqueueRequest, TSchema, Context, WrappedTransaction>(
+      "enqueue",
+      {
+        request: enqueueRequest,
+        mutator: ({ args, ctx, tx }) =>
+          options.enqueue({
+            contract,
+            request: args,
+            context: ctx,
+            transaction: tx,
+          }),
+      },
+    ),
+    ...observationEndpoints,
   );
 };
 

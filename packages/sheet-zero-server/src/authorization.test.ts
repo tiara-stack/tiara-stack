@@ -18,6 +18,166 @@ const failure = <A, E>(exit: Exit.Exit<A, E>) =>
   Exit.isFailure(exit) ? exit.cause.reasons.find(Cause.isFailReason)?.error : undefined;
 
 describe("Zero OAuth context", () => {
+  it.effect("uses the authenticated user principal for workflow observations", () =>
+    Effect.gen(function* () {
+      const context = yield* zeroContextFromToken(
+        ["workflow:checkinMessages%2Eload:v:1.get"],
+        token({
+          accountId: "discord-account-1",
+          scopes: new Set(["workflow.observe"]),
+          sub: "auth-user-1",
+        }),
+      );
+
+      expect(context).toEqual({
+        principalId: "discord-account-1",
+        visibilityKey: "account:discord-account-1",
+        ownerKey: "user:auth-user-1",
+      });
+    }),
+  );
+
+  it.effect("keeps a service principal observation owner separate from user runs", () =>
+    Effect.gen(function* () {
+      const context = yield* zeroContextFromToken(
+        ["workflow:checkinMessages%2Eload:v:1.get"],
+        token({
+          clientId: "sheet-bot",
+          scopes: new Set(["service", "workflow.observe"]),
+        }),
+      );
+
+      expect(context.ownerKey).toBe("service:sheet-bot");
+      expect(context.visibilityKey).toBe("service:sheet-bot");
+    }),
+  );
+
+  it.effect("maps the gateway OAuth client to the workflow gateway service", () =>
+    Effect.gen(function* () {
+      const context = yield* zeroContextFromToken(
+        ["workflow:checkinMessages%2Eload:v:1.get"],
+        token({
+          clientId: "sheet-bot-client",
+          scopes: new Set(["service", "workflow.observe"]),
+        }),
+        { serviceId: "sheet-bot.gateway", oauthClientId: "sheet-bot-client" },
+      );
+
+      expect(context.ownerKey).toBe("service:sheet-bot.gateway");
+      expect(context.visibilityKey).toBe("service:sheet-bot.gateway");
+    }),
+  );
+
+  it.effect("requires observation scope for service principals too", () =>
+    Effect.gen(function* () {
+      const denied = yield* Effect.exit(
+        zeroContextFromToken(
+          ["workflow:checkinMessages%2Eload:v:1.get"],
+          token({ clientId: "sheet-bot", scopes: new Set(["service"]) }),
+        ),
+      );
+
+      expect(failure(denied)).toMatchObject({
+        _tag: "ZeroDispatchUnauthorizedError",
+        message: "Workflow observation requires workflow.observe scope",
+      });
+    }),
+  );
+
+  it.effect("rejects service-shaped observation tokens without service scope", () =>
+    Effect.gen(function* () {
+      const denied = yield* Effect.exit(
+        zeroContextFromToken(
+          ["workflow:checkinMessages%2Eload:v:1.get"],
+          token({
+            clientId: "sheet-bot",
+            scopes: new Set(["workflow.observe"]),
+          }),
+        ),
+      );
+
+      expect(failure(denied)).toMatchObject({
+        _tag: "ZeroDispatchUnauthorizedError",
+        message: "Workflow observation identity is invalid",
+      });
+    }),
+  );
+
+  it.effect("requires workflow observation scope without changing domain scope rules", () =>
+    Effect.gen(function* () {
+      const denied = yield* Effect.exit(
+        zeroContextFromToken(
+          ["workflow:checkinMessages%2Eload:v:1.get"],
+          token({ accountId: "discord-account-1", sub: "auth-user-1" }),
+        ),
+      );
+
+      expect(failure(denied)).toMatchObject({
+        _tag: "ZeroDispatchUnauthorizedError",
+        message: "Workflow observation requires workflow.observe scope",
+      });
+    }),
+  );
+
+  it.effect("rejects workflow observations mixed with domain procedures", () =>
+    Effect.gen(function* () {
+      const denied = yield* Effect.exit(
+        zeroContextFromToken(
+          ["workflow:checkinMessages%2Eload:v:1.get", "messageSlot.get"],
+          token({
+            accountId: "discord-account-1",
+            scopes: new Set(["zero.read", "workflow.observe"]),
+            sub: "auth-user-1",
+          }),
+        ),
+      );
+
+      expect(failure(denied)).toMatchObject({
+        _tag: "ZeroDispatchUnauthorizedError",
+        message: "Workflow observations cannot be mixed with other procedures",
+      });
+    }),
+  );
+
+  it.effect("rejects workflow observations mixed with delegated enqueue", () =>
+    Effect.gen(function* () {
+      const denied = yield* Effect.exit(
+        zeroContextFromToken(
+          ["runs.enqueueAsCaller", "workflow:checkinMessages%2Eload:v:1.get"],
+          token({
+            accountId: "discord-account-1",
+            scopes: new Set(["workflow.observe", "workflow.enqueue"]),
+            sub: "auth-user-1",
+          }),
+        ),
+      );
+
+      expect(failure(denied)).toMatchObject({
+        _tag: "ZeroDispatchUnauthorizedError",
+        message: "Workflow observations cannot be mixed with other procedures",
+      });
+    }),
+  );
+
+  it.effect("rejects service-only mixed observation batches", () =>
+    Effect.gen(function* () {
+      const denied = yield* Effect.exit(
+        zeroContextFromToken(
+          ["runs.enqueueAsCaller", "workflow:checkinMessages%2Eload:v:1.get"],
+          token({
+            clientId: "sheet-bot",
+            scopes: new Set(["service", "workflow.observe"]),
+          }),
+        ),
+      );
+
+      expect(failure(denied)).toMatchObject({
+        _tag: "ZeroDispatchUnauthorizedError",
+        message: "Workflow observations cannot be mixed with other procedures",
+      });
+    }),
+  );
+
   it.effect("rejects an empty procedure batch without a domain scope", () =>
     Effect.gen(function* () {
       const exit = yield* Effect.exit(zeroContextFromToken([], token()));
@@ -40,6 +200,7 @@ describe("Zero OAuth context", () => {
       expect(context).toEqual({
         principalId: "sheet-db-server",
         visibilityKey: "service:sheet-db-server",
+        ownerKey: "service:sheet-db-server",
       });
     }),
   );
@@ -54,6 +215,7 @@ describe("Zero OAuth context", () => {
       expect(context).toEqual({
         principalId: "discord-account-1",
         visibilityKey: "account:discord-account-1",
+        ownerKey: "account:discord-account-1",
       });
     }),
   );
@@ -71,6 +233,7 @@ describe("Zero OAuth context", () => {
       expect(context).toEqual({
         principalId: "discord-account-1",
         visibilityKey: "account:discord-account-1",
+        ownerKey: "account:discord-account-1",
       });
     }),
   );
@@ -85,6 +248,7 @@ describe("Zero OAuth context", () => {
       expect(context).toEqual({
         principalId: "discord-account-1",
         visibilityKey: "account:discord-account-1",
+        ownerKey: "account:discord-account-1",
       });
     }),
   );
@@ -113,6 +277,7 @@ describe("Zero OAuth context", () => {
       expect(context).toEqual({
         principalId: "sheet-db-server",
         visibilityKey: "service:sheet-db-server",
+        ownerKey: "service:sheet-db-server",
       });
     }),
   );
@@ -130,6 +295,7 @@ describe("Zero OAuth context", () => {
       expect(context).toEqual({
         principalId: "sheet-db-server",
         visibilityKey: "service:sheet-db-server",
+        ownerKey: "service:sheet-db-server",
       });
     }),
   );
@@ -170,6 +336,7 @@ describe("Zero OAuth context", () => {
       expect(context).toEqual({
         principalId: "sheet-workflows",
         visibilityKey: "service:sheet-workflows",
+        ownerKey: "service:sheet-workflows",
       });
     }),
   );
@@ -187,6 +354,7 @@ describe("Zero OAuth context", () => {
       expect(context).toEqual({
         principalId: "sheet-workflows",
         visibilityKey: "service:sheet-workflows",
+        ownerKey: "service:sheet-workflows",
       });
 
       const exit = yield* Effect.exit(
@@ -233,6 +401,7 @@ describe("Zero OAuth context", () => {
       expect(context).toEqual({
         principalId: "discord-account-1",
         visibilityKey: "account:discord-account-1",
+        ownerKey: "account:discord-account-1",
       });
     }),
   );
@@ -394,7 +563,11 @@ describe("Zero OAuth context", () => {
     Effect.gen(function* () {
       const context = yield* zeroContextFromToken(["runs.get"], token());
 
-      expect(context).toEqual({ principalId: "anonymous", visibilityKey: "public" });
+      expect(context).toEqual({
+        principalId: "anonymous",
+        visibilityKey: "public",
+        ownerKey: "public",
+      });
     }),
   );
 });

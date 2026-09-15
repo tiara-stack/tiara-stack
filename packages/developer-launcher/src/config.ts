@@ -129,7 +129,7 @@ const fastHostEnvironmentKeyOwners: Readonly<Record<string, readonly FastService
   SHEET_AUTH_OAUTH_CLIENT_SECRET: ["sheet-workflows"],
   SHEET_AUTH_WORKFLOW_HTTP_AUDIENCE: ["sheet-workflows"],
   SHEET_AUTH_WORKFLOW_HTTP_BROWSER_AUDIENCE: ["sheet-workflows"],
-  SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID: ["sheet-workflows"],
+  SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID: ["sheet-db-server", "sheet-workflows"],
   SHEET_WEB_BASE_URL: ["sheet-workflows", "sheet-bot"],
   ZERO_CACHE_SERVER: ["sheet-bot"],
   ZERO_CACHE_USER_ID: ["sheet-bot"],
@@ -952,6 +952,11 @@ const validateFast = (
         localHost(servicePorts["sheet-auth"]),
       ),
       SHEET_AUTH_OAUTH_AUDIENCE: valueOrDefault(values, "SHEET_AUTH_OAUTH_AUDIENCE", "sheet-zero"),
+      SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID: valueOrDefault(
+        values,
+        "SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID",
+        valueOrDefault(values, "SHEET_BOT_OAUTH_CLIENT_ID", "local-bot"),
+      ),
       OTEL_EXPORTER_OTLP_ENDPOINT: valueOrDefault(
         values,
         "OTEL_EXPORTER_OTLP_ENDPOINT",

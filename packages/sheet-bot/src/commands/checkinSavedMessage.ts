@@ -1,5 +1,6 @@
 import { Discord, Ix } from "dfx/index";
 import { ModalSubmitData } from "dfx/Interactions/context";
+import { Interaction } from "dfx-discord-utils";
 import { ButtonStyle, MessageFlags } from "discord-api-types/v10";
 import { Cause, Exit } from "effect";
 import { Duration, Effect, Option, Predicate, Schema, Stream } from "effect";
@@ -29,6 +30,7 @@ import {
   CheckinMessagesSaveWorkflow,
   SheetWorkflowHttpClient,
   SheetWorkflowHttpRequestContext,
+  SheetZeroClient,
   type SheetWorkflowHttpClientShape,
 } from "../services";
 import { resolveChannelId, resolveGuildId } from "../utils/commandHelpers";
@@ -171,14 +173,20 @@ const deferSavedMessageCommand = (
 const nextWorkflowObservationPollInterval = (current: Duration.Duration) =>
   Duration.min(Duration.times(current, 2), workflowObservationMaxPollInterval);
 
-const observeTerminalRun = <Run extends TerminalWorkflowRun>(
+const observedTerminalRun = <Run extends TerminalWorkflowRun>(
   get: () => Stream.Stream<Option.Option<Run>, unknown, never>,
-  pollInterval: Duration.Duration,
-): Effect.Effect<Run, unknown> =>
+) =>
   get().pipe(
     Stream.filter((run): run is Option.Some<Run> => Option.isSome(run)),
     Stream.map((run) => run.value),
     Stream.takeUntil((run) => !Predicate.isTagged("Pending")(run.result)),
+  );
+
+const observeTerminalRun = <Run extends TerminalWorkflowRun>(
+  get: () => Stream.Stream<Option.Option<Run>, unknown, never>,
+  pollInterval: Duration.Duration,
+): Effect.Effect<Run, unknown> =>
+  observedTerminalRun(get).pipe(
     Stream.runLast,
     Effect.flatMap((observed) => {
       const pollAgain = Effect.sleep(pollInterval).pipe(
@@ -202,6 +210,24 @@ export const terminalRun = <Run extends TerminalWorkflowRun>(
   pollInterval = workflowObservationInitialPollInterval,
 ): Effect.Effect<Run, unknown> =>
   observeTerminalRun(get, pollInterval).pipe(Effect.timeout(timeout));
+
+export const terminalRunFromSubscription = <Run extends TerminalWorkflowRun>(
+  get: () => Stream.Stream<Option.Option<Run>, unknown, never>,
+  timeout: Duration.Duration,
+): Effect.Effect<Run, unknown> =>
+  observedTerminalRun(get).pipe(
+    Stream.runLast,
+    Effect.flatMap(
+      Option.match({
+        onNone: () => Effect.fail(new Error("Workflow observation ended before completion")),
+        onSome: (run) =>
+          Predicate.isTagged("Pending")(run.result)
+            ? Effect.fail(new Error("Workflow observation ended before completion"))
+            : Effect.succeed(run),
+      }),
+    ),
+    Effect.timeout(timeout),
+  );
 
 const workflowFailureMessage = (failure: unknown): string =>
   Predicate.hasProperty(failure, "message") && Predicate.isString(failure.message)
@@ -265,11 +291,21 @@ const runValue = <Run extends TerminalWorkflowRun>(
   );
 };
 
-const loadSavedMessage = (workflow: CheckinMessagesLoadWorkflow, input: CheckinMessagesLoadInput) =>
+type SavedMessageLoadObserver = (typeof SheetZeroClient.Service)["observeCheckinMessagesLoad"];
+
+const loadSavedMessage = (
+  workflow: Pick<CheckinMessagesLoadWorkflow, "enqueue">,
+  observe: SavedMessageLoadObserver,
+  discordUserId: string,
+  input: CheckinMessagesLoadInput,
+) =>
   SheetWorkflowHttpRequestContext.asInteractionUser(() =>
     Effect.gen(function* () {
       const reference = yield* workflow.enqueue(input);
-      const run = yield* terminalRun(() => workflow.get(reference), savedMessageLoadTimeout);
+      const run = yield* terminalRunFromSubscription(
+        () => observe(discordUserId, reference),
+        savedMessageLoadTimeout,
+      );
       return yield* runValue(run, "Could not load the saved check-in message").pipe(
         Effect.flatMap((value) =>
           decodeWorkflowValue(
@@ -381,7 +417,13 @@ export const makeSavedMessageSubCommandData = (builder: SubCommandBuilder) =>
     .addStringOption(channelNameOption("The name of the running channel"))
     .addStringOption((option) => option.setName("server_id").setDescription("The server to edit"));
 
-type SavedMessageWorkflowClient = Pick<SheetWorkflowHttpClientShape, "checkinMessagesLoad">;
+type SavedMessageWorkflowClient = {
+  readonly checkinMessagesLoad: Pick<
+    SheetWorkflowHttpClientShape["checkinMessagesLoad"],
+    "enqueue"
+  >;
+  readonly observeCheckinMessagesLoad: SavedMessageLoadObserver;
+};
 
 export const makeSavedMessageSubCommandWithClient = (
   workflowClient: SavedMessageWorkflowClient,
@@ -392,10 +434,13 @@ export const makeSavedMessageSubCommandWithClient = (
     // fallow-ignore-next-line complexity
     Effect.fn("checkin.saved.load")(function* (command) {
       const response = yield* InteractionResponse;
+      const interactionUser = yield* Interaction.user();
       yield* deferSavedMessageCommand(response);
       const commandInput = yield* resolveSavedMessageLoadInput(command);
       const loaded = yield* loadSavedMessage(
         workflowClient.checkinMessagesLoad,
+        workflowClient.observeCheckinMessagesLoad,
+        interactionUser.id,
         commandInput.input,
       );
       const current = loaded.messages.find(({ hour }) => hour === commandInput.hour);
@@ -422,8 +467,15 @@ export const makeSavedMessageSubCommandWithClient = (
 
 export const makeSavedMessageSubCommand = Effect.gen(function* () {
   const workflowClient = yield* SheetWorkflowHttpClient;
+  const zeroClient = yield* SheetZeroClient;
   const storage = yield* Unstorage;
-  return yield* makeSavedMessageSubCommandWithClient(workflowClient, storage);
+  return yield* makeSavedMessageSubCommandWithClient(
+    {
+      checkinMessagesLoad: workflowClient.checkinMessagesLoad,
+      observeCheckinMessagesLoad: zeroClient.observeCheckinMessagesLoad,
+    },
+    storage,
+  );
 });
 
 const makeSavedMessageModalHandler = Effect.gen(function* () {

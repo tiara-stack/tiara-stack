@@ -3,11 +3,9 @@ import { SqlError } from "effect/unstable/sql";
 import { WorkflowStore, type WorkflowDefinition } from "effect-zero-workflow";
 import { InvocationId } from "effect-zero-workflow/contract";
 import type { ActorProvenance, EffectivePrincipal } from "sheet-auth/identity";
+import { ownerKeyForEffectivePrincipal } from "sheet-auth/identity/server";
 import { CheckinsOpen, MembersKick } from "sheet-workflow-contracts";
-import {
-  ownerKeyForEffectivePrincipal,
-  ReadOnlyWorkflowAuthorization,
-} from "@/workflows/readOnly/authorization";
+import { ReadOnlyWorkflowAuthorization } from "@/workflows/readOnly/authorization";
 import { CheckinsOpenWorkflow } from "@/workflows/checkins/openDefinition";
 import { checkinSheetWorkflowDefinitionVersion } from "@/workflows/checkins/catalog";
 import { MembersKickWorkflow } from "@/workflows/members/definition";

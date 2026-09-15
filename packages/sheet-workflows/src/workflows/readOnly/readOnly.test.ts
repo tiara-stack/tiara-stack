@@ -58,6 +58,7 @@ import {
   ReadOnlySheetWorkflowDefinitions,
   ReadOnlySheetWorkflows,
 } from "./definitions";
+import { ownerKeyForEffectivePrincipal } from "sheet-auth/identity/server";
 import { ReadOnlySheetWorkflowContracts } from "./catalog";
 import {
   makeReadOnlySheetWorkflowZeroEnqueue,
@@ -65,11 +66,7 @@ import {
   makeReadOnlyWorkflowTransportHandler,
   ReadOnlySheetWorkflowRegistrations,
 } from "./registry";
-import {
-  ownerKeyForEffectivePrincipal,
-  ReadOnlyWorkflowAuthorization,
-  readOnlyWorkflowAuthorizationLayer,
-} from "./authorization";
+import { ReadOnlyWorkflowAuthorization, readOnlyWorkflowAuthorizationLayer } from "./authorization";
 import { ReadOnlyWorkflowDataSource, readOnlyWorkflowDataSourceLayer } from "./dataSource";
 import { SheetSnapshotProvider } from "./sheetSnapshotProvider";
 import { SheetBotCacheClient } from "@/services/sheetBotCacheClient";

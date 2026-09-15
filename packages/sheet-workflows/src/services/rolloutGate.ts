@@ -1,7 +1,7 @@
 import { Context, Duration, Effect, Layer, Metric, Predicate, Schedule, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import type { ActorProvenance, EffectivePrincipal } from "sheet-auth/identity";
-import { ownerKeyForEffectivePrincipal } from "@/workflows/readOnly/authorization";
+import { ownerKeyForEffectivePrincipal } from "sheet-auth/identity/server";
 import {
   RolloutGateAllPrincipalsKey,
   RolloutGateChangeResponse,

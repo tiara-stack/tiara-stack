@@ -172,6 +172,7 @@ services:
     environment:
       SHEET_AUTH_ISSUER: "http://sheet-auth:3000"
       SHEET_AUTH_OAUTH_AUDIENCE: "sheet-zero"
+      SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID: ${SHEET_BOT_OAUTH_CLIENT_ID:?SHEET_BOT_OAUTH_CLIENT_ID is required}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://local-otel-sink:4318}
     secrets:
       - postgres_password

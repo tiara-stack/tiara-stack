@@ -6,4 +6,7 @@ export const config = {
   sheetAuthOAuthAudience: Config.string("SHEET_AUTH_OAUTH_AUDIENCE").pipe(
     Config.withDefault("sheet-zero"),
   ),
+  sheetBotGatewayOAuthClientId: Config.option(
+    Config.schema(Schema.NonEmptyString, "SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID"),
+  ),
 };

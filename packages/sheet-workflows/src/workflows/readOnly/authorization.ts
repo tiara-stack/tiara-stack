@@ -59,14 +59,6 @@ const isDecidableSubmissionFor = (
   );
 };
 
-export const ownerKeyForEffectivePrincipal = (principal: EffectivePrincipal): string =>
-  Match.type<EffectivePrincipal>().pipe(
-    Match.discriminatorsExhaustive("kind")({
-      user: ({ userId }) => `user:${userId}`,
-      service: ({ serviceId }) => `service:${serviceId}`,
-    }),
-  )(principal);
-
 interface WorkspaceCapabilitySnapshot {
   readonly member: boolean;
   readonly monitor: boolean;

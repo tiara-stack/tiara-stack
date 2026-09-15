@@ -1,7 +1,18 @@
-import { Effect, Option, Stream } from "effect";
+import { Effect, Option, Schema, Stream } from "effect";
 import { describe, expect, it } from "@effect/vitest";
-import { SheetWorkflowContractCatalog } from "sheet-workflow-contracts";
-import { makeSheetWorkflowZeroClients, sheetWorkflowZeroProcedureManifest } from "./workflows";
+import { ZeroApiEndpoint } from "typhoon-zero/zeroApi";
+import { InvocationId, workflowContractKey } from "effect-zero-workflow/contract";
+import { CheckinMessagesLoad, SheetWorkflowContractCatalog } from "sheet-workflow-contracts";
+import { workflowContractZeroGroupIdentifier } from "effect-zero-workflow/contract/transport";
+import { zql } from "./schema";
+import { serverMutators, serverQueries } from "./serverRegistries";
+import { queries } from "./queries";
+import {
+  makeSheetWorkflowZeroObservationGroups,
+  makeSheetWorkflowZeroClients,
+  sheetWorkflowZeroObservationProcedureManifest,
+  sheetWorkflowZeroProcedureManifest,
+} from "./workflows";
 
 describe("sheet Workflow Contract Zero clients", () => {
   it("publishes three explicit procedures per contract", () => {
@@ -24,5 +35,67 @@ describe("sheet Workflow Contract Zero clients", () => {
     expect(clients.workspaces.featureFlags.setAndDeliver).toHaveProperty("get");
     expect(clients).not.toHaveProperty("dispatch");
     expect(clients).not.toHaveProperty("getByName");
+  });
+
+  it("mounts the saved-message load observation as a read-only client/server pair", () => {
+    const group = workflowContractZeroGroupIdentifier(CheckinMessagesLoad);
+    const clientQueries = queries as unknown as Record<string, Record<string, unknown>>;
+    const mountedServerQueries = serverQueries as unknown as Record<
+      string,
+      Record<string, unknown>
+    >;
+    const mountedServerMutators = serverMutators as unknown as Record<string, unknown>;
+
+    expect(sheetWorkflowZeroObservationProcedureManifest).toEqual([
+      `${group}.get`,
+      `${group}.list`,
+    ]);
+    expect(Object.keys(clientQueries[group]!).filter((name) => name !== "~")).toEqual([
+      "get",
+      "list",
+    ]);
+    expect(Object.keys(mountedServerQueries[group]!).filter((name) => name !== "~")).toEqual([
+      "get",
+      "list",
+    ]);
+    expect(mountedServerMutators[group]).toBeUndefined();
+  });
+
+  it("builds the mounted query from the contract and authenticated owner", () => {
+    const calls: Array<readonly unknown[]> = [];
+    const query = {
+      where: (field: string, operator: string, value: unknown) => {
+        calls.push(["where", field, operator, value]);
+        return query;
+      },
+      one: () => {
+        calls.push(["one"]);
+        return query;
+      },
+    } as unknown as typeof zql.workflowRun;
+    const group = makeSheetWorkflowZeroObservationGroups(query)[0]!;
+    const get = group.endpoints.get;
+    if (get === undefined || !ZeroApiEndpoint.isKind("query")(get)) {
+      throw new Error("Saved-message load observation query is not mounted");
+    }
+    const invocationId = Schema.decodeUnknownSync(InvocationId)(
+      "123e4567-e89b-42d3-a456-426614174000",
+    );
+
+    get.query({
+      args: {
+        invocationId,
+        contractIdentity: CheckinMessagesLoad.identity,
+        wireVersion: CheckinMessagesLoad.wireVersion,
+      },
+      ctx: { ownerKey: "user:auth-user-1" },
+    });
+
+    expect(calls).toEqual([
+      ["where", "runId", "=", invocationId],
+      ["where", "workflowName", "=", workflowContractKey(CheckinMessagesLoad)],
+      ["where", "visibilityKey", "=", "user:auth-user-1"],
+      ["one"],
+    ]);
   });
 });

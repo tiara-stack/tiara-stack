@@ -22,6 +22,7 @@
     "format:apply": "vp fmt",
     "lint": "vp lint src",
     "test": "vp test run",
+    "test:integration": "TIA_211_ZERO_INTEGRATION=1 vp test run src/services/tia211-zero.integration.test.ts",
     "build": "vp pack && tar -acf dist.tar.zst ./dist"
   },
   "dependencies": {
@@ -47,8 +48,10 @@
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
+    "@rocicorp/zero-sqlite3": "1.1.4",
     "@types/node": "catalog:",
     "date-fns": "^4.1.0",
+    "postgres": "^3.4.7",
     "simple-git": "^3.30.0",
     "tooling-config": "workspace:*",
     "vite": "catalog:",

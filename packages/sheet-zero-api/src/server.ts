@@ -26,7 +26,7 @@ export {
   type Schema,
   type SheetClient,
 } from "./index";
-export { SheetZeroApi, makeSheetZeroApi, serviceApi } from "./api";
+export { SheetWorkflowZeroObservationApi, SheetZeroApi, makeSheetZeroApi, serviceApi } from "./api";
 export type { SheetZeroApiSuccessSchemas } from "./api/successSchemas";
 export {
   enqueueWorkflowContractInvocationInZeroTransaction,
@@ -41,8 +41,12 @@ export { makeSheetServiceClient, type SheetServiceClient } from "./serverClient"
 export {
   serverMutators,
   serverQueries,
+  workflowObservationMutators,
+  workflowObservationQueries,
   type ServerMutators,
   type ServerQueries,
+  type WorkflowObservationServerMutators,
+  type WorkflowObservationServerQueries,
 } from "./serverRegistries";
 export {
   defineZeroTableAccess,

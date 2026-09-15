@@ -1,6 +1,6 @@
 import type { MutatorRegistry, QueryRegistry } from "@rocicorp/zero";
 import { ZeroApiRegistry } from "typhoon-zero/zeroApi";
-import { SheetZeroApi } from "./api";
+import { SheetWorkflowZeroObservationApi, SheetZeroApi } from "./api";
 import type { Schema } from "./schema";
 import { serverVisibilities } from "./visibilities";
 
@@ -24,3 +24,19 @@ export const serverQueries: ServerQueries = ZeroApiRegistry.toQueries(SheetZeroA
 export const serverMutators: ServerMutators = ZeroApiRegistry.toMutators(SheetZeroApi, {
   visibilities: serverVisibilities,
 });
+
+export type WorkflowObservationServerQueries = QueryRegistry<
+  ZeroApiRegistry.QueryDefinitionsForApi<typeof SheetWorkflowZeroObservationApi, "public">,
+  Schema
+>;
+
+export const workflowObservationQueries: WorkflowObservationServerQueries =
+  ZeroApiRegistry.toQueries(SheetWorkflowZeroObservationApi, { visibilities: ["public"] });
+
+export type WorkflowObservationServerMutators = MutatorRegistry<
+  ZeroApiRegistry.MutatorDefinitionsForApi<typeof SheetWorkflowZeroObservationApi, "public">,
+  Schema
+>;
+
+export const workflowObservationMutators: WorkflowObservationServerMutators =
+  ZeroApiRegistry.toMutators(SheetWorkflowZeroObservationApi, { visibilities: ["public"] });
