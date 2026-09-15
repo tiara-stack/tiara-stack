@@ -15,6 +15,7 @@ import {
 } from "./config";
 import { makeDiagnostic, makeWarning } from "./diagnostics";
 import { runDoctorEffect } from "./doctor";
+import { makeKubernetesExecutionContext, type KubernetesExecutionContext } from "./execution";
 import { buildModePlan } from "./plan";
 import { checkLoopbackPort } from "./ports";
 import { isChangedSurface } from "./parity";
@@ -44,6 +45,23 @@ export {
   type FastPrerequisiteKind,
   type FastReadinessTarget,
   type LifecycleObservation,
+  executeDevelopment,
+  executeKubernetes,
+  makeKubernetesExecutionContext,
+  runDevelopmentExecution,
+  runKubernetesExecution,
+  type DevelopmentExecutionContext,
+  type DevelopmentExecutionOptions,
+  type DevelopmentExecutionResult,
+  type DevelopmentLifecycleObservation,
+  type KubernetesExecutionContext,
+  type KubernetesExecutionOptions,
+  type KubernetesExecutionOutcome,
+  type KubernetesExecutionPhase,
+  type KubernetesExecutionResult,
+  type KubernetesExecutionStep,
+  type KubernetesExecutionTarget,
+  type KubernetesLifecycleObservation,
 } from "./execution";
 export { parseCommand, parsePositionals } from "./commands";
 export {
@@ -73,6 +91,10 @@ const modeServices = {
   compose: ["sheet-auth", "sheet-db-server", "sheet-workflows", "sheet-web", "sheet-bot"],
   kubernetes: ["sheet-auth", "sheet-db-server", "sheet-workflows", "sheet-web", "sheet-bot"],
 } as const satisfies Readonly<Record<DevelopmentMode, readonly string[]>>;
+
+const plannedKubernetesContexts = new WeakMap<LauncherOutput, KubernetesExecutionContext>();
+// Prefer the result identity, then recover contexts for copies that retain the planned output.
+const launcherKubernetesContexts = new WeakMap<LauncherResult, KubernetesExecutionContext>();
 
 const modeDescriptions: Readonly<Record<DevelopmentMode, string>> = {
   fast: "Fast mode edits sheet-web on the host and uses explicit development endpoints.",
@@ -540,7 +562,7 @@ const modeOutput = (
         parityGates: plan.parityGates,
       };
     }
-    return {
+    const output: LauncherOutput = {
       ...emptyOutput(command.command, command.mode),
       ok: true,
       action: command.action,
@@ -553,6 +575,19 @@ const modeOutput = (
       changedSurfaces,
       parityGates: plan.parityGates,
     };
+    if (validation.config.mode === "kubernetes") {
+      plannedKubernetesContexts.set(
+        output,
+        makeKubernetesExecutionContext(
+          validation.config,
+          plan,
+          output,
+          options.cwd ?? process.cwd(),
+          command.options.tag,
+        ),
+      );
+    }
+    return output;
   });
 
 const setupOutput = (command: Extract<ParsedCommand, { kind: "setup" }>): LauncherOutput => {
@@ -630,12 +665,22 @@ const runLauncherEffect = async <A>(program: Effect.Effect<A>): Promise<A> => {
   throw Cause.squash(exit.cause);
 };
 
-const launcherResult = (output: LauncherOutput, json: boolean, help?: string): LauncherResult => ({
-  exitCode: output.ok ? 0 : 2,
-  stdout: renderLauncherOutput(output, json, help),
-  stderr: "",
-  output,
-});
+const launcherResult = (output: LauncherOutput, json: boolean, help?: string): LauncherResult => {
+  const result: LauncherResult = {
+    exitCode: output.ok ? 0 : 2,
+    stdout: renderLauncherOutput(output, json, help),
+    stderr: "",
+    output,
+  };
+  const context = plannedKubernetesContexts.get(output);
+  if (context !== undefined) launcherKubernetesContexts.set(result, context);
+  return result;
+};
+
+export const getKubernetesExecutionContext = (
+  result: LauncherResult,
+): KubernetesExecutionContext | undefined =>
+  launcherKubernetesContexts.get(result) ?? plannedKubernetesContexts.get(result.output);
 
 const runParsedCommand = (
   command: ParsedCommand,

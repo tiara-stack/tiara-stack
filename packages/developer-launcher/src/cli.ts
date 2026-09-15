@@ -7,10 +7,14 @@ import { realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Argument, Command, Flag } from "effect/unstable/cli";
-import { makeFastExecutionContext, runFastExecution } from "./execution";
+import { makeFastExecutionContext, runFastExecution, runKubernetesExecution } from "./execution";
 import { spawnProcess, startLongLivedProcess } from "./executor";
 import { makeDiagnostic } from "./diagnostics";
-import { renderLauncherOutput, runLauncherFromParsed } from "./index";
+import {
+  getKubernetesExecutionContext,
+  renderLauncherOutput,
+  runLauncherFromParsed,
+} from "./index";
 import type { LauncherOutput, ProcessExecutor } from "./types";
 import { normalizeChangedSurfaces, type CommandOptions } from "./commands";
 
@@ -191,81 +195,15 @@ const executeComposePlan = async (
 export const executeKubernetesPlan = async (
   result: Awaited<ReturnType<typeof runLauncherFromParsed>>,
   json: boolean,
-  executor: ProcessExecutor = spawnProcess,
+  executor?: ProcessExecutor,
 ): Promise<Awaited<ReturnType<typeof runLauncherFromParsed>>> => {
   if (!result.output.ok || result.output.plannedProcesses.length === 0) return result;
-  for (const planned of result.output.plannedProcesses) {
-    const processResult = await executor({
-      command: planned.command,
-      args: planned.args,
-      cwd: process.cwd(),
-      env: planned.environment,
-      timeoutMs: 30 * 60_000,
-      kind: "runtime",
-      readOnly: planned.readOnly,
-      output: json ? "capture" : "inherit",
-    });
-    if (
-      !processResult.timedOut &&
-      (processResult.exitCode === 130 || processResult.exitCode === 143)
-    ) {
-      const stopped = { ...result.output, readiness: "stopped" as const };
-      return {
-        ...result,
-        exitCode: processResult.exitCode,
-        stdout: renderLauncherOutput(stopped, json),
-        output: stopped,
-      };
-    }
-    if (processResult.exitCode === 0 && !processResult.timedOut) continue;
-
-    let workloadDetails = "";
-    const namespaceIndex = planned.args.indexOf("--namespace");
-    const contextIndex = planned.args.indexOf("--kube-context");
-    const namespace =
-      namespaceIndex < 0 ? planned.environment.KUBE_NAMESPACE : planned.args[namespaceIndex + 1];
-    const context =
-      contextIndex < 0 ? planned.environment.KUBE_CONTEXT : planned.args[contextIndex + 1];
-    if (namespace !== undefined && context !== undefined) {
-      const details = await executor({
-        command: "kubectl",
-        args: [
-          "--context",
-          context,
-          "--namespace",
-          namespace,
-          "get",
-          "pods,deployments,statefulsets,jobs",
-          "-o",
-          "wide",
-        ],
-        cwd: process.cwd(),
-        env: {},
-        timeoutMs: 10_000,
-        kind: "runtime",
-        readOnly: true,
-        output: json ? "capture" : "inherit",
-      });
-      if (!details.timedOut && (details.exitCode === 130 || details.exitCode === 143)) {
-        const stopped = { ...result.output, readiness: "stopped" as const };
-        return {
-          ...result,
-          exitCode: details.exitCode,
-          stdout: renderLauncherOutput(stopped, json),
-          output: stopped,
-        };
-      }
-      workloadDetails =
-        details.exitCode === 0 && !details.timedOut
-          ? (details.stdout?.trim() ?? "")
-          : (details.stderr?.trim() ?? "");
-    }
+  const context = getKubernetesExecutionContext(result);
+  if (context === undefined) {
     const failure = makeDiagnostic(
-      processResult.timedOut ? "dependency-timeout" : "required-dependency-failed",
-      `${planned.id} failed with exit code ${processResult.exitCode}${processResult.stderr === undefined ? "" : `: ${processResult.stderr.trim()}`}${workloadDetails.length === 0 ? "" : `; workloads:\n${workloadDetails}`}`,
-      result.output.action === "validate"
-        ? "Inspect the Helm lint or template output, fix the chart or development values, then retry the same command."
-        : `Inspect the failed ${planned.id} evidence, fix the development deployment or gate, then retry the same command.`,
+      "dependency-unavailable",
+      "Kubernetes execution context was not retained from validated configuration",
+      "Recreate the Kubernetes plan through the launcher command and retry.",
       { mode: "kubernetes", action: result.output.action ?? "preview" },
     );
     const blocked = {
@@ -276,8 +214,18 @@ export const executeKubernetesPlan = async (
     };
     return { ...result, exitCode: 2, stdout: renderLauncherOutput(blocked, json), output: blocked };
   }
-  const ready = { ...result.output, readiness: "ready" as const };
-  return { ...result, stdout: renderLauncherOutput(ready, json), output: ready };
+  const execution = await runKubernetesExecution(
+    context,
+    executor === undefined
+      ? { output: json ? "stderr" : "inherit" }
+      : { executor, output: json ? "stderr" : "inherit" },
+  );
+  return {
+    ...result,
+    exitCode: execution.outcome.exitCode,
+    stdout: renderLauncherOutput(execution.output, json),
+    output: execution.output,
+  };
 };
 
 // Effect CLI owns executable flag syntax. runLauncher keeps a second parser for

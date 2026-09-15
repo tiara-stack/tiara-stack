@@ -1,18 +1,23 @@
 import { Cause, Duration, Effect, Exit, Match, Option, Schema } from "effect";
 import path from "node:path";
 import { checkHttpAccess, checkHttpReadiness, checkTcpAccess, isHttpReady } from "./access";
+import type { KubernetesModeConfig } from "./config";
 import { makeDiagnostic, makeWarning } from "./diagnostics";
-import { startLongLivedProcess } from "./executor";
+import { spawnProcess, startLongLivedProcess } from "./executor";
+import type { ModePlan } from "./plan";
 import { fastServices } from "./types";
 import type {
   AccessCheckResult,
   AccessChecker,
   Diagnostic,
   FastService,
+  KubernetesAction,
   LauncherOutput,
+  ProcessExecutor,
   ProcessRequest,
   ProcessResult,
   ProcessStarter,
+  PlannedProcess,
   ReadinessChecker,
   RunningProcess,
   TcpAccessChecker,
@@ -114,6 +119,105 @@ export interface FastExecutionResult {
   readonly observations: readonly LifecycleObservation[];
   readonly outcome: FastExecutionOutcome;
   readonly readyOutput?: LauncherOutput;
+}
+
+export type KubernetesExecutionPhase = "validation" | "pre-preview" | "preview" | "post-preview";
+
+export interface KubernetesExecutionTarget {
+  readonly context: string;
+  readonly namespace: string;
+  readonly release: string;
+  readonly registry: string;
+  readonly imageTag: string | null;
+  readonly kubeconfig?: string;
+}
+
+export interface KubernetesExecutionStep {
+  readonly id: string;
+  readonly phase: KubernetesExecutionPhase;
+  readonly planned: PlannedProcess;
+  readonly request: ProcessRequest;
+}
+
+/** Private execution data derived from validated Kubernetes configuration. */
+export interface KubernetesExecutionContext {
+  readonly mode: "kubernetes";
+  readonly action: Extract<KubernetesAction, "validate" | "preview">;
+  readonly target: KubernetesExecutionTarget;
+  readonly steps: readonly KubernetesExecutionStep[];
+  readonly plannedOutput: LauncherOutput;
+}
+
+export type KubernetesLifecycleObservationDetail =
+  | { readonly type: "validated" }
+  | {
+      readonly type: "step";
+      readonly id: string;
+      readonly phase: KubernetesExecutionPhase;
+      readonly status: "started" | "completed" | "failed" | "stopped";
+      readonly exitCode?: number;
+      readonly reason?: string;
+    }
+  | {
+      readonly type: "cleanup";
+      readonly status: "started" | "completed" | "failed";
+      readonly reason?: string;
+    }
+  | {
+      readonly type: "terminal";
+      readonly outcome: FastExecutionOutcomeStatus;
+      readonly exitCode: number;
+    };
+
+export type KubernetesLifecycleObservation = KubernetesLifecycleObservationDetail & {
+  readonly sequence: number;
+  readonly mode: "kubernetes";
+  readonly action: Extract<KubernetesAction, "validate" | "preview">;
+  readonly service: "kubernetes";
+};
+
+export interface KubernetesExecutionOutcome {
+  readonly status: FastExecutionOutcomeStatus;
+  readonly ok: boolean;
+  readonly exitCode: number;
+  readonly diagnostic?: Diagnostic;
+  readonly cleanupDiagnostic?: Diagnostic;
+}
+
+export interface KubernetesExecutionResult {
+  readonly output: LauncherOutput;
+  readonly observations: readonly KubernetesLifecycleObservation[];
+  readonly outcome: KubernetesExecutionOutcome;
+}
+
+export type DevelopmentLifecycleObservation = LifecycleObservation | KubernetesLifecycleObservation;
+export type DevelopmentExecutionContext = FastExecutionContext | KubernetesExecutionContext;
+export type DevelopmentExecutionResult = FastExecutionResult | KubernetesExecutionResult;
+
+export interface KubernetesExecutionOptions {
+  readonly executor?: ProcessExecutor;
+  readonly processStarter?: ProcessStarter;
+  readonly interruptions?: Effect.Effect<NodeJS.Signals>;
+  readonly startupTimeoutMs?: number;
+  readonly cleanupTimeoutMs?: number;
+  readonly output?: "inherit" | "stderr" | "capture";
+  readonly onObservation?: (observation: KubernetesLifecycleObservation) => void;
+}
+
+export interface DevelopmentExecutionOptions {
+  readonly accessChecker?: AccessChecker;
+  readonly readinessChecker?: ReadinessChecker;
+  readonly tcpAccessChecker?: TcpAccessChecker;
+  readonly processStarter?: ProcessStarter;
+  readonly executor?: ProcessExecutor;
+  readonly interruptions?: Effect.Effect<NodeJS.Signals>;
+  readonly dependencyTimeoutMs?: number;
+  readonly startupTimeoutMs?: number;
+  readonly readinessTimeoutMs?: number;
+  readonly cleanupTimeoutMs?: number;
+  readonly pollIntervalMs?: number;
+  readonly output?: "inherit" | "stderr" | "capture";
+  readonly onObservation?: (observation: DevelopmentLifecycleObservation) => void;
 }
 
 export interface FastExecutionOptions {
@@ -1251,3 +1355,923 @@ export const runFastExecution = (
   context: FastExecutionContext,
   options: FastExecutionOptions = {},
 ): Promise<FastExecutionResult> => Effect.runPromise(executeFast(context, options));
+
+const defaultKubernetesStepTimeoutMs = 2 * 60_000;
+const defaultKubernetesStartupTimeoutMs = 30_000;
+const kubernetesPreviewTimeoutMs = 10 * 60_000;
+const kubernetesWorkloadDetailTimeoutMs = 10_000;
+
+const kubernetesStepTimeouts: Readonly<Record<string, number>> = {
+  "kubernetes-preview": kubernetesPreviewTimeoutMs,
+};
+
+const kubernetesStepTimeoutMs = (id: string) =>
+  kubernetesStepTimeouts[id] ?? defaultKubernetesStepTimeoutMs;
+
+const kubernetesStepPhase = (
+  action: KubernetesExecutionContext["action"],
+  id: string,
+  index: number,
+  previewIndex: number,
+): KubernetesExecutionPhase => {
+  if (action === "validate") return "validation";
+  if (id === "kubernetes-preview") return "preview";
+  return previewIndex >= 0 && index > previewIndex ? "post-preview" : "pre-preview";
+};
+
+export const makeKubernetesExecutionContext = (
+  config: KubernetesModeConfig,
+  plan: ModePlan,
+  plannedOutput: LauncherOutput,
+  cwd: string,
+  imageTag: string | null = null,
+): KubernetesExecutionContext => {
+  if (
+    config.mode !== "kubernetes" ||
+    !plannedOutput.ok ||
+    plannedOutput.mode !== "kubernetes" ||
+    (plannedOutput.action !== "validate" && plannedOutput.action !== "preview")
+  ) {
+    throw new Error("Kubernetes execution requires a valid Kubernetes plan");
+  }
+  const action = plannedOutput.action;
+  const previewIndex = plan.plannedProcesses.findIndex(({ id }) => id === "kubernetes-preview");
+  const kubeconfig =
+    config.environment.KUBECONFIG === undefined
+      ? {}
+      : { KUBECONFIG: config.environment.KUBECONFIG };
+  const steps = plan.plannedProcesses.map((planned, index) => ({
+    id: planned.id,
+    phase: kubernetesStepPhase(action, planned.id, index, previewIndex),
+    planned,
+    request: {
+      command: planned.command,
+      args: planned.args,
+      cwd: path.resolve(cwd),
+      env: { ...kubeconfig, ...planned.environment },
+      timeoutMs: kubernetesStepTimeoutMs(planned.id),
+      kind: planned.readOnly ? ("dependency-check" as const) : ("runtime" as const),
+      readOnly: planned.readOnly,
+    },
+  }));
+  return {
+    mode: "kubernetes",
+    action,
+    target: {
+      context: config.environment.KUBE_CONTEXT,
+      namespace: config.environment.KUBE_NAMESPACE,
+      release: config.environment.KUBE_RELEASE,
+      registry: config.environment.DEV_IMAGE_REGISTRY,
+      imageTag,
+      ...(config.environment.KUBECONFIG === undefined
+        ? {}
+        : { kubeconfig: config.environment.KUBECONFIG }),
+    },
+    steps,
+    plannedOutput,
+  };
+};
+
+type KubernetesExecutionState = {
+  sequence: number;
+  observations: KubernetesLifecycleObservation[];
+};
+
+const notifyKubernetes = (
+  state: KubernetesExecutionState,
+  context: KubernetesExecutionContext,
+  observation: KubernetesLifecycleObservationDetail,
+  observer?: (observation: KubernetesLifecycleObservation) => void,
+) =>
+  Effect.sync(() => {
+    const next = {
+      sequence: state.sequence + 1,
+      mode: context.mode,
+      action: context.action,
+      service: "kubernetes" as const,
+      ...observation,
+    } as KubernetesLifecycleObservation;
+    state.sequence = next.sequence;
+    state.observations.push(next);
+    observer?.(next);
+  });
+
+class KubernetesStepStartupTimeout extends Error {
+  readonly _tag = "KubernetesStepStartupTimeout";
+}
+
+type KubernetesStepRun =
+  | { readonly type: "completed" }
+  | {
+      readonly type: "stopped";
+      readonly signal: NodeJS.Signals;
+      readonly cleanupDiagnostic: Diagnostic | undefined;
+    }
+  | {
+      readonly type: "failed";
+      readonly result?: ProcessResult;
+      readonly cause?: unknown;
+      readonly cleanupDiagnostic: Diagnostic | undefined;
+    };
+
+type KubernetesExecutionStage =
+  | { readonly type: "completed" }
+  | {
+      readonly type: "stopped";
+      readonly signal: NodeJS.Signals;
+      readonly cleanupDiagnostic: Diagnostic | undefined;
+    }
+  | {
+      readonly type: "failed";
+      readonly diagnostic: Diagnostic;
+      readonly cleanupDiagnostic: Diagnostic | undefined;
+    };
+
+type KubernetesProcessRace =
+  | { readonly type: "result"; readonly exit: ProcessResult }
+  | { readonly type: "stopped"; readonly signal: NodeJS.Signals }
+  | { readonly type: "timeout" };
+
+const kubernetesInterruptions = (options: KubernetesExecutionOptions) =>
+  (options.interruptions ?? processSignals).pipe(
+    Effect.map((signal) => ({ type: "stopped" as const, signal })),
+  );
+
+const withKubernetesOutput = (
+  request: ProcessRequest,
+  output: KubernetesExecutionOptions["output"],
+): ProcessRequest => (output === undefined ? request : { ...request, output });
+
+const kubernetesSignalsByExitCode: Readonly<Record<string, NodeJS.Signals>> = {
+  "130": "SIGINT",
+  "143": "SIGTERM",
+};
+
+const signalFromExitCode = (exitCode: number): NodeJS.Signals | undefined =>
+  kubernetesSignalsByExitCode[String(exitCode)];
+
+const redactKubernetesOutput = (value: string) =>
+  value
+    .replace(/(https?:\/\/)[^\s/@:]+:[^\s/@]+@/gi, "$1<redacted>@")
+    .replace(/(\bBearer\s+)[^\s]+/gi, "$1<redacted>")
+    .replace(
+      /((?:password|passwd|secret|token|credential|private[_-]?key)\s*[:=]\s*["']?)[^\s,"'}]+/gi,
+      "$1<redacted>",
+    );
+
+const startKubernetesStep = (
+  context: KubernetesExecutionContext,
+  step: KubernetesExecutionStep,
+  options: KubernetesExecutionOptions,
+  starter: ProcessStarter = options.processStarter ?? startLongLivedProcess,
+) => {
+  const request = withKubernetesOutput(step.request, options.output);
+  const startupTimeoutMs = options.startupTimeoutMs ?? defaultKubernetesStartupTimeoutMs;
+  return Effect.timeoutOption(
+    Effect.tryPromise({
+      try: (signal) => starter(request, signal),
+      catch: (cause) => cause,
+    }),
+    Duration.millis(startupTimeoutMs),
+  ).pipe(
+    Effect.flatMap((running) =>
+      Option.isNone(running)
+        ? Effect.fail(
+            new KubernetesStepStartupTimeout(`${context.action} ${step.id} startup timed out`),
+          )
+        : Effect.succeed(running.value),
+    ),
+  );
+};
+
+const startKubernetesExecutorProcess = (
+  executor: ProcessExecutor,
+  request: ProcessRequest,
+  signal?: AbortSignal,
+): Promise<RunningProcess> => {
+  const controller = new AbortController();
+  const onAbort = () => controller.abort();
+  const removeAbortListener =
+    signal === undefined ? () => undefined : () => signal.removeEventListener("abort", onAbort);
+  signal?.addEventListener("abort", onAbort, { once: true });
+  if (signal?.aborted === true) onAbort();
+  const exited = Promise.resolve().then(() =>
+    controller.signal.aborted ? { exitCode: 143 } : executor(request, controller.signal),
+  );
+  exited.then(removeAbortListener, removeAbortListener);
+  let killPromise: Promise<void> | undefined;
+  const kill = () => {
+    if (killPromise !== undefined) return killPromise;
+    killPromise = (async () => {
+      controller.abort();
+      removeAbortListener();
+      const terminated = await Promise.race([
+        exited.then(
+          () => true,
+          () => true,
+        ),
+        new Promise<boolean>((resolve) =>
+          setTimeout(() => resolve(false), defaultCleanupTimeoutMs),
+        ),
+      ]);
+      if (!terminated) throw new Error("Injected process executor did not terminate after abort");
+    })();
+    return killPromise;
+  };
+  return Promise.resolve({ pid: undefined, exited, kill });
+};
+
+const classifyKubernetesProcessResult = (
+  context: KubernetesExecutionContext,
+  step: KubernetesExecutionStep,
+  state: KubernetesExecutionState,
+  options: KubernetesExecutionOptions,
+  processResult: ProcessResult,
+): Effect.Effect<KubernetesStepRun> =>
+  Effect.gen(function* () {
+    const signal = signalFromExitCode(processResult.exitCode);
+    if (signal !== undefined) {
+      yield* notifyKubernetes(
+        state,
+        context,
+        {
+          type: "step",
+          id: step.id,
+          phase: step.phase,
+          status: "stopped",
+          exitCode: processResult.exitCode,
+        },
+        options.onObservation,
+      );
+      return {
+        type: "stopped" as const,
+        signal,
+        cleanupDiagnostic: undefined,
+      } satisfies Extract<KubernetesStepRun, { type: "stopped" }>;
+    }
+    if (processResult.exitCode === 0 && !processResult.timedOut) {
+      yield* notifyKubernetes(
+        state,
+        context,
+        { type: "step", id: step.id, phase: step.phase, status: "completed", exitCode: 0 },
+        options.onObservation,
+      );
+      return { type: "completed" as const } satisfies Extract<
+        KubernetesStepRun,
+        { type: "completed" }
+      >;
+    }
+    const processDetail = processResult.stderr?.trim() || processResult.stdout?.trim();
+    yield* notifyKubernetes(
+      state,
+      context,
+      {
+        type: "step",
+        id: step.id,
+        phase: step.phase,
+        status: "failed",
+        exitCode: processResult.exitCode,
+        ...(processDetail === undefined ? {} : { reason: redactKubernetesOutput(processDetail) }),
+      },
+      options.onObservation,
+    );
+    return {
+      type: "failed" as const,
+      result: processResult,
+      cleanupDiagnostic: undefined,
+    } satisfies Extract<KubernetesStepRun, { type: "failed" }>;
+  });
+
+const timedOutKubernetesStep = (
+  context: KubernetesExecutionContext,
+  step: KubernetesExecutionStep,
+  state: KubernetesExecutionState,
+  options: KubernetesExecutionOptions,
+): Effect.Effect<KubernetesStepRun> =>
+  Effect.gen(function* () {
+    yield* notifyKubernetes(
+      state,
+      context,
+      {
+        type: "step",
+        id: step.id,
+        phase: step.phase,
+        status: "failed",
+        exitCode: 1,
+        reason: `command exceeded its ${step.request.timeoutMs}ms execution deadline`,
+      },
+      options.onObservation,
+    );
+    return {
+      type: "failed" as const,
+      result: { exitCode: 1, timedOut: true },
+      cleanupDiagnostic: undefined,
+    } satisfies Extract<KubernetesStepRun, { type: "failed" }>;
+  });
+
+const failedKubernetesStep = (
+  context: KubernetesExecutionContext,
+  step: KubernetesExecutionStep,
+  state: KubernetesExecutionState,
+  options: KubernetesExecutionOptions,
+  cause: unknown,
+  reason: string,
+  exitCode: number,
+  cleanupDiagnostic: Diagnostic | undefined,
+): Effect.Effect<KubernetesStepRun> =>
+  Effect.gen(function* () {
+    yield* notifyKubernetes(
+      state,
+      context,
+      {
+        type: "step",
+        id: step.id,
+        phase: step.phase,
+        status: "failed",
+        exitCode,
+        reason,
+      },
+      options.onObservation,
+    );
+    return {
+      type: "failed",
+      cause,
+      cleanupDiagnostic,
+    } satisfies Extract<KubernetesStepRun, { type: "failed" }>;
+  });
+
+const stoppedKubernetesStep = (
+  context: KubernetesExecutionContext,
+  step: KubernetesExecutionStep,
+  state: KubernetesExecutionState,
+  options: KubernetesExecutionOptions,
+  signal: NodeJS.Signals,
+  exitCode?: number,
+): Effect.Effect<KubernetesStepRun> =>
+  Effect.gen(function* () {
+    yield* notifyKubernetes(
+      state,
+      context,
+      {
+        type: "step",
+        id: step.id,
+        phase: step.phase,
+        status: "stopped",
+        ...(exitCode === undefined ? {} : { exitCode }),
+      },
+      options.onObservation,
+    );
+    return {
+      type: "stopped",
+      signal,
+      cleanupDiagnostic: undefined,
+    } satisfies Extract<KubernetesStepRun, { type: "stopped" }>;
+  });
+
+const raceKubernetesProcess = (
+  processExit: Effect.Effect<ProcessResult, unknown>,
+  interruption: Effect.Effect<{ readonly type: "stopped"; readonly signal: NodeJS.Signals }>,
+  timeoutMs: number,
+  onTimeout?: () => Effect.Effect<void>,
+): Effect.Effect<KubernetesProcessRace, unknown> => {
+  const timeout = Effect.sleep(Duration.millis(timeoutMs)).pipe(
+    Effect.tap(() => (onTimeout === undefined ? Effect.void : onTimeout())),
+    Effect.map(() => ({ type: "timeout" as const })),
+  );
+  return Effect.raceFirst(
+    Effect.raceFirst(
+      processExit.pipe(Effect.map((exit) => ({ type: "result" as const, exit }))),
+      interruption,
+    ),
+    timeout,
+  );
+};
+
+type KubernetesCleanupState = {
+  requested: boolean;
+  diagnostic?: Diagnostic;
+};
+
+const cleanupKubernetesStep = (
+  context: KubernetesExecutionContext,
+  step: KubernetesExecutionStep,
+  options: KubernetesExecutionOptions,
+  running: RunningProcess,
+  state: KubernetesExecutionState,
+  cleanupState: KubernetesCleanupState,
+) =>
+  Effect.uninterruptible(
+    Effect.gen(function* () {
+      if (!cleanupState.requested) return;
+      yield* notifyKubernetes(
+        state,
+        context,
+        { type: "cleanup", status: "started" },
+        options.onObservation,
+      );
+      const cleanupExit = yield* Effect.exit(
+        Effect.tryPromise(() => running.kill()).pipe(
+          Effect.timeout(Duration.millis(options.cleanupTimeoutMs ?? defaultCleanupTimeoutMs)),
+        ),
+      );
+      if (Exit.isSuccess(cleanupExit)) {
+        yield* notifyKubernetes(
+          state,
+          context,
+          { type: "cleanup", status: "completed" },
+          options.onObservation,
+        );
+        return;
+      }
+      const cleanupDiagnostic = makeDiagnostic(
+        "cleanup-failed",
+        `${step.id} local command cleanup could not be verified within ${options.cleanupTimeoutMs ?? defaultCleanupTimeoutMs}ms`,
+        `Stop the local ${step.id} process manually and inspect the shared Kubernetes preview for incomplete work. No automatic rollback is attempted.`,
+        { mode: context.mode, action: context.action, dependency: step.id },
+      );
+      cleanupState.diagnostic = cleanupDiagnostic;
+      yield* notifyKubernetes(
+        state,
+        context,
+        { type: "cleanup", status: "failed", reason: cleanupDiagnostic.message },
+        options.onObservation,
+      );
+    }),
+  );
+
+const runKubernetesStepWithStarter = (
+  context: KubernetesExecutionContext,
+  step: KubernetesExecutionStep,
+  options: KubernetesExecutionOptions,
+  state: KubernetesExecutionState,
+  starter?: ProcessStarter,
+): Effect.Effect<KubernetesStepRun> => {
+  const cleanupState: KubernetesCleanupState = { requested: false };
+  const interruption = kubernetesInterruptions(options).pipe(
+    Effect.tap(() => Effect.sync(() => (cleanupState.requested = true))),
+  );
+  const started = Effect.scoped(
+    Effect.gen(function* () {
+      const running = yield* Effect.acquireRelease(
+        startKubernetesStep(context, step, options, starter),
+        (process) => cleanupKubernetesStep(context, step, options, process, state, cleanupState),
+        { interruptible: true },
+      );
+      yield* notifyKubernetes(
+        state,
+        context,
+        { type: "step", id: step.id, phase: step.phase, status: "started" },
+        options.onObservation,
+      );
+      const processExit = observeProcessExit(running);
+      const result = yield* raceKubernetesProcess(
+        processExit.effect,
+        interruption,
+        step.request.timeoutMs,
+        () => Effect.sync(() => (cleanupState.requested = true)),
+      );
+      if (result.type === "stopped") {
+        return yield* stoppedKubernetesStep(context, step, state, options, result.signal);
+      }
+      if (result.type === "timeout") {
+        return yield* timedOutKubernetesStep(context, step, state, options);
+      }
+      return yield* classifyKubernetesProcessResult(context, step, state, options, result.exit);
+    }),
+  ).pipe(
+    Effect.catch((cause: unknown) =>
+      failedKubernetesStep(
+        context,
+        step,
+        state,
+        options,
+        cause,
+        cause instanceof Error
+          ? redactKubernetesOutput(cause.message)
+          : "command could not be started",
+        cause instanceof KubernetesStepStartupTimeout ? 1 : 127,
+        cleanupState.diagnostic,
+      ),
+    ),
+  );
+  return Effect.gen(function* () {
+    const result = yield* Effect.raceFirst(started, interruption);
+    return result.type === "completed"
+      ? result
+      : {
+          ...result,
+          cleanupDiagnostic: cleanupState.diagnostic,
+        };
+  });
+};
+
+const runKubernetesStepWithExecutor = (
+  context: KubernetesExecutionContext,
+  step: KubernetesExecutionStep,
+  options: KubernetesExecutionOptions,
+  state: KubernetesExecutionState,
+): Effect.Effect<KubernetesStepRun> => {
+  const executor = options.executor ?? spawnProcess;
+  return runKubernetesStepWithStarter(context, step, options, state, (request, signal) =>
+    startKubernetesExecutorProcess(executor, request, signal),
+  );
+};
+
+const describeKubernetesCause = (cause: unknown) => {
+  if (cause instanceof Error) return redactKubernetesOutput(cause.message);
+  if (typeof cause === "string") return redactKubernetesOutput(cause);
+  try {
+    return redactKubernetesOutput(JSON.stringify(cause) ?? "unknown failure");
+  } catch {
+    return "unknown failure";
+  }
+};
+
+const kubernetesFailureDetails = (run: Extract<KubernetesStepRun, { type: "failed" }>) => {
+  const startupTimedOut = run.cause instanceof KubernetesStepStartupTimeout;
+  const processDetail = redactKubernetesOutput(
+    run.result?.stderr?.trim() || run.result?.stdout?.trim() || "",
+  );
+  const causeDetail =
+    run.cause === undefined || startupTimedOut ? "" : describeKubernetesCause(run.cause);
+  return {
+    timedOut: run.result?.timedOut === true || startupTimedOut,
+    detail: processDetail || causeDetail,
+  };
+};
+
+const kubernetesFailureRemediation = (
+  context: KubernetesExecutionContext,
+  step: KubernetesExecutionStep,
+) =>
+  context.action === "validate"
+    ? "Inspect the Helm lint or template output, fix the chart or development values, then retry the same command."
+    : `Inspect the failed ${step.id} evidence, fix the development deployment or gate, then retry the same command. Shared preview resources are not rolled back automatically.`;
+
+const kubernetesStepDiagnostic = (
+  context: KubernetesExecutionContext,
+  step: KubernetesExecutionStep,
+  run: Extract<KubernetesStepRun, { type: "failed" }>,
+  workloadDetails: string,
+) => {
+  const failure = kubernetesFailureDetails(run);
+  const exitCode = run.result === undefined ? "" : ` with exit code ${run.result.exitCode}`;
+  const deadline = failure.timedOut ? " before its bounded deadline" : "";
+  const commandDetail = failure.detail.length === 0 ? "" : `: ${failure.detail}`;
+  const workloadDetail = workloadDetails.length === 0 ? "" : `; workloads:\n${workloadDetails}`;
+  return makeDiagnostic(
+    failure.timedOut ? "dependency-timeout" : "required-dependency-failed",
+    `${step.id} failed${exitCode}${deadline}${commandDetail}${workloadDetail}`,
+    kubernetesFailureRemediation(context, step),
+    { mode: context.mode, action: context.action, dependency: step.id },
+  );
+};
+
+const workloadDetailRequest = (context: KubernetesExecutionContext): ProcessRequest | undefined => {
+  if (
+    context.action !== "preview" ||
+    context.target.context.trim() === "" ||
+    context.target.namespace.trim() === ""
+  ) {
+    return undefined;
+  }
+  return {
+    command: "kubectl",
+    args: [
+      "--context",
+      context.target.context,
+      "--namespace",
+      context.target.namespace,
+      "get",
+      "pods,deployments,statefulsets,jobs",
+      "-o",
+      "wide",
+    ],
+    cwd: context.steps[0]?.request.cwd ?? process.cwd(),
+    env: context.target.kubeconfig === undefined ? {} : { KUBECONFIG: context.target.kubeconfig },
+    timeoutMs: kubernetesWorkloadDetailTimeoutMs,
+    kind: "dependency-check",
+    readOnly: true,
+    output: "capture",
+  };
+};
+
+type KubernetesWorkloadDetailsResult =
+  | { readonly type: "details"; readonly text: string }
+  | { readonly type: "stopped"; readonly signal: NodeJS.Signals };
+
+const workloadDetailsFromProcessResult = (
+  processResult: ProcessResult,
+): KubernetesWorkloadDetailsResult => {
+  const signal = signalFromExitCode(processResult.exitCode);
+  if (signal !== undefined) return { type: "stopped", signal };
+  return {
+    type: "details",
+    text: redactKubernetesOutput(
+      (processResult.stdout?.trim() || processResult.stderr?.trim() || "").slice(0, 64 * 1024),
+    ),
+  };
+};
+
+const collectKubernetesWorkloadDetailsWithStarter = (
+  request: ProcessRequest,
+  options: KubernetesExecutionOptions,
+  starter: ProcessStarter = options.processStarter ?? startLongLivedProcess,
+): Effect.Effect<KubernetesWorkloadDetailsResult> => {
+  const cleanupState: KubernetesCleanupState = { requested: false };
+  const interruption = kubernetesInterruptions(options).pipe(
+    Effect.tap(() => Effect.sync(() => (cleanupState.requested = true))),
+  );
+  const start = Effect.timeoutOption(
+    Effect.tryPromise({
+      try: (signal) => starter({ ...request, output: "capture" }, signal),
+      catch: (cause) => cause,
+    }),
+    Duration.millis(kubernetesWorkloadDetailTimeoutMs),
+  ).pipe(
+    Effect.flatMap((running) =>
+      Option.isNone(running)
+        ? Effect.fail(new Error("workload detail probe timed out"))
+        : Effect.succeed(running.value),
+    ),
+  );
+  const run = Effect.scoped(
+    Effect.gen(function* () {
+      const running = yield* Effect.acquireRelease(
+        start,
+        (process) =>
+          Effect.uninterruptible(
+            Effect.gen(function* () {
+              if (!cleanupState.requested) return;
+              yield* Effect.exit(
+                Effect.tryPromise(() => process.kill()).pipe(
+                  Effect.timeout(Duration.millis(defaultCleanupTimeoutMs)),
+                ),
+              );
+            }),
+          ),
+        { interruptible: true },
+      );
+      const processExit = observeProcessExit(running);
+      const timeout = Effect.sleep(Duration.millis(kubernetesWorkloadDetailTimeoutMs)).pipe(
+        Effect.tap(() => Effect.sync(() => (cleanupState.requested = true))),
+        Effect.map(() => ({ type: "timeout" as const })),
+      );
+      const result = yield* Effect.raceFirst(
+        Effect.raceFirst(
+          processExit.effect.pipe(Effect.map((exit) => ({ type: "result" as const, exit }))),
+          interruption,
+        ),
+        timeout,
+      );
+      if (result.type === "stopped") return result;
+      if (result.type === "timeout") return { type: "details" as const, text: "" };
+      return workloadDetailsFromProcessResult(result.exit);
+    }),
+  );
+  return Effect.gen(function* () {
+    const result = yield* Effect.exit(Effect.raceFirst(run, interruption));
+    if (Exit.isFailure(result)) return { type: "details" as const, text: "" };
+    return result.value;
+  });
+};
+
+const collectKubernetesWorkloadDetails = (
+  context: KubernetesExecutionContext,
+  step: KubernetesExecutionStep,
+  options: KubernetesExecutionOptions,
+): Effect.Effect<KubernetesWorkloadDetailsResult> => {
+  if (step.phase === "validation" || step.phase === "pre-preview") {
+    return Effect.succeed({ type: "details", text: "" });
+  }
+  const request = workloadDetailRequest(context);
+  if (request === undefined) return Effect.succeed({ type: "details", text: "" });
+  return options.executor === undefined
+    ? collectKubernetesWorkloadDetailsWithStarter(request, options)
+    : collectKubernetesWorkloadDetailsWithStarter(request, options, (probeRequest, signal) =>
+        startKubernetesExecutorProcess(options.executor ?? spawnProcess, probeRequest, signal),
+      );
+};
+
+const runKubernetesSteps = (
+  context: KubernetesExecutionContext,
+  options: KubernetesExecutionOptions,
+  state: KubernetesExecutionState,
+): Effect.Effect<KubernetesExecutionStage> =>
+  Effect.gen(function* () {
+    for (const step of context.steps) {
+      const run = yield* options.executor === undefined
+        ? runKubernetesStepWithStarter(context, step, options, state)
+        : runKubernetesStepWithExecutor(context, step, options, state);
+      if (run.type === "completed") continue;
+      if (run.type === "stopped") {
+        return {
+          type: "stopped",
+          signal: run.signal,
+          cleanupDiagnostic: run.cleanupDiagnostic,
+        } satisfies Extract<KubernetesExecutionStage, { type: "stopped" }>;
+      }
+      const workloadDetails = yield* collectKubernetesWorkloadDetails(context, step, options);
+      if (workloadDetails.type === "stopped") {
+        return {
+          type: "failed",
+          diagnostic: kubernetesStepDiagnostic(
+            context,
+            step,
+            run,
+            `workload detail collection was interrupted by ${workloadDetails.signal}`,
+          ),
+          cleanupDiagnostic: run.cleanupDiagnostic,
+        } satisfies Extract<KubernetesExecutionStage, { type: "failed" }>;
+      }
+      return {
+        type: "failed",
+        diagnostic: kubernetesStepDiagnostic(context, step, run, workloadDetails.text),
+        cleanupDiagnostic: run.cleanupDiagnostic,
+      } satisfies Extract<KubernetesExecutionStage, { type: "failed" }>;
+    }
+    return { type: "completed" } satisfies Extract<KubernetesExecutionStage, { type: "completed" }>;
+  });
+
+const incompleteKubernetesDiagnostic = (
+  context: KubernetesExecutionContext,
+  signal: NodeJS.Signals,
+) => {
+  const isPreview = context.action === "preview";
+  return makeDiagnostic(
+    "preview-incomplete",
+    isPreview
+      ? `preview was interrupted by ${signal}; shared Kubernetes preview resources may be incomplete.`
+      : `validate was interrupted by ${signal}; the local Helm lint and render steps did not complete.`,
+    isPreview
+      ? "Inspect the shared development preview before continuing. The launcher does not issue rollback, deletion, or teardown commands on cancellation."
+      : "Rerun the same validate command. No shared Kubernetes resource was changed.",
+    { mode: context.mode, action: context.action },
+  );
+};
+
+const kubernetesResultForStage = (
+  context: KubernetesExecutionContext,
+  stage: KubernetesExecutionStage,
+): KubernetesExecutionResult =>
+  Match.value(stage).pipe(
+    Match.when({ type: "completed" }, () => ({
+      output: { ...context.plannedOutput, readiness: "completed" as const },
+      observations: [],
+      outcome: { status: "completed" as const, ok: true, exitCode: 0 },
+    })),
+    Match.when({ type: "stopped" }, ({ signal, cleanupDiagnostic }) => {
+      const incomplete = incompleteKubernetesDiagnostic(context, signal);
+      if (cleanupDiagnostic !== undefined) {
+        return {
+          output: {
+            ...context.plannedOutput,
+            ok: false,
+            readiness: "blocked" as const,
+            errors: [incomplete, cleanupDiagnostic],
+          },
+          observations: [],
+          outcome: {
+            status: "failed" as const,
+            ok: false,
+            exitCode: 2,
+            diagnostic: incomplete,
+            cleanupDiagnostic,
+          },
+        };
+      }
+      return {
+        output: {
+          ...context.plannedOutput,
+          readiness: "stopped" as const,
+          warnings: [
+            ...context.plannedOutput.warnings,
+            { ...incomplete, kind: "warning" as const },
+          ],
+        },
+        observations: [],
+        outcome: {
+          status: "stopped" as const,
+          ok: true,
+          exitCode: signal === "SIGINT" ? 130 : 143,
+        },
+      };
+    }),
+    Match.when({ type: "failed" }, ({ diagnostic, cleanupDiagnostic }) => ({
+      output: {
+        ...context.plannedOutput,
+        ok: false,
+        readiness: "blocked" as const,
+        errors: [diagnostic, ...(cleanupDiagnostic === undefined ? [] : [cleanupDiagnostic])],
+      },
+      observations: [],
+      outcome: {
+        status: "blocked" as const,
+        ok: false,
+        exitCode: 2,
+        diagnostic,
+        ...(cleanupDiagnostic === undefined ? {} : { cleanupDiagnostic }),
+      },
+    })),
+    Match.exhaustive,
+  );
+
+const finishKubernetesExecution = (
+  context: KubernetesExecutionContext,
+  state: KubernetesExecutionState,
+  stage: KubernetesExecutionStage,
+  options: KubernetesExecutionOptions,
+) =>
+  Effect.gen(function* () {
+    const result = kubernetesResultForStage(context, stage);
+    yield* notifyKubernetes(
+      state,
+      context,
+      { type: "terminal", outcome: result.outcome.status, exitCode: result.outcome.exitCode },
+      options.onObservation,
+    );
+    return { ...result, observations: state.observations };
+  });
+
+const executeKubernetesEffect = (
+  context: KubernetesExecutionContext,
+  options: KubernetesExecutionOptions,
+): Effect.Effect<KubernetesExecutionResult, never, never> =>
+  Effect.gen(function* () {
+    const state: KubernetesExecutionState = { sequence: 0, observations: [] };
+    yield* notifyKubernetes(state, context, { type: "validated" }, options.onObservation);
+    const stage = yield* Effect.exit(runKubernetesSteps(context, options, state));
+    if (Exit.isFailure(stage)) {
+      const diagnostic = makeDiagnostic(
+        "required-dependency-failed",
+        `Kubernetes ${context.action} execution failed before producing a terminal step result`,
+        "Retry the same Kubernetes command and inspect the launcher diagnostics.",
+        { mode: context.mode, action: context.action },
+      );
+      return yield* finishKubernetesExecution(
+        context,
+        state,
+        { type: "failed", diagnostic, cleanupDiagnostic: undefined },
+        options,
+      );
+    }
+    return yield* finishKubernetesExecution(context, state, stage.value, options);
+  });
+
+export const executeKubernetes = (
+  context: KubernetesExecutionContext,
+  options: KubernetesExecutionOptions = {},
+): Effect.Effect<KubernetesExecutionResult> => executeKubernetesEffect(context, options);
+
+export const runKubernetesExecution = (
+  context: KubernetesExecutionContext,
+  options: KubernetesExecutionOptions = {},
+): Promise<KubernetesExecutionResult> => Effect.runPromise(executeKubernetes(context, options));
+
+export const executeDevelopment = (
+  context: DevelopmentExecutionContext,
+  options: DevelopmentExecutionOptions = {},
+): Effect.Effect<DevelopmentExecutionResult> => {
+  if (context.mode === "kubernetes") {
+    return executeKubernetesEffect(context, options);
+  }
+  const fastOptions: FastExecutionOptions = {
+    ...(options.accessChecker === undefined ? {} : { accessChecker: options.accessChecker }),
+    ...(options.readinessChecker === undefined
+      ? {}
+      : { readinessChecker: options.readinessChecker }),
+    ...(options.tcpAccessChecker === undefined
+      ? {}
+      : { tcpAccessChecker: options.tcpAccessChecker }),
+    ...(options.processStarter === undefined ? {} : { processStarter: options.processStarter }),
+    ...(options.interruptions === undefined ? {} : { interruptions: options.interruptions }),
+    ...(options.dependencyTimeoutMs === undefined
+      ? {}
+      : { dependencyTimeoutMs: options.dependencyTimeoutMs }),
+    ...(options.startupTimeoutMs === undefined
+      ? {}
+      : { startupTimeoutMs: options.startupTimeoutMs }),
+    ...(options.readinessTimeoutMs === undefined
+      ? {}
+      : { readinessTimeoutMs: options.readinessTimeoutMs }),
+    ...(options.cleanupTimeoutMs === undefined
+      ? {}
+      : { cleanupTimeoutMs: options.cleanupTimeoutMs }),
+    ...(options.pollIntervalMs === undefined ? {} : { pollIntervalMs: options.pollIntervalMs }),
+    ...(options.output === undefined
+      ? {}
+      : { output: options.output === "capture" ? ("stderr" as const) : options.output }),
+    ...(options.onObservation === undefined
+      ? {}
+      : {
+          onObservation: (observation: LifecycleObservation) =>
+            options.onObservation?.(observation),
+        }),
+  };
+  return executeFastEffect(context, fastOptions);
+};
+
+export const runDevelopmentExecution = (
+  context: DevelopmentExecutionContext,
+  options: DevelopmentExecutionOptions = {},
+): Promise<DevelopmentExecutionResult> => Effect.runPromise(executeDevelopment(context, options));

@@ -128,7 +128,15 @@ const processGroupAlive = (child: ReturnType<typeof spawn>) => {
 const withReceivedSignal = (result: ProcessResult, signal: NodeJS.Signals | undefined) =>
   signal === undefined ? result : { ...result, exitCode: signal === "SIGINT" ? 130 : 143 };
 
-export const spawnProcess: ProcessExecutor = (request: ProcessRequest) =>
+const registerAbort = (signal: AbortSignal | undefined, onAbort: () => void) => {
+  if (signal === undefined) return () => undefined;
+  const remove = () => signal.removeEventListener("abort", onAbort);
+  signal.addEventListener("abort", onAbort, { once: true });
+  if (signal.aborted) onAbort();
+  return remove;
+};
+
+export const spawnProcess: ProcessExecutor = (request: ProcessRequest, signal?: AbortSignal) =>
   new Promise((resolve) => {
     const invocation = spawnCommand(request);
     const child = spawn(invocation.command, invocation.args, {
@@ -147,12 +155,14 @@ export const spawnProcess: ProcessExecutor = (request: ProcessRequest) =>
     let settled = false;
     let killTimer: NodeJS.Timeout | undefined;
     let timer: NodeJS.Timeout;
+    let removeAbortListener: () => void = () => undefined;
     const complete = (result: ProcessResult) => {
       settled = true;
       clearTimeout(timer);
       if (killTimer !== undefined) clearTimeout(killTimer);
       process.off("SIGINT", onInterrupt);
       process.off("SIGTERM", onTerminate);
+      removeAbortListener();
       resolve(withReceivedSignal(result, receivedSignal));
     };
     // fallow-ignore-next-line complexity
@@ -175,6 +185,7 @@ export const spawnProcess: ProcessExecutor = (request: ProcessRequest) =>
       complete(result);
     };
     const onSignal = (signal: NodeJS.Signals) => {
+      if (settled || receivedSignal !== undefined) return;
       receivedSignal = signal;
       escalationDeadline ??= Date.now() + 2_000;
       scheduleProcessTreeKill(child, signal, () => {
@@ -190,8 +201,10 @@ export const spawnProcess: ProcessExecutor = (request: ProcessRequest) =>
     };
     const onInterrupt = () => onSignal("SIGINT");
     const onTerminate = () => onSignal("SIGTERM");
+    const onAbort = () => onSignal("SIGTERM");
     process.on("SIGINT", onInterrupt);
     process.on("SIGTERM", onTerminate);
+    removeAbortListener = registerAbort(signal, onAbort);
     timer = setTimeout(() => {
       timedOut = true;
       escalationDeadline = Date.now() + 2_000;
@@ -237,7 +250,7 @@ export const startLongLivedProcess: ProcessStarter = async (request, signal) => 
     stdio: [
       "ignore",
       request.output === "stderr" || request.output === "capture" ? "pipe" : "inherit",
-      "inherit",
+      "pipe",
     ],
     detached: process.platform !== "win32",
     shell: false,
@@ -245,15 +258,22 @@ export const startLongLivedProcess: ProcessStarter = async (request, signal) => 
   });
   let resolveExit!: (result: ProcessResult) => void;
   const stdout: string[] = [];
+  const stderr: string[] = [];
   const exited = new Promise<ProcessResult>((resolve) => {
     resolveExit = resolve;
   });
-  child.once("error", (error) => resolveExit({ exitCode: 127, stderr: error.message }));
-  child.once("close", (code) => resolveExit({ exitCode: code ?? 1, stdout: stdout.join("") }));
+  child.once("error", (error) =>
+    resolveExit({ exitCode: 127, stdout: stdout.join(""), stderr: error.message }),
+  );
+  child.once("close", (code) =>
+    resolveExit({ exitCode: code ?? 1, stdout: stdout.join(""), stderr: stderr.join("") }),
+  );
   if (request.output === "stderr") child.stdout?.pipe(process.stderr);
   if (request.output === "capture") {
     child.stdout?.on("data", (chunk: Buffer | string) => collect(stdout, chunk));
   }
+  child.stderr?.on("data", (chunk: Buffer | string) => collect(stderr, chunk));
+  if (request.output !== "capture") child.stderr?.pipe(process.stderr);
   let removeAbortListener: () => void = () => undefined;
   let killPromise: Promise<void> | undefined;
   const killProcess = async () => {
@@ -311,11 +331,7 @@ export const startLongLivedProcess: ProcessStarter = async (request, signal) => 
     };
     child.once("spawn", onSpawn);
     child.once("error", onError);
-    if (signal !== undefined) {
-      removeAbortListener = () => signal.removeEventListener("abort", onAbort);
-      signal.addEventListener("abort", onAbort, { once: true });
-      if (signal.aborted) onAbort();
-    }
+    removeAbortListener = registerAbort(signal, onAbort);
   });
   return {
     pid: child.pid,

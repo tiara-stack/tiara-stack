@@ -2,9 +2,11 @@
 
 The root `pnpm dev` command is the single entrypoint for local development
 mode selection. The launcher validates input, reads only mode-approved
-configuration, and prints a safe process plan. Fast mode then starts the
+configuration, and prints a safe process plan. The terminal command delegates
+validated plans to the shared execution operation. Fast mode starts the
 selected host-native process and waits for its HTTP GET `/ready` endpoint to
-return a 2xx response.
+return a 2xx response. Kubernetes validation and preview run their finite
+steps through the same operation.
 
 ## Commands
 
@@ -84,6 +86,18 @@ and the development registry. Set `KUBE_CONTEXT=tiara-stack-dev` and pass
 `--confirm-development` before preview. It cannot target production values
 through the launcher configuration.
 
+Validation runs strict Helm lint and render steps only. Preview runs its
+required gates in plan order, applies the fixed development release, then runs
+the selected changed-surface overlays. A successful finite action reports
+`readiness: completed`; a failed gate reports `readiness: blocked` and does not
+run later gates. The launcher copies at most bounded, redacted workload details
+after a preview failure.
+
+Interrupting Kubernetes validation or preview stops the local command that is
+running and reports the action as incomplete. It never issues rollback,
+deletion, or teardown commands for the shared preview. Inspect the shared
+development namespace before continuing.
+
 Preview promotion reports routine `api-evidence`, `helm-lint`, `helm-render`,
 and `workload-readiness` gates. Changed surfaces add the applicable Compose,
 API and ordinary-runner, workflow-contract, browser-runner, Kubernetes
@@ -156,6 +170,10 @@ bounded timeouts before starting the selected host-native process. It reports
 application startup failure, early exit, or readiness timeout is blocking and
 includes remediation. In `--json` mode, the readiness document is emitted
 once; later process failure and cleanup diagnostics are sent to stderr.
+
+Finite Kubernetes actions emit one final result after all scheduled steps have
+completed or stopped. Child command output is sent to stderr or captured in
+`--json` mode so it cannot create an additional JSON document.
 
 Human and JSON output report the selected mode, action, services, planned
 processes, URLs, readiness, warnings, and errors. Error records include a

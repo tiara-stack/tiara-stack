@@ -4,8 +4,78 @@ import { Effect } from "effect";
 import { TestConsole } from "effect/testing";
 import { Command } from "effect/unstable/cli";
 import { command, executeKubernetesPlan } from "./cli";
-import { runLauncherFromParsed } from "./index";
-import type { ProcessExecutor } from "./types";
+import { runLauncherFromParsed, getKubernetesExecutionContext } from "./index";
+import { runKubernetesExecution, type KubernetesLifecycleObservation } from "./execution";
+import type { ProcessExecutor, ProcessResult, ProcessStarter, RunningProcess } from "./types";
+
+const kubernetesOptions = {
+  json: true,
+  help: false,
+  envFile: null,
+  service: null,
+  confirm: false,
+  confirmDevelopment: true,
+  tag: "test-tag",
+  changedSurfaces: [] as readonly string[],
+};
+
+const kubernetesResult = (
+  action: "validate" | "preview",
+  changedSurfaces = kubernetesOptions.changedSurfaces,
+) =>
+  runLauncherFromParsed(
+    ["kubernetes", action],
+    {
+      ...kubernetesOptions,
+      changedSurfaces,
+      ...(action === "validate" ? { confirmDevelopment: false, tag: null } : {}),
+    },
+    { env: { KUBE_CONTEXT: "tiara-stack-dev" } },
+  );
+
+const kubernetesExecutionContext = async (
+  action: "validate" | "preview",
+  changedSurfaces?: readonly string[],
+) => {
+  const result = await kubernetesResult(action, changedSurfaces);
+  const context = getKubernetesExecutionContext(result);
+  if (context === undefined) throw new Error("expected a Kubernetes execution context");
+  return context;
+};
+
+const interruption = () => {
+  let resolve!: (signal: NodeJS.Signals) => void;
+  const promise = new Promise<NodeJS.Signals>((resolver) => (resolve = resolver));
+  return { effect: Effect.promise(() => promise), resolve };
+};
+
+const stopWhenStepStarts =
+  (stop: ReturnType<typeof interruption>, stepId?: string) =>
+  (observation: KubernetesLifecycleObservation) => {
+    if (
+      observation.type === "step" &&
+      observation.status === "started" &&
+      (stepId === undefined || observation.id === stepId)
+    ) {
+      stop.resolve("SIGINT");
+    }
+  };
+
+const expectStoppedKubernetesExecution = (
+  executed: Awaited<ReturnType<typeof runKubernetesExecution>>,
+  killed: number,
+) => {
+  expect(executed.outcome.status).toBe("stopped");
+  expect(executed.outcome.exitCode).toBe(130);
+  expect(executed.output.readiness).toBe("stopped");
+  expect(killed).toBe(1);
+};
+
+const runningProcess = (exited: Promise<ProcessResult>): RunningProcess => ({
+  pid: 42,
+  exited,
+  kill: async () => undefined,
+});
 
 const runCliHelp = () =>
   Effect.gen(function* () {
@@ -14,6 +84,323 @@ const runCliHelp = () =>
   }).pipe(Effect.provide(TestConsole.layer), Effect.provide(NodeServices.layer));
 
 describe("developer launcher Effect CLI", () => {
+  it("executes Kubernetes validation through the shared execution seam", async () => {
+    const context = await kubernetesExecutionContext("validate");
+    const requests: Parameters<ProcessExecutor>[0][] = [];
+
+    const executed = await runKubernetesExecution(context, {
+      executor: async (request) => {
+        requests.push(request);
+        return { exitCode: 0 };
+      },
+      output: "capture",
+    });
+
+    expect(executed.outcome.status).toBe("completed");
+    expect(executed.output.readiness).toBe("completed");
+    expect(requests.map(({ command }) => command)).toEqual(["helm", "helm"]);
+    expect(requests.some(({ args }) => args.includes("upgrade"))).toBe(false);
+  });
+
+  it("carries the validated Kubernetes target into execution instead of parsing command output", async () => {
+    const result = await runLauncherFromParsed(["kubernetes", "preview"], kubernetesOptions, {
+      env: { KUBE_CONTEXT: "tiara-stack-dev", KUBECONFIG: "/tmp/tiara-kubeconfig" },
+    });
+    const context = getKubernetesExecutionContext(result);
+    if (context === undefined) throw new Error("expected a Kubernetes execution context");
+
+    expect(context.target).toEqual({
+      context: "tiara-stack-dev",
+      namespace: "tiara-stack-dev",
+      release: "tiara-stack-dev",
+      registry: "registry.digitalocean.com/theerapakg-registry",
+      imageTag: "test-tag",
+      kubeconfig: "/tmp/tiara-kubeconfig",
+    });
+    expect(context.steps.find(({ id }) => id === "kubernetes-preview")?.request.args).toEqual(
+      expect.arrayContaining(["--kube-context", "tiara-stack-dev"]),
+    );
+    expect(getKubernetesExecutionContext({ ...result })).toBe(context);
+  });
+
+  it("rejects an unsafe Kubernetes target before creating an execution context", async () => {
+    const result = await runLauncherFromParsed(["kubernetes", "preview"], kubernetesOptions, {
+      env: { KUBE_CONTEXT: "production" },
+    });
+
+    expect(result.exitCode).toBe(2);
+    expect(result.output.errors).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: "invalid-environment" })]),
+    );
+    expect(getKubernetesExecutionContext(result)).toBeUndefined();
+  });
+
+  it("bounds a Kubernetes command after it starts and reports its failed step", async () => {
+    const context = await kubernetesExecutionContext("validate");
+    const timedContext = {
+      ...context,
+      steps: context.steps.map((step, index) =>
+        index === 0 ? { ...step, request: { ...step.request, timeoutMs: 10 } } : step,
+      ),
+    };
+    let killed = 0;
+    const executed = await runKubernetesExecution(timedContext, {
+      processStarter: async () => ({
+        pid: 42,
+        exited: new Promise<{ readonly exitCode: number }>(() => undefined),
+        kill: async () => {
+          killed += 1;
+        },
+      }),
+      interruptions: Effect.never,
+      output: "capture",
+    });
+
+    expect(killed).toBe(1);
+    expect(executed.outcome.status).toBe("blocked");
+    expect(executed.outcome.diagnostic?.code).toBe("dependency-timeout");
+    expect(executed.observations).toContainEqual(
+      expect.objectContaining({ type: "step", status: "failed", exitCode: 1 }),
+    );
+  });
+
+  it("reports command-start failures as failed lifecycle steps", async () => {
+    const context = await kubernetesExecutionContext("validate");
+    const observed: KubernetesLifecycleObservation[] = [];
+
+    const executed = await runKubernetesExecution(context, {
+      processStarter: async () => {
+        throw new Error("helm is not installed");
+      },
+      interruptions: Effect.never,
+      output: "capture",
+      onObservation: (observation) => observed.push(observation),
+    });
+
+    expect(executed.outcome.status).toBe("blocked");
+    expect(observed).toContainEqual(
+      expect.objectContaining({ type: "step", id: "helm-lint", status: "failed" }),
+    );
+    expect(observed.at(-1)).toEqual(
+      expect.objectContaining({ type: "terminal", outcome: "blocked" }),
+    );
+  });
+
+  it("returns a structured stopped result when validation is interrupted", async () => {
+    const context = await kubernetesExecutionContext("validate");
+    const stop = interruption();
+    let killed = 0;
+    const requests: Parameters<ProcessExecutor>[0][] = [];
+    const executed = await runKubernetesExecution(context, {
+      processStarter: async (request) => {
+        requests.push(request);
+        return {
+          pid: 42,
+          exited: new Promise<{ readonly exitCode: number }>(() => undefined),
+          kill: async () => {
+            killed += 1;
+          },
+        };
+      },
+      interruptions: stop.effect,
+      output: "capture",
+      onObservation: stopWhenStepStarts(stop),
+    });
+
+    expectStoppedKubernetesExecution(executed, killed);
+    expect(requests).toHaveLength(1);
+  });
+
+  it("stops at the first failed Kubernetes gate and adds bounded read-only workload details", async () => {
+    const context = await kubernetesExecutionContext("preview", ["workflow-runner"]);
+    const requests: Parameters<ProcessExecutor>[0][] = [];
+    const executed = await runKubernetesExecution(context, {
+      executor: async (request) => {
+        requests.push(request);
+        if (request.args.includes("workflow-contract-smoke")) {
+          return { exitCode: 1, stderr: "terminal contract failed" };
+        }
+        // fallow-ignore-next-line code-duplication
+        if (request.command === "kubectl") {
+          return { exitCode: 0, stdout: "pod/sheet-web-abc 0/1 ImagePullBackOff" };
+        }
+        return { exitCode: 0 };
+      },
+      output: "capture",
+    });
+
+    expect(executed.outcome.status).toBe("blocked");
+    expect(executed.output.readiness).toBe("blocked");
+    expect(executed.output.errors[0]?.message).toContain("ImagePullBackOff");
+    expect(requests.at(-1)?.command).toBe("kubectl");
+    expect(requests.some(({ args }) => args.includes("browser-runner-smoke"))).toBe(false);
+    expect(executed.output.parityGates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "api-smoke", status: "not-affected" }),
+        expect.objectContaining({ id: "browser-runner-smoke", status: "not-affected" }),
+      ]),
+    );
+    expect(executed.observations.at(-1)).toEqual(
+      expect.objectContaining({ type: "terminal", outcome: "blocked" }),
+    );
+  });
+
+  it("keeps workload-detail collection on the injected starter seam", async () => {
+    const context = await kubernetesExecutionContext("preview");
+    const requests: Parameters<ProcessExecutor>[0][] = [];
+    const processStarter: ProcessStarter = async (request) => {
+      requests.push(request);
+      if (request.args.includes("upgrade")) {
+        return runningProcess(Promise.resolve({ exitCode: 1, stderr: "rollout failed" }));
+      }
+      if (request.command === "kubectl") {
+        return runningProcess(
+          Promise.resolve({ exitCode: 0, stdout: "pod/sheet-web-abc 0/1 ImagePullBackOff" }),
+        );
+      }
+      return runningProcess(Promise.resolve({ exitCode: 0 }));
+    };
+
+    const executed = await runKubernetesExecution(context, {
+      processStarter,
+      output: "capture",
+    });
+
+    expect(executed.outcome.status).toBe("blocked");
+    expect(executed.output.errors[0]?.message).toContain("ImagePullBackOff");
+    expect(requests.at(-1)?.command).toBe("kubectl");
+  });
+
+  it("keeps a failed gate blocking when workload-detail inspection is interrupted", async () => {
+    const context = await kubernetesExecutionContext("preview");
+    const executed = await runKubernetesExecution(context, {
+      executor: async (request) => {
+        if (request.args.includes("upgrade")) return { exitCode: 1, stderr: "rollout failed" };
+        // fallow-ignore-next-line code-duplication
+        if (request.command === "kubectl") return { exitCode: 143 };
+        return { exitCode: 0 };
+      },
+      output: "capture",
+    });
+
+    expect(executed.outcome.status).toBe("blocked");
+    expect(executed.output.readiness).toBe("blocked");
+    expect(executed.output.errors[0]?.message).toContain("rollout failed");
+    expect(executed.output.errors[0]?.message).toContain(
+      "workload detail collection was interrupted",
+    );
+  });
+
+  it("reports interrupted preview work after cleanup without issuing rollback commands", async () => {
+    const context = await kubernetesExecutionContext("preview");
+    const stop = interruption();
+    const previewExit = (() => {
+      let resolve!: (result: { readonly exitCode: number }) => void;
+      const promise = new Promise<{ readonly exitCode: number }>(
+        (resolver) => (resolve = resolver),
+      );
+      return { promise, resolve };
+    })();
+    const requests: Parameters<ProcessExecutor>[0][] = [];
+    let killed = 0;
+    const observations: KubernetesLifecycleObservation[] = [];
+    const processStarter: ProcessStarter = async (request) => {
+      requests.push(request);
+      if (request.args.includes("upgrade")) {
+        return {
+          pid: 42,
+          exited: previewExit.promise,
+          kill: async () => {
+            killed += 1;
+            previewExit.resolve({ exitCode: 143 });
+          },
+        };
+      }
+      return runningProcess(Promise.resolve({ exitCode: 0 }));
+    };
+
+    const executed = await runKubernetesExecution(context, {
+      processStarter,
+      interruptions: stop.effect,
+      output: "capture",
+      onObservation: (observation) => {
+        observations.push(observation);
+        stopWhenStepStarts(stop, "kubernetes-preview")(observation);
+      },
+    });
+
+    expectStoppedKubernetesExecution(executed, killed);
+    expect(executed.output.warnings).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: "preview-incomplete" })]),
+    );
+    expect(observations.filter(({ type }) => type === "cleanup")).toHaveLength(2);
+    expect(
+      requests.some(({ args }) =>
+        args.some((argument) => /rollback|delete|teardown|down/i.test(argument)),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps an interrupted Kubernetes cleanup failure visible", async () => {
+    const context = await kubernetesExecutionContext("preview");
+    const stop = interruption();
+    let killed = 0;
+    const processStarter: ProcessStarter = async (request) => {
+      if (request.args.includes("upgrade")) {
+        return {
+          pid: 42,
+          exited: new Promise<{ readonly exitCode: number }>(() => undefined),
+          kill: async () => {
+            killed += 1;
+            throw new Error("local command could not be stopped");
+          },
+        };
+      }
+      return runningProcess(Promise.resolve({ exitCode: 0 }));
+    };
+
+    const executed = await runKubernetesExecution(context, {
+      processStarter,
+      interruptions: stop.effect,
+      cleanupTimeoutMs: 10,
+      output: "capture",
+      onObservation: (observation) => {
+        if (observation.type === "step" && observation.id === "kubernetes-preview") {
+          stop.resolve("SIGTERM");
+        }
+      },
+    });
+
+    expect(killed).toBe(1);
+    expect(executed.outcome.status).toBe("failed");
+    expect(executed.outcome.exitCode).toBe(2);
+    expect(executed.output.readiness).toBe("blocked");
+    expect(executed.output.errors.map(({ code }) => code)).toEqual([
+      "preview-incomplete",
+      "cleanup-failed",
+    ]);
+  });
+
+  it("redacts copied Kubernetes command and workload output", async () => {
+    const context = await kubernetesExecutionContext("preview");
+    const secret = "kube-output-secret";
+    const executed = await runKubernetesExecution(context, {
+      executor: async (request) => {
+        if (request.args.includes("upgrade")) {
+          return { exitCode: 1, stderr: `password=${secret}` };
+        }
+        if (request.command === "kubectl") {
+          return { exitCode: 0, stdout: `pod/sheet-web password: ${secret} token: ${secret}` };
+        }
+        return { exitCode: 0 };
+      },
+      output: "capture",
+    });
+
+    expect(JSON.stringify(executed.output)).not.toContain(secret);
+    expect(executed.output.errors[0]?.message).toContain("<redacted>");
+  });
+
   // fallow-ignore-next-line code-duplication
   it("reports failed Kubernetes workloads through the executor seam", async () => {
     const result = await runLauncherFromParsed(
@@ -40,6 +427,7 @@ describe("developer launcher Effect CLI", () => {
 
     const executed = await executeKubernetesPlan(result, true, executor);
 
+    // fallow-ignore-next-line code-duplication
     expect(executed.exitCode).toBe(2);
     expect(executed.output.readiness).toBe("blocked");
     expect(executed.output.errors[0]?.message).toContain("ImagePullBackOff");

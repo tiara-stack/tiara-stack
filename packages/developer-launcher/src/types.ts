@@ -67,7 +67,7 @@ export type FastAction = (typeof modeActions.fast)[number];
 export type ComposeAction = (typeof modeActions.compose)[number];
 export type KubernetesAction = (typeof modeActions.kubernetes)[number];
 export type ModeAction = FastAction | ComposeAction | KubernetesAction;
-export type ReadinessState = "help" | "planned" | "ready" | "stopped" | "blocked";
+export type ReadinessState = "help" | "planned" | "ready" | "completed" | "stopped" | "blocked";
 export type DiagnosticKind = "error" | "warning";
 
 export type DiagnosticCode =
@@ -90,6 +90,7 @@ export type DiagnosticCode =
   | "confirmation-required"
   | "invalid-image-tag"
   | "invalid-changed-surface"
+  | "preview-incomplete"
   | "not-implemented";
 
 export interface Diagnostic {
@@ -154,7 +155,10 @@ export interface ProcessResult {
   readonly timedOut?: boolean;
 }
 
-export type ProcessExecutor = (request: ProcessRequest) => Promise<ProcessResult>;
+export type ProcessExecutor = (
+  request: ProcessRequest,
+  signal?: AbortSignal,
+) => Promise<ProcessResult>;
 
 export interface PortCheckResult {
   readonly available: boolean;
