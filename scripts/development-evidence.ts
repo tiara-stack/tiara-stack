@@ -1,21 +1,21 @@
+import { Effect } from "effect";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { performance } from "node:perf_hooks";
-import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { DETERMINISTIC_PORTS, runLauncher } from "../packages/developer-launcher/src/index";
+import {
+  DETERMINISTIC_PORTS,
+  makeFastExecutionContext,
+  runFastExecution,
+  runLauncher,
+  type AccessChecker,
+  type FastExecutionResult,
+  type LauncherOutput,
+} from "../packages/developer-launcher/src/index";
 
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const evidenceDirectory = path.join(repository, ".artifacts");
 const evidencePath = path.join(evidenceDirectory, "development-evidence.json");
-const fastPort = DETERMINISTIC_PORTS["sheet-web"];
-
-const localProcessEnvironment = () =>
-  Object.fromEntries(
-    ["PATH", "HOME", "TMPDIR", "NODE_PATH", "NPM_CONFIG_USER_AGENT"]
-      .map((key) => [key, process.env[key]])
-      .filter((entry): entry is [string, string] => entry[1] !== undefined),
-  );
 
 type LauncherCheck = {
   readonly command: string;
@@ -26,14 +26,13 @@ type LauncherCheck = {
   readonly errors: readonly string[];
 };
 
+type PlannedLauncherCheck = LauncherCheck & {
+  readonly plan: LauncherOutput;
+};
+
 type SettledResult<T> =
   | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly error: string };
-
-type FastProcess = {
-  readonly child: ReturnType<typeof spawn>;
-  readonly spawnError: { value: Error | undefined };
-};
 
 const settle = async <T>(task: () => Promise<T>): Promise<SettledResult<T>> => {
   try {
@@ -43,7 +42,7 @@ const settle = async <T>(task: () => Promise<T>): Promise<SettledResult<T>> => {
   }
 };
 
-const runCheck = async (args: readonly string[], options = {}): Promise<LauncherCheck> => {
+const runCheck = async (args: readonly string[], options = {}): Promise<PlannedLauncherCheck> => {
   const startedAt = performance.now();
   const result = await runLauncher([...args, "--json"], {
     ...options,
@@ -57,122 +56,88 @@ const runCheck = async (args: readonly string[], options = {}): Promise<Launcher
     durationMs: Math.round((performance.now() - startedAt) * 100) / 100,
     plannedProcesses: result.output.plannedProcesses.map(({ id }) => id),
     errors: result.output.errors.map(({ code, message }) => `${code}: ${message}`),
+    plan: result.output,
   };
 };
 
-const waitForReady = (processHandle: FastProcess, timeoutMs: number) =>
-  new Promise<void>((resolve, reject) => {
-    const { child, spawnError } = processHandle;
-    if (spawnError.value !== undefined) {
-      reject(spawnError.value);
-      return;
-    }
-    const timer = setTimeout(() => {
-      cleanup();
-      reject(new Error(`Fast process did not become ready within ${timeoutMs}ms`));
-    }, timeoutMs);
-    let output = "";
-    const onOutput = (chunk: Buffer | string) => {
-      output += chunk.toString();
-      if (output.includes("Local:")) {
-        cleanup();
-        resolve();
-      }
-    };
-    const onExit = (code: number | null) => {
-      cleanup();
-      reject(new Error(`Fast process exited with code ${code ?? "unknown"}`));
-    };
-    const onError = (error: Error) => {
-      spawnError.value = error;
-      cleanup();
-      reject(error);
-    };
-    const cleanup = () => {
-      clearTimeout(timer);
-      child.stdout?.off("data", onOutput);
-      child.off("exit", onExit);
-      child.off("error", onError);
-    };
-    child.stdout?.setEncoding("utf8");
-    child.stdout?.on("data", onOutput);
-    child.once("exit", onExit);
-    child.once("error", onError);
-  });
+const fastEvidenceTimeoutMs = 180_000;
 
-const startFastProcess = (): FastProcess => {
-  const spawnError: FastProcess["spawnError"] = { value: undefined };
-  const child = spawn(
-    "pnpm",
-    ["exec", "vp", "dev", "--host", "127.0.0.1", "--port", String(fastPort), "--strictPort"],
-    {
-      cwd: path.join(repository, "packages/sheet-web"),
-      env: {
-        ...localProcessEnvironment(),
-        APP_BASE_URL: `http://127.0.0.1:${fastPort}`,
-        AUTH_BASE_URL: `http://127.0.0.1:${DETERMINISTIC_PORTS["sheet-auth"]}`,
-        SHEET_ZERO_BASE_URL: `http://127.0.0.1:${DETERMINISTIC_PORTS["zero-cache"]}`,
-        SHEET_WORKFLOWS_BASE_URL: `http://127.0.0.1:${DETERMINISTIC_PORTS["sheet-workflows"]}`,
-      },
-      detached: process.platform !== "win32",
-      stdio: ["ignore", "pipe", "ignore"],
-    },
+const localFastPrerequisiteAccess: AccessChecker = async () => ({
+  reachable: true,
+  status: 204,
+});
+
+const localFastExecutionPlan = (plannedOutput: LauncherOutput): LauncherOutput => ({
+  ...plannedOutput,
+  plannedProcesses: plannedOutput.plannedProcesses.map((process) =>
+    process.id === "sheet-web"
+      ? {
+          ...process,
+          environment: {
+            ...process.environment,
+            AUTH_BASE_URL: `http://localhost:${DETERMINISTIC_PORTS["sheet-auth"]}`,
+            SHEET_ZERO_BASE_URL: `http://localhost:${DETERMINISTIC_PORTS["zero-cache"]}`,
+            SHEET_WORKFLOWS_BASE_URL: `http://localhost:${DETERMINISTIC_PORTS["sheet-workflows"]}`,
+          },
+        }
+      : process,
+  ),
+});
+
+const makeInterruptionSignal = () => {
+  let resolve!: (signal: NodeJS.Signals) => void;
+  const effect = Effect.promise(
+    () =>
+      new Promise<NodeJS.Signals>((resolver) => {
+        resolve = resolver;
+      }),
   );
-  child.on("error", (error) => {
-    spawnError.value = error;
-  });
-  return { child, spawnError };
+  return { effect, resolve: (signal: NodeJS.Signals) => resolve(signal) };
 };
 
-const terminateProcess = (child: ReturnType<typeof spawn>, signal: NodeJS.Signals) => {
-  if (process.platform === "win32") {
-    child.kill(signal);
-    return;
-  }
-  if (child.pid === undefined) return;
-  try {
-    process.kill(-child.pid, signal);
-  } catch {
-    child.kill(signal);
-  }
+const executionFailure = (execution: FastExecutionResult) => {
+  const diagnostics = [
+    execution.outcome.diagnostic?.message,
+    execution.outcome.cleanupDiagnostic?.message,
+  ].filter((message): message is string => message !== undefined);
+  const detail = diagnostics.length === 0 ? "no diagnostic was returned" : diagnostics.join("; ");
+  return new Error(
+    `Fast execution ended with ${execution.outcome.status} before evidence was recorded: ${detail}`,
+  );
 };
 
-const waitForExit = (child: ReturnType<typeof spawn>, timeoutMs: number) =>
-  new Promise<boolean>((resolve) => {
-    if (child.exitCode !== null) {
-      resolve(true);
-      return;
-    }
-    const timer = setTimeout(() => resolve(false), timeoutMs);
-    child.once("exit", () => {
-      clearTimeout(timer);
-      resolve(true);
-    });
-  });
+const isSuccessfulReadiness = (readyAt: number | undefined, execution: FastExecutionResult) =>
+  readyAt !== undefined && execution.output.readiness === "ready" && execution.outcome.ok === true;
 
-const stopProcess = async ({ child, spawnError }: FastProcess) => {
-  if (spawnError.value !== undefined || child.pid === undefined) return;
-  terminateProcess(child, "SIGTERM");
-  if (await waitForExit(child, 5_000)) return;
-  terminateProcess(child, "SIGKILL");
-  throw new Error("Fast process did not exit after termination");
-};
-
-const measureFastAttempt = async () => {
+const measureFastAttempt = async (plannedOutput: LauncherOutput) => {
   const startedAt = performance.now();
-  const processHandle = startFastProcess();
-  try {
-    await waitForReady(processHandle, 90_000);
-    return Math.round((performance.now() - startedAt) * 100) / 100;
-  } finally {
-    await stopProcess(processHandle);
+  const stopAfterReady = makeInterruptionSignal();
+  let readyAt: number | undefined;
+  const context = makeFastExecutionContext(plannedOutput, repository, {
+    startupTimeoutMs: fastEvidenceTimeoutMs,
+    readinessTimeoutMs: fastEvidenceTimeoutMs,
+  });
+  const execution = await runFastExecution(context, {
+    accessChecker: localFastPrerequisiteAccess,
+    interruptions: stopAfterReady.effect,
+    output: "stderr",
+    onObservation: (observation) => {
+      if (observation.type !== "readiness" || observation.status !== "ready") return;
+      readyAt ??= performance.now();
+      queueMicrotask(() => stopAfterReady.resolve("SIGTERM"));
+    },
+  });
+  if (!isSuccessfulReadiness(readyAt, execution)) {
+    throw executionFailure(execution);
   }
+  return Math.round((readyAt - startedAt) * 100) / 100;
 };
 
-const measureFastReady = async () => {
+const measureFastReady = async (plannedOutput: LauncherOutput) => {
+  const localPlan = localFastExecutionPlan(plannedOutput);
   const measurementsMs: number[] = [];
   for (let attempt = 1; attempt <= 3; attempt += 1) {
-    measurementsMs.push(await measureFastAttempt());
+    measurementsMs.push(await measureFastAttempt(localPlan));
   }
   return measurementsMs;
 };
@@ -194,23 +159,36 @@ const failedLauncherCheck = (command: string, error: string): LauncherCheck => (
   errors: [error],
 });
 
-const resolveLauncherCheck = (result: SettledResult<LauncherCheck>, command: string) =>
-  result.ok ? result.value : failedLauncherCheck(command, result.error);
+const resolveLauncherCheck = (
+  result: SettledResult<PlannedLauncherCheck>,
+  command: string,
+): LauncherCheck => {
+  if (result.ok === false) return failedLauncherCheck(command, result.error);
+  const { plan: _plan, ...check } = result.value;
+  return check;
+};
 
 const collectFailures = (
   checks: readonly LauncherCheck[],
   readinessResult: SettledResult<readonly number[]>,
 ) => [
   ...checks.filter(({ ok }) => !ok).map(({ command }) => `${command} failed`),
-  ...(readinessResult.ok ? [] : [`Fast readiness failed: ${readinessResult.error}`]),
+  ...(readinessResult.ok === false ? [`Fast readiness failed: ${readinessResult.error}`] : []),
 ];
 
 const collectResults = async (composeEnvironment: string) => {
   const fastResult = await settle(() => runCheck(["fast", "up"]));
+  const readinessTask =
+    fastResult.ok && fastResult.value.ok
+      ? settle(() => measureFastReady(fastResult.value.plan))
+      : Promise.resolve({
+          ok: false,
+          error: "Fast planning did not produce an executable plan",
+        } satisfies SettledResult<readonly number[]>);
   const [composeResult, kubernetesResult, readinessResult] = await Promise.all([
     settle(() => runCheck(["compose", "build", "--env-file", composeEnvironment])),
     settle(() => runCheck(["kubernetes", "validate"])),
-    settle(measureFastReady),
+    readinessTask,
   ]);
 
   const fast = resolveLauncherCheck(fastResult, "pnpm dev fast up");
@@ -235,10 +213,13 @@ const writeEvidence = (result: Awaited<ReturnType<typeof collectResults>>) => {
     fastStartupToReadyMs: result.fastStartupToReadyMs,
     fastStartupToReadyThreshold: null,
     notes: [
-      "Fast timings start a local sheet-web watch process and wait for Vite's local startup announcement.",
-      "No production or development service endpoint, credential, database, cluster, or external integration is contacted.",
+      "Fast timings run the shared Fast execution lifecycle, start a real sheet-web watch process, and stop it after GET /ready returns 2xx.",
+      "Launcher validation remains unchanged, but the evidence child receives loopback values for external Fast endpoint settings. Fast prerequisite checks use a bounded local CI adapter. The only network request is the local sheet-web readiness check; no production or development credentials, database, cluster, Discord, or Google Sheets resource is contacted.",
+      "Early exit, readiness timeout, and interruption are blocking lifecycle cases covered by the shared Fast execution tests; the execution seam owns process-tree cleanup.",
       "The timing series is evidence only. It has no p95 or p99 blocking threshold.",
-      ...(result.readinessResult.ok ? [] : [`Readiness error: ${result.readinessResult.error}`]),
+      ...(result.readinessResult.ok === false
+        ? [`Readiness error: ${result.readinessResult.error}`]
+        : []),
     ],
   };
   writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);

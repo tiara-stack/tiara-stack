@@ -105,12 +105,16 @@ post and delete a marked message in the development channel. Google Sheets
 evidence reads the bounded `A1:C3` range. Neither check runs in the default CI
 gate.
 
-CI runs the local launcher plan checks and starts a local `sheet-web` watch
-process to record Fast startup-to-ready timings from Vite's local startup
-announcement. The result is the
+CI runs the local launcher plan checks and the shared Fast execution lifecycle.
+That lifecycle starts a real local `sheet-web` watch process, verifies its
+existing HTTP GET `/ready` response, records the time at the launcher's
+Development Readiness observation, and cleans up the process tree. The Fast
+external prerequisites use bounded local CI adapters, so the evidence path
+does not contact development services or use their credentials. A startup
+message alone does not pass this check. The result is the
 `development-evidence` JSON artifact. Timings are reported without a p95 or
-p99 threshold, so the team can establish a target from evidence instead of
-silently adding a performance gate.
+p99 threshold, so the artifact remains evidence rather than a new performance
+gate.
 
 ## Failure remediation
 
