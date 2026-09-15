@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Option, Schema } from "effect";
+import { renderPlainText } from "sheet-message-content/text";
 import { AutoCheckinTestProvider } from "@/workflows/checkins/autoTestProvider";
 import { UserScheduleProvider } from "@/workflows/schedules/provider";
 import { WorkspaceId } from "sheet-workflow-contracts";
@@ -101,9 +102,14 @@ describe("selected autonomous check-in generation", () => {
             eventStartEpochMs: chapterStart,
             schedules: [
               {
+                hour: 81,
+                fills: [{ accountId: "player-0", name: "Previous Player", enc: false }],
+                monitor: "Miku",
+              },
+              {
                 hour: 82,
                 fills: [{ accountId: "player-1", name: "Player", enc: false }],
-                monitor: null,
+                monitor: "Airi",
               },
             ],
             teamsByPlayerName: new Map([
@@ -156,6 +162,10 @@ describe("selected autonomous check-in generation", () => {
         hour82Start,
         hour82Start + 3_600_000,
       ]);
+      expect(generatedRoomOrder.monitor).toBe("Airi");
+      expect(generatedRoomOrder.previousMonitor).toBe("Miku");
+      expect(generatedRoomOrder.previousMonitorHistoryKnown).toBe(true);
+      expect(renderPlainText(generatedRoomOrder.content)).toContain("Monis: In Airi · Out Miku");
     }),
   );
 });

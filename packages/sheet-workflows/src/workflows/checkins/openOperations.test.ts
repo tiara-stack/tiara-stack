@@ -238,6 +238,8 @@ const roomOrder = () =>
     rank: 1,
     hour: 3,
     monitor: null,
+    previousMonitor: null,
+    previousMonitorHistoryKnown: false,
     previousFills: [],
     fills: ["player-1"],
     entries: [],

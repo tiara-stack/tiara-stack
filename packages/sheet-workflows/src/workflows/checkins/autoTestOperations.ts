@@ -11,7 +11,10 @@ import {
 } from "sheet-bot-api";
 import { shouldSendTentativeRoomOrder } from "sheet-bot-api/actions";
 import { makeMonitorCheckinMessage } from "sheet-message-content/checkinSummary";
-import { buildRoomOrderContent } from "sheet-message-content/roomOrderContent";
+import {
+  buildRoomOrderContent,
+  roomOrderMonitorHandoffFromAdjacentAssignment,
+} from "sheet-message-content/roomOrderContent";
 import { tentativeRoomOrderContent } from "sheet-message-content/roomOrderMessage";
 import {
   autoCheckinTestHour,
@@ -796,7 +799,7 @@ export const autoCheckinTestWorkflowOperationsLayer = Layer.effect(
               : MessageText.renderPlainText(monitorFailureMessage),
           } satisfies AutoCheckinTestPreparation;
         }
-        const tentativeRoomOrderPreview = shouldSendTentativeRoomOrder(current?.fills.length ?? 0)
+        const tentativeRoomOrderPreview = shouldSendTentativeRoomOrder(current?.fills.length ?? 0) // fallow-ignore-next-line complexity
           ? yield* Effect.gen(function* () {
               const roomView = yield* provider
                 .loadRoomOrder(
@@ -833,7 +836,10 @@ export const autoCheckinTestWorkflowOperationsLayer = Layer.effect(
                 hour,
                 hourWindow.start,
                 hourWindow.end,
-                roomCurrent?.monitor ?? null,
+                roomOrderMonitorHandoffFromAdjacentAssignment(
+                  roomCurrent?.monitor ?? null,
+                  roomPrevious?.monitor,
+                ),
                 (roomPrevious?.fills ?? []).map(({ name }) => fillParticipantFromName(name)),
                 fills.map(({ name }) => fillParticipantFromName(name)),
                 entries.filter(({ rank }) => rank === 0),
