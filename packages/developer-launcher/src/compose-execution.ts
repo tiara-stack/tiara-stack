@@ -22,6 +22,7 @@ import {
   type ProcessRequest,
   type ProcessResult,
   type ProcessStarter,
+  type ReadinessState,
   type RunningProcess,
 } from "./types";
 
@@ -153,6 +154,9 @@ type ComposeLifecycleObservationDetail =
       readonly type: "terminal";
       readonly outcome: ComposeExecutionOutcomeStatus;
       readonly exitCode: number;
+      readonly readiness?: ReadinessState;
+      readonly diagnostics?: readonly Diagnostic[];
+      readonly warnings?: readonly Diagnostic[];
     };
 
 export type ComposeLifecycleObservation = ComposeLifecycleObservationDetail & {
@@ -762,7 +766,14 @@ const emitTerminal = (
   notify(
     state,
     context,
-    { type: "terminal", outcome: result.outcome.status, exitCode: result.outcome.exitCode },
+    {
+      type: "terminal",
+      outcome: result.outcome.status,
+      exitCode: result.outcome.exitCode,
+      readiness: result.output.readiness,
+      ...(result.output.errors.length === 0 ? {} : { diagnostics: result.output.errors }),
+      ...(result.output.warnings.length === 0 ? {} : { warnings: result.output.warnings }),
+    },
     observer,
   ).pipe(Effect.as(result));
 

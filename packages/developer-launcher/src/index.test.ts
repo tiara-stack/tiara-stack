@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 import {
   composeProjectName,
   getComposeExecutionContext,
+  lifecycleEventFor,
+  parseCommand,
   runLauncher,
   type AccessChecker,
   type PortChecker,
@@ -12,6 +14,80 @@ import {
 } from "./index";
 
 describe("developer launcher command boundary", () => {
+  it("accepts lifecycle JSON as an explicit output mode and rejects mixed JSON modes", async () => {
+    const parsed = parseCommand(["fast", "up", "--json-stream"]);
+
+    expect(parsed.kind).toBe("mode");
+    expect(parsed.options.json).toBe(false);
+    expect(parsed.options.jsonStream).toBe(true);
+
+    const plan = await runLauncher(["fast", "up", "--json-stream"], {
+      env: {},
+      portChecker: async () => ({ available: true }),
+    });
+    expect(JSON.parse(plan.stdout)).toEqual(
+      expect.objectContaining({
+        type: "planned",
+        format: "tiara-stack.development.lifecycle",
+        eventVersion: 1,
+      }),
+    );
+
+    const result = await runLauncher(["fast", "up", "--json", "--json-stream"], {
+      env: {},
+      portChecker: async () => ({ available: true }),
+    });
+    const output = JSON.parse(result.stdout) as {
+      readonly diagnostics: readonly { readonly code: string; readonly message: string }[];
+    };
+
+    expect(result.exitCode).toBe(2);
+    expect(output.diagnostics).toEqual([
+      expect.objectContaining({
+        code: "invalid-option",
+        message: expect.stringContaining("cannot be used together"),
+      }),
+    ]);
+  });
+
+  it("redacts untrusted lifecycle reasons and credential-bearing origins", async () => {
+    const result = await runLauncher(["fast", "up", "--json"], {
+      env: {},
+      portChecker: async () => ({ available: true }),
+    });
+    const credentialOrigin = new URL("https://example.test/ready?token=query-secret");
+    credentialOrigin.username = "user";
+    credentialOrigin.password = "origin-secret";
+    const event = lifecycleEventFor(
+      {
+        sequence: 1,
+        mode: "fast",
+        action: "up",
+        service: "sheet-web",
+        type: "readiness",
+        status: "blocked",
+        origin: credentialOrigin.toString(),
+        reason:
+          'token=reason-secret API_KEY=api-key-secret ACCESS_TOKEN=access-token-secret CLIENT_SECRET=client-secret password="quoted password secret" TOKEN=\'quoted token secret\' {"password":"json-password"}',
+      },
+      result.output,
+    );
+
+    expect(JSON.stringify(event)).not.toContain("origin-secret");
+    expect(JSON.stringify(event)).not.toContain("query-secret");
+    expect(JSON.stringify(event)).not.toContain("reason-secret");
+    expect(JSON.stringify(event)).not.toContain("api-key-secret");
+    expect(JSON.stringify(event)).not.toContain("access-token-secret");
+    expect(JSON.stringify(event)).not.toContain("client-secret");
+    expect(JSON.stringify(event)).not.toContain("quoted password secret");
+    expect(JSON.stringify(event)).not.toContain("quoted token secret");
+    expect(JSON.stringify(event)).not.toContain("json-password");
+    expect(event.origin).toBe("https://<redacted>@example.test/ready?token=<redacted>");
+    expect(event.reason).toBe(
+      'token=<redacted> API_KEY=<redacted> ACCESS_TOKEN=<redacted> CLIENT_SECRET=<redacted> password="<redacted>" TOKEN=\'<redacted>\' {"password":"<redacted>"}',
+    );
+  });
+
   it("prints help for the bare command without executing a process", async () => {
     const executions: Parameters<ProcessExecutor>[0][] = [];
     const executor: ProcessExecutor = async (request) => {

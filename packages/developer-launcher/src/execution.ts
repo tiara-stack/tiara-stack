@@ -1,6 +1,7 @@
 import { Cause, Duration, Effect, Exit, Match, Option, Schema } from "effect";
 import path from "node:path";
 import { checkHttpAccess, checkHttpReadiness, checkTcpAccess, isHttpReady } from "./access";
+import type { ComposeLifecycleObservation } from "./compose-execution";
 import type { KubernetesModeConfig } from "./config";
 import { makeDiagnostic, makeWarning } from "./diagnostics";
 import {
@@ -9,11 +10,13 @@ import {
   observeProcessExit,
   processSignals,
   reasonFields,
+  redactExecutionText,
   statusCodeFields,
   terminalOutput,
   type ProcessExitObservation,
 } from "./execution-shared";
 import { spawnProcess, startLongLivedProcess } from "./executor";
+import type { DevelopmentLifecycleObservationType } from "./lifecycle-types";
 import type { ModePlan } from "./plan";
 import { fastServices } from "./types";
 import type {
@@ -28,6 +31,7 @@ import type {
   ProcessResult,
   ProcessStarter,
   PlannedProcess,
+  ReadinessState,
   ReadinessChecker,
   RunningProcess,
   TcpAccessChecker,
@@ -105,6 +109,9 @@ type LifecycleObservationDetail =
       readonly type: "terminal";
       readonly outcome: FastExecutionOutcomeStatus;
       readonly exitCode: number;
+      readonly readiness?: ReadinessState;
+      readonly diagnostics?: readonly Diagnostic[];
+      readonly warnings?: readonly Diagnostic[];
     };
 
 export type LifecycleObservation = LifecycleObservationDetail & {
@@ -177,6 +184,9 @@ export type KubernetesLifecycleObservationDetail =
       readonly type: "terminal";
       readonly outcome: FastExecutionOutcomeStatus;
       readonly exitCode: number;
+      readonly readiness?: ReadinessState;
+      readonly diagnostics?: readonly Diagnostic[];
+      readonly warnings?: readonly Diagnostic[];
     };
 
 export type KubernetesLifecycleObservation = KubernetesLifecycleObservationDetail & {
@@ -200,7 +210,7 @@ export interface KubernetesExecutionResult {
   readonly outcome: KubernetesExecutionOutcome;
 }
 
-export type DevelopmentLifecycleObservation = LifecycleObservation | KubernetesLifecycleObservation;
+export type DevelopmentLifecycleObservation = DevelopmentLifecycleObservationType;
 export type DevelopmentExecutionContext = FastExecutionContext | KubernetesExecutionContext;
 export type DevelopmentExecutionResult = FastExecutionResult | KubernetesExecutionResult;
 
@@ -899,10 +909,9 @@ const processStartDiagnostic = (
       { mode: context.mode, action: context.action, dependency: context.selectedService },
     );
   }
-  const detail = error instanceof Error ? `: ${error.message}` : "";
   return makeDiagnostic(
     "dependency-unavailable",
-    `${context.selectedService} could not be started${detail}`,
+    `${context.selectedService} could not be started`,
     `Run pnpm install, verify the ${context.selectedService} development tooling is available, and retry Fast mode.`,
     { mode: context.mode, action: context.action, dependency: context.selectedService },
   );
@@ -946,11 +955,17 @@ const emitTerminal = (
   state: ExecutionState,
   outcome: FastExecutionOutcome,
   observer?: (observation: LifecycleObservation) => void,
+  diagnostics: readonly Diagnostic[] = [],
+  readiness?: ReadinessState,
+  warnings: readonly Diagnostic[] = [],
 ) => {
   const next = {
     type: "terminal" as const,
     outcome: outcome.status,
     exitCode: outcome.exitCode,
+    ...(readiness === undefined ? {} : { readiness }),
+    ...(diagnostics.length === 0 ? {} : { diagnostics }),
+    ...(warnings.length === 0 ? {} : { warnings }),
   };
   return notify(state, context, next, observer);
 };
@@ -987,7 +1002,16 @@ const finishExecution = (
   state: ExecutionState,
   options: FastExecutionOptions,
   result: FastExecutionResult,
-) => emitTerminal(context, state, result.outcome, options.onObservation).pipe(Effect.as(result));
+): Effect.Effect<FastExecutionResult> =>
+  emitTerminal(
+    context,
+    state,
+    result.outcome,
+    options.onObservation,
+    result.output.errors,
+    result.output.readiness,
+    result.output.warnings,
+  ).pipe(Effect.as(result));
 
 const readyOutputFor = (context: FastExecutionContext, state: ExecutionState) =>
   state.observations.some(
@@ -1429,14 +1453,7 @@ const kubernetesSignalsByExitCode: Readonly<Record<string, NodeJS.Signals>> = {
 const signalFromExitCode = (exitCode: number): NodeJS.Signals | undefined =>
   kubernetesSignalsByExitCode[String(exitCode)];
 
-const redactKubernetesOutput = (value: string) =>
-  value
-    .replace(/(https?:\/\/)[^\s/@:]+:[^\s/@]+@/gi, "$1<redacted>@")
-    .replace(/(\bBearer\s+)[^\s]+/gi, "$1<redacted>")
-    .replace(
-      /((?:password|passwd|secret|token|credential|private[_-]?key)\s*[:=]\s*["']?)[^\s,"'}]+/gi,
-      "$1<redacted>",
-    );
+const redactKubernetesOutput = redactExecutionText;
 
 const startKubernetesStep = (
   context: KubernetesExecutionContext,
@@ -2103,10 +2120,19 @@ const finishKubernetesExecution = (
 ) =>
   Effect.gen(function* () {
     const result = kubernetesResultForStage(context, stage);
+    const diagnostics = result.output.errors;
+    const warnings = result.output.warnings;
     yield* notifyKubernetes(
       state,
       context,
-      { type: "terminal", outcome: result.outcome.status, exitCode: result.outcome.exitCode },
+      {
+        type: "terminal",
+        outcome: result.outcome.status,
+        exitCode: result.outcome.exitCode,
+        readiness: result.output.readiness,
+        ...(diagnostics.length === 0 ? {} : { diagnostics }),
+        ...(warnings.length === 0 ? {} : { warnings }),
+      },
       options.onObservation,
     );
     return { ...result, observations: state.observations };

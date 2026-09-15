@@ -9,6 +9,7 @@ import {
 
 export interface CommandOptions {
   readonly json: boolean;
+  readonly jsonStream?: boolean;
   readonly help: boolean;
   readonly envFile: string | null;
   readonly service: string | null;
@@ -61,6 +62,7 @@ type MutableCommandOptions = { -readonly [Key in keyof CommandOptions]: CommandO
 
 const initialOptions = (): MutableCommandOptions => ({
   json: false,
+  jsonStream: false,
   help: false,
   envFile: null,
   service: null,
@@ -111,6 +113,13 @@ const parseOptions = (args: readonly string[]) => {
         throw new CommandParseError("--json may only be provided once", "invalid-option");
       }
       options.json = true;
+      continue;
+    }
+    if (argument === "--json-stream") {
+      if (options.jsonStream) {
+        throw new CommandParseError("--json-stream may only be provided once", "invalid-option");
+      }
+      options.jsonStream = true;
       continue;
     }
     if (argument === "--help" || argument === "-h") {
@@ -209,6 +218,12 @@ export const parsePositionals = (
   positionals: readonly string[],
   options: CommandOptions,
 ): ParsedCommand => {
+  if (options.json && options.jsonStream === true) {
+    throw new CommandParseError(
+      "--json and --json-stream cannot be used together",
+      "invalid-option",
+    );
+  }
   const [first, second, ...rest] = positionals;
 
   if (first === undefined) {

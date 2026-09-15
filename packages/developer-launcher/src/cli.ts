@@ -15,15 +15,21 @@ import {
   type ComposeExecutionContext,
   type ComposeExecutionOptions,
   type ComposeLifecycleObservation,
+  type FastExecutionOptions,
+  type LifecycleObservation,
+  type KubernetesExecutionOptions,
+  type KubernetesLifecycleObservation,
 } from "./execution";
 import { makeDiagnostic } from "./diagnostics";
 import {
   getComposeExecutionContext,
   getKubernetesExecutionContext,
+  makeLifecycleStreamWriter,
+  renderLifecycleTerminal,
   renderLauncherOutput,
   runLauncherFromParsed,
 } from "./index";
-import type { LauncherOutput, ProcessExecutor } from "./types";
+import type { Diagnostic, LauncherOutput, ProcessExecutor } from "./types";
 import { normalizeChangedSurfaces, type CommandOptions } from "./commands";
 
 const commonFlags = {
@@ -34,6 +40,7 @@ const commonFlags = {
   tag: Flag.string("tag").pipe(Flag.optional),
   changedSurface: Flag.string("changed-surface").pipe(Flag.between(0, Number.MAX_SAFE_INTEGER)),
   json: Flag.boolean("json").pipe(Flag.withDefault(false)),
+  jsonStream: Flag.boolean("json-stream").pipe(Flag.withDefault(false)),
 };
 
 const launcherOptions = (config: {
@@ -45,8 +52,10 @@ const launcherOptions = (config: {
   readonly tag: Option.Option<string>;
   readonly changedSurface: ReadonlyArray<string>;
   readonly json: boolean;
+  readonly jsonStream: boolean;
 }): CommandOptions => ({
   json: config.json,
+  jsonStream: config.jsonStream,
   help: false,
   envFile: Option.getOrNull(config.envFile),
   service: Option.getOrNull(config.service),
@@ -60,19 +69,33 @@ export interface ComposePlanExecutionOptions extends Omit<
   ComposeExecutionOptions,
   "onObservation" | "output"
 > {
+  readonly jsonStream?: boolean;
   readonly onObservation?: (observation: ComposeLifecycleObservation) => void;
   readonly writeStdout?: (value: string) => void;
   readonly writeStderr?: (value: string) => void;
 }
 
-const composeContextDiagnostic = (action: string, cause: unknown) =>
+const composeContextDiagnostic = (action: string, _cause: unknown) =>
   makeDiagnostic(
     "context-preparation-failed",
-    `Compose ${action} execution context was not retained from validated configuration${
-      cause instanceof Error ? `: ${cause.message}` : ""
-    }`,
+    `Compose ${action} execution context was not retained from validated configuration`,
     "Recreate the Compose plan through the launcher command and retry without modifying the environment file between planning and execution.",
     { mode: "compose", action },
+  );
+
+const diagnosticText = (diagnostics: readonly Diagnostic[]) =>
+  diagnostics
+    .map(
+      ({ code, message, remediation }) => `[${code}] ${message}\n  remediation: ${remediation}\n`,
+    )
+    .join("");
+
+const lifecycleStreamFailure = (mode: "compose" | "fast" | "kubernetes", action: string) =>
+  makeDiagnostic(
+    "dependency-unavailable",
+    `${mode} ${action} execution could not produce a terminal lifecycle event`,
+    `Retry the ${mode} ${action} command and inspect the launcher diagnostics.`,
+    { mode, action },
   );
 
 // fallow-ignore-next-line complexity
@@ -83,6 +106,12 @@ export const executeComposePlan = async (
 ) => {
   if (!result.output.ok || result.output.plannedProcesses.length === 0) return result;
   if (result.output.mode !== "compose" || result.output.action === null) return result;
+  const jsonStream = options.jsonStream === true;
+  const writeStdout = options.writeStdout ?? ((value: string) => process.stdout.write(value));
+  const writeStderr = options.writeStderr ?? ((value: string) => process.stderr.write(value));
+  const lifecycleStream = jsonStream
+    ? makeLifecycleStreamWriter(result.output, writeStdout)
+    : undefined;
   let context: ComposeExecutionContext | undefined;
   try {
     context = getComposeExecutionContext(result.output);
@@ -97,7 +126,7 @@ export const executeComposePlan = async (
     return {
       ...result,
       exitCode: 2,
-      stdout: renderLauncherOutput(blocked, json),
+      stdout: jsonStream ? renderLifecycleTerminal(blocked) : renderLauncherOutput(blocked, json),
       stderr: "",
       output: blocked,
     };
@@ -113,16 +142,18 @@ export const executeComposePlan = async (
     return {
       ...result,
       exitCode: 2,
-      stdout: renderLauncherOutput(blocked, json),
+      stdout: jsonStream ? renderLifecycleTerminal(blocked) : renderLauncherOutput(blocked, json),
       stderr: "",
       output: blocked,
     };
   }
   let readinessPrinted = false;
-  const writeStdout = options.writeStdout ?? ((value: string) => process.stdout.write(value));
-  const writeStderr = options.writeStderr ?? ((value: string) => process.stderr.write(value));
   const onObservation = (observation: ComposeLifecycleObservation) => {
     options.onObservation?.(observation);
+    if (jsonStream) {
+      lifecycleStream?.writeObservation(observation);
+      return;
+    }
     if (
       readinessPrinted ||
       observation.type !== "readiness" ||
@@ -134,44 +165,72 @@ export const executeComposePlan = async (
     readinessPrinted = true;
     writeStdout(renderLauncherOutput({ ...result.output, readiness: "ready" }, json));
   };
-  const execution = await runComposeExecution(context, {
-    ...options,
-    output: json ? "stderr" : "inherit",
-    onObservation,
-  });
+  let execution: Awaited<ReturnType<typeof runComposeExecution>>;
+  try {
+    execution = await runComposeExecution(context, {
+      ...options,
+      output: json || jsonStream ? "stderr" : "inherit",
+      onObservation,
+    });
+  } catch {
+    if (!jsonStream || lifecycleStream === undefined) throw new Error("Compose execution failed");
+    if (lifecycleStream.hasTerminal())
+      throw new Error("Compose execution failed after its terminal event");
+    const diagnostic = lifecycleStreamFailure("compose", result.output.action);
+    const blocked = {
+      ...result.output,
+      ok: false,
+      readiness: "blocked" as const,
+      errors: [diagnostic],
+    };
+    lifecycleStream.writeTerminal(blocked);
+    const stderr = diagnosticText(blocked.errors);
+    writeStderr(stderr);
+    return { ...result, exitCode: 2, stdout: "", stderr, output: blocked };
+  }
   const diagnostics = [execution.outcome.diagnostic, execution.outcome.cleanupDiagnostic].filter(
     (diagnostic): diagnostic is NonNullable<typeof diagnostic> => diagnostic !== undefined,
   );
-  if (readinessPrinted) {
-    for (const diagnostic of diagnostics) {
-      writeStderr(
-        `[${diagnostic.code}] ${diagnostic.message}\n  remediation: ${diagnostic.remediation}\n`,
-      );
-    }
+  const diagnosticOutput = diagnosticText(diagnostics);
+  if ((jsonStream || readinessPrinted) && diagnosticOutput.length > 0) {
+    writeStderr(diagnosticOutput);
   }
   return {
     ...result,
     exitCode: execution.outcome.exitCode,
     output: execution.output,
-    stdout: readinessPrinted ? "" : renderLauncherOutput(execution.output, json),
-    stderr: readinessPrinted
-      ? diagnostics
-          .map(
-            ({ code, message, remediation }) =>
-              `[${code}] ${message}\n  remediation: ${remediation}\n`,
-          )
-          .join("")
-      : "",
+    stdout: jsonStream || readinessPrinted ? "" : renderLauncherOutput(execution.output, json),
+    stderr: jsonStream || readinessPrinted ? diagnosticOutput : "",
   };
 };
+
+export interface KubernetesPlanExecutionOptions extends Omit<
+  KubernetesExecutionOptions,
+  "onObservation" | "output"
+> {
+  readonly jsonStream?: boolean;
+  readonly onObservation?: (observation: KubernetesLifecycleObservation) => void;
+  readonly writeStdout?: (value: string) => void;
+  readonly writeStderr?: (value: string) => void;
+}
 
 // fallow-ignore-next-line complexity
 export const executeKubernetesPlan = async (
   result: Awaited<ReturnType<typeof runLauncherFromParsed>>,
   json: boolean,
-  executor?: ProcessExecutor,
+  executorOrOptions?: ProcessExecutor | KubernetesPlanExecutionOptions,
 ): Promise<Awaited<ReturnType<typeof runLauncherFromParsed>>> => {
   if (!result.output.ok || result.output.plannedProcesses.length === 0) return result;
+  const options: KubernetesPlanExecutionOptions =
+    typeof executorOrOptions === "function"
+      ? { executor: executorOrOptions }
+      : (executorOrOptions ?? {});
+  const jsonStream = options.jsonStream === true;
+  const writeStdout = options.writeStdout ?? ((value: string) => process.stdout.write(value));
+  const writeStderr = options.writeStderr ?? ((value: string) => process.stderr.write(value));
+  const lifecycleStream = jsonStream
+    ? makeLifecycleStreamWriter(result.output, writeStdout)
+    : undefined;
   const context = getKubernetesExecutionContext(result);
   if (context === undefined) {
     const failure = makeDiagnostic(
@@ -186,20 +245,177 @@ export const executeKubernetesPlan = async (
       readiness: "blocked" as const,
       errors: [failure],
     };
-    return { ...result, exitCode: 2, stdout: renderLauncherOutput(blocked, json), output: blocked };
+    const stdout = jsonStream
+      ? renderLifecycleTerminal(blocked)
+      : renderLauncherOutput(blocked, json);
+    return { ...result, exitCode: 2, stdout, output: blocked };
   }
-  const execution = await runKubernetesExecution(
-    context,
-    executor === undefined
-      ? { output: json ? "stderr" : "inherit" }
-      : { executor, output: json ? "stderr" : "inherit" },
+  let execution: Awaited<ReturnType<typeof runKubernetesExecution>>;
+  try {
+    execution = await runKubernetesExecution(context, {
+      ...options,
+      output: json || jsonStream ? "stderr" : "inherit",
+      onObservation: (observation) => {
+        options.onObservation?.(observation);
+        if (jsonStream) lifecycleStream?.writeObservation(observation);
+      },
+    });
+  } catch {
+    if (!jsonStream || lifecycleStream === undefined) {
+      throw new Error("Kubernetes execution failed");
+    }
+    if (lifecycleStream.hasTerminal()) {
+      throw new Error("Kubernetes execution failed after its terminal event");
+    }
+    const diagnostic = lifecycleStreamFailure("kubernetes", result.output.action ?? "preview");
+    const blocked = {
+      ...result.output,
+      ok: false,
+      readiness: "blocked" as const,
+      errors: [diagnostic],
+    };
+    lifecycleStream.writeTerminal(blocked);
+    const stderr = diagnosticText(blocked.errors);
+    writeStderr(stderr);
+    return { ...result, exitCode: 2, stdout: "", stderr, output: blocked };
+  }
+  const diagnostics = [execution.outcome.diagnostic, execution.outcome.cleanupDiagnostic].filter(
+    (diagnostic): diagnostic is NonNullable<typeof diagnostic> => diagnostic !== undefined,
   );
+  const diagnosticOutput = diagnosticText(diagnostics);
+  if (jsonStream && diagnosticOutput.length > 0) writeStderr(diagnosticOutput);
   return {
     ...result,
     exitCode: execution.outcome.exitCode,
-    stdout: renderLauncherOutput(execution.output, json),
+    stdout: jsonStream ? "" : renderLauncherOutput(execution.output, json),
+    stderr: jsonStream ? diagnosticOutput : "",
     output: execution.output,
   };
+};
+
+export interface FastPlanExecutionOptions extends Omit<
+  FastExecutionOptions,
+  "onObservation" | "output"
+> {
+  readonly jsonStream?: boolean;
+  readonly onObservation?: (observation: LifecycleObservation) => void;
+  readonly writeStdout?: (value: string) => void;
+  readonly writeStderr?: (value: string) => void;
+}
+
+// fallow-ignore-next-line complexity
+export const executeFastPlan = async (
+  result: Awaited<ReturnType<typeof runLauncherFromParsed>>,
+  json: boolean,
+  options: FastPlanExecutionOptions = {},
+) => {
+  if (!result.output.ok || result.output.plannedProcesses.length === 0) return result;
+  if (result.output.mode !== "fast" || result.output.action !== "up") return result;
+  const jsonStream = options.jsonStream === true;
+  const writeStdout = options.writeStdout ?? ((value: string) => process.stdout.write(value));
+  const writeStderr = options.writeStderr ?? ((value: string) => process.stderr.write(value));
+  const lifecycleStream = jsonStream
+    ? makeLifecycleStreamWriter(result.output, writeStdout)
+    : undefined;
+  let readinessPrinted = false;
+  try {
+    const context = makeFastExecutionContext(result.output, process.cwd());
+    const execution = await runFastExecution(context, {
+      ...options,
+      output: json || jsonStream ? "stderr" : "inherit",
+      // fallow-ignore-next-line complexity
+      onObservation: (observation) => {
+        options.onObservation?.(observation);
+        if (jsonStream) {
+          const readinessObservation =
+            observation.type === "readiness" && observation.status === "ready";
+          if (readinessObservation) {
+            readinessPrinted = true;
+          }
+          try {
+            lifecycleStream?.writeObservation(observation);
+          } catch (cause) {
+            if (readinessObservation) readinessPrinted = false;
+            throw cause;
+          }
+          return;
+        }
+        if (
+          readinessPrinted ||
+          observation.type !== "readiness" ||
+          observation.status !== "ready"
+        ) {
+          return;
+        }
+        writeStdout(renderLauncherOutput({ ...result.output, readiness: "ready" }, json));
+        readinessPrinted = true;
+      },
+    });
+    const diagnostics = [execution.outcome.diagnostic, execution.outcome.cleanupDiagnostic].filter(
+      (diagnostic): diagnostic is NonNullable<typeof diagnostic> => diagnostic !== undefined,
+    );
+    const diagnosticOutput = diagnosticText(diagnostics);
+    if ((jsonStream || readinessPrinted) && diagnosticOutput.length > 0) {
+      writeStderr(diagnosticOutput);
+    }
+    return {
+      ...result,
+      exitCode: execution.outcome.exitCode,
+      output: execution.output,
+      stdout: jsonStream || readinessPrinted ? "" : renderLauncherOutput(execution.output, json),
+      stderr: jsonStream || readinessPrinted ? diagnosticOutput : "",
+    };
+  } catch {
+    if (jsonStream) {
+      if (lifecycleStream === undefined) throw new Error("Fast lifecycle stream was not prepared");
+      if (lifecycleStream.hasTerminal())
+        throw new Error("Fast execution failed after its terminal event");
+    }
+    if (readinessPrinted) {
+      const diagnostic = makeDiagnostic(
+        "required-dependency-failed",
+        "Fast execution failed after readiness",
+        "Inspect the Fast launcher and process diagnostics.",
+        { mode: "fast", action: "up" },
+      );
+      const blocked = {
+        ...result.output,
+        ok: false,
+        readiness: "ready" as const,
+        errors: [diagnostic],
+      } satisfies LauncherOutput;
+      const stderr = diagnosticText(blocked.errors);
+      if (jsonStream) lifecycleStream?.writeTerminal(blocked, 1);
+      writeStderr(stderr);
+      return { ...result, exitCode: 1, stdout: "", stderr, output: blocked };
+    }
+    const blocked = {
+      ...result.output,
+      ok: false,
+      readiness: "blocked" as const,
+      errors: [
+        makeDiagnostic(
+          "dependency-unavailable",
+          "Fast execution could not be prepared",
+          "Retry pnpm dev fast up after checking the validated Fast plan.",
+          { mode: "fast", action: "up" },
+        ),
+      ],
+    } satisfies LauncherOutput;
+    if (jsonStream) {
+      lifecycleStream?.writeTerminal(blocked);
+      const stderr = diagnosticText(blocked.errors);
+      writeStderr(stderr);
+      return { ...result, exitCode: 2, stdout: "", stderr, output: blocked };
+    }
+    return {
+      ...result,
+      exitCode: 2,
+      stdout: renderLauncherOutput(blocked, json),
+      stderr: "",
+      output: blocked,
+    };
+  }
 };
 
 // Effect CLI owns executable flag syntax. runLauncher keeps a second parser for
@@ -212,76 +428,46 @@ const runParsedCommand = (config: Parameters<typeof launcherOptions>[0]) =>
     // fallow-ignore-next-line complexity
     try: async () => {
       let result = await runLauncherFromParsed(config.operands, launcherOptions(config));
+      let lifecycleExecutionStarted = false;
       if (result.output.mode === "compose" && result.output.action !== null) {
-        result = await executeComposePlan(result, config.json);
+        lifecycleExecutionStarted =
+          config.jsonStream && result.output.ok && result.output.plannedProcesses.length > 0;
+        result = await executeComposePlan(result, config.json || config.jsonStream, {
+          jsonStream: config.jsonStream,
+        });
       }
       if (
         result.output.mode === "kubernetes" &&
         (result.output.action === "validate" || result.output.action === "preview")
       ) {
-        result = await executeKubernetesPlan(result, config.json);
+        lifecycleExecutionStarted =
+          config.jsonStream && result.output.ok && result.output.plannedProcesses.length > 0;
+        result = await executeKubernetesPlan(result, config.json || config.jsonStream, {
+          jsonStream: config.jsonStream,
+        });
       }
       if (result.output.ok && result.output.mode === "fast" && result.output.action === "up") {
-        let readinessPrinted = false;
-        try {
-          const context = makeFastExecutionContext(result.output, process.cwd());
-          const execution = await runFastExecution(context, {
-            output: config.json ? "stderr" : "inherit",
-            onObservation: (observation) => {
-              if (observation.type !== "readiness" || observation.status !== "ready") return;
-              readinessPrinted = true;
-              process.stdout.write(
-                renderLauncherOutput({ ...result.output, readiness: "ready" }, config.json),
-              );
-            },
-          });
-          if (!readinessPrinted) {
-            process.stdout.write(renderLauncherOutput(execution.output, config.json));
-          }
-          if (readinessPrinted) {
-            const diagnostics = [
-              execution.outcome.diagnostic,
-              execution.outcome.cleanupDiagnostic,
-            ].filter(
-              (diagnostic): diagnostic is NonNullable<typeof diagnostic> =>
-                diagnostic !== undefined,
-            );
-            for (const diagnostic of diagnostics) {
-              process.stderr.write(
-                `[${diagnostic.code}] ${diagnostic.message}\n  remediation: ${diagnostic.remediation}\n`,
-              );
-            }
-          }
-          process.exitCode = execution.outcome.exitCode;
-        } catch (cause) {
-          const detail = cause instanceof Error ? `: ${cause.message}` : "";
-          if (readinessPrinted) {
-            process.exitCode = 1;
-            process.stderr.write(
-              `[required-dependency-failed] Fast execution failed after readiness${detail}\n` +
-                "  remediation: Inspect the Fast launcher and process diagnostics.\n",
-            );
-          } else {
-            const blocked = {
-              ...result.output,
-              ok: false,
-              readiness: "blocked" as const,
-              errors: [
-                makeDiagnostic(
-                  "dependency-unavailable",
-                  `Fast execution could not be prepared${detail}`,
-                  "Retry pnpm dev fast up after checking the validated Fast plan.",
-                  { mode: "fast", action: "up" },
-                ),
-              ],
-            } satisfies LauncherOutput;
-            process.exitCode = 2;
-            process.stdout.write(renderLauncherOutput(blocked, config.json));
-          }
+        lifecycleExecutionStarted = config.jsonStream && result.output.plannedProcesses.length > 0;
+        result = await executeFastPlan(result, config.json || config.jsonStream, {
+          jsonStream: config.jsonStream,
+        });
+      }
+      process.exitCode = result.exitCode;
+      if (config.jsonStream) {
+        if (result.stdout.trim().length > 0) {
+          process.stdout.write(result.stdout);
+        }
+        if (result.output.ok && !lifecycleExecutionStarted) {
+          process.stdout.write(renderLifecycleTerminal(result.output, result.exitCode, 2));
+        } else if (
+          !result.output.ok &&
+          !lifecycleExecutionStarted &&
+          result.stdout.trim().length === 0
+        ) {
+          process.stdout.write(renderLifecycleTerminal(result.output, result.exitCode, 1));
         }
         return null;
       }
-      process.exitCode = result.exitCode;
       const output = result.stdout.trimEnd();
       return output.length === 0 ? null : output;
     },

@@ -30,6 +30,7 @@ import {
   type PortChecker,
 } from "./types";
 import { Cause, Effect, Exit } from "effect";
+import { renderLifecyclePlan, renderLifecycleTerminal } from "./lifecycle";
 import {
   makeComposeExecutionContext as makeComposeContext,
   type ComposeExecutionContext,
@@ -107,6 +108,18 @@ export {
   isChangedSurface,
   selectParityGates,
 } from "./parity";
+export {
+  lifecycleEventFor,
+  lifecycleEventFormat,
+  lifecycleEventVersion,
+  makeLifecycleStreamWriter,
+  renderLifecyclePlan,
+  renderLifecycleEvent,
+  renderLifecycleTerminal,
+  type LifecycleEvent,
+  type LifecycleEventObservation,
+  type LifecycleStreamWriter,
+} from "./lifecycle";
 
 const modeServices = {
   fast: ["sheet-web"],
@@ -147,6 +160,8 @@ Modes:
   doctor     Check tools, configuration, credentials, ports, and access.
 
 Use pnpm dev <mode> help for mode-specific actions.
+Use --json for one stable result document or --json-stream for lifecycle JSONL
+events. Do not combine the two output modes.
 `;
 
 const modeHelpText = (mode: DevelopmentMode) => {
@@ -165,7 +180,7 @@ const modeHelpText = (mode: DevelopmentMode) => {
     mode === "kubernetes"
       ? "\nChanged-surface gates: repeat --changed-surface <surface> on validate or preview. See docs/development-launcher.md for supported values.\n"
       : "";
-  return `TiaraStack ${mode} mode\n\n${modeDescriptions[mode]}\n\nActions:\n${actions}\n${surfaces}\nA mode without an action only prints this help.\n`;
+  return `TiaraStack ${mode} mode\n\n${modeDescriptions[mode]}\n\nActions:\n${actions}\n${surfaces}\nA mode without an action only prints this help. Use --json-stream on an action to receive ordered lifecycle events and one terminal outcome.\n`;
 };
 
 const emptyOutput = (command: string, mode: LauncherOutput["mode"] = null): LauncherOutput => ({
@@ -701,10 +716,19 @@ const runLauncherEffect = async <A>(program: Effect.Effect<A>): Promise<A> => {
   throw Cause.squash(exit.cause);
 };
 
-const launcherResult = (output: LauncherOutput, json: boolean, help?: string): LauncherResult => {
+const launcherResult = (
+  output: LauncherOutput,
+  json: boolean,
+  help?: string,
+  jsonStream = false,
+): LauncherResult => {
   const result: LauncherResult = {
     exitCode: output.ok ? 0 : 2,
-    stdout: renderLauncherOutput(output, json, help),
+    stdout: jsonStream
+      ? output.ok
+        ? renderLifecyclePlan(output, help)
+        : renderLifecycleTerminal(output)
+      : renderLauncherOutput(output, json, help),
     stderr: "",
     output,
   };
@@ -735,7 +759,7 @@ const runParsedCommand = (
     } else {
       output = yield* doctorOutput(command, options);
     }
-    return launcherResult(output, command.options.json, help);
+    return launcherResult(output, command.options.json, help, command.options.jsonStream === true);
   });
 
 export const runLauncherFromParsed = async (
@@ -749,7 +773,12 @@ export const runLauncherFromParsed = async (
     );
   } catch (error) {
     if (!isCommandParseError(error)) throw error;
-    return launcherResult(outputForParseError(error), options.json);
+    return launcherResult(
+      outputForParseError(error),
+      options.json,
+      undefined,
+      options.jsonStream === true,
+    );
   }
 };
 
@@ -762,6 +791,11 @@ export const runLauncher = async (
     return await runLauncherEffect(runParsedCommand(parseCommand(args), options));
   } catch (error) {
     if (!isCommandParseError(error)) throw error;
-    return launcherResult(outputForParseError(error), json);
+    return launcherResult(
+      outputForParseError(error),
+      json,
+      undefined,
+      args.includes("--json-stream"),
+    );
   }
 };

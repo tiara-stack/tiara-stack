@@ -6,7 +6,7 @@ import { Command } from "effect/unstable/cli";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { command, executeComposePlan, executeKubernetesPlan } from "./cli";
+import { command, executeComposePlan, executeFastPlan, executeKubernetesPlan } from "./cli";
 import { runLauncherFromParsed, getKubernetesExecutionContext } from "./index";
 import { runKubernetesExecution, type KubernetesLifecycleObservation } from "./execution";
 import type { ComposeContainerState, ComposeStateAdapter } from "./execution";
@@ -118,6 +118,431 @@ describe("developer launcher Effect CLI", () => {
     expect(executed.exitCode).toBe(0);
     expect(executed.stdout).toContain('"readiness":"completed"');
     expect(executed.output.readiness).toBe("completed");
+  });
+
+  it("streams finite Compose lifecycle events and ends with one terminal outcome", async () => {
+    const result = await runLauncherFromParsed(
+      ["compose", "down"],
+      { ...commandOptions(false), jsonStream: true },
+      { env: {} },
+    );
+    const lines: Record<string, unknown>[] = [];
+
+    const executed = await executeComposePlan(result, true, {
+      jsonStream: true,
+      executor: async () => ({ exitCode: 0 }),
+      writeStdout: (value) => lines.push(JSON.parse(value) as Record<string, unknown>),
+      writeStderr: () => undefined,
+    });
+
+    expect(executed.exitCode).toBe(0);
+    expect(executed.stdout).toBe("");
+    expect(lines.map(({ type }) => type)).toEqual(["validated", "step", "step", "terminal"]);
+    expect(lines.every((line) => line.format === "tiara-stack.development.lifecycle")).toBe(true);
+    expect(lines.every((line) => line.eventVersion === 1)).toBe(true);
+    expect(lines.map(({ sequence }) => sequence)).toEqual([1, 2, 3, 4]);
+    expect(lines.at(-1)).toEqual(
+      expect.objectContaining({
+        type: "terminal",
+        outcome: "completed",
+        readiness: "completed",
+        exitCode: 0,
+      }),
+    );
+  });
+
+  it("streams Compose readiness before cleanup and its terminal outcome", async () => {
+    const repository = mkdtempSync(path.join(tmpdir(), "developer-launcher-compose-stream-"));
+    const envFile = path.join(repository, "compose.env");
+    writeFileSync(
+      envFile,
+      [
+        "POSTGRES_PASSWORD=postgres-password",
+        "REDIS_PASSWORD=redis-password",
+        "SHEET_BOT_CAPABILITY_ENCRYPTION_SECRET=bot-capability-secret-32-characters",
+        "SHEET_BOT_OAUTH_CLIENT_ID=local-bot",
+        "SHEET_BOT_OAUTH_CLIENT_SECRET=local-bot-secret",
+        "SHEET_WORKFLOWS_OAUTH_CLIENT_ID=local-workflows",
+        "SHEET_WORKFLOWS_OAUTH_CLIENT_SECRET=local-workflows-secret",
+      ].join("\n"),
+    );
+    const result = await runLauncherFromParsed(
+      ["compose", "up"],
+      {
+        ...commandOptions(false),
+        jsonStream: true,
+        envFile,
+        service: "sheet-web",
+      },
+      { cwd: repository, env: {} },
+    );
+    const lines: Record<string, unknown>[] = [];
+    let resolveExit!: (result: ProcessResult) => void;
+    const processExit = new Promise<ProcessResult>((resolve) => {
+      resolveExit = resolve;
+    });
+    const containers: readonly ComposeContainerState[] = [
+      { id: "web-container", service: "sheet-web", state: "running" },
+    ];
+    let stateCalls = 0;
+
+    try {
+      const executed = await executeComposePlan(result, true, {
+        jsonStream: true,
+        interruptions: Effect.never,
+        executor: async () => ({ exitCode: 0 }),
+        processStarter: async () => ({
+          pid: 42,
+          exited: processExit,
+          kill: async () => undefined,
+        }),
+        stateAdapter: {
+          listApplicationContainers: async () => {
+            stateCalls += 1;
+            return stateCalls === 1 ? [] : containers;
+          },
+          probeApplicationReadiness: async () => ({ reachable: true, status: 204 }),
+          stopApplicationContainers: async () => ({ verified: true, remaining: [] }),
+        },
+        onObservation: (observation) => {
+          if (
+            observation.type === "readiness" &&
+            observation.status === "ready" &&
+            observation.allSelected
+          ) {
+            resolveExit({ exitCode: 0 });
+          }
+        },
+        writeStdout: (value) => lines.push(JSON.parse(value) as Record<string, unknown>),
+        writeStderr: () => undefined,
+      });
+
+      const readinessIndex = lines.findIndex(
+        ({ type, status }) => type === "readiness" && status === "ready",
+      );
+      const cleanupIndex = lines.findIndex(({ type }) => type === "cleanup");
+      const terminalIndex = lines.findIndex(({ type }) => type === "terminal");
+
+      expect(executed.exitCode).toBe(0);
+      expect(readinessIndex).toBeGreaterThanOrEqual(0);
+      expect(cleanupIndex).toBeGreaterThan(readinessIndex);
+      expect(terminalIndex).toBeGreaterThan(cleanupIndex);
+      expect(lines[terminalIndex]).toEqual(
+        expect.objectContaining({ outcome: "completed", readiness: "ready" }),
+      );
+    } finally {
+      rmSync(repository, { recursive: true, force: true });
+    }
+  });
+
+  it("streams Kubernetes progress through the same event format", async () => {
+    const result = await kubernetesResult("validate");
+    const lines: Record<string, unknown>[] = [];
+
+    const executed = await executeKubernetesPlan(result, true, {
+      jsonStream: true,
+      executor: async () => ({ exitCode: 0 }),
+      writeStdout: (value) => lines.push(JSON.parse(value) as Record<string, unknown>),
+      writeStderr: () => undefined,
+    });
+
+    expect(executed.exitCode).toBe(0);
+    expect(executed.stdout).toBe("");
+    expect(lines[0]).toEqual(expect.objectContaining({ type: "validated", sequence: 1 }));
+    expect(lines.at(-1)).toEqual(
+      expect.objectContaining({
+        type: "terminal",
+        outcome: "completed",
+        readiness: "completed",
+      }),
+    );
+    expect(lines.map(({ sequence }) => sequence)).toEqual(
+      Array.from({ length: lines.length }, (_, index) => index + 1),
+    );
+  });
+
+  it("streams a Kubernetes gate failure with redacted diagnostics", async () => {
+    const result = await kubernetesResult("preview");
+    const lines: Record<string, unknown>[] = [];
+    const secret = "stream-kubernetes-secret";
+
+    const executed = await executeKubernetesPlan(result, true, {
+      jsonStream: true,
+      executor: async (request) => {
+        if (request.args.includes("upgrade")) {
+          return { exitCode: 1, stderr: `password=${secret}` };
+        }
+        if (request.command === "kubectl") {
+          return { exitCode: 0, stdout: `pod/sheet-web token: ${secret}` };
+        }
+        return { exitCode: 0 };
+      },
+      writeStdout: (value) => lines.push(JSON.parse(value) as Record<string, unknown>),
+      writeStderr: () => undefined,
+    });
+
+    expect(executed.exitCode).toBe(2);
+    expect(JSON.stringify(lines)).not.toContain(secret);
+    expect(lines.at(-1)).toEqual(
+      expect.objectContaining({
+        type: "terminal",
+        outcome: "blocked",
+        diagnostics: expect.arrayContaining([
+          expect.objectContaining({ code: "required-dependency-failed" }),
+        ]),
+      }),
+    );
+  });
+
+  it("streams Kubernetes cancellation after cleanup failure", async () => {
+    const result = await kubernetesResult("validate");
+    const stop = interruption();
+    const lines: Record<string, unknown>[] = [];
+
+    const executed = await executeKubernetesPlan(result, true, {
+      jsonStream: true,
+      interruptions: stop.effect,
+      cleanupTimeoutMs: 10,
+      processStarter: async () => ({
+        pid: 42,
+        exited: new Promise<ProcessResult>(() => undefined),
+        kill: async () => {
+          throw new Error("local validation process could not be stopped");
+        },
+      }),
+      onObservation: (observation) => {
+        if (observation.type === "step" && observation.status === "started") {
+          stop.resolve("SIGINT");
+        }
+      },
+      writeStdout: (value) => lines.push(JSON.parse(value) as Record<string, unknown>),
+      writeStderr: () => undefined,
+    });
+
+    expect(executed.exitCode).toBe(2);
+    expect(lines).toContainEqual(expect.objectContaining({ type: "cleanup", status: "failed" }));
+    expect(lines.at(-1)).toEqual(
+      expect.objectContaining({
+        type: "terminal",
+        outcome: "blocked",
+        diagnostics: expect.arrayContaining([
+          expect.objectContaining({ code: "preview-incomplete" }),
+          expect.objectContaining({ code: "cleanup-failed" }),
+        ]),
+      }),
+    );
+  });
+
+  it("keeps a Fast lifecycle stream alive through readiness, late failure, and cleanup", async () => {
+    const result = await runLauncherFromParsed(
+      ["fast", "up"],
+      { ...commandOptions(false), jsonStream: true },
+      { env: {}, portChecker: async () => ({ available: true }) },
+    );
+    const lines: Record<string, unknown>[] = [];
+    const stderr: string[] = [];
+    let resolveExit!: (result: ProcessResult) => void;
+    const processExit = new Promise<ProcessResult>((resolve) => {
+      resolveExit = resolve;
+    });
+
+    const executed = await executeFastPlan(result, true, {
+      jsonStream: true,
+      interruptions: Effect.never,
+      accessChecker: async () => ({ reachable: true, status: 204 }),
+      readinessChecker: async () => ({ reachable: true, status: 204 }),
+      processStarter: async () => ({
+        pid: 42,
+        exited: processExit,
+        kill: async () => undefined,
+      }),
+      onObservation: (observation) => {
+        if (observation.type === "readiness" && observation.status === "ready") {
+          resolveExit({ exitCode: 17, stderr: "late child failure" });
+        }
+      },
+      writeStdout: (value) => lines.push(JSON.parse(value) as Record<string, unknown>),
+      writeStderr: (value) => stderr.push(value),
+    });
+
+    expect(executed.exitCode).toBe(17);
+    expect(lines.map(({ type }) => type).at(-1)).toBe("terminal");
+    expect(lines.at(-1)).toEqual(
+      expect.objectContaining({
+        type: "terminal",
+        outcome: "blocked",
+        executionOutcome: "failed",
+        exitCode: 17,
+        readiness: "ready",
+      }),
+    );
+    expect(
+      lines.find(({ type, status }) => type === "readiness" && status === "ready"),
+    ).toBeDefined();
+    expect(
+      lines.find(({ type, status }) => type === "cleanup" && status === "completed"),
+    ).toBeDefined();
+    expect(stderr.join("")).toContain("after becoming ready");
+    expect(lines.map(({ sequence }) => sequence)).toEqual(
+      Array.from({ length: lines.length }, (_, index) => index + 1),
+    );
+  });
+
+  it("streams an early Fast exit as a blocked terminal outcome", async () => {
+    const result = await runLauncherFromParsed(
+      ["fast", "up"],
+      { ...commandOptions(false), jsonStream: true },
+      { env: {}, portChecker: async () => ({ available: true }) },
+    );
+    const lines: Record<string, unknown>[] = [];
+
+    const executed = await executeFastPlan(result, true, {
+      jsonStream: true,
+      interruptions: Effect.never,
+      accessChecker: async () => ({ reachable: true, status: 204 }),
+      readinessChecker: async () => ({ reachable: true, status: 204 }),
+      processStarter: async () => runningProcess(Promise.resolve({ exitCode: 0 })),
+      writeStdout: (value) => lines.push(JSON.parse(value) as Record<string, unknown>),
+      writeStderr: () => undefined,
+    });
+
+    expect(executed.exitCode).toBe(2);
+    expect(lines).not.toContainEqual(
+      expect.objectContaining({ type: "readiness", status: "ready" }),
+    );
+    expect(lines.at(-1)).toEqual(
+      expect.objectContaining({ type: "terminal", outcome: "blocked", readiness: "blocked" }),
+    );
+  });
+
+  it("does not copy rejected Fast startup exception text into lifecycle diagnostics", async () => {
+    const result = await runLauncherFromParsed(
+      ["fast", "up"],
+      { ...commandOptions(false), jsonStream: true },
+      { env: {}, portChecker: async () => ({ available: true }) },
+    );
+    const lines: Record<string, unknown>[] = [];
+    const secret = "unlabeled-startup-secret";
+
+    const executed = await executeFastPlan(result, true, {
+      jsonStream: true,
+      interruptions: Effect.never,
+      accessChecker: async () => ({ reachable: true, status: 204 }),
+      processStarter: async () => {
+        throw new Error(`process start failed: ${secret}`);
+      },
+      writeStdout: (value) => lines.push(JSON.parse(value) as Record<string, unknown>),
+      writeStderr: () => undefined,
+    });
+
+    expect(executed.exitCode).toBe(2);
+    expect(JSON.stringify(lines)).not.toContain(secret);
+    expect(lines.at(-1)).toEqual(
+      expect.objectContaining({
+        type: "terminal",
+        outcome: "blocked",
+        diagnostics: expect.arrayContaining([
+          expect.objectContaining({
+            code: "dependency-unavailable",
+            message: expect.not.stringContaining(secret),
+          }),
+        ]),
+      }),
+    );
+  });
+
+  it("keeps Fast stream sequence numbers contiguous after a stream write fails", async () => {
+    const result = await runLauncherFromParsed(
+      ["fast", "up"],
+      { ...commandOptions(false), jsonStream: true },
+      { env: {}, portChecker: async () => ({ available: true }) },
+    );
+    const lines: Record<string, unknown>[] = [];
+    const attempts: Record<string, unknown>[] = [];
+    let failNextWrite = true;
+
+    const executed = await executeFastPlan(result, true, {
+      jsonStream: true,
+      interruptions: Effect.never,
+      accessChecker: async () => ({ reachable: true, status: 204 }),
+      processStarter: async () => runningProcess(Promise.resolve({ exitCode: 0 })),
+      writeStdout: (value) => {
+        const event = JSON.parse(value) as Record<string, unknown>;
+        attempts.push(event);
+        if (failNextWrite && event.type === "prerequisite") {
+          failNextWrite = false;
+          throw new Error("stream writer failed");
+        }
+        lines.push(event);
+      },
+      writeStderr: () => undefined,
+    });
+
+    expect(attempts.map(({ type, sequence }) => ({ type, sequence }))).toEqual(
+      expect.arrayContaining([
+        { type: "prerequisite", sequence: expect.any(Number) },
+        { type: "terminal", sequence: expect.any(Number) },
+      ]),
+    );
+    expect(executed.exitCode).toBe(2);
+    expect(lines.at(-1)).toEqual(expect.objectContaining({ type: "terminal" }));
+    expect(lines.map(({ sequence }) => sequence)).toEqual(
+      Array.from({ length: lines.length }, (_, index) => index + 1),
+    );
+  });
+
+  it("classifies a Fast stream write failure after readiness as a dependency failure", async () => {
+    const result = await runLauncherFromParsed(
+      ["fast", "up"],
+      { ...commandOptions(false), jsonStream: true },
+      { env: {}, portChecker: async () => ({ available: true }) },
+    );
+    const lines: Record<string, unknown>[] = [];
+    let resolveExit!: (result: ProcessResult) => void;
+    const processExit = new Promise<ProcessResult>((resolve) => {
+      resolveExit = resolve;
+    });
+    let readinessWritten = false;
+    let failTerminalWrite = true;
+
+    const executed = await executeFastPlan(result, true, {
+      jsonStream: true,
+      interruptions: Effect.never,
+      accessChecker: async () => ({ reachable: true, status: 204 }),
+      readinessChecker: async () => ({ reachable: true, status: 204 }),
+      processStarter: async () => runningProcess(processExit),
+      onObservation: (observation) => {
+        if (observation.type === "readiness" && observation.status === "ready") {
+          resolveExit({ exitCode: 17 });
+        }
+      },
+      writeStdout: (value) => {
+        const event = JSON.parse(value) as Record<string, unknown>;
+        if (event.type === "readiness" && event.status === "ready") readinessWritten = true;
+        if (event.type === "terminal" && readinessWritten && failTerminalWrite) {
+          failTerminalWrite = false;
+          throw new Error("stream writer failed after readiness");
+        }
+        lines.push(event);
+      },
+      writeStderr: () => undefined,
+    });
+
+    expect(executed.exitCode).toBe(1);
+    expect(lines.at(-1)).toEqual(
+      expect.objectContaining({
+        type: "terminal",
+        outcome: "blocked",
+        readiness: "ready",
+        exitCode: 1,
+        diagnostics: expect.arrayContaining([
+          expect.objectContaining({ code: "required-dependency-failed" }),
+        ]),
+      }),
+    );
+    expect(lines.map(({ sequence }) => sequence)).toEqual(
+      Array.from({ length: lines.length }, (_, index) => index + 1),
+    );
   });
 
   it("blocks Compose execution when its validated context is unavailable", async () => {
@@ -437,13 +862,28 @@ describe("developer launcher Effect CLI", () => {
   it("redacts copied Kubernetes command and workload output", async () => {
     const context = await kubernetesExecutionContext("preview");
     const secret = "kube-output-secret";
+    const apiKey = "kube-api-key";
+    const accessToken = "kube-access-token";
+    const clientSecret = "kube-client-secret";
+    const dockerAuth = "docker-registry-auth-secret";
+    const dockerAuthConfig = JSON.stringify(
+      { auths: { "registry.example.test": { auth: dockerAuth } } },
+      null,
+      2,
+    );
     const executed = await runKubernetesExecution(context, {
       executor: async (request) => {
         if (request.args.includes("upgrade")) {
-          return { exitCode: 1, stderr: `password=${secret}` };
+          return {
+            exitCode: 1,
+            stderr: `password=${secret} API_KEY=${apiKey} ACCESS_TOKEN=${accessToken} CLIENT_SECRET=${clientSecret} DOCKER_AUTH_CONFIG=${dockerAuthConfig}`,
+          };
         }
         if (request.command === "kubectl") {
-          return { exitCode: 0, stdout: `pod/sheet-web password: ${secret} token: ${secret}` };
+          return {
+            exitCode: 0,
+            stdout: `pod/sheet-web password: ${secret} token: ${secret} API_KEY: ${apiKey} ACCESS_TOKEN: ${accessToken} CLIENT_SECRET: ${clientSecret} DOCKER_AUTH_CONFIG: '${dockerAuthConfig}'`,
+          };
         }
         return { exitCode: 0 };
       },
@@ -451,6 +891,11 @@ describe("developer launcher Effect CLI", () => {
     });
 
     expect(JSON.stringify(executed.output)).not.toContain(secret);
+    expect(JSON.stringify(executed.output)).not.toContain(apiKey);
+    expect(JSON.stringify(executed.output)).not.toContain(accessToken);
+    expect(JSON.stringify(executed.output)).not.toContain(clientSecret);
+    expect(JSON.stringify(executed.output)).not.toContain(dockerAuth);
+    expect(JSON.stringify(executed.output)).not.toContain(dockerAuthConfig);
     expect(executed.output.errors[0]?.message).toContain("<redacted>");
   });
 
@@ -578,6 +1023,7 @@ describe("developer launcher Effect CLI", () => {
       expect(output).toContain("--env-file");
       expect(output).toContain("--confirm-development");
       expect(output).toContain("--json");
+      expect(output).toContain("--json-stream");
     }),
   );
 

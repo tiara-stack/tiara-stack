@@ -13,6 +13,101 @@ export const statusCodeFields = (result: AccessCheckResult) =>
 export const reasonFields = (result: AccessCheckResult) =>
   result.reason === undefined ? {} : { reason: result.reason };
 
+const executionTextLimit = 64 * 1024;
+
+const dockerAuthConfigAssignment = /\bDOCKER[_-]?AUTH[_-]?CONFIG["']?\s*[:=]\s*(?=\S)/gi;
+
+const quotedValueEnd = (value: string, start: number, quote: string) => {
+  let escaped = false;
+  for (let index = start + 1; index < value.length; index += 1) {
+    const character = value[index];
+    if (escaped) {
+      escaped = false;
+    } else if (character === "\\") {
+      escaped = true;
+    } else if (character === quote) {
+      return index + 1;
+    }
+  }
+  return value.length;
+};
+
+// fallow-ignore-next-line complexity
+const dockerAuthConfigValueEnd = (value: string, start: number) => {
+  const firstCharacter = value[start];
+  if (firstCharacter === '"' || firstCharacter === "'") {
+    return quotedValueEnd(value, start, firstCharacter);
+  }
+  if (firstCharacter !== "{") {
+    let index = start;
+    while (index < value.length && !/[\s,}]/.test(value[index] ?? "")) index += 1;
+    return index;
+  }
+
+  let depth = 0;
+  let quote: string | undefined;
+  let escaped = false;
+  for (let index = start; index < value.length; index += 1) {
+    const character = value[index];
+    if (quote !== undefined) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if (character === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === "{") {
+      depth += 1;
+    } else if (character === "}" && --depth === 0) {
+      return index + 1;
+    }
+  }
+  return value.length;
+};
+
+const redactDockerAuthConfig = (value: string) => {
+  let cursor = 0;
+  let searchStart = 0;
+  let result = "";
+  for (const match of value.matchAll(dockerAuthConfigAssignment)) {
+    const assignmentStart = match.index;
+    if (assignmentStart === undefined || assignmentStart < searchStart) continue;
+    const valueStart = assignmentStart + match[0].length;
+    const valueEnd = dockerAuthConfigValueEnd(value, valueStart);
+    result += `${value.slice(cursor, valueStart)}<redacted>`;
+    cursor = valueEnd;
+    searchStart = valueEnd;
+  }
+  return result + value.slice(cursor);
+};
+
+export const redactExecutionText = (value: string) =>
+  redactDockerAuthConfig(value.slice(0, executionTextLimit))
+    .replace(/(https?:\/\/)[^\s/@:]+:[^\s/@]+@/gi, "$1<redacted>@")
+    .replace(
+      /([?&](?:access[_-]?token|api[_-]?key|client[_-]?secret|password|secret|token)=)[^&\s]+/gi,
+      "$1<redacted>",
+    )
+    .replace(/(\b(?:Bearer|Basic)\s+)[^\s]+/gi, "$1<redacted>")
+    .replace(
+      /((?:api[_-]?key|access[_-]?token|client[_-]?secret|password|passwd|secret|token|credential|private[_-]?key)["']?\s*[:=]\s*)"(?:\\.|[^"\\])*"/gi,
+      '$1"<redacted>"',
+    )
+    .replace(
+      /((?:api[_-]?key|access[_-]?token|client[_-]?secret|password|passwd|secret|token|credential|private[_-]?key)["']?\s*[:=]\s*)'(?:\\.|[^'\\])*'/gi,
+      "$1'<redacted>'",
+    )
+    .replace(
+      /((?:api[_-]?key|access[_-]?token|client[_-]?secret|password|passwd|secret|token|credential|private[_-]?key)["']?\s*[:=]\s*["']?)[^\s,"'}]+/gi,
+      "$1<redacted>",
+    )
+    .slice(0, executionTextLimit);
+
 export const terminalOutput = (
   output: LauncherOutput,
   status: ExecutionOutcomeStatus,

@@ -28,10 +28,12 @@ process start, or destructive work. Compose reset requires
 `--confirm`. Kubernetes preview requires `--tag <image-tag>` and
 `--confirm-development`.
 
-Every command accepts `--json` for the stable machine-readable result. Commands
-that read a file accept `--env-file <path>`. A mode can restrict its process
-plan with `--service <package-name>` in Fast or Compose mode. Kubernetes
-preview always applies the complete development release. Repeat
+Every command accepts `--json` for the stable machine-readable result. Mode
+actions also accept `--json-stream` for opt-in JSON Lines lifecycle events.
+These output selections are mutually exclusive. Commands that read a file
+accept `--env-file <path>`. A mode can restrict its process plan with
+`--service <package-name>` in Fast or Compose mode. Kubernetes preview always
+applies the complete development release. Repeat
 `--changed-surface` for each affected surface: `http`, `backend-runtime`,
 `packaging`, `environment-contract`, `secret-contract`, `database-schema`,
 `zero-schema`, `authentication`, `workflow-api`, `workflow-storage`,
@@ -130,6 +132,36 @@ ready and stays attached until the command exits or receives a signal. In
 logs and later failure or cleanup diagnostics go to stderr, so shutdown never
 appends a second JSON document. Build, down, seed, and reset are finite actions
 and write their result after the action completes.
+
+Use `--json-stream` when an automation author needs progress from the real
+execution lifecycle:
+
+```text
+pnpm dev fast up --json-stream
+pnpm dev compose up --json-stream
+pnpm dev kubernetes validate --json-stream
+```
+
+Each stdout line is one JSON object with `format`
+`tiara-stack.development.lifecycle`, `eventVersion: 1`, a one-based
+`sequence`, the observation `type`, the launcher `command`, `mode`, and
+`action`. The event keeps the mode-specific observation fields. Step and
+application-start events include a redacted child `process` command. A
+`terminal` event is always the last lifecycle line and includes `outcome`,
+`exitCode`, final `readiness`, and redacted `diagnostics` when a failure was
+reported. Cancellation warnings, such as an incomplete Kubernetes preview,
+appear in a separate redacted `warnings` field. The stream uses `completed`
+for successful finite work, `stopped` for clean or successfully cancelled
+long-running work, and `blocked` for any failure, including a child failure
+after readiness. The terminal line is written only after cleanup completes or
+its bounded failure has been reported.
+Startup cancellation therefore still produces a structured terminal line,
+including the cleanup result, instead of ending with an empty response.
+
+Compose emits application readiness lines as each selected container becomes
+ready. Its terminal line follows attached-command shutdown and application
+container cleanup. Child stdout and stderr go to stderr in this mode as well,
+so they cannot corrupt the JSON Lines stream.
 
 Cancelling or failing Compose startup stops only the selected application
 containers that this invocation started or attached to. It verifies their

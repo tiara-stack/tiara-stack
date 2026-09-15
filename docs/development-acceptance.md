@@ -42,6 +42,9 @@ pnpm dev compose up
 
 # Kubernetes validation, with no deployment
 pnpm dev kubernetes validate
+
+# Lifecycle events for automation
+pnpm dev compose up --json-stream
 ```
 
 Fast reads `.env.development.local`. Compose reads
