@@ -75,6 +75,19 @@ is the destructive operation and reports its local scope.
 Run `compose seed` after `compose up` and migrations when deterministic
 Development Seed data is explicitly needed.
 
+`compose up` waits for the existing infrastructure healthchecks, runs the
+migrations, and checks every selected application with HTTP GET `/ready` from
+inside its container. A healthy `/live` check is not application readiness.
+Services without published host ports still receive the same readiness check.
+The command remains attached after readiness. `Ctrl-C` stops only application
+containers started or attached by that invocation, verifies that they
+terminated, and leaves dependencies, volumes, and other Checkout States alone.
+It does not run `compose down` or reset volumes as part of cancellation.
+
+With `--json`, the launcher writes one result when applications become ready.
+Container logs and later shutdown diagnostics go to stderr. Finite `build`,
+`down`, `seed`, and `reset` actions write their result after completion.
+
 The migration helper runs `sheet-db-schema`'s Effect SQL migrations through
 `effect-sql-kit` against the Compose Postgres instance exposed on
 `POSTGRES_PORT`.

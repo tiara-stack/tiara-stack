@@ -7,10 +7,18 @@ import { realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Argument, Command, Flag } from "effect/unstable/cli";
-import { makeFastExecutionContext, runFastExecution, runKubernetesExecution } from "./execution";
-import { spawnProcess, startLongLivedProcess } from "./executor";
+import {
+  makeFastExecutionContext,
+  runComposeExecution,
+  runKubernetesExecution,
+  runFastExecution,
+  type ComposeExecutionContext,
+  type ComposeExecutionOptions,
+  type ComposeLifecycleObservation,
+} from "./execution";
 import { makeDiagnostic } from "./diagnostics";
 import {
+  getComposeExecutionContext,
   getKubernetesExecutionContext,
   renderLauncherOutput,
   runLauncherFromParsed,
@@ -48,146 +56,112 @@ const launcherOptions = (config: {
   changedSurfaces: config.changedSurface.flatMap(normalizeChangedSurfaces),
 });
 
+export interface ComposePlanExecutionOptions extends Omit<
+  ComposeExecutionOptions,
+  "onObservation" | "output"
+> {
+  readonly onObservation?: (observation: ComposeLifecycleObservation) => void;
+  readonly writeStdout?: (value: string) => void;
+  readonly writeStderr?: (value: string) => void;
+}
+
+const composeContextDiagnostic = (action: string, cause: unknown) =>
+  makeDiagnostic(
+    "context-preparation-failed",
+    `Compose ${action} execution context was not retained from validated configuration${
+      cause instanceof Error ? `: ${cause.message}` : ""
+    }`,
+    "Recreate the Compose plan through the launcher command and retry without modifying the environment file between planning and execution.",
+    { mode: "compose", action },
+  );
+
 // fallow-ignore-next-line complexity
-const executeComposePlan = async (
+export const executeComposePlan = async (
   result: Awaited<ReturnType<typeof runLauncherFromParsed>>,
   json: boolean,
+  options: ComposePlanExecutionOptions = {},
 ) => {
-  // startLongLivedProcess owns lifecycle timeout and ignores request.timeoutMs.
-  const longLivedTimeoutMs = 2_147_000_000;
   if (!result.output.ok || result.output.plannedProcesses.length === 0) return result;
-  let longLivedStarted = false;
-  for (const planned of result.output.plannedProcesses) {
-    const request = {
-      command: planned.command,
-      args: planned.args,
-      cwd: process.cwd(),
-      env: planned.environment,
-      timeoutMs: planned.longLived ? longLivedTimeoutMs : 30 * 60_000,
-      kind: "runtime" as const,
-      readOnly: planned.readOnly,
-      output: json ? ("stderr" as const) : ("inherit" as const),
-    };
-    let processResult;
-    if (planned.longLived) {
-      let running: Awaited<ReturnType<typeof startLongLivedProcess>> | undefined;
-      let signal: NodeJS.Signals | undefined;
-      let stopPromise: Promise<void> | undefined;
-      let executionError: unknown;
-      let resolveSignal!: () => void;
-      const signalReceived = new Promise<void>((resolve) => {
-        resolveSignal = resolve;
-      });
-      const stop = (received: NodeJS.Signals) => {
-        signal = received;
-        resolveSignal();
-        if (running !== undefined) {
-          stopPromise ??= running.kill();
-          void stopPromise.catch(() => undefined);
-        }
-      };
-      const onInterrupt = () => stop("SIGINT");
-      const onTerminate = () => stop("SIGTERM");
-      process.once("SIGINT", onInterrupt);
-      process.once("SIGTERM", onTerminate);
-      try {
-        try {
-          running = await startLongLivedProcess(request);
-        } catch (error) {
-          executionError = error;
-        }
-        if (running === undefined) {
-          processResult = {
-            exitCode: 127,
-            timedOut: false,
-            stderr:
-              executionError instanceof Error ? executionError.message : String(executionError),
-          };
-        } else {
-          longLivedStarted = true;
-          if (!json) {
-            process.stdout.write(
-              renderLauncherOutput({ ...result.output, readiness: "ready" }, false),
-            );
-          }
-          if (signal !== undefined) stop(signal);
-          try {
-            processResult = await Promise.race([
-              running.exited,
-              signalReceived.then(() => ({
-                exitCode: signal === "SIGINT" ? 130 : 143,
-                timedOut: false,
-                stderr: undefined,
-              })),
-            ]);
-            await stopPromise;
-          } catch (error) {
-            executionError = error;
-            processResult = {
-              exitCode: 1,
-              timedOut: false,
-              stderr: error instanceof Error ? error.message : String(error),
-            };
-          }
-        }
-      } finally {
-        process.off("SIGINT", onInterrupt);
-        process.off("SIGTERM", onTerminate);
-      }
-      if (signal !== undefined && executionError === undefined) {
-        const stopped = { ...result.output, readiness: "stopped" as const };
-        return {
-          ...result,
-          exitCode: signal === "SIGINT" ? 130 : 143,
-          output: stopped,
-          stdout: renderLauncherOutput(stopped, json),
-        };
-      }
-    } else {
-      processResult = await spawnProcess(request);
-    }
-    if (processResult.exitCode === 0 && !processResult.timedOut) continue;
-    if (
-      !processResult.timedOut &&
-      (processResult.exitCode === 130 || processResult.exitCode === 143)
-    ) {
-      const stopped = { ...result.output, readiness: "stopped" as const };
-      return {
-        ...result,
-        exitCode: processResult.exitCode,
-        output: stopped,
-        stdout: renderLauncherOutput(stopped, json),
-      };
-    }
-    const failure = makeDiagnostic(
-      processResult.timedOut ? "dependency-timeout" : "required-dependency-failed",
-      `${planned.id} failed with exit code ${processResult.exitCode}${
-        processResult.stderr === undefined ? "" : `: ${processResult.stderr}`
-      }`,
-      `Fix ${planned.id} and retry the same pnpm dev command. No later Compose process was started.`,
-      { mode: "compose", action: result.output.action ?? "setup" },
-    );
+  if (result.output.mode !== "compose" || result.output.action === null) return result;
+  let context: ComposeExecutionContext | undefined;
+  try {
+    context = getComposeExecutionContext(result.output);
+  } catch (cause) {
+    const diagnostic = composeContextDiagnostic(result.output.action, cause);
     const blocked = {
       ...result.output,
       ok: false,
       readiness: "blocked" as const,
-      errors: [failure],
+      errors: [diagnostic],
     };
     return {
       ...result,
       exitCode: 2,
-      output: blocked,
       stdout: renderLauncherOutput(blocked, json),
-    } satisfies Awaited<ReturnType<typeof runLauncherFromParsed>>;
+      stderr: "",
+      output: blocked,
+    };
   }
-  const completedOutput = {
-    ...result.output,
-    readiness: longLivedStarted ? ("stopped" as const) : ("ready" as const),
+  if (context === undefined) {
+    const diagnostic = composeContextDiagnostic(result.output.action, undefined);
+    const blocked = {
+      ...result.output,
+      ok: false,
+      readiness: "blocked" as const,
+      errors: [diagnostic],
+    };
+    return {
+      ...result,
+      exitCode: 2,
+      stdout: renderLauncherOutput(blocked, json),
+      stderr: "",
+      output: blocked,
+    };
+  }
+  let readinessPrinted = false;
+  const writeStdout = options.writeStdout ?? ((value: string) => process.stdout.write(value));
+  const writeStderr = options.writeStderr ?? ((value: string) => process.stderr.write(value));
+  const onObservation = (observation: ComposeLifecycleObservation) => {
+    options.onObservation?.(observation);
+    if (
+      readinessPrinted ||
+      observation.type !== "readiness" ||
+      observation.status !== "ready" ||
+      !observation.allSelected
+    ) {
+      return;
+    }
+    readinessPrinted = true;
+    writeStdout(renderLauncherOutput({ ...result.output, readiness: "ready" }, json));
   };
+  const execution = await runComposeExecution(context, {
+    ...options,
+    output: json ? "stderr" : "inherit",
+    onObservation,
+  });
+  const diagnostics = [execution.outcome.diagnostic, execution.outcome.cleanupDiagnostic].filter(
+    (diagnostic): diagnostic is NonNullable<typeof diagnostic> => diagnostic !== undefined,
+  );
+  if (readinessPrinted) {
+    for (const diagnostic of diagnostics) {
+      writeStderr(
+        `[${diagnostic.code}] ${diagnostic.message}\n  remediation: ${diagnostic.remediation}\n`,
+      );
+    }
+  }
   return {
     ...result,
-    output: completedOutput,
-    stdout: renderLauncherOutput(completedOutput, json),
+    exitCode: execution.outcome.exitCode,
+    output: execution.output,
+    stdout: readinessPrinted ? "" : renderLauncherOutput(execution.output, json),
+    stderr: readinessPrinted
+      ? diagnostics
+          .map(
+            ({ code, message, remediation }) =>
+              `[${code}] ${message}\n  remediation: ${remediation}\n`,
+          )
+          .join("")
+      : "",
   };
 };
 

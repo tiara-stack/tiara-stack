@@ -80,6 +80,13 @@ pnpm compose:generate-secrets
 pnpm compose:migrate-sheet-db
 ```
 
+Compose `up` waits for the existing infrastructure healthchecks, runs
+migrations, and attaches to the selected application containers. The launcher
+checks every selected application with HTTP GET `/ready` from inside its
+container. The Docker `/live` healthcheck only proves that the process is alive
+and never satisfies Development Readiness. This probe does not add or require
+host ports for services that do not publish one.
+
 Kubernetes validation renders the existing chart with the development values.
 Preview is fixed to release `tiara-stack-dev` in namespace `tiara-stack-dev`
 and the development registry. Set `KUBE_CONTEXT=tiara-stack-dev` and pass
@@ -116,6 +123,21 @@ range. It does not write to the sheet.
 
 `setup <mode>` is reserved for the mode-specific setup implementations. The
 core command reports it as unavailable until those implementations land.
+
+In human output, Compose reports readiness after every selected application is
+ready and stays attached until the command exits or receives a signal. In
+`--json` mode, it writes one readiness document to stdout at that point. Child
+logs and later failure or cleanup diagnostics go to stderr, so shutdown never
+appends a second JSON document. Build, down, seed, and reset are finite actions
+and write their result after the action completes.
+
+Cancelling or failing Compose startup stops only the selected application
+containers that this invocation started or attached to. It verifies their
+container state, escalates from graceful termination when needed, and preserves
+background dependencies, volumes, and other Checkout States. Cancellation does
+not issue `docker compose down`, delete volumes, or perform a Development
+Reset. Use the explicit `compose down` and `compose reset --confirm` actions
+when those operations are intended.
 
 ## Ports and output
 

@@ -30,10 +30,32 @@ import {
   type PortChecker,
 } from "./types";
 import { Cause, Effect, Exit } from "effect";
+import {
+  makeComposeExecutionContext as makeComposeContext,
+  type ComposeExecutionContext,
+} from "./execution";
 
 export * from "./types";
 export {
   executeFast,
+  executeCompose,
+  makeComposeExecutionContext,
+  makeComposeStateAdapter,
+  runComposeExecution,
+  type ComposeCleanupRequest,
+  type ComposeCleanupResult,
+  type ComposeContainerQuery,
+  type ComposeContainerState,
+  type ComposeExecutionContext,
+  type ComposeExecutionContextOptions,
+  type ComposeExecutionOptions,
+  type ComposeExecutionOutcome,
+  type ComposeExecutionOutcomeStatus,
+  type ComposeExecutionResult,
+  type ComposeExecutionStep,
+  type ComposeLifecycleObservation,
+  type ComposeReadinessRequest,
+  type ComposeStateAdapter,
   makeFastExecutionContext,
   runFastExecution,
   type FastExecutionContext,
@@ -101,6 +123,12 @@ const modeDescriptions: Readonly<Record<DevelopmentMode, string>> = {
   compose: "Compose mode uses the local packaged integration environment.",
   kubernetes: "Kubernetes mode targets the fixed development preview release.",
 };
+
+const composeExecutionContexts = new WeakMap<LauncherOutput, ComposeExecutionContext>();
+
+export const getComposeExecutionContext = (
+  output: LauncherOutput,
+): ComposeExecutionContext | undefined => composeExecutionContexts.get(output);
 
 export const helpText = `TiaraStack development launcher
 
@@ -585,6 +613,14 @@ const modeOutput = (
           options.cwd ?? process.cwd(),
           command.options.tag,
         ),
+      );
+    }
+    if (validation.config.mode === "compose") {
+      composeExecutionContexts.set(
+        output,
+        makeComposeContext(output, options.cwd ?? process.cwd(), {
+          environment: validation.config.validatedEnvironment,
+        }),
       );
     }
     return output;

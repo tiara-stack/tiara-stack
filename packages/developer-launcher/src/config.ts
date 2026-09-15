@@ -344,6 +344,7 @@ export interface ComposeModeConfig {
     readonly SHEET_WORKFLOWS_PUBLIC_BASE_URL: string;
     readonly TRUSTED_ORIGINS: string;
   };
+  readonly validatedEnvironment: Readonly<Record<string, string>>;
   readonly projectName: string;
   readonly checkoutState: string;
   readonly urls: readonly PlannedUrl[];
@@ -1479,6 +1480,14 @@ const validateCompose = (
       `${COMPOSE_ENDPOINTS.app},${COMPOSE_ENDPOINTS.auth}`,
     ),
   };
+  const validatedEnvironment = {
+    ...environment,
+    ...Object.fromEntries(
+      composeEnvironmentKeys.flatMap((key) =>
+        values[key] === undefined ? [] : [[key, values[key]]],
+      ),
+    ),
+  };
   const cookieDomain = valueOrDefault(values, "COOKIE_DOMAIN", "");
   if (cookieDomain !== "" && cookieDomain !== "localhost") {
     errors.push(
@@ -1572,6 +1581,7 @@ const validateCompose = (
             projectName,
             checkoutState: `Checkout State ${projectName}`,
             environment,
+            validatedEnvironment,
             urls: [
               { name: "app", url: environment.SHEET_WEB_PUBLIC_BASE_URL },
               { name: "auth", url: environment.SHEET_AUTH_PUBLIC_BASE_URL },

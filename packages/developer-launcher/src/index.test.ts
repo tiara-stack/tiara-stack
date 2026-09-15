@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   composeProjectName,
+  getComposeExecutionContext,
   runLauncher,
   type AccessChecker,
   type PortChecker,
@@ -612,6 +613,19 @@ describe("developer launcher command boundary", () => {
       expect(planned.plannedProcesses[1]?.args).toEqual(
         expect.arrayContaining(["--project-name", composeProjectName(repository)]),
       );
+      expect(planned.plannedProcesses[1]?.args).toEqual(
+        expect.arrayContaining(["--wait", "--wait-timeout", "150"]),
+      );
+      const context = getComposeExecutionContext(result.output);
+      if (context === undefined) throw new Error("expected a cached Compose execution context");
+      expect(context.environment).toEqual(
+        expect.objectContaining({
+          POSTGRES_PASSWORD: "local-postgres-password",
+          REDIS_PASSWORD: "local-redis-password",
+          SHEET_BOT_OAUTH_CLIENT_ID: "local-bot",
+        }),
+      );
+      expect(getComposeExecutionContext({ ...result.output })).toBeUndefined();
     } finally {
       rmSync(repository, { recursive: true, force: true });
     }

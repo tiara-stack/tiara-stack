@@ -3,6 +3,16 @@ import path from "node:path";
 import { checkHttpAccess, checkHttpReadiness, checkTcpAccess, isHttpReady } from "./access";
 import type { KubernetesModeConfig } from "./config";
 import { makeDiagnostic, makeWarning } from "./diagnostics";
+import {
+  currentProcessExit,
+  makeExecutionResultFromContext,
+  observeProcessExit,
+  processSignals,
+  reasonFields,
+  statusCodeFields,
+  terminalOutput,
+  type ProcessExitObservation,
+} from "./execution-shared";
 import { spawnProcess, startLongLivedProcess } from "./executor";
 import type { ModePlan } from "./plan";
 import { fastServices } from "./types";
@@ -506,31 +516,6 @@ export const makeFastExecutionContext = (
   };
 };
 
-const processSignals: Effect.Effect<NodeJS.Signals> = Effect.callback<NodeJS.Signals>((resume) => {
-  let settled = false;
-  const remove = () => {
-    process.off("SIGINT", onInterrupt);
-    process.off("SIGTERM", onTerminate);
-  };
-  const receive = (signal: NodeJS.Signals) => {
-    if (settled) return;
-    settled = true;
-    remove();
-    resume(Effect.succeed(signal));
-  };
-  const onInterrupt = () => receive("SIGINT");
-  const onTerminate = () => receive("SIGTERM");
-  process.once("SIGINT", onInterrupt);
-  process.once("SIGTERM", onTerminate);
-  return Effect.sync(remove);
-});
-
-const statusCodeFields = (result: AccessCheckResult) =>
-  result.status === undefined ? {} : { responseStatus: result.status };
-
-const reasonFields = (result: AccessCheckResult) =>
-  result.reason === undefined ? {} : { reason: result.reason };
-
 const notify = (
   state: ExecutionState,
   context: FastExecutionContext,
@@ -688,32 +673,6 @@ const runPrerequisites = (
     );
     return collectPrerequisiteReports(reports);
   });
-
-interface ProcessExitObservation {
-  readonly state: { result: ProcessResult | undefined };
-  readonly effect: Effect.Effect<ProcessResult>;
-}
-
-const observeProcessExit = (running: RunningProcess): ProcessExitObservation => {
-  const state: ProcessExitObservation["state"] = { result: undefined };
-  const promise = running.exited.then(
-    (result) => {
-      state.result = result;
-      return result;
-    },
-    () => {
-      const result = {
-        exitCode: 127,
-        stderr: "process exit could not be observed",
-      } satisfies ProcessResult;
-      state.result = result;
-      return result;
-    },
-  );
-  return { state, effect: Effect.promise(() => promise) };
-};
-
-const currentProcessExit = (observation: ProcessExitObservation) => observation.state.result;
 
 const readinessDiagnostic = (context: FastExecutionContext, result?: AccessCheckResult) =>
   makeDiagnostic(
@@ -961,41 +920,6 @@ const processExitDiagnostic = (
     { mode: context.mode, action: context.action, dependency: context.selectedService },
   );
 
-const outputWithFailure = (
-  output: LauncherOutput,
-  diagnostic: Diagnostic,
-  cleanupDiagnostic?: Diagnostic,
-): LauncherOutput => ({
-  ...output,
-  ok: false,
-  readiness: "blocked",
-  errors: [diagnostic, ...(cleanupDiagnostic === undefined ? [] : [cleanupDiagnostic])],
-});
-
-const terminalOutput = (
-  output: LauncherOutput,
-  status: FastExecutionOutcomeStatus,
-  diagnostic?: Diagnostic,
-  cleanupDiagnostic?: Diagnostic,
-): LauncherOutput => {
-  if (diagnostic !== undefined) {
-    return {
-      ...outputWithFailure(output, diagnostic, cleanupDiagnostic),
-      readiness: output.readiness === "ready" ? "ready" : "blocked",
-    };
-  }
-  if (cleanupDiagnostic !== undefined) {
-    return {
-      ...outputWithFailure(output, cleanupDiagnostic),
-      readiness: output.readiness === "ready" ? "ready" : "blocked",
-    };
-  }
-  return {
-    ...output,
-    readiness: status === "stopped" && output.readiness !== "ready" ? "stopped" : output.readiness,
-  };
-};
-
 const resultWithTerminal = (
   context: FastExecutionContext,
   state: ExecutionState,
@@ -1005,21 +929,16 @@ const resultWithTerminal = (
   cleanupDiagnostic?: Diagnostic,
   readyOutput?: LauncherOutput,
 ): FastExecutionResult => {
-  const baseOutput = readyOutput ?? context.plannedOutput;
-  const output = terminalOutput(baseOutput, status, diagnostic, cleanupDiagnostic);
-  const outcome: FastExecutionOutcome = {
+  return makeExecutionResultFromContext(
+    context.plannedOutput,
+    state.observations,
+    terminalOutput,
     status,
-    ok: status === "completed" || status === "stopped",
     exitCode,
-    ...(diagnostic === undefined ? {} : { diagnostic }),
-    ...(cleanupDiagnostic === undefined ? {} : { cleanupDiagnostic }),
-  };
-  return {
-    output,
-    observations: state.observations,
-    outcome,
-    ...(readyOutput === undefined ? {} : { readyOutput }),
-  };
+    diagnostic,
+    cleanupDiagnostic,
+    readyOutput,
+  );
 };
 
 const emitTerminal = (
@@ -2275,3 +2194,23 @@ export const runDevelopmentExecution = (
   context: DevelopmentExecutionContext,
   options: DevelopmentExecutionOptions = {},
 ): Promise<DevelopmentExecutionResult> => Effect.runPromise(executeDevelopment(context, options));
+export {
+  executeCompose,
+  makeComposeExecutionContext,
+  makeComposeStateAdapter,
+  runComposeExecution,
+  type ComposeCleanupRequest,
+  type ComposeCleanupResult,
+  type ComposeContainerQuery,
+  type ComposeContainerState,
+  type ComposeExecutionContext,
+  type ComposeExecutionContextOptions,
+  type ComposeExecutionOptions,
+  type ComposeExecutionOutcome,
+  type ComposeExecutionOutcomeStatus,
+  type ComposeExecutionResult,
+  type ComposeExecutionStep,
+  type ComposeLifecycleObservation,
+  type ComposeReadinessRequest,
+  type ComposeStateAdapter,
+} from "./compose-execution";

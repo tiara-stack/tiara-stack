@@ -57,6 +57,15 @@ export const fastServices = [
 ] as const;
 export type FastService = (typeof fastServices)[number];
 
+export const composeServices = [
+  "sheet-auth",
+  "sheet-db-server",
+  "sheet-workflows",
+  "sheet-web",
+  "sheet-bot",
+] as const;
+export type ComposeService = (typeof composeServices)[number];
+
 export const modeActions = {
   fast: ["up"] as const,
   compose: ["up", "build", "down", "seed", "reset"] as const,
@@ -85,6 +94,7 @@ export type DiagnosticCode =
   | "required-dependency-failed"
   | "dependency-timeout"
   | "dependency-unavailable"
+  | "context-preparation-failed"
   | "access-failed"
   | "cleanup-failed"
   | "confirmation-required"

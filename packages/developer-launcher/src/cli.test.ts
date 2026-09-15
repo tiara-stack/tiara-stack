@@ -3,9 +3,13 @@ import { NodeServices } from "@effect/platform-node";
 import { Effect } from "effect";
 import { TestConsole } from "effect/testing";
 import { Command } from "effect/unstable/cli";
-import { command, executeKubernetesPlan } from "./cli";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { command, executeComposePlan, executeKubernetesPlan } from "./cli";
 import { runLauncherFromParsed, getKubernetesExecutionContext } from "./index";
 import { runKubernetesExecution, type KubernetesLifecycleObservation } from "./execution";
+import type { ComposeContainerState, ComposeStateAdapter } from "./execution";
 import type { ProcessExecutor, ProcessResult, ProcessStarter, RunningProcess } from "./types";
 
 const kubernetesOptions = {
@@ -84,6 +88,55 @@ const runCliHelp = () =>
   }).pipe(Effect.provide(TestConsole.layer), Effect.provide(NodeServices.layer));
 
 describe("developer launcher Effect CLI", () => {
+  const commandOptions = (json = true) => ({
+    json,
+    help: false,
+    envFile: null,
+    service: null,
+    confirm: false,
+    confirmDevelopment: false,
+    tag: null,
+    changedSurfaces: [],
+  });
+
+  it("reports finite Compose actions as completed through the terminal adapter", async () => {
+    const result = await runLauncherFromParsed(["compose", "down"], commandOptions(), {
+      env: {},
+    });
+    const requests: Parameters<ProcessExecutor>[0][] = [];
+
+    const executed = await executeComposePlan(result, true, {
+      executor: async (request) => {
+        requests.push(request);
+        return { exitCode: 0 };
+      },
+      writeStdout: () => undefined,
+      writeStderr: () => undefined,
+    });
+
+    expect(requests).toHaveLength(1);
+    expect(executed.exitCode).toBe(0);
+    expect(executed.stdout).toContain('"readiness":"completed"');
+    expect(executed.output.readiness).toBe("completed");
+  });
+
+  it("blocks Compose execution when its validated context is unavailable", async () => {
+    const result = await runLauncherFromParsed(["compose", "down"], commandOptions(), {
+      env: {},
+    });
+    const executed = await executeComposePlan({ ...result, output: { ...result.output } }, true, {
+      writeStdout: () => undefined,
+      writeStderr: () => undefined,
+    });
+
+    expect(executed.exitCode).toBe(2);
+    expect(executed.output.readiness).toBe("blocked");
+    expect(executed.output.errors).toEqual([
+      expect.objectContaining({ code: "context-preparation-failed" }),
+    ]);
+    expect(executed.stdout).toContain('"readiness":"blocked"');
+  });
+
   it("executes Kubernetes validation through the shared execution seam", async () => {
     const context = await kubernetesExecutionContext("validate");
     const requests: Parameters<ProcessExecutor>[0][] = [];
@@ -399,6 +452,86 @@ describe("developer launcher Effect CLI", () => {
 
     expect(JSON.stringify(executed.output)).not.toContain(secret);
     expect(executed.output.errors[0]?.message).toContain("<redacted>");
+  });
+
+  it("emits one JSON readiness document before attached Compose shutdown", async () => {
+    const repository = mkdtempSync(path.join(tmpdir(), "developer-launcher-compose-cli-"));
+    const envFile = path.join(repository, "compose.env");
+    writeFileSync(
+      envFile,
+      [
+        "POSTGRES_PASSWORD=postgres-password",
+        "REDIS_PASSWORD=redis-password",
+        "SHEET_BOT_CAPABILITY_ENCRYPTION_SECRET=bot-capability-secret-32-characters",
+        "SHEET_BOT_OAUTH_CLIENT_ID=local-bot",
+        "SHEET_BOT_OAUTH_CLIENT_SECRET=local-bot-secret",
+        "SHEET_WORKFLOWS_OAUTH_CLIENT_ID=local-workflows",
+        "SHEET_WORKFLOWS_OAUTH_CLIENT_SECRET=local-workflows-secret",
+      ].join("\n"),
+    );
+    const result = await runLauncherFromParsed(
+      ["compose", "up"],
+      { ...commandOptions(), envFile },
+      { cwd: repository, env: {} },
+    );
+    const output: string[] = [];
+    const errors: string[] = [];
+    let resolveExit!: (result: { readonly exitCode: number }) => void;
+    const processExit = new Promise<{ readonly exitCode: number }>((resolve) => {
+      resolveExit = resolve;
+    });
+    const containers: readonly ComposeContainerState[] = [
+      { id: "auth-container", service: "sheet-auth", state: "running" },
+      { id: "db-container", service: "sheet-db-server", state: "running" },
+      { id: "workflows-container", service: "sheet-workflows", state: "running" },
+      { id: "web-container", service: "sheet-web", state: "running" },
+      { id: "bot-container", service: "sheet-bot", state: "running" },
+    ];
+    let stateCalls = 0;
+    const stateAdapter: ComposeStateAdapter = {
+      listApplicationContainers: async () => {
+        stateCalls += 1;
+        return stateCalls === 1 ? [] : containers;
+      },
+      probeApplicationReadiness: async () => ({ reachable: true, status: 200 }),
+      stopApplicationContainers: async () => ({ verified: true, remaining: [] }),
+    };
+    const processStarter = async (): Promise<RunningProcess> => ({
+      pid: 42,
+      exited: processExit,
+      kill: async () => undefined,
+    });
+
+    try {
+      const executed = await executeComposePlan(result, true, {
+        executor: async () => ({ exitCode: 0 }),
+        processStarter,
+        stateAdapter,
+        interruptions: Effect.never,
+        writeStdout: (value) => output.push(value),
+        writeStderr: (value) => errors.push(value),
+        onObservation: (observation) => {
+          if (
+            observation.type === "readiness" &&
+            observation.status === "ready" &&
+            observation.allSelected
+          ) {
+            resolveExit({ exitCode: 0 });
+          }
+        },
+      });
+
+      expect(output).toHaveLength(1);
+      expect(JSON.parse(output[0] ?? "{}")).toEqual(
+        expect.objectContaining({ readiness: "ready" }),
+      );
+      expect(executed.stdout).toBe("");
+      expect(errors).toEqual([]);
+      expect(executed.output.readiness).toBe("ready");
+      expect(executed.exitCode).toBe(0);
+    } finally {
+      rmSync(repository, { recursive: true, force: true });
+    }
   });
 
   // fallow-ignore-next-line code-duplication
