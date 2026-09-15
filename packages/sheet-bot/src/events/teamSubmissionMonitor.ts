@@ -3,7 +3,6 @@ import { Cache, Duration, Effect, Exit, Layer, Predicate, Schedule, Schema } fro
 import { config } from "../config";
 import { discordGatewayLayer } from "../discord/gateway";
 import {
-  enqueueTeamSubmissionsProcessWorkflow,
   SheetWorkflowHttpClient,
   SheetZeroClient,
   type TeamSubmissionsProcessInput,
@@ -88,7 +87,7 @@ export const looksLikeTeamSubmissionContent = (content: string) => {
 const dispatchableGuildContent = (guildId: string | null, content: string | null) =>
   guildId === null || content === null ? null : { guildId, content };
 
-const retryPolicy = {
+const availabilityRetryPolicy = {
   schedule: Schedule.exponential(Duration.millis(100)),
   times: 2,
 } as const;
@@ -199,7 +198,7 @@ export const makeTeamSubmissionMessageHandler = ({
     const workspaceId = sourceMessage.conversation.workspace.workspaceId;
     const conversationId = sourceMessage.conversation.conversationId;
     const featureEnabled = yield* isTeamSubmissionEnabled(workspaceId, conversationId).pipe(
-      Effect.retry(retryPolicy),
+      Effect.retry(availabilityRetryPolicy),
       Effect.catchCause((cause) =>
         Effect.logWarning("Failed to look up team submission availability").pipe(
           Effect.annotateLogs({
@@ -224,7 +223,6 @@ export const makeTeamSubmissionMessageHandler = ({
     }
 
     yield* enqueue(request.input, request.invocationId).pipe(
-      Effect.retry(retryPolicy),
       Effect.catchCause((cause) =>
         Effect.logWarning("Failed to dispatch team submission monitor event").pipe(
           Effect.annotateLogs({
@@ -268,7 +266,7 @@ export const teamSubmissionMonitorEventLayer = Layer.effectDiscard(
       isTeamSubmissionEnabled: (workspaceId, conversationId) =>
         Cache.get(availabilityCache, `${workspaceId}:${conversationId}`),
       enqueue: (input, invocationId) =>
-        enqueueTeamSubmissionsProcessWorkflow(workflowClient, input, { invocationId }),
+        workflowClient.enqueueTeamSubmissionsProcess(input, { invocationId }),
     });
 
     yield* gateway.handleDispatch("MESSAGE_CREATE", handleMessage).pipe(Effect.forkScoped);

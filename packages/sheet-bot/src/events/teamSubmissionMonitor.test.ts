@@ -215,7 +215,7 @@ describe("makeTeamSubmissionMessageHandler", () => {
     }),
   );
 
-  it.live("retries a transient workflow dispatch failure", () =>
+  it.effect("does not add a caller-side retry around workflow dispatch", () =>
     Effect.gen(function* () {
       let attempts = 0;
       const invocationIds: string[] = [];
@@ -232,8 +232,8 @@ describe("makeTeamSubmissionMessageHandler", () => {
 
       yield* handleMessage(message);
 
-      expect(attempts).toBe(2);
-      expect(invocationIds[0]).toBe(invocationIds[1]);
+      expect(attempts).toBe(1);
+      expect(invocationIds).toHaveLength(1);
     }),
   );
 });

@@ -3,7 +3,6 @@ import { Duration, Effect, Layer, Option, Predicate, Schedule, Schema } from "ef
 import { config } from "../config";
 import { discordGatewayLayer } from "../discord/gateway";
 import {
-  enqueueSlotsRefreshButtonWorkflow,
   SheetWorkflowHttpClient,
   SheetZeroClient,
   type SlotsRefreshButtonInput,
@@ -24,7 +23,7 @@ const DiscordSlotMessageEvent = Schema.Struct({
 
 type DiscordSlotMessageEvent = typeof DiscordSlotMessageEvent.Type;
 
-const retryPolicy = {
+const availabilityRetryPolicy = {
   schedule: Schedule.exponential(Duration.millis(100)),
   times: 2,
 } as const;
@@ -114,7 +113,7 @@ export const makeSlotsRefreshButtonMessageHandler = ({
       workspaceId,
     } satisfies SlotsRefreshButtonInput;
     const hasButton = yield* hasSlotButton(workspaceId, message.channel_id).pipe(
-      Effect.retry(retryPolicy),
+      Effect.retry(availabilityRetryPolicy),
       Effect.catchCause((cause) =>
         Effect.logWarning("Failed to look up slot sticky state").pipe(
           Effect.annotateLogs({
@@ -132,7 +131,6 @@ export const makeSlotsRefreshButtonMessageHandler = ({
     }
 
     yield* enqueue(input, request.invocationId).pipe(
-      Effect.retry(retryPolicy),
       Effect.catchCause((cause) =>
         Effect.logWarning("Failed to dispatch slot sticky refresh").pipe(
           Effect.annotateLogs({
@@ -161,7 +159,7 @@ export const slotStickyEventLayer = Layer.effectDiscard(
           .getSlotButtonByConversation(workspaceId, conversationId)
           .pipe(Effect.map(Option.isSome)),
       enqueue: (input, invocationId) =>
-        enqueueSlotsRefreshButtonWorkflow(workflowClient, input, { invocationId }),
+        workflowClient.enqueueSlotsRefreshButton(input, { invocationId }),
     });
 
     yield* gateway.handleDispatch("MESSAGE_CREATE", handleMessage).pipe(Effect.forkScoped);

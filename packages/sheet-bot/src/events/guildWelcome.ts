@@ -4,9 +4,9 @@ import { workflowWorkspaceIdFromString } from "sheet-workflow-http-client";
 import { config } from "../config";
 import { discordGatewayLayer } from "../discord/gateway";
 import {
-  enqueueWorkspacesDeliverWelcomeWorkflow,
   SheetWorkflowHttpClient,
   type WorkspacesDeliverWelcomeInput,
+  type WorkspacesDeliverWelcomeReference,
 } from "../services";
 import { makeDeterministicWorkflowInvocationId } from "../utils/workflowInvocationId";
 
@@ -70,6 +70,44 @@ const logGuildWelcomeFailure = (
     Effect.andThen(Effect.logDebug(cause)),
   );
 
+export const makeGuildWelcomeHandler =
+  ({
+    clientId,
+    startupEpochMs,
+    enqueue,
+  }: {
+    readonly clientId: string;
+    readonly startupEpochMs: number;
+    readonly enqueue: (
+      input: WorkspacesDeliverWelcomeInput,
+      options: { readonly invocationId: WorkspacesDeliverWelcomeReference["invocationId"] },
+    ) => Effect.Effect<unknown, unknown>;
+  }) =>
+  (guild: GuildCreateEvent) =>
+    Effect.sync(() => makeGuildWelcomeWorkflowRequest(guild, startupEpochMs, clientId)).pipe(
+      Effect.flatMap((request) =>
+        request === null
+          ? Effect.void
+          : enqueue(request.input, {
+              invocationId: request.invocationId,
+            }).pipe(
+              Effect.catchCause((cause) =>
+                logGuildWelcomeFailure(cause, {
+                  workspaceId: request.input.workspaceId,
+                  workspaceName: request.input.workspaceName,
+                  invocationId: request.invocationId,
+                }),
+              ),
+            ),
+      ),
+      Effect.catchCause((cause) =>
+        logGuildWelcomeFailure(cause, {
+          workspaceId: guild.id,
+          workspaceName: guild.name,
+        }),
+      ),
+    );
+
 export const guildWelcomeEventLayer = Layer.effectDiscard(
   Effect.gen(function* () {
     const gateway = yield* DiscordGateway;
@@ -77,32 +115,12 @@ export const guildWelcomeEventLayer = Layer.effectDiscard(
     const clientId = yield* config.sheetBotClientId;
     const startupEpochMs = Date.now();
 
-    yield* gateway
-      .handleDispatch("GUILD_CREATE", (guild) =>
-        Effect.sync(() => makeGuildWelcomeWorkflowRequest(guild, startupEpochMs, clientId)).pipe(
-          Effect.flatMap((request) =>
-            request === null
-              ? Effect.void
-              : enqueueWorkspacesDeliverWelcomeWorkflow(workflowClient, request.input, {
-                  invocationId: request.invocationId,
-                }).pipe(
-                  Effect.catchCause((cause) =>
-                    logGuildWelcomeFailure(cause, {
-                      workspaceId: request.input.workspaceId,
-                      workspaceName: request.input.workspaceName,
-                      invocationId: request.invocationId,
-                    }),
-                  ),
-                ),
-          ),
-          Effect.catchCause((cause) =>
-            logGuildWelcomeFailure(cause, {
-              workspaceId: guild.id,
-              workspaceName: guild.name,
-            }),
-          ),
-        ),
-      )
-      .pipe(Effect.forkScoped);
+    const handleGuildCreate = makeGuildWelcomeHandler({
+      clientId,
+      startupEpochMs,
+      enqueue: (input, options) => workflowClient.enqueueWorkspacesDeliverWelcome(input, options),
+    });
+
+    yield* gateway.handleDispatch("GUILD_CREATE", handleGuildCreate).pipe(Effect.forkScoped);
   }),
 ).pipe(Layer.provide(Layer.mergeAll(discordGatewayLayer, SheetWorkflowHttpClient.layer)));

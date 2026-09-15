@@ -1,12 +1,12 @@
 import { DiscordGateway } from "dfx/gateway";
-import { Duration, Effect, Layer, Predicate, Schedule, Schema } from "effect";
+import { Effect, Layer, Predicate, Schema } from "effect";
 import { workflowWorkspaceIdFromString } from "sheet-workflow-http-client";
 import { config } from "../config";
 import { discordGatewayLayer } from "../discord/gateway";
 import {
-  enqueueAnnouncementsDeliverUpdateWorkflow,
   SheetWorkflowHttpClient,
   type AnnouncementsDeliverUpdateInput,
+  type AnnouncementsDeliverUpdateReference,
 } from "../services";
 import { makeDeterministicWorkflowInvocationId } from "../utils/workflowInvocationId";
 
@@ -182,9 +182,74 @@ export const makeUpdateAnnouncementWorkflowRequests = (
     }));
 };
 
-const updateAnnouncementDispatchRetrySchedule = Schedule.spaced(Duration.seconds(5)).pipe(
-  Schedule.take(12),
-);
+const logUpdateAnnouncementFailure = (
+  cause: unknown,
+  annotations: {
+    readonly workspaceId: string;
+    readonly workspaceName: string;
+    readonly announcementId: string;
+    readonly invocationId: string;
+  },
+) =>
+  Effect.logWarning("Failed to enqueue update announcement workflow").pipe(
+    Effect.annotateLogs(annotations),
+    Effect.andThen(Effect.logDebug(cause)),
+  );
+
+export const makeUpdateAnnouncementsHandler =
+  ({
+    announcements,
+    clientId,
+    enqueue,
+  }: {
+    readonly announcements: ReadonlyArray<UpdateAnnouncementSource>;
+    readonly clientId: string;
+    readonly enqueue: (
+      input: AnnouncementsDeliverUpdateInput,
+      options: { readonly invocationId: AnnouncementsDeliverUpdateReference["invocationId"] },
+    ) => Effect.Effect<unknown, unknown>;
+  }) =>
+  (guild: unknown) =>
+    Effect.gen(function* () {
+      const decodedGuild = yield* Schema.decodeUnknownEffect(GuildCreateEvent)(guild).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Skipping invalid update announcement guild create payload").pipe(
+            Effect.andThen(Effect.logDebug(cause)),
+            Effect.as(null),
+          ),
+        ),
+      );
+      if (decodedGuild === null) {
+        return;
+      }
+
+      const requests = makeUpdateAnnouncementWorkflowRequests(
+        decodedGuild,
+        announcements,
+        clientId,
+      );
+      if (requests.length === 0) {
+        return;
+      }
+
+      yield* Effect.forEach(
+        requests,
+        (request) =>
+          enqueue(request.input, {
+            invocationId: request.invocationId,
+          }).pipe(
+            Effect.catchCause((cause) =>
+              logUpdateAnnouncementFailure(cause, {
+                workspaceId: request.input.workspaceId,
+                workspaceName: request.input.workspaceName,
+                announcementId: request.input.announcement.id,
+                invocationId: request.invocationId,
+              }),
+            ),
+          ),
+        { discard: true },
+      );
+    });
 
 export const updateAnnouncementsEventLayer = Layer.effectDiscard(
   Effect.gen(function* () {
@@ -193,54 +258,12 @@ export const updateAnnouncementsEventLayer = Layer.effectDiscard(
     const clientId = yield* config.sheetBotClientId;
     const sheetWebBaseUrl = yield* config.sheetWebBaseUrl;
     const announcements = makeUpdateAnnouncements(sheetWebBaseUrl);
+    const handleGuildCreate = makeUpdateAnnouncementsHandler({
+      announcements,
+      clientId,
+      enqueue: (input, options) => workflowClient.enqueueAnnouncementsDeliverUpdate(input, options),
+    });
 
-    yield* gateway
-      .handleDispatch("GUILD_CREATE", (guild) => {
-        return Effect.gen(function* () {
-          const decodedGuild = yield* Schema.decodeUnknownEffect(GuildCreateEvent)(guild).pipe(
-            Effect.catchCause((cause) =>
-              Effect.logWarning("Skipping invalid update announcement guild create payload").pipe(
-                Effect.andThen(Effect.logDebug(cause)),
-                Effect.as(null),
-              ),
-            ),
-          );
-          if (decodedGuild === null) {
-            return;
-          }
-
-          const requests = makeUpdateAnnouncementWorkflowRequests(
-            decodedGuild,
-            announcements,
-            clientId,
-          );
-          if (requests.length === 0) {
-            return;
-          }
-
-          yield* Effect.forEach(
-            requests,
-            (request) =>
-              enqueueAnnouncementsDeliverUpdateWorkflow(workflowClient, request.input, {
-                invocationId: request.invocationId,
-              }).pipe(
-                Effect.retry(updateAnnouncementDispatchRetrySchedule),
-                Effect.catchCause((cause) =>
-                  Effect.logWarning("Failed to enqueue update announcement workflow").pipe(
-                    Effect.annotateLogs({
-                      workspaceId: request.input.workspaceId,
-                      workspaceName: request.input.workspaceName,
-                      announcementId: request.input.announcement.id,
-                      invocationId: request.invocationId,
-                    }),
-                    Effect.andThen(Effect.logDebug(cause)),
-                  ),
-                ),
-              ),
-            { discard: true },
-          );
-        });
-      })
-      .pipe(Effect.forkScoped);
+    yield* gateway.handleDispatch("GUILD_CREATE", handleGuildCreate).pipe(Effect.forkScoped);
   }),
 ).pipe(Layer.provide(Layer.mergeAll(discordGatewayLayer, SheetWorkflowHttpClient.layer)));

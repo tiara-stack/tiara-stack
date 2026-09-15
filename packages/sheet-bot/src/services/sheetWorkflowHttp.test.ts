@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "@effect/vitest";
-import { Cause, ConfigProvider, Duration, Effect, Exit, Fiber, Schema } from "effect";
+import { Cause, Clock, ConfigProvider, Duration, Effect, Exit, Fiber, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 import { messageRefFrom, ResponseReference } from "sheet-bot-api/references";
@@ -63,6 +63,44 @@ import { SheetAuthClient } from "./sheetAuthClient";
 const input = {
   responseReference: Schema.decodeUnknownSync(ResponseReference)("opaque-response-reference"),
 } satisfies ServicesDeliverStatusInput;
+
+const slotsRefreshInput = {
+  workspaceId: Schema.decodeUnknownSync(WorkspaceId)("workspace-1"),
+  conversationId: "conversation-1",
+  triggerMessageId: "message-1",
+};
+
+const runExhaustedGatewayEnqueue = (
+  enqueue: (client: SheetWorkflowHttpClientShape) => Effect.Effect<unknown, unknown, never>,
+  expectedAttempts: number,
+  expectedIntervals: ReadonlyArray<number>,
+  clockAdvance: Duration.Input,
+) =>
+  Effect.gen(function* () {
+    let attempts = 0;
+    const requestTimes: number[] = [];
+    const httpClient = HttpClient.make((request) =>
+      Effect.gen(function* () {
+        attempts += 1;
+        requestTimes.push(yield* Clock.currentTimeMillis);
+        return HttpClientResponse.fromWeb(request, new Response(null, { status: 503 }));
+      }),
+    );
+    const clients = makeSheetWorkflowHttpClients(httpClient, {
+      baseUrl: "https://workflows.example.test",
+    });
+    const client = makeSheetWorkflowHttpClientShape(clients, clients);
+    const fiber = yield* enqueue(client).pipe(Effect.exit, Effect.forkChild);
+
+    yield* TestClock.adjust(clockAdvance);
+    const exit = yield* Fiber.join(fiber);
+
+    expect(attempts).toBe(expectedAttempts);
+    expect(requestTimes.slice(1).map((time, index) => time - requestTimes[index]!)).toEqual(
+      expectedIntervals,
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+  }).pipe(Effect.provide(TestClock.layer()));
 
 const makeRunReference = (
   invocationId: ServicesDeliverStatusReference["invocationId"],
@@ -338,6 +376,141 @@ describe("SheetWorkflowHttpClient protected enqueue boundary", () => {
 
       expect(serviceRequests).toBe(4);
     }),
+  );
+
+  it.effect("uses the centralized six-attempt recovery budget for slot refresh", () =>
+    runExhaustedGatewayEnqueue(
+      (client) => client.enqueueSlotsRefreshButton(slotsRefreshInput),
+      6,
+      [100, 100, 100, 200, 100],
+      Duration.seconds(10),
+    ),
+  );
+
+  it.effect("keeps the service payload and invocation identity across slot recovery", () =>
+    Effect.gen(function* () {
+      const requestRecords: Array<{ readonly payload: unknown; readonly url: string }> = [];
+      const userHttpClient = HttpClient.make(() => Effect.die("user principal was selected"));
+      const serviceHttpClient = HttpClient.make((request) =>
+        Effect.sync(() => {
+          const payload =
+            request.body._tag === "Uint8Array"
+              ? JSON.parse(new TextDecoder().decode(request.body.body))
+              : undefined;
+          requestRecords.push({ payload, url: request.url });
+          return HttpClientResponse.fromWeb(request, new Response(null, { status: 503 }));
+        }),
+      );
+      const userClients = makeSheetWorkflowHttpClients(userHttpClient, {
+        baseUrl: "https://workflows.example.test",
+      });
+      const serviceClients = makeSheetWorkflowHttpClients(serviceHttpClient, {
+        baseUrl: "https://workflows.example.test",
+      });
+      const client = makeSheetWorkflowHttpClientShape(userClients, serviceClients);
+      const fiber = yield* client
+        .enqueueSlotsRefreshButton(slotsRefreshInput)
+        .pipe(Effect.exit, Effect.forkChild);
+
+      yield* TestClock.adjust(Duration.seconds(10));
+      const exit = yield* Fiber.join(fiber);
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(requestRecords).toHaveLength(6);
+      expect(new Set(requestRecords.map(({ url }) => url))).toEqual(
+        new Set(["https://workflows.example.test/workflows/slots.refreshButton/v/1/enqueue"]),
+      );
+      const payloads = requestRecords.map(({ payload }) => payload) as Array<{
+        readonly invocationId: string;
+        readonly input: unknown;
+      }>;
+      expect(new Set(payloads.map(({ invocationId }) => invocationId)).size).toBe(1);
+      expect(payloads.map(({ input }) => input)).toEqual(
+        Array.from({ length: 6 }, () => slotsRefreshInput),
+      );
+    }).pipe(Effect.provide(TestClock.layer())),
+  );
+
+  it.effect("does not retry typed gateway enqueue failures under a background profile", () =>
+    Effect.gen(function* () {
+      const cases = [
+        { status: 400 },
+        { status: 401 },
+        {
+          status: 409,
+          body: JSON.stringify({
+            _tag: "InvocationConflict",
+            invocationId: "123e4567-e89b-42d3-a456-426614174000",
+            reason: "CanonicalInputMismatch",
+            existing: { contractIdentity: "slots.refreshButton", wireVersion: "1" },
+            requested: { contractIdentity: "slots.refreshButton", wireVersion: "1" },
+            message: "Invocation input does not match the existing invocation",
+          }),
+        },
+      ] as const;
+
+      for (const testCase of cases) {
+        const body = "body" in testCase ? testCase.body : null;
+        let attempts = 0;
+        const httpClient = HttpClient.make((request) =>
+          Effect.sync(() => {
+            attempts += 1;
+            return HttpClientResponse.fromWeb(
+              request,
+              new Response(body, { status: testCase.status }),
+            );
+          }),
+        );
+        const clients = makeSheetWorkflowHttpClients(httpClient, {
+          baseUrl: "https://workflows.example.test",
+        });
+        const client = makeSheetWorkflowHttpClientShape(clients, clients);
+        const exit = yield* Effect.exit(client.enqueueSlotsRefreshButton(slotsRefreshInput));
+
+        expect(attempts).toBe(1);
+        expect(Exit.isFailure(exit)).toBe(true);
+      }
+    }),
+  );
+
+  it.effect("uses the centralized six-attempt recovery budget for team submission", () =>
+    runExhaustedGatewayEnqueue(
+      (client) =>
+        client.enqueueTeamSubmissionsProcess({
+          sourceMessage: messageRefFrom(
+            { platform: "discord", clientId: "discord-main" },
+            slotsRefreshInput.workspaceId,
+            "conversation-1",
+            "message-1",
+          ),
+          authorId: "author-1",
+          authorDisplayName: "Author",
+          content: "150/700",
+        }),
+      6,
+      [100, 100, 100, 200, 100],
+      Duration.seconds(10),
+    ),
+  );
+
+  it.effect("uses the centralized twenty-six-attempt recovery budget for announcements", () =>
+    runExhaustedGatewayEnqueue(
+      (client) =>
+        client.enqueueAnnouncementsDeliverUpdate({
+          workspaceId: slotsRefreshInput.workspaceId,
+          workspaceName: "Workspace",
+          joinedAt: new Date("2026-09-14T00:00:00.000Z"),
+          announcement: {
+            id: "announcement-1",
+            publishedAt: new Date("2026-09-14T00:00:00.000Z"),
+            title: "Announcement",
+            description: "Description",
+          },
+        }),
+      26,
+      Array.from({ length: 25 }, (_, index) => (index % 2 === 0 ? 100 : 5_000)),
+      Duration.minutes(2),
+    ),
   );
 
   it.live("leaves an exhausted retryable transport failure ambiguous", () =>

@@ -380,6 +380,31 @@ type ProtectedWorkflowEnqueue<Enqueue extends RawWorkflowEnqueue> = (
 
 const protectedEnqueues = new WeakSet<object>();
 
+type WorkflowEnqueueRecoveryPolicy = {
+  readonly schedule: Schedule.Schedule<unknown, unknown, never, never>;
+  readonly times?: number;
+};
+
+const standardWorkflowEnqueueRecoveryPolicy: WorkflowEnqueueRecoveryPolicy = {
+  schedule: Schedule.spaced(Duration.millis(100)).pipe(Schedule.take(1)),
+};
+
+const workflowEnqueueRecoveryProfiles = {
+  standard: undefined,
+  gatewayDispatch: {
+    schedule: Schedule.exponential(Duration.millis(100)),
+    times: 2,
+  },
+  announcementDispatch: {
+    schedule: Schedule.spaced(Duration.seconds(5)).pipe(Schedule.take(12)),
+  },
+} as const satisfies Record<
+  "standard" | "gatewayDispatch" | "announcementDispatch",
+  WorkflowEnqueueRecoveryPolicy | undefined
+>;
+
+type WorkflowEnqueueRecoveryProfile = keyof typeof workflowEnqueueRecoveryProfiles;
+
 type SheetWorkflowHttpRequestContextType = {
   readonly discordUserId: string;
 };
@@ -566,8 +591,15 @@ const makeWorkflowServiceHttpClient = Effect.fn("SheetWorkflowHttpClient.makeSer
   },
 );
 
+const isRetryableWorkflowTransport = (error: unknown) =>
+  Predicate.isTagged("WorkflowTransportUnavailable")(error) &&
+  Predicate.hasProperty("retryable")(error) &&
+  Predicate.isBoolean(error.retryable) &&
+  error.retryable;
+
 const makeProtectedEnqueue = <Enqueue extends RawWorkflowEnqueue>(
   enqueue: Enqueue,
+  recoveryProfile: WorkflowEnqueueRecoveryProfile = "standard",
 ): ProtectedWorkflowEnqueue<Enqueue> => {
   const protectedEnqueue = ((input, options) => {
     const invocationId =
@@ -576,8 +608,10 @@ const makeProtectedEnqueue = <Enqueue extends RawWorkflowEnqueue>(
         : Effect.succeed(options.invocationId);
 
     return invocationId.pipe(
-      Effect.flatMap((stableInvocationId) =>
-        Effect.suspend(() => enqueue(input, { invocationId: stableInvocationId })).pipe(
+      Effect.flatMap((stableInvocationId) => {
+        const attempt = Effect.suspend(() =>
+          enqueue(input, { invocationId: stableInvocationId }),
+        ).pipe(
           Effect.timeout(workflowEnqueueTimeout),
           Effect.mapError((error) =>
             Cause.isTimeoutError(error)
@@ -588,16 +622,23 @@ const makeProtectedEnqueue = <Enqueue extends RawWorkflowEnqueue>(
                 })
               : error,
           ),
+        );
+        const standardRecovery = attempt.pipe(
           Effect.retry({
-            schedule: Schedule.spaced(Duration.millis(100)).pipe(Schedule.take(1)),
-            while: (error) =>
-              Predicate.isTagged("WorkflowTransportUnavailable")(error) &&
-              Predicate.hasProperty(error, "retryable") &&
-              Predicate.isBoolean(error.retryable) &&
-              error.retryable,
+            ...standardWorkflowEnqueueRecoveryPolicy,
+            while: isRetryableWorkflowTransport,
           }),
-        ),
-      ),
+        );
+        const profile = workflowEnqueueRecoveryProfiles[recoveryProfile];
+        return profile === undefined
+          ? standardRecovery
+          : standardRecovery.pipe(
+              Effect.retry({
+                ...profile,
+                while: isRetryableWorkflowTransport,
+              }),
+            );
+      }),
     ) as ReturnType<Enqueue>;
   }) as ProtectedWorkflowEnqueue<Enqueue>;
   protectedEnqueues.add(protectedEnqueue);
@@ -671,7 +712,10 @@ export const makeSheetWorkflowHttpClientShape = (
   enqueueSlotsDeliverList: makeProtectedEnqueue(clients.slots.deliverList.enqueue),
   enqueueSlotsPublishButton: makeProtectedEnqueue(clients.slots.publishButton.enqueue),
   enqueueSlotsRemoveButton: makeProtectedEnqueue(clients.slots.removeButton.enqueue),
-  enqueueSlotsRefreshButton: makeProtectedEnqueue(serviceClients.slots.refreshButton.enqueue),
+  enqueueSlotsRefreshButton: makeProtectedEnqueue(
+    serviceClients.slots.refreshButton.enqueue,
+    "gatewayDispatch",
+  ),
   enqueueSlotsOpen: makeProtectedEnqueue(clients.slots.open.enqueue),
   enqueueMembersKick: makeProtectedEnqueue(clients.members.kick.enqueue),
   enqueuePreferencesDeliverStatus: makeProtectedEnqueue(clients.preferences.deliverStatus.enqueue),
@@ -701,13 +745,16 @@ export const makeSheetWorkflowHttpClientShape = (
   ),
   enqueueWorkspacesDeliverWelcome: makeProtectedEnqueue(
     serviceClients.workspaces.deliverWelcome.enqueue,
+    "standard",
   ),
   enqueueTeamSubmissionsProcess: makeProtectedEnqueue(
     serviceClients.teamSubmissions.process.enqueue,
+    "gatewayDispatch",
   ),
   enqueueTeamSubmissionsDecide: makeProtectedEnqueue(clients.teamSubmissions.decide.enqueue),
   enqueueAnnouncementsDeliverUpdate: makeProtectedEnqueue(
     serviceClients.announcements.deliverUpdate.enqueue,
+    "announcementDispatch",
   ),
   enqueueSheetConfigurationSaveDraft: makeProtectedEnqueue(
     clients.sheetConfiguration.saveDraft.enqueue,
@@ -970,6 +1017,7 @@ export const enqueueSlotsRemoveButtonWorkflow = (
   options?: { readonly invocationId?: SlotsRemoveButtonReference["invocationId"] },
 ) => enqueueWorkflow(client.enqueueSlotsRemoveButton, input, options);
 
+// fallow-ignore-next-line unused-export
 export const enqueueSlotsRefreshButtonWorkflow = (
   client: Pick<SheetWorkflowHttpClientShape, "enqueueSlotsRefreshButton">,
   input: SlotsRefreshButtonInput,
@@ -1074,12 +1122,14 @@ export const enqueueScreenshotsCaptureAndDeliverWorkflow = (
   },
 ) => enqueueWorkflow(client.enqueueScreenshotsCaptureAndDeliver, input, options);
 
+// fallow-ignore-next-line unused-export
 export const enqueueWorkspacesDeliverWelcomeWorkflow = (
   client: Pick<SheetWorkflowHttpClientShape, "enqueueWorkspacesDeliverWelcome">,
   input: WorkspacesDeliverWelcomeInput,
   options?: { readonly invocationId?: WorkspacesDeliverWelcomeReference["invocationId"] },
 ) => enqueueWorkflow(client.enqueueWorkspacesDeliverWelcome, input, options);
 
+// fallow-ignore-next-line unused-export
 export const enqueueTeamSubmissionsProcessWorkflow = (
   client: Pick<SheetWorkflowHttpClientShape, "enqueueTeamSubmissionsProcess">,
   input: TeamSubmissionsProcessInput,
@@ -1093,6 +1143,7 @@ export const enqueueTeamSubmissionsDecideWorkflow = (
   options?: { readonly invocationId?: TeamSubmissionsDecideReference["invocationId"] },
 ) => enqueueWorkflow(client.enqueueTeamSubmissionsDecide, input, options);
 
+// fallow-ignore-next-line unused-export
 export const enqueueAnnouncementsDeliverUpdateWorkflow = (
   client: Pick<SheetWorkflowHttpClientShape, "enqueueAnnouncementsDeliverUpdate">,
   input: AnnouncementsDeliverUpdateInput,

@@ -84,6 +84,24 @@ describe("makeSlotsRefreshButtonMessageHandler", () => {
     }),
   );
 
+  it.effect("does not add a caller-side retry around workflow dispatch", () =>
+    Effect.gen(function* () {
+      let attempts = 0;
+      const handleMessage = makeSlotsRefreshButtonMessageHandler({
+        clientId: "discord-main",
+        hasSlotButton: () => Effect.succeed(true),
+        enqueue: () =>
+          Effect.sync(() => {
+            attempts += 1;
+          }).pipe(Effect.andThen(Effect.fail("enqueue failed"))),
+      });
+
+      yield* handleMessage(message);
+
+      expect(attempts).toBe(1);
+    }),
+  );
+
   it.effect("ignores malformed events and bot messages", () =>
     Effect.gen(function* () {
       let lookups = 0;
