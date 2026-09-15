@@ -30,7 +30,7 @@ import {
 } from "./createDefinition";
 import { roomOrderCreateOperationsLayer } from "./createOperations";
 import { makeRoomOrderCreateProvider, RoomOrderCreateProvider } from "./createProvider";
-import type { RoomOrderCreateDraft } from "./createSchema";
+import { RoomOrderCreateDraft } from "./createSchema";
 import { RoomOrderCreateOperations } from "./createService";
 import { makeRoomOrderCreateDeliveryKey } from "./keys";
 
@@ -120,6 +120,18 @@ const makeOperations = (
   );
 
 describe("room-order creation Workflow Definition slice", () => {
+  it("decodes legacy drafts without monitor handoff fields", () => {
+    const legacyDraft = Object.fromEntries(
+      Object.entries(draft).filter(
+        ([key]) => key !== "previousMonitor" && key !== "previousMonitorHistoryKnown",
+      ),
+    );
+    const decoded = Schema.decodeUnknownSync(RoomOrderCreateDraft)(legacyDraft);
+
+    expect(decoded.previousMonitor).toBeNull();
+    expect(decoded.previousMonitorHistoryKnown).toBe(false);
+  });
+
   it("registers the pinned policy-v1 graph and stable action identities", () => {
     const definition = makeRoomOrdersCreateDefinition();
     expect(RoomOrdersCreate.authorizationPolicy).toMatchObject({

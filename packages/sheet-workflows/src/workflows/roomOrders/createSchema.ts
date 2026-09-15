@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { BotOutboundMessage, MessageRef, RespondReceipt } from "sheet-bot-api";
 import { InteractiveDeclaredFailure, RoomOrdersCreate } from "sheet-workflow-contracts";
 import { AuthorizedRoomOrderCreateContext } from "../readOnly/authorization";
@@ -26,8 +26,12 @@ export const RoomOrderCreateDraft = Schema.Struct({
   previousFills: Schema.Array(Schema.String),
   fills: Schema.Array(Schema.String),
   monitor: Schema.NullOr(Schema.String),
-  previousMonitor: Schema.NullOr(Schema.String),
-  previousMonitorHistoryKnown: Schema.Boolean,
+  previousMonitor: Schema.NullOr(Schema.String).pipe(
+    Schema.withDecodingDefaultTypeKey(Effect.succeed(null)),
+  ),
+  previousMonitorHistoryKnown: Schema.Boolean.pipe(
+    Schema.withDecodingDefaultTypeKey(Effect.succeed(false)),
+  ),
   entries: Schema.Array(RoomOrderCreateEntry),
   generatingMessage: BotOutboundMessage,
   finalMessage: BotOutboundMessage,

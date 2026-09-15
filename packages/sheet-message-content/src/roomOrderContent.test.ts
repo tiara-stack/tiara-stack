@@ -91,11 +91,11 @@ describe("buildRoomOrderContent", () => {
     },
   ])("$name", ({ handoff, monitorLine }) => {
     const content = renderRoomOrder(handoff);
+    const renderedMonitorLine =
+      content.split("\n").find((line) => line.startsWith("Monis:")) ?? null;
 
-    if (monitorLine === null) {
-      expect(content).not.toContain("Monis:");
-    } else {
-      expect(content).toContain(monitorLine);
+    expect(renderedMonitorLine).toBe(monitorLine);
+    if (monitorLine !== null) {
       expect(content.indexOf(monitorLine)).toBeGreaterThan(content.indexOf("Hour 4"));
       expect(content.indexOf(monitorLine)).toBeLessThan(content.indexOf("P1:"));
     }
