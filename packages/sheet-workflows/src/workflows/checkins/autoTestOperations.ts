@@ -19,7 +19,6 @@ import {
   boundEmbedDescription,
   conversationMentionValue,
   fillParticipantFromName,
-  hourWindowFor,
   makeAutoCheckinTestEmbed,
   truncateAutoCheckinTestFailureDetail,
 } from "sheet-message-content/rendering";
@@ -29,11 +28,13 @@ import {
   CheckinsTestAuto,
   type CheckinsTestAutoConversationResult,
 } from "sheet-workflow-contracts";
-import { scheduleHourOrigin } from "sheet-domain";
 import { config } from "@/config";
 import { SheetBotCacheClient } from "@/services/sheetBotCacheClient";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
-import { resolveAuthoritativeSheetConfiguration } from "@/services/authoritativeSheetConfiguration";
+import {
+  establishedScheduleTimeReferenceFor,
+  resolveAuthoritativeSheetConfiguration,
+} from "@/services/authoritativeSheetConfiguration";
 import {
   checkinMessageUpdatedBy,
   isCheckinMessagePreparationRetry,
@@ -43,6 +44,7 @@ import {
 import { ReadOnlyWorkflowAuthorization } from "../readOnly/authorization";
 import { calculateRoomOrderEntries } from "../roomOrders/createCalculation";
 import { decodeWorkflowContractInputOrDie } from "../shared/execution";
+import { scheduleHourWindowFor } from "../shared/scheduleTime";
 import {
   interactiveAuthorizationRevoked,
   interactiveBusinessRuleRejected,
@@ -659,6 +661,25 @@ export const autoCheckinTestWorkflowOperationsLayer = Layer.effect(
             interactiveConfigurationMissing("workspace.sheetScheduleConfiguration"),
           );
         }
+        const scheduleTimeReference = yield* Option.match(
+          establishedScheduleTimeReferenceFor(active.value),
+          {
+            onSome: Effect.succeed,
+            onNone: () =>
+              provider
+                .loadLegacyScheduleTimeReference({
+                  spreadsheetId,
+                  referenceInstantEpochMs: view.eventStartEpochMs,
+                  configuration: active.value.configuration,
+                })
+                .pipe(Effect.catchTag("AutoCheckinTestProviderError", providerRejected)),
+          },
+        );
+        if (Predicate.isUndefined(scheduleTimeReference)) {
+          return yield* Effect.fail(
+            interactiveConfigurationMissing("workspace.sheetScheduleConfiguration"),
+          );
+        }
         const schedulesByHour = indexSchedulesByHour(view.schedules);
         // The test must keep its schedule movement semantics aligned with production check-in generation.
         // fallow-ignore-next-line code-duplication
@@ -676,11 +697,7 @@ export const autoCheckinTestWorkflowOperationsLayer = Layer.effect(
                 conversationRefFrom(client, input.workspaceId, conversation.conversationId),
               ),
             );
-        const hourWindow = hourWindowFor(
-          { startTime: DateTime.makeUnsafe(view.eventStartEpochMs) },
-          hour,
-          scheduleHourOrigin(view.schedules.map(({ hour }) => hour)),
-        );
+        const hourWindow = scheduleHourWindowFor(scheduleTimeReference, hour);
         const initialMessage =
           incoming.length === 0
             ? null

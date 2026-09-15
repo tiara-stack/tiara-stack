@@ -33,11 +33,17 @@ import {
   RoomOrderCreateProviderError,
 } from "../roomOrders/createProvider";
 import type { RoomOrderCalculationTeam } from "../roomOrders/createCalculation";
-import type { WebSheetConfiguration } from "sheet-domain";
+import type { ScheduleTimeReference, WebSheetConfiguration } from "sheet-domain";
 import { loadConfigurationValueRanges } from "../shared/webConfigurationSheets";
+import { loadLegacyScheduleTimeReference } from "../shared/legacyScheduleTimeReference";
 
 export class AutoCheckinTestProviderError extends Data.TaggedError("AutoCheckinTestProviderError")<{
-  readonly operation: "create-client" | "read-configuration" | "read-schedule" | "read-room-order";
+  readonly operation:
+    | "create-client"
+    | "read-configuration"
+    | "read-schedule"
+    | "read-schedule-configuration"
+    | "read-room-order";
   readonly cause: unknown;
 }> {}
 
@@ -78,6 +84,11 @@ interface AutoCheckinTestProviderShape {
     conversationName: string,
     configuration?: WebSheetConfiguration | null,
   ) => Effect.Effect<AutoCheckinTestProviderView, AutoCheckinTestProviderError>;
+  readonly loadLegacyScheduleTimeReference: (options: {
+    readonly spreadsheetId: string;
+    readonly referenceInstantEpochMs: number;
+    readonly configuration?: WebSheetConfiguration | null;
+  }) => Effect.Effect<ScheduleTimeReference | undefined, AutoCheckinTestProviderError>;
   readonly loadRoomOrder: (
     spreadsheetId: string,
     conversationName: string,
@@ -310,6 +321,14 @@ const makeAutoCheckinTestProvider = (client: sheets_v4.Sheets): AutoCheckinTestP
             }),
           ),
         };
+      }),
+    loadLegacyScheduleTimeReference: ({ spreadsheetId, referenceInstantEpochMs, configuration }) =>
+      loadLegacyScheduleTimeReference({
+        client,
+        spreadsheetId,
+        referenceInstantEpochMs,
+        configuration,
+        makeError: makeProviderError("read-schedule-configuration"),
       }),
     loadRoomOrder: (spreadsheetId, conversationName, configuration) =>
       roomOrderProvider.load(spreadsheetId, conversationName, configuration).pipe(

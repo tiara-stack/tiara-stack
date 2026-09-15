@@ -2,6 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import type { sheets_v4 } from "@googleapis/sheets";
 import { Cause, Deferred, Duration, Effect, Exit, Fiber, Option, Schema } from "effect";
 import { TestClock } from "effect/testing";
+import { scheduleTimeReferenceFromLegacyFirstHour } from "sheet-domain";
 import { workflowContractKey } from "effect-zero-workflow/contract";
 import {
   BotDependencyUnavailable,
@@ -354,6 +355,11 @@ describe("room-order creation Workflow Definition slice", () => {
       },
     } satisfies TrustedSheetPersistence["Service"];
     const provider = {
+      loadLegacyScheduleTimeReference: ({
+        referenceInstantEpochMs,
+      }: {
+        readonly referenceInstantEpochMs: number;
+      }) => Effect.succeed(scheduleTimeReferenceFromLegacyFirstHour(referenceInstantEpochMs, 1)),
       load: (spreadsheetId: string, conversationName: string) => {
         calls.push({ spreadsheetId, conversationName });
         return Effect.succeed({
@@ -407,6 +413,19 @@ describe("room-order creation Workflow Definition slice", () => {
         monitor: "Luka",
       });
       expect(result.entries).toHaveLength(1);
+      const invalidOperations = yield* makeOperations(persistence, {
+        ...provider,
+        load: (spreadsheetId: string, conversationName: string) =>
+          provider
+            .load(spreadsheetId, conversationName)
+            .pipe(Effect.map((view) => ({ ...view, eventStartEpochMs: Number.NaN }))),
+      });
+      const invalidExit = yield* Effect.exit(invalidOperations.loadDraft(context, input));
+      expect(errorFrom(invalidExit)).toMatchObject({
+        _tag: "ExternalOperationRejected",
+        operation: "roomOrders.create.loadRoomOrderDraft",
+        code: "InvalidProviderResponse",
+      });
       const defaultHour = yield* operations.loadDraft(context, {
         workspaceId,
         responseReference,
@@ -452,6 +471,7 @@ describe("room-order creation Workflow Definition slice", () => {
     } satisfies TrustedSheetPersistence["Service"];
     return Effect.gen(function* () {
       const operations = yield* makeOperations(persistence, {
+        loadLegacyScheduleTimeReference: () => Effect.succeed(undefined),
         load: () => Effect.die("provider must not be called"),
       });
       const exit = yield* Effect.exit(
@@ -514,7 +534,10 @@ describe("room-order creation Workflow Definition slice", () => {
     return Effect.gen(function* () {
       const operations = yield* makeOperations(
         { ...base, roomOrderState },
-        { load: () => Effect.die("unused") },
+        {
+          loadLegacyScheduleTimeReference: () => Effect.succeed(undefined),
+          load: () => Effect.die("unused"),
+        },
       );
       expect(yield* operations.bindState(published)).toEqual({ _tag: "Bound" });
       expect(yield* operations.bindState(published)).toEqual({ _tag: "Bound" });
@@ -590,7 +613,10 @@ describe("room-order creation Workflow Definition slice", () => {
             }),
           ),
         ),
-        { load: () => Effect.die("unused") },
+        {
+          loadLegacyScheduleTimeReference: () => Effect.succeed(undefined),
+          load: () => Effect.die("unused"),
+        },
       );
       const ambiguousExit = yield* Effect.exit(ambiguousOperations.bindState(published));
       expect(errorFrom(ambiguousExit)).toMatchObject({
@@ -602,7 +628,10 @@ describe("room-order creation Workflow Definition slice", () => {
         persistenceWithBind(() =>
           Effect.fail(new MutatorResultAppError({ type: "app", message: "rejected" })),
         ),
-        { load: () => Effect.die("unused") },
+        {
+          loadLegacyScheduleTimeReference: () => Effect.succeed(undefined),
+          load: () => Effect.die("unused"),
+        },
       );
       expect(yield* rejectedOperations.bindState(published)).toMatchObject({
         _tag: "CleanupRequired",
@@ -624,7 +653,10 @@ describe("room-order creation Workflow Definition slice", () => {
           bindMessageRoomOrderIfAbsent: () => Deferred.await(stalled),
         },
       };
-      const operations = yield* makeOperations(persistence, { load: () => Effect.die("unused") });
+      const operations = yield* makeOperations(persistence, {
+        loadLegacyScheduleTimeReference: () => Effect.succeed(undefined),
+        load: () => Effect.die("unused"),
+      });
       const fiber = yield* operations.bindState(published).pipe(Effect.exit, Effect.forkChild);
       yield* TestClock.adjust(Duration.seconds(30));
       const exit = yield* Fiber.join(fiber);
@@ -668,7 +700,14 @@ describe("room-order creation Workflow Definition slice", () => {
       } as unknown as SheetBotHttpClient;
       const base = makeTrustedSheetPersistenceMock();
       return Effect.gen(function* () {
-        const operations = yield* makeOperations(base, { load: () => Effect.die("unused") }, bot);
+        const operations = yield* makeOperations(
+          base,
+          {
+            loadLegacyScheduleTimeReference: () => Effect.succeed(undefined),
+            load: () => Effect.die("unused"),
+          },
+          bot,
+        );
         const exit = yield* Effect.exit(
           operations.publishDraft(
             draft,
@@ -720,7 +759,14 @@ describe("room-order creation Workflow Definition slice", () => {
       } as unknown as SheetBotHttpClient;
       const base = makeTrustedSheetPersistenceMock();
       return Effect.gen(function* () {
-        const operations = yield* makeOperations(base, { load: () => Effect.die("unused") }, bot);
+        const operations = yield* makeOperations(
+          base,
+          {
+            loadLegacyScheduleTimeReference: () => Effect.succeed(undefined),
+            load: () => Effect.die("unused"),
+          },
+          bot,
+        );
         const exit = yield* Effect.exit(
           operations.publishDraft(
             draft,

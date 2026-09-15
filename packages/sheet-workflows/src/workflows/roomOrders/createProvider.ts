@@ -26,14 +26,16 @@ import {
 } from "../shared/runnerLocalSheets";
 import { makeUserTeamsProvider } from "../teams/provider";
 import type { RoomOrderCalculationTeam } from "./createCalculation";
-import type { WebSheetConfiguration } from "sheet-domain";
+import type { ScheduleTimeReference, WebSheetConfiguration } from "sheet-domain";
 import { loadConfigurationValueRanges } from "../shared/webConfigurationSheets";
+import { loadLegacyScheduleTimeReference } from "../shared/legacyScheduleTimeReference";
 
 export class RoomOrderCreateProviderError extends Data.TaggedError("RoomOrderCreateProviderError")<{
   readonly operation:
     | "create-client"
     | "read-configuration"
     | "read-schedule"
+    | "read-schedule-configuration"
     | "read-schedule-format"
     | "read-teams";
   readonly cause: unknown;
@@ -58,6 +60,11 @@ interface RoomOrderCreateProviderView {
 }
 
 interface RoomOrderCreateProviderShape {
+  readonly loadLegacyScheduleTimeReference: (options: {
+    readonly spreadsheetId: string;
+    readonly referenceInstantEpochMs: number;
+    readonly configuration?: WebSheetConfiguration | null;
+  }) => Effect.Effect<ScheduleTimeReference | undefined, RoomOrderCreateProviderError>;
   readonly load: (
     spreadsheetId: string,
     conversationName: string,
@@ -361,6 +368,14 @@ export const makeRoomOrderCreateProvider = (
 ): RoomOrderCreateProviderShape => {
   const teamsProvider = makeUserTeamsProvider(client);
   return {
+    loadLegacyScheduleTimeReference: ({ spreadsheetId, referenceInstantEpochMs, configuration }) =>
+      loadLegacyScheduleTimeReference({
+        client,
+        spreadsheetId,
+        referenceInstantEpochMs,
+        configuration,
+        makeError: makeProviderError("read-schedule-configuration"),
+      }),
     load: (spreadsheetId, conversationName, configuration) =>
       Effect.gen(function* () {
         const [configurationRanges, userTeams] = yield* Effect.all(

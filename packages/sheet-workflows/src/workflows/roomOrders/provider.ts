@@ -1,6 +1,6 @@
 import type { sheets_v4 } from "@googleapis/sheets";
 import { Context, Data, Effect, Layer, Predicate } from "effect";
-import type { WebSheetConfiguration } from "sheet-domain";
+import type { ScheduleTimeReference, WebSheetConfiguration } from "sheet-domain";
 import {
   eventConfigRange,
   makeRunnerLocalSheetsClient,
@@ -9,11 +9,12 @@ import {
   valueRowsAt,
 } from "../shared/runnerLocalSheets";
 import { loadWebConfigurationSheetAdapter } from "../shared/webConfigurationSheets";
+import { loadLegacyScheduleTimeReference } from "../shared/legacyScheduleTimeReference";
 
 export class RoomOrderNavigationProviderError extends Data.TaggedError(
   "RoomOrderNavigationProviderError",
 )<{
-  readonly operation: "create-client" | "read-event-configuration";
+  readonly operation: "create-client" | "read-event-configuration" | "read-schedule-configuration";
   readonly cause: unknown;
 }> {}
 
@@ -22,6 +23,11 @@ interface RoomOrderNavigationProviderShape {
     spreadsheetId: string,
     configuration?: WebSheetConfiguration | null,
   ) => Effect.Effect<number, RoomOrderNavigationProviderError>;
+  readonly loadLegacyScheduleTimeReference: (options: {
+    readonly spreadsheetId: string;
+    readonly referenceInstantEpochMs: number;
+    readonly configuration?: WebSheetConfiguration | null;
+  }) => Effect.Effect<ScheduleTimeReference | undefined, RoomOrderNavigationProviderError>;
 }
 
 export class RoomOrderNavigationProvider extends Context.Service<
@@ -60,6 +66,14 @@ const makeRoomOrderNavigationProvider = (
           : makeProviderError("read-event-configuration")(error),
       ),
     ),
+  loadLegacyScheduleTimeReference: ({ spreadsheetId, referenceInstantEpochMs, configuration }) =>
+    loadLegacyScheduleTimeReference({
+      client,
+      spreadsheetId,
+      referenceInstantEpochMs,
+      configuration,
+      makeError: makeProviderError("read-schedule-configuration"),
+    }),
 });
 
 export const roomOrderNavigationProviderLayer = Layer.effect(

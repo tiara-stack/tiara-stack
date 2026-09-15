@@ -3,7 +3,7 @@ import { messageRefFrom } from "sheet-bot-api";
 import { roomOrderActionRow, tentativeRoomOrderActionRow } from "sheet-message-content/components";
 import { buildRoomOrderContent } from "sheet-message-content/roomOrderContent";
 import { tentativeRoomOrderContent } from "sheet-message-content/roomOrderMessage";
-import { fillParticipantFromName, hourWindowFor } from "sheet-message-content/rendering";
+import { fillParticipantFromName } from "sheet-message-content/rendering";
 import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import {
   missingConfigurationKey,
@@ -23,6 +23,8 @@ import {
   roomOrderBusyDetail,
   roomOrderMessageKey,
 } from "./helpers";
+import { scheduleHourWindowFor } from "../shared/scheduleTime";
+import { resolveRoomOrderScheduleTimeReference } from "./timing";
 import { RoomOrderNavigationOperations, RoomOrderNavigationOperationsError } from "./service";
 
 const operationError = (operation: string, cause: unknown) =>
@@ -213,22 +215,39 @@ export const roomOrderNavigationOperationsLayer = Layer.effect(
             ),
           );
         }
-        const eventStartEpochMs = yield* provider
-          .loadEventStart(active.value.spreadsheetId, active.value.configuration)
-          .pipe(Effect.catch(rejectProvider));
-        const startTime = yield* Option.match(DateTime.make(eventStartEpochMs), {
-          onNone: () =>
-            Effect.fail(
-              interactiveExternalOperationRejected(
-                "roomOrders.navigate.loadNavigationView",
-                "InvalidProviderResponse",
-                "The room-order provider returned an invalid event start time",
-              ),
-            ),
-          onSome: Effect.succeed,
-        });
+        const scheduleTimeReference = yield* resolveRoomOrderScheduleTimeReference(
+          active.value,
+          Effect.gen(function* () {
+            const eventStartEpochMs = yield* provider
+              .loadEventStart(active.value.spreadsheetId, active.value.configuration)
+              .pipe(Effect.catch(rejectProvider));
+            const startTime = yield* Option.match(DateTime.make(eventStartEpochMs), {
+              onNone: () =>
+                Effect.fail(
+                  interactiveExternalOperationRejected(
+                    "roomOrders.navigate.loadNavigationView",
+                    "InvalidProviderResponse",
+                    "The room-order provider returned an invalid event start time",
+                  ),
+                ),
+              onSome: Effect.succeed,
+            });
+            return yield* provider
+              .loadLegacyScheduleTimeReference({
+                spreadsheetId: active.value.spreadsheetId,
+                referenceInstantEpochMs: DateTime.toEpochMillis(startTime),
+                configuration: active.value.configuration,
+              })
+              .pipe(Effect.catch(rejectProvider));
+          }),
+        );
+        if (scheduleTimeReference === undefined) {
+          return yield* Effect.fail(
+            interactiveConfigurationMissing("workspace.sheetScheduleConfiguration"),
+          );
+        }
         const range = { minRank, maxRank };
-        const { start, end } = hourWindowFor({ startTime }, current.hour);
+        const { start, end } = scheduleHourWindowFor(scheduleTimeReference, current.hour);
         const content = buildRoomOrderContent(
           current.hour,
           start,

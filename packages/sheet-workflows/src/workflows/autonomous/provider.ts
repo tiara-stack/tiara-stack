@@ -1,24 +1,8 @@
 import { Context, Data, Effect, Layer } from "effect";
-import {
-  scheduleTimeReferenceFromLegacy,
-  type ScheduleTimeReference,
-  type WebSheetConfiguration,
-} from "sheet-domain";
-import {
-  mapScheduleRows,
-  makeRunnerLocalSheetsClient,
-  parseScheduleConfigurations,
-  quotedRange,
-  readBatchedSheetsValueRanges,
-  scheduleConfigRange,
-  scheduleHour,
-  type ValueRows,
-  valueRowsAt,
-} from "../shared/runnerLocalSheets";
-import {
-  loadConfigurationValueRanges,
-  readConfiguredEventStart,
-} from "../shared/webConfigurationSheets";
+import { type ScheduleTimeReference, type WebSheetConfiguration } from "sheet-domain";
+import { makeRunnerLocalSheetsClient } from "../shared/runnerLocalSheets";
+import { readConfiguredEventStart } from "../shared/webConfigurationSheets";
+import { loadLegacyScheduleTimeReference } from "../shared/legacyScheduleTimeReference";
 
 export class AutonomousTriggerProviderError extends Data.TaggedError(
   "AutonomousTriggerProviderError",
@@ -66,36 +50,12 @@ export const autonomousTriggerProviderLayer = Layer.effect(
           referenceInstantEpochMs,
           configuration,
         }) =>
-          Effect.gen(function* () {
-            const configurationRanges = yield* loadConfigurationValueRanges({
-              client,
-              spreadsheetId,
-              configuration,
-              legacyRanges: [scheduleConfigRange],
-              selectConfiguredRows: ({ schedulesRows }) => [schedulesRows],
-              makeError: makeProviderError("read-schedule-configuration"),
-            });
-            const schedules = yield* parseScheduleConfigurations(
-              valueRowsAt(configurationRanges, 0),
-            ).pipe(Effect.mapError(makeProviderError("read-schedule-configuration")));
-            if (schedules.length === 0) return undefined;
-            const values = yield* readBatchedSheetsValueRanges({
-              client,
-              spreadsheetId,
-              ranges: schedules.map((schedule) => quotedRange(schedule, schedule.hourRange)),
-              makeError: makeProviderError("read-schedule-configuration"),
-            });
-            const hourRows = schedules.flatMap((schedule, index) => {
-              const rows: ValueRows = valueRowsAt(values, index);
-              return mapScheduleRows(rows.length, (rowIndex) => ({
-                channel: schedule.channel,
-                hour: scheduleHour(rows, rowIndex),
-              }));
-            });
-            return scheduleTimeReferenceFromLegacy(
-              referenceInstantEpochMs,
-              hourRows.map(({ hour }) => hour),
-            );
+          loadLegacyScheduleTimeReference({
+            client,
+            spreadsheetId,
+            referenceInstantEpochMs,
+            configuration,
+            makeError: makeProviderError("read-schedule-configuration"),
           }),
       };
     }),

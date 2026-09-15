@@ -18,6 +18,7 @@ import {
   RoomOrdersSend,
   WorkspaceId,
 } from "sheet-workflow-contracts";
+import { scheduleTimeReferenceFromLegacyFirstHour } from "sheet-domain";
 import {
   ReadOnlyWorkflowAuthorization,
   readOnlyWorkflowAuthorizationLayer,
@@ -137,6 +138,8 @@ const makeOperations = (
   delivery: Record<string, unknown> = {},
   provider: typeof RoomOrderNavigationProvider.Service = {
     loadEventStart: () => Effect.succeed(0),
+    loadLegacyScheduleTimeReference: ({ referenceInstantEpochMs }) =>
+      Effect.succeed(scheduleTimeReferenceFromLegacyFirstHour(referenceInstantEpochMs, 1)),
   },
 ) =>
   Effect.gen(function* () {
@@ -373,6 +376,8 @@ describe("room-order navigation Workflow Definition slice", () => {
         {},
         {
           loadEventStart: () => Effect.sync(() => ((providerRead = true), 0)),
+          loadLegacyScheduleTimeReference: ({ referenceInstantEpochMs }) =>
+            Effect.succeed(scheduleTimeReferenceFromLegacyFirstHour(referenceInstantEpochMs, 1)),
         },
       );
       const result = yield* operations.loadView(

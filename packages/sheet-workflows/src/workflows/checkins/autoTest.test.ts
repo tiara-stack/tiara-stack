@@ -2,6 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { Cause, ConfigProvider, Effect, Exit, Option, Schema } from "effect";
 import { workflowContractKey } from "effect-zero-workflow/contract";
 import { ResponseReference, type SheetBotHttpClient, type SendMessageReceipt } from "sheet-bot-api";
+import { scheduleTimeReferenceFromLegacyFirstHour } from "sheet-domain";
 import {
   TrustedSheetPersistence,
   type TrustedSheetPersistenceShape,
@@ -179,6 +180,7 @@ const makeOperations = (
       AutoCheckinTestProvider,
       options.provider ?? {
         loadCheckin: () => Effect.die("unused"),
+        loadLegacyScheduleTimeReference: () => Effect.succeed(undefined),
         loadRoomOrder: () => Effect.die("unused"),
       },
     ),
@@ -272,6 +274,10 @@ const makePreparationFixture = (options: {
               },
             ],
           }),
+        loadLegacyScheduleTimeReference: ({ referenceInstantEpochMs }) =>
+          Effect.succeed(
+            scheduleTimeReferenceFromLegacyFirstHour(referenceInstantEpochMs, options.hour),
+          ),
         loadRoomOrder: () =>
           Effect.succeed({
             eventStartEpochMs: 0,

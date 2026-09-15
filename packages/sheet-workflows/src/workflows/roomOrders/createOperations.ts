@@ -4,7 +4,7 @@ import {
   generatingRoomOrderMessage,
   roomOrderDraftMessage,
 } from "sheet-message-content/roomOrderMessage";
-import { fillParticipantFromName, hourWindowFor } from "sheet-message-content/rendering";
+import { fillParticipantFromName } from "sheet-message-content/rendering";
 import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import type { InteractiveDeclaredFailure } from "sheet-workflow-contracts";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
@@ -23,6 +23,8 @@ import {
 } from "../shared/interactive";
 import { providerCauseKind } from "../shared/providerFailure";
 import { calculateRoomOrderEntries } from "./createCalculation";
+import { scheduleHourForInstant, scheduleHourWindowFor } from "../shared/scheduleTime";
+import { resolveRoomOrderScheduleTimeReference } from "./timing";
 import { RoomOrderCreateProvider, RoomOrderCreateProviderError } from "./createProvider";
 import type {
   RoomOrderCreateBindingOutcome,
@@ -236,16 +238,43 @@ export const roomOrderCreateOperationsLayer = Layer.effect(
         const view = yield* provider
           .load(active.value.spreadsheetId, conversation.name.trim(), active.value.configuration)
           .pipe(Effect.catch(providerRejected));
+        const scheduleTimeReference = yield* resolveRoomOrderScheduleTimeReference(
+          active.value,
+          Effect.gen(function* () {
+            const startTime = yield* Option.match(DateTime.make(view.eventStartEpochMs), {
+              onNone: () =>
+                Effect.fail(
+                  interactiveExternalOperationRejected(
+                    "roomOrders.create.loadRoomOrderDraft",
+                    "InvalidProviderResponse",
+                    "The room-order provider returned an invalid event start time",
+                  ),
+                ),
+              onSome: Effect.succeed,
+            });
+            return yield* provider
+              .loadLegacyScheduleTimeReference({
+                spreadsheetId: active.value.spreadsheetId,
+                referenceInstantEpochMs: DateTime.toEpochMillis(startTime),
+                configuration: active.value.configuration,
+              })
+              .pipe(Effect.catch(providerRejected));
+          }),
+        );
+        if (Predicate.isUndefined(scheduleTimeReference)) {
+          return yield* Effect.fail(
+            interactiveConfigurationMissing("workspace.sheetScheduleConfiguration"),
+          );
+        }
         const hour = Predicate.isNumber(input.hour)
           ? input.hour
           : yield* Clock.currentTimeMillis.pipe(
               Effect.map((now) => DateTime.makeUnsafe(now)),
               Effect.map(DateTime.addDuration(Duration.minutes(20))),
               Effect.map(DateTime.startOf("hour")),
-              Effect.map((currentHour) => {
-                const startTime = DateTime.makeUnsafe(view.eventStartEpochMs);
-                return Math.floor(Duration.toHours(DateTime.distance(startTime, currentHour))) + 1;
-              }),
+              Effect.map((currentHour) =>
+                scheduleHourForInstant(scheduleTimeReference, currentHour),
+              ),
             );
         const schedulesByHour = new Map(
           view.schedules.flatMap((schedule) =>
@@ -279,8 +308,7 @@ export const roomOrderCreateOperationsLayer = Layer.effect(
         }
         const maxRank = Math.max(...entries.map(({ rank }) => rank));
         const range = { minRank: 0 as const, maxRank };
-        const startTime = DateTime.makeUnsafe(view.eventStartEpochMs);
-        const { start, end } = hourWindowFor({ startTime }, hour);
+        const { start, end } = scheduleHourWindowFor(scheduleTimeReference, hour);
         const content = buildRoomOrderContent(
           hour,
           start,

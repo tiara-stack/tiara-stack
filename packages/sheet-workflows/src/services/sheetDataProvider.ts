@@ -13,7 +13,7 @@ import {
 import { BotTextPart, conversationRefFrom } from "sheet-bot-api";
 import { makeMonitorCheckinMessage } from "sheet-message-content/checkinSummary";
 import { buildRoomOrderContent } from "sheet-message-content/roomOrderContent";
-import { fillParticipantFromName, hourWindowFor } from "sheet-message-content/rendering";
+import { fillParticipantFromName } from "sheet-message-content/rendering";
 import * as MessageText from "sheet-message-content/text";
 import {
   scheduleHourOrigin,
@@ -30,8 +30,10 @@ import type { EffectivePrincipal } from "sheet-auth/identity";
 import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import { config } from "@/config";
 import {
+  establishedScheduleTimeReferenceFor,
   resolveAuthoritativeSheetConfigurationForWorkspace,
   resolveAuthoritativeSpreadsheetId,
+  type AuthoritativeSheetConfiguration,
 } from "./authoritativeSheetConfiguration";
 import { calculateRoomOrderEntries } from "@/workflows/roomOrders/createCalculation";
 import {
@@ -47,6 +49,11 @@ import {
   renderTemplate,
 } from "@/workflows/shared/checkinPresentation";
 import { indexSchedulesByHour } from "@/workflows/shared/runnerLocalSheets";
+import {
+  scheduleHourForInstant,
+  scheduleHourWindowFor,
+  scheduleTimeReferenceFor,
+} from "@/workflows/shared/scheduleTime";
 
 export const CheckinGeneration = Schema.Struct({
   hour: Schema.Number,
@@ -401,6 +408,7 @@ const resolveConversation = (
       spreadsheetId: active.spreadsheetId,
       configuration: active.configuration,
       workspace: workspaceConfig,
+      active,
       conversation: {
         id: selected.conversationId,
         name: selected.name.trim(),
@@ -501,17 +509,6 @@ const pickCheckinTemplate = Effect.gen(function* () {
   return checkinMessageTemplates[checkinMessageTemplates.length - 1]!.value;
 });
 
-const eventHour = (
-  eventStartEpochMs: number,
-  hour: number,
-  scheduleHours: ReadonlyArray<number | null>,
-) =>
-  hourWindowFor(
-    { startTime: DateTime.makeUnsafe(eventStartEpochMs) },
-    hour,
-    scheduleHourOrigin(scheduleHours),
-  );
-
 const asProviderError = <A>(
   operation: SheetDataProviderError["operation"],
   effect: Effect.Effect<A, unknown>,
@@ -526,15 +523,47 @@ const makeSheetDataProvider = (
   const resolve = <A extends { readonly workspaceId: WorkspaceId }>(input: A) =>
     resolveConversation(persistence, input);
 
+  const resolveTimingReference = (options: {
+    readonly active: AuthoritativeSheetConfiguration;
+    readonly spreadsheetId: string;
+    readonly configuration: AuthoritativeSheetConfiguration["configuration"];
+    readonly referenceInstantEpochMs: number;
+  }) =>
+    Option.match(establishedScheduleTimeReferenceFor(options.active), {
+      onSome: Effect.succeed,
+      onNone: () =>
+        scheduleProvider.loadAll(options.spreadsheetId, options.configuration).pipe(
+          Effect.map(({ schedules }) =>
+            scheduleTimeReferenceFor({
+              referenceInstantEpochMs: options.referenceInstantEpochMs,
+              legacyHours: schedules.map(({ hour }) => hour),
+            }),
+          ),
+          Effect.flatMap((reference) =>
+            Predicate.isUndefined(reference)
+              ? Effect.fail(new Error("The complete schedule has no timing evidence"))
+              : Effect.succeed(reference),
+          ),
+          Effect.mapError(providerError("read-schedules")),
+        ),
+    });
+
   const generateCheckin = (input: CheckinGenerationInput) =>
     // Check-in generation keeps the read, participant movement, and rendered response together.
     // fallow-ignore-next-line complexity
     Effect.gen(function* () {
-      const { spreadsheetId, configuration, workspace, conversation } = yield* resolve(input);
+      const { spreadsheetId, configuration, workspace, active, conversation } =
+        yield* resolve(input);
       const view = yield* asProviderError(
         "read-checkin",
         checkinProvider.loadCheckin(spreadsheetId, conversation.name, configuration),
       );
+      const timingReference = yield* resolveTimingReference({
+        active,
+        spreadsheetId,
+        configuration,
+        referenceInstantEpochMs: view.eventStartEpochMs,
+      });
       const schedulesByHour = indexSchedulesByHour(view.schedules);
       // fallow-ignore-next-line code-duplication
       const hour =
@@ -546,16 +575,7 @@ const makeSheetDataProvider = (
                 DateTime.addDuration(Duration.minutes(20)),
               );
               const currentHour = DateTime.startOf(now, "hour");
-              const scheduleStartHour = scheduleHourOrigin(
-                view.schedules.map(({ hour: scheduleHour }) => scheduleHour),
-              );
-              return (
-                Math.floor(
-                  Duration.toHours(
-                    DateTime.distance(DateTime.makeUnsafe(view.eventStartEpochMs), currentHour),
-                  ),
-                ) + scheduleStartHour
-              );
+              return scheduleHourForInstant(timingReference, currentHour);
             });
       const previous = schedulesByHour.get(hour - 1);
       const current = schedulesByHour.get(hour);
@@ -578,11 +598,7 @@ const makeSheetDataProvider = (
               savedTemplate: undefined,
               fallbackTemplate: yield* pickCheckinTemplate,
             });
-      const window = eventHour(
-        view.eventStartEpochMs,
-        hour,
-        view.schedules.map(({ hour: scheduleHour }) => scheduleHour),
-      );
+      const window = scheduleHourWindowFor(timingReference, hour);
       const conversationText = Predicate.isString(conversation.roleId)
         ? MessageText.parts(MessageText.text(`head to ${conversation.name}`))
         : MessageText.parts(
@@ -676,11 +692,17 @@ const makeSheetDataProvider = (
     // Room-order generation keeps the read, calculation, and rendered response together.
     // fallow-ignore-next-line complexity
     Effect.gen(function* () {
-      const { spreadsheetId, configuration, conversation } = yield* resolve(input);
+      const { spreadsheetId, configuration, active, conversation } = yield* resolve(input);
       const view = yield* asProviderError(
         "read-room-order",
         checkinProvider.loadRoomOrder(spreadsheetId, conversation.name, configuration),
       );
+      const timingReference = yield* resolveTimingReference({
+        active,
+        spreadsheetId,
+        configuration,
+        referenceInstantEpochMs: view.eventStartEpochMs,
+      });
       const hour =
         Predicate.isNumber(input.hour) && Number.isFinite(input.hour)
           ? input.hour
@@ -690,16 +712,7 @@ const makeSheetDataProvider = (
                 DateTime.addDuration(Duration.minutes(20)),
               );
               const currentHour = DateTime.startOf(now, "hour");
-              const scheduleStartHour = scheduleHourOrigin(
-                view.schedules.map(({ hour: scheduleHour }) => scheduleHour),
-              );
-              return (
-                Math.floor(
-                  Duration.toHours(
-                    DateTime.distance(DateTime.makeUnsafe(view.eventStartEpochMs), currentHour),
-                  ),
-                ) + scheduleStartHour
-              );
+              return scheduleHourForInstant(timingReference, currentHour);
             });
       const schedulesByHour = indexSchedulesByHour(view.schedules);
       const previous = schedulesByHour.get(hour - 1);
@@ -724,11 +737,7 @@ const makeSheetDataProvider = (
         );
       }
       const maxRank = Math.max(...entries.map(({ rank }) => rank));
-      const window = eventHour(
-        view.eventStartEpochMs,
-        hour,
-        view.schedules.map(({ hour: scheduleHour }) => scheduleHour),
-      );
+      const window = scheduleHourWindowFor(timingReference, hour);
       return {
         content: buildRoomOrderContent(
           hour,
