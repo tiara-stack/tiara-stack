@@ -594,6 +594,35 @@ const executorError = (operation: string) => (cause: unknown) =>
     cause,
   );
 
+const stringProperty = (value: unknown, property: string): string | undefined =>
+  Predicate.isObject(value) &&
+  Predicate.hasProperty(value, property) &&
+  Predicate.isString(value[property])
+    ? value[property]
+    : undefined;
+
+const errorCode = (cause: unknown): string | undefined => {
+  const directCode = stringProperty(cause, "code");
+  if (directCode !== undefined) return directCode;
+  return Predicate.isTagged("ArgumentError")(cause) && Predicate.hasProperty(cause, "cause")
+    ? stringProperty(cause.cause, "code")
+    : undefined;
+};
+
+const postgresErrorDetails = (cause: unknown): { readonly postgresCode: string | undefined } => {
+  const code = errorCode(cause);
+  return { postgresCode: /^[0-9A-Z]{5}$/.test(code ?? "") ? code : undefined };
+};
+
+const logExecutorFailure = (operation: string) => (cause: unknown) => {
+  const details = postgresErrorDetails(cause);
+  const executor = details.postgresCode === undefined ? "database" : "PostgreSQL";
+  const message = `Sheet ${executor} executor failed to ${operation}${
+    details.postgresCode === undefined ? "" : ` (code=${details.postgresCode})`
+  }`;
+  return Effect.logError(message).pipe(Effect.annotateLogs({ operation }));
+};
+
 const retryableTransactionFailureCodes = new Set(["40001", "40P01"]);
 const isRetryableTransactionFailure = (cause: unknown) =>
   Predicate.hasProperty(cause, "code") &&
@@ -659,6 +688,7 @@ const makePostgresExecutor = <ClientContext>({
           while: isRetryableTransactionFailure,
           schedule: Schedule.exponential("10 millis").pipe(Schedule.jittered),
         }),
+        Effect.tapError(logExecutorFailure("run query")),
         Effect.mapError(executorError("run query")),
       );
 
@@ -683,6 +713,7 @@ const makePostgresExecutor = <ClientContext>({
                 while: isRetryableTransactionFailure,
                 schedule: Schedule.exponential("10 millis").pipe(Schedule.jittered),
               }),
+              Effect.tapError(logExecutorFailure("run mutation")),
               Effect.mapError(executorError("run mutation")),
               Effect.asVoid,
             ),

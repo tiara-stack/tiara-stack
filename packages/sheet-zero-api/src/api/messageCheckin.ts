@@ -73,7 +73,8 @@ const upsertCheckinMembers = async (
   key: CheckinKey,
   memberIds: ReadonlyArray<string>,
 ) => {
-  // A Zero transaction is not reentrant. Keep each member read/write pair sequential.
+  // Keep each member read/write pair sequential; the Zero transaction interface
+  // does not define a concurrency contract for individual operations.
   for (const memberId of memberIds) {
     const existingMember = await tx.run(
       zeroTableAccess.messageCheckinMember.table
