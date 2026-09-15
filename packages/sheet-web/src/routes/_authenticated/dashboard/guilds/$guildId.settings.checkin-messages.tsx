@@ -1,6 +1,6 @@
 import { useAtomRefresh, useAtomSuspense } from "@effect/atom-react";
 import { createFileRoute, type RegisteredRouter, useBlocker } from "@tanstack/react-router";
-import { DateTime, Duration, Effect, Option, Predicate } from "effect";
+import { DateTime, Effect, Option, Predicate } from "effect";
 import { AsyncResult } from "effect/unstable/reactivity";
 import {
   AlertTriangle,
@@ -26,7 +26,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from "react";
-import { scheduleHourOrigin } from "sheet-domain";
+import { scheduleHourInterval, type ScheduleTimeReference } from "sheet-domain";
 import type {
   CheckinMessageConflict,
   CheckinMessagesLoadSuccess,
@@ -48,7 +48,11 @@ import {
   withSavedCheckinMessage,
   type CheckinMessageChannel,
 } from "#/lib/checkinMessages";
-import { computeScheduleHour, scheduleStart, workspaceScheduleAtom } from "#/lib/schedule";
+import {
+  computeScheduleHour,
+  scheduleTimeReferenceForResponse,
+  workspaceScheduleAtom,
+} from "#/lib/schedule";
 import { declaredWorkflowFailure } from "#/lib/sheetZero";
 import { currentUserAtom } from "#/lib/discord";
 import {
@@ -58,7 +62,7 @@ import {
 } from "#/lib/guildConfig";
 import { useNowByHour } from "#/lib/dateTime";
 import { useTimeZone } from "#/hooks/useTimeZone";
-import { useZoned, zoneId } from "#/hooks/useDateTimeZoned";
+import { zoneId } from "#/hooks/useDateTimeZoned";
 import { NavigationConfirmation } from "./$guildId.settings";
 
 export const Route = createFileRoute(
@@ -105,14 +109,13 @@ type CheckinHourOption = {
 const padTimePart = (part: number) => String(part).padStart(2, "0");
 
 const formatCheckinHourWindow = (
-  eventStartEpochMs: number,
+  scheduleTimeReference: ScheduleTimeReference,
   hour: number,
-  scheduleStartHour: number,
   timeZone: DateTime.TimeZone,
 ): HourWindowLabel => {
-  const startUtc = scheduleStart(DateTime.makeUnsafe(eventStartEpochMs), hour, scheduleStartHour);
-  const start = DateTime.setZone(startUtc, timeZone);
-  const end = DateTime.setZone(DateTime.addDuration(startUtc, Duration.hours(1)), timeZone);
+  const interval = scheduleHourInterval(scheduleTimeReference, hour);
+  const start = DateTime.setZone(interval.start, timeZone);
+  const end = DateTime.setZone(interval.end, timeZone);
   const startParts = DateTime.toParts(start);
   const endParts = DateTime.toParts(end);
   const date = new Intl.DateTimeFormat(undefined, {
@@ -245,19 +248,18 @@ function LoadedCheckinMessagesSection({
   );
   const timeZone = useTimeZone();
   const nowByHour = useNowByHour(timeZone);
-  const eventStart = useMemo(
-    () => DateTime.makeUnsafe(schedule.eventConfig.startTimeEpochMs),
-    [schedule.eventConfig.startTimeEpochMs],
-  );
-  const eventStartZoned = useZoned(timeZone, eventStart);
   const allHours = useMemo(() => channels.flatMap((channel) => channel.hours), [channels]);
-  const scheduleStartHour = useMemo(
-    () => scheduleHourOrigin(schedule.populatedSchedules.map(({ hour }) => hour)),
-    [schedule.populatedSchedules],
+  const scheduleTimeReference = useMemo(
+    () => scheduleTimeReferenceForResponse(schedule.eventConfig, schedule.populatedSchedules),
+    [
+      schedule.eventConfig.scheduleTimeReference,
+      schedule.eventConfig.startTimeEpochMs,
+      schedule.populatedSchedules,
+    ],
   );
   const maxScheduleHour = allHours.length > 0 ? Math.max(...allHours) : 0;
   const currentHour = Option.getOrUndefined(
-    computeScheduleHour(eventStartZoned, nowByHour, maxScheduleHour, scheduleStartHour),
+    computeScheduleHour(scheduleTimeReference, nowByHour, maxScheduleHour),
   );
   const [selectedChannelName, setSelectedChannelName] = useState<string>();
   const [selectedHour, setSelectedHour] = useState<number>();
@@ -311,6 +313,19 @@ function LoadedCheckinMessagesSection({
       >
         Configure at least one running channel with a schedule hour before preparing check-in
         messages. This page does not change channel or sheet configuration.
+      </CheckinNotice>
+    );
+  }
+
+  if (scheduleTimeReference === undefined) {
+    return (
+      <CheckinNotice
+        icon={<AlertTriangle />}
+        eyebrow="SCHEDULE TIMING UNAVAILABLE"
+        title="The schedule timing reference is unresolved"
+      >
+        Refresh the schedule or establish its event/chapter reference in Sheet mappings before
+        editing saved check-in messages.
       </CheckinNotice>
     );
   }
@@ -370,8 +385,7 @@ function LoadedCheckinMessagesSection({
             workspaceId={guildId}
             channel={activeChannel}
             hour={activeHour}
-            eventStartEpochMs={schedule.eventConfig.startTimeEpochMs}
-            scheduleStartHour={scheduleStartHour}
+            scheduleTimeReference={scheduleTimeReference}
             timeZone={timeZone}
             isCurrentHour={activeHour === currentHour}
             isYourMoniHour={activeChannel.moniHours.includes(activeHour)}
@@ -383,8 +397,7 @@ function LoadedCheckinMessagesSection({
           className="lg:col-start-1 lg:row-start-1"
           workspaceId={guildId}
           channels={channels}
-          eventStartEpochMs={schedule.eventConfig.startTimeEpochMs}
-          scheduleStartHour={scheduleStartHour}
+          scheduleTimeReference={scheduleTimeReference}
           scheduleSummaries={schedule.populatedSchedules}
           selectedChannelName={activeChannel.name}
           selectedHour={activeHour}
@@ -402,8 +415,7 @@ function ChannelHourNavigator({
   className,
   workspaceId,
   channels,
-  eventStartEpochMs,
-  scheduleStartHour,
+  scheduleTimeReference,
   scheduleSummaries,
   selectedChannelName,
   selectedHour,
@@ -415,8 +427,7 @@ function ChannelHourNavigator({
   readonly className?: string;
   readonly workspaceId: string;
   readonly channels: ReadonlyArray<CheckinMessageChannel>;
-  readonly eventStartEpochMs: number;
-  readonly scheduleStartHour: number;
+  readonly scheduleTimeReference: ScheduleTimeReference;
   readonly scheduleSummaries: SchedulesLoadWorkspaceSuccess["populatedSchedules"];
   readonly selectedChannelName: string;
   readonly selectedHour: number;
@@ -453,8 +464,7 @@ function ChannelHourNavigator({
       <EventRelativeHourPicker
         workspaceId={workspaceId}
         channel={selectedChannel}
-        eventStartEpochMs={eventStartEpochMs}
-        scheduleStartHour={scheduleStartHour}
+        scheduleTimeReference={scheduleTimeReference}
         scheduleSummaries={scheduleSummaries}
         selectedHour={selectedHour}
         currentHour={currentHour}
@@ -483,8 +493,7 @@ function ChannelHourNavigator({
 function EventRelativeHourPicker({
   workspaceId,
   channel,
-  eventStartEpochMs,
-  scheduleStartHour,
+  scheduleTimeReference,
   scheduleSummaries,
   selectedHour,
   currentHour,
@@ -494,8 +503,7 @@ function EventRelativeHourPicker({
 }: {
   readonly workspaceId: string;
   readonly channel: CheckinMessageChannel;
-  readonly eventStartEpochMs: number;
-  readonly scheduleStartHour: number;
+  readonly scheduleTimeReference: ScheduleTimeReference;
   readonly scheduleSummaries: SchedulesLoadWorkspaceSuccess["populatedSchedules"];
   readonly selectedHour: number;
   readonly currentHour: number | undefined;
@@ -537,12 +545,7 @@ function EventRelativeHourPicker({
           const current = hour === currentHour;
           const moni = moniHoursAvailable && channel.moniHours.includes(hour);
           const breakHour = breakHours.has(hour);
-          const window = formatCheckinHourWindow(
-            eventStartEpochMs,
-            hour,
-            scheduleStartHour,
-            timeZone,
-          );
+          const window = formatCheckinHourWindow(scheduleTimeReference, hour, timeZone);
           return {
             hour,
             window,
@@ -569,9 +572,8 @@ function EventRelativeHourPicker({
       channel.moniHours,
       currentHour,
       customHours,
-      eventStartEpochMs,
       moniHoursAvailable,
-      scheduleStartHour,
+      scheduleTimeReference,
       timeZone,
     ],
   );
@@ -904,8 +906,7 @@ function HourlyMessageEditor({
   workspaceId,
   channel,
   hour,
-  eventStartEpochMs,
-  scheduleStartHour,
+  scheduleTimeReference,
   timeZone,
   isCurrentHour,
   isYourMoniHour,
@@ -915,8 +916,7 @@ function HourlyMessageEditor({
   readonly workspaceId: string;
   readonly channel: CheckinMessageChannel;
   readonly hour: number;
-  readonly eventStartEpochMs: number;
-  readonly scheduleStartHour: number;
+  readonly scheduleTimeReference: ScheduleTimeReference;
   readonly timeZone: DateTime.TimeZone;
   readonly isCurrentHour: boolean;
   readonly isYourMoniHour: boolean;
@@ -942,7 +942,7 @@ function HourlyMessageEditor({
   const observedAtomLoadedFingerprintRef = useRef(atomLoadedFingerprint);
   const loaded = loadedOverride ?? atomLoaded;
   const message = loaded === undefined ? undefined : checkinMessageForHour(loaded, hour);
-  const hourWindow = formatCheckinHourWindow(eventStartEpochMs, hour, scheduleStartHour, timeZone);
+  const hourWindow = formatCheckinHourWindow(scheduleTimeReference, hour, timeZone);
   const incomingTemplate = message?.template ?? null;
   const incomingBinding = loaded?.binding;
   const incomingFingerprint = loaded
@@ -1158,6 +1158,10 @@ function HourlyMessageEditor({
   }
 
   const custom = savedTemplate !== null;
+  const timingReferenceLabel =
+    scheduleTimeReference.kind === "event-start"
+      ? "Event starts"
+      : `Chapter starts at event hour ${scheduleTimeReference.hour}`;
   const hourIndex = channel.hours.indexOf(hour);
   const previousHour = hourIndex > 0 ? channel.hours[hourIndex - 1] : undefined;
   const nextHour = hourIndex < channel.hours.length - 1 ? channel.hours[hourIndex + 1] : undefined;
@@ -1190,7 +1194,9 @@ function HourlyMessageEditor({
               ) : null}
             </h2>
             <p className="mt-2 hidden text-xs leading-relaxed text-white/55 sm:block">
-              Event started {formatEventStart(eventStartEpochMs)}. Selected window{" "}
+              {timingReferenceLabel}{" "}
+              {formatEventStart(DateTime.toEpochMillis(scheduleTimeReference.instant))}. Selected
+              window{" "}
               <span className="font-bold text-white/75">
                 {hourWindow.label} · {zoneId(timeZone)}
               </span>

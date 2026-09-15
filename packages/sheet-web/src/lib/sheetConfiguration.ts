@@ -39,6 +39,7 @@ import {
 } from "sheet-workflow-contracts";
 import { runtimeAtom } from "#/lib/runtime";
 import { runSheetWorkflow, sheetZeroClientAtom } from "#/lib/sheetZero";
+import { scheduleReactivityKey } from "#/lib/schedule";
 import { makeQuery } from "typhoon-zero/zeroApiAtom";
 import { decodeOptionalQueryResult } from "./zeroQuery";
 
@@ -217,7 +218,11 @@ export const useRefreshSheetConfigurationRevisions = (workspaceId: string) =>
   useAtomRefresh(sheetConfigurationRevisionsAtom(workspaceId));
 
 const invalidateConfiguration = (workspaceId: string) =>
-  Reactivity.invalidate([configurationKey(workspaceId), revisionsKey(workspaceId)]);
+  Reactivity.invalidate([
+    configurationKey(workspaceId),
+    revisionsKey(workspaceId),
+    scheduleReactivityKey(workspaceId),
+  ]);
 
 // The fallback preserves request-ID generation in runtimes without crypto.randomUUID.
 // fallow-ignore-next-line complexity

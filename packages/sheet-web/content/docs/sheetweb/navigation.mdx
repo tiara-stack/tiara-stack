@@ -32,10 +32,16 @@ calendar, and server settings pages are separate destinations and can be bookmar
 
 ## How schedule hours map to time
 
-Schedule hours are global across the event, but legacy sheets can use an offset label. The first
-populated schedule hour is the event-time origin for that workspace: if the first label is 49,
-hour 49 is at the event start, hour 50 is one hour later, and hour 77 is 28 hours later. The
-**day** number only identifies the schedule sheet; it is not an additional time offset.
+Schedule hours are one-based and global across the full event. Schedule Hour 1 begins at the
+**event start**, and Schedule Hour 82 begins 81 elapsed hours later. The **day** number only
+identifies the schedule sheet; it is not an additional time offset.
+
+Some existing workspaces are configured from a **chapter start** instead of the full event start.
+That reference includes the chapter's event-wide first hour. For example, a chapter starting on
+September 9 at 03:00 UTC at hour 49 means hour 49 is at that timestamp, hour 50 is one hour later,
+and hour 82 is on September 10 at 12:00 UTC. SheetWeb keeps that established reference stable when
+rows are added, removed, hidden, or reordered; it does not infer the event clock from whichever row
+happens to appear first.
 
 ## Manage a server
 

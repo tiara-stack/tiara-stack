@@ -13,6 +13,7 @@ import {
 import { motion } from "motion/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { DateTime, Option, Effect, pipe, HashMap, Array, Duration, Predicate } from "effect";
+import { scheduleTimeReferenceFromMetadata, type ScheduleTimeReference } from "sheet-domain";
 
 import { ensureResultAtomData, isBrowserRuntime } from "#/lib/atomRegistry";
 import {
@@ -422,7 +423,13 @@ function DailyScheduleContent() {
   // Load schedules and eventConfig
   const allSchedules = useGuildSchedule(guildId);
   const eventConfig = useEventConfig(guildId);
-  const startTimeZoned = useZoned(timeZone, eventConfig.startTime);
+  const scheduleTimeReference = useMemo(
+    () =>
+      eventConfig.scheduleTimeReference === undefined
+        ? undefined
+        : scheduleTimeReferenceFromMetadata(eventConfig.scheduleTimeReference),
+    [eventConfig.scheduleTimeReference],
+  );
   const channelSchedules = useMemo(
     () => allSchedules.filter((s) => s.channel === channel).filter(hasHour),
     [allSchedules, channel],
@@ -608,8 +615,7 @@ function DailyScheduleContent() {
                 date={dayData.dateKey}
                 schedulesByDateTime={dayData.schedulesByDateTime}
                 isActive={isActive}
-                startTimeZoned={startTimeZoned}
-                scheduleStartHour={eventConfig.scheduleStartHour}
+                scheduleTimeReference={scheduleTimeReference}
                 maxHour={maxScheduleHour}
                 dayByScheduleHour={dayByScheduleHour}
                 currentUserId={currentUser.id}
@@ -897,8 +903,7 @@ interface DateBlockProps {
   date: DateTime.Zoned;
   schedulesByDateTime: HashMap.HashMap<DateTime.Zoned, Schedule.PopulatedScheduleResult[]>;
   isActive: boolean;
-  startTimeZoned: DateTime.Zoned;
-  scheduleStartHour: number;
+  scheduleTimeReference: ScheduleTimeReference | undefined;
   maxHour: number;
   dayByScheduleHour: HashMap.HashMap<number, number>;
   currentUserId: string | undefined;
@@ -909,8 +914,7 @@ function DateBlock({
   date,
   schedulesByDateTime,
   isActive,
-  startTimeZoned,
-  scheduleStartHour,
+  scheduleTimeReference,
   maxHour,
   dayByScheduleHour,
   currentUserId,
@@ -932,12 +936,7 @@ function DateBlock({
           const isCurrentHour = DateTime.Equivalence(dateTimeHour, currentHourKey);
 
           // Compute schedule hour from datetime using computeScheduleHour
-          const scheduleHour = computeScheduleHour(
-            startTimeZoned,
-            dateTimeHour,
-            maxHour,
-            scheduleStartHour,
-          );
+          const scheduleHour = computeScheduleHour(scheduleTimeReference, dateTimeHour, maxHour);
 
           // Look up schedule day from dayByScheduleHour using scheduleHour
           const scheduleDay = Option.flatMap(scheduleHour, (hour) =>
@@ -987,15 +986,7 @@ function DateBlock({
           };
         }),
       ),
-    [
-      date,
-      schedulesByDateTime,
-      startTimeZoned,
-      scheduleStartHour,
-      maxHour,
-      dayByScheduleHour,
-      currentHourKey,
-    ],
+    [date, schedulesByDateTime, scheduleTimeReference, maxHour, dayByScheduleHour, currentHourKey],
   );
 
   return (

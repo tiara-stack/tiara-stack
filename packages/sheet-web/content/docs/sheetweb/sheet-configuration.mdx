@@ -38,6 +38,19 @@ If the legacy tab has moved, been renamed ambiguously, or no longer matches its 
 the import can finish with diagnostics instead of a usable configuration. Resolve those
 diagnostics in the editor or restore the legacy layout before trying again.
 
+## Establish the schedule time reference
+
+Schedule Hour is an event-wide, one-based value. A full-event reference starts at Schedule Hour 1.
+An existing chapter can use a chapter-start reference instead, paired with the chapter's first
+event-wide hour—for example, a chapter starting at hour 49 keeps hour 49 at its configured start
+time.
+
+When SheetWeb finds an older configuration without an established reference, the review flow shows
+the workspace-wide compatibility mapping before it is applied. Review the proposed reference and
+its hour/time examples, then establish it from the Sheet mappings editor. The mapping is validated
+against the active source and remains stable when schedule rows or visibility change; it is never
+re-based on the first visible row.
+
 For a server without an existing legacy setup, enter a Google spreadsheet ID in Overview and
 choose **Create draft**. You can then map its tabs and ranges.
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import {
   resolveScheduleMonitorAccountId,
   resolveSchedulePlayerAccountIds,
+  scheduleTimeReferenceMetadataForScheduleProjection,
   selectCheckinTemplate,
 } from "./sheetDataProvider";
 
@@ -72,5 +73,39 @@ describe("selectCheckinTemplate", () => {
         fallbackTemplate: "random",
       }),
     ).toBe("random");
+  });
+});
+
+describe("scheduleTimeReferenceMetadataForScheduleProjection", () => {
+  const chapterStartEpochMs = Date.UTC(2026, 8, 9, 3);
+
+  it("infers a legacy chapter reference from complete schedule evidence", () => {
+    expect(
+      scheduleTimeReferenceMetadataForScheduleProjection({
+        eventStartEpochMs: chapterStartEpochMs,
+        scheduleHours: [193, null, 49, 82],
+        establishedReference: undefined,
+      }),
+    ).toEqual({
+      kind: "chapter-start",
+      instantEpochMs: chapterStartEpochMs,
+      hour: 49,
+    });
+  });
+
+  it("keeps the established reference stable when rows change", () => {
+    const establishedReference = {
+      kind: "event-start" as const,
+      instantEpochMs: Date.UTC(2026, 8, 7, 3),
+      hour: 1 as const,
+    };
+
+    expect(
+      scheduleTimeReferenceMetadataForScheduleProjection({
+        eventStartEpochMs: chapterStartEpochMs,
+        scheduleHours: [49, 82],
+        establishedReference,
+      }),
+    ).toBe(establishedReference);
   });
 });

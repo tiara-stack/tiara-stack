@@ -1,32 +1,108 @@
 import { DateTime, Option, Predicate } from "effect";
 import { describe, expect, it } from "@effect/vitest";
+import {
+  makeChapterStartReference,
+  makeEventStartReference,
+  scheduleTimeReferenceMetadataFrom,
+} from "sheet-domain";
 import { SchedulesLoadWorkspaceSuccess } from "sheet-workflow-contracts";
-import { scheduleFromSummary, scheduleStart } from "./schedule";
+import {
+  computeScheduleHour,
+  scheduleFromSummary,
+  scheduleStart,
+  scheduleTimeReferenceForResponse,
+} from "./schedule";
 
-const eventStart = DateTime.makeUnsafe("2026-01-01T00:00:00.000Z");
+const eventStart = DateTime.makeUnsafe("2026-09-07T03:00:00.000Z");
+const chapterStart = DateTime.makeUnsafe("2026-09-09T03:00:00.000Z");
+const chapterReference = makeChapterStartReference(chapterStart, 49);
+const capturedServerSchedule = {
+  serverId: "1486098790409568390",
+  eventStart,
+  chapterStart,
+  chapterReference,
+  hours: [193, 49, 82],
+} as const;
 
-const summary = {
+const summary = (
+  hour: number,
+): (typeof SchedulesLoadWorkspaceSuccess.Type)["populatedSchedules"][number] => ({
   conversationName: "raid",
   day: 3,
   visible: true,
-  hour: 49,
+  hour,
   break: false,
   playerNames: ["Theerie"],
   playerAccountIds: ["account-theerie"],
   monitorName: null,
-} satisfies (typeof SchedulesLoadWorkspaceSuccess.Type)["populatedSchedules"][number];
+});
 
 describe("schedule time projection", () => {
-  it("treats the first populated sheet hour as the event start", () => {
-    const start = scheduleStart(eventStart, 49, 49);
-    const next = scheduleStart(eventStart, 50, 49);
+  it("uses an established chapter reference for event-wide hour windows", () => {
+    const start = scheduleStart(chapterReference, 49);
+    const next = scheduleStart(chapterReference, 50);
 
-    expect(DateTime.toEpochMillis(start)).toBe(Date.UTC(2026, 0, 1));
-    expect(DateTime.toEpochMillis(next)).toBe(Date.UTC(2026, 0, 1, 1));
+    expect(DateTime.toEpochMillis(start)).toBe(Date.UTC(2026, 8, 9, 3));
+    expect(DateTime.toEpochMillis(next)).toBe(Date.UTC(2026, 8, 9, 4));
+  });
+
+  it(`projects captured server ${capturedServerSchedule.serverId} before filtering rows`, () => {
+    const reference = scheduleTimeReferenceForResponse(
+      { startTimeEpochMs: DateTime.toEpochMillis(capturedServerSchedule.chapterStart) },
+      capturedServerSchedule.hours.map(summary),
+    );
+
+    expect(reference).toEqual(capturedServerSchedule.chapterReference);
+
+    const chapterProjection = scheduleFromSummary(reference, summary(82));
+    const fullEventProjection = scheduleFromSummary(
+      makeEventStartReference(capturedServerSchedule.eventStart),
+      summary(82),
+    );
+
+    expect(chapterProjection.hourWindow).toEqual(fullEventProjection.hourWindow);
+    expect(DateTime.toEpochMillis(Option.getOrThrow(chapterProjection.hourWindow).start)).toBe(
+      Date.UTC(2026, 8, 10, 12),
+    );
+    expect(
+      DateTime.toEpochMillis(
+        Option.getOrThrow(scheduleFromSummary(reference, summary(193)).hourWindow).start,
+      ),
+    ).toBe(Date.UTC(2026, 8, 15, 3));
+  });
+
+  it("prefers the explicit response reference over legacy row inference", () => {
+    const reference = scheduleTimeReferenceForResponse(
+      {
+        startTimeEpochMs: DateTime.toEpochMillis(chapterStart),
+        scheduleTimeReference: scheduleTimeReferenceMetadataFrom(
+          makeEventStartReference(eventStart),
+        ),
+      },
+      [summary(49)],
+    );
+
+    expect(reference).toEqual(makeEventStartReference(eventStart));
+  });
+
+  it("uses the resolved reference for date-to-hour navigation", () => {
+    expect(
+      Option.getOrThrow(
+        computeScheduleHour(chapterReference, DateTime.makeUnsafe("2026-09-09T03:00:00.000Z"), 193),
+      ),
+    ).toBe(49);
+    expect(
+      Option.getOrThrow(
+        computeScheduleHour(chapterReference, DateTime.makeUnsafe("2026-09-10T12:00:00.000Z"), 193),
+      ),
+    ).toBe(82);
+    expect(
+      computeScheduleHour(chapterReference, DateTime.makeUnsafe("2026-09-09T02:59:59.999Z"), 193),
+    ).toEqual(Option.none());
   });
 
   it("keeps schedule identity for current-player highlighting", () => {
-    const projected = scheduleFromSummary(eventStart, 49, summary);
+    const projected = scheduleFromSummary(chapterReference, summary(49));
 
     expect(Predicate.isTagged("PopulatedSchedule")(projected)).toBe(true);
     if (!Predicate.isTagged("PopulatedSchedule")(projected)) return;
@@ -37,19 +113,19 @@ describe("schedule time projection", () => {
 
     expect(player.player.id).toBe("account-theerie");
     expect(DateTime.toEpochMillis(Option.getOrThrow(projected.hourWindow).start)).toBe(
-      Date.UTC(2026, 0, 1),
+      Date.UTC(2026, 8, 9, 3),
     );
   });
 
   it("preserves numeric-hour break rows as breaks", () => {
-    const projected = scheduleFromSummary(eventStart, 49, { ...summary, break: true });
+    const projected = scheduleFromSummary(chapterReference, { ...summary(49), break: true });
 
     expect(Predicate.isTagged("PopulatedBreakSchedule")(projected)).toBe(true);
     if (!Predicate.isTagged("PopulatedBreakSchedule")(projected)) return;
 
     expect(Option.getOrThrow(projected.hour)).toBe(49);
     expect(DateTime.toEpochMillis(Option.getOrThrow(projected.hourWindow).start)).toBe(
-      Date.UTC(2026, 0, 1),
+      Date.UTC(2026, 8, 9, 3),
     );
   });
 });

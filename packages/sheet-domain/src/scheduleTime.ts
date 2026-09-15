@@ -148,6 +148,15 @@ export const scheduleTimeReferenceFromLegacy = (
       );
 };
 
+/** Converts complete legacy schedule evidence into the JSON-safe compatibility projection. */
+export const scheduleTimeReferenceMetadataFromLegacy = (
+  referenceInstantEpochMs: number,
+  hours: ReadonlyArray<number | null>,
+): ScheduleTimeReferenceMetadata | undefined => {
+  const reference = scheduleTimeReferenceFromLegacy(referenceInstantEpochMs, hours);
+  return reference === undefined ? undefined : scheduleTimeReferenceMetadataFrom(reference);
+};
+
 /**
  * Returns an explicit reference for an event configuration while keeping the stored timestamp
  * available as an identity input. A matching current reference is retained across an unrelated

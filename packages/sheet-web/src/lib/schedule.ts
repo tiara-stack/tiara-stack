@@ -12,7 +12,14 @@ import {
   Schema,
 } from "effect";
 import { Atom, AsyncResult } from "effect/unstable/reactivity";
-import { scheduleHourOrigin } from "sheet-domain";
+import {
+  scheduleHourAt,
+  scheduleHourInterval,
+  scheduleTimeReferenceFromMetadata,
+  scheduleTimeReferenceMetadataFromLegacy,
+  type ScheduleTimeReference,
+  type ScheduleTimeReferenceMetadata,
+} from "sheet-domain";
 import { SchedulesLoadWorkspaceSuccess, WorkspaceInput } from "sheet-workflow-contracts";
 import { useMemo } from "react";
 import { zoneId } from "#/hooks/useDateTimeZoned";
@@ -54,7 +61,41 @@ type ScheduleSummary = Schema.Schema.Type<
   typeof SchedulesLoadWorkspaceSuccess
 >["populatedSchedules"][number];
 
+type ScheduleEventConfig = SchedulesLoadWorkspaceSuccess["eventConfig"];
+
 const scheduleRefreshInterval = Duration.minutes(2);
+
+/** The reactivity key shared by schedule projections and Sheet Configuration mutations. */
+export const scheduleReactivityKey = (guildId: string) => `schedule.timing.${guildId}`;
+
+/**
+ * Resolves the timing reference carried by a workspace schedule response.
+ *
+ * The response reference is authoritative when present. The legacy fallback intentionally sees
+ * the complete workspace schedule projection so an older response cannot rebase itself on a
+ * conversation subset or whichever row happened to be returned first.
+ */
+export const scheduleTimeReferenceMetadataForResponse = (
+  eventConfig: ScheduleEventConfig,
+  schedules: ReadonlyArray<Pick<ScheduleSummary, "hour">>,
+): ScheduleTimeReferenceMetadata | undefined => {
+  if (eventConfig.scheduleTimeReference !== undefined) {
+    return eventConfig.scheduleTimeReference;
+  }
+
+  return scheduleTimeReferenceMetadataFromLegacy(
+    eventConfig.startTimeEpochMs,
+    schedules.map(({ hour }) => hour),
+  );
+};
+
+export const scheduleTimeReferenceForResponse = (
+  eventConfig: ScheduleEventConfig,
+  schedules: ReadonlyArray<Pick<ScheduleSummary, "hour">>,
+): ScheduleTimeReference | undefined => {
+  const metadata = scheduleTimeReferenceMetadataForResponse(eventConfig, schedules);
+  return metadata === undefined ? undefined : scheduleTimeReferenceFromMetadata(metadata);
+};
 
 export const workspaceScheduleAtom = Atom.family((guildId: string) =>
   Atom.make<Schema.Schema.Type<typeof SchedulesLoadWorkspaceSuccess>, unknown>(
@@ -71,21 +112,18 @@ export const workspaceScheduleAtom = Atom.family((guildId: string) =>
     // Schedules are read from Google Sheets through a one-shot workflow, so Zero cannot notify
     // this atom when the source changes. Refresh while the schedule is in use to avoid stale tabs.
     Atom.withRefresh(scheduleRefreshInterval),
+    Atom.withReactivity([scheduleReactivityKey(guildId)]),
     Atom.setIdleTTL(Duration.minutes(5)),
     Atom.serializable({
-      key: `schedules.loadWorkspace.v3.${guildId}`,
+      key: `schedules.loadWorkspace.v4.${guildId}`,
       schema: WorkspaceScheduleAsyncResultSchema,
     }),
   ),
 );
 
-/**
- * Schedule labels are global across the event, but legacy sheets can start at an offset label.
- * The first populated label is the event start: with an origin of 49, hour 49 is at eventStart
- * and hour 50 is one hour later. `day` is sheet metadata and must not be added to this timestamp.
- */
-export const scheduleStart = (eventStart: DateTime.Utc, hour: number, scheduleStartHour = 1) =>
-  DateTime.addDuration(eventStart, Duration.hours(hour - scheduleStartHour));
+/** Returns the start of an event-wide Schedule Hour from its resolved reference. */
+export const scheduleStart = (reference: ScheduleTimeReference, hour: number) =>
+  scheduleHourInterval(reference, hour).start;
 
 const partialPlayer = (name: string, accountId: string | null | undefined) =>
   new Schedule.PopulatedSchedulePlayer({
@@ -102,8 +140,7 @@ const partialMonitor = (name: string) =>
   });
 
 export const scheduleFromSummary = (
-  eventStart: DateTime.Utc,
-  scheduleStartHour: number,
+  scheduleTimeReference: ScheduleTimeReference | undefined,
   summary: ScheduleSummary,
 ): Schedule.PopulatedScheduleResult => {
   if (Predicate.isNull(summary.hour)) {
@@ -116,13 +153,15 @@ export const scheduleFromSummary = (
     });
   }
 
-  const start = scheduleStart(eventStart, summary.hour, scheduleStartHour);
-  const hourWindow = Option.some(
-    new Schedule.ScheduleHourWindow({
-      start,
-      end: DateTime.addDuration(start, Duration.hours(1)),
-    }),
-  );
+  const hourWindow =
+    scheduleTimeReference === undefined
+      ? Option.none()
+      : Option.some(
+          (() => {
+            const interval = scheduleHourInterval(scheduleTimeReference, summary.hour);
+            return new Schedule.ScheduleHourWindow(interval);
+          })(),
+        );
 
   if (summary.break === true) {
     return new Schedule.PopulatedBreakSchedule({
@@ -158,18 +197,19 @@ export const guildScheduleAtom = Atom.family((guildId: string) =>
   Atom.make<ReadonlyArray<Schedule.PopulatedScheduleResult>, unknown>(
     Effect.fnUntraced(function* (get) {
       const response = yield* get.result(workspaceScheduleAtom(guildId));
-      const eventStart = DateTime.makeUnsafe(response.eventConfig.startTimeEpochMs);
-      const scheduleStartHour = scheduleHourOrigin(
-        response.populatedSchedules.map(({ hour }) => hour),
+      const scheduleTimeReference = scheduleTimeReferenceForResponse(
+        response.eventConfig,
+        response.populatedSchedules,
       );
       return response.populatedSchedules.map((summary) =>
-        scheduleFromSummary(eventStart, scheduleStartHour, summary),
+        scheduleFromSummary(scheduleTimeReference, summary),
       );
     }),
   ).pipe(
+    Atom.withReactivity([scheduleReactivityKey(guildId)]),
     Atom.setIdleTTL(Duration.minutes(5)),
     Atom.serializable({
-      key: `schedule.getAllPopulatedSchedules.v3.${guildId}`,
+      key: `schedule.getAllPopulatedSchedules.v4.${guildId}`,
       schema: GuildSchedulesAsyncResultSchema,
     }),
   ),
@@ -197,9 +237,10 @@ export const getAllChannelsAtom = Atom.family((guildId: string) =>
       ) as readonly string[];
     }),
   ).pipe(
+    Atom.withReactivity([scheduleReactivityKey(guildId)]),
     Atom.setIdleTTL(Duration.minutes(5)),
     Atom.serializable({
-      key: `schedule.derived.getAllChannels.v3.${guildId}`,
+      key: `schedule.derived.getAllChannels.v4.${guildId}`,
       schema: GuildChannelsAsyncResultSchema,
     }),
   ),
@@ -276,9 +317,10 @@ const _scheduledDaysAtom = Atom.family((params: ScheduledDaysParams) =>
 
 export const scheduledDaysAtom = Atom.family((params: ScheduledDaysParams) =>
   _scheduledDaysAtom(params).pipe(
+    Atom.withReactivity([scheduleReactivityKey(params.guildId)]),
     Atom.setIdleTTL(Duration.minutes(5)),
     Atom.serializable({
-      key: `schedule.derived.scheduledDays.v3.${params.guildId}.${params.channel}.${zoneId(params.timeZone)}.${DateTime.toEpochMillis(params.rangeStart)}-${DateTime.toEpochMillis(params.rangeEnd)}`,
+      key: `schedule.derived.scheduledDays.v4.${params.guildId}.${params.channel}.${zoneId(params.timeZone)}.${DateTime.toEpochMillis(params.rangeStart)}-${DateTime.toEpochMillis(params.rangeEnd)}`,
       schema: ScheduledDaysAsyncResultSchema,
     }),
   ),
@@ -304,16 +346,19 @@ export const useScheduledDays = (params: ScheduledDaysParams) => {
 };
 
 export const computeScheduleHour = (
-  startTime: DateTime.Zoned,
-  dateTime: DateTime.Zoned,
+  scheduleTimeReference: ScheduleTimeReference | undefined,
+  dateTime: DateTime.DateTime,
   maxHour: number,
-  scheduleStartHour = 1,
 ): Option.Option<number> => {
-  // Return none if dateTime is before startTime
-  if (DateTime.isLessThan(dateTime, startTime)) return Option.none();
+  if (scheduleTimeReference === undefined) return Option.none();
 
-  const hours =
-    Math.floor(Duration.toHours(DateTime.distance(startTime, dateTime))) + scheduleStartHour;
+  const hours = scheduleHourAt(
+    scheduleTimeReference,
+    DateTime.makeUnsafe(DateTime.toEpochMillis(dateTime)),
+  );
+  // A chapter reference still resolves to the full event clock, but the chapter's UI navigation
+  // begins at its anchored event-wide hour rather than exposing unconfigured earlier hours.
+  if (hours < scheduleTimeReference.hour) return Option.none();
   if (hours > maxHour) return Option.none();
 
   return Option.some(hours);

@@ -13,6 +13,7 @@ import {
   scheduleTimeReferenceMetadataForEvent,
   scheduleTimeReferenceMetadataForEventFromSource,
   scheduleTimeReferenceMetadataForEventIfAnchored,
+  scheduleTimeReferenceMetadataFromLegacy,
   scheduleHourAt,
   scheduleHourInterval,
 } from "./scheduleTime";
@@ -137,6 +138,13 @@ describe("schedule time", () => {
     expect(
       scheduleTimeReferenceFromLegacyFirstHour(DateTime.toEpochMillis(chapterStart), 49),
     ).toEqual(reference);
+    expect(
+      scheduleTimeReferenceMetadataFromLegacy(DateTime.toEpochMillis(chapterStart), [49, 82, 193]),
+    ).toEqual({
+      kind: "chapter-start",
+      instantEpochMs: DateTime.toEpochMillis(chapterStart),
+      hour: 49,
+    });
     expect(scheduleTimeReferenceFromLegacyFirstHour(DateTime.toEpochMillis(chapterStart), 0)).toBe(
       undefined,
     );

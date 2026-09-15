@@ -15,7 +15,12 @@ import { makeMonitorCheckinMessage } from "sheet-message-content/checkinSummary"
 import { buildRoomOrderContent } from "sheet-message-content/roomOrderContent";
 import { fillParticipantFromName, hourWindowFor } from "sheet-message-content/rendering";
 import * as MessageText from "sheet-message-content/text";
-import { scheduleHourOrigin } from "sheet-domain";
+import {
+  scheduleHourOrigin,
+  scheduleTimeReferenceMetadataForEventFromSource,
+  scheduleTimeReferenceMetadataFromLegacy,
+  type ScheduleTimeReferenceMetadata,
+} from "sheet-domain";
 import {
   SpreadsheetId,
   type SchedulesLoadWorkspaceSuccess,
@@ -293,6 +298,25 @@ export const resolveScheduleMonitorAccountId = (
   }
   const accountId = accountIdsByName.get(monitorName);
   return Predicate.isString(accountId) && accountId.length > 0 ? accountId : undefined;
+};
+
+/**
+ * Projects the active source's timing reference into schedule responses.
+ *
+ * Legacy workspaces have no persisted reference until an explicit transition establishes one, so
+ * the compatibility projection reads every configured schedule row before any caller filters by
+ * conversation or visibility. The projection is intentionally not based on the first row returned.
+ */
+export const scheduleTimeReferenceMetadataForScheduleProjection = (options: {
+  readonly eventStartEpochMs: number;
+  readonly scheduleHours: ReadonlyArray<number | null>;
+  readonly establishedReference: ScheduleTimeReferenceMetadata | null | undefined;
+}): ScheduleTimeReferenceMetadata | undefined => {
+  if (options.establishedReference !== null && options.establishedReference !== undefined) {
+    return options.establishedReference;
+  }
+
+  return scheduleTimeReferenceMetadataFromLegacy(options.eventStartEpochMs, options.scheduleHours);
 };
 
 export const selectCheckinTemplate = (options: {
@@ -753,8 +777,19 @@ const makeSheetDataProvider = (
           },
         ];
       });
+      const scheduleTimeReference = scheduleTimeReferenceMetadataForScheduleProjection({
+        eventStartEpochMs: view.eventStartEpochMs,
+        scheduleHours: view.schedules.map(({ hour }) => hour),
+        establishedReference: scheduleTimeReferenceMetadataForEventFromSource(
+          { startTimeEpochMs: view.eventStartEpochMs },
+          active.scheduleTimeReference ?? undefined,
+        ),
+      });
       return {
-        eventConfig: { startTimeEpochMs: view.eventStartEpochMs },
+        eventConfig: {
+          startTimeEpochMs: view.eventStartEpochMs,
+          ...(scheduleTimeReference === undefined ? {} : { scheduleTimeReference }),
+        },
         populatedSchedules,
       } satisfies SchedulesLoadWorkspaceSuccess;
     });

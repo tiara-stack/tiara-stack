@@ -1,13 +1,17 @@
 import { useAtomSuspense } from "@effect/atom-react";
 import { DateTime, Effect, Schema } from "effect";
 import { Atom, AsyncResult } from "effect/unstable/reactivity";
-import { scheduleHourOrigin } from "sheet-domain";
+import { ScheduleTimeReferenceMetadata } from "sheet-domain";
 import { useMemo } from "react";
-import { workspaceScheduleAtom } from "#/lib/schedule";
+import {
+  scheduleReactivityKey,
+  scheduleTimeReferenceMetadataForResponse,
+  workspaceScheduleAtom,
+} from "#/lib/schedule";
 
 const EventConfig = Schema.Struct({
   startTime: Schema.DateTimeUtcFromMillis,
-  scheduleStartHour: Schema.Number,
+  scheduleTimeReference: Schema.optional(ScheduleTimeReferenceMetadata),
 });
 type EventConfig = Schema.Schema.Type<typeof EventConfig>;
 
@@ -22,14 +26,19 @@ export const eventConfigAtom = Atom.family((guildId: string) =>
   Atom.make<EventConfig, unknown>(
     Effect.fnUntraced(function* (get) {
       const schedule = yield* get.result(workspaceScheduleAtom(guildId));
+      const scheduleTimeReference = scheduleTimeReferenceMetadataForResponse(
+        schedule.eventConfig,
+        schedule.populatedSchedules,
+      );
       return {
         startTime: DateTime.makeUnsafe(schedule.eventConfig.startTimeEpochMs),
-        scheduleStartHour: scheduleHourOrigin(schedule.populatedSchedules.map(({ hour }) => hour)),
+        ...(scheduleTimeReference === undefined ? {} : { scheduleTimeReference }),
       };
     }),
   ).pipe(
+    Atom.withReactivity([scheduleReactivityKey(guildId)]),
     Atom.serializable({
-      key: `sheet.getEventConfig.v3.${guildId}`,
+      key: `sheet.getEventConfig.v4.${guildId}`,
       schema: EventConfigAsyncResultSchema,
     }),
   ),

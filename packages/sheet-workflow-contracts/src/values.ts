@@ -589,7 +589,12 @@ export const PopulatedScheduleSummary = Schema.Struct({
 export type PopulatedScheduleSummary = Schema.Schema.Type<typeof PopulatedScheduleSummary>;
 
 export const SchedulesLoadWorkspaceSuccess = Schema.Struct({
-  eventConfig: Schema.Struct({ startTimeEpochMs: Schema.Number }),
+  eventConfig: Schema.Struct({
+    startTimeEpochMs: Schema.Number,
+    // Optional while older schedule workflow responses remain readable. New responses expose
+    // the active source's established timing meaning or its workspace-wide compatibility projection.
+    scheduleTimeReference: Schema.optional(ScheduleTimeReferenceMetadata),
+  }),
   populatedSchedules: Schema.Array(PopulatedScheduleSummary),
 });
 export type SchedulesLoadWorkspaceSuccess = Schema.Schema.Type<
