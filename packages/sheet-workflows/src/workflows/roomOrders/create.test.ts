@@ -61,6 +61,8 @@ const draft: RoomOrderCreateDraft = {
   previousFills: ["Miku"],
   fills: ["Rin"],
   monitor: "Luka",
+  previousMonitor: null,
+  previousMonitorHistoryKnown: true,
   entries: [{ rank: 0, position: 0, hour: 2, team: "Rin Team", tags: [], effectValue: 100 }],
   generatingMessage: { content: "generating" },
   finalMessage: { content: "final", components: [] },

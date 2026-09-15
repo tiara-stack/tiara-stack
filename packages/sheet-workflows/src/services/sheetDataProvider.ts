@@ -94,6 +94,8 @@ export const RoomOrderGeneration = Schema.Struct({
   rank: Schema.Number,
   hour: Schema.Number,
   monitor: Schema.NullOr(Schema.String),
+  previousMonitor: Schema.NullOr(Schema.String),
+  previousMonitorHistoryKnown: Schema.Boolean,
   previousFills: Schema.Array(Schema.String),
   fills: Schema.Array(Schema.String),
   entries: Schema.Array(RoomOrderGenerationEntry),
@@ -737,12 +739,15 @@ export const makeSheetDataProvider = (
       }
       const maxRank = Math.max(...entries.map(({ rank }) => rank));
       const window = scheduleHourWindowFor(timingReference, hour);
+      const currentMonitor = current?.monitor ?? null;
+      const previousMonitor = previous?.monitor ?? null;
+      const previousMonitorHistoryKnown = previous !== undefined;
       return {
         content: buildRoomOrderContent(
           hour,
           window.start,
           window.end,
-          current?.monitor ?? null,
+          { currentMonitor, previousMonitor, previousMonitorHistoryKnown },
           (previous?.fills ?? []).map(({ name }) => fillParticipantFromName(name)),
           fills.map(({ name }) => fillParticipantFromName(name)),
           entries.filter(({ rank }) => rank === 0),
@@ -751,7 +756,9 @@ export const makeSheetDataProvider = (
         range: { minRank: 0 as const, maxRank },
         rank: 0 as const,
         hour,
-        monitor: current?.monitor ?? null,
+        monitor: currentMonitor,
+        previousMonitor,
+        previousMonitorHistoryKnown,
         previousFills: (previous?.fills ?? []).map(({ name }) => name),
         fills: fills.map(({ name }) => name),
         entries,

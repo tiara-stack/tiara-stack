@@ -454,7 +454,7 @@ export const buildRoomOrderContent = (
         text(" - "),
         timestamp(DateTime.toEpochMillis(end)),
       ),
-      ...(monitor === null ? [] : [parts(inlineCode("Monitor:"), text(` ${monitor}`))]),
+      ...(monitor === null ? [] : [parts(inlineCode("Monis:"), text(` ${monitor}`))]),
       [text("")],
       ...entryLines,
       [text("")],

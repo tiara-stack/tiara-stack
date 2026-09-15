@@ -3,7 +3,15 @@ import { DateTime } from "effect";
 import { buildRoomOrderContent } from "sheet-message-content/roomOrderContent";
 
 const roomOrderContentHeader = (start: DateTime.DateTime, end: DateTime.DateTime) =>
-  buildRoomOrderContent(1, start, end, null, [], [], []).slice(0, 5);
+  buildRoomOrderContent(
+    1,
+    start,
+    end,
+    { currentMonitor: null, previousMonitor: null, previousMonitorHistoryKnown: false },
+    [],
+    [],
+    [],
+  ).slice(0, 5);
 
 const expectedHeader = (start: DateTime.DateTime, end: DateTime.DateTime) => [
   { type: "strong", parts: [{ type: "text", text: "Hour 1" }] },

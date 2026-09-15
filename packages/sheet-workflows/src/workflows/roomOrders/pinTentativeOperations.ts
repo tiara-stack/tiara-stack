@@ -269,7 +269,11 @@ export const roomOrderTentativePinOperationsLayer = Layer.effect(
               current.hour,
               start,
               end,
-              current.monitor,
+              {
+                currentMonitor: current.monitor,
+                previousMonitor: null,
+                previousMonitorHistoryKnown: false,
+              },
               current.previousFills.map(fillParticipantFromName),
               current.fills.map(fillParticipantFromName),
               entries,

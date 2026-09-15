@@ -26,6 +26,8 @@ export const RoomOrderCreateDraft = Schema.Struct({
   previousFills: Schema.Array(Schema.String),
   fills: Schema.Array(Schema.String),
   monitor: Schema.NullOr(Schema.String),
+  previousMonitor: Schema.NullOr(Schema.String),
+  previousMonitorHistoryKnown: Schema.Boolean,
   entries: Schema.Array(RoomOrderCreateEntry),
   generatingMessage: BotOutboundMessage,
   finalMessage: BotOutboundMessage,

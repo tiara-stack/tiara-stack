@@ -795,7 +795,7 @@ export const autoCheckinTestWorkflowOperationsLayer = Layer.effect(
               : MessageText.renderPlainText(monitorFailureMessage),
           } satisfies AutoCheckinTestPreparation;
         }
-        const tentativeRoomOrderPreview = shouldSendTentativeRoomOrder(current?.fills.length ?? 0)
+        const tentativeRoomOrderPreview = shouldSendTentativeRoomOrder(current?.fills.length ?? 0) // fallow-ignore-next-line complexity
           ? yield* Effect.gen(function* () {
               const roomView = yield* provider
                 .loadRoomOrder(
@@ -832,7 +832,11 @@ export const autoCheckinTestWorkflowOperationsLayer = Layer.effect(
                 hour,
                 hourWindow.start,
                 hourWindow.end,
-                roomCurrent?.monitor ?? null,
+                {
+                  currentMonitor: roomCurrent?.monitor ?? null,
+                  previousMonitor: roomPrevious?.monitor ?? null,
+                  previousMonitorHistoryKnown: roomPrevious !== undefined,
+                },
                 (roomPrevious?.fills ?? []).map(({ name }) => fillParticipantFromName(name)),
                 fills.map(({ name }) => fillParticipantFromName(name)),
                 entries.filter(({ rank }) => rank === 0),

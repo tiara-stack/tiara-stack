@@ -14,6 +14,12 @@ export type RoomOrderContentEntry = {
   readonly effectValue: number;
 };
 
+export type RoomOrderMonitorHandoff = {
+  readonly currentMonitor: string | null;
+  readonly previousMonitor: string | null;
+  readonly previousMonitorHistoryKnown: boolean;
+};
+
 const diffFillParticipants = (
   previousParticipants: ReadonlyArray<FillParticipant>,
   participants: ReadonlyArray<FillParticipant>,
@@ -40,8 +46,25 @@ const roomOrderHeaderLine = (
     timestamp(DateTime.toEpochMillis(end)),
   );
 
-const monitorLine = (monitor: string | null): BotTextPart[] | null =>
-  monitor === null ? null : parts(inlineCode("Monitor:"), text(` ${monitor}`));
+const monitorLine = ({
+  currentMonitor,
+  previousMonitor,
+  previousMonitorHistoryKnown,
+}: RoomOrderMonitorHandoff): BotTextPart[] | null => {
+  if (currentMonitor === null && (previousMonitor === null || !previousMonitorHistoryKnown)) {
+    return null;
+  }
+  if (!previousMonitorHistoryKnown || previousMonitor === currentMonitor) {
+    return currentMonitor === null ? null : parts(inlineCode("Monis:"), text(` ${currentMonitor}`));
+  }
+  if (previousMonitor === null) {
+    return parts(inlineCode("Monis:"), text(` In ${currentMonitor}`));
+  }
+  if (currentMonitor === null) {
+    return parts(inlineCode("Monis:"), text(` Out ${previousMonitor}`));
+  }
+  return parts(inlineCode("Monis:"), text(` In ${currentMonitor} · Out ${previousMonitor}`));
+};
 
 const formatEffectValue = (effectValue: number): string => {
   const rounded = Number(effectValue.toFixed(1));
@@ -84,13 +107,13 @@ export const buildRoomOrderContent = (
   hour: number,
   start: DateTime.DateTime,
   end: DateTime.DateTime,
-  monitor: string | null,
+  monitorHandoff: RoomOrderMonitorHandoff,
   previousParticipants: ReadonlyArray<FillParticipant>,
   participants: ReadonlyArray<FillParticipant>,
   entries: ReadonlyArray<RoomOrderContentEntry>,
 ): BotTextPart[] => {
   const fillMovement = diffFillParticipants(previousParticipants, participants);
-  const maybeMonitorLine = monitorLine(monitor);
+  const maybeMonitorLine = monitorLine(monitorHandoff);
 
   return joinText(
     [
