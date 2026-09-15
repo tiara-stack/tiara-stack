@@ -14,11 +14,7 @@ import {
 } from "effect";
 import { WorkflowEngine } from "effect/unstable/workflow";
 import { ServicePrincipal, type ActorProvenance } from "sheet-auth/identity";
-import {
-  scheduleHourAt,
-  scheduleTimeReferenceFromLegacyFirstHour,
-  type ScheduleTimeReference,
-} from "sheet-domain";
+import { scheduleTimeReferenceFromLegacyFirstHour, type ScheduleTimeReference } from "sheet-domain";
 import { CheckinsOpen, MembersKick, WorkspaceId } from "sheet-workflow-contracts";
 import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import { config } from "@/config";
@@ -41,6 +37,7 @@ import {
   AutonomousTriggerProvider,
 } from "@/workflows/autonomous/provider";
 import { AutonomousWorkflowEnqueuer } from "./autonomousWorkflowEnqueuer";
+import { scheduleHourForInstant } from "@/workflows/shared/scheduleTime";
 
 const hourMillis = scheduledHourMillis;
 const autonomousProviderTimeout = Duration.seconds(30);
@@ -77,7 +74,7 @@ export const deriveAutonomousEventHour = (
   if (reference === undefined) {
     throw new RangeError("the legacy timing inputs do not form a schedule time reference");
   }
-  return scheduleHourAt(reference, DateTime.makeUnsafe(targetHourBucketEpochMs));
+  return scheduleHourForInstant(reference, DateTime.makeUnsafe(targetHourBucketEpochMs));
 };
 
 export const deriveAutomaticRoleCleanupHour = (
@@ -217,22 +214,13 @@ const skipMissingTimingEvidence = (operation: string, conversationName: string) 
     Effect.as(0),
   );
 
-const autonomousHourFor = (options: {
-  readonly establishedReference: Option.Option<ScheduleTimeReference>;
-  readonly targetHourBucketEpochMs: number;
-  readonly legacyReference: ScheduleTimeReference | undefined;
-}): number | undefined =>
-  Option.match(options.establishedReference, {
-    onNone: () =>
-      Predicate.isUndefined(options.legacyReference)
-        ? undefined
-        : scheduleHourAt(
-            options.legacyReference,
-            DateTime.makeUnsafe(options.targetHourBucketEpochMs),
-          ),
-    onSome: (reference) =>
-      scheduleHourAt(reference, DateTime.makeUnsafe(options.targetHourBucketEpochMs)),
-  });
+const autonomousHourFor = (
+  scheduleTimeReference: ScheduleTimeReference | undefined,
+  targetHourBucketEpochMs: number,
+): number | undefined =>
+  Predicate.isUndefined(scheduleTimeReference)
+    ? undefined
+    : scheduleHourForInstant(scheduleTimeReference, DateTime.makeUnsafe(targetHourBucketEpochMs));
 
 /** Resolve the persisted event identity without substituting normalized timing meaning. */
 const eventIdentityEpochMsFor = (
@@ -261,9 +249,8 @@ const eventIdentityEpochMsFor = (
   );
 
 type AutonomousTiming = {
-  readonly establishedReference: Option.Option<ScheduleTimeReference>;
+  readonly scheduleTimeReference: ScheduleTimeReference | undefined;
   readonly referenceInstantEpochMs: number;
-  readonly legacyReference: ScheduleTimeReference | undefined;
 };
 
 const autonomousTimingFor = (
@@ -273,7 +260,7 @@ const autonomousTimingFor = (
   Effect.gen(function* () {
     const establishedReference = establishedScheduleTimeReferenceFor(active);
     const referenceInstantEpochMs = yield* eventIdentityEpochMsFor(active, provider);
-    const legacyReference = yield* Option.match(establishedReference, {
+    const scheduleTimeReference = yield* Option.match(establishedReference, {
       onNone: () =>
         provider
           .loadLegacyScheduleTimeReference({
@@ -282,9 +269,9 @@ const autonomousTimingFor = (
             configuration: active.configuration,
           })
           .pipe(Effect.timeout(autonomousTimingEvidenceTimeout)),
-      onSome: () => Effect.succeed<ScheduleTimeReference | undefined>(undefined),
+      onSome: Effect.succeed,
     });
-    return { establishedReference, referenceInstantEpochMs, legacyReference };
+    return { scheduleTimeReference, referenceInstantEpochMs };
   });
 
 interface AutonomousTriggerWorkflowClientShape {
@@ -369,11 +356,7 @@ export class AutonomousTriggerService extends Context.Service<
             const names = uniqueRunningConversationNames(conversations);
             if (names.length === 0) return 0;
             const timing = yield* autonomousTimingFor(active, provider);
-            const hour = autonomousHourFor({
-              establishedReference: timing.establishedReference,
-              targetHourBucketEpochMs: targetHourBucket,
-              legacyReference: timing.legacyReference,
-            });
+            const hour = autonomousHourFor(timing.scheduleTimeReference, targetHourBucket);
             if (Predicate.isUndefined(hour)) {
               yield* Effect.forEach(
                 names,
@@ -455,11 +438,7 @@ export class AutonomousTriggerService extends Context.Service<
               const managed = managedConversations(conversations);
               if (managed.length === 0) return 0;
               const timing = yield* autonomousTimingFor(active, provider);
-              const hour = autonomousHourFor({
-                establishedReference: timing.establishedReference,
-                targetHourBucketEpochMs: bucket,
-                legacyReference: timing.legacyReference,
-              });
+              const hour = autonomousHourFor(timing.scheduleTimeReference, bucket);
               if (Predicate.isUndefined(hour)) {
                 yield* Effect.forEach(
                   managed,
@@ -473,7 +452,6 @@ export class AutonomousTriggerService extends Context.Service<
               const accepted = yield* Effect.forEach(
                 managed,
                 (conversation) => {
-                  const conversationName = conversation.name;
                   const invocationId = makeMemberKickAutonomousInvocationId(
                     bucket,
                     botClientId,

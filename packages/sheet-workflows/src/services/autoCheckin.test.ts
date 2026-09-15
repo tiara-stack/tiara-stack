@@ -6,6 +6,7 @@ import {
   scheduleTimeReferenceFromLegacy,
   scheduleTimeReferenceFromLegacyFirstHour,
   scheduleTimeReferenceMetadataFrom,
+  ScheduleTimeReferenceMetadata,
 } from "sheet-domain";
 import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import { WorkflowStore } from "effect-zero-workflow";
@@ -318,6 +319,55 @@ describe("AutonomousTriggerService", () => {
     }),
   );
 
+  it.effect("uses equivalent chapter and full-event references for both autonomous sweeps", () =>
+    Effect.gen(function* () {
+      const checkinCalls: Array<
+        Parameters<AutonomousWorkflowEnqueuerShape["enqueueCheckinsOpen"]>[0]
+      > = [];
+      const cleanupCalls: Array<
+        Parameters<AutonomousWorkflowEnqueuerShape["enqueueMembersKick"]>[0]
+      > = [];
+      const enqueuer = {
+        enqueueCheckinsOpen: (request: (typeof checkinCalls)[number]) =>
+          Effect.sync(() => {
+            checkinCalls.push(request);
+          }),
+        enqueueMembersKick: (request: (typeof cleanupCalls)[number]) =>
+          Effect.sync(() => {
+            cleanupCalls.push(request);
+          }),
+      } as typeof AutonomousWorkflowEnqueuer.Service;
+      const eventStart = Date.UTC(2026, 8, 7, 3);
+      const chapterStart = Date.UTC(2026, 8, 9, 3);
+      const target = Date.UTC(2026, 8, 10, 12);
+      const run = (reference: typeof ScheduleTimeReferenceMetadata.Type, identityEpochMs: number) =>
+        runService<[AutonomousSweepResult, AutonomousSweepResult]>(
+          (service) =>
+            Effect.all([
+              service.sweepAutoCheckin(target - scheduledHourMillis),
+              service.sweepAutoRoleCleanup(target),
+            ]),
+          {
+            conversations: [conversation("conversation-main", "main", "role-1")],
+            enqueuer,
+            eventStartEpochMs: identityEpochMs,
+            scheduleTimeReference: reference,
+          },
+        );
+
+      yield* run({ kind: "chapter-start", instantEpochMs: chapterStart, hour: 49 }, chapterStart);
+      yield* run({ kind: "event-start", instantEpochMs: eventStart, hour: 1 }, eventStart);
+
+      expect(checkinCalls.map(({ input }) => input.hour)).toEqual([82, 82]);
+      expect(cleanupCalls.map(({ input }) => input.hour)).toEqual([82, 82]);
+      expect(checkinCalls.map(({ input }) => input.conversationName)).toEqual(["main", "main"]);
+      expect(cleanupCalls.map(({ input }) => input.conversationId)).toEqual([
+        "conversation-main",
+        "conversation-main",
+      ]);
+    }),
+  );
+
   it.effect("uses an established reference without rereading legacy timing rows", () =>
     Effect.gen(function* () {
       const calls: Array<Parameters<AutonomousWorkflowEnqueuerShape["enqueueCheckinsOpen"]>[0]> =
@@ -403,6 +453,80 @@ describe("AutonomousTriggerService", () => {
       expect(calls[2]?.input.hour).toBe(49);
       expect(calls[0]?.invocationId).not.toBe(calls[1]?.invocationId);
       expect(calls[0]?.invocationId).toBe(calls[2]?.invocationId);
+    }),
+  );
+
+  it.effect("does not admit or deliver a duplicate across a reference-only transition", () =>
+    Effect.gen(function* () {
+      const calls: Array<Parameters<AutonomousWorkflowEnqueuerShape["enqueueCheckinsOpen"]>[0]> =
+        [];
+      const admitted = new Set<string>();
+      const delivered = new Set<string>();
+      const enqueuer = {
+        enqueueCheckinsOpen: (request: (typeof calls)[number]) =>
+          Effect.sync(() => {
+            calls.push(request);
+            if (admitted.has(request.invocationId)) return;
+            admitted.add(request.invocationId);
+            delivered.add(request.invocationId);
+          }),
+        enqueueMembersKick: () => Effect.void,
+      } as typeof AutonomousWorkflowEnqueuer.Service;
+      const chapterStart = Date.UTC(2026, 8, 9, 3);
+      const options = {
+        conversations: [conversation("conversation-main", "main")],
+        enqueuer,
+        eventStartEpochMs: chapterStart,
+      } as const;
+
+      yield* runService<AutonomousSweepResult>(
+        (service) => service.sweepAutoCheckin(Date.UTC(2026, 8, 10, 11)),
+        { ...options, firstEventHour: 49 },
+      );
+      yield* runService<AutonomousSweepResult>(
+        (service) => service.sweepAutoCheckin(Date.UTC(2026, 8, 10, 11)),
+        {
+          ...options,
+          scheduleTimeReference: {
+            kind: "chapter-start",
+            instantEpochMs: chapterStart,
+            hour: 49,
+          },
+        },
+      );
+
+      expect(calls).toHaveLength(2);
+      expect(calls[0]?.invocationId).toBe(calls[1]?.invocationId);
+      expect(admitted).toHaveLength(1);
+      expect(delivered).toHaveLength(1);
+    }),
+  );
+
+  it.effect("skips both autonomous sweeps when legacy timing cannot be resolved", () =>
+    Effect.gen(function* () {
+      let checkinCalls = 0;
+      let cleanupCalls = 0;
+      const enqueuer = {
+        enqueueCheckinsOpen: () => Effect.sync(() => (checkinCalls += 1)),
+        enqueueMembersKick: () => Effect.sync(() => (cleanupCalls += 1)),
+      } as typeof AutonomousWorkflowEnqueuer.Service;
+      const target = Date.UTC(2026, 8, 10, 12);
+
+      const result = yield* runService<[AutonomousSweepResult, AutonomousSweepResult]>(
+        (service) =>
+          Effect.all([
+            service.sweepAutoCheckin(target - scheduledHourMillis),
+            service.sweepAutoRoleCleanup(target),
+          ]),
+        {
+          conversations: [conversation("conversation-main", "main", "role-1")],
+          enqueuer,
+        },
+      );
+
+      expect(result.map(({ acceptedInvocationCount }) => acceptedInvocationCount)).toEqual([0, 0]);
+      expect(checkinCalls).toBe(0);
+      expect(cleanupCalls).toBe(0);
     }),
   );
 

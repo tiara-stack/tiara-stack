@@ -1,10 +1,6 @@
 import type { sheets_v4 } from "@googleapis/sheets";
 import { Effect } from "effect";
-import {
-  scheduleTimeReferenceFromLegacy,
-  type ScheduleTimeReference,
-  type WebSheetConfiguration,
-} from "sheet-domain";
+import { type ScheduleTimeReference, type WebSheetConfiguration } from "sheet-domain";
 import {
   mapScheduleRows,
   parseScheduleConfigurations,
@@ -14,6 +10,7 @@ import {
   scheduleHour,
   valueRowsAt,
 } from "./runnerLocalSheets";
+import { scheduleTimeReferenceFor } from "./scheduleTime";
 import { loadConfigurationValueRanges } from "./webConfigurationSheets";
 
 /**
@@ -51,5 +48,8 @@ export const loadLegacyScheduleTimeReference = <E extends { readonly cause: unkn
       const rows = valueRowsAt(values, index);
       return mapScheduleRows(rows.length, (rowIndex) => scheduleHour(rows, rowIndex));
     });
-    return scheduleTimeReferenceFromLegacy(options.referenceInstantEpochMs, hours);
+    return scheduleTimeReferenceFor({
+      referenceInstantEpochMs: options.referenceInstantEpochMs,
+      legacyHours: hours,
+    });
   });

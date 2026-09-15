@@ -16,7 +16,6 @@ import { buildRoomOrderContent } from "sheet-message-content/roomOrderContent";
 import { fillParticipantFromName } from "sheet-message-content/rendering";
 import * as MessageText from "sheet-message-content/text";
 import {
-  scheduleHourOrigin,
   scheduleTimeReferenceMetadataForEventFromSource,
   scheduleTimeReferenceMetadataFromLegacy,
   type ScheduleTimeReferenceMetadata,
@@ -514,7 +513,7 @@ const asProviderError = <A>(
   effect: Effect.Effect<A, unknown>,
 ) => effect.pipe(Effect.mapError(providerError(operation)));
 
-const makeSheetDataProvider = (
+export const makeSheetDataProvider = (
   persistence: TrustedSheetPersistence["Service"],
   checkinProvider: AutoCheckinTestProvider["Service"],
   scheduleProvider: UserScheduleProvider["Service"],
