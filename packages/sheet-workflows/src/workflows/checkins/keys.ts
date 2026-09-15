@@ -123,8 +123,8 @@ export const makeCheckinsOpenAutonomousInvocationId = ({
   readonly hour: number;
   readonly conversationName: string;
 }): typeof InvocationId.Type =>
-  // Event-hour numbers can repeat when schedule-hour origins change, so the
-  // scheduled bucket is part of the autonomous run identity.
+  // Event-hour numbers can repeat across scheduled buckets, so the scheduled
+  // bucket is part of the autonomous run identity.
   invocationIdFromIdentity(
     JSON.stringify([
       "auto-checkin",

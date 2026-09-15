@@ -17,9 +17,9 @@ import { fillParticipantFromName } from "sheet-message-content/rendering";
 import * as MessageText from "sheet-message-content/text";
 import {
   scheduleTimeReferenceMetadataForEventFromSource,
-  scheduleTimeReferenceMetadataFromLegacy,
   type ScheduleTimeReferenceMetadata,
 } from "sheet-domain";
+import { scheduleTimeReferenceMetadataFromLegacy } from "sheet-domain/compatibility";
 import {
   SpreadsheetId,
   type SchedulesLoadWorkspaceSuccess,
@@ -793,6 +793,13 @@ export const makeSheetDataProvider = (
           active.scheduleTimeReference ?? undefined,
         ),
       });
+      if (scheduleTimeReference === undefined && view.schedules.length > 0) {
+        return yield* Effect.fail(
+          providerError("read-schedules")(
+            new Error("The complete schedule has no resolvable timing reference"),
+          ),
+        );
+      }
       return {
         eventConfig: {
           startTimeEpochMs: view.eventStartEpochMs,

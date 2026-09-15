@@ -13,6 +13,7 @@ import {
   ResponseReference,
   type SheetBotHttpClient,
 } from "sheet-bot-api";
+import { scheduleTimeReferenceFromLegacy } from "sheet-domain/compatibility";
 import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import { InteractiveDeclaredFailure, SlotsDeliverList } from "sheet-workflow-contracts";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
@@ -63,6 +64,11 @@ const input = Schema.decodeUnknownSync(SlotsDeliverList.input)({
 const eventStartEpochMs = Date.parse("2026-01-01T00:00:00.000Z");
 const view: SlotView = {
   eventStartEpochMs,
+  scheduleTimeReference: {
+    kind: "event-start",
+    instantEpochMs: eventStartEpochMs,
+    hour: 1,
+  },
   schedules: [
     { _tag: "Schedule", visible: true, hour: 2, filledSlots: 5, overfillSlots: 0 },
     { _tag: "Schedule", visible: true, hour: null, filledSlots: 0, overfillSlots: 0 },
@@ -313,6 +319,125 @@ describe("slot-list delivery Workflow Definition slice", () => {
     }),
   );
 
+  it.effect("resolves legacy timing before rendering a later-only slot view", () =>
+    Effect.gen(function* () {
+      const chapterStartEpochMs = Date.UTC(2026, 8, 9, 3);
+      const legacyView: SlotView = {
+        eventStartEpochMs: chapterStartEpochMs,
+        schedules: [
+          { _tag: "Schedule", visible: true, hour: 82, filledSlots: 2, overfillSlots: 0 },
+        ],
+      };
+      const loaded = yield* loadSlotViewForWorkspace({
+        workspaceId: input.workspaceId,
+        day: 2,
+        resolveWorkspace: Effect.succeed(
+          Option.some({
+            sheetId: "sheet-1",
+            configuration: null,
+            scheduleTimeReference: null,
+          }),
+        ),
+        provider: {
+          load: () => Effect.succeed(legacyView),
+          loadLegacyScheduleTimeReference: () =>
+            Effect.succeed(scheduleTimeReferenceFromLegacy(chapterStartEpochMs, [193, null, 49])),
+        },
+        resolveOperation: "slots.deliverList.resolveWorkspace",
+        loadOperation: "slots.deliverList.loadSlotView",
+        operationError: (operation, cause) => new Error(`${operation}: ${String(cause)}`),
+      });
+
+      expect(loaded.scheduleTimeReference).toEqual({
+        kind: "chapter-start",
+        instantEpochMs: chapterStartEpochMs,
+        hour: 49,
+      });
+      expect(normalizePayloadText(yield* makeSlotsDeliverListMessage(2, loaded))).toMatchObject({
+        embeds: [
+          {
+            title: "Day 2 Open Slots",
+            description: "+3 | hour 82 <t:1789041600:t> - <t:1789045200:t>",
+          },
+          { title: "Day 2 Filled Slots", description: "All Open :3" },
+          {
+            description:
+              "📅 Preview: View your schedule online at https://schedule.theerapakg.moe/",
+            color: 0x5865f2,
+          },
+        ],
+      });
+    }),
+  );
+
+  it.effect("does not apply a workspace reference from a different event", () =>
+    Effect.gen(function* () {
+      const eventStartEpochMs = Date.UTC(2026, 8, 7, 3);
+      const providerReference = {
+        kind: "event-start" as const,
+        instantEpochMs: eventStartEpochMs,
+        hour: 1 as const,
+      };
+      const loaded = yield* loadSlotViewForWorkspace({
+        workspaceId: input.workspaceId,
+        day: 2,
+        resolveWorkspace: Effect.succeed(
+          Option.some({
+            sheetId: "sheet-1",
+            configuration: null,
+            scheduleTimeReference: {
+              kind: "chapter-start" as const,
+              instantEpochMs: Date.UTC(2026, 8, 10, 3),
+              hour: 49 as const,
+            },
+          }),
+        ),
+        provider: {
+          load: () =>
+            Effect.succeed({
+              eventStartEpochMs,
+              schedules: [],
+              scheduleTimeReference: providerReference,
+            }),
+        },
+        resolveOperation: "slots.deliverList.resolveWorkspace",
+        loadOperation: "slots.deliverList.loadSlotView",
+        operationError: (operation, cause) => new Error(`${operation}: ${String(cause)}`),
+      });
+
+      expect(loaded.scheduleTimeReference).toEqual(providerReference);
+    }),
+  );
+
+  it.effect("rejects an unresolved slot view when legacy timing is unavailable", () =>
+    Effect.gen(function* () {
+      const result = yield* Effect.flip(
+        loadSlotViewForWorkspace({
+          workspaceId: input.workspaceId,
+          day: 2,
+          resolveWorkspace: Effect.succeed(
+            Option.some({
+              sheetId: "sheet-1",
+              configuration: null,
+              scheduleTimeReference: null,
+            }),
+          ),
+          provider: {
+            load: () => Effect.succeed({ eventStartEpochMs, schedules: [] }),
+          },
+          resolveOperation: "slots.deliverList.resolveWorkspace",
+          loadOperation: "slots.deliverList.loadSlotView",
+          operationError: (operation, cause) => new Error(`${operation}: ${String(cause)}`),
+        }),
+      );
+
+      expect(result).toEqual({
+        _tag: "ConfigurationMissing",
+        configuration: "workspace.sheetScheduleConfiguration",
+      });
+    }),
+  );
+
   it.effect("declares an invalid provider event timestamp instead of defecting", () =>
     Effect.gen(function* () {
       expect(
@@ -350,10 +475,31 @@ describe("slot-list delivery Workflow Definition slice", () => {
     }),
   );
 
+  it.effect("rejects a slot view without a resolved timing reference", () =>
+    Effect.gen(function* () {
+      const unresolvedView = {
+        eventStartEpochMs,
+        schedules: view.schedules,
+      } satisfies Omit<SlotView, "scheduleTimeReference">;
+
+      expect(yield* Effect.flip(makeSlotsDeliverListMessage(2, unresolvedView))).toEqual({
+        _tag: "ExternalOperationRejected",
+        operation: "slots.deliverList.loadSlotView",
+        code: "MissingTimingReference",
+        message: "The schedule provider did not return a resolved schedule time reference",
+      });
+    }),
+  );
+
   it.effect("bounds large slot lists to Discord embed limits", () =>
     Effect.gen(function* () {
       const message = yield* makeSlotsDeliverListMessage(2, {
         eventStartEpochMs,
+        scheduleTimeReference: {
+          kind: "event-start",
+          instantEpochMs: eventStartEpochMs,
+          hour: 1,
+        },
         schedules: Array.from({ length: 500 }, (_, index) => ({
           _tag: "Schedule" as const,
           visible: true,
@@ -769,6 +915,376 @@ describe("slot-list delivery Workflow Definition slice", () => {
           valueRenderOption: "UNFORMATTED_VALUE",
           dateTimeRenderOption: "SERIAL_NUMBER",
         },
+      ]);
+    }),
+  );
+
+  it.effect("bounds legacy timing evidence before requesting a large range", () =>
+    Effect.gen(function* () {
+      const calls: Array<ReadonlyArray<string>> = [];
+      let request = 0;
+      const client = {
+        spreadsheets: {
+          get: () =>
+            Promise.resolve({
+              data: {
+                spreadsheetId: "sheet-1",
+                sheets: [
+                  {
+                    properties: {
+                      title: "Schedule",
+                      gridProperties: { rowCount: 10_001 },
+                    },
+                  },
+                ],
+              },
+            }),
+          values: {
+            batchGet: ({ ranges = [] }: { readonly ranges?: ReadonlyArray<string> }) => {
+              calls.push([...ranges]);
+              request += 1;
+              return Promise.resolve({
+                data: {
+                  valueRanges:
+                    request === 1
+                      ? [
+                          {
+                            values: [
+                              [
+                                "main",
+                                "2",
+                                "Schedule",
+                                "A1:A10001",
+                                "auto",
+                                undefined,
+                                "none",
+                                "B1:B1",
+                                "C1:C1",
+                                "D1:D1",
+                                undefined,
+                                undefined,
+                                "E1",
+                              ],
+                            ],
+                          },
+                        ]
+                      : [{ values: [["49"]] }],
+                },
+              });
+            },
+          },
+        },
+      } as unknown as sheets_v4.Sheets;
+      const provider = makeSlotListProvider(client);
+      const reference = yield* provider.loadLegacyScheduleTimeReference!({
+        spreadsheetId: "sheet-1",
+        referenceInstantEpochMs: eventStartEpochMs,
+      });
+
+      expect(reference).toBeUndefined();
+      expect(calls).toEqual([["'Thee''s Sheet Settings'!R8:AE"]]);
+    }),
+  );
+
+  it.effect("resolves an open-ended legacy range from sheet metadata", () =>
+    Effect.gen(function* () {
+      const valueCalls: Array<ReadonlyArray<string>> = [];
+      let valueRequest = 0;
+      const client = {
+        spreadsheets: {
+          get: () =>
+            Promise.resolve({
+              data: {
+                spreadsheetId: "sheet-1",
+                sheets: [
+                  {
+                    properties: {
+                      title: "Schedule",
+                      gridProperties: { rowCount: 3 },
+                    },
+                  },
+                ],
+              },
+            }),
+          values: {
+            batchGet: ({ ranges = [] }: { readonly ranges?: ReadonlyArray<string> }) => {
+              valueCalls.push([...ranges]);
+              valueRequest += 1;
+              return Promise.resolve({
+                data: {
+                  valueRanges:
+                    valueRequest === 1
+                      ? [
+                          {
+                            values: [
+                              [
+                                "main",
+                                "2",
+                                "Schedule",
+                                "A1:A",
+                                "auto",
+                                undefined,
+                                "none",
+                                "B1:B1",
+                                "C1:C1",
+                                "D1:D1",
+                                undefined,
+                                undefined,
+                                "E1",
+                              ],
+                            ],
+                          },
+                        ]
+                      : [{ values: [["49"], ["50"], ["82"]] }],
+                },
+              });
+            },
+          },
+        },
+      } as unknown as sheets_v4.Sheets;
+      const provider = makeSlotListProvider(client);
+      const reference = yield* provider.loadLegacyScheduleTimeReference!({
+        spreadsheetId: "sheet-1",
+        referenceInstantEpochMs: eventStartEpochMs,
+      });
+
+      expect(reference).toMatchObject({ kind: "chapter-start", hour: 49 });
+      expect(valueCalls).toEqual([["'Thee''s Sheet Settings'!R8:AE"], ["'Schedule'!A1:A3"]]);
+    }),
+  );
+
+  it.effect("clamps a finite legacy range to the known sheet grid", () =>
+    Effect.gen(function* () {
+      const valueCalls: Array<ReadonlyArray<string>> = [];
+      let valueRequest = 0;
+      const client = {
+        spreadsheets: {
+          get: () =>
+            Promise.resolve({
+              data: {
+                spreadsheetId: "sheet-1",
+                sheets: [
+                  {
+                    properties: {
+                      title: "Schedule",
+                      gridProperties: { rowCount: 3 },
+                    },
+                  },
+                ],
+              },
+            }),
+          values: {
+            batchGet: ({ ranges = [] }: { readonly ranges?: ReadonlyArray<string> }) => {
+              valueCalls.push([...ranges]);
+              valueRequest += 1;
+              return Promise.resolve({
+                data:
+                  valueRequest === 1
+                    ? {
+                        valueRanges: [
+                          {
+                            values: [
+                              [
+                                "main",
+                                "2",
+                                "Schedule",
+                                "A2:A1000",
+                                "auto",
+                                undefined,
+                                "none",
+                                "B1:B1",
+                                "C1:C1",
+                                "D1:D1",
+                                undefined,
+                                undefined,
+                                "E1",
+                              ],
+                            ],
+                          },
+                        ],
+                      }
+                    : { valueRanges: [{ values: [["49"], ["50"]] }] },
+              });
+            },
+          },
+        },
+      } as unknown as sheets_v4.Sheets;
+      const provider = makeSlotListProvider(client);
+      const reference = yield* provider.loadLegacyScheduleTimeReference!({
+        spreadsheetId: "sheet-1",
+        referenceInstantEpochMs: eventStartEpochMs,
+      });
+
+      expect(reference).toMatchObject({ kind: "chapter-start", hour: 49 });
+      expect(valueCalls).toEqual([["'Thee''s Sheet Settings'!R8:AE"], ["'Schedule'!A2:A3"]]);
+    }),
+  );
+
+  it.effect("keeps valid legacy ranges when another configured range has no rows", () =>
+    Effect.gen(function* () {
+      const configurationRows = [
+        [
+          "empty",
+          "2",
+          "Empty Schedule",
+          "A2:A1000",
+          "auto",
+          undefined,
+          "none",
+          "B1:B1",
+          "C1:C1",
+          "D1:D1",
+          undefined,
+          undefined,
+          "E1",
+        ],
+        [
+          "main",
+          "2",
+          "Schedule",
+          "A1:A1",
+          "auto",
+          undefined,
+          "none",
+          "B1:B1",
+          "C1:C1",
+          "D1:D1",
+          undefined,
+          undefined,
+          "E1",
+        ],
+      ];
+      const valueCalls: Array<ReadonlyArray<string>> = [];
+      let valueRequest = 0;
+      const client = {
+        spreadsheets: {
+          get: () =>
+            Promise.resolve({
+              data: {
+                spreadsheetId: "sheet-1",
+                sheets: [
+                  {
+                    properties: {
+                      title: "Empty Schedule",
+                      gridProperties: { rowCount: 1 },
+                    },
+                  },
+                  {
+                    properties: {
+                      title: "Schedule",
+                      gridProperties: { rowCount: 3 },
+                    },
+                  },
+                ],
+              },
+            }),
+          values: {
+            batchGet: ({ ranges = [] }: { readonly ranges?: ReadonlyArray<string> }) => {
+              valueCalls.push([...ranges]);
+              valueRequest += 1;
+              return Promise.resolve({
+                data:
+                  valueRequest === 1
+                    ? { valueRanges: [{ values: configurationRows }] }
+                    : { valueRanges: [{ values: [["49"]] }] },
+              });
+            },
+          },
+        },
+      } as unknown as sheets_v4.Sheets;
+      const provider = makeSlotListProvider(client);
+      const reference = yield* provider.loadLegacyScheduleTimeReference!({
+        spreadsheetId: "sheet-1",
+        referenceInstantEpochMs: eventStartEpochMs,
+      });
+
+      expect(reference).toMatchObject({ kind: "chapter-start", hour: 49 });
+      expect(valueCalls).toEqual([["'Thee''s Sheet Settings'!R8:AE"], ["'Schedule'!A1:A1"]]);
+    }),
+  );
+
+  it.effect("keeps valid legacy ranges before zero-row ranges after the scan budget", () =>
+    Effect.gen(function* () {
+      const configurationRows = [
+        [
+          "full",
+          "2",
+          "Full Schedule",
+          "A1:A10000",
+          "auto",
+          undefined,
+          "none",
+          "B1:B1",
+          "C1:C1",
+          "D1:D1",
+          undefined,
+          undefined,
+          "E1",
+        ],
+        [
+          "empty",
+          "2",
+          "Empty Schedule",
+          "A2:A1000",
+          "auto",
+          undefined,
+          "none",
+          "B1:B1",
+          "C1:C1",
+          "D1:D1",
+          undefined,
+          undefined,
+          "E1",
+        ],
+      ];
+      const valueCalls: Array<ReadonlyArray<string>> = [];
+      let valueRequest = 0;
+      const client = {
+        spreadsheets: {
+          get: () =>
+            Promise.resolve({
+              data: {
+                spreadsheetId: "sheet-1",
+                sheets: [
+                  {
+                    properties: {
+                      title: "Full Schedule",
+                      gridProperties: { rowCount: 10_000 },
+                    },
+                  },
+                  {
+                    properties: {
+                      title: "Empty Schedule",
+                      gridProperties: { rowCount: 1 },
+                    },
+                  },
+                ],
+              },
+            }),
+          values: {
+            batchGet: ({ ranges = [] }: { readonly ranges?: ReadonlyArray<string> }) => {
+              valueCalls.push([...ranges]);
+              valueRequest += 1;
+              return Promise.resolve({
+                data:
+                  valueRequest === 1
+                    ? { valueRanges: [{ values: configurationRows }] }
+                    : { valueRanges: [{ values: [["49"]] }] },
+              });
+            },
+          },
+        },
+      } as unknown as sheets_v4.Sheets;
+      const provider = makeSlotListProvider(client);
+      const reference = yield* provider.loadLegacyScheduleTimeReference!({
+        spreadsheetId: "sheet-1",
+        referenceInstantEpochMs: eventStartEpochMs,
+      });
+
+      expect(reference).toMatchObject({ kind: "chapter-start", hour: 49 });
+      expect(valueCalls).toEqual([
+        ["'Thee''s Sheet Settings'!R8:AE"],
+        ["'Full Schedule'!A1:A10000"],
       ]);
     }),
   );

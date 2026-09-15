@@ -748,6 +748,9 @@ importers:
       effect-platform-apps-script:
         specifier: workspace:*
         version: link:../effect-platform-apps-script
+      sheet-domain:
+        specifier: workspace:*
+        version: link:../sheet-domain
       sheet-workflow-contracts:
         specifier: workspace:*
         version: link:../sheet-workflow-contracts
@@ -785,6 +788,9 @@ importers:
       sheet-bot-api:
         specifier: workspace:*
         version: link:../sheet-bot-api
+      sheet-domain:
+        specifier: workspace:*
+        version: link:../sheet-domain
     devDependencies:
       '@effect/vitest':
         specifier: 'catalog:'

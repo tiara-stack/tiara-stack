@@ -30,7 +30,6 @@ import {
   sheetTitleFromRange,
   sourceForLegacySettings,
   sheetConfigurationRanges,
-  scheduleTimeReferenceFromLegacy,
   scheduleTimeReferenceMetadataFrom,
   scheduleTimeReferenceFromMetadata,
   scheduleTimeReferenceMetadataForSource,
@@ -41,6 +40,7 @@ import {
   ScheduleTimeReferenceMetadata,
   validateWebSheetConfiguration,
 } from "sheet-domain";
+import { scheduleTimeReferenceFromLegacy } from "sheet-domain/compatibility";
 import {
   type SheetConfigurationActivateInput,
   type SheetConfigurationActivateSuccess,
@@ -85,6 +85,7 @@ import {
   parseLegacyConfiguration,
 } from "../configuration/legacyConfiguration";
 import { parseLegacyNumber } from "../shared/runnerLocalSheets";
+import { maximumScheduleTimeReferenceScanRows } from "../shared/legacyScheduleTimeReference";
 
 class SheetConfigurationWorkflowOperationsError extends Data.TaggedError(
   "SheetConfigurationWorkflowOperationsError",
@@ -606,8 +607,6 @@ const timingMappings = (
     };
   });
 };
-
-const maximumScheduleTimeReferenceScanRows = 10_000;
 
 type ScheduleTimeReferenceHourScan = {
   readonly hours: ReadonlyArray<number | null>;

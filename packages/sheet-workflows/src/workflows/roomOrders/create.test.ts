@@ -2,7 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import type { sheets_v4 } from "@googleapis/sheets";
 import { Cause, Deferred, Duration, Effect, Exit, Fiber, Option, Schema } from "effect";
 import { TestClock } from "effect/testing";
-import { scheduleTimeReferenceFromLegacyFirstHour } from "sheet-domain";
+import { scheduleTimeReferenceFromLegacy } from "sheet-domain/compatibility";
 import { workflowContractKey } from "effect-zero-workflow/contract";
 import {
   BotDependencyUnavailable,
@@ -359,7 +359,7 @@ describe("room-order creation Workflow Definition slice", () => {
         referenceInstantEpochMs,
       }: {
         readonly referenceInstantEpochMs: number;
-      }) => Effect.succeed(scheduleTimeReferenceFromLegacyFirstHour(referenceInstantEpochMs, 1)),
+      }) => Effect.succeed(scheduleTimeReferenceFromLegacy(referenceInstantEpochMs, [1])),
       load: (spreadsheetId: string, conversationName: string) => {
         calls.push({ spreadsheetId, conversationName });
         return Effect.succeed({

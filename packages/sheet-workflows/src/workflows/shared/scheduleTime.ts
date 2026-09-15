@@ -2,10 +2,10 @@ import { DateTime } from "effect";
 import {
   scheduleHourAt,
   scheduleHourInterval,
-  scheduleTimeReferenceFromLegacy,
   type ScheduleHour,
   type ScheduleTimeReference,
 } from "sheet-domain";
+import { scheduleTimeReferenceFromLegacy } from "sheet-domain/compatibility";
 
 /**
  * Uses an established source reference when one exists and otherwise adapts the complete legacy

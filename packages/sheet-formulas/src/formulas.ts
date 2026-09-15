@@ -8,14 +8,13 @@ import {
   Schema,
   Match,
   DateTime,
-  Duration,
-  String,
   SchemaGetter,
 } from "effect";
 import { HttpClient } from "effect/unstable/http";
 import { layer as AppsScriptHttpClientLayer } from "effect-platform-apps-script";
 import { makeWorkflowInvocationId } from "sheet-workflow-http-client";
 import { SpreadsheetId, SheetReference } from "sheet-workflow-contracts";
+import { makeEventStartReference, scheduleHourInterval, ScheduleHour } from "sheet-domain";
 import {
   calculationStatus,
   calculationStatusForError,
@@ -77,6 +76,47 @@ function parseFixedTeams(fixedTeams: CellValue[][]) {
     ),
   );
 }
+
+const formatZonedTime = (instant: DateTime.Utc, timeZone: string): Option.Option<string> =>
+  DateTime.makeZoned(instant, { timeZone }).pipe(
+    Option.map((zoned) => {
+      const hour = DateTime.getPart(zoned, "hour").toString().padStart(2, "0");
+      const minute = DateTime.getPart(zoned, "minute").toString().padStart(2, "0");
+      return `${hour}:${minute}`;
+    }),
+  );
+
+const formatScheduleInterval = (
+  interval: { readonly start: DateTime.Utc; readonly end: DateTime.Utc },
+  timeZone: string,
+  style: "short" | "long",
+): string => {
+  const start = formatZonedTime(interval.start, timeZone);
+  return Match.value(style).pipe(
+    Match.when("short", () => Option.getOrElse(start, () => "")),
+    Match.when("long", () =>
+      Option.match(Option.all({ start, end: formatZonedTime(interval.end, timeZone) }), {
+        onNone: () => "",
+        onSome: ({ end, start }) => `${start} - ${end}`,
+      }),
+    ),
+    Match.exhaustive,
+  );
+};
+
+/** Formats event-wide hour windows from the canonical Event Start Instant supplied by the formula. */
+const formatScheduleTimes = (
+  start: DateTime.Utc,
+  timeZones: ReadonlyArray<string>,
+  hours: ReadonlyArray<ScheduleHour>,
+  style: "short" | "long",
+): Effect.Effect<Array<Array<string>>> =>
+  Effect.succeed(
+    hours.map((hour) => {
+      const interval = scheduleHourInterval(makeEventStartReference(start), hour);
+      return timeZones.map((timeZone) => formatScheduleInterval(interval, timeZone, style));
+    }),
+  );
 
 export function THEECALC(
   _url: string,
@@ -284,55 +324,9 @@ export function TZSHORTSTAMPS(start: CellValue, tzs: CellValue[][], hours: CellV
         pipe(tzs, Array.flatten, Schema.decodeUnknownEffect(Schema.Array(Schema.String))),
       ),
       Effect.bind("hours", () =>
-        pipe(hours, Array.flatten, Schema.decodeUnknownEffect(Schema.Array(Schema.Number))),
+        pipe(hours, Array.flatten, Schema.decodeUnknownEffect(Schema.Array(ScheduleHour))),
       ),
-      Effect.andThen(({ start, tzs, hours }) =>
-        pipe(
-          hours,
-          Effect.forEach((hour) =>
-            pipe(
-              Effect.Do,
-              Effect.let("startTime", () =>
-                pipe(start, DateTime.addDuration(Duration.hours(hour - 1))),
-              ),
-              Effect.map(({ startTime }) =>
-                pipe(
-                  tzs,
-                  Array.map((tz) =>
-                    pipe(
-                      Option.Do,
-                      Option.bind("startTimeTz", () =>
-                        DateTime.makeZoned(startTime, { timeZone: tz }),
-                      ),
-                      Option.let("startTimeTzHours", ({ startTimeTz }) =>
-                        pipe(
-                          startTimeTz,
-                          DateTime.getPart("hour"),
-                          (n) => n.toString(),
-                          String.padStart(2, "0"),
-                        ),
-                      ),
-                      Option.let("startTimeTzMinutes", ({ startTimeTz }) =>
-                        pipe(
-                          startTimeTz,
-                          DateTime.getPart("minute"),
-                          (n) => n.toString(),
-                          String.padStart(2, "0"),
-                        ),
-                      ),
-                      Option.map(
-                        ({ startTimeTzHours, startTimeTzMinutes }) =>
-                          `${startTimeTzHours}:${startTimeTzMinutes}`,
-                      ),
-                      Option.getOrElse(() => ""),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
+      Effect.andThen(({ start, tzs, hours }) => formatScheduleTimes(start, tzs, hours, "short")),
       Effect.orDie,
     ),
   );
@@ -364,78 +358,9 @@ export function TZLONGSTAMPS(start: CellValue, tzs: CellValue[][], hours: CellVa
         pipe(tzs, Array.flatten, Schema.decodeUnknownEffect(Schema.Array(Schema.String))),
       ),
       Effect.bind("hours", () =>
-        pipe(hours, Array.flatten, Schema.decodeUnknownEffect(Schema.Array(Schema.Number))),
+        pipe(hours, Array.flatten, Schema.decodeUnknownEffect(Schema.Array(ScheduleHour))),
       ),
-      Effect.andThen(({ start, tzs, hours }) =>
-        pipe(
-          hours,
-          Effect.forEach((hour) =>
-            pipe(
-              Effect.Do,
-              Effect.let("startTime", () =>
-                pipe(start, DateTime.addDuration(Duration.hours(hour - 1))),
-              ),
-              Effect.let("endTime", () => pipe(start, DateTime.addDuration(Duration.hours(hour)))),
-              Effect.map(({ startTime, endTime }) =>
-                pipe(
-                  tzs,
-                  Array.map((tz) =>
-                    pipe(
-                      Option.Do,
-                      Option.bind("startTimeTz", () =>
-                        DateTime.makeZoned(startTime, { timeZone: tz }),
-                      ),
-                      Option.bind("endTimeTz", () => DateTime.makeZoned(endTime, { timeZone: tz })),
-                      Option.let("startTimeTzHours", ({ startTimeTz }) =>
-                        pipe(
-                          startTimeTz,
-                          DateTime.getPart("hour"),
-                          (n) => n.toString(),
-                          String.padStart(2, "0"),
-                        ),
-                      ),
-                      Option.let("startTimeTzMinutes", ({ startTimeTz }) =>
-                        pipe(
-                          startTimeTz,
-                          DateTime.getPart("minute"),
-                          (n) => n.toString(),
-                          String.padStart(2, "0"),
-                        ),
-                      ),
-                      Option.let("endTimeTzHours", ({ endTimeTz }) =>
-                        pipe(
-                          endTimeTz,
-                          DateTime.getPart("hour"),
-                          (n) => n.toString(),
-                          String.padStart(2, "0"),
-                        ),
-                      ),
-                      Option.let("endTimeTzMinutes", ({ endTimeTz }) =>
-                        pipe(
-                          endTimeTz,
-                          DateTime.getPart("minute"),
-                          (n) => n.toString(),
-                          String.padStart(2, "0"),
-                        ),
-                      ),
-                      Option.map(
-                        ({
-                          startTimeTzHours,
-                          startTimeTzMinutes,
-                          endTimeTzHours,
-                          endTimeTzMinutes,
-                        }) =>
-                          `${startTimeTzHours}:${startTimeTzMinutes} - ${endTimeTzHours}:${endTimeTzMinutes}`,
-                      ),
-                      Option.getOrElse(() => ""),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
+      Effect.andThen(({ start, tzs, hours }) => formatScheduleTimes(start, tzs, hours, "long")),
       Effect.orDie,
     ),
   );
@@ -512,66 +437,10 @@ export function tzLongStamps({
         pipe(
           sheet.getRange(`${hoursColumn}${hoursRowStart}:${hoursColumn}${hoursRowEnd}`).getValues(),
           Array.flatten,
-          Schema.decodeUnknownEffect(Schema.Array(Schema.Number)),
+          Schema.decodeUnknownEffect(Schema.Array(ScheduleHour)),
         ),
       ),
-      Effect.andThen(({ start, tzs, hours }) =>
-        Effect.forEach(hours, (hour) =>
-          pipe(
-            Effect.Do,
-            Effect.let("startTime", () =>
-              pipe(start, DateTime.addDuration(Duration.hours(hour - 1))),
-            ),
-            Effect.let("endTime", () => pipe(start, DateTime.addDuration(Duration.hours(hour)))),
-            Effect.map(({ startTime, endTime }) =>
-              Array.map(tzs, (tz) =>
-                pipe(
-                  Option.Do,
-                  Option.bind("startTimeTz", () => DateTime.makeZoned(startTime, { timeZone: tz })),
-                  Option.bind("endTimeTz", () => DateTime.makeZoned(endTime, { timeZone: tz })),
-                  Option.let("startTimeTzHours", ({ startTimeTz }) =>
-                    pipe(
-                      startTimeTz,
-                      DateTime.getPart("hour"),
-                      (n) => n.toString(),
-                      String.padStart(2, "0"),
-                    ),
-                  ),
-                  Option.let("startTimeTzMinutes", ({ startTimeTz }) =>
-                    pipe(
-                      startTimeTz,
-                      DateTime.getPart("minute"),
-                      (n) => n.toString(),
-                      String.padStart(2, "0"),
-                    ),
-                  ),
-                  Option.let("endTimeTzHours", ({ endTimeTz }) =>
-                    pipe(
-                      endTimeTz,
-                      DateTime.getPart("hour"),
-                      (n) => n.toString(),
-                      String.padStart(2, "0"),
-                    ),
-                  ),
-                  Option.let("endTimeTzMinutes", ({ endTimeTz }) =>
-                    pipe(
-                      endTimeTz,
-                      DateTime.getPart("minute"),
-                      (n) => n.toString(),
-                      String.padStart(2, "0"),
-                    ),
-                  ),
-                  Option.map(
-                    ({ startTimeTzHours, startTimeTzMinutes, endTimeTzHours, endTimeTzMinutes }) =>
-                      `${startTimeTzHours}:${startTimeTzMinutes} - ${endTimeTzHours}:${endTimeTzMinutes}`,
-                  ),
-                  Option.getOrElse(() => ""),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
+      Effect.andThen(({ start, tzs, hours }) => formatScheduleTimes(start, tzs, hours, "long")),
       Effect.andThen((result) =>
         Effect.sync(() =>
           sheet

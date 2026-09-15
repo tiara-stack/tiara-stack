@@ -16,7 +16,6 @@ import {
   scheduleHourAt,
   scheduleHourInterval,
   scheduleTimeReferenceFromMetadata,
-  scheduleTimeReferenceMetadataFromLegacy,
   type ScheduleTimeReference,
   type ScheduleTimeReferenceMetadata,
 } from "sheet-domain";
@@ -71,29 +70,19 @@ export const scheduleReactivityKey = (guildId: string) => `schedule.timing.${gui
 /**
  * Resolves the timing reference carried by a workspace schedule response.
  *
- * The response reference is authoritative when present. The legacy fallback intentionally sees
- * the complete workspace schedule projection so an older response cannot rebase itself on a
- * conversation subset or whichever row happened to be returned first.
+ * The response reference is authoritative when present. Legacy configuration is resolved before
+ * the workflow response is published; this boundary never re-infers timing from a filtered view.
  */
 export const scheduleTimeReferenceMetadataForResponse = (
   eventConfig: ScheduleEventConfig,
-  schedules: ReadonlyArray<Pick<ScheduleSummary, "hour">>,
 ): ScheduleTimeReferenceMetadata | undefined => {
-  if (eventConfig.scheduleTimeReference !== undefined) {
-    return eventConfig.scheduleTimeReference;
-  }
-
-  return scheduleTimeReferenceMetadataFromLegacy(
-    eventConfig.startTimeEpochMs,
-    schedules.map(({ hour }) => hour),
-  );
+  return eventConfig.scheduleTimeReference;
 };
 
 export const scheduleTimeReferenceForResponse = (
   eventConfig: ScheduleEventConfig,
-  schedules: ReadonlyArray<Pick<ScheduleSummary, "hour">>,
 ): ScheduleTimeReference | undefined => {
-  const metadata = scheduleTimeReferenceMetadataForResponse(eventConfig, schedules);
+  const metadata = scheduleTimeReferenceMetadataForResponse(eventConfig);
   return metadata === undefined ? undefined : scheduleTimeReferenceFromMetadata(metadata);
 };
 
@@ -115,7 +104,7 @@ export const workspaceScheduleAtom = Atom.family((guildId: string) =>
     Atom.withReactivity([scheduleReactivityKey(guildId)]),
     Atom.setIdleTTL(Duration.minutes(5)),
     Atom.serializable({
-      key: `schedules.loadWorkspace.v4.${guildId}`,
+      key: `schedules.loadWorkspace.v5.${guildId}`,
       schema: WorkspaceScheduleAsyncResultSchema,
     }),
   ),
@@ -197,10 +186,7 @@ export const guildScheduleAtom = Atom.family((guildId: string) =>
   Atom.make<ReadonlyArray<Schedule.PopulatedScheduleResult>, unknown>(
     Effect.fnUntraced(function* (get) {
       const response = yield* get.result(workspaceScheduleAtom(guildId));
-      const scheduleTimeReference = scheduleTimeReferenceForResponse(
-        response.eventConfig,
-        response.populatedSchedules,
-      );
+      const scheduleTimeReference = scheduleTimeReferenceForResponse(response.eventConfig);
       return response.populatedSchedules.map((summary) =>
         scheduleFromSummary(scheduleTimeReference, summary),
       );
@@ -209,7 +195,7 @@ export const guildScheduleAtom = Atom.family((guildId: string) =>
     Atom.withReactivity([scheduleReactivityKey(guildId)]),
     Atom.setIdleTTL(Duration.minutes(5)),
     Atom.serializable({
-      key: `schedule.getAllPopulatedSchedules.v4.${guildId}`,
+      key: `schedule.getAllPopulatedSchedules.v5.${guildId}`,
       schema: GuildSchedulesAsyncResultSchema,
     }),
   ),
@@ -240,7 +226,7 @@ export const getAllChannelsAtom = Atom.family((guildId: string) =>
     Atom.withReactivity([scheduleReactivityKey(guildId)]),
     Atom.setIdleTTL(Duration.minutes(5)),
     Atom.serializable({
-      key: `schedule.derived.getAllChannels.v4.${guildId}`,
+      key: `schedule.derived.getAllChannels.v5.${guildId}`,
       schema: GuildChannelsAsyncResultSchema,
     }),
   ),
@@ -320,7 +306,7 @@ export const scheduledDaysAtom = Atom.family((params: ScheduledDaysParams) =>
     Atom.withReactivity([scheduleReactivityKey(params.guildId)]),
     Atom.setIdleTTL(Duration.minutes(5)),
     Atom.serializable({
-      key: `schedule.derived.scheduledDays.v4.${params.guildId}.${params.channel}.${zoneId(params.timeZone)}.${DateTime.toEpochMillis(params.rangeStart)}-${DateTime.toEpochMillis(params.rangeEnd)}`,
+      key: `schedule.derived.scheduledDays.v5.${params.guildId}.${params.channel}.${zoneId(params.timeZone)}.${DateTime.toEpochMillis(params.rangeStart)}-${DateTime.toEpochMillis(params.rangeEnd)}`,
       schema: ScheduledDaysAsyncResultSchema,
     }),
   ),

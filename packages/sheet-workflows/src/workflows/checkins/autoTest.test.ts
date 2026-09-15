@@ -2,7 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { Cause, ConfigProvider, Effect, Exit, Option, Schema } from "effect";
 import { workflowContractKey } from "effect-zero-workflow/contract";
 import { ResponseReference, type SheetBotHttpClient, type SendMessageReceipt } from "sheet-bot-api";
-import { scheduleTimeReferenceFromLegacyFirstHour } from "sheet-domain";
+import { scheduleTimeReferenceFromLegacy } from "sheet-domain/compatibility";
 import {
   TrustedSheetPersistence,
   type TrustedSheetPersistenceShape,
@@ -275,9 +275,7 @@ const makePreparationFixture = (options: {
             ],
           }),
         loadLegacyScheduleTimeReference: ({ referenceInstantEpochMs }) =>
-          Effect.succeed(
-            scheduleTimeReferenceFromLegacyFirstHour(referenceInstantEpochMs, options.hour),
-          ),
+          Effect.succeed(scheduleTimeReferenceFromLegacy(referenceInstantEpochMs, [options.hour])),
         loadRoomOrder: () =>
           Effect.succeed({
             eventStartEpochMs: 0,

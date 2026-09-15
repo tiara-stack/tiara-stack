@@ -72,7 +72,8 @@
   },
   "dependencies": {
     "effect": "catalog:",
-    "sheet-bot-api": "workspace:*"
+    "sheet-bot-api": "workspace:*",
+    "sheet-domain": "workspace:*"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",

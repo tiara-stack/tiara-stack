@@ -1,4 +1,5 @@
 import type { BotTextPart } from "sheet-bot-api/message";
+import type { ScheduleTimeReference } from "sheet-domain";
 import type { PopulatedScheduleResult } from "./schedule";
 import * as MessageText from "./text";
 import { formatFilledSlot, formatOpenSlot, makeEmbed } from "./rendering";
@@ -50,13 +51,13 @@ const renderSlotSection = (
 export const renderSlotEmbeds = (
   day: number,
   schedules: ReadonlyArray<PopulatedScheduleResult>,
-  eventConfig: Parameters<typeof formatOpenSlot>[1],
+  scheduleTimeReference: ScheduleTimeReference,
 ) => [
   makeEmbed({
     title: `Day ${day} Open Slots`,
     description: renderSlotSection(
       schedules,
-      (schedule) => formatOpenSlot(schedule, eventConfig),
+      (schedule) => formatOpenSlot(schedule, scheduleTimeReference),
       "All Filled :3",
     ),
   }),
@@ -64,7 +65,7 @@ export const renderSlotEmbeds = (
     title: `Day ${day} Filled Slots`,
     description: renderSlotSection(
       schedules,
-      (schedule) => formatFilledSlot(schedule, eventConfig),
+      (schedule) => formatFilledSlot(schedule, scheduleTimeReference),
       "All Open :3",
     ),
   }),

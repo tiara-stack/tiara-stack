@@ -26,13 +26,18 @@ import {
 } from "../shared/runnerLocalSheets";
 import { slotCapacity } from "../shared/slotCapacity";
 import type { SlotView } from "./slotListSchema";
-import type { WebSheetConfiguration } from "sheet-domain";
+import type { ScheduleTimeReference, WebSheetConfiguration } from "sheet-domain";
 import { loadConfigurationValueRanges } from "../shared/webConfigurationSheets";
+import { loadLegacyScheduleTimeReference } from "../shared/legacyScheduleTimeReference";
 
 type SlotViewSchedule = SlotView["schedules"][number];
 
 export class SlotListProviderError extends Data.TaggedError("SlotListProviderError")<{
-  readonly operation: "create-client" | "read-configuration" | "read-day-schedules";
+  readonly operation:
+    | "create-client"
+    | "read-configuration"
+    | "read-schedule-configuration"
+    | "read-day-schedules";
   readonly cause: unknown;
 }> {}
 
@@ -42,6 +47,12 @@ interface SlotListProviderShape {
     day: number,
     configuration?: WebSheetConfiguration | null,
   ) => Effect.Effect<SlotView, SlotListProviderError>;
+  /** Reads complete legacy schedule evidence for an unresolved source. */
+  readonly loadLegacyScheduleTimeReference?: (options: {
+    readonly spreadsheetId: string;
+    readonly referenceInstantEpochMs: number;
+    readonly configuration?: WebSheetConfiguration | null;
+  }) => Effect.Effect<ScheduleTimeReference | undefined, SlotListProviderError>;
 }
 
 export class SlotListProvider extends Context.Service<SlotListProvider, SlotListProviderShape>()(
@@ -199,6 +210,14 @@ export const makeSlotListProvider = (client: sheets_v4.Sheets): SlotListProvider
         catch: (cause) => new SlotListProviderError({ operation: "read-day-schedules", cause }),
       });
       return { eventStartEpochMs: parsed.eventStartEpochMs, schedules };
+    }),
+  loadLegacyScheduleTimeReference: ({ spreadsheetId, referenceInstantEpochMs, configuration }) =>
+    loadLegacyScheduleTimeReference({
+      client,
+      spreadsheetId,
+      referenceInstantEpochMs,
+      configuration,
+      makeError: makeProviderError("read-schedule-configuration"),
     }),
 });
 

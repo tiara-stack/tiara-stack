@@ -1,6 +1,7 @@
-import { DateTime, Duration, Match, Option, Predicate, pipe } from "effect";
+import { DateTime, Match, Option, Predicate, pipe } from "effect";
 import type { BotOutboundMessage, BotTextPart } from "sheet-bot-api/message";
 import type { ClientRef } from "sheet-bot-api/references";
+import { scheduleHourInterval, type ScheduleTimeReference } from "sheet-domain";
 import * as MessageText from "./text";
 import * as Sheet from "./schedule";
 
@@ -250,21 +251,6 @@ export const formatServiceStatusFieldValue = (service: ServiceStatus) => {
   );
 };
 
-export const hourWindowFor = (
-  eventConfig: { readonly startTime: DateTime.DateTime },
-  hour: number,
-  scheduleStartHour = 1,
-) => ({
-  start: pipe(
-    eventConfig.startTime,
-    DateTime.addDuration(Duration.hours(hour - scheduleStartHour)),
-  ),
-  end: pipe(
-    eventConfig.startTime,
-    DateTime.addDuration(Duration.hours(hour - scheduleStartHour + 1)),
-  ),
-});
-
 const formatHourWindow = (hourWindow: {
   readonly start: DateTime.DateTime;
   readonly end: DateTime.DateTime;
@@ -277,10 +263,7 @@ const formatHourWindow = (hourWindow: {
 
 const formatScheduleRange = (
   schedule: Sheet.PopulatedBreakSchedule | Sheet.PopulatedSchedule,
-  eventConfig: {
-    readonly startTime: DateTime.DateTime;
-    readonly scheduleStartHour?: number;
-  },
+  scheduleTimeReference: ScheduleTimeReference,
 ) =>
   pipe(
     schedule.hourWindow,
@@ -290,8 +273,7 @@ const formatScheduleRange = (
         pipe(
           schedule.hour,
           Option.match({
-            onSome: (hour) =>
-              formatHourWindow(hourWindowFor(eventConfig, hour, eventConfig.scheduleStartHour)),
+            onSome: (hour) => formatHourWindow(scheduleHourInterval(scheduleTimeReference, hour)),
             onNone: () => MessageText.parts(MessageText.text("??-??")),
           }),
         ),
@@ -300,10 +282,7 @@ const formatScheduleRange = (
 
 const formatScheduleSlotParts = (
   schedule: Sheet.PopulatedSchedule,
-  eventConfig: {
-    readonly startTime: DateTime.DateTime;
-    readonly scheduleStartHour?: number;
-  },
+  scheduleTimeReference: ScheduleTimeReference,
 ) => ({
   empty: Sheet.PopulatedSchedule.empty(schedule),
   hourString: pipe(
@@ -311,22 +290,22 @@ const formatScheduleSlotParts = (
     Option.map((hour) => MessageText.strong([MessageText.text(`hour ${hour}`)])),
     Option.getOrElse(() => MessageText.strong([MessageText.text("hour ??")])),
   ),
-  rangeString: formatScheduleRange(schedule, eventConfig),
+  rangeString: formatScheduleRange(schedule, scheduleTimeReference),
 });
 
 const formatSlot = (
   schedule: Sheet.PopulatedBreakSchedule | Sheet.PopulatedSchedule,
-  eventConfig: {
-    readonly startTime: DateTime.DateTime;
-    readonly scheduleStartHour?: number;
-  },
+  scheduleTimeReference: ScheduleTimeReference,
   mode: "open" | "filled",
 ): MessageTextValue =>
   Match.value(schedule).pipe(
     Match.tagsExhaustive({
       PopulatedBreakSchedule: () => MessageText.parts(),
       PopulatedSchedule: (schedule) => {
-        const { empty, hourString, rangeString } = formatScheduleSlotParts(schedule, eventConfig);
+        const { empty, hourString, rangeString } = formatScheduleSlotParts(
+          schedule,
+          scheduleTimeReference,
+        );
         const visible =
           mode === "open" ? !schedule.visible || empty > 0 : schedule.visible && empty === 0;
         if (!visible) {
@@ -349,19 +328,13 @@ const formatSlot = (
 
 export const formatOpenSlot = (
   schedule: Sheet.PopulatedBreakSchedule | Sheet.PopulatedSchedule,
-  eventConfig: {
-    readonly startTime: DateTime.DateTime;
-    readonly scheduleStartHour?: number;
-  },
-) => formatSlot(schedule, eventConfig, "open");
+  scheduleTimeReference: ScheduleTimeReference,
+) => formatSlot(schedule, scheduleTimeReference, "open");
 
 export const formatFilledSlot = (
   schedule: Sheet.PopulatedBreakSchedule | Sheet.PopulatedSchedule,
-  eventConfig: {
-    readonly startTime: DateTime.DateTime;
-    readonly scheduleStartHour?: number;
-  },
-) => formatSlot(schedule, eventConfig, "filled");
+  scheduleTimeReference: ScheduleTimeReference,
+) => formatSlot(schedule, scheduleTimeReference, "filled");
 
 export const joinDedupeAdjacent = (items: ReadonlyArray<MessageTextValue>): MessageTextValue => {
   const keyedItems = items

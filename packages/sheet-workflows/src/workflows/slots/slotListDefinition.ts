@@ -4,6 +4,7 @@ import { Workflow } from "effect/unstable/workflow";
 import { makeAction } from "effect-zero-workflow";
 import { workflowContractKey } from "effect-zero-workflow/contract";
 import { BotOutboundMessage, RespondReceipt } from "sheet-bot-api";
+import { scheduleTimeReferenceFromMetadata } from "sheet-domain";
 import {
   PartialNamePlayer,
   PopulatedBreakSchedule,
@@ -115,7 +116,7 @@ export const makeSlotViewEmbeds = (
   InteractiveDeclaredFailure
 > =>
   Effect.gen(function* () {
-    const startTime = yield* Option.match(DateTime.make(view.eventStartEpochMs), {
+    yield* Option.match(DateTime.make(view.eventStartEpochMs), {
       onNone: () =>
         Effect.fail(
           interactiveExternalOperationRejected(
@@ -124,12 +125,19 @@ export const makeSlotViewEmbeds = (
             "The schedule provider returned an invalid event start time",
           ),
         ),
-      onSome: Effect.succeed,
+      onSome: () => Effect.void,
     });
     const scheduleTimeReference = yield* Option.match(
       Option.fromNullishOr(view.scheduleTimeReference),
       {
-        onNone: () => Effect.succeed(undefined),
+        onNone: () =>
+          Effect.fail(
+            interactiveExternalOperationRejected(
+              operation,
+              "MissingTimingReference",
+              "The schedule provider did not return a resolved schedule time reference",
+            ),
+          ),
         onSome: (metadata) =>
           Option.match(DateTime.make(metadata.instantEpochMs), {
             onNone: () =>
@@ -140,8 +148,7 @@ export const makeSlotViewEmbeds = (
                   "The schedule provider returned an invalid schedule time reference",
                 ),
               ),
-            onSome: (referenceStartTime) =>
-              Effect.succeed({ startTime: referenceStartTime, hour: metadata.hour }),
+            onSome: () => Effect.succeed(scheduleTimeReferenceFromMetadata(metadata)),
           }),
       },
     );
@@ -154,12 +161,7 @@ export const makeSlotViewEmbeds = (
     const schedules = yield* Effect.forEach(sorted.schedules, (schedule) =>
       toLegacySchedule(day, schedule),
     );
-    return renderSlotEmbeds(day, schedules, {
-      startTime: scheduleTimeReference?.startTime ?? startTime,
-      ...(scheduleTimeReference === undefined
-        ? {}
-        : { scheduleStartHour: scheduleTimeReference.hour }),
-    });
+    return renderSlotEmbeds(day, schedules, scheduleTimeReference);
   });
 
 export const makeSlotsDeliverListMessage = (

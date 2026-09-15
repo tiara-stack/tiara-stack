@@ -14,7 +14,7 @@ import {
 } from "effect";
 import { WorkflowEngine } from "effect/unstable/workflow";
 import { ServicePrincipal, type ActorProvenance } from "sheet-auth/identity";
-import { scheduleTimeReferenceFromLegacyFirstHour, type ScheduleTimeReference } from "sheet-domain";
+import { normalizeScheduleTimeReference, type ScheduleTimeReference } from "sheet-domain";
 import { CheckinsOpen, MembersKick, WorkspaceId } from "sheet-workflow-contracts";
 import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import { config } from "@/config";
@@ -48,44 +48,6 @@ class AutonomousTriggerError extends Data.TaggedError("AutonomousTriggerError")<
   readonly message: string;
   readonly cause?: unknown;
 }> {}
-
-/**
- * Adapts the legacy provider pair to the shared reference. The stored timestamp is a
- * Chapter Start Instant when its first event-wide hour is greater than one.
- */
-export const deriveAutonomousEventHour = (
-  referenceInstantEpochMs: number,
-  targetHourBucketEpochMs: number,
-  firstEventHour = 1,
-): number => {
-  if (
-    !Number.isSafeInteger(referenceInstantEpochMs) ||
-    !Number.isSafeInteger(targetHourBucketEpochMs)
-  ) {
-    throw new RangeError("reference instant and target hour must be safe integers");
-  }
-  if (!Number.isSafeInteger(firstEventHour) || firstEventHour < 1) {
-    throw new RangeError("the first event-wide hour must be a positive integer");
-  }
-  const reference = scheduleTimeReferenceFromLegacyFirstHour(
-    referenceInstantEpochMs,
-    firstEventHour,
-  );
-  if (reference === undefined) {
-    throw new RangeError("the legacy timing inputs do not form a schedule time reference");
-  }
-  return scheduleHourForInstant(reference, DateTime.makeUnsafe(targetHourBucketEpochMs));
-};
-
-export const deriveAutomaticRoleCleanupHour = (
-  referenceInstantEpochMs: number,
-  targetHourBucketEpochMs: number,
-  firstEventHour = 1,
-): number =>
-  Math.max(
-    0,
-    deriveAutonomousEventHour(referenceInstantEpochMs, targetHourBucketEpochMs, firstEventHour),
-  );
 
 const isRunningConversation = (conversation: {
   readonly running: boolean | null;
@@ -253,13 +215,36 @@ type AutonomousTiming = {
   readonly referenceInstantEpochMs: number;
 };
 
+const scheduleTimeReferenceMatchesSourceIdentity = (
+  active: AuthoritativeSheetConfiguration,
+  reference: ScheduleTimeReference,
+  referenceInstantEpochMs: number,
+): boolean =>
+  Match.value(active.source).pipe(
+    Match.when(
+      { kind: "owned" },
+      () =>
+        DateTime.toEpochMillis(normalizeScheduleTimeReference(reference).instant) ===
+        referenceInstantEpochMs,
+    ),
+    Match.when(
+      { kind: "legacy" },
+      () => DateTime.toEpochMillis(reference.instant) === referenceInstantEpochMs,
+    ),
+    Match.exhaustive,
+  );
+
 const autonomousTimingFor = (
   active: AuthoritativeSheetConfiguration,
   provider: typeof AutonomousTriggerProvider.Service,
 ): Effect.Effect<AutonomousTiming, unknown> =>
   Effect.gen(function* () {
-    const establishedReference = establishedScheduleTimeReferenceFor(active);
     const referenceInstantEpochMs = yield* eventIdentityEpochMsFor(active, provider);
+    const establishedReference = establishedScheduleTimeReferenceFor(active).pipe(
+      Option.filter((reference) =>
+        scheduleTimeReferenceMatchesSourceIdentity(active, reference, referenceInstantEpochMs),
+      ),
+    );
     const scheduleTimeReference = yield* Option.match(establishedReference, {
       onNone: () =>
         provider

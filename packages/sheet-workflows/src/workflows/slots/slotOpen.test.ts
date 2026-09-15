@@ -65,6 +65,11 @@ const slotContext: AuthorizedSlotOpenContext = {
 const eventStartEpochMs = Date.parse("2026-01-01T00:00:00.000Z");
 const view: SlotView = {
   eventStartEpochMs,
+  scheduleTimeReference: {
+    kind: "event-start",
+    instantEpochMs: eventStartEpochMs,
+    hour: 1,
+  },
   schedules: [
     { _tag: "Schedule", visible: true, hour: 2, filledSlots: 5, overfillSlots: 0 },
     { _tag: "Break", visible: true, hour: 3 },

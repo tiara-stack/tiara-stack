@@ -19,6 +19,8 @@
       "sheet-auth/*": ["../sheet-auth/src/*"],
       "sheet-bot-api": ["../sheet-bot-api/src/index.ts"],
       "sheet-bot-api/*": ["../sheet-bot-api/src/*"],
+      "sheet-domain": ["../sheet-domain/src/index.ts"],
+      "sheet-domain/*": ["../sheet-domain/src/*"],
       "sheet-message-content": ["../sheet-message-content/src/index.ts"],
       "sheet-message-content/*": ["../sheet-message-content/src/*"],
       "sheet-workflow-contracts": ["../sheet-workflow-contracts/src/index.ts"],
@@ -40,6 +42,9 @@
     },
     {
       "path": "../sheet-bot-api"
+    },
+    {
+      "path": "../sheet-domain"
     },
     {
       "path": "../sheet-message-content"

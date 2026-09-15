@@ -26,10 +26,7 @@ export const eventConfigAtom = Atom.family((guildId: string) =>
   Atom.make<EventConfig, unknown>(
     Effect.fnUntraced(function* (get) {
       const schedule = yield* get.result(workspaceScheduleAtom(guildId));
-      const scheduleTimeReference = scheduleTimeReferenceMetadataForResponse(
-        schedule.eventConfig,
-        schedule.populatedSchedules,
-      );
+      const scheduleTimeReference = scheduleTimeReferenceMetadataForResponse(schedule.eventConfig);
       return {
         startTime: DateTime.makeUnsafe(schedule.eventConfig.startTimeEpochMs),
         ...(scheduleTimeReference === undefined ? {} : { scheduleTimeReference }),
@@ -38,7 +35,7 @@ export const eventConfigAtom = Atom.family((guildId: string) =>
   ).pipe(
     Atom.withReactivity([scheduleReactivityKey(guildId)]),
     Atom.serializable({
-      key: `sheet.getEventConfig.v4.${guildId}`,
+      key: `sheet.getEventConfig.v5.${guildId}`,
       schema: EventConfigAsyncResultSchema,
     }),
   ),

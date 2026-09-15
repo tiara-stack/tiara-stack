@@ -250,7 +250,7 @@ function LoadedCheckinMessagesSection({
   const nowByHour = useNowByHour(timeZone);
   const allHours = useMemo(() => channels.flatMap((channel) => channel.hours), [channels]);
   const scheduleTimeReference = useMemo(
-    () => scheduleTimeReferenceForResponse(schedule.eventConfig, schedule.populatedSchedules),
+    () => scheduleTimeReferenceForResponse(schedule.eventConfig),
     [
       schedule.eventConfig.scheduleTimeReference,
       schedule.eventConfig.startTimeEpochMs,

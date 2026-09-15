@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Cause, Effect, Exit, Option, Schema } from "effect";
-import { scheduleTimeReferenceFromLegacyFirstHour } from "sheet-domain";
+import { scheduleTimeReferenceFromLegacy } from "sheet-domain/compatibility";
 import { workflowContractKey } from "effect-zero-workflow/contract";
 import { type SheetBotHttpClient, ResponseReference, messageRefFrom } from "sheet-bot-api";
 import {
@@ -112,7 +112,7 @@ const makeOperations = (
       RoomOrderNavigationProvider.testLayer({
         loadEventStart: () => Effect.succeed(0),
         loadLegacyScheduleTimeReference: ({ referenceInstantEpochMs }) =>
-          Effect.succeed(scheduleTimeReferenceFromLegacyFirstHour(referenceInstantEpochMs, 1)),
+          Effect.succeed(scheduleTimeReferenceFromLegacy(referenceInstantEpochMs, [1])),
       }),
     ),
     Effect.provide(SheetBotDeliveryClient.testLayer({ get: () => makeDeliveryBot(delivery) })),

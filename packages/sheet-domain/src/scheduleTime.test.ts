@@ -6,17 +6,18 @@ import {
   makeChapterStartReference,
   makeEventStartReference,
   normalizeScheduleTimeReference,
-  scheduleTimeReferenceFromLegacy,
-  scheduleTimeReferenceFromLegacyFirstHour,
   scheduleTimeReferenceFromMetadata,
   scheduleTimeReferenceMetadataFrom,
   scheduleTimeReferenceMetadataForEvent,
   scheduleTimeReferenceMetadataForEventFromSource,
   scheduleTimeReferenceMetadataForEventIfAnchored,
-  scheduleTimeReferenceMetadataFromLegacy,
   scheduleHourAt,
   scheduleHourInterval,
 } from "./scheduleTime";
+import {
+  scheduleTimeReferenceFromLegacy,
+  scheduleTimeReferenceMetadataFromLegacy,
+} from "./compatibility";
 
 const eventStart = DateTime.makeUnsafe("2026-09-07T03:00:00.000Z");
 const chapterStart = DateTime.makeUnsafe("2026-09-09T03:00:00.000Z");
@@ -56,6 +57,27 @@ describe("schedule time", () => {
     expect(scheduleHourAt(reference, hourOne.end)).toBe(2);
     expect(scheduleHourAt(reference, hourFortyNine.start)).toBe(49);
     expect(scheduleHourAt(reference, hourOneNinetyThree.start)).toBe(193);
+  });
+
+  it("keeps canonical hours aligned for equivalent event and chapter references", () => {
+    const references = [
+      makeEventStartReference(eventStart),
+      makeChapterStartReference(chapterStart, 49),
+    ];
+    const expectedStarts = new Map([
+      [1, Date.UTC(2026, 8, 7, 3)],
+      [2, Date.UTC(2026, 8, 7, 4)],
+      [49, Date.UTC(2026, 8, 9, 3)],
+      [193, Date.UTC(2026, 8, 15, 3)],
+    ]);
+
+    for (const reference of references) {
+      for (const [hour, expectedStart] of expectedStarts) {
+        expect(DateTime.toEpochMillis(scheduleHourInterval(reference, hour).start)).toBe(
+          expectedStart,
+        );
+      }
+    }
   });
 
   it("keeps elapsed-hour boundaries when the event starts between civil-clock hours", () => {
@@ -135,9 +157,9 @@ describe("schedule time", () => {
     expect(
       scheduleTimeReferenceFromLegacy(DateTime.toEpochMillis(chapterStart), []),
     ).toBeUndefined();
-    expect(
-      scheduleTimeReferenceFromLegacyFirstHour(DateTime.toEpochMillis(chapterStart), 49),
-    ).toEqual(reference);
+    expect(scheduleTimeReferenceFromLegacy(DateTime.toEpochMillis(chapterStart), [49])).toEqual(
+      reference,
+    );
     expect(
       scheduleTimeReferenceMetadataFromLegacy(DateTime.toEpochMillis(chapterStart), [49, 82, 193]),
     ).toEqual({
@@ -145,7 +167,7 @@ describe("schedule time", () => {
       instantEpochMs: DateTime.toEpochMillis(chapterStart),
       hour: 49,
     });
-    expect(scheduleTimeReferenceFromLegacyFirstHour(DateTime.toEpochMillis(chapterStart), 0)).toBe(
+    expect(scheduleTimeReferenceFromLegacy(DateTime.toEpochMillis(chapterStart), [0])).toBe(
       undefined,
     );
   });

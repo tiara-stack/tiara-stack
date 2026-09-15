@@ -590,7 +590,8 @@ export const autoCheckinTestWorkflowOperationsLayer = Layer.effect(
     const prepareTarget: AutoCheckinTestWorkflowOperations["Service"]["prepareTarget"] = (
       execution,
     ) =>
-      // Preparation preserves the legacy hour-one check-in and room-order rendering algorithm.
+      // Preparation preserves the established schedule-time reference for check-in and room-order
+      // rendering.
       // fallow-ignore-next-line complexity
       Effect.gen(function* () {
         const input = yield* decodeWorkflowContractInputOrDie(CheckinsTestAuto, execution.input);

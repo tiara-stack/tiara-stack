@@ -1,4 +1,4 @@
-import { DateTime, Duration, Match, Predicate, Schema } from "effect";
+import { DateTime, Duration, Match, Schema } from "effect";
 
 /** A one-based event-wide schedule hour. */
 export const ScheduleHour = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1));
@@ -101,61 +101,6 @@ export const scheduleTimeReferenceMetadataFrom = (
     })),
     Match.exhaustive,
   );
-
-/**
- * Converts the old timestamp-plus-first-hour pair into one explicit reference.
- * A missing or invalid first hour is unresolved rather than being guessed as hour 1.
- */
-export const scheduleTimeReferenceFromLegacyFirstHour = (
-  referenceInstantEpochMs: number,
-  firstEventHour: number,
-): ScheduleTimeReference | undefined => {
-  if (
-    !Number.isSafeInteger(referenceInstantEpochMs) ||
-    !Number.isSafeInteger(firstEventHour) ||
-    firstEventHour < 1
-  ) {
-    return undefined;
-  }
-  const instant = DateTime.makeUnsafe(referenceInstantEpochMs);
-  return firstEventHour === 1
-    ? makeEventStartReference(instant)
-    : makeChapterStartReference(instant, firstEventHour);
-};
-
-/** Returns the first populated legacy Schedule Hour, preserving the old empty-input default. */
-export const firstEventHourFromLegacy = (hours: ReadonlyArray<number | null>): number => {
-  const populatedHours = hours.filter(Predicate.isNotNull);
-  return populatedHours.length === 0
-    ? 1
-    : populatedHours.reduce((minimum, hour) => Math.min(minimum, hour), Number.POSITIVE_INFINITY);
-};
-
-/**
- * Resolves an old configuration with the complete workspace schedule-hour evidence.
- * Callers must collect rows before narrowing to a conversation or visible subset.
- */
-export const scheduleTimeReferenceFromLegacy = (
-  referenceInstantEpochMs: number,
-  hours: ReadonlyArray<number | null>,
-): ScheduleTimeReference | undefined => {
-  const populatedHours = hours.filter(Predicate.isNotNull);
-  return populatedHours.length === 0
-    ? undefined
-    : scheduleTimeReferenceFromLegacyFirstHour(
-        referenceInstantEpochMs,
-        firstEventHourFromLegacy(populatedHours),
-      );
-};
-
-/** Converts complete legacy schedule evidence into the JSON-safe compatibility projection. */
-export const scheduleTimeReferenceMetadataFromLegacy = (
-  referenceInstantEpochMs: number,
-  hours: ReadonlyArray<number | null>,
-): ScheduleTimeReferenceMetadata | undefined => {
-  const reference = scheduleTimeReferenceFromLegacy(referenceInstantEpochMs, hours);
-  return reference === undefined ? undefined : scheduleTimeReferenceMetadataFrom(reference);
-};
 
 /**
  * Returns an explicit reference for an event configuration while keeping the stored timestamp

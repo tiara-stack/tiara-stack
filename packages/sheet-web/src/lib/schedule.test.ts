@@ -47,10 +47,12 @@ describe("schedule time projection", () => {
   });
 
   it(`projects captured server ${capturedServerSchedule.serverId} before filtering rows`, () => {
-    const reference = scheduleTimeReferenceForResponse(
-      { startTimeEpochMs: DateTime.toEpochMillis(capturedServerSchedule.chapterStart) },
-      capturedServerSchedule.hours.map(summary),
-    );
+    const reference = scheduleTimeReferenceForResponse({
+      startTimeEpochMs: DateTime.toEpochMillis(capturedServerSchedule.chapterStart),
+      scheduleTimeReference: scheduleTimeReferenceMetadataFrom(
+        capturedServerSchedule.chapterReference,
+      ),
+    });
 
     expect(reference).toEqual(capturedServerSchedule.chapterReference);
 
@@ -71,16 +73,19 @@ describe("schedule time projection", () => {
     ).toBe(Date.UTC(2026, 8, 15, 3));
   });
 
-  it("prefers the explicit response reference over legacy row inference", () => {
-    const reference = scheduleTimeReferenceForResponse(
-      {
-        startTimeEpochMs: DateTime.toEpochMillis(chapterStart),
-        scheduleTimeReference: scheduleTimeReferenceMetadataFrom(
-          makeEventStartReference(eventStart),
-        ),
-      },
-      [summary(49)],
-    );
+  it("does not infer a reference from an incomplete response projection", () => {
+    const reference = scheduleTimeReferenceForResponse({
+      startTimeEpochMs: DateTime.toEpochMillis(chapterStart),
+    });
+
+    expect(reference).toBeUndefined();
+  });
+
+  it("uses the explicit response reference without schedule rows", () => {
+    const reference = scheduleTimeReferenceForResponse({
+      startTimeEpochMs: DateTime.toEpochMillis(chapterStart),
+      scheduleTimeReference: scheduleTimeReferenceMetadataFrom(makeEventStartReference(eventStart)),
+    });
 
     expect(reference).toEqual(makeEventStartReference(eventStart));
   });

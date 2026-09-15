@@ -1,5 +1,11 @@
-import { Data, Effect, Option, Predicate } from "effect";
-import type { ScheduleTimeReferenceMetadata, WebSheetConfiguration } from "sheet-domain";
+import { Data, DateTime, Effect, Option, Predicate } from "effect";
+import {
+  normalizeScheduleTimeReference,
+  scheduleTimeReferenceMetadataFrom,
+  scheduleTimeReferenceFromMetadata,
+  type ScheduleTimeReferenceMetadata,
+  type WebSheetConfiguration,
+} from "sheet-domain";
 import type { WorkspaceId } from "sheet-workflow-contracts";
 import { TrustedSheetPersistence } from "sheet-zero-server/persistence";
 import {
@@ -19,6 +25,14 @@ class SlotWorkspaceResolutionError extends Data.TaggedError("SlotWorkspaceResolu
 }> {}
 
 export { missingConfigurationKey };
+
+const scheduleTimeReferenceMatchesEvent = (
+  reference: ScheduleTimeReferenceMetadata,
+  eventStartEpochMs: number,
+): boolean =>
+  DateTime.toEpochMillis(
+    normalizeScheduleTimeReference(scheduleTimeReferenceFromMetadata(reference)).instant,
+  ) === eventStartEpochMs;
 
 const rejectSlotListProvider = (operation: string) => (error: SlotListProviderError) =>
   Effect.logWarning("The schedule provider rejected the slot view read").pipe(
@@ -96,13 +110,50 @@ export const loadSlotViewForWorkspace = <ResolveError, OperationsError>(options:
             : options.provider
                 .load(sheetId, options.day, configuration ?? undefined)
                 .pipe(
-                  Effect.map((view) =>
-                    scheduleTimeReference === null || scheduleTimeReference === undefined
-                      ? view
-                      : { ...view, scheduleTimeReference },
-                  ),
+                  Effect.flatMap((view) => {
+                    if (
+                      scheduleTimeReference !== null &&
+                      scheduleTimeReference !== undefined &&
+                      scheduleTimeReferenceMatchesEvent(
+                        scheduleTimeReference,
+                        view.eventStartEpochMs,
+                      )
+                    ) {
+                      return Effect.succeed({ ...view, scheduleTimeReference });
+                    }
+                    if (view.scheduleTimeReference !== undefined) return Effect.succeed(view);
+                    const loadLegacy = options.provider.loadLegacyScheduleTimeReference;
+                    return Predicate.isUndefined(loadLegacy)
+                      ? Effect.fail(
+                          interactiveConfigurationMissing("workspace.sheetScheduleConfiguration"),
+                        )
+                      : loadLegacy({
+                          spreadsheetId: sheetId,
+                          referenceInstantEpochMs: view.eventStartEpochMs,
+                          ...(configuration === undefined ? {} : { configuration }),
+                        }).pipe(
+                          Effect.flatMap((reference) =>
+                            Predicate.isUndefined(reference)
+                              ? Effect.fail(
+                                  interactiveConfigurationMissing(
+                                    "workspace.sheetScheduleConfiguration",
+                                  ),
+                                )
+                              : Effect.succeed({
+                                  ...view,
+                                  scheduleTimeReference:
+                                    scheduleTimeReferenceMetadataFrom(reference),
+                                }),
+                          ),
+                        );
+                  }),
                 )
-                .pipe(Effect.catch(rejectSlotListProvider(options.loadOperation))),
+                .pipe(
+                  Effect.catchTag(
+                    "SlotListProviderError",
+                    rejectSlotListProvider(options.loadOperation),
+                  ),
+                ),
       }),
     ),
   );
