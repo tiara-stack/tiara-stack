@@ -11,7 +11,10 @@ import {
 } from "sheet-bot-api";
 import { shouldSendTentativeRoomOrder } from "sheet-bot-api/actions";
 import { makeMonitorCheckinMessage } from "sheet-message-content/checkinSummary";
-import { buildRoomOrderContent } from "sheet-message-content/roomOrderContent";
+import {
+  buildRoomOrderContent,
+  roomOrderMonitorHandoffFromAdjacentAssignment,
+} from "sheet-message-content/roomOrderContent";
 import { tentativeRoomOrderContent } from "sheet-message-content/roomOrderMessage";
 import {
   autoCheckinTestHour,
@@ -832,11 +835,10 @@ export const autoCheckinTestWorkflowOperationsLayer = Layer.effect(
                 hour,
                 hourWindow.start,
                 hourWindow.end,
-                {
-                  currentMonitor: roomCurrent?.monitor ?? null,
-                  previousMonitor: roomPrevious?.monitor ?? null,
-                  previousMonitorHistoryKnown: roomPrevious !== undefined,
-                },
+                roomOrderMonitorHandoffFromAdjacentAssignment(
+                  roomCurrent?.monitor ?? null,
+                  roomPrevious?.monitor,
+                ),
                 (roomPrevious?.fills ?? []).map(({ name }) => fillParticipantFromName(name)),
                 fills.map(({ name }) => fillParticipantFromName(name)),
                 entries.filter(({ rank }) => rank === 0),

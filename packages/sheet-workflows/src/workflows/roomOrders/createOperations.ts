@@ -1,5 +1,8 @@
 import { Cause, Clock, DateTime, Duration, Effect, Exit, Layer, Option, Predicate } from "effect";
-import { buildRoomOrderContent } from "sheet-message-content/roomOrderContent";
+import {
+  buildRoomOrderContent,
+  roomOrderMonitorHandoffFromAdjacentAssignment,
+} from "sheet-message-content/roomOrderContent";
 import {
   generatingRoomOrderMessage,
   roomOrderDraftMessage,
@@ -310,14 +313,15 @@ export const roomOrderCreateOperationsLayer = Layer.effect(
         const maxRank = Math.max(...entries.map(({ rank }) => rank));
         const range = { minRank: 0 as const, maxRank };
         const { start, end } = scheduleHourWindowFor(scheduleTimeReference, hour);
-        const currentMonitor = current?.monitor ?? null;
-        const previousMonitor = previous?.monitor ?? null;
-        const previousMonitorHistoryKnown = previous !== undefined;
+        const monitorHandoff = roomOrderMonitorHandoffFromAdjacentAssignment(
+          current?.monitor ?? null,
+          previous?.monitor,
+        );
         const content = buildRoomOrderContent(
           hour,
           start,
           end,
-          { currentMonitor, previousMonitor, previousMonitorHistoryKnown },
+          monitorHandoff,
           previousFills.map(({ name }) => fillParticipantFromName(name)),
           fills.map(({ name }) => fillParticipantFromName(name)),
           entries.filter(({ rank }) => rank === 0),
@@ -332,9 +336,9 @@ export const roomOrderCreateOperationsLayer = Layer.effect(
           range,
           previousFills: previousFills.map(({ name }) => name),
           fills: fills.map(({ name }) => name),
-          monitor: currentMonitor,
-          previousMonitor,
-          previousMonitorHistoryKnown,
+          monitor: monitorHandoff.currentMonitor,
+          previousMonitor: monitorHandoff.previousMonitor,
+          previousMonitorHistoryKnown: monitorHandoff.previousMonitorHistoryKnown,
           entries,
           generatingMessage: generatingRoomOrderMessage(content),
           finalMessage: roomOrderDraftMessage(content, range, 0),

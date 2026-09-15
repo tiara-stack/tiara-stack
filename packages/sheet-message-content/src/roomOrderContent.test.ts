@@ -80,6 +80,15 @@ describe("buildRoomOrderContent", () => {
       },
       monitorLine: "Monis: Airi",
     },
+    {
+      name: "omits an unknown previous assignment when the current hour is unassigned",
+      handoff: {
+        currentMonitor: null,
+        previousMonitor: "Miku",
+        previousMonitorHistoryKnown: false,
+      },
+      monitorLine: null,
+    },
   ])("$name", ({ handoff, monitorLine }) => {
     const content = renderRoomOrder(handoff);
 

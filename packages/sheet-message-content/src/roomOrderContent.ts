@@ -20,6 +20,15 @@ export type RoomOrderMonitorHandoff = {
   readonly previousMonitorHistoryKnown: boolean;
 };
 
+export const roomOrderMonitorHandoffFromAdjacentAssignment = (
+  currentMonitor: string | null,
+  previousMonitor: string | null | undefined,
+): RoomOrderMonitorHandoff => ({
+  currentMonitor,
+  previousMonitor: previousMonitor ?? null,
+  previousMonitorHistoryKnown: previousMonitor !== undefined,
+});
+
 type RoomOrderMonitorInput = RoomOrderMonitorHandoff | string | null;
 
 const diffFillParticipants = (

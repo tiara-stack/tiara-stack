@@ -12,7 +12,10 @@ import {
 } from "effect";
 import { BotTextPart, conversationRefFrom } from "sheet-bot-api";
 import { makeMonitorCheckinMessage } from "sheet-message-content/checkinSummary";
-import { buildRoomOrderContent } from "sheet-message-content/roomOrderContent";
+import {
+  buildRoomOrderContent,
+  roomOrderMonitorHandoffFromAdjacentAssignment,
+} from "sheet-message-content/roomOrderContent";
 import { fillParticipantFromName } from "sheet-message-content/rendering";
 import * as MessageText from "sheet-message-content/text";
 import {
@@ -739,15 +742,16 @@ export const makeSheetDataProvider = (
       }
       const maxRank = Math.max(...entries.map(({ rank }) => rank));
       const window = scheduleHourWindowFor(timingReference, hour);
-      const currentMonitor = current?.monitor ?? null;
-      const previousMonitor = previous?.monitor ?? null;
-      const previousMonitorHistoryKnown = previous !== undefined;
+      const monitorHandoff = roomOrderMonitorHandoffFromAdjacentAssignment(
+        current?.monitor ?? null,
+        previous?.monitor,
+      );
       return {
         content: buildRoomOrderContent(
           hour,
           window.start,
           window.end,
-          { currentMonitor, previousMonitor, previousMonitorHistoryKnown },
+          monitorHandoff,
           (previous?.fills ?? []).map(({ name }) => fillParticipantFromName(name)),
           fills.map(({ name }) => fillParticipantFromName(name)),
           entries.filter(({ rank }) => rank === 0),
@@ -756,9 +760,9 @@ export const makeSheetDataProvider = (
         range: { minRank: 0 as const, maxRank },
         rank: 0 as const,
         hour,
-        monitor: currentMonitor,
-        previousMonitor,
-        previousMonitorHistoryKnown,
+        monitor: monitorHandoff.currentMonitor,
+        previousMonitor: monitorHandoff.previousMonitor,
+        previousMonitorHistoryKnown: monitorHandoff.previousMonitorHistoryKnown,
         previousFills: (previous?.fills ?? []).map(({ name }) => name),
         fills: fills.map(({ name }) => name),
         entries,
