@@ -7,22 +7,12 @@ import { realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Argument, Command, Flag } from "effect/unstable/cli";
-import { checkHttpAccess, checkTcpAccess, waitForHttp } from "./access";
-import { FAST_ENDPOINTS } from "./config";
+import { makeFastExecutionContext, runFastExecution } from "./execution";
 import { spawnProcess, startLongLivedProcess } from "./executor";
 import { makeDiagnostic } from "./diagnostics";
 import { renderLauncherOutput, runLauncherFromParsed } from "./index";
 import type { LauncherOutput, ProcessExecutor } from "./types";
 import { normalizeChangedSurfaces, type CommandOptions } from "./commands";
-
-const safeDependencyOrigin = (origin: string) => {
-  try {
-    const parsed = new URL(origin);
-    return `${parsed.protocol}//${parsed.host}`;
-  } catch {
-    return "<invalid endpoint>";
-  }
-};
 
 const commonFlags = {
   envFile: Flag.string("env-file").pipe(Flag.optional),
@@ -310,208 +300,62 @@ const runParsedCommand = (config: Parameters<typeof launcherOptions>[0]) =>
         result = await executeKubernetesPlan(result, config.json);
       }
       if (result.output.ok && result.output.mode === "fast" && result.output.action === "up") {
-        const repository = process.cwd();
-        const selectedService = result.output.selectedServices[0] ?? "sheet-web";
-        const workflowProcess = result.output.plannedProcesses.find(
-          ({ id }) => id === "sheet-workflows",
-        );
-        const workflowIssuer = workflowProcess?.environment.SHEET_AUTH_ISSUER;
-        const workflowRole = workflowProcess?.environment.SHEET_WORKFLOWS_ROLE;
-        const workflowRunner =
-          workflowProcess?.environment.WORKFLOWS_RUNNER_HOST !== undefined &&
-          workflowProcess.environment.WORKFLOWS_RUNNER_PORT !== undefined
-            ? `http://${workflowProcess.environment.WORKFLOWS_RUNNER_HOST}:${workflowProcess.environment.WORKFLOWS_RUNNER_PORT}/ready`
-            : undefined;
-        const botProcess = result.output.plannedProcesses.find(({ id }) => id === "sheet-bot");
-        const botEnvironment = botProcess?.environment ?? {};
-        const dependencyTargets: readonly (readonly [string, string | undefined])[] =
-          selectedService === "sheet-web"
-            ? ([
-                ["auth", result.output.urls.find((url) => url.name === "auth")?.url],
-                ["zero", result.output.urls.find((url) => url.name === "zero")?.url],
-                ["workflows", result.output.urls.find((url) => url.name === "workflows")?.url],
-              ] as const)
-            : selectedService === "sheet-workflows" && workflowIssuer !== undefined
-              ? ([
-                  ["sheet-auth issuer", workflowIssuer],
-                  ["sheet-auth JWKS", `${workflowIssuer.replace(/\/$/, "")}/jwks`],
-                  ...(workflowRole === "api" && workflowRunner !== undefined
-                    ? ([["sheet-workflows runner", workflowRunner]] as const)
-                    : []),
-                ] as const)
-              : selectedService === "sheet-bot"
-                ? ([
-                    [
-                      "sheet-auth",
-                      `${(botEnvironment.SHEET_AUTH_ISSUER ?? "http://localhost:3002").replace(/\/$/, "")}/ready`,
-                    ],
-                    [
-                      "sheet-zero-cache",
-                      botEnvironment.ZERO_CACHE_SERVER ?? "http://localhost:4848",
-                    ],
-                    ["sheet-redis", botEnvironment.REDIS_URL ?? "redis://localhost:6379"],
-                    [
-                      "sheet-workflows",
-                      `${(botEnvironment.SHEET_WORKFLOWS_BASE_URL ?? "http://localhost:3003").replace(/\/$/, "")}/ready`,
-                    ],
-                    ["sheet-web", botEnvironment.SHEET_WEB_BASE_URL ?? "http://localhost:3001"],
-                  ] as const)
-                : ([] as const);
-        const dependencies = await Promise.all(
-          dependencyTargets.map(async ([dependency, origin]) => {
-            if (origin === undefined) {
-              return makeDiagnostic(
-                "access-failed",
-                `${dependency} has no configured Fast endpoint`,
-                "Use the approved Fast development endpoint configuration and retry.",
-                { mode: "fast", dependency },
+        let readinessPrinted = false;
+        try {
+          const context = makeFastExecutionContext(result.output, process.cwd());
+          const execution = await runFastExecution(context, {
+            output: config.json ? "stderr" : "inherit",
+            onObservation: (observation) => {
+              if (observation.type !== "readiness" || observation.status !== "ready") return;
+              readinessPrinted = true;
+              process.stdout.write(
+                renderLauncherOutput({ ...result.output, readiness: "ready" }, config.json),
+              );
+            },
+          });
+          if (!readinessPrinted) {
+            process.stdout.write(renderLauncherOutput(execution.output, config.json));
+          }
+          if (readinessPrinted) {
+            const diagnostics = [
+              execution.outcome.diagnostic,
+              execution.outcome.cleanupDiagnostic,
+            ].filter(
+              (diagnostic): diagnostic is NonNullable<typeof diagnostic> =>
+                diagnostic !== undefined,
+            );
+            for (const diagnostic of diagnostics) {
+              process.stderr.write(
+                `[${diagnostic.code}] ${diagnostic.message}\n  remediation: ${diagnostic.remediation}\n`,
               );
             }
-            const access =
-              dependency === "sheet-redis"
-                ? await checkTcpAccess(origin, 2_000)
-                : await checkHttpAccess({
-                    mode: "fast",
-                    dependency,
-                    origin,
-                    timeoutMs: 2_000,
-                    optional: false,
-                  });
-            return access.reachable
-              ? undefined
-              : makeDiagnostic(
-                  access.timedOut ? "dependency-timeout" : "access-failed",
-                  `${dependency} at ${safeDependencyOrigin(origin)} is not reachable`,
-                  "Check the approved development endpoint and retry Fast mode.",
-                  { mode: "fast", dependency, origin: safeDependencyOrigin(origin) },
-                );
-          }),
-        );
-        const dependencyErrors = dependencies.filter(
-          (diagnostic): diagnostic is NonNullable<typeof diagnostic> => diagnostic !== undefined,
-        );
-        if (dependencyErrors.length > 0) {
-          const blocked = {
-            ...result.output,
-            ok: false,
-            readiness: "blocked" as const,
-            errors: dependencyErrors,
-          } satisfies LauncherOutput;
-          process.exitCode = 2;
-          process.stdout.write(renderLauncherOutput(blocked, config.json));
-          return null;
-        }
-
-        const planned = result.output.plannedProcesses.find(({ id }) => id === selectedService);
-        if (planned === undefined)
-          throw new Error(`Fast mode produced no ${selectedService} process`);
-        const appUrl =
-          selectedService === "sheet-web"
-            ? (result.output.urls.find((url) => url.name === "app")?.url ?? FAST_ENDPOINTS.app)
-            : (result.output.urls.find((url) => url.name === selectedService)?.url ?? "");
-        const readinessUrl = selectedService === "sheet-web" ? appUrl : `${appUrl}/ready`;
-        let running: Awaited<ReturnType<typeof startLongLivedProcess>> | undefined;
-        let terminationExitCode: number | undefined;
-        let shutdownPromise: Promise<void> | undefined;
-        const shutdown = async (signal: NodeJS.Signals) => {
-          terminationExitCode = 128 + (signal === "SIGINT" ? 2 : 15);
-          process.exitCode = terminationExitCode;
-          if (running !== undefined) await running.kill();
-        };
-        const onInterrupt = () => {
-          shutdownPromise ??= shutdown("SIGINT");
-        };
-        const onTerminate = () => {
-          shutdownPromise ??= shutdown("SIGTERM");
-        };
-        process.once("SIGINT", onInterrupt);
-        process.once("SIGTERM", onTerminate);
-        try {
-          running = await startLongLivedProcess({
-            command: planned.command,
-            args: planned.args,
-            cwd: path.join(repository, "packages", selectedService),
-            env: planned.environment,
-            timeoutMs: 30_000,
-            kind: "runtime",
-            readOnly: false,
-            output: config.json ? "stderr" : "inherit",
-          });
+          }
+          process.exitCode = execution.outcome.exitCode;
         } catch (cause) {
-          if (terminationExitCode !== undefined) {
-            await shutdownPromise?.catch(() => undefined);
-            process.off("SIGINT", onInterrupt);
-            process.off("SIGTERM", onTerminate);
-            return null;
-          }
           const detail = cause instanceof Error ? `: ${cause.message}` : "";
-          const blocked = {
-            ...result.output,
-            ok: false,
-            readiness: "blocked" as const,
-            errors: [
-              makeDiagnostic(
-                "dependency-unavailable",
-                `${selectedService} could not be started${detail}`,
-                "Run pnpm install, verify the package's tsx/vite-plus tooling is available, and retry Fast mode.",
-                { mode: "fast", dependency: selectedService, origin: appUrl },
-              ),
-            ],
-          } satisfies LauncherOutput;
-          process.exitCode = 2;
-          process.stdout.write(renderLauncherOutput(blocked, config.json));
-          process.off("SIGINT", onInterrupt);
-          process.off("SIGTERM", onTerminate);
-          return null;
-        }
-        if (terminationExitCode !== undefined) {
-          try {
-            await (shutdownPromise ?? running.kill().catch(() => undefined)).catch(() => undefined);
-            await running.kill().catch(() => undefined);
-          } finally {
-            process.off("SIGINT", onInterrupt);
-            process.off("SIGTERM", onTerminate);
+          if (readinessPrinted) {
+            process.exitCode = 1;
+            process.stderr.write(
+              `[required-dependency-failed] Fast execution failed after readiness${detail}\n` +
+                "  remediation: Inspect the Fast launcher and process diagnostics.\n",
+            );
+          } else {
+            const blocked = {
+              ...result.output,
+              ok: false,
+              readiness: "blocked" as const,
+              errors: [
+                makeDiagnostic(
+                  "dependency-unavailable",
+                  `Fast execution could not be prepared${detail}`,
+                  "Retry pnpm dev fast up after checking the validated Fast plan.",
+                  { mode: "fast", action: "up" },
+                ),
+              ],
+            } satisfies LauncherOutput;
+            process.exitCode = 2;
+            process.stdout.write(renderLauncherOutput(blocked, config.json));
           }
-          return null;
-        }
-        const readiness = await waitForHttp(readinessUrl, 30_000, running.exited);
-        if (!readiness.reachable) {
-          try {
-            await (shutdownPromise ?? running.kill().catch(() => undefined));
-          } finally {
-            process.off("SIGINT", onInterrupt);
-            process.off("SIGTERM", onTerminate);
-          }
-          if (terminationExitCode !== undefined) return null;
-          const blocked = {
-            ...result.output,
-            ok: false,
-            readiness: "blocked" as const,
-            errors: [
-              makeDiagnostic(
-                readiness.timedOut ? "dependency-timeout" : "access-failed",
-                `${selectedService} did not become ready at ${readinessUrl}${
-                  readiness.reason === undefined ? "" : `: ${readiness.reason}`
-                }`,
-                "Fix the host-native process startup error and retry pnpm dev fast up.",
-                { mode: "fast", dependency: selectedService, origin: readinessUrl },
-              ),
-            ],
-          } satisfies LauncherOutput;
-          process.exitCode = 2;
-          process.stdout.write(renderLauncherOutput(blocked, config.json));
-          return null;
-        }
-        try {
-          process.stdout.write(
-            renderLauncherOutput({ ...result.output, readiness: "ready" }, config.json),
-          );
-          const exit = await running.exited;
-          await shutdownPromise?.catch(() => undefined);
-          process.exitCode = terminationExitCode ?? exit.exitCode;
-        } finally {
-          process.off("SIGINT", onInterrupt);
-          process.off("SIGTERM", onTerminate);
         }
         return null;
       }

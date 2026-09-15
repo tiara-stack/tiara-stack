@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { sensitiveEnvironmentKeys } from "./config";
-import type { ProcessExecutor, ProcessRequest, ProcessResult } from "./types";
+import type { ProcessExecutor, ProcessRequest, ProcessResult, ProcessStarter } from "./types";
 
 const outputLimit = 64 * 1024;
 
@@ -125,6 +125,9 @@ const processGroupAlive = (child: ReturnType<typeof spawn>) => {
   }
 };
 
+const withReceivedSignal = (result: ProcessResult, signal: NodeJS.Signals | undefined) =>
+  signal === undefined ? result : { ...result, exitCode: signal === "SIGINT" ? 130 : 143 };
+
 export const spawnProcess: ProcessExecutor = (request: ProcessRequest) =>
   new Promise((resolve) => {
     const invocation = spawnCommand(request);
@@ -144,23 +147,21 @@ export const spawnProcess: ProcessExecutor = (request: ProcessRequest) =>
     let settled = false;
     let killTimer: NodeJS.Timeout | undefined;
     let timer: NodeJS.Timeout;
+    const complete = (result: ProcessResult) => {
+      settled = true;
+      clearTimeout(timer);
+      if (killTimer !== undefined) clearTimeout(killTimer);
+      process.off("SIGINT", onInterrupt);
+      process.off("SIGTERM", onTerminate);
+      resolve(withReceivedSignal(result, receivedSignal));
+    };
     // fallow-ignore-next-line complexity
     const finish = (result: ProcessResult) => {
       if (settled) return;
       if (processGroupAlive(child)) {
         escalationDeadline ??= Date.now() + 2_000;
         if (Date.now() >= escalationDeadline) {
-          settled = true;
-          clearTimeout(timer);
-          if (killTimer !== undefined) clearTimeout(killTimer);
-          process.off("SIGINT", onInterrupt);
-          process.off("SIGTERM", onTerminate);
-          resolve({
-            ...result,
-            ...(receivedSignal === undefined
-              ? {}
-              : { exitCode: receivedSignal === "SIGINT" ? 130 : 143 }),
-          });
+          complete(result);
           return;
         }
         if (killTimer === undefined) {
@@ -171,17 +172,7 @@ export const spawnProcess: ProcessExecutor = (request: ProcessRequest) =>
         }
         return;
       }
-      settled = true;
-      clearTimeout(timer);
-      if (killTimer !== undefined) clearTimeout(killTimer);
-      process.off("SIGINT", onInterrupt);
-      process.off("SIGTERM", onTerminate);
-      resolve({
-        ...result,
-        ...(receivedSignal === undefined
-          ? {}
-          : { exitCode: receivedSignal === "SIGINT" ? 130 : 143 }),
-      });
+      complete(result);
     };
     const onSignal = (signal: NodeJS.Signals) => {
       receivedSignal = signal;
@@ -237,14 +228,8 @@ export const spawnProcess: ProcessExecutor = (request: ProcessRequest) =>
     });
   });
 
-export interface RunningProcess {
-  readonly pid: number | undefined;
-  readonly exited: Promise<ProcessResult>;
-  readonly kill: () => Promise<void>;
-}
-
 // fallow-ignore-next-line complexity
-export const startLongLivedProcess = async (request: ProcessRequest): Promise<RunningProcess> => {
+export const startLongLivedProcess: ProcessStarter = async (request, signal) => {
   const invocation = spawnCommand(request);
   const child = spawn(invocation.command, invocation.args, {
     cwd: request.cwd,
@@ -269,76 +254,72 @@ export const startLongLivedProcess = async (request: ProcessRequest): Promise<Ru
   if (request.output === "capture") {
     child.stdout?.on("data", (chunk: Buffer | string) => collect(stdout, chunk));
   }
-  await new Promise<void>((resolve, reject) => {
-    const onSpawn = () => {
-      child.off("error", onError);
-      resolve();
-    };
-    const onError = (error: Error) => {
-      child.off("spawn", onSpawn);
-      reject(error);
-    };
-    child.once("spawn", onSpawn);
-    child.once("error", onError);
-  });
-  return {
-    pid: child.pid,
-    exited,
-    // fallow-ignore-next-line complexity
-    kill: async () => {
-      const send = (signal: NodeJS.Signals) => {
-        try {
-          if (child.pid !== undefined) process.kill(-child.pid, signal);
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
-        }
-      };
-      const sendWindowsTreeKill = () =>
-        new Promise<boolean>((resolve) => {
-          if (child.pid === undefined) {
-            resolve(true);
-            return;
-          }
-          const killer = spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
-            stdio: "ignore",
-            windowsHide: true,
-          });
-          const timer = setTimeout(() => {
-            killer.kill();
-            resolve(false);
-          }, 500);
-          killer.once("close", (code) => {
-            clearTimeout(timer);
-            resolve(code === 0);
-          });
-          killer.once("error", () => {
-            clearTimeout(timer);
-            resolve(false);
-          });
-        });
-      if (process.platform === "win32") await sendWindowsTreeKill();
-      else send("SIGTERM");
+  let removeAbortListener: () => void = () => undefined;
+  let killPromise: Promise<void> | undefined;
+  const killProcess = async () => {
+    if (killPromise !== undefined) return killPromise;
+    killPromise = (async () => {
+      removeAbortListener();
+      if (child.pid === undefined && child.exitCode === null) return;
+      const firstTerminationSucceeded = await terminateProcessTree(child, "SIGTERM");
       await Promise.race([exited, new Promise<void>((resolve) => setTimeout(resolve, 500))]);
-      let processGroupAlive = child.exitCode === null;
-      if (process.platform !== "win32" && child.pid !== undefined) {
-        try {
-          process.kill(-child.pid, 0);
-          processGroupAlive = true;
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code === "ESRCH") processGroupAlive = false;
-          else throw error;
-        }
-      }
-      if (processGroupAlive && child.pid !== undefined) {
-        if (process.platform === "win32") await sendWindowsTreeKill();
-        else send("SIGKILL");
-      }
+      const processIsAlive =
+        child.exitCode === null &&
+        child.signalCode === null &&
+        (process.platform === "win32" ? !firstTerminationSucceeded : processGroupAlive(child));
+      if (processIsAlive) await terminateProcessTree(child, "SIGKILL");
       const terminated = await Promise.race([
         exited.then(() => true),
         new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 1_000)),
       ]);
       if (!terminated)
-        throw new Error("sheet-web process did not terminate within the shutdown deadline");
-    },
+        throw new Error("Fast process did not terminate within the shutdown deadline");
+    })();
+    return killPromise;
+  };
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    let startupAborted = false;
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      callback();
+    };
+    const rejectInterrupted = () =>
+      finish(() => reject(new Error("Fast process startup was interrupted")));
+    const rejectCleanupFailure = (error: unknown) =>
+      finish(() => reject(error instanceof Error ? error : new Error(String(error))));
+    const cleanupThenReject = () =>
+      void killProcess().then(rejectInterrupted, rejectCleanupFailure);
+    const onSpawn = () => {
+      child.off("error", onError);
+      if (startupAborted) {
+        cleanupThenReject();
+      } else {
+        finish(resolve);
+      }
+    };
+    const onError = (error: Error) => {
+      child.off("spawn", onSpawn);
+      removeAbortListener();
+      finish(() => reject(error));
+    };
+    const onAbort = () => {
+      startupAborted = true;
+      if (child.pid === undefined && child.exitCode === null) return;
+      cleanupThenReject();
+    };
+    child.once("spawn", onSpawn);
+    child.once("error", onError);
+    if (signal !== undefined) {
+      removeAbortListener = () => signal.removeEventListener("abort", onAbort);
+      signal.addEventListener("abort", onAbort, { once: true });
+      if (signal.aborted) onAbort();
+    }
+  });
+  return {
+    pid: child.pid,
+    exited,
+    kill: killProcess,
   };
 };

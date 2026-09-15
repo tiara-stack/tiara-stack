@@ -86,6 +86,7 @@ export type DiagnosticCode =
   | "dependency-timeout"
   | "dependency-unavailable"
   | "access-failed"
+  | "cleanup-failed"
   | "confirmation-required"
   | "invalid-image-tag"
   | "invalid-changed-surface"
@@ -179,6 +180,19 @@ export interface AccessCheckResult {
 }
 
 export type AccessChecker = (request: AccessCheckRequest) => Promise<AccessCheckResult>;
+export type ReadinessChecker = AccessChecker;
+export type TcpAccessChecker = (origin: string, timeoutMs: number) => Promise<AccessCheckResult>;
+
+export interface RunningProcess {
+  readonly pid: number | undefined;
+  readonly exited: Promise<ProcessResult>;
+  readonly kill: () => Promise<void>;
+}
+
+export type ProcessStarter = (
+  request: ProcessRequest,
+  signal?: AbortSignal,
+) => Promise<RunningProcess>;
 
 export interface LauncherOptions {
   readonly executor?: ProcessExecutor;

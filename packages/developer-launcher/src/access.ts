@@ -1,18 +1,35 @@
-import { Duration, Effect, Option } from "effect";
+import { Duration, Effect, Option, Predicate } from "effect";
 import net from "node:net";
-import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http";
+import {
+  FetchHttpClient,
+  HttpClient,
+  HttpClientRequest,
+  HttpClientResponse,
+} from "effect/unstable/http";
 import type { AccessChecker, AccessCheckRequest, AccessCheckResult } from "./types";
 
-const readinessTimeoutMs = 30_000;
+const isHttpStatusOk: Predicate.Predicate<number | undefined> = (status) =>
+  Predicate.isNumber(status) && status >= 200 && status < 300;
 
-const checkHttpAccessEffect = (
+export const isHttpReady = (result: AccessCheckResult) =>
+  result.reachable && isHttpStatusOk(result.status);
+
+const checkHttpEffect = (
   request: AccessCheckRequest,
+  readiness: boolean,
 ): Effect.Effect<AccessCheckResult, never, HttpClient.HttpClient> =>
   Effect.gen(function* () {
     const httpClient = yield* HttpClient.HttpClient;
-    const response = yield* httpClient.execute(HttpClientRequest.head(request.origin));
+    const response = yield* httpClient.execute(
+      readiness ? HttpClientRequest.get(request.origin) : HttpClientRequest.head(request.origin),
+    );
+    yield* response.arrayBuffer.pipe(Effect.ignore);
+    const responseIsReady = yield* HttpClientResponse.filterStatusOk(response).pipe(
+      Effect.as(true),
+      Effect.catch(() => Effect.succeed(false)),
+    );
     return {
-      reachable: response.status < 500,
+      reachable: readiness ? responseIsReady : response.status < 500,
       status: response.status,
     } satisfies AccessCheckResult;
   }).pipe(
@@ -35,7 +52,10 @@ const checkHttpAccessEffect = (
   );
 
 export const checkHttpAccess: AccessChecker = (request) =>
-  Effect.runPromise(checkHttpAccessEffect(request).pipe(Effect.provide(FetchHttpClient.layer)));
+  Effect.runPromise(checkHttpEffect(request, false).pipe(Effect.provide(FetchHttpClient.layer)));
+
+export const checkHttpReadiness: AccessChecker = (request) =>
+  Effect.runPromise(checkHttpEffect(request, true).pipe(Effect.provide(FetchHttpClient.layer)));
 
 export const checkTcpAccess = (origin: string, timeoutMs: number): Promise<AccessCheckResult> => {
   let url: URL;
@@ -74,48 +94,3 @@ export const checkTcpAccess = (origin: string, timeoutMs: number): Promise<Acces
     }),
   );
 };
-
-const waitForHttpEffect = (
-  origin: string,
-  timeoutMs = readinessTimeoutMs,
-  exited?: Promise<{ readonly exitCode: number }>,
-): Effect.Effect<AccessCheckResult, never, HttpClient.HttpClient> =>
-  Effect.gen(function* () {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-      if (exited !== undefined) {
-        const completed = yield* Effect.race(
-          Effect.promise(() => exited),
-          Effect.sleep(Duration.millis(100)).pipe(Effect.as(undefined)),
-        );
-        if (completed !== undefined) {
-          return {
-            reachable: false,
-            reason: `process exited with code ${completed.exitCode}`,
-          };
-        }
-      } else {
-        yield* Effect.sleep(Duration.millis(100));
-      }
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) break;
-      const result = yield* checkHttpAccessEffect({
-        mode: "fast",
-        dependency: "sheet-web",
-        origin,
-        timeoutMs: Math.min(1_000, remaining),
-        optional: false,
-      });
-      if (result.reachable) return result;
-    }
-    return { reachable: false, timedOut: true, reason: "readiness check timed out" };
-  });
-
-export const waitForHttp = (
-  origin: string,
-  timeoutMs = readinessTimeoutMs,
-  exited?: Promise<{ readonly exitCode: number }>,
-): Promise<AccessCheckResult> =>
-  Effect.runPromise(
-    waitForHttpEffect(origin, timeoutMs, exited).pipe(Effect.provide(FetchHttpClient.layer)),
-  );

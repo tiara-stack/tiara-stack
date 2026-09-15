@@ -3,7 +3,8 @@
 The root `pnpm dev` command is the single entrypoint for local development
 mode selection. The launcher validates input, reads only mode-approved
 configuration, and prints a safe process plan. Fast mode then starts the
-planned `sheet-web` watch process and waits for its local URL to respond.
+selected host-native process and waits for its HTTP GET `/ready` endpoint to
+return a 2xx response.
 
 ## Commands
 
@@ -149,10 +150,12 @@ readiness. Only one active gateway may use a given development Discord
 credential; stop another host-native or Compose bot before starting this one.
 
 `pnpm dev fast up` checks the approved auth, Zero, and Workflow endpoints with
-bounded timeouts before starting `sheet-web`. It reports `readiness: ready`
-after the application responds at its loopback URL, and keeps the Vite Plus
-watch process attached to the terminal. An application startup failure or
-readiness timeout is blocking and includes remediation.
+bounded timeouts before starting the selected host-native process. It reports
+`readiness: ready` only after the selected application responds to HTTP GET
+`/ready` with a 2xx status, and keeps the process attached to the terminal. An
+application startup failure, early exit, or readiness timeout is blocking and
+includes remediation. In `--json` mode, the readiness document is emitted
+once; later process failure and cleanup diagnostics are sent to stderr.
 
 Human and JSON output report the selected mode, action, services, planned
 processes, URLs, readiness, warnings, and errors. Error records include a

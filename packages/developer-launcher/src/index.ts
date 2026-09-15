@@ -31,6 +31,20 @@ import {
 import { Cause, Effect, Exit } from "effect";
 
 export * from "./types";
+export {
+  executeFast,
+  makeFastExecutionContext,
+  runFastExecution,
+  type FastExecutionContext,
+  type FastExecutionOutcome,
+  type FastExecutionOutcomeStatus,
+  type FastExecutionOptions,
+  type FastExecutionResult,
+  type FastPrerequisite,
+  type FastPrerequisiteKind,
+  type FastReadinessTarget,
+  type LifecycleObservation,
+} from "./execution";
 export { parseCommand, parsePositionals } from "./commands";
 export {
   COMPOSE_ENDPOINTS,
