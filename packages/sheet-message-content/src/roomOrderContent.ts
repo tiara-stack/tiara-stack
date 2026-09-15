@@ -20,6 +20,8 @@ export type RoomOrderMonitorHandoff = {
   readonly previousMonitorHistoryKnown: boolean;
 };
 
+type RoomOrderMonitorInput = RoomOrderMonitorHandoff | string | null;
+
 const diffFillParticipants = (
   previousParticipants: ReadonlyArray<FillParticipant>,
   participants: ReadonlyArray<FillParticipant>,
@@ -66,6 +68,13 @@ const monitorLine = ({
   return parts(inlineCode("Monis:"), text(` In ${currentMonitor} · Out ${previousMonitor}`));
 };
 
+const roomOrderMonitorLine = (monitor: RoomOrderMonitorInput): BotTextPart[] | null =>
+  monitor !== null && typeof monitor === "object"
+    ? monitorLine(monitor)
+    : monitor === null
+      ? null
+      : parts(inlineCode("Monitor:"), text(` ${monitor}`));
+
 const formatEffectValue = (effectValue: number): string => {
   const rounded = Number(effectValue.toFixed(1));
   const suffix = Number.isInteger(rounded) ? rounded.toString() : rounded.toFixed(1);
@@ -107,13 +116,13 @@ export const buildRoomOrderContent = (
   hour: number,
   start: DateTime.DateTime,
   end: DateTime.DateTime,
-  monitorHandoff: RoomOrderMonitorHandoff,
+  monitor: RoomOrderMonitorInput,
   previousParticipants: ReadonlyArray<FillParticipant>,
   participants: ReadonlyArray<FillParticipant>,
   entries: ReadonlyArray<RoomOrderContentEntry>,
 ): BotTextPart[] => {
   const fillMovement = diffFillParticipants(previousParticipants, participants);
-  const maybeMonitorLine = monitorLine(monitorHandoff);
+  const maybeMonitorLine = roomOrderMonitorLine(monitor);
 
   return joinText(
     [

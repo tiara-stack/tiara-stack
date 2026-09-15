@@ -263,11 +263,7 @@ export const roomOrderSendOperationsLayer = Layer.effect(
               current.hour,
               start,
               end,
-              {
-                currentMonitor: current.monitor,
-                previousMonitor: null,
-                previousMonitorHistoryKnown: false,
-              },
+              current.monitor,
               current.previousFills.map(fillParticipantFromName),
               current.fills.map(fillParticipantFromName),
               entries,
