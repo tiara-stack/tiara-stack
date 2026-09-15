@@ -388,6 +388,7 @@ export class AutonomousTriggerService extends Context.Service<
                 const invocationId = makeCheckinsOpenAutonomousInvocationId({
                   workspaceId,
                   eventStartEpochMs: timing.referenceInstantEpochMs,
+                  scheduledHourBucketEpochMs: bucket,
                   hour,
                   conversationName,
                 });

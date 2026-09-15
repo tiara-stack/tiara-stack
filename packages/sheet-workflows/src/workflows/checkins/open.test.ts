@@ -231,6 +231,7 @@ describe("CheckinsOpen Workflow Definition slice", () => {
       makeCheckinsOpenAutonomousInvocationId({
         workspaceId,
         eventStartEpochMs: 1_750_000_000_000,
+        scheduledHourBucketEpochMs: 1_750_000_000_000,
         hour: 3,
         conversationName: "main",
       }),
@@ -238,6 +239,7 @@ describe("CheckinsOpen Workflow Definition slice", () => {
       makeCheckinsOpenAutonomousInvocationId({
         workspaceId,
         eventStartEpochMs: 1_750_000_000_000,
+        scheduledHourBucketEpochMs: 1_750_000_000_000,
         hour: 3,
         conversationName: "main",
       }),
@@ -246,6 +248,7 @@ describe("CheckinsOpen Workflow Definition slice", () => {
       makeCheckinsOpenAutonomousInvocationId({
         workspaceId,
         eventStartEpochMs: 1_750_000_000_000,
+        scheduledHourBucketEpochMs: 1_750_000_000_000,
         hour: 3,
         conversationName: "main",
       }),
@@ -253,6 +256,7 @@ describe("CheckinsOpen Workflow Definition slice", () => {
       makeCheckinsOpenAutonomousInvocationId({
         workspaceId,
         eventStartEpochMs: 1_750_000_000_000,
+        scheduledHourBucketEpochMs: 1_750_000_000_000,
         hour: 3,
         conversationName: "other",
       }),

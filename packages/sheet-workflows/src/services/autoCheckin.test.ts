@@ -227,6 +227,24 @@ describe("AutonomousTriggerService", () => {
     });
   });
 
+  it("separates repeated event hours reached in different scheduled buckets", () => {
+    const target = {
+      workspaceId: "workspace-1",
+      eventStartEpochMs: Date.UTC(2026, 8, 9, 3),
+      scheduledHourBucketEpochMs: Date.UTC(2026, 8, 9, 2),
+      hour: 193,
+      conversationName: "g2",
+    };
+    const currentBucketTarget = {
+      ...target,
+      scheduledHourBucketEpochMs: Date.UTC(2026, 8, 15, 2),
+    };
+
+    expect(makeCheckinsOpenAutonomousInvocationId(target)).not.toBe(
+      makeCheckinsOpenAutonomousInvocationId(currentBucketTarget),
+    );
+  });
+
   it.effect("derives autonomous hours from the event-global first hour", () =>
     Effect.gen(function* () {
       const calls: Array<Parameters<AutonomousWorkflowEnqueuerShape["enqueueCheckinsOpen"]>[0]> =
@@ -619,6 +637,7 @@ describe("AutonomousTriggerService", () => {
       const invocationId = makeCheckinsOpenAutonomousInvocationId({
         workspaceId: "workspace-1",
         eventStartEpochMs: Date.UTC(2026, 3, 1, 12),
+        scheduledHourBucketEpochMs: Date.UTC(2026, 3, 1, 13),
         hour: 3,
         conversationName: "main",
       });
@@ -652,6 +671,7 @@ describe("AutonomousTriggerService", () => {
       const invocationId = makeCheckinsOpenAutonomousInvocationId({
         workspaceId: "workspace-1",
         eventStartEpochMs: Date.UTC(2026, 3, 1, 12),
+        scheduledHourBucketEpochMs: Date.UTC(2026, 3, 1, 13),
         hour: 3,
         conversationName: "main",
       });
@@ -737,6 +757,7 @@ describe("AutonomousTriggerService", () => {
       const invocationId = makeCheckinsOpenAutonomousInvocationId({
         workspaceId: "workspace-1",
         eventStartEpochMs: Date.UTC(2026, 3, 1, 12),
+        scheduledHourBucketEpochMs: Date.UTC(2026, 3, 1, 13),
         hour: 3,
         conversationName: "main",
       });

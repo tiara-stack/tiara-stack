@@ -4,6 +4,7 @@ import { InvocationId } from "effect-zero-workflow/contract";
 import { DeliveryKey } from "sheet-bot-api";
 import { CheckinsOpen, CheckinsRespond } from "sheet-workflow-contracts";
 import type { AuthorizedCheckinRespondContext } from "../readOnly/authorization";
+import { canonicalScheduledHourBucket } from "../autoCheckinContract";
 import { checkinSheetWorkflowDefinitionVersion, checkinsOpenActionVersion } from "./catalog";
 
 export type CheckinDeliveryKind =
@@ -112,19 +113,24 @@ export const makeCheckinsOpenUserInvocationId = (
 export const makeCheckinsOpenAutonomousInvocationId = ({
   workspaceId,
   eventStartEpochMs,
+  scheduledHourBucketEpochMs,
   hour,
   conversationName,
 }: {
   readonly workspaceId: string;
   readonly eventStartEpochMs: number;
+  readonly scheduledHourBucketEpochMs: number;
   readonly hour: number;
   readonly conversationName: string;
 }): typeof InvocationId.Type =>
+  // Event-hour numbers can repeat when schedule-hour origins change, so the
+  // scheduled bucket is part of the autonomous run identity.
   invocationIdFromIdentity(
     JSON.stringify([
       "auto-checkin",
       workspaceId,
       eventStartEpochMs,
+      canonicalScheduledHourBucket(scheduledHourBucketEpochMs),
       hour,
       conversationName,
       CheckinsOpen.identity,
