@@ -73,32 +73,31 @@ const upsertCheckinMembers = async (
   key: CheckinKey,
   memberIds: ReadonlyArray<string>,
 ) => {
-  await Promise.all(
-    memberIds.map(async (memberId) => {
-      const existingMember = await tx.run(
-        zeroTableAccess.messageCheckinMember.table
-          .where("clientPlatform", "=", key.clientPlatform)
-          .where("clientId", "=", key.clientId)
-          .where("messageId", "=", key.messageId)
-          .where("memberId", "=", memberId)
-          .one(),
-      );
-      const activeExistingMember = activeRecord(existingMember);
-      return tx.mutate.messageCheckinMember.upsert(
-        zeroTableAccess.messageCheckinMember.upsertWithTimestamps(
-          {
-            clientPlatform: key.clientPlatform,
-            clientId: key.clientId,
-            messageId: key.messageId,
-            memberId,
-            ...checkinProgress(activeExistingMember),
-            deletedAt: null,
-          },
-          activeExistingMember,
-        ),
-      );
-    }),
-  );
+  // A Zero transaction is not reentrant. Keep each member read/write pair sequential.
+  for (const memberId of memberIds) {
+    const existingMember = await tx.run(
+      zeroTableAccess.messageCheckinMember.table
+        .where("clientPlatform", "=", key.clientPlatform)
+        .where("clientId", "=", key.clientId)
+        .where("messageId", "=", key.messageId)
+        .where("memberId", "=", memberId)
+        .one(),
+    );
+    const activeExistingMember = activeRecord(existingMember);
+    await tx.mutate.messageCheckinMember.upsert(
+      zeroTableAccess.messageCheckinMember.upsertWithTimestamps(
+        {
+          clientPlatform: key.clientPlatform,
+          clientId: key.clientId,
+          messageId: key.messageId,
+          memberId,
+          ...checkinProgress(activeExistingMember),
+          deletedAt: null,
+        },
+        activeExistingMember,
+      ),
+    );
+  }
 };
 
 export const makeMessageCheckinGroup = <const SuccessSchemas extends SheetZeroApiSuccessSchemas>(
@@ -251,25 +250,23 @@ export const makeMessageCheckinGroup = <const SuccessSchemas extends SheetZeroAp
               .where("messageId", "=", args.messageId),
           ),
         );
-        await Promise.all([
-          tx.mutate.messageCheckin.update(
-            zeroTableAccess.messageCheckin.softDeleteByPrimaryKey({
-              clientPlatform: args.clientPlatform,
-              clientId: args.clientId,
-              messageId: args.messageId,
+        await tx.mutate.messageCheckin.update(
+          zeroTableAccess.messageCheckin.softDeleteByPrimaryKey({
+            clientPlatform: args.clientPlatform,
+            clientId: args.clientId,
+            messageId: args.messageId,
+          }),
+        );
+        for (const member of members) {
+          await tx.mutate.messageCheckinMember.update(
+            zeroTableAccess.messageCheckinMember.softDeleteByPrimaryKey({
+              clientPlatform: member.clientPlatform,
+              clientId: member.clientId,
+              messageId: member.messageId,
+              memberId: member.memberId,
             }),
-          ),
-          ...members.map((member) =>
-            tx.mutate.messageCheckinMember.update(
-              zeroTableAccess.messageCheckinMember.softDeleteByPrimaryKey({
-                clientPlatform: member.clientPlatform,
-                clientId: member.clientId,
-                messageId: member.messageId,
-                memberId: member.memberId,
-              }),
-            ),
-          ),
-        ]);
+          );
+        }
       },
     }),
   );
