@@ -59,6 +59,9 @@ jobs:
       - name: Install Dependencies
         run: vp install
 
+      - name: Test DigitalOcean maintenance preflight
+        run: bash .github/scripts/digitalocean-maintenance-preflight.test.sh
+
       - name: Run Build
         run: vp run -w build
 
@@ -377,6 +380,17 @@ jobs:
         shell: bash
         run: echo "tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
+      - name: Install doctl
+        uses: digitalocean/action-doctl@135ac0aa0eed4437d547c6f12c364d3006b42824 # v2.5.1
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Check DigitalOcean PostgreSQL maintenance window
+        env:
+          DATABASE_CLUSTER_ID: ${{ vars.DATABASE_CLUSTER_ID }}
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/digitalocean-maintenance-preflight.sh"
+
       - name: Setup Helm
         shell: bash
         run: |
@@ -384,11 +398,6 @@ jobs:
           tar -xzf /tmp/helm.tar.gz -C /tmp
           sudo install -m 0755 /tmp/linux-amd64/helm /usr/local/bin/helm
           helm version
-
-      - name: Install doctl
-        uses: digitalocean/action-doctl@135ac0aa0eed4437d547c6f12c364d3006b42824 # v2.5.1
-        with:
-          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
       - name: Save DigitalOcean kubeconfig with short-lived credentials
         env:
@@ -408,11 +417,13 @@ jobs:
           INFISICAL_ADDRESS: ${{ vars.INFISICAL_ADDRESS }}
           ZERO_CACHE_EXISTING_VOLUME_NAME: ${{ vars.ZERO_CACHE_EXISTING_VOLUME_NAME }}
           MEILISEARCH_EXISTING_VOLUME_NAME: ${{ vars.MEILISEARCH_EXISTING_VOLUME_NAME }}
+          DATABASE_CLUSTER_ID: ${{ vars.DATABASE_CLUSTER_ID }}
           IMAGE_TAG: ${{ steps.vars.outputs.tag }}
         shell: bash
         run: |
           source "$GITHUB_WORKSPACE/.github/scripts/validate-deploy-vars.sh"
           validate_deploy_vars required
+          bash "$GITHUB_WORKSPACE/.github/scripts/digitalocean-maintenance-preflight.sh"
 
           namespace="${K8S_NAMESPACE}"
           registry="registry.digitalocean.com/${REGISTRY_NAME}"
