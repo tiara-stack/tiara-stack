@@ -1,5 +1,8 @@
 import { Cause, Clock, DateTime, Duration, Effect, Exit, Layer, Option, Predicate } from "effect";
-import { buildRoomOrderContent } from "sheet-message-content/roomOrderContent";
+import {
+  buildRoomOrderContent,
+  roomOrderMonitorHandoffFromAdjacentAssignment,
+} from "sheet-message-content/roomOrderContent";
 import {
   generatingRoomOrderMessage,
   roomOrderDraftMessage,
@@ -281,7 +284,8 @@ export const roomOrderCreateOperationsLayer = Layer.effect(
             Predicate.isNull(schedule.hour) ? [] : ([[schedule.hour, schedule]] as const),
           ),
         );
-        const previousFills = schedulesByHour.get(hour - 1)?.fills ?? [];
+        const previous = schedulesByHour.get(hour - 1);
+        const previousFills = previous?.fills ?? [];
         const current = schedulesByHour.get(hour);
         const fills = current?.fills ?? [];
         const teamsByPlayer = fills.map((fill) =>
@@ -309,11 +313,15 @@ export const roomOrderCreateOperationsLayer = Layer.effect(
         const maxRank = Math.max(...entries.map(({ rank }) => rank));
         const range = { minRank: 0 as const, maxRank };
         const { start, end } = scheduleHourWindowFor(scheduleTimeReference, hour);
+        const monitorHandoff = roomOrderMonitorHandoffFromAdjacentAssignment(
+          current?.monitor ?? null,
+          previous?.monitor,
+        );
         const content = buildRoomOrderContent(
           hour,
           start,
           end,
-          current?.monitor ?? null,
+          monitorHandoff,
           previousFills.map(({ name }) => fillParticipantFromName(name)),
           fills.map(({ name }) => fillParticipantFromName(name)),
           entries.filter(({ rank }) => rank === 0),
@@ -328,7 +336,9 @@ export const roomOrderCreateOperationsLayer = Layer.effect(
           range,
           previousFills: previousFills.map(({ name }) => name),
           fills: fills.map(({ name }) => name),
-          monitor: current?.monitor ?? null,
+          monitor: monitorHandoff.currentMonitor,
+          previousMonitor: monitorHandoff.previousMonitor,
+          previousMonitorHistoryKnown: monitorHandoff.previousMonitorHistoryKnown,
           entries,
           generatingMessage: generatingRoomOrderMessage(content),
           finalMessage: roomOrderDraftMessage(content, range, 0),

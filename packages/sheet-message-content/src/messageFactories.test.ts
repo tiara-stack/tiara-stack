@@ -102,14 +102,14 @@ describe("interactive message factories", () => {
       4,
       DateTime.makeUnsafe("2026-07-18T12:00:00.000Z"),
       DateTime.makeUnsafe("2026-07-18T13:00:00.000Z"),
-      "Moni",
+      { currentMonitor: "Moni", previousMonitor: "Moni", previousMonitorHistoryKnown: true },
       [{ key: "filler-2", name: "MikuEnjoyer" }],
       [{ key: "filler-1", name: "AiriFan" }],
       [{ position: 0, team: "Nightcord", tags: ["enc"], effectValue: 35 }],
     );
 
     expect(renderPlainText(roomOrder)).toBe(
-      "Hour 4 2026-07-18T12:00:00.000Z - 2026-07-18T13:00:00.000Z\nMonitor: Moni\n\nP1:  Nightcord (+35%, enc)\n\nIn: AiriFan\nOut: MikuEnjoyer",
+      "Hour 4 2026-07-18T12:00:00.000Z - 2026-07-18T13:00:00.000Z\nMonis: Moni\n\nP1:  Nightcord (+35%, enc)\n\nIn: AiriFan\nOut: MikuEnjoyer",
     );
   });
 });
