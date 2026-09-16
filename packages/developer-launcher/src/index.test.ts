@@ -4,8 +4,11 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   composeProjectName,
+  executeDevelopmentPlan,
+  getDevelopmentExecutionContext,
   getComposeExecutionContext,
   lifecycleEventFor,
+  makeLifecycleStreamWriter,
   parseCommand,
   runLauncher,
   type AccessChecker,
@@ -14,6 +17,58 @@ import {
 } from "./index";
 
 describe("developer launcher command boundary", () => {
+  it("retains the validated context for every executable mode", async () => {
+    const fast = await runLauncher(["fast", "up", "--json"], {
+      cwd: "/checkout",
+      env: {},
+      portChecker: async () => ({ available: true }),
+    });
+    const compose = await runLauncher(["compose", "down", "--json"], {
+      cwd: "/checkout",
+      env: {},
+    });
+    const kubernetes = await runLauncher(["kubernetes", "validate", "--json"], {
+      cwd: "/checkout",
+      env: { KUBE_CONTEXT: "tiara-stack-dev" },
+    });
+
+    expect(getDevelopmentExecutionContext(fast)?.mode).toBe("fast");
+    expect(getDevelopmentExecutionContext(compose)?.mode).toBe("compose");
+    expect(getDevelopmentExecutionContext(kubernetes)?.mode).toBe("kubernetes");
+    expect(getDevelopmentExecutionContext(fast)).toEqual(
+      expect.objectContaining({
+        processRequest: expect.objectContaining({ cwd: "/checkout/packages/sheet-web" }),
+      }),
+    );
+  });
+
+  it("keeps the lifecycle writer terminal event exactly once", async () => {
+    const result = await runLauncher(["compose", "down", "--json-stream"], { env: {} });
+    const lines: string[] = [];
+    const writer = makeLifecycleStreamWriter(result.output, (value) => lines.push(value));
+
+    writer.writeTerminal(result.output, 0);
+    writer.writeTerminal(result.output, 0);
+
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0] ?? "{}")).toEqual(
+      expect.objectContaining({ type: "terminal", sequence: 1 }),
+    );
+  });
+
+  it("routes Compose execution through the common plan adapter", async () => {
+    const result = await runLauncher(["compose", "down", "--json"], { env: {} });
+    const executed = await executeDevelopmentPlan(result, true, {
+      executor: async (_request) => ({ exitCode: 0 }),
+      writeStdout: () => undefined,
+      writeStderr: () => undefined,
+    });
+
+    expect(executed.exitCode).toBe(0);
+    expect(executed.output.readiness).toBe("completed");
+    expect(executed.stdout).toContain('"readiness":"completed"');
+  });
+
   it("accepts lifecycle JSON as an explicit output mode and rejects mixed JSON modes", async () => {
     const parsed = parseCommand(["fast", "up", "--json-stream"]);
 

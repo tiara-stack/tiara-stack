@@ -87,6 +87,13 @@ It does not run `compose down` or reset volumes as part of cancellation.
 With `--json`, the launcher writes one result when applications become ready.
 Container logs and later shutdown diagnostics go to stderr. Finite `build`,
 `down`, `seed`, and `reset` actions write their result after completion.
+With `--json-stream`, it writes ordered lifecycle JSON Lines and exactly one
+terminal event after attached-command and application-container cleanup. A
+successful cancellation ends with `stopped`; startup failures end with
+`blocked`; and cleanup failures after a stopped or completed phase are
+serialized as `outcome: "blocked"` with `executionOutcome: "failed"`, retaining
+their redacted diagnostics. Neither output mode changes the cleanup boundary:
+dependencies, volumes, and other Checkout States remain untouched.
 
 The migration helper runs `sheet-db-schema`'s Effect SQL migrations through
 `effect-sql-kit` against the Compose Postgres instance exposed on

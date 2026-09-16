@@ -15,7 +15,16 @@ import {
 } from "./config";
 import { makeDiagnostic, makeWarning } from "./diagnostics";
 import { runDoctorEffect } from "./doctor";
-import { makeKubernetesExecutionContext, type KubernetesExecutionContext } from "./execution";
+import { redactExecutionText } from "./execution-shared";
+import {
+  makeFastExecutionContext,
+  makeKubernetesExecutionContext,
+  runDevelopmentExecution,
+  type DevelopmentExecutionContext,
+  type DevelopmentExecutionOptions,
+  type DevelopmentLifecycleObservation,
+  type KubernetesExecutionContext,
+} from "./execution";
 import { buildModePlan } from "./plan";
 import { checkLoopbackPort } from "./ports";
 import { isChangedSurface } from "./parity";
@@ -29,12 +38,16 @@ import {
   type LauncherResult,
   type PortChecker,
 } from "./types";
-import { Cause, Effect, Exit } from "effect";
-import { renderLifecyclePlan, renderLifecycleTerminal } from "./lifecycle";
+import { Cause, Effect, Exit, Match } from "effect";
+import {
+  makeLifecycleStreamWriter,
+  renderLifecyclePlan,
+  renderLifecycleTerminal,
+} from "./lifecycle";
 import {
   makeComposeExecutionContext as makeComposeContext,
   type ComposeExecutionContext,
-} from "./execution";
+} from "./compose-execution";
 
 export * from "./types";
 export {
@@ -127,9 +140,9 @@ const modeServices = {
   kubernetes: ["sheet-auth", "sheet-db-server", "sheet-workflows", "sheet-web", "sheet-bot"],
 } as const satisfies Readonly<Record<DevelopmentMode, readonly string[]>>;
 
-const plannedKubernetesContexts = new WeakMap<LauncherOutput, KubernetesExecutionContext>();
+const plannedDevelopmentContexts = new WeakMap<LauncherOutput, DevelopmentExecutionContext>();
 // Prefer the result identity, then recover contexts for copies that retain the planned output.
-const launcherKubernetesContexts = new WeakMap<LauncherResult, KubernetesExecutionContext>();
+const launcherDevelopmentContexts = new WeakMap<LauncherResult, DevelopmentExecutionContext>();
 
 const modeDescriptions: Readonly<Record<DevelopmentMode, string>> = {
   fast: "Fast mode edits sheet-web on the host and uses explicit development endpoints.",
@@ -137,11 +150,24 @@ const modeDescriptions: Readonly<Record<DevelopmentMode, string>> = {
   kubernetes: "Kubernetes mode targets the fixed development preview release.",
 };
 
-const composeExecutionContexts = new WeakMap<LauncherOutput, ComposeExecutionContext>();
+export const getDevelopmentExecutionContext = (
+  resultOrOutput: LauncherResult | LauncherOutput,
+): DevelopmentExecutionContext | undefined => {
+  if ("output" in resultOrOutput) {
+    return (
+      launcherDevelopmentContexts.get(resultOrOutput) ??
+      plannedDevelopmentContexts.get(resultOrOutput.output)
+    );
+  }
+  return plannedDevelopmentContexts.get(resultOrOutput);
+};
 
 export const getComposeExecutionContext = (
   output: LauncherOutput,
-): ComposeExecutionContext | undefined => composeExecutionContexts.get(output);
+): ComposeExecutionContext | undefined => {
+  const context = getDevelopmentExecutionContext(output);
+  return context?.mode === "compose" ? context : undefined;
+};
 
 export const helpText = `TiaraStack development launcher
 
@@ -618,26 +644,50 @@ const modeOutput = (
       changedSurfaces,
       parityGates: plan.parityGates,
     };
-    if (validation.config.mode === "kubernetes") {
-      plannedKubernetesContexts.set(
-        output,
-        makeKubernetesExecutionContext(
-          validation.config,
-          plan,
-          output,
-          options.cwd ?? process.cwd(),
-          command.options.tag,
+    let executionContext: DevelopmentExecutionContext;
+    try {
+      executionContext = Match.value(validation.config).pipe(
+        Match.when({ mode: "fast" }, () =>
+          makeFastExecutionContext(output, options.cwd ?? process.cwd()),
         ),
+        Match.when({ mode: "compose" }, (config) =>
+          makeComposeContext(output, options.cwd ?? process.cwd(), {
+            environment: config.validatedEnvironment,
+          }),
+        ),
+        Match.when({ mode: "kubernetes" }, (config) =>
+          makeKubernetesExecutionContext(
+            config,
+            plan,
+            output,
+            options.cwd ?? process.cwd(),
+            command.options.tag,
+          ),
+        ),
+        Match.exhaustive,
       );
+    } catch (cause) {
+      const reason =
+        cause instanceof Error
+          ? redactExecutionText(cause.message)
+          : typeof cause === "string"
+            ? redactExecutionText(cause)
+            : "";
+      return {
+        ...output,
+        ok: false,
+        readiness: "blocked",
+        errors: [
+          makeDiagnostic(
+            "context-preparation-failed",
+            `${command.mode} ${command.action} execution context could not be prepared${reason === "" ? "" : `: ${reason}`}`,
+            "Recreate the plan through the launcher command and retry after checking its validated configuration.",
+            { mode: command.mode, action: command.action },
+          ),
+        ],
+      };
     }
-    if (validation.config.mode === "compose") {
-      composeExecutionContexts.set(
-        output,
-        makeComposeContext(output, options.cwd ?? process.cwd(), {
-          environment: validation.config.validatedEnvironment,
-        }),
-      );
-    }
+    plannedDevelopmentContexts.set(output, executionContext);
     return output;
   });
 
@@ -732,15 +782,182 @@ const launcherResult = (
     stderr: "",
     output,
   };
-  const context = plannedKubernetesContexts.get(output);
-  if (context !== undefined) launcherKubernetesContexts.set(result, context);
+  const context = plannedDevelopmentContexts.get(output);
+  if (context !== undefined) launcherDevelopmentContexts.set(result, context);
   return result;
 };
 
 export const getKubernetesExecutionContext = (
   result: LauncherResult,
-): KubernetesExecutionContext | undefined =>
-  launcherKubernetesContexts.get(result) ?? plannedKubernetesContexts.get(result.output);
+): KubernetesExecutionContext | undefined => {
+  const context = getDevelopmentExecutionContext(result);
+  return context?.mode === "kubernetes" ? context : undefined;
+};
+
+export interface DevelopmentPlanExecutionOptions extends Omit<
+  DevelopmentExecutionOptions,
+  "onObservation"
+> {
+  readonly jsonStream?: boolean;
+  readonly onObservation?: (observation: DevelopmentLifecycleObservation) => void;
+  readonly writeStdout?: (value: string) => void;
+  readonly writeStderr?: (value: string) => void;
+}
+
+const executionDiagnosticText = (diagnostics: readonly Diagnostic[]) =>
+  diagnostics
+    .map(
+      ({ code, message, remediation }) => `[${code}] ${message}\n  remediation: ${remediation}\n`,
+    )
+    .join("");
+
+const executionContextDiagnostic = (output: LauncherOutput) =>
+  makeDiagnostic(
+    "context-preparation-failed",
+    `${output.mode ?? "development"} ${output.action ?? "action"} execution context was not retained from validated configuration`,
+    "Recreate the plan through the launcher command and retry without modifying its configuration between planning and execution.",
+    { mode: output.mode, action: output.action },
+  );
+
+const isSelectedReadiness = (observation: DevelopmentLifecycleObservation) =>
+  observation.type === "readiness" &&
+  observation.status === "ready" &&
+  (observation.mode !== "compose" || observation.allSelected === true);
+
+// This is the only terminal adapter for executable Development Mode plans. It
+// owns presentation only; validated execution context and lifecycle ownership
+// stay in the planning and execution modules.
+// fallow-ignore-next-line complexity
+export const executeDevelopmentPlan = async (
+  result: LauncherResult,
+  json: boolean,
+  options: DevelopmentPlanExecutionOptions = {},
+): Promise<LauncherResult> => {
+  if (!result.output.ok || result.output.plannedProcesses.length === 0) return result;
+
+  const jsonStream = options.jsonStream === true;
+  const writeStdout = options.writeStdout ?? ((value: string) => process.stdout.write(value));
+  const writeStderr = options.writeStderr ?? ((value: string) => process.stderr.write(value));
+  const lifecycleStream = jsonStream
+    ? makeLifecycleStreamWriter(result.output, writeStdout)
+    : undefined;
+  const context = getDevelopmentExecutionContext(result);
+  if (context === undefined) {
+    const blocked = {
+      ...result.output,
+      ok: false,
+      readiness: "blocked" as const,
+      errors: [executionContextDiagnostic(result.output)],
+    } satisfies LauncherOutput;
+    return {
+      ...result,
+      exitCode: 2,
+      stdout: jsonStream ? renderLifecycleTerminal(blocked) : renderLauncherOutput(blocked, json),
+      stderr: "",
+      output: blocked,
+    };
+  }
+
+  let readinessPrinted = false;
+  const observationHandler = (observation: DevelopmentLifecycleObservation) => {
+    options.onObservation?.(observation);
+    if (jsonStream) {
+      const readinessObservation = isSelectedReadiness(observation);
+      if (readinessObservation) readinessPrinted = true;
+      try {
+        lifecycleStream?.writeObservation(observation);
+      } catch (cause) {
+        if (readinessObservation) readinessPrinted = false;
+        throw cause;
+      }
+      return;
+    }
+    if (readinessPrinted || !isSelectedReadiness(observation)) return;
+    writeStdout(renderLauncherOutput({ ...result.output, readiness: "ready" }, json));
+    readinessPrinted = true;
+  };
+  const {
+    jsonStream: _jsonStream,
+    onObservation: _onObservation,
+    writeStdout: _writeStdout,
+    writeStderr: _writeStderr,
+    output: requestedOutput,
+    ...executionOptions
+  } = options;
+  const runOptions: DevelopmentExecutionOptions = {
+    ...executionOptions,
+    ...(requestedOutput === undefined ? {} : { output: requestedOutput }),
+    onObservation: observationHandler,
+  };
+
+  try {
+    const executionOutput =
+      requestedOutput === "capture" ? "capture" : json || jsonStream ? "stderr" : requestedOutput;
+    const execution = await runDevelopmentExecution(
+      context,
+      executionOutput === undefined ? runOptions : { ...runOptions, output: executionOutput },
+    );
+    const diagnostics = [execution.outcome.diagnostic, execution.outcome.cleanupDiagnostic].filter(
+      (diagnostic): diagnostic is NonNullable<typeof diagnostic> => diagnostic !== undefined,
+    );
+    const diagnosticOutput = executionDiagnosticText(diagnostics);
+    if ((jsonStream || readinessPrinted) && diagnosticOutput.length > 0) {
+      writeStderr(diagnosticOutput);
+    }
+    return {
+      ...result,
+      exitCode: execution.outcome.exitCode,
+      output: execution.output,
+      stdout: jsonStream || readinessPrinted ? "" : renderLauncherOutput(execution.output, json),
+      stderr: jsonStream || readinessPrinted ? diagnosticOutput : "",
+    };
+  } catch (cause) {
+    if (jsonStream && lifecycleStream?.hasTerminal()) {
+      throw new Error("Development execution failed after its terminal event");
+    }
+    const reason =
+      cause instanceof Error
+        ? redactExecutionText(cause.message)
+        : typeof cause === "string"
+          ? redactExecutionText(cause)
+          : "";
+    const message = `${
+      readinessPrinted
+        ? "Development execution failed after readiness"
+        : "Development execution could not be prepared"
+    }${reason === "" ? "" : `: ${reason}`}`;
+    const diagnostic = makeDiagnostic(
+      readinessPrinted ? "required-dependency-failed" : "dependency-unavailable",
+      message,
+      "Retry the command after checking the validated Development Mode plan and process diagnostics.",
+      { mode: result.output.mode, action: result.output.action },
+    );
+    const blocked = {
+      ...result.output,
+      ok: false,
+      readiness: readinessPrinted ? ("ready" as const) : ("blocked" as const),
+      errors: [diagnostic],
+    } satisfies LauncherOutput;
+    const exitCode = readinessPrinted ? 1 : 2;
+    const stderr = executionDiagnosticText(blocked.errors);
+    if (jsonStream) {
+      lifecycleStream?.writeTerminal(blocked, exitCode, readinessPrinted ? "failed" : "blocked");
+      writeStderr(stderr);
+      return { ...result, exitCode, stdout: "", stderr, output: blocked };
+    }
+    if (readinessPrinted) {
+      writeStderr(stderr);
+      return { ...result, exitCode, stdout: "", stderr, output: blocked };
+    }
+    return {
+      ...result,
+      exitCode,
+      stdout: renderLauncherOutput(blocked, json),
+      stderr: "",
+      output: blocked,
+    };
+  }
+};
 
 const runParsedCommand = (
   command: ParsedCommand,

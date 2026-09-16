@@ -193,7 +193,7 @@ export interface ComposeExecutionOptions {
   readonly readinessTimeoutMs?: number;
   readonly cleanupTimeoutMs?: number;
   readonly pollIntervalMs?: number;
-  readonly output?: "inherit" | "stderr";
+  readonly output?: "inherit" | "stderr" | "capture";
   readonly onObservation?: (observation: ComposeLifecycleObservation) => void;
 }
 

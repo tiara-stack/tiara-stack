@@ -119,6 +119,14 @@ message alone does not pass this check. The result is the
 p99 threshold, so the artifact remains evidence rather than a new performance
 gate.
 
+Fast, Compose, and Kubernetes executable actions share the same lifecycle
+contract: mode-specific dependency or promotion checks must pass before
+readiness, finite work reaches a terminal result only after its steps finish,
+and cancellation reports cleanup or incomplete shared work explicitly. The
+default evidence path exercises only the real local Fast application seam; it
+does not start external integrations or mutate shared Compose/Kubernetes
+resources.
+
 ## Failure remediation
 
 `pnpm dev doctor --json` is the first diagnostic. Fix the named dependency,

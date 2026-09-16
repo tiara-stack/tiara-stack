@@ -1,7 +1,12 @@
 import { Cause, Duration, Effect, Exit, Match, Option, Schema } from "effect";
 import path from "node:path";
 import { checkHttpAccess, checkHttpReadiness, checkTcpAccess, isHttpReady } from "./access";
-import type { ComposeLifecycleObservation } from "./compose-execution";
+import {
+  executeCompose,
+  type ComposeExecutionContext,
+  type ComposeExecutionResult,
+  type ComposeStateAdapter,
+} from "./compose-execution";
 import type { KubernetesModeConfig } from "./config";
 import { makeDiagnostic, makeWarning } from "./diagnostics";
 import {
@@ -211,8 +216,14 @@ export interface KubernetesExecutionResult {
 }
 
 export type DevelopmentLifecycleObservation = DevelopmentLifecycleObservationType;
-export type DevelopmentExecutionContext = FastExecutionContext | KubernetesExecutionContext;
-export type DevelopmentExecutionResult = FastExecutionResult | KubernetesExecutionResult;
+export type DevelopmentExecutionContext =
+  | FastExecutionContext
+  | ComposeExecutionContext
+  | KubernetesExecutionContext;
+export type DevelopmentExecutionResult =
+  | FastExecutionResult
+  | ComposeExecutionResult
+  | KubernetesExecutionResult;
 
 export interface KubernetesExecutionOptions {
   readonly executor?: ProcessExecutor;
@@ -236,6 +247,8 @@ export interface DevelopmentExecutionOptions {
   readonly readinessTimeoutMs?: number;
   readonly cleanupTimeoutMs?: number;
   readonly pollIntervalMs?: number;
+  readonly finiteTimeoutMs?: number;
+  readonly stateAdapter?: ComposeStateAdapter;
   readonly output?: "inherit" | "stderr" | "capture";
   readonly onObservation?: (observation: DevelopmentLifecycleObservation) => void;
 }
@@ -251,7 +264,7 @@ export interface FastExecutionOptions {
   readonly readinessTimeoutMs?: number;
   readonly cleanupTimeoutMs?: number;
   readonly pollIntervalMs?: number;
-  readonly output?: "inherit" | "stderr";
+  readonly output?: "inherit" | "stderr" | "capture";
   readonly onObservation?: (observation: LifecycleObservation) => void;
 }
 
@@ -1229,7 +1242,7 @@ const resultForProcessStage = (
       resultWithTerminal(
         context,
         state,
-        "blocked",
+        cleanupDiagnostic === undefined ? "blocked" : "failed",
         2,
         processStartDiagnostic(context, cause),
         cleanupDiagnostic,
@@ -2093,22 +2106,25 @@ const kubernetesResultForStage = (
         },
       };
     }),
-    Match.when({ type: "failed" }, ({ diagnostic, cleanupDiagnostic }) => ({
-      output: {
-        ...context.plannedOutput,
-        ok: false,
-        readiness: "blocked" as const,
-        errors: [diagnostic, ...(cleanupDiagnostic === undefined ? [] : [cleanupDiagnostic])],
-      },
-      observations: [],
-      outcome: {
-        status: "blocked" as const,
-        ok: false,
-        exitCode: 2,
-        diagnostic,
-        ...(cleanupDiagnostic === undefined ? {} : { cleanupDiagnostic }),
-      },
-    })),
+    Match.when({ type: "failed" }, ({ diagnostic, cleanupDiagnostic }) => {
+      const status = cleanupDiagnostic === undefined ? ("blocked" as const) : ("failed" as const);
+      return {
+        output: {
+          ...context.plannedOutput,
+          ok: false,
+          readiness: "blocked" as const,
+          errors: [diagnostic, ...(cleanupDiagnostic === undefined ? [] : [cleanupDiagnostic])],
+        },
+        observations: [],
+        outcome: {
+          status,
+          ok: false,
+          exitCode: 2,
+          diagnostic,
+          ...(cleanupDiagnostic === undefined ? {} : { cleanupDiagnostic }),
+        },
+      };
+    }),
     Match.exhaustive,
   );
 
@@ -2177,9 +2193,6 @@ export const executeDevelopment = (
   context: DevelopmentExecutionContext,
   options: DevelopmentExecutionOptions = {},
 ): Effect.Effect<DevelopmentExecutionResult> => {
-  if (context.mode === "kubernetes") {
-    return executeKubernetesEffect(context, options);
-  }
   const fastOptions: FastExecutionOptions = {
     ...(options.accessChecker === undefined ? {} : { accessChecker: options.accessChecker }),
     ...(options.readinessChecker === undefined
@@ -2203,9 +2216,7 @@ export const executeDevelopment = (
       ? {}
       : { cleanupTimeoutMs: options.cleanupTimeoutMs }),
     ...(options.pollIntervalMs === undefined ? {} : { pollIntervalMs: options.pollIntervalMs }),
-    ...(options.output === undefined
-      ? {}
-      : { output: options.output === "capture" ? ("stderr" as const) : options.output }),
+    ...(options.output === undefined ? {} : { output: options.output }),
     ...(options.onObservation === undefined
       ? {}
       : {
@@ -2213,7 +2224,14 @@ export const executeDevelopment = (
             options.onObservation?.(observation),
         }),
   };
-  return executeFastEffect(context, fastOptions);
+  return Match.value(context).pipe(
+    Match.when({ mode: "kubernetes" }, (kubernetes) =>
+      executeKubernetesEffect(kubernetes, options),
+    ),
+    Match.when({ mode: "compose" }, (compose) => executeCompose(compose, options)),
+    Match.when({ mode: "fast" }, (fast) => executeFastEffect(fast, fastOptions)),
+    Match.exhaustive,
+  );
 };
 
 export const runDevelopmentExecution = (

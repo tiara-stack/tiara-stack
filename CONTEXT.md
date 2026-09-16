@@ -207,8 +207,8 @@ A supported way to run TiaraStack's runtime processes and dependencies for devel
 _Avoid_: Local mode, dev profile
 
 **Development Readiness**:
-The condition where required dependencies pass their checks and the selected application responds to HTTP GET `/ready` with a 2xx status; a live process or liveness response alone is insufficient.
-_Avoid_: Process started, liveness, reachable
+The condition where the required dependencies and selected workload pass their mode-specific usability checks and the selected application responds to HTTP GET `/ready` with a 2xx status; a startup message, live process, liveness response, rejected method, or application error is insufficient.
+_Avoid_: Process started, startup banner, liveness, reachable
 
 **Development Sandbox**:
 A non-production state and external-resource boundary used for interactive development. Fast and Kubernetes currently share one sandbox across all developers using the development namespace. Compose currently exposes one shared local sandbox because its project and volume identities are fixed; its intended contract is one Checkout State per source checkout once those identities are parameterized.

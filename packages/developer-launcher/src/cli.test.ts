@@ -325,11 +325,42 @@ describe("developer launcher Effect CLI", () => {
       expect.objectContaining({
         type: "terminal",
         outcome: "blocked",
+        executionOutcome: "failed",
         diagnostics: expect.arrayContaining([
           expect.objectContaining({ code: "preview-incomplete" }),
           expect.objectContaining({ code: "cleanup-failed" }),
         ]),
       }),
+    );
+  });
+
+  it("marks a failed Kubernetes step with cleanup failure as failed", async () => {
+    const context = await kubernetesExecutionContext("validate");
+    const shortContext = {
+      ...context,
+      steps: context.steps.map((step, index) =>
+        index === 0 ? { ...step, request: { ...step.request, timeoutMs: 10 } } : step,
+      ),
+    };
+    const observations: KubernetesLifecycleObservation[] = [];
+
+    const executed = await runKubernetesExecution(shortContext, {
+      processStarter: async () => ({
+        pid: 42,
+        exited: new Promise<ProcessResult>(() => undefined),
+        kill: async () => {
+          throw new Error("local validation process could not be stopped");
+        },
+      }),
+      cleanupTimeoutMs: 10,
+      output: "capture",
+      onObservation: (observation) => observations.push(observation),
+    });
+
+    expect(executed.outcome.status).toBe("failed");
+    expect(executed.outcome.cleanupDiagnostic?.code).toBe("cleanup-failed");
+    expect(observations.at(-1)).toEqual(
+      expect.objectContaining({ type: "terminal", outcome: "failed" }),
     );
   });
 
@@ -533,10 +564,14 @@ describe("developer launcher Effect CLI", () => {
       expect.objectContaining({
         type: "terminal",
         outcome: "blocked",
+        executionOutcome: "failed",
         readiness: "ready",
         exitCode: 1,
         diagnostics: expect.arrayContaining([
-          expect.objectContaining({ code: "required-dependency-failed" }),
+          expect.objectContaining({
+            code: "required-dependency-failed",
+            message: expect.stringContaining("stream writer failed after readiness"),
+          }),
         ]),
       }),
     );

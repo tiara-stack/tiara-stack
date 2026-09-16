@@ -2,11 +2,11 @@
 
 The root `pnpm dev` command is the single entrypoint for local development
 mode selection. The launcher validates input, reads only mode-approved
-configuration, and prints a safe process plan. The terminal command delegates
-validated plans to the shared execution operation. Fast mode starts the
-selected host-native process and waits for its HTTP GET `/ready` endpoint to
-return a 2xx response. Kubernetes validation and preview run their finite
-steps through the same operation.
+configuration, and prints a safe process plan. Every executable mode action
+then uses the shared execution operation with the validated plan context. Fast
+mode starts the selected host-native process and waits for its HTTP GET `/ready`
+endpoint to return a 2xx response. Compose applications and Kubernetes gates
+use their mode-specific usability checks through the same lifecycle contract.
 
 ## Commands
 
@@ -150,10 +150,13 @@ application-start events include a redacted child `process` command. A
 `terminal` event is always the last lifecycle line and includes `outcome`,
 `exitCode`, final `readiness`, and redacted `diagnostics` when a failure was
 reported. Cancellation warnings, such as an incomplete Kubernetes preview,
-appear in a separate redacted `warnings` field. The stream uses `completed`
-for successful finite work, `stopped` for clean or successfully cancelled
-long-running work, and `blocked` for any failure, including a child failure
-after readiness. The terminal line is written only after cleanup completes or
+appear in a separate redacted `warnings` field. The execution outcome set is
+`completed`, `stopped`, `blocked`, and `failed`. `completed` is successful finite
+work, `stopped` is clean or successfully cancelled long-running work, `blocked`
+is a startup or required-step failure, and `failed` identifies cleanup failure
+after a stopped or otherwise successful phase. Lifecycle JSONL keeps the stable
+failure bucket as `outcome: "blocked"` and adds `executionOutcome: "failed"` for
+that cleanup case. The terminal line is written only after cleanup completes or
 its bounded failure has been reported.
 Startup cancellation therefore still produces a structured terminal line,
 including the cleanup result, instead of ending with an empty response.
@@ -243,6 +246,7 @@ block readiness. An observability failure is a warning and does not block the
 doctor result. Every external command goes through the launcher process
 executor with a bounded timeout.
 
-The process executor is the replacement seam for tests and later mode
-implementations. Core mode commands produce plans and leave execution to those
-future adapters.
+The process executor remains the replacement seam for tests and bounded local
+commands. Planning and execution are separate: help, validation, and plan
+inspection never start workloads, while every supported executable mode action
+uses the shared lifecycle operation after its validated context is retained.

@@ -1,6 +1,6 @@
 import type { DevelopmentLifecycleObservationType } from "./lifecycle-types";
 import type { Diagnostic, LauncherOutput, PlannedProcess } from "./types";
-import { redactExecutionText } from "./execution-shared";
+import { redactExecutionText, type ExecutionOutcomeStatus } from "./execution-shared";
 
 export const lifecycleEventFormat = "tiara-stack.development.lifecycle" as const;
 export const lifecycleEventVersion = 1 as const;
@@ -109,7 +109,11 @@ export const renderLifecycleEvent = (
 
 export interface LifecycleStreamWriter {
   readonly writeObservation: (observation: LifecycleEventObservation) => void;
-  readonly writeTerminal: (output: LauncherOutput, exitCode?: number) => string;
+  readonly writeTerminal: (
+    output: LauncherOutput,
+    exitCode?: number,
+    outcome?: ExecutionOutcomeStatus,
+  ) => string;
   readonly eventCount: () => number;
   readonly hasTerminal: () => boolean;
 }
@@ -121,12 +125,18 @@ export const makeLifecycleStreamWriter = (
   let sequence = 0;
   let terminalWritten = false;
   const writeObservation = (observation: LifecycleEventObservation) => {
+    if (terminalWritten) return;
     writeStdout(renderLifecycleEvent(observation, output, sequence + 1));
     sequence += 1;
     if (observation.type === "terminal") terminalWritten = true;
   };
-  const writeTerminal = (terminalOutput: LauncherOutput, exitCode = 2) => {
-    const event = renderLifecycleTerminal(terminalOutput, exitCode, sequence + 1);
+  const writeTerminal = (
+    terminalOutput: LauncherOutput,
+    exitCode = 2,
+    outcome?: ExecutionOutcomeStatus,
+  ) => {
+    if (terminalWritten) return "";
+    const event = renderLifecycleTerminal(terminalOutput, exitCode, sequence + 1, outcome);
     writeStdout(event);
     sequence += 1;
     terminalWritten = true;
@@ -167,6 +177,7 @@ export const renderLifecycleTerminal = (
   output: LauncherOutput,
   exitCode = 2,
   sequence = 1,
+  executionOutcome: ExecutionOutcomeStatus = output.ok ? "completed" : "blocked",
 ): string =>
   `${JSON.stringify({
     format: lifecycleEventFormat,
@@ -176,7 +187,8 @@ export const renderLifecycleTerminal = (
     mode: output.mode,
     action: output.action,
     command: output.command,
-    outcome: output.ok ? "completed" : "blocked",
+    outcome: executionOutcome === "failed" ? "blocked" : executionOutcome,
+    ...(executionOutcome === "failed" ? { executionOutcome: "failed" } : {}),
     readiness: output.readiness,
     exitCode,
     ...(output.errors.length === 0 ? {} : { diagnostics: output.errors.map(redactDiagnostic) }),
