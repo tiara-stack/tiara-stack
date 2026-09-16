@@ -184,6 +184,14 @@ _Avoid_: Start Time cell, chapter start, event day zero
 A one-based event-wide hour whose half-open interval starts after (hour minus one) elapsed hours from the Event Start Instant. Persisted schedule labels keep this event-wide meaning even when a configuration starts at a chapter.
 _Avoid_: Chapter hour, local hour, schedule origin
 
+**Monitor Handoff**:
+A room-order message projection of the current Schedule Monitor Assignment and the immediately preceding assignment for the same running room. The current monitor comes from canonical room-order state; the prior monitor is derived from the authoritative schedule-sheet observation when an action rebuilds room-order content. A present but unassigned previous hour is known unassigned, while a missing previous hour is unknown. The prior assignment is not a database field and is not backfilled.
+_Avoid_: Persisted previous monitor, retrospective sheet read, inferred transition
+
+**Schedule Monitor Assignment**:
+The monitor name assigned by the schedule sheet to one running room and Schedule Hour. An empty or break row represents an unassigned hour.
+_Avoid_: Room-order owner, database monitor history
+
 **Chapter Start Instant**:
 The canonical UTC moment at which a configured event chapter begins; a Schedule Time Reference pairs it with the chapter's first event-wide Schedule Hour.
 _Avoid_: Event Start Instant, chapter day zero

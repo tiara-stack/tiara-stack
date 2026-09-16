@@ -19,6 +19,22 @@ prepared...** while TiaraBot registers it. TiaraBot then adds the **Previous**, 
 
 <RoomOrderDraftExample />
 
+## Read the monitor handoff
+
+Room order labels the current monitor with **`Monis:`**. When TiaraBot can read the adjacent
+Schedule Monitor Assignment for the same running room, it shows the transition as well:
+
+- **`Monis: In Airi · Out Miku`** when both assignments differ.
+- **`Monis: In Airi`** when the previous schedule hour is present but unassigned.
+- **`Monis: Out Miku`** when the current schedule hour is unassigned and the previous assignment is known.
+- **`Monis: Airi`** when the previous schedule hour is unavailable or the assignment is unchanged.
+- **No `Monis:` line** when neither the current assignment nor a known previous assignment is available.
+
+The current monitor remains part of the canonical room-order record. The prior monitor is derived
+from the authoritative schedule sheet whenever navigation, Send, or Pin rebuilds the message, so
+editing the sheet affects a later rebuild. TiaraBot does not add prior-monitor history to the room-
+order database record or run a migration to backfill it.
+
 ## Check the event format
 
 For TiaraBot operations, World Link uses the same room-order flow as Marathon.

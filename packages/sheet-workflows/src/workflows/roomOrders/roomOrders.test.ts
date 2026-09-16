@@ -18,6 +18,7 @@ import {
   RoomOrdersSend,
   WorkspaceId,
 } from "sheet-workflow-contracts";
+import { renderPlainText } from "sheet-message-content/text";
 import { scheduleTimeReferenceFromLegacy } from "sheet-domain/compatibility";
 import {
   ReadOnlyWorkflowAuthorization,
@@ -37,7 +38,7 @@ import { RoomOrderSheetWorkflowContracts } from "./catalog";
 import { makeRoomOrdersNavigateDefinition, makeRoomOrdersNavigateWorkflowBody } from "./definition";
 import { makeRoomOrderNavigationClaimId, makeRoomOrderNavigationDeliveryKey } from "./keys";
 import { roomOrderNavigationOperationsLayer } from "./operations";
-import { RoomOrderNavigationProvider } from "./provider";
+import { RoomOrderNavigationProvider, roomOrderPreviousMonitorFromSchedules } from "./provider";
 import { RoomOrderNavigateExecution } from "./schema";
 import { RoomOrderSheetWorkflowRegistrations } from "./registry";
 import { RoomOrderNavigationOperations } from "./service";
@@ -140,6 +141,7 @@ const makeOperations = (
     loadEventStart: () => Effect.succeed(0),
     loadLegacyScheduleTimeReference: ({ referenceInstantEpochMs }) =>
       Effect.succeed(scheduleTimeReferenceFromLegacy(referenceInstantEpochMs, [1])),
+    loadPreviousMonitor: () => Effect.succeed(undefined),
   },
 ) =>
   Effect.gen(function* () {
@@ -150,6 +152,129 @@ const makeOperations = (
     Effect.provide(RoomOrderNavigationProvider.testLayer(provider)),
     Effect.provide(SheetBotDeliveryClient.testLayer({ get: () => makeDeliveryBot(delivery) })),
   );
+
+describe("roomOrderPreviousMonitorFromSchedules", () => {
+  it.each([
+    {
+      name: "returns the adjacent assignment",
+      schedules: [
+        { channel: "Run One", hour: 1, break: false, monitor: "Miku" },
+        { channel: "Run One", hour: 2, break: false, monitor: "Luka" },
+      ],
+      expected: "Miku",
+    },
+    {
+      name: "returns null for an adjacent unassigned hour",
+      schedules: [{ channel: "Run One", hour: 1, break: false, monitor: null }],
+      expected: null,
+    },
+    {
+      name: "returns null for an adjacent break hour",
+      schedules: [{ channel: "Run One", hour: 1, break: true, monitor: "Miku" }],
+      expected: null,
+    },
+    {
+      name: "returns undefined when the adjacent hour is unavailable",
+      schedules: [{ channel: "Run One", hour: 3, break: false, monitor: "Miku" }],
+      expected: undefined,
+    },
+  ])("$name", ({ schedules, expected }) => {
+    expect(roomOrderPreviousMonitorFromSchedules(schedules, "Run One", 2)).toBe(expected);
+  });
+});
+
+it.effect("derives the prior monitor from the sheet when rebuilding a navigation view", () =>
+  Effect.gen(function* () {
+    const current = roomOrderRow({ rank: context.rank, tentativeUpdateClaimId: claim.claimId });
+    const rangeEntries = [1, 2, 3].map((rank) => ({
+      clientPlatform: context.clientPlatform,
+      clientId: context.clientId,
+      messageId: context.messageId,
+      rank,
+      position: 0,
+      hour: context.hour,
+      team: "Team",
+      tags: [],
+      effectValue: 0,
+      createdAt: 1,
+      updatedAt: 1,
+      deletedAt: null,
+    }));
+    const base = makeTrustedSheetPersistenceMock();
+    const persistence: TrustedSheetPersistenceShape = {
+      ...base,
+      workspaces: {
+        ...base.workspaces,
+        getWorkspaceConfigByWorkspaceId: () =>
+          Effect.succeed(
+            Option.some({
+              workspaceId,
+              sheetId: "sheet-1",
+              autoCheckin: null,
+              monitorConversationId: null,
+              announcementConversationId: null,
+              createdAt: 1,
+              updatedAt: 1,
+              deletedAt: null,
+            }),
+          ),
+        getWorkspaceConversationById: () =>
+          Effect.succeed(
+            Option.some({
+              workspaceId,
+              conversationId: context.conversationId,
+              name: "Run One",
+              running: true,
+              roleId: null,
+              checkinConversationId: null,
+              createdAt: 1,
+              updatedAt: 1,
+              deletedAt: null,
+            }),
+          ),
+      },
+      roomOrderState: {
+        ...base.roomOrderState,
+        getMessageRoomOrder: () => Effect.succeed(Option.some(current)),
+        getMessageRoomOrderRange: () => Effect.succeed(rangeEntries),
+      },
+    };
+    const operations = yield* makeOperations(
+      persistence,
+      {},
+      {
+        loadEventStart: () => Effect.succeed(0),
+        loadLegacyScheduleTimeReference: ({ referenceInstantEpochMs }) =>
+          Effect.succeed(scheduleTimeReferenceFromLegacy(referenceInstantEpochMs, [1])),
+        loadPreviousMonitor: ({ spreadsheetId, conversationName, hour }) => {
+          expect({ spreadsheetId, conversationName, hour }).toEqual({
+            spreadsheetId: "sheet-1",
+            conversationName: "Run One",
+            hour: context.hour,
+          });
+          return Effect.succeed("Miku");
+        },
+      },
+    );
+
+    const result = yield* operations.loadView(
+      claim,
+      "next",
+      RoomOrdersNavigate.authorizationPolicy.policy,
+    );
+
+    if (!Array.isArray(result.message.content))
+      throw new Error("Expected structured room-order content");
+    expect(renderPlainText(result.message.content)).toContain("Monis: In Luka · Out Miku");
+
+    const replay = yield* operations.loadView(
+      claim,
+      "next",
+      RoomOrdersNavigate.authorizationPolicy.policy,
+    );
+    expect(replay).toEqual(result);
+  }),
+);
 
 describe("room-order navigation Workflow Definition slice", () => {
   it("registers the room-order policy-v2 contracts with pinned actions", () => {
@@ -378,6 +503,7 @@ describe("room-order navigation Workflow Definition slice", () => {
           loadEventStart: () => Effect.sync(() => ((providerRead = true), 0)),
           loadLegacyScheduleTimeReference: ({ referenceInstantEpochMs }) =>
             Effect.succeed(scheduleTimeReferenceFromLegacy(referenceInstantEpochMs, [1])),
+          loadPreviousMonitor: () => Effect.succeed(undefined),
         },
       );
       const result = yield* operations.loadView(

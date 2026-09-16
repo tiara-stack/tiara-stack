@@ -21,6 +21,7 @@ import {
   makeRoomOrderDeliveryFailure,
   rejectRoomOrderProvider,
   roomOrderBusyDetail,
+  roomOrderMonitorHandoffFromSheet,
   roomOrderMessageKey,
 } from "./helpers";
 import { scheduleHourWindowFor } from "../shared/scheduleTime";
@@ -189,7 +190,7 @@ export const roomOrderNavigationOperationsLayer = Layer.effect(
               operationError("roomOrders.navigate.loadNavigationView.workspace", cause),
             ),
           );
-        const { entries, active } = yield* Effect.all(
+        const { entries, active, conversation } = yield* Effect.all(
           {
             entries: persistence.roomOrderState.getMessageRoomOrderEntry({
               ...roomOrderMessageKey(claimed.context),
@@ -200,6 +201,10 @@ export const roomOrderNavigationOperationsLayer = Layer.effect(
               claimed.context.workspaceId,
               workspace,
             ),
+            conversation: persistence.workspaces.getWorkspaceConversationById({
+              workspaceId: claimed.context.workspaceId,
+              conversationId: claimed.context.conversationId,
+            }),
           },
           { concurrency: "unbounded" },
         ).pipe(
@@ -248,11 +253,22 @@ export const roomOrderNavigationOperationsLayer = Layer.effect(
         }
         const range = { minRank, maxRank };
         const { start, end } = scheduleHourWindowFor(scheduleTimeReference, current.hour);
+        const monitorHandoff = yield* roomOrderMonitorHandoffFromSheet({
+          currentMonitor: current.monitor,
+          conversation,
+          loadPreviousMonitor: (conversationName) =>
+            provider.loadPreviousMonitor({
+              spreadsheetId: active.value.spreadsheetId,
+              conversationName,
+              hour: current.hour,
+              configuration: active.value.configuration,
+            }),
+        }).pipe(Effect.catch(rejectProvider));
         const content = buildRoomOrderContent(
           current.hour,
           start,
           end,
-          current.monitor,
+          monitorHandoff,
           current.previousFills.map(fillParticipantFromName),
           current.fills.map(fillParticipantFromName),
           entries,

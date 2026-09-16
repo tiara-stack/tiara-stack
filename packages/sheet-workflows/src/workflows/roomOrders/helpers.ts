@@ -1,4 +1,8 @@
-import { Effect, Predicate } from "effect";
+import { Effect, Option, Predicate } from "effect";
+import {
+  roomOrderMonitorHandoffFromAdjacentAssignment,
+  type RoomOrderMonitorHandoff,
+} from "sheet-message-content/roomOrderContent";
 import type { InteractiveDeclaredFailure } from "sheet-workflow-contracts";
 import type { AuthorizedRoomOrderSendContext } from "../readOnly/authorization";
 import {
@@ -90,6 +94,37 @@ export const roomOrderContextFromRow = (
   tentativePinnedAt: row.tentativePinnedAt,
 });
 
+export const roomOrderMonitorHandoffFromSheet = <E>(options: {
+  readonly currentMonitor: string | null;
+  readonly conversation: Option.Option<{ readonly name: string | null }>;
+  readonly loadPreviousMonitor: (
+    conversationName: string,
+  ) => Effect.Effect<string | null | undefined, E>;
+}): Effect.Effect<RoomOrderMonitorHandoff, E> =>
+  Option.match(options.conversation, {
+    onNone: () =>
+      Effect.succeed(
+        roomOrderMonitorHandoffFromAdjacentAssignment(options.currentMonitor, undefined),
+      ),
+    onSome: ({ name }) => {
+      const conversationName = Predicate.isString(name) ? name.trim() : "";
+      return conversationName.length === 0
+        ? Effect.succeed(
+            roomOrderMonitorHandoffFromAdjacentAssignment(options.currentMonitor, undefined),
+          )
+        : options
+            .loadPreviousMonitor(conversationName)
+            .pipe(
+              Effect.map((previousMonitor) =>
+                roomOrderMonitorHandoffFromAdjacentAssignment(
+                  options.currentMonitor,
+                  previousMonitor,
+                ),
+              ),
+            );
+    },
+  });
+
 export const roomOrderBusyDetail = (
   row: {
     readonly sendClaimId: string | null;
@@ -119,7 +154,7 @@ export const rejectRoomOrderProvider = (
   error: { readonly operation: string; readonly cause: unknown },
   operation: string,
 ) =>
-  Effect.logWarning("The room-order provider rejected the event configuration read").pipe(
+  Effect.logWarning("The room-order provider rejected a schedule or event configuration read").pipe(
     Effect.annotateLogs({
       providerOperation: error.operation,
       providerCauseKind: providerCauseKind(error.cause),
@@ -129,7 +164,7 @@ export const rejectRoomOrderProvider = (
         interactiveExternalOperationRejected(
           operation,
           "ProviderRejected",
-          "The room-order provider rejected the event configuration read",
+          "The room-order provider rejected a schedule or event configuration read",
         ),
       ),
     ),

@@ -7,6 +7,7 @@ import {
   TrustedSheetPersistence,
   type TrustedSheetPersistenceShape,
 } from "sheet-zero-server/persistence";
+import { renderPlainText } from "sheet-message-content/text";
 import { RoomOrdersPinTentative, WorkspaceId } from "sheet-workflow-contracts";
 import { SheetBotDeliveryClient } from "@/services/sheetBotDeliveryClient";
 import { makeTrustedSheetPersistenceMock } from "@/services/testHelpers";
@@ -104,19 +105,99 @@ const makeDeliveryBot = (delivery: Record<string, unknown> = {}): SheetBotHttpCl
 const makeOperations = (
   persistence: TrustedSheetPersistenceShape,
   delivery: Record<string, unknown> = {},
+  provider: typeof RoomOrderNavigationProvider.Service = {
+    loadEventStart: () => Effect.succeed(0),
+    loadLegacyScheduleTimeReference: ({ referenceInstantEpochMs }) =>
+      Effect.succeed(scheduleTimeReferenceFromLegacy(referenceInstantEpochMs, [1])),
+    loadPreviousMonitor: () => Effect.succeed(undefined),
+  },
 ) =>
   RoomOrderTentativePinOperations.pipe(
     Effect.provide(roomOrderTentativePinOperationsLayer),
     Effect.provide(TrustedSheetPersistence.testLayer(persistence)),
-    Effect.provide(
-      RoomOrderNavigationProvider.testLayer({
+    Effect.provide(RoomOrderNavigationProvider.testLayer(provider)),
+    Effect.provide(SheetBotDeliveryClient.testLayer({ get: () => makeDeliveryBot(delivery) })),
+  );
+
+it.effect("derives the prior monitor from the sheet when rebuilding a pin view", () =>
+  Effect.gen(function* () {
+    const current = roomOrderRow({
+      rank: context.rank,
+      tentative: true,
+      tentativePinClaimId: claimId,
+    });
+    const base = makeTrustedSheetPersistenceMock();
+    const persistence: TrustedSheetPersistenceShape = {
+      ...base,
+      workspaces: {
+        ...base.workspaces,
+        getWorkspaceConfigByWorkspaceId: () =>
+          Effect.succeed(
+            Option.some({
+              workspaceId,
+              sheetId: "sheet-1",
+              autoCheckin: null,
+              monitorConversationId: null,
+              announcementConversationId: null,
+              createdAt: 1,
+              updatedAt: 1,
+              deletedAt: null,
+            }),
+          ),
+        getWorkspaceConversationById: () =>
+          Effect.succeed(
+            Option.some({
+              workspaceId,
+              conversationId: context.conversationId,
+              name: "Run One",
+              running: true,
+              roleId: null,
+              checkinConversationId: null,
+              createdAt: 1,
+              updatedAt: 1,
+              deletedAt: null,
+            }),
+          ),
+      },
+      roomOrderState: {
+        ...base.roomOrderState,
+        getMessageRoomOrder: () => Effect.succeed(Option.some(current)),
+      },
+    };
+    const operations = yield* makeOperations(
+      persistence,
+      {},
+      {
         loadEventStart: () => Effect.succeed(0),
         loadLegacyScheduleTimeReference: ({ referenceInstantEpochMs }) =>
           Effect.succeed(scheduleTimeReferenceFromLegacy(referenceInstantEpochMs, [1])),
-      }),
-    ),
-    Effect.provide(SheetBotDeliveryClient.testLayer({ get: () => makeDeliveryBot(delivery) })),
-  );
+        loadPreviousMonitor: ({ spreadsheetId, conversationName, hour }) => {
+          expect({ spreadsheetId, conversationName, hour }).toEqual({
+            spreadsheetId: "sheet-1",
+            conversationName: "Run One",
+            hour: context.hour,
+          });
+          return Effect.succeed("Miku");
+        },
+      },
+    );
+
+    const result = yield* operations.loadView(
+      { ...claim, context: { ...claim.context, tentativePinClaimId: claimId } },
+      RoomOrdersPinTentative.authorizationPolicy.policy,
+    );
+
+    if (!Array.isArray(result.message.content))
+      throw new Error("Expected structured room-order content");
+    expect(renderPlainText(result.message.content)).toContain("Monis: In Luka · Out Miku");
+
+    const replay = yield* operations.loadView(
+      { ...claim, context: { ...claim.context, tentativePinClaimId: claimId } },
+      RoomOrdersPinTentative.authorizationPolicy.policy,
+    );
+    expect(replay).toEqual(result);
+  }),
+);
 
 describe("tentative room-order pin Workflow Definition slice", () => {
   it.effect("registers seven pinned policy-v2 actions with stable identities", () =>
