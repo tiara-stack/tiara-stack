@@ -41,3 +41,85 @@
 +    readonly deny?: string | null | undefined;
  }
  export type DeprecatedListPins200 = ReadonlyArray<MessageResponse>;
+--- a/src/Interactions/gateway.ts
++++ b/src/Interactions/gateway.ts
+@@ -126,4 +126,17 @@
+-        Effect.withSpan(
+-          Effect.provideService(postHandler(handle[i.type](i)), Interaction, i),
+-          "dfx.Interaction",
+-          { attributes: { interactionId: i.id }, captureStackTrace: false },
++        Effect.suspend(() => {
++          const interactionHandler = handle[i.type]
++          if (interactionHandler === undefined) {
++            return Effect.logWarning("unsupported interaction type", {
++              interactionId: i.id,
++              interactionType: i.type,
++            })
++          }
++          return Effect.withSpan(
++            Effect.provideService(postHandler(interactionHandler(i)), Interaction, i),
++            "dfx.Interaction",
++            { attributes: { interactionId: i.id }, captureStackTrace: false },
++          )
++        }).pipe(
++          Effect.catchCause(cause =>
++            Effect.logError("interaction dispatch handler failed", cause),
++          ),
+@@ -131,0 +145,23 @@
++      const resilientInteractionRun = interactionRun.pipe(
++        Effect.tapCause(cause =>
++          Effect.logError("interaction dispatch subscription failed", cause),
++        ),
++        Effect.retry(retryPolicy),
++      )
++      const commandSync = Effect.all([
++        globalSync.pipe(
++          Effect.tapCause(cause =>
++            Effect.logError("global command synchronization failed", cause),
++          ),
++          Effect.retry(retryPolicy),
++        ),
++        guildSync.pipe(
++          Effect.tapCause(cause =>
++            Effect.logError("guild command synchronization failed", cause),
++          ),
++          Effect.retry(retryPolicy),
++        ),
++      ], {
++        concurrency: "unbounded",
++        discard: true,
++      })
+@@ -137 +165 @@
+-            Effect.all([interactionRun, globalSync, guildSync], {
++            Effect.all([resilientInteractionRun, commandSync], {
+--- a/dist/Interactions/gateway.js
++++ b/dist/Interactions/gateway.js
+@@ -53 +53,24 @@
+-    const interactionRun = gateway.handleDispatch("INTERACTION_CREATE", i => Effect.withSpan(Effect.provideService(postHandler(handle[i.type](i)), Interaction, i), "dfx.Interaction", { attributes: { interactionId: i.id }, captureStackTrace: false }));
++    const interactionRun = gateway.handleDispatch("INTERACTION_CREATE", i => Effect.suspend(() => {
++        const interactionHandler = handle[i.type];
++        if (interactionHandler === undefined) {
++            return Effect.logWarning("unsupported interaction type", {
++                interactionId: i.id,
++                interactionType: i.type,
++            });
++        }
++        return Effect.withSpan(Effect.provideService(postHandler(interactionHandler(i)), Interaction, i), "dfx.Interaction", { attributes: { interactionId: i.id }, captureStackTrace: false });
++    }).pipe(Effect.catchCause(cause => Effect.logError("interaction dispatch handler failed", cause))));
++    const resilientInteractionRun = interactionRun.pipe(Effect.tapCause(cause => Effect.logError("interaction dispatch subscription failed", cause)), Effect.retry(retryPolicy));
++    const commandSync = Effect.all([
++        globalSync.pipe(
++            Effect.tapCause(cause => Effect.logError("global command synchronization failed", cause)),
++            Effect.retry(retryPolicy),
++        ),
++        guildSync.pipe(
++            Effect.tapCause(cause => Effect.logError("guild command synchronization failed", cause)),
++            Effect.retry(retryPolicy),
++        ),
++    ], {
++        concurrency: "unbounded",
++        discard: true,
++    });
+@@ -56 +70 @@
+-        ? Effect.forever(Effect.all([interactionRun, globalSync, guildSync], {
++        ? Effect.forever(Effect.all([resilientInteractionRun, commandSync], {

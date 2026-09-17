@@ -62,7 +62,7 @@ overrides:
 
 patchedDependencies:
   better-auth@1.6.16: 671e30c789cac6d2dae636c6b5783d75eb31f8ab6ef2403ea7c3a6c4eac4adb7
-  dfx@1.0.13: b2159ae18e8a902d6cb9dda6f90bb400ae2b972bccb3ca57aa5d1974a3450c0d
+  dfx@1.0.13: d2d63ef2f91fa9f885b2a2ce357428e84f7439f3279a1d81b1ce49398f583b89
 
 importers:
 
@@ -130,7 +130,7 @@ importers:
         version: 4.0.0-beta.67(effect@4.0.0-beta.67)(ioredis@5.9.3)
       dfx:
         specifier: 'catalog:'
-        version: 1.0.13(patch_hash=b2159ae18e8a902d6cb9dda6f90bb400ae2b972bccb3ca57aa5d1974a3450c0d)(effect@4.0.0-beta.67)
+        version: 1.0.13(patch_hash=d2d63ef2f91fa9f885b2a2ce357428e84f7439f3279a1d81b1ce49398f583b89)(effect@4.0.0-beta.67)
       discord-api-types:
         specifier: 'catalog:'
         version: 0.38.43
@@ -505,7 +505,7 @@ importers:
         version: 1.5.0(@opentelemetry/core@2.2.0(@opentelemetry/api@1.9.0))(kysely@0.29.2)
       dfx:
         specifier: 'catalog:'
-        version: 1.0.13(patch_hash=b2159ae18e8a902d6cb9dda6f90bb400ae2b972bccb3ca57aa5d1974a3450c0d)(effect@4.0.0-beta.67)
+        version: 1.0.13(patch_hash=d2d63ef2f91fa9f885b2a2ce357428e84f7439f3279a1d81b1ce49398f583b89)(effect@4.0.0-beta.67)
       dfx-discord-utils:
         specifier: workspace:*
         version: link:../dfx-discord-utils
@@ -1426,7 +1426,7 @@ importers:
         version: 3.3.3
       dfx:
         specifier: 'catalog:'
-        version: 1.0.13(patch_hash=b2159ae18e8a902d6cb9dda6f90bb400ae2b972bccb3ca57aa5d1974a3450c0d)(effect@4.0.0-beta.67)
+        version: 1.0.13(patch_hash=d2d63ef2f91fa9f885b2a2ce357428e84f7439f3279a1d81b1ce49398f583b89)(effect@4.0.0-beta.67)
       dfx-discord-utils:
         specifier: workspace:*
         version: link:../dfx-discord-utils
@@ -13675,7 +13675,7 @@ snapshots:
     dependencies:
       dequal: 2.0.3
 
-  dfx@1.0.13(patch_hash=b2159ae18e8a902d6cb9dda6f90bb400ae2b972bccb3ca57aa5d1974a3450c0d)(effect@4.0.0-beta.67):
+  dfx@1.0.13(patch_hash=d2d63ef2f91fa9f885b2a2ce357428e84f7439f3279a1d81b1ce49398f583b89)(effect@4.0.0-beta.67):
     dependencies:
       discord-api-types: 0.38.43
       effect: 4.0.0-beta.67
