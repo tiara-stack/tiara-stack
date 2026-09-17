@@ -1,6 +1,7 @@
 import { Ix } from "dfx";
+import { ModalSubmitData } from "dfx/Interactions/context";
 import { CommandHelper as DfxCommandHelper } from "dfx/Interactions/commandHelper";
-import type { APIChatInputApplicationCommandInteraction } from "dfx/types";
+import type { APIChatInputApplicationCommandInteraction, APIModalSubmission } from "dfx/types";
 import { describe, expect, it } from "@effect/vitest";
 import {
   CommandHelper,
@@ -29,16 +30,17 @@ import {
   Stream,
 } from "effect";
 import { TestClock } from "effect/testing";
-import type { CheckinMessagesLoadWorkflow } from "../services";
-import { CheckinMessagesLoad } from "sheet-workflow-contracts";
+import type { CheckinMessagesLoadWorkflow, CheckinMessagesSaveWorkflow } from "../services";
+import { CheckinMessagesLoad, CheckinMessagesSave } from "sheet-workflow-contracts";
 import { workflowInvocationIdFromString } from "sheet-workflow-http-client";
 import {
   makeSavedMessageSubCommandData,
   makeSavedMessageSubCommandWithClient,
   decodeSavedMessageEditButtonId,
-  terminalRun,
-  terminalRunFromSubscription,
+  makeSavedMessageModalOperation,
+  saveSavedMessage,
 } from "./checkinSavedMessage";
+import { terminalRunFromSubscription } from "../utils/workflowObservation";
 
 const interaction: APIChatInputApplicationCommandInteraction = {
   id: "123456789012345678",
@@ -152,6 +154,7 @@ describe("saved check-in message command", () => {
             list: () => Stream.never,
           },
           observeCheckinMessagesLoad: () => Stream.never,
+          observeCheckinMessagesSave: () => Stream.never,
         };
         const response: CommandInteractionResponseContext = {
           getAcknowledgementState: Effect.succeed("none"),
@@ -224,6 +227,7 @@ describe("saved check-in message command", () => {
                 updatedAt: now,
               }),
             ),
+          observeCheckinMessagesSave: () => Stream.never,
         };
         const response: CommandInteractionResponseContext = {
           getAcknowledgementState: Effect.succeed("none"),
@@ -275,26 +279,6 @@ describe("saved check-in message command", () => {
     ).pipe(Effect.provide(Unstorage.memoryLayer)),
   );
 
-  it.effect("polls one-shot workflow snapshots until a terminal result", () =>
-    Effect.gen(function* () {
-      let observationCount = 0;
-      const pending = { result: { _tag: "Pending", phase: "Queued" } } as const;
-      const success = { result: { _tag: "Success", value: "loaded" } } as const;
-
-      const observed = yield* terminalRun(
-        () => {
-          observationCount += 1;
-          return Stream.succeed(Option.some(observationCount === 1 ? pending : success));
-        },
-        Duration.seconds(1),
-        Duration.zero,
-      );
-
-      expect(observed).toEqual(success);
-      expect(observationCount).toBe(2);
-    }),
-  );
-
   it.effect("waits on one subscription across replication delay and pending state", () =>
     Effect.gen(function* () {
       let subscriptionCount = 0;
@@ -326,6 +310,179 @@ describe("saved check-in message command", () => {
       yield* TestClock.adjust(Duration.millis(1));
       const incomplete = yield* Fiber.join(incompleteFiber);
       expect(Exit.isFailure(incomplete)).toBe(true);
+    }),
+  );
+
+  it.effect("observes saved-message saves without requesting workflow snapshots", () =>
+    Effect.gen(function* () {
+      const reference = {
+        invocationId: workflowInvocationIdFromString("123e4567-e89b-42d3-a456-426614174000"),
+        contractIdentity: CheckinMessagesSave.identity,
+        wireVersion: CheckinMessagesSave.wireVersion,
+      } satisfies Effect.Success<ReturnType<CheckinMessagesSaveWorkflow["enqueue"]>>;
+      const saved = Schema.decodeUnknownSync(CheckinMessagesSave.success)({
+        workspaceId: "123456789012345680",
+        conversationId: "123456789012345681",
+        binding: { eventStartEpochMs: 1_750_000_000_000, messageSetGeneration: 1 },
+        message: { hour: 49, template: "hello", version: 2 },
+      });
+      const input = Schema.decodeUnknownSync(CheckinMessagesSave.input)({
+        workspaceId: "123456789012345680",
+        conversationId: "123456789012345681",
+        binding: { eventStartEpochMs: 1_750_000_000_000, messageSetGeneration: 1 },
+        hour: 49,
+        template: "hello",
+        expectedVersion: 1,
+      });
+      let enqueueCount = 0;
+      const interactionUserId = interaction.user?.id ?? "missing-interaction-user";
+      const now = new Date();
+      const pending = {
+        reference,
+        result: { _tag: "Pending" as const, phase: "Queued" as const },
+        submittedAt: now,
+        updatedAt: now,
+      };
+      const success = {
+        reference,
+        result: { _tag: "Success" as const, value: saved, completedAt: now },
+        submittedAt: now,
+        updatedAt: now,
+      };
+      const result = yield* saveSavedMessage(
+        {
+          enqueue: () => {
+            enqueueCount += 1;
+            return Effect.succeed(reference);
+          },
+        },
+        (discordUserId, observedReference) => {
+          expect(discordUserId).toBe(interactionUserId);
+          expect(observedReference).toEqual(reference);
+          return Stream.fromIterable([Option.some(pending), Option.some(success)]);
+        },
+        interactionUserId,
+        input,
+      ).pipe(Effect.provideService(Ix.Interaction, interaction));
+
+      expect(enqueueCount).toBe(1);
+      expect(result).toEqual(saved);
+    }),
+  );
+
+  it.effect("runs the modal save through the owner-authenticated observer", () =>
+    Effect.gen(function* () {
+      const reference = {
+        invocationId: workflowInvocationIdFromString("123e4567-e89b-42d3-a456-426614174000"),
+        contractIdentity: CheckinMessagesSave.identity,
+        wireVersion: CheckinMessagesSave.wireVersion,
+      } satisfies Effect.Success<ReturnType<CheckinMessagesSaveWorkflow["enqueue"]>>;
+      const saved = Schema.decodeUnknownSync(CheckinMessagesSave.success)({
+        workspaceId: "123456789012345680",
+        conversationId: "123456789012345681",
+        binding: { eventStartEpochMs: 1_750_000_000_000, messageSetGeneration: 1 },
+        message: { hour: 49, template: "hello", version: 2 },
+      });
+      const now = new Date();
+      const pending = {
+        reference,
+        result: { _tag: "Pending" as const, phase: "Queued" as const },
+        submittedAt: now,
+        updatedAt: now,
+      };
+      const success = {
+        reference,
+        result: { _tag: "Success" as const, value: saved, completedAt: now },
+        submittedAt: now,
+        updatedAt: now,
+      };
+      const modalData = {
+        custom_id: "checkin:saved:123456789012345680:123456789012345681:49:1750000000000:1:1",
+        components: [
+          {
+            type: 1,
+            components: [{ type: 4, custom_id: "template", value: "hello" }],
+          },
+        ],
+      } as unknown as APIModalSubmission;
+      const events: string[] = [];
+      let enqueueCount = 0;
+      let observedUserId: string | undefined;
+      const response: CommandInteractionResponseContext = {
+        getAcknowledgementState: Effect.succeed("none"),
+        reply: () => Effect.die("reply should not be called"),
+        showModal: () => Effect.die("showModal should not be called"),
+        replyWithFiles: () => Effect.die("replyWithFiles should not be called"),
+        deferReply: () => Effect.sync(() => events.push("defer")).pipe(Effect.as(true)),
+        followUp: () => Effect.die("followUp should not be called"),
+        editReply: ({ payload }) =>
+          Effect.sync(() => events.push(String(payload?.content ?? ""))).pipe(Effect.asVoid),
+        editReplyWithFiles: () => Effect.die("editReplyWithFiles should not be called"),
+        respondWithError: () => Effect.die("respondWithError should not be called"),
+        awaitInitialResponse: Effect.never,
+      };
+      yield* makeSavedMessageModalOperation({
+        checkinMessagesSave: {
+          enqueue: (input) => {
+            enqueueCount += 1;
+            expect(input.template).toBe("hello");
+            return Effect.succeed(reference);
+          },
+        },
+        observeCheckinMessagesSave: (discordUserId, observedReference) => {
+          observedUserId = typeof discordUserId === "string" ? discordUserId : undefined;
+          expect(observedReference).toEqual(reference);
+          return Stream.fromIterable([Option.some(pending), Option.some(success)]);
+        },
+      }).pipe(
+        Effect.provideService(InteractionResponse, response),
+        Effect.provideService(Ix.Interaction, interaction),
+        Effect.provideService(ModalSubmitData, modalData),
+      );
+
+      expect(events).toEqual([
+        "defer",
+        "Saved the check-in message for hour 49. Blank values restore the Random default.",
+      ]);
+      expect(enqueueCount).toBe(1);
+      expect(observedUserId).toBe(interaction.user?.id);
+    }),
+  );
+
+  it.effect("does not re-enqueue when saved-message observation times out", () =>
+    Effect.gen(function* () {
+      const reference = {
+        invocationId: workflowInvocationIdFromString("123e4567-e89b-42d3-a456-426614174000"),
+        contractIdentity: CheckinMessagesSave.identity,
+        wireVersion: CheckinMessagesSave.wireVersion,
+      } satisfies Effect.Success<ReturnType<CheckinMessagesSaveWorkflow["enqueue"]>>;
+      const input = Schema.decodeUnknownSync(CheckinMessagesSave.input)({
+        workspaceId: "123456789012345680",
+        conversationId: "123456789012345681",
+        binding: { eventStartEpochMs: 1_750_000_000_000, messageSetGeneration: 1 },
+        hour: 49,
+        template: "hello",
+        expectedVersion: 1,
+      });
+      let enqueueCount = 0;
+      const exit = yield* Effect.exit(
+        saveSavedMessage(
+          {
+            enqueue: () => {
+              enqueueCount += 1;
+              return Effect.succeed(reference);
+            },
+          },
+          () => Stream.succeed(Option.none()).pipe(Stream.concat(Stream.never)),
+          interaction.user?.id ?? "missing-interaction-user",
+          input,
+        ).pipe(Effect.provideService(Ix.Interaction, interaction)),
+      ).pipe(Effect.forkChild);
+
+      yield* TestClock.adjust(Duration.seconds(45));
+      const timedOut = yield* Fiber.join(exit);
+      expect(Exit.isFailure(timedOut)).toBe(true);
+      expect(enqueueCount).toBe(1);
     }),
   );
 });

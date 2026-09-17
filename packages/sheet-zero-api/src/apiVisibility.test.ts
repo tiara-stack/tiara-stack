@@ -133,6 +133,11 @@ const expectedCatalog = {
     "mutator:internal:sendEvent",
   ],
   "workflow:checkinMessages%2Eload:v:1": ["query:public:get", "query:public:list"],
+  "workflow:checkinMessages%2Esave:v:1": ["query:public:get", "query:public:list"],
+  "workflow:authorization%2EloadWorkspaceCapabilities:v:1": [
+    "query:public:get",
+    "query:public:list",
+  ],
 } as const;
 
 const projectCatalog = () =>
@@ -166,8 +171,8 @@ const catalogNames = (
 describe("Sheet Zero API visibility", () => {
   it("preserves the exhaustive procedure catalog and visibility split", () => {
     expect(projectCatalog()).toEqual(expectedCatalog);
-    expect(catalog).toHaveLength(91);
-    expect(catalog.filter(({ visibility }) => visibility === "public")).toHaveLength(71);
+    expect(catalog).toHaveLength(95);
+    expect(catalog.filter(({ visibility }) => visibility === "public")).toHaveLength(75);
     expect(catalog.filter(({ visibility }) => visibility === "service")).toHaveLength(17);
     expect(catalog.filter(({ visibility }) => visibility === "internal")).toHaveLength(3);
   });
@@ -184,10 +189,14 @@ describe("Sheet Zero API visibility", () => {
     expect(registryNames(serverMutators).sort()).toEqual(catalogNames("mutator", serverVisibility));
   });
 
-  it("keeps the saved-load observer on a query-only registry", () => {
+  it("keeps supported workflow observers on a query-only registry", () => {
     const expected = [
+      "workflow:authorization%2EloadWorkspaceCapabilities:v:1.get",
+      "workflow:authorization%2EloadWorkspaceCapabilities:v:1.list",
       "workflow:checkinMessages%2Eload:v:1.get",
       "workflow:checkinMessages%2Eload:v:1.list",
+      "workflow:checkinMessages%2Esave:v:1.get",
+      "workflow:checkinMessages%2Esave:v:1.list",
     ];
     expect(registryNames(clientWorkflowObservationQueries).sort()).toEqual(expected);
     expect(registryNames(workflowObservationServerQueries).sort()).toEqual(expected);
@@ -196,7 +205,7 @@ describe("Sheet Zero API visibility", () => {
       Object.values(SheetWorkflowZeroObservationApi.groups).flatMap((group) =>
         Object.values(group.endpoints).map(({ kind }) => kind),
       ),
-    ).toEqual(["query", "query"]);
+    ).toEqual(["query", "query", "query", "query", "query", "query"]);
   });
 });
 

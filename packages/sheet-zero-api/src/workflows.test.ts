@@ -2,7 +2,12 @@ import { Effect, Option, Schema, Stream } from "effect";
 import { describe, expect, it } from "@effect/vitest";
 import { ZeroApiEndpoint } from "typhoon-zero/zeroApi";
 import { InvocationId, workflowContractKey } from "effect-zero-workflow/contract";
-import { CheckinMessagesLoad, SheetWorkflowContractCatalog } from "sheet-workflow-contracts";
+import {
+  AuthorizationLoadWorkspaceCapabilities,
+  CheckinMessagesLoad,
+  CheckinMessagesSave,
+  SheetWorkflowContractCatalog,
+} from "sheet-workflow-contracts";
 import { workflowContractZeroGroupIdentifier } from "effect-zero-workflow/contract/transport";
 import { zql } from "./schema";
 import { serverMutators, serverQueries } from "./serverRegistries";
@@ -37,8 +42,12 @@ describe("sheet Workflow Contract Zero clients", () => {
     expect(clients).not.toHaveProperty("getByName");
   });
 
-  it("mounts the saved-message load observation as a read-only client/server pair", () => {
-    const group = workflowContractZeroGroupIdentifier(CheckinMessagesLoad);
+  it("mounts the supported bot observations as read-only client/server pairs", () => {
+    const groups = [
+      workflowContractZeroGroupIdentifier(CheckinMessagesLoad),
+      workflowContractZeroGroupIdentifier(CheckinMessagesSave),
+      workflowContractZeroGroupIdentifier(AuthorizationLoadWorkspaceCapabilities),
+    ];
     const clientQueries = queries as unknown as Record<string, Record<string, unknown>>;
     const mountedServerQueries = serverQueries as unknown as Record<
       string,
@@ -46,19 +55,20 @@ describe("sheet Workflow Contract Zero clients", () => {
     >;
     const mountedServerMutators = serverMutators as unknown as Record<string, unknown>;
 
-    expect(sheetWorkflowZeroObservationProcedureManifest).toEqual([
-      `${group}.get`,
-      `${group}.list`,
-    ]);
-    expect(Object.keys(clientQueries[group]!).filter((name) => name !== "~")).toEqual([
-      "get",
-      "list",
-    ]);
-    expect(Object.keys(mountedServerQueries[group]!).filter((name) => name !== "~")).toEqual([
-      "get",
-      "list",
-    ]);
-    expect(mountedServerMutators[group]).toBeUndefined();
+    expect(sheetWorkflowZeroObservationProcedureManifest).toEqual(
+      groups.flatMap((group) => [`${group}.get`, `${group}.list`]),
+    );
+    for (const group of groups) {
+      expect(Object.keys(clientQueries[group]!).filter((name) => name !== "~")).toEqual([
+        "get",
+        "list",
+      ]);
+      expect(Object.keys(mountedServerQueries[group]!).filter((name) => name !== "~")).toEqual([
+        "get",
+        "list",
+      ]);
+      expect(mountedServerMutators[group]).toBeUndefined();
+    }
   });
 
   it("builds the mounted query from the contract and authenticated owner", () => {
@@ -73,8 +83,11 @@ describe("sheet Workflow Contract Zero clients", () => {
         return query;
       },
     } as unknown as typeof zql.workflowRun;
-    const group = makeSheetWorkflowZeroObservationGroups(query)[0]!;
-    const get = group.endpoints.get;
+    const group = makeSheetWorkflowZeroObservationGroups(query).find(
+      (candidate) =>
+        candidate.identifier === workflowContractZeroGroupIdentifier(CheckinMessagesLoad),
+    );
+    const get = group?.endpoints.get;
     if (get === undefined || !ZeroApiEndpoint.isKind("query")(get)) {
       throw new Error("Saved-message load observation query is not mounted");
     }

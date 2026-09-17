@@ -18,7 +18,9 @@ import type {
   WorkflowObservationError,
 } from "effect-zero-workflow/contract/transport";
 import {
+  AuthorizationLoadWorkspaceCapabilities,
   CheckinMessagesLoad,
+  CheckinMessagesSave,
   SheetWorkflowContractCatalog,
   SheetWorkflowContracts,
 } from "sheet-workflow-contracts";
@@ -50,7 +52,13 @@ export interface SheetWorkflowZeroObservationContext {
   readonly ownerKey: string;
 }
 
-export const SheetWorkflowZeroObservationContracts = Object.freeze([CheckinMessagesLoad] as const);
+export const SheetWorkflowZeroObservationContracts = Object.freeze([
+  CheckinMessagesLoad,
+  CheckinMessagesSave,
+  AuthorizationLoadWorkspaceCapabilities,
+] as const);
+export type SheetWorkflowZeroObservationContract =
+  (typeof SheetWorkflowZeroObservationContracts)[number];
 
 type SheetWorkflowRunQuery = Query<"workflowRun", Schema, unknown>;
 

@@ -3,6 +3,7 @@ import {
   InteractionContextType,
   MessageFlags,
 } from "discord-api-types/v10";
+import { Interaction } from "dfx-discord-utils";
 import {
   CommandHelper,
   InteractionResponse,
@@ -51,7 +52,6 @@ import {
   SheetWorkflowHttpRequestContext,
   SheetWorkflowHttpClient,
   SheetZeroClient,
-  type AuthorizationLoadWorkspaceCapabilitiesWorkflow,
   type SheetWorkflowHttpClientShape,
 } from "../services";
 import {
@@ -62,6 +62,7 @@ import {
   serverIdOption,
 } from "../utils/commandHelpers";
 import { registerGlobalCommandLayer } from "../utils/registerGlobalCommandLayer";
+import { terminalRunFromSubscription } from "../utils/workflowObservation";
 
 class SheetCommandError extends Data.TaggedError("SheetCommandError")<{
   readonly message: string;
@@ -82,54 +83,18 @@ type OwnedSheetConfigurationState = Omit<SheetConfigurationState, "source"> & {
   readonly source: Extract<SheetConfigurationState["source"], { readonly kind: "owned" }>;
 };
 
-type AuthorizationWorkflowRun =
-  Stream.Success<
-    ReturnType<AuthorizationLoadWorkspaceCapabilitiesWorkflow["get"]>
-  > extends Option.Option<infer Run>
-    ? Run
-    : never;
-
 type SheetConfigurationAuthorizationClient = Pick<
   SheetWorkflowHttpClientShape,
   "authorizationLoadWorkspaceCapabilities"
 >;
 
-const workflowObservationInitialPollInterval = Duration.millis(250);
-const workflowObservationMaxPollInterval = Duration.seconds(2);
 const workflowObservationTimeout = Duration.seconds(60);
-
-const nextWorkflowObservationPollInterval = (current: Duration.Duration) =>
-  Duration.min(Duration.times(current, 2), workflowObservationMaxPollInterval);
-
-const observeAuthorizationWorkflowUntilTerminal = (
-  workflow: AuthorizationLoadWorkspaceCapabilitiesWorkflow,
-  reference: Effect.Success<ReturnType<AuthorizationLoadWorkspaceCapabilitiesWorkflow["enqueue"]>>,
-  pollInterval: Duration.Duration = workflowObservationInitialPollInterval,
-): Effect.Effect<Option.Option<AuthorizationWorkflowRun>, unknown> =>
-  workflow.get(reference).pipe(
-    Stream.filter((run): run is Option.Some<AuthorizationWorkflowRun> => Option.isSome(run)),
-    Stream.map((run) => run.value),
-    Stream.takeUntil((run) => run.result._tag !== "Pending"),
-    Stream.runLast,
-    Effect.flatMap((observed) => {
-      const pollAgain = Effect.sleep(pollInterval).pipe(
-        Effect.flatMap(() =>
-          Effect.suspend(() =>
-            observeAuthorizationWorkflowUntilTerminal(
-              workflow,
-              reference,
-              nextWorkflowObservationPollInterval(pollInterval),
-            ),
-          ),
-        ),
-      );
-      return Option.match(observed, {
-        onNone: () => pollAgain,
-        onSome: (run) =>
-          run.result._tag === "Pending" ? pollAgain : Effect.succeed(Option.some(run)),
-      });
-    }),
-  );
+type AuthorizationLoadWorkspaceCapabilitiesObserver =
+  (typeof SheetZeroClient.Service)["observeAuthorizationLoadWorkspaceCapabilities"];
+type SheetConfigurationZeroClient = Pick<
+  typeof SheetZeroClient.Service,
+  "getSheetConfiguration" | "getWorkspaceConfig" | "observeAuthorizationLoadWorkspaceCapabilities"
+>;
 
 const makeDefaultState = (
   source: typeof SheetConfigurationSource.Type,
@@ -514,8 +479,9 @@ const runDeferredCommand = <Command, A, E, R>(
     yield* runCommand(response, action(command, response));
   });
 
-const requireSheetConfigurationManageAccess = (
+export const requireSheetConfigurationManageAccess = (
   workflowClient: SheetConfigurationAuthorizationClient,
+  observe: AuthorizationLoadWorkspaceCapabilitiesObserver,
   workspaceId: string,
 ) =>
   SheetWorkflowHttpRequestContext.asInteractionUser(() =>
@@ -538,9 +504,9 @@ const requireSheetConfigurationManageAccess = (
               ),
           }),
         );
-      const terminal = yield* observeAuthorizationWorkflowUntilTerminal(
-        workflowClient.authorizationLoadWorkspaceCapabilities,
-        reference,
+      const interactionUser = yield* Interaction.user();
+      const terminal = yield* terminalRunFromSubscription(() =>
+        observe(interactionUser.id, reference),
       ).pipe(
         Effect.timeoutOrElse({
           duration: workflowObservationTimeout,
@@ -552,24 +518,21 @@ const requireSheetConfigurationManageAccess = (
             ),
         }),
       );
-      if (Option.isNone(terminal)) {
-        return yield* Effect.fail(
-          new SheetCommandError({
-            message: "The Sheet Configuration permission check returned no result.",
-          }),
-        );
-      }
-      if (terminal.value.result._tag !== "Success") {
-        return yield* Effect.fail(
-          new SheetCommandError({
-            message: "Could not verify Sheet Configuration access. Try again.",
-          }),
-        );
-      }
-      const capabilities = yield* decodeValue(
-        WorkspaceCapabilities,
-        terminal.value.result.value,
-        "The Sheet Configuration permission check returned invalid data.",
+      const capabilities = yield* Match.value(terminal.result).pipe(
+        Match.when({ _tag: "Success" }, ({ value }) =>
+          decodeValue(
+            WorkspaceCapabilities,
+            value,
+            "The Sheet Configuration permission check returned invalid data.",
+          ),
+        ),
+        Match.orElse(() =>
+          Effect.fail(
+            new SheetCommandError({
+              message: "Could not verify Sheet Configuration access. Try again.",
+            }),
+          ),
+        ),
       );
       if (!capabilities.capabilities.includes("manage")) {
         return yield* Effect.fail(
@@ -582,7 +545,7 @@ const requireSheetConfigurationManageAccess = (
   )();
 
 const loadOwnedConfigurationState = (
-  client: Pick<typeof SheetZeroClient.Service, "getSheetConfiguration" | "getWorkspaceConfig">,
+  client: SheetConfigurationZeroClient,
   workspaceId: string,
   legacyMessage = "The legacy source is read-only. Import it from the web editor first.",
 ) =>
@@ -595,14 +558,18 @@ const loadOwnedConfigurationState = (
   });
 
 const loadOwnedCommandState = (
-  client: Pick<typeof SheetZeroClient.Service, "getSheetConfiguration" | "getWorkspaceConfig">,
+  client: SheetConfigurationZeroClient,
   workflowClient: SheetConfigurationAuthorizationClient,
   serverId: Option.Option<string>,
   legacyMessage?: string,
 ) =>
   Effect.gen(function* () {
     const workspaceId = yield* resolveWorkspace(serverId);
-    yield* requireSheetConfigurationManageAccess(workflowClient, workspaceId);
+    yield* requireSheetConfigurationManageAccess(
+      workflowClient,
+      client.observeAuthorizationLoadWorkspaceCapabilities,
+      workspaceId,
+    );
     const state = yield* loadOwnedConfigurationState(client, workspaceId, legacyMessage);
     return { workspaceId, state };
   });
@@ -621,13 +588,17 @@ const requireConfigurationDraft = (
 };
 
 const loadCommandState = (
-  client: Pick<typeof SheetZeroClient.Service, "getSheetConfiguration" | "getWorkspaceConfig">,
+  client: SheetConfigurationZeroClient,
   workflowClient: SheetConfigurationAuthorizationClient,
   serverId: Option.Option<string>,
 ) =>
   Effect.gen(function* () {
     const workspaceId = yield* resolveWorkspace(serverId);
-    yield* requireSheetConfigurationManageAccess(workflowClient, workspaceId);
+    yield* requireSheetConfigurationManageAccess(
+      workflowClient,
+      client.observeAuthorizationLoadWorkspaceCapabilities,
+      workspaceId,
+    );
     const state = yield* loadConfigurationState(client, workspaceId);
     return { workspaceId, state };
   });

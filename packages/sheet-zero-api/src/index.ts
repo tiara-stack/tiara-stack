@@ -1,11 +1,17 @@
 export { api } from "./api";
 export {
+  makeAuthorizationLoadWorkspaceCapabilitiesZeroObserver,
   makeCheckinMessagesLoadZeroObserver,
+  makeCheckinMessagesSaveZeroObserver,
   makeSheetClient,
+  makeWorkflowZeroObserver,
   workflowObservationUnavailable,
   workflowObservationUnauthorized,
+  type AuthorizationLoadWorkspaceCapabilitiesZeroObserver,
   type CheckinMessagesLoadZeroObserver,
+  type CheckinMessagesSaveZeroObserver,
   type SheetClient,
+  type WorkflowZeroObserver,
 } from "./client";
 export { mutators, type Mutators } from "./mutators";
 export { queries, type Queries } from "./queries";

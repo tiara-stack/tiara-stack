@@ -14,11 +14,16 @@ import {
   WorkflowTransportUnavailable,
   type WorkflowObservationError,
 } from "effect-zero-workflow/contract/transport";
-import { CheckinMessagesLoad } from "sheet-workflow-contracts";
+import {
+  AuthorizationLoadWorkspaceCapabilities,
+  CheckinMessagesLoad,
+  CheckinMessagesSave,
+} from "sheet-workflow-contracts";
 import { SheetWorkflowZeroObservationApi, SheetZeroApi } from "./api";
 import { mutators } from "./mutators";
 import { clientWorkflowObservationQueries, queries } from "./queries";
 import type { Schema } from "./schema";
+import type { SheetWorkflowZeroObservationContract } from "./workflows";
 
 /**
  * Application-facing Sheet client. Its root is intentionally not workflow-
@@ -35,14 +40,17 @@ export const makeSheetClient = <Context>(
     mutators,
   });
 
-export type CheckinMessagesLoadZeroObserver = {
+export type WorkflowZeroObserver<Contract extends SheetWorkflowZeroObservationContract> = {
   readonly get: (
     reference: unknown,
-  ) => Stream.Stream<
-    Option.Option<WorkflowRun<typeof CheckinMessagesLoad>>,
-    WorkflowObservationError
-  >;
+  ) => Stream.Stream<Option.Option<WorkflowRun<Contract>>, WorkflowObservationError>;
 };
+
+export type CheckinMessagesLoadZeroObserver = WorkflowZeroObserver<typeof CheckinMessagesLoad>;
+export type CheckinMessagesSaveZeroObserver = WorkflowZeroObserver<typeof CheckinMessagesSave>;
+export type AuthorizationLoadWorkspaceCapabilitiesZeroObserver = WorkflowZeroObserver<
+  typeof AuthorizationLoadWorkspaceCapabilities
+>;
 
 export const workflowObservationUnavailable = () =>
   new WorkflowTransportUnavailable({
@@ -56,9 +64,13 @@ export const workflowObservationUnauthorized = () =>
     message: "Workflow observation authorization is no longer valid",
   });
 
-export const makeCheckinMessagesLoadZeroObserver = <Context>(
+export const makeWorkflowZeroObserver = <
+  Contract extends SheetWorkflowZeroObservationContract,
+  Context,
+>(
+  contract: Contract,
   zeroClient: ZeroClient.ZeroClientExecutor<Schema, Context>,
-): Effect.Effect<CheckinMessagesLoadZeroObserver> =>
+): Effect.Effect<WorkflowZeroObserver<Contract>> =>
   Effect.map(
     ZeroApiClient.makeFunctionsWithService(SheetWorkflowZeroObservationApi, zeroClient, {
       queries: clientWorkflowObservationQueries,
@@ -67,35 +79,47 @@ export const makeCheckinMessagesLoadZeroObserver = <Context>(
       type QueryGroup = {
         readonly get: {
           readonly stream: (
-            reference: RunReference<typeof CheckinMessagesLoad>,
+            reference: RunReference<Contract>,
           ) => Stream.Stream<Option.Option<ZeroMaterializedWorkflowRunRow>, unknown>;
         };
       };
       const group = (client.grouped as unknown as Readonly<Record<string, QueryGroup | undefined>>)[
-        workflowContractZeroGroupIdentifier(CheckinMessagesLoad)
+        workflowContractZeroGroupIdentifier(contract)
       ];
       if (group === undefined) {
-        throw new Error("Check-in message load observation query is not mounted");
+        throw new Error(`Workflow observation query is not mounted: ${contract.identity}`);
       }
       const query = group.get;
       return {
         get: (reference) =>
-          (isRunReferenceFor(CheckinMessagesLoad, reference)
+          (isRunReferenceFor(contract, reference)
             ? query.stream(reference)
             : Stream.succeed(Option.none<ZeroMaterializedWorkflowRunRow>())
           ).pipe(
             Stream.mapError(workflowObservationUnavailable),
             Stream.mapEffect((row) =>
               Option.match(row, {
-                onNone: () =>
-                  Effect.succeed(Option.none<WorkflowRun<typeof CheckinMessagesLoad>>()),
+                onNone: () => Effect.succeed(Option.none<WorkflowRun<Contract>>()),
                 onSome: (materialized) =>
-                  materializeWorkflowRun(CheckinMessagesLoad, materialized).pipe(
-                    Effect.map(Option.some),
-                  ),
+                  materializeWorkflowRun(contract, materialized).pipe(Effect.map(Option.some)),
               }),
             ),
           ),
       };
     },
   );
+
+export const makeCheckinMessagesLoadZeroObserver = <Context>(
+  zeroClient: ZeroClient.ZeroClientExecutor<Schema, Context>,
+): Effect.Effect<CheckinMessagesLoadZeroObserver> =>
+  makeWorkflowZeroObserver(CheckinMessagesLoad, zeroClient);
+
+export const makeCheckinMessagesSaveZeroObserver = <Context>(
+  zeroClient: ZeroClient.ZeroClientExecutor<Schema, Context>,
+): Effect.Effect<CheckinMessagesSaveZeroObserver> =>
+  makeWorkflowZeroObserver(CheckinMessagesSave, zeroClient);
+
+export const makeAuthorizationLoadWorkspaceCapabilitiesZeroObserver = <Context>(
+  zeroClient: ZeroClient.ZeroClientExecutor<Schema, Context>,
+): Effect.Effect<AuthorizationLoadWorkspaceCapabilitiesZeroObserver> =>
+  makeWorkflowZeroObserver(AuthorizationLoadWorkspaceCapabilities, zeroClient);

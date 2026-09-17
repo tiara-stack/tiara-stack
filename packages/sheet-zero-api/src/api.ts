@@ -45,15 +45,6 @@ type SheetZeroApi<SuccessSchemas extends SheetZeroApiSuccessSchemas> = ZeroApi<
 
 export type SheetWorkflowZeroObservationApi = ZeroApi<"sheet", SheetWorkflowZeroObservationGroup>;
 
-const checkinMessagesLoadObservationGroup = sheetWorkflowZeroObservationGroups[0];
-if (checkinMessagesLoadObservationGroup === undefined) {
-  throw new Error("Check-in message load observation query is not configured");
-}
-
-export const SheetWorkflowZeroObservationApi: SheetWorkflowZeroObservationApi = make("sheet").add(
-  checkinMessagesLoadObservationGroup,
-);
-
 const addWorkflowObservationGroups = <Groups extends ZeroApiGroup.Any>(
   api: ZeroApi<"sheet", Groups>,
 ): ZeroApi<"sheet", Groups | SheetWorkflowZeroObservationGroup> => {
@@ -63,6 +54,9 @@ const addWorkflowObservationGroups = <Groups extends ZeroApiGroup.Any>(
   }
   return current;
 };
+
+export const SheetWorkflowZeroObservationApi: SheetWorkflowZeroObservationApi =
+  addWorkflowObservationGroups(make("sheet"));
 
 const makeSheetZeroApiWithSuccess = <const SuccessSchemas extends SheetZeroApiSuccessSchemas>(
   success: SuccessSchemas,

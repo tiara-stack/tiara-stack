@@ -39,9 +39,15 @@ import {
 } from "sheet-auth/identity/server";
 import type { EffectivePrincipal as EffectivePrincipalType } from "sheet-auth/identity";
 import type { VerifiedOAuthResourceToken } from "sheet-auth/oauth-resource-authorization";
-import { CheckinMessagesLoad, CheckinMessagesSave } from "sheet-workflow-contracts";
 import {
+  AuthorizationLoadWorkspaceCapabilities,
+  CheckinMessagesLoad,
+  CheckinMessagesSave,
+} from "sheet-workflow-contracts";
+import {
+  makeAuthorizationLoadWorkspaceCapabilitiesZeroObserver,
   makeCheckinMessagesLoadZeroObserver,
+  makeCheckinMessagesSaveZeroObserver,
   schema,
   type Schema as SheetZeroSchema,
 } from "sheet-zero-api";
@@ -53,7 +59,7 @@ import {
 } from "sheet-workflow-http-client";
 import { ZeroDispatchUnauthorizedError, ZeroHttpApi, makeZeroHttpLive } from "typhoon-zero/server";
 import { ZeroClient as BaseZeroClient } from "typhoon-zero/client";
-import { terminalRunFromSubscription } from "../commands/checkinSavedMessage";
+import { terminalRunFromSubscription } from "../utils/workflowObservation";
 
 const integrationEnabled = process.env.TIA_211_ZERO_INTEGRATION === "1";
 const postgresImage = "postgres:16-alpine";
@@ -402,6 +408,71 @@ const workflowSuccess = Schema.decodeUnknownSync(CheckinMessagesLoad.success)({
   binding: { eventStartEpochMs: 1_750_000_000_000, messageSetGeneration: 1 },
   messages: [],
 });
+const workflowSaveSuccess = Schema.decodeUnknownSync(CheckinMessagesSave.success)({
+  workspaceId: "123456789012345680",
+  conversationId: "123456789012345681",
+  binding: { eventStartEpochMs: 1_750_000_000_000, messageSetGeneration: 1 },
+  message: { hour: 49, template: "saved through Zero", version: 2 },
+});
+const workflowAuthorizationSuccess = Schema.decodeUnknownSync(
+  AuthorizationLoadWorkspaceCapabilities.success,
+)({
+  workspaceId: "123456789012345680",
+  capabilities: ["manage"],
+});
+
+const insertTerminalWorkflowRun = (
+  sql: ReturnType<typeof postgres>,
+  options: {
+    readonly invocationId: ReturnType<typeof workflowInvocationIdFromString>;
+    readonly workflowName: string;
+    readonly visibilityKey: string;
+    readonly result: unknown;
+  },
+) =>
+  Effect.tryPromise({
+    try: async () => {
+      const now = new Date();
+      await sql`
+        insert into sheet_db_workflow_run (
+          run_id,
+          workflow_name,
+          definition_version,
+          execution_id,
+          idempotency_key,
+          visibility_key,
+          input,
+          status,
+          result,
+          error,
+          max_attempts,
+          run_after,
+          started_at,
+          completed_at,
+          created_at,
+          updated_at
+        ) values (
+          ${options.invocationId},
+          ${options.workflowName},
+          'tia213-test-definition',
+          ${`execution:${options.invocationId}`},
+          ${options.invocationId},
+          ${options.visibilityKey},
+          '{}'::jsonb,
+          'succeeded',
+          ${JSON.stringify(options.result)}::jsonb,
+          null,
+          10,
+          ${now},
+          ${now},
+          ${now},
+          ${now},
+          ${now}
+        )
+      `;
+    },
+    catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
+  });
 
 const makeHttpLayer = (
   sql: ReturnType<typeof postgres>,
@@ -740,6 +811,57 @@ describe.skipIf(!integrationEnabled)("TIA-211 local Zero integration proof", () 
                   batch.every((name) => name.endsWith(".get")),
                 ),
               ).toBe(true);
+
+              const saveInvocationId = workflowInvocationIdFromString(
+                "123e4567-e89b-42d3-a456-426614174004",
+              );
+              const authorizationInvocationId = workflowInvocationIdFromString(
+                "123e4567-e89b-42d3-a456-426614174005",
+              );
+              yield* insertTerminalWorkflowRun(database.sql, {
+                invocationId: saveInvocationId,
+                workflowName: checkinMessagesSaveWorkflowName,
+                visibilityKey: userOwnerKey,
+                result: workflowSaveSuccess,
+              });
+              yield* insertTerminalWorkflowRun(database.sql, {
+                invocationId: authorizationInvocationId,
+                workflowName: workflowName(
+                  AuthorizationLoadWorkspaceCapabilities.identity,
+                  AuthorizationLoadWorkspaceCapabilities.wireVersion,
+                ),
+                visibilityKey: userOwnerKey,
+                result: workflowAuthorizationSuccess,
+              });
+              const saveObserver = yield* makeCheckinMessagesSaveZeroObserver(userExecutor);
+              const authorizationObserver =
+                yield* makeAuthorizationLoadWorkspaceCapabilitiesZeroObserver(userExecutor);
+              const observedSave = yield* terminalRunFromSubscription(
+                () =>
+                  saveObserver.get({
+                    invocationId: saveInvocationId,
+                    contractIdentity: CheckinMessagesSave.identity,
+                    wireVersion: CheckinMessagesSave.wireVersion,
+                  }),
+                Duration.seconds(20),
+              );
+              const observedAuthorization = yield* terminalRunFromSubscription(
+                () =>
+                  authorizationObserver.get({
+                    invocationId: authorizationInvocationId,
+                    contractIdentity: AuthorizationLoadWorkspaceCapabilities.identity,
+                    wireVersion: AuthorizationLoadWorkspaceCapabilities.wireVersion,
+                  }),
+                Duration.seconds(20),
+              );
+              expect(observedSave.result).toMatchObject({
+                _tag: "Success",
+                value: workflowSaveSuccess,
+              });
+              expect(observedAuthorization.result).toMatchObject({
+                _tag: "Success",
+                value: workflowAuthorizationSuccess,
+              });
 
               const wrongContractInvocationId = workflowInvocationIdFromString(
                 "123e4567-e89b-42d3-a456-426614174002",

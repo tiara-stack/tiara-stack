@@ -2,10 +2,18 @@ import { describe, expect, it } from "@effect/vitest";
 import { vi } from "vitest";
 import { Effect, Option, Schema, Stream } from "effect";
 import type { ZeroClient } from "typhoon-zero/client";
-import { CheckinMessagesLoad } from "sheet-workflow-contracts";
+import {
+  AuthorizationLoadWorkspaceCapabilities,
+  CheckinMessagesLoad,
+  CheckinMessagesSave,
+} from "sheet-workflow-contracts";
 import { InvocationId } from "effect-zero-workflow/contract";
 import { serviceApi } from "./api";
-import { makeCheckinMessagesLoadZeroObserver } from "./client";
+import {
+  makeAuthorizationLoadWorkspaceCapabilitiesZeroObserver,
+  makeCheckinMessagesLoadZeroObserver,
+  makeCheckinMessagesSaveZeroObserver,
+} from "./client";
 import type { Schema as SheetZeroSchema } from "./schema";
 import { makeSheetServiceClient } from "./serverClient";
 import { serverMutators } from "./serverRegistries";
@@ -121,6 +129,69 @@ describe("Sheet service client", () => {
       expect(invalidContractObserved).toEqual([Option.none()]);
       expect(invalidWireVersionObserved).toEqual([Option.none()]);
       expect(stream).not.toHaveBeenCalled();
+    }),
+  );
+
+  it.effect("materializes save and authorization results through their own queries", () =>
+    Effect.gen(function* () {
+      const invocationId = Schema.decodeUnknownSync(InvocationId)(
+        "123e4567-e89b-42d3-a456-426614174000",
+      );
+      const saveReference = {
+        invocationId,
+        contractIdentity: CheckinMessagesSave.identity,
+        wireVersion: CheckinMessagesSave.wireVersion,
+      } as const;
+      const authorizationReference = {
+        invocationId,
+        contractIdentity: AuthorizationLoadWorkspaceCapabilities.identity,
+        wireVersion: AuthorizationLoadWorkspaceCapabilities.wireVersion,
+      } as const;
+      const saved = Schema.decodeUnknownSync(CheckinMessagesSave.success)({
+        workspaceId: "workspace-1",
+        conversationId: "conversation-1",
+        binding: { eventStartEpochMs: 1, messageSetGeneration: 1 },
+        message: { hour: 1, template: "hello", version: 1 },
+      });
+      const capabilities = Schema.decodeUnknownSync(AuthorizationLoadWorkspaceCapabilities.success)(
+        {
+          workspaceId: "workspace-1",
+          capabilities: ["manage"],
+        },
+      );
+      const executor = (result: unknown) =>
+        ({
+          run: () => Effect.die("query execution is not used"),
+          stream: (() =>
+            Stream.make(null, {
+              runId: invocationId,
+              status: "succeeded",
+              result,
+              error: null,
+              completedAt: 2,
+              createdAt: 1,
+              updatedAt: 2,
+            })) as ZeroClient.ZeroClientExecutor<SheetZeroSchema, unknown>["stream"],
+          mutate: () => Effect.die("observation must not mutate"),
+        }) satisfies ZeroClient.ZeroClientExecutor<SheetZeroSchema, unknown>;
+
+      const saveObserver = yield* makeCheckinMessagesSaveZeroObserver(executor(saved));
+      const authorizationObserver = yield* makeAuthorizationLoadWorkspaceCapabilitiesZeroObserver(
+        executor(capabilities),
+      );
+      const saveObserved = yield* Stream.runLast(saveObserver.get(saveReference));
+      const authorizationObserved = yield* Stream.runLast(
+        authorizationObserver.get(authorizationReference),
+      );
+
+      expect(Option.getOrThrow(Option.getOrThrow(saveObserved)).result).toMatchObject({
+        _tag: "Success",
+        value: saved,
+      });
+      expect(Option.getOrThrow(Option.getOrThrow(authorizationObserved)).result).toMatchObject({
+        _tag: "Success",
+        value: capabilities,
+      });
     }),
   );
 });

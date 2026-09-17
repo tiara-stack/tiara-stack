@@ -27,11 +27,15 @@ import {
   type ServicePrincipalGatewayIdentity,
 } from "sheet-auth/identity/server";
 import {
+  makeAuthorizationLoadWorkspaceCapabilitiesZeroObserver,
   makeCheckinMessagesLoadZeroObserver,
+  makeCheckinMessagesSaveZeroObserver,
   makeSheetClient,
   mutators,
   schema,
+  type AuthorizationLoadWorkspaceCapabilitiesZeroObserver,
   type CheckinMessagesLoadZeroObserver,
+  type CheckinMessagesSaveZeroObserver,
   type Schema as SheetZeroSchema,
   type SheetClient,
   workflowObservationUnavailable,
@@ -137,6 +141,14 @@ const makeSheetZero = Effect.fn("SheetZeroClient.makeZero")(function* () {
 
 type CheckinMessagesLoadReference = Parameters<CheckinMessagesLoadZeroObserver["get"]>[0];
 type CheckinMessagesLoadObservation = ReturnType<CheckinMessagesLoadZeroObserver["get"]>;
+type CheckinMessagesSaveReference = Parameters<CheckinMessagesSaveZeroObserver["get"]>[0];
+type CheckinMessagesSaveObservation = ReturnType<CheckinMessagesSaveZeroObserver["get"]>;
+type AuthorizationLoadWorkspaceCapabilitiesReference = Parameters<
+  AuthorizationLoadWorkspaceCapabilitiesZeroObserver["get"]
+>[0];
+type AuthorizationLoadWorkspaceCapabilitiesObservation = ReturnType<
+  AuthorizationLoadWorkspaceCapabilitiesZeroObserver["get"]
+>;
 
 const SheetZeroObservationPrincipal = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("user"), discordUserId: Schema.NonEmptyString }),
@@ -431,7 +443,9 @@ const makeServiceObservationAuth = (options: {
 };
 
 interface ObservationConnection {
-  readonly observer: CheckinMessagesLoadZeroObserver;
+  readonly checkinMessagesLoadObserver: CheckinMessagesLoadZeroObserver;
+  readonly checkinMessagesSaveObserver: CheckinMessagesSaveZeroObserver;
+  readonly authorizationLoadWorkspaceCapabilitiesObserver: AuthorizationLoadWorkspaceCapabilitiesZeroObserver;
   readonly permanentAuthorizationFailure: Stream.Stream<never, unknown>;
 }
 
@@ -501,8 +515,14 @@ const makeObservationConnectionCache = (options: {
           undefined,
           { readonly ownerKey: string }
         >().make(resilient.zero);
+        const observers = yield* Effect.all({
+          checkinMessagesLoadObserver: makeCheckinMessagesLoadZeroObserver(executor),
+          checkinMessagesSaveObserver: makeCheckinMessagesSaveZeroObserver(executor),
+          authorizationLoadWorkspaceCapabilitiesObserver:
+            makeAuthorizationLoadWorkspaceCapabilitiesZeroObserver(executor),
+        });
         return {
-          observer: yield* makeCheckinMessagesLoadZeroObserver(executor),
+          ...observers,
           permanentAuthorizationFailure: resilient.permanentAuthorizationFailure,
         };
       }),
@@ -521,13 +541,13 @@ const observationError = (error: unknown) =>
     ? workflowObservationUnauthorized()
     : workflowObservationUnavailable();
 
-const observeCheckinMessagesLoad = (
+const observeWorkflow = <Value>(
   observationConnections: ObservationConnectionCache,
   server: string,
   audience: string,
   principalInput: SheetZeroObservationPrincipalInput,
-  reference: CheckinMessagesLoadReference,
-): CheckinMessagesLoadObservation =>
+  get: (connection: ObservationConnection) => Stream.Stream<Value, unknown>,
+) =>
   Option.match(observationPrincipalFromInput(principalInput), {
     onNone: () => Stream.fail(workflowObservationUnavailable()),
     onSome: (principal) =>
@@ -536,10 +556,10 @@ const observeCheckinMessagesLoad = (
           observationConnections
             .get(makeSheetZeroObservationCacheKey(principal, server, audience))
             .pipe(
-              Effect.map(({ observer, permanentAuthorizationFailure }) =>
+              Effect.map((connection) =>
                 Stream.merge(
-                  observer.get(reference).pipe(Stream.mapError(observationError)),
-                  permanentAuthorizationFailure.pipe(
+                  get(connection).pipe(Stream.mapError(observationError)),
+                  connection.permanentAuthorizationFailure.pipe(
                     Stream.mapError(() => workflowObservationUnauthorized()),
                   ),
                   { haltStrategy: "left" },
@@ -550,6 +570,39 @@ const observeCheckinMessagesLoad = (
         ),
       ),
   });
+
+const observeCheckinMessagesLoad = (
+  observationConnections: ObservationConnectionCache,
+  server: string,
+  audience: string,
+  principalInput: SheetZeroObservationPrincipalInput,
+  reference: CheckinMessagesLoadReference,
+): CheckinMessagesLoadObservation =>
+  observeWorkflow(observationConnections, server, audience, principalInput, (connection) =>
+    connection.checkinMessagesLoadObserver.get(reference),
+  );
+
+const observeCheckinMessagesSave = (
+  observationConnections: ObservationConnectionCache,
+  server: string,
+  audience: string,
+  principalInput: SheetZeroObservationPrincipalInput,
+  reference: CheckinMessagesSaveReference,
+): CheckinMessagesSaveObservation =>
+  observeWorkflow(observationConnections, server, audience, principalInput, (connection) =>
+    connection.checkinMessagesSaveObserver.get(reference),
+  );
+
+const observeAuthorizationLoadWorkspaceCapabilities = (
+  observationConnections: ObservationConnectionCache,
+  server: string,
+  audience: string,
+  principalInput: SheetZeroObservationPrincipalInput,
+  reference: AuthorizationLoadWorkspaceCapabilitiesReference,
+): AuthorizationLoadWorkspaceCapabilitiesObservation =>
+  observeWorkflow(observationConnections, server, audience, principalInput, (connection) =>
+    connection.authorizationLoadWorkspaceCapabilitiesObserver.get(reference),
+  );
 
 class SheetZeroExecutor extends BaseZeroClient.ZeroClient<SheetZeroSchema, undefined, unknown>() {
   static readonly layer = Layer.effect(
@@ -651,6 +704,14 @@ interface SheetZeroClientShape {
     principal: SheetZeroObservationPrincipalInput,
     reference: CheckinMessagesLoadReference,
   ) => CheckinMessagesLoadObservation;
+  readonly observeCheckinMessagesSave: (
+    principal: SheetZeroObservationPrincipalInput,
+    reference: CheckinMessagesSaveReference,
+  ) => CheckinMessagesSaveObservation;
+  readonly observeAuthorizationLoadWorkspaceCapabilities: (
+    principal: SheetZeroObservationPrincipalInput,
+    reference: AuthorizationLoadWorkspaceCapabilitiesReference,
+  ) => AuthorizationLoadWorkspaceCapabilitiesObservation;
   readonly observeServiceCheckinMessagesLoad: (
     reference: CheckinMessagesLoadReference,
   ) => CheckinMessagesLoadObservation;
@@ -698,6 +759,22 @@ export class SheetZeroClient extends Context.Service<SheetZeroClient, SheetZeroC
       return {
         observeCheckinMessagesLoad: (principal, reference) =>
           observeCheckinMessagesLoad(
+            observationConnections,
+            observationConfig.server,
+            observationConfig.audience,
+            principal,
+            reference,
+          ),
+        observeCheckinMessagesSave: (principal, reference) =>
+          observeCheckinMessagesSave(
+            observationConnections,
+            observationConfig.server,
+            observationConfig.audience,
+            principal,
+            reference,
+          ),
+        observeAuthorizationLoadWorkspaceCapabilities: (principal, reference) =>
+          observeAuthorizationLoadWorkspaceCapabilities(
             observationConnections,
             observationConfig.server,
             observationConfig.audience,
