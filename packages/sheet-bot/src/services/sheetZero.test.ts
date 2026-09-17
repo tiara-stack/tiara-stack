@@ -2,6 +2,8 @@ import { describe, expect, it } from "@effect/vitest";
 import { Option } from "effect";
 import {
   isTeamSubmissionAvailable,
+  makeSheetZeroObservationCacheKey,
+  makeSheetZeroObservationStorageKey,
   shouldReconnectSheetZero,
   shouldRefreshSheetZeroAuth,
 } from "./sheetZero";
@@ -85,5 +87,60 @@ describe("shouldReconnectSheetZero", () => {
   it("does not reconnect non-terminal connection states", () => {
     expect(shouldReconnectSheetZero({ name: "connected" })).toBe(false);
     expect(shouldReconnectSheetZero({ name: "disconnected", reason: "offline" })).toBe(false);
+  });
+});
+
+describe("Sheet Zero observation identity", () => {
+  it("keeps connection and storage keys distinct by principal, endpoint, and audience", () => {
+    const principal = { kind: "user", discordUserId: "discord-1" } as const;
+    const otherPrincipal = { kind: "service", serviceId: "sheet-bot.gateway" } as const;
+    const first = makeSheetZeroObservationCacheKey(
+      principal,
+      "https://zero.example.test/zero",
+      "sheet-zero",
+    );
+    expect(first).toBe(
+      makeSheetZeroObservationCacheKey(
+        { kind: "user", discordUserId: "discord-1" },
+        "https://zero.example.test/zero",
+        "sheet-zero",
+      ),
+    );
+
+    expect(first).not.toBe(
+      makeSheetZeroObservationCacheKey(
+        principal,
+        "https://other-zero.example.test/zero",
+        "sheet-zero",
+      ),
+    );
+    expect(first).not.toBe(
+      makeSheetZeroObservationCacheKey(
+        principal,
+        "https://zero.example.test/zero",
+        "other-audience",
+      ),
+    );
+    expect(first).not.toBe(
+      makeSheetZeroObservationCacheKey(
+        otherPrincipal,
+        "https://zero.example.test/zero",
+        "sheet-zero",
+      ),
+    );
+
+    const storageKey = makeSheetZeroObservationStorageKey(
+      "user:auth-user-1",
+      "https://zero.example.test/zero",
+      "sheet-zero",
+    );
+    expect(storageKey).toContain("sheet-bot:workflow-observation:");
+    expect(storageKey).not.toBe(
+      makeSheetZeroObservationStorageKey(
+        "service:sheet-bot.gateway",
+        "https://zero.example.test/zero",
+        "sheet-zero",
+      ),
+    );
   });
 });

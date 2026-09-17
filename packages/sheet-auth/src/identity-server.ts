@@ -24,6 +24,11 @@ export interface VerifiedOAuthIdentityClaims {
   readonly sub: string | undefined;
 }
 
+export interface ServicePrincipalGatewayIdentity {
+  readonly serviceId: string;
+  readonly oauthClientId: string;
+}
+
 export class IdentityCompatibilityError extends Data.TaggedError("IdentityCompatibilityError")<{
   readonly message: string;
   readonly cause?: unknown;
@@ -58,14 +63,31 @@ const servicePrincipal = (clientId: string | undefined) => {
   });
 };
 
+const normalizeServicePrincipal = (
+  principal: EffectivePrincipalType,
+  gatewayIdentity: ServicePrincipalGatewayIdentity | undefined,
+): EffectivePrincipalType =>
+  Match.type<EffectivePrincipalType>().pipe(
+    Match.discriminatorsExhaustive("kind")({
+      user: () => principal,
+      service: (service) =>
+        gatewayIdentity !== undefined && service.oauthClientId === gatewayIdentity.oauthClientId
+          ? decodeEffectivePrincipal({ ...service, serviceId: gatewayIdentity.serviceId })
+          : service,
+    }),
+  )(principal);
+
 export const effectivePrincipalFromLegacyIdentity = (
   identity: LegacyResolvedIdentity,
+  gatewayIdentity?: ServicePrincipalGatewayIdentity,
 ): EffectivePrincipalType => {
   const isService =
     identity.permissions.includes("service") ||
     identity.userId === DISCORD_SERVICE_USER_ID_SENTINEL ||
     identity.accountId === DISCORD_SERVICE_USER_ID_SENTINEL;
-  if (isService) return servicePrincipal(identity.clientId);
+  if (isService) {
+    return normalizeServicePrincipal(servicePrincipal(identity.clientId), gatewayIdentity);
+  }
 
   return decodeEffectivePrincipal({
     kind: "user",
@@ -78,10 +100,7 @@ export const effectivePrincipalFromLegacyIdentity = (
 
 export const effectivePrincipalFromVerifiedOAuthClaims = (
   claims: VerifiedOAuthIdentityClaims,
-  gatewayIdentity?: {
-    readonly serviceId: string;
-    readonly oauthClientId: string;
-  },
+  gatewayIdentity?: ServicePrincipalGatewayIdentity,
 ): EffectivePrincipalType => {
   const principal =
     claims.sub === undefined || claims.scopes.has("service")
@@ -94,15 +113,7 @@ export const effectivePrincipalFromVerifiedOAuthClaims = (
             : { discordAccount: { accountId: claims.accountId } }),
         });
 
-  return Match.type<EffectivePrincipalType>().pipe(
-    Match.discriminatorsExhaustive("kind")({
-      user: () => principal,
-      service: (service) =>
-        gatewayIdentity !== undefined && service.oauthClientId === gatewayIdentity.oauthClientId
-          ? decodeEffectivePrincipal({ ...service, serviceId: gatewayIdentity.serviceId })
-          : service,
-    }),
-  )(principal);
+  return normalizeServicePrincipal(principal, gatewayIdentity);
 };
 
 export const ownerKeyForEffectivePrincipal = (principal: EffectivePrincipalType): string =>

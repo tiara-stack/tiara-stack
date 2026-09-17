@@ -36,6 +36,7 @@ export default app({
       ),
       "sheet-auth": fileURLToPath(new URL("../sheet-auth/src", import.meta.url)),
       "sheet-bot-api": fileURLToPath(new URL("../sheet-bot-api/src", import.meta.url)),
+      "typhoon-core/utils": fileURLToPath(new URL("../typhoon-core/src/utils", import.meta.url)),
     },
   },
   pack: {

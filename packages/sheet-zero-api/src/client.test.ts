@@ -90,4 +90,37 @@ describe("Sheet service client", () => {
       });
     }),
   );
+
+  it.effect("does not observe a reference from another contract or wire version", () =>
+    Effect.gen(function* () {
+      const stream = vi.fn(() => Stream.die("invalid references must not query Zero"));
+      const observer = yield* makeCheckinMessagesLoadZeroObserver({
+        run: () => Effect.die("query execution is not used"),
+        stream: stream as ZeroClient.ZeroClientExecutor<SheetZeroSchema, unknown>["stream"],
+        mutate: () => Effect.die("observation must not mutate"),
+      });
+      const invocationId = Schema.decodeUnknownSync(InvocationId)(
+        "123e4567-e89b-42d3-a456-426614174000",
+      );
+
+      const invalidContractObserved = yield* Stream.runCollect(
+        observer.get({
+          invocationId,
+          contractIdentity: "checkinMessages.save",
+          wireVersion: "v1",
+        }),
+      );
+      const invalidWireVersionObserved = yield* Stream.runCollect(
+        observer.get({
+          invocationId,
+          contractIdentity: CheckinMessagesLoad.identity,
+          wireVersion: "v2",
+        }),
+      );
+
+      expect(invalidContractObserved).toEqual([Option.none()]);
+      expect(invalidWireVersionObserved).toEqual([Option.none()]);
+      expect(stream).not.toHaveBeenCalled();
+    }),
+  );
 });

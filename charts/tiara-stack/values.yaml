@@ -95,6 +95,7 @@ services:
 
   sheetBot:
     enabled: true
+    gatewayServiceId: sheet-bot.gateway
     image:
       repository: ""
       tag: ""

@@ -1,8 +1,6 @@
-import { Zero } from "@rocicorp/zero";
 import {
   Cache,
   Context,
-  Data,
   Duration,
   Effect,
   Exit,
@@ -10,17 +8,23 @@ import {
   Match,
   Option,
   Predicate,
-  Queue,
-  Ref,
   Redacted,
-  Schedule,
   Schema,
   Stream,
 } from "effect";
-import { createOAuthClientCredentialsToken, getSheetAuthIdentity } from "sheet-auth/client";
+import {
+  createOAuthClientCredentialsToken,
+  getSheetAuthIdentity,
+  type OAuthClientCredentialsTokenError,
+  type OAuthSubjectTokenError,
+  type OAuthTokenExchangeError,
+  type SheetAuthIdentityError,
+} from "sheet-auth/client";
+import type { EffectivePrincipal as EffectivePrincipalType } from "sheet-auth/identity";
 import {
   effectivePrincipalFromLegacyIdentity,
   ownerKeyForEffectivePrincipal,
+  type ServicePrincipalGatewayIdentity,
 } from "sheet-auth/identity/server";
 import {
   makeCheckinMessagesLoadZeroObserver,
@@ -31,6 +35,7 @@ import {
   type Schema as SheetZeroSchema,
   type SheetClient,
   workflowObservationUnavailable,
+  workflowObservationUnauthorized,
 } from "sheet-zero-api";
 import {
   ConfigWorkspaceRow,
@@ -40,63 +45,20 @@ import {
   MessageSlotRow,
 } from "sheet-zero-api/rows";
 import { ZeroClient as BaseZeroClient } from "typhoon-zero/client";
+import { ScopedCache } from "typhoon-core/utils";
 import { config } from "@/config";
 import { SheetAuthClient } from "./sheetAuthClient";
 import { makeDiscordUserToken, workflowHttpAudience } from "./sheetWorkflowHttp";
+import {
+  makeResilientSheetZero,
+  SheetZeroAuthorizationFailure,
+  type SheetZeroAuthProvider,
+  type SheetZeroAuthToken,
+} from "./zeroObservation";
 
 const teamSubmissionFeatureFlag = "team-submission-confirmations";
 
-type SheetZeroConnectionState = Zero<
-  SheetZeroSchema,
-  undefined,
-  unknown
->["connection"]["state"]["current"];
-
-class SheetZeroConnectionError extends Data.TaggedError("SheetZeroConnectionError")<{
-  readonly state: SheetZeroConnectionState;
-}> {}
-
-interface SheetZeroAuthContext {
-  readonly currentTokenExpiresAtEpochSeconds: number | undefined;
-  readonly nowEpochSeconds: number;
-}
-
-const zeroApiServerStatus = (reason: string) => {
-  const prefix = "Fetch from API server returned non-OK status ";
-  if (!reason.startsWith(prefix)) {
-    return undefined;
-  }
-
-  const status = Number(reason.slice(prefix.length));
-  return Number.isInteger(status) ? status : undefined;
-};
-
-const isExpiredTokenRevalidation = (reason: string, context: SheetZeroAuthContext) =>
-  zeroApiServerStatus(reason) === 500 &&
-  context.currentTokenExpiresAtEpochSeconds !== undefined &&
-  context.currentTokenExpiresAtEpochSeconds <= context.nowEpochSeconds;
-
-export const shouldRefreshSheetZeroAuth = (
-  state: SheetZeroConnectionState,
-  context: SheetZeroAuthContext,
-) =>
-  Match.value(state).pipe(
-    Match.when({ name: "needs-auth" }, () => true),
-    Match.when({ name: "error" }, (current) => isExpiredTokenRevalidation(current.reason, context)),
-    Match.orElse(() => false),
-  );
-
-const isRecoverableSheetZeroError = (reason: string) => reason.includes("CONNECTION_CLOSED");
-
-export const shouldReconnectSheetZero = (state: SheetZeroConnectionState) =>
-  Match.value(state).pipe(
-    Match.when({ name: "needs-auth" }, () => true),
-    Match.when({ name: "error" }, ({ reason }) => isRecoverableSheetZeroError(reason)),
-    Match.orElse(() => false),
-  );
-
-const isSheetZeroConnectionError = (error: unknown): error is SheetZeroConnectionError =>
-  Predicate.isTagged("SheetZeroConnectionError")(error);
+export { shouldReconnectSheetZero, shouldRefreshSheetZeroAuth } from "./zeroObservation";
 
 // Keep authentication and reconnect behavior aligned with the other runtime Zero clients.
 // fallow-ignore-next-line code-duplication
@@ -105,7 +67,6 @@ const makeGetAuth = Effect.fn("SheetZeroClient.makeGetAuth")(function* () {
   const clientId = yield* config.sheetAuthOAuthClientId;
   const clientSecret = yield* config.sheetAuthOAuthClientSecret;
   const resource = yield* config.zeroOAuthAudience;
-  let currentTokenExpiresAtEpochSeconds: number | undefined;
   const cache = yield* Cache.makeWith(
     Effect.fn("SheetZeroClient.getOAuthToken")(() =>
       createOAuthClientCredentialsToken(sheetAuthClient, {
@@ -114,16 +75,14 @@ const makeGetAuth = Effect.fn("SheetZeroClient.makeGetAuth")(function* () {
         resource,
         scope: ["service"],
       }).pipe(
-        Effect.map((token) => {
-          currentTokenExpiresAtEpochSeconds = token.expiresAt;
-          return {
-            accessToken: token.accessToken,
-            timeToLive: Duration.max(
-              Duration.seconds(token.expiresAt - Math.floor(Date.now() / 1000) - 60),
-              Duration.zero,
-            ),
-          };
-        }),
+        Effect.map((token) => ({
+          accessToken: token.accessToken,
+          expiresAt: token.expiresAt,
+          timeToLive: Duration.max(
+            Duration.seconds(token.expiresAt - Math.floor(Date.now() / 1000) - 60),
+            Duration.zero,
+          ),
+        })),
       ),
     ),
     {
@@ -135,263 +94,462 @@ const makeGetAuth = Effect.fn("SheetZeroClient.makeGetAuth")(function* () {
     },
   );
 
-  const readAccessToken = (token: { readonly accessToken: Redacted.Redacted<string> }) =>
-    Redacted.value(token.accessToken);
-
   return {
     getAuth: Effect.fn("SheetZeroClient.getAuth")(function* () {
-      return readAccessToken(yield* Cache.get(cache, resource));
+      const token = yield* Cache.get(cache, resource);
+      return {
+        accessToken: Redacted.value(token.accessToken),
+        expiresAtEpochSeconds: token.expiresAt,
+      } satisfies SheetZeroAuthToken;
     }),
     refreshAuth: Effect.fn("SheetZeroClient.refreshAuth")(function* () {
-      return readAccessToken(yield* Cache.refresh(cache, resource));
-    }),
-    currentAuthContext: (): SheetZeroAuthContext => ({
-      currentTokenExpiresAtEpochSeconds,
-      nowEpochSeconds: Math.floor(Date.now() / 1000),
+      const token = yield* Cache.refresh(cache, resource);
+      return {
+        accessToken: Redacted.value(token.accessToken),
+        expiresAtEpochSeconds: token.expiresAt,
+      } satisfies SheetZeroAuthToken;
     }),
   };
 });
 
-type AuthenticationRequest = "get-auth" | "refresh-auth";
-
-const authenticationSchedule = Schedule.exponential(Duration.millis(250)).pipe(
-  Schedule.modifyDelay((_output, delay) =>
-    Effect.succeed(Duration.min(delay, Duration.seconds(30))),
-  ),
-);
-
-// Keep authentication and reconnect behavior aligned with the other runtime Zero clients.
-// fallow-ignore-next-line code-duplication
 const makeSheetZero = Effect.fn("SheetZeroClient.makeZero")(function* () {
-  const { currentAuthContext, getAuth, refreshAuth } = yield* makeGetAuth();
+  const { getAuth, refreshAuth } = yield* makeGetAuth();
   const server = yield* config.zeroCacheServer;
   const userID = yield* config.zeroCacheUserId;
-
-  const requiresFreshAuthentication = (error: unknown) =>
-    isSheetZeroConnectionError(error) &&
-    shouldRefreshSheetZeroAuth(error.state, currentAuthContext());
-
-  const authenticate = (request: AuthenticationRequest) =>
-    Match.value(request).pipe(
-      Match.when("get-auth", () => getAuth()),
-      Match.when("refresh-auth", () => refreshAuth()),
-      Match.exhaustive,
-      Effect.timeout(Duration.seconds(30)),
-      Effect.tapError((error) =>
-        Effect.logWarning("Failed to authenticate the sheet-bot Zero client; retrying").pipe(
-          Effect.annotateLogs({ error, request }),
-        ),
-      ),
-      Effect.retry({ schedule: authenticationSchedule }),
-    );
-
-  const initialAuth = yield* authenticate("get-auth");
-  const zero = new Zero({ server, userID, schema, mutators, auth: initialAuth });
-  yield* Effect.addFinalizer(() => Effect.sync(() => zero.close()));
-
-  const reconnectRequests = yield* Queue.sliding<void>(1);
-  const reconnectState = yield* Ref.make({
-    refreshAuth: false,
-    reconnectPending: false,
-    reconnectActive: false,
-    wakeUpPending: false,
+  const connection = yield* makeResilientSheetZero({
+    cacheURL: server,
+    userID,
+    schema,
+    mutators,
+    auth: { get: getAuth, refresh: refreshAuth } satisfies SheetZeroAuthProvider,
   });
-  const beginReconnect = Ref.modify(
-    reconnectState,
-    (current) =>
-      [
-        { refreshAuth: current.refreshAuth },
-        {
-          refreshAuth: false,
-          reconnectActive: true,
-          reconnectPending: false,
-          wakeUpPending: true,
-        },
-      ] as const,
-  );
-  const finishReconnect = Ref.modify(reconnectState, (current) => [
-    { shouldWakeWorker: current.reconnectPending },
-    {
-      refreshAuth: current.reconnectPending ? current.refreshAuth : false,
-      reconnectActive: false,
-      reconnectPending: false,
-      wakeUpPending: current.reconnectPending,
-    },
-  ]);
-  const markReconnectSucceeded = Ref.update(reconnectState, (current) => ({
-    ...current,
-    reconnectActive: false,
-  }));
-  const reconnect = (auth: string) =>
-    Effect.tryPromise(() => zero.connection.connect({ auth })).pipe(
-      Effect.timeout(Duration.seconds(30)),
-      Effect.flatMap(() =>
-        Match.value(zero.connection.state.current).pipe(
-          Match.when({ name: "connected" }, () => Effect.void),
-          Match.orElse((state) => Effect.fail(new SheetZeroConnectionError({ state }))),
-        ),
+  yield* connection.permanentAuthorizationFailure.pipe(
+    Stream.runDrain,
+    Effect.tapError((error) =>
+      Effect.logError("Sheet-bot Zero authorization became permanently invalid").pipe(
+        Effect.annotateLogs({ error }),
       ),
-      Effect.tapError((error) =>
-        Effect.logWarning("Failed to reauthenticate the sheet-bot Zero client; retrying").pipe(
-          Effect.annotateLogs({ error }),
-        ),
-      ),
-      Effect.retry({
-        schedule: authenticationSchedule,
-        while: (error) => !requiresFreshAuthentication(error),
-      }),
-    );
-  const reconnectAfterRequest = (refreshAuth: boolean): Effect.Effect<void, unknown> => {
-    let shouldRefreshAuth = refreshAuth;
-
-    return Effect.suspend(() => authenticate(shouldRefreshAuth ? "refresh-auth" : "get-auth")).pipe(
-      Effect.flatMap(reconnect),
-      Effect.tapError((error) =>
-        requiresFreshAuthentication(error)
-          ? Effect.sync(() => {
-              shouldRefreshAuth = true;
-            })
-          : Effect.void,
-      ),
-      Effect.retry({
-        schedule: authenticationSchedule,
-        while: requiresFreshAuthentication,
-      }),
-    );
-  };
-
-  yield* Effect.forkScoped(
-    Queue.take(reconnectRequests).pipe(
-      Effect.flatMap(() => beginReconnect),
-      Effect.flatMap(({ refreshAuth }) =>
-        reconnectAfterRequest(refreshAuth).pipe(
-          Effect.tap(() => markReconnectSucceeded),
-          Effect.ensuring(
-            finishReconnect.pipe(
-              Effect.tap(({ shouldWakeWorker }) =>
-                shouldWakeWorker
-                  ? Effect.sync(() => Queue.offerUnsafe(reconnectRequests, undefined))
-                  : Effect.void,
-              ),
-            ),
-          ),
-        ),
-      ),
-      Effect.ignore({
-        log: "Warn",
-        message: "Sheet-bot Zero reconnect request failed after retries",
-      }),
-      Effect.forever,
     ),
+    Effect.forkScoped,
   );
-
-  yield* Effect.acquireRelease(
-    Effect.sync(() =>
-      zero.connection.state.subscribe((state) => {
-        const refreshAuth = shouldRefreshSheetZeroAuth(state, currentAuthContext());
-        if (!refreshAuth && !shouldReconnectSheetZero(state)) return;
-
-        const shouldWakeWorker = Effect.runSync(
-          Ref.modify(reconnectState, (current) => {
-            const shouldWake = !current.wakeUpPending;
-            return [
-              shouldWake,
-              {
-                refreshAuth: current.refreshAuth || refreshAuth,
-                reconnectActive: current.reconnectActive,
-                reconnectPending:
-                  current.reconnectPending || !current.reconnectActive || refreshAuth,
-                wakeUpPending: current.wakeUpPending || shouldWake,
-              },
-            ];
-          }),
-        );
-        if (shouldWakeWorker) Queue.offerUnsafe(reconnectRequests, undefined);
-      }),
-    ),
-    (unsubscribe) => Effect.sync(unsubscribe),
-  );
-
-  return zero;
+  return connection.zero;
 });
 
 type CheckinMessagesLoadReference = Parameters<CheckinMessagesLoadZeroObserver["get"]>[0];
 type CheckinMessagesLoadObservation = ReturnType<CheckinMessagesLoadZeroObserver["get"]>;
 
-const makeOwnerObservationZero = Effect.fn("SheetZeroClient.makeOwnerObservationZero")(function* (
-  sheetAuthClient: typeof SheetAuthClient.Service,
-  discordUserId: string,
-) {
-  const clientId = yield* config.sheetAuthOAuthClientId;
-  const clientSecret = yield* config.sheetAuthOAuthClientSecret;
-  const subjectTokenKubernetesTokenPath = yield* config.sheetAuthSubjectTokenKubernetesTokenPath;
-  const audience = yield* config.zeroOAuthAudience;
-  const actorToken = yield* createOAuthClientCredentialsToken(sheetAuthClient, {
-    clientId,
-    clientSecret,
-    resource: workflowHttpAudience,
-    scope: ["service", "token.exchange", "workflow.observe"],
-  });
-  const userToken = yield* makeDiscordUserToken({
-    accessToken: actorToken.accessToken,
-    audience,
-    discordUserId,
-    kubernetesServiceAccountTokenPath: subjectTokenKubernetesTokenPath,
-    sheetAuthClient,
-    scope: ["workflow.observe"],
-  });
-  const identity = yield* getSheetAuthIdentity(sheetAuthClient, {
-    Authorization: `Bearer ${Redacted.value(userToken.accessToken)}`,
-  });
-  if (identity.accountId !== discordUserId) {
-    return yield* Effect.fail(
-      new Error("Zero observation identity does not match the interaction"),
-    );
-  }
+const SheetZeroObservationPrincipal = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("user"), discordUserId: Schema.NonEmptyString }),
+  Schema.Struct({ kind: Schema.Literal("service"), serviceId: Schema.NonEmptyString }),
+]);
+type SheetZeroObservationPrincipal = typeof SheetZeroObservationPrincipal.Type;
+type SheetZeroObservationPrincipalInput = string | SheetZeroObservationPrincipal;
 
-  const server = yield* config.zeroCacheServer;
-  return new Zero<SheetZeroSchema, undefined, { readonly ownerKey: string }>({
-    cacheURL: server,
-    userID: identity.userId,
-    storageKey: `sheet-bot:workflow-observation:${audience}:${identity.userId}`,
-    schema,
-    auth: Redacted.value(userToken.accessToken),
-    context: {
-      ownerKey: ownerKeyForEffectivePrincipal(effectivePrincipalFromLegacyIdentity(identity)),
-    },
-  });
+const canonicalObservationPrincipal = (principal: SheetZeroObservationPrincipal) =>
+  Match.type<SheetZeroObservationPrincipal>().pipe(
+    Match.discriminatorsExhaustive("kind")({
+      user: ({ discordUserId }) => ({ kind: "user" as const, discordUserId }),
+      service: ({ serviceId }) => ({ kind: "service" as const, serviceId }),
+    }),
+  )(principal);
+
+const ObservationCacheKey = Schema.Struct({
+  principal: SheetZeroObservationPrincipal,
+  server: Schema.NonEmptyString,
+  audience: Schema.NonEmptyString,
 });
 
-const makeOwnerObservationClient = (
-  sheetAuthClient: typeof SheetAuthClient.Service,
-  discordUserId: string,
+export const makeSheetZeroObservationCacheKey = (
+  principal: SheetZeroObservationPrincipal,
+  server: string,
+  audience: string,
 ) =>
-  Effect.gen(function* () {
-    const zero = yield* Effect.acquireRelease(
-      makeOwnerObservationZero(sheetAuthClient, discordUserId),
-      (client) => Effect.promise(() => client.close()).pipe(Effect.ignore),
-    );
-    const executor = yield* BaseZeroClient.ZeroClient<
-      SheetZeroSchema,
-      undefined,
-      { readonly ownerKey: string }
-    >().make(zero);
-    return yield* makeCheckinMessagesLoadZeroObserver(executor);
+  JSON.stringify({
+    principal: canonicalObservationPrincipal(principal),
+    server,
+    audience,
   });
 
-const observeCheckinMessagesLoad = (
-  sheetAuthClient: typeof SheetAuthClient.Service,
-  discordUserId: string,
-  reference: CheckinMessagesLoadReference,
-): CheckinMessagesLoadObservation =>
-  Stream.scoped(
-    Stream.unwrap(
-      makeOwnerObservationClient(sheetAuthClient, discordUserId).pipe(
-        Effect.map((observer) => observer.get(reference)),
-        Effect.mapError(workflowObservationUnavailable),
-      ),
+export const makeSheetZeroObservationStorageKey = (
+  ownerKey: string,
+  server: string,
+  audience: string,
+) =>
+  `sheet-bot:workflow-observation:${encodeURIComponent(JSON.stringify([ownerKey, server, audience]))}`;
+
+interface ObservationAuthState {
+  readonly token: SheetZeroAuthToken;
+  readonly principal: EffectivePrincipalType;
+  readonly userID: string;
+  readonly ownerKey: string;
+}
+
+interface ObservationAuth extends SheetZeroAuthProvider {
+  readonly principal: EffectivePrincipalType;
+  readonly userID: string;
+  readonly ownerKey: string;
+}
+
+const makeIdentityPreservingObservationAuth = (
+  issue: () => Effect.Effect<ObservationAuthState, unknown>,
+): Effect.Effect<ObservationAuth, unknown> =>
+  Effect.gen(function* () {
+    const issueWithAuthorizationErrors = () =>
+      issue().pipe(Effect.mapError(toObservationAuthError));
+    const initial = yield* issueWithAuthorizationErrors();
+    let currentToken = initial.token;
+    const validateRefresh = (next: ObservationAuthState) =>
+      next.userID === initial.userID && next.ownerKey === initial.ownerKey
+        ? Effect.succeed(next.token)
+        : Effect.fail(
+            new SheetZeroAuthorizationFailure({
+              message: "Zero observation authentication changed principals",
+            }),
+          );
+
+    return {
+      principal: initial.principal,
+      userID: initial.userID,
+      ownerKey: initial.ownerKey,
+      get: () => Effect.succeed(currentToken),
+      refresh: () =>
+        Effect.suspend(issueWithAuthorizationErrors).pipe(
+          Effect.flatMap(validateRefresh),
+          Effect.tap((token) =>
+            Effect.sync(() => {
+              currentToken = token;
+            }),
+          ),
+        ),
+    };
+  });
+
+const isSheetAuthAuthorizationError = (
+  error: unknown,
+): error is
+  | OAuthClientCredentialsTokenError
+  | OAuthSubjectTokenError
+  | OAuthTokenExchangeError
+  | SheetAuthIdentityError =>
+  Predicate.isTagged("OAuthClientCredentialsTokenError")(error) ||
+  Predicate.isTagged("OAuthSubjectTokenError")(error) ||
+  Predicate.isTagged("OAuthTokenExchangeError")(error) ||
+  Predicate.isTagged("SheetAuthIdentityError")(error);
+
+const authorizationStatusText = new Set([
+  "BAD_REQUEST",
+  "UNAUTHORIZED",
+  "FORBIDDEN",
+  "INVALID_GRANT",
+  "INVALID_REQUEST",
+  "INVALID_SCOPE",
+  "INVALID_TARGET",
+  "INSUFFICIENT_SCOPE",
+  "ACCESS_DENIED",
+]);
+const authorizationCode = new Set([
+  "invalid_grant",
+  "invalid_request",
+  "invalid_scope",
+  "invalid_target",
+  "insufficient_scope",
+  "access_denied",
+]);
+const authorizationStatus = new Set([400, 401, 403]);
+
+const isPermanentSheetAuthRejection = (
+  error:
+    | OAuthClientCredentialsTokenError
+    | OAuthSubjectTokenError
+    | OAuthTokenExchangeError
+    | SheetAuthIdentityError,
+) => {
+  const statusText = error.statusText.trim().toUpperCase();
+  const code = error.code?.trim().toLowerCase();
+  return (
+    (error.status !== undefined && authorizationStatus.has(error.status)) ||
+    authorizationStatusText.has(statusText) ||
+    (code !== undefined && authorizationCode.has(code))
+  );
+};
+
+const observationAuthFailure = (
+  error:
+    | OAuthClientCredentialsTokenError
+    | OAuthSubjectTokenError
+    | OAuthTokenExchangeError
+    | SheetAuthIdentityError,
+) => {
+  const details = [error.status, error.statusText, error.code, error.message]
+    .filter(
+      (value): value is string | number => Predicate.isString(value) || Predicate.isNumber(value),
+    )
+    .join(": ");
+  return new SheetZeroAuthorizationFailure({
+    message: `Zero observation authorization was rejected${details.length === 0 ? "" : `: ${details}`}`,
+  });
+};
+
+const toObservationAuthError = (error: unknown) => {
+  if (Predicate.isTagged("SheetZeroAuthorizationFailure")(error)) return error;
+  if (!isSheetAuthAuthorizationError(error)) return error;
+  return isPermanentSheetAuthRejection(error) ? observationAuthFailure(error) : error;
+};
+
+const makeUserObservationAuth = (options: {
+  readonly sheetAuthClient: typeof SheetAuthClient.Service;
+  readonly clientId: string;
+  readonly clientSecret: Redacted.Redacted<string>;
+  readonly subjectTokenKubernetesTokenPath: string;
+  readonly audience: string;
+  readonly discordUserId: string;
+}): Effect.Effect<ObservationAuth, unknown> => {
+  const issue = () =>
+    Effect.gen(function* () {
+      const actorToken = yield* createOAuthClientCredentialsToken(options.sheetAuthClient, {
+        clientId: options.clientId,
+        clientSecret: options.clientSecret,
+        resource: workflowHttpAudience,
+        scope: ["service", "token.exchange", "workflow.observe"],
+      });
+      const userToken = yield* makeDiscordUserToken({
+        accessToken: actorToken.accessToken,
+        audience: options.audience,
+        discordUserId: options.discordUserId,
+        kubernetesServiceAccountTokenPath: options.subjectTokenKubernetesTokenPath,
+        sheetAuthClient: options.sheetAuthClient,
+        scope: ["workflow.observe"],
+      });
+      const identity = yield* getSheetAuthIdentity(options.sheetAuthClient, {
+        Authorization: `Bearer ${Redacted.value(userToken.accessToken)}`,
+      });
+      if (
+        identity.permissions.includes("service") ||
+        identity.accountId !== options.discordUserId ||
+        !identity.scopes.includes("workflow.observe")
+      ) {
+        return yield* Effect.fail(
+          new SheetZeroAuthorizationFailure({
+            message: "Zero observation authentication does not match the user principal",
+          }),
+        );
+      }
+
+      const principal = yield* Effect.try({
+        try: () => effectivePrincipalFromLegacyIdentity(identity),
+        catch: () =>
+          new SheetZeroAuthorizationFailure({
+            message: "Zero observation user identity is invalid",
+          }),
+      });
+      if (
+        principal.kind !== "user" ||
+        principal.discordAccount?.accountId !== options.discordUserId
+      ) {
+        return yield* Effect.fail(
+          new SheetZeroAuthorizationFailure({
+            message: "Zero observation authentication does not match the user principal",
+          }),
+        );
+      }
+
+      return {
+        token: {
+          accessToken: Redacted.value(userToken.accessToken),
+          expiresAtEpochSeconds: userToken.expiresAt,
+        },
+        principal,
+        userID: options.discordUserId,
+        ownerKey: ownerKeyForEffectivePrincipal(principal),
+      } satisfies ObservationAuthState;
+    });
+
+  return makeIdentityPreservingObservationAuth(issue);
+};
+
+const makeServiceObservationAuth = (options: {
+  readonly sheetAuthClient: typeof SheetAuthClient.Service;
+  readonly clientId: string;
+  readonly clientSecret: Redacted.Redacted<string>;
+  readonly audience: string;
+  readonly serviceId: string;
+}): Effect.Effect<ObservationAuth, unknown> => {
+  const gatewayIdentity: ServicePrincipalGatewayIdentity = {
+    serviceId: options.serviceId,
+    oauthClientId: options.clientId,
+  };
+  const issue = () =>
+    Effect.gen(function* () {
+      const serviceToken = yield* createOAuthClientCredentialsToken(options.sheetAuthClient, {
+        clientId: options.clientId,
+        clientSecret: options.clientSecret,
+        resource: options.audience,
+        scope: ["service", "workflow.observe"],
+      });
+      const identity = yield* getSheetAuthIdentity(options.sheetAuthClient, {
+        Authorization: `Bearer ${Redacted.value(serviceToken.accessToken)}`,
+      });
+      if (
+        !identity.permissions.includes("service") ||
+        identity.clientId !== options.clientId ||
+        !identity.scopes.includes("workflow.observe")
+      ) {
+        return yield* Effect.fail(
+          new SheetZeroAuthorizationFailure({
+            message: "Zero observation authentication does not match the service principal",
+          }),
+        );
+      }
+
+      const principal = yield* Effect.try({
+        try: () => effectivePrincipalFromLegacyIdentity(identity, gatewayIdentity),
+        catch: () =>
+          new SheetZeroAuthorizationFailure({
+            message: "Zero observation service identity is invalid",
+          }),
+      });
+      if (principal.kind !== "service" || principal.serviceId !== options.serviceId) {
+        return yield* Effect.fail(
+          new SheetZeroAuthorizationFailure({
+            message: "Zero observation authentication does not match the service principal",
+          }),
+        );
+      }
+
+      return {
+        token: {
+          accessToken: Redacted.value(serviceToken.accessToken),
+          expiresAtEpochSeconds: serviceToken.expiresAt,
+        },
+        principal,
+        userID: principal.serviceId,
+        ownerKey: ownerKeyForEffectivePrincipal(principal),
+      } satisfies ObservationAuthState;
+    });
+
+  return makeIdentityPreservingObservationAuth(issue);
+};
+
+interface ObservationConnection {
+  readonly observer: CheckinMessagesLoadZeroObserver;
+  readonly permanentAuthorizationFailure: Stream.Stream<never, unknown>;
+}
+
+type ObservationConnectionCache = ScopedCache.ScopedCache<
+  string,
+  ObservationConnection,
+  unknown,
+  never
+>;
+
+const makeObservationConnectionCache = (options: {
+  readonly sheetAuthClient: typeof SheetAuthClient.Service;
+  readonly clientId: string;
+  readonly clientSecret: Redacted.Redacted<string>;
+  readonly subjectTokenKubernetesTokenPath: string;
+  readonly gatewayServiceId: string;
+}) =>
+  ScopedCache.make<string, ObservationConnection, unknown, never>({
+    lookup: (key) =>
+      Effect.gen(function* () {
+        const lookupKey = yield* Effect.try({
+          try: () => Schema.decodeUnknownSync(ObservationCacheKey)(JSON.parse(key)),
+          catch: () => new Error("Invalid Zero observation cache key"),
+        });
+        const auth = yield* Match.value(lookupKey.principal).pipe(
+          Match.when({ kind: "user" }, ({ discordUserId }) =>
+            makeUserObservationAuth({
+              sheetAuthClient: options.sheetAuthClient,
+              clientId: options.clientId,
+              clientSecret: options.clientSecret,
+              subjectTokenKubernetesTokenPath: options.subjectTokenKubernetesTokenPath,
+              audience: lookupKey.audience,
+              discordUserId,
+            }),
+          ),
+          Match.when({ kind: "service" }, ({ serviceId }) =>
+            serviceId !== options.gatewayServiceId
+              ? Effect.fail(
+                  new SheetZeroAuthorizationFailure({
+                    message: "Zero observation service principal is not supported by this client",
+                  }),
+                )
+              : makeServiceObservationAuth({
+                  sheetAuthClient: options.sheetAuthClient,
+                  clientId: options.clientId,
+                  clientSecret: options.clientSecret,
+                  audience: lookupKey.audience,
+                  serviceId,
+                }),
+          ),
+          Match.exhaustive,
+        );
+        const resilient = yield* makeResilientSheetZero({
+          cacheURL: lookupKey.server,
+          userID: auth.userID,
+          storageKey: makeSheetZeroObservationStorageKey(
+            auth.ownerKey,
+            lookupKey.server,
+            lookupKey.audience,
+          ),
+          schema,
+          context: { ownerKey: auth.ownerKey },
+          auth,
+        });
+        const executor = yield* BaseZeroClient.ZeroClient<
+          SheetZeroSchema,
+          undefined,
+          { readonly ownerKey: string }
+        >().make(resilient.zero);
+        return {
+          observer: yield* makeCheckinMessagesLoadZeroObserver(executor),
+          permanentAuthorizationFailure: resilient.permanentAuthorizationFailure,
+        };
+      }),
+  });
+
+const observationPrincipalFromInput = (input: SheetZeroObservationPrincipalInput) =>
+  Schema.decodeUnknownOption(SheetZeroObservationPrincipal)(
+    Match.value(input).pipe(
+      Match.when(Predicate.isString, (discordUserId) => ({ kind: "user", discordUserId })),
+      Match.orElse((principal) => principal),
     ),
   );
+
+const observationError = (error: unknown) =>
+  Predicate.isTagged("SheetZeroAuthorizationFailure")(error)
+    ? workflowObservationUnauthorized()
+    : workflowObservationUnavailable();
+
+const observeCheckinMessagesLoad = (
+  observationConnections: ObservationConnectionCache,
+  server: string,
+  audience: string,
+  principalInput: SheetZeroObservationPrincipalInput,
+  reference: CheckinMessagesLoadReference,
+): CheckinMessagesLoadObservation =>
+  Option.match(observationPrincipalFromInput(principalInput), {
+    onNone: () => Stream.fail(workflowObservationUnavailable()),
+    onSome: (principal) =>
+      Stream.scoped(
+        Stream.unwrap(
+          observationConnections
+            .get(makeSheetZeroObservationCacheKey(principal, server, audience))
+            .pipe(
+              Effect.map(({ observer, permanentAuthorizationFailure }) =>
+                Stream.merge(
+                  observer.get(reference).pipe(Stream.mapError(observationError)),
+                  permanentAuthorizationFailure.pipe(
+                    Stream.mapError(() => workflowObservationUnauthorized()),
+                  ),
+                  { haltStrategy: "left" },
+                ),
+              ),
+              Effect.mapError(observationError),
+            ),
+        ),
+      ),
+  });
 
 class SheetZeroExecutor extends BaseZeroClient.ZeroClient<SheetZeroSchema, undefined, unknown>() {
   static readonly layer = Layer.effect(
@@ -490,7 +648,10 @@ const getSlotButtonByConversation = Effect.fn("SheetZeroClient.getSlotButtonByCo
 
 interface SheetZeroClientShape {
   readonly observeCheckinMessagesLoad: (
-    discordUserId: string,
+    principal: SheetZeroObservationPrincipalInput,
+    reference: CheckinMessagesLoadReference,
+  ) => CheckinMessagesLoadObservation;
+  readonly observeServiceCheckinMessagesLoad: (
     reference: CheckinMessagesLoadReference,
   ) => CheckinMessagesLoadObservation;
   readonly isTeamSubmissionEnabled: (
@@ -519,9 +680,38 @@ export class SheetZeroClient extends Context.Service<SheetZeroClient, SheetZeroC
       const executor = yield* SheetZeroExecutor;
       const client = yield* makeSheetClient(executor);
       const clientId = yield* config.sheetBotClientId;
+      const observationConfig = yield* Effect.all({
+        server: config.zeroCacheServer,
+        audience: config.zeroOAuthAudience,
+        authClientId: config.sheetAuthOAuthClientId,
+        authClientSecret: config.sheetAuthOAuthClientSecret,
+        subjectTokenKubernetesTokenPath: config.sheetAuthSubjectTokenKubernetesTokenPath,
+        gatewayServiceId: config.sheetBotGatewayServiceId,
+      });
+      const observationConnections = yield* makeObservationConnectionCache({
+        sheetAuthClient,
+        clientId: observationConfig.authClientId,
+        clientSecret: observationConfig.authClientSecret,
+        subjectTokenKubernetesTokenPath: observationConfig.subjectTokenKubernetesTokenPath,
+        gatewayServiceId: observationConfig.gatewayServiceId,
+      });
       return {
-        observeCheckinMessagesLoad: (discordUserId, reference) =>
-          observeCheckinMessagesLoad(sheetAuthClient, discordUserId, reference),
+        observeCheckinMessagesLoad: (principal, reference) =>
+          observeCheckinMessagesLoad(
+            observationConnections,
+            observationConfig.server,
+            observationConfig.audience,
+            principal,
+            reference,
+          ),
+        observeServiceCheckinMessagesLoad: (reference) =>
+          observeCheckinMessagesLoad(
+            observationConnections,
+            observationConfig.server,
+            observationConfig.audience,
+            { kind: "service", serviceId: observationConfig.gatewayServiceId },
+            reference,
+          ),
         isTeamSubmissionEnabled: (workspaceId, conversationId) =>
           isTeamSubmissionEnabled(client, workspaceId, conversationId),
         getSheetConfiguration: (workspaceId) => getSheetConfiguration(client, workspaceId),

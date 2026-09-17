@@ -37,6 +37,26 @@ describe("Zero OAuth context", () => {
     }),
   );
 
+  it.effect("does not let actor claims replace the effective observation owner", () =>
+    Effect.gen(function* () {
+      const context = yield* zeroContextFromToken(
+        ["workflow:checkinMessages%2Eload:v:1.get"],
+        token({
+          accountId: "discord-account-1",
+          actorClientId: "other-service",
+          actorSub: "other-service",
+          scopes: new Set(["workflow.observe"]),
+          sub: "auth-user-1",
+        }),
+      );
+
+      expect(context).toMatchObject({
+        visibilityKey: "account:discord-account-1",
+        ownerKey: "user:auth-user-1",
+      });
+    }),
+  );
+
   it.effect("keeps a service principal observation owner separate from user runs", () =>
     Effect.gen(function* () {
       const context = yield* zeroContextFromToken(

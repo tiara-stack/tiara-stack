@@ -63,6 +63,8 @@ export class SheetAuthIdentityError extends Schema.TaggedErrorClass<SheetAuthIde
 )("SheetAuthIdentityError", {
   statusText: Schema.String,
   message: Schema.String,
+  status: Schema.optional(Schema.Number),
+  code: Schema.optional(Schema.String),
   cause: Schema.optional(Schema.Unknown),
 }) {}
 
@@ -71,6 +73,8 @@ export class OAuthClientCredentialsTokenError extends Schema.TaggedErrorClass<OA
 )("OAuthClientCredentialsTokenError", {
   statusText: Schema.String,
   message: Schema.String,
+  status: Schema.optional(Schema.Number),
+  code: Schema.optional(Schema.String),
   cause: Schema.optional(Schema.Unknown),
 }) {}
 
@@ -79,6 +83,8 @@ export class OAuthTokenExchangeError extends Schema.TaggedErrorClass<OAuthTokenE
 )("OAuthTokenExchangeError", {
   statusText: Schema.String,
   message: Schema.String,
+  status: Schema.optional(Schema.Number),
+  code: Schema.optional(Schema.String),
   cause: Schema.optional(Schema.Unknown),
 }) {}
 
@@ -87,6 +93,8 @@ export class OAuthSubjectTokenError extends Schema.TaggedErrorClass<OAuthSubject
 )("OAuthSubjectTokenError", {
   statusText: Schema.String,
   message: Schema.String,
+  status: Schema.optional(Schema.Number),
+  code: Schema.optional(Schema.String),
   cause: Schema.optional(Schema.Unknown),
 }) {}
 
@@ -104,6 +112,8 @@ export class OAuthClientManagementError extends Schema.TaggedErrorClass<OAuthCli
 
 type BetterAuthClientError = {
   readonly statusText: string;
+  readonly status?: number | undefined;
+  readonly code?: string | undefined;
   readonly message?: string | undefined;
 };
 
@@ -449,24 +459,41 @@ const makeOAuthClientCredentialsTokenError = (
   statusText: string,
   message: string,
   cause: unknown,
+  error?: BetterAuthClientError | null,
 ) =>
   new OAuthClientCredentialsTokenError({
     statusText,
     message,
+    ...(error?.status === undefined ? {} : { status: error.status }),
+    ...(error?.code === undefined ? {} : { code: error.code }),
     cause,
   });
 
-const makeOAuthTokenExchangeError = (statusText: string, message: string, cause: unknown) =>
+const makeOAuthTokenExchangeError = (
+  statusText: string,
+  message: string,
+  cause: unknown,
+  error?: BetterAuthClientError | null,
+) =>
   new OAuthTokenExchangeError({
     statusText,
     message,
+    ...(error?.status === undefined ? {} : { status: error.status }),
+    ...(error?.code === undefined ? {} : { code: error.code }),
     cause,
   });
 
-const makeOAuthSubjectTokenError = (statusText: string, message: string, cause: unknown) =>
+const makeOAuthSubjectTokenError = (
+  statusText: string,
+  message: string,
+  cause: unknown,
+  error?: BetterAuthClientError | null,
+) =>
   new OAuthSubjectTokenError({
     statusText,
     message,
+    ...(error?.status === undefined ? {} : { status: error.status }),
+    ...(error?.code === undefined ? {} : { code: error.code }),
     cause,
   });
 
@@ -795,6 +822,7 @@ export function getSheetAuthIdentity(
   client: SheetAuthClient,
   headers?: Headers | HeadersInit,
 ): Effect.Effect<SheetAuthResolvedIdentity, SheetAuthIdentityError> {
+  // fallow-ignore-next-line complexity
   return Effect.gen(function* () {
     const response = yield* Effect.tryPromise({
       try: async () =>
@@ -817,6 +845,8 @@ export function getSheetAuthIdentity(
         message: `${response.error?.statusText ?? "GET_SHEET_AUTH_IDENTITY_FAILED"}: ${
           response.error?.message || "Failed to resolve sheet-auth identity"
         }`,
+        ...(response.error?.status === undefined ? {} : { status: response.error.status }),
+        ...(response.error?.code === undefined ? {} : { code: response.error.code }),
         cause: response.error,
       });
     }
@@ -854,6 +884,7 @@ export function createOAuthClientCredentialsToken(
           response.error?.message || "Failed to create OAuth client credentials token"
         }`,
         response.error,
+        response.error,
       );
     }
 
@@ -888,6 +919,7 @@ export function exchangeOAuthToken(
         `${response.error?.statusText ?? "EXCHANGE_OAUTH_TOKEN_FAILED"}: ${
           response.error?.message || "Failed to exchange OAuth token"
         }`,
+        response.error,
         response.error,
       );
     }
@@ -935,6 +967,7 @@ export function createOAuthSubjectToken(
         `${response.error?.statusText ?? "CREATE_OAUTH_SUBJECT_TOKEN_FAILED"}: ${
           response.error?.message || "Failed to create OAuth subject token"
         }`,
+        response.error,
         response.error,
       );
     }

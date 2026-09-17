@@ -5,6 +5,7 @@ import {
   Function,
   MutableHashMap,
   MutableRef,
+  Match,
   Option,
   Scope,
   Types,
@@ -125,12 +126,42 @@ class ScopedCacheImpl<Key, Value, Error, Environment> implements ScopedCache<
           Effect.sync(() => MutableHashMap.set(this.cache, key, deferred)),
           Effect.tap(() =>
             Effect.uninterruptibleMask((restore) =>
-              Effect.flatMap(Effect.exit(restore(this.computeEntry(key))), (exit) =>
-                Deferred.done(deferred, exit),
-              ),
+              Effect.flatMap(Effect.exit(restore(this.computeEntry(key))), (exit) => {
+                const removeCachedDeferred = Effect.sync(() => {
+                  const current = MutableHashMap.get(this.cache, key);
+                  if (Option.isSome(current) && current.value === deferred) {
+                    MutableHashMap.remove(this.cache, key);
+                  }
+                });
+                const failedEntry = Match.value(exit).pipe(
+                  Match.when({ _tag: "Success" }, ({ value }) =>
+                    Match.value(value.exit).pipe(
+                      Match.when({ _tag: "Failure" }, () => Option.some(value)),
+                      Match.orElse(() => Option.none<CachedEntry<Key, Value, Error>>()),
+                    ),
+                  ),
+                  Match.orElse(() => Option.none<CachedEntry<Key, Value, Error>>()),
+                );
+                return Option.match(failedEntry, {
+                  onNone: () =>
+                    Match.value(exit).pipe(
+                      Match.when({ _tag: "Failure" }, () => removeCachedDeferred),
+                      Match.orElse(() => Effect.void),
+                    ),
+                  onSome: (entry) =>
+                    Effect.exit(entry.finalizer()).pipe(Effect.andThen(removeCachedDeferred)),
+                }).pipe(Effect.andThen(Deferred.done(deferred, exit)));
+              }),
             ),
           ),
-          Effect.onInterrupt(() => Effect.sync(() => MutableHashMap.remove(this.cache, key))),
+          Effect.onInterrupt(() =>
+            Effect.sync(() => {
+              const current = MutableHashMap.get(this.cache, key);
+              if (Option.isSome(current) && current.value === deferred) {
+                MutableHashMap.remove(this.cache, key);
+              }
+            }),
+          ),
         ),
       ),
     );

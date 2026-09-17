@@ -686,6 +686,9 @@
         "nameOverride": {
           "type": "string"
         },
+        "gatewayServiceId": {
+          "type": "string"
+        },
         "image": {
           "$ref": "#/definitions/image"
         },

@@ -41,6 +41,42 @@ describe("identity compatibility adapters", () => {
     });
   });
 
+  it("normalizes legacy service identities through the configured gateway", () => {
+    expect(
+      effectivePrincipalFromLegacyIdentity(
+        {
+          userId: "service_user",
+          accountId: "service_user",
+          clientId: "sheet-bot-client",
+          permissions: ["service"],
+        },
+        { serviceId: "sheet-bot.gateway", oauthClientId: "sheet-bot-client" },
+      ),
+    ).toEqual({
+      kind: "service",
+      serviceId: "sheet-bot.gateway",
+      oauthClientId: "sheet-bot-client",
+    });
+  });
+
+  it("keeps the original service id when the gateway client does not match", () => {
+    expect(
+      effectivePrincipalFromLegacyIdentity(
+        {
+          userId: "service_user",
+          accountId: "service_user",
+          clientId: "sheet-workflows",
+          permissions: ["service"],
+        },
+        { serviceId: "sheet-bot.gateway", oauthClientId: "sheet-bot-client" },
+      ),
+    ).toEqual({
+      kind: "service",
+      serviceId: "sheet-workflows",
+      oauthClientId: "sheet-workflows",
+    });
+  });
+
   it("fails closed when a legacy service has no stable client identity", () => {
     expect(() =>
       effectivePrincipalFromLegacyIdentity({

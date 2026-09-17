@@ -12,11 +12,12 @@ const SheetZeroAuthorizationLive = Layer.unwrap(
   Effect.gen(function* () {
     const issuer = yield* config.sheetAuthIssuer;
     const audience = yield* config.sheetAuthOAuthAudience;
+    const gatewayServiceId = yield* config.sheetBotGatewayServiceId;
     const gatewayOAuthClientId = yield* config.sheetBotGatewayOAuthClientId;
     const gatewayIdentity = Option.match(gatewayOAuthClientId, {
       onNone: () => undefined,
       onSome: (oauthClientId) => ({
-        serviceId: "sheet-bot.gateway",
+        serviceId: gatewayServiceId,
         oauthClientId,
       }),
     });

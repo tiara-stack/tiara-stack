@@ -157,6 +157,7 @@ imagePullSecrets:
 {{- $sheetBotSecretRef := $sheetBotValues.secretRef | default dict -}}
 {{- $sheetBotSecretName := default (include "tiara-stack.defaultSecretName" "sheetBot") $sheetBotSecretRef.name -}}
 {{- $sheetBotServiceName := include "tiara-stack.serviceName" (dict "name" "sheet-bot" "serviceValues" $sheetBotValues) -}}
+{{- $sheetBotGatewayServiceId := default "sheet-bot.gateway" $sheetBotValues.gatewayServiceId -}}
 {{- $sheetWorkflowsValues := .Values.services.sheetWorkflows | default dict -}}
 {{- $sheetWorkflowsServiceName := include "tiara-stack.serviceName" (dict "name" "sheet-workflows" "serviceValues" $sheetWorkflowsValues) -}}
 {{- $sheetWebValues := .Values.services.sheetWeb | default dict -}}
@@ -275,6 +276,8 @@ imagePullSecrets:
       secretKey: sheetBotServiceClientId
     - name: ZERO_OAUTH_AUDIENCE
       value: sheet-zero
+    - name: SHEET_BOT_GATEWAY_SERVICE_ID
+      value: {{ $sheetBotGatewayServiceId | quote }}
     - name: SHEET_AUTH_ISSUER
       secretKey: sheetAuthIssuer
     - name: SHEET_AUTH_OAUTH_CLIENT_ID
@@ -354,6 +357,8 @@ imagePullSecrets:
 {{ include "tiara-stack.autoCheckinIdentityEnv" . | nindent 4 }}
     - name: SHEET_BOT_BASE_URL
       value: "http://{{ $sheetBotServiceName }}"
+    - name: SHEET_BOT_GATEWAY_SERVICE_ID
+      value: {{ $sheetBotGatewayServiceId | quote }}
     - name: SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID
       secretName: {{ $sheetBotSecretName }}
       secretKey: sheetBotServiceClientId
@@ -432,6 +437,8 @@ imagePullSecrets:
     - name: SHEET_AUTH_OAUTH_AUDIENCE
       value: sheet-workflows
 {{ include "tiara-stack.autoCheckinIdentityEnv" . | nindent 4 }}
+    - name: SHEET_BOT_GATEWAY_SERVICE_ID
+      value: {{ $sheetBotGatewayServiceId | quote }}
     - name: SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID
       secretName: {{ $sheetBotSecretName }}
       secretKey: sheetBotServiceClientId
@@ -500,6 +507,8 @@ imagePullSecrets:
     - name: SHEET_AUTH_OAUTH_AUDIENCE
       value: sheet-workflows
 {{ include "tiara-stack.autoCheckinIdentityEnv" . | nindent 4 }}
+    - name: SHEET_BOT_GATEWAY_SERVICE_ID
+      value: {{ $sheetBotGatewayServiceId | quote }}
     - name: SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID
       secretName: {{ $sheetBotSecretName }}
       secretKey: sheetBotServiceClientId
@@ -539,6 +548,8 @@ imagePullSecrets:
       value: "http://{{ $sheetAuthServiceName }}"
     - name: SHEET_AUTH_OAUTH_AUDIENCE
       value: sheet-zero
+    - name: SHEET_BOT_GATEWAY_SERVICE_ID
+      value: {{ $sheetBotGatewayServiceId | quote }}
     - name: SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID
       secretName: {{ $sheetBotSecretName }}
       secretKey: sheetBotServiceClientId

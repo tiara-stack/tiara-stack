@@ -86,6 +86,7 @@ const fastHostEnvironmentKeys = [
   "ZERO_OAUTH_AUDIENCE",
   "SHEET_AUTH_WORKFLOW_HTTP_AUDIENCE",
   "SHEET_AUTH_WORKFLOW_HTTP_BROWSER_AUDIENCE",
+  "SHEET_BOT_GATEWAY_SERVICE_ID",
   "SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID",
   "SHEET_WEB_BASE_URL",
   "SHEET_AUTH_TRUSTED_DELEGATION_CLIENT_IDS",
@@ -129,6 +130,7 @@ const fastHostEnvironmentKeyOwners: Readonly<Record<string, readonly FastService
   SHEET_AUTH_OAUTH_CLIENT_SECRET: ["sheet-workflows"],
   SHEET_AUTH_WORKFLOW_HTTP_AUDIENCE: ["sheet-workflows"],
   SHEET_AUTH_WORKFLOW_HTTP_BROWSER_AUDIENCE: ["sheet-workflows"],
+  SHEET_BOT_GATEWAY_SERVICE_ID: ["sheet-db-server", "sheet-workflows", "sheet-bot"],
   SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID: ["sheet-db-server", "sheet-workflows"],
   SHEET_WEB_BASE_URL: ["sheet-workflows", "sheet-bot"],
   ZERO_CACHE_SERVER: ["sheet-bot"],
@@ -161,6 +163,7 @@ const composeEnvironmentKeys = [
   "REDIS_PASSWORD",
   "SHEET_AUTH_PUBLIC_BASE_URL",
   "SHEET_BOT_CAPABILITY_ENCRYPTION_SECRET",
+  "SHEET_BOT_GATEWAY_SERVICE_ID",
   "SHEET_BOT_OAUTH_CLIENT_ID",
   "SHEET_BOT_OAUTH_CLIENT_SECRET",
   "SHEET_WEB_BASE_URL",
@@ -952,6 +955,11 @@ const validateFast = (
         localHost(servicePorts["sheet-auth"]),
       ),
       SHEET_AUTH_OAUTH_AUDIENCE: valueOrDefault(values, "SHEET_AUTH_OAUTH_AUDIENCE", "sheet-zero"),
+      SHEET_BOT_GATEWAY_SERVICE_ID: valueOrDefault(
+        values,
+        "SHEET_BOT_GATEWAY_SERVICE_ID",
+        "sheet-bot.gateway",
+      ),
       SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID: valueOrDefault(
         values,
         "SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID",
@@ -994,10 +1002,15 @@ const validateFast = (
         "SHEET_AUTH_WORKFLOW_HTTP_BROWSER_AUDIENCE",
         "sheet-zero",
       ),
+      SHEET_BOT_GATEWAY_SERVICE_ID: valueOrDefault(
+        values,
+        "SHEET_BOT_GATEWAY_SERVICE_ID",
+        "sheet-bot.gateway",
+      ),
       SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID: valueOrDefault(
         values,
         "SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID",
-        "local-bot",
+        valueOrDefault(values, "SHEET_BOT_OAUTH_CLIENT_ID", "local-bot"),
       ),
       SHEET_AUTH_TRUSTED_DELEGATION_CLIENT_IDS: valueOrDefault(
         values,
@@ -1057,6 +1070,11 @@ const validateFast = (
         "system:serviceaccount:tiara-local:sheet-bot",
       ),
       ZERO_OAUTH_AUDIENCE: valueOrDefault(values, "ZERO_OAUTH_AUDIENCE", "sheet-zero"),
+      SHEET_BOT_GATEWAY_SERVICE_ID: valueOrDefault(
+        values,
+        "SHEET_BOT_GATEWAY_SERVICE_ID",
+        "sheet-bot.gateway",
+      ),
       SHEET_AUTH_ISSUER: valueOrDefault(
         values,
         "SHEET_AUTH_ISSUER",

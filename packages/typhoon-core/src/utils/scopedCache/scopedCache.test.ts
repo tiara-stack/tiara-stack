@@ -80,4 +80,29 @@ describe("ScopedCache", () => {
       });
     }),
   );
+
+  it.effect("does not retain a failed lookup as a cached value", () =>
+    Effect.gen(function* () {
+      let lookupCount = 0;
+      let finalizedCount = 0;
+      const cache = yield* ScopedCache.make({
+        lookup: () => {
+          lookupCount += 1;
+          return lookupCount === 1
+            ? Effect.acquireRelease(Effect.void, () =>
+                Effect.sync(() => void finalizedCount++),
+              ).pipe(Effect.andThen(Effect.fail("temporary failure")))
+            : Effect.succeed("recovered");
+        },
+      });
+      const scope = yield* Scope.make();
+
+      const first = yield* Effect.exit(Scope.provide(cache.get("alpha"), scope));
+      expect(Exit.isFailure(first)).toBe(true);
+      expect(finalizedCount).toBe(1);
+      expect(yield* Scope.provide(cache.get("alpha"), scope)).toBe("recovered");
+      expect(lookupCount).toBe(2);
+      yield* Scope.close(scope, Exit.void);
+    }),
+  );
 });

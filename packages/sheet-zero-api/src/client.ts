@@ -2,10 +2,15 @@ import { Effect, Option, Stream } from "effect";
 import type { ZeroClient } from "typhoon-zero/client";
 import { ZeroApiClient } from "typhoon-zero/zeroApi";
 import { materializeWorkflowRun } from "effect-zero-workflow/contract/server";
-import type { RunReference, WorkflowRun } from "effect-zero-workflow/contract";
+import {
+  isRunReferenceFor,
+  type RunReference,
+  type WorkflowRun,
+} from "effect-zero-workflow/contract";
 import type { ZeroMaterializedWorkflowRunRow } from "effect-zero-workflow/contract/zero";
 import {
   workflowContractZeroGroupIdentifier,
+  WorkflowObservationUnauthorized,
   WorkflowTransportUnavailable,
   type WorkflowObservationError,
 } from "effect-zero-workflow/contract/transport";
@@ -32,7 +37,7 @@ export const makeSheetClient = <Context>(
 
 export type CheckinMessagesLoadZeroObserver = {
   readonly get: (
-    reference: RunReference<typeof CheckinMessagesLoad>,
+    reference: unknown,
   ) => Stream.Stream<
     Option.Option<WorkflowRun<typeof CheckinMessagesLoad>>,
     WorkflowObservationError
@@ -44,6 +49,11 @@ export const workflowObservationUnavailable = () =>
     operation: "Observe",
     retryable: true,
     message: "Workflow observation transport is unavailable",
+  });
+
+export const workflowObservationUnauthorized = () =>
+  new WorkflowObservationUnauthorized({
+    message: "Workflow observation authorization is no longer valid",
   });
 
 export const makeCheckinMessagesLoadZeroObserver = <Context>(
@@ -70,7 +80,10 @@ export const makeCheckinMessagesLoadZeroObserver = <Context>(
       const query = group.get;
       return {
         get: (reference) =>
-          query.stream(reference).pipe(
+          (isRunReferenceFor(CheckinMessagesLoad, reference)
+            ? query.stream(reference)
+            : Stream.succeed(Option.none<ZeroMaterializedWorkflowRunRow>())
+          ).pipe(
             Stream.mapError(workflowObservationUnavailable),
             Stream.mapEffect((row) =>
               Option.match(row, {

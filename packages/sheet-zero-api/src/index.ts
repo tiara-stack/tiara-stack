@@ -3,6 +3,7 @@ export {
   makeCheckinMessagesLoadZeroObserver,
   makeSheetClient,
   workflowObservationUnavailable,
+  workflowObservationUnauthorized,
   type CheckinMessagesLoadZeroObserver,
   type SheetClient,
 } from "./client";

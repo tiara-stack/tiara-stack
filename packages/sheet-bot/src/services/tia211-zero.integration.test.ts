@@ -13,6 +13,7 @@ import {
   Deferred,
   Duration,
   Effect,
+  Exit,
   Fiber,
   Layer,
   Match,
@@ -63,7 +64,9 @@ const otherUserId = "tia211-other-auth-user";
 const userToken = "tia211-user-token";
 const otherUserToken = "tia211-other-user-token";
 const serviceToken = "tia211-service-token";
-const serviceId = "sheet-bot.integration";
+const serviceClientId = "sheet-bot.integration";
+const serviceId = "sheet-bot.gateway";
+const gatewayIdentity = { serviceId, oauthClientId: serviceClientId } as const;
 
 const workflowName = (identity: string, wireVersion: string) =>
   JSON.stringify([identity, wireVersion]);
@@ -102,7 +105,7 @@ const serviceAuthToken: VerifiedOAuthResourceToken = {
   accountId: undefined,
   actorClientId: undefined,
   actorSub: undefined,
-  clientId: serviceId,
+  clientId: serviceClientId,
   exp: undefined,
   scopes: new Set(["service", "workflow.observe"]),
   sub: undefined,
@@ -151,7 +154,7 @@ const observationContextFromToken = (
             };
           },
         }),
-      )(effectivePrincipalFromVerifiedOAuthClaims(token)),
+      )(effectivePrincipalFromVerifiedOAuthClaims(token, gatewayIdentity)),
     catch: () =>
       new ZeroDispatchUnauthorizedError({
         procedure: procedureNames.join(", ") || "unknown",
@@ -544,7 +547,9 @@ const makeZero = (cacheURL: string, directory: string, auth: string, userID: str
       schema,
       auth,
       context: {
-        ownerKey: ownerKeyForEffectivePrincipal(effectivePrincipalFromVerifiedOAuthClaims(token)),
+        ownerKey: ownerKeyForEffectivePrincipal(
+          effectivePrincipalFromVerifiedOAuthClaims(token, gatewayIdentity),
+        ),
       },
       kvStore: makeClientStorage(directory),
       logLevel: "error",
@@ -685,6 +690,10 @@ describe.skipIf(!integrationEnabled)("TIA-211 local Zero integration proof", () 
               ).pipe(Effect.forkScoped);
 
               yield* Deferred.await(pendingSeen).pipe(Effect.timeout(Duration.seconds(20)));
+              const concurrentTerminalFiber = yield* terminalRunFromSubscription(
+                () => userObserver.get(reference),
+                Duration.seconds(20),
+              ).pipe(Effect.forkScoped);
               yield* Effect.tryPromise({
                 try: async () => {
                   const now = new Date();
@@ -710,11 +719,17 @@ describe.skipIf(!integrationEnabled)("TIA-211 local Zero integration proof", () 
                 catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
               });
               const terminal = yield* Fiber.join(terminalFiber);
+              const concurrentTerminal = yield* Fiber.join(concurrentTerminalFiber);
 
               expect(terminal.result).toMatchObject({
                 _tag: "Success",
                 value: workflowSuccess,
               });
+              expect(concurrentTerminal.result).toMatchObject({
+                _tag: "Success",
+                value: workflowSuccess,
+              });
+              expect(enqueueRequests).toHaveLength(1);
               expect(observations).toContain("Pending:Queued");
               expect(observations).toContain("Success:terminal");
               expect(observations.some((value) => value.startsWith("Pending:Running"))).toBe(true);
@@ -790,6 +805,58 @@ describe.skipIf(!integrationEnabled)("TIA-211 local Zero integration proof", () 
                 );
               expect(Option.isNone(wrongContractObservation)).toBe(true);
 
+              const serviceInvocationId = workflowInvocationIdFromString(
+                "123e4567-e89b-42d3-a456-426614174003",
+              );
+              const serviceReference = {
+                invocationId: serviceInvocationId,
+                contractIdentity: CheckinMessagesLoad.identity,
+                wireVersion: CheckinMessagesLoad.wireVersion,
+              };
+              yield* Effect.tryPromise({
+                try: async () => {
+                  const now = new Date();
+                  await database.sql`
+                    insert into sheet_db_workflow_run (
+                      run_id,
+                      workflow_name,
+                      definition_version,
+                      execution_id,
+                      idempotency_key,
+                      visibility_key,
+                      input,
+                      status,
+                      result,
+                      error,
+                      max_attempts,
+                      run_after,
+                      started_at,
+                      completed_at,
+                      created_at,
+                      updated_at
+                    ) values (
+                      ${serviceInvocationId},
+                      ${checkinMessagesLoadWorkflowName},
+                      'tia211-test-definition',
+                      ${`execution:${serviceInvocationId}`},
+                      ${serviceInvocationId},
+                      ${`service:${serviceId}`},
+                      '{}'::jsonb,
+                      'succeeded',
+                      ${JSON.stringify(workflowSuccess)}::jsonb,
+                      null,
+                      10,
+                      ${now},
+                      ${now},
+                      ${now},
+                      ${now},
+                      ${now}
+                    )
+                  `;
+                },
+                catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
+              });
+
               const otherDirectory = yield* Effect.tryPromise({
                 try: () => mkdtemp(join(tmpdir(), "tia211-zero-other-")),
                 catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
@@ -861,6 +928,30 @@ describe.skipIf(!integrationEnabled)("TIA-211 local Zero integration proof", () 
                 Effect.timeout(Duration.seconds(20)),
               );
               expect(Option.isNone(serviceObservation)).toBe(true);
+
+              const serviceOwnObservation = yield* serviceObserver.get(serviceReference).pipe(
+                Stream.take(1),
+                Stream.runHead,
+                Effect.flatMap((value) =>
+                  Option.isSome(value)
+                    ? Effect.succeed(value.value)
+                    : Effect.fail(new Error("Missing service-owned Zero snapshot")),
+                ),
+                Effect.timeout(Duration.seconds(20)),
+              );
+              expect(serviceOwnObservation).toMatchObject({
+                result: { _tag: "Success", value: workflowSuccess },
+              });
+
+              const userServiceObservation = yield* Effect.exit(
+                userObserver
+                  .get(serviceReference)
+                  .pipe(Stream.take(1), Stream.runHead, Effect.timeout(Duration.seconds(20))),
+              );
+              expect(Exit.isSuccess(userServiceObservation)).toBe(true);
+              if (Exit.isSuccess(userServiceObservation)) {
+                expect(Option.isNone(userServiceObservation.value)).toBe(true);
+              }
             }).pipe(Effect.provide(httpLayer)),
           );
         }),
