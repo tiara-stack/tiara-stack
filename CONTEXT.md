@@ -349,11 +349,11 @@ A published, transport-neutral declaration of a business intent, including its i
 _Avoid_: Workflow API, workflow DTO
 
 **Workflow Enqueue**:
-The authenticated HTTP submission of one Workflow Contract invocation with its canonical input, stable invocation identity, and Effective Principal. A successful enqueue acknowledges accepted durable work, not completion of its effects.
+The authenticated HTTP submission of one Workflow Contract invocation with its canonical input, stable invocation identity, and Effective Principal. A successful enqueue acknowledges accepted durable work, not completion of its effects. The bot's protected client owns the enqueue timeout and transport recovery policy, so callers do not add forwarding or retry layers.
 _Avoid_: Workflow execution, background retry, HTTP request
 
 **Workflow Observation**:
-The authenticated stream or query that reads the typed Workflow Run identified by a successful Workflow Enqueue. Observation reports progress and terminal results independently of submission transport.
+The authenticated stream or query that reads the typed Workflow Run identified by a successful Workflow Enqueue. Observation reports progress and terminal results independently of submission transport. A bot observation treats an absent initial row or Pending result as nonterminal, and an observation failure never resubmits work or falls back to HTTP polling.
 _Avoid_: Workflow retry, enqueue response, polling implementation
 
 **Workflow Definition**:
