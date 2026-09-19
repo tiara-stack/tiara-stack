@@ -4,12 +4,14 @@
   "type": "module",
   "scripts": {
     "format": "vp run -r format",
-    "lint": "vp run -r lint",
+    "lint": "status=0; vp run -F './packages/*' lint || status=$?; pnpm lint:agents || status=$?; exit $status",
     "test": "vp run -F './packages/*' test",
-    "checks": "status=0; vp run -w format || status=$?; vp run -w lint || status=$?; vp run -w test || status=$?; exit $status",
+    "checks": "status=0; vp run -w format || status=$?; vp run -F './packages/*' lint || status=$?; vp run -w test || status=$?; pnpm check:agents || status=$?; exit $status",
     "format:apply": "vp run -r format:apply",
     "build": "vp run -r --concurrency-limit 1 build",
     "check:tsc-build": "tsgo -b tsconfig.build.json --pretty false",
+    "lint:agents": "vp lint .agents/skills .agents/skills/autonomous-development/scripts/poll.ts",
+    "check:agents": "status=0; tsgo -p .agents/tsconfig.json || status=$?; pnpm lint:agents || status=$?; exit $status",
     "dev": "tsx packages/developer-launcher/src/cli.ts",
     "kubernetes:parity-gate": "tsx deploy/kubernetes/scripts/parity-gate.ts",
     "compose:generate-secrets": "tsx deploy/compose/scripts/generate-secrets.ts --no-overwrite",
@@ -17,6 +19,7 @@
     "prepare": "vp config"
   },
   "devDependencies": {
+    "@effect/platform-node": "catalog:",
     "@types/node": "catalog:",
     "@typescript/native-preview": "7.0.0-dev.20260707.2",
     "effect": "catalog:",

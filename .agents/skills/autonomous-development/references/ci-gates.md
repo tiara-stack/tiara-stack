@@ -3,17 +3,14 @@
 Use this reference to keep a pull request in draft while checking CI before
 removing its draft state. The `pre-undraft` phase ends with all required checks
 green and leaves the PR draft unchanged.
-When the file is attached to a read-only explorer, inspect and report the
-failure only. The main agent performs repairs, commits, submissions, and
-conflict resolution.
+The main agent performs repairs, commits, submissions, and conflict
+resolution.
 
-## Polling handoff
+## Polling script
 
-For CI status polling, attach [CI polling worker](ci-polling.md) to a separate
-read-only explorer. Pass the PR identity, submitted head SHA, and required
-terminal criterion. Give the explorer the polling reference only, not this
-repair reference. After it reports, the main agent handles diagnosis and every
-repair.
+Run the [silent polling script](polling-scripts.md) for the submitted PR head.
+It emits one terminal report and leaves diagnosis and every repair with the
+main agent. Run it again after each submitted repair.
 
 ## Repair a failure
 
@@ -31,8 +28,8 @@ repair.
    while preserving both sides when their intent is clear. Validate the result.
    Report a precise blocker when the intended resolution is ambiguous.
 5. Run the local CodeRabbit review command, repair any valid findings, commit
-   repairs with Graphite, and submit the new head. Return to the polling
-   handoff for that new head:
+   repairs with Graphite, and submit the new head. Return to the CI polling
+   script for that new head:
 
    ```bash
    coderabbit review --agent --base master --include-untracked
@@ -40,7 +37,7 @@ repair.
    ```
 
 Inspect failed workflow and step logs with `gh run view <run-id>
---log-failed` or the matching GitHub Actions detail after the polling worker
+--log-failed` or the matching GitHub Actions detail after the polling script
 reports a failed check. A different required check failing is also a release
 blocker; use the same repair loop when it is repository-owned and its intent is
 clear.

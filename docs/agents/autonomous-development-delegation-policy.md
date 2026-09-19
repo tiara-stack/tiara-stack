@@ -12,29 +12,27 @@ diagnostic query or interpreting a repository result. A deterministic script
 with no such choices stays local.
 
 The reason for this boundary is context isolation: the main agent needs the
-result of a long command chain, not its polling output and intermediate
-transcript. The phase reference should state the handoff and attach the worker
-reference; the main skill need not expose this threshold or the worker's
-detailed recipe.
+result of a long command chain, not its intermediate transcript. The phase
+reference should state the local script or explorer handoff directly; the main
+skill need not expose this threshold or the detailed recipe.
 
 The delegated sequence must be read-only: it requires no repository or
 external-state mutation.
 
-Polling is a separate mandatory handoff for any phase that waits on an
-external check, review, or workflow. Spawn a dedicated read-only polling
-explorer in addition to any ordinary diagnosis or review explorer. It returns
-only its terminal report by default. The main agent sends no follow-up
-steering or status prompts unless the user asks.
+Polling uses a deterministic local script for external checks, reviews, and
+workflows whenever the state can be reduced to a bounded status query. The
+script captures intermediate output and emits only its terminal report. The
+main agent gives no progress updates while it runs.
 
 Current phase boundaries:
 
 | Phase | Qualifying handoff | Active instruction file |
 | --- | --- | --- |
 | Local CodeRabbit loop | None; command and repair stay with the main agent | `references/coderabbit-loop.md` |
-| CI babysit | Diagnose logs and likely cause only | `references/ci-gates.md` |
+| CI babysit | None; diagnosis and repair stay with the main agent | `references/ci-gates.md` |
 | GitHub CodeRabbit babysit | None; analysis and repair stay with the main agent | `references/github-review.md` |
-| CI polling | Check status only; report the terminal result | `references/ci-polling.md` |
-| GitHub CodeRabbit polling | Check review status only; report the terminal result | `references/github-review-polling.md` |
+| CI polling | Deterministic status script; no explorer | `references/polling-scripts.md` and `scripts/poll.ts` |
+| GitHub CodeRabbit polling | Deterministic status/CLI script; no explorer | `references/polling-scripts.md` and `scripts/poll.ts` |
 | Commit, submit, implementation, branch setup, and labeling | None; these mutate state | Main skill |
 
 When adding a mode, update this table and the relevant active reference only
