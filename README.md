@@ -124,9 +124,10 @@ secret contract are documented in
 [`charts/tiara-stack/README.md`](charts/tiara-stack/README.md).
 
 The root development launcher command contract is documented in
-[`docs/development-launcher.md`](docs/development-launcher.md). Its core slice
-validates commands and prints safe process plans; workload execution remains in
-the follow-up mode implementations.
+[`docs/development-launcher.md`](docs/development-launcher.md). It validates
+commands and prints safe process plans. Connected Preview plan and doctor are
+read-only; session execution remains unavailable until its admission services
+have verified the required development prerequisites.
 
 The supported onboarding and acceptance journey is documented in
 [`docs/development-acceptance.md`](docs/development-acceptance.md). CI records

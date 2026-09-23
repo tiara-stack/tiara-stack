@@ -5,6 +5,9 @@ import {
   type DevelopmentMode,
   type DiagnosticCode,
   type ModeAction,
+  type ConnectedPreviewAction,
+  connectedPreviewActions,
+  type LauncherMode,
 } from "./types";
 
 export interface CommandOptions {
@@ -12,6 +15,8 @@ export interface CommandOptions {
   readonly jsonStream?: boolean;
   readonly help: boolean;
   readonly envFile: string | null;
+  readonly configFile: string | null;
+  readonly sessionId: string | null;
   readonly service: string | null;
   readonly confirm: boolean;
   readonly confirmDevelopment: boolean;
@@ -22,7 +27,7 @@ export interface CommandOptions {
 export type ParsedCommand =
   | {
       readonly kind: "help";
-      readonly mode: DevelopmentMode | null;
+      readonly mode: LauncherMode | null;
       readonly options: CommandOptions;
       readonly command: string;
     }
@@ -42,6 +47,30 @@ export type ParsedCommand =
       readonly mode: DevelopmentMode;
       readonly action: ModeAction;
       readonly options: CommandOptions;
+      readonly command: string;
+    }
+  | {
+      readonly kind: "preview";
+      readonly action: "plan";
+      readonly options: CommandOptions & { readonly configFile: string; readonly sessionId: null };
+      readonly command: string;
+    }
+  | {
+      readonly kind: "preview";
+      readonly action: "doctor";
+      readonly options: CommandOptions & { readonly configFile: string; readonly sessionId: null };
+      readonly command: string;
+    }
+  | {
+      readonly kind: "preview";
+      readonly action: "start";
+      readonly options: CommandOptions & { readonly configFile: string; readonly sessionId: null };
+      readonly command: string;
+    }
+  | {
+      readonly kind: "preview";
+      readonly action: "status" | "resume" | "stop" | "cleanup";
+      readonly options: CommandOptions & { readonly configFile: null; readonly sessionId: string };
       readonly command: string;
     };
 
@@ -65,6 +94,8 @@ const initialOptions = (): MutableCommandOptions => ({
   jsonStream: false,
   help: false,
   envFile: null,
+  configFile: null,
+  sessionId: null,
   service: null,
   confirm: false,
   confirmDevelopment: false,
@@ -162,6 +193,30 @@ const parseOptions = (args: readonly string[]) => {
       options.envFile = value;
       continue;
     }
+    if (option === "--config") {
+      const value = nonEmptyOptionValue(
+        inlineValue ?? valueAfterOption(args, index, option),
+        option,
+      );
+      if (inlineValue === null) index += 1;
+      if (options.configFile !== null) {
+        throw new CommandParseError(`${option} may only be provided once`, "invalid-option");
+      }
+      options.configFile = value;
+      continue;
+    }
+    if (option === "--session") {
+      const value = nonEmptyOptionValue(
+        inlineValue ?? valueAfterOption(args, index, option),
+        option,
+      );
+      if (inlineValue === null) index += 1;
+      if (options.sessionId !== null) {
+        throw new CommandParseError(`${option} may only be provided once`, "invalid-option");
+      }
+      options.sessionId = value;
+      continue;
+    }
     if (option === "--service") {
       const value = nonEmptyOptionValue(
         inlineValue ?? valueAfterOption(args, index, option),
@@ -230,6 +285,8 @@ export const parsePositionals = (
     if (
       options.confirm ||
       options.confirmDevelopment ||
+      options.configFile !== null ||
+      options.sessionId !== null ||
       options.tag !== null ||
       options.changedSurfaces.length > 0
     ) {
@@ -245,12 +302,106 @@ export const parsePositionals = (
     return { kind: "help", mode: null, options, command: "help" };
   }
 
+  if (first === "preview") {
+    if (options.help && (second === undefined || second === "help")) {
+      return { kind: "help", mode: "preview", options, command: "preview help" };
+    }
+    if (second === undefined || second === "help") {
+      if (rest.length > 0) {
+        throw new CommandParseError("preview help does not accept a positional argument");
+      }
+      return { kind: "help", mode: "preview", options, command: "preview help" };
+    }
+    if (rest.length > 0) {
+      throw new CommandParseError(
+        `preview accepts one action, received ${[second, ...rest].join(" ")}`,
+      );
+    }
+    if (!(connectedPreviewActions as readonly string[]).includes(second)) {
+      throw new CommandParseError(`unknown action ${second} for preview`, "invalid-action");
+    }
+    if (
+      options.envFile !== null ||
+      options.service !== null ||
+      options.confirm ||
+      options.confirmDevelopment ||
+      options.tag !== null ||
+      options.changedSurfaces.length > 0
+    ) {
+      throw new CommandParseError(
+        "connected preview commands accept --config or --session, not mode-specific Fast, Compose, or Kubernetes options",
+        "invalid-option",
+      );
+    }
+    if (options.help) {
+      return { kind: "help", mode: "preview", options, command: "preview help" };
+    }
+    if (second === "plan" || second === "doctor") {
+      if (options.configFile === null || options.sessionId !== null) {
+        throw new CommandParseError(
+          `preview ${second} requires --config <file> and does not accept --session`,
+          "invalid-option",
+        );
+      }
+      const previewOptions = { ...options, configFile: options.configFile, sessionId: null };
+      if (second === "plan") {
+        return {
+          kind: "preview",
+          action: "plan",
+          options: previewOptions,
+          command: "preview plan",
+        };
+      }
+      return {
+        kind: "preview",
+        action: "doctor",
+        options: previewOptions,
+        command: "preview doctor",
+      };
+    }
+    if (second === "start") {
+      if (options.configFile === null || options.sessionId !== null) {
+        throw new CommandParseError(
+          `preview start requires --config <file> and does not accept --session`,
+          "invalid-option",
+        );
+      }
+      return {
+        kind: "preview",
+        action: "start",
+        options: { ...options, configFile: options.configFile, sessionId: null },
+        command: "preview start",
+      };
+    }
+    if (options.sessionId === null || options.configFile !== null) {
+      throw new CommandParseError(
+        `preview ${second} requires --session <id> and does not accept --config`,
+        "invalid-option",
+      );
+    }
+    return {
+      kind: "preview",
+      action: second as Exclude<ConnectedPreviewAction, "plan" | "doctor" | "start">,
+      options: { ...options, configFile: null, sessionId: options.sessionId },
+      command: `preview ${second}`,
+    };
+  }
+
+  if (options.configFile !== null || options.sessionId !== null) {
+    throw new CommandParseError(
+      "--config and --session are only valid for connected preview commands",
+      "invalid-option",
+    );
+  }
+
   if (first === "doctor") {
     if (second !== undefined || rest.length > 0) {
       throw new CommandParseError("doctor does not accept a positional action");
     }
     if (
       options.service !== null ||
+      options.configFile !== null ||
+      options.sessionId !== null ||
       options.confirm ||
       options.confirmDevelopment ||
       options.tag !== null ||
@@ -270,6 +421,8 @@ export const parsePositionals = (
     const mode = decodeMode(second);
     if (
       options.service !== null ||
+      options.configFile !== null ||
+      options.sessionId !== null ||
       options.confirm ||
       options.confirmDevelopment ||
       options.tag !== null ||

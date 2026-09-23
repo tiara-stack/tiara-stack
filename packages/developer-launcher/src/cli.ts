@@ -30,6 +30,8 @@ import { normalizeChangedSurfaces, type CommandOptions } from "./commands";
 
 const commonFlags = {
   envFile: Flag.string("env-file").pipe(Flag.optional),
+  configFile: Flag.string("config").pipe(Flag.optional),
+  sessionId: Flag.string("session").pipe(Flag.optional),
   service: Flag.string("service").pipe(Flag.optional),
   confirm: Flag.boolean("confirm").pipe(Flag.withDefault(false)),
   confirmDevelopment: Flag.boolean("confirm-development").pipe(Flag.withDefault(false)),
@@ -42,6 +44,8 @@ const commonFlags = {
 const launcherOptions = (config: {
   readonly operands: ReadonlyArray<string>;
   readonly envFile: Option.Option<string>;
+  readonly configFile: Option.Option<string>;
+  readonly sessionId: Option.Option<string>;
   readonly service: Option.Option<string>;
   readonly confirm: boolean;
   readonly confirmDevelopment: boolean;
@@ -54,6 +58,8 @@ const launcherOptions = (config: {
   jsonStream: config.jsonStream,
   help: false,
   envFile: Option.getOrNull(config.envFile),
+  configFile: Option.getOrNull(config.configFile),
+  sessionId: Option.getOrNull(config.sessionId),
   service: Option.getOrNull(config.service),
   confirm: config.confirm,
   confirmDevelopment: config.confirmDevelopment,
@@ -206,11 +212,39 @@ export const command = Command.make(
   runParsedCommand,
 ).pipe(
   Command.withDescription(
-    "Select a safe TiaraStack development mode or run read-only prerequisite checks",
+    "Select a safe TiaraStack development mode, inspect connected preview admission, or run read-only prerequisite checks",
   ),
   Command.withExamples([
     { command: "pnpm dev", description: "Print the launcher help" },
     { command: "pnpm dev fast up", description: "Plan the Fast sheet-web slice" },
+    {
+      command: "pnpm dev preview plan --config ./preview.json",
+      description: "Print a read-only connected preview plan",
+    },
+    {
+      command: "pnpm dev preview doctor --config ./preview.json",
+      description: "Check connected preview prerequisites",
+    },
+    {
+      command: "pnpm dev preview start --config ./preview.json",
+      description: "Currently unavailable; no process or session is started",
+    },
+    {
+      command: "pnpm dev preview status --session <id>",
+      description: "Currently unavailable; no session operation is attempted",
+    },
+    {
+      command: "pnpm dev preview resume --session <id>",
+      description: "Currently unavailable; no session operation is attempted",
+    },
+    {
+      command: "pnpm dev preview stop --session <id>",
+      description: "Currently unavailable; no session operation is attempted",
+    },
+    {
+      command: "pnpm dev preview cleanup --session <id>",
+      description: "Currently unavailable; no session operation is attempted",
+    },
     { command: "pnpm dev doctor --json", description: "Run prerequisite checks as JSON" },
   ]),
 );

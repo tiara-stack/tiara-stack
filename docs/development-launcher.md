@@ -19,6 +19,8 @@ pnpm dev fast up --service sheet-db-server
 pnpm dev fast up --service sheet-bot
 pnpm dev compose <up|build|down|seed|reset>
 pnpm dev kubernetes <validate|preview> [--changed-surface <surface>]
+pnpm dev preview <plan|doctor|start> --config <file>
+pnpm dev preview <status|resume|stop|cleanup> --session <id>
 pnpm dev doctor
 pnpm dev setup <fast|compose|kubernetes>
 ```
@@ -29,9 +31,11 @@ process start, or destructive work. Compose reset requires
 `--confirm-development`.
 
 Every command accepts `--json` for the stable machine-readable result. Mode
-actions also accept `--json-stream` for opt-in JSON Lines lifecycle events.
-These output selections are mutually exclusive. Commands that read a file
-accept `--env-file <path>`. A mode can restrict its process plan with
+actions and connected preview actions also accept `--json-stream` for opt-in
+JSON Lines lifecycle events. These output selections are mutually exclusive.
+Commands that support environment files accept `--env-file <path>`; connected
+preview commands reject that option and read their versioned configuration
+through `--config <file>`. A mode can restrict its process plan with
 `--service <package-name>` in Fast or Compose mode. Kubernetes preview always
 applies the complete development release. Repeat
 `--changed-surface` for each affected surface: `http`, `backend-runtime`,
@@ -42,6 +46,11 @@ applies the complete development release. Repeat
 `persistence`, `cross-service`, `discord`, or `google-sheets`. The Effect CLI
 also accepts a comma-separated value in one flag.
 
+`--config <file>` and `--session <id>` are reserved for connected preview
+commands. Plan, doctor, and start require `--config`; status, resume, stop, and
+cleanup require `--session`. The bare `pnpm dev preview` command prints help
+without reading a file or starting a process.
+
 Fast reads `.env.development.local` from the repository root by default. Pass
 `--env-file <path>` to use an explicit file. The default web slice accepts only
 the four Fast URLs and `DEV_SHEET_WEB_PORT`. The explicitly selected auth and
@@ -51,6 +60,129 @@ workflow API slice additionally validates its selected role and runner topology.
 
 Use `pnpm dev <mode> help` for mode-specific help. `--help` is reserved for
 Effect CLI's generated root help.
+
+## Connected preview planning
+
+The connected preview command family plans a separate, session-scoped runtime
+topology. Its current implementation reads a versioned JSON configuration and
+computes selected roles, required callers, dependency groups, compatibility,
+declared intent, and admission prerequisites. Plan performs no allocation,
+registration, migration, or external operation.
+
+The repository-owned runtime catalog records each role's provided and consumed
+contracts, state groups, external effects, allowed environment keys, positive
+credential names, and co-selection requirements. The seven role selectors are
+`sheet-web`, `sheet-auth`, `sheet-db-server`,
+`sheet-bot`, `sheet-workflows-api`, `sheet-workflows-runner`, and
+`sheet-workflows-browser-runner`. Workflow API, ordinary runner, and browser
+runner remain distinct selectors. Shared libraries are compatibility inputs,
+not runtime roles.
+
+Every dependency group needed by the selected role closure needs an explicit
+`owned` or `reused` choice. An owned group names an allocation profile. A
+reused group names its development endpoint, state identity, and deployed
+manifest digest. Reused endpoints must use a development HTTPS origin or an
+approved private development hostname. Public endpoints use `https` or `wss`
+on `dev.theerapakg.moe` or its subdomains. Private endpoints may use `https`,
+`wss`, `postgres`, `postgresql`, `redis`, or `rediss` only on
+`*.tiara-stack-dev.svc.cluster.local`. Paths must be empty or `/`. Endpoints
+cannot contain user info, query strings, fragments, or production markers.
+Duplicate reused origins block the plan.
+
+Each selected role declares its artifact digest. Each relevant runtime
+contract has a `compatible` or `incompatible` declaration tied to the same
+source revision, role artifact, deployed manifest, and catalog version.
+`implementation-only` declarations use `contract: null`. Missing, stale, and
+unknown declarations block the plan. The launcher never classifies changes by
+scanning file diffs. Incompatible contracts add their required callers and
+owned groups to the report. The configuration must select those callers and
+groups explicitly.
+
+Every selected role names its environment input file relative to the preview
+config. The file must exist under the same config directory. The planner reads
+only `NODE_ENV=development` and an optional `LOG_LEVEL` of `debug`, `info`,
+`warn`, or `error`; it reports file paths, allowed keys, and a digest, never
+values. Credentials use positive, role-specific names from the runtime catalog
+and `secret://tiara-stack-dev/<role>/<name>` references. Whole-pod environment
+or credential imports are rejected.
+Plan and doctor report credential-like ambient variables as redacted warnings;
+the planner does not consume them. Remove them before a live profile can be
+enabled.
+
+The plan reports each dependency group's capacity dimensions with requested,
+reserved, and available values marked unavailable. External targets report
+their declared or exclusive ownership intent with verification unavailable.
+These facts are admission requirements, not reservations or proof of capacity
+and ownership.
+
+The configuration schema is version 1. This example plans the auth role with
+an owned auth group. Replace the sample commit and digests with the identities
+for the source and development manifest under review.
+
+```json
+{
+  "schemaVersion": 1,
+  "environment": "tiara-stack-dev",
+  "profile": "connected-preview-dev-v1",
+  "owner": "developer:alice",
+  "roles": ["sheet-auth"],
+  "environmentFileInputs": [
+    { "role": "sheet-auth", "path": "environment/sheet-auth.env" }
+  ],
+  "identities": {
+    "sourceRevision": "0123456789abcdef0123456789abcdef01234567",
+    "artifactDigests": {
+      "sheet-auth": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "deployedManifestDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "catalogVersion": 1
+  },
+  "groups": [
+    {
+      "id": "auth",
+      "ownership": "owned",
+      "allocationProfile": "auth-development-v1"
+    }
+  ],
+  "changes": [
+    {
+      "role": "sheet-auth",
+      "contract": "auth.session",
+      "classification": "compatible",
+      "sourceRevision": "0123456789abcdef0123456789abcdef01234567",
+      "artifactDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "deployedManifestDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "catalogVersion": 1
+    }
+  ],
+  "credentialReferences": {
+    "sheet-auth": {
+      "auth-sql": "secret://tiara-stack-dev/sheet-auth/auth-sql"
+    }
+  },
+  "sharedExecution": "disabled"
+}
+```
+
+Credential fields contain development secret references only. The launcher does
+not resolve or print referenced secret values. Additional user grants default to
+none. Triggers and external targets default to none. `seed` is optional and is
+accepted only with an owned `application-zero` group. Selecting `sheet-bot`
+requires an explicit target allocation and acknowledgment that the shared bot
+will be unavailable during handoff. These fields record intent; plan does not
+perform those operations.
+
+`pnpm dev preview plan --config <file>` returns `readiness: planned` when the
+configuration passes static validation. A planned result is not a reservation,
+readiness proof, or admission decision. `pnpm dev preview doctor --config
+<file>` reports current prerequisite checks as `unavailable` because the
+workspace, controller, route, identity, grant, capacity, and cleanup probes are
+not implemented. It never reports an unrun check as passed.
+
+`start`, `status`, `resume`, `stop`, and `cleanup` return a blocked
+`not-implemented` result. They do not read session state or invoke a process.
+No connected profile is available for live use in this slice. Plans retain the
+launcher JSON `schemaVersion: 3` and lifecycle JSON Lines `eventVersion: 1`.
 
 ## Mode matrix
 

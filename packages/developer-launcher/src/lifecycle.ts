@@ -169,6 +169,7 @@ export const renderLifecyclePlan = (output: LauncherOutput, help?: string): stri
       readOnly: process.readOnly,
     })),
     urls: output.urls.map(({ name, url }) => ({ name, url: redactExecutionText(url) })),
+    ...(output.connectedPreview === undefined ? {} : { connectedPreview: output.connectedPreview }),
     ...(help === undefined ? {} : { help: redactExecutionText(help) }),
     ...(output.warnings.length === 0 ? {} : { warnings: output.warnings.map(redactDiagnostic) }),
   })}\n`;
@@ -193,6 +194,7 @@ export const renderLifecycleTerminal = (
     exitCode,
     ...(output.errors.length === 0 ? {} : { diagnostics: output.errors.map(redactDiagnostic) }),
     ...(output.warnings.length === 0 ? {} : { warnings: output.warnings.map(redactDiagnostic) }),
+    ...(output.connectedPreview === undefined ? {} : { connectedPreview: output.connectedPreview }),
   })}\n`;
 
 export type { LifecycleEvent };

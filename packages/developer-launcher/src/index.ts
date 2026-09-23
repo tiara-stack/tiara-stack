@@ -13,6 +13,8 @@ import {
   type FastModeConfig,
   type KubernetesModeConfig,
 } from "./config";
+import { NodeFileSystem } from "@effect/platform-node";
+import { connectedPreviewOutput } from "./connected-preview";
 import { makeDiagnostic, makeWarning } from "./diagnostics";
 import { runDoctorEffect } from "./doctor";
 import { redactExecutionText } from "./execution-shared";
@@ -32,13 +34,14 @@ import {
   modeActions,
   fastServices,
   type DevelopmentMode,
+  type LauncherMode,
   type Diagnostic,
   type LauncherOptions,
   type LauncherOutput,
   type LauncherResult,
   type PortChecker,
 } from "./types";
-import { Cause, Effect, Exit, Match } from "effect";
+import { Cause, Effect, Exit, FileSystem, Match } from "effect";
 import {
   makeLifecycleStreamWriter,
   renderLifecyclePlan,
@@ -176,13 +179,23 @@ Usage:
   pnpm dev fast
   pnpm dev compose <action>
   pnpm dev kubernetes <action>
+  pnpm dev preview plan --config <file>
+  pnpm dev preview doctor --config <file>
+  pnpm dev preview start --config <file>
+  pnpm dev preview status --session <id>
+  pnpm dev preview resume --session <id>
+  pnpm dev preview stop --session <id>
+  pnpm dev preview cleanup --session <id>
   pnpm dev doctor
   pnpm dev setup <mode>
+
+Connected preview session actions (start, status, resume, stop, cleanup) are currently unavailable and do not operate on a session.
 
 Modes:
   fast       Run the smallest host-native development slice.
   compose    Use the local packaged integration environment.
   kubernetes Use the development preview environment.
+  preview    Plan or check admission for a connected development preview.
   doctor     Check tools, configuration, credentials, ports, and access.
 
 Use pnpm dev <mode> help for mode-specific actions.
@@ -209,7 +222,26 @@ const modeHelpText = (mode: DevelopmentMode) => {
   return `TiaraStack ${mode} mode\n\n${modeDescriptions[mode]}\n\nActions:\n${actions}\n${surfaces}\nA mode without an action only prints this help. Use --json-stream on an action to receive ordered lifecycle events and one terminal outcome.\n`;
 };
 
-const emptyOutput = (command: string, mode: LauncherOutput["mode"] = null): LauncherOutput => ({
+const previewHelpText = `TiaraStack connected preview mode
+
+Actions:
+  pnpm dev preview plan --config <file>
+  pnpm dev preview doctor --config <file>
+  pnpm dev preview start --config <file>
+  pnpm dev preview status --session <id>
+  pnpm dev preview resume --session <id>
+  pnpm dev preview stop --session <id>
+  pnpm dev preview cleanup --session <id>
+
+Planning and doctor are read-only. Start, status, resume, stop, and cleanup
+remain unavailable until their admission and session services are implemented.
+The command without an action prints help and starts no resources.
+`;
+
+const emptyOutput = (
+  command: string,
+  mode: LauncherMode | "all" | null = null,
+): LauncherOutput => ({
   schemaVersion: 3,
   ok: true,
   command,
@@ -274,6 +306,123 @@ const renderHuman = (output: LauncherOutput, help?: string) => {
   if (output.urls.length > 0) {
     lines.push("urls:");
     for (const plannedUrl of output.urls) lines.push(`  ${plannedUrl.name}: ${plannedUrl.url}`);
+  }
+  const preview = output.connectedPreview;
+  if (preview !== undefined) {
+    lines.push("connected preview:");
+    lines.push(`  status: ${preview.status}`);
+    lines.push(`  execution available: ${preview.executionAvailable ? "yes" : "no"}`);
+    lines.push(`  config schema version: ${preview.configSchemaVersion}`);
+    lines.push(`  environment: ${preview.environment}`);
+    lines.push(`  profile: ${preview.profile}`);
+    lines.push(`  owner: ${preview.owner}`);
+    lines.push(`  source revision: ${preview.identities.sourceRevision}`);
+    lines.push(`  deployed manifest: ${preview.identities.deployedManifestDigest}`);
+    lines.push(`  runtime catalog: v${preview.catalog.version} ${preview.catalog.digest}`);
+    lines.push("  environment-file inputs:");
+    if (preview.environmentFileInputs.length === 0) lines.push("    none");
+    for (const input of preview.environmentFileInputs) {
+      lines.push(`    ${input.role}: ${input.path} (${input.status})`);
+      lines.push(`      digest: ${input.digest ?? "unavailable"}`);
+      lines.push(`      keys: ${input.keys.join(", ") || "none"}`);
+    }
+    lines.push(`  selected roles: ${preview.selectedRoles.join(", ") || "none"}`);
+    lines.push(`  required role closure: ${preview.requiredRoles.join(", ") || "none"}`);
+    lines.push(`  missing required roles: ${preview.missingRoles.join(", ") || "none"}`);
+    lines.push("  runtime contract catalog:");
+    for (const role of preview.roleCatalog) {
+      lines.push(
+        `    ${role.role} provides [${role.providedContracts.join(", ") || "none"}], consumes [${role.consumedContracts.join(", ") || "none"}]`,
+      );
+      lines.push(`      state groups: ${role.stateGroups.join(", ") || "none"}`);
+      lines.push(`      required roles: ${role.requiredRoles.join(", ") || "none"}`);
+      lines.push(`      external effects: ${role.externalEffects.join(", ") || "none"}`);
+      lines.push(`      credential names allowed: ${role.credentialNames.join(", ") || "none"}`);
+      lines.push(`      environment keys allowed: ${role.environmentKeys.join(", ") || "none"}`);
+    }
+    lines.push("  artifact identities:");
+    for (const [role, digest] of Object.entries(preview.identities.artifactDigests)) {
+      lines.push(`    ${role}: ${digest}`);
+    }
+    lines.push("  required groups:");
+    if (preview.requiredGroups.length === 0) lines.push("    none");
+    for (const group of preview.requiredGroups) {
+      const details = preview.groupPlans.find(({ id }) => id === group.id);
+      lines.push(`    ${group.id}: ${group.ownership}`);
+      if (details?.endpoint !== undefined) lines.push(`      endpoint: ${details.endpoint}`);
+      if (details?.stateIdentity !== undefined)
+        lines.push(`      state identity: ${details.stateIdentity}`);
+      if (details?.deployedManifestDigest !== undefined) {
+        lines.push(`      deployed manifest: ${details.deployedManifestDigest}`);
+      }
+      if (details?.allocationProfile !== undefined) {
+        lines.push(`      allocation profile: ${details.allocationProfile}`);
+      }
+    }
+    lines.push("  quota requirements:");
+    if (preview.quotaRequirements.length === 0) lines.push("    none");
+    for (const requirement of preview.quotaRequirements) {
+      lines.push(
+        `    ${requirement.group} (${requirement.ownership}): ${requirement.status}; requested=${requirement.requested ?? "unavailable"}, reserved=${requirement.reserved ?? "unavailable"}, available=${requirement.available ?? "unavailable"}`,
+      );
+      lines.push(`      resources: ${requirement.resourceDimensions.join(", ")}`);
+      lines.push(`      ${requirement.reason}`);
+    }
+    lines.push("  compatibility declarations:");
+    if (preview.compatibility.length === 0) lines.push("    none");
+    for (const item of preview.compatibility) {
+      lines.push(
+        `    ${item.role} / ${item.contract ?? "implementation-only"}: ${item.classification}`,
+      );
+      if (item.requiredCallers.length > 0) {
+        lines.push(`      required callers: ${item.requiredCallers.join(", ")}`);
+      }
+    }
+    lines.push(
+      `  external effects in required role closure: ${preview.externalEffects.join(", ") || "none"}`,
+    );
+    lines.push("  credential references declared:");
+    if (preview.credentialReferences.length === 0) lines.push("    none");
+    for (const credentials of preview.credentialReferences) {
+      lines.push(`    ${credentials.role}: ${credentials.names.join(", ") || "none"}`);
+    }
+    lines.push(`  shared execution intent: ${preview.declaredIntent.sharedExecution}`);
+    lines.push(`  synthetic seed: ${preview.declaredIntent.seed ?? "disabled"}`);
+    lines.push(
+      `  additional user grants: ${preview.declaredIntent.additionalUserGrants.join(", ") || "none"}`,
+    );
+    lines.push(
+      `  enabled triggers: ${preview.declaredIntent.triggers.map(({ name }) => name).join(", ") || "none"}`,
+    );
+    for (const trigger of preview.declaredIntent.triggers) {
+      lines.push(`    ${trigger.name} targets: ${trigger.targets.join(", ") || "none"}`);
+    }
+    lines.push(
+      `  external targets: ${preview.declaredIntent.externalTargets.join(", ") || "none"}`,
+    );
+    lines.push("  external ownership requirements:");
+    if (preview.externalOwnership.length === 0) lines.push("    none");
+    for (const ownership of preview.externalOwnership) {
+      lines.push(
+        `    ${ownership.target}: ${ownership.ownership} (${ownership.status}); purposes: ${ownership.purposes.join(", ")}`,
+      );
+      lines.push(`      ${ownership.reason}`);
+    }
+    const botHandoff = preview.declaredIntent.botHandoff;
+    lines.push(
+      `  bot handoff: ${
+        botHandoff === null
+          ? "disabled"
+          : `${botHandoff.acknowledgedSharedInterruption ? "acknowledged" : "acknowledgment required"} for ${botHandoff.targetAllocation}`
+      }`,
+    );
+    lines.push("  admission prerequisites:");
+    for (const prerequisite of preview.prerequisites) {
+      lines.push(`    ${prerequisite.id}: ${prerequisite.status} (${prerequisite.reason})`);
+    }
+    lines.push(
+      `  effects performed: allocations=${preview.effects.allocations}, migrations=${preview.effects.migrations}, registrations=${preview.effects.registrations}, external=${preview.effects.externalEffects}, bot handoffs=${preview.effects.botHandoffs}`,
+    );
   }
   if (output.warnings.length > 0) {
     lines.push("warnings:");
@@ -760,8 +909,10 @@ const doctorOutput = (
 const isCommandParseError = (error: unknown): error is CommandParseError =>
   error instanceof Error && error.name === "CommandParseError";
 
-const runLauncherEffect = async <A>(program: Effect.Effect<A>): Promise<A> => {
-  const exit = await Effect.runPromiseExit(program);
+const runLauncherEffect = async <A>(
+  program: Effect.Effect<A, never, FileSystem.FileSystem>,
+): Promise<A> => {
+  const exit = await Effect.runPromiseExit(program.pipe(Effect.provide(NodeFileSystem.layer)));
   if (Exit.isSuccess(exit)) return exit.value;
   throw Cause.squash(exit.cause);
 };
@@ -962,21 +1113,46 @@ export const executeDevelopmentPlan = async (
 const runParsedCommand = (
   command: ParsedCommand,
   options: LauncherOptions,
-): Effect.Effect<LauncherResult> =>
+): Effect.Effect<LauncherResult, never, FileSystem.FileSystem> =>
   Effect.gen(function* () {
-    let output: LauncherOutput;
-    let help: string | undefined;
-    if (command.kind === "help") {
-      output = emptyOutput(command.command, command.mode);
-      help = command.mode === null ? helpText : modeHelpText(command.mode);
-    } else if (command.kind === "mode") {
-      output = yield* modeOutput(command, options);
-    } else if (command.kind === "setup") {
-      output = setupOutput(command);
-    } else {
-      output = yield* doctorOutput(command, options);
-    }
-    return launcherResult(output, command.options.json, help, command.options.jsonStream === true);
+    const outcome = yield* Match.value(command).pipe(
+      Match.when({ kind: "help" }, (helpCommand) =>
+        Effect.succeed({
+          output: emptyOutput(helpCommand.command, helpCommand.mode),
+          help:
+            helpCommand.mode === null
+              ? helpText
+              : helpCommand.mode === "preview"
+                ? previewHelpText
+                : modeHelpText(helpCommand.mode),
+        }),
+      ),
+      Match.when({ kind: "mode" }, (modeCommand) =>
+        modeOutput(modeCommand, options).pipe(
+          Effect.map((output) => ({ output, help: undefined })),
+        ),
+      ),
+      Match.when({ kind: "setup" }, (setupCommand) =>
+        Effect.succeed({ output: setupOutput(setupCommand), help: undefined }),
+      ),
+      Match.when({ kind: "preview" }, (previewCommand) =>
+        connectedPreviewOutput(previewCommand, options).pipe(
+          Effect.map((output) => ({ output, help: undefined })),
+        ),
+      ),
+      Match.when({ kind: "doctor" }, (doctorCommand) =>
+        doctorOutput(doctorCommand, options).pipe(
+          Effect.map((output) => ({ output, help: undefined })),
+        ),
+      ),
+      Match.exhaustive,
+    );
+    return launcherResult(
+      outcome.output,
+      command.options.json,
+      outcome.help,
+      command.options.jsonStream === true,
+    );
   });
 
 export const runLauncherFromParsed = async (

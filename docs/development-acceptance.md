@@ -6,11 +6,12 @@ and reserves external integrations for explicit development-only checks.
 
 ## Choose a mode
 
-| Mode       | Use it for                                      | Process boundary                                                                                      | Dependencies and state                                                                                                        |
-| ---------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| Fast       | Web edits against stable service contracts      | The host-native `sheet-web` watch process by default. Backend slices require an explicit `--service`. | Development HTTPS endpoints for the web slice, or host-reachable local dependencies for a selected backend. No Compose state. |
-| Compose    | Contract-crossing changes and local integration | Packaged containers for the selected Checkout State                                                   | Local Postgres, Redis, JWKS, Zero Cache, OTEL sink, and runtime containers. State is scoped by the absolute checkout path.    |
-| Kubernetes | Cluster behavior and preview promotion          | The fixed `tiara-stack-dev` release in the `tiara-stack-dev` namespace                                | The shared Kubernetes Development Sandbox and its centrally managed Development Credential Set.                               |
+| Mode or plan           | Use it for                                      | Process boundary                                                                                      | Dependencies and state                                                                                                                |
+| ---------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Fast                   | Web edits against stable service contracts      | The host-native `sheet-web` watch process by default. Backend slices require an explicit `--service`. | Development HTTPS endpoints for the web slice, or host-reachable local dependencies for a selected backend. No Compose state.         |
+| Compose                | Contract-crossing changes and local integration | Packaged containers for the selected Checkout State                                                   | Local Postgres, Redis, JWKS, Zero Cache, OTEL sink, and runtime containers. State is scoped by the checkout path.                     |
+| Kubernetes             | Cluster behavior and preview promotion          | The fixed `tiara-stack-dev` release in the `tiara-stack-dev` namespace                                | The shared Kubernetes Development Sandbox and its centrally managed Development Credential Set.                                       |
+| Connected Preview plan | Review role and admission requirements          | Reads versioned JSON plus explicit role environment files. Starts no process and creates no session.  | Reports group, capacity, and external ownership requirements. No resources are reserved or allocated; live checks remain unavailable. |
 
 The supported process boundary is the deployable runtime. Shared libraries are
 dependencies, not selectable processes. Fast mode uses ports 3001 through 3005
@@ -43,6 +44,10 @@ pnpm dev compose up
 # Kubernetes validation, with no deployment
 pnpm dev kubernetes validate
 
+# Connected Preview plan and prerequisite report, both read-only
+pnpm dev preview plan --config .dev/preview.json
+pnpm dev preview doctor --config .dev/preview.json
+
 # Lifecycle events for automation
 pnpm dev compose up --json-stream
 ```
@@ -51,6 +56,15 @@ Fast reads `.env.development.local`. Compose reads
 `deploy/compose/.env`. Kubernetes uses `KUBE_CONTEXT=tiara-stack-dev` and the
 fixed development namespace and release. The bare `pnpm dev` command and a mode
 without an action print help only.
+
+A valid Connected Preview plan reports `readiness: planned`. It reports quota
+dimensions and external target ownership intent with the requested, reserved,
+available, and verification facts marked unavailable. Doctor reports the
+current live admission checks as `unavailable`; with a valid config, `doctor`
+always returns `readiness: blocked` and exit status 2 because unavailable
+checks are never treated as passed. Neither result establishes Development
+Readiness. `start`, `status`, `resume`, `stop`, and `cleanup` remain blocked
+until their controller and admission checks are implemented.
 
 ## Boundaries
 
@@ -126,6 +140,11 @@ and cancellation reports cleanup or incomplete shared work explicitly. The
 default evidence path exercises only the real local Fast application seam; it
 does not start external integrations or mutate shared Compose/Kubernetes
 resources.
+
+Connected Preview plans are configuration evidence only. They do not prove
+endpoint reachability, deployed compatibility, grants, capacity, readiness, or
+cleanup ownership. An unavailable doctor check stays unavailable until its
+read-only probe records evidence.
 
 ## Failure remediation
 

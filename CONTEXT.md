@@ -211,15 +211,23 @@ _Avoid_: Runner hour text, duplicate availability rows
 ## Development environments
 
 **Development Mode**:
-A supported way to run TiaraStack's runtime processes and dependencies for development: Fast, Compose, or Kubernetes.
+A supported way to plan or run TiaraStack's runtime processes and dependencies for development. Fast, Compose, and Kubernetes have executable paths. Connected Preview currently supports read-only planning and admission diagnostics; it does not start a live runtime.
 _Avoid_: Local mode, dev profile
+
+**Connected Preview**:
+A proposed session-scoped development topology with explicitly selected runtime roles, dependency groups, compatibility declarations, and admission requirements. A plan does not reserve resources or establish Development Readiness. No live connected profile is available until its admission checks have verified evidence.
+_Avoid_: PR preview, connected deployment
+
+**Connected Preview Plan**:
+A read-only report of selected roles, compatible reused services, required owned groups, caller closure, declared intent, and blocking prerequisites for a Connected Preview.
+_Avoid_: Reservation, readiness proof
 
 **Development Readiness**:
 The condition where the required dependencies and selected workload pass their mode-specific usability checks and the selected application responds to HTTP GET `/ready` with a 2xx status; a startup message, live process, liveness response, rejected method, or application error is insufficient.
 _Avoid_: Process started, startup banner, liveness, reachable
 
 **Development Sandbox**:
-A non-production state and external-resource boundary used for interactive development. Fast and Kubernetes currently share one sandbox across all developers using the development namespace. Compose currently exposes one shared local sandbox because its project and volume identities are fixed; its intended contract is one Checkout State per source checkout once those identities are parameterized.
+A non-production state and external-resource boundary used for interactive development. Fast and Kubernetes currently share one sandbox across developers using the development namespace. Compose derives a separate project and volume identity from each source checkout. A Connected Preview declares a session-scoped sandbox, but the current planner does not allocate it.
 _Avoid_: Staging environment, production preview
 
 **State Plane**:
@@ -239,7 +247,7 @@ A derived synchronization projection that can be rebuilt from Authoritative Appl
 _Avoid_: Authoritative cache, second database
 
 **Checkout State**:
-The intended local state and credential boundary assigned to one source checkout. Once implemented, its application, operational, and replicated state plus ignored local credential files are isolated from every other checkout, persist across ordinary restarts, and are removable only by a reset targeted to that checkout.
+The local state and credential boundary assigned to one source checkout. Compose derives its project and volume identities from the checkout path, so application, operational, and replicated state plus ignored local credential files are isolated from other checkouts. They persist across ordinary restarts and can be removed only by a reset targeted to that checkout.
 _Avoid_: Developer state, shared local state
 
 **Development Seed**:
@@ -247,7 +255,7 @@ A deterministic synthetic dataset applied after schema migration to make a Devel
 _Avoid_: Production snapshot, ad hoc fixture
 
 **Development Reset**:
-An explicitly authorized destructive operation with a named target. A local full reset removes the selected Checkout State's Authoritative Application State, Operational State, and Replicated State; until Compose checkout isolation exists, its only local target is the single shared Compose sandbox. A Zero rebuild removes only Replicated State. A developer reset cannot target the shared Fast/Kubernetes Development Sandbox; only an explicitly authorized operator may reset that sandbox after declaring its cross-developer impact. No reset rewinds external resources.
+An explicitly authorized destructive operation with a named target. A local full reset removes the selected Checkout State's Authoritative Application State, Operational State, and Replicated State. A Zero rebuild removes only Replicated State. A developer reset cannot target the shared Fast/Kubernetes Development Sandbox; only an explicitly authorized operator may reset that sandbox after declaring its cross-developer impact. No reset rewinds external resources.
 _Avoid_: Clean build, refresh
 
 **Development Credential Set**:

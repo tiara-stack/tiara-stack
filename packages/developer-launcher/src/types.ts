@@ -3,6 +3,40 @@ import { Schema } from "effect";
 export const developmentModes = ["fast", "compose", "kubernetes"] as const;
 export type DevelopmentMode = (typeof developmentModes)[number];
 export const DevelopmentModeSchema = Schema.Literals(developmentModes);
+export const connectedPreviewActions = [
+  "plan",
+  "doctor",
+  "start",
+  "status",
+  "resume",
+  "stop",
+  "cleanup",
+] as const;
+export type ConnectedPreviewAction = (typeof connectedPreviewActions)[number];
+export type LauncherMode = DevelopmentMode | "preview";
+export const connectedPreviewRoles = [
+  "sheet-web",
+  "sheet-auth",
+  "sheet-db-server",
+  "sheet-bot",
+  "sheet-workflows-api",
+  "sheet-workflows-runner",
+  "sheet-workflows-browser-runner",
+] as const;
+export type ConnectedPreviewRole = (typeof connectedPreviewRoles)[number];
+export const connectedPreviewGroups = [
+  "application-zero",
+  "workflow-execution",
+  "auth",
+  "bot-storage",
+  "search",
+] as const;
+export type ConnectedPreviewGroup = (typeof connectedPreviewGroups)[number];
+export type CompatibilityClassification =
+  | "implementation-only"
+  | "compatible"
+  | "incompatible"
+  | "unknown";
 export const changedSurfaces = [
   "http",
   "backend-runtime",
@@ -101,13 +135,24 @@ export type DiagnosticCode =
   | "invalid-image-tag"
   | "invalid-changed-surface"
   | "preview-incomplete"
+  | "invalid-preview-config"
+  | "missing-compatibility"
+  | "stale-compatibility"
+  | "unknown-compatibility"
+  | "unsafe-preview-endpoint"
+  | "conflicting-preview-endpoint"
+  | "unsafe-preview-credential"
+  | "required-role-missing"
+  | "required-group-missing"
+  | "invalid-preview-intent"
+  | "prerequisite-unavailable"
   | "not-implemented";
 
 export interface Diagnostic {
   readonly code: DiagnosticCode;
   readonly kind: DiagnosticKind;
   readonly message: string;
-  readonly mode: DevelopmentMode | "all" | null;
+  readonly mode: LauncherMode | "all" | null;
   readonly action: string | null;
   readonly dependency: string | null;
   readonly origin: string | null;
@@ -134,7 +179,7 @@ export interface LauncherOutput {
   readonly schemaVersion: 3;
   readonly ok: boolean;
   readonly command: string;
-  readonly mode: DevelopmentMode | "all" | null;
+  readonly mode: LauncherMode | "all" | null;
   readonly action: string | null;
   readonly selectedServices: readonly string[];
   readonly checkoutState: string | null;
@@ -145,6 +190,108 @@ export interface LauncherOutput {
   readonly errors: readonly Diagnostic[];
   readonly changedSurfaces: readonly ChangedSurface[];
   readonly parityGates: readonly ParityGate[];
+  readonly connectedPreview?: ConnectedPreviewReport;
+}
+
+export interface ConnectedPreviewPrerequisite {
+  readonly id: string;
+  readonly status: "unavailable";
+  readonly reason: string;
+}
+
+export interface ConnectedPreviewReport {
+  readonly status: "planned" | "blocked" | "unavailable";
+  readonly configSchemaVersion: 1;
+  readonly catalog: { readonly version: number; readonly digest: string };
+  readonly environment: string;
+  readonly profile: string;
+  readonly owner: string;
+  readonly identities: {
+    readonly sourceRevision: string;
+    readonly artifactDigests: Readonly<Partial<Record<ConnectedPreviewRole, string>>>;
+    readonly deployedManifestDigest: string;
+  };
+  readonly environmentFileInputs: readonly {
+    readonly role: ConnectedPreviewRole;
+    readonly path: string;
+    readonly digest: string | null;
+    readonly keys: readonly string[];
+    readonly status: "declared" | "unavailable";
+  }[];
+  readonly selectedRoles: readonly ConnectedPreviewRole[];
+  readonly requiredRoles: readonly ConnectedPreviewRole[];
+  readonly missingRoles: readonly ConnectedPreviewRole[];
+  readonly requiredGroups: readonly {
+    readonly id: ConnectedPreviewGroup;
+    readonly ownership: "owned" | "reused" | "missing";
+  }[];
+  readonly roleCatalog: readonly {
+    readonly role: ConnectedPreviewRole;
+    readonly providedContracts: readonly string[];
+    readonly consumedContracts: readonly string[];
+    readonly stateGroups: readonly ConnectedPreviewGroup[];
+    readonly requiredRoles: readonly ConnectedPreviewRole[];
+    readonly externalEffects: readonly string[];
+    readonly credentialNames: readonly string[];
+    readonly environmentKeys: readonly string[];
+  }[];
+  readonly groupPlans: readonly {
+    readonly id: ConnectedPreviewGroup;
+    readonly ownership: "owned" | "reused";
+    readonly endpoint?: string;
+    readonly stateIdentity?: string;
+    readonly deployedManifestDigest?: string;
+    readonly allocationProfile?: string;
+  }[];
+  readonly quotaRequirements: readonly {
+    readonly group: ConnectedPreviewGroup;
+    readonly ownership: "owned" | "reused" | "missing";
+    readonly status: "unavailable";
+    readonly resourceDimensions: readonly string[];
+    readonly requested: number | null;
+    readonly reserved: number | null;
+    readonly available: number | null;
+    readonly reason: string;
+  }[];
+  readonly compatibility: readonly {
+    readonly role: ConnectedPreviewRole;
+    readonly contract: string | null;
+    readonly classification: CompatibilityClassification;
+    readonly requiredCallers: readonly ConnectedPreviewRole[];
+  }[];
+  readonly externalEffects: readonly string[];
+  readonly externalOwnership: readonly {
+    readonly target: string;
+    readonly purposes: readonly string[];
+    readonly ownership: "declared" | "exclusive";
+    readonly status: "unavailable";
+    readonly reason: string;
+  }[];
+  readonly credentialReferences: readonly {
+    readonly role: ConnectedPreviewRole;
+    readonly names: readonly string[];
+    readonly status: "declared" | "unavailable";
+  }[];
+  readonly declaredIntent: {
+    readonly sharedExecution: "disabled" | "producer-only";
+    readonly seed: string | null;
+    readonly additionalUserGrants: readonly string[];
+    readonly triggers: readonly { readonly name: string; readonly targets: readonly string[] }[];
+    readonly externalTargets: readonly string[];
+    readonly botHandoff: {
+      readonly targetAllocation: string;
+      readonly acknowledgedSharedInterruption: boolean;
+    } | null;
+  };
+  readonly prerequisites: readonly ConnectedPreviewPrerequisite[];
+  readonly effects: {
+    readonly allocations: false;
+    readonly migrations: false;
+    readonly registrations: false;
+    readonly externalEffects: false;
+    readonly botHandoffs: false;
+  };
+  readonly executionAvailable: false;
 }
 
 export interface ProcessRequest {

@@ -16,6 +16,8 @@ const kubernetesOptions = {
   json: true,
   help: false,
   envFile: null,
+  configFile: null,
+  sessionId: null,
   service: null,
   confirm: false,
   confirmDevelopment: true,
@@ -92,6 +94,8 @@ describe("developer launcher Effect CLI", () => {
     json,
     help: false,
     envFile: null,
+    configFile: null,
+    sessionId: null,
     service: null,
     confirm: false,
     confirmDevelopment: false,
@@ -1022,6 +1026,8 @@ describe("developer launcher Effect CLI", () => {
         json: true,
         help: false,
         envFile: null,
+        configFile: null,
+        sessionId: null,
         service: null,
         confirm: false,
         confirmDevelopment: true,
@@ -1056,10 +1062,40 @@ describe("developer launcher Effect CLI", () => {
 
       expect(output).toContain("Select a safe TiaraStack development mode");
       expect(output).toContain("--env-file");
+      expect(output).toContain("--config");
+      expect(output).toContain("--session");
+      expect(output).toContain("pnpm dev preview plan --config ./preview.json");
+      expect(output).toContain("pnpm dev preview doctor --config ./preview.json");
+      expect(output).toContain("pnpm dev preview start --config ./preview.json");
+      expect(output).toContain("pnpm dev preview status --session <id>");
+      expect(output).toContain("pnpm dev preview resume --session <id>");
+      expect(output).toContain("pnpm dev preview stop --session <id>");
+      expect(output).toContain("pnpm dev preview cleanup --session <id>");
+      expect(output).toContain("Currently unavailable; no process or session is started");
+      expect(output).toContain("Currently unavailable; no session operation is attempted");
       expect(output).toContain("--confirm-development");
       expect(output).toContain("--json");
       expect(output).toContain("--json-stream");
     }),
+  );
+
+  it.live("marks legacy connected preview session help as unavailable", () =>
+    Effect.gen(function* () {
+      const result = yield* Effect.tryPromise({
+        try: () =>
+          runLauncherFromParsed(["help"], {
+            ...kubernetesOptions,
+            json: false,
+            confirmDevelopment: false,
+            tag: null,
+          }),
+        catch: (cause) => cause,
+      });
+
+      expect(result.stdout).toContain(
+        "Connected preview session actions (start, status, resume, stop, cleanup) are currently unavailable",
+      );
+    }).pipe(Effect.provide(NodeServices.layer)),
   );
 
   it.live("keeps mode help on the launcher command instead of Effect's root help flag", () =>
