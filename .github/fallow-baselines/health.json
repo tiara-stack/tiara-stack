@@ -1,4 +1,5 @@
 {
+  "kind": "health",
   "finding_counts": {
     "deploy/compose/scripts/migrate-sheet-db.ts": {
       "crap_high": {
@@ -8,11 +9,6 @@
     "packages/dfx-discord-utils/src/discord/http.ts": {
       "crap_moderate": {
         "count": 1
-      }
-    },
-    "packages/effect-platform-apps-script/src/HttpClient.ts": {
-      "crap_moderate": {
-        "count": 2
       }
     },
     "packages/effect-sql-kit/src/cli/push.ts": {
@@ -59,7 +55,7 @@
       }
     },
     "packages/sheet-web/src/lib/atomRegistry.ts": {
-      "crap_critical": {
+      "crap_moderate": {
         "count": 1
       }
     },
@@ -68,31 +64,28 @@
         "count": 1
       }
     },
-    "packages/sheet-web/src/routes/_authenticated/dashboard/guilds/$guildId.schedule.$channel/_channelLayout/-transition.ts": {
-      "crap_high": {
-        "count": 1
-      },
-      "crap_moderate": {
-        "count": 2
-      }
-    },
     "packages/sheet-web/src/routes/_authenticated/dashboard/guilds/$guildId.schedule.$channel/_channelLayout/calendar.tsx": {
       "crap_critical": {
         "count": 1
       },
       "crap_high": {
-        "count": 3
+        "count": 2
       },
       "crap_moderate": {
-        "count": 1
+        "count": 2
       }
     },
     "packages/sheet-web/src/routes/_authenticated/dashboard/guilds/$guildId.schedule.$channel/_channelLayout/daily.tsx": {
-      "complexity_critical": {
-        "count": 2
+      "complexity_moderate": {
+        "count": 1
       },
-      "crap_critical": {
+      "crap_moderate": {
         "count": 3
+      }
+    },
+    "packages/sheet-web/src/routes/_authenticated/developer/oauth-clients.tsx": {
+      "complexity_moderate": {
+        "count": 1
       }
     },
     "packages/sheet-web/src/routes/api/docs/search.ts": {
@@ -112,12 +105,22 @@
   "runtime_coverage_findings": [],
   "target_keys": [
     "packages/dfx-discord-utils/src/discord/cache/shared.ts:high impact",
-    "packages/sheet-workflows/src/workflows/teamSubmissions/provider.ts:high impact",
+    "packages/developer-launcher/src/executor.ts:high impact",
+    "packages/developer-launcher/src/index.ts:complexity",
     "packages/sheet-workflows/src/workflows/shared/providerFailure.ts:high impact",
     "packages/sheet-message-content/src/text.ts:high impact",
-    "packages/sheet-workflows/src/workflows/checkins/autoTestOperations.ts:complexity",
+    "packages/developer-launcher/src/commands.ts:complexity",
+    "packages/developer-launcher/src/config.ts:complexity",
+    "packages/sheet-workflows/src/workflows/teamSubmissions/pure.ts:high impact",
     "packages/sheet-workflows/src/workflows/teamSubmissions/operations.ts:complexity",
+    "deploy/kubernetes/scripts/parity-gate.ts:complexity",
+    "packages/sheet-workflows/src/workflows/sheetConfiguration/operations.ts:complexity",
+    "packages/sheet-web/src/routes/_authenticated/dashboard/guilds/$guildId.settings.tsx:complexity",
+    "packages/sheet-web/src/routes/_authenticated/dashboard/guilds/$guildId.settings.checkin-messages.tsx:complexity",
     "packages/sheet-bot/src/services/botCapabilityStore.ts:complexity",
-    "packages/sheet-web/src/routes/_authenticated/dashboard/guilds/$guildId.settings.tsx:complexity"
+    "packages/developer-launcher/src/compose-execution.ts:complexity",
+    "packages/sheet-web/src/routes/_authenticated/dashboard/guilds/$guildId.settings.sheet.tsx:complexity",
+    "packages/developer-launcher/src/doctor.ts:complexity",
+    "packages/sheet-zero-api/src/api/sheetConfiguration.ts:complexity"
   ]
 }

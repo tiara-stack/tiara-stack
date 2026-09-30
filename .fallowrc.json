@@ -11,7 +11,6 @@
     "packages/typhoon-core/src/error/index.ts"
   ],
   "ignorePatterns": [
-    "native/**",
     "packages/*/effect-sql-migrations/**",
     "packages/sheet-zero-api/src/schema.ts"
   ],
@@ -26,6 +25,5 @@
     "healthBaseline": ".github/fallow-baselines/health.json",
     "dupesBaseline": ".github/fallow-baselines/dupes.json"
   },
-  "ignoreDependencies": ["collections", "effect"],
   "ignoreExports": []
 }

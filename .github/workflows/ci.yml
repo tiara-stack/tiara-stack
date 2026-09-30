@@ -214,10 +214,10 @@ jobs:
         run: vp run --filter effect-zero-workflow build
 
       - name: Run Fallow audit
-        uses: fallow-rs/fallow@9492a4d98b5c4ca95670716fced39029cc28f375 # v2
+        uses: fallow-rs/fallow@71369f80d099e25726ad04382f15aef14a251abc # v3.31.0
         with:
           command: audit
-          version: 2.88.2
+          version: 3.31.0
           fail-on-issues: true
           annotations: true
           comment: true
@@ -256,21 +256,21 @@ jobs:
           set +e
           set -o pipefail
 
-          npx fallow@2.88.2 --summary --no-cache \
+          npx fallow@3.31.0 --summary --no-cache \
             | tee fallow-full-repo-summary.txt
           summary_status=$?
 
-          npx fallow@2.88.2 dead-code --summary --no-cache --fail-on-issues \
+          npx fallow@3.31.0 dead-code --summary --no-cache --fail-on-issues --fail-on-stale-baseline \
             --baseline .github/fallow-baselines/dead-code.json \
             | tee -a fallow-full-repo-summary.txt
           dead_code_status=$?
 
-          npx fallow@2.88.2 dupes --summary --no-cache --fail-on-issues \
+          npx fallow@3.31.0 dupes --summary --no-cache --fail-on-issues --fail-on-stale-baseline \
             --baseline .github/fallow-baselines/dupes.json \
             | tee -a fallow-full-repo-summary.txt
           dupes_status=$?
 
-          npx fallow@2.88.2 health --summary --no-cache --fail-on-issues \
+          npx fallow@3.31.0 health --summary --no-cache --fail-on-issues --fail-on-stale-baseline \
             --baseline .github/fallow-baselines/health.json \
             | tee -a fallow-full-repo-summary.txt
           health_status=$?

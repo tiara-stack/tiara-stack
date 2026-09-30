@@ -13,7 +13,7 @@ pnpm check:tsc-build
 pnpm checks
 pnpm format:apply
 pnpm check:agent-configs
-pnpm dlx fallow@2.88.2 audit
+pnpm dlx fallow@3.31.0 audit
 ```
 
 Run `pnpm check:tsc-build` before `pnpm lint` or `pnpm checks`. `pnpm lint` and
@@ -29,7 +29,7 @@ pnpm format:apply
 pnpm build
 pnpm check:tsc-build
 pnpm checks
-pnpm dlx fallow@2.88.2 audit
+pnpm dlx fallow@3.31.0 audit
 ```
 
 Run `pnpm build` when changes affect package exports, build configuration,

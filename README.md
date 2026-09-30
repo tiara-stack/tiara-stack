@@ -100,7 +100,7 @@ pnpm format
 pnpm lint
 pnpm test
 pnpm checks
-npx fallow audit
+pnpm dlx fallow@3.31.0 audit
 pnpm format:apply
 ```
 
