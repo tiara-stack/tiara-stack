@@ -19,8 +19,7 @@ Owner: `@theerapakg`
 - `dead-code.json`: narrow exceptions remain. The `sheet-domain` dependencies in sheet-bot,
   sheet-web, and sheet-workflows, plus `sheet-workflow-http-client` in sheet-web, are required
   source dependencies that Fallow 2.88.2 does not trace through the bundled workspace entrypoints;
-  `start-atom` is used by the sheet-web router but is likewise not traced. `ProviderAiReviewClient.runStructured`
-  implements its public client interface. The `Any` and `make` duplicate exports are intentionally
+  `start-atom` is used by the sheet-web router but is likewise not traced. The `Any` and `make` duplicate exports are intentionally
   namespaced Zero API constructors/types (`ZeroApi`, `ZeroApiGroup`, `ZeroApiEndpoint`, and
   `ZeroApiClient`). The `text` duplicate is a test-only text factory kept local to the workflow test
   helpers.

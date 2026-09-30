@@ -1,0 +1,19 @@
+version: 1
+
+reviewers:
+  correctness_reliability:
+    coding_agent: "worker"
+    model: "gpt-6.1-sol"
+    reasoning_effort: "max"
+  security_privacy:
+    coding_agent: "worker"
+    model: "gpt-6.1-sol"
+    reasoning_effort: "max"
+  maintainability_tests:
+    coding_agent: "worker"
+    model: "gpt-6.1-sol"
+    reasoning_effort: "max"
+  spec_conformance:
+    coding_agent: "worker"
+    model: "gpt-6.1-sol"
+    reasoning_effort: "max"

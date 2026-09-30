@@ -1,6 +1,0 @@
-interface:
-  display_name: "Checkpointed Code Review"
-  short_description: "Multi-agent review of recent code changes"
-  default_prompt: "Use $checkpointed-code-review to run a checkpointed multi-agent code review on my current changes."
-policy:
-  allow_implicit_invocation: false

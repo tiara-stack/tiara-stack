@@ -1,6 +1,6 @@
 # CodeRabbit PR review API research
 
-Checked 2026-09-17. Scope: CodeRabbit Cloud reviews for GitHub pull requests and the integration already present in this checkout.
+Checked 2026-09-17. Scope: CodeRabbit Cloud reviews for GitHub pull requests and the CLI available in this checkout.
 
 ## Conclusion
 
@@ -9,13 +9,13 @@ CodeRabbit has a supported REST API, but it does not document a live, per-pull-r
 The CLI has two different capabilities:
 
 - <code>coderabbit review --agent</code> emits structured findings and lifecycle events for a review that the CLI starts. It is useful for a fresh local or remote review, not for polling an existing hosted PR.
-- The installed CLI in this workspace, version <code>0.7.6</code>, also exposes <code>coderabbit pullrequest &lt;number-or-url&gt; --show-prompts --agent</code>. Its help describes this as reading CodeRabbit output and printing a consolidated prompt for an AI agent. The public [CLI command reference](https://docs.coderabbit.ai/cli/reference) does not list this subcommand or define a PR-state JSON schema, so it is not a stable replacement for the GitHub polling already used here. In this workspace, omitting <code>--show-prompts</code> fails with a required-option error; the current PR test also had no generated all-comments prompt to read.
+- The installed CLI in this workspace, version <code>0.7.6</code>, also exposes <code>coderabbit pullrequest &lt;number-or-url&gt; --show-prompts --agent</code>. Its help describes this as reading CodeRabbit output and printing a consolidated prompt for an AI agent. The public [CLI command reference](https://docs.coderabbit.ai/cli/reference) does not list this subcommand or define a PR-state JSON schema, so it is not a stable replacement for a GitHub-based poller. In this workspace, omitting <code>--show-prompts</code> fails with a required-option error; the current PR test also had no generated all-comments prompt to read.
 
-For this repository, use the installed CLI's undocumented best-effort
+For a custom integration, use the installed CLI's undocumented best-effort
 `coderabbit pullrequest --show-prompts --agent` command for agent-ready findings
-when available. Keep GitHub as
-the live source for the head-scoped hosted review status. Use CodeRabbit's REST
-API only for historical or organization-level metrics.
+when available. Keep GitHub as the live source for head-scoped hosted review
+status. Use CodeRabbit's REST API only for historical or organization-level
+metrics.
 
 ## CodeRabbit REST API
 
@@ -95,12 +95,12 @@ Its help requires CodeRabbit SaaS sign-in or a stored Agentic API key, an
 installed GitHub repository in the active organization, and `github.com` pull
 requests. The command is useful when the optional AI-agent prompt has been
 enabled, but the help only promises a consolidated prompt, not a typed
-review-state, head-SHA, quota, or comment API. The polling script treats it as
-a findings reader and keeps GitHub status as the completion contract.
+review-state, head-SHA, quota, or comment API. A custom poller should treat it
+as a findings reader and keep GitHub status as the completion contract.
 
-## Comparison with the repo's current GitHub data
+## GitHub data for head-scoped review
 
-The repo's [GitHub review operations](../../.agents/skills/autonomous-development/references/github-review.md) resolve <code>headRefOid</code>, then use these GitHub endpoints:
+A head-scoped review collector can resolve <code>headRefOid</code>, then use these GitHub endpoints:
 
 ~~~text
 GET /repos/{owner}/{repo}/commits/{head_sha}/status
@@ -109,14 +109,13 @@ GET /repos/{owner}/{repo}/pulls/{pull_number}/comments
 GET /repos/{owner}/{repo}/issues/{pull_number}/comments
 ~~~
 
-The polling implementation is in [poll.ts](../../.agents/skills/autonomous-development/scripts/poll.ts). It checks the current <code>headRefOid</code> before and during polling, selects the latest status with context <code>coderabbit</code>, treats a completed status as head-scoped only after head validation, and reads the installed CLI's undocumented best-effort <code>coderabbit pullrequest --show-prompts --agent</code> result for findings. It does not classify unassociated historical issue comments, so a hosted rate-limit result must come from the current status or the CodeRabbit CLI/API result. The main review phase still uses GitHub review and comment endpoints for thread repair and replies.
+Such a collector should validate the current <code>headRefOid</code> before and during polling, select the latest status with context <code>coderabbit</code>, and treat a completed status as head-scoped only after head validation. It can read the installed CLI's undocumented best-effort <code>coderabbit pullrequest --show-prompts --agent</code> result for findings. A rate-limit comment is authoritative evidence that the hosted review did not run, but the passing <code>Review rate limited</code> check does not mean the review completed. Associate the comment with the current head and review attempt; if that association cannot be established, report the review status as unknown. Ignore unassociated historical issue comments. GitHub review and comment endpoints remain the thread source for repair and replies.
 
-The review-operations reference now invokes
-`coderabbit pullrequest "$PR_URL" --show-prompts --agent`. The installed 0.7.6
-CLI rejects the older invocation without `--show-prompts`; the polling script
-captures the structured CLI result without exposing its intermediate output.
+The installed 0.7.6 CLI currently requires
+`coderabbit pullrequest "$PR_URL" --show-prompts --agent`; omitting
+`--show-prompts` fails with a required-option error.
 
-| Requested data | CodeRabbit REST API or CLI | GitHub data already used here |
+| Requested data | CodeRabbit REST API or CLI | GitHub API data |
 | --- | --- | --- |
 | Review state | No live per-PR REST field. CLI <code>review --agent</code> reports the state of a new CLI run; <code>pullrequest --show-prompts --agent</code> reports a prompt or a prompt error. | Commit status <code>context=coderabbit</code>, its state and description, plus the PR's current head. |
 | Reviewed head SHA | Metrics expose <code>last_commit_at</code>, not a SHA. Remote CLI accepts a source SHA, but reviews that source rather than querying an existing PR. | <code>gh pr view --json headRefOid</code>; review and inline-comment <code>commit_id</code> fields are matched to it. |
@@ -130,9 +129,9 @@ For private repositories, the GitHub calls need the authenticated <code>gh</code
 
 ## Recommendation
 
-Use the installed CLI's best-effort prompt command for findings in the silent poller, but do
-not treat it as a status API. Keep the GitHub head-SHA/status check for live
-merge-readiness decisions and retain GitHub review/comment APIs in the main
-agent for thread inspection and replies. Add the CodeRabbit metrics endpoints
-only if the repository needs historical review counts, severity/category
-aggregates, or post-merge finding metadata.
+For a custom head-scoped hosted-review collector, use the installed CLI's
+best-effort prompt command for findings, but do not treat it as a status API.
+Use the GitHub head-SHA/status check for live merge-readiness decisions and
+GitHub review/comment APIs for thread inspection and replies. Add the
+CodeRabbit metrics endpoints only when historical review counts,
+severity/category aggregates, or post-merge finding metadata are needed.

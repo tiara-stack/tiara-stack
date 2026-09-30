@@ -12,11 +12,15 @@ pnpm build
 pnpm check:tsc-build
 pnpm checks
 pnpm format:apply
+pnpm check:agent-configs
 pnpm dlx fallow@2.88.2 audit
 ```
 
-Run `pnpm check:tsc-build` before `pnpm lint` or `pnpm checks`. `pnpm checks`
-runs formatting, linting, and tests; Fallow is a separate audit. Run
+Run `pnpm check:tsc-build` before `pnpm lint` or `pnpm checks`. `pnpm lint` and
+`pnpm checks` validate the remaining `.agents/*.yaml` configs through
+`pnpm check:agent-configs`; CI runs the same validator through the root lint
+script. `pnpm checks` runs formatting, linting, agent config validation, and
+tests; Fallow is a separate audit. Run
 `pnpm format:apply` after proposing code changes. For a full code change, the
 default local validation is:
 

@@ -1,5 +1,9 @@
 merge_label: "to merge"
 
 subagent:
-  model: "gpt-5.6-luna"
+  model: "gpt-6-luna"
   reasoning_effort: "medium"
+
+local_reviewers:
+  - open-code-review-delegate
+  - coderabbit

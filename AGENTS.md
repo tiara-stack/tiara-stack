@@ -9,6 +9,13 @@ TiaraStack is a pnpm monorepo for Google Sheets integration, Discord automation,
 - Run `pnpm check:tsc-build` before `pnpm lint` or `pnpm checks`.
 - After code changes, use the validation workflow in [development.md](docs/agents/development.md).
 
+## Workflow conventions
+
+- Use Graphite for branch management, commits, and pull-request submission. Follow [Git and Graphite](docs/agents/git-workflow.md) for branch names, commit format, staging, and submission.
+- The CI definition is [.github/workflows/ci.yml](.github/workflows/ci.yml). Keep the pull request in draft until required checks and hosted CodeRabbit review pass for its current head.
+- When autonomous development is selected, use [.agents/autonomous-development.yaml](.agents/autonomous-development.yaml) for local reviewers and merge readiness. Run `open-code-review-delegate` before CodeRabbit; follow [Open Code Review delegation](docs/agents/open-code-review-delegation.md). Apply `to merge` only after the current head passes those gates; Graphite uses the label to admit the pull request to its merge queue.
+- Use [.agents/ticket-coordinator.yaml](.agents/ticket-coordinator.yaml) for coordinated ticket runs, [.agents/ticket-routing.yaml](.agents/ticket-routing.yaml) for task-level recommendations, and [.agents/agentic-review.yaml](.agents/agentic-review.yaml) for direct agentic reviews.
+
 ## Effect-first implementation
 
 Use Effect as the default for new application and library code whenever the

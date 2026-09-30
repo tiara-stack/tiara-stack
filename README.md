@@ -11,7 +11,6 @@ flowchart TB
         Web["sheet-web<br/>TanStack Start Dashboard"]
         Bot["sheet-bot<br/>Discord Bot"]
         Formulas["sheet-formulas<br/>Apps Script"]
-        VibeCord["vibecord<br/>Workspace Bot"]
     end
 
     subgraph Runtime["Target Runtime"]
@@ -32,7 +31,6 @@ flowchart TB
     Google["Google Sheets API"]
     Discord["Discord API"]
     Postgres[("PostgreSQL")]
-    SQLite[("SQLite")]
 
     Web --> Auth
     Web -.-> ZeroApi
@@ -54,8 +52,6 @@ flowchart TB
     ZeroServer -.-> ZeroApi
     Auth --> Discord
     Auth --> Postgres
-    VibeCord --> Discord
-    VibeCord --> SQLite
 ```
 
 The production deployment contains only the target runtimes: authentication,
@@ -75,7 +71,6 @@ bound to the workflow runner roles.
 | `sheet-web` | TanStack Start dashboard for guild management and scheduling |
 | `sheet-db-server` | Zero sync and database HTTP server |
 | `sheet-formulas` | Google Apps Script formulas and workflow HTTP integration |
-| `vibecord` | Independent Discord workspace/session bot |
 
 ### Contracts and shared libraries
 
@@ -156,5 +151,4 @@ packages/
 ├── sheet-web/                  Web runtime
 ├── sheet-formulas/             Apps Script runtime
 ├── sheet-message-content/      Messaging helpers
-└── vibecord/                   Independent workspace bot
 ```

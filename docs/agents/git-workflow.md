@@ -37,8 +37,4 @@ After the intended slices are committed and local review is clean:
 gt submit --no-interactive
 ```
 
-When the `autonomous-development` skill is already invoked, continue with
-[its workflow](../../.agents/skills/autonomous-development/SKILL.md). Otherwise,
-continue with the ordinary development flow.
-
 Record the resulting PR number and URL before starting PR babysitting.

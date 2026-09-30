@@ -4,14 +4,13 @@
   "type": "module",
   "scripts": {
     "format": "vp run -r format",
-    "lint": "status=0; vp run -F './packages/*' lint || status=$?; pnpm lint:agents || status=$?; exit $status",
+    "lint": "status=0; vp run -F './packages/*' lint || status=$?; pnpm check:agent-configs || status=$?; exit $status",
     "test": "vp run -F './packages/*' test",
-    "checks": "status=0; vp run -w format || status=$?; vp run -F './packages/*' lint || status=$?; vp run -w test || status=$?; pnpm check:agents || status=$?; exit $status",
+    "checks": "status=0; vp run -w format || status=$?; vp run -F './packages/*' lint || status=$?; pnpm check:agent-configs || status=$?; vp run -w test || status=$?; exit $status",
     "format:apply": "vp run -r format:apply",
     "build": "vp run -r --concurrency-limit 1 build",
     "check:tsc-build": "tsgo -b tsconfig.build.json --pretty false",
-    "lint:agents": "vp lint .agents/skills .agents/skills/autonomous-development/scripts/poll.ts",
-    "check:agents": "status=0; tsgo -p .agents/tsconfig.json || status=$?; pnpm lint:agents || status=$?; exit $status",
+    "check:agent-configs": "tsx scripts/check-agent-configs.ts",
     "dev": "tsx packages/developer-launcher/src/cli.ts",
     "kubernetes:parity-gate": "tsx deploy/kubernetes/scripts/parity-gate.ts",
     "compose:generate-secrets": "tsx deploy/compose/scripts/generate-secrets.ts --no-overwrite",
@@ -26,7 +25,8 @@
     "tsx": "catalog:",
     "typescript": "^5.9.3",
     "vite": "catalog:",
-    "vite-plus": "catalog:"
+    "vite-plus": "catalog:",
+    "yaml": "catalog:"
   },
   "packageManager": "pnpm@11.1.1+sha512.d1fdf5f73c617b64fa1a56a81c3c8dfe0e966e33a6010aa256b517ae77be21d93e05affc0de1a83b0e4f29d569f68b446ae8f068cd7247c0bb3df0fb4d7bdf9a",
   "pnpm": {
