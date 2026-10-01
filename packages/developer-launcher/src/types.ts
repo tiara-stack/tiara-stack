@@ -8,6 +8,7 @@ export const connectedPreviewActions = [
   "doctor",
   "start",
   "status",
+  "heartbeat",
   "resume",
   "stop",
   "cleanup",
@@ -191,6 +192,14 @@ export interface LauncherOutput {
   readonly changedSurfaces: readonly ChangedSurface[];
   readonly parityGates: readonly ParityGate[];
   readonly connectedPreview?: ConnectedPreviewReport;
+  readonly previewSession?: {
+    readonly id: string;
+    readonly phase: "pending" | "starting" | "active" | "stopping" | "ended" | "expired";
+    readonly generation: number;
+    readonly leaseDeadline: number;
+    readonly lastRenewedAt: number;
+    readonly unsettled: number;
+  };
 }
 
 export interface ConnectedPreviewPrerequisite {
@@ -363,6 +372,7 @@ export interface LauncherOptions {
   readonly env?: NodeJS.ProcessEnv;
   readonly envFile?: string | null;
   readonly selectedServices?: readonly string[];
+  readonly previewSessionController?: import("./preview-sessions").PreviewSessionControllerApi;
 }
 
 export interface LauncherResult {

@@ -1,7 +1,9 @@
 import { expect, it } from "@effect/vitest";
 import { NodeServices } from "@effect/platform-node";
-import { Effect, FileSystem, Path, Scope } from "effect";
-import { parseCommand, runLauncher, type ProcessExecutor } from "./index";
+import { SqliteClient } from "@effect/sql-sqlite-node";
+import { Effect, FileSystem, Layer, Path, Scope } from "effect";
+import { parseCommand, parsePositionals, runLauncher, type ProcessExecutor } from "./index";
+import { makePreviewSessionController } from "./preview-sessions";
 
 const previewRoleContracts = {
   "sheet-web": {
@@ -321,6 +323,13 @@ liveTest("prints connected preview help without reading configuration or startin
 it("parses connected preview action arguments by action", () => {
   const plan = parseCommand(["preview", "plan", "--config", "preview.json", "--json"]);
   const status = parseCommand(["preview", "status", "--session", "session-123", "--json"]);
+  const statusWithLeadingOption = parseCommand([
+    "preview",
+    "--json",
+    "status",
+    "--session",
+    "session-123",
+  ]);
 
   expect(plan).toEqual(
     expect.objectContaining({
@@ -344,6 +353,50 @@ it("parses connected preview action arguments by action", () => {
       }),
     }),
   );
+  expect(statusWithLeadingOption).toEqual(
+    expect.objectContaining({ kind: "preview", action: "status" }),
+  );
+  expect(() =>
+    parsePositionals(["preview", "heartbeat"], {
+      json: false,
+      jsonStream: false,
+      help: false,
+      envFile: null,
+      configFile: null,
+      sessionId: "session-123",
+      generation: 0,
+      service: null,
+      confirm: false,
+      confirmDevelopment: false,
+      tag: null,
+      changedSurfaces: [],
+    }),
+  ).toThrow(/positive safe integer/);
+});
+
+it("accepts only decimal safe integers for preview supervisor generations", () => {
+  for (const generation of ["0x10", "1e2", "+1", "1.0", " "]) {
+    expect(() =>
+      parseCommand([
+        "preview",
+        "heartbeat",
+        "--session",
+        "00000000-0000-4000-8000-000000000000",
+        "--generation",
+        generation,
+      ]),
+    ).toThrow(/positive safe integer/);
+  }
+  expect(
+    parseCommand([
+      "preview",
+      "heartbeat",
+      "--session",
+      "00000000-0000-4000-8000-000000000000",
+      "--generation",
+      "17",
+    ]),
+  ).toEqual(expect.objectContaining({ kind: "preview", action: "heartbeat" }));
 });
 
 liveTest("plans all seven selected roles and explicit groups without starting resources", () =>
@@ -1253,6 +1306,7 @@ liveTest("reports unimplemented doctor checks as unavailable and performs no pro
 const blockedPreviewActions: readonly [string, readonly string[]][] = [
   ["start", ["start", "--config", "/missing/preview.json"]],
   ["status", ["status", "--session", "session-123"]],
+  ["heartbeat", ["heartbeat", "--session", "session-123", "--generation", "1"]],
   ["resume", ["resume", "--session", "session-123"]],
   ["stop", ["stop", "--session", "session-123"]],
   ["cleanup", ["cleanup", "--session", "session-123"]],
@@ -1281,10 +1335,253 @@ for (const [action, args] of blockedPreviewActions) {
           mode: "preview",
           action,
           readiness: "blocked",
-          errors: [expect.objectContaining({ code: "not-implemented" })],
+          errors: [
+            expect.objectContaining({
+              code: action === "cleanup" ? "not-implemented" : "dependency-unavailable",
+            }),
+          ],
         }),
       );
       expect(executions).toEqual([]);
     }),
   );
 }
+
+it.live(
+  "routes session commands through durable controller authority without exposing credentials",
+  () =>
+    Effect.gen(function* () {
+      const clock = { value: 50_000 };
+      const controller = yield* makePreviewSessionController(() => clock.value);
+      yield* withConnectedPreviewConfig(
+        createConnectedPreviewConfig({ roles: ["sheet-auth"] }),
+        (configPath, cwd) =>
+          Effect.gen(function* () {
+            const sessionDatabase = `${cwd}/controller.sqlite`;
+            const options = {
+              cwd,
+              env: { TIARA_PREVIEW_SESSION_DATABASE: sessionDatabase },
+              previewSessionController: controller,
+            };
+            const start = yield* Effect.tryPromise({
+              try: () =>
+                runLauncher(["preview", "start", "--config", configPath, "--json"], options),
+              catch: (cause) => cause,
+            });
+            expect(start.exitCode).toBe(0);
+            const created = JSON.parse(start.stdout) as {
+              readonly previewSession: { readonly id: string; readonly generation: number };
+              readonly plannedProcesses: readonly unknown[];
+              readonly readiness: string;
+            };
+            const id = created.previewSession.id;
+            expect(created.previewSession.generation).toBe(1);
+            expect(created.readiness).toBe("planned");
+            expect(created.plannedProcesses).toEqual([]);
+            const identityStore = yield* FileSystem.FileSystem;
+            const storedIdentity = yield* identityStore.readFileString(
+              `${sessionDatabase}.credentials/${id}`,
+            );
+            const credentials = JSON.parse(storedIdentity) as {
+              readonly ownerIdentity: string;
+              readonly supervisorIdentity: string;
+            };
+            expect(start.stdout).not.toContain(credentials.ownerIdentity);
+            expect(start.stdout).not.toContain(credentials.supervisorIdentity);
+
+            const status = yield* Effect.tryPromise({
+              try: () => runLauncher(["preview", "status", "--session", id, "--json"], options),
+              catch: (cause) => cause,
+            });
+            const beforeHeartbeat = JSON.parse(status.stdout) as {
+              readonly previewSession: { readonly lastRenewedAt: number };
+            };
+            expect(beforeHeartbeat.previewSession.lastRenewedAt).toBe(clock.value);
+
+            const heartbeat = yield* Effect.tryPromise({
+              try: () =>
+                runLauncher(
+                  ["preview", "heartbeat", "--session", id, "--generation", "1", "--json"],
+                  options,
+                ),
+              catch: (cause) => cause,
+            });
+            expect(heartbeat.exitCode).toBe(0);
+            const concurrentResume = yield* Effect.tryPromise({
+              try: () => runLauncher(["preview", "resume", "--session", id, "--json"], options),
+              catch: (cause) => cause,
+            });
+            expect(concurrentResume.exitCode).toBe(2);
+
+            clock.value += 30_000;
+            const resumed = yield* Effect.tryPromise({
+              try: () => runLauncher(["preview", "resume", "--session", id, "--json"], options),
+              catch: (cause) => cause,
+            });
+            expect(resumed.exitCode).toBe(0);
+            const staleHeartbeat = yield* Effect.tryPromise({
+              try: () =>
+                runLauncher(
+                  ["preview", "heartbeat", "--session", id, "--generation", "1", "--json"],
+                  options,
+                ),
+              catch: (cause) => cause,
+            });
+            expect(staleHeartbeat.exitCode).toBe(2);
+
+            const stopped = yield* Effect.tryPromise({
+              try: () => runLauncher(["preview", "stop", "--session", id, "--json"], options),
+              catch: (cause) => cause,
+            });
+            const stoppedAgain = yield* Effect.tryPromise({
+              try: () => runLauncher(["preview", "stop", "--session", id, "--json"], options),
+              catch: (cause) => cause,
+            });
+            expect(stopped.exitCode).toBe(0);
+            expect(stoppedAgain.exitCode).toBe(0);
+            const ended = yield* controller.status(id);
+            expect(ended.phase).toBe("ended");
+          }),
+      );
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(SqliteClient.layer({ filename: ":memory:" }), NodeServices.layer),
+      ),
+    ),
+);
+
+it.live("does not create a pending session when a declared environment file is unavailable", () =>
+  Effect.gen(function* () {
+    const clock = { value: 50_000 };
+    const controller = yield* makePreviewSessionController(() => clock.value);
+    let createCalls = 0;
+    const observedController = {
+      ...controller,
+      create: (input: Parameters<typeof controller.create>[0]) => {
+        createCalls += 1;
+        return controller.create(input);
+      },
+    };
+    yield* withConnectedPreviewConfig(
+      createConnectedPreviewConfig({
+        roles: ["sheet-auth"],
+        configOverrides: {
+          environmentFileInputs: [{ role: "sheet-auth", path: "environment/missing.env" }],
+        },
+      }),
+      (configPath, cwd) =>
+        runLauncherEffect(["preview", "start", "--config", configPath, "--json"], {
+          cwd,
+          env: { TIARA_PREVIEW_SESSION_DATABASE: `${cwd}/controller.sqlite` },
+          previewSessionController: observedController,
+        }).pipe(
+          Effect.tap((result) =>
+            Effect.sync(() => {
+              expect(result.exitCode).toBe(2);
+              expect(JSON.parse(result.stdout).errors).toEqual(
+                expect.arrayContaining([expect.objectContaining({ code: "env-file-not-found" })]),
+              );
+              expect(createCalls).toBe(0);
+            }),
+          ),
+        ),
+    );
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(SqliteClient.layer({ filename: ":memory:" }), NodeServices.layer),
+    ),
+  ),
+);
+
+it.live("does not create a pending session without a credential store path", () =>
+  Effect.gen(function* () {
+    const controller = yield* makePreviewSessionController(() => 50_000);
+    let createCalls = 0;
+    const observedController = {
+      ...controller,
+      create: (input: Parameters<typeof controller.create>[0]) => {
+        createCalls += 1;
+        return controller.create(input);
+      },
+    };
+    yield* withConnectedPreviewConfig(
+      createConnectedPreviewConfig({ roles: ["sheet-auth"] }),
+      (configPath, cwd) =>
+        runLauncherEffect(["preview", "start", "--config", configPath, "--json"], {
+          cwd,
+          env: {},
+          previewSessionController: observedController,
+        }).pipe(
+          Effect.tap((result) =>
+            Effect.sync(() => {
+              expect(result.exitCode).toBe(2);
+              expect(JSON.parse(result.stdout).errors).toEqual(
+                expect.arrayContaining([
+                  expect.objectContaining({ code: "dependency-unavailable" }),
+                ]),
+              );
+              expect(createCalls).toBe(0);
+            }),
+          ),
+        ),
+    );
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(SqliteClient.layer({ filename: ":memory:" }), NodeServices.layer),
+    ),
+  ),
+);
+
+it.live("reports malformed session IDs separately from missing database configuration", () =>
+  Effect.gen(function* () {
+    const controller = yield* makePreviewSessionController(() => 50_000);
+    const result = yield* runLauncherEffect(
+      ["preview", "heartbeat", "--session", "not-a-session-id", "--generation", "1", "--json"],
+      {
+        env: { TIARA_PREVIEW_SESSION_DATABASE: "/tmp/unused-preview-sessions.sqlite" },
+        previewSessionController: controller,
+      },
+    );
+    expect(result.exitCode).toBe(2);
+    expect(JSON.stringify(result.output.errors)).toContain(
+      "The --session value must be the session ID returned by preview start.",
+    );
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(SqliteClient.layer({ filename: ":memory:" }), NodeServices.layer),
+    ),
+  ),
+);
+
+it.live("stops a newly created session when owner credentials cannot be persisted", () =>
+  Effect.gen(function* () {
+    const controller = yield* makePreviewSessionController(() => 50_000);
+    yield* withConnectedPreviewConfig(
+      createConnectedPreviewConfig({ roles: ["sheet-auth"] }),
+      (configPath, cwd) =>
+        Effect.gen(function* () {
+          const sessionDatabase = `${cwd}/controller.sqlite`;
+          const fileSystem = yield* FileSystem.FileSystem;
+          yield* fileSystem.writeFileString(`${sessionDatabase}.credentials`, "not-a-directory");
+          const result = yield* runLauncherEffect(
+            ["preview", "start", "--config", configPath, "--json"],
+            {
+              cwd,
+              env: { TIARA_PREVIEW_SESSION_DATABASE: sessionDatabase },
+              previewSessionController: controller,
+            },
+          );
+          const output = JSON.parse(result.stdout) as {
+            readonly previewSession: { readonly id: string; readonly phase: string };
+          };
+          expect(result.exitCode).toBe(2);
+          expect(output.previewSession.phase).toBe("ended");
+          expect((yield* controller.status(output.previewSession.id)).phase).toBe("ended");
+        }),
+    );
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(SqliteClient.layer({ filename: ":memory:" }), NodeServices.layer),
+    ),
+  ),
+);

@@ -1,7 +1,12 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
-import { Effect, FileSystem, Predicate, Result, Schema } from "effect";
+import { Effect, FileSystem, Match, Option, Predicate, Result, Schema } from "effect";
 import { sensitiveEnvironmentKeys } from "./config";
+import {
+  dispatchPreviewSessionProtocol,
+  PreviewSessionController,
+  SessionCredentialsSchema,
+} from "./preview-sessions";
 import { makeDiagnostic, makeWarning } from "./diagnostics";
 import type { ParsedCommand } from "./commands";
 import {
@@ -287,10 +292,7 @@ const quotaResourceDimensions = {
 type ContractId = keyof typeof runtimeContractCatalog.contracts;
 type GroupOwnership = "owned" | "reused";
 type ConnectedPreviewCommand = Extract<ParsedCommand, { readonly kind: "preview" }>;
-type ReadOnlyConnectedPreviewCommand =
-  | Extract<ParsedCommand, { readonly kind: "preview"; readonly action: "plan" }>
-  | Extract<ParsedCommand, { readonly kind: "preview"; readonly action: "doctor" }>;
-
+type PreviewStartCommand = Extract<ConnectedPreviewCommand, { readonly action: "start" }>;
 const getRuntimeContract = (contractId: string | null | undefined) => {
   if (contractId == null || !Object.hasOwn(runtimeContractCatalog.contracts, contractId)) {
     return undefined;
@@ -2027,9 +2029,13 @@ const outputForUnavailableExecution = (
   warnings: [],
   errors: [
     makeDiagnostic(
-      "not-implemented",
-      `Connected preview ${command.action} is unavailable; no session or execution operation was attempted`,
-      "Only read-only preview planning and prerequisite reporting are available in this implementation slice.",
+      command.action === "cleanup" ? "not-implemented" : "dependency-unavailable",
+      command.action === "cleanup"
+        ? "Connected preview cleanup is unavailable; no cleanup operation was attempted"
+        : `Connected preview ${command.action} is unavailable; no session operation was attempted`,
+      command.action === "cleanup"
+        ? "Owned-resource cleanup is not implemented; no preview resources were changed."
+        : "Configure and authenticate the durable preview session controller before using session actions.",
       { mode: "preview", action: command.action },
     ),
   ],
@@ -2037,8 +2043,444 @@ const outputForUnavailableExecution = (
   parityGates: [],
 });
 
+const identityDirectory = (environment: NodeJS.ProcessEnv) => {
+  const database = environment.TIARA_PREVIEW_SESSION_DATABASE;
+  if (database === undefined || database.trim() === "") return undefined;
+  return `${path.resolve(database)}.credentials`;
+};
+
+const identityPath = (sessionId: string, environment: NodeJS.ProcessEnv) => {
+  const directory = identityDirectory(environment);
+  if (directory === undefined) return undefined;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sessionId))
+    return undefined;
+  const candidate = path.resolve(directory, sessionId);
+  return candidate.startsWith(`${directory}${path.sep}`) ? candidate : undefined;
+};
+
+type LocalSessionCredentials = typeof SessionCredentialsSchema.Type;
+
+const persistSessionCredentials = (filePath: string, credentials: LocalSessionCredentials) =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const directory = path.dirname(filePath);
+    const temporaryPath = `${filePath}.${randomUUID()}.tmp`;
+    yield* Effect.gen(function* () {
+      yield* fileSystem.makeDirectory(directory, { recursive: true, mode: 0o700 });
+      yield* fileSystem.writeFileString(temporaryPath, JSON.stringify(credentials), {
+        mode: 0o600,
+        flag: "wx",
+      });
+      yield* fileSystem.chmod(directory, 0o700);
+      yield* fileSystem.chmod(temporaryPath, 0o600);
+      yield* fileSystem.rename(temporaryPath, filePath);
+      yield* fileSystem.chmod(filePath, 0o600);
+    }).pipe(
+      Effect.onError(() => fileSystem.remove(temporaryPath, { force: true }).pipe(Effect.ignore)),
+    );
+  }).pipe(Effect.mapError(() => new Error("session-credentials-storage-unavailable")));
+
+const readSessionCredentials = (filePath: string) =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const raw = yield* fileSystem.readFileString(filePath);
+    return yield* Effect.try({
+      try: () => Schema.decodeUnknownSync(SessionCredentialsSchema)(JSON.parse(raw) as unknown),
+      catch: () => new Error("session-credentials-unavailable"),
+    });
+  }).pipe(Effect.mapError(() => new Error("session-credentials-unavailable")));
+
+const sessionOutput = (
+  command: ConnectedPreviewCommand,
+  session: import("./preview-sessions").PreviewSession,
+): LauncherOutput => ({
+  schemaVersion: 3,
+  ok: true,
+  command: command.command,
+  mode: "preview",
+  action: command.action,
+  selectedServices: [],
+  checkoutState: null,
+  plannedProcesses: [],
+  urls: [],
+  readiness:
+    session.phase === "ended" ? "stopped" : session.phase === "expired" ? "blocked" : "planned",
+  warnings: [],
+  errors: [],
+  changedSurfaces: [],
+  parityGates: [],
+  previewSession: {
+    id: session.id,
+    phase: session.phase,
+    generation: session.generation,
+    leaseDeadline: session.leaseDeadline,
+    lastRenewedAt: session.lastRenewedAt,
+    unsettled: session.unsettled,
+  },
+});
+
+const sessionOperationFailure = (
+  command: ConnectedPreviewCommand,
+  message: string,
+): LauncherOutput => ({
+  ...outputForUnavailableExecution(command),
+  errors: [
+    makeDiagnostic(
+      "dependency-unavailable",
+      `Connected preview ${command.action} could not be authorized by the session controller`,
+      message,
+      { mode: "preview", action: command.action },
+    ),
+  ],
+});
+
+type StartConfigResult =
+  | { readonly config: ConnectedPreviewConfig; readonly output?: never }
+  | { readonly config?: never; readonly output: LauncherOutput };
+
+const readStartConfig = (
+  command: PreviewStartCommand,
+  cwd: string,
+): Effect.Effect<StartConfigResult, never, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const configPath = path.resolve(cwd, command.options.configFile);
+    const contents = yield* Effect.result(fileSystem.readFileString(configPath));
+    if (Result.isFailure(contents)) {
+      return {
+        output: sessionOperationFailure(
+          command,
+          "Read the explicit preview configuration before creating a session.",
+        ),
+      };
+    }
+    const decoded = parseConfigText(contents.success);
+    if ("error" in decoded) return { output: outputForInvalidConfig(command, decoded.error) };
+    const validation = validateConfiguration(decoded.config, "plan");
+    const environmentFiles = yield* inspectEnvironmentFileInputs(
+      decoded.config,
+      configPath,
+      "plan",
+    );
+    const report = { ...validation.report, environmentFileInputs: environmentFiles.inputs };
+    const errors = [...validation.errors, ...environmentFiles.errors];
+    if (errors.length > 0) {
+      return { output: outputForPreviewReport(command, report, errors) };
+    }
+    return { config: decoded.config };
+  });
+
+const failedPendingSessionOutput = (
+  command: ConnectedPreviewCommand,
+  session: import("./preview-sessions").PreviewSession,
+  remediation: string,
+): LauncherOutput => ({
+  ...sessionOutput(command, session),
+  ok: false,
+  readiness: "blocked",
+  errors: [
+    makeDiagnostic("dependency-unavailable", "Session identity could not be stored", remediation),
+  ],
+});
+
+type CreatedPreviewSessionResult =
+  | { readonly created: import("./preview-sessions").SessionCredentials; readonly output?: never }
+  | { readonly created?: never; readonly output: LauncherOutput };
+
+const createPendingPreviewSession = (
+  command: PreviewStartCommand,
+  config: ConnectedPreviewConfig,
+  cwd: string,
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+): Effect.Effect<CreatedPreviewSessionResult> =>
+  Effect.gen(function* () {
+    const result = yield* Effect.result(
+      dispatchPreviewSessionProtocol(controller, {
+        _tag: "Create",
+        input: {
+          owner: config.owner,
+          checkout: path.resolve(cwd),
+          manifests: {
+            ...config.identities.artifactDigests,
+            "deployed-manifest": config.identities.deployedManifestDigest,
+          },
+          requestedRevision: config.identities.sourceRevision,
+        },
+      }),
+    );
+    if (Result.isFailure(result)) {
+      return {
+        output: sessionOperationFailure(command, "The durable session authority is unavailable."),
+      };
+    }
+    if (result.success._tag !== "Created") {
+      return {
+        output: sessionOperationFailure(
+          command,
+          "The controller returned an invalid create response.",
+        ),
+      };
+    }
+    return { created: result.success };
+  });
+
+const stopSessionWithoutCredentials = (
+  command: PreviewStartCommand,
+  created: import("./preview-sessions").SessionCredentials,
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+) =>
+  Effect.gen(function* () {
+    const stopped = yield* Effect.result(
+      dispatchPreviewSessionProtocol(controller, {
+        _tag: "Stop",
+        id: created.session.id,
+        ownerIdentity: created.ownerIdentity,
+      }),
+    );
+    const session =
+      Result.isSuccess(stopped) && stopped.success._tag === "Session"
+        ? stopped.success.session
+        : created.session;
+    return failedPendingSessionOutput(
+      command,
+      session,
+      "The session ID was retained for inspection, but its owner credentials could not be stored.",
+    );
+  });
+
+const persistPreviewSessionCredentials = (
+  command: PreviewStartCommand,
+  created: import("./preview-sessions").SessionCredentials,
+  tokenPath: string,
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+) =>
+  Effect.gen(function* () {
+    const persisted = yield* Effect.result(
+      persistSessionCredentials(tokenPath, {
+        ownerIdentity: created.ownerIdentity,
+        supervisorIdentity: created.supervisorIdentity,
+      }),
+    );
+    return Result.isFailure(persisted)
+      ? yield* stopSessionWithoutCredentials(command, created, controller)
+      : sessionOutput(command, created.session);
+  });
+
+const runSessionStart = (
+  command: PreviewStartCommand,
+  options: LauncherOptions,
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+): Effect.Effect<LauncherOutput, never, FileSystem.FileSystem> =>
+  Effect.uninterruptible(
+    Effect.gen(function* () {
+      const cwd = options.cwd ?? process.cwd();
+      const setup = yield* readStartConfig(command, cwd);
+      if (setup.output !== undefined) return setup.output;
+      const environment = options.env ?? process.env;
+      if (identityDirectory(environment) === undefined) {
+        return sessionOperationFailure(
+          command,
+          "TIARA_PREVIEW_SESSION_DATABASE must name the configured controller store before creating a session.",
+        );
+      }
+      const creation = yield* createPendingPreviewSession(command, setup.config, cwd, controller);
+      if (creation.output !== undefined) return creation.output;
+      const tokenPath = identityPath(creation.created.session.id, environment);
+      if (tokenPath === undefined)
+        return yield* stopSessionWithoutCredentials(command, creation.created, controller);
+      return yield* persistPreviewSessionCredentials(
+        command,
+        creation.created,
+        tokenPath,
+        controller,
+      );
+    }),
+  );
+
+const runSessionStatus = (
+  command: ConnectedPreviewCommand,
+  id: string,
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+) =>
+  Effect.gen(function* () {
+    const result = yield* Effect.result(
+      dispatchPreviewSessionProtocol(controller, { _tag: "Status", id }),
+    );
+    if (Result.isFailure(result)) {
+      return sessionOperationFailure(
+        command,
+        "The session is unknown, expired, or the authority store is unavailable.",
+      );
+    }
+    return result.success._tag === "Session"
+      ? sessionOutput(command, result.success.session)
+      : sessionOperationFailure(command, "The controller returned an invalid status response.");
+  });
+
+const runSessionResume = (
+  command: ConnectedPreviewCommand,
+  id: string,
+  tokenPath: string,
+  credentials: LocalSessionCredentials,
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+) =>
+  Effect.gen(function* () {
+    const result = yield* Effect.result(
+      dispatchPreviewSessionProtocol(controller, {
+        _tag: "Resume",
+        id,
+        ownerIdentity: credentials.ownerIdentity,
+      }),
+    );
+    if (Result.isFailure(result)) {
+      return sessionOperationFailure(
+        command,
+        "Resume requires the original owner identity, an unexpired lease, and no active supervisor.",
+      );
+    }
+    if (result.success._tag !== "Resumed") {
+      return sessionOperationFailure(
+        command,
+        "The controller returned an invalid resume response.",
+      );
+    }
+    const persisted = yield* Effect.result(
+      persistSessionCredentials(tokenPath, {
+        ownerIdentity: credentials.ownerIdentity,
+        supervisorIdentity: result.success.supervisorIdentity,
+      }),
+    );
+    return Result.isFailure(persisted)
+      ? sessionOperationFailure(
+          command,
+          "The session resumed, but its rotated supervisor credential could not be stored. Restore credential-store write access, wait 30 seconds for the supervisor lease to expire, then retry resume before the session lease expires.",
+        )
+      : sessionOutput(command, result.success.session);
+  });
+
+const runSessionHeartbeat = (
+  command: ConnectedPreviewCommand,
+  id: string,
+  credentials: LocalSessionCredentials,
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+) =>
+  Effect.gen(function* () {
+    const generation = command.options.generation;
+    if (generation === null || generation === undefined)
+      return outputForUnavailableExecution(command);
+    const result = yield* Effect.result(
+      dispatchPreviewSessionProtocol(controller, {
+        _tag: "Heartbeat",
+        id,
+        supervisorIdentity: credentials.supervisorIdentity,
+        generation,
+      }),
+    );
+    if (Result.isFailure(result)) {
+      return sessionOperationFailure(
+        command,
+        "Heartbeat was rejected because the lease expired or the supervisor generation is stale.",
+      );
+    }
+    return result.success._tag === "Session"
+      ? sessionOutput(command, result.success.session)
+      : sessionOperationFailure(command, "The controller returned an invalid heartbeat response.");
+  });
+
+const runSessionStop = (
+  command: ConnectedPreviewCommand,
+  id: string,
+  credentials: LocalSessionCredentials,
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+) =>
+  Effect.gen(function* () {
+    const result = yield* Effect.result(
+      dispatchPreviewSessionProtocol(controller, {
+        _tag: "Stop",
+        id,
+        ownerIdentity: credentials.ownerIdentity,
+      }),
+    );
+    if (Result.isFailure(result)) {
+      return sessionOperationFailure(
+        command,
+        "Stop requires the owner identity; the controller could not verify this session.",
+      );
+    }
+    return result.success._tag === "Session"
+      ? sessionOutput(command, result.success.session)
+      : sessionOperationFailure(command, "The controller returned an invalid stop response.");
+  });
+
+const runSessionWithCredentials = (
+  command: ConnectedPreviewCommand,
+  id: string,
+  options: LauncherOptions,
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+) => {
+  const read = Effect.gen(function* () {
+    const environment = options.env ?? process.env;
+    if (identityDirectory(environment) === undefined) {
+      return {
+        output: sessionOperationFailure(
+          command,
+          "TIARA_PREVIEW_SESSION_DATABASE must name the configured controller store.",
+        ),
+      } as const;
+    }
+    const tokenPath = identityPath(id, environment);
+    if (tokenPath === undefined) {
+      return {
+        output: sessionOperationFailure(
+          command,
+          "The --session value must be the session ID returned by preview start.",
+        ),
+      } as const;
+    }
+    const credentials = yield* Effect.result(readSessionCredentials(tokenPath));
+    if (Result.isFailure(credentials)) {
+      return {
+        output: sessionOperationFailure(
+          command,
+          "The private session identity is unavailable; verify this checkout and local credential store.",
+        ),
+      } as const;
+    }
+    return { credentials: credentials.success, tokenPath } as const;
+  });
+  return read.pipe(
+    Effect.flatMap((result) => {
+      if ("output" in result) return Effect.succeed(result.output);
+      return Match.value(command.action).pipe(
+        Match.when("resume", () =>
+          runSessionResume(command, id, result.tokenPath, result.credentials, controller),
+        ),
+        Match.when("heartbeat", () =>
+          runSessionHeartbeat(command, id, result.credentials, controller),
+        ),
+        Match.when("stop", () => runSessionStop(command, id, result.credentials, controller)),
+        Match.orElse(() => Effect.succeed(outputForUnavailableExecution(command))),
+      );
+    }),
+  );
+};
+
+const runSessionCommand = (
+  command: ConnectedPreviewCommand,
+  options: LauncherOptions,
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+): Effect.Effect<LauncherOutput, never, FileSystem.FileSystem> => {
+  if (command.action === "cleanup") return Effect.succeed(outputForUnavailableExecution(command));
+  if (command.action === "start") return runSessionStart(command, options, controller);
+  const id = command.options.sessionId;
+  if (id === null) return Effect.succeed(outputForUnavailableExecution(command));
+  return command.action === "status"
+    ? runSessionStatus(command, id, controller)
+    : runSessionWithCredentials(command, id, options, controller);
+};
+
 const outputForInvalidConfig = (
-  command: ReadOnlyConnectedPreviewCommand,
+  command: ConnectedPreviewCommand,
   message: string,
 ): LauncherOutput => ({
   schemaVersion: 3,
@@ -2055,7 +2497,7 @@ const outputForInvalidConfig = (
   errors: [
     diagnostic(
       "invalid-preview-config",
-      command.action,
+      command.action === "doctor" ? "doctor" : "plan",
       message,
       "Read the connected-preview schema documentation and provide a versioned development-only configuration.",
     ),
@@ -2076,7 +2518,7 @@ const doctorUnavailableErrors = (action: "doctor") =>
   );
 
 const outputForPreviewReport = (
-  command: Extract<ParsedCommand, { readonly kind: "preview" }>,
+  command: ConnectedPreviewCommand,
   report: ConnectedPreviewReport,
   validationErrors: readonly Diagnostic[],
   validationWarnings: readonly Diagnostic[] = [],
@@ -2269,7 +2711,18 @@ export const connectedPreviewOutput = (
   options: LauncherOptions,
 ): Effect.Effect<LauncherOutput, never, FileSystem.FileSystem> => {
   if (command.action !== "plan" && command.action !== "doctor") {
-    return Effect.succeed(outputForUnavailableExecution(command));
+    if (command.action === "cleanup") return Effect.succeed(outputForUnavailableExecution(command));
+    if (options.previewSessionController !== undefined) {
+      return runSessionCommand(command, options, options.previewSessionController);
+    }
+    return Effect.serviceOption(PreviewSessionController).pipe(
+      Effect.flatMap((controller) =>
+        Option.match(controller, {
+          onNone: () => Effect.succeed(outputForUnavailableExecution(command)),
+          onSome: (service) => runSessionCommand(command, options, service),
+        }),
+      ),
+    );
   }
   return Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;

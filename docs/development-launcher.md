@@ -21,6 +21,7 @@ pnpm dev compose <up|build|down|seed|reset>
 pnpm dev kubernetes <validate|preview> [--changed-surface <surface>]
 pnpm dev preview <plan|doctor|start> --config <file>
 pnpm dev preview <status|resume|stop|cleanup> --session <id>
+pnpm dev preview heartbeat --session <id> --generation <n>
 pnpm dev doctor
 pnpm dev setup <fast|compose|kubernetes>
 ```
@@ -48,8 +49,9 @@ also accepts a comma-separated value in one flag.
 
 `--config <file>` and `--session <id>` are reserved for connected preview
 commands. Plan, doctor, and start require `--config`; status, resume, stop, and
-cleanup require `--session`. The bare `pnpm dev preview` command prints help
-without reading a file or starting a process.
+cleanup require `--session`. Heartbeat also requires `--generation` so a stale
+supervisor cannot renew a newer session revision. The bare `pnpm dev preview`
+command prints help without reading a file or starting a process.
 
 Fast reads `.env.development.local` from the repository root by default. Pass
 `--env-file <path>` to use an explicit file. The default web slice accepts only
@@ -209,10 +211,43 @@ readiness proof, or admission decision. `pnpm dev preview doctor --config
 workspace, controller, route, identity, grant, capacity, and cleanup probes are
 not implemented. It never reports an unrun check as passed.
 
-`start`, `status`, `resume`, `stop`, and `cleanup` return a blocked
-`not-implemented` result. They do not read session state or invoke a process.
-No connected profile is available for live use in this slice. Plans retain the
-launcher JSON `schemaVersion: 3` and lifecycle JSON Lines `eventVersion: 1`.
+Set `TIARA_PREVIEW_SESSION_DATABASE` to a private local SQLite path before
+using session actions. `start` validates the static config and durably creates
+a pending session before returning its ID. It never starts an application
+profile. `status` reads without renewing; `heartbeat` requires the current
+generation; `resume` requires the local owner identity and fences the previous
+generation; `stop` closes normal admission idempotently. The `cleanup` action
+and all application profiles remain unavailable. Plan and session responses
+keep launcher JSON `schemaVersion: 3` and lifecycle JSON Lines `eventVersion: 1`.
+
+The launcher uses its Effect `PreviewSessionController` service backed by
+SQLite as the local controller protocol boundary. It durably records the
+owner, checkout, selected manifest digests, requested and active revisions,
+phase, generation, renewal time, and terminal state. A session identity is
+generated at creation; the authority database stores only the digests. The CLI
+never prints either identity. It stores the owner credential and rotating
+supervisor credential in an owner-only sidecar alongside the configured
+database. Resume rotates the
+supervisor credential and generation; the owner credential cannot renew a
+lease. The lease lasts 120
+seconds from the last successful heartbeat, with a 15-second renewal interval.
+Every authority check compares the deadline directly, so delayed sweeps cannot
+extend admission. Resume requires the same identity, claims an expiring
+supervisor lease, and increments the generation; stale-generation writes are
+rejected. Stop is idempotent and terminal. Status does not renew the lease.
+
+The CLI creates a missing database parent directory with mode 0700. It rejects
+an existing parent directory that is owned by another user or is writable by
+the group or world. The CLI sets a restrictive umask and the identity sidecar
+directory and files use mode 0700 and 0600. Back up the durable
+database and credential sidecars together; keep both outside the checkout.
+The embedded controller is single-host and single-writer. Runtime workloads
+must not mount its database or credential directory. The `PreviewSessionRuntime`
+service exposes only admission and one-work settlement; it has no create,
+heartbeat, resume, or stop methods. A future remote
+deployment must provide authenticated TLS and map its service identities to
+the narrow admission and settlement interface; no remote or production
+controller is configured by this launcher.
 
 ## Mode matrix
 

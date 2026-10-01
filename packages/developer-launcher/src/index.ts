@@ -104,6 +104,33 @@ export {
 } from "./execution";
 export { parseCommand, parsePositionals } from "./commands";
 export {
+  PreviewSessionController,
+  PreviewSessionControllerLive,
+  PreviewSessionError,
+  PreviewSessionPhase,
+  PreviewSessionProtocolRequest,
+  PreviewSessionProtocolResponse,
+  PreviewSessionRuntime,
+  PreviewSessionRuntimeLive,
+  PreviewSessionSchema,
+  CreatePreviewSessionSchema,
+  SessionCredentialsSchema,
+  dispatchPreviewSessionProtocol,
+  makePreviewSessionController,
+  previewSessionHeartbeatMs,
+  previewSessionLeaseMs,
+  previewSupervisorLeaseMs,
+  supervisePreviewSessionLease,
+  type CreatePreviewSession,
+  type PreviewSession,
+  type PreviewSessionControllerApi,
+  type PreviewSessionProtocolRequest as PreviewSessionProtocolRequestType,
+  type PreviewSessionProtocolResponse as PreviewSessionProtocolResponseType,
+  type PreviewSessionRuntimeApi,
+  type SessionCredentials,
+  type SupervisorCredentials,
+} from "./preview-sessions";
+export {
   COMPOSE_ENDPOINTS,
   COMPOSE_ENVIRONMENT_KEYS,
   DETERMINISTIC_PORTS,
@@ -183,13 +210,14 @@ Usage:
   pnpm dev preview doctor --config <file>
   pnpm dev preview start --config <file>
   pnpm dev preview status --session <id>
+  pnpm dev preview heartbeat --session <id> --generation <n>
   pnpm dev preview resume --session <id>
   pnpm dev preview stop --session <id>
   pnpm dev preview cleanup --session <id>
   pnpm dev doctor
   pnpm dev setup <mode>
 
-Connected preview session actions (start, status, resume, stop, cleanup) are currently unavailable and do not operate on a session.
+Connected preview session actions require TIARA_PREVIEW_SESSION_DATABASE to point at the durable controller database. Start creates a pending record; it does not start a runtime profile. Cleanup and all application profiles remain unavailable.
 
 Modes:
   fast       Run the smallest host-native development slice.
@@ -229,12 +257,15 @@ Actions:
   pnpm dev preview doctor --config <file>
   pnpm dev preview start --config <file>
   pnpm dev preview status --session <id>
+  pnpm dev preview heartbeat --session <id> --generation <n>
   pnpm dev preview resume --session <id>
   pnpm dev preview stop --session <id>
   pnpm dev preview cleanup --session <id>
 
-Planning and doctor are read-only. Start, status, resume, stop, and cleanup
-remain unavailable until their admission and session services are implemented.
+Plan and doctor are read-only. Session actions require
+TIARA_PREVIEW_SESSION_DATABASE to point at the durable controller database.
+Start creates a pending record; it does not launch a runtime profile. Cleanup
+and all application profiles remain unavailable.
 The command without an action prints help and starts no resources.
 `;
 
@@ -308,6 +339,15 @@ const renderHuman = (output: LauncherOutput, help?: string) => {
     for (const plannedUrl of output.urls) lines.push(`  ${plannedUrl.name}: ${plannedUrl.url}`);
   }
   const preview = output.connectedPreview;
+  if (output.previewSession !== undefined) {
+    lines.push("preview session:");
+    lines.push(`  id: ${output.previewSession.id}`);
+    lines.push(`  phase: ${output.previewSession.phase}`);
+    lines.push(`  generation: ${output.previewSession.generation}`);
+    lines.push(`  lease deadline: ${new Date(output.previewSession.leaseDeadline).toISOString()}`);
+    lines.push(`  last renewed: ${new Date(output.previewSession.lastRenewedAt).toISOString()}`);
+    lines.push(`  unsettled work: ${output.previewSession.unsettled}`);
+  }
   if (preview !== undefined) {
     lines.push("connected preview:");
     lines.push(`  status: ${preview.status}`);

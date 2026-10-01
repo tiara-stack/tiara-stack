@@ -17,6 +17,7 @@ export interface CommandOptions {
   readonly envFile: string | null;
   readonly configFile: string | null;
   readonly sessionId: string | null;
+  readonly generation?: number | null;
   readonly service: string | null;
   readonly confirm: boolean;
   readonly confirmDevelopment: boolean;
@@ -69,7 +70,7 @@ export type ParsedCommand =
     }
   | {
       readonly kind: "preview";
-      readonly action: "status" | "resume" | "stop" | "cleanup";
+      readonly action: "status" | "heartbeat" | "resume" | "stop" | "cleanup";
       readonly options: CommandOptions & { readonly configFile: null; readonly sessionId: string };
       readonly command: string;
     };
@@ -96,12 +97,26 @@ const initialOptions = (): MutableCommandOptions => ({
   envFile: null,
   configFile: null,
   sessionId: null,
+  generation: null,
   service: null,
   confirm: false,
   confirmDevelopment: false,
   tag: null,
   changedSurfaces: [],
 });
+const hasGeneration = (options: CommandOptions) =>
+  options.generation !== undefined && options.generation !== null;
+const isPositiveSafeInteger = (value: unknown): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+const hasUnsupportedActionOptions = (options: CommandOptions) =>
+  options.service !== null ||
+  options.configFile !== null ||
+  options.sessionId !== null ||
+  hasGeneration(options) ||
+  options.confirm ||
+  options.confirmDevelopment ||
+  options.tag !== null ||
+  options.changedSurfaces.length > 0;
 
 const valueAfterOption = (args: readonly string[], index: number, option: string) => {
   const value = args[index + 1];
@@ -217,6 +232,25 @@ const parseOptions = (args: readonly string[]) => {
       options.sessionId = value;
       continue;
     }
+    if (option === "--generation") {
+      const rawValue = inlineValue ?? valueAfterOption(args, index, option);
+      if (inlineValue === null) index += 1;
+      if (!/^[0-9]+$/.test(rawValue)) {
+        throw new CommandParseError(
+          "--generation requires one positive safe integer",
+          "invalid-option",
+        );
+      }
+      const value = Number(rawValue);
+      if (!isPositiveSafeInteger(value) || options.generation !== null) {
+        throw new CommandParseError(
+          "--generation requires one positive safe integer",
+          "invalid-option",
+        );
+      }
+      options.generation = value;
+      continue;
+    }
     if (option === "--service") {
       const value = nonEmptyOptionValue(
         inlineValue ?? valueAfterOption(args, index, option),
@@ -279,6 +313,12 @@ export const parsePositionals = (
       "invalid-option",
     );
   }
+  if (hasGeneration(options) && !isPositiveSafeInteger(options.generation)) {
+    throw new CommandParseError(
+      "--generation requires one positive safe integer",
+      "invalid-option",
+    );
+  }
   const [first, second, ...rest] = positionals;
 
   if (first === undefined) {
@@ -287,10 +327,13 @@ export const parsePositionals = (
       options.confirmDevelopment ||
       options.configFile !== null ||
       options.sessionId !== null ||
+      hasGeneration(options) ||
       options.tag !== null ||
       options.changedSurfaces.length > 0
     ) {
-      throw new CommandParseError("options require a mode, setup command, or doctor command");
+      throw new CommandParseError(
+        "options, including --generation, require a mode, setup command, or doctor command",
+      );
     }
     return { kind: "help", mode: null, options, command: "help" };
   }
@@ -337,9 +380,9 @@ export const parsePositionals = (
       return { kind: "help", mode: "preview", options, command: "preview help" };
     }
     if (second === "plan" || second === "doctor") {
-      if (options.configFile === null || options.sessionId !== null) {
+      if (options.configFile === null || options.sessionId !== null || hasGeneration(options)) {
         throw new CommandParseError(
-          `preview ${second} requires --config <file> and does not accept --session`,
+          `preview ${second} requires --config <file> and does not accept --session or --generation`,
           "invalid-option",
         );
       }
@@ -360,9 +403,9 @@ export const parsePositionals = (
       };
     }
     if (second === "start") {
-      if (options.configFile === null || options.sessionId !== null) {
+      if (options.configFile === null || options.sessionId !== null || hasGeneration(options)) {
         throw new CommandParseError(
-          `preview start requires --config <file> and does not accept --session`,
+          "preview start requires --config <file> and does not accept --session or --generation",
           "invalid-option",
         );
       }
@@ -372,6 +415,12 @@ export const parsePositionals = (
         options: { ...options, configFile: options.configFile, sessionId: null },
         command: "preview start",
       };
+    }
+    if ((second === "heartbeat") !== hasGeneration(options)) {
+      throw new CommandParseError(
+        "preview heartbeat requires --generation; other session actions do not accept it",
+        "invalid-option",
+      );
     }
     if (options.sessionId === null || options.configFile !== null) {
       throw new CommandParseError(
@@ -387,9 +436,9 @@ export const parsePositionals = (
     };
   }
 
-  if (options.configFile !== null || options.sessionId !== null) {
+  if (options.configFile !== null || options.sessionId !== null || hasGeneration(options)) {
     throw new CommandParseError(
-      "--config and --session are only valid for connected preview commands",
+      "--config, --session, and --generation are only valid for connected preview commands",
       "invalid-option",
     );
   }
@@ -398,17 +447,9 @@ export const parsePositionals = (
     if (second !== undefined || rest.length > 0) {
       throw new CommandParseError("doctor does not accept a positional action");
     }
-    if (
-      options.service !== null ||
-      options.configFile !== null ||
-      options.sessionId !== null ||
-      options.confirm ||
-      options.confirmDevelopment ||
-      options.tag !== null ||
-      options.changedSurfaces.length > 0
-    ) {
+    if (hasUnsupportedActionOptions(options)) {
       throw new CommandParseError(
-        "doctor does not accept service, confirmation, image-tag, or changed-surface options",
+        "doctor does not accept --service, --config, --session, --generation, confirmation, image-tag, or changed-surface options",
       );
     }
     return { kind: "doctor", options, command: "doctor" };
@@ -419,17 +460,9 @@ export const parsePositionals = (
       throw new CommandParseError("setup requires exactly one mode");
     }
     const mode = decodeMode(second);
-    if (
-      options.service !== null ||
-      options.configFile !== null ||
-      options.sessionId !== null ||
-      options.confirm ||
-      options.confirmDevelopment ||
-      options.tag !== null ||
-      options.changedSurfaces.length > 0
-    ) {
+    if (hasUnsupportedActionOptions(options)) {
       throw new CommandParseError(
-        "setup does not accept service, confirmation, image-tag, or changed-surface options",
+        "setup does not accept --service, --config, --session, --generation, confirmation, image-tag, or changed-surface options",
       );
     }
     return { kind: "setup", mode, options, command: "setup" };

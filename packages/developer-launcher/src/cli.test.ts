@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { NodeServices } from "@effect/platform-node";
-import { Effect } from "effect";
+import { SqliteClient } from "@effect/sql-sqlite-node";
+import { Effect, Layer } from "effect";
 import { TestConsole } from "effect/testing";
 import { Command } from "effect/unstable/cli";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -9,6 +10,7 @@ import path from "node:path";
 import { command, executeComposePlan, executeFastPlan, executeKubernetesPlan } from "./cli";
 import { runLauncherFromParsed, getKubernetesExecutionContext } from "./index";
 import { runKubernetesExecution, type KubernetesLifecycleObservation } from "./execution";
+import { makePreviewSessionController, PreviewSessionController } from "./preview-sessions";
 import type { ComposeContainerState, ComposeStateAdapter } from "./execution";
 import type { ProcessExecutor, ProcessResult, ProcessStarter, RunningProcess } from "./types";
 
@@ -102,6 +104,37 @@ describe("developer launcher Effect CLI", () => {
     tag: null,
     changedSurfaces: [],
   });
+
+  it.live("passes the Effect session controller into preview session commands", () =>
+    Effect.gen(function* () {
+      const controller = yield* makePreviewSessionController(() => 10_000);
+      const created = yield* controller.create({
+        owner: "developer@example.test",
+        checkout: "/checkout",
+        manifests: {},
+        requestedRevision: "revision-a",
+      });
+      yield* Command.runWith(command, { version: "0.0.0" })([
+        "preview",
+        "status",
+        "--session",
+        created.session.id,
+        "--json",
+      ]).pipe(Effect.provideService(PreviewSessionController, controller));
+      const output = (yield* TestConsole.logLines).at(-1);
+      expect(output).toBeDefined();
+      if (typeof output !== "string") throw new Error("expected the CLI to log a JSON string");
+      const decoded = JSON.parse(output) as {
+        readonly previewSession: { readonly id: string };
+      };
+      expect(decoded.previewSession.id).toBe(created.session.id);
+    }).pipe(
+      Effect.provide(TestConsole.layer),
+      Effect.provide(
+        Layer.mergeAll(SqliteClient.layer({ filename: ":memory:" }), NodeServices.layer),
+      ),
+    ),
+  );
 
   it("reports finite Compose actions as completed through the terminal adapter", async () => {
     const result = await runLauncherFromParsed(["compose", "down"], commandOptions(), {
@@ -1068,18 +1101,21 @@ describe("developer launcher Effect CLI", () => {
       expect(output).toContain("pnpm dev preview doctor --config ./preview.json");
       expect(output).toContain("pnpm dev preview start --config ./preview.json");
       expect(output).toContain("pnpm dev preview status --session <id>");
+      expect(output).toContain("pnpm dev preview heartbeat --session <id> --generation <n>");
       expect(output).toContain("pnpm dev preview resume --session <id>");
       expect(output).toContain("pnpm dev preview stop --session <id>");
       expect(output).toContain("pnpm dev preview cleanup --session <id>");
-      expect(output).toContain("Currently unavailable; no process or session is started");
-      expect(output).toContain("Currently unavailable; no session operation is attempted");
+      expect(output).toContain(
+        "Create a pending session; live runtime profiles remain unavailable",
+      );
+      expect(output).toContain("Read the durable session record without renewing its lease");
       expect(output).toContain("--confirm-development");
       expect(output).toContain("--json");
       expect(output).toContain("--json-stream");
     }),
   );
 
-  it.live("marks legacy connected preview session help as unavailable", () =>
+  it.live("documents session-controller setup and unavailable runtime profiles", () =>
     Effect.gen(function* () {
       const result = yield* Effect.tryPromise({
         try: () =>
@@ -1093,7 +1129,7 @@ describe("developer launcher Effect CLI", () => {
       });
 
       expect(result.stdout).toContain(
-        "Connected preview session actions (start, status, resume, stop, cleanup) are currently unavailable",
+        "TIARA_PREVIEW_SESSION_DATABASE to point at the durable controller database",
       );
     }).pipe(Effect.provide(NodeServices.layer)),
   );

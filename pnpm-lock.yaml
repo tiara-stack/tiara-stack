@@ -98,6 +98,9 @@ importers:
       '@effect/platform-node':
         specifier: 'catalog:'
         version: 4.0.0-beta.67(effect@4.0.0-beta.67)(ioredis@5.9.3)
+      '@effect/sql-sqlite-node':
+        specifier: 'catalog:'
+        version: 4.0.0-beta.67(effect@4.0.0-beta.67)
       effect:
         specifier: 'catalog:'
         version: 4.0.0-beta.67
