@@ -28,7 +28,7 @@ import migration0025 from "../effect-sql-migrations/0025_migration";
 
 export const sheetDbMigrationTable = "sheet_db_effect_sql_migrations";
 
-export const sheetDbMigrations: Loader = Effect.succeed([
+export const sheetDbMigrationArtifacts = [
   [1, "migration", Effect.succeed(migration0001)],
   [2, "migration", Effect.succeed(migration0002)],
   [3, "migration", Effect.succeed(migration0003)],
@@ -54,4 +54,8 @@ export const sheetDbMigrations: Loader = Effect.succeed([
   [23, "sticky_slot_message_index", Effect.succeed(migration0023)],
   [24, "hourly_checkin_messages", Effect.succeed(migration0024)],
   [25, "announcement_channel", Effect.succeed(migration0025)],
-]);
+] as const satisfies ReadonlyArray<readonly [number, string, Effect.Effect<unknown>]>;
+
+export const sheetDbMigrations: Loader = Effect.succeed(
+  sheetDbMigrationArtifacts.map(([id, name, migration]) => [id, name, migration] as const),
+);

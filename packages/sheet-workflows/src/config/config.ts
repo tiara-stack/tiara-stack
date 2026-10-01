@@ -9,6 +9,10 @@ const WorkflowRole = Schema.Literals(["combined", "api", "producer", "runner", "
 const AutonomousTriggerName = Schema.Literals(["autoCheckin", "autoRoleCleanup"]);
 
 export const config = {
+  statePlanePolicy: Config.schema(
+    Schema.Literals(["deployment-default", "shared-admission", "owned-admission"]),
+    "WORKFLOWS_STATE_PLANE_POLICY",
+  ).pipe(Config.withDefault("deployment-default")),
   port: Config.port("PORT").pipe(Config.withDefault(3000)),
   podNamespace: Config.string("POD_NAMESPACE"),
   sheetWorkflowsRole: Config.string("SHEET_WORKFLOWS_ROLE").pipe(

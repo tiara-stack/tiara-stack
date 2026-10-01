@@ -1,7 +1,9 @@
 import { NodeFileSystem, NodeHttpClient, NodeRuntime } from "@effect/platform-node";
 import { Effect, Layer, Logger } from "effect";
+import { admitSheetDbMigrationHistory } from "sheet-zero-server/state-plane-admission";
 import { workflowStoreLayer } from "effect-zero-workflow";
 import { dotEnvConfigProviderLayer } from "typhoon-core/config";
+import { config } from "./config/config";
 import {
   browserClusterHttpLayer,
   clusterHttpLayer,
@@ -38,6 +40,19 @@ const browserClusterServerLayer = browserClusterHttpLayer.pipe(Layer.provide(sha
 const runnerLayer = runnerHealthLayer.pipe(Layer.provideMerge(clusterServerLayer));
 const browserRunnerLayer = runnerHealthLayer.pipe(Layer.provideMerge(browserClusterServerLayer));
 
+const statePlaneAdmissionLayer = Layer.unwrap(
+  Effect.gen(function* () {
+    const policy = yield* config.statePlanePolicy;
+    const check =
+      policy === "deployment-default"
+        ? Effect.void
+        : admitSheetDbMigrationHistory.pipe(
+            Effect.tap(() => Effect.logInfo("Workflow State Plane admitted", { policy })),
+          );
+    return Layer.effectDiscard(check).pipe(Layer.provideMerge(postgresSqlLayer));
+  }),
+);
+
 const appLayersByRole = {
   api: clientWorkflowLayers,
   producer: producerWorkflowLayers,
@@ -60,7 +75,7 @@ const mainLayer = appLayer.pipe(
   Layer.provide(NodeHttpClient.layerFetch),
   Layer.provide(clusterStorageLayer),
   Layer.provide(workflowStoreLayer({ tablePrefix: "sheet_db" })),
-  Layer.provide(postgresSqlLayer),
+  Layer.provide(statePlaneAdmissionLayer),
   Layer.provide(shardingConfigLayer),
   Layer.provide(configProviderLayer),
   Layer.provide(NodeFileSystem.layer),

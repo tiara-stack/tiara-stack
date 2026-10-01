@@ -32,6 +32,12 @@
       "development": "./src/persistence.ts",
       "default": "./dist/persistence.mjs"
     },
+    "./state-plane-admission": {
+      "types": "./dist/state-plane-admission.d.mts",
+      "browser": null,
+      "development": "./src/state-plane-admission.ts",
+      "default": "./dist/state-plane-admission.mjs"
+    },
     "./workflows": {
       "types": "./dist/workflows.d.mts",
       "browser": null,
@@ -55,6 +61,7 @@
     "effect-zero-workflow": "workspace:*",
     "postgres": "^3.4.7",
     "sheet-auth": "workspace:*",
+    "sheet-db-schema": "workspace:*",
     "sheet-workflow-contracts": "workspace:*",
     "sheet-zero-api": "workspace:*",
     "typhoon-zero": "workspace:*"
@@ -62,7 +69,6 @@
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
-    "sheet-db-schema": "workspace:*",
     "tooling-config": "workspace:*",
     "vite": "catalog:",
     "vite-plus": "catalog:",

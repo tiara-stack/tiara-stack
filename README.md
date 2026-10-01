@@ -130,6 +130,9 @@ local launcher checks and Fast startup-to-ready timings as the
 `development-evidence` artifact without contacting production or external
 development integrations.
 
+Runtime State Plane bootstrap and read-only admission policies are documented
+in [`docs/state-plane-runtime-policies.md`](docs/state-plane-runtime-policies.md).
+
 ## Repository layout
 
 ```text

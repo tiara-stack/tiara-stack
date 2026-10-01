@@ -1,8 +1,20 @@
 import { PgClient } from "@effect/sql-pg";
 import * as PgMigrator from "@effect/sql-pg/PgMigrator";
+import { admitSheetDbMigrationHistory } from "sheet-zero-server/state-plane-admission";
 import { zeroDrizzle, type DrizzleDatabase } from "@rocicorp/zero/server/adapters/drizzle";
 import { drizzle } from "drizzle-orm/postgres-js";
-import { Cause, Effect, Layer, pipe, Context, Redacted } from "effect";
+import {
+  Cause,
+  Config,
+  ConfigProvider,
+  Data,
+  Effect,
+  Layer,
+  pipe,
+  Context,
+  Option,
+  Redacted,
+} from "effect";
 import postgres from "postgres";
 import { sheetDbMigrations, sheetDbMigrationTable } from "sheet-db-schema/migrations";
 import { schema as zeroSchema } from "sheet-zero-api";
@@ -20,8 +32,30 @@ const migrationPgClientLayer = Layer.unwrap(
   }),
 );
 
-class DBMigrations extends Context.Service<DBMigrations>()("DBMigrations", {
-  make: Effect.gen(function* () {
+class DBBootstrapPolicyError extends Data.TaggedError("DBBootstrapPolicyError")<{
+  readonly message: string;
+}> {}
+
+const requireOwnedMigrationOwner = (
+  bootstrapPolicy: "deployment-migrate" | "shared-admission" | "owned-initialize",
+  migrationOwner: Option.Option<string>,
+) =>
+  bootstrapPolicy === "owned-initialize" && Option.isNone(migrationOwner)
+    ? Effect.fail(
+        new DBBootstrapPolicyError({
+          message: "DB_MIGRATION_OWNER is required for owned initialization",
+        }),
+      )
+    : Effect.void;
+
+const bootstrapStatePlane = Effect.gen(function* () {
+  const bootstrapPolicy = yield* config.dbBootstrapPolicy;
+  if (bootstrapPolicy === "shared-admission") {
+    yield* admitSheetDbMigrationHistory;
+    yield* Effect.logInfo("State Plane migration history admitted without initialization");
+  } else {
+    const migrationOwner = yield* config.dbMigrationOwner;
+    yield* requireOwnedMigrationOwner(bootstrapPolicy, migrationOwner);
     const completed = yield* PgMigrator.run({
       loader: sheetDbMigrations,
       table: sheetDbMigrationTable,
@@ -30,17 +64,20 @@ class DBMigrations extends Context.Service<DBMigrations>()("DBMigrations", {
       completed.length === 0
         ? "sheet-db-server migrations are up to date"
         : `Applied ${completed.length} sheet-db-server migration(s)`,
-      { completed },
+      { completed, bootstrapPolicy, migrationOwner },
     );
-    return {};
-  }).pipe(Effect.provide(migrationPgClientLayer)),
-}) {
-  static layer = Layer.effect(DBMigrations, this.make);
-}
+  }
+}).pipe(Effect.provide(migrationPgClientLayer));
 
 export class DBService extends Context.Service<DBService>()("DBService", {
   make: Effect.gen(function* () {
-    yield* DBMigrations;
+    yield* bootstrapStatePlane.pipe(
+      Effect.catchTag("DBBootstrapPolicyError", (error) =>
+        Effect.fail(
+          new Config.ConfigError(new ConfigProvider.SourceError({ message: error.message })),
+        ),
+      ),
+    );
     yield* Effect.log("creating db client");
     const postgresUrl = yield* config.postgresUrl;
     const client = yield* Effect.try({
@@ -64,5 +101,5 @@ export class DBService extends Context.Service<DBService>()("DBService", {
     return { db, zql };
   }),
 }) {
-  static layer = Layer.effect(DBService, this.make).pipe(Layer.provide(DBMigrations.layer));
+  static layer = Layer.effect(DBService, this.make);
 }

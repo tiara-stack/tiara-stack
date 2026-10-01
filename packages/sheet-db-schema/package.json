@@ -21,6 +21,10 @@
       "types": "./dist/migrations.d.mts",
       "default": "./dist/migrations.mjs"
     },
+    "./admission": {
+      "types": "./dist/admission/index.d.mts",
+      "default": "./dist/admission/index.mjs"
+    },
     "./testdb": {
       "types": "./dist/testdb.d.mts",
       "default": "./dist/testdb.mjs"

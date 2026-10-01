@@ -6,6 +6,7 @@ export default library({
     entry: {
       index: fileURLToPath(new URL("src/schema.ts", import.meta.url)),
       migrations: fileURLToPath(new URL("src/migrations.ts", import.meta.url)),
+      "admission/index": fileURLToPath(new URL("src/admission/index.ts", import.meta.url)),
       models: fileURLToPath(new URL("src/models.ts", import.meta.url)),
       testdb: fileURLToPath(new URL("src/testdb.ts", import.meta.url)),
     },

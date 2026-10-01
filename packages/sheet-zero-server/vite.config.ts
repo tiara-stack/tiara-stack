@@ -10,6 +10,7 @@ export default library({
       http: entry("http"),
       index: entry("index"),
       persistence: entry("persistence"),
+      "state-plane-admission": entry("state-plane-admission"),
       workflows: entry("workflows"),
     },
     deps: {
@@ -19,6 +20,7 @@ export default library({
         "effect",
         "effect-zero-workflow",
         "sheet-auth",
+        "sheet-db-schema",
         "sheet-workflow-contracts",
         "sheet-zero-api",
         "postgres",
