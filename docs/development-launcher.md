@@ -164,6 +164,36 @@ for the source and development manifest under review.
 }
 ```
 
+### Workflow producer ownership boundary
+
+The workflow runtime also exposes a producer-only API role for composition
+and acceptance work:
+
+```text
+SHEET_WORKFLOWS_ROLE=producer
+```
+
+This role serves the existing workflow enqueue and observation HTTP routes
+through the remote workflow client. Its runtime policy forces autonomous
+trigger names to an empty list, disables smoke enqueue, assigns no shard
+groups, and does not compose the cluster runner, workflow dispatcher, run
+reconciliation loop, or scheduled task layers. Its `/ready` check only probes
+the API storage connection and does not require local runner registration or
+shard locks. `WORKFLOWS_AUTONOMOUS_TRIGGER_NAMES`
+selects `autoCheckin` and/or `autoRoleCleanup` for scheduled enqueue on `api`
+and `combined` roles and workflow registration on `runner` and `combined`
+(defaulting to both to preserve current behavior).
+`WORKFLOWS_SMOKE_WORKFLOW_ENABLED` remains the explicit smoke enqueue control
+and defaults to false. Producer mode ignores both controls to keep its policy
+restricted.
+
+`WORKFLOWS_TRIGGER_TARGET_OWNER` is an optional identity slot carried by the
+runtime policy for a future fenced owner. This prefactor does not validate or
+claim that identity, allocate an external target, or enable a live preview.
+The connected preview implementation remains unavailable until its separate
+admission, ownership, and lifecycle gates are implemented and verified. This
+role does not establish that enqueueing against shared execution is safe.
+
 Credential fields contain development secret references only. The launcher does
 not resolve or print referenced secret values. Additional user grants default to
 none. Triggers and external targets default to none. `seed` is optional and is

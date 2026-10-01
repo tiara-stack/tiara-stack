@@ -28,6 +28,7 @@ import type { WorkflowRunCursor } from "effect-zero-workflow";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { config } from "@/config";
+import { sheetWorkflowsRuntimePolicy } from "@/config/runtimePolicy";
 import {
   AutonomousTriggerService,
   sheetBotCacheClientLayer,
@@ -35,12 +36,17 @@ import {
   sheetDataProviderLayer,
   trustedSheetPersistenceLayer,
 } from "@/services";
-import { autonomousTriggerWorkflowLayer } from "@/workflows/autoCheckin";
+import {
+  autoCheckinTriggerWorkflowLayer,
+  autoRoleCleanupTriggerWorkflowLayer,
+  autonomousTriggerWorkflowLayer,
+} from "@/workflows/autoCheckin";
 import type { AutonomousTriggerProviderError } from "@/workflows/autonomous/provider";
 import type { AutoCheckinTestProviderError } from "@/workflows/checkins/autoTestProvider";
 import type { CalculationProviderError } from "@/workflows/calculations/provider";
 import { getClusterRunnerReadinessSnapshot, postgresSqlLayer } from "@/services";
 import { smokeWorkflowLayer } from "@/workflows/smoke";
+import { selectAutonomousTriggerSelection } from "@/workflows/autonomousTriggerLayer";
 import {
   readOnlyWorkflowAuthorizationLayer,
   readOnlyWorkflowDataSourceLayer,
@@ -140,9 +146,9 @@ import {
 const availableSheetWorkflowShardGroups = ["dispatch", "autoCheckin", "browser"] as const;
 
 export const assignedSheetWorkflowShardGroups = (
-  role: "combined" | "api" | "runner" | "browser-runner",
+  role: "combined" | "api" | "producer" | "runner" | "browser-runner",
 ): ReadonlyArray<(typeof availableSheetWorkflowShardGroups)[number]> =>
-  role === "browser-runner" ? ["browser"] : ["dispatch", "autoCheckin"];
+  role === "browser-runner" ? ["browser"] : role === "producer" ? [] : ["dispatch", "autoCheckin"];
 
 const configuredRunnerAddress = Effect.gen(function* () {
   const runnerHost = yield* config.workflowsRunnerHost;
@@ -327,6 +333,19 @@ const browserWorkflowDefinitionServicesLayer = screenshotCaptureOperationsLayer.
   Layer.provideMerge(trustedSheetPersistenceLayer),
 );
 
+const selectedAutonomousTriggerWorkflowLayer = Layer.unwrap(
+  Effect.gen(function* () {
+    const { autonomousTriggerNames } = yield* sheetWorkflowsRuntimePolicy;
+    const triggerWorkflowLayers = {
+      all: autonomousTriggerWorkflowLayer,
+      autoCheckin: autoCheckinTriggerWorkflowLayer,
+      autoRoleCleanup: autoRoleCleanupTriggerWorkflowLayer,
+      none: Layer.empty,
+    };
+    return triggerWorkflowLayers[selectAutonomousTriggerSelection(autonomousTriggerNames)];
+  }),
+);
+
 type ClusterLayerOutput = WorkflowEngine.WorkflowEngine | Sharding.Sharding | Runners.Runners;
 
 type ClusterLayerError =
@@ -351,7 +370,7 @@ const clusterLayer: Layer.Layer<
   ClusterLayerError,
   HttpClient.HttpClient | HttpRouter.HttpRouter | FileSystem.FileSystem | WorkflowStore
 > = Layer.mergeAll(
-  autonomousTriggerWorkflowLayer,
+  selectedAutonomousTriggerWorkflowLayer,
   smokeWorkflowLayer,
   readOnlySheetWorkflowLayers,
   preferencesSheetWorkflowLayers,

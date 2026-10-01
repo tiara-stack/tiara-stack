@@ -5,7 +5,8 @@ const boundedScreenshotBrowserConcurrency = positiveInt.check(Schema.isLessThanO
 const nonEmptyString = Schema.NonEmptyString;
 const nonEmptySecret = Schema.Redacted(nonEmptyString);
 
-const WorkflowRole = Schema.Literals(["combined", "api", "runner", "browser-runner"]);
+const WorkflowRole = Schema.Literals(["combined", "api", "producer", "runner", "browser-runner"]);
+const AutonomousTriggerName = Schema.Literals(["autoCheckin", "autoRoleCleanup"]);
 
 export const config = {
   port: Config.port("PORT").pipe(Config.withDefault(3000)),
@@ -17,6 +18,23 @@ export const config = {
         Effect.mapError((error) => new Config.ConfigError(error)),
       ),
     ),
+  ),
+  workflowsAutonomousTriggerNames: Config.string("WORKFLOWS_AUTONOMOUS_TRIGGER_NAMES").pipe(
+    Config.withDefault("autoCheckin,autoRoleCleanup"),
+    Config.mapOrFail((value) => {
+      const names = value === "" ? [] : value.split(",").map((name) => name.trim());
+      return Schema.decodeUnknownEffect(Schema.Array(AutonomousTriggerName))(names).pipe(
+        Effect.mapError((error) => new Config.ConfigError(error)),
+      );
+    }),
+  ),
+  workflowsSmokeWorkflowEnabled: Config.boolean("WORKFLOWS_SMOKE_WORKFLOW_ENABLED").pipe(
+    Config.withDefault(false),
+  ),
+  // Reserved for the controller that will later fence trigger ownership. This
+  // runtime only records/reads the identity; it never allocates a target.
+  workflowsTriggerTargetOwner: Config.string("WORKFLOWS_TRIGGER_TARGET_OWNER").pipe(
+    Config.withDefault(""),
   ),
   sheetAuthIssuer: Config.schema(Schema.String, "SHEET_AUTH_ISSUER"),
   sheetAuthOAuthClientId: Config.schema(nonEmptyString, "SHEET_AUTH_OAUTH_CLIENT_ID"),
@@ -109,7 +127,4 @@ export const config = {
     boundedScreenshotBrowserConcurrency,
     "SCREENSHOT_BROWSER_CONCURRENCY",
   ).pipe(Config.withDefault(2)),
-  workflowsSmokeWorkflowEnabled: Config.boolean("WORKFLOWS_SMOKE_WORKFLOW_ENABLED").pipe(
-    Config.withDefault(false),
-  ),
 };

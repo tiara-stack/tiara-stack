@@ -16,8 +16,9 @@ const shardLockCountByRole = {
   api: ORDINARY_SHARD_LOCK_COUNT,
   "browser-runner": BROWSER_SHARD_LOCK_COUNT,
   combined: ORDINARY_SHARD_LOCK_COUNT,
+  producer: 0,
   runner: ORDINARY_SHARD_LOCK_COUNT,
-} satisfies Record<"api" | "browser-runner" | "combined" | "runner", number>;
+} satisfies Record<"api" | "browser-runner" | "combined" | "producer" | "runner", number>;
 
 const expectedCurrentShardLockCount = config.sheetWorkflowsRole.pipe(
   Effect.map((role) => shardLockCountByRole[role]),
@@ -112,8 +113,17 @@ export const isClusterRunnerFleetReady = Effect.gen(function* () {
   Effect.withSpan("sheet-workflows.runner.fleetReady"),
 );
 
+const isWorkflowProducerReady = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  const [row] = yield* sql<ClusterReadinessRow>`SELECT TRUE AS ready`;
+  return row?.ready === true;
+}).pipe(Effect.withSpan("sheet-workflows.producer.ready"));
+
 export const isWorkflowApiReady = Effect.gen(function* () {
   const role = yield* config.sheetWorkflowsRole;
+  if (role === "producer") {
+    return yield* isWorkflowProducerReady;
+  }
   if (role === "api") {
     return yield* isClusterRunnerFleetReady;
   }

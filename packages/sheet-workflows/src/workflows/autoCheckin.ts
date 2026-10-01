@@ -39,7 +39,7 @@ const makeAutonomousSweepLayer = (options: {
     }),
   );
 
-const autoCheckinSweepLayer = makeAutonomousSweepLayer({
+export const autoCheckinTriggerWorkflowLayer = makeAutonomousSweepLayer({
   workflow: AutoCheckinSweepWorkflow,
   activityName: "autoCheckin.sweep.execute",
   spanName: "AutoCheckinSweepWorkflow.execute",
@@ -47,7 +47,7 @@ const autoCheckinSweepLayer = makeAutonomousSweepLayer({
     service.sweepAutoCheckin(scheduledHourBucketEpochMs),
 });
 
-const autoRoleCleanupSweepLayer = makeAutonomousSweepLayer({
+export const autoRoleCleanupTriggerWorkflowLayer = makeAutonomousSweepLayer({
   workflow: AutoRoleCleanupSweepWorkflow,
   activityName: "autoRoleCleanup.sweep.execute",
   spanName: "AutoRoleCleanupSweepWorkflow.execute",
@@ -56,6 +56,6 @@ const autoRoleCleanupSweepLayer = makeAutonomousSweepLayer({
 });
 
 export const autonomousTriggerWorkflowLayer = Layer.merge(
-  autoCheckinSweepLayer,
-  autoRoleCleanupSweepLayer,
+  autoCheckinTriggerWorkflowLayer,
+  autoRoleCleanupTriggerWorkflowLayer,
 );

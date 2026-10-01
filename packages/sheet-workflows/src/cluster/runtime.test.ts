@@ -30,6 +30,7 @@ it.effect("uses expiry-aware database shard locks", () =>
 it("isolates browser capability on the browser-runner shard group", () => {
   expect(assignedSheetWorkflowShardGroups("runner")).toEqual(["dispatch", "autoCheckin"]);
   expect(assignedSheetWorkflowShardGroups("api")).toEqual(["dispatch", "autoCheckin"]);
+  expect(assignedSheetWorkflowShardGroups("producer")).toEqual([]);
   expect(assignedSheetWorkflowShardGroups("combined")).toEqual(["dispatch", "autoCheckin"]);
   expect(assignedSheetWorkflowShardGroups("browser-runner")).toEqual(["browser"]);
 });

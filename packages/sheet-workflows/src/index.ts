@@ -9,7 +9,7 @@ import {
   clusterWorkflowEngineClientLayer,
   shardingConfigLayer,
 } from "./cluster";
-import { config } from "./config";
+import { sheetWorkflowsRuntimePolicy } from "./config/runtimePolicy";
 import { httpLayer, runnerHealthLayer } from "./http";
 import { MetricsLive } from "./metrics";
 import { postgresSqlLayer } from "./services";
@@ -25,6 +25,13 @@ const clientWorkflowLayers = Layer.mergeAll(
   smokeWorkflowTaskLayer,
 ).pipe(Layer.provide(clusterWorkflowEngineClientLayer), Layer.provide(shardingConfigLayer));
 
+// Producer-only API runtimes serve enqueue and observation routes while leaving
+// scheduled producers and smoke work to an explicitly owned runtime.
+const producerWorkflowLayers = httpLayer.pipe(
+  Layer.provide(clusterWorkflowEngineClientLayer),
+  Layer.provide(shardingConfigLayer),
+);
+
 const clusterServerLayer = clusterHttpLayer.pipe(Layer.provide(shardingConfigLayer));
 const browserClusterServerLayer = browserClusterHttpLayer.pipe(Layer.provide(shardingConfigLayer));
 
@@ -33,6 +40,7 @@ const browserRunnerLayer = runnerHealthLayer.pipe(Layer.provideMerge(browserClus
 
 const appLayersByRole = {
   api: clientWorkflowLayers,
+  producer: producerWorkflowLayers,
   runner: runnerLayer,
   "browser-runner": browserRunnerLayer,
   combined: clientWorkflowLayers.pipe(Layer.provideMerge(clusterServerLayer)),
@@ -40,8 +48,8 @@ const appLayersByRole = {
 
 const appLayer = Layer.unwrap(
   Effect.gen(function* () {
-    const role = yield* config.sheetWorkflowsRole;
-    return appLayersByRole[role];
+    const policy = yield* sheetWorkflowsRuntimePolicy;
+    return appLayersByRole[policy.role];
   }),
 );
 

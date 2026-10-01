@@ -5,6 +5,8 @@ import {
   AutoRoleCleanupSweepWorkflow,
 } from "@/workflows/autoCheckinContract";
 import { AutonomousTriggerWorkflowClient } from "@/services";
+import { sheetWorkflowsRuntimePolicy } from "@/config/runtimePolicy";
+import { selectAutonomousTriggerSelection } from "@/workflows/autonomousTriggerLayer";
 
 const currentHourBucket = DateTime.now.pipe(
   Effect.map(DateTime.toEpochMillis),
@@ -35,25 +37,17 @@ const makeScheduledTask = (options: {
     );
   });
 
-export const autoCheckinTaskLayer = Layer.effectDiscard(
+const autoCheckinTask = Layer.effectDiscard(
   Effect.gen(function* () {
     const workflowClient = yield* AutonomousTriggerWorkflowClient;
-    const autoCheckinTask = makeScheduledTask({
+    const task = makeScheduledTask({
       effectName: "autoCheckinTask",
       task: "autoCheckin",
       successMessage: "enqueued automatic check-in sweep",
       failureMessage: "automatic check-in sweep enqueue failed",
       enqueue: workflowClient.enqueueAutoCheckinSweep,
     });
-    const autoRoleCleanupTask = makeScheduledTask({
-      effectName: "autoRoleCleanupTask",
-      task: "autoRoleCleanup",
-      successMessage: "enqueued automatic role-cleanup sweep",
-      failureMessage: "automatic role-cleanup sweep enqueue failed",
-      enqueue: workflowClient.enqueueAutoRoleCleanupSweep,
-    });
-
-    yield* autoCheckinTask().pipe(
+    yield* task().pipe(
       Effect.annotateLogs({ task: "autoCheckin" }),
       Effect.withSpan("sheet-workflows.task.autoCheckin", {
         attributes: { task: "autoCheckin", workflow: AutoCheckinSweepWorkflow.name },
@@ -72,7 +66,21 @@ export const autoCheckinTaskLayer = Layer.effectDiscard(
       ),
       Effect.forkScoped,
     );
-    yield* autoRoleCleanupTask().pipe(
+  }),
+).pipe(Layer.provide(AutonomousTriggerWorkflowClient.layer));
+
+const autoRoleCleanupTask = Layer.effectDiscard(
+  Effect.gen(function* () {
+    const workflowClient = yield* AutonomousTriggerWorkflowClient;
+    const task = makeScheduledTask({
+      effectName: "autoRoleCleanupTask",
+      task: "autoRoleCleanup",
+      successMessage: "enqueued automatic role-cleanup sweep",
+      failureMessage: "automatic role-cleanup sweep enqueue failed",
+      enqueue: workflowClient.enqueueAutoRoleCleanupSweep,
+    });
+
+    yield* task().pipe(
       Effect.annotateLogs({ task: "autoRoleCleanup" }),
       Effect.withSpan("sheet-workflows.task.autoRoleCleanup", {
         attributes: { task: "autoRoleCleanup", workflow: AutoRoleCleanupSweepWorkflow.name },
@@ -93,3 +101,16 @@ export const autoCheckinTaskLayer = Layer.effectDiscard(
     );
   }),
 ).pipe(Layer.provide(AutonomousTriggerWorkflowClient.layer));
+
+export const autoCheckinTaskLayer = Layer.unwrap(
+  Effect.gen(function* () {
+    const { autonomousTriggerNames: triggerNames } = yield* sheetWorkflowsRuntimePolicy;
+    const taskLayers = {
+      all: Layer.merge(autoCheckinTask, autoRoleCleanupTask),
+      autoCheckin: autoCheckinTask,
+      autoRoleCleanup: autoRoleCleanupTask,
+      none: Layer.empty,
+    };
+    return taskLayers[selectAutonomousTriggerSelection(triggerNames)];
+  }),
+);

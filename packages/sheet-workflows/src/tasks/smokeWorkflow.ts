@@ -1,6 +1,6 @@
 import { Duration, Effect, Layer, Schedule } from "effect";
 import { randomUUID } from "node:crypto";
-import { config } from "@/config";
+import { sheetWorkflowsRuntimePolicy } from "@/config/runtimePolicy";
 import { isClusterRunnerFleetReady } from "@/services";
 import { SmokeWorkflow } from "@/workflows/smoke";
 
@@ -13,7 +13,7 @@ const waitForRunner = isClusterRunnerFleetReady.pipe(
 
 export const smokeWorkflowTaskLayer = Layer.effectDiscard(
   Effect.gen(function* () {
-    const enabled = yield* config.workflowsSmokeWorkflowEnabled;
+    const { smokeEnqueue: enabled } = yield* sheetWorkflowsRuntimePolicy;
     if (!enabled) {
       return;
     }

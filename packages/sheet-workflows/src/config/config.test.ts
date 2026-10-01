@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
-import { ConfigProvider, Effect, Exit } from "effect";
+import { ConfigProvider, Effect, Exit, Option } from "effect";
 import { config } from "./config";
+import { sheetWorkflowsRuntimePolicy } from "./runtimePolicy";
 
 const readWorkflowRole = (env: Record<string, unknown>) =>
   config.sheetWorkflowsRole.pipe(
@@ -42,6 +43,80 @@ describe("sheet-workflows config", () => {
   it.effect("accepts SHEET_WORKFLOWS_ROLE=api", () =>
     Effect.gen(function* () {
       expect(yield* readWorkflowRole({ SHEET_WORKFLOWS_ROLE: "api" })).toBe("api");
+    }),
+  );
+
+  it.effect("accepts the producer-only API role", () =>
+    Effect.gen(function* () {
+      expect(yield* readWorkflowRole({ SHEET_WORKFLOWS_ROLE: "producer" })).toBe("producer");
+    }),
+  );
+
+  it.effect("defaults producer trigger, smoke, and target ownership capabilities off", () =>
+    Effect.gen(function* () {
+      const policy = yield* sheetWorkflowsRuntimePolicy.pipe(
+        Effect.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromUnknown({
+              SHEET_WORKFLOWS_ROLE: "producer",
+              WORKFLOWS_AUTONOMOUS_TRIGGER_NAMES: "not-a-trigger",
+              WORKFLOWS_SMOKE_WORKFLOW_ENABLED: "not-a-boolean",
+            }),
+          ),
+        ),
+      );
+
+      expect(policy).toMatchObject({
+        role: "producer",
+        producer: true,
+        workflowApi: true,
+        workflowRunner: false,
+        reconciliationConsumer: false,
+        autonomousTriggerNames: [],
+        smokeEnqueue: false,
+        triggerTargetOwner: { _tag: "None" },
+      });
+    }),
+  );
+
+  it.effect("retains legacy API trigger and smoke defaults", () =>
+    Effect.gen(function* () {
+      const policy = yield* sheetWorkflowsRuntimePolicy.pipe(
+        Effect.provide(
+          ConfigProvider.layer(ConfigProvider.fromUnknown({ SHEET_WORKFLOWS_ROLE: "api" })),
+        ),
+      );
+
+      expect(policy).toMatchObject({
+        role: "api",
+        producer: false,
+        workflowApi: true,
+        workflowRunner: false,
+        reconciliationConsumer: false,
+        autonomousTriggerNames: ["autoCheckin", "autoRoleCleanup"],
+        smokeEnqueue: false,
+      });
+    }),
+  );
+
+  it.effect("allows trigger names and a future fenced owner to be selected explicitly", () =>
+    Effect.gen(function* () {
+      const policy = yield* sheetWorkflowsRuntimePolicy.pipe(
+        Effect.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromUnknown({
+              SHEET_WORKFLOWS_ROLE: "api",
+              WORKFLOWS_AUTONOMOUS_TRIGGER_NAMES: "autoRoleCleanup",
+              WORKFLOWS_SMOKE_WORKFLOW_ENABLED: true,
+              WORKFLOWS_TRIGGER_TARGET_OWNER: "session:example",
+            }),
+          ),
+        ),
+      );
+
+      expect(policy.autonomousTriggerNames).toEqual(["autoRoleCleanup"]);
+      expect(policy.smokeEnqueue).toBe(true);
+      expect(Option.getOrUndefined(policy.triggerTargetOwner)).toBe("session:example");
     }),
   );
 

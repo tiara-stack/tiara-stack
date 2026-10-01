@@ -111,6 +111,19 @@ describe("cluster readiness", () => {
     }),
   );
 
+  it.effect("checks producer API persistence readiness without runner locks", () =>
+    Effect.gen(function* () {
+      const queries: string[] = [];
+      const ready = yield* runReadiness(isWorkflowApiReady, [{ ready: true }], {
+        env: { SHEET_WORKFLOWS_ROLE: "producer" },
+        queries,
+      });
+
+      expect(ready).toBe(true);
+      expect(queries).toEqual(["SELECT TRUE AS ready"]);
+    }),
+  );
+
   it.effect("uses current runner readiness for combined role", () =>
     Effect.gen(function* () {
       const queries: string[] = [];
