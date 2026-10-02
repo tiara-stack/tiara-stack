@@ -1,9 +1,19 @@
 import { expect, it } from "@effect/vitest";
 import { NodeServices } from "@effect/platform-node";
 import { SqliteClient } from "@effect/sql-sqlite-node";
-import { Effect, FileSystem, Layer, Path, Scope } from "effect";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
+import path from "node:path";
+import { Deferred, Effect, Fiber, FileSystem, Layer, Path, Scope } from "effect";
 import { parseCommand, parsePositionals, runLauncher, type ProcessExecutor } from "./index";
-import { makePreviewSessionController } from "./preview-sessions";
+import { connectedPreviewOutput } from "./connected-preview";
+import { makePreviewSessionController, type PreviewSessionControllerApi } from "./preview-sessions";
+import {
+  makeLocalFilesystemPreviewResourceAdapter,
+  makePreviewAllocationController,
+  previewCapacityDimensionsByGroup,
+  type PreviewAllocationApi,
+} from "./preview-allocations";
+import type { ConnectedPreviewAction, LauncherOptions } from "./types";
 
 const previewRoleContracts = {
   "sheet-web": {
@@ -97,6 +107,18 @@ const liveTest = <E, R extends NodeServices.NodeServices | Scope.Scope>(
   name: string,
   run: () => Effect.Effect<void, E, R>,
 ) => it.live(name, () => run().pipe(Effect.provide(NodeServices.layer)));
+
+const makeUnavailableProfileAllocationController = (now: () => number) =>
+  makePreviewAllocationController(
+    {
+      planProfile: () => Effect.fail(new Error("profile-demand-not-configured")),
+      validateProfileAllocation: () => Effect.fail(new Error("profile-allocation-not-configured")),
+      allocate: () => Effect.fail(new Error("allocation-not-configured")),
+      deleteOwned: () => Effect.fail(new Error("deletion-not-configured")),
+      proveCleanup: () => Effect.succeed(false),
+    },
+    now,
+  );
 
 const contractsForPreviewRole = (role: string) => {
   const definition = previewRoleContracts[role as keyof typeof previewRoleContracts];
@@ -323,6 +345,14 @@ liveTest("prints connected preview help without reading configuration or startin
 it("parses connected preview action arguments by action", () => {
   const plan = parseCommand(["preview", "plan", "--config", "preview.json", "--json"]);
   const status = parseCommand(["preview", "status", "--session", "session-123", "--json"]);
+  const resolve = parseCommand([
+    "preview",
+    "resolve",
+    "--session",
+    "session-123",
+    "--resource",
+    "database",
+  ]);
   const statusWithLeadingOption = parseCommand([
     "preview",
     "--json",
@@ -356,6 +386,13 @@ it("parses connected preview action arguments by action", () => {
   expect(statusWithLeadingOption).toEqual(
     expect.objectContaining({ kind: "preview", action: "status" }),
   );
+  expect(resolve).toEqual(
+    expect.objectContaining({
+      kind: "preview",
+      action: "resolve",
+      options: expect.objectContaining({ sessionId: "session-123", resource: "database" }),
+    }),
+  );
   expect(() =>
     parsePositionals(["preview", "heartbeat"], {
       json: false,
@@ -364,6 +401,7 @@ it("parses connected preview action arguments by action", () => {
       envFile: null,
       configFile: null,
       sessionId: "session-123",
+      resource: null,
       generation: 0,
       service: null,
       confirm: false,
@@ -1303,6 +1341,294 @@ liveTest("reports unimplemented doctor checks as unavailable and performs no pro
   }),
 );
 
+liveTest("deduplicates missing capacity dimensions shared by owned groups", () =>
+  Effect.gen(function* () {
+    const result = yield* runConnectedPreviewConfig(
+      "doctor",
+      createConnectedPreviewConfig({ roles: ["sheet-db-server"] }),
+    );
+    const output = JSON.parse(result.stdout) as {
+      readonly errors: readonly { readonly message: string }[];
+    };
+    const dimensionDiagnostics = output.errors
+      .map(({ message }) => /^Capacity dimension ([^ ]+)/.exec(message)?.[1])
+      .filter((dimension): dimension is string => dimension !== undefined);
+    expect(dimensionDiagnostics.length).toBeGreaterThan(0);
+    expect(new Set(dimensionDiagnostics).size).toBe(dimensionDiagnostics.length);
+  }),
+);
+
+liveTest(
+  "imports an operator baseline and reports missing and exhausted dimensions with values",
+  () =>
+    Effect.gen(function* () {
+      const clock = { value: Date.now() };
+      const sessions = yield* makePreviewSessionController(() => clock.value);
+      const config = createConnectedPreviewConfig({ roles: ["sheet-auth"] });
+      yield* withConnectedPreviewConfig(config, (configPath, cwd) =>
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem;
+          const adapter = makeLocalFilesystemPreviewResourceAdapter(path.join(cwd, "resources"));
+          const allocations = yield* makePreviewAllocationController(
+            { ...adapter, validateProfileAllocation: () => Effect.void },
+            () => clock.value,
+          );
+          const baselinePath = path.join(cwd, "capacity-baseline.json");
+          const dimensions = previewCapacityDimensionsByGroup.auth;
+          const baseline = {
+            measurements: dimensions.slice(0, -1).map((dimension, index) => ({
+              provider: index === 1 ? "wrong-provider" : "disposable-postgres",
+              identity: "tiara-stack-dev-postgres",
+              dimension,
+              observedAt: clock.value,
+              total: index === 0 ? 5 : 10,
+              inUse: index === 0 ? 5 : 0,
+              grantsVerified: index !== 2,
+            })),
+            profiles: [
+              {
+                profile: "connected-preview-dev-v1",
+                selectedRoles: ["sheet-auth"],
+                ownedGroups: ["auth"],
+                demands: dimensions.map((dimension) => ({
+                  dimension,
+                  amount: 1,
+                  provider: "disposable-postgres",
+                  identity: "tiara-stack-dev-postgres",
+                })),
+                resources: ["auth"],
+              },
+            ],
+          };
+          yield* fileSystem.writeFileString(baselinePath, JSON.stringify(baseline));
+          const options = {
+            cwd,
+            env: {
+              TIARA_PREVIEW_CAPACITY_BASELINE_FILE: baselinePath,
+              TIARA_PREVIEW_SESSION_DATABASE: path.join(cwd, "controller.sqlite"),
+            },
+            previewAllocationController: allocations,
+            previewSessionController: sessions,
+          };
+          const imported = yield* runLauncherEffect(
+            ["preview", "baseline", "--config", configPath, "--json"],
+            options,
+          );
+          expect(imported.exitCode).toBe(0);
+          expect(imported.output.baseline).toEqual({
+            measurements: dimensions.length - 1,
+            profiles: 1,
+          });
+          const doctor = yield* runLauncherEffect(
+            ["preview", "doctor", "--config", configPath, "--json"],
+            options,
+          );
+          expect(doctor.exitCode).toBe(2);
+          expect(doctor.output.errors).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                code: "capacity-exhausted",
+                message: expect.stringContaining("requested 1, reserved 0, available 0"),
+              }),
+              expect.objectContaining({
+                code: "prerequisite-unavailable",
+                message: expect.stringContaining("no measurement was collected"),
+              }),
+              expect.objectContaining({
+                code: "prerequisite-unavailable",
+                message: expect.stringContaining(
+                  "no observation matches the configured provider identity",
+                ),
+              }),
+              expect.objectContaining({
+                code: "prerequisite-unavailable",
+                message: expect.stringContaining("required provider grants were not verified"),
+              }),
+            ]),
+          );
+          const start = yield* runLauncherEffect(
+            ["preview", "start", "--config", configPath, "--json"],
+            options,
+          );
+          expect(start.exitCode).toBe(2);
+          expect(start.output.errors[0]?.message).toContain("requested 1, reserved 0, available 0");
+          expect(start.output.previewSession).toBeUndefined();
+          expect(yield* fileSystem.exists(path.join(cwd, "resources"))).toBe(false);
+        }),
+      );
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(SqliteClient.layer({ filename: ":memory:" }), NodeServices.layer),
+      ),
+    ),
+);
+
+liveTest("reports unreadable capacity baseline as not imported", () =>
+  withConnectedPreviewConfig(
+    createConnectedPreviewConfig({ roles: ["sheet-auth"] }),
+    (configPath, cwd) =>
+      Effect.gen(function* () {
+        const adapter = makeLocalFilesystemPreviewResourceAdapter(path.join(cwd, "resources"));
+        const allocations = yield* makePreviewAllocationController(adapter);
+        const result = yield* runLauncherEffect(
+          ["preview", "baseline", "--config", configPath, "--json"],
+          {
+            cwd,
+            env: {
+              TIARA_PREVIEW_CAPACITY_BASELINE_FILE: path.join(cwd, "missing-baseline.json"),
+            },
+            previewAllocationController: allocations,
+          },
+        );
+        expect(result.exitCode).toBe(2);
+        expect(result.output.errors[0]?.message).toContain("Capacity baseline was not imported");
+        expect(result.output.errors[0]?.message).toContain("operator file could not be read");
+        expect(result.output.errors[0]?.message).not.toContain("session controller");
+        expect(result.output.errors[0]?.remediation).toContain("no observations were imported");
+      }).pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:" }))),
+  ),
+);
+
+liveTest("keeps public preview start interruptible while a provider demand planner times out", () =>
+  withConnectedPreviewConfig(
+    createConnectedPreviewConfig({ roles: ["sheet-auth"] }),
+    (configPath, cwd) =>
+      Effect.gen(function* () {
+        const sessions = yield* makePreviewSessionController(Date.now);
+        const localAdapter = makeLocalFilesystemPreviewResourceAdapter(path.join(cwd, "resources"));
+        const allocations = yield* makePreviewAllocationController(
+          {
+            ...localAdapter,
+            planProfile: () => Effect.never,
+            validateProfileAllocation: () => Effect.void,
+          },
+          Date.now,
+          undefined,
+          true,
+          5,
+        );
+        const result = yield* runLauncherEffect(
+          ["preview", "start", "--config", configPath, "--json"],
+          {
+            cwd,
+            env: { TIARA_PREVIEW_SESSION_DATABASE: path.join(cwd, "controller.sqlite") },
+            previewSessionController: sessions,
+            previewAllocationController: allocations,
+          },
+        );
+        expect(result.exitCode).toBe(2);
+        expect(result.output.previewSession).toBeUndefined();
+        expect(result.output.errors[0]?.remediation).toContain("no session was created");
+        expect(result.output.errors[0]?.remediation).toContain("no allocation was attempted");
+        expect(result.output.errors[0]?.remediation).toContain("provider-profile-planning-timeout");
+      }).pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:" }))),
+  ),
+);
+
+const createInterruptedPreviewFixture = (configPath: string, cwd: string) =>
+  Effect.gen(function* () {
+    const allocationStarted = yield* Deferred.make<void>();
+    const sessions = yield* makePreviewSessionController(Date.now);
+    const localAdapter = makeLocalFilesystemPreviewResourceAdapter(path.join(cwd, "resources"));
+    const allocations = yield* makePreviewAllocationController({
+      ...localAdapter,
+      planProfile: () =>
+        Effect.succeed({
+          demands: previewCapacityDimensionsByGroup.auth.map((dimension) => ({
+            dimension,
+            amount: 1,
+            provider: "local-test",
+            identity: "disposable",
+          })),
+          resources: ["auth"],
+        }),
+      validateProfileAllocation: () => Effect.void,
+      allocate: () =>
+        Effect.gen(function* () {
+          yield* Deferred.succeed(allocationStarted, undefined);
+          return yield* Effect.never;
+        }),
+    });
+    const now = Date.now();
+    yield* Effect.forEach(previewCapacityDimensionsByGroup.auth, (dimension) =>
+      allocations.observeCapacity({
+        provider: "local-test",
+        identity: "disposable",
+        dimension,
+        observedAt: now,
+        total: 2,
+        inUse: 0,
+        grantsVerified: true,
+      }),
+    );
+    const options = {
+      cwd,
+      env: { TIARA_PREVIEW_SESSION_DATABASE: path.join(cwd, "controller.sqlite") },
+      previewSessionController: sessions,
+      previewAllocationController: allocations,
+    };
+    return { allocationStarted, sessions, allocations, options };
+  });
+
+const parsePreviewAction = (args: readonly string[], action: ConnectedPreviewAction) => {
+  const command = parseCommand(args);
+  if (command.kind !== "preview" || command.action !== action)
+    throw new Error(`preview ${action} command did not parse`);
+  return command;
+};
+
+const verifyInterruptedPreviewIsRecoverable = (
+  sessionId: string,
+  options: LauncherOptions,
+  sessions: PreviewSessionControllerApi,
+  allocations: PreviewAllocationApi,
+) =>
+  Effect.gen(function* () {
+    expect((yield* sessions.status(sessionId)).phase).toBe("ended");
+    const state = yield* allocations.inspect(sessionId);
+    expect(state.allocations[0]?.state).toBe("allocating");
+    expect(state.reservations[0]?.releasedAt).toBeNull();
+    const status = yield* connectedPreviewOutput(
+      parsePreviewAction(["preview", "status", "--session", sessionId, "--json"], "status"),
+      options,
+    );
+    expect(status.previewSession?.allocations?.resources[0]?.state).toBe("allocating");
+    const cleanup = yield* connectedPreviewOutput(
+      parsePreviewAction(["preview", "cleanup", "--session", sessionId, "--json"], "cleanup"),
+      options,
+    );
+    expect(cleanup.previewSession?.allocations?.cleanup).toBe("quarantined");
+    expect((yield* allocations.inspect(sessionId)).reservations[0]?.releasedAt).toBeNull();
+  });
+
+liveTest("stops and exposes the allocation ledger when public preview start is interrupted", () =>
+  withConnectedPreviewConfig(
+    createConnectedPreviewConfig({ roles: ["sheet-auth"] }),
+    (configPath, cwd) =>
+      Effect.gen(function* () {
+        const fixture = yield* createInterruptedPreviewFixture(configPath, cwd);
+        const start = parsePreviewAction(
+          ["preview", "start", "--config", configPath, "--json"],
+          "start",
+        );
+        const startFiber = yield* connectedPreviewOutput(start, fixture.options).pipe(
+          Effect.forkChild,
+        );
+        yield* Deferred.await(fixture.allocationStarted);
+        yield* Fiber.interrupt(startFiber);
+        const sql = yield* SqlClient.SqlClient;
+        const rows = yield* sql`SELECT id FROM preview_sessions`;
+        expect(rows).toHaveLength(1);
+        yield* verifyInterruptedPreviewIsRecoverable(
+          String((rows[0] as Record<string, unknown>).id),
+          fixture.options,
+          fixture.sessions,
+          fixture.allocations,
+        );
+      }).pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:" }))),
+  ),
+);
+
 const blockedPreviewActions: readonly [string, readonly string[]][] = [
   ["start", ["start", "--config", "/missing/preview.json"]],
   ["status", ["status", "--session", "session-123"]],
@@ -1310,6 +1636,7 @@ const blockedPreviewActions: readonly [string, readonly string[]][] = [
   ["resume", ["resume", "--session", "session-123"]],
   ["stop", ["stop", "--session", "session-123"]],
   ["cleanup", ["cleanup", "--session", "session-123"]],
+  ["resolve", ["resolve", "--session", "session-123", "--resource", "database"]],
 ];
 
 for (const [action, args] of blockedPreviewActions) {
@@ -1337,7 +1664,7 @@ for (const [action, args] of blockedPreviewActions) {
           readiness: "blocked",
           errors: [
             expect.objectContaining({
-              code: action === "cleanup" ? "not-implemented" : "dependency-unavailable",
+              code: "dependency-unavailable",
             }),
           ],
         }),
@@ -1357,11 +1684,61 @@ it.live(
         createConnectedPreviewConfig({ roles: ["sheet-auth"] }),
         (configPath, cwd) =>
           Effect.gen(function* () {
+            const localAdapter = makeLocalFilesystemPreviewResourceAdapter(
+              path.join(cwd, "resources"),
+            );
+            const allocationController = yield* makePreviewAllocationController(
+              {
+                ...localAdapter,
+                planProfile: () =>
+                  Effect.succeed({
+                    demands: previewCapacityDimensionsByGroup.auth.map((dimension) => ({
+                      dimension,
+                      amount: 1,
+                      provider: "local-test",
+                      identity: "disposable",
+                    })),
+                    resources: ["auth"],
+                  }),
+                validateProfileAllocation: () => Effect.void,
+                resolveUnknown: ({ sessionId, resource, ownerToken, providerIdentities }) =>
+                  Effect.succeed({
+                    sessionId,
+                    resource,
+                    ownerToken,
+                    ...providerIdentities[0]!,
+                    verifiedAt: clock.value,
+                    allocationSettled: true,
+                    result: {
+                      status: "found" as const,
+                      providerResourceId: path.join(
+                        cwd,
+                        "resources",
+                        sessionId,
+                        `${resource}.owner`,
+                      ),
+                    },
+                  }),
+              },
+              () => clock.value,
+            );
+            yield* Effect.forEach(previewCapacityDimensionsByGroup.auth, (dimension) =>
+              allocationController.observeCapacity({
+                provider: "local-test",
+                identity: "disposable",
+                dimension,
+                observedAt: clock.value,
+                total: 2,
+                inUse: 0,
+                grantsVerified: true,
+              }),
+            );
             const sessionDatabase = `${cwd}/controller.sqlite`;
             const options = {
               cwd,
               env: { TIARA_PREVIEW_SESSION_DATABASE: sessionDatabase },
               previewSessionController: controller,
+              previewAllocationController: allocationController,
             };
             const start = yield* Effect.tryPromise({
               try: () =>
@@ -1370,7 +1747,13 @@ it.live(
             });
             expect(start.exitCode).toBe(0);
             const created = JSON.parse(start.stdout) as {
-              readonly previewSession: { readonly id: string; readonly generation: number };
+              readonly previewSession: {
+                readonly id: string;
+                readonly generation: number;
+                readonly allocations: {
+                  readonly resources: readonly { readonly providerResourceId: string | null }[];
+                };
+              };
               readonly plannedProcesses: readonly unknown[];
               readonly readiness: string;
             };
@@ -1378,6 +1761,29 @@ it.live(
             expect(created.previewSession.generation).toBe(1);
             expect(created.readiness).toBe("planned");
             expect(created.plannedProcesses).toEqual([]);
+            expect(created.previewSession.allocations.resources).toHaveLength(1);
+            const resourcePath =
+              created.previewSession.allocations.resources[0]?.providerResourceId;
+            expect(resourcePath).not.toBeNull();
+            const fileSystem = yield* FileSystem.FileSystem;
+            expect((yield* fileSystem.readFileString(resourcePath!)).includes(id)).toBe(true);
+            const secondSession = yield* controller.create({
+              owner: "developer:bob",
+              checkout: `${cwd}/second-worktree`,
+              manifests: {},
+              requestedRevision: "second-revision",
+            });
+            const secondResources = yield* allocationController.reserveAndAllocate({
+              sessionId: secondSession.session.id,
+              demands: previewCapacityDimensionsByGroup.auth.map((dimension) => ({
+                dimension,
+                amount: 1,
+                provider: "local-test",
+                identity: "disposable",
+              })),
+              resources: ["auth"],
+            });
+            const otherResourcePath = secondResources.auth!;
             const identityStore = yield* FileSystem.FileSystem;
             const storedIdentity = yield* identityStore.readFileString(
               `${sessionDatabase}.credentials/${id}`,
@@ -1389,33 +1795,84 @@ it.live(
             expect(start.stdout).not.toContain(credentials.ownerIdentity);
             expect(start.stdout).not.toContain(credentials.supervisorIdentity);
 
+            const { previewAllocationController: _allocationAuthority, ...sessionOnlyOptions } =
+              options;
+            expect(_allocationAuthority).toBeDefined();
+
             const status = yield* Effect.tryPromise({
-              try: () => runLauncher(["preview", "status", "--session", id, "--json"], options),
+              try: () =>
+                runLauncher(["preview", "status", "--session", id, "--json"], sessionOnlyOptions),
               catch: (cause) => cause,
             });
             const beforeHeartbeat = JSON.parse(status.stdout) as {
-              readonly previewSession: { readonly lastRenewedAt: number };
+              readonly previewSession: {
+                readonly lastRenewedAt: number;
+                readonly allocations?: { readonly resources: readonly unknown[] };
+              };
+              readonly readiness: string;
+              readonly errors: readonly { readonly message: string }[];
+            };
+            expect(status.exitCode).toBe(2);
+            expect(beforeHeartbeat.readiness).toBe("blocked");
+            expect(beforeHeartbeat.previewSession.allocations).toBeUndefined();
+            expect(beforeHeartbeat.errors[0]?.message).toContain(
+              "allocation ledger is unavailable",
+            );
+            const unavailableResolution = yield* Effect.tryPromise({
+              try: () =>
+                runLauncher(
+                  ["preview", "resolve", "--session", id, "--resource", "auth", "--json"],
+                  sessionOnlyOptions,
+                ),
+              catch: (cause) => cause,
+            });
+            expect(unavailableResolution.exitCode).toBe(2);
+            expect(unavailableResolution.output.errors[0]?.message).toContain(
+              "Cleanup requires the durable preview session and allocation authorities",
+            );
+            expect(unavailableResolution.output.errors[0]?.remediation).toContain(
+              "TIARA_PREVIEW_SESSION_DATABASE",
+            );
+
+            const fullStatus = yield* Effect.tryPromise({
+              try: () => runLauncher(["preview", "status", "--session", id, "--json"], options),
+              catch: (cause) => cause,
+            });
+            const fullStatusOutput = JSON.parse(fullStatus.stdout) as {
+              readonly previewSession: {
+                readonly lastRenewedAt: number;
+                readonly allocations: { readonly resources: readonly unknown[] };
+              };
             };
             expect(beforeHeartbeat.previewSession.lastRenewedAt).toBe(clock.value);
+            expect(fullStatusOutput.previewSession.allocations.resources).toHaveLength(1);
+            const liveCleanup = yield* Effect.tryPromise({
+              try: () => runLauncher(["preview", "cleanup", "--session", id, "--json"], options),
+              catch: (cause) => cause,
+            });
+            expect(liveCleanup.exitCode).toBe(2);
+            expect((yield* fileSystem.readFileString(resourcePath!)).includes(id)).toBe(true);
 
             const heartbeat = yield* Effect.tryPromise({
               try: () =>
                 runLauncher(
                   ["preview", "heartbeat", "--session", id, "--generation", "1", "--json"],
-                  options,
+                  sessionOnlyOptions,
                 ),
               catch: (cause) => cause,
             });
             expect(heartbeat.exitCode).toBe(0);
             const concurrentResume = yield* Effect.tryPromise({
-              try: () => runLauncher(["preview", "resume", "--session", id, "--json"], options),
+              try: () =>
+                runLauncher(["preview", "resume", "--session", id, "--json"], sessionOnlyOptions),
               catch: (cause) => cause,
             });
             expect(concurrentResume.exitCode).toBe(2);
 
             clock.value += 30_000;
             const resumed = yield* Effect.tryPromise({
-              try: () => runLauncher(["preview", "resume", "--session", id, "--json"], options),
+              try: () =>
+                runLauncher(["preview", "resume", "--session", id, "--json"], sessionOnlyOptions),
               catch: (cause) => cause,
             });
             expect(resumed.exitCode).toBe(0);
@@ -1423,24 +1880,93 @@ it.live(
               try: () =>
                 runLauncher(
                   ["preview", "heartbeat", "--session", id, "--generation", "1", "--json"],
-                  options,
+                  sessionOnlyOptions,
                 ),
               catch: (cause) => cause,
             });
             expect(staleHeartbeat.exitCode).toBe(2);
 
             const stopped = yield* Effect.tryPromise({
-              try: () => runLauncher(["preview", "stop", "--session", id, "--json"], options),
+              try: () =>
+                runLauncher(["preview", "stop", "--session", id, "--json"], sessionOnlyOptions),
               catch: (cause) => cause,
             });
             const stoppedAgain = yield* Effect.tryPromise({
-              try: () => runLauncher(["preview", "stop", "--session", id, "--json"], options),
+              try: () =>
+                runLauncher(["preview", "stop", "--session", id, "--json"], sessionOnlyOptions),
               catch: (cause) => cause,
             });
             expect(stopped.exitCode).toBe(0);
             expect(stoppedAgain.exitCode).toBe(0);
             const ended = yield* controller.status(id);
             expect(ended.phase).toBe("ended");
+            const sql = yield* SqlClient.SqlClient;
+            yield* sql`UPDATE preview_allocation_ledger SET provider_resource_id=NULL, state='quarantined', failure='provider-resource-id-missing' WHERE session_id=${id} AND resource='auth'`;
+            const waitingCleanup = yield* Effect.tryPromise({
+              try: () => runLauncher(["preview", "cleanup", "--session", id, "--json"], options),
+              catch: (cause) => cause,
+            });
+            expect(waitingCleanup.exitCode).toBe(2);
+            const waitingCleanupOutput = JSON.parse(waitingCleanup.stdout) as {
+              previewSession: { allocations: { cleanup: string } };
+              errors: readonly { readonly message: string; readonly remediation: string }[];
+            };
+            expect(waitingCleanupOutput.previewSession.allocations.cleanup).toBe("quarantined");
+            expect(waitingCleanupOutput.errors[0]?.remediation).toContain(
+              "preview resolve --session",
+            );
+            expect(yield* fileSystem.exists(resourcePath!)).toBe(true);
+            const resolved = yield* Effect.tryPromise({
+              try: () =>
+                runLauncher(
+                  ["preview", "resolve", "--session", id, "--resource", "auth", "--json"],
+                  options,
+                ),
+              catch: (cause) => cause,
+            });
+            expect(resolved.exitCode).toBe(0);
+            const resolvedOutput = JSON.parse(resolved.stdout) as {
+              readonly ok: boolean;
+              readonly readiness: string;
+              readonly previewSession: { readonly allocations: { readonly cleanup: string } };
+              readonly errors: readonly unknown[];
+              readonly warnings: readonly { readonly message: string }[];
+            };
+            expect(resolvedOutput.ok).toBe(true);
+            expect(resolvedOutput.readiness).toBe("completed");
+            expect(resolvedOutput.previewSession.allocations.cleanup).toBe("waiting");
+            expect(resolvedOutput.errors).toEqual([]);
+            expect(resolvedOutput.warnings[0]?.message).toContain("Cleanup is waiting");
+            const resolution =
+              yield* sql`SELECT provider_resource_id, outcome FROM preview_allocation_resolutions WHERE session_id=${id} AND resource='auth'`;
+            expect(resolution).toHaveLength(1);
+            expect((resolution[0] as Record<string, unknown>).provider_resource_id).toBe(
+              resourcePath,
+            );
+            expect((resolution[0] as Record<string, unknown>).outcome).toBe("found");
+            clock.value += 5 * 60_000;
+            const cleaned = yield* Effect.tryPromise({
+              try: () => runLauncher(["preview", "cleanup", "--session", id, "--json"], options),
+              catch: (cause) => cause,
+            });
+            expect(cleaned.exitCode, cleaned.stdout).toBe(0);
+            expect((yield* fileSystem.readDirectory(path.dirname(resourcePath!))).length).toBe(0);
+            expect(
+              (yield* fileSystem.readFileString(otherResourcePath)).includes(
+                secondSession.session.id,
+              ),
+            ).toBe(true);
+            const cleanupAgain = yield* Effect.tryPromise({
+              try: () => runLauncher(["preview", "cleanup", "--session", id, "--json"], options),
+              catch: (cause) => cause,
+            });
+            expect(cleanupAgain.exitCode).toBe(0);
+            yield* controller.stop(secondSession.session.id, secondSession.ownerIdentity);
+            yield* allocationController.cleanup({ sessionId: secondSession.session.id });
+            clock.value += 5 * 60_000;
+            expect(
+              yield* allocationController.cleanup({ sessionId: secondSession.session.id }),
+            ).toBe("cleaned");
           }),
       );
     }).pipe(
@@ -1535,11 +2061,13 @@ it.live("does not create a pending session without a credential store path", () 
 it.live("reports malformed session IDs separately from missing database configuration", () =>
   Effect.gen(function* () {
     const controller = yield* makePreviewSessionController(() => 50_000);
+    const allocations = yield* makeUnavailableProfileAllocationController(() => 50_000);
     const result = yield* runLauncherEffect(
       ["preview", "heartbeat", "--session", "not-a-session-id", "--generation", "1", "--json"],
       {
         env: { TIARA_PREVIEW_SESSION_DATABASE: "/tmp/unused-preview-sessions.sqlite" },
         previewSessionController: controller,
+        previewAllocationController: allocations,
       },
     );
     expect(result.exitCode).toBe(2);
@@ -1556,6 +2084,36 @@ it.live("reports malformed session IDs separately from missing database configur
 it.live("stops a newly created session when owner credentials cannot be persisted", () =>
   Effect.gen(function* () {
     const controller = yield* makePreviewSessionController(() => 50_000);
+    const allocations = yield* makePreviewAllocationController(
+      {
+        planProfile: () =>
+          Effect.succeed({
+            demands: previewCapacityDimensionsByGroup.auth.map((dimension) => ({
+              dimension,
+              amount: 1,
+              provider: "test",
+              identity: "provider",
+            })),
+            resources: ["auth"],
+          }),
+        validateProfileAllocation: () => Effect.void,
+        allocate: () => Effect.fail(new Error("must not allocate before credentials")),
+        deleteOwned: () => Effect.void,
+        proveCleanup: () => Effect.succeed(false),
+      },
+      () => 50_000,
+    );
+    yield* Effect.forEach(previewCapacityDimensionsByGroup.auth, (dimension) =>
+      allocations.observeCapacity({
+        provider: "test",
+        identity: "provider",
+        dimension,
+        observedAt: 50_000,
+        total: 2,
+        inUse: 0,
+        grantsVerified: true,
+      }),
+    );
     yield* withConnectedPreviewConfig(
       createConnectedPreviewConfig({ roles: ["sheet-auth"] }),
       (configPath, cwd) =>
@@ -1569,6 +2127,7 @@ it.live("stops a newly created session when owner credentials cannot be persiste
               cwd,
               env: { TIARA_PREVIEW_SESSION_DATABASE: sessionDatabase },
               previewSessionController: controller,
+              previewAllocationController: allocations,
             },
           );
           const output = JSON.parse(result.stdout) as {

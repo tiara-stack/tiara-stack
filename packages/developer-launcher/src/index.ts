@@ -131,6 +131,31 @@ export {
   type SupervisorCredentials,
 } from "./preview-sessions";
 export {
+  CapacityMeasurementSchema,
+  DEFAULT_PREVIEW_ALLOCATION_CONFIG,
+  DEFAULT_PREVIEW_RESOURCE_ADAPTER_TIMEOUT_MS,
+  PreviewCapacityBaselineSchema,
+  PreviewAllocationConfigSchema,
+  PreviewAllocationController,
+  PreviewAllocationControllerLive,
+  PreviewAllocationError,
+  VerifiedAllocationResolutionSchema,
+  makeLocalFilesystemPreviewResourceAdapter,
+  makePreviewAllocationController,
+  parsePreviewAllocationConfig,
+  previewCapacityDimensionsByGroup,
+  type CapacityDemand,
+  type CapacityMeasurement,
+  type PreviewAllocationApi,
+  type PreviewAllocationConfig,
+  type PreviewAllocationConfigParseResult,
+  type PreviewAllocationStatus,
+  type PreviewCapacityBaseline,
+  type PreviewProfileDemandPlan,
+  type PreviewResourceAdapter,
+  type VerifiedAllocationResolution,
+} from "./preview-allocations";
+export {
   COMPOSE_ENDPOINTS,
   COMPOSE_ENVIRONMENT_KEYS,
   DETERMINISTIC_PORTS,
@@ -208,16 +233,18 @@ Usage:
   pnpm dev kubernetes <action>
   pnpm dev preview plan --config <file>
   pnpm dev preview doctor --config <file>
+  pnpm dev preview baseline --config <file>
   pnpm dev preview start --config <file>
   pnpm dev preview status --session <id>
   pnpm dev preview heartbeat --session <id> --generation <n>
   pnpm dev preview resume --session <id>
   pnpm dev preview stop --session <id>
   pnpm dev preview cleanup --session <id>
+  pnpm dev preview resolve --session <id> --resource <key>
   pnpm dev doctor
   pnpm dev setup <mode>
 
-Connected preview session actions require TIARA_PREVIEW_SESSION_DATABASE to point at the durable controller database. Start creates a pending record; it does not start a runtime profile. Cleanup and all application profiles remain unavailable.
+Connected preview actions use the durable local controller database at TIARA_PREVIEW_SESSION_DATABASE. Baseline imports operator-collected evidence from TIARA_PREVIEW_CAPACITY_BASELINE_FILE. Start requires an exact profile demand plan, fresh provider measurements, verified grants, atomic reservations, and owned allocation records; it creates a pending session but does not start an application runtime.
 
 Modes:
   fast       Run the smallest host-native development slice.
@@ -255,17 +282,23 @@ const previewHelpText = `TiaraStack connected preview mode
 Actions:
   pnpm dev preview plan --config <file>
   pnpm dev preview doctor --config <file>
+  pnpm dev preview baseline --config <file>
   pnpm dev preview start --config <file>
   pnpm dev preview status --session <id>
   pnpm dev preview heartbeat --session <id> --generation <n>
   pnpm dev preview resume --session <id>
   pnpm dev preview stop --session <id>
   pnpm dev preview cleanup --session <id>
+  pnpm dev preview resolve --session <id> --resource <key>
 
-Plan and doctor are read-only. Session actions require
-TIARA_PREVIEW_SESSION_DATABASE to point at the durable controller database.
-Start creates a pending record; it does not launch a runtime profile. Cleanup
-and all application profiles remain unavailable.
+Plan and doctor do not create resources. Baseline imports a validated,
+operator-collected evidence file at TIARA_PREVIEW_CAPACITY_BASELINE_FILE into
+the local controller database. Session actions require
+TIARA_PREVIEW_SESSION_DATABASE. Start only creates a pending allocation-backed
+session; it does not launch an application runtime profile. Cleanup refuses
+live sessions and reports waiting or quarantined state without releasing held
+capacity. Resolve requires the session owner credential and fresh provider
+evidence; retrying cleanup alone never resolves an unknown allocation.
 The command without an action prints help and starts no resources.
 `;
 

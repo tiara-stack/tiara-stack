@@ -205,20 +205,59 @@ will be unavailable during handoff. These fields record intent; plan does not
 perform those operations.
 
 `pnpm dev preview plan --config <file>` returns `readiness: planned` when the
-configuration passes static validation. A planned result is not a reservation,
-readiness proof, or admission decision. `pnpm dev preview doctor --config
-<file>` reports current prerequisite checks as `unavailable` because the
-workspace, controller, route, identity, grant, capacity, and cleanup probes are
-not implemented. It never reports an unrun check as passed.
+configuration passes static validation. It lists unit-bearing quota dimensions
+but does not reserve them. `pnpm dev preview doctor --config <file>` checks
+selected profile demand against provider measurements in the authority
+database. Missing observations, wrong provider identity, unverified grants,
+stale data, and exhaustion block readiness. Exhaustion includes requested,
+reserved, and available values.
+
+Import an operator-collected baseline by setting
+`TIARA_PREVIEW_CAPACITY_BASELINE_FILE` to a JSON file, then run:
+
+```sh
+pnpm dev preview baseline --config .dev/preview.json
+```
+
+The file contains `measurements` and `profiles`. Measurements record provider,
+exact identity, dimension, observation time, total, in-use amount, and grant
+verification. A profile record names the profile, selected roles, owned
+groups, demand amount for every required dimension, and one resource per owned
+group. The importer validates the complete profile and stores observations and
+demand plans transactionally. It makes no provider calls and never invents
+capacity. Provider-specific collection remains the operator's responsibility
+until that provider adapter is configured.
+
+Measurements are fresh for 900000 ms (15 minutes) by default, based on their
+original `observedAt` value; importing a baseline does not refresh its age.
+Set `TIARA_PREVIEW_MAX_MEASUREMENT_AGE_MS` to a positive safe integer in
+milliseconds to override the default. An absent or blank value uses the finite
+default. Any other invalid value prevents the allocation controller from
+initializing and keeps session start unavailable. Doctor retains and reports
+stale observations; reservation and allocation reject them.
 
 Set `TIARA_PREVIEW_SESSION_DATABASE` to a private local SQLite path before
-using session actions. `start` validates the static config and durably creates
-a pending session before returning its ID. It never starts an application
-profile. `status` reads without renewing; `heartbeat` requires the current
-generation; `resume` requires the local owner identity and fences the previous
-generation; `stop` closes normal admission idempotently. The `cleanup` action
-and all application profiles remain unavailable. Plan and session responses
-keep launcher JSON `schemaVersion: 3` and lifecycle JSON Lines `eventVersion: 1`.
+using session actions. `start` validates profile demand, checks fresh exact
+provider observations and grants, reserves every dimension, records ownership,
+then calls the configured infrastructure adapter. Missing evidence fails
+before allocation. `status` reads session and allocation ledgers without
+renewing; `heartbeat` requires the current generation; `resume` requires the
+local owner identity and fences the previous generation; `stop` closes normal
+admission idempotently. `cleanup` refuses live sessions, waits for settlement
+and adapter proof, waits five minutes after proof, and releases reservations
+only after exact owned resources are confirmed deleted. Connected application
+runtime profiles remain unavailable and are never launched by these commands.
+If an allocation has no recorded provider resource ID, `resolve` invokes an
+explicit owner-authorized adapter lookup for that one ledger row. The adapter
+must return fresh evidence tied to the recorded session, resource, owner token,
+and one of the session's reserved provider identities, and confirm that the
+provider allocation operation has settled. A momentary "not found" result while
+allocation may still be in flight cannot resolve the row. A verified resource is
+added to the exact ownership ledger; verified absence is recorded durably.
+Cleanup then repeats its proof delay and deletion flow. Retry or operator
+assertion alone cannot resolve an ambiguous row or release its reservation.
+Plan and session responses keep launcher JSON `schemaVersion: 3` and lifecycle
+JSON Lines `eventVersion: 1`.
 
 The launcher uses its Effect `PreviewSessionController` service backed by
 SQLite as the local controller protocol boundary. It durably records the
@@ -235,6 +274,37 @@ Every authority check compares the deadline directly, so delayed sweeps cannot
 extend admission. Resume requires the same identity, claims an expiring
 supervisor lease, and increments the generation; stale-generation writes are
 rejected. Stop is idempotent and terminal. Status does not renew the lease.
+
+The allocation controller stores provider-identified capacity measurements,
+reservations, and per-resource ownership records in the authority store. It
+validates complete profile demand plans against the per-group dimension
+catalog, checks exact provider identity and fresh grant-verified observations,
+and reserves all dimensions before adapter allocation. Partial allocations,
+unknown ownership, and deletion failures retain their reservations for
+inspection. Cleanup derives ended and settled state from the durable session
+row, asks the adapter for proof, waits five minutes from that proof, and
+releases reservations only after the ledger is empty.
+Deletion uses a durable conditional claim per resource. A concurrent cleanup
+waits while a deletion claim is active; a claim left stale by a controller
+restart is retried after the adapter timeout. Resource adapters must make
+deletion idempotent for the exact recorded provider resource ID and owner token.
+Provider adapter planning, validation, allocation, proof, deletion, and ownership
+resolution calls have a 60000 ms default timeout. A timed-out allocation is
+quarantined as ambiguous and keeps its reservation until the provider confirms
+the allocation operation has settled and ownership is resolved; proof timeout leaves
+cleanup waiting, deletion timeout quarantines and holds capacity, and resolution
+timeout leaves the unknown row quarantined. The controller constructor accepts
+a positive safe-integer timeout override.
+
+The CLI imports provider evidence collected by an operator; it does not
+configure provider clients or fetch capacity itself. This checkout supplies a
+local filesystem adapter for disposable owner-marker resources, but does not
+configure live PostgreSQL, Zero Cache, Redis, Kubernetes, Meilisearch, OAuth,
+Discord, or Google Sheets adapters. Profiles needing those providers remain
+unavailable until their provider identity, grants, measurements, demand plan,
+and cleanup proof are supplied by an adapter. The CLI's filesystem adapter
+refuses connected-profile allocation even when a capacity baseline exists; the
+filesystem adapter is used only by the local disposable acceptance path.
 
 The CLI creates a missing database parent directory with mode 0700. It rejects
 an existing parent directory that is owned by another user or is writable by

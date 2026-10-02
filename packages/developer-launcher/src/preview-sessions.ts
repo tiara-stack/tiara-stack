@@ -305,9 +305,8 @@ export const makePreviewSessionController = (now: () => number) =>
           const id = randomUUID();
           const ownerIdentity = randomBytes(32).toString("base64url");
           const supervisorIdentity = randomBytes(32).toString("base64url");
-          const resourceIds = Object.fromEntries(
-            Object.keys(input.manifests).map((resource) => [resource, randomUUID()]),
-          );
+          // Allocation IDs are written only after the allocation ledger confirms ownership.
+          const resourceIds: Record<string, string> = {};
           yield* sql`INSERT INTO preview_sessions (id, owner, checkout, resource_ids, manifests, requested_revision, phase, generation, identity_digest, supervisor_identity_digest, lease_deadline, last_renewed_at, supervisor_lease_until) VALUES (${id}, ${input.owner}, ${input.checkout}, ${JSON.stringify(resourceIds)}, ${JSON.stringify(input.manifests)}, ${input.requestedRevision}, 'pending', 1, ${digestIdentity(ownerIdentity)}, ${digestIdentity(supervisorIdentity)}, ${time + previewSessionLeaseMs}, ${time}, ${time + previewSupervisorLeaseMs})`;
           return { ownerIdentity, supervisorIdentity, session: yield* valid(id) };
         }),

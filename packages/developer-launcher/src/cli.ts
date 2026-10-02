@@ -40,11 +40,19 @@ import {
 } from "./types";
 import { normalizeChangedSurfaces, parseCommand, type CommandOptions } from "./commands";
 import { PreviewSessionController, PreviewSessionControllerLive } from "./preview-sessions";
+import {
+  makeLocalFilesystemPreviewResourceAdapter,
+  parsePreviewAllocationConfig,
+  PreviewAllocationController,
+  PreviewAllocationControllerLive,
+  type PreviewAllocationConfigParseResult,
+} from "./preview-allocations";
 
 const commonFlags = {
   envFile: Flag.string("env-file").pipe(Flag.optional),
   configFile: Flag.string("config").pipe(Flag.optional),
   sessionId: Flag.string("session").pipe(Flag.optional),
+  resource: Flag.string("resource").pipe(Flag.optional),
   generation: Flag.integer("generation").pipe(Flag.optional),
   service: Flag.string("service").pipe(Flag.optional),
   confirm: Flag.boolean("confirm").pipe(Flag.withDefault(false)),
@@ -60,6 +68,7 @@ const launcherOptions = (config: {
   readonly envFile: Option.Option<string>;
   readonly configFile: Option.Option<string>;
   readonly sessionId: Option.Option<string>;
+  readonly resource: Option.Option<string>;
   readonly generation: Option.Option<number>;
   readonly service: Option.Option<string>;
   readonly confirm: boolean;
@@ -75,6 +84,7 @@ const launcherOptions = (config: {
   envFile: Option.getOrNull(config.envFile),
   configFile: Option.getOrNull(config.configFile),
   sessionId: Option.getOrNull(config.sessionId),
+  resource: Option.getOrNull(config.resource),
   generation: Option.getOrNull(config.generation),
   service: Option.getOrNull(config.service),
   confirm: config.confirm,
@@ -177,53 +187,62 @@ const isExecutablePlan = (result: Awaited<ReturnType<typeof runLauncherFromParse
 const runParsedCommand = (config: Parameters<typeof launcherOptions>[0]) =>
   Effect.serviceOption(PreviewSessionController).pipe(
     Effect.flatMap((sessionController) =>
-      // fallow-ignore-next-line complexity
-      Effect.tryPromise({
-        // fallow-ignore-next-line complexity
-        try: async () => {
-          const options = launcherOptions(config);
-          const launcherConfig = Option.match(sessionController, {
-            onNone: () => options,
-            onSome: (previewSessionController) => ({ ...options, previewSessionController }),
-          });
-          let result = await runLauncherFromParsed(config.operands, options, launcherConfig);
-          const shouldExecutePlan = isExecutablePlan(result);
-          const lifecycleExecutionStarted = config.jsonStream && shouldExecutePlan;
-          if (shouldExecutePlan) {
-            result = await executeDevelopmentPlan(result, config.json || config.jsonStream, {
-              jsonStream: config.jsonStream,
-            });
-          }
-          process.exitCode = result.exitCode;
-          if (config.jsonStream) {
-            if (result.stdout.trim().length > 0) {
-              process.stdout.write(result.stdout);
-            }
-            if (result.output.ok && !lifecycleExecutionStarted) {
-              process.stdout.write(renderLifecycleTerminal(result.output, result.exitCode, 2));
-            } else if (
-              !result.output.ok &&
-              !lifecycleExecutionStarted &&
-              result.stdout.trim().length === 0
-            ) {
-              process.stdout.write(renderLifecycleTerminal(result.output, result.exitCode, 1));
-            }
-            return null;
-          }
-          const output = result.stdout.trimEnd();
-          return output.length === 0 ? null : output;
-        },
-        catch: (cause) => {
-          process.exitCode = 1;
-          return cause instanceof Error
-            ? cause
-            : new Error("The development launcher failed before it could produce a result.");
-        },
-      }).pipe(
-        Effect.flatMap((output) => (output === null ? Effect.void : Console.log(output))),
-        Effect.catch((error: unknown) =>
-          Console.error(
-            error instanceof Error ? error.message : "The development launcher failed.",
+      Effect.serviceOption(PreviewAllocationController).pipe(
+        Effect.flatMap((allocationController) =>
+          // fallow-ignore-next-line complexity
+          Effect.tryPromise({
+            // fallow-ignore-next-line complexity
+            try: async () => {
+              const options = launcherOptions(config);
+              const launcherConfig = {
+                ...options,
+                ...(Option.isSome(sessionController)
+                  ? { previewSessionController: sessionController.value }
+                  : {}),
+                ...(Option.isSome(allocationController)
+                  ? { previewAllocationController: allocationController.value }
+                  : {}),
+              };
+              let result = await runLauncherFromParsed(config.operands, options, launcherConfig);
+              const shouldExecutePlan = isExecutablePlan(result);
+              const lifecycleExecutionStarted = config.jsonStream && shouldExecutePlan;
+              if (shouldExecutePlan) {
+                result = await executeDevelopmentPlan(result, config.json || config.jsonStream, {
+                  jsonStream: config.jsonStream,
+                });
+              }
+              process.exitCode = result.exitCode;
+              if (config.jsonStream) {
+                if (result.stdout.trim().length > 0) {
+                  process.stdout.write(result.stdout);
+                }
+                if (result.output.ok && !lifecycleExecutionStarted) {
+                  process.stdout.write(renderLifecycleTerminal(result.output, result.exitCode, 2));
+                } else if (
+                  !result.output.ok &&
+                  !lifecycleExecutionStarted &&
+                  result.stdout.trim().length === 0
+                ) {
+                  process.stdout.write(renderLifecycleTerminal(result.output, result.exitCode, 1));
+                }
+                return null;
+              }
+              const output = result.stdout.trimEnd();
+              return output.length === 0 ? null : output;
+            },
+            catch: (cause) => {
+              process.exitCode = 1;
+              return cause instanceof Error
+                ? cause
+                : new Error("The development launcher failed before it could produce a result.");
+            },
+          }).pipe(
+            Effect.flatMap((output) => (output === null ? Effect.void : Console.log(output))),
+            Effect.catch((error: unknown) =>
+              Console.error(
+                error instanceof Error ? error.message : "The development launcher failed.",
+              ),
+            ),
           ),
         ),
       ),
@@ -253,6 +272,10 @@ export const command = Command.make(
       description: "Check connected preview prerequisites",
     },
     {
+      command: "pnpm dev preview baseline --config ./preview.json",
+      description: "Import an operator-collected capacity baseline into the controller",
+    },
+    {
       command: "pnpm dev preview start --config ./preview.json",
       description: "Create a pending session; live runtime profiles remain unavailable",
     },
@@ -274,7 +297,11 @@ export const command = Command.make(
     },
     {
       command: "pnpm dev preview cleanup --session <id>",
-      description: "Unavailable until the owned-resource cleanup controller is implemented",
+      description: "Clean ended owned resources or inspect waiting/quarantined cleanup state",
+    },
+    {
+      command: "pnpm dev preview resolve --session <id> --resource <key>",
+      description: "Verify ownership of one quarantined allocation through its provider adapter",
     },
     { command: "pnpm dev doctor --json", description: "Run prerequisite checks as JSON" },
   ]),
@@ -285,43 +312,109 @@ const resolvedSessionDatabase =
   sessionDatabase === undefined || sessionDatabase.trim() === ""
     ? undefined
     : path.resolve(sessionDatabase);
-const sessionActions = new Set(["start", "status", "heartbeat", "resume", "stop"]);
+const sessionActions = new Set([
+  "start",
+  "status",
+  "heartbeat",
+  "resume",
+  "stop",
+  "cleanup",
+  "resolve",
+]);
 const args = process.argv.slice(2);
-const isPreviewSessionAction = (() => {
+const previewAction = (() => {
   try {
     const parsed = parseCommand(args);
-    return parsed.kind === "preview" && sessionActions.has(parsed.action);
+    return parsed.kind === "preview" ? parsed.action : undefined;
+  } catch {
+    return undefined;
+  }
+})();
+const isPreviewSessionAction =
+  previewAction !== undefined &&
+  (sessionActions.has(previewAction) || previewAction === "baseline");
+const readOnlyCapacityDoctor = (() => {
+  if (previewAction !== "doctor" || resolvedSessionDatabase === undefined) return false;
+  try {
+    return statSync(resolvedSessionDatabase).isFile();
   } catch {
     return false;
   }
 })();
-const sessionControllerLayer =
-  !isPreviewSessionAction || resolvedSessionDatabase === undefined
+const allocationControllerNeeded =
+  previewAction === "baseline" ||
+  previewAction === "start" ||
+  previewAction === "status" ||
+  previewAction === "cleanup" ||
+  previewAction === "resolve" ||
+  readOnlyCapacityDoctor;
+const sessionControllerNeeded = previewAction !== undefined && sessionActions.has(previewAction);
+const previewAllocationConfig = parsePreviewAllocationConfig(
+  process.env.TIARA_PREVIEW_MAX_MEASUREMENT_AGE_MS,
+);
+export const previewAllocationConfigDiagnostic = (
+  config: PreviewAllocationConfigParseResult,
+  allocationBackedAction: boolean,
+  controllerStoreConfigured: boolean,
+) =>
+  allocationBackedAction && controllerStoreConfigured && "error" in config
+    ? config.error
+    : undefined;
+const previewAllocationLayer = (databasePath: string) =>
+  "config" in previewAllocationConfig
+    ? PreviewAllocationControllerLive(
+        makeLocalFilesystemPreviewResourceAdapter(`${databasePath}.allocations`),
+        Date.now,
+        previewAllocationConfig.config,
+        !readOnlyCapacityDoctor,
+      )
+    : Layer.empty;
+const previewDatabaseLayer =
+  resolvedSessionDatabase === undefined || (!allocationControllerNeeded && !sessionControllerNeeded)
     ? Layer.empty
     : Layer.provide(
-        PreviewSessionControllerLive(Date.now),
+        sessionControllerNeeded && allocationControllerNeeded
+          ? Layer.merge(
+              PreviewSessionControllerLive(Date.now),
+              previewAllocationLayer(resolvedSessionDatabase),
+            )
+          : sessionControllerNeeded
+            ? PreviewSessionControllerLive(Date.now)
+            : allocationControllerNeeded
+              ? previewAllocationLayer(resolvedSessionDatabase)
+              : Layer.empty,
         Layer.mergeAll(
-          SqliteClient.layer({ filename: resolvedSessionDatabase }),
+          SqliteClient.layer({
+            filename: resolvedSessionDatabase,
+            ...(readOnlyCapacityDoctor ? { readonly: true, disableWAL: true } : {}),
+          }),
           NodeServices.layer,
         ),
       );
-const cliLayer = Layer.mergeAll(NodeServices.layer, sessionControllerLayer);
+const cliLayer = Layer.mergeAll(NodeServices.layer, previewDatabaseLayer);
 
 export const main = Command.run(command, { version: "0.0.0" }).pipe(Effect.provide(cliLayer));
 
 export const runMain = () => NodeRuntime.runMain(main);
 
-const canonicalPath = (value: string) => {
+const isMain = () => {
+  const entryPath = process.argv[1];
+  if (entryPath === undefined) return false;
+  const modulePath = fileURLToPath(import.meta.url);
   try {
-    return realpathSync(value);
+    return realpathSync(entryPath) === realpathSync(modulePath);
   } catch {
-    return path.normalize(path.resolve(value));
+    return path.resolve(entryPath) === path.resolve(modulePath);
   }
 };
 
-const isMain = () => {
-  if (!process.argv[1]) return false;
-  return canonicalPath(process.argv[1]) === canonicalPath(fileURLToPath(import.meta.url));
+const reportAllocationConfigDiagnostic = () => {
+  const message = previewAllocationConfigDiagnostic(
+    previewAllocationConfig,
+    allocationControllerNeeded,
+    resolvedSessionDatabase !== undefined,
+  );
+  if (message !== undefined) process.stderr.write(`${message}\n`);
 };
 
 // fallow-ignore-next-line code-duplication
@@ -374,8 +467,12 @@ if (isMain()) {
       process.exitCode = 2;
       storageReady = false;
     }
-    if (storageReady) runMain();
+    if (storageReady) {
+      reportAllocationConfigDiagnostic();
+      runMain();
+    }
   } else {
+    if (allocationControllerNeeded && readOnlyCapacityDoctor) reportAllocationConfigDiagnostic();
     runMain();
   }
 }

@@ -17,6 +17,7 @@ export interface CommandOptions {
   readonly envFile: string | null;
   readonly configFile: string | null;
   readonly sessionId: string | null;
+  readonly resource: string | null;
   readonly generation?: number | null;
   readonly service: string | null;
   readonly confirm: boolean;
@@ -64,6 +65,12 @@ export type ParsedCommand =
     }
   | {
       readonly kind: "preview";
+      readonly action: "baseline";
+      readonly options: CommandOptions & { readonly configFile: string; readonly sessionId: null };
+      readonly command: string;
+    }
+  | {
+      readonly kind: "preview";
       readonly action: "start";
       readonly options: CommandOptions & { readonly configFile: string; readonly sessionId: null };
       readonly command: string;
@@ -72,6 +79,16 @@ export type ParsedCommand =
       readonly kind: "preview";
       readonly action: "status" | "heartbeat" | "resume" | "stop" | "cleanup";
       readonly options: CommandOptions & { readonly configFile: null; readonly sessionId: string };
+      readonly command: string;
+    }
+  | {
+      readonly kind: "preview";
+      readonly action: "resolve";
+      readonly options: CommandOptions & {
+        readonly configFile: null;
+        readonly sessionId: string;
+        readonly resource: string;
+      };
       readonly command: string;
     };
 
@@ -97,6 +114,7 @@ const initialOptions = (): MutableCommandOptions => ({
   envFile: null,
   configFile: null,
   sessionId: null,
+  resource: null,
   generation: null,
   service: null,
   confirm: false,
@@ -112,6 +130,7 @@ const hasUnsupportedActionOptions = (options: CommandOptions) =>
   options.service !== null ||
   options.configFile !== null ||
   options.sessionId !== null ||
+  options.resource !== null ||
   hasGeneration(options) ||
   options.confirm ||
   options.confirmDevelopment ||
@@ -232,6 +251,17 @@ const parseOptions = (args: readonly string[]) => {
       options.sessionId = value;
       continue;
     }
+    if (option === "--resource") {
+      const value = nonEmptyOptionValue(
+        inlineValue ?? valueAfterOption(args, index, option),
+        option,
+      );
+      if (inlineValue === null) index += 1;
+      if (options.resource !== null)
+        throw new CommandParseError(`${option} may only be provided once`, "invalid-option");
+      options.resource = value;
+      continue;
+    }
     if (option === "--generation") {
       const rawValue = inlineValue ?? valueAfterOption(args, index, option);
       if (inlineValue === null) index += 1;
@@ -327,6 +357,7 @@ export const parsePositionals = (
       options.confirmDevelopment ||
       options.configFile !== null ||
       options.sessionId !== null ||
+      options.resource !== null ||
       hasGeneration(options) ||
       options.tag !== null ||
       options.changedSurfaces.length > 0
@@ -339,7 +370,7 @@ export const parsePositionals = (
   }
 
   if (first === "help") {
-    if (second !== undefined || rest.length > 0) {
+    if (second !== undefined || rest.length > 0 || options.resource !== null) {
       throw new CommandParseError("help does not accept a positional argument");
     }
     return { kind: "help", mode: null, options, command: "help" };
@@ -363,6 +394,8 @@ export const parsePositionals = (
     if (!(connectedPreviewActions as readonly string[]).includes(second)) {
       throw new CommandParseError(`unknown action ${second} for preview`, "invalid-action");
     }
+    if (second !== "resolve" && options.resource !== null)
+      throw new CommandParseError("--resource is only valid for preview resolve", "invalid-option");
     if (
       options.envFile !== null ||
       options.service !== null ||
@@ -379,8 +412,13 @@ export const parsePositionals = (
     if (options.help) {
       return { kind: "help", mode: "preview", options, command: "preview help" };
     }
-    if (second === "plan" || second === "doctor") {
-      if (options.configFile === null || options.sessionId !== null || hasGeneration(options)) {
+    if (second === "plan" || second === "doctor" || second === "baseline") {
+      if (
+        options.configFile === null ||
+        options.sessionId !== null ||
+        options.resource !== null ||
+        hasGeneration(options)
+      ) {
         throw new CommandParseError(
           `preview ${second} requires --config <file> and does not accept --session or --generation`,
           "invalid-option",
@@ -395,15 +433,27 @@ export const parsePositionals = (
           command: "preview plan",
         };
       }
+      if (second === "doctor")
+        return {
+          kind: "preview",
+          action: "doctor",
+          options: previewOptions,
+          command: "preview doctor",
+        };
       return {
         kind: "preview",
-        action: "doctor",
+        action: "baseline",
         options: previewOptions,
-        command: "preview doctor",
+        command: "preview baseline",
       };
     }
     if (second === "start") {
-      if (options.configFile === null || options.sessionId !== null || hasGeneration(options)) {
+      if (
+        options.configFile === null ||
+        options.sessionId !== null ||
+        options.resource !== null ||
+        hasGeneration(options)
+      ) {
         throw new CommandParseError(
           "preview start requires --config <file> and does not accept --session or --generation",
           "invalid-option",
@@ -414,6 +464,29 @@ export const parsePositionals = (
         action: "start",
         options: { ...options, configFile: options.configFile, sessionId: null },
         command: "preview start",
+      };
+    }
+    if (second === "resolve") {
+      if (
+        options.sessionId === null ||
+        options.configFile !== null ||
+        options.resource === null ||
+        hasGeneration(options)
+      )
+        throw new CommandParseError(
+          "preview resolve requires --session <id> and --resource <resource>",
+          "invalid-option",
+        );
+      return {
+        kind: "preview",
+        action: "resolve",
+        options: {
+          ...options,
+          configFile: null,
+          sessionId: options.sessionId,
+          resource: options.resource,
+        },
+        command: "preview resolve",
       };
     }
     if ((second === "heartbeat") !== hasGeneration(options)) {
@@ -430,15 +503,23 @@ export const parsePositionals = (
     }
     return {
       kind: "preview",
-      action: second as Exclude<ConnectedPreviewAction, "plan" | "doctor" | "start">,
+      action: second as Exclude<
+        ConnectedPreviewAction,
+        "plan" | "doctor" | "baseline" | "start" | "resolve"
+      >,
       options: { ...options, configFile: null, sessionId: options.sessionId },
       command: `preview ${second}`,
     };
   }
 
-  if (options.configFile !== null || options.sessionId !== null || hasGeneration(options)) {
+  if (
+    options.configFile !== null ||
+    options.sessionId !== null ||
+    options.resource !== null ||
+    hasGeneration(options)
+  ) {
     throw new CommandParseError(
-      "--config, --session, and --generation are only valid for connected preview commands",
+      "--config, --session, --resource, and --generation are only valid for connected preview commands",
       "invalid-option",
     );
   }

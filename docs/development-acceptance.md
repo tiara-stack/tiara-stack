@@ -57,14 +57,56 @@ Fast reads `.env.development.local`. Compose reads
 fixed development namespace and release. The bare `pnpm dev` command and a mode
 without an action print help only.
 
-A valid Connected Preview plan reports `readiness: planned`. It reports quota
-dimensions and external target ownership intent with the requested, reserved,
-available, and verification facts marked unavailable. Doctor reports the
-current live admission checks as `unavailable`; with a valid config, `doctor`
-always returns `readiness: blocked` and exit status 2 because unavailable
-checks are never treated as passed. Neither result establishes Development
-Readiness. `start`, `status`, `resume`, `stop`, and `cleanup` remain blocked
-until their controller and admission checks are implemented.
+A valid Connected Preview plan reports `readiness: planned`, lists the unit
+bearing capacity dimensions for each required owned group, and remains an
+estimate. `preview doctor` checks the selected profile demand against persisted
+provider observations and reports missing identity, missing grants, stale
+measurements, and requested/reserved/available exhaustion values. Any such
+finding blocks readiness. `preview baseline` imports operator-collected
+provider observations and profile demand plans from the JSON file named by
+`TIARA_PREVIEW_CAPACITY_BASELINE_FILE`. The importer validates identities,
+dimension coverage, amounts, and profile selection before its durable write.
+It makes no provider calls. Provider-specific collection still requires a
+separately configured adapter and operator credentials; this worktree does not
+configure them.
+
+Capacity evidence defaults to a maximum age of 900000 ms (15 minutes),
+measured from the observation's original `observedAt` timestamp, not import
+time. Set `TIARA_PREVIEW_MAX_MEASUREMENT_AGE_MS` to a positive safe integer to
+change it. An absent or blank value uses the finite default; any other invalid
+value prevents the allocation controller from initializing, so start remains
+blocked. Stale imported evidence is retained so doctor can diagnose it, but
+cannot be reserved or allocated.
+
+`preview start` asks the configured demand planner for the selected roles and
+owned groups, checks the exact provider observations and grants, reserves all
+dimensions atomically, writes the ownership ledger, and then calls the
+infrastructure adapter. Missing evidence, exhaustion, or adapter failure
+blocks before application admission. Status reports the durable reservation
+and allocation ledger. Cleanup reads ended/settled state from the session
+database, asks the adapter for cleanup proof, waits five minutes from that
+proof, deletes only exact recorded resources, and releases reservations only
+when the ledger is empty. Failed or ambiguous deletion stays quarantined for
+safe retry and controller restart recovery. A durable conditional deletion claim
+serializes concurrent cleanup calls; adapters must make deletion of the exact
+recorded resource ID and owner token idempotent. The launcher keeps every connected
+application runtime profile unavailable; this path does not start app
+processes.
+
+Provider adapter calls have a 60000 ms default timeout. A timeout during
+allocation, proof, deletion, or unknown-owner resolution fails closed: uncertain
+resources remain quarantined and their reservations stay held.
+
+Unknown-owner resolution requires fresh provider evidence that the allocation
+operation itself has settled; a momentary absent lookup cannot release capacity
+while an allocation may still complete.
+
+Local acceptance injects an opt-in profile planner over the real filesystem
+adapter and exercises public start/status/cleanup with a disposable owner
+marker file, including another session's resource isolation. The CLI's default
+filesystem adapter refuses connected-profile allocation. Database,
+search-index, Redis, OAuth, Discord, Sheets, and Kubernetes workload adapters
+are not configured here. No shared or production infrastructure was contacted.
 
 ## Boundaries
 

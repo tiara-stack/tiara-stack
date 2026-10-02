@@ -7,10 +7,21 @@ import { Command } from "effect/unstable/cli";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { command, executeComposePlan, executeFastPlan, executeKubernetesPlan } from "./cli";
+import {
+  command,
+  executeComposePlan,
+  executeFastPlan,
+  executeKubernetesPlan,
+  previewAllocationConfigDiagnostic,
+} from "./cli";
 import { runLauncherFromParsed, getKubernetesExecutionContext } from "./index";
 import { runKubernetesExecution, type KubernetesLifecycleObservation } from "./execution";
 import { makePreviewSessionController, PreviewSessionController } from "./preview-sessions";
+import {
+  makePreviewAllocationController,
+  PreviewAllocationController,
+  parsePreviewAllocationConfig,
+} from "./preview-allocations";
 import type { ComposeContainerState, ComposeStateAdapter } from "./execution";
 import type { ProcessExecutor, ProcessResult, ProcessStarter, RunningProcess } from "./types";
 
@@ -20,6 +31,7 @@ const kubernetesOptions = {
   envFile: null,
   configFile: null,
   sessionId: null,
+  resource: null,
   service: null,
   confirm: false,
   confirmDevelopment: true,
@@ -98,6 +110,7 @@ describe("developer launcher Effect CLI", () => {
     envFile: null,
     configFile: null,
     sessionId: null,
+    resource: null,
     service: null,
     confirm: false,
     confirmDevelopment: false,
@@ -108,6 +121,17 @@ describe("developer launcher Effect CLI", () => {
   it.live("passes the Effect session controller into preview session commands", () =>
     Effect.gen(function* () {
       const controller = yield* makePreviewSessionController(() => 10_000);
+      const allocations = yield* makePreviewAllocationController(
+        {
+          planProfile: () => Effect.fail(new Error("profile-demand-not-configured")),
+          validateProfileAllocation: () =>
+            Effect.fail(new Error("profile-allocation-not-configured")),
+          allocate: () => Effect.fail(new Error("allocation-not-configured")),
+          deleteOwned: () => Effect.fail(new Error("deletion-not-configured")),
+          proveCleanup: () => Effect.succeed(false),
+        },
+        () => 10_000,
+      );
       const created = yield* controller.create({
         owner: "developer@example.test",
         checkout: "/checkout",
@@ -120,7 +144,10 @@ describe("developer launcher Effect CLI", () => {
         "--session",
         created.session.id,
         "--json",
-      ]).pipe(Effect.provideService(PreviewSessionController, controller));
+      ]).pipe(
+        Effect.provideService(PreviewSessionController, controller),
+        Effect.provideService(PreviewAllocationController, allocations),
+      );
       const output = (yield* TestConsole.logLines).at(-1);
       expect(output).toBeDefined();
       if (typeof output !== "string") throw new Error("expected the CLI to log a JSON string");
@@ -1061,6 +1088,7 @@ describe("developer launcher Effect CLI", () => {
         envFile: null,
         configFile: null,
         sessionId: null,
+        resource: null,
         service: null,
         confirm: false,
         confirmDevelopment: true,
@@ -1128,9 +1156,7 @@ describe("developer launcher Effect CLI", () => {
         catch: (cause) => cause,
       });
 
-      expect(result.stdout).toContain(
-        "TIARA_PREVIEW_SESSION_DATABASE to point at the durable controller database",
-      );
+      expect(result.stdout).toContain("TIARA_PREVIEW_SESSION_DATABASE");
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
@@ -1163,4 +1189,14 @@ describe("developer launcher Effect CLI", () => {
       }
     }).pipe(Effect.provide(TestConsole.layer), Effect.provide(NodeServices.layer)),
   );
+});
+
+it("reports invalid allocation age only when an allocation-backed CLI action needs a store", () => {
+  const invalid = parsePreviewAllocationConfig("1e3");
+  expect("error" in invalid).toBe(true);
+  expect(previewAllocationConfigDiagnostic(invalid, true, true)).toBe(
+    "TIARA_PREVIEW_MAX_MEASUREMENT_AGE_MS must be a positive safe integer.",
+  );
+  expect(previewAllocationConfigDiagnostic(invalid, false, true)).toBeUndefined();
+  expect(previewAllocationConfigDiagnostic(invalid, true, false)).toBeUndefined();
 });

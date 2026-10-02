@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
+import * as Console from "effect/Console";
 import { Effect, FileSystem, Match, Option, Predicate, Result, Schema } from "effect";
 import { sensitiveEnvironmentKeys } from "./config";
 import {
@@ -7,6 +8,12 @@ import {
   PreviewSessionController,
   SessionCredentialsSchema,
 } from "./preview-sessions";
+import { PreviewAllocationController } from "./preview-allocations";
+import { PreviewAllocationError } from "./preview-allocations";
+import {
+  PreviewCapacityBaselineSchema,
+  previewCapacityDimensionsByGroup,
+} from "./preview-allocations";
 import { makeDiagnostic, makeWarning } from "./diagnostics";
 import type { ParsedCommand } from "./commands";
 import {
@@ -269,25 +276,9 @@ const prerequisites = [
   },
 ] as const;
 
-const quotaResourceDimensions = {
-  "application-zero": [
-    "PostgreSQL slots, senders, connections, WAL, and initial sync",
-    "Zero Cache CPU, memory, and storage",
-  ],
-  "workflow-execution": [
-    "Workflow API and runner CPU, memory, and storage",
-    "PostgreSQL connections and WAL",
-    "Redis capacity",
-    "Kubernetes runner and browser workload capacity",
-  ],
-  auth: ["PostgreSQL connections", "Redis capacity", "OAuth registration and issuer capacity"],
-  "bot-storage": [
-    "Redis capacity",
-    "Exclusive Discord gateway ownership",
-    "Google Sheets target ownership",
-  ],
-  search: ["Meilisearch capacity", "Search index and rebuild storage"],
-} as const satisfies Readonly<Record<ConnectedPreviewGroup, readonly string[]>>;
+const quotaResourceDimensions = previewCapacityDimensionsByGroup satisfies Readonly<
+  Record<ConnectedPreviewGroup, readonly string[]>
+>;
 
 type ContractId = keyof typeof runtimeContractCatalog.contracts;
 type GroupOwnership = "owned" | "reused";
@@ -687,7 +678,7 @@ const reportQuotaRequirements = (
     reserved: null,
     available: null,
     reason:
-      "Capacity measurements and atomic reservation are not implemented; do not treat this plan as a quota reservation.",
+      "No reservation is held by a plan. Import fresh measurements and verified grants for the exact provider identity; admission remains blocked until every owned-group demand can be reserved.",
   }));
 
 const reportExternalOwnership = (
@@ -2015,33 +2006,36 @@ const parseConfigText = (
 
 const outputForUnavailableExecution = (
   command: Extract<ParsedCommand, { readonly kind: "preview" }>,
-): LauncherOutput => ({
-  schemaVersion: 3,
-  ok: false,
-  command: command.command,
-  mode: "preview",
-  action: command.action,
-  selectedServices: [],
-  checkoutState: null,
-  plannedProcesses: [],
-  urls: [],
-  readiness: "blocked",
-  warnings: [],
-  errors: [
-    makeDiagnostic(
-      command.action === "cleanup" ? "not-implemented" : "dependency-unavailable",
-      command.action === "cleanup"
-        ? "Connected preview cleanup is unavailable; no cleanup operation was attempted"
-        : `Connected preview ${command.action} is unavailable; no session operation was attempted`,
-      command.action === "cleanup"
-        ? "Owned-resource cleanup is not implemented; no preview resources were changed."
-        : "Configure and authenticate the durable preview session controller before using session actions.",
-      { mode: "preview", action: command.action },
-    ),
-  ],
-  changedSurfaces: [],
-  parityGates: [],
-});
+): LauncherOutput => {
+  const allocationCleanupAction = command.action === "cleanup" || command.action === "resolve";
+  return {
+    schemaVersion: 3,
+    ok: false,
+    command: command.command,
+    mode: "preview",
+    action: command.action,
+    selectedServices: [],
+    checkoutState: null,
+    plannedProcesses: [],
+    urls: [],
+    readiness: "blocked",
+    warnings: [],
+    errors: [
+      makeDiagnostic(
+        "dependency-unavailable",
+        allocationCleanupAction
+          ? "Cleanup requires the durable preview session and allocation authorities; no cleanup operation was attempted"
+          : `Connected preview ${command.action} is unavailable; no session operation was attempted`,
+        allocationCleanupAction
+          ? "Configure TIARA_PREVIEW_SESSION_DATABASE and the matching local owner credential store, then retry cleanup."
+          : "Configure and authenticate the durable preview session controller before using session actions.",
+        { mode: "preview", action: command.action },
+      ),
+    ],
+    changedSurfaces: [],
+    parityGates: [],
+  };
+};
 
 const identityDirectory = (environment: NodeJS.ProcessEnv) => {
   const database = environment.TIARA_PREVIEW_SESSION_DATABASE;
@@ -2093,6 +2087,7 @@ const readSessionCredentials = (filePath: string) =>
 const sessionOutput = (
   command: ConnectedPreviewCommand,
   session: import("./preview-sessions").PreviewSession,
+  allocationStatus?: import("./preview-allocations").PreviewAllocationStatus,
 ): LauncherOutput => ({
   schemaVersion: 3,
   ok: true,
@@ -2116,6 +2111,15 @@ const sessionOutput = (
     leaseDeadline: session.leaseDeadline,
     lastRenewedAt: session.lastRenewedAt,
     unsettled: session.unsettled,
+    ...(allocationStatus === undefined
+      ? {}
+      : {
+          allocations: {
+            reservations: allocationStatus.reservations,
+            resources: allocationStatus.allocations,
+            cleanup: allocationStatus.cleanup,
+          },
+        }),
   },
 });
 
@@ -2266,41 +2270,237 @@ const persistPreviewSessionCredentials = (
       : sessionOutput(command, created.session);
   });
 
-const runSessionStart = (
+type PreparedPreviewStart = {
+  readonly config: ConnectedPreviewConfig;
+  readonly cwd: string;
+  readonly plan: import("./preview-allocations").PreviewProfileDemandPlan;
+  readonly environment: NodeJS.ProcessEnv;
+};
+
+type PreviewDemandPreparation =
+  | { readonly plan: import("./preview-allocations").PreviewProfileDemandPlan }
+  | { readonly output: LauncherOutput };
+
+const ownedGroupIds = (config: ConnectedPreviewConfig) =>
+  config.groups.filter(({ ownership }) => ownership === "owned").map(({ id }) => id);
+
+const prepareConnectedProfileDemand = (
+  command: PreviewStartCommand,
+  config: ConnectedPreviewConfig,
+  allocations: import("./preview-allocations").PreviewAllocationApi | undefined,
+): Effect.Effect<PreviewDemandPreparation> =>
+  Effect.gen(function* () {
+    if (allocations === undefined)
+      return {
+        output: sessionOperationFailure(
+          command,
+          "The durable capacity reservation and ownership ledger is unavailable; no session or resource was created.",
+        ),
+      };
+    const input = {
+      profile: config.profile,
+      selectedRoles: config.roles,
+      ownedGroups: ownedGroupIds(config),
+    };
+    const planned = yield* Effect.result(allocations.planProfile(input));
+    if (Result.isFailure(planned))
+      return {
+        output: sessionOperationFailure(
+          command,
+          `No connected profile demand and provider adapter is available (${allocationFailureMessage(planned.failure)}); no session was created and no allocation was attempted.`,
+        ),
+      };
+    const capacity = yield* Effect.result(allocations.checkCapacity(planned.success.demands));
+    if (Result.isFailure(capacity))
+      return {
+        output: {
+          ...outputForUnavailableExecution(command),
+          errors: [capacityObservationReadFailure("start")],
+        },
+      };
+    const capacityDiagnostics = capacity.success.flatMap((check) =>
+      capacityCheckDiagnostic(check, "start"),
+    );
+    if (capacityDiagnostics.length > 0)
+      return {
+        output: {
+          ...outputForUnavailableExecution(command),
+          errors: capacityDiagnostics,
+        },
+      };
+    const supported = yield* Effect.result(allocations.validateProfileAllocation(input));
+    if (Result.isFailure(supported))
+      return {
+        output: sessionOperationFailure(
+          command,
+          `The configured adapter cannot allocate the selected connected profile (${allocationFailureMessage(supported.failure)}); no session was created and no allocation was attempted.`,
+        ),
+      };
+    return planned.success.demands.length > 0 && planned.success.resources.length > 0
+      ? { plan: planned.success }
+      : {
+          output: sessionOperationFailure(
+            command,
+            "The selected profile produced no verified resource demand; no session was created.",
+          ),
+        };
+  });
+
+const preparePreviewStart = (
   command: PreviewStartCommand,
   options: LauncherOptions,
-  controller: import("./preview-sessions").PreviewSessionControllerApi,
-): Effect.Effect<LauncherOutput, never, FileSystem.FileSystem> =>
-  Effect.uninterruptible(
-    Effect.gen(function* () {
-      const cwd = options.cwd ?? process.cwd();
-      const setup = yield* readStartConfig(command, cwd);
-      if (setup.output !== undefined) return setup.output;
-      const environment = options.env ?? process.env;
-      if (identityDirectory(environment) === undefined) {
-        return sessionOperationFailure(
+  allocations: import("./preview-allocations").PreviewAllocationApi | undefined,
+): Effect.Effect<
+  PreparedPreviewStart | { readonly output: LauncherOutput },
+  never,
+  FileSystem.FileSystem
+> =>
+  Effect.gen(function* () {
+    const cwd = options.cwd ?? process.cwd();
+    const setup = yield* readStartConfig(command, cwd);
+    if (setup.output !== undefined) return { output: setup.output };
+    const demand = yield* prepareConnectedProfileDemand(command, setup.config, allocations);
+    if ("output" in demand) return demand;
+    const environment = options.env ?? process.env;
+    if (identityDirectory(environment) === undefined)
+      return {
+        output: sessionOperationFailure(
           command,
           "TIARA_PREVIEW_SESSION_DATABASE must name the configured controller store before creating a session.",
-        );
-      }
-      const creation = yield* createPendingPreviewSession(command, setup.config, cwd, controller);
+        ),
+      };
+    return { config: setup.config, cwd, plan: demand.plan, environment };
+  });
+
+const allocationFailureMessage = (failure: unknown) => {
+  if (!(failure instanceof PreviewAllocationError))
+    return failure instanceof Error
+      ? failure.message
+      : "The allocation authority failed before profile admission.";
+  if (failure.reason !== "capacity-exhausted") return failure.reason;
+  return `Capacity exhausted for ${failure.dimension ?? "unknown dimension"}: requested ${failure.requested ?? "unknown"}, reserved ${failure.reserved ?? "unknown"}, available ${failure.available ?? "unknown"}.`;
+};
+
+const finishPreviewStart = (
+  command: PreviewStartCommand,
+  prepared: PreparedPreviewStart,
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+  allocations: import("./preview-allocations").PreviewAllocationApi,
+): Effect.Effect<LauncherOutput, never, FileSystem.FileSystem> =>
+  Effect.uninterruptibleMask((restore) =>
+    Effect.gen(function* () {
+      const creation = yield* createPendingPreviewSession(
+        command,
+        prepared.config,
+        prepared.cwd,
+        controller,
+      );
       if (creation.output !== undefined) return creation.output;
-      const tokenPath = identityPath(creation.created.session.id, environment);
+      const tokenPath = identityPath(creation.created.session.id, prepared.environment);
       if (tokenPath === undefined)
         return yield* stopSessionWithoutCredentials(command, creation.created, controller);
-      return yield* persistPreviewSessionCredentials(
+      const persisted = yield* persistPreviewSessionCredentials(
         command,
         creation.created,
         tokenPath,
         controller,
       );
+      if (!persisted.ok) return persisted;
+      const allocation = allocations.reserveAndAllocate({
+        sessionId: creation.created.session.id,
+        demands: prepared.plan.demands,
+        resources: prepared.plan.resources,
+      });
+      const reserved = yield* Effect.result(
+        restore(allocation).pipe(
+          Effect.onInterrupt(() =>
+            Effect.gen(function* () {
+              const stopped = yield* Effect.result(
+                controller.stop(creation.created.session.id, creation.created.ownerIdentity),
+              );
+              yield* Console.error(
+                Result.isSuccess(stopped)
+                  ? `Preview start was interrupted. Session ${creation.created.session.id} was stopped; inspect it with preview status --session ${creation.created.session.id}, then retry cleanup when eligible.`
+                  : `Preview start was interrupted and stopping could not be confirmed. Inspect session ${creation.created.session.id} in the durable controller store before retrying cleanup.`,
+              );
+            }),
+          ),
+        ),
+      );
+      if (Result.isFailure(reserved))
+        return yield* failPreviewStartAfterAllocation(
+          command,
+          creation.created,
+          reserved.failure,
+          controller,
+          allocations,
+        );
+      const allocationState = yield* Effect.result(
+        allocations.inspect(creation.created.session.id),
+      );
+      const sessionState = yield* Effect.result(controller.status(creation.created.session.id));
+      return Result.isSuccess(allocationState) && Result.isSuccess(sessionState)
+        ? sessionOutput(command, sessionState.success, allocationState.success)
+        : sessionOperationFailure(
+            command,
+            "Resources were allocated but durable status could not be read; admission remains blocked.",
+          );
     }),
+  );
+
+const failPreviewStartAfterAllocation = (
+  command: PreviewStartCommand,
+  created: import("./preview-sessions").SessionCredentials,
+  failure: unknown,
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+  allocations: import("./preview-allocations").PreviewAllocationApi,
+) =>
+  Effect.gen(function* () {
+    const stopped = yield* Effect.result(
+      controller.stop(created.session.id, created.ownerIdentity),
+    );
+    const session = Result.isSuccess(stopped) ? stopped.success : created.session;
+    const allocationState = yield* Effect.result(allocations.inspect(created.session.id));
+    return {
+      ...sessionOutput(
+        command,
+        session,
+        Result.isSuccess(allocationState) ? allocationState.success : undefined,
+      ),
+      ok: false,
+      readiness: "blocked" as const,
+      errors: [
+        makeDiagnostic(
+          "prerequisite-unavailable",
+          `Connected preview capacity reservation or allocation failed: ${allocationFailureMessage(failure)}`,
+          "No connected runtime was started. Inspect the durable allocation ledger and retry cleanup if partial resources were recorded.",
+          { mode: "preview", action: "start" },
+        ),
+      ],
+    };
+  });
+
+const runSessionStart = (
+  command: PreviewStartCommand,
+  options: LauncherOptions,
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+  allocations: import("./preview-allocations").PreviewAllocationApi | undefined,
+): Effect.Effect<LauncherOutput, never, FileSystem.FileSystem> =>
+  Effect.flatMap(preparePreviewStart(command, options, allocations), (prepared) =>
+    "output" in prepared
+      ? Effect.succeed(prepared.output)
+      : allocations === undefined
+        ? Effect.succeed(
+            sessionOperationFailure(command, "The durable allocation authority is unavailable."),
+          )
+        : finishPreviewStart(command, prepared, controller, allocations),
   );
 
 const runSessionStatus = (
   command: ConnectedPreviewCommand,
   id: string,
   controller: import("./preview-sessions").PreviewSessionControllerApi,
+  allocations: import("./preview-allocations").PreviewAllocationApi | undefined,
 ) =>
   Effect.gen(function* () {
     const result = yield* Effect.result(
@@ -2312,10 +2512,177 @@ const runSessionStatus = (
         "The session is unknown, expired, or the authority store is unavailable.",
       );
     }
-    return result.success._tag === "Session"
-      ? sessionOutput(command, result.success.session)
-      : sessionOperationFailure(command, "The controller returned an invalid status response.");
+    if (result.success._tag !== "Session")
+      return sessionOperationFailure(
+        command,
+        "The controller returned an invalid status response.",
+      );
+    if (allocations === undefined)
+      return {
+        ...sessionOutput(command, result.success.session),
+        ok: false,
+        readiness: "blocked" as const,
+        errors: [
+          makeDiagnostic(
+            "dependency-unavailable",
+            "The session record is readable, but its allocation ledger is unavailable",
+            "Restore the configured allocation authority before treating resource ownership or capacity as known.",
+            { mode: "preview", action: "status" },
+          ),
+        ],
+      };
+    const allocationState = yield* Effect.result(allocations.inspect(id));
+    return Result.isFailure(allocationState)
+      ? sessionOperationFailure(
+          command,
+          "The durable allocation ledger could not be read; ownership is unknown.",
+        )
+      : sessionOutput(command, result.success.session, allocationState.success);
   });
+
+const runSessionCleanup = (
+  command: ConnectedPreviewCommand,
+  id: string,
+  credentials: LocalSessionCredentials,
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+  allocations: import("./preview-allocations").PreviewAllocationApi,
+) =>
+  Effect.flatMap(validateCleanupOwnership(command, id, credentials, controller), (validated) => {
+    if ("output" in validated) return Effect.succeed(validated.output);
+    if (command.action !== "resolve")
+      return runOwnedAllocationCleanup(command, id, validated.session, controller, allocations);
+    const resource = command.options.resource;
+    if (resource === null)
+      return Effect.succeed(
+        sessionOperationFailure(command, "Resolve requires one allocation resource key."),
+      );
+    return Effect.flatMap(
+      Effect.result(allocations.resolveUnknownAllocation({ sessionId: id, resource })),
+      (resolved) =>
+        Result.isFailure(resolved)
+          ? Effect.succeed(
+              sessionOperationFailure(
+                command,
+                `Provider ownership resolution failed (${allocationFailureMessage(resolved.failure)}); reservations remain held.`,
+              ),
+            )
+          : runOwnedAllocationCleanup(command, id, validated.session, controller, allocations),
+    );
+  });
+
+const validateCleanupOwnership = (
+  command: ConnectedPreviewCommand,
+  id: string,
+  credentials: LocalSessionCredentials,
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+) =>
+  Effect.gen(function* () {
+    const status = yield* Effect.result(controller.status(id));
+    if (Result.isFailure(status))
+      return {
+        output: sessionOperationFailure(
+          command,
+          "The session state is unavailable; cleanup was not attempted.",
+        ),
+      };
+    if (status.success.endedAt === null)
+      return {
+        output: sessionOperationFailure(
+          command,
+          "Live-session destruction is refused; stop the session before cleanup.",
+        ),
+      };
+    const authorized = yield* Effect.result(controller.stop(id, credentials.ownerIdentity));
+    return Result.isFailure(authorized)
+      ? { output: sessionOperationFailure(command, "Cleanup requires the session owner identity.") }
+      : { session: authorized.success };
+  });
+
+const runOwnedAllocationCleanup = (
+  command: ConnectedPreviewCommand,
+  id: string,
+  session: import("./preview-sessions").PreviewSession,
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+  allocations: import("./preview-allocations").PreviewAllocationApi,
+) =>
+  Effect.gen(function* () {
+    const outcome = yield* Effect.result(allocations.cleanup({ sessionId: id }));
+    if (Result.isFailure(outcome))
+      return sessionOperationFailure(
+        command,
+        "Allocation cleanup authority failed; reservations remain held.",
+      );
+    const state = yield* Effect.result(allocations.inspect(id));
+    if (Result.isFailure(state))
+      return sessionOperationFailure(
+        command,
+        "Cleanup outcome was recorded, but the allocation ledger cannot be inspected.",
+      );
+    const currentSession = yield* Effect.result(controller.status(id));
+    const cleanupOutput = renderCleanupOutcome(
+      command,
+      Result.isSuccess(currentSession) ? currentSession.success : session,
+      state.success,
+      outcome.success,
+    );
+    if (command.action !== "resolve" || outcome.success !== "waiting") return cleanupOutput;
+    return {
+      ...cleanupOutput,
+      ok: true,
+      readiness: "completed" as const,
+      warnings: [
+        ...cleanupOutput.warnings,
+        ...cleanupOutput.errors.map((error) =>
+          makeWarning(error.code, error.message, error.remediation, {
+            mode: error.mode,
+            action: error.action,
+            dependency: error.dependency,
+            origin: error.origin,
+            port: error.port,
+          }),
+        ),
+      ],
+      errors: [],
+    };
+  });
+
+const renderCleanupOutcome = (
+  command: ConnectedPreviewCommand,
+  session: import("./preview-sessions").PreviewSession,
+  state: import("./preview-allocations").PreviewAllocationStatus,
+  outcome: "waiting" | "cleaned" | "quarantined",
+): LauncherOutput => {
+  const output = sessionOutput(command, session, state);
+  if (outcome === "cleaned") return output;
+  const quarantined = outcome === "quarantined";
+  const unresolvedOwnership = state.allocations.filter(
+    ({ providerResourceId, state: allocationState }) =>
+      providerResourceId === null &&
+      allocationState !== "deleted" &&
+      allocationState !== "not-allocated",
+  );
+  const quarantineRemediation =
+    unresolvedOwnership.length > 0
+      ? `Run preview resolve --session ${safeIdentifier(session.id)} --resource <key> for a fresh provider ownership lookup, then retry cleanup.`
+      : "Inspect the durable owner/resource ledger, resolve the provider deletion issue, then retry cleanup.";
+  return {
+    ...output,
+    ok: false,
+    readiness: "blocked",
+    errors: [
+      makeDiagnostic(
+        quarantined ? "cleanup-failed" : "prerequisite-unavailable",
+        quarantined
+          ? "Owned allocations are quarantined and their capacity reservations remain held"
+          : "Cleanup is waiting for settlement proof or the five-minute deletion window",
+        quarantined
+          ? quarantineRemediation
+          : "Wait for accepted work to settle and retry cleanup after the recorded delay.",
+        { mode: "preview", action: command.action },
+      ),
+    ],
+  };
+};
 
 const runSessionResume = (
   command: ConnectedPreviewCommand,
@@ -2417,6 +2784,7 @@ const runSessionWithCredentials = (
   id: string,
   options: LauncherOptions,
   controller: import("./preview-sessions").PreviewSessionControllerApi,
+  allocations: import("./preview-allocations").PreviewAllocationApi | undefined,
 ) => {
   const read = Effect.gen(function* () {
     const environment = options.env ?? process.env;
@@ -2459,6 +2827,16 @@ const runSessionWithCredentials = (
           runSessionHeartbeat(command, id, result.credentials, controller),
         ),
         Match.when("stop", () => runSessionStop(command, id, result.credentials, controller)),
+        Match.when("cleanup", () =>
+          allocations === undefined
+            ? Effect.succeed(outputForUnavailableExecution(command))
+            : runSessionCleanup(command, id, result.credentials, controller, allocations),
+        ),
+        Match.when("resolve", () =>
+          allocations === undefined
+            ? Effect.succeed(outputForUnavailableExecution(command))
+            : runSessionCleanup(command, id, result.credentials, controller, allocations),
+        ),
         Match.orElse(() => Effect.succeed(outputForUnavailableExecution(command))),
       );
     }),
@@ -2469,14 +2847,14 @@ const runSessionCommand = (
   command: ConnectedPreviewCommand,
   options: LauncherOptions,
   controller: import("./preview-sessions").PreviewSessionControllerApi,
+  allocations: import("./preview-allocations").PreviewAllocationApi | undefined,
 ): Effect.Effect<LauncherOutput, never, FileSystem.FileSystem> => {
-  if (command.action === "cleanup") return Effect.succeed(outputForUnavailableExecution(command));
-  if (command.action === "start") return runSessionStart(command, options, controller);
+  if (command.action === "start") return runSessionStart(command, options, controller, allocations);
   const id = command.options.sessionId;
   if (id === null) return Effect.succeed(outputForUnavailableExecution(command));
   return command.action === "status"
-    ? runSessionStatus(command, id, controller)
-    : runSessionWithCredentials(command, id, options, controller);
+    ? runSessionStatus(command, id, controller, allocations)
+    : runSessionWithCredentials(command, id, options, controller, allocations);
 };
 
 const outputForInvalidConfig = (
@@ -2506,26 +2884,289 @@ const outputForInvalidConfig = (
   parityGates: [],
 });
 
+type BaselineReadResult =
+  | { readonly baseline: typeof PreviewCapacityBaselineSchema.Type; readonly output?: never }
+  | { readonly baseline?: never; readonly output: LauncherOutput };
+
+const capacityBaselineNotImported = (
+  command: ConnectedPreviewCommand,
+  reason: string,
+  remediation: string,
+): LauncherOutput => ({
+  ...outputForUnavailableExecution(command),
+  errors: [
+    makeDiagnostic(
+      "dependency-unavailable",
+      `Capacity baseline was not imported: ${reason}`,
+      remediation,
+      { mode: "preview", action: "baseline" },
+    ),
+  ],
+});
+
+const readCapacityBaseline = (
+  command: Extract<ConnectedPreviewCommand, { readonly action: "baseline" }>,
+  options: LauncherOptions,
+  fileSystem: FileSystem.FileSystem,
+): Effect.Effect<BaselineReadResult> =>
+  Effect.gen(function* () {
+    const baselineFile = (options.env ?? process.env).TIARA_PREVIEW_CAPACITY_BASELINE_FILE;
+    if (baselineFile === undefined || baselineFile.trim() === "")
+      return {
+        output: capacityBaselineNotImported(
+          command,
+          "the operator-collected JSON file is not configured",
+          "Set TIARA_PREVIEW_CAPACITY_BASELINE_FILE to an operator-collected JSON baseline; no capacity is inferred.",
+        ),
+      };
+    const baselinePath = path.resolve(options.cwd ?? process.cwd(), baselineFile);
+    const contents = yield* Effect.result(fileSystem.readFileString(baselinePath));
+    if (Result.isFailure(contents))
+      return {
+        output: capacityBaselineNotImported(
+          command,
+          "the configured operator file could not be read",
+          "The operator capacity baseline file could not be read; no observations were imported.",
+        ),
+      };
+    try {
+      const baseline = Schema.decodeUnknownSync(PreviewCapacityBaselineSchema)(
+        JSON.parse(contents.success) as unknown,
+      );
+      return { baseline };
+    } catch {
+      return {
+        output: capacityBaselineNotImported(
+          command,
+          "its schema or profile demand plan is invalid",
+          "The capacity baseline is invalid; include measured provider identity, dimension, observation time, total, in-use amount, grant verification, and profile demand plans.",
+        ),
+      };
+    }
+  });
+
+type BaselineConfigResult =
+  | {
+      readonly config: ConnectedPreviewConfig;
+      readonly report: ConnectedPreviewReport;
+      readonly output?: never;
+    }
+  | { readonly config?: never; readonly report?: never; readonly output: LauncherOutput };
+
+const readBaselineConfig = (
+  command: Extract<ConnectedPreviewCommand, { readonly action: "baseline" }>,
+  options: LauncherOptions,
+  fileSystem: FileSystem.FileSystem,
+): Effect.Effect<BaselineConfigResult> =>
+  Effect.gen(function* () {
+    const configFile = path.resolve(options.cwd ?? process.cwd(), command.options.configFile);
+    const contents = yield* Effect.result(fileSystem.readFileString(configFile));
+    if (Result.isFailure(contents))
+      return {
+        output: outputForInvalidConfig(
+          command,
+          "Connected preview configuration could not be read from the explicit --config path",
+        ),
+      };
+    const decoded = parseConfigText(contents.success);
+    if ("error" in decoded) return { output: outputForInvalidConfig(command, decoded.error) };
+    const validated = validateConfiguration(decoded.config, "plan");
+    if (validated.errors.length > 0)
+      return { output: outputForPreviewReport(command, validated.report, validated.errors) };
+    return { config: decoded.config, report: validated.report };
+  });
+
+const baselineMatchesConfig = (
+  baseline: typeof PreviewCapacityBaselineSchema.Type,
+  config: ConnectedPreviewConfig,
+  report: ConnectedPreviewReport,
+) => {
+  const ownedGroups = report.requiredGroups
+    .filter(({ ownership }) => ownership === "owned")
+    .map(({ id }) => id)
+    .sort();
+  return baseline.profiles.some(
+    (profile) =>
+      profile.profile === config.profile &&
+      JSON.stringify([...profile.selectedRoles].sort()) ===
+        JSON.stringify([...config.roles].sort()) &&
+      JSON.stringify([...profile.ownedGroups].sort()) === JSON.stringify(ownedGroups),
+  );
+};
+
+const baselineImportOutput = (
+  command: ConnectedPreviewCommand,
+  config: ConnectedPreviewConfig,
+  report: ConnectedPreviewReport,
+  counts: { readonly measurements: number; readonly profiles: number },
+): LauncherOutput => ({
+  schemaVersion: 3,
+  ok: true,
+  command: command.command,
+  mode: "preview",
+  action: "baseline",
+  selectedServices: [...config.roles],
+  checkoutState: null,
+  plannedProcesses: [],
+  urls: [],
+  readiness: "completed",
+  warnings: [],
+  errors: [],
+  changedSurfaces: [],
+  parityGates: [],
+  connectedPreview: {
+    ...report,
+    status: "planned",
+    effects: {
+      allocations: false,
+      migrations: false,
+      registrations: false,
+      externalEffects: false,
+      botHandoffs: false,
+    },
+    executionAvailable: false,
+  },
+  baseline: counts,
+});
+
+const runCapacityBaselineImport = (
+  command: Extract<ConnectedPreviewCommand, { readonly action: "baseline" }>,
+  options: LauncherOptions,
+  allocations: import("./preview-allocations").PreviewAllocationApi | undefined,
+): Effect.Effect<LauncherOutput, never, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    if (allocations === undefined)
+      return capacityBaselineNotImported(
+        command,
+        "durable capacity baseline storage is unavailable",
+        "Capacity baseline storage is unavailable; no baseline was imported.",
+      );
+    const fileSystem = yield* FileSystem.FileSystem;
+    const baselineResult = yield* readCapacityBaseline(command, options, fileSystem);
+    if (baselineResult.output !== undefined) return baselineResult.output;
+    const configResult = yield* readBaselineConfig(command, options, fileSystem);
+    if (configResult.output !== undefined) return configResult.output;
+    if (!baselineMatchesConfig(baselineResult.baseline, configResult.config, configResult.report))
+      return capacityBaselineNotImported(
+        command,
+        "no demand plan matches this exact profile, role set, and owned groups",
+        "The baseline has no demand plan matching this exact profile, role set, and owned groups; no observations were imported.",
+      );
+    const imported = yield* Effect.result(allocations.importBaseline(baselineResult.baseline));
+    if (Result.isFailure(imported))
+      return capacityBaselineNotImported(
+        command,
+        "validation or durable import failed",
+        "Baseline validation or durable import failed; the profile remains unavailable.",
+      );
+    return baselineImportOutput(
+      command,
+      configResult.config,
+      configResult.report,
+      imported.success,
+    );
+  });
+
 const doctorUnavailableErrors = (action: "doctor") =>
-  prerequisites.map(({ id, reason }) =>
+  prerequisites
+    .filter(({ id }) => id !== "state-grants-and-capacity")
+    .map(({ id, reason }) =>
+      diagnostic(
+        "prerequisite-unavailable",
+        action,
+        `Connected preview prerequisite ${id} is unavailable because its read-only check is not implemented`,
+        `${reason} Keep the profile unavailable until this check has verifiable live evidence.`,
+        id,
+      ),
+    );
+
+const ownedCapacityDimensions = (config: ConnectedPreviewConfig) => [
+  ...new Set(ownedGroupIds(config).flatMap((id) => previewCapacityDimensionsByGroup[id])),
+];
+
+const missingCapacityDiagnostics = (config: ConnectedPreviewConfig, hasDatabase: boolean) =>
+  ownedCapacityDimensions(config).map((dimension) =>
     diagnostic(
       "prerequisite-unavailable",
-      action,
-      `Connected preview prerequisite ${id} is unavailable because its read-only check is not implemented`,
-      `${reason} Keep the profile unavailable until this check has verifiable live evidence.`,
-      id,
+      "doctor",
+      `Capacity dimension ${dimension} has no profile demand or exact provider identity configured`,
+      hasDatabase
+        ? "Import an operator baseline with a complete measured profile demand plan and observations for this provider dimension."
+        : "Set TIARA_PREVIEW_SESSION_DATABASE to an existing controller store, then import a matching operator baseline. No capacity is assumed.",
+      dimension,
     ),
   );
+
+const inspectCapacityForDoctor = (
+  config: ConnectedPreviewConfig,
+  allocations: import("./preview-allocations").PreviewAllocationApi | undefined,
+) =>
+  Effect.gen(function* () {
+    if (allocations === undefined) return missingCapacityDiagnostics(config, false);
+    const plan = yield* Effect.result(
+      allocations.planProfile({
+        profile: config.profile,
+        selectedRoles: config.roles,
+        ownedGroups: ownedGroupIds(config),
+      }),
+    );
+    if (Result.isFailure(plan)) return missingCapacityDiagnostics(config, true);
+    const checks = yield* Effect.result(allocations.checkCapacity(plan.success.demands));
+    if (Result.isFailure(checks)) return [capacityObservationReadFailure("doctor")];
+    return checks.success.flatMap((check) => capacityCheckDiagnostic(check, "doctor"));
+  });
+
+const capacityObservationReadFailure = (action: "doctor" | "start") =>
+  makeDiagnostic(
+    "prerequisite-unavailable",
+    "Provider capacity observations could not be read",
+    "Retry after restoring access to the durable capacity baseline store.",
+    { mode: "preview", action, dependency: "state-grants-and-capacity" },
+  );
+
+const capacityCheckDiagnostic = (
+  check: import("./preview-allocations").CapacityCheckResult,
+  action: "doctor" | "start",
+): readonly Diagnostic[] => {
+  if (check.status === "ready") return [];
+  if (check.status === "exhausted")
+    return [
+      makeDiagnostic(
+        "capacity-exhausted",
+        `Capacity exhausted for ${check.dimension}: requested ${check.amount}, reserved ${check.reserved}, available ${check.available}`,
+        "Reduce this profile's measured demand or collect a fresh provider baseline after safely increasing development capacity, then retry.",
+        { mode: "preview", action, dependency: check.dimension },
+      ),
+    ];
+  const condition =
+    check.status === "missing"
+      ? "no measurement was collected"
+      : check.status === "provider-mismatch"
+        ? `no observation matches the configured provider identity; observed ${check.observedProviders.map(safeIdentifier).join(", ")}`
+        : check.status === "stale"
+          ? "the provider measurement is stale"
+          : "required provider grants were not verified";
+  return [
+    makeDiagnostic(
+      "prerequisite-unavailable",
+      `Capacity dimension ${check.dimension} for provider ${check.provider}/${safeIdentifier(check.identity)} is unavailable: ${condition}`,
+      "Collect a fresh observation for this exact provider identity and verify its grants. The affected allocation remains blocked.",
+      { mode: "preview", action, dependency: check.dimension },
+    ),
+  ];
+};
 
 const outputForPreviewReport = (
   command: ConnectedPreviewCommand,
   report: ConnectedPreviewReport,
   validationErrors: readonly Diagnostic[],
   validationWarnings: readonly Diagnostic[] = [],
+  capacityDiagnostics: readonly Diagnostic[] = [],
 ): LauncherOutput => {
   const isDoctor = command.action === "doctor";
   const errors = [
     ...validationErrors,
+    ...capacityDiagnostics,
     ...(isDoctor && validationErrors.length === 0 ? doctorUnavailableErrors("doctor") : []),
   ];
   const requiredGroupIds = new Set(report.requiredGroups.map(({ id }) => id));
@@ -2710,18 +3351,39 @@ export const connectedPreviewOutput = (
   command: ConnectedPreviewCommand,
   options: LauncherOptions,
 ): Effect.Effect<LauncherOutput, never, FileSystem.FileSystem> => {
+  if (command.action === "baseline") {
+    if (options.previewAllocationController !== undefined)
+      return runCapacityBaselineImport(command, options, options.previewAllocationController);
+    return Effect.serviceOption(PreviewAllocationController).pipe(
+      Effect.flatMap((allocations) =>
+        runCapacityBaselineImport(command, options, Option.getOrUndefined(allocations)),
+      ),
+    );
+  }
   if (command.action !== "plan" && command.action !== "doctor") {
-    if (command.action === "cleanup") return Effect.succeed(outputForUnavailableExecution(command));
-    if (options.previewSessionController !== undefined) {
-      return runSessionCommand(command, options, options.previewSessionController);
-    }
+    const dispatch = (
+      controller: import("./preview-sessions").PreviewSessionControllerApi | undefined,
+      allocations: import("./preview-allocations").PreviewAllocationApi | undefined,
+    ) =>
+      controller === undefined
+        ? Effect.succeed(outputForUnavailableExecution(command))
+        : runSessionCommand(command, options, controller, allocations);
+    const sessionController = options.previewSessionController;
+    const allocationController = options.previewAllocationController;
+    if (sessionController !== undefined && allocationController !== undefined)
+      return dispatch(sessionController, allocationController);
     return Effect.serviceOption(PreviewSessionController).pipe(
       Effect.flatMap((controller) =>
-        Option.match(controller, {
-          onNone: () => Effect.succeed(outputForUnavailableExecution(command)),
-          onSome: (service) => runSessionCommand(command, options, service),
-        }),
+        Effect.serviceOption(PreviewAllocationController).pipe(
+          Effect.map((allocations) =>
+            dispatch(
+              sessionController ?? Option.getOrUndefined(controller),
+              allocationController ?? Option.getOrUndefined(allocations),
+            ),
+          ),
+        ),
       ),
+      Effect.flatten,
     );
   }
   return Effect.gen(function* () {
@@ -2747,11 +3409,19 @@ export const connectedPreviewOutput = (
       options.env ?? process.env,
       command.action,
     );
+    const allocationService =
+      options.previewAllocationController ??
+      Option.getOrUndefined(yield* Effect.serviceOption(PreviewAllocationController));
+    const capacityErrors =
+      command.action === "doctor" && validated.errors.length === 0
+        ? yield* inspectCapacityForDoctor(decoded.config, allocationService)
+        : [];
     return outputForPreviewReport(
       command,
       report,
       [...validated.errors, ...environmentFiles.errors],
       ambientCredentialErrors,
+      capacityErrors,
     );
   });
 };

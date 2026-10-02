@@ -6,12 +6,14 @@ export const DevelopmentModeSchema = Schema.Literals(developmentModes);
 export const connectedPreviewActions = [
   "plan",
   "doctor",
+  "baseline",
   "start",
   "status",
   "heartbeat",
   "resume",
   "stop",
   "cleanup",
+  "resolve",
 ] as const;
 export type ConnectedPreviewAction = (typeof connectedPreviewActions)[number];
 export type LauncherMode = DevelopmentMode | "preview";
@@ -147,6 +149,7 @@ export type DiagnosticCode =
   | "required-group-missing"
   | "invalid-preview-intent"
   | "prerequisite-unavailable"
+  | "capacity-exhausted"
   | "not-implemented";
 
 export interface Diagnostic {
@@ -199,7 +202,30 @@ export interface LauncherOutput {
     readonly leaseDeadline: number;
     readonly lastRenewedAt: number;
     readonly unsettled: number;
+    readonly allocations?: {
+      readonly reservations: readonly {
+        readonly dimension: string;
+        readonly amount: number;
+        readonly provider: string;
+        readonly identity: string;
+        readonly releasedAt: number | null;
+      }[];
+      readonly resources: readonly {
+        readonly resource: string;
+        readonly providerResourceId: string | null;
+        readonly state:
+          | "allocating"
+          | "owned"
+          | "deleting"
+          | "quarantined"
+          | "deleted"
+          | "not-allocated";
+        readonly failure: string | null;
+      }[];
+      readonly cleanup: "waiting" | "quarantined" | "cleaned" | null;
+    };
   };
+  readonly baseline?: { readonly measurements: number; readonly profiles: number };
 }
 
 export interface ConnectedPreviewPrerequisite {
@@ -373,6 +399,7 @@ export interface LauncherOptions {
   readonly envFile?: string | null;
   readonly selectedServices?: readonly string[];
   readonly previewSessionController?: import("./preview-sessions").PreviewSessionControllerApi;
+  readonly previewAllocationController?: import("./preview-allocations").PreviewAllocationApi;
 }
 
 export interface LauncherResult {
