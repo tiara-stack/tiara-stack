@@ -14,6 +14,11 @@ import {
   type PreviewAllocationApi,
 } from "./preview-allocations";
 import type { ConnectedPreviewAction, LauncherOptions } from "./types";
+import {
+  previewRelayDoctorCheckIds,
+  PreviewRelayProviderUnavailable,
+  previewRelayHostRoles,
+} from "./preview-relay-provider";
 
 const previewRoleContracts = {
   "sheet-web": {
@@ -120,6 +125,24 @@ const makeUnavailableProfileAllocationController = (now: () => number) =>
     now,
   );
 
+const makeRelayProviderWithAttachmentStatus = (
+  attachmentStatus: "ready" | "failed" | "unavailable",
+) => {
+  const unavailable = PreviewRelayProviderUnavailable();
+  return {
+    ...unavailable,
+    configured: true,
+    checkPreparedWorkspace: () =>
+      Effect.succeed(
+        previewRelayDoctorCheckIds.map((id) => ({
+          id,
+          status: id === "scoped-relay-attachment" ? attachmentStatus : "ready",
+          detail: "test probe result",
+        })),
+      ),
+  };
+};
+
 const contractsForPreviewRole = (role: string) => {
   const definition = previewRoleContracts[role as keyof typeof previewRoleContracts];
   return definition === undefined ? [] : [...definition.provided, ...definition.consumed];
@@ -213,6 +236,18 @@ const createConnectedPreviewConfig = (overrides: PreviewFixtureOptions = {}) => 
     profile: "connected-preview-dev-v1",
     owner: "developer:alice",
     roles,
+    hostListeners: roles.flatMap((role, index) =>
+      previewRelayHostRoles.some((hostRole) => hostRole === role)
+        ? [
+            {
+              role,
+              host: "127.0.0.1" as const,
+              port: 4100 + index,
+              processId: `test-process-${role}`,
+            },
+          ]
+        : [],
+    ),
     identities: {
       sourceRevision: previewSourceRevision,
       artifactDigests: Object.fromEntries(roles.map((role) => [role, previewArtifactDigest])),
@@ -633,7 +668,7 @@ liveTest("plans all seven selected roles and explicit groups without starting re
     );
     expect(results.human.stdout).toContain("daily-checkin targets: sheets:development-2026");
     expect(results.human.stdout).toContain("external ownership requirements:");
-    expect(results.human.stdout).toContain("workspace-preparation: unavailable");
+    expect(results.human.stdout).toContain("telepresence-client-pin: unavailable");
     expect(results.human.stdout).toContain("allocations=false");
     expect(results.human.stdout).not.toContain("secret://");
     expect(executions).toEqual([]);
@@ -1121,6 +1156,37 @@ const invalidPreviewInputs: readonly [string, PreviewFixtureOptions, string][] =
     },
     "invalid-preview-config",
   ],
+  [
+    "missing host listener for a selected runtime",
+    { configOverrides: { hostListeners: [] } },
+    "invalid-preview-config",
+  ],
+  [
+    "host listener for an unselected role",
+    {
+      roles: ["sheet-auth"],
+      configOverrides: {
+        hostListeners: [
+          { role: "sheet-auth", host: "127.0.0.1", port: 4102, processId: "auth-process" },
+          { role: "sheet-web", host: "127.0.0.1", port: 4101, processId: "web-process" },
+        ],
+      },
+    },
+    "invalid-preview-config",
+  ],
+  [
+    "duplicate host listener ports",
+    {
+      roles: ["sheet-auth", "sheet-bot"],
+      configOverrides: {
+        hostListeners: [
+          { role: "sheet-auth", host: "127.0.0.1", port: 4101, processId: "auth-process" },
+          { role: "sheet-bot", host: "127.0.0.1", port: 4101, processId: "bot-process" },
+        ],
+      },
+    },
+    "invalid-preview-config",
+  ],
 ];
 
 for (const [name, options, expectedCode] of invalidPreviewInputs) {
@@ -1336,7 +1402,12 @@ liveTest("reports unimplemented doctor checks as unavailable and performs no pro
     expect(
       output.connectedPreview.prerequisites.every(({ status }) => status === "unavailable"),
     ).toBe(true);
-    expect(output.errors.every(({ code }) => code === "prerequisite-unavailable")).toBe(true);
+    expect(output.errors.some(({ code }) => code === "network-unavailable")).toBe(true);
+    expect(output.errors.some(({ code }) => code === "dns-unavailable")).toBe(true);
+    expect(output.errors.some(({ code }) => code === "tls-unavailable")).toBe(true);
+    expect(
+      output.errors.some(({ code }) => code === "application-authentication-unavailable"),
+    ).toBe(true);
     expect(executions).toEqual([]);
   }),
 );
@@ -1566,6 +1637,7 @@ const createInterruptedPreviewFixture = (configPath: string, cwd: string) =>
       env: { TIARA_PREVIEW_SESSION_DATABASE: path.join(cwd, "controller.sqlite") },
       previewSessionController: sessions,
       previewAllocationController: allocations,
+      previewRelayProvider: makeRelayProviderWithAttachmentStatus("ready"),
     };
     return { allocationStarted, sessions, allocations, options };
   });
@@ -1675,6 +1747,83 @@ for (const [action, args] of blockedPreviewActions) {
 }
 
 it.live(
+  "does not create a preview session until scoped relay attachment authorization is ready",
+  () =>
+    Effect.gen(function* () {
+      const now = 50_000;
+      const controller = yield* makePreviewSessionController(() => now);
+      let createCalls = 0;
+      const observedController = {
+        ...controller,
+        create: (input: Parameters<typeof controller.create>[0]) => {
+          createCalls += 1;
+          return controller.create(input);
+        },
+      };
+      yield* withConnectedPreviewConfig(
+        createConnectedPreviewConfig({ roles: ["sheet-auth"] }),
+        (configPath, cwd) =>
+          Effect.gen(function* () {
+            const localAdapter = makeLocalFilesystemPreviewResourceAdapter(
+              path.join(cwd, "resources"),
+            );
+            const allocationController = yield* makePreviewAllocationController(
+              {
+                ...localAdapter,
+                planProfile: () =>
+                  Effect.succeed({
+                    demands: previewCapacityDimensionsByGroup.auth.map((dimension) => ({
+                      dimension,
+                      amount: 1,
+                      provider: "local-test",
+                      identity: "disposable",
+                    })),
+                    resources: ["auth"],
+                  }),
+                validateProfileAllocation: () => Effect.void,
+              },
+              () => now,
+            );
+            yield* Effect.forEach(previewCapacityDimensionsByGroup.auth, (dimension) =>
+              allocationController.observeCapacity({
+                provider: "local-test",
+                identity: "disposable",
+                dimension,
+                observedAt: now,
+                total: 1,
+                inUse: 0,
+                grantsVerified: true,
+              }),
+            );
+            const result = yield* runLauncherEffect(
+              ["preview", "start", "--config", configPath, "--json"],
+              {
+                cwd,
+                env: { TIARA_PREVIEW_SESSION_DATABASE: `${cwd}/controller.sqlite` },
+                previewSessionController: observedController,
+                previewAllocationController: allocationController,
+                previewRelayProvider: makeRelayProviderWithAttachmentStatus("unavailable"),
+              },
+            );
+            const fileSystem = yield* FileSystem.FileSystem;
+            expect(result.exitCode).toBe(2);
+            expect(result.output.previewSession).toBeUndefined();
+            expect(result.output.errors[0]?.remediation).toContain("scoped-relay-attachment");
+            expect(result.output.errors[0]?.remediation).toContain(
+              "No session or resources were created",
+            );
+            expect(createCalls).toBe(0);
+            expect(yield* fileSystem.exists(path.join(cwd, "resources"))).toBe(false);
+          }),
+      );
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(SqliteClient.layer({ filename: ":memory:" }), NodeServices.layer),
+      ),
+    ),
+);
+
+it.live(
   "routes session commands through durable controller authority without exposing credentials",
   () =>
     Effect.gen(function* () {
@@ -1739,19 +1888,23 @@ it.live(
               env: { TIARA_PREVIEW_SESSION_DATABASE: sessionDatabase },
               previewSessionController: controller,
               previewAllocationController: allocationController,
+              previewRelayProvider: makeRelayProviderWithAttachmentStatus("ready"),
             };
             const start = yield* Effect.tryPromise({
               try: () =>
                 runLauncher(["preview", "start", "--config", configPath, "--json"], options),
               catch: (cause) => cause,
             });
-            expect(start.exitCode).toBe(0);
+            expect(start.exitCode, start.stdout).toBe(0);
             const created = JSON.parse(start.stdout) as {
               readonly previewSession: {
                 readonly id: string;
                 readonly generation: number;
                 readonly allocations: {
-                  readonly resources: readonly { readonly providerResourceId: string | null }[];
+                  readonly resources: readonly {
+                    readonly resource: string;
+                    readonly providerResourceId: string | null;
+                  }[];
                 };
               };
               readonly plannedProcesses: readonly unknown[];
@@ -1761,7 +1914,13 @@ it.live(
             expect(created.previewSession.generation).toBe(1);
             expect(created.readiness).toBe("planned");
             expect(created.plannedProcesses).toEqual([]);
-            expect(created.previewSession.allocations.resources).toHaveLength(1);
+            expect(
+              created.previewSession.allocations.resources.map(({ resource }) => resource),
+            ).toEqual([
+              "auth",
+              "preview-relay-attachment-sheet-auth",
+              "preview-relay-service-sheet-auth",
+            ]);
             const resourcePath =
               created.previewSession.allocations.resources[0]?.providerResourceId;
             expect(resourcePath).not.toBeNull();
@@ -1781,9 +1940,15 @@ it.live(
                 provider: "local-test",
                 identity: "disposable",
               })),
-              resources: ["auth"],
+              resources: [
+                "auth",
+                "preview-relay-attachment-sheet-auth",
+                "preview-relay-service-sheet-auth",
+              ],
             });
             const otherResourcePath = secondResources.auth!;
+            const otherRelayPath = secondResources["preview-relay-attachment-sheet-auth"]!;
+            const otherRelayServicePath = secondResources["preview-relay-service-sheet-auth"]!;
             const identityStore = yield* FileSystem.FileSystem;
             const storedIdentity = yield* identityStore.readFileString(
               `${sessionDatabase}.credentials/${id}`,
@@ -1845,7 +2010,7 @@ it.live(
               };
             };
             expect(beforeHeartbeat.previewSession.lastRenewedAt).toBe(clock.value);
-            expect(fullStatusOutput.previewSession.allocations.resources).toHaveLength(1);
+            expect(fullStatusOutput.previewSession.allocations.resources).toHaveLength(3);
             const liveCleanup = yield* Effect.tryPromise({
               try: () => runLauncher(["preview", "cleanup", "--session", id, "--json"], options),
               catch: (cause) => cause,
@@ -1953,6 +2118,14 @@ it.live(
             expect((yield* fileSystem.readDirectory(path.dirname(resourcePath!))).length).toBe(0);
             expect(
               (yield* fileSystem.readFileString(otherResourcePath)).includes(
+                secondSession.session.id,
+              ),
+            ).toBe(true);
+            expect(
+              (yield* fileSystem.readFileString(otherRelayPath)).includes(secondSession.session.id),
+            ).toBe(true);
+            expect(
+              (yield* fileSystem.readFileString(otherRelayServicePath)).includes(
                 secondSession.session.id,
               ),
             ).toBe(true);
@@ -2128,6 +2301,7 @@ it.live("stops a newly created session when owner credentials cannot be persiste
               env: { TIARA_PREVIEW_SESSION_DATABASE: sessionDatabase },
               previewSessionController: controller,
               previewAllocationController: allocations,
+              previewRelayProvider: makeRelayProviderWithAttachmentStatus("ready"),
             },
           );
           const output = JSON.parse(result.stdout) as {

@@ -161,12 +161,15 @@ export interface PreviewResourceAdapter {
     readonly sessionId: string;
     readonly ownerToken: string;
     readonly resource: string;
+    readonly metadata?: PreviewResourceMetadata;
+    readonly priorResources?: Readonly<Record<string, string>>;
   }) => Effect.Effect<string, Error | PlatformError, FileSystem.FileSystem>;
   /**
    * Delete must validate the exact provider identity and owner token before deletion and be
    * idempotent for that exact owned resource so a controller restart can safely retry.
    */
   readonly deleteOwned: (input: {
+    readonly sessionId: string;
     readonly providerResourceId: string;
     readonly ownerToken: string;
     readonly resource: string;
@@ -194,6 +197,9 @@ export interface PreviewResourceAdapter {
     }[];
   }) => Effect.Effect<VerifiedAllocationResolution, Error | PlatformError, FileSystem.FileSystem>;
 }
+
+/** Small serializable target metadata for provider resources, kept out of the durable ledger. */
+export type PreviewResourceMetadata = Readonly<Record<string, string | number | boolean>>;
 
 export interface PreviewProfileDemandPlan {
   readonly demands: readonly CapacityDemand[];
@@ -263,6 +269,7 @@ export interface PreviewAllocationApi {
     readonly sessionId: string;
     readonly demands: readonly CapacityDemand[];
     readonly resources: readonly string[];
+    readonly resourceMetadata?: Readonly<Record<string, PreviewResourceMetadata>>;
   }) => Effect.Effect<
     Readonly<Record<string, string>>,
     PreviewAllocationError | SqlError.SqlError,
@@ -577,18 +584,31 @@ export const makePreviewAllocationController = (
             yield* sql`INSERT INTO preview_allocation_ledger (session_id, resource, owner_token, state, updated_at)
           VALUES (${input.sessionId}, ${resource}, ${ownerToken}, 'allocating', ${now()})`;
           }
-          return yield* sql`SELECT resource, owner_token FROM preview_allocation_ledger WHERE session_id=${input.sessionId} ORDER BY resource`;
+          return yield* sql`SELECT resource, owner_token FROM preview_allocation_ledger WHERE session_id=${input.sessionId} ORDER BY rowid`;
         }),
       );
 
-    const allocateOneResource = (sessionId: string, value: Record<string, unknown>) =>
+    const allocateOneResource = (
+      sessionId: string,
+      value: Record<string, unknown>,
+      resourceMetadata: Readonly<Record<string, PreviewResourceMetadata>> | undefined,
+      priorResources: Readonly<Record<string, string>>,
+    ) =>
       Effect.gen(function* () {
         const resource = String(value.resource);
         const ownerToken = String(value.owner_token);
         const result = yield* Effect.result(
           withPreviewResourceAdapterTimeout(
             "resource-allocation",
-            adapter.allocate({ sessionId, ownerToken, resource }),
+            adapter.allocate({
+              sessionId,
+              ownerToken,
+              resource,
+              ...(resourceMetadata?.[resource] === undefined
+                ? {}
+                : { metadata: resourceMetadata[resource] }),
+              priorResources,
+            }),
             validatedAdapterTimeoutMs,
           ),
         );
@@ -607,11 +627,18 @@ export const makePreviewAllocationController = (
         return [resource, result.success] as const;
       });
 
-    const allocateRecordedResources = (sessionId: string, rows: Array<Record<string, unknown>>) =>
+    const allocateRecordedResources = (
+      sessionId: string,
+      rows: Array<Record<string, unknown>>,
+      resourceMetadata: Readonly<Record<string, PreviewResourceMetadata>> | undefined,
+    ) =>
       Effect.gen(function* () {
         const allocated: (readonly [string, string])[] = [];
         for (const [index, row] of rows.entries()) {
-          const result = yield* Effect.result(allocateOneResource(sessionId, row));
+          const priorResources = Object.fromEntries(allocated);
+          const result = yield* Effect.result(
+            allocateOneResource(sessionId, row, resourceMetadata, priorResources),
+          );
           if (result._tag === "Failure") {
             for (const skipped of rows.slice(index + 1)) {
               const resource = String(skipped.resource);
@@ -652,7 +679,7 @@ export const makePreviewAllocationController = (
     const loadKnownCleanupLedger = (sessionId: string, session: Record<string, unknown>) =>
       Effect.gen(function* () {
         const ledger =
-          yield* sql`SELECT * FROM preview_allocation_ledger WHERE session_id=${sessionId} AND state IN ('allocating','owned','quarantined','deleting')`;
+          yield* sql`SELECT * FROM preview_allocation_ledger WHERE session_id=${sessionId} AND state IN ('allocating','owned','quarantined','deleting') ORDER BY rowid DESC`;
         const allRows =
           yield* sql`SELECT resource FROM preview_allocation_ledger WHERE session_id=${sessionId}`;
         let recordedResources: Readonly<Record<string, unknown>>;
@@ -732,7 +759,7 @@ export const makePreviewAllocationController = (
         const removed = yield* Effect.result(
           withPreviewResourceAdapterTimeout(
             "resource-deletion",
-            adapter.deleteOwned({ providerResourceId, ownerToken, resource }),
+            adapter.deleteOwned({ sessionId, providerResourceId, ownerToken, resource }),
             validatedAdapterTimeoutMs,
           ),
         );
@@ -753,11 +780,10 @@ export const makePreviewAllocationController = (
 
     const deleteCleanupLedger = (sessionId: string, ledger: readonly Record<string, unknown>[]) =>
       Effect.gen(function* () {
-        const results = yield* Effect.forEach(ledger, (entry) =>
-          deleteCleanupResource(sessionId, entry),
-        );
-        if (results.some((result) => result === "quarantined")) return "quarantined" as const;
-        if (results.some((result) => result === "waiting")) return "waiting" as const;
+        for (const entry of ledger) {
+          const result = yield* deleteCleanupResource(sessionId, entry);
+          if (result !== "deleted") return result;
+        }
         return "deleted" as const;
       });
 
@@ -855,7 +881,7 @@ export const makePreviewAllocationController = (
           withPreviewResourceAdapterTimeout(
             "ownership-resolution",
             adapter.resolveUnknown({ ...input, ownerToken, providerIdentities }),
-            validatedAdapterTimeoutMs,
+            validatedAdapterTimeoutMs * 2,
           ),
         );
         if (response._tag === "Failure")
@@ -933,19 +959,18 @@ export const makePreviewAllocationController = (
         yield* sql`UPDATE preview_cleanup_state SET completed_at=${time}, quarantine_reason=NULL WHERE session_id=${sessionId}`;
       });
 
-    const cleanupKnownResources = (
+    const cleanupResources = (
       sessionId: string,
-      knownResources: readonly Record<string, unknown>[],
-      unknownResources: readonly Record<string, unknown>[],
+      ledger: readonly Record<string, unknown>[],
+      unknownResourcesCount: number,
       time: number,
     ) =>
       Effect.gen(function* () {
-        if (!(yield* verifyCleanupProof(sessionId, knownResources)))
-          return unknownResources.length > 0 ? ("quarantined" as const) : ("waiting" as const);
-        const deletion = yield* deleteCleanupLedger(sessionId, knownResources);
+        if (!(yield* verifyCleanupProof(sessionId, ledger)))
+          return unknownResourcesCount > 0 ? ("quarantined" as const) : ("waiting" as const);
+        const deletion = yield* deleteCleanupLedger(sessionId, ledger);
         if (deletion === "quarantined") return "quarantined" as const;
-        if (deletion === "waiting")
-          return unknownResources.length > 0 ? ("quarantined" as const) : ("waiting" as const);
+        if (deletion === "waiting") return "waiting" as const;
         if (yield* hasUnresolvedAllocations(sessionId)) return "quarantined" as const;
         yield* releaseCleanupReservations(sessionId, time);
         return "cleaned" as const;
@@ -1108,6 +1133,7 @@ export const makePreviewAllocationController = (
           return yield* allocateRecordedResources(
             input.sessionId,
             rows as Array<Record<string, unknown>>,
+            input.resourceMetadata,
           );
         }),
       cleanup: (input) =>
@@ -1123,16 +1149,7 @@ export const makePreviewAllocationController = (
               typeof entry.provider_resource_id !== "string" || entry.provider_resource_id === "",
           );
           yield* markUnknownRowsQuarantined(input.sessionId, unknownResources, time);
-          const knownResources = ledger.filter(
-            (entry) =>
-              typeof entry.provider_resource_id === "string" && entry.provider_resource_id !== "",
-          );
-          return yield* cleanupKnownResources(
-            input.sessionId,
-            knownResources,
-            unknownResources,
-            time,
-          );
+          return yield* cleanupResources(input.sessionId, ledger, unknownResources.length, time);
         }),
       resolveUnknownAllocation: (input) =>
         Effect.gen(function* () {

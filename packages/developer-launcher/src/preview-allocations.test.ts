@@ -400,7 +400,7 @@ it.effect("bounds proof, deletion, and unknown-owner resolution adapter calls", 
       }),
     ).pipe(Effect.forkChild);
     yield* Deferred.await(resolutionStarted);
-    yield* TestClock.adjust(Duration.millis(5));
+    yield* TestClock.adjust(Duration.millis(10));
     expect((yield* Fiber.join(resolutionFiber))._tag).toBe("Failure");
     expect(
       (yield* allocations.inspect(resolutionSession.session.id)).reservations[0]?.releasedAt,
@@ -596,7 +596,7 @@ it.effect(
         expect(resources.has(`${started.session.id}/index`)).toBe(true);
         let state = yield* allocations.inspect(started.session.id);
         expect(state.allocations.map(({ state: allocationState }) => allocationState)).toEqual([
-          "quarantined",
+          "owned",
           "quarantined",
           "not-allocated",
         ]);
@@ -622,15 +622,15 @@ it.effect(
         state = yield* allocations.inspect(started.session.id);
         expect(state.allocations.find(({ resource }) => resource === "index")?.state).toBe("owned");
         expect(state.allocations.find(({ resource }) => resource === "database")?.state).toBe(
-          "quarantined",
+          "owned",
         );
-        expect(state.cleanup).toBe("quarantined");
+        expect(state.cleanup).toBe("waiting");
         const sql = yield* SqlClient.SqlClient;
         const resolutionRows =
           yield* sql`SELECT * FROM preview_allocation_resolutions WHERE session_id=${started.session.id}`;
         expect(resolutionRows).toHaveLength(1);
         expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("waiting");
-        expect((yield* allocations.inspect(started.session.id)).cleanup).toBe("quarantined");
+        expect((yield* allocations.inspect(started.session.id)).cleanup).toBe("waiting");
         now.value += 5 * 60_000;
         failDatabaseDeletion = false;
         expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("cleaned");
@@ -641,6 +641,117 @@ it.effect(
         );
       }),
     ),
+);
+
+it.effect("deletes dependent allocation resources in reverse creation order", () =>
+  withAllocations((_, sessions, now) =>
+    Effect.gen(function* () {
+      const deleted: string[] = [];
+      const started = yield* sessions.create({
+        owner: "owner",
+        checkout: "/tmp/reverse-allocation-cleanup",
+        manifests: {},
+        requestedRevision: "reverse-cleanup",
+      });
+      const allocations = yield* makePreviewAllocationController(
+        testAdapter({
+          allocate: ({ resource }) => Effect.succeed(resource),
+          deleteOwned: ({ resource }) =>
+            Effect.sync(() => {
+              deleted.push(resource);
+            }),
+        }),
+        () => now.value,
+      );
+      yield* allocations.observeCapacity({ ...observation, observedAt: now.value });
+      yield* allocations.reserveAndAllocate({
+        sessionId: started.session.id,
+        demands: demand,
+        resources: ["relay-service", "relay-attachment"],
+      });
+      yield* sessions.stop(started.session.id, started.ownerIdentity);
+      expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("waiting");
+      now.value += 5 * 60_000;
+      expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("cleaned");
+      expect(deleted).toEqual(["relay-attachment", "relay-service"]);
+    }),
+  ),
+);
+
+it.effect("quarantines an unknown dependent before deleting its known dependency", () =>
+  withAllocations((_, sessions, now) =>
+    Effect.gen(function* () {
+      const deleted: string[] = [];
+      const started = yield* sessions.create({
+        owner: "owner",
+        checkout: "/tmp/unknown-dependent-cleanup",
+        manifests: {},
+        requestedRevision: "unknown-dependent-cleanup",
+      });
+      const allocations = yield* makePreviewAllocationController(
+        testAdapter({
+          allocate: ({ resource }) => Effect.succeed(resource),
+          deleteOwned: ({ resource }) => Effect.sync(() => deleted.push(resource)),
+        }),
+        () => now.value,
+      );
+      yield* allocations.observeCapacity({ ...observation, observedAt: now.value });
+      yield* allocations.reserveAndAllocate({
+        sessionId: started.session.id,
+        demands: demand,
+        resources: ["relay-service", "relay-attachment"],
+      });
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`UPDATE preview_allocation_ledger SET provider_resource_id=NULL WHERE session_id=${started.session.id} AND resource='relay-attachment'`;
+      yield* sessions.stop(started.session.id, started.ownerIdentity);
+      expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("quarantined");
+      now.value += 5 * 60_000;
+      expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("quarantined");
+      expect(deleted).toEqual([]);
+      const state = yield* allocations.inspect(started.session.id);
+      expect(state.allocations.find(({ resource }) => resource === "relay-service")?.state).toBe(
+        "owned",
+      );
+      expect(state.reservations[0]?.releasedAt).toBeNull();
+    }),
+  ),
+);
+
+it.effect("does not delete dependencies after a dependent cleanup fails", () =>
+  withAllocations((_, sessions, now) =>
+    Effect.gen(function* () {
+      const deleteAttempts: string[] = [];
+      const started = yield* sessions.create({
+        owner: "owner",
+        checkout: "/tmp/stop-on-dependent-cleanup-failure",
+        manifests: {},
+        requestedRevision: "stop-cleanup",
+      });
+      const allocations = yield* makePreviewAllocationController(
+        testAdapter({
+          allocate: ({ resource }) => Effect.succeed(resource),
+          deleteOwned: ({ resource }) =>
+            Effect.gen(function* () {
+              deleteAttempts.push(resource);
+              if (resource === "relay-attachment")
+                return yield* Effect.fail(new Error("attachment detach failed"));
+            }),
+        }),
+        () => now.value,
+      );
+      yield* allocations.observeCapacity({ ...observation, observedAt: now.value });
+      yield* allocations.reserveAndAllocate({
+        sessionId: started.session.id,
+        demands: demand,
+        resources: ["relay-service", "relay-attachment"],
+      });
+      yield* sessions.stop(started.session.id, started.ownerIdentity);
+      expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("waiting");
+      now.value += 5 * 60_000;
+      expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("quarantined");
+      expect(deleteAttempts).toEqual(["relay-attachment"]);
+    }),
+  ),
 );
 
 it.effect("starts the five-minute deletion delay after a slow successful cleanup proof", () =>

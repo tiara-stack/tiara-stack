@@ -117,6 +117,105 @@ their declared or exclusive ownership intent with verification unavailable.
 These facts are admission requirements, not reservations or proof of capacity
 and ownership.
 
+### Connected transport and operator setup
+
+Connected transport is unsupported until the operator has prepared the
+workspace with the pinned Telepresence client, matching cluster manager and
+traffic-agent versions, a working TUN device, effective NET_ADMIN/network
+capabilities, development DNS, authenticated cluster access, and actual scoped
+attachment authorization. `preview doctor` reports each check independently.
+Connected execution remains unavailable until those host, DNS, cluster, and
+authorization checks pass.
+
+The operator provisions a dedicated Service and relay workload per session and
+selected host role in the development-only `preview-relays` namespace. A relay
+has one approved application port, session/role identity, and one reserved
+host listener. The configured client owns a Lease for each workspace-host and
+loopback-port pair in `preview-relays`; a Lease held by another session on the
+same host causes a collision. The
+Lease is removed when an attachment is detached or setup rolls back. If a host
+process exits without session cleanup, the Lease remains fail-closed and an
+operator must reconcile that exact owned Lease before reusing the port. The
+Telepresence attachment may target only that relay. It must
+be denied for shared application workloads; do not grant routine workspaces
+deployment patch, secret read, pod exec, or cluster-admin permissions. Keep
+the pinned manager's necessary discovery permissions explicit, including
+cluster-scoped ServiceCIDR discovery if that version requires it.
+
+The operator installs the resources in
+[`deploy/kubernetes/preview-relays/`](../deploy/kubernetes/preview-relays/):
+the namespace, dedicated controller and workspace ServiceAccounts, a controller
+Role for exact Service/Deployment/NetworkPolicy get-create-delete calls and
+Lease get-list-create-delete recovery,
+and a separate workspace Role limited to read-only pod and Service discovery.
+Do not add broad workspace `pods/portforward` permissions. The doctor only
+reports scoped attachment ready when an injected adapter verifies the exact
+session/role/process target and denies the shared-workload control; without
+that adapter, the check is unavailable and the profile stays unavailable.
+The namespace also has default-deny ingress/egress NetworkPolicies. Review
+these with the pinned
+Telepresence version and cluster's CNI before operator application. The
+configured provider verifies the installed default-deny and DNS-egress
+egress policies before creating per-session resources; it does not create or
+broaden the shared operator RBAC. Add the per-session policy produced
+by the relay provider for that session's exact labels, approved development
+caller selectors, and approved destination selectors. Omitted peers and
+destinations stay denied. Do not add shared-application or production
+selectors. The sample namespace and policies are examples only and have not
+been applied or live-validated.
+
+The launcher provider API is injectable through `PreviewRelayProvider`. Set
+`TIARA_PREVIEW_RELAY_CONFIG` to the path of a JSON file containing the validated
+development API endpoint, contexts, pinned Telepresence version, pinned relay
+image digest, development allowlists, and token environment-variable name. It
+must also provide the traffic-manager namespace and a non-empty exact manager
+pod label selector. Its API port defaults to TCP `8081` for the pinned
+Telepresence v2.18.2 manager and can be overridden for an operator-specific
+deployment. The generated per-session NetworkPolicy permits TCP only to pods
+matching both that namespace and selector on that port; it never opens the
+whole manager namespace. Invalid hostnames, empty/malformed selectors, and
+production-marked destinations leave the provider unavailable. Bind only
+short-lived, namespace-scoped credentials to the dedicated ServiceAccounts;
+the controller Role cannot list/watch or create/delete pods. The CLI selects
+the live adapter only when the config and token are present; module startup
+makes no cluster requests. `preview doctor` performs bounded, read-only cluster
+and Telepresence checks. `preview start` performs the first resource writes and
+attachment. It uses the Kubernetes HTTPS API and the pinned
+`telepresence intercept` / `leave` commands. It verifies
+session/role/process/owner
+labels and listener receipts before recording provider resource IDs in the
+existing allocation ledger. Without valid configuration the CLI fails closed;
+the filesystem allocation adapter cannot satisfy a connected profile. The
+HTTPS dependency probe uses the configured FQDN for both the
+request URL and TLS server name, resolves only the exact development allowlist,
+and maps DNS, network, TLS, and application-authentication failures
+separately. The CLI resolves `env://NAME` credential references and fails
+closed on unresolved references; other secret schemes require an injected
+resolver. Secret values are never included in output.
+
+NetworkPolicy and managed-service firewalls must admit only the gateway,
+session relay/agent, and explicitly approved development caller sources on
+required ports. Egress is limited to approved development Service FQDNs,
+DNS, and explicitly configured development database/cache destinations.
+Production and unrelated private destinations remain denied. Preserve each
+managed service's configured FQDN, TLS verification, and development
+credentials; diagnose route/network reachability, DNS, TLS, and application
+authentication as separate failures.
+
+Relay records and attachments are owned by exact session and role identifiers.
+Startup adds separate `preview-relay-service-<role>` and
+`preview-relay-attachment-<role>` entries to the session's durable allocation
+ledger for every selected host runtime role, so cleanup uses recorded ownership.
+Before attachment, after detach, on identity mismatch, or when the target
+process is gone, the endpoint returns unavailable and has no shared upstream.
+Port collisions and wrong targets block startup. Cleanup removes only the
+session's recorded relay and attachment; it preserves the manager/agent
+infrastructure, shared services, and other sessions. The local relay harness
+proves this contract with two sessions and an unchanged shared control; it is
+not evidence of live Telepresence or cluster acceptance. Do not advertise a
+connected profile until operator setup and the live acceptance checks are
+recorded.
+
 The configuration schema is version 1. This example plans the auth role with
 an owned auth group. Replace the sample commit and digests with the identities
 for the source and development manifest under review.
@@ -128,9 +227,15 @@ for the source and development manifest under review.
   "profile": "connected-preview-dev-v1",
   "owner": "developer:alice",
   "roles": ["sheet-auth"],
-  "environmentFileInputs": [
-    { "role": "sheet-auth", "path": "environment/sheet-auth.env" }
+  "hostListeners": [
+    {
+      "role": "sheet-auth",
+      "host": "127.0.0.1",
+      "port": 8443,
+      "processId": "sheet-auth"
+    }
   ],
+  "environmentFileInputs": [{ "role": "sheet-auth", "path": "environment/sheet-auth.env" }],
   "identities": {
     "sourceRevision": "0123456789abcdef0123456789abcdef01234567",
     "artifactDigests": {
@@ -321,11 +426,11 @@ controller is configured by this launcher.
 
 ## Mode matrix
 
-| Mode | Runtime processes | Allowed origins | State boundary |
-| --- | --- | --- | --- |
-| Fast | `sheet-web` by default; explicitly selected `sheet-auth`, `sheet-db-server`, `sheet-workflows`, or `sheet-bot` on the host | web uses development HTTPS endpoints; backend slices use host-reachable local dependencies | shared Fast development sandbox |
-| Compose | packaged runtime containers and local dependencies | loopback URLs only | the selected local Checkout State |
-| Kubernetes | fixed development preview release | `*.dev.theerapakg.moe` endpoints | shared Kubernetes Development Sandbox |
+| Mode       | Runtime processes                                                                                                          | Allowed origins                                                                            | State boundary                        |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------- |
+| Fast       | `sheet-web` by default; explicitly selected `sheet-auth`, `sheet-db-server`, `sheet-workflows`, or `sheet-bot` on the host | web uses development HTTPS endpoints; backend slices use host-reachable local dependencies | shared Fast development sandbox       |
+| Compose    | packaged runtime containers and local dependencies                                                                         | loopback URLs only                                                                         | the selected local Checkout State     |
+| Kubernetes | fixed development preview release                                                                                          | `*.dev.theerapakg.moe` endpoints                                                           | shared Kubernetes Development Sandbox |
 
 Fast passes only these values to the planned `sheet-web` process:
 

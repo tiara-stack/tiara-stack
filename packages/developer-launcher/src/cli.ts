@@ -5,6 +5,7 @@ import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import { FetchHttpClient } from "effect/unstable/http";
 import {
   closeSync,
   constants,
@@ -13,6 +14,7 @@ import {
   lstatSync,
   mkdirSync,
   openSync,
+  readFileSync,
   realpathSync,
   statSync,
 } from "node:fs";
@@ -47,6 +49,15 @@ import {
   PreviewAllocationControllerLive,
   type PreviewAllocationConfigParseResult,
 } from "./preview-allocations";
+import {
+  makePreviewRelayResourceAdapter,
+  PreviewRelayProvider,
+  PreviewRelayProviderLayer,
+  PreviewRelayProviderUnavailable,
+  makeConfiguredPreviewRelayPlatformClient,
+  makePreviewRelayProvider,
+  parsePreviewRelayProviderConfig,
+} from "./preview-relay-provider";
 
 const commonFlags = {
   envFile: Flag.string("env-file").pipe(Flag.optional),
@@ -189,58 +200,79 @@ const runParsedCommand = (config: Parameters<typeof launcherOptions>[0]) =>
     Effect.flatMap((sessionController) =>
       Effect.serviceOption(PreviewAllocationController).pipe(
         Effect.flatMap((allocationController) =>
-          // fallow-ignore-next-line complexity
-          Effect.tryPromise({
-            // fallow-ignore-next-line complexity
-            try: async () => {
-              const options = launcherOptions(config);
-              const launcherConfig = {
-                ...options,
-                ...(Option.isSome(sessionController)
-                  ? { previewSessionController: sessionController.value }
-                  : {}),
-                ...(Option.isSome(allocationController)
-                  ? { previewAllocationController: allocationController.value }
-                  : {}),
-              };
-              let result = await runLauncherFromParsed(config.operands, options, launcherConfig);
-              const shouldExecutePlan = isExecutablePlan(result);
-              const lifecycleExecutionStarted = config.jsonStream && shouldExecutePlan;
-              if (shouldExecutePlan) {
-                result = await executeDevelopmentPlan(result, config.json || config.jsonStream, {
-                  jsonStream: config.jsonStream,
-                });
-              }
-              process.exitCode = result.exitCode;
-              if (config.jsonStream) {
-                if (result.stdout.trim().length > 0) {
-                  process.stdout.write(result.stdout);
-                }
-                if (result.output.ok && !lifecycleExecutionStarted) {
-                  process.stdout.write(renderLifecycleTerminal(result.output, result.exitCode, 2));
-                } else if (
-                  !result.output.ok &&
-                  !lifecycleExecutionStarted &&
-                  result.stdout.trim().length === 0
-                ) {
-                  process.stdout.write(renderLifecycleTerminal(result.output, result.exitCode, 1));
-                }
-                return null;
-              }
-              const output = result.stdout.trimEnd();
-              return output.length === 0 ? null : output;
-            },
-            catch: (cause) => {
-              process.exitCode = 1;
-              return cause instanceof Error
-                ? cause
-                : new Error("The development launcher failed before it could produce a result.");
-            },
-          }).pipe(
-            Effect.flatMap((output) => (output === null ? Effect.void : Console.log(output))),
-            Effect.catch((error: unknown) =>
-              Console.error(
-                error instanceof Error ? error.message : "The development launcher failed.",
+          Effect.serviceOption(PreviewRelayProvider).pipe(
+            Effect.flatMap((relayProvider) =>
+              // fallow-ignore-next-line complexity
+              Effect.tryPromise({
+                // fallow-ignore-next-line complexity
+                try: async () => {
+                  const options = launcherOptions(config);
+                  const launcherConfig = {
+                    ...options,
+                    ...(Option.isSome(sessionController)
+                      ? { previewSessionController: sessionController.value }
+                      : {}),
+                    ...(Option.isSome(allocationController)
+                      ? { previewAllocationController: allocationController.value }
+                      : {}),
+                    ...(Option.isSome(relayProvider)
+                      ? { previewRelayProvider: relayProvider.value }
+                      : {}),
+                  };
+                  let result = await runLauncherFromParsed(
+                    config.operands,
+                    options,
+                    launcherConfig,
+                  );
+                  const shouldExecutePlan = isExecutablePlan(result);
+                  const lifecycleExecutionStarted = config.jsonStream && shouldExecutePlan;
+                  if (shouldExecutePlan) {
+                    result = await executeDevelopmentPlan(
+                      result,
+                      config.json || config.jsonStream,
+                      {
+                        jsonStream: config.jsonStream,
+                      },
+                    );
+                  }
+                  process.exitCode = result.exitCode;
+                  if (config.jsonStream) {
+                    if (result.stdout.trim().length > 0) {
+                      process.stdout.write(result.stdout);
+                    }
+                    if (result.output.ok && !lifecycleExecutionStarted) {
+                      process.stdout.write(
+                        renderLifecycleTerminal(result.output, result.exitCode, 2),
+                      );
+                    } else if (
+                      !result.output.ok &&
+                      !lifecycleExecutionStarted &&
+                      result.stdout.trim().length === 0
+                    ) {
+                      process.stdout.write(
+                        renderLifecycleTerminal(result.output, result.exitCode, 1),
+                      );
+                    }
+                    return null;
+                  }
+                  const output = result.stdout.trimEnd();
+                  return output.length === 0 ? null : output;
+                },
+                catch: (cause) => {
+                  process.exitCode = 1;
+                  return cause instanceof Error
+                    ? cause
+                    : new Error(
+                        "The development launcher failed before it could produce a result.",
+                      );
+                },
+              }).pipe(
+                Effect.flatMap((output) => (output === null ? Effect.void : Console.log(output))),
+                Effect.catch((error: unknown) =>
+                  Console.error(
+                    error instanceof Error ? error.message : "The development launcher failed.",
+                  ),
+                ),
               ),
             ),
           ),
@@ -352,6 +384,43 @@ const sessionControllerNeeded = previewAction !== undefined && sessionActions.ha
 const previewAllocationConfig = parsePreviewAllocationConfig(
   process.env.TIARA_PREVIEW_MAX_MEASUREMENT_AGE_MS,
 );
+const previewRelayConfigPath = process.env.TIARA_PREVIEW_RELAY_CONFIG;
+let previewRelayConfigDiagnostic: string | undefined;
+const previewRelayConfig = (() => {
+  if (previewRelayConfigPath === undefined) return undefined;
+  try {
+    const parsed = parsePreviewRelayProviderConfig(readFileSync(previewRelayConfigPath, "utf8"));
+    if (parsed === undefined)
+      previewRelayConfigDiagnostic =
+        "TIARA_PREVIEW_RELAY_CONFIG points to invalid configuration; session relay profiles remain unavailable.";
+    return parsed;
+  } catch {
+    previewRelayConfigDiagnostic =
+      "TIARA_PREVIEW_RELAY_CONFIG could not be read; session relay profiles remain unavailable.";
+    return undefined;
+  }
+})();
+const previewRelayToken =
+  previewRelayConfig === undefined
+    ? undefined
+    : process.env[previewRelayConfig.tokenEnvironmentName];
+if (
+  previewRelayConfig !== undefined &&
+  (previewRelayToken === undefined || previewRelayToken.trim().length === 0)
+)
+  previewRelayConfigDiagnostic =
+    "The configured session relay token is missing or empty; session relay profiles remain unavailable.";
+if (previewAction !== undefined && previewRelayConfigDiagnostic !== undefined)
+  process.stderr.write(`${previewRelayConfigDiagnostic}\n`);
+const previewRelayProvider =
+  previewRelayConfig === undefined ||
+  previewRelayToken === undefined ||
+  previewRelayToken.trim().length === 0
+    ? PreviewRelayProviderUnavailable()
+    : makePreviewRelayProvider(
+        previewRelayConfig,
+        makeConfiguredPreviewRelayPlatformClient(undefined, previewRelayConfig),
+      );
 export const previewAllocationConfigDiagnostic = (
   config: PreviewAllocationConfigParseResult,
   allocationBackedAction: boolean,
@@ -363,7 +432,10 @@ export const previewAllocationConfigDiagnostic = (
 const previewAllocationLayer = (databasePath: string) =>
   "config" in previewAllocationConfig
     ? PreviewAllocationControllerLive(
-        makeLocalFilesystemPreviewResourceAdapter(`${databasePath}.allocations`),
+        makePreviewRelayResourceAdapter(
+          makeLocalFilesystemPreviewResourceAdapter(`${databasePath}.allocations`),
+          previewRelayProvider,
+        ),
         Date.now,
         previewAllocationConfig.config,
         !readOnlyCapacityDoctor,
@@ -391,7 +463,12 @@ const previewDatabaseLayer =
           NodeServices.layer,
         ),
       );
-const cliLayer = Layer.mergeAll(NodeServices.layer, previewDatabaseLayer);
+const cliLayer = Layer.mergeAll(
+  NodeServices.layer,
+  FetchHttpClient.layer,
+  previewDatabaseLayer,
+  PreviewRelayProviderLayer(previewRelayProvider),
+);
 
 export const main = Command.run(command, { version: "0.0.0" }).pipe(Effect.provide(cliLayer));
 

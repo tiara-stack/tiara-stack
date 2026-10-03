@@ -11,6 +11,14 @@ import {
 import { PreviewAllocationController } from "./preview-allocations";
 import { PreviewAllocationError } from "./preview-allocations";
 import {
+  buildPreviewRelayResourcePlan,
+  PreviewRelayHostListenerSchema,
+  PreviewRelayProviderUnavailable,
+  previewRelayDoctorCheckIds,
+  type PreviewRelayDoctorCheck,
+  type PreviewRelayResourcePlan,
+} from "./preview-relay-provider";
+import {
   PreviewCapacityBaselineSchema,
   previewCapacityDimensionsByGroup,
 } from "./preview-allocations";
@@ -220,6 +228,7 @@ const connectedPreviewConfigSchema = Schema.Struct({
   profile: Schema.String,
   owner: Schema.String,
   roles: Schema.Array(roleSchema),
+  hostListeners: Schema.optionalKey(Schema.Array(PreviewRelayHostListenerSchema)),
   identities: identitiesSchema,
   environmentFileInputs: Schema.Array(environmentFileInputSchema),
   groups: Schema.Array(groupSchema),
@@ -238,9 +247,53 @@ type PreviewChangeConfig = Schema.Schema.Type<typeof changeSchema>;
 
 const prerequisites = [
   {
-    id: "workspace-preparation",
+    id: "telepresence-client-pin",
     reason:
-      "Prepared workspace authorization and outbound development destinations have not been checked.",
+      "The prepared workspace Telepresence client version has not been verified against the operator pin.",
+  },
+  {
+    id: "telepresence-manager-agent-pin",
+    reason:
+      "The development cluster Telepresence manager and traffic-agent versions have not been verified against the operator pin.",
+  },
+  {
+    id: "workspace-tun-capabilities",
+    reason:
+      "The workspace TUN device and effective NET_ADMIN/network capabilities have not been verified.",
+  },
+  {
+    id: "workspace-dns",
+    reason:
+      "Approved development service FQDN resolution and required DNS suffix routing have not been verified.",
+  },
+  {
+    id: "managed-service-dns",
+    reason:
+      "Configured managed database/cache DNS names have not been resolved from the prepared workspace.",
+  },
+  {
+    id: "development-network",
+    reason:
+      "Workspace routes and NetworkPolicy access to each approved development destination have not been verified.",
+  },
+  {
+    id: "managed-service-tls",
+    reason:
+      "Managed database/cache TLS negotiation and certificate verification have not been checked independently of network reachability.",
+  },
+  {
+    id: "application-authentication",
+    reason:
+      "Application credentials and authorization against approved development dependencies have not been verified independently of TLS.",
+  },
+  {
+    id: "development-cluster-access",
+    reason: "Authenticated access to the configured development cluster has not been verified.",
+  },
+  {
+    id: "scoped-relay-attachment",
+    reason:
+      "The pinned Telepresence installation has not proved attachment authorization to a session relay and denial for shared workloads.",
   },
   {
     id: "session-controller",
@@ -336,6 +389,7 @@ const unexpectedConfigurationField = (value: unknown): string | undefined => {
       "profile",
       "owner",
       "roles",
+      "hostListeners",
       "identities",
       "environmentFileInputs",
       "groups",
@@ -363,6 +417,11 @@ const unexpectedConfigurationField = (value: unknown): string | undefined => {
       property("environmentFileInputs"),
       ["role", "path"],
       "config.environmentFileInputs",
+    ) ??
+    firstUnexpectedListField(
+      property("hostListeners"),
+      ["role", "host", "port", "processId"],
+      "config.hostListeners",
     ) ??
     firstUnexpectedListField(
       property("groups"),
@@ -917,6 +976,20 @@ const validateRoleSelection = (context: PreviewValidationContext) => {
       "roles",
     );
   }
+};
+
+const validatePreviewRelayListeners = (context: PreviewValidationContext) => {
+  const result = buildPreviewRelayResourcePlan(
+    context.config.roles,
+    context.config.hostListeners ?? [],
+  );
+  if ("error" in result)
+    context.add(
+      "invalid-preview-config",
+      result.error,
+      "Configure exactly one approved loopback listener with a unique port for every selected host runtime role; remove listeners for roles outside this profile.",
+      "hostListeners",
+    );
 };
 
 const isNormalizedEnvironmentPathSegment = Predicate.and(
@@ -1958,6 +2031,7 @@ const validateConfiguration = (
   const context = makePreviewValidationContext(config, action);
   validateRootEnvironment(context);
   validateRoleSelection(context);
+  validatePreviewRelayListeners(context);
   validateEnvironmentFileInputDeclarations(context);
   validateSharedIdentities(context);
   validateArtifactIdentities(context);
@@ -2274,6 +2348,7 @@ type PreparedPreviewStart = {
   readonly config: ConnectedPreviewConfig;
   readonly cwd: string;
   readonly plan: import("./preview-allocations").PreviewProfileDemandPlan;
+  readonly relayPlan: PreviewRelayResourcePlan;
   readonly environment: NodeJS.ProcessEnv;
 };
 
@@ -2346,6 +2421,43 @@ const prepareConnectedProfileDemand = (
         };
   });
 
+const preparePreviewRelayPlan = (
+  config: ConnectedPreviewConfig,
+): { readonly plan: PreviewRelayResourcePlan } | { readonly error: string } => {
+  const plan = buildPreviewRelayResourcePlan(config.roles, config.hostListeners ?? []);
+  return "error" in plan
+    ? { error: `${plan.error} No session or resources were created.` }
+    : { plan: plan.plan };
+};
+
+const validatePreviewRelayStartReadiness = (
+  provider: LauncherOptions["previewRelayProvider"],
+  config: ConnectedPreviewConfig,
+  plan: PreviewRelayResourcePlan,
+): Effect.Effect<string | undefined> => {
+  if (plan.resources.length === 0) return Effect.succeed(undefined);
+  if (provider === undefined || !provider.configured)
+    return Effect.succeed("The session relay provider is unavailable.");
+  return Effect.gen(function* () {
+    const checked = yield* Effect.result(
+      provider.checkPreparedWorkspace({
+        profile: config.profile,
+        roles: config.roles,
+        listeners: config.hostListeners ?? [],
+      }),
+    );
+    if (checked._tag === "Failure")
+      return "Prepared-workspace relay authorization could not be verified.";
+    const checksById = new Map(checked.success.map((check) => [check.id, check]));
+    const unavailable = previewRelayDoctorCheckIds.filter(
+      (id) => checksById.get(id)?.status !== "ready",
+    );
+    return unavailable.length === 0
+      ? undefined
+      : `Prepared-workspace relay checks are not ready (${unavailable.join(", ")}).`;
+  });
+};
+
 const preparePreviewStart = (
   command: PreviewStartCommand,
   options: LauncherOptions,
@@ -2359,6 +2471,11 @@ const preparePreviewStart = (
     const cwd = options.cwd ?? process.cwd();
     const setup = yield* readStartConfig(command, cwd);
     if (setup.output !== undefined) return { output: setup.output };
+    const relay = preparePreviewRelayPlan(setup.config);
+    if ("error" in relay)
+      return {
+        output: sessionOperationFailure(command, relay.error),
+      };
     const demand = yield* prepareConnectedProfileDemand(command, setup.config, allocations);
     if ("output" in demand) return demand;
     const environment = options.env ?? process.env;
@@ -2369,7 +2486,25 @@ const preparePreviewStart = (
           "TIARA_PREVIEW_SESSION_DATABASE must name the configured controller store before creating a session.",
         ),
       };
-    return { config: setup.config, cwd, plan: demand.plan, environment };
+    const relayReadiness = yield* validatePreviewRelayStartReadiness(
+      options.previewRelayProvider,
+      setup.config,
+      relay.plan,
+    );
+    if (relayReadiness !== undefined)
+      return {
+        output: sessionOperationFailure(
+          command,
+          `${relayReadiness} No session or resources were created.`,
+        ),
+      };
+    return {
+      config: setup.config,
+      cwd,
+      plan: demand.plan,
+      relayPlan: relay.plan,
+      environment,
+    };
   });
 
 const allocationFailureMessage = (failure: unknown) => {
@@ -2409,7 +2544,8 @@ const finishPreviewStart = (
       const allocation = allocations.reserveAndAllocate({
         sessionId: creation.created.session.id,
         demands: prepared.plan.demands,
-        resources: prepared.plan.resources,
+        resources: [...new Set([...prepared.plan.resources, ...prepared.relayPlan.resources])],
+        resourceMetadata: prepared.relayPlan.metadata,
       });
       const reserved = yield* Effect.result(
         restore(allocation).pipe(
@@ -3067,18 +3203,99 @@ const runCapacityBaselineImport = (
     );
   });
 
+const doctorFailureCodes: Partial<
+  Record<(typeof prerequisites)[number]["id"], Diagnostic["code"]>
+> = {
+  "managed-service-tls": "tls-unavailable",
+  "application-authentication": "application-authentication-unavailable",
+  "workspace-dns": "dns-unavailable",
+  "managed-service-dns": "dns-unavailable",
+  "development-network": "network-unavailable",
+};
+
 const doctorUnavailableErrors = (action: "doctor") =>
   prerequisites
-    .filter(({ id }) => id !== "state-grants-and-capacity")
+    .filter(
+      ({ id }) =>
+        id !== "state-grants-and-capacity" &&
+        !previewRelayDoctorCheckIds.some((implemented) => implemented === id),
+    )
     .map(({ id, reason }) =>
       diagnostic(
-        "prerequisite-unavailable",
+        doctorFailureCodes[id] ?? "prerequisite-unavailable",
         action,
         `Connected preview prerequisite ${id} is unavailable because its read-only check is not implemented`,
         `${reason} Keep the profile unavailable until this check has verifiable live evidence.`,
         id,
       ),
     );
+
+const doctorProbeDiagnostics = (checks: readonly PreviewRelayDoctorCheck[]) =>
+  checks
+    .filter((check) => check.status !== "ready")
+    .map((check) => {
+      const prerequisite = prerequisites.find(({ id }) => id === check.id);
+      return diagnostic(
+        doctorFailureCodes[check.id as keyof typeof doctorFailureCodes] ??
+          "prerequisite-unavailable",
+        "doctor",
+        `Connected preview prerequisite ${check.id} is ${check.status}: ${check.detail}`,
+        prerequisite?.reason ??
+          "Keep the connected preview profile unavailable until this check passes.",
+        check.id,
+      );
+    });
+
+const reportWithDoctorChecks = (
+  report: ConnectedPreviewReport,
+  checks: readonly PreviewRelayDoctorCheck[],
+): ConnectedPreviewReport => {
+  const byId = new Map(checks.map((check) => [check.id, check]));
+  return {
+    ...report,
+    prerequisites: report.prerequisites.map((prerequisite) => {
+      const check = byId.get(prerequisite.id);
+      return check === undefined ? prerequisite : { ...prerequisite, status: check.status };
+    }),
+  };
+};
+
+const inspectPreparedWorkspace = (
+  options: LauncherOptions,
+  config: ConnectedPreviewConfig,
+  shouldCheck: boolean,
+) =>
+  Effect.gen(function* () {
+    if (!shouldCheck) return [] as const;
+    const result = yield* Effect.result(
+      (options.previewRelayProvider ?? PreviewRelayProviderUnavailable()).checkPreparedWorkspace({
+        profile: config.profile,
+        roles: config.roles,
+        listeners: config.hostListeners ?? [],
+      }),
+    );
+    if (Result.isSuccess(result)) return result.success;
+    return previewRelayDoctorCheckIds.map((id) => ({
+      id,
+      status: "unavailable" as const,
+      detail: "The configured read-only check could not be completed.",
+    }));
+  });
+
+const inspectDoctorPrerequisites = (
+  command: ConnectedPreviewCommand,
+  options: LauncherOptions,
+  config: ConnectedPreviewConfig,
+  validationErrors: readonly Diagnostic[],
+  allocations: import("./preview-allocations").PreviewAllocationApi | undefined,
+) =>
+  Effect.gen(function* () {
+    if (command.action !== "doctor" || validationErrors.length > 0)
+      return { capacityErrors: [], checks: [] as readonly PreviewRelayDoctorCheck[] };
+    const capacityErrors = yield* inspectCapacityForDoctor(config, allocations);
+    const checks = yield* inspectPreparedWorkspace(options, config, true);
+    return { capacityErrors, checks };
+  });
 
 const ownedCapacityDimensions = (config: ConnectedPreviewConfig) => [
   ...new Set(ownedGroupIds(config).flatMap((id) => previewCapacityDimensionsByGroup[id])),
@@ -3162,11 +3379,14 @@ const outputForPreviewReport = (
   validationErrors: readonly Diagnostic[],
   validationWarnings: readonly Diagnostic[] = [],
   capacityDiagnostics: readonly Diagnostic[] = [],
+  probeDiagnostics: readonly Diagnostic[] = [],
+  doctorChecks: readonly PreviewRelayDoctorCheck[] = [],
 ): LauncherOutput => {
   const isDoctor = command.action === "doctor";
   const errors = [
     ...validationErrors,
     ...capacityDiagnostics,
+    ...probeDiagnostics,
     ...(isDoctor && validationErrors.length === 0 ? doctorUnavailableErrors("doctor") : []),
   ];
   const requiredGroupIds = new Set(report.requiredGroups.map(({ id }) => id));
@@ -3190,6 +3410,10 @@ const outputForPreviewReport = (
     parityGates: [],
     connectedPreview: {
       ...report,
+      prerequisites:
+        doctorChecks.length === 0
+          ? report.prerequisites
+          : reportWithDoctorChecks(report, doctorChecks).prerequisites,
       groupPlans,
       status: validationErrors.length > 0 ? "blocked" : isDoctor ? "unavailable" : "planned",
     },
@@ -3412,16 +3636,22 @@ export const connectedPreviewOutput = (
     const allocationService =
       options.previewAllocationController ??
       Option.getOrUndefined(yield* Effect.serviceOption(PreviewAllocationController));
-    const capacityErrors =
-      command.action === "doctor" && validated.errors.length === 0
-        ? yield* inspectCapacityForDoctor(decoded.config, allocationService)
-        : [];
+    const doctor = yield* inspectDoctorPrerequisites(
+      command,
+      options,
+      decoded.config,
+      validated.errors,
+      allocationService,
+    );
+    const doctorReport = reportWithDoctorChecks(report, doctor.checks);
     return outputForPreviewReport(
       command,
-      report,
+      doctorReport,
       [...validated.errors, ...environmentFiles.errors],
       ambientCredentialErrors,
-      capacityErrors,
+      doctor.capacityErrors,
+      doctorProbeDiagnostics(doctor.checks),
+      doctor.checks,
     );
   });
 };

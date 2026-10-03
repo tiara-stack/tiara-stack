@@ -1,0 +1,20 @@
+{
+  "apiVersion": "rbac.authorization.k8s.io/v1",
+  "kind": "RoleBinding",
+  "metadata": {
+    "name": "preview-relay-workspace-attachment",
+    "namespace": "preview-relays"
+  },
+  "subjects": [
+    {
+      "kind": "ServiceAccount",
+      "name": "preview-relay-workspace-client",
+      "namespace": "preview-relays"
+    }
+  ],
+  "roleRef": {
+    "apiGroup": "rbac.authorization.k8s.io",
+    "kind": "Role",
+    "name": "preview-relay-workspace-attachment"
+  }
+}

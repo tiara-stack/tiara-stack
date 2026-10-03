@@ -108,6 +108,31 @@ filesystem adapter refuses connected-profile allocation. Database,
 search-index, Redis, OAuth, Discord, Sheets, and Kubernetes workload adapters
 are not configured here. No shared or production infrastructure was contacted.
 
+The developer-launcher relay contract harness models two concurrently attached
+sessions, per-session approved development FQDN access, and an unchanged shared
+control. It verifies unavailable responses before attachment and after
+detachment, wrong-target rejection, host-listener collision rejection,
+production-destination rejection, and cleanup that removes only the selected
+session while preserving the other session and shared control. This is bounded
+adapter-contract evidence only. Live Telepresence client/manager/agent pins,
+TUN/capabilities, DNS, cluster access, scoped attachment authorization,
+NetworkPolicy enforcement, managed-service DNS/TLS/application credentials,
+and cluster-to-host HTTP requests remain unsupported and unverified in this
+workspace. Missing setup or permissions must be recorded as unsupported, never
+as a passed live profile.
+
+The relay provider tests exercise the injected cluster/Telepresence client
+contract with owner-labelled session Services, listener reservation receipts,
+attachment, exact-resource detachment/deletion, and provider refusal when
+configuration or a client is missing. A loopback HTTP dependency harness routes
+two sessions through their distinct approved FQDNs and retains each requested
+hostname/TLS identity. The provider also produces a per-session NetworkPolicy
+and carries a default-deny namespace policy and narrow namespace Role examples.
+These local contracts do not establish that a real Telepresence attachment,
+CNI, cluster RBAC, managed-service DNS/TLS, or application credential setup
+works; those profiles remain unavailable until an operator supplies and proves
+the configured clients and live evidence.
+
 ## Boundaries
 
 Fast web mode passes only `APP_BASE_URL`, `AUTH_BASE_URL`,

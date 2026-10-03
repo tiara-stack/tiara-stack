@@ -149,6 +149,10 @@ export type DiagnosticCode =
   | "required-group-missing"
   | "invalid-preview-intent"
   | "prerequisite-unavailable"
+  | "network-unavailable"
+  | "dns-unavailable"
+  | "tls-unavailable"
+  | "application-authentication-unavailable"
   | "capacity-exhausted"
   | "not-implemented";
 
@@ -230,7 +234,7 @@ export interface LauncherOutput {
 
 export interface ConnectedPreviewPrerequisite {
   readonly id: string;
-  readonly status: "unavailable";
+  readonly status: "ready" | "failed" | "unavailable";
   readonly reason: string;
 }
 
@@ -400,6 +404,7 @@ export interface LauncherOptions {
   readonly selectedServices?: readonly string[];
   readonly previewSessionController?: import("./preview-sessions").PreviewSessionControllerApi;
   readonly previewAllocationController?: import("./preview-allocations").PreviewAllocationApi;
+  readonly previewRelayProvider?: import("./preview-relay-provider").PreviewRelayProviderApi;
 }
 
 export interface LauncherResult {
