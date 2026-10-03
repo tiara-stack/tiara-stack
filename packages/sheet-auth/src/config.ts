@@ -92,6 +92,19 @@ export const config = {
   ).pipe(
     Config.withDefault("https://kubernetes.default.svc/apis/authentication.k8s.io/v1/tokenreviews"),
   ),
+  previewSessionControllerUrl: Config.option(
+    Config.schema(Schema.NonEmptyString, "SHEET_AUTH_PREVIEW_SESSION_CONTROLLER_URL"),
+  ),
+  previewSessionAuthorityToken: Config.option(
+    Config.schema(
+      Schema.Redacted(Schema.NonEmptyString),
+      "SHEET_AUTH_PREVIEW_SESSION_AUTHORITY_TOKEN",
+    ),
+  ),
+  requirePreviewSessionForTokenExchange: Config.schema(
+    Schema.Boolean,
+    "SHEET_AUTH_REQUIRE_PREVIEW_SESSION_FOR_TOKEN_EXCHANGE",
+  ).pipe(Config.withDefault(false)),
   redisUrl: Config.schema(Schema.Redacted(Schema.String), "REDIS_URL"),
   redisBase: Config.schema(Schema.String, "REDIS_BASE"),
 };

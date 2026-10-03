@@ -447,6 +447,11 @@ describe("exchangeToken", () => {
           actor_token_type: accessTokenType,
           audience: "sheet-workflows",
           scope: "workflow.dispatch",
+          preview_session: {
+            sessionId: "session-a",
+            generation: 3,
+            role: "sheet-workflows-runner",
+          },
         },
         context: {
           adapter: {},
@@ -457,6 +462,14 @@ describe("exchangeToken", () => {
         issuer: "https://auth.example.com",
         validAudiences: ["sheet-workflows"],
         trustedClientIds: new Set([actor.clientId]),
+        previewSessionAuthority: {
+          requiresBinding: async () => true,
+          authorize: async ({ binding, clientId }) =>
+            binding.sessionId === "session-a" &&
+            binding.generation === 3 &&
+            binding.role === "sheet-workflows-runner" &&
+            clientId === actor.clientId,
+        },
         tokenExchange: {
           subjectResolvers: [
             async () => ({
@@ -473,6 +486,241 @@ describe("exchangeToken", () => {
       sub: actor.clientId,
       client_id: actor.clientId,
     });
+    expect(decodeJwt(response.access_token).tiara_preview_session).toEqual({
+      sessionId: "session-a",
+      generation: 3,
+      role: "sheet-workflows-runner",
+    });
+  });
+
+  it("rejects a preview token exchange when the controller authority is not configured", async () => {
+    signJwtMock.mockClear();
+    signJwtMock.mockImplementation(async (_ctx, { payload }) =>
+      new SignJWT(payload)
+        .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+        .sign(new TextEncoder().encode("token-exchange-test-secret")),
+    );
+    resourceClientMock.verifyAccessToken.mockResolvedValue({
+      client_id: actor.clientId,
+      scope: actor.scopes.join(" "),
+    });
+    await expect(
+      exchangeToken(
+        {
+          body: {
+            grant_type: grantType,
+            subject_token: "subject-token",
+            subject_token_type: "custom-subject-token",
+            actor_token: "actor-token",
+            actor_token_type: accessTokenType,
+            audience: "sheet-workflows",
+            scope: "workflow.dispatch",
+            preview_session: {
+              sessionId: "session-a",
+              generation: 3,
+              role: "sheet-workflows-runner",
+            },
+          },
+          context: { adapter: {}, internalAdapter: {} },
+        },
+        {
+          issuer: "https://auth.example.com",
+          validAudiences: ["sheet-workflows"],
+          trustedClientIds: new Set([actor.clientId]),
+          requirePreviewSessionForTokenExchange: true,
+          tokenExchange: {
+            subjectResolvers: [
+              async () => ({
+                userId: "subject-user",
+                accountId: "subject-account",
+                scopes: ["workflow.dispatch"],
+              }),
+            ],
+          },
+        },
+      ),
+    ).rejects.toThrow("Preview session is not active for actor");
+    expect(signJwtMock).not.toHaveBeenCalled();
+  });
+
+  it("allows an ordinary client without preview authority when no binding is required", async () => {
+    signJwtMock.mockImplementation(async (_ctx, { payload }) =>
+      new SignJWT(payload)
+        .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+        .sign(new TextEncoder().encode("token-exchange-test-secret")),
+    );
+    resourceClientMock.verifyAccessToken.mockResolvedValue({
+      client_id: actor.clientId,
+      scope: actor.scopes.join(" "),
+    });
+    const findOne = vi.fn(async () => ({ name: "ordinary-client" }));
+    const requiresBinding = vi.fn(async () => false);
+    const response = await exchangeToken(
+      {
+        body: {
+          grant_type: grantType,
+          subject_token: "subject-token",
+          subject_token_type: "custom-subject-token",
+          actor_token: "actor-token",
+          actor_token_type: accessTokenType,
+          audience: "sheet-workflows",
+          scope: "workflow.dispatch",
+        },
+        context: { adapter: { findOne }, internalAdapter: {} },
+      },
+      {
+        issuer: "https://auth.example.com",
+        validAudiences: ["sheet-workflows"],
+        trustedClientIds: new Set([actor.clientId]),
+        previewSessionAuthority: { requiresBinding, authorize: async () => false },
+        tokenExchange: {
+          subjectResolvers: [
+            async () => ({
+              userId: "subject-user",
+              accountId: "subject-account",
+              scopes: ["workflow.dispatch"],
+            }),
+          ],
+        },
+      },
+    );
+    expect(findOne).toHaveBeenCalledWith({
+      model: "oauthClient",
+      where: [{ field: "clientId", value: actor.clientId }],
+    });
+    expect(requiresBinding).toHaveBeenCalledWith(actor.clientId);
+    expect(response.access_token).toBeDefined();
+  });
+
+  it("requires a binding when the controller identifies an unmarked preview client", async () => {
+    signJwtMock.mockClear();
+    resourceClientMock.verifyAccessToken.mockResolvedValue({
+      client_id: actor.clientId,
+      scope: actor.scopes.join(" "),
+    });
+    const findOne = vi.fn(async () => ({ name: "ordinary-client" }));
+    const requiresBinding = vi.fn(async (clientId: string) => clientId === actor.clientId);
+    await expect(
+      exchangeToken(
+        {
+          body: {
+            grant_type: grantType,
+            subject_token: "subject-token",
+            subject_token_type: "custom-subject-token",
+            actor_token: "actor-token",
+            actor_token_type: accessTokenType,
+            audience: "sheet-workflows",
+            scope: "workflow.dispatch",
+          },
+          context: { adapter: { findOne }, internalAdapter: {} },
+        },
+        {
+          issuer: "https://auth.example.com",
+          validAudiences: ["sheet-workflows"],
+          trustedClientIds: new Set([actor.clientId]),
+          previewSessionAuthority: { requiresBinding, authorize: async () => false },
+          tokenExchange: {
+            subjectResolvers: [
+              async () => ({
+                userId: "subject-user",
+                accountId: "subject-account",
+                scopes: ["workflow.dispatch"],
+              }),
+            ],
+          },
+        },
+      ),
+    ).rejects.toThrow("Preview session binding is required");
+    expect(findOne).toHaveBeenCalledWith({
+      model: "oauthClient",
+      where: [{ field: "clientId", value: actor.clientId }],
+    });
+    expect(requiresBinding).toHaveBeenCalledWith(actor.clientId);
+    expect(signJwtMock).not.toHaveBeenCalled();
+  });
+
+  it("requires a binding for preview OAuth clients when preview authority is absent", async () => {
+    signJwtMock.mockClear();
+    resourceClientMock.verifyAccessToken.mockResolvedValue({
+      client_id: actor.clientId,
+      scope: actor.scopes.join(" "),
+    });
+    const findOne = vi.fn(async () => ({ name: "tiara-preview:session-a:3:sheet-web" }));
+    await expect(
+      exchangeToken(
+        {
+          body: {
+            grant_type: grantType,
+            subject_token: "subject-token",
+            subject_token_type: "custom-subject-token",
+            actor_token: "actor-token",
+            actor_token_type: accessTokenType,
+            audience: "sheet-workflows",
+            scope: "workflow.dispatch",
+          },
+          context: { adapter: { findOne }, internalAdapter: {} },
+        },
+        {
+          issuer: "https://auth.example.com",
+          validAudiences: ["sheet-workflows"],
+          trustedClientIds: new Set([actor.clientId]),
+          tokenExchange: {
+            subjectResolvers: [
+              async () => ({
+                userId: "subject-user",
+                accountId: "subject-account",
+                scopes: ["workflow.dispatch"],
+              }),
+            ],
+          },
+        },
+      ),
+    ).rejects.toThrow("Preview session binding is required");
+    expect(signJwtMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps a local preview client marker authoritative if the controller says no binding", async () => {
+    signJwtMock.mockClear();
+    resourceClientMock.verifyAccessToken.mockResolvedValue({
+      client_id: actor.clientId,
+      scope: actor.scopes.join(" "),
+    });
+    const findOne = vi.fn(async () => ({ name: "tiara-preview:session-a:3:sheet-web" }));
+    await expect(
+      exchangeToken(
+        {
+          body: {
+            grant_type: grantType,
+            subject_token: "subject-token",
+            subject_token_type: "custom-subject-token",
+            actor_token: "actor-token",
+            actor_token_type: accessTokenType,
+            audience: "sheet-workflows",
+            scope: "workflow.dispatch",
+          },
+          context: { adapter: { findOne }, internalAdapter: {} },
+        },
+        {
+          issuer: "https://auth.example.com",
+          validAudiences: ["sheet-workflows"],
+          trustedClientIds: new Set([actor.clientId]),
+          previewSessionAuthority: {
+            requiresBinding: async () => false,
+            authorize: async () => false,
+          },
+          tokenExchange: {
+            subjectResolvers: [
+              async () => ({
+                userId: "subject-user",
+                accountId: "subject-account",
+                scopes: ["workflow.dispatch"],
+              }),
+            ],
+          },
+        },
+      ),
+    ).rejects.toThrow("Preview session binding is required");
+    expect(signJwtMock).not.toHaveBeenCalled();
   });
 });
 

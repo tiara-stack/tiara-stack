@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { TokenExchangeGrantType } from "../../oauth";
+import { PreviewSessionBindingSchema } from "../../preview-session";
 
 export const MaxSubjectTokenLifetimeSeconds = 300;
 
@@ -17,6 +18,7 @@ export const tokenExchangeBody = Schema.Struct({
   audience: Schema.optional(Schema.String),
   resource: Schema.optional(Schema.String),
   scope: Schema.optional(Schema.String),
+  preview_session: Schema.optional(PreviewSessionBindingSchema),
 }).pipe(Schema.toStandardSchemaV1);
 
 export const subjectTokenBody = Schema.Struct({

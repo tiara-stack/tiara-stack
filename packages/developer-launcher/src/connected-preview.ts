@@ -781,11 +781,11 @@ const reportExternalEffects = (roles: readonly ConnectedPreviewRole[]) => {
   return [...effects];
 };
 
-const isCredentialNameAllowed = (role: ConnectedPreviewRole, name: string) =>
+export const isConnectedPreviewCredentialAllowed = (role: ConnectedPreviewRole, name: string) =>
   runtimeContractCatalog.roles[role].credentialNames.some((allowed) => allowed === name);
 
 const reportCredentialName = (role: ConnectedPreviewRole, name: string) =>
-  isCredentialNameAllowed(role, name) ? name : "<invalid>";
+  isConnectedPreviewCredentialAllowed(role, name) ? name : "<invalid>";
 
 const reportCredentialReferenceStatus = (
   config: ConnectedPreviewConfig,
@@ -796,7 +796,7 @@ const reportCredentialReferenceStatus = (
     return "unavailable" as const;
   return Object.entries(references).every(
     ([name, reference]) =>
-      isCredentialNameAllowed(role, name) &&
+      isConnectedPreviewCredentialAllowed(role, name) &&
       isDevelopmentCredentialReference(role, name, reference),
   )
     ? ("declared" as const)
@@ -1292,7 +1292,7 @@ const validateCredentialReferenceEntry = (
   name: string,
   reference: string,
 ) => {
-  const allowedName = isCredentialNameAllowed(role, name);
+  const allowedName = isConnectedPreviewCredentialAllowed(role, name);
   const displayName = reportCredentialName(role, name);
   if (!allowedName) {
     context.add(
@@ -2283,6 +2283,19 @@ const createPendingPreviewSession = (
             "deployed-manifest": config.identities.deployedManifestDigest,
           },
           requestedRevision: config.identities.sourceRevision,
+          groups: config.groups.map(({ id }) => id),
+          endpoints: config.groups.flatMap((group) =>
+            group.ownership === "reused" && group.endpoint ? [group.endpoint] : [],
+          ),
+          targets: [
+            ...new Set([
+              ...(config.externalTargets ?? []),
+              ...(config.triggers ?? []).flatMap(({ targets }) => targets),
+              ...(config.botHandoff === null || config.botHandoff === undefined
+                ? []
+                : [config.botHandoff.targetAllocation]),
+            ]),
+          ],
         },
       }),
     );

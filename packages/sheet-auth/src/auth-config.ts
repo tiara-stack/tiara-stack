@@ -9,6 +9,7 @@ import { createSecondaryStorage } from "./storage";
 import type { Driver } from "unstorage";
 import * as schema from "./schema";
 import { SheetAuthAudiences } from "./identity";
+import type { PreviewSessionAuthority } from "./preview-session";
 import { sessionToken } from "./plugins/session-token";
 import {
   DefaultRegisteredClientScopes,
@@ -41,6 +42,8 @@ interface CreateAuthOptions {
   subjectTokenKubernetesReviewerTokenPath?: string | undefined;
   subjectTokenKubernetesCaPath?: string | undefined;
   subjectTokenKubernetesTokenReviewUrl?: string | undefined;
+  previewSessionAuthority?: PreviewSessionAuthority | undefined;
+  requirePreviewSessionForTokenExchange?: boolean | undefined;
   secondaryStorageDriver: Driver;
 }
 
@@ -231,6 +234,8 @@ const createSheetOAuthPlugin = ({
   subjectTokenKubernetesReviewerTokenPath,
   subjectTokenKubernetesCaPath,
   subjectTokenKubernetesTokenReviewUrl,
+  previewSessionAuthority,
+  requirePreviewSessionForTokenExchange,
 }: Pick<
   BaseAuthOptions,
   | "baseUrl"
@@ -245,6 +250,8 @@ const createSheetOAuthPlugin = ({
   | "subjectTokenKubernetesReviewerTokenPath"
   | "subjectTokenKubernetesCaPath"
   | "subjectTokenKubernetesTokenReviewUrl"
+  | "previewSessionAuthority"
+  | "requirePreviewSessionForTokenExchange"
 >) => {
   const accessTokenExpiresIn = tokenExchangeAccessTokenExpiresInOrThrow(
     tokenExchangeAccessTokenExpiresIn,
@@ -255,6 +262,8 @@ const createSheetOAuthPlugin = ({
     jwksUrl: oauthJwksUrl,
     validAudiences: oauthAudiences(baseUrl, oauthValidAudiences),
     trustedClientIds: new Set(trustedOAuthClientIds ?? []),
+    previewSessionAuthority,
+    requirePreviewSessionForTokenExchange,
     tokenExchange: {
       actorScopes: ["token.exchange"],
       accessTokenExpiresIn,
@@ -302,6 +311,8 @@ function createBaseAuth({
   subjectTokenKubernetesReviewerTokenPath,
   subjectTokenKubernetesCaPath,
   subjectTokenKubernetesTokenReviewUrl,
+  previewSessionAuthority,
+  requirePreviewSessionForTokenExchange,
   secondaryStorage,
 }: BaseAuthOptions): Auth {
   const options: AuthOptions = {
@@ -335,6 +346,8 @@ function createBaseAuth({
         subjectTokenKubernetesReviewerTokenPath,
         subjectTokenKubernetesCaPath,
         subjectTokenKubernetesTokenReviewUrl,
+        previewSessionAuthority,
+        requirePreviewSessionForTokenExchange,
       }),
     ],
     secondaryStorage,
@@ -378,6 +391,8 @@ export function authConfig({
   subjectTokenKubernetesReviewerTokenPath,
   subjectTokenKubernetesCaPath,
   subjectTokenKubernetesTokenReviewUrl,
+  previewSessionAuthority,
+  requirePreviewSessionForTokenExchange,
   secondaryStorageDriver,
 }: CreateAuthOptions): AuthWithCleanup {
   const pgClient = postgres(postgresUrl);
@@ -404,6 +419,8 @@ export function authConfig({
     subjectTokenKubernetesReviewerTokenPath,
     subjectTokenKubernetesCaPath,
     subjectTokenKubernetesTokenReviewUrl,
+    previewSessionAuthority,
+    requirePreviewSessionForTokenExchange,
     secondaryStorage,
   });
 

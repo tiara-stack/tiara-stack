@@ -3,6 +3,7 @@ import type { AuthEndpoint } from "better-auth/api";
 import type { JWTPayload } from "jose";
 import type { AccessTokenType, JwtTokenType, TokenExchangeGrantType } from "../../oauth";
 import { subjectTokenBody, tokenExchangeBody, trustedDiscordSessionBody } from "./schemas";
+import type { PreviewSessionAuthority } from "../../preview-session";
 
 export interface SheetOAuthTokenExchangeSubject {
   readonly userId: string;
@@ -21,6 +22,7 @@ export interface SheetOAuthTokenExchangeRequest {
   readonly audience?: string | undefined;
   readonly resource?: string | undefined;
   readonly scope?: string | undefined;
+  readonly preview_session?: import("../../preview-session").PreviewSessionBinding | undefined;
 }
 
 export interface SheetOAuthSubjectResolverBaseInput {
@@ -80,6 +82,8 @@ export interface SheetOAuthOptions {
   readonly validAudiences: readonly string[];
   readonly trustedClientIds?: ReadonlySet<string> | undefined;
   readonly tokenExchange?: SheetOAuthTokenExchangeOptions | undefined;
+  readonly previewSessionAuthority?: PreviewSessionAuthority | undefined;
+  readonly requirePreviewSessionForTokenExchange?: boolean | undefined;
 }
 
 export interface SheetAuthResolvedIdentity {

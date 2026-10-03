@@ -4,6 +4,7 @@ import { AccessTokenType, SessionTokenType, UserTokenDefaultScopes } from "../..
 import { getBearerToken } from "../../../utils/bearer-token";
 import { findSubjectAccountForUser } from "../accounts";
 import { oauthError } from "../errors";
+import { authorizePreviewSession, type PreviewSessionBinding } from "../../../preview-session";
 import type {
   SheetAuthResolvedIdentity,
   SheetOAuthEndpointContext,
@@ -168,6 +169,18 @@ const resolveTokenExchangeSubject = async (
   );
 };
 
+const isPreviewOAuthClient = async (ctx: SheetOAuthEndpointContext, clientId: string) => {
+  try {
+    const client = await ctx.context.adapter.findOne({
+      model: "oauthClient",
+      where: [{ field: "clientId", value: clientId }],
+    });
+    return typeof client?.name === "string" && client.name.startsWith("tiara-preview:");
+  } catch {
+    return true;
+  }
+};
+
 const signTokenExchangeAccessToken = async (
   ctx: SheetOAuthEndpointContext,
   options: SheetOAuthOptions,
@@ -176,6 +189,7 @@ const signTokenExchangeAccessToken = async (
     readonly subject: SheetOAuthTokenExchangeSubject;
     readonly audience: string;
     readonly scopes: readonly string[];
+    readonly previewSession?: PreviewSessionBinding;
   },
 ): Promise<SheetOAuthTokenExchangeResponse> => {
   const iat = Math.floor(Date.now() / 1000);
@@ -198,6 +212,9 @@ const signTokenExchangeAccessToken = async (
       client_id: input.actor.clientId,
       scope,
       act: actorClaims,
+      ...(input.previewSession === undefined
+        ? {}
+        : { tiara_preview_session: input.previewSession }),
       iat,
       exp,
     },
@@ -225,6 +242,29 @@ export const exchangeToken = async (
   assertValidTokenExchangeAudience(audience, options);
 
   const actor = await requireTokenExchangeActor(ctx, options);
+  const previewSession = ctx.body.preview_session;
+  const previewClientRequiresBinding =
+    !previewSession &&
+    actor.clientId !== undefined &&
+    ((await isPreviewOAuthClient(ctx, actor.clientId)) ||
+      (options.previewSessionAuthority !== undefined &&
+        (await options.previewSessionAuthority.requiresBinding(actor.clientId))));
+  if (
+    (options.requirePreviewSessionForTokenExchange || previewClientRequiresBinding) &&
+    !previewSession
+  ) {
+    throw oauthError("UNAUTHORIZED", "invalid_request", "Preview session binding is required");
+  }
+  if (
+    previewSession &&
+    !(await authorizePreviewSession(
+      options.previewSessionAuthority,
+      previewSession,
+      actor.clientId,
+    ))
+  ) {
+    throw oauthError("UNAUTHORIZED", "invalid_request", "Preview session is not active for actor");
+  }
   const subject = await resolveTokenExchangeSubject(ctx, actor, options);
   const scopes = requestedTokenExchangeScopes(ctx.body.scope, subject, actor);
   return await signTokenExchangeAccessToken(ctx, options, {
@@ -232,5 +272,6 @@ export const exchangeToken = async (
     subject,
     audience,
     scopes,
+    ...(previewSession === undefined ? {} : { previewSession }),
   });
 };

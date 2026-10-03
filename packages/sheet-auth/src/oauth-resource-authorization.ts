@@ -1,4 +1,4 @@
-import { Cache, Clock, Duration, Effect, Exit, Option, Predicate } from "effect";
+import { Cache, Clock, Duration, Effect, Exit, Option, Predicate, Schema } from "effect";
 import * as Data from "effect/Data";
 import { Headers } from "effect/unstable/http";
 import type { JWTPayload } from "jose";
@@ -7,6 +7,12 @@ import { Unauthorized } from "typhoon-core/error";
 export { getBearerToken } from "./utils/bearer-token";
 import { getBearerToken } from "./utils/bearer-token";
 import { oauthResourceMetadataMappings } from "./oauth-resource-metadata";
+import {
+  authorizePreviewSession,
+  PreviewSessionBindingSchema,
+  type PreviewSessionAuthority,
+  type PreviewSessionBinding,
+} from "./preview-session";
 
 class OAuthResourceAuthorizationError extends Data.TaggedError("OAuthResourceAuthorizationError")<{
   readonly message: string;
@@ -26,6 +32,8 @@ export interface OAuthResourceTokenAuthorizerOptions<E = Unauthorized> {
   readonly cacheCapacity?: number;
   readonly successfulTokenTtlCap?: Duration.Duration;
   readonly failedTokenTtl?: Duration.Duration;
+  readonly previewSessionAuthority?: PreviewSessionAuthority;
+  readonly requirePreviewSession?: boolean;
 }
 
 export interface VerifiedOAuthResourceToken {
@@ -36,6 +44,7 @@ export interface VerifiedOAuthResourceToken {
   readonly exp: number | undefined;
   readonly scopes: ReadonlySet<string>;
   readonly sub: string | undefined;
+  readonly previewSession?: PreviewSessionBinding | undefined;
 }
 
 interface CachedOAuthResourceToken extends VerifiedOAuthResourceToken {
@@ -78,6 +87,15 @@ const payloadActor = (payload: JWTPayload) => {
 
 const payloadExpiration = (payload: JWTPayload) =>
   typeof payload.exp === "number" ? payload.exp : undefined;
+
+const payloadPreviewSession = (payload: JWTPayload): PreviewSessionBinding | null | undefined => {
+  if (!Predicate.hasProperty(payload, "tiara_preview_session")) return undefined;
+  try {
+    return Schema.decodeUnknownSync(PreviewSessionBindingSchema)(payload.tiara_preview_session);
+  } catch {
+    return null;
+  }
+};
 
 const tokenTtl = (exp: number | undefined, now: number, successfulTokenTtlCap: Duration.Duration) =>
   typeof exp === "number"
@@ -146,11 +164,50 @@ export const makeOAuthResourceTokenAuthorizer = <E = Unauthorized>(
       cacheCapacity = 100,
       successfulTokenTtlCap = Duration.minutes(5),
       failedTokenTtl = Duration.seconds(1),
+      previewSessionAuthority,
+      requirePreviewSession = false,
     } = options;
     const makeUnauthorized =
       options.makeUnauthorized ??
       (({ message, cause }: { readonly message: string; readonly cause?: unknown }) =>
         new Unauthorized({ message, cause }) as E);
+    const requireScopes = (scope: unknown): Effect.Effect<ReadonlySet<string>, E> => {
+      const scopeSet = splitScopeSet(scope);
+      const missingScopes = requiredScopes.filter((scopeName) => !scopeSet.has(scopeName));
+      if (missingScopes.length > 0) {
+        return Effect.fail(
+          makeUnauthorized({
+            message: `Missing OAuth resource token scope: ${missingScopes.join(", ")}`,
+          }),
+        );
+      }
+      return Effect.succeed(scopeSet);
+    };
+    const requireTrustedClient = (clientId: string | undefined): Effect.Effect<void, E> => {
+      if (trustedClientIds && (clientId === undefined || !trustedClientIds.has(clientId))) {
+        return Effect.fail(
+          makeUnauthorized({ message: "OAuth resource token client is not trusted" }),
+        );
+      }
+      return Effect.void;
+    };
+    const requireUnexpiredToken = (
+      exp: number | undefined,
+      time: number,
+    ): Effect.Effect<void, E> => {
+      if (typeof exp === "number" && exp * 1000 <= time) {
+        return Effect.fail(makeUnauthorized({ message: "Expired OAuth resource token" }));
+      }
+      return Effect.void;
+    };
+    const requirePreviewBinding = (
+      previewSession: PreviewSessionBinding | undefined,
+    ): Effect.Effect<void, E> => {
+      if (requirePreviewSession && previewSession === undefined) {
+        return Effect.fail(makeUnauthorized({ message: "Preview session binding is required" }));
+      }
+      return Effect.void;
+    };
     const verifier = oauthProviderResourceClient().getActions().verifyAccessToken;
     const authorizationServerIssuer = yield* getAuthorizationServerIssuer(issuer);
 
@@ -158,30 +215,23 @@ export const makeOAuthResourceTokenAuthorizer = <E = Unauthorized>(
       payload: JWTPayload,
     ): Effect.Effect<CachedOAuthResourceToken, E> =>
       Effect.gen(function* () {
-        const scopeSet = splitScopeSet(payload.scope);
-        const missingScopes = requiredScopes.filter((scope) => !scopeSet.has(scope));
-        if (missingScopes.length > 0) {
-          return yield* Effect.fail(
-            makeUnauthorized({
-              message: `Missing OAuth resource token scope: ${missingScopes.join(", ")}`,
-            }),
-          );
-        }
-
+        const scopeSet = yield* requireScopes(payload.scope);
         const clientId = payloadClientId(payload);
-        if (trustedClientIds && (clientId === undefined || !trustedClientIds.has(clientId))) {
-          return yield* Effect.fail(
-            makeUnauthorized({ message: "OAuth resource token client is not trusted" }),
-          );
-        }
+        yield* requireTrustedClient(clientId);
 
         const now = yield* Clock.currentTimeMillis;
         const exp = payloadExpiration(payload);
-        if (typeof exp === "number" && exp * 1000 <= now) {
-          return yield* Effect.fail(makeUnauthorized({ message: "Expired OAuth resource token" }));
-        }
+        yield* requireUnexpiredToken(exp, now);
 
         const { actorClientId, actorSub } = payloadActor(payload);
+        const previewSessionClaim = payloadPreviewSession(payload);
+        if (previewSessionClaim === null) {
+          return yield* Effect.fail(
+            makeUnauthorized({ message: "Invalid preview session binding claim" }),
+          );
+        }
+        const previewSession = previewSessionClaim;
+        yield* requirePreviewBinding(previewSession);
 
         return {
           accountId: payloadStringProperty(payload, "account_id"),
@@ -191,6 +241,7 @@ export const makeOAuthResourceTokenAuthorizer = <E = Unauthorized>(
           exp,
           scopes: scopeSet,
           sub: payloadStringProperty(payload, "sub"),
+          ...(previewSession === undefined ? {} : { previewSession }),
           ttl: tokenTtl(exp, now, successfulTokenTtlCap),
         };
       });
@@ -241,6 +292,32 @@ export const makeOAuthResourceTokenAuthorizer = <E = Unauthorized>(
       }
 
       const { ttl: _ttl, ...verifiedToken } = yield* Cache.get(tokenCache, token);
+      const previewSession = verifiedToken.previewSession;
+      if (previewSession !== undefined) {
+        if (!previewSessionAuthority) {
+          return yield* Effect.fail(
+            makeUnauthorized({ message: "Preview session authority is unavailable" }),
+          );
+        }
+        const authorized = yield* Effect.tryPromise({
+          try: () =>
+            authorizePreviewSession(
+              previewSessionAuthority,
+              previewSession,
+              verifiedToken.clientId,
+            ),
+          catch: (cause) => cause,
+        }).pipe(
+          Effect.mapError((cause) =>
+            makeUnauthorized({ message: "Preview session authority is unavailable", cause }),
+          ),
+        );
+        if (!authorized) {
+          return yield* Effect.fail(
+            makeUnauthorized({ message: "Preview session is stopped, expired, or fenced" }),
+          );
+        }
+      }
       return verifiedToken;
     });
 

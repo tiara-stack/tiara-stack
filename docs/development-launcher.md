@@ -424,6 +424,84 @@ deployment must provide authenticated TLS and map its service identities to
 the narrow admission and settlement interface; no remote or production
 controller is configured by this launcher.
 
+### Workload credential issuer contract
+
+The launcher exports a typed `PreviewWorkloadCredentialIssuer` and two adapter
+paths. `PreviewWorkloadCredentialIssuerLive` requests host tokens through
+`KubernetesTokenRequestClientLive` and stores each token in a managed file with
+mode 0600 under a mode 0700 session directory. Kubernetes roles get an
+explicit projected service-account token volume with the selected audience,
+service account, mount path, and 600-second request. The configured
+`KubernetesWorkloadIdentityProvisionerConfigured` creates or reuses the exact
+owner-labeled service account and deterministic Sheet Auth OAuth client,
+applies a projected-volume descriptor through a role workload applier, and
+removes the exact owned resources after settlement. It uses an explicit
+Kubernetes controller token and separate OAuth administration headers. The
+role workload applier and its operator credentials are not configured in this
+checkout.
+
+Each request binds a credential name from the existing positive role
+allowlist, session, generation, role, service account, and audience. The
+controller records the OAuth client ID and file for that identity. Renewal
+runs halfway between the grant's recorded `issuedAt` and actual `expiresAt`.
+The issuer rejects mismatched bindings, grants longer than ten minutes, and
+renewals that change the OAuth client or owned file. Cleanup checks that the
+session ended and all accepted work settled, then removes only the exact
+recorded file, service account, and client.
+
+The host adapter must use a restricted TokenRequest file owned by the selected
+session and role. The Kubernetes adapter must use a projected token with an
+explicit audience and the exact role service account. Neither adapter may
+borrow a pod token, import a whole environment, or read ambient production
+credentials. The host TokenRequest HTTP client and private-file adapter are
+implemented. The service-account and OAuth-client provider adapters are
+configurable; the role workload applier and operator authority still need
+configuration. All connected runtime profiles remain unavailable until those
+provider operations are configured and verified.
+
+Operators must configure controller administration credentials separately
+from the auth service's TokenReview reviewer credential. The controller needs
+only the provider permissions to create, renew, and delete the exact preview
+service accounts, OAuth clients, TokenRequest files, and projected-token
+workloads it owns. The auth reviewer needs TokenReview permission only. Its
+audience must match the projected token request, and its exact service-account
+allowlist must contain only the intended bot actor for delegated subject
+minting. Keep delegated subject prefixes narrow. Do not grant issuer signing,
+TokenReview, or controller administration credentials to workload roles.
+
+Before enabling a profile, an operator must supply and verify both adapters,
+their exact ownership policy, audience and role mappings, reviewer credentials,
+and the development-only service-account and OAuth-client permissions. Local
+protocol tests do not prove those live grants. Cleanup may remove only the
+service accounts, clients, and files recorded as session-owned, after their
+work settlement purpose ends. Shared logins and external credentials remain
+outside cleanup authority.
+
+Token exchange accepts a `preview_session` binding only when the injected
+`PreviewSessionAuthority` authorizes that session, generation, role, and actor
+client. It places the binding in the exchanged access token. Resource
+authorization checks the same authority on every request, including cache hits
+for a cryptographically valid JWT, and denies the request after stop, expiry,
+generation fencing, or identity mismatch. `makePreviewSessionAuthority` adapts
+the local durable controller to that interface. For separate services,
+`PreviewSessionControllerHttpsLive` serves the narrow controller routes with a
+configured certificate and private key. The auth service's
+`SHEET_AUTH_PREVIEW_SESSION_CONTROLLER_URL` must use HTTPS and the separate
+`SHEET_AUTH_PREVIEW_SESSION_AUTHORITY_TOKEN`. Set
+`SHEET_AUTH_REQUIRE_PREVIEW_SESSION_FOR_TOKEN_EXCHANGE=true` for an auth
+instance dedicated to preview traffic. The controller server keeps authority,
+credential administration, and workload admission credentials separate. It
+does not expose create, stop, resume, or general controller operations over
+HTTP. The authority is absent by default, so preview exchanges fail closed.
+
+The HTTP workload API derives session, generation, role, and OAuth client from
+the configured workload authenticator. Each admission records its group,
+invocation, continuation, endpoint, and target under an opaque admission ID.
+Settlement presents the exact recorded tuple and uses the admission ID as its
+bearer credential; it does not re-authenticate the workload. Treat that ID as a
+one-time secret. Stop and expiry block new admissions while allowing those
+recorded admissions to settle.
+
 ## Mode matrix
 
 | Mode       | Runtime processes                                                                                                          | Allowed origins                                                                            | State boundary                        |

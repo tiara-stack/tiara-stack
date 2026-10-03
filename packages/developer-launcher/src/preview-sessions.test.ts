@@ -7,6 +7,7 @@ import type * as SqlClientType from "effect/unstable/sql/SqlClient";
 import { expect } from "vitest";
 import {
   makePreviewSessionController,
+  makePreviewSessionAuthority,
   PreviewSessionController,
   previewSessionHeartbeatMs,
   previewSessionLeaseMs,
@@ -168,9 +169,16 @@ it.live("does not let status renew a lease and closes admission at the deadline"
       const created = yield* controller.create({
         owner: "owner",
         checkout: "/checkout",
-        manifests: {},
+        manifests: { "sheet-web": "sha256:web" },
         requestedRevision: "rev-a",
       });
+      expect(
+        (yield* controller.authorizeCredential(created.session.id, 1, "sheet-web")).phase,
+      ).toBe("pending");
+      const wrongRole = yield* Effect.exit(
+        controller.authorizeCredential(created.session.id, 1, "sheet-bot"),
+      );
+      expect(wrongRole._tag).toBe("Failure");
       yield* controller.activate(created.session.id, 1, created.supervisorIdentity, "rev-a");
       const deadline = value + previewSessionLeaseMs;
       value = deadline - 1;
@@ -206,6 +214,266 @@ it.live("makes stop idempotent and permanently closes admission", () =>
       expect(stoppedAgain.endedAt).toBe(stopped.endedAt);
       const admission = yield* Effect.exit(controller.admit(created.session.id, 1));
       expect(admission._tag).toBe("Failure");
+      const credentialRenewal = yield* Effect.exit(
+        controller.authorizeCredential(created.session.id, 1, "sheet-web"),
+      );
+      expect(credentialRenewal._tag).toBe("Failure");
+    }),
+  ),
+);
+
+it.live(
+  "binds auth exchange and resource checks to the recorded role client and live generation",
+  () =>
+    withController((clock) =>
+      Effect.gen(function* () {
+        const controller = yield* makePreviewSessionController(() => clock.value);
+        const created = yield* controller.create({
+          owner: "owner",
+          checkout: "/checkout",
+          manifests: { "sheet-workflows-runner": "sha256:runner" },
+          requestedRevision: "rev-a",
+        });
+        const credentialIssue = yield* controller.authorizeCredentialIssue(
+          created.session.id,
+          created.session.generation,
+          "sheet-workflows-runner",
+        );
+        yield* controller.registerCredentialIdentity({
+          id: created.session.id,
+          generation: 1,
+          role: "sheet-workflows-runner",
+          reservationId: credentialIssue.reservationId,
+          credentialName: "workload-identity",
+          serviceAccount: "tiara-stack-dev/preview-session-runner",
+          oauthClientId: "preview-session-runner-client",
+          credentialFile: "/managed/session/runner/token",
+        });
+        const authority = makePreviewSessionAuthority(controller);
+        expect(
+          yield* Effect.promise(() => authority.requiresBinding("preview-session-runner-client")),
+        ).toBe(true);
+        expect(yield* Effect.promise(() => authority.requiresBinding("unrelated-client"))).toBe(
+          false,
+        );
+        const binding = {
+          sessionId: created.session.id,
+          generation: 1,
+          role: "sheet-workflows-runner",
+        };
+        expect(
+          yield* Effect.promise(() =>
+            authority.authorize({ binding, clientId: "preview-session-runner-client" }),
+          ),
+        ).toBe(false);
+
+        yield* controller.activate(created.session.id, 1, created.supervisorIdentity, "rev-a");
+        expect(
+          yield* Effect.promise(() =>
+            authority.authorize({ binding, clientId: "preview-session-runner-client" }),
+          ),
+        ).toBe(true);
+        expect(
+          yield* Effect.promise(() => authority.authorize({ binding, clientId: "other-client" })),
+        ).toBe(false);
+
+        const prematureRemoval = yield* Effect.exit(
+          controller.authorizeCredentialRemoval({
+            id: created.session.id,
+            generation: 1,
+            role: "sheet-workflows-runner",
+            oauthClientId: "preview-session-runner-client",
+            serviceAccount: "tiara-stack-dev/preview-session-runner",
+          }),
+        );
+        expect(prematureRemoval._tag).toBe("Failure");
+
+        clock.value += previewSupervisorLeaseMs;
+        const resumed = yield* controller.resume(created.session.id, created.ownerIdentity);
+        expect(resumed.session.generation).toBe(2);
+        expect(
+          yield* Effect.promise(() =>
+            authority.authorize({ binding, clientId: "preview-session-runner-client" }),
+          ),
+        ).toBe(false);
+
+        yield* controller.stop(created.session.id, created.ownerIdentity);
+        expect(
+          yield* Effect.promise(() =>
+            authority.authorize({ binding, clientId: "preview-session-runner-client" }),
+          ),
+        ).toBe(false);
+        yield* controller.authorizeCredentialRemoval({
+          id: created.session.id,
+          generation: 1,
+          role: "sheet-workflows-runner",
+          oauthClientId: "preview-session-runner-client",
+          serviceAccount: "tiara-stack-dev/preview-session-runner",
+        });
+        yield* controller.removeCredentialIdentity({
+          id: created.session.id,
+          generation: 1,
+          role: "sheet-workflows-runner",
+          oauthClientId: "preview-session-runner-client",
+          serviceAccount: "tiara-stack-dev/preview-session-runner",
+        });
+        const afterRemoval = yield* Effect.promise(() =>
+          authority.authorize({ binding, clientId: "preview-session-runner-client" }),
+        );
+        expect(afterRemoval).toBe(false);
+      }),
+    ),
+);
+
+it.live("settles only the original work admission after the session ends", () =>
+  withController(({ value }) =>
+    Effect.gen(function* () {
+      const controller = yield* makePreviewSessionController(() => value);
+      const created = yield* controller.create({
+        owner: "owner",
+        checkout: "/checkout",
+        manifests: { "sheet-workflows-runner": "sha256:runner" },
+        requestedRevision: "rev-a",
+        groups: ["workflow-execution"],
+        endpoints: ["workflow-endpoint-a"],
+        targets: ["development-target-a"],
+      });
+      const credentialIssue = yield* controller.authorizeCredentialIssue(
+        created.session.id,
+        created.session.generation,
+        "sheet-workflows-runner",
+      );
+      yield* controller.registerCredentialIdentity({
+        id: created.session.id,
+        generation: 1,
+        role: "sheet-workflows-runner",
+        reservationId: credentialIssue.reservationId,
+        credentialName: "workload-identity",
+        serviceAccount: "tiara-stack-dev/preview-session-runner",
+        oauthClientId: "preview-session-runner-client",
+        credentialFile: "/private/session-a/runner/token",
+      });
+      yield* controller.activate(created.session.id, 1, created.supervisorIdentity, "rev-a");
+      const admission = yield* controller.admitWorkload({
+        sessionId: created.session.id,
+        generation: 1,
+        role: "sheet-workflows-runner",
+        oauthClientId: "preview-session-runner-client",
+        groupId: "workflow-execution",
+        invocationId: "invocation-a",
+        continuationId: null,
+        endpoint: "workflow-endpoint-a",
+        target: "development-target-a",
+      });
+      expect((yield* controller.status(created.session.id)).unsettled).toBe(1);
+      yield* controller.stop(created.session.id, created.ownerIdentity);
+
+      const tampered = yield* Effect.exit(
+        controller.settleWorkload({ ...admission, target: "another-target" }),
+      );
+      expect(tampered._tag).toBe("Failure");
+      yield* controller.settleWorkload(admission);
+      expect((yield* controller.status(created.session.id)).unsettled).toBe(0);
+      const replay = yield* Effect.exit(controller.settleWorkload(admission));
+      expect(replay._tag).toBe("Failure");
+    }),
+  ),
+);
+
+it.live("persists overlapping target declarations once and refuses credential reissue", () =>
+  withController(({ value }) =>
+    Effect.gen(function* () {
+      const controller = yield* makePreviewSessionController(() => value);
+      const created = yield* controller.create({
+        owner: "owner",
+        checkout: "/checkout",
+        manifests: { "sheet-workflows-runner": "sha256:runner" },
+        requestedRevision: "rev-a",
+        groups: ["workflow-execution", "workflow-execution"],
+        endpoints: ["workflow-endpoint-a", "workflow-endpoint-a"],
+        targets: ["development-target-a", "development-target-a"],
+      });
+      const firstReservation = yield* controller.authorizeCredentialIssue(
+        created.session.id,
+        created.session.generation,
+        "sheet-workflows-runner",
+      );
+      const concurrentIssue = yield* Effect.exit(
+        controller.authorizeCredentialIssue(
+          created.session.id,
+          created.session.generation,
+          "sheet-workflows-runner",
+        ),
+      );
+      expect(concurrentIssue._tag).toBe("Failure");
+      yield* controller.releaseCredentialIssue({
+        id: created.session.id,
+        generation: created.session.generation,
+        role: "sheet-workflows-runner",
+        reservationId: firstReservation.reservationId,
+      });
+      const reservation = yield* controller.authorizeCredentialIssue(
+        created.session.id,
+        created.session.generation,
+        "sheet-workflows-runner",
+      );
+      yield* controller.releaseCredentialIssue({
+        id: created.session.id,
+        generation: created.session.generation,
+        role: "sheet-workflows-runner",
+        reservationId: firstReservation.reservationId,
+      });
+      const stillReserved = yield* Effect.exit(
+        controller.authorizeCredentialIssue(
+          created.session.id,
+          created.session.generation,
+          "sheet-workflows-runner",
+        ),
+      );
+      expect(stillReserved._tag).toBe("Failure");
+      yield* controller.registerCredentialIdentity({
+        id: created.session.id,
+        generation: created.session.generation,
+        role: "sheet-workflows-runner",
+        reservationId: reservation.reservationId,
+        credentialName: "workload-identity",
+        serviceAccount: "tiara-stack-dev/preview-session-runner",
+        oauthClientId: "preview-session-runner-client",
+        credentialFile: "/private/session-a/runner/token",
+      });
+      const reissue = yield* Effect.exit(
+        controller.authorizeCredentialIssue(
+          created.session.id,
+          created.session.generation,
+          "sheet-workflows-runner",
+        ),
+      );
+      expect(reissue._tag).toBe("Failure");
+      expect(
+        (yield* controller.authorizeCredential(
+          created.session.id,
+          created.session.generation,
+          "sheet-workflows-runner",
+        )).id,
+      ).toBe(created.session.id);
+      yield* controller.activate(
+        created.session.id,
+        created.session.generation,
+        created.supervisorIdentity,
+        "rev-a",
+      );
+      const admission = yield* controller.admitWorkload({
+        sessionId: created.session.id,
+        generation: created.session.generation,
+        role: "sheet-workflows-runner",
+        oauthClientId: "preview-session-runner-client",
+        groupId: "workflow-execution",
+        invocationId: "invocation-a",
+        continuationId: null,
+        endpoint: "workflow-endpoint-a",
+        target: "development-target-a",
+      });
+      expect(admission.admissionId).not.toBe("");
     }),
   ),
 );
