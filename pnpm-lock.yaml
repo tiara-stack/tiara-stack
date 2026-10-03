@@ -104,6 +104,9 @@ importers:
       effect:
         specifier: 'catalog:'
         version: 4.0.0-beta.67
+      sheet-auth:
+        specifier: workspace:*
+        version: link:../sheet-auth
     devDependencies:
       '@effect/vitest':
         specifier: 'catalog:'

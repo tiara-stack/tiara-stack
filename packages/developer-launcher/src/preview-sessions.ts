@@ -1,10 +1,17 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { Context, Duration, Effect, Layer, Match, Schema } from "effect";
 import { SqlClient, SqlError } from "effect/unstable/sql";
+import {
+  connectedPreviewGroups,
+  connectedPreviewRoles,
+  type ConnectedPreviewGroup,
+  type ConnectedPreviewRole,
+} from "./types";
 
 export const previewSessionLeaseMs = 120_000;
 export const previewSessionHeartbeatMs = 15_000;
 export const previewSupervisorLeaseMs = 30_000;
+const previewCredentialIssueReservationMs = 10 * 60_000;
 
 export const PreviewSessionPhase = Schema.Literals([
   "pending",
@@ -38,11 +45,27 @@ export const CreatePreviewSessionSchema = Schema.Struct({
   checkout: Schema.String,
   manifests: Schema.Record(Schema.String, Schema.String),
   requestedRevision: Schema.String,
+  groups: Schema.optionalKey(Schema.Array(Schema.Literals(connectedPreviewGroups))),
+  endpoints: Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
+  targets: Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
 });
 export const SessionCredentialsSchema = Schema.Struct({
   ownerIdentity: Schema.String,
   supervisorIdentity: Schema.String,
 });
+export const PreviewWorkloadAdmissionSchema = Schema.Struct({
+  admissionId: Schema.NonEmptyString,
+  sessionId: Schema.NonEmptyString,
+  generation: Schema.Number.check(Schema.isGreaterThan(0)),
+  role: Schema.Literals(connectedPreviewRoles),
+  oauthClientId: Schema.NonEmptyString,
+  groupId: Schema.NonEmptyString,
+  invocationId: Schema.NonEmptyString,
+  continuationId: Schema.NullOr(Schema.NonEmptyString),
+  endpoint: Schema.NonEmptyString,
+  target: Schema.NonEmptyString,
+});
+export type PreviewWorkloadAdmission = typeof PreviewWorkloadAdmissionSchema.Type;
 
 /** Typed messages shared by the embedded controller and future transport adapters. */
 export const PreviewSessionProtocolRequest = Schema.Union([
@@ -57,6 +80,30 @@ export const PreviewSessionProtocolRequest = Schema.Union([
   Schema.TaggedStruct("Stop", { id: Schema.String, ownerIdentity: Schema.String }),
   Schema.TaggedStruct("Admit", { id: Schema.String, generation: Schema.Number }),
   Schema.TaggedStruct("Settle", { id: Schema.String, generation: Schema.Number }),
+  Schema.TaggedStruct("AuthorizeCredential", {
+    id: Schema.String,
+    generation: Schema.Number,
+    role: Schema.Literals(connectedPreviewRoles),
+  }),
+  Schema.TaggedStruct("AuthorizeWorkload", {
+    id: Schema.String,
+    generation: Schema.Number,
+    role: Schema.Literals(connectedPreviewRoles),
+    oauthClientId: Schema.NonEmptyString,
+  }),
+  Schema.TaggedStruct("ClientRequiresPreviewBinding", { oauthClientId: Schema.NonEmptyString }),
+  Schema.TaggedStruct("AdmitWorkload", {
+    sessionId: Schema.NonEmptyString,
+    generation: Schema.Number.check(Schema.isGreaterThan(0)),
+    role: Schema.Literals(connectedPreviewRoles),
+    oauthClientId: Schema.NonEmptyString,
+    groupId: Schema.NonEmptyString,
+    invocationId: Schema.NonEmptyString,
+    continuationId: Schema.NullOr(Schema.NonEmptyString),
+    endpoint: Schema.NonEmptyString,
+    target: Schema.NonEmptyString,
+  }),
+  Schema.TaggedStruct("SettleWorkload", { admission: PreviewWorkloadAdmissionSchema }),
 ]);
 export type PreviewSessionProtocolRequest = typeof PreviewSessionProtocolRequest.Type;
 export const PreviewSessionProtocolResponse = Schema.Union([
@@ -71,6 +118,11 @@ export const PreviewSessionProtocolResponse = Schema.Union([
     supervisorIdentity: Schema.String,
   }),
   Schema.TaggedStruct("Settled", { id: Schema.String, generation: Schema.Number }),
+  Schema.TaggedStruct("CredentialAuthorized", { session: PreviewSessionSchema }),
+  Schema.TaggedStruct("WorkloadAuthorized", { session: PreviewSessionSchema }),
+  Schema.TaggedStruct("PreviewClientBindingRequired", { required: Schema.Boolean }),
+  Schema.TaggedStruct("WorkloadAdmitted", { admission: PreviewWorkloadAdmissionSchema }),
+  Schema.TaggedStruct("WorkloadSettled", { admissionId: Schema.NonEmptyString }),
 ]);
 export type PreviewSessionProtocolResponse = typeof PreviewSessionProtocolResponse.Type;
 
@@ -79,6 +131,9 @@ export type CreatePreviewSession = {
   readonly checkout: string;
   readonly manifests: Readonly<Record<string, string>>;
   readonly requestedRevision: string;
+  readonly groups?: readonly ConnectedPreviewGroup[];
+  readonly endpoints?: readonly string[];
+  readonly targets?: readonly string[];
 };
 
 export type SessionCredentials = {
@@ -130,6 +185,67 @@ export interface PreviewSessionControllerApi {
     generation: number,
   ) => Effect.Effect<PreviewSession, ControllerError>;
   readonly settle: (id: string, generation: number) => Effect.Effect<void, ControllerError>;
+  readonly authorizeCredential: (
+    id: string,
+    generation: number,
+    role: ConnectedPreviewRole,
+  ) => Effect.Effect<PreviewSession, ControllerError>;
+  readonly authorizeCredentialIssue: (
+    id: string,
+    generation: number,
+    role: ConnectedPreviewRole,
+  ) => Effect.Effect<
+    { readonly session: PreviewSession; readonly reservationId: string },
+    ControllerError
+  >;
+  readonly releaseCredentialIssue: (input: {
+    readonly id: string;
+    readonly generation: number;
+    readonly role: ConnectedPreviewRole;
+    readonly reservationId: string;
+  }) => Effect.Effect<void, ControllerError>;
+  readonly registerCredentialIdentity: (input: {
+    readonly id: string;
+    readonly generation: number;
+    readonly role: ConnectedPreviewRole;
+    readonly reservationId: string;
+    readonly credentialName: string;
+    readonly serviceAccount: string;
+    readonly oauthClientId: string;
+    readonly credentialFile: string;
+  }) => Effect.Effect<void, ControllerError>;
+  readonly authorizeWorkload: (
+    id: string,
+    generation: number,
+    role: ConnectedPreviewRole,
+    oauthClientId: string,
+  ) => Effect.Effect<PreviewSession, ControllerError>;
+  readonly isPreviewOAuthClient: (oauthClientId: string) => Effect.Effect<boolean, ControllerError>;
+  readonly authorizeCredentialRemoval: (input: {
+    readonly id: string;
+    readonly generation: number;
+    readonly role: ConnectedPreviewRole;
+    readonly oauthClientId: string;
+    readonly serviceAccount: string;
+  }) => Effect.Effect<void, ControllerError>;
+  readonly removeCredentialIdentity: (input: {
+    readonly id: string;
+    readonly generation: number;
+    readonly role: ConnectedPreviewRole;
+    readonly oauthClientId: string;
+    readonly serviceAccount: string;
+  }) => Effect.Effect<void, ControllerError>;
+  readonly isCredentialIdentityRegistered: (
+    id: string,
+    generation: number,
+    role: ConnectedPreviewRole,
+  ) => Effect.Effect<boolean, ControllerError>;
+  readonly admitWorkload: (
+    input: Omit<PreviewWorkloadAdmission, "admissionId">,
+  ) => Effect.Effect<PreviewWorkloadAdmission, ControllerError>;
+  readonly settleWorkload: (
+    admission: PreviewWorkloadAdmission,
+  ) => Effect.Effect<void, ControllerError>;
 }
 
 export const dispatchPreviewSessionProtocol = (
@@ -186,6 +302,36 @@ export const dispatchPreviewSessionProtocol = (
         generation,
       })),
     ),
+    Match.tag("AuthorizeCredential", ({ id, generation, role }) =>
+      Effect.map(controller.authorizeCredential(id, generation, role), (session) => ({
+        _tag: "CredentialAuthorized" as const,
+        session,
+      })),
+    ),
+    Match.tag("AuthorizeWorkload", ({ id, generation, role, oauthClientId }) =>
+      Effect.map(controller.authorizeWorkload(id, generation, role, oauthClientId), (session) => ({
+        _tag: "WorkloadAuthorized" as const,
+        session,
+      })),
+    ),
+    Match.tag("ClientRequiresPreviewBinding", ({ oauthClientId }) =>
+      Effect.map(controller.isPreviewOAuthClient(oauthClientId), (required) => ({
+        _tag: "PreviewClientBindingRequired" as const,
+        required,
+      })),
+    ),
+    Match.tag("AdmitWorkload", (input) =>
+      Effect.map(controller.admitWorkload(input), (admission) => ({
+        _tag: "WorkloadAdmitted" as const,
+        admission,
+      })),
+    ),
+    Match.tag("SettleWorkload", ({ admission }) =>
+      Effect.map(controller.settleWorkload(admission), () => ({
+        _tag: "WorkloadSettled" as const,
+        admissionId: admission.admissionId,
+      })),
+    ),
     Match.exhaustive,
   );
 };
@@ -201,6 +347,9 @@ export interface PreviewSessionRuntimeApi {
     generation: number,
   ) => Effect.Effect<PreviewSession, ControllerError>;
   readonly settle: (id: string, generation: number) => Effect.Effect<void, ControllerError>;
+  readonly authorizeCredential: PreviewSessionControllerApi["authorizeCredential"];
+  readonly admitWorkload: PreviewSessionControllerApi["admitWorkload"];
+  readonly settleWorkload: PreviewSessionControllerApi["settleWorkload"];
 }
 
 /** Narrow authority for runtime consumers: no create, heartbeat, resume, or stop operations. */
@@ -260,6 +409,51 @@ export const makePreviewSessionController = (now: () => number) =>
         PRIMARY KEY (session_id, generation)
       )
     `;
+    yield* sql`
+      CREATE TABLE IF NOT EXISTS preview_session_workload_identities (
+        session_id TEXT NOT NULL REFERENCES preview_sessions(id),
+        generation INTEGER NOT NULL,
+        role TEXT NOT NULL,
+        credential_name TEXT NOT NULL,
+        service_account TEXT NOT NULL,
+        oauth_client_id TEXT NOT NULL,
+        credential_file TEXT NOT NULL,
+        PRIMARY KEY (session_id, generation, role)
+      )
+    `;
+    yield* sql`
+      CREATE TABLE IF NOT EXISTS preview_session_credential_issuances (
+        session_id TEXT NOT NULL REFERENCES preview_sessions(id),
+        generation INTEGER NOT NULL,
+        role TEXT NOT NULL,
+        reservation_id TEXT NOT NULL,
+        expires_at INTEGER NOT NULL,
+        PRIMARY KEY (session_id, generation, role)
+      )
+    `;
+    yield* sql`
+      CREATE TABLE IF NOT EXISTS preview_session_work_items (
+        admission_id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES preview_sessions(id),
+        generation INTEGER NOT NULL,
+        role TEXT NOT NULL,
+        oauth_client_id TEXT NOT NULL,
+        group_id TEXT NOT NULL,
+        invocation_id TEXT NOT NULL,
+        continuation_id TEXT,
+        endpoint TEXT NOT NULL,
+        target TEXT NOT NULL,
+        settled_at INTEGER
+      )
+    `;
+    yield* sql`
+      CREATE TABLE IF NOT EXISTS preview_session_allowed_work (
+        session_id TEXT NOT NULL REFERENCES preview_sessions(id),
+        kind TEXT NOT NULL CHECK (kind IN ('group','endpoint','target')),
+        value TEXT NOT NULL,
+        PRIMARY KEY (session_id, kind, value)
+      )
+    `;
 
     const find = (id: string) =>
       sql`SELECT * FROM preview_sessions WHERE id = ${id}`.pipe(
@@ -298,18 +492,81 @@ export const makePreviewSessionController = (now: () => number) =>
         return yield* validateSessionAccess(row, session, identity, generation, allowEnded);
       });
 
+    const requireActiveWorkloadSession = (id: string, generation: number, time: number) =>
+      Effect.gen(function* () {
+        const session = yield* valid(id, undefined, generation);
+        if (session.phase !== "active" || session.leaseDeadline <= time)
+          return yield* Effect.fail(sessionError("session-not-active-or-expired"));
+      });
+    const authorizeSelectedCredential = (
+      id: string,
+      generation: number,
+      role: ConnectedPreviewRole,
+    ) =>
+      Effect.gen(function* () {
+        const session = yield* valid(id, undefined, generation);
+        if (session.manifests[role] === undefined)
+          return yield* Effect.fail(sessionError("role-not-selected"));
+        return session;
+      });
+    const requireWorkloadIdentity = (input: Omit<PreviewWorkloadAdmission, "admissionId">) =>
+      Effect.gen(function* () {
+        const rows =
+          yield* sql`SELECT oauth_client_id FROM preview_session_workload_identities WHERE session_id=${input.sessionId} AND generation=${input.generation} AND role=${input.role}`;
+        if (rows.length !== 1 || rows[0]?.oauth_client_id !== input.oauthClientId)
+          return yield* Effect.fail(sessionError("workload-identity-mismatch"));
+      });
+    const requireAllowedWork = (input: Omit<PreviewWorkloadAdmission, "admissionId">) =>
+      Effect.gen(function* () {
+        for (const [kind, value] of [
+          ["group", input.groupId],
+          ["endpoint", input.endpoint],
+          ["target", input.target],
+        ] as const) {
+          const rows =
+            yield* sql`SELECT value FROM preview_session_allowed_work WHERE session_id=${input.sessionId} AND kind=${kind} AND value=${value}`;
+          if (rows.length !== 1) return yield* Effect.fail(sessionError(`unapproved-work-${kind}`));
+        }
+      });
+    const requireOriginalContinuation = (input: Omit<PreviewWorkloadAdmission, "admissionId">) =>
+      Effect.gen(function* () {
+        if (input.continuationId === null) return;
+        const rows =
+          yield* sql`SELECT admission_id FROM preview_session_work_items WHERE admission_id=${input.continuationId} AND session_id=${input.sessionId} AND generation=${input.generation} AND role=${input.role} AND oauth_client_id=${input.oauthClientId} AND group_id=${input.groupId} AND invocation_id=${input.invocationId} AND endpoint=${input.endpoint} AND target=${input.target}`;
+        if (rows.length !== 1)
+          return yield* Effect.fail(sessionError("continuation-not-bound-to-original-work"));
+      });
+    const reserveWorkloadAdmission = (
+      input: Omit<PreviewWorkloadAdmission, "admissionId">,
+      time: number,
+    ) =>
+      Effect.gen(function* () {
+        const rows =
+          yield* sql`UPDATE preview_sessions SET unsettled=unsettled+1 WHERE id=${input.sessionId} AND generation=${input.generation} AND phase='active' AND ended_at IS NULL AND lease_deadline > ${time} RETURNING id`;
+        if (rows.length !== 1)
+          return yield* Effect.fail(sessionError("session-not-active-or-expired"));
+      });
+
     const api: PreviewSessionControllerApi = {
       create: (input) =>
-        Effect.gen(function* () {
-          const time = now();
-          const id = randomUUID();
-          const ownerIdentity = randomBytes(32).toString("base64url");
-          const supervisorIdentity = randomBytes(32).toString("base64url");
-          // Allocation IDs are written only after the allocation ledger confirms ownership.
-          const resourceIds: Record<string, string> = {};
-          yield* sql`INSERT INTO preview_sessions (id, owner, checkout, resource_ids, manifests, requested_revision, phase, generation, identity_digest, supervisor_identity_digest, lease_deadline, last_renewed_at, supervisor_lease_until) VALUES (${id}, ${input.owner}, ${input.checkout}, ${JSON.stringify(resourceIds)}, ${JSON.stringify(input.manifests)}, ${input.requestedRevision}, 'pending', 1, ${digestIdentity(ownerIdentity)}, ${digestIdentity(supervisorIdentity)}, ${time + previewSessionLeaseMs}, ${time}, ${time + previewSupervisorLeaseMs})`;
-          return { ownerIdentity, supervisorIdentity, session: yield* valid(id) };
-        }),
+        sql.withTransaction(
+          Effect.gen(function* () {
+            const time = now();
+            const id = randomUUID();
+            const ownerIdentity = randomBytes(32).toString("base64url");
+            const supervisorIdentity = randomBytes(32).toString("base64url");
+            // Allocation IDs are written only after the allocation ledger confirms ownership.
+            const resourceIds: Record<string, string> = {};
+            yield* sql`INSERT INTO preview_sessions (id, owner, checkout, resource_ids, manifests, requested_revision, phase, generation, identity_digest, supervisor_identity_digest, lease_deadline, last_renewed_at, supervisor_lease_until) VALUES (${id}, ${input.owner}, ${input.checkout}, ${JSON.stringify(resourceIds)}, ${JSON.stringify(input.manifests)}, ${input.requestedRevision}, 'pending', 1, ${digestIdentity(ownerIdentity)}, ${digestIdentity(supervisorIdentity)}, ${time + previewSessionLeaseMs}, ${time}, ${time + previewSupervisorLeaseMs})`;
+            for (const group of new Set(input.groups ?? []))
+              yield* sql`INSERT INTO preview_session_allowed_work (session_id, kind, value) VALUES (${id}, 'group', ${group})`;
+            for (const endpoint of new Set(input.endpoints ?? []))
+              yield* sql`INSERT INTO preview_session_allowed_work (session_id, kind, value) VALUES (${id}, 'endpoint', ${endpoint})`;
+            for (const target of new Set(input.targets ?? []))
+              yield* sql`INSERT INTO preview_session_allowed_work (session_id, kind, value) VALUES (${id}, 'target', ${target})`;
+            return { ownerIdentity, supervisorIdentity, session: yield* valid(id) };
+          }),
+        ),
       status: (id) => valid(id, undefined, undefined, true),
       heartbeat: (id, supervisorIdentity, generation) =>
         Effect.gen(function* () {
@@ -376,6 +633,150 @@ export const makePreviewSessionController = (now: () => number) =>
             return decodeRow(rows[0] as Record<string, unknown>);
           }),
         ),
+      authorizeCredential: (id, generation, role) =>
+        authorizeSelectedCredential(id, generation, role),
+      authorizeCredentialIssue: (id, generation, role) =>
+        sql.withTransaction(
+          Effect.gen(function* () {
+            const session = yield* authorizeSelectedCredential(id, generation, role);
+            const time = now();
+            const registered =
+              yield* sql`SELECT 1 FROM preview_session_workload_identities WHERE session_id=${id} AND generation=${generation} AND role=${role}`;
+            if (registered.length > 0)
+              return yield* Effect.fail(sessionError("workload-identity-already-bound"));
+            const reservationId = randomBytes(32).toString("base64url");
+            const reserved =
+              yield* sql`INSERT INTO preview_session_credential_issuances (session_id, generation, role, reservation_id, expires_at) VALUES (${id}, ${generation}, ${role}, ${reservationId}, ${time + previewCredentialIssueReservationMs}) ON CONFLICT(session_id, generation, role) DO UPDATE SET reservation_id=excluded.reservation_id, expires_at=excluded.expires_at WHERE preview_session_credential_issuances.expires_at <= ${time} RETURNING reservation_id`;
+            if (reserved.length !== 1)
+              return yield* Effect.fail(sessionError("workload-identity-issuance-in-progress"));
+            return { session, reservationId };
+          }),
+        ),
+      releaseCredentialIssue: ({ id, generation, role, reservationId }) =>
+        sql`DELETE FROM preview_session_credential_issuances WHERE session_id=${id} AND generation=${generation} AND role=${role} AND reservation_id=${reservationId}`.pipe(
+          Effect.asVoid,
+        ),
+      registerCredentialIdentity: ({
+        id,
+        generation,
+        role,
+        reservationId,
+        credentialName,
+        serviceAccount,
+        oauthClientId,
+        credentialFile,
+      }) =>
+        sql.withTransaction(
+          Effect.gen(function* () {
+            const session = yield* valid(id, undefined, generation);
+            if (session.manifests[role] === undefined)
+              return yield* Effect.fail(sessionError("role-not-selected"));
+            const reservations =
+              yield* sql`SELECT reservation_id FROM preview_session_credential_issuances WHERE session_id=${id} AND generation=${generation} AND role=${role} AND reservation_id=${reservationId} AND expires_at > ${now()}`;
+            if (reservations.length !== 1)
+              return yield* Effect.fail(sessionError("workload-identity-issuance-not-reserved"));
+            const existing =
+              yield* sql`SELECT credential_name, service_account, oauth_client_id, credential_file FROM preview_session_workload_identities WHERE session_id=${id} AND generation=${generation} AND role=${role}`;
+            if (existing.length > 0) {
+              const row = existing[0] as Record<string, unknown>;
+              if (
+                row.credential_name !== credentialName ||
+                row.service_account !== serviceAccount ||
+                row.oauth_client_id !== oauthClientId ||
+                row.credential_file !== credentialFile
+              )
+                return yield* Effect.fail(sessionError("workload-identity-already-bound"));
+              yield* sql`DELETE FROM preview_session_credential_issuances WHERE session_id=${id} AND generation=${generation} AND role=${role} AND reservation_id=${reservationId}`;
+              return;
+            }
+            yield* sql`INSERT INTO preview_session_workload_identities (session_id, generation, role, credential_name, service_account, oauth_client_id, credential_file) VALUES (${id}, ${generation}, ${role}, ${credentialName}, ${serviceAccount}, ${oauthClientId}, ${credentialFile})`;
+            yield* sql`DELETE FROM preview_session_credential_issuances WHERE session_id=${id} AND generation=${generation} AND role=${role} AND reservation_id=${reservationId}`;
+          }),
+        ),
+      authorizeWorkload: (id, generation, role, oauthClientId) =>
+        Effect.gen(function* () {
+          const session = yield* valid(id, undefined, generation);
+          const time = now();
+          if (session.phase !== "active" || session.leaseDeadline <= time)
+            return yield* Effect.fail(sessionError("session-not-active-or-expired"));
+          const rows =
+            yield* sql`SELECT oauth_client_id FROM preview_session_workload_identities WHERE session_id=${id} AND generation=${generation} AND role=${role}`;
+          if (
+            session.manifests[role] === undefined ||
+            rows.length !== 1 ||
+            rows[0]?.oauth_client_id !== oauthClientId
+          )
+            return yield* Effect.fail(sessionError("workload-identity-mismatch"));
+          return session;
+        }),
+      isPreviewOAuthClient: (oauthClientId) =>
+        Effect.map(
+          sql`SELECT oauth_client_id FROM preview_session_workload_identities WHERE oauth_client_id=${oauthClientId} LIMIT 1`,
+          (rows) => rows.length > 0,
+        ),
+      admitWorkload: (input) =>
+        sql.withTransaction(
+          Effect.gen(function* () {
+            const nowMs = now();
+            yield* requireActiveWorkloadSession(input.sessionId, input.generation, nowMs);
+            yield* requireWorkloadIdentity(input);
+            yield* requireAllowedWork(input);
+            yield* requireOriginalContinuation(input);
+            yield* reserveWorkloadAdmission(input, nowMs);
+            const admissionId = randomBytes(32).toString("base64url");
+            yield* sql`INSERT INTO preview_session_work_items (admission_id, session_id, generation, role, oauth_client_id, group_id, invocation_id, continuation_id, endpoint, target) VALUES (${admissionId}, ${input.sessionId}, ${input.generation}, ${input.role}, ${input.oauthClientId}, ${input.groupId}, ${input.invocationId}, ${input.continuationId}, ${input.endpoint}, ${input.target})`;
+            return { ...input, admissionId };
+          }),
+        ),
+      settleWorkload: (admission) =>
+        sql.withTransaction(
+          Effect.gen(function* () {
+            const settled =
+              yield* sql`UPDATE preview_session_work_items SET settled_at=${now()} WHERE admission_id=${admission.admissionId} AND session_id=${admission.sessionId} AND generation=${admission.generation} AND role=${admission.role} AND oauth_client_id=${admission.oauthClientId} AND group_id=${admission.groupId} AND invocation_id=${admission.invocationId} AND continuation_id IS ${admission.continuationId} AND endpoint=${admission.endpoint} AND target=${admission.target} AND settled_at IS NULL RETURNING session_id`;
+            if (settled.length !== 1)
+              return yield* Effect.fail(sessionError("settlement-authority-mismatch"));
+            const decremented =
+              yield* sql`UPDATE preview_sessions SET unsettled=unsettled-1 WHERE id=${admission.sessionId} AND unsettled > 0 RETURNING id`;
+            if (decremented.length !== 1)
+              return yield* Effect.fail(sessionError("settlement-count-invariant-failed"));
+          }),
+        ),
+      authorizeCredentialRemoval: ({ id, generation, role, oauthClientId, serviceAccount }) =>
+        Effect.gen(function* () {
+          const session = yield* valid(id, undefined, undefined, true);
+          if (session.endedAt === null || session.unsettled !== 0)
+            return yield* Effect.fail(
+              sessionError("credential-removal-requires-ended-settled-session"),
+            );
+          const rows =
+            yield* sql`SELECT oauth_client_id, service_account FROM preview_session_workload_identities WHERE session_id=${id} AND generation=${generation} AND role=${role}`;
+          if (
+            rows.length !== 1 ||
+            rows[0]?.oauth_client_id !== oauthClientId ||
+            rows[0]?.service_account !== serviceAccount
+          )
+            return yield* Effect.fail(sessionError("workload-identity-mismatch"));
+        }),
+      isCredentialIdentityRegistered: (id, generation, role) =>
+        Effect.map(
+          sql`SELECT 1 FROM preview_session_workload_identities WHERE session_id=${id} AND generation=${generation} AND role=${role}`,
+          (rows) => rows.length > 0,
+        ),
+      removeCredentialIdentity: ({ id, generation, role, oauthClientId, serviceAccount }) =>
+        sql.withTransaction(
+          Effect.gen(function* () {
+            const ended =
+              yield* sql`SELECT id FROM preview_sessions WHERE id=${id} AND ended_at IS NOT NULL AND unsettled=0`;
+            if (ended.length === 0)
+              return yield* Effect.fail(
+                sessionError("credential-removal-requires-ended-settled-session"),
+              );
+            const rows =
+              yield* sql`DELETE FROM preview_session_workload_identities WHERE session_id=${id} AND generation=${generation} AND role=${role} AND oauth_client_id=${oauthClientId} AND service_account=${serviceAccount} RETURNING session_id`;
+            if (rows.length !== 1)
+              return yield* Effect.fail(sessionError("workload-identity-mismatch"));
+          }),
+        ),
       settle: (id, generation) =>
         sql.withTransaction(
           Effect.gen(function* () {
@@ -394,6 +795,56 @@ export const makePreviewSessionController = (now: () => number) =>
 export const PreviewSessionControllerLive = (now: () => number) =>
   Layer.effect(PreviewSessionController, makePreviewSessionController(now));
 
+/** Promise adapter for sheet-auth's per-exchange and per-resource authorization port. */
+export const makePreviewSessionAuthority = (
+  controller: PreviewSessionControllerApi,
+): {
+  readonly requiresBinding: (oauthClientId: string) => Promise<boolean>;
+  readonly authorize: (input: {
+    readonly binding: {
+      readonly sessionId: string;
+      readonly generation: number;
+      readonly role: string;
+    };
+    readonly clientId: string | undefined;
+  }) => Promise<boolean>;
+} => ({
+  requiresBinding: async (oauthClientId) => {
+    try {
+      return await Effect.runPromise(
+        dispatchPreviewSessionProtocol(controller, {
+          _tag: "ClientRequiresPreviewBinding",
+          oauthClientId,
+        }).pipe(
+          Effect.map(
+            (response) => response._tag === "PreviewClientBindingRequired" && response.required,
+          ),
+        ),
+      );
+    } catch {
+      return true;
+    }
+  },
+  authorize: async ({ binding, clientId }) => {
+    const role = connectedPreviewRoles.find((candidate) => candidate === binding.role);
+    if (!clientId || !role) return false;
+    try {
+      const response = await Effect.runPromise(
+        dispatchPreviewSessionProtocol(controller, {
+          _tag: "AuthorizeWorkload",
+          id: binding.sessionId,
+          generation: binding.generation,
+          role,
+          oauthClientId: clientId,
+        }),
+      );
+      return response._tag === "WorkloadAuthorized";
+    } catch {
+      return false;
+    }
+  },
+});
+
 export const PreviewSessionRuntimeLive = Layer.effect(
   PreviewSessionRuntime,
   Effect.map(
@@ -401,6 +852,9 @@ export const PreviewSessionRuntimeLive = Layer.effect(
     (controller): PreviewSessionRuntimeApi => ({
       admit: controller.admit,
       settle: controller.settle,
+      authorizeCredential: controller.authorizeCredential,
+      admitWorkload: controller.admitWorkload,
+      settleWorkload: controller.settleWorkload,
     }),
   ),
 );

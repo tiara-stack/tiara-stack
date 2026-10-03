@@ -1,5 +1,5 @@
 import { HttpServer, HttpRouter, HttpServerResponse } from "effect/unstable/http";
-import { NodeFileSystem, NodeHttpServer, NodeRuntime } from "@effect/platform-node";
+import { NodeFileSystem, NodeHttpClient, NodeHttpServer, NodeRuntime } from "@effect/platform-node";
 import { Effect, Layer, Logger, Option, Redacted, Context } from "effect";
 import { dotEnvConfigProviderLayer } from "typhoon-core/config";
 import { cors } from "hono/cors";
@@ -15,6 +15,11 @@ import { MetricsLive } from "./metrics";
 import { TracesLive } from "./traces";
 import { Hono } from "hono";
 import { createForwarder } from "./web-forwarder";
+import { HttpClient } from "effect/unstable/http";
+import {
+  assertPreviewSessionAuthorityConfiguration,
+  makeHttpPreviewSessionAuthority,
+} from "./preview-session";
 
 // Auth service type - just the auth instance with cleanup
 // Note: oauthProviderAuthServerMetadata and oauthProviderOpenIdConfigMetadata
@@ -47,6 +52,23 @@ const authServiceLayer = Layer.effect(
       yield* config.subjectTokenKubernetesReviewerTokenPath;
     const subjectTokenKubernetesCaPath = yield* config.subjectTokenKubernetesCaPath;
     const subjectTokenKubernetesTokenReviewUrl = yield* config.subjectTokenKubernetesTokenReviewUrl;
+    const previewSessionControllerUrl = yield* config.previewSessionControllerUrl;
+    const previewSessionAuthorityToken = yield* config.previewSessionAuthorityToken;
+    const requirePreviewSessionForTokenExchange =
+      yield* config.requirePreviewSessionForTokenExchange;
+    assertPreviewSessionAuthorityConfiguration(
+      Option.isSome(previewSessionControllerUrl),
+      Option.isSome(previewSessionAuthorityToken),
+      requirePreviewSessionForTokenExchange,
+    );
+    const previewSessionAuthority =
+      Option.isSome(previewSessionControllerUrl) && Option.isSome(previewSessionAuthorityToken)
+        ? makeHttpPreviewSessionAuthority({
+            controllerUrl: previewSessionControllerUrl.value,
+            authorityToken: previewSessionAuthorityToken.value,
+            httpClient: yield* HttpClient.HttpClient,
+          })
+        : undefined;
     const redisUrl = yield* config.redisUrl;
     const redisBase = yield* config.redisBase;
 
@@ -77,6 +99,8 @@ const authServiceLayer = Layer.effect(
       subjectTokenKubernetesReviewerTokenPath,
       subjectTokenKubernetesCaPath,
       subjectTokenKubernetesTokenReviewUrl,
+      previewSessionAuthority,
+      requirePreviewSessionForTokenExchange,
       secondaryStorageDriver: redisStorageDriver,
     }) as AuthWithOAuthProvider;
 
@@ -95,7 +119,7 @@ const authServiceLayer = Layer.effect(
 
     return auth;
   }),
-);
+).pipe(Layer.provide(NodeHttpClient.layerNodeHttp));
 
 // Helper to check if origin matches trusted origins (supports wildcards like http://localhost:*)
 // * matches single hostname segment only (e.g., *.example.com matches a.example.com but not a.b.example.com)
