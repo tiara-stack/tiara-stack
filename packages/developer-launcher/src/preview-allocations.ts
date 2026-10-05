@@ -100,6 +100,8 @@ export interface CapacityDemand {
 /** Unit-bearing dimensions providers must observe for each owned preview group. */
 export const previewCapacityDimensionsByGroup = {
   "application-zero": [
+    "postgres.databases.count",
+    "postgres.roles.count",
     "postgres.active_slots.count",
     "postgres.temporary_slots.count",
     "postgres.senders.count",

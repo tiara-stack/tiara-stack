@@ -2557,7 +2557,8 @@ const finishPreviewStart = (
       const allocation = allocations.reserveAndAllocate({
         sessionId: creation.created.session.id,
         demands: prepared.plan.demands,
-        resources: [...new Set([...prepared.plan.resources, ...prepared.relayPlan.resources])],
+        // Establish callbacks before an owned application group runs readiness checks.
+        resources: [...new Set([...prepared.relayPlan.resources, ...prepared.plan.resources])],
         resourceMetadata: prepared.relayPlan.metadata,
       });
       const reserved = yield* Effect.result(

@@ -7,11 +7,11 @@ database and initializing a database that this process explicitly owns.
 
 `DB_BOOTSTRAP_POLICY` selects db-server behavior:
 
-| Value | Behavior | Owner |
-| --- | --- | --- |
-| `deployment-migrate` (default) | Runs the existing Effect SQL migration path before opening Zero's database client. | Established deployment bootstrap. |
-| `shared-admission` | Reads the existing `sheet_db_effect_sql_migrations` journal and requires an exact ordered match for every known migration ID and name. It does not create the journal, run DDL, or open the application client after a failed check. | Runtime admission only; migrations remain the operator deployment's responsibility. |
-| `owned-initialize` | Requires `DB_MIGRATION_OWNER` and runs the existing forward migration path for an explicitly allocated database. | The allocator's single migration owner. Other processes using this database must use admission. |
+| Value                          | Behavior                                                                                                                                                                                                                             | Owner                                                                                           |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `deployment-migrate` (default) | Runs the existing Effect SQL migration path before opening Zero's database client.                                                                                                                                                   | Established deployment bootstrap.                                                               |
+| `shared-admission`             | Reads the existing `sheet_db_effect_sql_migrations` journal and requires an exact ordered match for every known migration ID and name. It does not create the journal, run DDL, or open the application client after a failed check. | Runtime admission only; migrations remain the operator deployment's responsibility.             |
+| `owned-initialize`             | Requires `DB_MIGRATION_OWNER` and runs the existing forward migration path for an explicitly allocated database.                                                                                                                     | The allocator's single migration owner. Other processes using this database must use admission. |
 
 The default retains Fast, Compose, and Kubernetes startup behavior. Preview
 profiles should select `shared-admission` for reused state. Provisioning must
@@ -48,3 +48,8 @@ databases are migrated forward by one provisioning owner before applications
 become ready. A migration failure blocks that dependency group; do not retry
 from another runtime or fall back to shared state. Reloads reuse the selected
 database and do not start migrations.
+
+The owned application allocator and its separate digest journal are documented
+in [Owned application and Zero State Planes](owned-application-state-planes.md).
+They add an initial single-owner bootstrap path without changing the existing
+shared-admission journal or enabling an unverified live profile.

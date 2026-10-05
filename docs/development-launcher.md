@@ -700,3 +700,8 @@ The process executor remains the replacement seam for tests and bounded local
 commands. Planning and execution are separate: help, validation, and plan
 inspection never start workloads, while every supported executable mode action
 uses the shared lifecycle operation after its validated context is retained.
+
+Owned application/Zero allocation, migration ordering and exact cleanup are
+documented in [Owned application and Zero State Planes](owned-application-state-planes.md).
+The operator adapter has local contract tests; no live application/Zero profile
+is enabled by those tests.
