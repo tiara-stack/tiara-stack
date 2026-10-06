@@ -1050,6 +1050,11 @@ const invalidPreviewInputs: readonly [string, PreviewFixtureOptions, string][] =
   ],
   ["group ownership", { omittedGroups: ["auth"] }, "required-group-missing"],
   [
+    "unapproved synthetic seed",
+    { configOverrides: { seed: "some-other-seed" } },
+    "invalid-preview-intent",
+  ],
+  [
     "credential",
     { credentialOverrides: { "sheet-auth": { runtime: "raw-secret-value" } } },
     "unsafe-preview-credential",
@@ -1557,6 +1562,82 @@ liveTest("reports unreadable capacity baseline as not imported", () =>
         expect(result.output.errors[0]?.message).toContain("operator file could not be read");
         expect(result.output.errors[0]?.message).not.toContain("session controller");
         expect(result.output.errors[0]?.remediation).toContain("no observations were imported");
+      }).pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:" }))),
+  ),
+);
+
+liveTest("passes the validated seed selection to the owned application allocation", () =>
+  withConnectedPreviewConfig(
+    createConnectedPreviewConfig({
+      roles: ["sheet-web", "sheet-db-server", "sheet-workflows-api", "sheet-workflows-runner"],
+      configOverrides: { seed: "synthetic-development-v1" },
+    }),
+    (configPath, cwd) =>
+      Effect.gen(function* () {
+        const now = Date.now();
+        const sessions = yield* makePreviewSessionController(() => now);
+        const base = makeLocalFilesystemPreviewResourceAdapter(path.join(cwd, "resources"));
+        let applicationMetadata: Readonly<Record<string, string | number | boolean>> | undefined;
+        const measurements = [
+          ...new Set(Object.values(previewCapacityDimensionsByGroup).flat()),
+        ].map((dimension) => ({
+          dimension,
+          amount: 1,
+          provider: "local-test",
+          identity: "disposable",
+        }));
+        const allocations = yield* makePreviewAllocationController(
+          {
+            ...base,
+            planProfile: (input) =>
+              Effect.succeed({
+                demands: [
+                  ...new Set(
+                    input.ownedGroups.flatMap(
+                      (group) =>
+                        previewCapacityDimensionsByGroup[
+                          group as keyof typeof previewCapacityDimensionsByGroup
+                        ] ?? [],
+                    ),
+                  ),
+                ].map((dimension) => ({
+                  dimension,
+                  amount: 1,
+                  provider: "local-test",
+                  identity: "disposable",
+                })),
+                resources: input.ownedGroups,
+              }),
+            validateProfileAllocation: () => Effect.void,
+            allocate: (input) =>
+              Effect.gen(function* () {
+                if (input.resource === "application-zero") applicationMetadata = input.metadata;
+                return yield* base.allocate(input);
+              }),
+          },
+          () => now,
+        );
+        yield* Effect.forEach(measurements, (measurement) =>
+          allocations.observeCapacity({
+            ...measurement,
+            total: 2,
+            inUse: 0,
+            grantsVerified: true,
+            observedAt: now,
+          }),
+        );
+        const result = yield* runLauncherEffect(
+          ["preview", "start", "--config", configPath, "--json"],
+          {
+            cwd,
+            env: { TIARA_PREVIEW_SESSION_DATABASE: path.join(cwd, "controller.sqlite") },
+            previewSessionController: sessions,
+            previewAllocationController: allocations,
+            previewRelayProvider: makeRelayProviderWithAttachmentStatus("ready"),
+          },
+        );
+        expect(result.exitCode, result.stdout).toBe(0);
+        expect(applicationMetadata).toEqual({ seedId: "synthetic-development-v1" });
       }).pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:" }))),
   ),
 );

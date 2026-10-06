@@ -303,8 +303,13 @@ role does not establish that enqueueing against shared execution is safe.
 
 Credential fields contain development secret references only. The launcher does
 not resolve or print referenced secret values. Additional user grants default to
-none. Triggers and external targets default to none. `seed` is optional and is
-accepted only with an owned `application-zero` group. Selecting `sheet-bot`
+none. Triggers and external targets default to none. `seed` is optional and
+currently accepts only `synthetic-development-v1` with an owned
+`application-zero` group. It seeds inert development guild/channel rows after
+that group's migrations and before startup, using trusted principal/account and
+target bindings. It does not provision trusted clients or make external calls.
+Empty state remains the default, and reload/resume does not repeat the seed.
+Selecting `sheet-bot`
 requires an explicit target allocation and acknowledgment that the shared bot
 will be unavailable during handoff. These fields record intent; plan does not
 perform those operations.

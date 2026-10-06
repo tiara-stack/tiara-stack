@@ -2,8 +2,16 @@ import { createHash } from "node:crypto";
 import { Effect, Match, Predicate, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import {
+  makeSyntheticDevelopmentSeed,
+  syntheticDevelopmentSeedId,
+  type ApprovedSeedBindings,
+  type SyntheticDevelopmentSeed,
+  type SyntheticDevelopmentSeedReceipt,
+} from "./synthetic-development-seed";
+import {
   previewCapacityDimensionsByGroup,
   type PreviewResourceAdapter,
+  type PreviewResourceMetadata,
   type CapacityDemand,
 } from "./preview-allocations";
 
@@ -228,6 +236,16 @@ export interface OwnedApplicationProvider {
   readonly provision: (plane: OwnedApplicationPlane) => Effect.Effect<void, Error>;
   /** Fresh database only, empty rows, immutable generated artifacts, one forward migration owner. */
   readonly migrate: (plane: OwnedApplicationPlane) => Effect.Effect<ApplicationArtifacts, Error>;
+  /** Read trusted development identity/target evidence. Never create grants or credentials. */
+  readonly resolveSeedBindings?: (
+    plane: OwnedApplicationPlane,
+    seedId: string,
+  ) => Effect.Effect<ApprovedSeedBindings, Error>;
+  /** Apply rows and an idempotency receipt in one owned-database transaction. */
+  readonly applySeed?: (
+    plane: OwnedApplicationPlane,
+    seed: SyntheticDevelopmentSeed,
+  ) => Effect.Effect<SyntheticDevelopmentSeedReceipt, Error>;
   readonly start: (
     plane: OwnedApplicationPlane,
     configuration: ApplicationRuntimeConfiguration,
@@ -245,6 +263,24 @@ export interface OwnedApplicationProvider {
     resource: ApplicationInventory["objects"][number],
   ) => Effect.Effect<void, Error>;
 }
+interface SelectedSeedOperations {
+  readonly resolveSeedBindings: NonNullable<OwnedApplicationProvider["resolveSeedBindings"]>;
+  readonly applySeed: NonNullable<OwnedApplicationProvider["applySeed"]>;
+}
+const selectSeedOperations = (
+  seedId: string | undefined,
+  provider: OwnedApplicationProvider,
+): Effect.Effect<SelectedSeedOperations | undefined, OwnedApplicationError> =>
+  Effect.gen(function* () {
+    if (seedId === undefined) return undefined;
+    if (seedId !== syntheticDevelopmentSeedId) return yield* fail("unsupported-synthetic-seed");
+    if (provider.resolveSeedBindings === undefined || provider.applySeed === undefined)
+      return yield* fail("synthetic-seed-provider-unavailable");
+    return {
+      resolveSeedBindings: provider.resolveSeedBindings,
+      applySeed: provider.applySeed,
+    };
+  });
 export interface ApplicationEndpointEvidence {
   readonly sessionId: string;
   readonly generation: number;
@@ -480,6 +516,10 @@ export const makeOwnedApplicationResourceAdapter = (
     server TEXT NOT NULL, namespace TEXT NOT NULL, name TEXT NOT NULL,
     session_id TEXT NOT NULL, PRIMARY KEY(server, namespace, name)
   )`;
+    yield* sql`CREATE TABLE IF NOT EXISTS preview_application_seed_receipts (
+    session_id TEXT PRIMARY KEY, owner_token TEXT NOT NULL, seed_id TEXT NOT NULL,
+    seed_identity TEXT, status TEXT NOT NULL
+  )`;
     const dbError = () => new OwnedApplicationError({ reason: "plane-journal-unavailable" });
     const load = (sessionId: string, ownerToken: string) =>
       Effect.gen(function* () {
@@ -512,12 +552,15 @@ export const makeOwnedApplicationResourceAdapter = (
         yield* verifyEvidenceFreshness(evidence.observedAt, now, maxAge);
         yield* verifyAdmissionContracts(plane, evidence);
       });
-    const reserve = (plane: OwnedApplicationPlane) =>
+    const reserve = (plane: OwnedApplicationPlane, seedId: string | undefined) =>
       sql
         .withTransaction(
           Effect.gen(function* () {
             yield* assertSession(plane.sessionId);
             yield* sql`INSERT INTO preview_application_planes(session_id, owner_token, plane, phase) VALUES (${plane.sessionId}, ${plane.ownerToken}, ${JSON.stringify(plane)}, 'reserved')`;
+            if (seedId !== undefined) {
+              yield* sql`INSERT INTO preview_application_seed_receipts(session_id, owner_token, seed_id, status) VALUES (${plane.sessionId}, ${plane.ownerToken}, ${seedId}, 'pending')`;
+            }
             // Schemas/legacy names are reserved across the entire server, not just this database.
             for (const resource of [
               { kind: "app", name: plane.app },
@@ -594,8 +637,38 @@ export const makeOwnedApplicationResourceAdapter = (
         )
           return yield* fail("session-artifacts-mismatch");
       });
-    const allocate = (sessionId: string, ownerToken: string) =>
+    const applySelectedSeed = (
+      plane: OwnedApplicationPlane,
+      sessionId: string,
+      seedId: string | undefined,
+      seedOperations: SelectedSeedOperations | undefined,
+    ) =>
       Effect.gen(function* () {
+        if (seedId === undefined) return;
+        if (seedOperations === undefined) return yield* fail("synthetic-seed-provider-unavailable");
+        yield* assertSession(sessionId);
+        const bindings = yield* seedOperations.resolveSeedBindings(plane, seedId);
+        const seed = yield* makeSyntheticDevelopmentSeed(seedId, bindings);
+        yield* assertSession(sessionId);
+        const receipt = yield* seedOperations.applySeed(plane, seed);
+        if (receipt.identity !== seed.identity)
+          return yield* fail("synthetic-seed-identity-mismatch");
+        const completed =
+          yield* sql`UPDATE preview_application_seed_receipts SET seed_identity=${seed.identity}, status='complete' WHERE session_id=${sessionId} AND owner_token=${plane.ownerToken} AND seed_id=${seedId} AND status='pending' RETURNING session_id`.pipe(
+            Effect.mapError(dbError),
+          );
+        if (completed.length !== 1) return yield* fail("synthetic-seed-journal-conflict");
+      });
+    const allocate = (
+      sessionId: string,
+      ownerToken: string,
+      metadata: PreviewResourceMetadata | undefined,
+    ) =>
+      Effect.gen(function* () {
+        if (metadata?.seedId !== undefined && typeof metadata.seedId !== "string")
+          return yield* fail("unsupported-synthetic-seed");
+        const seedId = typeof metadata?.seedId === "string" ? metadata.seedId : undefined;
+        const seedOperations = yield* selectSeedOperations(seedId, provider);
         yield* assertSession(sessionId);
         const ledger =
           yield* sql`SELECT owner_token FROM preview_allocation_ledger WHERE session_id=${sessionId} AND resource=${ownedApplicationResource} AND owner_token=${ownerToken} AND state='allocating'`.pipe(
@@ -622,7 +695,7 @@ export const makeOwnedApplicationResourceAdapter = (
           artifacts: options.artifacts,
         });
         yield* inspectAdmission(plane);
-        yield* reserve(plane);
+        yield* reserve(plane, seedId);
         const work = Effect.gen(function* () {
           yield* updatePhaseIfCurrent(plane, "reserved", "provisioning");
           yield* assertSession(sessionId);
@@ -632,6 +705,7 @@ export const makeOwnedApplicationResourceAdapter = (
           const applied = yield* provider.migrate(plane);
           if (digest(applied) !== digest(plane.artifacts))
             return yield* fail("applied-artifacts-mismatch");
+          yield* applySelectedSeed(plane, sessionId, seedId, seedOperations);
           yield* updatePhaseIfCurrent(plane, "migrating", "starting");
           yield* assertSession(sessionId);
           yield* provider.start(plane, applicationRuntimeConfiguration(plane));
@@ -650,7 +724,9 @@ export const makeOwnedApplicationResourceAdapter = (
             return yield* fail("session-endpoint-identity-mismatch");
           yield* assertSession(sessionId);
           yield* updatePhaseIfCurrent(plane, "starting", "ready");
-          return `owned-application:${sessionId}`;
+          return seedId === undefined
+            ? `owned-application:${sessionId}`
+            : `owned-application:${sessionId}:seed=${seedId};status=complete`;
         });
         return yield* work.pipe(
           Effect.onExit((exit) =>
@@ -706,6 +782,27 @@ export const makeOwnedApplicationResourceAdapter = (
           ),
         );
       });
+    const verifiesProviderResourceId = (
+      sessionId: string,
+      ownerToken: string,
+      providerResourceId: string,
+    ) =>
+      Effect.gen(function* () {
+        if (providerResourceId === `owned-application:${sessionId}`) return true;
+        const rows =
+          yield* sql`SELECT seed_id, seed_identity FROM preview_application_seed_receipts WHERE session_id=${sessionId} AND owner_token=${ownerToken} AND status='complete'`.pipe(
+            Effect.mapError(dbError),
+          );
+        return rows.some(
+          (row) =>
+            typeof row.seed_id === "string" &&
+            row.seed_id === syntheticDevelopmentSeedId &&
+            typeof row.seed_identity === "string" &&
+            /^[a-f0-9]{64}$/.test(row.seed_identity) &&
+            providerResourceId ===
+              `owned-application:${sessionId}:seed=${row.seed_id};status=complete`,
+        );
+      });
     const adapter: PreviewResourceAdapter = {
       ...base,
       planProfile: (input) =>
@@ -724,20 +821,34 @@ export const makeOwnedApplicationResourceAdapter = (
           : base.validateProfileAllocation(input),
       allocate: (input) =>
         input.resource === ownedApplicationResource
-          ? allocate(input.sessionId, input.ownerToken)
+          ? allocate(input.sessionId, input.ownerToken, input.metadata)
           : base.allocate(input),
       deleteOwned: (input) =>
         input.resource === ownedApplicationResource
-          ? input.providerResourceId === `owned-application:${input.sessionId}`
-            ? cleanup(input.sessionId, input.ownerToken)
-            : fail("plane-reference-mismatch")
+          ? verifiesProviderResourceId(
+              input.sessionId,
+              input.ownerToken,
+              input.providerResourceId,
+            ).pipe(
+              Effect.flatMap((valid) =>
+                valid
+                  ? cleanup(input.sessionId, input.ownerToken)
+                  : fail("plane-reference-mismatch"),
+              ),
+            )
           : base.deleteOwned(input),
       proveCleanup: (input) =>
         Effect.gen(function* () {
           for (const resource of input.resources.filter(
             (r) => r.resource === ownedApplicationResource,
           )) {
-            if (resource.providerResourceId !== `owned-application:${input.sessionId}`)
+            if (
+              !(yield* verifiesProviderResourceId(
+                input.sessionId,
+                resource.ownerToken,
+                resource.providerResourceId ?? "",
+              ))
+            )
               return false;
             const record = yield* load(input.sessionId, resource.ownerToken);
             if (!["ready", "quarantined", "fenced", "deleted"].includes(record.phase)) return false;

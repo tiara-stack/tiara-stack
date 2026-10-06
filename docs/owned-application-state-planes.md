@@ -82,9 +82,30 @@ matching clients. `applicationRuntimeConfiguration` sets db-server to
 `shared-admission` after bootstrap. It names one database for upstream/CVR/change
 stores, explicit `/zero/query` and `/zero/mutate` session destinations, a separate
 replica path, and a session/state-specific client storage key. It carries role
-references rather than connection secrets. Seed is always false here; TIA-244
-owns optional explicit seed, TIA-243 owns live schema/reload transitions, and
-browser mediation is a separate slice.
+references rather than connection secrets. Runtime startup always disables its
+legacy seed switch; TIA-244's named synthetic seed runs once in the owned
+provisioning phase after migrations and before application startup.
+
+Empty state remains the default. The only accepted selector is
+`synthetic-development-v1`, and configuration validation requires an owned
+`application-zero` group. The allocator's trusted binding resolver must verify
+the real development User Principal, its linked Discord Account, and an
+approved development guild/channel. The fixture creates only inert application
+rows for that account and target: DM preferences are disabled, the guild
+workspace and channel conversation are stopped, and no sheet, schedule,
+permission, role, session, credential, workflow item, or Response Reference is
+created. It does not invoke Discord, Google, or other external APIs. Trusted
+OAuth client provisioning remains an independent operation.
+
+The provider applies the rows and a seed identity receipt in one transaction.
+It returns the same receipt for an interrupted retry of that exact seed without
+inserting again, and rejects a conflicting receipt or nonempty unjournaled
+database. The launcher stores pending/completed seed identity in its owned-plane
+journal and includes `seed=<id>;status=complete` in the allocated provider
+reference. Migration, binding, fixture, or journal failures quarantine
+provisioning before application startup. Resume and reload do not allocate or
+seed again; a fresh owned state receives a new fixture only when explicitly
+selected.
 
 ## Cleanup and recovery
 
@@ -131,8 +152,12 @@ claimable phase; capacity and name reservations remain held.
 The focused tests cover two owned groups, empty initial rows, separate callback
 query/mutation destinations, an unchanged shared control, stopped-session
 rejection, failed migration, partial allocation without slots, stale/incompatible
-admission, foreign or active resources, and retained reservations. SQL tests check
-exact predicates and ownership failures. Bootstrap tests check byte-digest
+admission, foreign or active resources, and retained reservations. Seed tests
+check deterministic rows through the owned application endpoint,
+principal/account and approved target bindings, authorization-preserving
+rejection of a different principal, ordering after migration, no external calls,
+completion output, and no second seed on reallocation. SQL tests check exact
+predicates and ownership failures. Bootstrap tests check byte-digest
 rejection before SQL, single execution, ordering, rollback requests, and rejection
 of foreign owners, old digests and nonempty state.
 

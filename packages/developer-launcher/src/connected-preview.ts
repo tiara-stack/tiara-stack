@@ -3,6 +3,8 @@ import path from "node:path";
 import * as Console from "effect/Console";
 import { Effect, FileSystem, Match, Option, Predicate, Result, Schema } from "effect";
 import { sensitiveEnvironmentKeys } from "./config";
+import { ownedApplicationResource } from "./owned-application-plane";
+import { syntheticDevelopmentSeedId } from "./synthetic-development-seed";
 import {
   dispatchPreviewSessionProtocol,
   PreviewSessionController,
@@ -1815,11 +1817,14 @@ const validateSharedExecutionIntent = (context: PreviewValidationContext) => {
 
 const validateSeedIntent = (context: PreviewValidationContext) => {
   const { config, groupsById, add } = context;
-  if (config.seed !== undefined && !isSafeIdentifier(config.seed)) {
+  if (
+    config.seed !== undefined &&
+    (!isSafeIdentifier(config.seed) || config.seed !== syntheticDevelopmentSeedId)
+  ) {
     add(
       "invalid-preview-intent",
-      "Synthetic seed must be a safe seed identifier",
-      "Use a named synthetic seed; credentials and arbitrary data do not belong in the preview configuration.",
+      "Synthetic seed is not supported",
+      `Use the approved ${syntheticDevelopmentSeedId} seed; credentials and arbitrary data do not belong in the preview configuration.`,
       "seed",
     );
   }
@@ -2554,12 +2559,23 @@ const finishPreviewStart = (
         controller,
       );
       if (!persisted.ok) return persisted;
+      const resourceMetadata = {
+        ...prepared.relayPlan.metadata,
+        ...(prepared.config.seed === undefined
+          ? {}
+          : {
+              [ownedApplicationResource]: {
+                ...prepared.relayPlan.metadata[ownedApplicationResource],
+                seedId: prepared.config.seed,
+              },
+            }),
+      };
       const allocation = allocations.reserveAndAllocate({
         sessionId: creation.created.session.id,
         demands: prepared.plan.demands,
         // Establish callbacks before an owned application group runs readiness checks.
         resources: [...new Set([...prepared.relayPlan.resources, ...prepared.plan.resources])],
-        resourceMetadata: prepared.relayPlan.metadata,
+        resourceMetadata,
       });
       const reserved = yield* Effect.result(
         restore(allocation).pipe(

@@ -18,6 +18,10 @@ import {
   type ApplicationAdmission,
 } from "./owned-application-plane";
 import {
+  makeSyntheticDevelopmentSeed,
+  type SyntheticDevelopmentSeed,
+} from "./synthetic-development-seed";
+import {
   makePreviewAllocationController,
   previewCapacityDimensionsByGroup,
   type CapacityDemand,
@@ -87,6 +91,9 @@ const fixture = (
     allocationBarrier?: ProviderBarrier & { readonly stage: "provision" | "migrate" };
     removeBarrier?: ProviderBarrier;
     removeFailure?: boolean;
+    seedBindingsMissing?: boolean;
+    seedProviderUnavailable?: boolean;
+    seedBindingsBarrier?: ProviderBarrier;
   } = {},
 ) =>
   Effect.gen(function* () {
@@ -99,6 +106,7 @@ const fixture = (
     const rows = new Map<string, Map<string, string>>();
     const running = new Set<string>();
     const events: string[] = [];
+    const seedRows = new Map<string, SyntheticDevelopmentSeed>();
     const shared = new Map([["shared", "unchanged"]]);
     let terminationProved = true;
     const matchesCallbackIdentity = (
@@ -109,6 +117,20 @@ const fixture = (
       state: Map<string, string>,
       headers: Readonly<Record<string, string | undefined>>,
     ) => state.set(headers["x-mutation"] ?? "", headers["x-value"] ?? "");
+    const seedFixtureResponse = (
+      sessionId: string,
+      headers: Readonly<Record<string, string | undefined>>,
+    ) => {
+      const seed = seedRows.get(sessionId);
+      const authorized =
+        seed !== undefined &&
+        headers["x-principal-issuer"] === seed.bindings.userPrincipal.issuer &&
+        headers["x-principal-subject"] === seed.bindings.userPrincipal.subject &&
+        headers["x-discord-account"] === seed.bindings.discordAccount.userId;
+      return authorized
+        ? HttpServerResponse.json(seed.rows)
+        : HttpServerResponse.json({ unavailable: true }, { status: 403 });
+    };
     const endpoint = yield* HttpRouter.toHttpEffect(
       HttpRouter.add(
         "POST",
@@ -127,6 +149,8 @@ const fixture = (
           )
             return yield* HttpServerResponse.json({ unavailable: true }, { status: 503 });
           const state = rows.get(sessionId)!;
+          if (request.url === "/zero/fixture")
+            return yield* seedFixtureResponse(sessionId, request.headers);
           if (request.url === "/zero/mutate") applyMutation(state, request.headers);
           return yield* HttpServerResponse.json([...state]);
         }),
@@ -134,10 +158,11 @@ const fixture = (
     );
     const request = (
       plane: OwnedApplicationPlane,
-      operation: "query" | "mutate",
+      operation: "query" | "mutate" | "fixture",
       mutation = "",
       value = "",
       app = plane.app,
+      principalSubject = "developer-1",
     ) =>
       endpoint.pipe(
         Effect.provideService(
@@ -151,6 +176,9 @@ const fixture = (
                 "x-database": plane.database,
                 "x-mutation": mutation,
                 "x-value": value,
+                "x-principal-issuer": "https://auth.development.test",
+                "x-principal-subject": principalSubject,
+                "x-discord-account": "discord-account-1",
               },
             }),
           ),
@@ -208,6 +236,30 @@ const fixture = (
           if (options.migrationFailure) return yield* Effect.fail(new Error("migration-failed"));
           return artifacts;
         }),
+      ...(options.seedProviderUnavailable
+        ? {}
+        : {
+            resolveSeedBindings: (_plane: OwnedApplicationPlane, _seedId: string) =>
+              options.seedBindingsMissing
+                ? Effect.fail(new Error("development-seed-bindings-unavailable"))
+                : Effect.succeed({
+                    userPrincipal: {
+                      issuer: "https://auth.development.test",
+                      subject: "developer-1",
+                    },
+                    discordAccount: { platform: "discord" as const, userId: "discord-account-1" },
+                    target: { guildId: "development-guild", channelId: "development-channel" },
+                  }).pipe(Effect.tap(() => waitForProviderReply(options.seedBindingsBarrier))),
+            applySeed: (plane: OwnedApplicationPlane, seed: SyntheticDevelopmentSeed) =>
+              Effect.sync(() => {
+                events.push(`seed:${seed.id}`);
+                const existing = seedRows.get(plane.sessionId);
+                if (existing !== undefined && existing.identity !== seed.identity)
+                  throw new Error("synthetic-seed-identity-conflict");
+                if (existing === undefined) seedRows.set(plane.sessionId, seed);
+                return { identity: seed.identity, inserted: existing === undefined };
+              }),
+          }),
       start: (plane, configuration) =>
         Effect.sync(() => {
           events.push("start");
@@ -289,8 +341,13 @@ const fixture = (
             }),
           ),
         );
-    const start = (sessionId: string) =>
-      allocations.reserveAndAllocate({ sessionId, demands, resources: ["application-zero"] });
+    const start = (sessionId: string, seedId?: string) =>
+      allocations.reserveAndAllocate({
+        sessionId,
+        demands,
+        resources: ["application-zero"],
+        ...(seedId === undefined ? {} : { resourceMetadata: { "application-zero": { seedId } } }),
+      });
     const cleanup = (input: { sessionId: string }) =>
       Effect.gen(function* () {
         const first = yield* allocations.cleanup(input);
@@ -329,10 +386,18 @@ const fixture = (
       rows,
       shared,
       events,
+      seedRows,
       request,
       setTermination: (value: boolean) => {
         terminationProved = value;
       },
+      makeAdapter: () =>
+        makeOwnedApplicationResourceAdapter(base, provider, {
+          profile: "owned-test",
+          artifacts,
+          destinations,
+          now,
+        }),
     };
   });
 
@@ -380,6 +445,204 @@ it.effect(
         expect(yield* f.cleanup({ sessionId: a.session.id })).toBe("cleaned");
       }),
     ),
+);
+
+it.effect(
+  "seeds a newly migrated owned plane once before startup with deterministic bindings",
+  () =>
+    withTest(
+      Effect.gen(function* () {
+        const f = yield* fixture();
+        const session = yield* f.create();
+        yield* f.start(session.session.id, "synthetic-development-v1");
+        expect(f.events.slice(0, 5)).toEqual([
+          "provision",
+          "migrate",
+          "seed:synthetic-development-v1",
+          "start",
+          "endpoint-ready",
+        ]);
+        expect(f.seedRows.get(session.session.id)).toEqual({
+          id: "synthetic-development-v1",
+          identity: expect.any(String),
+          bindings: {
+            userPrincipal: { issuer: "https://auth.development.test", subject: "developer-1" },
+            discordAccount: { platform: "discord", userId: "discord-account-1" },
+            target: { guildId: "development-guild", channelId: "development-channel" },
+          },
+          rows: {
+            configUserPlatform: [
+              {
+                platform: "discord",
+                userId: "discord-account-1",
+                defaultClientId: null,
+                checkinDmEnabled: false,
+                monitorDmEnabled: false,
+                createdAt: 1_700_000_000_000,
+                updatedAt: 1_700_000_000_000,
+                deletedAt: null,
+              },
+            ],
+            configWorkspace: [
+              {
+                workspaceId: "development-guild",
+                sheetId: null,
+                autoCheckin: false,
+                monitorConversationId: null,
+                announcementConversationId: null,
+                createdAt: 1_700_000_000_000,
+                updatedAt: 1_700_000_000_000,
+                deletedAt: null,
+              },
+            ],
+            configWorkspaceConversation: [
+              {
+                workspaceId: "development-guild",
+                conversationId: "development-channel",
+                name: "Synthetic development fixture",
+                running: false,
+                roleId: null,
+                checkinConversationId: null,
+                createdAt: 1_700_000_000_000,
+                updatedAt: 1_700_000_000_000,
+                deletedAt: null,
+              },
+            ],
+          },
+        });
+        const seeded = f.seedRows.get(session.session.id)!;
+        const repeated = yield* makeSyntheticDevelopmentSeed(seeded.id, seeded.bindings);
+        expect(repeated).toEqual(seeded);
+        const output = yield* f.allocations.inspect(session.session.id);
+        expect(output.allocations[0]?.providerResourceId).toContain(
+          "seed=synthetic-development-v1;status=complete",
+        );
+        const plane = f.planes.get(session.session.id)!;
+        const recoveredAdapter = yield* f.makeAdapter();
+        const proveCleanup = recoveredAdapter.proveCleanup;
+        if (proveCleanup === undefined)
+          return yield* Effect.die("missing owned application cleanup proof");
+        const cleanupInput = {
+          sessionId: session.session.id,
+          resources: [
+            {
+              resource: ownedApplicationResource,
+              ownerToken: plane.ownerToken,
+              providerResourceId: output.allocations[0]!.providerResourceId,
+            },
+          ],
+        };
+        expect(yield* proveCleanup(cleanupInput)).toBe(true);
+        expect(
+          yield* proveCleanup({
+            ...cleanupInput,
+            resources: [
+              {
+                ...cleanupInput.resources[0]!,
+                providerResourceId: `owned-application:${session.session.id}:seed=other;status=complete`,
+              },
+            ],
+          }),
+        ).toBe(false);
+        expect(
+          yield* proveCleanup({
+            ...cleanupInput,
+            resources: [
+              {
+                ...cleanupInput.resources[0]!,
+                providerResourceId: `owned-application:${session.session.id}`,
+              },
+            ],
+          }),
+        ).toBe(true);
+        expect(f.events.filter((event) => event.startsWith("seed:"))).toHaveLength(1);
+        expect((yield* Effect.exit(f.start(session.session.id)))._tag).toBe("Failure");
+        expect(f.events.filter((event) => event.startsWith("seed:"))).toHaveLength(1);
+        const fixtureResponse = yield* f.request(f.planes.get(session.session.id)!, "fixture");
+        expect(fixtureResponse.status).toBe(200);
+        expect(
+          yield* Effect.promise(() => HttpServerResponse.toWeb(fixtureResponse).json()),
+        ).toEqual(f.seedRows.get(session.session.id)?.rows);
+        const wrongPrincipal = yield* f.request(
+          f.planes.get(session.session.id)!,
+          "fixture",
+          "",
+          "",
+          f.planes.get(session.session.id)!.app,
+          "different-principal",
+        );
+        expect(wrongPrincipal.status).toBe(403);
+      }),
+    ),
+);
+
+it.effect("blocks selected seeding when trusted development bindings are unavailable", () =>
+  withTest(
+    Effect.gen(function* () {
+      const f = yield* fixture({ seedBindingsMissing: true });
+      const session = yield* f.create();
+      expect(
+        (yield* Effect.exit(f.start(session.session.id, "synthetic-development-v1")))._tag,
+      ).toBe("Failure");
+      expect(f.events).not.toContain("start");
+      expect(f.events).not.toContain("seed:synthetic-development-v1");
+      expect(f.seedRows.size).toBe(0);
+    }),
+  ),
+);
+
+it.effect(
+  "rejects a selected seed before provider effects when seed operations are unavailable",
+  () =>
+    withTest(
+      Effect.gen(function* () {
+        const f = yield* fixture({ seedProviderUnavailable: true });
+        const session = yield* f.create();
+        const result = yield* Effect.result(
+          f.start(session.session.id, "synthetic-development-v1"),
+        );
+        expect(result).toMatchObject({ _tag: "Failure" });
+        expect(f.events).toEqual([]);
+      }),
+    ),
+);
+
+it.effect("does not apply seed rows when the session stops during binding resolution", () =>
+  withTest(
+    Effect.gen(function* () {
+      const seedBindings = yield* makeProviderBarrier;
+      const f = yield* fixture({
+        seedBindingsBarrier: seedBindings,
+      });
+      const session = yield* f.create();
+      const allocation = yield* f
+        .start(session.session.id, "synthetic-development-v1")
+        .pipe(Effect.result, Effect.forkChild);
+      yield* Deferred.await(seedBindings.entered);
+      yield* f.sessions.stop(session.session.id, session.ownerIdentity);
+      yield* Deferred.succeed(seedBindings.release, undefined);
+      expect((yield* Fiber.join(allocation))._tag).toBe("Failure");
+      expect(f.events).not.toContain("seed:synthetic-development-v1");
+      expect(f.events).not.toContain("start");
+      expect(f.seedRows.size).toBe(0);
+    }),
+  ),
+);
+
+it.effect("does not seed or start when an owned-plane migration fails", () =>
+  withTest(
+    Effect.gen(function* () {
+      const f = yield* fixture({
+        migrationFailure: true,
+      });
+      const session = yield* f.create();
+      expect(
+        (yield* Effect.exit(f.start(session.session.id, "synthetic-development-v1")))._tag,
+      ).toBe("Failure");
+      expect(f.events).toEqual(["provision", "migrate"]);
+      expect(f.seedRows.size).toBe(0);
+    }),
+  ),
 );
 
 it.effect("preserves session rejection inside reservation without writing owned state", () =>
