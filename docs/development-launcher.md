@@ -705,3 +705,10 @@ Owned application/Zero allocation, migration ordering and exact cleanup are
 documented in [Owned application and Zero State Planes](owned-application-state-planes.md).
 The operator adapter has local contract tests; no live application/Zero profile
 is enabled by those tests.
+
+## Public session probe gateway
+
+The probe-only route and owner-grant protocol, HTTPS/WSS transport boundary,
+operator prerequisites, cleanup and evidence limitations are documented in
+[Session preview gateway](preview-gateway.md). Application routes and live public
+profiles remain unavailable until their adapters and acceptance gates pass.

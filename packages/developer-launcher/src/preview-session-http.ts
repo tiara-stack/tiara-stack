@@ -1,6 +1,5 @@
+import { previewHttpsServerLayer } from "./preview-https";
 import { timingSafeEqual } from "node:crypto";
-import { createServer as createHttpsServer } from "node:https";
-import { NodeHttpServer } from "@effect/platform-node";
 import { Effect, Layer, Option, Redacted, Schema } from "effect";
 import { Headers, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 import {
@@ -354,12 +353,7 @@ export const PreviewSessionControllerHttpsLive = (
   );
   return HttpRouter.serve(routes).pipe(
     HttpServer.withLogAddress,
-    Layer.provide(
-      NodeHttpServer.layer(
-        () => createHttpsServer({ cert: options.certificate, key: options.privateKey }),
-        { host: options.host, port: options.port },
-      ),
-    ),
+    Layer.provide(previewHttpsServerLayer(options)),
   );
 };
 

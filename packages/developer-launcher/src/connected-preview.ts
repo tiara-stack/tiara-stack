@@ -2696,29 +2696,46 @@ const runSessionCleanup = (
   credentials: LocalSessionCredentials,
   controller: import("./preview-sessions").PreviewSessionControllerApi,
   allocations: import("./preview-allocations").PreviewAllocationApi,
+  gateway: LauncherOptions["previewGateway"],
 ) =>
-  Effect.flatMap(validateCleanupOwnership(command, id, credentials, controller), (validated) => {
-    if ("output" in validated) return Effect.succeed(validated.output);
-    if (command.action !== "resolve")
-      return runOwnedAllocationCleanup(command, id, validated.session, controller, allocations);
-    const resource = command.options.resource;
-    if (resource === null)
-      return Effect.succeed(
-        sessionOperationFailure(command, "Resolve requires one allocation resource key."),
+  Effect.flatMap(validateCleanupOwnership(command, id, credentials, controller), (validated) =>
+    Effect.gen(function* () {
+      if ("output" in validated) return validated.output;
+      if (gateway !== undefined) {
+        const cleaned = yield* Effect.result(gateway.cleanupSession(id, credentials.ownerIdentity));
+        if (Result.isFailure(cleaned))
+          return sessionOperationFailure(
+            command,
+            "Gateway route cleanup could not be verified; owned relay cleanup was not attempted.",
+          );
+      }
+      if (command.action !== "resolve")
+        return yield* runOwnedAllocationCleanup(
+          command,
+          id,
+          validated.session,
+          controller,
+          allocations,
+        );
+      const resource = command.options.resource;
+      if (resource === null)
+        return yield* Effect.succeed(
+          sessionOperationFailure(command, "Resolve requires one allocation resource key."),
+        );
+      return yield* Effect.flatMap(
+        Effect.result(allocations.resolveUnknownAllocation({ sessionId: id, resource })),
+        (resolved) =>
+          Result.isFailure(resolved)
+            ? Effect.succeed(
+                sessionOperationFailure(
+                  command,
+                  `Provider ownership resolution failed (${allocationFailureMessage(resolved.failure)}); reservations remain held.`,
+                ),
+              )
+            : runOwnedAllocationCleanup(command, id, validated.session, controller, allocations),
       );
-    return Effect.flatMap(
-      Effect.result(allocations.resolveUnknownAllocation({ sessionId: id, resource })),
-      (resolved) =>
-        Result.isFailure(resolved)
-          ? Effect.succeed(
-              sessionOperationFailure(
-                command,
-                `Provider ownership resolution failed (${allocationFailureMessage(resolved.failure)}); reservations remain held.`,
-              ),
-            )
-          : runOwnedAllocationCleanup(command, id, validated.session, controller, allocations),
-    );
-  });
+    }),
+  );
 
 const validateCleanupOwnership = (
   command: ConnectedPreviewCommand,
@@ -2980,12 +2997,26 @@ const runSessionWithCredentials = (
         Match.when("cleanup", () =>
           allocations === undefined
             ? Effect.succeed(outputForUnavailableExecution(command))
-            : runSessionCleanup(command, id, result.credentials, controller, allocations),
+            : runSessionCleanup(
+                command,
+                id,
+                result.credentials,
+                controller,
+                allocations,
+                options.previewGateway,
+              ),
         ),
         Match.when("resolve", () =>
           allocations === undefined
             ? Effect.succeed(outputForUnavailableExecution(command))
-            : runSessionCleanup(command, id, result.credentials, controller, allocations),
+            : runSessionCleanup(
+                command,
+                id,
+                result.credentials,
+                controller,
+                allocations,
+                options.previewGateway,
+              ),
         ),
         Match.orElse(() => Effect.succeed(outputForUnavailableExecution(command))),
       );

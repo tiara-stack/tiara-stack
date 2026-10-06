@@ -1701,7 +1701,7 @@ const sessionIdentityLabelsMatch = (
   sameLabelKeys(expected, observed) &&
   /^[a-f0-9]{63}$/.test(observed["tiara-stack.io/owner-token-sha256"] ?? "");
 
-const relayNameFor = (sessionId: string, role: PreviewRelayRole) => {
+export const relayNameFor = (sessionId: string, role: PreviewRelayRole) => {
   const sessionKey = createHash("sha256").update(sessionId).digest("hex").slice(0, 12);
   return `relay-${sessionKey}-${role}`;
 };
@@ -2357,7 +2357,7 @@ export const buildPreviewRelayResourcePlan = (
 const relayServiceResourceKey = (role: PreviewRelayRole) => `preview-relay-service-${role}`;
 const relayAttachmentResourceKey = (role: PreviewRelayRole) => `preview-relay-attachment-${role}`;
 
-const RelayResourceReferenceSchema = Schema.Struct({
+export const RelayResourceReferenceSchema = Schema.Struct({
   version: Schema.Literals([1]),
   kind: Schema.Literals(["service", "attachment"]),
   sessionId: Schema.String,

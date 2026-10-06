@@ -310,6 +310,7 @@ describe("preview workload credentials", () => {
         },
       });
       const controllerApi: PreviewSessionControllerApi = {
+        watchFences: () => Effect.void,
         create: () => Effect.die("unused"),
         status: () => Effect.die("unused"),
         heartbeat: () => Effect.die("unused"),

@@ -41,6 +41,7 @@ import {
   type ProcessExecutor,
 } from "./types";
 import { normalizeChangedSurfaces, parseCommand, type CommandOptions } from "./commands";
+import { makePreviewGateway, PreviewGateway } from "./preview-gateway";
 import { PreviewSessionController, PreviewSessionControllerLive } from "./preview-sessions";
 import {
   makeLocalFilesystemPreviewResourceAdapter,
@@ -202,75 +203,82 @@ const runParsedCommand = (config: Parameters<typeof launcherOptions>[0]) =>
         Effect.flatMap((allocationController) =>
           Effect.serviceOption(PreviewRelayProvider).pipe(
             Effect.flatMap((relayProvider) =>
-              // fallow-ignore-next-line complexity
-              Effect.tryPromise({
-                // fallow-ignore-next-line complexity
-                try: async () => {
-                  const options = launcherOptions(config);
-                  const launcherConfig = {
-                    ...options,
-                    ...(Option.isSome(sessionController)
-                      ? { previewSessionController: sessionController.value }
-                      : {}),
-                    ...(Option.isSome(allocationController)
-                      ? { previewAllocationController: allocationController.value }
-                      : {}),
-                    ...(Option.isSome(relayProvider)
-                      ? { previewRelayProvider: relayProvider.value }
-                      : {}),
-                  };
-                  let result = await runLauncherFromParsed(
-                    config.operands,
-                    options,
-                    launcherConfig,
-                  );
-                  const shouldExecutePlan = isExecutablePlan(result);
-                  const lifecycleExecutionStarted = config.jsonStream && shouldExecutePlan;
-                  if (shouldExecutePlan) {
-                    result = await executeDevelopmentPlan(
-                      result,
-                      config.json || config.jsonStream,
-                      {
-                        jsonStream: config.jsonStream,
-                      },
-                    );
-                  }
-                  process.exitCode = result.exitCode;
-                  if (config.jsonStream) {
-                    if (result.stdout.trim().length > 0) {
-                      process.stdout.write(result.stdout);
-                    }
-                    if (result.output.ok && !lifecycleExecutionStarted) {
-                      process.stdout.write(
-                        renderLifecycleTerminal(result.output, result.exitCode, 2),
+              Effect.serviceOption(PreviewGateway).pipe(
+                Effect.flatMap((gateway) =>
+                  // fallow-ignore-next-line complexity
+                  Effect.tryPromise({
+                    // fallow-ignore-next-line complexity
+                    try: async () => {
+                      const options = launcherOptions(config);
+                      const launcherConfig = {
+                        ...options,
+                        ...(Option.isSome(sessionController)
+                          ? { previewSessionController: sessionController.value }
+                          : {}),
+                        ...(Option.isSome(allocationController)
+                          ? { previewAllocationController: allocationController.value }
+                          : {}),
+                        ...(Option.isSome(gateway) ? { previewGateway: gateway.value } : {}),
+                        ...(Option.isSome(relayProvider)
+                          ? { previewRelayProvider: relayProvider.value }
+                          : {}),
+                      };
+                      let result = await runLauncherFromParsed(
+                        config.operands,
+                        options,
+                        launcherConfig,
                       );
-                    } else if (
-                      !result.output.ok &&
-                      !lifecycleExecutionStarted &&
-                      result.stdout.trim().length === 0
-                    ) {
-                      process.stdout.write(
-                        renderLifecycleTerminal(result.output, result.exitCode, 1),
-                      );
-                    }
-                    return null;
-                  }
-                  const output = result.stdout.trimEnd();
-                  return output.length === 0 ? null : output;
-                },
-                catch: (cause) => {
-                  process.exitCode = 1;
-                  return cause instanceof Error
-                    ? cause
-                    : new Error(
-                        "The development launcher failed before it could produce a result.",
-                      );
-                },
-              }).pipe(
-                Effect.flatMap((output) => (output === null ? Effect.void : Console.log(output))),
-                Effect.catch((error: unknown) =>
-                  Console.error(
-                    error instanceof Error ? error.message : "The development launcher failed.",
+                      const shouldExecutePlan = isExecutablePlan(result);
+                      const lifecycleExecutionStarted = config.jsonStream && shouldExecutePlan;
+                      if (shouldExecutePlan) {
+                        result = await executeDevelopmentPlan(
+                          result,
+                          config.json || config.jsonStream,
+                          {
+                            jsonStream: config.jsonStream,
+                          },
+                        );
+                      }
+                      process.exitCode = result.exitCode;
+                      if (config.jsonStream) {
+                        if (result.stdout.trim().length > 0) {
+                          process.stdout.write(result.stdout);
+                        }
+                        if (result.output.ok && !lifecycleExecutionStarted) {
+                          process.stdout.write(
+                            renderLifecycleTerminal(result.output, result.exitCode, 2),
+                          );
+                        } else if (
+                          !result.output.ok &&
+                          !lifecycleExecutionStarted &&
+                          result.stdout.trim().length === 0
+                        ) {
+                          process.stdout.write(
+                            renderLifecycleTerminal(result.output, result.exitCode, 1),
+                          );
+                        }
+                        return null;
+                      }
+                      const output = result.stdout.trimEnd();
+                      return output.length === 0 ? null : output;
+                    },
+                    catch: (cause) => {
+                      process.exitCode = 1;
+                      return cause instanceof Error
+                        ? cause
+                        : new Error(
+                            "The development launcher failed before it could produce a result.",
+                          );
+                    },
+                  }).pipe(
+                    Effect.flatMap((output) =>
+                      output === null ? Effect.void : Console.log(output),
+                    ),
+                    Effect.catch((error: unknown) =>
+                      Console.error(
+                        error instanceof Error ? error.message : "The development launcher failed.",
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -441,17 +449,29 @@ const previewAllocationLayer = (databasePath: string) =>
         !readOnlyCapacityDoctor,
       )
     : Layer.empty;
+// Cleanup remains available without live gateway/authentication adapters. It never opens routes.
+const previewSessionLayer = PreviewSessionControllerLive(Date.now);
+const previewSessionWithGatewayCleanup =
+  previewAction === "cleanup" || previewAction === "resolve"
+    ? Layer.effect(
+        PreviewGateway,
+        Effect.gen(function* () {
+          const controller = yield* PreviewSessionController;
+          return yield* makePreviewGateway({ domain: "", controller, now: Date.now });
+        }),
+      ).pipe(Layer.provideMerge(previewSessionLayer))
+    : previewSessionLayer;
 const previewDatabaseLayer =
   resolvedSessionDatabase === undefined || (!allocationControllerNeeded && !sessionControllerNeeded)
     ? Layer.empty
     : Layer.provide(
         sessionControllerNeeded && allocationControllerNeeded
           ? Layer.merge(
-              PreviewSessionControllerLive(Date.now),
+              previewSessionWithGatewayCleanup,
               previewAllocationLayer(resolvedSessionDatabase),
             )
           : sessionControllerNeeded
-            ? PreviewSessionControllerLive(Date.now)
+            ? previewSessionWithGatewayCleanup
             : allocationControllerNeeded
               ? previewAllocationLayer(resolvedSessionDatabase)
               : Layer.empty,

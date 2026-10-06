@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { Context, Duration, Effect, Layer, Match, Schema } from "effect";
+import { Context, Duration, Effect, Layer, Match, Schema, Scope } from "effect";
 import { SqlClient, SqlError } from "effect/unstable/sql";
 import {
   connectedPreviewGroups,
@@ -157,6 +157,11 @@ export class PreviewSessionError extends Schema.TaggedErrorClass<PreviewSessionE
 type ControllerError = PreviewSessionError | SqlError.SqlError;
 
 export interface PreviewSessionControllerApi {
+  /** Scoped local transport fences. Remote gateways require a verified revocation adapter. */
+  readonly watchFences: (
+    id: string,
+    fence: Effect.Effect<void>,
+  ) => Effect.Effect<void, never, Scope.Scope>;
   readonly create: (
     input: CreatePreviewSession,
   ) => Effect.Effect<SessionCredentials, ControllerError>;
@@ -381,6 +386,12 @@ const decodeRow = (row: Record<string, unknown>): PreviewSession => ({
 export const makePreviewSessionController = (now: () => number) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
+    const fences = new Map<string, Set<Effect.Effect<void>>>();
+    const fenceSession = (id: string) =>
+      Effect.forEach([...(fences.get(id) ?? [])], (fence) => Effect.forkDetach(fence), {
+        discard: true,
+        concurrency: "unbounded",
+      });
     yield* sql`
       CREATE TABLE IF NOT EXISTS preview_sessions (
         id TEXT PRIMARY KEY,
@@ -464,6 +475,7 @@ export const makePreviewSessionController = (now: () => number) =>
         const time = now();
         if (session.endedAt !== null || session.leaseDeadline > time) return session;
         yield* sql`UPDATE preview_sessions SET phase='expired', ended_at=${time} WHERE id=${id} AND ended_at IS NULL AND lease_deadline <= ${time}`;
+        yield* fenceSession(id);
         return { ...session, phase: "expired" as const, endedAt: time };
       });
     const validateSessionAccess = (
@@ -548,6 +560,20 @@ export const makePreviewSessionController = (now: () => number) =>
       });
 
     const api: PreviewSessionControllerApi = {
+      watchFences: (id, fence) =>
+        Effect.acquireRelease(
+          Effect.sync(() => {
+            const listeners = fences.get(id) ?? new Set<Effect.Effect<void>>();
+            listeners.add(fence);
+            fences.set(id, listeners);
+          }),
+          () =>
+            Effect.sync(() => {
+              const listeners = fences.get(id);
+              listeners?.delete(fence);
+              if (listeners?.size === 0) fences.delete(id);
+            }),
+        ),
       create: (input) =>
         sql.withTransaction(
           Effect.gen(function* () {
@@ -594,6 +620,7 @@ export const makePreviewSessionController = (now: () => number) =>
           const rows =
             yield* sql`UPDATE preview_sessions SET generation=generation+1, phase='pending', supervisor_identity_digest=${digestIdentity(supervisorIdentity)}, supervisor_lease_until=${time + previewSupervisorLeaseMs} WHERE id=${id} AND identity_digest=${digestIdentity(ownerIdentity)} AND generation=${current.generation} AND supervisor_lease_until <= ${time} AND ended_at IS NULL AND lease_deadline > ${time} RETURNING *`;
           if (rows.length === 0) return yield* Effect.fail(sessionError("resume-raced-or-expired"));
+          yield* fenceSession(id);
           return {
             session: decodeRow(rows[0] as Record<string, unknown>),
             supervisorIdentity,
@@ -613,10 +640,14 @@ export const makePreviewSessionController = (now: () => number) =>
       stop: (id, ownerIdentity) =>
         Effect.gen(function* () {
           const current = yield* valid(id, ownerIdentity, undefined, true);
-          if (current.endedAt !== null) return current;
+          if (current.endedAt !== null) {
+            yield* fenceSession(id);
+            return current;
+          }
           const time = now();
           const rows =
             yield* sql`UPDATE preview_sessions SET phase='ended', supervisor_lease_until=0, ended_at=${time} WHERE id=${id} AND identity_digest=${digestIdentity(ownerIdentity)} AND ended_at IS NULL RETURNING *`;
+          yield* fenceSession(id);
           if (rows.length === 0) return yield* valid(id, ownerIdentity, undefined, true);
           return decodeRow(rows[0] as Record<string, unknown>);
         }),

@@ -15,6 +15,7 @@ import {
 import { PreviewSessionError, type PreviewSessionControllerApi } from "./preview-sessions";
 
 const deadController = (): PreviewSessionControllerApi => ({
+  watchFences: () => Effect.void,
   create: () => Effect.die("unexpected controller call"),
   status: () => Effect.die("unexpected controller call"),
   heartbeat: () => Effect.die("unexpected controller call"),

@@ -5,6 +5,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import path from "node:path";
 import { Deferred, Effect, Fiber, FileSystem, Layer, Path, Scope } from "effect";
 import { parseCommand, parsePositionals, runLauncher, type ProcessExecutor } from "./index";
+import { makePreviewGateway } from "./preview-gateway";
 import { connectedPreviewOutput } from "./connected-preview";
 import { makePreviewSessionController, type PreviewSessionControllerApi } from "./preview-sessions";
 import {
@@ -1883,10 +1884,23 @@ it.live(
               }),
             );
             const sessionDatabase = `${cwd}/controller.sqlite`;
+            const gateway = yield* makePreviewGateway({
+              domain: "",
+              controller,
+              now: () => clock.value,
+            });
+            let routeCleanupCalls = 0;
             const options = {
               cwd,
               env: { TIARA_PREVIEW_SESSION_DATABASE: sessionDatabase },
               previewSessionController: controller,
+              previewGateway: {
+                ...gateway,
+                cleanupSession: (id: string, ownerIdentity: string) => {
+                  routeCleanupCalls += 1;
+                  return gateway.cleanupSession(id, ownerIdentity);
+                },
+              },
               previewAllocationController: allocationController,
               previewRelayProvider: makeRelayProviderWithAttachmentStatus("ready"),
             };
@@ -2016,6 +2030,7 @@ it.live(
               catch: (cause) => cause,
             });
             expect(liveCleanup.exitCode).toBe(2);
+            expect(routeCleanupCalls).toBe(0);
             expect((yield* fileSystem.readFileString(resourcePath!)).includes(id)).toBe(true);
 
             const heartbeat = yield* Effect.tryPromise({
@@ -2115,6 +2130,7 @@ it.live(
               catch: (cause) => cause,
             });
             expect(cleaned.exitCode, cleaned.stdout).toBe(0);
+            expect(routeCleanupCalls).toBeGreaterThan(0);
             expect((yield* fileSystem.readDirectory(path.dirname(resourcePath!))).length).toBe(0);
             expect(
               (yield* fileSystem.readFileString(otherResourcePath)).includes(

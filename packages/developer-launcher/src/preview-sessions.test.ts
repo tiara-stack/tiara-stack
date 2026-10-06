@@ -1,7 +1,7 @@
 import { it } from "@effect/vitest";
 import { NodeServices } from "@effect/platform-node";
 import { SqliteClient } from "@effect/sql-sqlite-node";
-import { Duration, Effect, Fiber, FileSystem, Layer, Path } from "effect";
+import { Deferred, Duration, Effect, Fiber, FileSystem, Layer, Path } from "effect";
 import { TestClock } from "effect/testing";
 import type * as SqlClientType from "effect/unstable/sql/SqlClient";
 import { expect } from "vitest";
@@ -195,30 +195,47 @@ it.live("does not let status renew a lease and closes admission at the deadline"
 
 it.live("makes stop idempotent and permanently closes admission", () =>
   withController(({ value }) =>
-    Effect.gen(function* () {
-      const controller = yield* makePreviewSessionController(() => value);
-      const created = yield* controller.create({
-        owner: "owner",
-        checkout: "/checkout",
-        manifests: {},
-        requestedRevision: "rev-a",
-      });
-      yield* controller.activate(
-        created.session.id,
-        created.session.generation,
-        created.supervisorIdentity,
-        "rev-a",
-      );
-      const stopped = yield* controller.stop(created.session.id, created.ownerIdentity);
-      const stoppedAgain = yield* controller.stop(created.session.id, created.ownerIdentity);
-      expect(stoppedAgain.endedAt).toBe(stopped.endedAt);
-      const admission = yield* Effect.exit(controller.admit(created.session.id, 1));
-      expect(admission._tag).toBe("Failure");
-      const credentialRenewal = yield* Effect.exit(
-        controller.authorizeCredential(created.session.id, 1, "sheet-web"),
-      );
-      expect(credentialRenewal._tag).toBe("Failure");
-    }),
+    Effect.scoped(
+      Effect.gen(function* () {
+        const controller = yield* makePreviewSessionController(() => value);
+        const created = yield* controller.create({
+          owner: "owner",
+          checkout: "/checkout",
+          manifests: {},
+          requestedRevision: "rev-a",
+        });
+        yield* controller.activate(
+          created.session.id,
+          created.session.generation,
+          created.supervisorIdentity,
+          "rev-a",
+        );
+        const fenceStarted = yield* Deferred.make<void>();
+        const finishFence = yield* Deferred.make<void>();
+        const fenceFinished = yield* Deferred.make<void>();
+        yield* controller.watchFences(
+          created.session.id,
+          Effect.gen(function* () {
+            yield* Deferred.succeed(fenceStarted, undefined);
+            yield* Deferred.await(finishFence);
+            yield* Deferred.succeed(fenceFinished, undefined);
+          }),
+        );
+        const stopped = yield* controller.stop(created.session.id, created.ownerIdentity);
+        yield* Deferred.await(fenceStarted);
+        expect(yield* Deferred.isDone(fenceFinished)).toBe(false);
+        yield* Deferred.succeed(finishFence, undefined);
+        yield* Deferred.await(fenceFinished);
+        const stoppedAgain = yield* controller.stop(created.session.id, created.ownerIdentity);
+        expect(stoppedAgain.endedAt).toBe(stopped.endedAt);
+        const admission = yield* Effect.exit(controller.admit(created.session.id, 1));
+        expect(admission._tag).toBe("Failure");
+        const credentialRenewal = yield* Effect.exit(
+          controller.authorizeCredential(created.session.id, 1, "sheet-web"),
+        );
+        expect(credentialRenewal._tag).toBe("Failure");
+      }),
+    ),
   ),
 );
 

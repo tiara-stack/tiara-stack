@@ -404,6 +404,7 @@ export interface LauncherOptions {
   readonly selectedServices?: readonly string[];
   readonly previewSessionController?: import("./preview-sessions").PreviewSessionControllerApi;
   readonly previewAllocationController?: import("./preview-allocations").PreviewAllocationApi;
+  readonly previewGateway?: import("./preview-gateway").PreviewGatewayApi;
   readonly previewRelayProvider?: import("./preview-relay-provider").PreviewRelayProviderApi;
 }
 

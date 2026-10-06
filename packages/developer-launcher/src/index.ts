@@ -53,6 +53,8 @@ import {
 } from "./compose-execution";
 
 export * from "./types";
+export * from "./preview-gateway";
+export * from "./preview-gateway-http";
 export {
   executeFast,
   executeCompose,
