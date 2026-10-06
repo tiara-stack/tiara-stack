@@ -1327,3 +1327,4 @@ export * from "./owned-application-plane";
 export * from "./owned-application-postgres";
 export * from "./owned-application-migrations";
 export * from "./owned-application-storage";
+export * from "./owned-workflow-execution";
