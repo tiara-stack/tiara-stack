@@ -363,7 +363,8 @@ export class PreviewSessionRuntime extends Context.Service<
   PreviewSessionRuntimeApi
 >()("developer-launcher/PreviewSessionRuntime") {}
 
-const digestIdentity = (identity: string) => createHash("sha256").update(identity).digest("hex");
+export const digestIdentity = (identity: string) =>
+  createHash("sha256").update(identity).digest("hex");
 const sessionError = (reason: string) => new PreviewSessionError({ reason });
 
 const decodeRow = (row: Record<string, unknown>): PreviewSession => ({

@@ -166,6 +166,12 @@ unverified routes/identity admission requirement.
 
 ## Acceptance evidence and remaining gates
 
+TIA-238 adds the session-bound browser auth adapter and route contract in
+[`preview-auth.md`](preview-auth.md). The default launcher does not provide the
+operator OAuth/token-store adapters, so application authentication remains
+unsupported. The local contract harness does not enable Zero/WSS, workflow
+traffic, deployed OAuth registrations or public browser access.
+
 The local evidence is `packages/developer-launcher/src/preview-gateway.test.ts`.
 It uses the real SQLite controller, recorded test allocation receipts, Effect HTTP
 handlers, paired test sockets and a persisted shared-control row. These are local
