@@ -28,9 +28,11 @@ in this slice.
 Only explicitly selected controlled smoke work is admitted by this contract.
 Autonomous Triggers remain off and the smoke path cannot request external
 effects. Enqueue and observation must name the same group. Cleanup is eligible
-only after provider operations are terminal, API admission is fenced, runner
-pods have stopped, accepted work has settled, and ownership is known; otherwise
-the group remains quarantined.
+only after provider operations are terminal, API admission is fenced, current
+and stale runners have stopped, reclaimed command leases have been reconciled,
+lost host dependencies have been accounted for, active external calls have
+terminated, accepted work has settled, and ownership is known. Missing any of
+these facts leaves the group quarantined.
 
 This is contract evidence, not a provisioner or live runtime integration. The
 owned workflow execution profile remains disabled. In particular, no workload

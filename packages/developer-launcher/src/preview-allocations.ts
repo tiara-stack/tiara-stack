@@ -36,6 +36,9 @@ export const DEFAULT_PREVIEW_ALLOCATION_CONFIG: PreviewAllocationConfig = {
   maximumMeasurementAgeMs: 15 * 60_000,
 };
 export const DEFAULT_PREVIEW_RESOURCE_ADAPTER_TIMEOUT_MS = 60_000;
+const previewAcceptedWorkDrainMs = 5 * 60_000;
+const previewSettlementRecoveryMs = 5 * 60_000;
+const previewOwnedResourceDeletionMs = 5 * 60_000;
 export type PreviewAllocationConfigParseResult =
   | { readonly config: PreviewAllocationConfig; readonly error?: never }
   | { readonly config?: never; readonly error: string };
@@ -492,6 +495,10 @@ export const makePreviewAllocationController = (
       session_id TEXT PRIMARY KEY, ended_at INTEGER NOT NULL, proof_at INTEGER,
       quarantine_reason TEXT, completed_at INTEGER
     )`;
+      yield* sql`CREATE TABLE IF NOT EXISTS preview_cleanup_timing (
+      session_id TEXT PRIMARY KEY REFERENCES preview_cleanup_state(session_id),
+      settlement_started_at INTEGER NOT NULL, deletion_started_at INTEGER
+    )`;
       yield* sql`CREATE TABLE IF NOT EXISTS preview_allocation_resolutions (
       session_id TEXT NOT NULL, resource TEXT NOT NULL, owner_token TEXT NOT NULL,
       provider TEXT NOT NULL, provider_identity TEXT NOT NULL, verified_at INTEGER NOT NULL,
@@ -671,10 +678,17 @@ export const makePreviewAllocationController = (
           yield* sql`SELECT completed_at FROM preview_cleanup_state WHERE session_id=${sessionId}`;
         if (cleanups.length > 0 && (cleanups[0] as Record<string, unknown>).completed_at !== null)
           return "cleaned" as const;
-        if (Number(session.unsettled) !== 0) return "waiting" as const;
         const endedAt = Number(session.ended_at);
         if (cleanups.length === 0)
           yield* sql`INSERT INTO preview_cleanup_state(session_id, ended_at, proof_at) VALUES (${sessionId}, ${endedAt}, NULL) ON CONFLICT(session_id) DO NOTHING`;
+        yield* sql`INSERT INTO preview_cleanup_timing(session_id, settlement_started_at) VALUES (${sessionId}, ${endedAt}) ON CONFLICT(session_id) DO NOTHING`;
+        if (Number(session.unsettled) !== 0) {
+          if (now() < endedAt + previewAcceptedWorkDrainMs + previewSettlementRecoveryMs)
+            return "waiting" as const;
+          yield* sql`UPDATE preview_cleanup_state SET quarantine_reason='accepted-work-settlement-unproven' WHERE session_id=${sessionId} AND completed_at IS NULL`;
+          return "quarantined" as const;
+        }
+        yield* sql`UPDATE preview_cleanup_state SET quarantine_reason=NULL WHERE session_id=${sessionId} AND quarantine_reason='accepted-work-settlement-unproven' AND completed_at IS NULL`;
         return { session } as const;
       });
 
@@ -743,7 +757,11 @@ export const makePreviewAllocationController = (
         return state === "deleting" ? ("waiting" as const) : ("quarantined" as const);
       });
 
-    const deleteCleanupResource = (sessionId: string, entry: Record<string, unknown>) =>
+    const deleteCleanupResource = (
+      sessionId: string,
+      entry: Record<string, unknown>,
+      timeoutMs: number,
+    ) =>
       Effect.gen(function* () {
         const resource = String(entry.resource);
         const ownerToken = String(entry.owner_token);
@@ -762,7 +780,7 @@ export const makePreviewAllocationController = (
           withPreviewResourceAdapterTimeout(
             "resource-deletion",
             adapter.deleteOwned({ sessionId, providerResourceId, ownerToken, resource }),
-            validatedAdapterTimeoutMs,
+            timeoutMs,
           ),
         );
         if (removed._tag === "Failure") {
@@ -780,10 +798,33 @@ export const makePreviewAllocationController = (
           : yield* readDeletionClaimOutcome(sessionId, resource);
       });
 
+    const remainingDeletionPhaseMs = (sessionId: string) =>
+      Effect.gen(function* () {
+        const time = now();
+        const rows =
+          yield* sql`UPDATE preview_cleanup_timing SET deletion_started_at=COALESCE(deletion_started_at, ${time}) WHERE session_id=${sessionId} RETURNING deletion_started_at`;
+        const startedAt = (rows[0] as Record<string, unknown> | undefined)?.deletion_started_at;
+        if (startedAt === undefined) {
+          yield* sql`UPDATE preview_cleanup_state SET quarantine_reason='cleanup-timing-missing' WHERE session_id=${sessionId}`;
+          return null;
+        }
+        const remaining = Number(startedAt) + previewOwnedResourceDeletionMs - time;
+        if (remaining > 0) return remaining;
+        yield* sql`UPDATE preview_cleanup_state SET quarantine_reason='owned-resource-deletion-deadline-exceeded' WHERE session_id=${sessionId}`;
+        yield* sql`UPDATE preview_cleanup_timing SET deletion_started_at=NULL WHERE session_id=${sessionId} AND deletion_started_at=${startedAt}`;
+        return null;
+      });
+
     const deleteCleanupLedger = (sessionId: string, ledger: readonly Record<string, unknown>[]) =>
       Effect.gen(function* () {
         for (const entry of ledger) {
-          const result = yield* deleteCleanupResource(sessionId, entry);
+          const remaining = yield* remainingDeletionPhaseMs(sessionId);
+          if (remaining === null) return "quarantined" as const;
+          const result = yield* deleteCleanupResource(
+            sessionId,
+            entry,
+            Math.min(validatedAdapterTimeoutMs, remaining),
+          );
           if (result !== "deleted") return result;
         }
         return "deleted" as const;
@@ -973,6 +1014,7 @@ export const makePreviewAllocationController = (
         const deletion = yield* deleteCleanupLedger(sessionId, ledger);
         if (deletion === "quarantined") return "quarantined" as const;
         if (deletion === "waiting") return "waiting" as const;
+        if ((yield* remainingDeletionPhaseMs(sessionId)) === null) return "quarantined" as const;
         if (yield* hasUnresolvedAllocations(sessionId)) return "quarantined" as const;
         yield* releaseCleanupReservations(sessionId, time);
         return "cleaned" as const;
@@ -1144,6 +1186,7 @@ export const makePreviewAllocationController = (
           const sessionState = yield* loadCleanupSession(input.sessionId);
           if (sessionState === "cleaned") return "cleaned" as const;
           if (sessionState === "waiting") return "waiting" as const;
+          if (sessionState === "quarantined") return "quarantined" as const;
           const ledger = yield* loadKnownCleanupLedger(input.sessionId, sessionState.session);
           if (ledger === undefined) return "quarantined" as const;
           const unknownResources = ledger.filter(

@@ -237,6 +237,10 @@ export const WorkflowExecutionCessationEvidence = Schema.Struct({
   providerOperationsTerminal: Schema.Boolean,
   apiFenced: Schema.Boolean,
   runnerPodsTerminated: Schema.Boolean,
+  staleRunnersTerminated: Schema.Boolean,
+  reclaimedCommandLeasesReconciled: Schema.Boolean,
+  hostDependenciesAccountedFor: Schema.Boolean,
+  activeExternalCallsTerminated: Schema.Boolean,
   acceptedWorkSettled: Schema.Boolean,
   unknownOwnership: Schema.Boolean,
 });
@@ -246,6 +250,10 @@ export const workflowExecutionCleanupDisposition = (input: unknown) => {
   return input.providerOperationsTerminal &&
     input.apiFenced &&
     input.runnerPodsTerminated &&
+    input.staleRunnersTerminated &&
+    input.reclaimedCommandLeasesReconciled &&
+    input.hostDependenciesAccountedFor &&
+    input.activeExternalCallsTerminated &&
     input.acceptedWorkSettled &&
     !input.unknownOwnership
     ? ("deletable" as const)

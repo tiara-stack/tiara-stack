@@ -353,9 +353,16 @@ then calls the configured infrastructure adapter. Missing evidence fails
 before allocation. `status` reads session and allocation ledgers without
 renewing; `heartbeat` requires the current generation; `resume` requires the
 local owner identity and fences the previous generation; `stop` closes normal
-admission idempotently. `cleanup` refuses live sessions, waits for settlement
-and adapter proof, waits five minutes after proof, and releases reservations
-only after exact owned resources are confirmed deleted. Connected application
+admission idempotently. `cleanup` refuses live sessions and waits up to ten
+minutes from session end for the durable outstanding-work count to reach zero:
+the approved five-minute drain window plus five minutes reserved for recovery
+and cessation proof. This checkout has no workflow cancellation or
+reconciliation provider, so cleanup does not attempt those actions. If work
+remains unsettled after the bound, it quarantines the session, preserves its
+allocation, and reports the recovery boundary. Once settlement is proved,
+cleanup waits five minutes after adapter proof, then has a separate five-minute
+exact-resource deletion phase. Failed or over-budget deletion retains
+reservations for explicit safe retry. Connected application
 runtime profiles remain unavailable and are never launched by these commands.
 If an allocation has no recorded provider resource ID, `resolve` invokes an
 explicit owner-authorized adapter lookup for that one ledger row. The adapter
@@ -392,8 +399,15 @@ catalog, checks exact provider identity and fresh grant-verified observations,
 and reserves all dimensions before adapter allocation. Partial allocations,
 unknown ownership, and deletion failures retain their reservations for
 inspection. Cleanup derives ended and settled state from the durable session
-row, asks the adapter for proof, waits five minutes from that proof, and
-releases reservations only after the ledger is empty.
+row. It waits up to ten minutes for the durable outstanding-work count to reach
+zero, comprising a five-minute drain budget and five minutes reserved for safe
+recovery. This checkout has no workflow settlement, cancellation, or
+reconciliation provider, so it cannot perform that recovery; unsettled work
+after the ten-minute bound stays quarantined and inaccessible with capacity
+retained. After settlement,
+the resource adapter must prove teardown cessation; the controller waits five
+minutes from that proof, then runs a separate five-minute exact-resource
+deletion phase. Failed deletion retains reservations for explicit safe retry.
 Deletion uses a durable conditional claim per resource. A concurrent cleanup
 waits while a deletion claim is active; a claim left stale by a controller
 restart is retried after the adapter timeout. Resource adapters must make

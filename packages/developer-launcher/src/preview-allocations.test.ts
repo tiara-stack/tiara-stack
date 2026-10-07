@@ -633,6 +633,7 @@ it.effect(
         expect((yield* allocations.inspect(started.session.id)).cleanup).toBe("waiting");
         now.value += 5 * 60_000;
         failDatabaseDeletion = false;
+        expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("quarantined");
         expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("cleaned");
         expect(resources.has(`${started.session.id}/database`)).toBe(false);
         expect(resources.has(`${started.session.id}/index`)).toBe(false);
@@ -895,6 +896,99 @@ it.effect("supports concurrent first cleanup calls for a session with no allocat
   ),
 );
 
+it.effect("quarantines unsettled accepted work after the bounded recovery window", () =>
+  withAllocations((_, sessions, now) =>
+    Effect.gen(function* () {
+      const started = yield* sessions.create({
+        owner: "owner",
+        checkout: "/tmp/settlement-timeout",
+        manifests: {},
+        requestedRevision: "settlement-timeout",
+      });
+      const active = yield* sessions.activate(
+        started.session.id,
+        started.session.generation,
+        started.supervisorIdentity,
+        "settlement-timeout",
+      );
+      yield* sessions.admit(started.session.id, active.generation);
+      const allocations = yield* makePreviewAllocationController(
+        testAdapter({ proveCleanup: () => Effect.succeed(true) }),
+        () => now.value,
+      );
+      yield* allocations.observeCapacity({ ...observation, observedAt: now.value });
+      yield* allocations.reserveAndAllocate({
+        sessionId: started.session.id,
+        demands: demand,
+        resources: ["runner"],
+      });
+      yield* sessions.stop(started.session.id, started.ownerIdentity);
+
+      expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("waiting");
+      now.value += 10 * 60_000;
+      expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("quarantined");
+      const state = yield* allocations.inspect(started.session.id);
+      expect(state.cleanup).toBe("quarantined");
+      expect(state.reservations).toHaveLength(1);
+      expect(state.reservations[0]?.releasedAt).toBe(null);
+      expect(state.allocations[0]?.state).toBe("owned");
+    }),
+  ),
+);
+
+it.effect("clears only settlement quarantine after accepted work settles", () =>
+  withAllocations((_, sessions, now) =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const started = yield* sessions.create({
+        owner: "owner",
+        checkout: "/tmp/settlement-quarantine-recovery",
+        manifests: {},
+        requestedRevision: "settlement-quarantine-recovery",
+      });
+      const active = yield* sessions.activate(
+        started.session.id,
+        started.session.generation,
+        started.supervisorIdentity,
+        "settlement-quarantine-recovery",
+      );
+      yield* sessions.admit(started.session.id, active.generation);
+      const allocations = yield* makePreviewAllocationController(testAdapter(), () => now.value);
+      yield* allocations.observeCapacity({ ...observation, observedAt: now.value });
+      yield* allocations.reserveAndAllocate({
+        sessionId: started.session.id,
+        demands: demand,
+        resources: ["runner"],
+      });
+      yield* sessions.stop(started.session.id, started.ownerIdentity);
+
+      expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("waiting");
+      now.value += 10 * 60_000;
+      expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("quarantined");
+      let cleanupRows =
+        yield* sql`SELECT quarantine_reason FROM preview_cleanup_state WHERE session_id=${started.session.id}`;
+      expect((cleanupRows[0] as Record<string, unknown>).quarantine_reason).toBe(
+        "accepted-work-settlement-unproven",
+      );
+
+      yield* sessions.settle(started.session.id, active.generation);
+      expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("waiting");
+      cleanupRows =
+        yield* sql`SELECT quarantine_reason FROM preview_cleanup_state WHERE session_id=${started.session.id}`;
+      expect((cleanupRows[0] as Record<string, unknown>).quarantine_reason).toBe(null);
+
+      yield* sql`UPDATE preview_cleanup_state SET quarantine_reason='deletion-failed' WHERE session_id=${started.session.id}`;
+      expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("waiting");
+      cleanupRows =
+        yield* sql`SELECT quarantine_reason FROM preview_cleanup_state WHERE session_id=${started.session.id}`;
+      expect((cleanupRows[0] as Record<string, unknown>).quarantine_reason).toBe("deletion-failed");
+      expect((yield* allocations.inspect(started.session.id)).reservations[0]?.releasedAt).toBe(
+        null,
+      );
+    }),
+  ),
+);
+
 it.effect("serializes concurrent deletion claims and retains reservations until confirmation", () =>
   withAllocations((resources, sessions, now) =>
     Effect.gen(function* () {
@@ -1079,6 +1173,113 @@ it.effect("quarantines failed deletions and does not release their capacity", ()
         }),
       );
       expect(blocked._tag).toBe("Failure");
+    }),
+  ),
+);
+
+it.effect("quarantines when the deletion phase expires between owned resources", () =>
+  withAllocations((resources, sessions, now) =>
+    Effect.gen(function* () {
+      const started = yield* sessions.create({
+        owner: "owner",
+        checkout: "/tmp/deletion-deadline",
+        manifests: {},
+        requestedRevision: "deletion-deadline",
+      });
+      let deleteCalls = 0;
+      const allocations = yield* makePreviewAllocationController(
+        testAdapter({
+          allocate: ({ sessionId, ownerToken, resource }) =>
+            Effect.sync(() => {
+              const id = `${sessionId}/${resource}`;
+              resources.set(id, ownerToken);
+              return id;
+            }),
+          deleteOwned: ({ providerResourceId, ownerToken }) =>
+            Effect.sync(() => {
+              deleteCalls += 1;
+              if (resources.get(providerResourceId) !== ownerToken)
+                throw new Error("owner mismatch");
+              resources.delete(providerResourceId);
+              now.value += 5 * 60_000 + 1;
+            }),
+        }),
+        () => now.value,
+      );
+      yield* allocations.observeCapacity({ ...observation, observedAt: now.value });
+      yield* allocations.reserveAndAllocate({
+        sessionId: started.session.id,
+        demands: demand,
+        resources: ["first", "second"],
+      });
+      yield* sessions.stop(started.session.id, started.ownerIdentity);
+
+      expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("waiting");
+      now.value += 5 * 60_000;
+      expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("quarantined");
+
+      const state = yield* allocations.inspect(started.session.id);
+      expect(deleteCalls).toBe(1);
+      expect(state.cleanup).toBe("quarantined");
+      expect(
+        state.allocations.filter(({ state: allocationState }) => allocationState === "deleted"),
+      ).toHaveLength(1);
+      const remaining = state.allocations.find(
+        ({ state: allocationState }) => allocationState === "owned",
+      );
+      expect(remaining).toBeDefined();
+      expect(state.reservations[0]?.releasedAt).toBe(null);
+      expect(resources.has(`${started.session.id}/${remaining?.resource}`)).toBe(true);
+    }),
+  ),
+);
+
+it.effect("does not release capacity when the final deletion ends after its phase deadline", () =>
+  withAllocations((resources, sessions, now) =>
+    Effect.gen(function* () {
+      const started = yield* sessions.create({
+        owner: "owner",
+        checkout: "/tmp/final-deletion-deadline",
+        manifests: {},
+        requestedRevision: "final-deletion-deadline",
+      });
+      const allocations = yield* makePreviewAllocationController(
+        testAdapter({
+          allocate: ({ sessionId, ownerToken, resource }) =>
+            Effect.sync(() => {
+              const id = `${sessionId}/${resource}`;
+              resources.set(id, ownerToken);
+              return id;
+            }),
+          deleteOwned: ({ providerResourceId, ownerToken }) =>
+            Effect.sync(() => {
+              if (resources.get(providerResourceId) !== ownerToken)
+                throw new Error("owner mismatch");
+              resources.delete(providerResourceId);
+              now.value += 5 * 60_000 + 1;
+            }),
+        }),
+        () => now.value,
+      );
+      yield* allocations.observeCapacity({ ...observation, observedAt: now.value });
+      yield* allocations.reserveAndAllocate({
+        sessionId: started.session.id,
+        demands: demand,
+        resources: ["runner"],
+      });
+      yield* sessions.stop(started.session.id, started.ownerIdentity);
+
+      expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("waiting");
+      now.value += 5 * 60_000;
+      expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("quarantined");
+      const quarantined = yield* allocations.inspect(started.session.id);
+      expect(quarantined.allocations[0]?.state).toBe("deleted");
+      expect(quarantined.reservations[0]?.releasedAt).toBe(null);
+
+      expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("cleaned");
+      expect((yield* allocations.inspect(started.session.id)).reservations[0]?.releasedAt).toBe(
+        now.value,
+      );
     }),
   ),
 );
