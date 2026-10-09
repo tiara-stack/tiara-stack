@@ -126,6 +126,8 @@ services:
 
   sheetWorkflowsRunner:
     enabled: true
+    developmentSource:
+      enabled: false
     image:
       repository: ""
       tag: ""

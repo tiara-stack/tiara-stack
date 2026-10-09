@@ -10,6 +10,9 @@
   "references": [
     {
       "path": "../tooling-config"
+    },
+    {
+      "path": "../sheet-workflow-contracts"
     }
   ]
 }

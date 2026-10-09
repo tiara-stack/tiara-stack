@@ -92,6 +92,23 @@ The current preview endpoints are:
 - `https://zero.dev.theerapakg.moe`
 - `https://workflows.dev.theerapakg.moe`
 
+The workflow runner also has an `ordinary-runner-development` image target. Its
+root-context build installs the `sheet-workflows` production workspace closure
+into an offline pnpm store and adds pnpm, TypeScript, and tsx. The
+Dockerfile-specific ignore file
+`packages/sheet-workflows/Dockerfile.development.dockerignore` sends package
+manifests and patches to this build, but excludes host `node_modules`,
+credentials and source secrets. Existing production image
+builds keep their package-only context. The development chart switch is
+`services.sheetWorkflowsRunner.developmentSource.enabled`, which defaults to
+`false`. When enabled, Helm selects that image and mounts a bounded,
+pod-owned source volume while preserving the container's read-only root
+filesystem. A supervisor still needs to install links into each staged
+snapshot with `pnpm install --offline`, then start and verify the selected
+runner. That source controller is not implemented. Keep the switch disabled
+until a provider supplies those operations; rendering the manifest does not
+enable a working live reload.
+
 The bot, workflow API, and both runner workloads use separate development
 Discord, OAuth, and Google Sheets credentials; do not reuse production
 credentials. The `*.dev.theerapakg.moe` DNS wildcard must point to the ingress

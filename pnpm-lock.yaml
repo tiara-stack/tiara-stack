@@ -107,6 +107,9 @@ importers:
       sheet-auth:
         specifier: workspace:*
         version: link:../sheet-auth
+      sheet-workflow-contracts:
+        specifier: workspace:*
+        version: link:../sheet-workflow-contracts
     devDependencies:
       '@effect/vitest':
         specifier: 'catalog:'

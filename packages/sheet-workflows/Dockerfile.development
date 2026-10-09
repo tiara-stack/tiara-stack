@@ -1,0 +1,97 @@
+FROM node:22-slim AS workspace-manifests
+WORKDIR /workspace-build
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY patches ./patches
+COPY packages ./packages
+RUN node -e '\
+const fs = require("node:fs"); \
+const path = require("node:path"); \
+const unexpected = []; \
+const allowedFile = (file) => { \
+  const parts = file.split("/"); \
+  return (parts.length === 3 && parts[0] === "packages" && parts[2] === "package.json") || \
+    file === "packages/sheet-workflows/dist.tar.zst" || \
+    file === "packages/sheet-workflows/start-development-runner.sh"; \
+}; \
+const visit = (directory) => { \
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) { \
+    const file = path.posix.join(directory, entry.name); \
+    if (entry.isDirectory()) { \
+      if (file.split("/").length > 2) unexpected.push(file); \
+      visit(file); \
+    } else if (!entry.isFile() || !allowedFile(file)) { \
+      unexpected.push(file); \
+    } \
+  } \
+}; \
+visit("packages"); \
+if (unexpected.length > 0) { \
+  console.error("Unexpected paths in packages build context:", unexpected.join(", ")); \
+  process.exit(1); \
+}'
+
+RUN rm packages/sheet-workflows/dist.tar.zst packages/sheet-workflows/start-development-runner.sh
+
+FROM node:22-slim AS dependency-store
+
+ENV PNPM_HOME=/pnpm \
+    COREPACK_HOME=/opt/corepack \
+    pnpm_config_store_dir=/pnpm/store \
+    PATH=/pnpm:$PATH
+
+RUN corepack enable \
+  && corepack prepare pnpm@11.1.1 --activate
+
+WORKDIR /workspace-build
+
+COPY --from=workspace-manifests /workspace-build/package.json /workspace-build/pnpm-lock.yaml /workspace-build/pnpm-workspace.yaml ./
+COPY --from=workspace-manifests /workspace-build/patches ./patches
+COPY --from=workspace-manifests /workspace-build/packages ./packages
+
+# The monorepo root prepare hook runs developer tooling that is not part of the
+# production dependency closure. Remove that lifecycle script from this build
+# manifest without changing any dependency or lockfile data.
+RUN node -e 'const fs = require("node:fs"); const manifest = JSON.parse(fs.readFileSync("package.json", "utf8")); if (manifest.scripts) delete manifest.scripts.prepare; fs.writeFileSync("package.json", `${JSON.stringify(manifest)}\n`);'
+
+# Install the runtime workspace closure into the isolated package store. The
+# mounted source snapshot can later create fresh links offline under supervision.
+RUN pnpm install --frozen-lockfile --filter 'sheet-workflows...' --prod
+
+FROM node:22-slim AS ordinary-runner-development
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates libargon2-1 zstd \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY packages/sheet-workflows/dist.tar.zst /tmp/sheet-workflows-dist.tar.zst
+RUN tar -axf /tmp/sheet-workflows-dist.tar.zst -C /app \
+  && rm /tmp/sheet-workflows-dist.tar.zst
+
+COPY packages/sheet-workflows/start-development-runner.sh /usr/local/bin/start-development-runner.sh
+
+ENV PNPM_HOME=/pnpm \
+    COREPACK_HOME=/opt/corepack \
+    COREPACK_ENABLE_PROJECT_SPEC=0 \
+    pnpm_config_pm_on_fail=ignore \
+    pnpm_config_store_dir=/pnpm/store \
+    TIA_RUNNER_STAGED_SOURCE_ROOT=/workspace/staged \
+    TIA_RUNNER_ACTIVE_SOURCE_ROOT=/workspace/active \
+    PATH=/pnpm:$PATH
+
+COPY --from=dependency-store /pnpm/store /pnpm/store
+COPY --from=dependency-store /opt/corepack /opt/corepack
+
+RUN corepack enable \
+  && corepack prepare pnpm@11.7.0 --activate \
+  && npm install --global typescript@5.9.3 tsx@4.22.3 \
+  && npm cache clean --force \
+  && chmod 0755 /usr/local/bin/start-development-runner.sh \
+  && mkdir -p /workspace/staged /workspace/active \
+  && chown -R node:node /opt/corepack /workspace
+
+USER node
+
+CMD ["/usr/local/bin/start-development-runner.sh"]

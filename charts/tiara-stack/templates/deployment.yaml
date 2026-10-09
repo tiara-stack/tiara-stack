@@ -2,7 +2,29 @@
 {{- range $svc := include "tiara-stack.serviceSpecs" . | fromYamlArray }}
 {{- $serviceValues := (index ($root.Values.services | default dict) $svc.key) | default dict -}}
 {{- $secretRef := $serviceValues.secretRef | default dict -}}
+{{- $developmentSource := $serviceValues.developmentSource | default dict -}}
+{{- $developmentSourceEnabled := and (eq $svc.key "sheetWorkflowsRunner") ($developmentSource.enabled | default false) -}}
+{{- $workloadImageName := default $svc.name $svc.imageName -}}
+{{- if $developmentSourceEnabled -}}
+{{- $workloadImageName = "sheet-workflows-runner-development" -}}
+{{- end -}}
 {{- if $serviceValues.enabled }}
+{{- if $developmentSourceEnabled }}
+{{- $sourceRootOverrides := $serviceValues.env | default dict -}}
+{{- $stagedSourceRoot := "/workspace/staged" -}}
+{{- if hasKey $sourceRootOverrides "TIA_RUNNER_STAGED_SOURCE_ROOT" -}}
+{{- $stagedSourceRoot = index $sourceRootOverrides "TIA_RUNNER_STAGED_SOURCE_ROOT" -}}
+{{- end -}}
+{{- $activeSourceRoot := "/workspace/active" -}}
+{{- if hasKey $sourceRootOverrides "TIA_RUNNER_ACTIVE_SOURCE_ROOT" -}}
+{{- $activeSourceRoot = index $sourceRootOverrides "TIA_RUNNER_ACTIVE_SOURCE_ROOT" -}}
+{{- end -}}
+{{- $stagedSourceRootPrefix := printf "%s/" $stagedSourceRoot -}}
+{{- $activeSourceRootPrefix := printf "%s/" $activeSourceRoot -}}
+{{- if or (eq $stagedSourceRoot $activeSourceRoot) (hasPrefix $stagedSourceRootPrefix $activeSourceRoot) (hasPrefix $activeSourceRootPrefix $stagedSourceRoot) }}
+{{- fail (printf "services.%s.env source roots must be distinct, non-overlapping directories" $svc.key) }}
+{{- end }}
+{{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -58,7 +80,7 @@ spec:
       {{- end }}
       containers:
         - name: {{ $svc.name }}
-          image: {{ include "tiara-stack.image" (dict "root" $root "name" (default $svc.name $svc.imageName) "image" $serviceValues.image) | quote }}
+          image: {{ include "tiara-stack.image" (dict "root" $root "name" $workloadImageName "image" $serviceValues.image) | quote }}
           imagePullPolicy: {{ include "tiara-stack.imagePullPolicy" (dict "root" $root "image" $serviceValues.image) }}
           resources:
             {{- if hasKey $serviceValues "resources" }}
@@ -132,6 +154,16 @@ spec:
               value: /usr/local/share/ca-certificates/tiarastack/tiarastack.crt
             {{- end }}
             {{- end }}
+            {{- if $developmentSourceEnabled }}
+            {{- if not (hasKey $envOverrides "TIA_RUNNER_STAGED_SOURCE_ROOT") }}
+            - name: TIA_RUNNER_STAGED_SOURCE_ROOT
+              value: /workspace/staged
+            {{- end }}
+            {{- if not (hasKey $envOverrides "TIA_RUNNER_ACTIVE_SOURCE_ROOT") }}
+            - name: TIA_RUNNER_ACTIVE_SOURCE_ROOT
+              value: /workspace/active
+            {{- end }}
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /live
@@ -177,6 +209,10 @@ spec:
             {{- end }}
             - name: {{ $svc.name }}-tmp
               mountPath: "/tmp"
+            {{- if $developmentSourceEnabled }}
+            - name: {{ $svc.name }}-source
+              mountPath: /workspace
+            {{- end }}
       volumes:
         {{- if $svc.googleServiceAccount }}
         - name: {{ $svc.name }}-secret-path
@@ -228,5 +264,10 @@ spec:
         {{- end }}
         - name: {{ $svc.name }}-tmp
           emptyDir: {}
+        {{- if $developmentSourceEnabled }}
+        - name: {{ $svc.name }}-source
+          emptyDir:
+            sizeLimit: 2Gi
+        {{- end }}
 {{- end }}
 {{- end }}

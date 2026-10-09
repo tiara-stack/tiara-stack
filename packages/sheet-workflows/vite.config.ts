@@ -28,5 +28,17 @@ export default app({
         alwaysBundle: alwaysBundleDependencies,
       },
     },
+    {
+      entry: {
+        "runner-source": fileURLToPath(
+          new URL("./src/runner/stagedSourceSupervisor.ts", import.meta.url),
+        ),
+      },
+      tsconfig: "tsconfig.build.json",
+      dts: false,
+      deps: {
+        alwaysBundle: alwaysBundleDependencies,
+      },
+    },
   ],
 });

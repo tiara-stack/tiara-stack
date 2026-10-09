@@ -1,0 +1,13 @@
+**
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!patches/
+!patches/**
+# Keep package roots traversable, then exclude their contents before allowlisting.
+!packages/
+!packages/*/
+packages/*/**
+!packages/*/package.json
+!packages/sheet-workflows/dist.tar.zst
+!packages/sheet-workflows/start-development-runner.sh

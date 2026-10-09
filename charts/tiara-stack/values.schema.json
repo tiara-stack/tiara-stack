@@ -393,7 +393,27 @@
           "$ref": "#/definitions/appService"
         },
         "sheetWorkflowsRunner": {
-          "$ref": "#/definitions/appService"
+          "allOf": [
+            {
+              "$ref": "#/definitions/appService"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "env": {
+                  "type": "object",
+                  "properties": {
+                    "TIA_RUNNER_STAGED_SOURCE_ROOT": {
+                      "$ref": "#/definitions/runnerDevelopmentSourceRoot"
+                    },
+                    "TIA_RUNNER_ACTIVE_SOURCE_ROOT": {
+                      "$ref": "#/definitions/runnerDevelopmentSourceRoot"
+                    }
+                  }
+                }
+              }
+            }
+          ]
         },
         "sheetWorkflowsBrowserRunner": {
           "$ref": "#/definitions/appService"
@@ -667,6 +687,13 @@
         }
       }
     },
+    "runnerDevelopmentSourceRoot": {
+      "type": "string",
+      "pattern": "^/workspace/[^/]+(/[^/]+)*$",
+      "not": {
+        "pattern": "(^|/)(\\.|\\.\\.)(/|$)"
+      }
+    },
     "appService": {
       "type": "object",
       "additionalProperties": false,
@@ -688,6 +715,15 @@
         },
         "gatewayServiceId": {
           "type": "string"
+        },
+        "developmentSource": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          }
         },
         "image": {
           "$ref": "#/definitions/image"
