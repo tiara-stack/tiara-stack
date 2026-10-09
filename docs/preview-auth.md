@@ -46,12 +46,22 @@ shared-origin bypass, hostile Origin, stripped parent-domain cookies and
 Authorization headers, filtered response cookies, token non-disclosure, stop
 fencing, continued access for the other session, and exact cleanup. The HTTP
 boundary test checks Secure/HttpOnly host-only cookies and Origin rejection.
-These adapter-backed contract tests are not live OAuth or browser evidence.
+These adapter-backed contract tests are not live OAuth or browser evidence. The
+generic proxy rejects non-GET methods and `/zero/*`, `/workflows/*`, and
+`/internal/rollout-gates/*` before calling its upstream adapter: its lifecycle
+check cannot be atomic with application writes, Zero mutation/query acceptance,
+or durable workflow enqueue/observation. The generic proxy also rechecks the
+session immediately before dispatch after token reads or refresh. That check
+fences new ordinary GET dispatches but does not prove acceptance for a request
+already in flight.
 
 Still unverified: provider-specific compatible shared-login registration,
 real token encryption/storage, deployed callback allowlists, CORS behavior at
 the public gateway, server-function data-flow audit, cookie behavior in a real
 browser, direct shared URL rejection by every application backend, and Zero/WSS
-reauthentication and queued durable-acceptance fencing. The profile stays
-unsupported until those adapters and acceptance checks are supplied. Persistent
-Zero/workflow traffic remains in its separate acceptance slice.
+reauthentication and queued durable-acceptance fencing. There is no WSS route or
+transport adapter in this checkout. Mutating application, Zero, workflow, and
+rollout-gate traffic remains unavailable through the preview proxy until backend
+acceptance adapters can validate trusted session/user/role/generation evidence
+at the actual commit or observation boundary. The profile stays unsupported
+until those adapters and acceptance checks are supplied.

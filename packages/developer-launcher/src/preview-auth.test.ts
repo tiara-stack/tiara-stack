@@ -1,7 +1,18 @@
 import { it } from "@effect/vitest";
 import { NodeServices } from "@effect/platform-node";
 import { SqliteClient } from "@effect/sql-sqlite-node";
-import { Deferred, Duration, Effect, Fiber, Layer, Result, Schema } from "effect";
+import {
+  Cause,
+  Deferred,
+  Duration,
+  Effect,
+  Exit,
+  Fiber,
+  Layer,
+  Option,
+  Result,
+  Schema,
+} from "effect";
 import { TestClock } from "effect/testing";
 import { SqlClient } from "effect/unstable/sql";
 import { expect } from "vitest";
@@ -9,6 +20,7 @@ import {
   makePreviewAuth,
   PreviewAuthError,
   type PreviewAuthAdapters,
+  type PreviewAuthApi,
   type PreviewAuthBinding,
 } from "./preview-auth";
 import { makePreviewSessionController } from "./preview-sessions";
@@ -23,6 +35,98 @@ const run = <A, E, R>(program: Effect.Effect<A, E, R>) =>
       ),
     ),
   );
+
+const assertPreviewRequestsUnavailable = (input: {
+  readonly auth: PreviewAuthApi;
+  readonly binding: PreviewAuthBinding;
+  readonly credential: string;
+  readonly requests: ReadonlyArray<unknown>;
+}) =>
+  Effect.gen(function* () {
+    const requestCount = input.requests.length;
+    yield* Effect.forEach(
+      [
+        { method: "GET", path: "/zero/query" },
+        { method: "GET", path: "/z%65ro/query" },
+        { method: "GET", path: "/zero%2fquery" },
+        { method: "GET", path: "/%2Fzero/query" },
+        { method: "GET", path: "/%ZZzero/query" },
+        { method: "POST", path: "/zero/mutate" },
+        { method: "POST", path: "/workflows/example.echo/v/1.0/enqueue" },
+        { method: "GET", path: "/workflows/example.echo/v/1.0/runs/events" },
+        { method: "GET", path: "/workflows%2fexample.echo/v/1.0/runs/events" },
+        { method: "GET", path: "/%2Fworkflows/example.echo/v/1.0/runs/events" },
+        { method: "GET", path: "/internal/rollout-gates/evaluate" },
+        { method: "GET", path: "/internal/%72ollout-gates/evaluate" },
+        { method: "GET", path: "/%2Finternal/rollout-gates/evaluate" },
+        { method: "POST", path: "/api/resource" },
+        { method: "PUT", path: "/api/resource" },
+        { method: "PATCH", path: "/api/resource" },
+        { method: "DELETE", path: "/api/resource" },
+      ] as const,
+      ({ method, path }) =>
+        Effect.gen(function* () {
+          const exit = yield* Effect.exit(
+            input.auth.request({
+              binding: input.binding,
+              credential: input.credential,
+              origin: input.binding.endpoint,
+              method,
+              path,
+              headers: {},
+            }),
+          );
+          expect(Exit.isFailure(exit)).toBe(true);
+          if (Exit.isFailure(exit))
+            expect(Option.getOrUndefined(Cause.findErrorOption(exit.cause))).toMatchObject({
+              reason: "unavailable",
+            });
+        }),
+    );
+    expect(input.requests).toHaveLength(requestCount);
+  });
+
+const assertEndpointRelativeRequestsUnavailable = (input: {
+  readonly auth: PreviewAuthApi;
+  readonly binding: PreviewAuthBinding;
+  readonly credential: string;
+  readonly requests: ReadonlyArray<unknown>;
+}) =>
+  Effect.gen(function* () {
+    const requestCount = input.requests.length;
+    yield* Effect.forEach(
+      [
+        { endpointPath: "/zero", path: "?query" },
+        {
+          endpointPath: "/api/",
+          path: "../workflows/example.echo/v/1.0/runs/events",
+        },
+        { endpointPath: "/internal/", path: "rollout-gates/evaluate" },
+      ] as const,
+      ({ endpointPath, path }) =>
+        Effect.gen(function* () {
+          const endpoint = new URL(input.binding.endpoint);
+          endpoint.pathname = endpointPath;
+          const binding = { ...input.binding, endpoint: endpoint.href };
+          const exit = yield* Effect.exit(
+            input.auth.request({
+              binding,
+              credential: input.credential,
+              origin: endpoint.origin,
+              method: "GET",
+              path,
+              headers: {},
+            }),
+          );
+          expect(Exit.isFailure(exit)).toBe(true);
+          if (Exit.isFailure(exit))
+            expect(Option.getOrUndefined(Cause.findErrorOption(exit.cause))).toMatchObject({
+              reason: "unavailable",
+            });
+        }),
+    );
+    expect(input.requests).toHaveLength(requestCount);
+  });
 
 it.effect(
   "signs in two sessions, proxies protected requests, and rejects callback, leak, cookie and lifecycle bypasses",
@@ -410,7 +514,7 @@ it.effect(
             credential: signedIn[index]!.credential,
             origin: bindings[index]!.endpoint,
             method: "GET",
-            path: "/zero/query",
+            path: "/api/resource",
             headers: {
               accept: "application/json",
               cookie: "shared-login=secret",
@@ -436,7 +540,7 @@ it.effect(
           credential: signedIn[1]!.credential,
           origin: bindings[1]!.endpoint,
           method: "GET",
-          path: "/zero/query",
+          path: "/api/resource",
           headers: {},
         });
         expect(unchangedResponse.body).toBe(unchangedResponseBody);
@@ -447,7 +551,7 @@ it.effect(
           credential: signedIn[1]!.credential,
           origin: bindings[1]!.endpoint,
           method: "GET",
-          path: "/zero/query",
+          path: "/api/resource",
           headers: {},
         });
         expect(nonJsonResponse.body).toBe(nonJsonResponseBody);
@@ -458,7 +562,7 @@ it.effect(
           credential: signedIn[1]!.credential,
           origin: bindings[1]!.endpoint,
           method: "GET",
-          path: "/zero/query",
+          path: "/api/resource",
           headers: {},
         });
         expect(redactedResponse.body).not.toContain(echoedToken);
@@ -471,7 +575,7 @@ it.effect(
           credential: signedIn[1]!.credential,
           origin: bindings[1]!.endpoint,
           method: "GET",
-          path: "/zero/query",
+          path: "/api/resource",
           headers: {},
         });
         expect(redactedKeyResponse.body).not.toContain(echoedToken);
@@ -488,7 +592,7 @@ it.effect(
             credential: signedIn[0]!.credential,
             origin: bindings[0]!.endpoint,
             method: "GET",
-            path: "/zero/query",
+            path: "/api/resource",
             headers: {},
           }),
         );
@@ -568,7 +672,7 @@ it.effect(
             credential: signedIn[0]!.credential,
             origin: bindings[0]!.endpoint,
             method: "GET",
-            path: "/zero/query",
+            path: "/api/resource",
             headers: {},
           })).status,
         ).toBe(200);
@@ -585,7 +689,7 @@ it.effect(
             credential: signedIn[1]!.credential,
             origin: bindings[1]!.endpoint,
             method: "GET",
-            path: "/zero/query",
+            path: "/api/resource",
             headers: {},
           }),
         );
@@ -603,7 +707,7 @@ it.effect(
             credential: signedIn[1]!.credential,
             origin: bindings[1]!.endpoint,
             method: "GET",
-            path: "/zero/query",
+            path: "/api/resource",
             headers: {},
           })).status,
         ).toBe(200);
@@ -622,7 +726,7 @@ it.effect(
               credential: signedIn[1]!.credential,
               origin: bindings[1]!.endpoint,
               method: "GET",
-              path: "/zero/query",
+              path: "/api/resource",
               headers: {},
             }),
           ),
@@ -712,7 +816,7 @@ it.effect(
             credential: signedIn[0]!.credential,
             origin: bindings[1]!.endpoint,
             method: "GET",
-            path: "/zero/query",
+            path: "/api/resource",
             headers: {},
           }),
         );
@@ -723,18 +827,30 @@ it.effect(
             credential: signedIn[0]!.credential,
             origin: "https://shared.dev.test",
             method: "GET",
-            path: "/zero/query",
+            path: "/api/resource",
             headers: {},
           }),
         );
         expect(directSharedCredential._tag).toBe("Failure");
+        yield* assertPreviewRequestsUnavailable({
+          auth,
+          binding: bindings[0]!,
+          credential: signedIn[0]!.credential,
+          requests,
+        });
+        yield* assertEndpointRelativeRequestsUnavailable({
+          auth,
+          binding: bindings[0]!,
+          credential: signedIn[0]!.credential,
+          requests,
+        });
         const tokenQueryCredential = yield* Effect.exit(
           auth.request({
             binding: bindings[0]!,
             credential: signedIn[0]!.credential,
             origin: bindings[0]!.endpoint,
             method: "GET",
-            path: "/zero/query?access%5Ftoken=secret",
+            path: "/api/resource?access%5Ftoken=secret",
             headers: {},
           }),
         );
@@ -762,7 +878,7 @@ it.effect(
             credential: signedIn[0]!.credential,
             origin: bindings[0]!.endpoint,
             method: "GET",
-            path: "/zero/query",
+            path: "/api/resource",
             headers: {},
           }),
         );
@@ -776,7 +892,7 @@ it.effect(
             credential: signedIn[0]!.credential,
             origin: bindings[0]!.endpoint,
             method: "GET",
-            path: "/zero/query",
+            path: "/api/resource",
             headers: {},
           }),
         );
@@ -787,7 +903,7 @@ it.effect(
             credential: signedIn[1]!.credential,
             origin: bindings[1]!.endpoint,
             method: "GET",
-            path: "/zero/query",
+            path: "/api/resource",
             headers: {},
           })).status,
         ).toBe(200);

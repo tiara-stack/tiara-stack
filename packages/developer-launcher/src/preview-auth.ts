@@ -433,6 +433,26 @@ export const makePreviewAuth = (options: {
         return false;
       }
     };
+    const lifecycleSensitivePathPattern =
+      /^\/(?:zero(?:\/|$)|workflows(?:\/|$)|internal\/rollout-gates(?:\/|$))/i;
+    const isLifecycleSensitivePath = (path: string, endpoint: string) => {
+      try {
+        const url = new URL(path, endpoint);
+        // URL.pathname preserves escapes; downstream routers may decode them before matching.
+        const decodedPathname = decodeURIComponent(url.pathname);
+        if (decodedPathname.startsWith("//") || /[?#]/.test(decodedPathname)) return true;
+        const pathname = new URL(decodedPathname, "https://preview.invalid").pathname;
+        return lifecycleSensitivePathPattern.test(pathname);
+      } catch {
+        return true;
+      }
+    };
+    // Zero mutations/queries and workflow APIs have durable acceptance points.
+    // The generic HTTP proxy cannot make the controller's lifecycle check
+    // atomic with those backend commits, so these routes stay unavailable until
+    // their owning adapters implement that acceptance protocol.
+    const requiresLifecycleAcceptance = (method: string, path: string, endpoint: string) =>
+      method !== "GET" || isLifecycleSensitivePath(path, endpoint);
     type PrincipalPair = readonly [PreviewEffectivePrincipal, PreviewEffectivePrincipal];
     const matchesPrincipal = Predicate.and(
       (pair: PrincipalPair) => pair[0].userId === pair[1].userId,
@@ -728,6 +748,8 @@ export const makePreviewAuth = (options: {
       adapters: PreviewAuthAdapters,
     ) =>
       Effect.gen(function* () {
+        if (requiresLifecycleAcceptance(input.method, input.path, input.binding.endpoint))
+          return yield* fail("unavailable");
         if (
           !validOrigin(input.origin, input.binding) ||
           !/^(GET|POST|PUT|PATCH|DELETE)$/.test(input.method) ||
@@ -929,6 +951,11 @@ export const makePreviewAuth = (options: {
           const adapters = yield* prepareSession(input.binding);
           const { destination, session } = yield* authorizeRequest(input, adapters);
           const token = yield* readCurrentToken(input.binding, adapters, String(session.token_key));
+          // Token refresh and storage reads may take time. Recheck immediately
+          // before dispatch so a stopped or expired session cannot begin a new
+          // upstream operation. Durable routes are rejected above because this
+          // check alone cannot fence their commit boundary.
+          yield* live(input.binding);
           const response = yield* withAdapterTimeout(
             adapters.protectedRequest({
               endpoint: input.binding.endpoint,
